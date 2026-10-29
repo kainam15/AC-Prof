@@ -223,7 +223,7 @@ async def test_changed_source_error_and_retry_remain_usable_at_80x24(
         return result
 
     async with app.run_test(size=(80, 24)) as pilot:
-        app.activate_tab("plot-tab")
+        app.activate_tab("results-tab")
         app.query_one("#result-csv", Input).value = str(source)
         await pilot.pause()
         button = app.query_one("#summarize-results", Button)
@@ -273,7 +273,7 @@ async def test_selection_change_releases_a_waiting_layer_reader_at_80x24(source,
 
     monkeypatch.setattr(fcntl, "flock", observe)
     async with app.run_test(size=(80, 24)) as pilot:
-        app.activate_tab("plot-tab")
+        app.activate_tab("results-tab")
         selector = app.query_one("#result-csv", Input)
         selector.value = str(blocked)
         await pilot.pause()

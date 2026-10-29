@@ -78,7 +78,7 @@ class SlashController:
         elif command in {"results", "summary"}:
             path = args[0] if args else self.app.configuration.input("result-csv")
             self.app.results.update_result_summary(path)
-            self.app.activate_tab("plot-tab")
+            self.app.results.show_result_section("overview-view")
         elif command in {"log", "logs"}:
             self.app.configuration.toggle_log_view()
         elif command == "clear":

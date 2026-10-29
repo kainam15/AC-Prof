@@ -18,7 +18,6 @@ from acprof.plotting.config import (
 )
 from acprof.plotting.data import (
     aggregate_cold_start,
-    aggregate_metric,
     is_gpu_off,
     is_gpu_on,
     normalized_metric_spec,
@@ -32,6 +31,12 @@ from acprof.plotting.styles import (
     shade_for_cpu,
     shade_for_mem,
 )
+from acprof.plotting.uncertainty import (
+    INTERVAL_NOTE,
+    WindowStatistics,
+    aggregate_plot_metric,
+    draw_window_interval,
+)
 
 
 def plot_metric(
@@ -44,13 +49,14 @@ def plot_metric(
     *,
     show_plots: bool = False,
     agg_func: str = "mean",
+    statistics: WindowStatistics | None = None,
 ):
     metric, title, ylabel = normalized_metric_spec(df, metric, title, ylabel, xlabel)
     if metric not in df.columns:
         print(f"[skip] Column {metric} not in CSV")
         return
 
-    agg_df = aggregate_metric(df, metric, agg_func=agg_func)
+    agg_df = aggregate_plot_metric(df, metric, agg_func=agg_func, statistics=statistics)
     if agg_df.empty:
         print(f"[skip] {metric} has no finite observations")
         return
@@ -100,8 +106,9 @@ def plot_metric(
             markersize=6,
             label=f"{label_prefix}+CPU{cpu}+Mem{mem}",
         )
+        draw_window_interval(plt.gca(), sub_df, color=color)
 
-    plt.title(title)
+    plt.title(title + ("\n" + INTERVAL_NOTE if "ci_low" in agg_df else ""))
     plt.xlabel(xlabel)
     plt.ylabel(ylabel)
     plt.grid(True, which="both", linestyle="-", alpha=0.5)
@@ -190,6 +197,7 @@ def plot_metric_overview(
     figure_note: str | None = None,
     show_plots: bool = False,
     agg_func: str = "mean",
+    statistics: WindowStatistics | None = None,
 ) -> None:
     """Plot several related metrics with shared configuration colors."""
     if rows < 1 or columns < 1 or len(panels) != rows * columns:
@@ -212,7 +220,7 @@ def plot_metric_overview(
         if metric not in df.columns:
             print(f"[skip] Column {metric} not in CSV")
         else:
-            candidate_df = aggregate_metric(df, metric, agg_func=agg_func)
+            candidate_df = aggregate_plot_metric(df, metric, agg_func=agg_func, statistics=statistics)
             if candidate_df.empty:
                 print(f"[skip] {metric} has no finite observations")
             else:
@@ -226,6 +234,8 @@ def plot_metric_overview(
     ]
     if not available_frames:
         return
+    if any("ci_low" in frame for frame in available_frames):
+        figure_note = "\n".join(filter(None, (figure_note, INTERVAL_NOTE)))
 
     combined_df = pd.concat(available_frames, ignore_index=True)
     configs, config_colors = configurations_with_colors(combined_df)
@@ -305,6 +315,7 @@ def plot_metric_overview(
                 linewidth=2,
                 markersize=6,
             )
+            draw_window_interval(axis, sub_df, color=config_colors[(cpu, mem, gpu_on)])
 
     for column_index in range(columns):
         for row_index in range(rows - 1, -1, -1):
@@ -541,6 +552,7 @@ def plot_energy_power_overview(
     out_png: str | None,
     show_plots: bool = False,
     agg_func: str = "mean",
+    statistics: WindowStatistics | None = None,
 ) -> None:
     """Compare effective and total energy/power in a 3-by-2 figure."""
     panels = (
@@ -582,6 +594,7 @@ def plot_energy_power_overview(
         ),
         show_plots=show_plots,
         agg_func=agg_func,
+        statistics=statistics,
     )
 
 

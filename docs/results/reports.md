@@ -4,6 +4,18 @@
 
 ## 图表与延迟拟合产物
 
+### PNG 窗口统计与区间
+
+PNG 的适用数值曲线、指标概览和 Process 输入尺度图复用 `analysis.uncertainty.summarize_windows`，
+按资源、输入尺度、环境和运行时身份筛选 `status=ok,warmup=0` 窗口，等权计算均值与标准差。
+95% within-run percentile bootstrap 使用 5000 次重采样、seed=0、block-size=1，与 TUI 默认窗口统计一致。
+曲线保留均值点，置信带及竖线表示区间；有效窗口不足三个或无有效数据时不伪造区间，缺失尺度不连成完整观测。
+仅在一次绘图调用内复用包含实际观测和身份的统计缓存；重新生成图表会重新读取数据。
+
+这不是跨独立实验的区间；独立重复使用 `acprof compare`。冷启动按启动身份去重，Profiler、
+派生归一化指标及显式 median 等原有聚合不强行转换为请求窗口区间。缺少窗口身份的库调用也不推断独立样本。
+图表、TUI 与可选统计 CSV 使用相同基础单位；GUI 可显示 ms，CSV 保留原始单位字段。
+
 ### 统一分析模型与精简汇总
 
 `acprof.analysis.model.load_analysis()` 将实验目录或 CSV 转为只读 `AnalysisModel`。
@@ -66,7 +78,7 @@ CPU/GPU utilization 不默认判定越高或越低越好。
 
 ### 交互式配置比较报告
 
-可通过 `acprof tui` → “统计报告” → “选择实验” → “生成交互式报告”完成生成、查看和导出，
+可通过 `acprof tui` → “实验结果” → “选择实验” → “导入 / 导出” → “生成 HTML”完成生成、查看和导出，
 详见 [TUI 操作](../usage/tui-pages.md#交互式-html-报告)。下面的 CLI 仍可独立使用。
 
 ```bash

@@ -6,15 +6,17 @@ lifecycle; read-only work is never initiated from a measurement window.
 from __future__ import annotations
 
 import csv
+import io
 import json
 from collections import deque
+from dataclasses import replace
 from functools import partial
 from pathlib import Path
-from threading import Event
+from threading import Event, Lock
 from typing import TYPE_CHECKING
 
 from rich.text import Text
-from textual.widgets import Button, Collapsible, ContentSwitcher, DataTable, Static
+from textual.widgets import Button, Collapsible, ContentSwitcher, DataTable, Static, TabbedContent
 from textual.worker import Worker
 
 from acprof.experiment import RunConfigError
@@ -42,14 +44,15 @@ class ResultController:
 
     def __init__(self, app: AcprofTui) -> None:
         self.app = app
+        self.summary_lock = Lock()
         self.summary_request: Event | None = None
         self.summary_path: Path | None = None
         self.report_request: Event | None = None
         self.report_path: Path | None = None
         self.report_view: ReportView | None = None
-        self.stats_report_path: Path | None = None
-        self.comparison_report_path: Path | None = None
-        self.stats_report_reused = False
+        self.analysis_view: ReportView | None = None
+        self.analysis_source = app.project_dir
+        self.analysis_selection: tuple[str, ...] = ()
         self.html_output: Path | None = None
         self.html_log: deque[str] = deque(maxlen=20)
         self.html_summary = ""
@@ -60,18 +63,34 @@ class ResultController:
     def clear_log(self) -> None:
         self.app.logs.clear()
 
-    def result_source_changed(self) -> None:
+    def result_source_changed(self, *, force: bool = False) -> None:
         if self.app.form_ready:
-            if (self.summary_request is not None and
-                    resolve_result_path(self.app.configuration.input("result-csv"), self.app.project_dir) == self.summary_path):
+            # A queued Changed event can arrive after a relative path was
+            # normalized and its reader started. Do not cancel that same source.
+            if (not force and self.summary_request is not None
+                    and resolve_result_path(self.app.configuration.input("result-csv"), self.app.project_dir) == self.summary_path):
                 return
             if self.summary_request is not None:
                 self.summary_request.set()
             self.summary_request = None
             self.app.localization.set_text(self.app.query_one("#result-summary", Static), "结果选择已更改，请读取摘要。")
             self.app.profiles.reset_overview()
+            self.report_source_changed()
+
+    def select_result(self, source: str, *, summarize: bool = True) -> None:
+        """One selection for all consumers; picker selection loads only the light summary."""
+        with self.app.prevent(Input.Changed):
+            self.app.query_one("#result-csv", Input).value = source
+        self.result_source_changed(force=True)
+        if summarize and source:
+            self.update_result_summary(source, notify=False)
+
+    def show_result_section(self, section: str) -> None:
+        self.app.activate_tab("results-tab")
+        self.app.query_one("#result-views", TabbedContent).active = section
 
     def summarize_results_button(self) -> None:
+        self.show_result_section("overview-view")
         self.update_result_summary(self.app.configuration.input("result-csv"))
 
     def update_result_summary(self, result_csv: str, *, notify: bool = True) -> None:
@@ -82,8 +101,8 @@ class ResultController:
                 self.app.notify("请填写结果 CSV 路径", severity="warning")
             return
         path = resolve_result_path(result_csv, self.app.project_dir)
-        with self.app.prevent(Input.Changed):
-            self.app.query_one("#result-csv", Input).value = str(path)
+        if self.app.configuration.input("result-csv") != str(path):
+            self.select_result(str(path), summarize=False)
         if self.summary_request is not None:
             self.summary_request.set()
         token = self.summary_request = Event()
@@ -102,8 +121,15 @@ class ResultController:
         )
 
     def _execute_summary_read_worker(self, path: Path, token: Event, notify: bool) -> None:
+        from concurrent.futures import CancelledError
+
+        from acprof.host.run_state import offline_analysis_lock
         try:
-            summary, error = summarize_result_csv(path, cancelled=token.is_set), ""
+            with self.summary_lock:
+                if token.is_set():
+                    raise CancelledError()
+                with offline_analysis_lock():
+                    summary, error = summarize_result_csv(path, cancelled=token.is_set), ""
         except Exception as exc:
             summary, error = None, error_message(exc)
         self.app.process.safe_process_callback(
@@ -166,24 +192,13 @@ class ResultController:
         self.app.launch(pending)
 
     def update_report_source_label(self) -> None:
-        source = self.app.configuration.input("report-source").strip()
+        source = self.app.configuration.input("result-csv").strip()
         title: str
         if not source:
             title = message_id("ui.2301")
         else:
-            try:
-                values = [value.strip() for value in next(
-                    csv.reader([source], delimiter=";", skipinitialspace=True, strict=True)
-                ) if value.strip()]
-            except csv.Error:
-                values = [source]
-            if len(values) > 1:
-                title = message_id("ui.2302")
-            elif values:
-                path = Path(values[0].rstrip("/"))
-                title = path.parent.name if path.name == "result_layers.json" else path.name
-            else:
-                title = message_id("ui.2301")
+            path = Path(source.rstrip("/"))
+            title = path.parent.name if path.name == "result_layers.json" else path.name
         label = self.app.query_one("#report-experiment", Static)
         self.app.localization.set_text(label, message_id("ui.2300", title))
         label.tooltip = source or None
@@ -193,7 +208,18 @@ class ResultController:
         if not self.app.is_running or not self.app.form_ready or self.app.ui_closing:
             return
         state = self.app.operation_state()
-        source = self.app.configuration.input("report-source").strip()
+        source = self.app.configuration.input("result-csv").strip()
+        cancel_analysis = self.app.query_one("#results-cancel", Button)
+        cancel_analysis.display = self.app.process_kind in {"stats", "compare"}
+        cancel_analysis.disabled = not state.allows("stop")
+        payload = self.report_view.payload if self.report_view is not None else {}
+        for format in ("csv", "json"):
+            available = bool(payload) and (format == "json" or bool(payload.get("groups")))
+            self.app.query_one("#analysis-export-" + format, Button).disabled = not (
+                available and state.allows("analysis-export")
+            )
+        for selector, operation in (("#summarize-results", "summary"), ("#plot-results", "plot")):
+            self.app.query_one(selector, Button).disabled = not (source and state.allows(operation))
         json_path = self.app.configuration.input("report-json-path").strip()
         html_path = self.app.configuration.input("html-report-path").strip()
         self.app.query_one("#report-calculate", Button).disabled = not (
@@ -218,6 +244,7 @@ class ResultController:
 
     def clear_report(self, status: str, *, phase: str = "empty") -> None:
         self.report_view = None
+        self.analysis_view = None
         self.app.query_one("#report-table", DataTable).clear(columns=True)
         self.app.localization.set_text(self.app.query_one("#report-status", Static), status)
         self.app.localization.set_text(
@@ -228,8 +255,9 @@ class ResultController:
         if phase != "empty":
             self.app.localization.set_text(self.app.query_one("#" + target, Static), status)
         else:
-            self.app.localization.set_text(self.app.query_one("#report-empty", Static), message_id("ui.2309"))
+            self.app.localization.set_text(self.app.query_one("#report-empty", Static), message_id("ui.2406"))
         self.app.query_one("#report-content", ContentSwitcher).current = target
+        self.update_report_actions()
 
     def report_source_changed(self) -> None:
         if not self.app.form_ready:
@@ -240,8 +268,10 @@ class ResultController:
         self.report_request = None
         with self.app.prevent(Input.Changed):
             self.app.query_one("#report-json-path", Input).value = ""
+            self.app.query_one("#html-report-path", Input).value = ""
+        self.app.localization.set_text(self.app.query_one("#analysis-export-status", Static), "")
         if (self.app.operation_state().allows("html-report")
-                and self.app.configuration.input("report-source").strip()):
+                and self.app.configuration.input("result-csv").strip()):
             self.find_html_report()
         self.clear_report(message_id("ui.2303"))
         self.update_report_actions()
@@ -265,15 +295,17 @@ class ResultController:
     def open_report(self, path: str | None = None) -> None:
         if not self.app.allow_operation("report"):
             return
-        self.app.activate_tab("reports-tab")
+        self.show_result_section("statistics-view")
         source = path if path is not None else self.app.configuration.input("report-json-path")
         if not source.strip():
             self.clear_report(message_id("ui.2315"), phase="error")
+            self.show_result_section("exports-view")
             self.app.query_one("#report-file-options", Collapsible).collapsed = False
             return
         report_path = resolve_result_path(source, self.app.project_dir)
         if report_path.suffix.lower() != ".json":
             self.clear_report("请选择 JSON 报告；实验目录或 CSV 请点击“计算统计”。", phase="error")
+            self.show_result_section("exports-view")
             self.app.query_one("#report-file-options", Collapsible).collapsed = False
             return
         with self.app.prevent(Input.Changed):
@@ -296,8 +328,10 @@ class ResultController:
         )
 
     def _execute_report_read_worker(self, path: Path, token: Event) -> None:
+        from acprof.host.run_state import offline_analysis_lock
         try:
-            view, error = read_report(path, cancelled=token.is_set), ""
+            with offline_analysis_lock():
+                view, error = read_report(path, cancelled=token.is_set), ""
         except Exception as exc:
             view, error = None, error_message(exc)
         self.app.process.safe_process_callback(self.show_report, view, error, token)
@@ -314,8 +348,10 @@ class ResultController:
         if view is None:
             self.clear_report(message_id('ui.0578', error), phase="error")
             return
-        self.report_view = view
+        self.report_view = replace(view, note=join_messages("\n", (
+            message_id("ui.2416", view.source), view.note)))
         self.render_report_view()
+        self.update_report_actions()
 
     def render_report_view(self) -> None:
         view = self.report_view
@@ -369,8 +405,8 @@ class ResultController:
     def launch_stats(self, path: str | None = None) -> None:
         if not self.app.allow_operation("stats"):
             return
-        self.app.activate_tab("reports-tab")
-        source = path if path is not None else self.app.configuration.input("report-source")
+        self.show_result_section("statistics-view")
+        source = path if path is not None else self.app.configuration.input("result-csv")
         if not source.strip():
             self.clear_report(message_id("ui.2314"), phase="error")
             return
@@ -379,10 +415,69 @@ class ResultController:
         except (OSError, ValueError) as exc:
             self.clear_report(error_message(exc), phase="error")
             return
-        self.stats_report_path = None
-        self.stats_report_reused = False
-        self.clear_report(message_id("ui.2313"), phase="loading")
+        if pending.result_csv != self.app.configuration.input("result-csv"):
+            self.select_result(pending.result_csv, summarize=False)
         self.app.launch(pending)
+
+    def selection_identity(self) -> tuple[str, ...]:
+        return tuple(self.app.configuration.input(name) for name in
+                     ("result-csv", "comparison-left", "comparison-right")) + (
+                         self.app.configuration.select("comparison-baseline"),
+                         self.app.configuration.select("comparison-purpose"),
+                     )
+
+    def begin_analysis(self, pending: PendingLaunch) -> None:
+        self.clear_report(message_id("ui.2313"), phase="loading")
+        self.analysis_selection = self.selection_identity()
+        source = pending.result_csv if pending.kind == "stats" else pending.command[pending.command.index("--left") + 1]
+        self.analysis_source = Path(source)
+        with self.app.prevent(Input.Changed):
+            self.app.query_one("#report-json-path", Input).value = ""
+
+    def accept_analysis(self, view: ReportView) -> None:
+        if self.selection_identity() == self.analysis_selection:
+            self.analysis_view = view
+
+    def finish_analysis(self, *, error: str, cancelled: bool) -> None:
+        view, self.analysis_view = self.analysis_view, None
+        self.show_result_section("statistics-view")
+        if cancelled or error or view is None:
+            self.clear_report(error or message_id("ui.2408" if cancelled else "ui.2400"), phase="error")
+        else:
+            self.report_view = view
+            self.render_report_view()
+        self.update_report_actions()
+
+    def export_analysis(self, format: str) -> None:
+        if not self.app.allow_operation("analysis-export"):
+            return
+        view = self.report_view
+        destination = self.app.configuration.input("analysis-export-path").strip()
+        if view is None or not view.payload or not destination:
+            self.app.notify(message_id("ui.2413"), severity="warning")
+            return
+        path = resolve_result_path(destination, self.app.project_dir)
+        token = object()
+        self.app.read_jobs.add(token)
+        self.app.set_busy(True)
+        self.app.run_worker(partial(self._export_analysis_worker, token, view.payload, path, format),
+                            name="export_analysis", thread=True, group="analysis-export", exit_on_error=False)
+
+    def _export_analysis_worker(self, token: object, payload: dict, path: Path, format: str) -> None:
+        from acprof.analysis.export import export_analysis
+        from acprof.host.run_state import offline_analysis_lock
+        try:
+            with offline_analysis_lock():
+                export_analysis(payload, path, format=format)
+            status = message_id("ui.2414", path)
+        except Exception as exc:
+            status = message_id("ui.2415", error_message(exc))
+        self.app.process.safe_process_callback(self.analysis_export_finished, token, status)
+
+    def analysis_export_finished(self, token: object, status: str) -> None:
+        self.app.read_jobs.discard(token)
+        self.app.set_busy(self.app.is_busy())
+        self.app.localization.set_text(self.app.query_one("#analysis-export-status", Static), status)
 
     def set_html_status(self, text: str, *, expand: bool = True) -> None:
         if expand:
@@ -390,15 +485,28 @@ class ResultController:
         self.app.localization.set_text(self.app.query_one("#html-report-status", Static), text)
         self.update_report_actions()
 
+    def html_source(self, *, include_extra: bool = False) -> str:
+        # The unified selector is ONE literal path; extra HTML sources are explicit.
+        sources = [self.app.configuration.input("result-csv").strip()]
+        if not sources[0]:
+            return ""
+        if include_extra:
+            extra = self.app.configuration.input("html-extra-sources").strip()
+            if extra:
+                sources.extend(next(csv.reader([extra], delimiter=";", skipinitialspace=True, strict=True)))
+        output = io.StringIO()
+        csv.writer(output, delimiter=";", lineterminator="").writerow(sources)
+        return output.getvalue()
+
     def find_html_report(self) -> None:
         """Small directory lookup only; all result parsing stays in the CLI."""
         from acprof.tui.report_files import existing_html_report
-        source = self.app.configuration.input("report-source")
+        source = self.app.configuration.input("result-csv")
         # Viewing a JSON statistics report must not replace the HTML selection.
         if source.endswith(".json") and not source.endswith("result_layers.json"):
             return
         try:
-            paths = html_report_inputs(source, project_dir=self.app.project_dir)
+            paths = html_report_inputs(self.html_source(), project_dir=self.app.project_dir)
             existing = existing_html_report(paths)
         except (OSError, ValueError) as exc:
             self.set_html_status(error_message(exc), expand=False)
@@ -410,10 +518,11 @@ class ResultController:
     def launch_html_report(self) -> None:
         if not self.app.allow_operation("html-report"):
             return
+        self.show_result_section("exports-view")
         try:
-            pending = prepare_html_report(self.app.configuration.input("report-source"),
+            pending = prepare_html_report(self.html_source(include_extra=True),
                 project_dir=self.app.project_dir, python_executable=self.app.python_executable)
-        except (OSError, ValueError) as exc:
+        except (OSError, ValueError, csv.Error) as exc:
             self.set_html_status(error_message(exc))
             return
         self.app.launch(pending)

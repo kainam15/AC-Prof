@@ -78,14 +78,12 @@ def prepare_plot(source: str, *, project_dir: Path, python_executable: Path) -> 
 
 
 def prepare_stats(source: str, *, project_dir: Path, python_executable: Path) -> PendingLaunch:
-    from acprof.artifact_layout import ArtifactLayout
     path = resolve_result_path(source, project_dir)
     if path.is_dir():
         path /= "result_layers.json"
     if not path.is_file() or (path.name != "result_layers.json" and path.suffix.lower() != ".csv"):
         raise RunConfigError([ConfigIssue(None, message("请选择有效的分层结果目录、清单或独立 CSV。"))])
-    output_dir = ArtifactLayout.discover(path.parent).path("analysis")
-    command = build_stats_command(path, output_dir, project_dir=project_dir, python_executable=python_executable)
+    command = build_stats_command(path, project_dir=project_dir, python_executable=python_executable)
     return PendingLaunch(tuple(command), "stats", result_csv=str(path))
 
 
@@ -132,8 +130,7 @@ def prepare_html_report(source: str, *, project_dir: Path, python_executable: Pa
 
 def prepare_comparison(left: str, right: str, *, baseline: str, purpose: str,
                        project_dir: Path, python_executable: Path) -> PendingLaunch:
-    """Reuse the public comparison command and preserve its baseline direction."""
-    from acprof.artifact_layout import ArtifactLayout
+    """Read the public comparison command's stdout without a mandatory artifact."""
     if baseline not in {"left", "right"} or purpose not in {"same-hardware", "cross-hardware", "resource-scaling"}:
         raise RunConfigError([ConfigIssue(None, message_id('ui.0484'))])
     groups = []
@@ -149,15 +146,12 @@ def prepare_comparison(left: str, right: str, *, baseline: str, purpose: str,
         groups.append(paths)
     if baseline == "right":
         groups.reverse()
-    first = groups[0][0]
-    layout = ArtifactLayout.discover(first) if first.is_dir() else ArtifactLayout.from_csv(first)
-    output = layout.path("analysis") / f"experiment-comparison-{datetime.now(UTC):%Y%m%d-%H%M%S-%f}.json"
     command = [*cli_command("compare", python_executable=python_executable)]
     for name, paths in zip(("--left", "--right"), groups, strict=True):
         for path in paths:
             command.extend((name, str(path)))
-    command.extend(("--purpose", purpose, "--output", str(output)))
-    return PendingLaunch(tuple(command), "compare", report_path=str(output))
+    command.extend(("--purpose", purpose))
+    return PendingLaunch(tuple(command), "compare")
 
 
 def prepare_profile(source: str, *, tools: str, dry_run: bool,
@@ -200,13 +194,12 @@ def build_plot_command(
 
 def build_stats_command(
     result_csv: str | Path,
-    output_dir: str | Path,
     *,
     project_dir: Path,
     python_executable: str | Path = sys.executable,
 ) -> list[str]:
     return [*cli_command("stats", python_executable=python_executable),
-            str(Path(result_csv).expanduser()), "--output-dir", str(output_dir)]
+            str(Path(result_csv).expanduser())]
 
 
 def build_profile_command(

@@ -1,7 +1,7 @@
 from unittest.mock import patch
 
 import pytest
-from textual.widgets import Button, Collapsible, Input, Static, TabbedContent, TabPane
+from textual.widgets import Button, Collapsible, Input, Static, TabbedContent
 from tui_fixtures import AcprofTui
 
 from acprof.experiment import RunConfig
@@ -23,10 +23,10 @@ class TestTuiResultTools:
         async with app.run_test(size=(80, 24)) as pilot:
             await pilot.pause()
             tabs = app.query_one("#main-tabs", TabbedContent)
-            assert [tabs.get_tab(pane).label.plain for pane in tabs.query(TabPane)] == [
-                "实验配置", "运行监控", "实验结果", "统计报告", "镜像管理", "应用设置"]
+            assert [tabs.get_tab(pane).label.plain for pane in app.query("#main-tabs > ContentSwitcher > TabPane")] == [
+                "实验配置", "运行监控", "实验结果", "镜像管理", "应用设置"]
             assert not app.query("#profile-tab, #result-dir")
-            app.activate_tab("plot-tab")
+            app.activate_tab("results-tab")
             app.query_one("#result-csv", Input).value = str(self.csv_path)
             await pilot.pause()
             assert await pilot.click("#summarize-results", offset=(2, 1))
@@ -68,7 +68,7 @@ class TestTuiResultTools:
             await pilot.press("enter")
             await app.workers.wait_for_complete()
             await pilot.pause()
-            assert app.query_one("#main-tabs", TabbedContent).active == "plot-tab"
+            assert app.query_one("#main-tabs", TabbedContent).active == "results-tab"
             summary = app.query_one("#result-summary", Static)
             assert "成功 1" in summary.content
             assert summary.region.height > 0

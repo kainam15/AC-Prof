@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import independent_comparison_fixtures as comparison_fixture
 import pytest
-from textual.widgets import Button, Collapsible, DataTable, Input, Select, TabbedContent
+from textual.widgets import Button, DataTable, Input, Select, TabbedContent
 from tui_fixtures import AcprofTui
 
 from acprof.experiment import RunConfig
@@ -109,8 +109,8 @@ class TestIndependentComparisonUi:
             app = AcprofTui(RunConfig.smoke("demo/model"), settings_path=root / "settings.json")
             async with app.run_test(size=(80, 24)) as pilot:
                 await pilot.pause()
-                app.activate_tab("reports-tab")
-                app.query_one("#comparison-options", Collapsible).collapsed = False
+                app.activate_tab("results-tab")
+                app.results.show_result_section("comparison-view")
                 app.query_one("#comparison-left", Input).value = str(left)
                 app.query_one("#comparison-right", Input).value = str(right)
                 app.query_one("#comparison-baseline", Select).value = "right"
@@ -143,7 +143,7 @@ class TestIndependentComparisonUi:
         app = AcprofTui(RunConfig.smoke("demo/model"), settings_path=fixture.fixture.root / "settings.json")
         async with app.run_test(size=(120, 30)) as pilot:
             await pilot.pause()
-            app.activate_tab("reports-tab")
+            app.activate_tab("results-tab")
             app.query_one("#comparison-left", Input).value = str(left)
             app.query_one("#comparison-right", Input).value = str(right)
             with patch.object(app, 'notify') as notify:
@@ -152,12 +152,13 @@ class TestIndependentComparisonUi:
                     await app.workers.wait_for_complete()
                     await pilot.pause()
                 assert ("error") not in ([call.kwargs.get("severity") for call in notify.call_args_list])
-            report = Path(app.query_one("#report-json-path", Input).value)
-            assert (report.is_file())
-            payload = json.loads(report.read_text())
+            assert app.query_one("#report-json-path", Input).value == ""
+            assert not list(fixture.fixture.root.rglob("experiment-comparison-*.json"))
+            assert app.results.report_view is not None
+            payload = app.results.report_view.payload
             assert (payload["kind"]) == ("independent_experiment_comparison")
             assert (payload["status"]) == ("incompatible")
             assert ("not comparable") in (str(app.query_one("#report-table", DataTable).get_row_at(0)[0]))
             assert not (app.is_busy())
             assert (app.latest_snapshot.stage) == (Stage.COMPLETED)
-            assert (app.query_one("#main-tabs", TabbedContent).active) == ("reports-tab")
+            assert (app.query_one("#main-tabs", TabbedContent).active) == ("results-tab")

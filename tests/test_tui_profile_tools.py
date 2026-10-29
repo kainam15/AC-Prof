@@ -25,7 +25,7 @@ async def test_real_summary_missing_profiler_records_show_uncollected_choices(tm
     save_settings(settings, TuiSettings(ui=UiPreferences(language=language)), tmp_path)
     app = AcprofTui(settings_path=settings)
     async with app.run_test(size=(80, 24)) as pilot:
-        app.activate_tab("plot-tab")
+        app.activate_tab("results-tab")
         app.query_one("#result-csv", Input).value = str(root)
         await pilot.pause()
         summarize = app.query_one("#summarize-results", Button)
@@ -95,7 +95,7 @@ class TestTuiProfileTools:
         ))
 
     async def open_dialog(self, app, pilot):
-        app.activate_tab("plot-tab")
+        app.activate_tab("results-tab")
         app.profiles.show_overview(self.overview())
         text = str(app.query_one("#profile-status").content)
         assert "torch" in text

@@ -68,9 +68,13 @@ Download confirmation groups the overview, Runtime and sources, storage, and net
 
 CSV headers and result directories exist before inference starts. Each completed measurement window appends to the root module CSVs; completion freezes an immutable snapshot. Use AC-Prof readers for a consistent committed view, including during recovery and postprocessing. See [live results and recovery](docs/profiling/artifacts.md#实时提交与后处理).
 
+### View statistics without extra files
+
+The **Results** page shares one experiment selection across its overview, statistics, comparison, and import/export views. **Calculate statistics** displays window means, standard deviations, and 95% confidence intervals without saving a statistics JSON file. PNG plots use the same window estimator where applicable; insufficient samples have no interval. **Import / Export** saves statistics CSV or JSON only when requested. Formal CSV layers and `result_layers.json` are unchanged.
+
 ### Generate an interactive report
 
-Run `acprof tui` → **Reports** → **Select experiment** → **Generate HTML**. The page shows the full output path, window counts, and data quality limitations. Choose **Open HTML** on a local graphical desktop, or **Export / Remote access** → **Export HTML** to copy it to a new file. Each generation preserves older reports; collection completion never generates HTML automatically.
+Run `acprof tui` → **Results** → **Select experiment** → **Import / Export** → **Generate HTML**. The page shows the full output path, window counts, and data quality limitations. Choose **Open HTML** on a local graphical desktop, or **Export / Remote access** → **Export HTML** to copy it to a new file. Each generation preserves older reports; collection completion never generates HTML automatically.
 
 The self-contained HTML includes **Comparison Matrix**, **Pareto / Trade-off**, and **Scaling**, with no network or web service required. On an SSH server such as dor-server, download the displayed file using SFTP or your remote IDE and open it in your local browser. See the [TUI report workflow](docs/usage/tui-pages.md#交互式-html-报告) for multiple inputs and output locations.
 

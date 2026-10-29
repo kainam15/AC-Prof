@@ -68,8 +68,8 @@ def test_missing_or_malformed_inputs_are_rejected(tmp_path, source):
 async def test_generate_button_is_reachable_and_measurement_blocks_it(tmp_path, csv_result):
     app = AcprofTui(settings_path=tmp_path / "settings.json")
     async with app.run_test(size=(80, 24)) as pilot:
-        app.activate_tab("reports-tab")
-        app.query_one("#report-source", Input).value = str(csv_result)
+        app.results.show_result_section("exports-view")
+        app.query_one("#result-csv", Input).value = str(csv_result)
         await pilot.pause()
         button = app.query_one("#html-report-generate", Button)
         button.scroll_visible(animate=False, immediate=True)
@@ -95,8 +95,8 @@ async def test_real_cli_success_persists_path_and_preserves_input(tmp_path, csv_
     app = AcprofTui(settings_path=settings)
     original = csv_result.read_bytes()
     async with app.run_test(size=(120, 30)) as pilot:
-        app.activate_tab("reports-tab")
-        app.query_one("#report-source", Input).value = str(csv_result)
+        app.results.show_result_section("exports-view")
+        app.query_one("#result-csv", Input).value = str(csv_result)
         await pilot.pause()
         app.results.launch_html_report()
         await app.workers.wait_for_complete()
@@ -110,7 +110,7 @@ async def test_real_cli_success_persists_path_and_preserves_input(tmp_path, csv_
         assert '"configs":' in html
         assert csv_result.read_bytes() == original
         assert app.configuration.saved_settings.last_html_report == str(output)
-        assert app.query_one("#main-tabs", TabbedContent).active == "reports-tab"
+        assert app.query_one("#main-tabs", TabbedContent).active == "results-tab"
         assert not app.is_busy()
         assert "quality" in str(app.query_one("#html-report-status", Static).content)
     restored = AcprofTui(settings_path=settings)
@@ -128,8 +128,9 @@ async def test_real_layer_manifest_and_csv_comparison_keep_three_views(tmp_path,
     original = {path: path.read_bytes() for path in layered.rglob("*") if path.is_file()}
     app = AcprofTui(settings_path=tmp_path / "settings.json")
     async with app.run_test() as pilot:
-        app.query_one("#report-source", Input).value = f'{layered / "result_layers.json"};{second}'
+        app.query_one("#result-csv", Input).value = str(layered / "result_layers.json")
         await pilot.pause()
+        app.query_one("#html-extra-sources", Input).value = str(second)
         app.results.launch_html_report()
         await app.workers.wait_for_complete()
         await pilot.pause()
@@ -152,7 +153,7 @@ async def test_no_valid_windows_retains_evidence_and_displays_limit(tmp_path, cs
     csv_result.write_text(csv_result.read_text().replace(",ok,", ",failed,"))
     app = AcprofTui(settings_path=tmp_path / "settings.json")
     async with app.run_test() as pilot:
-        app.query_one("#report-source", Input).value = str(csv_result)
+        app.query_one("#result-csv", Input).value = str(csv_result)
         await pilot.pause()
         app.results.launch_html_report()
         await app.workers.wait_for_complete()
@@ -178,7 +179,7 @@ async def test_export_button_and_failure_keep_generated_artifact(
     save_settings(settings, TuiSettings(ui=UiPreferences(language=language)), tmp_path)
     app = AcprofTui(settings_path=settings)
     async with app.run_test(size=(80, 24)) as pilot:
-        app.activate_tab("reports-tab")
+        app.results.show_result_section("exports-view")
         app.query_one("#html-report-panel", Collapsible).collapsed = False
         app.query_one("#html-export-options", Collapsible).collapsed = False
         app.query_one("#html-report-path", Input).value = str(source)
@@ -256,7 +257,7 @@ async def test_html_actions_fit_visible_report_page(tmp_path, size, language):
     save_settings(settings, TuiSettings(ui=UiPreferences(language=language)), tmp_path)
     app = AcprofTui(settings_path=settings)
     async with app.run_test(size=size) as pilot:
-        app.activate_tab("reports-tab")
+        app.results.show_result_section("exports-view")
         app.query_one("#html-report-panel", Collapsible).collapsed = False
         await pilot.pause()
         assert not app.query_one("#html-report-open", Button).display
@@ -288,7 +289,7 @@ async def test_real_cli_failure_shows_error_and_keeps_old_report(tmp_path, csv_r
     old.write_text("old report")
     app = AcprofTui(settings_path=tmp_path / "settings.json")
     async with app.run_test() as pilot:
-        app.query_one("#report-source", Input).value = str(csv_result)
+        app.query_one("#result-csv", Input).value = str(csv_result)
         await pilot.pause()
         assert app.query_one("#html-report-path", Input).value == str(old)
         app.results.launch_html_report()
@@ -306,7 +307,7 @@ async def test_cancel_reaps_process_and_keeps_previous_html(tmp_path, csv_result
     old.write_text("old")
     app = AcprofTui(settings_path=tmp_path / "settings.json")
     async with app.run_test() as pilot:
-        app.query_one("#report-source", Input).value = str(csv_result)
+        app.query_one("#result-csv", Input).value = str(csv_result)
         await pilot.pause()
         command = (sys.executable, "-u", "-c", "import time; print('ready', flush=True); time.sleep(30)")
         pending = commands.PendingLaunch(command, "html-report", report_path=str(tmp_path / "new.html"))
@@ -314,7 +315,7 @@ async def test_cancel_reaps_process_and_keeps_previous_html(tmp_path, csv_result
         async with asyncio.timeout(5):
             while app.query_one("#stop-run", Button).disabled:
                 await pilot.pause()
-        app.activate_tab("reports-tab")
+        app.results.show_result_section("exports-view")
         cancel = app.query_one("#html-report-cancel", Button)
         cancel.scroll_visible(animate=False, immediate=True)
         await pilot.pause()

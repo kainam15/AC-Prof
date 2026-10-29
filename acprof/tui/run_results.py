@@ -257,8 +257,6 @@ def _completion_log_and_notice(
     stop_requested: bool,
     comparison_ready: bool,
     unsupported_task: bool,
-    stats_report_path: Path | None,
-    stats_report_reused: bool,
 ) -> tuple[tuple[str, ...], NotificationSpec | None]:
     if launch_error:
         title = message_id('ui.0986') if kind == "html-report" else "任务启动失败"
@@ -273,11 +271,10 @@ def _completion_log_and_notice(
             NotificationSpec(notice, severity="information", timeout=8),
         )
     if returncode == 0 and kind != "run" and not stop_requested:
-        reused = kind == "stats" and stats_report_reused
-        notice = message_id('ui.0571', stats_report_path) if reused else "任务已完成"
+        notice = "任务已完成"
         return (
             (message_id('ui.0788', kind),),
-            NotificationSpec(notice, severity="information", timeout=8 if stats_report_reused else 5),
+            NotificationSpec(notice, severity="information", timeout=5),
         )
     if stop_requested:
         notice = (
@@ -414,24 +411,21 @@ def evaluate_process_completion(
     launch_error: str = "",
     stop_requested: bool = False,
     run_result: RunResult = RunResult(),
-    stats_report_path: Path | None = None,
-    stats_report_reused: bool = False,
-    comparison_report_path: Path | None = None,
+    analysis_ready: bool = False,
 ) -> ProcessCompletion:
     """Compute the pure state transition, logs, and notifications on process exit."""
-    if kind == "stats" and returncode == 0 and not launch_error and stats_report_path is None:
-        launch_error = "统计进程未返回报告路径"
+    if kind == "stats" and returncode == 0 and not launch_error and not stop_requested and not analysis_ready:
+        launch_error = message_id("ui.2400")
     if kind == "probe" and returncode == 0 and not launch_error and not stop_requested:
         if (snapshot is None or snapshot.stage is not Stage.PROBE_COMPLETED
                 or not snapshot.probe_result or not snapshot.probe_summary):
             launch_error = message_id('ui.0183', "missing structured probe result")
     comparison_ready = (
         kind == "compare" and returncode in {0, 1} and not launch_error
-        and not stop_requested and comparison_report_path is not None
-        and comparison_report_path.is_file()
+        and not stop_requested and analysis_ready
     )
     if kind == "compare" and returncode == 0 and not launch_error and not stop_requested and not comparison_ready:
-        launch_error = "比较进程未返回报告路径"
+        launch_error = message_id("ui.2400")
     if snapshot is not None and snapshot.measurement_status == "running":
         snapshot = replace(
             snapshot,
@@ -449,8 +443,6 @@ def evaluate_process_completion(
         stop_requested=stop_requested,
         comparison_ready=comparison_ready,
         unsupported_task=unsupported_task,
-        stats_report_path=stats_report_path,
-        stats_report_reused=stats_report_reused,
     )
     current_csv = ""
     summary_text = ""

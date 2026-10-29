@@ -488,7 +488,7 @@ class TestTuiModelMemory:
         app = AcprofTui(RunConfig.smoke("demo/other"), settings_path=self.settings_path)
         with patch("acprof.tui.result_controller.summarize_result_csv") as read_results:
             async with app.run_test(size=(80, 24)) as pilot:
-                app.activate_tab("plot-tab")
+                app.activate_tab("results-tab")
                 await pilot.pause()
                 assert (app.query_one("#result-csv", Input).value) == (self.saved.last_result_csv)
                 assert (app.configuration.saved_settings.last_result_dir) == (self.saved.last_result_dir)

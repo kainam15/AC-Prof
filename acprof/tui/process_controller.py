@@ -53,6 +53,10 @@ class ProcessController:
         returncode = 1
         started_at_ns = time.time_ns()
         diagnostic_continuation = False
+        analysis = None
+        if kind in {"stats", "compare"}:
+            from acprof.tui.analysis_output import AnalysisOutput
+            analysis = AnalysisOutput()
         try:
             child_env = os.environ.copy()
             child_env["PYTHONUNBUFFERED"] = "1"
@@ -70,7 +74,11 @@ class ProcessController:
                 self.app.lifecycle.stop()
             deliver(self.app.process_started, process.pid, kind)
             assert process.stdout is not None
-            for raw_line in process.stdout:
+            output = iter(partial(process.stdout.read, 65536), "") if analysis is not None else process.stdout
+            for raw_line in output:
+                if analysis is not None:
+                    analysis.append(raw_line)
+                    continue
                 line = raw_line.rstrip("\r\n")
                 download = parse_download_event(line)
                 if download is not None:
@@ -139,6 +147,11 @@ class ProcessController:
                     deliver(self.app.preflight.preparation_event, preparation)
             returncode = process.wait()
             process.stdout.close()
+            if analysis is not None and not self.app.stop_requested:
+                from acprof.host.run_state import offline_analysis_lock
+                with offline_analysis_lock():
+                    view = analysis.finish(kind, returncode, self.app.results.analysis_source)
+                deliver(self.app.results.accept_analysis, view)
         except Exception as exc:  # process errors must become visible in the UI
             launch_error = f"{type(exc).__name__}: {exc}"
             if process is not None:

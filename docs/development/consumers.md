@@ -370,6 +370,16 @@ runtime/host/device/资源条件不完整或变化时降为需要重新验证。
 存储 worker 由 `ImageController` 管理，打开和手动刷新时才查询；关闭弹窗不取消尚在执行的 Docker 子进程，查询完成前保持与采集互斥。
 `ImageWorkspace` 按可用空间分配列表和详情高度；`ImageDetailResizeHandle` 使用 Textual 鼠标捕获和屏幕坐标处理上下拖动，也支持聚焦后按键调整。
 两侧各保留至少三行，手动高度仅存于控件的本次会话，窗口缩小不覆盖偏好。拖动只触发布局更新；禁用、隐藏、窗口缩放、失去捕获或按 `Esc` 时释放鼠标，沿用镜像控件的任务互斥，不增加后台扫描或定时器。
+`result_views.compose_results_tab` 构建单一实验结果入口及概览、统计、比较、导入/导出分区。
+`ResultController` 持有唯一实验选择和内存分析结果；切换来源撤销旧读取，选择身份及 App 的 process token 共同阻止过期回调发布。
+`stats` / `compare` 继续使用原 CLI 子进程与主机测量锁，但不传输出路径；`analysis_output.AnalysisOutput`
+在既有 process worker 内有界收集 stdout，复用 `reports.report_view` 的格式校验，再交给 UI 展示。
+进程失败、取消、错误 schema 或超限输出不能变成有效结果；App 仍是唯一进程及测量生命周期拥有者。
+`analysis.export` 只在明确请求时独占、原子写出统计 CSV/JSON；CLI 自身的显式保存行为不变。
+`plotting.uncertainty` 对适用窗口指标复用同一统计函数；缓存仅限一次绘图，以观测和身份为键，不按路径缓存可变结果。
+界面借鉴 [Textual Worker 的线程回调与取消边界](https://textual.textualize.io/guide/workers/)，
+图区间与可选数据导出借鉴 [TensorBoard Custom Scalars](https://github.com/tensorflow/tensorboard/blob/master/tensorboard/plugins/custom_scalar/README.md)。
+仅借鉴职责分离和区间展示，不复制其统计假设，不引入 TensorBoard/MLflow 或额外测量依赖。
 `table.ResizableDataTable` 为统计报告和镜像管理的表格提供统一表头边界拖动，按稳定 column key 在控件内保留本次会话的手动列宽。
 拖动边界只存在于相邻列之间；末列右沿不绘制手柄，也不参与拖动命中。
 `images.ImageTreeHeader` 复用该控件，更新树节点的列宽，并同步表头与树的横向滚动；拖动不重建树节点或改变折叠状态。

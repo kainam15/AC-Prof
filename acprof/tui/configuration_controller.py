@@ -407,15 +407,13 @@ class ConfigurationController:
     ) -> None:
         """Remember confirmed inputs, preserving explicitly saved preferences."""
         updates = {}
-        report_source = self.app.query_one("#report-source", Input)
-        if result_csv and report_source.value in {"", self.saved_settings.last_result_csv}:
-            report_source.value = result_csv
         if model.strip():
             updates["last_model"] = model.strip()
         if result_dir:
             updates["last_result_dir"] = result_dir
         if result_csv:
-            self.app.query_one("#result-csv", Input).value = result_csv
+            if self.input("result-csv") != result_csv:
+                self.app.results.select_result(result_csv, summarize=False)
             updates["last_result_csv"] = result_csv
         settings = replace(
             self.saved_settings,

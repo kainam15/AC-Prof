@@ -38,7 +38,7 @@ class TestAllTables:
         app = self.make_app()
         async with app.run_test(size=(120, 30)) as pilot:
             await pilot.pause()
-            app.activate_tab("reports-tab")
+            app.results.show_result_section("statistics-view")
             app.results.report_view = ReportView(Path("example.json"), "统计", ("指标", "均值"),
                                           (ReportRow(("Latency", "20 ms"), "来源"),), "说明")
             app.results.render_report_view()
@@ -70,7 +70,7 @@ class TestAllTables:
         app = self.make_app()
         async with app.run_test(size=(120, 30)) as pilot:
             await pilot.pause()
-            app.activate_tab("reports-tab")
+            app.results.show_result_section("statistics-view")
             app.results.report_view = ReportView(Path("example.json"), "统计", ("指标", "均值"),
                                           (ReportRow(("Latency", "20 ms"), "来源"),), "说明")
             app.results.render_report_view()
@@ -143,7 +143,7 @@ class TestAllTables:
             assert (header.columns["size"].width) == (before - 3)
             assert (len(self.docker.commands)) == (commands)
 
-    @pytest.mark.parametrize(("tab", "view", "selector", "index", "delta"), [('reports-tab', '', '#report-table', 0, 3), ('images-tab', 'tree', '#image-tree-header', 0, -3), ('images-tab', 'list', '#image-table', 1, -3), ('images-tab', 'layers', '#image-layer-table', 0, -3)])
+    @pytest.mark.parametrize(("tab", "view", "selector", "index", "delta"), [('results-tab', '', '#report-table', 0, 3), ('images-tab', 'tree', '#image-tree-header', 0, -3), ('images-tab', 'list', '#image-table', 1, -3), ('images-tab', 'layers', '#image-layer-table', 0, -3)])
     @pytest.mark.parametrize('language', ['zh', 'en'])
     @pytest.mark.parametrize('size', [(80, 24), (120, 30), (150, 45)])
     async def test_every_table_resizes_in_both_languages_at_all_sizes(self, tab, view, selector, index, delta, language, size):
@@ -160,7 +160,10 @@ class TestAllTables:
             app.configuration.preferences = replace(app.configuration.preferences, language=language)
             app.configuration.apply_ui_preferences()
             await pilot.pause()
-            app.activate_tab(tab)
+            if tab == "results-tab":
+                app.results.show_result_section("statistics-view")
+            else:
+                app.activate_tab(tab)
             await pilot.pause()
             await app.workers.wait_for_complete()
             await pilot.pause()

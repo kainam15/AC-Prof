@@ -158,45 +158,39 @@ def test_probe_cancellation_transitions_to_terminated():
     assert completion.primary_notice.severity == "warning"
 
 
-def test_stats_requires_report_path_and_handles_reused_report(tmp_path: Path):
+def test_stats_requires_valid_in_memory_result(tmp_path: Path):
     missing = evaluate_process_completion(
         "stats",
         0,
         None,
         ProgressSnapshot(),
-        stats_report_path=None,
+        analysis_ready=False,
     )
-    assert missing.launch_error == "统计进程未返回报告路径"
+    assert missing.launch_error == "分析进程未返回当前选择的有效统计数据"
     assert missing.final_snapshot.stage is Stage.FAILED
     assert missing.primary_notice is not None
     assert missing.primary_notice.severity == "error"
 
-    report = tmp_path / "stats.json"
-    report.write_text("{}", encoding="utf-8")
-    reused = evaluate_process_completion(
+    ready = evaluate_process_completion(
         "stats",
         0,
         None,
         ProgressSnapshot(),
-        stats_report_path=report,
-        stats_report_reused=True,
+        analysis_ready=True,
     )
-    assert reused.launch_error == ""
-    assert reused.final_snapshot.stage is Stage.COMPLETED
-    assert reused.primary_notice is not None
-    assert reused.primary_notice.timeout == 8
-    assert str(report) in str(reused.primary_notice.message)
+    assert ready.launch_error == ""
+    assert ready.final_snapshot.stage is Stage.COMPLETED
+    assert ready.primary_notice is not None
+    assert list(tmp_path.iterdir()) == []
 
 
-def test_compare_accepts_exit_code_one_when_report_file_exists(tmp_path: Path):
-    report = tmp_path / "comparison.json"
-    report.write_text("{}", encoding="utf-8")
+def test_compare_accepts_exit_code_one_with_valid_in_memory_result(tmp_path: Path):
     ready = evaluate_process_completion(
         "compare",
         1,
         None,
         ProgressSnapshot(),
-        comparison_report_path=report,
+        analysis_ready=True,
     )
     assert ready.comparison_ready
     assert ready.launch_error == ""
@@ -209,10 +203,11 @@ def test_compare_accepts_exit_code_one_when_report_file_exists(tmp_path: Path):
         0,
         None,
         ProgressSnapshot(),
-        comparison_report_path=tmp_path / "missing.json",
+        analysis_ready=False,
     )
     assert not missing_on_zero.comparison_ready
-    assert missing_on_zero.launch_error == "比较进程未返回报告路径"
+    assert missing_on_zero.launch_error == "分析进程未返回当前选择的有效统计数据"
+    assert list(tmp_path.iterdir()) == []
     assert missing_on_zero.final_snapshot.stage is Stage.FAILED
 
 

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import sys
 import time
 from dataclasses import replace
@@ -69,6 +68,7 @@ from acprof.tui.progress import ProgressSnapshot
 from acprof.tui.recovery_controller import RecoveryController
 from acprof.tui.rendering import CjkScreen
 from acprof.tui.result_controller import ResultController
+from acprof.tui.result_views import compose_results_tab
 from acprof.tui.run_results import RunResult, evaluate_process_completion
 from acprof.tui.slash_controller import SlashController
 from acprof.tui.stages import Stage
@@ -78,8 +78,6 @@ from acprof.tui.views import (
     ConfirmActionScreen,
     compose_images_tab,
     compose_monitor_tab,
-    compose_plot_tab,
-    compose_reports_tab,
     compose_run_tab,
     compose_settings_tab,
 )
@@ -185,8 +183,7 @@ class AcprofTui(BarCursorApp):
         with TabbedContent(initial="run-tab", id="main-tabs"):
             yield from compose_run_tab(self)
             yield from compose_monitor_tab(self)
-            yield from compose_plot_tab(self)
-            yield from compose_reports_tab(self)
+            yield from compose_results_tab(self)
             yield from compose_images_tab(self)
             yield from compose_settings_tab(self)
 
@@ -274,7 +271,7 @@ class AcprofTui(BarCursorApp):
             ".config-control, .experiment-picker, #model-candidates, #run-preset, .ui-preference, .profile-tool, .report-control, "
             "#save-run-default, #restore-ui-defaults, #save-ui-settings, #open-environment-settings"
         ):
-            if widget.id in {"report-source", "report-open"} and state.allows("report"):
+            if widget.id in {"result-csv", "report-open"} and state.allows("report"):
                 widget.disabled = False
                 continue
             if busy and widget.has_focus:
@@ -295,7 +292,7 @@ class AcprofTui(BarCursorApp):
             self.query_one(selector, Button).disabled = not state.allows(operation)
         self.query_one("#html-report-cancel", Button).disabled = not (
             self.process_kind == "html-report" and state.allows("stop"))
-        for selector in ("#result-csv", "#report-source"):
+        for selector in ("#result-csv",):
             self.query_one(selector, Input).disabled = not state.allows("summary")
         self.refresh_bindings()
         if not busy:
@@ -341,7 +338,8 @@ class AcprofTui(BarCursorApp):
             self.configuration.remember_last_used(model=model, result_dir=pending.result_dir, result_csv=pending.result_csv)
         self.process_token = object()
         self.active_run_config = pending.config if pending.kind == "run" else None
-        self.results.comparison_report_path = Path(pending.report_path) if pending.kind == "compare" else None
+        if pending.kind in {"stats", "compare"}:
+            self.results.begin_analysis(pending)
         if pending.kind == "html-report":
             self.results.html_report_started(pending)
         self.active_command = pending.command
@@ -352,9 +350,13 @@ class AcprofTui(BarCursorApp):
         self.latest_snapshot = ProgressSnapshot(stage=Stage.STARTING, detail="正在创建子进程")
         self.preflight.reset_download()
         self.set_busy(True)
-        self.activate_tab("monitor-tab")
-        # Moving focus away from inputs stops the native cursor's blink timer.
-        self.query_one("#stop-run", Button).focus()
+        if pending.kind in {"stats", "compare"}:
+            self.results.show_result_section("statistics-view")
+            self.query_one("#results-cancel", Button).focus()
+        else:
+            self.activate_tab("monitor-tab")
+            # Moving focus away from inputs stops the native cursor's blink timer.
+            self.query_one("#stop-run", Button).focus()
         # Keep the small elapsed-time display active during every run phase.
         # Logs and other periodic redraws remain gated during measurement.
         if self.elapsed_timer is not None:
@@ -440,17 +442,6 @@ class AcprofTui(BarCursorApp):
     ) -> None:
         if self.process_kind == "html-report" and line:
             self.results.consume_html_line(line)
-        if self.process_kind == "stats" and line.startswith("ACPROF_STATS "):
-            receipt = json.loads(line.removeprefix("ACPROF_STATS "))
-            if (not isinstance(receipt, dict) or not isinstance(receipt.get("report_path"), str)
-                    or not receipt["report_path"] or type(receipt.get("reused")) is not bool):
-                raise ValueError("统计进程返回的报告信息无效")
-            self.results.stats_report_path = Path(receipt["report_path"])
-            self.results.stats_report_reused = receipt["reused"]
-            line = self.localization.tr(message(
-                "已有相同报告：{0}" if self.results.stats_report_reused else "统计报告已保存：{0}",
-                self.results.stats_report_path,
-            ))
         if snapshot is not None:
             if self.process_kind == "run" and snapshot.stage is Stage.COMPLETED:
                 snapshot = replace(snapshot, stage=Stage.VERIFYING_ARTIFACT, detail="进程已报告完成，等待本次产物核验。")
@@ -538,9 +529,7 @@ class AcprofTui(BarCursorApp):
             launch_error=launch_error,
             stop_requested=cancelled,
             run_result=self.run_result,
-            stats_report_path=self.results.stats_report_path,
-            stats_report_reused=self.results.stats_report_reused,
-            comparison_report_path=self.results.comparison_report_path,
+            analysis_ready=self.results.analysis_view is not None,
         )
         self.preflight.close_preparation()
         # Stop the elapsed-time ticker.
@@ -556,7 +545,7 @@ class AcprofTui(BarCursorApp):
         if kind in {"stats", "compare", "html-report"}:
             # Move focus before disabling the monitor page's focused Stop button;
             # its queued focus event could otherwise reactivate that old page.
-            self.activate_tab("reports-tab")
+            self.activate_tab("results-tab")
         log = self.query_one("#run-log", SelectableLog)
         for message_line in completion.log_messages:
             log.write(self.localization.tr(message_line))
@@ -600,27 +589,12 @@ class AcprofTui(BarCursorApp):
             # Posthoc can publish profiler layers without touching base rows.
             self.results.update_result_summary(str(self.results.summary_path), notify=False)
         self.images.sync_image_refresh_timer()
-        if kind == "stats":
-            report_path, self.results.stats_report_path = self.results.stats_report_path, None
-            self.results.stats_report_reused = False
-            if returncode == 0 and not completion.launch_error and report_path is not None:
-                self.results.open_report(str(report_path))
-            else:
-                self.activate_tab("reports-tab")
-                self.results.clear_report(message_id('ui.0570'), phase="error")
+        if kind in {"stats", "compare"}:
+            self.results.finish_analysis(error=completion.launch_error, cancelled=cancelled)
         elif kind == "html-report":
             self.results.html_report_finished(error=completion.launch_error, cancelled=cancelled)
-        elif kind == "compare":
-            report_path, self.results.comparison_report_path = self.results.comparison_report_path, None
-            # The comparison CLI uses exit 1 for a valid incompatible/unknown
-            # report too; its reasons are the primary result to display.
-            if completion.comparison_ready:
-                self.results.open_report(str(report_path))
-            else:
-                self.activate_tab("reports-tab")
-                self.results.clear_report(message_id('ui.0486'), phase="error")
 
-    @on(Button.Pressed, "#stop-run")
+    @on(Button.Pressed, "#stop-run, #results-cancel")
     def stop_button(self) -> None:
         self.action_request_stop()
 
@@ -876,10 +850,6 @@ class AcprofTui(BarCursorApp):
     def on_results_plot_results_button(self) -> None:
         self.results.plot_results_button()
 
-    @on(Input.Changed, '#report-source')
-    def on_results_report_source_changed(self) -> None:
-        self.results.report_source_changed()
-
     @on(Input.Changed, '#report-json-path')
     def on_results_report_json_changed(self) -> None:
         self.results.report_json_changed()
@@ -887,6 +857,10 @@ class AcprofTui(BarCursorApp):
     @on(Input.Changed, '#html-report-path')
     def on_results_html_path_changed(self) -> None:
         self.results.update_report_actions()
+
+    @on(Button.Pressed, '#analysis-export-csv, #analysis-export-json')
+    def on_analysis_export(self, event: Button.Pressed) -> None:
+        self.results.export_analysis(event.button.name or "csv")
 
     @on(Button.Pressed, '#report-open')
     def on_results_open_report_button(self) -> None:

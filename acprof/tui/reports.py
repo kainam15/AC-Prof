@@ -5,7 +5,7 @@ import json
 import math
 from collections.abc import Callable
 from concurrent.futures import CancelledError
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Literal, overload
 
@@ -27,6 +27,7 @@ class ReportView:
     columns: tuple[str, ...]
     rows: tuple[ReportRow, ...]
     note: str
+    payload: dict = field(default_factory=dict, repr=False, compare=False)
 
 
 _METRIC_LABELS = {
@@ -283,6 +284,15 @@ def read_report(path: str | Path, *, cancelled: Callable[[], bool] = lambda: Fal
         data = json.loads(content)
     except (ValueError, UnicodeError) as exc:
         raise ValueError(message_id('ui.0555')) from exc
+    return report_view(source, data)
+
+
+def report_view(source: Path, data: dict) -> ReportView:
+    """Validate an in-memory payload through the same rules as imported JSON."""
+    return replace(_validated_report_view(source, data), payload=data)
+
+
+def _validated_report_view(source: Path, data: dict) -> ReportView:
     coverage_v2 = (isinstance(data, dict) and data.get("schema_version") == 2
                    and data.get("scope") == "selected_sample_only; no_formal_measurement"
                    and not data.get("kind") and not data.get("resampling_unit"))

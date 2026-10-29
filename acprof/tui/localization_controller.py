@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 from rich.text import Text
 from textual.binding import Binding
 from textual.widget import Widget
-from textual.widgets import Button, Checkbox, Collapsible, Select, Static, TabbedContent, TabPane
+from textual.widgets import Button, Checkbox, Collapsible, Select, Static, Tab
 
 from acprof import platform
 from acprof.tui.i18n import translate
@@ -71,9 +71,8 @@ class LocalizationController:
             widget.refresh(layout=True)
 
     def capture_language_text(self) -> None:
-        tabs = self.app.query_one("#main-tabs", TabbedContent)
-        for pane in tabs.query(TabPane):
-            tab = tabs.get_tab(pane)
+        # Nested result sections have their own TabbedContent owner.
+        for tab in self.app.query(Tab):
             self.localized_text[tab, "label"] = tab.label.plain
         self.source_bindings = {
             key: list(bindings) for key, bindings in self.app._bindings.key_to_bindings.items()

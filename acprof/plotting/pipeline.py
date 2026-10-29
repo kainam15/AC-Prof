@@ -15,6 +15,7 @@ import acprof.plotting.latency as plotting_latency
 import acprof.plotting.metrics as plotting_metrics
 import acprof.plotting.tail_latency as plotting_tail_latency
 from acprof.artifact_layout import ArtifactLayout
+from acprof.plotting.uncertainty import WindowStatistics
 
 
 def plot_results(csv_path: str, *, only_ok: bool = True, save_png: bool = True) -> None:
@@ -42,11 +43,12 @@ def plot_results(csv_path: str, *, only_ok: bool = True, save_png: bool = True) 
             scale_type = types[0]
 
     xlabel = scale_type
+    statistics = WindowStatistics()
 
     output_dir = str(layout.plots_dir)
     if static_meta.get("runtime_kind") == "process":
         from acprof.plotting.process import plot_process_results
-        target = plot_process_results(df, output_dir, xlabel=xlabel)
+        target = plot_process_results(df, output_dir, xlabel=xlabel, statistics=statistics)
         print(f"[plot] {target}; CPU quota latency fitting is unavailable for inherited limits")
         return
 
@@ -105,6 +107,7 @@ def plot_results(csv_path: str, *, only_ok: bool = True, save_png: bool = True) 
         ) in plotting_config.METRIC_OVERVIEW_PLOTS:
             plotting_metrics.plot_metric_overview(
                 group_df,
+                statistics=statistics,
                 panels=panels,
                 rows=rows,
                 columns=columns,
@@ -121,6 +124,7 @@ def plot_results(csv_path: str, *, only_ok: bool = True, save_png: bool = True) 
         for metric, title, ylabel, filename in plotting_config.PLOT_METRICS:
             plotting_metrics.plot_metric(
                 group_df,
+                statistics=statistics,
                 metric=metric,
                 title=title,
                 ylabel=ylabel,
@@ -140,6 +144,7 @@ def plot_results(csv_path: str, *, only_ok: bool = True, save_png: bool = True) 
         ) in plotting_config.ENERGY_POWER_OVERVIEW_PLOTS:
             plotting_metrics.plot_energy_power_overview(
                 group_df,
+                statistics=statistics,
                 effective_metrics=effective_metrics,
                 total_metrics=total_metrics,
                 title=title,

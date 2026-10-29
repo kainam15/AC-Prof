@@ -32,7 +32,7 @@ class CatalogController:
     def catalog_roots(self) -> tuple[Path, ...]:
         roots = []
         for source in (self.app.configuration.input('output-dir'), self.app.configuration.saved_settings.last_result_dir,
-                       self.app.configuration.input('result-csv'), self.app.configuration.saved_settings.last_result_dir, self.app.configuration.input('report-source')):
+                       self.app.configuration.input('result-csv'), self.app.configuration.saved_settings.last_result_dir):
             if not source.strip():
                 continue
             path = resolve_result_path(source, self.app.project_dir)
@@ -84,7 +84,10 @@ class CatalogController:
                 output = io.StringIO()
                 csv.writer(output, delimiter=';', lineterminator='').writerow([value])
                 value = output.getvalue()
-            self.app.query_one('#' + target, Input).value = value
+            if target == 'result-csv':
+                self.app.results.select_result(value)
+            else:
+                self.app.query_one('#' + target, Input).value = value
         elif action == 'reuse':
             try:
                 config = config_from_record(record, reuse=True)
@@ -98,13 +101,12 @@ class CatalogController:
 
     def view_experiment(self, record: ExperimentRecord) -> None:
         self.app.configuration.remember_last_used(result_dir=str(record.directory))
-        self.app.activate_tab('plot-tab')
+        self.app.results.show_result_section('overview-view')
         csv_path = record.directory / 'result_layers.json'
         if csv_path.is_file():
-            self.app.query_one('#result-csv', Input).value = str(csv_path)
-            self.app.results.update_result_summary(str(csv_path), notify=False)
+            self.app.results.select_result(str(csv_path))
         else:
-            self.app.profiles.reset_overview()
+            self.app.results.select_result(str(csv_path), summarize=False)
             self.app.localization.set_text(self.app.query_one('#result-summary', Static),
                 message_id('ui.0172', experiment_choice(record).detail))
 

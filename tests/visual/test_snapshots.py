@@ -121,7 +121,7 @@ def test_fixed_scenes(snap_compare, tmp_path, monkeypatch, language, size, scene
         elif scene == "modal":
             app.push_screen(ConfirmActionScreen("终止当前任务？", "确认后将请求采集进程安全停止。", "终止任务"))
         elif scene == "profiler":
-            app.activate_tab("plot-tab")
+            app.activate_tab("results-tab")
             overview = ProfilerOverview(Path("/workspace/results/fixture-model"), (
                 ProfilerStatus("torch", "complete", 8, 8, 0),
                 ProfilerStatus("ncu", "missing", 0, 4, 0),
@@ -140,7 +140,7 @@ def test_fixed_scenes(snap_compare, tmp_path, monkeypatch, language, size, scene
             app.results.report_view = ReportView(Path("fixture.json"), "Latency report", ("Metric", "Mean", "Status"),
                 (ReportRow(("Application latency", "25 ms", "ok"), "Fixed fixture"),), "Fixed fixture")
             app.results.render_report_view()
-            app.activate_tab("reports-tab")
+            app.results.show_result_section("statistics-view")
             await pilot.pause()
             table = app.query_one("#report-table", ResizableDataTable)
             # This scene verifies the drag result, without a timing-dependent

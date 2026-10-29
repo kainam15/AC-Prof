@@ -34,7 +34,7 @@ async def test_selection_change_during_profiler_inspection_cancels_and_allows_re
 
     monkeypatch.setattr(profile_status, "row_tool_complete", hold_first_row)
     async with app.run_test(size=(80, 24)) as pilot:
-        app.activate_tab("plot-tab")
+        app.activate_tab("results-tab")
         selector = app.query_one("#result-csv", Input)
         selector.value = str(first)
         await pilot.pause()

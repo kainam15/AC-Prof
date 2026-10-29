@@ -2,10 +2,18 @@
 from pathlib import Path
 
 
-def plot_process_results(frame, directory, *, xlabel="input_scale"):
+def plot_process_results(frame, directory, *, xlabel="input_scale", statistics=None):
     import matplotlib.pyplot as plt
 
-    from acprof.plotting.data import aggregate_metric_series
+    from acprof.plotting.uncertainty import (
+        INTERVAL_NOTE,
+        WindowStatistics,
+        aggregate_plot_series,
+        draw_window_interval,
+    )
+
+    statistics = statistics if statistics is not None else WindowStatistics()
+    has_intervals = False
 
     directory = Path(directory) / "process"
     directory.mkdir(parents=True, exist_ok=True)
@@ -20,7 +28,7 @@ def plot_process_results(frame, directory, *, xlabel="input_scale"):
         for axis, (metric, title) in zip(axes.flat, panels, strict=True):
             axis.set(title=title, xlabel=xlabel)
             available = (
-                aggregate_metric_series(frame, metric, config_columns=("config",), sort=False)
+                aggregate_plot_series(frame, metric, config_columns=("config",), sort=False, statistics=statistics)
                 if metric in frame else frame.iloc[:0]
             )
             if available.empty:
@@ -28,9 +36,12 @@ def plot_process_results(frame, directory, *, xlabel="input_scale"):
                 continue
             for label, case in available.groupby("config", sort=False):
                 series = case.sort_values("input_scale")
-                axis.plot(series["input_scale"], series[metric], marker="o", label=label)
+                line, = axis.plot(series["input_scale"], series[metric], marker="o", label=label)
+                draw_window_interval(axis, series, color=line.get_color())
+                has_intervals |= "ci_low" in series
             axis.legend(fontsize="small")
-        figure.suptitle("Process Runtime: input scaling; inherited resources are not imposed quotas")
+        title = "Process Runtime: input scaling; inherited resources are not imposed quotas"
+        figure.suptitle(title + ("\n" + INTERVAL_NOTE if has_intervals else ""))
         figure.tight_layout()
         target = directory / "input_scaling.png"
         figure.savefig(target)

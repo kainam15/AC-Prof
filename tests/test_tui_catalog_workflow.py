@@ -78,7 +78,7 @@ class TestCatalogWorkflow:
         app.configuration.preferences = replace(app.configuration.preferences, language='en')
         async with app.run_test(size=(80, 24)) as pilot:
             await pilot.pause()
-            app.activate_tab('plot-tab')
+            app.activate_tab('results-tab')
             await pilot.pause()
             button = app.query_one('#choose-result-csv', Button)
             assert (await pilot.click(button))
@@ -128,10 +128,12 @@ class TestCatalogWorkflow:
         async with app.run_test(size=(120, 30)) as pilot:
             await pilot.pause()
             record = scan_experiments([path]).records[0]
-            for target in ('result-csv', 'report-source', 'comparison-left', 'comparison-right'):
+            for target in ('result-csv', 'comparison-left', 'comparison-right'):
                 app.catalog.experiment_selected(target, ('select', record))
                 expected = path / 'result_layers.json' if target == 'result-csv' else path
                 assert (app.query_one('#' + target, Input).value) == (str(expected))
+                await app.workers.wait_for_complete()
+                await pilot.pause()
             app.latest_snapshot = replace(app.latest_snapshot, measurement_active=True)
             with patch('acprof.tui.catalog_controller.scan_experiments') as scan:
                 app.catalog.open_experiment_picker('result-csv')

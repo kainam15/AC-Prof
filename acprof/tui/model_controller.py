@@ -100,7 +100,7 @@ class ModelController:
         elif action == 'view' and candidate.record:
             self.app.catalog.view_experiment(candidate.record)
         elif action == 'view' and candidate.report:
-            self.app.activate_tab('reports-tab')
+            self.app.activate_tab('results-tab')
             self.app.results.open_report(str(candidate.report))
 
     def candidate_identity_changed(self, event: TextualInput.Changed | Select.Changed) -> None:

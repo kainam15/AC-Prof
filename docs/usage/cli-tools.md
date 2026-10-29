@@ -72,7 +72,7 @@ Windows/macOS 的离线命令不申请 Linux 专用锁；这不改变采集平�
 `--output-dir DIR` 在指定目录中比较完整 JSON 内容，相同则复用已有文件，否则以本地日期时间
 `window-statistics-YYYYMMDD-HHMMSS-ffffff.json` 保存。两个输出选项互斥。
 目录模式向 stdout 输出一行 `ACPROF_STATS {"report_path": "绝对路径", "reused": false}`；复用时 `reused` 为 `true`。
-TUI“统计报告”页的“计算统计”使用目录模式和默认统计参数，报告位于 v2 结果目录的 `plots/analysis/`（旧目录为 `analysis/`），复用时提示已有报告并显示其内容。
+TUI“实验结果”页的“计算统计”使用默认统计参数和 stdout 模式，不自动创建统计 JSON；结果直接显示在“统计”分区。可在“导入 / 导出”明确保存新的统计 CSV 或 JSON，CSV 保留单位、统计参数与来源标识。CLI 的显式 `--output` / `--output-dir` 行为不变。
 `/stats [csv/dir]` 与按钮等价；`/report [json]` 或“查看报告”读取已有窗口统计、监测开销或 CLI/TUI 对照报告。
 这些操作需要 TUI 空闲；开销实验仍通过独立脚本显式运行。报告展示与路径带入方式见 [TUI 说明](tui-pages.md#统计报告)。
 `/images` 打开“镜像管理”页并自动读取数据，空闲时每轮读取完成后 5 秒更新；离开页面或运行任务时暂停。
@@ -102,7 +102,7 @@ acprof tui --help
 `--purpose` 支持 `same-hardware`、`cross-hardware`、`resource-scaling`；组内重复始终按相同硬件核验。
 `audit --compare` 和 `report` 使用同名取值的 `--comparison-purpose`；HTML 可在生成后切换用途。
 资源扩容只放开 CPU/内存配额，双方资源坐标和仍需匹配的条件见[比较规则](../results/comparisons.md#跨独立实验比较)。
-TUI“统计报告 → 独立实验比较”复用同一入口，可选择左右组、基线和比较用途，或直接读取 CLI 输出的 JSON。
+TUI“实验结果 → 比较”复用同一入口，可选择左右组、基线和比较用途，直接展示结果而不强制保存中间 JSON；也可在“导入 / 导出”读取 CLI 输出的 JSON。
 `acprof load <源实验> --gpu off --scenario concurrent --concurrency 4 --output-dir <新目录>`
 执行独立 HTTP 负载；到达率使用 `--scenario arrival-rate --rate 10 --arrival poisson`。
 协议、连接复用前提和失败口径见[独立非流式负载](../profiling/lifecycle.md#独立非流式负载)。
