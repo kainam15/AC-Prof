@@ -8,10 +8,7 @@ model operations (including retrieval MaxSim); decoding is postprocessing.
 
 from __future__ import annotations
 
-import base64
-import binascii
 import inspect
-import io
 import math
 import tempfile
 import wave
@@ -27,8 +24,10 @@ from acprof.container.handlers import (
     model_revision_kwargs,
     transformers_pipeline_load_kwargs,
 )
-from acprof.container.handlers.audio import AudioHandler, _positive_int
+from acprof.container.handlers.audio import AudioHandler
 from acprof.container.load_policy import load_policy, load_processor
+from acprof.image_inputs import decode_image_groups
+from acprof.input_budget import InputBudget, positive_integer
 
 _TASKS = {
     "audio-text-to-text", "image-text-to-text", "visual-question-answering",
@@ -168,19 +167,6 @@ class MultimodalHandler(BaseHandler):
         return {**ctx, "model": model, "processor": processor, "model_type": model_type, "mode": mode}
 
     @staticmethod
-    def _image(encoded: Any) -> Any:
-        from PIL import Image, UnidentifiedImageError
-
-        if not isinstance(encoded, str) or not encoded:
-            raise ValueError("image_base64 must be a non-empty Base64 string")
-        try:
-            data = base64.b64decode(encoded, validate=True)
-            with Image.open(io.BytesIO(data)) as image:
-                return image.convert("RGB")
-        except (binascii.Error, ValueError, UnidentifiedImageError, OSError) as exc:
-            raise ValueError("image_base64 must contain a valid Base64 image") from exc
-
-    @staticmethod
     def _params(task: str, value: Any) -> dict[str, Any]:
         if not isinstance(value, dict):
             raise ValueError("params must be an object")
@@ -199,7 +185,7 @@ class MultimodalHandler(BaseHandler):
         params = dict(value)
         for name in ("max_new_tokens", "talker_max_new_tokens", "top_k", "max_answer_len", "max_seq_len", "doc_stride"):
             if name in params:
-                params[name] = _positive_int(params[name], name)
+                params[name] = positive_integer(params[name], name, allow_integral_float=False)
         if "do_sample" in params and params["do_sample"] is not False:
             raise ValueError("do_sample must be false for reproducible multimodal workloads")
         if "speaker" in params and params["speaker"] not in {"Chelsie", "Ethan"}:
@@ -235,7 +221,7 @@ class MultimodalHandler(BaseHandler):
 
     def preprocess(self, model_ctx: dict[str, Any], raw_input: dict[str, Any]) -> Any:
         task = model_ctx["task_type"]
-        unknown = set(raw_input) - {"samples", "params", "input_scale", "input_scale_type"}
+        unknown = set(raw_input) - {"samples", "params", "input_scale", "input_scale_type", "input_budget"}
         if unknown:
             raise ValueError(f"unsupported request fields: {', '.join(sorted(unknown))}")
         samples = raw_input.get("samples")
@@ -274,7 +260,21 @@ class MultimodalHandler(BaseHandler):
             ):
                 if key in sample and task not in valid_tasks:
                     raise ValueError(f"{task} does not accept {key}")
-        image = self._image(sample["image_base64"]) if "image_base64" in sample else None
+        budget = InputBudget.from_value(raw_input.get("input_budget"))
+        budget.text(len(text), batch_items=1)
+        groups = {}
+        if "image_base64" in sample:
+            groups["image_base64"] = [sample["image_base64"]]
+        if "video_frames_base64" in sample:
+            frames = sample["video_frames_base64"]
+            if not isinstance(frames, list) or not frames:
+                raise ValueError("video_frames_base64 must be a non-empty frame list")
+            fps = sample.get("fps")
+            if isinstance(fps, bool) or not isinstance(fps, (int, float)) or not math.isfinite(fps) or fps <= 0:
+                raise ValueError("fps must be a finite positive number")
+            groups["video_frames_base64"] = frames
+        visuals = decode_image_groups(groups, budget=budget, same_size={"video_frames_base64"})
+        image = visuals["image_base64"][0] if "image_base64" in visuals else None
         media_scales = {}
         modality_facts: dict[str, dict[str, object]] = {"text": {"characters": len(text)}}
         if image is not None:
@@ -307,7 +307,7 @@ class MultimodalHandler(BaseHandler):
             media_kwargs["images"] = [image]
         if "audio_base64" in sample:
             audio, header_rate = AudioHandler._decode_wav(sample["audio_base64"])
-            rate = _positive_int(sample.get("sampling_rate"), "sampling_rate")
+            rate = positive_integer(sample.get("sampling_rate"), "sampling_rate", allow_integral_float=False)
             if rate != header_rate:
                 raise ValueError("sampling_rate does not match the WAV header")
             required_rate = getattr(getattr(processor, "feature_extractor", None), "sampling_rate", None)
@@ -326,15 +326,9 @@ class MultimodalHandler(BaseHandler):
             content.append({"type": "audio"})
             media_kwargs.update(audio=[audio], sampling_rate=rate)
         if "video_frames_base64" in sample:
-            frames = sample["video_frames_base64"]
-            if not isinstance(frames, list) or not frames:
-                raise ValueError("video_frames_base64 must be a non-empty frame list")
-            fps = sample.get("fps")
-            if isinstance(fps, bool) or not isinstance(fps, (int, float)) or not math.isfinite(fps) or fps <= 0:
-                raise ValueError("fps must be a finite positive number")
-            decoded = [np.asarray(self._image(frame)) for frame in frames]
-            if len({frame.shape for frame in decoded}) != 1:
-                raise ValueError("video frames must have identical dimensions")
+            frames = visuals["video_frames_base64"]
+            fps = sample["fps"]
+            decoded = [np.asarray(frame) for frame in frames]
             content.append({"type": "video"})
             media_kwargs.update(videos=[np.stack(decoded)], fps=float(fps))
             media_scales["frame_count"] = float(len(frames))

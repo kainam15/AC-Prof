@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import base64
-import io
 import math
 from typing import Any
 
@@ -15,6 +13,8 @@ from acprof.container.handlers import (
     transformers_pipeline_load_kwargs,
 )
 from acprof.container.load_policy import load_policy, load_processor
+from acprof.image_inputs import decode_image_groups
+from acprof.input_budget import InputBudget
 from acprof.model_spec import pipeline_task
 
 
@@ -88,18 +88,6 @@ class CVHandler(BaseHandler):
                 "load_options": dict(load_options or {})}
 
     @staticmethod
-    def _decode_image(value: Any):
-        from PIL import Image
-
-        if not isinstance(value, str) or not value:
-            raise ValueError("image_base64 must contain a base64-encoded image")
-        try:
-            with Image.open(io.BytesIO(base64.b64decode(value, validate=True))) as source:
-                return source.convert("RGB")
-        except (ValueError, OSError) as exc:
-            raise ValueError("invalid base64 image payload") from exc
-
-    @staticmethod
     def _params(raw_input: dict[str, Any]) -> dict[str, Any]:
         params = raw_input.get("params", {})
         if not isinstance(params, dict):
@@ -125,6 +113,7 @@ class CVHandler(BaseHandler):
     def preprocess(self, model_ctx: dict[str, Any], raw_input: dict[str, Any]) -> Any:
         task = model_ctx["task_type"]
         params = self._params(raw_input)
+        budget = InputBudget.from_value(raw_input.get("input_budget"))
         if task == "video-classification":
             frames = raw_input.get("frames_base64")
             if not isinstance(frames, list) or not frames:
@@ -141,12 +130,12 @@ class CVHandler(BaseHandler):
                 raise ValueError("top_k must be a positive integer")
             if params.get("function_to_apply", "softmax") not in {"softmax", "sigmoid", "none"}:
                 raise ValueError("function_to_apply must be softmax, sigmoid, or none")
-            images = [self._decode_image(frame) for frame in frames]
-            if len({image.size for image in images}) != 1:
-                raise ValueError("all video frames must have the same resolution")
+            images = decode_image_groups({"frames_base64": frames}, budget=budget,
+                                         same_size={"frames_base64"})["frames_base64"]
             inputs = model_ctx["processor"](images, return_tensors="pt")
             return {"inputs": inputs, "params": params, **self._scale_metadata(raw_input, images[0])}
-        image = self._decode_image(raw_input.get("image_base64"))
+        image = decode_image_groups({"image_base64": [raw_input.get("image_base64")]},
+                                    budget=budget)["image_base64"][0]
         processed = {"image": image, "params": params, **self._scale_metadata(raw_input, image)}
         if task in {"zero-shot-image-classification", "zero-shot-object-detection"}:
             processed["candidate_labels"] = self._candidate_labels(raw_input)

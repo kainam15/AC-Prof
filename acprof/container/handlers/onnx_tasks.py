@@ -1,15 +1,13 @@
 """Explicit image and text classification adapters using the shared CPU ORT session."""
 from __future__ import annotations
 
-import base64
-import io
 import math
 from typing import Any
 
 import numpy as np
 
 from acprof.container.handlers import BaseHandler, InputLimitError
-from acprof.container.handlers.structured import _artifact_path, _positive_integer
+from acprof.container.handlers.structured import _artifact_path
 from acprof.container.onnx_session import (
     load_session,
     run_session,
@@ -18,6 +16,8 @@ from acprof.container.onnx_session import (
     validate_inputs,
     validate_outputs,
 )
+from acprof.image_inputs import decode_image_groups
+from acprof.input_budget import InputBudget, positive_integer
 
 
 def _config(value: Any, name: str, allowed: set[str]) -> dict:
@@ -105,8 +105,8 @@ class ONNXImageClassificationHandler(_ClassificationHandler):
             raise ValueError('image_processing rescale_factor must be explicit, finite and positive')
         if 'resize' in config:
             resize = _config(config['resize'], 'image_processing resize', {'width', 'height', 'resample'})
-            resize['width'] = _positive_integer(resize.get('width'), 'resize width')
-            resize['height'] = _positive_integer(resize.get('height'), 'resize height')
+            resize['width'] = positive_integer(resize.get('width'), 'resize width')
+            resize['height'] = positive_integer(resize.get('height'), 'resize height')
             if resize.get('resample') not in {'nearest', 'bilinear'}:
                 raise ValueError('image_processing resize resample must be nearest or bilinear')
             config['resize'] = resize
@@ -119,14 +119,15 @@ class ONNXImageClassificationHandler(_ClassificationHandler):
 
         if raw_input.get('params'):
             raise ValueError('unsupported image-classification params')
-        if _positive_integer(raw_input.get('batch_size', 1), 'batch_size') != 1:
+        if positive_integer(raw_input.get('batch_size', 1), 'batch_size') != 1:
             raise ValueError('ONNX image-classification requires batch_size=1; image replication is unsupported')
-        encoded = raw_input.get('image_base64')
-        if not isinstance(encoded, str) or not encoded:
-            raise ValueError('image_base64 must contain one image')
-        with Image.open(io.BytesIO(base64.b64decode(encoded, validate=True))) as source:
-            original_size = list(source.size)
-            image = source.convert(model_ctx['image_processing']['mode'])
+        budget = InputBudget.from_value(raw_input.get('input_budget'))
+        config = model_ctx['image_processing']
+        if 'resize' in config:
+            budget.pixels(config['resize']['width'], config['resize']['height'])
+        image = decode_image_groups({'image_base64': [raw_input.get('image_base64')]},
+                                    budget=budget, mode=config['mode'])['image_base64'][0]
+        original_size = list(image.size)
         scale = raw_input.get('input_scale', original_size[0] / 224)
         if isinstance(scale, bool) or not isinstance(scale, (int, float)) or not math.isfinite(scale) or scale <= 0:
             raise ValueError('input_scale must be a finite positive resolution multiplier')
@@ -170,7 +171,7 @@ class ONNXTextClassificationHandler(_ClassificationHandler):
             raise ValueError('tokenizer requires explicit padding=none and truncation=reject')
         if not isinstance(config.get('add_special_tokens'), bool):
             raise ValueError('tokenizer add_special_tokens must be explicit boolean')
-        config['max_length'] = _positive_integer(config.get('max_length'), 'tokenizer max_length')
+        config['max_length'] = positive_integer(config.get('max_length'), 'tokenizer max_length')
         tokenizer = Tokenizer.from_file(str(_artifact_path(context['model_root'], config.get('file'))))
         tokenizer.no_padding()
         tokenizer.no_truncation()
@@ -186,7 +187,7 @@ class ONNXTextClassificationHandler(_ClassificationHandler):
     def preprocess(self, model_ctx: dict, raw_input: dict) -> dict:
         if raw_input.get('params'):
             raise ValueError('unsupported text-classification params')
-        batch = _positive_integer(raw_input.get('batch_size', 1), 'batch_size')
+        batch = positive_integer(raw_input.get('batch_size', 1), 'batch_size')
         texts = raw_input.get('text')
         if isinstance(texts, str):
             if batch != 1:

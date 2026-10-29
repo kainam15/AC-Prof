@@ -19,6 +19,7 @@ from acprof.container.handlers import (
     transformers_pipeline_load_kwargs,
 )
 from acprof.container.load_policy import load_policy, load_processor
+from acprof.input_budget import positive_integer
 from acprof.model_spec import pipeline_task
 
 _ASR_TASK_TYPES = {
@@ -30,15 +31,6 @@ _WHISPER_SHORT_FORM_SECONDS = 30.0
 _TEXT_AUDIO_TASK_TYPES = {"text-to-speech", "text-to-audio"}
 _CODEC_MODEL_TYPES = {"encodec": "EncodecModel", "dac": "DacModel"}
 _TEXT_AUDIO_PROFILE_TOKEN_CAP = 512
-
-
-def _positive_int(value: Any, field_name: str) -> int:
-    if isinstance(value, bool) or not isinstance(value, (int, np.integer)):
-        raise ValueError(f"{field_name} must be a positive integer")
-    parsed = int(value)
-    if parsed <= 0:
-        raise ValueError(f"{field_name} must be a positive integer")
-    return parsed
 
 
 def _optional_positive_number(value: Any) -> float | None:
@@ -355,8 +347,8 @@ class AudioHandler(BaseHandler):
             raise ValueError("audio_format must be 'wav' for audio_base64 input")
         if "sample_rate" not in raw_input:
             raise ValueError("sample_rate is required for audio_base64 input")
-        declared_sample_rate = _positive_int(
-            raw_input.get("sample_rate"), "sample_rate"
+        declared_sample_rate = positive_integer(
+            raw_input.get("sample_rate"), "sample_rate", allow_integral_float=False
         )
         audio_array, wav_sample_rate = self._decode_wav(
             raw_input.get("audio_base64")
@@ -683,7 +675,7 @@ class AudioHandler(BaseHandler):
             waveform = np.asarray(waveform)
             if waveform.ndim not in (1, 2, 3) or not waveform.size or not np.isfinite(waveform).all():
                 raise ValueError("generated audio must be a non-empty finite waveform")
-            sample_rate = _positive_int(raw_output.get("sampling_rate"), "output sampling_rate")
+            sample_rate = positive_integer(raw_output.get("sampling_rate"), "output sampling_rate", allow_integral_float=False)
             return {
                 "task": task_type, "output_type": "audio", "n_results": 1,
                 "audio_shape": list(waveform.shape), "audio_num_samples": int(waveform.shape[-1]),

@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-import base64
-import binascii
 import inspect
-import io
 import math
 from typing import Any, NamedTuple
 
@@ -14,7 +11,8 @@ from acprof.container.handlers import (
     model_revision_kwargs,
 )
 from acprof.container.load_policy import load_policy
-from acprof.input_budget import InputBudget, InputBudgetExceeded
+from acprof.image_inputs import decode_image_groups
+from acprof.input_budget import InputBudget, positive_integer
 
 DEFAULT_NUM_INFERENCE_STEPS = 20
 DEFAULT_GUIDANCE_SCALE = 7.5
@@ -97,18 +95,6 @@ def _spatial_multiple(pipe: Any) -> int:
         if isinstance(patch, int) and not isinstance(patch, bool) and patch > 0:
             multiple = math.lcm(multiple, spatial * patch)
     return multiple
-
-
-def _positive_int(value: Any, field_name: str) -> int:
-    if isinstance(value, bool):
-        raise ValueError(f"{field_name} must be a positive integer")
-    try:
-        parsed = int(value)
-    except (TypeError, ValueError, OverflowError) as exc:
-        raise ValueError(f"{field_name} must be a positive integer") from exc
-    if parsed <= 0 or parsed != value:
-        raise ValueError(f"{field_name} must be a positive integer")
-    return parsed
 
 
 def _load_eager_attention(pipe: Any, load_options: dict[str, Any] | None) -> Any:
@@ -204,26 +190,20 @@ def _native_image_size(pipe: Any) -> tuple[int, int]:
     if isinstance(size, int) and not isinstance(size, bool) and size > 0:
         return size, size
     if isinstance(size, (tuple, list)) and len(size) == 2:
-        return _positive_int(size[1], "sample_size"), _positive_int(size[0], "sample_size")
+        return positive_integer(size[1], "sample_size"), positive_integer(size[0], "sample_size")
     raise ValueError("unconditional generation requires a fixed native UNet sample_size")
 
 
-def _decode_image(encoded: Any, name: str, resolution: int | None = None, *, budget: InputBudget) -> Any:
+def _decode_images(encoded: list[Any], name: str, resolution: int | None = None, *, budget: InputBudget) -> list[Any]:
     from PIL import Image
 
-    if not isinstance(encoded, str) or not encoded:
-        raise ValueError(f"{name} must contain a non-empty base64 image")
-    try:
-        with Image.open(io.BytesIO(base64.b64decode(encoded, validate=True))) as source:
-            budget.pixels(*source.size)
-            image = source.convert("RGB")
-        if resolution is not None and image.size != (resolution, resolution):
-            image = image.resize((resolution, resolution), Image.Resampling.LANCZOS)
-    except InputBudgetExceeded:
-        raise
-    except (ValueError, binascii.Error, OSError) as exc:
-        raise ValueError(f"{name} must decode to a valid image") from exc
-    return image
+    images = decode_image_groups({name: encoded}, budget=budget)[name]
+    if resolution is not None:
+        for index, image in enumerate(images):
+            if image.size != (resolution, resolution):
+                images[index] = image.resize((resolution, resolution), Image.Resampling.LANCZOS)
+                image.close()
+    return images
 
 
 def _native_preprocess(model_ctx: dict[str, Any], raw: dict[str, Any], task: str) -> dict[str, Any]:
@@ -268,7 +248,7 @@ def _native_preprocess(model_ctx: dict[str, Any], raw: dict[str, Any], task: str
     unsupported = sorted(set(params) - allowed)
     if unsupported:
         raise ValueError(f"unsupported {task} params: " + ", ".join(unsupported))
-    steps = _positive_int(params.get("num_inference_steps", DEFAULT_NUM_INFERENCE_STEPS), "num_inference_steps")
+    steps = positive_integer(params.get("num_inference_steps", DEFAULT_NUM_INFERENCE_STEPS), "num_inference_steps")
     train_steps = getattr(getattr(getattr(pipe, "scheduler", None), "config", None), "num_train_timesteps", None)
     if isinstance(train_steps, int) and steps > train_steps:
         raise ValueError("num_inference_steps exceeds scheduler num_train_timesteps")
@@ -286,27 +266,27 @@ def _native_preprocess(model_ctx: dict[str, Any], raw: dict[str, Any], task: str
     if task == "unconditional-image-generation":
         kwargs["batch_size"] = 1
     if task in STEP_TASKS:
-        scale = _positive_int(raw.get("input_scale"), "input_scale")
+        scale = positive_integer(raw.get("input_scale"), "input_scale")
         if scale != steps:
             raise ValueError("input_scale must equal num_inference_steps")
         resolution = None
     else:
-        resolution = _positive_int(raw.get("resolution"), "resolution")
+        resolution = positive_integer(raw.get("resolution"), "resolution")
         multiple = _spatial_multiple(pipe)
         if resolution < 64 or resolution % multiple:
             raise ValueError(f"resolution must be at least 64 and divisible by pipeline spatial multiple {multiple}")
         scale = resolution
         kwargs.update({name: resolution for name in ("height", "width") if name in parameters})
-    frame_count = _positive_int(params.get("num_frames", DEFAULT_NUM_FRAMES), "num_frames") if task in VIDEO_TASKS else 1
+    frame_count = positive_integer(params.get("num_frames", DEFAULT_NUM_FRAMES), "num_frames") if task in VIDEO_TASKS else 1
     if resolution is not None:
         budget.pixels(resolution, resolution, frames=frame_count)
     elif task == "unconditional-image-generation":
         budget.pixels(*_native_image_size(pipe))
     if has_image:
-        kwargs["image"] = _decode_image(raw.get("image_base64"), "image_base64", resolution, budget=budget)
+        kwargs["image"] = _decode_images([raw.get("image_base64")], "image_base64", resolution, budget=budget)[0]
     frames = None
     if task in VIDEO_TASKS:
-        frames = _positive_int(params.get("num_frames", DEFAULT_NUM_FRAMES), "num_frames")
+        frames = positive_integer(params.get("num_frames", DEFAULT_NUM_FRAMES), "num_frames")
         temporal = getattr(pipe, "vae_scale_factor_temporal", None)
         if isinstance(temporal, int) and temporal > 1 and (frames - 1) % temporal:
             raise ValueError(f"num_frames must be 1 + a multiple of pipeline temporal factor {temporal}")
@@ -314,7 +294,7 @@ def _native_preprocess(model_ctx: dict[str, Any], raw: dict[str, Any], task: str
             encoded = raw.get("frames_base64")
             if not isinstance(encoded, list) or len(encoded) != frames:
                 raise ValueError("frames_base64 must contain exactly num_frames ordered images")
-            kwargs["video"] = [_decode_image(item, "frames_base64", resolution, budget=budget) for item in encoded]
+            kwargs["video"] = _decode_images(encoded, "frames_base64", resolution, budget=budget)
             if "num_frames" in parameters:
                 kwargs["num_frames"] = frames
         else:
@@ -332,7 +312,7 @@ def _native_preprocess(model_ctx: dict[str, Any], raw: dict[str, Any], task: str
             if name == "motion_bucket_id" and value == 0 and not isinstance(value, bool):
                 value = 0
             else:
-                value = _positive_int(value, name)
+                value = positive_integer(value, name)
         else:
             if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0:
                 raise ValueError(f"{name} must be a finite non-negative number")
@@ -424,7 +404,7 @@ class DiffusionHandler(BaseHandler):
         if conditioned and len(prompts) != 1:
             raise ValueError(f"{task} requires one prompt and batch_size=1")
 
-        resolution = _positive_int(raw_input.get("resolution"), "resolution")
+        resolution = positive_integer(raw_input.get("resolution"), "resolution")
         if resolution < 64 or resolution % 8 != 0:
             raise ValueError("resolution must be at least 64 and divisible by 8")
         pipe = model_ctx.get("pipeline")
@@ -439,7 +419,7 @@ class DiffusionHandler(BaseHandler):
         if not isinstance(raw_params, dict):
             raise ValueError("params must be an object")
         params = dict(raw_params)
-        frames_for_budget = _positive_int(params.get("num_frames", DEFAULT_NUM_FRAMES), "num_frames") if task == "image-text-to-video" else 1
+        frames_for_budget = positive_integer(params.get("num_frames", DEFAULT_NUM_FRAMES), "num_frames") if task == "image-text-to-video" else 1
         budget.pixels(resolution, resolution, frames=frames_for_budget, batch=len(prompts))
         budget.text(sum(map(len, prompts)), batch_items=len(prompts))
         allowed_params = {
@@ -458,7 +438,7 @@ class DiffusionHandler(BaseHandler):
                 f"unsupported {task} params: " + ", ".join(unsupported)
             )
 
-        steps = _positive_int(
+        steps = positive_integer(
             params.get("num_inference_steps", DEFAULT_NUM_INFERENCE_STEPS),
             "num_inference_steps",
         )
@@ -509,23 +489,8 @@ class DiffusionHandler(BaseHandler):
             "_probe_reason": "diffusion input scale is square output resolution in pixels",
         }
         if conditioned:
-            from PIL import Image, UnidentifiedImageError
-
-            encoded_image = raw_input.get("image_base64")
-            if not isinstance(encoded_image, str) or not encoded_image:
-                raise ValueError("image_base64 must contain one non-empty base64 image")
-            try:
-                image_bytes = base64.b64decode(encoded_image, validate=True)
-                with Image.open(io.BytesIO(image_bytes)) as source:
-                    budget.pixels(*source.size)
-                    image = source.convert("RGB")
-                if image.size != (resolution, resolution):
-                    image = image.resize((resolution, resolution), Image.Resampling.LANCZOS)
-            except InputBudgetExceeded:
-                raise
-            except (ValueError, binascii.Error, OSError, UnidentifiedImageError) as exc:
-                raise ValueError("image_base64 must decode to a valid image") from exc
-            processed["image"] = image
+            processed["image"] = _decode_images([raw_input.get("image_base64")], "image_base64",
+                                                 resolution, budget=budget)[0]
             extra_params = {}
             for name in ("strength", "image_guidance_scale"):
                 if name in params:
@@ -548,7 +513,7 @@ class DiffusionHandler(BaseHandler):
             if negative_prompt is not None:
                 _require_pipeline_parameters(pipe, {"negative_prompt"})
             if task == "image-text-to-video":
-                frames = _positive_int(params.get("num_frames", DEFAULT_NUM_FRAMES), "num_frames")
+                frames = positive_integer(params.get("num_frames", DEFAULT_NUM_FRAMES), "num_frames")
                 temporal = getattr(pipe, "vae_scale_factor_temporal", None)
                 if isinstance(temporal, int) and temporal > 1 and (frames - 1) % temporal:
                     raise ValueError(

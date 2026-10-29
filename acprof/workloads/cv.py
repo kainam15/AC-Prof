@@ -12,6 +12,8 @@ import random
 from pathlib import Path
 from typing import Any
 
+from acprof.image_inputs import load_image_groups
+from acprof.input_budget import InputBudget
 from acprof.workloads import WorkloadGenerator, register_generator
 
 BASE_SEED = 12345
@@ -35,6 +37,7 @@ class CVWorkloadGenerator(WorkloadGenerator):
         if isinstance(batch_size, bool) or not isinstance(batch_size, int) or batch_size != 1:
             raise ValueError(f"{task_type} requires batch_size=1")
         self._base_res = BASE_RESOLUTION
+        self.input_budget = InputBudget()
         self._params: dict[str, Any] = {}
         self._labels = ["cat", "dog", "car", "person"]
         self._boxes = [[0.0, 0.0, 1.0, 1.0]]
@@ -53,12 +56,13 @@ class CVWorkloadGenerator(WorkloadGenerator):
         if not isinstance(spec, dict):
             raise ValueError("CV workload spec must be an object")
         allowed = {"schema_version", "workload_id", "image_path", "image_sha256", "video_frames",
-                   "num_frames", "candidate_labels", "boxes", "params", "input_scales"}
+                   "num_frames", "candidate_labels", "boxes", "params", "input_scales", "input_budget"}
         unknown = sorted(set(spec) - allowed)
         if unknown:
             raise ValueError("unknown CV workload keys: " + ", ".join(unknown))
         if spec.get("schema_version", 1) != 1 or isinstance(spec.get("schema_version"), bool):
             raise ValueError("CV workload schema_version must be 1")
+        self.input_budget = InputBudget.from_value(spec.get("input_budget"))
         self._spec_sha256 = hashlib.sha256(content).hexdigest()
         if "workload_id" in spec:
             if not isinstance(spec["workload_id"], str) or not spec["workload_id"].strip():
@@ -120,6 +124,7 @@ class CVWorkloadGenerator(WorkloadGenerator):
                 if "num_frames" in spec and len(paths) != self._num_frames:
                     raise ValueError("num_frames must match the number of video_frames")
                 self._num_frames = len(paths)
+                self.input_budget.batch(self._num_frames)
                 for item in paths:
                     self._read_asset(path, item)
         else:
@@ -132,15 +137,16 @@ class CVWorkloadGenerator(WorkloadGenerator):
                 if "image_sha256" in spec and spec["image_sha256"] != hashlib.sha256(self._assets[0]).hexdigest():
                     raise ValueError("image SHA256 does not match image_sha256")
 
-    def _read_asset(self, spec_path: Path, value: Any) -> None:
-        from PIL import Image
+        if self._assets:
+            images = load_image_groups({"image_path": self._assets}, budget=self.input_budget)
+            for image in images["image_path"]:
+                image.close()
 
+    def _read_asset(self, spec_path: Path, value: Any) -> None:
         if not isinstance(value, str) or not value.strip():
             raise ValueError("image path must be a non-empty local path")
         asset_path = (spec_path.parent / value).resolve()
         content = asset_path.read_bytes()
-        with Image.open(io.BytesIO(content)) as image:
-            image.load()
         self._assets.append(content)
         self._sources.append(str(asset_path))
 
@@ -176,6 +182,7 @@ class CVWorkloadGenerator(WorkloadGenerator):
 
         resolution = self._resolution(scale_value)
         count = self._num_frames if self.task_type == "video-classification" else 1
+        self.input_budget.pixels(resolution, resolution, frames=count)
         images = []
         for index in range(count):
             if self._assets:
@@ -186,7 +193,8 @@ class CVWorkloadGenerator(WorkloadGenerator):
                 images.append(base64.b64encode(buffer.getvalue()).decode("ascii"))
             else:
                 images.append(self._generate_image_base64(resolution, resolution, index))
-        payload = {"params": copy.deepcopy(self._params), "input_scale": float(scale_value)}
+        payload = {"params": copy.deepcopy(self._params), "input_scale": float(scale_value),
+                   "input_budget": self.input_budget.as_dict()}
         if self.task_type == "video-classification":
             payload["frames_base64"] = images
         else:
@@ -207,6 +215,7 @@ class CVWorkloadGenerator(WorkloadGenerator):
         metadata: dict[str, Any] = {
             "workload_id": self._workload_id,
             "workload_spec_sha256": self._spec_sha256,
+            "input_budget": self.input_budget.as_dict(),
             "input_scale_type": "resolution_scale",
             "input_scale_semantics": "square image side = max(1, int(224 * scale)); processor may resize",
             "base_resolution": BASE_RESOLUTION,

@@ -7,7 +7,7 @@ from typing import Any
 import onnxruntime as ort
 
 from acprof.container.handlers import BaseHandler
-from acprof.container.handlers.structured import _dense_matrix, _positive_integer
+from acprof.container.handlers.structured import _dense_matrix
 from acprof.container.onnx_session import (
     load_session,
     run_session,
@@ -16,6 +16,7 @@ from acprof.container.onnx_session import (
     validate_inputs,
     validate_outputs,
 )
+from acprof.input_budget import positive_integer
 
 
 class ONNXRuntimeHandler(BaseHandler):
@@ -32,7 +33,7 @@ class ONNXRuntimeHandler(BaseHandler):
         input_spec, output_spec = inputs[0], outputs[0]
         if input_spec.type != 'tensor(float)' or len(input_spec.shape) != 2:
             raise ValueError('ONNX input must be float32 with shape [rows, feature_dim]')
-        width = _positive_integer(input_spec.shape[1], 'ONNX feature_dim')
+        width = positive_integer(input_spec.shape[1], 'ONNX feature_dim')
         if manifest.get('feature_dim', width) != width:
             raise ValueError('acprof_model.json feature_dim differs from ONNX input shape')
         if output_spec.type not in {'tensor(float)', 'tensor(double)', 'tensor(int64)', 'tensor(int32)'}:
@@ -42,8 +43,8 @@ class ONNXRuntimeHandler(BaseHandler):
         return context
 
     def preprocess(self, model_ctx: dict, raw_input: dict) -> dict:
-        scale = _positive_integer(raw_input.get('input_scale'), 'input_scale')
-        batch = _positive_integer(raw_input.get('batch_size', 1), 'batch_size')
+        scale = positive_integer(raw_input.get('input_scale'), 'input_scale')
+        batch = positive_integer(raw_input.get('batch_size', 1), 'batch_size')
         features = _dense_matrix(raw_input.get('features'), model_ctx['feature_dim'], 'features')
         if len(features) != scale * batch:
             raise ValueError('input_scale * batch_size must match actual feature rows')

@@ -165,13 +165,13 @@ TUI Smoke 使用 `minimal`；显式 `--input-scales` 优先且严格校验，不
 ### NLP workload 参数
 NLP 清单使用 `schema_version=1`、与检测结果一致的 `task`、`params` 和可选 `input_budget`，不接受其他字段。
 
-NLP 与 Diffusion 共用输入构造预算：默认 `max_batch_items=4096`、
+NLP、CV、Multimodal 与 Diffusion 共用输入构造预算：默认 `max_batch_items=4096`、
 `max_text_characters=16777216`、`max_pixels=67108864`。batch 条目计入 NLP 候选展开，
 像素按 `width × height × frames × batch` 校验；文本按展开后的 Unicode 字符数校验，
 不另做 tokenizer 推理或估算显存。host 在文本、图像和视频帧分配／resize 前检查，
-container 在 tokenizer／decode／batch 展开前检查。源图像解码也受像素上限约束。
+container 在 tokenizer／decode／batch 展开前检查。图像先读取全部源文件头，按单次请求累计所有图像与视频帧的像素，再解码；多模态的图像与视频共享该总量。源图像与 resize 后的目标尺寸分别受同一上限约束，缩小输出尺寸不会绕过源图像预算。CV 的 ONNX 图像路径也执行相同检查。
 
-可在 NLP 或 Diffusion workload JSON 中设置例如
+可在上述任务族的 workload JSON 中设置例如
 `"input_budget": {"max_batch_items": 8192, "max_pixels": 134217728}`，每个值必须为
 正整数，省略的项使用默认值。解析后的完整预算随 payload 和 input plan metadata 保存，
 纳入输入计划身份；适用于正式画像和容量探索，不限于 probe。该预算限制输入构造，

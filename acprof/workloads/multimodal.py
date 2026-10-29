@@ -13,9 +13,12 @@ import io
 import json
 import math
 import wave
+from itertools import chain, repeat
 from pathlib import Path
 from typing import Any
 
+from acprof.image_inputs import load_image_groups
+from acprof.input_budget import InputBudget
 from acprof.workloads import WorkloadGenerator, register_generator
 
 TASK_MODALITY = {
@@ -42,7 +45,7 @@ SPEC_KEYS = {
     "schema_version", "workload_id", "task", "text", "image_path", "audio_path",
     "video_frames", "fps", "words", "boxes", "params", "input_scales",
     "modalities", "scale_modality", "image_resolution", "audio_duration_s",
-    "video_num_frames", "provenance",
+    "video_num_frames", "provenance", "input_budget",
 }
 
 
@@ -116,6 +119,7 @@ class MultimodalWorkloadGenerator(WorkloadGenerator):
             if self._spec.get("task", task_type) != task_type:
                 raise ValueError("multimodal workload task does not match detected task")
         spec = self._spec
+        self.input_budget = InputBudget.from_value(spec.get("input_budget"))
         self._modalities = spec.get("modalities", [TASK_MODALITY[task_type]])
         if (not isinstance(self._modalities, list) or not self._modalities
                 or any(item not in SCALE_TYPES for item in self._modalities)
@@ -158,6 +162,7 @@ class MultimodalWorkloadGenerator(WorkloadGenerator):
         self._text = spec.get("text", declared_defaults.get("text", DEFAULT_TEXT[task_type]))
         if not isinstance(self._text, str) or not self._text.strip():
             raise ValueError("text must be a nonempty prompt or query")
+        self.input_budget.text(len(self._text), batch_items=1)
         defaults: dict[str, Any] = {} if task_type in {"visual-question-answering", "document-question-answering", "visual-document-retrieval"} else {"max_new_tokens": 64, "do_sample": False}
         defaults.update(declared_defaults.get("params", {}))
         if task_type == "any-to-any":
@@ -174,9 +179,9 @@ class MultimodalWorkloadGenerator(WorkloadGenerator):
         self._frames = None
         self._words: list[str] = []
         self._boxes: list[list[float]] = []
+        self._load_visual_assets(spec)
         if "image" in self._modalities:
             if "image_path" in spec:
-                self._image = self._read_image(spec["image_path"])
                 if task_type == "document-question-answering" and not {"words", "boxes"} <= set(spec):
                     raise ValueError("custom document images require precomputed words and boxes")
             else:
@@ -206,13 +211,6 @@ class MultimodalWorkloadGenerator(WorkloadGenerator):
                     raise ValueError("audio_path must be mono PCM16 WAV")
                 self._sample_rate = source.getframerate()
                 self._pcm = source.readframes(source.getnframes())
-        if "video" in self._modalities and "video_frames" in spec:
-            paths = spec["video_frames"]
-            if not isinstance(paths, list) or not paths:
-                raise ValueError("video_frames must be a nonempty ordered list of local image paths")
-            self._frames = [self._read_image(path) for path in paths]
-            if len({frame.size for frame in self._frames}) != 1:
-                raise ValueError("all video frames must have the same dimensions")
         scales = spec.get("input_scales", DEFAULT_SCALES[self._scale_modality])
         if not isinstance(scales, list) or not scales:
             raise ValueError("input_scales must be a nonempty list")
@@ -226,10 +224,35 @@ class MultimodalWorkloadGenerator(WorkloadGenerator):
         self._assets.append({"path": value, "modality": modality, "sha256": hashlib.sha256(data).hexdigest(), "bytes": len(data)})
         return data
 
-    def _read_image(self, path: str) -> Any:
-        from PIL import Image
-        with Image.open(io.BytesIO(self._read_asset(path, "image"))) as image:
-            return image.convert("RGB")
+    def _load_visual_assets(self, spec: dict[str, Any]) -> None:
+        paths = spec.get("video_frames", [])
+        if "video_frames" in spec and (not isinstance(paths, list) or not paths):
+            raise ValueError("video_frames must be a nonempty ordered list of local image paths")
+        count = len(paths) + int("image" in self._modalities)
+        if count:
+            self.input_budget.batch(count)
+        groups = {}
+        if "image_path" in spec:
+            groups["image_path"] = [self._read_asset(spec["image_path"], "image")]
+        if paths:
+            groups["video_frames"] = [self._read_asset(path, "image") for path in paths]
+        synthetic = [(448, 448)] if "image" in self._modalities and "image_path" not in spec else []
+        images = load_image_groups(groups, budget=self.input_budget, same_size={"video_frames"},
+                                   additional_sizes=synthetic)
+        self._image = images["image_path"][0] if "image_path" in images else None
+        self._frames = images.get("video_frames")
+
+    def _check_visual_budget(self, scale: float) -> None:
+        image_sizes = []
+        if "image" in self._modalities:
+            resolution = int(scale) if self._scale_modality == "image" else self._image_resolution
+            image_sizes = [(resolution, resolution)]
+        count = (int(scale) if self._scale_modality == "video" else self._video_count) if "video" in self._modalities else 0
+        self.input_budget.image_collection(chain(image_sizes, repeat((self._image_resolution, self._image_resolution), count)))
+        if count and self._frames is None:
+            # Synthetic source frames are expanded before their output resize.
+            sources = [self._image.size] if self._image is not None else []
+            self.input_budget.image_collection(chain(sources, repeat((448, 448), count)))
 
     def _scale(self, value: Any) -> float:
         return _positive_number(value, self.input_scale_type, integer=self._scale_modality != "audio")
@@ -237,6 +260,7 @@ class MultimodalWorkloadGenerator(WorkloadGenerator):
     def generate(self, scale_value: float) -> dict[str, Any]:
         from PIL import Image
         scale = self._scale(scale_value)
+        self._check_visual_budget(scale)
         sample: dict[str, Any] = {"text": self._text}
         if "image" in self._modalities:
             if self._image is None:
@@ -266,7 +290,8 @@ class MultimodalWorkloadGenerator(WorkloadGenerator):
             source_frames = self._frames[:count] if self._frames is not None else [_scene(frame=i)[0] for i in range(count)]
             frames = [frame.resize((self._image_resolution, self._image_resolution), Image.Resampling.BICUBIC) for frame in source_frames]
             sample.update(video_frames_base64=[_png(frame) for frame in frames], fps=self._fps)
-        return {"samples": [sample], "params": copy.deepcopy(self._params), "input_scale": scale, "input_scale_type": self.input_scale_type}
+        return {"samples": [sample], "params": copy.deepcopy(self._params), "input_scale": scale,
+                "input_scale_type": self.input_scale_type, "input_budget": self.input_budget.as_dict()}
 
     def scale_label(self, scale_value: float) -> str:
         return f"{self.input_scale_type}{self._scale(scale_value):g}"
@@ -299,6 +324,7 @@ class MultimodalWorkloadGenerator(WorkloadGenerator):
             "params": copy.deepcopy(self._params),
             "assets": copy.deepcopy(self._assets),
             "manifest_sha256": self._manifest_sha256,
+            "input_budget": self.input_budget.as_dict(),
             "provenance": copy.deepcopy(self._spec.get("provenance", {})),
             "construction": "fixed image resized square / audio prefix / ordered video frame prefix resized square",
             "fixed_media": fixed_media,

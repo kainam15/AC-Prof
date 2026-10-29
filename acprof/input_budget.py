@@ -5,7 +5,9 @@ Explicit workload overrides travel with each frozen payload, never via host RAM.
 """
 
 import math
+from collections.abc import Iterable
 from dataclasses import asdict, dataclass
+from numbers import Integral
 from typing import Any
 
 
@@ -13,12 +15,19 @@ class InputBudgetExceeded(ValueError):
     """Construction was refused before allocation; no inference OOM occurred."""
 
 
-def positive_integer(value: Any, name: str) -> int:
-    if (isinstance(value, bool) or not isinstance(value, (int, float))
-            or isinstance(value, float) and not math.isfinite(value)
-            or value < 1 or int(value) != value):
+def positive_integer(value: Any, name: str, *, allow_integral_float: bool = True) -> int:
+    """Parse numeric integers without truncation; strict fields reject floats."""
+    if isinstance(value, bool):
         raise ValueError(f"{name} must be a positive integer")
-    return int(value)
+    if isinstance(value, Integral):
+        parsed = int(value)
+    elif allow_integral_float and isinstance(value, float) and math.isfinite(value) and value.is_integer():
+        parsed = int(value)
+    else:
+        raise ValueError(f"{name} must be a positive integer")
+    if parsed < 1:
+        raise ValueError(f"{name} must be a positive integer")
+    return parsed
 
 
 @dataclass(frozen=True)
@@ -51,6 +60,15 @@ class InputBudget:
     def text(self, characters: int, *, batch_items: int) -> None:
         self.batch(batch_items)
         self._check("text_characters", characters, self.max_text_characters)
+
+    def image_collection(self, sizes: Iterable[tuple[int, int]], *, batch: int = 1) -> None:
+        """Bound a heterogeneous request, including every ordered video frame."""
+        batch = positive_integer(batch, "batch_size")
+        total = 0
+        for count, (width, height) in enumerate(sizes, 1):
+            self.batch(count * batch)
+            total += positive_integer(width, "width") * positive_integer(height, "height")
+            self._check("pixels", total * batch, self.max_pixels)
 
     def pixels(self, width: int, height: int, *, frames: int = 1, batch: int = 1) -> None:
         width, height = positive_integer(width, "width"), positive_integer(height, "height")

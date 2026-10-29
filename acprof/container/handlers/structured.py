@@ -14,19 +14,13 @@ from typing import Any
 import numpy as np
 
 from acprof.container.handlers import BaseHandler, handler_declaration
+from acprof.input_budget import positive_integer
 from acprof.model_spec import load_model_spec
 
 TASK_OUTPUT_TYPES = {
     "tabular-classification": "classification", "tabular-regression": "regression",
     "reinforcement-learning": "actions", "robotics": "actions", "graph-ml": "graph",
 }
-
-
-def _positive_integer(value: Any, name: str) -> int:
-    if (isinstance(value, bool) or not isinstance(value, (int, float))
-            or not math.isfinite(value) or value <= 0 or int(value) != value):
-        raise ValueError(f"{name} must be a positive integer")
-    return int(value)
 
 
 def _local_snapshot(model_source: str, model_revision: str) -> Path:
@@ -85,7 +79,7 @@ class StructuredHandler(BaseHandler):
                 raise ValueError("acprof_model.json task must match selected task")
             if manifest.get("format") != backend:
                 raise ValueError("acprof_model.json format must match runtime backend")
-            feature_dim = _positive_integer(manifest.get("feature_dim"), "feature_dim")
+            feature_dim = positive_integer(manifest.get("feature_dim"), "feature_dim")
             artifact = _artifact_path(root, manifest.get("model_file"))
         elif options.get("requires_model_spec"):
             raise ValueError("TorchScript task support requires acprof_model.json with schema_version, task, format, model_file and feature_dim; arbitrary Hub models are not supported")
@@ -105,7 +99,7 @@ class StructuredHandler(BaseHandler):
 
             # Never automatically trust serialized custom classes or functions.
             model = skops_io.load(str(artifact), trusted=[])
-            inferred_dim = _positive_integer(getattr(model, "n_features_in_", None), "model n_features_in_")
+            inferred_dim = positive_integer(getattr(model, "n_features_in_", None), "model n_features_in_")
             if feature_dim is not None and feature_dim != inferred_dim:
                 raise ValueError("acprof_model.json feature_dim does not match model n_features_in_")
             feature_dim = inferred_dim
@@ -120,8 +114,8 @@ class StructuredHandler(BaseHandler):
         task = model_ctx["task_type"]
         if not isinstance(raw_input, dict):
             raise ValueError("structured input must be an object")
-        batch_size = _positive_integer(raw_input.get("batch_size", 1), "batch_size")
-        scale = _positive_integer(raw_input.get("input_scale"), "input_scale")
+        batch_size = positive_integer(raw_input.get("batch_size", 1), "batch_size")
+        scale = positive_integer(raw_input.get("input_scale"), "input_scale")
         feature_dim = model_ctx["feature_dim"]
         if task == "graph-ml":
             graphs = raw_input.get("graphs")
