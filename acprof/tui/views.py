@@ -313,8 +313,14 @@ def compose_run_tab(app: AcprofTui) -> ComposeResult:
                         value=app.configuration.initial_config.runtime, allow_blank=False,
                         id="runtime", classes="config-control",
                     ), field_id="runtime")
-                    yield app.localization.localized_widget(Static("Process 的 CPU / 内存填 auto 表示继承限制；数值配额需要可写的 cgroup。"))
-                    yield app.localization.localized_widget(Button("使用 Process 继承限制", id="process-inherited-resources"))
+                    with Vertical(id="process-resource-help"):
+                        yield app.localization.localized_widget(Static(
+                            "Process 的 CPU / 内存填 auto 表示继承限制；数值配额需要可写的 cgroup。",
+                            classes="page-hint", markup=False,
+                        ))
+                        yield app.localization.localized_widget(Button(
+                            "使用 Process 继承限制", id="process-inherited-resources",
+                        ))
                     yield app.localization.localized_widget(Label("画像模式"))
                     yield ConfigField(app.localization.localized_select(
                         (("完整（RAPL / perf / 抓包）", "full"), ("基础（延迟 / CPU / 内存）", "basic")),

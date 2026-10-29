@@ -256,10 +256,10 @@ class PreflightController:
         detail = self.app.query_one("#preflight-run-reason", Static)
         detail.display = bool(reason)
         self.app.localization.set_text(detail, reason)
-        inherited = self.app.query_one("#process-inherited-resources", Button)
-        inherited.display = self.selected_runtime == "process" or self.app.configuration.select("runtime") == "process"
+        process_runtime = self.selected_runtime == "process" or self.app.configuration.select("runtime") == "process"
+        self.app.query_one("#process-resource-help").display = process_runtime
         probe = self.app.query_one("#probe-largest", Button)
-        if self.selected_runtime == "process" or self.app.configuration.select("runtime") == "process":
+        if process_runtime:
             probe.disabled = True
             self.app.localization.set_text(probe, "Process 请使用输入规模扫描；最小内存探测需要 Docker。", "tooltip")
         start = self.app.query_one("#start-run", Button)
