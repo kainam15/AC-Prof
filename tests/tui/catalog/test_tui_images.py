@@ -125,38 +125,39 @@ class TestTuiImages:
     def make_app(self):
         return AcprofTui(RunConfig.smoke("demo/model"), settings_path=self.directory / "tui.json")
 
-    @pytest.mark.parametrize('view', ['tree', 'list', 'layers'])
     @pytest.mark.parametrize('language', ['zh', 'en'])
     @pytest.mark.parametrize('size', [(80, 24), (120, 30), (150, 45)])
-    async def test_detail_boundary_drags_in_all_views_sizes_and_languages(self, view, language, size):
+    async def test_detail_boundary_drags_in_all_views_sizes_and_languages(self, language, size):
+        # Test every view at each language/size while sharing one image inventory.
         app = self.make_app()
         async with app.run_test(size=(150, 45)) as pilot:
             await self.load_images(app, pilot, view="tree")
             browser = app.query_one("#image-browser")
             detail = app.query_one("#image-detail-scroll")
-            before = len(self.docker.commands)
             await pilot.resize_terminal(*size)
             app.configuration.preferences = replace(app.configuration.preferences, language=language)
             app.configuration.apply_ui_preferences()
             await pilot.pause()
-            await pilot.click("#image-view-" + view)
-            await pilot.pause()
-            initial = detail.size.height
-            browser_height = browser.size.height
-            current = detail._detail_key
-            start = (browser.region.x + browser.size.width // 2, browser.region.bottom)
-            await drag(pilot, app.screen, start, 0, 2, release_click=True)
-            assert (detail.size.height) == (initial - 2), "向下拖动分隔线应缩小详情区"
-            assert (browser.size.height) == (browser_height + 2)
-            assert (app.mouse_captured) is None
-            start = (start[0], browser.region.bottom)
-            await drag(pilot, app.screen, start, 0, -2, release_click=True)
-            assert (detail.size.height) == (initial)
-            assert (browser.size.height) == (browser_height)
-            assert (detail._detail_key) == (current)
-            assert not (app.images.selected_ids)
-            assert (detail.region.bottom) <= (app.query_one("#image-panel").content_region.bottom)
-            assert (len(self.docker.commands)) == (before), "调整详情高度不能查询 Docker"
+            for view in ('tree', 'list', 'layers'):
+                await pilot.click("#image-view-" + view)
+                await pilot.pause()
+                before = len(self.docker.commands)
+                initial = detail.size.height
+                browser_height = browser.size.height
+                current = detail._detail_key
+                start = (browser.region.x + browser.size.width // 2, browser.region.bottom)
+                await drag(pilot, app.screen, start, 0, 2, release_click=True)
+                assert detail.size.height == initial - 2, view
+                assert browser.size.height == browser_height + 2, view
+                assert app.mouse_captured is None, view
+                start = (start[0], browser.region.bottom)
+                await drag(pilot, app.screen, start, 0, -2, release_click=True)
+                assert detail.size.height == initial, view
+                assert browser.size.height == browser_height, view
+                assert detail._detail_key == current, view
+                assert not app.images.selected_ids, view
+                assert detail.region.bottom <= app.query_one("#image-panel").content_region.bottom, view
+                assert len(self.docker.commands) == before, "调整详情高度不能查询 Docker"
 
     @pytest.mark.parametrize(("view", "widget_id"), [
         ('tree', '#image-tree'), ('list', '#image-table'), ('layers', '#image-layer-table'),

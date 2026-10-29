@@ -68,35 +68,42 @@ class TestTuiPresentation:
             app.configuration.apply_config(saved.run_defaults)
             assert (sample.value) == ("20.1256789"), "显示不能丢失已保存的小数精度"
 
-    @pytest.mark.parametrize('name_case', range(6), ids=["('warmup', '次' if language == 'zh' else 'runs')", "('repeat', '次' if language == 'zh' else 'runs')", "('sample-hz', 'Hz')", "('idle-seconds', 's')", "('idle-cooldown-seconds', 's')", "('request-timeout-seconds', 's')"])
     @pytest.mark.parametrize('language', ['zh', 'en'])
     @pytest.mark.parametrize('size', [(80, 24), (120, 30), (150, 45)])
-    async def test_parameter_units_remain_outside_editable_inputs_across_resize_and_languages(self, name_case, language, size):
+    async def test_parameter_units_remain_outside_editable_inputs_across_resize_and_languages(self, language, size):
+        # One app per language/size; every field still receives the same checks.
         app = self.app
         async with app.run_test(size=(150, 45)) as pilot:
             await pilot.click("#open-run-settings")
             await pilot.pause()
-            assert (len(app.query("#repeat"))) == (1), "Repeat 应有独立的输入框"
+            assert len(app.query("#repeat")) == 1, "Repeat 应有独立的输入框"
             await pilot.resize_terminal(*size)
             app.configuration.preferences = replace(app.configuration.preferences, language=language)
             app.configuration.apply_ui_preferences()
-            (name, unit) = tuple((('warmup', '次' if language == 'zh' else 'runs'), ('repeat', '次' if language == 'zh' else 'runs'), ('sample-hz', 'Hz'), ('idle-seconds', 's'), ('idle-cooldown-seconds', 's'), ('request-timeout-seconds', 's')))[name_case]
-            field = app.query_one("#" + name, Input)
-            field.scroll_visible(animate=False, immediate=True)
-            await pilot.pause()
-            assert field.parent is not None
-            label = field.parent.query_one(".field-unit", Label)
-            assert (str(label.content)) == (unit)
-            assert (label.region.x) >= (field.region.right)
-            assert (label.region.right) <= (app.size.width - 2)
-            assert (await pilot.click(field))
-            assert (app.focused) is (field)
-            assert (unit) not in (field.value)
-            app.set_busy(True)
-            assert (app.query_one("#warmup", Input).disabled)
-            assert (app.query_one("#repeat", Input).disabled)
-            app.set_busy(False)
-            assert not (app.query_one("#repeat", Input).disabled)
+            for name, unit in (
+                ('warmup', '次' if language == 'zh' else 'runs'),
+                ('repeat', '次' if language == 'zh' else 'runs'),
+                ('sample-hz', 'Hz'),
+                ('idle-seconds', 's'),
+                ('idle-cooldown-seconds', 's'),
+                ('request-timeout-seconds', 's'),
+            ):
+                field = app.query_one("#" + name, Input)
+                field.scroll_visible(animate=False, immediate=True)
+                await pilot.pause()
+                assert field.parent is not None, name
+                label = field.parent.query_one(".field-unit", Label)
+                assert str(label.content) == unit, name
+                assert label.region.x >= field.region.right, name
+                assert label.region.right <= app.size.width - 2, name
+                assert await pilot.click(field), name
+                assert app.focused is field, name
+                assert unit not in field.value, name
+                app.set_busy(True)
+                assert app.query_one("#warmup", Input).disabled, name
+                assert app.query_one("#repeat", Input).disabled, name
+                app.set_busy(False)
+                assert not app.query_one("#repeat", Input).disabled, name
 
     async def test_monitor_distinguishes_no_case_from_missing_case_resources(self):
         app = self.app
