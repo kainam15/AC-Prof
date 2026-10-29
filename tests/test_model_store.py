@@ -103,7 +103,7 @@ class TestModelStore:
         with patch("huggingface_hub.snapshot_download", side_effect=self.snapshot) as download:
             second = model_store.prepare_model(self.task, self.plan, self.root)
         assert (first) == (second)
-        assert (download.call_args.kwargs["local_files_only"])
+        download.assert_not_called()
 
     def incomplete_entry(self):
         record = self.prepare()
@@ -456,7 +456,7 @@ class TestModelStore:
                 download.assert_not_called()
         self.plan["files"][0]["size"] = None
         with pytest.raises(DownloadPolicyError):
-            model_store.require_space(self.plan, self.root)
+            model_store.require_space(model_store.model_sources(self.plan, self.root), self.root)
 
     def test_capacity_and_prune_preserve_hash_identity(self):
         with patch.dict(os.environ, {"ACPROF_MODEL_STORE_MAX": "1"}):

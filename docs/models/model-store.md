@@ -54,6 +54,16 @@ refs 只按预期 commit 长度有界读取；目录符号链接和读取权限�
 完整性核对参考 [HF 离线快照检查](https://github.com/huggingface/huggingface_hub/blob/main/src/huggingface_hub/_snapshot_download.py)
 （Apache-2.0，持续维护）；AC-Prof 使用固定清单检查自身视图，保留逐文件 SHA256 校验，不新增依赖。
 
+完整 entry 也可独立于 SDK 源快照索引复用。预检、准备和本地候选扫描传入已知 entry ID，
+仅在磁盘清单与待用计划完全一致、主模型及全部依赖的视图完整时，将这些文件计为缓存命中；
+仅有相同摘要字符串不能替代清单内容核对。此时不探测模型网络，也不调用 SDK 重新查找源快照。
+空间与下载预算使用同一次缓存观察，准备在 Model Store 锁内重新检查，预检后文件丢失仍受原下载预算约束。
+完整视图随后逐仓库校验一次实际 payload SHA256，内容损坏明确失败；缓存命中不等于推理验证通过。
+候选扫描使用清单所在的原 entry ID，支持历史 entry，仍保持只读且不 hash 权重。
+缺失或不完整视图沿用源缓存检查与显式修复流程，不因为 SDK 索引缺失自动增加在线下载。
+完整性判断参考上述 HF 源码及 [Issue #4624](https://github.com/huggingface/huggingface_hub/issues/4624)；
+AC-Prof 使用自身已验证文件清单，不要求历史缓存具有新版 SDK 的 tree listing，不新增依赖或测量窗口内工作。
+
 下载清单 schema v1 增加可选的 `source`、`requested_revision`、`repository_context` 和 `download_provenance`；历史缺 source 按既有 HF 语义读取，不重写已有实验。`repository_context` schema v1 保存原始 Hub 元数据和完整仓库文件列表，不能用下载筛选后的文件或用户覆盖的任务字段代替。历史缺少完整上下文的计划仍可按固定身份读取，不伪造仓库元信息；读取缓存配置文件先检查大小上限及 SHA256。Hub `endpoint` 是传输信息，不作为模型身份。`download_provenance` 记录入口、最终 endpoint 类型、失败尝试与去除签名 query／凭据的 redirect chain，最多保存 256 次响应并标记截断。完整缓存保留原记录，不虚构当次网络流量。SDK 无法暴露的实际 CDN 或历史缓存原始地址保留 `unknown`；目前 ModelScope SDK 不提供等价的 redirect hook，因此其存储链不推断为 Hub 地址。细节见[结果协议](../profiling/metadata.md#static_metajson-字段)。
 
 摘要匹配后仍须校验清单字段：主模型与依赖共用 repository ID 和固定 commit 约束，

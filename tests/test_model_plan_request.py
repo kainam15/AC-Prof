@@ -152,5 +152,4 @@ def test_budget_and_receipt_use_the_verified_plan_selected_for_reuse(task, plan,
     with patch("huggingface_hub.snapshot_download", side_effect=snapshot) as download:
         reused = model_store.prepare_model(task, candidate, tmp_path, planned_download_bytes=0)
     assert reused == original
-    assert download.call_args.kwargs["local_files_only"] is True
-    assert download.call_args.kwargs["allow_patterns"] == ["config.json"]
+    download.assert_not_called()

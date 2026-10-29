@@ -243,7 +243,8 @@ def test_preflight_reserves_full_download_before_get_and_passes_evidence_to_conf
     endpoint, visited = probe_server
     monkeypatch.setenv('ACPROF_MAX_DOWNLOAD', str(1048576 + extra_budget))
     monkeypatch.setenv('ACPROF_INTERACTIVE_PREPARATION', '1')
-    task = SimpleNamespace(model_id='demo/model', model_revision='a' * 40)
+    task = SimpleNamespace(model_id='demo/model', model_revision='a' * 40,
+        task_family='nlp', runtime_backend='transformers_pipeline', model_adapter='family-default')
     with (
         patch('acprof.host.model_store.require_space', return_value={}),
         patch('acprof.host.collection_workflow.PreparationWorkflow.ask') as ask,

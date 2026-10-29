@@ -138,7 +138,7 @@ def cached_candidates(root: Path, *, cancelled: Callable[[], bool] = lambda: Fal
             raise InterruptedError('model candidate scan cancelled')
         try:
             plan = read_entry(path.parent.name, root)
-            if not plan or not all(source.cache_status == 'hit' for source in model_sources(plan, root)):
+            if not plan or not all(source.cache_status == 'hit' for source in model_sources(plan, root, entry_id=path.parent.name)):
                 continue
             identity = (plan['model_id'], plan['model_revision'], plan.get('source', 'huggingface'))
             if identity in identities or not pinned_revision(identity[1]):

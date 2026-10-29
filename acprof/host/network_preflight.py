@@ -282,14 +282,16 @@ def preflight(task, profile, project_dir, model_plan: dict, *, root=None,
               runtime_plan: tuple[list[DownloadSource], dict] | None = None) -> dict:
     from acprof.host.model_store import (
         enforce_model_download_budgets,
+        entry_key,
         model_sources,
         probe_model_download,
         require_space,
         store_root,
     )
     from acprof.network_policy import parse_bytes
-    models = model_sources(model_plan, root)
-    disk = require_space(model_plan, root)
+    entry_id = entry_key(task)
+    models = model_sources(model_plan, root, entry_id=entry_id)
+    disk = require_space(models, root)
     enforce_model_download_budgets(summarize_downloads(models))
     sources, runtime = runtime_sources(profile, Path(project_dir)) if runtime_plan is None else runtime_plan
     planned = summarize_downloads([*models, *sources])
@@ -297,8 +299,8 @@ def preflight(task, profile, project_dir, model_plan: dict, *, root=None,
     allowance = probe_allowance(summarize_downloads(models)["expected_download_bytes"], planned["expected_download_bytes"])
     print(f"[network-probe] HEAD + limited model GET; at most {allowance} payload bytes; "
           "no cache writes; complete downloads require confirmation in interactive mode", flush=True)
-    probes = probe_model_download(model_plan, root, max_bytes=allowance)
-    models = model_sources(model_plan, root)  # Probe may have selected another Hub entry.
+    probes = probe_model_download(model_plan, root, entry_id=entry_id, max_bytes=allowance)
+    models = model_sources(model_plan, root, entry_id=entry_id)  # Probe may have selected another Hub entry.
     probe_bytes = sum(item.get("received_bytes", 0) for item in probes)
     model_bytes = summarize_downloads(models)["expected_download_bytes"]
     enforce_model_download_budgets({"expected_download_bytes": None if model_bytes is None else model_bytes + probe_bytes})

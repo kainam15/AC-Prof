@@ -23,7 +23,8 @@ from acprof.runtime_profiles import PROFILES
 
 @pytest.mark.parametrize("download_bytes", [890_152_505, None])
 def test_download_confirmation_preserves_raw_bytes(tmp_path, capsys, download_bytes):
-    task = SimpleNamespace(model_id="demo/model", model_revision="a" * 40)
+    task = SimpleNamespace(model_id="demo/model", model_revision="a" * 40,
+        task_family="nlp", runtime_backend="transformers_pipeline", model_adapter="family-default")
     plan = {"selected_bytes": 890_152_505, "endpoint": "https://hf-mirror.com"}
     disk = {"total_bytes": 0, "free_bytes": 41_370_132_480,
             "reclaimable_bytes": 0, "remaining_bytes": 40_479_979_975}
@@ -59,7 +60,8 @@ def test_download_confirmation_preserves_raw_bytes(tmp_path, capsys, download_by
 
 def test_model_only_budget_allows_cached_model_with_unknown_oci_size(tmp_path):
     """Regression for hardware run #2: GHCR manifest may have no size."""
-    task = SimpleNamespace(model_id="demo/model", model_revision="a" * 40)
+    task = SimpleNamespace(model_id="demo/model", model_revision="a" * 40,
+        task_family="nlp", runtime_backend="transformers_pipeline", model_adapter="family-default")
     plan = {"selected_bytes": 989_138, "endpoint": "https://hf-mirror.com"}
     model = DownloadSource("model", plan["endpoint"], 0, cached_bytes=989_138, cache_status="hit")
     oci = DownloadSource("oci", "https://ghcr.io/demo/runtime", None, cache_status="miss")
@@ -86,7 +88,8 @@ def test_model_only_budget_allows_cached_model_with_unknown_oci_size(tmp_path):
 
 @pytest.mark.parametrize("model_bytes", [None, 4_000_000_001])
 def test_model_only_budget_blocks_unknown_or_oversized_model_before_oci(tmp_path, model_bytes):
-    task = SimpleNamespace(model_id="demo/model", model_revision="a" * 40)
+    task = SimpleNamespace(model_id="demo/model", model_revision="a" * 40,
+        task_family="nlp", runtime_backend="transformers_pipeline", model_adapter="family-default")
     plan = {"selected_bytes": model_bytes, "endpoint": "https://hf-mirror.com"}
     with (
         patch.dict("os.environ", {"ACPROF_MODEL_MAX_DOWNLOAD": "4GB", "ACPROF_MAX_DOWNLOAD": ""}, clear=True),
@@ -104,7 +107,8 @@ def test_model_only_budget_blocks_unknown_or_oversized_model_before_oci(tmp_path
 
 
 def test_total_budget_remains_strict_with_unknown_oci_size(tmp_path):
-    task = SimpleNamespace(model_id="demo/model", model_revision="a" * 40)
+    task = SimpleNamespace(model_id="demo/model", model_revision="a" * 40,
+        task_family="nlp", runtime_backend="transformers_pipeline", model_adapter="family-default")
     plan = {"selected_bytes": 2, "endpoint": "https://hf-mirror.com"}
     with (
         patch.dict("os.environ", {"ACPROF_MODEL_MAX_DOWNLOAD": "4GB", "ACPROF_MAX_DOWNLOAD": "4GB"}, clear=True),

@@ -370,13 +370,22 @@ def cached_file(root: Path, plan: dict, record: dict) -> Path | None:
     return None
 
 
-def model_sources(plan: dict, root: Path | None = None) -> list[DownloadSource]:
+def _complete_entry(plan: dict, root: Path, entry_id: str | None) -> bool:
+    if entry_id is None:
+        return False
+    stored = read_entry(entry_id, root)
+    return (stored is not None and stored == plan
+            and view_complete(root, entry_id, repository_plans(stored)))
+
+
+def model_sources(plan: dict, root: Path | None = None, *, entry_id: str | None = None) -> list[DownloadSource]:
     root = root or store_root()
+    complete = _complete_entry(plan, root, entry_id)
     result = []
     for repo in repository_plans(plan):
-        cached = 0
+        cached = repo["selected_bytes"] if complete else 0
         missing = []
-        for record in repo["files"]:
+        for record in [] if complete else repo["files"]:
             path = cached_file(root, repo, record)
             if path:
                 cached += path.stat().st_size
@@ -389,7 +398,7 @@ def model_sources(plan: dict, root: Path | None = None) -> list[DownloadSource]:
     return result
 
 
-def probe_model_download(plan: dict, root: Path | None = None, *, max_bytes: int | None = None,
+def probe_model_download(plan: dict, root: Path | None = None, *, entry_id: str | None = None, max_bytes: int | None = None,
                          timeout: float = 8) -> list[dict]:
     """HEAD and bounded GET of missing artifacts; never populate the cache."""
     from urllib.parse import quote
@@ -398,6 +407,8 @@ def probe_model_download(plan: dict, root: Path | None = None, *, max_bytes: int
     from acprof.host.download_probe import ProbeBudget, probe_allowance, probe_hf_file, probe_record
 
     root = root or store_root()
+    if _complete_entry(plan, root, entry_id):
+        return []
     missing_repositories = [(repo, [item for item in repo["files"] if cached_file(root, repo, item) is None])
                             for repo in repository_plans(plan)]
     sizes = [item.get("size") for _, missing in missing_repositories for item in missing]
@@ -468,9 +479,9 @@ def disk_report(root: Path | None = None, *, cancel: Event | None = None) -> dic
             "capacity_bytes": parse_bytes(os.environ.get("ACPROF_MODEL_STORE_MAX"))}
 
 
-def require_space(plan: dict, root: Path | None = None) -> dict:
+def require_space(sources: list[DownloadSource], root: Path | None = None) -> dict:
+    """Check the same cache observation used to calculate the download budget."""
     root = root or store_root()
-    sources = model_sources(plan, root)
     sizes = [source.estimated_bytes for source in sources]
     if any(n is None for n in sizes):
         raise DownloadPolicyError("Model Store 文件大小未知；无法核验剩余空间，尚未下载权重")
@@ -520,8 +531,8 @@ def prepare_model(task, plan: dict, root: Path | None = None, *, planned_downloa
                 fcntl.flock(lease, fcntl.LOCK_EX | fcntl.LOCK_NB)
             except BlockingIOError as exc:
                 raise RuntimeError("Model Store 文件视图缺失或不完整且存在活动 lease；停止消费者后才能重新准备") from exc
-        require_space(plan, root)
-        sources = model_sources(plan, root)
+        sources = model_sources(plan, root, entry_id=key)
+        require_space(sources, root)
         sizes = [source.estimated_bytes for source in sources]
         if any(size is None for size in sizes):
             raise DownloadPolicyError("Model Store 文件大小未知；无法预估下载预算")
@@ -553,15 +564,17 @@ def prepare_model(task, plan: dict, root: Path | None = None, *, planned_downloa
                     local_files_only=offline, **progress_kwargs)
                 return target, endpoint
             try:
-                if offline or source == "modelscope":
+                if not needs_publish:
+                    progress.start_attempt()
+                    target, endpoint = str(snapshot_path(root, key, repo)), repo["endpoint"]
+                elif offline or source == "modelscope":
                     target, endpoint = download(repo["endpoint"])
                 else:
                     choices = list(dict.fromkeys([repo["endpoint"], *hf_endpoints()]))
                     target, endpoint = try_hf_endpoints(repo["model_id"], download, endpoints=choices)
                 progress.finish("verifying")
                 # Verification happens before any runtime or formal measurement starts.
-                verification_target = Path(target) if needs_publish else snapshot_path(root, key, repo)
-                verify_download(verification_target, repo)
+                verify_download(Path(target), repo)
             except BaseException as exc:
                 progress.finish("cancelled" if isinstance(exc, (KeyboardInterrupt, SystemExit)) else "failed")
                 raise
