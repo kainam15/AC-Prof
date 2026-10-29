@@ -13,13 +13,13 @@ from tests.support.command_fixtures import redirect_command_output
 
 
 def bundle_module():
-    assert importlib.util.find_spec("acprof.host.source_bundle"), "source-only bundle is missing"
-    from acprof.host import source_bundle
+    assert importlib.util.find_spec("acprof.host.preparation.source_bundle"), "source-only bundle is missing"
+    from acprof.host.preparation import source_bundle
     return source_bundle
 
 
 def test_interface_probe_does_not_prepare_a_model(tmp_path):
-    from acprof.host.interface_probe import probe_interface
+    from acprof.host.preparation.interface_probe import probe_interface
     task = contracts.TestModelContract().discover()
     calls = []
     @redirect_command_output
@@ -41,9 +41,9 @@ def test_interface_probe_does_not_prepare_a_model(tmp_path):
     with patch("acprof.host.images.runtime.prepare_image", side_effect=AssertionError("weights path entered")), patch(
         "acprof.host.model_store.store.prepare_model", side_effect=AssertionError("model store entered")), patch(
         "acprof.host.model_store.store.plan_model", side_effect=AssertionError("model planning entered")), patch(
-        "acprof.host.interface_probe.prepare_environment_image", return_value=SimpleNamespace(image_id="sha256:" + "b" * 64)), patch(
-        "acprof.host.interface_probe.run_command", side_effect=run), patch(
-        "acprof.host.interface_probe.recover_abandoned_containers"):
+        "acprof.host.preparation.interface_probe.prepare_environment_image", return_value=SimpleNamespace(image_id="sha256:" + "b" * 64)), patch(
+        "acprof.host.preparation.interface_probe.run_command", side_effect=run), patch(
+        "acprof.host.preparation.interface_probe.recover_abandoned_containers"):
         assert probe_interface(task, tmp_path)["status"] == "ok"
     assert len([command for command in calls if command[:2] == ["docker", "run"]]) == 1
     assert calls[-1] == ["docker", "rm", "-f", "c" * 64]
@@ -51,7 +51,7 @@ def test_interface_probe_does_not_prepare_a_model(tmp_path):
 
 
 def test_interface_probe_rejects_nonfinite_container_record_before_persistence(tmp_path):
-    from acprof.host.interface_probe import probe_interface
+    from acprof.host.preparation.interface_probe import probe_interface
 
     task = contracts.TestModelContract().discover()
 
@@ -73,10 +73,10 @@ def test_interface_probe_rejects_nonfinite_container_record_before_persistence(t
         return SimpleNamespace(returncode=0, stdout="", stderr="")
 
     with patch(
-        "acprof.host.interface_probe.prepare_environment_image",
+        "acprof.host.preparation.interface_probe.prepare_environment_image",
         return_value=SimpleNamespace(image_id="sha256:" + "b" * 64),
-    ), patch("acprof.host.interface_probe.recover_abandoned_containers"), patch(
-        "acprof.host.interface_probe.run_command", side_effect=run
+    ), patch("acprof.host.preparation.interface_probe.recover_abandoned_containers"), patch(
+        "acprof.host.preparation.interface_probe.run_command", side_effect=run
     ), pytest.raises(ValueError, match="non-finite number"):
         probe_interface(task, tmp_path)
 
@@ -86,10 +86,10 @@ def test_interface_probe_rejects_nonfinite_container_record_before_persistence(t
 
 
 def test_dependency_image_failure_is_an_environment_failure(tmp_path):
-    from acprof.host.interface_probe import InterfaceProbeError, probe_interface
+    from acprof.host.preparation.interface_probe import InterfaceProbeError, probe_interface
     task = contracts.TestModelContract().discover()
-    with patch("acprof.host.interface_probe.prepare_environment_image", side_effect=RuntimeError("registry unavailable")), patch(
-        "acprof.host.interface_probe.run_command") as run, pytest.raises(InterfaceProbeError) as caught:
+    with patch("acprof.host.preparation.interface_probe.prepare_environment_image", side_effect=RuntimeError("registry unavailable")), patch(
+        "acprof.host.preparation.interface_probe.run_command") as run, pytest.raises(InterfaceProbeError) as caught:
         probe_interface(task, tmp_path)
     assert caught.value.stage == "environment"
     assert json.loads((tmp_path / "interface_validation.json").read_text())["failed_stage"] == "environment"
@@ -260,7 +260,7 @@ def test_tokenizer_metadata_keeps_its_source_graph_and_small_metadata():
 def test_interface_failure_cleans_container_and_both_temporary_directories(tmp_path, interrupted):
     import subprocess
 
-    from acprof.host.interface_probe import probe_interface
+    from acprof.host.preparation.interface_probe import probe_interface
     task = contracts.TestModelContract().discover()
     directories = []
     @redirect_command_output
@@ -275,9 +275,9 @@ def test_interface_failure_cleans_container_and_both_temporary_directories(tmp_p
             raise subprocess.TimeoutExpired(command, 1, output="partial probe log")
         assert command == ["docker", "rm", "-f", "c" * 64]
         return SimpleNamespace(returncode=0, stdout="", stderr="")
-    with patch("acprof.host.interface_probe.prepare_environment_image", return_value=SimpleNamespace(image_id="sha256:" + "b" * 64)), patch(
-        "acprof.host.interface_probe.recover_abandoned_containers"), patch(
-        "acprof.host.interface_probe.run_command", side_effect=run), pytest.raises(KeyboardInterrupt if interrupted else subprocess.TimeoutExpired):
+    with patch("acprof.host.preparation.interface_probe.prepare_environment_image", return_value=SimpleNamespace(image_id="sha256:" + "b" * 64)), patch(
+        "acprof.host.preparation.interface_probe.recover_abandoned_containers"), patch(
+        "acprof.host.preparation.interface_probe.run_command", side_effect=run), pytest.raises(KeyboardInterrupt if interrupted else subprocess.TimeoutExpired):
         probe_interface(task, tmp_path)
     assert directories
     assert all(not directory.exists() for directory in directories)

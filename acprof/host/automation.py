@@ -14,8 +14,8 @@ def check_repository_access(repo_id: str, *, source: str = "huggingface", revisi
     """Check access without accepting terms or exposing credentials in reports."""
     from huggingface_hub import HfApi
 
-    from acprof.host.model_errors import model_lookup_error
     from acprof.host.model_store.store import cached_model_info
+    from acprof.host.preparation.model_errors import model_lookup_error
     from acprof.hub.huggingface.download import HfDownloadError, exception_chain, try_hf_endpoints
     from acprof.hub.huggingface.transport import configure_hf_transport
     from acprof.hub.repository import model_source, modelscope_info
@@ -78,8 +78,8 @@ class AutomaticRun:
     def prepare(self):
         from acprof.host.detect import TaskInfo, detect_task
         from acprof.host.doctor import collect_checks
+        from acprof.host.preparation.task_support import require_task_support
         from acprof.host.run_state import file_sha256, load_run_state
-        from acprof.host.task_support import require_task_support
         from acprof.models.contract import write_model_resolution
         from acprof.models.spec import task_model_spec
 
@@ -119,8 +119,11 @@ class AutomaticRun:
             task = detect_task(args.model, override_tag=args.task, override_family=args.task_family,
                                override_backend=args.backend, model_spec_path=args.model_spec,
                                **({"revision": args.revision} if args.revision else {}))
-        from acprof.host.collection_workflow import PreparationWorkflow
-        from acprof.host.task_selection import review_selected_task_parameters, select_tasks
+        from acprof.host.preparation.collection_workflow import PreparationWorkflow
+        from acprof.host.preparation.task_selection import (
+            review_selected_task_parameters,
+            select_tasks,
+        )
         workflow = PreparationWorkflow.from_environment(args.output_dir)
         task = select_tasks(task, args, workflow)
         task = review_selected_task_parameters(task, args, workflow)

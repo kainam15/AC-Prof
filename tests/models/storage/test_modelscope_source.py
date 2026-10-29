@@ -39,7 +39,7 @@ def test_modelscope_access_check_never_queries_huggingface():
 
 @pytest.mark.parametrize(("returncode", "reason"), [(2, "revision_not_found"), (128, "network_error")])
 def test_modelscope_ref_failure_retains_lookup_reason(returncode, reason):
-    from acprof.host.model_errors import model_lookup_error
+    from acprof.host.preparation.model_errors import model_lookup_error
     with patch("acprof.system.command.run_command", return_value=SimpleNamespace(returncode=returncode, stdout="")):
         with pytest.raises((OSError, ValueError)) as caught:
             modelscope_revision("demo/model", "release")
@@ -171,7 +171,7 @@ def test_modelscope_lookup_failure_cannot_be_bypassed_by_manual_task(monkeypatch
     from modelscope_hub import errors
 
     from acprof.host.detect import detect_task
-    from acprof.host.model_errors import ModelLookupError
+    from acprof.host.preparation.model_errors import ModelLookupError
     monkeypatch.setenv("ACPROF_MODEL_SOURCE", "modelscope")
     failure = getattr(errors, error)("source failure")
     with patch("acprof.hub.repository.modelscope_info", side_effect=failure), patch(

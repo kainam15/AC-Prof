@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 import tests.models.contracts.test_model_contract as contracts
-from acprof.host.collection_workflow import PreparationWorkflow
+from acprof.host.preparation.collection_workflow import PreparationWorkflow
 from acprof.preparation_events import encode_event, parse_event
 from acprof.tui.progress import RunProgressTracker
 from tests.support.command_fixtures import redirect_command_output
@@ -26,7 +26,7 @@ def interface_check(request, tmp_path, monkeypatch):
             {"stage": stage, "status": "verified"} for stage in outcome.stages]}
 
     if request.param == "docker":
-        from acprof.host import interface_probe as module
+        from acprof.host.preparation import interface_probe as module
 
         @redirect_command_output
         def run(command, **kwargs):

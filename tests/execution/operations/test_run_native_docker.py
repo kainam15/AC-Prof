@@ -123,7 +123,7 @@ def test_application_finalizes_tmux_log_when_profiling_raises() -> None:
 class TestNativeDockerGuard:
     @pytest.fixture(autouse=True)
     def _setup(self, request, tmp_path, monkeypatch):
-        monkeypatch.setattr("acprof.host.interface_probe.probe_interface", Mock(return_value={"status": "ok"}))
+        monkeypatch.setattr("acprof.host.preparation.interface_probe.probe_interface", Mock(return_value={"status": "ok"}))
         self._request = request
         from tests.support.platform_fixtures import native_policy
         native_policy(self._request)

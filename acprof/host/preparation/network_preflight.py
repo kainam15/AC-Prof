@@ -16,13 +16,13 @@ from urllib.parse import urlsplit
 
 from acprof.artifacts import read_json_object
 from acprof.dependency_locks import content_digest
-from acprof.host.download_probe import failure_reason, probe_allowance, probe_record
 from acprof.host.images.environment import (
     DEFAULT_RUNTIME_REGISTRY,
     platform_fingerprint,
     registry_reference,
     runtime_fingerprint,
 )
+from acprof.host.preparation.download_probe import failure_reason, probe_allowance, probe_record
 from acprof.network_policy import (
     DEPENDENCY_USER_AGENT,
     DownloadSource,
@@ -326,7 +326,7 @@ def preflight(task, profile, project_dir, model_plan: dict, *, root=None,
     enforce_download_budget({"expected_download_bytes": None if expected is None else expected + report["probe_payload_bytes"]},
                             os.environ.get("ACPROF_MAX_DOWNLOAD"))
     if os.environ.get("ACPROF_INTERACTIVE_PREPARATION") == "1" and report["expected_download_bytes"] != 0:
-        from acprof.host.collection_workflow import PreparationWorkflow
+        from acprof.host.preparation.collection_workflow import PreparationWorkflow
         workflow = PreparationWorkflow(interactive=True)
         summary = {key: report[key] for key in (
             "expected_download_bytes", "network", "public_egress", "network_probe", "runtime", "disk",

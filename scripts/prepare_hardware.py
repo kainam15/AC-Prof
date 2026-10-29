@@ -16,8 +16,8 @@ sys.path.insert(0, str(ROOT))
 
 from acprof.artifacts import atomic_write_json  # noqa: E402
 from acprof.experiment import RunConfig  # noqa: E402
-from acprof.host.collection_workflow import PreparationWorkflow  # noqa: E402
 from acprof.host.images.runtime import prepare_image  # noqa: E402
+from acprof.host.preparation.collection_workflow import PreparationWorkflow  # noqa: E402
 from acprof.host.run_state import MeasurementLock, host_identity  # noqa: E402
 from scripts.check_hardware import hardware_parser, selected_hardware_cases  # noqa: E402
 

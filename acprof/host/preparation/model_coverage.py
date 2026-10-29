@@ -130,8 +130,8 @@ def _read_runtime_validation_recovery(path: Path) -> dict:
 def _evaluate_model(item: dict, output: Path, *, probe, cpus, memory_gb, gpu,
                     timeout_seconds, max_parameters, max_download_bytes) -> dict:
     from acprof.host.detect import detect_task
-    from acprof.host.model_inspection import validate_model_runtime
-    from acprof.host.task_support import require_task_support
+    from acprof.host.preparation.model_inspection import validate_model_runtime
+    from acprof.host.preparation.task_support import require_task_support
     from acprof.models.contract import write_model_resolution
 
     row = {"source": item.get("source", "huggingface"),

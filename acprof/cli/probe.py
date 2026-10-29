@@ -22,7 +22,7 @@ from acprof.host.preflight import (
     require_collection_host,
     require_native_docker,
 )
-from acprof.host.task_support import TaskSupportError, require_task_support
+from acprof.host.preparation.task_support import TaskSupportError, require_task_support
 from acprof.installation import resource_root
 from acprof.run_options import add_option_arguments
 

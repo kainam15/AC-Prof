@@ -19,8 +19,9 @@ from tests.runtime.environment.test_runtime_validation import (
 
 @pytest.fixture(params=["interface", "runtime"])
 def docker_validation(request, tmp_path, monkeypatch):
-    from acprof.host import container_state, interface_probe, runtime_validation
+    from acprof.host import container_state, runtime_validation
     from acprof.host.model_store import store as model_store
+    from acprof.host.preparation import interface_probe
 
     kind = request.param
     module = interface_probe if kind == "interface" else runtime_validation

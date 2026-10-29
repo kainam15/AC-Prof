@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from acprof.host.detect import TaskInfo
-from acprof.host.task_support import require_task_support
+from acprof.host.preparation.task_support import require_task_support
 
 
 def test_workload_manifest_is_shared_by_host_and_container_consumers():
@@ -20,7 +20,7 @@ def test_workload_manifest_is_shared_by_host_and_container_consumers():
     torch = CATALOG.get_extension("structured", "torchscript", task="tabular-regression")
     assert (CATALOG.workloads[host.family]) == (torch.workload_entrypoint)
     # Both process roles parse the same declaration without importing its workload.
-    for role in ("acprof.host.task_support", "acprof.container.handlers"):
+    for role in ("acprof.host.preparation.task_support", "acprof.container.handlers"):
         script = (
             f"import {role}; from acprof.extensions import CATALOG; "
             "print(CATALOG.workloads['structured'])"

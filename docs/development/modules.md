@@ -43,7 +43,7 @@
 | `acprof/hub/` | 来源身份、HF/ModelScope 仓库访问与受约束的下载传输 |
 | `acprof/system/` | 主机和监测器共享的同步命令执行能力，不依赖 host 编排 |
 | `acprof/host/` | 模型检测、环境预检、输入计划、容器与采集编排、profiler |
-| `acprof/host/preparation/` | 将用户模型确认结果应用于源码读取、依赖解析和主机准备流程 |
+| `acprof/host/preparation/` | 模型确认、接口探测、下载预检、模型覆盖审计和准备记录的统一编排边界 |
 | `acprof/host/model_store/` | 共享权重缓存、lease/容量策略、受限文件系统访问及只读视图发布 |
 | `acprof/host/images/` | `environment` 构建依赖环境镜像，`dependencies` / `scan` 收集依赖证据，`inventory` / `graph` 管理清单和层关系，`runtime` / `identity` 组装并标识模型镜像 |
 | `acprof/host/measurement/` | 客户端配置、请求窗口、监测器编排、纯指标计算、检查点与发布；`host.client` 保留进程入口 |
@@ -70,14 +70,14 @@
 | `acprof/models/evidence.py`、`acprof/models/inspection/metadata.py`、`acprof/models/inspection/source.py`、`acprof/models/contract.py` | 固定 snapshot 的来源记录、结构化元数据、受限 AST 与 Pipeline 契约生成；仅在主机准备阶段分析文本，细节见[自动生成模型契约](../models/contracts.md#自动生成模型契约m1m6) |
 | `acprof/models/inspection/dependency_domain.py`、`acprof/models/inspection/dependency_eval.py`、`acprof/models/inspection/dependency_flow.py` | 受限抽象值与推断预算 → AST 调用／分支求值 → 源码索引和依赖证据汇总；只做静态解释，不执行仓库代码 |
 | `acprof/models/dependencies.py`、`acprof/models/review.py` / `acprof/host/preparation/review.py`、`acprof/models/transforms.py` | 按 loader 角色固定依赖与文件选择、未决字段的显式决策、有界 JSON 输入转换；下载复用既有镜像 planner |
-| `acprof/host/source_bundle.py`、`acprof/host/interface_probe.py`、`acprof/container/model_probe.py` | 固定源码图、无权重的隔离 import／signature 检查，独立接口报告 |
-| `acprof/host/model_inspection.py`、`acprof/tui/preparation.py` | 静态解释、统一模型确认与准备弹窗；完整 Smoke 复用 `runtime_validation` |
-| `acprof/host/automation.py`、`acprof/host/model_coverage.py` | 精确模型的访问／能力预检、自动运行报告，以及固定样本的解析／运行覆盖率；`cli/auto.py` 委派现有 run 入口，不复制测量循环 |
+| `acprof/host/preparation/source_bundle.py`、`acprof/host/preparation/interface_probe.py`、`acprof/container/model_probe.py` | 固定源码图、无权重的隔离 import／signature 检查，独立接口报告 |
+| `acprof/host/preparation/model_inspection.py`、`acprof/tui/preparation.py` | 静态解释、统一模型确认与准备弹窗；完整 Smoke 复用 `runtime_validation` |
+| `acprof/host/automation.py`、`acprof/host/preparation/model_coverage.py` | 精确模型的访问／能力预检、自动运行报告，以及固定样本的解析／运行覆盖率；`cli/auto.py` 委派现有 run 入口，不复制测量循环 |
 | `acprof/extensions/` | schema v2 类型校验与 `ExtensionCatalog.resolve`；集中维护路由、尺度、IO、精度、输入规划能力及环境声明 |
 | `acprof/capabilities.py` | execution / measurement 状态、验证证据和画像完整性报告 |
 | `acprof/container/validation.py`、`acprof/workloads/contract.py` | 窗口外输出验证与实际请求工作量摘要 |
 
-下载准备由 `network_policy.py`、`hub/huggingface/transport.py`、`host/network_preflight.py` 与 `host/model_store/store.py` 分工：来源/预算、Hub 请求约束、总量/磁盘预检、单份权重与只读挂载。`runtime_images.py` 先核验计划和预算，再准备依赖、Model Store 与只含清单的模型层；细节见[下载网络与 Model Store](../models/model-store.md#下载网络与-model-store)。
+下载准备由 `network_policy.py`、`hub/huggingface/transport.py`、`host/preparation/network_preflight.py` 与 `host/model_store/store.py` 分工：来源/预算、Hub 请求约束、总量/磁盘预检、单份权重与只读挂载。`runtime_images.py` 先核验计划和预算，再准备依赖、Model Store 与只含清单的模型层；细节见[下载网络与 Model Store](../models/model-store.md#下载网络与-model-store)。
 Model Store 的路径遍历、目录描述符与相对删除集中在 `host/model_store/paths.py`；
 `host/model_store/store.py` 保留容量、LRU、共享权重引用及 lease 决策，文件系统操作不反向依赖这些业务策略。
 `host/model_store/views.py` 负责 loader 视图的目录布局、refs 与链接检查、暂存构建和发布恢复；

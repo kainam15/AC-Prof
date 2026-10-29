@@ -12,7 +12,7 @@ from uuid import uuid4
 from acprof.artifacts import atomic_write_json, read_json_object
 from acprof.experiment import RunConfig
 from acprof.host.detect import TaskInfo
-from acprof.host.task_selection import activate_task
+from acprof.host.preparation.task_selection import activate_task
 from acprof.models.evidence import content_digest
 from acprof.task_workloads import merge_generation_parameters, task_fingerprint, workload_manifest
 

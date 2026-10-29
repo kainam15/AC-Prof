@@ -7,7 +7,7 @@ class DockerRuntime:
 
     def prepare(self, task_info, project_dir, output_dir, *, rebuild=False, timeout_seconds=300):
         from acprof.host.images.runtime import prepare_image
-        from acprof.host.interface_probe import probe_interface
+        from acprof.host.preparation.interface_probe import probe_interface
         probe_interface(task_info, output_dir, timeout_seconds=timeout_seconds)
         return prepare_image(task_info, project_dir, reuse_existing=not rebuild)
 

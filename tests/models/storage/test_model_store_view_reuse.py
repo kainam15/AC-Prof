@@ -15,7 +15,7 @@ from acprof.container.download_model import verify_download
 from acprof.container.model_files import PLAN_FILENAME, plan_download, seal_plan
 from acprof.experiment import RunConfig
 from acprof.host.model_store import store as model_store
-from acprof.host.network_preflight import preflight
+from acprof.host.preparation.network_preflight import preflight
 from acprof.network_policy import DownloadPolicyError
 from acprof.tui.experiment_picker import SearchPickerScreen
 from acprof.tui.model_candidates import cached_candidates
@@ -67,7 +67,7 @@ def prepared(tmp_path, monkeypatch):
 def test_preflight_credits_complete_view_without_source_index_or_model_requests(prepared):
     task, receipt, root = prepared
     plan = copy.deepcopy(receipt["model_download"])
-    with patch("acprof.host.download_probe.probe_hf_file", side_effect=AssertionError("unexpected probe")) as probe:
+    with patch("acprof.host.preparation.download_probe.probe_hf_file", side_effect=AssertionError("unexpected probe")) as probe:
         report = preflight(task, None, root, plan, root=root, runtime_plan=([], {"kind": "process"}))
     probe.assert_not_called()
     assert report["expected_download_bytes"] == 0

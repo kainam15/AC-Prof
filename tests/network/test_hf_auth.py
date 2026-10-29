@@ -236,8 +236,8 @@ def test_download_callers_disable_sdk_lookup_and_apply_origin_policy(
 
     from acprof.container.model_files import plan_download, seal_plan
     from acprof.host.detect import _download_metadata
-    from acprof.host.download_probe import ProbeBudget, probe_hf_file
     from acprof.host.model_store import store as model_store
+    from acprof.host.preparation.download_probe import ProbeBudget, probe_hf_file
     from acprof.hub.huggingface.transport import configure_hf_transport
 
     monkeypatch.setenv("HF_TOKEN", TOKEN)
@@ -290,7 +290,7 @@ def test_download_callers_disable_sdk_lookup_and_apply_origin_policy(
 
 def test_lookup_diagnostics_redact_credentials_and_signed_urls():
     from acprof.host.detect import _format_failure
-    from acprof.host.model_errors import model_lookup_error
+    from acprof.host.preparation.model_errors import model_lookup_error
 
     error = ValueError(f"Authorization: Bearer {TOKEN}\nhttps://huggingface.co/file?signature=test-only-signature")
     diagnostic = _format_failure(error)

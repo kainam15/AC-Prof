@@ -20,8 +20,8 @@ def test_real_t5_mixed_selections_execute_once_per_effective_signature(tmp_path,
     import json
     from types import SimpleNamespace
 
-    from acprof.host.collection_workflow import PreparationWorkflow
-    from acprof.host.task_selection import select_tasks
+    from acprof.host.preparation.collection_workflow import PreparationWorkflow
+    from acprof.host.preparation.task_selection import select_tasks
     from acprof.task_presentation import build_task_selection
 
     task = t5_task()

@@ -6,9 +6,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from acprof.host.collection_workflow import PreparationWorkflow
 from acprof.host.detect import TaskInfo
-from acprof.host.task_selection import review_selected_task_parameters, select_tasks
+from acprof.host.preparation.collection_workflow import PreparationWorkflow
+from acprof.host.preparation.task_selection import review_selected_task_parameters, select_tasks
 from acprof.models.candidates import discover_model_candidates
 from acprof.task_parameters import (
     apply_parameter_review,

@@ -70,7 +70,7 @@ def test_failed_download_is_visible_and_keeps_failure(download_fixture, capsys):
 def test_sdk_snapshot_callback_contract_separates_cached_resumed_and_transferred_bytes(tmp_path):
     from huggingface_hub import snapshot_download
 
-    from acprof.host.download_progress import DownloadReporter
+    from acprof.host.preparation.download_progress import DownloadReporter
 
     events = []
     reporter = DownloadReporter('example/test', 'huggingface', 140, 40, 2, emit=events.append)
@@ -94,7 +94,7 @@ def test_sdk_snapshot_callback_contract_separates_cached_resumed_and_transferred
 
 
 def test_transfer_speed_and_retry_rollback_never_include_reconstruction():
-    from acprof.host.download_progress import DownloadReporter
+    from acprof.host.preparation.download_progress import DownloadReporter
 
     now = [0.0]
     events = []
@@ -118,7 +118,7 @@ def test_transfer_speed_and_retry_rollback_never_include_reconstruction():
 
 
 def test_endpoint_retry_keeps_transferred_bytes_but_does_not_guess_changed_cache():
-    from acprof.host.download_progress import DownloadReporter
+    from acprof.host.preparation.download_progress import DownloadReporter
 
     events = []
     reporter = DownloadReporter('example/test', 'huggingface', 100, 20, 2, emit=events.append)
@@ -171,7 +171,7 @@ def test_plain_cli_keeps_sdk_output_and_has_no_new_progress_messages(download_fi
 
 
 def test_adapter_creates_no_tqdm_monitor_and_exposes_unknown_channels():
-    from acprof.host.download_progress import DownloadReporter
+    from acprof.host.preparation.download_progress import DownloadReporter
 
     events = []
     reporter = DownloadReporter('example/test', 'huggingface', 100, 0, 1, emit=events.append)

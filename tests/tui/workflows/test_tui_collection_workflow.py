@@ -23,7 +23,7 @@ from tests.support.tui_fixtures import AcprofTui
 async def test_automatic_interface_selection_reviews_parameters_before_runtime(tmp_path, language):
     script = textwrap.dedent('''
         from types import SimpleNamespace
-        from acprof.host.collection_workflow import PreparationWorkflow
+        from acprof.host.preparation.collection_workflow import PreparationWorkflow
         from acprof.host.detect import TaskInfo
         from acprof.models.candidates import apply_model_candidate, discover_model_candidates
         task = TaskInfo("fixture/model", "unknown", "unknown", "unknown", "transformers",
@@ -78,7 +78,7 @@ async def test_confirmed_stop_reaps_child_releases_lock_and_removes_bundle(tmp_p
         from pathlib import Path
         from acprof.host.detect import TaskInfo
         from acprof.host import run_state
-        from acprof.host.source_bundle import source_bundle
+        from acprof.host.preparation.source_bundle import source_bundle
         from acprof.preparation_events import encode_event
         signal.signal(signal.SIGINT, signal.default_int_handler)
         task = TaskInfo("fixture/model", "fill-mask", "nlp", "transformers", "transformers", "a" * 40, "fixture")
@@ -135,7 +135,7 @@ def test_runtime_failure_retains_successful_resolution():
 async def test_start_button_keeps_real_child_alive_through_answer_and_retry():
     script = textwrap.dedent('''
             import os
-            from acprof.host.collection_workflow import PreparationWorkflow
+            from acprof.host.preparation.collection_workflow import PreparationWorkflow
             workflow = PreparationWorkflow.from_environment("unused")
             reply = workflow.ask("resolution", "review", questions=[
                 {"path": "task", "options": ["fill-mask", "text-generation"], "value": None}])
@@ -227,7 +227,7 @@ async def test_review_and_error_actions_reply_without_relaunch_at_all_sizes(lang
             finally:
                 app.lifecycle.process = None
 async def test_model_lookup_error_is_translated_in_preparation_dialog():
-    from acprof.host.model_errors import ModelLookupError
+    from acprof.host.preparation.model_errors import ModelLookupError
     from acprof.tui.preparation import PreparationScreen
 
     error = ModelLookupError("asdf", "repository_unavailable", detail="RepositoryNotFoundError: fixture")

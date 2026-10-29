@@ -80,7 +80,7 @@ def configure_runtime_profile(task_info: Any, *, torch_index_url: str | None = N
         task_info.model_resolution["runtime_profile"] = profile.profile_id
         # Hardware selects the final platform lock. Recheck it before any build
         # or weight download; static selection must not borrow another lock.
-        from acprof.host.task_support import require_task_support
+        from acprof.host.preparation.task_support import require_task_support
         require_task_support(task_info, devices=task_info.model_resolution.get("requested_devices", ()))
     return profile
 
@@ -289,7 +289,7 @@ def build_runtime_image(task_info: Any, project_dir: str):
     fingerprint = request_fingerprint(task_info, root)
     name = _model_image_tag(task_info, root)
     from acprof.host.model_store.store import plan_model, prepare_model
-    from acprof.host.network_preflight import preflight
+    from acprof.host.preparation.network_preflight import preflight
     model_plan = plan_model(task_info)
     network_plan = preflight(task_info, profile, root, model_plan)
     store_record = None

@@ -9,7 +9,7 @@ from unittest.mock import Mock, call
 import pytest
 
 from acprof.analysis.compatibility import report_results
-from acprof.host.model_coverage import run_sample, snapshot_sample, validate_sample
+from acprof.host.preparation.model_coverage import run_sample, snapshot_sample, validate_sample
 from acprof.hub import repository as model_repository
 from tests.execution.planning.test_resolution_decisions import candidate
 
@@ -39,12 +39,12 @@ def isolated(monkeypatch):
     monkeypatch.setattr("acprof.host.detect.detect_task", detect)
     monkeypatch.setattr("acprof.host.run_state.host_identity", lambda *args: {"machine_id_sha256": "fixture"})
     monkeypatch.setattr("acprof.host.run_state.MeasurementLock", nullcontext)
-    monkeypatch.setattr("acprof.host.task_support.require_task_support", Mock())
+    monkeypatch.setattr("acprof.host.preparation.task_support.require_task_support", Mock())
     monkeypatch.setattr("acprof.models.contract.write_model_resolution", Mock())
     access = Mock()
     runtime = Mock(return_value={"status": "ok", "devices": {}})
     monkeypatch.setattr("acprof.host.automation.check_repository_access", access)
-    monkeypatch.setattr("acprof.host.model_inspection.validate_model_runtime", runtime)
+    monkeypatch.setattr("acprof.host.preparation.model_inspection.validate_model_runtime", runtime)
     return seen, access, runtime
 
 

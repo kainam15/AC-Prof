@@ -117,7 +117,7 @@ class TestModelCandidate(ModelCandidateFixture):
             command.reset_mock()
             with patch('acprof.host.run_state.host_identity', return_value={'machine_id_sha256': 'host-a', 'source_sha256': 'source-a'}), \
                  patch('acprof.host.gpu_device.resolve_gpu_device') as device, \
-                 patch('acprof.host.task_support.require_task_support'):
+                 patch('acprof.host.preparation.task_support.require_task_support'):
                 context = current_context(config, Path.cwd())
                 frozen = json.dumps(record.state, sort_keys=True)
                 first = current_conditions(record, config, context, Path.cwd())

@@ -38,8 +38,8 @@ def test_t5_discovers_four_distinct_workloads_without_architecture_inventions(t5
 def test_group_uses_real_backend_not_the_original_hub_pipeline(t5_task):
     from types import SimpleNamespace
 
-    from acprof.host.collection_workflow import PreparationWorkflow
-    from acprof.host.task_selection import select_tasks
+    from acprof.host.preparation.collection_workflow import PreparationWorkflow
+    from acprof.host.preparation.task_selection import select_tasks
 
     discovery = discover_model_candidates(t5_task)["task_discovery"]
     assert len(discovery["profiles"]) == 2

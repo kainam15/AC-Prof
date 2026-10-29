@@ -160,7 +160,7 @@ def test_failed_mirror_tries_existing_fallback_policy(probe_server, tmp_path, mo
 
 
 def test_dependency_sources_check_each_origin_once_and_skip_hits(probe_server):
-    from acprof.host.network_preflight import probe_runtime_downloads
+    from acprof.host.preparation.network_preflight import probe_runtime_downloads
     from acprof.network_policy import DownloadSource
 
     endpoint, visited = probe_server
@@ -238,7 +238,7 @@ def test_offline_mode_has_no_socket_requests(probe_server, tmp_path, monkeypatch
 def test_preflight_reserves_full_download_before_get_and_passes_evidence_to_confirmation(
     probe_server, tmp_path, monkeypatch, extra_budget,
 ):
-    from acprof.host.network_preflight import preflight
+    from acprof.host.preparation.network_preflight import preflight
 
     endpoint, visited = probe_server
     monkeypatch.setenv('ACPROF_MAX_DOWNLOAD', str(1048576 + extra_budget))
@@ -247,7 +247,7 @@ def test_preflight_reserves_full_download_before_get_and_passes_evidence_to_conf
         task_family='nlp', runtime_backend='transformers_pipeline', model_adapter='family-default')
     with (
         patch('acprof.host.model_store.store.require_space', return_value={}),
-        patch('acprof.host.collection_workflow.PreparationWorkflow.ask') as ask,
+        patch('acprof.host.preparation.collection_workflow.PreparationWorkflow.ask') as ask,
     ):
         report = preflight(task, None, tmp_path, plan_for(endpoint), root=tmp_path,
                            runtime_plan=([], {'kind': 'process'}))

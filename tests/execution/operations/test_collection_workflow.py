@@ -13,9 +13,12 @@ from huggingface_hub.errors import RepositoryNotFoundError
 import tests.models.contracts.test_model_contract as contracts
 import tests.support.run_recovery_fixtures as recovery
 from acprof.artifacts import MAX_JSON_ARTIFACT_BYTES
-from acprof.host.collection_workflow import PreparationWorkflow, retain_validation_failure
 from acprof.host.detect import detect_task
-from acprof.host.model_inspection import explain_resolution
+from acprof.host.preparation.collection_workflow import (
+    PreparationWorkflow,
+    retain_validation_failure,
+)
+from acprof.host.preparation.model_inspection import explain_resolution
 from acprof.models.spec import task_model_spec
 from acprof.preparation_events import MAX_MESSAGE
 from acprof.result_csv import read_result_csv
@@ -369,7 +372,7 @@ class TestCollectionWorkflow:
 
     @pytest.mark.parametrize("stage", ["image", "runtime"])
     def test_rebuild_request_is_explicit_and_invalidates_preparation(self, stage):
-        from acprof.host.collection_workflow import RebuildEnvironment
+        from acprof.host.preparation.collection_workflow import RebuildEnvironment
 
         workflow = PreparationWorkflow(interactive=True)
         with patch("sys.stdin", io.StringIO('{"id":1,"action":"rebuild"}\n')), pytest.raises(RebuildEnvironment):

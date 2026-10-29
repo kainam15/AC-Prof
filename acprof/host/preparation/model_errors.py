@@ -1,7 +1,7 @@
 """Actionable lookup errors shared by host preparation, CLI and TUI."""
 from __future__ import annotations
 
-from acprof.host.preparation_log import redact_text
+from acprof.host.preparation.preparation_log import redact_text
 from acprof.messages import message
 
 _MESSAGES = {

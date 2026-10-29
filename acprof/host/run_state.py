@@ -432,7 +432,7 @@ class RunState:
 
     def preparation_evidence(self):
         """Register this attempt without changing the frozen measurement artifacts."""
-        from acprof.host.preparation_evidence import PreparationEvidence
+        from acprof.host.preparation.preparation_evidence import PreparationEvidence
         attempt = self.data["attempts"][-1]
         evidence = PreparationEvidence(self.layout, attempt["attempt_id"])
         attempt["preparation_evidence"] = evidence.relative_summary_path

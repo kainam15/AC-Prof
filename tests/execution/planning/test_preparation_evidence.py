@@ -8,9 +8,9 @@ import pytest
 
 import tests.support.run_recovery_fixtures as recovery
 from acprof.artifact_layout import ArtifactLayout
-from acprof.host.collection_workflow import PreparationWorkflow
-from acprof.host.preparation_evidence import PreparationEvidence
-from acprof.host.preparation_log import PreparationLog, PreparationTee, redact_text
+from acprof.host.preparation.collection_workflow import PreparationWorkflow
+from acprof.host.preparation.preparation_evidence import PreparationEvidence
+from acprof.host.preparation.preparation_log import PreparationLog, PreparationTee, redact_text
 
 
 def test_split_credentials_and_urls_are_redacted_only_after_complete_lines():
@@ -169,7 +169,7 @@ def test_failed_evidence_publication_preserves_original_exception(tmp_path):
     evidence = PreparationEvidence(ArtifactLayout.for_new_run(tmp_path), "io-failure")
     original = ValueError("original preparation error")
     stdout, stderr = sys.stdout, sys.stderr
-    with patch("acprof.host.preparation_evidence.atomic_write_json", side_effect=OSError("disk unavailable")):
+    with patch("acprof.host.preparation.preparation_evidence.atomic_write_json", side_effect=OSError("disk unavailable")):
         with pytest.raises(ValueError, match="original preparation error") as caught, evidence.capture(workflow):
             raise original
     assert caught.value is original

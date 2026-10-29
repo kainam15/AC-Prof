@@ -11,7 +11,7 @@ from unittest.mock import patch
 import pytest
 
 from acprof.host.detect import detect_task
-from acprof.host.task_support import TaskSupportError, require_task_support
+from acprof.host.preparation.task_support import TaskSupportError, require_task_support
 from acprof.models.spec import task_model_spec, validate_model_spec
 
 FIXTURE = Path(__file__).parents[2] / "fixtures" / "custom_pipeline_audio_like"

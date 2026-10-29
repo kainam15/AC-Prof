@@ -426,7 +426,7 @@ class TestRuntimeValidation:
                 stack.enter_context(patch('acprof.application.run.' + name))
             stack.enter_context(patch('acprof.application.run.require_cgroup_prerequisites', return_value='v2'))
             stack.enter_context(patch('acprof.host.detect.detect_task', return_value=self.task()))
-            stack.enter_context(patch('acprof.host.interface_probe.probe_interface', return_value={'status': 'ok'}))
+            stack.enter_context(patch('acprof.host.preparation.interface_probe.probe_interface', return_value={'status': 'ok'}))
             stack.enter_context(patch('acprof.host.images.runtime.configure_runtime_profile'))
             stack.enter_context(patch('acprof.host.images.runtime.prepare_image', return_value=ImageInfo(
                 tag='sha256:' + 'b' * 64, runtime_environment={'build_fingerprint': 'build'},

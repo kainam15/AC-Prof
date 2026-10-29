@@ -22,7 +22,7 @@ from acprof.host.container_lifecycle import (
     remove_owned_container,
 )
 from acprof.host.images.environment import prepare_environment_image
-from acprof.host.source_bundle import source_bundle
+from acprof.host.preparation.source_bundle import source_bundle
 from acprof.host.validation_logs import ValidationLog
 from acprof.installation import resource_root
 from acprof.models.contract import write_model_resolution

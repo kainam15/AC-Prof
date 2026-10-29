@@ -11,7 +11,7 @@ from acprof.host import detect
 from acprof.host.images.runtime import ImageInfo
 from acprof.host.input_plan import plan_input_scales
 from acprof.host.model_schema import _model_io_formats
-from acprof.host.task_support import TaskSupportError, require_task_support
+from acprof.host.preparation.task_support import TaskSupportError, require_task_support
 
 CV_TASKS = (
     "depth-estimation", "image-classification", "object-detection",

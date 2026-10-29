@@ -366,7 +366,7 @@ class TestRunNotificationLifecycle:
         ) as from_env, patch(
             "acprof.host.detect.detect_task", return_value=task_info,
         ), patch(
-            "acprof.host.interface_probe.probe_interface", return_value={"status": "ok"},
+            "acprof.host.preparation.interface_probe.probe_interface", return_value={"status": "ok"},
         ), patch(
             "acprof.host.images.runtime.configure_runtime_profile",
         ), patch(

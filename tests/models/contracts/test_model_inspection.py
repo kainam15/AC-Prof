@@ -27,7 +27,7 @@ def test_interface_timeout_is_reported_as_a_failed_cli_command(tmp_path):
         "acprof.host.env_utils.bootstrap_project_env"), patch("acprof.host.preflight.require_collection_host"), patch(
         "acprof.host.preflight.require_native_docker"), patch("acprof.host.images.runtime.configure_runtime_profile"), patch(
         "acprof.host.run_state.MeasurementLock"), patch(
-        "acprof.host.interface_probe.probe_interface", side_effect=subprocess.TimeoutExpired("docker", 1)):
+        "acprof.host.preparation.interface_probe.probe_interface", side_effect=subprocess.TimeoutExpired("docker", 1)):
         assert main(["inspect", task.model_id, "--probe-interface", "--output-dir", str(tmp_path)]) == 1
 
 
@@ -36,7 +36,7 @@ def test_native_probe_uses_family_defaults_when_generator_has_no_declared_scales
     from types import SimpleNamespace
 
     from acprof.host.detect import TaskInfo
-    from acprof.host.model_inspection import validate_model_runtime
+    from acprof.host.preparation.model_inspection import validate_model_runtime
     task = TaskInfo("example/native", tag, family, "transformers_pipeline", "transformers", "a" * 40, "hub")
     with tempfile.TemporaryDirectory() as directory, patch(
             "acprof.host.images.runtime.prepare_image", return_value=SimpleNamespace(tag="sha256:" + "b" * 64)), patch(
@@ -55,7 +55,7 @@ def test_full_probe_accepts_native_models_and_preserves_feature_width():
     from types import SimpleNamespace
 
     from acprof.host.detect import TaskInfo
-    from acprof.host.model_inspection import validate_model_runtime
+    from acprof.host.preparation.model_inspection import validate_model_runtime
     task = TaskInfo("example/iris", "tabular-classification", "structured", "onnxruntime",
                     "onnx", "a" * 40, "manual")
     task.model_spec = {"schema_version": 1, "format": "onnxruntime", "task": "tabular-classification",

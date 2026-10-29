@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from acprof.artifacts import atomic_write_json, loads_finite_json, read_json_object, sync_directory
-from acprof.host.model_errors import ModelLookupError
+from acprof.host.preparation.model_errors import ModelLookupError
 from acprof.models.evidence import content_digest, pinned_revision
 from acprof.preparation_events import MAX_MESSAGE, encode_event
 
@@ -203,7 +203,7 @@ class PreparationWorkflow:
 
     def resolve(self, args, *, initial=None):
         from acprof.host.detect import detect_task
-        from acprof.host.task_support import require_task_support
+        from acprof.host.preparation.task_support import require_task_support
 
         def resolve_once():
             task = initial if initial is not None else detect_task(
@@ -212,7 +212,10 @@ class PreparationWorkflow:
                 **({"revision": args.revision} if args.revision else {}),
             )
             self._explicit(task, args)
-            from acprof.host.task_selection import review_selected_task_parameters, select_tasks
+            from acprof.host.preparation.task_selection import (
+                review_selected_task_parameters,
+                select_tasks,
+            )
             task = select_tasks(task, args, self)
             self._explicit(task, args)
             if len(task.selected_tasks) > 1:

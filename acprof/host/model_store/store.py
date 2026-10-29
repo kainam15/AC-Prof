@@ -411,7 +411,12 @@ def probe_model_download(plan: dict, root: Path | None = None, *, entry_id: str 
     """HEAD and bounded GET of missing artifacts; never populate the cache."""
     from urllib.parse import quote
 
-    from acprof.host.download_probe import ProbeBudget, probe_allowance, probe_hf_file, probe_record
+    from acprof.host.preparation.download_probe import (
+        ProbeBudget,
+        probe_allowance,
+        probe_hf_file,
+        probe_record,
+    )
     from acprof.hub.huggingface.download import HfDownloadError
 
     root = root or store_root()
@@ -553,7 +558,7 @@ def prepare_model(task, plan: dict, root: Path | None = None, *, planned_downloa
         for repo, budget in zip(repository_plans(plan), sources, strict=True):
             offline = existing is not None or all(cached_file(root, repo, f) for f in repo["files"])
             source = repo.get("source", "huggingface")
-            from acprof.host.download_progress import DownloadReporter
+            from acprof.host.preparation.download_progress import DownloadReporter
             progress = DownloadReporter(repo["model_id"], source, repo["selected_bytes"],
                                         budget.cached_bytes, len(repo["files"]))
             def download(endpoint):

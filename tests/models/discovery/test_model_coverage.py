@@ -12,8 +12,8 @@ from tests.execution.planning.test_resolution_decisions import candidate
 
 
 def test_runtime_failures_keep_semantic_review_and_frozen_denominator():
-    from acprof.host.model_coverage import run_sample
-    from acprof.host.model_inspection import ProbePreparationError
+    from acprof.host.preparation.model_coverage import run_sample
+    from acprof.host.preparation.model_inspection import ProbePreparationError
     task = candidate(tag="text-generation")
     manifest = {"schema_version": 1, "sampling": "fixed", "weight_basis": "uniform",
                 "models": [{"model_id": f"example/model-{index}", "revision": "a" * 40, "weight": 1,
@@ -21,7 +21,7 @@ def test_runtime_failures_keep_semantic_review_and_frozen_denominator():
                            for index in range(3)]}
     with tempfile.TemporaryDirectory() as directory, patch("acprof.host.detect.detect_task", return_value=task), patch(
             "acprof.host.automation.check_repository_access"), patch(
-        "acprof.host.model_inspection.validate_model_runtime", side_effect=[
+        "acprof.host.preparation.model_inspection.validate_model_runtime", side_effect=[
                 {"status": "ok"}, {"status": "resource_limited"}, ProbePreparationError("build failed")]):
         report = run_sample(manifest, Path(directory, "report"), probe="full")
         summary = report["summary"]
@@ -33,8 +33,8 @@ def test_runtime_failures_keep_semantic_review_and_frozen_denominator():
 
 
 def test_runtime_failure_with_corrupt_validation_artifact_preserves_primary_failure(tmp_path):
-    from acprof.host.model_coverage import run_sample
-    from acprof.host.model_inspection import ProbePreparationError
+    from acprof.host.preparation.model_coverage import run_sample
+    from acprof.host.preparation.model_inspection import ProbePreparationError
 
     task = candidate(tag="text-generation")
     manifest = {
@@ -51,7 +51,7 @@ def test_runtime_failure_with_corrupt_validation_artifact_preserves_primary_fail
     with patch("acprof.host.detect.detect_task", return_value=task), patch(
         "acprof.host.automation.check_repository_access"
     ), patch(
-        "acprof.host.model_inspection.validate_model_runtime",
+        "acprof.host.preparation.model_inspection.validate_model_runtime",
         side_effect=fail_runtime,
     ):
         report = run_sample(manifest, tmp_path / "report", probe="full")
@@ -62,7 +62,7 @@ def test_runtime_failure_with_corrupt_validation_artifact_preserves_primary_fail
 
 
 def test_runtime_coverage_serializes_with_formal_measurement_but_static_does_not(tmp_path):
-    from acprof.host.model_coverage import run_sample
+    from acprof.host.preparation.model_coverage import run_sample
 
     task = candidate(tag="text-generation")
     manifest = {
@@ -74,7 +74,7 @@ def test_runtime_coverage_serializes_with_formal_measurement_but_static_does_not
     with patch("acprof.host.detect.detect_task", return_value=task), patch(
         "acprof.host.automation.check_repository_access"
     ), patch(
-        "acprof.host.model_inspection.validate_model_runtime",
+        "acprof.host.preparation.model_inspection.validate_model_runtime",
         return_value={"status": "ok", "devices": {}},
     ), patch("acprof.host.run_state.MeasurementLock") as measurement_lock:
         run_sample(manifest, tmp_path / "runtime", probe="full")

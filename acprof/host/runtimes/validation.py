@@ -59,7 +59,7 @@ def run_validation(task, info, module, prefix, output_dir, *, gpu="off", payload
 @preparation_stage("interface")
 def probe_interface(task, root, environment, output_dir, *, timeout_seconds=300):
     from acprof.container.model_probe import RESULT_PREFIX
-    from acprof.host.source_bundle import source_bundle
+    from acprof.host.preparation.source_bundle import source_bundle
     from acprof.models.contract import write_model_resolution
     report = {"schema_version": 1, "status": "running", "runtime_kind": "process",
               "scope": "import_and_signature_only", "inference": "not_run",

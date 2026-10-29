@@ -75,10 +75,10 @@ def test_resume_checks_interface_identity_before_restoring_runtime():
     from types import SimpleNamespace
     from unittest.mock import patch
 
-    from acprof.host.collection_workflow import PreparationWorkflow
     from acprof.host.detect import TaskInfo
+    from acprof.host.preparation.collection_workflow import PreparationWorkflow
+    from acprof.host.preparation.task_selection import select_tasks
     from acprof.host.run_state import RunState
-    from acprof.host.task_selection import select_tasks
     from acprof.models.candidates import apply_model_candidate, discover_model_candidates
 
     task = TaskInfo("fixture/model", "fill-mask", "nlp", "transformers_pipeline", "transformers",

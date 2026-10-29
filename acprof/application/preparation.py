@@ -63,7 +63,7 @@ def prepare_runtime(args, *, run_state, task_info, output_dir, cpu_list, mem_lis
                      rapl_topology, preflight_measurements, latency_slo,
                      workflow=None, project_dir: str, notices: RunNotifications) -> PreparedRuntime:
     """Build or restore the runtime and persist evidence before the matrix."""
-    from acprof.host.collection_workflow import PreparationWorkflow
+    from acprof.host.preparation.collection_workflow import PreparationWorkflow
     from acprof.host.runtimes.service import execution_runtime
     runtime = execution_runtime(getattr(args, "runtime", "docker"))
     from acprof.host.input_plan import input_plan_summary, plan_input_scales
@@ -206,7 +206,9 @@ def prepare_runtime(args, *, run_state, task_info, output_dir, cpu_list, mem_lis
                                        + str(report.get("status")))
             except Exception:
                 if workflow.interactive:
-                    from acprof.host.collection_workflow import retain_validation_failure
+                    from acprof.host.preparation.collection_workflow import (
+                        retain_validation_failure,
+                    )
                     try:
                         retain_validation_failure(output_dir)
                     except (OSError, ValueError) as archive_error:

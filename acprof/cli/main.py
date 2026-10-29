@@ -47,7 +47,7 @@ def main(argv: list[str] | None = None) -> int:
         parser.print_help()
         return 0
     command = arguments.pop(0)
-    from acprof.host.model_errors import ModelLookupError
+    from acprof.host.preparation.model_errors import ModelLookupError
     previous = sys.argv
     try:
         sys.argv = [f"acprof {command}", *arguments]

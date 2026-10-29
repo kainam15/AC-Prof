@@ -8,7 +8,7 @@ import pytest
 from acprof.artifacts import MAX_JSON_ARTIFACT_BYTES
 from acprof.dependency_locks import read_python_lock
 from acprof.host.images.runtime import PROJECT_ROOT
-from acprof.host.network_preflight import preflight, registry_manifest, runtime_sources
+from acprof.host.preparation.network_preflight import preflight, registry_manifest, runtime_sources
 from acprof.network_policy import (
     DownloadPolicyError,
     DownloadSource,
@@ -37,7 +37,7 @@ def test_download_confirmation_preserves_raw_bytes(tmp_path, capsys, download_by
         ]),
         patch("acprof.host.model_store.store.require_space", return_value=disk),
         patch("acprof.host.model_store.store.probe_model_download", return_value=[]),
-        patch("acprof.host.network_preflight.runtime_sources", return_value=([], {"platform_local": True})),
+        patch("acprof.host.preparation.network_preflight.runtime_sources", return_value=([], {"platform_local": True})),
         patch("acprof.host.metadata.machine.docker_storage_metadata", return_value={}),
     ):
         report = preflight(task, PROFILES["nlp-cpu"], tmp_path, plan, root=tmp_path / "cache")
@@ -71,7 +71,7 @@ def test_model_only_budget_allows_cached_model_with_unknown_oci_size(tmp_path):
         patch("acprof.host.model_store.store.model_sources", return_value=[model]),
         patch("acprof.host.model_store.store.require_space", return_value={"free_bytes": 35_000_000_000}),
         patch("acprof.host.model_store.store.probe_model_download", return_value=[]),
-        patch("acprof.host.network_preflight.runtime_sources", return_value=(
+        patch("acprof.host.preparation.network_preflight.runtime_sources", return_value=(
             [oci], {"platform_local": False, "will_attempt_ghcr_pull": True},
         )),
         patch("acprof.host.metadata.machine.docker_storage_metadata", return_value={}),
@@ -98,7 +98,7 @@ def test_model_only_budget_blocks_unknown_or_oversized_model_before_oci(tmp_path
         ]),
         patch("acprof.host.model_store.store.require_space", return_value={"free_bytes": 35_000_000_000}),
         patch("acprof.host.model_store.store.probe_model_download") as probe,
-        patch("acprof.host.network_preflight.runtime_sources") as runtime,
+        patch("acprof.host.preparation.network_preflight.runtime_sources") as runtime,
         pytest.raises(DownloadPolicyError, match="ACPROF_MODEL_MAX_DOWNLOAD"),
     ):
         preflight(task, PROFILES["nlp-cpu"], tmp_path, plan, root=tmp_path / "cache")
@@ -117,7 +117,7 @@ def test_total_budget_remains_strict_with_unknown_oci_size(tmp_path):
         ]),
         patch("acprof.host.model_store.store.require_space", return_value={"free_bytes": 35_000_000_000}),
         patch("acprof.host.model_store.store.probe_model_download", return_value=[]),
-        patch("acprof.host.network_preflight.runtime_sources", return_value=(
+        patch("acprof.host.preparation.network_preflight.runtime_sources", return_value=(
             [DownloadSource("oci", "https://ghcr.io/demo/runtime", None)],
             {"platform_local": False},
         )),
@@ -230,7 +230,7 @@ def test_registry_manifest_rejects_invalid_budget_metadata(layer_size, config_di
         },
     }
     result = SimpleNamespace(returncode=0, stdout=json.dumps(payload), stderr="")
-    with patch("acprof.host.network_preflight.host_command.run_command", return_value=result):
+    with patch("acprof.host.preparation.network_preflight.host_command.run_command", return_value=result):
         assert registry_manifest("ghcr.io/example/runtime:tag") is None
 
 

@@ -10,7 +10,7 @@ import pytest
 from acprof.host import detect, input_plan, model_schema
 from acprof.host.images import runtime as runtime_images
 from acprof.host.input_plan import families, planner
-from acprof.host.task_support import TaskSupportError, require_task_support
+from acprof.host.preparation.task_support import TaskSupportError, require_task_support
 
 
 def info(task, family="nlp", backend="transformers_pipeline"):

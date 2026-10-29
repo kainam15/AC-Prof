@@ -10,7 +10,7 @@ from acprof.models.spec import validate_model_spec
 
 def apply_review(task_info, answers: dict, *, resolve_repository=None):
     """Return a new task; failed/partial decisions leave the original untouched."""
-    from acprof.host.task_support import require_task_support
+    from acprof.host.preparation.task_support import require_task_support
     from acprof.models.candidates import apply_model_candidate, discover_model_candidates
 
     questions = review_questions(task_info)

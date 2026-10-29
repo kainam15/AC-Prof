@@ -36,7 +36,11 @@ def main(argv=None) -> int:
     report.add_argument("--output-dir", type=Path, required=True, help="New report directory")
     args = parser.parse_args(argv)
     from acprof.host.env_utils import bootstrap_project_env
-    from acprof.host.model_coverage import CoverageCleanupError, run_sample, snapshot_sample
+    from acprof.host.preparation.model_coverage import (
+        CoverageCleanupError,
+        run_sample,
+        snapshot_sample,
+    )
     from acprof.host.run_state import RunStateError
     bootstrap_project_env(Path.cwd())
     try:

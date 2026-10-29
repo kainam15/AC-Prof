@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from acprof.extensions import CATALOG, UnsupportedExtensionError
-from acprof.host.model_errors import ModelLookupError, model_lookup_error
+from acprof.host.preparation.model_errors import ModelLookupError, model_lookup_error
 from acprof.hub.huggingface.auth import hf_token_for_url
 from acprof.hub.repository import MetadataFile, read_metadata_file
 
@@ -403,7 +403,7 @@ def _hub_model_metadata(info: object) -> dict[str, Any]:
 
 
 def _format_failure(exc: Exception) -> str:
-    from acprof.host.preparation_log import redact_text
+    from acprof.host.preparation.preparation_log import redact_text
 
     detail = redact_text(str(exc), limit=None).strip().replace("\n", " ")
     if detail:

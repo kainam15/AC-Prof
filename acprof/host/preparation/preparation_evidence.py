@@ -10,8 +10,8 @@ from typing import Any, TextIO, cast
 
 from acprof.artifact_layout import ArtifactLayout
 from acprof.artifacts import atomic_write_json
-from acprof.host.collection_workflow import PreparationWorkflow
-from acprof.host.preparation_log import PreparationLog, PreparationTee, redact_text
+from acprof.host.preparation.collection_workflow import PreparationWorkflow
+from acprof.host.preparation.preparation_log import PreparationLog, PreparationTee, redact_text
 
 
 def _now() -> str:

@@ -76,9 +76,9 @@ def validate_model_runtime(task_info, output_dir: str | Path, *, cpus: int = 2,
     from acprof.host.input_plan import PlannedInputScales, resolve_input_scales
     from acprof.host.input_plan.materialize import get_task_generator
     from acprof.host.preflight import require_collection_host, require_native_docker
+    from acprof.host.preparation.task_support import require_task_support
     from acprof.host.run_state import MeasurementLock, ResultDirectoryLock
     from acprof.host.runtime_validation import validate_runtime
-    from acprof.host.task_support import require_task_support
     from acprof.installation import resource_root
 
     if (type(cpus) is not int or cpus <= 0

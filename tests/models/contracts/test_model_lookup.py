@@ -19,7 +19,7 @@ from huggingface_hub.errors import (
 
 from acprof.cli.main import main
 from acprof.host.detect import detect_task
-from acprof.host.model_errors import ModelLookupError
+from acprof.host.preparation.model_errors import ModelLookupError
 from acprof.hub.repository import MetadataFile
 
 
@@ -93,7 +93,7 @@ def test_inspect_cli_reports_lookup_failure_without_traceback_or_probe():
     with patch("acprof.host.env_utils.bootstrap_project_env"), patch(
         "huggingface_hub.HfApi.model_info", side_effect=hub_error(RepositoryNotFoundError, 404),
     ), patch("acprof.host.detect._download_metadata", side_effect=OSError("missing")), patch(
-        "acprof.host.model_inspection.validate_model_runtime",
+        "acprof.host.preparation.model_inspection.validate_model_runtime",
     ) as probe, contextlib.redirect_stderr(stderr):
         result = main(["inspect", "asdf", "--probe-interface"])
     assert (result) == (1)

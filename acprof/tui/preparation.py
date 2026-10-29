@@ -6,7 +6,7 @@ from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import Button, Checkbox, Collapsible, Label, Static
 
-from acprof.host.model_errors import ModelLookupError
+from acprof.host.preparation.model_errors import ModelLookupError
 from acprof.preparation_events import encode_reply
 from acprof.tui.app_contracts import translated_app
 from acprof.tui.downloads import download_sections

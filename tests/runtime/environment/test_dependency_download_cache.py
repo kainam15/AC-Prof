@@ -17,7 +17,7 @@ from urllib.error import HTTPError, URLError
 import pytest
 
 from acprof import dependency_locks, network_policy
-from acprof.host.network_preflight import artifact_size
+from acprof.host.preparation.network_preflight import artifact_size
 
 
 class TestDependencyDownloadCache:
@@ -392,7 +392,7 @@ class TestDomesticPyPIArtifactMirror:
         assert not opener.open.call_args.args[0].has_header("Range")
 
     def test_mirror_head_probe_does_not_use_environment_proxy(self, monkeypatch):
-        from acprof.host.network_preflight import artifact_size
+        from acprof.host.preparation.network_preflight import artifact_size
         monkeypatch.setenv("ACPROF_PYPI_ARTIFACT_MIRROR", "tencent")
         monkeypatch.setenv("HTTPS_PROXY", "http://charged-vpn.example:7897")
         url = "https://mirrors.cloud.tencent.com/pypi/packages/abc/sample.whl"
@@ -531,7 +531,7 @@ class TestAdditionalDomesticArtifactMirrors:
          "ACPROF_DEBIAN_ARTIFACT_MIRROR", "tencent"),
     ])
     def test_size_preflight_uses_head_without_proxy(self, category, url, key, selected, monkeypatch):
-        from acprof.host.network_preflight import artifact_size
+        from acprof.host.preparation.network_preflight import artifact_size
         monkeypatch.setenv(key, selected)
         monkeypatch.setenv("HTTPS_PROXY", "http://charged-vpn.example:7897")
         response = BytesIO(b"")

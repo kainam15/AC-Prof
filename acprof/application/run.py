@@ -351,7 +351,10 @@ class RunApplication:
         print("AC-Prof")
         print("=" * 60)
 
-        from acprof.host.collection_workflow import PreparationWorkflow, RebuildEnvironment
+        from acprof.host.preparation.collection_workflow import (
+            PreparationWorkflow,
+            RebuildEnvironment,
+        )
         workflow = self.workflow_factory(args.output_dir) if self.workflow_factory else PreparationWorkflow.from_environment(args.output_dir)
         workflow.continue_on_task_failure = task_child
 

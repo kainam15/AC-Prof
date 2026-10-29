@@ -11,9 +11,9 @@ import pytest
 from acprof.container.handlers.nlp import NLPHandler
 from acprof.container.validation import OutputValidationError, validate_output
 from acprof.extensions import CATALOG, UnsupportedExtensionError
-from acprof.host.collection_workflow import PreparationWorkflow
 from acprof.host.detect import _detect_from_hub
-from acprof.host.task_support import require_task_support
+from acprof.host.preparation.collection_workflow import PreparationWorkflow
+from acprof.host.preparation.task_support import require_task_support
 from acprof.models.candidates import apply_model_candidate, discover_model_candidates
 from acprof.models.evidence import content_digest
 

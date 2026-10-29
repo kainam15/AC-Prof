@@ -123,7 +123,7 @@ def prepare_process(task, project_dir, output_dir, *, rebuild=False, timeout_sec
     if rebuild:
         raise ValueError("--rebuild-image applies to Docker; Process environments are immutable")
     from acprof.host.model_store.store import plan_model, prepare_model, store_root, verify_entry
-    from acprof.host.network_preflight import preflight, process_sources
+    from acprof.host.preparation.network_preflight import preflight, process_sources
     from acprof.host.runtimes.validation import probe_interface
     plan = plan_model(task)
     network_plan = preflight(task, select_runtime_profile(task), project_dir, plan,

@@ -14,8 +14,8 @@ def test_cancelled_process_download_confirmation_never_prepares_environment(tmp_
         patch('acprof.host.model_store.store.plan_model', return_value={}),
         patch('acprof.host.runtimes.environment.prepare_environment',
               side_effect=AssertionError('installer ran before download confirmation')) as prepare,
-        patch('acprof.host.network_preflight.preflight', side_effect=KeyboardInterrupt('cancelled')),
-        patch('acprof.host.network_preflight.process_sources', return_value=([], {'kind': 'process'})),
+        patch('acprof.host.preparation.network_preflight.preflight', side_effect=KeyboardInterrupt('cancelled')),
+        patch('acprof.host.preparation.network_preflight.process_sources', return_value=([], {'kind': 'process'})),
         patch('acprof.host.runtimes.environment.select_runtime_profile', return_value=None),
         pytest.raises(KeyboardInterrupt, match='cancelled'),
     ):
@@ -25,7 +25,7 @@ def test_cancelled_process_download_confirmation_never_prepares_environment(tmp_
 
 def test_process_environment_hit_verifies_contents_and_skips_network(tmp_path):
     from acprof.dependency_locks import content_digest
-    from acprof.host.network_preflight import process_sources
+    from acprof.host.preparation.network_preflight import process_sources
 
     identity = {'artifacts': []}
     target = tmp_path / content_digest(identity)
@@ -34,7 +34,7 @@ def test_process_environment_hit_verifies_contents_and_skips_network(tmp_path):
     with (
         patch('acprof.host.runtimes.environment.environment_plan', return_value=(tmp_path, identity, None)),
         patch('acprof.host.runtimes.environment.verify_environment') as verify,
-        patch('acprof.host.network_preflight.host_command.run_command',
+        patch('acprof.host.preparation.network_preflight.host_command.run_command',
               side_effect=AssertionError('cached environment queried installer')),
     ):
         sources, runtime = process_sources(None, tmp_path)
@@ -44,7 +44,7 @@ def test_process_environment_hit_verifies_contents_and_skips_network(tmp_path):
 
 
 def test_process_sources_preserve_uv_urls_and_do_not_create_environment(tmp_path, monkeypatch):
-    from acprof.host.network_preflight import process_sources
+    from acprof.host.preparation.network_preflight import process_sources
 
     monkeypatch.setenv('ACPROF_PYPI_ARTIFACT_MIRROR', 'tencent')
     identity = {'artifacts': [{'url': 'https://files.pythonhosted.org/packages/test.whl', 'sha256': 'a' * 64}]}
@@ -52,8 +52,8 @@ def test_process_sources_preserve_uv_urls_and_do_not_create_environment(tmp_path
     declaration = SimpleNamespace(requirements_lock='requirements.lock', platform=SimpleNamespace(python_version='3.12'))
     with (
         patch('acprof.host.runtimes.environment.environment_plan', return_value=(environment, identity, declaration)),
-        patch('acprof.host.network_preflight.shutil.which', return_value='/bin/uv'),
-        patch('acprof.host.network_preflight.host_command.run_command',
+        patch('acprof.host.preparation.network_preflight.shutil.which', return_value='/bin/uv'),
+        patch('acprof.host.preparation.network_preflight.host_command.run_command',
               return_value=SimpleNamespace(returncode=0)) as command,
     ):
         sources, runtime = process_sources(None, tmp_path)

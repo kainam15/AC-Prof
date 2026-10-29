@@ -27,8 +27,8 @@ def main(argv=None) -> int:
     from acprof.application.download import apply_download_arguments
     from acprof.host.detect import detect_task
     from acprof.host.env_utils import bootstrap_project_env
-    from acprof.host.interface_probe import probe_interface
-    from acprof.host.model_inspection import explain_resolution
+    from acprof.host.preparation.interface_probe import probe_interface
+    from acprof.host.preparation.model_inspection import explain_resolution
     from acprof.models.contract import write_model_resolution
     apply_download_arguments(args)
     bootstrap_project_env(Path.cwd())
@@ -64,7 +64,7 @@ def main(argv=None) -> int:
                 pass
     preflight_error = None
     if task.model_resolution.get("status") not in {"ambiguous", "needs_configuration"}:
-        from acprof.host.task_support import TaskSupportError, require_task_support
+        from acprof.host.preparation.task_support import TaskSupportError, require_task_support
         try:
             require_task_support(task, devices=("cpu",))
         except TaskSupportError as exc:

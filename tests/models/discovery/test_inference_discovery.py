@@ -4,9 +4,9 @@ from unittest.mock import Mock
 
 import pytest
 
-from acprof.host.collection_workflow import PreparationWorkflow
 from acprof.host.detect import TaskInfo
-from acprof.host.task_selection import select_tasks
+from acprof.host.preparation.collection_workflow import PreparationWorkflow
+from acprof.host.preparation.task_selection import select_tasks
 from acprof.models.candidates import apply_model_candidate, discover_model_candidates
 from acprof.models.resolution import require_resolved_candidate
 
@@ -168,7 +168,7 @@ def test_supplemented_configuration_automatically_selects_the_resolved_path(monk
     resolved = resolve(model(tag="fill-mask", config={"architectures": ["BertForMaskedLM"]}))
     workflow = PreparationWorkflow(interactive=True)
     monkeypatch.setattr("acprof.host.detect.detect_task", lambda **kwargs: unknown)
-    monkeypatch.setattr("acprof.host.task_support.require_task_support", lambda *args, **kwargs: None)
+    monkeypatch.setattr("acprof.host.preparation.task_support.require_task_support", lambda *args, **kwargs: None)
     monkeypatch.setattr(workflow, "_apply", lambda *args: resolved)
     ask = Mock(side_effect=answer_with_parameter_defaults(
         {"action": "answer", "answers": {"model_spec": "model.json"}}, {"action": "confirm"}))
