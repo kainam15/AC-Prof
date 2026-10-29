@@ -46,15 +46,19 @@ async def test_automatic_interface_selection_reviews_parameters_before_runtime(t
         async with app.run_test(size=(80, 24)) as pilot:
             app.query_one("#ui-language", Select).value = language
             await pilot.pause()
-            await pilot.click("#start-run")
+            assert await pilot.click("#start-run")
             async def parameter_screen():
                 while not (screen := app.preflight.preparation_screen):
                     await pilot.pause()
+                # The request reference is set before mounting and layout finish.
+                await pilot.pause()
+                assert screen.is_mounted
+                assert app.screen is screen
                 return screen
 
             screen = await asyncio.wait_for(parameter_screen(), timeout=15)
             assert screen.event["request"]["purpose"] == "workload_parameters"
-            await pilot.click("#preparation-defaults")
+            assert await pilot.click("#preparation-defaults")
             await asyncio.wait_for(app.workers.wait_for_complete(), timeout=15)
             await pilot.pause()
             app.logs.flush()
