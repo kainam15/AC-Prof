@@ -1,3 +1,4 @@
+import asyncio
 import csv
 import os
 import sys
@@ -566,11 +567,11 @@ class TestTuiApp:
         """The elapsed clock must advance before the measurement window closes."""
         script = ("from acprof.progress_events import emit_event\n" + ("\n".join(
             (
-                "import time",
+                "import sys",
                 "emit_event('matrix_planned', total_cases=1)",
                 "emit_event('case_selected', 'fixture', current=1, total=1, cpu=1, mem=4, gpu='off')",
                 "emit_event('measurement_started', 'fixture')",
-                "time.sleep(1.8)",
+                "assert sys.stdin.readline() == 'finish\\n'",
                 "emit_event('measurement_stopped', 'fixture')",
                 "emit_event('case_finished', 'fixture', status='ok')",
                 "emit_event('run_finished', status='ok')",
@@ -587,22 +588,30 @@ class TestTuiApp:
                 )
             )
             assert app.elapsed_timer is not None
-            for _ in range(50):
-                await pilot.pause(0.03)
-                if app.latest_snapshot.measurement_active:
-                    break
-            assert app.latest_snapshot.measurement_active
-            elapsed_before = str(app.query_one("#status-elapsed", Static).content)
-            await pilot.pause(1.2)
-            assert app.latest_snapshot.measurement_active
-            elapsed_during = str(app.query_one("#status-elapsed", Static).content)
-            assert elapsed_during != elapsed_before
-            assert elapsed_during != "—"
-            assert app.logs.log.suspended
-            for _ in range(60):
-                await pilot.pause(0.05)
-                if not app.is_busy():
-                    break
+            async with asyncio.timeout(10):
+                while not app.latest_snapshot.measurement_active:
+                    await pilot.pause()
+            process = app.lifecycle.process
+            assert process is not None
+            try:
+                elapsed_before = str(app.query_one("#status-elapsed", Static).content)
+                assert elapsed_before != "—"
+                # Keep the real child measuring until the timer updates the UI.
+                async with asyncio.timeout(10):
+                    while (elapsed_during := str(app.query_one("#status-elapsed", Static).content)) == elapsed_before:
+                        await pilot.pause()
+                assert app.latest_snapshot.measurement_active
+                assert elapsed_during != elapsed_before
+                assert elapsed_during != "—"
+                assert app.logs.log.suspended
+            finally:
+                if app.lifecycle.process is process and process.poll() is None:
+                    app.lifecycle.reply(process, "finish\n")
+            async with asyncio.timeout(10):
+                await app.workers.wait_for_complete()
+            await pilot.pause()
+            assert process.returncode == 0
+            assert not app.latest_snapshot.measurement_active
             assert app.elapsed_timer is None
             assert not app.is_busy()
 
