@@ -358,6 +358,12 @@ schema v3 的重复内容核验在非阻塞共享锁内按 64 KiB 分块校验�
 `model_candidates` 复用 runtime profile 路由、依赖锁与 Model Store entry 验证；`model_controller` 把候选回填原 ModelInput，
 runtime/host/device/资源条件不完整或变化时降为需要重新验证。扫描与至多一次平台探测只在空闲 worker 中执行，
 不读取权重内容、不自动下载，也不凭历史成功跳过正式准备验证。
+`model_store_summary` 把既有容量和清理预览转换为中英文摘要，区分实际缓存占用、登记条目大小与共享文件回收量；
+`model_store` 保留 worker、取消与批准范围，刷新时撤下旧预览。Model Store 和采集权限确认共用
+`views.ScrollConfirmActionScreen` 的可滚动正文及固定操作栏，普通短确认仍使用 `ConfirmActionScreen`。
+摘要设计参考 [Hugging Face 缓存清理](https://github.com/huggingface/huggingface_hub/blob/main/src/huggingface_hub/cli/cache.py)
+及[未引用文件清理 PR](https://github.com/huggingface/huggingface_hub/pull/4797)（Apache-2.0），
+复用现有 Textual 容器与项目内确认布局；不复制上游删除策略、不新增依赖或测量期轮询。
 `images` 提供镜像树、筛选、摘要与折叠详情、层引用和可滚动的删除确认；`ImageDetailPanel` 按镜像/层身份维护展开状态，将用户信息、完整依赖和诊断依据分组。`views` 构建三个视图，`image_controller.ImageController` 收纳镜像页事件、渲染及 Docker worker。
 `ImageController` 拥有清单、选择、计时器和存储弹窗状态，App 显式路由事件；Docker worker 通过 App 调度，配置模块仍不提前加载 Textual。
 `storage.StorageSpaceScreen` 展示可滚动的存储空间弹窗；`host.images.inventory.read_storage` 读取固定 Docker 连接的分类汇总和可核验的本机数据目录文件系统。

@@ -170,6 +170,26 @@ class ConfirmActionScreen(ModalScreen[bool]):
         self.dismiss(False)
 
 
+class ScrollConfirmActionScreen(ConfirmActionScreen):
+    """Keep approval actions reachable while the complete action plan scrolls."""
+
+    CSS = ConfirmActionScreen.CSS + """
+    ScrollConfirmActionScreen { align: center middle; }
+    ScrollConfirmActionScreen #confirm-dialog { height: 80%; }
+    ScrollConfirmActionScreen #confirm-message { height: 1fr; max-height: 100%; }
+    """
+
+    def compose(self) -> ComposeResult:
+        tr = translated_app(self.app).tr
+        with Vertical(id="confirm-dialog"):
+            yield Static(tr(self.dialog_title), id="confirm-title", markup=False)
+            with VerticalScroll(id="confirm-message"):
+                yield Static(tr(self.message), markup=False)
+            with Horizontal(id="confirm-buttons"):
+                yield Button(tr(message_id('ui.0588')), id="confirm-no")
+                yield Button(tr(self.confirm_label), id="confirm-yes", variant=self.confirm_variant)
+
+
 class LogPanel(Vertical):
     """Keep the log controls available when the log fills the terminal."""
 

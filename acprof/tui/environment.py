@@ -21,7 +21,7 @@ from acprof.tui.diagnostics import quick_preflight
 from acprof.tui.i18n import message_id
 from acprof.tui.input import BarCursorInput as Input
 from acprof.tui.rendering import CjkCompositor
-from acprof.tui.views import ConfirmActionScreen
+from acprof.tui.views import ScrollConfirmActionScreen
 
 FIELDS = (
     ('HF_TOKEN', 'Hugging Face Token', True, 'hf_…'),
@@ -34,26 +34,6 @@ FIELDS = (
 
 def field_id(key: str) -> str:
     return 'env-' + key.lower().replace('_', '-')
-
-
-class PermissionReviewScreen(ConfirmActionScreen):
-    """Keep approval actions reachable while the complete command plan scrolls."""
-
-    CSS = ConfirmActionScreen.CSS + """
-    PermissionReviewScreen { align: center middle; }
-    PermissionReviewScreen #confirm-dialog { height: 80%; }
-    PermissionReviewScreen #confirm-message { height: 1fr; max-height: 100%; }
-    """
-
-    def compose(self):
-        tr = translated_app(self.app).tr
-        with Vertical(id='confirm-dialog'):
-            yield Static(tr(self.dialog_title), id='confirm-title', markup=False)
-            with VerticalScroll(id='confirm-message'):
-                yield Static(tr(self.message), markup=False)
-            with Horizontal(id='confirm-buttons'):
-                yield Button(tr('取消'), id='confirm-no')
-                yield Button(tr(self.confirm_label), id='confirm-yes', variant='primary')
 
 
 class EnvironmentSettingsScreen(ModalScreen[bool]):
@@ -215,7 +195,7 @@ class EnvironmentSettingsScreen(ModalScreen[bool]):
             'ui.0287',
             '\n'.join(shlex.join(command) for command in plan.commands),
         )
-        self.app.push_screen(PermissionReviewScreen('配置采集权限', detail, '执行配置'),
+        self.app.push_screen(ScrollConfirmActionScreen('配置采集权限', detail, '执行配置'),
                              lambda confirmed: self._confirmed_permissions(confirmed, plan))
 
     def _confirmed_permissions(self, confirmed, plan):

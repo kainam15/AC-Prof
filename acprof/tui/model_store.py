@@ -1,5 +1,4 @@
 """On-demand storage review; never polls or prunes during measurement."""
-import json
 from pathlib import Path
 from threading import Event
 
@@ -9,11 +8,12 @@ from textual.screen import ModalScreen
 from textual.widgets import Button, Static
 
 from acprof.host.model_store import ModelStoreCancelled, disk_report, prune_store
+from acprof.network_policy import parse_bytes
 from acprof.tui.app_contracts import translated_app
 from acprof.tui.i18n import message_id
-from acprof.tui.presentation import format_byte_fields
+from acprof.tui.model_store_summary import model_store_prune_summary, model_store_summary
 from acprof.tui.rendering import CjkCompositor
-from acprof.tui.views import ConfirmActionScreen
+from acprof.tui.views import ScrollConfirmActionScreen
 
 
 class ModelStoreScreen(ModalScreen):
@@ -39,16 +39,18 @@ class ModelStoreScreen(ModalScreen):
 
     def compose(self):
         with Vertical(id="store-dialog"):
-            yield Static("Model Store", markup=False)
+            yield Static(translated_app(self.app).tr(message_id('ui.0216')), markup=False)
             with VerticalScroll(id="store-scroll"):
+                yield Static(translated_app(self.app).tr(message_id('ui.0320')), id="store-status", markup=False)
                 yield Static("", id="store-report", markup=False)
-            yield Static(translated_app(self.app).tr(message_id('ui.0320')), id="store-status", markup=False)
             with Horizontal(id="store-actions", classes="action-bar"):
                 yield Button(translated_app(self.app).tr(message_id('ui.0139')), id="store-close")
                 yield Button(translated_app(self.app).tr(message_id('ui.0316')), id="store-refresh", disabled=True)
                 yield Button(translated_app(self.app).tr(message_id('ui.0215')), id="store-prune", disabled=True)
 
     def on_mount(self):
+        for button in self.query(Button):
+            button.active_effect_duration = 0
         self.refresh_report()
 
     def on_unmount(self):
@@ -67,6 +69,8 @@ class ModelStoreScreen(ModalScreen):
     def refresh_report(self):
         try:
             report = disk_report(self.root, cancel=self._cancel)
+            if self.target:
+                report = {**report, "capacity_bytes": parse_bytes(self.target)}
             self._post(self._show_capacity, report)
             preview = prune_store(root=self.root, target_bytes=self.target, cancel=self._cancel,
                                   on_wait=lambda: self._post(self._show_waiting))
@@ -81,8 +85,7 @@ class ModelStoreScreen(ModalScreen):
         if not self.is_mounted:
             return
         self._report = report
-        self.query_one("#store-report", Static).update(json.dumps(
-            format_byte_fields(report, translated_app(self.app).tr), ensure_ascii=False, indent=2))
+        self._render_report()
         if not self._close_requested:
             self.query_one("#store-status", Static).update(translated_app(self.app).tr(message_id('ui.0218')))
 
@@ -100,11 +103,13 @@ class ModelStoreScreen(ModalScreen):
         self.preview = preview
         self.query_one("#store-refresh", Button).disabled = False
         self.query_one("#store-status", Static).update(error)
-        if preview is not None:
-            self.query_one("#store-report", Static).update(json.dumps(
-                format_byte_fields({**self._report, "prune_preview": preview}, translated_app(self.app).tr), ensure_ascii=False, indent=2))
+        self._render_report()
         self.query_one("#store-prune", Button).disabled = not (
             preview and (preview["entries"] or preview["reclaimable_bytes"]))
+
+    def _render_report(self):
+        self.query_one("#store-report", Static).update(
+            model_store_summary(self._report, self.preview, translated_app(self.app).tr))
 
     @on(Button.Pressed, "#store-refresh")
     def refresh_clicked(self):
@@ -117,6 +122,8 @@ class ModelStoreScreen(ModalScreen):
         self._working = True
         self._cancel = Event()
         self.preview = None
+        self._report = {}
+        self._render_report()
         for key in ("store-refresh", "store-prune"):
             self.query_one(f"#{key}", Button).disabled = True
         self.query_one("#store-status", Static).update(translated_app(self.app).tr(status))
@@ -125,9 +132,10 @@ class ModelStoreScreen(ModalScreen):
     def prune_clicked(self):
         if self._working or not self.preview:
             return
-        self.app.push_screen(ConfirmActionScreen(translated_app(self.app).tr(message_id('ui.0215')),
-            json.dumps(format_byte_fields(self.preview, translated_app(self.app).tr), ensure_ascii=False, indent=2),
-            translated_app(self.app).tr("清理")), self._confirmed)
+        tr = translated_app(self.app).tr
+        self.app.push_screen(ScrollConfirmActionScreen(
+            tr(message_id('ui.0215')), model_store_prune_summary(self._report, self.preview, tr),
+            tr(message_id('ui.0215')), variant="warning"), self._confirmed)
 
     def _confirmed(self, confirmed):
         if confirmed and self.preview is not None:

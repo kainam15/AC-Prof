@@ -103,7 +103,9 @@ async def test_budget_settings_and_prune_confirmation_in_both_languages(size, la
         settings_path = root / "tui.json"
         app = AcprofTui(RunConfig.smoke("example/model"), settings_path=settings_path)
         report = {"path": str(root), "total_bytes": 100, "free_bytes": 1000,
-                  "models": [{"entry_id": "old"}, {"entry_id": "new"}]}
+                  "models": [{"entry_id": key, "model_id": f"example/{key}",
+                              "model_revision": "a" * 40, "model_artifact_bytes": 100,
+                              "last_used": 946_728_000} for key in ("old", "new")]}
         preview = {"entries": ["old"], "reclaimable_bytes": 40}
         with patch("acprof.tui.model_store.disk_report", return_value=report), patch(
             "acprof.tui.model_store.prune_store", return_value=preview,
