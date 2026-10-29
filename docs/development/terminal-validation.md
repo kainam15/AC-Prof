@@ -12,9 +12,9 @@ Linux 原生终端、SSH 会话及浏览器 Web Terminal。SSH 只传输终端�
 不能依赖 `tall` 块状边框无缝拼接；纯 ASCII 终端不属于当前中文 TUI 的支持范围。
 
 使用 pytest 原生 async 测试和 `pytest-asyncio`、Textual `run_test()` / `Pilot` 和临时 `settings_path`。
-普通界面测试使用 `tests/tui_fixtures.py` 的就绪环境替身，保留启动状态机但不触发真实硬件探测；
+普通界面测试使用 `tests/support/tui_fixtures.py` 的就绪环境替身，保留启动状态机但不触发真实硬件探测；
 启动 preflight 专项使用真实 `AcprofTui` 和 thread worker，只模拟 host diagnostics 边界。
-覆盖整个 fixture 生命周期的环境隔离使用 `tests/environment_fixtures.py` 的
+覆盖整个 fixture 生命周期的环境隔离使用 `tests/support/environment_fixtures.py` 的
 `isolated_environment()`，保留 `PYTEST_` 与 `TEXTUAL_SNAPSHOT_` 测试运行状态，
 不继承应用设置、凭据或代理。`KeyboardInterrupt` 后，session 退出钩子可能先于 fixture
 清理运行；不能依赖稍后的环境恢复来保护快照临时目录。`test_environment_fixtures.py`

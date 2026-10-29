@@ -3,7 +3,7 @@ on:
   push:
     tags: ['v*']
   pull_request:
-    paths: ['acprof/**', 'dockerfiles/**', 'assets/**', 'examples/**', 'uv.lock', '.python-version', 'pyproject.toml', 'packaging/**', 'scripts/check_distribution.py', 'scripts/release_risk.py', 'scripts/check_dependency_audit.py', 'tests/test_release*.py', 'tests/test_hatch_build.py', 'README.md', 'LICENSE', 'NOTICE', 'licenses/**', '.dockerignore', '.github/release-risk.json', '.github/workflows/release.yml', '.github/workflows/ci.yml']
+    paths: ['acprof/**', 'dockerfiles/**', 'assets/**', 'examples/**', 'uv.lock', '.python-version', 'pyproject.toml', 'packaging/**', 'scripts/check_distribution.py', 'scripts/release_risk.py', 'scripts/check_dependency_audit.py', 'tests/quality/test_release*.py', 'tests/quality/test_hatch_build.py', 'README.md', 'LICENSE', 'NOTICE', 'licenses/**', '.dockerignore', '.github/release-risk.json', '.github/workflows/release.yml', '.github/workflows/ci.yml']
   workflow_dispatch:
 
 permissions:

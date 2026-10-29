@@ -1,0 +1,188 @@
+import shlex
+import time
+from pathlib import Path
+from unittest.mock import Mock, patch
+
+import pytest
+from textual.widgets import Button, Input, Select, Static
+
+from acprof.experiment import RunConfig
+from acprof.installation import cli_command
+from acprof.tui.commands import format_command
+from acprof.tui.progress import ProgressSnapshot
+from acprof.tui.stages import Stage
+from tests.support.tui_fixtures import AcprofTui
+
+PROJECT_DIR = Path(__file__).resolve().parents[3]
+
+
+class TestTuiInteraction:
+    @pytest.fixture(autouse=True)
+    def _setup(self, request, tmp_path, monkeypatch):
+        self._request = request
+        temporary = tmp_path
+        self.settings_path = Path(str(temporary)) / "tui.json"
+
+    async def test_pending_form_preview_is_safe_after_widgets_are_unmounted(self):
+        class ClosingPreviewApp(AcprofTui):
+            CSS_PATH = AcprofTui.CSS_PATH
+
+            async def _close_all(self):
+                await super()._close_all()
+                # A timer callback may already be queued when shutdown removes
+                # the form. Deliver it here without depending on clock timing.
+                self.configuration.sync_form_state()
+
+        app = ClosingPreviewApp(RunConfig.smoke("demo/model"), settings_path=self.settings_path)
+        async with app.run_test(size=(120, 30)) as pilot:
+            await pilot.pause()
+            app.configuration.configuration_changed()
+            assert (app.configuration.preview_timer) is not None
+
+    async def test_pending_elapsed_tick_is_safe_during_shutdown(self):
+        class ClosingElapsedApp(AcprofTui):
+            CSS_PATH = AcprofTui.CSS_PATH
+
+            async def _close_all(self):
+                # Deliver a queued tick after the status widget is removed,
+                # before on_unmount runs, without depending on timer timing.
+                await self.query_one("#status-elapsed").remove()
+                try:
+                    self.tick_elapsed()
+                finally:
+                    await super()._close_all()
+
+        app = ClosingElapsedApp(RunConfig.smoke("demo/model"), settings_path=self.settings_path)
+        async with app.run_test(size=(120, 30)) as pilot:
+            await pilot.pause()
+            app.process_kind = "probe"
+            app.started_monotonic = time.monotonic() - 2
+            app.elapsed_timer = app.set_interval(60, app.tick_elapsed)
+            with patch.object(app.query_one("#status-elapsed", Static), "update") as update:
+                app.tick_elapsed()
+                update.assert_called_once()
+        assert (app.elapsed_timer) is None
+
+    async def test_rapid_clicks_are_not_discarded_by_button_active_effect(self):
+        app = AcprofTui(RunConfig.smoke("demo/model"), settings_path=self.settings_path)
+        async with app.run_test(size=(140, 45)) as pilot:
+            app.activate_tab("settings-tab")
+            await pilot.pause()
+            button = app.query_one("#restore-ui-defaults", Button)
+            # Deliver two Click events in the same event-loop turn. Pilot
+            # deliberately pauses between events, which can hide this issue.
+            with patch.object(button, "press", wraps=button.press) as press:
+                await button._on_click(Mock())
+                await button._on_click(Mock())
+                assert (press.call_count) == (2)
+            await pilot.pause()
+            assert not (button.has_class("-active"))
+            assert (all(not field.cursor_blink for field in app.query(Input)))
+
+    async def test_burst_of_form_changes_collects_once_and_keeps_latest_values(self):
+        app = AcprofTui(RunConfig.smoke("demo/model"), settings_path=self.settings_path)
+        async with app.run_test(size=(140, 45)) as pilot:
+            await pilot.pause(0.1)
+            with patch.object(app.configuration, 'collect_config', wraps=app.configuration.collect_config) as collect:
+                app.query_one("#cpus", Input).value = "1,2"
+                app.query_one("#cpus", Input).value = "1,3"
+                app.query_one("#model", Input).value = "demo/latest"
+                await pilot.pause(0.12)
+                assert (collect.call_count) == (1)
+            preview = str(app.query_one("#command-preview", Static).render())
+            assert (shlex.split(str(app.query_one("#command-preview", Static).content))[:2]) == (["acprof", "run"])
+            assert ("--cpus 1,3") in (preview)
+            assert ("--model demo/latest") in (preview)
+            assert (app.query_one("#run-preset", Select).value) == ("smoke")
+
+    async def test_applying_preset_does_not_queue_redundant_preview_updates(self):
+        app = AcprofTui(RunConfig.smoke("demo/model"), settings_path=self.settings_path)
+        async with app.run_test(size=(140, 45)) as pilot:
+            await pilot.pause(0.1)
+            with patch.object(
+                app.configuration, 'refresh_command_preview', wraps=app.configuration.refresh_command_preview
+            ) as refresh:
+                app.configuration.apply_config(RunConfig.main_matrix("demo/model"), preset="main")
+                await pilot.pause(0.12)
+                assert (refresh.call_count) == (1)
+            assert (app.configuration.preview_timer) is None
+            assert (app.query_one("#run-preset", Select).value) == ("main")
+            assert (app.query_one("#cpus", Input).value) == ("auto")
+
+    async def test_starting_run_cancels_preview_and_locks_configuration(self):
+        app = AcprofTui(RunConfig.smoke("demo/model"), settings_path=self.settings_path)
+        async with app.run_test(size=(140, 45)) as pilot:
+            await pilot.pause(0.1)
+            with patch.object(app.configuration, 'refresh_command_preview') as refresh:
+                app.configuration.configuration_changed()
+                assert (app.configuration.preview_timer) is not None
+                app.set_busy(True)
+                assert (app.configuration.preview_timer) is None
+                await pilot.pause(0.12)
+                refresh.assert_not_called()
+            controls = list(app.query(
+                ".config-control, #run-preset, .ui-preference, "
+                "#save-run-default, #restore-ui-defaults, #save-ui-settings"
+            ))
+            assert (controls)
+            assert (all(control.disabled for control in controls))
+            app.set_busy(False)
+            assert (all(not control.disabled for control in controls))
+
+    async def test_measurement_keeps_elapsed_clock_running_without_resuming_logs(self):
+        app = AcprofTui(RunConfig.smoke("demo/model"), settings_path=self.settings_path)
+        async with app.run_test(size=(140, 45)) as pilot:
+            await pilot.pause()
+            app.process_kind = "run"
+            app.started_monotonic = time.monotonic() - 5
+            timer = Mock()
+            app.elapsed_timer = timer
+            with patch.object(app, 'render_snapshot') as render:
+                app.consume_process_line(
+                    "", ProgressSnapshot(stage=Stage.MEASURING, measurement_active=True), False
+                )
+                assert app.logs.log.suspended
+                clock = app.query_one("#status-elapsed", Static)
+                with (
+                    patch.object(app, "format_elapsed", side_effect=["00:00:05", "00:00:05", "00:00:06"]),
+                    patch.object(clock, "update", wraps=clock.update) as update,
+                    patch.object(app.logs, "flush") as flush,
+                ):
+                    app.tick_elapsed()
+                    app.tick_elapsed()  # Same second must not trigger a repaint.
+                    app.tick_elapsed()
+                    assert [entry.args[0] for entry in update.call_args_list] == [
+                        "00:00:05", "00:00:06"
+                    ]
+                    assert all(entry.kwargs == {"layout": False} for entry in update.call_args_list)
+                    flush.assert_not_called()
+                render.assert_not_called()
+                timer.pause.assert_not_called()
+                timer.resume.assert_not_called()
+                assert app.logs.log.suspended
+                app.consume_process_line(
+                    "", ProgressSnapshot(stage=Stage.CLEANING_CASE, measurement_active=False), False
+                )
+                assert not app.logs.log.suspended
+                timer.pause.assert_not_called()
+                timer.resume.assert_not_called()
+            app.process_kind = ""
+            app.elapsed_timer = None
+
+
+@pytest.mark.parametrize('frozen', [False, True])
+@pytest.mark.parametrize('name', ['run', 'probe', 'plot', 'profile', 'stats', 'audit'])
+def test_preview_uses_public_cli_without_resolving_argument_paths(frozen, name):
+    arguments = [
+        "--model", "demo/model", "--output-dir", "/remote mount/results;literal",
+        "--input-scales", "64,128",
+    ]
+    with patch("sys.frozen", frozen, create=True):
+        command = [*cli_command(name), *arguments]
+        with patch.object(Path, "resolve", side_effect=AssertionError("filesystem access")):
+            preview = format_command(command)
+        assert (shlex.split(preview)) == (["acprof", name, *arguments])
+
+def test_preview_preserves_non_cli_commands():
+    command = ["docker", "inspect", "an image;literal"]
+    assert (shlex.split(format_command(command))) == (command)

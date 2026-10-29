@@ -1,0 +1,1114 @@
+import csv
+import hashlib
+import json
+import os
+import stat
+import tempfile
+from functools import partial
+from pathlib import Path
+from unittest.mock import patch
+
+import pytest
+
+import acprof.host.collection_history as host_collection_history
+import acprof.host.posthoc.backfill as host_posthoc_backfill
+import acprof.host.posthoc.context as host_posthoc_context
+import acprof.host.posthoc.plans as host_posthoc_plans
+import acprof.host.posthoc.storage as host_posthoc_storage
+import acprof.host.profiling.compute_plan as host_compute_profile_plan
+import acprof.host.profiling.execution_plan as host_execution_profile_plan
+from acprof.cli import posthoc
+from acprof.host.profiling.compute_plan import TORCH_LOGICAL_MFLOP_FIELD
+from acprof.platform import Environment
+
+
+class TestPosthocProfile:
+    @pytest.fixture(autouse=True)
+    def _setup(self, request, tmp_path, monkeypatch):
+        self._request = request
+        from tests.support.platform_fixtures import native_policy
+        native_policy(self._request)
+        selection = patch('acprof.host.posthoc.service.pin_gpu_device')
+        self.pin_gpu = selection.start()
+        self._request.addfinalizer(partial(selection.stop))
+    def test_v2_reuses_metadata_plans_and_preserves_backups_under_internal_directory(self):
+        from acprof.artifact_layout import ArtifactLayout
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            layout = ArtifactLayout.for_new_run(root)
+            layout.initialize()
+            self._write_fixture(root)
+            # Relocate only this test fixture into the v2 contract.
+            (root / "input_scale_plan.json").rename(root / "metadata/input_scale_plan.json")
+            layout.path("compute_profile_plan.json").write_text(json.dumps(self._compute_plan()))
+            layout.path("execution_profile_plan.json").write_text(json.dumps(self._execution_plan()))
+            original = (root / "result_layers.json").read_bytes()
+            with patch("acprof.host.posthoc.service.find_active_processes", return_value=[]), patch(
+                "acprof.host.posthoc.service._validate_profiler_runtime", side_effect=AssertionError("should reuse")):
+                summary = posthoc.run_posthoc(root)
+            assert (set(summary.reused_tools)) == ({"ncu", "nsys", "massif"})
+            backup = Path(summary.backup_dir)
+            assert (backup.is_relative_to(root / ".acprof/recovery/posthoc_backups"))
+            assert ((backup / "result_layers.json").read_bytes()) == (original)
+            assert ((root / "raw/posthoc_profiles/compute_profile_plan.json").is_file())
+            assert ((root / "metadata/collection_history.json").is_file())
+            assert not ((root / "posthoc_profiles").exists())
+            assert not ((root / "collection_history.json").exists())
+
+    def test_posthoc_validates_workload_in_separate_container_before_profiler(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self._write_fixture(root)
+            context = host_posthoc_context.load_result_context(root)
+            context.static_meta['runtime_environment'] = {'build_fingerprint': 'fixed'}
+            with patch('acprof.host.preflight.require_native_linux_host'), patch(
+                'acprof.host.preflight.require_native_docker',
+            ), patch('acprof.host.images.runtime.require_image_identity'), patch(
+                'acprof.host.runtime_validation.validate_runtime', return_value={'status': 'ok'},
+            ) as validate:
+                host_posthoc_plans._validate_profiler_runtime(context, gpu_modes=['off'])
+            kwargs = validate.call_args.kwargs
+            assert (kwargs['gpu_list']) == (['off'])
+            assert (kwargs['image_info'].tag) == (context.image_tag)
+            assert (kwargs['planned'].plan_file) == (str(context.input_scale_plan_path))
+            assert (Path(kwargs['output_dir'])) == (root / 'posthoc_profiles' / 'runtime_validation')
+
+    @pytest.mark.parametrize('validation_result_case', range(2), ids=["RuntimeError('invalid task output')", "{'status': 'resource_limited'}"])
+    def test_posthoc_runtime_failure_and_oom_stop_before_profiler_or_result_write(self, validation_result_case):
+        validation_result = tuple((RuntimeError('invalid task output'), {'status': 'resource_limited'}))[validation_result_case]
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self._write_fixture(root)
+            path = root / host_posthoc_context.STATIC_META_NAME
+            metadata = json.loads(path.read_text())
+            metadata['runtime_environment'] = {'build_fingerprint': 'fixed'}
+            path.write_text(json.dumps(metadata))
+            before = {name: (root / name).read_bytes() for name in ('static_meta.json', 'result_all.csv')}
+            with patch('acprof.host.posthoc.service.find_active_processes', return_value=[]), patch(
+                'acprof.host.preflight.require_native_linux_host',
+            ), patch('acprof.host.preflight.require_native_docker'), patch(
+                'acprof.host.images.runtime.require_image_identity',
+            ), patch('acprof.host.runtime_validation.validate_runtime',
+                     side_effect=validation_result if isinstance(validation_result, Exception) else None,
+                     return_value=validation_result) as validate, patch(
+                'acprof.host.posthoc.service._collect_execution_plan',
+            ) as collect, pytest.raises(host_posthoc_context.PosthocError, match='validation|验证'):
+                posthoc.run_posthoc(root, tools='massif', force_reprofile=True)
+            collect.assert_not_called()
+            validate.assert_called_once()
+            assert (validate.call_args.kwargs['gpu_list']) == (['off'])
+            assert (before) == ({name: (root / name).read_bytes() for name in before})
+
+    def test_load_context_uses_image_id_and_preserves_runtime_binding(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self._write_fixture(root)
+            path = root / host_posthoc_context.STATIC_META_NAME
+            metadata = json.loads(path.read_text())
+            metadata["image_id"] = "sha256:" + "a" * 64
+            metadata["runtime_environment"] = {"profile_id": "legacy-nlp", "adapter": "family-default"}
+            path.write_text(json.dumps(metadata))
+            before = path.read_bytes()
+            context = host_posthoc_context.load_result_context(root)
+            assert (context.image_tag) == (metadata["image_id"])
+            assert (context.task_info.runtime_profile_id) == ("legacy-nlp")
+            assert (path.read_bytes()) == (before)
+            assert ("environment_id") not in (context.static_meta["runtime_environment"])
+
+    @pytest.mark.parametrize("changed", ["result", "metadata"])
+    def test_rechecks_snapshot_after_acquiring_posthoc_lock(self, tmp_path, monkeypatch, changed):
+        import acprof.host.posthoc.service as service
+        from acprof.result_layers import publish_result_rows, read_result_layers
+
+        self._write_fixture(tmp_path)
+        original_lock = service.PosthocLock
+        published = {}
+
+        def concurrent_publication_before_lock(directory):
+            # Deterministically place a complete second publisher between the
+            # first context read and acquiring the real experiment locks.
+            if changed == "result":
+                fields, rows = read_result_layers(directory)
+                rows[0]["marker"] = "concurrent-publication"
+                publish_result_rows(fields, rows, directory)
+            else:
+                path = directory / "static_meta.json"
+                metadata = json.loads(path.read_text())
+                metadata["concurrent_note"] = "new metadata"
+                path.write_text(json.dumps(metadata))
+            published.update({name: (directory / name).read_bytes()
+                              for name in ("result_layers.json", "static_meta.json")})
+            return original_lock(directory)
+
+        monkeypatch.setattr(service, "PosthocLock", concurrent_publication_before_lock)
+        monkeypatch.setattr(service, "find_active_processes", lambda *args, **kwargs: [])
+        with patch.object(service, "_validate_profiler_runtime") as validate, patch.object(
+            service, "create_backup"
+        ) as backup, pytest.raises(host_posthoc_context.PosthocError, match="result changed"):
+            posthoc.run_posthoc(tmp_path, tools="ncu", force_reprofile=True)
+        validate.assert_not_called()
+        backup.assert_not_called()
+        assert {name: (tmp_path / name).read_bytes() for name in published} == published
+        if changed == "result":
+            assert read_result_layers(tmp_path)[1][0]["marker"] == "concurrent-publication"
+
+    def test_parser_defaults_to_reduced_execution_sampling(self):
+        defaults = posthoc._build_parser().parse_args(["results/example"])
+        explicit = posthoc._build_parser().parse_args(
+            [
+                "results/example",
+                "--massif-sampling",
+                "full",
+                "--nsys-sampling",
+                "per-scale",
+                "--nsys-reference-cpu",
+                "4",
+                "--nsys-reference-mem",
+                "8",
+            ]
+        )
+
+        assert (defaults.massif_sampling) == ("per-scale")
+        assert (defaults.nsys_sampling) == ("per-cpu-scale")
+        assert (explicit.massif_sampling) == ("full")
+        assert (explicit.nsys_sampling) == ("per-scale")
+        assert (explicit.nsys_reference_cpu) == (4)
+        assert (explicit.nsys_reference_mem) == (8)
+
+    @pytest.mark.parametrize(
+        ('recorded_source', 'environment_source', 'expected_source'),
+        [
+            ("missing", "modelscope", "huggingface"),
+            ("huggingface", "modelscope", "huggingface"),
+            ("modelscope", "huggingface", "modelscope"),
+        ],
+    )
+    def test_posthoc_preserves_recorded_model_source(
+        self, tmp_path, monkeypatch, recorded_source, environment_source, expected_source
+    ):
+        self._write_fixture(tmp_path)
+        metadata_path = tmp_path / host_posthoc_context.STATIC_META_NAME
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        if recorded_source != "missing":
+            metadata["model_source"] = recorded_source
+        metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+        before = {path.name: path.read_bytes() for path in tmp_path.iterdir() if path.is_file()}
+        monkeypatch.setenv("ACPROF_MODEL_SOURCE", environment_source)
+
+        context = host_posthoc_context.load_result_context(tmp_path)
+
+        assert context.task_info.model_source == expected_source
+        assert context.task_info.model_id == "example/model"
+        assert context.task_info.model_revision == "revision-1"
+        assert context.static_meta == metadata
+        assert {path.name: path.read_bytes() for path in tmp_path.iterdir() if path.is_file()} == before
+
+    @pytest.mark.parametrize(
+        "recorded_source",
+        [None, "", 0, False, [], {}, "unknown", "ModelScope", " modelscope "],
+        ids=["null", "empty", "number", "boolean", "array", "object", "unknown", "case", "spaces"],
+    )
+    def test_posthoc_rejects_invalid_recorded_model_source(
+        self, tmp_path, monkeypatch, recorded_source
+    ):
+        self._write_fixture(tmp_path)
+        metadata_path = tmp_path / host_posthoc_context.STATIC_META_NAME
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        metadata["model_source"] = recorded_source
+        metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+        before = {path.name: path.read_bytes() for path in tmp_path.iterdir() if path.is_file()}
+        monkeypatch.setenv("ACPROF_MODEL_SOURCE", "modelscope")
+
+        with pytest.raises(host_posthoc_context.PosthocError, match="model_source"):
+            host_posthoc_context.load_result_context(tmp_path)
+
+        assert {path.name: path.read_bytes() for path in tmp_path.iterdir() if path.is_file()} == before
+
+    def _write_fixture(
+        self,
+        root: Path,
+        *,
+        include_cpu=True,
+        include_gpu=True,
+        torch_complete=True,
+    ):
+        root.mkdir(parents=True, exist_ok=True)
+        input_plan = {
+            "schema_version": 2,
+            "model_id": "example/model",
+            "task_family": "nlp",
+            "pipeline_tag": "fill-mask",
+            "entries": [
+                {
+                    "input_scale": 8.0,
+                    "scale_label": "8",
+                    "payload": {"text": "hello"},
+                }
+            ],
+        }
+        plan_path = root / host_posthoc_context.INPUT_SCALE_PLAN_NAME
+        plan_path.write_text(json.dumps(input_plan), encoding="utf-8")
+        plan_hash = hashlib.sha256(plan_path.read_bytes()).hexdigest()
+        static_meta = {
+            **Environment("native_linux").metadata(),
+            "schema_version": 7,
+            "gpu_device": {"uuid": "GPU-fixture"},
+            "model_name": "example/model",
+            "model_revision": "revision-1",
+            "task_family": "nlp",
+            "pipeline_tag": "fill-mask",
+            "runtime_backend": "transformers_pipeline",
+            "image_tag": "acprof-nlp-example--model:latest",
+            "image_id": "sha256:" + "b" * 64,
+            "batch_size": 1,
+            "input_scale_type": "seq_length",
+            "input_scale_plan_sha256": plan_hash,
+            "run_command": "acprof run --model example/model",
+            "compute_profile_tools": (
+                ["torch_profiler_eager"] if torch_complete else []
+            ),
+            "execution_profile_tools": [],
+        }
+        (root / host_posthoc_context.STATIC_META_NAME).write_text(
+            json.dumps(static_meta), encoding="utf-8"
+        )
+
+        fieldnames = [
+            "marker",
+            "cpu_cores",
+            "mem_cap_gb",
+            "gpu_mode",
+            "input_scale",
+            "warmup",
+            "repeat_idx",
+            "latency_s",
+            "latency_app_s",
+            *host_posthoc_context.TORCH_FIELDS,
+            *host_posthoc_context.NCU_FIELDS,
+            *host_posthoc_context.MASSIF_FIELDS,
+            *host_posthoc_context.NSYS_FIELDS,
+            "status",
+        ]
+        # De-duplicate fields shared through tuple expansion.
+        fieldnames = list(dict.fromkeys(fieldnames))
+        rows = []
+        if include_cpu:
+            rows.append(
+                {
+                    "marker": "cpu-original",
+                    "cpu_cores": "2",
+                    "mem_cap_gb": "4",
+                    "gpu_mode": "off",
+                    "input_scale": "8",
+                    "warmup": "0", "repeat_idx": "0",
+                    "latency_s": "2.0",
+                    "latency_app_s": "2.5",
+                    TORCH_LOGICAL_MFLOP_FIELD: (
+                        "123.000000" if torch_complete else "nan"
+                    ),
+                    host_compute_profile_plan.TORCH_ERROR_FIELD: (
+                        "" if torch_complete else "compute_profile_disabled"
+                    ),
+                    host_execution_profile_plan.MASSIF_HEAP_PEAK_TOTAL_FIELD: "nan",
+                    "status": "ok",
+                }
+            )
+        if include_gpu:
+            rows.append(
+                {
+                    "marker": "gpu-original",
+                    "cpu_cores": "2",
+                    "mem_cap_gb": "4",
+                    "gpu_mode": "on",
+                    "input_scale": "8",
+                    "warmup": "0", "repeat_idx": "0",
+                    "latency_s": "0.5",
+                    "latency_app_s": "0.4",
+                    TORCH_LOGICAL_MFLOP_FIELD: (
+                        "456.000000" if torch_complete else "nan"
+                    ),
+                    host_compute_profile_plan.TORCH_ERROR_FIELD: (
+                        "" if torch_complete else "compute_profile_disabled"
+                    ),
+                    host_compute_profile_plan.NCU_TOTAL_MFLOP_FIELD: "nan",
+                    host_execution_profile_plan.NSYS_HOST_WALL_TIME_FIELD: "nan",
+                    "status": "ok",
+                }
+            )
+        csv_path = root / "result_all.csv"  # Fixture input only; production writes layers.
+        with csv_path.open("w", encoding="utf-8", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(rows)
+        from acprof.result_layers import publish_result_layers
+        publish_result_layers(csv_path)
+        return csv_path
+
+    def _compute_plan(self):
+        return {
+            "model_id": "example/model",
+            "task_family": "nlp",
+            "pipeline_tag": "fill-mask",
+            "runtime_backend": "transformers_pipeline",
+            "static_metadata": {
+                "compute_profile_tools": ["ncu"],
+                "ncu_repeat": 1,
+                "ncu_version": "test-ncu",
+            },
+            "profiles": {
+                "gpu": {
+                    "ncu": {
+                        "tool": "ncu",
+                        "error": "",
+                        "entries": [
+                            {
+                                "input_scale": 8.0,
+                                host_compute_profile_plan.NCU_TOTAL_MFLOP_FIELD: 100.0,
+                                host_compute_profile_plan.NCU_TENSOR_MFLOP_FIELD: 80.0,
+                                host_compute_profile_plan.NCU_SCALAR_MFLOP_FIELD: 20.0,
+                                host_compute_profile_plan.NCU_TENSOR_SHARE_FIELD: 80.0,
+                                host_compute_profile_plan.NCU_KERNEL_COUNT_FIELD: 5.0,
+                                host_compute_profile_plan.NCU_KERNEL_TIME_FIELD: 3.0,
+                                "error": "",
+                            }
+                        ],
+                    }
+                }
+            },
+        }
+
+    def _torch_plan(self):
+        def profile(value):
+            return {
+                "tool": "torch_profiler_eager",
+                "flop_semantics": "logical_operator_shape_flops",
+                "error": "",
+                "entries": [
+                    {
+                        "input_scale": 8.0,
+                        host_compute_profile_plan.TORCH_LOGICAL_MFLOP_FIELD: value,
+                        "error": "",
+                    }
+                ],
+            }
+
+        return {
+            "model_id": "example/model",
+            "task_family": "nlp",
+            "pipeline_tag": "fill-mask",
+            "runtime_backend": "transformers_pipeline",
+            "static_metadata": {
+                "compute_profile_tools": ["torch_profiler_eager"],
+                "torch_profiler_eager_flop_semantics": (
+                    "logical_operator_shape_flops"
+                ),
+                "torch_profiler_eager_repeat_cpu": 1,
+                "torch_profiler_eager_repeat_gpu": 1,
+                "torch_version": "test-torch",
+                "transformers_version": "test-transformers",
+            },
+            "profiles": {
+                "cpu": {"torch_profiler_eager": profile(111.0)},
+                "gpu": {"torch_profiler_eager": profile(222.0)},
+            },
+        }
+
+    def _execution_plan(self):
+        return {
+            "schema_version": 1,
+            "model_id": "example/model",
+            "model_revision": "revision-1",
+            "task_family": "nlp",
+            "pipeline_tag": "fill-mask",
+            "runtime_backend": "transformers_pipeline",
+            "static_metadata": {
+                "execution_profile_schema_version": 1,
+                "execution_profile_tools": ["massif", "nsys"],
+                "massif_repeat": 1,
+                "massif_version": "test-massif",
+                "nsys_repeat": 1,
+                "nsys_version": "test-nsys",
+            },
+            "profiles": [
+                {
+                    "cpu_cores": 2,
+                    "mem_cap_gb": 4,
+                    "gpu_mode": "off",
+                    "tools": {
+                        "massif": {
+                            "tool": "massif",
+                            "error": "",
+                            "entries": [
+                                {
+                                    "input_scale": 8.0,
+                                    host_execution_profile_plan.MASSIF_HEAP_PEAK_FIELD: 1000,
+                                    host_execution_profile_plan.MASSIF_HEAP_EXTRA_PEAK_FIELD: 200,
+                                    host_execution_profile_plan.MASSIF_STACK_PEAK_FIELD: 50,
+                                    host_execution_profile_plan.MASSIF_HEAP_PEAK_TOTAL_FIELD: 1250,
+                                    host_execution_profile_plan.MASSIF_PEAK_AT_MS_FIELD: 12.5,
+                                    "error": "",
+                                }
+                            ],
+                        }
+                    },
+                },
+                {
+                    "cpu_cores": 2,
+                    "mem_cap_gb": 4,
+                    "gpu_mode": "on",
+                    "tools": {
+                        "nsys": {
+                            "tool": "nsys",
+                            "error": "",
+                            "entries": [
+                                {
+                                    "input_scale": 8.0,
+                                    host_execution_profile_plan.NSYS_HOST_WALL_TIME_FIELD: 20.0,
+                                    host_execution_profile_plan.NSYS_CUDA_API_TIME_FIELD: 3.0,
+                                    host_execution_profile_plan.NSYS_CUDA_API_CALL_COUNT_FIELD: 4,
+                                    host_execution_profile_plan.NSYS_GPU_KERNEL_TIME_FIELD: 10.0,
+                                    host_execution_profile_plan.NSYS_GPU_KERNEL_LAUNCH_COUNT_FIELD: 5,
+                                    host_execution_profile_plan.NSYS_GPU_MEMCPY_TIME_FIELD: 1.0,
+                                    host_execution_profile_plan.NSYS_GPU_MEMCPY_COUNT_FIELD: 2,
+                                    host_execution_profile_plan.NSYS_GPU_MEMCPY_BYTES_FIELD: 4096,
+                                    "error": "",
+                                }
+                            ],
+                        }
+                    },
+                },
+            ],
+        }
+
+    def _read_rows(self, path: Path):
+        from acprof.result_csv import read_result_csv
+        source = path.parent / "result_layers.json" if path.name == "result_all.csv" else path
+        return read_result_csv(source)[1]
+
+    def test_load_context_and_applicable_tools(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "example--model"
+            self._write_fixture(root)
+            context = host_posthoc_context.load_result_context(root)
+
+        assert (context.task_info.model_id) == ("example/model")
+        assert (context.resource_cases) == ([(2, 4, "off"), (2, 4, "on")])
+        applicable, skipped = host_posthoc_plans.applicable_tools(
+            context, ("torch", "ncu", "nsys", "massif")
+        )
+        assert (applicable) == (("torch", "ncu", "nsys", "massif"))
+        assert (skipped) == (())
+
+    @pytest.mark.parametrize(
+        ('name', 'payload'),
+        [
+            (
+                host_posthoc_context.INPUT_SCALE_PLAN_NAME,
+                b'{"schema_version":2,"model_id":"example/model","entries":'
+                b'[{"input_scale":8,"payload":{}}],"extra":NaN}',
+            ),
+            (
+                host_posthoc_context.INPUT_SCALE_PLAN_NAME,
+                b'{"schema_version":2,"model_id":"example/model","entries":'
+                b'[{"input_scale":8,"payload":{}}],"extra":1e999}',
+            ),
+            (host_posthoc_context.INPUT_SCALE_PLAN_NAME, b"\xff"),
+            (
+                host_collection_history.COLLECTION_HISTORY_NAME,
+                b'{"schema_version":1,"posthoc_profile_history":[],"observed":NaN}',
+            ),
+            (
+                host_collection_history.COLLECTION_HISTORY_NAME,
+                b'{"schema_version":1,"posthoc_profile_history":[],"observed":1e999}',
+            ),
+            (host_collection_history.COLLECTION_HISTORY_NAME, b"\xff"),
+        ],
+    )
+    def test_load_context_rejects_invalid_auxiliary_json_without_rewriting(self, name, payload):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "example--model"
+            self._write_fixture(root)
+            path = root / name
+            path.write_bytes(payload)
+            if name == host_posthoc_context.INPUT_SCALE_PLAN_NAME:
+                static_path = root / host_posthoc_context.STATIC_META_NAME
+                static_meta = json.loads(static_path.read_text())
+                static_meta["input_scale_plan_sha256"] = hashlib.sha256(payload).hexdigest()
+                static_path.write_text(json.dumps(static_meta))
+            before = path.read_bytes()
+
+            with pytest.raises(host_posthoc_context.PosthocError, match=f"cannot read {name}"):
+                host_posthoc_context.load_result_context(root)
+
+            assert (path.read_bytes()) == (before)
+
+    @pytest.mark.parametrize(
+        "name",
+        [host_posthoc_context.INPUT_SCALE_PLAN_NAME,
+         host_collection_history.COLLECTION_HISTORY_NAME],
+    )
+    def test_load_context_rejects_oversized_auxiliary_json_without_rewriting(self, name):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "example--model"
+            self._write_fixture(root)
+            path = root / name
+            payload = json.dumps({
+                "schema_version": 2 if name == host_posthoc_context.INPUT_SCALE_PLAN_NAME else 1,
+                "model_id": "example/model",
+                "entries": [{"input_scale": 8, "payload": {}}],
+                "padding": "x" * (4 * 1024 * 1024),
+            }).encode()
+            path.write_bytes(payload)
+            if name == host_posthoc_context.INPUT_SCALE_PLAN_NAME:
+                static_path = root / host_posthoc_context.STATIC_META_NAME
+                static_meta = json.loads(static_path.read_text())
+                static_meta["input_scale_plan_sha256"] = hashlib.sha256(payload).hexdigest()
+                static_path.write_text(json.dumps(static_meta))
+
+            with pytest.raises(host_posthoc_context.PosthocError, match="4 MiB"):
+                host_posthoc_context.load_result_context(root)
+
+            assert (path.stat().st_size) == (len(payload))
+
+    @pytest.mark.parametrize(
+        "payload",
+        [
+            b'{"schema_version":1,"observed":NaN}',
+            b'{"schema_version":1,"observed":1e999}',
+            None,
+        ],
+    )
+    def test_optional_plan_reader_rejects_invalid_or_oversized_json_without_rewriting(
+        self, payload,
+    ):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "compute_profile_plan.json"
+            content = payload or json.dumps({
+                "schema_version": 1,
+                "padding": "x" * (4 * 1024 * 1024),
+            }).encode()
+            path.write_bytes(content)
+
+            assert (host_posthoc_context._read_plan(path)) is (None)
+            assert (path.read_bytes()) == (content)
+
+    def test_load_context_rejects_embedded_histories_without_rewriting(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "example--model"
+            self._write_fixture(root)
+            static_path = root / host_posthoc_context.STATIC_META_NAME
+            static_meta = json.loads(static_path.read_text())
+            static_meta["timeout_retry_history"] = [{"completed_at": "2026-08-21T22:29:33+08:00"}]
+            static_path.write_text(json.dumps(static_meta))
+            before = static_path.read_bytes()
+            with pytest.raises(host_posthoc_context.PosthocError, match="collection_history"):
+                host_posthoc_context.load_result_context(root)
+            assert (static_path.read_bytes()) == (before)
+
+    def test_backfill_updates_only_profiler_fields_for_applicable_rows(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "example--model"
+            self._write_fixture(root)
+            context = host_posthoc_context.load_result_context(root)
+            original_fields = set(context.fieldnames)
+            context.fieldnames = [field for field in context.fieldnames
+                                  if field not in host_posthoc_context.NCU_FIELDS]
+            fields, rows, updated = host_posthoc_backfill.backfill_rows(
+                context,
+                tools=("ncu", "nsys", "massif"),
+                compute_plan=self._compute_plan(),
+                execution_plan=self._execution_plan(),
+            )
+
+        assert (set(fields)) == (original_fields)
+        assert (fields[-2:]) == (["marker", "status"])
+        cpu = next(row for row in rows if row["gpu_mode"] == "off")
+        gpu = next(row for row in rows if row["gpu_mode"] == "on")
+        assert (cpu["marker"]) == ("cpu-original")
+        assert (cpu[TORCH_LOGICAL_MFLOP_FIELD]) == ("123.000000")
+        assert (cpu[host_execution_profile_plan.MASSIF_HEAP_PEAK_TOTAL_FIELD]) == ("1250.000000")
+        assert (gpu["marker"]) == ("gpu-original")
+        assert (gpu[TORCH_LOGICAL_MFLOP_FIELD]) == ("456.000000")
+        assert (gpu[host_compute_profile_plan.NCU_TOTAL_MFLOP_FIELD]) == ("100.000000")
+        assert (gpu[host_posthoc_context.NCU_DERIVED_APP_FIELD]) == ("250.000000")
+        assert (gpu[host_posthoc_context.NCU_DERIVED_PACKET_FIELD]) == ("200.000000")
+        assert (gpu[host_execution_profile_plan.NSYS_HOST_WALL_TIME_FIELD]) == ("20.000000")
+        assert (updated) == ({"ncu": 1, "nsys": 1, "massif": 1})
+
+    def test_successful_existing_profile_is_preserved_without_force(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "example--model"
+            self._write_fixture(root, include_cpu=False)
+            context = host_posthoc_context.load_result_context(root)
+            for field in host_posthoc_context.TOOL_METRIC_FIELDS["ncu"]:
+                context.rows[0][field] = "777.000000"
+            context.rows[0][host_compute_profile_plan.NCU_ERROR_FIELD] = ""
+            _fields, rows, updated = host_posthoc_backfill.backfill_rows(
+                context,
+                tools=("ncu",),
+                compute_plan=self._compute_plan(),
+            )
+
+        assert (rows[0][host_compute_profile_plan.NCU_TOTAL_MFLOP_FIELD]) == ("777.000000")
+        assert (updated) == ({"ncu": 0})
+
+    def test_torch_plan_backfills_cpu_gpu_rows_and_static_flops(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "example--model"
+            self._write_fixture(root, torch_complete=False)
+            (root / "compute_profile_plan.json").write_text(
+                json.dumps(self._torch_plan()), encoding="utf-8"
+            )
+            with patch(
+                "acprof.host.posthoc.service.find_active_processes", return_value=[]
+            ), patch(
+                "acprof.host.posthoc.service._validate_profiler_runtime",
+                side_effect=AssertionError("complete Torch plan should be reused"),
+            ):
+                summary = posthoc.run_posthoc(root, tools="torch")
+
+            rows = self._read_rows(root / "result_all.csv")
+            cpu = next(row for row in rows if row["gpu_mode"] == "off")
+            gpu = next(row for row in rows if row["gpu_mode"] == "on")
+            assert (cpu[host_compute_profile_plan.TORCH_LOGICAL_MFLOP_FIELD]) == ("111.000000")
+            assert (gpu[host_compute_profile_plan.TORCH_LOGICAL_MFLOP_FIELD]) == ("222.000000")
+            assert (summary.reused_tools) == (("torch",))
+            assert (summary.updated_rows_by_tool) == ({"torch": 2})
+
+            metadata = json.loads((root / "static_meta.json").read_text())
+            assert ("torch_profiler_eager") in (metadata["compute_profile_tools"])
+            assert (metadata["torch_version"]) == ("test-torch")
+            assert (metadata["static_flops"]["profile"]) == ("gpu")
+            assert (metadata["static_flops"]["values"]) == ([{"input_scale": 8, "flops_per_request": 222_000_000}])
+
+    def test_torch_collector_uses_available_cpu_and_gpu_modes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "example--model"
+            self._write_fixture(root, torch_complete=False)
+            context = host_posthoc_context.load_result_context(root)
+
+            def fake_collect(**kwargs):
+                plan_path = Path(kwargs["output_dir"]) / "compute_profile_plan.json"
+                plan_path.parent.mkdir(parents=True, exist_ok=True)
+                plan_path.write_text(json.dumps(self._torch_plan()), encoding="utf-8")
+                return str(plan_path)
+
+            with patch(
+                "acprof.host.profiling.compute.collect_compute_profile_plan",
+                side_effect=fake_collect,
+            ) as collect:
+                plan = host_posthoc_plans._collect_compute_plan(
+                    context,
+                    root / "posthoc_profiles" / "torch",
+                    tool="torch",
+                    ncu_root=None,
+                    torch_repeat=3,
+                    ncu_repeat=1,
+                    compute_profile_cpus=8,
+                    compute_profile_mem=16,
+                )
+
+        kwargs = collect.call_args.kwargs
+        assert (kwargs["compute_profile_tool"]) == ("torch")
+        assert (kwargs["gpu_list"]) == (["off", "on"])
+        assert (kwargs["torch_profiler_repeat"]) == (3)
+        assert (kwargs["compute_profile_cpus"]) == (8)
+        assert (kwargs["compute_profile_mem"]) == (16)
+        assert (kwargs["resume_existing_ncu_profiles"])
+        assert (host_posthoc_plans.compute_plan_covers_tool(plan, context, "torch"))
+
+    def test_torch_and_ncu_plans_merge_without_overwriting_each_other(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "example--model"
+            self._write_fixture(root, torch_complete=False)
+            context = host_posthoc_context.load_result_context(root)
+            merged = host_posthoc_plans.merge_compute_plans(
+                context,
+                {"torch": self._torch_plan(), "ncu": self._compute_plan()},
+            )
+
+        assert (merged["static_metadata"]["compute_profile_tools"]) == (["torch_profiler_eager", "ncu"])
+        assert ("torch_profiler_eager") in (merged["profiles"]["cpu"])
+        assert ("torch_profiler_eager") in (merged["profiles"]["gpu"])
+        assert ("ncu") in (merged["profiles"]["gpu"])
+        assert (host_posthoc_plans.compute_plan_covers_tool(merged, context, "torch"))
+        assert (host_posthoc_plans.compute_plan_covers_tool(merged, context, "ncu"))
+
+    def test_representative_massif_plan_expands_to_all_cpu_cases(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "example--model"
+            self._write_fixture(root, include_gpu=False)
+            context = host_posthoc_context.load_result_context(root)
+            context.resource_cases.append((8, 16, "off"))
+            plan = self._execution_plan()
+            expanded = host_posthoc_plans.expand_representative_massif_plan(
+                plan,
+                context,
+                reference_cpu=2,
+                reference_mem=4,
+            )
+
+        resources = {
+            (profile["cpu_cores"], profile["mem_cap_gb"])
+            for profile in expanded["profiles"]
+        }
+        assert (resources) == ({(2, 4), (8, 16)})
+        assert (expanded["static_metadata"]["massif_sampling_strategy"]) == ("representative_per_scale")
+        entry = expanded["profiles"][1]["tools"]["massif"]["entries"][0]
+        assert (entry["profile_source_cpu_cores"]) == (2)
+
+    def test_one_command_reuses_plans_updates_original_names_and_keeps_backup(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "example--model"
+            self._write_fixture(root)
+            initial_history = {
+                "schema_version": 1,
+                "posthoc_profile_history": [],
+                "timeout_retry_history": [{"completed_at": "2026-08-01T00:00:00Z"}],
+                "quality_retry_history": [],
+            }
+            history_path = root / host_collection_history.COLLECTION_HISTORY_NAME
+            history_path.write_text(json.dumps(initial_history), encoding="utf-8")
+            original_csv = (root / "result_layers.json").read_bytes()
+            original_meta = (root / host_posthoc_context.STATIC_META_NAME).read_bytes()
+            original_history = history_path.read_bytes()
+            (root / "compute_profile_plan.json").write_text(
+                json.dumps(self._compute_plan()), encoding="utf-8"
+            )
+            (root / "execution_profile_plan.json").write_text(
+                json.dumps(self._execution_plan()), encoding="utf-8"
+            )
+
+            with patch(
+                "acprof.host.posthoc.service.find_active_processes", return_value=[]
+            ), patch(
+                "acprof.host.posthoc.service._validate_profiler_runtime",
+                side_effect=AssertionError("runtime should not be used"),
+            ):
+                summary = posthoc.run_posthoc(root)
+
+            assert (Path(summary.result_csv)) == (root / "result_layers.json")
+            assert (Path(summary.static_meta)) == (root / "static_meta.json")
+            assert (set(summary.reused_tools)) == ({"ncu", "nsys", "massif"})
+            backup = Path(summary.backup_dir)
+            assert ((backup / "result_layers.json").read_bytes()) == (original_csv)
+            assert ((backup / "static_meta.json").read_bytes()) == (original_meta)
+            assert ((backup / host_collection_history.COLLECTION_HISTORY_NAME).read_bytes()) == (original_history)
+
+            rows = self._read_rows(root / "result_all.csv")
+            cpu = next(row for row in rows if row["gpu_mode"] == "off")
+            gpu = next(row for row in rows if row["gpu_mode"] == "on")
+            assert (cpu["marker"]) == ("cpu-original")
+            assert (gpu["marker"]) == ("gpu-original")
+            assert (gpu[host_compute_profile_plan.NCU_TOTAL_MFLOP_FIELD]) == ("100.000000")
+            assert (cpu[host_execution_profile_plan.MASSIF_HEAP_PEAK_TOTAL_FIELD]) == ("1250.000000")
+
+            metadata = json.loads((root / "static_meta.json").read_text())
+            assert ("ncu") in (metadata["compute_profile_tools"])
+            assert (set(metadata["execution_profile_tools"])) == ({"massif", "nsys"})
+            assert (metadata["nsys_version"]) == ("test-nsys")
+            assert (metadata["massif_version"]) == ("test-massif")
+            assert ("posthoc_profile_history") not in (metadata)
+            assert ("posthoc_profile_last_run") not in (metadata)
+            collection_history = json.loads(history_path.read_text())
+            assert (len(collection_history["posthoc_profile_history"])) == (1)
+            assert (len(collection_history["timeout_retry_history"])) == (1)
+            assert not ((root / ".posthoc.lock").exists())
+
+    @pytest.mark.skipif(os.name != "posix", reason="directory fsync is a POSIX durability contract")
+    def test_profile_plan_atomic_write_preserves_mode_and_syncs_directory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "compute_profile_plan.json"
+            path.write_text('{"old": true}\n', encoding="utf-8")
+            path.chmod(0o640)
+
+            with patch("acprof.artifacts.os.fsync", wraps=os.fsync) as fsync:
+                host_posthoc_storage._atomic_write_json(path, {"schema_version": 1})
+
+            assert stat.S_IMODE(path.stat().st_mode) == 0o640
+            assert json.loads(path.read_text(encoding="utf-8")) == {"schema_version": 1}
+            assert fsync.call_count >= 2
+            assert list(path.parent.glob(f".{path.name}.*.tmp")) == []
+
+    @pytest.mark.parametrize("writer", ["atomic", "temporary"])
+    def test_posthoc_json_writers_reject_nonfinite_payloads(self, writer):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "compute_profile_plan.json"
+            original = b'{"schema_version": 1, "old": true}\n'
+            path.write_bytes(original)
+            payload = {"schema_version": 1, "metric": float("nan")}
+
+            write = (host_posthoc_storage._atomic_write_json if writer == "atomic"
+                     else host_posthoc_storage._write_json_temporary)
+            with pytest.raises(ValueError, match="Out of range float values"):
+                write(path, payload)
+
+            assert path.read_bytes() == original
+            assert list(path.parent.glob(f".{path.name}.*.tmp")) == []
+
+    def test_three_file_commit_cleans_earlier_temporaries_if_later_writer_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "example--model"
+            self._write_fixture(root)
+            context = host_posthoc_context.load_result_context(root)
+            backup = host_posthoc_storage.create_backup(context)
+            invalid_history = {**context.collection_history, "invalid_metric": float("nan")}
+
+            with pytest.raises(ValueError, match="Out of range float values"):
+                host_posthoc_storage.commit_result_files(
+                    context,
+                    fieldnames=context.fieldnames,
+                    rows=context.rows,
+                    static_meta=context.static_meta,
+                    collection_history=invalid_history,
+                    backup_dir=backup,
+                )
+
+            assert list(root.glob(".*.tmp")) == []
+
+    @pytest.mark.skipif(os.name != "posix", reason="directory fsync is a POSIX durability contract")
+    def test_three_file_commit_syncs_result_directory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "example--model"
+            self._write_fixture(root)
+            history_path = root / host_collection_history.COLLECTION_HISTORY_NAME
+            history_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "posthoc_profile_history": [],
+                        "timeout_retry_history": [],
+                        "quality_retry_history": [],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            context = host_posthoc_context.load_result_context(root)
+            backup = host_posthoc_storage.create_backup(context)
+            synced_file_types = []
+            real_fsync = os.fsync
+
+            def track_fsync(fd):
+                synced_file_types.append(stat.S_IFMT(os.fstat(fd).st_mode))
+                real_fsync(fd)
+
+            with patch("acprof.host.posthoc.storage.os.fsync", side_effect=track_fsync):
+                host_posthoc_storage.commit_result_files(
+                    context,
+                    fieldnames=context.fieldnames,
+                    rows=context.rows,
+                    static_meta=context.static_meta,
+                    collection_history=context.collection_history,
+                    backup_dir=backup,
+                )
+
+            assert stat.S_IFREG in synced_file_types
+            assert stat.S_IFDIR in synced_file_types
+
+    @pytest.mark.skipif(os.name != "posix", reason="directory fsync is a POSIX durability contract")
+    def test_restore_from_backup_syncs_file_and_directory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            destination = root / "result_all.csv"
+            backup = root / "result_all.backup.csv"
+            destination.write_text("new\n", encoding="utf-8")
+            backup.write_text("old\n", encoding="utf-8")
+            synced_file_types = []
+            real_fsync = os.fsync
+
+            def track_fsync(fd):
+                synced_file_types.append(stat.S_IFMT(os.fstat(fd).st_mode))
+                real_fsync(fd)
+
+            with patch("acprof.host.posthoc.storage.os.fsync", side_effect=track_fsync):
+                host_posthoc_storage._restore_from_backup(destination, backup)
+
+            assert destination.read_text(encoding="utf-8") == "old\n"
+            assert stat.S_IFREG in synced_file_types
+            assert stat.S_IFDIR in synced_file_types
+
+    @pytest.mark.skipif(os.name != "posix", reason="directory fsync is a POSIX durability contract")
+    def test_create_backup_syncs_files_and_directories(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "example--model"
+            self._write_fixture(root)
+            history_path = root / host_collection_history.COLLECTION_HISTORY_NAME
+            history_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "posthoc_profile_history": [],
+                        "timeout_retry_history": [],
+                        "quality_retry_history": [],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            context = host_posthoc_context.load_result_context(root)
+            synced_file_types = []
+            real_fsync = os.fsync
+
+            def track_fsync(fd):
+                synced_file_types.append(stat.S_IFMT(os.fstat(fd).st_mode))
+                real_fsync(fd)
+
+            with patch("acprof.host.posthoc.storage.os.fsync", side_effect=track_fsync):
+                backup = host_posthoc_storage.create_backup(context)
+
+            assert (backup / host_posthoc_context.RESULT_CSV_NAME).read_bytes() == context.result_csv.read_bytes()
+            assert (backup / host_posthoc_context.STATIC_META_NAME).read_bytes() == context.static_meta_path.read_bytes()
+            assert (backup / host_collection_history.COLLECTION_HISTORY_NAME).read_bytes() == history_path.read_bytes()
+            assert synced_file_types.count(stat.S_IFREG) >= 3
+            assert stat.S_IFDIR in synced_file_types
+
+    def test_create_backup_removes_incomplete_directory_on_copy_failure(self):
+        from acprof.artifact_layout import ArtifactLayout
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "example--model"
+            self._write_fixture(root)
+            context = host_posthoc_context.load_result_context(root)
+            backup_root = ArtifactLayout.discover(root).path(host_posthoc_context.BACKUP_DIRNAME)
+            copy_file = host_posthoc_storage.copy_backup_file
+            copy_count = 0
+
+            def fail_second_copy(source, destination):
+                nonlocal copy_count
+                copy_count += 1
+                if copy_count == 2:
+                    raise OSError("simulated backup copy failure")
+                copy_file(source, destination)
+
+            with patch("acprof.host.posthoc.storage.copy_backup_file", side_effect=fail_second_copy), pytest.raises(
+                OSError, match="simulated backup copy failure"
+            ):
+                host_posthoc_storage.create_backup(context)
+
+            assert list(backup_root.iterdir()) == []
+
+    def test_three_file_commit_restores_csv_and_meta_if_history_publish_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "example--model"
+            self._write_fixture(root)
+            history_path = root / host_collection_history.COLLECTION_HISTORY_NAME
+            history_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "posthoc_profile_history": [],
+                        "timeout_retry_history": [],
+                        "quality_retry_history": [],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            context = host_posthoc_context.load_result_context(root)
+            backup = host_posthoc_storage.create_backup(context)
+            original_csv = context.result_csv.read_bytes()
+            original_meta = context.static_meta_path.read_bytes()
+            original_history = history_path.read_bytes()
+            rows = [dict(row) for row in context.rows]
+            rows[0]["marker"] = "changed"
+            static_meta = {**context.static_meta, "run_command": "changed"}
+            collection_history = host_collection_history.append_collection_record(
+                context.collection_history,
+                "posthoc_profile_history",
+                {"completed_at": "2026-08-23T00:00:00Z"},
+            )
+            real_replace = os.replace
+
+            def fail_history_publish(source, destination):
+                if (
+                    Path(destination) == history_path
+                    and ".restore." not in Path(source).name
+                ):
+                    raise OSError("simulated history publish failure")
+                return real_replace(source, destination)
+
+            with patch(
+                "acprof.host.posthoc.storage.os.replace",
+                side_effect=fail_history_publish,
+            ), pytest.raises(OSError, match="simulated history publish failure"):
+                host_posthoc_storage.commit_result_files(
+                    context,
+                    fieldnames=context.fieldnames,
+                    rows=rows,
+                    static_meta=static_meta,
+                    collection_history=collection_history,
+                    backup_dir=backup,
+                )
+
+            assert (context.result_csv.read_bytes()) == (original_csv)
+            assert (context.static_meta_path.read_bytes()) == (original_meta)
+            assert (history_path.read_bytes()) == (original_history)
+            assert (list(root.glob(".*.tmp"))) == ([])
+
+    def test_gpu_only_collection_runs_ncu_and_nsys_but_skips_massif(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "example--model"
+            self._write_fixture(root, include_cpu=False)
+            with patch(
+                "acprof.host.posthoc.service.find_active_processes", return_value=[]
+            ), patch(
+                "acprof.host.posthoc.service._validate_profiler_runtime"
+            ) as validate_runtime, patch(
+                "acprof.host.posthoc.service._collect_compute_plan",
+                return_value=self._compute_plan(),
+            ) as collect_compute, patch(
+                "acprof.host.posthoc.service._collect_execution_plan",
+                return_value=self._execution_plan(),
+            ) as collect_execution:
+                summary = posthoc.run_posthoc(root)
+
+            assert (set(summary.collected_tools)) == ({"ncu", "nsys"})
+            self.pin_gpu.assert_called_once_with("GPU-fixture")
+            assert ("massif") in (summary.skipped_tools)
+            validate_runtime.assert_called_once()
+            assert (validate_runtime.call_args.kwargs['gpu_modes']) == (['on'])
+            collect_compute.assert_called_once()
+            assert (collect_compute.call_args.kwargs["tool"]) == ("ncu")
+            collect_execution.assert_called_once()
+            assert (collect_execution.call_args.kwargs["tool"]) == ("nsys")
+
+    def test_gpu_recollection_rejects_unknown_historical_device(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._write_fixture(root, include_cpu=False)
+            path = root / "static_meta.json"
+            metadata = json.loads(path.read_text())
+            metadata.pop("gpu_device")
+            path.write_text(json.dumps(metadata))
+            original_csv = (root / "result_all.csv").read_bytes()
+            with patch("acprof.host.posthoc.service.find_active_processes", return_value=[]), patch(
+                "acprof.host.posthoc.service._validate_profiler_runtime"
+            ) as validate, pytest.raises(host_posthoc_context.PosthocError, match="gpu_device.uuid"):
+                posthoc.run_posthoc(root, tools="ncu", force_reprofile=True)
+            validate.assert_not_called()
+            self.pin_gpu.assert_not_called()
+            assert ((root / "result_all.csv").read_bytes()) == (original_csv)
+
+    def test_dry_run_does_not_create_backup_or_change_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "example--model"
+            csv_path = self._write_fixture(root)
+            original = csv_path.read_bytes()
+            with patch(
+                "acprof.host.posthoc.service.find_active_processes", return_value=[]
+            ):
+                summary = posthoc.run_posthoc(root, dry_run=True)
+
+            assert (summary.backup_dir) is None
+            assert (csv_path.read_bytes()) == (original)
+            assert not ((root / host_posthoc_context.BACKUP_DIRNAME).exists())
+            assert not ((root / host_posthoc_context.POSTHOC_DIRNAME).exists())
+
+    def test_active_run_is_rejected_before_files_change(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "example--model"
+            self._write_fixture(root)
+            with patch(
+                "acprof.host.posthoc.service.find_active_processes",
+                return_value=[(123, "acprof run --model example/model")],
+            ):
+                with pytest.raises(posthoc.PosthocError, match="still using"):
+                    posthoc.run_posthoc(root)

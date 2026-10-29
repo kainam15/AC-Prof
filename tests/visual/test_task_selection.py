@@ -2,13 +2,13 @@
 from dataclasses import replace
 
 import pytest
-from test_tui_task_selection import long_profiles, task_event
 from textual.widgets import Button, Checkbox
-from tui_fixtures import AcprofTui
 
 from acprof.experiment import RunConfig
 from acprof.tui.preparation import PreparationScreen
 from acprof.tui.task_choices import TaskChoices
+from tests.support.tui_fixtures import AcprofTui
+from tests.tui.catalog.test_tui_task_selection import long_profiles, task_event
 
 pytestmark = pytest.mark.visual
 

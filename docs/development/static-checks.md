@@ -120,11 +120,11 @@ uv run python scripts/run_tests.py --pattern test_private_api_guard.py \
 禁止 `analysis → host`、`host → cli/tui`、`container → host/tui` 等反向运行时导入。
 明确跳过 `if TYPE_CHECKING` 内的类型引用，并且只允许两条已有的
 `monitors.* → host.command` 例外，避免扩大隐式耦合。
-CI 与 `tests/test_import_boundaries.py` 同时验证真实仓库与反例；动态 import 不在静态检测范围。
+CI 与 `tests/quality/test_import_boundaries.py` 同时验证真实仓库与反例；动态 import 不在静态检测范围。
 
 ```bash
 uv run python scripts/check_import_boundaries.py
-uv run pytest -q tests/test_import_boundaries.py
+uv run pytest -q tests/quality/test_import_boundaries.py
 ```
 
 `analysis.latency_validation` 与共享硬件证据协议、纯 `measurement.metrics` 等已验证模块使用
@@ -132,6 +132,6 @@ uv run pytest -q tests/test_import_boundaries.py
 `latency_model` 的私有函数不进入跨模块 baseline。
 
 ## TUI 控制器拆分回归
-`tests/test_tui_action_ownership.py` 约束各 Textual handler 所属模块、App 的进程生命周期与代码体量。
-交互与线程语义以 `tests/test_tui*.py`、`tests/test_environment_tui.py` 和既有 visual snapshots
+`tests/tui/widgets/test_tui_action_ownership.py` 约束各 Textual handler 所属模块、App 的进程生命周期与代码体量。
+交互与线程语义以 `tests/test_tui*.py`、`tests/tui/catalog/test_environment_tui.py` 和既有 visual snapshots
 作为行为证据；只通过源码级 ownership 检查不能替代真实的 event-loop/worker 回归。

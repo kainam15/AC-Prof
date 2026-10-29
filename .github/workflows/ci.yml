@@ -311,7 +311,7 @@ jobs:
           env -u PYTHONPATH "$RUNNER_TEMP/acprof-resolved/bin/python" -I -c 'import acprof; print(acprof.__version__)'
           "$RUNNER_TEMP/acprof-resolved/bin/acprof" --help >/dev/null
           env -u PYTHONPATH "$RUNNER_TEMP/acprof-resolved/bin/python" -I -m pytest \
-            "$GITHUB_WORKSPACE/tests/test_hf_auto_download.py" -p acprof.testing.plugin \
+            "$GITHUB_WORKSPACE/tests/models/storage/test_hf_auto_download.py" -p acprof.testing.plugin \
             --strict-markers --import-mode=importlib -q
       - name: 从空目录验证安装包、公共入口、报告资源与子进程
         shell: bash

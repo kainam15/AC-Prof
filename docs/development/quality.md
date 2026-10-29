@@ -25,7 +25,7 @@ mock 测试不证明物理服务器的 DRAM 域可读或实际 Docker OOM 行为
 拓扑、启动失败的 Docker State，以及可读 RAPL/DRAM 设备上的 full 测量产物。
 
 RAPL 的模拟 sysfs 必须包含用于识别域类型的 `name`（如 `package-0`、`core`、`dram`），
-不能只创建 `energy_uj`。`tests/test_tui.py` 的循环链接用例也调用生产拓扑读取器，
+不能只创建 `energy_uj`。`tests/tui/workflows/test_tui.py` 的循环链接用例也调用生产拓扑读取器，
 修改发现逻辑时应一并验证该用例。
 
 指标登记表新增字段时，在 `test_metric_registry.py` 中显式列出新增字段，保留历史字段
@@ -132,8 +132,8 @@ Ruff 版本由 [`pyproject.toml`](../../pyproject.toml) 的 `required-version` �
 局部修改默认验证受影响范围。Git hook 不运行业务测试或硬件采集。
 
 ```bash
-uv run ruff check acprof/host/env_utils.py tests/test_env_utils.py
-uv run pytest tests/test_env_utils.py \
+uv run ruff check acprof/host/env_utils.py tests/runtime/environment/test_env_utils.py
+uv run pytest tests/runtime/environment/test_env_utils.py \
   --report internal-testing/env-tests.json
 git diff --check
 ```
@@ -149,7 +149,7 @@ wheel CI 从 `uv.lock` 导出主机哈希约束，在空环境安装依赖并用
 另建环境直接安装 wheel，让安装器按公开依赖范围解析，再验证 `uv pip check`、隔离 import、
 CLI help 和 `test_hf_auto_download.py`。测试工具从 `runtime-test` 组导出，不约束这次公开依赖解析。
 这些工具只在编辑、提交和 CI 中执行，不进入正式测量窗口。coverage 子进程配置与合并链路
-由 `tests/test_coverage_subprocess.py` 独立验证，不在普通 pytest 或正式采集入口启用插桩。
+由 `tests/quality/test_coverage_subprocess.py` 独立验证，不在普通 pytest 或正式采集入口启用插桩。
 
 离线可视化的定向入口为 `test_metric_registry.py`、`test_analysis_model.py`、`test_report.py`；检查旧 CSV、
 分组隔离、能量范围、缺失值、冷启动去重、转义及公共 report 入口。浏览器交互由 CI 的独立

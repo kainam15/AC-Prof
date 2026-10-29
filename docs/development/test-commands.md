@@ -4,6 +4,10 @@
 
 ## 自动化验证入口
 
+测试树以功能域划分；目录索引及示例参见 [`tests/README.md`](../../tests/README.md)。
+`tests/support/` 存放共用构造器，`tests/fixtures/` 存放测试数据，`tests/visual/` 保留截图基线。
+按子目录运行时使用 `uv run pytest tests/<domain>`；CI 仍从 `tests/` 递归收集和分片。
+
 安装分发修改除普通回归外，还需构建 sdist/wheel，在隔离环境从空目录执行
 `scripts/check_distribution.py`；standalone 用 `--binary <path>` 执行相同验收。
 该脚本核对全部公共帮助入口、参数错误、无 Docker 时的 doctor JSON、内置资源和 packet worker 的实际输出。
@@ -26,7 +30,7 @@ standalone 和真实 `uv tool install` 保留在发布或按需流程；构建�
 共同的数据构造器放在领域 fixture 模块，避免实例化另一测试 class。
 模拟网络、Docker、硬件与通知边界；避免测试触发真实采集或改写用户设置。
 
-隔离整份 `os.environ` 时，使用 `tests/environment_fixtures.py` 的 `isolated_environment()`
+隔离整份 `os.environ` 时，使用 `tests/support/environment_fixtures.py` 的 `isolated_environment()`
 保留 pytest 的会话状态，并由外层 fixture 恢复完整字典，包括业务代码直接新增的键。
 autouse fixture 只请求实际使用的依赖：未使用的 `monkeypatch` 依赖会让其撤销发生在环境恢复之后，
 再次删掉父环境的颜色或代理设置。依赖顺序遵循
@@ -35,7 +39,7 @@ autouse fixture 只请求实际使用的依赖：未使用的 `monkeypatch` 依�
 
 ```bash
 # 按受影响的行为选择测试文件
-uv run pytest tests/test_env_utils.py -v
+uv run pytest tests/runtime/environment/test_env_utils.py -v
 # 符合“验证范围”中的全套回归条件时
 uv run pytest -v
 acprof run --help
@@ -46,12 +50,12 @@ git diff --check
 单测试、标记与异步测试：
 
 ```bash
-uv run pytest tests/test_env_utils.py::test_local_settings_override_env_file_but_not_explicit_process_values
+uv run pytest tests/runtime/environment/test_env_utils.py::test_local_settings_override_env_file_but_not_explicit_process_values
 uv run pytest --collect-only
 uv run pytest -m unit
 uv run pytest -m "runtime and not hardware"
 uv run pytest -m hardware
-uv run pytest tests/test_tui_input.py
+uv run pytest tests/tui/widgets/test_tui_input.py
 ```
 
 单个 node ID 以 `--collect-only -q` 的实际输出为准。`asyncio_mode="auto"` 收集
@@ -87,19 +91,19 @@ TUI 预览及日志中的 `acprof <command>` 展示，并保留含空格或 shel
 
 | 实现范围 | 测试入口示例 |
 | --- | --- |
-| 模块依赖与导入副作用 | `tests/test_architecture.py` |
-| 环境、依赖与镜像 | `tests/test_runtime_profiles.py`、`tests/test_environment_identity.py`、`tests/test_lock_compiler.py`、`tests/test_image_layers.py`、`tests/test_runtime_image_build.py`、`tests/test_image_reuse.py`、`tests/test_runtime_validation.py` |
-| 模型文件与离线加载 | `tests/test_model_files.py`、`tests/test_model_download.py`、`tests/test_offline_model_loading.py` |
-| 字段、能耗、资源与补采 | `tests/test_energy_cpu.py`、`tests/test_resource_usage.py`、`tests/test_posthoc.py` |
-| 页面、设置与焦点 | `tests/test_tui_layout_settings.py`、`tests/test_tui_interaction.py`、`tests/test_tui_input.py` |
-| 启动环境检查 | `tests/test_tui_startup_preflight.py`；首屏可编辑、静默成功、异常入口、重试、全部采集入口阻断、配置失效、测量锁与迟到回调 |
-| 固定页头、底栏与操作颜色 | `tests/test_tui_page_chrome.py`；中英文、三种尺寸、滚动与缩窗、命令框显隐、八种主题和按钮状态 |
-| 日志、语言与命令 | `tests/test_tui_log_view.py`、`tests/test_tui_i18n.py`、`tests/test_tui.py` |
-| 终端色深与 RGB 输出 | `tests/test_tui_colors.py`；检查缺失/空 `COLORTERM`、真彩色、256 色与自动检测 |
-| 中文浮层缺字 | `tests/test_tui_cjk_rendering.py`；通知覆盖按钮、真实遮挡、宽字符两半的局部刷新、中英文和奇偶列宽缩放 |
-| 统计报告、异步读取与计算 | `tests/test_tui_reports.py`、`tests/test_report_views.py`、`tests/test_uncertainty.py`、`tests/test_stats.py` |
-| Docker 镜像树、层空间、标签删除与采集互斥 | `tests/test_image_management.py`、`tests/test_tui_images.py` |
-| 表头拖动、固定列、滚动范围与鼠标释放 | `tests/test_tui_table_resize.py`、`tests/test_tui_all_tables.py`、`tests/test_tui_images.py` |
+| 模块依赖与导入副作用 | `tests/quality/test_architecture.py` |
+| 环境、依赖与镜像 | `tests/runtime/environment/test_runtime_profiles.py`、`tests/runtime/environment/test_environment_identity.py`、`tests/runtime/environment/test_lock_compiler.py`、`tests/runtime/containers/test_image_layers.py`、`tests/runtime/containers/test_runtime_image_build.py`、`tests/runtime/containers/test_image_reuse.py`、`tests/runtime/environment/test_runtime_validation.py` |
+| 模型文件与离线加载 | `tests/models/storage/test_model_files.py`、`tests/models/storage/test_model_download.py`、`tests/workloads/structured/test_offline_model_loading.py` |
+| 字段、能耗、资源与补采 | `tests/measurement/hardware/test_energy_cpu.py`、`tests/measurement/windows/test_resource_usage.py`、`tests/measurement/profiling/test_posthoc.py` |
+| 页面、设置与焦点 | `tests/tui/widgets/test_tui_layout_settings.py`、`tests/tui/widgets/test_tui_interaction.py`、`tests/tui/widgets/test_tui_input.py` |
+| 启动环境检查 | `tests/tui/workflows/test_tui_startup_preflight.py`；首屏可编辑、静默成功、异常入口、重试、全部采集入口阻断、配置失效、测量锁与迟到回调 |
+| 固定页头、底栏与操作颜色 | `tests/tui/widgets/test_tui_page_chrome.py`；中英文、三种尺寸、滚动与缩窗、命令框显隐、八种主题和按钮状态 |
+| 日志、语言与命令 | `tests/tui/logging/test_tui_log_view.py`、`tests/tui/widgets/test_tui_i18n.py`、`tests/tui/workflows/test_tui.py` |
+| 终端色深与 RGB 输出 | `tests/tui/widgets/test_tui_colors.py`；检查缺失/空 `COLORTERM`、真彩色、256 色与自动检测 |
+| 中文浮层缺字 | `tests/tui/widgets/test_tui_cjk_rendering.py`；通知覆盖按钮、真实遮挡、宽字符两半的局部刷新、中英文和奇偶列宽缩放 |
+| 统计报告、异步读取与计算 | `tests/tui/results/test_tui_reports.py`、`tests/analysis/reporting/test_report_views.py`、`tests/analysis/statistics/test_uncertainty.py`、`tests/analysis/statistics/test_stats.py` |
+| Docker 镜像树、层空间、标签删除与采集互斥 | `tests/runtime/containers/test_image_management.py`、`tests/tui/catalog/test_tui_images.py` |
+| 表头拖动、固定列、滚动范围与鼠标释放 | `tests/tui/widgets/test_tui_table_resize.py`、`tests/tui/widgets/test_tui_all_tables.py`、`tests/tui/catalog/test_tui_images.py` |
 
 以上是定位入口，不是每次必须运行的清单。先用 `rg --files tests` 查实际受影响的测试；新改动、失败或未解决问题才需要扩大或重复验证。
 

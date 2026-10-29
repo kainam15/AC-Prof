@@ -15,7 +15,7 @@
 
 ## 确定性数值回归基线
 
-`tests/test_measurement_semantics_baseline.py` 用无硬件合成样本冻结数值语义：CPU 占用率按容器 CPU 秒数／窗口秒数／配额核心数计算，内存用字节均值和峰值；RAPL 微焦耳计数器跨范围回绕后换算为焦耳，matched-control 平均功率只从 effective 能量中扣除；计数器有效零增量保留 `0`，回退、负值或非有限数值归为 `nan`，不能充当真实观测。
+`tests/measurement/windows/test_measurement_semantics_baseline.py` 用无硬件合成样本冻结数值语义：CPU 占用率按容器 CPU 秒数／窗口秒数／配额核心数计算，内存用字节均值和峰值；RAPL 微焦耳计数器跨范围回绕后换算为焦耳，matched-control 平均功率只从 effective 能量中扣除；计数器有效零增量保留 `0`，回退、负值或非有限数值归为 `nan`，不能充当真实观测。
 
 独立期望常量来自上述单位与公式，不从被测实现反推；这些仅是**数值计算的确定性回归证据**，不能证明传感器校准、采样对工作负载的扰动、Native Linux / GPU 硬件精度或跨运行方差。后者仍需真实硬件重复实验和 provenance 核对。设计上参考 [MLPerf LoadGen 对样本性能结果与场景上下文的分离](https://github.com/mlcommons/inference/blob/master/loadgen/results.h)，不引入其代码或依赖。
 
@@ -31,7 +31,7 @@ CPU 能耗和资源监控器共用 `monitors.common.sample_periodically`。首�
 不会恢复过去时刻的瞬时状态，也不代表实际采样间隔仍然均匀。停止信号会终止后续
 采样，包括超时回调之后的追赶；回调异常向调用方传播，不自动重试。
 
-`tests/test_monitor_common.py` 使用随等待和回调耗时前进的假时钟，固定首周期、
+`tests/measurement/windows/test_monitor_common.py` 使用随等待和回调耗时前进的假时钟，固定首周期、
 绝对相位、单次和持续超时、调度迟到、停止及异常行为。这些测试是调度协议的
 回归基线，不能证明采样器的实际开销、传感器精度或对工作负载的扰动。
 

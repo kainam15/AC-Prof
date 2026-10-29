@@ -102,7 +102,7 @@ acprof run --model google/tapas-base-finetuned-wtq \
 
 实现复用 [Transformers 4.57.6 pipeline](https://github.com/huggingface/transformers/blob/v4.57.6/src/transformers/pipelines/__init__.py)、[Sentence Transformers 5.6.0](https://github.com/huggingface/sentence-transformers/tree/v5.6.0)、[PyTorch 模型加载](https://github.com/pytorch/pytorch/blob/v2.5.1/torch/jit/_serialization.py) 和 [skops](https://github.com/skops-dev/skops)。Transformers／Sentence Transformers 为 Apache-2.0，PyTorch 为 BSD 风格许可，skops 为 MIT；模型权重另按其许可。NLP 镜像补齐 pandas 与编码器依赖，结构化镜像隔离安装 sklearn／skops，主机不安装推理框架。LeRobot 的运行时依赖与本项目 Python 3.12 镜像不同，旧 Graphormer 位于 Transformers 的 deprecated 目录，因此策略／图任务采用显式导出接口；没有引入模拟器或旧框架。素材生成、哈希与输入规划在正式测量窗口之外执行。
 
-运行接口验证可使用 [NLP 十二任务示例](../../examples/nlp/smoke.py)、[音频原生模型测试](../../tests/test_audio_runtime_optional.py) 和 [Chronos 小模型示例](../../examples/structured/chronos_smoke.py)。这些脚本需要对应容器的依赖，使用随机小模型／确定性导出样例验证输入和推理接口，不提供真实模型准确率或性能结论。文本到音频目前使用内置文本，不能传 WAV 清单作为 `--workload-spec`。
+运行接口验证可使用 [NLP 十二任务示例](../../examples/nlp/smoke.py)、[音频原生模型测试](../../tests/workloads/audio/test_audio_runtime_optional.py) 和 [Chronos 小模型示例](../../examples/structured/chronos_smoke.py)。这些脚本需要对应容器的依赖，使用随机小模型／确定性导出样例验证输入和推理接口，不提供真实模型准确率或性能结论。文本到音频目前使用内置文本，不能传 WAV 清单作为 `--workload-spec`。
 
 ### 视觉任务
 

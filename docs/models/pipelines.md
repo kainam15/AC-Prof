@@ -31,8 +31,8 @@ snapshot→blobs symlink test → offline + clean-cache test → 代表性模型
 同时保留 circular import 终止、missing dependency 原路径诊断与 import exception 传播检查。
 验收须保存精确包版本、源码 commit/SHA256、运行环境及测试/Probe 产物；不能仅凭新版号或某个 PR 已合并改表。
 
-[`test_local_pipeline.py`](../../tests/test_local_pipeline.py) 验证两条路由和未知声明；
-[`test_local_pipeline_native_runtime.py`](../../tests/test_local_pipeline_native_runtime.py) 复用已有五项依赖回归，
+[`test_local_pipeline.py`](../../tests/workloads/structured/test_local_pipeline.py) 验证两条路由和未知声明；
+[`test_local_pipeline_native_runtime.py`](../../tests/workloads/structured/test_local_pipeline_native_runtime.py) 复用已有五项依赖回归，
 执行实际安装的上游 loader，同时禁止导入 shim。已登记 native runtime 自动执行该组；评审候选版本时，
 在隔离的候选容器中设置仅供测试使用的 `ACPROF_TEST_NATIVE_TRANSFORMERS=<精确版本>`，并运行：
 

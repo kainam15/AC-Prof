@@ -67,7 +67,7 @@ Headless 测试能验证布局和交互，但不能证明 VS Code 终端、SSH �
 按变更选择相关测试，例如：
 
 ```bash
-.venv/bin/python -m pytest tests/test_tui_input.py -v
+.venv/bin/python -m pytest tests/tui/widgets/test_tui_input.py -v
 ```
 
 只有确实需要整组回归时再使用 `--pattern 'test_tui*.py'`，并完成项目规定的其他检查。记录测试结果、终端尺寸、复现动作与仍未确认的环境。

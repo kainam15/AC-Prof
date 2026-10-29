@@ -57,8 +57,8 @@ jobs:
           set -euo pipefail
           uv lock --check
           uv run --locked python scripts/compile_locks.py --check
-          uv run --locked pytest -q tests/test_lock_compiler.py tests/test_dependency_locks.py \
-            tests/test_runtime_profiles.py tests/test_container_lock_resolution.py
+          uv run --locked pytest -q tests/runtime/environment/test_lock_compiler.py tests/runtime/environment/test_dependency_locks.py \
+            tests/runtime/environment/test_runtime_profiles.py tests/runtime/containers/test_container_lock_resolution.py
       - name: Stage only coordinated lock and artifact changes
         id: changes
         shell: bash
