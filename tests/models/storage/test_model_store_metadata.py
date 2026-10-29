@@ -61,6 +61,31 @@ class TestModelStoreMetadata:
         assert not self.path.exists()
         assert not staged.exists()
 
+    def test_capacity_scan_observes_each_path_once_without_following_symlinks(self):
+        payload = b'weights'
+        cached = self.root / 'files' / 'weights.bin'
+        cached.parent.mkdir(parents=True)
+        cached.write_bytes(payload)
+        external = self.base / 'external.bin'
+        external.write_bytes(b'outside')
+        link = cached.parent / 'external-link'
+        link.symlink_to(external)
+
+        observed = []
+        real_stat = os.stat
+
+        def track_stat(path, *args, **kwargs):
+            candidate = Path(path)
+            if candidate in {cached, link}:
+                observed.append((candidate, kwargs.get('follow_symlinks', True)))
+            return real_stat(path, *args, **kwargs)
+
+        with patch.object(model_store.os, 'stat', side_effect=track_stat):
+            report = model_store.disk_report(self.root)
+
+        assert report['total_bytes'] == len(payload)
+        assert observed == [(cached, False), (link, False)]
+
     def test_inventory_still_rejects_corrupt_published_metadata(self):
         self.publish()
         plan = json.loads(self.payload)

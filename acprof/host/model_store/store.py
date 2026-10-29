@@ -469,8 +469,9 @@ def disk_report(root: Path | None = None, *, cancel: Event | None = None) -> dic
     for path in root.rglob("*"):
         _check_cancelled(cancel)
         try:
-            if path.is_file() and not path.is_symlink():
-                used += path.stat().st_size
+            info = path.stat(follow_symlinks=False)
+            if stat.S_ISREG(info.st_mode):
+                used += info.st_size
         except FileNotFoundError:
             continue  # Unlocked capacity summaries may overlap another task's cleanup.
     models = []
