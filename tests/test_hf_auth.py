@@ -225,7 +225,6 @@ def test_download_callers_disable_sdk_lookup_and_apply_origin_policy(
     tmp_path, monkeypatch, endpoint, opt_in, expected_auth, operation,
 ):
     import hashlib
-    from pathlib import Path
     from types import SimpleNamespace
 
     import huggingface_hub as hub
@@ -263,7 +262,7 @@ def test_download_callers_disable_sdk_lookup_and_apply_origin_policy(
     try:
         with patch("huggingface_hub.utils._headers.get_token", side_effect=AssertionError("SDK implicit lookup")):
             if operation == "metadata":
-                assert Path(_download_metadata("demo/model", "config.json", commit)).read_bytes() == content
+                assert _download_metadata("demo/model", "config.json", commit).content == content
             elif operation == "snapshot":
                 task = SimpleNamespace(model_id="demo/model", model_revision=commit,
                     task_family="nlp", runtime_backend="transformers_pipeline", model_download_policy="full",

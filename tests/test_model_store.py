@@ -420,7 +420,7 @@ class TestModelStore:
             assert model_store.cached_model_info(self.task.model_id, None, source="huggingface") is None
             assert model_store.cached_metadata(self.task.model_id, "config.json", None, source="huggingface") is None
             assert model_store.cached_metadata(self.task.model_id, "config.json", "release-v1",
-                                              source="huggingface").read_bytes() == self.content
+                                              source="huggingface").content == self.content
 
     def test_incomplete_legacy_context_is_not_a_full_repository_inventory(self):
         self.prepare()
@@ -428,7 +428,7 @@ class TestModelStore:
             assert model_store.cached_model_info(self.task.model_id, self.task.model_revision,
                                                 source="huggingface") is None
             assert model_store.cached_metadata(self.task.model_id, "config.json", self.task.model_revision,
-                                              source="huggingface").read_bytes() == self.content
+                                              source="huggingface").content == self.content
 
     def test_cached_metadata_rechecks_hash_and_enforces_read_limit(self):
         from acprof.container.model_files import ModelFilesError
@@ -442,6 +442,54 @@ class TestModelStore:
             with pytest.raises(ModelFilesError, match="SHA256"):
                 model_store.cached_metadata(self.task.model_id, "config.json", self.task.model_revision,
                                             source="huggingface")
+
+    @pytest.mark.parametrize("reader", ["repository", "dependency", "config_fallback", "source"])
+    @pytest.mark.parametrize("mutation", ["replace", "unlink"])
+    def test_metadata_readers_consume_the_bytes_verified_before_cache_changes(self, reader, mutation):
+        from acprof.host import detect
+
+        self.content = b'{"architectures":["BertForMaskedLM"]}'
+        self.plan = plan_download(model_id=self.task.model_id, revision=self.task.model_revision,
+            family=self.task.task_family, backend=self.task.runtime_backend, policy="full",
+            files={"config.json": {"size": len(self.content), "lfs_sha256": hashlib.sha256(self.content).hexdigest()}},
+            read_json=lambda _: json.loads(self.content))
+        self.plan["endpoint"] = "https://hf-mirror.com"
+        seal_plan(self.plan)
+        record = self.prepare()
+        path = (self.root / "entries" / record["entry_id"] / "hf/models--example--test/snapshots"
+                / self.task.model_revision / "config.json")
+        cached_metadata = model_store.cached_metadata
+
+        def change_after_verification(*args, **kwargs):
+            result = cached_metadata(*args, **kwargs)
+            assert result is not None
+            if mutation == "replace":
+                path.write_bytes(self.content.replace(b"MaskedLM", b"MaskedXX"))
+            else:
+                path.unlink()
+            return result
+
+        info = SimpleNamespace(sha=self.task.model_revision, siblings=[SimpleNamespace(rfilename="config.json")])
+        with patch("acprof.host.model_store.store_root", return_value=self.root), patch(
+            "acprof.host.model_store.cached_metadata", side_effect=change_after_verification,
+        ), patch("acprof.host.model_store.cached_model_info", return_value=info), patch(
+            "huggingface_hub.hf_hub_download", side_effect=AssertionError("cache hit must remain offline"),
+        ) as download:
+            if reader == "repository":
+                result = detect._repository_metadata(self.task.model_id, self.task.model_revision, info)
+                assert result["metadata_errors"] == ()
+                assert result["repository_metadata"]["config.json"] == json.loads(self.content)
+            elif reader == "dependency":
+                result = detect.dependency_metadata(self.task.model_id, self.task.model_revision)
+                assert result["read_json"]("config.json") == json.loads(self.content)
+            elif reader == "config_fallback":
+                task = detect._detect_from_config(self.task.model_id, requested_revision=self.task.model_revision)
+                assert task is not None
+                assert task.model_revision == self.task.model_revision
+                assert task.pipeline_tag == "fill-mask"
+            else:
+                assert detect.read_model_source(self.task.model_id, "config.json", self.task.model_revision) == self.content.decode()
+        download.assert_not_called()
 
     def test_identical_names_in_distinct_sources_have_distinct_entries(self):
         hf_key = model_store.entry_key(self.task)

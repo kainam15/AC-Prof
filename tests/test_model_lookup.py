@@ -20,6 +20,7 @@ from huggingface_hub.errors import (
 from acprof.cli.main import main
 from acprof.host.detect import detect_task
 from acprof.host.model_errors import ModelLookupError
+from acprof.model_repository import MetadataFile
 
 
 def hub_error(kind, status):
@@ -74,7 +75,7 @@ def test_network_failure_can_still_use_pinned_cached_config():
         path.parent.mkdir(parents=True)
         path.write_text(json.dumps({"architectures": ["BertForMaskedLM"]}))
         with patch("huggingface_hub.HfApi.model_info", side_effect=httpx.ReadTimeout("fixture timeout")), patch(
-            "acprof.host.detect._download_metadata", return_value=str(path),
+            "acprof.host.detect._download_metadata", return_value=MetadataFile(path, path.read_bytes()),
         ):
             task = detect_task("asdf")
     assert (task.model_revision) == ("a" * 40)

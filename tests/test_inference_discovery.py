@@ -131,6 +131,7 @@ def test_module_configuration_is_read_at_the_pinned_revision(tmp_path, monkeypat
     import json
 
     from acprof.host import detect
+    from acprof.model_repository import MetadataFile
     snapshot = {"modules.json": [{"idx": 0, "path": "encoder", "type": "sentence_transformers.models.Transformer"},
                                   {"idx": 1, "path": "pooling", "type": "sentence_transformers.models.Pooling"}],
                 "encoder/config.json": {"model_type": "bert"},
@@ -141,7 +142,7 @@ def test_module_configuration_is_read_at_the_pinned_revision(tmp_path, monkeypat
         path = tmp_path / filename
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(snapshot[filename]))
-        return str(path)
+        return MetadataFile(path, path.read_bytes())
     monkeypatch.setattr(detect, "_download_metadata", download)
     info = SimpleNamespace(siblings=[SimpleNamespace(rfilename=name) for name in snapshot])
     result = detect._repository_metadata("fixture/model", "a" * 40, info)

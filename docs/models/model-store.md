@@ -66,6 +66,13 @@ AC-Prof 使用自身已验证文件清单，不要求历史缓存具有新版 SD
 
 下载清单 schema v1 增加可选的 `source`、`requested_revision`、`repository_context` 和 `download_provenance`；历史缺 source 按既有 HF 语义读取，不重写已有实验。`repository_context` schema v1 保存原始 Hub 元数据和完整仓库文件列表，不能用下载筛选后的文件或用户覆盖的任务字段代替。历史缺少完整上下文的计划仍可按固定身份读取，不伪造仓库元信息；读取缓存配置文件先检查大小上限及 SHA256。Hub `endpoint` 是传输信息，不作为模型身份。`download_provenance` 记录入口、最终 endpoint 类型、失败尝试与去除签名 query／凭据的 redirect chain，最多保存 256 次响应并标记截断。完整缓存保留原记录，不虚构当次网络流量。SDK 无法暴露的实际 CDN 或历史缓存原始地址保留 `unknown`；目前 ModelScope SDK 不提供等价的 redirect hook，因此其存储链不推断为 Hub 地址。细节见[结果协议](../profiling/metadata.md#static_metajson-字段)。
 
+元数据校验与解析使用同一份不可变字节：Model Store 与 ModelScope 对实际读取的内容核对大小和 SHA256，
+HF 固定 revision 下载保留 SDK 预检大小及 commit 检查。配置、依赖元数据和静态源码解析不再重新打开缓存路径，
+因此校验后的文件替换或删除不会改变本次识别依据。原始 snapshot 路径仍用于固定 revision 核对；
+配置、依赖元数据和静态源码分别保留 1 MiB、4 MiB 和 256 KiB 上限，拒绝非普通文件和读取中超限的内容。
+设计参考 [python-tuf 的元数据校验与解析](https://github.com/theupdateframework/python-tuf/blob/develop/tuf/ngclient/_internal/trusted_metadata_set.py)
+（Apache-2.0）；使用现有标准库，不引入 TUF 依赖。该处理仅用于准备阶段，清单 schema 和测量窗口不变。
+
 摘要匹配后仍须校验清单字段：主模型与依赖共用 repository ID 和固定 commit 约束，
 禁止会与目录编码冲突的 `--`；文件必须是规范的相对路径，不能是 `.` 或包含 NUL。
 准备入口在配置传输和创建缓存目录前验证计划，文件校验入口在读取 payload 前验证计划；

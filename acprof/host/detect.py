@@ -15,6 +15,7 @@ from typing import Any
 from acprof.extensions import CATALOG, UnsupportedExtensionError
 from acprof.hf_auth import hf_token_for_url
 from acprof.host.model_errors import ModelLookupError, model_lookup_error
+from acprof.model_repository import MetadataFile, read_metadata_file
 
 
 @dataclass
@@ -71,14 +72,14 @@ METADATA_MAX_BYTES = 1024 * 1024
 def _download_metadata(
     model_id: str, name: str, revision: str | None = None, *,
     max_bytes: int = METADATA_MAX_BYTES, source: str | None = None,
-) -> str:
+) -> MetadataFile:
     """Bound pinned downloads and preserve the SDK's mutable-ref fallback cache."""
     from acprof.host.model_store import cached_metadata
     from acprof.model_repository import model_source, modelscope_metadata
     source = model_source(source)
     cached = cached_metadata(model_id, name, revision, source=source, max_bytes=max_bytes)
     if cached is not None:
-        return str(cached)
+        return cached
     if source == "modelscope":
         return modelscope_metadata(model_id, name, revision, max_bytes)
     from huggingface_hub import hf_hub_download
@@ -102,21 +103,14 @@ def _download_metadata(
         # A dry-run followed by a SHA download would leave a fresh ref absent.
         path = hf_hub_download(repo_id=model_id, filename=name, revision=revision,
                                endpoint=endpoint, token=hf_token_for_url(endpoint))
-        actual_size = Path(path).stat().st_size
-        if actual_size > max_bytes:
-            raise ValueError(f"{name} exceeds {max_bytes} bytes")
-        if size is not None and actual_size != size:
-            raise ValueError(f"{name} size changed after metadata preflight")
-        return path
+        return read_metadata_file(path, max_bytes=max_bytes, expected_size=size)
     return try_hf_endpoints(model_id, download)
 
 
-def _read_json_metadata(path: str, *, max_bytes: int = METADATA_MAX_BYTES) -> Any:
-    with open(path, "rb") as stream:
-        data = stream.read(max_bytes + 1)
-    if len(data) > max_bytes:
-        raise ValueError(f"{Path(path).name} exceeds {max_bytes} bytes")
-    return json.loads(data.decode("utf-8"))
+def _read_json_metadata(metadata: MetadataFile, *, max_bytes: int = METADATA_MAX_BYTES) -> Any:
+    if len(metadata.content) > max_bytes:
+        raise ValueError(f"{metadata.path.name} exceeds {max_bytes} bytes")
+    return json.loads(metadata.content.decode("utf-8"))
 
 
 def _repository_metadata(model_id: str, revision: str, info: Any) -> dict[str, Any]:
@@ -136,8 +130,8 @@ def _repository_metadata(model_id: str, revision: str, info: Any) -> dict[str, A
             if name not in files:
                 continue
             try:
-                path = _download_metadata(model_id, name, revision)
-                metadata[name] = _read_json_metadata(path)
+                downloaded = _download_metadata(model_id, name, revision)
+                metadata[name] = _read_json_metadata(downloaded)
                 expected = list if name == "modules.json" else dict
                 if not isinstance(metadata[name], expected):
                     del metadata[name]
@@ -180,8 +174,8 @@ def dependency_metadata(repo_id: str, revision: str) -> dict:
             if not pinned_revision(info.sha):
                 raise ValueError("dependency metadata requires a fixed commit SHA")
             name = safe_path(name)
-            path = _download_metadata(repo_id, name, info.sha, max_bytes=4 * 1024 * 1024, source="huggingface")
-            return _read_json_metadata(path, max_bytes=4 * 1024 * 1024)
+            metadata = _download_metadata(repo_id, name, info.sha, max_bytes=4 * 1024 * 1024, source="huggingface")
+            return _read_json_metadata(metadata, max_bytes=4 * 1024 * 1024)
         return {"revision": info.sha, "files": [item.rfilename for item in info.siblings or []],
                 "read_json": read_json}
     except Exception as exc:
@@ -194,9 +188,7 @@ def read_model_source(model_id: str, name: str, revision: str) -> str:
     if not pinned_revision(revision):
         raise ValueError("source analysis requires a fixed commit SHA")
     try:
-        path = _download_metadata(model_id, name, revision, max_bytes=MAX_SOURCE_BYTES)
-        with open(path, "rb") as stream:
-            data = stream.read(MAX_SOURCE_BYTES + 1)
+        data = _download_metadata(model_id, name, revision, max_bytes=MAX_SOURCE_BYTES).content
         if len(data) > MAX_SOURCE_BYTES:
             raise ValueError(f"{name} exceeds {MAX_SOURCE_BYTES} bytes")
         return data.decode("utf-8")
@@ -453,8 +445,8 @@ def _diffusers_task_from_index(
 ) -> str | None:
     """Read native pipeline metadata only; never execute repository code."""
     try:
-        path = _download_metadata(model_id, "model_index.json", revision)
-        class_name = _read_json_metadata(path).get("_class_name")
+        metadata = _download_metadata(model_id, "model_index.json", revision)
+        class_name = _read_json_metadata(metadata).get("_class_name")
         task = _DIFFUSERS_PIPELINE_TASKS.get(class_name) if isinstance(class_name, str) else None
         if task is None:
             _record_failure(diagnostics, "model_index", f"unsupported pipeline class: {class_name!r}")
@@ -568,14 +560,14 @@ def _detect_from_config(
     revision = "main"
     try:
         from acprof.model_evidence import pinned_revision
-        config_path = _download_metadata(model_id, "config.json", requested_revision) if requested_revision else _download_metadata(model_id, "config.json")
+        metadata = _download_metadata(model_id, "config.json", requested_revision) if requested_revision else _download_metadata(model_id, "config.json")
         # hf_hub_download pins the ref before returning the cache snapshot.
-        revision = Path(config_path).parent.name
-        if not pinned_revision(revision) or Path(config_path).parent.parent.name != "snapshots":
+        revision = metadata.path.parent.name
+        if not pinned_revision(revision) or metadata.path.parent.parent.name != "snapshots":
             raise ValueError("config fallback requires a pinned snapshot commit SHA")
         if requested_revision is not None and pinned_revision(requested_revision) and revision != requested_revision:
             raise ValueError("config fallback returned a different model revision")
-        config_data = _read_json_metadata(config_path)
+        config_data = _read_json_metadata(metadata)
         architectures = config_data.get("architectures") or []
         if not architectures:
             _record_failure(diagnostics, "config_json", "config.json has no architectures field")

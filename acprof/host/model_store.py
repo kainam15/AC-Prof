@@ -44,6 +44,7 @@ from acprof.host.model_store_views import (
     snapshot_path,
     view_complete,
 )
+from acprof.model_repository import MetadataFile, read_metadata_file
 from acprof.model_spec import model_download_request, validate_dependencies
 from acprof.network_policy import (
     DownloadPolicyError,
@@ -252,9 +253,7 @@ def _cached_repositories(model_id: str, revision: str | None, source: str):
 
 
 def cached_metadata(model_id: str, name: str, revision: str | None, *, source: str,
-                    max_bytes: int = ENTRY_METADATA_MAX_BYTES) -> Path | None:
-    import hashlib
-
+                    max_bytes: int = ENTRY_METADATA_MAX_BYTES) -> MetadataFile | None:
     from acprof.container.model_files import ModelFilesError, safe_path
     name = safe_path(name)
     for plan, snapshot in _cached_repositories(model_id, revision, source):
@@ -263,14 +262,8 @@ def cached_metadata(model_id: str, name: str, revision: str | None, *, source: s
             continue
         if record["size"] > max_bytes:
             raise ModelFilesError(f"cached metadata exceeds {max_bytes} bytes: {name}")
-        path = snapshot / name
-        with path.open("rb") as stream:
-            data = stream.read(max_bytes + 1)
-        if len(data) > max_bytes:
-            raise ModelFilesError(f"cached metadata exceeds {max_bytes} bytes: {name}")
-        if hashlib.sha256(data).hexdigest() != record["sha256"]:
-            raise ModelFilesError(f"cached model metadata SHA256 mismatch: {name}")
-        return path
+        return read_metadata_file(snapshot / name, max_bytes=max_bytes,
+                                  expected_size=record["size"], expected_sha256=record["sha256"])
     return None
 
 

@@ -7,7 +7,12 @@ from unittest.mock import Mock, patch
 import pytest
 
 from acprof.container.model_files import ModelFilesError
-from acprof.model_repository import modelscope_info, modelscope_metadata, modelscope_revision
+from acprof.model_repository import (
+    MetadataFile,
+    modelscope_info,
+    modelscope_metadata,
+    modelscope_revision,
+)
 
 
 def test_modelscope_pins_repository_ref_not_per_file_revision(monkeypatch):
@@ -63,6 +68,39 @@ def test_modelscope_metadata_size_guard_prevents_weight_download(monkeypatch):
         with pytest.raises(ModelFilesError, match="exceeds"):
             modelscope_metadata("demo/model", "model.safetensors", "a" * 40, 1024)
     download.assert_not_called()
+
+
+@pytest.mark.parametrize("content", [b"[]", b"{}"])
+def test_modelscope_metadata_checks_downloaded_bytes_against_repository_record(tmp_path, content):
+    path = tmp_path / "config.json"
+    path.write_bytes(content)
+    original = b"{}" if content == b"[]" else b"{ }"
+    info = SimpleNamespace(sha="a" * 40, siblings=[SimpleNamespace(
+        rfilename="config.json", size=len(original), lfs={"sha256": hashlib.sha256(original).hexdigest()},
+    )])
+    with patch("acprof.model_repository.modelscope_info", return_value=info), patch(
+        "acprof.model_repository.modelscope_file", return_value=str(path),
+    ), pytest.raises(ModelFilesError, match="SHA256|size"):
+        modelscope_metadata("demo/model", "config.json", "a" * 40, 1024)
+
+
+def test_modelscope_metadata_returns_verified_content_with_snapshot_identity(tmp_path):
+    snapshot = tmp_path / "snapshots" / ("a" * 40)
+    snapshot.mkdir(parents=True)
+    path = snapshot / "config.json"
+    content = b'{"architectures":["BertForMaskedLM"]}'
+    path.write_bytes(content)
+    digest = hashlib.sha256(content).hexdigest()
+    info = SimpleNamespace(sha="a" * 40, siblings=[SimpleNamespace(
+        rfilename="config.json", size=len(content), lfs={"sha256": digest},
+    )])
+    with patch("acprof.model_repository.modelscope_info", return_value=info), patch(
+        "acprof.model_repository.modelscope_file", return_value=str(path),
+    ) as download:
+        metadata = modelscope_metadata("demo/model", "config.json", "a" * 40, 1024)
+    path.unlink()
+    assert metadata == MetadataFile(path, content)
+    assert download.call_args.kwargs["sha256"] == digest
 
 
 def test_configured_endpoint_cannot_change_huggingface_source():
@@ -229,4 +267,4 @@ def test_recorded_default_ref_is_distinct_from_pinned_release(source, default_re
         result = model_store.cached_metadata("demo/model", "config.json", None, source=source)
         assert (result is not None) == (recorded in (None, default_ref))
         assert model_store.cached_metadata("demo/model", "config.json", default_ref, source=source) == result
-        assert model_store.cached_metadata("demo/model", "config.json", "a" * 40, source=source) == snapshot / "config.json"
+        assert model_store.cached_metadata("demo/model", "config.json", "a" * 40, source=source) == MetadataFile(snapshot / "config.json", b"{}")

@@ -5,12 +5,15 @@ SHA256; identical repository names are not evidence of identical artifacts.
 """
 from __future__ import annotations
 
+import hashlib
 import os
 import re
+import stat
 import subprocess
 from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
+from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -19,6 +22,40 @@ from acprof.container.model_files import ModelFilesError, safe_path
 MODEL_SOURCES = ("huggingface", "modelscope")
 MODELSCOPE_ENDPOINT = "https://modelscope.cn"
 _MODEL_SOURCE: ContextVar[str | None] = ContextVar("acprof_model_source", default=None)
+
+
+@dataclass(frozen=True)
+class MetadataFile:
+    """Bounded metadata bytes and their original snapshot identity path."""
+
+    path: Path
+    content: bytes
+
+
+def read_metadata_file(
+    path: str | Path, *, max_bytes: int,
+    expected_size: int | None = None, expected_sha256: str | None = None,
+) -> MetadataFile:
+    """Check the exact bytes callers will parse, without reopening the path."""
+    if type(max_bytes) is not int or max_bytes < 0:
+        raise ValueError("metadata byte limit must be a non-negative integer")
+    path = Path(path)
+    # Snapshot symlinks are intentional. Check the opened target and avoid
+    # blocking if a concurrent cache change replaces it with a FIFO.
+    with open(path, "rb", opener=lambda name, flags: os.open(name, flags | os.O_NONBLOCK)) as stream:
+        info = os.fstat(stream.fileno())
+        if not stat.S_ISREG(info.st_mode):
+            raise ModelFilesError(f"model metadata must be a regular file: {path.name}")
+        if info.st_size > max_bytes:
+            raise ModelFilesError(f"model metadata exceeds {max_bytes} bytes: {path.name}")
+        content = stream.read(max_bytes + 1)
+    if len(content) > max_bytes:
+        raise ModelFilesError(f"model metadata exceeds {max_bytes} bytes: {path.name}")
+    if expected_size is not None and len(content) != expected_size:
+        raise ModelFilesError(f"model metadata size changed after preflight: {path.name}")
+    if expected_sha256 is not None and hashlib.sha256(content).hexdigest() != expected_sha256:
+        raise ModelFilesError(f"model metadata SHA256 mismatch: {path.name}")
+    return MetadataFile(path, content)
 
 
 class ModelScopeRevisionError(ValueError):
@@ -140,10 +177,11 @@ def modelscope_file(model_id: str, name: str, revision: str, root: Path, *, sha2
         local_dir=modelscope_snapshot(root, model_id, revision), expected_sha256=sha256))
 
 
-def modelscope_metadata(model_id: str, name: str, revision: str | None, max_bytes: int) -> str:
+def modelscope_metadata(model_id: str, name: str, revision: str | None, max_bytes: int) -> MetadataFile:
     from acprof.host.model_store import store_root
     info = modelscope_info(model_id, revision)
     item = next((f for f in info.siblings if f.rfilename == name), None)
     if item is None or not 0 <= item.size <= max_bytes:
         raise ModelFilesError(f"ModelScope metadata missing or exceeds {max_bytes} bytes: {name}")
-    return modelscope_file(model_id, name, info.sha, store_root(), sha256=item.lfs["sha256"])
+    path = modelscope_file(model_id, name, info.sha, store_root(), sha256=item.lfs["sha256"])
+    return read_metadata_file(path, max_bytes=max_bytes, expected_size=item.size, expected_sha256=item.lfs["sha256"])

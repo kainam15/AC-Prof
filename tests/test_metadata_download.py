@@ -1,6 +1,8 @@
 """Static inspection must reject oversized Hub files before downloading bodies."""
 import json
-from pathlib import Path
+import os
+import subprocess
+import sys
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -8,6 +10,7 @@ import httpx
 import pytest
 
 from acprof.host import detect
+from acprof.model_repository import MetadataFile, read_metadata_file
 
 SHA = "a" * 40
 METADATA_LIMIT = 1024 * 1024
@@ -74,12 +77,13 @@ def test_pinned_download_reuses_its_cache_without_network(hub_http):
         }, content=payload if request.method == "GET" else b"")
 
     hub_http(respond)
-    path = detect._download_metadata("fixture/model", "config.json", SHA)
-    assert Path(path).read_bytes() == payload
+    metadata = detect._download_metadata("fixture/model", "config.json", SHA)
+    assert metadata.content == payload
+    assert metadata.path.parent.name == SHA
     assert visited[0] == ("HEAD", f"/fixture/model/resolve/{SHA}/config.json")
     assert all(f"/resolve/{SHA}/" in url for _, url in visited)
     initial_requests = list(visited)
-    assert detect._download_metadata("fixture/model", "config.json", SHA) == path
+    assert detect._download_metadata("fixture/model", "config.json", SHA) == metadata
     assert visited == initial_requests
 
 
@@ -147,14 +151,14 @@ def test_cached_config_fallback_still_works_offline(hub_http):
 
 
 @pytest.mark.parametrize("reader", ["repository", "config_fallback", "diffusers"])
-def test_static_readers_bound_content_when_the_cached_file_changes(tmp_path, reader):
+def test_static_readers_reject_oversized_metadata_buffers(tmp_path, reader):
     path = tmp_path / "snapshots" / SHA / "config.json"
     path.parent.mkdir(parents=True)
     path.write_bytes(b" " * METADATA_LIMIT + (
         b'{"architectures":["BertForMaskedLM"],"_class_name":"StableDiffusionPipeline"}'
     ))
     diagnostics = []
-    with patch("acprof.host.detect._download_metadata", return_value=str(path)):
+    with patch("acprof.host.detect._download_metadata", return_value=MetadataFile(path, path.read_bytes())):
         if reader == "repository":
             metadata = detect._repository_metadata(
                 "fixture/model", SHA,
@@ -226,3 +230,83 @@ def test_unpinned_fallback_rejects_oversized_content_before_parsing(tmp_path):
     assert download.call_count == 1
     assert "dry_run" not in download.call_args.kwargs
     parse.assert_not_called()
+
+
+def test_diffusers_reads_downloaded_content_even_if_snapshot_is_removed(hub_http):
+    payload = b'{"_class_name":"StableDiffusionPipeline"}'
+
+    def respond(request):
+        return httpx.Response(200, headers={
+            "x-repo-commit": SHA, "etag": "b" * 64, "content-length": str(len(payload)),
+        }, content=payload if request.method == "GET" else b"")
+
+    hub_http(respond)
+    download = detect._download_metadata
+
+    def remove_after_download(*args, **kwargs):
+        metadata = download(*args, **kwargs)
+        metadata.path.unlink()
+        return metadata
+
+    diagnostics = []
+    with patch("acprof.host.detect._download_metadata", side_effect=remove_after_download):
+        assert detect._diffusers_task_from_index("fixture/model", SHA, diagnostics) == "text-to-image"
+    assert diagnostics == []
+
+
+@pytest.mark.parametrize(("directory", "commit"), [("snapshots", "main"), ("blobs", SHA), ("snapshots", "b" * 40)])
+def test_config_fallback_keeps_snapshot_identity_checks(tmp_path, directory, commit):
+    path = tmp_path / directory / commit / "config.json"
+    path.parent.mkdir(parents=True)
+    content = b'{"architectures":["BertForMaskedLM"]}'
+    path.write_bytes(content)
+    diagnostics = []
+    preflight = SimpleNamespace(file_size=len(content), commit_hash=SHA)
+    with patch("huggingface_hub.hf_hub_download", side_effect=[preflight, str(path)]):
+        assert detect._detect_from_config("fixture/model", diagnostics, requested_revision=SHA) is None
+    assert any("pinned snapshot" in error or "different model revision" in error for error in diagnostics)
+
+
+@pytest.mark.parametrize("replacement", [b" " * 9, b" "])
+def test_metadata_checks_bytes_if_file_changes_after_fstat(tmp_path, replacement):
+    path = tmp_path / "config.json"
+    path.write_bytes(b"{}")
+    fstat = os.fstat
+
+    def change_after_stat(descriptor):
+        info = fstat(descriptor)
+        path.write_bytes(replacement)
+        return info
+
+    with patch("acprof.model_repository.os.fstat", side_effect=change_after_stat):
+        with pytest.raises(ValueError, match="exceeds|size"):
+            read_metadata_file(path, max_bytes=8, expected_size=2)
+
+
+@pytest.mark.parametrize("content", [b"", b"{}"])
+def test_metadata_accepts_exact_byte_limit_and_keeps_original_snapshot_path(tmp_path, content):
+    blob = tmp_path / "blob"
+    blob.write_bytes(content)
+    link = tmp_path / "config.json"
+    link.symlink_to(blob)
+    metadata = read_metadata_file(link, max_bytes=len(content), expected_size=len(content))
+    blob.unlink()
+    assert metadata.path == link
+    assert metadata.content == content
+
+
+@pytest.mark.parametrize("limit", [-1, True])
+def test_invalid_metadata_read_limit_cannot_disable_bounds(tmp_path, limit):
+    with pytest.raises(ValueError, match="byte limit"):
+        read_metadata_file(tmp_path / "not-opened", max_bytes=limit)
+
+
+def test_metadata_rejects_fifo_without_waiting_for_a_writer(tmp_path):
+    path = tmp_path / "config.json"
+    os.mkfifo(path)
+    result = subprocess.run([sys.executable, "-c",
+        "from acprof.model_repository import read_metadata_file; "
+        "import sys; read_metadata_file(sys.argv[1], max_bytes=1024)", str(path)],
+        capture_output=True, text=True, timeout=5, check=False)
+    assert result.returncode != 0
+    assert "metadata must be a regular file" in result.stderr
