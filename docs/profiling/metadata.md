@@ -150,6 +150,10 @@ Adapter、loader、四阶段调用、组件、IO、配置摘要和有效生成�
 依赖模型在 `dependencies[].download.endpoint` 分别记录。它参与清单完整性摘要，无单位，
 不属于测量窗口，也不等同于最终 CDN 地址。镜像入口或备用列表不再独立参与模型请求指纹。
 
+`dependencies[].download.source` 与显式依赖的 HF 来源约定一致：缺字段按历史 HF 语义读取，
+其他来源直接拒绝，不能只重算摘要就改变依赖来源。主模型与依赖的 loader 目录身份不得重复，
+即使 commit 相同也不能重复声明；合法历史清单保持 schema v1 和原始内容。
+
 `download_provenance` 是可选 schema v1 传输记录，保存 Hub、最终 endpoint 类型、失败尝试与
 重定向响应（URL 移除 query、fragment 和内嵌凭据）；有界记录最多 256 次响应，截断有明确标志。
 应用层连接用 `direct-socket`／`explicit-proxy` 表示，不推断实际公网出口。

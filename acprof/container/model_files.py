@@ -95,9 +95,11 @@ def validate_plan(plan: dict) -> None:
         dependencies = plan["dependencies"]
         try:
             validate_dependencies([{key: value for key, value in item.items() if key != "download"}
-                                   for item in dependencies])
+                                   for item in dependencies], primary_model_id=plan["model_id"])
             for item in dependencies:
                 child = item["download"]
+                if child.get("source", "huggingface") != "huggingface":
+                    raise ValueError("model dependency source must be huggingface")
                 if (child.get("dependencies") or child.get("model_id") != item["repo_id"]
                         or child.get("model_revision") != item["revision"]
                         or (plan.get("verification") == "sha256" and child.get("verification") != "sha256")):

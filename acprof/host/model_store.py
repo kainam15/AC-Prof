@@ -38,7 +38,7 @@ from acprof.host.model_store_views import (
     snapshot_path,
     view_complete,
 )
-from acprof.model_spec import task_model_spec
+from acprof.model_spec import task_model_spec, validate_dependencies
 from acprof.network_policy import (
     DownloadPolicyError,
     DownloadSource,
@@ -294,6 +294,8 @@ def cached_model_info(model_id: str, revision: str | None, *, source: str):
 
 
 def plan_model(task, root: Path | None = None) -> dict:
+    dependencies = validate_dependencies(task_model_spec(task).get("dependencies", []),
+                                         primary_model_id=task.model_id)
     from acprof.container.download_model import _prepare_repository_plan
     from acprof.dependency_locks import package_versions, read_python_lock
     from acprof.installation import resource_root
@@ -323,12 +325,9 @@ def plan_model(task, root: Path | None = None) -> dict:
             plan = _prepare_repository_plan(endpoint, task.model_id, task.model_revision,
                                                 cache_dir=str(root / "hf"), task=task,
                                                 native_types=native_types, library_versions=versions, source=source)
-            dependencies = task_model_spec(task).get("dependencies", [])
             if dependencies:
                 plan["dependencies"] = []
                 for item in dependencies:
-                    if source != "huggingface" and item["repo_id"] == task.model_id:
-                        raise ValueError("Main model and HF dependency share an offline loader ID but differ in source")
                     def prepare_dependency(hub):
                         return _prepare_repository_plan(hub, item["repo_id"], item["revision"], dependency=item,
                             cache_dir=str(root / "hf"), task=task, native_types=native_types, library_versions=versions)
@@ -338,7 +337,9 @@ def plan_model(task, root: Path | None = None) -> dict:
                 sizes = [p["selected_bytes"] for p in repository_plans(plan)]
                 plan["total_selected_bytes"] = sum(sizes) if all(type(n) is int for n in sizes) else None
             plan["requested_revision"] = getattr(task, "requested_revision", None)
-            return seal_plan(plan)
+            seal_plan(plan)
+            validate_plan(plan)
+            return plan
         return prepare(MODELSCOPE_ENDPOINT) if source == "modelscope" else try_hf_endpoints(task.model_id, prepare, endpoints=endpoints)
 
 

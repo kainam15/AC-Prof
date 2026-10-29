@@ -20,38 +20,39 @@ MULTIMODAL_PIPELINE_INPUTS = {
 }
 
 
-def validate_repository_identity(repo_id: Any, revision: Any) -> None:
-    """Validate a pinned repository used by the offline cache layout."""
+def validate_repository_identity(repo_id: Any, revision: Any) -> str:
+    """Return the validated repository ID used by a pinned offline cache."""
     if (not isinstance(repo_id, str) or not re.fullmatch(r"[\w.-]+(?:/[\w.-]+)?", repo_id, re.ASCII)
             or any(part in {".", ".."} for part in repo_id.split("/")) or "--" in repo_id):
         # The loader encodes '/' as '--'; literal '--' would alias another repo.
         raise ValueError("model repository ID must be a name or namespace/name without '--'")
     if not isinstance(revision, str) or not re.fullmatch(r"[0-9a-f]{40}", revision):
         raise ValueError("model repository revision must be a fixed commit SHA")
+    return repo_id
 
 
-def validate_dependencies(dependencies: Any) -> list[dict]:
+def validate_dependencies(dependencies: Any, *, primary_model_id: str | None = None) -> list[dict]:
     """Offline repositories are explicit, bounded, and pinned before a build."""
     if not isinstance(dependencies, list) or len(dependencies) > 16:
         raise ValueError("model dependencies must be a list of at most 16 repositories")
-    seen = set()
+    seen = {} if primary_model_id is None else {primary_model_id.replace("/", "--"): primary_model_id}
     for item in dependencies:
         if not isinstance(item, dict) or set(item) - {"repo_id", "revision", "allow_patterns"}:
             raise ValueError("invalid model dependency fields")
-        repo = item.get("repo_id")
         try:
-            validate_repository_identity(repo, item.get("revision"))
+            repo = validate_repository_identity(item.get("repo_id"), item.get("revision"))
         except ValueError as exc:
             raise ValueError(f"invalid model dependency: {exc}") from exc
-        if repo in seen:
-            raise ValueError("model dependency repo_id must be a unique Hub repository")
+        loader_id = repo.replace("/", "--")
+        if loader_id in seen:
+            raise ValueError(f"model dependency {repo!r} conflicts with offline loader ID of {seen[loader_id]!r}")
         patterns = item.get("allow_patterns")
         if patterns is not None and (not isinstance(patterns, list) or not patterns or len(patterns) > 128 or any(
             not isinstance(pattern, str) or not pattern or pattern.startswith("/") or "\\" in pattern
             or ".." in pattern.split("/") for pattern in patterns
         )):
             raise ValueError("model dependency allow_patterns must contain relative file patterns")
-        seen.add(repo)
+        seen[loader_id] = repo
     return dependencies
 
 

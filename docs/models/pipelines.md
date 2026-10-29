@@ -152,10 +152,17 @@ token 证据时，相关生成速率／逐 token 工作量保持不可用，不�
 
 ### 外部模型与 processor 的离线依赖
 可选 `dependencies` 数组声明上游代码在加载时还会读取的 Hub 仓库，每项包含 `repo_id`、
-固定 40 位 commit `revision`，以及可选的相对文件 `allow_patterns`。最多 16 个不同仓库，
-不能覆盖主模型；不声明 patterns 时下载依赖仓库完整 snapshot。主机准备阶段校验文件哈希后，
+固定 40 位 commit `revision`，以及可选的相对文件 `allow_patterns`。依赖固定为 HF 来源，最多 16 个不同仓库，
+不能覆盖主模型；同名依赖即使 source 或 commit 不同也会被拒绝，同一 commit 下的重复声明同样需要移除。
+主模型与所有依赖的实际 loader 目录必须各不相同，规划在下载元数据前检查该约束；
+从磁盘读取的清单和直接准备入口也会检查，不会改写 ref 或静默合并冲突仓库。
+不声明 patterns 时下载依赖仓库完整 snapshot。主机准备阶段校验文件哈希后，
 在 Model Store 的固定计划视图中将各依赖的 `refs/main` 绑定到声明 commit，容器只读挂载该视图，
 使上游无 revision 的 `from_pretrained(repo_id)` 也能离线解析。主模型和全部依赖进入下载计划与镜像身份，正式服务保持断网。
+
+该约束依据 [HF 缓存的默认 revision 与 refs 解析](https://github.com/huggingface/huggingface_hub/blob/main/src/huggingface_hub/file_download.py)
+（Apache-2.0，持续维护）：一个仓库目录的 `refs/main` 只能指向一个 commit。
+AC-Prof 复用现有标准库校验，不增加下载依赖或测量窗口内的扫描；不同仓库可以具有相同 commit 文本。
 
 [Ultravox 完整声明](../../examples/multimodal/ultravox.model.json) 包含固定版本的 Llama 基础权重与
 Whisper processor。Llama 仓库要求账号已获访问许可，并在主机准备阶段配置有效 `HF_TOKEN`；
