@@ -86,6 +86,34 @@ class TestModelStoreMetadata:
         assert report['total_bytes'] == len(payload)
         assert observed == [(cached, False), (link, False)]
 
+    def test_inventory_falls_back_when_last_used_disappears(self):
+        self.publish()
+        stamp = self.path.parent / 'last-used'
+        stamp.touch()
+        fallback = self.path.stat().st_mtime
+        real_exists, real_stat = Path.exists, Path.stat
+        stamp_exists_checks = []
+
+        def race_exists(path, *args, **kwargs):
+            if path == stamp:
+                stamp_exists_checks.append(path)
+                return True
+            return real_exists(path, *args, **kwargs)
+
+        def race_stat(path, *args, **kwargs):
+            if path == stamp:
+                raise FileNotFoundError(stamp)
+            return real_stat(path, *args, **kwargs)
+
+        with patch.object(Path, 'exists', autospec=True, side_effect=race_exists):
+            with patch.object(Path, 'stat', autospec=True, side_effect=race_stat):
+                report = model_store.disk_report(self.root)
+
+        assert len(report['models']) == 1
+        assert report['models'][0]['entry_id'] == self.key
+        assert report['models'][0]['last_used'] == fallback
+        assert stamp_exists_checks == []
+
     def test_inventory_still_rejects_corrupt_published_metadata(self):
         self.publish()
         plan = json.loads(self.payload)

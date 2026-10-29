@@ -484,9 +484,13 @@ def disk_report(root: Path | None = None, *, cancel: Event | None = None) -> dic
             if plan is None:
                 continue
             stamp = path.parent / "last-used"
+            try:
+                last_used = stamp.stat().st_mtime
+            except FileNotFoundError:
+                last_used = path.stat().st_mtime
             models.append({"entry_id": path.parent.name, "model_id": plan["model_id"],
                 "model_revision": plan["model_revision"], "model_artifact_bytes": plan.get("total_selected_bytes", plan["selected_bytes"]),
-                "last_used": stamp.stat().st_mtime if stamp.exists() else path.stat().st_mtime})
+                "last_used": last_used})
         except FileNotFoundError:
             continue
     return {"path": str(root), "total_bytes": used, "free_bytes": free, "models": models,
