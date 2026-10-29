@@ -6,13 +6,41 @@ from types import SimpleNamespace
 
 import pytest
 
-from acprof.host.runtimes.process_control import ManagedProcess
+from acprof.host.runtimes.process_control import (
+    ManagedProcess,
+    ProcessCleanupError,
+    verify_process_cleanup,
+)
 from acprof.process_identity import same_process
 
 
 def start(tmp_path, code):
     return ManagedProcess([sys.executable, "-c", code], python=sys.executable,
                           env=dict(os.environ), directory=tmp_path, name="test")
+
+
+def test_launch_inventory_is_linked_before_process_spawn(tmp_path, monkeypatch):
+    from acprof.host.runtimes import process_control
+
+    owner = tmp_path / "test.process.owner.json"
+    inventory = tmp_path / "test.process.inventory.json"
+    fsyncs = []
+    fsync = process_control.os.fsync
+
+    def count_fsync(descriptor):
+        fsyncs.append(descriptor)
+        return fsync(descriptor)
+
+    def stop_after_inventory(*_args, **_kwargs):
+        assert inventory.stat().st_ino == owner.stat().st_ino
+        assert len(fsyncs) == 2  # One payload and one containing-directory sync.
+        raise RuntimeError("stop after inventory")
+
+    monkeypatch.setattr(process_control.os, "fsync", count_fsync)
+    monkeypatch.setattr(process_control.subprocess, "Popen", stop_after_inventory)
+    with pytest.raises(RuntimeError, match="stop after inventory"):
+        start(tmp_path, "pass")
+    verify_process_cleanup(tmp_path)
 
 
 def test_exit_code_and_logs_are_retained(tmp_path):
@@ -23,6 +51,10 @@ def test_exit_code_and_logs_are_retained(tmp_path):
     finally:
         child.close()
     assert not same_process(child.identity)
+    verify_process_cleanup(tmp_path)
+    child.owner_path.unlink()
+    with pytest.raises(ProcessCleanupError, match="complete cleanup evidence"):
+        verify_process_cleanup(tmp_path)
 
 
 def test_cleanup_kills_term_resistant_descendants(tmp_path):

@@ -1,7 +1,9 @@
 """Owned Linux process sessions, including controller-death cleanup."""
 from __future__ import annotations
 
+import json
 import os
+import secrets
 import stat
 import subprocess
 import sys
@@ -18,6 +20,75 @@ class ProcessCleanupError(RuntimeCleanupError):
 
 
 _JSON_READ_CHUNK_BYTES = 64 * 1024
+
+_OWNER_LEDGER_SUFFIX = ".process.owner.json"
+_INVENTORY_SUFFIX = ".process.inventory.json"
+
+
+def _publish_launch_inventory(owner_path: Path, inventory_path: Path, payload: dict) -> None:
+    """Durably publish the initial ledger and an independent hardlink inventory."""
+    directory = owner_path.parent.absolute()
+    if inventory_path.parent.absolute() != directory:
+        raise ValueError("process inventory must share the owner-ledger directory")
+    directory_fd = os.open(
+        directory, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC | os.O_NOFOLLOW,
+    )
+    temporary = f".{owner_path.name}.{os.getpid()}.{secrets.token_hex(8)}.tmp"
+    descriptor = None
+    inventory_linked = False
+    owner_published = False
+    try:
+        descriptor = os.open(
+            temporary,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_CLOEXEC | os.O_NOFOLLOW,
+            0o644,
+            dir_fd=directory_fd,
+        )
+        remaining = memoryview(
+            (json.dumps(payload, ensure_ascii=False, indent=2, allow_nan=False) + "\n").encode(),
+        )
+        while remaining:
+            written = os.write(descriptor, remaining)
+            if written <= 0:
+                raise OSError("process launch ledger write made no progress")
+            remaining = remaining[written:]
+        os.fchmod(descriptor, 0o644)
+        os.fsync(descriptor)
+        os.close(descriptor)
+        descriptor = None
+
+        os.link(
+            temporary,
+            inventory_path.name,
+            src_dir_fd=directory_fd,
+            dst_dir_fd=directory_fd,
+            follow_symlinks=False,
+        )
+        inventory_linked = True
+        os.replace(
+            temporary,
+            owner_path.name,
+            src_dir_fd=directory_fd,
+            dst_dir_fd=directory_fd,
+        )
+        owner_published = True
+        os.fsync(directory_fd)
+    except BaseException:
+        if descriptor is not None:
+            os.close(descriptor)
+        if not owner_published:
+            if inventory_linked:
+                try:
+                    os.unlink(inventory_path.name, dir_fd=directory_fd)
+                except FileNotFoundError:
+                    pass
+            try:
+                os.unlink(temporary, dir_fd=directory_fd)
+            except FileNotFoundError:
+                pass
+        raise
+    finally:
+        os.close(directory_fd)
 
 
 def _open_regular_process_file(
@@ -96,10 +167,16 @@ class ManagedProcess:
         directory.mkdir(parents=True, exist_ok=True)
         self.log_path = directory / f"{name}.log"
         self.status_path = directory / f"{name}.process.json"
-        self.owner_path = directory / f"{name}.process.owner.json"
+        self.owner_path = directory / f"{name}{_OWNER_LEDGER_SUFFIX}"
+        self.inventory_path = directory / f"{name}{_INVENTORY_SUFFIX}"
         from acprof.artifacts import atomic_write_json
-        launch = {"schema_version": 1, "status_file": self.status_path.name, "launch_state": "starting"}
-        atomic_write_json(self.owner_path, launch)
+        launch = {
+            "schema_version": 2,
+            "owner_file": self.owner_path.name,
+            "status_file": self.status_path.name,
+            "launch_state": "starting",
+        }
+        _publish_launch_inventory(self.owner_path, self.inventory_path, launch)
         self.command = list(command)
         self.identity: dict = {}
         self._control: int | None = None
@@ -242,29 +319,68 @@ def recover_process(evidence: dict, *, directory: Path) -> None:
 def verify_process_cleanup(directory: Path) -> None:
     """Preparation/startup failures must pass the same recovery gate as cases.
 
-    The launch ledger precedes Popen, so a supervisor dying before publishing
-    its workload cannot disappear from the recovery inventory.
+    New launches retain an immutable hardlink inventory before Popen. Historical
+    runs without markers still use their owner ledgers directly.
     """
-    for path in directory.glob('*.process.owner.json'):
+    ledgers: dict[str, tuple[Path, dict | None]] = {
+        path.name: (path, None) for path in directory.glob(f"*{_OWNER_LEDGER_SUFFIX}")
+    }
+    for inventory_path in directory.glob(f"*{_INVENTORY_SUFFIX}"):
+        try:
+            inventory_record = _read_process_json(
+                directory,
+                inventory_path,
+                label="process launch inventory",
+                suffix=_INVENTORY_SUFFIX,
+            )
+            owner_file = inventory_record["owner_file"]
+            if (
+                inventory_record.get("schema_version") != 2
+                or inventory_record.get("launch_state") != "starting"
+                or not isinstance(owner_file, str)
+                or Path(owner_file).name != owner_file
+                or not owner_file.endswith(_OWNER_LEDGER_SUFFIX)
+            ):
+                raise ValueError("invalid process launch inventory")
+            ledgers[owner_file] = (directory / owner_file, inventory_record)
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            raise ProcessCleanupError(
+                f"Process recovery requires complete cleanup evidence: {inventory_path}: {exc}",
+            ) from exc
+
+    for path, expected_inventory in ledgers.values():
         try:
             launch = _read_process_json(
                 directory,
                 path,
                 label="process launch ledger",
-                suffix=".process.owner.json",
+                suffix=_OWNER_LEDGER_SUFFIX,
             )
-            if launch.get('launch_state') == 'failed':
+            if expected_inventory is not None and any(
+                launch.get(key) != expected_inventory[key]
+                for key in ("schema_version", "owner_file", "status_file")
+            ):
+                raise ValueError("process launch ledger does not match its inventory")
+            if launch.get("launch_state") == "failed":
                 continue
             status = _read_process_json(
                 directory,
-                directory / launch['status_file'],
+                directory / launch["status_file"],
                 label="process status",
                 suffix=".process.json",
             )
-            owner, workload = status.get('owner', {}), status.get('workload', {})
-            if (launch.get('launch_state') != 'started' or owner.get('pid') != launch.get('owner_pid')
-                    or not status.get('cleanup_complete') or status.get('cleanup_error')
-                    or not owner or same_process(owner) or workload and same_process(workload)):
-                raise ValueError('descendant cleanup is incomplete or unconfirmed')
+            owner, workload = status.get("owner", {}), status.get("workload", {})
+            if (
+                launch.get("launch_state") != "started"
+                or owner.get("pid") != launch.get("owner_pid")
+                or not status.get("cleanup_complete")
+                or status.get("cleanup_error")
+                or not owner
+                or same_process(owner)
+                or workload and same_process(workload)
+            ):
+                raise ValueError("descendant cleanup is incomplete or unconfirmed")
         except (OSError, ValueError, KeyError, TypeError) as exc:
-            raise ProcessCleanupError(f'Process recovery requires complete cleanup evidence: {path}: {exc}') from exc
+            raise ProcessCleanupError(
+                f"Process recovery requires complete cleanup evidence: {path}: {exc}",
+            ) from exc

@@ -173,6 +173,48 @@ def test_startup_recovery_rejects_symlinked_launch_ledger(tmp_path):
     with pytest.raises(ProcessCleanupError, match="complete cleanup evidence"):
         verify_process_cleanup(tmp_path)
 
+
+def test_startup_recovery_detects_deleted_launch_ledger_from_inventory(tmp_path):
+    from acprof.host.runtimes.process_control import ProcessCleanupError, verify_process_cleanup
+
+    (tmp_path / "owned.process.inventory.json").write_text(json.dumps({
+        "schema_version": 2,
+        "owner_file": "owned.process.owner.json",
+        "status_file": "owned.process.json",
+        "launch_state": "starting",
+    }))
+
+    with pytest.raises(ProcessCleanupError, match="complete cleanup evidence"):
+        verify_process_cleanup(tmp_path)
+
+
+def test_startup_recovery_rejects_symlinked_or_mismatched_inventory(tmp_path):
+    from acprof.host.runtimes.process_control import ProcessCleanupError, verify_process_cleanup
+
+    target = tmp_path / "outside-inventory.json"
+    target.write_text(json.dumps({
+        "schema_version": 2,
+        "owner_file": "owned.process.owner.json",
+        "status_file": "owned.process.json",
+        "launch_state": "starting",
+    }))
+    inventory = tmp_path / "owned.process.inventory.json"
+    inventory.symlink_to(target)
+    with pytest.raises(ProcessCleanupError, match="complete cleanup evidence"):
+        verify_process_cleanup(tmp_path)
+
+    inventory.unlink()
+    inventory.write_text(target.read_text())
+    (tmp_path / "owned.process.owner.json").write_text(json.dumps({
+        "schema_version": 2,
+        "owner_file": "owned.process.owner.json",
+        "status_file": "other.process.json",
+        "launch_state": "failed",
+    }))
+    with pytest.raises(ProcessCleanupError, match="does not match"):
+        verify_process_cleanup(tmp_path)
+
+
 def test_missing_startup_status_is_not_forgotten_on_resume(tmp_path):
     from acprof.host.runtimes.process_control import ProcessCleanupError, verify_process_cleanup
     (tmp_path / 'starting.process.owner.json').write_text(json.dumps({
