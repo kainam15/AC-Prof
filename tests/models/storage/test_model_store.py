@@ -12,7 +12,7 @@ from unittest.mock import patch
 import pytest
 
 from acprof.container.model_files import PLAN_FILENAME, plan_download, seal_plan
-from acprof.host import model_store
+from acprof.host.model_store import store as model_store
 from acprof.network_policy import DownloadPolicyError
 
 
@@ -314,7 +314,7 @@ class TestModelStore:
             from types import SimpleNamespace
             from unittest.mock import patch
             from acprof.container.model_files import PLAN_FILENAME
-            from acprof.host import model_store
+            from acprof.host.model_store import store as model_store
 
             root = Path(sys.argv[1])
             task = SimpleNamespace(**json.loads(sys.argv[2]))
@@ -354,7 +354,7 @@ class TestModelStore:
         record = self.prepare()
         expected = model_store.read_entry(record["entry_id"], self.root)
         with patch(
-            "acprof.host.model_store.store_lock",
+            "acprof.host.model_store.store.store_lock",
             side_effect=PermissionError("read-only store lock"),
         ), patch(
             "acprof.container.download_model._prepare_repository_plan",
@@ -405,7 +405,7 @@ class TestModelStore:
         self.prepare()
         entries = self.root / "entries"
         (entries / ("f" * 64)).symlink_to(self.root / "missing-entry")
-        with patch("acprof.host.model_store.store_root", return_value=self.root):
+        with patch("acprof.host.model_store.store.store_root", return_value=self.root):
             info = model_store.cached_model_info(self.task.model_id, self.task.model_revision,
                                                  source="huggingface")
         assert info is not None
@@ -416,7 +416,7 @@ class TestModelStore:
         self.plan["requested_revision"] = "release-v1"
         seal_plan(self.plan)
         self.prepare()
-        with patch("acprof.host.model_store.store_root", return_value=self.root):
+        with patch("acprof.host.model_store.store.store_root", return_value=self.root):
             assert model_store.cached_model_info(self.task.model_id, None, source="huggingface") is None
             assert model_store.cached_metadata(self.task.model_id, "config.json", None, source="huggingface") is None
             assert model_store.cached_metadata(self.task.model_id, "config.json", "release-v1",
@@ -424,7 +424,7 @@ class TestModelStore:
 
     def test_incomplete_legacy_context_is_not_a_full_repository_inventory(self):
         self.prepare()
-        with patch("acprof.host.model_store.store_root", return_value=self.root):
+        with patch("acprof.host.model_store.store.store_root", return_value=self.root):
             assert model_store.cached_model_info(self.task.model_id, self.task.model_revision,
                                                 source="huggingface") is None
             assert model_store.cached_metadata(self.task.model_id, "config.json", self.task.model_revision,
@@ -433,7 +433,7 @@ class TestModelStore:
     def test_cached_metadata_rechecks_hash_and_enforces_read_limit(self):
         from acprof.container.model_files import ModelFilesError
         record = self.prepare()
-        with patch("acprof.host.model_store.store_root", return_value=self.root):
+        with patch("acprof.host.model_store.store.store_root", return_value=self.root):
             with pytest.raises(ModelFilesError, match="exceeds"):
                 model_store.cached_metadata(self.task.model_id, "config.json", self.task.model_revision,
                                             source="huggingface", max_bytes=1)
@@ -470,9 +470,9 @@ class TestModelStore:
             return result
 
         info = SimpleNamespace(sha=self.task.model_revision, siblings=[SimpleNamespace(rfilename="config.json")])
-        with patch("acprof.host.model_store.store_root", return_value=self.root), patch(
-            "acprof.host.model_store.cached_metadata", side_effect=change_after_verification,
-        ), patch("acprof.host.model_store.cached_model_info", return_value=info), patch(
+        with patch("acprof.host.model_store.store.store_root", return_value=self.root), patch(
+            "acprof.host.model_store.store.cached_metadata", side_effect=change_after_verification,
+        ), patch("acprof.host.model_store.store.cached_model_info", return_value=info), patch(
             "huggingface_hub.hf_hub_download", side_effect=AssertionError("cache hit must remain offline"),
         ) as download:
             if reader == "repository":

@@ -72,9 +72,9 @@ class TestRuntimeImageBuild:
             patch("acprof.system.command.run_command", side_effect=self.fake_run),
             patch.object(runtime_images, "inspect_identity", side_effect=self.images.get),
             patch.object(runtime_images, "verified_image", side_effect=self.verified_image),
-            patch("acprof.host.model_store.plan_model", return_value={}),
+            patch("acprof.host.model_store.store.plan_model", return_value={}),
             patch("acprof.host.network_preflight.preflight", return_value={"sources": []}),
-            patch("acprof.host.model_store.prepare_model", return_value={"plan_sha256": "d" * 64}),
+            patch("acprof.host.model_store.store.prepare_model", return_value={"plan_sha256": "d" * 64}),
             patch("acprof.host.images.runtime.select_nlp_torch_index_url",
                          return_value="https://download.pytorch.org/whl/cu124"),
         ):
@@ -225,7 +225,7 @@ class TestRuntimeImageBuild:
     def test_budget_rejection_precedes_every_build_and_weight_download(self):
         from acprof.network_policy import DownloadPolicyError
         with patch("acprof.host.network_preflight.preflight", side_effect=DownloadPolicyError("over budget")), patch(
-            "acprof.host.model_store.prepare_model",
+            "acprof.host.model_store.store.prepare_model",
         ) as download:
             with pytest.raises(DownloadPolicyError, match="over budget"):
                 runtime_images.build_runtime_image(self.task, str(PROJECT_ROOT))

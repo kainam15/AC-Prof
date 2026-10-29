@@ -188,8 +188,8 @@ class TestComputeProfile:
         )
         mount = SimpleNamespace(args=["--mount", "fixture"], close=Mock())
 
-        with patch("acprof.host.model_store.acquire_mount", return_value=mount), patch(
-            "acprof.host.model_store.retain_mount_for_cleanup_debt"
+        with patch("acprof.host.model_store.store.acquire_mount", return_value=mount), patch(
+            "acprof.host.model_store.store.retain_mount_for_cleanup_debt"
         ) as retain:
             with profiler_support.profiler_container_command(
                 task_info=task_info,
@@ -213,7 +213,7 @@ class TestComputeProfile:
                                pipeline_tag="fill-mask", runtime_backend="transformers_pipeline",
                                runtime_profile_id="nlp-cu128", model_store={})
         mount = SimpleNamespace(args=[], close=Mock())
-        with patch("acprof.host.model_store.acquire_mount", return_value=mount):
+        with patch("acprof.host.model_store.store.acquire_mount", return_value=mount):
             with profiler_support.profiler_container_command(
                 task_info=task, image_tag="fixture", cpu=1, mem=2, use_gpu=use_gpu,
                 payload_file=str(tmp_path / "input.json"), profile_root=str(tmp_path), tool_mount_roots=(),
@@ -231,7 +231,7 @@ class TestComputeProfile:
                                runtime_profile_id="nlp-cu128", model_store={})
         mount = SimpleNamespace(args=[], close=Mock())
         tmp_path.chmod(0o700)
-        with patch("acprof.host.model_store.acquire_mount", return_value=mount):
+        with patch("acprof.host.model_store.store.acquire_mount", return_value=mount):
             with profiler_support.profiler_container_command(
                 task_info=task, image_tag="fixture", cpu=1, mem=2, use_gpu=True,
                 payload_file=str(tmp_path / "input.json"), profile_root=str(tmp_path), tool_mount_roots=(),
@@ -254,7 +254,7 @@ class TestComputeProfile:
             profile_root.mkdir(mode=0o700)
         uid = os.getuid() + 1 if invalid == "owner" else os.getuid()
         gid = os.getgid() + 1 if invalid == "group" else os.getgid()
-        with patch("acprof.host.model_store.acquire_mount") as acquire, patch(
+        with patch("acprof.host.model_store.store.acquire_mount") as acquire, patch(
             "acprof.host.profiling.support.os.getuid", return_value=uid,
         ), patch("acprof.host.profiling.support.os.getgid", return_value=gid), patch(
             "acprof.host.profiling.support.os.getgroups", return_value=[gid],
@@ -284,8 +284,8 @@ class TestComputeProfile:
         )
         mount = SimpleNamespace(args=[], close=Mock())
 
-        with patch("acprof.host.model_store.acquire_mount", return_value=mount), patch(
-            "acprof.host.model_store.retain_mount_for_cleanup_debt"
+        with patch("acprof.host.model_store.store.acquire_mount", return_value=mount), patch(
+            "acprof.host.model_store.store.retain_mount_for_cleanup_debt"
         ) as retain, pytest.raises(subprocess.TimeoutExpired):
             with profiler_support.profiler_container_command(
                 task_info=task_info,

@@ -13,8 +13,9 @@ from unittest.mock import Mock
 import pytest
 
 from acprof.container.model_files import PLAN_FILENAME
-from acprof.host import docker_runtime, model_store
+from acprof.host import docker_runtime
 from acprof.host.container_lifecycle import ContainerCleanupError
+from acprof.host.model_store import store as model_store
 from tests.support.model_store_fixtures import ModelStoreFixture
 
 
@@ -188,7 +189,7 @@ def test_separate_gc_process_observes_retained_lease_until_release(store, monkey
 
     def child_gc():
         result = subprocess.run([sys.executable, "-c",
-            "import json,sys; from pathlib import Path; from acprof.host.model_store import prune_store; "
+            "import json,sys; from pathlib import Path; from acprof.host.model_store.store import prune_store; "
             "print(json.dumps(prune_store(root=Path(sys.argv[1]), apply=True)))", str(store.root)],
             cwd=Path(__file__).resolve().parents[3], capture_output=True, text=True, timeout=15)
         assert result.returncode == 0, result.stdout + result.stderr

@@ -26,7 +26,7 @@ from pathlib import Path
 
 import requests
 
-from acprof.host.model_store import acquire_mount, store_root
+from acprof.host.model_store.store import acquire_mount, store_root
 from acprof.host.run_state import MeasurementLock
 from acprof.monitors.energy_nvml import GPUEnergyMonitor
 

@@ -16,7 +16,7 @@ from scripts.check_import_boundaries import scan_import_violations, violations_i
         ("acprof.monitors.common", "from acprof.host.other import execute"),
         ("acprof.models.contract", "from acprof.host.detect import detect_task"),
         ("acprof.models.inspection.source", "from acprof.container.model_probe import validate"),
-        ("acprof.hub.repository", "from acprof.host.model_store import store_root"),
+        ("acprof.hub.repository", "from acprof.host.model_store.store import store_root"),
         ("acprof.system.command", "from acprof.host.orchestrator import execute"),
     ],
 )

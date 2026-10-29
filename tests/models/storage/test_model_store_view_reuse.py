@@ -14,7 +14,7 @@ from textual.widgets import Input
 from acprof.container.download_model import verify_download
 from acprof.container.model_files import PLAN_FILENAME, plan_download, seal_plan
 from acprof.experiment import RunConfig
-from acprof.host import model_store
+from acprof.host.model_store import store as model_store
 from acprof.host.network_preflight import preflight
 from acprof.network_policy import DownloadPolicyError
 from acprof.tui.experiment_picker import SearchPickerScreen

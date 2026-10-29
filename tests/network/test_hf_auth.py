@@ -209,7 +209,7 @@ def test_repository_access_reselects_credentials_for_official_fallback(monkeypat
 
     hub.set_client_factory(lambda: _httpx_factory(transport=httpx.MockTransport(respond)))
     try:
-        with patch("acprof.host.model_store.cached_model_info", return_value=None), patch(
+        with patch("acprof.host.model_store.store.cached_model_info", return_value=None), patch(
             "huggingface_hub.utils._headers.get_token", side_effect=AssertionError("SDK implicit lookup"),
         ):
             report = check_repository_access("demo/private-model")
@@ -235,9 +235,9 @@ def test_download_callers_disable_sdk_lookup_and_apply_origin_policy(
     from huggingface_hub import constants
 
     from acprof.container.model_files import plan_download, seal_plan
-    from acprof.host import model_store
     from acprof.host.detect import _download_metadata
     from acprof.host.download_probe import ProbeBudget, probe_hf_file
+    from acprof.host.model_store import store as model_store
     from acprof.hub.huggingface.transport import configure_hf_transport
 
     monkeypatch.setenv("HF_TOKEN", TOKEN)

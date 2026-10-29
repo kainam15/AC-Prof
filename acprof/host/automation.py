@@ -15,7 +15,7 @@ def check_repository_access(repo_id: str, *, source: str = "huggingface", revisi
     from huggingface_hub import HfApi
 
     from acprof.host.model_errors import model_lookup_error
-    from acprof.host.model_store import cached_model_info
+    from acprof.host.model_store.store import cached_model_info
     from acprof.hub.huggingface.download import HfDownloadError, exception_chain, try_hf_endpoints
     from acprof.hub.huggingface.transport import configure_hf_transport
     from acprof.hub.repository import model_source, modelscope_info

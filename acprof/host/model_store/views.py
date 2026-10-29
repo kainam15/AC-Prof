@@ -10,7 +10,7 @@ from pathlib import Path
 
 import acprof.artifacts as artifact_io
 from acprof.container.model_files import PLAN_FILENAME
-from acprof.host.model_store_paths import StorePaths, store_paths
+from acprof.host.model_store.paths import StorePaths, store_paths
 
 
 def snapshot_path(root: Path, key: str, repo: dict) -> Path:

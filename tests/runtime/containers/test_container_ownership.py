@@ -52,7 +52,7 @@ class TestContainerOwnership:
     def test_runtime_mount_lease_is_released_only_after_container_cleanup(self):
         response = SimpleNamespace(status_code=200, text="", json=lambda: {"status": "ok"})
         mount = SimpleNamespace(args=[], close=Mock())
-        with patch("acprof.host.model_store.acquire_mount", return_value=mount), patch(
+        with patch("acprof.host.model_store.store.acquire_mount", return_value=mount), patch(
             "acprof.system.command.run_command", side_effect=self.command
         ), patch("requests.get", return_value=response), redirect_stdout(io.StringIO()):
             session = self.start()
@@ -68,7 +68,7 @@ class TestContainerOwnership:
                 raise AssertionError("unexpected container launch")
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
-        with patch("acprof.host.model_store.acquire_mount", return_value=mount), patch(
+        with patch("acprof.host.model_store.store.acquire_mount", return_value=mount), patch(
             "acprof.host.docker_runtime.runtime_docker_env_args",
             side_effect=RuntimeError("runtime env setup failed"),
         ), patch(

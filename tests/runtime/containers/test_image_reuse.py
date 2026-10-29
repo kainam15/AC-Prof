@@ -132,11 +132,11 @@ class TestPrepareImage:
         with patch(
             "acprof.host.images.runtime.prepare_runtime_image", return_value=image
         ), patch(
-            "acprof.host.model_store.store_root", return_value=self.model_store_root
+            "acprof.host.model_store.store.store_root", return_value=self.model_store_root
         ), patch(
-            "acprof.host.model_store.require_entry"
+            "acprof.host.model_store.store.require_entry"
         ) as require_entry, patch(
-            "acprof.host.model_store.acquire_mount",
+            "acprof.host.model_store.store.acquire_mount",
             autospec=True,
             side_effect=AssertionError("image preparation must not acquire a runtime mount lease"),
         ) as acquire_mount:
@@ -148,7 +148,7 @@ class TestPrepareImage:
 
     def test_invalid_model_store_stops_default_reuse_without_building(self):
         with patch("acprof.system.command.run_command", side_effect=self.existing_image), patch(
-            "acprof.host.model_store.verify_entry", side_effect=ValueError("model file checksum mismatch")
+            "acprof.host.model_store.store.verify_entry", side_effect=ValueError("model file checksum mismatch")
         ), patch(
             "acprof.host.images.runtime.build_runtime_image",
             side_effect=AssertionError("an invalid Model Store must not trigger a build"),

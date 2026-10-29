@@ -99,7 +99,7 @@ class TestEnvironmentIdentity:
 
     def test_business_code_changes_do_not_invalidate_dependency_cache(self):
         original = runtime_fingerprint(self.env, self.root)
-        for relative in ("acprof/container/server.py", "acprof/tui/app.py", "acprof/host/model_store.py"):
+        for relative in ("acprof/container/server.py", "acprof/tui/app.py", "acprof/host/model_store/store.py"):
             path = self.root / relative
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text("# ordinary code update\n")

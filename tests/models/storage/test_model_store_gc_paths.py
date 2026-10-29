@@ -8,8 +8,8 @@ from threading import Event
 import pytest
 
 from acprof.container.model_files import PLAN_FILENAME
-from acprof.host import model_store
-from acprof.host.model_store_paths import StorePaths
+from acprof.host.model_store import store as model_store
+from acprof.host.model_store.paths import StorePaths
 from tests.support.model_store_fixtures import ModelStoreFixture
 
 

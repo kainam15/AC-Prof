@@ -9,7 +9,7 @@ import pytest
 
 from acprof.container.download_model import verify_download
 from acprof.container.model_files import ModelFilesError, plan_download, seal_plan, validate_plan
-from acprof.host import model_store
+from acprof.host.model_store import store as model_store
 
 CONTENT = b"{}"
 SHA256 = hashlib.sha256(CONTENT).hexdigest()

@@ -83,15 +83,15 @@ class TestModelCandidate(ModelCandidateFixture):
             entry.mkdir(parents=True)
             (entry / 'model_download_plan.json').write_text('{}')
             plan = {'model_id': 'demo/cached', 'model_revision': 'a' * 40}
-            with patch('acprof.host.model_store.read_entry', return_value=plan), patch(
-                'acprof.host.model_store.model_sources', return_value=[SimpleNamespace(cache_status='hit')]
+            with patch('acprof.host.model_store.store.read_entry', return_value=plan), patch(
+                'acprof.host.model_store.store.model_sources', return_value=[SimpleNamespace(cache_status='hit')]
             ):
                 values, warnings = cached_candidates(root)
                 assert (len(values)) == (1)
                 assert (values[0].status) == ('cached_unverified')
                 assert not (warnings)
-            with patch('acprof.host.model_store.read_entry', return_value=plan), patch(
-                'acprof.host.model_store.model_sources', return_value=[SimpleNamespace(cache_status='partial')]
+            with patch('acprof.host.model_store.store.read_entry', return_value=plan), patch(
+                'acprof.host.model_store.store.model_sources', return_value=[SimpleNamespace(cache_status='partial')]
             ):
                 values, warnings = cached_candidates(root)
                 assert not (values)

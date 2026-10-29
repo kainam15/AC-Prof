@@ -15,7 +15,7 @@ from textual.widgets import Button, Input, Select, Static
 
 from acprof.container.model_files import PLAN_FILENAME
 from acprof.experiment import RunConfig
-from acprof.host import model_store
+from acprof.host.model_store import store as model_store
 from acprof.tui.i18n import translate
 from acprof.tui.model_store import ModelStoreScreen
 from acprof.tui.model_store_summary import model_store_summary

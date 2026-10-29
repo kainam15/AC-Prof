@@ -76,7 +76,7 @@ def validate_runtime(
     from acprof.artifacts import atomic_write_json, read_input_scale_plan
     from acprof.host.container_state import inspect_container_state
     from acprof.host.env_utils import hf_offline_docker_env_args
-    from acprof.host.model_store import acquire_mount, retain_mount_for_cleanup_debt
+    from acprof.host.model_store.store import acquire_mount, retain_mount_for_cleanup_debt
 
     if planned.plan_file is None:
         raise ValueError("runtime validation requires an input plan file")

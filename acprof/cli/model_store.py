@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 from acprof.host.env_utils import load_project_env
-from acprof.host.model_store import disk_report, prune_store
+from acprof.host.model_store.store import disk_report, prune_store
 
 
 def main(argv=None):

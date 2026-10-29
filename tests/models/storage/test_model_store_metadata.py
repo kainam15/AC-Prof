@@ -9,7 +9,7 @@ from unittest.mock import patch
 import pytest
 
 from acprof.container.model_files import PLAN_FILENAME, plan_download, seal_plan
-from acprof.host import model_store
+from acprof.host.model_store import store as model_store
 
 
 class TestModelStoreMetadata:

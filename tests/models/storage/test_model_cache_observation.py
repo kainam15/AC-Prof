@@ -14,7 +14,8 @@ import pytest
 
 from acprof.container.download_model import verify_download
 from acprof.container.model_files import PLAN_FILENAME, ModelFilesError, plan_download, seal_plan
-from acprof.host import detect, model_store
+from acprof.host import detect
+from acprof.host.model_store import store as model_store
 from acprof.hub.repository import modelscope_snapshot
 
 MODEL_ID = "fixture/model"

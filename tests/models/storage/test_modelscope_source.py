@@ -29,7 +29,7 @@ def test_modelscope_pins_repository_ref_not_per_file_revision(monkeypatch):
 
 def test_modelscope_access_check_never_queries_huggingface():
     from acprof.host.automation import check_repository_access
-    with patch("acprof.host.model_store.cached_model_info", return_value=None), patch(
+    with patch("acprof.host.model_store.store.cached_model_info", return_value=None), patch(
             "acprof.hub.repository.modelscope_info", return_value=object()) as ms, patch(
             "huggingface_hub.HfApi.auth_check", side_effect=AssertionError("ModelScope queried HF")):
         evidence = check_repository_access("demo/model", source="modelscope")
@@ -131,7 +131,7 @@ def test_frozen_source_preserves_historical_hf_options_and_records_modelscope(mo
 
 def test_modelscope_preparation_uses_separate_cache_and_verifies_artifact(tmp_path, monkeypatch):
     from acprof.container.model_files import PLAN_FILENAME, plan_download, seal_plan
-    from acprof.host import model_store
+    from acprof.host.model_store import store as model_store
     from acprof.hub.repository import modelscope_snapshot
     content = b"{}"
     digest = hashlib.sha256(content).hexdigest()
@@ -175,8 +175,8 @@ def test_modelscope_lookup_failure_cannot_be_bypassed_by_manual_task(monkeypatch
     monkeypatch.setenv("ACPROF_MODEL_SOURCE", "modelscope")
     failure = getattr(errors, error)("source failure")
     with patch("acprof.hub.repository.modelscope_info", side_effect=failure), patch(
-            "acprof.host.model_store.cached_model_info", return_value=None), patch(
-            "acprof.host.model_store.cached_metadata", return_value=None):
+            "acprof.host.model_store.store.cached_model_info", return_value=None), patch(
+            "acprof.host.model_store.store.cached_metadata", return_value=None):
         with pytest.raises(ModelLookupError) as caught:
             detect_task("demo/model", override_tag="text-generation", override_family="nlp")
     assert caught.value.reason_code == reason
@@ -200,8 +200,8 @@ def test_legacy_tui_configuration_migrates_without_changing_proxy_environment(tm
     assert json.loads(path.read_text()) == payload
 
 def test_filtered_cache_preserves_original_hub_evidence(tmp_path, monkeypatch):
-    from acprof.host import model_store
     from acprof.host.detect import TaskInfo, detect_task
+    from acprof.host.model_store import store as model_store
 
     content = b'{"model_type":"bert","architectures":["BertForMaskedLM"]}'
     config_path = tmp_path / "config.json"
@@ -249,7 +249,7 @@ def test_filtered_cache_preserves_original_hub_evidence(tmp_path, monkeypatch):
 def test_recorded_default_ref_is_distinct_from_pinned_release(source, default_ref, tmp_path, monkeypatch):
     from acprof.container.download_model import verify_download
     from acprof.container.model_files import plan_download, seal_plan
-    from acprof.host import model_store
+    from acprof.host.model_store import store as model_store
 
     monkeypatch.setenv("ACPROF_MODEL_STORE", str(tmp_path))
     entry = tmp_path / "entries" / ("b" * 64)

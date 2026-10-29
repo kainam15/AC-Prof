@@ -74,7 +74,7 @@ def _download_metadata(
     max_bytes: int = METADATA_MAX_BYTES, source: str | None = None,
 ) -> MetadataFile:
     """Bound pinned downloads and preserve the SDK's mutable-ref fallback cache."""
-    from acprof.host.model_store import cached_metadata, store_root
+    from acprof.host.model_store.store import cached_metadata, store_root
     from acprof.hub.repository import model_source, modelscope_metadata
     source = model_source(source)
     cached = cached_metadata(model_id, name, revision, source=source, max_bytes=max_bytes)
@@ -161,7 +161,7 @@ def dependency_metadata(repo_id: str, revision: str) -> dict:
 
     from acprof.hub.huggingface.download import try_hf_endpoints
     try:
-        from acprof.host.model_store import cached_model_info
+        from acprof.host.model_store.store import cached_model_info
         info = cached_model_info(repo_id, revision, source="huggingface")
         if info is None:
             from acprof.hub.huggingface.transport import configure_hf_transport
@@ -465,7 +465,7 @@ def _detect_from_hub(
     try:
         from huggingface_hub import HfApi
 
-        from acprof.host.model_store import cached_model_info
+        from acprof.host.model_store.store import cached_model_info
         from acprof.hub.huggingface.download import try_hf_endpoints
         from acprof.hub.huggingface.transport import configure_hf_transport
         from acprof.hub.repository import model_source, modelscope_info

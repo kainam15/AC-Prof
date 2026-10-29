@@ -262,7 +262,7 @@ def prepare_runtime_image(task_info: Any, project_dir: str, *, reuse_existing: b
     if reuse_existing:
         image = verified_image(task_info, name, fingerprint, project_dir)
         if image is not None:
-            from acprof.host.model_store import verify_entry
+            from acprof.host.model_store.store import verify_entry
             verify_entry(image.runtime_environment)
             print(f"[build] 指纹核验通过，跳过构建并复用：{name}", flush=True)
             return image
@@ -288,7 +288,7 @@ def build_runtime_image(task_info: Any, project_dir: str):
     root = Path(project_dir)
     fingerprint = request_fingerprint(task_info, root)
     name = _model_image_tag(task_info, root)
-    from acprof.host.model_store import plan_model, prepare_model
+    from acprof.host.model_store.store import plan_model, prepare_model
     from acprof.host.network_preflight import preflight
     model_plan = plan_model(task_info)
     network_plan = preflight(task_info, profile, root, model_plan)
@@ -432,7 +432,7 @@ def prepare_image(
     """Resolve a compatible runtime and verify exact image reuse."""
 
     image = prepare_runtime_image(task_info, project_dir, reuse_existing=reuse_existing)
-    from acprof.host.model_store import require_entry, store_root
+    from acprof.host.model_store.store import require_entry, store_root
     if image.runtime_environment.get("model_store"):
         # Host-only provenance for post-hoc runs; never baked into portable images.
         image.runtime_environment["model_store"] = {
@@ -452,5 +452,5 @@ def require_image_identity(image: str, runtime_environment: dict[str, Any]) -> N
         raise RuntimeError("补采镜像 ID 与原实验不一致")
     if runtime_environment and (identity.get("labels") or {}).get(FINGERPRINT_LABEL) != runtime_environment.get("build_fingerprint"):
         raise RuntimeError("补采镜像的运行环境与原实验不一致")
-    from acprof.host.model_store import verify_entry
+    from acprof.host.model_store.store import verify_entry
     verify_entry(runtime_environment)

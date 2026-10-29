@@ -33,7 +33,7 @@ class ModelController:
         except RunConfigError as exc:
             self.app.configuration.show_config_error(exc)
             return
-        from acprof.host.model_store import store_root
+        from acprof.host.model_store.store import store_root
         roots, token = self.app.catalog.catalog_roots(), object()
         cache_root = Path(config.model_store).expanduser() if config.model_store else store_root()
         if not cache_root.is_absolute():

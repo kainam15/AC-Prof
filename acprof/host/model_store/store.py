@@ -29,8 +29,8 @@ from acprof.container.model_files import (
     validate_plan_request,
 )
 from acprof.dependency_locks import content_digest
-from acprof.host.model_store_paths import StorePaths, store_paths
-from acprof.host.model_store_views import (
+from acprof.host.model_store.paths import StorePaths, store_paths
+from acprof.host.model_store.views import (
     make_traversable,
     publish_view,
     snapshot_path,

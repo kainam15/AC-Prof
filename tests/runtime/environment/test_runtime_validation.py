@@ -95,7 +95,7 @@ class TestRuntimeValidation:
         with tempfile.TemporaryDirectory() as temporary, patch(
             'acprof.host.runtime_validation.run_command', side_effect=run,
         ), patch('acprof.host.container_state.inspect_container_state', return_value={}), patch(
-            'acprof.host.model_store.acquire_mount', side_effect=mounts,
+            'acprof.host.model_store.store.acquire_mount', side_effect=mounts,
         ):
             root = Path(temporary)
             report = validate_runtime(**self.fixture(root))
@@ -118,7 +118,7 @@ class TestRuntimeValidation:
     def test_mount_is_released_when_command_setup_fails_before_docker_run(self, tmp_path):
         mount = SimpleNamespace(args=[], close=Mock())
         with patch(
-            "acprof.host.model_store.acquire_mount", return_value=mount,
+            "acprof.host.model_store.store.acquire_mount", return_value=mount,
         ), patch(
             "acprof.host.runtime_validation.runtime_docker_env_args",
             side_effect=RuntimeError("runtime env setup failed"),
@@ -345,9 +345,9 @@ class TestRuntimeValidation:
         with tempfile.TemporaryDirectory() as directory, patch(
             'acprof.host.runtime_validation.run_command', side_effect=run,
         ), patch('acprof.host.container_state.inspect_container_state', return_value={}), patch(
-            'acprof.host.model_store.acquire_mount', return_value=mount,
+            'acprof.host.model_store.store.acquire_mount', return_value=mount,
         ), patch(
-            'acprof.host.model_store.retain_mount_for_cleanup_debt', retained,
+            'acprof.host.model_store.store.retain_mount_for_cleanup_debt', retained,
         ):
             root = Path(directory)
             with pytest.raises(RuntimeError, match='cleanup unknown'):

@@ -7,7 +7,7 @@ from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import Button, Static
 
-from acprof.host.model_store import ModelStoreCancelled, disk_report, prune_store
+from acprof.host.model_store.store import ModelStoreCancelled, disk_report, prune_store
 from acprof.network_policy import parse_bytes
 from acprof.tui.app_contracts import translated_app
 from acprof.tui.i18n import message_id

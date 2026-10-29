@@ -44,6 +44,7 @@
 | `acprof/system/` | 主机和监测器共享的同步命令执行能力，不依赖 host 编排 |
 | `acprof/host/` | 模型检测、环境预检、输入计划、容器与采集编排、profiler |
 | `acprof/host/preparation/` | 将用户模型确认结果应用于源码读取、依赖解析和主机准备流程 |
+| `acprof/host/model_store/` | 共享权重缓存、lease/容量策略、受限文件系统访问及只读视图发布 |
 | `acprof/host/images/` | `environment` 构建依赖环境镜像，`dependencies` / `scan` 收集依赖证据，`inventory` / `graph` 管理清单和层关系，`runtime` / `identity` 组装并标识模型镜像 |
 | `acprof/host/measurement/` | 客户端配置、请求窗口、监测器编排、纯指标计算、检查点与发布；`host.client` 保留进程入口 |
 | `acprof/host/profiling/` | 独立 compute/execution 计划、进度及工具支持；`tools/` 放置各 profiler 的执行和解析实现 |
@@ -76,10 +77,10 @@
 | `acprof/capabilities.py` | execution / measurement 状态、验证证据和画像完整性报告 |
 | `acprof/container/validation.py`、`acprof/workloads/contract.py` | 窗口外输出验证与实际请求工作量摘要 |
 
-下载准备由 `network_policy.py`、`hub/huggingface/transport.py`、`host/network_preflight.py` 与 `host/model_store.py` 分工：来源/预算、Hub 请求约束、总量/磁盘预检、单份权重与只读挂载。`runtime_images.py` 先核验计划和预算，再准备依赖、Model Store 与只含清单的模型层；细节见[下载网络与 Model Store](../models/model-store.md#下载网络与-model-store)。
-Model Store 的路径遍历、目录描述符与相对删除集中在 `host/model_store_paths.py`；
-`host/model_store.py` 保留容量、LRU、共享权重引用及 lease 决策，文件系统操作不反向依赖这些业务策略。
-`host/model_store_views.py` 负责 loader 视图的目录布局、refs 与链接检查、暂存构建和发布恢复；
+下载准备由 `network_policy.py`、`hub/huggingface/transport.py`、`host/network_preflight.py` 与 `host/model_store/store.py` 分工：来源/预算、Hub 请求约束、总量/磁盘预检、单份权重与只读挂载。`runtime_images.py` 先核验计划和预算，再准备依赖、Model Store 与只含清单的模型层；细节见[下载网络与 Model Store](../models/model-store.md#下载网络与-model-store)。
+Model Store 的路径遍历、目录描述符与相对删除集中在 `host/model_store/paths.py`；
+`host/model_store/store.py` 保留容量、LRU、共享权重引用及 lease 决策，文件系统操作不反向依赖这些业务策略。
+`host/model_store/views.py` 负责 loader 视图的目录布局、refs 与链接检查、暂存构建和发布恢复；
 复用目录描述符边界，接收已确定的仓库计划与源路径，不自行选择网络来源或取得 lease。
 
 ## 入口与依赖方向

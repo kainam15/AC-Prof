@@ -23,8 +23,8 @@ def validation(tmp_path, monkeypatch):
     options = _ValidationFixture().fixture(tmp_path)
     mount = SimpleNamespace(args=[], close=Mock())
     retained = Mock()
-    monkeypatch.setattr("acprof.host.model_store.acquire_mount", Mock(return_value=mount))
-    monkeypatch.setattr("acprof.host.model_store.retain_mount_for_cleanup_debt", retained)
+    monkeypatch.setattr("acprof.host.model_store.store.acquire_mount", Mock(return_value=mount))
+    monkeypatch.setattr("acprof.host.model_store.store.retain_mount_for_cleanup_debt", retained)
     monkeypatch.setattr("acprof.host.runtime_validation.recover_abandoned_containers", Mock())
     monkeypatch.setattr("acprof.host.container_state.inspect_container_state", lambda identifier: {})
     return options, mount, retained

@@ -58,7 +58,7 @@ def test_pid_reuse_identity_never_matches_live_pid(tmp_path):
 def test_supervisor_holds_model_lease_until_cleanup(tmp_path):
     import fcntl
 
-    from acprof.host.model_store import ModelStoreMount
+    from acprof.host.model_store.store import ModelStoreMount
     path = tmp_path / 'model.lease'
     stream = path.open('a+b')
     fcntl.flock(stream.fileno(), fcntl.LOCK_SH)

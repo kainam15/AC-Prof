@@ -122,7 +122,7 @@ def verify_environment(root: Path, manifest: dict) -> None:
 def prepare_process(task, project_dir, output_dir, *, rebuild=False, timeout_seconds=300) -> ProcessInfo:
     if rebuild:
         raise ValueError("--rebuild-image applies to Docker; Process environments are immutable")
-    from acprof.host.model_store import plan_model, prepare_model, store_root, verify_entry
+    from acprof.host.model_store.store import plan_model, prepare_model, store_root, verify_entry
     from acprof.host.network_preflight import preflight, process_sources
     from acprof.host.runtimes.validation import probe_interface
     plan = plan_model(task)
@@ -146,7 +146,7 @@ def prepare_process(task, project_dir, output_dir, *, rebuild=False, timeout_sec
 
 
 def restore_process(snapshot: dict) -> ProcessInfo:
-    from acprof.host.model_store import verify_entry
+    from acprof.host.model_store.store import verify_entry
     info = ProcessInfo(**snapshot)
     root = Path(info.python).parent.parent.parent
     verify_environment(root, info.runtime_environment)

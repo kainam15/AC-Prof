@@ -104,7 +104,7 @@ class _ProfilerMountScope:
         if exc_type is not None and issubclass(
             exc_type, (subprocess.TimeoutExpired, KeyboardInterrupt)
         ):
-            from acprof.host.model_store import retain_mount_for_cleanup_debt
+            from acprof.host.model_store.store import retain_mount_for_cleanup_debt
 
             retain_mount_for_cleanup_debt(self._mount)
         else:
@@ -125,7 +125,7 @@ def profiler_container_command(
     tool_mount_roots: Sequence[str],
     requires_gpu_counters: bool = False,
 ) -> Iterator[list[str]]:
-    from acprof.host.model_store import acquire_mount
+    from acprof.host.model_store.store import acquire_mount
     from acprof.installation import resource_root
 
     if requires_gpu_counters and not use_gpu:

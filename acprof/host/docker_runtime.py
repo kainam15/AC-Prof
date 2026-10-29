@@ -200,7 +200,7 @@ def start_container_session(
     owner = container_owner_labels()
     recover_abandoned_containers(owner, host_command.run_command)
     labels = [part for key, value in owner.items() for part in ("--label", f"{key}={value}")]
-    from acprof.host.model_store import acquire_mount, retain_mount_for_cleanup_debt
+    from acprof.host.model_store.store import acquire_mount, retain_mount_for_cleanup_debt
 
     model_store_mount = acquire_mount(image_info.runtime_environment)
     try:
@@ -353,7 +353,7 @@ def stop_container_session(session: RunningContainer, log_prefix: str | None = N
         remove_owned_container(session.container_id, host_command.run_command, stop=True)
     except BaseException:
         if mount is not None:
-            from acprof.host.model_store import retain_mount_for_cleanup_debt
+            from acprof.host.model_store.store import retain_mount_for_cleanup_debt
             retain_mount_for_cleanup_debt(mount)
         raise
     if mount is not None:

@@ -16,7 +16,7 @@ from acprof.preparation_events import preparation_stage
 
 def run_validation(task, info, module, prefix, output_dir, *, gpu="off", payload=None, timeout=300,
                    cpu=None, memory=None):
-    from acprof.host.model_store import acquire_mount
+    from acprof.host.model_store.store import acquire_mount
     from acprof.host.runtimes.resources import ProcessLimits
     layout = ArtifactLayout.discover(output_dir)
     directory = layout.path("logs")
@@ -47,7 +47,7 @@ def run_validation(task, info, module, prefix, output_dir, *, gpu="off", payload
             try:
                 process.close()
             except BaseException:
-                from acprof.host.model_store import retain_mount_for_cleanup_debt
+                from acprof.host.model_store.store import retain_mount_for_cleanup_debt
                 if lease is not None:
                     retain_mount_for_cleanup_debt(lease)
                 raise

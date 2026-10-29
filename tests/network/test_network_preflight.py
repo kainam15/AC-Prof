@@ -32,11 +32,11 @@ def test_download_confirmation_preserves_raw_bytes(tmp_path, capsys, download_by
     with (
         patch.dict("os.environ", {"ACPROF_INTERACTIVE_PREPARATION": "1"}, clear=True),
         patch("sys.stdin", io.StringIO(reply)),
-        patch("acprof.host.model_store.model_sources", return_value=[
+        patch("acprof.host.model_store.store.model_sources", return_value=[
             DownloadSource("model", plan["endpoint"], download_bytes),
         ]),
-        patch("acprof.host.model_store.require_space", return_value=disk),
-        patch("acprof.host.model_store.probe_model_download", return_value=[]),
+        patch("acprof.host.model_store.store.require_space", return_value=disk),
+        patch("acprof.host.model_store.store.probe_model_download", return_value=[]),
         patch("acprof.host.network_preflight.runtime_sources", return_value=([], {"platform_local": True})),
         patch("acprof.host.machine_metadata.docker_storage_metadata", return_value={}),
     ):
@@ -68,9 +68,9 @@ def test_model_only_budget_allows_cached_model_with_unknown_oci_size(tmp_path):
     settings = {"ACPROF_MODEL_MAX_DOWNLOAD": "4GB", "ACPROF_MAX_DOWNLOAD": ""}
     with (
         patch.dict("os.environ", settings, clear=True),
-        patch("acprof.host.model_store.model_sources", return_value=[model]),
-        patch("acprof.host.model_store.require_space", return_value={"free_bytes": 35_000_000_000}),
-        patch("acprof.host.model_store.probe_model_download", return_value=[]),
+        patch("acprof.host.model_store.store.model_sources", return_value=[model]),
+        patch("acprof.host.model_store.store.require_space", return_value={"free_bytes": 35_000_000_000}),
+        patch("acprof.host.model_store.store.probe_model_download", return_value=[]),
         patch("acprof.host.network_preflight.runtime_sources", return_value=(
             [oci], {"platform_local": False, "will_attempt_ghcr_pull": True},
         )),
@@ -93,11 +93,11 @@ def test_model_only_budget_blocks_unknown_or_oversized_model_before_oci(tmp_path
     plan = {"selected_bytes": model_bytes, "endpoint": "https://hf-mirror.com"}
     with (
         patch.dict("os.environ", {"ACPROF_MODEL_MAX_DOWNLOAD": "4GB", "ACPROF_MAX_DOWNLOAD": ""}, clear=True),
-        patch("acprof.host.model_store.model_sources", return_value=[
+        patch("acprof.host.model_store.store.model_sources", return_value=[
             DownloadSource("model", plan["endpoint"], model_bytes),
         ]),
-        patch("acprof.host.model_store.require_space", return_value={"free_bytes": 35_000_000_000}),
-        patch("acprof.host.model_store.probe_model_download") as probe,
+        patch("acprof.host.model_store.store.require_space", return_value={"free_bytes": 35_000_000_000}),
+        patch("acprof.host.model_store.store.probe_model_download") as probe,
         patch("acprof.host.network_preflight.runtime_sources") as runtime,
         pytest.raises(DownloadPolicyError, match="ACPROF_MODEL_MAX_DOWNLOAD"),
     ):
@@ -112,11 +112,11 @@ def test_total_budget_remains_strict_with_unknown_oci_size(tmp_path):
     plan = {"selected_bytes": 2, "endpoint": "https://hf-mirror.com"}
     with (
         patch.dict("os.environ", {"ACPROF_MODEL_MAX_DOWNLOAD": "4GB", "ACPROF_MAX_DOWNLOAD": "4GB"}, clear=True),
-        patch("acprof.host.model_store.model_sources", return_value=[
+        patch("acprof.host.model_store.store.model_sources", return_value=[
             DownloadSource("model", plan["endpoint"], 0, cached_bytes=2),
         ]),
-        patch("acprof.host.model_store.require_space", return_value={"free_bytes": 35_000_000_000}),
-        patch("acprof.host.model_store.probe_model_download", return_value=[]),
+        patch("acprof.host.model_store.store.require_space", return_value={"free_bytes": 35_000_000_000}),
+        patch("acprof.host.model_store.store.probe_model_download", return_value=[]),
         patch("acprof.host.network_preflight.runtime_sources", return_value=(
             [DownloadSource("oci", "https://ghcr.io/demo/runtime", None)],
             {"platform_local": False},

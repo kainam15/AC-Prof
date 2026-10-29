@@ -15,7 +15,7 @@ PREFIX = "ACPROF_RUNTIME_VALIDATION="
 
 @pytest.fixture
 def validation_log(tmp_path, monkeypatch):
-    from acprof.host import model_store
+    from acprof.host.model_store import store as model_store
     from acprof.host.runtimes import resources
 
     path = tmp_path / "validation.log"

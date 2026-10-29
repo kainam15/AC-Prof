@@ -275,7 +275,7 @@ def test_retired_project_proxy_values_do_not_replace_system_environment(tmp_path
 
 def test_automatic_access_check_uses_model_store_without_network():
     from acprof.host.automation import check_repository_access
-    with patch("acprof.host.model_store.cached_model_info", return_value=object()), patch(
+    with patch("acprof.host.model_store.store.cached_model_info", return_value=object()), patch(
             "huggingface_hub.HfApi.auth_check", side_effect=AssertionError("cache hit made a network request")):
         evidence = check_repository_access("demo/model")
     assert evidence["scope"] == "local_model_store_only"
@@ -358,7 +358,7 @@ def test_failure_stage_and_final_storage_host_are_preserved(reason, monkeypatch)
 def test_zero_allowance_probe_keeps_head_and_cache_skips_all_io(tmp_path, monkeypatch):
     import huggingface_hub as hub
 
-    from acprof.host.model_store import probe_model_download
+    from acprof.host.model_store.store import probe_model_download
     from acprof.hub.huggingface.transport import _httpx_factory, configure_hf_transport
     configure_hf_transport()
     assert hub.constants.HF_HUB_DISABLE_TELEMETRY
@@ -376,12 +376,12 @@ def test_zero_allowance_probe_keeps_head_and_cache_skips_all_io(tmp_path, monkey
             "files": [{"path": "model.safetensors", "size": 100_000_000_000}]}
     hub.set_client_factory(lambda: _httpx_factory(transport=httpx.MockTransport(respond)))
     try:
-        with patch("acprof.host.model_store.configure_hf_transport"):
+        with patch("acprof.host.model_store.store.configure_hf_transport"):
             report = probe_model_download(plan, tmp_path, max_bytes=0)
             assert report[0]["method"] == "HEAD"
             assert visited == [("HEAD", "hf-mirror.com"), ("HEAD", "cas-bridge.xethub.hf.co")]
             visited.clear()
-            with patch("acprof.host.model_store.cached_file", return_value=tmp_path / "cached"):
+            with patch("acprof.host.model_store.store.cached_file", return_value=tmp_path / "cached"):
                 assert probe_model_download(plan, tmp_path) == []
             assert visited == []
     finally:

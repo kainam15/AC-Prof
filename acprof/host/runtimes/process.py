@@ -83,7 +83,7 @@ class ProcessRuntime:
         import requests
 
         from acprof.cpu_affinity import parse_cpu_set
-        from acprof.host.model_store import acquire_mount
+        from acprof.host.model_store.store import acquire_mount
         from acprof.host.runtimes.resources import ProcessLimits
         limits = ProcessLimits(cpu, mem, cpuset_cpus)
         lease = None
@@ -132,7 +132,7 @@ class ProcessRuntime:
                 try:
                     process.close()
                 except BaseException:
-                    from acprof.host.model_store import retain_mount_for_cleanup_debt
+                    from acprof.host.model_store.store import retain_mount_for_cleanup_debt
                     if lease is not None:
                         retain_mount_for_cleanup_debt(lease)
                     raise
@@ -147,7 +147,7 @@ class ProcessRuntime:
         try:
             session.process.close()
         except BaseException:
-            from acprof.host.model_store import retain_mount_for_cleanup_debt
+            from acprof.host.model_store.store import retain_mount_for_cleanup_debt
             retain_mount_for_cleanup_debt(session.lease)
             raise
         session.lease.close()

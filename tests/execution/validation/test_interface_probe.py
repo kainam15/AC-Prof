@@ -39,8 +39,8 @@ def test_interface_probe_does_not_prepare_a_model(tmp_path):
             return SimpleNamespace(returncode=0, stdout="ACPROF_INTERFACE_VALIDATION=" + json.dumps(report), stderr="")
         return SimpleNamespace(returncode=0, stdout="", stderr="")
     with patch("acprof.host.images.runtime.prepare_image", side_effect=AssertionError("weights path entered")), patch(
-        "acprof.host.model_store.prepare_model", side_effect=AssertionError("model store entered")), patch(
-        "acprof.host.model_store.plan_model", side_effect=AssertionError("model planning entered")), patch(
+        "acprof.host.model_store.store.prepare_model", side_effect=AssertionError("model store entered")), patch(
+        "acprof.host.model_store.store.plan_model", side_effect=AssertionError("model planning entered")), patch(
         "acprof.host.interface_probe.prepare_environment_image", return_value=SimpleNamespace(image_id="sha256:" + "b" * 64)), patch(
         "acprof.host.interface_probe.run_command", side_effect=run), patch(
         "acprof.host.interface_probe.recover_abandoned_containers"):

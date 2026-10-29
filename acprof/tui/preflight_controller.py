@@ -111,7 +111,7 @@ class PreflightController:
     def open_model_store(self):
         if self.app.is_busy() or self.check_running or self.app.latest_snapshot.measurement_active:
             return
-        from acprof.host.model_store import store_root
+        from acprof.host.model_store.store import store_root
         from acprof.tui.model_store import ModelStoreScreen
         root = Path(self.app.configuration.input("model-store")).expanduser().resolve() if self.app.configuration.input("model-store") else store_root()
         self.app.configuration.environment_open = True

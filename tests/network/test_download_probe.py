@@ -11,7 +11,7 @@ import httpx
 import huggingface_hub as hub
 import pytest
 
-from acprof.host.model_store import probe_model_download
+from acprof.host.model_store.store import probe_model_download
 from acprof.hub.huggingface.transport import _httpx_factory, configure_hf_transport
 
 
@@ -140,7 +140,7 @@ def test_zero_budget_never_sends_get(probe_server, tmp_path, monkeypatch, settin
 
 def test_complete_cache_hit_uses_no_network(probe_server, tmp_path):
     endpoint, visited = probe_server
-    with patch('acprof.host.model_store.cached_file', return_value=tmp_path / 'cached'):
+    with patch('acprof.host.model_store.store.cached_file', return_value=tmp_path / 'cached'):
         assert probe_model_download(plan_for(endpoint), tmp_path) == []
     assert visited == []
 
@@ -246,7 +246,7 @@ def test_preflight_reserves_full_download_before_get_and_passes_evidence_to_conf
     task = SimpleNamespace(model_id='demo/model', model_revision='a' * 40,
         task_family='nlp', runtime_backend='transformers_pipeline', model_adapter='family-default')
     with (
-        patch('acprof.host.model_store.require_space', return_value={}),
+        patch('acprof.host.model_store.store.require_space', return_value={}),
         patch('acprof.host.collection_workflow.PreparationWorkflow.ask') as ask,
     ):
         report = preflight(task, None, tmp_path, plan_for(endpoint), root=tmp_path,

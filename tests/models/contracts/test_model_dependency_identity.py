@@ -9,8 +9,8 @@ import pytest
 from huggingface_hub import try_to_load_from_cache
 
 from acprof.container.model_files import ModelFilesError, plan_download, seal_plan, validate_plan
-from acprof.host import model_store
 from acprof.host.detect import TaskInfo
+from acprof.host.model_store import store as model_store
 
 
 def _repository(repo_id, revision, source="huggingface"):

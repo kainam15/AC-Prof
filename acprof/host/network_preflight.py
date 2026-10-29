@@ -280,7 +280,7 @@ def process_sources(task, project_dir: Path) -> tuple[list[DownloadSource], dict
 
 def preflight(task, profile, project_dir, model_plan: dict, *, root=None,
               runtime_plan: tuple[list[DownloadSource], dict] | None = None) -> dict:
-    from acprof.host.model_store import (
+    from acprof.host.model_store.store import (
         enforce_model_download_budgets,
         entry_key,
         model_sources,

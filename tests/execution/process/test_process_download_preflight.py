@@ -11,7 +11,7 @@ from acprof.host.runtimes.environment import prepare_process
 def test_cancelled_process_download_confirmation_never_prepares_environment(tmp_path):
     task = SimpleNamespace(model_id='demo/model', model_revision='a' * 40)
     with (
-        patch('acprof.host.model_store.plan_model', return_value={}),
+        patch('acprof.host.model_store.store.plan_model', return_value={}),
         patch('acprof.host.runtimes.environment.prepare_environment',
               side_effect=AssertionError('installer ran before download confirmation')) as prepare,
         patch('acprof.host.network_preflight.preflight', side_effect=KeyboardInterrupt('cancelled')),
