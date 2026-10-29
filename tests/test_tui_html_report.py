@@ -184,6 +184,8 @@ async def test_export_button_and_failure_keep_generated_artifact(
         app.query_one("#html-report-path", Input).value = str(source)
         app.query_one("#html-export-path", Input).value = str(destination)
         await pilot.pause()
+        # Expanding the nested panels schedules scrolling after refresh.
+        await pilot.wait_for_scheduled_animations()
         button = app.query_one("#html-report-export", Button)
         button.scroll_visible(animate=False, immediate=True)
         await pilot.pause()
