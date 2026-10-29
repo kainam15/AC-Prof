@@ -33,8 +33,8 @@ def failure_text(request, stage, tr):
     if failure := download_failure(request):
         last = failure["attempts"][-1]
         return "\n".join((tr("无法获取 Hugging Face 模型"),
-            tr(message_id('ui.0009', last["stage"], last["reason"])),
-            tr(message_id('ui.0010', last["host"])),
+            tr(message_id('downloads.failure.stage_detail', last["stage"], last["reason"])),
+            tr(message_id('downloads.failure.host', last["host"])),
             tr("请配置自己的系统 VPN/代理后重试，或显式选择 ModelScope 模型。")))
     if request.get("model_error"):
         failure = ModelLookupError(**request["model_error"])
@@ -133,7 +133,7 @@ class PreparationScreen(ModalScreen):
         download = review and report is not None
         task_selection = any(item.get("kind") == "multi" for item in request.get("questions", []))
         parameter_review = request.get("purpose") == "workload_parameters"
-        title = (message_id("ui.2235") if parameter_review else
+        title = (message_id("models.parameters.title") if parameter_review else
                  "模型确认" if review else "模型无法正常运行" if failed else "正在检测模型")
         with Vertical(id="preparation-dialog", classes=(
             "task-selection" if task_selection else "download-confirmation" if download else "preparation-failure" if failed else ""
@@ -163,7 +163,7 @@ class PreparationScreen(ModalScreen):
                         if not question.get("read_only"):
                             yield review_input(question, identifier=f"preparation-answer-{index}", translate=tr)
                     if parameter_review and request.get("parameter_advanced"):
-                        with Collapsible(title=tr(message_id("ui.2236")), collapsed=True):
+                        with Collapsible(title=tr(message_id("models.parameters.more")), collapsed=True):
                             for index, question in enumerate(request["parameter_advanced"]):
                                 name = f"{tr(question['task_name'])} · {tr(question['caption'])}"
                                 yield Label(name)
@@ -195,31 +195,31 @@ class PreparationScreen(ModalScreen):
             with Horizontal(id="preparation-actions", classes=(
                 "extra-action" if failed and download_failure(request) and self.event["stage"] in {"image", "runtime"} else ""
             )):
-                cancel_label = (tr(message_id("ui.0588")) if task_selection else
+                cancel_label = (tr(message_id("common.action.cancel")) if task_selection else
                                 tr("返回配置" if failed or parameter_review else "终止任务"))
                 yield Button(cancel_label, id="preparation-cancel",
-                             tooltip=tr(message_id("ui.2157")) if failed else None)
+                             tooltip=tr(message_id("run.preparation.stop_hint")) if failed else None)
                 if task_selection:
-                    yield Button(tr(message_id("ui.2163")), id="preparation-select-all")
+                    yield Button(tr(message_id("models.tasks.select_all")), id="preparation-select-all")
                 if review:
                     if not ready:
                         if parameter_review:
-                            yield Button(tr(message_id("ui.2237")), id="preparation-defaults")
-                        yield Button(tr(message_id("ui.2238") if parameter_review else
-                                        message_id("ui.2176") if task_selection else "应用字段"),
+                            yield Button(tr(message_id("models.parameters.use_recommended")), id="preparation-defaults")
+                        yield Button(tr(message_id("models.parameters.apply") if parameter_review else
+                                        message_id("models.tasks.run_selected") if task_selection else "应用字段"),
                                      id="preparation-apply", variant="primary")
                     if not task_selection and not parameter_review:
                         yield Button(tr("确认下载" if download else "确定"), id="preparation-continue",
                                      disabled=not ready, variant="primary" if ready else "default")
                 elif failed:
                     yield Button(tr("重试"), id="preparation-continue", variant="primary",
-                                 tooltip=tr(message_id("ui.2158")))
+                                 tooltip=tr(message_id("run.preparation.retry_hint")))
                     if self.event["stage"] in {"image", "runtime"}:
                         yield Button(tr("重新准备环境"), id="preparation-rebuild",
-                                     tooltip=tr(message_id("ui.2159")))
+                                     tooltip=tr(message_id("run.preparation.rebuild_hint")))
                     if download_failure(request):
                         yield Button(tr("改用 ModelScope"), id="preparation-modelscope",
-                                     tooltip=tr(message_id("ui.2160")))
+                                     tooltip=tr(message_id("models.source.switch_modelscope_hint")))
 
     @on(SelectableLog.Updated)
     def details_updated(self, event: SelectableLog.Updated) -> None:

@@ -50,19 +50,19 @@ class LogExportScreen(ModalScreen[Path | None]):
         tr = translated_app(self.app).tr
         with Vertical(id='log-export-dialog'):
             with VerticalScroll(id='log-export-body'):
-                yield Static(tr(message_id('ui.2214')), id='log-export-title', markup=False)
-                yield Static(tr(message_id('ui.2215', gethostname())), id='log-export-host', markup=False)
-                yield Static(tr(message_id('ui.2216')), classes='log-export-label')
+                yield Static(tr(message_id('logs.export.title')), id='log-export-title', markup=False)
+                yield Static(tr(message_id('logs.export.host_location', gethostname())), id='log-export-host', markup=False)
+                yield Static(tr(message_id('logs.export.directory_label')), classes='log-export-label')
                 with Horizontal(id='log-export-directory-row'):
                     yield Input(str(self.directory), id='log-export-directory')
-                    yield Button(tr(message_id('ui.2217')), id='log-export-browse')
-                yield Static(tr(message_id('ui.2218')), classes='log-export-label')
+                    yield Button(tr(message_id('logs.export.browse')), id='log-export-browse')
+                yield Static(tr(message_id('logs.export.filename_label')), classes='log-export-label')
                 yield Input(self.filename, id='log-export-filename')
-                yield Static(tr(message_id('ui.2219')), id='log-export-hint', markup=False)
+                yield Static(tr(message_id('logs.export.save_hint')), id='log-export-hint', markup=False)
                 yield Static('', id='log-export-error', markup=False)
             with Horizontal(id='log-export-actions'):
                 yield Button(tr('取消'), id='log-export-cancel')
-                yield Button(tr(message_id('ui.2220')), id='log-export-save', variant='primary')
+                yield Button(tr(message_id('logs.export.save')), id='log-export-save', variant='primary')
 
     def on_mount(self) -> None:
         self.query_one('#log-export-filename', Input).focus()
@@ -134,17 +134,17 @@ class ExportDirectoryScreen(ModalScreen[Path | None]):
     def compose(self) -> ComposeResult:
         tr = translated_app(self.app).tr
         with Vertical(id='export-directory-dialog'):
-            yield Static(tr(message_id('ui.2221')), id='export-directory-title', markup=False)
-            yield Static(tr(message_id('ui.2215', gethostname())), id='export-directory-host', markup=False)
+            yield Static(tr(message_id('logs.directory.title')), id='export-directory-title', markup=False)
+            yield Static(tr(message_id('logs.export.host_location', gethostname())), id='export-directory-host', markup=False)
             with Horizontal(id='export-directory-nav'):
                 yield Input(str(self.initial_directory), id='export-directory-location')
-                yield Button(tr(message_id('ui.2222')), id='export-directory-parent')
-                yield Button(tr(message_id('ui.2223')), id='export-directory-home')
+                yield Button(tr(message_id('logs.directory.parent')), id='export-directory-parent')
+                yield Button(tr(message_id('logs.directory.home')), id='export-directory-home')
             yield OptionList(id='export-directory-list')
             yield Static('', id='export-directory-status', markup=False)
             with Horizontal(id='export-directory-actions'):
                 yield Button(tr('取消'), id='export-directory-cancel')
-                yield Button(tr(message_id('ui.2224')), id='export-directory-use', variant='primary')
+                yield Button(tr(message_id('logs.directory.select')), id='export-directory-use', variant='primary')
 
     def on_mount(self) -> None:
         self.navigate(self.initial_directory, nearest_parent=True)
@@ -158,7 +158,7 @@ class ExportDirectoryScreen(ModalScreen[Path | None]):
         self.loading = True
         self.update_controls()
         self.query_one('#export-directory-status', Static).update(
-            translated_app(self.app).tr(message_id('ui.2225')))
+            translated_app(self.app).tr(message_id('logs.directory.loading')))
         self.load_directory(self, directory, nearest_parent)
 
     def loaded(self, directory: Path, entries: tuple[Path, ...], error: str) -> None:
@@ -175,7 +175,7 @@ class ExportDirectoryScreen(ModalScreen[Path | None]):
             # The list still describes the last successfully opened directory.
             self.query_one('#export-directory-location', Input).value = str(self.current)
         self.query_one('#export-directory-status', Static).update(
-            translated_app(self.app).tr(error or message_id('ui.2226')))
+            translated_app(self.app).tr(error or message_id('logs.directory.navigation_hint')))
         self.update_controls()
 
     def update_controls(self) -> None:

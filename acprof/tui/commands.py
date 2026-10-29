@@ -12,7 +12,6 @@ from uuid import uuid4
 
 from acprof.experiment import ConfigIssue, RunConfig, RunConfigError, _csv_values
 from acprof.installation import cli_command
-from acprof.messages import message
 from acprof.run_options import configuration_arguments
 from acprof.tui.i18n import message_id
 
@@ -72,7 +71,7 @@ def prepare_plot(source: str, *, project_dir: Path, python_executable: Path) -> 
     if path.is_dir():
         path /= "result_layers.json"
     if not path.is_file() or (path.name != "result_layers.json" and path.suffix.lower() != ".csv"):
-        raise RunConfigError([ConfigIssue(None, message("结果文件不存在：{0}", path))])
+        raise RunConfigError([ConfigIssue(None, message_id("results.input.missing_file", path))])
     command = build_plot_command(path, project_dir=project_dir, python_executable=python_executable)
     return PendingLaunch(tuple(command), "plot", result_csv=str(path))
 
@@ -82,7 +81,7 @@ def prepare_stats(source: str, *, project_dir: Path, python_executable: Path) ->
     if path.is_dir():
         path /= "result_layers.json"
     if not path.is_file() or (path.name != "result_layers.json" and path.suffix.lower() != ".csv"):
-        raise RunConfigError([ConfigIssue(None, message("请选择有效的分层结果目录、清单或独立 CSV。"))])
+        raise RunConfigError([ConfigIssue(None, message_id("results.input.invalid_source"))])
     command = build_stats_command(path, project_dir=project_dir, python_executable=python_executable)
     return PendingLaunch(tuple(command), "stats", result_csv=str(path))
 
@@ -97,7 +96,7 @@ def html_report_inputs(source: str, *, project_dir: Path) -> tuple[Path, ...]:
     try:
         values = next(csv.reader([source], delimiter=";", skipinitialspace=True, strict=True))
     except csv.Error as exc:
-        raise RunConfigError([ConfigIssue(None, message_id('ui.0950'))]) from exc
+        raise RunConfigError([ConfigIssue(None, message_id('results.html.inputs_hint'))]) from exc
     paths = []
     for value in values:
         if not value.strip():
@@ -105,13 +104,13 @@ def html_report_inputs(source: str, *, project_dir: Path) -> tuple[Path, ...]:
         path = resolve_result_path(value.strip(), project_dir).resolve()
         reference = path / "result_layers.json" if path.is_dir() else path
         if not reference.is_file() or (reference.name != "result_layers.json" and reference.suffix.lower() != ".csv"):
-            raise RunConfigError([ConfigIssue(None, message_id('ui.0951', path))])
+            raise RunConfigError([ConfigIssue(None, message_id('results.html.invalid_input', path))])
         normalized = reference.parent if reference.name == "result_layers.json" else reference
         if normalized in paths:
-            raise RunConfigError([ConfigIssue(None, message_id('ui.0952', normalized))])
+            raise RunConfigError([ConfigIssue(None, message_id('results.html.duplicate_input', normalized))])
         paths.append(normalized)
     if not paths:
-        raise RunConfigError([ConfigIssue(None, message_id('ui.0953'))])
+        raise RunConfigError([ConfigIssue(None, message_id('results.html.input_required'))])
     return tuple(paths)
 
 
@@ -132,17 +131,17 @@ def prepare_comparison(left: str, right: str, *, baseline: str, purpose: str,
                        project_dir: Path, python_executable: Path) -> PendingLaunch:
     """Read the public comparison command's stdout without a mandatory artifact."""
     if baseline not in {"left", "right"} or purpose not in {"same-hardware", "cross-hardware", "resource-scaling"}:
-        raise RunConfigError([ConfigIssue(None, message_id('ui.0484'))])
+        raise RunConfigError([ConfigIssue(None, message_id('results.comparison.invalid_options'))])
     groups = []
     for text in (left, right):
         paths = [resolve_result_path(value.strip(), project_dir).resolve()
                  for value in next(csv.reader([text], delimiter=";", skipinitialspace=True)) if value.strip()]
         if not paths:
-            raise RunConfigError([ConfigIssue(None, message_id('ui.0485'))])
+            raise RunConfigError([ConfigIssue(None, message_id('results.comparison.groups_required'))])
         for path in paths:
             source = path / "result_layers.json" if path.is_dir() else path
             if not source.is_file() or (source.name != "result_layers.json" and source.suffix.lower() != ".csv"):
-                raise RunConfigError([ConfigIssue(None, message("请选择有效的分层结果目录、清单或独立 CSV。"))])
+                raise RunConfigError([ConfigIssue(None, message_id("results.input.invalid_source"))])
         groups.append(paths)
     if baseline == "right":
         groups.reverse()
@@ -158,7 +157,7 @@ def prepare_profile(source: str, *, tools: str, dry_run: bool,
                     project_dir: Path, python_executable: Path) -> PendingLaunch:
     path = resolve_result_path(source, project_dir)
     if not path.is_dir():
-        raise FileNotFoundError(message_id('ui.0815', path))
+        raise FileNotFoundError(message_id('results.input.directory_missing', path))
     command = build_profile_command(path, tools=tools, dry_run=dry_run,
                                     project_dir=project_dir, python_executable=python_executable)
     return PendingLaunch(tuple(command), "profile-dry-run" if dry_run else "profile", result_dir=str(path))
@@ -212,7 +211,7 @@ def build_profile_command(
 ) -> list[str]:
     normalized_tools = ",".join(_csv_values(tools))
     if not normalized_tools:
-        raise RunConfigError([ConfigIssue(None, message_id('ui.0862'))])
+        raise RunConfigError([ConfigIssue(None, message_id('validation.profiling.empty_tools'))])
     command = [
         *cli_command("profile", python_executable=python_executable),
         str(Path(result_dir).expanduser()),
@@ -240,7 +239,7 @@ def parse_slash_command(value: str) -> tuple[str, list[str]]:
     try:
         parts = shlex.split(value.strip())
     except ValueError as exc:
-        raise RunConfigError([ConfigIssue(None, message_id('ui.0900', exc))]) from exc
+        raise RunConfigError([ConfigIssue(None, message_id('validation.commands.invalid_syntax', exc))]) from exc
     if not parts or not parts[0].startswith("/"):
-        raise RunConfigError([ConfigIssue(None, message_id('ui.0901'))])
+        raise RunConfigError([ConfigIssue(None, message_id('validation.commands.missing_slash'))])
     return parts[0][1:].lower(), parts[1:]

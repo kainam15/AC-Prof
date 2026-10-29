@@ -21,10 +21,10 @@ def default_log_export_filename() -> str:
 def export_directory(value: str) -> Path:
     """Validate syntax without probing or creating a directory."""
     if not value.strip() or "\0" in value:
-        raise ValueError(message_id('ui.2210'))
+        raise ValueError(message_id('logs.export.absolute_directory_required'))
     path = Path(value.strip()).expanduser()
     if not path.is_absolute():
-        raise ValueError(message_id('ui.2210'))
+        raise ValueError(message_id('logs.export.absolute_directory_required'))
     return path
 
 
@@ -32,7 +32,7 @@ def log_export_path(directory: str, filename: str) -> Path:
     path = export_directory(directory)
     name = filename.strip()
     if not name or name in {".", ".."} or any(char in name for char in ("/", "\\", "\0")):
-        raise ValueError(message_id('ui.2211'))
+        raise ValueError(message_id('logs.export.invalid_filename'))
     return path / name
 
 
@@ -78,7 +78,7 @@ def list_export_directories(
 def log_export_error(error: Exception) -> str:
     if isinstance(error, OSError):
         if error.errno in {errno.EACCES, errno.EPERM}:
-            return message_id('ui.2212', str(error))
+            return message_id('logs.export.permission_denied', str(error))
         if error.errno == errno.ENOSPC:
-            return message_id('ui.2213', str(error))
+            return message_id('logs.export.disk_full', str(error))
     return error_message(error)

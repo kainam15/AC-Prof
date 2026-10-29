@@ -154,7 +154,7 @@ class ConfigurationController:
                 self.app.project_dir, self.settings_path.parent, sniff_iface=self.input("sniff-iface"),
             )
         except (OSError, ValueError) as read_error:
-            self.app.notify(message_id('ui.0293', type(read_error).__name__), severity="error")
+            self.app.notify(message_id('settings.environment.read_failed', type(read_error).__name__), severity="error")
             return
         self.environment_open = True
         self.app.set_busy(True)
@@ -181,7 +181,7 @@ class ConfigurationController:
     def gpu_options(self) -> list[tuple[str, str]]:
         options = [("仅 CPU", "off"), ("仅 GPU", "on"), ("CPU + GPU", "off,on")]
         if self.initial_config.gpus not in {value for _, value in options}:
-            options.append((message_id('ui.0740', self.initial_config.gpus), self.initial_config.gpus))
+            options.append((message_id('run.resources.custom_gpu_modes', self.initial_config.gpus), self.initial_config.gpus))
         return options
 
     def input(self, widget_id: str) -> str:
@@ -338,11 +338,11 @@ class ConfigurationController:
                 self.update_field_errors(exc.issues)
             self.app.localization.set_text(
                 self.app.query_one("#config-summary", Static),
-                message_id('ui.0744', join_messages("; ", (item.reason for item in exc.issues[:2]))),
+                message_id('run.command.incomplete_summary', join_messages("; ", (item.reason for item in exc.issues[:2]))),
             )
             self.app.localization.set_text(
                 self.app.query_one("#command-preview", Static),
-                message_id('ui.0745', join_messages("; ", (item.reason for item in exc.issues))),
+                message_id('run.command.incomplete_detail', join_messages("; ", (item.reason for item in exc.issues))),
             )
             if notify:
                 self.show_config_error(exc)
@@ -352,7 +352,7 @@ class ConfigurationController:
                 selected_preset = self.select("run-preset")
                 if selected_preset != "custom":
                     adjusted = not run_form.matches_preset(config, selected_preset)
-                    options = tuple((message_id('ui.0187', message(label)) if key == selected_preset and adjusted else label, key)
+                    options = tuple((message_id('settings.preset.adjusted', message(label)) if key == selected_preset and adjusted else label, key)
                         for label, key in run_form.PRESET_OPTIONS)
                     widget = self.app.query_one("#run-preset", Select)
                     self.app.localization.localized_selects[widget] = options
@@ -364,20 +364,20 @@ class ConfigurationController:
         effective = replace(config, runtime=self.app.preflight.selected_runtime) if config.runtime == "auto" and self.app.preflight.selected_runtime else config
         case_count = run_planning.estimate_run(effective).cases
         scale_summary = (
-            message_id('ui.0746', len(config.input_scales.split(',')))
+            message_id('run.inputs.scale_count', len(config.input_scales.split(',')))
             if config.input_scales
             else message("最小单一尺度" if config.input_scale_policy == "minimal" else "自动规划")
         )
         profiler_summary = (
-            message_id('ui.0748')
+            message_id('profiling.options.off_summary')
             if config.compute_profile_tool == "none"
             and config.execution_profile_tool == "none"
             else (
-                message_id('ui.0749', config.compute_profile_tool, config.execution_profile_tool)
+                message_id('profiling.options.selected_summary', config.compute_profile_tool, config.execution_profile_tool)
             )
         )
         self.app.localization.set_text(self.app.query_one("#config-summary", Static), message_id(
-            'ui.0750',
+            'run.command.resource_summary',
             case_count, scale_summary, config.request_timeout_seconds,
             profiler_summary, config.output_dir,
         ))
@@ -394,11 +394,11 @@ class ConfigurationController:
         self.app.localization.set_text(summary, run_planning.plan_summary(config, planned))
         self.app.localization.set_text(summary, run_planning.preparation_details(config, planned), "tooltip")
         unit = run_planning.input_unit(config, planned)
-        self.app.localization.set_text(self.app.query_one("#input-scales-label", Label), message_id('ui.0627', unit))
+        self.app.localization.set_text(self.app.query_one("#input-scales-label", Label), message_id('run.inputs.scales_with_unit', unit))
         if planned and planned.get("scales"):
             placeholder = ",".join(f"{value:g}" for value in planned["scales"]) + f" {unit}"
         else:
-            placeholder = message_id('ui.0628', message("最小单一尺度" if config.input_scale_policy == "minimal" else "自动范围"), unit)
+            placeholder = message_id('run.inputs.blank_plan', message("最小单一尺度" if config.input_scale_policy == "minimal" else "自动范围"), unit)
         self.app.localization.set_text(self.app.query_one("#input-scales", Input), placeholder, "placeholder")
 
     def remember_last_used(

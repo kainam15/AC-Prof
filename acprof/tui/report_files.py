@@ -23,20 +23,20 @@ def existing_html_report(inputs: tuple[Path, ...]) -> Path | None:
 
 def require_html_file(path: Path) -> None:
     if path.suffix.lower() != ".html" or not path.is_file():
-        raise ValueError(message_id('ui.0955', path))
+        raise ValueError(message_id('results.html.file_missing', path))
 
 
 def open_html_file(path: Path) -> None:
     require_html_file(path)
     if not webbrowser.open(path.resolve().as_uri(), new=2):
-        raise RuntimeError(message_id('ui.0956'))
+        raise RuntimeError(message_id('results.html.browser_unavailable'))
 
 
 def export_html_file(source: Path, destination: Path) -> None:
     """Copy a complete offline report, refusing every existing destination."""
     require_html_file(source)
     if destination.suffix.lower() != ".html":
-        raise ValueError(message_id('ui.0957'))
+        raise ValueError(message_id('results.html.invalid_export_extension'))
     from acprof.host.run_state import offline_analysis_lock
 
     with offline_analysis_lock():

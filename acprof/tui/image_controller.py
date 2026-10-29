@@ -123,14 +123,14 @@ class ImageController:
     def image_selection_status(self) -> None:
         if self.refresh_error:
             self.app.localization.set_text(self.app.query_one("#image-status", Static), message_id(
-                'ui.0453', self.refresh_error,
+                'images.inventory.retrying', self.refresh_error,
             ))
             return
         if self.inventory is None:
             return
         hidden = len(self.selected_ids - {item.image_id for item in self.visible_images})
         self.app.localization.set_text(self.app.query_one("#image-status", Static), message_id(
-            'ui.0420',
+            'images.selection.status',
             self.inventory.connection.name, len(self.visible_images), len(self.inventory.images),
             len(self.selected_ids), hidden,
         ))
@@ -262,16 +262,16 @@ class ImageController:
             return
         if self.app.latest_snapshot.measurement_active:
             self.app.localization.set_text(self.app.query_one("#image-dependency-detail", Static),
-                           message_id('ui.0358'))
+                           message_id('images.dependencies.measurement_blocked'))
             return
         pending = self.dependency_pending
         if item.image_id in pending:
             return
         pending.add(item.image_id)
         panel = self.app.query_one("#image-dependencies", Collapsible)
-        self.app.localization.set_text(panel, message_id('ui.0356'), "title")
+        self.app.localization.set_text(panel, message_id('images.dependencies.loading_title'), "title")
         self.app.localization.set_text(self.app.query_one("#image-dependency-detail", Static),
-                       message_id('ui.0357'))
+                       message_id('images.dependencies.loading_description'))
         self.execute_image_dependency_resolution(inventory, item.image_id)
 
     def execute_image_dependency_resolution(self, inventory: ImageInventory, image_id: str) -> Worker[None]:
@@ -351,7 +351,7 @@ class ImageController:
             return
         self.operation = "refresh"
         if self.inventory is None and not self.refresh_error:
-            self.app.localization.set_text(self.app.query_one("#image-status", Static), message_id('ui.0454', CALCULATING))
+            self.app.localization.set_text(self.app.query_one("#image-status", Static), message_id('images.inventory.loading', CALCULATING))
         self.app.set_busy(True)
         self.execute_image_refresh()
 
@@ -436,7 +436,7 @@ class ImageController:
                 if current.daemon_id == storage.daemon_id and set(ids) <= available:
                     estimate = reclaimable_image_bytes(current, ids)
                 else:
-                    error = message_id('ui.0324')
+                    error = message_id('images.selection.references_changed')
             else:
                 estimate = 0
         except Exception as exc:
@@ -515,9 +515,9 @@ class ImageController:
     def image_delete_finished(self, inventory: ImageInventory | None, outcomes: tuple[ImageRemoval, ...], error: str) -> None:
         self.show_inventory(inventory, error, clear_selection=True)
         successful = sum(item.success for item in outcomes)
-        result: Message = message_id('ui.0461', successful, len(outcomes) - successful)
+        result: Message = message_id('images.delete.result_summary', successful, len(outcomes) - successful)
         if error:
-            result = join_messages("\n", (result, message_id('ui.0462', error)))
+            result = join_messages("\n", (result, message_id('images.operation.incomplete', error)))
         self.app.localization.set_text(self.app.query_one("#image-status", Static), result)
         log = self.app.query_one("#run-log", SelectableLog)
         log.write(self.app.localization.tr(result))

@@ -30,25 +30,25 @@ def compose_results_tab(app: AcprofTui) -> ComposeResult:
             yield local(Static("当前实验：未选择", id="report-experiment", markup=False))
             with Horizontal(classes="path-picker-row"):
                 yield local(Input(app.configuration.saved_settings.last_result_csv, id="result-csv",
-                                  placeholder=message_id("ui.2401")))
+                                  placeholder=message_id("results.input.source_hint")))
                 yield local(Button("选择实验", name="result-csv", id="choose-result-csv", classes="experiment-picker"))
         with TabbedContent(initial="overview-view", id="result-views"):
-            with TabPane(message_id("ui.2402"), id="overview-view"):
+            with TabPane(message_id("results.tabs.overview"), id="overview-view"):
                 with VerticalScroll(id="plot-body", classes="pane-scroll"):
                     yield local(Static("选择或完成一次实验后，这里会显示结果摘要。", id="result-summary", markup=False))
                     with local(Collapsible(title="性能深度分析", collapsed=True, id="profile-section")):
-                        yield local(Static(message_id("ui.2253"), id="profile-status", markup=False))
-                        yield local(Button(message_id("ui.2263"), id="open-result-profiling", disabled=True))
-            with TabPane(message_id("ui.2403"), id="statistics-view"):
+                        yield local(Static(message_id("profiling.overview.select_experiment"), id="profile-status", markup=False))
+                        yield local(Button(message_id("profiling.overview.open"), id="open-result-profiling", disabled=True))
+            with TabPane(message_id("results.tabs.statistics"), id="statistics-view"):
                 yield from compose_statistics(app)
-            with TabPane(message_id("ui.2404"), id="comparison-view"):
+            with TabPane(message_id("results.tabs.compare"), id="comparison-view"):
                 yield from compose_comparison(app)
-            with TabPane(message_id("ui.2405"), id="exports-view"):
+            with TabPane(message_id("results.tabs.import_export"), id="exports-view"):
                 yield from compose_exports(app)
         with Horizontal(id="result-actions", classes="action-bar"):
             with Horizontal(classes="action-secondary"):
                 yield local(Button("读取摘要", id="summarize-results"))
-                yield local(Button(message_id("ui.2407"), id="results-cancel", disabled=True))
+                yield local(Button(message_id("results.statistics.cancel"), id="results-cancel", disabled=True))
             with Horizontal(classes="action-primary"):
                 yield local(Button("计算统计", id="report-calculate", classes="report-control", variant="primary"))
                 yield local(Button("生成 PNG 图表", id="plot-results"))
@@ -57,9 +57,9 @@ def compose_results_tab(app: AcprofTui) -> ComposeResult:
 def compose_statistics(app: AcprofTui) -> ComposeResult:
     local = app.localization.localized_widget
     with VerticalScroll(id="report-panel"):
-        yield local(Static(message_id("ui.2406"), id="report-status", classes="page-summary", markup=False))
+        yield local(Static(message_id("results.statistics.empty_hint"), id="report-status", classes="page-summary", markup=False))
         with ContentSwitcher(initial="report-empty", id="report-content"):
-            yield local(Static(message_id("ui.2406"), id="report-empty", markup=False))
+            yield local(Static(message_id("results.statistics.empty_hint"), id="report-empty", markup=False))
             yield local(Static("正在读取统计报告…", id="report-loading", markup=False))
             yield local(Static("统计报告不可用", id="report-error", markup=False))
             with Vertical(id="report-results"):
@@ -89,12 +89,12 @@ def compose_comparison(app: AcprofTui) -> ComposeResult:
 def compose_exports(app: AcprofTui) -> ComposeResult:
     local = app.localization.localized_widget
     with VerticalScroll(classes="pane-scroll", id="result-export-panel"):
-        yield local(Label(message_id("ui.2409")))
+        yield local(Label(message_id("results.export.path_label")))
         yield local(Input(id="analysis-export-path", classes="report-control",
-                          placeholder=message_id("ui.2410")))
+                          placeholder=message_id("results.export.path_hint")))
         with Horizontal(classes="html-actions"):
-            yield local(Button(message_id("ui.2411"), id="analysis-export-csv", name="csv", classes="report-control"))
-            yield local(Button(message_id("ui.2412"), id="analysis-export-json", name="json", classes="report-control"))
+            yield local(Button(message_id("results.export.csv"), id="analysis-export-csv", name="csv", classes="report-control"))
+            yield local(Button(message_id("results.export.json"), id="analysis-export-json", name="json", classes="report-control"))
         yield Static("", id="analysis-export-status", markup=False)
         with local(Collapsible(title="已有 JSON 报告", collapsed=True, id="report-file-options")):
             with Horizontal(classes="path-picker-row"):
@@ -109,9 +109,9 @@ def compose_exports(app: AcprofTui) -> ComposeResult:
                               classes="report-control", placeholder="已有 HTML 路径；生成成功后自动填入"))
             yield local(Static("每次生成新文件，保留旧报告。HTML 包含 quality 限制、统计口径与来源。",
                                id="html-report-status", markup=False))
-            with local(Collapsible(title=message_id("ui.2417"), collapsed=True)):
+            with local(Collapsible(title=message_id("results.html.additional_inputs_label"), collapsed=True)):
                 yield local(Input(id="html-extra-sources", classes="report-control",
-                                  placeholder=message_id("ui.2418")))
+                                  placeholder=message_id("results.html.additional_inputs_hint")))
             with local(Collapsible(title="导出 / 远程获取", collapsed=True, id="html-export-options")):
                 with Horizontal(classes="path-picker-row"):
                     yield local(Input(id="html-export-path", classes="report-control",

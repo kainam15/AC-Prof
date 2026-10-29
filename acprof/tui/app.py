@@ -199,7 +199,7 @@ class AcprofTui(BarCursorApp):
         self.configuration.configure_scrollbars()
         self.localization.capture_language_text()
         self.configuration.apply_ui_preferences()
-        self.localization.set_text(self.query_one('#settings-location', Static), message_id('ui.0729', self.configuration.settings_path))
+        self.localization.set_text(self.query_one('#settings-location', Static), message_id('settings.load.file_path', self.configuration.settings_path))
         self.update_responsive_layout()
         self.configuration.selected_preset = self.configuration.select("run-preset")
         self.form_ready = True
@@ -364,7 +364,7 @@ class AcprofTui(BarCursorApp):
         self.elapsed_timer = self.set_interval(1.0, self.tick_elapsed)
         log = self.query_one("#run-log", SelectableLog)
         log.write(f"$ {format_command(pending.command)}")
-        log.write(self.localization.tr(message_id('ui.0766')))
+        log.write(self.localization.tr(message_id('logs.capture.pipe_mode')))
         self.render_snapshot(self.latest_snapshot)
         self.process.execute_command(list(pending.command), pending.kind, config=pending.config)
 
@@ -404,7 +404,7 @@ class AcprofTui(BarCursorApp):
     })
 
     def process_cleanup_incomplete(self, result: StopResult) -> None:
-        detail = message_id('ui.0259', result.pid, result.error)
+        detail = message_id('run.process.cleanup_incomplete', result.pid, result.error)
         self.latest_snapshot = replace(self.latest_snapshot, stage=Stage.CLEANUP_INCOMPLETE, detail=detail)
         self.render_snapshot(self.latest_snapshot)
         self.write_log(detail)
@@ -414,20 +414,20 @@ class AcprofTui(BarCursorApp):
     def process_started(self, pid: int, kind: str) -> None:
         self.set_busy(True)
         self.query_one("#run-log", SelectableLog).write(
-            self.localization.tr(message_id('ui.0782', kind, pid))
+            self.localization.tr(message_id('logs.process.started', kind, pid))
         )
 
     def show_suppressed_count(self, count: int) -> None:
         self.query_one("#run-log", SelectableLog).write(
-            self.localization.tr(message_id('ui.0783', count))
+            self.localization.tr(message_id('logs.measurement.suppressed_count', count))
         )
 
     def show_deferred_lines(self, lines: tuple[str, ...], discarded_entries: int = 0,
                             oversized_entries: int = 0) -> None:
         log = self.query_one("#run-log", SelectableLog)
-        log.write(self.localization.tr(message_id('ui.0784')))
+        log.write(self.localization.tr(message_id('logs.measurement.deferred_heading')))
         if discarded_entries:
-            log.write(self.localization.tr(message_id("ui.2143", discarded_entries, oversized_entries)))
+            log.write(self.localization.tr(message_id("logs.retention.omitted_records", discarded_entries, oversized_entries)))
         if lines:
             log.write("\n".join(lines))
 
@@ -477,7 +477,7 @@ class AcprofTui(BarCursorApp):
             (".elapsed-status", bool(self.started_monotonic)),
             (".error-count", bool(snapshot.errors or snapshot.warnings)),
             (".detail-status", bool(snapshot.detail) and (
-                snapshot.stage is Stage.WAITING or snapshot.detail != message_id('ui.0697')
+                snapshot.stage is Stage.WAITING or snapshot.detail != message_id('run.monitor.not_started')
             )),
         ):
             for widget in self.query(selector):
@@ -498,12 +498,12 @@ class AcprofTui(BarCursorApp):
         )
         self.localization.set_text(self.query_one('#status-elapsed', Static), elapsed)
         self.localization.set_text(self.query_one("#status-case", Static), message_id(
-            'ui.0785', snapshot.current_case or NOT_APPLICABLE,
+            'run.monitor.case_progress', snapshot.current_case or NOT_APPLICABLE,
             snapshot.completed_cases, snapshot.total_cases,
         ))
         missing = UNKNOWN if snapshot.current_case else NOT_APPLICABLE
-        cpu = message_id('ui.2009') if snapshot.cpu == "inherited" else snapshot.cpu if snapshot.cpu != "-" else missing
-        mem = message_id('ui.2009') if snapshot.mem == "inherited" else f"{snapshot.mem}GB" if snapshot.mem != "-" else missing
+        cpu = message_id('run.resources.inherited_limits') if snapshot.cpu == "inherited" else snapshot.cpu if snapshot.cpu != "-" else missing
+        mem = message_id('run.resources.inherited_limits') if snapshot.mem == "inherited" else f"{snapshot.mem}GB" if snapshot.mem != "-" else missing
         gpu = snapshot.gpu if snapshot.gpu != "-" else missing
         self.localization.set_text(self.query_one("#status-resource", Static), message("CPU={0}  MEM={1}  GPU={2}", cpu, mem, gpu))
         self.localization.set_text(self.query_one('#status-errors', Static), f'{snapshot.warnings} / {snapshot.errors}')
@@ -606,8 +606,8 @@ class AcprofTui(BarCursorApp):
         html_report = self.process_kind == "html-report"
         self.push_screen(
             ConfirmActionScreen(
-                message_id('ui.0984') if html_report else "终止当前任务？",
-                message_id('ui.0985') if html_report else "将先向整个采集进程组发送 SIGINT，允许容器和监控器清理；"
+                message_id('results.html.cancel_confirm_title') if html_report else "终止当前任务？",
+                message_id('results.html.cancel_confirm_details') if html_report else "将先向整个采集进程组发送 SIGINT，允许容器和监控器清理；"
                 "超时后才会升级为 SIGTERM。已写入的 case 结果不会删除。",
                 "终止任务",
                 variant="error",

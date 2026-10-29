@@ -22,7 +22,7 @@ def _format_probe_duration(value: float | None) -> str:
 @dataclass(frozen=True)
 class ProgressSnapshot:
     stage: Stage = Stage.WAITING
-    detail: str = message_id('ui.0697')
+    detail: str = message_id('run.monitor.not_started')
     current_case: int = 0
     completed_cases: int = 0
     total_cases: int = 0
@@ -57,7 +57,7 @@ class RunProgressTracker:
                 failure = Failure(**json.loads(line[len(FAILURE_PREFIX):]))
             except (ValueError, TypeError):
                 return self.snapshot
-            detail = (message_id('ui.0586', failure.evidence["task"])
+            detail = (message_id('run.unsupported_task.log_hint', failure.evidence["task"])
                       if failure.reason_code == "runtime_task_unsupported" and "task" in failure.evidence
                       else f"{failure.reason_code}: {failure.detail}")
             self.snapshot = replace(self.snapshot,
@@ -103,14 +103,14 @@ class RunProgressTracker:
         state = self.snapshot
         updates: dict[str, Any] = {}
         if name == "matrix_planned":
-            updates.update(stage=Stage.PREPARING_MATRIX, detail=message_id('ui.0878'),
+            updates.update(stage=Stage.PREPARING_MATRIX, detail=message_id('run.plan.resources_ready'),
                            total_cases=event["total_cases"])
         elif name == "case_selected":
             if state.measurement_active:
                 raise ValueError("case_selected while measurement is still active")
             self._case_id = case_id
             updates.update(stage=Stage.STARTING_CONTAINER,
-                detail=message_id('ui.0879', event["current"], event["total"]),
+                detail=message_id('run.monitor.preparing_case', event["current"], event["total"]),
                 current_case=event["current"], total_cases=event["total"],
                 completed_cases=max(state.completed_cases, event["current"] - 1),
                 cpu="inherited" if event["cpu"] is None else str(event["cpu"]),
@@ -140,12 +140,12 @@ class RunProgressTracker:
             self._case_id = case_id
             candidates = event["memory_candidates"]
             updates.update(stage=Stage.PREPARING_MEMORY_PROBE,
-                detail=message_id('ui.0866', ",".join(map(str, candidates)), f'{event["input_scale"]:g}'),
+                detail=message_id('run.probe.memory_candidates', ",".join(map(str, candidates)), f'{event["input_scale"]:g}'),
                 current_case=0, completed_cases=0, total_cases=len(candidates),
                 cpu=str(event["cpu"]), mem="-", gpu=event["gpu"], measurement_active=False)
         elif case_id == self._case_id:
             if name == "measurement_started":
-                updates.update(stage=Stage.MEASURING, detail=message_id('ui.0883'),
+                updates.update(stage=Stage.MEASURING, detail=message_id('run.monitor.collecting'),
                                measurement_active=True, measurement_status="running")
             elif name == "measurement_stopped":
                 updates.update(stage=Stage.CLEANING_CASE, measurement_active=False)
@@ -158,30 +158,30 @@ class RunProgressTracker:
                 self._case_id = ""
             elif name == "probe_memory_started":
                 updates.update(stage=Stage.SCANNING_MEMORY,
-                    detail=message_id('ui.0868', event["mem"], f'{event["input_scale"]:g}'),
+                    detail=message_id('run.probe.trying_memory', event["mem"], f'{event["input_scale"]:g}'),
                     current_case=event["current"], total_cases=event["total"],
                     completed_cases=max(state.completed_cases, event["current"] - 1),
                     cpu=str(event["cpu"]), mem=str(event["mem"]), gpu=event["gpu"], measurement_active=False)
             elif name == "probe_request_started":
-                updates.update(stage=Stage.MAX_SCALE_PROBE, detail=message_id('ui.0880', state.mem),
+                updates.update(stage=Stage.MAX_SCALE_PROBE, detail=message_id('run.probe.request_running', state.mem),
                                measurement_active=True)
             elif name == "probe_request_stopped":
                 updates.update(measurement_active=False)
             elif name == "probe_memory_finished":
                 status = event["status"]
-                labels = {"ok": message_id('ui.0869'), "startup_oom": message_id('ui.0870'),
-                          "runtime_oom": message_id('ui.0871'), "cuda_oom": message_id('ui.0872'),
-                          "timeout": message_id('ui.0873'), "error": message_id('ui.0772')}
+                labels = {"ok": message_id('run.probe.viable_memory'), "startup_oom": message_id('run.probe.startup_oom'),
+                          "runtime_oom": message_id('run.probe.inference_oom'), "cuda_oom": message_id('run.probe.cuda_oom'),
+                          "timeout": message_id('common.error.request_timeout'), "error": message_id('run.stage.probe_failed')}
                 updates.update(stage=Stage.MEMORY_FOUND if status == "ok" else Stage.MEMORY_FEASIBILITY,
                     detail=message("{0}GB · {1}", event["mem"], labels.get(status, status)),
                     completed_cases=max(state.completed_cases, state.current_case), measurement_active=False)
             elif name == "probe_finished":
                 status = event["status"]
-                detail = (message_id('ui.0875', event["mem"], f'{event["input_scale"]:g}',
+                detail = (message_id('run.probe.success_summary', event["mem"], f'{event["input_scale"]:g}',
                     _format_probe_duration(event.get("request_s")),
                     _format_probe_duration(event.get("cold_start_s")),
                     _format_probe_duration(event.get("ready_plus_request_s"))) if status == "ok" else
-                    message_id('ui.0876', event["mem"], status))
+                    message_id('run.probe.no_viable_memory', event["mem"], status))
                 completed = max(1, state.current_case)
                 updates.update(stage=Stage.PROBE_COMPLETED if status == "ok" else Stage.PROBE_FAILED,
                     detail=detail, current_case=completed, completed_cases=completed, total_cases=completed,

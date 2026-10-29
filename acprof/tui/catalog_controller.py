@@ -108,7 +108,7 @@ class CatalogController:
         else:
             self.app.results.select_result(str(csv_path), summarize=False)
             self.app.localization.set_text(self.app.query_one('#result-summary', Static),
-                message_id('ui.0172', experiment_choice(record).detail))
+                message_id('results.evidence.no_csv', experiment_choice(record).detail))
 
     def resume_experiment(self, record: ExperimentRecord) -> None:
         from acprof.experiment import build_run_command

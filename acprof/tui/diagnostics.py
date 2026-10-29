@@ -60,7 +60,7 @@ def collection_preview(config: RunConfig):
     partial = [name for name in selected if matrix[name] == "partial"]
     missing = [name for name in matrix if matrix[name] == "unsupported"]
     missing.extend(name for name in selected if matrix[name] == "requires_native_validation")
-    return message_id('ui.0214',
+    return message_id('run.preflight.capability_summary',
                    environment.label, ", ".join(collected) or "—", ", ".join(partial) or "—",
                    ", ".join(missing) or "—")
 
@@ -103,7 +103,7 @@ def quick_preflight(
                                           execution_tool=config.execution_profile_tool)
     checks.append(
         PreflightCheck(
-            message_id('ui.0213'),
+            message_id('run.preflight.environment_label'),
             "fail" if policy_error else "ok",
             policy_error or environment.label,
         )
@@ -117,13 +117,13 @@ def quick_preflight(
         PreflightCheck(
             "cgroup v2",
             "ok" if cgroup_v2 else "fail",
-            message_id('ui.0888') if cgroup_v2 else message_id('ui.0889'),
+            message_id('run.preflight.cgroup_available') if cgroup_v2 else message_id('run.preflight.cgroup_missing'),
         )
     )
 
     docker_cli = shutil.which("docker")
     if not docker_cli:
-        checks.append(PreflightCheck("Docker", "fail", message_id('ui.0890')))
+        checks.append(PreflightCheck("Docker", "fail", message_id('run.preflight.docker_cli_missing')))
     else:
         endpoint = "unknown"
         try:
@@ -163,12 +163,12 @@ def quick_preflight(
             detail = (
                 f"{endpoint} · {info.stdout.strip()}"
                 if info.returncode == 0
-                else ((info.stderr or info.stdout).strip() or message_id('ui.0891'))
+                else ((info.stderr or info.stdout).strip() or message_id('run.preflight.docker_info_failed'))
             )
         except (OSError, subprocess.TimeoutExpired) as exc:
             status = "fail"
-            detail = message_id('ui.0892', exc)
-        checks.append(PreflightCheck(message_id('ui.0893'), status, detail))
+            detail = message_id('run.preflight.docker_check_failed', exc)
+        checks.append(PreflightCheck(message_id('run.preflight.local_docker'), status, detail))
 
     if config.runtime == "auto" and config.profiling_mode == "basic" and any(check.status == "fail" for check in checks[1:]):
         reasons = "; ".join(str(check.detail) for check in checks[1:] if check.status == "fail")
@@ -179,7 +179,7 @@ def quick_preflight(
     for tool in (("tcpdump", "tshark") if measurement_requested(config.profiling_mode, "packet_latency") else ()):
         path = shutil.which(tool)
         checks.append(
-            PreflightCheck(tool, "ok" if path else "fail", path or message_id('ui.0894'))
+            PreflightCheck(tool, "ok" if path else "fail", path or message_id('common.state.not_installed'))
         )
         if tool == 'tcpdump' and path:
             allowed = os.geteuid() == 0
@@ -191,9 +191,9 @@ def quick_preflight(
                         result = command_runner((getcap, str(Path(path).resolve())), timeout=5.0)
                         allowed = result.returncode == 0 and tcpdump_capability_available(result.stdout)
                 if not allowed:
-                    detail = message_id('ui.0261')
+                    detail = message_id('run.preflight.capture_permission_missing')
             except (OSError, subprocess.TimeoutExpired):
-                detail = message_id('ui.0262')
+                detail = message_id('run.preflight.capture_permission_unknown')
             checks.append(PreflightCheck('tcpdump permissions', 'ok' if allowed else 'fail', detail,
                                          'available' if allowed else 'permission_denied'))
 
@@ -206,17 +206,17 @@ def quick_preflight(
             )
             checks.append(
                 PreflightCheck(
-                    message_id('ui.0667'),
+                    message_id('run.network.capture_interface'),
                     "ok" if iface.returncode == 0 else "fail",
                     config.sniff_iface,
                 )
             )
         except (OSError, subprocess.TimeoutExpired) as exc:
-            checks.append(PreflightCheck(message_id('ui.0667'), "fail", str(exc)))
+            checks.append(PreflightCheck(message_id('run.network.capture_interface'), "fail", str(exc)))
     elif measurement_requested(config.profiling_mode, "packet_latency"):
-        checks.append(PreflightCheck(message_id('ui.0667'), "fail", message_id('ui.0895')))
+        checks.append(PreflightCheck(message_id('run.network.capture_interface'), "fail", message_id('run.preflight.ip_missing')))
     else:
-        checks.append(PreflightCheck(message_id('ui.0667'), "not_requested", message_id('ui.0188'), "not_requested"))
+        checks.append(PreflightCheck(message_id('run.network.capture_interface'), "not_requested", message_id('run.preflight.not_collected'), "not_requested"))
 
     rapl = probe_cpu_energy() if measurement_requested(config.profiling_mode, "cpu_energy") else Capability("not_requested", "basic", "profiling_mode")
     rapl_status = CapabilityStatus(rapl.status).value
@@ -241,7 +241,7 @@ def quick_preflight(
             perf = probe_perf_instructions(env=probe_environ)
     perf_status = CapabilityStatus(perf.status).value
     if perf_status == "available":
-        detail = message_id('ui.0294')
+        detail = message_id('run.preflight.perf_isolation_verified')
         checks.append(PreflightCheck("perf instructions", "ok", detail, perf_status))
     else:
         checks.append(PreflightCheck("perf instructions", "not_requested" if perf_status == "not_requested" else "fail", f"{perf_status}: {perf.detail}", perf_status))
@@ -254,12 +254,12 @@ def quick_preflight(
                     (nvidia_smi, "--query-gpu=name", "--format=csv,noheader"),
                     timeout=10.0,
                 )
-                detail = gpu.stdout.strip() or gpu.stderr.strip() or message_id('ui.0898')
+                detail = gpu.stdout.strip() or gpu.stderr.strip() or message_id('run.preflight.gpu_query_failed')
                 status = "ok" if gpu.returncode == 0 else "fail"
             except (OSError, subprocess.TimeoutExpired) as exc:
                 status, detail = "fail", str(exc)
         else:
-            status, detail = "fail", message_id('ui.0899')
+            status, detail = "fail", message_id('run.preflight.nvidia_smi_missing')
         checks.append(PreflightCheck("NVIDIA GPU", status, detail))
 
     return checks
@@ -326,14 +326,14 @@ def summarize_result_csv(result_csv: str | Path, *, cancelled: Callable[[], bool
     snapshot = read_result_csv_snapshot(path, validate_measurements=False, cancelled=cancelled)
     fields, rows = snapshot.fields, snapshot.rows
     if "status" not in fields:
-        raise ValueError(message_id('ui.0200'))
+        raise ValueError(message_id('results.csv.invalid_header'))
     require_current_fields(fields)
     missing = set(KEY_FIELDS) - set(fields)
     metrics = [name for name in SUMMARY_METRICS if name in fields]
     groups: tuple[dict, ...] = ()
     detail = ""
     if missing:
-        detail = message_id('ui.0202', ", ".join(sorted(missing)))
+        detail = message_id('results.csv.missing_identity_fields', ", ".join(sorted(missing)))
     elif metrics:
         groups = tuple(summarize_windows(rows, metrics, include_intervals=False, cancelled=cancelled)["groups"])
         # Unselected/inapplicable energy and device metrics stay out of the summary.
@@ -341,7 +341,7 @@ def summarize_result_csv(result_csv: str | Path, *, cancelled: Callable[[], bool
             key=lambda group: (group["cpu_cores"], group["mem_cap_gb"], group["gpu_mode"],
                                group["input_scale"], group["environment_class"], metrics.index(group["metric"]))))
     else:
-        detail = message_id('ui.0579')
+        detail = message_id('results.statistics.no_successful_windows')
     if cancelled():
         raise CancelledError()
     from acprof.analysis.audit import audit_result
@@ -371,16 +371,16 @@ def summarize_result_csv(result_csv: str | Path, *, cancelled: Callable[[], bool
             raise ValueError(f"result source changed: {path}")
         verify_result_source(snapshot.path, snapshot.sha256, cancelled=cancelled)
     except (ValueError, OSError) as exc:
-        raise ValueError(message_id('ui.2318', str(exc))) from exc
+        raise ValueError(message_id('results.summary.snapshot_unverified', str(exc))) from exc
     return summary
 
 
 def result_summary_text(summary: ResultSummary, path: Path) -> str:
     from acprof.tui.reports import render_quality_summary
-    lines: list[str] = [message_id('ui.0203', path), message_id(
-        'ui.0204',
+    lines: list[str] = [message_id('results.summary.selected', path), message_id(
+        'results.summary.row_counts',
         summary.rows, summary.ok_rows, summary.error_rows, summary.cases, summary.warmup_rows),
-        message_id('ui.0205')]
+        message_id('results.summary.grouping_description')]
     lines.append(render_quality_summary(summary.quality))
     if summary.grouping_detail:
         lines.append(summary.grouping_detail)
@@ -395,13 +395,13 @@ def result_summary_text(summary: ResultSummary, path: Path) -> str:
         if key != previous:
             configurations += 1
             if configurations > 30:
-                lines.append(message_id('ui.0206'))
+                lines.append(message_id('results.summary.configuration_limit'))
                 break
-            lines.append(message_id('ui.0207', *key))
+            lines.append(message_id('results.summary.configuration', *key))
             previous = key
         unit = group["unit"]
         factor, unit = (1000, "ms") if unit == "s" else (1 / 1048576, "MiB") if unit == "byte" else (1, unit)
         value = "—" if group["mean"] is None else f"{group['mean'] * factor:.6g} {unit}"
-        lines.append(message_id('ui.0208', message(labels[group["metric"]]), value,
+        lines.append(message_id('results.summary.metric', message(labels[group["metric"]]), value,
                              group["n_windows"], message("窗口不足" if group["reason"] == "insufficient_windows" else "窗口均值")))
     return join_messages("\n", lines)

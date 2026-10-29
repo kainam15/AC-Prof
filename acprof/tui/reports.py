@@ -59,19 +59,19 @@ def _number(value: Any, *, nullable: bool = False) -> float | None:
     if value is None and nullable:
         return None
     if type(value) not in (int, float) or not math.isfinite(value):
-        raise ValueError(message_id('ui.0518'))
+        raise ValueError(message_id('results.report.invalid_number'))
     return float(value)
 
 
 def _count(value) -> int:
     if type(value) is not int or value < 0:
-        raise ValueError(message_id('ui.0519'))
+        raise ValueError(message_id('results.report.invalid_sample_count'))
     return value
 
 
 def _resource_label(record, name, suffix):
     if name not in record:
-        raise ValueError(message_id('ui.0518'))
+        raise ValueError(message_id('results.report.invalid_number'))
     value = record[name]
     return "inherited" + suffix if value is None else f"{_number(value):g}{suffix}"
 
@@ -80,13 +80,13 @@ def _interval(row: dict, low_key: str, high_key: str) -> tuple[float | None, flo
     low = _number(row.get(low_key), nullable=True)
     high = _number(row.get(high_key), nullable=True)
     if (low is None) != (high is None) or (low is not None and high is not None and low > high):
-        raise ValueError(message_id('ui.0520'))
+        raise ValueError(message_id('results.report.invalid_interval'))
     return low, high
 
 
 def _objects(value) -> list[dict]:
     if not isinstance(value, list) or any(not isinstance(row, dict) for row in value):
-        raise ValueError(message_id('ui.0521'))
+        raise ValueError(message_id('results.report.no_valid_rows'))
     return value
 
 
@@ -94,7 +94,7 @@ def _text(value, fallback: str = "") -> str:
     if value is None:
         return fallback
     if not isinstance(value, str):
-        raise ValueError(message_id('ui.0522'))
+        raise ValueError(message_id('results.report.invalid_text'))
     return value
 
 
@@ -106,12 +106,12 @@ def render_quality_summary(payload: dict) -> str:
         if payload.get("quality_status") == "unknown":
             quality = combine_quality([quality, summarize_quality(None)])
         payload = {**payload, **quality}
-    lines = [message_id('ui.0133', payload.get("run_status", "unknown"),
+    lines = [message_id('results.quality.run_summary', payload.get("run_status", "unknown"),
                      payload.get("measurement_status", "unknown"), payload.get("quality_status", "unknown")),
-             message_id('ui.0134', message("可参与" if payload.get("auto_selection_eligible") is True else "暂停"),
+             message_id('results.quality.selection_summary', message("可参与" if payload.get("auto_selection_eligible") is True else "暂停"),
                      ", ".join(payload.get("quality_reasons", ["quality_evidence_missing"])) or "—")]
     for check in payload.get("quality_checks", []):
-        lines.append(message_id('ui.0137', check.get("code", "unknown"),
+        lines.append(message_id('results.quality.evidence', check.get("code", "unknown"),
                              check.get("detail", ""), json.dumps(check.get("evidence", {}), ensure_ascii=False)))
     return join_messages("\n", lines)
 
@@ -119,12 +119,12 @@ def render_quality_summary(payload: dict) -> str:
 def _windows(source: Path, data: dict) -> ReportView:
     confidence = _number(data.get("confidence"))
     if not 0 < confidence < 1 or data.get("filter") != "status=ok and warmup=0":
-        raise ValueError(message_id('ui.0523'))
+        raise ValueError(message_id('results.report.unsupported_statistics_contract'))
     rows = []
     for group in _objects(data.get("groups")):
         name = _text(group.get("metric"))
         if not name:
-            raise ValueError(message_id('ui.0524'))
+            raise ValueError(message_id('results.report.missing_metric_name'))
         unit = _text(group.get("unit"))
         multiplier, display_unit = (1000, "ms") if unit == "s" else (1, unit)
         count = _count(group.get("n_windows"))
@@ -133,10 +133,10 @@ def _windows(source: Path, data: dict) -> ReportView:
         std = _number(group.get("std"), nullable=True)
         low, high = _interval(group, "ci_low", "ci_high")
         if (count == 0) != (mean is None) or (low is not None and count < 3):
-            raise ValueError(message_id('ui.0525'))
+            raise ValueError(message_id('results.report.inconsistent_sample_count'))
         mode = group.get("gpu_mode")
         if mode not in {"on", "off"}:
-            raise ValueError(message_id('ui.0526'))
+            raise ValueError(message_id('results.report.invalid_device_configuration'))
         config = "/".join((_resource_label(group, 'cpu_cores', 'c'),
                            _resource_label(group, 'mem_cap_gb', 'G'),
                            "GPU" if mode == "on" else "CPU",
@@ -151,18 +151,18 @@ def _windows(source: Path, data: dict) -> ReportView:
         rows.append(ReportRow(
             (config, message(_METRIC_LABELS.get(name, name)), mean_text, interval,
              f"{count}/{missing}", message(state)),
-            message_id('ui.0527',
+            message_id('results.statistics.row_detail',
                     name, missing_value if std is None else f"{std * multiplier:.6g} {display_unit}", count, missing),
         ))
     origin = _text(data.get("result_csv"), str(source))
     note = join_messages("\n", (
         STATUS_LEGEND,
-        message_id('ui.0528'),
-        message_id('ui.0529', origin),
+        message_id('results.statistics.window_scope_notice'),
+        message_id('results.report.data_source', origin),
         render_quality_summary(data),
     ))
-    return ReportView(source, message_id('ui.0530', confidence * 100, len(rows)),
-                      ("资源/输入", "指标", "均值", message_id('ui.0534', confidence * 100),
+    return ReportView(source, message_id('results.statistics.summary_title', confidence * 100, len(rows)),
+                      ("资源/输入", "指标", "均值", message_id('results.column.confidence_interval', confidence * 100),
                        "有效/缺失", "说明"), tuple(rows), note)
 
 
@@ -170,37 +170,37 @@ def _comparison_row(label: str, row: dict, count: int, detail: str) -> ReportRow
     change = _number(row.get("paired_mean_change_pct"))
     low, high = _interval(row, "ci_low_pct", "ci_high_pct")
     if count < 3 or low is None or high is None:
-        raise ValueError(message_id('ui.0537'))
+        raise ValueError(message_id('results.overhead.insufficient_pairs'))
     state = "方向不确定" if low <= 0 <= high else "延迟增加" if low > 0 else "本次延迟降低"
     return ReportRow((label, str(count), f"{change:+.6g}%", f"[{low:.6g}%, {high:.6g}%]", message(state)), detail)
 
 
 def _comparisons(source: Path, data: dict) -> ReportView:
     if data.get("successful") is not True:
-        raise ValueError(message_id('ui.0541', _text(data.get("error")) or UNKNOWN))
+        raise ValueError(message_id('results.overhead.incomplete', _text(data.get("error")) or UNKNOWN))
     rows = []
     if data["kind"] == "monitor_overhead_diagnostic":
         mode = data.get("gpu_mode")
         if mode not in {"on", "off"}:
-            raise ValueError(message_id('ui.0526'))
+            raise ValueError(message_id('results.report.invalid_device_configuration'))
         for row in _objects(data.get("comparisons")):
             label = _text(row.get("scenario"))
             if label.startswith("monitors-"):
                 label = label.removeprefix("monitors-") + " Hz"
             rows.append(_comparison_row(label, row, _count(row.get("paired_rounds")),
-                                        message_id('ui.0542')))
-        title = message_id('ui.0543', "GPU" if mode == "on" else "CPU")
+                                        message_id('results.overhead.monitor_scope')))
+        title = message_id('results.overhead.monitor_title', "GPU" if mode == "on" else "CPU")
     else:
         pairs = _objects(data.get("pairs"))
         ui = data.get("ui")
         if ui not in {"terminal", "headless"}:
-            raise ValueError(message_id('ui.0544'))
-        detail = message_id('ui.0545') if ui == "terminal" else message_id('ui.0546')
+            raise ValueError(message_id('results.overhead.invalid_ui_mode'))
+        detail = message_id('results.overhead.terminal_scope') if ui == "terminal" else message_id('results.overhead.headless_scope')
         rows.append(_comparison_row("TUI / CLI", data, len(pairs), detail))
-        title = message_id('ui.0547')
+        title = message_id('results.overhead.ui_title')
     if not rows:
-        raise ValueError(message_id('ui.0521'))
-    note = message_id('ui.0548')
+        raise ValueError(message_id('results.report.no_valid_rows'))
+    note = message_id('results.overhead.interpretation_notice')
     return ReportView(source, title, ("对照", "配对轮数", "延迟变化", "95% 区间", "判断"), tuple(rows), note)
 
 
@@ -209,7 +209,7 @@ def _independent_comparison(source: Path, data: dict) -> ReportView:
     if (not 0 < confidence < 1 or data.get("resampling_unit") != "independent_run_mean"
             or data.get("direction") != "right_minus_left_and_right_divided_by_left"
             or data.get("status") not in {"compatible", "incompatible", "unknown"}):
-        raise ValueError(message_id('ui.0489'))
+        raise ValueError(message_id('results.comparison.invalid_contract'))
     rows = []
     for group in _objects(data.get("groups")):
         metric, unit = _text(group.get("metric")), _text(group.get("unit"))
@@ -224,17 +224,17 @@ def _independent_comparison(source: Path, data: dict) -> ReportView:
             if bounds is None:
                 return UNKNOWN
             if not isinstance(bounds, list) or len(bounds) != 2:
-                raise ValueError(message_id('ui.0520'))
+                raise ValueError(message_id('results.report.invalid_interval'))
             low, high = (_number(item) for item in bounds)
             if low > high:
-                raise ValueError(message_id('ui.0520'))
+                raise ValueError(message_id('results.report.invalid_interval'))
             factor = 1 if ratio else multiplier
             suffix = "" if ratio else f" {display_unit}"
             return f"[{low * factor:.6g}, {high * factor:.6g}]{suffix}".strip()
 
         left, right = group.get("left"), group.get("right")
         if not isinstance(left, dict) or not isinstance(right, dict):
-            raise ValueError(message_id('ui.0521'))
+            raise ValueError(message_id('results.report.no_valid_rows'))
         ratio = _number(group.get("ratio"), nullable=True)
         reason = _text(group.get("reason")) or _text(group.get("comparability"))
         qualities = "/".join(_text(side.get("quality_status"), "unknown") for side in (left, right))
@@ -253,12 +253,12 @@ def _independent_comparison(source: Path, data: dict) -> ReportView:
             value(group.get("difference")), interval("difference_ci"), interval("ratio_ci", ratio=True),
             f"{_count(left.get('n_runs'))}/{_count(right.get('n_runs'))}"), detail))
     note = join_messages("\n", (
-        message_id('ui.0490'),
-        message_id('ui.0491', data["status"], confidence * 100),
+        message_id('results.comparison.resampling_notice'),
+        message_id('results.comparison.comparability', data["status"], confidence * 100),
         json.dumps({key: data.get(key) for key in ("condition_checks", "experiments", "quality", "limitations", "source_sha256", "allowed_resource_dimensions")},
                    ensure_ascii=False, indent=2),
     ))
-    return ReportView(source, message_id('ui.0492', data["status"], len(rows)),
+    return ReportView(source, message_id('results.comparison.summary_title', data["status"], len(rows)),
         ("说明", "资源/输入", "指标", "基线均值", "对比均值", "变化", "差值", "差值区间", "比值区间", "独立实验数"),
         tuple(rows), note)
 
@@ -277,13 +277,13 @@ def read_report(path: str | Path, *, cancelled: Callable[[], bool] = lambda: Fal
                 break
             content.extend(chunk)
     if len(content) > _MAX_REPORT_BYTES:
-        raise ValueError(message_id('ui.0554'))
+        raise ValueError(message_id('results.report.size_limit_exceeded'))
     if cancelled():
         raise CancelledError()
     try:
         data = json.loads(content)
     except (ValueError, UnicodeError) as exc:
-        raise ValueError(message_id('ui.0555')) from exc
+        raise ValueError(message_id('results.report.malformed_json')) from exc
     return report_view(source, data)
 
 
@@ -298,7 +298,7 @@ def _validated_report_view(source: Path, data: dict) -> ReportView:
                    and not data.get("kind") and not data.get("resampling_unit"))
     if (not isinstance(data, dict) or type(data.get("schema_version")) is not int
             or data["schema_version"] != 1 and not coverage_v2):
-        raise ValueError(message_id('ui.0569'))
+        raise ValueError(message_id('results.report.unsupported_type'))
     if data.get("resampling_unit") == "csv_request_window":
         return _windows(source, data)
     if data.get("kind") in {"monitor_overhead_diagnostic", "ui_overhead"}:
@@ -315,6 +315,6 @@ def _validated_report_view(source: Path, data: dict) -> ReportView:
                     json.dumps({"failure": failure, "quality_checks": row.get("quality_checks", []),
                         "cleanup_status": row.get("cleanup_status"), "cleanup_errors": row.get("cleanup_errors", []),
                         "attempt_id": row.get("attempt_id"), "attempts": data.get("attempts", [])}, ensure_ascii=False, indent=2)))))
-        note = message_id('ui.0181') if data["scope"] == "recorded_results; no_reexecution" else message_id('ui.0182')
-        return ReportView(source, message_id('ui.0179'), ("模型", "状态", "reason_code"), tuple(rows), note)
-    raise ValueError(message_id('ui.0569'))
+        note = message_id('results.compatibility.recorded_results_notice') if data["scope"] == "recorded_results; no_reexecution" else message_id('results.compatibility.sample_scope_notice')
+        return ReportView(source, message_id('results.compatibility.title'), ("模型", "状态", "reason_code"), tuple(rows), note)
+    raise ValueError(message_id('results.report.unsupported_type'))

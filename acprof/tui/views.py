@@ -186,7 +186,7 @@ class ScrollConfirmActionScreen(ConfirmActionScreen):
             with VerticalScroll(id="confirm-message"):
                 yield Static(tr(self.message), markup=False)
             with Horizontal(id="confirm-buttons"):
-                yield Button(tr(message_id('ui.0588')), id="confirm-no")
+                yield Button(tr(message_id('common.action.cancel')), id="confirm-no")
                 yield Button(tr(self.confirm_label), id="confirm-yes", variant=self.confirm_variant)
 
 
@@ -342,7 +342,7 @@ def compose_run_tab(app: AcprofTui) -> ComposeResult:
                     yield ConfigField(app.localization.localized_select(
                         (
                             ("自动", "auto"),
-                            (message_id('ui.0666'), "none"),
+                            (message_id('common.option.off'), "none"),
                             ("企业微信", "wecom"),
                         ),
                         value=app.configuration.initial_config.notify,
@@ -425,7 +425,7 @@ def compose_run_tab(app: AcprofTui) -> ComposeResult:
                         classes="config-control",
                     )), field_id="workload-spec")
 
-                with Collapsible(title=app.tr(message_id('ui.0223')), collapsed=True):
+                with Collapsible(title=app.tr(message_id('downloads.settings.title')), collapsed=True):
                     with Grid(classes="form-grid"):
                         for key, label, placeholder in (
                             ("max-download", "下载预算", "5GB；留空不设上限"),
@@ -437,7 +437,7 @@ def compose_run_tab(app: AcprofTui) -> ComposeResult:
                         yield app.localization.localized_widget(Label("预计下载大小"))
                         yield app.localization.localized_widget(Static("待解析", id="download-estimate", markup=False))
                     yield app.localization.localized_widget(Static("下载策略：自动。使用系统网络环境。", markup=False))
-                    with Collapsible(title=app.tr(message_id('ui.0063')), collapsed=True):
+                    with Collapsible(title=app.tr(message_id('common.action.advanced_details')), collapsed=True):
                         yield app.localization.localized_widget(Label("Model Store 容量上限"))
                         yield ConfigField(app.localization.localized_widget(Input(value=app.configuration.initial_config.model_store_max,
                             placeholder="100GB；留空不设上限", id="model-store-max", classes="config-control")), field_id="model-store-max")
@@ -459,7 +459,7 @@ def compose_run_tab(app: AcprofTui) -> ComposeResult:
                     ))
                 with Horizontal(classes="button-row"):
                     yield app.localization.localized_widget(Button("记住实验配置", id="save-run-default"))
-                with Collapsible(title=app.tr(message_id('ui.0680')), collapsed=True, id="image-build-options"):
+                with Collapsible(title=app.tr(message_id('run.images.advanced_options')), collapsed=True, id="image-build-options"):
                     yield app.localization.localized_widget(StatusCheckbox(
                         "重新构建镜像（仅本次）",
                         value=app.configuration.initial_config.rebuild_image,
@@ -509,10 +509,10 @@ def compose_monitor_tab(app: AcprofTui) -> ComposeResult:
                     yield app.localization.localized_widget(Button("导出", id="export-log", classes="log-control", compact=True))
                 yield Static("", id="log-status", markup=False)
                 with Horizontal(id="log-export-result"):
-                    yield app.localization.localized_widget(Static(message_id('ui.0937')))
-                    yield app.localization.localized_widget(Button(message_id('ui.2227'),
+                    yield app.localization.localized_widget(Static(message_id('logs.export.completed')))
+                    yield app.localization.localized_widget(Button(message_id('logs.export.copy_path'),
                         id="copy-log-export-path", classes="log-control", compact=True))
-                    yield app.localization.localized_widget(Button(message_id('ui.2228'),
+                    yield app.localization.localized_widget(Button(message_id('logs.export.view_path'),
                         id="view-log-export-path", classes="log-control", compact=True))
                 with Horizontal(id="log-toolbar", classes="action-bar"):
                     with Horizontal(classes="action-secondary"):

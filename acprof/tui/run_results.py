@@ -56,7 +56,7 @@ def inspect_probe_result(snapshot, config, project_dir: Path, pid: int, started_
 def _finite_json_number(raw: str) -> float:
     value = float(raw)
     if not math.isfinite(value):
-        raise ValueError(message_id('ui.0559'))
+        raise ValueError(message_id('validation.json.nonfinite_number'))
     return value
 
 
@@ -64,14 +64,14 @@ def _read_capability_report(path: Path) -> dict:
     with path.open("rb") as stream:
         content = stream.read(MAX_CAPABILITY_REPORT_BYTES + 1)
     if len(content) > MAX_CAPABILITY_REPORT_BYTES:
-        raise ValueError(message_id('ui.0560'))
+        raise ValueError(message_id('results.capability.size_limit_exceeded'))
     try:
         value = json.loads(content, parse_float=_finite_json_number,
                            parse_constant=_finite_json_number)
     except json.JSONDecodeError as exc:
-        raise ValueError(message_id('ui.0557')) from exc
+        raise ValueError(message_id('validation.json.invalid_syntax')) from exc
     if not isinstance(value, dict):
-        raise ValueError(message_id('ui.0558'))
+        raise ValueError(message_id('validation.json.object_required'))
     return value
 
 
@@ -142,9 +142,9 @@ def inspect_run_result(before: RunArtifacts, pid: int) -> RunResult:
     after = RunArtifacts.read(before.directory, capture_state_error=True)
     layout = ArtifactLayout.discover(before.directory)
     if after.state_error:
-        details: list[str] = [message_id('ui.0567', after.state_error)]
+        details: list[str] = [message_id('results.outcome.state_unverified', after.state_error)]
         if after.csv_stamp and after.csv_stamp != before.csv_stamp:
-            details.append(message_id('ui.0568', layout.result_csv))
+            details.append(message_id('results.outcome.csv_unverified', layout.result_csv))
         return RunResult(detail=join_messages("; ", details), retained_dir=str(layout.root))
     state, previous = after.state, before.state
     attempts = state.get("attempts", [])
@@ -177,7 +177,7 @@ def inspect_run_result(before: RunArtifacts, pid: int) -> RunResult:
             capability = _read_capability_report(capability_path)
         except (OSError, UnicodeError, ValueError, RecursionError) as exc:
             reason = exc.args[0] if exc.args and isinstance(exc.args[0], Message) else str(exc)
-            capability_issue = message_id('ui.0556', capability_path.name, reason)
+            capability_issue = message_id('results.capability.invalid_report', capability_path.name, reason)
     partial |= capability.get("requested_measurements_complete") is not True
     details = [issue["message"] for issue in audit.get("issues", [])
                if issue.get("severity") == "error"]
@@ -259,13 +259,13 @@ def _completion_log_and_notice(
     unsupported_task: bool,
 ) -> tuple[tuple[str, ...], NotificationSpec | None]:
     if launch_error:
-        title = message_id('ui.0986') if kind == "html-report" else "任务启动失败"
+        title = message_id('results.html.failed_title') if kind == "html-report" else "任务启动失败"
         return (
-            (message_id('ui.0786', launch_error),),
+            (message_id('logs.process.command_failed', launch_error),),
             NotificationSpec(launch_error, severity="error", title=title, timeout=8),
         )
     if comparison_ready:
-        notice: str = message_id('ui.0488')
+        notice: str = message_id('results.comparison.created_notice')
         return (
             (notice,),
             NotificationSpec(notice, severity="information", timeout=8),
@@ -273,28 +273,28 @@ def _completion_log_and_notice(
     if returncode == 0 and kind != "run" and not stop_requested:
         notice = "任务已完成"
         return (
-            (message_id('ui.0788', kind),),
+            (message_id('logs.process.completed', kind),),
             NotificationSpec(notice, severity="information", timeout=5),
         )
     if stop_requested:
         notice = (
-            message_id('ui.0962')
+            message_id('results.html.cancelled')
             if kind == "html-report"
             else "任务已终止；部分 case 结果可能仍可续跑"
         )
         return (
-            (message_id('ui.0790', returncode),),
+            (message_id('logs.process.user_stopped', returncode),),
             NotificationSpec(notice, severity="warning", timeout=7),
         )
     if unsupported_task and snapshot is not None:
         return (
-            (snapshot.detail, message_id('ui.0587')),
+            (snapshot.detail, message_id('run.unsupported_task.guidance')),
             NotificationSpec(snapshot.detail, severity="error", title="任务不支持", timeout=12),
         )
     if kind != "run":
         return (
-            (message_id('ui.0792', kind, returncode),),
-            NotificationSpec(message_id('ui.0793', returncode), severity="error", timeout=8),
+            (message_id('logs.process.failed', kind, returncode),),
+            NotificationSpec(message_id('run.completion.failed_exit_code', returncode), severity="error", timeout=8),
         )
     return (), None
 
@@ -311,13 +311,13 @@ def _evaluate_run_outcome(
     stage = run_result.stage(returncode, stop_requested, launch_error)
     final_state = snapshot or latest_snapshot
     total_cases = run_result.total_cases or final_state.total_cases
-    detail: str = message_id('ui.0191', run_result.completed_cases, total_cases)
+    detail: str = message_id('results.outcome.completed_cases', run_result.completed_cases, total_cases)
     if run_result.detail:
         detail = join_messages("\n", (detail, run_result.detail))
     if run_result.new_cases and run_result.retained_dir:
-        detail = join_messages("\n", (detail, message_id('ui.0184', run_result.retained_dir)))
+        detail = join_messages("\n", (detail, message_id('results.outcome.retained_directory', run_result.retained_dir)))
     if run_result.complete and not run_result.result_csv and not run_result.new_cases:
-        detail = join_messages("\n", (detail, message_id('ui.0185')))
+        detail = join_messages("\n", (detail, message_id('results.outcome.already_complete')))
     measurement_status = (
         "passed" if stage is Stage.COMPLETED else "cancelled" if stop_requested else "failed"
     )
@@ -334,9 +334,9 @@ def _evaluate_run_outcome(
     summary_text = ""
     if not current_csv:
         summary_text = (
-            message_id('ui.0183', run_result.detail)
+            message_id('results.outcome.verification_failed', run_result.detail)
             if run_result.detail and not run_result.belongs_to_attempt
-            else message_id('ui.0190', run_result.new_cases)
+            else message_id('results.outcome.cases_retained_without_csv', run_result.new_cases)
         )
     severity: Literal["information", "warning", "error"] = (
         "information"
@@ -349,7 +349,7 @@ def _evaluate_run_outcome(
         final_snapshot,
         current_csv,
         summary_text,
-        NotificationSpec(message_id('ui.0193', stage.label, detail), severity=severity),
+        NotificationSpec(message_id('results.outcome.experiment_summary', stage.label, detail), severity=severity),
     )
 
 
@@ -366,7 +366,7 @@ def _evaluate_probe_snapshot(
         detail = launch_error or (
             final_state.detail
             if final_state.stage is Stage.PROBE_FAILED
-            else message_id('ui.0796', returncode)
+            else message_id('run.probe.exit_code', returncode)
         )
         return replace(
             final_state,
@@ -395,11 +395,11 @@ def _evaluate_auxiliary_snapshot(
     if launch_error or (returncode != 0 and not stop_requested and not comparison_ready):
         return ProgressSnapshot(
             stage=Stage.FAILED,
-            detail=launch_error or message_id('ui.0799', kind, returncode),
+            detail=launch_error or message_id('run.auxiliary.exit_code', kind, returncode),
         )
     if stop_requested:
-        return ProgressSnapshot(stage=Stage.TERMINATED, detail=message_id('ui.0800', kind))
-    return ProgressSnapshot(stage=Stage.COMPLETED, detail=message_id('ui.0801', kind))
+        return ProgressSnapshot(stage=Stage.TERMINATED, detail=message_id('run.auxiliary.user_stopped', kind))
+    return ProgressSnapshot(stage=Stage.COMPLETED, detail=message_id('run.auxiliary.completed', kind))
 
 
 def evaluate_process_completion(
@@ -415,17 +415,17 @@ def evaluate_process_completion(
 ) -> ProcessCompletion:
     """Compute the pure state transition, logs, and notifications on process exit."""
     if kind == "stats" and returncode == 0 and not launch_error and not stop_requested and not analysis_ready:
-        launch_error = message_id("ui.2400")
+        launch_error = message_id("results.statistics.invalid_analysis_output")
     if kind == "probe" and returncode == 0 and not launch_error and not stop_requested:
         if (snapshot is None or snapshot.stage is not Stage.PROBE_COMPLETED
                 or not snapshot.probe_result or not snapshot.probe_summary):
-            launch_error = message_id('ui.0183', "missing structured probe result")
+            launch_error = message_id('results.outcome.verification_failed', "missing structured probe result")
     comparison_ready = (
         kind == "compare" and returncode in {0, 1} and not launch_error
         and not stop_requested and analysis_ready
     )
     if kind == "compare" and returncode == 0 and not launch_error and not stop_requested and not comparison_ready:
-        launch_error = message_id("ui.2400")
+        launch_error = message_id("results.statistics.invalid_analysis_output")
     if snapshot is not None and snapshot.measurement_status == "running":
         snapshot = replace(
             snapshot,

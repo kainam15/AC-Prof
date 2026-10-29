@@ -146,7 +146,7 @@ class PreflightController:
         if self.app.stop_requested:
             return
         if event["stage"] == "runtime" and event.get("status") == "passed":
-            self.app.write_log(self.app.localization.tr(message_id('ui.0060')))
+            self.app.write_log(self.app.localization.tr(message_id('models.preparation.check_complete')))
             self.close_preparation()
             return
         request = event.get("request")
@@ -210,16 +210,16 @@ class PreflightController:
 
     def preflight_run_reason(self) -> str:
         if not self.app.is_running or not self.app.form_ready or self.app.ui_closing:
-            return message_id('ui.0599')
+            return message_id('run.preflight.checking_notice')
         if self.check_running or not self.check_completed:
-            return message_id('ui.0599')
+            return message_id('run.preflight.checking_notice')
         if self.error:
-            return message_id('ui.0600', self.error)
+            return message_id('run.preflight.check_failed', self.error)
         if not self.config_matches():
-            return message_id('ui.0601')
+            return message_id('run.preflight.configuration_changed')
         failures = [message("{0}: {1}", check.label, check.detail)
                     for check in self.checks if check.status == "fail"]
-        return message_id('ui.0602', join_messages("；", failures)) if failures else ""
+        return message_id('run.preflight.collection_blocked', join_messages("；", failures)) if failures else ""
 
     def config_matches(self) -> bool:
         current, checked = self.preflight_config(), self.checked_config

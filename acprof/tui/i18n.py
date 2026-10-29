@@ -3,14 +3,14 @@
 Messages retain their Chinese string value for validation and progress tracking.
 Only the presentation boundary renders English; interpolated user input, paths,
 commands and subprocess output are never searched or replaced. There is no
-process-global locale, file loading, polling or translation dependency.
+process-global locale, resource scanning, polling or translation dependency.
 """
 from __future__ import annotations
 
 from typing import cast
 
 from acprof.messages import Message, join_messages
-from acprof.tui.translation_catalog import ENGLISH, ENGLISH_BY_ID, SOURCE_BY_ID
+from acprof.tui.catalog import ENGLISH, ENGLISH_BY_ID, SOURCE_BY_ID
 
 LANGUAGE_OPTIONS = (("简体中文", "zh"), ("English", "en"))
 UI_LANGUAGES = tuple(value for _, value in LANGUAGE_OPTIONS)

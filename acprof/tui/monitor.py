@@ -45,7 +45,7 @@ def visible_statuses(snapshot: ProgressSnapshot) -> tuple[tuple[str, str], ...]:
     if phase is MonitorPhase.MEASUREMENT:
         items = ()
     elif phase in {MonitorPhase.VALIDATION, MonitorPhase.FINISHED}:
-        items = (("ui.2155", snapshot.interface_status), ("ui.2156", snapshot.runtime_status))
+        items = (("run.monitor.interface_prefix", snapshot.interface_status), ("run.monitor.runtime_prefix", snapshot.runtime_status))
     else:
-        items = (("ui.2155", snapshot.interface_status),) if snapshot.interface_status != "passed" else ()
+        items = (("run.monitor.interface_prefix", snapshot.interface_status),) if snapshot.interface_status != "passed" else ()
     return tuple((label, status) for label, status in items if status != "not_started")

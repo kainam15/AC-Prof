@@ -267,15 +267,15 @@ class TestTuiSettings:
         )
         settings = tuple(invalid)[settings_case]
         expected = (
-            message_id('ui.0913', message_id('ui.0902'), 'log_wrap'),
-            message_id('ui.0903'),
-            message_id('ui.0905'),
-            message_id('ui.0907'),
-            message_id('ui.0908'),
-            message_id('ui.0908'),
-            message_id('ui.2209'),
-            message_id('ui.0913', message_id('ui.0910'), 'rebuild_image'),
-            message_id('ui.0913', message_id('ui.0910'), 'repeat'),
+            message_id('validation.settings.field_type', message_id('settings.preferences.section'), 'log_wrap'),
+            message_id('validation.settings.invalid_language'),
+            message_id('validation.settings.invalid_log_limit'),
+            message_id('validation.settings.model_id_type'),
+            message_id('validation.settings.result_path_type'),
+            message_id('validation.settings.result_path_type'),
+            message_id('validation.settings.log_export_directory_type'),
+            message_id('validation.settings.field_type', message_id('settings.defaults.section'), 'rebuild_image'),
+            message_id('validation.settings.field_type', message_id('settings.defaults.section'), 'repeat'),
             '[sample_hz]',
         )[settings_case]
         with pytest.raises(ValueError, match=re.escape(expected)):

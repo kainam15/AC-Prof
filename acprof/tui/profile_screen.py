@@ -14,23 +14,23 @@ from acprof.tui.profile_status import ProfilerOverview, ProfilerStatus
 from acprof.tui.rendering import CjkCompositor
 
 TOOL_LABELS = {
-    "torch": message_id("ui.2265"),
-    "ncu": message_id("ui.2266"),
-    "nsys": message_id("ui.2267"),
-    "massif": message_id("ui.2268"),
+    "torch": message_id("profiling.metric.logical_flop"),
+    "ncu": message_id("profiling.metric.gpu_flop"),
+    "nsys": message_id("profiling.metric.cuda_timeline"),
+    "massif": message_id("profiling.metric.cpu_memory_peak"),
 }
 
 
 def tool_status_message(status: ProfilerStatus):
     if status.state == "complete":
-        return message_id("ui.2256", status.completed, status.total)
+        return message_id("profiling.status.complete_count", status.completed, status.total)
     if status.state == "failed":
-        return message_id("ui.2257", status.errors, status.completed, status.total)
+        return message_id("profiling.status.failed_count", status.errors, status.completed, status.total)
     if status.state == "partial":
-        return message_id("ui.2258", status.completed, status.total)
+        return message_id("profiling.status.partial_count", status.completed, status.total)
     if status.state == "missing":
-        return message_id("ui.2259")
-    return message_id("ui.0406")
+        return message_id("profiling.status.not_collected")
+    return message_id("common.value.not_applicable")
 
 
 class ProfilerChoiceScreen(ModalScreen[tuple[str, tuple[str, ...]] | None]):
@@ -64,7 +64,7 @@ class ProfilerChoiceScreen(ModalScreen[tuple[str, tuple[str, ...]] | None]):
     def compose(self) -> ComposeResult:
         tr = translated_app(self.app).tr
         with Vertical(id="profiler-choice-dialog"):
-            yield Static(tr(message_id("ui.2252")), id="profiler-choice-title")
+            yield Static(tr(message_id("profiling.overview.title")), id="profiler-choice-title")
             with VerticalScroll(id="profiler-choice-body"):
                 yield Static(str(self.overview.result_dir), id="profiler-choice-experiment", markup=False)
                 for status in self.overview.tools:
@@ -78,10 +78,10 @@ class ProfilerChoiceScreen(ModalScreen[tuple[str, tuple[str, ...]] | None]):
                             classes="option-checkbox profile-tool",
                         )
                         yield Static(tr(tool_status_message(status)), classes="profiler-choice-status", markup=False)
-                yield Static(tr(message_id("ui.2261")), id="profiler-choice-note", markup=False)
+                yield Static(tr(message_id("profiling.backfill.isolation_note")), id="profiler-choice-note", markup=False)
             with Horizontal(id="profiler-choice-actions"):
                 yield Button(tr("取消"), id="profile-choice-close")
-                yield Button(tr(message_id("ui.2262")), id="profile-choice-plan")
+                yield Button(tr(message_id("profiling.backfill.preview")), id="profile-choice-plan")
                 yield Button(tr("执行补采"), id="profile-choice-run", variant="warning")
 
     def on_mount(self) -> None:

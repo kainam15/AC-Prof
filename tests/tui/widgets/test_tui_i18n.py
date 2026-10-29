@@ -24,13 +24,13 @@ from acprof.experiment import RunConfig, RunConfigError, build_run_command
 from acprof.messages import message
 from acprof.progress_events import encode_event
 from acprof.tui.app import PROJECT_DIR
+from acprof.tui.catalog import ENGLISH_BY_ID, MESSAGES, SOURCE_BY_ID, SOURCE_TO_ID
 from acprof.tui.diagnostics import PreflightCheck, ResultSummary
 from acprof.tui.i18n import ENGLISH, CatalogMessage, error_message, message_id, translate
 from acprof.tui.log import SelectableLog
 from acprof.tui.progress import ProgressSnapshot, RunProgressTracker
 from acprof.tui.settings import TuiSettings, load_settings, save_settings
 from acprof.tui.stages import Stage
-from acprof.tui.translation_catalog import ENGLISH_BY_ID, SOURCE_BY_ID, SOURCE_TO_ID
 from tests.support.tui_fixtures import AcprofTui
 
 
@@ -39,7 +39,7 @@ def test_tui_catalog_literals_use_stable_message_ids():
     root = Path(__file__).resolve().parents[3] / 'acprof' / 'tui'
     failures = []
     for path in root.rglob('*.py'):
-        if path.name in {'i18n.py', 'translation_catalog.py'}:
+        if path.name == 'i18n.py' or 'catalog' in path.parts:
             continue
         for call in ast.walk(ast.parse(path.read_text(encoding='utf-8'))):
             if not (isinstance(call, ast.Call) and call.args and isinstance(call.args[0], ast.Constant)
@@ -115,14 +115,17 @@ def test_stable_message_id_is_not_a_source_string():
     assert value.template == SOURCE_BY_ID[key]
     assert translate(value, 'en') == 'Settings file: 等待/{模型}'
     assert translate(value, 'zh') == '保存位置：等待/{模型}'
-    with pytest.raises(KeyError):
-        message_id('ui.nonexistent')
+    with pytest.raises(KeyError, match='unknown.message.key'):
+        message_id('unknown.message.key')
+    with pytest.raises(KeyError, match='ui.2214'):
+        message_id('ui.2214')
 
 
-def test_message_catalog_has_bijective_stable_ids():
-    assert len(SOURCE_BY_ID) == len(SOURCE_TO_ID) == len(ENGLISH_BY_ID) == len(ENGLISH)
-    assert set(SOURCE_BY_ID) == set(ENGLISH_BY_ID)
-    assert all(key.startswith('ui.') and key[3:].isdigit() for key in SOURCE_BY_ID)
+def test_message_catalog_has_complete_semantic_ids():
+    assert set(SOURCE_BY_ID) == set(ENGLISH_BY_ID) == set(MESSAGES)
+    assert len(SOURCE_TO_ID) == len(ENGLISH)
+    assert all(re.fullmatch(r'[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*){2,}', key)
+               for key in SOURCE_BY_ID)
     assert all(SOURCE_BY_ID[key] in ENGLISH for key in SOURCE_BY_ID)
 
 

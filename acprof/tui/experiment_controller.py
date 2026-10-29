@@ -81,7 +81,7 @@ class ExperimentController:
             if config.input_scales
             else None
         )
-        scale_text = f"{largest_scale:g}" if largest_scale is not None else message_id('ui.0756')
+        scale_text = f"{largest_scale:g}" if largest_scale is not None else message_id('run.probe.automatic_maximum')
         memory_text = ",".join(
             f"{value}GB" for value in memory_candidates
         )
@@ -92,7 +92,7 @@ class ExperimentController:
                 "探测最低配置的最大输入？",
                 join_messages("", (
                     message_id(
-                        'ui.0758',
+                        'run.probe.confirm_details',
                         cpu, gpu, memory_text, scale_text,
                     ),
                     preview,

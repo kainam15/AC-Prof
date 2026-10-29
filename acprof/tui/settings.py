@@ -36,13 +36,13 @@ class UiPreferences:
     language: str = "zh"
 
     def validate(self) -> UiPreferences:
-        _validate_field_types(asdict(self), UiPreferences, message_id('ui.0902'))
+        _validate_field_types(asdict(self), UiPreferences, message_id('settings.preferences.section'))
         if self.language not in UI_LANGUAGES:
-            raise ValueError(message_id('ui.0903'))
+            raise ValueError(message_id('validation.settings.invalid_language'))
         if self.theme not in UI_THEMES:
-            raise ValueError(message_id('ui.0904'))
+            raise ValueError(message_id('validation.settings.invalid_theme'))
         if self.log_max_lines not in LOG_MAX_LINES:
-            raise ValueError(message_id('ui.0905'))
+            raise ValueError(message_id('validation.settings.invalid_log_limit'))
         return self
 
 
@@ -58,21 +58,21 @@ class TuiSettings:
 
     def validate(self, *, project_dir: Path) -> TuiSettings:
         if not isinstance(self.ui, UiPreferences):
-            raise ValueError(message_id('ui.0906'))
+            raise ValueError(message_id('validation.settings.preferences_type'))
         ui = self.ui.validate()
         if type(self.last_model) is not str:
-            raise ValueError(message_id('ui.0907'))
+            raise ValueError(message_id('validation.settings.model_id_type'))
         if type(self.last_result_dir) is not str or type(self.last_result_csv) is not str:
-            raise ValueError(message_id('ui.0908'))
+            raise ValueError(message_id('validation.settings.result_path_type'))
         if type(self.last_html_report) is not str:
-            raise ValueError(message_id('ui.0954'))
+            raise ValueError(message_id('validation.settings.html_report_type'))
         if type(self.last_log_export_dir) is not str:
-            raise ValueError(message_id('ui.2209'))
+            raise ValueError(message_id('validation.settings.log_export_directory_type'))
         config = self.run_defaults
         if config is not None:
             if not isinstance(config, RunConfig):
-                raise ValueError(message_id('ui.0909'))
-            _validate_field_types(asdict(config), RunConfig, message_id('ui.0910'))
+                raise ValueError(message_id('validation.settings.run_defaults_type'))
+            _validate_field_types(asdict(config), RunConfig, message_id('settings.defaults.section'))
             config = replace(config, rebuild_image=False, resume=False)
             # A reusable default need not select a model, but must otherwise
             # meet the same requirements as the live experiment form.
@@ -81,7 +81,7 @@ class TuiSettings:
             try:
                 config = config.validate(project_dir=project_dir)
             except OverflowError as exc:
-                raise ValueError(message_id('ui.0911')) from exc
+                raise ValueError(message_id('validation.settings.numeric_range')) from exc
             config = replace(config, model=model)
         return replace(
             self, ui=ui, run_defaults=config, last_model=self.last_model.strip(),
@@ -109,7 +109,7 @@ def _validate_field_types(
     """Reject coercions, especially JSON booleans masquerading as integers."""
     allowed = {item.name for item in fields(cls)}
     if values.keys() - allowed:
-        raise ValueError(message_id('ui.0912', label))
+        raise ValueError(message_id('validation.settings.unknown_fields', label))
     annotations = get_type_hints(cls)
     for name, value in values.items():
         expected = annotations[name]
@@ -119,12 +119,12 @@ def _validate_field_types(
             else type(value) is expected
         )
         if not valid:
-            raise ValueError(message_id('ui.0913', label, name))
+            raise ValueError(message_id('validation.settings.field_type', label, name))
 
 
 def _decode_settings(payload: Any, project_dir: Path) -> TuiSettings:
     if not isinstance(payload, dict):
-        raise ValueError(message_id('ui.0914'))
+        raise ValueError(message_id('validation.settings.root_object'))
     version = payload.get("version")
     if type(version) is not int or version != SETTINGS_VERSION:
         raise UnsupportedSettingsError(
@@ -133,14 +133,14 @@ def _decode_settings(payload: Any, project_dir: Path) -> TuiSettings:
         )
     ui_values = payload.get("ui", {})
     if not isinstance(ui_values, dict):
-        raise ValueError(message_id('ui.0916'))
-    _validate_field_types(ui_values, UiPreferences, message_id('ui.0902'))
+        raise ValueError(message_id('validation.settings.preferences_object'))
+    _validate_field_types(ui_values, UiPreferences, message_id('settings.preferences.section'))
     ui = UiPreferences(**ui_values)
     defaults_values = payload.get("run_defaults")
     defaults = None
     if defaults_values is not None:
         if not isinstance(defaults_values, dict):
-            raise ValueError(message_id('ui.0917'))
+            raise ValueError(message_id('validation.settings.defaults_object'))
         defaults_values = {key: value for key, value in defaults_values.items()
                            if key.lower() not in {"http_proxy", "https_proxy", "all_proxy", "no_proxy"}}
         if "allow_cgroup_v1" in defaults_values:
@@ -149,8 +149,8 @@ def _decode_settings(payload: Any, project_dir: Path) -> TuiSettings:
             )
         if "skip_build" in defaults_values:
             if type(defaults_values.pop("skip_build")) is not bool:
-                raise ValueError(message_id('ui.0684'))
-        _validate_field_types(defaults_values, RunConfig, message_id('ui.0910'))
+                raise ValueError(message_id('validation.settings.retired_skip_build_type'))
+        _validate_field_types(defaults_values, RunConfig, message_id('settings.defaults.section'))
         if defaults_values.get("download_mode") in {"mirror-only", "mirror-preferred", "official"}:
             defaults_values = {**defaults_values, "download_mode": "auto"}
         defaults = RunConfig(**defaults_values)
@@ -178,7 +178,7 @@ def load_settings(path: Path, project_dir: Path) -> tuple[TuiSettings, str]:
     except FileNotFoundError:
         return TuiSettings(), ""
     except (OSError, ValueError, UnicodeError) as exc:
-        return TuiSettings(), message_id('ui.0918', error_message(exc))
+        return TuiSettings(), message_id('settings.load.defaults_fallback', error_message(exc))
     return settings, ""
 
 
@@ -189,7 +189,7 @@ def save_settings(path: Path, settings: TuiSettings, project_dir: Path) -> None:
     A failed validation or replacement leaves the previous file untouched.
     """
     if not isinstance(settings, TuiSettings):
-        raise ValueError(message_id('ui.0919'))
+        raise ValueError(message_id('validation.settings.settings_type'))
     normalized = settings.validate(project_dir=Path(project_dir))
     payload = {
         "version": SETTINGS_VERSION,

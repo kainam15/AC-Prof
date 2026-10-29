@@ -13,6 +13,13 @@ repos:
         language: system
         types: [python]
         pass_filenames: false
+      - id: tui-catalog
+        name: Validate TUI catalogs and message references
+        entry: uv run --locked python scripts/check_tui_catalog.py
+        language: system
+        types: [python]
+        files: '^(acprof/|scripts/check_tui_catalog\.py$|tests/tui/i18n/)'
+        pass_filenames: false
       - id: ruff-check
         name: Ruff from uv.lock
         entry: uv run --locked ruff check --force-exclude

@@ -48,10 +48,10 @@ def review_answers(screen, questions: list[dict], *, prefix: str) -> dict:
             if isinstance(widget, TaskChoices):
                 value = widget.selected
                 if not value:
-                    raise ValueError(screen.app.tr(message_id('ui.2162')))
+                    raise ValueError(screen.app.tr(message_id('models.tasks.selection_required')))
             elif isinstance(widget, Select):
                 if widget.value is Select.NULL:
-                    raise ValueError(screen.app.tr(message_id('ui.0253')))
+                    raise ValueError(screen.app.tr(message_id('common.input.select_prompt')))
                 value = widget.value
             elif isinstance(widget, Input):
                 kind = question.get("kind")
@@ -64,11 +64,11 @@ def review_answers(screen, questions: list[dict], *, prefix: str) -> dict:
                 else:
                     value = widget.value.strip() if kind in {"path", "text", "scales"} else json.loads(widget.value)
                 if kind == "path" and not value and not question.get("optional"):
-                    raise ValueError(screen.app.tr(message_id('ui.0109')))
+                    raise ValueError(screen.app.tr(message_id('common.input.local_file_path')))
                 if question.get("kind") == "path" and value:
                     from pathlib import Path
                     if not Path(value).expanduser().is_file():
-                        raise ValueError(screen.app.tr(message_id('ui.0111')))
+                        raise ValueError(screen.app.tr(message_id('validation.file.not_found')))
             else:
                 raise TypeError("unsupported model review input")
         except (ValueError, TypeError) as exc:

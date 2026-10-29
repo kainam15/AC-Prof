@@ -66,7 +66,7 @@ def review_recovery(pending: PendingLaunch, *, project_dir: Path, python_executa
             record = catalog.records[0] if catalog.records else None
             issues.extend(catalog.warnings)
         elif read_artifact(layout.path("run_state.json")) != record.state:
-            raise ValueError(message_id('ui.0039'))
+            raise ValueError(message_id('run.recovery.record_changed'))
     except (OSError, ValueError) as exc:
         issues.append(error_message(exc))
         record = None
@@ -76,7 +76,7 @@ def review_recovery(pending: PendingLaunch, *, project_dir: Path, python_executa
     if record is not None:
         phase = recovery_phase(directory, record.state)
         if record.status == "complete":
-            issues.append(message_id('ui.0040'))
+            issues.append(message_id('run.recovery.completed_guidance'))
         else:
             try:
                 _check_writer(ArtifactLayout.discover(directory))
@@ -94,7 +94,7 @@ def review_recovery(pending: PendingLaunch, *, project_dir: Path, python_executa
             except (OSError, ValueError, RuntimeError, KeyError, TypeError) as exc:
                 issues.append(error_message(exc))
     else:
-        issues.append(message_id('ui.0041'))
+        issues.append(message_id('run.recovery.no_restorable_state'))
 
     fresh = new_experiment_config(config, directory.parent)
     if (record is not None and pinned_revision(record.revision)
@@ -112,7 +112,7 @@ def review_recovery(pending: PendingLaunch, *, project_dir: Path, python_executa
                "complete": "原实验记录为已完成。", "unknown": "无法确认原实验的恢复状态。"}[phase]
     details = [message(summary), *issues]
     if resume is not None:
-        details.append(message_id('ui.0046'))
+        details.append(message_id('run.recovery.original_options_notice'))
     if restart is not None:
-        details.append(message_id('ui.0047', fresh.output_dir))
+        details.append(message_id('run.recovery.new_directory_notice', fresh.output_dir))
     return RecoveryReview(directory, phase, join_messages("\n\n", details), resume, restart, record)

@@ -30,9 +30,9 @@ class TaskChoice(Horizontal):
         yield StatusCheckbox(value=self.initial_selected, compact=True)
         label = Text()
         label.append(group_label(self.group, self.tr), style="bold")
-        difference = format_parameters(self.group.differences, self.tr) or self.tr(message_id("ui.2201"))
-        label.append("\n" + self.tr(message_id("ui.2202", difference)))
-        label.append("\n" + self.tr(message_id("ui.2203", self.group.representative["task_id"])), style="dim")
+        difference = format_parameters(self.group.differences, self.tr) or self.tr(message_id("models.tasks.same_configuration"))
+        label.append("\n" + self.tr(message_id("models.tasks.configuration_differences", difference)))
+        label.append("\n" + self.tr(message_id("models.tasks.representative_input", self.group.representative["task_id"])), style="dim")
         yield Static(label, classes="task-choice-description")
 
     def on_click(self, event: events.Click) -> None:
@@ -60,12 +60,12 @@ class TaskChoices(Vertical):
 
     def compose(self):
         view = self.presentation
-        yield Static(self.tr(message_id("ui.2204", view.semantic_count, len(view.groups))), markup=False)
-        common = format_parameters(view.common, self.tr) or self.tr(message_id("ui.2205"))
-        yield Static(self.tr(message_id("ui.2206", common)), classes="task-common", markup=False)
+        yield Static(self.tr(message_id("models.tasks.group_summary", view.semantic_count, len(view.groups))), markup=False)
+        common = format_parameters(view.common, self.tr) or self.tr(message_id("models.tasks.no_common_parameters"))
+        yield Static(self.tr(message_id("models.tasks.common_configuration", common)), classes="task-common", markup=False)
         for group in view.groups:
             yield TaskChoice(group, self.tr, selected=group.task_id in self.initial_selected)
-        yield Static(self.tr(message_id("ui.2208")), classes="task-evidence-note", markup=False)
+        yield Static(self.tr(message_id("models.tasks.merged_paths_note")), classes="task-evidence-note", markup=False)
 
     @property
     def selected(self) -> list[str]:

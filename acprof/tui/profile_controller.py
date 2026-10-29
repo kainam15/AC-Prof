@@ -28,24 +28,24 @@ class ProfileController:
     def reset_overview(self) -> None:
         self.overview = None
         self.app.localization.set_text(
-            self.app.query_one("#profile-status", Static), message_id("ui.2253"))
+            self.app.query_one("#profile-status", Static), message_id("profiling.overview.select_experiment"))
         self.update_action_availability()
 
     def show_overview(self, overview: ProfilerOverview | None, error: str = "") -> None:
         self.overview = overview
         if overview is None:
-            status: Message = message_id("ui.2254", error) if error else message_id("ui.2253")
+            status: Message = message_id("profiling.overview.unavailable", error) if error else message_id("profiling.overview.select_experiment")
         else:
             from acprof.tui.profile_screen import tool_status_message
 
             summary = (
-                message_id("ui.2255", overview.complete, overview.applicable)
+                message_id("profiling.overview.complete_summary", overview.complete, overview.applicable)
                 if not overview.pending else
-                message_id("ui.2251", overview.complete, overview.applicable, overview.pending)
+                message_id("profiling.overview.available_summary", overview.complete, overview.applicable, overview.pending)
             )
             status = join_messages("\n", (
                 summary,
-                *(message_id("ui.2270", item.tool, tool_status_message(item))
+                *(message_id("profiling.overview.tool_status", item.tool, tool_status_message(item))
                   for item in overview.tools),
             ))
         self.app.localization.set_text(self.app.query_one("#profile-status", Static), status)
@@ -61,7 +61,7 @@ class ProfileController:
     def open_selection_dialog(self) -> None:
         overview = self.overview
         if overview is None or not overview.pending:
-            self.app.notify(message_id("ui.2264"), severity="warning")
+            self.app.notify(message_id("profiling.backfill.complete_experiment_required"), severity="warning")
             return
         if not self.app.allow_operation("profile"):
             return
@@ -139,7 +139,7 @@ class ProfileController:
             ConfirmActionScreen(
                 "执行 profiler 补采？",
                 join_messages("", (
-                    message_id("ui.0817"),
+                    message_id("profiling.backfill.confirm_details"),
                     format_command(command),
                 )),
                 "执行补采",

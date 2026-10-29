@@ -128,13 +128,13 @@ class StorageSpaceScreen(ModalScreen[None]):
         if not self.selected_count:
             notes.append(tr("尚未勾选镜像。"))
         if error:
-            notes.append(tr(message_id('ui.0322', error)))
+            notes.append(tr(message_id('images.storage.query_incomplete', error)))
         self.query_one("#storage-status", Static).update("\n".join(notes))
         self.query_one("#storage-refresh", Button).disabled = False
 
     def show_loading(self) -> None:
         self.query_one("#storage-refresh", Button).disabled = True
-        self.query_one("#storage-status", Static).update(translated_app(self.app).tr(message_id('ui.0320')))
+        self.query_one("#storage-status", Static).update(translated_app(self.app).tr(message_id('images.storage.loading')))
 
     @on(Button.Pressed, "#storage-refresh")
     def request_refresh(self, event: Button.Pressed) -> None:

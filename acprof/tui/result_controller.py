@@ -109,7 +109,7 @@ class ResultController:
         self.summary_path = path
         self.app.profiles.reset_overview()
         self.app.read_jobs.add(token)
-        self.app.localization.set_text(self.app.query_one("#result-summary", Static), message_id('ui.0199', CALCULATING))
+        self.app.localization.set_text(self.app.query_one("#result-summary", Static), message_id('results.read.loading_summary', CALCULATING))
         self.app.set_busy(True)
         self.execute_summary_read(path, token, notify)
 
@@ -149,7 +149,7 @@ class ResultController:
             return
         if summary is None:
             self.app.profiles.reset_overview()
-            self.app.localization.set_text(self.app.query_one("#result-summary", Static), message_id('ui.0811', error))
+            self.app.localization.set_text(self.app.query_one("#result-summary", Static), message_id('results.summary.read_failed', error))
             if notify:
                 self.app.notify(error, severity="error")
             return
@@ -195,12 +195,12 @@ class ResultController:
         source = self.app.configuration.input("result-csv").strip()
         title: str
         if not source:
-            title = message_id("ui.2301")
+            title = message_id("results.selection.none")
         else:
             path = Path(source.rstrip("/"))
             title = path.parent.name if path.name == "result_layers.json" else path.name
         label = self.app.query_one("#report-experiment", Static)
-        self.app.localization.set_text(label, message_id("ui.2300", title))
+        self.app.localization.set_text(label, message_id("results.selection.current_experiment", title))
         label.tooltip = source or None
 
     def update_report_actions(self) -> None:
@@ -255,7 +255,7 @@ class ResultController:
         if phase != "empty":
             self.app.localization.set_text(self.app.query_one("#" + target, Static), status)
         else:
-            self.app.localization.set_text(self.app.query_one("#report-empty", Static), message_id("ui.2406"))
+            self.app.localization.set_text(self.app.query_one("#report-empty", Static), message_id("results.statistics.empty_hint"))
         self.app.query_one("#report-content", ContentSwitcher).current = target
         self.update_report_actions()
 
@@ -273,7 +273,7 @@ class ResultController:
         if (self.app.operation_state().allows("html-report")
                 and self.app.configuration.input("result-csv").strip()):
             self.find_html_report()
-        self.clear_report(message_id("ui.2303"))
+        self.clear_report(message_id("results.statistics.source_hint"))
         self.update_report_actions()
 
     def report_json_changed(self) -> None:
@@ -286,7 +286,7 @@ class ResultController:
         if self.report_request is not None:
             self.report_request.set()
         self.report_request = None
-        self.clear_report(message_id("ui.2316") if source else message_id("ui.2303"))
+        self.clear_report(message_id("results.import.path_changed") if source else message_id("results.statistics.source_hint"))
         self.update_report_actions()
 
     def open_report_button(self) -> None:
@@ -298,7 +298,7 @@ class ResultController:
         self.show_result_section("statistics-view")
         source = path if path is not None else self.app.configuration.input("report-json-path")
         if not source.strip():
-            self.clear_report(message_id("ui.2315"), phase="error")
+            self.clear_report(message_id("results.import.json_required"), phase="error")
             self.show_result_section("exports-view")
             self.app.query_one("#report-file-options", Collapsible).collapsed = False
             return
@@ -311,7 +311,7 @@ class ResultController:
         with self.app.prevent(Input.Changed):
             self.app.query_one("#report-json-path", Input).value = str(report_path)
         self.update_report_actions()
-        self.clear_report(message_id("ui.2310"), phase="loading")
+        self.clear_report(message_id("results.import.reading"), phase="loading")
         if self.report_request is not None:
             self.report_request.set()
         token = self.report_request = Event()
@@ -346,10 +346,10 @@ class ResultController:
             return
         self.app.set_busy(self.app.is_busy())
         if view is None:
-            self.clear_report(message_id('ui.0578', error), phase="error")
+            self.clear_report(message_id('results.import.read_failed', error), phase="error")
             return
         self.report_view = replace(view, note=join_messages("\n", (
-            message_id("ui.2416", view.source), view.note)))
+            message_id("results.import.historical_notice", view.source), view.note)))
         self.render_report_view()
         self.update_report_actions()
 
@@ -363,7 +363,7 @@ class ResultController:
         if not view.rows:
             self.app.localization.set_text(self.app.query_one("#report-status", Static), view.title)
             self.app.localization.set_text(
-                self.app.query_one("#report-empty", Static), view.note or message_id("ui.2317"),
+                self.app.query_one("#report-empty", Static), view.note or message_id("results.statistics.no_rows"),
             )
             self.app.query_one("#report-content", ContentSwitcher).current = "report-empty"
             return
@@ -384,7 +384,7 @@ class ResultController:
         view = self.report_view
         if view is None:
             return
-        detail = view.rows[index].detail if 0 <= index < len(view.rows) else message_id('ui.0579')
+        detail = view.rows[index].detail if 0 <= index < len(view.rows) else message_id('results.statistics.no_successful_windows')
         self.app.localization.set_text(self.app.query_one("#report-detail", Static), join_messages("\n", (detail, view.note)))
 
     def calculate_report_button(self) -> None:
@@ -408,7 +408,7 @@ class ResultController:
         self.show_result_section("statistics-view")
         source = path if path is not None else self.app.configuration.input("result-csv")
         if not source.strip():
-            self.clear_report(message_id("ui.2314"), phase="error")
+            self.clear_report(message_id("results.statistics.input_required"), phase="error")
             return
         try:
             pending = prepare_stats(source, project_dir=self.app.project_dir, python_executable=self.app.python_executable)
@@ -427,7 +427,7 @@ class ResultController:
                      )
 
     def begin_analysis(self, pending: PendingLaunch) -> None:
-        self.clear_report(message_id("ui.2313"), phase="loading")
+        self.clear_report(message_id("results.statistics.calculating"), phase="loading")
         self.analysis_selection = self.selection_identity()
         source = pending.result_csv if pending.kind == "stats" else pending.command[pending.command.index("--left") + 1]
         self.analysis_source = Path(source)
@@ -442,7 +442,7 @@ class ResultController:
         view, self.analysis_view = self.analysis_view, None
         self.show_result_section("statistics-view")
         if cancelled or error or view is None:
-            self.clear_report(error or message_id("ui.2408" if cancelled else "ui.2400"), phase="error")
+            self.clear_report(error or message_id("results.statistics.cancelled" if cancelled else "results.statistics.invalid_analysis_output"), phase="error")
         else:
             self.report_view = view
             self.render_report_view()
@@ -454,7 +454,7 @@ class ResultController:
         view = self.report_view
         destination = self.app.configuration.input("analysis-export-path").strip()
         if view is None or not view.payload or not destination:
-            self.app.notify(message_id("ui.2413"), severity="warning")
+            self.app.notify(message_id("results.export.statistics_required"), severity="warning")
             return
         path = resolve_result_path(destination, self.app.project_dir)
         token = object()
@@ -469,9 +469,9 @@ class ResultController:
         try:
             with offline_analysis_lock():
                 export_analysis(payload, path, format=format)
-            status = message_id("ui.2414", path)
+            status = message_id("results.export.completed", path)
         except Exception as exc:
-            status = message_id("ui.2415", error_message(exc))
+            status = message_id("results.export.failed", error_message(exc))
         self.app.process.safe_process_callback(self.analysis_export_finished, token, status)
 
     def analysis_export_finished(self, token: object, status: str) -> None:
@@ -513,7 +513,7 @@ class ResultController:
             self.app.query_one("#html-report-path", Input).value = ""
             return
         self.app.query_one("#html-report-path", Input).value = str(existing) if existing else ""
-        self.set_html_status(message_id('ui.0958', existing) if existing else message_id('ui.0959'), expand=False)
+        self.set_html_status(message_id('results.html.existing_report', existing) if existing else message_id('results.html.generation_note'), expand=False)
 
     def launch_html_report(self) -> None:
         if not self.app.allow_operation("html-report"):
@@ -531,7 +531,7 @@ class ResultController:
         self.html_output = Path(pending.report_path)
         self.html_log.clear()
         self.html_summary = ""
-        self.set_html_status(message_id('ui.0960', self.html_output))
+        self.set_html_status(message_id('results.html.generating', self.html_output))
 
     def consume_html_line(self, line: str) -> None:
         if not line.startswith("ACPROF_REPORT "):
@@ -544,31 +544,31 @@ class ResultController:
                 or any(not isinstance(receipt.get(key), list) or not receipt[key]
                        or any(not isinstance(value, str) for value in receipt[key])
                        for key in ("quality_status", "measurement_status"))):
-            raise ValueError(message_id('ui.0982'))
-        self.html_summary = message_id('ui.0981', receipt["config_count"], receipt["valid_windows"],
+            raise ValueError(message_id('results.html.invalid_receipt'))
+        self.html_summary = message_id('results.html.receipt_summary', receipt["config_count"], receipt["valid_windows"],
             receipt["excluded_rows"], ", ".join(receipt["quality_status"]), ", ".join(receipt["measurement_status"]))
         if receipt["valid_windows"] == 0:
-            self.html_summary = join_messages("\n", (self.html_summary, message_id('ui.0983')))
+            self.html_summary = join_messages("\n", (self.html_summary, message_id('results.html.no_valid_windows')))
 
     def html_report_error(self, returncode: int, error: str) -> str:
         if error:
             return error
         if returncode:
-            return "\n".join(self.html_log) or message_id('ui.0793', returncode)
+            return "\n".join(self.html_log) or message_id('run.completion.failed_exit_code', returncode)
         if self.html_output is None or not self.html_output.is_file() or not self.html_summary:
-            return message_id('ui.0961')
+            return message_id('results.html.output_missing')
         return ""
 
     def html_report_finished(self, *, error: str, cancelled: bool) -> None:
         output, self.html_output = self.html_output, None
         if cancelled:
-            self.set_html_status(message_id('ui.0962'))
+            self.set_html_status(message_id('results.html.cancelled'))
         elif error:
-            self.set_html_status(message_id('ui.0963', error))
+            self.set_html_status(message_id('results.html.generation_failed', error))
         elif output is not None:
             self.app.query_one("#html-report-path", Input).value = str(output)
             self.app.configuration.remember_last_used(html_report=str(output))
-            self.set_html_status(join_messages("\n", (message_id('ui.0964', output), self.html_summary)))
+            self.set_html_status(join_messages("\n", (message_id('results.html.generated', output), self.html_summary)))
         self.html_log.clear()
         self.html_summary = ""
 
@@ -579,7 +579,7 @@ class ResultController:
             return
         source = self.app.configuration.input("html-report-path")
         if not source:
-            self.set_html_status(message_id('ui.0965'))
+            self.set_html_status(message_id('results.html.open_requires_report'))
             return
         path = resolve_result_path(source, self.app.project_dir).resolve()
         try:
@@ -588,7 +588,7 @@ class ResultController:
             self.set_html_status(error_message(exc))
             return
         if not can_open_local_browser():
-            self.set_html_status(message_id('ui.0966', path))
+            self.set_html_status(message_id('results.html.remote_open_instructions', path))
             return
         self.run_html_file_action("open", path)
 
@@ -598,7 +598,7 @@ class ResultController:
         source = self.app.configuration.input("html-report-path")
         destination = self.app.configuration.input("html-export-path")
         if not source or not destination:
-            self.set_html_status(message_id('ui.0967'))
+            self.set_html_status(message_id('results.html.export_requires_paths'))
             return
         self.run_html_file_action("export", resolve_result_path(source, self.app.project_dir),
                                  resolve_result_path(destination, self.app.project_dir))
@@ -615,12 +615,12 @@ class ResultController:
         try:
             if action == "export" and destination is not None:
                 export_html_file(source, destination)
-                status = message_id('ui.0968', destination)
+                status = message_id('results.html.exported', destination)
             else:
                 open_html_file(source)
-                status = message_id('ui.0969', source)
+                status = message_id('results.html.browser_requested', source)
         except Exception as exc:
-            status = message_id('ui.0970', error_message(exc), source)
+            status = message_id('results.html.file_action_failed', error_message(exc), source)
         self.app.process.safe_process_callback(self.html_file_finished, token, status)
 
     def html_file_finished(self, token: object, status: str) -> None:

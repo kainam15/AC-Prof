@@ -96,7 +96,7 @@ class ModelController:
             self.app.query_one('#model-source', Select).value = candidate.model_source
             self.app.query_one('#revision', Input).value = candidate.revision if pinned_revision(candidate.revision) else ''
             self.app.configuration.refresh_command_preview()
-            self.app.notify(message_id('ui.0150', candidate.reason))
+            self.app.notify(message_id('models.candidates.selected_notice', candidate.reason))
         elif action == 'view' and candidate.record:
             self.app.catalog.view_experiment(candidate.record)
         elif action == 'view' and candidate.report:

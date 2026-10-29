@@ -39,14 +39,14 @@ class ModelStoreScreen(ModalScreen):
 
     def compose(self):
         with Vertical(id="store-dialog"):
-            yield Static(translated_app(self.app).tr(message_id('ui.0216')), markup=False)
+            yield Static(translated_app(self.app).tr(message_id('downloads.model_store.usage_title')), markup=False)
             with VerticalScroll(id="store-scroll"):
-                yield Static(translated_app(self.app).tr(message_id('ui.0320')), id="store-status", markup=False)
+                yield Static(translated_app(self.app).tr(message_id('images.storage.loading')), id="store-status", markup=False)
                 yield Static("", id="store-report", markup=False)
             with Horizontal(id="store-actions", classes="action-bar"):
-                yield Button(translated_app(self.app).tr(message_id('ui.0139')), id="store-close")
-                yield Button(translated_app(self.app).tr(message_id('ui.0316')), id="store-refresh", disabled=True)
-                yield Button(translated_app(self.app).tr(message_id('ui.0215')), id="store-prune", disabled=True)
+                yield Button(translated_app(self.app).tr(message_id('common.action.close_dialog')), id="store-close")
+                yield Button(translated_app(self.app).tr(message_id('common.action.refresh')), id="store-refresh", disabled=True)
+                yield Button(translated_app(self.app).tr(message_id('downloads.prune.unused_models')), id="store-prune", disabled=True)
 
     def on_mount(self):
         for button in self.query(Button):
@@ -75,7 +75,7 @@ class ModelStoreScreen(ModalScreen):
             preview = prune_store(root=self.root, target_bytes=self.target, cancel=self._cancel,
                                   on_wait=lambda: self._post(self._show_waiting))
         except ModelStoreCancelled:
-            self._post(self._complete, translated_app(self.app).tr(message_id('ui.0245')))
+            self._post(self._complete, translated_app(self.app).tr(message_id('run.status.cancelled')))
         except (ValueError, OSError) as exc:
             self._post(self._complete, str(exc))
         else:
@@ -87,11 +87,11 @@ class ModelStoreScreen(ModalScreen):
         self._report = report
         self._render_report()
         if not self._close_requested:
-            self.query_one("#store-status", Static).update(translated_app(self.app).tr(message_id('ui.0218')))
+            self.query_one("#store-status", Static).update(translated_app(self.app).tr(message_id('downloads.prune.preparing_preview')))
 
     def _show_waiting(self):
         if self.is_mounted and not self._close_requested:
-            self.query_one("#store-status", Static).update(translated_app(self.app).tr(message_id('ui.0217')))
+            self.query_one("#store-status", Static).update(translated_app(self.app).tr(message_id('downloads.model_store.busy')))
 
     def _complete(self, error="", preview=None):
         if not self.is_mounted:
@@ -134,8 +134,8 @@ class ModelStoreScreen(ModalScreen):
             return
         tr = translated_app(self.app).tr
         self.app.push_screen(ScrollConfirmActionScreen(
-            tr(message_id('ui.0215')), model_store_prune_summary(self._report, self.preview, tr),
-            tr(message_id('ui.0215')), variant="warning"), self._confirmed)
+            tr(message_id('downloads.prune.unused_models')), model_store_prune_summary(self._report, self.preview, tr),
+            tr(message_id('downloads.prune.unused_models')), variant="warning"), self._confirmed)
 
     def _confirmed(self, confirmed):
         if confirmed and self.preview is not None:
@@ -150,7 +150,7 @@ class ModelStoreScreen(ModalScreen):
                         approved_entries=approved, cancel=self._cancel,
                         on_wait=lambda: self._post(self._show_waiting))
         except ModelStoreCancelled:
-            self._post(self._complete, translated_app(self.app).tr(message_id('ui.0245')))
+            self._post(self._complete, translated_app(self.app).tr(message_id('run.status.cancelled')))
         except (ValueError, OSError) as exc:
             self._post(self._complete, str(exc))
         else:
@@ -170,6 +170,6 @@ class ModelStoreScreen(ModalScreen):
         if self._working:
             self._close_requested = True
             self._cancel.set()
-            self.query_one("#store-status", Static).update(translated_app(self.app).tr(message_id('ui.0220')))
+            self.query_one("#store-status", Static).update(translated_app(self.app).tr(message_id('downloads.model_store.cancelling')))
         else:
             self.dismiss()

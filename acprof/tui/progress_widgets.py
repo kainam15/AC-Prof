@@ -87,9 +87,9 @@ class DownloadProgressContent(ProgressSummary):
         if progress is None:
             return Text()
         states = {
-            "downloading": ("ui.0938", "active"), "verifying": ("ui.0939", "warning"),
-            "complete": ("ui.0940", "success"), "failed": ("ui.0941", "error"),
-            "cancelled": ("ui.0942", "warning"),
+            "downloading": ("downloads.state.downloading", "active"), "verifying": ("downloads.state.verifying", "warning"),
+            "complete": ("downloads.state.verified", "success"), "failed": ("downloads.state.failed", "error"),
+            "cancelled": ("downloads.state.cancelled", "warning"),
         }
         state, role = states[progress.state]
         heading = Table.grid(expand=True, padding=(0, 2))
@@ -103,7 +103,7 @@ class DownloadProgressContent(ProgressSummary):
         percent = (f"{progress.completed_bytes / progress.total_bytes:.0%}"
                    if progress.completed_bytes is not None and progress.total_bytes > 0 else UNKNOWN)
         amount = Text.assemble(
-            self.text(message_id('ui.2147'), "label"), "  ",
+            self.text(message_id('downloads.progress.file_bytes'), "label"), "  ",
             self.text(format_bytes(progress.completed_bytes)), " / ", self.text(format_bytes(progress.total_bytes)),
             "  ", self.text(percent, role if known else "label"),
         )
@@ -121,14 +121,14 @@ class DownloadProgressContent(ProgressSummary):
 
         cells = []
         if progress.files_total:
-            cells.append(self.metric(message_id('ui.2148'), f"{progress.files_completed}/{progress.files_total}"))
+            cells.append(self.metric(message_id('downloads.progress.file_count'), f"{progress.files_completed}/{progress.files_total}"))
         if progress.cached_bytes is not None:
-            cells.append(self.metric(message_id('ui.2149'), format_bytes(progress.cached_bytes)))
+            cells.append(self.metric(message_id('downloads.progress.cached_bytes'), format_bytes(progress.cached_bytes)))
         if progress.transferred_bytes is not None:
-            cells.append(self.metric(message_id('ui.2150'), format_bytes(progress.transferred_bytes)))
+            cells.append(self.metric(message_id('downloads.progress.network_payload'), format_bytes(progress.transferred_bytes)))
         if progress.rate_bytes_s is not None:
             speed = format_bytes(int(progress.rate_bytes_s)) + "/s"
-            cells.append(self.metric(message_id('ui.2151'), speed, "active"))
+            cells.append(self.metric(message_id('downloads.progress.rate'), speed, "active"))
         parts: list[RenderableType] = [heading, progress_row]
         if cells:
             # Let Rich size the single row by content rather than equal-width columns.
@@ -136,7 +136,7 @@ class DownloadProgressContent(ProgressSummary):
             metrics.add_row(*cells)
             parts.append(metrics)
         if progress.detail:
-            detail = (message_id('ui.0949') if progress.detail == 'retry_cache_baseline_unknown'
-                      else message_id('ui.0946', progress.detail))
+            detail = (message_id('downloads.progress.retry_baseline_pending') if progress.detail == 'retry_cache_baseline_unknown'
+                      else message_id('downloads.progress.accounting_error', progress.detail))
             parts.append(self.text(detail, "warning"))
         return Group(*parts)

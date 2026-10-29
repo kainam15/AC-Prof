@@ -87,10 +87,10 @@ class SlashController:
             self.app.configuration.show_settings()
         elif command == "help":
             self.app.query_one("#run-log", SelectableLog).write(
-                self.app.localization.tr(message_id('ui.0818'))
+                self.app.localization.tr(message_id('common.commands.help'))
             )
             self.app.activate_tab("monitor-tab")
         elif command in {"quit", "exit"}:
             self.app.action_request_quit()
         else:
-            self.app.notify(message_id('ui.0819', command), severity="error")
+            self.app.notify(message_id('common.commands.unknown', command), severity="error")

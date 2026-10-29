@@ -69,7 +69,7 @@ class LogController:
             level = ("SUCCESS" if snapshot.stage in {Stage.COMPLETED, Stage.PROBE_COMPLETED} else
                      "ERROR" if snapshot.stage in {Stage.FAILED, Stage.PROBE_FAILED, Stage.CLEANUP_INCOMPLETE} else
                      "WARN" if snapshot.stage is Stage.PARTIAL else "INFO")
-            self.append(self.app.localization.tr(message_id('ui.0947', level, snapshot.stage.label, elapsed)))
+            self.append(self.app.localization.tr(message_id('logs.stage.transition', level, snapshot.stage.label, elapsed)))
 
     def flush(self) -> None:
         if self.timer is not None:
@@ -82,7 +82,7 @@ class LogController:
             entries = list(batch.entries)
             if batch.discarded_entries:
                 entries.insert(0, self.app.localization.tr(message_id(
-                    "ui.2143", batch.discarded_entries, batch.oversized_entries,
+                    "logs.retention.omitted_records", batch.discarded_entries, batch.oversized_entries,
                 )))
             if entries:
                 self.log.write("\n".join(entries))
@@ -134,7 +134,7 @@ class LogController:
         log = self.log
         self.app.query_one("#log-status", Static).display = self.tools_open or log.discarded_lines > 0
         self.app.localization.set_text(self.app.query_one("#log-status", Static), message_id(
-            'ui.0934',
+            'logs.retention.summary',
             len(log.records.records), log.document.line_count if log.text else 0,
             log.match_count, log.discarded_lines,
         ))
@@ -144,11 +144,11 @@ class LogController:
             return
         self.flush()
         if self.log.copy_all():
-            self.app.notify(self.app.localization.tr('ui.0935'))
+            self.app.notify(self.app.localization.tr('logs.clipboard.all_copied'))
 
     def export(self) -> None:
         if not self.app.operation_state().allows('log-export'):
-            self.app.notify(self.app.localization.tr(message_id('ui.0807')), severity="warning")
+            self.app.notify(self.app.localization.tr(message_id('common.task.wait_until_finished')), severity="warning")
             return
         self.flush()
         if not self.log.raw_text:
@@ -216,18 +216,18 @@ class LogController:
             return
         if error:
             self.finish_export_job(token)
-            self.app.notify(self.app.localization.tr(message_id('ui.0936', error)), severity="error", timeout=8)
+            self.app.notify(self.app.localization.tr(message_id('logs.export.failed', error)), severity="error", timeout=8)
             return
         self.last_export_path = path
         self.app.configuration.remember_last_used(log_export_dir=str(path.parent))
         self.app.query_one('#log-export-result').display = True
         self.finish_export_job(token)
-        self.app.notify(self.app.localization.tr(message_id('ui.0937')))
+        self.app.notify(self.app.localization.tr(message_id('logs.export.completed')))
 
     def copy_export_path(self) -> None:
         if self.last_export_path is not None and not self.app.latest_snapshot.measurement_active:
             self.app.copy_to_clipboard(str(self.last_export_path))
-            self.app.notify(self.app.localization.tr(message_id('ui.2229')))
+            self.app.notify(self.app.localization.tr(message_id('logs.export.path_copied')))
 
     def view_export_path(self) -> None:
         if self.last_export_path is None or self.app.latest_snapshot.measurement_active:
@@ -239,5 +239,5 @@ class LogController:
                 self.copy_export_path()
 
         self.app.push_screen(ConfirmActionScreen(
-            message_id('ui.2228'), str(self.last_export_path), message_id('ui.2227'),
+            message_id('logs.export.view_path'), str(self.last_export_path), message_id('logs.export.copy_path'),
         ), closed)

@@ -179,9 +179,9 @@ class SearchPickerScreen(ModalScreen[tuple[str, object] | None]):
                 if path.is_dir():
                     roots.append(path)
                 else:
-                    skipped.append(message_id('ui.0156', str(path)))
+                    skipped.append(message_id('results.picker.invalid_directory', str(path)))
             except (OSError, RuntimeError, ValueError) as exc:
-                skipped.append(message_id('ui.0157', str(path), str(exc)))
+                skipped.append(message_id('results.picker.inspection_failed', str(path), str(exc)))
         return tuple(roots), tuple(skipped)
 
     def show_scope(self, roots: tuple[Path, ...], skipped: tuple[str, ...]) -> None:
@@ -199,7 +199,7 @@ class SearchPickerScreen(ModalScreen[tuple[str, object] | None]):
         scope.tooltip = Text('\n'.join(details))
         note = self.query_one('#picker-scope-note', Static)
         note.display = bool(skipped)
-        note.update(tr(message_id('ui.0158', len(skipped))))
+        note.update(tr(message_id('results.picker.skipped_roots_count', len(skipped))))
         note.tooltip = scope.tooltip
 
     def loaded(self, choices, warnings, roots, skipped):
@@ -247,11 +247,11 @@ class SearchPickerScreen(ModalScreen[tuple[str, object] | None]):
         if choice:
             detail = choice.detail
         elif self._choices_loading:
-            detail = translated_app(self.app).tr(message_id('ui.0166'))
+            detail = translated_app(self.app).tr(message_id('results.picker.loading'))
         elif self.choices:
-            detail = translated_app(self.app).tr(message_id('ui.0167'))
+            detail = translated_app(self.app).tr(message_id('common.search.no_matches'))
         elif self.warnings:
-            detail = translated_app(self.app).tr(message_id('ui.0170'))
+            detail = translated_app(self.app).tr(message_id('results.picker.read_failed'))
         else:
             detail = translated_app(self.app).tr(self.empty_message)
         self.query_one('#picker-detail', Static).update(detail)

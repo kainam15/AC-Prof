@@ -83,7 +83,7 @@ class EnvironmentSettingsScreen(ModalScreen[bool]):
         with Vertical(id='environment-dialog'):
             with Vertical(id='environment-heading'):
                 yield Static(tr('连接与权限'), id='environment-title')
-                yield Static(tr(message_id('ui.0266', self.project_dir / '.env.local')),
+                yield Static(tr(message_id('settings.environment.save_scope', self.project_dir / '.env.local')),
                              id='environment-status', markup=False)
             with TabbedContent(id='environment-tabs'):
                 with TabPane(tr('连接配置'), id='connections-tab'):
@@ -116,7 +116,7 @@ class EnvironmentSettingsScreen(ModalScreen[bool]):
                                      classes='environment-hint', markup=False)
             with Horizontal(id='environment-actions', classes='action-bar'):
                 with Horizontal(classes='action-secondary'):
-                    yield Button(tr(message_id('ui.0139')), id='close-environment-settings')
+                    yield Button(tr(message_id('common.action.close_dialog')), id='close-environment-settings')
                     yield StatusCheckbox(tr('显示敏感字段'), id='show-environment-secrets', classes='option-checkbox')
                 with Horizontal(classes='action-primary'):
                     yield Button(tr('保存配置'), id='save-environment-settings', variant='primary')
@@ -141,10 +141,10 @@ class EnvironmentSettingsScreen(ModalScreen[bool]):
             path = save_project_env(self.project_dir, values, expected_text=self.original_text)
             self.original_text = path.read_text(encoding='utf-8')
         except (OSError, ValueError) as exc:
-            self._status(message_id('ui.0283', str(exc)), error=True)
+            self._status(message_id('settings.environment.save_failed', str(exc)), error=True)
             return
         self.saved = True
-        self._status(message_id('ui.0284', path))
+        self._status(message_id('settings.environment.saved', path))
 
     def _set_working(self, working):
         self._working = working
@@ -156,7 +156,7 @@ class EnvironmentSettingsScreen(ModalScreen[bool]):
         if self._working:
             return
         self._set_working(True)
-        self.query_one('#permission-report', Static).update(translated_app(self.app).tr(message_id('ui.0285')))
+        self.query_one('#permission-report', Static).update(translated_app(self.app).tr(message_id('settings.environment.checking')))
         self._check_permissions()
 
     @work(thread=True, exclusive=True, group='environment-check', exit_on_error=False)
@@ -177,7 +177,7 @@ class EnvironmentSettingsScreen(ModalScreen[bool]):
         if not self.is_mounted or self is not self.app.screen:
             return
         self.query_one('#permission-report', Static).update(report)
-        self._status(message_id('ui.0260', failures), error=bool(failures))
+        self._status(message_id('settings.environment.check_summary', failures), error=bool(failures))
         self._set_working(False)
 
     @on(Button.Pressed, '#configure-environment-permissions')
@@ -189,10 +189,10 @@ class EnvironmentSettingsScreen(ModalScreen[bool]):
         try:
             plan = build_permission_plan(names)
         except (OSError, ValueError) as exc:
-            self._status(message_id('ui.0286', str(exc)), error=True)
+            self._status(message_id('settings.permissions.configure_failed', str(exc)), error=True)
             return
         detail = message_id(
-            'ui.0287',
+            'settings.permissions.change_preview',
             '\n'.join(shlex.join(command) for command in plan.commands),
         )
         self.app.push_screen(ScrollConfirmActionScreen('配置采集权限', detail, '执行配置'),
@@ -215,12 +215,12 @@ class EnvironmentSettingsScreen(ModalScreen[bool]):
                 except (Exception, KeyboardInterrupt) as exc:
                     error = str(exc) or type(exc).__name__
         except SuspendNotSupported:
-            error = translated_app(self.app).tr(message_id('ui.0290'))
+            error = translated_app(self.app).tr(message_id('settings.permissions.native_terminal_required'))
         self._set_working(False)
         if error:
-            self._status(message_id('ui.0291', error), error=True)
+            self._status(message_id('settings.permissions.setup_incomplete', error), error=True)
         else:
-            self._status(message_id('ui.0292', backup))
+            self._status(message_id('settings.permissions.setup_completed', backup))
             self.check_permissions()
 
     @on(Button.Pressed, '#close-environment-settings')
