@@ -14,6 +14,7 @@ from acprof.container.model_files import (
     plan_download,
     resolve_checkpoint,
     seal_plan,
+    validate_plan,
 )
 from acprof.hf_auth import hf_token_for_url
 from acprof.hf_transport import configure_hf_transport
@@ -123,6 +124,7 @@ def _prepare_repository_plan(endpoint: str, model_id: str, revision: str, *, dep
 
 def verify_download(target: str | Path, plan: dict) -> dict:
     """构建期间检查完整性并记录实际 SHA256；不会进入 server 启动路径。"""
+    validate_plan(plan)
     root = Path(target)
     hashes = {}
     for item in plan["files"]:
@@ -151,8 +153,9 @@ def verify_download(target: str | Path, plan: dict) -> dict:
             raise ModelFilesError(f"model file Git blob mismatch: {item['path']}")
         item.update(size=stat.st_size, sha256=sha256_hex)
     plan["selected_bytes"] = sum(item["size"] for item in plan["files"])
-    if plan.get("dependencies"):
-        plan["total_selected_bytes"] = plan["selected_bytes"] + sum(item["download"]["selected_bytes"] for item in plan["dependencies"])
+    if "dependencies" in plan or "total_selected_bytes" in plan:
+        plan["total_selected_bytes"] = plan["selected_bytes"] + sum(
+            item["download"]["selected_bytes"] for item in plan.get("dependencies", []))
     plan["verification"] = "sha256"
     return seal_plan(plan)
 

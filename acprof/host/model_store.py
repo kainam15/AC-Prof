@@ -485,6 +485,7 @@ def enforce_model_download_budgets(plan: dict) -> None:
 
 
 def prepare_model(task, plan: dict, root: Path | None = None, *, planned_download_bytes: int | None = None) -> dict:
+    validate_plan(plan)
     from huggingface_hub import snapshot_download
 
     from acprof.container.download_model import verify_download

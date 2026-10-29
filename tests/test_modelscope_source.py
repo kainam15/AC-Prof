@@ -210,7 +210,7 @@ def test_filtered_cache_preserves_original_hub_evidence(tmp_path, monkeypatch):
 @pytest.mark.parametrize(("source", "default_ref"), [("huggingface", "main"), ("modelscope", "master")])
 def test_recorded_default_ref_is_distinct_from_pinned_release(source, default_ref, tmp_path, monkeypatch):
     from acprof.container.download_model import verify_download
-    from acprof.container.model_files import plan_download
+    from acprof.container.model_files import plan_download, seal_plan
     from acprof.host import model_store
 
     monkeypatch.setenv("ACPROF_MODEL_STORE", str(tmp_path))
@@ -223,6 +223,7 @@ def test_recorded_default_ref_is_distinct_from_pinned_release(source, default_re
     plan["source"] = source
     for recorded in (None, default_ref, "release-v1", "a" * 40):
         plan["requested_revision"] = recorded
+        seal_plan(plan)
         verify_download(snapshot, plan)
         (entry / "model_download_plan.json").write_text(json.dumps(plan))
         result = model_store.cached_metadata("demo/model", "config.json", None, source=source)

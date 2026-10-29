@@ -138,6 +138,12 @@ Adapter、loader、四阶段调用、组件、IO、配置摘要和有效生成�
 
 `runtime_environment.model_download` 是可选的独立 schema v1 清单，历史结果可缺失。`requested_policy` 保存 `auto/full`，`effective_policy` 保存实际 `selected/full`，`reason` 说明筛选或回退原因；`weights` 记录组件、格式、variant 和索引／分片文件。`files` 保存路径、实际逻辑大小和准备阶段计算的 SHA256，另保留 Hub 提供的 Git blob／LFS 标识；`excluded_files` 是未下载文件的远端元数据。`verification=sha256` 表示准备阶段已完成完整性检查，`plan_sha256` 校验规范化 JSON（不含自身字段）。`selected_bytes` 按清单路径求和，不对相同内容的多个路径去重，mounted 模式下其含依赖总量成为 `model_artifact_bytes`（及兼容别名 `model_cache_bytes`）；不等同于镜像大小或释放的磁盘空间。新增清单不改变 CSV 字段和历史指标定义。`runtime_environment.model_store` 记录 entry ID、计划 SHA256 和逻辑制品大小；主机结果额外记录 `host_path`，仅用于挂载定位，不参与便携镜像内容身份。
 
+`files[].size` 是非负整数 bytes，准备前允许缺失或 `null`，已验证清单必须有实际大小和字符串 SHA256。
+`selected_bytes` 必须与文件大小之和一致，任一大小未知时为 `null`；依赖存在时必需的
+`total_selected_bytes` 对主模型及依赖采用相同规则，无依赖但显式记录该字段时应等于 `selected_bytes`。
+布尔值、浮点数和负数不能充当字节数，`schema_version` 也必须是整数；这些检查与摘要验证同时执行，
+摘要一致不会放宽字段约束。保留 schema v1，不重写已有实验数据或给缺失历史指标补值。
+
 清单新增可选的 `source`（历史缺字段为 HF）、`requested_revision`、`repository_context` 与
 `download_provenance`。身份由 source、model ID、固定 commit 和已验证文件决定，HF／ModelScope
 同名模型保持不同来源；endpoint 不作为模型身份。`endpoint` 记录成功使用的 Hub 基地址，

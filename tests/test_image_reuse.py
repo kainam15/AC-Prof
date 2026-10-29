@@ -63,6 +63,7 @@ class TestPrepareImage:
                 'model_revision': self.task.model_revision, 'requested_policy': 'auto',
                 'task_family': self.task.task_family, 'backend': self.task.runtime_backend,
                 'adapter': 'family-default', 'verification': 'sha256',
+                'selected_bytes': 1,
                 'files': [{'path': 'model.safetensors', 'size': 1, 'sha256': 'c' * 64}],
             }),
         }

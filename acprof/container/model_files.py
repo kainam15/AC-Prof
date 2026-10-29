@@ -14,6 +14,8 @@ from collections.abc import Callable
 from pathlib import PurePosixPath
 from typing import Any
 
+from acprof.model_spec import validate_dependencies, validate_repository_identity
+
 PLAN_VERSION = 1
 PLAN_FILENAME = "model_download_plan.json"
 DIFFUSION_PIPELINES = {
@@ -37,7 +39,8 @@ def safe_path(name: str) -> str:
     if not isinstance(name, str):
         raise ModelFilesError(f"invalid model file path: {name!r}")
     path = PurePosixPath(name)
-    if not name or path.is_absolute() or ".." in path.parts or "\\" in name or str(path) != name:
+    if (not name or name == "." or "\0" in name or path.is_absolute()
+            or ".." in path.parts or "\\" in name or str(path) != name):
         raise ModelFilesError(f"invalid model file path: {name!r}")
     return name
 
@@ -50,24 +53,45 @@ def seal_plan(plan: dict) -> dict:
     return plan
 
 
+def _validate_identity(model_id: Any, revision: Any) -> None:
+    try:
+        validate_repository_identity(model_id, revision)
+    except ValueError as exc:
+        raise ModelFilesError(f"invalid model download plan identity: {exc}") from exc
+
+
+def _validate_byte_total(plan: dict, field: str, sizes: list[int | None]) -> None:
+    total = sum(size for size in sizes if size is not None) if all(size is not None for size in sizes) else None
+    if field not in plan or type(plan[field]) is not type(total) or plan[field] != total:
+        raise ModelFilesError(f"model download plan {field} differs from file sizes")
+
+
 def validate_plan(plan: dict) -> None:
-    if not isinstance(plan, dict) or plan.get("schema_version") != PLAN_VERSION:
+    if (not isinstance(plan, dict) or type(plan.get("schema_version")) is not int
+            or plan["schema_version"] != PLAN_VERSION):
         raise ModelFilesError("unsupported model download plan schema")
     expected = plan.get("plan_sha256")
     if not expected or seal_plan(dict(plan))["plan_sha256"] != expected:
         raise ModelFilesError("model download plan hash mismatch")
+    _validate_identity(plan.get("model_id"), plan.get("model_revision"))
+    source = plan.get("source", "huggingface")
+    if not isinstance(source, str) or source not in {"huggingface", "modelscope"}:
+        raise ModelFilesError("model download plan has an unsupported source")
     files = plan.get("files")
     if not isinstance(files, list) or not files or any(not isinstance(item, dict) for item in files):
         raise ModelFilesError("model download plan has no valid file list")
     paths = [safe_path(item.get("path")) for item in files]
     if len(paths) != len(set(paths)):
         raise ModelFilesError("model download plan contains duplicate file paths")
+    sizes = [item.get("size") for item in files]
+    if any(size is not None and (type(size) is not int or size < 0) for size in sizes):
+        raise ModelFilesError("model download plan file size must be nonnegative integer bytes or unknown")
+    _validate_byte_total(plan, "selected_bytes", sizes)
     if plan.get("verification") == "sha256":
-        if any(not isinstance(item.get("size"), int) or item["size"] < 0 or
-               not re.fullmatch(r"[0-9a-f]{64}", str(item.get("sha256", ""))) for item in files):
+        if any(item.get("size") is None or not isinstance(item.get("sha256"), str) or
+               not re.fullmatch(r"[0-9a-f]{64}", item["sha256"]) for item in files):
             raise ModelFilesError("verified model download plan has incomplete file hashes")
     if "dependencies" in plan:
-        from acprof.model_spec import validate_dependencies
         dependencies = plan["dependencies"]
         try:
             validate_dependencies([{key: value for key, value in item.items() if key != "download"}
@@ -80,11 +104,11 @@ def validate_plan(plan: dict) -> None:
                     raise ValueError("dependency snapshot identity or verification differs")
                 validate_plan(child)
             sizes = [plan.get("selected_bytes"), *(item["download"].get("selected_bytes") for item in dependencies)]
-            total = sum(sizes) if all(isinstance(size, int) for size in sizes) else None
-            if "total_selected_bytes" not in plan or plan["total_selected_bytes"] != total:
-                raise ValueError("dependency total_selected_bytes differs from file plans")
+            _validate_byte_total(plan, "total_selected_bytes", sizes)
         except (ValueError, TypeError, KeyError, AttributeError) as exc:
             raise ModelFilesError(f"invalid model dependency plan: {exc}") from exc
+    elif "total_selected_bytes" in plan:
+        _validate_byte_total(plan, "total_selected_bytes", [plan["selected_bytes"]])
 
 
 def resolve_checkpoint(names: set[str], read_json: Callable, prefix: str = "", *, diffusion: bool = False) -> dict | None:
@@ -133,8 +157,7 @@ def plan_download(
 ) -> dict:
     if policy not in {"auto", "full"}:
         raise ModelFilesError("model download policy must be auto or full")
-    if not re.fullmatch(r"[0-9a-f]{40}", revision):
-        raise ModelFilesError("model download plan requires a fixed commit SHA")
+    _validate_identity(model_id, revision)
     names = {safe_path(name) for name in files}
     if not names:
         raise ModelFilesError("model repository has no files")
@@ -276,11 +299,13 @@ def plan_download(
 
     selected_entries = entries(selected)
     sizes = [item.get("size") for item in selected_entries]
-    return seal_plan({
+    plan = seal_plan({
         "schema_version": PLAN_VERSION, "model_id": model_id, "model_revision": revision,
         "task_family": family, "backend": backend, "adapter": adapter,
         "requested_policy": policy, "effective_policy": effective, "reason": reason,
         "library_versions": library_versions or {}, "weights": weights,
         "files": selected_entries, "excluded_files": entries(names - selected),
-        "selected_bytes": sum(sizes) if all(isinstance(size, int) for size in sizes) else None,
+        "selected_bytes": sum(sizes) if all(type(size) is int for size in sizes) else None,
     })
+    validate_plan(plan)
+    return plan

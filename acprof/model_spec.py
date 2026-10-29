@@ -20,6 +20,16 @@ MULTIMODAL_PIPELINE_INPUTS = {
 }
 
 
+def validate_repository_identity(repo_id: Any, revision: Any) -> None:
+    """Validate a pinned repository used by the offline cache layout."""
+    if (not isinstance(repo_id, str) or not re.fullmatch(r"[\w.-]+(?:/[\w.-]+)?", repo_id, re.ASCII)
+            or any(part in {".", ".."} for part in repo_id.split("/")) or "--" in repo_id):
+        # The loader encodes '/' as '--'; literal '--' would alias another repo.
+        raise ValueError("model repository ID must be a name or namespace/name without '--'")
+    if not isinstance(revision, str) or not re.fullmatch(r"[0-9a-f]{40}", revision):
+        raise ValueError("model repository revision must be a fixed commit SHA")
+
+
 def validate_dependencies(dependencies: Any) -> list[dict]:
     """Offline repositories are explicit, bounded, and pinned before a build."""
     if not isinstance(dependencies, list) or len(dependencies) > 16:
@@ -29,11 +39,12 @@ def validate_dependencies(dependencies: Any) -> list[dict]:
         if not isinstance(item, dict) or set(item) - {"repo_id", "revision", "allow_patterns"}:
             raise ValueError("invalid model dependency fields")
         repo = item.get("repo_id")
-        if (not isinstance(repo, str) or not re.fullmatch(r"[\w.-]+(?:/[\w.-]+)?", repo, re.ASCII)
-                or any(part in {".", ".."} for part in repo.split("/")) or repo in seen):
+        try:
+            validate_repository_identity(repo, item.get("revision"))
+        except ValueError as exc:
+            raise ValueError(f"invalid model dependency: {exc}") from exc
+        if repo in seen:
             raise ValueError("model dependency repo_id must be a unique Hub repository")
-        if not isinstance(item.get("revision"), str) or not re.fullmatch(r"[0-9a-f]{40}", item["revision"]):
-            raise ValueError("model dependency revision must be a fixed commit SHA")
         patterns = item.get("allow_patterns")
         if patterns is not None and (not isinstance(patterns, list) or not patterns or len(patterns) > 128 or any(
             not isinstance(pattern, str) or not pattern or pattern.startswith("/") or "\\" in pattern

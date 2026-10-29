@@ -387,6 +387,7 @@ class TestModelStore:
             "pipeline_tag": "feature-extraction", "library_name": "transformers",
             "config": {"model_type": "bert", "architectures": ["BertModel"]},
             "tags": [], "card_data": {}, "safetensors": None, "transformers_info": {}}
+        seal_plan(self.plan)
         self.prepare()
         with patch.dict(os.environ, {"ACPROF_MODEL_STORE": str(self.root), "ACPROF_MODEL_SOURCE": "huggingface"}), patch(
                 "huggingface_hub.HfApi.model_info", side_effect=AssertionError("cache hit used network")), patch(
@@ -400,6 +401,7 @@ class TestModelStore:
             "pipeline_tag": "feature-extraction", "library_name": "transformers",
             "config": {"model_type": "bert", "architectures": ["BertModel"]},
             "tags": [], "card_data": {}, "safetensors": None, "transformers_info": {}}
+        seal_plan(self.plan)
         self.prepare()
         entries = self.root / "entries"
         (entries / ("f" * 64)).symlink_to(self.root / "missing-entry")
@@ -412,6 +414,7 @@ class TestModelStore:
 
     def test_default_revision_does_not_reuse_a_cached_release(self):
         self.plan["requested_revision"] = "release-v1"
+        seal_plan(self.plan)
         self.prepare()
         with patch("acprof.host.model_store.store_root", return_value=self.root):
             assert model_store.cached_model_info(self.task.model_id, None, source="huggingface") is None

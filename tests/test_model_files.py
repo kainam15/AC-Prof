@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from acprof.container.download_model import verify_download
-from acprof.container.model_files import ModelFilesError, plan_download, validate_plan
+from acprof.container.model_files import ModelFilesError, plan_download, seal_plan, validate_plan
 
 
 class TestModelFilePlan:
@@ -182,6 +182,8 @@ class TestModelFilePlan:
             (Path(temporary) / "model.safetensors").write_bytes(content)
             plan = self.plan(["model.safetensors"], policy="full")
             plan["files"][0].update(size=len(content), lfs_sha256=hashlib.sha256(content).hexdigest())
+            plan["selected_bytes"] = len(content)
+            seal_plan(plan)
             verified = verify_download(temporary, copy.deepcopy(plan))
             assert (verified["files"][0]["sha256"]) == (hashlib.sha256(content).hexdigest())
             validate_plan(verified)

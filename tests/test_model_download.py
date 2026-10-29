@@ -121,7 +121,12 @@ class TestModelDownload:
 
     def test_unknown_hub_sizes_stop_before_downloading(self):
         plan = self.dependency_plan()
-        plan["dependencies"][0]["download"]["files"][0]["size"] = None
+        child = plan["dependencies"][0]["download"]
+        child["files"][0]["size"] = None
+        child["selected_bytes"] = None
+        seal_plan(child)
+        plan["total_selected_bytes"] = None
+        seal_plan(plan)
         with tempfile.TemporaryDirectory() as directory, patch("huggingface_hub.snapshot_download") as download:
             with pytest.raises(DownloadPolicyError):
                 model_store.prepare_model(self.task(plan), plan, Path(directory))
