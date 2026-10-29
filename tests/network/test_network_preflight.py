@@ -57,6 +57,31 @@ def test_download_confirmation_preserves_raw_bytes(tmp_path, capsys, download_by
     assert logged == report
 
 
+def test_preflight_disk_and_model_estimates_use_the_same_cache_snapshot(tmp_path):
+    task = SimpleNamespace(model_id="demo/model", model_revision="a" * 40,
+        task_family="nlp", runtime_backend="transformers_pipeline", model_adapter="family-default")
+    plan = {"selected_bytes": 2, "endpoint": "https://huggingface.co"}
+    missing = DownloadSource("model", plan["endpoint"], 2, cached_bytes=0, cache_status="miss")
+    hit = DownloadSource("model", plan["endpoint"], 0, cached_bytes=2, cache_status="hit")
+
+    def disk_for(sources, _root):
+        required = sum(source.estimated_bytes for source in sources)
+        return {"total_bytes": 2, "free_bytes": 1_000_000, "required_bytes": required,
+                "remaining_bytes": 1_000_000 - required, "reclaimable_bytes": 0}
+
+    with (
+        patch.dict("os.environ", {}, clear=True),
+        patch("acprof.host.model_store.model_sources", side_effect=([missing], [hit])),
+        patch("acprof.host.model_store.require_space", side_effect=disk_for),
+        patch("acprof.host.model_store.probe_model_download", return_value=[]),
+    ):
+        report = preflight(task, None, tmp_path, plan, root=tmp_path / "cache",
+                           runtime_plan=([], {"kind": "process"}))
+
+    assert report["expected_download_bytes"] == 0
+    assert report["model"]["cached_bytes"] == 2
+    assert report["disk"]["required_bytes"] == report["expected_download_bytes"]
+
 
 def test_model_only_budget_allows_cached_model_with_unknown_oci_size(tmp_path):
     """Regression for hardware run #2: GHCR manifest may have no size."""

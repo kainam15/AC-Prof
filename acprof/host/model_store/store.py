@@ -17,6 +17,7 @@ import time
 from collections import Counter
 from collections.abc import Callable
 from contextlib import ExitStack, contextmanager
+from dataclasses import dataclass
 from pathlib import Path
 from threading import Event, RLock
 from urllib.parse import urlsplit
@@ -102,6 +103,14 @@ def retain_mount_for_cleanup_debt(mount: ModelStoreMount) -> None:
 
 class ModelStoreCancelled(RuntimeError):
     """The caller cancelled preparation or lock waiting before a GC mutation."""
+
+
+@dataclass(frozen=True)
+class CachedFileObservation:
+    """One cache path and size from the same filesystem observation."""
+
+    path: Path
+    size: int
 
 
 def _check_cancelled(cancel: Event | None) -> None:
@@ -217,13 +226,19 @@ def read_entry(key: str, root: Path | None = None) -> dict | None:
     return plan
 
 
-def _cached_file_matches(path: Path, size: int | None, *, allow_unknown_size: bool = False) -> bool:
-    """Use one filesystem observation for type and size, preserving real errors."""
+def _cached_file_observation(
+    path: Path, size: int | None, *, allow_unknown_size: bool = False,
+) -> CachedFileObservation | None:
+    """Capture type and size in one filesystem observation, preserving real errors."""
     try:
         info = path.stat()
     except (FileNotFoundError, NotADirectoryError):
-        return False
-    return stat.S_ISREG(info.st_mode) and (info.st_size == size or (allow_unknown_size and size is None))
+        return None
+    if not stat.S_ISREG(info.st_mode) or not (
+        info.st_size == size or (allow_unknown_size and size is None)
+    ):
+        return None
+    return CachedFileObservation(path, info.st_size)
 
 
 def _cached_repositories(model_id: str, revision: str | None, source: str):
@@ -258,7 +273,7 @@ def _cached_repositories(model_id: str, revision: str | None, source: str):
                         or (revision or default_ref) != (repo["requested_revision"] or default_ref)):
                     continue
             snapshot = entry / "hf" / ("models--" + model_id.replace("/", "--")) / "snapshots" / repo["model_revision"]
-            if all(_cached_file_matches(snapshot / f["path"], f["size"]) for f in repo["files"]):
+            if all(_cached_file_observation(snapshot / f["path"], f["size"]) for f in repo["files"]):
                 yield repo, snapshot
 
 
@@ -362,20 +377,17 @@ def plan_model(task, root: Path | None = None) -> dict:
         return prepare(MODELSCOPE_ENDPOINT) if source == "modelscope" else try_hf_endpoints(task.model_id, prepare, endpoints=endpoints)
 
 
-def cached_file(root: Path, plan: dict, record: dict) -> Path | None:
+def cached_file(root: Path, plan: dict, record: dict) -> CachedFileObservation | None:
     if plan.get("source", "huggingface") == "modelscope":
         from acprof.hub.repository import modelscope_snapshot
         path = modelscope_snapshot(root, plan["model_id"], plan["model_revision"]) / record["path"]
-        return path if _cached_file_matches(path, record.get("size")) else None
+        return _cached_file_observation(path, record.get("size"))
     from huggingface_hub import try_to_load_from_cache
     result = try_to_load_from_cache(plan["model_id"], record["path"], revision=plan["model_revision"],
                                    cache_dir=str(root / "hf"))
     if not isinstance(result, str):
         return None
-    path = Path(result)
-    if _cached_file_matches(path, record.get("size"), allow_unknown_size=True):
-        return path
-    return None
+    return _cached_file_observation(Path(result), record.get("size"), allow_unknown_size=True)
 
 
 def _complete_entry(plan: dict, root: Path, entry_id: str | None) -> bool:
@@ -394,9 +406,9 @@ def model_sources(plan: dict, root: Path | None = None, *, entry_id: str | None 
         cached = repo["selected_bytes"] if complete else 0
         missing = []
         for record in [] if complete else repo["files"]:
-            path = cached_file(root, repo, record)
-            if path:
-                cached += path.stat().st_size
+            observed = cached_file(root, repo, record)
+            if observed is not None:
+                cached += observed.size
             else:
                 missing.append(record.get("size"))
         expected = sum(missing) if all(type(n) is int for n in missing) else None

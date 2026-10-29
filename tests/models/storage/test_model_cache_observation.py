@@ -118,8 +118,38 @@ def test_source_snapshot_observes_payload_once(tmp_path, monkeypatch, source):
         result = model_store.cached_file(tmp_path,
             {"source": source, "model_id": MODEL_ID, "model_revision": REVISION},
             {"path": "config.json", "size": 2})
-    assert result == path
+    assert result is not None
+    assert (result.path, result.size) == (path, 2)
     assert len(calls) == 1
+
+
+def test_model_source_reuses_file_size_if_gc_removes_the_observed_path(tmp_path, monkeypatch):
+    snapshot = modelscope_snapshot(tmp_path, MODEL_ID, REVISION)
+    snapshot.mkdir(parents=True)
+    path = snapshot / "config.json"
+    path.write_bytes(b"{}")
+    plan = {
+        "source": "modelscope",
+        "model_id": MODEL_ID,
+        "model_revision": REVISION,
+        "endpoint": "https://modelscope.cn",
+        "selected_bytes": 2,
+        "files": [{"path": "config.json", "size": 2}],
+    }
+    cached_file = model_store.cached_file
+
+    def remove_after_observation(*args, **kwargs):
+        observed = cached_file(*args, **kwargs)
+        if observed is not None:
+            observed.path.unlink()
+        return observed
+
+    monkeypatch.setattr(model_store, "cached_file", remove_after_observation)
+
+    sources = model_store.model_sources(plan, tmp_path)
+
+    assert [(source.cached_bytes, source.estimated_bytes) for source in sources] == [(2, 0)]
+    assert not path.exists()
 
 
 def test_metadata_can_use_another_matching_entry_after_removal(cached_entry, monkeypatch):
@@ -195,4 +225,5 @@ def test_source_cache_requires_a_regular_file_and_expected_size(tmp_path, source
         result = model_store.cached_file(tmp_path,
             {"source": source, "model_id": MODEL_ID, "model_revision": REVISION},
             {"path": "config.json", "size": size})
-    assert result == (path if state == "unknown_size" and source == "huggingface" else None)
+    expected = path if state == "unknown_size" and source == "huggingface" else None
+    assert (result.path if result is not None else None) == expected

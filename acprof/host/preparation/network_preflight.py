@@ -286,12 +286,12 @@ def preflight(task, profile, project_dir, model_plan: dict, *, root=None,
         model_sources,
         probe_model_download,
         require_space,
+        store_lock,
         store_root,
     )
     from acprof.network_policy import parse_bytes
     entry_id = entry_key(task)
     models = model_sources(model_plan, root, entry_id=entry_id)
-    disk = require_space(models, root)
     enforce_model_download_budgets(summarize_downloads(models))
     sources, runtime = runtime_sources(profile, Path(project_dir)) if runtime_plan is None else runtime_plan
     planned = summarize_downloads([*models, *sources])
@@ -300,7 +300,11 @@ def preflight(task, profile, project_dir, model_plan: dict, *, root=None,
     print(f"[network-probe] HEAD + limited model GET; at most {allowance} payload bytes; "
           "no cache writes; complete downloads require confirmation in interactive mode", flush=True)
     probes = probe_model_download(model_plan, root, entry_id=entry_id, max_bytes=allowance)
-    models = model_sources(model_plan, root, entry_id=entry_id)  # Probe may have selected another Hub entry.
+    store = Path(root).expanduser().resolve() if root is not None else store_root()
+    with store_lock(store):
+        # Keep the confirmed cache bytes and their disk budget on one GC-stable snapshot.
+        models = model_sources(model_plan, store, entry_id=entry_id)
+        disk = require_space(models, store)
     probe_bytes = sum(item.get("received_bytes", 0) for item in probes)
     model_bytes = summarize_downloads(models)["expected_download_bytes"]
     enforce_model_download_budgets({"expected_download_bytes": None if model_bytes is None else model_bytes + probe_bytes})
@@ -313,7 +317,7 @@ def preflight(task, profile, project_dir, model_plan: dict, *, root=None,
     report["probe_byte_limit"] = allowance
     report["max_download_bytes"] = parse_bytes(os.environ.get("ACPROF_MAX_DOWNLOAD"))
     report["model_max_download_bytes"] = parse_bytes(os.environ.get("ACPROF_MODEL_MAX_DOWNLOAD"))
-    report["model_store_path"] = str(Path(root).expanduser().resolve() if root is not None else store_root())
+    report["model_store_path"] = str(store)
     from acprof.host.metadata.machine import docker_storage_metadata
     report["docker_storage"] = {} if runtime.get("kind") == "process" else docker_storage_metadata()
     report["model"] = {"model_id": task.model_id, "revision": task.model_revision,
