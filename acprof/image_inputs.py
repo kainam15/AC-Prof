@@ -72,9 +72,9 @@ def load_image_groups(
         result: dict[str, list[Image.Image]] = {}
         for name, images in opened.items():
             result[name] = []
-            for source in images:
+            for source_image in images:
                 try:
-                    image = source.convert(mode)
+                    image = source_image.convert(mode)
                 except (ValueError, OSError) as exc:
                     raise ValueError(f"{name} must decode to a valid image") from exc
                 decoded.callback(image.close)

@@ -1,6 +1,7 @@
 """Shared profiling argument declarations and frozen-option serialization."""
 import argparse
 
+from acprof.config_constraints import finite_number, integer
 from acprof.run_options import add_option_arguments
 
 
@@ -184,10 +185,10 @@ def flatten_run_options(options: dict) -> dict:
     return flattened
 
 
-def arguments_from_options(options: dict) -> list[str]:
+def arguments_from_options(options: dict, *, parser: argparse.ArgumentParser | None = None) -> list[str]:
     """Serialize recorded public options through the authoritative parser declarations."""
     actions: dict[str, list] = {}
-    for action in build_parser()._actions:
+    for action in (parser or build_parser())._actions:
         if action.dest != 'help':
             actions.setdefault(action.dest, []).append(action)
     arguments = []
@@ -213,11 +214,17 @@ def arguments_from_options(options: dict) -> list[str]:
         for item in values:
             if not isinstance(item, (str, int, float)) or isinstance(item, bool):
                 raise ValueError(f'invalid frozen option: {name}')
+            parsed: object
             try:
-                parsed = action.type(item) if action.type else item
+                if action.type is int:
+                    parsed = integer(item, allow_text=True)
+                elif action.type is float:
+                    parsed = finite_number(item, allow_text=True)
+                else:
+                    parsed = action.type(item) if action.type else item
             except (ValueError, TypeError) as exc:
                 raise ValueError(f'invalid frozen option: {name}') from exc
             if action.choices is not None and parsed not in action.choices:
                 raise ValueError(f'invalid frozen choice: {name}')
-            arguments.extend((action.option_strings[0], str(item)))
+            arguments.extend((action.option_strings[0], str(parsed)))
     return arguments

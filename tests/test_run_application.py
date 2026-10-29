@@ -66,13 +66,13 @@ def test_cli_config_round_trip_retains_unmapped_and_sampling_options(tmp_path):
     parser = build_parser()
     args = parser.parse_args([
         "--model", "fixture/model", "--matrix-seed", "73", "--matrix-order", "declared",
-        "--latency-slo", "1.5", "--torch-profiler-repeat", "7", "--sampling-policy", "skip",
+        "--latency-slo", "default=1.5", "--torch-profiler-repeat", "7", "--sampling-policy", "skip",
         "--raw-sample-limit", "321",
     ])
     config = RunConfig.from_namespace(args).validate(project_dir=tmp_path)
     restored = config.to_namespace()
     assert (restored.matrix_seed, restored.matrix_order, restored.torch_profiler_repeat) == (73, "declared", 7)
-    assert restored.latency_slo == ["1.5"]
+    assert restored.latency_slo == ["default=1.5"]
     assert (restored.sampling_policy, restored.raw_sample_limit) == ("skip", 321)
     command = build_run_command(config, project_dir=tmp_path)
     assert command[command.index("--matrix-seed") + 1] == "73"

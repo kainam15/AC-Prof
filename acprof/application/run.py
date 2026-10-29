@@ -1,7 +1,6 @@
 """Collect one experiment using instance-owned lifecycle and injected boundaries."""
 from __future__ import annotations
 
-import math
 import os
 import sys
 import time
@@ -325,50 +324,15 @@ class RunApplication:
     def _validate_execution_options(self, config: RunConfig):
         args = config.validate(project_dir=Path.cwd()).to_namespace()
         self.environment_setup(args)
-        try:
-            latency_slo_rules = parse_latency_slo_rules(
-                args.latency_slo, environment_threshold=os.environ.get("SLOW_LATENCY_THRESHOLD_S"),
-            )
-        except ValueError as exc:
-            raise ValueError(str(exc)) from exc
+        latency_slo_rules = parse_latency_slo_rules(
+            args.latency_slo, environment_threshold=os.environ.get("SLOW_LATENCY_THRESHOLD_S"),
+        )
+        from acprof.cpu_affinity import parse_cpu_set
         from acprof.monitors.rapl_topology import dram_policy
-        try:
-            dram_enabled = dram_policy(args.profiling_mode, args.dram_energy)
-        except ValueError as exc:
-            raise ValueError(str(exc)) from exc
-        from acprof.cpu_affinity import normalize_cpu_set, parse_cpu_set
-        try:
-            args.cpuset_cpus = normalize_cpu_set(args.cpuset_cpus)
-            if args.cpuset_cpus and not parse_cpu_set(args.cpuset_cpus) <= set(os.sched_getaffinity(0)):
-                raise ValueError("--cpuset-cpus includes CPUs unavailable to this process")
-        except (ValueError, OSError) as exc:
-            raise ValueError(str(exc)) from exc
-        if args.repeat_in_window < 0:
-            raise ValueError("--repeat-in-window must be >= 0")
-        if args.repeat_window_seconds <= 0.0:
-            raise ValueError("--repeat-window-seconds must be > 0")
-        if (
-            args.request_timeout_seconds <= 0.0
-            or not math.isfinite(args.request_timeout_seconds)
-        ):
-            raise ValueError("--request-timeout-seconds must be a finite value > 0")
-        if args.torch_profiler_repeat <= 0:
-            raise ValueError("--torch-profiler-repeat must be > 0")
-        if args.ncu_repeat <= 0:
-            raise ValueError("--ncu-repeat must be > 0")
-        if args.massif_repeat <= 0:
-            raise ValueError("--massif-repeat must be > 0")
-        if args.nsys_repeat <= 0:
-            raise ValueError("--nsys-repeat must be > 0")
-        for option, value in (
-            ("--massif-reference-cpu", args.massif_reference_cpu),
-            ("--massif-reference-mem", args.massif_reference_mem),
-            ("--nsys-reference-cpu", args.nsys_reference_cpu),
-            ("--nsys-reference-mem", args.nsys_reference_mem),
-        ):
-            if value is not None and value <= 0:
-                raise ValueError(f"{option} must be > 0")
 
+        dram_enabled = dram_policy(args.profiling_mode, args.dram_energy)
+        if args.cpuset_cpus and not parse_cpu_set(args.cpuset_cpus) <= set(os.sched_getaffinity(0)):
+            raise ValueError("--cpuset-cpus includes CPUs unavailable to this process")
         require_collection_host(profiling_mode=args.profiling_mode,
                                 compute_tool=args.compute_profile_tool,
                                 execution_tool=args.execution_profile_tool, dram_energy=args.dram_energy)
@@ -471,10 +435,7 @@ class RunApplication:
         print(f"  Profiling mode: {args.profiling_mode}")
 
         output_dir = terminal_output_dir
-        try:
-            require_result_environment(output_dir)
-        except ValueError as exc:
-            raise ValueError(str(exc)) from exc
+        require_result_environment(output_dir)
         require_result_cgroup_compatibility(
             output_dir,
             cgroup_version=cgroup_version,

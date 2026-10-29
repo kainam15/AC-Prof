@@ -1,7 +1,6 @@
 """Client configuration is read and validated only at the execution boundary."""
 from __future__ import annotations
 
-import math
 import os
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -14,6 +13,7 @@ from acprof.config import (
     DEFAULT_REPEAT_WINDOW_SECONDS,
     DEFAULT_REQUEST_TIMEOUT_SECONDS,
 )
+from acprof.config_constraints import MEASUREMENT_NUMBERS, ConstraintViolation
 from acprof.gpu_mode import normalize_gpu_mode
 from acprof.monitors.sampling import DEFAULT_RAW_SAMPLE_LIMIT, SamplingPolicy, sampling_policy
 
@@ -214,20 +214,14 @@ class ClientConfig:
             raise ValueError('Process client requires a verified process identity and basic profiling')
         require_profiling_mode(self.profiling_mode)
         sampling_policy(self.sampling_policy)
-        if isinstance(self.raw_sample_limit, bool) or not isinstance(self.raw_sample_limit, int) or self.raw_sample_limit < 2:
-            raise ValueError("raw_sample_limit must be an integer of at least 2")
         evidence_config = (self.run_id, self.case_id, self.case_attempt_id, self.window_records_dir, self.telemetry_dir)
         if any(evidence_config) and not all(evidence_config):
             raise ValueError("window evidence requires run_id, case_id, case_attempt_id and both evidence directories")
-        for name in ("request_timeout_seconds", "sample_hz", "repeat_window_seconds"):
-            value = getattr(self, name)
-            if not math.isfinite(value) or value <= 0:
-                raise ValueError(f"{name} must be finite and positive")
-        for name in ("idle_seconds", "idle_cooldown_seconds"):
-            value = getattr(self, name)
-            if not math.isfinite(value) or value < 0:
-                raise ValueError(f"{name} must be finite and nonnegative")
-        if self.batch_size < 1 or min(self.warmup, self.repeat, self.repeat_in_window, self.auto_warmup_requests) < 0:
-            raise ValueError("invalid batch size or repeat counts")
+        for name, rule in MEASUREMENT_NUMBERS.items():
+            try:
+                value = rule.parse(getattr(self, name), allow_integral_float=name != "raw_sample_limit")
+            except ConstraintViolation as exc:
+                raise ValueError(f"{name} {exc}") from exc
+            setattr(self, name, value)
         if self.dram_energy not in {"auto", "off", "required"}:
             raise ValueError("dram_energy must be auto, off or required")

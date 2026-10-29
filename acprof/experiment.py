@@ -9,6 +9,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field as dataclass_field, fields, replace
 from pathlib import Path
 
+from acprof.config_constraints import PROFILER_NUMBERS, RUN_NUMBERS, ConstraintViolation
 from acprof.extensions import CATALOG
 from acprof.gpu_mode import normalize_gpu_mode
 from acprof.installation import cli_command
@@ -74,12 +75,30 @@ def _positive_float_csv(value: str, label: str, field: str) -> list[float]:
     return values
 
 
-def _number(value: str | int | float, label: str, field: str, *, integer: bool) -> int | float:
-    try:
-        return int(value) if integer else float(value)
-    except (TypeError, ValueError, OverflowError) as exc:
-        kind = message('整数') if integer else message('数字')
-        raise RunConfigError([ConfigIssue(field, message('{0}必须是{1}', label, kind))]) from exc
+def _normalize_extra_options(options: object, mapped: set[str], errors: list[ConfigIssue]) -> dict:
+    from acprof.run_args import arguments_from_options, build_parser
+
+    if not isinstance(options, dict):
+        errors.append(ConfigIssue("extra_options", message("保留的实验参数必须是对象")))
+        return {}
+    parser = build_parser()
+    normalized = {}
+    for name, value in options.items():
+        try:
+            if name in mapped:
+                raise ValueError("extra options must contain only unmapped public CLI fields")
+            if name in PROFILER_NUMBERS and value is not None:
+                try:
+                    value = PROFILER_NUMBERS[name].parse(value, allow_text=True)
+                except ConstraintViolation:
+                    errors.append(ConfigIssue(name, message("参数 {0} 必须是正整数", name)))
+                    continue
+            arguments_from_options({name: value}, parser=parser)
+        except (ValueError, TypeError) as exc:
+            errors.append(ConfigIssue(str(name), message("参数 {0} 无效：{1}", name, str(exc))))
+        else:
+            normalized[name] = value
+    return normalized
 
 
 @dataclass(frozen=True)
@@ -170,16 +189,10 @@ class RunConfig(RunOptions):
         errors: list[ConfigIssue] = []
         for name, identifier in (("task_run_id", self.task_run_id), *[("tasks", item) for item in self.tasks.split(",")]):
             if identifier and not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", identifier):
-                errors.append(ConfigIssue(name, f"invalid {name}: expected a safe identifier"))
+                errors.append(ConfigIssue(name, message("参数 {0} 必须是安全标识符", name)))
         if self.resume and self.rebuild_image:
             errors.append(ConfigIssue("rebuild_image", message("恢复实验必须使用原镜像；如需重建，请创建新实验。")))
-        try:
-            if not isinstance(self.extra_options, dict) or set(self.extra_options) & {item.name for item in fields(self)}:
-                raise ValueError('extra options must contain only unmapped public CLI fields')
-            from acprof.run_args import arguments_from_options
-            arguments_from_options(self.extra_options)
-        except (ValueError, TypeError) as exc:
-            errors.append(ConfigIssue(None, message("保留的实验参数无效：{0}", exc)))
+        extra_options = _normalize_extra_options(self.extra_options, {item.name for item in fields(self)}, errors)
         if not isinstance(self.revision, str) or any(character.isspace() for character in self.revision):
             errors.append(ConfigIssue("revision", message("模型 revision 必须是无空白的 branch、tag 或 commit SHA")))
         from acprof.hf_endpoints import HF_DOWNLOAD_MODES
@@ -217,11 +230,11 @@ class RunConfig(RunOptions):
 
         gpus = _csv_values(self.gpus)
         if self.runtime not in {"auto", "docker", "process"}:
-            errors.append(ConfigIssue("runtime", "Execution runtime must be auto, docker or process"))
+            errors.append(ConfigIssue("runtime", message("执行运行时必须是 auto、docker 或 process")))
         if self.runtime == "process" and (self.profiling_mode != "basic"
                 or self.compute_profile_tool != "none" or self.execution_profile_tool != "none"
-                or self.extra_options.get("dram_energy") == "required"):
-            errors.append(ConfigIssue("runtime", "Process Runtime currently supports basic collection without independent profilers"))
+                or extra_options.get("dram_energy") == "required"):
+            errors.append(ConfigIssue("runtime", message("Process Runtime 目前仅支持 basic 采集，且不能启用独立分析器")))
         if not gpus:
             errors.append(ConfigIssue("gpus", message('GPU 模式不能为空')))
         else:
@@ -247,28 +260,29 @@ class RunConfig(RunOptions):
 
         numbers: dict[str, int | float] = {}
         numeric_fields = (
-            ("batch_size", "Batch size", True, True, 'Batch size 必须大于 0'),
-            ("warmup", "Warmup", True, False, 'Warmup 不能小于 0'),
-            ("repeat", "Repeat", True, True, 'Repeat 必须大于 0'),
-            ("repeat_in_window", '每窗口请求数', True, False, '每窗口请求数不能小于 0'),
-            ("repeat_window_seconds", '自动窗口秒数', False, True, '自动窗口秒数必须大于 0'),
-            ("request_timeout_seconds", '单请求超时秒数', False, True, '单请求超时秒数必须是大于 0 的有限数字'),
-            ("sample_hz", '采样频率', False, True, '采样频率必须大于 0'),
-            ("raw_sample_limit", 'Raw sample limit', True, True, 'Raw sample limit must be positive'),
-            ("idle_seconds", 'Idle 秒数', False, False, 'Idle 秒数不能小于 0'),
-            ("idle_cooldown_seconds", 'Idle cooldown 秒数', False, False, 'Idle cooldown 秒数不能小于 0'),
+            ("batch_size", "Batch size", "Batch size 必须大于 0"),
+            ("warmup", "Warmup", "Warmup 不能小于 0"),
+            ("repeat", "Repeat", "Repeat 必须大于 0"),
+            ("repeat_in_window", "每窗口请求数", "每窗口请求数不能小于 0"),
+            ("repeat_window_seconds", "自动窗口秒数", "自动窗口秒数必须大于 0"),
+            ("request_timeout_seconds", "单请求超时秒数", "单请求超时秒数必须是大于 0 的有限数字"),
+            ("sample_hz", "采样频率", "采样频率必须大于 0"),
+            ("raw_sample_limit", "raw_sample_limit", "原始采样上限必须是至少 2 的整数"),
+            ("idle_seconds", "Idle 秒数", "Idle 秒数不能小于 0"),
+            ("idle_cooldown_seconds", "Idle cooldown 秒数", "Idle cooldown 秒数不能小于 0"),
         )
-        for field, label, integer, positive, reason in numeric_fields:
+        for field, label, reason in numeric_fields:
+            rule = RUN_NUMBERS[field]
             try:
-                value = _number(getattr(self, field), message(label), field, integer=integer)
-            except RunConfigError as exc:
-                errors.extend(exc.issues)
-                continue
-            numbers[field] = value
-            if not math.isfinite(float(value)) or (value <= 0 if positive else value < 0):
-                if field == "repeat_window_seconds" and not math.isfinite(float(value)):
-                    reason = '自动窗口秒数必须是有限数字'
-                errors.append(ConfigIssue(field, message(reason)))
+                numbers[field] = rule.parse(getattr(self, field), allow_text=True)
+            except ConstraintViolation as exc:
+                if exc.code == "minimum":
+                    detail = message(reason)
+                elif exc.code == "finite":
+                    detail = message("{0}必须是有限数字", message(label))
+                else:
+                    detail = message("{0}必须是{1}", message(label), message("整数" if rule.whole else "数字"))
+                errors.append(ConfigIssue(field, detail))
 
         task_family = self.task_family.strip().lower()
         if task_family and task_family not in TASK_FAMILIES:
@@ -278,11 +292,7 @@ class RunConfig(RunOptions):
         if self.profiling_mode not in {"full", "basic"}:
             errors.append(ConfigIssue("profiling_mode", message('无效的画像模式')))
         if self.sampling_policy not in {"burst", "skip"}:
-            errors.append(ConfigIssue("sampling_policy", "sampling_policy must be burst or skip"))
-        if ("raw_sample_limit" in numbers and numbers["raw_sample_limit"] < 2
-                or isinstance(self.raw_sample_limit, bool)
-                or isinstance(self.raw_sample_limit, float) and not self.raw_sample_limit.is_integer()):
-            errors.append(ConfigIssue("raw_sample_limit", "raw_sample_limit must be an integer of at least 2"))
+            errors.append(ConfigIssue("sampling_policy", message("采样策略必须是 burst 或 skip")))
         if self.execution_profile_tool not in EXECUTION_PROFILE_TOOLS:
             errors.append(ConfigIssue("execution_profile_tool", message('无效的执行分析器')))
         if self.notify not in NOTIFY_MODES:
@@ -291,6 +301,19 @@ class RunConfig(RunOptions):
             errors.append(ConfigIssue("output_dir", message('输出目录不能为空')))
         if not self.sniff_iface.strip():
             errors.append(ConfigIssue("sniff_iface", message('抓包网卡不能为空')))
+
+        from acprof.latency_slo import parse_latency_slo_rules
+        from acprof.monitors.rapl_topology import dram_policy
+
+        try:
+            parse_latency_slo_rules([str(item) for item in (extra_options.get("latency_slo") or [])])
+        except ValueError as exc:
+            errors.append(ConfigIssue("latency_slo", message("延迟 SLO 规则无效：{0}", str(exc))))
+        if self.profiling_mode in {"basic", "full"}:
+            try:
+                dram_policy(self.profiling_mode, extra_options.get("dram_energy") or "auto")
+            except ValueError:
+                errors.append(ConfigIssue("dram_energy", message("DRAM 能耗策略与画像模式不兼容")))
 
         workload_spec = self.workload_spec.strip()
         if workload_spec and project_dir is not None:
@@ -317,6 +340,7 @@ class RunConfig(RunOptions):
         return replace(
             self,
             model=model,
+            extra_options=extra_options,
             task=self.task.strip(),
             task_family=task_family,
             backend=self.backend.strip(),

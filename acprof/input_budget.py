@@ -4,11 +4,11 @@ These limits bound expanded input objects, not model memory or OOM feasibility.
 Explicit workload overrides travel with each frozen payload, never via host RAM.
 """
 
-import math
 from collections.abc import Iterable
 from dataclasses import asdict, dataclass
-from numbers import Integral
 from typing import Any
+
+from acprof.config_constraints import ConstraintViolation, integer
 
 
 class InputBudgetExceeded(ValueError):
@@ -17,14 +17,10 @@ class InputBudgetExceeded(ValueError):
 
 def positive_integer(value: Any, name: str, *, allow_integral_float: bool = True) -> int:
     """Parse numeric integers without truncation; strict fields reject floats."""
-    if isinstance(value, bool):
-        raise ValueError(f"{name} must be a positive integer")
-    if isinstance(value, Integral):
-        parsed = int(value)
-    elif allow_integral_float and isinstance(value, float) and math.isfinite(value) and value.is_integer():
-        parsed = int(value)
-    else:
-        raise ValueError(f"{name} must be a positive integer")
+    try:
+        parsed = integer(value, allow_integral_float=allow_integral_float)
+    except ConstraintViolation as exc:
+        raise ValueError(f"{name} must be a positive integer") from exc
     if parsed < 1:
         raise ValueError(f"{name} must be a positive integer")
     return parsed

@@ -176,6 +176,7 @@ machine events 继续由 `RunProgressTracker` 解析。
 `cli.run` 只适配参数、SIGTERM 与退出码，原始参数的 `None` 保留未显式覆盖环境设置的含义。
 `RunConfig.from_namespace` 和 `to_namespace` 复用既有参数声明，并保留 seed、SLO 等额外公共选项，
 不另建配置 schema。准备阶段返回 `PreparedRuntime`，汇总镜像、输入计划、profiler 计划与能力报告。
+`RunConfig.validate()` 汇总纯参数约束与逐字段 `ConfigIssue`，并规范化 profiler 重复次数和参考资源。`config_constraints` 提供 CLI、表单、冻结参数及 `ClientConfig` 共用的无损数值解析，拒绝布尔值、非有限值和小数截断；主机 CPU 亲和可用性、环境 SLO 与硬件能力仍在 preflight 检查。用户实验的 `repeat` 至少为 1，直接测量入口允许准备／清理用的 0 窗口；这一区别显式保留在共享规则中。底层测量还验证进程身份和证据目录等运行不变量。
 `_execute()` 只串联执行选项校验、任务集合分派、主机预检、准备、矩阵执行和结果发布；
 `_collect_matrix()` 消费单一 `MatrixRequest`，`_publish_matrix_results()` 负责 capability 校验、
 CSV 合并、RunState 完成与清理，task child 继续使用同一 `_finalize()` 所有权和异常优先级。
