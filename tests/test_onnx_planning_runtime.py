@@ -27,8 +27,8 @@ class TestONNXWordPiecePlanning:
         from tokenizers import Tokenizer, models, pre_tokenizers, processors
         from werkzeug.serving import make_server
 
-        from acprof.host import input_plan
         from acprof.host.detect import TaskInfo
+        from acprof.host.input_plan import families
         from examples.onnxruntime.fixtures import create_text_fixture
 
         assert (importlib.util.find_spec('torch')) is None
@@ -81,8 +81,8 @@ class TestONNXWordPiecePlanning:
         # localhost HTTP remain in use, without mocking token counts or responses.
         self.contexts.enter_context(patch.dict(sys.modules, {'requests': SimpleNamespace(post=post)}))
         session = SimpleNamespace(name='wordpiece-test-session', base_url=self.base)
-        self.contexts.enter_context(patch.object(input_plan, '_start_probe_session', return_value=session))
-        self.stop = self.contexts.enter_context(patch.object(input_plan, 'stop_service_session'))
+        self.contexts.enter_context(patch.object(families, 'start_probe_session', return_value=session))
+        self.stop = self.contexts.enter_context(patch.object(families, 'stop_service_session'))
         self.task = TaskInfo('local/wordpiece-fixture', 'text-classification', 'nlp',
                              'onnxruntime', 'onnx', 'fixture', 'test')
 
