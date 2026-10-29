@@ -17,7 +17,7 @@ from acprof.config import (
     DEFAULT_REPEAT_WINDOW_SECONDS,
     DEFAULT_REQUEST_TIMEOUT_SECONDS,
 )
-from acprof.hf_endpoints import HF_DOWNLOAD_MODES
+from acprof.hub.huggingface.endpoints import HF_DOWNLOAD_MODES
 
 
 @dataclass(frozen=True)

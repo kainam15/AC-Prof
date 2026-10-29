@@ -112,6 +112,6 @@ def model_lookup_error(model_id: str, exc: BaseException, *, revision: str | Non
             break
         cause = cause.__cause__
     detail = "\n".join(diagnostics) if diagnostics else f"{type(exc).__name__}: {exc}"
-    from acprof.hf_download import HfDownloadError, exception_chain
+    from acprof.hub.huggingface.download import HfDownloadError, exception_chain
     download_error = next((cause.to_dict() for cause in exception_chain(exc) if isinstance(cause, HfDownloadError)), None)
     return ModelLookupError(model_id, reason, revision=revision or "", detail=detail, download_error=download_error)

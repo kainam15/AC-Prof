@@ -13,8 +13,8 @@ from pathlib import Path
 from typing import Any
 
 from acprof.extensions import CATALOG, UnsupportedExtensionError
-from acprof.hf_auth import hf_token_for_url
 from acprof.host.model_errors import ModelLookupError, model_lookup_error
+from acprof.hub.huggingface.auth import hf_token_for_url
 from acprof.model_repository import MetadataFile, read_metadata_file
 
 
@@ -84,8 +84,8 @@ def _download_metadata(
         return modelscope_metadata(model_id, name, revision, max_bytes)
     from huggingface_hub import hf_hub_download
 
-    from acprof.hf_download import try_hf_endpoints
-    from acprof.hf_transport import configure_hf_transport
+    from acprof.hub.huggingface.download import try_hf_endpoints
+    from acprof.hub.huggingface.transport import configure_hf_transport
     from acprof.model_evidence import pinned_revision
 
     configure_hf_transport()
@@ -159,12 +159,12 @@ def dependency_metadata(repo_id: str, revision: str) -> dict:
     """Resolve identity and lazily read bounded checkpoint metadata, never weights."""
     from huggingface_hub import HfApi
 
-    from acprof.hf_download import try_hf_endpoints
+    from acprof.hub.huggingface.download import try_hf_endpoints
     try:
         from acprof.host.model_store import cached_model_info
         info = cached_model_info(repo_id, revision, source="huggingface")
         if info is None:
-            from acprof.hf_transport import configure_hf_transport
+            from acprof.hub.huggingface.transport import configure_hf_transport
             configure_hf_transport()
             info = try_hf_endpoints(repo_id, lambda endpoint: HfApi(endpoint=endpoint, token=hf_token_for_url(endpoint)).model_info(
                 repo_id, revision=revision, files_metadata=False))
@@ -465,9 +465,9 @@ def _detect_from_hub(
     try:
         from huggingface_hub import HfApi
 
-        from acprof.hf_download import try_hf_endpoints
-        from acprof.hf_transport import configure_hf_transport
         from acprof.host.model_store import cached_model_info
+        from acprof.hub.huggingface.download import try_hf_endpoints
+        from acprof.hub.huggingface.transport import configure_hf_transport
         from acprof.model_repository import model_source, modelscope_info
         info = cached_model_info(model_id, revision, source=model_source())
         if info is None:

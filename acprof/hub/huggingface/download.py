@@ -4,8 +4,8 @@ from __future__ import annotations
 import socket
 import ssl
 
-from acprof.hf_endpoints import hf_endpoints
-from acprof.hf_transport import (
+from acprof.hub.huggingface.endpoints import hf_endpoints
+from acprof.hub.huggingface.transport import (
     UntrustedHfEndpointError,
     endpoint_type,
     observed_hf_provenance,

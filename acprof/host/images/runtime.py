@@ -14,7 +14,6 @@ from typing import Any
 
 from acprof.config import DOCKER_IMAGE_PREFIX
 from acprof.dependency_locks import content_digest
-from acprof.hf_auth import hf_token_for_url
 from acprof.host import command as host_command
 from acprof.host.detect import TaskInfo
 from acprof.host.images.environment import (
@@ -27,6 +26,7 @@ from acprof.host.images.environment import (
 )
 from acprof.host.images.identity import model_token
 from acprof.host.runtime_settings import runtime_build_overrides
+from acprof.hub.huggingface.auth import hf_token_for_url
 from acprof.installation import resource_root
 from acprof.model_spec import (
     encode_model_dependencies,
@@ -133,7 +133,7 @@ def model_fingerprint(task_info: Any, runtime_id: str, project_dir: str | Path =
         "adapter": select_runtime_profile(task_info).adapter, "policy": download_policy(task_info),
         "dependencies": task_model_spec(task_info).get("dependencies", []),
     }, sort_keys=True).encode())
-    for relative in ("acprof/container/download_model.py", "acprof/container/model_files.py", "acprof/model_spec.py", "acprof/hf_endpoints.py", "dockerfiles/runtime-model.Dockerfile"):
+    for relative in ("acprof/container/download_model.py", "acprof/container/model_files.py", "acprof/model_spec.py", "acprof/hub/huggingface/endpoints.py", "dockerfiles/runtime-model.Dockerfile"):
         digest.update((root / relative).read_bytes())
     return digest.hexdigest()
 
@@ -240,8 +240,8 @@ def prepare_runtime_image(task_info: Any, project_dir: str, *, reuse_existing: b
         from huggingface_hub import HfApi
 
         try:
-            from acprof.hf_download import try_hf_endpoints
-            from acprof.hf_transport import configure_hf_transport
+            from acprof.hub.huggingface.download import try_hf_endpoints
+            from acprof.hub.huggingface.transport import configure_hf_transport
             from acprof.model_repository import modelscope_revision
             if getattr(task_info, "model_source", "huggingface") == "modelscope":
                 revision = modelscope_revision(task_info.model_id, task_info.model_revision)

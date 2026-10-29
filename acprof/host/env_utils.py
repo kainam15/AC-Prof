@@ -14,8 +14,8 @@ from acprof.config import (
     CONTAINER_HF_HOME,
     CONTAINER_MODEL_LOCAL_PATH,
 )
-from acprof.hf_auth import hf_auth_origins
-from acprof.hf_endpoints import hf_endpoints
+from acprof.hub.huggingface.auth import hf_auth_origins
+from acprof.hub.huggingface.endpoints import hf_endpoints
 
 CONFIGURABLE_ENV_KEYS = (
     "HF_TOKEN", "HF_ENDPOINT", "HF_FALLBACK_ENDPOINTS", "HF_DOWNLOAD_MODE", "ACPROF_HF_AUTH_ORIGINS",
@@ -187,7 +187,7 @@ def configure_hf_network() -> str:
     endpoint = hf_endpoints()[0]
     os.environ["HF_ENDPOINT"] = endpoint
     _set_default_if_blank("HF_HUB_ENDPOINT", endpoint)
-    from acprof.hf_transport import configure_hf_transport
+    from acprof.hub.huggingface.transport import configure_hf_transport
     configure_hf_transport()
     return endpoint
 

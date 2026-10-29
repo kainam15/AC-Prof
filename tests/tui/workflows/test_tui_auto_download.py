@@ -79,7 +79,7 @@ async def test_failure_actions_show_details_and_require_source_confirmation(tmp_
 async def test_confirmed_source_switch_stops_old_child_and_returns_new_experiment_config(tmp_path):
     script = '''
 from acprof.host.collection_workflow import PreparationWorkflow
-from acprof.hf_download import HfDownloadError
+from acprof.hub.huggingface.download import HfDownloadError
 workflow = PreparationWorkflow(interactive=True)
 def fail():
     raise HfDownloadError("old/model", [{"stage":"storage", "reason":"timeout", "host":"cdn.hf.co"}])

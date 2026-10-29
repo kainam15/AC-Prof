@@ -6,7 +6,7 @@ from pathlib import Path
 
 from acprof.artifacts import atomic_write_json, read_json_object
 from acprof.gpu_mode import normalize_gpu_mode
-from acprof.hf_auth import hf_token_for_url
+from acprof.hub.huggingface.auth import hf_token_for_url
 from acprof.model_evidence import pinned_revision
 
 
@@ -14,10 +14,10 @@ def check_repository_access(repo_id: str, *, source: str = "huggingface", revisi
     """Check access without accepting terms or exposing credentials in reports."""
     from huggingface_hub import HfApi
 
-    from acprof.hf_download import HfDownloadError, exception_chain, try_hf_endpoints
-    from acprof.hf_transport import configure_hf_transport
     from acprof.host.model_errors import model_lookup_error
     from acprof.host.model_store import cached_model_info
+    from acprof.hub.huggingface.download import HfDownloadError, exception_chain, try_hf_endpoints
+    from acprof.hub.huggingface.transport import configure_hf_transport
     from acprof.model_repository import model_source, modelscope_info
     source = model_source(source)
     if cached_model_info(repo_id, revision, source=source) is not None:

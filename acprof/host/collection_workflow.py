@@ -119,7 +119,7 @@ class PreparationWorkflow:
                 if not self.interactive or self.continue_on_task_failure and stage == "runtime":
                     raise
                 fields: dict[str, Any] = {"model_error": exc.to_dict()} if isinstance(exc, ModelLookupError) else {}
-                from acprof.hf_download import HfDownloadError, exception_chain
+                from acprof.hub.huggingface.download import HfDownloadError, exception_chain
                 download_error = next((cause.to_dict() for cause in exception_chain(exc)
                                        if isinstance(cause, HfDownloadError)), None)
                 if download_error:

@@ -5,9 +5,9 @@ from unittest.mock import patch
 import httpx
 import pytest
 
-from acprof.hf_endpoints import hf_download_mode, hf_endpoints
-from acprof.hf_transport import _request_hook, _response_hook, safe_url
 from acprof.host.env_utils import load_project_env, save_project_env
+from acprof.hub.huggingface.endpoints import hf_download_mode, hf_endpoints
+from acprof.hub.huggingface.transport import _request_hook, _response_hook, safe_url
 from acprof.network_policy import DownloadPolicyError, source_route
 
 
@@ -24,7 +24,7 @@ def test_safe_url_preserves_authority_without_secrets(url, expected):
 
 @pytest.mark.parametrize("scheme", ["socks5", "socks5h"])
 def test_hub_client_supports_inherited_socks_proxy_without_network(monkeypatch, scheme):
-    from acprof.hf_transport import _httpx_factory
+    from acprof.hub.huggingface.transport import _httpx_factory
 
     for name in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY"):
         monkeypatch.delenv(name, raising=False)
@@ -43,8 +43,8 @@ def test_offline_hub_api_blocks_network_before_endpoint_fallback(monkeypatch):
     from huggingface_hub import constants
     from huggingface_hub.errors import OfflineModeIsEnabled
 
-    from acprof.hf_download import try_hf_endpoints
-    from acprof.hf_transport import _httpx_factory
+    from acprof.hub.huggingface.download import try_hf_endpoints
+    from acprof.hub.huggingface.transport import _httpx_factory
 
     monkeypatch.setenv("HF_DOWNLOAD_MODE", "auto")
     monkeypatch.setenv("HF_ENDPOINT", "https://hf-mirror.com")
@@ -74,7 +74,7 @@ def test_offline_requests_transport_blocks_before_adapter(monkeypatch):
     from huggingface_hub import constants
     from huggingface_hub.errors import OfflineModeIsEnabled
 
-    from acprof.hf_transport import _requests_factory
+    from acprof.hub.huggingface.transport import _requests_factory
 
     monkeypatch.setenv("HF_DOWNLOAD_MODE", "official")
     monkeypatch.setattr(constants, "HF_HUB_OFFLINE", True)
@@ -88,7 +88,7 @@ def test_offline_sdk_uses_cached_branch_without_transport(tmp_path, monkeypatch)
     import huggingface_hub as hub
     from huggingface_hub import constants
 
-    from acprof.hf_transport import _httpx_factory
+    from acprof.hub.huggingface.transport import _httpx_factory
 
     monkeypatch.setenv("HF_DOWNLOAD_MODE", "official")
     monkeypatch.setattr(constants, "HF_HUB_OFFLINE", True)
@@ -119,7 +119,7 @@ def test_offline_sdk_uses_cached_branch_without_transport(tmp_path, monkeypatch)
 def test_hub_semantic_errors_preserve_type_after_entry_fallback(error_name, status, monkeypatch):
     from huggingface_hub import errors
 
-    from acprof.hf_download import network_failure, try_hf_endpoints
+    from acprof.hub.huggingface.download import network_failure, try_hf_endpoints
 
     monkeypatch.setenv("HF_DOWNLOAD_MODE", "auto")
     choices = ["https://hf-mirror.com", "https://huggingface.co"]
@@ -142,8 +142,8 @@ def test_hub_semantic_errors_preserve_type_after_entry_fallback(error_name, stat
 def test_mirror_revision_failure_can_fall_back_to_successful_official_entry(monkeypatch):
     from huggingface_hub.errors import RevisionNotFoundError
 
-    from acprof.hf_download import try_hf_endpoints
-    from acprof.hf_transport import observed_hf_provenance
+    from acprof.hub.huggingface.download import try_hf_endpoints
+    from acprof.hub.huggingface.transport import observed_hf_provenance
 
     monkeypatch.setenv("HF_DOWNLOAD_MODE", "auto")
     attempted = []
@@ -208,7 +208,11 @@ def test_unknown_redirect_never_reaches_network(target):
 def test_https_redirect_cannot_downgrade_to_configured_http_entry(backend, monkeypatch):
     from urllib.parse import urlsplit
 
-    from acprof.hf_transport import UntrustedHfEndpointError, _httpx_factory, _requests_factory
+    from acprof.hub.huggingface.transport import (
+        UntrustedHfEndpointError,
+        _httpx_factory,
+        _requests_factory,
+    )
 
     endpoint = "http://fixture.hub.invalid"
     official = "https://huggingface.co/demo/model/resolve/main/config.json"
@@ -282,7 +286,7 @@ def test_real_hub_sdk_follows_mirror_hub_storage_chain(tmp_path, monkeypatch):
 
     import huggingface_hub as hub
 
-    from acprof.hf_transport import _httpx_factory, observed_hf_provenance
+    from acprof.hub.huggingface.transport import _httpx_factory, observed_hf_provenance
     monkeypatch.setenv("HF_DOWNLOAD_MODE", "auto")
     monkeypatch.setenv("HF_ENDPOINT", "https://hf-mirror.com")
     monkeypatch.delenv("HF_FALLBACK_ENDPOINTS", raising=False)
@@ -322,7 +326,7 @@ def test_failure_stage_and_final_storage_host_are_preserved(reason, monkeypatch)
     import socket
     import ssl
 
-    from acprof.hf_download import HfDownloadError, try_hf_endpoints
+    from acprof.hub.huggingface.download import HfDownloadError, try_hf_endpoints
     monkeypatch.setenv("HF_DOWNLOAD_MODE", "auto")
     monkeypatch.setenv("HF_ENDPOINT", "https://hf-mirror.com")
     monkeypatch.delenv("HF_FALLBACK_ENDPOINTS", raising=False)
@@ -354,8 +358,8 @@ def test_failure_stage_and_final_storage_host_are_preserved(reason, monkeypatch)
 def test_zero_allowance_probe_keeps_head_and_cache_skips_all_io(tmp_path, monkeypatch):
     import huggingface_hub as hub
 
-    from acprof.hf_transport import _httpx_factory, configure_hf_transport
     from acprof.host.model_store import probe_model_download
+    from acprof.hub.huggingface.transport import _httpx_factory, configure_hf_transport
     configure_hf_transport()
     assert hub.constants.HF_HUB_DISABLE_TELEMETRY
     monkeypatch.setenv("HF_DOWNLOAD_MODE", "auto")
@@ -397,7 +401,7 @@ def test_system_http_proxy_is_used_without_changing_environment(scheme):
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
     from threading import Thread
 
-    from acprof.hf_transport import _httpx_factory
+    from acprof.hub.huggingface.transport import _httpx_factory
     requests = []
     class Proxy(BaseHTTPRequestHandler):
         def do_GET(self):
@@ -439,7 +443,7 @@ def test_real_hub_sdk_partial_cache_cannot_change_content_identity(tmp_path, mon
 
     import huggingface_hub as hub
 
-    from acprof.hf_transport import _httpx_factory
+    from acprof.hub.huggingface.transport import _httpx_factory
     monkeypatch.setenv("HF_DOWNLOAD_MODE", "official")
     content, commit = b"abcdef", "c" * 40
     etag = hashlib.sha256(content).hexdigest()
@@ -475,7 +479,7 @@ def test_real_hub_sdk_resumes_interrupted_stream_and_keeps_content_identity(tmp_
     import huggingface_hub as hub
     from huggingface_hub import constants
 
-    from acprof.hf_transport import _httpx_factory
+    from acprof.hub.huggingface.transport import _httpx_factory
     monkeypatch.setenv("HF_DOWNLOAD_MODE", "official")
     # Exercise the real streaming retry without relying on private cache filenames.
     monkeypatch.setattr(constants, "DOWNLOAD_CHUNK_SIZE", 2)

@@ -5,8 +5,8 @@ from urllib.parse import urlsplit
 
 import pytest
 
-from acprof.hf_endpoints import hf_endpoints
-from acprof.hf_transport import _request_hook, configure_hf_transport
+from acprof.hub.huggingface.endpoints import hf_endpoints
+from acprof.hub.huggingface.transport import _request_hook, configure_hf_transport
 from acprof.network_policy import DownloadPolicyError, enforce_download_budget, parse_bytes
 
 
@@ -61,7 +61,7 @@ def test_actual_hub_downloads_block_redirect_before_transport(download_case, tar
                 assert "hf-mirror.com" in visited
                 assert urlsplit(target).hostname not in visited
             finally:
-                from acprof.hf_transport import _httpx_factory
+                from acprof.hub.huggingface.transport import _httpx_factory
                 hub.set_client_factory(_httpx_factory)
 
 def test_xet_is_disabled_even_if_imported_before_configuration():
@@ -74,7 +74,7 @@ def test_xet_is_disabled_even_if_imported_before_configuration():
 def test_requests_transport_checks_redirect_before_network():
     import requests
 
-    from acprof.hf_transport import _requests_factory
+    from acprof.hub.huggingface.transport import _requests_factory
 
     def respond(_adapter, request, **kwargs):
         response = requests.Response()

@@ -22,7 +22,11 @@ def hub_http(tmp_path, monkeypatch):
     import huggingface_hub as hub
     from huggingface_hub import constants
 
-    from acprof.hf_transport import _httpx_factory, _request_hook, configure_hf_transport
+    from acprof.hub.huggingface.transport import (
+        _httpx_factory,
+        _request_hook,
+        configure_hf_transport,
+    )
 
     monkeypatch.setenv("HF_DOWNLOAD_MODE", "mirror-only")
     monkeypatch.setenv("HF_ENDPOINT", "https://metadata.example")

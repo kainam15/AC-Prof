@@ -195,7 +195,7 @@ class RunConfig(RunOptions):
         extra_options = _normalize_extra_options(self.extra_options, {item.name for item in fields(self)}, errors)
         if not isinstance(self.revision, str) or any(character.isspace() for character in self.revision):
             errors.append(ConfigIssue("revision", message("模型 revision 必须是无空白的 branch、tag 或 commit SHA")))
-        from acprof.hf_endpoints import HF_DOWNLOAD_MODES
+        from acprof.hub.huggingface.endpoints import HF_DOWNLOAD_MODES
         from acprof.model_repository import MODEL_SOURCES
         if self.model_source not in MODEL_SOURCES:
             errors.append(ConfigIssue("model_source", message("模型来源必须是 huggingface 或 modelscope")))

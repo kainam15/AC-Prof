@@ -11,8 +11,8 @@ import httpx
 import huggingface_hub as hub
 import pytest
 
-from acprof.hf_transport import _httpx_factory, configure_hf_transport
 from acprof.host.model_store import probe_model_download
+from acprof.hub.huggingface.transport import _httpx_factory, configure_hf_transport
 
 
 @pytest.fixture

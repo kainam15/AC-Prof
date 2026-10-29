@@ -49,7 +49,7 @@ def test_permanent_lookup_errors_cannot_be_bypassed_by_manual_task(override, fai
     error = caught.value
     assert (error.reason_code) == (reason)
     assert not (error.retryable)
-    from acprof.hf_download import exception_chain
+    from acprof.hub.huggingface.download import exception_chain
     assert failure in list(exception_chain(error))
     assert ("asdf") in (str(error))
     assert ("--task-family") not in (str(error))
@@ -65,7 +65,7 @@ def test_network_and_service_errors_remain_distinct_from_missing_models(failure_
     error = caught.value
     assert (error.reason_code) == (reason)
     assert (error.retryable) == (retryable)
-    from acprof.hf_download import exception_chain
+    from acprof.hub.huggingface.download import exception_chain
     assert failure in list(exception_chain(error))
     assert (type(failure).__name__) in (error.detail)
 

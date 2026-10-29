@@ -9,8 +9,8 @@ from acprof.config import (
     CONTAINER_HF_HOME,
     CONTAINER_MODEL_LOCAL_PATH,
 )
-from acprof.hf_endpoints import HF_DEFAULT_ENDPOINT, hf_endpoints
 from acprof.host import env_utils
+from acprof.hub.huggingface.endpoints import HF_DEFAULT_ENDPOINT, hf_endpoints
 
 
 def test_save_config_preserves_unrelated_lines_and_secures_backup():

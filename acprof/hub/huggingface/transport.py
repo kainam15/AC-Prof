@@ -10,8 +10,13 @@ import threading
 from collections import deque
 from urllib.parse import urljoin, urlsplit, urlunsplit
 
-from acprof.hf_auth import hf_auth_allowed, hf_auth_origins
-from acprof.hf_endpoints import HF_OFFICIAL_ENDPOINTS, hf_endpoints, hf_origin, hf_storage_host
+from acprof.hub.huggingface.auth import hf_auth_allowed, hf_auth_origins
+from acprof.hub.huggingface.endpoints import (
+    HF_OFFICIAL_ENDPOINTS,
+    hf_endpoints,
+    hf_origin,
+    hf_storage_host,
+)
 from acprof.network_policy import DownloadPolicyError, source_route
 
 _LOCK = threading.Lock()

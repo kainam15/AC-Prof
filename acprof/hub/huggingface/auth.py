@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from typing import Literal
 from urllib.parse import urlsplit
 
-from acprof.hf_endpoints import HF_OFFICIAL_ENDPOINTS, hf_origin, hf_storage_host
+from acprof.hub.huggingface.endpoints import HF_OFFICIAL_ENDPOINTS, hf_origin, hf_storage_host
 
 
 @dataclass(frozen=True)

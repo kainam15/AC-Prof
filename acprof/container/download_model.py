@@ -16,8 +16,8 @@ from acprof.container.model_files import (
     seal_plan,
     validate_plan,
 )
-from acprof.hf_auth import hf_token_for_url
-from acprof.hf_transport import configure_hf_transport
+from acprof.hub.huggingface.auth import hf_token_for_url
+from acprof.hub.huggingface.transport import configure_hf_transport
 
 CACHE_DIR = None
 

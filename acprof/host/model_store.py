@@ -29,20 +29,20 @@ from acprof.container.model_files import (
     validate_plan_request,
 )
 from acprof.dependency_locks import content_digest
-from acprof.hf_auth import hf_token_for_url
-from acprof.hf_download import try_hf_endpoints
-from acprof.hf_endpoints import hf_endpoints
-from acprof.hf_transport import (
-    configure_hf_transport,
-    observed_hf_provenance,
-    observed_hf_sources,
-)
 from acprof.host.model_store_paths import StorePaths, store_paths
 from acprof.host.model_store_views import (
     make_traversable,
     publish_view,
     snapshot_path,
     view_complete,
+)
+from acprof.hub.huggingface.auth import hf_token_for_url
+from acprof.hub.huggingface.download import try_hf_endpoints
+from acprof.hub.huggingface.endpoints import hf_endpoints
+from acprof.hub.huggingface.transport import (
+    configure_hf_transport,
+    observed_hf_provenance,
+    observed_hf_sources,
 )
 from acprof.model_repository import MetadataFile, read_metadata_file
 from acprof.model_spec import model_download_request, validate_dependencies
@@ -411,8 +411,8 @@ def probe_model_download(plan: dict, root: Path | None = None, *, entry_id: str 
     """HEAD and bounded GET of missing artifacts; never populate the cache."""
     from urllib.parse import quote
 
-    from acprof.hf_download import HfDownloadError
     from acprof.host.download_probe import ProbeBudget, probe_allowance, probe_hf_file, probe_record
+    from acprof.hub.huggingface.download import HfDownloadError
 
     root = root or store_root()
     if _complete_entry(plan, root, entry_id):

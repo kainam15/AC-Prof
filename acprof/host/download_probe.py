@@ -9,9 +9,13 @@ import time
 from dataclasses import dataclass
 from urllib.error import URLError
 
-from acprof.hf_auth import hf_token_for_url
-from acprof.hf_download import exception_chain
-from acprof.hf_transport import UntrustedHfEndpointError, configure_hf_transport, safe_url
+from acprof.hub.huggingface.auth import hf_token_for_url
+from acprof.hub.huggingface.download import exception_chain
+from acprof.hub.huggingface.transport import (
+    UntrustedHfEndpointError,
+    configure_hf_transport,
+    safe_url,
+)
 from acprof.network_policy import DownloadPolicyError, parse_bytes
 
 PROBE_MAX_BYTES = 256 * 1024

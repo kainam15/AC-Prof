@@ -5,7 +5,11 @@ from unittest.mock import patch
 import httpx
 import pytest
 
-from acprof.hf_transport import _httpx_factory, _requests_factory, observed_hf_provenance
+from acprof.hub.huggingface.transport import (
+    _httpx_factory,
+    _requests_factory,
+    observed_hf_provenance,
+)
 
 MIRROR = "https://hf-mirror.com"
 OFFICIAL = "https://huggingface.co"
@@ -128,7 +132,7 @@ def test_bootstrap_does_not_promote_local_login_to_environment(tmp_path, monkeyp
 def test_credential_source_and_environment_are_preserved(primary, alias, source, monkeypatch, tmp_path):
     import os
 
-    from acprof.hf_auth import resolve_hf_credential
+    from acprof.hub.huggingface.auth import resolve_hf_credential
 
     monkeypatch.setenv("HF_TOKEN", primary)
     monkeypatch.setenv("HUGGING_FACE_HUB_TOKEN", alias)
@@ -142,7 +146,7 @@ def test_credential_source_and_environment_are_preserved(primary, alias, source,
 
 
 def test_anonymous_origin_never_reads_login_and_missing_login_is_anonymous():
-    from acprof.hf_auth import hf_token_for_url, resolve_hf_credential
+    from acprof.hub.huggingface.auth import hf_token_for_url, resolve_hf_credential
 
     with patch("huggingface_hub.utils.get_token", side_effect=AssertionError("login read")):
         assert hf_token_for_url(MIRROR) is False
@@ -153,7 +157,7 @@ def test_anonymous_origin_never_reads_login_and_missing_login_is_anonymous():
 
 
 def test_unreadable_login_is_reported_instead_of_silently_disabling_auth():
-    from acprof.hf_auth import hf_token_for_url
+    from acprof.hub.huggingface.auth import hf_token_for_url
 
     with patch("huggingface_hub.utils.get_token", side_effect=OSError("unreadable login")):
         with pytest.raises(OSError, match="unreadable login"):
@@ -161,7 +165,7 @@ def test_unreadable_login_is_reported_instead_of_silently_disabling_auth():
 
 
 def test_disable_implicit_token_avoids_login_lookup(monkeypatch):
-    from acprof.hf_auth import hf_token_for_url
+    from acprof.hub.huggingface.auth import hf_token_for_url
 
     monkeypatch.setenv("HF_HUB_DISABLE_IMPLICIT_TOKEN", "1")
     with patch("huggingface_hub.utils.get_token", side_effect=AssertionError("login read")):
@@ -174,7 +178,7 @@ def test_disable_implicit_token_avoids_login_lookup(monkeypatch):
     "https://hf-mirror.com:bad", "https://hf-mirror.com:99999", "*", "hf-mirror.com",
 ])
 def test_invalid_auth_origin_fails_without_echoing_secrets(value, monkeypatch):
-    from acprof.hf_auth import hf_token_for_url
+    from acprof.hub.huggingface.auth import hf_token_for_url
 
     monkeypatch.setenv("ACPROF_HF_AUTH_ORIGINS", value)
     with pytest.raises(ValueError, match="ACPROF_HF_AUTH_ORIGINS") as error:
@@ -186,8 +190,8 @@ def test_invalid_auth_origin_fails_without_echoing_secrets(value, monkeypatch):
 def test_repository_access_reselects_credentials_for_official_fallback(monkeypatch, tmp_path, credential_source):
     import huggingface_hub as hub
 
-    from acprof.hf_transport import configure_hf_transport
     from acprof.host.automation import check_repository_access
+    from acprof.hub.huggingface.transport import configure_hf_transport
 
     if credential_source == "environment":
         monkeypatch.setenv("HF_TOKEN", TOKEN)
@@ -231,10 +235,10 @@ def test_download_callers_disable_sdk_lookup_and_apply_origin_policy(
     from huggingface_hub import constants
 
     from acprof.container.model_files import plan_download, seal_plan
-    from acprof.hf_transport import configure_hf_transport
     from acprof.host import model_store
     from acprof.host.detect import _download_metadata
     from acprof.host.download_probe import ProbeBudget, probe_hf_file
+    from acprof.hub.huggingface.transport import configure_hf_transport
 
     monkeypatch.setenv("HF_TOKEN", TOKEN)
     monkeypatch.setenv("HF_ENDPOINT", endpoint)

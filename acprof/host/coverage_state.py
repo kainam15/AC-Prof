@@ -12,10 +12,10 @@ from acprof.model_evidence import content_digest
 
 
 def coverage_configuration(*, probe, resources, budgets, device):
-    from acprof.hf_endpoints import hf_download_mode, hf_endpoints
     from acprof.host.execution_conditions import measurement_environment
     from acprof.host.run_state import host_identity
     from acprof.host.runtime_settings import runtime_build_overrides
+    from acprof.hub.huggingface.endpoints import hf_download_mode, hf_endpoints
     from acprof.installation import resource_root
 
     return {"probe": probe, "resources": resources, "budgets": budgets,

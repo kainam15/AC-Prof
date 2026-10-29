@@ -134,8 +134,8 @@ def test_embedding_parameters_are_materialized_by_shared_workload():
 def test_mirror_metadata_failure_automatically_tries_official_at_fixed_commit():
     from huggingface_hub.errors import FileMetadataError, LocalEntryNotFoundError
 
-    from acprof.hf_download import HfDownloadError
     from acprof.host.detect import _download_metadata
+    from acprof.hub.huggingface.download import HfDownloadError
     error = LocalEntryNotFoundError("metadata request failed")
     error.__cause__ = FileMetadataError("missing X-Repo-Commit")
     with patch.dict("os.environ", {"HF_ENDPOINT": "https://mirror.example"}, clear=True), patch(

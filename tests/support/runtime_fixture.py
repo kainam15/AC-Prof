@@ -12,5 +12,6 @@ def copy_dependency_tree(root):
     shutil.copytree(ROOT / 'licenses', root / 'licenses')
     (root / 'acprof').mkdir(exist_ok=True)
     shutil.copyfile(ROOT / 'acprof/dependency_locks.py', root / 'acprof/dependency_locks.py')
-    shutil.copyfile(ROOT / 'acprof/hf_endpoints.py', root / 'acprof/hf_endpoints.py')
+    (root / 'acprof/hub/huggingface').mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(ROOT / 'acprof/hub/huggingface/endpoints.py', root / 'acprof/hub/huggingface/endpoints.py')
     shutil.copyfile(ROOT / 'acprof/network_policy.py', root / 'acprof/network_policy.py')
