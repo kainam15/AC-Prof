@@ -7,6 +7,7 @@ import os
 from collections import deque
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, fields, replace
+from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 from uuid import uuid4
@@ -65,6 +66,51 @@ def read_artifact(path: Path) -> dict:
     if not path.is_file():
         return {}
     return read_json_object(path)
+
+
+def format_experiment_created_at(value: str) -> str | None:
+    """Present saved timestamps in host-local time, matching the experiment picker."""
+    try:
+        timestamp = datetime.fromisoformat(value.replace('Z', '+00:00'))
+        if timestamp.tzinfo is not None:
+            timestamp = timestamp.astimezone()
+        return timestamp.strftime('%Y-%m-%d %H:%M:%S')
+    except (ValueError, OverflowError):
+        return None
+
+
+def experiment_source_title(source: Path) -> tuple[str, str | None]:
+    """Read only bounded identity metadata; never replace the stored run ID."""
+    fallback = source.parent.name if source.name == 'result_layers.json' else source.name
+    if source.is_dir():
+        root = source
+    elif source.name == 'result_layers.json' or source.suffix.lower() == '.csv':
+        root = source.parent
+    else:
+        return fallback, None
+    try:
+        layout = ArtifactLayout.discover(root)
+        state = read_artifact(layout.path('run_state.json'))
+        metadata = read_artifact(layout.path('static_meta.json'))
+    except (OSError, ValueError):
+        return fallback, None
+    if state and state.get('schema_version') != 1:
+        return fallback, None
+    options = state.get('options')
+    options = options if isinstance(options, dict) else {}
+    runtime = state.get('runtime')
+    runtime = runtime if isinstance(runtime, dict) else {}
+    task = runtime.get('task')
+    task = task if isinstance(task, dict) else {}
+    model = metadata.get('model_name') or metadata.get('model_id') or task.get('model_id') or options.get('model')
+    created_at = state.get('created_at') or metadata.get('created_at')
+    if not isinstance(model, str) or not model.strip() or not isinstance(created_at, str):
+        return fallback, None
+    date_text = format_experiment_created_at(created_at)
+    if date_text is None:
+        return fallback, None
+    run_id = state.get('run_id')
+    return f'{model} · {date_text}', run_id if isinstance(run_id, str) and run_id else None
 
 
 def _record(layout: ArtifactLayout, warnings: list[str]) -> ExperimentRecord:

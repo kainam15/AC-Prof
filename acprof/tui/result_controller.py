@@ -31,6 +31,7 @@ from acprof.tui.commands import (
     resolve_result_path,
 )
 from acprof.tui.diagnostics import summarize_result_csv
+from acprof.tui.experiment_catalog import experiment_source_title
 from acprof.tui.i18n import error_message, message_id
 from acprof.tui.input import BarCursorInput as Input
 from acprof.tui.presentation import CALCULATING
@@ -193,15 +194,11 @@ class ResultController:
 
     def update_report_source_label(self) -> None:
         source = self.app.configuration.input("result-csv").strip()
-        title: str
-        if not source:
-            title = message_id("results.selection.none")
-        else:
-            path = Path(source.rstrip("/"))
-            title = path.parent.name if path.name == "result_layers.json" else path.name
+        title, run_id = (experiment_source_title(resolve_result_path(source, self.app.project_dir))
+                         if source else (message_id("results.selection.none"), None))
         label = self.app.query_one("#report-experiment", Static)
         self.app.localization.set_text(label, message_id("results.selection.current_experiment", title))
-        label.tooltip = source or None
+        label.tooltip = f"{source}\nRun ID: {run_id}" if run_id else (source or None)
 
     def update_report_actions(self) -> None:
         """Keep actions bound to the correct input and the existing operation lock."""

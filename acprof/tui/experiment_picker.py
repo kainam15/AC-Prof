@@ -4,7 +4,6 @@ from __future__ import annotations
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime
 from pathlib import Path
 
 from rich.text import Text
@@ -15,7 +14,7 @@ from textual.screen import ModalScreen
 from textual.widgets import Button, DataTable, Static
 
 from acprof.tui.app_contracts import translated_app
-from acprof.tui.experiment_catalog import ExperimentRecord
+from acprof.tui.experiment_catalog import ExperimentRecord, format_experiment_created_at
 from acprof.tui.i18n import message_id
 from acprof.tui.input import BarCursorInput as Input
 from acprof.tui.rendering import CjkCompositor
@@ -61,15 +60,8 @@ def experiment_choice(record: ExperimentRecord) -> PickerChoice:
         actions.add('reuse')
     if record.has_recovery_state:
         actions.add('resume')
-    date_text = record.created_at
-    try:
-        timestamp = datetime.fromisoformat(date_text.replace('Z', '+00:00'))
-        if timestamp.tzinfo is not None:
-            timestamp = timestamp.astimezone()
-        date_text = timestamp.strftime('%Y-%m-%d %H:%M:%S')
-    except (ValueError, OverflowError):
-        # Keep missing or invalid historical timestamps visible as recorded.
-        pass
+    # Keep missing or invalid historical timestamps visible as recorded.
+    date_text = format_experiment_created_at(record.created_at) or record.created_at
     detail = json.dumps({'run_id': record.run_id or 'unknown', 'directories': [str(path) for path in record.aliases],
         'issues': record.issues, 'options': record.options, 'failures': record.failures,
         'runtime_validation': record.validation}, ensure_ascii=False, indent=2)

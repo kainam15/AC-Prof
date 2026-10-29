@@ -84,6 +84,39 @@ class TestTuiReports:
             assert not (root / "plots/analysis").exists()
             assert not (root / "analysis").exists()
 
+    async def test_experiment_heading_displays_model_and_time_in_both_languages(self):
+        from acprof.artifact_layout import ArtifactLayout
+
+        run_id = '33dec6b68b6a4369a278d1b1744b71e4'
+        model = 'timm/mobilenetv3_small_100.lamb_in1k'
+        root = self.directory / run_id
+        layout = ArtifactLayout.for_new_run(root)
+        layout.initialize()
+        layout.path('run_state.json').write_text(json.dumps({
+            'schema_version': 1, 'run_id': run_id,
+            'created_at': '2026-10-29T20:58:30',
+            'options': {'model': model},
+        }), encoding='utf-8')
+        app = self.make_app()
+        async with app.run_test(size=(120, 30)) as pilot:
+            await self.open_tab(app, pilot)
+            app.results.select_result(str(root / 'result_layers.json'), summarize=False)
+            await pilot.pause()
+            label = app.query_one('#report-experiment', Static)
+            for language, prefix in [('zh', '当前实验：'), ('en', 'Current experiment: ')]:
+                app.configuration.preferences = replace(app.configuration.preferences, language=language)
+                app.configuration.apply_ui_preferences()
+                await pilot.pause()
+                assert str(label.content) == f'{prefix}{model} · 2026-10-29 20:58:30'
+                assert run_id in str(label.tooltip)
+                assert str(root / 'result_layers.json') in str(label.tooltip)
+            app.results.select_result(str(self.csv_path), summarize=False)
+            await pilot.pause()
+            assert str(label.content) == 'Current experiment: 模型结果.csv'
+            app.results.select_result('', summarize=False)
+            await pilot.pause()
+            assert str(label.content) == 'Current experiment: None selected'
+
     def make_app(self):
         return AcprofTui(RunConfig.smoke("demo/model"), settings_path=self.directory / "tui.json")
 

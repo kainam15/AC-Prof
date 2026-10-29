@@ -156,3 +156,35 @@ def test_duplicate_run_detects_tampered_layer_even_when_manifest_unchanged(tmp_p
     report = scan_experiments([tmp_path])
     assert len(report.records) == 1
     assert "duplicate_evidence_unverified" in report.records[0].issues
+
+
+def test_experiment_source_title_uses_saved_metadata_without_changing_run_identity(tmp_path):
+    from acprof.artifact_layout import ArtifactLayout
+    from acprof.tui.experiment_catalog import experiment_source_title
+
+    run_id = '33dec6b68b6a4369a278d1b1744b71e4'
+    model = 'timm/mobilenetv3_small_100.lamb_in1k'
+    root = tmp_path / run_id
+    layout = ArtifactLayout.for_new_run(root)
+    layout.initialize()
+    layout.path('run_state.json').write_text(json.dumps({
+        'schema_version': 1, 'run_id': run_id, 'created_at': '2026-10-29T20:58:30',
+        'options': {'model': model},
+    }), encoding='utf-8')
+    layout.path('static_meta.json').write_text(json.dumps({'model_name': model}), encoding='utf-8')
+    (root / 'performance.csv').write_text('status\nok\n', encoding='utf-8')
+    expected = (f'{model} · 2026-10-29 20:58:30', run_id)
+    for path in (root, root / 'result_layers.json', root / 'performance.csv'):
+        assert experiment_source_title(path) == expected
+
+    # Saved timestamp must be valid; missing metadata keeps the original path label.
+    layout.path('run_state.json').write_text(json.dumps({
+        'schema_version': 1, 'run_id': run_id, 'created_at': 'invalid',
+        'options': {'model': model},
+    }), encoding='utf-8')
+    assert experiment_source_title(root) == (run_id, None)
+    layout.path('run_state.json').write_text('{invalid', encoding='utf-8')
+    assert experiment_source_title(root / 'result_layers.json') == (run_id, None)
+    standalone = tmp_path / 'standalone.csv'
+    standalone.write_text('status\nok\n', encoding='utf-8')
+    assert experiment_source_title(standalone) == ('standalone.csv', None)
