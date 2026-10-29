@@ -2,14 +2,16 @@
 
 import copy
 import json
+import os
+import subprocess
+import sys
 from contextlib import nullcontext
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import pytest
 
 from acprof.artifacts import read_static_metadata
-from acprof.container import compute_profile_runner as runner
 from acprof.gpu_probe import gpu_probe_report, record_gpu_probe_error, set_gpu_probe_value
 from acprof.host.measurement import diagnostics
 from acprof.host.posthoc import backfill, plans
@@ -24,7 +26,11 @@ UUID = "12345678-1234-1234-1234-123456789abc"
 
 @pytest.fixture
 def cuda_backend(monkeypatch):
+    # Entry-point offline flags belong to the isolated profiling process.
+    with patch.dict(os.environ):
+        from acprof.container import compute_profile_runner as runner
     cuda = SimpleNamespace(
+        runner=runner,
         is_available=Mock(return_value=True),
         current_device=Mock(return_value=0),
         get_device_capability=Mock(return_value=(8, 6)),
@@ -39,8 +45,20 @@ def cuda_backend(monkeypatch):
     return cuda
 
 
+def test_gpu_test_import_preserves_host_network_settings():
+    script = (
+        "import os,runpy,sys; "
+        "os.environ[\"HF_HUB_OFFLINE\"]=\"0\"; "
+        "os.environ[\"TRANSFORMERS_OFFLINE\"]=\"0\"; "
+        "runpy.run_path(sys.argv[1]); "
+        "assert os.environ[\"HF_HUB_OFFLINE\"] == \"0\"; "
+        "assert os.environ[\"TRANSFORMERS_OFFLINE\"] == \"0\""
+    )
+    subprocess.run([sys.executable, "-c", script, __file__], check=True, timeout=30)
+
+
 def test_cpu_probe_does_not_touch_cuda(cuda_backend):
-    result = runner._gpu_metadata("cpu")
+    result = cuda_backend.runner._gpu_metadata("cpu")
     assert result[CAP] is None
     assert result[SM] is None
     assert all(field["status"] == "not_applicable" for field in result[REPORT]["fields"].values())
@@ -51,7 +69,7 @@ def test_cpu_probe_does_not_touch_cuda(cuda_backend):
 
 def test_cuda_probe_keeps_valid_sm_when_capability_fails(cuda_backend):
     cuda_backend.get_device_capability.side_effect = RuntimeError("capability denied")
-    result = runner._gpu_metadata("cuda")
+    result = cuda_backend.runner._gpu_metadata("cuda")
     assert result[CAP] is None
     assert result[SM] == 84
     assert result[REPORT]["device"] == {"cuda_index": 0, "cuda_uuid": UUID}
@@ -62,7 +80,7 @@ def test_cuda_probe_keeps_valid_sm_when_capability_fails(cuda_backend):
 
 def test_cuda_probe_keeps_valid_capability_when_properties_fail(cuda_backend):
     cuda_backend.get_device_properties.side_effect = RuntimeError("properties denied")
-    result = runner._gpu_metadata("cuda")
+    result = cuda_backend.runner._gpu_metadata("cuda")
     assert result[CAP] == "8.6"
     assert result[SM] is None
     assert result[REPORT]["errors"][0]["stage"] == "properties"
@@ -74,7 +92,7 @@ def test_cuda_availability_failures_are_explicit(cuda_backend, failure):
         cuda_backend.is_available.side_effect = failure
     else:
         cuda_backend.is_available.return_value = failure
-    result = runner._gpu_metadata("cuda")
+    result = cuda_backend.runner._gpu_metadata("cuda")
     assert result[CAP] is None
     assert result[SM] is None
     assert result[REPORT]["errors"][0]["source"] == "torch.cuda"
@@ -85,7 +103,7 @@ def test_cuda_availability_failures_are_explicit(cuda_backend, failure):
 @pytest.mark.parametrize("count", [None, 0, True, 2.5, float("inf")])
 def test_cuda_invalid_sm_count_never_becomes_zero_or_truncated(cuda_backend, count):
     cuda_backend.get_device_properties.return_value.multi_processor_count = count
-    result = runner._gpu_metadata("cuda")
+    result = cuda_backend.runner._gpu_metadata("cuda")
     assert result[CAP] == "8.6"
     assert result[SM] is None
     assert result[REPORT]["errors"][0]["field"] == SM
