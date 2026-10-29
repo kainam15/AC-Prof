@@ -303,6 +303,12 @@ def update_static_meta(
                 compute_tools.append(metadata_name)
         updated["compute_profile_tools"] = compute_tools
         metadata_keys: list[str] = ["gpu_compute_capability", "gpu_sm_count"]
+        if "gpu_compute_metadata" in metadata:
+            reports = metadata["gpu_compute_metadata"]
+            previous = updated.get("gpu_compute_metadata", [])
+            if not isinstance(reports, list) or not isinstance(previous, list):
+                raise ValueError("gpu_compute_metadata must contain a list of probe reports")
+            updated["gpu_compute_metadata"] = [*copy.deepcopy(previous), *copy.deepcopy(reports)]
         if "torch" in compute_selected:
             metadata_keys.extend(
                 [
@@ -326,7 +332,7 @@ def update_static_meta(
             )
         for key in metadata_keys:
             value = metadata.get(key)
-            if value not in (None, "", "unknown"):
+            if value not in (None, "", "unknown", "unavailable", "not_applicable"):
                 updated[key] = copy.deepcopy(value)
         if "torch" in compute_selected:
             static_flops = _static_flops_from_compute_plan(compute_plan, context)

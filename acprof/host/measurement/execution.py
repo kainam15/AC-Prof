@@ -333,7 +333,9 @@ class WindowExecutor:
 
             if self.config.idle_debug:
                 if gpu_monitor is not None:
-                    gpu_idle_debug_snapshot = client_diagnostics.collect_gpu_idle_debug_snapshot(self.config.device_index)
+                    gpu_idle_debug_snapshot = client_diagnostics.collect_gpu_idle_debug_snapshot(
+                        self.config.device_index, device_uuid=self.config.gpu_device_uuid,
+                    )
                 if cpu_monitor is not None:
                     idle_debug_snapshot = client_diagnostics.collect_idle_debug_snapshot()
 

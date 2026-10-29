@@ -10,6 +10,7 @@ from acprof.artifacts import atomic_write_json, read_json_object
 from acprof.config import STATIC_META_FIELDS, STATIC_META_SCHEMA_VERSION
 from acprof.host import machine_metadata
 from acprof.host.detect import TaskInfo
+from acprof.host.gpu_metadata import probe_gpu_metadata
 from acprof.host.images.runtime import ImageInfo
 from acprof.host.input_plan import (
     PlannedInputScales,
@@ -61,6 +62,7 @@ class StaticMeta:
         default_factory=lambda: {"threshold_s": None, "source": "unconfigured"}
     )
     gpu_device: dict[str, Any] = field(default_factory=dict)
+    gpu_metadata: dict[str, Any] = field(default_factory=dict)
     profiling_mode: str = "full"
     capability_report: dict[str, Any] = field(default_factory=dict)
     platform: dict[str, Any] = field(default_factory=dict)
@@ -112,8 +114,9 @@ class StaticMeta:
     torch_version: str = ""
     transformers_version: str = ""
     ncu_version: str = ""
-    gpu_compute_capability: str = ""
+    gpu_compute_capability: str = "unknown"
     gpu_sm_count: Any = None
+    gpu_compute_metadata: list[dict[str, Any]] = field(default_factory=list)
     compute_profiles_retained: bool = False
     compute_profile_provenance: str = ""
     execution_profile_schema_version: int | None = None
@@ -176,6 +179,8 @@ def collect_static_meta(
     store = manifest.get("model_store")
     model_bytes = store["model_artifact_bytes"] if store else None if process else machine_metadata.docker_model_cache_bytes(image_info.tag)
     image_bytes = None if process else machine_metadata.docker_image_size_bytes(image_info.tag)
+    gpu_probe = probe_gpu_metadata(gpu_device=gpu_device, device_index=device_index)
+    gpu_memory = gpu_probe["fields"]["memory_total_bytes"]["value"]
     static_meta = StaticMeta(
         **environment.metadata(),
         platform_runtime=collect_platform_metadata(environment, resource_root(), runtime_kind=runtime_kind(image_info)),
@@ -211,9 +216,9 @@ def collect_static_meta(
                             if getattr(task_info, "model_source", "huggingface") == "modelscope"
                             else _build_model_download_url(task_info.model_id)),
         gpu_device=dict(gpu_device or {}),
-        gpu=(gpu_device["name"] if gpu_device else machine_metadata.get_gpu_name(device_index=device_index)),
-        gpu_mem_total_bytes=(gpu_device["memory_total_bytes"] if gpu_device
-                             else machine_metadata.get_gpu_mem_total_bytes(device_index=device_index)),
+        gpu_metadata=dict(gpu_probe),
+        gpu=str(gpu_probe["fields"]["name"]["value"] or "unknown"),
+        gpu_mem_total_bytes=gpu_memory if isinstance(gpu_memory, int) else None,
         host_mem_total_bytes=machine_metadata.host_mem_total_bytes(),
         host_swap_total_bytes=host_swap["host_swap_total_bytes"],
         host_swap_used_bytes_at_start=host_swap[

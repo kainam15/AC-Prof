@@ -42,6 +42,7 @@
 | `model_download_url` | 所选 source 的规范模型页面 URL；不是镜像／存储 endpoint。 |
 | `gpu` | 存在 GPU case 时为选定物理 GPU 的名称；仅 CPU 实验保留主机设备信息，没有可见 NVIDIA GPU 时为 `unknown`。 |
 | `gpu_mem_total_bytes` | 对应上述设备的 total VRAM，单位 bytes；无法读取时为 `null`。 |
+| `gpu_metadata` | 可选的 GPU 静态探测报告（内部 schema v1）：设备身份、名称/显存容量各字段的值、状态、来源以及全部失败原因。已解析的设备事实直接复用；缺失字段通过单次 NVML 会话读取，回退仍绑定同一 UUID。 |
 | `gpu_device` | schema v7 的新增可选 object：`uuid`、主机 `index`、`pci_bus_id`、`name`、`memory_total_bytes`。GPU case 运行前解析并固定 UUID，Docker、NVML 和独立 profiler 共用；容器内单卡编号为 `0`。CPU 实验为空对象；历史缺字段表示身份未知，重新执行 GPU post-hoc 采集时拒绝猜测设备。 |
 | `host_mem_total_bytes` | Linux 测量环境可见 RAM 总量，单位 bytes；Native 沿用主机 RAM，WSL 为 guest 可见内存，不代表 Windows host；无法读取时为 `null`。 |
 | `host_swap_total_bytes` | 实验启动时 host 已启用 swap 的总容量，单位 bytes；无法读取时为 `null`，未启用时为 `0`。 |
@@ -79,8 +80,9 @@
 | `torch_version` | Torch probe 使用的 PyTorch 版本。 |
 | `transformers_version` | Torch probe 使用的 Transformers 版本。 |
 | `ncu_version` | Host NCU 版本；历史回填无法可靠确认时为 `unknown`。 |
-| `gpu_compute_capability` | profile 使用 GPU 的 compute capability。 |
-| `gpu_sm_count` | profile 使用 GPU 的 SM 数。 |
+| `gpu_compute_capability` | profile 使用 GPU 的 compute capability，例如 `8.6`；未获得有效 GPU 结果时为 `unknown`，不使用空字符串。 |
+| `gpu_sm_count` | profile 使用 GPU 的正整数 SM 数；尚未生成 profile 元数据时为 `null`，未获得有效 GPU 结果的计划写为 `unknown`，不填 `0`。 |
+| `gpu_compute_metadata` | 可选的探测报告列表。每项保留 `profile`（CPU/GPU）、`tool`、`input_scale` 和 `probe`；工具合并与补采追加各次报告，不覆盖先前失败证据。 |
 | `compute_profiles_retained` | raw profiler artifact 是否保留。 |
 | `compute_profile_provenance` | profile 来源，例如本次直接采集或历史 `posthoc_backfill`。 |
 | `execution_profile_schema_version` | execution profile plan schema 版本。 |
@@ -105,6 +107,30 @@ UTF-8 JSON object，并拒绝 `NaN`、`Infinity` 及溢出为无穷大的数字�
 返回空对象；文件存在但超限、损坏或类型错误时仍严格报错且不改写原件。当前完整 cache artifacts
 大小字段为 `model_cache_bytes`，不读取旧 `model_weight_bytes`。采集/修复记录独立写入
 `collection_history.json`，不从旧静态元数据补造 swap、cgroup 或运行环境信息。
+
+### GPU 探测状态与设备归属
+
+`gpu_metadata` 与 `gpu_compute_metadata` 是 schema v7 的可选字段，不增加 CSV 列。
+历史 v7 文件缺少这些字段时仍可读取，表示没有探测证据；不补造成功状态或设备归属。
+探测报告包含 `schema_version: 1`、`device`、`fields` 和 `errors`。每个字段保存
+`value`、`status`（`available`、`unavailable`、`unknown` 或 `not_applicable`）与实际 `source`；
+未获得值时为 `null`。`errors` 逐项保存 `source`、`stage`、可选的 `field`、`error_type` 和 `message`。
+NVML 的导入、初始化、单字段读取、关闭会话和 `nvidia-smi` 回退失败均有独立记录；
+回退成功不会删除先前错误，关闭会话失败不会覆盖已经读到的值。
+
+静态探测优先复用 `gpu_device`，只有缺失字段才打开一次 NVML 会话。
+已知 UUID 后始终按 UUID 查询并核对身份，不依赖可能变化的主机编号；选定设备不可用或没有 UUID 时
+保持不可用，不转而探测默认 GPU。仅 CPU 实验的主机设备信息仍可独立探测。
+空闲诊断同样先按 UUID 查询设备，再用该查询返回的当前 index 调用 `pmon`。
+这些查询发生在准备或空闲诊断阶段，不进入正式请求与资源采样窗口。
+
+独立 profiler 的 CPU probe 返回 `not_applicable` 且不访问 CUDA。
+GPU probe 分别记录 capability 和 SM 数的成功/失败，并保留 CUDA 返回的原始 `cuda_uuid`。
+汇总时将它与选定物理 UUID 核对：`device.identity_status` 为 `verified`、`unverified` 或 `mismatch`。
+不一致的报告保留原始值和错误，但不能为所选 GPU 提供汇总值；没有可比较 UUID 的旧 probe
+仅标为 `unverified`。已有有效标量但缺少报告的历史 profiler 文件仍可读取，不视为已验证身份。
+NCU 计数器补充某个缺失字段时，该字段的来源为 `ncu`；runner 已成功读取的字段保留 `torch.cuda`
+来源。CPU、未知或失败结果不会挡住后续有效 GPU 结果，解析 FLOP 失败也不会丢失已获得的 GPU 证据。
 
 `model_resolution` 的新增可选字段不改变 v7 或 CSV：`provenance.raw_evidence` 保存原始 Hub、config
 和模块配置，`evidence` 记录每条事实的来源、作用域、类型、静态充分性和排除理由。

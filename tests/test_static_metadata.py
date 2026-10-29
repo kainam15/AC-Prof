@@ -197,9 +197,11 @@ class TestStaticMetadata:
         )
 
         with patch("acprof.host.static_metadata.operating_system_label", return_value="windows11+wsl"), patch(
-            "acprof.host.machine_metadata.get_gpu_name", return_value="Test GPU"
-        ), patch(
-            "acprof.host.machine_metadata.get_gpu_mem_total_bytes", return_value=987654321
+            "acprof.host.static_metadata.probe_gpu_metadata", return_value={
+                "schema_version": 1, "device": {}, "errors": [],
+                "fields": {"name": {"value": "Test GPU", "status": "available", "source": "fixture"},
+                           "memory_total_bytes": {"value": 987654321, "status": "available", "source": "fixture"}},
+            }
         ), patch(
             "acprof.host.machine_metadata.host_mem_total_bytes", return_value=64_000_000_000
         ), patch(

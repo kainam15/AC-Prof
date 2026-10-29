@@ -1,7 +1,9 @@
 """Host-side FLOP profiling plan generation for AC-Prof."""
 from __future__ import annotations
 
+import copy
 import logging
+import math
 import os
 import time
 from collections.abc import Iterable
@@ -10,8 +12,10 @@ from typing import Any
 from acprof.capabilities import declared_profiler_error
 from acprof.config import DEFAULT_COMPUTE_PROFILE_TOOL
 from acprof.gpu_mode import normalize_gpu_mode
+from acprof.gpu_probe import gpu_compute_value, is_gpu_probe_report, record_gpu_probe_error
 from acprof.host.command import run_command
 from acprof.host.detect import TaskInfo
+from acprof.host.gpu_device import selected_gpu_device
 from acprof.host.profiling.cleanup import discard_profile_artifacts
 from acprof.host.profiling.progress import (
     ProfilerProgressCallback,
@@ -129,23 +133,79 @@ def _profile_tool_maps(profiles: dict[str, Any]) -> Iterable[dict[str, Any]]:
                 yield profile
 
 
+def _profile_records(profile: dict[str, Any]) -> Iterable[dict[str, Any]]:
+    yield profile
+    for entry in profile.get("entries", []):
+        if isinstance(entry, dict):
+            yield entry
+
+
 def _first_profile_value(
     profiles: dict[str, Any],
     key: str,
     default: Any,
 ) -> Any:
+    if key in ("gpu_compute_capability", "gpu_sm_count"):
+        profiles = {"gpu": profiles.get("gpu", {})}
     for profile in _profile_tool_maps(profiles):
-        value = profile.get(key)
-        if value not in (None, "", "unknown"):
-            return value
-        for entry in profile.get("entries", []):
-            if not isinstance(entry, dict):
+        for record in _profile_records(profile):
+            probe = record.get("gpu_compute_metadata")
+            if isinstance(probe, dict):
+                if probe.get("device", {}).get("identity_status") == "mismatch":
+                    continue
+                if key in probe.get("fields", {}) and probe["fields"][key].get("status") != "available":
+                    continue
+            value = record.get(key)
+            if value in (None, "", "unknown", "unavailable", "not_applicable", "not_requested"):
                 continue
-            value = entry.get(key)
-            if value not in (None, "", "unknown"):
-                if not isinstance(value, float) or value == value:
-                    return value
+            if key in ("gpu_compute_capability", "gpu_sm_count"):
+                try:
+                    return gpu_compute_value(key, value)
+                except ValueError:
+                    continue
+            if not isinstance(value, float) or math.isfinite(value):
+                return value
     return default
+
+
+def _bind_gpu_profile_identity(profiles: dict[str, Any], expected_uuid: str) -> None:
+    """Keep raw evidence but exclude mismatched CUDA devices from static facts."""
+    for profile in _profile_tool_maps({"gpu": profiles.get("gpu", {})}):
+        for record in _profile_records(profile):
+            report = record.get("gpu_compute_metadata")
+            if report is None:
+                continue
+            if not is_gpu_probe_report(report):
+                raise ValueError("invalid GPU compute metadata report")
+            device = report["device"]
+            device["expected_uuid"] = expected_uuid or None
+            observed = device.get("cuda_uuid") or device.get("uuid")
+            if not expected_uuid or not isinstance(observed, str) or not observed.strip():
+                device["identity_status"] = "unverified"
+                continue
+            if observed.lower().removeprefix("gpu-") == expected_uuid.lower().removeprefix("gpu-"):
+                device["identity_status"] = "verified"
+                continue
+            device["identity_status"] = "mismatch"
+            error = ValueError(f"GPU UUID mismatch: expected {expected_uuid}, received {observed}")
+            record_gpu_probe_error(report, "gpu_identity", "resolve", error)
+            record["error"] = ";".join(filter(None, (record.get("error"), f"gpu_identity_mismatch:{error}")))
+
+
+def _gpu_profile_reports(profiles: dict[str, Any]) -> list[dict[str, Any]]:
+    reports = []
+    for device, tool_maps in profiles.items():
+        if not isinstance(tool_maps, dict):
+            continue
+        for tool, profile in tool_maps.items():
+            if not isinstance(profile, dict):
+                continue
+            for record in _profile_records(profile):
+                probe = record.get("gpu_compute_metadata")
+                if isinstance(probe, dict):
+                    reports.append({"profile": device, "tool": tool,
+                                    "input_scale": record.get("input_scale"), "probe": copy.deepcopy(probe)})
+    return reports
 
 
 def _strip_discarded_profile_paths(profiles: dict[str, Any]) -> None:
@@ -370,7 +430,10 @@ def collect_compute_profile_plan(
         if isinstance(ncu_profile, dict):
             ncu_metrics = list(ncu_profile.get("metrics") or [])
 
+    _bind_gpu_profile_identity(profiles, str(selected_gpu_device().get("uuid") or ""))
+
     static_metadata = {
+        "gpu_compute_metadata": _gpu_profile_reports(profiles),
         "compute_profile_tools": enabled_tools,
         "torch_profiler_eager_flop_semantics": "logical_operator_shape_flops",
         "torch_profiler_eager_attention_implementation": "eager",

@@ -67,16 +67,19 @@ def _run_torch_profiler_for_entry(
         )[0]
 
     payload = parse_last_json_line(result.stdout)
+    gpu_metadata = {key: payload.get(key) for key in (
+        "gpu_compute_capability", "gpu_sm_count", "gpu_compute_metadata",
+    )}
     attention_implementation = str(
         payload.get("attention_implementation") or ""
     )
     attention_verified = payload.get("attention_implementation_verified") is True
     if attention_implementation != "eager" or not attention_verified:
-        return torch_error_entries(
+        return {**torch_error_entries(
             [entry],
             "torch_profiler_eager_parse_failed:"
             "attention_implementation_not_verified",
-        )[0]
+        )[0], **gpu_metadata}
     mflop = to_float(
         payload.get("model_logical_mflop_per_request_torch_profiler_eager")
     )
@@ -84,10 +87,10 @@ def _run_torch_profiler_for_entry(
     if mflop != mflop and total_flops == total_flops:
         mflop = (total_flops / 1_000_000.0) / float(max(1, int(repeat)))
     if mflop != mflop or mflop <= 0:
-        return torch_error_entries(
+        return {**torch_error_entries(
             [entry],
             "torch_profiler_eager_parse_failed:model_logical_mflop_missing",
-        )[0]
+        )[0], **gpu_metadata}
 
     return {
         "input_scale": float(entry["input_scale"]),
@@ -98,6 +101,7 @@ def _run_torch_profiler_for_entry(
         "attention_implementation": attention_implementation,
         "attention_implementation_verified": attention_verified,
         "torch_version": str(payload.get("torch_version") or "unknown"),
+        **gpu_metadata,
         "transformers_version": str(
             payload.get("transformers_version") or "unknown"
         ),

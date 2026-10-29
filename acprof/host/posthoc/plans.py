@@ -483,9 +483,19 @@ def merge_compute_plans(
                     key for key in metadata if str(key).startswith("ncu_")
                 )
             metadata_keys.extend(["gpu_compute_capability", "gpu_sm_count"])
+            if "gpu_compute_metadata" in metadata:
+                reports = metadata["gpu_compute_metadata"]
+                if not isinstance(reports, list):
+                    raise ValueError("gpu_compute_metadata must contain a list of probe reports")
+                static_metadata.setdefault("gpu_compute_metadata", []).extend(copy.deepcopy(reports))
             for key in metadata_keys:
                 if key in metadata:
-                    static_metadata[key] = copy.deepcopy(metadata[key])
+                    value = metadata[key]
+                    if (key in {"gpu_compute_capability", "gpu_sm_count"}
+                            and value in (None, "", "unknown", "unavailable", "not_applicable")
+                            and key in static_metadata):
+                        continue
+                    static_metadata[key] = copy.deepcopy(value)
 
         source_profiles = plan.get("profiles")
         if isinstance(source_profiles, Mapping):

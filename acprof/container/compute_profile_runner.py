@@ -16,8 +16,11 @@ os.environ["HF_HUB_OFFLINE"] = "1"
 os.environ["TRANSFORMERS_OFFLINE"] = "1"
 
 from acprof.artifacts import read_input_scale_plan
+from acprof.config_constraints import integer
 from acprof.container.execution import complete_prediction, configured_execution
 from acprof.container.handlers import HandlerRegistry, load_handler, resolve_model_source
+from acprof.gpu_probe import gpu_probe_report, record_gpu_probe_error, set_gpu_probe_value
+from acprof.input_budget import positive_integer
 from acprof.runtime_settings import runtime_threads
 
 # Populated only for explicitly selected Torch/NVIDIA profiling paths.
@@ -156,25 +159,52 @@ def _package_version(distribution: str) -> str:
         return "unknown"
 
 
-def _gpu_metadata() -> dict[str, Any]:
-    metadata: dict[str, Any] = {
-        "gpu_compute_capability": "",
-        "gpu_sm_count": None,
-    }
-    if torch is None or not torch.cuda.is_available():
+def _gpu_metadata(device: str = "cuda") -> dict[str, Any]:
+    names = ("gpu_compute_capability", "gpu_sm_count")
+    report = gpu_probe_report(names, status="not_applicable" if device == "cpu" else "unavailable")
+    metadata: dict[str, Any] = {name: None for name in names}
+    metadata["gpu_compute_metadata"] = report
+    if device == "cpu":
+        return metadata
+    stage = "availability"
+    try:
+        if torch is None or not torch.cuda.is_available():
+            raise RuntimeError("CUDA is unavailable in the profiling process")
+        stage = "resolve"
+        index = torch.cuda.current_device()
+        report["device"]["cuda_index"] = index
+    except Exception as exc:  # noqa: BLE001 - report optional CUDA probe failures explicitly
+        record_gpu_probe_error(report, "torch.cuda", stage, exc)
         return metadata
     try:
-        capability = torch.cuda.get_device_capability()
-        metadata["gpu_compute_capability"] = (
-            f"{int(capability[0])}.{int(capability[1])}"
-        )
-    except Exception:
-        pass
+        capability = torch.cuda.get_device_capability(index)
+        major, minor = integer(capability[0]), integer(capability[1])
+        if major < 1 or minor < 0:
+            raise ValueError("invalid CUDA compute capability")
+        value = f"{major}.{minor}"
+        metadata["gpu_compute_capability"] = value
+        set_gpu_probe_value(report, "gpu_compute_capability", value, "torch.cuda")
+    except Exception as exc:  # noqa: BLE001 - a failed field must not hide the remaining fields
+        record_gpu_probe_error(report, "torch.cuda", "query", exc, field="gpu_compute_capability")
     try:
-        properties = torch.cuda.get_device_properties(torch.cuda.current_device())
-        metadata["gpu_sm_count"] = int(properties.multi_processor_count)
-    except Exception:
-        pass
+        properties = torch.cuda.get_device_properties(index)
+    except Exception as exc:  # noqa: BLE001 - preserve the backend error and successfully read capability
+        record_gpu_probe_error(report, "torch.cuda", "properties", exc, field="gpu_sm_count")
+        return metadata
+    try:
+        count = positive_integer(properties.multi_processor_count, "gpu_sm_count", allow_integral_float=False)
+        metadata["gpu_sm_count"] = count
+        set_gpu_probe_value(report, "gpu_sm_count", count, "torch.cuda")
+    except Exception as exc:  # noqa: BLE001 - vendor property failures are metadata evidence
+        record_gpu_probe_error(report, "torch.cuda", "query", exc, field="gpu_sm_count")
+    try:
+        # CUDA's UUID representation is retained; it is not a host ordinal.
+        uuid = properties.uuid
+        if uuid is None or not str(uuid).strip():
+            raise ValueError("CUDA device UUID is unavailable")
+        report["device"]["cuda_uuid"] = str(uuid)
+    except Exception as exc:  # noqa: BLE001 - older Torch builds may not expose this property
+        record_gpu_probe_error(report, "torch.cuda", "query", exc, field="cuda_uuid")
     return metadata
 
 
@@ -332,7 +362,7 @@ def main() -> None:
                 "attention_implementation_verified": True,
                 "torch_version": str(getattr(torch, "__version__", "unknown")),
                 "transformers_version": _package_version("transformers"),
-                **_gpu_metadata(),
+                **_gpu_metadata(device),
             }))
             return
 
@@ -384,7 +414,7 @@ def main() -> None:
         "profile_window_wall_time_ms_per_request": (
             profile_window_wall_time_ms / float(repeat)
         ),
-        **_gpu_metadata(),
+        **_gpu_metadata(device),
     }))
 
 

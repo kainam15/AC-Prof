@@ -95,9 +95,14 @@ def _packet(sniff_iface: str) -> str:
 
 
 def _gpu() -> str:
-    devices = _command(["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"])
-    if not devices:
-        raise RuntimeError("未发现 NVIDIA GPU")
+    from acprof.host.gpu_device import resolve_gpu_device
+    from acprof.host.gpu_metadata import probe_gpu_metadata
+
+    report = probe_gpu_metadata(gpu_device=resolve_gpu_device())
+    name = report["fields"]["name"]["value"]
+    if name is None:
+        raise RuntimeError(f"GPU metadata unavailable: {report['errors']}")
+    devices = f"{name} ({report['device']['uuid']}; source={report['fields']['name']['source']})"
     runtimes = json.loads(_command(["docker", "info", "--format", "{{json .Runtimes}}"] ))
     if not isinstance(runtimes, dict) or "nvidia" not in runtimes:
         raise RuntimeError("Docker 未注册 NVIDIA runtime；安装并配置 NVIDIA Container Toolkit")

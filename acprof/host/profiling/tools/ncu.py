@@ -1,6 +1,7 @@
 """NCU execution, report export, checkpoint validation and resume."""
 from __future__ import annotations
 
+import copy
 import math
 import os
 import re
@@ -8,6 +9,13 @@ from collections.abc import Iterable, Sequence
 from typing import Any
 
 from acprof.artifacts import atomic_write, read_json_object
+from acprof.gpu_probe import (
+    gpu_compute_value,
+    gpu_probe_report,
+    is_gpu_probe_report,
+    record_gpu_probe_error,
+    set_gpu_probe_value,
+)
 from acprof.host.command import run_command
 from acprof.host.detect import TaskInfo
 from acprof.host.profiling.support import (
@@ -194,6 +202,35 @@ def _ncu_entry_complete(entry: dict[str, Any]) -> bool:
     )
 
 
+def _gpu_profile_metadata(payload: dict[str, Any], parsed: dict[str, Any]) -> dict[str, Any]:
+    report = copy.deepcopy(payload.get("gpu_compute_metadata"))
+    if report is None:
+        report = gpu_probe_report(("gpu_compute_capability", "gpu_sm_count"), status="unknown")
+    if not is_gpu_probe_report(report):
+        raise ValueError("invalid GPU compute metadata report")
+    metadata: dict[str, Any] = {"gpu_compute_metadata": report}
+    for key in ("gpu_compute_capability", "gpu_sm_count"):
+        metadata[key] = None
+        for source, values in (("runner", payload), ("ncu", parsed)):
+            value = values.get(key)
+            if value in (None, "", "unknown", "unavailable", "not_applicable"):
+                continue
+            field = report["fields"].get(key)
+            status = field["status"] if field is not None else "unknown"
+            if source == "runner" and status in {"unavailable", "not_applicable"}:
+                continue
+            try:
+                value = gpu_compute_value(key, value)
+            except ValueError as exc:
+                record_gpu_probe_error(report, source, "parse", exc, field=key)
+                continue
+            metadata[key] = value
+            if source != "runner" or status != "available":
+                set_gpu_probe_value(report, key, value, source)
+            break
+    return metadata
+
+
 def _ncu_entry_from_csv(
     *,
     entry: dict[str, Any],
@@ -203,6 +240,7 @@ def _ncu_entry_from_csv(
     runner_payload: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     report_path = _ncu_report_reference(profile_root, host_csv)
+    gpu_metadata = _gpu_profile_metadata(runner_payload or {}, {})
     try:
         parsed = parse_ncu_profile_csv(host_csv, repeat=repeat)
     except Exception as exc:
@@ -211,9 +249,10 @@ def _ncu_entry_from_csv(
             f"ncu_parse_failed:{exc!r}",
         )[0]
         error_entry["report"] = report_path
+        error_entry.update(gpu_metadata)
         return error_entry
 
-    payload = runner_payload or {}
+    gpu_metadata = _gpu_profile_metadata(runner_payload or {}, parsed)
     total_flops = to_float(parsed.get("total_flops_per_request"))
     if not math.isfinite(total_flops):
         error_entry = ncu_error_entries(
@@ -221,6 +260,7 @@ def _ncu_entry_from_csv(
             "ncu_parse_failed:flop_metrics_missing",
         )[0]
         error_entry["report"] = report_path
+        error_entry.update(gpu_metadata)
         return error_entry
 
     tensor_flops = finite_or_none(parsed.get("tensor_flops_per_request"))
@@ -244,14 +284,7 @@ def _ncu_entry_from_csv(
         "gpu_kernel_time_sum_ms_per_request_ncu": finite_or_none(
             parsed.get("kernel_time_sum_ms_per_request")
         ),
-        "gpu_compute_capability": str(
-            payload.get("gpu_compute_capability")
-            or parsed.get("gpu_compute_capability")
-            or ""
-        ),
-        "gpu_sm_count": finite_or_none(
-            payload.get("gpu_sm_count", parsed.get("gpu_sm_count"))
-        ),
+        **gpu_metadata,
         "error": "",
         "report": report_path,
     }
@@ -266,6 +299,7 @@ def _ncu_entry_from_csv(
             "ncu_parse_failed:required_metrics_missing:" + ",".join(missing),
         )[0]
         error_entry["report"] = report_path
+        error_entry.update(gpu_metadata)
         return error_entry
     return result
 

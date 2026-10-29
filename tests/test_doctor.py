@@ -70,7 +70,10 @@ class TestDoctor:
         assert (report["checks"][0]["remedy"]) == ("Check Docker socket access")
 
     def test_gpu_driver_alone_does_not_pass_container_readiness(self):
-        with patch.object(doctor, "_command", side_effect=["Test GPU", "{}"]):
+        with patch.object(doctor, "_command", return_value="{}"), patch(
+            "acprof.host.gpu_device.resolve_gpu_device",
+            return_value={"uuid": "GPU-test", "name": "Test GPU", "memory_total_bytes": 1024},
+        ):
             check = doctor._check("gpu", doctor._gpu, "Configure NVIDIA runtime")
         assert (check.status) == ("unavailable")
         assert ("NVIDIA runtime") in (check.detail)

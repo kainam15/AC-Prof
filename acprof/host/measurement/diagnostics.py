@@ -1,11 +1,13 @@
 """Idle diagnostics and NVIDIA snapshots; only called outside sampling windows."""
 from __future__ import annotations
 
+import csv
 import json
 import math
 import os
 from typing import Any
 
+from acprof.gpu_probe import require_gpu_identity
 from acprof.host.command import run_command
 from acprof.host.measurement.metrics import (
     to_float_or_nan as _to_float_or_nan,
@@ -97,7 +99,7 @@ def _int_or_none(value: str) -> int | None:
         return None
 
 
-def _collect_nvidia_smi_gpu_snapshot(device_index: int = 0) -> dict[str, Any]:
+def _collect_nvidia_smi_gpu_snapshot(device_index: int = 0, *, device_uuid: str = '') -> dict[str, Any]:
     query_fields = [
         "index",
         "name",
@@ -113,20 +115,25 @@ def _collect_nvidia_smi_gpu_snapshot(device_index: int = 0) -> dict[str, Any]:
         "utilization.memory",
         "memory.used",
         "memory.total",
+        "uuid",
     ]
     output = _run_text([
         "nvidia-smi",
-        f"--id={device_index}",
+        f"--id={device_uuid or device_index}",
         f"--query-gpu={','.join(query_fields)}",
         "--format=csv,noheader,nounits",
     ])
-    line = next((row.strip() for row in output.splitlines() if row.strip()), "")
-    values = [part.strip() for part in line.split(",")]
-    if len(values) != len(query_fields):
-        raise RuntimeError(f"unexpected nvidia-smi gpu row: {line!r}")
-
+    rows = list(csv.reader(output.strip().splitlines(), skipinitialspace=True))
+    if len(rows) != 1 or len(rows[0]) != len(query_fields):
+        raise RuntimeError(f"unexpected nvidia-smi gpu rows: {output!r}")
+    values = [part.strip() for part in rows[0]]
+    identity = {"index": _int_or_none(values[0]), "uuid": values[14]}
+    require_gpu_identity(identity, expected_uuid=device_uuid or None,
+                         expected_index=None if device_uuid else device_index)
+    if not isinstance(identity["index"], int) or identity["index"] < 0:
+        raise RuntimeError("nvidia-smi did not resolve a current GPU index")
     return {
-        "index": _int_or_none(values[0]),
+        **identity,
         "name": values[1],
         "pstate": values[2],
         "power_draw_w": _float_or_none(values[3]),
@@ -143,10 +150,10 @@ def _collect_nvidia_smi_gpu_snapshot(device_index: int = 0) -> dict[str, Any]:
     }
 
 
-def _collect_nvidia_smi_compute_apps(device_index: int = 0) -> list[dict[str, Any]]:
+def _collect_nvidia_smi_compute_apps(device_uuid: str) -> list[dict[str, Any]]:
     output = _run_text([
         "nvidia-smi",
-        f"--id={device_index}",
+        f"--id={device_uuid}",
         "--query-compute-apps=pid,process_name,used_memory",
         "--format=csv,noheader,nounits",
     ])
@@ -192,23 +199,25 @@ def _collect_nvidia_smi_pmon(device_index: int = 0) -> list[dict[str, Any]]:
     return rows
 
 
-def collect_gpu_idle_debug_snapshot(device_index: int) -> dict[str, Any]:
+def collect_gpu_idle_debug_snapshot(device_index: int, *, device_uuid: str = "") -> dict[str, Any]:
     snapshot: dict[str, Any] = {"gpu_snapshot_scope": "after_gpu_idle"}
     try:
-        snapshot["nvidia_smi_gpu"] = _collect_nvidia_smi_gpu_snapshot(device_index)
+        gpu = _collect_nvidia_smi_gpu_snapshot(device_index, device_uuid=device_uuid)
+        snapshot["nvidia_smi_gpu"] = gpu
     except Exception as exc:
         snapshot["nvidia_smi_gpu_error"] = repr(exc)
-
+        snapshot["nvidia_smi_pmon_error"] = "GPU identity was not resolved"
+        snapshot["nvidia_smi_compute_apps_error"] = "GPU identity was not resolved"
+        return snapshot
     try:
-        snapshot["nvidia_smi_pmon"] = _collect_nvidia_smi_pmon(device_index)
+        # pmon accepts the current index obtained from the UUID-bound snapshot.
+        snapshot["nvidia_smi_pmon"] = _collect_nvidia_smi_pmon(gpu["index"])
     except Exception as exc:
         snapshot["nvidia_smi_pmon_error"] = repr(exc)
-
     try:
-        snapshot["nvidia_smi_compute_apps"] = _collect_nvidia_smi_compute_apps(device_index)
+        snapshot["nvidia_smi_compute_apps"] = _collect_nvidia_smi_compute_apps(gpu["uuid"])
     except Exception as exc:
         snapshot["nvidia_smi_compute_apps_error"] = repr(exc)
-
     return snapshot
 
 def collect_idle_debug_snapshot() -> dict[str, Any]:
