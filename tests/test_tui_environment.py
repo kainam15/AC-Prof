@@ -9,7 +9,7 @@ from unittest.mock import patch
 import pytest
 from environment_fixtures import isolated_environment
 from textual.widgets import Button, Checkbox, Input, Static, TabbedContent
-from tui_fixtures import AcprofTui
+from tui_fixtures import AcprofTui, checkbox_text
 
 from acprof.experiment import RunConfig
 from acprof.host.env_utils import load_project_env
@@ -34,6 +34,68 @@ class TestTuiEnvironment:
         await pilot.pause()
         assert (await pilot.click(button))
         await pilot.pause()
+
+    @pytest.mark.parametrize(('language', 'theme', 'no_color', 'size'), [
+        ('zh', 'acprof-graphite', False, (80, 24)),
+        ('en', 'acprof-light', False, (120, 30)),
+        ('zh', 'acprof-light', True, (150, 45)),
+        ('en', 'acprof-graphite', True, (80, 24)),
+    ])
+    async def test_permission_marks_remain_distinct_in_themes_and_grayscale(
+        self, language, theme, no_color, size, monkeypatch,
+    ):
+        if no_color:
+            monkeypatch.setenv('NO_COLOR', '1')
+        else:
+            monkeypatch.delenv('NO_COLOR', raising=False)
+        app = AcprofTui(RunConfig.smoke('demo/model'), settings_path=self.root / 'tui.json')
+        app.configuration.preferences = replace(app.configuration.preferences, language=language, theme=theme)
+        async with app.run_test(size=size) as pilot:
+            await pilot.press('f2')
+            await pilot.pause()
+            await self.open_connections(app, pilot)
+            screen = app.screen
+            screen.query_one('#environment-tabs', TabbedContent).active = 'permissions-tab'
+            await pilot.pause()
+            perf = screen.query_one('#permission-perf', Checkbox)
+            tcpdump = screen.query_one('#permission-tcpdump', Checkbox)
+            assert checkbox_text(perf).count('✓') == 1
+            assert checkbox_text(tcpdump).count('✓') == 1
+            assert await pilot.click(perf)
+            await pilot.pause()
+            assert not perf.value
+            assert tcpdump.value
+            assert '✓' not in checkbox_text(perf)
+            assert checkbox_text(tcpdump).count('✓') == 1
+            app.save_screenshot(path=str(self.root), filename='permission-marks.svg')
+
+            # NO_COLOR changes the final frame, not just a widget's theme styles.
+            colors = {
+                color.get_truecolor()
+                for strip in screen._compositor.render_strips()
+                for segment in strip if segment.style
+                for color in (segment.style.color, segment.style.bgcolor) if color
+            }
+            assert colors
+            assert all(len(set(rgb)) == 1 for rgb in colors) == no_color
+            with patch('acprof.tui.environment.build_permission_plan') as build, patch(
+                'acprof.tui.environment.execute_permission_plan',
+            ) as install:
+                build.return_value.commands = (('/usr/sbin/setcap', 'cap_net_raw=ep', '/usr/bin/tcpdump'),)
+                assert await pilot.click('#configure-environment-permissions')
+                await pilot.pause()
+                build.assert_called_once_with(('tcpdump',))
+                await pilot.press('escape')
+                await pilot.pause()
+                install.assert_not_called()
+
+            perf.focus()
+            await pilot.press('space')
+            await pilot.pause()
+            assert perf.value
+            assert tcpdump.value
+            assert checkbox_text(perf).count('✓') == 1
+            assert checkbox_text(tcpdump).count('✓') == 1
 
     async def test_permission_review_can_cancel_and_failed_sudo_returns_to_form(self):
         app = AcprofTui(RunConfig.smoke('demo/model'), settings_path=self.root / 'tui.json')
@@ -146,6 +208,17 @@ class TestTuiEnvironment:
             await self.open_connections(app, pilot)
             token = app.screen.query_one('#env-hf-token', Input)
             assert (token.password)
+            show_secrets = app.screen.query_one('#show-environment-secrets', Checkbox)
+            assert '✓' not in checkbox_text(show_secrets)
+            assert 'X' not in checkbox_text(show_secrets)
+            assert await pilot.click(show_secrets)
+            await pilot.pause()
+            assert checkbox_text(show_secrets).count('✓') == 1
+            assert not token.password
+            await pilot.press('space')
+            await pilot.pause()
+            assert '✓' not in checkbox_text(show_secrets)
+            assert token.password
             token.focus()
             await pilot.press(*'hf_testonly')
             assert not app.screen.query('#env-hf-endpoint, #env-http-proxy, #env-https-proxy, #env-all-proxy, #env-no-proxy, #env-hf-download-mode')

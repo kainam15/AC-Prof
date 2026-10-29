@@ -16,11 +16,12 @@ from acprof.host.env_utils import configurable_env_values, save_project_env
 from acprof.host.permissions import build_permission_plan, execute_permission_plan
 from acprof.host.run_state import MeasurementLock
 from acprof.tui.app_contracts import translated_app
+from acprof.tui.checkbox import StatusCheckbox
 from acprof.tui.diagnostics import quick_preflight
 from acprof.tui.i18n import message_id
 from acprof.tui.input import BarCursorInput as Input
 from acprof.tui.rendering import CjkCompositor
-from acprof.tui.views import ConfirmActionScreen, StatusCheckbox
+from acprof.tui.views import ConfirmActionScreen
 
 FIELDS = (
     ('HF_TOKEN', 'Hugging Face Token', True, 'hf_…'),
@@ -136,7 +137,7 @@ class EnvironmentSettingsScreen(ModalScreen[bool]):
             with Horizontal(id='environment-actions', classes='action-bar'):
                 with Horizontal(classes='action-secondary'):
                     yield Button(tr('关闭'), id='close-environment-settings')
-                    yield Checkbox(tr('显示敏感字段'), id='show-environment-secrets', classes='option-checkbox')
+                    yield StatusCheckbox(tr('显示敏感字段'), id='show-environment-secrets', classes='option-checkbox')
                 with Horizontal(classes='action-primary'):
                     yield Button(tr('保存配置'), id='save-environment-settings', variant='primary')
 

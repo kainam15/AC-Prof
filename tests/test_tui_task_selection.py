@@ -6,7 +6,7 @@ from rich.cells import cell_len
 from task_selection_fixtures import t5_profiles, t5_task
 from textual.containers import VerticalScroll
 from textual.widgets import Button, Checkbox, Select, Static
-from tui_fixtures import AcprofTui
+from tui_fixtures import AcprofTui, checkbox_text
 
 from acprof.experiment import RunConfig
 from acprof.inference_groups import group_inference_tasks
@@ -56,17 +56,25 @@ async def test_multiselect_requires_confirmation_and_supports_all(tmp_path, lang
             assert checkbox.region.width == 5
             assert description.region.x == checkbox.region.right
             assert description.region.width >= 55
+            assert "X" not in checkbox_text(checkbox)
+            assert "✓" not in checkbox_text(checkbox)
         await pilot.click("#preparation-apply")
         assert replies == []
         assert screen.query_one("#preparation-error", Static).content
         assert isinstance(app.focused, Checkbox)
         assert screen.query_one("#preparation-error").region.bottom <= screen.query_one("#preparation-actions").region.y
         await pilot.press("space")
+        await pilot.pause()
+        assert isinstance(app.focused, Checkbox)
+        assert checkbox_text(app.focused).count("✓") == 1
         assert not screen.query_one("#preparation-error").display
         assert selection.selected == [task_event()["request"]["questions"][0]["options"][0]]
         await pilot.press("down", "space")
         assert len(selection.selected) == 2
         await pilot.press("up", "space")
+        await pilot.pause()
+        assert isinstance(app.focused, Checkbox)
+        assert "✓" not in checkbox_text(app.focused)
         assert len(selection.selected) == 1
         for selector in ("#preparation-select-all", "#preparation-apply", "#preparation-cancel"):
             button = screen.query_one(selector, Button)

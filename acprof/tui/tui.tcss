@@ -91,9 +91,6 @@ Underline { color: $accent; }
 .form-grid.tool-form-grid { grid-size: 2; grid-columns: 18 1fr; }
 .profiler-grid { grid-size: 2; grid-columns: 1fr 1fr; grid-gutter: 0 1; height: auto; }
 .profiler-checkbox { width: 1fr; height: 3; margin-right: 0; }
-.profiler-grid .option-checkbox > .toggle--button { color: $panel; }
-.profiler-grid .option-checkbox.-on > .toggle--button { color: $background; }
-.profiler-grid .option-checkbox:disabled > .toggle--button { color: $ui-disabled; background: $panel; }
 Input, Select { width: 1fr; }
 .number-field { height: 3; }
 .number-field Input { width: 16; }
@@ -211,9 +208,6 @@ Select:disabled > SelectCurrent { color: $ui-disabled; border: solid $ui-disable
 #profile-section { height: auto; margin: 0; padding: 0; border: none; }
 #profile-status { height: auto; color: $text-muted; margin-bottom: 1; }
 #open-result-profiling { width: auto; }
-#permissions-tab .option-checkbox > .toggle--button { color: $panel; }
-#permissions-tab .option-checkbox.-on > .toggle--button { color: $background; }
-#permissions-tab .option-checkbox:disabled > .toggle--button { color: $ui-disabled; background: $panel; }
 .settings-section {
     height: auto;
     border: solid $panel;

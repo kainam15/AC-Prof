@@ -14,6 +14,7 @@ from tui_fixtures import AcprofTui
 
 from acprof.experiment import RunConfig, RunConfigError, build_run_command
 from acprof.progress_events import encode_event
+from acprof.tui.checkbox import StatusCheckbox
 from acprof.tui.commands import (
     PendingLaunch,
     build_probe_command,
@@ -25,7 +26,7 @@ from acprof.tui.diagnostics import _readable_rapl_paths, summarize_result_csv
 from acprof.tui.log import SelectableLog
 from acprof.tui.progress import RunProgressTracker
 from acprof.tui.stages import Stage
-from acprof.tui.views import ConfirmActionScreen, StatusCheckbox
+from acprof.tui.views import ConfirmActionScreen
 
 PROJECT_DIR = Path(__file__).resolve().parents[1]
 
@@ -413,7 +414,8 @@ class TestTuiApp:
             prune = app.query_one("#prune-startup-oom", StatusCheckbox)
             assert not app.query("#skip-build")
             reuse = app.query_one("#rebuild-image", StatusCheckbox)
-            assert (StatusCheckbox.BUTTON_INNER) == ("✓")
+            assert "✓" in prune.render().plain
+            assert "✓" not in reuse.render().plain
             assert (prune.value)
             assert (prune.has_class("-on"))
             assert not (reuse.value)

@@ -10,7 +10,6 @@ from textual.containers import Grid, Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import (
     Button,
-    Checkbox,
     Collapsible,
     ContentSwitcher,
     Label,
@@ -20,6 +19,7 @@ from textual.widgets import (
 from textual.widgets.button import ButtonVariant
 
 from acprof.tui.app_contracts import translated_app
+from acprof.tui.checkbox import StatusCheckbox
 from acprof.tui.field_validation import ConfigField
 from acprof.tui.i18n import LANGUAGE_OPTIONS, message_id
 from acprof.tui.input import BarCursorInput as Input
@@ -39,12 +39,6 @@ if TYPE_CHECKING:
 # Keep the original triangles with one extra cell before the title text.
 COLLAPSED_SYMBOL = "▶ "
 EXPANDED_SYMBOL = "▼ "
-
-
-class StatusCheckbox(Checkbox):
-    """Checkbox whose selected mark is unambiguous in dark terminals."""
-
-    BUTTON_INNER = "✓"
 
 
 class EnvironmentPreflightScreen(ModalScreen[bool]):

@@ -156,6 +156,10 @@ App 保留进程启动、停止及退出清理，正式测量快照、全局操�
 controller 通过 App 的 `project_dir` 与 `python_executable` 读取当前路径；不缓存或复制进程所有权。
 正式测量窗口内延迟重要日志、抑制常规输出及定时器恢复沿用原语义。
 `views` 以已注解的 `AcprofTui` 组合页面，通过 `app.configuration` 与 `app.localization` 读取相应能力。
+`checkbox.StatusCheckbox` 供表单、权限、Profiler 和任务多选共用；勾号随实际值变化，
+未选中时保留一个空白 cell，标签不会位移。沿用
+[Textual 的公开 value watcher](https://github.com/Textualize/textual/blob/v8.2.8/src/textual/widgets/_toggle_button.py)
+发送变更事件和维护选中样式，不以颜色隐藏勾号，也不增加刷新任务。
 `localization_controller.LocalizationController` 拥有 UI 文案登记、翻译和语言切换状态；
 App 的 `tr/notify` 是 Textual 与小部件使用的展示接口，不翻译原始日志、CLI 参数或实验事件。
 `configuration_controller` 管理表单、字段校验、设置保存、最近路径和预览；

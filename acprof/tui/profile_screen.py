@@ -8,10 +8,10 @@ from textual.screen import ModalScreen
 from textual.widgets import Button, Checkbox, Static
 
 from acprof.tui.app_contracts import translated_app
+from acprof.tui.checkbox import StatusCheckbox
 from acprof.tui.i18n import message_id
 from acprof.tui.profile_status import ProfilerOverview, ProfilerStatus
 from acprof.tui.rendering import CjkCompositor
-from acprof.tui.views import StatusCheckbox
 
 TOOL_LABELS = {
     "torch": message_id("ui.2265"),

@@ -7,7 +7,7 @@ from test_layer_read_cancellation import source_hashes
 from test_profile_overview_snapshot import profile_store
 from textual.containers import VerticalScroll
 from textual.widgets import Button, Checkbox, Collapsible, Input, Select, Static
-from tui_fixtures import AcprofTui
+from tui_fixtures import AcprofTui, checkbox_text
 
 from acprof.experiment import RunConfig
 from acprof.tui.profile_screen import ProfilerChoiceScreen
@@ -194,6 +194,7 @@ class TestTuiProfileTools:
                 assert box.region.bottom <= size[1]
                 assert box.content_region.height > 0
                 assert cell_len(box.label.plain) + 4 <= box.content_region.width
+                assert checkbox_text(box).count("✓") == (1 if tool == "ncu" else 0)
                 rendered = "\n".join(strip.text for strip in app.screen._compositor.render_strips())
                 assert box.label.plain in rendered
             await pilot.press("escape")

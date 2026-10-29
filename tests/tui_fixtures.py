@@ -7,7 +7,20 @@ This fixture preserves the startup state machine and configuration invalidation.
 from contextlib import asynccontextmanager
 from unittest.mock import patch
 
+from textual.widgets import Checkbox
+
 from acprof.tui.app import AcprofTui as ProductionTui
+
+
+def checkbox_text(checkbox: Checkbox) -> str:
+    """Read visible terminal cells, including the mark, without relying on color."""
+    region = checkbox.content_region
+    assert region.width > 0
+    assert region.height > 0
+    assert 0 <= region.x < region.right <= checkbox.screen.size.width
+    assert 0 <= region.y < region.bottom <= checkbox.screen.size.height
+    lines = checkbox.screen._compositor.render_strips()
+    return "\n".join(line.crop(region.x, region.right).text for line in lines[region.y:region.bottom])
 
 
 class AcprofTui(ProductionTui):

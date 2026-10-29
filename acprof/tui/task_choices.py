@@ -7,6 +7,7 @@ from textual.containers import Horizontal, Vertical
 from textual.widgets import Checkbox, Static
 
 from acprof.task_presentation import SelectionGroup, build_task_selection
+from acprof.tui.checkbox import StatusCheckbox
 from acprof.tui.i18n import message_id
 from acprof.tui.task_labels import Translator, format_parameters, group_label
 
@@ -26,7 +27,7 @@ class TaskChoice(Horizontal):
         self.initial_selected = selected
 
     def compose(self):
-        yield Checkbox(value=self.initial_selected, compact=True)
+        yield StatusCheckbox(value=self.initial_selected, compact=True)
         label = Text()
         label.append(group_label(self.group, self.tr), style="bold")
         difference = format_parameters(self.group.differences, self.tr) or self.tr(message_id("ui.2201"))
