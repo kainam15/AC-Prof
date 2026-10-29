@@ -81,6 +81,37 @@ class TestModelDownload:
                 assert (record["model_download"]["total_selected_bytes"]) == (4)
                 validate_plan(record["model_download"])
 
+    @pytest.mark.parametrize('damaged_repo', ['example/audio', 'example/base'])
+    def test_repair_preserves_primary_and_dependency_offline_refs(self, tmp_path, damaged_repo):
+        from huggingface_hub import try_to_load_from_cache
+
+        plan = self.dependency_plan()
+        task = self.task(plan)
+
+        def snapshot(**kwargs):
+            target = tmp_path / 'hf' / ('models--' + kwargs['repo_id'].replace('/', '--')) / 'snapshots' / kwargs['revision']
+            target.mkdir(parents=True, exist_ok=True)
+            (target / 'config.json').write_bytes(b'{}')
+            return str(target)
+
+        with patch('huggingface_hub.snapshot_download', side_effect=snapshot):
+            original = model_store.prepare_model(task, plan, tmp_path)
+        cache = tmp_path / 'entries' / original['entry_id'] / 'hf'
+        (cache / ('models--' + damaged_repo.replace('/', '--')) / 'refs/main').write_text('c' * 40)
+        with patch('huggingface_hub.snapshot_download', side_effect=snapshot) as download:
+            repaired = model_store.prepare_model(task, plan, tmp_path)
+
+        assert repaired == original
+        assert len(download.call_args_list) == 2
+        assert all(call.kwargs['local_files_only'] for call in download.call_args_list)
+        for repo, revision in (('example/audio', 'a' * 40), ('example/base', 'b' * 40)):
+            view = cache / ('models--' + repo.replace('/', '--'))
+            assert (view / 'refs/main').read_text() == revision
+            path = try_to_load_from_cache(repo, 'config.json', cache_dir=str(cache))
+            assert isinstance(path, str)
+            assert Path(path).read_bytes() == b'{}'
+        model_store.verify_entry({'model_store': repaired}, tmp_path)
+
     def test_dependency_identity_mismatch_is_rejected_even_with_a_resealed_parent(self):
         plan = self.dependency_plan()
         plan["dependencies"][0]["revision"] = "c" * 40

@@ -43,6 +43,17 @@ entry 先在私有临时目录完整构建，再原子发布；发布前仅为 e
 此流程参考 [uv 的暂存目录发布与独立制品存储](https://github.com/astral-sh/uv/blob/main/crates/uv-cache/src/lib.rs)
 （MIT，持续维护）；沿用 AC-Prof 的目录身份、lease 和标准库实现，不引入新的缓存布局或依赖。
 
+有效清单不等于完整的 loader 视图。准备和实验前验证还检查主模型及每个依赖的 `refs/main`、
+固定 revision 快照、文件大小，以及指向 Store 内共享缓存的直接相对文件链接。
+refs 只按预期 commit 长度有界读取；目录符号链接和读取权限错误明确失败。
+显式准备可从已经校验的源缓存重建缺失链接、错误 refs 或不符合布局的文件，仍需排他 lease；
+已有清单有效时保留原计划 SHA256 和 provenance，不伪造新的下载记录。
+完整视图的 SHA256 直接针对运行时使用的 entry 文件校验，单次准备不重复 hash 源缓存和 entry 两份路径。
+内容不匹配仍失败，不静默改写或在线修复；实验前验证只报告不完整视图，不执行重建。
+这些检查位于准备和已有的实验前验证阶段，运行时取得挂载 lease 的启动路径不增加目录扫描。
+完整性核对参考 [HF 离线快照检查](https://github.com/huggingface/huggingface_hub/blob/main/src/huggingface_hub/_snapshot_download.py)
+（Apache-2.0，持续维护）；AC-Prof 使用固定清单检查自身视图，保留逐文件 SHA256 校验，不新增依赖。
+
 下载清单 schema v1 增加可选的 `source`、`requested_revision`、`repository_context` 和 `download_provenance`；历史缺 source 按既有 HF 语义读取，不重写已有实验。`repository_context` schema v1 保存原始 Hub 元数据和完整仓库文件列表，不能用下载筛选后的文件或用户覆盖的任务字段代替。历史缺少完整上下文的计划仍可按固定身份读取，不伪造仓库元信息；读取缓存配置文件先检查大小上限及 SHA256。Hub `endpoint` 是传输信息，不作为模型身份。`download_provenance` 记录入口、最终 endpoint 类型、失败尝试与去除签名 query／凭据的 redirect chain，最多保存 256 次响应并标记截断。完整缓存保留原记录，不虚构当次网络流量。SDK 无法暴露的实际 CDN 或历史缓存原始地址保留 `unknown`；目前 ModelScope SDK 不提供等价的 redirect hook，因此其存储链不推断为 Hub 地址。细节见[结果协议](../profiling/metadata.md#static_metajson-字段)。
 
 主机不安装推理框架。`auto` 筛选使用固定 runtime lock 以及 `container/compat/transformers_model_types.json` 中 4.57.6/5.10.4 的 native model types，catalog 来自相应锁定 runtime 的公开 `CONFIG_MAPPING_NAMES`，保存源码位置与 SHA256；未知版本/布局保持完整快照。新增版本须重新提取并核验 catalog，不能借旧版本的支持表作推断。

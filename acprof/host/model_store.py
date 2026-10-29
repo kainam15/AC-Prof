@@ -1,6 +1,6 @@
 """One host Hub cache, immutable per-plan views, read-only runtime mounts.
 
-No model/framework code is loaded here. Entry views contain symlinks only;
+No model/framework code is loaded here. Entry views link to shared payloads;
 CPU/GPU builds share bytes and retain independent pinned dependency refs.
 """
 from __future__ import annotations
@@ -12,7 +12,6 @@ import os
 import re
 import shutil
 import stat
-import tempfile
 import time
 from collections import Counter
 from collections.abc import Callable
@@ -33,6 +32,12 @@ from acprof.hf_transport import (
     observed_hf_sources,
 )
 from acprof.host.model_store_paths import StorePaths, store_paths
+from acprof.host.model_store_views import (
+    make_traversable,
+    publish_view,
+    snapshot_path,
+    view_complete,
+)
 from acprof.model_spec import task_model_spec
 from acprof.network_policy import (
     DownloadPolicyError,
@@ -137,38 +142,6 @@ def entry_key(task) -> str:
         "model": task.model_id, "revision": task.model_revision,
         "policy": task.model_download_policy, "family": task.task_family, "backend": task.runtime_backend,
         "adapter": task.model_adapter, "dependencies": task_model_spec(task).get("dependencies", [])})
-
-
-def _write_text(stream, content: str) -> None:
-    """Use a None-returning atomic writer to preserve the callback contract."""
-    stream.write(content)
-
-
-def _json(path: Path, value: dict) -> None:
-    payload = json.dumps(value, ensure_ascii=False, indent=2) + "\n"
-    artifact_io.atomic_write(path, lambda stream: _write_text(stream, payload))
-
-
-def _sync_directory_tree(root: Path) -> None:
-    """Make private staged directory entries durable before publishing the root."""
-    directories = [root, *(path for path in root.rglob("*") if path.is_dir() and not path.is_symlink())]
-    for directory in sorted(directories, key=lambda path: len(path.parts), reverse=True):
-        artifact_io.sync_directory(directory)
-
-
-def _make_entry_traversable(path: Path) -> None:
-    """Grant directory search only, for read-only containers without DAC capabilities.
-
-    TemporaryDirectory stages start private (0700). A published entry must be
-    traversable by the container, without exposing directory listings.
-    """
-    descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
-    try:
-        mode = stat.S_IMODE(os.fstat(descriptor).st_mode)
-        if mode & 0o111 != 0o111:
-            os.fchmod(descriptor, mode | 0o111)
-    finally:
-        os.close(descriptor)
 
 
 @contextmanager
@@ -511,29 +484,6 @@ def enforce_model_download_budgets(plan: dict) -> None:
         raise DownloadPolicyError(f"ACPROF_MODEL_MAX_DOWNLOAD: {exc}") from exc
 
 
-def _publish_entry(temporary: Path, destination: Path) -> None:
-    """Publish a complete view, retaining an incomplete predecessor until sync succeeds."""
-    previous = None
-    if destination.exists():
-        previous = Path(tempfile.mkdtemp(prefix=".preparing-", dir=destination.parent))
-        try:
-            destination.rename(previous)
-        except BaseException:
-            previous.rmdir()
-            raise
-    try:
-        temporary.rename(destination)
-    except BaseException:
-        if previous is not None:
-            previous.rename(destination)
-            artifact_io.sync_directory(destination.parent)
-        raise
-    # Keep the previous view available for explicit cleanup if durability is uncertain.
-    artifact_io.sync_directory(destination.parent)
-    if previous is not None:
-        shutil.rmtree(previous)
-
-
 def prepare_model(task, plan: dict, root: Path | None = None, *, planned_download_bytes: int | None = None) -> dict:
     from huggingface_hub import snapshot_download
 
@@ -543,12 +493,13 @@ def prepare_model(task, plan: dict, root: Path | None = None, *, planned_downloa
     configure_hf_transport()
     with store_lock(root), ExitStack() as leases:
         existing = read_entry(key, root)
-        if existing is None:
+        needs_publish = existing is None or not view_complete(root, key, repository_plans(existing))
+        if needs_publish:
             lease = leases.enter_context(_open_lock_file(root / (key + ".lease"), label="Model Store lease"))
             try:
                 fcntl.flock(lease, fcntl.LOCK_EX | fcntl.LOCK_NB)
             except BlockingIOError as exc:
-                raise RuntimeError("Model Store 清单缺失且存在活动 lease；停止消费者后才能重新准备") from exc
+                raise RuntimeError("Model Store 文件视图缺失或不完整且存在活动 lease；停止消费者后才能重新准备") from exc
         require_space(plan, root)
         sources = model_sources(plan, root)
         sizes = [source.estimated_bytes for source in sources]
@@ -591,7 +542,8 @@ def prepare_model(task, plan: dict, root: Path | None = None, *, planned_downloa
                     target, endpoint = try_hf_endpoints(repo["model_id"], download, endpoints=choices)
                 progress.finish("verifying")
                 # Verification happens before any runtime or formal measurement starts.
-                verify_download(target, repo)
+                verification_target = Path(target) if needs_publish else snapshot_path(root, key, repo)
+                verify_download(verification_target, repo)
             except BaseException as exc:
                 progress.finish("cancelled" if isinstance(exc, (KeyboardInterrupt, SystemExit)) else "failed")
                 raise
@@ -615,33 +567,9 @@ def prepare_model(task, plan: dict, root: Path | None = None, *, planned_downloa
         if plan.get("dependencies"):
             plan["total_selected_bytes"] = sum(repo["selected_bytes"] for repo in repository_plans(plan))
         seal_plan(plan)
-        entries = root / "entries"
-        entries.mkdir(exist_ok=True)
-        destination = entries / key
-        if existing is None:
-            with tempfile.TemporaryDirectory(prefix=".preparing-", dir=entries) as directory:
-                temporary = Path(directory)
-                for repo, source in zip(repository_plans(plan), targets, strict=True):
-                    cache = temporary / "hf" / ("models--" + repo["model_id"].replace("/", "--"))
-                    snapshot = cache / "snapshots" / repo["model_revision"]
-                    for record in repo["files"]:
-                        link = snapshot / record["path"]
-                        link.parent.mkdir(parents=True, exist_ok=True)
-                        blob = (source / record["path"]).resolve()
-                        if not blob.is_relative_to(root):
-                            raise ValueError("Model Store snapshot escaped its store root")
-                        link.symlink_to(os.path.relpath(blob, link.parent))
-                    (cache / "refs").mkdir(exist_ok=True)
-                    revision = repo["model_revision"]
-                    artifact_io.atomic_write(cache / "refs/main", lambda stream: _write_text(stream, revision))
-                _json(temporary / PLAN_FILENAME, plan)
-                # Keep staging private until complete; publish a traversable view.
-                _make_entry_traversable(temporary)
-                # Persist every staged directory edge before publishing the tree root.
-                _sync_directory_tree(temporary)
-                # Both views stay at the same depth so relative payload links remain valid.
-                _publish_entry(temporary, destination)
-        (destination / "last-used").touch()
+        if needs_publish:
+            publish_view(root, key, plan, repository_plans(plan), targets)
+        (root / "entries" / key / "last-used").touch()
     print("[network-download] " + json.dumps({"category": "model",
         "verified_new_payload_bytes": sum(source.estimated_bytes for source in sources),
         "cache_savings_bytes": sum(source.cached_bytes for source in sources),
@@ -688,7 +616,7 @@ def acquire_mount(manifest: dict, root: Path | None = None) -> ModelStoreMount:
         key, plan = _require_entry_plan(record, root)
         # Existing entries were published with TemporaryDirectory's 0700 mode.
         # Repair after validating the entry, while holding the store lock.
-        _make_entry_traversable(root / "entries" / key)
+        make_traversable(root / "entries" / key)
         lock = _open_lock_file(root / (key + ".lease"), label="Model Store lease")
         try:
             fcntl.flock(lock, fcntl.LOCK_SH)
@@ -709,6 +637,8 @@ def verify_entry(manifest: dict, root: Path | None = None) -> None:
     lock = None
     with store_lock(root):
         key, plan = _require_entry_plan(record, root)
+        if not view_complete(root, key, repository_plans(plan)):
+            raise RuntimeError("Model Store 文件视图不完整；请先重新准备，禁止在线 fallback")
         lock = _open_lock_file(root / (key + ".lease"), label="Model Store lease")
         try:
             fcntl.flock(lock, fcntl.LOCK_SH)
@@ -718,7 +648,7 @@ def verify_entry(manifest: dict, root: Path | None = None) -> None:
             raise
     try:
         for repo in repository_plans(plan):
-            snapshot = root / "entries" / key / "hf" / ("models--" + repo["model_id"].replace("/", "--")) / "snapshots" / repo["model_revision"]
+            snapshot = snapshot_path(root, key, repo)
             verify_download(snapshot, repo)
     finally:
         lock.close()

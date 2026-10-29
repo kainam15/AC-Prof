@@ -112,6 +112,109 @@ class TestModelStore:
         (entry / 'obsolete').write_bytes(b'previous view')
         return record, entry
 
+    @pytest.mark.parametrize('damage', ['missing_link', 'missing_ref', 'wrong_ref', 'copied_file', 'absolute_link', 'outside_link'])
+    def test_preparation_repairs_incomplete_view_without_changing_plan_identity(self, damage):
+        from huggingface_hub import try_to_load_from_cache
+
+        original = self.prepare()
+        entry = self.root / 'entries' / original['entry_id']
+        cache = entry / 'hf/models--example--test'
+        link = cache / 'snapshots' / self.task.model_revision / 'config.json'
+        ref = cache / 'refs/main'
+        blob = link.resolve()
+        outside = self.root.parent / (self.root.name + '-outside.json')
+        if damage == 'missing_ref':
+            ref.unlink()
+        elif damage == 'wrong_ref':
+            ref.write_text('b' * 40)
+        else:
+            link.unlink()
+            if damage == 'copied_file':
+                link.write_bytes(b'xx')
+            elif damage == 'absolute_link':
+                link.symlink_to(blob)
+            elif damage == 'outside_link':
+                outside.write_bytes(b'{}')
+                link.symlink_to(os.path.relpath(outside, link.parent))
+        with patch('huggingface_hub.snapshot_download', side_effect=self.snapshot) as download:
+            repaired = model_store.prepare_model(self.task, self.plan, self.root)
+
+        assert repaired == original
+        assert model_store.read_entry(original['entry_id'], self.root) == original['model_download']
+        assert download.call_args.kwargs['local_files_only'] is True
+        assert link.is_symlink()
+        assert not link.readlink().is_absolute()
+        assert link.resolve() == blob
+        assert ref.read_text() == self.task.model_revision
+        cached = try_to_load_from_cache(self.task.model_id, 'config.json', cache_dir=str(entry / 'hf'))
+        assert isinstance(cached, str)
+        assert Path(cached).read_bytes() == self.content
+        if damage == 'outside_link':
+            assert outside.read_bytes() == b'{}'
+
+    def test_incomplete_view_cannot_be_replaced_while_a_consumer_holds_lease(self):
+        record = self.prepare()
+        entry = self.root / 'entries' / record['entry_id']
+        ref = entry / 'hf/models--example--test/refs/main'
+        before = entry.stat().st_ino
+        with model_store.acquire_mount({'model_store': record}, self.root):
+            ref.write_text('b' * 40)
+            with patch('huggingface_hub.snapshot_download', side_effect=self.snapshot) as download:
+                with pytest.raises(RuntimeError, match='lease'):
+                    model_store.prepare_model(self.task, self.plan, self.root)
+            download.assert_not_called()
+            assert entry.stat().st_ino == before
+            assert ref.read_text() == 'b' * 40
+        assert self.prepare() == record
+        assert ref.read_text() == self.task.model_revision
+
+    def test_preparation_hashes_actual_view_once_and_rejects_redirected_content(self):
+        from acprof.container.download_model import verify_download
+
+        record = self.prepare()
+        entry = self.root / 'entries' / record['entry_id']
+        snapshot = entry / 'hf/models--example--test/snapshots' / self.task.model_revision
+        link = snapshot / 'config.json'
+        original_blob = link.resolve()
+        wrong_blob = original_blob.with_name('wrong-content')
+        wrong_blob.write_bytes(b'xx')
+        link.unlink()
+        link.symlink_to(os.path.relpath(wrong_blob, link.parent))
+        with patch('acprof.container.download_model.verify_download', wraps=verify_download) as verify:
+            with pytest.raises(ValueError, match='SHA256'):
+                self.prepare()
+        assert verify.call_count == 1
+        assert Path(verify.call_args.args[0]) == snapshot
+        assert original_blob.read_bytes() == self.content
+        assert wrong_blob.read_bytes() == b'xx'
+        assert model_store.read_entry(record['entry_id'], self.root) == record['model_download']
+
+    def test_entry_verification_rejects_incomplete_view_and_releases_lease(self):
+        record = self.prepare()
+        ref = self.root / 'entries' / record['entry_id'] / 'hf/models--example--test/refs/main'
+        ref.write_text('b' * 40)
+        with pytest.raises(RuntimeError, match='view|视图'):
+            model_store.verify_entry({'model_store': record}, self.root)
+        assert ref.read_text() == 'b' * 40
+        assert model_store.prune_store(root=self.root)['entries'] == [record['entry_id']]
+
+    def test_truncated_view_payload_is_rejected_before_preparation(self):
+        record = self.prepare()
+        entry = self.root / 'entries' / record['entry_id']
+        link = entry / 'hf/models--example--test/snapshots' / self.task.model_revision / 'config.json'
+        original_blob = link.resolve()
+        truncated = original_blob.with_name('truncated-content')
+        truncated.write_bytes(b'x')
+        link.unlink()
+        link.symlink_to(os.path.relpath(truncated, link.parent))
+        with patch('huggingface_hub.snapshot_download', side_effect=self.snapshot) as download:
+            with pytest.raises(ValueError, match='size mismatch'):
+                model_store.prepare_model(self.task, self.plan, self.root)
+        download.assert_not_called()
+        assert link.resolve() == truncated
+        assert truncated.read_bytes() == b'x'
+        assert original_blob.read_bytes() == self.content
+
     def test_preparation_rebuilds_an_unleased_entry_with_missing_plan(self):
         original, entry = self.incomplete_entry()
         snapshot = entry / 'hf/models--example--test/snapshots' / self.task.model_revision
