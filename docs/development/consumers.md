@@ -260,13 +260,33 @@ CLI 参数、TUI 表单和硬件验证使用同一契约；该模块不导入 TU
 字段错误元数据与候选控件参考 [Textual validation](https://github.com/Textualize/textual/blob/main/src/textual/validation.py)
 和 [Input 文档](https://github.com/Textualize/textual/blob/main/docs/widgets/input.md)（MIT）。
 沿用现有 Textual 与标准库；共享校验不引入 UI 依赖，界面校验只在编辑或提交阶段执行，不进入正式测量窗口。
-`acprof.messages` 保存可翻译的结构化消息；`tui.translation_catalog` 为 927 条已审校显示文案
-固定 `ui.NNNN` 标识及中文源文案、英文翻译，键只追加不重新编号。
-`tui.i18n.message_id(key, *values)` 构造保留 msgid 的消息。TUI 内静态 catalog `message(...)` 和直接 `tr(...)` 文案必须通过稳定 ID 引用；`test_tui_i18n.py` 以 AST 约束防止退化为中文键。
-`translate` 在展示边界按标识查找，
-允许文本变化而不影响身份；已有 `message(中文源文本)` 及少量直接字符串调用仍可从同一目录生成
-`ENGLISH` 源文案索引逐步迁移，避免改变验证错误文本、CLI 与结果协议。
-缺失 ID 直接抛出 `KeyError`，参数位置／格式必须与两种语言模板一致，禁止回退成任意字符串。
+`acprof.messages` 保存可翻译的结构化消息；`tui.catalog` 按 `common`、`run`、`downloads`、
+`images`、`logs`、`results`、`settings`、`validation`、`models` 和 `profiling` 划分文案。
+每个功能模块按 key 排序，在一条不可变 `Entry(zh=..., en=...)` 中同时维护中英文；
+`SOURCE_BY_ID`、`ENGLISH_BY_ID` 与源文案反查索引全部由这些记录派生，不再维护两份平行目录。
+新增 key 使用 `功能.场景.用途`，例如 `logs.export.title`；名称描述稳定用途，改措辞不改 key。
+相同显示文字可以有不同场景 key，只有用途一致的内容才共用 `common` 文案。
+汇总时拒绝跨模块重复 key；同一中文源文本若对应不同英文也明确拒绝，避免源文案反查静默覆盖。
+
+`tui.i18n.message_id(key, *values)` 构造保留 msgid 的消息；不存在的 key 直接抛出 `KeyError`。
+TUI 内显式消息通过该入口引用，新文案使用语义 key；数字 ID 与旧目录入口已移除，不保留兼容映射。
+`translate` 只在展示边界翻译；用户输入、路径、命令和子进程原始输出保留原样。
+底层 `message(中文源文本)` 从同一目录派生的 `ENGLISH` 索引取得翻译，业务模块无需导入 TUI，
+既有控件标签的源文本翻译也使用派生索引；验证错误文本、CLI 与结果协议继续使用既有源文本。
+目录格式参数统一使用 `{0}` 等显式位置参数，不接受自动或命名占位符；两种语言的参数及数值格式必须一致。
+
+`uv run python scripts/check_tui_catalog.py` 静态检查目录定义与生产调用：缺译、空译、
+重复 key、无效标识、占位符差异及可确定的未知引用均失败；单文件重复项在字典构造前由 AST 检查。
+`--unused` 额外列出缺少静态生产引用的候选；测试、注释和文档引用不证明文案仍在使用。
+检查同时考虑 key 与底层源文案调用，变量映射和动态引用需要结合报告核实，候选不自动删除。
+检查器通过 pre-commit 的 `tui-catalog` hook 接入本地提交和 CI 的同一文件检查流程，
+单元回归位于 `tests/tui/i18n/`，语言切换和状态保持继续由 `test_tui_i18n.py` 覆盖。
+目录在导入时汇总一次；静态扫描只在开发检查中执行，不在 TUI 刷新或正式测量窗口内运行。
+
+命名参考 [Lazygit 的语义文案字段](https://github.com/jesseduffield/lazygit/blob/master/pkg/i18n/english.go)，
+模块划分参考 [i18next namespaces](https://www.i18next.com/principles/namespaces)，
+废弃检测边界参考 [i18next CLI 的动态 key 说明](https://github.com/i18next/i18next-cli#dynamic-keys)。
+只借鉴组织与校验方式，沿用标准库实现，不复制上游源码或增加翻译依赖。
 `commands` 保留 probe／统计／绘图等界面命令，`progress` 仅从版本化控制事件更新进度，
 `stages.Stage` 是进度与最终进程状态的稳定机器标识；其中文源标签通过 `Stage.label`
 在 `app`、命令回显等展示边界翻译，状态判断、状态样式和测试只比较枚举身份。
