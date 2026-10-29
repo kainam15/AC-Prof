@@ -48,13 +48,16 @@ time.sleep(60)
         descendant = process_identity(int((tmp_path / 'descendant.pid').read_text()))
         parent.send_signal(signal.SIGKILL)
         parent.wait(5)
+        deadline = time.monotonic() + 10
         status = {}
         while time.monotonic() < deadline:
             status = json.loads(Path(evidence['status_file']).read_text())
-            if status.get('cleanup_complete'):
+            # Final status is published before the supervisor itself exits.
+            if status.get('cleanup_complete') and not same_process(evidence['owner']):
                 break
             time.sleep(.02)
         assert status.get('cleanup_complete'), status
+        assert not same_process(evidence['owner'])
         assert not same_process(descendant)
         assert not same_process(evidence['workload'])
         recover_process(evidence)
