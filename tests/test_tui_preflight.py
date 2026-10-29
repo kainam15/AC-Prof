@@ -16,7 +16,7 @@ from acprof.tui.diagnostics import quick_preflight
 
 class TestTuiPreflight:
     @pytest.fixture(autouse=True)
-    def _setup(self, request, tmp_path, monkeypatch):
+    def _setup(self, request, tmp_path):
         self._request = request
         from platform_fixtures import native_policy
         native_policy(self._request)

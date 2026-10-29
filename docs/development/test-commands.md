@@ -26,6 +26,13 @@ standalone 和真实 `uv tool install` 保留在发布或按需流程；构建�
 共同的数据构造器放在领域 fixture 模块，避免实例化另一测试 class。
 模拟网络、Docker、硬件与通知边界；避免测试触发真实采集或改写用户设置。
 
+隔离整份 `os.environ` 时，使用 `tests/environment_fixtures.py` 的 `isolated_environment()`
+保留 pytest 的会话状态，并由外层 fixture 恢复完整字典，包括业务代码直接新增的键。
+autouse fixture 只请求实际使用的依赖：未使用的 `monkeypatch` 依赖会让其撤销发生在环境恢复之后，
+再次删掉父环境的颜色或代理设置。依赖顺序遵循
+[pytest 的 autouse 规则](https://github.com/pytest-dev/pytest/blob/9.0.3/doc/en/reference/fixtures.rst#L377-L389)。
+`test_environment_fixtures.py` 在独立进程中检查正常结束、断言失败和中断后的环境恢复与测试报告。
+
 ```bash
 # 按受影响的行为选择测试文件
 uv run pytest tests/test_env_utils.py -v

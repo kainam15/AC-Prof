@@ -28,7 +28,7 @@ from acprof.tui.progress import ProgressSnapshot
 
 class TestTuiStorage:
     @pytest.fixture(autouse=True)
-    def _setup(self, request, tmp_path, monkeypatch):
+    def _setup(self, request, tmp_path):
         self._request = request
         temporary = tmp_path
         self.directory = Path(str(temporary))

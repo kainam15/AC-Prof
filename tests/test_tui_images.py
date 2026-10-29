@@ -99,7 +99,7 @@ def test_image_created_text_uses_docker_instant(raw, expected):
 
 class TestTuiImages:
     @pytest.fixture(autouse=True)
-    def _setup(self, request, tmp_path, monkeypatch):
+    def _setup(self, request, tmp_path):
         self._request = request
         temporary = tmp_path
         self.directory = Path(str(temporary))

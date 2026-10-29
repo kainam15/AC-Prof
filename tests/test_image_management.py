@@ -150,7 +150,7 @@ def dependency_images(docker, profile="moss-transformers5104"):
 
 class TestImageManagement:
     @pytest.fixture(autouse=True)
-    def _setup(self, request, tmp_path, monkeypatch):
+    def _setup(self, request, tmp_path):
         self._request = request
         self.docker = DockerFixture()
         patcher = patch("acprof.host.images.inventory.run_command", side_effect=self.docker.run)

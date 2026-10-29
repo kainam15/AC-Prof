@@ -19,7 +19,7 @@ from acprof.tui.views import ConfirmActionScreen
 
 class TestTuiEnvironment:
     @pytest.fixture(autouse=True)
-    def _setup(self, request, tmp_path, monkeypatch):
+    def _setup(self, request, tmp_path):
         self._request = request
         directory = tmp_path
         self.root = Path(str(directory))
