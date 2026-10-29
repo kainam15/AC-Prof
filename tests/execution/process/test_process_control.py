@@ -2,7 +2,6 @@
 import os
 import sys
 import time
-from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -82,35 +81,69 @@ def test_supervision_prerequisites_run_in_a_separate_bounded_helper():
     assert require_process_supervision() == 'pidfd and child-subreaper available'
 
 
+def test_supervisor_refuses_to_append_through_log_symlink(tmp_path):
+    outside = tmp_path / "outside.log"
+    outside.write_text("preserve\n")
+    (tmp_path / "test.log").symlink_to(outside)
+
+    def start_and_close():
+        child = start(tmp_path, "print('redirected-output', flush=True)")
+        try:
+            child.wait(5)
+        finally:
+            child.close()
+
+    with pytest.raises(RuntimeError, match="symbolic links"):
+        start_and_close()
+
+    assert outside.read_text() == "preserve\n"
+
+
+def test_supervisor_does_not_follow_fixed_status_temp_symlink(tmp_path):
+    outside = tmp_path / "outside-status.json"
+    outside.write_text("preserve")
+    (tmp_path / "test.process.tmp").symlink_to(outside)
+
+    child = start(tmp_path, "print('status-test', flush=True)")
+    try:
+        assert child.wait(5) == 0
+    finally:
+        child.close()
+
+    assert outside.read_text() == "preserve"
+    assert not (tmp_path / "test.process.json").is_symlink()
+
+
+def test_log_tail_rejects_symlinked_diagnostic_file(tmp_path):
+    outside = tmp_path / "outside.log"
+    outside.write_text("diagnostic-secret")
+    path = tmp_path / "process.log"
+    path.symlink_to(outside)
+
+    observed = ManagedProcess.log_tail(SimpleNamespace(log_path=path))
+
+    assert "diagnostic-secret" not in observed
+    assert "unavailable" in observed
+
+
 def test_log_tail_is_bounded_when_the_log_grows_during_read(tmp_path, monkeypatch):
     path = tmp_path / "growing.log"
     original = b"a" * 16384
     path.write_bytes(original)
-    open_path = Path.open
+    from acprof.host.runtimes import process_control
 
-    class GrowingLog:
-        def __init__(self, stream):
-            self.stream = stream
+    read_fd = os.read
+    grew = False
 
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *args):
-            self.stream.close()
-
-        def __getattr__(self, name):
-            return getattr(self.stream, name)
-
-        def read(self, size=-1):
-            with open_path(path, "ab") as writer:
+    def read_growing_log(descriptor, size):
+        nonlocal grew
+        if not grew:
+            with path.open("ab") as writer:
                 writer.write(b"new diagnostics" * 10000)
-            return self.stream.read(size)
+            grew = True
+        return read_fd(descriptor, size)
 
-    def open_growing_log(source, *args, **kwargs):
-        stream = open_path(source, *args, **kwargs)
-        return GrowingLog(stream) if source == path else stream
-
-    monkeypatch.setattr(Path, "open", open_growing_log)
+    monkeypatch.setattr(process_control.os, "read", read_growing_log)
     tail = ManagedProcess.log_tail(SimpleNamespace(log_path=path))
     assert tail == original.decode()
     assert path.stat().st_size > len(original)
@@ -120,15 +153,19 @@ def test_log_tail_uses_the_open_file_when_the_path_is_replaced(tmp_path, monkeyp
     path = tmp_path / "rotating.log"
     retained = tmp_path / "retained.log"
     path.write_bytes(b"old prefix" * 10000 + b"tail" * 4096)
-    open_path = Path.open
+    from acprof.host.runtimes import process_control
 
-    def open_rotated_log(source, *args, **kwargs):
-        stream = open_path(source, *args, **kwargs)
-        if source == path:
+    seek_fd = os.lseek
+    rotated = False
+
+    def rotate_after_size(descriptor, offset, whence):
+        nonlocal rotated
+        result = seek_fd(descriptor, offset, whence)
+        if whence == os.SEEK_END and not rotated:
             path.rename(retained)
-            with open_path(path, "wb") as replacement:
-                replacement.write(b"new")
-        return stream
+            path.write_bytes(b"new")
+            rotated = True
+        return result
 
-    monkeypatch.setattr(Path, "open", open_rotated_log)
+    monkeypatch.setattr(process_control.os, "lseek", rotate_after_size)
     assert ManagedProcess.log_tail(SimpleNamespace(log_path=path)) == "tail" * 4096

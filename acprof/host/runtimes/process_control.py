@@ -20,8 +20,10 @@ class ProcessCleanupError(RuntimeCleanupError):
 _JSON_READ_CHUNK_BYTES = 64 * 1024
 
 
-def _read_process_json(directory: Path, source: str | Path, *, label: str, suffix: str) -> dict:
-    """Read one regular metadata file through an fd anchored to its trusted directory."""
+def _open_regular_process_file(
+    directory: Path, source: str | Path, *, label: str, suffix: str,
+) -> int:
+    """Open one regular file through an fd anchored to its trusted directory."""
     root = directory.absolute()
     candidate = Path(source)
     if not candidate.is_absolute():
@@ -35,7 +37,7 @@ def _read_process_json(directory: Path, source: str | Path, *, label: str, suffi
     try:
         file_fd = os.open(
             candidate.name,
-            os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW,
+            os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_NOCTTY,
             dir_fd=directory_fd,
         )
     finally:
@@ -43,6 +45,16 @@ def _read_process_json(directory: Path, source: str | Path, *, label: str, suffi
     try:
         if not stat.S_ISREG(os.fstat(file_fd).st_mode):
             raise ValueError(f"{candidate}: {label} must be a regular file")
+    except BaseException:
+        os.close(file_fd)
+        raise
+    return file_fd
+
+
+def _read_process_json(directory: Path, source: str | Path, *, label: str, suffix: str) -> dict:
+    """Read one bounded JSON object from a trusted regular process file."""
+    file_fd = _open_regular_process_file(directory, source, label=label, suffix=suffix)
+    try:
         content = bytearray()
         while len(content) <= MAX_JSON_ARTIFACT_BYTES:
             chunk = os.read(
@@ -55,6 +67,7 @@ def _read_process_json(directory: Path, source: str | Path, *, label: str, suffi
     finally:
         os.close(file_fd)
 
+    candidate = Path(source)
     if len(content) > MAX_JSON_ARTIFACT_BYTES:
         raise ValueError(f"{candidate}: {label} exceeds the 4 MiB read limit")
     try:
@@ -158,14 +171,31 @@ class ManagedProcess:
 
     def log_tail(self) -> str:
         try:
-            stream = self.log_path.open("rb")
+            file_fd = _open_regular_process_file(
+                self.log_path.parent,
+                self.log_path,
+                label="process log",
+                suffix=".log",
+            )
         except FileNotFoundError:
             return ""
-        with stream:
-            end = stream.seek(0, os.SEEK_END)
+        except (OSError, ValueError, TypeError) as exc:
+            return f"[process log unavailable: {exc}]"
+        try:
+            end = os.lseek(file_fd, 0, os.SEEK_END)
             start = max(0, end - 16384)
-            stream.seek(start)
-            return stream.read(end - start).decode("utf-8", errors="replace")
+            os.lseek(file_fd, start, os.SEEK_SET)
+            content = bytearray()
+            remaining = end - start
+            while remaining:
+                chunk = os.read(file_fd, remaining)
+                if not chunk:
+                    break
+                content.extend(chunk)
+                remaining -= len(chunk)
+        finally:
+            os.close(file_fd)
+        return content.decode("utf-8", errors="replace")
 
     def evidence(self) -> dict:
         return {"kind": "process", "workload": self.identity,

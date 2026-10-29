@@ -8,13 +8,79 @@ from __future__ import annotations
 import ctypes
 import json
 import os
+import secrets
 import select
 import signal
+import stat
 import subprocess
 import sys
 import time
 from pathlib import Path
 
+
+def _directory_fd(path):
+    return os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC | os.O_NOFOLLOW)
+
+
+def _publish_json(path, payload):
+    """Atomically publish JSON without following a fixed temporary pathname."""
+    directory_fd = _directory_fd(path.parent)
+    temporary = f".{path.name}.{os.getpid()}.{secrets.token_hex(8)}.tmp"
+    descriptor = None
+    try:
+        descriptor = os.open(
+            temporary,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_CLOEXEC | os.O_NOFOLLOW,
+            0o666,
+            dir_fd=directory_fd,
+        )
+        remaining = memoryview(json.dumps(payload).encode("utf-8"))
+        while remaining:
+            written = os.write(descriptor, remaining)
+            if written <= 0:
+                raise OSError("process status write made no progress")
+            remaining = remaining[written:]
+        os.close(descriptor)
+        descriptor = None
+        os.replace(
+            temporary,
+            path.name,
+            src_dir_fd=directory_fd,
+            dst_dir_fd=directory_fd,
+        )
+    except BaseException:
+        if descriptor is not None:
+            os.close(descriptor)
+        try:
+            os.unlink(temporary, dir_fd=directory_fd)
+        except FileNotFoundError:
+            pass
+        raise
+    finally:
+        os.close(directory_fd)
+
+
+def _open_log(path):
+    """Open only a regular append-only log entry inside its existing directory."""
+    directory_fd = _directory_fd(path.parent)
+    descriptor = None
+    try:
+        descriptor = os.open(
+            path.name,
+            os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_CLOEXEC
+            | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_NOCTTY,
+            0o666,
+            dir_fd=directory_fd,
+        )
+        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+            raise ValueError(f"process log must be a regular file: {path}")
+        stream = os.fdopen(descriptor, "ab", buffering=0)
+        descriptor = None
+        return stream
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+        os.close(directory_fd)
 
 def identity(pid):
     raw = Path(f"/proc/{pid}/stat").read_text()
@@ -56,16 +122,14 @@ def main():
     status = {"owner": identity(os.getpid()), "returncode": None}
 
     def publish():
-        temporary = status_path.with_suffix(".tmp")
-        temporary.write_text(json.dumps(status))
-        os.replace(temporary, status_path)
+        _publish_json(status_path, status)
 
     workload = None
     try:
         # Verify safe signalling before taking ownership of any model process.
         # Old kernels or seccomp restrictions must fail before launch.
         verify_supervision()
-        with open(log_file, "ab", buffering=0) as log:
+        with _open_log(Path(log_file)) as log:
             # Resource controls are installed in a tiny launch process before exec.
             launcher = str(Path(__file__).with_name("launch.py"))
             descriptors = (int(os.environ["ACPROF_SERVER_FD"]),) if os.environ.get("ACPROF_SERVER_FD") else ()
