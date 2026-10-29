@@ -75,6 +75,71 @@ def test_capacity_accounting_excludes_protected_entry_files(tmp_path, protection
     assert shared.read_bytes() == b'x' * 10_000
 
 
+@pytest.mark.parametrize('apply', [False, True])
+@pytest.mark.parametrize('protection', ['keep', 'lease', 'unapproved'])
+def test_missing_plan_does_not_remove_entry_protection(tmp_path, protection, apply):
+    store = ModelStoreFixture(tmp_path)
+    shared = store.blob('shared', 100)
+    removable = store.blob('removable', 40)
+    retained = store.blob('retained', 60)
+    orphan = store.blob('orphan', 20)
+    first = store.entry(1, [shared, removable])
+    protected = store.entry(2, [shared, retained])
+    first_size = len((tmp_path / 'entries' / first / PLAN_FILENAME).read_bytes())
+    protected_entry = tmp_path / 'entries' / protected
+    options = {}
+    with ExitStack() as leases:
+        if protection == 'keep':
+            options['keep'] = {protected}
+        elif protection == 'unapproved':
+            options['approved_entries'] = {first}
+        else:
+            plan = model_store.read_entry(protected, tmp_path)
+            manifest = {'model_store': {'entry_id': protected, 'plan_sha256': plan['plan_sha256']}}
+            leases.enter_context(model_store.acquire_mount(manifest, tmp_path))
+        (protected_entry / PLAN_FILENAME).unlink()
+
+        result = model_store.prune_store(root=tmp_path, apply=apply, target_bytes=0, **options)
+
+        assert shared.read_bytes() == b'x' * 100
+        assert retained.read_bytes() == b'x' * 60
+        assert protected_entry.is_dir()
+        assert result == {'entries': [first], 'reclaimable_bytes': first_size + 40 + 20}
+        assert (tmp_path / 'entries' / first).exists() is not apply
+        assert removable.exists() is not apply
+        assert orphan.exists() is not apply
+    if protection == 'lease' and apply:
+        assert model_store.prune_store(root=tmp_path, apply=True) == {
+            'entries': [protected], 'reclaimable_bytes': 160}
+        assert not protected_entry.exists()
+        assert not shared.exists()
+        assert not retained.exists()
+
+
+@pytest.mark.parametrize('staging', [False, True])
+def test_unprotected_entry_without_plan_is_reclaimed_as_a_whole(tmp_path, staging):
+    store = ModelStoreFixture(tmp_path)
+    blob = store.blob('abandoned', 100)
+    key = store.entry(1, [blob])
+    entry = tmp_path / 'entries' / key
+    (entry / PLAN_FILENAME).unlink()
+    refs = entry / 'hf/models--example--test/refs'
+    refs.mkdir()
+    (refs / 'main').write_bytes(b'a' * 40)
+    if staging:
+        key = '.preparing-interrupted'
+        entry = entry.rename(entry.with_name(key))
+    expected = {'entries': [key], 'reclaimable_bytes': 140}
+
+    preview = model_store.prune_store(root=tmp_path, target_bytes=0)
+    assert preview == expected
+    assert entry.is_dir()
+    assert blob.read_bytes() == b'x' * 100
+    assert model_store.prune_store(root=tmp_path, target_bytes=0, apply=True) == expected
+    assert not entry.exists()
+    assert not blob.exists()
+
+
 class TestModelStoreGc:
     @pytest.fixture(autouse=True)
     def _setup(self, tmp_path):

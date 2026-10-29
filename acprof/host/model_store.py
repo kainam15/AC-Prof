@@ -714,11 +714,12 @@ def _plan_prune(paths: StorePaths, keep: set[str], target: int | None,
     candidates, entry_blobs, entry_bytes = [], {}, {}
     references: Counter[Path] = Counter()
     for entry in paths.directories(Path('entries'), missing_ok=True):
+        # A lost plan prevents new mounts, but existing leases and links still own blobs.
         try:
             metadata = paths.file_stat(entry / PLAN_FILENAME)
         except FileNotFoundError:
-            continue
-        if not stat.S_ISREG(metadata.st_mode):
+            metadata = None
+        if metadata is not None and not stat.S_ISREG(metadata.st_mode):
             raise ValueError('Model Store metadata is a symlink or non-regular file')
         key = entry.name
         leased = False

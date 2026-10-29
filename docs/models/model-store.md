@@ -61,6 +61,11 @@ acprof model-store prune --target-size 100GB --apply      # 显式执行
 选中 entry 时累计其清单、refs 等常规文件，最后一个引用被选入删除范围后才累计该 blob 的可回收字节。
 这样达到容量目标后不会因漏算元数据继续淘汰模型。容量统计与引用扫描次数固定，
 不会随淘汰条目数重复遍历候选集合。孤立 blobs 仍计入可回收量，活动 lease 与共享引用继续保留。
+entry 清单缺失时，仍从现存文件链接统计引用，并核对 lease、`--keep` 和批准集合；
+清单缺失不能作为权重已无人使用的证据，也不会解除已有消费者的保护。
+缺失清单且未受保护的目录可以在显式清理中整体回收，包括中断发布遗留的 `.preparing-*` 目录；
+其残留常规文件计入回收量，共享权重仍需等最后一个保留引用消失才可删除。
+清单缺失不会放宽新消费者挂载时的计划完整性校验。
 
 预览不授权直接执行旧删除计划。实际清理重新取得全局 store lock，在锁内核验当前 entries、
 lease 和共享 blob 引用；TUI 同时限定在用户确认的 entry 集合内，预览后新增的模型不进入删除集。
@@ -84,6 +89,9 @@ TUI 执行时沿用预览的容量目标，按锁内的当前占用重新决定�
 此设计参考 Hugging Face Hub 的 [缓存扫描与删除策略](https://github.com/huggingface/huggingface_hub/blob/main/src/huggingface_hub/utils/_cache_manager.py)
 （Apache-2.0，持续维护），借用先扫描、再生成共享文件删除计划的思路。AC-Prof 保留自己的
 固定计划视图和活动 lease，使用现有标准库实现引用计数与可取消锁等待，不新增缓存框架或依赖。
+缺失清单的处理也参考 [Hub PR #4797](https://github.com/huggingface/huggingface_hub/pull/4797)
+对引用证据不足时保留 payload 的原则；AC-Prof 直接扫描 entry 链接，并结合自己的 lease 决定保护范围，
+不依赖下载清单推断权重无人使用。
 目录边界借鉴 [CPython `shutil.rmtree` 的目录描述符实现](https://github.com/python/cpython/blob/3.12/Lib/shutil.py)
 及 [Issue #46010](https://github.com/python/cpython/issues/46010) 的符号链接删除问题（PSF License）；
 调用标准库公开的 `dir_fd` API，不复制删除器，也不增加正式测量窗口内的扫描。
