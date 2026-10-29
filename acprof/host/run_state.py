@@ -389,7 +389,7 @@ class RunState:
                 phase = validate_resume(self.directory, self.data, project_dir=project_dir, options=options, repair=True)
                 if options.get("runtime") == "process":
                     from acprof.host.runtimes.process_control import verify_process_cleanup
-                    verify_process_cleanup(self.directory / "logs")
+                    verify_process_cleanup(self.layout.path("logs"))
                 if phase == "preparation":
                     attempt["preparation_backup"] = self._archive_preparation()
                     self.data["status"] = "preparing"
@@ -565,7 +565,7 @@ class RunState:
             return None
         if record.get("cleanup_process") and record.get("cleanup_status") != "complete":
             from acprof.host.runtimes.process_control import recover_process
-            recover_process(record["cleanup_process"])
+            recover_process(record["cleanup_process"], directory=self.layout.path("logs"))
             record["cleanup_status"] = "complete"
             self.save()
         candidates = [*case.temporary_files(), case.retained_requests, case.idle]
@@ -671,7 +671,7 @@ class RunState:
         if record.get("cleanup_status") != "complete":
             if record.get("cleanup_process"):
                 from acprof.host.runtimes.process_control import recover_process
-                recover_process(record["cleanup_process"])
+                recover_process(record["cleanup_process"], directory=self.layout.path("logs"))
                 recovery = {"kind": "process", "status": "complete"}
             else:
                 from acprof.host.container_lifecycle import recover_cleanup_debt

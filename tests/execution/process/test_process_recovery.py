@@ -7,6 +7,9 @@ import sys
 import time
 from pathlib import Path
 
+import pytest
+
+from acprof.artifacts import MAX_JSON_ARTIFACT_BYTES
 from acprof.host.runtimes.process_control import recover_process
 from acprof.process_identity import same_process
 
@@ -60,7 +63,7 @@ time.sleep(60)
         assert not same_process(evidence['owner'])
         assert not same_process(descendant)
         assert not same_process(evidence['workload'])
-        recover_process(evidence)
+        recover_process(evidence, directory=tmp_path)
     finally:
         if parent.poll() is None:
             parent.kill()
@@ -69,22 +72,108 @@ time.sleep(60)
 
 
 def test_recovery_rejects_live_owner_and_unproven_cleanup(tmp_path):
-    import pytest
-
     from acprof.host.runtimes.process_control import ProcessCleanupError
     from acprof.process_identity import process_identity
     identity = process_identity(os.getpid())
     evidence = {'owner': identity, 'workload': identity, 'status_file': str(tmp_path / 'missing')}
     with pytest.raises(ProcessCleanupError, match='supervisor'):
-        recover_process(evidence)
+        recover_process(evidence, directory=tmp_path)
     evidence['owner'] = {**identity, 'start_ticks': 0}
     with pytest.raises(ProcessCleanupError, match='cleanup'):
-        recover_process(evidence)
+        recover_process(evidence, directory=tmp_path)
 
+
+def _cleanup_evidence(status_file: Path) -> tuple[dict, dict]:
+    owner = {"pid": 2147483647, "start_ticks": 1}
+    workload = {"pid": 2147483646, "start_ticks": 1}
+    evidence = {
+        "kind": "process",
+        "owner": owner,
+        "workload": workload,
+        "status_file": str(status_file),
+        "log_file": str(status_file.with_suffix(".log")),
+    }
+    status = {
+        "cleanup_complete": True,
+        "cleanup_error": "",
+        "owner": owner,
+        "workload": workload,
+    }
+    return evidence, status
+
+
+def test_recovery_rejects_status_outside_expected_directory(tmp_path):
+    from acprof.host.runtimes.process_control import ProcessCleanupError
+
+    logs = tmp_path / "logs"
+    logs.mkdir()
+    path = tmp_path / "outside.process.json"
+    evidence, status = _cleanup_evidence(path)
+    path.write_text(json.dumps(status))
+
+    with pytest.raises(ProcessCleanupError, match="outside expected directory"):
+        recover_process(evidence, directory=logs)
+
+
+def test_recovery_rejects_symlink_and_non_regular_status(tmp_path):
+    from acprof.host.runtimes.process_control import ProcessCleanupError
+
+    logs = tmp_path / "logs"
+    logs.mkdir()
+    target = tmp_path / "outside.process.json"
+    evidence, status = _cleanup_evidence(logs / "owned.process.json")
+    target.write_text(json.dumps(status))
+    Path(evidence["status_file"]).symlink_to(target)
+    with pytest.raises(ProcessCleanupError, match="cleanup evidence is unavailable"):
+        recover_process(evidence, directory=logs)
+
+    Path(evidence["status_file"]).unlink()
+    Path(evidence["status_file"]).mkdir()
+    with pytest.raises(ProcessCleanupError, match="regular file"):
+        recover_process(evidence, directory=logs)
+
+
+@pytest.mark.parametrize(("content", "message"), [
+    (b" " * (MAX_JSON_ARTIFACT_BYTES + 1), "4 MiB"),
+    (b'{"cleanup_complete":true,"value":NaN}', "invalid process status JSON"),
+    (b"[]", "top-level JSON value must be an object"),
+])
+def test_recovery_rejects_unbounded_or_invalid_status(tmp_path, content, message):
+    from acprof.host.runtimes.process_control import ProcessCleanupError
+
+    path = tmp_path / "owned.process.json"
+    evidence, _ = _cleanup_evidence(path)
+    path.write_bytes(content)
+    with pytest.raises(ProcessCleanupError, match=message):
+        recover_process(evidence, directory=tmp_path)
+
+
+def test_startup_recovery_accepts_internal_regular_cleanup_evidence(tmp_path):
+    from acprof.host.runtimes.process_control import verify_process_cleanup
+
+    status_path = tmp_path / "owned.process.json"
+    _, status = _cleanup_evidence(status_path)
+    status_path.write_text(json.dumps(status))
+    (tmp_path / "owned.process.owner.json").write_text(json.dumps({
+        "launch_state": "started",
+        "owner_pid": status["owner"]["pid"],
+        "status_file": status_path.name,
+    }))
+
+    verify_process_cleanup(tmp_path)
+
+
+def test_startup_recovery_rejects_symlinked_launch_ledger(tmp_path):
+    from acprof.host.runtimes.process_control import ProcessCleanupError, verify_process_cleanup
+
+    target = tmp_path / "outside.json"
+    target.write_text(json.dumps({"launch_state": "failed"}))
+    (tmp_path / "owned.process.owner.json").symlink_to(target)
+
+    with pytest.raises(ProcessCleanupError, match="complete cleanup evidence"):
+        verify_process_cleanup(tmp_path)
 
 def test_missing_startup_status_is_not_forgotten_on_resume(tmp_path):
-    import pytest
-
     from acprof.host.runtimes.process_control import ProcessCleanupError, verify_process_cleanup
     (tmp_path / 'starting.process.owner.json').write_text(json.dumps({
         'launch_state': 'started', 'owner_pid': 123, 'status_file': 'starting.process.json'}))

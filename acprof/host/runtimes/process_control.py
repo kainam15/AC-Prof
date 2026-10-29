@@ -1,19 +1,69 @@
 """Owned Linux process sessions, including controller-death cleanup."""
 from __future__ import annotations
 
-import json
 import os
+import stat
 import subprocess
 import sys
 import time
 from pathlib import Path
 
+from acprof.artifacts import MAX_JSON_ARTIFACT_BYTES, loads_finite_json
 from acprof.host.runtimes.contracts import RuntimeCleanupError
 from acprof.process_identity import same_process
 
 
 class ProcessCleanupError(RuntimeCleanupError):
     pass
+
+
+_JSON_READ_CHUNK_BYTES = 64 * 1024
+
+
+def _read_process_json(directory: Path, source: str | Path, *, label: str, suffix: str) -> dict:
+    """Read one regular metadata file through an fd anchored to its trusted directory."""
+    root = directory.absolute()
+    candidate = Path(source)
+    if not candidate.is_absolute():
+        candidate = candidate.absolute()
+    if candidate.parent != root:
+        raise ValueError(f"{candidate}: {label} is outside expected directory {root}")
+    if not candidate.name.endswith(suffix):
+        raise ValueError(f"{candidate}: invalid {label} filename")
+
+    directory_fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC | os.O_NOFOLLOW)
+    try:
+        file_fd = os.open(
+            candidate.name,
+            os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW,
+            dir_fd=directory_fd,
+        )
+    finally:
+        os.close(directory_fd)
+    try:
+        if not stat.S_ISREG(os.fstat(file_fd).st_mode):
+            raise ValueError(f"{candidate}: {label} must be a regular file")
+        content = bytearray()
+        while len(content) <= MAX_JSON_ARTIFACT_BYTES:
+            chunk = os.read(
+                file_fd,
+                min(_JSON_READ_CHUNK_BYTES, MAX_JSON_ARTIFACT_BYTES + 1 - len(content)),
+            )
+            if not chunk:
+                break
+            content.extend(chunk)
+    finally:
+        os.close(file_fd)
+
+    if len(content) > MAX_JSON_ARTIFACT_BYTES:
+        raise ValueError(f"{candidate}: {label} exceeds the 4 MiB read limit")
+    try:
+        payload = loads_finite_json(content.decode("utf-8-sig"))
+    except (UnicodeError, ValueError, RecursionError) as exc:
+        raise ValueError(f"{candidate}: invalid {label} JSON: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise ValueError(f"{candidate}: top-level JSON value must be an object")
+    return payload
 
 
 def require_process_supervision() -> str:
@@ -60,8 +110,8 @@ class ManagedProcess:
             atomic_write_json(self.owner_path, {**launch, "launch_state": "started", "owner_pid": self.process.pid})
             deadline = time.monotonic() + 10
             while time.monotonic() < deadline:
-                if self.status_path.exists():
-                    status = self.state()
+                status = self.state()
+                if status:
                     if status.get("error"):
                         raise RuntimeError(status["error"])
                     self.identity = status["workload"]
@@ -81,7 +131,15 @@ class ManagedProcess:
         return self.identity["pid"]
 
     def state(self) -> dict:
-        return json.loads(self.status_path.read_text()) if self.status_path.exists() else {}
+        try:
+            return _read_process_json(
+                self.status_path.parent,
+                self.status_path,
+                label="process status",
+                suffix=".process.json",
+            )
+        except FileNotFoundError:
+            return {}
 
     def poll(self) -> int | None:
         result = self.state().get("returncode")
@@ -129,15 +187,20 @@ class ManagedProcess:
             raise ProcessCleanupError(f"workload cleanup unconfirmed: {status}")
 
 
-def recover_process(evidence: dict) -> None:
-    """Never signal a recycled PID or an unverified process group during resume."""
+def recover_process(evidence: dict, *, directory: Path) -> None:
+    """Never signal a recycled PID or trust cleanup evidence outside the run logs."""
     owner = evidence.get("owner", {})
     workload = evidence.get("workload", {})
     if owner and same_process(owner):
         raise ProcessCleanupError("original process supervisor still alive; cannot recover its run")
     try:
-        status = json.loads(Path(evidence['status_file']).read_text())
-    except (OSError, ValueError, KeyError) as exc:
+        status = _read_process_json(
+            directory,
+            evidence["status_file"],
+            label="process status",
+            suffix=".process.json",
+        )
+    except (OSError, ValueError, KeyError, TypeError) as exc:
         raise ProcessCleanupError(f"supervisor cleanup evidence is unavailable: {exc}") from exc
     if (status.get('cleanup_complete') and not status.get('cleanup_error')
             and status.get('owner') == owner and status.get('workload') == workload
@@ -154,13 +217,20 @@ def verify_process_cleanup(directory: Path) -> None:
     """
     for path in directory.glob('*.process.owner.json'):
         try:
-            launch = json.loads(path.read_text())
+            launch = _read_process_json(
+                directory,
+                path,
+                label="process launch ledger",
+                suffix=".process.owner.json",
+            )
             if launch.get('launch_state') == 'failed':
                 continue
-            name = launch['status_file']
-            if not isinstance(name, str) or Path(name).name != name:
-                raise ValueError('invalid status filename')
-            status = json.loads((directory / name).read_text())
+            status = _read_process_json(
+                directory,
+                directory / launch['status_file'],
+                label="process status",
+                suffix=".process.json",
+            )
             owner, workload = status.get('owner', {}), status.get('workload', {})
             if (launch.get('launch_state') != 'started' or owner.get('pid') != launch.get('owner_pid')
                     or not status.get('cleanup_complete') or status.get('cleanup_error')
