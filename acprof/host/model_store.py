@@ -217,14 +217,25 @@ def read_entry(key: str, root: Path | None = None) -> dict | None:
     return plan
 
 
+def _cached_file_matches(path: Path, size: int | None, *, allow_unknown_size: bool = False) -> bool:
+    """Use one filesystem observation for type and size, preserving real errors."""
+    try:
+        info = path.stat()
+    except (FileNotFoundError, NotADirectoryError):
+        return False
+    return stat.S_ISREG(info.st_mode) and (info.st_size == size or (allow_unknown_size and size is None))
+
+
 def _cached_repositories(model_id: str, revision: str | None, source: str):
     """Read bounded, verified entry metadata before attempting any network I/O."""
     root = store_root()
     entries = root / "entries"
-    if not entries.is_dir():
+    try:
+        entry_paths = list(entries.iterdir())
+    except (FileNotFoundError, NotADirectoryError):
         return
     candidates = []
-    for entry in entries.iterdir():
+    for entry in entry_paths:
         if not _ENTRY_ID.fullmatch(entry.name):
             continue
         try:
@@ -247,8 +258,7 @@ def _cached_repositories(model_id: str, revision: str | None, source: str):
                         or (revision or default_ref) != (repo["requested_revision"] or default_ref)):
                     continue
             snapshot = entry / "hf" / ("models--" + model_id.replace("/", "--")) / "snapshots" / repo["model_revision"]
-            if all((snapshot / f["path"]).is_file() and (snapshot / f["path"]).stat().st_size == f["size"]
-                   for f in repo["files"]):
+            if all(_cached_file_matches(snapshot / f["path"], f["size"]) for f in repo["files"]):
                 yield repo, snapshot
 
 
@@ -262,8 +272,13 @@ def cached_metadata(model_id: str, name: str, revision: str | None, *, source: s
             continue
         if record["size"] > max_bytes:
             raise ModelFilesError(f"cached metadata exceeds {max_bytes} bytes: {name}")
-        return read_metadata_file(snapshot / name, max_bytes=max_bytes,
-                                  expected_size=record["size"], expected_sha256=record["sha256"])
+        try:
+            return read_metadata_file(snapshot / name, max_bytes=max_bytes,
+                                      expected_size=record["size"], expected_sha256=record["sha256"])
+        except FileNotFoundError:
+            # GC may remove an entry after enumeration. Try another matching
+            # entry; permission, I/O and integrity failures remain fatal.
+            continue
     return None
 
 
@@ -351,14 +366,14 @@ def cached_file(root: Path, plan: dict, record: dict) -> Path | None:
     if plan.get("source", "huggingface") == "modelscope":
         from acprof.model_repository import modelscope_snapshot
         path = modelscope_snapshot(root, plan["model_id"], plan["model_revision"]) / record["path"]
-        return path if path.is_file() and path.stat().st_size == record.get("size") else None
+        return path if _cached_file_matches(path, record.get("size")) else None
     from huggingface_hub import try_to_load_from_cache
     result = try_to_load_from_cache(plan["model_id"], record["path"], revision=plan["model_revision"],
                                    cache_dir=str(root / "hf"))
     if not isinstance(result, str):
         return None
     path = Path(result)
-    if path.is_file() and (record.get("size") is None or path.stat().st_size == record["size"]):
+    if _cached_file_matches(path, record.get("size"), allow_unknown_size=True):
         return path
     return None
 

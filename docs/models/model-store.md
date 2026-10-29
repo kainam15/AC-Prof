@@ -73,6 +73,13 @@ HF 固定 revision 下载保留 SDK 预检大小及 commit 检查。配置、依
 设计参考 [python-tuf 的元数据校验与解析](https://github.com/theupdateframework/python-tuf/blob/develop/tuf/ngclient/_internal/trusted_metadata_set.py)
 （Apache-2.0）；使用现有标准库，不引入 TUF 依赖。该处理仅用于准备阶段，清单 schema 和测量窗口不变。
 
+缓存可用性查询从一次文件属性读取中同时判断普通文件类型和预期大小；结果仅在当前查询内使用。
+查询期间 entries 目录或待读取的元数据被清理时，按缓存 miss 继续查找其他同身份 entry，
+后续访问仍遵循已配置的来源和离线策略。权限、I/O 和内容校验错误继续抛出。
+这一观察用于准备阶段的缓存判断，运行与 resume 仍执行既有视图、lease 和 SHA256 校验。
+实现借鉴 [Hub 缓存扫描器的文件属性复用](https://github.com/huggingface/huggingface_hub/blob/main/src/huggingface_hub/utils/_cache_manager.py)
+（Apache-2.0），沿用标准库，不增加跨请求缓存、持久化字段或测量窗口内工作。
+
 摘要匹配后仍须校验清单字段：主模型与依赖共用 repository ID 和固定 commit 约束，
 禁止会与目录编码冲突的 `--`；文件必须是规范的相对路径，不能是 `.` 或包含 NUL。
 准备入口在配置传输和创建缓存目录前验证计划，文件校验入口在读取 payload 前验证计划；
