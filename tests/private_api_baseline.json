@@ -47,6 +47,16 @@
       "symbol": "_platform_fingerprint"
     },
     {
+      "source": "acprof.host.metadata.static",
+      "target": "acprof.host.model_schema",
+      "symbol": "_inference_precision_by_device"
+    },
+    {
+      "source": "acprof.host.metadata.static",
+      "target": "acprof.host.model_schema",
+      "symbol": "_model_io_formats"
+    },
+    {
       "source": "acprof.host.model_store.store",
       "target": "acprof.container.download_model",
       "symbol": "_prepare_repository_plan"
@@ -130,16 +140,6 @@
       "source": "acprof.host.preflight",
       "target": "acprof.monitors.perf_mips",
       "symbol": "_friendly_mips_error"
-    },
-    {
-      "source": "acprof.host.static_metadata",
-      "target": "acprof.host.model_schema",
-      "symbol": "_inference_precision_by_device"
-    },
-    {
-      "source": "acprof.host.static_metadata",
-      "target": "acprof.host.model_schema",
-      "symbol": "_model_io_formats"
     },
     {
       "source": "acprof.monitors.resource_usage",

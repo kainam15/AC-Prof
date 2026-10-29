@@ -431,10 +431,10 @@ class TestRuntimeValidation:
             stack.enter_context(patch('acprof.host.images.runtime.prepare_image', return_value=ImageInfo(
                 tag='sha256:' + 'b' * 64, runtime_environment={'build_fingerprint': 'build'},
             )))
-            stack.enter_context(patch('acprof.host.static_metadata.collect_static_meta', return_value=SimpleNamespace()))
-            stack.enter_context(patch('acprof.host.static_metadata.enrich_static_meta', return_value=SimpleNamespace()))
-            stack.enter_context(patch('acprof.host.static_metadata.enrich_static_meta_from_input_plan', return_value=SimpleNamespace()))
-            stack.enter_context(patch('acprof.host.static_metadata.write_static_meta_json'))
+            stack.enter_context(patch('acprof.host.metadata.static.collect_static_meta', return_value=SimpleNamespace()))
+            stack.enter_context(patch('acprof.host.metadata.static.enrich_static_meta', return_value=SimpleNamespace()))
+            stack.enter_context(patch('acprof.host.metadata.static.enrich_static_meta_from_input_plan', return_value=SimpleNamespace()))
+            stack.enter_context(patch('acprof.host.metadata.static.write_static_meta_json'))
             stack.enter_context(patch('acprof.host.input_plan.plan_input_scales', return_value=PlannedInputScales(
                 scales=[1.0], source='manual', plan_file='',
             )))

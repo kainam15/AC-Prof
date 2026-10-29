@@ -50,7 +50,7 @@ def test_task_minimum_uses_workload_tokens_seconds_and_image_scale(task, family,
 
 def test_minimal_plan_freeze_and_resume_keep_source_scales_hash_and_static_metadata():
     from acprof.host import run_state
-    from acprof.host.static_metadata import StaticMeta, enrich_static_meta_from_input_plan
+    from acprof.host.metadata.static import StaticMeta, enrich_static_meta_from_input_plan
     info = TaskInfo("example/model", "image-classification", "cv", "transformers_model", "transformers", "fixed", "unit")
     image = ImageInfo("sha256:" + "a" * 64)
     with tempfile.TemporaryDirectory() as temporary, patch.object(run_state, "MEASUREMENT_LOCK_ROOT", Path(temporary)), patch.object(

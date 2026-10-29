@@ -9,9 +9,13 @@ from unittest.mock import patch
 import pytest
 
 from acprof.config import STATIC_META_FIELDS, STATIC_META_SCHEMA_VERSION
-from acprof.host import machine_metadata, platform_metadata, static_metadata
 from acprof.host.detect import TaskInfo
 from acprof.host.images import runtime as runtime_images
+from acprof.host.metadata import (
+    machine as machine_metadata,
+    platform as platform_metadata,
+    static as static_metadata,
+)
 
 
 class TestStaticMetadata:
@@ -32,7 +36,7 @@ class TestStaticMetadata:
         }
 
         with patch(
-            "acprof.host.machine_metadata.os.sysconf",
+            "acprof.host.metadata.machine.os.sysconf",
             side_effect=lambda name: values[name],
         ):
             total = machine_metadata.host_mem_total_bytes()
@@ -87,16 +91,16 @@ class TestStaticMetadata:
 
     def test_docker_storage_metadata_uses_daemon_root_backing_filesystem(self) -> None:
         with patch(
-            "acprof.host.machine_metadata.docker_root_dir",
+            "acprof.host.metadata.machine.docker_root_dir",
             return_value="/var/lib/docker",
         ), patch(
-            "acprof.host.machine_metadata.shutil.disk_usage",
+            "acprof.host.metadata.machine.shutil.disk_usage",
             return_value=SimpleNamespace(total=1_000, used=400, free=600),
         ) as disk_usage, patch(
-            "acprof.host.machine_metadata.docker_mount_metadata",
+            "acprof.host.metadata.machine.docker_mount_metadata",
             return_value=("/dev/nvme0n1p2", "ext4"),
         ), patch(
-            "acprof.host.machine_metadata.block_device_storage_type",
+            "acprof.host.metadata.machine.block_device_storage_type",
             return_value="nvme_ssd",
         ):
             metadata = machine_metadata.docker_storage_metadata()
@@ -118,7 +122,7 @@ class TestStaticMetadata:
     ], ids=["nvme", "sata-ssd", "sata-hdd", "unknown"])
     def test_block_device_type_uses_transport_and_rotational_flag(self, device_metadata, expected) -> None:
         with patch(
-            "acprof.host.machine_metadata.shutil.which",
+            "acprof.host.metadata.machine.shutil.which",
             return_value="/usr/bin/lsblk",
         ):
             with patch(
@@ -133,10 +137,10 @@ class TestStaticMetadata:
 
     def test_docker_storage_metadata_is_unknown_when_daemon_root_is_unavailable(self) -> None:
         with patch(
-            "acprof.host.machine_metadata.docker_root_dir",
+            "acprof.host.metadata.machine.docker_root_dir",
             return_value=None,
         ), patch(
-            "acprof.host.machine_metadata.shutil.disk_usage",
+            "acprof.host.metadata.machine.shutil.disk_usage",
         ) as disk_usage:
             metadata = machine_metadata.docker_storage_metadata()
 
@@ -165,14 +169,14 @@ class TestStaticMetadata:
             assert (runtime_images.select_nlp_torch_index_url()) == ("https://example.invalid/torch")
 
     def test_windows_process_is_not_relabelled_from_docker_wsl_kernel(self) -> None:
-        with patch("acprof.host.platform_metadata.platform.system", return_value="Windows"), patch(
-            "acprof.host.platform_metadata.platform.release", return_value="11"
+        with patch("acprof.host.metadata.platform.platform.system", return_value="Windows"), patch(
+            "acprof.host.metadata.platform.platform.release", return_value="11"
         ), patch.dict("acprof.platform.os.environ", {}, clear=True):
             assert (platform_metadata.operating_system_label()) == ("windows11")
 
     def test_detect_environment_linux_ubuntu_without_wsl(self) -> None:
-        with patch("acprof.host.platform_metadata.platform.system", return_value="Linux"), patch(
-            "acprof.host.platform_metadata.platform.freedesktop_os_release",
+        with patch("acprof.host.metadata.platform.platform.system", return_value="Linux"), patch(
+            "acprof.host.metadata.platform.platform.freedesktop_os_release",
             return_value={"ID": "ubuntu", "VERSION_ID": "24.04"},
         ), patch.dict("acprof.platform.os.environ", {}, clear=True):
             assert (platform_metadata.operating_system_label()) == ("ubuntu24.04")
@@ -196,16 +200,16 @@ class TestStaticMetadata:
             model_resolution={"schema_version": 1, "status": "candidate", "loader": "Transformers Auto/pipeline"},
         )
 
-        with patch("acprof.host.static_metadata.operating_system_label", return_value="windows11+wsl"), patch(
-            "acprof.host.static_metadata.probe_gpu_metadata", return_value={
+        with patch("acprof.host.metadata.static.operating_system_label", return_value="windows11+wsl"), patch(
+            "acprof.host.metadata.static.probe_gpu_metadata", return_value={
                 "schema_version": 1, "device": {}, "errors": [],
                 "fields": {"name": {"value": "Test GPU", "status": "available", "source": "fixture"},
                            "memory_total_bytes": {"value": 987654321, "status": "available", "source": "fixture"}},
             }
         ), patch(
-            "acprof.host.machine_metadata.host_mem_total_bytes", return_value=64_000_000_000
+            "acprof.host.metadata.machine.host_mem_total_bytes", return_value=64_000_000_000
         ), patch(
-            "acprof.host.machine_metadata.host_swap_metadata",
+            "acprof.host.metadata.machine.host_swap_metadata",
             return_value={
                 "host_swap_total_bytes": 2_000_000_000,
                 "host_swap_used_bytes_at_start": 100_000_000,
@@ -213,9 +217,9 @@ class TestStaticMetadata:
                 "host_vm_swappiness": 60,
             },
         ), patch(
-            "acprof.host.machine_metadata.docker_model_cache_bytes", return_value=123
-        ) as cache_size, patch("acprof.host.machine_metadata.docker_image_size_bytes", return_value=456), patch(
-            "acprof.host.machine_metadata.docker_storage_metadata",
+            "acprof.host.metadata.machine.docker_model_cache_bytes", return_value=123
+        ) as cache_size, patch("acprof.host.metadata.machine.docker_image_size_bytes", return_value=456), patch(
+            "acprof.host.metadata.machine.docker_storage_metadata",
             return_value={
                 "docker_storage_total_bytes": 1_000_000,
                 "docker_storage_available_bytes_at_start": 600_000,
@@ -224,10 +228,10 @@ class TestStaticMetadata:
                 "docker_storage_type": "nvme_ssd",
             },
         ), patch(
-            "acprof.host.machine_metadata.cpu_power_metadata",
+            "acprof.host.metadata.machine.cpu_power_metadata",
             return_value=("rapl", "rapl_cgroup_cpu_share"),
         ), patch(
-            "acprof.host.machine_metadata.cpu_frequency_policy_metadata",
+            "acprof.host.metadata.machine.cpu_frequency_policy_metadata",
             return_value=("performance", "on"),
         ):
             meta = static_metadata.collect_static_meta(
@@ -441,7 +445,7 @@ class TestStaticMetadata:
 
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, "static_meta.json")
-            with patch("acprof.host.static_metadata.os.fsync", wraps=os.fsync) as fsync:
+            with patch("acprof.host.metadata.static.os.fsync", wraps=os.fsync) as fsync:
                 static_metadata.write_static_meta_json(meta, path)
             with open(path, encoding="utf-8") as f:
                 payload = json.load(f)
@@ -652,5 +656,5 @@ class TestStaticMetadata:
             with open(os.path.join(cpufreq, "boost"), "w", encoding="utf-8") as f:
                 f.write("1\n")
 
-            with patch("acprof.host.machine_metadata.CPU_SYSFS_ROOT", tmp):
+            with patch("acprof.host.metadata.machine.CPU_SYSFS_ROOT", tmp):
                 assert (machine_metadata.cpu_frequency_policy_metadata()) == (("performance", "on"))

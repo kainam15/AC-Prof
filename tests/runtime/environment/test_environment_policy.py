@@ -205,9 +205,9 @@ class TestEnvironmentPolicy:
         assert (len(result)) == (2)
         assert (all(name.startswith(("native_linux/", "wsl2/")) for name, _ in build_plot_groups(frame)))
     def test_installed_version_is_recorded_without_git_or_hardware(self):
-        from acprof.host import platform_metadata
-        with patch('acprof.host.platform_metadata.__version__', '0.9.7'), \
-                patch('acprof.host.platform_metadata.run_command', side_effect=FileNotFoundError('tool missing')), \
+        from acprof.host.metadata import platform as platform_metadata
+        with patch('acprof.host.metadata.platform.__version__', '0.9.7'), \
+                patch('acprof.host.metadata.platform.run_command', side_effect=FileNotFoundError('tool missing')), \
                 patch.dict('sys.modules', {'pynvml': None}):
             metadata = platform_metadata.collect_platform_metadata(NATIVE, '/installed/acprof/_bundle')
         assert (metadata.get('acprof_version')) == ('0.9.7')

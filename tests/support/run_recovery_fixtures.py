@@ -15,7 +15,7 @@ from acprof.config import CSV_FIELDS
 from acprof.host.detect import TaskInfo
 from acprof.host.images.runtime import ImageInfo
 from acprof.host.input_plan import PlannedInputScales
-from acprof.host.static_metadata import StaticMeta
+from acprof.host.metadata.static import StaticMeta
 
 
 class RunRecoveryFixture:
@@ -88,7 +88,7 @@ class RunRecoveryFixture:
             stack.enter_context(patch("acprof.host.images.runtime.require_image_identity"))
             stack.enter_context(patch("acprof.host.runtime_validation.validate_runtime",
                                       side_effect=validation, return_value={"status": "ok"}))
-            stack.enter_context(patch("acprof.host.static_metadata.collect_static_meta", return_value=metadata))
+            stack.enter_context(patch("acprof.host.metadata.static.collect_static_meta", return_value=metadata))
             stack.enter_context(patch("acprof.host.input_plan.plan_input_scales", side_effect=self.prepare_plan))
             stack.enter_context(patch("acprof.host.orchestrator.run_single_case", side_effect=case or self.write_case))
             stack.enter_context(redirect_stdout(output if output is not None else io.StringIO()))

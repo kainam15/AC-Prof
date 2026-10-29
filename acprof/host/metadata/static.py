@@ -8,18 +8,18 @@ from typing import Any
 
 from acprof.artifacts import atomic_write_json, read_json_object
 from acprof.config import STATIC_META_FIELDS, STATIC_META_SCHEMA_VERSION
-from acprof.host import machine_metadata
 from acprof.host.detect import TaskInfo
-from acprof.host.gpu_metadata import probe_gpu_metadata
 from acprof.host.images.runtime import ImageInfo
 from acprof.host.input_plan import (
     PlannedInputScales,
 )
+from acprof.host.metadata import machine as machine_metadata
+from acprof.host.metadata.gpu import probe_gpu_metadata
+from acprof.host.metadata.platform import operating_system_label
 from acprof.host.model_schema import (
     _inference_precision_by_device,
     _model_io_formats,
 )
-from acprof.host.platform_metadata import operating_system_label
 from acprof.monitors.rapl_topology import discover_rapl_topology
 from acprof.platform import detect_environment
 
@@ -160,7 +160,7 @@ def collect_static_meta(
 ) -> StaticMeta:
     """Collect static metadata for the current model/image pair."""
     from acprof.capabilities import measurement_requested
-    from acprof.host.platform_metadata import collect_platform_metadata
+    from acprof.host.metadata.platform import collect_platform_metadata
     from acprof.host.runtimes.contracts import runtime_identity, runtime_kind
     from acprof.installation import resource_root
     process = runtime_kind(image_info) == 'process'

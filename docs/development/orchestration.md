@@ -31,8 +31,8 @@
 | `matrix_plan` | 资源 case 与 input scale 的独立确定性排序、冻结计划、hash 与恢复校验，不采样硬件 |
 | `cases` | `MatrixRequest`、单 case 四类冻结配置和 `MatrixProgress`；不持有运行时状态或执行采集 |
 | `model_schema` | 从 catalog 读取任务 IO 模板与推理精度，返回独立副本供元数据补充 |
-| `machine_metadata` | 准备期 GPU、内存、swap、Docker storage/image 与 CPU policy 探测；保留 unavailable/unknown 状态 |
-| `static_metadata` | `StaticMeta` 组装、enrich 与写出；不直接拥有主机或 Docker 探测实现 |
+| `metadata/machine` | 准备期 GPU、内存、swap、Docker storage/image 与 CPU policy 探测；保留 unavailable/unknown 状态 |
+| `metadata/static` | `StaticMeta` 组装、enrich 与写出；不直接拥有主机或 Docker 探测实现 |
 | `measurement.capture` | tcpdump 前置检查及 capture/parser 命令构造 |
 | `orchestrator` | case/matrix 调度、idle 稳定性、失败与超时处理、OOM pruning 和 CSV 合并 |
 
@@ -69,7 +69,7 @@
 `gpu_metrics_from_result` 与 `resource_usage_metrics_from_result`；其他局部计算保留模块私有，
 不为降低 private API 计数机械公开所有助手函数。
 
-`runtimes/service` 是输入规划的下层，Docker adapter 继续使用 `docker_runtime`；`static_metadata` 引用 runtime、输入计划类型和
+`runtimes/service` 是输入规划的下层，Docker adapter 继续使用 `docker_runtime`；`metadata/static` 引用 runtime、输入计划类型和
 任务 schema；这些模块均不反向引用 `orchestrator`。调用方直接引用各模块。
 两类 profiler 单向依赖 `profiling.support`，TaskInfo 只在类型检查时导入；
 解析与工具查找使用 `profilers/` 下的实现。`profiling.execution` 通过 Massif/Nsys 的

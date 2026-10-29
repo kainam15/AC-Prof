@@ -68,7 +68,7 @@ def prepare_runtime(args, *, run_state, task_info, output_dir, cpu_list, mem_lis
     runtime = execution_runtime(getattr(args, "runtime", "docker"))
     from acprof.host.input_plan import input_plan_summary, plan_input_scales
     workflow = workflow or PreparationWorkflow()
-    from acprof.host.static_metadata import (
+    from acprof.host.metadata.static import (
         collect_static_meta,
         enrich_static_meta,
         enrich_static_meta_from_compute_plan,
@@ -193,7 +193,7 @@ def prepare_runtime(args, *, run_state, task_info, output_dir, cpu_list, mem_lis
         )
         write_static_meta_json(static_meta, static_meta_json)
         compute_profile_plan_file = ""
-        from acprof.host.static_metadata import enrich_static_meta
+        from acprof.host.metadata.static import enrich_static_meta
         def validate_selected_runtime():
             try:
                 report = runtime.validate(

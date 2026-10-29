@@ -373,15 +373,15 @@ class TestRunNotificationLifecycle:
             "acprof.host.images.runtime.prepare_image",
             return_value=runtime_images.ImageInfo(tag="acprof-nlp-org--resolved-model:latest"),
         ), patch(
-            "acprof.host.static_metadata.collect_static_meta", return_value=SimpleNamespace(),
+            "acprof.host.metadata.static.collect_static_meta", return_value=SimpleNamespace(),
         ), patch.multiple(
-            "acprof.host.static_metadata",
+            "acprof.host.metadata.static",
             enrich_static_meta_from_input_plan=Mock(side_effect=lambda meta, planned: meta),
             enrich_static_meta=Mock(side_effect=lambda meta, values: meta),
         ), patch(
             "acprof.host.runtime_validation.validate_runtime", return_value={"status": "ok"}
         ), patch(
-            "acprof.host.static_metadata.write_static_meta_json",
+            "acprof.host.metadata.static.write_static_meta_json",
         ), patch(
             "acprof.host.input_plan.plan_input_scales",
             return_value=input_plan.PlannedInputScales(

@@ -38,7 +38,7 @@ def test_download_confirmation_preserves_raw_bytes(tmp_path, capsys, download_by
         patch("acprof.host.model_store.store.require_space", return_value=disk),
         patch("acprof.host.model_store.store.probe_model_download", return_value=[]),
         patch("acprof.host.network_preflight.runtime_sources", return_value=([], {"platform_local": True})),
-        patch("acprof.host.machine_metadata.docker_storage_metadata", return_value={}),
+        patch("acprof.host.metadata.machine.docker_storage_metadata", return_value={}),
     ):
         report = preflight(task, PROFILES["nlp-cpu"], tmp_path, plan, root=tmp_path / "cache")
     lines = capsys.readouterr().out.splitlines()
@@ -74,7 +74,7 @@ def test_model_only_budget_allows_cached_model_with_unknown_oci_size(tmp_path):
         patch("acprof.host.network_preflight.runtime_sources", return_value=(
             [oci], {"platform_local": False, "will_attempt_ghcr_pull": True},
         )),
-        patch("acprof.host.machine_metadata.docker_storage_metadata", return_value={}),
+        patch("acprof.host.metadata.machine.docker_storage_metadata", return_value={}),
     ):
         report = preflight(task, PROFILES["nlp-cpu"], tmp_path, plan, root=tmp_path / "cache")
 
@@ -121,7 +121,7 @@ def test_total_budget_remains_strict_with_unknown_oci_size(tmp_path):
             [DownloadSource("oci", "https://ghcr.io/demo/runtime", None)],
             {"platform_local": False},
         )),
-        patch("acprof.host.machine_metadata.docker_storage_metadata", return_value={}),
+        patch("acprof.host.metadata.machine.docker_storage_metadata", return_value={}),
         pytest.raises(DownloadPolicyError, match="未知大小"),
     ):
         preflight(task, PROFILES["nlp-cpu"], tmp_path, plan, root=tmp_path / "cache")

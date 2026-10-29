@@ -120,7 +120,7 @@ TUI 参数组重构必须保留每个原语言/尺寸/视图或字段组合的�
 `uv run --locked python -m mypy`，定向规则可用以下命令复现：
 
 ```bash
-uv run --locked ruff check --select BLE001,C901 acprof/config_constraints.py acprof/input_budget.py acprof/image_inputs.py acprof/gpu_probe.py acprof/host/gpu_metadata.py
+uv run --locked ruff check --select BLE001,C901 acprof/config_constraints.py acprof/input_budget.py acprof/image_inputs.py acprof/gpu_probe.py acprof/host/metadata/gpu.py
 uv run --locked python -m pre_commit run shared-boundaries --all-files
 ```
 

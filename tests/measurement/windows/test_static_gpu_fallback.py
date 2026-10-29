@@ -5,7 +5,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from acprof.host import gpu_metadata
+from acprof.host.metadata import gpu as gpu_metadata
 
 
 @pytest.fixture

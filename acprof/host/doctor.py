@@ -96,7 +96,7 @@ def _packet(sniff_iface: str) -> str:
 
 def _gpu() -> str:
     from acprof.host.gpu_device import resolve_gpu_device
-    from acprof.host.gpu_metadata import probe_gpu_metadata
+    from acprof.host.metadata.gpu import probe_gpu_metadata
 
     report = probe_gpu_metadata(gpu_device=resolve_gpu_device())
     name = report["fields"]["name"]["value"]
