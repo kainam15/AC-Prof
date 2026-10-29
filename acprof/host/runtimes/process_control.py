@@ -333,13 +333,13 @@ def verify_process_cleanup(directory: Path) -> None:
                 label="process launch inventory",
                 suffix=_INVENTORY_SUFFIX,
             )
+            process_name = inventory_path.name.removesuffix(_INVENTORY_SUFFIX)
             owner_file = inventory_record["owner_file"]
             if (
                 inventory_record.get("schema_version") != 2
                 or inventory_record.get("launch_state") != "starting"
-                or not isinstance(owner_file, str)
-                or Path(owner_file).name != owner_file
-                or not owner_file.endswith(_OWNER_LEDGER_SUFFIX)
+                or owner_file != f"{process_name}{_OWNER_LEDGER_SUFFIX}"
+                or inventory_record.get("status_file") != f"{process_name}.process.json"
             ):
                 raise ValueError("invalid process launch inventory")
             ledgers[owner_file] = (directory / owner_file, inventory_record)

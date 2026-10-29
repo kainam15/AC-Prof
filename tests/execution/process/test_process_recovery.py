@@ -188,6 +188,35 @@ def test_startup_recovery_detects_deleted_launch_ledger_from_inventory(tmp_path)
         verify_process_cleanup(tmp_path)
 
 
+@pytest.mark.parametrize(("inventory_name", "status_name"), [
+    ("alias.process.inventory.json", "owned.process.json"),
+    ("owned.process.inventory.json", "other.process.json"),
+])
+def test_startup_recovery_binds_inventory_to_its_filename(tmp_path, inventory_name, status_name):
+    from acprof.host.runtimes.process_control import ProcessCleanupError, verify_process_cleanup
+
+    owner_file = "owned.process.owner.json"
+    status_path = tmp_path / status_name
+    _, status = _cleanup_evidence(status_path)
+    status_path.write_text(json.dumps(status))
+    (tmp_path / owner_file).write_text(json.dumps({
+        "schema_version": 2,
+        "owner_file": owner_file,
+        "status_file": status_name,
+        "launch_state": "started",
+        "owner_pid": status["owner"]["pid"],
+    }))
+    (tmp_path / inventory_name).write_text(json.dumps({
+        "schema_version": 2,
+        "owner_file": owner_file,
+        "status_file": status_name,
+        "launch_state": "starting",
+    }))
+
+    with pytest.raises(ProcessCleanupError, match="invalid process launch inventory"):
+        verify_process_cleanup(tmp_path)
+
+
 def test_startup_recovery_rejects_symlinked_or_mismatched_inventory(tmp_path):
     from acprof.host.runtimes.process_control import ProcessCleanupError, verify_process_cleanup
 
