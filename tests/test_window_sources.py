@@ -55,6 +55,11 @@ def observe_reads(monkeypatch, paths, *, after_read=None):
         def __exit__(self, *args):
             self.stream.close()
 
+        def readinto(self, buffer):
+            raw = self.read(len(buffer))
+            buffer[:len(raw)] = raw
+            return len(raw)
+
         def read(self, *args):
             raw = self.stream.read(*args)
             read_counts[self.path] += 1

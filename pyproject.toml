@@ -161,7 +161,7 @@ warn_return_any = true
 [tool.coverage.run]
 branch = true
 parallel = true
-patch = "subprocess"
+patch = ["subprocess"]
 source = ["acprof"]
 relative_files = true
 data_file = "internal-testing/coverage/.coverage"

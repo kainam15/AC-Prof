@@ -90,6 +90,11 @@ def observe_evidence(monkeypatch, path, *, fragment_size=None, fail_after=None, 
         def __exit__(self, *args):
             self.stream.close()
 
+        def readinto(self, buffer):
+            raw = self.read(len(buffer))
+            buffer[:len(raw)] = raw
+            return len(raw)
+
         def read(self, size=-1):
             assert 0 < size <= 1024 * 1024, "hashing made an unbounded read"
             if fail_after is not None and observed.reads >= fail_after:
