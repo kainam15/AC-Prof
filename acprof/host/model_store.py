@@ -5,6 +5,7 @@ CPU/GPU builds share bytes and retain independent pinned dependency refs.
 """
 from __future__ import annotations
 
+import copy
 import errno
 import fcntl
 import json
@@ -496,9 +497,11 @@ def enforce_model_download_budgets(plan: dict) -> None:
 
 
 def prepare_model(task, plan: dict, root: Path | None = None, *, planned_download_bytes: int | None = None) -> dict:
+    """Prepare an independent verified receipt, preserving the caller's retry input."""
     validate_plan(plan)
     request = model_download_request(task)
     validate_plan_request(plan, request)
+    plan = copy.deepcopy(plan)
     from huggingface_hub import snapshot_download
 
     from acprof.container.download_model import verify_download

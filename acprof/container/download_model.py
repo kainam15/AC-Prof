@@ -123,10 +123,11 @@ def _prepare_repository_plan(endpoint: str, model_id: str, revision: str, *, dep
 
 
 def verify_download(target: str | Path, plan: dict) -> dict:
-    """构建期间检查完整性并记录实际 SHA256；不会进入 server 启动路径。"""
+    """Record hashes only after every file verifies; failures leave the plan intact."""
     validate_plan(plan)
     root = Path(target)
     hashes = {}
+    verified_files = []
     for item in plan["files"]:
         path = root / item["path"]
         if not path.is_file():
@@ -151,13 +152,14 @@ def verify_download(target: str | Path, plan: dict) -> dict:
                 raise ModelFilesError(f"model file SHA256 mismatch: {item['path']}")
         elif item.get("blob_id") and git_hex != item["blob_id"]:
             raise ModelFilesError(f"model file Git blob mismatch: {item['path']}")
-        item.update(size=stat.st_size, sha256=sha256_hex)
-    plan["selected_bytes"] = sum(item["size"] for item in plan["files"])
+        verified_files.append({**item, "size": stat.st_size, "sha256": sha256_hex})
+    verified = {**plan, "files": verified_files,
+                "selected_bytes": sum(item["size"] for item in verified_files), "verification": "sha256"}
     if "dependencies" in plan or "total_selected_bytes" in plan:
-        plan["total_selected_bytes"] = plan["selected_bytes"] + sum(
+        verified["total_selected_bytes"] = verified["selected_bytes"] + sum(
             item["download"]["selected_bytes"] for item in plan.get("dependencies", []))
-    plan["verification"] = "sha256"
-    return seal_plan(plan)
+    plan.update(seal_plan(verified))
+    return plan
 
 
 
