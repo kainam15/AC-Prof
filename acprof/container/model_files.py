@@ -113,6 +113,17 @@ def validate_plan(plan: dict) -> None:
         _validate_byte_total(plan, "total_selected_bytes", [plan["selected_bytes"]])
 
 
+def validate_plan_request(plan: dict, request: dict) -> None:
+    """Bind an already validated plan to its consumer without hashing it again."""
+    for field, expected in request.items():
+        actual = plan.get(field, "huggingface" if field == "source" else None)
+        if field == "dependencies":
+            actual = [{key: value for key, value in item.items() if key != "download"}
+                      for item in plan.get("dependencies", [])]
+        if actual != expected:
+            raise ModelFilesError(f"model download plan differs from request: {field}")
+
+
 def resolve_checkpoint(names: set[str], read_json: Callable, prefix: str = "", *, diffusion: bool = False) -> dict | None:
     stems = [("diffusion_pytorch_model", "safetensors"), ("diffusion_pytorch_model", "bin")] if diffusion else [
         ("model", "safetensors"), ("pytorch_model", "bin"),

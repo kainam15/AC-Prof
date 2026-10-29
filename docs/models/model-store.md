@@ -65,6 +65,15 @@ refs 只按预期 commit 长度有界读取；目录符号链接和读取权限�
 及其 [ASCII 约束修复 PR #4892](https://github.com/huggingface/huggingface_hub/pull/4892)
 （Apache-2.0，持续维护）；复用边界校验思想，AC-Prof 的共享规则负责本地身份与路径安全，服务端命名规则仍由对应 SDK 核对。
 
+有效清单还必须属于本次任务。缓存命中、锁内再次读取、准备和镜像复用共用请求身份核对：
+source、model ID、固定 commit、下载策略、任务族、backend、adapter，以及包含 `allow_patterns` 的依赖声明。
+身份冲突明确失败并保留原清单，不自动回退下载或覆盖；直接准备在传输配置和缓存写入前检查传入计划。
+复用已有条目时，先选定已验证清单，再计算该清单的空间、下载预算和回执，避免检查与执行使用不同计划。
+历史缺 source 仍按 HF 读取；endpoint、用户输入的分支名及执行设备不替代已固定的模型身份。
+核对只比较现有元数据，不重复计算计划或权重 hash。设计参考
+[pip 缓存对制品名称与请求名称的核对](https://github.com/pypa/pip/blob/main/src/pip/_internal/cache.py)
+（MIT，持续维护），使用项目现有字段与标准库实现，不新增依赖或测量窗口内的工作。
+
 主机不安装推理框架。`auto` 筛选使用固定 runtime lock 以及 `container/compat/transformers_model_types.json` 中 4.57.6/5.10.4 的 native model types，catalog 来自相应锁定 runtime 的公开 `CONFIG_MAPPING_NAMES`，保存源码位置与 SHA256；未知版本/布局保持完整快照。新增版本须重新提取并核验 catalog，不能借旧版本的支持表作推断。
 
 模型校验、下载、磁盘检查和 LRU 更新在准备阶段完成。`plan_model` 命中缓存时保留只读快速路径；缓存未命中时，在重新检查缓存及下载、读取主模型和依赖仓库的规划元数据期间持有 Model Store 锁，防止并发 prune 删除尚无 entry 引用的文件；规划成功、失败或中断后释放锁，未引用文件仍可回收。容器只读挂载 Model Store；server、独立验证、profiler 和补采都传递固定 snapshot/cache 路径与离线环境变量，custom-code cache 放在可写 `/tmp`。缺失 store、计划不匹配或准备／补采前文件 SHA256 不匹配直接失败，不在线修复。主机结果另记 `model_store.host_path` 以便补采找到自定义目录，该路径不写入 Docker 镜像；迁移目录后可用 `ACPROF_MODEL_STORE` 显式覆盖。保持挂载期间的共享 lease，prune 不删除活动实验引用的 entries。测量样本、连接策略与窗口不变。

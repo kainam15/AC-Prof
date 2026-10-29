@@ -21,7 +21,12 @@ from threading import Event, RLock
 from urllib.parse import urlsplit
 
 import acprof.artifacts as artifact_io
-from acprof.container.model_files import PLAN_FILENAME, seal_plan, validate_plan
+from acprof.container.model_files import (
+    PLAN_FILENAME,
+    seal_plan,
+    validate_plan,
+    validate_plan_request,
+)
 from acprof.dependency_locks import content_digest
 from acprof.hf_auth import hf_token_for_url
 from acprof.hf_download import try_hf_endpoints
@@ -38,7 +43,7 @@ from acprof.host.model_store_views import (
     snapshot_path,
     view_complete,
 )
-from acprof.model_spec import task_model_spec, validate_dependencies
+from acprof.model_spec import model_download_request, validate_dependencies
 from acprof.network_policy import (
     DownloadPolicyError,
     DownloadSource,
@@ -135,13 +140,14 @@ def entry_key(task) -> str:
     import hashlib
 
     from acprof.installation import resource_root
-    source = getattr(task, "model_source", "huggingface")
+    request = model_download_request(task)
+    source = request["source"]
     return content_digest({"schema": 1, **({"source": source} if source != "huggingface" else {}),
         "planner": hashlib.sha256((resource_root() / "acprof/container/model_files.py").read_bytes()).hexdigest(),
         "model_types": hashlib.sha256((resource_root() / "acprof/container/compat/transformers_model_types.json").read_bytes()).hexdigest(),
-        "model": task.model_id, "revision": task.model_revision,
-        "policy": task.model_download_policy, "family": task.task_family, "backend": task.runtime_backend,
-        "adapter": task.model_adapter, "dependencies": task_model_spec(task).get("dependencies", [])})
+        "model": request["model_id"], "revision": request["model_revision"],
+        "policy": request["requested_policy"], "family": request["task_family"], "backend": request["backend"],
+        "adapter": request["adapter"], "dependencies": request["dependencies"]})
 
 
 @contextmanager
@@ -294,7 +300,8 @@ def cached_model_info(model_id: str, revision: str | None, *, source: str):
 
 
 def plan_model(task, root: Path | None = None) -> dict:
-    dependencies = validate_dependencies(task_model_spec(task).get("dependencies", []),
+    request = model_download_request(task)
+    dependencies = validate_dependencies(request["dependencies"],
                                          primary_model_id=task.model_id)
     from acprof.container.download_model import _prepare_repository_plan
     from acprof.dependency_locks import package_versions, read_python_lock
@@ -311,12 +318,14 @@ def plan_model(task, root: Path | None = None) -> dict:
     key = entry_key(task)
     cached = read_entry(key, root)
     if cached:
+        validate_plan_request(cached, request)
         return cached
     # Planning metadata has no entry reference yet, so serialize cache misses with GC.
     with store_lock(root):
         # Another planner may have published the same entry while this caller waited.
         cached = read_entry(key, root)
         if cached:
+            validate_plan_request(cached, request)
             return cached
         from acprof.model_repository import MODELSCOPE_ENDPOINT
         source = getattr(task, "model_source", "huggingface")
@@ -339,6 +348,7 @@ def plan_model(task, root: Path | None = None) -> dict:
             plan["requested_revision"] = getattr(task, "requested_revision", None)
             seal_plan(plan)
             validate_plan(plan)
+            validate_plan_request(plan, request)
             return plan
         return prepare(MODELSCOPE_ENDPOINT) if source == "modelscope" else try_hf_endpoints(task.model_id, prepare, endpoints=endpoints)
 
@@ -487,6 +497,8 @@ def enforce_model_download_budgets(plan: dict) -> None:
 
 def prepare_model(task, plan: dict, root: Path | None = None, *, planned_download_bytes: int | None = None) -> dict:
     validate_plan(plan)
+    request = model_download_request(task)
+    validate_plan_request(plan, request)
     from huggingface_hub import snapshot_download
 
     from acprof.container.download_model import verify_download
@@ -495,6 +507,9 @@ def prepare_model(task, plan: dict, root: Path | None = None, *, planned_downloa
     configure_hf_transport()
     with store_lock(root), ExitStack() as leases:
         existing = read_entry(key, root)
+        if existing is not None:
+            validate_plan_request(existing, request)
+            plan = existing
         needs_publish = existing is None or not view_complete(root, key, repository_plans(existing))
         if needs_publish:
             lease = leases.enter_context(_open_lock_file(root / (key + ".lease"), label="Model Store lease"))
@@ -511,8 +526,6 @@ def prepare_model(task, plan: dict, root: Path | None = None, *, planned_downloa
         enforce_model_download_budgets({"expected_download_bytes": needed})
         if planned_download_bytes is not None and needed > planned_download_bytes:
             raise DownloadPolicyError("Model Store 缓存自预检后已变化；尚未下载权重，请重新预检")
-        if existing:
-            plan = existing
         targets = []
         escape = {"[": "[[]", "*": "[*]", "?": "[?]"}
         for repo, budget in zip(repository_plans(plan), sources, strict=True):

@@ -266,7 +266,7 @@ class TestPrepareImage:
         plan.update(selected_bytes=1, total_selected_bytes=2,
                     dependencies=[{'repo_id': 'example/base', 'revision': 'd' * 40, 'download': child}])
         seal_plan(plan)
-        with patch("acprof.host.command.run_command", side_effect=self.existing_image), pytest.raises(RuntimeError, match='离线模型依赖'):
+        with patch("acprof.host.command.run_command", side_effect=self.existing_image), pytest.raises(RuntimeError, match='request: dependencies'):
             runtime_images.prepare_image(self.task, self.project_dir, reuse_existing=True)
 
     def test_mutable_revision_is_resolved_before_choosing_image(self):

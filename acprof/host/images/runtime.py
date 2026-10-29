@@ -28,7 +28,12 @@ from acprof.host.images.environment import (
 from acprof.host.images.identity import model_token
 from acprof.host.runtime_settings import runtime_build_overrides
 from acprof.installation import resource_root
-from acprof.model_spec import encode_model_dependencies, encode_model_spec, task_model_spec
+from acprof.model_spec import (
+    encode_model_dependencies,
+    encode_model_spec,
+    model_download_request,
+    task_model_spec,
+)
 from acprof.runtime_profiles import (
     RuntimeProfile,
     environment_id,
@@ -209,7 +214,7 @@ def verified_image(task_info: Any, name: str, fingerprint: str, project_dir=PROJ
     verify_manifest(manifest, expected, environment)
     if manifest.get("model_snapshot_revision") != task_info.model_revision:
         raise RuntimeError("镜像内实际 snapshot revision 与本次任务不匹配")
-    from acprof.container.model_files import ModelFilesError, validate_plan
+    from acprof.container.model_files import ModelFilesError, validate_plan, validate_plan_request
 
     plan = manifest.get("model_download")
     if not isinstance(plan, dict):
@@ -218,20 +223,9 @@ def verified_image(task_info: Any, name: str, fingerprint: str, project_dir=PROJ
         validate_plan(plan)
         if plan.get("verification") != "sha256":
             raise ModelFilesError("model download plan has not been verified")
+        validate_plan_request(plan, model_download_request(task_info, adapter=profile.adapter))
     except ModelFilesError as exc:
         raise RuntimeError(f"镜像模型文件清单缺失或无效；请重新构建：{exc}") from exc
-    if plan.get("source", "huggingface") != getattr(task_info, "model_source", "huggingface"):
-        raise RuntimeError("Model artifact source differs from the requested source")
-    if any(plan.get(key) != value for key, value in {
-        "model_id": task_info.model_id, "model_revision": task_info.model_revision,
-        "requested_policy": download_policy(task_info), "backend": task_info.runtime_backend,
-        "task_family": task_info.task_family, "adapter": profile.adapter,
-    }.items()):
-        raise RuntimeError("镜像模型文件清单与本次下载策略/模型/加载器不匹配")
-    dependencies = [{key: value for key, value in item.items() if key != "download"}
-                    for item in plan.get("dependencies", [])]
-    if dependencies != task_model_spec(task_info).get("dependencies", []):
-        raise RuntimeError("镜像离线模型依赖与本次模型声明不匹配；请重新构建")
     return ImageInfo(tag=identity["image_id"], name=name, runtime_environment=manifest)
 
 

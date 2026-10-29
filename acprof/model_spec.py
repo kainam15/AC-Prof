@@ -122,6 +122,16 @@ def task_model_spec(task_info: Any) -> dict:
     return override or metadata.get("acprof_model.json", {}) or generated
 
 
+def model_download_request(task_info: Any, *, adapter: str | None = None) -> dict:
+    """Portable model identity, independent of transport and execution environment."""
+    return {"source": getattr(task_info, "model_source", "huggingface"),
+        "model_id": task_info.model_id, "model_revision": task_info.model_revision,
+        "requested_policy": getattr(task_info, "model_download_policy", "auto"),
+        "task_family": task_info.task_family, "backend": task_info.runtime_backend,
+        "adapter": task_info.model_adapter if adapter is None else adapter,
+        "dependencies": task_model_spec(task_info).get("dependencies", [])}
+
+
 def declared_multimodal_pipeline(task_info: Any) -> bool:
     spec = task_model_spec(task_info)
     if not spec or "multimodal" not in spec:
