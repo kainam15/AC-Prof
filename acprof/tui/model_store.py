@@ -44,7 +44,7 @@ class ModelStoreScreen(ModalScreen):
                 yield Static("", id="store-report", markup=False)
             yield Static(translated_app(self.app).tr(message_id('ui.0320')), id="store-status", markup=False)
             with Horizontal(id="store-actions", classes="action-bar"):
-                yield Button(translated_app(self.app).tr(message_id('ui.0666')), id="store-close")
+                yield Button(translated_app(self.app).tr(message_id('ui.0139')), id="store-close")
                 yield Button(translated_app(self.app).tr(message_id('ui.0316')), id="store-refresh", disabled=True)
                 yield Button(translated_app(self.app).tr(message_id('ui.0215')), id="store-prune", disabled=True)
 

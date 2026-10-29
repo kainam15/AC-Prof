@@ -5,6 +5,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from rich.cells import cell_len
 from test_model_store_gc import locked_store
 from textual.widgets import Button, Input, Select, Static
 from tui_fixtures import AcprofTui
@@ -13,8 +14,9 @@ from acprof.experiment import RunConfig
 from acprof.tui.model_store import ModelStoreScreen
 
 
-@pytest.mark.parametrize(('language', 'size'), [('zh', (80, 24)), ('en', (120, 40))])
-async def test_locked_preview_shows_capacity_then_closes_before_unlock(language, size):
+@pytest.mark.parametrize('language', ['zh', 'en'])
+@pytest.mark.parametrize('size', [(80, 24), (120, 30), (150, 45)])
+async def test_locked_preview_shows_capacity_then_closes_before_unlock(language, size, tmp_path):
     with tempfile.TemporaryDirectory() as temporary:
         root = Path(temporary)
         app = AcprofTui(RunConfig.smoke('example/model'), settings_path=root / 'settings.json')
@@ -22,11 +24,23 @@ async def test_locked_preview_shows_capacity_then_closes_before_unlock(language,
             async with app.run_test(size=size) as pilot:
                 try:
                     app.query_one('#ui-language', Select).value = language
+                    await pilot.pause()
+                    assert app.configuration.preferences.language == language
                     app.query_one('#model-store', Input).value = str(root)
                     app.preflight.open_model_store()
                     await pilot.pause()
                     assert isinstance(app.screen, ModelStoreScreen)
                     screen = app.screen
+                    app.save_screenshot(path=str(tmp_path), filename='model-store-close.svg')
+                    close = screen.query_one('#store-close', Button)
+                    expected_close = '关闭弹窗' if language == 'zh' else 'Close'
+                    assert str(close.label) == expected_close
+                    assert cell_len(expected_close) <= close.content_region.width
+                    region = close.content_region
+                    lines = screen._compositor.render_strips()
+                    assert expected_close in ''.join(
+                        line.crop(region.x, region.right).text for line in lines[region.y:region.bottom]
+                    )
                     content = str(screen.query_one('#store-report', Static).content)
                     assert ('total_bytes') in (content)
                     assert (app.tr('缓存正在由另一任务处理；可以关闭窗口取消等待。')) in (str(screen.query_one('#store-status', Static).content))

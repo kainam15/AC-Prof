@@ -149,6 +149,7 @@ class TestTuiLanguage:
         app = self.make_app(RunConfig.smoke("demo/model"))
         async with app.run_test(size=(80, 24)) as pilot:
             await pilot.pause()
+            app.query_one('#notify', Select).value = 'none'
             await pilot.press("f2")
             await pilot.pause()
             # Select routes clicks through its child label; Pilot.click's
@@ -159,12 +160,16 @@ class TestTuiLanguage:
             await pilot.pause()
             assert (app.configuration.preferences.language) == ("en")
             assert (app.query_one("#ui-language SelectCurrent #label", Static).content) == ("English")
+            assert app.query_one('#notify SelectCurrent #label', Static).content == 'Off'
+            assert app.query_one('#notify', Select).value == 'none'
             await pilot.click("#ui-language", offset=(4, 1))
             assert (app.query_one("#ui-language", Select).expanded)
             await pilot.press("home", "enter")
             await pilot.pause()
             assert (app.configuration.preferences.language) == ("zh")
             assert (app.query_one("#ui-language SelectCurrent #label", Static).content) == ("简体中文")
+            assert app.query_one('#notify SelectCurrent #label', Static).content == '关闭'
+            assert app.query_one('#notify', Select).value == 'none'
             assert (app.query_one("#run-preset", Select).value) == ("smoke")
             assert not (self.settings_path.exists())
 

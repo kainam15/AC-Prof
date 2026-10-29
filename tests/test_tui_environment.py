@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 import pytest
 from environment_fixtures import isolated_environment
+from rich.cells import cell_len
 from textual.widgets import Button, Checkbox, Input, Static, TabbedContent
 from tui_fixtures import AcprofTui, checkbox_text
 
@@ -185,6 +186,16 @@ class TestTuiEnvironment:
             await pilot.press('f2')
             await pilot.pause()
             await self.open_connections(app, pilot)
+            app.save_screenshot(path=str(self.root), filename='connection-close.svg')
+            close = app.screen.query_one('#close-environment-settings', Button)
+            expected_close = '关闭弹窗' if language == 'zh' else 'Close'
+            assert str(close.label) == expected_close
+            assert cell_len(expected_close) <= close.content_region.width
+            region = close.content_region
+            lines = app.screen._compositor.render_strips()
+            assert expected_close in ''.join(
+                line.crop(region.x, region.right).text for line in lines[region.y:region.bottom]
+            )
             for widget_id in ('close-environment-settings', 'save-environment-settings'):
                 widget = app.screen.query_one('#' + widget_id, Button)
                 assert (widget.region.width)
@@ -198,6 +209,9 @@ class TestTuiEnvironment:
             assert not (app.screen.query_one('#permission-tcpdump', Checkbox).value)
             assert (await pilot.click('#close-environment-settings'))
             await pilot.pause()
+            assert not app.query('#environment-dialog')
+            assert not (self.root / '.env.local').exists()
+            assert not app.is_busy()
 
     async def test_settings_can_save_masked_credentials_and_reopen_them(self):
         app = AcprofTui(RunConfig.smoke('demo/model'), settings_path=self.root / 'tui.json')

@@ -136,7 +136,7 @@ class EnvironmentSettingsScreen(ModalScreen[bool]):
                                      classes='environment-hint', markup=False)
             with Horizontal(id='environment-actions', classes='action-bar'):
                 with Horizontal(classes='action-secondary'):
-                    yield Button(tr('关闭'), id='close-environment-settings')
+                    yield Button(tr(message_id('ui.0139')), id='close-environment-settings')
                     yield StatusCheckbox(tr('显示敏感字段'), id='show-environment-secrets', classes='option-checkbox')
                 with Horizontal(classes='action-primary'):
                     yield Button(tr('保存配置'), id='save-environment-settings', variant='primary')

@@ -316,7 +316,7 @@ def compose_run_tab(app: AcprofTui) -> ComposeResult:
                     yield ConfigField(app.localization.localized_select(
                         (
                             ("自动", "auto"),
-                            ("关闭", "none"),
+                            (message_id('ui.0666'), "none"),
                             ("企业微信", "wecom"),
                         ),
                         value=app.configuration.initial_config.notify,

@@ -222,7 +222,7 @@ ModelScope 目前只有准备、校验和结果状态，无法取得的实时字
 阶段显示沿用 [Textual ContentSwitcher 的 display 切换方式](https://github.com/Textualize/textual/blob/v8.2.8/src/textual/widgets/_content_switcher.py)
 （MIT），保留已挂载的控件和日志阅读位置；不增加依赖或测量期轮询。
 “Model Store 占用与清理”先显示总量、各模型和 free space，再加载 LRU 删除预览。
-若缓存锁由另一任务持有，面板显示等待原因；关闭按钮或 Esc 可以取消等待与扫描，无需等下载任务结束。
+若缓存锁由另一任务持有，面板显示等待原因；“关闭弹窗”或 Esc 可以取消等待与扫描，无需等下载任务结束。
 后台读取释放资源后关闭面板并恢复实验操作，避免残留扫描与随后启动的测量重叠。
 
 清理仍需确认，删除前在锁内复检活动 lease、共享权重和批准范围，预览后新增的模型会保留。
