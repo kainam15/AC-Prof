@@ -1,9 +1,42 @@
-"""Native seq2seq generation shared by Transformers 4.x and 5.x."""
+"""NLP text generation and decoded response metrics."""
 from __future__ import annotations
 
 import copy
 import os
+from collections.abc import Mapping
 from types import SimpleNamespace
+from typing import Any
+
+
+def text_output_metrics(tokenizer: Any, raw_output: Any) -> dict[str, int | None]:
+    """Summarize all returned texts, independently of generated token IDs."""
+    metrics: dict[str, int | None] = {"output_length": None, "output_token_count": None}
+    texts: list[str] = []
+    pending = [raw_output]
+    while pending:
+        value = pending.pop()
+        if isinstance(value, list):
+            pending.extend(reversed(value))
+        elif isinstance(value, Mapping):
+            text = next((value[key] for key in ("generated_text", "summary_text", "translation_text")
+                         if key in value), None)
+            if not isinstance(text, str):
+                return metrics
+            texts.append(text)
+        else:
+            return metrics
+    if not texts:
+        return metrics
+    metrics["output_length"] = sum(len(text) for text in texts)
+    encode = getattr(tokenizer, "encode", None)
+    if callable(encode):
+        try:
+            metrics["output_token_count"] = sum(len(encode(text, add_special_tokens=False)) for text in texts)
+        except (TypeError, ValueError, RuntimeError):
+            # Optional decoded-text statistics may be unavailable; retain the
+            # known character count and never publish a partial token total.
+            pass
+    return metrics
 
 
 def load_seq2seq(source, revision, *, device, dtype, model_kwargs):

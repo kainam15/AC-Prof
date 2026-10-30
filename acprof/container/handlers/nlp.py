@@ -15,6 +15,7 @@ from acprof.container.handlers import (
     transformers_pipeline_load_kwargs,
 )
 from acprof.container.handlers.generation_evidence import count_input_tokens, generation_evidence
+from acprof.container.handlers.text_generation import text_output_metrics
 from acprof.container.load_policy import load_policy
 from acprof.input_budget import check_nlp_input, positive_integer
 from acprof.models.spec import pipeline_task
@@ -733,5 +734,7 @@ class NLPHandler(BaseHandler):
                                   "sentence-similarity": "similarity", "text-ranking": "ranking",
                                   "feature-extraction": "embedding"}.get(task_type, "label")),
             "n_results": n_results,
+            **(text_output_metrics(getattr(model_ctx["pipeline"], "tokenizer", None), raw_output)
+               if task_type in _GENERATIVE_TASKS else {}),
             **(model_ctx.get("generation_evidence") or self._observed_generation(model_ctx) if task_type in _GENERATIVE_TASKS else {}),
         }
