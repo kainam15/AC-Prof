@@ -44,7 +44,7 @@ class TestLocalPipelineRouting:
         data = {"schema_version": 1, "version": installed_version, "mappings": {}, "capabilities": capabilities}
         data.update(overrides)
         path.write_text(json.dumps(data))
-        patcher = patch("acprof.models.support.__file__", str(self.root / "model_support.py"))
+        patcher = patch("acprof.models.support.__file__", str(self.root / "models" / "support.py"))
         patcher.start()
         self._request.addfinalizer(partial(patcher.stop))
 
@@ -114,7 +114,7 @@ class TestLocalPipelineRouting:
     def test_catalog_identity_mismatch_fails_before_import(self):
         self.catalog("66.0.0", {"local_dynamic_transitive_imports": True, "local_dynamic_symlink_safe": True},
                      version="65.0.0")
-        with pytest.raises(ValueError, match="catalog"):
+        with pytest.raises(ValueError, match="Invalid Transformers support catalog"):
             self.load()
         self.assert_no_loader_calls()
 
