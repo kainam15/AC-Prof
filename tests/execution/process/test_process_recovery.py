@@ -148,17 +148,21 @@ def test_recovery_rejects_unbounded_or_invalid_status(tmp_path, content, message
         recover_process(evidence, directory=tmp_path)
 
 
-def test_startup_recovery_accepts_internal_regular_cleanup_evidence(tmp_path):
+@pytest.mark.parametrize("schema_version", [None, 1])
+def test_startup_recovery_accepts_historical_owner_only_evidence(tmp_path, schema_version):
     from acprof.host.runtimes.process_control import verify_process_cleanup
 
     status_path = tmp_path / "owned.process.json"
     _, status = _cleanup_evidence(status_path)
     status_path.write_text(json.dumps(status))
-    (tmp_path / "owned.process.owner.json").write_text(json.dumps({
+    launch = {
         "launch_state": "started",
         "owner_pid": status["owner"]["pid"],
         "status_file": status_path.name,
-    }))
+    }
+    if schema_version is not None:
+        launch["schema_version"] = schema_version
+    (tmp_path / "owned.process.owner.json").write_text(json.dumps(launch))
 
     verify_process_cleanup(tmp_path)
 
@@ -185,6 +189,24 @@ def test_startup_recovery_detects_deleted_launch_ledger_from_inventory(tmp_path)
     }))
 
     with pytest.raises(ProcessCleanupError, match="complete cleanup evidence"):
+        verify_process_cleanup(tmp_path)
+
+
+def test_startup_recovery_detects_deleted_inventory_for_schema_two_owner(tmp_path):
+    from acprof.host.runtimes.process_control import ProcessCleanupError, verify_process_cleanup
+
+    status_path = tmp_path / "owned.process.json"
+    _, status = _cleanup_evidence(status_path)
+    status_path.write_text(json.dumps(status))
+    (tmp_path / "owned.process.owner.json").write_text(json.dumps({
+        "schema_version": 2,
+        "owner_file": "owned.process.owner.json",
+        "status_file": status_path.name,
+        "launch_state": "started",
+        "owner_pid": status["owner"]["pid"],
+    }))
+
+    with pytest.raises(ProcessCleanupError, match="inventory is missing"):
         verify_process_cleanup(tmp_path)
 
 

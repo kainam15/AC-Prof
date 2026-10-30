@@ -356,6 +356,8 @@ def verify_process_cleanup(directory: Path) -> None:
                 label="process launch ledger",
                 suffix=_OWNER_LEDGER_SUFFIX,
             )
+            if expected_inventory is None and launch.get("schema_version", 1) != 1:
+                raise ValueError("process launch inventory is missing")
             if expected_inventory is not None and any(
                 launch.get(key) != expected_inventory[key]
                 for key in ("schema_version", "owner_file", "status_file")
