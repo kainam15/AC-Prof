@@ -29,6 +29,7 @@ from acprof.host.profiling.compute_plan import (
     find_compute_profile_entry,
 )
 from acprof.host.profiling.execution_plan import ExecutionProfileResolver
+from acprof.host.profiling.tools.compute_parsers import NCU_FLOP_COUNTING_VERSION
 from acprof.results.layout import ArtifactLayout
 from acprof.system.command import run_command
 
@@ -74,6 +75,15 @@ def compute_plan_covers_tool(
 ) -> bool:
     if tool not in {"torch", "ncu"} or not isinstance(plan, Mapping):
         return False
+    if tool == "ncu":
+        profiles = plan.get("profiles")
+        gpu = profiles.get("gpu") if isinstance(profiles, Mapping) else None
+        ncu = gpu.get(NCU_PROFILE_KEY) if isinstance(gpu, Mapping) else None
+        if (
+            not isinstance(ncu, Mapping)
+            or ncu.get("flop_counting_version") != NCU_FLOP_COUNTING_VERSION
+        ):
+            return False
     found_mode = False
     for mode in TOOL_GPU_MODES[tool]:
         scales = context.scales_by_mode.get(mode, [])

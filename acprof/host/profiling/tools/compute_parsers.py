@@ -16,6 +16,10 @@ NCU_TENSOR_METRIC_RE = re.compile(
 )
 
 
+# Version 2 counts both FP16 lanes of HADD2, HMUL2 and HFMA2 instructions.
+NCU_FLOP_COUNTING_VERSION = 2
+
+
 NCU_SASS_FLOP_WEIGHTS = {
     "smsp__sass_thread_inst_executed_op_dadd_pred_on": 1.0,
     "smsp__sass_thread_inst_executed_op_dmul_pred_on": 1.0,
@@ -23,9 +27,9 @@ NCU_SASS_FLOP_WEIGHTS = {
     "smsp__sass_thread_inst_executed_op_fadd_pred_on": 1.0,
     "smsp__sass_thread_inst_executed_op_fmul_pred_on": 1.0,
     "smsp__sass_thread_inst_executed_op_ffma_pred_on": 2.0,
-    "smsp__sass_thread_inst_executed_op_hadd_pred_on": 1.0,
-    "smsp__sass_thread_inst_executed_op_hmul_pred_on": 1.0,
-    "smsp__sass_thread_inst_executed_op_hfma_pred_on": 2.0,
+    "smsp__sass_thread_inst_executed_op_hadd_pred_on": 2.0,
+    "smsp__sass_thread_inst_executed_op_hmul_pred_on": 2.0,
+    "smsp__sass_thread_inst_executed_op_hfma_pred_on": 4.0,
 }
 
 

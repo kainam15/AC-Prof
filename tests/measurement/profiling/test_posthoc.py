@@ -357,12 +357,14 @@ class TestPosthocProfile:
             "static_metadata": {
                 "compute_profile_tools": ["ncu"],
                 "ncu_repeat": 1,
+                "ncu_flop_counting_version": 2,
                 "ncu_version": "test-ncu",
             },
             "profiles": {
                 "gpu": {
                     "ncu": {
                         "tool": "ncu",
+                        "flop_counting_version": 2,
                         "error": "",
                         "entries": [
                             {
@@ -844,6 +846,7 @@ class TestPosthocProfile:
 
             metadata = json.loads((root / "static_meta.json").read_text())
             assert ("ncu") in (metadata["compute_profile_tools"])
+            assert metadata["ncu_flop_counting_version"] == 2
             assert (set(metadata["execution_profile_tools"])) == ({"massif", "nsys"})
             assert (metadata["nsys_version"]) == ("test-nsys")
             assert (metadata["massif_version"]) == ("test-massif")

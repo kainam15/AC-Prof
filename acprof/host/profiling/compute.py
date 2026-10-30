@@ -444,6 +444,9 @@ def collect_compute_profile_plan(
             max(1, int(torch_profiler_repeat)) if collect_torch_gpu else None
         ),
         "ncu_flop_semantics": "gpu_executed_floating_point_operations",
+        "ncu_flop_counting_version": (
+            ncu.NCU_FLOP_COUNTING_VERSION if collect_ncu_gpu else None
+        ),
         "ncu_repeat": max(1, int(ncu_repeat)) if collect_ncu_gpu else None,
         "ncu_fma_flop_weight": ncu.NCU_FMA_FLOP_WEIGHT,
         "ncu_metrics": ncu_metrics,

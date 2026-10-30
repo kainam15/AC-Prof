@@ -26,6 +26,7 @@ from acprof.host.profiling.support import (
 )
 from acprof.host.profiling.tools.compute_parsers import (
     NCU_DURATION_METRIC,
+    NCU_FLOP_COUNTING_VERSION,
     NCU_SASS_FLOP_WEIGHTS,
     NCU_TENSOR_METRIC_RE,
     finite_or_none,
@@ -268,6 +269,7 @@ def _ncu_entry_from_csv(
     result = {
         "input_scale": float(entry["input_scale"]),
         "tool": NCU_TOOL,
+        "flop_counting_version": NCU_FLOP_COUNTING_VERSION,
         "gpu_executed_mflop_per_request_ncu": total_flops / 1_000_000.0,
         "gpu_executed_tensor_mflop_per_request_ncu": (
             tensor_flops / 1_000_000.0 if tensor_flops is not None else None
@@ -436,6 +438,7 @@ def _resume_ncu_for_entry(
         )
         return None
 
+    csv_payload: dict[str, Any] | None = None
     if checkpoint is not None and os.path.isfile(host_csv):
         checkpoint_entry = checkpoint.get("entry")
         expected_size = to_float(checkpoint.get("csv_size_bytes"))
@@ -445,20 +448,27 @@ def _resume_ncu_for_entry(
             and math.isfinite(expected_size)
             and os.path.getsize(host_csv) == int(expected_size)
         ):
-            resumed = dict(checkpoint_entry)
-            resumed["report"] = _ncu_report_reference(profile_root, host_csv)
+            if checkpoint_entry.get("flop_counting_version") == NCU_FLOP_COUNTING_VERSION:
+                resumed = dict(checkpoint_entry)
+                resumed["report"] = _ncu_report_reference(profile_root, host_csv)
+                print(
+                    f"[compute][ncu][resume] scale={scale_label}: "
+                    f"reusing checkpoint {checkpoint_path}"
+                )
+                return resumed
+            csv_payload = checkpoint_entry
             print(
                 f"[compute][ncu][resume] scale={scale_label}: "
-                f"reusing checkpoint {checkpoint_path}"
+                "reparsing CSV with the current FLOP counting version"
             )
-            return resumed
 
-    if checkpoint is None and os.path.isfile(host_csv):
+    if (checkpoint is None or csv_payload is not None) and os.path.isfile(host_csv):
         resumed = _ncu_entry_from_csv(
             entry=entry,
             host_csv=host_csv,
             profile_root=profile_root,
             repeat=repeat,
+            runner_payload=csv_payload,
         )
         if _ncu_entry_complete(resumed):
             _write_ncu_checkpoint(
@@ -508,6 +518,7 @@ def _resume_ncu_for_entry(
                 host_csv=host_csv,
                 profile_root=profile_root,
                 repeat=repeat,
+                runner_payload=csv_payload,
             )
             if _ncu_entry_complete(resumed):
                 _write_ncu_checkpoint(
@@ -723,6 +734,7 @@ def profile_gpu_entries(
         "tool": NCU_TOOL,
         "repeat": max(1, int(repeat)),
         "flop_semantics": "gpu_executed_floating_point_operations",
+        "flop_counting_version": NCU_FLOP_COUNTING_VERSION,
         "fma_flop_weight": NCU_FMA_FLOP_WEIGHT,
         "metrics": collection_metrics,
         "error": "; ".join(errors),

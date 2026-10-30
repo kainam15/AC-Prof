@@ -139,6 +139,7 @@ STATIC_META_FIELDS = [
     "torch_profiler_eager_repeat_cpu",
     "torch_profiler_eager_repeat_gpu",
     "ncu_flop_semantics",
+    "ncu_flop_counting_version",
     "ncu_repeat",
     "ncu_fma_flop_weight",
     "ncu_metrics",

@@ -333,6 +333,7 @@ def update_static_meta(
             metadata_keys.extend(
                 [
                     "ncu_flop_semantics",
+                    "ncu_flop_counting_version",
                     "ncu_repeat",
                     "ncu_fma_flop_weight",
                     "ncu_metrics",

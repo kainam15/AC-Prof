@@ -103,7 +103,11 @@ NCU 和 Massif 会按 input scale 保存 checkpoint。NCU 可复用匹配的 CSV
 `.ncu-rep` 恢复，Massif 可复用匹配的 `.out`；模型 revision、镜像、资源、repeat 和
 NCU metrics（适用时）必须匹配，才能恢复旧报告。分析固定使用不可变镜像 ID，
 旧 tag 形式的 Massif checkpoint 与新 ID 不匹配时会重采。完整成功的已有 plan 也可复用。
+NCU plan 和 checkpoint 的 `flop_counting_version=2` 表示已按双 lane 计算 FP16 指令；
+静态元数据对应记录 `ncu_flop_counting_version`。未标版本或旧版本的派生 plan 不用于补齐新值，
+匹配的 raw CSV 则重新解析并更新 checkpoint，保留原 GPU 身份与采集证据，无需重采。
 默认保留已有成功 CSV 值；`--force-reprofile` 强制重新采集并替换所选 profiler 字段。
+此默认规则也保留历史公式产生的成功值，不会自动迁移已有实验数据。
 CSV 错误列的[缺失标记](../results/metrics.md#分层结果-csv唯一正式结果)不计为失败：
 指标不完整时显示“尚未采集”或“部分完成”，全部必要指标有效且没有真实错误时保留已有值。
 Torch 的完整性同时检查逻辑 MFLOP 和 application / packet 两列 MFLOPS；旧结果只有逻辑工作量时，
@@ -178,7 +182,7 @@ Torch eager 记录模型逻辑计算量，NCU 记录 GPU 实际执行量；两�
 | `compute_profile_error_torch_profiler_eager` | Torch eager probe 的独立诊断；正常为空，初始化、eager attention 验证或 profiler 失败时记录原因。 |
 | `gpu_executed_mflop_per_request_ncu` | NCU 计数器得到的单 request GPU 实际执行总量，单位 MFLOP，等于 Tensor 与 Scalar 两列之和。只填充 `gpu_mode=on` 行。 |
 | `gpu_executed_tensor_mflop_per_request_ncu` | NCU 统计的单 request Tensor FLOP，单位 MFLOP。 |
-| `gpu_executed_scalar_mflop_per_request_ncu` | NCU 统计的单 request Scalar FLOP，单位 MFLOP；FMA 按 2 FLOP 计。 |
+| `gpu_executed_scalar_mflop_per_request_ncu` | NCU 统计的单 request Scalar FLOP，单位 MFLOP；FP32/FP64 的 ADD、MUL、FMA 分别按 1、1、2 计，双 lane FP16 的 HADD、HMUL、HFMA 分别按 2、2、4 计。 |
 | `gpu_executed_tensor_share_pct_ncu` | `Tensor MFLOP / total MFLOP * 100`。 |
 | `gpu_executed_mflops_app_ncu` | NCU GPU 实际执行 MFLOP 除以 `latency_app_s`，单位 MFLOPS。 |
 | `gpu_executed_mflops_packet_ncu` | NCU GPU 实际执行 MFLOP 除以 packet latency，单位 MFLOPS；packet latency 无效时回退到 application latency。 |

@@ -953,6 +953,7 @@ class TestComputeProfile:
                 )
 
             assert (collected) == ([30.0])
+            assert result["flop_counting_version"] == 2
             assert (export_report.call_count) == (1)
             assert ([entry["input_scale"] for entry in result["entries"]]) == ([1.0, 20.0, 30.0])
             assert (all(
@@ -1320,6 +1321,7 @@ class TestComputeProfile:
         assert (metadata["torch_profiler_eager_repeat_cpu"]) == (2)
         assert (metadata["torch_profiler_eager_repeat_gpu"]) == (2)
         assert (metadata["ncu_repeat"]) == (3)
+        assert metadata["ncu_flop_counting_version"] == 2
         assert not (metadata["compute_profiles_retained"])
 
     def test_vendor_compute_profile_mode_keeps_missing_tool_errors(self) -> None:
