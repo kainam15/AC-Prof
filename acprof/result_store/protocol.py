@@ -88,15 +88,19 @@ def reference(layout: ArtifactLayout, path: Path) -> dict:
     return {"path": path.relative_to(layout.root).as_posix(), "sha256": file_sha256(path)}
 
 
-def read_reference(layout: ArtifactLayout, ref: dict | None) -> dict:
+def read_reference(layout: ArtifactLayout, ref: dict | None, *,
+                   cancelled: Callable[[], bool] | None = None, byte_budget: list[int] | None = None) -> dict:
     if (not isinstance(ref, dict) or set(ref) != {"path", "sha256"}
             or not isinstance(ref["path"], str) or not isinstance(ref["sha256"], str)
             or re.fullmatch(r"[a-f0-9]{64}", ref["sha256"]) is None):
         raise ResultValidationError("invalid result transaction reference")
-    return read_json_object(layout.contained(ref["path"]), expected_sha256=ref["sha256"], bounded=False)
+    return read_json_object(layout.contained(ref["path"]), expected_sha256=ref["sha256"], bounded=False,
+                            cancelled=cancelled, byte_budget=byte_budget)
 
 
-def validate_manifest(layout: ArtifactLayout, manifest: dict) -> dict[str, Path]:
+def validate_manifest(layout: ArtifactLayout, manifest: dict, *,
+                      cancelled: Callable[[], bool] | None = None, byte_budget: list[int] | None = None) -> dict[str, Path]:
+    check_cancelled(cancelled)
     if (manifest.get("schema_version") != SCHEMA_VERSION
             or type(manifest.get("schema_version")) is not int
             or manifest.get("state") not in STATES
@@ -123,7 +127,7 @@ def validate_manifest(layout: ArtifactLayout, manifest: dict) -> dict[str, Path]
         if layer in BASE_LAYERS and info["row_count"] != manifest["row_count"]:
             raise ResultValidationError(f"incremental {layer} row count mismatch")
         paths[layer] = layout.layer_csv(layer)
-    commit = read_reference(layout, manifest.get("commit"))
+    commit = read_reference(layout, manifest.get("commit"), cancelled=cancelled, byte_budget=byte_budget)
     if not layout.contained(manifest["commit"]["path"]).is_relative_to(layout.result_store_path("commits")):
         raise ResultValidationError("result commit path is outside its journal")
     if commit.get("after") != {k: v for k, v in manifest.items() if k != "commit"}:
@@ -182,7 +186,7 @@ def validate_layer_files(layout: ArtifactLayout, manifest: dict, *, exact=False,
                          cancelled: Callable[[], bool] | None = None) -> None:
     """Check every layer with bounded buffers, without retaining its payload."""
     check_cancelled(cancelled)
-    for layer, path in cancellable(validate_manifest(layout, manifest).items(), cancelled):
+    for layer, path in cancellable(validate_manifest(layout, manifest, cancelled=cancelled).items(), cancelled):
         info = manifest["layers"][layer]
         with path.open("rb", buffering=0) as raw, _CommittedPrefixReader(raw, path, info, cancelled) as prefix:
             prefix.verify(exact=exact)

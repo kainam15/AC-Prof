@@ -8,11 +8,12 @@ from types import SimpleNamespace
 
 import pytest
 
-from acprof.artifacts import MAX_JSON_ARTIFACT_BYTES, read_json_object
+from acprof.artifacts import MAX_JSON_ARTIFACT_BYTES, read_json_object, read_json_object_snapshot
 
 
 def observe_reader(monkeypatch, path, *, chunk_limit=None, after_first=None, fail_after=None):
     observed = SimpleNamespace(streams=[], requests=[], sizes=[], offsets=[])
+    paths = {path} if isinstance(path, Path) else set(path)
 
     class Reader:
         def __init__(self, stream):
@@ -37,7 +38,7 @@ def observe_reader(monkeypatch, path, *, chunk_limit=None, after_first=None, fai
 
     def open_file(source: Path, mode: str = "r", *args, **kwargs):
         stream = open(source, mode, *args, **kwargs)
-        if source == path and mode == "rb":
+        if source in paths and mode == "rb":
             observed.streams.append(stream)
             return Reader(stream)
         return stream
@@ -94,7 +95,9 @@ def test_short_reads_and_split_utf8_keep_the_complete_verified_object(tmp_path, 
     raw = json.dumps(payload, ensure_ascii=False).encode("utf-8-sig")
     path.write_bytes(raw)
     observed = observe_reader(monkeypatch, path, chunk_limit=fragment_size)
-    assert read_json_object(path, expected_sha256=hashlib.sha256(raw).hexdigest()) == payload
+    snapshot = read_json_object_snapshot(path, expected_sha256=hashlib.sha256(raw).hexdigest())
+    assert snapshot.payload == payload
+    assert snapshot.content == raw
     assert sum(observed.sizes) == len(raw)
     assert all(stream.closed for stream in observed.streams)
 
@@ -146,3 +149,32 @@ def test_explicit_unbounded_records_keep_large_payload_and_hash_validation(tmp_p
     assert payload == {"payload": "x" * MAX_JSON_ARTIFACT_BYTES}
     with pytest.raises(ValueError, match="hash does not match"):
         read_json_object(path, bounded=False, expected_sha256="0" * 64)
+
+
+def test_shared_json_budget_counts_bom_and_short_reads_exactly(tmp_path, monkeypatch):
+    first, second = tmp_path / "first.json", tmp_path / "second.json"
+    raw = '{"文字": "多字节"}'.encode("utf-8-sig")
+    first.write_bytes(raw)
+    second.write_bytes(b"{}")
+    budget = [len(raw) + 2]
+    observed = observe_reader(monkeypatch, (first, second), chunk_limit=7)
+    assert read_json_object(first, byte_budget=budget) == {"文字": "多字节"}
+    assert budget == [2]
+    assert read_json_object(second, byte_budget=budget) == {}
+    assert budget == [0]
+    with pytest.raises(ValueError, match="byte budget"):
+        read_json_object(first, byte_budget=budget)
+    assert len(observed.streams) == 2
+    assert sum(observed.sizes) == len(raw) + 2
+    assert all(stream.closed for stream in observed.streams)
+
+
+def test_partial_json_failure_keeps_consumed_shared_budget(tmp_path, monkeypatch):
+    path = tmp_path / "broken.json"
+    path.write_bytes(b'{"source":"partial"}')
+    budget = [100]
+    observed = observe_reader(monkeypatch, path, chunk_limit=3, fail_after=1)
+    with pytest.raises(OSError, match="fixture read failure"):
+        read_json_object(path, byte_budget=budget)
+    assert budget == [97]
+    assert all(stream.closed for stream in observed.streams)

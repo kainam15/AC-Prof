@@ -32,7 +32,7 @@ def expected_digest(layout: ArtifactLayout):
     manifest = json.loads(raw)
     layers: dict[str, dict] = manifest["layers"]
     expected = hashlib.sha256(raw)
-    size = len(raw)
+    size = len(raw) + len(layout.contained(manifest["commit"]["path"]).read_bytes())
     for layer, info in sorted(layers.items()):
         payload = layout.layer_csv(layer).read_bytes()[:info["committed_bytes"]]
         expected.update(layer.encode())
@@ -84,7 +84,6 @@ def test_large_committed_csv_does_not_become_a_large_python_buffer(tmp_path):
         tracemalloc.stop()
     assert actual == expected
     assert budget == [0]
-    # Includes the existing fixed 4 MiB layout metadata read allocation.
     assert peak < 6 * 1024 * 1024, f"digest allocated {peak:,} bytes"
 
 
@@ -194,7 +193,7 @@ def test_invalid_negative_size_cannot_replenish_shared_budget(tmp_path):
     budget = [1024 * 1024]
     with pytest.raises(ResultValidationError, match="invalid incremental summary layer"):
         committed_content_digest(tmp_path, cancelled=lambda: False, budget=budget)
-    assert budget == [1024 * 1024]
+    assert budget == [1024 * 1024 - layout.result_csv.stat().st_size]
 
 
 def test_catalog_collapses_incremental_copies_but_rejects_modified_prefix(tmp_path):

@@ -3,8 +3,9 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import Callable
+from concurrent.futures import CancelledError
 
-from acprof.artifacts import loads_finite_json, read_json_object
+from acprof.artifacts import read_json_object, read_json_object_snapshot
 from acprof.cancellation import cancellable, check_cancelled
 from acprof.result_store.protocol import (
     digest,
@@ -30,17 +31,17 @@ def committed_content_digest(root, *, cancelled, budget):
         raise ValueError("duplicate_evidence_unverified: CSV byte budget exceeded")
     layout = ArtifactLayout.discover(root)
     with publication_lock(layout, exclusive=False, blocking=False):
-        raw = layout.result_csv.read_bytes()
-        if len(raw) > budget[0]:
-            budget[0] -= len(raw)
-            raise ValueError("duplicate_evidence_unverified: CSV byte budget exceeded")
-        manifest = loads_finite_json(raw.decode("utf-8"))
-        paths = validate_manifest(layout, manifest)
-        size = len(raw) + sum(info["committed_bytes"] for info in manifest["layers"].values())
+        try:
+            snapshot = read_json_object_snapshot(layout.result_csv, cancelled=cancelled, byte_budget=budget)
+            manifest = snapshot.payload
+            paths = validate_manifest(layout, manifest, cancelled=cancelled, byte_budget=budget)
+        except CancelledError as exc:
+            raise InterruptedError("experiment scan cancelled") from exc
+        size = sum(info["committed_bytes"] for info in manifest["layers"].values())
         budget[0] -= size
         if budget[0] < 0:
             raise ValueError("duplicate_evidence_unverified: CSV byte budget exceeded")
-        checksum = hashlib.sha256(raw)
+        checksum = hashlib.sha256(snapshot.content)
         for layer, path in sorted(paths.items()):
             if cancelled():
                 raise InterruptedError("experiment scan cancelled")
@@ -70,14 +71,14 @@ def read_snapshot(root, *, cancelled: Callable[[], bool] | None = None):
     check_cancelled(cancelled)
     layout = ArtifactLayout.discover(root)
     with publication_lock(layout, exclusive=False, cancelled=cancelled):
-        manifest_bytes = layout.result_csv.read_bytes()
-        manifest = loads_finite_json(manifest_bytes.decode("utf-8"))
+        snapshot = read_json_object_snapshot(layout.result_csv, cancelled=cancelled)
+        manifest = snapshot.payload
         pending = layout.result_store_path("pending.json")
         if pending.exists():
-            transaction = read_json_object(pending, bounded=False)
+            transaction = read_json_object(pending, bounded=False, cancelled=cancelled)
             if transaction.get("replacements") and manifest["commit"] == transaction["before"]["commit"]:
                 raise ResultValidationError("result module replacement requires recovery")
-        paths = validate_manifest(layout, manifest)
+        paths = validate_manifest(layout, manifest, cancelled=cancelled)
         identity = layer_identity_fields(manifest["wide_fields"])
         combined = {}
         expected: tuple[MeasurementKey, ...] = ()
@@ -105,4 +106,4 @@ def read_snapshot(root, *, cancelled: Callable[[], bool] | None = None):
         fields = manifest["wide_fields"]
         rows = consume_layer_rows(fields, expected, combined, cancelled=cancelled)
         check_cancelled(cancelled)
-        return ResultCsvSnapshot(layout.result_csv, fields, rows, digest(manifest_bytes))
+        return ResultCsvSnapshot(layout.result_csv, fields, rows, digest(snapshot.content))

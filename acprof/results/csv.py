@@ -311,7 +311,7 @@ def read_result_csv_snapshot(path: str | Path, *, expected: Iterable[Measurement
     path = Path(path).resolve()
     if path.name == "result_layers.json":
         from acprof.artifacts import read_json_object
-        if read_json_object(path).get("schema_version") == 3:
+        if read_json_object(path, cancelled=cancelled).get("schema_version") == 3:
             from acprof.result_store.reader import read_snapshot
             snapshot = read_snapshot(path.parent, cancelled=cancelled)
             if (expected is not None
@@ -371,7 +371,8 @@ def verify_result_source(artifact: str | Path, expected_sha256: str | None, *,
     if artifact.name != "result_layers.json" or expected_sha256 is None:
         return
     from acprof.artifacts import read_json_object
-    manifest = read_json_object(artifact, label="result layers manifest", expected_sha256=expected_sha256)
+    manifest = read_json_object(artifact, label="result layers manifest", expected_sha256=expected_sha256,
+                                cancelled=cancelled)
     if manifest.get("schema_version") == 3:
         from acprof.results.layout import ArtifactLayout
         from acprof.result_store.protocol import publication_lock, validate_layer_files

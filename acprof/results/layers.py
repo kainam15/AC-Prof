@@ -372,7 +372,7 @@ def read_result_layers(root: str | Path, *, expected_manifest_sha256: str | None
     check_cancelled(cancelled)
     root = _result_root(root)
     manifest = read_json_object(_safe_path(root, MANIFEST_NAME), label="result layers manifest",
-                                expected_sha256=expected_manifest_sha256)
+                                expected_sha256=expected_manifest_sha256, cancelled=cancelled)
     if manifest.get("schema_version") == 3:
         from acprof.result_store.reader import read_snapshot
         snapshot = read_snapshot(root, cancelled=cancelled)

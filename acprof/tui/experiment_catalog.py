@@ -6,6 +6,7 @@ import json
 import os
 from collections import deque
 from collections.abc import Callable, Iterable
+from concurrent.futures import CancelledError
 from dataclasses import dataclass, fields, replace
 from datetime import datetime
 from pathlib import Path
@@ -154,23 +155,32 @@ def _duplicate_digest(record: ExperimentRecord, cancelled: Callable[[], bool], b
     digest = hashlib.sha256(json.dumps({'state': record.state, 'metadata': record.metadata, 'validation': record.validation, 'failures': record.failures}, sort_keys=True).encode())
     manifest_path = record.directory / 'result_layers.json'
     if manifest_path.is_file():
-        from acprof.artifacts import read_json_object
-        if read_json_object(manifest_path).get('schema_version') == 3:
+        if manifest_path.is_symlink() or not manifest_path.resolve().is_relative_to(record.directory):
+            raise ValueError('duplicate_evidence_unverified: unsafe result layer')
+        from acprof.artifacts import read_json_object_snapshot
+        snapshot = read_json_object_snapshot(manifest_path, cancelled=cancelled, byte_budget=budget)
+        manifest = snapshot.payload
+        if manifest.get('schema_version') == 3:
             from acprof.result_store.reader import committed_content_digest
             digest.update(committed_content_digest(record.directory, cancelled=cancelled, budget=budget).encode())
             return digest.hexdigest()
         # Hash the full immutable snapshot, not just the manifest: equal
         # metadata must never mask a changed or missing result layer.
-        from acprof.artifacts import loads_finite_json
         from acprof.results.layers import result_layer_paths
 
-        def consume(path: Path, *, retain: bool = False) -> tuple[str, bytes | None]:
+        def consume(path: Path) -> str:
+            if budget[0] <= 0:
+                raise ValueError('duplicate_evidence_unverified: CSV byte budget exceeded')
             if path.is_symlink() or not path.resolve().is_relative_to(record.directory):
                 raise ValueError('duplicate_evidence_unverified: unsafe result layer')
-            data = bytearray() if retain else None
             file_digest = hashlib.sha256()
-            with path.open('rb') as stream:
-                while chunk := stream.read(min(1024 * 1024, budget[0] + 1)):
+            with path.open('rb', buffering=0) as stream:
+                while True:
+                    if cancelled():
+                        raise InterruptedError('experiment scan cancelled')
+                    chunk = stream.read(min(1024 * 1024, budget[0] + 1))
+                    if not chunk:
+                        break
                     budget[0] -= len(chunk)
                     if budget[0] < 0:
                         raise ValueError('duplicate_evidence_unverified: CSV byte budget exceeded')
@@ -178,22 +188,16 @@ def _duplicate_digest(record: ExperimentRecord, cancelled: Callable[[], bool], b
                         raise InterruptedError('experiment scan cancelled')
                     digest.update(chunk)
                     file_digest.update(chunk)
-                    if data is not None:
-                        data.extend(chunk)
-            return file_digest.hexdigest(), bytes(data) if data is not None else None
+            return file_digest.hexdigest()
 
-        _, manifest_bytes = consume(manifest_path, retain=True)
-        assert manifest_bytes is not None
-        manifest = loads_finite_json(manifest_bytes.decode('utf-8'))
-        if not isinstance(manifest, dict):
-            raise ValueError('duplicate_evidence_unverified: invalid result layers manifest')
+        digest.update(snapshot.content)
         try:
             paths = result_layer_paths(record.directory, manifest)
         except ValueError as exc:
             raise ValueError(f'duplicate_evidence_unverified: {exc}') from exc
         for layer, path in sorted(paths.items()):
             digest.update(layer.encode())
-            layer_digest, _ = consume(path)
+            layer_digest = consume(path)
             if layer_digest != manifest['layers'][layer]['sha256']:
                 raise ValueError('duplicate_evidence_unverified: modified result layer')
     return digest.hexdigest()
@@ -243,6 +247,8 @@ def scan_experiments(roots: Iterable[Path], *, cancelled: Callable[[], bool] = l
                     issue = 'run_id_content_conflict' if conflicting else ''
                 except InterruptedError:
                     raise
+                except CancelledError as exc:
+                    raise InterruptedError('experiment scan cancelled') from exc
                 except (OSError, ValueError):
                     issue = 'duplicate_evidence_unverified'
                 issues = tuple(dict.fromkeys((*previous.issues, *((issue,) if issue else ()))))

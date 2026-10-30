@@ -212,6 +212,17 @@ schema v3 在单次读取内部复用行校验生成的测量键，供层间顺�
 这些键不随可变结果快照暴露；外部快照交给审计时仍重新校验，不跨读取缓存校验结论。
 结果快照仍保留全部解析行，单层读取和解析仍需要与该层大小相应的内存。
 
+清单读取同样遵守 4 MiB JSON 上限；快照哈希与解析使用同一次打开取得的字节，包含已有 UTF-8 BOM。
+清单、pending 与 commit 的 JSON 读取按 64 KiB 分块检查取消，公开读取入口的 schema 探测也遵守
+同一取消约定。取消或超限不返回部分结果，仍释放文件句柄与 publication lock。
+实验目录去重的共享字节预算计入 schema 探测、锁内清单、当前 commit 及已提交 CSV 前缀；
+每次读取都受剩余预算约束，最多多读一个溢出探测字节，预算耗尽后不再打开下一份结果证据。
+历史 schema v1/v2 去重复用探测得到的清单字节，避免重复读取；未能完成校验时继续标记
+`duplicate_evidence_unverified`。目录发现所需的布局与身份元数据仍使用各自的有界读取。
+此处参考 [Werkzeug 的 LimitedStream](https://github.com/pallets/werkzeug/blob/main/src/werkzeug/wsgi.py)
+和 [PR #2620](https://github.com/pallets/werkzeug/pull/2620) 的逐次读取限额设计（BSD-3-Clause），
+仅使用现有标准库实现，不增加依赖或正式测量期间的工作。
+
 诊断文本和 workload 字段可超过 Python CSV 默认的 131072 字符限制，读取时保留完整内容。
 结果读取入口共用字段长度策略，将标准库 `csv` 的上限提高到 Python 3.12 及后续版本均可表示
 的上限，不按上限预分配内存。该设置由同一解释器内的 CSV 读取器共享，只在实际读取时上调，

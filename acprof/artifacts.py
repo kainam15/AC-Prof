@@ -8,6 +8,7 @@ import os
 import stat
 import tempfile
 from collections.abc import Callable
+from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
 from typing import Any, BinaryIO, TextIO
@@ -54,32 +55,52 @@ def loads_finite_json(content: str) -> Any:
     )
 
 
-def read_json_object(
-    path: str | Path, *, label: str = "artifact", expected_sha256: str | None = None,
-    bounded: bool = True,
-) -> dict:
-    """Read finite JSON and optionally verify the exact bytes being decoded.
+@dataclass(frozen=True, slots=True)
+class JsonObjectSnapshot:
+    """The original bytes and finite object decoded from one open file."""
 
-    Metadata is bounded by default. Growing measurement data can opt out of the
-    metadata byte limit while retaining encoding, shape and finite-value checks.
+    content: bytes
+    payload: dict
+
+
+def read_json_object_snapshot(
+    path: str | Path, *, label: str = "artifact", expected_sha256: str | None = None,
+    bounded: bool = True, cancelled: Callable[[], bool] | None = None,
+    byte_budget: list[int] | None = None,
+) -> JsonObjectSnapshot:
+    """Read and validate JSON without reopening it to obtain its byte identity.
+
+    An optional shared budget counts received bytes, including at most one
+    overflow probe. Growing records may opt out of the metadata limit while
+    retaining cancellation, any shared budget and content validation.
     """
+    check_cancelled(cancelled)
     source = Path(path)
+    if byte_budget is not None and byte_budget[0] <= 0:
+        raise ValueError(f"{source}: {label} read byte budget exceeded")
     # Raw reads keep the overflow probe from prefetching beyond its byte budget.
-    with source.open("rb", buffering=0) as stream:
-        if bounded:
-            remaining = MAX_JSON_ARTIFACT_BYTES + 1
-            with BytesIO() as received:
-                while remaining:
-                    chunk = stream.read(min(_JSON_READ_CHUNK_BYTES, remaining))
-                    if not chunk:
-                        break
-                    received.write(chunk)
-                    remaining -= len(chunk)
-                content = received.getvalue()
-        else:
-            content = stream.read()
-    if bounded and len(content) > MAX_JSON_ARTIFACT_BYTES:
-        raise ValueError(f"{source}: {label} exceeds the 4 MiB read limit")
+    with source.open("rb", buffering=0) as stream, BytesIO() as received:
+        while True:
+            check_cancelled(cancelled)
+            size = _JSON_READ_CHUNK_BYTES
+            if bounded:
+                size = min(size, MAX_JSON_ARTIFACT_BYTES + 1 - received.tell())
+            if byte_budget is not None:
+                size = min(size, byte_budget[0] + 1)
+            chunk = stream.read(size)
+            if chunk is None:
+                raise BlockingIOError("artifact JSON read would block")
+            if byte_budget is not None:
+                byte_budget[0] -= len(chunk)
+                if byte_budget[0] < 0:
+                    raise ValueError(f"{source}: {label} read byte budget exceeded")
+            check_cancelled(cancelled)
+            if not chunk:
+                break
+            received.write(chunk)
+            if bounded and received.tell() > MAX_JSON_ARTIFACT_BYTES:
+                raise ValueError(f"{source}: {label} exceeds the 4 MiB read limit")
+        content = received.getvalue()
     if expected_sha256 is not None and hashlib.sha256(content).hexdigest() != expected_sha256:
         raise ValueError(f"{source}: {label} hash does not match expected SHA256")
     try:
@@ -89,7 +110,20 @@ def read_json_object(
         raise ValueError(f"{source}: invalid {label} JSON: {exc}") from exc
     if not isinstance(payload, dict):
         raise ValueError(f"{source}: top-level JSON value must be an object")
-    return payload
+    check_cancelled(cancelled)
+    return JsonObjectSnapshot(content, payload)
+
+
+def read_json_object(
+    path: str | Path, *, label: str = "artifact", expected_sha256: str | None = None,
+    bounded: bool = True, cancelled: Callable[[], bool] | None = None,
+    byte_budget: list[int] | None = None,
+) -> dict:
+    """Read finite JSON, optionally checking its exact bytes and shared budget."""
+    return read_json_object_snapshot(
+        path, label=label, expected_sha256=expected_sha256, bounded=bounded,
+        cancelled=cancelled, byte_budget=byte_budget,
+    ).payload
 
 
 def require_schema_version(payload: Any, expected: int, artifact: str) -> None:
