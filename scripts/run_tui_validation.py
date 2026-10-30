@@ -10,7 +10,7 @@ sys.path.insert(0, str(ROOT))
 from acprof.experiments.configuration import RunConfig  # noqa: E402 -- 脚本先设置仓库导入路径。
 from acprof.tui.app import AcprofTui  # noqa: E402 -- 脚本先设置仓库导入路径。
 from acprof.tui.commands import PendingLaunch  # noqa: E402 -- 脚本先设置仓库导入路径。
-from acprof.tui.preflight_controller import (  # noqa: E402 -- 脚本先设置仓库导入路径。
+from acprof.tui.run.preflight_controller import (  # noqa: E402 -- 脚本先设置仓库导入路径。
     PreflightController,
 )
 
@@ -30,6 +30,9 @@ def main():
             super().show_quick_check(checks, error, token)
             reason = self.preflight_run_reason()
             if reason:
+                # A validation-only failure is a synthetic attempt; register its
+                # identity without starting a child before completing it.
+                self.app.execution.begin(PendingLaunch(tuple(payload["command"]), "run", config))
                 self.app.call_after_refresh(self.app.process_finished, "run", 1, None, self.app.tr(reason))
             else:
                 self.app.call_after_refresh(self.app.launch, PendingLaunch(tuple(payload["command"]), "run", config))

@@ -7,8 +7,8 @@ from textual.containers import VerticalScroll
 from textual.widgets import Button, Collapsible, Select, Static
 
 from acprof.experiments.configuration import RunConfig
-from acprof.tui.input import BarCursorInput as Input
-from acprof.tui.preparation import PreparationScreen
+from acprof.tui.run.preparation import PreparationScreen
+from acprof.tui.ui.input import BarCursorInput as Input
 from tests.support.tui_fixtures import AcprofTui
 
 
@@ -104,7 +104,7 @@ async def test_download_confirmation_replies_once_and_returns_to_monitor(tmp_pat
     process.poll.return_value = None
     async with app.run_test(size=(80, 24)) as pilot:
         base = app.screen
-        app.lifecycle.process = process
+        app.execution.lifecycle.process = process
         try:
             app.preflight.preparation_event({"stage": "image", "status": "waiting", "request": {
                 "id": 3, "kind": "review", "resolved": True, "questions": [],
@@ -120,9 +120,9 @@ async def test_download_confirmation_replies_once_and_returns_to_monitor(tmp_pat
             assert app.preflight.preparation_request is None
             assert app.preflight.preparation_screen is None
             assert app.screen is base
-            assert not app.stop_requested
+            assert not app.execution.session.stop_requested
         finally:
-            app.lifecycle.process = None
+            app.execution.lifecycle.process = None
 
 
 @pytest.mark.parametrize("action", ["button", "escape"])
@@ -131,8 +131,8 @@ async def test_preparation_stop_rejection_keeps_pending_request_interactive(tmp_
     process = Mock(stdin=io.StringIO())
     process.poll.return_value = None
     async with app.run_test(size=(80, 24)) as pilot:
-        app.lifecycle.process = process
-        app.process_kind = "run"
+        app.execution.lifecycle.process = process
+        app.execution.session.kind = "run"
         try:
             app.preflight.preparation_event({"stage": "image", "status": "waiting", "request": {
                 "id": 3, "kind": "review", "resolved": True, "questions": [],
@@ -147,20 +147,20 @@ async def test_preparation_stop_rejection_keeps_pending_request_interactive(tmp_
             await pilot.pause()
             assert process.stdin.getvalue() == ""
             assert app.preflight.preparation_request == (process, 3)
-            assert not app.stop_requested
+            assert not app.execution.session.stop_requested
             assert list(app.screen.query("#confirm-yes"))
             assert await pilot.click("#confirm-no")
             await pilot.pause()
             assert app.screen is screen
             assert app.preflight.preparation_request == (process, 3)
-            assert not app.stop_requested
+            assert not app.execution.session.stop_requested
             assert await pilot.click("#preparation-continue")
             await pilot.pause()
             assert process.stdin.getvalue() == '{"id": 3, "action": "confirm"}\n'
             assert app.preflight.preparation_request is None
         finally:
-            app.lifecycle.process = None
-            app.process_kind = ""
+            app.execution.lifecycle.process = None
+            app.execution.session.kind = ""
 
 
 async def test_preparation_confirmed_stop_uses_graceful_stop_path(tmp_path):
@@ -169,8 +169,8 @@ async def test_preparation_confirmed_stop_uses_graceful_stop_path(tmp_path):
     process.poll.return_value = None
     async with app.run_test(size=(80, 24)) as pilot:
         base = app.screen
-        app.lifecycle.process = process
-        app.process_kind = "run"
+        app.execution.lifecycle.process = process
+        app.execution.session.kind = "run"
         try:
             app.preflight.preparation_event({"stage": "resolution", "status": "waiting", "request": {
                 "id": 7, "kind": "review", "resolved": True, "questions": [],
@@ -182,14 +182,14 @@ async def test_preparation_confirmed_stop_uses_graceful_stop_path(tmp_path):
                 assert process.stdin.getvalue() == ""
                 assert await pilot.click("#confirm-yes")
                 await pilot.pause()
-                assert app.stop_requested
+                assert app.execution.session.stop_requested
                 assert app.preflight.preparation_request is None
                 assert app.preflight.preparation_screen is None
                 assert app.screen is base
-                stop.assert_called_once_with(app.process_token, process)
+                stop.assert_called_once_with(app.execution.session.token, process)
         finally:
-            app.lifecycle.process = None
-            app.process_kind = ""
+            app.execution.lifecycle.process = None
+            app.execution.session.kind = ""
 
 
 async def test_start_stays_on_monitor_without_passive_preparation_modal(tmp_path):
@@ -222,7 +222,7 @@ async def test_review_is_readonly_for_resolved_fields_and_confirm_waits_for_reso
     async with app.run_test(size=size) as pilot:
         app.query_one("#ui-language", Select).value = language
         await pilot.pause()
-        app.lifecycle.process = process
+        app.execution.lifecycle.process = process
         try:
             event = {"stage": "resolution", "status": "waiting", "request": {
                 "id": 1, "kind": "review", "questions": [{"path": "task", "options": ["fill-mask", "text-generation"]}],
@@ -257,7 +257,7 @@ async def test_review_is_readonly_for_resolved_fields_and_confirm_waits_for_reso
             assert app.preflight.preparation_screen is None
             assert app.screen is not second_screen
         finally:
-            app.lifecycle.process = None
+            app.execution.lifecycle.process = None
 
 
 async def test_runtime_running_stays_in_monitor_and_error_opens_decision_dialog(tmp_path):
@@ -266,7 +266,7 @@ async def test_runtime_running_stays_in_monitor_and_error_opens_decision_dialog(
     process.poll.return_value = None
     async with app.run_test(size=(80, 24)) as pilot:
         base = app.screen
-        app.lifecycle.process = process
+        app.execution.lifecycle.process = process
         try:
             app.preflight.preparation_event({"stage": "runtime", "status": "running"})
             await pilot.pause()
@@ -287,7 +287,7 @@ async def test_runtime_running_stays_in_monitor_and_error_opens_decision_dialog(
             assert app.preflight.preparation_screen is None
             assert '"action": "retry"' in process.stdin.getvalue()
         finally:
-            app.lifecycle.process = None
+            app.execution.lifecycle.process = None
 
 
 @pytest.mark.parametrize("invalid", ["NaN", "Infinity", "-Infinity", "1e999"])
@@ -296,7 +296,7 @@ async def test_nonfinite_json_answer_stays_editable_until_valid(tmp_path, invali
     process = Mock(stdin=io.StringIO())
     process.poll.return_value = None
     async with app.run_test(size=(100, 30)) as pilot:
-        app.lifecycle.process = process
+        app.execution.lifecycle.process = process
         try:
             event = {"stage": "resolution", "status": "waiting", "request": {
                 "id": 7, "kind": "review", "questions": [
@@ -320,4 +320,4 @@ async def test_nonfinite_json_answer_stays_editable_until_valid(tmp_path, invali
             assert '"temperature": 0.5' in process.stdin.getvalue()
             assert app.preflight.preparation_request is None
         finally:
-            app.lifecycle.process = None
+            app.execution.lifecycle.process = None

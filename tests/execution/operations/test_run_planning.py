@@ -33,13 +33,13 @@ def test_progress_event_rejects_nonfinite_json(number):
         parse_event(line)
 
 def test_smoke_estimate_is_one_configuration_and_one_formal_window():
-    from acprof.tui.run_planning import estimate_run
+    from acprof.tui.run.planning import estimate_run
     estimate = estimate_run(RunConfig.smoke())
     assert ((estimate.cases, estimate.scales, estimate.warmup_windows, estimate.formal_windows)) == ((1, 1, 0, 1))
     assert (estimate.estimated_seconds) == (1)
 
 def test_auto_matrix_count_stays_unknown_until_input_plan_exists():
-    from acprof.tui.run_planning import estimate_run
+    from acprof.tui.run.planning import estimate_run
     config = RunConfig()
     estimate = estimate_run(config)
     assert (estimate.cases) == (32)
@@ -51,12 +51,12 @@ def test_auto_matrix_count_stays_unknown_until_input_plan_exists():
     assert (estimate.estimated_seconds) == (672 * 35)
 
 def test_manual_duplicate_scales_follow_planner_deduplication():
-    from acprof.tui.run_planning import estimate_run
+    from acprof.tui.run.planning import estimate_run
     estimate = estimate_run(replace(RunConfig.smoke(), input_scales="1,1,2", repeat=3, warmup=1))
     assert ((estimate.scales, estimate.warmup_windows, estimate.formal_windows)) == ((2, 2, 6))
 
 def test_units_follow_resolved_input_axis_without_guessing_model_names():
-    from acprof.tui.run_planning import input_unit
+    from acprof.tui.run.planning import input_unit
     config = RunConfig.smoke("openai/whisper-tiny")
     assert ("待解析") in (str(input_unit(config)))
     for axis, expected in (("duration_s", "s"), ("seq_length", "tokens"), ("resolution_scale", "×224px")):
@@ -64,7 +64,7 @@ def test_units_follow_resolved_input_axis_without_guessing_model_names():
 
 
 def test_input_plan_identity_changes_with_model_revision_but_not_repeat_count():
-    from acprof.tui.run_planning import input_identity
+    from acprof.tui.run.planning import input_identity
 
     base = RunConfig.smoke("demo/model")
     revision = replace(base, revision="0123456789abcdef0123456789abcdef01234567")
@@ -78,7 +78,7 @@ def test_input_plan_identity_changes_with_model_revision_but_not_repeat_count():
 @pytest.mark.parametrize("language", ["zh", "en"])
 def test_summary_distinguishes_planned_windows_per_condition_from_total(repeat, formal_windows, flow_check, language):
     from acprof.tui.i18n import translate
-    from acprof.tui.run_planning import plan_summary
+    from acprof.tui.run.planning import plan_summary
 
     config = replace(RunConfig.smoke("demo/model"), cpus="1,2",
                      input_scales="64,128", repeat=repeat)
@@ -96,7 +96,7 @@ def test_summary_distinguishes_planned_windows_per_condition_from_total(repeat, 
 
 
 def test_summary_shows_per_condition_plan_even_before_scales_are_resolved():
-    from acprof.tui.run_planning import plan_summary
+    from acprof.tui.run.planning import plan_summary
 
     summary = str(plan_summary(RunConfig()))
     assert "输入 待解析 档" in summary

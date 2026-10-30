@@ -4,13 +4,13 @@ from __future__ import annotations
 from pathlib import Path
 
 from acprof.tui.i18n import translate
-from acprof.tui.progress import ProgressSnapshot
-from acprof.tui.run_results import (
+from acprof.tui.run.progress import ProgressSnapshot
+from acprof.tui.run.results import (
     NotificationSpec,
     RunResult,
     evaluate_process_completion,
 )
-from acprof.tui.stages import Stage
+from acprof.tui.run.stages import Stage
 
 
 def test_run_success_completion_and_csv_publication():

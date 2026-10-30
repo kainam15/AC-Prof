@@ -113,7 +113,7 @@ def duplicate_catalog(root):
 
 
 def test_catalog_manifest_probe_obeys_duplicate_budget(tmp_path, monkeypatch):
-    from acprof.tui.experiment_catalog import scan_experiments
+    from acprof.tui.experiments.catalog import scan_experiments
 
     paths = duplicate_catalog(tmp_path)
     observed = observe_reader(monkeypatch, paths)
@@ -125,7 +125,7 @@ def test_catalog_manifest_probe_obeys_duplicate_budget(tmp_path, monkeypatch):
 
 
 def test_catalog_cancellation_during_manifest_probe_is_propagated(tmp_path, monkeypatch):
-    from acprof.tui.experiment_catalog import scan_experiments
+    from acprof.tui.experiments.catalog import scan_experiments
 
     paths = duplicate_catalog(tmp_path)
     for path in paths:
@@ -139,7 +139,7 @@ def test_catalog_cancellation_during_manifest_probe_is_propagated(tmp_path, monk
 
 @pytest.mark.parametrize("version", [1, 2])
 def test_legacy_duplicate_hashes_manifest_once_and_keeps_exact_budget(tmp_path, monkeypatch, version):
-    from acprof.tui.experiment_catalog import _duplicate_digest, scan_experiments
+    from acprof.tui.experiments.catalog import _duplicate_digest, scan_experiments
 
     manifest, _ = row_store(tmp_path, version, count=1, width=1)
     record = scan_experiments([tmp_path]).records[0]

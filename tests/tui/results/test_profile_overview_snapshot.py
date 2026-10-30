@@ -18,8 +18,9 @@ from acprof.results.layout import ArtifactLayout
 from acprof.host.posthoc import backfill, context as posthoc_context
 from acprof.results.layers import LAYER_FILES, layer_fields
 from acprof.result_store import protocol
-from acprof.tui import diagnostics, profile_status
-from acprof.tui.result_controller import ResultController
+from acprof.tui.run import diagnostics
+from acprof.tui.results import profile_status
+from acprof.tui.results.controller import ResultController
 
 
 def profile_store(root, version=2):

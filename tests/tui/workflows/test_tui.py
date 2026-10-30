@@ -14,7 +14,6 @@ from textual.widgets import Input, Select, Static
 
 from acprof.events.progress import encode_event
 from acprof.experiments.configuration import RunConfig, RunConfigError, build_run_command
-from acprof.tui.checkbox import StatusCheckbox
 from acprof.tui.commands import (
     PendingLaunch,
     build_probe_command,
@@ -22,11 +21,12 @@ from acprof.tui.commands import (
     format_command,
     parse_slash_command,
 )
-from acprof.tui.diagnostics import _readable_rapl_paths, summarize_result_csv
-from acprof.tui.log import SelectableLog
-from acprof.tui.progress import RunProgressTracker
-from acprof.tui.stages import Stage
-from acprof.tui.views import ConfirmActionScreen
+from acprof.tui.logging.widget import SelectableLog
+from acprof.tui.run.diagnostics import _readable_rapl_paths, summarize_result_csv
+from acprof.tui.run.progress import RunProgressTracker
+from acprof.tui.run.stages import Stage
+from acprof.tui.ui.checkbox import StatusCheckbox
+from acprof.tui.ui.dialogs import ConfirmActionScreen
 from tests.support.tui_fixtures import AcprofTui
 
 PROJECT_DIR = Path(__file__).resolve().parents[3]
@@ -480,8 +480,8 @@ class TestTuiApp:
                 if not app.is_busy():
                     break
             assert not (app.is_busy())
-            assert (app.latest_snapshot.stage) == (Stage.FAILED)
-            assert (app.latest_snapshot.completed_cases) == (0)
+            assert (app.execution.session.snapshot.stage) == (Stage.FAILED)
+            assert (app.execution.session.snapshot.completed_cases) == (0)
 
     async def test_measurement_failure_keeps_multiline_diagnostic(self):
         lines = [
@@ -557,11 +557,11 @@ class TestTuiApp:
                     break
 
             assert not (app.is_busy())
-            assert (app.latest_snapshot.stage) == (Stage.PROBE_COMPLETED)
-            assert ("最低可用内存 4GB") in (app.latest_snapshot.detail)
-            assert ("单次请求 4.321s") in (app.latest_snapshot.detail)
-            assert Path(app.latest_snapshot.probe_summary).is_file()
-            assert Path(app.latest_snapshot.probe_summary).name == "largest_scale_probe.json"
+            assert (app.execution.session.snapshot.stage) == (Stage.PROBE_COMPLETED)
+            assert ("最低可用内存 4GB") in (app.execution.session.snapshot.detail)
+            assert ("单次请求 4.321s") in (app.execution.session.snapshot.detail)
+            assert Path(app.execution.session.snapshot.probe_summary).is_file()
+            assert Path(app.execution.session.snapshot.probe_summary).name == "largest_scale_probe.json"
 
     async def test_elapsed_timer_advances_during_measurement(self):
         """The elapsed clock must advance before the measurement window closes."""
@@ -589,9 +589,9 @@ class TestTuiApp:
             )
             assert app.elapsed_timer is not None
             async with asyncio.timeout(10):
-                while not app.latest_snapshot.measurement_active:
+                while not app.execution.session.snapshot.measurement_active:
                     await pilot.pause()
-            process = app.lifecycle.process
+            process = app.execution.lifecycle.process
             assert process is not None
             try:
                 elapsed_before = str(app.query_one("#status-elapsed", Static).content)
@@ -600,18 +600,18 @@ class TestTuiApp:
                 async with asyncio.timeout(10):
                     while (elapsed_during := str(app.query_one("#status-elapsed", Static).content)) == elapsed_before:
                         await pilot.pause()
-                assert app.latest_snapshot.measurement_active
+                assert app.execution.session.snapshot.measurement_active
                 assert elapsed_during != elapsed_before
                 assert elapsed_during != "—"
                 assert app.logs.log.suspended
             finally:
-                if app.lifecycle.process is process and process.poll() is None:
-                    app.lifecycle.reply(process, "finish\n")
+                if app.execution.lifecycle.process is process and process.poll() is None:
+                    app.execution.lifecycle.reply(process, "finish\n")
             async with asyncio.timeout(10):
                 await app.workers.wait_for_complete()
             await pilot.pause()
             assert process.returncode == 0
-            assert not app.latest_snapshot.measurement_active
+            assert not app.execution.session.snapshot.measurement_active
             assert app.elapsed_timer is None
             assert not app.is_busy()
 
@@ -655,7 +655,7 @@ class TestTuiApp:
 
     async def test_stage_gets_color_class(self):
         """The status-stage widget should receive CSS classes for visual state."""
-        from acprof.tui.progress import ProgressSnapshot
+        from acprof.tui.run.progress import ProgressSnapshot
         app = AcprofTui(RunConfig.smoke("demo/model"))
         async with app.run_test(size=(140, 48)) as pilot:
             await pilot.pause()

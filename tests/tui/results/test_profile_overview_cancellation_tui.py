@@ -8,8 +8,8 @@ from tests.tui.results.test_profile_overview_snapshot import profile_store
 from textual.widgets import Button, Input
 from tests.support.tui_fixtures import AcprofTui
 
-from acprof.tui import profile_status
-from acprof.tui.settings import TuiSettings, UiPreferences, save_settings
+from acprof.tui.results import profile_status
+from acprof.tui.settings.preferences import TuiSettings, UiPreferences, save_settings
 
 
 @pytest.mark.parametrize("language", ["zh", "en"])

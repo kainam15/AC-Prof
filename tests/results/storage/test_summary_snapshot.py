@@ -16,7 +16,7 @@ from tests.results.storage.test_sequential_result_reads import artifact_hashes, 
 from acprof.analysis import audit
 from acprof.config import CSV_FIELDS
 from acprof.results.layers import LAYER_FILES, publish_result_rows
-from acprof.tui import diagnostics
+from acprof.tui.run import diagnostics
 
 
 @pytest.fixture
@@ -210,7 +210,7 @@ async def test_changed_source_error_and_retry_remain_usable_at_80x24(
     from textual.widgets import Button, Input, Static
     from tests.support.tui_fixtures import AcprofTui
 
-    from acprof.tui.settings import TuiSettings, UiPreferences, save_settings
+    from acprof.tui.settings.preferences import TuiSettings, UiPreferences, save_settings
 
     settings = tmp_path / "settings.json"
     save_settings(settings, TuiSettings(ui=UiPreferences(language=language)), tmp_path)
@@ -255,7 +255,7 @@ async def test_selection_change_releases_a_waiting_layer_reader_at_80x24(source,
 
     from acprof.results.layout import ArtifactLayout
     from acprof.result_store.protocol import publication_lock
-    from acprof.tui.settings import TuiSettings, UiPreferences, save_settings
+    from acprof.tui.settings.preferences import TuiSettings, UiPreferences, save_settings
 
     blocked = tmp_path / "blocked"
     row_store(blocked, 3, count=1, width=1)

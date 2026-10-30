@@ -18,7 +18,7 @@ from scripts.check_import_boundaries import scan_import_violations, violations_i
         ("acprof.models.inspection.source", "from acprof.container.model_probe import validate"),
         ("acprof.hub.repository", "from acprof.host.model_store.store import store_root"),
         ("acprof.system.command", "from acprof.host.orchestrator import execute"),
-        ("acprof.events.progress", "from acprof.tui.progress import RunProgressTracker"),
+        ("acprof.events.progress", "from acprof.tui.run.progress import RunProgressTracker"),
         ("acprof.tasks.groups", "from acprof.host.detect import detect_task"),
         ("acprof.experiments.configuration", "from acprof.cli.run import main"),
         ("acprof.runtime.profiles", "from acprof.application.run import RunApplication"),

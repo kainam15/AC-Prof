@@ -3,7 +3,7 @@ from rich.color import Color
 from rich.console import Console
 from rich.style import Style
 
-from acprof.tui.scrollbar import SolidScrollBarRender
+from acprof.tui.ui.scrollbar import SolidScrollBarRender
 
 
 class TestSolidScrollBarRender:

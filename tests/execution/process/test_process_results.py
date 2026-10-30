@@ -65,7 +65,7 @@ def test_process_plot_retains_missing_quota_and_outputs_input_scan(result, tmp_p
 
 def test_process_stats_report_displays_inherited_axes(result, tmp_path):
     from acprof.analysis.uncertainty import summarize_windows
-    from acprof.tui.reports import read_report
+    from acprof.tui.results.reports import read_report
     with result().open() as stream:
         rows = list(csv.DictReader(stream))
     report = summarize_windows(rows, ['process_rss_peak_bytes'], include_intervals=False)

@@ -7,10 +7,10 @@ from unittest.mock import Mock, patch
 import pytest
 
 from acprof.tui.commands import PendingLaunch
-from acprof.tui.diagnostic_buffer import BoundedLogBuffer
-from acprof.tui.log import SelectableLog
-from acprof.tui.process_controller import ProcessController
-from acprof.tui.stages import Stage
+from acprof.tui.logging.diagnostic_buffer import BoundedLogBuffer
+from acprof.tui.logging.widget import SelectableLog
+from acprof.tui.run.process_controller import ProcessController
+from acprof.tui.run.stages import Stage
 from tests.support.tui_fixtures import AcprofTui
 
 
@@ -29,7 +29,7 @@ def test_late_reaper_preserves_bounded_diagnostics_and_respects_process_token(st
         buffer.append(line)
     controller._watch_failed_process_worker(process, "run", None, "cleanup delayed", None, token, buffer, 7)
     process.wait.assert_called_once()
-    app.lifecycle.release.assert_called_once_with(process)
+    app.execution.lifecycle.release.assert_called_once_with(process)
     if stale:
         app.show_deferred_lines.assert_not_called()
         app.show_suppressed_count.assert_not_called()
@@ -45,7 +45,7 @@ def test_late_reaper_preserves_bounded_diagnostics_and_respects_process_token(st
 
 def test_failed_replay_keeps_ownership_for_late_cleanup(tmp_path):
     from acprof.events.progress import encode_event
-    from acprof.tui.process import StopResult
+    from acprof.tui.run.process import StopResult
 
     app = AcprofTui(settings_path=tmp_path / "settings.json")
     lines = [
@@ -62,8 +62,8 @@ def test_failed_replay_keeps_ownership_for_late_cleanup(tmp_path):
     app.call_from_thread = lambda callback, *args: callback(*args)
     app.process.deliver_process_callback = lambda token, callback, *args: callback(*args)
     with (
-        patch.object(app.lifecycle, "start", return_value=process),
-        patch.object(app.lifecycle, "stop", return_value=StopResult(1234, None, "still exiting")),
+        patch.object(app.execution.lifecycle, "start", return_value=process),
+        patch.object(app.execution.lifecycle, "stop", return_value=StopResult(1234, None, "still exiting")),
         patch.object(app.process, "safe_process_callback"),
         patch.object(app.process, "watch_failed_process") as watch,
     ):
@@ -84,7 +84,7 @@ async def test_abrupt_child_failure_releases_suspension_and_shows_omission_notic
     )
     app = AcprofTui(settings_path=tmp_path / "settings.json")
     async with app.run_test(size=(80, 24)) as pilot:
-        with patch("acprof.tui.process_controller.BoundedLogBuffer",
+        with patch("acprof.tui.run.process_controller.BoundedLogBuffer",
                    side_effect=lambda: BoundedLogBuffer(max_entries=4, max_bytes=512, max_entry_bytes=64)):
             app.launch(PendingLaunch((sys.executable, "-u", "-c", script), "run"))
             for _ in range(160):
@@ -94,8 +94,8 @@ async def test_abrupt_child_failure_releases_suspension_and_shows_omission_notic
         assert not app.is_busy()
         log = app.query_one("#run-log", SelectableLog)
         assert not log.suspended
-        assert not app.latest_snapshot.measurement_active
-        assert app.latest_snapshot.stage is Stage.FAILED
+        assert not app.execution.session.snapshot.measurement_active
+        assert app.execution.session.snapshot.stage is Stage.FAILED
         assert "[WARN] first" in log.raw_text
         assert "[WARN] last" in log.raw_text
         assert log.raw_text.count("省略 2 条") == 1

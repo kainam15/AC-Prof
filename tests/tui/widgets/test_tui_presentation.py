@@ -9,10 +9,10 @@ from textual.widgets import DataTable, Input, Label, Static
 from acprof.experiments.configuration import RunConfig, RunConfigError, build_run_command
 from acprof.host.images.inventory import DockerConnection, ImageInventory, ImageLayer, ManagedImage
 from acprof.tui.i18n import translate
-from acprof.tui.images import ImageTree, image_metadata
-from acprof.tui.presentation import format_byte_fields, format_bytes
-from acprof.tui.progress import ProgressSnapshot
-from acprof.tui.settings import load_settings
+from acprof.tui.images.presentation import ImageTree, image_metadata
+from acprof.tui.run.progress import ProgressSnapshot
+from acprof.tui.settings.preferences import load_settings
+from acprof.tui.ui.presentation import format_byte_fields, format_bytes
 from tests.support.tui_fixtures import AcprofTui
 
 PROJECT_DIR = Path(__file__).resolve().parents[3]
@@ -111,8 +111,8 @@ class TestTuiPresentation:
             app.render_snapshot(ProgressSnapshot())
             assert (str(app.query_one("#status-elapsed", Static).content)) == ("—")
             assert (str(app.query_one("#status-resource", Static).content)) == ("CPU=—  MEM=—  GPU=—")
-            app.latest_snapshot = ProgressSnapshot(current_case=1, total_cases=2, cpu="2")
-            app.render_snapshot(app.latest_snapshot)
+            app.execution.session.snapshot = ProgressSnapshot(current_case=1, total_cases=2, cpu="2")
+            app.render_snapshot(app.execution.session.snapshot)
             assert (str(app.query_one("#status-resource", Static).content)) == ("CPU=2  MEM=未知  GPU=未知")
             app.configuration.preferences = replace(app.configuration.preferences, language="en")
             app.configuration.apply_ui_preferences()

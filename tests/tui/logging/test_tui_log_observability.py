@@ -1,6 +1,6 @@
 from textual.widgets.text_area import Selection
 
-from acprof.tui.log import SelectableLog
+from acprof.tui.logging.widget import SelectableLog
 from tests.tui.logging.test_tui_log import LogApp
 
 

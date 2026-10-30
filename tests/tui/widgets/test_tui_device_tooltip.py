@@ -4,8 +4,8 @@ import json
 import pytest
 from textual.widgets import DataTable, Input, Tooltip
 
-from acprof.tui.experiment_catalog import scan_experiments
-from acprof.tui.experiment_picker import SearchPickerScreen, experiment_choice
+from acprof.tui.experiments.catalog import scan_experiments
+from acprof.tui.experiments.picker import SearchPickerScreen, experiment_choice
 from tests.support.catalog_fixtures import CatalogFixture
 from tests.tui.catalog.test_tui_experiment_picker import PickerHarness
 

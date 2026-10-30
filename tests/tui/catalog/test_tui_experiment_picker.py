@@ -13,8 +13,8 @@ from rich.text import Text
 from textual.app import App
 from textual.widgets import Button, Input, Static
 
-from acprof.tui.experiment_catalog import scan_experiments
-from acprof.tui.experiment_picker import PickerChoice, SearchPickerScreen, experiment_choice
+from acprof.tui.experiments.catalog import scan_experiments
+from acprof.tui.experiments.picker import PickerChoice, SearchPickerScreen, experiment_choice
 from acprof.tui.i18n import translate
 
 
@@ -29,7 +29,7 @@ class PickerHarness(App):
 
 @pytest.mark.parametrize('size', [(80, 24), (120, 30)])
 async def test_search_select_actions_and_disabled_resume(size):
-    from acprof.tui.experiment_picker import PickerChoice, SearchPickerScreen
+    from acprof.tui.experiments.picker import PickerChoice, SearchPickerScreen
     class Harness(App):
         def tr(self, text):
             return str(text)
@@ -50,7 +50,7 @@ async def test_search_select_actions_and_disabled_resume(size):
         assert (selections[0]) == (('reuse', 18))
 
 async def test_close_cancels_loading_and_releases_guard_after_worker_finishes():
-    from acprof.tui.experiment_picker import SearchPickerScreen
+    from acprof.tui.experiments.picker import SearchPickerScreen
     class Harness(App):
         def tr(self, text):
             return str(text)

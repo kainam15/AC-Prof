@@ -18,9 +18,9 @@ from acprof.host import detect
 from acprof.host.preparation.task_support import TaskSupportError, require_task_support
 from acprof.tui.commands import PendingLaunch
 from acprof.tui.i18n import translate
-from acprof.tui.log import SelectableLog
-from acprof.tui.progress import RunProgressTracker
-from acprof.tui.stages import Stage
+from acprof.tui.logging.widget import SelectableLog
+from acprof.tui.run.progress import RunProgressTracker
+from acprof.tui.run.stages import Stage
 from tests.support.tui_fixtures import AcprofTui
 
 
@@ -175,20 +175,20 @@ async def test_run_and_probe_keep_actionable_failure_visible_in_both_languages(l
             ) as read_old_results:
                 app.process_finished(kind, 2, tracker.snapshot, "")
             await pilot.pause()
-            assert (app.latest_snapshot.stage) == (Stage.TASK_UNSUPPORTED)
+            assert (app.execution.session.snapshot.stage) == (Stage.TASK_UNSUPPORTED)
             assert (app.query_one("#status-stage", Static).content) == ("任务不支持" if language == "zh" else "Unsupported task")
             stage = app.query_one("#status-stage", Static)
             assert (stage.region.width) > (0)
             assert (stage.region.height) > (0)
             assert (stage.region.bottom) < (size[1])
             assert (stage.is_on_screen)
-            assert ("image-text-to-text") in (app.latest_snapshot.detail)
+            assert ("image-text-to-text") in (app.execution.session.snapshot.detail)
             assert ("解决办法") in (app.query_one("#run-log", SelectableLog).text)
             assert ("处理办法" if language == "zh" else "Remedies:") in (app.query_one("#run-log", SelectableLog).text.splitlines()[-1])
             assert ("image-text-to-text") in (str(notify.call_args.args[0]))
             assert not (app.query_one("#start-run", Button).disabled)
             assert not (app.query_one("#probe-largest", Button).disabled)
-            assert (app.latest_snapshot.completed_cases) == (0)
-            assert not (app.latest_snapshot.measurement_active)
+            assert (app.execution.session.snapshot.completed_cases) == (0)
+            assert not (app.execution.session.snapshot.measurement_active)
             read_old_results.assert_not_called()
             assert (old_csv.read_text(encoding="utf-8")) == ("existing measurement\n")

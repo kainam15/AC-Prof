@@ -1,7 +1,7 @@
 """Diagnostic retention limits are observable, including total omission."""
 import pytest
 
-from acprof.tui.diagnostic_buffer import BoundedLogBuffer
+from acprof.tui.logging.diagnostic_buffer import BoundedLogBuffer
 
 
 def test_keeps_first_context_and_latest_tail_with_exact_discard_count():

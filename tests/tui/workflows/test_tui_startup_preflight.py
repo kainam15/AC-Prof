@@ -13,9 +13,9 @@ from acprof.experiments.configuration import RunConfig
 from acprof.host.run_state import MeasurementLock
 from acprof.tui.app import AcprofTui
 from acprof.tui.commands import PendingLaunch
-from acprof.tui.diagnostics import PreflightCheck
-from acprof.tui.log import SelectableLog
-from acprof.tui.progress import ProgressSnapshot
+from acprof.tui.logging.widget import SelectableLog
+from acprof.tui.run.diagnostics import PreflightCheck
+from acprof.tui.run.progress import ProgressSnapshot
 
 
 class TestStartupPreflight:
@@ -40,7 +40,7 @@ class TestStartupPreflight:
         app = self.make_app()
         app.configuration.preferences = replace(app.configuration.preferences, language=language)
         checks = [PreflightCheck("Runtime", "ok", "ready", runtime_kind=runtime)]
-        with patch("acprof.tui.preflight_controller.quick_preflight", return_value=checks):
+        with patch("acprof.tui.run.preflight_controller.quick_preflight", return_value=checks):
             async with app.run_test(size=(120, 30)) as pilot:
                 await self.finish_check(app, pilot)
                 summary = app.query_one("#run-plan-summary", Static).content
@@ -65,7 +65,7 @@ class TestStartupPreflight:
             return [PreflightCheck("Runtime", "ok", "ready", runtime_kind="docker")]
 
         app = self.make_app()
-        with patch("acprof.tui.preflight_controller.quick_preflight", side_effect=slow_check):
+        with patch("acprof.tui.run.preflight_controller.quick_preflight", side_effect=slow_check):
             async with app.run_test(size=(120, 30)) as pilot:
                 try:
                     await pilot.pause()
@@ -97,7 +97,7 @@ class TestStartupPreflight:
             return [PreflightCheck("Docker", "ok", "ready")]
 
         app = self.make_app()
-        with patch("acprof.tui.preflight_controller.quick_preflight", side_effect=slow_check) as check:
+        with patch("acprof.tui.run.preflight_controller.quick_preflight", side_effect=slow_check) as check:
             async with app.run_test(size=(80, 24), notifications=True) as pilot:
                 try:
                     await pilot.pause()
@@ -131,7 +131,7 @@ class TestStartupPreflight:
 
     async def test_warning_entry_opens_details_and_retry_clears_it(self):
         app = self.make_app()
-        with patch("acprof.tui.preflight_controller.quick_preflight", side_effect=[
+        with patch("acprof.tui.run.preflight_controller.quick_preflight", side_effect=[
             [PreflightCheck("optional collector", "warn", "not supported [detail]")],
             [PreflightCheck("Docker", "ok", "ready")],
         ]) as check:
@@ -150,7 +150,7 @@ class TestStartupPreflight:
     async def test_success_does_not_reapply_initial_preset_or_notify(self):
         app = self.make_app()
         app.configuration.initial_config = replace(app.configuration.initial_config, output_dir="results/custom-startup")
-        with patch("acprof.tui.preflight_controller.quick_preflight", return_value=[]), patch.object(app, 'notify') as notify:
+        with patch("acprof.tui.run.preflight_controller.quick_preflight", return_value=[]), patch.object(app, 'notify') as notify:
             async with app.run_test(size=(80, 24)) as pilot:
                 await self.finish_check(app, pilot)
                 notify.assert_not_called()
@@ -164,7 +164,7 @@ class TestStartupPreflight:
     async def test_error_blocks_all_launch_paths_until_retry_succeeds(self):
         app = self.make_app()
         app.configuration.initial_config = RunConfig.smoke("demo/model")
-        with patch("acprof.tui.preflight_controller.quick_preflight", side_effect=[
+        with patch("acprof.tui.run.preflight_controller.quick_preflight", side_effect=[
             OSError("diagnostic failed"), [PreflightCheck("Docker", "ok", "ready")],
         ]):
             async with app.run_test(size=(120, 30)) as pilot:
@@ -188,7 +188,7 @@ class TestStartupPreflight:
 
     async def test_blocking_result_and_relevant_configuration_changes_require_recheck(self):
         app = self.make_app()
-        with patch("acprof.tui.preflight_controller.quick_preflight", side_effect=[
+        with patch("acprof.tui.run.preflight_controller.quick_preflight", side_effect=[
             [PreflightCheck("Docker", "fail", "daemon unavailable")], [], [],
         ]) as check:
             async with app.run_test(size=(120, 30)) as pilot:
@@ -218,7 +218,7 @@ class TestStartupPreflight:
 
     async def test_issue_entry_and_retry_fit_languages_and_resize(self):
         app = self.make_app()
-        with patch("acprof.tui.preflight_controller.quick_preflight", return_value=[
+        with patch("acprof.tui.run.preflight_controller.quick_preflight", return_value=[
             PreflightCheck("Docker", "fail", "daemon unavailable\n" + "details\n" * 50),
         ]):
             async with app.run_test(size=(80, 24)) as pilot:
@@ -251,7 +251,7 @@ class TestStartupPreflight:
             return []
 
         app = self.make_app()
-        with patch("acprof.tui.preflight_controller.quick_preflight", side_effect=slow_check) as check:
+        with patch("acprof.tui.run.preflight_controller.quick_preflight", side_effect=slow_check) as check:
             async with app.run_test(size=(120, 30)) as pilot:
                 try:
                     await pilot.pause()
@@ -273,7 +273,7 @@ class TestStartupPreflight:
     async def test_external_measurement_lock_prevents_probes_and_can_retry(self):
         app = self.make_app()
         with patch("acprof.host.run_state.MEASUREMENT_LOCK_ROOT", self.directory), patch(
-            "acprof.tui.preflight_controller.quick_preflight", return_value=[],
+            "acprof.tui.run.preflight_controller.quick_preflight", return_value=[],
         ) as check, ExitStack() as owner:
             owner.enter_context(MeasurementLock())
             async with app.run_test(size=(120, 30)) as pilot:
@@ -289,12 +289,12 @@ class TestStartupPreflight:
 
     async def test_measurement_disables_retry_without_losing_cached_issues(self):
         app = self.make_app()
-        with patch("acprof.tui.preflight_controller.quick_preflight", return_value=[
+        with patch("acprof.tui.run.preflight_controller.quick_preflight", return_value=[
             PreflightCheck("optional", "warn", "unavailable"),
         ]) as check:
             async with app.run_test(size=(120, 30)) as pilot:
                 await self.finish_check(app, pilot)
-                app.latest_snapshot = ProgressSnapshot(measurement_active=True)
+                app.execution.session.snapshot = ProgressSnapshot(measurement_active=True)
                 app.set_busy(True)
                 app.preflight.quick_check()
                 assert (await pilot.click("#environment-status"))
@@ -302,7 +302,7 @@ class TestStartupPreflight:
                 assert (app.screen.query_one("#preflight-retry", Button).disabled)
                 check.assert_called_once()
                 await pilot.press("escape")
-                app.latest_snapshot = ProgressSnapshot()
+                app.execution.session.snapshot = ProgressSnapshot()
                 app.set_busy(False)
                 assert not (app.query_one("#start-run", Button).disabled)
 
@@ -319,7 +319,7 @@ class TestStartupPreflight:
                 finished.set()
 
         app = self.make_app()
-        with patch("acprof.tui.preflight_controller.quick_preflight", side_effect=slow_check):
+        with patch("acprof.tui.run.preflight_controller.quick_preflight", side_effect=slow_check):
             try:
                 async with app.run_test(size=(120, 30)) as pilot:
                     await pilot.pause()

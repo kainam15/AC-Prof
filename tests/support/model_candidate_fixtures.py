@@ -12,7 +12,7 @@ class ModelCandidateFixture:
         self.fixture.build(self._request, self.fixture_root)
 
     def recorded(self, *, code=None):
-        from acprof.tui.experiment_catalog import scan_experiments
+        from acprof.tui.experiments.catalog import scan_experiments
         path = self.fixture.record('history')
         state = json.loads((path / 'run_state.json').read_text())
         from acprof.host.execution_conditions import measurement_environment

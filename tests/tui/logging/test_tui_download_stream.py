@@ -2,7 +2,7 @@ import asyncio
 import sys
 
 from acprof.tui.commands import PendingLaunch
-from acprof.tui.log import SelectableLog
+from acprof.tui.logging.widget import SelectableLog
 from tests.support.tui_fixtures import AcprofTui
 
 
@@ -25,8 +25,8 @@ print(encode_event(replace(progress, state='complete', completed_bytes=1000, fil
                 await pilot.pause()
 
         await asyncio.wait_for(wait_for_progress(), timeout=5)
-        assert app.lifecycle.process is not None
-        assert app.lifecycle.process.poll() is None
+        assert app.execution.lifecycle.process is not None
+        assert app.execution.lifecycle.process.poll() is None
         assert app.preflight.latest_download.state == 'downloading'
         await app.workers.wait_for_complete()
         await pilot.pause()
@@ -52,8 +52,8 @@ time.sleep(10)
         app.launch(PendingLaunch((sys.executable, '-u', '-c', script), 'run'))
         await asyncio.wait_for(asyncio.shield(app.workers.wait_for_complete()), timeout=45)
         await pilot.pause()
-        assert app.lifecycle.process is None
+        assert app.execution.lifecycle.process is None
         assert app.preflight.latest_download is None
-        assert not app.latest_snapshot.measurement_active
+        assert not app.execution.session.snapshot.measurement_active
         assert not app.query_one('#run-log', SelectableLog).suspended
         assert 'download progress inside measurement window' in app.query_one('#run-log', SelectableLog).raw_text

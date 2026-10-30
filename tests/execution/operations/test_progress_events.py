@@ -2,8 +2,8 @@ import json
 
 import pytest
 
-from acprof.tui.progress import RunProgressTracker
-from acprof.tui.stages import Stage
+from acprof.tui.run.progress import RunProgressTracker
+from acprof.tui.run.stages import Stage
 
 
 def event(name, case="case-a", **fields):

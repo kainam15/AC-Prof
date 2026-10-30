@@ -16,9 +16,9 @@ from textual.message_pump import MessagePump
 from textual.widgets import Button, Collapsible, Input
 
 from acprof.experiments.configuration import RunConfig
-from acprof.tui.input import BarCursorInput
-from acprof.tui.progress import ProgressSnapshot
-from acprof.tui.views import ConfirmActionScreen
+from acprof.tui.run.progress import ProgressSnapshot
+from acprof.tui.ui.dialogs import ConfirmActionScreen
+from acprof.tui.ui.input import BarCursorInput
 from tests.support.tui_fixtures import AcprofTui
 
 

@@ -10,8 +10,8 @@ from rich.cells import cell_len
 from textual.widgets import DataTable, Tree
 
 from acprof.experiments.configuration import RunConfig
-from acprof.tui.progress import ProgressSnapshot
-from acprof.tui.reports import ReportRow, ReportView
+from acprof.tui.results.reports import ReportRow, ReportView
+from acprof.tui.run.progress import ProgressSnapshot
 from tests.runtime.containers.test_image_management import DockerFixture
 from tests.support.environment_fixtures import isolated_environment
 from tests.support.tui_fixtures import AcprofTui
@@ -55,13 +55,13 @@ class TestAllTables:
             assert (table.columns[column.key].width) == (width + 5)
             await pilot.mouse_down(table, offset=header_offset(table))
             assert (app.mouse_captured) is (table)
-            app.latest_snapshot = ProgressSnapshot(measurement_active=True)
+            app.execution.session.snapshot = ProgressSnapshot(measurement_active=True)
             app.set_busy(True)
             await pilot.pause()
             assert (app.mouse_captured) is None
             await pilot.mouse_up(table, offset=(start[0] + 8, 0))
             assert (table.columns[column.key].width) == (width + 5)
-            app.latest_snapshot = ProgressSnapshot()
+            app.execution.session.snapshot = ProgressSnapshot()
             app.set_busy(False)
             await drag(pilot, table, header_offset(table), 3)
             assert (table.columns[column.key].width) == (width + 8)

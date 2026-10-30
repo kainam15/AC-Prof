@@ -187,7 +187,7 @@ def test_modelscope_lookup_failure_cannot_be_bypassed_by_manual_task(monkeypatch
 def test_legacy_tui_configuration_migrates_without_changing_proxy_environment(tmp_path, mode):
     import os
 
-    from acprof.tui.settings import SETTINGS_VERSION, load_settings
+    from acprof.tui.settings.preferences import SETTINGS_VERSION, load_settings
     payload = {"version": SETTINGS_VERSION, "ui": {}, "run_defaults": {
         "model": "demo/model", "download_mode": mode, "HTTP_PROXY": "http://retired.example"}}
     path = tmp_path / "tui.json"

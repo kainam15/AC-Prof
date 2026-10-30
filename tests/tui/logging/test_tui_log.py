@@ -3,7 +3,7 @@ from textual.app import App, ComposeResult
 from textual.scrollbar import ScrollTo, ScrollUp
 from textual.widgets.text_area import Selection
 
-from acprof.tui.log import SelectableLog
+from acprof.tui.logging.widget import SelectableLog
 
 
 class LogApp(App):

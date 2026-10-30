@@ -8,7 +8,7 @@ import pytest
 from acprof.experiments.arguments import build_parser
 from acprof.experiments.configuration import RunConfig
 from acprof.host.run_state import run_options
-from acprof.tui.experiment_catalog import resume_command, scan_experiments
+from acprof.tui.experiments.catalog import resume_command, scan_experiments
 
 
 def normalized_args(arguments, root):

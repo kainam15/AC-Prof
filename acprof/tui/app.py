@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import sys
-import time
-from dataclasses import replace
 from pathlib import Path
 from typing import Literal
 
@@ -43,44 +41,39 @@ except ModuleNotFoundError as exc:  # pragma: no cover - exercised before tests 
     raise
 
 from acprof.experiments.configuration import RunConfig
-from acprof.messages import message
-from acprof.tui.catalog_controller import CatalogController
 from acprof.tui.commands import (
     OperationState,
     PendingLaunch,
-    format_command,
 )
-from acprof.tui.configuration_controller import ConfigurationController
-from acprof.tui.experiment_controller import ExperimentController
-from acprof.tui.image_controller import ImageController
-from acprof.tui.input import BarCursorApp, BarCursorInput as Input
-from acprof.tui.localization_controller import LocalizationController
-from acprof.tui.log import SelectableLog
-from acprof.tui.log_controller import LogController
-from acprof.tui.model_controller import ModelController
-from acprof.tui.monitor import MonitorPhase, monitor_phase
-from acprof.tui.preflight_controller import PreflightController
-from acprof.tui.presentation import NOT_APPLICABLE, UNKNOWN
-from acprof.tui.process import ProcessLifecycle, StopResult
-from acprof.tui.process_controller import ProcessController
-from acprof.tui.profile_controller import ProfileController
-from acprof.tui.progress import ProgressSnapshot
-from acprof.tui.recovery_controller import RecoveryController
-from acprof.tui.rendering import CjkScreen
-from acprof.tui.result_controller import ResultController
-from acprof.tui.result_views import compose_results_tab
-from acprof.tui.run_results import RunResult, evaluate_process_completion
-from acprof.tui.slash_controller import SlashController
-from acprof.tui.stages import Stage
-from acprof.tui.table import ResizableDataTable
-from acprof.tui.themes import THEME_CATALOG
-from acprof.tui.views import (
-    ConfirmActionScreen,
-    compose_images_tab,
-    compose_monitor_tab,
-    compose_run_tab,
-    compose_settings_tab,
-)
+from acprof.tui.experiments.controller import CatalogController
+from acprof.tui.images.controller import ImageController
+from acprof.tui.logging.controller import LogController
+from acprof.tui.logging.widget import SelectableLog
+from acprof.tui.models.controller import ModelController
+from acprof.tui.results.controller import ResultController
+from acprof.tui.results.profile_controller import ProfileController
+from acprof.tui.results.views import compose_results_tab
+from acprof.tui.run.execution import ExecutionCoordinator
+from acprof.tui.run.experiment_controller import ExperimentController
+from acprof.tui.run.preflight_controller import PreflightController
+from acprof.tui.run.presenter import RunPresenter
+from acprof.tui.run.process import StopResult
+from acprof.tui.run.process_controller import ProcessController
+from acprof.tui.run.progress import ProgressSnapshot
+from acprof.tui.run.recovery_controller import RecoveryController
+from acprof.tui.run.stages import Stage
+from acprof.tui.settings.controller import ConfigurationController
+from acprof.tui.settings.localization_controller import LocalizationController
+from acprof.tui.ui.dialogs import ConfirmActionScreen
+from acprof.tui.ui.input import BarCursorApp, BarCursorInput as Input
+from acprof.tui.ui.pages.images import compose_images_tab
+from acprof.tui.ui.pages.monitor import compose_monitor_tab
+from acprof.tui.ui.pages.run import compose_run_tab
+from acprof.tui.ui.pages.settings import compose_settings_tab
+from acprof.tui.ui.rendering import CjkScreen
+from acprof.tui.ui.slash_controller import SlashController
+from acprof.tui.ui.table import ResizableDataTable
+from acprof.tui.ui.themes import THEME_CATALOG
 
 PROJECT_DIR = Path.cwd()
 # Keep the virtual-environment path. Resolving this symlink would turn
@@ -140,17 +133,10 @@ class AcprofTui(BarCursorApp):
                 no_color=False,
             )
         self.animation_level = "none"
-        self.lifecycle = ProcessLifecycle()
-        self.process_kind = ""
-        self.active_run_config: RunConfig | None = None
-        self.active_command: tuple[str, ...] = ()
-        self.started_monotonic = 0.0
-        self.stop_requested = False
-        self.latest_snapshot = ProgressSnapshot()
+        self.execution = ExecutionCoordinator()
+        self.run_ui = RunPresenter(self)
         self.ui_closing: bool = False
         self.read_jobs: set[object] = set()
-        self.process_token: object | None = None
-        self.run_result = RunResult()
         self.form_ready: bool = False
         self.elapsed_timer: Timer | None = None
         self.configuration = ConfigurationController(self, initial_config, settings_path=settings_path)
@@ -232,14 +218,14 @@ class AcprofTui(BarCursorApp):
         return self.operation_state().busy
 
     def operation_state(self) -> OperationState:
-        process = self.lifecycle.process
+        process = self.execution.lifecycle.process
         return OperationState(
-            process=process is not None or bool(self.process_kind),
+            process=process is not None or bool(self.execution.session.kind),
             stoppable=process is not None and process.poll() is None,
             checking=self.preflight.check_running, reading=bool(self.read_jobs),
             maintenance=bool(self.images.operation) or self.images.storage_loading,
             configuring=self.configuration.environment_open or self.catalog.picker_open,
-            measuring=self.latest_snapshot.measurement_active, closing=self.ui_closing,
+            measuring=self.execution.session.snapshot.measurement_active, closing=self.ui_closing,
         )
 
     def allow_operation(self, operation: str) -> bool:
@@ -266,7 +252,7 @@ class AcprofTui(BarCursorApp):
             self.configuration.cancel_preview_timer()
         for table in self.query(ResizableDataTable):
             refreshing_image = self.images.operation == "refresh" and table.has_class("image-control")
-            table.resize_enabled = not ((busy and not refreshing_image) or self.latest_snapshot.measurement_active)
+            table.resize_enabled = not ((busy and not refreshing_image) or self.execution.session.snapshot.measurement_active)
         for widget in self.query(
             ".config-control, .experiment-picker, #model-candidates, #run-preset, .ui-preference, .profile-tool, .report-control, "
             "#save-run-default, #restore-ui-defaults, #save-ui-settings, #open-environment-settings"
@@ -280,7 +266,7 @@ class AcprofTui(BarCursorApp):
                 "open-environment-settings", "open-model-store",
             })
         for widget in self.query(".image-control"):
-            widget.disabled = (busy and self.images.operation != "refresh") or self.latest_snapshot.measurement_active
+            widget.disabled = (busy and self.images.operation != "refresh") or self.execution.session.snapshot.measurement_active
         for selector, operation in {
             "#start-run": "run", "#probe-largest": "probe",
             "#summarize-results": "summary", "#plot-results": "plot",
@@ -291,7 +277,7 @@ class AcprofTui(BarCursorApp):
         }.items():
             self.query_one(selector, Button).disabled = not state.allows(operation)
         self.query_one("#html-report-cancel", Button).disabled = not (
-            self.process_kind == "html-report" and state.allows("stop"))
+            self.execution.session.kind == "html-report" and state.allows("stop"))
         for selector in ("#result-csv",):
             self.query_one(selector, Input).disabled = not state.allows("summary")
         self.refresh_bindings()
@@ -314,72 +300,10 @@ class AcprofTui(BarCursorApp):
 
 
     def launch(self, pending: PendingLaunch) -> None:
-        if pending.kind == "run" and not self.preflight.allow_collection():
-            return
-        if not self.allow_operation("run"):
-            return
-        self.logs.flush()
-        if pending.kind in {"run", "probe"}:
-            with self.prevent(Checkbox.Changed):
-                self.query_one("#rebuild-image", Checkbox).value = False
-        model = pending.config.model if pending.config is not None else ""
-        # Intended output is not evidence of a result. Keep the selected/history
-        # paths until a matching run attempt has actually published artifacts.
-        if pending.kind == "run":
-            self.configuration.planned_input = None
-            self.configuration.planned_input_identity = None
-            self.configuration.remember_last_used(model=model)
-            self.run_result = RunResult()
-            self.results.summary_request = None
-            self.profiles.reset_overview()
-            self.localization.set_text(self.query_one("#result-summary", Static),
-                           "本次尚未产生结果；历史结果可通过原路径查看。")
-        else:
-            self.configuration.remember_last_used(model=model, result_dir=pending.result_dir, result_csv=pending.result_csv)
-        self.process_token = object()
-        self.active_run_config = pending.config if pending.kind == "run" else None
-        if pending.kind in {"stats", "compare"}:
-            self.results.begin_analysis(pending)
-        if pending.kind == "html-report":
-            self.results.html_report_started(pending)
-        self.active_command = pending.command
-        self.process_kind = pending.kind
-        self.started_monotonic = time.monotonic()
-        self.stop_requested = False
-        self.preflight.preparation_cancelled = False
-        self.latest_snapshot = ProgressSnapshot(stage=Stage.STARTING, detail="正在创建子进程")
-        self.preflight.reset_download()
-        self.set_busy(True)
-        if pending.kind in {"stats", "compare"}:
-            self.results.show_result_section("statistics-view")
-            self.query_one("#results-cancel", Button).focus()
-        else:
-            self.activate_tab("monitor-tab")
-            # Moving focus away from inputs stops the native cursor's blink timer.
-            self.query_one("#stop-run", Button).focus()
-        # Keep the small elapsed-time display active during every run phase.
-        # Logs and other periodic redraws remain gated during measurement.
-        if self.elapsed_timer is not None:
-            self.elapsed_timer.stop()
-        self.elapsed_timer = self.set_interval(1.0, self.tick_elapsed)
-        log = self.query_one("#run-log", SelectableLog)
-        log.write(f"$ {format_command(pending.command)}")
-        log.write(self.localization.tr(message_id('logs.capture.pipe_mode')))
-        self.render_snapshot(self.latest_snapshot)
-        self.process.execute_command(list(pending.command), pending.kind, config=pending.config)
+        self.run_ui.launch(pending)
 
     def tick_elapsed(self) -> None:
-        """Update only the elapsed-time widget, even during measurement."""
-        # Textual stops the app before removing widgets, ahead of on_unmount.
-        if not self.is_running or self.ui_closing:
-            return
-        if not self.started_monotonic or not self.is_busy():
-            return
-        elapsed = self.format_elapsed(time.monotonic() - self.started_monotonic)
-        widget = self.query_one('#status-elapsed', Static)
-        if str(widget.content) != elapsed:
-            # Fixed-size clock cell: avoid a full layout pass for each tick.
-            self.localization.set_text(widget, elapsed, layout=False)
+        self.run_ui.tick_elapsed()
 
     _STAGE_CSS_CLASS = {
         Stage.WAITING: "stage-idle",
@@ -404,195 +328,37 @@ class AcprofTui(BarCursorApp):
     })
 
     def process_cleanup_incomplete(self, result: StopResult) -> None:
-        detail = message_id('run.process.cleanup_incomplete', result.pid, result.error)
-        self.latest_snapshot = replace(self.latest_snapshot, stage=Stage.CLEANUP_INCOMPLETE, detail=detail)
-        self.render_snapshot(self.latest_snapshot)
-        self.write_log(detail)
-        self.set_busy(True)
-        self.notify(detail, severity="error", timeout=10)
+        self.run_ui.process_cleanup_incomplete(result)
 
     def process_started(self, pid: int, kind: str) -> None:
-        self.set_busy(True)
-        self.query_one("#run-log", SelectableLog).write(
-            self.localization.tr(message_id('logs.process.started', kind, pid))
-        )
+        self.run_ui.process_started(pid, kind)
 
     def show_suppressed_count(self, count: int) -> None:
-        self.query_one("#run-log", SelectableLog).write(
-            self.localization.tr(message_id('logs.measurement.suppressed_count', count))
-        )
+        self.run_ui.show_suppressed_count(count)
 
     def show_deferred_lines(self, lines: tuple[str, ...], discarded_entries: int = 0,
                             oversized_entries: int = 0) -> None:
-        log = self.query_one("#run-log", SelectableLog)
-        log.write(self.localization.tr(message_id('logs.measurement.deferred_heading')))
-        if discarded_entries:
-            log.write(self.localization.tr(message_id("logs.retention.omitted_records", discarded_entries, oversized_entries)))
-        if lines:
-            log.write("\n".join(lines))
+        self.run_ui.show_deferred_lines(lines, discarded_entries, oversized_entries)
 
     def write_log(self, line: str) -> None:
-        self.query_one("#run-log", SelectableLog).write(self.localization.tr(line))
+        self.run_ui.write_log(line)
 
     def consume_process_line(
-        self,
-        line: str,
-        snapshot: ProgressSnapshot | None,
-        state_changed: bool,
+        self, line: str, snapshot: ProgressSnapshot | None, state_changed: bool,
     ) -> None:
-        if self.process_kind == "html-report" and line:
-            self.results.consume_html_line(line)
-        if snapshot is not None:
-            if self.process_kind == "run" and snapshot.stage is Stage.COMPLETED:
-                snapshot = replace(snapshot, stage=Stage.VERIFYING_ARTIFACT, detail="进程已报告完成，等待本次产物核验。")
-            was_measuring = self.latest_snapshot.measurement_active
-            if (monitor_phase(snapshot) is MonitorPhase.PREPARATION
-                    and monitor_phase(self.latest_snapshot) is not MonitorPhase.PREPARATION):
-                self.preflight.reset_download()
-            self.latest_snapshot = snapshot
-            if was_measuring != snapshot.measurement_active:
-                self.logs.suspend(snapshot.measurement_active)
-            self.set_input_cursor_blink_enabled(not snapshot.measurement_active)
-            self.images.sync_image_refresh_timer()
-            if state_changed:
-                self.render_snapshot(snapshot)
-        if line:
-            self.logs.append(line)
+        self.run_ui.consume_process_line(line, snapshot, state_changed)
 
     @staticmethod
     def format_elapsed(seconds: float) -> str:
-        total = max(0, int(seconds))
-        hours, remainder = divmod(total, 3600)
-        minutes, secs = divmod(remainder, 60)
-        return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+        return RunPresenter.format_elapsed(seconds)
 
     def render_snapshot(self, snapshot: ProgressSnapshot) -> None:
-        self.logs.stage_changed(snapshot)
-        from acprof.tui.progress_widgets import PreparationStatus
-        self.query_one("#status-preparation", PreparationStatus).update_snapshot(snapshot)
-        phase = monitor_phase(snapshot)
-        for selector, visible in (
-            (".case-status", phase is MonitorPhase.MEASUREMENT and snapshot.total_cases > 0),
-            (".resource-status", phase is MonitorPhase.MEASUREMENT and snapshot.current_case > 0),
-            (".elapsed-status", bool(self.started_monotonic)),
-            (".error-count", bool(snapshot.errors or snapshot.warnings)),
-            (".detail-status", bool(snapshot.detail) and (
-                snapshot.stage is Stage.WAITING or snapshot.detail != message_id('run.monitor.not_started')
-            )),
-        ):
-            for widget in self.query(selector):
-                widget.display = visible
-        self.query_one("#download-progress").display = (
-            phase is MonitorPhase.PREPARATION and self.preflight.latest_download is not None
-        )
-        elapsed = (
-            self.format_elapsed(time.monotonic() - self.started_monotonic)
-            if self.started_monotonic
-            else NOT_APPLICABLE
-        )
-        # Stage text with visual category coloring.
-        stage_widget = self.query_one("#status-stage", Static)
-        self.localization.set_text(stage_widget, snapshot.stage.label)
-        stage_widget.set_classes(
-            self._STAGE_CSS_CLASS.get(snapshot.stage, "stage-running")
-        )
-        self.localization.set_text(self.query_one('#status-elapsed', Static), elapsed)
-        self.localization.set_text(self.query_one("#status-case", Static), message_id(
-            'run.monitor.case_progress', snapshot.current_case or NOT_APPLICABLE,
-            snapshot.completed_cases, snapshot.total_cases,
-        ))
-        missing = UNKNOWN if snapshot.current_case else NOT_APPLICABLE
-        cpu = message_id('run.resources.inherited_limits') if snapshot.cpu == "inherited" else snapshot.cpu if snapshot.cpu != "-" else missing
-        mem = message_id('run.resources.inherited_limits') if snapshot.mem == "inherited" else f"{snapshot.mem}GB" if snapshot.mem != "-" else missing
-        gpu = snapshot.gpu if snapshot.gpu != "-" else missing
-        self.localization.set_text(self.query_one("#status-resource", Static), message("CPU={0}  MEM={1}  GPU={2}", cpu, mem, gpu))
-        self.localization.set_text(self.query_one('#status-errors', Static), f'{snapshot.warnings} / {snapshot.errors}')
-        self.localization.set_text(self.query_one('#status-detail', Static), snapshot.detail)
+        self.run_ui.render_snapshot(snapshot)
 
     def process_finished(
-        self,
-        kind: str,
-        returncode: int,
-        snapshot: ProgressSnapshot | None,
-        launch_error: str,
+        self, kind: str, returncode: int, snapshot: ProgressSnapshot | None, launch_error: str,
     ) -> None:
-        # The child has exited; flush preparation output before its final outcome.
-        self.logs.suspend(False)
-        cancelled = self.stop_requested
-        if kind == "html-report" and not cancelled:
-            launch_error = self.results.html_report_error(returncode, launch_error)
-        completion = evaluate_process_completion(
-            kind,
-            returncode,
-            snapshot,
-            self.latest_snapshot,
-            launch_error=launch_error,
-            stop_requested=cancelled,
-            run_result=self.run_result,
-            analysis_ready=self.results.analysis_view is not None,
-        )
-        self.preflight.close_preparation()
-        # Stop the elapsed-time ticker.
-        if self.elapsed_timer is not None:
-            self.elapsed_timer.stop()
-            self.elapsed_timer = None
-        # Show the final elapsed time.
-        if self.started_monotonic:
-            final_elapsed = self.format_elapsed(
-                time.monotonic() - self.started_monotonic
-            )
-            self.localization.set_text(self.query_one('#status-elapsed', Static), final_elapsed)
-        if kind in {"stats", "compare", "html-report"}:
-            # Move focus before disabling the monitor page's focused Stop button;
-            # its queued focus event could otherwise reactivate that old page.
-            self.activate_tab("results-tab")
-        log = self.query_one("#run-log", SelectableLog)
-        for message_line in completion.log_messages:
-            log.write(self.localization.tr(message_line))
-        if completion.primary_notice is not None:
-            self.notify(completion.primary_notice.message, **completion.primary_notice.kwargs())
-        self.latest_snapshot = completion.final_snapshot
-        self.render_snapshot(self.latest_snapshot)
-        if completion.current_csv:
-            self.configuration.remember_last_used(
-                result_csv=completion.current_csv,
-                result_dir=str(Path(completion.current_csv).parent),
-            )
-        elif completion.summary_text:
-            self.localization.set_text(
-                self.query_one("#result-summary", Static),
-                completion.summary_text,
-            )
-        if completion.run_notice is not None:
-            self.notify(completion.run_notice.message, **completion.run_notice.kwargs())
-
-        self.preflight.finish_download(cancelled=cancelled)
-        self.logs.flush()
-        self.active_command = ()
-        self.process_kind = ""
-        self.stop_requested = False
-        self.set_busy(self.is_busy())
-        if self.preflight.preparation_cancelled and not self.is_busy():
-            self.activate_tab("run-tab")
-            self.preflight.preparation_cancelled = False
-            if self.preflight.pending_source_change is not None:
-                from uuid import uuid4
-                change, self.preflight.pending_source_change = self.preflight.pending_source_change, None
-                config = self.active_run_config or self.configuration.initial_config
-                self.configuration.apply_config(replace(config, model=change["model_id"], revision=change["revision"],
-                    model_source="modelscope", download_mode="auto", task="", task_family="", backend="",
-                    model_spec="", resume=False, rebuild_image=False,
-                    output_dir=str(Path(config.output_dir) / ("modelscope-" + uuid4().hex[:8]))))
-        if completion.current_csv:
-            self.results.update_result_summary(completion.current_csv, notify=False)
-        elif kind == "profile" and self.results.summary_path is not None:
-            # Posthoc can publish profiler layers without touching base rows.
-            self.results.update_result_summary(str(self.results.summary_path), notify=False)
-        self.images.sync_image_refresh_timer()
-        if kind in {"stats", "compare"}:
-            self.results.finish_analysis(error=completion.launch_error, cancelled=cancelled)
-        elif kind == "html-report":
-            self.results.html_report_finished(error=completion.launch_error, cancelled=cancelled)
+        self.run_ui.process_finished(kind, returncode, snapshot, launch_error)
 
     @on(Button.Pressed, "#stop-run, #results-cancel")
     def stop_button(self) -> None:
@@ -602,8 +368,8 @@ class AcprofTui(BarCursorApp):
         if not self.operation_state().allows("stop"):
             self.notify("当前没有运行中的任务", severity="warning")
             return
-        token = self.process_token
-        html_report = self.process_kind == "html-report"
+        token = self.execution.session.token
+        html_report = self.execution.session.kind == "html-report"
         self.push_screen(
             ConfirmActionScreen(
                 message_id('results.html.cancel_confirm_title') if html_report else "终止当前任务？",
@@ -612,15 +378,16 @@ class AcprofTui(BarCursorApp):
                 "终止任务",
                 variant="error",
             ),
-            lambda confirmed: self.confirmed_stop(confirmed) if token is self.process_token else None,
+            lambda confirmed: self.confirmed_stop(confirmed) if token is self.execution.session.token else None,
         )
 
     def confirmed_stop(self, confirmed: bool | None) -> None:
         if not confirmed or not self.operation_state().allows("stop"):
             return
-        self.stop_requested = True
+        if not self.execution.request_stop(self.execution.session.token):
+            return
         self.preflight.close_preparation()
-        self.stop_process_gracefully(self.process_token, self.lifecycle.process)
+        self.stop_process_gracefully(self.execution.session.token, self.execution.lifecycle.process)
 
     @work(thread=True, group="stop", exclusive=True, exit_on_error=False)
     def stop_process_gracefully(self, token: object, process) -> None:
@@ -628,7 +395,7 @@ class AcprofTui(BarCursorApp):
                                     "[TUI] 正在请求采集进程安全停止……")
         if process is None:
             return  # The child may exit between confirmation and this worker.
-        result = self.lifecycle.stop(expected_process=process)
+        result = self.execution.stop(expected_process=process)
         if not result.complete:
             self.process.safe_process_callback(self.process.deliver_process_callback, token, self.process_cleanup_incomplete, result)
 
@@ -664,7 +431,7 @@ class AcprofTui(BarCursorApp):
             self.elapsed_timer = None
         if self.images.refresh_timer is not None:
             self.images.refresh_timer.stop()
-        result = await asyncio.to_thread(self.lifecycle.stop, closing=True)
+        result = await asyncio.to_thread(self.execution.close)
         if not result.complete:
             print(f"[TUI] cleanup incomplete: PID={result.pid}; {result.error}", file=sys.stderr)
 
@@ -892,7 +659,7 @@ class AcprofTui(BarCursorApp):
 
     @on(Button.Pressed, '#html-report-cancel')
     def on_results_cancel_html(self) -> None:
-        if self.process_kind == "html-report":
+        if self.execution.session.kind == "html-report":
             self.action_request_stop()
 
     @on(Button.Pressed, '#environment-status')

@@ -6,8 +6,8 @@ from rich.cells import cell_len
 from textual.widgets import Button, Collapsible, Select, Tooltip
 
 from acprof.experiments.configuration import RunConfig
-from acprof.tui.log import SelectableLog
-from acprof.tui.preparation import PreparationScreen
+from acprof.tui.logging.widget import SelectableLog
+from acprof.tui.run.preparation import PreparationScreen
 from tests.support.tui_fixtures import AcprofTui
 
 

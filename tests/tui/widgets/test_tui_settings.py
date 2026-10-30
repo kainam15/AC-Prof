@@ -12,7 +12,7 @@ import pytest
 from acprof.artifacts import MAX_JSON_ARTIFACT_BYTES
 from acprof.experiments.configuration import RunConfig
 from acprof.tui.i18n import message_id
-from acprof.tui.settings import (
+from acprof.tui.settings.preferences import (
     SETTINGS_VERSION,
     TuiSettings,
     UiPreferences,
@@ -285,7 +285,7 @@ class TestTuiSettings:
     def test_failed_atomic_replace_preserves_old_file_and_removes_temp(self):
         save_settings(self.path, TuiSettings(), self.project)
         previous = self.path.read_bytes()
-        with patch("acprof.tui.settings.os.replace", side_effect=OSError("disk error")):
+        with patch("acprof.tui.settings.preferences.os.replace", side_effect=OSError("disk error")):
             with pytest.raises(OSError, match="disk error"):
                 save_settings(
                     self.path, TuiSettings(ui=UiPreferences(theme="acprof-light")), self.project

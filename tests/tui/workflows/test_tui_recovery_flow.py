@@ -15,13 +15,13 @@ from acprof.experiments.arguments import build_parser
 from acprof.experiments.configuration import RunConfig, build_run_command
 from acprof.host import run_state
 from acprof.tui.commands import PendingLaunch
-from acprof.tui.experiment_catalog import scan_experiments
-from acprof.tui.input import BarCursorInput as Input
-from acprof.tui.log import SelectableLog
-from acprof.tui.progress import ProgressSnapshot
-from acprof.tui.recovery import review_recovery
-from acprof.tui.run_results import RunResult
-from acprof.tui.stages import Stage
+from acprof.tui.experiments.catalog import scan_experiments
+from acprof.tui.logging.widget import SelectableLog
+from acprof.tui.run.progress import ProgressSnapshot
+from acprof.tui.run.recovery import review_recovery
+from acprof.tui.run.results import RunResult
+from acprof.tui.run.stages import Stage
+from acprof.tui.ui.input import BarCursorInput as Input
 from tests.support.tui_fixtures import AcprofTui
 
 
@@ -229,7 +229,7 @@ async def test_cancel_or_close_discards_delayed_review(saved_preparation, tmp_pa
             finished.set()
     app = AcprofTui(config, settings_path=tmp_path / "settings.json")
     try:
-        with patch.object(app, 'launch') as launch, patch("acprof.tui.recovery_controller.review_recovery", slow_review):
+        with patch.object(app, 'launch') as launch, patch("acprof.tui.run.recovery_controller.review_recovery", slow_review):
             async with app.run_test(size=(80, 24)) as pilot:
                 await pilot.click("#start-run")
                 assert await asyncio.to_thread(started.wait, 3)
@@ -274,13 +274,13 @@ async def test_finished_run_keeps_compact_status_and_log_space(tmp_path, languag
         await pilot.pause()
         log = app.query_one("#run-log", SelectableLog)
         log_bottom = log.region.bottom
-        app.stop_requested = stage is Stage.STOPPED
-        app.run_result = RunResult(belongs_to_attempt=True, complete=stage is Stage.COMPLETED,
+        app.execution.session.stop_requested = stage is Stage.STOPPED
+        app.execution.session.result = RunResult(belongs_to_attempt=True, complete=stage is Stage.COMPLETED,
                                    completed_cases=completed, total_cases=4, new_cases=completed)
         app.process_finished("run", returncode, snapshot, "")
         await pilot.pause()
-        assert app.latest_snapshot.stage is stage
-        assert not app.latest_snapshot.measurement_active
+        assert app.execution.session.snapshot.stage is stage
+        assert not app.execution.session.snapshot.measurement_active
         assert not app.query("#review-run-recovery, #run-recovery-actions")
         assert log.region.bottom == log_bottom
         assert "Retained run log" in log.raw_text

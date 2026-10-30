@@ -2,7 +2,7 @@ import random
 
 import pytest
 
-from acprof.tui.log_records import LogRecords
+from acprof.tui.logging.records import LogRecords
 
 
 def update(records, rows, **view):
@@ -59,7 +59,7 @@ def test_incremental_and_full_projections_match_across_batches_eviction_and_view
 
 def test_ordinary_append_projects_only_new_records(monkeypatch):
     # Count actual input records consumed by the projection, not wall time.
-    from acprof.tui import log_records
+    from acprof.tui.logging import records as log_records
 
     records = LogRecords(10000, 1000000)
     records.append('\n'.join(f'[INFO] line {i}' for i in range(2000)))

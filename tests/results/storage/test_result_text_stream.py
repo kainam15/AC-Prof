@@ -214,7 +214,7 @@ def test_flat_csv_keeps_bom_newline_and_seek_behavior(tmp_path):
 
 
 def test_cancelled_summary_does_not_open_a_logical_stream(tmp_path, monkeypatch):
-    from acprof.tui.diagnostics import summarize_result_csv
+    from acprof.tui.run.diagnostics import summarize_result_csv
 
     layout, _ = snapshot_store(tmp_path, count=2, repetitions=1)
     before = artifact_hashes(layout)

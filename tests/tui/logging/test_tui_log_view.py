@@ -10,11 +10,11 @@ from textual.widgets import Button, Static, Tabs
 from textual.widgets.text_area import Selection
 
 from acprof.experiments.configuration import RunConfig
-from acprof.tui.log import SelectableLog
-from acprof.tui.progress import ProgressSnapshot
-from acprof.tui.scrollbar import SolidScrollBarRender
-from acprof.tui.stages import Stage
-from acprof.tui.views import LogPanel
+from acprof.tui.logging.panel import LogPanel
+from acprof.tui.logging.widget import SelectableLog
+from acprof.tui.run.progress import ProgressSnapshot
+from acprof.tui.run.stages import Stage
+from acprof.tui.ui.scrollbar import SolidScrollBarRender
 from tests.support.tui_fixtures import AcprofTui
 
 
@@ -96,8 +96,8 @@ class TestTuiLogView:
             # no collection command or external process may start in this test.
             process = Mock()
             process.poll.return_value = None
-            with patch("acprof.tui.process.subprocess.Popen", side_effect=AssertionError("unexpected process")), patch.object(
-                app.lifecycle, "process", process
+            with patch("acprof.tui.run.process.subprocess.Popen", side_effect=AssertionError("unexpected process")), patch.object(
+                app.execution.lifecycle, "process", process
             ):
                 app.process_started(12345, "test")
                 app.consume_process_line("[build] second line", None, False)

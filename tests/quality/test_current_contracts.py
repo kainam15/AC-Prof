@@ -21,7 +21,7 @@ from acprof.host.runtime_validation import validate_runtime
 from acprof.packet.merge_packet_latency import _request_records
 from acprof.plotting.data import prepare_df, read_static_meta
 from acprof.runtime.profiles import RuntimeProfile
-from acprof.tui.settings import load_settings
+from acprof.tui.settings.preferences import load_settings
 
 
 @pytest.mark.parametrize('suffix', ['core', 'settings', 'i18n', 'input', 'log', 'scrollbar', 'themes'])

@@ -6,7 +6,7 @@ import pytest
 from textual.widgets import Button, ContentSwitcher, Select, TabbedContent
 
 from acprof.experiments.configuration import RunConfig, build_run_command
-from acprof.tui.diagnostics import quick_preflight
+from acprof.tui.run.diagnostics import quick_preflight
 from tests.support.tui_fixtures import AcprofTui
 
 
@@ -50,7 +50,7 @@ def test_process_preflight_keeps_optional_permission_failures_nonfatal(tmp_path,
     def which(name):
         assert name != 'docker'
         return '/fixture/uv' if name == 'uv' else None
-    monkeypatch.setattr('acprof.tui.diagnostics.shutil.which', which)
+    monkeypatch.setattr('acprof.tui.run.diagnostics.shutil.which', which)
     config = replace(RunConfig.smoke('fixture/model'), runtime='process', cpus='auto', mems='auto')
     checks = quick_preflight(config, project_dir=tmp_path,
                              command_runner=lambda *a, **kw: pytest.fail('Process preflight must not invoke Docker'))

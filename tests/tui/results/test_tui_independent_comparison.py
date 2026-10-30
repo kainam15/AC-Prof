@@ -12,8 +12,8 @@ from tests.support.tui_fixtures import AcprofTui
 
 from acprof.experiments.configuration import RunConfig
 from acprof.quality import loading_quality
-from acprof.tui.reports import read_report
-from acprof.tui.stages import Stage
+from acprof.tui.results.reports import read_report
+from acprof.tui.run.stages import Stage
 
 
 class TestIndependentReport:
@@ -130,7 +130,7 @@ class TestIndependentComparisonUi:
                     assert ("compare") in (command)
                     assert (command[command.index("--purpose") + 1]) == ("resource-scaling")
                     launch.reset_mock()
-                    app.latest_snapshot = replace(app.latest_snapshot, measurement_active=True)
+                    app.execution.session.snapshot = replace(app.execution.session.snapshot, measurement_active=True)
                     app.results.compare_experiments_button()
                     launch.assert_not_called()
 
@@ -160,5 +160,5 @@ class TestIndependentComparisonUi:
             assert (payload["status"]) == ("incompatible")
             assert ("not comparable") in (str(app.query_one("#report-table", DataTable).get_row_at(0)[0]))
             assert not (app.is_busy())
-            assert (app.latest_snapshot.stage) == (Stage.COMPLETED)
+            assert (app.execution.session.snapshot.stage) == (Stage.COMPLETED)
             assert (app.query_one("#main-tabs", TabbedContent).active) == ("results-tab")

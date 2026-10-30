@@ -25,9 +25,9 @@ from acprof.plotting.uncertainty import (
     aggregate_plot_metric,
     aggregate_plot_series,
 )
-from acprof.tui.analysis_output import AnalysisOutput
+from acprof.tui.results.analysis_output import AnalysisOutput
 from acprof.tui.commands import PendingLaunch
-from acprof.tui.reports import report_view
+from acprof.tui.results.reports import report_view
 
 
 def windows(**changes):
@@ -188,7 +188,7 @@ def test_analysis_transport_validates_payload_without_files(tmp_path):
 
 
 def test_analysis_transport_is_bounded(monkeypatch):
-    monkeypatch.setattr("acprof.tui.analysis_output.MAX_ANALYSIS_BYTES", 3)
+    monkeypatch.setattr("acprof.tui.results.analysis_output.MAX_ANALYSIS_BYTES", 3)
     output = AnalysisOutput()
     with pytest.raises(ValueError, match="exceeds"):
         output.append("中文")
@@ -241,7 +241,7 @@ async def test_cancel_analysis_reaps_child_and_leaves_no_report(result_csv, tmp_
             async with asyncio.timeout(5):
                 while app.query_one("#results-cancel", Button).disabled:
                     await pilot.pause()
-            process = app.lifecycle.process
+            process = app.execution.lifecycle.process
             assert process is not None
             for name in ("results-cancel", "report-calculate", "plot-results"):
                 button = app.query_one("#" + name, Button)
@@ -258,7 +258,7 @@ async def test_cancel_analysis_reaps_child_and_leaves_no_report(result_csv, tmp_
             assert cancelled in str(app.query_one("#report-error", Static).content)
             assert not list(tmp_path.glob("**/window-statistics-*.json"))
         finally:
-            app.lifecycle.stop()
+            app.execution.lifecycle.stop()
 
 
 async def test_stale_analysis_cannot_replace_changed_selection(tmp_path):

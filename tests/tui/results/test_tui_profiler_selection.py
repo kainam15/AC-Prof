@@ -7,7 +7,7 @@ from textual.widgets import Checkbox, ContentSwitcher, Select, Static, TabbedCon
 from tests.support.tui_fixtures import AcprofTui
 
 from acprof.experiments.configuration import RunConfig, build_run_command
-from acprof.tui.run_form import PROFILER_CHECKBOXES, config_values, profiler_tools_from_checks
+from acprof.tui.run.form import PROFILER_CHECKBOXES, config_values, profiler_tools_from_checks
 
 
 @pytest.mark.parametrize("mask", range(16))

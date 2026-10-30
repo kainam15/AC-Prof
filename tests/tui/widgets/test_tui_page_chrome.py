@@ -11,9 +11,9 @@ from textual.containers import VerticalScroll
 from textual.widgets import Button, Static
 
 from acprof.experiments.configuration import RunConfig
-from acprof.tui.progress import ProgressSnapshot
-from acprof.tui.stages import Stage
-from acprof.tui.themes import UI_THEMES
+from acprof.tui.run.progress import ProgressSnapshot
+from acprof.tui.run.stages import Stage
+from acprof.tui.ui.themes import UI_THEMES
 from tests.support.tui_fixtures import AcprofTui
 
 
@@ -167,7 +167,7 @@ class TestTuiPageChrome:
             status = app.query_one("#settings-status", Static)
             assert ("已保存") in (str(status.content))
             self.assert_color_family(status.styles.color, "green")
-            with patch("acprof.tui.configuration_controller.save_settings", side_effect=OSError("read only")):
+            with patch("acprof.tui.settings.controller.save_settings", side_effect=OSError("read only")):
                 assert (await pilot.click("#save-ui-settings"))
                 await pilot.pause()
             assert ("保存失败") in (str(status.content))
@@ -186,10 +186,10 @@ class TestTuiPageChrome:
                 await pilot.pause()
                 self.assert_color_family(app.screen.query_one("#confirm-yes").styles.color, "yellow")
                 await pilot.press("escape")
-                app.process_kind = "run"
+                app.execution.session.kind = "run"
                 process = Mock()
                 process.poll.return_value = None
-                app.lifecycle.process = process
+                app.execution.lifecycle.process = process
                 try:
                     app.set_busy(True)
                     app.action_request_stop()
@@ -197,7 +197,7 @@ class TestTuiPageChrome:
                     self.assert_color_family(app.screen.query_one("#confirm-yes").styles.color, "red")
                     await pilot.press("escape")
                 finally:
-                    app.lifecycle.process = None
+                    app.execution.lifecycle.process = None
                 launch.assert_not_called()
-                app.process_kind = ""
+                app.execution.session.kind = ""
                 app.set_busy(False)

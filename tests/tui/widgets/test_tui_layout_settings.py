@@ -23,17 +23,17 @@ from textual.widgets import (
 from acprof.cli.tui import main
 from acprof.experiments.configuration import RunConfig
 from acprof.tui.commands import PendingLaunch
-from acprof.tui.log import SelectableLog
-from acprof.tui.progress import ProgressSnapshot
-from acprof.tui.run_results import RunResult
-from acprof.tui.settings import (
+from acprof.tui.logging.widget import SelectableLog
+from acprof.tui.run.progress import ProgressSnapshot
+from acprof.tui.run.results import RunResult
+from acprof.tui.run.stages import Stage
+from acprof.tui.settings.preferences import (
     TuiSettings,
     UiPreferences,
     default_settings_path,
     load_settings,
     save_settings,
 )
-from acprof.tui.stages import Stage
 from tests.support.tui_fixtures import AcprofTui
 
 PROJECT_DIR = Path(__file__).resolve().parents[3]
@@ -426,7 +426,7 @@ class TestTuiModelMemory:
         config = RunConfig.smoke("demo/first")
         app = AcprofTui(config, settings_path=self.settings_path)
         async with app.run_test(size=(120, 30)) as pilot:
-            with patch("acprof.tui.process.subprocess.Popen", side_effect=OSError("test failure")):
+            with patch("acprof.tui.run.process.subprocess.Popen", side_effect=OSError("test failure")):
                 app.launch(PendingLaunch(("unused",), "run", config))
                 await app.workers.wait_for_complete()
             await pilot.pause()
@@ -448,7 +448,7 @@ class TestTuiModelMemory:
             with (
                 patch.object(app.process, 'execute_command') as execute,
                 patch.object(app, 'notify') as notify,
-                patch("acprof.tui.configuration_controller.save_settings", side_effect=OSError("disk error")) as save,
+                patch("acprof.tui.settings.controller.save_settings", side_effect=OSError("disk error")) as save,
             ):
                 app.launch(PendingLaunch(("unused",), "run", config))
                 execute.assert_called_once()
@@ -487,7 +487,7 @@ class TestTuiModelMemory:
         save_settings(self.settings_path, self.saved, PROJECT_DIR)
         original = self.settings_path.read_bytes()
         app = AcprofTui(RunConfig.smoke("demo/other"), settings_path=self.settings_path)
-        with patch("acprof.tui.result_controller.summarize_result_csv") as read_results:
+        with patch("acprof.tui.results.controller.summarize_result_csv") as read_results:
             async with app.run_test(size=(80, 24)) as pilot:
                 app.activate_tab("results-tab")
                 await pilot.pause()
@@ -514,9 +514,9 @@ class TestTuiModelMemory:
             assert (started.last_result_dir) == (self.saved.last_result_dir)
             # Only the audited child attempt can replace selected/history paths,
             # even if the form is subsequently edited.
-            app.run_result = RunResult(True, True, result_csv=str(csv_path))
+            app.execution.session.result = RunResult(True, True, result_csv=str(csv_path))
             app.query_one("#output-dir", Input).value = "results/draft"
-            with patch("acprof.tui.configuration_controller.save_settings", wraps=save_settings) as save:
+            with patch("acprof.tui.settings.controller.save_settings", wraps=save_settings) as save:
                 app.process_finished(
                     "run", 0,
                     ProgressSnapshot(stage=Stage.COMPLETED, final_csv=str(csv_path.relative_to(PROJECT_DIR))),
@@ -550,7 +550,7 @@ class TestTuiModelMemory:
             assert (app.query_one("#result-csv", Input).value) == (str(csv_path))
             assert ("成功 1") in (app.query_one("#result-summary", Static).content)
             original = self.settings_path.read_bytes()
-            with patch("acprof.tui.configuration_controller.save_settings") as save:
+            with patch("acprof.tui.settings.controller.save_settings") as save:
                 app.results.summarize_results_button()
                 app.query_one("#result-csv", Input).value = str(csv_path.with_name("missing.csv"))
                 app.results.summarize_results_button()
@@ -611,7 +611,7 @@ class TestTuiModelMemory:
         original = self.settings_path.read_bytes()
         app = AcprofTui(settings_path=self.settings_path)
         async with app.run_test(size=(120, 30)):
-            with patch("acprof.tui.configuration_controller.save_settings", side_effect=OSError("disk error")) as save:
+            with patch("acprof.tui.settings.controller.save_settings", side_effect=OSError("disk error")) as save:
                 app.results.update_result_summary(str(csv_path))
                 await app.workers.wait_for_complete()
                 assert (save.call_count) == (0 if corrupt else 1)
@@ -624,18 +624,18 @@ class TestTuiModelMemory:
         original = self.settings_path.read_bytes()
         app = AcprofTui(settings_path=self.settings_path)
         async with app.run_test(size=(120, 30)):
-            app.process_kind = "run"
-            app.latest_snapshot = ProgressSnapshot(measurement_active=True)
+            app.execution.session.kind = "run"
+            app.execution.session.snapshot = ProgressSnapshot(measurement_active=True)
             app.set_busy(True)
             assert (app.query_one("#summarize-results", Button).disabled)
-            with patch("acprof.tui.result_controller.summarize_result_csv") as read_results:
+            with patch("acprof.tui.results.controller.summarize_result_csv") as read_results:
                 app.results.summarize_results_button()
                 app.slash.slash_command_submitted(Input.Submitted(
                     app.query_one("#slash-command", Input), "/results unused.csv",
                 ))
                 read_results.assert_not_called()
             assert (self.settings_path.read_bytes()) == (original)
-            app.process_kind = ""
+            app.execution.session.kind = ""
             app.set_busy(False)
 
 
@@ -680,6 +680,6 @@ class TestTuiMainSettings:
         app = run.call_args.args[0]
         assert (app.configuration.initial_config) == (expected)
         assert (app.configuration.preferences.theme) == ("acprof-light")
-        from acprof.tui.run_form import infer_preset
+        from acprof.tui.run.form import infer_preset
         assert (app.configuration.initial_preset) == (infer_preset(expected))
         assert (self.settings_path.read_bytes()) == (original)

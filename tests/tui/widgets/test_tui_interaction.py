@@ -9,8 +9,8 @@ from textual.widgets import Button, Input, Select, Static
 from acprof.experiments.configuration import RunConfig
 from acprof.installation import cli_command
 from acprof.tui.commands import format_command
-from acprof.tui.progress import ProgressSnapshot
-from acprof.tui.stages import Stage
+from acprof.tui.run.progress import ProgressSnapshot
+from acprof.tui.run.stages import Stage
 from tests.support.tui_fixtures import AcprofTui
 
 PROJECT_DIR = Path(__file__).resolve().parents[3]
@@ -55,8 +55,8 @@ class TestTuiInteraction:
         app = ClosingElapsedApp(RunConfig.smoke("demo/model"), settings_path=self.settings_path)
         async with app.run_test(size=(120, 30)) as pilot:
             await pilot.pause()
-            app.process_kind = "probe"
-            app.started_monotonic = time.monotonic() - 2
+            app.execution.session.kind = "probe"
+            app.execution.session.started_monotonic = time.monotonic() - 2
             app.elapsed_timer = app.set_interval(60, app.tick_elapsed)
             with patch.object(app.query_one("#status-elapsed", Static), "update") as update:
                 app.tick_elapsed()
@@ -133,8 +133,8 @@ class TestTuiInteraction:
         app = AcprofTui(RunConfig.smoke("demo/model"), settings_path=self.settings_path)
         async with app.run_test(size=(140, 45)) as pilot:
             await pilot.pause()
-            app.process_kind = "run"
-            app.started_monotonic = time.monotonic() - 5
+            app.execution.session.kind = "run"
+            app.execution.session.started_monotonic = time.monotonic() - 5
             timer = Mock()
             app.elapsed_timer = timer
             with patch.object(app, 'render_snapshot') as render:
@@ -166,7 +166,7 @@ class TestTuiInteraction:
                 assert not app.logs.log.suspended
                 timer.pause.assert_not_called()
                 timer.resume.assert_not_called()
-            app.process_kind = ""
+            app.execution.session.kind = ""
             app.elapsed_timer = None
 
 

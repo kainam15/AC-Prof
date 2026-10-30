@@ -11,9 +11,9 @@ from textual.widgets import Button, Input, Select, Static, TabbedContent
 import tests.support.catalog_fixtures as catalog_fixture
 from acprof.experiments.arguments import build_parser
 from acprof.experiments.configuration import RunConfig, RunConfigError, build_run_command
-from acprof.tui.experiment_catalog import scan_experiments
-from acprof.tui.experiment_picker import SearchPickerScreen
-from acprof.tui.settings import TuiSettings, load_settings, save_settings
+from acprof.tui.experiments.catalog import scan_experiments
+from acprof.tui.experiments.picker import SearchPickerScreen
+from acprof.tui.settings.preferences import TuiSettings, load_settings, save_settings
 from tests.support.tui_fixtures import AcprofTui
 
 
@@ -35,7 +35,7 @@ def test_extra_options_are_typed_cannot_override_fields_and_survive_settings(ext
         from acprof.tui.commands import build_probe_command
         probe = build_probe_command(config, project_dir=root)
         assert (probe[probe.index('--revision') + 1]) == (config.revision)
-        from acprof.tui.run_form import matches_preset
+        from acprof.tui.run.form import matches_preset
         assert not (matches_preset(config, 'smoke'))
         assert (config.with_preset('main').revision) == ('a' * 40)
         with pytest.raises(RunConfigError):
@@ -134,8 +134,8 @@ class TestCatalogWorkflow:
                 assert (app.query_one('#' + target, Input).value) == (str(expected))
                 await app.workers.wait_for_complete()
                 await pilot.pause()
-            app.latest_snapshot = replace(app.latest_snapshot, measurement_active=True)
-            with patch('acprof.tui.catalog_controller.scan_experiments') as scan:
+            app.execution.session.snapshot = replace(app.execution.session.snapshot, measurement_active=True)
+            with patch('acprof.tui.experiments.controller.scan_experiments') as scan:
                 app.catalog.open_experiment_picker('result-csv')
                 await pilot.pause()
                 scan.assert_not_called()

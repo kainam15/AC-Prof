@@ -17,9 +17,9 @@ from acprof.experiments.configuration import RunConfig
 from acprof.host.model_store import store as model_store
 from acprof.host.preparation.network_preflight import preflight
 from acprof.network_policy import DownloadPolicyError
-from acprof.tui.experiment_picker import SearchPickerScreen
-from acprof.tui.model_candidates import cached_candidates
-from acprof.tui.settings import TuiSettings, UiPreferences, save_settings
+from acprof.tui.experiments.picker import SearchPickerScreen
+from acprof.tui.models.candidates import cached_candidates
+from acprof.tui.settings.preferences import TuiSettings, UiPreferences, save_settings
 from tests.support.tui_fixtures import AcprofTui
 
 CONTENT = b"{}"
@@ -163,7 +163,7 @@ async def test_cached_view_can_be_selected_at_80x24_without_source_index(prepare
     save_settings(settings, TuiSettings(ui=UiPreferences(language=language)), root)
     config = replace(RunConfig.smoke("example/new"), output_dir=str(root / "results"), model_store=str(root))
     app = AcprofTui(config, settings_path=settings)
-    with patch("acprof.tui.model_candidates.current_context", return_value={"warnings": []}):
+    with patch("acprof.tui.models.candidates.current_context", return_value={"warnings": []}):
         async with app.run_test(size=(80, 24)) as pilot:
             await pilot.pause()
             app.query_one("#model", Input).focus()

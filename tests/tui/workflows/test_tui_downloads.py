@@ -11,9 +11,9 @@ from textual.widgets import Button, Collapsible, ContentSwitcher, Input, Select,
 from acprof.experiments.configuration import RunConfig, build_run_command
 from acprof.tui.commands import build_probe_command
 from acprof.tui.i18n import translate
-from acprof.tui.model_store import ModelStoreScreen
-from acprof.tui.settings import TuiSettings, load_settings, save_settings
-from acprof.tui.views import ConfirmActionScreen
+from acprof.tui.models.store import ModelStoreScreen
+from acprof.tui.settings.preferences import TuiSettings, load_settings, save_settings
+from acprof.tui.ui.dialogs import ConfirmActionScreen
 from tests.support.tui_fixtures import AcprofTui
 
 
@@ -34,7 +34,7 @@ def download_report():
 
 
 def test_download_summary_formats_sizes_without_mutating_report(download_report):
-    from acprof.tui.downloads import download_summary
+    from acprof.tui.run.downloads import download_summary
 
     original = deepcopy(download_report)
     summary = download_summary(download_report, lambda value: translate(value, "en"))
@@ -51,7 +51,7 @@ def test_download_summary_formats_sizes_without_mutating_report(download_report)
 
 
 def test_download_summary_keeps_unknown_distinct_from_zero_and_unlimited():
-    from acprof.tui.downloads import download_summary
+    from acprof.tui.run.downloads import download_summary
 
     report = {"expected_download_bytes": None, "direct_download_bytes": None, "proxy_download_bytes": 0}
     summary = download_summary(report, lambda value: translate(value, "en"))
@@ -66,7 +66,7 @@ def test_download_summary_keeps_unknown_distinct_from_zero_and_unlimited():
 
 
 def test_unknown_download_origin_remains_translatable_alongside_known_hosts():
-    from acprof.tui.downloads import download_summary
+    from acprof.tui.run.downloads import download_summary
 
     report = {"sources": [{"category": "python", "url": ""},
                           {"category": "python", "url": "https://files.pythonhosted.org/wheel"}]}
@@ -107,8 +107,8 @@ async def test_budget_settings_and_prune_confirmation_in_both_languages(size, la
                               "model_revision": "a" * 40, "model_artifact_bytes": 100,
                               "last_used": 946_728_000} for key in ("old", "new")]}
         preview = {"entries": ["old"], "reclaimable_bytes": 40}
-        with patch("acprof.tui.model_store.disk_report", return_value=report), patch(
-            "acprof.tui.model_store.prune_store", return_value=preview,
+        with patch("acprof.tui.models.store.disk_report", return_value=report), patch(
+            "acprof.tui.models.store.prune_store", return_value=preview,
         ) as prune:
             async with app.run_test(size=size) as pilot:
                 app.query_one("#ui-language", Select).value = language
@@ -166,8 +166,8 @@ async def test_budget_settings_and_prune_confirmation_in_both_languages(size, la
                 await pilot.pause()
                 assert not (app.is_busy())
                 prune.reset_mock()
-                app.latest_snapshot = replace(app.latest_snapshot, measurement_active=True)
+                app.execution.session.snapshot = replace(app.execution.session.snapshot, measurement_active=True)
                 app.preflight.open_model_store()
                 assert not isinstance(app.screen, ModelStoreScreen)
                 prune.assert_not_called()
-                app.latest_snapshot = replace(app.latest_snapshot, measurement_active=False)
+                app.execution.session.snapshot = replace(app.execution.session.snapshot, measurement_active=False)

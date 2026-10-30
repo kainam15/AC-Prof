@@ -5,10 +5,10 @@ from unittest.mock import patch
 import pytest
 
 from acprof.events.download import DownloadProgress
-from acprof.tui.log import SelectableLog
-from acprof.tui.process import StopResult
-from acprof.tui.progress import ProgressSnapshot
-from acprof.tui.stages import Stage
+from acprof.tui.logging.widget import SelectableLog
+from acprof.tui.run.process import StopResult
+from acprof.tui.run.progress import ProgressSnapshot
+from acprof.tui.run.stages import Stage
 from tests.support.tui_fixtures import AcprofTui
 
 
@@ -179,7 +179,7 @@ async def test_cleanup_failure_buffers_details_until_measurement_ends(tmp_path):
         assert "buffered diagnostic" not in screen_text(app)
         assert app.logs.log.suspended
         assert app.logs.timer is None
-        app.consume_process_line("", replace(app.latest_snapshot, measurement_active=False), True)
+        app.consume_process_line("", replace(app.execution.session.snapshot, measurement_active=False), True)
         app.logs.flush()
         await pilot.pause()
         assert "SIGTERM timeout" in app.logs.log.text

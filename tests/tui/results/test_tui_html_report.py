@@ -14,8 +14,8 @@ from tests.support.tui_fixtures import AcprofTui
 from acprof.results.layout import ArtifactLayout
 from acprof.experiments.configuration import RunConfigError
 from acprof.tui import commands
-from acprof.tui.process_controller import ProcessController
-from acprof.tui.settings import TuiSettings, UiPreferences, save_settings
+from acprof.tui.run.process_controller import ProcessController
+from acprof.tui.settings.preferences import TuiSettings, UiPreferences, save_settings
 
 
 @pytest.fixture
@@ -78,14 +78,14 @@ async def test_generate_button_is_reachable_and_measurement_blocks_it(tmp_path, 
             assert await pilot.click(button)
             await pilot.pause()
             assert execute.call_count == 1
-            assert app.process_kind == "html-report"
+            assert app.execution.session.kind == "html-report"
             assert button.disabled
             app.results.launch_html_report()
             assert execute.call_count == 1
             app.process_finished("html-report", 1, None, "fixture failure")
             assert "fixture failure" in str(app.query_one("#html-report-status", Static).content)
             assert not app.is_busy()
-            app.latest_snapshot = replace(app.latest_snapshot, measurement_active=True)
+            app.execution.session.snapshot = replace(app.execution.session.snapshot, measurement_active=True)
             app.results.launch_html_report()
             assert execute.call_count == 1
 
@@ -170,7 +170,7 @@ async def test_export_button_and_failure_keep_generated_artifact(
     tmp_path, monkeypatch, language, failed, exported, failure_kind,
 ):
     from acprof import artifacts
-    from acprof.tui import report_files
+    from acprof.tui.results import report_files
 
     source = tmp_path / "report.html"
     source.write_bytes(b"<html>complete offline report</html>")
@@ -229,7 +229,7 @@ async def test_export_button_and_failure_keep_generated_artifact(
 
 def test_measurement_lock_blocks_html_export(tmp_path):
     from acprof.host.run_state import MeasurementLock
-    from acprof.tui.report_files import export_html_file
+    from acprof.tui.results.report_files import export_html_file
     source, target = tmp_path / "report.html", tmp_path / "export.html"
     source.write_text("report")
     with MeasurementLock(), pytest.raises(RuntimeError):
@@ -325,14 +325,14 @@ async def test_cancel_reaps_process_and_keeps_previous_html(tmp_path, csv_result
         await pilot.press("escape")
         await pilot.pause()
         assert app.is_busy()
-        assert not app.stop_requested
+        assert not app.execution.session.stop_requested
         assert await pilot.click(cancel)
         await pilot.pause()
         assert await pilot.click("#confirm-yes")
         await app.workers.wait_for_complete()
         await pilot.pause()
         assert not app.is_busy()
-        assert app.lifecycle.process is None
+        assert app.execution.lifecycle.process is None
         assert "已取消" in str(app.query_one("#html-report-status", Static).content)
         assert old.read_text() == "old"
         assert app.query_one("#html-report-path", Input).value == str(old)
@@ -372,7 +372,7 @@ async def test_local_browser_action_does_not_change_report(tmp_path, outcome):
 
 
 def test_export_is_identical_and_refuses_existing_files_and_links(tmp_path):
-    from acprof.tui.report_files import export_html_file
+    from acprof.tui.results.report_files import export_html_file
     source, target = tmp_path / "source.html", tmp_path / "target.html"
     source.write_bytes(b"<html>offline report</html>")
     export_html_file(source, target)

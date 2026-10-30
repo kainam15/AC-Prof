@@ -25,12 +25,12 @@ from acprof.experiments.configuration import RunConfig, RunConfigError, build_ru
 from acprof.messages import message
 from acprof.tui.app import PROJECT_DIR
 from acprof.tui.catalog import ENGLISH_BY_ID, MESSAGES, SOURCE_BY_ID, SOURCE_TO_ID
-from acprof.tui.diagnostics import PreflightCheck, ResultSummary
 from acprof.tui.i18n import ENGLISH, CatalogMessage, error_message, message_id, translate
-from acprof.tui.log import SelectableLog
-from acprof.tui.progress import ProgressSnapshot, RunProgressTracker
-from acprof.tui.settings import TuiSettings, load_settings, save_settings
-from acprof.tui.stages import Stage
+from acprof.tui.logging.widget import SelectableLog
+from acprof.tui.run.diagnostics import PreflightCheck, ResultSummary
+from acprof.tui.run.progress import ProgressSnapshot, RunProgressTracker
+from acprof.tui.run.stages import Stage
+from acprof.tui.settings.preferences import TuiSettings, load_settings, save_settings
 from tests.support.tui_fixtures import AcprofTui
 
 
@@ -206,12 +206,12 @@ class TestTuiLanguage:
                 stage=Stage.CASE_COMPLETED, current_case=1, completed_cases=1, total_cases=2,
                 cpu="1", mem="4", gpu="on", detail=message("正在准备 case {0}/{1}", 1, 2),
             )
-            app.latest_snapshot = snapshot
+            app.execution.session.snapshot = snapshot
             app.render_snapshot(snapshot)
             summary = ResultSummary(3, 2, 1, 1, 2, groups=(dict(cpu_cores=1, mem_cap_gb=4,
                 gpu_mode="off", input_scale=64, environment_class="unknown", metric="latency_app_s",
                 mean=0.02, unit="s", n_windows=1, reason="insufficient_windows"),))
-            with patch("acprof.tui.result_controller.summarize_result_csv", return_value=summary) as read_results:
+            with patch("acprof.tui.results.controller.summarize_result_csv", return_value=summary) as read_results:
                 app.results.update_result_summary("read-once.csv", notify=False)
                 await app.workers.wait_for_complete()
                 await pilot.pause()
@@ -231,7 +231,7 @@ class TestTuiLanguage:
             assert (str(app.query_one("#open-run-settings", Button).label)) == ("Basic settings")
             assert (app.query_one("#status-stage", Static).content) == ("Case completed")
             assert (app.query_one("#status-stage").has_class("stage-success"))
-            assert (app.latest_snapshot) is (snapshot)
+            assert (app.execution.session.snapshot) is (snapshot)
             assert (app.query_one("#status-case", Static).content) == ("Current 1 · Done 1/2")
             assert (app.query_one("#status-resource", Static).content) == ("CPU=1  MEM=4GB  GPU=on")
             assert ((log.text, log.selection, log.scroll_y)) == ((old_text, old_selection, old_scroll))
@@ -349,12 +349,12 @@ class TestTuiLanguage:
                 for widget in app.localization.localized_selects:
                     displayed = widget.query_one("SelectCurrent #label", Static).content
                     assert (re.search(r"[\u4e00-\u9fff]", str(displayed))) is None, widget
-            app.process_kind = "run"
+            app.execution.session.kind = "run"
             app.set_busy(True)
             assert (app.query_one("#ui-language", Select).disabled)
             app.query_one("#ui-language", Select).value = "zh" if language == "en" else "en"
             await pilot.pause()
             assert app.configuration.preferences.language == language
-            app.process_kind = ""
+            app.execution.session.kind = ""
             app.set_busy(False)
             assert not (app.query_one("#ui-language", Select).disabled)

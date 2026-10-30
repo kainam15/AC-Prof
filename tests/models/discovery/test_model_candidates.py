@@ -14,7 +14,7 @@ class TestModelCandidate(ModelCandidateFixture):
     def _setup(self, request, tmp_path):
         self.build(request, tmp_path)
     def test_coverage_candidate_retains_attempt_resources_and_failed_access_evidence(self):
-        from acprof.tui.model_candidates import coverage_candidates
+        from acprof.tui.models.candidates import coverage_candidates
         root = self.fixture.root
         report = root / 'coverage.json'
         report.write_text(json.dumps({'schema_version': 2, 'scope': 'selected_sample_only; no_formal_measurement',
@@ -27,7 +27,7 @@ class TestModelCandidate(ModelCandidateFixture):
         assert (candidates[0].history_status) == ('access_required')
         assert ('access_denied') in (candidates[0].reason)
         assert ('current conditions') in (candidates[0].reason)
-        from acprof.tui.model_candidates import model_choice
+        from acprof.tui.models.candidates import model_choice
         assert ('use') in (model_choice(candidates[0]).actions)
         assert (candidates[0].conditions['mems']) == ('8')
         assert (candidates[0].report) == (report)
@@ -44,7 +44,7 @@ class TestModelCandidate(ModelCandidateFixture):
 
     @pytest.mark.parametrize('key_case', range(7), ids=["('revision', 'b' * 40)", "('runtime_environment', 'env-b')", "('device', 'GPU-other')", "('mems', '8')", "('host_id', 'host-b')", "('execution_options', {'cpuset_cpus': '0-1'})", "('execution_options', {'input_scales': '128'})"])
     def test_success_is_bound_to_revision_runtime_device_and_resources(self, key_case):
-        from acprof.tui.model_candidates import candidate_from_record, record_conditions
+        from acprof.tui.models.candidates import candidate_from_record, record_conditions
         record = self.recorded()
         conditions = record_conditions(record)
         candidate = candidate_from_record(record, conditions)
@@ -59,7 +59,7 @@ class TestModelCandidate(ModelCandidateFixture):
         assert ('revision') in (candidate.reason)
 
     def test_failures_remain_selectable_with_original_resources_and_source(self):
-        from acprof.tui.model_candidates import candidate_from_record, record_conditions
+        from acprof.tui.models.candidates import candidate_from_record, record_conditions
         record = self.recorded(code='resource_limit')
         candidate = candidate_from_record(record, record_conditions(record))
         assert (candidate.status) == ('resource_limited')
@@ -76,7 +76,7 @@ class TestModelCandidate(ModelCandidateFixture):
         from types import SimpleNamespace
         from unittest.mock import patch
 
-        from acprof.tui.model_candidates import cached_candidates
+        from acprof.tui.models.candidates import cached_candidates
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             entry = root / 'entries' / ('a' * 64)
@@ -102,7 +102,7 @@ class TestModelCandidate(ModelCandidateFixture):
 
         from acprof.experiments.configuration import RunConfig
         from acprof.host.images.runtime import select_nlp_torch_index_url
-        from acprof.tui.model_candidates import current_conditions, current_context
+        from acprof.tui.models.candidates import current_conditions, current_context
         record = self.recorded()
         task = {'model_id': record.model_id, 'pipeline_tag': 'fill-mask', 'task_family': 'nlp',
                 'runtime_backend': 'transformers_model', 'library_name': 'transformers',
@@ -129,7 +129,7 @@ class TestModelCandidate(ModelCandidateFixture):
                 device.assert_not_called()
 
     def test_missing_thread_evidence_and_changed_thread_or_input_options_require_revalidation(self):
-        from acprof.tui.model_candidates import candidate_from_record, record_conditions
+        from acprof.tui.models.candidates import candidate_from_record, record_conditions
         record = self.recorded()
         conditions = record_conditions(record)
         for changes in ({'input_scales': '128'}, {'input_scale_policy': 'minimal'}, {'cpuset_cpus': '0-1'},
@@ -144,7 +144,7 @@ class TestModelCandidate(ModelCandidateFixture):
         from unittest.mock import patch
 
         from acprof.experiments.configuration import RunConfig
-        from acprof.tui.model_candidates import current_context
+        from acprof.tui.models.candidates import current_context
         config = RunConfig.smoke('demo/model')
         with patch('acprof.host.run_state.host_identity', return_value={'machine_id_sha256': 'host-a'}), \
              patch('acprof.host.images.runtime.select_nlp_torch_index_url', side_effect=TimeoutExpired('nvidia-smi', 10)) as select, \

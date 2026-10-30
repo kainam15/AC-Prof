@@ -26,15 +26,15 @@ from textual.widgets import (
 from acprof.experiments.configuration import RunConfig
 from acprof.host.images.inventory import ImageManagementError, ManagedImage, list_images
 from acprof.tui.commands import PendingLaunch
-from acprof.tui.image_controller import ImageController
-from acprof.tui.images import (
+from acprof.tui.images.controller import ImageController
+from acprof.tui.images.presentation import (
     filtered_images,
     image_created_text,
     image_display_name,
     image_metadata,
     layer_image_detail,
 )
-from acprof.tui.progress import ProgressSnapshot
+from acprof.tui.run.progress import ProgressSnapshot
 from tests.runtime.containers.test_image_management import (
     FINAL,
     RUNTIME,
@@ -289,8 +289,8 @@ class TestTuiImages:
             elif interruption == "hidden":
                 app.configuration.show_settings()
             elif interruption == "measurement":
-                app.process_kind = "run"
-                app.latest_snapshot = ProgressSnapshot(measurement_active=True)
+                app.execution.session.kind = "run"
+                app.execution.session.snapshot = ProgressSnapshot(measurement_active=True)
                 app.set_busy(True)
             else:
                 await pilot.resize_terminal(150, 45)
@@ -302,8 +302,8 @@ class TestTuiImages:
             await pilot.mouse_up(offset=(60, 5))
             if interruption == "measurement":
                 assert (handle.disabled)
-                app.process_kind = ""
-                app.latest_snapshot = ProgressSnapshot()
+                app.execution.session.kind = ""
+                app.execution.session.snapshot = ProgressSnapshot()
                 app.set_busy(False)
             elif interruption == "hidden":
                 await self.load_images(app, pilot)
@@ -1007,7 +1007,7 @@ class TestTuiImages:
 
     async def test_full_tree_names_digest_verified_untagged_python_upstream(self):
         from acprof.runtime.profiles import PYTHON_BASE_IMAGE
-        from acprof.tui.images import image_diagnostics
+        from acprof.tui.images.presentation import image_diagnostics
 
         upstream = "sha256:" + "e" * 64
         digest = PYTHON_BASE_IMAGE.replace(":3.12.15-slim-trixie@", "@")
@@ -1252,16 +1252,16 @@ class TestTuiImages:
             start = header_offset(table, 1)
             await pilot.mouse_down(table, offset=start)
             assert (app.mouse_captured) is (table)
-            app.process_kind = "run"
-            app.latest_snapshot = ProgressSnapshot(measurement_active=True)
+            app.execution.session.kind = "run"
+            app.execution.session.snapshot = ProgressSnapshot(measurement_active=True)
             app.set_busy(True)
             await pilot.pause()
             assert (app.mouse_captured) is None
             await pilot.hover(table, offset=(start[0] - 6, 0))
             await pilot.mouse_up(table, offset=(start[0] - 6, 0))
             assert (table.columns["name"].width) == (76)
-            app.process_kind = ""
-            app.latest_snapshot = ProgressSnapshot()
+            app.execution.session.kind = ""
+            app.execution.session.snapshot = ProgressSnapshot()
             app.set_busy(False)
             await pilot.pause()
             await drag(pilot, table, header_offset(table, 1), -6)
@@ -1423,7 +1423,7 @@ class TestTuiImages:
             await self.load_images(app, pilot)
             await pilot.click("#image-toggle")
             await pilot.pause()
-            with patch("acprof.tui.image_controller.list_images", side_effect=ImageManagementError("无法执行 Docker", "permission denied")):
+            with patch("acprof.tui.images.controller.list_images", side_effect=ImageManagementError("无法执行 Docker", "permission denied")):
                 app.images.refresh_images()
                 await app.workers.wait_for_complete()
                 await pilot.pause()
@@ -1454,7 +1454,7 @@ class TestTuiImages:
                 loop.call_soon_threadsafe(refreshed.set)
                 return inventory
 
-            with patch("acprof.tui.image_controller.list_images", side_effect=read):
+            with patch("acprof.tui.images.controller.list_images", side_effect=read):
                 app.images.refresh_timer.reset()
                 await asyncio.wait_for(refreshed.wait(), timeout=3)
                 await app.workers.wait_for_complete()
@@ -1496,7 +1496,7 @@ class TestTuiImages:
             await pilot.click("#image-toggle")
             app.configuration.show_settings()
             await pilot.pause()
-            with patch("acprof.tui.image_controller.list_images") as read:
+            with patch("acprof.tui.images.controller.list_images") as read:
                 app.images.refresh_images()
                 await pilot.pause()
                 read.assert_not_called()
@@ -1507,7 +1507,7 @@ class TestTuiImages:
             await pilot.pause()
             await pilot.click("#image-delete")
             await pilot.pause()
-            with patch("acprof.tui.image_controller.list_images") as read:
+            with patch("acprof.tui.images.controller.list_images") as read:
                 app.images.refresh_images()
                 await pilot.pause()
                 read.assert_not_called()
@@ -1613,7 +1613,7 @@ class TestTuiImages:
         app.IMAGE_REFRESH_INTERVAL = 0.1
         async with app.run_test(size=(120, 30)) as pilot:
             await self.load_images(app, pilot)
-            app.process_kind = "run"
+            app.execution.session.kind = "run"
             app.set_busy(True)
             app.consume_process_line("", ProgressSnapshot(measurement_active=True), False)
             commands = len(self.docker.commands)
@@ -1629,21 +1629,21 @@ class TestTuiImages:
                 loop.call_soon_threadsafe(refreshed.set)
                 return inventory
 
-            with patch("acprof.tui.image_controller.list_images", side_effect=read):
+            with patch("acprof.tui.images.controller.list_images", side_effect=read):
                 app.process_finished("run", 1, None, "test failure")
                 await asyncio.wait_for(refreshed.wait(), timeout=3)
                 await app.workers.wait_for_complete()
                 app.images.refresh_timer.pause()
                 await pilot.pause()
-            assert not (app.latest_snapshot.measurement_active)
+            assert not (app.execution.session.snapshot.measurement_active)
             assert (app.query_one("#image-table", DataTable).row_count) == (3)
 
     async def test_measurement_and_image_operations_are_mutually_exclusive(self):
         app = self.make_app()
         async with app.run_test(size=(120, 30)) as pilot:
             await self.load_images(app, pilot)
-            app.process_kind = "run"
-            app.latest_snapshot = ProgressSnapshot(measurement_active=True)
+            app.execution.session.kind = "run"
+            app.execution.session.snapshot = ProgressSnapshot(measurement_active=True)
             app.set_busy(True)
             before = len(self.docker.commands)
             app.images.refresh_images()
@@ -1653,8 +1653,8 @@ class TestTuiImages:
             await pilot.pause()
             assert (len(self.docker.commands)) == (before)
             assert (all(widget.disabled for widget in app.query(".image-control")))
-            app.process_kind = ""
-            app.latest_snapshot = ProgressSnapshot()
+            app.execution.session.kind = ""
+            app.execution.session.snapshot = ProgressSnapshot()
             app.set_busy(False)
             with patch.object(ImageController, 'execute_image_refresh') as read, patch.object(app.process, 'execute_command') as execute:
                 app.images.refresh_images()

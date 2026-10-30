@@ -7,7 +7,7 @@ import pytest
 from textual.widgets import Button
 
 from acprof.experiments.configuration import RunConfig
-from acprof.tui.views import ConfirmActionScreen
+from acprof.tui.ui.dialogs import ConfirmActionScreen
 from tests.support.tui_fixtures import AcprofTui
 
 

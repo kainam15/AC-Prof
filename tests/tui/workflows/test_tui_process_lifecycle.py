@@ -12,7 +12,7 @@ from unittest.mock import Mock, patch
 import pytest
 from textual.widgets import Button, Static
 
-from acprof.tui.process import ProcessLifecycle, StopResult
+from acprof.tui.run.process import ProcessLifecycle, StopResult
 from tests.support.tui_fixtures import AcprofTui
 
 
@@ -106,7 +106,7 @@ def test_unmount_uses_cleanup_and_prevents_late_launch():
         app = AcprofTui(settings_path=Path(directory) / "settings.json")
         asyncio.run(app.on_unmount())
         with pytest.raises(RuntimeError, match="closing"):
-            app.lifecycle.start(["unused"], cwd=directory, env={})
+            app.execution.lifecycle.start(["unused"], cwd=directory, env={})
 
 def test_missing_group_does_not_release_an_unreaped_process():
     manager = ProcessLifecycle(interrupt_timeout=0, terminate_timeout=0)
@@ -126,8 +126,8 @@ async def test_cleanup_timeout_keeps_stop_enabled_and_start_disabled():
             await pilot.pause()
             process = Mock(pid=12345)
             process.poll.return_value = None
-            app.lifecycle.process = process
-            app.process_kind = "run"
+            app.execution.lifecycle.process = process
+            app.execution.session.kind = "run"
             app.process_cleanup_incomplete(StopResult(12345, None, "SIGTERM timeout"))
             assert (app.is_busy())
             assert (app.query_one("#start-run", Button).disabled)
@@ -135,4 +135,4 @@ async def test_cleanup_timeout_keeps_stop_enabled_and_start_disabled():
             assert ("清理未完成") in (str(app.query_one("#status-stage", Static).render()))
             assert ("12345") in (str(app.query_one("#status-detail", Static).render()))
             process.poll.return_value = 0
-            app.lifecycle.release(process)
+            app.execution.lifecycle.release(process)

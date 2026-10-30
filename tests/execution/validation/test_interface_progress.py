@@ -8,7 +8,7 @@ import pytest
 import tests.models.contracts.test_model_contract as contracts
 from acprof.events.preparation import encode_event, parse_event
 from acprof.host.preparation.collection_workflow import PreparationWorkflow
-from acprof.tui.progress import RunProgressTracker
+from acprof.tui.run.progress import RunProgressTracker
 from tests.support.command_fixtures import redirect_command_output
 
 
@@ -198,5 +198,5 @@ async def test_monitor_renders_real_interface_completion(interface_check, capsys
         app.consume_process_line("", snapshot, True)
         await pilot.pause()
         assert not widget.display
-        assert app.latest_snapshot.measurement_active
-        assert app.latest_snapshot.interface_status == "passed"
+        assert app.execution.session.snapshot.measurement_active
+        assert app.execution.session.snapshot.interface_status == "passed"

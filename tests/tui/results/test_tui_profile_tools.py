@@ -10,10 +10,10 @@ from textual.widgets import Button, Checkbox, Collapsible, Input, Select, Static
 from tests.support.tui_fixtures import AcprofTui, checkbox_text
 
 from acprof.experiments.configuration import RunConfig
-from acprof.tui.profile_screen import ProfilerChoiceScreen
-from acprof.tui.profile_status import ProfilerOverview, ProfilerStatus
-from acprof.tui.settings import TuiSettings, UiPreferences, save_settings
-from acprof.tui.views import ConfirmActionScreen
+from acprof.tui.results.profile_screen import ProfilerChoiceScreen
+from acprof.tui.results.profile_status import ProfilerOverview, ProfilerStatus
+from acprof.tui.settings.preferences import TuiSettings, UiPreferences, save_settings
+from acprof.tui.ui.dialogs import ConfirmActionScreen
 
 
 @pytest.mark.parametrize("language", ["zh", "en"])
@@ -209,10 +209,10 @@ class TestTuiProfileTools:
             await pilot.pause()
             app.set_busy(True)
             # Actual busy flags, not just set_busy(True), drive launch eligibility.
-            app.process_kind = "run"
+            app.execution.session.kind = "run"
             app.set_busy(True)
             assert app.query_one("#open-result-profiling", Button).disabled
-            app.process_kind = ""
+            app.execution.session.kind = ""
             app.set_busy(False)
             assert not app.query_one("#open-result-profiling", Button).disabled
 

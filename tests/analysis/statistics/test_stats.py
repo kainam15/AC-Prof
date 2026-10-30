@@ -221,8 +221,8 @@ print("ACPROF_STATS " + json.dumps({"report_path": str(path), "reused": reused})
 
     def test_stats_and_tui_summary_preserve_output_quality_evidence(self):
         from acprof.quality import loading_quality
-        from acprof.tui.diagnostics import result_summary_text, summarize_result_csv
         from acprof.tui.i18n import translate
+        from acprof.tui.run.diagnostics import result_summary_text, summarize_result_csv
         checks = loading_quality({"missing_keys": ["head.weight"]}, source="loader-log")
         (self.directory / "quality_checks.json").write_text(json.dumps({"schema_version": 1, "checks": checks}))
         stream = io.StringIO()

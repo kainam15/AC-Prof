@@ -4,7 +4,7 @@ import pytest
 from textual.app import App, ComposeResult
 from textual.widgets import Checkbox
 
-from acprof.tui.checkbox import StatusCheckbox
+from acprof.tui.ui.checkbox import StatusCheckbox
 from tests.support.tui_fixtures import checkbox_text
 
 

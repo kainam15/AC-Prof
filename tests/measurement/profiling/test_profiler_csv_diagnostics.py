@@ -15,7 +15,7 @@ from acprof.host.posthoc.context import (
     load_result_context,
 )
 from acprof.results.layers import publish_result_layers
-from acprof.tui import profile_status
+from acprof.tui.results import profile_status
 from tests.measurement.profiling.test_posthoc import TestPosthocProfile as _PosthocFixture
 from tests.runtime.containers.test_layer_read_cancellation import source_hashes
 from tests.tui.results.test_profile_overview_snapshot import profile_store, run_summary_worker

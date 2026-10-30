@@ -7,9 +7,9 @@ from textual.strip import Strip
 from textual.widgets import Select, Static
 
 from acprof.events.download import DownloadProgress
-from acprof.tui.log import SelectableLog
-from acprof.tui.progress import ProgressSnapshot
-from acprof.tui.progress_widgets import DownloadProgressContent, DownloadProgressPanel
+from acprof.tui.logging.widget import SelectableLog
+from acprof.tui.run.progress import ProgressSnapshot
+from acprof.tui.ui.progress_widgets import DownloadProgressContent, DownloadProgressPanel
 from tests.support.tui_fixtures import AcprofTui
 
 

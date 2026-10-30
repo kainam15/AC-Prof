@@ -12,16 +12,16 @@ import pytest
 from textual.widgets import Button, OptionList, Static
 
 from acprof.results.layout import ArtifactLayout
-from acprof.tui.input import BarCursorInput as Input
-from acprof.tui.log import SelectableLog
-from acprof.tui.log_export import (
+from acprof.tui.logging.export import (
     default_log_export_dir,
     default_log_export_filename,
     list_export_directories,
     log_export_path,
     write_log_export,
 )
-from acprof.tui.settings import TuiSettings, UiPreferences, load_settings, save_settings
+from acprof.tui.logging.widget import SelectableLog
+from acprof.tui.settings.preferences import TuiSettings, UiPreferences, load_settings, save_settings
+from acprof.tui.ui.input import BarCursorInput as Input
 from tests.support.tui_fixtures import AcprofTui
 
 
@@ -33,7 +33,7 @@ def test_default_directory_uses_home_without_creating_it(tmp_path, monkeypatch):
 
 
 def test_filename_uses_local_wall_clock():
-    with patch('acprof.tui.log_export.datetime') as clock:
+    with patch('acprof.tui.logging.export.datetime') as clock:
         clock.now.return_value = datetime(2026, 10, 26, 14, 5, 6)
         assert default_log_export_filename() == 'acprof-tui-2026-10-26_14-05-06.log'
         clock.now.assert_called_once_with()
@@ -199,7 +199,7 @@ async def test_export_failure_preserves_settings_and_allows_retry(tmp_path, erro
         app.logs.export()
         await pilot.pause()
         app.screen.query_one('#log-export-directory', Input).value = str(tmp_path / 'failed')
-        with patch('acprof.tui.log_controller.write_log_export', side_effect=error), patch.object(app, 'notify') as notify:
+        with patch('acprof.tui.logging.controller.write_log_export', side_effect=error), patch.object(app, 'notify') as notify:
             await pilot.click('#log-export-save')
             await app.workers.wait_for_complete()
             await pilot.pause()
@@ -232,7 +232,7 @@ async def test_worker_keeps_measurement_gate_until_write_completes(tmp_path):
         app.logs.export()
         await pilot.pause()
         app.screen.query_one('#log-export-directory', Input).value = str(tmp_path / 'out')
-        with patch('acprof.tui.log_controller.write_log_export', side_effect=delayed_write):
+        with patch('acprof.tui.logging.controller.write_log_export', side_effect=delayed_write):
             try:
                 await pilot.press('enter')
                 assert await asyncio.to_thread(entered.wait, 5)
@@ -307,7 +307,7 @@ async def test_cancelled_directory_read_still_blocks_measurement_until_thread_fi
         app.logs.export()
         await pilot.pause()
         app.screen.query_one('#log-export-directory', Input).value = str(tmp_path)
-        with patch('acprof.tui.log_controller.list_export_directories', side_effect=delayed_read):
+        with patch('acprof.tui.logging.controller.list_export_directories', side_effect=delayed_read):
             try:
                 await pilot.click('#log-export-browse')
                 assert await asyncio.to_thread(entered.wait, 5)
@@ -337,7 +337,7 @@ async def test_directory_permission_error_is_visible_and_does_not_select_a_stale
         location = app.screen.query_one('#export-directory-location', Input)
         location.value = str(tmp_path / 'denied')
         location.focus()
-        with patch('acprof.tui.log_controller.list_export_directories',
+        with patch('acprof.tui.logging.controller.list_export_directories',
                    side_effect=PermissionError(errno.EACCES, 'Permission denied', str(tmp_path / 'denied'))):
             await pilot.press('enter')
             await app.workers.wait_for_complete()
@@ -379,7 +379,7 @@ async def test_settings_failure_keeps_successful_export_available(tmp_path, fail
         app.logs.export()
         await pilot.pause()
         app.screen.query_one('#log-export-directory', Input).value = str(tmp_path / 'exports')
-        with patch('acprof.tui.configuration_controller.save_settings', side_effect=PermissionError('settings read-only')), \
+        with patch('acprof.tui.settings.controller.save_settings', side_effect=PermissionError('settings read-only')), \
              patch.object(app, 'notify') as notify:
             await pilot.press('enter')
             await app.workers.wait_for_complete()

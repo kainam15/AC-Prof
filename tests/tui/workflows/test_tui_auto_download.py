@@ -8,9 +8,9 @@ from rich.cells import cell_len
 from textual.widgets import Button, Collapsible, Input, Select, Static, Tooltip
 
 from acprof.experiments.configuration import RunConfig
-from acprof.tui.log import SelectableLog
-from acprof.tui.preparation import ModelSourceScreen, PreparationScreen
-from acprof.tui.process import ProcessLifecycle
+from acprof.tui.logging.widget import SelectableLog
+from acprof.tui.run.preparation import ModelSourceScreen, PreparationScreen
+from acprof.tui.run.process import ProcessLifecycle
 from tests.support.tui_fixtures import AcprofTui
 
 
@@ -89,7 +89,7 @@ workflow.run("model", fail)
     original_start = ProcessLifecycle.start
     def start(owner, _command, **kwargs):
         return original_start(owner, [sys.executable, "-c", script], **kwargs)
-    with patch("acprof.tui.process.ProcessLifecycle.start", autospec=True, side_effect=start):
+    with patch("acprof.tui.run.process.ProcessLifecycle.start", autospec=True, side_effect=start):
         async with app.run_test(size=(80, 24)) as pilot:
             await pilot.click("#start-run")
             async def ready():
@@ -108,7 +108,7 @@ workflow.run("model", fail)
             await pilot.click("#source-confirm")
             await asyncio.wait_for(app.workers.wait_for_complete(), timeout=15)
             await pilot.pause()
-            assert app.lifecycle.process is None
+            assert app.execution.lifecycle.process is None
             config = app.configuration.collect_config()
             assert (config.model_source, config.model) == ("modelscope", "new/model")
             assert not config.resume

@@ -16,7 +16,7 @@ class TestExperimentCatalog(CatalogFixture):
 
     @pytest.mark.parametrize('broken', ['json', 'schema', 'symlink', 'artifact_symlink', 'missing_v2_manifest'])
     def test_invalid_layout_does_not_hide_healthy_experiments(self, broken):
-        from acprof.tui.experiment_catalog import scan_experiments
+        from acprof.tui.experiments.catalog import scan_experiments
         good = self.record('z-good', run_id='healthy')
         bad = self.record('a-bad', run_id='broken')
         manifest = bad / 'result_manifest.json'
@@ -38,7 +38,7 @@ class TestExperimentCatalog(CatalogFixture):
                    for warning in report.warnings)
 
     def test_search_many_records_by_model_date_device_status_and_keep_run_identity(self):
-        from acprof.tui.experiment_catalog import scan_experiments
+        from acprof.tui.experiments.catalog import scan_experiments
         for i in range(25):
             self.record(f'batch-{i}', run_id=f'run-{i}', status='failed' if i == 18 else 'complete', model=f'demo/model-{i}')
         report = scan_experiments([self.root])
@@ -54,7 +54,7 @@ class TestExperimentCatalog(CatalogFixture):
         assert (selected.directory) == (renamed)
 
     def test_duplicate_run_collapses_aliases_and_content_conflict_is_explicit(self):
-        from acprof.tui.experiment_catalog import scan_experiments
+        from acprof.tui.experiments.catalog import scan_experiments
         original = self.record('a')
         copy = self.root / 'b' / original.name
         shutil.copytree(original, copy)
@@ -70,7 +70,7 @@ class TestExperimentCatalog(CatalogFixture):
         assert not (report.records[0].has_recovery_state)
 
     def test_scan_is_bounded_skips_symlink_and_reports_bad_json(self):
-        from acprof.tui.experiment_catalog import scan_experiments
+        from acprof.tui.experiments.catalog import scan_experiments
         path = self.record('known')
         outside = self.root / 'outside'
         outside.mkdir()
@@ -84,7 +84,7 @@ class TestExperimentCatalog(CatalogFixture):
         assert (any('scan_limit' in warning for warning in limited.warnings))
 
     def test_resume_restores_nonform_options_and_reuse_gets_new_output(self):
-        from acprof.tui.experiment_catalog import (
+        from acprof.tui.experiments.catalog import (
             config_from_record,
             resume_command,
             scan_experiments,
@@ -115,7 +115,7 @@ class TestExperimentCatalog(CatalogFixture):
         assert not (parsed_reuse.prune_startup_oom)
 
     def test_legacy_missing_identity_is_unknown_and_cannot_resume(self):
-        from acprof.tui.experiment_catalog import resume_command, scan_experiments
+        from acprof.tui.experiments.catalog import resume_command, scan_experiments
         path = self.root / 'legacy'
         path.mkdir()
         (path / 'static_meta.json').write_text(json.dumps({'model_name': 'old/model'}))
@@ -125,7 +125,7 @@ class TestExperimentCatalog(CatalogFixture):
             resume_command(record, python_executable=Path('/fixed/python'))
 
     def test_directory_enumeration_and_duplicate_hashing_have_budgets(self):
-        from acprof.tui.experiment_catalog import scan_experiments
+        from acprof.tui.experiments.catalog import scan_experiments
         original = self.record('a')
         shutil.copytree(original, self.root / 'b' / original.name)
         report = scan_experiments([self.root], max_duplicate_bytes=3)
@@ -145,7 +145,7 @@ class TestExperimentCatalog(CatalogFixture):
 
 
 def test_duplicate_run_detects_tampered_layer_even_when_manifest_unchanged(tmp_path):
-    from acprof.tui.experiment_catalog import scan_experiments
+    from acprof.tui.experiments.catalog import scan_experiments
     fixture = CatalogFixture()
     fixture.root = tmp_path
     original = fixture.record("original")
@@ -160,7 +160,7 @@ def test_duplicate_run_detects_tampered_layer_even_when_manifest_unchanged(tmp_p
 
 def test_experiment_source_title_uses_saved_metadata_without_changing_run_identity(tmp_path):
     from acprof.results.layout import ArtifactLayout
-    from acprof.tui.experiment_catalog import experiment_source_title
+    from acprof.tui.experiments.catalog import experiment_source_title
 
     run_id = '33dec6b68b6a4369a278d1b1744b71e4'
     model = 'timm/mobilenetv3_small_100.lamb_in1k'
@@ -188,7 +188,7 @@ def test_experiment_source_title_uses_saved_metadata_without_changing_run_identi
     standalone = tmp_path / 'standalone.csv'
     standalone.write_text('status\nok\n', encoding='utf-8')
     assert experiment_source_title(standalone) == ('standalone.csv', None)
-    from acprof.tui.experiment_catalog import experiment_source_display
+    from acprof.tui.experiments.catalog import experiment_source_display
     assert experiment_source_display(standalone).availability == 'selected'
     assert experiment_source_display(root / 'result_layers.json').availability == 'selected'
     (root / 'static_meta.json').write_text('{}', encoding='utf-8')

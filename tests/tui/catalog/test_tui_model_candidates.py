@@ -10,9 +10,9 @@ from textual.widgets import Button, Input, Select, Static
 
 import tests.support.model_candidate_fixtures as candidate_fixture
 from acprof.experiments.configuration import RunConfig, build_run_command
-from acprof.tui.experiment_picker import SearchPickerScreen
-from acprof.tui.model_candidates import record_conditions
-from acprof.tui.settings import TuiSettings, save_settings
+from acprof.tui.experiments.picker import SearchPickerScreen
+from acprof.tui.models.candidates import record_conditions
+from acprof.tui.settings.preferences import TuiSettings, save_settings
 from tests.support.tui_fixtures import AcprofTui
 
 
@@ -36,8 +36,8 @@ class TestModelInput:
         app = AcprofTui(config, settings_path=root / 'settings.json')
         def conditions(record, config, *args):
             return {**record_conditions(record), 'mems': config.mems}
-        with patch('acprof.tui.model_candidates.current_context', return_value={'warnings': []}), \
-             patch('acprof.tui.model_candidates.current_conditions', side_effect=conditions):
+        with patch('acprof.tui.models.candidates.current_context', return_value={'warnings': []}), \
+             patch('acprof.tui.models.candidates.current_conditions', side_effect=conditions):
             async with app.run_test(size=(80, 24)) as pilot:
                 await pilot.pause()
                 assert (await pilot.click('#model-candidates'))
@@ -74,8 +74,8 @@ class TestModelInput:
         root = self.fixture.fixture.root
         config = replace(RunConfig.smoke(record.model_id), output_dir=str(root), model_store=str(root / 'store'))
         app = AcprofTui(config, settings_path=root / 'settings.json')
-        with patch('acprof.tui.model_candidates.current_context', return_value={'warnings': []}), \
-             patch('acprof.tui.model_candidates.current_conditions', return_value=record_conditions(record)):
+        with patch('acprof.tui.models.candidates.current_context', return_value={'warnings': []}), \
+             patch('acprof.tui.models.candidates.current_conditions', return_value=record_conditions(record)):
             async with app.run_test(size=(80, 24)) as pilot:
                 await pilot.pause()
                 assert await pilot.click('#model-candidates')
@@ -107,8 +107,8 @@ class TestModelInput:
         app = AcprofTui(RunConfig.smoke('demo/model'), settings_path=root / 'settings.json')
         async with app.run_test(size=(120, 30)) as pilot:
             await pilot.pause()
-            app.latest_snapshot = replace(app.latest_snapshot, measurement_active=True)
-            with patch('acprof.tui.model_controller.scan_experiments') as scan:
+            app.execution.session.snapshot = replace(app.execution.session.snapshot, measurement_active=True)
+            with patch('acprof.tui.models.controller.scan_experiments') as scan:
                 app.models.open_model_candidates()
                 await pilot.pause()
                 scan.assert_not_called()

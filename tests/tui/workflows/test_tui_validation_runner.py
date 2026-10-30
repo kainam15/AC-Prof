@@ -36,7 +36,7 @@ sys.addaudithook(protect_production_lock)
             runner = (
                 "from pathlib import Path\nfrom unittest.mock import patch\n"
                 "with (\n"
-                "    patch('acprof.tui.preflight_controller.quick_preflight', return_value=[]),\n"
+                "    patch('acprof.tui.run.preflight_controller.quick_preflight', return_value=[]),\n"
                 f"    patch('acprof.host.run_state.MEASUREMENT_LOCK_ROOT', Path({str(self.measurement_root)!r})),\n"
                 "):\n"
                 f"    exec({runner!r})\n"
@@ -61,7 +61,7 @@ sys.addaudithook(protect_production_lock)
         # Complete in the launch callback, before Textual can render the monitor.
         runner = '''import runpy, sys
 from unittest.mock import patch
-from acprof.tui.process_controller import ProcessController
+from acprof.tui.run.process_controller import ProcessController
 
 def finish_immediately(self, command, kind, *, config):
     self.app.consume_process_line("validation child finished", None, False)
@@ -76,7 +76,7 @@ with patch.object(ProcessController, "execute_command", finish_immediately):
     def test_finished_snapshot_selects_monitor_after_pending_focus(self):
         runner = '''import runpy, sys
 from unittest.mock import patch
-from acprof.tui.process_controller import ProcessController
+from acprof.tui.run.process_controller import ProcessController
 
 def finish_after_focus(self, command, kind, *, config):
     self.app.consume_process_line("validation child finished", None, False)
@@ -102,8 +102,8 @@ with patch.object(ProcessController, "execute_command", finish_after_focus):
 from unittest.mock import patch
 
 sys.argv = sys.argv[1:]
-with patch("acprof.tui.preflight_controller.quick_preflight", side_effect=OSError("host unavailable")), patch(
-    "acprof.tui.process_controller.ProcessController.execute_command", side_effect=AssertionError("unexpected child"),
+with patch("acprof.tui.run.preflight_controller.quick_preflight", side_effect=OSError("host unavailable")), patch(
+    "acprof.tui.run.process_controller.ProcessController.execute_command", side_effect=AssertionError("unexpected child"),
 ):
     runpy.run_path(sys.argv[0], run_name="__main__")
 '''

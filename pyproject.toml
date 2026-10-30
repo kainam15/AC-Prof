@@ -159,10 +159,10 @@ module = [
     "acprof.pixel_metrics",
     "acprof.source_identity",
     "acprof.tui.commands",
-    "acprof.tui.experiment_controller",
-    "acprof.tui.profile_controller",
+    "acprof.tui.run.experiment_controller",
+    "acprof.tui.results.profile_controller",
     "acprof.experiments.options",
-    "acprof.tui.settings",
+    "acprof.tui.settings.preferences",
 ]
 disallow_any_generics = true
 disallow_untyped_defs = true

@@ -6,8 +6,8 @@ from acprof.experiments.configuration import RunConfig
 from acprof.host.detect import TaskInfo
 from acprof.tasks.parameters import parameter_review
 from acprof.tasks.workloads import parse_task
-from acprof.tui.input import BarCursorInput as Input
-from acprof.tui.preparation import PreparationScreen
+from acprof.tui.run.preparation import PreparationScreen
+from acprof.tui.ui.input import BarCursorInput as Input
 from tests.support.tui_fixtures import AcprofTui
 
 

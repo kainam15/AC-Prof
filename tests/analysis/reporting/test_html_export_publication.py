@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from acprof.host import run_state
-from acprof.tui import report_files
+from acprof.tui.results import report_files
 
 
 @pytest.fixture

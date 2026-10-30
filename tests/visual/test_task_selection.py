@@ -5,8 +5,8 @@ import pytest
 from textual.widgets import Button, Checkbox
 
 from acprof.experiments.configuration import RunConfig
-from acprof.tui.preparation import PreparationScreen
-from acprof.tui.task_choices import TaskChoices
+from acprof.tui.models.task_choices import TaskChoices
+from acprof.tui.run.preparation import PreparationScreen
 from tests.support.tui_fixtures import AcprofTui
 from tests.tui.catalog.test_tui_task_selection import long_profiles, task_event
 

@@ -19,10 +19,11 @@ from textual.widgets import (
 from tests.support.tui_fixtures import AcprofTui
 
 from acprof.experiments.configuration import RunConfig
-from acprof.tui.progress import ProgressSnapshot
-from acprof.tui.reports import ReportView
-from acprof.tui.run_results import RunResult
-from acprof.tui.settings import TuiSettings, save_settings
+from acprof.tui.commands import PendingLaunch
+from acprof.tui.run.progress import ProgressSnapshot
+from acprof.tui.results.reports import ReportView
+from acprof.tui.run.results import RunResult
+from acprof.tui.settings.preferences import TuiSettings, save_settings
 
 
 class TestTuiReports:
@@ -63,7 +64,7 @@ class TestTuiReports:
                 await pilot.pause()
                 assert (str(next(iter(table.columns.values())).label)) == (title)
                 assert ([str(cell) for cell in table.get_row_at(0)]) == (["fixture/sam2", "inconclusive", "compatibility_budget_exhausted"])
-                assert not (app.latest_snapshot.measurement_active)
+                assert not (app.execution.session.snapshot.measurement_active)
         assert (source.read_bytes()) == (original)
 
     async def test_v2_statistics_uses_stdout_without_creating_analysis_directories(self):
@@ -404,8 +405,8 @@ class TestTuiReports:
             await pilot.pause()
             app.query_one("#report-json-path", Input).value = str(self.overhead_report())
             await pilot.pause()
-            app.process_kind = "run"
-            app.latest_snapshot = ProgressSnapshot(measurement_active=True)
+            app.execution.session.kind = "run"
+            app.execution.session.snapshot = ProgressSnapshot(measurement_active=True)
             app.set_busy(True)
             with patch.object(app.process, 'execute_command') as execute:
                 for selector in ("#report-open", "#report-calculate", "#result-csv", "#report-json-path"):
@@ -419,8 +420,8 @@ class TestTuiReports:
                     await pilot.pause()
                 execute.assert_not_called()
                 assert not (list(app.workers))
-            app.process_kind = ""
-            app.latest_snapshot = ProgressSnapshot()
+            app.execution.session.kind = ""
+            app.execution.session.snapshot = ProgressSnapshot()
             app.set_busy(False)
             assert not (app.query_one("#report-open", Button).disabled)
 
@@ -428,7 +429,8 @@ class TestTuiReports:
         app = self.make_app()
         async with app.run_test(size=(120, 30)) as pilot:
             await self.open_tab(app, pilot)
-            app.run_result = RunResult(True, True, result_csv=str(self.csv_path))
+            app.execution.begin(PendingLaunch(("collector",), "run"))
+            app.execution.session.result = RunResult(True, True, result_csv=str(self.csv_path))
             app.process_finished("run", 0, ProgressSnapshot(final_csv=str(self.csv_path)), "")
             await app.workers.wait_for_complete()
             await pilot.pause()

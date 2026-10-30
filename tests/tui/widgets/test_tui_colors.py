@@ -10,7 +10,7 @@ from textual.strip import Strip
 
 from acprof.cli.tui import main
 from acprof.events.download import DownloadProgress
-from acprof.tui.log import SelectableLog
+from acprof.tui.logging.widget import SelectableLog
 from tests.support.tui_fixtures import AcprofTui
 
 
@@ -56,7 +56,7 @@ class TestTuiColor:
     def test_cli_color_mode_applies_before_rendering(self, mode, expected):
         with patch.dict(
             os.environ, {"TERM": "xterm-256color"}, clear=True,
-        ), patch("acprof.tui.configuration_controller.default_settings_path", return_value=self.settings_path), patch(
+        ), patch("acprof.tui.settings.controller.default_settings_path", return_value=self.settings_path), patch(
             "acprof.tui.app.AcprofTui.run", autospec=True,
         ) as run:
             main(["--color-system", mode])

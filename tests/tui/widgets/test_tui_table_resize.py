@@ -6,8 +6,8 @@ from textual import events
 from textual.app import App, ComposeResult
 from textual.widgets import Static
 
-from acprof.tui.images import ImageTable
-from acprof.tui.table import ResizableDataTable
+from acprof.tui.images.presentation import ImageTable
+from acprof.tui.ui.table import ResizableDataTable
 
 
 class TableApp(App):

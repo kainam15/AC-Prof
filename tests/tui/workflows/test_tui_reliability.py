@@ -18,12 +18,12 @@ from textual.widgets import Button, Input, Select, Static, TabbedContent
 from acprof.experiments.configuration import RunConfig
 from acprof.results.layout import ArtifactLayout
 from acprof.tui.commands import PendingLaunch
-from acprof.tui.diagnostics import quick_preflight, summarize_result_csv
 from acprof.tui.i18n import translate
-from acprof.tui.progress import ProgressSnapshot
-from acprof.tui.run_form import infer_preset, matches_preset
-from acprof.tui.run_results import RunArtifacts, inspect_run_result
-from acprof.tui.stages import Stage
+from acprof.tui.run.diagnostics import quick_preflight, summarize_result_csv
+from acprof.tui.run.form import infer_preset, matches_preset
+from acprof.tui.run.progress import ProgressSnapshot
+from acprof.tui.run.results import RunArtifacts, inspect_run_result
+from acprof.tui.run.stages import Stage
 from tests.support.tui_fixtures import AcprofTui
 
 
@@ -39,7 +39,7 @@ def write_csv(path, latencies=(0.01, 0.2)):
 
 
 def test_overlapping_offline_reads_keep_measurement_excluded_until_last_reader():
-    from acprof.tui.result_controller import _OverlappingOfflineReads
+    from acprof.tui.results.controller import _OverlappingOfflineReads
 
     gate = _OverlappingOfflineReads()
     started, release = threading.Event(), threading.Event()
@@ -92,7 +92,7 @@ def test_summary_keeps_input_scales_separate_and_single_windows_insufficient():
         assert (all(group["ci_low"] is None for group in groups))
 
 def test_unrequested_rapl_is_not_a_pass():
-    with patch("acprof.tui.diagnostics.shutil.which", return_value=None):
+    with patch("acprof.tui.run.diagnostics.shutil.which", return_value=None):
         checks = quick_preflight(replace(RunConfig.smoke("demo/model"), runtime="docker"))
     rapl = next(check for check in checks if check.label == "CPU RAPL")
     assert (rapl.status) == ("not_requested")
@@ -271,7 +271,7 @@ class TestTuiReliability:
         original = path.read_bytes()
         async with app.run_test(size=(120, 30)) as pilot:
             await pilot.pause()
-            with patch.object(app.process, 'execute_command'), patch("acprof.tui.result_controller.summarize_result_csv", wraps=summarize_result_csv) as read:
+            with patch.object(app.process, 'execute_command'), patch("acprof.tui.results.controller.summarize_result_csv", wraps=summarize_result_csv) as read:
                 app.launch(PendingLaunch(("collector",), "run", config))
                 app.process_finished("run", 2, None, "")
                 await pilot.pause()
@@ -280,7 +280,7 @@ class TestTuiReliability:
         assert (path.read_bytes()) == (original)
 
     async def test_report_a_finishing_after_b_cannot_replace_b(self):
-        from acprof.tui.reports import ReportView
+        from acprof.tui.results.reports import ReportView
         app = self.make_app()
         started, release = threading.Event(), threading.Event()
         self._request.addfinalizer(partial(release.set))
@@ -294,7 +294,7 @@ class TestTuiReliability:
             return ReportView(path, "test", (), (), "")
         async with app.run_test(size=(120, 30)) as pilot:
             await pilot.pause()
-            with patch("acprof.tui.result_controller.read_report", side_effect=read):
+            with patch("acprof.tui.results.controller.read_report", side_effect=read):
                 app.results.open_report(str(a))
                 assert (await asyncio.to_thread(started.wait, 2))
                 first_token = app.results.report_request
@@ -318,25 +318,25 @@ class TestTuiReliability:
         app = self.make_app()
         async with app.run_test(size=(80, 24)) as pilot:
             await pilot.pause()
-            app.process_kind = "run"
+            app.execution.session.kind = "run"
             with patch.object(app, 'notify') as notify:
                 app.process_finished("run", 0, None, "")
             assert ("任务已完成") not in ([str(call.args[0]) for call in notify.call_args_list])
-            assert (app.latest_snapshot.stage) == (Stage.FAILED)
+            assert (app.execution.session.snapshot.stage) == (Stage.FAILED)
 
     async def test_final_result_audit_does_not_offer_a_stop_action(self):
         app = self.make_app()
         async with app.run_test(size=(120, 30)) as pilot:
             await pilot.pause()
-            app.process_kind = "run"  # Child exited; its result audit still owns the task.
+            app.execution.session.kind = "run"  # Child exited; its result audit still owns the task.
             app.set_busy(True)
             assert (app.query_one("#start-run", Button).disabled)
             assert (app.query_one("#stop-run", Button).disabled)
             app.action_request_stop()
             assert (len(app.screen_stack)) == (1)
-            assert not (app.stop_requested)
+            assert not (app.execution.session.stop_requested)
             app.consume_process_line("Profiling complete!", ProgressSnapshot(stage=Stage.COMPLETED), True)
-            assert (app.latest_snapshot.stage) == (Stage.VERIFYING_ARTIFACT)
+            assert (app.execution.session.snapshot.stage) == (Stage.VERIFYING_ARTIFACT)
 
     async def test_background_summary_keeps_ui_responsive_and_only_shows_latest_selection(self):
         app = self.make_app()
@@ -354,7 +354,7 @@ class TestTuiReliability:
             return summarize_result_csv(path, **kwargs)
         async with app.run_test(size=(80, 24)) as pilot:
             await pilot.pause()
-            with patch("acprof.tui.result_controller.summarize_result_csv", side_effect=read):
+            with patch("acprof.tui.results.controller.summarize_result_csv", side_effect=read):
                 app.results.update_result_summary(str(a))
                 assert (await asyncio.to_thread(started.wait, 2))
                 assert ("正在读取") in (str(app.query_one("#result-summary", Static).content))
@@ -456,7 +456,7 @@ print("Profiling complete!", flush=True)
             for _ in range(3):
                 await app.workers.wait_for_complete()
                 await pilot.pause()
-            assert (app.latest_snapshot.stage) == (Stage.COMPLETED)
+            assert (app.execution.session.snapshot.stage) == (Stage.COMPLETED)
             assert (app.query_one("#result-csv", Input).value) == (str(directory / "result_layers.json"))
             assert ("20 ms") in (str(app.query_one("#result-summary", Static).content))
             assert not (app.is_busy())
@@ -479,7 +479,7 @@ print("Profiling complete!", flush=True)
             finally:
                 delivered.set()
 
-        with patch("acprof.tui.result_controller.summarize_result_csv", side_effect=read), patch.object(
+        with patch("acprof.tui.results.controller.summarize_result_csv", side_effect=read), patch.object(
             app.process, 'safe_process_callback', side_effect=deliver,
         ):
             try:
@@ -510,7 +510,7 @@ print("Profiling complete!", flush=True)
             return summarize_result_csv(path, **kwargs)
         async with app.run_test(size=(120, 30)) as pilot:
             await pilot.pause()
-            with patch("acprof.tui.result_controller.summarize_result_csv", side_effect=read):
+            with patch("acprof.tui.results.controller.summarize_result_csv", side_effect=read):
                 app.results.update_result_summary(str(path))
                 await pilot.press("f2")
                 assert (app.query_one("#main-tabs", TabbedContent).active) == ("settings-tab")
@@ -521,8 +521,8 @@ print("Profiling complete!", flush=True)
             assert not (app.is_busy())
 
     async def test_preset_labels_and_quiet_unselected_checks_in_both_languages_and_sizes(self):
-        from acprof.tui.diagnostics import PreflightCheck
-        from acprof.tui.log import SelectableLog
+        from acprof.tui.logging.widget import SelectableLog
+        from acprof.tui.run.diagnostics import PreflightCheck
         app = self.make_app()
         async with app.run_test(size=(80, 24)) as pilot:
             await pilot.pause()

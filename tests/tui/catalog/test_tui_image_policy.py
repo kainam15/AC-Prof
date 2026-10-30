@@ -8,8 +8,8 @@ from textual.widgets import Checkbox, Collapsible, Select
 
 from acprof.experiments.configuration import RunConfig, build_run_command
 from acprof.tui.commands import PendingLaunch, build_probe_command
-from acprof.tui.preparation import PreparationScreen
-from acprof.tui.settings import load_settings
+from acprof.tui.run.preparation import PreparationScreen
+from acprof.tui.settings.preferences import load_settings
 from tests.support.tui_fixtures import AcprofTui
 
 

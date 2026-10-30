@@ -8,11 +8,11 @@ from textual.widgets import Button, Static
 
 from acprof.events.download import DownloadProgress
 from acprof.experiments.configuration import RunConfig
-from acprof.tui.input import BarCursorInput as Input
-from acprof.tui.log import SelectableLog
-from acprof.tui.progress import ProgressSnapshot
-from acprof.tui.progress_widgets import DownloadProgressPanel
-from acprof.tui.stages import Stage
+from acprof.tui.logging.widget import SelectableLog
+from acprof.tui.run.progress import ProgressSnapshot
+from acprof.tui.run.stages import Stage
+from acprof.tui.ui.input import BarCursorInput as Input
+from acprof.tui.ui.progress_widgets import DownloadProgressPanel
 from tests.support.tui_fixtures import AcprofTui
 
 
@@ -36,7 +36,7 @@ async def test_export_opens_save_dialog_and_cancel_has_no_side_effects(tmp_path)
 
 @pytest.mark.parametrize("language", ["zh", "en"])
 async def test_measurement_warning_flood_is_bounded_and_reports_omissions(tmp_path, language):
-    from acprof.tui.diagnostic_buffer import BoundedLogBuffer
+    from acprof.tui.logging.diagnostic_buffer import BoundedLogBuffer
 
     app = AcprofTui(settings_path=tmp_path / "settings.json")
     app.configuration.preferences = replace(app.configuration.preferences, language=language)

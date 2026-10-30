@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from acprof.experiments.configuration import RunConfig
 from acprof.tui.app import AcprofTui
-from acprof.tui.views import EnvironmentPreflightScreen
+from acprof.tui.ui.dialogs import EnvironmentPreflightScreen
 from tests.visual_png.scenarios.common import freeze_for_screenshot
 
 

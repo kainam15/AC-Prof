@@ -13,8 +13,8 @@ from acprof.host.largest_scale_probe import (
     create_probe_output_dir,
     write_probe_summary,
 )
-from acprof.tui.progress import RunProgressTracker
-from acprof.tui.run_results import inspect_probe_result
+from acprof.tui.run.progress import RunProgressTracker
+from acprof.tui.run.results import inspect_probe_result
 
 
 @pytest.fixture

@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from acprof.tui.i18n import translate
-from acprof.tui.reports import read_report
+from acprof.tui.results.reports import read_report
 
 
 class TestReportView:

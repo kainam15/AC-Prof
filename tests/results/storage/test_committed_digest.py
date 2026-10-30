@@ -197,7 +197,7 @@ def test_invalid_negative_size_cannot_replenish_shared_budget(tmp_path):
 
 
 def test_catalog_collapses_incremental_copies_but_rejects_modified_prefix(tmp_path):
-    from acprof.tui.experiment_catalog import scan_experiments
+    from acprof.tui.experiments.catalog import scan_experiments
 
     layout = make_store(tmp_path / "original")
     manifest = json.loads(layout.result_csv.read_bytes())

@@ -10,7 +10,7 @@ import pytest
 from acprof.experiments.configuration import RunConfig
 from acprof.monitors.perf_mips import PERF_PROBE_TIMEOUT_S
 from acprof.platform import Environment
-from acprof.tui.diagnostics import quick_preflight
+from acprof.tui.run.diagnostics import quick_preflight
 from tests.support.environment_fixtures import isolated_environment
 
 
@@ -26,15 +26,15 @@ class TestTuiPreflight:
         environment.start()
         self._request.addfinalizer(partial(environment.stop))
         which = patch(
-            "acprof.tui.diagnostics.shutil.which",
+            "acprof.tui.run.diagnostics.shutil.which",
             side_effect=lambda command, **kwargs: f"/usr/bin/{command}",
         )
         self.which = which.start()
         self._request.addfinalizer(partial(which.stop))
-        host_platform = patch("acprof.tui.diagnostics.detect_environment", return_value=Environment("native_linux"))
+        host_platform = patch("acprof.tui.run.diagnostics.detect_environment", return_value=Environment("native_linux"))
         host_platform.start()
         self._request.addfinalizer(partial(host_platform.stop))
-        rapl = patch("acprof.tui.diagnostics._readable_rapl_paths", return_value=["/fake/energy_uj"])
+        rapl = patch("acprof.tui.run.diagnostics._readable_rapl_paths", return_value=["/fake/energy_uj"])
         rapl.start()
         self._request.addfinalizer(partial(rapl.stop))
 
@@ -90,7 +90,7 @@ class TestTuiPreflight:
                 return subprocess.CompletedProcess(command, 0, stdout='', stderr='')
             return self.host_command(command, **kwargs)
         with patch('acprof.monitors.perf_mips.run_command', return_value=self.result()), patch(
-            'acprof.tui.diagnostics.os.geteuid', return_value=1000,
+            'acprof.tui.run.diagnostics.os.geteuid', return_value=1000,
         ):
             checks = quick_preflight(RunConfig(gpus='off'), project_dir=self.project_dir,
                                      command_runner=command_runner)

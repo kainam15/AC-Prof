@@ -11,9 +11,9 @@ from acprof.tasks.groups import group_inference_tasks
 from acprof.tasks.presentation import ConfigField, build_task_selection
 from acprof.tasks.workloads import parse_task
 from acprof.tui.i18n import translate
-from acprof.tui.preparation import PreparationScreen
-from acprof.tui.task_choices import TaskChoice, TaskChoices
-from acprof.tui.task_labels import format_parameter, group_label
+from acprof.tui.models.task_choices import TaskChoice, TaskChoices
+from acprof.tui.models.task_labels import format_parameter, group_label
+from acprof.tui.run.preparation import PreparationScreen
 from tests.support.task_selection_fixtures import t5_profiles, t5_task
 from tests.support.tui_fixtures import AcprofTui, checkbox_text
 

@@ -17,9 +17,9 @@ from acprof.container.model_files import PLAN_FILENAME
 from acprof.experiments.configuration import RunConfig
 from acprof.host.model_store import store as model_store
 from acprof.tui.i18n import translate
-from acprof.tui.model_store import ModelStoreScreen
-from acprof.tui.model_store_summary import model_store_summary
-from acprof.tui.views import ConfirmActionScreen
+from acprof.tui.models.store import ModelStoreScreen
+from acprof.tui.models.store_summary import model_store_summary
+from acprof.tui.ui.dialogs import ConfirmActionScreen
 from tests.support.model_store_fixtures import ModelStoreFixture, locked_store
 from tests.support.tui_fixtures import AcprofTui
 
@@ -85,7 +85,7 @@ async def test_closing_retains_busy_state_until_the_reader_releases_resources():
             raise AssertionError('test did not release its simulated reader')
         return {'path': str(root), 'total_bytes': 0, 'free_bytes': 1000, 'models': []}
 
-    with tempfile.TemporaryDirectory() as temporary, patch('acprof.tui.model_store.disk_report', side_effect=scan):
+    with tempfile.TemporaryDirectory() as temporary, patch('acprof.tui.models.store.disk_report', side_effect=scan):
         root = Path(temporary)
         app = AcprofTui(RunConfig.smoke('example/model'), settings_path=root / 'settings.json')
         async with app.run_test(size=(80, 24)) as pilot:
@@ -143,8 +143,8 @@ async def test_readable_preview_and_scrollable_confirmation_preserve_approved_en
     after['total_bytes'] = 4_750_000
     config = replace(RunConfig.smoke('example/model'), model_store_max='2GB')
     app = AcprofTui(config, settings_path=tmp_path / 'settings.json')
-    with patch('acprof.tui.model_store.disk_report', side_effect=[report, after]), patch(
-        'acprof.tui.model_store.prune_store',
+    with patch('acprof.tui.models.store.disk_report', side_effect=[report, after]), patch(
+        'acprof.tui.models.store.prune_store',
         side_effect=[preview, {'entries': selected, 'reclaimable_bytes': 1_250_000},
                      {'entries': [], 'reclaimable_bytes': 0}],
     ) as prune:
@@ -232,8 +232,8 @@ async def test_readable_preview_and_scrollable_confirmation_preserve_approved_en
 @pytest.mark.parametrize('reclaimable', [0, 37])
 async def test_empty_model_list_keeps_cache_usage_and_orphan_preview_visible(language, reclaimable, tmp_path):
     app = AcprofTui(RunConfig.smoke('example/model'), settings_path=tmp_path / 'settings.json')
-    with patch('acprof.tui.model_store.disk_report', return_value=store_report(tmp_path)), patch(
-        'acprof.tui.model_store.prune_store', return_value={'entries': [], 'reclaimable_bytes': reclaimable},
+    with patch('acprof.tui.models.store.disk_report', return_value=store_report(tmp_path)), patch(
+        'acprof.tui.models.store.prune_store', return_value={'entries': [], 'reclaimable_bytes': reclaimable},
     ):
         async with app.run_test(size=(80, 24)) as pilot:
             screen = await open_store(app, pilot, tmp_path, language)
@@ -259,8 +259,8 @@ async def test_failed_refresh_removes_stale_cleanup_preview_and_allows_retry(tmp
     report = store_report(tmp_path)
     preview = {'entries': [], 'reclaimable_bytes': 37}
     app = AcprofTui(RunConfig.smoke('example/model'), settings_path=tmp_path / 'settings.json')
-    with patch('acprof.tui.model_store.disk_report', side_effect=[report, OSError('cannot scan [cache]'), report]), patch(
-        'acprof.tui.model_store.prune_store', side_effect=[preview, preview],
+    with patch('acprof.tui.models.store.disk_report', side_effect=[report, OSError('cannot scan [cache]'), report]), patch(
+        'acprof.tui.models.store.prune_store', side_effect=[preview, preview],
     ):
         async with app.run_test(size=(80, 24)) as pilot:
             screen = await open_store(app, pilot, tmp_path, 'en')
@@ -312,8 +312,8 @@ def test_summary_distinguishes_unknown_zero_and_unlimited_without_mutating_repor
 async def test_invalid_capacity_is_visible_without_starting_cleanup(tmp_path):
     config = replace(RunConfig.smoke('example/model'), model_store_max='invalid-size')
     app = AcprofTui(config, settings_path=tmp_path / 'settings.json')
-    with patch('acprof.tui.model_store.disk_report', return_value=store_report(tmp_path)), patch(
-        'acprof.tui.model_store.prune_store',
+    with patch('acprof.tui.models.store.disk_report', return_value=store_report(tmp_path)), patch(
+        'acprof.tui.models.store.prune_store',
     ) as prune:
         async with app.run_test(size=(80, 24)) as pilot:
             screen = await open_store(app, pilot, tmp_path, 'zh')

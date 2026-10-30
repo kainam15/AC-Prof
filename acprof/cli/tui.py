@@ -7,7 +7,7 @@ from dataclasses import replace
 
 from acprof.experiments.configuration import RunConfigError
 from acprof.tui.app import AcprofTui
-from acprof.tui.run_form import infer_preset
+from acprof.tui.run.form import infer_preset
 
 
 def _build_parser() -> argparse.ArgumentParser:

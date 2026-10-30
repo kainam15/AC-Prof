@@ -167,12 +167,12 @@
       "symbol": "_csv_values"
     },
     {
-      "source": "acprof.tui.diagnostics",
+      "source": "acprof.tui.run.diagnostics",
       "target": "acprof.monitors.energy_cpu",
       "symbol": "_discover_rapl_domains"
     },
     {
-      "source": "acprof.tui.diagnostics",
+      "source": "acprof.tui.run.diagnostics",
       "target": "acprof.tui.commands",
       "symbol": "_csv_values"
     }

@@ -12,7 +12,7 @@ from textual.widgets import Button, Checkbox, Input, Static, TabbedContent
 
 from acprof.experiments.configuration import RunConfig
 from acprof.host.env_utils import load_project_env
-from acprof.tui.views import ConfirmActionScreen
+from acprof.tui.ui.dialogs import ConfirmActionScreen
 from tests.support.environment_fixtures import isolated_environment
 from tests.support.tui_fixtures import AcprofTui, checkbox_text
 
@@ -79,8 +79,8 @@ class TestTuiEnvironment:
             }
             assert colors
             assert all(len(set(rgb)) == 1 for rgb in colors) == no_color
-            with patch('acprof.tui.environment.build_permission_plan') as build, patch(
-                'acprof.tui.environment.execute_permission_plan',
+            with patch('acprof.tui.settings.environment.build_permission_plan') as build, patch(
+                'acprof.tui.settings.environment.execute_permission_plan',
             ) as install:
                 build.return_value.commands = (('/usr/sbin/setcap', 'cap_net_raw=ep', '/usr/bin/tcpdump'),)
                 assert await pilot.click('#configure-environment-permissions')
@@ -107,8 +107,8 @@ class TestTuiEnvironment:
             screen = app.screen
             screen.query_one('#environment-tabs', TabbedContent).active = 'permissions-tab'
             await pilot.pause()
-            with patch('acprof.tui.environment.build_permission_plan') as build, patch(
-                'acprof.tui.environment.execute_permission_plan', side_effect=RuntimeError('sudo cancelled'),
+            with patch('acprof.tui.settings.environment.build_permission_plan') as build, patch(
+                'acprof.tui.settings.environment.execute_permission_plan', side_effect=RuntimeError('sudo cancelled'),
             ) as install, patch('textual.app.App.suspend', return_value=nullcontext()):
                 # The real plan contains ten commands, including long Ubuntu ELF paths.
                 build.return_value.commands = (
@@ -157,8 +157,8 @@ class TestTuiEnvironment:
             screen = app.screen
             screen.query_one('#environment-tabs', TabbedContent).active = 'permissions-tab'
             await pilot.pause()
-            with patch('acprof.tui.environment.MeasurementLock') as lock, patch(
-                'acprof.tui.environment.quick_preflight', return_value=[],
+            with patch('acprof.tui.settings.environment.MeasurementLock') as lock, patch(
+                'acprof.tui.settings.environment.quick_preflight', return_value=[],
             ) as preflight:
                 assert await pilot.click('#check-environment-permissions')
                 for _ in range(20):
@@ -266,8 +266,8 @@ class TestTuiEnvironment:
             await pilot.pause()
             assert not ((self.root / '.env.local').exists())
             assert ('HF_TOKEN') not in (os.environ)
-            app.process_kind = 'run'
+            app.execution.session.kind = 'run'
             app.set_busy(True)
             assert (app.query_one('#open-environment-settings', Button).disabled)
-            app.process_kind = ''
+            app.execution.session.kind = ''
             app.set_busy(False)

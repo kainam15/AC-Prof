@@ -20,7 +20,7 @@ from acprof.host.images.inventory import (
     ImageManagementError,
     StorageUsage,
 )
-from acprof.tui.progress import ProgressSnapshot
+from acprof.tui.run.progress import ProgressSnapshot
 from tests.runtime.containers.test_image_management import FINAL, DockerFixture
 from tests.support.environment_fixtures import isolated_environment
 from tests.support.tui_fixtures import AcprofTui
@@ -85,7 +85,7 @@ class TestTuiStorage:
             await pilot.click("#image-model")
             snapshot = self.snapshot(app)
             updated = replace(snapshot, disk=DiskSpace(512 * 1024**3, 256 * 1024**3, 256 * 1024**3))
-            with patch("acprof.tui.image_controller.read_storage", side_effect=[
+            with patch("acprof.tui.images.controller.read_storage", side_effect=[
                 snapshot, ImageManagementError("Docker 操作失败", "permission denied"), updated,
             ]) as read:
                 await self.open_storage(app, pilot)
@@ -134,7 +134,7 @@ class TestTuiStorage:
         async with app.run_test(size=(150, 45)) as pilot:
             await self.load_images(app, pilot)
             snapshot = self.snapshot(app)
-            with patch("acprof.tui.image_controller.read_storage", return_value=snapshot) as read:
+            with patch("acprof.tui.images.controller.read_storage", return_value=snapshot) as read:
                 app.configuration.preferences = replace(app.configuration.preferences, language=language)
                 app.configuration.apply_ui_preferences()
                 await pilot.resize_terminal(80, 24)
@@ -190,7 +190,7 @@ class TestTuiStorage:
                     raise TimeoutError("test worker was not released")
                 return snapshot
 
-            with patch("acprof.tui.image_controller.read_storage", side_effect=slow_read) as read:
+            with patch("acprof.tui.images.controller.read_storage", side_effect=slow_read) as read:
                 try:
                     assert (await pilot.click("#image-storage"))
                     await pilot.pause()
@@ -203,7 +203,7 @@ class TestTuiStorage:
                     assert (len(app.screen_stack)) == (1)
                     assert (app.is_busy())
                     assert (app.query_one("#start-run", Button).disabled)
-                    with patch("acprof.tui.image_controller.list_images") as inventory:
+                    with patch("acprof.tui.images.controller.list_images") as inventory:
                         app.images.refresh_images()
                         inventory.assert_not_called()
                 finally:
@@ -217,15 +217,15 @@ class TestTuiStorage:
         app = self.make_app()
         async with app.run_test(size=(120, 30)) as pilot:
             await self.load_images(app, pilot)
-            app.latest_snapshot = ProgressSnapshot(measurement_active=True)
+            app.execution.session.snapshot = ProgressSnapshot(measurement_active=True)
             app.set_busy(True)
-            with patch("acprof.tui.image_controller.read_storage") as read:
+            with patch("acprof.tui.images.controller.read_storage") as read:
                 app.images.open_storage()
                 await pilot.pause()
                 assert (app.query_one("#image-storage", Button).disabled)
                 assert (len(app.screen_stack)) == (1)
                 read.assert_not_called()
-            app.latest_snapshot = ProgressSnapshot()
+            app.execution.session.snapshot = ProgressSnapshot()
             app.set_busy(False)
 
     async def test_changed_selection_references_show_unknown_reclaim_without_deletion(self):
@@ -235,7 +235,7 @@ class TestTuiStorage:
             await pilot.click("#image-model")
             selected = set(app.images.selected_ids)
             self.docker.images[FINAL]["RepoTags"].append("changed:tag")
-            with patch("acprof.tui.image_controller.read_storage", return_value=self.snapshot(app)):
+            with patch("acprof.tui.images.controller.read_storage", return_value=self.snapshot(app)):
                 await self.open_storage(app, pilot)
                 selection = self.rendered(app.screen.query_one("#storage-selection", Static))
                 assert ("未知") in (selection)

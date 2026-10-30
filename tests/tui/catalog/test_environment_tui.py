@@ -8,7 +8,7 @@ from textual.widgets import Button
 
 from acprof.experiments.configuration import RunConfig
 from acprof.platform import Environment
-from acprof.tui.preparation import PreparationScreen
+from acprof.tui.run.preparation import PreparationScreen
 from tests.support.tui_fixtures import AcprofTui
 
 
@@ -17,7 +17,7 @@ async def test_partial_launch_keeps_monitor_visible_at_two_sizes():
     for size in ((80, 24), (120, 40)):
         with tempfile.TemporaryDirectory() as directory, patch(
             "acprof.platform.detect_environment", return_value=wsl,
-        ), patch("acprof.tui.diagnostics.detect_environment", return_value=wsl):
+        ), patch("acprof.tui.run.diagnostics.detect_environment", return_value=wsl):
             config = replace(RunConfig.smoke("example/model"), profiling_mode="basic")
             app = AcprofTui(config, settings_path=Path(directory) / "settings.json")
             async with app.run_test(size=size) as pilot:
@@ -35,7 +35,7 @@ async def test_partial_launch_keeps_monitor_visible_at_two_sizes():
                     assert stop.region.width > 0
                     assert stop.region.bottom <= app.screen.region.bottom
                     assert app.experiments.pending_launch is None
-                    app.process_kind = ""
+                    app.execution.session.kind = ""
 
 async def test_unsupported_collector_never_reaches_preparation():
     with tempfile.TemporaryDirectory() as directory, patch(

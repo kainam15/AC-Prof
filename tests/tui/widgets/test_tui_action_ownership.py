@@ -8,13 +8,13 @@ import pytest
 from textual.message_pump import MessagePump
 
 from acprof.tui.app import AcprofTui
-from acprof.tui.configuration_controller import ConfigurationController
-from acprof.tui.experiment_controller import ExperimentController
-from acprof.tui.preflight_controller import PreflightController
-from acprof.tui.process_controller import ProcessController
-from acprof.tui.profile_controller import ProfileController
-from acprof.tui.result_controller import ResultController
-from acprof.tui.slash_controller import SlashController
+from acprof.tui.results.controller import ResultController
+from acprof.tui.results.profile_controller import ProfileController
+from acprof.tui.run.experiment_controller import ExperimentController
+from acprof.tui.run.preflight_controller import PreflightController
+from acprof.tui.run.process_controller import ProcessController
+from acprof.tui.settings.controller import ConfigurationController
+from acprof.tui.ui.slash_controller import SlashController
 
 
 @pytest.mark.parametrize(("attribute", "owner", "method"), [
@@ -66,12 +66,17 @@ def test_controller_state_is_isolated_between_apps(tmp_path):
     first.catalog.picker_open = True
     assert second.images.selected_ids == set()
     assert not second.catalog.picker_open
-    assert first.lifecycle is not second.lifecycle
+    assert first.execution.lifecycle is not second.execution.lifecycle
 
 
-def test_app_retains_process_and_measurement_lifecycle():
-    for name in ("launch", "process_finished", "stop_process_gracefully", "on_unmount"):
-        assert name in AcprofTui.__dict__
+def test_execution_lifecycle_has_one_owner():
+    app = AcprofTui()
+    assert app.execution.lifecycle is not None
+    assert "lifecycle" not in app.__dict__
+    assert "process_token" not in app.__dict__
+    assert "latest_snapshot" not in app.__dict__
+    assert "stop_requested" not in app.__dict__
+    assert app.operation_state().process is False
 
 
 def test_main_controller_does_not_regrow_into_giant_module():

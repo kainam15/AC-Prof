@@ -7,7 +7,7 @@ import pytest
 from textual.widgets import Collapsible, ContentSwitcher, Select, Static
 
 from acprof.experiments.configuration import RunConfig
-from acprof.tui.input import BarCursorInput as Input
+from acprof.tui.ui.input import BarCursorInput as Input
 from tests.support.tui_fixtures import AcprofTui
 
 
@@ -43,7 +43,7 @@ async def test_submit_reveals_and_focuses_each_error_then_clears_its_reason(size
             assert not (error.display)
 
 async def test_model_review_requires_an_explicit_select_choice():
-    from acprof.tui.preparation import PreparationScreen
+    from acprof.tui.run.preparation import PreparationScreen
     question = {"path": "pipeline_task", "value": "second", "reason": "Choose the declared task",
                 "options": ["first", "second"]}
     with tempfile.TemporaryDirectory() as directory:
@@ -64,7 +64,7 @@ async def test_model_review_requires_an_explicit_select_choice():
 
 
 async def test_review_invalid_json_identifies_and_focuses_the_same_field():
-    from acprof.tui.preparation import PreparationScreen
+    from acprof.tui.run.preparation import PreparationScreen
     question = {"path": "inputs.messages.template", "value": None, "reason": "Provide the message template"}
     with tempfile.TemporaryDirectory() as directory:
         app = AcprofTui(RunConfig.smoke("fixture/model"), settings_path=Path(directory) / "settings.json")

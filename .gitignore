@@ -24,6 +24,8 @@ results/
 !docs/results/
 # Source protocol package is not a generated experiment directory.
 !acprof/results/
+# TUI result readers are source modules, not generated experiment output.
+!acprof/tui/results/
 /result-past/
 /internal-testing/
 

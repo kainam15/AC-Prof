@@ -11,16 +11,16 @@ from acprof.events.preparation import encode_event
 from acprof.experiments.configuration import RunConfig
 from acprof.platform import Environment
 from acprof.tui.app import AcprofTui
-from acprof.tui.log import SelectableLog
-from acprof.tui.preparation import PreparationScreen
-from acprof.tui.process import StopResult
-from acprof.tui.profile_screen import ProfilerChoiceScreen
-from acprof.tui.profile_status import ProfilerOverview, ProfilerStatus
-from acprof.tui.progress import ProgressSnapshot, RunProgressTracker
-from acprof.tui.reports import ReportRow, ReportView
-from acprof.tui.stages import Stage
-from acprof.tui.table import ResizableDataTable
-from acprof.tui.views import ConfirmActionScreen
+from acprof.tui.logging.widget import SelectableLog
+from acprof.tui.results.profile_screen import ProfilerChoiceScreen
+from acprof.tui.results.profile_status import ProfilerOverview, ProfilerStatus
+from acprof.tui.results.reports import ReportRow, ReportView
+from acprof.tui.run.preparation import PreparationScreen
+from acprof.tui.run.process import StopResult
+from acprof.tui.run.progress import ProgressSnapshot, RunProgressTracker
+from acprof.tui.run.stages import Stage
+from acprof.tui.ui.dialogs import ConfirmActionScreen
+from acprof.tui.ui.table import ResizableDataTable
 
 pytestmark = pytest.mark.visual
 
@@ -47,10 +47,10 @@ def test_fixed_scenes(snap_compare, tmp_path, monkeypatch, language, size, scene
     monkeypatch.setattr("acprof.tui.app.PYTHON_EXECUTABLE", Path("/usr/bin/python"))
     environment = Environment("wsl2" if scene in {"wsl-preparation", "wsl-review"} else "native_linux")
     monkeypatch.setattr("acprof.platform.detect_environment", lambda: environment)
-    monkeypatch.setattr("acprof.tui.diagnostics.detect_environment", lambda: environment)
-    monkeypatch.setattr("acprof.tui.preflight_controller.quick_preflight", lambda *args, **kwargs: [])
+    monkeypatch.setattr("acprof.tui.run.diagnostics.detect_environment", lambda: environment)
+    monkeypatch.setattr("acprof.tui.run.preflight_controller.quick_preflight", lambda *args, **kwargs: [])
     # Freeze stage-log durations without changing Textual's event-loop clock.
-    monkeypatch.setattr("acprof.tui.log_controller.time", SimpleNamespace(monotonic=lambda: 1.0))
+    monkeypatch.setattr("acprof.tui.logging.controller.time", SimpleNamespace(monotonic=lambda: 1.0))
     app = AcprofTui(RunConfig.smoke("fixture/model"), settings_path=tmp_path / "settings.json")
     monkeypatch.setattr(app.process, "execute_command", lambda *args, **kwargs: None)
     app.configuration.preferences = replace(app.configuration.preferences, theme="acprof-graphite", language=language)
@@ -66,12 +66,12 @@ def test_fixed_scenes(snap_compare, tmp_path, monkeypatch, language, size, scene
             await pilot.press("f5")
             await app.workers.wait_for_complete()
             await pilot.pause()
-            assert app.process_kind == "run"
-            assert app.active_run_config.profiling_mode == "basic"
+            assert app.execution.session.kind == "run"
+            assert app.execution.session.config.profiling_mode == "basic"
             process = Mock(pid=12345, returncode=None)
             process.poll.return_value = None
-            monkeypatch.setattr(app.lifecycle, "process", process)
-            monkeypatch.setattr(app.lifecycle, "stop", lambda **kwargs: StopResult(12345, 0))
+            monkeypatch.setattr(app.execution.lifecycle, "process", process)
+            monkeypatch.setattr(app.execution.lifecycle, "stop", lambda **kwargs: StopResult(12345, 0))
             app.process_started(process.pid, "run")
             tracker = RunProgressTracker()
             snapshot = tracker.feed(encode_event("interface", "running"))
@@ -85,9 +85,9 @@ def test_fixed_scenes(snap_compare, tmp_path, monkeypatch, language, size, scene
             assert app.screen.id == "_default"
             assert app.preflight.preparation_screen is None
             assert app.query_one("#status-stage", Static).content == app.tr("正在确认模型接口…")
-            assert app.latest_snapshot.interface_status == "running"
-            assert app.latest_snapshot.runtime_status == "not_started"
-            assert not app.latest_snapshot.measurement_active
+            assert app.execution.session.snapshot.interface_status == "running"
+            assert app.execution.session.snapshot.runtime_status == "not_started"
+            assert not app.execution.session.snapshot.measurement_active
             log = app.query_one("#run-log", SelectableLog)
             assert "Checking model interface..." in log.text
             assert log.region.width > 0
@@ -105,8 +105,8 @@ def test_fixed_scenes(snap_compare, tmp_path, monkeypatch, language, size, scene
                 await pilot.pause()
                 assert isinstance(app.screen, PreparationScreen)
                 assert app.preflight.preparation_request == (process, 1)
-                assert app.latest_snapshot.interface_status == "waiting"
-                assert not app.latest_snapshot.measurement_active
+                assert app.execution.session.snapshot.interface_status == "waiting"
+                assert not app.execution.session.snapshot.measurement_active
                 assert "fixture/model" in app.screen.query_one("#preparation-fields", Static).content
                 confirm = app.screen.query_one("#preparation-continue", Button)
                 assert str(confirm.label) == ("确定" if language == "zh" else "Confirm")
@@ -157,10 +157,10 @@ def test_fixed_scenes(snap_compare, tmp_path, monkeypatch, language, size, scene
         elif scene in {"measuring", "cleanup-incomplete"}:
             process = Mock(pid=12345, returncode=None)
             process.poll.return_value = None
-            monkeypatch.setattr(app.lifecycle, "process", process)
-            monkeypatch.setattr(app.lifecycle, "stop", lambda **kwargs: StopResult(12345, 0))
-            app.process_kind = "run"
-            app.active_command = ("acprof", "run")
+            monkeypatch.setattr(app.execution.lifecycle, "process", process)
+            monkeypatch.setattr(app.execution.lifecycle, "stop", lambda **kwargs: StopResult(12345, 0))
+            app.execution.session.kind = "run"
+            app.execution.session.command = ("acprof", "run")
             app.experiments.pending_launch = None
             snapshot = ProgressSnapshot(
                 stage=Stage.MEASURING, detail="Fixed measurement window",
