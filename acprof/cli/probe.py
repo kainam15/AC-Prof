@@ -93,7 +93,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         parser.error(str(exc))
 
     command_started = time.perf_counter()
-    from acprof.preparation_events import emit_progress
+    from acprof.events.preparation import emit_progress
     emit_progress("preflight")
     bootstrap_project_env(Path.cwd())
     require_collection_host()

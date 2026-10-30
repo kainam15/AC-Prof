@@ -280,7 +280,7 @@ def _probe_memory_candidate(
     status = "error"
     error = ""
 
-    from acprof.progress_events import emit_event
+    from acprof.events.progress import emit_event
     emit_event("probe_memory_started", "largest_scale_probe", current=attempt_index,
                total=attempt_total, cpu=cpu, mem=mem, gpu=gpu, input_scale=planned_scale)
     print(
@@ -416,7 +416,7 @@ def run_largest_scale_probe(
     response_payload: dict[str, Any] | None = None
     selected_mem: int | None = None
 
-    from acprof.progress_events import emit_event
+    from acprof.events.progress import emit_event
     emit_event("probe_started", "largest_scale_probe", cpu=cpu, gpu=gpu,
                memory_candidates=memory_candidates, input_scale=planned_scale)
     print(

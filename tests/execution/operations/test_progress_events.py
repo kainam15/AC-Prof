@@ -128,7 +128,7 @@ def test_client_error_row_cannot_emit_success_even_when_client_exits_zero():
 
 
 def test_human_logs_cannot_change_case_or_output_identity():
-    from acprof.progress_events import encode_event
+    from acprof.events.progress import encode_event
     tracker = RunProgressTracker()
     tracker.feed(encode_event("matrix_planned", total_cases=2))
     selected = tracker.feed(encode_event("case_selected", "case-a", current=1, total=2,
@@ -139,7 +139,7 @@ def test_human_logs_cannot_change_case_or_output_identity():
 
 
 def test_run_success_event_requires_persisted_result_verification():
-    from acprof.progress_events import encode_event
+    from acprof.events.progress import encode_event
     tracker = RunProgressTracker()
     tracker.feed(encode_event("result_published", final_csv="/result.csv"))
     state = tracker.feed(encode_event("run_finished", status="ok"))
@@ -148,7 +148,7 @@ def test_run_success_event_requires_persisted_result_verification():
 
 
 def test_process_progress_retains_inherited_resource_axes():
-    from acprof.progress_events import encode_event
+    from acprof.events.progress import encode_event
     tracker = RunProgressTracker()
     line = encode_event('case_selected', 'process-case', current=1, total=1,
                         cpu=None, mem=None, gpu='off', runtime_kind='process')
@@ -178,7 +178,7 @@ def test_invalid_case_selection_is_rejected_before_mutating_progress(fields):
 
 
 def test_control_event_cannot_end_an_active_measurement_by_claiming_a_result():
-    from acprof.progress_events import encode_event
+    from acprof.events.progress import encode_event
     tracker = RunProgressTracker()
     tracker.feed(event("case_started"))
     tracker.feed(event("measurement_started"))

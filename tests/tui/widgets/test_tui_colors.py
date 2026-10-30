@@ -9,7 +9,7 @@ from rich.style import Style
 from textual.strip import Strip
 
 from acprof.cli.tui import main
-from acprof.download_events import DownloadProgress
+from acprof.events.download import DownloadProgress
 from acprof.tui.log import SelectableLog
 from tests.support.tui_fixtures import AcprofTui
 

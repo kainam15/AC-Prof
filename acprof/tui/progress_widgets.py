@@ -9,7 +9,7 @@ from textual.app import ComposeResult
 from textual.containers import VerticalScroll
 from textual.widgets import Static
 
-from acprof.download_events import DownloadProgress
+from acprof.events.download import DownloadProgress
 from acprof.tui.app_contracts import translated_app
 from acprof.tui.i18n import message_id
 from acprof.tui.monitor import visible_statuses

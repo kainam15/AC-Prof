@@ -21,6 +21,7 @@ from acprof.capabilities import (
     measurement_requested,
     missing_required_measurements,
 )
+from acprof.events.progress import emit_event
 from acprof.experiment import RunConfig
 from acprof.gpu_mode import normalize_gpu_mode
 from acprof.host.cases import CaseMeasurement, CasePlans, CaseWorkload, MatrixRequest
@@ -49,7 +50,6 @@ from acprof.host.result_cleanup import cleanup_intermediate_results
 from acprof.host.run_state import RunState, load_run_state, run_options
 from acprof.installation import resource_root
 from acprof.latency_slo import parse_latency_slo_rules, resolve_latency_slo
-from acprof.progress_events import emit_event
 
 PROJECT_DIR = str(resource_root())
 

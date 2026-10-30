@@ -6,7 +6,7 @@ import pytest
 from rich.console import Console
 from textual.widgets import Button, Static
 
-from acprof.download_events import DownloadProgress
+from acprof.events.download import DownloadProgress
 from acprof.experiment import RunConfig
 from acprof.tui.input import BarCursorInput as Input
 from acprof.tui.log import SelectableLog

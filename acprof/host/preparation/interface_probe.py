@@ -14,6 +14,7 @@ from pathlib import Path
 from acprof.artifact_layout import ArtifactLayout
 from acprof.artifacts import atomic_write_json, loads_finite_json
 from acprof.container.model_probe import RESULT_PREFIX
+from acprof.events.preparation import preparation_stage
 from acprof.host.container_lifecycle import (
     ContainerCleanupError,
     container_owner_labels,
@@ -27,7 +28,6 @@ from acprof.host.validation_logs import ValidationLog
 from acprof.installation import resource_root
 from acprof.models.contract import write_model_resolution
 from acprof.models.spec import encode_model_spec, task_model_spec
-from acprof.preparation_events import preparation_stage
 from acprof.runtime_profiles import select_runtime_profile
 from acprof.source_identity import service_sources, source_fingerprint
 from acprof.system.command import run_command
@@ -65,7 +65,7 @@ def probe_interface(task_info, output_dir: str | Path, *, cpus: int = 2,
                 shutil.copyfile(source, target)
             report.update(source_sha256=bundle.identity,
                           runner_sha256=source_fingerprint(code, service_sources(code), scope="interface-runner-v1"))
-            from acprof.preparation_events import emit_progress
+            from acprof.events.preparation import emit_progress
             emit_progress("environment")
             if profile.environment is None:
                 raise InterfaceProbeError("runtime profile has no dependency environment", stage="environment")

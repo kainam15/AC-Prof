@@ -14,9 +14,9 @@ from pathlib import Path
 from typing import Any
 
 from acprof.artifacts import atomic_write_json, loads_finite_json, read_json_object, sync_directory
+from acprof.events.preparation import MAX_MESSAGE, encode_event
 from acprof.host.preparation.model_errors import ModelLookupError
 from acprof.models.evidence import content_digest, pinned_revision
-from acprof.preparation_events import MAX_MESSAGE, encode_event
 
 
 class RebuildEnvironment(Exception):

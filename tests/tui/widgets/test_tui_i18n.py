@@ -20,9 +20,9 @@ from textual.widgets import (
 )
 from textual.widgets.text_area import Selection
 
+from acprof.events.progress import encode_event
 from acprof.experiment import RunConfig, RunConfigError, build_run_command
 from acprof.messages import message
-from acprof.progress_events import encode_event
 from acprof.tui.app import PROJECT_DIR
 from acprof.tui.catalog import ENGLISH_BY_ID, MESSAGES, SOURCE_BY_ID, SOURCE_TO_ID
 from acprof.tui.diagnostics import PreflightCheck, ResultSummary

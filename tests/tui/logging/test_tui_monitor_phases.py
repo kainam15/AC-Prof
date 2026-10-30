@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 import pytest
 
-from acprof.download_events import DownloadProgress
+from acprof.events.download import DownloadProgress
 from acprof.tui.log import SelectableLog
 from acprof.tui.process import StopResult
 from acprof.tui.progress import ProgressSnapshot

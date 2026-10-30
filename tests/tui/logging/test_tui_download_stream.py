@@ -10,7 +10,7 @@ async def test_download_progress_arrives_before_child_finishes_without_log_spam(
     script = '''
 import time
 from dataclasses import replace
-from acprof.download_events import DownloadProgress, encode_event
+from acprof.events.download import DownloadProgress, encode_event
 progress = DownloadProgress('example/test', 'huggingface', 'downloading', 1000, 200, 600, 100, 40, 1, 2)
 print(encode_event(progress), flush=True)
 time.sleep(1)
@@ -38,8 +38,8 @@ async def test_download_message_in_measurement_window_fails_without_updating_pan
     script = '''
 import signal
 import time
-from acprof.progress_events import emit_event
-from acprof.download_events import DownloadProgress, encode_event
+from acprof.events.progress import emit_event
+from acprof.events.download import DownloadProgress, encode_event
 signal.signal(signal.SIGINT, signal.default_int_handler)
 emit_event('case_started', 'fixture')
 emit_event('measurement_started', 'fixture')

@@ -7,9 +7,9 @@ from unittest.mock import Mock
 import pytest
 from textual.widgets import Button, Static, TabbedContent
 
+from acprof.events.preparation import encode_event
 from acprof.experiment import RunConfig
 from acprof.platform import Environment
-from acprof.preparation_events import encode_event
 from acprof.tui.app import AcprofTui
 from acprof.tui.log import SelectableLog
 from acprof.tui.preparation import PreparationScreen

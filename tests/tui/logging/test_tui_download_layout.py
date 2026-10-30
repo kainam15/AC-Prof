@@ -6,7 +6,7 @@ from rich.console import Console
 from textual.strip import Strip
 from textual.widgets import Select, Static
 
-from acprof.download_events import DownloadProgress
+from acprof.events.download import DownloadProgress
 from acprof.tui.log import SelectableLog
 from acprof.tui.progress import ProgressSnapshot
 from acprof.tui.progress_widgets import DownloadProgressContent, DownloadProgressPanel

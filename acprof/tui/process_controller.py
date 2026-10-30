@@ -43,8 +43,8 @@ class ProcessController:
                 run_before = RunArtifacts.read(config.result_dir(self.app.project_dir))
             except (OSError, ValueError, RuntimeError):
                 pass  # CLI reports invalid history; it cannot become current results.
-        from acprof.download_events import parse_event as parse_download_event
-        from acprof.preparation_events import PREFIX, parse_event as parse_preparation_event
+        from acprof.events.download import parse_event as parse_download_event
+        from acprof.events.preparation import PREFIX, parse_event as parse_preparation_event
         tracker = RunProgressTracker() if kind in {"run", "probe"} else None
         suppressed_lines = 0
         deferred_important_lines = BoundedLogBuffer()

@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING
 from textual.widgets import Button, Static
 from textual.worker import Worker
 
-from acprof.download_events import DownloadProgress
+from acprof.events.download import DownloadProgress
 from acprof.experiment import RunConfig
 from acprof.host.run_state import MeasurementLock
 from acprof.messages import join_messages, message
@@ -138,7 +138,7 @@ class PreflightController:
             if self.app.latest_snapshot.measurement_active:
                 raise RuntimeError("input plan update inside measurement window")
             plan = event["input_plan"]
-            from acprof.preparation_events import validate_input_plan
+            from acprof.events.preparation import validate_input_plan
             validate_input_plan(plan)
             self.app.configuration.planned_input = plan
             self.app.configuration.planned_input_identity = run_planning.input_identity(self.app.active_run_config)
@@ -163,7 +163,7 @@ class PreflightController:
             self.show_preparation(event)
 
     def preparation_answered(self, result) -> None:
-        from acprof.preparation_events import encode_reply
+        from acprof.events.preparation import encode_reply
         if result["action"] == "request-stop":
             self.app.action_request_stop()
             return

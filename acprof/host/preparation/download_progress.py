@@ -12,7 +12,7 @@ import time
 from collections.abc import Callable
 from threading import RLock
 
-from acprof.download_events import DownloadProgress, encode_event
+from acprof.events.download import DownloadProgress, encode_event
 
 
 class DownloadReporter:

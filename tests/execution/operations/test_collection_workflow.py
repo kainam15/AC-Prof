@@ -13,6 +13,7 @@ from huggingface_hub.errors import RepositoryNotFoundError
 import tests.models.contracts.test_model_contract as contracts
 import tests.support.run_recovery_fixtures as recovery
 from acprof.artifacts import MAX_JSON_ARTIFACT_BYTES
+from acprof.events.preparation import MAX_MESSAGE
 from acprof.host.detect import detect_task
 from acprof.host.preparation.collection_workflow import (
     PreparationWorkflow,
@@ -20,7 +21,6 @@ from acprof.host.preparation.collection_workflow import (
 )
 from acprof.host.preparation.model_inspection import explain_resolution
 from acprof.models.spec import task_model_spec
-from acprof.preparation_events import MAX_MESSAGE
 from acprof.result_csv import read_result_csv
 from tests.models.contracts.test_model_lookup import hub_error
 

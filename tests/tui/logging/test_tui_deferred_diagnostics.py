@@ -44,7 +44,7 @@ def test_late_reaper_preserves_bounded_diagnostics_and_respects_process_token(st
 
 
 def test_failed_replay_keeps_ownership_for_late_cleanup(tmp_path):
-    from acprof.progress_events import encode_event
+    from acprof.events.progress import encode_event
     from acprof.tui.process import StopResult
 
     app = AcprofTui(settings_path=tmp_path / "settings.json")
@@ -75,7 +75,7 @@ def test_failed_replay_keeps_ownership_for_late_cleanup(tmp_path):
 
 async def test_abrupt_child_failure_releases_suspension_and_shows_omission_notice(tmp_path):
     script = (
-        "from acprof.progress_events import emit_event\n"
+        "from acprof.events.progress import emit_event\n"
         "emit_event('case_started', 'fixture')\n"
         "emit_event('measurement_started', 'fixture')\n"
         "for line in ('[WARN] first', '[WARN] a', '[WARN] b', '[WARN] c', '[WARN] last', 'x' * 65):\n"

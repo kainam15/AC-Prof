@@ -7,6 +7,7 @@ import pytest
 
 from acprof.artifacts import MAX_JSON_ARTIFACT_BYTES
 from acprof.dependency_locks import read_python_lock
+from acprof.events.preparation import parse_event
 from acprof.host.images.runtime import PROJECT_ROOT
 from acprof.host.model_store.store import store_lock
 from acprof.host.preparation.network_preflight import preflight, registry_manifest, runtime_sources
@@ -17,7 +18,6 @@ from acprof.network_policy import (
     require_source_transition,
     summarize_downloads,
 )
-from acprof.preparation_events import parse_event
 from acprof.runtime_profiles import PROFILES
 from tests.support.runtime_fixture import copy_dependency_tree
 

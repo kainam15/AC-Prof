@@ -8,7 +8,7 @@ from acprof.experiment import RunConfig
 
 @pytest.mark.parametrize('scales_case', range(5), ids=['[]', '[0]', '[True]', "[float('inf')]", '[1] * 10001'])
 def test_preparation_plan_event_rejects_invalid_or_unbounded_scales(scales_case):
-    from acprof.preparation_events import encode_event, parse_event
+    from acprof.events.preparation import encode_event, parse_event
     plan = {"scales": [1.0], "scale_type": "duration_s"}
     assert (parse_event(encode_event("input", "passed", input_plan=plan))["input_plan"]) == (plan)
     scales = tuple(([], [0], [True], [float('inf')], [1] * 10001))[scales_case]
@@ -18,7 +18,7 @@ def test_preparation_plan_event_rejects_invalid_or_unbounded_scales(scales_case)
 
 @pytest.mark.parametrize('number', ['NaN', '1e999'])
 def test_preparation_event_rejects_nonfinite_json(number):
-    from acprof.preparation_events import PREFIX, parse_event
+    from acprof.events.preparation import PREFIX, parse_event
     line = PREFIX + '{"version":1,"stage":"input","status":"passed","corrupt_metric":' + number + '}'
 
     with pytest.raises(ValueError, match='non-finite'):
@@ -26,7 +26,7 @@ def test_preparation_event_rejects_nonfinite_json(number):
 
 @pytest.mark.parametrize('number', ['NaN', '1e999'])
 def test_progress_event_rejects_nonfinite_json(number):
-    from acprof.progress_events import PREFIX, parse_event
+    from acprof.events.progress import PREFIX, parse_event
     line = PREFIX + '{"version":1,"event":"case_started","case_id":"case-1","corrupt_metric":' + number + '}'
 
     with pytest.raises(ValueError, match='non-finite'):

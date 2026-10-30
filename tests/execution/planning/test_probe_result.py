@@ -6,13 +6,13 @@ from pathlib import Path
 
 import pytest
 
+from acprof.events.progress import encode_event
 from acprof.experiment import RunConfig
 from acprof.host.largest_scale_probe import (
     PROBE_SUMMARY_NAME,
     create_probe_output_dir,
     write_probe_summary,
 )
-from acprof.progress_events import encode_event
 from acprof.tui.progress import RunProgressTracker
 from acprof.tui.run_results import inspect_probe_result
 

@@ -150,7 +150,7 @@ def test_endpoint_retry_keeps_transferred_bytes_but_does_not_guess_changed_cache
 def test_download_messages_reject_invalid_counts(changes):
     from dataclasses import replace
 
-    from acprof.download_events import DownloadProgress, encode_event
+    from acprof.events.download import DownloadProgress, encode_event
 
     progress = DownloadProgress('example/test', 'huggingface', 'downloading', 100, 20, 30, 10, 40.0, 0, 1)
     with pytest.raises(ValueError, match='download progress'):

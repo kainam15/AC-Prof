@@ -12,8 +12,8 @@ import pytest
 from textual.css.query import NoMatches
 from textual.widgets import Input, Select, Static
 
+from acprof.events.progress import encode_event
 from acprof.experiment import RunConfig, RunConfigError, build_run_command
-from acprof.progress_events import encode_event
 from acprof.tui.checkbox import StatusCheckbox
 from acprof.tui.commands import (
     PendingLaunch,
@@ -454,7 +454,7 @@ class TestTuiApp:
                 assert launch.call_args.args[0].kind == "run"
 
     async def test_subprocess_progress_is_event_driven(self):
-        script = ("from acprof.progress_events import emit_event\n" + ("\n".join(
+        script = ("from acprof.events.progress import emit_event\n" + ("\n".join(
             (
                 "emit_event('matrix_planned', total_cases=1)",
                 "emit_event('case_selected', 'fixture', current=1, total=1, cpu=1, mem=4, gpu='off')",
@@ -494,7 +494,7 @@ class TestTuiApp:
             '[case] Stopping container...',
         ]
         script = (
-            "from acprof.progress_events import emit_event\n" + ("from acprof.progress_events import emit_event\n"
+            "from acprof.events.progress import emit_event\n" + ("from acprof.events.progress import emit_event\n"
             "emit_event('case_started', 'fixture')\n"
             "emit_event('measurement_started', 'fixture')\n"
             + '\n'.join(f'print({line!r}, flush=True)' for line in lines)
@@ -528,7 +528,7 @@ class TestTuiApp:
             f"summary_path = create_probe_output_dir({str(tmp_path)!r}, 'demo/model') / 'largest_scale_probe.json'\n"
             f"write_probe_summary(summary_path, {payload!r})\n"
         )
-        script = setup + ("from acprof.progress_events import emit_event\n" + ("\n".join(
+        script = setup + ("from acprof.events.progress import emit_event\n" + ("\n".join(
             (
                 "emit_event('probe_started', 'largest_scale_probe', cpu=1, gpu='off', memory_candidates=[2, 4], input_scale=512.0)",
                 "emit_event('probe_memory_started', 'largest_scale_probe', current=1, total=2, cpu=1, mem=2, gpu='off', input_scale=512.0)",
@@ -565,7 +565,7 @@ class TestTuiApp:
 
     async def test_elapsed_timer_advances_during_measurement(self):
         """The elapsed clock must advance before the measurement window closes."""
-        script = ("from acprof.progress_events import emit_event\n" + ("\n".join(
+        script = ("from acprof.events.progress import emit_event\n" + ("\n".join(
             (
                 "import sys",
                 "emit_event('matrix_planned', total_cases=1)",
@@ -622,7 +622,7 @@ class TestTuiApp:
         async with app.run_test(size=(140, 48)) as pilot:
             await pilot.pause()
             assert (len(app.query("#case-progress, #matrix-board, #matrix-table"))) == (0)
-            script = ("from acprof.progress_events import emit_event\n" + ("\n".join(
+            script = ("from acprof.events.progress import emit_event\n" + ("\n".join(
                 (
                     "emit_event('matrix_planned', total_cases=1)",
                     "emit_event('case_selected', 'fixture', current=1, total=1, cpu=1, mem=4, gpu='off')",

@@ -7,9 +7,9 @@ import re
 from dataclasses import dataclass, replace
 from typing import Any
 
+from acprof.events.preparation import parse_event as parse_preparation_event
+from acprof.events.progress import parse_event
 from acprof.messages import message
-from acprof.preparation_events import parse_event as parse_preparation_event
-from acprof.progress_events import parse_event
 from acprof.tui.i18n import message_id
 from acprof.tui.presentation import UNKNOWN
 from acprof.tui.stages import Stage

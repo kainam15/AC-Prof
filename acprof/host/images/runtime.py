@@ -326,7 +326,7 @@ def build_runtime_image(task_info: Any, project_dir: str):
                 raise RuntimeError("构建未返回不可变 image ID")
             return image_id
 
-    from acprof.preparation_events import emit_progress
+    from acprof.events.preparation import emit_progress
     emit_progress("environment")
     dependency = prepare_environment_image(profile.environment, root)
     emit_progress("model")

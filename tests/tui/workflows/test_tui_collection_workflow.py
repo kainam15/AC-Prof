@@ -11,8 +11,8 @@ from unittest.mock import Mock, patch
 import pytest
 from textual.widgets import Button, Select, Static
 
+from acprof.events.preparation import encode_event
 from acprof.experiment import RunConfig
-from acprof.preparation_events import encode_event
 from acprof.tui.log import SelectableLog
 from acprof.tui.process import ProcessLifecycle
 from acprof.tui.progress import RunProgressTracker
@@ -79,7 +79,7 @@ async def test_confirmed_stop_reaps_child_releases_lock_and_removes_bundle(tmp_p
         from acprof.host.detect import TaskInfo
         from acprof.host import run_state
         from acprof.host.preparation.source_bundle import source_bundle
-        from acprof.preparation_events import encode_event
+        from acprof.events.preparation import encode_event
         signal.signal(signal.SIGINT, signal.default_int_handler)
         task = TaskInfo("fixture/model", "fill-mask", "nlp", "transformers", "transformers", "a" * 40, "fixture")
         run_state.MEASUREMENT_LOCK_ROOT = Path(sys.argv[1])
