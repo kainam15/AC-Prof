@@ -144,6 +144,13 @@ manifest 引用的数据内容和读取前记录的元数据身份，复用证�
 输入计划的 SHA256 取自同一次有界 JSON 读取的原始字节，保留 UTF-8 BOM 和空白的内容身份；
 即使哈希匹配，非对象、非有限数值、无效编码和超出 4 MiB 的计划也不能通过审计。
 该对象不提供跨文件原子快照；独立实验比较仍在读取前固定全部来源身份，并在统计结束后复核。
+条件快照加载完毕后，`verify_observed_sources` 将每份成功解析的 JSON 原始字节与起始
+fingerprint 绑定；缺少起始 fingerprint 或内容不一致便拒绝比较，避免文件中途改写后恢复
+掩盖实际消费的不同证据。验证复用缓存中的 bytes，不重新打开或解析文件，不替代结束复核；
+原有缺失和读取失败诊断仍由消费者报告。UTF-8 BOM 与空白继续参与内容身份。
+同一份 bytes 的校验与解析绑定参考
+[python-tuf 的元数据验证](https://github.com/theupdateframework/python-tuf/blob/2c771a035620b29c6e5f90030f501ae92d64cf83/tuf/ngclient/_internal/trusted_metadata_set.py#L431-L437)
+（Apache-2.0），只借鉴设计，不复制源码或引入 TUF 依赖，检查仅在离线比较中执行。
 设计借鉴 [pytest 的 fixture 结果与异常缓存](https://github.com/pytest-dev/pytest/blob/main/src/_pytest/fixtures.py)
 和[首次失败丢失问题](https://github.com/pytest-dev/pytest/issues/14800)、
 [对应修复提案](https://github.com/pytest-dev/pytest/pull/15275)（MIT）。只借鉴生命周期和失败保留原则，

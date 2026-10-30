@@ -106,6 +106,10 @@ def compare_experiments(left, right, *, metrics, purpose="same-hardware",
             current_snapshot = load_comparison_snapshot(path, result_snapshot=result_snapshot,
                                                         metadata_snapshot=metadata_snapshot,
                                                         verify_result_snapshot=False)
+            try:
+                metadata_snapshot.verify_observed_sources(fingerprints)
+            except ValueError as error:
+                raise ValueError(f"experiment changed during comparison: {error}") from error
             if reference_snapshot is None:
                 reference_snapshot = current_snapshot
             if group_snapshot is None:

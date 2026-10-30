@@ -1,6 +1,8 @@
 """Share metadata observations within one read-only result operation."""
 from __future__ import annotations
 
+import hashlib
+from collections.abc import Mapping
 from pathlib import Path
 
 from acprof.artifacts import JsonObjectSnapshot, read_json_object_snapshot
@@ -54,3 +56,16 @@ class ResultMetadataSnapshot:
         if isinstance(record, (OSError, ValueError)):
             raise record
         return record
+
+    def verify_observed_sources(self, fingerprints: Mapping[Path, str | None]) -> None:
+        """Bind successfully parsed bytes to the caller's initial fingerprints.
+
+        Read failures remain cached and reported by the consumers; they supply
+        no parsed evidence to verify. This does not reopen documents or replace
+        the caller's final check of every source, including absent files.
+        """
+        for name, record in self._records.items():
+            if isinstance(record, JsonObjectSnapshot):
+                path = self.layout.path(name)
+                if path not in fingerprints or hashlib.sha256(record.content).hexdigest() != fingerprints[path]:
+                    raise ValueError(f"metadata content differs from its initial fingerprint: {path}")
