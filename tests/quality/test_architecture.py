@@ -72,11 +72,15 @@ def test_shared_preflight_does_not_depend_on_run_cli(name):
     assert ("acprof.cli.run") not in (dependencies)
 
 def implementation_paths():
-    paths = [path for package in ("application", "host", "container", "workloads", "monitors", "packet",
-                                  "analysis", "plotting", "tui")
-             for path in (PROJECT_DIR / "acprof" / package).rglob("*.py")]
-    paths.extend(PROJECT_DIR / "acprof" / name for name in ("experiment.py", "run_args.py", "run_options.py"))
-    return sorted(paths)
+    packages = (
+        "application", "host", "container", "workloads", "monitors", "packet",
+        "analysis", "plotting", "tui", "events", "tasks", "experiments",
+        "runtime", "results",
+    )
+    return sorted(
+        path for package in packages
+        for path in (PROJECT_DIR / "acprof" / package).rglob("*.py")
+    )
 
 
 @pytest.mark.parametrize("path", implementation_paths(),
