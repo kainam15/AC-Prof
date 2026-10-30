@@ -8,6 +8,7 @@ from pathlib import Path
 from acprof.host.env_utils import bootstrap_project_env
 from acprof.host.posthoc.context import SUPPORTED_TOOLS, PosthocError
 from acprof.host.posthoc.service import run_posthoc
+from acprof.system.cleanup import format_exception_notes
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -106,7 +107,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             dry_run=args.dry_run,
         )
     except (OSError, PosthocError) as exc:
-        parser.exit(2, f"[profile][ERROR] {exc}\n")
+        parser.exit(2, f"[profile][ERROR] {format_exception_notes(exc)}\n")
 
 
 if __name__ == "__main__":

@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, BinaryIO, TextIO
 
 from acprof.cancellation import check_cancelled
+from acprof.system.cleanup import cleanup_on_exit
 
 MAX_JSON_ARTIFACT_BYTES = 4 * 1024 * 1024
 _HASH_CHUNK_BYTES = 2**18
@@ -231,13 +232,19 @@ def _atomic_write(
     destination = Path(path)
     create_durable_directory(destination.parent)
     mode = stat.S_IMODE(destination.stat().st_mode) if overwrite and destination.exists() else default_mode
-    temporary = None
-    try:
-        with tempfile.NamedTemporaryFile(mode="wb" if binary else "w",
-                                         encoding=None if binary else "utf-8", newline=None if binary else "",
-                                         dir=destination.parent, prefix=f".{destination.name}.",
-                                         suffix=".tmp", delete=False) as stream:
-            temporary = Path(stream.name)
+    stream = tempfile.NamedTemporaryFile(mode="wb" if binary else "w",
+                                        encoding=None if binary else "utf-8", newline=None if binary else "",
+                                        dir=destination.parent, prefix=f".{destination.name}.",
+                                        suffix=".tmp", delete=False)
+    temporary = Path(stream.name)
+    cleanup_required = True
+
+    def remove_temporary() -> None:
+        if cleanup_required:
+            temporary.unlink(missing_ok=True)
+
+    with cleanup_on_exit(remove_temporary, description=f"temporary artifact {temporary}"):
+        with stream:
             write(stream)
             stream.flush()
             if hasattr(os, "fchmod"):
@@ -252,11 +259,8 @@ def _atomic_write(
             # Unsupported filesystems must fail, never fall back to replacement.
             os.link(temporary, destination)
             temporary.unlink()
-        temporary = None
+        cleanup_required = False
         sync_directory(destination.parent)
-    finally:
-        if temporary is not None:
-            temporary.unlink(missing_ok=True)
 
 
 def atomic_write_json(path: str | Path, payload: Any, *, overwrite: bool = True) -> None:

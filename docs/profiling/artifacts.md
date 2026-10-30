@@ -259,6 +259,13 @@ schema v3 在单次读取内部复用行校验生成的测量键，供层间顺�
 [atomicwrites 的目录同步处理](https://github.com/untitaker/python-atomicwrites/pull/15)。
 仅使用标准库；未引入 Delta Lake 或已归档的 atomicwrites 依赖。
 
+通用原子写入与历史 generation 发布在失败后清理本次临时文件或暂存目录；若清理也失败，
+原始异常与取消语义保留，清理错误及残留路径附在 exception notes 中。补采的多文件清理与
+恢复边界见[补采已有结果](profilers.md#补采已有结果)。异常处理参考
+[CPython ExitStack](https://github.com/python/cpython/blob/3.12/Lib/contextlib.py) 的逐项退出，
+以及 [PEP 678](https://github.com/python/peps/blob/main/peps/pep-0678.rst) 的附加诊断方式；
+适配项目的 Python 3.12+，只使用标准库，不增加依赖或正式测量窗口内的工作。
+
 序列化和 `fsync` 在全部监测停止后执行，窗口内复用已有 latency 数组；不记录输入或输出 payload。
 该设计参考 [MLPerf LoadGen 的延后日志处理](https://github.com/mlcommons/inference/blob/master/loadgen/logging.h)，
 沿用本项目窗口结束后的写盘方式，无新增日志线程或依赖。正式分析仍按 CSV 的

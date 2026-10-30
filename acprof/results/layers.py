@@ -21,6 +21,7 @@ from acprof.artifacts import (
     sync_directory,
 )
 from acprof.cancellation import cancellable, check_cancelled
+from acprof.system.cleanup import cleanup_on_exit
 from acprof.results.metrics import METRICS, order_csv_fields
 from acprof.results.csv import (
     KEY_FIELDS,
@@ -212,7 +213,12 @@ def _prepare_generation(root: Path, generation: str, payloads: Mapping[str, byte
         _verify_generation(root, generation, payloads)
         return
     stage = Path(tempfile.mkdtemp(prefix=".pending-", dir=generations))
-    try:
+    def remove_stage() -> None:
+        # Remove only this invocation's staging area, never a published version.
+        if stage.exists():
+            shutil.rmtree(stage)
+
+    with cleanup_on_exit(remove_stage, description=f"result generation staging directory {stage}"):
         for layer, raw in payloads.items():
             path = stage / LAYER_FILES[layer]
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -231,11 +237,6 @@ def _prepare_generation(root: Path, generation: str, payloads: Mapping[str, byte
             # Never repair or replace an existing, damaged generation.
             _verify_generation(root, generation, payloads)
         sync_directory(generations)
-    finally:
-        # A real process crash may leave an unreferenced .pending directory.
-        # Only remove this invocation's staging area, never published versions.
-        if stage.exists():
-            shutil.rmtree(stage)
 
 
 def publish_result_layers(wide_path: str | Path, *, output_dir: str | Path | None = None) -> dict:

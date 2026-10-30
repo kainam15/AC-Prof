@@ -10,6 +10,7 @@ import tempfile
 from collections.abc import Mapping, Sequence
 from contextlib import ExitStack
 from datetime import datetime
+from functools import partial
 from pathlib import Path
 from typing import (
     Any,
@@ -27,6 +28,7 @@ from acprof.host.posthoc.context import (
 )
 from acprof.host.posthoc.copying import copy_backup_file
 from acprof.results.csv import allow_large_csv_fields
+from acprof.system.cleanup import cleanup_on_exit, format_exception_notes
 
 
 def _write_csv_text(stream: TextIO, text: str) -> None:
@@ -79,7 +81,15 @@ def create_backup(context: ResultContext) -> Path:
         backup = root / f"{base}-{suffix}"
         suffix += 1
     backup.mkdir()
-    try:
+    def remove_backup() -> None:
+        try:
+            shutil.rmtree(backup)
+        except FileNotFoundError:
+            pass
+        else:
+            _fsync_directory(root)
+
+    with cleanup_on_exit(remove_backup, description=f"incomplete posthoc backup {backup}", on_error_only=True):
         directories = {backup}
         with ExitStack() as locks:
             sources = [context.result_csv, context.static_meta_path]
@@ -123,14 +133,6 @@ def create_backup(context: ResultContext) -> Path:
         for directory in sorted(directories, key=lambda path: (-len(path.parts), path.as_posix())):
             _fsync_directory(directory)
         _fsync_directory(root)
-    except BaseException:
-        try:
-            shutil.rmtree(backup)
-        except FileNotFoundError:
-            pass
-        else:
-            _fsync_directory(root)
-        raise
     return backup
 
 
@@ -147,7 +149,8 @@ def _write_csv_temporary(
         suffix=".tmp",
     )
     temporary_path = Path(temporary)
-    try:
+    with cleanup_on_exit(lambda: temporary_path.unlink(missing_ok=True),
+                         description=f"temporary CSV {temporary_path}", on_error_only=True):
         with os.fdopen(fd, "w", encoding=encoding, newline="") as f:
             writer = csv.DictWriter(
                 f,
@@ -166,12 +169,6 @@ def _write_csv_temporary(
         )
         temporary_path.chmod(mode)
         return temporary_path
-    except BaseException:
-        try:
-            temporary_path.unlink()
-        except FileNotFoundError:
-            pass
-        raise
 
 
 def _write_json_temporary(destination: Path, payload: Mapping[str, Any]) -> Path:
@@ -182,7 +179,8 @@ def _write_json_temporary(destination: Path, payload: Mapping[str, Any]) -> Path
         suffix=".tmp",
     )
     temporary_path = Path(temporary)
-    try:
+    with cleanup_on_exit(lambda: temporary_path.unlink(missing_ok=True),
+                         description=f"temporary JSON {temporary_path}", on_error_only=True):
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(payload, f, ensure_ascii=False, indent=2, allow_nan=False)
             f.write("\n")
@@ -195,12 +193,6 @@ def _write_json_temporary(destination: Path, payload: Mapping[str, Any]) -> Path
         )
         temporary_path.chmod(mode)
         return temporary_path
-    except BaseException:
-        try:
-            temporary_path.unlink()
-        except FileNotFoundError:
-            pass
-        raise
 
 
 def _restore_from_backup(destination: Path, backup_file: Path) -> None:
@@ -211,17 +203,13 @@ def _restore_from_backup(destination: Path, backup_file: Path) -> None:
     )
     os.close(fd)
     temporary_path = Path(temporary)
-    try:
+    with cleanup_on_exit(lambda: temporary_path.unlink(missing_ok=True),
+                         description=f"temporary restore file {temporary_path}"):
         copy_backup_file(backup_file, temporary_path)
         with temporary_path.open("rb") as stream:
             os.fsync(stream.fileno())
         os.replace(temporary_path, destination)
         _fsync_directory(destination.parent)
-    finally:
-        try:
-            temporary_path.unlink()
-        except FileNotFoundError:
-            pass
 
 
 def _commit_layer_result_files(context: ResultContext, *, fieldnames, rows, static_meta,
@@ -241,8 +229,8 @@ def _commit_layer_result_files(context: ResultContext, *, fieldnames, rows, stat
         commit_incremental(context, rows=rows, static_meta=static_meta, collection_history=collection_history)
         return
     replaced: list[Path] = []
-    with tempfile.TemporaryDirectory(prefix=".posthoc-layers-", dir=context.result_dir) as temporary:
-        stage = Path(temporary)
+    stage = Path(tempfile.mkdtemp(prefix=".posthoc-layers-", dir=context.result_dir))
+    with cleanup_on_exit(lambda: shutil.rmtree(stage), description=f"posthoc staging directory {stage}"):
         publish_result_rows(fieldnames, rows, stage)
         check_fields, check_rows = read_result_layers(stage)
         if len(check_rows) != len(rows) or set(check_fields) != set(fieldnames):
@@ -282,18 +270,26 @@ def _commit_layer_result_files(context: ResultContext, *, fieldnames, rows, stat
                         destination.unlink(missing_ok=True)
                         _fsync_directory(destination.parent)
                 except BaseException as error:
-                    errors.append(f"{destination}: {type(error).__name__}: {error}")
+                    errors.append(f"{destination}: {type(error).__name__}: {format_exception_notes(error)}")
                     if cancellation is None and not isinstance(error, Exception):
                         cancellation = error
             if errors:
                 failure = PosthocError(
-                    f"layer publication failed ({primary_error}); recovery incomplete: "
+                    f"layer publication failed ({format_exception_notes(primary_error)}); recovery incomplete: "
                     + "; ".join(errors) + f"; backups at {backup_dir}"
                 )
                 if cancellation is not None:
                     raise cancellation from failure
                 raise failure from primary_error
             raise
+
+
+def _remove_temporary_files(paths: Sequence[Path]) -> None:
+    with ExitStack() as cleanup:
+        for path in reversed(paths):
+            cleanup.enter_context(cleanup_on_exit(
+                partial(path.unlink, missing_ok=True), description=f"temporary posthoc file {path}",
+            ))
 
 
 def commit_result_files(
@@ -310,99 +306,94 @@ def commit_result_files(
         return _commit_layer_result_files(context, fieldnames=fieldnames, rows=rows,
                                           static_meta=static_meta,
                                           collection_history=collection_history, backup_dir=backup_dir)
-    attempted_publications: list[Path] = []
-    try:
-        csv_temporary = _write_csv_temporary(
-            context.result_csv,
-            fieldnames=fieldnames,
-            rows=rows,
-            encoding=context.csv_encoding,
-        )
-        temporaries.append(csv_temporary)
-        meta_temporary = _write_json_temporary(context.static_meta_path, static_meta)
-        temporaries.append(meta_temporary)
-        history_temporary = _write_json_temporary(
-            context.collection_history_path,
-            collection_history,
-        )
-        temporaries.append(history_temporary)
-        # Validate all complete temporary documents before publishing any of them.
-        with csv_temporary.open(
-            "r", encoding=context.csv_encoding, newline=""
-        ) as f:
-            allow_large_csv_fields()
-            if sum(1 for _row in csv.DictReader(f)) != len(rows):
-                raise PosthocError("temporary result CSV row-count validation failed")
-        _load_json_object(meta_temporary, "temporary static metadata")
-        temporary_history = _load_json_object(
-            history_temporary,
-            "temporary collection history",
-        )
-        normalize_collection_history(temporary_history)
+    with cleanup_on_exit(lambda: _remove_temporary_files(temporaries), description="posthoc temporary files"):
+        attempted_publications: list[Path] = []
+        try:
+            csv_temporary = _write_csv_temporary(
+                context.result_csv,
+                fieldnames=fieldnames,
+                rows=rows,
+                encoding=context.csv_encoding,
+            )
+            temporaries.append(csv_temporary)
+            meta_temporary = _write_json_temporary(context.static_meta_path, static_meta)
+            temporaries.append(meta_temporary)
+            history_temporary = _write_json_temporary(
+                context.collection_history_path,
+                collection_history,
+            )
+            temporaries.append(history_temporary)
+            # Validate all complete temporary documents before publishing any of them.
+            with csv_temporary.open(
+                "r", encoding=context.csv_encoding, newline=""
+            ) as f:
+                allow_large_csv_fields()
+                if sum(1 for _row in csv.DictReader(f)) != len(rows):
+                    raise PosthocError("temporary result CSV row-count validation failed")
+            _load_json_object(meta_temporary, "temporary static metadata")
+            temporary_history = _load_json_object(
+                history_temporary,
+                "temporary collection history",
+            )
+            normalize_collection_history(temporary_history)
 
-        for temporary, destination in (
-            (csv_temporary, context.result_csv),
-            (meta_temporary, context.static_meta_path),
-            (history_temporary, context.collection_history_path),
-        ):
-            # A signal can arrive after rename succeeds but before the next statement.
-            attempted_publications.append(destination)
-            os.replace(temporary, destination)
-        _fsync_parent_directories(
-            context.result_csv,
-            context.static_meta_path,
-            context.collection_history_path,
-        )
-        # Keep the published layer view consistent with a successful post-hoc
-        # transaction. Unchanged tool CSVs are not rewritten.
-        if (context.result_dir / "result_layers.json").is_file():
-            from acprof.results.layers import publish_result_layers
-            publish_result_layers(context.result_csv)
-    except BaseException as primary_error:
-        recovery_errors: list[str] = []
-        cancellation = primary_error if not isinstance(primary_error, Exception) else None
-        # Attempt every potentially published file, including when cleanup is cancelled.
-        for destination in attempted_publications:
-            try:
-                if destination == context.collection_history_path and not context.collection_history_existed:
-                    destination.unlink(missing_ok=True)
-                    _fsync_directory(destination.parent)
-                else:
-                    _restore_from_backup(destination, backup_dir / destination.relative_to(context.result_dir))
-            except BaseException as recovery_error:
-                recovery_errors.append(
-                    f"{destination}: {type(recovery_error).__name__}: {recovery_error}"
-                )
-                if cancellation is None and not isinstance(recovery_error, Exception):
-                    cancellation = recovery_error
-        # Rebuild the prior view from the restored wide result when possible.
-        # Report an incomplete recovery if storage failures also prevent repair.
-        if attempted_publications and (context.result_dir / "result_layers.json").is_file():
-            try:
+            for temporary, destination in (
+                (csv_temporary, context.result_csv),
+                (meta_temporary, context.static_meta_path),
+                (history_temporary, context.collection_history_path),
+            ):
+                # A signal can arrive after rename succeeds but before the next statement.
+                attempted_publications.append(destination)
+                os.replace(temporary, destination)
+            _fsync_parent_directories(
+                context.result_csv,
+                context.static_meta_path,
+                context.collection_history_path,
+            )
+            # Keep the published layer view consistent with a successful post-hoc
+            # transaction. Unchanged tool CSVs are not rewritten.
+            if (context.result_dir / "result_layers.json").is_file():
                 from acprof.results.layers import publish_result_layers
                 publish_result_layers(context.result_csv)
-            except BaseException as layer_error:
-                recovery_errors.append(
-                    f"result layers: {type(layer_error).__name__}: {layer_error}"
+        except BaseException as primary_error:
+            recovery_errors: list[str] = []
+            cancellation = primary_error if not isinstance(primary_error, Exception) else None
+            # Attempt every potentially published file, including when cleanup is cancelled.
+            for destination in attempted_publications:
+                try:
+                    if destination == context.collection_history_path and not context.collection_history_existed:
+                        destination.unlink(missing_ok=True)
+                        _fsync_directory(destination.parent)
+                    else:
+                        _restore_from_backup(destination, backup_dir / destination.relative_to(context.result_dir))
+                except BaseException as recovery_error:
+                    recovery_errors.append(
+                        f"{destination}: {type(recovery_error).__name__}: {format_exception_notes(recovery_error)}"
+                    )
+                    if cancellation is None and not isinstance(recovery_error, Exception):
+                        cancellation = recovery_error
+            # Rebuild the prior view from the restored wide result when possible.
+            # Report an incomplete recovery if storage failures also prevent repair.
+            if attempted_publications and (context.result_dir / "result_layers.json").is_file():
+                try:
+                    from acprof.results.layers import publish_result_layers
+                    publish_result_layers(context.result_csv)
+                except BaseException as layer_error:
+                    recovery_errors.append(
+                        f"result layers: {type(layer_error).__name__}: {format_exception_notes(layer_error)}"
+                    )
+                    if cancellation is None and not isinstance(layer_error, Exception):
+                        cancellation = layer_error
+            if recovery_errors:
+                failure = PosthocError(
+                    f"post-hoc publication failed ({type(primary_error).__name__}: {format_exception_notes(primary_error)}); "
+                    f"recovery incomplete: {'; '.join(recovery_errors)}; "
+                    f"backups retained at {backup_dir}"
                 )
-                if cancellation is None and not isinstance(layer_error, Exception):
-                    cancellation = layer_error
-        if recovery_errors:
-            failure = PosthocError(
-                f"post-hoc publication failed ({type(primary_error).__name__}: {primary_error}); "
-                f"recovery incomplete: {'; '.join(recovery_errors)}; "
-                f"backups retained at {backup_dir}"
-            )
-            if cancellation is not None:
-                raise cancellation from failure
-            raise failure from primary_error
-        raise
-    finally:
-        for temporary in temporaries:
-            try:
-                temporary.unlink()
-            except FileNotFoundError:
-                pass
+                if cancellation is not None:
+                    raise cancellation from failure
+                raise failure from primary_error
+            raise
 
 
 def _read_process_cmdline(pid_dir: Path) -> list[str]:

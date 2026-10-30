@@ -41,7 +41,7 @@
 | `acprof/plotting/` | 当前 CSV 校验、图表配置、颜色与渲染 |
 | `acprof/models/` | 模型契约、静态候选、任务支持与检查点文件规则；inspection/ 只解析受限源码与依赖证据 |
 | `acprof/hub/` | 来源身份、HF/ModelScope 仓库访问与受约束的下载传输 |
-| `acprof/system/` | 主机和监测器共享的同步命令执行能力，不依赖 host 编排 |
+| `acprof/system/` | 共享的同步命令执行与资源清理异常处理，不依赖 host 编排 |
 | `acprof/events/` | 下载、准备、运行进度的轻量事件协议；不初始化 UI 或后台采集 |
 | `acprof/tasks/` | 任务语义、推理执行分组、接口声明与参数审查；无模型权重加载 |
 | `acprof/experiments/` | 运行配置、CLI 参数 schema、选项序列化与校验；不负责命令执行 |
