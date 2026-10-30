@@ -10,6 +10,7 @@ import time
 import urllib.error
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -301,8 +302,11 @@ def preflight(task, profile, project_dir, model_plan: dict, *, root=None,
           "no cache writes; complete downloads require confirmation in interactive mode", flush=True)
     probes = probe_model_download(model_plan, root, entry_id=entry_id, max_bytes=allowance)
     store = Path(root).expanduser().resolve() if root is not None else store_root()
-    with store_lock(store):
-        # Keep the confirmed cache bytes and their disk budget on one GC-stable snapshot.
+    # A pristine store has no cached entries to race with GC. Keep bounded
+    # preflight probes read-only rather than creating an empty cache lock.
+    has_cache_state = store.exists() and any(store.iterdir())
+    with (store_lock(store) if has_cache_state else nullcontext()):
+        # Keep existing cache bytes and disk budget on one GC-stable snapshot.
         models = model_sources(model_plan, store, entry_id=entry_id)
         disk = require_space(models, store)
     probe_bytes = sum(item.get("received_bytes", 0) for item in probes)

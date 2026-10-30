@@ -8,6 +8,7 @@ import pytest
 from acprof.artifacts import MAX_JSON_ARTIFACT_BYTES
 from acprof.dependency_locks import read_python_lock
 from acprof.host.images.runtime import PROJECT_ROOT
+from acprof.host.model_store.store import store_lock
 from acprof.host.preparation.network_preflight import preflight, registry_manifest, runtime_sources
 from acprof.network_policy import (
     DownloadPolicyError,
@@ -57,7 +58,13 @@ def test_download_confirmation_preserves_raw_bytes(tmp_path, capsys, download_by
     assert logged == report
 
 
-def test_preflight_disk_and_model_estimates_use_the_same_cache_snapshot(tmp_path):
+@pytest.mark.parametrize("cache_state", ["missing", "empty", "populated"])
+def test_preflight_disk_and_model_estimates_use_the_same_cache_snapshot(tmp_path, cache_state):
+    cache_root = tmp_path / "cache"
+    if cache_state != "missing":
+        cache_root.mkdir()
+    if cache_state == "populated":
+        (cache_root / "existing-payload.bin").write_bytes(b"cached")
     task = SimpleNamespace(model_id="demo/model", model_revision="a" * 40,
         task_family="nlp", runtime_backend="transformers_pipeline", model_adapter="family-default")
     plan = {"selected_bytes": 2, "endpoint": "https://huggingface.co"}
@@ -74,13 +81,21 @@ def test_preflight_disk_and_model_estimates_use_the_same_cache_snapshot(tmp_path
         patch("acprof.host.model_store.store.model_sources", side_effect=([missing], [hit])),
         patch("acprof.host.model_store.store.require_space", side_effect=disk_for),
         patch("acprof.host.model_store.store.probe_model_download", return_value=[]),
+        patch("acprof.host.model_store.store.store_lock", wraps=store_lock) as lock,
     ):
-        report = preflight(task, None, tmp_path, plan, root=tmp_path / "cache",
+        report = preflight(task, None, tmp_path, plan, root=cache_root,
                            runtime_plan=([], {"kind": "process"}))
 
     assert report["expected_download_bytes"] == 0
     assert report["model"]["cached_bytes"] == 2
     assert report["disk"]["required_bytes"] == report["expected_download_bytes"]
+    assert lock.call_count == (1 if cache_state == "populated" else 0)
+    if cache_state == "missing":
+        assert not cache_root.exists()
+    elif cache_state == "empty":
+        assert list(cache_root.iterdir()) == []
+    else:
+        assert (cache_root / ".lock").is_file()
 
 
 def test_model_only_budget_allows_cached_model_with_unknown_oci_size(tmp_path):
