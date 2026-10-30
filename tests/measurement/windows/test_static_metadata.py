@@ -398,7 +398,18 @@ class TestStaticMetadata:
         assert (execution_enriched.execution_profiles_retained)
         assert (execution_enriched.execution_profile_provenance) == ("collected")
 
-    def test_write_static_meta_json_includes_enriched_fields_atomically(self) -> None:
+    @pytest.mark.parametrize(
+        ("ncu_metadata", "expected_ncu_version"),
+        [
+            ({}, None),
+            ({"ncu_flop_counting_version": None}, None),
+            ({"ncu_flop_counting_version": 2}, 2),
+        ],
+        ids=["legacy-unversioned", "unavailable", "packed-fp16-v2"],
+    )
+    def test_write_static_meta_json_includes_enriched_fields_atomically(
+        self, ncu_metadata: dict, expected_ncu_version: int | None,
+    ) -> None:
         meta = static_metadata.StaticMeta(
             model_name="model",
             model_revision="main",
@@ -444,6 +455,12 @@ class TestStaticMetadata:
         )
 
         with tempfile.TemporaryDirectory() as tmp:
+            plan_path = os.path.join(tmp, "compute_profile_plan.json")
+            with open(plan_path, "w", encoding="utf-8") as stream:
+                json.dump({"static_metadata": ncu_metadata}, stream)
+            meta = static_metadata.enrich_static_meta_from_compute_plan(
+                meta, plan_path,
+            )
             path = os.path.join(tmp, "static_meta.json")
             with patch("acprof.host.metadata.static.os.fsync", wraps=os.fsync) as fsync:
                 static_metadata.write_static_meta_json(meta, path)
@@ -476,6 +493,7 @@ class TestStaticMetadata:
         assert not (payload["quantized"])
         assert (payload["compute_profile_tools"]) == (["torch_profiler_eager", "ncu"])
         assert (payload["compute_profile_provenance"]) == ("direct")
+        assert payload["ncu_flop_counting_version"] == expected_ncu_version
         assert (leftovers) == ([])
         assert fsync.call_count >= 2
 

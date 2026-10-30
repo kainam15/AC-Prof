@@ -74,6 +74,7 @@
 | `torch_profiler_eager_repeat_cpu` | CPU Torch eager probe 的 repeat；未采 CPU profile 时为 `null`。 |
 | `torch_profiler_eager_repeat_gpu` | GPU Torch eager probe 的 repeat；未采 GPU profile 时为 `null`。 |
 | `ncu_flop_semantics` | NCU GPU 实际执行 FLOP 的计数器、Tensor/Scalar 分类口径说明。 |
+| `ncu_flop_counting_version` | NCU FLOP 计数口径版本；`2` 表示双 lane FP16 指令按 HADD/HMUL/HFMA = 2/2/4 计数。未采集或历史 plan 未标版本时为 `null`，不推定使用当前口径。 |
 | `ncu_repeat` | NCU probe repeat；所有 NCU per-request 指标据此归一化。 |
 | `ncu_fma_flop_weight` | NCU FMA 指令的 FLOP 权重，当前为 `2`。 |
 | `ncu_metrics` | 本次 NCU 实际请求/解析的 metric 列表。 |

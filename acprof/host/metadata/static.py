@@ -108,6 +108,7 @@ class StaticMeta:
     torch_profiler_eager_repeat_cpu: int | None = None
     torch_profiler_eager_repeat_gpu: int | None = None
     ncu_flop_semantics: str = ""
+    ncu_flop_counting_version: int | None = None
     ncu_repeat: int | None = None
     ncu_fma_flop_weight: float | None = None
     ncu_metrics: list[str] = field(default_factory=list)
