@@ -6,8 +6,8 @@ from unittest.mock import Mock
 
 from acprof.experiments.configuration import RunConfig
 from acprof.tui.app import AcprofTui
-from acprof.tui.progress import ProgressSnapshot
-from acprof.tui.stages import Stage
+from acprof.tui.run.progress import ProgressSnapshot
+from acprof.tui.run.stages import Stage
 from tests.visual_png.scenarios.common import freeze_for_screenshot
 
 
@@ -18,9 +18,9 @@ def initial_config() -> RunConfig:
 def mount(app: AcprofTui) -> None:
     process = Mock(pid=12345, returncode=None)
     process.poll.return_value = None
-    app.lifecycle.process = process
-    app.process_kind = "run"
-    app.active_command = ("acprof", "run")
+    app.execution.lifecycle.process = process
+    app.execution.session.kind = "run"
+    app.execution.session.command = ("acprof", "run")
     snapshot = ProgressSnapshot(
         stage=Stage.MEASURING,
         detail="固定测量窗口 · 中文边框、状态与日志排版",
@@ -37,5 +37,5 @@ def mount(app: AcprofTui) -> None:
     app.activate_tab("monitor-tab")
     app.consume_process_line("正在执行固定测试任务：不启动真实推理。", snapshot, True)
     app.logs.flush()
-    app.started_monotonic = 0
+    app.execution.session.started_monotonic = 0
     freeze_for_screenshot(app)

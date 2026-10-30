@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from acprof.experiments.configuration import RunConfig
 from acprof.tui.app import AcprofTui
-from acprof.tui.preparation import PreparationScreen
+from acprof.tui.run.preparation import PreparationScreen
 from tests.support.task_selection_fixtures import t5_profiles
 from tests.visual_png.scenarios.common import freeze_for_screenshot
 
