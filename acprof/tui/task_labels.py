@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 from collections.abc import Callable
 
-from acprof.task_presentation import ConfigField, ConfigPath, SelectionGroup, TaskPurpose
+from acprof.tasks.presentation import ConfigField, ConfigPath, SelectionGroup, TaskPurpose
 from acprof.tui.i18n import message_id
 
 type Translator = Callable[[str], str]

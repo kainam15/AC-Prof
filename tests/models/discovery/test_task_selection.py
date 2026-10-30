@@ -132,7 +132,7 @@ def test_manual_workload_declaration_resolves_an_undeclared_task(tmp_path):
 
 
 def test_reusing_frozen_workload_keeps_manual_semantics(tmp_path):
-    from acprof.task_workloads import parse_task, workload_manifest
+    from acprof.tasks.workloads import parse_task, workload_manifest
     task = declared_model()
     manual = parse_task("generative-question-answering", {"prefix": "answer this: "},
                         encoder_decoder=True, source="user")
@@ -158,8 +158,8 @@ def test_workload_override_reclassifies_effective_execution_group(tmp_path):
 
 
 def test_frozen_group_rejects_compute_override(tmp_path):
-    from acprof.inference_groups import group_inference_tasks
-    from acprof.task_workloads import workload_manifest
+    from acprof.tasks.groups import group_inference_tasks
+    from acprof.tasks.workloads import workload_manifest
     task = declared_model()
     group = group_inference_tasks(task.task_discovery["tasks"], backend=task.runtime_backend)[0]
     spec = tmp_path / "frozen-group.json"
@@ -171,8 +171,8 @@ def test_frozen_group_rejects_compute_override(tmp_path):
 
 
 def test_historical_frozen_signature_keeps_its_original_identity(tmp_path):
-    from acprof.inference_groups import group_inference_tasks
-    from acprof.task_workloads import parse_task, task_fingerprint, workload_manifest
+    from acprof.tasks.groups import group_inference_tasks
+    from acprof.tasks.workloads import parse_task, task_fingerprint, workload_manifest
     task = declared_model()
     group = group_inference_tasks([parse_task("summarization", {}, encoder_decoder=True, source="historical")],
                                  backend="transformers_model")[0]

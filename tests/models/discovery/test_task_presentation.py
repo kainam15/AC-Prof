@@ -6,9 +6,9 @@ from pathlib import Path
 
 import pytest
 
-from acprof.inference_groups import group_inference_tasks
-from acprof.task_presentation import build_task_selection, compare_configurations
-from acprof.task_workloads import parse_task
+from acprof.tasks.groups import group_inference_tasks
+from acprof.tasks.presentation import build_task_selection, compare_configurations
+from acprof.tasks.workloads import parse_task
 from tests.support.task_selection_fixtures import t5_profiles
 
 

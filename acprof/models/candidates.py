@@ -134,7 +134,7 @@ def discover_model_candidates(task_info: Any, *, override_tag: str | None = None
                 errors.append(str(exc))
             return "unknown"
 
-    from acprof.inference_interfaces import (
+    from acprof.tasks.interfaces import (
         component_scoped,
         execution_path,
         inference_evidence,

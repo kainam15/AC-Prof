@@ -6,7 +6,7 @@ from textual import events
 from textual.containers import Horizontal, Vertical
 from textual.widgets import Checkbox, Static
 
-from acprof.task_presentation import SelectionGroup, build_task_selection
+from acprof.tasks.presentation import SelectionGroup, build_task_selection
 from acprof.tui.checkbox import StatusCheckbox
 from acprof.tui.i18n import message_id
 from acprof.tui.task_labels import Translator, format_parameters, group_label

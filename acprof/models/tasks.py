@@ -3,10 +3,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from acprof.inference_groups import group_inference_tasks
-from acprof.inference_interfaces import execution_path
 from acprof.models.support import TASK_MAPPINGS
-from acprof.task_workloads import canonical_task_id, parse_task, task_fingerprint
+from acprof.tasks.groups import group_inference_tasks
+from acprof.tasks.interfaces import execution_path
+from acprof.tasks.workloads import canonical_task_id, parse_task, task_fingerprint
 
 
 def build_task_discovery(task_info: Any, resolution: dict, *, component_scope: bool,

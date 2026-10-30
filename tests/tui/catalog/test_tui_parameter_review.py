@@ -4,8 +4,8 @@ from textual.widgets import Button, Collapsible, Select, Static
 
 from acprof.experiment import RunConfig
 from acprof.host.detect import TaskInfo
-from acprof.task_parameters import parameter_review
-from acprof.task_workloads import parse_task
+from acprof.tasks.parameters import parameter_review
+from acprof.tasks.workloads import parse_task
 from acprof.tui.input import BarCursorInput as Input
 from acprof.tui.preparation import PreparationScreen
 from tests.support.tui_fixtures import AcprofTui

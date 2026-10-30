@@ -51,7 +51,11 @@ class NLPWorkloadGenerator(WorkloadGenerator):
                 raise ValueError(f"invalid NLP workload task or fields: {sorted(unknown)}")
             self._budget = InputBudget.from_value(spec.get("input_budget"))
             params = spec.get("params", {})
-            from acprof.task_workloads import GENERATION_KEYS, task_fingerprint, validate_generation
+            from acprof.tasks.workloads import (
+                GENERATION_KEYS,
+                task_fingerprint,
+                validate_generation,
+            )
             self._task_workload = spec.get("task_workload", {})
             if self._task_workload:
                 if (self._task_workload.get("interface") != task_type
@@ -93,7 +97,7 @@ class NLPWorkloadGenerator(WorkloadGenerator):
     def generate_for_word_count(self, word_count: int) -> dict[str, Any]:
         text = self._generate_text_from_word_count(word_count)
         if self._task_workload:
-            from acprof.task_workloads import CORPORA, render_task_text
+            from acprof.tasks.workloads import CORPORA, render_task_text
             if self._task_workload["kind"] in CORPORA or self._task_workload["config"].get("input_text"):
                 text = render_task_text(self._task_workload, word_count)
 
@@ -168,7 +172,7 @@ class NLPWorkloadGenerator(WorkloadGenerator):
         metadata = copy.deepcopy(self._spec_metadata)
         if self._task_workload:
             from acprof.models.evidence import content_digest
-            from acprof.task_workloads import CORPORA
+            from acprof.tasks.workloads import CORPORA
             metadata.update(task_workload=copy.deepcopy(self._task_workload),
                             data_source="acprof_builtin_text", seed=0,
                             template_sha256=content_digest({"config": self._task_workload["config"],

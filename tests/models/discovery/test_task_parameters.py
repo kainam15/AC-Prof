@@ -10,12 +10,12 @@ from acprof.host.detect import TaskInfo
 from acprof.host.preparation.collection_workflow import PreparationWorkflow
 from acprof.host.preparation.task_selection import review_selected_task_parameters, select_tasks
 from acprof.models.candidates import discover_model_candidates
-from acprof.task_parameters import (
+from acprof.tasks.parameters import (
     apply_parameter_review,
     describe_task_parameters,
     parameter_review,
 )
-from acprof.task_workloads import parse_task, task_fingerprint
+from acprof.tasks.workloads import parse_task, task_fingerprint
 
 
 def model(*, generation=None):
@@ -256,7 +256,7 @@ def test_non_generative_workloads_allow_task_scoped_input_override():
 
 
 def _selected_inference_profiles():
-    from acprof.inference_groups import group_inference_tasks
+    from acprof.tasks.groups import group_inference_tasks
 
     tasks = [
         parse_task("summarization", {"num_beams": 4}, encoder_decoder=True, source="fixture"),
@@ -266,7 +266,7 @@ def _selected_inference_profiles():
 
 
 def test_beam_edit_rebinds_group_id_signature_and_snapshot_without_changing_evidence():
-    from acprof.inference_groups import inference_signature
+    from acprof.tasks.groups import inference_signature
 
     info = model()
     original = _selected_inference_profiles()

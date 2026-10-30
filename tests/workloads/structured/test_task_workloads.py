@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
-from acprof.task_workloads import parse_task, workload_manifest
+from acprof.tasks.workloads import parse_task, workload_manifest
 from acprof.workloads.nlp import NLPWorkloadGenerator
 
 

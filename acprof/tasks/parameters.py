@@ -10,7 +10,7 @@ import copy
 import math
 from typing import Any
 
-from acprof.task_workloads import (
+from acprof.tasks.workloads import (
     GENERATIVE_INTERFACES,
     merge_generation_parameters,
     task_fingerprint,
@@ -176,7 +176,7 @@ def _coalesce_matching_profiles(tasks: list[dict]) -> list[dict]:
         previous = grouped[key]
         # The shared signature already covers active decode controls; preserve
         # length axes and experiment inputs independently of the compute path.
-        from acprof.inference_groups import profile_output_budget
+        from acprof.tasks.groups import profile_output_budget
         if (profile_output_budget(previous) != profile_output_budget(task)
                 or previous["config"].get("user_experiment_overrides", {})
                 != task["config"].get("user_experiment_overrides", {})):
@@ -249,7 +249,7 @@ def apply_parameter_review(model: Any, selected_tasks: list[dict], answers: dict
         if experiment_choices:
             task["config"]["user_experiment_overrides"] = dict(experiment_choices)
         if "execution_profile" in task:
-            from acprof.inference_groups import reidentify_inference_profile
+            from acprof.tasks.groups import reidentify_inference_profile
 
             if any(name in generation_choices for name in ("max_new_tokens", "max_length")):
                 length_name = next(name for name in ("max_new_tokens", "max_length")

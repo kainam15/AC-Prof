@@ -143,8 +143,8 @@ def inference_evidence(task_info: Any, candidates: list[dict], *, component_scop
 
 def validate_execution_identity(task_info: Any) -> None:
     """Check new frozen paths before restoring a runtime; legacy records stay readable."""
-    from acprof.inference_groups import inference_signature
-    from acprof.task_workloads import task_fingerprint
+    from acprof.tasks.groups import inference_signature
+    from acprof.tasks.workloads import task_fingerprint
     for selected in task_info.selected_tasks:
         profile = selected.get("execution_profile", {})
         signature = profile.get("signature", {})

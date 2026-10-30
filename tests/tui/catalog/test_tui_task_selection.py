@@ -7,9 +7,9 @@ from textual.containers import VerticalScroll
 from textual.widgets import Button, Checkbox, Select, Static
 
 from acprof.experiment import RunConfig
-from acprof.inference_groups import group_inference_tasks
-from acprof.task_presentation import ConfigField, build_task_selection
-from acprof.task_workloads import parse_task
+from acprof.tasks.groups import group_inference_tasks
+from acprof.tasks.presentation import ConfigField, build_task_selection
+from acprof.tasks.workloads import parse_task
 from acprof.tui.i18n import translate
 from acprof.tui.preparation import PreparationScreen
 from acprof.tui.task_choices import TaskChoice, TaskChoices

@@ -35,7 +35,7 @@ def explain_resolution(task_info, *, explain: bool = False) -> str:
     if resolution.get("semantics"):
         lines.append(f"Semantics: {resolution['semantics']['status']} ({resolution.get('benchmark_kind', 'unknown')})")
     if task_info.task_discovery:
-        from acprof.task_workloads import task_label
+        from acprof.tasks.workloads import task_label
         state = task_info.task_discovery["status"]
         states = {"ready": "已确定一个推理路径", "selection_required": "存在多个独立推理路径，请选择采集范围",
                   "needs_configuration": "推理接口信息不足或相互矛盾，需要补充配置"}

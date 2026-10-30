@@ -11,7 +11,7 @@ import re
 from collections.abc import Mapping
 
 from acprof.models.evidence import content_digest
-from acprof.task_workloads import (
+from acprof.tasks.workloads import (
     GENERATION_KEYS,
     GENERATIVE_INTERFACES,
     merge_generation_parameters,

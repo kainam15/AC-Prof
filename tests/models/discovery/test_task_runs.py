@@ -10,8 +10,8 @@ from acprof.application.task_runs import TaskCollection
 from acprof.experiment import RunConfig
 from acprof.host.detect import TaskInfo
 from acprof.host.runtimes.selection import RuntimeSelection
-from acprof.inference_groups import group_inference_tasks
-from acprof.task_workloads import parse_task
+from acprof.tasks.groups import group_inference_tasks
+from acprof.tasks.workloads import parse_task
 from tests.support.task_selection_fixtures import t5_task
 
 
@@ -22,7 +22,7 @@ def test_real_t5_mixed_selections_execute_once_per_effective_signature(tmp_path,
 
     from acprof.host.preparation.collection_workflow import PreparationWorkflow
     from acprof.host.preparation.task_selection import select_tasks
-    from acprof.task_presentation import build_task_selection
+    from acprof.tasks.presentation import build_task_selection
 
     task = t5_task()
     spec = tmp_path / "override.json"

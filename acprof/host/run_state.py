@@ -521,7 +521,7 @@ class RunState:
         from acprof.host.detect import TaskInfo
         from acprof.host.input_plan import PlannedInputScales
         from acprof.host.runtimes.service import execution_runtime
-        from acprof.inference_interfaces import validate_execution_identity
+        from acprof.tasks.interfaces import validate_execution_identity
         snapshot = self.data["runtime"]
         task = TaskInfo(**snapshot["task"])
         validate_execution_identity(task)

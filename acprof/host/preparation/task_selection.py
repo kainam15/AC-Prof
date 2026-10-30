@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import copy
 
-from acprof.task_workloads import parse_task, task_fingerprint
+from acprof.tasks.workloads import parse_task, task_fingerprint
 
 
 def activate_task(task, selected: dict, *, backend: str = ""):
@@ -18,7 +18,7 @@ def activate_task(task, selected: dict, *, backend: str = ""):
     profile = selected.get("execution_profile")
     if profile and result.runtime_backend != profile["signature"]["backend"]:
         raise ValueError("inference profile backend differs from selected runtime backend")
-    from acprof.inference_interfaces import validate_execution_identity
+    from acprof.tasks.interfaces import validate_execution_identity
     validate_execution_identity(result)
     if result.model_resolution.get("status") == "selection_required":
         result.model_resolution["status"] = "candidate"
@@ -31,7 +31,7 @@ def activate_task(task, selected: dict, *, backend: str = ""):
 
 def select_tasks(task, args, workflow):
     if task.selected_tasks:
-        from acprof.inference_interfaces import validate_execution_identity
+        from acprof.tasks.interfaces import validate_execution_identity
         validate_execution_identity(task)
         return task
     discovery = task.task_discovery
@@ -47,7 +47,7 @@ def select_tasks(task, args, workflow):
         supplied = read_json_object(Path(args.workload_spec).expanduser(), label="workload specification")
         # A user workload can change Beam/Sampling, so grouping must use the
         # effective compute options, not only checkpoint task declarations.
-        from acprof.task_workloads import GENERATION_KEYS
+        from acprof.tasks.workloads import GENERATION_KEYS
         params = supplied.get("params", {})
         if not isinstance(params, dict):
             raise ValueError("workload params must be an object")
@@ -70,8 +70,8 @@ def select_tasks(task, args, workflow):
             candidates = [copy.deepcopy(frozen)]
             manual = True
             if "execution_profile" in frozen and overrides:
-                from acprof.inference_groups import matches_recorded_signature
-                from acprof.task_workloads import (
+                from acprof.tasks.groups import matches_recorded_signature
+                from acprof.tasks.workloads import (
                     GENERATIVE_INTERFACES,
                     merge_generation_parameters,
                     validate_generation,
@@ -94,11 +94,11 @@ def select_tasks(task, args, workflow):
                                      missing=[*task.model_resolution.get("missing", []), *reasons,
                                               "无法确认完整推理接口，请补充模型声明或输入配置。"])
         return task
-    from acprof.inference_groups import group_inference_tasks
     from acprof.models.candidates import resolve_task_backends
+    from acprof.tasks.groups import group_inference_tasks
 
     backends = resolve_task_backends(task, candidates, override_backend=args.backend)
-    from acprof.inference_interfaces import execution_path
+    from acprof.tasks.interfaces import execution_path
     candidates = copy.deepcopy(candidates)
     for candidate in candidates:
         # Frozen historical groups keep their original identity. New workload
@@ -170,7 +170,7 @@ def review_selected_task_parameters(task, args, workflow):
     if (not task.selected_tasks or not workflow.interactive
             or bool(getattr(args, "workload_spec", None)) or getattr(args, "resume", False)):
         return task
-    from acprof.task_parameters import apply_parameter_review, parameter_review
+    from acprof.tasks.parameters import apply_parameter_review, parameter_review
 
     result = copy.deepcopy(task)
     batch_size = getattr(args, "batch_size", 1)

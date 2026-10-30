@@ -2,8 +2,8 @@
 import copy
 import json
 
-from acprof.inference_groups import group_inference_tasks, inference_signature
-from acprof.task_workloads import parse_task, task_fingerprint, workload_manifest
+from acprof.tasks.groups import group_inference_tasks, inference_signature
+from acprof.tasks.workloads import parse_task, task_fingerprint, workload_manifest
 from acprof.workloads.nlp import NLPWorkloadGenerator
 
 
