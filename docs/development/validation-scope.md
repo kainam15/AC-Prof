@@ -69,6 +69,8 @@ Model Store 覆盖完整命中零模型网络请求、默认 ref 与显式 revis
 按[验证范围](#验证范围)运行相关 pytest / evidence、Ruff 及真实 workload；
 命令见[开发质量检查](quality.md#开发质量检查)与[自动化验证入口](test-commands.md#自动化验证入口)。
 局部修改不默认跑完整测试集；只有新改动、失败或未解决问题才扩大或重复验证。
+`test_distribution.py` 同时覆盖补采启动链识别，确保 `uv` 父进程不会被误判为并发任务，
+独立补采与 profiler 进程仍会阻止写入，启动链读取失败不会被当作空闲。
 
 MCP 不可用、索引不完整或没有适用 Run Configuration 时，说明限制并用源码分析和项目 CLI 入口继续；
 不把空调用树当作没有依赖。pytest 缺失时先运行 `uv sync`；IDE、pytest 与 evidence 的边界见 [PyCharm MCP 的验证边界](devtools.md#pycharm-mcp-的验证边界)。

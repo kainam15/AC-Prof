@@ -17,6 +17,8 @@ from typing import (
     TextIO,
 )
 
+import psutil
+
 from acprof.artifacts import atomic_write, create_durable_directory, read_json_object
 from acprof.host.collection_history import COLLECTION_HISTORY_NAME, normalize_collection_history
 from acprof.host.posthoc.context import (
@@ -444,8 +446,14 @@ def find_active_processes(
     proc_root = Path("/proc")
     if not proc_root.is_dir():
         return matches
+    try:
+        launch_pids = {os.getpid(), *(parent.pid for parent in psutil.Process().parents())}
+    except psutil.Error as exc:
+        raise PosthocError(f"cannot inspect profiler launch ancestry: {exc}") from exc
     for pid_dir in proc_root.iterdir():
-        if not pid_dir.name.isdigit() or int(pid_dir.name) == os.getpid():
+        # Launchers such as uv retain the same arguments while waiting for us.
+        # Only our actual ancestry is excluded; concurrent launchers still match.
+        if not pid_dir.name.isdigit() or int(pid_dir.name) in launch_pids:
             continue
         args = _read_process_cmdline(pid_dir)
         if not args:

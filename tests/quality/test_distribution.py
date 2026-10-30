@@ -7,8 +7,10 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
+import psutil
 import pytest
 
 from acprof.experiments.configuration import RunConfig, build_run_command
@@ -143,3 +145,41 @@ class TestDistribution:
                 matches = find_active_processes(expected)
 
         assert matches == []
+
+
+def test_posthoc_ignores_its_launch_chain_but_keeps_other_profile_processes(tmp_path, monkeypatch):
+    from acprof.host.posthoc import storage
+
+    result_dir = tmp_path / "results" / "org--model"
+    proc_root = tmp_path / "proc"
+    commands = {
+        999999901: ["uv", "run", "--locked", "acprof", "profile", str(result_dir)],
+        999999902: ["uv", "run", "--locked", "acprof", "profile", str(result_dir)],
+        999999903: ["/opt/python", "/opt/bin/acprof", "profile", str(result_dir)],
+        999999904: ["/opt/nsys", "profile", f"--output={result_dir}/raw/trace"],
+        os.getpid(): ["/opt/python", "/opt/bin/acprof", "profile", str(result_dir)],
+    }
+    for pid, command in commands.items():
+        process = proc_root / str(pid)
+        process.mkdir(parents=True)
+        (process / "cmdline").write_bytes(b"\0".join(arg.encode() for arg in command))
+    monkeypatch.setattr(storage, "Path", lambda value: proc_root if value == "/proc" else Path(value))
+    monkeypatch.setattr(psutil, "Process", lambda: SimpleNamespace(parents=lambda: [SimpleNamespace(pid=999999901)]))
+
+    assert [pid for pid, _ in storage.find_active_processes(result_dir)] == [999999902, 999999903, 999999904]
+
+
+def test_posthoc_reports_unavailable_launch_ancestry(tmp_path, monkeypatch):
+    from acprof.host.posthoc import storage
+    from acprof.host.posthoc.context import PosthocError
+
+    proc_root = tmp_path / "proc"
+    proc_root.mkdir()
+    monkeypatch.setattr(storage, "Path", lambda value: proc_root if value == "/proc" else Path(value))
+
+    def denied():
+        raise psutil.AccessDenied(os.getpid())
+
+    monkeypatch.setattr(psutil, "Process", denied)
+    with pytest.raises(PosthocError, match="cannot inspect profiler launch ancestry"):
+        storage.find_active_processes(tmp_path / "results")

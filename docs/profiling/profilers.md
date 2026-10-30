@@ -143,6 +143,9 @@ schema v3 的元数据恢复日志先完整校验 `before` 与 `after` 两个版
 操作记录追加到 `posthoc_profile_history`，原始实验命令和非 profiler 字段保持原样。
 仅接受当前分层产物协议；报告与补采 plan 位于 `raw/posthoc_profiles/`，不支持未迁移的 flat 目录。
 同一结果目录若仍被采集或分析进程使用，补采会拒绝启动。
+占用检查排除当前命令自身及其启动链（例如 `uv run acprof profile` 的父进程），
+继续识别其他独立采集、补采和 profiler 进程；无法确定启动链时明确报错。
+此检查不替代测量锁与结果目录锁。
 
 ## 分层结果与完整导出
 
