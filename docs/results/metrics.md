@@ -55,7 +55,7 @@ CSV 从完整表头开始，每个窗口结束后追加对应模块。未运行�
 其他非空诊断仍按错误处理，包括含有这些词的完整错误消息；读取不会改写原始 CSV。
 
 - 每个分层文件共享资源/计划键 `cpu_cores`、`mem_cap_gb`、`gpu_mode`、`input_scale`、`warmup`、`repeat_idx`，并共享 `runtime_kind` 与 `run_id/case_id/case_attempt_id/window_id`。基础层与 summary 一一对应，profiler 只输出实际采集记录。
-- 除身份字段外，每个指标只有一个所属层，分类从 `metric_registry.py` 的来源及 tool 声明派生；未知历史扩展列归入 summary，不会丢弃。
+- 除身份字段外，每个指标只有一个所属层，分类从 `results/metrics.py` 的来源及 tool 声明派生；未知历史扩展列归入 summary，不会丢弃。
 - schema v3 清单记录统一提交序号、模块路径、字段、行数、已提交字节偏移及 SHA256。`acprof results verify <目录>` 检查已提交前缀、字段归属与关联键；不会把未提交尾部当成测量。历史 schema v1/v2 仍可读取，不自动转换已有结果。
 - `acprof results export <分层目录> <新文件.csv>` 在显式请求时重建完整宽表，拒绝覆盖既有文件，包括导出期间并发创建的目标；日常采集和分析不生成它。
 - 根 CSV 是可恢复的实时投影，原始窗口 receipt 与显式派生记录提供可追溯来源。Posthoc 仅替换受影响模块，完成后重新冻结快照；旧快照保持不变。

@@ -12,7 +12,7 @@ Hub Metadata、`config.json`、模块清单与模型声明分别保留来源和�
 `task_specific_params` 和输入示例描述用途。静态阶段不下载权重、不执行仓库代码，
 接口可执行也不表示 checkpoint 在某项应用任务上具有准确率保证。
 
-`inference_groups` 根据 backend、注册 Adapter、执行操作、必要组件、输入输出协议与有效生成配置分组：
+`tasks/groups.py` 根据 backend、注册 Adapter、执行操作、必要组件、输入输出协议与有效生成配置分组：
 Beam 数及长度惩罚、采样/多返回序列、缓存与 logits 处理选项等改变执行配置；输入前缀、翻译方向、
 任务特定 `max_length` / `min_length` 则不产生新的采集组。生成组使用统一的
 `max_new_tokens=64` 默认预算，用户仍可用 workload 参数覆盖。

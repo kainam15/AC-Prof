@@ -8,7 +8,7 @@
 常规性能分析只取 `status=ok` 且 `warmup=0`；错误行中的部分数值不作为正式测量。
 不可用或不适用的数值为 `nan`，历史 CSV 缺少新字段时不能补成 `0`。
 
-字段按用途分组，列顺序、类型、单位、来源和窗口由 [metric_registry.py](../../acprof/results/metrics.py) 统一登记；
+字段按用途分组，列顺序、类型、单位、来源和窗口由 [results/metrics.py](../../acprof/results/metrics.py) 统一登记；
 `config.CSV_FIELDS` 引用同一字段列表。完整元数据见[字段速查](metric_reference.md)，绘图数值转换和补采完成条件复用登记表。
 
 显式导出宽表时，列依次为：资源配置与输入输出／网络、

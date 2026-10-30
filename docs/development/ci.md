@@ -97,7 +97,7 @@ Python 3.13 的架构、私有 API、资源监控及测量契约回归由同版�
 样例验证真实加载与推理；audio 和 multimodal 在同一作业共享一个 CPU 依赖环境，仍分别执行测试。
 网络在容器测试期间关闭。CI Actions 固定为已核验的 commit SHA，作业只授予仓库读取权限。
 Python 3.12.15 Slim Trixie 的基础镜像固定为 Docker Hub 官方仓库的 amd64 OCI manifest SHA256，
-且 `runtime_profiles.py`、平台 manifest 与 system lock 必须一致。
+且 `runtime/profiles.py`、平台 manifest 与 system lock 必须一致。
 DaoCloud 代理曾在 GitHub runner 上对相同 digest 返回 `application/octet-stream`，
 导致 Docker BuildKit 无法解析镜像；CI 不使用该代理作为规范引用。
 其他网络环境如需使用镜像加速，应在不改变镜像身份与 digest 校验的前提下独立配置。

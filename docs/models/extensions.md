@@ -68,7 +68,7 @@ library/config 规则 → family 规则，随后才可使用已声明的 `librar
 
 平台与共享依赖分别在 `platforms`、`dependency_environments` 声明，逻辑配置在 `runtime_profiles`
 或 extension 的 `profile` / `environment` / `dependency_environment` 声明。
-[`runtime_profiles.py`](../../acprof/runtime/profiles.py) 使用既有 `PlatformSpec`、`DependencyEnvironment`、
+[`runtime/profiles.py`](../../acprof/runtime/profiles.py) 使用既有 `PlatformSpec`、`DependencyEnvironment`、
 `RuntimeSpec` 和 `RuntimeProfile` 实例化这些引用并继续检查完整锁。
 新 runtime 可引用 `torch_version: null` 的平台以及独立的精确 lock，无需增加 runtime 名称分支。
 这条声明路径的主机测试使用虚构 runtime；它不代表已实现或验证 OpenVINO 等额外推理后端。

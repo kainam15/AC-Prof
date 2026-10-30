@@ -11,6 +11,12 @@ from importlib.util import resolve_name
 from pathlib import Path
 
 FORBIDDEN = {
+    # Newly grouped domain contracts remain independent of orchestration and UI.
+    "events": frozenset({"application", "host", "container", "monitors", "analysis", "plotting", "tui", "cli"}),
+    "tasks": frozenset({"application", "host", "container", "monitors", "analysis", "plotting", "tui", "cli"}),
+    "experiments": frozenset({"application", "host", "container", "analysis", "plotting", "tui", "cli"}),
+    "runtime": frozenset({"application", "analysis", "plotting", "tui", "cli"}),
+    "results": frozenset({"application", "host", "container", "monitors", "analysis", "plotting", "tui", "cli"}),
     "analysis": frozenset({"host", "container", "monitors", "plotting", "tui", "cli"}),
     "plotting": frozenset({"host", "container", "monitors", "tui", "cli"}),
     "host": frozenset({"cli", "tui"}),

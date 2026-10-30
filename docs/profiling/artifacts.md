@@ -197,7 +197,7 @@ basic 模式不生成该数组。原始请求和 PCAP 保留在不可变测量�
 `result_layers.json` 的 schema v3 与 Artifact Layout v2 独立。它保存 `run_id`、单调提交序号、
 schema hash、状态，以及每个模块的 `committed_bytes/row_count/sha256/revision`。
 每个窗口使用 `run_id + case_id + case_attempt_id + window_id` 去重；同一计划位置来自不同
-attempt 的重复测量也被拒绝。schema 从 `metric_registry.py` 和 `result_layers.py` 派生并冻结。
+attempt 的重复测量也被拒绝。schema 从 `results/metrics.py` 和 `results/layers.py` 派生并冻结。
 
 CPU RAPL、GPU NVML、PMU、资源监控全部停止并完成收尾后，client 持久化窗口证据，
 同步追加该窗口的模块行。所有文件 `fsync` 完成后，发布不可变 commit，再原子替换根清单并

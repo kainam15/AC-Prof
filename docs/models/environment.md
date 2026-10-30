@@ -14,7 +14,7 @@
 | `onnxruntime-cpu` | structured 的 ONNX dense tabular 接口 | ORT 1.23.2、NumPy；CPU float32 |
 | `onnxruntime-cv-cpu` / `onnxruntime-nlp-cpu` | ONNX 图像分类／文本分类 | 共用同一个无 Torch、无 Transformers 环境；Pillow 图像处理、Tokenizers 本地分词 |
 
-[`runtime_profiles.py`](../../acprof/runtime/profiles.py) 使用标准库声明三个独立对象：
+[`runtime/profiles.py`](../../acprof/runtime/profiles.py) 使用标准库声明三个独立对象：
 
 | 对象 | 声明内容 |
 | --- | --- |

@@ -42,6 +42,11 @@
 | `acprof/models/` | 模型契约、静态候选、任务支持与检查点文件规则；inspection/ 只解析受限源码与依赖证据 |
 | `acprof/hub/` | 来源身份、HF/ModelScope 仓库访问与受约束的下载传输 |
 | `acprof/system/` | 主机和监测器共享的同步命令执行能力，不依赖 host 编排 |
+| `acprof/events/` | 下载、准备、运行进度的轻量事件协议；不初始化 UI 或后台采集 |
+| `acprof/tasks/` | 任务语义、推理执行分组、接口声明与参数审查；无模型权重加载 |
+| `acprof/experiments/` | 运行配置、CLI 参数 schema、选项序列化与校验；不负责命令执行 |
+| `acprof/runtime/` | 平台/环境声明、依赖锁与静态依赖检查；不同于 `host/runtimes/` 的运行时进程生命周期 |
+| `acprof/results/` | 结果协议（指标、CSV 唯一键、布局、分层与测量窗口证据），写入在测量窗口外执行 |
 | `acprof/host/` | 模型检测、环境预检、输入计划、容器与采集编排、profiler |
 | `acprof/host/preparation/` | 模型确认、接口探测、下载预检、模型覆盖审计和准备记录的统一编排边界 |
 | `acprof/host/model_store/` | 共享权重缓存、lease/容量策略、受限文件系统访问及只读视图发布 |
