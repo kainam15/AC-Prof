@@ -11,11 +11,10 @@ import re
 import shutil
 import socket
 import stat
-from contextlib import AbstractContextManager, nullcontext
+from contextlib import AbstractContextManager, ExitStack, nullcontext
 from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TextIO
 from uuid import uuid4
 
 from acprof.artifacts import (
@@ -33,6 +32,7 @@ from acprof.platform import detect_environment, is_linux
 from acprof.results.csv import expected_measurements, read_result_csv
 from acprof.results.layout import ArtifactLayout
 from acprof.source_identity import measurement_sources, source_fingerprint
+from acprof.system.cleanup import cleanup_on_exit, format_exception_notes
 
 RUN_STATE_NAME = "run_state.json"
 RESULT_LOCK_NAME = ".acprof-result.lock"
@@ -79,15 +79,14 @@ def check_result_directory_idle(directory: str | Path) -> None:
         return
     except OSError as exc:
         raise RunStateError(f"无法检查结果目录锁；锁文件不可用：{path} ({exc})") from exc
-    try:
-        _validate_lock_descriptor(descriptor, label="result")
-        fcntl.flock(descriptor, fcntl.LOCK_SH | fcntl.LOCK_NB)
-    except BlockingIOError as exc:
-        raise RunStateError(message("原实验仍有进程写入，请等待其退出后再恢复。")) from exc
-    except OSError as exc:
-        raise RunStateError(f"无法检查结果目录锁；锁文件不可用：{path} ({exc})") from exc
-    finally:
-        os.close(descriptor)
+    with cleanup_on_exit(lambda: os.close(descriptor), description=f"result lock probe {path}"):
+        try:
+            _validate_lock_descriptor(descriptor, label="result")
+            fcntl.flock(descriptor, fcntl.LOCK_SH | fcntl.LOCK_NB)
+        except BlockingIOError as exc:
+            raise RunStateError(message("原实验仍有进程写入，请等待其退出后再恢复。")) from exc
+        except OSError as exc:
+            raise RunStateError(f"无法检查结果目录锁；锁文件不可用：{path} ({exc})") from exc
 
 
 def _finite_json_number(raw: str) -> float:
@@ -297,74 +296,66 @@ class ResultDirectoryLock:
     def __init__(self, directory: str | Path, *, new: bool = False):
         layout = ArtifactLayout.for_new_run(directory) if new else ArtifactLayout.discover(directory)
         self.path = layout.path(RESULT_LOCK_NAME)
-        self.stream: TextIO | None = None
+        self._resources: ExitStack | None = None
 
-    def __enter__(self):
+    def _acquire_file(self, resources: ExitStack, *, label: str) -> int:
         import fcntl
 
+        descriptor = os.open(self.path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
+        resources.enter_context(cleanup_on_exit(lambda: os.close(descriptor),
+                                                description=f"{label} lock descriptor {self.path}"))
+        _validate_lock_descriptor(descriptor, label=label)
+        fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        return descriptor
+
+    def __enter__(self):
+        if self._resources is not None:
+            raise RunStateError("结果目录锁已由此对象持有")
         self.path.parent.mkdir(parents=True, exist_ok=True)
         try:
-            descriptor = os.open(
-                self.path,
-                os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW | os.O_CLOEXEC,
-                0o600,
-            )
-            self.stream = os.fdopen(descriptor, "a+")
-            _validate_lock_descriptor(self.stream.fileno(), label="result")
-            fcntl.flock(self.stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            with ExitStack() as resources:
+                self._acquire_file(resources, label="result")
+                self._resources = resources.pop_all()
         except OSError as exc:
-            self.__exit__()
             raise RunStateError(
                 "无法取得结果目录锁；另一个采集或补采进程可能正在使用结果目录，"
-                f"或锁文件不可用：{self.path} ({exc})"
+                f"或锁文件不可用：{self.path} ({format_exception_notes(exc)})"
             ) from exc
         return self
 
-    def __exit__(self, *_args):
-        if self.stream is not None:
-            self.stream.close()
-            self.stream = None
+    def __exit__(self, exc_type=None, exc_value=None, traceback=None):
+        resources, self._resources = self._resources, None
+        if resources is not None:
+            return resources.__exit__(exc_type, exc_value, traceback)
+        return False
 
 
 class MeasurementLock(ResultDirectoryLock):
     """同机同用户的实验串行化，防止跨结果目录共享端口及采样资源。"""
     def __init__(self):
         self.path = MEASUREMENT_LOCK_ROOT / f"acprof-measurement-{os.getuid()}.lock"
-        self.stream = None
-        self.guard: socket.socket | None = None
+        self._resources = None
 
     def __enter__(self):
-        import fcntl
-
-        if self.guard is not None or self.stream is not None:
+        if self._resources is not None:
             raise RunStateError("本机测量锁已由此对象持有")
         try:
-            self.guard = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
-            self.guard.bind(b"\0" + MEASUREMENT_LOCK_NAMESPACE + b"." + str(os.getuid()).encode("ascii"))
-            descriptor = os.open(self.path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
-            self.stream = os.fdopen(descriptor, "a+")
-            _validate_lock_descriptor(self.stream.fileno(), label="measurement")
-            fcntl.flock(self.stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-            opened = os.fstat(self.stream.fileno())
-            named = self.path.stat(follow_symlinks=False)
-            if (opened.st_dev, opened.st_ino) != (named.st_dev, named.st_ino):
-                raise OSError("measurement lock pathname changed during acquisition")
+            with ExitStack() as resources:
+                guard = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+                resources.enter_context(cleanup_on_exit(guard.close, description="measurement kernel guard"))
+                guard.bind(b"\0" + MEASUREMENT_LOCK_NAMESPACE + b"." + str(os.getuid()).encode("ascii"))
+                descriptor = self._acquire_file(resources, label="measurement")
+                opened = os.fstat(descriptor)
+                named = self.path.stat(follow_symlinks=False)
+                if (opened.st_dev, opened.st_ino) != (named.st_dev, named.st_ino):
+                    raise OSError("measurement lock pathname changed during acquisition")
+                self._resources = resources.pop_all()
         except OSError as error:
-            self.__exit__()
             raise RunStateError(
                 "无法取得本机测量锁；同一用户可能已有 AC-Prof 采集或补采运行，"
-                f"或锁文件不可用：{self.path} ({error})"
+                f"或锁文件不可用：{self.path} ({format_exception_notes(error)})"
             ) from error
         return self
-
-
-    def __exit__(self, *_args):
-        try:
-            super().__exit__(*_args)
-        finally:
-            if self.guard is not None:
-                self.guard.close()
-                self.guard = None
 
 
 def offline_analysis_lock() -> AbstractContextManager:
@@ -380,9 +371,9 @@ class RunState:
         self.path = self.layout.path(RUN_STATE_NAME)
         self.lock = ResultDirectoryLock(self.directory, new=not resume)
         self.measurement_lock = MeasurementLock()
-        self.measurement_lock.__enter__()
-        try:
-            self.lock.__enter__()
+        with ExitStack() as locks:
+            locks.enter_context(self.measurement_lock)
+            locks.enter_context(self.lock)
             attempt = {"attempt_id": uuid4().hex, "started_at": utc_now(), "pid": os.getpid(), "resume": resume}
             if resume:
                 self.data = load_run_state(self.directory)
@@ -413,10 +404,7 @@ class RunState:
                              "cases": {}, "artifacts": {}, "attempts": []}
             self.data["attempts"].append(attempt)
             self.save()
-        except BaseException:
-            self.lock.__exit__(None, None, None)
-            self.measurement_lock.__exit__(None, None, None)
-            raise
+            self._locks = locks.pop_all()
 
     @property
     def ready(self) -> bool:
@@ -751,12 +739,9 @@ class RunState:
         self.save()
 
     def close(self, outcome: str = "interrupted") -> None:
-        try:
+        with cleanup_on_exit(self._locks.close, description=f"run locks {self.directory}"):
             if not self.complete:
                 self.data["status"] = outcome
             self.data["attempts"][-1]["ended_at"] = utc_now()
             self.data["attempts"][-1]["outcome"] = self.data["status"]
             self.save()
-        finally:
-            self.lock.__exit__(None, None, None)
-            self.measurement_lock.__exit__(None, None, None)
