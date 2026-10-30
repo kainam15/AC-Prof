@@ -180,6 +180,16 @@ machine events 继续由 `RunProgressTracker` 解析。
 `_execute()` 只串联执行选项校验、任务集合分派、主机预检、准备、矩阵执行和结果发布；
 `_collect_matrix()` 消费单一 `MatrixRequest`，`_publish_matrix_results()` 负责 capability 校验、
 CSV 合并、RunState 完成与清理，task child 继续使用同一 `_finalize()` 所有权和异常优先级。
+日志关闭、RunState 关闭、终态通知与通知上下文重置按顺序尝试，任一收尾失败都不能跳过后续步骤。
+应用释放实例占用后才发送 `run_finished`；事件输出失败也必须保留此前的运行与清理错误。
+收尾统一复用 `system.cleanup.cleanup_on_exit`：保留原始异常及附带诊断；清理期间的取消优先于
+普通运行错误，已有取消不会被后续错误替换。CLI 错误输出及 task collection 的字符串 `error`
+记录保留 exception notes；任务状态、后续任务执行规则和恢复协议不变。
+设计借鉴 [CPython unittest.doCleanups](https://github.com/python/cpython/blob/main/Lib/unittest/case.py)
+的独立清理与错误保留，并核对取消传播问题
+[gh-148427](https://github.com/python/cpython/issues/148427) 及其
+[PR #148435](https://github.com/python/cpython/pull/148435)；只复用本项目已有机制，
+不复制 PSF License 源码、不增加运行依赖，额外处理仅位于运行收尾阶段。
 `RunNotifications` 在预检前、每个 profiler/case 窗口结束后及终态完成时创建通知事件，
 并负责 CSV 摘要、保密错误回显与尽力发送；不同应用实例之间不共享通知上下文。
 终态通知必须在 tmux 日志关闭及 RunState 清理后执行；通知异常不得改变实验结果、污染采集窗口或泄露 webhook。

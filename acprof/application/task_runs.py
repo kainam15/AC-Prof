@@ -14,6 +14,7 @@ from acprof.experiments.configuration import RunConfig
 from acprof.host.detect import TaskInfo
 from acprof.host.preparation.task_selection import activate_task
 from acprof.models.evidence import content_digest
+from acprof.system.cleanup import format_exception_notes
 from acprof.tasks.workloads import merge_generation_parameters, task_fingerprint, workload_manifest
 
 
@@ -169,8 +170,9 @@ class TaskCollection:
                         if outcome.final_csv:
                             final_csvs.append(outcome.final_csv)
                     except (Exception, SystemExit) as exc:
-                        record.update(status="failed", error=f"{type(exc).__name__}: {exc}")
-                        print(f"[tasks][ERROR] {selected['task_id']}: {exc}", flush=True)
+                        detail = format_exception_notes(exc)
+                        record.update(status="failed", error=f"{type(exc).__name__}: {detail}")
+                        print(f"[tasks][ERROR] {selected['task_id']}: {detail}", flush=True)
                     atomic_write_json(self.path, self.manifest)
             except BaseException:
                 self.manifest["status"] = "interrupted"

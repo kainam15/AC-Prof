@@ -12,6 +12,7 @@ from acprof.experiments.arguments import build_parser
 from acprof.experiments.configuration import RunConfig
 from acprof.host.preparation.task_support import TaskSupportError
 from acprof.host.run_state import RunStateError
+from acprof.system.cleanup import format_exception_notes
 
 
 def main(*, args=None, prepared_task=None, preparation_artifacts=None):
@@ -30,9 +31,9 @@ def main(*, args=None, prepared_task=None, preparation_artifacts=None):
                 command=format_run_command(sys.argv),
             )
         except (ValueError, TaskSupportError, RunStateError) as exc:
-            parser.error(str(exc))
+            parser.error(format_exception_notes(exc))
         except CollectionFailed as exc:
-            print(str(exc), file=sys.stderr)
+            print(format_exception_notes(exc), file=sys.stderr)
             raise SystemExit(1) from None
 
     if threading.current_thread() is not threading.main_thread():

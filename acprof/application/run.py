@@ -50,6 +50,7 @@ from acprof.host.result_cleanup import cleanup_intermediate_results
 from acprof.host.run_state import RunState, load_run_state, run_options
 from acprof.installation import resource_root
 from acprof.latency_slo import parse_latency_slo_rules, resolve_latency_slo
+from acprof.system.cleanup import cleanup_on_exit, format_exception_notes
 
 PROJECT_DIR = str(resource_root())
 
@@ -98,81 +99,75 @@ class RunApplication:
         if self._running:
             raise RuntimeError("run application is already occupied")
         self._running = True
-        self.notifications.reset()
-        outcome = None
-        primary_error: BaseException | None = None
         terminal_status = "failed"
-        try:
-            if not command:
-                from acprof.experiments.arguments import arguments_from_options
-                command = format_run_command(["acprof run", *arguments_from_options(vars(config.to_namespace()))])
-            outcome = self._execute(config, prepared_task=prepared_task,
-                                    preparation_artifacts=preparation_artifacts, command=command)
-            terminal_status = outcome.status
-            return outcome
-        except KeyboardInterrupt as exc:
-            primary_error = exc
-            terminal_status = "cancelled"
-            self.notifications.record_termination("cancelled", "用户中断了采集")
-            raise
-        except BaseException as exc:
-            primary_error = exc
-            self.notifications.record_termination("failed", f"{type(exc).__name__}: {exc}")
-            raise
-        finally:
+
+        def finalize() -> None:
+            nonlocal terminal_status
             try:
                 self._finalize(terminal_status)
-            except BaseException as cleanup_error:
+            except BaseException:
                 terminal_status = "failed"
-                if primary_error is None:
-                    raise
-                primary_error.add_note(f"Run finalization also failed: {type(cleanup_error).__name__}")
-            finally:
-                self._running = False
-                emit_event("run_finished", status=terminal_status)
+                raise
+
+        def finish() -> None:
+            self._running = False
+            emit_event("run_finished", status=terminal_status)
+
+        with cleanup_on_exit(finish, description="run completion event"):
+            self.notifications.reset()
+            with cleanup_on_exit(finalize, description="run finalization"):
+                try:
+                    if not command:
+                        from acprof.experiments.arguments import arguments_from_options
+                        command = format_run_command(["acprof run", *arguments_from_options(vars(config.to_namespace()))])
+                    outcome = self._execute(config, prepared_task=prepared_task,
+                                            preparation_artifacts=preparation_artifacts, command=command)
+                    terminal_status = outcome.status
+                    return outcome
+                except BaseException as exc:
+                    terminal_status = "cancelled" if isinstance(exc, KeyboardInterrupt) else "failed"
+                    detail = ("用户中断了采集" if terminal_status == "cancelled"
+                              else f"{type(exc).__name__}: {format_exception_notes(exc)}")
+                    with cleanup_on_exit(
+                        lambda: self.notifications.record_termination(terminal_status, detail),
+                        description="run failure notification",
+                    ):
+                        raise
 
     def _finalize(self, status: str) -> None:
         terminal_log, self.terminal_log = self.terminal_log, None
         state, self.run_state = self.run_state, None
         finalized_log_path = None
-        try:
-            if terminal_log is not None and self.terminal_stop(terminal_log):
-                finalized_log_path = terminal_log[2]
-        except BaseException as exc:
-            self.notifications.record_termination("failed", f"{type(exc).__name__}: {exc}")
-            raise
-        finally:
+
+        def close_state() -> None:
+            if state is not None:
+                state.close("interrupted" if status in {"cancelled", "no_results"} else "failed")
+
+        with cleanup_on_exit(self.notifications.reset, description="notification context"), cleanup_on_exit(
+            lambda: self.notifications.deliver(finalized_log_path), description="terminal notification",
+        ):
             try:
-                if state is not None:
-                    state.close("interrupted" if status in {"cancelled", "no_results"} else "failed")
+                with cleanup_on_exit(close_state, description="run state"):
+                    if terminal_log is not None and self.terminal_stop(terminal_log):
+                        finalized_log_path = terminal_log[2]
             except BaseException as exc:
-                self.notifications.record_termination("failed", f"{type(exc).__name__}: {exc}")
-                raise
-            finally:
-                try:
-                    self.notifications.deliver(finalized_log_path)
-                finally:
-                    self.notifications.reset()
+                detail = f"{type(exc).__name__}: {format_exception_notes(exc)}"
+                with cleanup_on_exit(
+                    lambda: self.notifications.record_termination("failed", detail),
+                    description="finalization failure notification",
+                ):
+                    raise
 
     def _execute_task_child(self, child_config, child_task, *, command: str) -> RunOutcome:
         status = "failed"
-        primary_error: BaseException | None = None
-        try:
-            result = self._execute(child_config, prepared_task=child_task, command=command, task_child=True)
-            status = result.status
-            return result
-        except BaseException as exc:
-            primary_error = exc
-            if isinstance(exc, KeyboardInterrupt):
-                status = "cancelled"
-            raise
-        finally:
+        with cleanup_on_exit(lambda: self._finalize(status), description="task finalization"):
             try:
-                self._finalize(status)
-            except BaseException as cleanup_error:
-                if primary_error is None:
-                    raise
-                primary_error.add_note(f"Task finalization also failed: {type(cleanup_error).__name__}")
+                result = self._execute(child_config, prepared_task=child_task, command=command, task_child=True)
+                status = result.status
+                return result
+            except KeyboardInterrupt:
+                status = "cancelled"
+                raise
 
     def _run_host_preflight(self, args, *, dram_enabled: bool, workflow):
         def host_preflight():

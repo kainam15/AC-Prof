@@ -74,6 +74,44 @@ def test_task_failure_does_not_skip_the_next_task_and_results_are_separate(tmp_p
     assert collection.manifest["tasks"][1]["status"] == "ok"
 
 
+def test_task_collection_persists_child_cleanup_diagnostics_and_can_resume(tmp_path, capsys):
+    from acprof.artifacts import read_json_object
+
+    config = replace(RunConfig.smoke("fixture/model"), output_dir=str(tmp_path))
+    collection = TaskCollection(config, selected_model())
+    application = RunApplication(notifications=Mock(spec=RunNotifications))
+    primary = RuntimeError("task workload failed")
+    state_error = OSError("state save failed")
+    state_error.add_note("result lock release failed")
+    state = Mock()
+    state.close.side_effect = state_error
+    executed = []
+
+    def execute(child_config, **_kwargs):
+        executed.append(child_config)
+        if len(executed) == 1:
+            application.run_state = state
+            raise primary
+        return RunOutcome("ok", str(child_config.result_csv(tmp_path)), 1)
+
+    with patch.object(application, "_execute", side_effect=execute):
+        result = collection.run(lambda child, task: application._execute_task_child(child, task, command="fixture"))
+
+    assert result.status == "failed"
+    assert result.completed_cases == 1
+    assert len(executed) == 2
+    saved = read_json_object(collection.path)
+    assert [task["status"] for task in saved["tasks"]] == ["failed", "ok"]
+    console = capsys.readouterr().out
+    for text in ("task workload failed", "state save failed", "result lock release failed"):
+        assert text in saved["tasks"][0]["error"]
+        assert text in console
+    restored = TaskCollection.restore(replace(config, resume=True))
+    assert restored.manifest["tasks"] == saved["tasks"]
+    assert restored.run(lambda *_args: RunOutcome("ok")).status == "ok"
+    assert all("error" not in task for task in read_json_object(restored.path)["tasks"])
+
+
 def test_related_semantic_tasks_execute_one_matrix_with_frozen_provenance(tmp_path):
     task = selected_model()
     original = [parse_task(name, {}, encoder_decoder=True, source="fixture") for name in
