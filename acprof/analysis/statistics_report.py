@@ -1,9 +1,11 @@
 """Window statistics and durable deduplicated publication, outside collection."""
 import json
 import os
+from codecs import BOM_UTF8
 from datetime import datetime, timedelta
 from pathlib import Path
 
+from acprof import artifacts
 from acprof.analysis.audit import audit_result
 from acprof.analysis.uncertainty import summarize_windows
 from acprof.artifacts import atomic_write_json, read_json_object
@@ -27,6 +29,16 @@ def build_statistics_report(path: Path, metrics=None, *, confidence=0.95, resamp
     return report
 
 
+def _report_read_budget(report: dict) -> int:
+    """Permit this writer's full document without unbounded candidate reads."""
+    # Match atomic_write_json's UTF-8, indentation and trailing newline. Count
+    # chunks instead of allocating another full serialized report; a historical
+    # UTF-8 BOM is accepted by the shared reader and needs its own allowance.
+    encoder = json.JSONEncoder(ensure_ascii=False, indent=2, allow_nan=False)
+    size = 1 + sum(len(chunk.encode("utf-8")) for chunk in encoder.iterencode(report))
+    return max(artifacts.MAX_JSON_ARTIFACT_BYTES, size + len(BOM_UTF8))
+
+
 def save_unique_statistics_report(directory: Path, report: dict) -> tuple[Path, bool]:
     """Compare complete JSON content before publishing a timestamped report."""
     import fcntl
@@ -39,9 +51,13 @@ def save_unique_statistics_report(directory: Path, report: dict) -> tuple[Path, 
     descriptor = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
     try:
         fcntl.flock(descriptor, fcntl.LOCK_EX)
+        read_budget = None
         for candidate in sorted(directory.glob("window-statistics-*.json")):
+            if read_budget is None:
+                read_budget = _report_read_budget(report)
             try:
-                existing = read_json_object(candidate, label="statistics report")
+                existing = read_json_object(candidate, label="statistics report", bounded=False,
+                                            byte_budget=[read_budget])
                 identical = json.dumps(existing, sort_keys=True, ensure_ascii=False, allow_nan=False) == content
             except (FileNotFoundError, IsADirectoryError, ValueError):
                 # Skip unusable candidates, not permission or storage failures.

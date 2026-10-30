@@ -31,6 +31,15 @@ Linux 平台判断由 `platform.is_linux` 提供，不扫描设备或用当前�
 `analysis.statistics_report.build_statistics_report` 基于同一 CSV 快照计算窗口统计、质量状态与
 来源 hash，返回前重新核验来源；`save_unique_statistics_report` 持有输出目录锁，比较完整 JSON，
 复用相同报告或独占发布新文件。CLI 只负责参数、测量隔离、错误提示与回执，不保留重复实现。
+统计报告随分组数量增长，去重读取预算取 4 MiB 与本次报告实际写出字节数（另加 UTF-8 BOM）
+中的较大值，避免已成功保存的大报告在下次读取时因元数据上限而被当作无效文件。
+字节数按原子 JSON 写入器的 UTF-8、两空格缩进与尾换行分块计数，不再构造完整格式化副本；
+仅发现候选文件时计算一次，每个候选使用独立预算，接收量最多多一个超限探测字节。
+预算内仍比较完整规范化 JSON，保留键顺序/缩进无关及数值类型区别；异常膨胀的候选继续跳过，
+权限和存储错误仍中止保存，不返回成功回执。此预算不意味着报告加载的总内存固定。
+计数参考 [CPython JSONEncoder.iterencode](https://github.com/python/cpython/blob/3.12/Lib/json/encoder.py)
+与 [json.dump 的分块写入](https://github.com/python/cpython/blob/3.12/Lib/json/__init__.py)（PSF），
+使用项目已有读取预算和标准库，不引入 JSON parser 依赖或正式测量期开销。
 测量锁竞争与发布层竞争分别验证；后者仍需保护直接 API 调用和外部写入者。
 非阻塞行为参考 [filelock #750](https://github.com/tox-dev/filelock/issues/750) 及其
 [已合并修复 #752](https://github.com/tox-dev/filelock/pull/752)，不将锁竞争改为无限等待。
