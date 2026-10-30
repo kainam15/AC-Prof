@@ -11,6 +11,7 @@ CLI 启动时读取当前工作目录的 `.env` 和 `.env.local`；同名值的�
 读取完成后，Hugging Face 初始化按去除首尾空白后的非空值选择配置：
 
 - 默认 `HF_DOWNLOAD_MODE=auto`。缓存命中先离线复用；否则 Hub 入口依次取主地址（`HF_ENDPOINT`、`HF_HUB_ENDPOINT`，默认 `https://hf-mirror.com`）、`HF_FALLBACK_ENDPOINTS`、`https://huggingface.co`。metadata 与权重下载都可回退，revision 保持固定。
+- 单次模型识别中，Hub API 或 metadata 成功回退后，同一模型的后续 metadata 请求沿用该入口，避免每个文件都重复等待失效入口。失败诊断仍保留；不同模型或入口配置分别选择，下次识别会重新按配置尝试主入口。
 - `--download-mode` 仅供高级/兼容用途：`official` 只选官方入口，`mirror-preferred` 与 `auto` 相同；`mirror-only` 不主动选择备用入口，但仍允许合法 Hub/CDN 重定向。旧 TUI 设置中的三种模式迁移为 `auto`。`ACPROF_ALLOW_PROXY_FALLBACK`、`ACPROF_DIRECT_HOSTS` 已无作用。
 - HTTP 路径允许 HF 控制的可信存储域名，包含 Xet bridge；原生 Xet/hf_transfer 加速器仍禁用，以保证每跳请求可审计。AC-Prof 不负责配置 VPN，不改写标准代理变量或默认路由；公网出口由系统或上游网络负责，不能从 `direct-socket` 推断没有 VPN。
 - 认证授权与入口选择分别配置。官方 HTTPS Hub origin（`huggingface.co`、`www.huggingface.co`、`hf.co` 的 443 端口）可使用令牌；第三方镜像默认匿名。

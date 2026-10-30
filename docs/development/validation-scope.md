@@ -38,6 +38,8 @@ CI 的完整回归与分片验收要求保持不变，见 [CI 与环境测试](c
 模型错误分类，以及系统代理和透明上游不推断；不下载真实权重。
 `test_hf_auth.py` 验证 token 来源、SDK 隐式取 token 的禁用、HTTPX / Requests 首跳与重定向、
 origin 授权、官方认证回退及 storage 认证头清理；使用受控 transport，不发送真实凭据。
+`test_metadata_failover.py` 使用真实 Hub SDK 与受控 transport 验证单次模型识别复用成功入口、
+固定 revision、鉴权与失败诊断，以及新识别、异常退出和不同模型／入口配置之间的隔离。
 Host HF transport 初始化会禁用 SDK user-agent 遥测，避免 SDK 为识别 agent harness 而额外发出 GET，
 避免轻量探测额外发送遥测请求。`test_download_probe.py` 使用真实本地 HTTP 服务验证 HEAD、
 有界 Range GET、忽略 Range、重定向正文、HTTP 错误、中断、超时、预算和缓存零请求；

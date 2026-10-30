@@ -15,6 +15,7 @@ from typing import Any
 from acprof.extensions import CATALOG, UnsupportedExtensionError
 from acprof.host.preparation.model_errors import ModelLookupError, model_lookup_error
 from acprof.hub.huggingface.auth import hf_token_for_url
+from acprof.hub.huggingface.download import hf_endpoint_scope
 from acprof.hub.repository import MetadataFile, read_metadata_file
 
 
@@ -596,6 +597,7 @@ def _detect_from_config(
     )
 
 
+@hf_endpoint_scope()
 def detect_task(
     model_id: str,
     override_tag: str | None = None,

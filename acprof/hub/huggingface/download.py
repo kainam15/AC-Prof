@@ -3,6 +3,10 @@ from __future__ import annotations
 
 import socket
 import ssl
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
+from dataclasses import dataclass
 
 from acprof.hub.huggingface.endpoints import hf_endpoints
 from acprof.hub.huggingface.transport import (
@@ -13,6 +17,27 @@ from acprof.hub.huggingface.transport import (
     safe_url,
 )
 from acprof.network_policy import require_source_transition
+
+
+@dataclass(frozen=True)
+class _EndpointSelection:
+    index: int
+    attempts: list[dict]
+
+
+_ENDPOINT_SELECTIONS: ContextVar[dict[tuple[str, tuple[str, ...]], _EndpointSelection] | None] = ContextVar(
+    "acprof_hf_endpoint_selections", default=None,
+)
+
+
+@contextmanager
+def hf_endpoint_scope() -> Iterator[None]:
+    """Reuse successful failovers within one lookup, never across operations."""
+    token = _ENDPOINT_SELECTIONS.set({})
+    try:
+        yield
+    finally:
+        _ENDPOINT_SELECTIONS.reset(token)
 
 
 def exception_chain(exc: BaseException):
@@ -118,13 +143,20 @@ class HfDownloadError(OSError):
 def try_hf_endpoints(model_id: str, operation, *, endpoints: list[str] | None = None):
     """Try alternate Hub entries while preserving terminal model error types."""
     choices = endpoints or hf_endpoints()
-    attempts: list[dict[str, object]] = []
-    for index, endpoint in enumerate(choices):
-        if index:
+    selections = _ENDPOINT_SELECTIONS.get()
+    key = (model_id, tuple(choices))
+    selected = selections.get(key) if selections is not None else None
+    start = selected.index if selected is not None else 0
+    attempts = list(selected.attempts) if selected is not None else []
+    for index in range(start, len(choices)):
+        endpoint = choices[index]
+        if index > start:
             require_source_transition(choices[index - 1], endpoint)
         observed_hf_provenance(reset=True)
         try:
             result = operation(endpoint)
+            if selections is not None:
+                selections[key] = _EndpointSelection(index, list(attempts))
             record_failed_attempts(attempts)
             return result
         except Exception as exc:
