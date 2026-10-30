@@ -26,7 +26,7 @@ App 仅保留 Textual 事件/快捷键入口及进程、测量和退出生命周
 `if TYPE_CHECKING: assert isinstance(self, AcprofTui)`、动态方法查找或宽泛 Protocol 获取隐式成员。
 普通 controller 的 worker 直接提交给 App 的 worker manager；工作线程函数和启动方法均保留明确签名。
 弹窗和小部件通过 Textual 的泛型 `self.app` 获取宿主时，继续使用
-`acprof/tui/app_contracts.py` 的三个小型接口；候选选择与镜像文案接口暴露具体 controller，
+`acprof/tui/ui/contracts.py` 的三个小型接口；候选选择与镜像文案接口暴露具体 controller，
 静态接口检查验证真实 App 满足这些要求。这里的既有框架类型边界不用于业务 controller 内部。
 测试 mock 位于实际所属模块或 `app.<controller>`，不使用 `create=True` 增补已删除的业务接口。
 未来收紧 `Any` 和未注解函数仍按模块推进；不能通过跳过函数体或增加 ignore 掩盖接口错误。

@@ -76,7 +76,7 @@
 | `acprof/models/inspection/dependency_domain.py`、`acprof/models/inspection/dependency_eval.py`、`acprof/models/inspection/dependency_flow.py` | 受限抽象值与推断预算 → AST 调用／分支求值 → 源码索引和依赖证据汇总；只做静态解释，不执行仓库代码 |
 | `acprof/models/dependencies.py`、`acprof/models/review.py` / `acprof/host/preparation/review.py`、`acprof/models/transforms.py` | 按 loader 角色固定依赖与文件选择、未决字段的显式决策、有界 JSON 输入转换；下载复用既有镜像 planner |
 | `acprof/host/preparation/source_bundle.py`、`acprof/host/preparation/interface_probe.py`、`acprof/container/model_probe.py` | 固定源码图、无权重的隔离 import／signature 检查，独立接口报告 |
-| `acprof/host/preparation/model_inspection.py`、`acprof/tui/preparation.py` | 静态解释、统一模型确认与准备弹窗；完整 Smoke 复用 `runtime_validation` |
+| `acprof/host/preparation/model_inspection.py`、`acprof/tui/run/preparation.py` | 静态解释、统一模型确认与准备弹窗；完整 Smoke 复用 `runtime_validation` |
 | `acprof/host/automation.py`、`acprof/host/preparation/model_coverage.py` | 精确模型的访问／能力预检、自动运行报告，以及固定样本的解析／运行覆盖率；`cli/auto.py` 委派现有 run 入口，不复制测量循环 |
 | `acprof/extensions/` | schema v2 类型校验与 `ExtensionCatalog.resolve`；集中维护路由、尺度、IO、精度、输入规划能力及环境声明 |
 | `acprof/capabilities.py` | execution / measurement 状态、验证证据和画像完整性报告 |

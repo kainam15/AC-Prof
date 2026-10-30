@@ -68,7 +68,7 @@ ModelScope branch/tag 通过轻量 `git ls-remote` 固定为仓库 commit（需�
 沿用已保存模型。启动参数不直接写入设置文件，保存时机仍遵循下方约定。
 smoke 为 basic CPU 单次请求配置；`main` 和 `default` 保持 full。
 
-`acprof/tui/settings.py` 管理项目隔离的 `tui.json`，当前版本为 v4；
+`acprof/tui/settings/preferences.py` 管理项目隔离的 `tui.json`，当前版本为 v4；
 路径与操作方式见 [TUI 设置文件](tui-experiments.md#设置文件)。
 `ui.language` 是字符串，仅接受 `zh`（简体中文，默认）和 `en`（English），不使用系统 locale 自动推断。
 只读取 version 4 设置；缺少版本、v1/v2/v3 文件或仍包含已删除的 `allow_cgroup_v1` 字段时直接报错，原文件保持不变。归档旧设置后可重新配置。

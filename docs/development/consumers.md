@@ -186,30 +186,32 @@ dry-run、已有数据完整性判断、计划复用、备份和发布顺序沿�
 
 ## TUI 与兼容维护
 
-`AcprofTui` 只继承终端光标适配 `BarCursorApp`；业务 controller 通过明确属性组合，
-不继承 Textual `MessagePump`，也不把业务方法复制到 App 命名空间。
-App 保留进程启动、停止及退出清理，正式测量快照、全局操作互斥、页面导航和 Textual 事件入口。
-配置、镜像、预检、结果、恢复和选择器各自拥有本职责的状态；共享进程及 `read_jobs` 只有 App 一个拥有者。
-`process.ProcessLifecycle` 统一拥有子进程和停止策略，`process_controller.ProcessController`
-负责输出读取、跨线程 UI 回调、产物关联和未退出进程的延迟回收。
-`run_results` 负责退出证据关联与纯完成判定；App 执行日志、通知、页面切换和计时器等副作用，
-并继续持有进程、busy/measurement 状态与页面生命周期。
-controller 通过 App 的 `project_dir` 与 `python_executable` 读取当前路径；不缓存或复制进程所有权。
-正式测量窗口内延迟重要日志、抑制常规输出及定时器恢复沿用原语义。
-`views` 以已注解的 `AcprofTui` 组合页面，通过 `app.configuration` 与 `app.localization` 读取相应能力。
-`checkbox.StatusCheckbox` 供表单、权限、Profiler 和任务多选共用；勾号随实际值变化，
+TUI 的权威架构见 [TUI 运行会话与模块边界](tui-architecture.md)。
+`AcprofTui` 只继承终端光标适配 `BarCursorApp`，负责 Textual 事件入口、导航、
+App 级互斥、Worker Manager 与退出桥接，不把采集状态作为自身字段。
+`run.execution.ExecutionCoordinator` 唯一拥有当前执行会话（Token、命令、进度、
+停止请求、结果归属）以及 `run.process.ProcessLifecycle`。
+`run.process_controller.ProcessController` 通过 App Worker Manager 读取输出、
+跨线程派发事件并延迟回收尚未退出的进程；进程未退出不能结束会话。
+`run.results` 负责产物归属和纯完成判定，`run.presenter.RunPresenter` 负责
+运行期日志、通知、焦点、计时器和进度展示；它不缓存第二份执行状态。
+App 的少量具名 callback 只是 Textual 和线程安全回调入口，没有第二个状态所有者。
+其他 controller 各自拥有设置、镜像、模型、预检、结果等状态，仍共享一个 App Worker Manager。
+正式测量窗口内延迟重要日志、抑制普通输出与非必要刷新，保持既有语义。
+页面分别组合于 `ui/pages/`，通用对话框在 `ui/dialogs.py`，进度等控件在 `ui/`。
+`ui.checkbox.StatusCheckbox` 供表单、权限、Profiler 和任务多选共用；勾号随实际值变化，
 未选中时保留一个空白 cell，标签不会位移。沿用
 [Textual 的公开 value watcher](https://github.com/Textualize/textual/blob/v8.2.8/src/textual/widgets/_toggle_button.py)
 发送变更事件和维护选中样式，不以颜色隐藏勾号，也不增加刷新任务。
-`localization_controller.LocalizationController` 拥有 UI 文案登记、翻译和语言切换状态；
+`settings.localization_controller.LocalizationController` 拥有 UI 文案登记、翻译和语言切换状态；
 App 的 `tr/notify` 是 Textual 与小部件使用的展示接口，不翻译原始日志、CLI 参数或实验事件。
-`configuration_controller` 管理表单、字段校验、设置保存、最近路径和预览；
-`experiment_controller` 负责预设、采集及探测确认，实际 `launch` 仍由 App 执行。
-`preflight_controller` 管理启动检测与模型准备弹窗，`result_controller` 管理摘要/报告读取及请求身份，
-`profile_controller` 管理补采决策和确认，`profile_status` 复用 posthoc 行级完成判定读取分层结果，
-`profile_screen` 提供实验结果页的按需补采弹窗，`slash_controller` 分发快捷命令。Profiler 仍通过独立 CLI 运行，不进入正式测量窗口。
-HTML 报告复用 `PendingLaunch` 与 `acprof report` 子进程；`result_controller` 只管理输出路径、
-完成回执和展示，不导入分析或绘图库。`report_files` 负责已有 HTML 的发现、主动浏览器打开和独占发布导出文件；
+`settings.controller` 管理表单、字段校验、设置保存、最近路径和预览；
+`run.experiment_controller` 负责预设、采集及探测确认，实际 `launch` 仍由 App 执行。
+`run.preflight_controller` 管理启动检测与模型准备弹窗，`results.controller` 管理摘要/报告读取及请求身份，
+`results.profile_controller` 管理补采决策和确认，`results.profile_status` 复用 posthoc 行级完成判定读取分层结果，
+`results.profile_screen` 提供实验结果页的按需补采弹窗，`ui.slash_controller` 分发快捷命令。Profiler 仍通过独立 CLI 运行，不进入正式测量窗口。
+HTML 报告复用 `PendingLaunch` 与 `acprof report` 子进程；`results.controller` 只管理输出路径、
+完成回执和展示，不导入分析或绘图库。`results.report_files` 负责已有 HTML 的发现、主动浏览器打开和独占发布导出文件；
 文件操作仍交给 App worker manager，导出使用 `offline_analysis_lock()`。`platform.can_open_local_browser`
 集中判断 SSH / 图形桌面前提，浏览器失败不改变生成结果。没有新增运行依赖或测量窗口内的工作。
 设计参考 [Textual worker 生命周期](https://github.com/Textualize/textual/blob/main/docs/guide/workers.md)、
@@ -226,10 +228,10 @@ HTML 导出按 1 MiB 分块复制原始字节，通过 `artifacts.atomic_write_b
 缺少 `os.fchmod` 的平台使用 `os.chmod` 设置临时文件模式；Windows 的权限位能力遵循
 [Python 文档](https://docs.python.org/3.12/library/os.html#os.chmod)，不宣称提供 POSIX 权限或目录同步保证。
 
-`log_controller` 管理日志批量展示、搜索、筛选和保留原文导出；`log_records` 保留有界原文并生成可逆的显示投影，
+`logging.controller` 管理日志批量展示、搜索、筛选和保留原文导出；`logging.records` 保留有界原文并生成可逆的显示投影，
 `SelectableLog` 继续负责 TextArea 选择、滚动及样式。采用 [TextArea.get_line](https://textual.textualize.io/widgets/text_area/#textual.widgets.TextArea.get_line)
 扩展点（MIT），不往原文写 Rich markup，不引入独立日志框架。
-`log_export_screen` 提供保存表单和逐级目录浏览，`log_export` 负责路径校验、目录读取及独占创建文件；
+`logging.export_screen` 提供保存表单和逐级目录浏览，`logging.export` 负责路径校验、目录读取及独占创建文件；
 它们不调用实验的 `ArtifactLayout`。后台读写经 App 的 worker manager 调度，controller 持有 `read_jobs`
 直到线程实际返回，取消弹窗不会提前释放读取任务。成功导出后复用配置 controller 的原子保存路径，
 只更新 `last_log_export_dir`；读取配置不扫描或创建导出目录。
@@ -240,8 +242,8 @@ HTML 导出按 1 MiB 分块复制原始字节，通过 `artifacts.atomic_write_b
 相关边界参考上游 [权限错误 Issue #2564](https://github.com/Textualize/textual/issues/2564)
 与 [异步目录加载测试 PR #3498](https://github.com/Textualize/textual/pull/3498)。所有目录 I/O 都在任务空闲时执行。
 `host.download_progress` 通过 `huggingface_hub` 的 `tqdm_class` 扩展采集准备期进度，
-`download_events` 是与正式事件独立的有界消息协议，`preflight_controller` 将其展示为独立下载区域。
-`progress_widgets` 只渲染阶段与下载状态，复用主题语义色和 [Rich 的静态进度条](https://github.com/Textualize/rich/blob/v15.0.0/rich/progress_bar.py)（MIT）。
+`download_events` 是与正式事件独立的有界消息协议，`run.preflight_controller` 将其展示为独立下载区域。
+`ui.progress_widgets` 只渲染阶段与下载状态，复用主题语义色和 [Rich 的静态进度条](https://github.com/Textualize/rich/blob/v15.0.0/rich/progress_bar.py)（MIT）。
 按锁定版本的接口使用确定进度；未知值保留文字，不使用 [Textual 的不确定进度动画](https://github.com/Textualize/textual/blob/v8.2.8/src/textual/widgets/_progress_bar.py)，不新增依赖、计时器或测量期工作。
 最低 Hub 版本 1.28 包含 [重试计数修复](https://github.com/huggingface/huggingface_hub/pull/4209)、
 [Xet 双流进度](https://github.com/huggingface/huggingface_hub/pull/4400) 和聚合回调；依赖继续采用 Apache-2.0 许可。
