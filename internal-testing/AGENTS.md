@@ -3,5 +3,7 @@
 - 本目录存放临时验证脚本、测试日志和终端截图，按任务隔离输出；不将这里的结果标作正式 profiling 数据。
 - 保存证据时注明验证命令、终端尺寸和运行范围；历史截图或日志不能证明当前实现已通过。
 - 可复用验证进入 `tests/`，长期结论进入对应 `docs/` 专题；临时计划不提升为 Agent 常驻指令。
+- 新运行目录统一通过 `scripts/internal_testing.py new` 创建并写入 manifest；测试结束后标记实际状态。
+- 旧顶层目录、失败或中断数据、正式 `results/` 以及含科研原始证据的任务不得自动删除；清理默认只预览。
 
-证据边界见[测试指南](../docs/development/testing.md)。
+目录命名、生命周期和清理边界见[本地测试产物规范](../docs/development/internal-testing-layout.md)。

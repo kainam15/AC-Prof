@@ -84,6 +84,7 @@ Ruff 的 `combine-as-imports` 保留显式重导出分组；脚本先设置路�
 `internal-testing/`、`result-past/` 和 `results/` 都由仓库 `.gitignore` 排除。忽略规则不授权删除：
 失败或中断的 CSV、pcap、jsonl 与恢复状态应按实验保留；清理前先列出路径、占用和是否仍用于诊断或恢复。
 开发环境副本与旧构建目录可单独评估，不能仅按文件扩展名批量删除实验依据。
+统一路径和仅针对已完成受管运行的预览清理策略见[开发验证产物目录](internal-testing-layout.md)。
 全局 `*.csv` 保留；`tests/fixtures/**/*.csv` 与 `examples/**/*.csv` 显式放行。
 `test_git_ignore.py` 在临时 Git 仓库验证根层及嵌套 fixture/example 可跟踪、结果与实验 CSV 仍被忽略。
 

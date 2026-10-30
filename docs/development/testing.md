@@ -12,6 +12,7 @@
 - [类型与模块边界检查](static-checks.md)：mypy、private API、导入方向和控制器回归。
 - [开发辅助工具与 MCP](devtools.md)：本地开发辅助工具、PyCharm MCP 边界。
 - [自动化测试入口](test-commands.md)：pytest 运行命令与测试筛选。
+- [开发验证产物目录](internal-testing-layout.md)：本地 `internal-testing/` 命名、manifest 和安全清理。
 - [CI 与环境回归](ci.md)：CI、coverage、恢复和无 Torch 环境回归。
 - [终端与采集环境验证](terminal-validation.md)：TUI 终端证据和真实测量隔离。
 - [测试依据与文档检查](documentation-checks.md)：方法参考与文档、Skill 校验。

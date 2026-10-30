@@ -88,17 +88,19 @@ uv run pytest -m unit -q
 # TUI 专题测试（独立串行）
 uv run pytest tests/tui -q
 # 从已有测试 JSON 报告找累计最慢的文件和参数化测试组，无需重跑
-uv run python scripts/report_test_durations.py internal-testing/<task>/full-tests.json --top 30
+uv run python scripts/report_test_durations.py internal-testing/runs/<YYYY-MM>/<run-id>/reports/shard-0.json --top 30
 # 本地受控并行：只开放已审查的 analysis、quality 单元测试域
 uv run python scripts/run_local_tests.py --scope fast --jobs 2 --path tests/analysis
-# 其余域、完整套件保持串行；输出写入 internal-testing/local-tests/
+# 其余域、完整套件保持串行；新输出写入 internal-testing/runs/YYYY-MM/
 uv run python scripts/run_local_tests.py --scope full --jobs 1
 ```
 
 本地脚本复用 `scripts/run_tests.py` 和 CI 的 `aggregate_test_reports.py` 完整性校验，
-分片分别保存 `shard-N.log/json`，再输出 `summary.json`；
+分片分别保存 `logs/shard-N.log`、`reports/shard-N.json`，再输出 `reports/summary.json`；
 任一失败、缺少分片、重复/遗漏测试、源码或依赖身份不一致均返回非零退出码。
-报告和临时目录只写入被忽略的 `internal-testing/local-tests/`，不会写入实验 `results/`。
+默认运行自动生成 `internal-testing/runs/YYYY-MM/<UTC>--local-tests-<scope>--<ID>/`，并写入 `manifest.json`；
+成功、失败或中断均更新状态，成功才清理该运行下的临时 basetemp，不会写入实验 `results/`。
+目录结构与清理边界见[开发验证产物目录](internal-testing-layout.md)。
 显式 `--jobs 2` 仅支持 `--scope fast --path tests/analysis...` 或 `tests/quality...`：
 每片有独立 pytest basetemp、缓存禁用、子进程组清理，并将内部数值线程上限设为 1。
 成功后清理临时 basetemp，失败时保留诊断文件；`--output` 只接受 `internal-testing/` 内的新路径。
