@@ -78,7 +78,7 @@ class PreparationScreen(ModalScreen):
     }
     #preparation-download-note { color: $text-muted; margin-top: 1; }
     #preparation-detail, #preparation-error { color: $error; }
-    .task-selection #preparation-error { height: auto; display: none; }
+    #preparation-error { height: auto; display: none; }
     #preparation-diagnostics { height: 1fr; padding: 0; }
     #preparation-diagnostics.-collapsed { height: auto; }
     #preparation-diagnostics > Contents { height: 1fr; padding: 0; }
@@ -188,10 +188,7 @@ class PreparationScreen(ModalScreen):
                 else:
                     yield Static(tr(STAGE_LABELS.get(self.event["stage"], "正在确认模型能否正常运行…")), id="preparation-stage", markup=False)
                     yield Static(tr("首次使用可能需要准备模型，请稍候。"), markup=False)
-                if not task_selection:
-                    yield Static("", id="preparation-error", markup=False)
-            if task_selection:
-                yield Static("", id="preparation-error", markup=False)
+            yield Static("", id="preparation-error", markup=False)
             with Horizontal(id="preparation-actions", classes=(
                 "extra-action" if failed and download_failure(request) and self.event["stage"] in {"image", "runtime"} else ""
             )):
