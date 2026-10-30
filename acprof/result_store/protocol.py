@@ -25,6 +25,7 @@ from acprof.cancellation import cancellable, check_cancelled
 from acprof.results.csv import ResultValidationError, ValidatedResultRows, parse_result_stream
 from acprof.results.layers import BASE_LAYERS, LAYER_FILES, layer_fields
 from acprof.results.layout import ArtifactLayout
+from acprof.system.cleanup import cleanup_on_exit
 
 SCHEMA_VERSION = 3
 IDENTITY_FIELDS = ("run_id", "case_id", "case_attempt_id", "window_id")
@@ -64,7 +65,8 @@ def publication_lock(layout: ArtifactLayout, *, exclusive: bool, blocking: bool 
     path = layout.result_store_path("lock")
     if exclusive:
         create_durable_directory(path.parent)
-    with path.open("a+b" if exclusive else "rb") as stream:
+    stream = path.open("a+b" if exclusive else "rb")
+    with cleanup_on_exit(stream.close, description=f"publication lock stream {path}"):
         operation = fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH
         if blocking and cancelled is not None:
             while True:
@@ -77,11 +79,10 @@ def publication_lock(layout: ArtifactLayout, *, exclusive: bool, blocking: bool 
                     time.sleep(0.05)
         else:
             fcntl.flock(stream.fileno(), operation | (0 if blocking else fcntl.LOCK_NB))
-        try:
+        with cleanup_on_exit(lambda: fcntl.flock(stream.fileno(), fcntl.LOCK_UN),
+                             description=f"publication lock release {path}"):
             check_cancelled(cancelled)
             yield
-        finally:
-            fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
 
 
 def reference(layout: ArtifactLayout, path: Path) -> dict:

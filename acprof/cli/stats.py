@@ -6,6 +6,7 @@ from contextlib import ExitStack
 from pathlib import Path
 
 from acprof.artifacts import atomic_write_json
+from acprof.system.cleanup import format_exception_notes
 
 
 def main(argv=None):
@@ -28,7 +29,7 @@ def main(argv=None):
         try:
             stack.enter_context(offline_analysis_lock())
         except RunStateError as error:
-            parser.exit(1, f"统计失败：{error}\n")
+            parser.exit(1, f"统计失败：{format_exception_notes(error)}\n")
         from acprof.analysis.statistics_report import (
             build_statistics_report,
             save_unique_statistics_report,
@@ -42,7 +43,7 @@ def main(argv=None):
                                              resamples=args.resamples, seed=args.seed,
                                              block_size=args.block_size, precision_target=args.precision_target)
         except (ValueError, OSError, csv.Error) as error:
-            parser.exit(1, f"统计失败：{error}\n")
+            parser.exit(1, f"统计失败：{format_exception_notes(error)}\n")
         try:
             if args.output_dir:
                 saved, reused = save_unique_statistics_report(args.output_dir, report)
@@ -53,7 +54,7 @@ def main(argv=None):
             else:
                 print(json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False))
         except (ValueError, OSError) as error:
-            parser.exit(1, f"统计保存失败：{error}\n")
+            parser.exit(1, f"统计保存失败：{format_exception_notes(error)}\n")
     return 0
 
 

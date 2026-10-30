@@ -169,10 +169,8 @@ def sync_directory(directory: Path) -> None:
     if os.name != "posix":
         return
     directory_fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
-    try:
+    with cleanup_on_exit(lambda: os.close(directory_fd), description=f"directory descriptor {directory}"):
         os.fsync(directory_fd)
-    finally:
-        os.close(directory_fd)
 
 
 def create_durable_directory(directory: Path) -> None:
@@ -244,7 +242,7 @@ def _atomic_write(
             temporary.unlink(missing_ok=True)
 
     with cleanup_on_exit(remove_temporary, description=f"temporary artifact {temporary}"):
-        with stream:
+        with cleanup_on_exit(stream.close, description=f"temporary stream {temporary}"):
             write(stream)
             stream.flush()
             if hasattr(os, "fchmod"):

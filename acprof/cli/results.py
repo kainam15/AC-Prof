@@ -5,6 +5,8 @@ import argparse
 import sys
 from pathlib import Path
 
+from acprof.system.cleanup import format_exception_notes
+
 
 def main() -> int:
     parser = argparse.ArgumentParser(
@@ -31,7 +33,7 @@ def main() -> int:
             print(f"[results] Exported {count} measurements to {args.destination}")
             return 0
     except (OSError, ValueError, RunStateError) as exc:
-        print(f"[results][ERROR] {exc}", file=sys.stderr)
+        print(f"[results][ERROR] {format_exception_notes(exc)}", file=sys.stderr)
         return 1
 
 

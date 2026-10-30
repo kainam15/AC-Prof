@@ -11,6 +11,7 @@ from acprof.analysis.uncertainty import summarize_windows
 from acprof.artifacts import atomic_write_json, read_json_object
 from acprof.quality import QUALITY_FIELDS
 from acprof.results.csv import read_result_csv_snapshot, result_csv_snapshot_unchanged
+from acprof.system.cleanup import cleanup_on_exit
 
 
 def build_statistics_report(path: Path, metrics=None, *, confidence=0.95, resamples=5000,
@@ -49,7 +50,7 @@ def save_unique_statistics_report(directory: Path, report: dict) -> tuple[Path, 
     # Lock the directory itself: concurrent statistics processes share the check
     # and publish boundary without leaving a lock file among the reports.
     descriptor = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
-    try:
+    with cleanup_on_exit(lambda: os.close(descriptor), description=f"statistics directory lock {directory}"):
         fcntl.flock(descriptor, fcntl.LOCK_EX)
         read_budget = None
         for candidate in sorted(directory.glob("window-statistics-*.json")):
@@ -78,5 +79,3 @@ def save_unique_statistics_report(directory: Path, report: dict) -> tuple[Path, 
                 else:
                     return destination, False
             timestamp += timedelta(microseconds=1)
-    finally:
-        os.close(descriptor)
