@@ -190,6 +190,17 @@ CSV 合并、RunState 完成与清理，task child 继续使用同一 `_finalize
 [gh-148427](https://github.com/python/cpython/issues/148427) 及其
 [PR #148435](https://github.com/python/cpython/pull/148435)；只复用本项目已有机制，
 不复制 PSF License 源码、不增加运行依赖，额外处理仅位于运行收尾阶段。
+
+任务集合的中断清单与 `acprof auto` 的最终报告也复用同一收尾规则。集合锁获取成功后，
+启动、执行和终态发布均在中断保存保护范围内；保存失败仍继续释放锁。自动报告在准备锁
+及采集调用结束后生成，保留传入的 exception notes，并沿用现有 collection path 定位规则。
+普通报告失败通过 CLI 错误输出和退出码 `2` 显式报告；取消继续传播，即使报告自身写入失败。
+成功的 `SystemExit` 仍须完成最终报告，不能因报告保存失败返回成功。
+此处借鉴 [Django Atomic.__exit__](https://github.com/django/django/blob/main/django/db/transaction.py)
+保留原始事务异常的原则，并核对异常处理器再次失败的问题
+[PR #21974](https://github.com/django/django/pull/21974)。仅参考设计，未复制 BSD-3-Clause 源码，
+不增加依赖、字段或正式测量窗口内的工作。
+
 `RunNotifications` 在预检前、每个 profiler/case 窗口结束后及终态完成时创建通知事件，
 并负责 CSV 摘要、保密错误回显与尽力发送；不同应用实例之间不共享通知上下文。
 终态通知必须在 tmux 日志关闭及 RunState 清理后执行；通知异常不得改变实验结果、污染采集窗口或泄露 webhook。

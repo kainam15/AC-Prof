@@ -14,7 +14,7 @@ from acprof.experiments.configuration import RunConfig
 from acprof.host.detect import TaskInfo
 from acprof.host.preparation.task_selection import activate_task
 from acprof.models.evidence import content_digest
-from acprof.system.cleanup import format_exception_notes
+from acprof.system.cleanup import cleanup_on_exit, format_exception_notes
 from acprof.tasks.workloads import merge_generation_parameters, task_fingerprint, workload_manifest
 
 
@@ -151,33 +151,34 @@ class TaskCollection:
         from acprof.application.run import RunOutcome
         from acprof.host.run_state import ResultDirectoryLock
         final_csvs, completed = [], 0
-        with ResultDirectoryLock(self.root / "metadata" / "task_run_locks" / self.run_id):
+
+        def interrupted():
+            self.manifest["status"] = "interrupted"
+            atomic_write_json(self.path, self.manifest)
+
+        with (ResultDirectoryLock(self.root / "metadata" / "task_run_locks" / self.run_id),
+              cleanup_on_exit(interrupted, description="task collection interruption", on_error_only=True)):
             self.manifest.update(status="running", pid=os.getpid(), started_at_ns=time.time_ns())
             atomic_write_json(self.path, self.manifest)
             print(f"[tasks] collection={self.run_id}; resume with --task-run-id {self.run_id}", flush=True)
-            try:
-                for selected, record in zip(self.task.selected_tasks, self.manifest["tasks"], strict=True):
-                    print(f"[tasks] {selected['task_id']} ({selected['interface']})", flush=True)
-                    try:
-                        config = self.child_config(selected)
-                        record.update(status="running")
-                        atomic_write_json(self.path, self.manifest)
-                        task = activate_task(self.task, selected, backend=self.config.backend)
-                        outcome = execute(config, task)
-                        record.update(status=outcome.status, final_csv=outcome.final_csv)
-                        record.pop("error", None)
-                        completed += outcome.completed_cases
-                        if outcome.final_csv:
-                            final_csvs.append(outcome.final_csv)
-                    except (Exception, SystemExit) as exc:
-                        detail = format_exception_notes(exc)
-                        record.update(status="failed", error=f"{type(exc).__name__}: {detail}")
-                        print(f"[tasks][ERROR] {selected['task_id']}: {detail}", flush=True)
+            for selected, record in zip(self.task.selected_tasks, self.manifest["tasks"], strict=True):
+                print(f"[tasks] {selected['task_id']} ({selected['interface']})", flush=True)
+                try:
+                    config = self.child_config(selected)
+                    record.update(status="running")
                     atomic_write_json(self.path, self.manifest)
-            except BaseException:
-                self.manifest["status"] = "interrupted"
+                    task = activate_task(self.task, selected, backend=self.config.backend)
+                    outcome = execute(config, task)
+                    record.update(status=outcome.status, final_csv=outcome.final_csv)
+                    record.pop("error", None)
+                    completed += outcome.completed_cases
+                    if outcome.final_csv:
+                        final_csvs.append(outcome.final_csv)
+                except (Exception, SystemExit) as exc:
+                    detail = format_exception_notes(exc)
+                    record.update(status="failed", error=f"{type(exc).__name__}: {detail}")
+                    print(f"[tasks][ERROR] {selected['task_id']}: {detail}", flush=True)
                 atomic_write_json(self.path, self.manifest)
-                raise
             status = "ok" if all(item["status"] == "ok" for item in self.manifest["tasks"]) else "failed"
             self.manifest.update(status=status, final_csvs=final_csvs)
             atomic_write_json(self.path, self.manifest)
