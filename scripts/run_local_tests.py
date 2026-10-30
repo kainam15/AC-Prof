@@ -14,29 +14,49 @@ import shutil
 import signal
 import subprocess
 import sys
-import uuid
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from scripts.aggregate_test_reports import aggregate_reports  # noqa: E402
+from scripts.internal_testing import create_run, finish_run  # noqa: E402
 
 THREAD_VARIABLES = (
-    "OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "NUMEXPR_NUM_THREADS",
+    "OMP_NUM_THREADS",
+    "OPENBLAS_NUM_THREADS",
+    "MKL_NUM_THREADS",
+    "NUMEXPR_NUM_THREADS",
 )
 PARALLEL_SAFE_ROOTS = (ROOT / "tests" / "analysis", ROOT / "tests" / "quality")
+EVIDENCE_ROOT = ROOT / "internal-testing"
 
 
 def build_command(
-    directory: Path, *, scope: str, shard: int, jobs: int, output: Path, keyword: str = "",
+    directory: Path,
+    *,
+    scope: str,
+    shard: int,
+    jobs: int,
+    output: Path,
+    keyword: str = "",
 ) -> list[str]:
     command = [
-        sys.executable, str(ROOT / "scripts" / "run_tests.py"),
-        "--directory", str(directory), "--report", str(output / f"shard-{shard}.json"),
-        "--shard-index", str(shard), "--shard-count", str(jobs),
-        "-q", "-p", "no:cacheprovider",
-        "--basetemp", str(output / f"tmp-{shard}"),
+        sys.executable,
+        str(ROOT / "scripts" / "run_tests.py"),
+        "--directory",
+        str(directory),
+        "--report",
+        str(output / "reports" / f"shard-{shard}.json"),
+        "--shard-index",
+        str(shard),
+        "--shard-count",
+        str(jobs),
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "--basetemp",
+        str(output / "artifacts" / f"tmp-{shard}"),
     ]
     if scope != "full":
         command += ["-m", {"fast": "unit", "tui": "tui"}[scope]]
@@ -49,7 +69,7 @@ def collect_shards(output: Path, *, jobs: int) -> dict:
     """Verify all locally executed shards with the same checks as CI."""
     reports, errors = [], []
     for index in range(jobs):
-        path = output / f"shard-{index}.json"
+        path = output / "reports" / f"shard-{index}.json"
         try:
             reports.append(json.loads(path.read_text()))
         except (OSError, UnicodeError, ValueError) as error:
@@ -78,8 +98,22 @@ def stop_processes(processes: list[subprocess.Popen]) -> None:
                 process.wait()
 
 
-def run_local(*, directory: Path, scope: str, jobs: int, output: Path, keyword: str = "") -> bool:
-    output.mkdir(parents=True, exist_ok=False)
+def run_local(
+    *,
+    directory: Path,
+    scope: str,
+    jobs: int,
+    output: Path,
+    keyword: str = "",
+    precreated: bool = False,
+) -> bool:
+    if precreated:
+        if not output.is_dir() or not (output / "manifest.json").is_file():
+            raise ValueError("A managed run must already contain its manifest")
+    else:
+        output.mkdir(parents=True, exist_ok=False)
+    for folder in ("logs", "reports", "screenshots", "artifacts"):
+        (output / folder).mkdir(exist_ok=True)
     environment = os.environ.copy()
     environment.pop("PYTEST_ADDOPTS", None)
     environment["PYTEST_DISABLE_PLUGIN_AUTOLOAD"] = "1"
@@ -98,14 +132,25 @@ def run_local(*, directory: Path, scope: str, jobs: int, output: Path, keyword: 
     try:
         for index in range(jobs):
             command = build_command(
-                directory, scope=scope, shard=index, jobs=jobs, output=output, keyword=keyword,
+                directory,
+                scope=scope,
+                shard=index,
+                jobs=jobs,
+                output=output,
+                keyword=keyword,
             )
-            log = (output / f"shard-{index}.log").open("w", encoding="utf-8")
+            log = (output / "logs" / f"shard-{index}.log").open("w", encoding="utf-8")
             logs.append(log)
-            processes.append(subprocess.Popen(
-                command, cwd=ROOT, env=environment, stdout=log,
-                stderr=subprocess.STDOUT, start_new_session=True,
-            ))
+            processes.append(
+                subprocess.Popen(
+                    command,
+                    cwd=ROOT,
+                    env=environment,
+                    stdout=log,
+                    stderr=subprocess.STDOUT,
+                    start_new_session=True,
+                )
+            )
         # Preserve all failures: other shards finish so the coverage union can be audited.
         statuses = [process.wait() for process in processes]
     except (KeyboardInterrupt, Exception):
@@ -121,10 +166,12 @@ def run_local(*, directory: Path, scope: str, jobs: int, output: Path, keyword: 
     if any(status != 0 for status in statuses):
         result["errors"].append(f"nonzero shard exit codes: {statuses}")
         result["successful"] = False
-    (output / "summary.json").write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n")
+    (output / "reports" / "summary.json").write_text(
+        json.dumps(result, ensure_ascii=False, indent=2) + "\n"
+    )
     if result["successful"]:
         for index in range(jobs):
-            shutil.rmtree(output / f"tmp-{index}", ignore_errors=False)
+            shutil.rmtree(output / "artifacts" / f"tmp-{index}", ignore_errors=False)
     version = ".".join(platform.python_version().split(".")[:2])
     count = result["versions"].get(version, {}).get("tests", 0)
     print(f"Scope={scope}, jobs={jobs}, checked cases={count}, complete={result['successful']}")
@@ -137,8 +184,12 @@ def run_local(*, directory: Path, scope: str, jobs: int, output: Path, keyword: 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--scope", choices=("fast", "tui", "full"), default="fast")
-    parser.add_argument("--jobs", type=int, default=1, help="1 by default; at most 2 for fast tests")
-    parser.add_argument("--path", default="tests", help="Repository-relative test file or directory")
+    parser.add_argument(
+        "--jobs", type=int, default=1, help="1 by default; at most 2 for fast tests"
+    )
+    parser.add_argument(
+        "--path", default="tests", help="Repository-relative test file or directory"
+    )
     parser.add_argument("--keyword", default="", help="Optional pytest -k expression")
     parser.add_argument("--output", type=Path, help="New evidence directory (must not exist)")
     args = parser.parse_args(argv)
@@ -154,25 +205,51 @@ def main(argv: list[str] | None = None) -> int:
             "--jobs 2 requires --path within tests/analysis or tests/quality; "
             "other suites await resource-isolation validation"
         )
-    output = args.output or (
-        ROOT / "internal-testing" / "local-tests" / f"{args.scope}-{uuid.uuid4().hex[:10]}"
-    )
-    output = (ROOT / output).resolve()
-    evidence_root = (ROOT / "internal-testing").resolve()
-    if output == evidence_root or not output.is_relative_to(evidence_root):
-        parser.error("--output must be inside internal-testing/ (not results/)")
-    if output.exists():
-        parser.error("--output must be a new directory to avoid overwriting previous evidence")
+    managed = args.output is None
+    output = None if managed else (ROOT / args.output).resolve()
+    evidence_root = EVIDENCE_ROOT.resolve()
+    if not managed:
+        if output == evidence_root or not output.is_relative_to(evidence_root):
+            parser.error("--output must be inside internal-testing/ (not results/)")
+        if output.exists():
+            parser.error("--output must be a new directory to avoid overwriting previous evidence")
+    status = "failed"
     try:
-        return 0 if run_local(
-            directory=directory, scope=args.scope, jobs=args.jobs, output=output, keyword=args.keyword,
-        ) else 1
+        if managed:
+            output = create_run(
+                f"local-tests-{args.scope}",
+                root=EVIDENCE_ROOT,
+                command=[
+                    "python",
+                    "scripts/run_local_tests.py",
+                    "--scope",
+                    args.scope,
+                    "--jobs",
+                    str(args.jobs),
+                    "--path",
+                    args.path,
+                ],
+            )
+        success = run_local(
+            directory=directory,
+            scope=args.scope,
+            jobs=args.jobs,
+            output=output,
+            keyword=args.keyword,
+            precreated=managed,
+        )
+        status = "success" if success else "failed"
+        return 0 if success else 1
     except KeyboardInterrupt:
+        status = "interrupted"
         print("Interrupted: stopped owned test process groups", file=sys.stderr)
         return 130
-    except OSError as error:
+    except (OSError, ValueError) as error:
         print(f"Cannot run tests: {error}", file=sys.stderr)
         return 1
+    finally:
+        if managed and output is not None:
+            finish_run(output, status=status, root=EVIDENCE_ROOT)
 
 
 if __name__ == "__main__":
