@@ -9,7 +9,7 @@ import copy
 import fcntl
 import hashlib
 import os
-from contextlib import ExitStack
+from contextlib import ExitStack, contextmanager
 from uuid import uuid4
 
 from acprof.artifacts import atomic_write_json, read_json_object
@@ -57,6 +57,13 @@ class ResultWriter:
         if self.failed or self._resources is None:
             raise ResultValidationError("result writer requires recovery before another window")
 
+    @contextmanager
+    def _publication(self):
+        """Require recovery until durable publication and bookkeeping both finish."""
+        self.failed = True
+        yield
+        self.failed = False
+
     def append_window(self, path):
         self._ready()
         source: dict = {"kind": "window", "reference": reference(self.layout, path)}
@@ -78,10 +85,11 @@ class ResultWriter:
             if selected:
                 changes[layer] = csv_bytes(info["fields"], selected)
                 counts[layer] = info["row_count"] + 1
-        self._commit(changes, counts, [source], replace=False,
-                     row_count=len(self.rows) + 1, state="collecting")
-        self.rows[key] = normalized
-        self.windows.update(new_windows)
+        with self._publication():
+            self._commit(changes, counts, [source], replace=False,
+                         row_count=len(self.rows) + 1, state="collecting")
+            self.rows[key] = normalized
+            self.windows.update(new_windows)
         return True
 
     def update_rows(self, rows, *, reason: str, evidence=(), state="processing", force_commit=False):
@@ -105,7 +113,8 @@ class ResultWriter:
                     changes.append({"key": list(key), "values": delta})
         if not inserts and not changes and not force_commit:
             if self.manifest["state"] != state:
-                self._commit({}, {}, [], replace=False, row_count=len(self.rows), state=state)
+                with self._publication():
+                    self._commit({}, {}, [], replace=False, row_count=len(self.rows), state=state)
             return False
         update = {"schema_version": 1, "run_id": self.manifest["run_id"], "reason": reason,
                   "evidence": list(evidence), "insert": inserts, "changes": changes}
@@ -123,8 +132,9 @@ class ResultWriter:
             raw = csv_bytes(info["fields"], selected, header=True)
             if hashlib.sha256(raw).hexdigest() != info["sha256"]:
                 payloads[layer], counts[layer] = raw, len(selected)
-        self._commit(payloads, counts, [source], replace=True, row_count=len(new_rows), state=state)
-        self.rows = new_rows
+        with self._publication():
+            self._commit(payloads, counts, [source], replace=True, row_count=len(new_rows), state=state)
+            self.rows = new_rows
         return True
 
     def _append_bytes(self, layer, raw):
@@ -150,8 +160,9 @@ class ResultWriter:
             raise ResultValidationError("immutable snapshot manifest changed")
         if not path.exists():
             atomic_write_json(path, snapshot)
-        self._commit({}, {}, [], replace=False, row_count=len(self.rows), state="complete",
-                     snapshot=reference(self.layout, path))
+        with self._publication():
+            self._commit({}, {}, [], replace=False, row_count=len(self.rows), state="complete",
+                         snapshot=reference(self.layout, path))
         return snapshot
 
     def _commit(self, payloads, counts, sources, *, replace, row_count, state, snapshot=None):
@@ -167,27 +178,23 @@ class ResultWriter:
         with publication_lock(self.layout, exclusive=True):
             if read_json_object(self.layout.result_csv) != self.manifest:
                 raise ResultValidationError("result commit changed under its single writer")
-            try:
-                for layer, raw in payloads.items():
-                    info = after["layers"][layer]
-                    checksum = hashlib.sha256() if replace else self.hashes[layer].copy()
-                    checksum.update(raw)
-                    new_hashes[layer] = checksum
-                    info.update(sha256=checksum.hexdigest(), row_count=counts[layer],
-                                committed_bytes=len(raw) + (0 if replace else info["committed_bytes"]),
-                                revision=info["revision"] + int(replace))
-                atomic_write_json(self.layout.result_store_path("pending.json"), {
-                    "before": self.manifest, "after": after, "replacements": replacements,
-                })
-                for layer, raw in payloads.items():
-                    if replace:
-                        write_bytes(self.layout.layer_csv(layer), raw)
-                    else:
-                        self._append_bytes(layer, raw)
-                manifest = save_commit(self.layout, self.manifest, after, sources, transaction=transaction)
-                atomic_write_json(self.layout.result_csv, manifest)
-                clear_pending(self.layout)
-                self.manifest, self.hashes = manifest, new_hashes
-            except BaseException:
-                self.failed = True
-                raise
+            for layer, raw in payloads.items():
+                info = after["layers"][layer]
+                checksum = hashlib.sha256() if replace else self.hashes[layer].copy()
+                checksum.update(raw)
+                new_hashes[layer] = checksum
+                info.update(sha256=checksum.hexdigest(), row_count=counts[layer],
+                            committed_bytes=len(raw) + (0 if replace else info["committed_bytes"]),
+                            revision=info["revision"] + int(replace))
+            atomic_write_json(self.layout.result_store_path("pending.json"), {
+                "before": self.manifest, "after": after, "replacements": replacements,
+            })
+            for layer, raw in payloads.items():
+                if replace:
+                    write_bytes(self.layout.layer_csv(layer), raw)
+                else:
+                    self._append_bytes(layer, raw)
+            manifest = save_commit(self.layout, self.manifest, after, sources, transaction=transaction)
+            atomic_write_json(self.layout.result_csv, manifest)
+            clear_pending(self.layout)
+            self.manifest, self.hashes = manifest, new_hashes
