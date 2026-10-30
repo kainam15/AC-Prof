@@ -220,7 +220,7 @@ schema v3 在单次读取内部复用行校验生成的测量键，供层间顺�
 清单读取同样遵守 4 MiB JSON 上限；快照哈希与解析使用同一次打开取得的字节，包含已有 UTF-8 BOM。
 清单、pending 与 commit 的 JSON 读取按 64 KiB 分块检查取消，公开读取入口的 schema 探测也遵守
 同一取消约定。取消或超限不返回部分结果，仍释放文件句柄与 publication lock。
-实验目录去重的共享字节预算计入 schema 探测、锁内清单、当前 commit 及已提交 CSV 前缀；
+实验目录去重的共享字节预算计入 schema 探测、锁内清单、pending、当前 commit 及已提交 CSV 前缀；
 每次读取都受剩余预算约束，最多多读一个溢出探测字节，预算耗尽后不再打开下一份结果证据。
 历史 schema v1/v2 去重复用探测得到的清单字节，避免重复读取；未能完成校验时继续标记
 `duplicate_evidence_unverified`。目录发现所需的布局与身份元数据仍使用各自的有界读取。
@@ -258,6 +258,10 @@ schema v3 在单次读取内部复用行校验生成的测量键，供层间顺�
 网络解析可能影响 performance、network、resources 和 profiler 派生速率；仅对实际变化的
 模块做原子替换。变更字段、原因和 checkpoint/profiler 来源保存在 `raw/result_updates/`，
 原始窗口行不改写。跨模块替换中断后，统一按最后提交及原始来源恢复。
+snapshot 读取、来源内容复核和实验目录去重共用 publication lock 内的 pending 检查：
+根清单仍指向替换前提交时，即使旧 CSV 字节未变，也须先恢复再读取。追加事务的已提交
+前缀仍可读；新清单已提交但 pending 尚未清除时，按新清单校验。检查失败不会改写产物，
+pending 读取继续遵守取消信号和调用方共享字节预算。
 
 实现借鉴 [Delta transaction log](https://github.com/delta-io/delta/blob/master/PROTOCOL.md)
 的数据先持久化、再提交可见版本的顺序，以及

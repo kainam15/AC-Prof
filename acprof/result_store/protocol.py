@@ -89,6 +89,18 @@ def reference(layout: ArtifactLayout, path: Path) -> dict:
     return {"path": path.relative_to(layout.root).as_posix(), "sha256": file_sha256(path)}
 
 
+def check_pending_replacement(layout: ArtifactLayout, manifest: dict, *,
+                              cancelled: Callable[[], bool] | None = None,
+                              byte_budget: list[int] | None = None) -> None:
+    """Under the publication lock, reject replacements whose commit is not visible."""
+    check_cancelled(cancelled)
+    pending = layout.result_store_path("pending.json")
+    if pending.exists():
+        transaction = read_json_object(pending, bounded=False, cancelled=cancelled, byte_budget=byte_budget)
+        if transaction.get("replacements") and manifest["commit"] == transaction["before"]["commit"]:
+            raise ResultValidationError("result module replacement requires recovery")
+
+
 def read_reference(layout: ArtifactLayout, ref: dict | None, *,
                    cancelled: Callable[[], bool] | None = None, byte_budget: list[int] | None = None) -> dict:
     if (not isinstance(ref, dict) or set(ref) != {"path", "sha256"}

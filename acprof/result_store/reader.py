@@ -5,9 +5,10 @@ import hashlib
 from collections.abc import Callable
 from concurrent.futures import CancelledError
 
-from acprof.artifacts import read_json_object, read_json_object_snapshot
+from acprof.artifacts import read_json_object_snapshot
 from acprof.cancellation import cancellable, check_cancelled
 from acprof.result_store.protocol import (
+    check_pending_replacement,
     digest,
     publication_lock,
     read_layer_rows,
@@ -34,6 +35,7 @@ def committed_content_digest(root, *, cancelled, budget):
         try:
             snapshot = read_json_object_snapshot(layout.result_csv, cancelled=cancelled, byte_budget=budget)
             manifest = snapshot.payload
+            check_pending_replacement(layout, manifest, cancelled=cancelled, byte_budget=budget)
             paths = validate_manifest(layout, manifest, cancelled=cancelled, byte_budget=budget)
         except CancelledError as exc:
             raise InterruptedError("experiment scan cancelled") from exc
@@ -73,11 +75,7 @@ def read_snapshot(root, *, cancelled: Callable[[], bool] | None = None):
     with publication_lock(layout, exclusive=False, cancelled=cancelled):
         snapshot = read_json_object_snapshot(layout.result_csv, cancelled=cancelled)
         manifest = snapshot.payload
-        pending = layout.result_store_path("pending.json")
-        if pending.exists():
-            transaction = read_json_object(pending, bounded=False, cancelled=cancelled)
-            if transaction.get("replacements") and manifest["commit"] == transaction["before"]["commit"]:
-                raise ResultValidationError("result module replacement requires recovery")
+        check_pending_replacement(layout, manifest, cancelled=cancelled)
         paths = validate_manifest(layout, manifest, cancelled=cancelled)
         identity = layer_identity_fields(manifest["wide_fields"])
         combined = {}

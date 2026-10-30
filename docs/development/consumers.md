@@ -99,6 +99,14 @@ manifest 摘要，读取时校验同一份 manifest，各数据层只解析和�
 [restic 的内容身份校验](https://github.com/restic/restic/blob/master/internal/repository/repository.go)
 （BSD-2-Clause）及[避免校验副本的讨论](https://github.com/restic/restic/pull/22081)，
 沿用标准库实现，不引入备份、压缩或缓存依赖，也不跳过校验。
+独立 `audit_result` 调用独占刚解析的 snapshot，分层结果的结束复核使用同一内容校验器，
+避免再次解析和拼接全部 CSV。外部传入的分层 snapshot 含可变列表和行字典，仍逐行核对，
+不能仅凭 manifest hash 接受调用方修改后的内容；不建立跨调用缓存。所有路径继续核对
+历史导入依赖、当前层内容和提交状态。所有权边界参考 pandas
+[RangeIndex 外部修改问题 #67055](https://github.com/pandas-dev/pandas/issues/67055)、
+[PR #67462](https://github.com/pandas-dev/pandas/pull/67462) 及
+[缓存源码](https://github.com/pandas-dev/pandas/blob/main/pandas/core/indexes/range.py)，
+仅借鉴其共享可变内容风险分析，不复制 BSD-3-Clause 源码、不增加依赖或测量期开销。
 原始行不被审计的环境归一化修改；历史 CSV
 可保留宽松展示能力，但身份缺失、旧字段或其他严格校验失败仍阻止作为有效可比证据。
 测量状态、缺失原因和来源质量复用同一次审计；设备级质量从同一份元数据中筛选，下一次加载重新取得证据，

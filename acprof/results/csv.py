@@ -340,13 +340,20 @@ def read_result_csv_snapshot(path: str | Path, *, expected: Iterable[Measurement
     return ResultCsvSnapshot(path=path, fields=fields, rows=validated.rows, sha256=digest.hexdigest())
 
 
-def result_csv_snapshot_unchanged(snapshot: ResultCsvSnapshot) -> bool:
-    """Verify the current file bytes still match a previously parsed snapshot."""
+def result_csv_snapshot_unchanged(snapshot: ResultCsvSnapshot, *, verify_rows: bool = True) -> bool:
+    """Verify source content, retaining row comparison for externally mutable snapshots.
+
+    Only an owner that has just parsed and exclusively holds the rows may omit
+    their second parsing. Committed bytes and pending replacements are always checked.
+    """
     if file_sha256(snapshot.path) != snapshot.sha256:
         return False
     if snapshot.path.name == "result_layers.json":
         from acprof.results.layers import read_result_layers
         try:
+            if not verify_rows:
+                verify_result_source(snapshot.path, snapshot.sha256)
+                return True
             fields, rows = read_result_layers(snapshot.path.parent)
         except (ValueError, OSError, csv.Error):
             return False
@@ -375,9 +382,10 @@ def verify_result_source(artifact: str | Path, expected_sha256: str | None, *,
                                 cancelled=cancelled)
     if manifest.get("schema_version") == 3:
         from acprof.results.layout import ArtifactLayout
-        from acprof.result_store.protocol import publication_lock, validate_layer_files
+        from acprof.result_store.protocol import check_pending_replacement, publication_lock, validate_layer_files
         layout = ArtifactLayout.discover(artifact.parent)
         with publication_lock(layout, exclusive=False, cancelled=cancelled):
+            check_pending_replacement(layout, manifest, cancelled=cancelled)
             validate_layer_files(layout, manifest, cancelled=cancelled)
     else:
         from acprof.results.layers import verify_result_layer_files
