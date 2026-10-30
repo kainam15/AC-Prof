@@ -8,6 +8,7 @@ import os
 import re
 import shutil
 import tempfile
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -49,6 +50,7 @@ MODEL_KEY_LABEL = "org.acprof.model-files-key"
 
 DEFAULT_NLP_TORCH_INDEX_URL = "https://download.pytorch.org/whl/cu128"
 CUDA124_NLP_TORCH_INDEX_URL = "https://download.pytorch.org/whl/cu124"
+CPU_NLP_TORCH_INDEX_URL = "https://download.pytorch.org/whl/cpu"
 
 
 @dataclass
@@ -66,7 +68,8 @@ def configure_runtime_profile(task_info: Any, *, torch_index_url: str | None = N
     if profile.environment is None:
         raise RuntimeError("runtime profile does not declare a dependency environment")
     if profile.adapter == "family-default" and profile.environment.platform.torch_version:
-        index = (torch_index_url or select_nlp_torch_index_url()).rstrip("/")
+        devices = (getattr(task_info, "model_resolution", {}) or {}).get("requested_devices", ())
+        index = (torch_index_url or select_nlp_torch_index_url(devices=devices)).rstrip("/")
         variant = index.rsplit("/", 1)[-1]
         if index != f"https://download.pytorch.org/whl/{variant}" or variant not in {"cu128", "cu124", "cpu"}:
             raise ValueError("自定义 Torch 索引需要注册完整依赖锁；支持 cu128、cu124、cpu")
@@ -401,10 +404,14 @@ def _host_cuda_version() -> tuple[int, int] | None:
     return _parse_cuda_version(match.group(1))
 
 
-def select_nlp_torch_index_url() -> str:
+def select_nlp_torch_index_url(*, devices: Iterable[str] = ()) -> str:
     override = runtime_build_overrides()["ACPROF_NLP_TORCH_INDEX_URL"]
     if override:
         return override
+
+    requested = set(devices)
+    if requested and requested <= {"cpu", "off"}:
+        return CPU_NLP_TORCH_INDEX_URL
 
     cuda_version = _host_cuda_version()
     if cuda_version is None:

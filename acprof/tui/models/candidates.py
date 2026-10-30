@@ -197,13 +197,13 @@ def current_context(config, project_dir: Path, *, needs_torch_platform: bool = T
     context: dict[str, Any] = {'host': host_identity(project_dir), 'gpu_uuid': None,
                                'torch_index_url': None, 'warnings': []}
     gpu_requested = 'on' in config.gpus.split(',')
-    # Platform selection may depend on the driver even for a CPU-only task.
-    # Resolve this once for the whole idle scan; UUID lookup is GPU-only.
+    # Resolve the current matrix's platform once for the whole idle scan.
+    # CPU-only requests use the CPU lock without querying the GPU driver.
     if cancelled():
         raise InterruptedError('model candidate scan cancelled')
     if needs_torch_platform:
         try:
-            context['torch_index_url'] = select_nlp_torch_index_url()
+            context['torch_index_url'] = select_nlp_torch_index_url(devices=config.gpus.split(','))
         except (OSError, RuntimeError, ValueError, subprocess.TimeoutExpired) as exc:
             context['warnings'].append(str(exc))
     if cancelled():
@@ -247,6 +247,7 @@ def current_conditions(record: ExperimentRecord, config, context: dict, project_
         if profile.adapter == 'family-default' and profile.environment.platform.torch_version:
             if context['torch_index_url'] is None:
                 return current
+            task.model_resolution['requested_devices'] = config.gpus.split(',')
             profile = configure_runtime_profile(task, torch_index_url=context['torch_index_url'])
             if profile.environment is None:
                 raise ValueError('resolved runtime profile is missing an environment')

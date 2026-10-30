@@ -96,7 +96,8 @@ class TestModelCandidate(ModelCandidateFixture):
                 values, warnings = cached_candidates(root)
                 assert not (values)
 
-    def test_actual_runtime_routing_and_driver_query_are_shared_and_bounded(self):
+    @pytest.mark.parametrize(('gpus', 'expected'), [('off', 'nlp-cpu'), ('on', 'nlp-cu124')])
+    def test_actual_runtime_routing_and_driver_query_are_shared_and_bounded(self, gpus, expected):
         from types import SimpleNamespace
         from unittest.mock import patch
 
@@ -109,24 +110,25 @@ class TestModelCandidate(ModelCandidateFixture):
                 'model_revision': record.revision, 'detection_method': 'config_infer',
                 'model_config': {'model_type': 'bert'}, 'model_resolution': {'runtime_profile': 'historical', 'requested_devices': ['cpu']}}
         record = replace(record, state={**record.state, 'runtime': {'task': task}})
-        config = RunConfig.smoke(record.model_id)
+        config = replace(RunConfig.smoke(record.model_id), gpus=gpus)
         with patch.dict('os.environ', {}, clear=True), patch('acprof.host.images.runtime.shutil.which', return_value='/usr/bin/nvidia-smi'), patch(
                 'acprof.system.command.run_command', return_value=SimpleNamespace(returncode=0, stdout='CUDA Version: 12.4')) as command:
             assert (select_nlp_torch_index_url().endswith('/cu124'))
             assert (command.call_args.kwargs['timeout']) == (10)
             command.reset_mock()
             with patch('acprof.host.run_state.host_identity', return_value={'machine_id_sha256': 'host-a', 'source_sha256': 'source-a'}), \
-                 patch('acprof.host.gpu_device.resolve_gpu_device') as device, \
-                 patch('acprof.host.preparation.task_support.require_task_support'):
+                 patch('acprof.host.gpu_device.resolve_gpu_device', return_value={'uuid': 'gpu-a'}) as device, \
+                 patch('acprof.host.preparation.task_support.require_task_support') as support:
                 context = current_context(config, Path.cwd())
                 frozen = json.dumps(record.state, sort_keys=True)
                 first = current_conditions(record, config, context, Path.cwd())
                 second = current_conditions(record, config, context, Path.cwd())
-                assert (first['runtime_profile']) == ('nlp-cu124')
+                assert first['runtime_profile'] == expected
                 assert (first['runtime_environment']) == (second['runtime_environment'])
                 assert (json.dumps(record.state, sort_keys=True)) == (frozen)
-                command.assert_called_once()
-                device.assert_not_called()
+                assert support.call_args.kwargs['devices'] == [gpus]
+                assert command.call_count == (1 if gpus == 'on' else 0)
+                assert device.call_count == (1 if gpus == 'on' else 0)
 
     def test_missing_thread_evidence_and_changed_thread_or_input_options_require_revalidation(self):
         from acprof.tui.models.candidates import candidate_from_record, record_conditions

@@ -77,9 +77,11 @@ uv run python scripts/compile_system_lock.py --snapshot 20260913T000000Z
 容器解析复用 [uv 的 constraints 编译方式](https://github.com/astral-sh/uv/blob/main/docs/pip/compile.md)，
 保持已有平台 wheel 约束和哈希验证，不增加测量期解析开销。
 
-主机构建预检沿用驱动兼容分支，CUDA 12.4 选择固定的 Torch 2.6.0 wheel，CUDA 12.8+ 选择 2.11.0。
+主机构建预检在明确的 CPU-only 请求（`--gpus off`）中选择现有 CPU 锁，不查询 GPU 驱动。
+包含 GPU 的资源矩阵沿用驱动兼容分支，CUDA 12.4 选择固定的 Torch 2.6.0 wheel，CUDA 12.8+ 选择 2.11.0。
+同一 CPU/GPU 混合矩阵共用所选 CUDA 环境；完成态 Resume 继续使用原实验冻结的环境，不重新选择。
 `ACPROF_NLP_TORCH_INDEX_URL` 接受官方 `cu124`、`cu128` 和 `cpu` 索引；显式
-`ACPROF_NLP_TORCH_SPEC` 必须与该分支的精确版本一致。其它组合需登记并验证自己的完整锁，
+索引优先于设备默认值，`ACPROF_NLP_TORCH_SPEC` 必须与该分支的精确版本一致。其它组合需登记并验证自己的完整锁，
 不再用无上界范围绕过锁。CPU 容器 CI 不证明 CUDA wheel 或所有模型的 GPU 兼容性。
 
 支持任务标签不等于支持所有 checkpoint。已知不兼容的架构在任务预检退出；未登记的自定义
