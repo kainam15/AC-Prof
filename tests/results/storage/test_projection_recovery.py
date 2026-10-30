@@ -8,6 +8,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from tests.support.result_store_fixtures import assert_writer_lease_available
 from tests.results.storage.test_incremental_results import initialized, receipt
 from tests.measurement.windows.test_window_sources import encoded_record
 
@@ -237,7 +238,7 @@ def test_recovery_errors_keep_pending_journal_and_allow_retry(tmp_path, monkeypa
         with pytest.raises(OSError, match="fixture projection"):
             with recovering:
                 pytest.fail("recovery silently accepted an I/O failure")
-    assert recovering.lease is None
+    assert_writer_lease_available(recovering.layout)
     assert all(record.stream.closed for record in observed.records)
     assert pending.read_bytes() == journal
     assert layout.result_csv.read_bytes() == manifest

@@ -9,6 +9,7 @@ import copy
 import fcntl
 import hashlib
 import os
+from contextlib import ExitStack
 from uuid import uuid4
 
 from acprof.artifacts import atomic_write_json, read_json_object
@@ -23,33 +24,37 @@ from acprof.result_store.recovery import clear_pending, projected_rows, recover_
 from acprof.result_store.sources import apply_source
 from acprof.results.csv import ResultValidationError, measurement_key
 from acprof.results.layout import ArtifactLayout
+from acprof.system.cleanup import cleanup_on_exit
 
 
 class ResultWriter:
     def __init__(self, root):
         self.layout = ArtifactLayout.discover(root)
         self.failed = False
-        self.lease = None
+        self._resources: ExitStack | None = None
 
     def __enter__(self):
-        self.lease = self.layout.result_store_path("writer.lock").open("a+b")
-        try:
-            fcntl.flock(self.lease.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        if self._resources is not None:
+            raise ResultValidationError("result writer is already active")
+        with ExitStack() as resources:
+            lease = self.layout.result_store_path("writer.lock").open("a+b")
+            resources.enter_context(cleanup_on_exit(
+                lease.close, description=f"result writer lease {self.layout.root}"))
+            fcntl.flock(lease.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
             with publication_lock(self.layout, exclusive=True):
                 self.manifest, self.rows, self.windows, self.hashes = recover_projection(self.layout)
-            return self
-        except BaseException:
-            self.lease.close()
-            self.lease = None
-            raise
+            self.failed = False
+            self._resources = resources.pop_all()
+        return self
 
-    def __exit__(self, *_):
-        if self.lease is not None:
-            self.lease.close()
-            self.lease = None
+    def __exit__(self, exc_type=None, exc_value=None, traceback=None):
+        resources, self._resources = self._resources, None
+        if resources is not None:
+            return resources.__exit__(exc_type, exc_value, traceback)
+        return False
 
     def _ready(self):
-        if self.failed or self.lease is None:
+        if self.failed or self._resources is None:
             raise ResultValidationError("result writer requires recovery before another window")
 
     def append_window(self, path):
@@ -124,7 +129,8 @@ class ResultWriter:
 
     def _append_bytes(self, layer, raw):
         path = self.layout.layer_csv(layer)
-        with path.open("ab") as stream:
+        stream = path.open("ab")
+        with cleanup_on_exit(stream.close, description=f"result CSV append stream {path}"):
             if stream.tell() != self.manifest["layers"][layer]["committed_bytes"]:
                 raise ResultValidationError(f"unexpected {layer} tail; recovery required")
             if stream.write(raw) != len(raw):

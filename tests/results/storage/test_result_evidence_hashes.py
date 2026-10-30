@@ -7,6 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from tests.support.result_store_fixtures import assert_writer_lease_available
 from tests.results.storage.test_incremental_results import initialized, receipt
 
 from acprof.result_store.protocol import reference
@@ -194,5 +195,5 @@ def test_changed_evidence_is_rejected_before_projection_writes(tmp_path, phase, 
         with pytest.raises(error):
             with recovering:
                 pytest.fail("recovery accepted damaged evidence")
-        assert recovering.lease is None
+        assert_writer_lease_available(recovering.layout)
     assert all(target.read_bytes() == raw for target, raw in before.items())

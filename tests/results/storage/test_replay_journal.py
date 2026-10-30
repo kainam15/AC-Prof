@@ -7,6 +7,7 @@ import tracemalloc
 from pathlib import Path
 
 import pytest
+from tests.support.result_store_fixtures import assert_writer_lease_available
 from tests.results.storage.test_incremental_results import receipt
 from tests.results.storage.test_projection_recovery import committed_store
 
@@ -108,7 +109,7 @@ def test_historical_checks_remain_required_with_valid_reference_hashes(tmp_path,
     with pytest.raises(ValueError, match=error):
         with recovering:
             pytest.fail("invalid historical transaction was accepted")
-    assert recovering.lease is None
+    assert_writer_lease_available(recovering.layout)
     assert target.read_bytes() == before
     assert layout.result_csv.read_bytes() == manifest
 

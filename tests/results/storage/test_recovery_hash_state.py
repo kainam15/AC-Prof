@@ -7,6 +7,7 @@ import tracemalloc
 from collections import Counter
 
 import pytest
+from tests.support.result_store_fixtures import assert_writer_lease_available
 from tests.results.storage.test_incremental_results import initialized, receipt
 from tests.results.storage.test_projection_recovery import committed_store
 
@@ -185,7 +186,7 @@ def test_metadata_failure_releases_writer_and_allows_fresh_hash_recovery(tmp_pat
         with pytest.raises(OSError, match="fixture metadata recovery failed"):
             with writer:
                 pytest.fail("incomplete recovery was accepted")
-    assert writer.lease is None
+    assert_writer_lease_available(writer.layout)
     assert not hasattr(writer, "hashes")
     assert layout.result_csv.read_bytes() == before
     with writer as recovered:
