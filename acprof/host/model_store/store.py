@@ -29,7 +29,6 @@ from acprof.container.model_files import (
     validate_plan,
     validate_plan_request,
 )
-from acprof.dependency_locks import content_digest
 from acprof.host.model_store.paths import StorePaths, store_paths
 from acprof.host.model_store.views import (
     make_traversable,
@@ -53,6 +52,7 @@ from acprof.network_policy import (
     enforce_download_budget,
     parse_bytes,
 )
+from acprof.runtime.dependency_locks import content_digest
 
 ENTRY_METADATA_MAX_BYTES = 4 * 1024 * 1024
 _ENTRY_ID = re.compile(r"[a-f0-9]{64}")
@@ -328,9 +328,9 @@ def plan_model(task, root: Path | None = None) -> dict:
     dependencies = validate_dependencies(request["dependencies"],
                                          primary_model_id=task.model_id)
     from acprof.container.download_model import _prepare_repository_plan
-    from acprof.dependency_locks import package_versions, read_python_lock
     from acprof.installation import resource_root
-    from acprof.runtime_profiles import select_runtime_profile
+    from acprof.runtime.dependency_locks import package_versions, read_python_lock
+    from acprof.runtime.profiles import select_runtime_profile
     profile = select_runtime_profile(task)
     if profile.environment is None:
         raise ValueError("model profile is missing a runtime environment")

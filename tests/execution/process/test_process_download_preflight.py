@@ -24,8 +24,8 @@ def test_cancelled_process_download_confirmation_never_prepares_environment(tmp_
 
 
 def test_process_environment_hit_verifies_contents_and_skips_network(tmp_path):
-    from acprof.dependency_locks import content_digest
     from acprof.host.preparation.network_preflight import process_sources
+    from acprof.runtime.dependency_locks import content_digest
 
     identity = {'artifacts': []}
     target = tmp_path / content_digest(identity)

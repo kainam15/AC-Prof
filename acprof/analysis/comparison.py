@@ -28,7 +28,7 @@ from acprof.result_csv import (
     measurement_key,
     read_result_csv_snapshot,
 )
-from acprof.runtime_settings import RUNTIME_ENV_NAMES
+from acprof.runtime.settings import RUNTIME_ENV_NAMES
 
 MEASUREMENT_OPTIONS = (
     "profiling_mode", "warmup", "repeat", "repeat_in_window", "repeat_window_seconds",

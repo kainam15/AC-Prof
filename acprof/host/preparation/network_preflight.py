@@ -16,7 +16,6 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from acprof.artifacts import read_json_object
-from acprof.dependency_locks import content_digest
 from acprof.host.images.environment import (
     DEFAULT_RUNTIME_REGISTRY,
     platform_fingerprint,
@@ -34,7 +33,8 @@ from acprof.network_policy import (
     require_source_transition,
     summarize_downloads,
 )
-from acprof.runtime_profiles import environment_identity
+from acprof.runtime.dependency_locks import content_digest
+from acprof.runtime.profiles import environment_identity
 from acprof.system import command as host_command
 
 

@@ -9,7 +9,7 @@ from dataclasses import dataclass
 
 from acprof.cpu_affinity import normalize_cpu_set, parse_cpu_set
 from acprof.host.gpu_device import gpu_device_scope, pin_gpu_device
-from acprof.runtime_settings import RUNTIME_ENV_NAMES
+from acprof.runtime.settings import RUNTIME_ENV_NAMES
 
 MEASUREMENT_ENV_NAMES = (
     "AUTO_WARMUP_REQUESTS", "SLOW_LATENCY_THRESHOLD_S", "IDLE_DEBUG_TRACE_INTERVAL_S",

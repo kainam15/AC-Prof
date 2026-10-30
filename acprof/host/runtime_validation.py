@@ -26,7 +26,7 @@ from acprof.host.container_lifecycle import (
 )
 from acprof.host.gpu_device import gpu_docker_args
 from acprof.host.validation_logs import ValidationLog
-from acprof.runtime_settings import runtime_docker_env_args
+from acprof.runtime.settings import runtime_docker_env_args
 from acprof.system.command import run_command
 
 if TYPE_CHECKING:

@@ -68,7 +68,7 @@ library/config 规则 → family 规则，随后才可使用已声明的 `librar
 
 平台与共享依赖分别在 `platforms`、`dependency_environments` 声明，逻辑配置在 `runtime_profiles`
 或 extension 的 `profile` / `environment` / `dependency_environment` 声明。
-[`runtime_profiles.py`](../../acprof/runtime_profiles.py) 使用既有 `PlatformSpec`、`DependencyEnvironment`、
+[`runtime_profiles.py`](../../acprof/runtime/profiles.py) 使用既有 `PlatformSpec`、`DependencyEnvironment`、
 `RuntimeSpec` 和 `RuntimeProfile` 实例化这些引用并继续检查完整锁。
 新 runtime 可引用 `torch_version: null` 的平台以及独立的精确 lock，无需增加 runtime 名称分支。
 这条声明路径的主机测试使用虚构 runtime；它不代表已实现或验证 OpenVINO 等额外推理后端。
@@ -124,7 +124,7 @@ MNIST-12 为 26 KB、固定单灰度图输入；BERT-tiny-RAID 为 17.6 MB、三
 
 ### 运行参数与请求完成
 
-`acprof.runtime_settings` 是标准库配置读取入口。CPU quota、CPU affinity 和推理线程数独立；
+`acprof.runtime.settings` 是标准库配置读取入口。CPU quota、CPU affinity 和推理线程数独立；
 新增线程参数不会修改 `--cpus` 或 cpuset。现有 profiler 的 quota 派生线程默认值保留，显式请求
 同时传入服务、独立验证与 profiler，并在执行前的恢复身份中记录。未设置新参数时不添加新的
 空环境键，运行后观测值不参与恢复身份。

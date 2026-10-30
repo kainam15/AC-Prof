@@ -26,7 +26,7 @@ from acprof.host.images.inventory import (
     ManagedImage,
 )
 from acprof.messages import join_messages, message
-from acprof.runtime_profiles import PYTHON_BASE_IMAGE
+from acprof.runtime.profiles import PYTHON_BASE_IMAGE
 from acprof.tui.app_contracts import image_detail_app, translated_app
 from acprof.tui.i18n import message_id
 from acprof.tui.presentation import NOT_APPLICABLE, STATUS_LEGEND, UNKNOWN, format_bytes

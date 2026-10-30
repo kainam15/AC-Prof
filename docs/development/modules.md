@@ -61,7 +61,7 @@
 | `acprof/result_store/`、`acprof/result_layers.py` | schema v3 分层追加、统一提交、来源重放、模块替换、读取与不可变快照；不启动采集器，所有写入位于测量窗口之外 |
 | `acprof/artifact_layout.py` | 结果清单、v2/flat 布局识别、受限相对路径及 case sidecar 路由；采集、恢复、补采和分析共用 |
 | `acprof/pixel_metrics.py` | 像素计数和能耗/延迟归一化的纯计算，由 client、packet 和 plotting 共用 |
-| `acprof/runtime_profiles.py` | 平台、依赖环境、逻辑 profile 与锁身份；从扩展声明读取路由 |
+| `acprof/runtime/profiles.py` | 平台、依赖环境、逻辑 profile 与锁身份；从扩展声明读取路由 |
 | `acprof/models/support.py` | 精确版本的 Transformers 注册与能力目录，判断 Auto 类和 Pipeline 任务支持；只读静态数据，不导入模型 |
 | `acprof/models/candidates.py` | 唯一静态接口发现入口，同时生成候选、作用域证据和 `task_discovery`；查询不修改 `TaskInfo`，编排显式应用决策；不加载权重 |
 | `acprof/tasks/interfaces.py` | 从 Extension 解析 loader、四阶段调用、模块链、组件及 IO，记录执行身份并在恢复前核验；不导入模型代码 |

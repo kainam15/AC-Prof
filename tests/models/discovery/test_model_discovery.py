@@ -15,7 +15,7 @@ from acprof.host.detect import TaskInfo, detect_task
 from acprof.host.images.runtime import request_fingerprint
 from acprof.host.input_plan.materialize import get_task_generator
 from acprof.host.preparation.task_support import TaskSupportError, require_task_support
-from acprof.runtime_profiles import PROFILES
+from acprof.runtime.profiles import PROFILES
 
 REVISION = "a" * 40
 

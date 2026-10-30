@@ -12,7 +12,7 @@ import pytest
 from acprof.container.handlers.multimodal import MultimodalHandler
 from acprof.host.detect import TaskInfo
 from acprof.host.preparation.task_support import TaskSupportError, require_task_support
-from acprof.runtime_profiles import select_runtime_profile
+from acprof.runtime.profiles import select_runtime_profile
 from tests.workloads.multimodal.test_multimodal_handler import audio_payload
 
 

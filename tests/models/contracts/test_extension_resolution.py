@@ -138,7 +138,7 @@ def test_catalog_inference_does_not_become_author_declared_hub_task():
 
 def test_new_family_and_non_torch_runtime_reach_existing_consumers():
     from acprof.host import input_plan, model_schema
-    from acprof.runtime_profiles import runtime_declarations
+    from acprof.runtime.profiles import runtime_declarations
 
     io_format = {"input": {"json_schema": {"type": "object", "properties": {"values": {"type": "array"}},
                                            "required": ["values"]}},

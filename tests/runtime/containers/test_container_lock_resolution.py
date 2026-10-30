@@ -8,7 +8,7 @@ import pytest
 
 from acprof.container.load_policy import load_policy
 from acprof.installation import resource_root
-from acprof.runtime_profiles import PROFILES, locked_transformers_version
+from acprof.runtime.profiles import PROFILES, locked_transformers_version
 
 
 @pytest.fixture(autouse=True)

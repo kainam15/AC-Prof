@@ -33,7 +33,7 @@ from acprof.host.detect import TaskInfo
 from acprof.host.env_utils import hf_offline_docker_env_args
 from acprof.host.gpu_device import gpu_docker_args, resolve_gpu_device
 from acprof.host.images.runtime import ImageInfo
-from acprof.runtime_settings import runtime_docker_env_args
+from acprof.runtime.settings import runtime_docker_env_args
 from acprof.system import command as host_command
 from acprof.system.command import DOCKER_RUN_TIMEOUT_S
 

@@ -62,7 +62,7 @@ def test_platform_is_omitted_only_when_parent_provides_matching_context():
     assert (child.tags) == (("acprof-runtime-env:opaque",))
 
 def test_pinned_python_upstream_is_named_only_with_matching_repository_digest():
-    from acprof.runtime_profiles import PYTHON_BASE_IMAGE
+    from acprof.runtime.profiles import PYTHON_BASE_IMAGE
     from acprof.tui.i18n import translate
 
     upstream = ManagedImage(
@@ -1006,7 +1006,7 @@ class TestTuiImages:
             assert len(self.docker.commands) == before, "切换筛选和勾选不应重新扫描 Docker"
 
     async def test_full_tree_names_digest_verified_untagged_python_upstream(self):
-        from acprof.runtime_profiles import PYTHON_BASE_IMAGE
+        from acprof.runtime.profiles import PYTHON_BASE_IMAGE
         from acprof.tui.images import image_diagnostics
 
         upstream = "sha256:" + "e" * 64
@@ -1070,7 +1070,7 @@ class TestTuiImages:
     @pytest.mark.parametrize('language', ['zh', 'en'])
     @pytest.mark.parametrize('size', [(80, 24), (120, 30), (150, 45)])
     async def test_tree_platform_names_and_dotted_versions_survive_language_and_resize(self, language, size):
-        from acprof.runtime_profiles import ENVIRONMENTS, environment_id
+        from acprof.runtime.profiles import ENVIRONMENTS, environment_id
 
         root = Path(__file__).resolve().parents[3]
         self.docker.images[RUNTIME] = image(

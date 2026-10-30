@@ -123,7 +123,7 @@ def collect_source_evidence(task_info, evidence: ModelEvidence, config: dict,
                         required = False
                     enqueue_module(module_path / alias.name, required=required)
     from acprof.models.inspection.dependency_flow import analyze_dependencies
-    from acprof.runtime_profiles import ENVIRONMENTS, locked_transformers_version
+    from acprof.runtime.profiles import ENVIRONMENTS, locked_transformers_version
     evidence.source("repository-file-listing", json.dumps(sorted(files)).encode())
     evidence.dependency_candidates.extend(analyze_dependencies(
         sources, config, task_info.model_id, files=files, metadata=task_info.repository_metadata,

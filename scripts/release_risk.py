@@ -19,8 +19,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from acprof.dependency_locks import read_python_lock  # noqa: E402
-from acprof.runtime_profiles import ENVIRONMENTS, PLATFORMS  # noqa: E402
+from acprof.runtime.dependency_locks import read_python_lock  # noqa: E402
+from acprof.runtime.profiles import ENVIRONMENTS, PLATFORMS  # noqa: E402
 from scripts.check_dependency_audit import summarize_report, vulnerability_groups  # noqa: E402
 
 

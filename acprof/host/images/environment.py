@@ -9,15 +9,15 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
-from acprof.dependency_locks import (
+from acprof.installation import resource_root
+from acprof.runtime.dependency_locks import (
     content_digest,
     package_versions,
     python_lock_text,
     require_exact_packages,
     system_lock_identity,
 )
-from acprof.installation import resource_root
-from acprof.runtime_profiles import (
+from acprof.runtime.profiles import (
     DependencyEnvironment,
     PlatformSpec,
     environment_identity,
@@ -28,7 +28,7 @@ from acprof.system import command as host_command
 PROJECT_ROOT = resource_root()
 PLATFORM_LABEL = "org.acprof.platform-build-fingerprint"
 ENVIRONMENT_LABEL = "org.acprof.environment-build-fingerprint"
-BUILD_HELPERS = ("dockerfiles/environment_tools.py", "acprof/dependency_locks.py", "acprof/network_policy.py")
+BUILD_HELPERS = ("dockerfiles/environment_tools.py", "acprof/runtime/dependency_locks.py", "acprof/network_policy.py")
 DEFAULT_RUNTIME_REGISTRY = "ghcr.io/kainam15/ac-prof/runtime"
 
 

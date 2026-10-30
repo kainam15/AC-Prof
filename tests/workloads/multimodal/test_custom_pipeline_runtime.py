@@ -18,7 +18,7 @@ class TestCustomPipelineRuntime:
     @pytest.fixture(autouse=True)
     def _setup(self, request, tmp_path, monkeypatch):
         self._request = request
-        from acprof.runtime_profiles import PROFILES
+        from acprof.runtime.profiles import PROFILES
         base = PROFILES[os.environ.get("ACPROF_RUNTIME_PROFILE", "nlp-cpu")]
         # Only generated test code opts in; production remote-code policy stays strict.
         allowed = replace(base, profile_id="fixture-nlp-custom", trust_remote_code=True)

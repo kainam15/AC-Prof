@@ -18,7 +18,7 @@ def validate(payload: dict, *, stages: list[dict] | None = None) -> dict:
     from acprof.container.execution import complete_prediction, configured_execution
     from acprof.container.handlers import HandlerRegistry, load_handler, resolve_model_source
     from acprof.extensions import get_extension
-    from acprof.runtime_settings import runtime_threads
+    from acprof.runtime.settings import runtime_threads
 
     stages = [] if stages is None else stages
 
@@ -124,7 +124,7 @@ def main() -> int:
         if failure.reason_code == "request_timeout":
             from dataclasses import replace
 
-            from acprof.runtime_settings import request_timeout_s
+            from acprof.runtime.settings import request_timeout_s
             completion = failed_stage == "completion"
             failure = replace(failure, evidence={**failure.evidence,
                 "timeout_seconds": request_timeout_s() if completion else None,

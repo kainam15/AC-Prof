@@ -11,15 +11,15 @@ from unittest.mock import patch
 
 import pytest
 
-from acprof.dependency_locks import (
+from acprof.host.detect import TaskInfo
+from acprof.host.images import runtime as runtime_images
+from acprof.runtime.dependency_locks import (
     content_digest,
     package_versions,
     read_python_lock,
     system_lock_identity,
 )
-from acprof.host.detect import TaskInfo
-from acprof.host.images import runtime as runtime_images
-from acprof.runtime_profiles import RuntimeProfile
+from acprof.runtime.profiles import RuntimeProfile
 from tests.support.runtime_fixture import copy_dependency_tree
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
@@ -191,7 +191,7 @@ class TestRuntimeImageBuild:
 
     def test_dependency_build_host_network_is_explicit_and_scoped(self):
         from acprof.host.images.environment import platform_fingerprint
-        from acprof.runtime_profiles import PLATFORMS
+        from acprof.runtime.profiles import PLATFORMS
         original = platform_fingerprint(PLATFORMS["cu124"], PROJECT_ROOT)
         with patch.dict(os.environ, {"ACPROF_DEPENDENCY_BUILD_NETWORK": "host"}):
             assert platform_fingerprint(PLATFORMS["cu124"], PROJECT_ROOT) == original
@@ -246,7 +246,7 @@ class TestRuntimeImageBuild:
 
     def test_prebuilt_images_are_verified_and_used_without_dependency_builds(self):
         from acprof.host.images.environment import prepare_environment_image
-        from acprof.runtime_profiles import ENVIRONMENTS
+        from acprof.runtime.profiles import ENVIRONMENTS
         environment = ENVIRONMENTS["onnxruntime-cpu"]
         prepared = prepare_environment_image(environment)
         # Retain immutable images/manifests, then simulate an empty local tag cache.
@@ -272,7 +272,7 @@ class TestRuntimeImageBuild:
 
     def test_pull_only_failure_never_builds_locally(self):
         from acprof.host.images.environment import prepare_environment_image
-        from acprof.runtime_profiles import ENVIRONMENTS
+        from acprof.runtime.profiles import ENVIRONMENTS
         with patch.dict(os.environ, {"ACPROF_RUNTIME_IMAGE_SOURCE": "pull"}), patch("acprof.system.command.run_command", return_value=subprocess.CompletedProcess([], 1, "", "manifest unknown"),
         ) as command:
             with pytest.raises(RuntimeError, match="拉取"):
@@ -281,7 +281,7 @@ class TestRuntimeImageBuild:
 
     def test_auto_pull_failure_builds_the_locked_dependencies(self):
         from acprof.host.images.environment import prepare_environment_image
-        from acprof.runtime_profiles import ENVIRONMENTS
+        from acprof.runtime.profiles import ENVIRONMENTS
 
         def unavailable_registry(command, **kwargs):
             if command[:2] == ["docker", "pull"]:
@@ -295,7 +295,7 @@ class TestRuntimeImageBuild:
 
     def test_successful_pull_with_wrong_identity_does_not_fall_back_to_build(self):
         from acprof.host.images.environment import prepare_environment_image
-        from acprof.runtime_profiles import ENVIRONMENTS
+        from acprof.runtime.profiles import ENVIRONMENTS
 
         def corrupted_registry(command, **kwargs):
             assert (command[:2]) == (["docker", "pull"])
@@ -391,7 +391,7 @@ class TestRuntimeImageBuild:
 
     def test_retagged_parent_during_build_does_not_publish_environment_cache(self):
         from acprof.host.images.environment import prepare_environment_image
-        from acprof.runtime_profiles import ENVIRONMENTS
+        from acprof.runtime.profiles import ENVIRONMENTS
         def changed(command, **kwargs):
             result = self.fake_run(command, **kwargs)
             if command[:2] == ["docker", "build"] and Path(command[command.index("-f") + 1]).name == "runtime.Dockerfile":
@@ -404,7 +404,7 @@ class TestRuntimeImageBuild:
 
     def test_changed_build_input_does_not_publish_dependency_cache(self):
         from acprof.host.images.environment import prepare_environment_image
-        from acprof.runtime_profiles import ENVIRONMENTS
+        from acprof.runtime.profiles import ENVIRONMENTS
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             copy_dependency_tree(root)
@@ -420,7 +420,7 @@ class TestRuntimeImageBuild:
 
     def test_input_change_between_declaration_read_and_fingerprinting_is_rejected(self):
         from acprof.host.images import environment as dependency_images
-        from acprof.runtime_profiles import ENVIRONMENTS, environment_identity
+        from acprof.runtime.profiles import ENVIRONMENTS, environment_identity
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             copy_dependency_tree(root)

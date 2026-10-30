@@ -6,9 +6,9 @@ from unittest.mock import patch
 
 import pytest
 
-from acprof import runtime_profiles as profiles
-from acprof.dependency_locks import content_digest, python_lock_text, read_python_lock
 from acprof.host.detect import TaskInfo
+from acprof.runtime import profiles
+from acprof.runtime.dependency_locks import content_digest, python_lock_text, read_python_lock
 from tests.support.runtime_fixture import ROOT, copy_dependency_tree
 
 

@@ -13,7 +13,7 @@ from unittest.mock import patch
 import pytest
 from packaging.requirements import Requirement
 
-from acprof.runtime_profiles import PROFILES
+from acprof.runtime.profiles import PROFILES
 from scripts.check_runtime import ONNX_ENVIRONMENT_CHECK, main
 
 

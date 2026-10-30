@@ -17,7 +17,7 @@ from acprof.artifacts import atomic_write_json  # noqa: E402 -- 脚本先设置�
 from acprof.host.images.environment import (  # noqa: E402 -- 脚本先设置仓库导入路径。
     prepare_environment_image,
 )
-from acprof.runtime_profiles import (  # noqa: E402 -- 脚本先设置仓库导入路径。
+from acprof.runtime.profiles import (  # noqa: E402 -- 脚本先设置仓库导入路径。
     DEFAULT_PROFILES,
     PROFILES,
     environment_id,

@@ -10,8 +10,8 @@ from acprof.installation import resource_root
 
 
 def _environment_names() -> dict[str, tuple[str, ...]]:
-    from acprof.dependency_locks import content_digest
-    from acprof.runtime_profiles import ENVIRONMENTS, environment_identity
+    from acprof.runtime.dependency_locks import content_digest
+    from acprof.runtime.profiles import ENVIRONMENTS, environment_identity
 
     names: dict[str, list[str]] = {}
     for name, environment in ENVIRONMENTS.items():

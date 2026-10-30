@@ -28,7 +28,7 @@ from acprof.host.validation_logs import ValidationLog
 from acprof.installation import resource_root
 from acprof.models.contract import write_model_resolution
 from acprof.models.spec import encode_model_spec, task_model_spec
-from acprof.runtime_profiles import select_runtime_profile
+from acprof.runtime.profiles import select_runtime_profile
 from acprof.source_identity import service_sources, source_fingerprint
 from acprof.system.command import run_command
 

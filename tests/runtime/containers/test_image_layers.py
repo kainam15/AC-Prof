@@ -8,7 +8,7 @@ import pytest
 from acprof.host.detect import TaskInfo
 from acprof.host.images.environment import runtime_fingerprint
 from acprof.host.images.runtime import model_fingerprint, request_fingerprint
-from acprof.runtime_profiles import select_runtime_profile
+from acprof.runtime.profiles import select_runtime_profile
 from tests.support.runtime_fixture import copy_dependency_tree
 
 

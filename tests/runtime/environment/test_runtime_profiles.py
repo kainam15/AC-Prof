@@ -11,7 +11,7 @@ from acprof.host import docker_runtime
 from acprof.host.detect import TaskInfo
 from acprof.host.images import runtime as runtime_images
 from acprof.host.images.runtime import request_fingerprint
-from acprof.runtime_profiles import (
+from acprof.runtime.profiles import (
     PROFILES,
     RuntimeProfile,
     select_runtime_profile,
@@ -66,7 +66,7 @@ def test_another_model_adapter_can_select_its_own_runtime():
         profile=profile.profile_id)
     catalog.add(declaration)
     with patch.dict(PROFILES, {profile.profile_id: profile}), patch(
-        "acprof.runtime_profiles.select_extension", catalog.select_extension,
+        "acprof.runtime.profiles.select_extension", catalog.select_extension,
     ):
         assert (select_runtime_profile(task)) is (profile)
 
@@ -85,7 +85,7 @@ def test_architecture_profile_selection_uses_backend_not_lossy_compatibility_vie
     task = TaskInfo("owner/checkpoint", "text-generation", "nlp", "first", "custom", "fixed", "manual",
                     model_config={"model_type": "shared_arch"})
     with patch.dict(PROFILES, profiles), patch(
-        "acprof.runtime_profiles.select_extension", catalog.select_extension,
+        "acprof.runtime.profiles.select_extension", catalog.select_extension,
     ):
         assert (select_runtime_profile(task)) is (profiles["first-runtime"])
 
@@ -111,7 +111,7 @@ def test_source_and_dependency_changes_invalidate_cached_image():
         assert (changed) != (request_fingerprint(moss_task(), root))
 
 def test_manifest_only_change_invalidates_service_but_not_environment_identity():
-    from acprof.runtime_profiles import environment_id
+    from acprof.runtime.profiles import environment_id
     with tempfile.TemporaryDirectory() as temporary:
         root = Path(temporary)
         copy_dependency_tree(root)

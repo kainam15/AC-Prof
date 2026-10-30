@@ -14,8 +14,8 @@ from tests.support.runtime_fixture import copy_dependency_tree
 
 
 def test_mirror_resolution_keeps_versions_hashes_and_target_platform():
-    from acprof.dependency_locks import python_lock_text, read_python_lock
-    from acprof.runtime_profiles import PLATFORMS
+    from acprof.runtime.dependency_locks import python_lock_text, read_python_lock
+    from acprof.runtime.profiles import PLATFORMS
     digest = "a" * 64
     wheel_url = "https://mirror.example/packages/example-1.0-py3-none-any.whl"
     with tempfile.TemporaryDirectory() as directory:

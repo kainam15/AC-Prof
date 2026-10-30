@@ -50,7 +50,7 @@ def _command(arguments: list[str]) -> str:
 
 
 def _resources() -> str:
-    from acprof.runtime_profiles import ENVIRONMENTS, environment_identity
+    from acprof.runtime.profiles import ENVIRONMENTS, environment_identity
     root = resource_root()
     required = ("dockerfiles/platform.Dockerfile", "dockerfiles/runtime.Dockerfile",
                 "dockerfiles/runtime-model.Dockerfile", "dockerfiles/runtime-final.Dockerfile",

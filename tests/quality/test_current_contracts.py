@@ -20,7 +20,7 @@ from acprof.host.profiling.tools.ncu import _resolve_ncu_metrics, _select_ncu_fl
 from acprof.host.runtime_validation import validate_runtime
 from acprof.packet.merge_packet_latency import _request_records
 from acprof.plotting.data import prepare_df, read_static_meta
-from acprof.runtime_profiles import RuntimeProfile
+from acprof.runtime.profiles import RuntimeProfile
 from acprof.tui.settings import load_settings
 
 
@@ -42,7 +42,7 @@ def test_missing_baked_snapshot_does_not_fall_back_to_hub():
     with pytest.raises(FileNotFoundError, match="snapshot"):
         resolve_model_source("example/model", "/missing/acprof/model-snapshot")
 
-@pytest.mark.parametrize(('module', 'name'), [('acprof.config', 'DEFAULT_BACKEND'), ('acprof.config', 'LIBRARY_TO_BACKEND'), ('acprof.config', 'PIPELINE_TAG_TO_FAMILY'), ('acprof.config', 'ARCHITECTURE_TO_TASK'), ('acprof.runtime_profiles', 'MOSS_MODEL_ID'), ('acprof.runtime_profiles', 'MOSS_ADAPTER'), ('acprof.runtime_profiles', 'MOSS_PROMPT'), ('acprof.runtime_profiles', 'ARCHITECTURE_PROFILES'), ('acprof.runtime_profiles', 'MODEL_PROFILES')])
+@pytest.mark.parametrize(('module', 'name'), [('acprof.config', 'DEFAULT_BACKEND'), ('acprof.config', 'LIBRARY_TO_BACKEND'), ('acprof.config', 'PIPELINE_TAG_TO_FAMILY'), ('acprof.config', 'ARCHITECTURE_TO_TASK'), ('acprof.runtime.profiles', 'MOSS_MODEL_ID'), ('acprof.runtime.profiles', 'MOSS_ADAPTER'), ('acprof.runtime.profiles', 'MOSS_PROMPT'), ('acprof.runtime.profiles', 'ARCHITECTURE_PROFILES'), ('acprof.runtime.profiles', 'MODEL_PROFILES')])
 def test_retired_extension_routing_exports_fail_explicitly(module, name):
     import importlib
     with pytest.raises(AttributeError):

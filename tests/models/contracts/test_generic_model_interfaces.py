@@ -13,7 +13,7 @@ from acprof.container.handlers.nlp import NLPHandler
 from acprof.container.handlers.timeseries import ChronosHandler
 from acprof.host.detect import TaskInfo, detect_task
 from acprof.host.preparation.task_support import TaskSupportError, require_task_support
-from acprof.runtime_profiles import select_runtime_profile
+from acprof.runtime.profiles import select_runtime_profile
 from acprof.workloads import get_generator
 from tests.workloads.nlp.test_nlp_handler import FakeTokenizer
 

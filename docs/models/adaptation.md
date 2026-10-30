@@ -38,7 +38,7 @@ Model Store 的 `entries/<id>/model_download_plan.json` 保存所选文件、排
 
 | 边界 | 契约与实现入口 |
 | --- | --- |
-| 环境路由 | `acprof/extensions/*/manifest.json` v2 声明 adapter、平台、依赖环境/profile、task、model_type 和 backend；[`runtime_profiles.py`](../../acprof/runtime_profiles.py) 从声明生成 `ENVIRONMENTS` / `PLATFORMS`，精确锁描述实际依赖。 |
+| 环境路由 | `acprof/extensions/*/manifest.json` v2 声明 adapter、平台、依赖环境/profile、task、model_type 和 backend；[`runtime_profiles.py`](../../acprof/runtime/profiles.py) 从声明生成 `ENVIRONMENTS` / `PLATFORMS`，精确锁描述实际依赖。 |
 | 任务支持 | `host/detect.py`、`host/preparation/task_support.py` 与 `config.py` 共用 manifest；新任务协议还须补充对应 workload 的物化与尺度处理，不能仅移除预检限制。 |
 | 推理接口 | 已满足协议时使用 `family-default`；自定义实现由 manifest 的 `handler_entrypoint` 按需导入；程序注册 `register_adapter` 仍可用，重复 key 默认拒绝，覆盖必须显式 `override=True`。 |
 | 输入输出 | `BaseHandler` 保留四阶段接口，增加仅在窗口外调用的 `validate_output`；模型提示词、参数和尺度经 workload/输入计划传递，输出与 `host/model_schema.py` 一致。 |

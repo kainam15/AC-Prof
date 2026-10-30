@@ -11,7 +11,7 @@ import platform
 import subprocess
 from pathlib import Path
 
-from acprof.dependency_locks import (
+from acprof.runtime.dependency_locks import (
     normalized_name,
     package_versions,
     read_python_lock,

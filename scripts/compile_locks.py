@@ -12,13 +12,13 @@ from urllib.parse import unquote, urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from acprof.dependency_locks import (  # noqa: E402 -- 脚本先设置仓库导入路径。
+from acprof.runtime.dependency_locks import (  # noqa: E402 -- 脚本先设置仓库导入路径。
     normalized_name,
     package_versions,
     python_lock_text,
     read_python_lock,
 )
-from acprof.runtime_profiles import (  # noqa: E402 -- 脚本先设置仓库导入路径。
+from acprof.runtime.profiles import (  # noqa: E402 -- 脚本先设置仓库导入路径。
     ENVIRONMENTS,
     PLATFORMS,
     PROFILES,

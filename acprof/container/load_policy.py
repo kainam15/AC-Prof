@@ -9,7 +9,7 @@ from pathlib import Path
 from acprof.extensions import CATALOG
 from acprof.failures import Failure, RuntimeFailure
 from acprof.precision import remote_code_allowed, resolve_precision
-from acprof.runtime_profiles import DEFAULT_PROFILES, PROFILES, locked_transformers_version
+from acprof.runtime.profiles import DEFAULT_PROFILES, PROFILES, locked_transformers_version
 
 # The environment image installs this exact lock; it does not ship project dockerfiles/.
 CONTAINER_REQUIREMENTS_LOCK = Path("/opt/acprof/requirements.lock")

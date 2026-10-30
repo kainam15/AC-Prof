@@ -418,7 +418,7 @@ class RunApplication:
                                   "wsl2_v2" if collection_environment.environment == "wsl2" else "guest_v2")
         native_benchmark = collection_environment.native and args.runtime == "docker"
         print(f"  Environment: {collection_environment.label}; Native benchmark: {native_benchmark}")
-        from acprof.runtime_profiles import select_runtime_profile
+        from acprof.runtime.profiles import select_runtime_profile
         latency_slo = resolve_latency_slo(
             latency_slo_rules, pipeline_tag=task_info.pipeline_tag,
             runtime_profile_id=select_runtime_profile(task_info).profile_id,

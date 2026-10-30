@@ -12,7 +12,6 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from acprof.dependency_locks import content_digest  # noqa: E402
 from acprof.host.images.environment import (  # noqa: E402 -- 源码发布脚本先设置仓库导入路径。
     DEFAULT_RUNTIME_REGISTRY,
     platform_fingerprint,
@@ -22,7 +21,8 @@ from acprof.host.images.environment import (  # noqa: E402 -- 源码发布脚本
     runtime_fingerprint,
     verify_labels,
 )
-from acprof.runtime_profiles import (  # noqa: E402 -- 同上。
+from acprof.runtime.dependency_locks import content_digest  # noqa: E402
+from acprof.runtime.profiles import (  # noqa: E402 -- 同上。
     ENVIRONMENTS,
     PLATFORMS,
     environment_identity,  # noqa: E402

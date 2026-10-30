@@ -115,7 +115,7 @@ def dependency_images(docker, profile="moss-transformers5104"):
     from pathlib import Path
 
     from acprof.host.images.environment import platform_fingerprint
-    from acprof.runtime_profiles import ENVIRONMENTS, PLATFORMS, environment_id
+    from acprof.runtime.profiles import ENVIRONMENTS, PLATFORMS, environment_id
 
     root = Path(__file__).resolve().parents[3]
     labels = {"org.acprof.platform": "cu128",
@@ -264,7 +264,7 @@ class TestImageManagement:
     def test_runtime_display_names_require_matching_environment_identity(self):
         from pathlib import Path
 
-        from acprof.runtime_profiles import ENVIRONMENTS, environment_id
+        from acprof.runtime.profiles import ENVIRONMENTS, environment_id
         root = Path(__file__).resolve().parents[3]
         self.docker.images[RUNTIME]["RepoTags"] = ["acprof-runtime-env:opaque"]
         self.docker.images[RUNTIME]["Config"]["Labels"] = {
@@ -310,7 +310,7 @@ class TestImageManagement:
 
     def test_dependencies_handle_missing_lock_and_failed_history_without_losing_inventory(self):
         dependency_images(self.docker)
-        with patch("acprof.runtime_profiles.platform_identity", side_effect=OSError("lock missing")):
+        with patch("acprof.runtime.profiles.platform_identity", side_effect=OSError("lock missing")):
             inventory = list_images()
         assert (len(inventory.images)) == (3)
         assert (all(getattr(item, "dependency_source", "") == "unknown" for item in inventory.images))

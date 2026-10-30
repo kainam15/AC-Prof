@@ -220,7 +220,7 @@ def current_context(config, project_dir: Path, *, needs_torch_platform: bool = T
 def current_conditions(record: ExperimentRecord, config, context: dict, project_dir: Path) -> dict:
     from acprof.host.detect import TaskInfo
     from acprof.host.images.runtime import configure_runtime_profile
-    from acprof.runtime_profiles import environment_id, select_runtime_profile
+    from acprof.runtime.profiles import environment_id, select_runtime_profile
     revision = config.revision or record.revision
     from acprof.host.execution_conditions import measurement_environment
     host = context['host']

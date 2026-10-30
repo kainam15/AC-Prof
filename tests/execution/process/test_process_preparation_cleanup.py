@@ -7,9 +7,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from acprof.dependency_locks import content_digest
 from acprof.host.runtimes import environment
 from acprof.process_identity import process_identity, same_process
+from acprof.runtime.dependency_locks import content_digest
 
 
 @pytest.mark.parametrize("phase", ["venv", "install", "inspect"])

@@ -18,7 +18,7 @@ from acprof.host.runtimes.process_control import ManagedProcess
 def service_environment(task, info: ProcessInfo, *, gpu="off", timeout=300) -> dict[str, str]:
     gpu = normalize_gpu_mode(gpu)
     from acprof.models.spec import encode_model_spec, task_model_spec
-    from acprof.runtime_settings import runtime_environment
+    from acprof.runtime.settings import runtime_environment
     # Transport credentials and unrelated host Python paths are not inherited.
     allowed = {"PATH", "LANG", "LC_ALL", "LD_LIBRARY_PATH", "CUDA_VISIBLE_DEVICES",
                "NVIDIA_VISIBLE_DEVICES", "CUDA_DEVICE_ORDER", "TMPDIR"}

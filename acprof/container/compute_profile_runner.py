@@ -21,7 +21,7 @@ from acprof.container.handlers import HandlerRegistry, load_handler, resolve_mod
 from acprof.experiments.constraints import integer
 from acprof.gpu_probe import gpu_probe_report, record_gpu_probe_error, set_gpu_probe_value
 from acprof.input_budget import positive_integer
-from acprof.runtime_settings import runtime_threads
+from acprof.runtime.settings import runtime_threads
 
 # Populated only for explicitly selected Torch/NVIDIA profiling paths.
 torch = None

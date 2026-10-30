@@ -10,7 +10,7 @@ on:
       - 'uv.lock'
       - 'dockerfiles/locks/**'
       - 'acprof/extensions/builtin/manifest.json'
-      - 'acprof/dependency_locks.py'
+      - 'acprof/runtime/dependency_locks.py'
       - 'scripts/export_runtime_audit_requirements.py'
       - '.github/workflows/dependency-audit.yml'
       - 'scripts/check_dependency_audit.py'

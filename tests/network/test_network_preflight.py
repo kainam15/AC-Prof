@@ -6,7 +6,6 @@ from unittest.mock import patch
 import pytest
 
 from acprof.artifacts import MAX_JSON_ARTIFACT_BYTES
-from acprof.dependency_locks import read_python_lock
 from acprof.events.preparation import parse_event
 from acprof.host.images.runtime import PROJECT_ROOT
 from acprof.host.model_store.store import store_lock
@@ -18,7 +17,8 @@ from acprof.network_policy import (
     require_source_transition,
     summarize_downloads,
 )
-from acprof.runtime_profiles import PROFILES
+from acprof.runtime.dependency_locks import read_python_lock
+from acprof.runtime.profiles import PROFILES
 from tests.support.runtime_fixture import copy_dependency_tree
 
 

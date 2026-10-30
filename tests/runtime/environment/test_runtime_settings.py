@@ -9,7 +9,7 @@ import pytest
 
 class TestRuntimeSettings:
     def settings(self):
-        return importlib.import_module('acprof.runtime_settings')
+        return importlib.import_module('acprof.runtime.settings')
 
     def test_default_preserves_torch_and_onnx_thread_conventions(self):
         with patch.dict(os.environ, {}, clear=True):

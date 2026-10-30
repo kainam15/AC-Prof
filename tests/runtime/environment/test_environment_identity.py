@@ -6,9 +6,13 @@ from pathlib import Path
 
 import pytest
 
-from acprof.dependency_locks import read_python_lock, read_system_lock, require_exact_packages
 from acprof.host.images.environment import runtime_fingerprint
-from acprof.runtime_profiles import ENVIRONMENTS, PROFILES, environment_id
+from acprof.runtime.dependency_locks import (
+    read_python_lock,
+    read_system_lock,
+    require_exact_packages,
+)
+from acprof.runtime.profiles import ENVIRONMENTS, PROFILES, environment_id
 
 ROOT = Path(__file__).resolve().parents[3]
 
@@ -21,7 +25,8 @@ class TestEnvironmentIdentity:
         self.root = Path(str(self.temporary))
         shutil.copytree(ROOT / 'dockerfiles', self.root / 'dockerfiles')
         (self.root / 'acprof').mkdir()
-        shutil.copyfile(ROOT / 'acprof/dependency_locks.py', self.root / 'acprof/dependency_locks.py')
+        (self.root / 'acprof/runtime').mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(ROOT / 'acprof/runtime/dependency_locks.py', self.root / 'acprof/runtime/dependency_locks.py')
         shutil.copyfile(ROOT / 'acprof/network_policy.py', self.root / 'acprof/network_policy.py')
         self.env = ENVIRONMENTS['audio-cpu']
 

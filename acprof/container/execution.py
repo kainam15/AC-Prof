@@ -8,7 +8,7 @@ from contextlib import nullcontext
 from importlib import import_module
 from inspect import isawaitable
 
-from acprof.runtime_settings import request_timeout_s
+from acprof.runtime.settings import request_timeout_s
 
 
 def prepare_device(use_gpu: bool, threads: int = 0) -> str:

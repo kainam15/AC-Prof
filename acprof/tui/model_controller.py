@@ -52,7 +52,7 @@ class ModelController:
             warnings, candidates = list(catalog.warnings), []
             if catalog.records:
                 from acprof.installation import resource_root
-                from acprof.runtime_profiles import PROFILES
+                from acprof.runtime.profiles import PROFILES
                 needs_platform = any(profile.adapter == 'family-default' and profile.environment.platform.torch_version
                                      for record in catalog.records if (profile := PROFILES.get(record.runtime_profile)))
                 context = current_context(config, resource_root(), needs_torch_platform=needs_platform, cancelled=cancelled)

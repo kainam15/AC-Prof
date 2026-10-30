@@ -47,7 +47,7 @@ from acprof.container.handlers import (  # noqa: E402
     load_handler,
     resolve_model_source,
 )
-from acprof.runtime_settings import runtime_threads  # noqa: E402
+from acprof.runtime.settings import runtime_threads  # noqa: E402
 from acprof.workloads.contract import workload_contract  # noqa: E402
 
 handler = HandlerRegistry.get(TASK_FAMILY, RUNTIME_BACKEND)
@@ -161,7 +161,7 @@ def _failure_response(exc, stage, data):
     if failure.reason_code == "request_timeout":
         from dataclasses import replace
 
-        from acprof.runtime_settings import request_timeout_s
+        from acprof.runtime.settings import request_timeout_s
         failure = replace(failure, evidence={**failure.evidence,
             "timeout_seconds": request_timeout_s() if stage == "completion" else None,
             "timeout_scope": "completion_wait" if stage == "completion" else "unknown"})

@@ -10,7 +10,7 @@ from unittest.mock import Mock
 import pytest
 
 from acprof.host.images.environment import registry_reference
-from acprof.runtime_profiles import ENVIRONMENTS, PLATFORMS
+from acprof.runtime.profiles import ENVIRONMENTS, PLATFORMS
 from scripts import publish_runtime_images as publisher
 
 

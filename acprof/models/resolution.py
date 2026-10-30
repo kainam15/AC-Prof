@@ -29,7 +29,7 @@ def resolve_model_interface(task_info: Any) -> dict:
     """Reject known incompatible layouts; a successful resolution is only a candidate."""
     from acprof.extensions import select_extension
     from acprof.failures import Failure, RuntimeFailure
-    from acprof.runtime_profiles import locked_transformers_version, select_runtime_profile
+    from acprof.runtime.profiles import locked_transformers_version, select_runtime_profile
 
     require_resolved_candidate(task_info)
     extension = select_extension(task_info)

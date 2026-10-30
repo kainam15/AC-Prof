@@ -13,7 +13,6 @@ from pathlib import Path
 from typing import Any
 
 from acprof.config import DOCKER_IMAGE_PREFIX
-from acprof.dependency_locks import content_digest
 from acprof.host.detect import TaskInfo
 from acprof.host.images.environment import (
     platform_fingerprint,
@@ -33,7 +32,8 @@ from acprof.models.spec import (
     model_download_request,
     task_model_spec,
 )
-from acprof.runtime_profiles import (
+from acprof.runtime.dependency_locks import content_digest
+from acprof.runtime.profiles import (
     RuntimeProfile,
     environment_id,
     environment_identity,
@@ -60,7 +60,7 @@ class ImageInfo:
 
 def configure_runtime_profile(task_info: Any, *, torch_index_url: str | None = None) -> RuntimeProfile:
     """只在主机构建预检选择驱动分支；静态路由模块不探测硬件。"""
-    from acprof.runtime_profiles import PLATFORMS, profile_for_platform
+    from acprof.runtime.profiles import PLATFORMS, profile_for_platform
 
     profile = select_runtime_profile(task_info)
     if profile.environment is None:

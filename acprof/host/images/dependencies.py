@@ -41,10 +41,10 @@ def dependency_stage(rows: list[dict]) -> str:
 
 
 def describe_dependencies(inventory: ImageInventory) -> ImageInventory:
-    from acprof.dependency_locks import content_digest, package_versions
     from acprof.host.images.environment import _platform_fingerprint
     from acprof.installation import resource_root
-    from acprof.runtime_profiles import (
+    from acprof.runtime.dependency_locks import content_digest, package_versions
+    from acprof.runtime.profiles import (
         ENVIRONMENTS,
         PLATFORMS,
         environment_identity,

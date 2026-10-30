@@ -22,7 +22,7 @@ def _inference_precision_by_device(task_info: TaskInfo) -> dict[str, str]:
         return CATALOG.describe(task_info).precision
     from acprof.failures import RuntimeFailure
     from acprof.precision import resolve_precision
-    from acprof.runtime_profiles import locked_transformers_version, select_runtime_profile
+    from acprof.runtime.profiles import locked_transformers_version, select_runtime_profile
     profile = select_runtime_profile(task_info)
     extension = CATALOG.describe(task_info).declaration
     values = {}

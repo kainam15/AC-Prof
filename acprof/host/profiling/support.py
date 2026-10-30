@@ -17,7 +17,7 @@ if TYPE_CHECKING:
     from acprof.host.detect import TaskInfo
 from acprof.host.env_utils import hf_offline_docker_env_args
 from acprof.host.gpu_device import gpu_docker_args
-from acprof.runtime_settings import runtime_docker_env_args
+from acprof.runtime.settings import runtime_docker_env_args
 
 CONTAINER_INPUT_SCALE_PLAN_FILE = "/payloads/input_scale_plan.json"
 

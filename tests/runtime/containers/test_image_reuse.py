@@ -68,9 +68,13 @@ class TestPrepareImage:
             }),
         }
 
-        from acprof.dependency_locks import content_digest, package_versions, system_lock_identity
         from acprof.host.images.environment import platform_fingerprint, runtime_fingerprint
-        from acprof.runtime_profiles import PROFILES, environment_identity
+        from acprof.runtime.dependency_locks import (
+            content_digest,
+            package_versions,
+            system_lock_identity,
+        )
+        from acprof.runtime.profiles import PROFILES, environment_identity
         environment = PROFILES['nlp-cu128'].environment
         identity = environment_identity(environment, self.project_dir)
         self.manifest.update({

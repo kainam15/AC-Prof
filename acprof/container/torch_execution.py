@@ -4,7 +4,7 @@ import time
 
 import torch
 
-from acprof.runtime_settings import runtime_environment
+from acprof.runtime.settings import runtime_environment
 
 
 def prepare_device(use_gpu: bool, threads: int = 0) -> str:

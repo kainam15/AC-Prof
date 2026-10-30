@@ -3,8 +3,8 @@ import hashlib
 
 import pytest
 
-from acprof.dependency_locks import content_digest
 from acprof.host.runtimes import environment
+from acprof.runtime.dependency_locks import content_digest
 
 
 def test_reuse_rejects_dependency_edits_with_unchanged_package_versions(tmp_path, monkeypatch):

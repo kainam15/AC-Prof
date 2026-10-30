@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from acprof.runtime_profiles import ENVIRONMENTS, PLATFORMS
+from acprof.runtime.profiles import ENVIRONMENTS, PLATFORMS
 from scripts.export_runtime_audit_requirements import export_runtime_locks
 
 ROOT = Path(__file__).resolve().parents[3]

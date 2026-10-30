@@ -154,7 +154,7 @@ class MultimodalWorkloadGenerator(WorkloadGenerator):
             raise ValueError(f"{active_fixed_field} is not fixed on the active scale axis; use input_scales")
         self.input_scale_type = SCALE_TYPES[self._scale_modality]
         from acprof.extensions import CATALOG
-        from acprof.runtime_profiles import default_model_adapter
+        from acprof.runtime.profiles import default_model_adapter
 
         adapter = model_adapter or default_model_adapter(model_id)
         matches = [e for e in CATALOG.extensions.values()

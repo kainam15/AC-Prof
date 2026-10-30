@@ -16,8 +16,9 @@ from urllib.error import HTTPError, URLError
 
 import pytest
 
-from acprof import dependency_locks, network_policy
+from acprof import network_policy
 from acprof.host.preparation.network_preflight import artifact_size
+from acprof.runtime import dependency_locks
 
 
 class TestDependencyDownloadCache:

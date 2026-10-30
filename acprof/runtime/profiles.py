@@ -7,7 +7,9 @@ from functools import cache
 from pathlib import Path
 from typing import Any
 
-from acprof.dependency_locks import (
+from acprof.extensions import CATALOG, select_extension
+from acprof.extensions.schema import validate_precision_policy
+from acprof.runtime.dependency_locks import (
     content_digest,
     package_versions,
     read_python_lock,
@@ -15,8 +17,6 @@ from acprof.dependency_locks import (
     require_parent_subset,
     system_lock_identity,
 )
-from acprof.extensions import CATALOG, select_extension
-from acprof.extensions.schema import validate_precision_policy
 
 PYTHON_BASE_IMAGE = CATALOG.platforms["python-cpu"]["python_base_image"]
 @dataclass(frozen=True)
@@ -192,7 +192,7 @@ def environment_identity(environment: DependencyEnvironment, project_dir) -> dic
     packages = read_python_lock(Path(project_dir) / environment.requirements_lock)
     require_parent_subset(platform["packages"], packages)
     if environment.runtime is not None:
-        from acprof.dependency_locks import normalized_name
+        from acprof.runtime.dependency_locks import normalized_name
         runtime = environment.runtime
         package = normalized_name(runtime.package or runtime.type)
         if package_versions(packages).get(package) != runtime.version:

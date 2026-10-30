@@ -24,7 +24,7 @@ def model(task, family, model_type, **kwargs):
 def test_explicit_remote_profile_respects_manifest_and_load_option_denials():
     from acprof.container.load_policy import load_policy
     from acprof.extensions import CATALOG
-    from acprof.runtime_profiles import PROFILES
+    from acprof.runtime.profiles import PROFILES
     profile = replace(PROFILES["cv-cpu"], profile_id="fixture-custom", trust_remote_code=True)
     extension = CATALOG.get_extension("cv", "transformers_pipeline", "family-default", "image-classification")
     with patch.dict(PROFILES, {profile.profile_id: profile}), patch.dict(os.environ, {"ACPROF_RUNTIME_PROFILE": profile.profile_id}), patch.dict(
@@ -40,7 +40,7 @@ def test_explicit_remote_profile_respects_manifest_and_load_option_denials():
 def test_precision_intersects_adapter_support_and_scopes_sam_evidence():
     from acprof.extensions import CATALOG
     from acprof.precision import resolve_precision
-    from acprof.runtime_profiles import PROFILES
+    from acprof.runtime.profiles import PROFILES
     extension = CATALOG.get_extension("cv", "transformers_pipeline", "family-default", "mask-generation")
     args = dict(task="mask-generation", model_type="sam2")
     assert (resolve_precision(PROFILES["cv-cpu"], extension, device="cpu", version="4.57.6", **args)["dtype"]) == ("FP32")
@@ -53,8 +53,8 @@ def test_precision_intersects_adapter_support_and_scopes_sam_evidence():
 
 @pytest.mark.parametrize('sources_case', range(3))
 def test_dependency_versions_dynamic_imports_and_training_requirements(sources_case):
-    from acprof.runtime_dependencies import dependency_preflight
-    from acprof.runtime_profiles import PROFILES
+    from acprof.runtime.dependencies import dependency_preflight
+    from acprof.runtime.profiles import PROFILES
     cases = (({"requirements.txt": "transformers<4"}, "runtime_dependency_incompatible"),
              ({"custom.py": "import importlib\nimportlib.import_module(name)"}, "runtime_dependency_unknown"),
              ({"requirements-dev.txt": "unknown-development-only-package"}, None))
@@ -75,8 +75,8 @@ def test_dependency_versions_dynamic_imports_and_training_requirements(sources_c
     "from .constants import VALUE\n",
 ])
 def test_dependency_preflight_accepts_name_exported_by_package_initializer(initializer):
-    from acprof.runtime_dependencies import dependency_preflight
-    from acprof.runtime_profiles import PROFILES
+    from acprof.runtime.dependencies import dependency_preflight
+    from acprof.runtime.profiles import PROFILES
     sources = {
         "pkg/__init__.py": initializer,
         "pkg/constants.py": "VALUE = 1\n",
@@ -101,8 +101,8 @@ def test_dependency_preflight_accepts_name_exported_by_package_initializer(initi
     "from . import VALUE\n",
 ])
 def test_dependency_preflight_rejects_unproven_package_export(initializer):
-    from acprof.runtime_dependencies import dependency_preflight
-    from acprof.runtime_profiles import PROFILES
+    from acprof.runtime.dependencies import dependency_preflight
+    from acprof.runtime.profiles import PROFILES
     sources = {
         "pkg/__init__.py": initializer,
         "pkg/consumer.py": "from . import VALUE\nclass Model: pass\n",
@@ -124,8 +124,8 @@ def test_dependency_preflight_rejects_unproven_package_export(initializer):
 
 
 def test_package_export_lookup_respects_source_file_budget():
-    from acprof.runtime_dependencies import dependency_preflight
-    from acprof.runtime_profiles import PROFILES
+    from acprof.runtime.dependencies import dependency_preflight
+    from acprof.runtime.profiles import PROFILES
     sources = {
         "pkg/__init__.py": "VALUE = 1\n",
         "pkg/consumer.py": "from . import VALUE\nclass Model: pass\n",
@@ -134,7 +134,7 @@ def test_package_export_lookup_respects_source_file_budget():
     task = model("image-classification", "cv", "vit", repository_files=tuple(sources))
     task.model_config["auto_map"] = {"AutoModel": "pkg.consumer.Model"}
 
-    with patch("acprof.runtime_dependencies.MAX_FILES", 1), pytest.raises(ValueError, match="source dependency file budget exceeded") as caught:
+    with patch("acprof.runtime.dependencies.MAX_FILES", 1), pytest.raises(ValueError, match="source dependency file budget exceeded") as caught:
         dependency_preflight(task, PROFILES["cv-cpu"], read_source=read_source)
 
     assert caught.value.failure.reason_code == "runtime_dependency_unknown"
@@ -185,8 +185,8 @@ def test_sam_gpu_defaults_to_fp32_but_explicit_fp16_is_rejected():
 def test_dependency_markers_use_target_python_instead_of_host(monkeypatch):
     from packaging.markers import default_environment
 
-    from acprof.runtime_dependencies import dependency_preflight
-    from acprof.runtime_profiles import PROFILES
+    from acprof.runtime.dependencies import dependency_preflight
+    from acprof.runtime.profiles import PROFILES
 
     host = {**default_environment(), "python_version": "3.13",
             "python_full_version": "3.13.0", "implementation_version": "3.13.0"}
@@ -204,8 +204,8 @@ def test_dependency_markers_use_target_python_instead_of_host(monkeypatch):
 
 
 def test_unversioned_typing_backport_uses_target_python_stdlib():
-    from acprof.runtime_dependencies import dependency_preflight
-    from acprof.runtime_profiles import PROFILES
+    from acprof.runtime.dependencies import dependency_preflight
+    from acprof.runtime.profiles import PROFILES
     task = model("image-classification", "cv", "vit", repository_files=("requirements.txt",))
     report = dependency_preflight(task, PROFILES["cv-cpu"], read_source=lambda _: "typing\ntyping-extensions\n")
     typing = next(item for item in report["dependencies"] if item["distribution"] == "typing")
