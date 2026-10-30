@@ -3,13 +3,19 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
+import time
+import urllib.request
+from contextlib import suppress
 from pathlib import Path
 
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+CHROME_STARTUP_TIMEOUT_SECONDS = 30
 
 
 def _run_checked(argv: list[str], *, timeout: int) -> subprocess.CompletedProcess[str]:
@@ -25,23 +31,66 @@ def _run_checked(argv: list[str], *, timeout: int) -> subprocess.CompletedProces
     return result
 
 
+def _stop_browser_group(browser: subprocess.Popen[bytes]) -> None:
+    """Terminate Chrome and zygotes before the temporary profile is deleted."""
+    with suppress(ProcessLookupError):
+        os.killpg(browser.pid, signal.SIGTERM)
+    try:
+        browser.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        with suppress(ProcessLookupError):
+            os.killpg(browser.pid, signal.SIGKILL)
+        browser.wait(timeout=5)
+
+
 def check_chrome(chrome: str, temp: Path) -> None:
-    """Exercise a real headless startup with Chrome's sandbox still enabled."""
-    result = _run_checked(
-        [
-            chrome,
-            "--headless",
-            "--disable-gpu",
-            "--no-first-run",
-            "--no-default-browser-check",
-            f"--user-data-dir={temp / 'chrome-profile'}",
-            "--dump-dom",
-            "about:blank",
-        ],
-        timeout=30,
+    """Probe the DevTools endpoint VHS needs, without disabling Chrome's sandbox."""
+    profile = temp / "chrome-profile"
+    endpoint = profile / "DevToolsActivePort"
+    stderr_path = temp / "chrome-stderr.log"
+    argv = [
+        chrome,
+        "--headless",
+        "--disable-gpu",
+        "--disable-dev-shm-usage",
+        "--ozone-platform=headless",
+        "--no-first-run",
+        "--no-default-browser-check",
+        "--remote-debugging-address=127.0.0.1",
+        "--remote-debugging-port=0",
+        f"--user-data-dir={profile}",
+        "about:blank",
+    ]
+    with (temp / "chrome-stdout.log").open("wb") as stdout, stderr_path.open("wb") as stderr:
+        try:
+            browser = subprocess.Popen(argv, stdout=stdout, stderr=stderr, start_new_session=True)
+        except OSError as exc:
+            raise RuntimeError(f"Unable to launch Chrome: {exc}") from exc
+        reason = f"not ready within {CHROME_STARTUP_TIMEOUT_SECONDS}s"
+        try:
+            deadline = time.monotonic() + CHROME_STARTUP_TIMEOUT_SECONDS
+            while time.monotonic() < deadline:
+                if browser.poll() is not None:
+                    reason = f"Chrome exited {browser.returncode}"
+                    break
+                if endpoint.is_file():
+                    try:
+                        port = int(endpoint.read_text(encoding="utf-8").splitlines()[0])
+                        with urllib.request.urlopen(
+                            f"http://127.0.0.1:{port}/json/version", timeout=1
+                        ) as response:
+                            version = json.load(response)
+                        if version.get("webSocketDebuggerUrl"):
+                            return
+                    except (OSError, ValueError, IndexError) as exc:
+                        reason = f"DevTools not responding yet: {exc}"
+                time.sleep(0.1)
+        finally:
+            _stop_browser_group(browser)
+    raise RuntimeError(
+        f"Chrome DevTools endpoint unavailable ({reason}).\n"
+        f"Chrome stderr:\n{stderr_path.read_text(encoding='utf-8', errors='replace')[-4000:]}"
     )
-    if "<html" not in result.stdout.lower():
-        raise RuntimeError(f"Headless Chrome did not return a DOM: {result.stdout[-1000:]}")
 
 
 def check_vhs(vhs: str, temp: Path) -> Path:

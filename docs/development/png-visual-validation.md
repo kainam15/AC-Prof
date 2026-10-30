@@ -80,7 +80,7 @@ ACPROF_PNG_VISUAL=1 uv run pytest tests/visual_png -v
 
 ## CI 与验证边界
 
-独立的 [TUI PNG Visual](../../.github/workflows/tui-png.yml) 工作流在 **push main / Pull Request 修改 TUI、任务呈现、视觉夹具、锁文件或测试配置时自动运行**，也可通过 `workflow_dispatch` 手动触发。安装截图工具后，先用 `scripts/smoke_tui_png_environment.py` 分别检查 Chrome Headless 启动及 VHS 能否产生有效 PNG；若环境失败，直接输出浏览器 stderr，避免误报为 TUI 快照差异。冒烟通过才运行 PNG Golden 比对，并在失败时上传 actual / expected / diff / report.json artifacts；仍不影响原有 CI 的 SVG 快照。正式运行与完整测试环境无需安装 VHS 或桌面。
+独立的 [TUI PNG Visual](../../.github/workflows/tui-png.yml) 工作流在 **push main / Pull Request 修改 TUI、任务呈现、视觉夹具、锁文件或测试配置时自动运行**，也可通过 `workflow_dispatch` 手动触发。安装截图工具后，先用 `scripts/smoke_tui_png_environment.py` 验证 Chrome DevTools 调试端点就绪（并安全结束其进程组），再检查 VHS 能否产生有效 PNG；若环境失败，直接输出浏览器 stderr，避免误报为 TUI 快照差异。冒烟通过才运行 PNG Golden 比对，并在失败时上传 actual / expected / diff / report.json artifacts；仍不影响原有 CI 的 SVG 快照。正式运行与完整测试环境无需安装 VHS 或桌面。
 
 VHS 的 xterm.js + Chrome 反映的是一个确定的无头终端模拟环境，
 不是 VS Code Windows 终端、SSH/tmux 或用户本地字体渲染的完全复刻；
