@@ -98,6 +98,8 @@ uv run python scripts/run_local_tests.py --scope full --jobs 1
 本地脚本复用 `scripts/run_tests.py` 和 CI 的 `aggregate_test_reports.py` 完整性校验，
 分片分别保存 `logs/shard-N.log`、`reports/shard-N.json`，再输出 `reports/summary.json`；
 任一失败、缺少分片、重复/遗漏测试、源码或依赖身份不一致均返回非零退出码。
+除 `tests/` 外实际收集的 fixture 套件也纳入内容哈希，包括位于 `internal-testing/` 的套件；
+普通日志、报告和未被收集的验证目录仍不参与测试源码身份。
 默认运行自动生成 `internal-testing/runs/YYYY-MM/<UTC>--local-tests-<scope>--<ID>/`，并写入 `manifest.json`；
 成功、失败或中断均更新状态，成功才清理该运行下的临时 basetemp，不会写入实验 `results/`。
 目录结构与清理边界见[开发验证产物目录](internal-testing-layout.md)。

@@ -28,7 +28,7 @@ def _files(root: Path) -> list[Path]:
 
 
 def capture_provenance(test_paths: Iterable[Path], *, root: Path = ROOT) -> dict:
-    """Hash explicit project inputs and external fixture suites before/after execution."""
+    """Hash project inputs and all additional collected suites before/after execution."""
     root = root.resolve()
     sources = [path for name in ("acprof", "scripts", "packaging", "dockerfiles", "assets",
                                  "docs", "examples", ".github/workflows") for path in _files(root / name)]
@@ -38,8 +38,10 @@ def capture_provenance(test_paths: Iterable[Path], *, root: Path = ROOT) -> dict
     if (root / "uv.lock").is_file():
         locks.append(root / "uv.lock")
     tests = _files(root / "tests")
+    # The local runner also collects fixture suites beneath internal-testing/.
+    # Only tests/ is already covered, not every path inside the checkout.
     external = sorted({path.resolve().parent for path in test_paths
-                       if not path.resolve().is_relative_to(root)})
+                       if not path.resolve().is_relative_to(root / "tests")})
     # Relative names and bytes survive independent checkout/container mount paths.
     external_roots = [path for path in external
                       if not any(path != parent and path.is_relative_to(parent) for parent in external)]
