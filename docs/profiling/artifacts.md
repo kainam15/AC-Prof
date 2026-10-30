@@ -266,6 +266,12 @@ schema v3 在单次读取内部复用行校验生成的测量键，供层间顺�
 以及 [PEP 678](https://github.com/python/peps/blob/main/peps/pep-0678.rst) 的附加诊断方式；
 适配项目的 Python 3.12+，只使用标准库，不增加依赖或正式测量窗口内的工作。
 
+posthoc 元数据在发布与恢复前先校验完整恢复计划，具体内容及失败语义见
+[补采已有结果](profilers.md#补采已有结果)。这一顺序参考
+[DuckDB WAL replay](https://github.com/duckdb/duckdb/blob/main/src/storage/wal_replay.cpp) 的预先解析与状态检查，
+以及 [DuckDB PR #24260](https://github.com/duckdb/duckdb/pull/24260) 对异常恢复标记的处理；
+只借鉴其校验先于修改的原则，复用项目 JSON 校验与标准库，不引入数据库依赖。
+
 序列化和 `fsync` 在全部监测停止后执行，窗口内复用已有 latency 数组；不记录输入或输出 payload。
 该设计参考 [MLPerf LoadGen 的延后日志处理](https://github.com/mlcommons/inference/blob/master/loadgen/logging.h)，
 沿用本项目窗口结束后的写盘方式，无新增日志线程或依赖。正式分析仍按 CSV 的
