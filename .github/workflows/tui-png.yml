@@ -1,6 +1,37 @@
 name: TUI PNG Visual
 
+# Independent from normal host/SVG tests: run only for changes that can affect
+# terminal rendering. Manual dispatch remains available for visual review.
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'acprof/tui/**'
+      - 'acprof/tasks/**'
+      - 'acprof/messages/**'
+      - 'acprof/platform.py'
+      - 'acprof/experiments/configuration.py'
+      - 'tests/visual/**'
+      - 'tests/visual_png/**'
+      - 'scripts/capture_tui_png.py'
+      - 'scripts/compare_tui_png.py'
+      - '.github/workflows/tui-png.yml'
+      - 'pyproject.toml'
+      - 'uv.lock'
+  pull_request:
+    paths:
+      - 'acprof/tui/**'
+      - 'acprof/tasks/**'
+      - 'acprof/messages/**'
+      - 'acprof/platform.py'
+      - 'acprof/experiments/configuration.py'
+      - 'tests/visual/**'
+      - 'tests/visual_png/**'
+      - 'scripts/capture_tui_png.py'
+      - 'scripts/compare_tui_png.py'
+      - '.github/workflows/tui-png.yml'
+      - 'pyproject.toml'
+      - 'uv.lock'
   workflow_dispatch:
 
 permissions:
@@ -21,13 +52,25 @@ jobs:
       - name: Install optional headless terminal tooling
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends ttyd ffmpeg fonts-noto-cjk
+          sudo apt-get install -y --no-install-recommends ttyd ffmpeg fonts-noto-cjk unzip
           curl --fail --location --silent --show-error --retry 3 \
             -o /tmp/vhs_0.12.1_amd64.deb \
             https://github.com/charmbracelet/vhs/releases/download/v0.12.1/vhs_0.12.1_amd64.deb
           echo '30a9b2746f19522387eace24f427208b5dc4ce2413d334147a0b89a2304cfbe4  /tmp/vhs_0.12.1_amd64.deb' | sha256sum --check
           sudo apt-get install -y /tmp/vhs_0.12.1_amd64.deb
-          command -v google-chrome || command -v chromium
+          # Freeze browser & font renderer to match the reviewed Ubuntu 24.04 goldens.
+          curl --fail --location --silent --show-error --retry 3 \
+            -o "$RUNNER_TEMP/chrome-linux64.zip" \
+            https://storage.googleapis.com/chrome-for-testing-public/147.0.7727.116/linux64/chrome-linux64.zip
+          unzip -q "$RUNNER_TEMP/chrome-linux64.zip" -d "$RUNNER_TEMP/chrome-for-testing"
+          mkdir -p "$RUNNER_TEMP/chrome-shim"
+          printf '#!/usr/bin/env bash\nexec "%s" "$@"\n' \
+            "$RUNNER_TEMP/chrome-for-testing/chrome-linux64/chrome" \
+            > "$RUNNER_TEMP/chrome-shim/google-chrome"
+          chmod +x "$RUNNER_TEMP/chrome-shim/google-chrome"
+          echo "$RUNNER_TEMP/chrome-shim" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/chrome-shim/google-chrome" --version | grep '147.0.7727.116'
+          echo 'b76b0433203017ca80401b2ee0dd69350349871c4b19d504c34dbdd80541690a  /usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc' | sha256sum --check
           fc-match 'Noto Sans Mono CJK SC'
       - name: Install host test dependencies
         run: uv sync --locked --no-default-groups --group test
@@ -36,11 +79,15 @@ jobs:
           ACPROF_PNG_VISUAL: '1'
           TZ: UTC
           PYTHONHASHSEED: '0'
-        run: uv run --locked --no-default-groups --group test python -m pytest tests/visual_png/test_png_capture.py -v
-      - name: Upload screenshots for manual review
+        run: uv run --locked --no-default-groups --group test python -m pytest tests/visual_png -v
+      - name: Upload actual, expected, diff and summary for review
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: tui-png-visual
-          path: internal-testing/tui-png/*.png
+          path: |
+            internal-testing/tui-png/*.png
+            internal-testing/tui-png/diff/**/*.png
+            internal-testing/tui-png/report.json
+            tests/visual_png/__snapshots__/*.png
           if-no-files-found: warn
