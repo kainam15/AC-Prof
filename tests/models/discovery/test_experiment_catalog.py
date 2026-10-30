@@ -177,14 +177,23 @@ def test_experiment_source_title_uses_saved_metadata_without_changing_run_identi
     for path in (root, root / 'result_layers.json', root / 'performance.csv'):
         assert experiment_source_title(path) == expected
 
-    # Saved timestamp must be valid; missing metadata keeps the original path label.
+    # Bad timestamps or metadata must not promote the opaque Run ID to a visible title.
     layout.path('run_state.json').write_text(json.dumps({
         'schema_version': 1, 'run_id': run_id, 'created_at': 'invalid',
         'options': {'model': model},
     }), encoding='utf-8')
-    assert experiment_source_title(root) == (run_id, None)
+    assert experiment_source_title(root) == (model, run_id)
     layout.path('run_state.json').write_text('{invalid', encoding='utf-8')
-    assert experiment_source_title(root / 'result_layers.json') == (run_id, None)
+    assert experiment_source_title(root / 'result_layers.json') == ('', None)
     standalone = tmp_path / 'standalone.csv'
     standalone.write_text('status\nok\n', encoding='utf-8')
     assert experiment_source_title(standalone) == ('standalone.csv', None)
+    from acprof.tui.experiment_catalog import experiment_source_display
+    assert experiment_source_display(standalone).availability == 'selected'
+    assert experiment_source_display(root / 'result_layers.json').availability == 'selected'
+    (root / 'static_meta.json').write_text('{}', encoding='utf-8')
+    assert experiment_source_title(root) == ('', None)
+    (root / 'result_layers.json').unlink()
+    assert experiment_source_display(root / 'result_layers.json').availability == 'missing'
+    assert experiment_source_display(tmp_path / 'absent' / run_id / 'result_layers.json').availability == 'missing'
+    assert experiment_source_display(tmp_path / 'unsupported.json').availability == 'unsupported'

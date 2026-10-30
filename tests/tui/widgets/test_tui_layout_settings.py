@@ -395,7 +395,8 @@ class TestTuiModelMemory:
             assert (restarted.query_one("#cpus", Input).value) == ("1,3")
             assert (restarted.theme) == ("acprof-light")
             assert (restarted.configuration.saved_settings.last_result_dir) == (expected.last_result_dir)
-            assert (restarted.query_one("#result-csv", Input).value) == (expected.last_result_csv)
+            assert (restarted.query_one("#result-csv", Input).value) == ("")
+            assert (restarted.configuration.saved_settings.last_result_csv) == (expected.last_result_csv)
 
     async def test_draft_preview_and_cancel_do_not_replace_last_model(self):
         save_settings(self.settings_path, self.saved, PROJECT_DIR)
@@ -490,7 +491,8 @@ class TestTuiModelMemory:
             async with app.run_test(size=(80, 24)) as pilot:
                 app.activate_tab("results-tab")
                 await pilot.pause()
-                assert (app.query_one("#result-csv", Input).value) == (self.saved.last_result_csv)
+                assert (app.query_one("#result-csv", Input).value) == ("")
+                assert (app.query_one('#report-experiment', Static).content) == ('上次选择的实验结果不可用')
                 assert (app.configuration.saved_settings.last_result_dir) == (self.saved.last_result_dir)
                 read_results.assert_not_called()
         assert (self.settings_path.read_bytes()) == (original)

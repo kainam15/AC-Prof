@@ -27,7 +27,7 @@ def compose_results_tab(app: AcprofTui) -> ComposeResult:
     local = app.localization.localized_widget
     with TabPane("实验结果", id="results-tab"):
         with Vertical(id="result-source-header", classes="page-header"):
-            yield local(Static("当前实验：未选择", id="report-experiment", markup=False))
+            yield local(Static(message_id('results.selection.no_results'), id='report-experiment', markup=False))
             with Horizontal(classes="path-picker-row"):
                 yield local(Input(app.configuration.saved_settings.last_result_csv, id="result-csv",
                                   placeholder=message_id("results.input.source_hint")))
@@ -35,7 +35,7 @@ def compose_results_tab(app: AcprofTui) -> ComposeResult:
         with TabbedContent(initial="overview-view", id="result-views"):
             with TabPane(message_id("results.tabs.overview"), id="overview-view"):
                 with VerticalScroll(id="plot-body", classes="pane-scroll"):
-                    yield local(Static("选择或完成一次实验后，这里会显示结果摘要。", id="result-summary", markup=False))
+                    yield local(Static(message_id('results.summary.empty'), id='result-summary', markup=False))
                     with local(Collapsible(title="性能深度分析", collapsed=True, id="profile-section")):
                         yield local(Static(message_id("profiling.overview.select_experiment"), id="profile-status", markup=False))
                         yield local(Button(message_id("profiling.overview.open"), id="open-result-profiling", disabled=True))
@@ -57,9 +57,9 @@ def compose_results_tab(app: AcprofTui) -> ComposeResult:
 def compose_statistics(app: AcprofTui) -> ComposeResult:
     local = app.localization.localized_widget
     with VerticalScroll(id="report-panel"):
-        yield local(Static(message_id("results.statistics.empty_hint"), id="report-status", classes="page-summary", markup=False))
+        yield local(Static('', id='report-status', classes='page-summary', markup=False))
         with ContentSwitcher(initial="report-empty", id="report-content"):
-            yield local(Static(message_id("results.statistics.empty_hint"), id="report-empty", markup=False))
+            yield local(Static(message_id('results.statistics.no_selection'), id='report-empty', markup=False))
             yield local(Static("正在读取统计报告…", id="report-loading", markup=False))
             yield local(Static("统计报告不可用", id="report-error", markup=False))
             with Vertical(id="report-results"):

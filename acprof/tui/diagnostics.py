@@ -308,6 +308,7 @@ class ResultSummary:
     quality: dict = field(default_factory=dict)
     profiler_overview: ProfilerOverview | None = None
     profiler_error: str = ""
+    formal_ok_rows: int | None = None
 
 
 SUMMARY_METRICS = (
@@ -365,6 +366,8 @@ def summarize_result_csv(result_csv: str | Path, *, cancelled: Callable[[], bool
         cases=len({tuple(row.get(field, "") for field in KEY_FIELDS[:3]) for row in rows}),
         groups=groups, grouping_detail=detail, quality=quality,
         profiler_overview=overview, profiler_error=profile_error,
+        formal_ok_rows=sum(str(row.get('status', '')).strip().lower() == 'ok'
+                           and str(row.get('warmup', '0')).strip() == '0' for row in rows),
     )
     try:
         if path.resolve() != snapshot.path:

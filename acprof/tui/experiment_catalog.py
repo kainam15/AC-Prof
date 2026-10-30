@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 from collections import deque
 from collections.abc import Callable, Iterable
 from concurrent.futures import CancelledError
@@ -80,38 +81,73 @@ def format_experiment_created_at(value: str) -> str | None:
         return None
 
 
-def experiment_source_title(source: Path) -> tuple[str, str | None]:
-    """Read only bounded identity metadata; never replace the stored run ID."""
+@dataclass(frozen=True)
+class ExperimentSourceDisplay:
+    """Lightweight result-selection state, not proof of successful measurement."""
+
+    title: str
+    run_id: str | None
+    recorded_status: str
+    availability: str  # selected | no_data | missing | unsupported
+
+    @property
+    def can_read(self) -> bool:
+        return self.availability == 'selected'
+
+
+def experiment_source_display(source: Path) -> ExperimentSourceDisplay:
+    """Describe one source without scanning measured rows or changing saved metadata."""
     fallback = source.parent.name if source.name == 'result_layers.json' else source.name
-    if source.is_dir():
-        root = source
-    elif source.name == 'result_layers.json' or source.suffix.lower() == '.csv':
-        root = source.parent
-    else:
-        return fallback, None
+    if re.fullmatch(r'[0-9a-fA-F]{32}', fallback):
+        fallback = ''  # Internal Run ID is not a human-readable experiment name.
     try:
-        layout = ArtifactLayout.discover(root)
-        state = read_artifact(layout.path('run_state.json'))
-        metadata = read_artifact(layout.path('static_meta.json'))
-    except (OSError, ValueError):
-        return fallback, None
-    if state and state.get('schema_version') != 1:
-        return fallback, None
-    options = state.get('options')
-    options = options if isinstance(options, dict) else {}
-    runtime = state.get('runtime')
-    runtime = runtime if isinstance(runtime, dict) else {}
-    task = runtime.get('task')
-    task = task if isinstance(task, dict) else {}
-    model = metadata.get('model_name') or metadata.get('model_id') or task.get('model_id') or options.get('model')
-    created_at = state.get('created_at') or metadata.get('created_at')
-    if not isinstance(model, str) or not model.strip() or not isinstance(created_at, str):
-        return fallback, None
-    date_text = format_experiment_created_at(created_at)
-    if date_text is None:
-        return fallback, None
-    run_id = state.get('run_id')
-    return f'{model} · {date_text}', run_id if isinstance(run_id, str) and run_id else None
+        if source.is_dir():
+            root, result_file = source, source / 'result_layers.json'
+        elif source.name == 'result_layers.json' or source.suffix.lower() == '.csv':
+            root, result_file = source.parent, source
+        else:
+            return ExperimentSourceDisplay(fallback, None, '', 'unsupported')
+        available = result_file.is_file() and result_file.stat().st_size > 0
+        present = source.exists()
+    except OSError:
+        return ExperimentSourceDisplay(fallback, None, '', 'missing')
+
+    title, run_id, status = fallback, None, ''
+    if root.is_dir():
+        try:
+            layout = ArtifactLayout.discover(root)
+            state = read_artifact(layout.path('run_state.json'))
+            metadata = read_artifact(layout.path('static_meta.json'))
+            if state and state.get('schema_version') != 1:
+                state = {}
+            options = state.get('options')
+            options = options if isinstance(options, dict) else {}
+            runtime = state.get('runtime')
+            runtime = runtime if isinstance(runtime, dict) else {}
+            task = runtime.get('task')
+            task = task if isinstance(task, dict) else {}
+            model = metadata.get('model_name') or metadata.get('model_id') or task.get('model_id') or options.get('model')
+            created_at = state.get('created_at') or metadata.get('created_at')
+            if isinstance(model, str) and model.strip():
+                date_text = format_experiment_created_at(created_at) if isinstance(created_at, str) else None
+                title = f'{model} · {date_text}' if date_text else model
+            identity = state.get('run_id')
+            run_id = identity if isinstance(identity, str) and identity else None
+            raw_status = state.get('status')
+            status = raw_status if isinstance(raw_status, str) else ''
+        except (OSError, ValueError):
+            # A corrupt or unsupported identity must not be presented as a completed run.
+            pass
+
+    availability = ('selected' if available else 'no_data' if present or (run_id is not None)
+                    else 'missing')
+    return ExperimentSourceDisplay(title, run_id, status, availability)
+
+
+def experiment_source_title(source: Path) -> tuple[str, str | None]:
+    """Human-readable label and separate stable internal Run ID."""
+    display = experiment_source_display(source)
+    return display.title, display.run_id
 
 
 def _record(layout: ArtifactLayout, warnings: list[str]) -> ExperimentRecord:

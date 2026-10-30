@@ -22,6 +22,7 @@ from acprof.experiments.configuration import RunConfig
 from acprof.tui.progress import ProgressSnapshot
 from acprof.tui.reports import ReportView
 from acprof.tui.run_results import RunResult
+from acprof.tui.settings import TuiSettings, save_settings
 
 
 class TestTuiReports:
@@ -103,7 +104,7 @@ class TestTuiReports:
             app.results.select_result(str(root / 'result_layers.json'), summarize=False)
             await pilot.pause()
             label = app.query_one('#report-experiment', Static)
-            for language, prefix in [('zh', '当前实验：'), ('en', 'Current experiment: ')]:
+            for language, prefix in [('zh', '已选择结果：'), ('en', 'Selected results: ')]:
                 app.configuration.preferences = replace(app.configuration.preferences, language=language)
                 app.configuration.apply_ui_preferences()
                 await pilot.pause()
@@ -112,10 +113,106 @@ class TestTuiReports:
                 assert str(root / 'result_layers.json') in str(label.tooltip)
             app.results.select_result(str(self.csv_path), summarize=False)
             await pilot.pause()
-            assert str(label.content) == 'Current experiment: 模型结果.csv'
+            assert str(label.content) == 'Selected results: 模型结果.csv'
             app.results.select_result('', summarize=False)
             await pilot.pause()
-            assert str(label.content) == 'Current experiment: None selected'
+            assert str(label.content) == 'No experiment results available'
+
+    @pytest.mark.parametrize('size', [(80, 24), (120, 30)])
+    async def test_stale_remembered_result_is_not_a_selected_experiment(self, size):
+        run_id = '33dec6b68b6a4369a278d1b1744b71e4'
+        missing = self.directory / run_id / 'result_layers.json'
+        save_settings(self.directory / 'tui.json', TuiSettings(last_result_csv=str(missing)), Path.cwd())
+        original = (self.directory / 'tui.json').read_bytes()
+        app = self.make_app()
+        async with app.run_test(size=size) as pilot:
+            app.results.show_result_section('statistics-view')
+            await pilot.pause()
+            label = app.query_one('#report-experiment', Static)
+            assert str(label.content) == '上次选择的实验结果不可用'
+            assert run_id not in str(label.content)
+            assert str(label.tooltip) == str(missing)
+            assert app.query_one('#result-csv', Input).value == ''
+            assert '失效' in str(app.query_one('#report-empty', Static).content)
+            for selector in ('#summarize-results', '#plot-results', '#report-calculate', '#html-report-generate'):
+                assert app.query_one(selector, Button).disabled
+            for language, expected in (('en', 'Previously selected results unavailable'),
+                                       ('zh', '上次选择的实验结果不可用')):
+                app.configuration.preferences = replace(app.configuration.preferences, language=language)
+                app.configuration.apply_ui_preferences()
+                await pilot.pause()
+                assert str(label.content) == expected
+            # The remembered source stays in settings without being treated as live results.
+            assert app.configuration.saved_settings.last_result_csv == str(missing)
+            app.results.select_result('', summarize=False)
+            await pilot.pause()
+            assert str(label.content) == '暂无可用实验结果'
+            app.results.select_result(str(self.csv_path), summarize=False)
+            await pilot.pause()
+            assert str(label.content) == '已选择结果：模型结果.csv'
+            assert not app.query_one('#report-calculate', Button).disabled
+        assert (self.directory / 'tui.json').read_bytes() == original
+
+    async def test_unmeasured_or_missing_experiment_does_not_enable_analysis(self):
+        from acprof.results.layout import ArtifactLayout
+
+        run_id = '33dec6b68b6a4369a278d1b1744b71e4'
+        root = self.directory / run_id
+        layout = ArtifactLayout.for_new_run(root)
+        layout.initialize()
+        layout.path('run_state.json').write_text(json.dumps({
+            'schema_version': 1, 'run_id': run_id, 'created_at': '2026-10-29T20:58:30',
+            'status': 'running', 'options': {'model': 'demo/unmeasured'},
+        }), encoding='utf-8')
+        (root / 'result_layers.json').unlink()
+        app = self.make_app()
+        async with app.run_test(size=(120, 30)) as pilot:
+            app.results.show_result_section('statistics-view')
+            app.results.select_result(str(root / 'result_layers.json'), summarize=False)
+            await pilot.pause()
+            heading = str(app.query_one('#report-experiment', Static).content)
+            assert heading == '实验尚无可读取的结果：demo/unmeasured · 2026-10-29 20:58:30'
+            assert run_id not in heading
+            assert '测量数据' in str(app.query_one('#report-empty', Static).content)
+            assert app.query_one('#plot-results', Button).disabled
+            assert app.query_one('#report-calculate', Button).disabled
+            app.results.select_result(str(self.directory / 'missing.csv'), summarize=False)
+            await pilot.pause()
+            assert str(app.query_one('#report-experiment', Static).content) == '实验结果路径不存在'
+            assert app.query_one('#report-calculate', Button).disabled
+            app.results.select_result(str(self.directory / 'file.txt'), summarize=False)
+            await pilot.pause()
+            assert str(app.query_one('#report-experiment', Static).content) == '不是支持的实验结果文件'
+
+    async def test_summary_provenance_controls_analysis_only_for_formal_success_windows(self):
+        warmup_csv = self.directory / 'only-warmup.csv'
+        with self.csv_path.open(newline='') as stream:
+            reader = csv.DictReader(stream)
+            fields = reader.fieldnames
+            warmups = [row for row in reader if row['warmup'] == '1']
+        with warmup_csv.open('w', newline='') as stream:
+            writer = csv.DictWriter(stream, fieldnames=fields)
+            writer.writeheader()
+            writer.writerows(warmups)
+        app = self.make_app()
+        async with app.run_test(size=(120, 30)) as pilot:
+            app.results.select_result(str(warmup_csv))
+            await self.finish_workers(app, pilot)
+            heading = str(app.query_one('#report-experiment', Static).content)
+            assert heading == '没有正式成功测量窗口：only-warmup.csv'
+            assert app.query_one('#summarize-results', Button).disabled is False
+            assert app.query_one('#report-calculate', Button).disabled
+            assert app.query_one('#plot-results', Button).disabled
+            assert app.query_one('#html-report-generate', Button).disabled
+            app.results.select_result(str(self.csv_path))
+            await self.finish_workers(app, pilot)
+            assert str(app.query_one('#report-experiment', Static).content) == '已选择结果：模型结果.csv · 有效窗口 3'
+            assert not app.query_one('#report-calculate', Button).disabled
+            assert not app.query_one('#plot-results', Button).disabled
+            app.configuration.preferences = replace(app.configuration.preferences, language='en')
+            app.configuration.apply_ui_preferences()
+            await pilot.pause()
+            assert str(app.query_one('#report-experiment', Static).content) == 'Selected results: 模型结果.csv · valid windows 3'
 
     def make_app(self):
         return AcprofTui(RunConfig.smoke("demo/model"), settings_path=self.directory / "tui.json")

@@ -203,7 +203,7 @@ class AcprofTui(BarCursorApp):
         self.update_responsive_layout()
         self.configuration.selected_preset = self.configuration.select("run-preset")
         self.form_ready = True
-        self.results.update_report_source_label()
+        self.results.restore_recent_result()
         self.results.update_report_actions()
         self.configuration.refresh_command_preview(notify=False)
         self.call_after_refresh(self.preflight.quick_check)
