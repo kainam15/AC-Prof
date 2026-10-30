@@ -3,6 +3,7 @@ import hashlib
 import json
 import os
 import tempfile
+from collections import Counter
 from pathlib import Path
 from unittest.mock import patch
 
@@ -61,7 +62,8 @@ class TestModelStoreMetadata:
         assert not self.path.exists()
         assert not staged.exists()
 
-    def test_capacity_scan_observes_each_path_once_without_following_symlinks(self):
+    @pytest.mark.parametrize('reverse', [False, True], ids=['ascending', 'descending'])
+    def test_capacity_scan_observes_each_path_once_without_following_symlinks(self, reverse):
         payload = b'weights'
         cached = self.root / 'files' / 'weights.bin'
         cached.parent.mkdir(parents=True)
@@ -73,6 +75,10 @@ class TestModelStoreMetadata:
 
         observed = []
         real_stat = os.stat
+        real_rglob = Path.rglob
+
+        def ordered_rglob(path, pattern):
+            return iter(sorted(real_rglob(path, pattern), reverse=reverse))
 
         def track_stat(path, *args, **kwargs):
             candidate = Path(path)
@@ -80,11 +86,14 @@ class TestModelStoreMetadata:
                 observed.append((candidate, kwargs.get('follow_symlinks', True)))
             return real_stat(path, *args, **kwargs)
 
-        with patch.object(model_store.os, 'stat', side_effect=track_stat):
+        with (
+            patch.object(Path, 'rglob', ordered_rglob),
+            patch.object(model_store.os, 'stat', side_effect=track_stat),
+        ):
             report = model_store.disk_report(self.root)
 
         assert report['total_bytes'] == len(payload)
-        assert observed == [(cached, False), (link, False)]
+        assert Counter(observed) == Counter({(cached, False): 1, (link, False): 1})
 
     def test_inventory_falls_back_when_last_used_disappears(self):
         self.publish()
