@@ -197,7 +197,11 @@ acprof audit results/left --compare results/right \
 [硬件条件证据](../profiling/lifecycle.md#硬件条件证据)。缺失值始终为 `unknown`；
 跨硬件模式不会把未记录条件视为预期差异。实际正式服务的线程数优先于独立 probe 近似值；
 只有旧 probe 证据时仍需显式正整数线程请求，并保留硬件证据未知的限制。
-`quality_constraints` 必须由输入计划显式记录；条件一致不证明模型质量达标，也不保证
-整个运行期间独占硬件或热状态不变。比较不修改 run identity，不改变恢复校验。
+`quality_constraints` 必须由输入计划显式记录。新计划记录当前采集要求的
+`sanity_only_not_accuracy_benchmark` 策略及 `protocol` / `task` 均须为 `verified` 的门槛；
+独立 runtime validation 的成功回执保存同一份约束。相同策略允许在其他条件也一致时比较性能，
+不表示执行了准确率评测或证明不同模型质量等价。历史计划缺少该字段时仍为 `unknown`，
+不会按当前默认策略补齐；恢复继续复用原计划。条件一致也不保证整个运行期间独占硬件
+或热状态不变。比较不修改 run identity，不改变恢复校验。
 actual workload 的 `variants` 计数必须覆盖 `request_count`，已有 `repeat_in_window` 时还需一致；
 显式失败案例的终态与成功状态分别显示，不将 OOM/timeout 归为未开始或成功。

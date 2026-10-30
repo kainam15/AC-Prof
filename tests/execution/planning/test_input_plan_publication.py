@@ -24,6 +24,14 @@ EXPECTED_LF = br"""{
   "model_constraints": {
     "max": 8
   },
+  "quality_constraints": {
+    "schema_version": 1,
+    "scope": "sanity_only_not_accuracy_benchmark",
+    "required_status": {
+      "protocol": "verified",
+      "task": "verified"
+    }
+  },
   "scenario": {
     "type": "serial"
   },
@@ -48,8 +56,8 @@ EXPECTED_LF = br"""{
 }
 """
 EXPECTED_SHA256 = {
-    "\n": "c8e9ff6d4b887cf71bb2b864edc8cac67e9a090616ab2d50b0f39f3b0a484ae9",
-    "\r\n": "faccf4111ee27ddb3989790a1a1a24283f028851bd2b6fa967b97a21062943dd",
+    "\n": "599c0a0a37f58316b09a5114dde03f4988eb23686c05bf0bc6bc7d7e3f6896e6",
+    "\r\n": "18bd480ab81f3e2f1bf30b3802bdacf030f16b5e2530e1d50c7f60dcc29b2032",
 }
 OLD_PLAN = b'{"schema_version": 2, "entries": [], "old": true}\n'
 
@@ -93,7 +101,7 @@ def _assert_old_plan_preserved(path, mode):
 
 
 @pytest.mark.parametrize("newline", ["\n", "\r\n"], ids=("lf", "crlf"))
-def test_publication_preserves_exact_historical_bytes_and_digest(
+def test_publication_writes_exact_declared_bytes_and_digest(
     existing_plan, task_info, monkeypatch, newline,
 ):
     path, mode = existing_plan

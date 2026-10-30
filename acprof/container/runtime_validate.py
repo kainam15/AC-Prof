@@ -18,9 +18,11 @@ def validate(payload: dict, *, stages: list[dict] | None = None) -> dict:
     from acprof.container.execution import complete_prediction, configured_execution
     from acprof.container.handlers import HandlerRegistry, load_handler, resolve_model_source
     from acprof.extensions import get_extension
+    from acprof.quality import runtime_quality_constraints
     from acprof.runtime.settings import runtime_threads
 
     stages = [] if stages is None else stages
+    quality_constraints = runtime_quality_constraints()
 
     def check(stage, operation):
         print(STAGE_PREFIX + json.dumps({"stage": stage, "status": "running"}), flush=True)
@@ -63,9 +65,9 @@ def validate(payload: dict, *, stages: list[dict] | None = None) -> dict:
 
     def validate_output():
         validation = handler.validate_output(context, payload, processed, output, response)
-        for layer in ('protocol', 'task'):
-            if not isinstance(validation, dict) or not isinstance(validation.get(layer), dict) or validation[layer].get('status') != 'verified':
-                raise ValueError(f'{layer} validation must be verified before profiling: {validation!r}')
+        for layer, required in quality_constraints['required_status'].items():
+            if not isinstance(validation, dict) or not isinstance(validation.get(layer), dict) or validation[layer].get('status') != required:
+                raise ValueError(f'{layer} validation must be {required} before profiling: {validation!r}')
         return validation
 
     validation = check("validate_output", validate_output)
@@ -77,6 +79,7 @@ def validate(payload: dict, *, stages: list[dict] | None = None) -> dict:
         "quality_checks": context.get("quality_checks", []),
         "attention_implementation": context.get("attention_implementation", "model_default"),
         **runtime_metadata, "validation": validation,
+        "quality_constraints": quality_constraints,
         "runtime_parameters": context.get("runtime_parameters", runtime_metadata.get("runtime_parameters", {})),
         "artifact": context.get("artifact", {}),
         "model_spec": context.get("model_spec", context.get("manifest", {})),

@@ -13,6 +13,15 @@ if TYPE_CHECKING:
     from acprof.results.metadata import ResultMetadataSnapshot
 
 
+def runtime_quality_constraints() -> dict[str, Any]:
+    """Declare collection's existing sanity gate, without claiming model accuracy."""
+    return {
+        "schema_version": 1,
+        "scope": "sanity_only_not_accuracy_benchmark",
+        "required_status": {"protocol": "verified", "task": "verified"},
+    }
+
+
 @dataclass(frozen=True)
 class QualityCheck:
     code: str

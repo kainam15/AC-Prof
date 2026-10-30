@@ -107,8 +107,8 @@ class TestValidationContract:
         assert ('shape') not in (report['protocol']['checks'])
         assert (report['protocol']['aspects']['shape']['status']) == ('unavailable')
 
-    @pytest.mark.parametrize('status', ['unsupported', 'unavailable', 'error'])
-    def test_runtime_probe_refuses_custom_validator_unverified_status(self, status):
+    @pytest.mark.parametrize('status', ['verified', 'unsupported', 'unavailable', 'error'])
+    def test_runtime_probe_records_and_enforces_quality_constraints(self, status):
         import os
         from contextlib import nullcontext
         from types import SimpleNamespace
@@ -130,5 +130,14 @@ class TestValidationContract:
             'acprof.container.handlers.load_handler', return_value={},
         ), patch('acprof.container.handlers.resolve_model_source', return_value='test/model'), patch(
             'acprof.container.execution.configured_execution', return_value=(runtime, 'cpu'),
-        ), pytest.raises(ValueError, match='validation.*verified'):
-            validate({'input_scale': 1})
+        ):
+            if status != 'verified':
+                with pytest.raises(ValueError, match='validation.*verified'):
+                    validate({'input_scale': 1})
+            else:
+                result = validate({'input_scale': 1})
+                assert result['quality_constraints'] == {
+                    'schema_version': 1,
+                    'scope': 'sanity_only_not_accuracy_benchmark',
+                    'required_status': {'protocol': 'verified', 'task': 'verified'},
+                }

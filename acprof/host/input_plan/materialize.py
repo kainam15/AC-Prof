@@ -11,6 +11,7 @@ from acprof.extensions import CATALOG
 from acprof.host.detect import TaskInfo
 from acprof.host.input_plan.scales import format_scale_value
 from acprof.host.input_plan.types import PlannedInputScales
+from acprof.quality import runtime_quality_constraints
 
 
 def scale_plan_file_path(output_dir: str) -> str:
@@ -34,6 +35,7 @@ def write_scale_plan_file(
         **({"task_workload": task_info.selected_tasks[0]} if task_info.selected_tasks else {}),
         "workload": dict(workload or {}),
         "model_constraints": dict(model_constraints or {}),
+        "quality_constraints": runtime_quality_constraints(),
         "scenario": {"type": "serial"},
         "entries": entries,
     }
