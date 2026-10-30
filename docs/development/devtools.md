@@ -14,6 +14,7 @@
 | 工具 | 适用场景 | 运行入口 |
 | --- | --- | --- |
 | `textual-dev` | Textual 开发日志、事件和调试界面 | `uv run --with textual-dev textual` |
+| `VHS`（可选） | 固定中文 TUI 场景的无头 PNG 截图与人工检查；不替代 SVG | [独立 PNG 视觉回归](png-visual-validation.md) |
 | Hypothesis | 同步输入与状态转换的性质测试 | pytest 中的 `@given` / `strategies` |
 | 仓库的 `snap_compare` fixture | 固定场景 SVG 视觉回归及失败差异证据 | `uv run pytest tests/visual` |
 

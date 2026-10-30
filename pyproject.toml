@@ -206,4 +206,5 @@ markers = [
     "integration: opt-in external service or browser integration",
     "runtime: tests requiring a selected container runtime's dependencies",
     "visual: deterministic Textual SVG regression",
+    "visual_png: optional VHS PNG terminal visual evidence",
 ]

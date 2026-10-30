@@ -5,7 +5,8 @@
 ## 自动化验证入口
 
 测试树以功能域划分；目录索引及示例参见 [`tests/README.md`](../../tests/README.md)。
-`tests/support/` 存放共用构造器，`tests/fixtures/` 存放测试数据，`tests/visual/` 保留截图基线。
+`tests/support/` 存放共用构造器，`tests/fixtures/` 存放测试数据，`tests/visual/` 保留 SVG 截图基线。
+`tests/visual_png/` 作为[可选的 VHS PNG 回归](png-visual-validation.md)独立运行；普通 CI 不安装终端截图工具。
 按子目录运行时使用 `uv run pytest tests/<domain>`；CI 仍从 `tests/` 递归收集和分片。
 
 安装分发修改除普通回归外，还需构建 sdist/wheel，在隔离环境从空目录执行

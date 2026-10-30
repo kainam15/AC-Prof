@@ -1,0 +1,46 @@
+name: TUI PNG Visual
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  png-visual:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
+        with:
+          version-file: pyproject.toml
+          python-version: '3.12'
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - name: Install optional headless terminal tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ttyd ffmpeg fonts-noto-cjk
+          curl --fail --location --silent --show-error --retry 3 \
+            -o /tmp/vhs_0.12.1_amd64.deb \
+            https://github.com/charmbracelet/vhs/releases/download/v0.12.1/vhs_0.12.1_amd64.deb
+          echo '30a9b2746f19522387eace24f427208b5dc4ce2413d334147a0b89a2304cfbe4  /tmp/vhs_0.12.1_amd64.deb' | sha256sum --check
+          sudo apt-get install -y /tmp/vhs_0.12.1_amd64.deb
+          command -v google-chrome || command -v chromium
+          fc-match 'Noto Sans Mono CJK SC'
+      - name: Install host test dependencies
+        run: uv sync --locked --no-default-groups --group test
+      - name: Capture and check real TUI scenes
+        env:
+          ACPROF_PNG_VISUAL: '1'
+          TZ: UTC
+          PYTHONHASHSEED: '0'
+        run: uv run --locked --no-default-groups --group test python -m pytest tests/visual_png/test_png_capture.py -v
+      - name: Upload screenshots for manual review
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: tui-png-visual
+          path: internal-testing/tui-png/*.png
+          if-no-files-found: warn
