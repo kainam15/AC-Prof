@@ -267,6 +267,8 @@ async def test_finished_run_keeps_compact_status_and_log_space(tmp_path, languag
     app = AcprofTui(config, settings_path=tmp_path / "settings.json")
     app.configuration.preferences = replace(app.configuration.preferences, language=language)
     async with app.run_test(size=size) as pilot:
+        # Reproduce a live attempt through its coordinator, not only the UI.
+        token = app.execution.begin(PendingLaunch(("fixture-run",), "run", config))
         app.activate_tab("monitor-tab")
         snapshot = ProgressSnapshot(stage=Stage.MEASURING, current_case=1, total_cases=4,
                                     measurement_active=True, measurement_status="running")
@@ -274,9 +276,12 @@ async def test_finished_run_keeps_compact_status_and_log_space(tmp_path, languag
         await pilot.pause()
         log = app.query_one("#run-log", SelectableLog)
         log_bottom = log.region.bottom
-        app.execution.session.stop_requested = stage is Stage.STOPPED
-        app.execution.session.result = RunResult(belongs_to_attempt=True, complete=stage is Stage.COMPLETED,
-                                   completed_cases=completed, total_cases=4, new_cases=completed)
+        if stage is Stage.STOPPED:
+            assert app.execution.request_stop(token)
+        assert app.execution.accept_result(token, RunResult(
+            belongs_to_attempt=True, complete=stage is Stage.COMPLETED,
+            completed_cases=completed, total_cases=4, new_cases=completed,
+        ))
         app.process_finished("run", returncode, snapshot, "")
         await pilot.pause()
         assert app.execution.session.snapshot.stage is stage

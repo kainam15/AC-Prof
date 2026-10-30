@@ -7,9 +7,25 @@ from textual.containers import VerticalScroll
 from textual.widgets import Button, Collapsible, Select, Static
 
 from acprof.experiments.configuration import RunConfig
+from acprof.tui.commands import PendingLaunch
 from acprof.tui.run.preparation import PreparationScreen
 from acprof.tui.ui.input import BarCursorInput as Input
 from tests.support.tui_fixtures import AcprofTui
+
+
+def _start_fixture_run(app: AcprofTui, process: Mock) -> object:
+    """Own a real attempt token without launching a subprocess."""
+    token = app.execution.begin(
+        PendingLaunch(("fixture-run",), "run", app.configuration.initial_config)
+    )
+    app.execution.lifecycle.process = process
+    return token
+
+
+def _finish_fixture_run(app: AcprofTui) -> None:
+    """Release the simulated child before ending its owned attempt."""
+    app.execution.lifecycle.process = None
+    app.execution.finish("run", 1, None, "")
 
 
 @pytest.mark.parametrize("summary", [None, "", " \n\t"])
@@ -104,7 +120,7 @@ async def test_download_confirmation_replies_once_and_returns_to_monitor(tmp_pat
     process.poll.return_value = None
     async with app.run_test(size=(80, 24)) as pilot:
         base = app.screen
-        app.execution.lifecycle.process = process
+        _start_fixture_run(app, process)
         try:
             app.preflight.preparation_event({"stage": "image", "status": "waiting", "request": {
                 "id": 3, "kind": "review", "resolved": True, "questions": [],
@@ -122,7 +138,7 @@ async def test_download_confirmation_replies_once_and_returns_to_monitor(tmp_pat
             assert app.screen is base
             assert not app.execution.session.stop_requested
         finally:
-            app.execution.lifecycle.process = None
+            _finish_fixture_run(app)
 
 
 @pytest.mark.parametrize("action", ["button", "escape"])
@@ -131,8 +147,7 @@ async def test_preparation_stop_rejection_keeps_pending_request_interactive(tmp_
     process = Mock(stdin=io.StringIO())
     process.poll.return_value = None
     async with app.run_test(size=(80, 24)) as pilot:
-        app.execution.lifecycle.process = process
-        app.execution.session.kind = "run"
+        _start_fixture_run(app, process)
         try:
             app.preflight.preparation_event({"stage": "image", "status": "waiting", "request": {
                 "id": 3, "kind": "review", "resolved": True, "questions": [],
@@ -159,8 +174,7 @@ async def test_preparation_stop_rejection_keeps_pending_request_interactive(tmp_
             assert process.stdin.getvalue() == '{"id": 3, "action": "confirm"}\n'
             assert app.preflight.preparation_request is None
         finally:
-            app.execution.lifecycle.process = None
-            app.execution.session.kind = ""
+            _finish_fixture_run(app)
 
 
 async def test_preparation_confirmed_stop_uses_graceful_stop_path(tmp_path):
@@ -169,8 +183,7 @@ async def test_preparation_confirmed_stop_uses_graceful_stop_path(tmp_path):
     process.poll.return_value = None
     async with app.run_test(size=(80, 24)) as pilot:
         base = app.screen
-        app.execution.lifecycle.process = process
-        app.execution.session.kind = "run"
+        _start_fixture_run(app, process)
         try:
             app.preflight.preparation_event({"stage": "resolution", "status": "waiting", "request": {
                 "id": 7, "kind": "review", "resolved": True, "questions": [],
@@ -188,8 +201,7 @@ async def test_preparation_confirmed_stop_uses_graceful_stop_path(tmp_path):
                 assert app.screen is base
                 stop.assert_called_once_with(app.execution.session.token, process)
         finally:
-            app.execution.lifecycle.process = None
-            app.execution.session.kind = ""
+            _finish_fixture_run(app)
 
 
 async def test_start_stays_on_monitor_without_passive_preparation_modal(tmp_path):

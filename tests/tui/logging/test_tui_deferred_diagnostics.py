@@ -9,6 +9,7 @@ import pytest
 from acprof.tui.commands import PendingLaunch
 from acprof.tui.logging.diagnostic_buffer import BoundedLogBuffer
 from acprof.tui.logging.widget import SelectableLog
+from acprof.tui.run.execution import ExecutionCoordinator
 from acprof.tui.run.process_controller import ProcessController
 from acprof.tui.run.stages import Stage
 from tests.support.tui_fixtures import AcprofTui
@@ -16,11 +17,14 @@ from tests.support.tui_fixtures import AcprofTui
 
 @pytest.mark.parametrize("stale", [False, True])
 def test_late_reaper_preserves_bounded_diagnostics_and_respects_process_token(stale):
-    token = object()
+    execution = ExecutionCoordinator()
+    current_token = execution.begin(PendingLaunch(("fixture",), "run"))
+    token = object() if stale else current_token
+    execution.lifecycle.release = Mock(return_value=True)
     process = Mock(pid=1234, stdout=io.StringIO("[WARN] late\n"), returncode=1)
     app = SimpleNamespace(
-        is_running=True, form_ready=True, ui_closing=False, process_token=object() if stale else token,
-        lifecycle=Mock(), show_deferred_lines=Mock(), show_suppressed_count=Mock(), process_finished=Mock(),
+        is_running=True, form_ready=True, ui_closing=False, execution=execution,
+        show_deferred_lines=Mock(), show_suppressed_count=Mock(), process_finished=Mock(),
     )
     app.call_from_thread = lambda callback, *args: callback(*args)
     controller = ProcessController(app)
