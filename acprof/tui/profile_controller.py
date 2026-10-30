@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 
 from textual.widgets import Button, Static
 
-from acprof.experiment import RunConfigError
+from acprof.experiments.configuration import RunConfigError
 from acprof.messages import Message, join_messages
 from acprof.tui.commands import PendingLaunch, format_command, prepare_profile, resolve_result_path
 from acprof.tui.i18n import message_id

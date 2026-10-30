@@ -116,8 +116,8 @@ def test_configured_endpoint_cannot_change_huggingface_source():
 
 
 def test_frozen_source_preserves_historical_hf_options_and_records_modelscope(monkeypatch):
+    from acprof.experiments.arguments import build_parser
     from acprof.host.run_state import run_options
-    from acprof.run_args import build_parser
     monkeypatch.delenv("ACPROF_MODEL_SOURCE", raising=False)
     historical = build_parser().parse_args(["--model", "demo/model"])
     del historical.model_source

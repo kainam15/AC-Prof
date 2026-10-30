@@ -42,7 +42,7 @@ except ModuleNotFoundError as exc:  # pragma: no cover - exercised before tests 
         ) from None
     raise
 
-from acprof.experiment import RunConfig
+from acprof.experiments.configuration import RunConfig
 from acprof.messages import message
 from acprof.tui.catalog_controller import CatalogController
 from acprof.tui.commands import (

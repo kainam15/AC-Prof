@@ -102,7 +102,7 @@ class AutomaticRun:
         if saved.get("runtime") or grouped:
             if grouped:
                 from acprof.application.task_runs import TaskCollection
-                from acprof.experiment import RunConfig
+                from acprof.experiments.configuration import RunConfig
                 _, group = TaskCollection.read_manifest(RunConfig.from_namespace(args))
                 task = TaskInfo(**group["task_snapshot"])
             else:

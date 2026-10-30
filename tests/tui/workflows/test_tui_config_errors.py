@@ -6,7 +6,7 @@ from unittest.mock import patch
 import pytest
 from textual.widgets import Collapsible, ContentSwitcher, Select, Static
 
-from acprof.experiment import RunConfig
+from acprof.experiments.configuration import RunConfig
 from acprof.tui.input import BarCursorInput as Input
 from tests.support.tui_fixtures import AcprofTui
 

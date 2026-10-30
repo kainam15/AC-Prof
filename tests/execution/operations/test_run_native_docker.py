@@ -103,7 +103,7 @@ def test_terminal_log_finalization_syncs_file_and_directory() -> None:
         assert fsync.call_count >= 2
 
 def test_application_finalizes_tmux_log_when_profiling_raises() -> None:
-    from acprof.experiment import RunConfig
+    from acprof.experiments.configuration import RunConfig
     terminal_log = ("%3", "/tmp/tmux_all.log.part", "/tmp/tmux_all.log")
     stop_log = Mock(return_value=True)
     application = run.RunApplication(terminal_stop=stop_log)

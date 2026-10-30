@@ -9,7 +9,7 @@ from textual.dom import DOMNode
 from textual.widget import Widget
 from textual.widgets import Static
 
-from acprof.experiment import ConfigIssue
+from acprof.experiments.configuration import ConfigIssue
 from acprof.tui.run_form import CHECKED_FIELDS, INPUT_FIELDS, SELECT_FIELDS
 
 

@@ -14,7 +14,7 @@ from textual.containers import VerticalScroll
 from textual.widgets import Button, Input, Select, Static
 
 from acprof.container.model_files import PLAN_FILENAME
-from acprof.experiment import RunConfig
+from acprof.experiments.configuration import RunConfig
 from acprof.host.model_store import store as model_store
 from acprof.tui.i18n import translate
 from acprof.tui.model_store import ModelStoreScreen

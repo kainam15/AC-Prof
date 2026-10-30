@@ -111,7 +111,7 @@ class CatalogController:
                 message_id('results.evidence.no_csv', experiment_choice(record).detail))
 
     def resume_experiment(self, record: ExperimentRecord) -> None:
-        from acprof.experiment import build_run_command
+        from acprof.experiments.configuration import build_run_command
         try:
             config = config_from_record(record, reuse=False)
             command = build_run_command(config, project_dir=self.app.project_dir,

@@ -12,6 +12,7 @@ import pytest
 
 from acprof.artifacts import read_static_metadata
 from acprof.container.handlers import HandlerRegistry, resolve_model_source
+from acprof.experiments.arguments import build_parser
 from acprof.host.images.environment import runtime_fingerprint
 from acprof.host.metadata.static import enrich_static_meta_from_input_plan
 from acprof.host.profiling.support import load_input_scale_plan_entries
@@ -19,7 +20,6 @@ from acprof.host.profiling.tools.ncu import _resolve_ncu_metrics, _select_ncu_fl
 from acprof.host.runtime_validation import validate_runtime
 from acprof.packet.merge_packet_latency import _request_records
 from acprof.plotting.data import prepare_df, read_static_meta
-from acprof.run_args import build_parser
 from acprof.runtime_profiles import RuntimeProfile
 from acprof.tui.settings import load_settings
 

@@ -254,7 +254,7 @@ manifest 只用于路径路由，CSV 存在或退出码 0 都不单独构成当�
 只复用接口思路，沿用当前 Textual 与标准库，不引入依赖或复制 loader；消息只在准备阶段发送，维护和测量成本局限在现有边界内。
 七页底栏共用 `.action-bar`，内部由 `.action-secondary` 和 `.action-primary` 两个 `Horizontal`
 分别承载左侧次要／导航动作与右侧主操作；间距由容器分配，按钮宽度随标签变化。
-`acprof.experiment` 定义共享 `RunConfig`、`ConfigIssue`、`RunConfigError`、校验与 `build_run_command`，
+`acprof.experiments.configuration` 定义共享 `RunConfig`、`ConfigIssue`、`RunConfigError`、校验与 `build_run_command`，
 CLI 参数、TUI 表单和硬件验证使用同一契约；该模块不导入 TUI。
 `RunConfigError.issues` 保留字段名与可翻译原因，CLI 文本附带字段名，TUI 不解析错误字符串。
 字段错误元数据与候选控件参考 [Textual validation](https://github.com/Textualize/textual/blob/main/src/textual/validation.py)
@@ -363,10 +363,10 @@ schema v3 的重复内容核验在非阻塞共享锁内按 64 KiB 分块校验�
 父子路径合并只用于摘要，不改变有深度上限和实验目录边界的实际扫描入口。借鉴
 [pytest 的 collection 路径规范化](https://github.com/pytest-dev/pytest/blob/main/src/_pytest/main.py)（MIT）思路，
 使用标准库 `pathlib` 与已有 Textual worker 实现，不复制其扫描策略、不新增依赖或测量期活动。
-根级 `acprof.run_options.RunOptions` 是共享配置字段、默认值、CLI 元数据和 run/probe 适用性的唯一声明；
+根级 `acprof.experiments.options.RunOptions` 是共享配置字段、默认值、CLI 元数据和 run/probe 适用性的唯一声明；
 `RunConfig` 继承这些字段并负责验证与预设，两个 parser 和命令构造器消费同一 schema。
 命令参数及 TUI 命令预览按共享字段的声明顺序生成；参数含义与历史配置格式保持一致。
-`acprof.run_args` 保留高级参数及冻结参数序列化；CLI 的 `download_args` 仅负责执行时应用环境变量。
+`acprof.experiments.arguments` 保留高级参数及冻结参数序列化；CLI 的 `download_args` 仅负责执行时应用环境变量。
 新增共享字段无需再同步表单配置、run/probe parser 和命令字段名单。
 该方式参考 [Transformers HfArgumentParser](https://github.com/huggingface/transformers/blob/main/src/transformers/hf_argparser.py)
 的 dataclass 字段与 metadata 设计，使用标准库实现，不引入 Transformers 主机依赖。
@@ -427,7 +427,7 @@ env 文件保留非目标行、原子替换和引号处理参考 BSD-3-Clause �
 不修改 Textual 全局类，不增加依赖、定时器或刷新次数；升级 Textual 时需重新核对私有 compositor API
 及 `test_tui_cjk_rendering.py` 的完整帧、局部输出和浮层交互回归。
 CSS 路径相对 App 文件明确定位；设置文件位置、版本、项目隔离算法和恢复优先级保持一致。
-TUI 应用从 `acprof.tui.app` 导入；共享配置与运行命令从 `acprof.experiment` 导入，
+TUI 应用从 `acprof.tui.app` 导入；共享配置与运行命令从 `acprof.experiments.configuration` 导入，
 界面专用命令从 `acprof.tui.commands` 导入；旧 `acprof.cli.tui_*` 模块已删除。
 
 测试覆盖当前实现与旧入口拒绝行为；不为历史调用增加转导出或参数别名。

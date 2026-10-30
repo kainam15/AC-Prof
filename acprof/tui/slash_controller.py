@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 
 from textual.widgets import Input as TextualInput
 
-from acprof.experiment import RunConfigError
+from acprof.experiments.configuration import RunConfigError
 from acprof.tui.commands import parse_slash_command
 from acprof.tui.i18n import message_id
 from acprof.tui.log import SelectableLog

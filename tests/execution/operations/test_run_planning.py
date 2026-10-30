@@ -3,7 +3,7 @@ from dataclasses import replace
 
 import pytest
 
-from acprof.experiment import RunConfig
+from acprof.experiments.configuration import RunConfig
 
 
 @pytest.mark.parametrize('scales_case', range(5), ids=['[]', '[0]', '[True]', "[float('inf')]", '[1] * 10001'])

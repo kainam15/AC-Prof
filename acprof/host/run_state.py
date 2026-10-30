@@ -26,12 +26,12 @@ from acprof.artifacts import (
     replace_file_durably,
     sync_directory,
 )
+from acprof.experiments.arguments import flatten_run_options
 from acprof.gpu_mode import normalize_gpu_mode
 from acprof.host.execution_conditions import measurement_environment
 from acprof.messages import Message, join_messages, message
 from acprof.platform import detect_environment, is_linux
 from acprof.result_csv import expected_measurements, read_result_csv
-from acprof.run_args import flatten_run_options
 from acprof.source_identity import measurement_sources, source_fingerprint
 
 RUN_STATE_NAME = "run_state.json"

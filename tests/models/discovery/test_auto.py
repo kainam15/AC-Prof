@@ -32,9 +32,9 @@ class TestAuto:
         assert report["tasks"][0]["error"]
 
     def test_preflight_artifacts_can_be_handed_to_run_state_without_allowing_changes(self):
+        from acprof.experiments.arguments import build_parser
         from acprof.host.automation import AutomaticRun
         from acprof.host.run_state import RunState, RunStateError
-        from acprof.run_args import build_parser
         with tempfile.TemporaryDirectory() as directory, patch(
                 "acprof.host.doctor.collect_checks", return_value=[DoctorCheck("docker", "available", "ok")]), patch(
                 "acprof.host.automation.check_repository_access", return_value={"status": "accessible"}), patch(

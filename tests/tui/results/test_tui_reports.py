@@ -18,7 +18,7 @@ from textual.widgets import (
 )
 from tests.support.tui_fixtures import AcprofTui
 
-from acprof.experiment import RunConfig
+from acprof.experiments.configuration import RunConfig
 from acprof.tui.progress import ProgressSnapshot
 from acprof.tui.reports import ReportView
 from acprof.tui.run_results import RunResult

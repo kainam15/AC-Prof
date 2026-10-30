@@ -16,7 +16,7 @@ import pytest
 from textual.widgets import Button, Input, Select, Static, TabbedContent
 
 from acprof.artifact_layout import ArtifactLayout
-from acprof.experiment import RunConfig
+from acprof.experiments.configuration import RunConfig
 from acprof.tui.commands import PendingLaunch
 from acprof.tui.diagnostics import quick_preflight, summarize_result_csv
 from acprof.tui.i18n import translate

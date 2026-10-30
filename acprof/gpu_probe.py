@@ -6,7 +6,7 @@ import re
 from collections.abc import Iterable, Mapping
 from typing import Any, Literal, TypedDict, TypeGuard
 
-from acprof.config_constraints import integer
+from acprof.experiments.constraints import integer
 
 ProbeStatus = Literal["available", "unavailable", "unknown", "not_applicable"]
 

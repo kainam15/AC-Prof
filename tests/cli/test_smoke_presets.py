@@ -9,12 +9,12 @@ from unittest.mock import patch
 
 import pytest
 
-from acprof.experiment import RunConfig, RunConfigError, build_run_command
+from acprof.experiments.arguments import build_parser
+from acprof.experiments.configuration import RunConfig, RunConfigError, build_run_command
 from acprof.host import input_plan
 from acprof.host.detect import TaskInfo
 from acprof.host.images.runtime import ImageInfo
 from acprof.host.input_plan import families, planner as planner_api, probe
-from acprof.run_args import build_parser
 
 
 def test_smoke_defers_single_scale_until_task_resolution():

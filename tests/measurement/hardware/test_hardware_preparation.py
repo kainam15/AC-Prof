@@ -10,7 +10,7 @@ from unittest.mock import Mock, patch
 import pytest
 import yaml
 
-from acprof.experiment import RunConfig
+from acprof.experiments.configuration import RunConfig
 from scripts import check_hardware, prepare_hardware
 
 ROOT = Path(__file__).resolve().parents[3]

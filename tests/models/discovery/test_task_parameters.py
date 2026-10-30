@@ -185,7 +185,7 @@ def test_per_task_input_scales_and_batch_size_are_saved_and_used_by_child(tmp_pa
 
     from acprof.application.run import RunOutcome
     from acprof.application.task_runs import TaskCollection
-    from acprof.experiment import RunConfig
+    from acprof.experiments.configuration import RunConfig
 
     info = model()
     tasks = selected(info)
@@ -218,7 +218,7 @@ def test_task_snapshot_cannot_override_runtime_or_result_destination(tmp_path):
     from dataclasses import replace
 
     from acprof.application.task_runs import TaskCollection
-    from acprof.experiment import RunConfig
+    from acprof.experiments.configuration import RunConfig
 
     info = model()
     info.selected_tasks = selected(info)

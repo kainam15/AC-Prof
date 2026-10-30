@@ -4,11 +4,11 @@ from unittest.mock import Mock
 
 import pytest
 
-from acprof.config_constraints import ConstraintViolation, NumericConstraint, integer
-from acprof.experiment import RunConfig, RunConfigError
+from acprof.experiments.arguments import arguments_from_options
+from acprof.experiments.configuration import RunConfig, RunConfigError
+from acprof.experiments.constraints import ConstraintViolation, NumericConstraint, integer
 from acprof.host.measurement.config import ClientConfig
 from acprof.messages import Message
-from acprof.run_args import arguments_from_options
 
 
 @pytest.mark.parametrize("value", [2, 2.0, "2", " 2 ", "+2"])

@@ -7,7 +7,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from acprof.experiment import RunConfig  # noqa: E402 -- 脚本先设置仓库导入路径。
+from acprof.experiments.configuration import RunConfig  # noqa: E402 -- 脚本先设置仓库导入路径。
 from acprof.tui.app import AcprofTui  # noqa: E402 -- 脚本先设置仓库导入路径。
 from acprof.tui.commands import PendingLaunch  # noqa: E402 -- 脚本先设置仓库导入路径。
 from acprof.tui.preflight_controller import (  # noqa: E402 -- 脚本先设置仓库导入路径。

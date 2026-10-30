@@ -2,7 +2,7 @@
 import pytest
 from textual.widgets import Button, Collapsible, Select, Static
 
-from acprof.experiment import RunConfig
+from acprof.experiments.configuration import RunConfig
 from acprof.host.detect import TaskInfo
 from acprof.tasks.parameters import parameter_review
 from acprof.tasks.workloads import parse_task

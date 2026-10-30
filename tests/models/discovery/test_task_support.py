@@ -13,7 +13,7 @@ from textual.widgets import Button, Static
 
 from acprof.application import run
 from acprof.cli import probe, run as run_cli
-from acprof.experiment import RunConfig
+from acprof.experiments.configuration import RunConfig
 from acprof.host import detect
 from acprof.host.preparation.task_support import TaskSupportError, require_task_support
 from acprof.tui.commands import PendingLaunch

@@ -13,7 +13,7 @@ from textual.css.query import NoMatches
 from textual.widgets import Input, Select, Static
 
 from acprof.events.progress import encode_event
-from acprof.experiment import RunConfig, RunConfigError, build_run_command
+from acprof.experiments.configuration import RunConfig, RunConfigError, build_run_command
 from acprof.tui.checkbox import StatusCheckbox
 from acprof.tui.commands import (
     PendingLaunch,

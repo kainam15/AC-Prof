@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from acprof.config import SCALING_DIMENSIONS
-from acprof.experiment import RunConfig
+from acprof.experiments.configuration import RunConfig
 from acprof.extensions import CATALOG
 from acprof.messages import join_messages, message
 from acprof.tui.i18n import message_id

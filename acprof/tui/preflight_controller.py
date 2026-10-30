@@ -17,7 +17,7 @@ from textual.widgets import Button, Static
 from textual.worker import Worker
 
 from acprof.events.download import DownloadProgress
-from acprof.experiment import RunConfig
+from acprof.experiments.configuration import RunConfig
 from acprof.host.run_state import MeasurementLock
 from acprof.messages import join_messages, message
 from acprof.tui import run_form, run_planning

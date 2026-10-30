@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from acprof.experiment import RunConfig
+from acprof.experiments.configuration import RunConfig
 
 ROOT = Path(__file__).resolve().parents[3]
 

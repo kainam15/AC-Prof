@@ -41,9 +41,9 @@ def test_aliases_canonicalize_configuration_and_frozen_matrix_before_identity(tm
     from types import SimpleNamespace
 
     from acprof.application.resources import resource_matrix
-    from acprof.experiment import RunConfig
+    from acprof.experiments.arguments import build_parser
+    from acprof.experiments.configuration import RunConfig
     from acprof.host.matrix_plan import matrix_identity
-    from acprof.run_args import build_parser
 
     raw = build_parser().parse_args(['--model', 'org/model', '--gpus', ' CPU , TRUE ', '--cpus', '1', '--mems', '2'])
     config = RunConfig.from_namespace(raw).validate(project_dir=tmp_path)

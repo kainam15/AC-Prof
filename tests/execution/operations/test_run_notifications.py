@@ -13,7 +13,7 @@ import pytest
 
 from acprof.application import notifications as notices, run
 from acprof.cli import run as run_cli
-from acprof.experiment import RunConfig
+from acprof.experiments.configuration import RunConfig
 from acprof.host import cases, input_plan, orchestrator
 from acprof.host.detect import TaskInfo
 from acprof.host.images import runtime as runtime_images

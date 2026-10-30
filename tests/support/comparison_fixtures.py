@@ -5,8 +5,8 @@ import importlib
 import json
 
 from acprof.config import CSV_FIELDS
+from acprof.experiments.arguments import build_parser
 from acprof.platform import Environment
-from acprof.run_args import build_parser
 
 
 class ComparisonFixture:

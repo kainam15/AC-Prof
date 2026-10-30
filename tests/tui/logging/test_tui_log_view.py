@@ -9,7 +9,7 @@ from textual.widget import Widget
 from textual.widgets import Button, Static, Tabs
 from textual.widgets.text_area import Selection
 
-from acprof.experiment import RunConfig
+from acprof.experiments.configuration import RunConfig
 from acprof.tui.log import SelectableLog
 from acprof.tui.progress import ProgressSnapshot
 from acprof.tui.scrollbar import SolidScrollBarRender

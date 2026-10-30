@@ -8,7 +8,7 @@ from unittest.mock import patch
 import pytest
 from textual.widgets import Button, Collapsible, ContentSwitcher, Input, Select, Static
 
-from acprof.experiment import RunConfig, build_run_command
+from acprof.experiments.configuration import RunConfig, build_run_command
 from acprof.tui.commands import build_probe_command
 from acprof.tui.i18n import translate
 from acprof.tui.model_store import ModelStoreScreen

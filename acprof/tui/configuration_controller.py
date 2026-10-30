@@ -14,7 +14,12 @@ from textual.timer import Timer
 from textual.widget import Widget
 from textual.widgets import Button, Checkbox, Collapsible, ContentSwitcher, Label, Select, Static
 
-from acprof.experiment import ConfigIssue, RunConfig, RunConfigError, build_run_command
+from acprof.experiments.configuration import (
+    ConfigIssue,
+    RunConfig,
+    RunConfigError,
+    build_run_command,
+)
 from acprof.messages import join_messages, message
 from acprof.tui import run_form, run_planning
 from acprof.tui.commands import format_command

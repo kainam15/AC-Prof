@@ -17,7 +17,10 @@ from acprof.artifacts import (  # noqa: E402 -- 脚本先设置仓库导入路�
     read_json_object,
     require_schema_version,
 )
-from acprof.experiment import RunConfig, build_run_command  # noqa: E402 -- 脚本先设置仓库导入路径。
+from acprof.experiments.configuration import (  # noqa: E402 -- 脚本先设置仓库导入路径。
+    RunConfig,
+    build_run_command,
+)
 from acprof.host.run_state import host_identity  # noqa: E402 -- 脚本先设置仓库导入路径。
 from acprof.result_csv import read_result_csv  # noqa: E402 -- 脚本先设置仓库导入路径。
 

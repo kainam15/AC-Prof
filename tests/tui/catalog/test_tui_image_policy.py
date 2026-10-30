@@ -6,7 +6,7 @@ from unittest.mock import patch
 import pytest
 from textual.widgets import Checkbox, Collapsible, Select
 
-from acprof.experiment import RunConfig, build_run_command
+from acprof.experiments.configuration import RunConfig, build_run_command
 from acprof.tui.commands import PendingLaunch, build_probe_command
 from acprof.tui.preparation import PreparationScreen
 from acprof.tui.settings import load_settings

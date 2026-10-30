@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from acprof.run_args import build_parser
+from acprof.experiments.arguments import build_parser
 
 
 class TestHardwareConditions:

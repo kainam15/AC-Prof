@@ -9,6 +9,7 @@ import time
 from collections.abc import Sequence
 from pathlib import Path
 
+from acprof.experiments.options import add_option_arguments
 from acprof.host.env_utils import bootstrap_project_env
 from acprof.host.images.runtime import prepare_image
 from acprof.host.input_plan import plan_input_scales
@@ -24,7 +25,6 @@ from acprof.host.preflight import (
 )
 from acprof.host.preparation.task_support import TaskSupportError, require_task_support
 from acprof.installation import resource_root
-from acprof.run_options import add_option_arguments
 
 PROJECT_DIR = resource_root()
 

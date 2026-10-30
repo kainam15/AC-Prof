@@ -22,7 +22,7 @@ from acprof.capabilities import (
     missing_required_measurements,
 )
 from acprof.events.progress import emit_event
-from acprof.experiment import RunConfig
+from acprof.experiments.configuration import RunConfig
 from acprof.gpu_mode import normalize_gpu_mode
 from acprof.host.cases import CaseMeasurement, CasePlans, CaseWorkload, MatrixRequest
 from acprof.host.collection_history import (
@@ -104,7 +104,7 @@ class RunApplication:
         terminal_status = "failed"
         try:
             if not command:
-                from acprof.run_args import arguments_from_options
+                from acprof.experiments.arguments import arguments_from_options
                 command = format_run_command(["acprof run", *arguments_from_options(vars(config.to_namespace()))])
             outcome = self._execute(config, prepared_task=prepared_task,
                                     preparation_artifacts=preparation_artifacts, command=command)

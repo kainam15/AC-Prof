@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 from textual.suggester import SuggestFromList
 from textual.widgets import Input as TextualInput, Select
 
-from acprof.experiment import RunConfigError
+from acprof.experiments.configuration import RunConfigError
 from acprof.models.evidence import pinned_revision
 from acprof.tui.experiment_catalog import scan_experiments
 from acprof.tui.experiment_picker import SearchPickerScreen

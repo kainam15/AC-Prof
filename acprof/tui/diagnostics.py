@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 
 from acprof.analysis.uncertainty import summarize_windows
 from acprof.capabilities import Capability, CapabilityStatus, measurement_requested
-from acprof.experiment import RunConfig
+from acprof.experiments.configuration import RunConfig
 from acprof.gpu_mode import normalize_gpu_mode
 from acprof.host.env_utils import load_project_env
 from acprof.host.measurement.capture import tcpdump_capability_available

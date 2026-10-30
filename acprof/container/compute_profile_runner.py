@@ -16,9 +16,9 @@ os.environ["HF_HUB_OFFLINE"] = "1"
 os.environ["TRANSFORMERS_OFFLINE"] = "1"
 
 from acprof.artifacts import read_input_scale_plan
-from acprof.config_constraints import integer
 from acprof.container.execution import complete_prediction, configured_execution
 from acprof.container.handlers import HandlerRegistry, load_handler, resolve_model_source
+from acprof.experiments.constraints import integer
 from acprof.gpu_probe import gpu_probe_report, record_gpu_probe_error, set_gpu_probe_value
 from acprof.input_budget import positive_integer
 from acprof.runtime_settings import runtime_threads

@@ -9,7 +9,7 @@ import pytest
 from rich.cells import cell_len
 from textual.widgets import DataTable, Tree
 
-from acprof.experiment import RunConfig
+from acprof.experiments.configuration import RunConfig
 from acprof.tui.progress import ProgressSnapshot
 from acprof.tui.reports import ReportRow, ReportView
 from tests.runtime.containers.test_image_management import DockerFixture

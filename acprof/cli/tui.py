@@ -5,7 +5,7 @@ import argparse
 from collections.abc import Sequence
 from dataclasses import replace
 
-from acprof.experiment import RunConfigError
+from acprof.experiments.configuration import RunConfigError
 from acprof.tui.app import AcprofTui
 from acprof.tui.run_form import infer_preset
 

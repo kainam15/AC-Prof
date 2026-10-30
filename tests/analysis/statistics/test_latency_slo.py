@@ -8,9 +8,9 @@ from unittest.mock import patch
 import pytest
 
 from acprof.config import STATIC_META_SCHEMA_VERSION
+from acprof.experiments.arguments import build_parser
 from acprof.host.measurement import metrics as client_metrics
 from acprof.packet import merge_packet_latency
-from acprof.run_args import build_parser
 
 
 @pytest.mark.parametrize(('task', 'profile', 'expected', 'source'), [('text-generation', 'nlp-cu128', 5.0, 'task:text-generation'), ('fill-mask', 'nlp-cu128', 1.0, 'profile:nlp-cu128'), ('image-classification', 'cv-cu128', 0.5, 'default')])

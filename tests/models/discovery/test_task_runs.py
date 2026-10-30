@@ -7,7 +7,7 @@ import pytest
 from acprof.application.notifications import RunNotifications
 from acprof.application.run import RunApplication, RunOutcome
 from acprof.application.task_runs import TaskCollection
-from acprof.experiment import RunConfig
+from acprof.experiments.configuration import RunConfig
 from acprof.host.detect import TaskInfo
 from acprof.host.runtimes.selection import RuntimeSelection
 from acprof.tasks.groups import group_inference_tasks

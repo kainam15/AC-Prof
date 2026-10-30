@@ -9,7 +9,7 @@ from textual.containers import VerticalScroll
 from textual.widgets import Button, Checkbox, Collapsible, Input, Select, Static
 from tests.support.tui_fixtures import AcprofTui, checkbox_text
 
-from acprof.experiment import RunConfig
+from acprof.experiments.configuration import RunConfig
 from acprof.tui.profile_screen import ProfilerChoiceScreen
 from acprof.tui.profile_status import ProfilerOverview, ProfilerStatus
 from acprof.tui.settings import TuiSettings, UiPreferences, save_settings

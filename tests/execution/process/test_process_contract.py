@@ -9,7 +9,7 @@ import pytest
 
 from acprof.application.resources import resource_matrix
 from acprof.capabilities import Capability
-from acprof.experiment import RunConfig
+from acprof.experiments.configuration import RunConfig
 from acprof.host.measurement.config import ClientConfig
 from acprof.host.measurement.metrics import WindowMetrics
 from acprof.host.measurement.requests import WindowRequestProgress

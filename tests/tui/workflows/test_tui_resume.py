@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 from textual.widgets import Checkbox, ContentSwitcher, Select
 
-from acprof.experiment import RunConfig, build_run_command
+from acprof.experiments.configuration import RunConfig, build_run_command
 from acprof.tui.input import BarCursorInput as Input
 from tests.support.tui_fixtures import AcprofTui
 

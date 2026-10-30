@@ -23,7 +23,7 @@ from textual.widgets import (
     Tree,
 )
 
-from acprof.experiment import RunConfig
+from acprof.experiments.configuration import RunConfig
 from acprof.host.images.inventory import ImageManagementError, ManagedImage, list_images
 from acprof.tui.commands import PendingLaunch
 from acprof.tui.image_controller import ImageController

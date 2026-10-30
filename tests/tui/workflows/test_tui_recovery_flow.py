@@ -11,9 +11,9 @@ import pytest
 from textual.widgets import Button, Static
 from textual.worker import WorkerCancelled
 
-from acprof.experiment import RunConfig, build_run_command
+from acprof.experiments.arguments import build_parser
+from acprof.experiments.configuration import RunConfig, build_run_command
 from acprof.host import run_state
-from acprof.run_args import build_parser
 from acprof.tui.commands import PendingLaunch
 from acprof.tui.experiment_catalog import scan_experiments
 from acprof.tui.input import BarCursorInput as Input

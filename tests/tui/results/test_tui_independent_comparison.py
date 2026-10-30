@@ -10,7 +10,7 @@ import pytest
 from textual.widgets import Button, DataTable, Input, Select, TabbedContent
 from tests.support.tui_fixtures import AcprofTui
 
-from acprof.experiment import RunConfig
+from acprof.experiments.configuration import RunConfig
 from acprof.quality import loading_quality
 from acprof.tui.reports import read_report
 from acprof.tui.stages import Stage

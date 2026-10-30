@@ -9,9 +9,9 @@ from unittest.mock import patch
 import pytest
 
 from acprof.artifacts import MAX_JSON_ARTIFACT_BYTES
+from acprof.experiments.arguments import build_parser
 from acprof.host.profiling.tools import ncu, torch
 from acprof.platform import Environment
-from acprof.run_args import build_parser
 
 
 class TestCapability:

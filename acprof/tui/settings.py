@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any, TextIO, get_type_hints
 
 from acprof.artifacts import atomic_write, read_json_object
-from acprof.experiment import RunConfig
+from acprof.experiments.configuration import RunConfig
 from acprof.tui.i18n import UI_LANGUAGES, error_message, message_id
 from acprof.tui.themes import UI_THEMES
 

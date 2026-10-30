@@ -8,7 +8,7 @@ import pytest
 from textual.widgets import Button, Static, TabbedContent
 
 from acprof.events.preparation import encode_event
-from acprof.experiment import RunConfig
+from acprof.experiments.configuration import RunConfig
 from acprof.platform import Environment
 from acprof.tui.app import AcprofTui
 from acprof.tui.log import SelectableLog

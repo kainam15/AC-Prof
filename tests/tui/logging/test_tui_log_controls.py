@@ -7,7 +7,7 @@ from rich.console import Console
 from textual.widgets import Button, Static
 
 from acprof.events.download import DownloadProgress
-from acprof.experiment import RunConfig
+from acprof.experiments.configuration import RunConfig
 from acprof.tui.input import BarCursorInput as Input
 from acprof.tui.log import SelectableLog
 from acprof.tui.progress import ProgressSnapshot

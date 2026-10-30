@@ -15,7 +15,7 @@ from textual.geometry import Offset
 from textual.message_pump import MessagePump
 from textual.widgets import Button, Collapsible, Input
 
-from acprof.experiment import RunConfig
+from acprof.experiments.configuration import RunConfig
 from acprof.tui.input import BarCursorInput
 from acprof.tui.progress import ProgressSnapshot
 from acprof.tui.views import ConfirmActionScreen

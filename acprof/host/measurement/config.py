@@ -13,7 +13,7 @@ from acprof.config import (
     DEFAULT_REPEAT_WINDOW_SECONDS,
     DEFAULT_REQUEST_TIMEOUT_SECONDS,
 )
-from acprof.config_constraints import MEASUREMENT_NUMBERS, ConstraintViolation
+from acprof.experiments.constraints import MEASUREMENT_NUMBERS, ConstraintViolation
 from acprof.gpu_mode import normalize_gpu_mode
 from acprof.monitors.sampling import DEFAULT_RAW_SAMPLE_LIMIT, SamplingPolicy, sampling_policy
 

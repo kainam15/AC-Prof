@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from acprof.run_args import build_parser
+from acprof.experiments.arguments import build_parser
 from tests.support.catalog_fixtures import CatalogFixture
 
 
@@ -106,7 +106,7 @@ class TestExperimentCatalog(CatalogFixture):
         assert (first.output_dir) != (str(path.parent))
         assert (first.model) == ('demo/model')
         assert (first.revision) == ('a' * 40)
-        from acprof.experiment import build_run_command
+        from acprof.experiments.configuration import build_run_command
         reused = build_run_command(first, project_dir=Path.cwd())
         parsed_reuse = build_parser().parse_args(reused[reused.index('--model'):])
         assert (parsed_reuse.matrix_seed) == (71)

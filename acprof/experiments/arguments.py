@@ -1,8 +1,8 @@
 """Shared profiling argument declarations and frozen-option serialization."""
 import argparse
 
-from acprof.config_constraints import finite_number, integer
-from acprof.run_options import add_option_arguments
+from acprof.experiments.constraints import finite_number, integer
+from acprof.experiments.options import add_option_arguments
 
 
 def add_download_arguments(parser):

@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import pytest
 
-from acprof.experiment import RunConfig
+from acprof.experiments.configuration import RunConfig
 from acprof.monitors.perf_mips import PERF_PROBE_TIMEOUT_S
 from acprof.platform import Environment
 from acprof.tui.diagnostics import quick_preflight

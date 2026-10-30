@@ -10,7 +10,7 @@ from unittest.mock import patch
 import pytest
 
 from acprof.artifacts import MAX_JSON_ARTIFACT_BYTES
-from acprof.experiment import RunConfig
+from acprof.experiments.configuration import RunConfig
 from acprof.tui.i18n import message_id
 from acprof.tui.settings import (
     SETTINGS_VERSION,

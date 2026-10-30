@@ -4,7 +4,7 @@ from dataclasses import replace
 import pytest
 from textual.widgets import Button, Checkbox
 
-from acprof.experiment import RunConfig
+from acprof.experiments.configuration import RunConfig
 from acprof.tui.preparation import PreparationScreen
 from acprof.tui.task_choices import TaskChoices
 from tests.support.tui_fixtures import AcprofTui

@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from acprof.experiment import RunConfigError
+from acprof.experiments.configuration import RunConfigError
 from acprof.tui.commands import prepare_comparison, prepare_plot, prepare_stats
 from acprof.tui.i18n import error_message, translate
 

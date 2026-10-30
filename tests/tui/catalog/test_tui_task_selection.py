@@ -6,7 +6,7 @@ from rich.cells import cell_len
 from textual.containers import VerticalScroll
 from textual.widgets import Button, Checkbox, Select, Static
 
-from acprof.experiment import RunConfig
+from acprof.experiments.configuration import RunConfig
 from acprof.tasks.groups import group_inference_tasks
 from acprof.tasks.presentation import ConfigField, build_task_selection
 from acprof.tasks.workloads import parse_task

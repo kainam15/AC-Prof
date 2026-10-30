@@ -13,7 +13,7 @@ from textual.widgets import Input
 
 from acprof.container.download_model import verify_download
 from acprof.container.model_files import PLAN_FILENAME, plan_download, seal_plan
-from acprof.experiment import RunConfig
+from acprof.experiments.configuration import RunConfig
 from acprof.host.model_store import store as model_store
 from acprof.host.preparation.network_preflight import preflight
 from acprof.network_policy import DownloadPolicyError

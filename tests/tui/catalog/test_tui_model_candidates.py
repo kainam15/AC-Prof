@@ -9,7 +9,7 @@ from rich.text import Text
 from textual.widgets import Button, Input, Select, Static
 
 import tests.support.model_candidate_fixtures as candidate_fixture
-from acprof.experiment import RunConfig, build_run_command
+from acprof.experiments.configuration import RunConfig, build_run_command
 from acprof.tui.experiment_picker import SearchPickerScreen
 from acprof.tui.model_candidates import record_conditions
 from acprof.tui.settings import TuiSettings, save_settings

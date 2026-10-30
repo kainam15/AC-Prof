@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from acprof.artifacts import atomic_write_json  # noqa: E402
-from acprof.experiment import RunConfig  # noqa: E402
+from acprof.experiments.configuration import RunConfig  # noqa: E402
 from acprof.host.images.runtime import prepare_image  # noqa: E402
 from acprof.host.preparation.collection_workflow import PreparationWorkflow  # noqa: E402
 from acprof.host.run_state import MeasurementLock, host_identity  # noqa: E402

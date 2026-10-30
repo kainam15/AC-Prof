@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 import pytest
 
-from acprof.experiment import RunConfig, build_run_command
+from acprof.experiments.configuration import RunConfig, build_run_command
 
 ROOT = Path(__file__).resolve().parents[2]
 

@@ -6,7 +6,7 @@ from unittest.mock import patch
 import pytest
 from textual.widgets import DataTable, Input, Label, Static
 
-from acprof.experiment import RunConfig, RunConfigError, build_run_command
+from acprof.experiments.configuration import RunConfig, RunConfigError, build_run_command
 from acprof.host.images.inventory import DockerConnection, ImageInventory, ImageLayer, ManagedImage
 from acprof.tui.i18n import translate
 from acprof.tui.images import ImageTree, image_metadata

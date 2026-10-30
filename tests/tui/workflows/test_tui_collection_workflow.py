@@ -12,7 +12,7 @@ import pytest
 from textual.widgets import Button, Select, Static
 
 from acprof.events.preparation import encode_event
-from acprof.experiment import RunConfig
+from acprof.experiments.configuration import RunConfig
 from acprof.tui.log import SelectableLog
 from acprof.tui.process import ProcessLifecycle
 from acprof.tui.progress import RunProgressTracker

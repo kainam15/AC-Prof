@@ -6,7 +6,7 @@ import pytest
 from textual.widgets import Checkbox, ContentSwitcher, Select, Static, TabbedContent
 from tests.support.tui_fixtures import AcprofTui
 
-from acprof.experiment import RunConfig, build_run_command
+from acprof.experiments.configuration import RunConfig, build_run_command
 from acprof.tui.run_form import PROFILER_CHECKBOXES, config_values, profiler_tools_from_checks
 
 

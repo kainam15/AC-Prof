@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
-from acprof.experiment import RunConfig
+from acprof.experiments.configuration import RunConfig
 from scripts import check_hardware, compare_ui
 
 

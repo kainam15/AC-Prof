@@ -9,12 +9,12 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field as dataclass_field, fields, replace
 from pathlib import Path
 
-from acprof.config_constraints import PROFILER_NUMBERS, RUN_NUMBERS, ConstraintViolation
+from acprof.experiments.constraints import PROFILER_NUMBERS, RUN_NUMBERS, ConstraintViolation
+from acprof.experiments.options import RunOptions, configuration_arguments
 from acprof.extensions import CATALOG
 from acprof.gpu_mode import normalize_gpu_mode
 from acprof.installation import cli_command
 from acprof.messages import message
-from acprof.run_options import RunOptions, configuration_arguments
 
 TASK_FAMILIES = tuple(sorted(set(CATALOG.task_families.values())))
 COMPUTE_PROFILE_TOOLS = ("none", "both", "torch", "ncu")
@@ -76,7 +76,7 @@ def _positive_float_csv(value: str, label: str, field: str) -> list[float]:
 
 
 def _normalize_extra_options(options: object, mapped: set[str], errors: list[ConfigIssue]) -> dict:
-    from acprof.run_args import arguments_from_options, build_parser
+    from acprof.experiments.arguments import arguments_from_options, build_parser
 
     if not isinstance(options, dict):
         errors.append(ConfigIssue("extra_options", message("保留的实验参数必须是对象")))
@@ -126,7 +126,7 @@ class RunConfig(RunOptions):
 
     @classmethod
     def from_namespace(cls, args) -> RunConfig:
-        from acprof.run_args import build_parser
+        from acprof.experiments.arguments import build_parser
 
         defaults = cls()
         names = {item.name for item in fields(cls)}
@@ -142,7 +142,7 @@ class RunConfig(RunOptions):
 
     def to_namespace(self):
         """Adapt the shared configuration to existing host APIs, without a second schema."""
-        from acprof.run_args import arguments_from_options, build_parser
+        from acprof.experiments.arguments import arguments_from_options, build_parser
 
         names = {item.name for item in fields(self)} - {"extra_options"}
         if names.intersection(self.extra_options):
@@ -387,7 +387,7 @@ def build_run_command(
 ) -> list[str]:
     """Build the installed CLI command without duplicating its work."""
     config = config.validate(project_dir=project_dir)
-    from acprof.run_args import arguments_from_options
+    from acprof.experiments.arguments import arguments_from_options
 
     return [
         *cli_command("run", python_executable=python_executable),

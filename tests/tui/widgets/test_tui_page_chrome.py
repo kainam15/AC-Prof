@@ -10,7 +10,7 @@ from rich.cells import cell_len
 from textual.containers import VerticalScroll
 from textual.widgets import Button, Static
 
-from acprof.experiment import RunConfig
+from acprof.experiments.configuration import RunConfig
 from acprof.tui.progress import ProgressSnapshot
 from acprof.tui.stages import Stage
 from acprof.tui.themes import UI_THEMES

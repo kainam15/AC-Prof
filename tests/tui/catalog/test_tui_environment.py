@@ -10,7 +10,7 @@ import pytest
 from rich.cells import cell_len
 from textual.widgets import Button, Checkbox, Input, Static, TabbedContent
 
-from acprof.experiment import RunConfig
+from acprof.experiments.configuration import RunConfig
 from acprof.host.env_utils import load_project_env
 from acprof.tui.views import ConfirmActionScreen
 from tests.support.environment_fixtures import isolated_environment

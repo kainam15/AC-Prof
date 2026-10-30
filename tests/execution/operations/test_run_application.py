@@ -5,8 +5,8 @@ import pytest
 
 from acprof.application.notifications import RunNotifications
 from acprof.application.run import RunApplication, RunOutcome
-from acprof.experiment import RunConfig, RunConfigError, build_run_command
-from acprof.run_args import build_parser
+from acprof.experiments.arguments import build_parser
+from acprof.experiments.configuration import RunConfig, RunConfigError, build_run_command
 
 
 def test_two_applications_do_not_share_state_notifications_or_terminal_logs():

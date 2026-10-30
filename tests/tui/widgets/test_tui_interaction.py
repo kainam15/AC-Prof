@@ -6,7 +6,7 @@ from unittest.mock import Mock, patch
 import pytest
 from textual.widgets import Button, Input, Select, Static
 
-from acprof.experiment import RunConfig
+from acprof.experiments.configuration import RunConfig
 from acprof.installation import cli_command
 from acprof.tui.commands import format_command
 from acprof.tui.progress import ProgressSnapshot

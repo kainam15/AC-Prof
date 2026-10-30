@@ -18,7 +18,7 @@ from tests.support.tui_fixtures import AcprofTui
 
 from acprof.analysis.export import export_analysis, statistics_rows
 from acprof.analysis.uncertainty import summarize_windows
-from acprof.experiment import RunConfig
+from acprof.experiments.configuration import RunConfig
 from acprof.plotting.metrics import plot_metric
 from acprof.plotting.uncertainty import (
     WindowStatistics,

@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from acprof.experiment import RunConfig, RunConfigError
+from acprof.experiments.configuration import RunConfig, RunConfigError
 
 
 def test_list_number_and_path_errors_identify_their_fields():

@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 from textual.widgets import Button, ContentSwitcher, Select, TabbedContent
 
-from acprof.experiment import RunConfig, build_run_command
+from acprof.experiments.configuration import RunConfig, build_run_command
 from acprof.tui.diagnostics import quick_preflight
 from tests.support.tui_fixtures import AcprofTui
 

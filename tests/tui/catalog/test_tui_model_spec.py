@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 from textual.widgets import ContentSwitcher, Input, Select
 
-from acprof.experiment import RunConfig, RunConfigError, build_run_command
+from acprof.experiments.configuration import RunConfig, RunConfigError, build_run_command
 from acprof.tui.commands import build_probe_command
 from acprof.tui.settings import TuiSettings, load_settings, save_settings
 from tests.support.tui_fixtures import AcprofTui

@@ -14,9 +14,9 @@ from uuid import uuid4
 
 from acprof.artifact_layout import ArtifactLayout
 from acprof.artifacts import read_json_object
-from acprof.experiment import RunConfig
+from acprof.experiments.arguments import flatten_run_options
+from acprof.experiments.configuration import RunConfig
 from acprof.installation import cli_command
-from acprof.run_args import flatten_run_options
 
 MAX_DUPLICATE_BYTES = 32 * 1024 * 1024
 
@@ -314,7 +314,7 @@ def config_from_record(record: ExperimentRecord, *, reuse: bool) -> RunConfig:
 
 def resume_command(record: ExperimentRecord, *, python_executable: Path) -> tuple[str, ...]:
     """Restore all frozen CLI options, including options not exposed in the form."""
-    from acprof.run_args import build_parser
+    from acprof.experiments.arguments import build_parser
     if not record.has_recovery_state:
         raise ValueError('run_id/frozen configuration cannot resume: ' + ', '.join(record.issues))
     config = config_from_record(record, reuse=False)
@@ -322,7 +322,7 @@ def resume_command(record: ExperimentRecord, *, python_executable: Path) -> tupl
         raise ValueError('resume requires the recorded model directory name; reuse configuration for a new experiment')
     if read_artifact(ArtifactLayout.discover(record.directory).path('run_state.json')) != record.state:
         raise ValueError('experiment changed since discovery; refresh before resuming')
-    from acprof.run_args import arguments_from_options
+    from acprof.experiments.arguments import arguments_from_options
     derived = {'measurement_environment', 'model_spec_sha256', 'workload_spec_sha256'}
     options = {name: value for name, value in flatten_run_options(record.options).items()
                if name not in derived | {'resume', 'output_dir', 'notify', 'rebuild_image'}}

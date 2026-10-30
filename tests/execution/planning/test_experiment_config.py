@@ -10,8 +10,8 @@ def test_image_policy_defaults_to_reuse_and_allows_explicit_rebuild(entrypoint):
     from pathlib import Path
 
     from acprof.cli.probe import _build_parser
-    from acprof.experiment import RunConfig, build_run_command
-    from acprof.run_args import build_parser
+    from acprof.experiments.arguments import build_parser
+    from acprof.experiments.configuration import RunConfig, build_run_command
     from acprof.tui.commands import build_probe_command
 
     parser = build_parser() if entrypoint == "run" else _build_parser()
@@ -28,15 +28,15 @@ def test_image_policy_defaults_to_reuse_and_allows_explicit_rebuild(entrypoint):
 
 
 def test_rebuild_cannot_change_a_resumed_experiment():
-    from acprof.experiment import RunConfig, RunConfigError
+    from acprof.experiments.configuration import RunConfig, RunConfigError
 
     with pytest.raises(RunConfigError, match="重建"):
         RunConfig(model="demo/model", resume=True, rebuild_image=True).validate()
 
 
 def test_image_execution_policy_does_not_change_frozen_measurement_options():
+    from acprof.experiments.arguments import build_parser, flatten_run_options
     from acprof.host.run_state import run_options
-    from acprof.run_args import build_parser, flatten_run_options
 
     parser = build_parser()
     normal = parser.parse_args(["--model", "demo/model"])
@@ -48,8 +48,8 @@ def test_image_execution_policy_does_not_change_frozen_measurement_options():
 def test_cli_namespace_and_command_share_normalization():
     from pathlib import Path
 
-    from acprof.experiment import RunConfig, build_run_command
-    from acprof.run_args import build_parser
+    from acprof.experiments.arguments import build_parser
+    from acprof.experiments.configuration import RunConfig, build_run_command
     args = build_parser().parse_args(["--model", "demo/model", "--cpuset-cpus", "3,1-2",
                                      "--gpus", "off", "--cpus", "1"])
     config = RunConfig.from_namespace(args).validate()

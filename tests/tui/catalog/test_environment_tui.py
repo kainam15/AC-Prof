@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 from textual.widgets import Button
 
-from acprof.experiment import RunConfig
+from acprof.experiments.configuration import RunConfig
 from acprof.platform import Environment
 from acprof.tui.preparation import PreparationScreen
 from tests.support.tui_fixtures import AcprofTui

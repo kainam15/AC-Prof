@@ -140,7 +140,7 @@ warn_redundant_casts = true
 [[tool.mypy.overrides]]
 module = [
     "acprof.analysis.precision",
-    "acprof.config_constraints",
+    "acprof.experiments.constraints",
     "acprof.input_budget",
     "acprof.image_inputs",
     "acprof.gpu_probe",
@@ -161,7 +161,7 @@ module = [
     "acprof.tui.commands",
     "acprof.tui.experiment_controller",
     "acprof.tui.profile_controller",
-    "acprof.run_options",
+    "acprof.experiments.options",
     "acprof.tui.settings",
 ]
 disallow_any_generics = true

@@ -8,10 +8,10 @@ import threading
 from acprof.application.errors import CollectionFailed
 from acprof.application.run import RunApplication, configure_environment
 from acprof.application.terminal_log import format_run_command
-from acprof.experiment import RunConfig
+from acprof.experiments.arguments import build_parser
+from acprof.experiments.configuration import RunConfig
 from acprof.host.preparation.task_support import TaskSupportError
 from acprof.host.run_state import RunStateError
-from acprof.run_args import build_parser
 
 
 def main(*, args=None, prepared_task=None, preparation_artifacts=None):

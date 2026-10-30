@@ -54,7 +54,7 @@
 | `acprof/monitors/` | 能耗、资源与 PMU 的原始测量 |
 | `acprof/packet/` | 抓包解析及 packet latency 合并 |
 | `acprof/config.py` | 共享配置、任务尺度及 CSV/静态元数据字段协议 |
-| `acprof/run_options.py`、`acprof/run_args.py`、`acprof/experiment.py` | 共享字段 schema、CLI 注册与序列化、配置验证；run/probe 命令消费相同声明 |
+| `acprof/experiments/options.py`、`acprof/experiments/arguments.py`、`acprof/experiments/configuration.py` | 共享字段 schema、CLI 注册与序列化、配置验证；run/probe 命令消费相同声明 |
 | `acprof/metric_registry.py` | 指标顺序、单位、来源、窗口、展示和内部行分组；分析与测量消费派生视图 |
 | `acprof/artifacts.py`、`acprof/result_csv.py` | 原子产物发布、CSV 结构与测量唯一键校验；不初始化采集依赖 |
 | `acprof/cancellation.py` | 同步产物消费者的协作取消检查与迭代边界；不创建线程、定时任务或后台轮询 |

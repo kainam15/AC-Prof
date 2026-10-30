@@ -8,7 +8,7 @@ from collections.abc import Iterable
 from dataclasses import asdict, dataclass
 from typing import Any
 
-from acprof.config_constraints import ConstraintViolation, integer
+from acprof.experiments.constraints import ConstraintViolation, integer
 
 
 class InputBudgetExceeded(ValueError):

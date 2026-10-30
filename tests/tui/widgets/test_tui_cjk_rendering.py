@@ -12,7 +12,7 @@ from textual.geometry import Region, Size
 from textual.strip import Strip
 from textual.widgets._toast import Toast
 
-from acprof.experiment import RunConfig
+from acprof.experiments.configuration import RunConfig
 from acprof.tui.views import ConfirmActionScreen
 from tests.support.tui_fixtures import AcprofTui
 

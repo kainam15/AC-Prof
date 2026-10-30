@@ -9,7 +9,7 @@ from unittest.mock import Mock, patch
 import pytest
 from textual.widgets import Button, Input, Select, Static, TabbedContent
 
-from acprof.experiment import RunConfig
+from acprof.experiments.configuration import RunConfig
 from acprof.host.run_state import MeasurementLock
 from acprof.tui.app import AcprofTui
 from acprof.tui.commands import PendingLaunch

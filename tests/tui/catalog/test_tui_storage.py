@@ -13,7 +13,7 @@ from rich.cells import cell_len
 from rich.console import Console
 from textual.widgets import Button, DataTable, Static
 
-from acprof.experiment import RunConfig
+from acprof.experiments.configuration import RunConfig
 from acprof.host.images.inventory import (
     DiskSpace,
     DockerStorage,

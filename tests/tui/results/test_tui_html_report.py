@@ -12,7 +12,7 @@ from textual.widgets import Button, Collapsible, Input, Static, TabbedContent
 from tests.support.tui_fixtures import AcprofTui
 
 from acprof.artifact_layout import ArtifactLayout
-from acprof.experiment import RunConfigError
+from acprof.experiments.configuration import RunConfigError
 from acprof.tui import commands
 from acprof.tui.process_controller import ProcessController
 from acprof.tui.settings import TuiSettings, UiPreferences, save_settings

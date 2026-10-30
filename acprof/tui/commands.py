@@ -10,9 +10,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
-from acprof.experiment import ConfigIssue, RunConfig, RunConfigError, _csv_values
+from acprof.experiments.configuration import ConfigIssue, RunConfig, RunConfigError, _csv_values
+from acprof.experiments.options import configuration_arguments
 from acprof.installation import cli_command
-from acprof.run_options import configuration_arguments
 from acprof.tui.i18n import message_id
 
 

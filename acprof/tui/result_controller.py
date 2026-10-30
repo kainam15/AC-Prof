@@ -21,7 +21,7 @@ from rich.text import Text
 from textual.widgets import Button, Collapsible, ContentSwitcher, DataTable, Static, TabbedContent
 from textual.worker import Worker
 
-from acprof.experiment import RunConfigError
+from acprof.experiments.configuration import RunConfigError
 from acprof.messages import join_messages
 from acprof.tui.commands import (
     PendingLaunch,

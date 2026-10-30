@@ -4,9 +4,9 @@ from pathlib import Path
 
 import pytest
 
-from acprof.experiment import RunConfig, build_run_command
-from acprof.run_args import build_parser
-from acprof.run_options import RunOptions, configuration_arguments
+from acprof.experiments.arguments import build_parser
+from acprof.experiments.configuration import RunConfig, build_run_command
+from acprof.experiments.options import RunOptions, configuration_arguments
 from acprof.tui.commands import build_probe_command
 
 

@@ -6,7 +6,7 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
-from acprof.experiment import PRESET_FIELDS, RunConfig
+from acprof.experiments.configuration import PRESET_FIELDS, RunConfig
 from acprof.tui.presentation import format_input_number
 
 INPUT_FIELDS = {

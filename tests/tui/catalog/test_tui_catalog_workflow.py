@@ -9,8 +9,8 @@ import pytest
 from textual.widgets import Button, Input, Select, Static, TabbedContent
 
 import tests.support.catalog_fixtures as catalog_fixture
-from acprof.experiment import RunConfig, RunConfigError, build_run_command
-from acprof.run_args import build_parser
+from acprof.experiments.arguments import build_parser
+from acprof.experiments.configuration import RunConfig, RunConfigError, build_run_command
 from acprof.tui.experiment_catalog import scan_experiments
 from acprof.tui.experiment_picker import SearchPickerScreen
 from acprof.tui.settings import TuiSettings, load_settings, save_settings

@@ -201,7 +201,7 @@ def test_application_does_not_prepare_weights_or_collect_before_task_confirmatio
 
     from acprof.application.notifications import RunNotifications
     from acprof.application.run import RunApplication
-    from acprof.experiment import RunConfig
+    from acprof.experiments.configuration import RunConfig
     from acprof.host.runtimes.selection import RuntimeSelection
     workflow = PreparationWorkflow(interactive=interactive)
     if interactive:

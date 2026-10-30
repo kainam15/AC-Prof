@@ -100,7 +100,7 @@ class TestModelCandidate(ModelCandidateFixture):
         from types import SimpleNamespace
         from unittest.mock import patch
 
-        from acprof.experiment import RunConfig
+        from acprof.experiments.configuration import RunConfig
         from acprof.host.images.runtime import select_nlp_torch_index_url
         from acprof.tui.model_candidates import current_conditions, current_context
         record = self.recorded()
@@ -143,7 +143,7 @@ class TestModelCandidate(ModelCandidateFixture):
         from subprocess import TimeoutExpired
         from unittest.mock import patch
 
-        from acprof.experiment import RunConfig
+        from acprof.experiments.configuration import RunConfig
         from acprof.tui.model_candidates import current_context
         config = RunConfig.smoke('demo/model')
         with patch('acprof.host.run_state.host_identity', return_value={'machine_id_sha256': 'host-a'}), \

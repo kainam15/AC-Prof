@@ -6,7 +6,7 @@ import pytest
 from textual.containers import VerticalScroll
 from textual.widgets import Button, Collapsible, Select, Static
 
-from acprof.experiment import RunConfig
+from acprof.experiments.configuration import RunConfig
 from acprof.tui.input import BarCursorInput as Input
 from acprof.tui.preparation import PreparationScreen
 from tests.support.tui_fixtures import AcprofTui

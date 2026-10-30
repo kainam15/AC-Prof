@@ -163,7 +163,7 @@
     },
     {
       "source": "acprof.tui.commands",
-      "target": "acprof.experiment",
+      "target": "acprof.experiments.configuration",
       "symbol": "_csv_values"
     },
     {

@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from acprof.events.progress import encode_event
-from acprof.experiment import RunConfig
+from acprof.experiments.configuration import RunConfig
 from acprof.host.largest_scale_probe import (
     PROBE_SUMMARY_NAME,
     create_probe_output_dir,

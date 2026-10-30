@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 from textual.widgets import Select, Static
 
 from acprof import platform
-from acprof.experiment import RunConfigError, build_run_command
+from acprof.experiments.configuration import RunConfigError, build_run_command
 from acprof.messages import join_messages
 from acprof.platform import collection_policy_error
 from acprof.tui.commands import PendingLaunch, build_probe_command, format_command

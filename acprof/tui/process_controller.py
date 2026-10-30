@@ -16,7 +16,7 @@ from acprof.tui.progress import RunProgressTracker
 from acprof.tui.run_results import RunArtifacts, RunResult, inspect_probe_result, inspect_run_result
 
 if TYPE_CHECKING:
-    from acprof.experiment import RunConfig
+    from acprof.experiments.configuration import RunConfig
     from acprof.tui.app import AcprofTui
 
 

@@ -3,9 +3,9 @@ from dataclasses import replace
 
 import pytest
 
-from acprof.experiment import RunConfig
+from acprof.experiments.arguments import build_parser
+from acprof.experiments.configuration import RunConfig
 from acprof.platform import Environment, collection_policy_error
-from acprof.run_args import build_parser
 
 
 def test_process_runtime_is_a_shared_cli_and_config_option():

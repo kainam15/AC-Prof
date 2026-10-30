@@ -5,9 +5,9 @@ from pathlib import Path
 
 import pytest
 
-from acprof.experiment import RunConfig
+from acprof.experiments.arguments import build_parser
+from acprof.experiments.configuration import RunConfig
 from acprof.host.run_state import run_options
-from acprof.run_args import build_parser
 from acprof.tui.experiment_catalog import resume_command, scan_experiments
 
 
@@ -51,7 +51,7 @@ def test_real_cli_options_round_trip_without_internal_fields(tmp_path, historica
 
 
 def test_frozen_nested_options_cannot_silently_override_measurement_parameters(tmp_path):
-    from acprof.run_args import flatten_run_options
+    from acprof.experiments.arguments import flatten_run_options
 
     with pytest.raises(ValueError, match="matrix_seed"):
         flatten_run_options({"matrix_seed": 71, "extra_options": {"matrix_seed": 99}})

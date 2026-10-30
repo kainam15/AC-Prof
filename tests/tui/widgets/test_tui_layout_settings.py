@@ -21,7 +21,7 @@ from textual.widgets import (
 )
 
 from acprof.cli.tui import main
-from acprof.experiment import RunConfig
+from acprof.experiments.configuration import RunConfig
 from acprof.tui.commands import PendingLaunch
 from acprof.tui.log import SelectableLog
 from acprof.tui.progress import ProgressSnapshot

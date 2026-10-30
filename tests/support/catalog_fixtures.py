@@ -3,9 +3,9 @@ import json
 from dataclasses import asdict
 from pathlib import Path
 
-from acprof.experiment import RunConfig
+from acprof.experiments.arguments import build_parser
+from acprof.experiments.configuration import RunConfig
 from acprof.host.run_state import host_identity, run_options
-from acprof.run_args import build_parser
 
 
 class CatalogFixture:

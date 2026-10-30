@@ -7,7 +7,7 @@ import pytest
 from rich.cells import cell_len
 from textual.widgets import Button, Collapsible, Input, Select, Static, Tooltip
 
-from acprof.experiment import RunConfig
+from acprof.experiments.configuration import RunConfig
 from acprof.tui.log import SelectableLog
 from acprof.tui.preparation import ModelSourceScreen, PreparationScreen
 from acprof.tui.process import ProcessLifecycle
