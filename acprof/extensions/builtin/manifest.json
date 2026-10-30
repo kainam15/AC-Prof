@@ -940,6 +940,7 @@
     "VitsModel": "text-to-speech",
     "BarkModel": "text-to-audio",
     "MusicgenForConditionalGeneration": "text-to-audio",
+    "WhisperForConditionalGeneration": "automatic-speech-recognition",
     "SpeechT5ForTextToSpeech": "text-to-speech",
     "EncodecModel": "audio-to-audio",
     "DacModel": "audio-to-audio",
