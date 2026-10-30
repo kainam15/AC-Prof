@@ -95,7 +95,11 @@ class TestTuiProfileTools:
         ))
 
     async def open_dialog(self, app, pilot):
+        # Complete initial TabbedContent activation before changing pages.
+        # Otherwise its queued run-tab event may override the test navigation.
+        await pilot.pause()
         app.activate_tab("results-tab")
+        await pilot.pause()
         app.profiles.show_overview(self.overview())
         text = str(app.query_one("#profile-status").content)
         assert "torch" in text
@@ -104,8 +108,12 @@ class TestTuiProfileTools:
         app.query_one("#profile-section", Collapsible).collapsed = False
         await pilot.pause()
         button = app.query_one("#open-result-profiling", Button)
-        button.scroll_visible(animate=False, immediate=True)
+        # A button-level visibility request may leave the final row behind the
+        # fixed actions while the collapsed section relayouts at 80x24.
+        # Scroll the containing pane to its true end after the next refresh.
+        app.query_one("#plot-body", VerticalScroll).scroll_end(animate=False)
         await pilot.pause()
+        assert app.screen.get_widget_at(button.region.x + 2, button.region.y + 1)[0] is button
         assert await pilot.click(button, offset=(2, 1))
         await pilot.pause()
         assert isinstance(app.screen, ProfilerChoiceScreen)
