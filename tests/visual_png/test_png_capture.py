@@ -2,6 +2,7 @@
 
 Run with ACPROF_PNG_VISUAL=1; ordinary pytest does not require VHS.
 """
+
 from __future__ import annotations
 
 import os
@@ -13,13 +14,12 @@ import pytest
 from PIL import Image
 
 from scripts.capture_tui_png import (
-    COLUMNS,
     FONT_FAMILY,
     ROOT,
-    ROWS,
     build_tape,
     capture,
 )
+from scripts.compare_tui_png import compare_all
 from tests.visual_png.scenarios import SCENARIOS
 
 pytestmark = pytest.mark.visual_png
@@ -27,18 +27,24 @@ pytestmark = pytest.mark.visual_png
 
 def test_tapes_fix_terminal_cells_font_and_fixture_boundary(tmp_path: Path) -> None:
     for name in SCENARIOS:
-        tape = build_tape(name, tmp_path / f"{name}.png", tmp_path / "fixture", python=Path(sys.executable))
-        assert f"Set Columns {COLUMNS}\n" in tape
-        assert f"Set Rows {ROWS}\n" in tape
+        tape = build_tape(
+            name, tmp_path / f"{name}.png", tmp_path / "fixture", python=Path(sys.executable)
+        )
+        assert f"Set Columns {SCENARIOS[name].columns}\n" in tape
+        assert f"Set Rows {SCENARIOS[name].rows}\n" in tape
         assert f'Set FontFamily "{FONT_FAMILY}"' in tape
         assert "HF_HUB_OFFLINE" in tape
-        assert "Wait+Screen /" in tape or "Sleep 4s" in tape
-        assert "Screenshot " in tape
+        assert "Sleep 4s" in tape
+        assert "Output " in tape
+        assert "Set Framerate 1" in tape
+        assert "frames/" in tape
         assert "acprof run" not in tape
         assert "docker " not in tape
 
 
-def test_stale_png_does_not_mask_missing_capture(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_stale_png_does_not_mask_missing_capture(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     output = tmp_path / "output"
     output.mkdir()
     stale = output / "form.png"
@@ -46,29 +52,34 @@ def test_stale_png_does_not_mask_missing_capture(tmp_path: Path, monkeypatch: py
     monkeypatch.setattr("scripts.capture_tui_png.check_capture_prerequisites", lambda: None)
     monkeypatch.setattr(
         "scripts.capture_tui_png.subprocess.run",
-        lambda *args, **kwargs: subprocess.CompletedProcess(args[0], 0),
+        lambda *args, **kwargs: subprocess.CompletedProcess(args[0], 0, stdout="", stderr=""),
     )
-    with pytest.raises(RuntimeError, match="did not produce a usable PNG"):
+    with pytest.raises(RuntimeError, match="did not render PNG text frames"):
         capture(("form",), output, python=Path(sys.executable))
     assert not stale.exists()
 
 
-@pytest.mark.skipif(os.environ.get("ACPROF_PNG_VISUAL") != "1", reason="opt-in VHS screenshot suite")
+@pytest.mark.skipif(
+    os.environ.get("ACPROF_PNG_VISUAL") != "1", reason="opt-in VHS screenshot suite"
+)
 def test_real_tui_png_scenes() -> None:
     output = ROOT / "internal-testing" / "tui-png"
     paths = capture(tuple(SCENARIOS), output, python=Path(sys.executable))
-    dimensions: set[tuple[int, int]] = set()
+    grid_dimensions: dict[tuple[int, int], tuple[int, int]] = {}
     samples: set[bytes] = set()
     for path in paths:
+        scene = SCENARIOS[path.stem]
         assert path.is_file()
         assert path.stat().st_size > 4096
         with Image.open(path) as image:
             assert image.format == "PNG"
             image.load()
-            assert COLUMNS * 7 <= image.width <= COLUMNS * 18
-            assert ROWS * 12 <= image.height <= ROWS * 28
-            dimensions.add(image.size)
+            assert scene.columns * 7 <= image.width <= scene.columns * 18
+            assert scene.rows * 12 <= image.height <= scene.rows * 28
+            grid = (scene.columns, scene.rows)
+            assert grid_dimensions.setdefault(grid, image.size) == image.size
             samples.add(image.convert("RGB").tobytes())
-    # Same fixed font/cell grid across scenes; distinct rendered UI content.
-    assert len(dimensions) == 1
     assert len(samples) == len(SCENARIOS)
+    comparisons = compare_all(tuple(SCENARIOS), actual=output)
+    failures = [result for result in comparisons if result.status != "passed"]
+    assert not failures, f"PNG regressions; inspect {output / 'diff'} and report.json: {failures}"
