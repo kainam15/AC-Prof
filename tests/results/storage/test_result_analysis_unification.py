@@ -16,7 +16,7 @@ import pytest
 from textual.widgets import Button, DataTable, Input, Static, TabbedContent
 from tests.support.tui_fixtures import AcprofTui
 
-from acprof.analysis.export import export_analysis, statistics_rows
+from acprof.analysis.export import export_analysis
 from acprof.analysis.uncertainty import summarize_windows
 from acprof.experiments.configuration import RunConfig
 from acprof.plotting.metrics import plot_metric
@@ -53,18 +53,22 @@ def result_csv(tmp_path):
     return path
 
 
-def test_plot_and_export_use_the_same_mean_deviation_and_interval():
+def test_plot_and_export_use_the_same_mean_deviation_and_interval(tmp_path):
     rows = windows()
     rows += [{**rows[0], "warmup": 1, "repeat_idx": 4, "latency_app_s": 99},
              {**rows[0], "status": "error", "repeat_idx": 5, "latency_app_s": 999}]
     payload = summarize_windows(rows, ["latency_app_s"])
     result = aggregate_plot_metric(pd.DataFrame(rows), "latency_app_s").iloc[0]
     expected = payload["groups"][0]
+    output = tmp_path / "statistics.csv"
+    export_analysis(payload, output, format="csv")
+    with output.open(newline="") as stream:
+        exported, = csv.DictReader(stream)
     assert result["latency_app_s"] == pytest.approx(.02)
     assert result["std"] == pytest.approx(.01)
     assert result["n_windows"] == 3
     for field in ("std", "ci_low", "ci_high", "n_windows"):
-        assert result[field] == expected[field] == statistics_rows(payload)[0][field]
+        assert result[field] == expected[field] == float(exported[field])
 
 
 def test_plot_cache_keys_include_changed_values_and_reuses_identical_groups():

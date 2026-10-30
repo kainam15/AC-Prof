@@ -3,27 +3,30 @@ from __future__ import annotations
 
 import csv
 import json
+from collections.abc import Iterator
 from pathlib import Path
 from typing import TextIO
 
 from acprof.artifacts import atomic_write, atomic_write_json
 
 
-def _flatten(record: dict, prefix: str = "") -> dict:
-    flattened = {}
+def _leaves(record: dict, prefix: str = "") -> Iterator[tuple[str, object]]:
+    """Visit columns in insertion order without encoding list-valued cells."""
     for key, value in record.items():
         name = f"{prefix}{key}"
         if isinstance(value, dict):
-            flattened.update(_flatten(value, name + "."))
-        elif isinstance(value, list):
-            flattened[name] = json.dumps(value, ensure_ascii=False, allow_nan=False)
+            yield from _leaves(value, name + ".")
         else:
-            flattened[name] = value
-    return flattened
+            yield name, value
 
 
-def statistics_rows(payload: dict) -> list[dict]:
-    """Flatten groups, retaining units, parameters, provenance and unavailable states."""
+def _flatten(record: dict, prefix: str = "") -> dict:
+    return {name: json.dumps(value, ensure_ascii=False, allow_nan=False) if isinstance(value, list) else value
+            for name, value in _leaves(record, prefix)}
+
+
+def _prepare_statistics_csv(payload: dict) -> tuple[list[str], Iterator[dict]]:
+    """Discover the full header, then flatten each group only as it is written."""
     groups = payload.get("groups")
     if not isinstance(groups, list) or any(not isinstance(group, dict) for group in groups):
         raise ValueError("CSV export requires window statistics or experiment comparison groups")
@@ -36,7 +39,14 @@ def statistics_rows(payload: dict) -> list[dict]:
         ) if name in payload
     }
     metadata = _flatten(parameters, "analysis.")
-    return [{**metadata, **_flatten(group)} for group in groups]
+    # Later groups can introduce columns. Scan their keys first, without keeping
+    # rows or serializing list cells that will only be needed during writing.
+    fields = dict.fromkeys(metadata)
+    for group in groups:
+        fields.update(dict.fromkeys(name for name, _ in _leaves(group)))
+    if not groups or not fields:
+        raise ValueError("There are no statistics rows to export")
+    return list(fields), ({**metadata, **_flatten(group)} for group in groups)
 
 
 def export_analysis(payload: dict, destination: Path, *, format: str) -> None:
@@ -50,10 +60,7 @@ def export_analysis(payload: dict, destination: Path, *, format: str) -> None:
     if format == "json":
         atomic_write_json(destination, payload, overwrite=False)
         return
-    rows = statistics_rows(payload)
-    fields = list(dict.fromkeys(key for row in rows for key in row))
-    if not fields:
-        raise ValueError("There are no statistics rows to export")
+    fields, rows = _prepare_statistics_csv(payload)
 
     def write(stream: TextIO) -> None:
         writer = csv.DictWriter(stream, fieldnames=fields, lineterminator="\n")

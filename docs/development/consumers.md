@@ -35,6 +35,15 @@ Linux 平台判断由 `platform.is_linux` 提供，不扫描设备或用当前�
 非阻塞行为参考 [filelock #750](https://github.com/tox-dev/filelock/issues/750) 及其
 [已合并修复 #752](https://github.com/tox-dev/filelock/pull/752)，不将锁竞争改为无限等待。
 
+`analysis/export.py` 的统计 CSV 导出先扫描所有分组的字段，按首次出现顺序确定完整表头，
+再逐行展开并写入同目录临时文件，不保留全部展开行。嵌套列表只在实际写出该单元格时
+编码为 JSON，共享分析参数只展开一次；晚出现的列、缺失值、单位和来源 hash 保持原格式。
+额外内存由表头、共享参数和当前行决定，原始统计输入仍由调用方持有；此处不限制单行大小。
+编码或写入失败仍由原子发布层移除临时文件，完成前不暴露最终 CSV，也不覆盖并发创建的目标。
+参考 [pandas CSVFormatter 的分块转换与写出](https://github.com/pandas-dev/pandas/blob/main/pandas/io/formats/csvs.py)
+（BSD-3-Clause），仅借鉴避免整体转换副本的原则，沿用标准库 CSV 和既有原子写入器，
+不创建 DataFrame、不新增依赖或正式测量期开销。
+
 `data.aggregate_metric_series` 统一单指标、通用总览、能耗图和 Process input-scaling 的
 有限值聚合。它只投影配置、尺度和目标指标，将不可用值保留为 NaN，按已有尺度聚合后移除
 整条无有效值的配置曲线；Process 按已有配置标签分组，保留 inherited 资源语义。
