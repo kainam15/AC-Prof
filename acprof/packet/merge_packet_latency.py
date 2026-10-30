@@ -14,6 +14,7 @@ from acprof.artifacts import (
     read_static_metadata,
 )
 from acprof.latency_slo import latency_slo_threshold
+from acprof.packet.sniff_parse_pcap import normalize_request_id
 from acprof.pixel_metrics import per_megapixel
 from acprof.results.csv import allow_large_csv_fields
 from acprof.results.metrics import order_csv_fields
@@ -242,13 +243,26 @@ def _read_sidecar_groups(csv_path: str, expected_rows: int) -> list[str]:
     return groups
 
 
-def _merge_request_samples(csv_path: str, request_records: dict) -> None:
+def _merge_request_samples(csv_path: str, packet_records: dict) -> None:
     """Retain packet samples alongside app samples before PCAP cleanup."""
     from acprof.artifacts import atomic_write
     from acprof.results.layout import case_sidecar
     path = case_sidecar(csv_path, "requests")
     if not os.path.exists(path):
         return  # Historical CSVs have no raw application samples.
+
+    # Packet schema v2 keys identify capture frames, not client sequence IDs.
+    # Preserve the explicit HTTP identity before numeric metric normalization.
+    latency_by_id = {}
+    duplicates = set()
+    for record in packet_records.values():
+        request_id = record.get("request_id")
+        if not isinstance(request_id, str) or not request_id:
+            continue
+        request_id = normalize_request_id(request_id)
+        if request_id in latency_by_id:
+            duplicates.add(request_id)
+        latency_by_id[request_id] = _to_float(record.get("latency_s"))
 
     def write(stream):
         with open(path, encoding="utf-8") as source:
@@ -259,7 +273,10 @@ def _merge_request_samples(csv_path: str, request_records: dict) -> None:
                 gid = window["sniff_group_id"]
                 latencies = []
                 for index in range(len(window["latency_app_s"])):
-                    value = _to_float(request_records.get(f"{gid}:{index}", {}).get("latency_s"))
+                    request_id = f"{gid}:{index}"
+                    if request_id in duplicates:
+                        raise ValueError(f"duplicate packet request identity: {request_id}")
+                    value = latency_by_id.get(request_id, float("nan"))
                     latencies.append(value if math.isfinite(value) and value >= 0 else None)
                 window["latency_packet_s"] = latencies
                 stream.write(json.dumps(window, separators=(",", ":"), allow_nan=False) + "\n")
@@ -368,7 +385,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         writer.writerows(rows)
 
     atomic_write(out_csv, write_merged_csv)
-    _merge_request_samples(in_csv, request_records)
+    _merge_request_samples(in_csv, packet_payload["requests"])
 
 
 if __name__ == "__main__":

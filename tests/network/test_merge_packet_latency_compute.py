@@ -49,7 +49,9 @@ def test_recomputes_both_explicit_flop_rates_from_packet_latency() -> None:
                 }
             )
         with open(lat_json, "w", encoding="utf-8") as f:
-            json.dump({'schema_version': 2, 'requests': {'case_seq1_r0:0': {'latency_s': 0.25}}}, f)
+            json.dump({'schema_version': 2, 'requests': {
+                'case_seq1_r0:10': {'latency_s': 0.25, 'request_id': 'case_seq1_r0:0'},
+            }}, f)
         with open(f"{in_csv}.requests.jsonl", "w", encoding="utf-8") as f:
             f.write(json.dumps({"schema_version": 1, "sniff_group_id": "case_seq1_r0",
                                 "latency_app_s": [0.3, 0.4], "status": "ok"}) + "\n")

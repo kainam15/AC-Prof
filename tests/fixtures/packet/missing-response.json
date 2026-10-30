@@ -2,7 +2,7 @@
   "requests": {
     "case:4": {
       "latency_s": 0.002000093460083008,
-      "request_id": "case:0\\r\\n",
+      "request_id": "case:0",
       "tcp_stream": 0,
       "wire_bytes_status": "unavailable_shared_stream"
     }

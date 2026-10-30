@@ -4,7 +4,7 @@
       "latency_s": 0.004999876022338867,
       "protocol_overhead_bytes": 702,
       "protocol_overhead_ratio": 0.7207392197125256,
-      "request_id": "case:0\\r\\n",
+      "request_id": "case:0",
       "request_wire_bytes": 640,
       "response_wire_bytes": 334,
       "tcp_payload_bytes": 272,

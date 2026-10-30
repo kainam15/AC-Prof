@@ -18,6 +18,15 @@ from acprof.packet.tshark import stream_tshark
 # 不把整个 tcp.stream 的字节重复归给每个请求。
 
 
+def normalize_request_id(value: str) -> str:
+    """Remove the line terminator escaped by HTTP dissection and TShark fields."""
+    value = value.strip()
+    for ending in (r"\\r\\n", r"\r\n"):
+        if value.endswith(ending):
+            return value.removesuffix(ending).strip()
+    return value
+
+
 def extract_request_id(req_lines: str) -> str:
     """
     req_lines 通常包含多条 request line（请求行+headers）
@@ -33,7 +42,7 @@ def extract_request_id(req_lines: str) -> str:
         p = p.strip()
         if p.lower().startswith("x-req-id:"):
             v = p.split(":", 1)[1].strip()  # 取 header value
-            return v.strip() or "group"
+            return normalize_request_id(v) or "group"
     return "group"
 
 

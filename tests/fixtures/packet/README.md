@@ -1,11 +1,13 @@
 # Packet parser golden fixtures
 
 These synthetic Ethernet/IPv4/TCP captures contain no real traffic or credentials.
-`tests/pcap_fixture_builder.py` generates deterministic frames with valid checksums;
+`tests/support/pcap_fixture_builder.py` generates deterministic frames with valid checksums;
 `padding_frames` can add pre-HTTP ACKs for memory and runtime benchmarks.
 
 The JSON files were recorded using the three-scan parser at `acc6345` with
-TShark 4.2.2 (`v4.2.2-1.1build3`). The streaming parser must match every field.
+TShark 4.2.2 (`v4.2.2-1.1build3`). Numeric and frame/stream fields retain that baseline;
+`request_id` excludes the escaped HTTP header line ending so it matches the client ID.
+The streaming parser must match every field.
 
 | Fixture | Builder options | Covered behavior |
 | --- | --- | --- |

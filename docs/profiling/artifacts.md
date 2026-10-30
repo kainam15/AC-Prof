@@ -197,6 +197,12 @@ packet merge 在工作投影中追加同长度的 `latency_packet_s`，未匹配
 basic 模式不生成该数组。原始请求和 PCAP 保留在不可变测量快照中；恢复未完成测量时，
 旧工作请求文件随 CSV 一起备份，然后从 receipt 重建已完成部分，只采集剩余窗口。
 
+逐请求关联使用 packet schema v2 每条记录的 `request_id`（HTTP `X-Req-Id`），
+外层键中的帧编号只用于抓包内的请求/响应关联，不能当作客户端数组下标。
+解析时移除 TShark 转义后的 header 行尾；读取已有 packet JSON 时也识别这一旧行尾表示。
+缺少明确请求身份时不猜测对应样本，重复身份导致的歧义会报错并保留原请求明细。
+历史实验的明细不会自动改写；重新派生时须使用保留的 PCAP、独立产物和来源记录。
+
 ### 实时提交与后处理
 
 `result_layers.json` 的 schema v3 与 Artifact Layout v2 独立。它保存 `run_id`、单调提交序号、

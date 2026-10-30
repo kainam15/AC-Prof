@@ -224,7 +224,9 @@ class TestArtifactLayout:
             (root / "static_meta.json").write_text(json.dumps({"schema_version": 7, "batch_size": 3}))
             case.sidecar("sniff_groups").write_text('{"sniff_group_id":"window"}\n')
             case.requests.write_text(json.dumps({"schema_version": 1, "sniff_group_id": "window", "latency_app_s": [0.3, 0.4]}) + "\n")
-            case.latency.write_text(json.dumps({"schema_version": 2, "requests": {"window:0": {"latency_s": 0.25}}}))
+            case.latency.write_text(json.dumps({"schema_version": 2, "requests": {
+                "window:10": {"latency_s": 0.25, "request_id": "window:0"},
+            }}))
             merged = Path(str(case.csv) + ".merged")
             main([str(case.csv), str(case.latency), str(merged)])
             assert (json.loads(case.requests.read_text())["latency_packet_s"]) == ([0.25, None])
