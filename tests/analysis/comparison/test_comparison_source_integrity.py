@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from acprof.analysis.independent_comparison import compare_experiments
-from acprof.artifacts import read_json_object
+from acprof.artifacts import read_json_object, read_json_object_snapshot
 from acprof.hardware_conditions import conditions_path
 from acprof.quality import combine_quality
 from acprof.result_store.writer import ResultWriter
@@ -98,12 +98,12 @@ def test_state_identity_is_captured_before_its_first_read(pair, monkeypatch):
     state_path = pair[0] / "run_state.json"
 
     def change_after_state_read(path, **kwargs):
-        value = read_json_object(path, **kwargs)
+        value = read_json_object_snapshot(path, **kwargs)
         if Path(path) == state_path:
-            state_path.write_text(json.dumps({**value, "run_id": "changed-after-read"}))
+            state_path.write_text(json.dumps({**value.payload, "run_id": "changed-after-read"}))
         return value
 
-    monkeypatch.setattr("acprof.analysis.independent_comparison.read_json_object", change_after_state_read)
+    monkeypatch.setattr("acprof.results.metadata.read_json_object_snapshot", change_after_state_read)
     with pytest.raises(ValueError, match="experiment changed.*run_state"):
         compare(pair)
 

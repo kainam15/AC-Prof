@@ -14,7 +14,6 @@ from typing import Any
 from acprof.analysis.comparison import load_comparison_snapshot
 from acprof.analysis.conditions import PURPOSES, PreparedComparison
 from acprof.analysis.lifecycle import LifecycleConflict, unique_startup_observations
-from acprof.artifacts import read_json_object
 from acprof.gpu_mode import normalize_gpu_mode
 from acprof.platform import recorded_identity
 from acprof.quality import QUALITY_FIELDS, read_quality
@@ -24,7 +23,7 @@ from acprof.results.csv import (
     read_result_csv_snapshot,
     verify_result_source,
 )
-from acprof.results.layout import ArtifactLayout
+from acprof.results.metadata import ResultMetadataSnapshot
 from acprof.results.metrics import ANALYSIS_METRICS, VIEW_METRICS
 
 DIMENSIONS = ("run_id", "model", "runtime", "device", "cpu", "memory", "gpu", "concurrency",
@@ -56,12 +55,6 @@ def _canonical(value):
 
 def _digest(value):
     return hashlib.sha256(_canonical(value).encode()).hexdigest()[:16]
-
-
-def _json(path):
-    if not path.exists():
-        return {}
-    return read_json_object(path, label="analysis metadata")
 
 
 def _identity(row, meta, run_id, batch):
@@ -195,17 +188,20 @@ def load_analysis(sources) -> AnalysisModel:
     comparisons = {}
     for source in sources:
         path = Path(source).expanduser().resolve()
-        layout = ArtifactLayout.discover(path) if path.is_dir() else ArtifactLayout.from_csv(path)
+        metadata_snapshot = ResultMetadataSnapshot(path)
+        layout = metadata_snapshot.layout
         path = layout.result_csv if path.is_dir() else path
         if path in seen_paths:
             raise ValueError(f"duplicate CSV input: {path}")
         seen_paths.add(path)
         result_snapshot = read_result_csv_snapshot(path, validate_measurements=False)
         digest = result_snapshot.sha256
-        meta = _json(layout.path("static_meta.json"))
-        state = _json(layout.path("run_state.json"))
+        meta, state = (metadata_snapshot.read(name, label="analysis metadata").payload
+                       if metadata_snapshot.exists(name) else {}
+                       for name in ("static_meta.json", "run_state.json"))
         run_id = _text(state.get("run_id"), "legacy-" + digest[:16])
         snapshot = load_comparison_snapshot(path, result_snapshot=result_snapshot,
+                                            metadata_snapshot=metadata_snapshot,
                                             verify_result_snapshot=False)
         comparisons[str(path)] = PreparedComparison(snapshot)
         evidence = {"run_status": state.get("status", "unknown"),
@@ -249,7 +245,7 @@ def load_analysis(sources) -> AnalysisModel:
                         and row.get("result_origin") != "inferred_not_measured")
             mode = row.get("gpu_mode")
             if mode not in device_quality:
-                device_quality[mode] = read_quality(path, device=mode)
+                device_quality[mode] = read_quality(path, device=mode, metadata_snapshot=metadata_snapshot)
             entry = {**identity, "config_id": config_id, "source": str(path), "source_row": line,
                      "row": raw, "eligible": eligible, "values": _values(row, identity["device"], numeric_fields),
                      **evidence, **device_quality[mode]}

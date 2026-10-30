@@ -83,7 +83,7 @@ manifest 摘要，读取时校验同一份 manifest，各数据层只解析和�
 沿用标准库实现，不引入备份、压缩或缓存依赖，也不跳过校验。
 原始行不被审计的环境归一化修改；历史 CSV
 可保留宽松展示能力，但身份缺失、旧字段或其他严格校验失败仍阻止作为有效可比证据。
-测量状态、缺失原因和来源质量复用同一次审计；设备级质量仍单独读取，下一次加载重新取得证据，
+测量状态、缺失原因和来源质量复用同一次审计；设备级质量从同一份元数据中筛选，下一次加载重新取得证据，
 不跨加载缓存。借鉴 [Polars collect_all](https://github.com/pola-rs/polars/blob/main/py-polars/src/polars/functions/lazy.py)
 的公共扫描复用及 [cache 保留讨论](https://github.com/pola-rs/polars/pull/27421)（MIT），使用现有标准库
 解析与快照实现，不复制上游源码、不新增依赖或测量期开销。
@@ -107,6 +107,16 @@ manifest 引用的数据内容和读取前记录的元数据身份，复用证�
 和指标可用性判定；独立调用时由审计复核内容，共享快照时由外层消费者结束时统一复核。
 首次读取失败时继续收集审计中的元数据问题，
 保留首次读取错误，后续成功读取不能将该快照变成有效结果。
+`results/metadata.py` 的 `ResultMetadataSnapshot` 在一次比较或报告加载中共享布局及 JSON 读取结果，
+供运行选择、审计、条件比较和设备质量筛选使用。每个元数据产物的首次值、缺失或读取错误被保留，
+避免后续读取改变已经审计的证据；载荷只读，下一次调用重新观察文件，不建立全局缓存。
+输入计划的 SHA256 取自同一次有界 JSON 读取的原始字节，保留 UTF-8 BOM 和空白的内容身份；
+即使哈希匹配，非对象、非有限数值、无效编码和超出 4 MiB 的计划也不能通过审计。
+该对象不提供跨文件原子快照；独立实验比较仍在读取前固定全部来源身份，并在统计结束后复核。
+设计借鉴 [pytest 的 fixture 结果与异常缓存](https://github.com/pytest-dev/pytest/blob/main/src/_pytest/fixtures.py)
+和[首次失败丢失问题](https://github.com/pytest-dev/pytest/issues/14800)、
+[对应修复提案](https://github.com/pytest-dev/pytest/pull/15275)（MIT）。只借鉴生命周期和失败保留原则，
+使用项目已有 JSON 读取器与标准库，不引入 pytest 运行依赖或正式测量期开销。
 `results/metrics.py` 同时维护采集单位与展示方向、分组、聚合等语义；
 展示信息直接声明在各 `Metric` 上；行组装字段由内部 `row_group` / `row_order` 和工具元数据派生，
 不再在 client 中重复列出整组名称。内部分组不写入 `Metric.to_dict()`，保持 CSV 顺序及已有指标元数据。

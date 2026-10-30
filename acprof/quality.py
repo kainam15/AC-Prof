@@ -5,9 +5,12 @@ from __future__ import annotations
 import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from acprof.artifacts import read_json_object
+
+if TYPE_CHECKING:
+    from acprof.results.metadata import ResultMetadataSnapshot
 
 
 @dataclass(frozen=True)
@@ -105,18 +108,19 @@ def combine_quality(summaries: list[dict]) -> dict:
     return result
 
 
-def read_quality(source: str | Path, *, device: str | None = None) -> dict:
+def read_quality(source: str | Path, *, device: str | None = None,
+                 metadata_snapshot: ResultMetadataSnapshot | None = None) -> dict:
     """Read canonical checks, or explicit runtime-validation checks in older runs."""
-    from acprof.results.layout import ArtifactLayout
-    source = Path(source)
-    layout = ArtifactLayout.discover(source) if source.is_dir() else ArtifactLayout.from_csv(source)
-    quality_path, validation_path = (layout.path(name) for name in ("quality_checks.json", "runtime_validation.json"))
-    path = quality_path if quality_path.exists() else validation_path
-    if not path.exists():
+    from acprof.results.metadata import ResultMetadataSnapshot
+    metadata_snapshot = metadata_snapshot or ResultMetadataSnapshot(source)
+    metadata_snapshot.validate_source(source)
+    name = "quality_checks.json" if metadata_snapshot.exists("quality_checks.json") else "runtime_validation.json"
+    path = metadata_snapshot.layout.path(name)
+    if not metadata_snapshot.exists(name):
         return summarize_quality(None)
     try:
-        payload = read_json_object(path, label="quality evidence")
-        if path == quality_path:
+        payload = metadata_snapshot.read(name, label="quality evidence").payload
+        if name == "quality_checks.json":
             if type(payload.get("schema_version")) is not int or payload["schema_version"] != 1:
                 raise ValueError("unsupported quality evidence schema")
             checks = payload.get("checks")

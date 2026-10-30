@@ -17,7 +17,6 @@ from acprof.analysis.conditions import (
     compare_workload_profiles,
     workload_case_profile,
 )
-from acprof.artifacts import read_json_object
 from acprof.hardware_conditions import HARDWARE_FIELDS, conditions_path
 from acprof.platform import recorded_identity
 from acprof.quality import QUALITY_FIELDS
@@ -27,6 +26,7 @@ from acprof.results.csv import (
     measurement_key,
     read_result_csv_snapshot,
 )
+from acprof.results.metadata import ResultMetadataSnapshot
 from acprof.results.metrics import METRICS
 from acprof.runtime.settings import RUNTIME_ENV_NAMES
 
@@ -171,9 +171,13 @@ def _metric_availability(rows: list[dict[str, str]]) -> dict[str, bool]:
 
 
 def load_comparison_snapshot(source: str | Path, *, result_snapshot: ResultCsvSnapshot | None = None,
+                             metadata_snapshot: ResultMetadataSnapshot | None = None,
                              verify_result_snapshot: bool = True) -> dict:
     """Share parsed input while its outer owner retains the final content check."""
     source = Path(source)
+    metadata_snapshot = metadata_snapshot or ResultMetadataSnapshot(source)
+    metadata_snapshot.validate_source(source)
+    layout = metadata_snapshot.layout
     result_path = source / "result_layers.json" if source.is_dir() else source
     read_error: OSError | ValueError | csv.Error | None = None
     if result_snapshot is None:
@@ -183,6 +187,7 @@ def load_comparison_snapshot(source: str | Path, *, result_snapshot: ResultCsvSn
             # Keep the failed read visible while the audit gathers metadata issues.
             read_error = error
     audit = audit_result(source, result_snapshot=result_snapshot,
+                         metadata_snapshot=metadata_snapshot,
                          verify_result_snapshot=verify_result_snapshot)
     if read_error is None:
         invalid_csv = next((issue for issue in audit["issues"] if issue["code"] == "invalid_csv"), None)
@@ -192,12 +197,9 @@ def load_comparison_snapshot(source: str | Path, *, result_snapshot: ResultCsvSn
 
     def read_json(name):
         try:
-            from acprof.results.layout import ArtifactLayout
-            layout = ArtifactLayout.discover(source) if source.is_dir() else ArtifactLayout.from_csv(source)
-            path = layout.path(name)
-            if not path.exists():
+            if not metadata_snapshot.exists(name):
                 return {}
-            return read_json_object(path, label=name)
+            return metadata_snapshot.read(name).payload
         except (OSError, ValueError) as error:
             issues.append(f"{name}: {error}")
             return {}
@@ -205,13 +207,12 @@ def load_comparison_snapshot(source: str | Path, *, result_snapshot: ResultCsvSn
     state = read_json("run_state.json")
     metadata = read_json("static_meta.json")
     plan = read_json("input_scale_plan.json")
-    from acprof.results.layout import ArtifactLayout
-    layout = ArtifactLayout.discover(source) if source.is_dir() else ArtifactLayout.from_csv(source)
     hardware_payload = read_json(str(conditions_path(layout).relative_to(layout.root)))
     hardware_cases = hardware_payload.get("cases", {})
     if hardware_payload and (hardware_payload.get("schema_version") != 1 or not isinstance(hardware_cases, dict)):
         issues.append("hardware_conditions.json: unsupported schema")
         hardware_cases = {}
+    hardware_cases = dict(hardware_cases)
     for case_id, record in list(hardware_cases.items()):
         if not isinstance(record, dict):
             issues.append(f"hardware_conditions.json: invalid case {case_id}")

@@ -13,11 +13,11 @@ from acprof.analysis.audit import number
 from acprof.analysis.comparison import compare_snapshots, load_comparison_snapshot
 from acprof.analysis.conditions import ALLOWED_RESOURCE_DIMENSIONS
 from acprof.analysis.uncertainty import validate_window_options
-from acprof.artifacts import file_sha256, read_json_object
+from acprof.artifacts import file_sha256
 from acprof.hardware_conditions import conditions_path
 from acprof.quality import QUALITY_FIELDS, combine_quality
 from acprof.results.csv import measurement_key, read_result_csv_snapshot, verify_result_source
-from acprof.results.layout import ArtifactLayout
+from acprof.results.metadata import ResultMetadataSnapshot
 from acprof.results.metrics import METRICS
 
 
@@ -82,7 +82,8 @@ def compare_experiments(left, right, *, metrics, purpose="same-hardware",
         group_snapshot = None
         for path in paths:
             source = Path(path)
-            layout = ArtifactLayout.discover(source) if source.is_dir() else ArtifactLayout.from_csv(source)
+            metadata_snapshot = ResultMetadataSnapshot(source)
+            layout = metadata_snapshot.layout
             result_path = layout.result_csv if source.is_dir() else source.absolute()
             result_snapshot = read_result_csv_snapshot(result_path)
             fingerprints[result_path] = result_snapshot.sha256
@@ -91,8 +92,9 @@ def compare_experiments(left, right, *, metrics, purpose="same-hardware",
                          "static_meta.json", "hardware_conditions.json", "quality_checks.json",
                          "runtime_validation.json", "model_resolution.json", "runtime_failures.json"):
                 artifact = conditions_path(layout) if name == "hardware_conditions.json" else layout.path(name)
-                fingerprints[artifact] = file_sha256(artifact) if artifact.exists() else None
-            state = read_json_object(layout.path("run_state.json"), label="run state")
+                logical_name = str(artifact.relative_to(layout.root)) if name == "hardware_conditions.json" else name
+                fingerprints[artifact] = file_sha256(artifact) if metadata_snapshot.exists(logical_name) else None
+            state = metadata_snapshot.read("run_state.json", label="run state").payload
             run_id = state.get("run_id")
             if not isinstance(run_id, str) or not run_id:
                 raise ValueError("independent comparison requires recorded run IDs")
@@ -102,6 +104,7 @@ def compare_experiments(left, right, *, metrics, purpose="same-hardware",
             rows = result_snapshot.rows
             complete = state.get("status") == "complete"
             current_snapshot = load_comparison_snapshot(path, result_snapshot=result_snapshot,
+                                                        metadata_snapshot=metadata_snapshot,
                                                         verify_result_snapshot=False)
             if reference_snapshot is None:
                 reference_snapshot = current_snapshot

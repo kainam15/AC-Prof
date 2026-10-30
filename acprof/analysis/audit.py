@@ -9,7 +9,6 @@ from collections import Counter, defaultdict
 from collections.abc import Callable
 from pathlib import Path
 
-from acprof.artifacts import read_json_object
 from acprof.capabilities import collection_outcomes
 from acprof.failures import Failure
 from acprof.platform import native_only_metric, recorded_identity
@@ -24,7 +23,7 @@ from acprof.results.csv import (
     result_csv_snapshot_unchanged,
     validate_result_rows,
 )
-from acprof.results.layout import ArtifactLayout
+from acprof.results.metadata import ResultMetadataSnapshot
 from acprof.results.metrics import METRICS, NUMERIC_FIELDS
 
 
@@ -155,6 +154,7 @@ def _check_workload_counts(row: dict) -> None:
 
 
 def audit_result(source: str | Path, *, result_snapshot: ResultCsvSnapshot | None = None,
+                 metadata_snapshot: ResultMetadataSnapshot | None = None,
                  verify_result_snapshot: bool = True) -> dict:
     path = Path(source)
     if path.is_dir():
@@ -171,10 +171,9 @@ def audit_result(source: str | Path, *, result_snapshot: ResultCsvSnapshot | Non
 
     def read_json(name):
         try:
-            artifact = layout.path(name)
-            if not artifact.exists():
+            if not metadata_reader.exists(name):
                 return {}
-            return read_json_object(artifact, label=name)
+            return metadata_reader.read(name).payload
         except (ValueError, OSError) as error:
             issue("invalid_metadata", f"{name}: {error}")
             return {}
@@ -195,7 +194,9 @@ def audit_result(source: str | Path, *, result_snapshot: ResultCsvSnapshot | Non
             return None
 
     try:
-        layout = ArtifactLayout.from_csv(path)
+        metadata_reader = metadata_snapshot or ResultMetadataSnapshot(path)
+        metadata_reader.validate_source(path)
+        layout = metadata_reader.layout
     except (ValueError, OSError) as error:
         issue("invalid_layout", error)
         return report
@@ -227,7 +228,7 @@ def audit_result(source: str | Path, *, result_snapshot: ResultCsvSnapshot | Non
         failure = recorded_failure("model_resolution.json", "failure", resolution["failure"])
         if failure is not None:
             report["failures"].append(failure)
-    report.update(read_quality(path))
+    report.update(read_quality(path, metadata_snapshot=metadata_reader))
     for failure in report["failures"]:
         issue(failure["reason_code"], failure["detail"], failure=failure)
     for check in report["quality_checks"]:
@@ -278,8 +279,8 @@ def audit_result(source: str | Path, *, result_snapshot: ResultCsvSnapshot | Non
     expected_hash = metadata.get("input_scale_plan_sha256")
     if expected_hash and str(expected_hash).lower() not in MISSING_CSV_TEXT:
         try:
-            plan = layout.path("input_scale_plan.json")
-            if not plan.is_file() or hashlib.sha256(plan.read_bytes()).hexdigest() != expected_hash:
+            if (not metadata_reader.exists("input_scale_plan.json") or
+                    hashlib.sha256(metadata_reader.read("input_scale_plan.json").content).hexdigest() != expected_hash):
                 issue("input_plan_hash", "输入计划与 static_meta.json 中的 SHA256 不一致")
         except (OSError, ValueError) as error:
             issue("input_plan_hash", error)
