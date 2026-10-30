@@ -36,6 +36,12 @@ Dockerfile 和安装脚本；环境镜像再计对应配方及不可变平台 im
 默认自动选择下载入口；模型来源与传输记录见[下载网络与 Model Store](model-store.md#下载网络与-model-store)。
 实际成功地址随 `model_download.endpoint` 保存，历史缺失字段不推算。
 
+服务源码由 `acprof/source_identity.py` 统一选择，供 Docker 服务层、隔离接口检查与 Process
+环境暂存使用，并参与各自的源码身份。除推理包外，清单还包含推理实际依赖的共享约束、
+指标定义、runtime 设置与依赖声明模块及其包初始化文件。移动这些模块时应同步维护清单，
+并运行 `tests/runtime/containers/test_service_source_imports.py`：它从暂存目录在禁用
+checkout、`PYTHONPATH` 和 editable 安装路径的独立进程中导入服务入口。
+
 分层构建与文件选择细节见[模型文件选择规则](adaptation.md#模型文件选择规则)。
 
 采集和最大输入探测默认核验并复用指纹、内部清单和 Model Store 均通过校验的镜像，执行引用固定为 Docker image ID。

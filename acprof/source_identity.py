@@ -7,6 +7,18 @@ from collections.abc import Iterable
 from pathlib import Path
 
 _SERVICE_DIRECTORIES = {"container", "extensions", "workloads", "models", "hub", "system"}
+# Inference also uses these shared contracts from otherwise host-facing packages.
+# Keep package initializers alongside the modules in every staged service tree.
+_SERVICE_SHARED_FILES = {
+    "experiments/__init__.py",
+    "experiments/constraints.py",
+    "results/__init__.py",
+    "results/metrics.py",
+    "runtime/__init__.py",
+    "runtime/dependency_locks.py",
+    "runtime/profiles.py",
+    "runtime/settings.py",
+}
 _PRESENTATION_DIRECTORIES = {"tui", "plotting", "analysis"}
 # Internal source modules excluded from measurement identity, not launcher names.
 _PRESENTATION_CLI_MODULES = {"tui", "plot", "stats", "audit", "compare"}
@@ -38,7 +50,8 @@ def service_sources(root: str | Path) -> list[Path]:
     root = Path(root)
     return [path for path in _package_sources(root)
             if len(path.relative_to(root / "acprof").parts) == 1
-            or path.relative_to(root / "acprof").parts[0] in _SERVICE_DIRECTORIES]
+            or path.relative_to(root / "acprof").parts[0] in _SERVICE_DIRECTORIES
+            or path.relative_to(root / "acprof").as_posix() in _SERVICE_SHARED_FILES]
 
 
 def source_fingerprint(root: str | Path, paths: Iterable[Path], *, scope: str) -> str:
