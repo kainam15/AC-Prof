@@ -12,6 +12,7 @@
 - `ttyd`、`ffmpeg`、Chrome/Chromium（支持 headless）、`fontconfig`
 - 字体 `Noto Sans Mono CJK SC`（Ubuntu: `fonts-noto-cjk`）
 - Golden 基线采用 Ubuntu 24.04 / VHS v0.12.1 / Chrome 147.0.7727.116；CI 从 Chrome for Testing 下载固定版本，并验证字体文件 SHA-256。跨系统运行可能产生噪声，请在与 CI 一致的环境制作基线。
+- Ubuntu 24.04 的 AppArmor 可能阻止临时目录中的 Chrome for Testing 创建用户命名空间。CI 仅在对应限制启用时，为该次 runner 中**固定路径的 Chrome 可执行文件**加载 `userns` AppArmor profile；不关闭全局限制、不使用 `--no-sandbox`。参考 [Chromium 官方说明](https://chromium.googlesource.com/chromium/src/+/main/docs/security/apparmor-userns-restrictions.md)。
 
 Ubuntu 示例（VHS 本体可从 [官方 Releases](https://github.com/charmbracelet/vhs/releases) 下载、核验校验和后安装）：
 
@@ -19,11 +20,13 @@ Ubuntu 示例（VHS 本体可从 [官方 Releases](https://github.com/charmbrace
 sudo apt-get update
 sudo apt-get install -y ttyd ffmpeg fonts-noto-cjk
 fc-match 'Noto Sans Mono CJK SC'
+# 可独立运行浏览器/VHS 冒烟测试，不依赖 AC-Prof 模型或 TUI
+python3 scripts/smoke_tui_png_environment.py
 uv sync --locked --no-default-groups --group test
 ```
 
 无需 X11、Wayland、远程桌面、Windows、dor-jump、Docker、GPU 或真实模型；
-Chrome 仅由 VHS 无头启动。系统安装的工具不会加入 `pyproject.toml` 正式依赖或任何推理镜像。
+Chrome 仅用于无头启动预检与 VHS 截图。系统安装的工具不会加入 `pyproject.toml` 正式依赖或任何推理镜像。
 
 ## 运行与结果
 
@@ -77,7 +80,7 @@ ACPROF_PNG_VISUAL=1 uv run pytest tests/visual_png -v
 
 ## CI 与验证边界
 
-独立的 [TUI PNG Visual](../../.github/workflows/tui-png.yml) 工作流在 **push main / Pull Request 修改 TUI、任务呈现、视觉夹具、锁文件或测试配置时自动运行**，也可通过 `workflow_dispatch` 手动触发。它安装截图工具、运行 PNG Golden 比对，并在失败时上传 actual / expected / diff / report.json artifacts；仍不影响原有 CI 的 SVG 快照。正式运行与完整测试环境无需安装 VHS 或桌面。
+独立的 [TUI PNG Visual](../../.github/workflows/tui-png.yml) 工作流在 **push main / Pull Request 修改 TUI、任务呈现、视觉夹具、锁文件或测试配置时自动运行**，也可通过 `workflow_dispatch` 手动触发。安装截图工具后，先用 `scripts/smoke_tui_png_environment.py` 分别检查 Chrome Headless 启动及 VHS 能否产生有效 PNG；若环境失败，直接输出浏览器 stderr，避免误报为 TUI 快照差异。冒烟通过才运行 PNG Golden 比对，并在失败时上传 actual / expected / diff / report.json artifacts；仍不影响原有 CI 的 SVG 快照。正式运行与完整测试环境无需安装 VHS 或桌面。
 
 VHS 的 xterm.js + Chrome 反映的是一个确定的无头终端模拟环境，
 不是 VS Code Windows 终端、SSH/tmux 或用户本地字体渲染的完全复刻；

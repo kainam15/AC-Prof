@@ -14,6 +14,7 @@ on:
       - 'tests/visual/**'
       - 'tests/visual_png/**'
       - 'scripts/capture_tui_png.py'
+      - 'scripts/smoke_tui_png_environment.py'
       - 'scripts/compare_tui_png.py'
       - '.github/workflows/tui-png.yml'
       - 'pyproject.toml'
@@ -28,6 +29,7 @@ on:
       - 'tests/visual/**'
       - 'tests/visual_png/**'
       - 'scripts/capture_tui_png.py'
+      - 'scripts/smoke_tui_png_environment.py'
       - 'scripts/compare_tui_png.py'
       - '.github/workflows/tui-png.yml'
       - 'pyproject.toml'
@@ -52,7 +54,7 @@ jobs:
       - name: Install optional headless terminal tooling
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends ttyd ffmpeg fonts-noto-cjk unzip
+          sudo apt-get install -y --no-install-recommends ttyd ffmpeg fonts-noto-cjk unzip apparmor
           curl --fail --location --silent --show-error --retry 3 \
             -o /tmp/vhs_0.12.1_amd64.deb \
             https://github.com/charmbracelet/vhs/releases/download/v0.12.1/vhs_0.12.1_amd64.deb
@@ -70,8 +72,24 @@ jobs:
           chmod +x "$RUNNER_TEMP/chrome-shim/google-chrome"
           echo "$RUNNER_TEMP/chrome-shim" >> "$GITHUB_PATH"
           "$RUNNER_TEMP/chrome-shim/google-chrome" --version | grep '147.0.7727.116'
+          # Ubuntu 24.04 restricts user namespaces for unpackaged Chrome for Testing.
+          # Allow only this pinned Chrome executable to create its own sandbox.
+          # Do not disable the kernel restriction or launch Chrome with --no-sandbox.
+          if [ "$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || printf '0')" = "1" ]; then
+            chrome_binary="$RUNNER_TEMP/chrome-for-testing/chrome-linux64/chrome"
+            profile="/etc/apparmor.d/acprof-vhs-chrome"
+            {
+              printf 'abi <abi/4.0>,\ninclude <tunables/global>\n'
+              printf 'profile acprof-vhs-chrome %s flags=(unconfined) {\n' "$chrome_binary"
+              printf '  userns,\n}\n'
+            } | sudo tee "$profile" >/dev/null
+            sudo apparmor_parser --replace "$profile"
+          fi
+          sysctl kernel.apparmor_restrict_unprivileged_userns || true
           echo 'b76b0433203017ca80401b2ee0dd69350349871c4b19d504c34dbdd80541690a  /usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc' | sha256sum --check
           fc-match 'Noto Sans Mono CJK SC'
+      - name: Smoke-test headless Chrome and VHS recording
+        run: python3 scripts/smoke_tui_png_environment.py
       - name: Install host test dependencies
         run: uv sync --locked --no-default-groups --group test
       - name: Capture and check real TUI scenes
