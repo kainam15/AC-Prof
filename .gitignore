@@ -22,6 +22,8 @@ snapshot_report.html
 results/
 # Keep authored documentation separate from experiment output directories.
 !docs/results/
+# Source protocol package is not a generated experiment directory.
+!acprof/results/
 /result-past/
 /internal-testing/
 
