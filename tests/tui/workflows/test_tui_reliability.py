@@ -5,6 +5,8 @@ import json
 import sys
 import tempfile
 import threading
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from dataclasses import replace
 from functools import partial
 from pathlib import Path
@@ -34,6 +36,41 @@ def write_csv(path, latencies=(0.01, 0.2)):
         for scale, latency in zip((64, 128), latencies, strict=True):
             writer.writerow(dict(cpu_cores=1, mem_cap_gb=4, gpu_mode="off", input_scale=scale,
                                  warmup=0, repeat_idx=0, status="ok", latency_app_s=latency))
+
+
+def test_overlapping_offline_reads_keep_measurement_excluded_until_last_reader():
+    from acprof.tui.result_controller import _OverlappingOfflineReads
+
+    gate = _OverlappingOfflineReads()
+    started, release = threading.Event(), threading.Event()
+    events = []
+
+    @contextmanager
+    def measurement_lease():
+        events.append("acquire")
+        try:
+            yield
+        finally:
+            events.append("release")
+
+    def slow_reader():
+        with gate.read():
+            started.set()
+            assert release.wait(3)
+
+    with patch("acprof.host.run_state.offline_analysis_lock", side_effect=measurement_lease) as lock:
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(slow_reader)
+            assert started.wait(2)
+            try:
+                with gate.read():
+                    assert lock.call_count == 1
+                    assert events == ["acquire"]
+                assert events == ["acquire"]
+            finally:
+                release.set()
+            future.result(timeout=3)
+    assert events == ["acquire", "release"]
 
 
 def test_execution_settings_do_not_change_preset():

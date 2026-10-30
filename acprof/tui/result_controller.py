@@ -9,6 +9,8 @@ import csv
 import io
 import json
 from collections import deque
+from collections.abc import Iterator
+from contextlib import AbstractContextManager, contextmanager
 from dataclasses import replace
 from functools import partial
 from pathlib import Path
@@ -40,12 +42,48 @@ from acprof.tui.reports import ReportView, read_report
 if TYPE_CHECKING:
     from acprof.tui.app import AcprofTui
 
+
+class _OverlappingOfflineReads:
+    """Share one measurement exclusion lease across concurrent read-only jobs.
+
+    Slow, cancelled readers must not block newer selections. Holding the lease
+    until the last reader exits still excludes the collector, including when
+    the latest reader finishes before an obsolete one.
+    """
+
+    def __init__(self) -> None:
+        self._guard = Lock()
+        self._readers = 0
+        self._lease: AbstractContextManager[object] | None = None
+
+    @contextmanager
+    def read(self) -> Iterator[None]:
+        from acprof.host.run_state import offline_analysis_lock
+
+        with self._guard:
+            if self._readers == 0:
+                lease = offline_analysis_lock()
+                lease.__enter__()
+                self._lease = lease
+            self._readers += 1
+        try:
+            yield
+        finally:
+            with self._guard:
+                self._readers -= 1
+                if self._readers == 0:
+                    held_lease = self._lease
+                    self._lease = None
+                    assert held_lease is not None
+                    held_lease.__exit__(None, None, None)
+
+
 class ResultController:
     """Own results state and operations; the App owns lifecycle and scheduling."""
 
     def __init__(self, app: AcprofTui) -> None:
         self.app = app
-        self.summary_lock = Lock()
+        self.offline_reads = _OverlappingOfflineReads()
         self.summary_request: Event | None = None
         self.summary_path: Path | None = None
         self.report_request: Event | None = None
@@ -124,13 +162,11 @@ class ResultController:
     def _execute_summary_read_worker(self, path: Path, token: Event, notify: bool) -> None:
         from concurrent.futures import CancelledError
 
-        from acprof.host.run_state import offline_analysis_lock
         try:
-            with self.summary_lock:
+            with self.offline_reads.read():
                 if token.is_set():
                     raise CancelledError()
-                with offline_analysis_lock():
-                    summary, error = summarize_result_csv(path, cancelled=token.is_set), ""
+                summary, error = summarize_result_csv(path, cancelled=token.is_set), ""
         except Exception as exc:
             summary, error = None, error_message(exc)
         self.app.process.safe_process_callback(
@@ -325,9 +361,8 @@ class ResultController:
         )
 
     def _execute_report_read_worker(self, path: Path, token: Event) -> None:
-        from acprof.host.run_state import offline_analysis_lock
         try:
-            with offline_analysis_lock():
+            with self.offline_reads.read():
                 view, error = read_report(path, cancelled=token.is_set), ""
         except Exception as exc:
             view, error = None, error_message(exc)
