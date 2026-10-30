@@ -141,7 +141,7 @@ class TaskCollection:
             values["workload_spec"] = str(path)
         config = replace(self.config, **values)
         # Interrupted before this task started: it has no RunState to restore.
-        from acprof.artifact_layout import ArtifactLayout
+        from acprof.results.layout import ArtifactLayout
         if config.resume and not ArtifactLayout.discover(config.result_dir(Path.cwd())).path("run_state.json").exists():
             config = replace(config, resume=False)
         return config

@@ -366,7 +366,7 @@ def main(argv=None):
         parser.error("需要已完成且包含所选设备的新实验")
     snapshot = state["runtime"]
     task, image = TaskInfo(**snapshot["task"]), ImageInfo(**snapshot["image"])
-    from acprof.artifact_layout import ArtifactLayout
+    from acprof.results.layout import ArtifactLayout
     plan_path = ArtifactLayout.discover(source).path("input_scale_plan.json")
     expected_hash = state["artifacts"].get(str(plan_path.relative_to(source)))
     if not expected_hash or file_sha256(plan_path) != expected_hash:

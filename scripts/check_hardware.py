@@ -22,7 +22,7 @@ from acprof.experiments.configuration import (  # noqa: E402 -- 脚本先设置�
     build_run_command,
 )
 from acprof.host.run_state import host_identity  # noqa: E402 -- 脚本先设置仓库导入路径。
-from acprof.result_csv import read_result_csv  # noqa: E402 -- 脚本先设置仓库导入路径。
+from acprof.results.csv import read_result_csv  # noqa: E402 -- 脚本先设置仓库导入路径。
 
 
 def run_config(config: RunConfig, output: Path, *, ui: str = "cli") -> dict:

@@ -59,7 +59,7 @@ def require_collection_host(*, profiling_mode="basic", compute_tool="none",
 
 def require_result_environment(output_dir: str) -> None:
     """Prevent extending a historical/foreign dataset under today's identity."""
-    from acprof.artifact_layout import ArtifactLayout
+    from acprof.results.layout import ArtifactLayout
     root = Path(output_dir)
     if not root.is_dir():
         return
@@ -134,7 +134,7 @@ def require_result_cgroup_compatibility(
     if not result_dir.is_dir():
         return
 
-    from acprof.artifact_layout import ArtifactLayout
+    from acprof.results.layout import ArtifactLayout
     layout = ArtifactLayout.discover(result_dir)
 
     partial_results = sorted(

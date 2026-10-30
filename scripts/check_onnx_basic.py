@@ -23,11 +23,11 @@ from acprof.capabilities import (  # noqa: E402 -- 脚本先设置仓库导入�
     measurement_report,
 )
 from acprof.config import STATIC_META_SCHEMA_VERSION  # noqa: E402 -- 脚本先设置仓库导入路径。
-from acprof.result_csv import (  # noqa: E402 -- 脚本先设置仓库导入路径。
+from acprof.results.csv import (  # noqa: E402 -- 脚本先设置仓库导入路径。
     expected_measurements,
     read_result_csv,
 )
-from acprof.result_layers import publish_result_rows  # noqa: E402 -- Publish strict result layers.
+from acprof.results.layers import publish_result_rows  # noqa: E402 -- Publish strict result layers.
 from examples.onnxruntime.fixtures import BASIC_SCENARIOS  # noqa: E402 -- 脚本先设置仓库导入路径。
 
 

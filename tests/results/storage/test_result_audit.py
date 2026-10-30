@@ -17,7 +17,7 @@ class TestResultAudit:
         self.root = Path(str(self.temporary))
         self.path = self.root / "result_all.csv"
     def test_v2_input_plan_symlink_is_reported_as_invalid_without_reading_it(self):
-        from acprof.artifact_layout import ArtifactLayout
+        from acprof.results.layout import ArtifactLayout
         ArtifactLayout.for_new_run(self.root).initialize()
         self.write(self.row())
         (self.root / "static_meta.json").write_text(json.dumps({"input_scale_plan_sha256": "untrusted"}))

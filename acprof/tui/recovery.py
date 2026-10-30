@@ -4,7 +4,6 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 
-from acprof.artifact_layout import ArtifactLayout
 from acprof.experiments.arguments import build_parser
 from acprof.experiments.configuration import RunConfig, build_run_command
 from acprof.host.run_state import (
@@ -15,6 +14,7 @@ from acprof.host.run_state import (
 )
 from acprof.messages import join_messages, message
 from acprof.models.evidence import pinned_revision
+from acprof.results.layout import ArtifactLayout
 from acprof.tui.commands import PendingLaunch
 from acprof.tui.experiment_catalog import (
     ExperimentRecord,

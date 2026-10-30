@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from acprof import result_csv, result_layers
+from acprof.results import csv as result_csv, layers as result_layers
 from tests.results.storage.test_result_row_assembly import row_store
 
 

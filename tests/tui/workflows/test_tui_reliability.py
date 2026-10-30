@@ -15,8 +15,8 @@ from unittest.mock import Mock, patch
 import pytest
 from textual.widgets import Button, Input, Select, Static, TabbedContent
 
-from acprof.artifact_layout import ArtifactLayout
 from acprof.experiments.configuration import RunConfig
+from acprof.results.layout import ArtifactLayout
 from acprof.tui.commands import PendingLaunch
 from acprof.tui.diagnostics import quick_preflight, summarize_result_csv
 from acprof.tui.i18n import translate
@@ -113,7 +113,7 @@ class TestRunAttribution:
             runtime=dict(planned=dict(scales=[64, 128])),
             cases={"case.csv": dict(status="complete", completed_at="2026-10-02T01:01:00Z")})
         self.save_state()
-        from acprof.result_layers import publish_result_rows
+        from acprof.results.layers import publish_result_rows
         fields = ["cpu_cores", "mem_cap_gb", "gpu_mode", "input_scale", "warmup",
                   "repeat_idx", "status", "latency_app_s", "environment_class"]
         rows = [dict(cpu_cores="1", mem_cap_gb="4", gpu_mode="off", input_scale=str(scale),
@@ -431,7 +431,7 @@ class TestTuiReliability:
         script = f'''
 import csv, json, os
 from pathlib import Path
-from acprof.artifact_layout import ArtifactLayout
+from acprof.results.layout import ArtifactLayout
 layout = ArtifactLayout.for_new_run(Path({str(directory)!r}))
 layout.initialize()
 state = dict(schema_version=1, layout_version=2, run_id="child-run", status="complete", outcome="ok",
@@ -441,7 +441,7 @@ state = dict(schema_version=1, layout_version=2, run_id="child-run", status="com
 layout.path("run_state.json").parent.mkdir(parents=True, exist_ok=True)
 layout.path("run_state.json").write_text(json.dumps(state))
 layout.path("capability_report.json").write_text(json.dumps({{"requested_measurements_complete": True}}))
-from acprof.result_layers import publish_result_rows
+from acprof.results.layers import publish_result_rows
 publish_result_rows(["cpu_cores", "mem_cap_gb", "gpu_mode", "input_scale", "warmup",
                      "repeat_idx", "status", "latency_app_s", "environment_class"],
                     [dict(cpu_cores="1", mem_cap_gb="4", gpu_mode="off", input_scale="64",

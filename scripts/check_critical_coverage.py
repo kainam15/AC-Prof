@@ -12,8 +12,8 @@ from pathlib import Path
 
 # Rounded down below the observed focused-test branch ratios.
 BRANCH_FLOORS = {
-    "acprof/result_csv.py": 65.0,
-    "acprof/result_layers.py": 70.0,
+    "acprof/results/csv.py": 65.0,
+    "acprof/results/layers.py": 70.0,
     "acprof/host/matrix_plan.py": 60.0,
     "acprof/host/run_state.py": 65.0,
     "acprof/monitors/energy_cpu.py": 55.0,

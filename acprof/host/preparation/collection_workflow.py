@@ -36,7 +36,7 @@ def retain_validation_failure(output_dir: str) -> None:
     import shutil
     import uuid
 
-    from acprof.artifact_layout import ArtifactLayout
+    from acprof.results.layout import ArtifactLayout
     layout = ArtifactLayout.discover(output_dir)
     report = layout.path("runtime_validation.json")
     if not report.is_file():

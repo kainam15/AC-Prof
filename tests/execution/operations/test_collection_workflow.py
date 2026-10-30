@@ -21,7 +21,7 @@ from acprof.host.preparation.collection_workflow import (
 )
 from acprof.host.preparation.model_inspection import explain_resolution
 from acprof.models.spec import task_model_spec
-from acprof.result_csv import read_result_csv
+from acprof.results.csv import read_result_csv
 from tests.models.contracts.test_model_lookup import hub_error
 
 
@@ -147,7 +147,7 @@ class TestCollectionWorkflow:
 
     @pytest.mark.parametrize("case", ["nonfinite", "oversized"])
     def test_validation_failure_archive_rejects_untrusted_report(self, case):
-        from acprof.artifact_layout import ArtifactLayout
+        from acprof.results.layout import ArtifactLayout
 
         root = self.fixture_root / f"archive-{case}"
         layout = ArtifactLayout.for_new_run(root)
@@ -168,7 +168,7 @@ class TestCollectionWorkflow:
     def test_validation_failure_archive_syncs_files_and_directory_chain(self):
         import stat
 
-        from acprof.artifact_layout import ArtifactLayout
+        from acprof.results.layout import ArtifactLayout
 
         root = self.fixture_root / "archive-durability"
         layout = ArtifactLayout.for_new_run(root)

@@ -95,8 +95,8 @@ def test_report_on_non_linux_does_not_request_linux_lock(tmp_path, monkeypatch, 
     (*CASES[2], "acprof.analysis.independent_comparison"),
     (*CASES[3], "acprof.analysis.model"),
     (*CASES[4], "acprof.analysis.audit"),
-    (*CASES[5], "acprof.result_layers"),
-    (*CASES[6], "acprof.result_layers"),
+    (*CASES[5], "acprof.results.layers"),
+    (*CASES[6], "acprof.results.layers"),
 ])
 @pytest.mark.parametrize("failure", [ImportError, KeyboardInterrupt])
 def test_command_imports_under_lock_and_releases_it_on_failure(tmp_path, monkeypatch, name, arguments, module, failure):

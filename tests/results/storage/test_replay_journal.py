@@ -10,7 +10,7 @@ import pytest
 from tests.results.storage.test_incremental_results import receipt
 from tests.results.storage.test_projection_recovery import committed_store
 
-from acprof.result_layers import read_result_layers
+from acprof.results.layers import read_result_layers
 from acprof.result_store.writer import ResultWriter
 
 

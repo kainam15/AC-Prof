@@ -13,8 +13,8 @@ from tests.results.storage.test_projection_recovery import watch_projection
 
 from acprof.artifacts import file_sha256
 from acprof.config import CSV_FIELDS
-from acprof.result_csv import ResultCsvSnapshot, ResultValidationError
-from acprof.result_layers import LAYER_FILES
+from acprof.results.csv import ResultCsvSnapshot, ResultValidationError
+from acprof.results.layers import LAYER_FILES
 from acprof.result_store.initialization import initial_files, initialize_results
 from acprof.result_store.protocol import publication_lock
 from acprof.result_store.reader import read_snapshot

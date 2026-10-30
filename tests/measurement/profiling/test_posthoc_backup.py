@@ -10,12 +10,12 @@ from pathlib import Path
 
 import pytest
 
-from acprof.artifact_layout import ArtifactLayout
 from acprof.host.posthoc import storage
 from acprof.host.posthoc.context import PosthocError, load_result_context
-from acprof.result_csv import read_result_csv
-from acprof.result_layers import publish_result_rows, read_result_layers
 from acprof.result_store.protocol import publication_lock
+from acprof.results.csv import read_result_csv
+from acprof.results.layers import publish_result_rows, read_result_layers
+from acprof.results.layout import ArtifactLayout
 from tests.measurement.profiling.test_posthoc import TestPosthocProfile as _PosthocFixture
 from tests.results.storage.test_projection_recovery import committed_store
 from tests.results.storage.test_result_generations import _write_legacy_snapshot

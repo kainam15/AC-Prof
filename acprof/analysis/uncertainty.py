@@ -8,8 +8,8 @@ from collections import defaultdict
 from concurrent.futures import CancelledError
 
 from acprof.analysis.precision import assess_mean_precision, validate_precision_target
-from acprof.metric_registry import METRICS
-from acprof.result_csv import measurement_key
+from acprof.results.csv import measurement_key
+from acprof.results.metrics import METRICS
 
 
 def validate_window_options(metrics, *, confidence=0.95, resamples=5000, block_size=1,

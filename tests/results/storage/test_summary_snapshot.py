@@ -15,7 +15,7 @@ from tests.results.storage.test_sequential_result_reads import artifact_hashes, 
 
 from acprof.analysis import audit
 from acprof.config import CSV_FIELDS
-from acprof.result_layers import LAYER_FILES, publish_result_rows
+from acprof.results.layers import LAYER_FILES, publish_result_rows
 from acprof.tui import diagnostics
 
 
@@ -97,7 +97,7 @@ def test_layered_summary_uses_rows_without_reencoding_csv(tmp_path, monkeypatch,
     def forbidden(_text):
         pytest.fail("summary re-encoded parsed layers as another CSV")
 
-    monkeypatch.setattr("acprof.result_csv._CsvRowEncoder.write", staticmethod(forbidden))
+    monkeypatch.setattr("acprof.results.csv._CsvRowEncoder.write", staticmethod(forbidden))
     summary = diagnostics.summarize_result_csv(source.parent if directory_input else source)
     assert summary.rows == summary.ok_rows == 2
     assert artifact_hashes(layout) == original
@@ -253,7 +253,7 @@ async def test_selection_change_releases_a_waiting_layer_reader_at_80x24(source,
     from textual.widgets import Button, Input, Static
     from tests.support.tui_fixtures import AcprofTui
 
-    from acprof.artifact_layout import ArtifactLayout
+    from acprof.results.layout import ArtifactLayout
     from acprof.result_store.protocol import publication_lock
     from acprof.tui.settings import TuiSettings, UiPreferences, save_settings
 

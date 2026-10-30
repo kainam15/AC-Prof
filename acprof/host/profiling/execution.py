@@ -316,7 +316,7 @@ def _execution_plan(
 
 
 def _profile_workspace(request: ExecutionProfileRequest) -> _ProfileWorkspace:
-    from acprof.artifact_layout import ArtifactLayout
+    from acprof.results.layout import ArtifactLayout
 
     entries = load_input_scale_plan_entries(request.input_scale_plan_file)
     output_dir = os.path.abspath(os.fspath(request.output_dir))

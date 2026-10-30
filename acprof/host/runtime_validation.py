@@ -96,7 +96,7 @@ def validate_runtime(
     }
     root = Path(output_dir)
     root.mkdir(parents=True, exist_ok=True)
-    from acprof.artifact_layout import ArtifactLayout
+    from acprof.results.layout import ArtifactLayout
     layout = ArtifactLayout.discover(root)
     failure = None
     structured_failure = None

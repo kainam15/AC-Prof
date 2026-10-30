@@ -6,7 +6,6 @@ from unittest.mock import patch
 
 import pytest
 
-from acprof.artifact_layout import case_sidecar
 from acprof.config import CSV_FIELDS
 from acprof.host import cases, client, docker_runtime, orchestrator
 from acprof.host.client import ClientRunner
@@ -14,6 +13,7 @@ from acprof.host.detect import TaskInfo
 from acprof.host.images import runtime as runtime_images
 from acprof.host.measurement.config import ClientConfig
 from acprof.monitors import energy_cpu, energy_nvml, resource_readers, resource_usage
+from acprof.results.layout import case_sidecar
 
 
 def test_io_counter_reset_is_not_reported_as_zero():

@@ -10,7 +10,6 @@ import pandas as pd
 from acprof.analysis.inputs import resource_coordinate
 from acprof.analysis.lifecycle import LifecycleConflict, unique_startup_observations
 from acprof.gpu_mode import normalize_gpu_mode
-from acprof.metric_registry import NUMERIC_FIELDS
 from acprof.pixel_metrics import (
     PIXEL_COUNT_FIELDS,
     PIXEL_RATE_SOURCES,
@@ -18,6 +17,7 @@ from acprof.pixel_metrics import (
 )
 from acprof.platform import recorded_identity
 from acprof.plotting.config import BYTES_PER_GIB, COMPUTE_NUMERIC_COLUMNS, PLOT_OUTPUT_DIRS
+from acprof.results.metrics import NUMERIC_FIELDS
 
 
 def _make_config_label(row) -> str:
@@ -183,11 +183,11 @@ def prepare_df(
     if not os.path.exists(csv_path):
         raise FileNotFoundError(f"Cannot find {csv_path}")
 
-    from acprof.result_csv import open_result_text
+    from acprof.results.csv import open_result_text
     with open_result_text(csv_path) as stream:
         df = pd.read_csv(stream, skipinitialspace=True, float_precision="round_trip")
     df.columns = [str(col).strip() for col in df.columns]
-    from acprof.result_csv import require_current_fields
+    from acprof.results.csv import require_current_fields
     require_current_fields(df.columns)
     for col in df.columns:
         if pd.api.types.is_object_dtype(df[col]) or pd.api.types.is_string_dtype(df[col]):
@@ -262,8 +262,8 @@ def prepare_df(
 
 
 def read_static_meta(csv_path: str) -> dict[str, object]:
-    from acprof.artifact_layout import ArtifactLayout
     from acprof.artifacts import read_static_metadata
+    from acprof.results.layout import ArtifactLayout
     return read_static_metadata(ArtifactLayout.from_csv(csv_path).root)
 
 

@@ -13,7 +13,6 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from acprof.artifact_layout import ArtifactLayout
 from acprof.artifacts import atomic_write_json, read_input_scale_plan
 from acprof.host.detect import TaskInfo
 from acprof.host.docker_runtime import start_container_session, stop_container_session
@@ -24,6 +23,7 @@ from acprof.host.images.runtime import ImageInfo, require_image_identity
 from acprof.host.measurement.load import LoadConfig, run_load
 from acprof.host.run_state import MeasurementLock, file_sha256, host_identity, load_run_state
 from acprof.installation import module_command, resource_root
+from acprof.results.layout import ArtifactLayout
 from acprof.system.command import run_command
 
 

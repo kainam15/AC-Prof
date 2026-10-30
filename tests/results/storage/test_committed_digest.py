@@ -8,8 +8,8 @@ from pathlib import Path
 
 import pytest
 
-from acprof.artifact_layout import ArtifactLayout
-from acprof.result_csv import ResultValidationError
+from acprof.results.layout import ArtifactLayout
+from acprof.results.csv import ResultValidationError
 from acprof.result_store.protocol import publication_lock
 from acprof.result_store.reader import committed_content_digest
 from acprof.result_store.writer import ResultWriter

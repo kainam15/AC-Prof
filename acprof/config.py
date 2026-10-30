@@ -53,7 +53,7 @@ READY_POLL_INTERVAL_S = 0.1
 # CSV 输出字段
 # ─────────────────────────────────────────────
 # 保留公共字段导出及现有初始化顺序。
-from acprof.metric_registry import (  # noqa: E402
+from acprof.results.metrics import (  # noqa: E402
     CSV_FIELDS as CSV_FIELDS,
     GPU_RUNTIME_STATE_FIELDS as GPU_RUNTIME_STATE_FIELDS,
 )

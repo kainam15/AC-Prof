@@ -1,9 +1,9 @@
 """Result cleanup must never remove evidence before a completed merge."""
 from pathlib import Path
 
-from acprof.artifact_layout import ArtifactLayout
+from acprof.results.layout import ArtifactLayout
 from acprof.host.result_cleanup import cleanup_intermediate_results
-from acprof.result_layers import publish_result_rows
+from acprof.results.layers import publish_result_rows
 
 
 def test_flat_case_cleanup_preserves_final_csv(tmp_path: Path):

@@ -216,7 +216,7 @@ class RunApplication:
             final_csv = str(layout.result_csv)
             emit_event("results_merging")
             merge_all_csvs(csv_paths, final_csv, expected=run_state.expected())
-            from acprof.result_csv import read_result_csv
+            from acprof.results.csv import read_result_csv
             _, collected_rows = read_result_csv(final_csv)
             apply_collection_result(capability_report, collected_rows)
             from acprof.artifacts import atomic_write_json
@@ -358,7 +358,7 @@ class RunApplication:
         workflow = self.workflow_factory(args.output_dir) if self.workflow_factory else PreparationWorkflow.from_environment(args.output_dir)
         workflow.continue_on_task_failure = task_child
 
-        from acprof.artifact_layout import ArtifactLayout
+        from acprof.results.layout import ArtifactLayout
         has_run_state = ArtifactLayout.discover(terminal_output_dir).path("run_state.json").exists()
         saved_run = load_run_state(terminal_output_dir) if args.resume and has_run_state else {}
         collection = None

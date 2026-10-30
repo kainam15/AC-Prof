@@ -14,7 +14,7 @@ from acprof.notifications import (
     NotificationEvent,
     WeComWebhookNotifier,
 )
-from acprof.result_csv import allow_large_csv_fields
+from acprof.results.csv import allow_large_csv_fields
 
 
 @dataclass

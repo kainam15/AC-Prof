@@ -375,7 +375,7 @@ class RunConfig(RunOptions):
         return root
 
     def result_csv(self, project_dir: Path) -> Path:
-        from acprof.artifact_layout import ArtifactLayout
+        from acprof.results.layout import ArtifactLayout
         return ArtifactLayout.discover(self.result_dir(project_dir)).result_csv
 
 

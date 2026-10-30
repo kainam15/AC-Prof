@@ -14,9 +14,9 @@ from acprof.artifacts import (
     read_static_metadata,
 )
 from acprof.latency_slo import latency_slo_threshold
-from acprof.metric_registry import order_csv_fields
 from acprof.pixel_metrics import per_megapixel
-from acprof.result_csv import allow_large_csv_fields
+from acprof.results.csv import allow_large_csv_fields
+from acprof.results.metrics import order_csv_fields
 
 SNIFF_GROUP_FIELD = "sniff_group_id"
 NETWORK_RECORD_TO_CSV_FIELD = {
@@ -160,7 +160,7 @@ def _mflops_for_latency(work_mflop: object, latency_s: float) -> float:
 
 
 def _recompute_packet_flop_rates(row: dict, latency_s: float) -> None:
-    from acprof.result_csv import require_current_fields
+    from acprof.results.csv import require_current_fields
     require_current_fields(row)
     for source, destination in (
         ("model_logical_mflop_per_request_torch_profiler_eager", "model_logical_mflops_packet_torch_profiler_eager"),
@@ -202,7 +202,7 @@ def _compute_cpu_mips(row: dict, latency_s: float) -> float:
 
 
 def _read_sidecar_groups(csv_path: str, expected_rows: int) -> list[str]:
-    from acprof.artifact_layout import case_sidecar
+    from acprof.results.layout import case_sidecar
     sidecar_path = case_sidecar(csv_path, "sniff_groups")
     if not os.path.exists(sidecar_path):
         return []
@@ -244,8 +244,8 @@ def _read_sidecar_groups(csv_path: str, expected_rows: int) -> list[str]:
 
 def _merge_request_samples(csv_path: str, request_records: dict) -> None:
     """Retain packet samples alongside app samples before PCAP cleanup."""
-    from acprof.artifact_layout import case_sidecar
     from acprof.artifacts import atomic_write
+    from acprof.results.layout import case_sidecar
     path = case_sidecar(csv_path, "requests")
     if not os.path.exists(path):
         return  # Historical CSVs have no raw application samples.
@@ -279,7 +279,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     # A capture grows with request count; the small-metadata cap does not apply.
     packet_payload = read_json_object(lat_json, label="packet metrics", bounded=False)
     request_records = _request_records(packet_payload)
-    from acprof.artifact_layout import ArtifactLayout
+    from acprof.results.layout import ArtifactLayout
     metadata = read_static_metadata(ArtifactLayout.from_csv(in_csv).root)
     static_batch_size = _to_float(metadata.get("batch_size", "nan"))
     slow_latency_threshold_s = latency_slo_threshold(metadata)
@@ -298,7 +298,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     if fields is None:
         raise SystemExit("empty csv")
 
-    from acprof.result_csv import require_current_fields
+    from acprof.results.csv import require_current_fields
     require_current_fields(fields)
     sidecar_groups = _read_sidecar_groups(in_csv, len(rows))
 

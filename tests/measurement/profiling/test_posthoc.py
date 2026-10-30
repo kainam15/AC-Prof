@@ -32,7 +32,7 @@ class TestPosthocProfile:
         self.pin_gpu = selection.start()
         self._request.addfinalizer(partial(selection.stop))
     def test_v2_reuses_metadata_plans_and_preserves_backups_under_internal_directory(self):
-        from acprof.artifact_layout import ArtifactLayout
+        from acprof.results.layout import ArtifactLayout
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             layout = ArtifactLayout.for_new_run(root)
@@ -118,7 +118,7 @@ class TestPosthocProfile:
     @pytest.mark.parametrize("changed", ["result", "metadata"])
     def test_rechecks_snapshot_after_acquiring_posthoc_lock(self, tmp_path, monkeypatch, changed):
         import acprof.host.posthoc.service as service
-        from acprof.result_layers import publish_result_rows, read_result_layers
+        from acprof.results.layers import publish_result_rows, read_result_layers
 
         self._write_fixture(tmp_path)
         original_lock = service.PosthocLock
@@ -340,7 +340,7 @@ class TestPosthocProfile:
             writer = csv.DictWriter(f, fieldnames=fieldnames)
             writer.writeheader()
             writer.writerows(rows)
-        from acprof.result_layers import publish_result_layers
+        from acprof.results.layers import publish_result_layers
         publish_result_layers(csv_path)
         return csv_path
 
@@ -481,7 +481,7 @@ class TestPosthocProfile:
         }
 
     def _read_rows(self, path: Path):
-        from acprof.result_csv import read_result_csv
+        from acprof.results.csv import read_result_csv
         source = path.parent / "result_layers.json" if path.name == "result_all.csv" else path
         return read_result_csv(source)[1]
 
@@ -962,7 +962,7 @@ class TestPosthocProfile:
             assert stat.S_IFDIR in synced_file_types
 
     def test_create_backup_removes_incomplete_directory_on_copy_failure(self):
-        from acprof.artifact_layout import ArtifactLayout
+        from acprof.results.layout import ArtifactLayout
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "example--model"

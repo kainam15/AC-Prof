@@ -7,8 +7,8 @@ import webbrowser
 from pathlib import Path
 from typing import BinaryIO
 
-from acprof.artifact_layout import ArtifactLayout
 from acprof.artifacts import atomic_write_binary
+from acprof.results.layout import ArtifactLayout
 from acprof.tui.i18n import message_id
 
 

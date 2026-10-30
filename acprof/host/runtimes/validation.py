@@ -5,13 +5,13 @@ import hashlib
 import json
 import uuid
 
-from acprof.artifact_layout import ArtifactLayout
 from acprof.artifacts import atomic_write_json, read_input_scale_plan
 from acprof.events.preparation import preparation_stage
 from acprof.host.runtimes.contracts import ProcessInfo
 from acprof.host.runtimes.process import service_environment
 from acprof.host.runtimes.process_control import ManagedProcess
 from acprof.host.validation_logs import last_prefixed_record
+from acprof.results.layout import ArtifactLayout
 
 
 def run_validation(task, info, module, prefix, output_dir, *, gpu="off", payload=None, timeout=300,

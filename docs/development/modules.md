@@ -55,11 +55,11 @@
 | `acprof/packet/` | 抓包解析及 packet latency 合并 |
 | `acprof/config.py` | 共享配置、任务尺度及 CSV/静态元数据字段协议 |
 | `acprof/experiments/options.py`、`acprof/experiments/arguments.py`、`acprof/experiments/configuration.py` | 共享字段 schema、CLI 注册与序列化、配置验证；run/probe 命令消费相同声明 |
-| `acprof/metric_registry.py` | 指标顺序、单位、来源、窗口、展示和内部行分组；分析与测量消费派生视图 |
-| `acprof/artifacts.py`、`acprof/result_csv.py` | 原子产物发布、CSV 结构与测量唯一键校验；不初始化采集依赖 |
+| `acprof/results/metrics.py` | 指标顺序、单位、来源、窗口、展示和内部行分组；分析与测量消费派生视图 |
+| `acprof/artifacts.py`、`acprof/results/csv.py` | 原子产物发布、CSV 结构与测量唯一键校验；不初始化采集依赖 |
 | `acprof/cancellation.py` | 同步产物消费者的协作取消检查与迭代边界；不创建线程、定时任务或后台轮询 |
-| `acprof/result_store/`、`acprof/result_layers.py` | schema v3 分层追加、统一提交、来源重放、模块替换、读取与不可变快照；不启动采集器，所有写入位于测量窗口之外 |
-| `acprof/artifact_layout.py` | 结果清单、v2/flat 布局识别、受限相对路径及 case sidecar 路由；采集、恢复、补采和分析共用 |
+| `acprof/result_store/`、`acprof/results/layers.py` | schema v3 分层追加、统一提交、来源重放、模块替换、读取与不可变快照；不启动采集器，所有写入位于测量窗口之外 |
+| `acprof/results/layout.py` | 结果清单、v2/flat 布局识别、受限相对路径及 case sidecar 路由；采集、恢复、补采和分析共用 |
 | `acprof/pixel_metrics.py` | 像素计数和能耗/延迟归一化的纯计算，由 client、packet 和 plotting 共用 |
 | `acprof/runtime/profiles.py` | 平台、依赖环境、逻辑 profile 与锁身份；从扩展声明读取路由 |
 | `acprof/models/support.py` | 精确版本的 Transformers 注册与能力目录，判断 Auto 类和 Pipeline 任务支持；只读静态数据，不导入模型 |

@@ -13,15 +13,15 @@ from threading import Event
 import pytest
 
 from acprof.config import CSV_FIELDS
-from acprof.result_csv import (
+from acprof.result_store.writer import ResultWriter
+from acprof.results.csv import (
     ResultValidationError,
     open_result_text,
     parse_result_stream,
     read_result_csv,
     read_result_csv_snapshot,
 )
-from acprof.result_layers import export_result_layers, publish_result_layers, read_result_layers
-from acprof.result_store.writer import ResultWriter
+from acprof.results.layers import export_result_layers, publish_result_layers, read_result_layers
 from tests.results.storage.test_recovery_hash_state import diagnostic_store
 
 
@@ -151,5 +151,5 @@ def test_concurrent_readers_never_restore_a_smaller_limit(tmp_path):
 
 def test_importing_result_helpers_does_not_change_csv_policy():
     subprocess.run([sys.executable, "-c", "import csv; before = csv.field_size_limit(); "
-                    "import acprof.result_csv; assert csv.field_size_limit() == before"],
+                    "import acprof.results.csv; assert csv.field_size_limit() == before"],
                    check=True, capture_output=True, text=True, timeout=10)

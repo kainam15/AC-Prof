@@ -8,7 +8,7 @@ import pytest
 from acprof.host import client, run_state
 from acprof.host.measurement.config import ClientConfig
 from acprof.monitors.resource_metrics import empty_resource_result
-from acprof.result_layers import read_result_layers
+from acprof.results.layers import read_result_layers
 from acprof.result_store.writer import ResultWriter
 
 

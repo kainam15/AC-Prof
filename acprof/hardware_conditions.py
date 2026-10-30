@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from acprof.artifact_layout import ArtifactLayout
+from acprof.results.layout import ArtifactLayout
 
 HARDWARE_FIELDS = ("host_id", "cpu_model", "cpu_affinity", "cpu_policy", "gpu", "runtime_threads")
 

@@ -9,7 +9,6 @@ import sys
 from dataclasses import dataclass
 from typing import Any, TextIO
 
-from acprof.artifact_layout import ArtifactLayout, case_sidecar
 from acprof.artifacts import atomic_write, read_json_object
 from acprof.config import CSV_FIELDS, DEFAULT_REQUEST_TIMEOUT_SECONDS
 from acprof.gpu_mode import normalize_gpu_mode
@@ -22,7 +21,8 @@ from acprof.host.measurement.energy_validation import row_has_error_status
 from acprof.host.measurement.publication import reconcile_sniff_group_sidecar
 from acprof.host.profiling.compute_plan import NCU_ERROR_FIELD, TORCH_ERROR_FIELD
 from acprof.pixel_metrics import PIXEL_COUNT_FIELDS, PIXEL_RATE_SOURCES
-from acprof.result_csv import allow_large_csv_fields
+from acprof.results.csv import allow_large_csv_fields
+from acprof.results.layout import ArtifactLayout, case_sidecar
 
 
 @dataclass(frozen=True)

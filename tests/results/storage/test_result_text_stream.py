@@ -16,8 +16,8 @@ from tests.results.storage.test_result_row_assembly import row_store
 from tests.results.storage.test_sequential_result_reads import artifact_hashes, snapshot_store
 
 from acprof.artifacts import file_sha256
-from acprof.result_csv import ResultValidationError, open_result_text, read_result_csv
-from acprof.result_layers import publish_result_rows
+from acprof.results.csv import ResultValidationError, open_result_text, read_result_csv
+from acprof.results.layers import publish_result_rows
 from acprof.result_store.writer import ResultWriter
 
 
@@ -156,7 +156,7 @@ def tracked_reader(references):
 
 def test_consumed_and_cancelled_views_release_private_rows(tmp_path, monkeypatch):
     references = []
-    monkeypatch.setattr("acprof.result_csv.read_result_csv", tracked_reader(references))
+    monkeypatch.setattr("acprof.results.csv.read_result_csv", tracked_reader(references))
     stream = open_result_text(tmp_path / "result_layers.json")
     assert all(reference() is not None for reference in references)
     def cancel_while_reading():
@@ -176,7 +176,7 @@ def test_consumed_and_cancelled_views_release_private_rows(tmp_path, monkeypatch
 @pytest.mark.parametrize("failure", [OSError("injected encoding failure"), KeyboardInterrupt("cancelled")])
 def test_serialization_failure_releases_rows_and_rejects_later_reads(tmp_path, monkeypatch, failure):
     references = []
-    monkeypatch.setattr("acprof.result_csv.read_result_csv", tracked_reader(references))
+    monkeypatch.setattr("acprof.results.csv.read_result_csv", tracked_reader(references))
     calls = 0
 
     def encode(text):
@@ -186,7 +186,7 @@ def test_serialization_failure_releases_rows_and_rejects_later_reads(tmp_path, m
             raise failure
         return text.encode("utf-8")
 
-    monkeypatch.setattr("acprof.result_csv._CsvRowEncoder.write", staticmethod(encode))
+    monkeypatch.setattr("acprof.results.csv._CsvRowEncoder.write", staticmethod(encode))
     stream = open_result_text(tmp_path / "result_layers.json")
     with pytest.raises(type(failure)) as caught, stream:
         stream.read()
@@ -221,7 +221,7 @@ def test_cancelled_summary_does_not_open_a_logical_stream(tmp_path, monkeypatch)
     def forbidden(_path):
         pytest.fail("cancelled summary opened a logical CSV stream")
 
-    monkeypatch.setattr("acprof.result_csv.open_result_text", forbidden)
+    monkeypatch.setattr("acprof.results.csv.open_result_text", forbidden)
     with pytest.raises(CancelledError):
         summarize_result_csv(layout.result_csv, cancelled=lambda: True)
     assert artifact_hashes(layout) == before

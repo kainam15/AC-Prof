@@ -217,8 +217,8 @@ def test_server_failure_survives_client_and_is_written_after_request():
     assert (saved["failures"]) == ([failure.to_dict()])
 
 def test_collect_failures_rejects_nonfinite_case_evidence(tmp_path):
-    from acprof.artifact_layout import case_sidecar
     from acprof.failures import collect_failures
+    from acprof.results.layout import case_sidecar
 
     case_csv = tmp_path / "case.csv"
     case_sidecar(case_csv, "runtime_failures").write_text(

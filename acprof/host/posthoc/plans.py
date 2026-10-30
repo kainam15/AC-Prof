@@ -9,7 +9,6 @@ from typing import (
     Any,
 )
 
-from acprof.artifact_layout import ArtifactLayout
 from acprof.gpu_mode import normalize_gpu_mode
 from acprof.host.input_plan import PlannedInputScales
 from acprof.host.posthoc.context import (
@@ -30,6 +29,7 @@ from acprof.host.profiling.compute_plan import (
     find_compute_profile_entry,
 )
 from acprof.host.profiling.execution_plan import ExecutionProfileResolver
+from acprof.results.layout import ArtifactLayout
 from acprof.system.command import run_command
 
 

@@ -61,7 +61,7 @@ class TestExperimentCatalog(CatalogFixture):
         report = scan_experiments([self.root])
         assert (len(report.records)) == (1)
         assert (set(report.records[0].aliases)) == ({original, copy})
-        from acprof.result_layers import publish_result_rows, read_result_layers
+        from acprof.results.layers import publish_result_rows, read_result_layers
         fields, rows = read_result_layers(copy)
         rows[0]["status"] = "error"
         publish_result_rows(fields, rows, copy)
@@ -159,7 +159,7 @@ def test_duplicate_run_detects_tampered_layer_even_when_manifest_unchanged(tmp_p
 
 
 def test_experiment_source_title_uses_saved_metadata_without_changing_run_identity(tmp_path):
-    from acprof.artifact_layout import ArtifactLayout
+    from acprof.results.layout import ArtifactLayout
     from acprof.tui.experiment_catalog import experiment_source_title
 
     run_id = '33dec6b68b6a4369a278d1b1744b71e4'

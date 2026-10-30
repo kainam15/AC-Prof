@@ -16,7 +16,7 @@ from acprof.analysis.uncertainty import (  # noqa: E402 -- 脚本先设置仓库
 )
 from acprof.artifacts import atomic_write_json  # noqa: E402 -- 脚本先设置仓库导入路径。
 from acprof.experiments.configuration import RunConfig  # noqa: E402 -- 脚本先设置仓库导入路径。
-from acprof.result_csv import read_result_csv  # noqa: E402 -- 脚本先设置仓库导入路径。
+from acprof.results.csv import read_result_csv  # noqa: E402 -- 脚本先设置仓库导入路径。
 from scripts.check_hardware import run_config  # noqa: E402 -- 脚本先设置仓库导入路径。
 
 

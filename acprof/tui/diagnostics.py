@@ -20,7 +20,7 @@ from acprof.host.measurement.capture import tcpdump_capability_available
 from acprof.host.preflight import probe_cpu_energy, probe_perf_instructions
 from acprof.messages import join_messages, message
 from acprof.platform import capability_matrix, collection_policy_error, detect_environment
-from acprof.result_csv import (
+from acprof.results.csv import (
     KEY_FIELDS,
     read_result_csv_snapshot,
     require_current_fields,

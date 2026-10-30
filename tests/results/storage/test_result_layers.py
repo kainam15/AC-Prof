@@ -5,8 +5,8 @@ import json
 import pytest
 
 from acprof.config import CSV_FIELDS
-from acprof.result_csv import ResultValidationError
-from acprof.result_layers import (
+from acprof.results.csv import ResultValidationError
+from acprof.results.layers import (
     LAYER_FILES,
     export_result_layers,
     field_layer,
@@ -175,7 +175,7 @@ def test_posthoc_preserves_prior_generation_and_unchanged_values(wide_csv, tmp_p
 
 
 def test_posthoc_layer_publish_failure_restores_wide_and_layers(wide_csv, tmp_path, monkeypatch):
-    import acprof.result_layers as layer_module
+    import acprof.results.layers as layer_module
     from acprof.host.posthoc.storage import commit_result_files
 
     source = wide_csv[0]
@@ -198,7 +198,7 @@ def test_posthoc_layer_publish_failure_restores_wide_and_layers(wide_csv, tmp_pa
 
 def test_cli_verifies_layers_and_exports_only_explicitly(wide_csv, tmp_path):
     from acprof.cli.main import main
-    from acprof.result_layers import publish_result_rows
+    from acprof.results.layers import publish_result_rows
 
     source, fields, rows = wide_csv
     source.unlink()  # No authoritative wide CSV is retained.
@@ -234,7 +234,7 @@ def test_audit_reports_corrupt_layer(wide_csv, tmp_path):
 
 def test_audit_rejects_missing_environment_identity_in_layered_result(tmp_path):
     from acprof.analysis.audit import audit_result
-    from acprof.result_layers import publish_result_rows
+    from acprof.results.layers import publish_result_rows
 
     fields = ["cpu_cores", "mem_cap_gb", "gpu_mode", "input_scale",
               "warmup", "repeat_idx", "status"]

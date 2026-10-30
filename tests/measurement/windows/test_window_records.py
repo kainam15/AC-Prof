@@ -9,12 +9,12 @@ import pytest
 
 from acprof.config import CSV_FIELDS
 from acprof.host.measurement import publication as client_publication
-from acprof.telemetry import window_evidence
-from acprof.window_records import (
+from acprof.results.windows import (
     WindowPublicationContext,
     read_window_record,
     verify_case_window_records,
 )
+from acprof.telemetry import window_evidence
 
 
 def publication(tmp_path, attempt="a1"):

@@ -8,10 +8,10 @@ import tracemalloc
 
 import pytest
 
-from acprof.artifact_layout import ArtifactLayout
+from acprof.results.layout import ArtifactLayout
 from acprof.artifacts import file_sha256
-from acprof.result_csv import KEY_FIELDS
-from acprof.result_layers import (
+from acprof.results.csv import KEY_FIELDS
+from acprof.results.layers import (
     LAYER_FILES,
     layer_fields,
     publish_result_rows,

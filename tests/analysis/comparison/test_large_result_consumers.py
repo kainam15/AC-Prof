@@ -22,7 +22,7 @@ from acprof.host.measurement.energy_validation import (
 from acprof.host.measurement.publication import reconcile_sniff_group_sidecar
 from acprof.host.posthoc.context import ResultContext
 from acprof.host.posthoc.storage import commit_result_files, create_backup
-from acprof.result_csv import read_result_csv
+from acprof.results.csv import read_result_csv
 from tests.analysis.comparison.test_large_result_fields import (
     default_csv_limit as default_csv_limit,
     result_file,

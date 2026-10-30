@@ -19,7 +19,7 @@ from acprof.host.posthoc.context import (
     TOOL_GPU_MODES,
     load_result_context,
 )
-from acprof.result_csv import ResultCsvSnapshot, csv_diagnostic_text
+from acprof.results.csv import ResultCsvSnapshot, csv_diagnostic_text
 
 ToolState = Literal["complete", "partial", "failed", "missing", "inapplicable"]
 

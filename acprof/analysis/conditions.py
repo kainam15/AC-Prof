@@ -156,7 +156,7 @@ class PreparedComparison:
         workload = conditions.pop("actual_workload")
         if case is not None:
             cpu, memory, gpu, scale = case
-            from acprof.artifact_layout import resource_case_id
+            from acprof.results.layout import resource_case_id
             case_id = resource_case_id(cpu, memory, gpu)
             conditions["resources"] = {**conditions["resources"], "cpus": str(cpu), "mems": str(memory), "gpus": gpu}
             conditions["planned_inputs"] = self._planned_inputs(scale)

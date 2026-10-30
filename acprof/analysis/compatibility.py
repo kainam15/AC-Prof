@@ -118,8 +118,8 @@ def write_compatibility_report(root: Path, rows: list[dict]):
 
 def report_results(sources: list[Path], output: Path) -> dict:
     """Read recorded results, including failed preflight directories; never rerun."""
-    from acprof.artifact_layout import ArtifactLayout
     from acprof.artifacts import atomic_write_json
+    from acprof.results.layout import ArtifactLayout
     rows = []
     for source in sources:
         layout = ArtifactLayout.discover(source)

@@ -10,8 +10,8 @@ from threading import Barrier
 
 import pytest
 
-from acprof import result_layers as layers
-from acprof.result_csv import KEY_FIELDS, ResultValidationError
+from acprof.results import layers
+from acprof.results.csv import KEY_FIELDS, ResultValidationError
 
 FIELDS = [*KEY_FIELDS, "latency_p50_s", "gpu_energy_total_j",
           "container_mem_usage_peak_bytes", "packet_total_wire_bytes_per_request",

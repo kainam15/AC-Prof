@@ -3,10 +3,10 @@ import os
 
 import pytest
 
-from acprof.artifact_layout import ArtifactLayout
 from acprof.host.profiling import compute, execution
 from acprof.host.profiling.compute_plan import load_compute_profile_plan
 from acprof.host.profiling.execution_plan import load_execution_profile_plan
+from acprof.results.layout import ArtifactLayout
 from tests.execution.planning.test_execution_profile import _task_info, _write_input_scale_plan
 
 

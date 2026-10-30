@@ -12,7 +12,7 @@ from unittest.mock import patch
 import pytest
 from tests.support.client_fixtures import patch_client
 
-from acprof.artifact_layout import ArtifactLayout, case_sidecar
+from acprof.results.layout import ArtifactLayout, case_sidecar
 from acprof.host.client import ClientRunner
 from acprof.host.measurement.config import ClientConfig
 from acprof.host.run_state import RunState

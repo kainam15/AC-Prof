@@ -14,18 +14,18 @@ from typing import Any
 from acprof.analysis.comparison import load_comparison_snapshot
 from acprof.analysis.conditions import PURPOSES, PreparedComparison
 from acprof.analysis.lifecycle import LifecycleConflict, unique_startup_observations
-from acprof.artifact_layout import ArtifactLayout
 from acprof.artifacts import read_json_object
 from acprof.gpu_mode import normalize_gpu_mode
-from acprof.metric_registry import ANALYSIS_METRICS, VIEW_METRICS
 from acprof.platform import recorded_identity
 from acprof.quality import QUALITY_FIELDS, read_quality
-from acprof.result_csv import (
+from acprof.results.csv import (
     MISSING_CSV_TEXT,
     measurement_key,
     read_result_csv_snapshot,
     verify_result_source,
 )
+from acprof.results.layout import ArtifactLayout
+from acprof.results.metrics import ANALYSIS_METRICS, VIEW_METRICS
 
 DIMENSIONS = ("run_id", "model", "runtime", "device", "cpu", "memory", "gpu", "concurrency",
               "environment_class", "task", "input_case", "experiment_batch")

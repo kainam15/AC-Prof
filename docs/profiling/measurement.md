@@ -98,7 +98,7 @@ client 在同步持久化完成后才进入下一窗口，没有后台刷盘线�
 恢复的新运行使用独立 attempt，必要的预热单独记录在 `raw/recovery_warmup/`，不追加测量行；
 它不代表跨重启连续测量。详见[实时提交与后处理](artifacts.md#实时提交与后处理)。
 
-`acprof.window_records.read_window_record` 校验 schema、文件名与窗口身份、记录内容 hash、
+`acprof.results.windows.read_window_record` 校验 schema、文件名与窗口身份、记录内容 hash、
 请求/行 hash，以及关联 telemetry 的 hash 和身份；整个结果根移动后相对引用仍然有效。
 `verify_case_window_records` 可进一步限定 run/case/attempt 身份。历史数据缺 receipt 或 raw 时
 保留旧聚合读取能力，并明确 `legacy_or_missing_raw_evidence`，不为旧结果补造样本。

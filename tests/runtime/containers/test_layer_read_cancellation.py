@@ -9,10 +9,10 @@ from threading import Event
 
 import pytest
 
-from acprof import result_csv, result_layers
-from acprof.artifact_layout import ArtifactLayout
 from acprof.result_store import reader
 from acprof.result_store.protocol import publication_lock
+from acprof.results import csv as result_csv, layers as result_layers
+from acprof.results.layout import ArtifactLayout
 from tests.results.storage.test_result_row_assembly import row_store
 
 

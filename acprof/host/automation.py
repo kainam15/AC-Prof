@@ -61,7 +61,7 @@ class AutomaticRun:
         self.args = args
         args.output_dir = str(Path(args.output_dir).expanduser().resolve())
         self.root = Path(args.output_dir).expanduser().resolve() / args.model.replace("/", "--")
-        from acprof.artifact_layout import ArtifactLayout
+        from acprof.results.layout import ArtifactLayout
         self.layout = ArtifactLayout.discover(self.root) if args.resume else ArtifactLayout.for_new_run(self.root)
         self.path = self.layout.path("auto_report.json")
         self.data = {"schema_version": 1, "model_id": args.model,
@@ -161,7 +161,7 @@ class AutomaticRun:
             return 2
         if self.collection_path:
             from acprof.analysis.audit import audit_result
-            from acprof.artifact_layout import ArtifactLayout
+            from acprof.results.layout import ArtifactLayout
             group = read_json_object(Path(self.collection_path), label="task collection")
             summaries = []
             for entry in group["tasks"]:

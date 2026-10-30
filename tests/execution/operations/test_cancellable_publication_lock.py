@@ -7,9 +7,9 @@ from threading import Event
 
 import pytest
 
-from acprof import result_csv
-from acprof.artifact_layout import ArtifactLayout
 from acprof.result_store.protocol import publication_lock
+from acprof.results import csv as result_csv
+from acprof.results.layout import ArtifactLayout
 from tests.results.storage.test_result_row_assembly import row_store
 from tests.runtime.containers.test_layer_read_cancellation import source_hashes
 

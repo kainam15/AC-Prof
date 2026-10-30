@@ -13,7 +13,6 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, TextIO
 
-from acprof.artifact_layout import ArtifactLayout
 from acprof.artifacts import (
     atomic_write,
     atomic_write_json,
@@ -23,8 +22,9 @@ from acprof.artifacts import (
     sync_directory,
 )
 from acprof.cancellation import cancellable, check_cancelled
-from acprof.result_csv import ResultValidationError, ValidatedResultRows, parse_result_stream
-from acprof.result_layers import BASE_LAYERS, LAYER_FILES, layer_fields
+from acprof.results.csv import ResultValidationError, ValidatedResultRows, parse_result_stream
+from acprof.results.layers import BASE_LAYERS, LAYER_FILES, layer_fields
+from acprof.results.layout import ArtifactLayout
 
 SCHEMA_VERSION = 3
 IDENTITY_FIELDS = ("run_id", "case_id", "case_attempt_id", "window_id")

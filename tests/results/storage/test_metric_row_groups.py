@@ -4,7 +4,7 @@ import sys
 from dataclasses import replace
 from textwrap import dedent
 
-from acprof.metric_registry import METRICS
+from acprof.results.metrics import METRICS
 
 
 def test_row_assembly_roles_do_not_change_persisted_metric_metadata():
@@ -21,7 +21,7 @@ def test_new_grouped_metric_is_initialized_by_row_consumer():
     program = dedent("""
         import math
         from types import MappingProxyType, SimpleNamespace
-        from acprof import metric_registry
+        from acprof.results import metrics as metric_registry
 
         new_metric = metric_registry.Metric(
             "future_resource_metric", "count", "cgroup", "request_window",

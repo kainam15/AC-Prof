@@ -26,7 +26,7 @@ from acprof.host.posthoc.context import (
     _load_json_object,
 )
 from acprof.host.posthoc.copying import copy_backup_file
-from acprof.result_csv import allow_large_csv_fields
+from acprof.results.csv import allow_large_csv_fields
 
 
 def _write_csv_text(stream: TextIO, text: str) -> None:
@@ -66,8 +66,8 @@ def _timestamp_token() -> str:
 
 
 def create_backup(context: ResultContext) -> Path:
-    from acprof.artifact_layout import ArtifactLayout
-    from acprof.result_csv import read_result_csv
+    from acprof.results.csv import read_result_csv
+    from acprof.results.layout import ArtifactLayout
 
     layout = ArtifactLayout.discover(context.result_dir)
     root = layout.path(BACKUP_DIRNAME)
@@ -84,7 +84,7 @@ def create_backup(context: ResultContext) -> Path:
         with ExitStack() as locks:
             sources = [context.result_csv, context.static_meta_path]
             if context.result_csv.name == "result_layers.json":
-                from acprof.result_layers import read_result_layers, result_layer_paths
+                from acprof.results.layers import read_result_layers, result_layer_paths
 
                 manifest = read_json_object(context.result_csv, label="result layers")
                 if manifest.get("schema_version") == 3:
@@ -232,7 +232,7 @@ def _commit_layer_result_files(context: ResultContext, *, fieldnames, rows, stat
     result manifest becomes visible only after the corresponding files exist.
     """
     from acprof.artifacts import atomic_write_json, read_json_object
-    from acprof.result_layers import publish_result_rows, read_result_layers, result_layer_paths
+    from acprof.results.layers import publish_result_rows, read_result_layers, result_layer_paths
 
     original_manifest = read_json_object(context.result_csv, label="result layers")
     result_layer_paths(context.result_dir, original_manifest)
@@ -356,7 +356,7 @@ def commit_result_files(
         # Keep the published layer view consistent with a successful post-hoc
         # transaction. Unchanged tool CSVs are not rewritten.
         if (context.result_dir / "result_layers.json").is_file():
-            from acprof.result_layers import publish_result_layers
+            from acprof.results.layers import publish_result_layers
             publish_result_layers(context.result_csv)
     except BaseException as primary_error:
         recovery_errors: list[str] = []
@@ -379,7 +379,7 @@ def commit_result_files(
         # Report an incomplete recovery if storage failures also prevent repair.
         if attempted_publications and (context.result_dir / "result_layers.json").is_file():
             try:
-                from acprof.result_layers import publish_result_layers
+                from acprof.results.layers import publish_result_layers
                 publish_result_layers(context.result_csv)
             except BaseException as layer_error:
                 recovery_errors.append(

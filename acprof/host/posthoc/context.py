@@ -31,8 +31,8 @@ from acprof.host.profiling.compute_plan import (
 from acprof.host.profiling.execution_plan import MASSIF_ERROR_FIELD, NSYS_ERROR_FIELD
 from acprof.hub.repository import MODEL_SOURCES
 from acprof.installation import resource_root
-from acprof.metric_registry import tool_fields
-from acprof.result_csv import ResultCsvSnapshot
+from acprof.results.csv import ResultCsvSnapshot
+from acprof.results.metrics import tool_fields
 
 PROJECT_DIR = resource_root()
 
@@ -190,9 +190,9 @@ def _load_result_csv(path: Path, *, result_snapshot: ResultCsvSnapshot | None = 
         raise PosthocError(
             f"missing completed {RESULT_CSV_NAME}: {path}; wait for acprof run to finish"
         )
-    from acprof.result_csv import validate_result_rows
+    from acprof.results.csv import validate_result_rows
     if result_snapshot is None:
-        from acprof.result_layers import read_result_layers
+        from acprof.results.layers import read_result_layers
         fieldnames, rows = read_result_layers(path.parent, cancelled=cancelled)
     else:
         if result_snapshot.path != path.resolve():
@@ -270,7 +270,7 @@ def load_result_context(result_dir: str | os.PathLike[str], *, result_snapshot: 
     if not directory.is_dir():
         raise PosthocError(f"result directory does not exist: {directory}")
 
-    from acprof.artifact_layout import ArtifactLayout
+    from acprof.results.layout import ArtifactLayout
     try:
         layout = ArtifactLayout.discover(directory)
         result_csv = layout.path(RESULT_CSV_NAME)

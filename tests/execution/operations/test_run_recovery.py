@@ -58,7 +58,7 @@ class TestRunRecovery(RunRecoveryFixture):
             {"static_meta.json", "capability_report.json",
              "result_manifest.json", "quality_checks.json", "result_layers.json",
              "summary.csv", "performance.csv", "resources.csv", "energy.csv", "network.csv"})
-        from acprof.result_layers import read_result_layers
+        from acprof.results.layers import read_result_layers
         fields, rows = read_result_layers(self.directory)
         assert len(rows) == 2
         assert {"latency_s", "gpu_energy_total_j", "cpu_cores"} <= set(fields)
@@ -133,7 +133,7 @@ class TestRunRecovery(RunRecoveryFixture):
         self.invoke("--resume")
         assert (self.calls) == ([2])
         assert ((self.directory / "static_meta.json").read_bytes()) == (original_meta)
-        from acprof.result_csv import read_result_csv
+        from acprof.results.csv import read_result_csv
         _, rows = read_result_csv(self.directory / "result_layers.json")
         assert [row["cpu_cores"] for row in rows] == ["1", "2"]
         assert (list((self.directory / ".acprof/recovery/interrupted_cases").rglob("*.csv")))

@@ -184,7 +184,7 @@ def _ncu_artifact_paths(
 def _ncu_report_reference(profile_root: str, host_csv: str) -> str:
     from pathlib import Path
 
-    from acprof.artifact_layout import MANIFEST_NAME, ArtifactLayout
+    from acprof.results.layout import MANIFEST_NAME, ArtifactLayout
     base = Path(profile_root).absolute().parent
     if base.name == "raw" and (base.parent / MANIFEST_NAME).exists():
         if ArtifactLayout.discover(base.parent).layout_version == 2:

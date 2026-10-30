@@ -253,7 +253,7 @@ def collect_compute_profile_plan(
             f"{', '.join(sorted(COMPUTE_PROFILE_TOOL_MODES))}, got {compute_profile_tool!r}"
         )
 
-    from acprof.artifact_layout import ArtifactLayout
+    from acprof.results.layout import ArtifactLayout
     layout = ArtifactLayout.discover(output_dir)
     profile_root = str(layout.path("compute_profiles"))
     entries = load_input_scale_plan_entries(input_scale_plan_file)

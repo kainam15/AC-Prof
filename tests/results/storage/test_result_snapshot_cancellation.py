@@ -8,7 +8,7 @@ from threading import Event
 import pytest
 from tests.results.storage.test_sequential_result_reads import artifact_hashes, snapshot_store
 
-from acprof import result_csv
+from acprof.results import csv as result_csv
 
 
 @pytest.mark.parametrize("operation", ["read", "verify"])

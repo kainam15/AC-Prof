@@ -49,7 +49,7 @@ def write_quality(path: Path, checks: list[dict], *, append=False):
 
 
 def collect_quality(root: Path, case_csvs=()) -> list[dict]:
-    from acprof.artifact_layout import ArtifactLayout, case_sidecar
+    from acprof.results.layout import ArtifactLayout, case_sidecar
     layout = ArtifactLayout.discover(root)
     checks = []
     validation_path = layout.path("runtime_validation.json")
@@ -107,7 +107,7 @@ def combine_quality(summaries: list[dict]) -> dict:
 
 def read_quality(source: str | Path, *, device: str | None = None) -> dict:
     """Read canonical checks, or explicit runtime-validation checks in older runs."""
-    from acprof.artifact_layout import ArtifactLayout
+    from acprof.results.layout import ArtifactLayout
     source = Path(source)
     layout = ArtifactLayout.discover(source) if source.is_dir() else ArtifactLayout.from_csv(source)
     quality_path, validation_path = (layout.path(name) for name in ("quality_checks.json", "runtime_validation.json"))

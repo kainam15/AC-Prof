@@ -8,10 +8,10 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from typing import Any, TextIO, cast
 
-from acprof.artifact_layout import ArtifactLayout
 from acprof.artifacts import atomic_write_json
 from acprof.host.preparation.collection_workflow import PreparationWorkflow
 from acprof.host.preparation.preparation_log import PreparationLog, PreparationTee, redact_text
+from acprof.results.layout import ArtifactLayout
 
 
 def _now() -> str:

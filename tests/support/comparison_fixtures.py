@@ -84,7 +84,7 @@ class ComparisonFixture:
 
     def refresh(self, directory):
         """Convert test-only row fixtures into current authoritative layers."""
-        from acprof.result_layers import publish_result_rows
+        from acprof.results.layers import publish_result_rows
         with (directory / "result_all.csv").open(newline="") as stream:
             reader = csv.DictReader(stream)
             fields, rows = reader.fieldnames, list(reader)

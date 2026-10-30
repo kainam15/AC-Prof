@@ -13,7 +13,6 @@ from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
-from acprof.artifact_layout import ArtifactLayout, resource_case_id
 from acprof.artifacts import atomic_write, read_json_object, replace_file_durably
 from acprof.capabilities import measurement_requested, require_profiling_mode
 from acprof.config import CLIENT_REQUEST_TIMEOUT_EXIT_CODE, SERVER_PORT
@@ -56,7 +55,8 @@ from acprof.host.runtimes.service import (
 )
 from acprof.installation import module_command
 from acprof.monitors.perf_mips import MIPS_EXIT_CODE
-from acprof.result_csv import allow_large_csv_fields
+from acprof.results.csv import allow_large_csv_fields
+from acprof.results.layout import ArtifactLayout, resource_case_id
 from acprof.system import command as host_command
 
 if TYPE_CHECKING:
@@ -372,8 +372,8 @@ class _CaseExecution:
             print(f"[case][WARN] {error}", file=sys.stderr)
             completed, _ = self._write_error(error, preserve_existing=True, timeout_context=context)
             return _ClientOutcome(True, completed, "request timeout")
-        from acprof.artifact_layout import case_sidecar
         from acprof.failures import Failure, RuntimeFailure, read_runtime_failures
+        from acprof.results.layout import case_sidecar
 
         failure_path = case_sidecar(self.out_csv, "runtime_failures")
         if failure_path.is_file():
@@ -735,7 +735,7 @@ def run_matrix(request: cases.MatrixRequest) -> list[str]:
 
 def merge_all_csvs(csv_paths: list[str], output_path: str, *, expected=None) -> None:
     """Validate all cases before atomically publishing the final result CSV."""
-    from acprof.result_csv import merge_result_csvs
+    from acprof.results.csv import merge_result_csvs
 
     row_count = merge_result_csvs(csv_paths, output_path, expected=expected)
     print(f"[merge] Final CSV: {output_path} ({row_count} rows)")

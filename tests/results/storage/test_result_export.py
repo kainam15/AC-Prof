@@ -10,8 +10,8 @@ from tests.results.storage.test_incremental_results import initialized
 from tests.results.storage.test_result_row_assembly import row_store
 
 from acprof.artifacts import atomic_write, file_sha256
-from acprof.result_csv import ResultValidationError
-from acprof.result_layers import export_result_layers, read_result_layers
+from acprof.results.csv import ResultValidationError
+from acprof.results.layers import export_result_layers, read_result_layers
 
 
 @pytest.mark.parametrize("version", [1, 2, 3])
@@ -40,7 +40,7 @@ def test_export_streams_rows_and_preserves_exact_csv_bytes(tmp_path, monkeypatch
             write(ObservedWriter())
         atomic_write(path, observed, **kwargs)
 
-    monkeypatch.setattr("acprof.result_layers.atomic_write", observe_write)
+    monkeypatch.setattr("acprof.results.layers.atomic_write", observe_write)
     assert export_result_layers(root, destination) == len(rows)
     assert destination.read_bytes() == expected_text.encode("utf-8")
     assert sum(writes) == len(expected_text)
@@ -66,7 +66,7 @@ def test_export_rejects_target_created_after_initial_check(tmp_path, monkeypatch
             destination.symlink_to("missing-target")
         return result
 
-    monkeypatch.setattr("acprof.result_layers.read_result_layers", competing_reader)
+    monkeypatch.setattr("acprof.results.layers.read_result_layers", competing_reader)
     with pytest.raises(ResultValidationError, match="refusing to overwrite existing CSV"):
         export_result_layers(root, destination)
     if kind == "file":

@@ -5,11 +5,11 @@ from unittest.mock import patch
 
 import pytest
 
-from acprof.artifact_layout import ArtifactLayout, case_sidecar
 from acprof.config import CSV_FIELDS
 from acprof.host.detect import TaskInfo
 from acprof.host.measurement import error_rows
 from acprof.packet.merge_packet_latency import main as merge_packet_latency
+from acprof.results.layout import ArtifactLayout, case_sidecar
 
 
 @pytest.fixture(params=["flat", "v2"])

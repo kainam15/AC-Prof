@@ -83,7 +83,7 @@ class TestLatencyModelReport:
         from contextlib import ExitStack
         from pathlib import Path
 
-        from acprof.artifact_layout import ArtifactLayout
+        from acprof.results.layout import ArtifactLayout
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             ArtifactLayout.for_new_run(root).initialize()

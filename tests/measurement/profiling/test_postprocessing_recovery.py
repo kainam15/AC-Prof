@@ -16,8 +16,8 @@ from acprof.host.docker_runtime import RunningContainer
 from acprof.host.images.runtime import ImageInfo
 from acprof.host.measurement.capture import PacketLatencyRuntime
 from acprof.host.measurement.publication import _append_row, append_request_window
+from acprof.results.windows import WindowPublicationContext
 from acprof.telemetry import window_evidence
-from acprof.window_records import WindowPublicationContext
 
 
 @pytest.fixture

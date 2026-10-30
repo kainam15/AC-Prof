@@ -11,7 +11,7 @@ import pytest
 from textual.widgets import Button, Collapsible, Input, Static, TabbedContent
 from tests.support.tui_fixtures import AcprofTui
 
-from acprof.artifact_layout import ArtifactLayout
+from acprof.results.layout import ArtifactLayout
 from acprof.experiments.configuration import RunConfigError
 from acprof.tui import commands
 from acprof.tui.process_controller import ProcessController
@@ -119,7 +119,7 @@ async def test_real_cli_success_persists_path_and_preserves_input(tmp_path, csv_
 
 
 async def test_real_layer_manifest_and_csv_comparison_keep_three_views(tmp_path, csv_result):
-    from acprof.result_layers import publish_result_layers
+    from acprof.results.layers import publish_result_layers
     layered = tmp_path / "layered"
     ArtifactLayout.for_new_run(layered).initialize()
     publish_result_layers(csv_result, output_dir=layered)

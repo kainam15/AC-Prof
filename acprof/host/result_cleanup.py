@@ -4,7 +4,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from acprof.artifact_layout import ArtifactLayout
+from acprof.results.layout import ArtifactLayout
 
 
 def cleanup_intermediate_results(csv_paths: list[str], output_dir: str, final_csv: str) -> None:

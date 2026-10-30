@@ -8,7 +8,7 @@ import pytest
 
 from acprof.config import CSV_FIELDS
 from acprof.host.orchestrator import merge_all_csvs
-from acprof.result_csv import (
+from acprof.results.csv import (
     expected_measurements,
     measurement_key,
     read_result_csv,

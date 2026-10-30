@@ -19,15 +19,15 @@ from acprof.analysis.conditions import (
 )
 from acprof.artifacts import read_json_object
 from acprof.hardware_conditions import HARDWARE_FIELDS, conditions_path
-from acprof.metric_registry import METRICS
 from acprof.platform import recorded_identity
 from acprof.quality import QUALITY_FIELDS
-from acprof.result_csv import (
+from acprof.results.csv import (
     MISSING_CSV_TEXT,
     ResultCsvSnapshot,
     measurement_key,
     read_result_csv_snapshot,
 )
+from acprof.results.metrics import METRICS
 from acprof.runtime.settings import RUNTIME_ENV_NAMES
 
 MEASUREMENT_OPTIONS = (
@@ -192,7 +192,7 @@ def load_comparison_snapshot(source: str | Path, *, result_snapshot: ResultCsvSn
 
     def read_json(name):
         try:
-            from acprof.artifact_layout import ArtifactLayout
+            from acprof.results.layout import ArtifactLayout
             layout = ArtifactLayout.discover(source) if source.is_dir() else ArtifactLayout.from_csv(source)
             path = layout.path(name)
             if not path.exists():
@@ -205,7 +205,7 @@ def load_comparison_snapshot(source: str | Path, *, result_snapshot: ResultCsvSn
     state = read_json("run_state.json")
     metadata = read_json("static_meta.json")
     plan = read_json("input_scale_plan.json")
-    from acprof.artifact_layout import ArtifactLayout
+    from acprof.results.layout import ArtifactLayout
     layout = ArtifactLayout.discover(source) if source.is_dir() else ArtifactLayout.from_csv(source)
     hardware_payload = read_json(str(conditions_path(layout).relative_to(layout.root)))
     hardware_cases = hardware_payload.get("cases", {})
@@ -267,7 +267,7 @@ def load_comparison_snapshot(source: str | Path, *, result_snapshot: ResultCsvSn
         assert result_snapshot is not None
         rows = result_snapshot.rows
         actual = _actual_workload(rows)
-        from acprof.artifact_layout import resource_case_id
+        from acprof.results.layout import resource_case_id
         case_ids = {resource_case_id(row["cpu_cores"], row["mem_cap_gb"], row["gpu_mode"])
                     for row in rows if row.get("status") in {"ok", "warn"}}
 

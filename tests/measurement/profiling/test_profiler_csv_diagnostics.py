@@ -14,7 +14,7 @@ from acprof.host.posthoc.context import (
     PosthocError,
     load_result_context,
 )
-from acprof.result_layers import publish_result_layers
+from acprof.results.layers import publish_result_layers
 from acprof.tui import profile_status
 from tests.measurement.profiling.test_posthoc import TestPosthocProfile as _PosthocFixture
 from tests.runtime.containers.test_layer_read_cancellation import source_hashes

@@ -9,7 +9,6 @@ from typing import TYPE_CHECKING
 
 from acprof.application.errors import CollectionFailed
 from acprof.application.notifications import RunNotifications
-from acprof.artifact_layout import ArtifactLayout
 from acprof.artifacts import read_json_object
 from acprof.capabilities import (
     Capability,
@@ -26,6 +25,7 @@ from acprof.host.collection_history import (
     write_collection_history_json,
 )
 from acprof.host.gpu_device import selected_gpu_device
+from acprof.results.layout import ArtifactLayout
 
 if TYPE_CHECKING:
     from acprof.host.detect import TaskInfo

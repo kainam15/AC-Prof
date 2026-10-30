@@ -8,7 +8,7 @@ import sys
 from typing import Any
 
 from acprof.gpu_mode import normalize_gpu_mode
-from acprof.result_csv import allow_large_csv_fields
+from acprof.results.csv import allow_large_csv_fields
 
 
 class EnergyProfilingError(RuntimeError):
@@ -55,8 +55,8 @@ def check_idle_power_values_stable(
 
     relative_range = (max(idle_values) - min(idle_values)) / mean_idle
     if relative_range >= threshold:
-        from acprof.artifact_layout import case_sidecar
         from acprof.quality import QualityCheck, write_quality
+        from acprof.results.layout import case_sidecar
         write_quality(case_sidecar(csv_path, "quality_checks"), [QualityCheck(
             "cpu_idle_baseline_unstable" if metric_name == "cpu_idle_power_w" else "gpu_idle_baseline_unstable",
             "warning", relative_range, threshold, "Idle baseline relative range exceeds the case threshold",

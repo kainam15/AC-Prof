@@ -76,7 +76,7 @@ def test_process_stats_report_displays_inherited_axes(result, tmp_path):
 
 
 def test_layered_process_results_roundtrip_with_inherited_limits(result, tmp_path):
-    from acprof.result_layers import publish_result_layers, read_result_layers
+    from acprof.results.layers import publish_result_layers, read_result_layers
     manifest = publish_result_layers(result())
     fields, rows = read_result_layers(tmp_path)
     assert rows[0]['runtime_kind'] == 'process'

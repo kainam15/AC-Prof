@@ -9,14 +9,12 @@ from collections import Counter, defaultdict
 from collections.abc import Callable
 from pathlib import Path
 
-from acprof.artifact_layout import ArtifactLayout
 from acprof.artifacts import read_json_object
 from acprof.capabilities import collection_outcomes
 from acprof.failures import Failure
-from acprof.metric_registry import METRICS, NUMERIC_FIELDS
 from acprof.platform import native_only_metric, recorded_identity
 from acprof.quality import read_quality, summarize_quality
-from acprof.result_csv import (
+from acprof.results.csv import (
     MISSING_CSV_TEXT,
     ResultCsvSnapshot,
     csv_diagnostic_text,
@@ -26,6 +24,8 @@ from acprof.result_csv import (
     result_csv_snapshot_unchanged,
     validate_result_rows,
 )
+from acprof.results.layout import ArtifactLayout
+from acprof.results.metrics import METRICS, NUMERIC_FIELDS
 
 
 def number(value):
@@ -311,7 +311,7 @@ def audit_result(source: str | Path, *, result_snapshot: ResultCsvSnapshot | Non
         formal = status == "ok" and not warmup
         report["counts"]["formal_ok"] += formal
         if runtime == "process" or row.get("runtime_kind") == "process":
-            from acprof.artifact_layout import resource_case_id
+            from acprof.results.layout import resource_case_id
             if (runtime != "process" or row.get("runtime_kind") != "process"
                     or not metadata.get("runtime_id") or row.get("runtime_id") != metadata["runtime_id"]):
                 issue("runtime_identity", "Process Runtime 身份与元数据不一致", row=index)

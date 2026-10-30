@@ -106,8 +106,8 @@ def read_runtime_failures(path: str | Path) -> list[dict[str, Any]]:
 
 
 def collect_failures(root: Path, case_csvs=()):
-    from acprof.artifact_layout import ArtifactLayout, case_sidecar
     from acprof.artifacts import atomic_write_json
+    from acprof.results.layout import ArtifactLayout, case_sidecar
     failures = []
     for csv in case_csvs:
         path = case_sidecar(csv, "runtime_failures")

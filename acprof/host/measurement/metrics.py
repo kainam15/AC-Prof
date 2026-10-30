@@ -21,8 +21,8 @@ from acprof.host.profiling.compute_plan import (
     compute_mflops as _compute_mflops,
     find_compute_profile_entry,
 )
-from acprof.metric_registry import GPU_RUNTIME_STATE_FIELDS, METRICS, row_group_fields, tool_fields
 from acprof.pixel_metrics import pixel_counts_from_metadata, pixel_rate_metrics
+from acprof.results.metrics import GPU_RUNTIME_STATE_FIELDS, METRICS, row_group_fields, tool_fields
 from acprof.workloads.contract import summarize_workload_contracts
 
 if TYPE_CHECKING:

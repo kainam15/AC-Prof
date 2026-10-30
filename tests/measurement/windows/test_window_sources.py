@@ -8,10 +8,10 @@ from pathlib import Path
 
 import pytest
 
-from acprof.artifact_layout import ArtifactLayout
 from acprof.result_store.protocol import reference
 from acprof.result_store.sources import window_row
 from acprof.result_store.writer import ResultWriter
+from acprof.results.layout import ArtifactLayout
 from tests.results.storage.test_incremental_results import initialized, receipt
 
 

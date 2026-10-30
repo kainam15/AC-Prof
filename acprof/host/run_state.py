@@ -18,7 +18,6 @@ from pathlib import Path
 from typing import TextIO
 from uuid import uuid4
 
-from acprof.artifact_layout import ArtifactLayout
 from acprof.artifacts import (
     atomic_write_json,
     file_sha256,
@@ -31,7 +30,8 @@ from acprof.gpu_mode import normalize_gpu_mode
 from acprof.host.execution_conditions import measurement_environment
 from acprof.messages import Message, join_messages, message
 from acprof.platform import detect_environment, is_linux
-from acprof.result_csv import expected_measurements, read_result_csv
+from acprof.results.csv import expected_measurements, read_result_csv
+from acprof.results.layout import ArtifactLayout
 from acprof.source_identity import measurement_sources, source_fingerprint
 
 RUN_STATE_NAME = "run_state.json"

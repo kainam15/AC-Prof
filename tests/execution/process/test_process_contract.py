@@ -19,7 +19,7 @@ from acprof.host.runtimes.selection import select_runtime
 from acprof.monitors.process_usage import ProcessUsageMonitor, ProcessUsageResult
 from acprof.monitors.resource_metrics import empty_resource_result
 from acprof.platform import Environment
-from acprof.result_csv import expected_measurements, measurement_key
+from acprof.results.csv import expected_measurements, measurement_key
 
 
 def test_explicit_process_never_probes_docker():

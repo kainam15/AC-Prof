@@ -12,11 +12,11 @@ from pathlib import Path
 from types import SimpleNamespace
 from uuid import uuid4
 
-from acprof.artifact_layout import ArtifactLayout
 from acprof.artifacts import read_json_object
 from acprof.experiments.arguments import flatten_run_options
 from acprof.experiments.configuration import RunConfig
 from acprof.installation import cli_command
+from acprof.results.layout import ArtifactLayout
 
 MAX_DUPLICATE_BYTES = 32 * 1024 * 1024
 
@@ -162,7 +162,7 @@ def _duplicate_digest(record: ExperimentRecord, cancelled: Callable[[], bool], b
         # Hash the full immutable snapshot, not just the manifest: equal
         # metadata must never mask a changed or missing result layer.
         from acprof.artifacts import loads_finite_json
-        from acprof.result_layers import result_layer_paths
+        from acprof.results.layers import result_layer_paths
 
         def consume(path: Path, *, retain: bool = False) -> tuple[str, bytes | None]:
             if path.is_symlink() or not path.resolve().is_relative_to(record.directory):

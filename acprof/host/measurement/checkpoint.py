@@ -13,7 +13,6 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from acprof.artifact_layout import CaseArtifacts
 from acprof.artifacts import (
     atomic_write,
     atomic_write_json,
@@ -23,7 +22,8 @@ from acprof.artifacts import (
     sync_directory,
 )
 from acprof.capabilities import require_profiling_mode
-from acprof.result_csv import allow_large_csv_fields, measurement_key, read_result_csv
+from acprof.results.csv import allow_large_csv_fields, measurement_key, read_result_csv
+from acprof.results.layout import CaseArtifacts
 
 CHECKPOINT_SCHEMA = 1
 _FILE_NAMES = {"csv": "measurement.csv", "groups": "sniff_groups.jsonl",
@@ -68,7 +68,7 @@ def _validate_processing(value: Any) -> None:
 
 
 def _receipt_paths(case: CaseArtifacts, attempt_id: str, csv_path: Path) -> set[Path]:
-    from acprof.window_records import window_filename
+    from acprof.results.windows import window_filename
     paths = set(case.window_records(attempt_id).glob("*.json"))
     with csv_path.open(encoding="utf-8-sig", newline="") as stream:
         allow_large_csv_fields()
@@ -83,7 +83,7 @@ def _receipt_paths(case: CaseArtifacts, attempt_id: str, csv_path: Path) -> set[
 
 def _verify_window_coverage(case: CaseArtifacts, attempt_id: str, run_id: str,
                             csv_path: Path) -> list[dict[str, Any]]:
-    from acprof.window_records import read_window_record
+    from acprof.results.windows import read_window_record
 
     records = [read_window_record(path) for path in sorted(_receipt_paths(case, attempt_id, csv_path))]
     with csv_path.open(encoding="utf-8-sig", newline="") as stream:
@@ -93,7 +93,7 @@ def _verify_window_coverage(case: CaseArtifacts, attempt_id: str, run_id: str,
     for record in records:
         if record["identity"]["case_id"] != case.case_id or record["identity"]["run_id"] != run_id:
             raise ValueError("Window receipt belongs to another case")
-        from acprof.window_records import window_filename
+        from acprof.results.windows import window_filename
         record_attempt = record["identity"]["case_attempt_id"]
         expected_telemetry = case.telemetry(record_attempt) / window_filename(record["identity"]["window_id"])
         actual_telemetry = case.window_records(record_attempt) / record["telemetry"]["path"]

@@ -21,7 +21,7 @@ def main() -> int:
     from acprof.host.run_state import RunStateError, offline_analysis_lock
     try:
         with offline_analysis_lock():
-            from acprof.result_layers import export_result_layers, read_result_layers
+            from acprof.results.layers import export_result_layers, read_result_layers
 
             if args.action == "verify":
                 fields, rows = read_result_layers(args.directory)

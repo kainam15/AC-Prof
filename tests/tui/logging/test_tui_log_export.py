@@ -11,7 +11,7 @@ from unittest.mock import patch
 import pytest
 from textual.widgets import Button, OptionList, Static
 
-from acprof.artifact_layout import ArtifactLayout
+from acprof.results.layout import ArtifactLayout
 from acprof.tui.input import BarCursorInput as Input
 from acprof.tui.log import SelectableLog
 from acprof.tui.log_export import (

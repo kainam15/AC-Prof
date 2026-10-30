@@ -15,7 +15,7 @@ CANCELLATIONS = (KeyboardInterrupt, SystemExit, asyncio.CancelledError)
 
 @pytest.mark.parametrize("history_existed", [False, True])
 def test_v2_cancellation_restores_files_across_directories(tmp_path, monkeypatch, history_existed):
-    from acprof.artifact_layout import ArtifactLayout
+    from acprof.results.layout import ArtifactLayout
 
     layout = ArtifactLayout.for_new_run(tmp_path)
     layout.initialize()

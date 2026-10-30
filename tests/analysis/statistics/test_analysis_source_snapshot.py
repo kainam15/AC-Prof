@@ -9,7 +9,7 @@ import pytest
 from acprof.analysis import model
 from acprof.analysis.audit import audit_result
 from acprof.analysis.comparison import load_comparison_snapshot
-from acprof.result_csv import ResultValidationError, read_result_csv_snapshot
+from acprof.results.csv import ResultValidationError, read_result_csv_snapshot
 from tests.results.storage.test_result_row_assembly import row_store
 
 
@@ -56,7 +56,7 @@ def test_layered_analysis_does_not_serialize_a_second_csv(tmp_path, monkeypatch,
     def reject_csv_encoding(_text):
         pytest.fail("analysis must consume parsed layer rows without CSV re-encoding")
 
-    monkeypatch.setattr("acprof.result_csv._CsvRowEncoder.write", staticmethod(reject_csv_encoding))
+    monkeypatch.setattr("acprof.results.csv._CsvRowEncoder.write", staticmethod(reject_csv_encoding))
     data = model.load_analysis([tmp_path])
     assert [entry["row"] for entry in data.raw_rows] == rows
 
@@ -71,7 +71,7 @@ def test_layer_content_recheck_does_not_build_another_complete_row_table(tmp_pat
 
     def after_parsing(*args, **kwargs):
         result = identity(*args, **kwargs)
-        monkeypatch.setattr("acprof.result_layers.read_result_layers", reject_reparse)
+        monkeypatch.setattr("acprof.results.layers.read_result_layers", reject_reparse)
         return result
 
     monkeypatch.setattr(model, "_identity", after_parsing)

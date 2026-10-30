@@ -113,7 +113,7 @@ def read_static_metadata(result_dir: str | Path, *, required: bool = False) -> d
     """读取当前静态元数据；旧 CSV 和内嵌采集历史均不能自动转换。"""
     from acprof.config import STATIC_META_SCHEMA_VERSION
     directory = Path(result_dir)
-    from acprof.artifact_layout import ArtifactLayout
+    from acprof.results.layout import ArtifactLayout
     path = ArtifactLayout.discover(directory).path("static_meta.json")
     if not path.is_file():
         if (directory / "static_meta.csv").exists():

@@ -28,7 +28,7 @@ from acprof.host.profiling.compute_plan import (
     find_compute_profile_entry,
     load_compute_profile_plan,
 )
-from acprof.result_csv import allow_large_csv_fields
+from acprof.results.csv import allow_large_csv_fields
 
 COMPUTE_PROFILE_FIELDS = (
     TORCH_LOGICAL_MFLOP_FIELD,

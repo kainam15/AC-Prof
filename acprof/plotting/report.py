@@ -11,8 +11,8 @@ from typing import TextIO
 from acprof.analysis.conditions import ALLOWED_RESOURCE_DIMENSIONS, PURPOSES
 from acprof.analysis.model import DEFAULT_MATRIX, SUMMARY_FIELDS, AnalysisModel
 from acprof.artifacts import atomic_write
-from acprof.metric_registry import ANALYSIS_METRICS, VIEW_METRICS
 from acprof.quality import QUALITY_FIELDS
+from acprof.results.metrics import ANALYSIS_METRICS, VIEW_METRICS
 
 
 def report_payload(model: AnalysisModel, baseline: str | None = None, *, comparison_purpose="same-hardware") -> dict:

@@ -130,8 +130,8 @@ class WindowExecutor:
             return
         from pathlib import Path
 
+        from acprof.results.windows import window_filename
         from acprof.telemetry import write_window_evidence
-        from acprof.window_records import window_filename
         evidence = self._evidence(spec, group_id, progress, observations)
         evidence["context"]["uncommitted_error"] = f"{type(error).__name__}: {error}"
         try:

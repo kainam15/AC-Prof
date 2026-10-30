@@ -64,7 +64,7 @@ def startup_oom_prefixes(report: dict) -> dict:
 
 
 def run_startup_probes(directory, identity, task, image, *, request_timeout_seconds) -> dict:
-    from acprof.artifact_layout import ArtifactLayout
+    from acprof.results.layout import ArtifactLayout
     path = ArtifactLayout.discover(directory).path(PROBE_NAME)
     if path.exists():
         report = read_json_object(path, label="startup probe report")

@@ -6,7 +6,7 @@ from unittest.mock import Mock
 import pytest
 
 from acprof.analysis import audit, comparison
-from acprof.metric_registry import NUMERIC_FIELDS
+from acprof.results.metrics import NUMERIC_FIELDS
 from tests.support.comparison_fixtures import ComparisonFixture
 
 

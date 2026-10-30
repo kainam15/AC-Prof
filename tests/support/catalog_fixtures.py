@@ -30,7 +30,7 @@ class CatalogFixture:
         (path / 'run_state.json').write_text(json.dumps(state))
         (path / 'static_meta.json').write_text(json.dumps({'model_name': model, 'model_revision': revision, 'cpu_model': 'Fixture CPU'}))
         # A recorded experiment publishes independently hashed result layers.
-        from acprof.result_layers import publish_result_rows
+        from acprof.results.layers import publish_result_rows
         publish_result_rows(
             ["cpu_cores", "mem_cap_gb", "gpu_mode", "input_scale", "warmup",
              "repeat_idx", "status"],

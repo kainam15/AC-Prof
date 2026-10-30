@@ -8,16 +8,16 @@ from pathlib import Path
 
 import pytest
 
-from acprof.artifact_layout import ArtifactLayout
 from acprof.host.measurement import checkpoint as checkpoints
 from acprof.host.measurement.publication import append_request_window
-from acprof.result_csv import KEY_FIELDS
-from acprof.telemetry import window_evidence
-from acprof.window_records import (
+from acprof.results.csv import KEY_FIELDS
+from acprof.results.layout import ArtifactLayout
+from acprof.results.windows import (
     WindowPublicationContext,
     commit_window_record,
     prepare_window_telemetry,
 )
+from acprof.telemetry import window_evidence
 
 RUN_ID = "run-checkpoint-test"
 ATTEMPT = "a" * 32

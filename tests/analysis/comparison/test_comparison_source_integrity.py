@@ -8,17 +8,17 @@ from pathlib import Path
 import pytest
 
 from acprof.analysis.independent_comparison import compare_experiments
-from acprof.artifact_layout import ArtifactLayout
 from acprof.artifacts import read_json_object
 from acprof.hardware_conditions import conditions_path
 from acprof.quality import combine_quality
 from acprof.result_store.writer import ResultWriter
-from acprof.telemetry import window_evidence
-from acprof.window_records import (
+from acprof.results.layout import ArtifactLayout
+from acprof.results.windows import (
     WindowPublicationContext,
     commit_window_record,
     prepare_window_telemetry,
 )
+from acprof.telemetry import window_evidence
 from tests.support.independent_comparison_fixtures import IndependentComparisonFixture
 
 

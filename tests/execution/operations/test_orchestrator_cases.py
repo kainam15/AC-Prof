@@ -610,8 +610,8 @@ class TestOrchestratorCases:
 
     @pytest.mark.parametrize("typed_failure", [False, True], ids=["no_recorded_failure", "typed_inference_failure"])
     def test_run_single_case_aborts_when_client_exits_nonzero(self, typed_failure) -> None:
-        from acprof.artifact_layout import case_sidecar
         from acprof.failures import Failure, RuntimeFailure
+        from acprof.results.layout import case_sidecar
         recorded_failure = None
         task_info = TaskInfo(
             model_id="google-bert/bert-base-uncased",

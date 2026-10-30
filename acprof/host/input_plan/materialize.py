@@ -14,7 +14,7 @@ from acprof.host.input_plan.types import PlannedInputScales
 
 
 def scale_plan_file_path(output_dir: str) -> str:
-    from acprof.artifact_layout import ArtifactLayout
+    from acprof.results.layout import ArtifactLayout
     return str(ArtifactLayout.discover(output_dir).path("input_scale_plan.json"))
 
 

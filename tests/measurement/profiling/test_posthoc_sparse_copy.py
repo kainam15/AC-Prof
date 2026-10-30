@@ -9,7 +9,7 @@ import stat
 import pytest
 
 from acprof.host.posthoc import copying, storage
-from acprof.result_csv import read_result_csv
+from acprof.results.csv import read_result_csv
 from tests.measurement.profiling.test_posthoc_backup import backup_context
 
 

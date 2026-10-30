@@ -14,8 +14,8 @@ import acprof.plotting.diagnostics as plotting_diagnostics
 import acprof.plotting.latency as plotting_latency
 import acprof.plotting.metrics as plotting_metrics
 import acprof.plotting.tail_latency as plotting_tail_latency
-from acprof.artifact_layout import ArtifactLayout
 from acprof.plotting.uncertainty import WindowStatistics
+from acprof.results.layout import ArtifactLayout
 
 
 def plot_results(csv_path: str, *, only_ok: bool = True, save_png: bool = True) -> None:

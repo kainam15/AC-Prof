@@ -12,9 +12,9 @@ import numpy as np
 import pandas as pd
 
 from acprof.analysis.uncertainty import summarize_windows
-from acprof.metric_registry import METRICS
 from acprof.plotting.data import aggregate_metric_series, is_gpu_on, make_config_labels
-from acprof.result_csv import KEY_FIELDS
+from acprof.results.csv import KEY_FIELDS
+from acprof.results.metrics import METRICS
 
 _CONTEXT = ("environment_class", "runtime_kind", "runtime_id", "resource_scope")
 _INTERVAL_FIELDS = ("ci_low", "ci_high", "n_windows", "missing_windows", "std", "reason")

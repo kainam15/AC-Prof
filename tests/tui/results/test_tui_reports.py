@@ -66,7 +66,7 @@ class TestTuiReports:
         assert (source.read_bytes()) == (original)
 
     async def test_v2_statistics_uses_stdout_without_creating_analysis_directories(self):
-        from acprof.artifact_layout import ArtifactLayout
+        from acprof.results.layout import ArtifactLayout
         root = self.directory / "v2"
         ArtifactLayout.for_new_run(root).initialize()
         csv_path = root / "result_all.csv"
@@ -85,7 +85,7 @@ class TestTuiReports:
             assert not (root / "analysis").exists()
 
     async def test_experiment_heading_displays_model_and_time_in_both_languages(self):
-        from acprof.artifact_layout import ArtifactLayout
+        from acprof.results.layout import ArtifactLayout
 
         run_id = '33dec6b68b6a4369a278d1b1744b71e4'
         model = 'timm/mobilenetv3_small_100.lamb_in1k'

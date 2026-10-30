@@ -30,7 +30,7 @@ def client_environment(session):
     if getattr(session, "runtime_kind", "docker") == "process":
         import json
 
-        from acprof.metric_registry import METRICS
+        from acprof.results.metrics import METRICS
         return {**{name.upper(): "nan" for name in METRICS if name.startswith("cold_start_")},
                 "ACPROF_EXECUTION_RUNTIME": "process",
                 "ACPROF_PROCESS_PID": str(session.process.identity["pid"]),

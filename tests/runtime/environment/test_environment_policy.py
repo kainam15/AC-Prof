@@ -128,9 +128,9 @@ class TestEnvironmentPolicy:
 
     @pytest.mark.parametrize("contents", ["empty", "foreign_metadata", "corrupt_header", "partial_case"])
     def test_preparation_headers_do_not_bypass_real_result_provenance(self, tmp_path, contents):
-        from acprof.artifact_layout import ArtifactLayout
         from acprof.host.preflight import require_result_environment
         from acprof.result_store.initialization import initialize_results
+        from acprof.results.layout import ArtifactLayout
 
         layout = ArtifactLayout.for_new_run(tmp_path)
         layout.initialize()
@@ -151,7 +151,7 @@ class TestEnvironmentPolicy:
                     require_result_environment(str(tmp_path))
 
     def test_csv_merge_refuses_cross_environment_even_with_disjoint_keys(self):
-        from acprof.result_csv import ResultValidationError, merge_result_csvs
+        from acprof.results.csv import ResultValidationError, merge_result_csvs
         with tempfile.TemporaryDirectory() as directory:
             paths = []
             for i, environment in enumerate(("native_linux", "wsl2")):

@@ -451,7 +451,7 @@ class TestRuntimeValidation:
             matrix.assert_not_called()
             compute.assert_not_called()
             execution.assert_not_called()
-            from acprof.result_csv import read_result_csv
+            from acprof.results.csv import read_result_csv
             manifests = list(Path(temporary).rglob('result_layers.json'))
             assert len(manifests) == 1
             fields, rows = read_result_csv(manifests[0])

@@ -6,10 +6,10 @@ import os
 from pathlib import Path
 
 from acprof.artifacts import read_json_object, sync_directory
-from acprof.result_csv import ResultValidationError
-from acprof.result_layers import PROFILER_LAYERS, has_layer_evidence, layer_identity_fields
 from acprof.result_store.protocol import csv_bytes, validate_manifest, write_bytes
 from acprof.result_store.sources import replay
+from acprof.results.csv import ResultValidationError
+from acprof.results.layers import PROFILER_LAYERS, has_layer_evidence, layer_identity_fields
 
 _COMPARE_CHUNK_BYTES = 64 * 1024
 

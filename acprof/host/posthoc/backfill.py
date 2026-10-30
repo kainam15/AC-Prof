@@ -45,8 +45,8 @@ from acprof.host.profiling.execution_plan import (
     NSYS_METRIC_FIELDS,
     ExecutionProfileResolver,
 )
-from acprof.metric_registry import order_csv_fields
-from acprof.result_csv import csv_diagnostic_text
+from acprof.results.csv import csv_diagnostic_text
+from acprof.results.metrics import order_csv_fields
 
 
 def row_tool_complete(row: Mapping[str, Any], tool: str) -> bool:

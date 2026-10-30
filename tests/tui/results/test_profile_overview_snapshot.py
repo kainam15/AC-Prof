@@ -13,10 +13,10 @@ import pytest
 from tests.runtime.containers.test_layer_read_cancellation import source_hashes, watch_cancelled_read
 from tests.measurement.profiling.test_posthoc import TestPosthocProfile as _PosthocFixture
 
-from acprof import result_csv
-from acprof.artifact_layout import ArtifactLayout
+from acprof.results import csv as result_csv
+from acprof.results.layout import ArtifactLayout
 from acprof.host.posthoc import backfill, context as posthoc_context
-from acprof.result_layers import LAYER_FILES, layer_fields
+from acprof.results.layers import LAYER_FILES, layer_fields
 from acprof.result_store import protocol
 from acprof.tui import diagnostics, profile_status
 from acprof.tui.result_controller import ResultController

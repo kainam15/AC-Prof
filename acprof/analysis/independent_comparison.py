@@ -13,12 +13,12 @@ from acprof.analysis.audit import number
 from acprof.analysis.comparison import compare_snapshots, load_comparison_snapshot
 from acprof.analysis.conditions import ALLOWED_RESOURCE_DIMENSIONS
 from acprof.analysis.uncertainty import validate_window_options
-from acprof.artifact_layout import ArtifactLayout
 from acprof.artifacts import file_sha256, read_json_object
 from acprof.hardware_conditions import conditions_path
-from acprof.metric_registry import METRICS
 from acprof.quality import QUALITY_FIELDS, combine_quality
-from acprof.result_csv import measurement_key, read_result_csv_snapshot, verify_result_source
+from acprof.results.csv import measurement_key, read_result_csv_snapshot, verify_result_source
+from acprof.results.layout import ArtifactLayout
+from acprof.results.metrics import METRICS
 
 
 def _verify_source(artifact: Path, expected: str | None) -> None:

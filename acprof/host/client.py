@@ -17,7 +17,6 @@ from typing import IO, Any, Literal
 
 import requests
 
-from acprof.artifact_layout import ArtifactLayout, case_sidecar
 from acprof.artifacts import atomic_write, loads_finite_json
 from acprof.capabilities import measurement_requested
 from acprof.config import (
@@ -44,7 +43,8 @@ from acprof.host.profiling.execution_plan import (
     ExecutionProfileResolver,
     load_execution_profile_plan as _load_execution_profile_plan,
 )
-from acprof.window_records import WindowPublicationContext
+from acprof.results.layout import ArtifactLayout, case_sidecar
+from acprof.results.windows import WindowPublicationContext
 
 
 def _local_proxy_options(url: str) -> dict:
@@ -452,7 +452,7 @@ class ClientRunner:
             for scale_entry in self.input_scale_entries:
                 scale_val = float(scale_entry["input_scale"])
                 payload_override = scale_entry.get("payload")
-                from acprof.result_csv import measurement_key
+                from acprof.results.csv import measurement_key
                 def planned_key(warmup, repeat_idx):
                     return measurement_key({"cpu_cores": self.config.cpu_cores, "mem_cap_gb": self.config.mem_cap_gb,
                                             "gpu_mode": self.config.gpu_mode, "input_scale": str(scale_val),

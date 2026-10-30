@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from acprof import result_csv
 from acprof.analysis import comparison
+from acprof.results import csv as result_csv
 from tests.support.comparison_fixtures import ComparisonFixture
 
 
@@ -26,7 +26,7 @@ def test_comparison_parses_plain_csv_once(source, monkeypatch, relative):
         calls[Path(path).resolve()] += 1
         return parse(stream, path, expected, **kwargs)
 
-    monkeypatch.setattr("acprof.result_csv.parse_result_stream", record_parse)
+    monkeypatch.setattr("acprof.results.csv.parse_result_stream", record_parse)
     if relative:
         monkeypatch.chdir(source.parent)
     snapshot = comparison.load_comparison_snapshot(source.name if relative else source)
@@ -96,7 +96,7 @@ def test_first_read_error_is_not_hidden_by_a_later_successful_audit(source, monk
             raise ValueError("first parse failed")
         return parse(stream, path, expected, **kwargs)
 
-    monkeypatch.setattr("acprof.result_csv.parse_result_stream", fail_once)
+    monkeypatch.setattr("acprof.results.csv.parse_result_stream", fail_once)
     snapshot = comparison.load_comparison_snapshot(source)
     assert calls == 2
     assert not snapshot["valid"]
@@ -108,6 +108,6 @@ def test_csv_parser_error_keeps_its_existing_exception_boundary(source, monkeypa
     def fail_parse(*_args, **_kwargs):
         raise csv.Error("parser failure")
 
-    monkeypatch.setattr("acprof.result_csv.parse_result_stream", fail_parse)
+    monkeypatch.setattr("acprof.results.csv.parse_result_stream", fail_parse)
     with pytest.raises(csv.Error, match="parser failure"):
         comparison.load_comparison_snapshot(source)

@@ -124,7 +124,7 @@ class TestAnalysisModel:
         assert (len(data.configs)) == (6)
         assert (len({c["config_id"] for c in data.configs})) == (6)
         assert ({c["environment_class"] for c in data.configs}) == ({"unknown", "wsl2"})
-        from acprof.result_layers import publish_result_layers
+        from acprof.results.layers import publish_result_layers
         publish_result_layers(a)
         with pytest.raises(ValueError, match="duplicate"):
             load_analysis([a.parent, a.parent])
@@ -241,11 +241,11 @@ class TestAnalysisModel:
 
     def test_v2_metadata_and_blank_csv_handling(self):
         from acprof.analysis.model import load_analysis
-        from acprof.artifact_layout import ArtifactLayout
+        from acprof.results.layout import ArtifactLayout
         source = self.source([self.row()])
         layout = ArtifactLayout.for_new_run(self.root / "v2")
         layout.initialize()
-        from acprof.result_layers import publish_result_layers
+        from acprof.results.layers import publish_result_layers
         publish_result_layers(source, output_dir=layout.root)
         layout.path("run_state.json").parent.mkdir(parents=True, exist_ok=True)
         layout.path("run_state.json").write_text(json.dumps({"run_id": "recorded-run", "status": "complete"}))
@@ -276,10 +276,10 @@ class TestAnalysisModel:
     def test_analysis_audits_once_per_load_and_refreshes_quality(self, storage, monkeypatch):
         from acprof.analysis.audit import audit_result
         from acprof.analysis.model import load_analysis
-        from acprof.artifact_layout import ArtifactLayout
         from acprof.quality import loading_quality
-        from acprof.result_csv import read_result_csv_snapshot
-        from acprof.result_layers import publish_result_layers
+        from acprof.results.csv import read_result_csv_snapshot
+        from acprof.results.layers import publish_result_layers
+        from acprof.results.layout import ArtifactLayout
 
         input_path = self.source([self.row()])
         layout = ArtifactLayout.from_csv(input_path)
@@ -336,7 +336,7 @@ class TestAnalysisModel:
         source = self.source([self.row()], directory=f"original-{recorded}")
         if recorded:
             (source.parent / "run_state.json").write_text(json.dumps({"run_id": "stable-run"}))
-        from acprof.result_layers import publish_result_layers
+        from acprof.results.layers import publish_result_layers
         publish_result_layers(source)
         before = load_analysis([source]).configs[0]["config_id"]
         moved = self.root / f"renamed-{recorded}"
@@ -349,7 +349,7 @@ class TestAnalysisModel:
         from acprof.analysis.model import load_analysis
         source = self.source([self.row()])
         (source.parent / "run_state.json").write_text(json.dumps({"run_id": "stable-run"}))
-        from acprof.result_layers import publish_result_layers
+        from acprof.results.layers import publish_result_layers
         publish_result_layers(source)
         copy = self.root / "backup"
         shutil.copytree(source.parent, copy)

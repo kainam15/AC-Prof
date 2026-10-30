@@ -8,10 +8,10 @@ from decimal import localcontext
 import pytest
 from tests.results.storage.test_result_row_assembly import row_store
 
-from acprof import result_csv
+from acprof.results import csv as result_csv
 from acprof.analysis.audit import audit_result
-from acprof.artifact_layout import ArtifactLayout
-from acprof.result_layers import BASE_LAYERS, LAYER_FILES
+from acprof.results.layout import ArtifactLayout
+from acprof.results.layers import BASE_LAYERS, LAYER_FILES
 from acprof.result_store import reader
 from acprof.result_store.protocol import csv_bytes, save_commit
 

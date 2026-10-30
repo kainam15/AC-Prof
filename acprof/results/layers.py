@@ -21,8 +21,8 @@ from acprof.artifacts import (
     sync_directory,
 )
 from acprof.cancellation import cancellable, check_cancelled
-from acprof.metric_registry import METRICS, order_csv_fields
-from acprof.result_csv import (
+from acprof.results.metrics import METRICS, order_csv_fields
+from acprof.results.csv import (
     KEY_FIELDS,
     ResultValidationError,
     measurement_key,
@@ -158,7 +158,7 @@ def result_layer_paths(root: str | Path, manifest: Mapping) -> dict[str, Path]:
     """
     root = _result_root(root)
     if manifest.get("schema_version") == 3:
-        from acprof.artifact_layout import ArtifactLayout
+        from acprof.results.layout import ArtifactLayout
         from acprof.result_store.protocol import validate_manifest
         return validate_manifest(ArtifactLayout.discover(root), dict(manifest))
     version = manifest.get("schema_version")

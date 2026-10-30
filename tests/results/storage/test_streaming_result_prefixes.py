@@ -11,7 +11,7 @@ import pytest
 from tests.results.storage.test_projection_recovery import watch_projection
 from tests.results.storage.test_sequential_result_reads import snapshot_store
 
-from acprof.result_csv import KEY_FIELDS, ResultValidationError
+from acprof.results.csv import KEY_FIELDS, ResultValidationError
 from acprof.result_store import protocol
 from acprof.result_store.initialization import initialize_results
 from acprof.result_store.reader import read_snapshot

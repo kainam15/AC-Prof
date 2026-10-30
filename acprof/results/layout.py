@@ -130,7 +130,7 @@ class ArtifactLayout:
         return self.path("result_layers.json")
 
     def layer_csv(self, layer: str) -> Path:
-        from acprof.result_layers import LAYER_FILES
+        from acprof.results.layers import LAYER_FILES
         return self.contained(LAYER_FILES[layer])
 
     def result_store_path(self, relative: str) -> Path:
@@ -143,7 +143,7 @@ class ArtifactLayout:
         return self.contained(f"raw/windows/{case_id}")
 
     def window_evidence_path(self, kind: str, identity: dict) -> Path:
-        from acprof.window_records import window_filename
+        from acprof.results.windows import window_filename
         if kind not in {"windows", "telemetry"} or not _CASE_ID.fullmatch(identity["case_id"]):
             raise ValueError("Invalid window evidence identity")
         if not _ATTEMPT_ID.fullmatch(identity["case_attempt_id"]):

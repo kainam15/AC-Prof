@@ -9,8 +9,8 @@ from unittest.mock import patch
 
 import pytest
 
-from acprof.artifact_layout import ArtifactLayout
 from acprof.host import run_state
+from acprof.results.layout import ArtifactLayout
 
 
 def write_run_state(root: Path, content: str) -> Path:

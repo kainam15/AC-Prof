@@ -5,8 +5,8 @@ This coordinates recovery, not whole-directory reader transactions.
 from __future__ import annotations
 
 from acprof.artifacts import read_json_object, sync_directory
-from acprof.result_csv import ResultValidationError
 from acprof.result_store.protocol import write_bytes
+from acprof.results.csv import ResultValidationError
 
 
 def recover_metadata(layout, manifest):

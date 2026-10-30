@@ -8,12 +8,12 @@ from types import SimpleNamespace
 
 import pytest
 
-from acprof.artifact_layout import ArtifactLayout
+from acprof.results.layout import ArtifactLayout
 from acprof.config import CSV_FIELDS
-from acprof.result_layers import BASE_LAYERS, LAYER_FILES, layer_fields, read_result_layers
+from acprof.results.layers import BASE_LAYERS, LAYER_FILES, layer_fields, read_result_layers
 from acprof.result_store.writer import ResultWriter
 from acprof.telemetry import window_evidence
-from acprof.window_records import (
+from acprof.results.windows import (
     WindowPublicationContext,
     commit_window_record,
     prepare_window_telemetry,
@@ -130,8 +130,8 @@ def test_windows_append_without_reading_previous_csv_and_are_idempotent(tmp_path
 
 
 def test_legacy_snapshot_import_cannot_replace_a_live_commit(tmp_path):
-    from acprof.result_csv import ResultValidationError
-    from acprof.result_layers import publish_result_rows
+    from acprof.results.csv import ResultValidationError
+    from acprof.results.layers import publish_result_rows
 
     layout = initialized(tmp_path)
     with ResultWriter(tmp_path) as writer:
@@ -144,7 +144,7 @@ def test_legacy_snapshot_import_cannot_replace_a_live_commit(tmp_path):
 
 
 def test_snapshot_version_change_with_identical_rows_is_detected(tmp_path, monkeypatch):
-    from acprof import result_csv
+    from acprof.results import csv as result_csv
 
     layout = initialized(tmp_path)
     with ResultWriter(tmp_path) as writer:

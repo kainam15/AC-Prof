@@ -4,11 +4,11 @@ from __future__ import annotations
 import json
 from uuid import uuid4
 
-from acprof.artifact_layout import ArtifactLayout
 from acprof.artifacts import atomic_write_json, sync_directory
 from acprof.host.collection_history import normalize_collection_history
 from acprof.result_store.protocol import reference, write_bytes
 from acprof.result_store.writer import ResultWriter
+from acprof.results.layout import ArtifactLayout
 
 
 def commit_incremental(context, *, rows, static_meta, collection_history):

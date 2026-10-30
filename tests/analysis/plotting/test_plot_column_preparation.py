@@ -8,8 +8,8 @@ import pandas as pd
 import pytest
 
 from acprof.config import CSV_FIELDS, STATIC_META_SCHEMA_VERSION
-from acprof.metric_registry import NUMERIC_FIELDS
 from acprof.plotting.data import prepare_df
+from acprof.results.metrics import NUMERIC_FIELDS
 
 
 def write_plot_csv(

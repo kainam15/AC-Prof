@@ -9,9 +9,9 @@ from pathlib import Path
 from typing import Any, Literal
 
 from acprof.analysis.audit import audit_result
-from acprof.artifact_layout import ArtifactLayout
 from acprof.host.run_state import RunStateError, load_run_state
 from acprof.messages import Message, join_messages
+from acprof.results.layout import ArtifactLayout
 from acprof.tui.i18n import message_id
 from acprof.tui.progress import ProgressSnapshot
 from acprof.tui.stages import Stage

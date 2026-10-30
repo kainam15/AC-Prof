@@ -7,9 +7,9 @@ import time
 
 from acprof.artifacts import atomic_write, atomic_write_json, file_sha256, read_json_object
 from acprof.config import CSV_FIELDS
-from acprof.result_csv import measurement_key
 from acprof.result_store.writer import ResultWriter
-from acprof.window_records import read_window_record
+from acprof.results.csv import measurement_key
+from acprof.results.windows import read_window_record
 
 
 def is_incremental(layout) -> bool:

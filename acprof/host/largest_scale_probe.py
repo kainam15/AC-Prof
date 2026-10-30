@@ -123,7 +123,7 @@ def create_probe_output_dir(
 ) -> Path:
     """Create a unique per-run directory outside the formal result root."""
     root = Path(output_root).expanduser()
-    from acprof.artifact_layout import ArtifactLayout
+    from acprof.results.layout import ArtifactLayout
     model_root = ArtifactLayout.discover(root / model_id.replace("/", "--")).path("probes")
     timestamp = datetime.datetime.now().astimezone().strftime("%Y%m%dT%H%M%S%z")
     base_name = f"largest_scale_{timestamp}_{os.getpid()}"

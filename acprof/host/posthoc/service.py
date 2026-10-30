@@ -151,7 +151,7 @@ def run_posthoc(
             updated_rows_by_tool={tool: 0 for tool in needed},
         )
 
-    from acprof.artifact_layout import ArtifactLayout
+    from acprof.results.layout import ArtifactLayout
     workspace = ArtifactLayout.discover(context.result_dir).path(POSTHOC_DIRNAME)
     workspace.mkdir(parents=True, exist_ok=True)
     collected: list[str] = []

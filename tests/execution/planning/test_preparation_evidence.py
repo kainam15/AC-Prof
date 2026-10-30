@@ -7,10 +7,10 @@ from unittest.mock import patch
 import pytest
 
 import tests.support.run_recovery_fixtures as recovery
-from acprof.artifact_layout import ArtifactLayout
 from acprof.host.preparation.collection_workflow import PreparationWorkflow
 from acprof.host.preparation.preparation_evidence import PreparationEvidence
 from acprof.host.preparation.preparation_log import PreparationLog, PreparationTee, redact_text
+from acprof.results.layout import ArtifactLayout
 
 
 def test_split_credentials_and_urls_are_redacted_only_after_complete_lines():

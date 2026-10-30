@@ -6,7 +6,7 @@ import json
 from contextlib import ExitStack
 from pathlib import Path
 
-from acprof.metric_registry import METRICS
+from acprof.results.metrics import METRICS
 
 
 def main(argv=None):

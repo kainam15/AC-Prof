@@ -11,9 +11,7 @@ import hashlib
 import os
 from uuid import uuid4
 
-from acprof.artifact_layout import ArtifactLayout
 from acprof.artifacts import atomic_write_json, read_json_object
-from acprof.result_csv import ResultValidationError, measurement_key
 from acprof.result_store.protocol import (
     csv_bytes,
     publication_lock,
@@ -23,6 +21,8 @@ from acprof.result_store.protocol import (
 )
 from acprof.result_store.recovery import clear_pending, projected_rows, recover_projection
 from acprof.result_store.sources import apply_source
+from acprof.results.csv import ResultValidationError, measurement_key
+from acprof.results.layout import ArtifactLayout
 
 
 class ResultWriter:
@@ -135,7 +135,7 @@ class ResultWriter:
     def freeze(self):
         """Create an immutable snapshot once at completion or explicit freeze."""
         self._ready()
-        from acprof.result_layers import prepare_result_snapshot
+        from acprof.results.layers import prepare_result_snapshot
         if not self.rows:
             raise ResultValidationError("cannot freeze an experiment without measurements")
         snapshot = prepare_result_snapshot(self.manifest["wide_fields"], list(self.rows.values()), self.layout.root)

@@ -8,7 +8,7 @@ from acprof.analysis.audit import audit_result
 from acprof.analysis.uncertainty import summarize_windows
 from acprof.artifacts import atomic_write_json, read_json_object
 from acprof.quality import QUALITY_FIELDS
-from acprof.result_csv import read_result_csv_snapshot, result_csv_snapshot_unchanged
+from acprof.results.csv import read_result_csv_snapshot, result_csv_snapshot_unchanged
 
 
 def build_statistics_report(path: Path, metrics=None, *, confidence=0.95, resamples=5000,

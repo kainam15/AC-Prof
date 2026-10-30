@@ -116,7 +116,7 @@ def html_report_inputs(source: str, *, project_dir: Path) -> tuple[Path, ...]:
 
 def prepare_html_report(source: str, *, project_dir: Path, python_executable: Path) -> PendingLaunch:
     """Prepare a new offline HTML artifact without importing analysis or Plotly."""
-    from acprof.artifact_layout import ArtifactLayout
+    from acprof.results.layout import ArtifactLayout
 
     paths = html_report_inputs(source, project_dir=project_dir)
     first = paths[0]

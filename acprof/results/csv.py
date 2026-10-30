@@ -17,7 +17,7 @@ from typing import cast
 from acprof.artifacts import atomic_write, file_sha256
 from acprof.cancellation import cancellable, check_cancelled
 from acprof.config import CSV_FIELDS
-from acprof.metric_registry import order_csv_fields
+from acprof.results.metrics import order_csv_fields
 
 KEY_FIELDS = ("cpu_cores", "mem_cap_gb", "gpu_mode", "input_scale", "warmup", "repeat_idx")
 MeasurementKey = tuple[str, ...]
@@ -210,7 +210,7 @@ def read_result_csv(path: str | Path, *, expected: Iterable[MeasurementKey] | No
                     ) -> tuple[list[str], list[dict[str, str]]]:
     path = Path(path)
     if path.name == "result_layers.json":
-        from acprof.result_layers import read_result_layers
+        from acprof.results.layers import read_result_layers
         fields, rows = read_result_layers(path.parent)
         if expected is not None and {measurement_key(row) for row in rows} != set(expected):
             raise ResultValidationError("layered measurement plan mismatch")
@@ -320,7 +320,7 @@ def read_result_csv_snapshot(path: str | Path, *, expected: Iterable[Measurement
                 raise ResultValidationError("layered measurement plan mismatch")
             check_cancelled(cancelled)
             return snapshot
-        from acprof.result_layers import read_result_layers
+        from acprof.results.layers import read_result_layers
         layer_digest = file_sha256(path, cancelled=cancelled)
         fields, rows = read_result_layers(path.parent, expected_manifest_sha256=layer_digest, cancelled=cancelled)
         if (expected is not None and {measurement_key(row) for row in cancellable(rows, cancelled)}
@@ -345,7 +345,7 @@ def result_csv_snapshot_unchanged(snapshot: ResultCsvSnapshot) -> bool:
     if file_sha256(snapshot.path) != snapshot.sha256:
         return False
     if snapshot.path.name == "result_layers.json":
-        from acprof.result_layers import read_result_layers
+        from acprof.results.layers import read_result_layers
         try:
             fields, rows = read_result_layers(snapshot.path.parent)
         except (ValueError, OSError, csv.Error):
@@ -373,13 +373,13 @@ def verify_result_source(artifact: str | Path, expected_sha256: str | None, *,
     from acprof.artifacts import read_json_object
     manifest = read_json_object(artifact, label="result layers manifest", expected_sha256=expected_sha256)
     if manifest.get("schema_version") == 3:
-        from acprof.artifact_layout import ArtifactLayout
+        from acprof.results.layout import ArtifactLayout
         from acprof.result_store.protocol import publication_lock, validate_layer_files
         layout = ArtifactLayout.discover(artifact.parent)
         with publication_lock(layout, exclusive=False, cancelled=cancelled):
             validate_layer_files(layout, manifest, cancelled=cancelled)
     else:
-        from acprof.result_layers import verify_result_layer_files
+        from acprof.results.layers import verify_result_layer_files
         verify_result_layer_files(artifact.parent, manifest, cancelled=cancelled)
     if file_sha256(artifact, cancelled=cancelled) != expected_sha256:
         raise ResultValidationError("result manifest changed during verification")
@@ -432,7 +432,7 @@ def merge_result_csvs(paths: Sequence[str], destination: str, *,
             with ResultWriter(Path(destination).parent) as writer:
                 writer.update_rows(rows, reason="validated case consolidation", state="processing")
         else:
-            from acprof.result_layers import publish_result_rows
+            from acprof.results.layers import publish_result_rows
             publish_result_rows(fields, rows, Path(destination).parent)
     else:
         def write(stream):
