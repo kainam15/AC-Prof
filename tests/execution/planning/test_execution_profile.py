@@ -232,7 +232,7 @@ heap_tree=peak
         assert (set(outputs)) == (set(execution_parsers.NSYS_REPORTS))
         assert (len(commands)) == (len(execution_parsers.NSYS_REPORTS))
         for command in commands:
-            assert (command[command.index("--format") + 1]) == ("csv")
+            assert (command[command.index("--format") + 1]) == ("csv:mem=B")
             assert (command[command.index("--timeunit") + 1]) == ("nsec")
             assert (command[command.index("--output") + 1]) == ("-")
         assert ("--force-export=true") in (commands[0])

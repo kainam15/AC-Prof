@@ -100,7 +100,7 @@ def _run_nsys_stats(nsys_bin: str, report_path: str) -> dict[str, str]:
                     "--report",
                     report_name,
                     "--format",
-                    "csv",
+                    "csv:mem=B",
                     "--timeunit",
                     "nsec",
                     "--output",

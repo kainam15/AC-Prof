@@ -203,8 +203,11 @@ Torch eager 记录模型逻辑计算量，NCU 记录 GPU 实际执行量；两�
 | `gpu_kernel_launch_count_per_request_nsys` | 同一 NVTX range 内 GPU kernel launch 数，按 request 归一化。 |
 | `gpu_memcpy_time_sum_ms_per_request_nsys` | 同一 NVTX range 内 GPU memcpy duration 总和，单位 ms/request；copy 与 kernel 或其他 copy 可能重叠。 |
 | `gpu_memcpy_count_per_request_nsys` | 同一 NVTX range 内 GPU memcpy activity 数，按 request 归一化。 |
-| `gpu_memcpy_bytes_per_request_nsys` | 同一 NVTX range 内 GPU memcpy bytes 总量，按 request 归一化。 |
+| `gpu_memcpy_bytes_per_request_nsys` | 同一 NVTX range 内 GPU memcpy bytes 总量，按 request 归一化；stats 使用 byte 单位导出，避免 MB 显示单位造成舍入。 |
 | `compute_profile_error_nsys` | Nsight Systems execution probe 的独立诊断；正常为空，工具/driver 不兼容、capture 失败或 SQLite report 解析失败时记录原因。 |
+
+Nsys 的时间统计使用 nanosecond、内存统计使用 byte 导出，再转换为上表单位。
+旧的 MB 导出结果可能存在显示舍入；已有成功 CSV 不会在升级后自动重算，原始 `.nsys-rep` 仍可用于核对。
 
 ## 可选分析器成本
 
