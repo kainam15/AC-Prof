@@ -120,8 +120,8 @@ _DECLARATIONS = (
     Metric('throughput_samples_per_s_per_cpu_core', 'sample/s/core', 'derived', 'request_window'),
     # 独立 Profiler；各工具的诊断紧随对应指标。
     Metric('model_logical_mflop_per_request_torch_profiler_eager', 'MFLOP/request', 'torch', 'independent_profiler', tool='torch', posthoc=True),
-    Metric('model_logical_mflops_app_torch_profiler_eager', 'MFLOP/s', 'torch', 'independent_profiler', tool='torch'),
-    Metric('model_logical_mflops_packet_torch_profiler_eager', 'MFLOP/s', 'torch', 'independent_profiler', tool='torch'),
+    Metric('model_logical_mflops_app_torch_profiler_eager', 'MFLOP/s', 'torch', 'independent_profiler', tool='torch', posthoc=True),
+    Metric('model_logical_mflops_packet_torch_profiler_eager', 'MFLOP/s', 'torch', 'independent_profiler', tool='torch', posthoc=True),
     Metric('compute_profile_error_torch_profiler_eager', 'text', 'torch', 'independent_profiler', kind='text', tool='torch', posthoc=True),
     Metric('gpu_executed_mflop_per_request_ncu', 'MFLOP/request', 'ncu', 'independent_profiler', applicability='gpu', tool='ncu', posthoc=True),
     Metric('gpu_executed_tensor_mflop_per_request_ncu', 'MFLOP/request', 'ncu', 'independent_profiler', applicability='gpu', tool='ncu', posthoc=True),

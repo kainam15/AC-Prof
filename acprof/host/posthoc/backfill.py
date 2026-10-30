@@ -85,10 +85,19 @@ def _backfill_torch_row(
     mode = normalize_gpu_mode(row.get("gpu_mode"))
     scale = _finite_float(row.get("input_scale"))
     profile = find_compute_profile_entry(dict(plan), mode, scale)
-    row[TORCH_LOGICAL_MFLOP_FIELD] = _fmt_float(
-        profile.get(TORCH_LOGICAL_MFLOP_FIELD)
+    logical_mflop = profile.get(TORCH_LOGICAL_MFLOP_FIELD)
+    row.update(
+        {
+            TORCH_LOGICAL_MFLOP_FIELD: _fmt_float(logical_mflop),
+            "model_logical_mflops_app_torch_profiler_eager": _fmt_float(
+                compute_mflops(logical_mflop, row.get("latency_app_s"))
+            ),
+            "model_logical_mflops_packet_torch_profiler_eager": _fmt_float(
+                _packet_mflops(logical_mflop, row)
+            ),
+            TORCH_ERROR_FIELD: str(profile.get(TORCH_ERROR_FIELD) or ""),
+        }
     )
-    row[TORCH_ERROR_FIELD] = str(profile.get(TORCH_ERROR_FIELD) or "")
 
 
 def _backfill_ncu_row(

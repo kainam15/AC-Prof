@@ -106,6 +106,8 @@ NCU metrics（适用时）必须匹配，才能恢复旧报告。分析固定使
 默认保留已有成功 CSV 值；`--force-reprofile` 强制重新采集并替换所选 profiler 字段。
 CSV 错误列的[缺失标记](../results/metrics.md#分层结果-csv唯一正式结果)不计为失败：
 指标不完整时显示“尚未采集”或“部分完成”，全部必要指标有效且没有真实错误时保留已有值。
+Torch 的完整性同时检查逻辑 MFLOP 和 application / packet 两列 MFLOPS；旧结果只有逻辑工作量时，
+普通补采命令会复用匹配的成功 plan，按各行已有延迟补齐速率，无需重新运行模型。
 这一缺失标记规则只用于 CSV；JSON profiler plan 中的非空错误字符串仍会阻止 plan 复用。
 
 写入前把受影响文件备份到 `.acprof/recovery/posthoc_backups/<timestamp>/`，验证暂存结果后，

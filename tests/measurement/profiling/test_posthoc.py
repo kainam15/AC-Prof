@@ -306,6 +306,8 @@ class TestPosthocProfile:
                     TORCH_LOGICAL_MFLOP_FIELD: (
                         "123.000000" if torch_complete else "nan"
                     ),
+                    "model_logical_mflops_app_torch_profiler_eager": "49.200000" if torch_complete else "nan",
+                    "model_logical_mflops_packet_torch_profiler_eager": "61.500000" if torch_complete else "nan",
                     host_compute_profile_plan.TORCH_ERROR_FIELD: (
                         "" if torch_complete else "compute_profile_disabled"
                     ),
@@ -327,6 +329,8 @@ class TestPosthocProfile:
                     TORCH_LOGICAL_MFLOP_FIELD: (
                         "456.000000" if torch_complete else "nan"
                     ),
+                    "model_logical_mflops_app_torch_profiler_eager": "1140.000000" if torch_complete else "nan",
+                    "model_logical_mflops_packet_torch_profiler_eager": "912.000000" if torch_complete else "nan",
                     host_compute_profile_plan.TORCH_ERROR_FIELD: (
                         "" if torch_complete else "compute_profile_disabled"
                     ),
@@ -652,10 +656,26 @@ class TestPosthocProfile:
         assert (rows[0][host_compute_profile_plan.NCU_TOTAL_MFLOP_FIELD]) == ("777.000000")
         assert (updated) == ({"ncu": 0})
 
-    def test_torch_plan_backfills_cpu_gpu_rows_and_static_flops(self):
+    @pytest.mark.parametrize("existing_work", [False, True])
+    def test_torch_plan_backfills_cpu_gpu_rows_and_static_flops(self, existing_work):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "example--model"
             self._write_fixture(root, torch_complete=False)
+            if existing_work:
+                from acprof.results.layers import publish_result_layers
+                csv_path = root / "result_all.csv"
+                with csv_path.open(newline="") as stream:
+                    reader = csv.DictReader(stream)
+                    fields = reader.fieldnames
+                    prior_rows = list(reader)
+                for row in prior_rows:
+                    row[TORCH_LOGICAL_MFLOP_FIELD] = "111" if row["gpu_mode"] == "off" else "222"
+                    row[host_compute_profile_plan.TORCH_ERROR_FIELD] = ""
+                with csv_path.open("w", newline="") as stream:
+                    writer = csv.DictWriter(stream, fields)
+                    writer.writeheader()
+                    writer.writerows(prior_rows)
+                publish_result_layers(csv_path)
             (root / "compute_profile_plan.json").write_text(
                 json.dumps(self._torch_plan()), encoding="utf-8"
             )
@@ -672,6 +692,10 @@ class TestPosthocProfile:
             gpu = next(row for row in rows if row["gpu_mode"] == "on")
             assert (cpu[host_compute_profile_plan.TORCH_LOGICAL_MFLOP_FIELD]) == ("111.000000")
             assert (gpu[host_compute_profile_plan.TORCH_LOGICAL_MFLOP_FIELD]) == ("222.000000")
+            assert cpu["model_logical_mflops_app_torch_profiler_eager"] == "44.400000"
+            assert cpu["model_logical_mflops_packet_torch_profiler_eager"] == "55.500000"
+            assert gpu["model_logical_mflops_app_torch_profiler_eager"] == "555.000000"
+            assert gpu["model_logical_mflops_packet_torch_profiler_eager"] == "444.000000"
             assert (summary.reused_tools) == (("torch",))
             assert (summary.updated_rows_by_tool) == ({"torch": 2})
 
@@ -680,6 +704,21 @@ class TestPosthocProfile:
             assert (metadata["torch_version"]) == ("test-torch")
             assert (metadata["static_flops"]["profile"]) == ("gpu")
             assert (metadata["static_flops"]["values"]) == ([{"input_scale": 8, "flops_per_request": 222_000_000}])
+
+            before = {path.relative_to(root): path.read_bytes() for path in root.rglob("*") if path.is_file()}
+            with patch("acprof.host.posthoc.service.find_active_processes", return_value=[]), patch(
+                "acprof.host.posthoc.service._validate_profiler_runtime",
+                side_effect=AssertionError("complete rows must not start a profiler"),
+            ), patch(
+                "acprof.host.posthoc.service._find_reusable_compute_plan",
+                side_effect=AssertionError("complete rows must not reread a plan"),
+            ):
+                repeated = posthoc.run_posthoc(root, tools="torch")
+            assert repeated.skipped_tools == ("torch",)
+            assert repeated.collected_tools == repeated.reused_tools == ()
+            assert repeated.updated_rows_by_tool == {}
+            assert repeated.backup_dir is None
+            assert {path.relative_to(root): path.read_bytes() for path in root.rglob("*") if path.is_file()} == before
 
     def test_torch_collector_uses_available_cpu_and_gpu_modes(self):
         with tempfile.TemporaryDirectory() as tmp:

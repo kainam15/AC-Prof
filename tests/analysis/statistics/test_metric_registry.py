@@ -25,14 +25,18 @@ def test_workload_contract_is_additive_text_not_a_numeric_metric():
     assert ('workload_contract') in (CSV_FIELDS)
     assert ('workload_contract') not in (NUMERIC_FIELDS)
 
-def test_consumers_share_registry_without_changing_tool_completeness():
+def test_consumers_share_registry_and_required_profiler_fields():
     from acprof.host.posthoc.context import TOOL_FIELDS, TOOL_METRIC_FIELDS
     from acprof.results.metrics import CSV_FIELDS as registry_fields, tool_fields
     assert (CSV_FIELDS) is (registry_fields)
     for tool in TOOL_FIELDS:
         assert (TOOL_FIELDS[tool]) == (tool_fields(tool))
         assert (TOOL_METRIC_FIELDS[tool]) == (tool_fields(tool, numeric_only=True))
-    assert (tool_fields("torch", numeric_only=True)) == (("model_logical_mflop_per_request_torch_profiler_eager",))
+    assert tool_fields("torch", numeric_only=True) == (
+        "model_logical_mflop_per_request_torch_profiler_eager",
+        "model_logical_mflops_app_torch_profiler_eager",
+        "model_logical_mflops_packet_torch_profiler_eager",
+    )
 
 def test_units_windows_and_text_are_explicit():
     from acprof.results.metrics import METRICS, NUMERIC_FIELDS
