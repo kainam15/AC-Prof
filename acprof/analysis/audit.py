@@ -345,10 +345,14 @@ def audit_result(source: str | Path, *, result_snapshot: ResultCsvSnapshot | Non
             if (report["environment_class"] == "wsl2" and native_only_metric(METRICS[field])
                     and number(row.get(field)) is not None):
                 issue("unsupported_wsl_metric", f"WSL2 不允许记录 Native 专属指标 {field}", row=index, field=field)
-            raw = str(row.get(field, "nan")).strip().lower()
-            if raw not in MISSING_CSV_TEXT and number(raw) is None:
+            raw = str(row.get(field, "nan"))
+            absent = raw in MISSING_CSV_TEXT
+            if not absent:
+                raw = raw.strip().lower()
+                absent = raw in MISSING_CSV_TEXT
+            if not absent and number(raw) is None:
                 issue("invalid_number", f"{field} 不是有限数值或 nan", row=index, field=field)
-            elif formal and raw in MISSING_CSV_TEXT:
+            elif formal and absent:
                 if reason_for_row is None:
                     reason_for_row = missing_reasons.for_row(row)
                 reason = reason_for_row(field)

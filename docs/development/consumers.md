@@ -125,6 +125,11 @@ manifest 引用的数据内容和读取前记录的元数据身份，复用证�
 和指标可用性判定；独立调用时由审计复核内容，共享快照时由外层消费者结束时统一复核。
 首次读取失败时继续收集审计中的元数据问题，
 保留首次读取错误，后续成功读取不能将该快照变成有效结果。
+数值审计先用已有 `MISSING_CSV_TEXT` 识别规范化的缺失标记，仅对其余值执行空白和大小写
+规范化；旧来源的空白、大小写、零值与非法数值规则保持一致。缺失原因和错误位置仍按每行的
+环境、设备和状态分别记录。处理顺序参考 [pandas CSV parser](https://github.com/pandas-dev/pandas/blob/main/pandas/_libs/parsers.pyx)
+及 [NA-value screening PR #68314](https://github.com/pandas-dev/pandas/pull/68314)（BSD-3-Clause）；
+复用 AC-Prof 自身的标记集合，不复制上游源码或扩展缺失值定义，依赖与正式测量窗口保持原状。
 `results/metadata.py` 的 `ResultMetadataSnapshot` 在一次比较或报告加载中共享布局及 JSON 读取结果，
 供运行选择、审计、条件比较和设备质量筛选使用。每个元数据产物的首次值、缺失或读取错误被保留，
 避免后续读取改变已经审计的证据；载荷只读，下一次调用重新观察文件，不建立全局缓存。
