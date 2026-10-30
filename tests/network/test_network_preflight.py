@@ -71,9 +71,9 @@ def test_preflight_disk_and_model_estimates_use_the_same_cache_snapshot(tmp_path
 
     with (
         patch.dict("os.environ", {}, clear=True),
-        patch("acprof.host.model_store.model_sources", side_effect=([missing], [hit])),
-        patch("acprof.host.model_store.require_space", side_effect=disk_for),
-        patch("acprof.host.model_store.probe_model_download", return_value=[]),
+        patch("acprof.host.model_store.store.model_sources", side_effect=([missing], [hit])),
+        patch("acprof.host.model_store.store.require_space", side_effect=disk_for),
+        patch("acprof.host.model_store.store.probe_model_download", return_value=[]),
     ):
         report = preflight(task, None, tmp_path, plan, root=tmp_path / "cache",
                            runtime_plan=([], {"kind": "process"}))
