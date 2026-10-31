@@ -51,13 +51,13 @@ AC-Prof 用于对来自 Hugging Face 和 ModelScope 的模型推理工作负载�
 
 ## 文档
 
-`README.md` 与 `docs/i18n/README_zh-CN.md` 中对应的用户可见内容必须保持同步，包括命令、链接、功能说明和排版。
+`README.md` 与 `docs/i18n/README_zh-CN.md` 中对应的内容必须保持同步，包括命令、链接、功能说明和排版。
 
 长期事实放在对应 `docs/` 权威专题中。
 
-Skill 维护特定工作流，不复制长期项目知识；一个 Skill 涉及多个流程时，根 `SKILL.md` 应保持为轻量路由，仅按需要指向详细资料和脚本。
-
 临时计划、维护记录、开发日志按规则写入 `internal-testing/`。
+
+新建或修改 Skill、`AGENTS.md` 时，参考[OpenAI：重新思考 GPT-6 Astra 的技能与提示词](https://developers.openai.com/blog/rethinking-skills-and-prompts-for-gpt-6-astra)。
 
 ## 完成标准
 
