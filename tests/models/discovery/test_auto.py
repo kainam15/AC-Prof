@@ -237,3 +237,30 @@ class TestAuto:
             assert (code) != (0)
             assert (calls) == (0)
             assert ((target / "auto_report.json").read_text()) == ('{"preserve":true}')
+
+    def test_auto_process_runtime_passes_runtime_to_doctor_and_selects_basic(self, tmp_path):
+        from acprof.experiments.arguments import build_parser
+        from acprof.host.automation import AutomaticRun
+
+        observed = []
+
+        def fake_checks(*, runtime="auto", profiling_mode="full", **_kwargs):
+            observed.append((runtime, profiling_mode))
+            return [DoctorCheck("runtime", "available", "explicit Process Runtime", runtime_kind="process")]
+
+        with patch("acprof.host.doctor.collect_checks", side_effect=fake_checks), patch(
+            "acprof.host.automation.check_repository_access", return_value={"status": "accessible"},
+        ), patch("acprof.host.detect.detect_task", return_value=candidate(tag="text-generation")):
+            args = build_parser(automatic=True).parse_args([
+                "example/model", "--runtime", "process", "--profiling-mode", "auto",
+                "--gpus", "off", "--output-dir", str(tmp_path),
+            ])
+            automatic = AutomaticRun(args)
+            automatic.prepare()
+
+        assert observed == [("process", "basic")]
+        assert args.profiling_mode == "basic"
+        report = json.loads(automatic.path.read_text())
+        assert report["requested_profiling_mode"] == "auto"
+        assert report["profiling_mode"] == "basic"
+        assert report["mode_selection_reasons"][0]["name"] == "full_profiling"

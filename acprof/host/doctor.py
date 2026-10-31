@@ -132,10 +132,25 @@ def collect_checks(*, runtime: str = "auto", profiling_mode: str = "full", gpus:
                              "Process 需要可用的 pidfd 与 child-subreaper 内核接口。"),
                       DoctorCheck("uv", "available" if shutil.which("uv") else "unavailable",
                                   "Process 使用 uv 创建隔离环境", "安装 uv 并加入 PATH。")]
-            gpu = process_gpu_device() if gpus == "on" else {}
+            gpu = {}
+            if gpus == "on":
+                try:
+                    gpu = process_gpu_device()
+                except ValueError as exc:
+                    gpu = {"status": "unavailable", "error": str(exc)}
             plan = probe_collection_plan("process", gpu=gpu)
-            checks.extend(DoctorCheck(name, item['status'], item['detail'], required=False)
+            checks.extend(DoctorCheck(name, item['status'], item['detail'],
+                                      required=name in {"process_cpu", "process_memory"})
                           for name, item in plan['probes'].items())
+            if gpus == "on":
+                gpu_ready = gpu.get("status") == "available" and bool(gpu.get("uuid"))
+                checks.append(DoctorCheck(
+                    "gpu", "available" if gpu_ready else "unavailable",
+                    f"{gpu.get('name')} ({gpu.get('uuid')})" if gpu_ready else str(gpu.get("error") or "CUDA device unavailable"),
+                    "" if gpu_ready else "检查 NVIDIA driver 与 CUDA_VISIBLE_DEVICES。",
+                ))
+            else:
+                checks.append(DoctorCheck("gpu", "not_requested", "--gpus off"))
             checks.append(DoctorCheck("resource_limits", "available", "auto=继承；数值 CPU/内存限制需要 cgroup v2 委托权限"))
             return [*checks, *_workspace_checks(output_dir)]
     checks = [

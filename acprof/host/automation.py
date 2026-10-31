@@ -44,7 +44,7 @@ def check_repository_access(repo_id: str, *, source: str = "huggingface", revisi
 
 def select_profiling_mode(requested: str, checks: list) -> tuple[str, list[dict]]:
     """Only an explicit auto policy may omit unavailable full-only measurements."""
-    optional = {"rapl", "perf", "packet"}
+    optional = {"rapl", "perf", "packet", "full_profiling"}
     unavailable = [asdict(check) for check in checks if check.status == "unavailable"]
     blockers = [check for check in unavailable if requested != "auto" or check["name"] not in optional]
     if blockers:
@@ -88,6 +88,7 @@ class AutomaticRun:
             self.layout.initialize()
         grouped = args.resume and (self.root / "metadata" / "task_runs").is_dir()
         saved = load_run_state(self.root) if args.resume and not grouped else {}
+        previous = {}
         if args.resume:
             previous = read_json_object(self.path, label="auto_report.json")
             if previous.get("schema_version") != 1:
@@ -141,12 +142,23 @@ class AutomaticRun:
         args.requested_profiling_mode = self.data["requested_profiling_mode"]
         self.data.update(source=task.model_source, revision=task.model_revision,
                          resolution_identity=args.resolution_identity, stage="host")
-        checks = collect_checks(profiling_mode="full" if args.profiling_mode == "auto" else args.profiling_mode,
+        runtime = getattr(args, "runtime", "auto")
+        check_mode = ("basic" if runtime == "process" and args.profiling_mode == "auto"
+                      else "full" if args.profiling_mode == "auto" else args.profiling_mode)
+        checks = collect_checks(runtime=runtime, profiling_mode=check_mode,
                                 gpus="on" if "on" in {normalize_gpu_mode(part) for part in args.gpus.split(",")} else "off",
                                 sniff_iface=args.sniff_iface, output_dir=self.root)
+        if runtime == "process" and args.profiling_mode == "auto":
+            from acprof.host.doctor import DoctorCheck
+            checks = [*checks, DoctorCheck(
+                "full_profiling", "unavailable",
+                "Process Runtime supports basic profiling only; full requires Docker Runtime",
+                required=False, runtime_kind="process",
+            )]
         self.data["host_checks"] = [asdict(check) for check in checks]
         actual, reasons = select_profiling_mode(args.profiling_mode, checks)
-        if saved and saved.get("options", {}).get("profiling_mode") != actual:
+        frozen_mode = saved.get("options", {}).get("profiling_mode") or previous.get("profiling_mode")
+        if frozen_mode and frozen_mode != actual:
             raise ValueError("host capability change would alter the frozen profiling mode; use a new output directory")
         args.profiling_mode = actual
         self.data.update(profiling_mode=actual, mode_selection_reasons=reasons, stage="collection", status="running")

@@ -103,3 +103,29 @@ class TestDoctor:
         with patch("sys.frozen", True, create=True):
             assert (cli_command("run", python_executable="/opt/acprof")) == (["/opt/acprof", "run"])
             assert (module_command("acprof.host.client", python_executable="/opt/acprof")) == (["/opt/acprof", "_worker", "acprof.host.client"])
+
+    def test_process_runtime_requires_gpu_when_requested(self, tmp_path):
+        plan = {
+            "probes": {
+                "process_cpu": {"status": "available", "detail": "ok"},
+                "process_memory": {"status": "available", "detail": "ok"},
+                "cpu_energy": {"status": "unavailable", "detail": "no rapl"},
+            }
+        }
+        with patch.object(doctor, "_architecture", return_value="x86_64"), patch.object(
+            doctor, "_resources", return_value="bundled",
+        ), patch(
+            "acprof.host.runtimes.process_control.require_process_supervision", return_value="ok",
+        ), patch(
+            "acprof.host.runtimes.capabilities.probe_collection_plan", return_value=plan,
+        ), patch(
+            "acprof.host.runtimes.gpu.process_gpu_device", side_effect=ValueError("CUDA_VISIBLE_DEVICES hides every device"),
+        ), patch("shutil.which", return_value="/usr/bin/uv"):
+            checks = doctor.collect_checks(runtime="process", profiling_mode="basic", gpus="on", output_dir=tmp_path)
+        by_name = {check.name: check for check in checks}
+        assert by_name["process_cpu"].required is True
+        assert by_name["process_memory"].required is True
+        assert by_name["cpu_energy"].required is False
+        assert by_name["gpu"].status == "unavailable"
+        assert "CUDA_VISIBLE_DEVICES" in by_name["gpu"].detail
+        assert not doctor.report_dict(checks, profiling_mode="basic", gpus="on")["ready"]
