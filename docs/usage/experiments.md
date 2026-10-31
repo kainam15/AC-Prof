@@ -67,7 +67,7 @@ acprof run --model Ritual-Net/iris-classification \
 
 ```bash
 uv run python scripts/check_runtime.py --profile onnxruntime-cpu --basic-e2e \
-  --output-dir internal-testing/onnx-runtime
+  --output-dir internal-testing/shared/onnx-runtime
 ```
 
 图像分类和多输入文本分类复用同一 ONNX 环境与现有任务生成器；

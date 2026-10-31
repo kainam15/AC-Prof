@@ -105,7 +105,7 @@ uv run python scripts/run_local_tests.py --scope full --jobs 1
 目录结构与清理边界见[开发验证产物目录](internal-testing-layout.md)。
 显式 `--jobs 2` 仅支持 `--scope fast --path tests/analysis...` 或 `tests/quality...`：
 每片有独立 pytest basetemp、缓存禁用、子进程组清理，并将内部数值线程上限设为 1。
-成功后清理临时 basetemp，失败时保留诊断文件；`--output` 只接受 `internal-testing/` 内的新路径。
+成功后清理临时 basetemp，失败时保留诊断文件；`--output` 只接受 `internal-testing/shared/` 内的新路径；默认使用受管的 `runs/`。
 其它域包含共享状态、TUI 和资源敏感场景，未经隔离验证不开放本地并行。
 同一机器的多个 worktree 仍需人工协调总并发，正式采集窗口不能与测试并行。
 本地不安装 `pytest-xdist`，不改变 CI 的完整八分片协议。

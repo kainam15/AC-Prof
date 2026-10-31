@@ -92,7 +92,7 @@ CI 使用 `--locked`，声明漂移直接失败，不在运行测试时改写锁
 
 `uv sync --no-default-groups --group test` 安装主机和测试依赖；`--only-group lint`
 只安装工具组，不安装项目。后续 `uv run` 使用相同组参数，避免隐式切回默认环境。
-按需环境可用 `UV_PROJECT_ENVIRONMENT=internal-testing/browser-venv uv sync --locked --only-group browser`。
+按需环境可用 `UV_PROJECT_ENVIRONMENT=internal-testing/cache/browser-venv uv sync --locked --only-group browser`。
 `uv sync --all-groups` 用于同时安装并验证全部工具依赖，不是日常默认安装要求。锁文件解析仍覆盖所有依赖组。
 
 依赖更新使用 `uv lock --upgrade-package <package>` 或显式 `uv lock --upgrade`，随后
@@ -231,17 +231,17 @@ PyInstaller 单文件模式启动时会解压到临时目录，该目录需要�
 本地重现构建：
 
 ```bash
-mkdir -p internal-testing/distribution
-uv export --locked --only-group build --no-emit-project --output-file internal-testing/distribution/build.txt
-uv build --build-constraint internal-testing/distribution/build.txt --require-hashes --out-dir internal-testing/distribution/dist
-export UV_PROJECT_ENVIRONMENT="$PWD/internal-testing/distribution/venv"
+mkdir -p internal-testing/shared/distribution
+uv export --locked --only-group build --no-emit-project --output-file internal-testing/shared/distribution/build.txt
+uv build --build-constraint internal-testing/shared/distribution/build.txt --require-hashes --out-dir internal-testing/shared/distribution/dist
+export UV_PROJECT_ENVIRONMENT="$PWD/internal-testing/cache/distribution-venv"
 uv sync --locked --no-default-groups --group standalone --no-install-project
-uv pip install --python "$UV_PROJECT_ENVIRONMENT/bin/python" --no-deps internal-testing/distribution/dist/*.whl
+uv pip install --python "$UV_PROJECT_ENVIRONMENT/bin/python" --no-deps internal-testing/shared/distribution/dist/*.whl
 uv pip check --python "$UV_PROJECT_ENVIRONMENT/bin/python"
 uv run --locked --no-sync python -m PyInstaller --noconfirm packaging/acprof.spec \
-  --distpath internal-testing/distribution/standalone --workpath internal-testing/distribution/build
+  --distpath internal-testing/shared/distribution/standalone --workpath internal-testing/shared/distribution/build
 uv run --locked --no-sync python scripts/check_distribution.py \
-  --binary internal-testing/distribution/standalone/acprof
+  --binary internal-testing/shared/distribution/standalone/acprof
 unset UV_PROJECT_ENVIRONMENT
 ```
 

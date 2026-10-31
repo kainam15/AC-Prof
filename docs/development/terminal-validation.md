@@ -88,10 +88,10 @@ Model Store。准备阶段允许缺失产物的拉取或构建；通过 `ACPROF_
 ```bash
 uv run --locked --no-default-groups --group test python scripts/prepare_hardware.py \
   --matrix examples/hardware-validation.json --gpus off,on \
-  --output-dir internal-testing/hardware-prepare
+  --output-dir internal-testing/shared/hardware-prepare
 uv run --locked --no-default-groups --group test python scripts/check_hardware.py \
-  --matrix internal-testing/hardware-prepare/prepared-matrix.json --gpus off,on \
-  --output-dir internal-testing/hardware-matrix
+  --matrix internal-testing/shared/hardware-prepare/prepared-matrix.json --gpus off,on \
+  --output-dir internal-testing/shared/hardware-matrix
 ```
 
 矩阵 schema v1 要求 1–16 个 case，每项必须包含唯一安全目录名 `name`、`model`、40 位
@@ -111,10 +111,10 @@ perf、抓包权限及所选 GPU 的实际权限；没有这些条件仍会如�
 ```bash
 uv run --locked --no-default-groups --group test python scripts/prepare_hardware.py \
   --model hf-internal-testing/tiny-random-bert --task fill-mask --gpus off,on \
-  --output-dir internal-testing/hardware-smoke-prepare
+  --output-dir internal-testing/shared/hardware-smoke-prepare
 uv run --locked --no-default-groups --group test python scripts/check_hardware.py \
-  --matrix internal-testing/hardware-smoke-prepare/prepared-matrix.json --gpus off,on \
-  --output-dir internal-testing/hardware-smoke
+  --matrix internal-testing/shared/hardware-smoke-prepare/prepared-matrix.json --gpus off,on \
+  --output-dir internal-testing/shared/hardware-smoke
 ```
 
 默认每个设备 1 个 case、warmup=1、repeat=3、2 秒请求窗口及 2 秒 idle，属于短 smoke。

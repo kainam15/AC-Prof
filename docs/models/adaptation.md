@@ -69,7 +69,7 @@ Token 序列；输出是形状 `[batch, sequence]` 的逐 Token 原始 logits，
 
 ### 2026-09-27 冻结样本的 ecosystem 取舍
 
-2026-10-02 只读复核 `internal-testing/hf-top10-all-tasks-20260927/models.csv`：520 项中
+2026-10-02 只读复核 `internal-testing/evidence/legacy/models/hf-top10-all-tasks-20260927/models.csv`：520 项中
 113 项为 library 未登记，涉及 50 种原始标签（区分大小写）。这是历史样本统计，不是本次重新实测。
 主要集中度与实现取舍如下；成本为设计评估，尚未新增或宣称支持这些 backend。
 

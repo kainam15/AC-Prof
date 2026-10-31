@@ -5,8 +5,8 @@
 先核对当前 [CLI 契约](../../../../docs/usage/cli-discovery.md#acprof-coverage)和 `--help`。以下示例从仓库根目录使用已有 `.venv` 执行，无需先安装 console script；输出目录换成本次独立目录。已安装的 `acprof` 与 `python -m acprof` 使用相同命令分发。
 
 ```bash
-.venv/bin/python -m acprof inspect MODEL --revision FULL_SHA --explain --output-dir internal-testing/compatibility/inspect
-.venv/bin/python -m acprof coverage run examples/coverage/regression.json --output-dir internal-testing/compatibility/static
+.venv/bin/python -m acprof inspect MODEL --revision FULL_SHA --explain --output-dir internal-testing/shared/compatibility/inspect
+.venv/bin/python -m acprof coverage run examples/coverage/regression.json --output-dir internal-testing/shared/compatibility/static
 ```
 
 `MODEL` 与 `FULL_SHA` 来自冻结样本。已有 `coverage snapshot/run` 能处理指定 task/library 的下载量样本和静态/Probe 证据，优先复用；全 task 排名应先保存任务全集及查询条件，不把几个 stratum 的样本描述为全 Hub。

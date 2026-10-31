@@ -43,8 +43,8 @@ uv run --locked --no-default-groups --group typing mypy
 如需保留其他解释器的工作环境，可以显式隔离：
 
 ```bash
-UV_PROJECT_ENVIRONMENT=internal-testing/mypy-312 uv sync --locked --python 3.12 --no-default-groups --group typing
-UV_PROJECT_ENVIRONMENT=internal-testing/mypy-312 uv run --locked --python 3.12 --no-default-groups --group typing mypy
+UV_PROJECT_ENVIRONMENT=internal-testing/cache/mypy-312 uv sync --locked --python 3.12 --no-default-groups --group typing
+UV_PROJECT_ENVIRONMENT=internal-testing/cache/mypy-312 uv run --locked --python 3.12 --no-default-groups --group typing mypy
 ```
 
 仅给 mypy 指定另一解释器而未在对应环境安装相同主机依赖和开发工具不等于复现 CI：
@@ -105,7 +105,7 @@ uv run python scripts/check_private_api.py
 # 仅删除已不存在的条目；不会批准新增依赖。
 uv run python scripts/check_private_api.py --prune
 uv run python scripts/run_tests.py --pattern test_private_api_guard.py \
-  --pattern test_architecture.py --report internal-testing/private-api.json
+  --pattern test_architecture.py --report internal-testing/shared/private-api.json
 ```
 
 设计参考 [Import Linter protected contract](https://github.com/seddonym/import-linter/blob/main/src/importlinter/contracts/protected.py)

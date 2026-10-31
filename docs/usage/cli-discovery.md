@@ -98,31 +98,31 @@ RAPL/perf/packet 不可用而选择 basic；Docker、Linux/cgroup、安装资源
 
 ```bash
 acprof coverage run examples/coverage/regression.json \
-  --output-dir internal-testing/coverage-fixed
+  --output-dir internal-testing/shared/coverage-fixed
 acprof coverage snapshot --stratum fill-mask:transformers \
   --stratum image-classification:transformers --limit 5 \
-  --output internal-testing/coverage-sample.json
-acprof coverage run internal-testing/coverage-sample.json \
-  --output-dir internal-testing/coverage-static
+  --output internal-testing/shared/coverage-sample.json
+acprof coverage run internal-testing/shared/coverage-sample.json \
+  --output-dir internal-testing/shared/coverage-static
 # 显式运行容器验证；可能构建镜像和下载权重
-acprof coverage run internal-testing/coverage-sample.json --validate-runtime \
+acprof coverage run internal-testing/shared/coverage-sample.json --validate-runtime \
   --cpus 2 --mems 4 --gpus off --timeout-seconds 300 \
-  --output-dir internal-testing/coverage-runtime
+  --output-dir internal-testing/shared/coverage-runtime
 # 在下载前应用 conservative 预算；大小来自选中的制品而非整个仓库
-acprof coverage run internal-testing/coverage-sample.json --validate-runtime \
+acprof coverage run internal-testing/shared/coverage-sample.json --validate-runtime \
   --max-parameters 1000000000 --max-download-bytes 4294967296 \
-  --output-dir internal-testing/coverage-budgeted
+  --output-dir internal-testing/shared/coverage-budgeted
 # 中断后使用原参数继续；已经完成的模型不重复执行
-acprof coverage run internal-testing/coverage-sample.json --validate-runtime \
+acprof coverage run internal-testing/shared/coverage-sample.json --validate-runtime \
   --cpus 2 --mems 4 --gpus off --timeout-seconds 300 --resume \
-  --output-dir internal-testing/coverage-runtime
+  --output-dir internal-testing/shared/coverage-runtime
 # 只重试超时失败项；新 attempt 保留提高预算前的证据
-acprof coverage run internal-testing/coverage-sample.json --validate-runtime \
+acprof coverage run internal-testing/shared/coverage-sample.json --validate-runtime \
   --timeout-seconds 600 --resume --retry-reason request_timeout \
-  --output-dir internal-testing/coverage-runtime
+  --output-dir internal-testing/shared/coverage-runtime
 # 只读取已有结果，输出统一的 CSV、JSON 和 Markdown 报告
 acprof coverage report results/model-a results/model-b \
-  --output-dir internal-testing/coverage-recorded
+  --output-dir internal-testing/shared/coverage-recorded
 ```
 
 snapshot 按 `TASK:LIBRARY` 各取下载量前 N 个，属于所选样本统计，不代表全 Hub 或随机长尾。

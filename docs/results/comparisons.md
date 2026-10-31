@@ -8,7 +8,7 @@ Linux 上与同用户的采集及其他离线命令互斥，占锁时立即报�
 ## 窗口置信区间与开销对照
 ```bash
 acprof stats results/<model>/ --metric latency_app_s --metric latency_s \
-  --confidence 0.95 --resamples 5000 --seed 0 --output internal-testing/window-statistics.json
+  --confidence 0.95 --resamples 5000 --seed 0 --output internal-testing/shared/window-statistics.json
 ```
 
 `--output` 只接受新文件，拒绝覆盖已有文件、目录和符号链接（包括悬空链接）；计算期间
@@ -97,7 +97,7 @@ TUI 的“实验结果 → 统计”调用同一个 `acprof stats`，默认分�
 acprof compare --left results/a1/model --left results/a2/model --left results/a3/model \
   --right results/b1/model --right results/b2/model --right results/b3/model \
   --metric latency_app_s --metric container_attributed_energy_eff_j \
-  --output internal-testing/independent-comparison.json
+  --output internal-testing/shared/independent-comparison.json
 ```
 
 `--output` 只接受新路径，已有文件、目录和符号链接（包括悬空链接）均拒绝覆盖。

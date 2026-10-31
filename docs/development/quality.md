@@ -15,7 +15,7 @@ uv run python scripts/run_tests.py \
   --pattern 'test_run_recovery.py' --pattern 'test_energy_cpu.py' \
   --pattern 'test_capabilities.py' --pattern 'test_client_energy_warnings.py' \
   --pattern 'test_metric_registry.py' \
-  --report internal-testing/matrix-dram-tests.json
+  --report internal-testing/shared/matrix-dram-tests.json
 uv run python scripts/render_metric_reference.py --check
 ```
 
@@ -134,7 +134,7 @@ Ruff 版本由 [`pyproject.toml`](../../pyproject.toml) 的 `required-version` �
 ```bash
 uv run ruff check acprof/host/env_utils.py tests/runtime/environment/test_env_utils.py
 uv run pytest tests/runtime/environment/test_env_utils.py \
-  --report internal-testing/env-tests.json
+  --report internal-testing/shared/env-tests.json
 git diff --check
 ```
 
@@ -157,12 +157,12 @@ CLI help 和 `test_hf_auto_download.py`。测试工具从 `runtime-test` 组导�
 环境仍与日常开发和推理 runtime 隔离：
 
 ```bash
-export UV_PROJECT_ENVIRONMENT="$PWD/internal-testing/browser-venv"
+export UV_PROJECT_ENVIRONMENT="$PWD/internal-testing/cache/browser-venv"
 uv sync --locked --only-group browser
 uv run --locked --only-group browser playwright install chromium
-ACPROF_BROWSER_TESTS=1 ACPROF_BROWSER_ARTIFACT_DIR=internal-testing/browser-evidence \
+ACPROF_BROWSER_TESTS=1 ACPROF_BROWSER_ARTIFACT_DIR=internal-testing/shared/browser-evidence \
   uv run --locked --only-group browser python scripts/run_tests.py --pattern test_report_browser.py \
-  --report internal-testing/browser-evidence/tests.json --require-no-skips
+  --report internal-testing/shared/browser-evidence/tests.json --require-no-skips
 unset UV_PROJECT_ENVIRONMENT
 ```
 

@@ -106,10 +106,10 @@ TUI 的 `ProcessLifecycle` 统一普通停止、回调异常和卸载清理：�
 
 ```bash
 acprof load results/model --gpu off --scenario concurrent --concurrency 4 \
-  --requests 100 --output-dir internal-testing/load-concurrent
+  --requests 100 --output-dir internal-testing/shared/load-concurrent
 acprof load results/model --gpu off --scenario arrival-rate --concurrency 4 \
   --rate 10 --arrival poisson --seed 7 --requests 100 --capture \
-  --output-dir internal-testing/load-arrivals
+  --output-dir internal-testing/shared/load-arrivals
 ```
 
 `load` 从已完成实验恢复固定镜像、revision、输入计划 hash、线程设置、CPU 集合、GPU UUID 和请求超时，

@@ -55,8 +55,8 @@ WSL2 检测等待场景通过 F5 启动模拟受控任务，在 Monitor 内显�
 普通功能测试与 SVG 回归共用开发环境和 pytest 配置：
 
 ```bash
-TZ=UTC PYTHONHASHSEED=0 ACPROF_SNAPSHOT_OUTPUT_DIR=internal-testing/tui-svg \
-  uv run pytest tests/visual -q --junitxml=internal-testing/tui.xml
+TZ=UTC PYTHONHASHSEED=0 ACPROF_SNAPSHOT_OUTPUT_DIR=internal-testing/shared/tui-svg \
+  uv run pytest tests/visual -q --junitxml=internal-testing/shared/tui.xml
 ```
 
 更新测试依赖后，统一刷新项目锁并重跑相关测试：

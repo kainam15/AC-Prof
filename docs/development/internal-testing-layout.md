@@ -29,11 +29,9 @@ internal-testing/
 | `evidence/` | 人工保留的验收、故障复现或研究判据 | 绝不由 `prune` 自动删除 |
 | `shared/` | 确定需要稳定地址的开发工具输出 | 由具体工具维护；不会自动清理 |
 | `cache/` | 可重建的虚拟环境、构建物与安全数据库 | 需要另行证明可重建和无正在使用者 |
-| 原有顶层目录 | CI、文档或历史脚本使用的旧输出 | **原样保留**；不推测是否可删 |
+| `evidence/legacy/` | 早期单次验证、失败日志、旧归档、模型测试和历史数据 | 保留原始证据与迁移映射，绝不自动删除 |
 
-已有 `internal-testing/tui-png/`、`coverage/`、`distribution/`、`browser-venv/`
-以及 CI/hardware 等路径仍有外部引用，本次不强制迁移或创建软链接。等调用方、工作流、
-文档和历史引用能同一批验证后再移动。禁止为整理目录绕过引用检查。
+**顶层严格只有上述四个目录及 `AGENTS.md`**，不得为历史任务创建同级目录或兼容软链接。固定输出（例如 `shared/tui-png/`、`shared/distribution/`、`shared/ci-triage/`、`shared/coverage/`）放入 `shared/`；虚拟环境和可重建下载物放入 `cache/`。原来的根目录输出已归档至 `evidence/legacy/`；涉及引用的调用方、CI 和文档必须同时改成新路径。
 
 ## 统一命名与运行身份
 
@@ -71,6 +69,8 @@ python scripts/internal_testing.py finish "$RUN" --status success
 # 默认只读、只列结构；--json 供脚本读取
 python scripts/internal_testing.py inventory
 python scripts/internal_testing.py inventory --json
+# 严格检查顶层是否仅有规定的五项；CI 同样执行
+python scripts/internal_testing.py inventory --check
 
 # 只预览候选，完全不删除；明确调用才允许删除
 python scripts/internal_testing.py prune --dry-run
@@ -78,9 +78,7 @@ python scripts/internal_testing.py prune --apply --confirm DELETE-ELIGIBLE-RUNS
 ```
 
 `scripts/run_local_tests.py` 默认使用这套目录与 manifest，成功、失败、中断均会更新状态。
-传入 `--output` 的历史调用仍然允许在 `internal-testing/` 内创建新目录，但不自动转换成受管
-`runs/`，也不成为 `prune` 的清理目标。其他独立工具新建任务时应先使用 `new`，
-并在执行结束后调用 `finish`；不能把已经存在的目录冒充为新运行。
+显式调用 `scripts/run_local_tests.py --output` 只能在 `internal-testing/shared/` 下建立新的固定输出目录；默认不传该参数时创建受管 `runs/`。独立工具的新运行必须先使用 `new`，结束后调用 `finish`；不能把已有目录冒充新运行，也不能向顶层直接写文件。
 
 ## 回收策略：默认不删除
 
@@ -107,10 +105,7 @@ python scripts/internal_testing.py prune --apply --confirm DELETE-ELIGIBLE-RUNS
 
 ## 老目录迁移的前提
 
-先用 `inventory` 获取旧目录清单，结合 `du` 与源代码全文引用、实际 Git 工作树/进程
-确认用途，再对候选目录人工标记保留类别。更换固定路径须在同一变更中修复调用方、
-CI artifact 路径、文档与测试；先检验新路径，再检查旧路径能否移除。不得仅以目录创建时间、
-名称含 `archived` 或文件是否被 Git 忽略作为删除依据。
+历史目录迁移记录位于 `internal-testing/evidence/maintenance-20261031/`，保留每个原路径、目标路径、引用及校验记录。迁移固定路径时，必须同步修正调用方、CI artifact 路径、文档与测试并验证；历史证据一律进入 `evidence/`，不能伪造成受管 `runs/`。不得仅凭时间、`archived` 名称或 Git 忽略状态删除。
 
 ## 设计参考
 

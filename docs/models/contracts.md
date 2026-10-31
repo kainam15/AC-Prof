@@ -61,7 +61,7 @@ server 和 profiler；不会修改作者文件或 Hub snapshot。正式运行在
 
 ```bash
 acprof inspect fixie-ai/ultravox-v0_5-llama-3_2-1b --explain \
-  --output-dir internal-testing/model-resolution
+  --output-dir internal-testing/shared/model-resolution
 ```
 
 `cache_key` 包含模型 ID、SHA、resolver 版本、Transformers 版本、完整文件清单和依赖控制流证据；AST 分析按源文本在

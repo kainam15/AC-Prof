@@ -3,7 +3,7 @@
 命令从仓库根目录执行。下列参数是入口示例，测试文件、解释器和分片编号按失败 job 选择；不固定复用历史测试数量。
 
 ```bash
-.venv/bin/python scripts/run_tests.py --pattern 'test_metric_registry.py' --report internal-testing/ci-triage/targeted.json
+.venv/bin/python scripts/run_tests.py --pattern 'test_metric_registry.py' --report internal-testing/shared/ci-triage/targeted.json
 .venv/bin/python scripts/render_metric_reference.py --check
 git diff --check
 ```

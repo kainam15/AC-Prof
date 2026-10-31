@@ -42,7 +42,7 @@ namespace helper / tcpdump 的 `sudo -n`。脚本持有全局测量锁；失败�
 uv run --locked python scripts/validate_measurement_egress.py \
   --image '<existing-immutable-image-id>' \
   --gpu-uuid '<GPU-UUID>' \
-  --output internal-testing/egress-acceptance
+  --output internal-testing/shared/egress-acceptance
 ```
 
 输出目录必须不存在。脚本记录镜像身份、模型 revision、代码版本及 helper/script 哈希、

@@ -41,7 +41,7 @@ Dependabot 仍只更新固定 SHA 的 GitHub Actions，避免其直接修改不�
 ```bash
 uv lock --upgrade-package pip-audit
 uv export --locked --no-default-groups --no-emit-project --output-file /tmp/acprof-host-audit.txt
-UV_PROJECT_ENVIRONMENT=internal-testing/audit-venv uv run --locked --only-group audit pip-audit \
+UV_PROJECT_ENVIRONMENT=internal-testing/cache/audit-venv uv run --locked --only-group audit pip-audit \
   --require-hashes --disable-pip -r /tmp/acprof-host-audit.txt
 ```
 
@@ -127,12 +127,12 @@ CUDA 专项须在已安装 CV 依赖且可访问 GPU 的环境中单独执行
 本地入口：
 
 ```bash
-uv run python scripts/run_tests.py --report internal-testing/host-tests.json
+uv run python scripts/run_tests.py --report internal-testing/shared/host-tests.json
 uv run python scripts/compile_locks.py --check
-uv run python scripts/check_runtime.py --family audio --variant cpu --output-dir internal-testing/audio-runtime
-uv run python scripts/check_runtime.py --profile moss-transformers5104 --build-only --output-dir internal-testing/moss-dependencies
-uv run python scripts/check_runtime.py --profile nlp-transformers5104-cpu --test-pattern test_transformers5_runtime.py --output-dir internal-testing/transformers5-runtime
-uv run python scripts/check_runtime.py --profile multimodal-transformers5104-cpu --test-pattern test_audio_generation_runtime.py --output-dir internal-testing/audio-generation-runtime
+uv run python scripts/check_runtime.py --family audio --variant cpu --output-dir internal-testing/shared/audio-runtime
+uv run python scripts/check_runtime.py --profile moss-transformers5104 --build-only --output-dir internal-testing/shared/moss-dependencies
+uv run python scripts/check_runtime.py --profile nlp-transformers5104-cpu --test-pattern test_transformers5_runtime.py --output-dir internal-testing/shared/transformers5-runtime
+uv run python scripts/check_runtime.py --profile multimodal-transformers5104-cpu --test-pattern test_audio_generation_runtime.py --output-dir internal-testing/shared/audio-generation-runtime
 uv run python scripts/render_metric_reference.py --check
 ```
 
@@ -205,7 +205,7 @@ CI 仅在 Python 3.12 的八个 host shard 使用 branch coverage；Python 3.13 
 `pyproject.toml` 固定 `source=["acprof"]`、branch、relative paths 和 `patch="subprocess"`；
 未运行的模块仍进入报告。子进程使用独立 parallel data，经同一 `coverage combine` 汇总；
 `tests/quality/test_coverage_subprocess.py` 以真实父子进程验证配置、采集、合并和报告链路。
-默认本地产物位于已忽略的 `internal-testing/coverage/`，CI 用 `COVERAGE_FILE` 指向独立 evidence 目录。
+默认本地产物位于已忽略的 `internal-testing/shared/coverage/`，CI 用 `COVERAGE_FILE` 指向独立 evidence 目录。
 
 ```bash
 # 先运行 uv sync --locked --python 3.12，每个 index 执行一次。
@@ -213,10 +213,10 @@ uv run python -m coverage erase
 for shard in 0 1 2 3 4 5 6 7; do
   python -m coverage run --branch --parallel-mode scripts/run_tests.py \
     --shard-index "$shard" --shard-count 8 \
-    --report "internal-testing/coverage/host-3.12-$shard/host.json" || exit 1
+    --report "internal-testing/shared/coverage/host-3.12-$shard/host.json" || exit 1
 done
-uv run python scripts/aggregate_test_reports.py internal-testing/coverage \
-  --python-versions 3.12 --shard-count 8 --report internal-testing/coverage/host-summary.json
+uv run python scripts/aggregate_test_reports.py internal-testing/shared/coverage \
+  --python-versions 3.12 --shard-count 8 --report internal-testing/shared/coverage/host-summary.json
 uv run python -m coverage combine --keep
 uv run python -m coverage xml
 uv run python -m coverage json
@@ -271,7 +271,7 @@ hidden files 行为见 [upload-artifact #602](https://github.com/actions/upload-
 ```bash
 uv run python scripts/check_runtime.py --family nlp --variant cpu \
   --test-pattern test_custom_pipeline_runtime.py \
-  --output-dir internal-testing/custom-pipeline-runtime
+  --output-dir internal-testing/shared/custom-pipeline-runtime
 ```
 
 该证据覆盖锁定环境中的标准文本分类桥接，不证明任意自定义模型、其它任务或 GPU 兼容。
@@ -280,7 +280,7 @@ uv run python scripts/check_runtime.py --family nlp --variant cpu \
 ```bash
 uv run python scripts/check_runtime.py --profile custom-multimodal-cpu \
   --test-pattern test_custom_multimodal_runtime.py \
-  --output-dir internal-testing/custom-multimodal-runtime
+  --output-dir internal-testing/shared/custom-multimodal-runtime
 ```
 
 主机协议／环境选择回归在 `test_custom_multimodal.py`；依赖 commit、文件哈希与镜像复用检查在
@@ -296,10 +296,10 @@ uv run python scripts/check_runtime.py --profile custom-multimodal-cpu \
 
 ```bash
 uv run python scripts/run_tests.py --pattern test_model_contract.py \
-  --report internal-testing/model-contract-tests.json
+  --report internal-testing/shared/model-contract-tests.json
 uv run python scripts/check_runtime.py --profile custom-multimodal-cpu \
   --test-pattern test_model_contract_runtime.py \
-  --output-dir internal-testing/model-contract-runtime
+  --output-dir internal-testing/shared/model-contract-runtime
 ```
 
 第二条命令核验锁定环境并在断网 CPU 容器执行加载、预处理、推理及输出验证，拒绝跳过。
@@ -332,7 +332,7 @@ TUI 的一键开始、只读字段、resolver 重新确认、同窗错误／重�
 
 ```bash
 uv run python scripts/check_runtime.py --profile onnxruntime-cpu \
-  --basic-e2e --output-dir internal-testing/onnx-runtime
+  --basic-e2e --output-dir internal-testing/shared/onnx-runtime
 ```
 
 ONNX 的三个 profile 按 runtime 选择专用测试集，不按 family 误选 Torch 用例。
@@ -362,20 +362,20 @@ cgroup CPU/内存、actual workload、输出验证和能力状态。合成图只
 
 ```bash
 uv run python examples/onnxruntime/real_models.py prepare mnist \
-  --directory internal-testing/pretrained-mnist
+  --directory internal-testing/shared/pretrained-mnist
 uv run python examples/onnxruntime/real_models.py prepare bert-tiny \
-  --directory internal-testing/pretrained-bert-tiny
-runtime_image=$(uv run python -c 'import json; print(json.load(open("internal-testing/onnx-runtime/runtime.json"))["image_id"])')
+  --directory internal-testing/shared/pretrained-bert-tiny
+runtime_image=$(uv run python -c 'import json; print(json.load(open("internal-testing/shared/onnx-runtime/runtime.json"))["image_id"])')
 docker run --rm --network none --cpus 2 --memory 2g \
   -e ACPROF_RUNTIME_THREADS=1 -e PYTHONDONTWRITEBYTECODE=1 \
   -v "$PWD:/workspace:ro" -w /workspace "$runtime_image" \
   python examples/onnxruntime/real_models.py validate mnist \
-  --directory internal-testing/pretrained-mnist
+  --directory internal-testing/shared/pretrained-mnist
 docker run --rm --network none --cpus 2 --memory 2g \
   -e ACPROF_RUNTIME_THREADS=1 -e PYTHONDONTWRITEBYTECODE=1 \
   -v "$PWD:/workspace:ro" -w /workspace "$runtime_image" \
   python examples/onnxruntime/real_models.py validate bert-tiny \
-  --directory internal-testing/pretrained-bert-tiny
+  --directory internal-testing/shared/pretrained-bert-tiny
 ```
 
 脚本保留来源、许可证说明、revision 和制品哈希，参考检查使用独立的 ONNX ReferenceEvaluator。
