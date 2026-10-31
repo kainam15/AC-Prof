@@ -133,3 +133,68 @@ def test_process_validation_persists_environment_identity_without_docker_image(t
     assert observed['runtime_id'] == 'process-environment'
     assert 'image_id' not in observed
     assert task.model_resolution['contract']['fields']['runtime.full']['runtime_id'] == 'process-environment'
+
+
+def test_process_validation_and_interface_probe_record_structured_failures(tmp_path, monkeypatch):
+    import subprocess
+    from contextlib import nullcontext
+
+    from acprof.failures import Failure
+    from acprof.host.runtime_validation import RuntimeValidationError
+    from acprof.host.runtimes import validation
+
+    plan = tmp_path / 'input_scale_plan.json'
+    plan.write_text(json.dumps({'schema_version': 2, 'entries': [
+        {'input_scale': 1, 'payload': {'features': [1, 2, 3, 4]}}
+    ]}))
+    task = SimpleNamespace(
+        model_id='fixture/model',
+        model_revision='1' * 40,
+        runtime_profile_id='onnxruntime-cpu',
+        model_resolution={'contract': {'fields': {}}},
+    )
+    info = ProcessInfo('/python', '/code', '/model', 'process-environment', {})
+
+    failure = Failure('predict', 'inference_failed', 'shape mismatch', device='off', runtime_profile='onnxruntime-cpu')
+
+    def fail_validation(*args, **kwargs):
+        exc = RuntimeError('shape mismatch')
+        exc.observed = {'status': 'error', 'error': 'shape mismatch', 'failed_stage': 'predict', 'failure': failure.to_dict()}
+        raise exc
+
+    monkeypatch.setattr(validation, 'run_validation', fail_validation)
+    with pytest.raises(RuntimeValidationError) as caught:
+        validation.validate_process(
+            task_info=task, image_info=info, planned=SimpleNamespace(plan_file=str(plan)),
+            cpu_list=[None], mem_list=[None], gpu_list=['off'], output_dir=tmp_path,
+        )
+    assert caught.value.failure.reason_code == 'inference_failed'
+    saved = json.loads((tmp_path / 'runtime_validation.json').read_text())
+    assert saved['status'] == 'error'
+    assert saved['devices']['off']['failure']['reason_code'] == 'inference_failed'
+
+    def timeout_validation(*args, **kwargs):
+        raise subprocess.TimeoutExpired(cmd=['/python'], timeout=12)
+
+    monkeypatch.setattr(validation, 'run_validation', timeout_validation)
+    with pytest.raises(RuntimeValidationError) as timeout_caught:
+        validation.validate_process(
+            task_info=task, image_info=info, planned=SimpleNamespace(plan_file=str(plan)),
+            cpu_list=[None], mem_list=[None], gpu_list=['off'], output_dir=tmp_path, timeout_seconds=12,
+        )
+    assert timeout_caught.value.failure.reason_code == 'compatibility_budget_exhausted'
+    saved_timeout = json.loads((tmp_path / 'runtime_validation.json').read_text())
+    assert saved_timeout['status'] == 'inconclusive'
+    assert saved_timeout['devices']['off']['failure']['reason_code'] == 'compatibility_budget_exhausted'
+
+    monkeypatch.setattr('acprof.host.preparation.source_bundle.source_bundle',
+                        lambda _task: nullcontext(SimpleNamespace(root=tmp_path, identity='f' * 64)))
+    monkeypatch.setattr(validation, 'run_validation', lambda *a, **kw: (_ for _ in ()).throw(KeyboardInterrupt('stop')))
+    with pytest.raises(KeyboardInterrupt):
+        validation.probe_interface(task, tmp_path, {'environment_id': 'env-1'}, tmp_path)
+    iface = json.loads((tmp_path / 'interface_validation.json').read_text())
+    assert iface['status'] == 'cancelled'
+    assert iface['model_id'] == 'fixture/model'
+    assert iface['revision'] == '1' * 40
+    assert iface['runtime_profile'] == 'onnxruntime-cpu'
+    assert iface['failed_stage'] == 'interface'
