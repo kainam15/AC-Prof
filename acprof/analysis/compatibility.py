@@ -104,7 +104,7 @@ def write_compatibility_report(root: Path, rows: list[dict]):
         writer.writerow(values)
         def cell(value):
             return str(value).replace("|", "\\|").replace("\n", " ")
-        detail = failure.get("detail", "") or ", ".join(check["code"] for check in checks)
+        detail = failure.get("detail", "") or row.get("detail", "") or ", ".join(check["code"] for check in checks)
         lines.append("| " + " | ".join(cell(value) for value in (
             row["source"], row["model_id"], values["revision"], values["status"], values["reason_code"], detail)) + " |")
     csv_text = stream.getvalue()
@@ -116,17 +116,98 @@ def write_compatibility_report(root: Path, rows: list[dict]):
     atomic_write(root / "REPORT.md", lambda output: write_text(output, report_text))
 
 
+_DIRECT_EVIDENCE_FILES = (
+    "static_meta.json", "model_resolution.json", "capability_report.json",
+    "runtime_validation.json", "runtime_failures.json", "interface_validation.json",
+    "run_state.json",
+)
+
+
+def _expand_collection(collection_root: Path) -> list[tuple[Path, list[dict]]]:
+    task_runs_dir = collection_root / "metadata" / "task_runs"
+    if task_runs_dir.is_symlink() or not task_runs_dir.is_dir():
+        return [(collection_root, [])]
+    manifests = sorted(path for path in task_runs_dir.glob("*.json") if not path.is_symlink())
+    if not manifests:
+        return [(collection_root, [])]
+    expanded: list[tuple[Path, list[dict]]] = []
+    resolved_root = collection_root.resolve()
+    for manifest_path in manifests:
+        try:
+            manifest = _read_recorded_object(manifest_path)
+            run_id = manifest.get("run_id")
+            tasks = manifest.get("tasks")
+            if (manifest.get("schema_version") != 1 or not isinstance(run_id, str) or not run_id
+                    or not isinstance(tasks, list) or not tasks):
+                raise ValueError("task_runs manifest requires schema_version=1, run_id, and non-empty tasks")
+        except (OSError, UnicodeError, ValueError, RecursionError) as error:
+            expanded.append((collection_root, [_recorded_evidence_failure(manifest_path, error)]))
+            continue
+        for index, item in enumerate(tasks):
+            task_id = item.get("task_id") if isinstance(item, dict) else None
+            if not isinstance(task_id, str) or not task_id:
+                expanded.append((collection_root, [
+                    _recorded_evidence_failure(manifest_path, ValueError(f"tasks[{index}].task_id must be a string")),
+                ]))
+                continue
+            task_dir = collection_root / "tasks" / task_id / run_id
+            try:
+                valid_dir = (not task_dir.is_symlink() and task_dir.is_dir()
+                             and task_dir.resolve().is_relative_to(resolved_root))
+            except OSError:
+                valid_dir = False
+            if valid_dir:
+                expanded.append((task_dir, []))
+            else:
+                expanded.append((collection_root, [
+                    _recorded_evidence_failure(manifest_path, ValueError(f"missing task run directory for {task_id}")),
+                ]))
+    return expanded
+
+
+def _expand_result_sources(sources: list[Path]) -> list[tuple[Path, list[dict]]]:
+    from acprof.results.layout import ArtifactLayout
+    expanded: list[tuple[Path, list[dict]]] = []
+    for source in sources:
+        if (source / "metadata" / "task_runs").is_dir() and not (source / "metadata" / "task_runs").is_symlink():
+            expanded.extend(_expand_collection(source))
+            continue
+        if source.is_dir():
+            try:
+                layout = ArtifactLayout.discover(source)
+                has_direct = any(layout.path(name).is_file() for name in _DIRECT_EVIDENCE_FILES)
+            except (OSError, ValueError):
+                has_direct = False
+            if not has_direct:
+                children = sorted(
+                    child for child in source.iterdir()
+                    if not child.name.startswith(".") and not child.is_symlink() and child.is_dir()
+                    and (child / "metadata" / "task_runs").is_dir()
+                    and not (child / "metadata" / "task_runs").is_symlink()
+                )
+                if children:
+                    for child in children:
+                        expanded.extend(_expand_collection(child))
+                    continue
+        expanded.append((source, []))
+    return expanded
+
+
 def report_results(sources: list[Path], output: Path) -> dict:
     """Read recorded results, including failed preflight directories; never rerun."""
     from acprof.artifacts import atomic_write_json
     from acprof.results.layout import ArtifactLayout
     rows = []
-    for source in sources:
+    for source, pre_invalid in _expand_result_sources(sources):
         layout = ArtifactLayout.discover(source)
-        invalid = []
+        invalid = list(pre_invalid)
 
         def read(name):
-            path = layout.path(name)
+            try:
+                path = layout.path(name) if name in _DIRECT_EVIDENCE_FILES else layout.contained(name)
+            except (OSError, ValueError) as error:
+                invalid.append(_recorded_evidence_failure(source / name, error))
+                return {}
             if not path.is_file():
                 return {}
             try:
@@ -156,8 +237,37 @@ def report_results(sources: list[Path], output: Path) -> dict:
         capability = read("capability_report.json")
         validation = read("runtime_validation.json")
         failure_report = read("runtime_failures.json")
-        if not any((metadata, resolution, capability, validation, failure_report, invalid)):
+        interface = read("interface_validation.json")
+        state = read("run_state.json")
+        invalid_names = {problem["evidence"]["artifact_name"] for problem in invalid}
+        if not resolution and "model_resolution.json" not in invalid_names and isinstance(metadata.get("model_resolution"), dict):
+            resolution = metadata["model_resolution"]
+        if not capability and "capability_report.json" not in invalid_names and isinstance(metadata.get("capability_report"), dict):
+            capability = metadata["capability_report"]
+        if not validation and "runtime_validation.json" not in invalid_names and isinstance(metadata.get("runtime_validation"), dict):
+            validation = metadata["runtime_validation"]
+        if not interface and "interface_validation.json" not in invalid_names and isinstance(resolution.get("interface_validation"), dict):
+            interface = resolution["interface_validation"]
+        preparation = {}
+        attempts = state.get("attempts")
+        if isinstance(attempts, list) and attempts and isinstance(attempts[-1], dict):
+            prep_rel = attempts[-1].get("preparation_evidence")
+            if isinstance(prep_rel, str) and prep_rel:
+                preparation = read(prep_rel)
+        if not any((metadata, resolution, capability, validation, failure_report, interface, state, invalid)):
             raise ValueError(f"No recorded compatibility evidence: {source}")
+
+        provenance = resolution.get("provenance") if isinstance(resolution.get("provenance"), dict) else {}
+        sources_map = provenance.get("sources") if isinstance(provenance.get("sources"), dict) else {}
+        snapshot = sources_map.get("repository_snapshot") if isinstance(sources_map.get("repository_snapshot"), dict) else {}
+        meta_model = metadata.get("model_id") or metadata.get("model_name")
+        res_model = resolution.get("model_id") or provenance.get("model_id") or snapshot.get("model_id")
+        if isinstance(meta_model, str) and meta_model and isinstance(res_model, str) and res_model and meta_model != res_model:
+            invalid_shape("model_resolution.json", "recorded model_id conflicts with static_meta.json")
+        meta_rev = metadata.get("model_revision")
+        res_rev = resolution.get("model_revision") or provenance.get("revision") or snapshot.get("revision")
+        if isinstance(meta_rev, str) and meta_rev and isinstance(res_rev, str) and res_rev and meta_rev != res_rev:
+            invalid_shape("model_resolution.json", "recorded model_revision conflicts with static_meta.json")
 
         invalid_identity = any(problem["evidence"]["artifact_name"] in {
             "static_meta.json", "model_resolution.json"} for problem in invalid)
@@ -208,13 +318,45 @@ def report_results(sources: list[Path], output: Path) -> dict:
             failures.append(resolution_failure)
         failures.extend(invalid)
 
+        state_runtime = state.get("runtime") if isinstance(state.get("runtime"), dict) else {}
+        state_task = state_runtime.get("task") if isinstance(state_runtime.get("task"), dict) else {}
+        state_options = state.get("options") if isinstance(state.get("options"), dict) else {}
+        runtime_env = metadata.get("runtime_environment") if isinstance(metadata.get("runtime_environment"), dict) else {}
+        model_id = (meta_model or res_model or interface.get("model_id")
+                    or state_task.get("model_id") or state_options.get("model") or source.name)
+        revision = (meta_rev or res_rev or interface.get("revision")
+                    or state_task.get("model_revision") or state_options.get("revision") or "unknown")
+        runtime_profile = (metadata.get("runtime_profile_id") or runtime_env.get("profile_id")
+                           or resolution.get("runtime_profile") or interface.get("runtime_profile")
+                           or state_task.get("runtime_profile_id") or "")
+        validation_status = validation.get("status")
+        if isinstance(validation_status, str) and validation_status and validation_status != "not_run":
+            runtime_status = validation_status
+        else:
+            observed_statuses = {interface.get("status"), preparation.get("status"), state.get("status")}
+            if observed_statuses & {"error", "failed"}:
+                runtime_status = "failed"
+            elif "cancelled" in observed_statuses:
+                runtime_status = "cancelled"
+            else:
+                runtime_status = "unverified"
+        extra_row = {}
+        if not failures and runtime_status in {"failed", "cancelled"}:
+            prep_exc = preparation.get("exception") if isinstance(preparation.get("exception"), dict) else {}
+            extra_row = {
+                "stage": preparation.get("last_stage") or interface.get("failed_stage") or "",
+                "reason_code": (preparation.get("reason_code")
+                                or ("interface_validation_failed" if interface.get("status") == "error" else "")),
+                "detail": prep_exc.get("message") or interface.get("error") or "",
+            }
+
         quality = read_quality(source)
-        rows.append({"source": model_source, "model_id": metadata.get("model_id", resolution.get("model_id", source.name)),
-                     "revision": metadata.get("model_revision", resolution.get("model_revision", "unknown")),
-                     "runtime_profile": metadata.get("runtime_profile_id", resolution.get("runtime_profile", "")),
+        rows.append({"source": model_source, "model_id": model_id,
+                     "revision": revision,
+                     "runtime_profile": runtime_profile,
                      "full_profile_complete": capability.get("full_profile_complete") is True,
-                     "runtime_status": validation.get("status", "unverified"),
-                     **quality, "failure": failures[0] if failures else None,
+                     "runtime_status": runtime_status,
+                     **extra_row, **quality, "failure": failures[0] if failures else None,
                      "failures": failures, "evidence": {"result_directory": str(source.resolve())}})
     output.mkdir(parents=True, exist_ok=False)
     report = {"schema_version": 1, "scope": "recorded_results; no_reexecution", "rows": rows}

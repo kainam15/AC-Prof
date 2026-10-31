@@ -202,3 +202,34 @@ class TestResultAudit:
         summary = {"schema_version": 1, "request_count": 2, "variants": [{"count": 2, "contract": None}]}
         self.write(self.row(workload_contract=json.dumps(summary), repeat_in_window="2"))
         assert (audit_result(self.path)["valid"])
+
+    def test_failed_preparation_or_interface_validation_makes_audit_invalid(self):
+        from acprof.results.layout import ArtifactLayout
+        layout = ArtifactLayout.for_new_run(self.root)
+        layout.initialize()
+        attempt_id = "91b7d2ffaa81470080f32bebf74495d0"
+        prep_rel = f"metadata/preparation/{attempt_id}.json"
+        layout.path("run_state.json").write_text(json.dumps({
+            "schema_version": 1,
+            "layout_version": 2,
+            "run_id": "3450983d3b3f461b8813bd2527aadd87",
+            "status": "failed",
+            "attempts": [{"attempt_id": attempt_id, "preparation_evidence": prep_rel, "outcome": "failed"}],
+        }))
+        prep_path = layout.contained(prep_rel)
+        prep_path.parent.mkdir(parents=True, exist_ok=True)
+        prep_path.write_text(json.dumps({
+            "schema_version": 1,
+            "scope": "preparation",
+            "attempt_id": attempt_id,
+            "status": "failed",
+            "last_stage": "image",
+            "reason_code": "preparation_failed",
+            "exception": {"type": "CollectionFailed", "message": "image pull failed"},
+        }))
+        report = audit_result(self.root)
+        assert not report["valid"]
+        assert report["completion"] == "incomplete"
+        assert report["measurement_status"] == "incomplete"
+        assert any(issue["code"] == "preparation_failed" and issue["severity"] == "error"
+                   for issue in report["issues"])

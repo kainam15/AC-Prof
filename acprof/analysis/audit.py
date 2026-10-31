@@ -204,6 +204,9 @@ def audit_result(source: str | Path, *, result_snapshot: ResultCsvSnapshot | Non
     metadata = read_json("static_meta.json")
     validation = read_json("runtime_validation.json")
     resolution = read_json("model_resolution.json")
+    interface = read_json("interface_validation.json")
+    if not interface and isinstance(resolution.get("interface_validation"), dict):
+        interface = resolution["interface_validation"]
     report["failures"] = []
     devices = validation.get("devices", {})
     if not isinstance(devices, dict):
@@ -239,6 +242,32 @@ def audit_result(source: str | Path, *, result_snapshot: ResultCsvSnapshot | Non
         report["run_status"] = state.get("status")
         report["run_id"] = state.get("run_id")
         report["completion"] = "complete" if state.get("status") == "complete" else "incomplete"
+        if state.get("status") != "complete" and not state.get("runtime"):
+            report["measurement_status"] = "incomplete"
+    preparation = {}
+    attempts = state.get("attempts")
+    if isinstance(attempts, list) and attempts and isinstance(attempts[-1], dict):
+        prep_rel = attempts[-1].get("preparation_evidence")
+        if isinstance(prep_rel, str) and prep_rel:
+            preparation = read_json(prep_rel)
+    if not report["failures"]:
+        prep_status = preparation.get("status")
+        if prep_status in {"failed", "cancelled"}:
+            prep_exc = preparation.get("exception") if isinstance(preparation.get("exception"), dict) else {}
+            issue(
+                preparation.get("reason_code") or f"preparation_{prep_status}",
+                prep_exc.get("message") or f"preparation {prep_status}",
+                stage=preparation.get("last_stage") or "preparation",
+            )
+        elif interface.get("status") in {"error", "cancelled"}:
+            iface_status = interface["status"]
+            issue(
+                "interface_validation_failed" if iface_status == "error" else "interface_validation_cancelled",
+                interface.get("error") or f"interface validation {iface_status}",
+                stage=interface.get("failed_stage") or "interface",
+            )
+        elif state.get("status") in {"failed", "cancelled"} and not state.get("runtime"):
+            issue(f"run_{state['status']}", f"run_state.json status is {state['status']}")
     try:
         snapshot = result_snapshot or read_result_csv_snapshot(path)
         if snapshot.path != path.resolve():

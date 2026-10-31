@@ -197,3 +197,18 @@ def test_experiment_source_title_uses_saved_metadata_without_changing_run_identi
     assert experiment_source_display(root / 'result_layers.json').availability == 'missing'
     assert experiment_source_display(tmp_path / 'absent' / run_id / 'result_layers.json').availability == 'missing'
     assert experiment_source_display(tmp_path / 'unsupported.json').availability == 'unsupported'
+
+
+def test_catalog_reads_canonical_runtime_environment_profile_id(tmp_path):
+    from acprof.tui.experiments.catalog import scan_experiments
+
+    exp = tmp_path / 'canonical-profile'
+    exp.mkdir()
+    (exp / 'static_meta.json').write_text(json.dumps({
+        'model_name': 'demo/model',
+        'model_revision': 'a' * 40,
+        'runtime_environment': {'profile_id': 'nlp-cu128'},
+    }), encoding='utf-8')
+    report = scan_experiments([exp])
+    assert len(report.records) == 1
+    assert report.records[0].runtime_profile == 'nlp-cu128'

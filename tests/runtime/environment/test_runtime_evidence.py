@@ -251,3 +251,144 @@ def test_audit_consumes_quality_and_failures_without_logs():
     assert (report.get("failures")) == ([failure])
     assert (report.get("quality_checks")) == ([{**check, "evidence": {
         **check["evidence"], "artifact": str(root / "quality_checks.json")}}])
+
+
+def test_recorded_result_report_supports_canonical_static_meta_and_embedded_artifacts(tmp_path):
+    from acprof.analysis.compatibility import report_results, result_status
+
+    source = tmp_path / "canonical"
+    source.mkdir()
+    revision = "a" * 40
+    (source / "static_meta.json").write_text(json.dumps({
+        "model_name": "fixture/canonical-model",
+        "model_revision": revision,
+        "runtime_environment": {"profile_id": "nlp-cu128"},
+        "model_resolution": {
+            "model_revision": revision,
+            "runtime_profile": "nlp-cu128",
+            "provenance": {
+                "model_id": "fixture/canonical-model",
+                "revision": revision,
+                "sources": {"repository_snapshot": {"source": "huggingface", "model_id": "fixture/canonical-model"}},
+            },
+        },
+        "capability_report": {"full_profile_complete": True},
+        "runtime_validation": {"status": "ok", "devices": {"on": {"status": "ok"}}},
+    }))
+    (source / "quality_checks.json").write_text(json.dumps({"schema_version": 1, "checks": []}))
+
+    report = report_results([source], tmp_path / "report")
+    row = report["rows"][0]
+    assert row["model_id"] == "fixture/canonical-model"
+    assert row["revision"] == revision
+    assert row["runtime_profile"] == "nlp-cu128"
+    assert row["full_profile_complete"] is True
+    assert result_status(row) == "full_success"
+
+
+def test_recorded_result_report_expands_task_collections_and_parent_output_dir(tmp_path):
+    from acprof.analysis.compatibility import report_results, result_status
+    from acprof.results.layout import ArtifactLayout
+
+    output_dir = tmp_path / "experiment-out"
+    collection = output_dir / "fixture--model"
+    run_id = "0f5b00643cd94562b7f740b502bfdb91"
+    task_id = "tabular-classification-fefaea4b3421"
+    revision = "b" * 40
+    task_dir = collection / "tasks" / task_id / run_id
+    layout = ArtifactLayout.for_new_run(task_dir)
+    layout.initialize()
+    layout.path("static_meta.json").write_text(json.dumps({
+        "model_name": "fixture/model",
+        "model_revision": revision,
+        "runtime_environment": {"profile_id": "onnxruntime-cpu"},
+    }))
+    layout.path("runtime_validation.json").write_text(json.dumps({"status": "ok", "devices": {"off": {"status": "ok"}}}))
+    task_runs = collection / "metadata" / "task_runs"
+    task_runs.mkdir(parents=True, exist_ok=True)
+    (task_runs / f"{run_id}.json").write_text(json.dumps({
+        "schema_version": 1,
+        "run_id": run_id,
+        "status": "complete",
+        "tasks": [{"task_id": task_id, "status": "complete"}],
+    }))
+
+    for index, target in enumerate((output_dir, collection, task_dir)):
+        report = report_results([target], tmp_path / f"report-{index}")
+        assert len(report["rows"]) == 1
+        row = report["rows"][0]
+        assert row["model_id"] == "fixture/model"
+        assert row["revision"] == revision
+        assert row["runtime_profile"] == "onnxruntime-cpu"
+        assert result_status(row) == "ok"
+
+
+def test_recorded_result_report_surfaces_failed_preparation_and_interface_validation(tmp_path):
+    from acprof.analysis.compatibility import report_results, result_status
+    from acprof.results.layout import ArtifactLayout
+
+    source = tmp_path / "failed-prep"
+    layout = ArtifactLayout.for_new_run(source)
+    layout.initialize()
+    revision = "c" * 40
+    attempt_id = "91b7d2ffaa81470080f32bebf74495d0"
+    prep_rel = f"metadata/preparation/{attempt_id}.json"
+    layout.path("run_state.json").write_text(json.dumps({
+        "schema_version": 1,
+        "layout_version": 2,
+        "run_id": "3450983d3b3f461b8813bd2527aadd87",
+        "status": "failed",
+        "options": {"model": "fixture/iris", "revision": revision},
+        "attempts": [{"attempt_id": attempt_id, "preparation_evidence": prep_rel, "outcome": "failed"}],
+    }))
+    layout.path("interface_validation.json").write_text(json.dumps({
+        "schema_version": 1,
+        "status": "error",
+        "model_id": "fixture/iris",
+        "revision": revision,
+        "runtime_profile": "onnxruntime-cpu",
+        "error": "InterfaceProbeError: image pull failed",
+        "failed_stage": "environment",
+    }))
+    prep_path = layout.contained(prep_rel)
+    prep_path.parent.mkdir(parents=True, exist_ok=True)
+    prep_path.write_text(json.dumps({
+        "schema_version": 1,
+        "scope": "preparation",
+        "attempt_id": attempt_id,
+        "status": "failed",
+        "last_stage": "image",
+        "reason_code": "preparation_failed",
+        "exception": {"type": "CollectionFailed", "message": "image pull failed"},
+    }))
+
+    report = report_results([source], tmp_path / "report")
+    row = report["rows"][0]
+    assert row["model_id"] == "fixture/iris"
+    assert row["revision"] == revision
+    assert row["runtime_profile"] == "onnxruntime-cpu"
+    assert row["runtime_status"] == "failed"
+    assert result_status(row) == "failed"
+    assert row["reason_code"] == "preparation_failed"
+    assert row["stage"] == "image"
+    assert "image pull failed" in (tmp_path / "report" / "REPORT.md").read_text()
+
+
+def test_recorded_result_report_rejects_conflicting_model_identity_across_artifacts(tmp_path):
+    from acprof.analysis.compatibility import report_results, result_status
+
+    source = tmp_path / "conflict"
+    source.mkdir()
+    (source / "static_meta.json").write_text(json.dumps({
+        "model_name": "fixture/model-a",
+        "model_revision": "a" * 40,
+    }))
+    (source / "model_resolution.json").write_text(json.dumps({
+        "model_revision": "a" * 40,
+        "provenance": {"model_id": "fixture/model-b", "sources": {"repository_snapshot": {"source": "huggingface"}}},
+    }))
+
+    row = report_results([source], tmp_path / "report")["rows"][0]
+    assert result_status(row) == "inconclusive"
+    assert row["failure"]["reason_code"] == "recorded_evidence_invalid"
+    assert row["source"] == "unknown"
