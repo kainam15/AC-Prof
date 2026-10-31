@@ -66,7 +66,7 @@ jobs:
             --pattern test_runtime_validation.py --pattern test_perf_mips.py \
             --pattern test_energy_cpu.py --pattern test_energy_nvml_start_stop.py \
             --require-no-skips \
-            --report "internal-testing/hardware-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}/offline-faults/host.json"
+            --report "internal-testing/shared/hardware-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}/offline-faults/host.json"
       - name: 测量前准备缺失的模型和 Docker 镜像
         timeout-minutes: 90
         env:
@@ -86,18 +86,18 @@ jobs:
             selection=(--model "$VALIDATION_MODEL" --task "$VALIDATION_TASK" --revision "$VALIDATION_REVISION")
           fi
           uv run --locked --no-default-groups --group test python scripts/prepare_hardware.py "${selection[@]}" --gpus "$VALIDATION_GPUS" \
-            --output-dir "internal-testing/hardware-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}/preparation"
+            --output-dir "internal-testing/shared/hardware-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}/preparation"
       - name: 使用已准备的不可变镜像离线采集并验收
         timeout-minutes: 60
         env:
           ACPROF_WECOM_WEBHOOK_URL: ''
         run: |
           uv run --locked --no-default-groups --group test python scripts/check_hardware.py \
-            --matrix "internal-testing/hardware-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}/preparation/prepared-matrix.json" \
+            --matrix "internal-testing/shared/hardware-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}/preparation/prepared-matrix.json" \
             --gpus "$VALIDATION_GPUS" \
-            --output-dir "internal-testing/hardware-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}/measurements"
+            --output-dir "internal-testing/shared/hardware-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}/measurements"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: hardware
-          path: internal-testing/hardware-${{ github.run_id }}-${{ github.run_attempt }}/
+          path: internal-testing/shared/hardware-${{ github.run_id }}-${{ github.run_attempt }}/

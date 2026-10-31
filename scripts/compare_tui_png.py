@@ -20,7 +20,7 @@ sys.path.insert(0, str(ROOT))
 from tests.visual_png.scenarios import SCENARIOS  # noqa: E402
 
 BASELINES = ROOT / "tests" / "visual_png" / "__snapshots__"
-ACTUAL = ROOT / "internal-testing" / "tui-png"
+ACTUAL = ROOT / "internal-testing" / "shared" / "tui-png"
 # Ignore small color/antialiasing variations, not changes in glyph position.
 COLOR_THRESHOLD = 32
 MAX_DIFFERENT_PIXELS = 120

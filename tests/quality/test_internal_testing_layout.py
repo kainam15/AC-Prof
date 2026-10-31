@@ -187,6 +187,32 @@ def test_inventory_lists_legacy_without_opening_or_moving_it(tmp_path):
     assert result["managed"] == {"success": 1}
 
 
+def test_inventory_check_rejects_stray_root_and_accepts_canonical_layout(tmp_path, monkeypatch):
+    root = root_at(tmp_path)
+    layout.initialize(root)
+    monkeypatch.setattr(layout, "DATA_ROOT", root)
+    assert layout.main(["inventory", "--check"]) == 0
+    (root / "old-ci").mkdir()
+    assert layout.main(["inventory", "--check"]) == 1
+    (root / "old-ci").rename(root / "evidence" / "old-ci")
+    assert layout.main(["inventory", "--check"]) == 0
+
+
+def test_inventory_check_rejects_symlinked_managed_category(tmp_path, monkeypatch):
+    root = root_at(tmp_path)
+    layout.initialize(root)
+    monkeypatch.setattr(layout, "DATA_ROOT", root)
+    (root / "shared").rmdir()
+    (root / "shared").symlink_to(tmp_path, target_is_directory=True)
+    assert layout.main(["inventory", "--check"]) == 1
+
+
+def test_explicit_local_output_rejects_legacy_root(tmp_path):
+    with pytest.raises(SystemExit) as error:
+        local.main(["--output", "internal-testing/unmanaged-run"])
+    assert error.value.code == 2
+
+
 def test_local_test_runner_uses_managed_run_and_finishes_success(tmp_path, monkeypatch):
     root = root_at(tmp_path)
     monkeypatch.setattr(local, "EVIDENCE_ROOT", root)

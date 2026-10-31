@@ -94,8 +94,8 @@ class TestTuiSettings:
     @pytest.fixture(autouse=True)
     def _setup(self, request, tmp_path, monkeypatch):
         self._request = request
-        scratch = Path(__file__).resolve().parents[3] / "internal-testing"
-        scratch.mkdir(exist_ok=True)
+        scratch = Path(__file__).resolve().parents[3] / "internal-testing" / "shared"
+        scratch.mkdir(parents=True, exist_ok=True)
         self.temporary = tempfile.TemporaryDirectory(prefix="tui-settings-", dir=scratch)
         self._request.addfinalizer(partial(self.temporary.cleanup))
         self.project = Path(self.temporary.name)

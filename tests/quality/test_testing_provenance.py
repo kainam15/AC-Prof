@@ -16,7 +16,7 @@ def test_unreadable_source_directory_cannot_produce_complete_identity(tmp_path):
 
 def test_collected_fixture_under_checkout_is_hashed_and_relocatable(tmp_path):
     root = tmp_path / 'first'
-    suite = root / 'internal-testing' / 'fixture'
+    suite = root / 'internal-testing' / 'shared' / 'fixture'
     suite.mkdir(parents=True)
     test = suite / 'test_sample.py'
     test.write_text('def test_ok(): pass\n')
@@ -49,7 +49,7 @@ def test_input_hashes_are_relocatable_and_separate_sources_tests_and_locks(tmp_p
         changed = capture_provenance([], root=moved)
         assert {key for key in original if changed[key] != original[key]} == {field}
         path.write_text(old)
-    for name in ('acprof/.env.local', 'acprof/__pycache__/module.pyc', 'internal-testing/host.json'):
+    for name in ('acprof/.env.local', 'acprof/__pycache__/module.pyc', 'internal-testing/shared/host.json'):
         path = moved / name
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text('generated state')

@@ -13,6 +13,7 @@ import re
 import secrets
 import shutil
 import subprocess
+import sys
 import tempfile
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -374,6 +375,9 @@ def main(argv: list[str] | None = None) -> int:
     listing = sub.add_parser("inventory", help="Count managed and legacy entries without deletion")
     listing.add_argument("--limit", type=int, default=20)
     listing.add_argument("--json", action="store_true")
+    listing.add_argument(
+        "--check", action="store_true", help="Fail if unmanaged top-level entries remain"
+    )
     cleaning = sub.add_parser("prune", help="Preview eligible successful/resolved runs (default)")
     cleaning.add_argument(
         "--dry-run", action="store_true", help="Explicit preview (also the default)"
@@ -395,7 +399,7 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "inventory":
             if args.limit < 0:
                 parser.error("--limit must be non-negative")
-            result = inventory(limit=args.limit)
+            result = inventory(DATA_ROOT, limit=args.limit)
             if args.json:
                 print(json.dumps(result, ensure_ascii=False, indent=2))
             else:
@@ -405,6 +409,23 @@ def main(argv: list[str] | None = None) -> int:
                 print("Legacy entries:", result["legacy_count"])
                 for name in result["legacy_sample"]:
                     print("  ", name)
+            if args.check:
+                invalid = [
+                    name
+                    for name in CATEGORIES
+                    if (DATA_ROOT / name).is_symlink()
+                    or ((DATA_ROOT / name).exists() and not (DATA_ROOT / name).is_dir())
+                ]
+                agents = DATA_ROOT / "AGENTS.md"
+                if agents.is_symlink() or (agents.exists() and not agents.is_file()):
+                    invalid.append("AGENTS.md")
+                if result["legacy_count"] or invalid:
+                    print(
+                        "Unmanaged internal-testing top-level entries: "
+                        f"{result['legacy_count']}; invalid managed entries: {invalid}",
+                        file=sys.stderr,
+                    )
+                    return 1
         elif args.command == "prune":
             if args.apply and args.dry_run:
                 parser.error("--dry-run and --apply cannot be combined")

@@ -174,7 +174,7 @@ parallel = true
 patch = ["subprocess"]
 source = ["acprof"]
 relative_files = true
-data_file = "internal-testing/coverage/.coverage"
+data_file = "internal-testing/shared/coverage/.coverage"
 
 [tool.coverage.report]
 show_missing = true
@@ -182,13 +182,13 @@ precision = 2
 # First establish evidence; do not gate the repository on a global percentage.
 
 [tool.coverage.xml]
-output = "internal-testing/coverage/coverage.xml"
+output = "internal-testing/shared/coverage/coverage.xml"
 
 [tool.coverage.json]
-output = "internal-testing/coverage/coverage.json"
+output = "internal-testing/shared/coverage/coverage.json"
 
 [tool.coverage.html]
-directory = "internal-testing/coverage/html"
+directory = "internal-testing/shared/coverage/html"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

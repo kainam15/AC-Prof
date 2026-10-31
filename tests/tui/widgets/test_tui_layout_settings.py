@@ -346,8 +346,8 @@ class TestTuiLayoutSettings:
 class TestTuiModelMemory:
     @pytest.fixture(autouse=True)
     def _setup(self):
-        scratch = PROJECT_DIR / "internal-testing"
-        scratch.mkdir(exist_ok=True)
+        scratch = PROJECT_DIR / "internal-testing" / "shared"
+        scratch.mkdir(parents=True, exist_ok=True)
         # These cases exercise project-relative paths, so keep their root inside
         # the checkout instead of using pytest's system temporary directory.
         with tempfile.TemporaryDirectory(prefix="tui-recent-", dir=scratch) as temporary:

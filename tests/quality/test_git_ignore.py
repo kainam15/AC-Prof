@@ -12,6 +12,6 @@ def test_csv_locations(path_case):
     with tempfile.TemporaryDirectory() as directory:
         subprocess.run(["git", "init", "--quiet", directory], check=True)
         (Path(directory) / ".gitignore").write_bytes((root / ".gitignore").read_bytes())
-        (path, ignored) = tuple({'results/foo.csv': True, 'internal-testing/foo.csv': True, 'result-past/foo.csv': True, 'ad-hoc.csv': True, 'tests/fixtures/foo.csv': False, 'tests/fixtures/nested/foo.csv': False, 'examples/foo.csv': False, 'examples/nested/foo.csv': False, 'acprof/results/__init__.py': False}.items())[path_case]
+        (path, ignored) = tuple({'results/foo.csv': True, 'internal-testing/shared/foo.csv': True, 'result-past/foo.csv': True, 'ad-hoc.csv': True, 'tests/fixtures/foo.csv': False, 'tests/fixtures/nested/foo.csv': False, 'examples/foo.csv': False, 'examples/nested/foo.csv': False, 'acprof/results/__init__.py': False}.items())[path_case]
         result = subprocess.run(["git", "-c", "core.excludesFile=/dev/null", "check-ignore", "--no-index", "-q", path], cwd=directory)
         assert (result.returncode) == (0 if ignored else 1)

@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
-ACTUAL = ROOT / "internal-testing" / "tui-png"
+ACTUAL = ROOT / "internal-testing" / "shared" / "tui-png"
 BASELINES = ROOT / "tests" / "visual_png" / "__snapshots__"
 SCENE_NAME = re.compile(r"[a-z0-9][a-z0-9-]*\Z")
 

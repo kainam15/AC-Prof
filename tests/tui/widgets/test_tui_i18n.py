@@ -133,8 +133,8 @@ class TestTuiLanguage:
     @pytest.fixture(autouse=True)
     def _setup(self, request, tmp_path, monkeypatch):
         self._request = request
-        scratch = PROJECT_DIR / "internal-testing"
-        scratch.mkdir(exist_ok=True)
+        scratch = PROJECT_DIR / "internal-testing" / "shared"
+        scratch.mkdir(parents=True, exist_ok=True)
         temporary = tempfile.TemporaryDirectory(prefix="tui-language-", dir=scratch)
         self._request.addfinalizer(partial(temporary.cleanup))
         self.settings_path = Path(temporary.name) / "tui.json"

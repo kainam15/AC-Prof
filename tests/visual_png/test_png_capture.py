@@ -92,7 +92,7 @@ def test_fixture_pins_environment_only_during_render(
     os.environ.get("ACPROF_PNG_VISUAL") != "1", reason="opt-in VHS screenshot suite"
 )
 def test_real_tui_png_scenes() -> None:
-    output = ROOT / "internal-testing" / "tui-png"
+    output = ROOT / "internal-testing" / "shared" / "tui-png"
     # Avoid showing an earlier comparison if this capture fails before compare_all.
     (output / "report.json").unlink(missing_ok=True)
     paths = capture(tuple(SCENARIOS), output, python=Path(sys.executable))

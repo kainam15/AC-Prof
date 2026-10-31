@@ -174,7 +174,7 @@ def main() -> int:
     selected = parser.add_mutually_exclusive_group(required=True)
     selected.add_argument("--scenario", choices=tuple(SCENARIOS))
     selected.add_argument("--all", action="store_true", help="Capture every fixed fixture")
-    parser.add_argument("--output", type=Path, default=ROOT / "internal-testing" / "tui-png")
+    parser.add_argument("--output", type=Path, default=ROOT / "internal-testing" / "shared" / "tui-png")
     args = parser.parse_args()
     scenarios = tuple(SCENARIOS) if args.all else (args.scenario,)
     try:

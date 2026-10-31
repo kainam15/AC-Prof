@@ -207,10 +207,10 @@ def main(argv: list[str] | None = None) -> int:
         )
     managed = args.output is None
     output = None if managed else (ROOT / args.output).resolve()
-    evidence_root = EVIDENCE_ROOT.resolve()
+    shared_root = (EVIDENCE_ROOT / "shared").resolve()
     if not managed:
-        if output == evidence_root or not output.is_relative_to(evidence_root):
-            parser.error("--output must be inside internal-testing/ (not results/)")
+        if output == shared_root or not output.is_relative_to(shared_root):
+            parser.error("--output must be inside internal-testing/shared/ (not results/ or its root)")
         if output.exists():
             parser.error("--output must be a new directory to avoid overwriting previous evidence")
     status = "failed"

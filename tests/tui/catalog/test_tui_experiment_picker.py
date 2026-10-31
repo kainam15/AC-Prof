@@ -160,8 +160,8 @@ async def test_bad_manifest_warning_keeps_healthy_experiment_selectable(tmp_path
     assert selections[0][1].directory == good
 
 async def test_scope_omits_stale_paths_but_keeps_explicit_deep_scan_roots():
-    scratch = Path.cwd() / 'internal-testing'
-    scratch.mkdir(exist_ok=True)
+    scratch = Path.cwd() / 'internal-testing' / 'shared'
+    scratch.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='picker-scope-', dir=scratch) as temporary:
         root = Path(temporary)
         results = root / 'results'
