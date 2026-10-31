@@ -17,6 +17,7 @@ from acprof.artifacts import file_sha256
 from acprof.hardware_conditions import conditions_path
 from acprof.quality import QUALITY_FIELDS, combine_quality
 from acprof.results.csv import measurement_key, read_result_csv_snapshot, verify_result_source
+from acprof.results.layout import expand_result_sources
 from acprof.results.metadata import ResultMetadataSnapshot
 from acprof.results.metrics import METRICS
 
@@ -68,7 +69,7 @@ def compare_experiments(left, right, *, metrics, purpose="same-hardware",
     validate_window_options(metrics, confidence=confidence, resamples=resamples)
     if not left or not right:
         raise ValueError("both comparison groups require at least one experiment")
-    sources = {"left": list(left), "right": list(right)}
+    sources = {"left": expand_result_sources(left), "right": expand_result_sources(right)}
     experiments: dict[str, list[dict[str, Any]]] = {}
     run_ids: set[str] = set()
     fingerprints: dict[Path, str | None] = {}

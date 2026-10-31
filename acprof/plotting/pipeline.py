@@ -15,10 +15,11 @@ import acprof.plotting.latency as plotting_latency
 import acprof.plotting.metrics as plotting_metrics
 import acprof.plotting.tail_latency as plotting_tail_latency
 from acprof.plotting.uncertainty import WindowStatistics
-from acprof.results.layout import ArtifactLayout
+from acprof.results.layout import ArtifactLayout, resolve_single_result_source
 
 
 def plot_results(csv_path: str, *, only_ok: bool = True, save_png: bool = True) -> None:
+    csv_path = str(resolve_single_result_source(csv_path))
     layout = ArtifactLayout.discover(csv_path) if os.path.isdir(csv_path) else ArtifactLayout.from_csv(csv_path)
     if os.path.isdir(csv_path):
         csv_path = str(layout.result_csv)

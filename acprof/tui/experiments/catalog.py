@@ -18,7 +18,7 @@ from acprof.artifacts import read_json_object
 from acprof.experiments.arguments import flatten_run_options
 from acprof.experiments.configuration import RunConfig
 from acprof.installation import cli_command
-from acprof.results.layout import ArtifactLayout
+from acprof.results.layout import ArtifactLayout, resolve_single_result_source
 
 MAX_DUPLICATE_BYTES = 32 * 1024 * 1024
 
@@ -101,6 +101,7 @@ def experiment_source_display(source: Path) -> ExperimentSourceDisplay:
     if re.fullmatch(r'[0-9a-fA-F]{32}', fallback):
         fallback = ''  # Internal Run ID is not a human-readable experiment name.
     try:
+        source = resolve_single_result_source(source)
         if source.is_dir():
             root, result_file = source, source / 'result_layers.json'
         elif source.name == 'result_layers.json' or source.suffix.lower() == '.csv':

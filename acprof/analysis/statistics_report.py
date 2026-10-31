@@ -11,12 +11,16 @@ from acprof.analysis.uncertainty import summarize_windows
 from acprof.artifacts import atomic_write_json, read_json_object
 from acprof.quality import QUALITY_FIELDS
 from acprof.results.csv import read_result_csv_snapshot, result_csv_snapshot_unchanged
+from acprof.results.layout import resolve_single_result_source
 from acprof.system.cleanup import cleanup_on_exit
 
 
 def build_statistics_report(path: Path, metrics=None, *, confidence=0.95, resamples=5000,
                             seed=0, block_size=1, precision_target=None) -> dict:
     """Compute and audit one immutable snapshot; callers own measurement exclusion."""
+    path = resolve_single_result_source(path)
+    if path.is_dir():
+        path = path / "result_layers.json"
     snapshot = read_result_csv_snapshot(path)
     report = summarize_windows(snapshot.rows, metrics or ["latency_app_s", "latency_s", "container_attributed_energy_eff_j"],
                                confidence=confidence, resamples=resamples, seed=seed,

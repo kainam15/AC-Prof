@@ -26,6 +26,7 @@ from acprof.results.csv import (
     measurement_key,
     read_result_csv_snapshot,
 )
+from acprof.results.layout import resolve_single_result_source
 from acprof.results.metadata import ResultMetadataSnapshot
 from acprof.results.metrics import METRICS
 from acprof.runtime.settings import RUNTIME_ENV_NAMES
@@ -174,7 +175,7 @@ def load_comparison_snapshot(source: str | Path, *, result_snapshot: ResultCsvSn
                              metadata_snapshot: ResultMetadataSnapshot | None = None,
                              verify_result_snapshot: bool = True) -> dict:
     """Share parsed input while its outer owner retains the final content check."""
-    source = Path(source)
+    source = resolve_single_result_source(source)
     metadata_snapshot = metadata_snapshot or ResultMetadataSnapshot(source)
     metadata_snapshot.validate_source(source)
     layout = metadata_snapshot.layout

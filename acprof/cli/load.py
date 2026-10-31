@@ -23,7 +23,7 @@ from acprof.host.images.runtime import ImageInfo, require_image_identity
 from acprof.host.measurement.load import LoadConfig, run_load
 from acprof.host.run_state import MeasurementLock, file_sha256, host_identity, load_run_state
 from acprof.installation import module_command, resource_root
-from acprof.results.layout import ArtifactLayout
+from acprof.results.layout import ArtifactLayout, resolve_single_result_source
 from acprof.system.command import run_command
 
 
@@ -119,9 +119,9 @@ def main(argv=None):
     parser.add_argument("--capture", action="store_true", help="保存并校验 PCAP；reuse 自动启用")
     parser.add_argument("--output-dir", type=Path, required=True)
     args = parser.parse_args(argv)
-    args.source = args.source.resolve()
     try:
         bootstrap_project_env(Path.cwd())
+        args.source = resolve_single_result_source(args.source).resolve()
         state = load_run_state(args.source)
         if state.get("status") != "complete":
             raise ValueError("load requires a completed source experiment")

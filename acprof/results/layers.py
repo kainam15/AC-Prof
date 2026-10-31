@@ -371,7 +371,12 @@ def read_result_layers(root: str | Path, *, expected_manifest_sha256: str | None
                        ) -> tuple[list[str], list[dict[str, str]]]:
     """Read hashed partitions, optionally bound to an outer consumer's manifest."""
     check_cancelled(cancelled)
+    from acprof.results.layout import resolve_single_result_source
     root = _result_root(root)
+    try:
+        root = _result_root(resolve_single_result_source(root))
+    except ValueError as exc:
+        raise ResultValidationError(str(exc)) from exc
     manifest = read_json_object(_safe_path(root, MANIFEST_NAME), label="result layers manifest",
                                 expected_sha256=expected_manifest_sha256, cancelled=cancelled)
     if manifest.get("schema_version") == 3:
@@ -433,7 +438,12 @@ def read_result_layers(root: str | Path, *, expected_manifest_sha256: str | None
 
 def export_result_layers(root: str | Path, destination: str | Path) -> int:
     """Explicit on-demand wide export; never write over a layered source file."""
-    root, destination = _result_root(root), Path(destination)
+    from acprof.results.layout import resolve_single_result_source
+    root = _result_root(root)
+    try:
+        root, destination = _result_root(resolve_single_result_source(root)), Path(destination)
+    except ValueError as exc:
+        raise ResultValidationError(str(exc)) from exc
     resolved_destination = destination.resolve()
     if (resolved_destination in {(root / name).resolve() for name in LAYER_FILES.values()}
             or resolved_destination.is_relative_to((root / GENERATIONS_DIR).resolve())):

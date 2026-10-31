@@ -266,11 +266,14 @@ def load_result_context(result_dir: str | os.PathLike[str], *, result_snapshot: 
     owns final source verification after all work using that snapshot completes.
     """
     check_cancelled(cancelled)
-    directory = Path(result_dir).expanduser().resolve()
+    from acprof.results.layout import ArtifactLayout, resolve_single_result_source
+    try:
+        directory = resolve_single_result_source(result_dir).expanduser().resolve()
+    except (OSError, ValueError) as exc:
+        raise PosthocError(str(exc)) from exc
     if not directory.is_dir():
         raise PosthocError(f"result directory does not exist: {directory}")
 
-    from acprof.results.layout import ArtifactLayout
     try:
         layout = ArtifactLayout.discover(directory)
         result_csv = layout.path(RESULT_CSV_NAME)

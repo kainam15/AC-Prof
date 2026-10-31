@@ -34,8 +34,13 @@ def main(argv=None):
             build_statistics_report,
             save_unique_statistics_report,
         )
+        from acprof.results.layout import resolve_single_result_source
 
-        path = args.source / "result_layers.json" if args.source.is_dir() else args.source
+        try:
+            resolved_source = resolve_single_result_source(args.source)
+        except (ValueError, OSError) as error:
+            parser.exit(1, f"统计失败：{format_exception_notes(error)}\n")
+        path = resolved_source / "result_layers.json" if resolved_source.is_dir() else resolved_source
         if args.output and (args.output.exists() or args.output.is_symlink() or args.output.resolve() == path.resolve()):
             parser.error("统计输出必须为新的文件，不能覆盖输入或已有产物")
         try:

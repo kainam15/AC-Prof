@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from pathlib import Path
 
 from acprof.artifacts import JsonObjectSnapshot, read_json_object_snapshot
-from acprof.results.layout import ArtifactLayout
+from acprof.results.layout import ArtifactLayout, resolve_single_result_source
 
 
 class ResultMetadataSnapshot:
@@ -26,7 +26,7 @@ class ResultMetadataSnapshot:
 
     @staticmethod
     def _result_path(source: str | Path) -> Path:
-        path = Path(source).expanduser()
+        path = resolve_single_result_source(source)
         return path / "result_layers.json" if path.is_dir() else path
 
     def validate_source(self, source: str | Path) -> None:

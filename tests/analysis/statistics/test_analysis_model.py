@@ -371,3 +371,73 @@ class TestAnalysisModel:
         (source.parent / "run_state.json").write_text(json.dumps({"run_id": "stable-run"}))
         with pytest.raises(ValueError, match="inconsistent run_id"):
             load_analysis([source])
+
+    def test_task_collection_and_parent_output_dir_work_across_downstream_analysis(self):
+        from acprof.analysis.audit import audit_result
+        from acprof.analysis.comparison import compare_results
+        from acprof.analysis.model import load_analysis
+        from acprof.analysis.statistics_report import build_statistics_report
+        from acprof.results.layers import (
+            export_result_layers,
+            publish_result_layers,
+            read_result_layers,
+        )
+        from acprof.results.layout import ArtifactLayout
+        from acprof.tui.experiments.catalog import experiment_source_display
+
+        output_dir = self.root / "collection-out"
+        collection = output_dir / "example--model"
+        run_id = "0f5b00643cd94562b7f740b502bfdb91"
+        task_id = "text-generation-0123456789ab"
+        task_dir = collection / "tasks" / task_id / run_id
+        layout = ArtifactLayout.for_new_run(task_dir)
+        layout.initialize()
+        wide = self.source([self.row(run_id=run_id)], directory="seed-wide")
+        publish_result_layers(wide, output_dir=task_dir)
+        layout.path("run_state.json").write_text(json.dumps({"schema_version": 1, "run_id": run_id, "status": "complete"}))
+        layout.path("static_meta.json").write_text(json.dumps({"schema_version": 7, "model_name": "example/model"}))
+        task_runs = collection / "metadata" / "task_runs"
+        task_runs.mkdir(parents=True, exist_ok=True)
+        (task_runs / f"{run_id}.json").write_text(json.dumps({
+            "schema_version": 1,
+            "run_id": run_id,
+            "status": "ok",
+            "tasks": [{"task_id": task_id, "status": "ok"}],
+        }))
+
+        for target in (output_dir, collection, collection / "result_layers.json"):
+            assert audit_result(target)["valid"]
+            fields, rows = read_result_layers(target.parent if target.name == "result_layers.json" else target)
+            assert len(rows) == 1
+            stats = build_statistics_report(target)
+            assert stats["groups"]
+            model = load_analysis([target])
+            assert len(model.configs) == 1
+            assert experiment_source_display(target).can_read
+
+        exported = self.root / "exported-wide.csv"
+        assert export_result_layers(collection, exported) == 1
+        assert exported.is_file()
+        assert compare_results(collection, task_dir)["valid"]
+
+        second_task_id = "question-answering-fedcba987654"
+        second_dir = collection / "tasks" / second_task_id / run_id
+        second_layout = ArtifactLayout.for_new_run(second_dir)
+        second_layout.initialize()
+        wide_two = self.source([self.row(run_id="second-run", latency_app_p95_s=".08")], directory="seed-wide-2")
+        publish_result_layers(wide_two, output_dir=second_dir)
+        second_layout.path("run_state.json").write_text(json.dumps({"schema_version": 1, "run_id": "second-run", "status": "complete"}))
+        second_layout.path("static_meta.json").write_text(json.dumps({"schema_version": 7, "model_name": "example/model"}))
+        (task_runs / f"{run_id}.json").write_text(json.dumps({
+            "schema_version": 1,
+            "run_id": run_id,
+            "status": "ok",
+            "tasks": [
+                {"task_id": task_id, "status": "ok"},
+                {"task_id": second_task_id, "status": "ok"},
+            ],
+        }))
+        multi_model = load_analysis([collection])
+        assert len(multi_model.configs) == 2
+        with pytest.raises(ValueError, match="contains 2 task runs"):
+            build_statistics_report(collection)

@@ -23,6 +23,7 @@ from acprof.results.csv import (
     read_result_csv_snapshot,
     verify_result_source,
 )
+from acprof.results.layout import expand_result_sources
 from acprof.results.metadata import ResultMetadataSnapshot
 from acprof.results.metrics import ANALYSIS_METRICS, VIEW_METRICS
 
@@ -186,7 +187,7 @@ def load_analysis(sources) -> AnalysisModel:
     entries: list[dict[str, Any]] = []
     seen_keys: dict[object, tuple[str, str]] = {}
     comparisons = {}
-    for source in sources:
+    for source in expand_result_sources(sources):
         path = Path(source).expanduser().resolve()
         metadata_snapshot = ResultMetadataSnapshot(path)
         layout = metadata_snapshot.layout

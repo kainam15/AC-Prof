@@ -75,9 +75,9 @@ uv run python scripts/check_runtime.py --profile onnxruntime-cpu --basic-e2e \
 
 ## 查看结果
 
-上面的 basic 示例将主要产物写入 `results/first-run/google-bert--bert-base-uncased/`；TUI 运行时请使用界面显示的实际输出路径。准备阶段就创建 `result_layers.json` 和全部模块表头，每个完成窗口同步追加数据，完成实验时冻结快照；详细文件树和字段归属见[产物结构](../profiling/artifacts.md#artifact-layout-v2)与[结果阅读指南](../results/metrics.md#从结果目录开始)。
+上面的 basic 示例将任务集合写入 `results/first-run/google-bert--bert-base-uncased/`（单任务结果位于其下的 `tasks/<task_id>/<run_id>/`）；TUI 运行时请使用界面显示的实际输出路径。准备阶段就创建 `result_layers.json` 和全部模块表头，每个完成窗口同步追加数据，完成实验时冻结快照；详细文件树和字段归属见[产物结构](../profiling/artifacts.md#artifact-layout-v2)与[结果阅读指南](../results/metrics.md#从结果目录开始)。
 
-可先只读校验结果，再生成适用的图表和离线报告：
+可先只读校验结果，再生成适用的图表和离线报告（单任务集合可直接传入 `<model--slug>` 目录或上层 `--output-dir`，多任务集合在 `report` / `compare` 中会自动展开全部任务，单任务命令需指定具体 `tasks/<task_id>/<run_id>/`）：
 
 ```bash
 acprof audit results/first-run/google-bert--bert-base-uncased/ --require-complete --require-ok

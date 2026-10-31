@@ -23,6 +23,7 @@ from acprof.results.csv import (
     result_csv_snapshot_unchanged,
     validate_result_rows,
 )
+from acprof.results.layout import resolve_single_result_source
 from acprof.results.metadata import ResultMetadataSnapshot
 from acprof.results.metrics import METRICS, NUMERIC_FIELDS
 
@@ -156,10 +157,10 @@ def _check_workload_counts(row: dict) -> None:
 def audit_result(source: str | Path, *, result_snapshot: ResultCsvSnapshot | None = None,
                  metadata_snapshot: ResultMetadataSnapshot | None = None,
                  verify_result_snapshot: bool = True) -> dict:
-    path = Path(source)
-    if path.is_dir():
-        path /= "result_layers.json"
-    report = {**summarize_quality(None), "schema_version": 1, "result_csv": str(path.resolve()),
+    raw_path = Path(source)
+    if raw_path.is_dir():
+        raw_path /= "result_layers.json"
+    report = {**summarize_quality(None), "schema_version": 1, "result_csv": str(raw_path.resolve()),
               "valid": True, "issues": [], "missing_metrics": {},
               "counts": {"rows": 0, "formal_ok": 0, "warmup": 0, "warn": 0, "error": 0},
               "completion": "unknown", "measurement_status": "unknown", "run_status": "unknown", "coverage": None}
@@ -194,6 +195,10 @@ def audit_result(source: str | Path, *, result_snapshot: ResultCsvSnapshot | Non
             return None
 
     try:
+        path = resolve_single_result_source(source)
+        if path.is_dir():
+            path /= "result_layers.json"
+        report["result_csv"] = str(path.resolve())
         metadata_reader = metadata_snapshot or ResultMetadataSnapshot(path)
         metadata_reader.validate_source(path)
         layout = metadata_reader.layout

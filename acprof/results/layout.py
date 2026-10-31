@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -302,3 +303,111 @@ class CaseArtifacts:
             raise ValueError(f"Request samples must be a regular file: {source}")
         destination.parent.mkdir(parents=True, exist_ok=True)
         replace_file_durably(source, destination)
+
+
+_DIRECT_EXPERIMENT_FILES = (
+    MANIFEST_NAME, "result_layers.json", "static_meta.json", "model_resolution.json",
+    "capability_report.json", "runtime_validation.json", "runtime_failures.json",
+    "interface_validation.json", "run_state.json", ".acprof/run_state.json",
+)
+
+
+def _collection_task_dirs(collection_root: Path) -> list[Path]:
+    task_runs_dir = collection_root / "metadata" / "task_runs"
+    if task_runs_dir.is_symlink() or (collection_root / "metadata").is_symlink():
+        raise ValueError(f"Task collection metadata must not be a symlink: {task_runs_dir}")
+    if not task_runs_dir.is_dir():
+        raise ValueError(f"Task collection metadata directory is missing: {task_runs_dir}")
+    manifests = sorted(task_runs_dir.glob("*.json"))
+    if not manifests:
+        raise ValueError(f"Task collection has no recorded task_runs manifests: {collection_root}")
+    resolved_root = collection_root.resolve()
+    task_dirs: list[Path] = []
+    for manifest_path in manifests:
+        if manifest_path.is_symlink():
+            raise ValueError(f"Task collection manifest must not be a symlink: {manifest_path}")
+        manifest = read_json_object(manifest_path, label="task collection")
+        run_id = manifest.get("run_id")
+        tasks = manifest.get("tasks")
+        if (manifest.get("schema_version") != 1 or not isinstance(run_id, str) or not run_id
+                or not isinstance(tasks, list) or not tasks):
+            raise ValueError(f"Invalid task collection manifest: {manifest_path}")
+        for index, item in enumerate(tasks):
+            task_id = item.get("task_id") if isinstance(item, dict) else None
+            if not isinstance(task_id, str) or not task_id:
+                raise ValueError(f"Invalid task entry at index {index} in {manifest_path}")
+            tasks_root = collection_root / "tasks"
+            task_group = tasks_root / task_id
+            task_dir = task_group / run_id
+            if tasks_root.is_symlink() or task_group.is_symlink() or task_dir.is_symlink():
+                raise ValueError(f"Task run directory must not be a symlink: {task_dir}")
+            if not task_dir.is_dir() or not task_dir.resolve().is_relative_to(resolved_root):
+                raise ValueError(f"Missing task run directory for {task_id}: {task_dir}")
+            task_dirs.append(task_dir)
+    return task_dirs
+
+
+def resolve_task_collection_dirs(source: str | Path) -> list[Path] | None:
+    """Return recorded task run directories for a TaskCollection or parent output_dir."""
+    root = Path(source).expanduser()
+    if root.is_symlink() or not root.is_dir():
+        return None
+    task_runs = root / "metadata" / "task_runs"
+    if task_runs.exists() or task_runs.is_symlink():
+        return _collection_task_dirs(root)
+    if any((root / name).exists() or (root / name).is_symlink() for name in _DIRECT_EXPERIMENT_FILES):
+        return None
+    children = sorted(
+        child for child in root.iterdir()
+        if not child.name.startswith(".") and not child.is_symlink() and child.is_dir()
+        and ((child / "metadata" / "task_runs").exists() or (child / "metadata" / "task_runs").is_symlink())
+    )
+    if not children:
+        return None
+    expanded: list[Path] = []
+    for child in children:
+        expanded.extend(_collection_task_dirs(child))
+    return expanded
+
+
+def resolve_single_result_source(source: str | Path) -> Path:
+    """Resolve a single experiment directory or result_layers.json, unwrapping a 1-task collection."""
+    path = Path(source).expanduser()
+    as_layer_manifest = (
+        path.name == "result_layers.json"
+        and not path.exists()
+        and not path.is_symlink()
+        and path.parent.is_dir()
+        and not path.parent.is_symlink()
+    )
+    candidate_dir = path.parent if as_layer_manifest else path
+    task_dirs = resolve_task_collection_dirs(candidate_dir)
+    if task_dirs is None:
+        return path
+    if len(task_dirs) != 1:
+        joined = ", ".join(str(item) for item in task_dirs)
+        raise ValueError(
+            f"Task collection contains {len(task_dirs)} task runs ({joined}); specify one task run directory"
+        )
+    return task_dirs[0] / "result_layers.json" if as_layer_manifest else task_dirs[0]
+
+
+def expand_result_sources(sources: Iterable[str | Path]) -> list[Path]:
+    """Expand any TaskCollection or parent output_dir entries into their task run directories."""
+    expanded: list[Path] = []
+    for source in sources:
+        path = Path(source).expanduser()
+        as_layer_manifest = (
+            path.name == "result_layers.json"
+            and not path.exists()
+            and not path.is_symlink()
+            and path.parent.is_dir()
+            and not path.parent.is_symlink()
+        )
+        candidate_dir = path.parent if as_layer_manifest else path
+        task_dirs = resolve_task_collection_dirs(candidate_dir)
+        if task_dirs is None:
+            expanded.append(path)
+        else:
+            expanded.extend(item / "result_layers.json" if as_layer_manifest else item for item in task_dirs)
+    return expanded
