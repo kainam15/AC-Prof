@@ -38,6 +38,8 @@ uv run python scripts/capture_tui_png.py --all --output internal-testing/tui-png
 
 # 与 Git 中已审阅的 PNG 基线比较，失败时生成 diff 与 report.json
 uv run python scripts/compare_tui_png.py
+# 基于 report.json 和 PNG 证据生成独立 HTML（比较失败后也可运行）
+uv run python scripts/render_tui_png_report.py
 
 # 显式启用真实 VHS 截图 + Golden PNG 比较；普通 pytest 不要求 VHS
 ACPROF_PNG_VISUAL=1 uv run pytest tests/visual_png -v
@@ -67,7 +69,7 @@ VHS 只操作该测试应用，没有向 AC-Prof CLI 添加截图选项。
 - `measuring`：模拟测量阶段与日志布局
 - `task-selection`：多任务选择弹窗
 
-比较器使用 Pillow 对每个 RGB 像素取最大通道差，差异小于 `32/255` 的像素视为渲染噪声，每张图**最多允许 120 个明显不同的像素**；尺寸不一致、缺失、无效图片或超过阈值均判失败。比较器只读基线，绝不会自动创建/修改它。失败时在 `internal-testing/tui-png/diff/` 生成红色差异覆盖图和 `diff/expected/` 中的原基线副本，同时生成机器可读的 `report.json`。
+比较器使用 Pillow 对每个 RGB 像素取最大通道差，差异小于 `32/255` 的像素视为渲染噪声，每张图**最多允许 120 个明显不同的像素**；尺寸不一致、缺失、无效图片或超过阈值均判失败。比较器只读基线，绝不会自动创建/修改它。失败时在 `internal-testing/tui-png/diff/` 生成红色差异覆盖图和 `diff/expected/` 中的原基线副本，同时生成机器可读的 `report.json`。独立的 `scripts/render_tui_png_report.py` 只读取已有比较结论及 PNG 证据，输出忽略目录下的 `internal-testing/tui-png/report.html`；HTML 内嵌旧图、新图与差异图，单文件可离线查看，支持按通过/失败筛选，不重新比较像素，也不更新基线。没有 `report.json` 时明确标注“比较未执行”，不误报通过；损坏的报告会导致生成命令报错。
 
 有意调整界面时，用相同的 Ubuntu/Chrome/VHS/字体环境生成候选截图：
 
@@ -82,7 +84,7 @@ ACPROF_PNG_VISUAL=1 uv run pytest tests/visual_png -v
 
 ## CI 与验证边界
 
-独立的 [TUI PNG Visual](../../.github/workflows/tui-png.yml) 工作流在 **push main / Pull Request 修改 TUI、任务呈现、视觉夹具、锁文件或测试配置时自动运行**，也可通过 `workflow_dispatch` 手动触发。安装截图工具后，先用 `scripts/smoke_tui_png_environment.py` 验证 Chrome DevTools 调试端点就绪（并安全结束其进程组），再检查 VHS 能否产生有效 PNG；若环境失败，直接输出浏览器 stderr，避免误报为 TUI 快照差异。冒烟通过才运行 PNG Golden 比对，并在失败时上传 actual / expected / diff / report.json artifacts；仍不影响原有 CI 的 SVG 快照。正式运行与完整测试环境无需安装 VHS 或桌面。
+独立的 [TUI PNG Visual](../../.github/workflows/tui-png.yml) 工作流在 **push main / Pull Request 修改 TUI、任务呈现、视觉夹具、锁文件或测试配置时自动运行**，也可通过 `workflow_dispatch` 手动触发。安装截图工具后，先用 `scripts/smoke_tui_png_environment.py` 验证 Chrome DevTools 调试端点就绪（并安全结束其进程组），再检查 VHS 能否产生有效 PNG；若环境失败，直接输出浏览器 stderr，避免误报为 TUI 快照差异。冒烟通过才运行 PNG Golden 比对，并在 PNG 测试步骤后（无论通过还是失败）用 Python 标准库生成 HTML，并通过 GitHub Actions Artifact 上传 `report.html`、actual / expected / diff / `report.json`。截图环境提前失败而没有 `report.json` 时，HTML 只说明无法取得比较结论，具体原因查看 Actions 日志。报告是临时生成物，不提交到 Git 仓库，不部署 GitHub Pages；仍不影响原有 CI 的 SVG 快照。正式运行与完整测试环境无需安装 VHS 或桌面。
 
 VHS 的 xterm.js + Chrome 反映的是一个确定的无头终端模拟环境，
 不是 VS Code Windows 终端、SSH/tmux 或用户本地字体渲染的完全复刻；

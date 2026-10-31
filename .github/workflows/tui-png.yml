@@ -16,6 +16,7 @@ on:
       - 'scripts/capture_tui_png.py'
       - 'scripts/smoke_tui_png_environment.py'
       - 'scripts/compare_tui_png.py'
+      - 'scripts/render_tui_png_report.py'
       - '.github/workflows/tui-png.yml'
       - 'pyproject.toml'
       - 'uv.lock'
@@ -31,6 +32,7 @@ on:
       - 'scripts/capture_tui_png.py'
       - 'scripts/smoke_tui_png_environment.py'
       - 'scripts/compare_tui_png.py'
+      - 'scripts/render_tui_png_report.py'
       - '.github/workflows/tui-png.yml'
       - 'pyproject.toml'
       - 'uv.lock'
@@ -98,7 +100,10 @@ jobs:
           TZ: UTC
           PYTHONHASHSEED: '0'
         run: uv run --locked --no-default-groups --group test python -m pytest tests/visual_png -v
-      - name: Upload actual, expected, diff and summary for review
+      - name: Render standalone HTML comparison report
+        if: always()
+        run: python3 scripts/render_tui_png_report.py
+      - name: Upload HTML, actual, expected, diff and summary for review
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -106,6 +111,7 @@ jobs:
           path: |
             internal-testing/tui-png/*.png
             internal-testing/tui-png/diff/**/*.png
+            internal-testing/tui-png/report.html
             internal-testing/tui-png/report.json
             tests/visual_png/__snapshots__/*.png
           if-no-files-found: warn

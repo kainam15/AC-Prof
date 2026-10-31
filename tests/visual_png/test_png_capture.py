@@ -93,6 +93,8 @@ def test_fixture_pins_environment_only_during_render(
 )
 def test_real_tui_png_scenes() -> None:
     output = ROOT / "internal-testing" / "tui-png"
+    # Avoid showing an earlier comparison if this capture fails before compare_all.
+    (output / "report.json").unlink(missing_ok=True)
     paths = capture(tuple(SCENARIOS), output, python=Path(sys.executable))
     grid_dimensions: dict[tuple[int, int], tuple[int, int]] = {}
     samples: set[bytes] = set()
