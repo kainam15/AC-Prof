@@ -9,13 +9,25 @@ AC-Prof 用于分析 AI 模型在不同 CPU、内存、GPU 配置和输入规模
 
 ## AC-Prof 能做什么
 
-| 能力 | 说明 |
-| --- | --- |
-| 性能与资源 | 应用层延迟、吞吐量、CPU 和内存占用，以及可用时的 GPU 指标 |
-| 完整画像 | 能耗、抓包计时、CPU 硬件计数器，以及按需启用的独立 Profiler |
-| 可复现实验 | 输入与环境元数据、分层 CSV 结果、图表和报告 |
+| 能力       | 说明                                                        |
+| ---------- | ----------------------------------------------------------- |
+| 性能与资源 | 应用层延迟、吞吐量、CPU 和内存占用，以及可用时的 GPU 指标   |
+| 完整画像   | 能耗、抓包计时、CPU 硬件计数器，以及按需启用的独立 Profiler |
+| 可复现实验 | 输入与环境元数据、分层 CSV 结果、图表和报告                 |
 
 支持文本、视觉、音频、时间序列、Diffusion、多模态与结构化数据任务，但模型仍需满足[任务接口要求](../models/supported-tasks.md#任务支持范围)，并非所有同类 checkpoint 都保证可运行。
+
+## 采集环境与指标
+
+| 运行环境                                       |      支持的采集模式      | 可采集项目                                                                                                       | 主要限制                                                                                   |
+| ---------------------------------------------- | :-----------------------: | ---------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| 原生 Linux x86_64 + 本机 Docker                | `basic`、<br />`full` | `basic`：延迟、吞吐、容器 CPU/内存及可用 GPU 指标；<br />`full` ：额外支持能耗、PMU、抓包计时及可选 Profiler | `full` 需要 cgroup v2、RAPL、perf 和抓包权限                                             |
+| Linux 虚拟机/云主机 + 本机 Docker              |         `basic`         | 延迟、吞吐、容器 CPU/内存及可用 GPU 指标                                                                         | 环境能力等级仍为 `PARTIAL`；不采集能耗、PMU 或抓包                                       |
+| Linux x86_64 + Process（含无 Docker 的云容器） |         `basic`         | 延迟、吞吐、进程树 CPU/RSS 及可用的整卡 GPU 利用率/显存                                                          | 不采集能耗、PMU、抓包或独立 Profiler；数值资源配额需要 cgroup v2 委托                      |
+| WSL2 + Docker/Process                          |         `basic`         | 延迟、吞吐、Linux 客体 CPU/内存和部分 GPU 指标                                                                   | 属于 `PARTIAL`；无原生硬件能耗/PMU；Docker 采集需 WSL 内的 Engine，不支持 Docker Desktop |
+| Windows/macOS 原生                             |            —            | —                                                                                                               | —                                                                                         |
+
+`basic`/`full` 是采集模式，不等同于环境能力等级 `FULL`/`PARTIAL`。实际指标取决于硬件与权限，独立 Profiler 需显式启用；云 GPU 和 WSL2 仍需对应实例验证。详见 [Linux Runtime](../platforms/linux-runtimes.md)、[WSL2](../platforms/wsl2.md)、[指标说明](../results/metrics.md)与[主机要求](../getting_started/installation.md#1-检查主机环境)。
 
 ## 快速开始
 
@@ -35,8 +47,6 @@ uv tool upgrade acprof
 
 如需从 GitHub Release 下载 Wheel 或 Linux standalone，可查看[最新正式版](https://github.com/kainam15/AC-Prof/releases/latest)，并按[安装说明](../getting_started/installation.md#github-release-fallback)校验文件哈希。
 
-Native Linux x86_64、本机 Docker 和 cgroup v2 仍是 FULL 测量的基准。当前源码也提供无需 Docker 或 root 的 Linux Process basic 采集。Process CPU/RSS、继承限制和共享设备 GPU 指标保留独立证据及比较规则；云 GPU 环境仍需对应平台实测。详见 [Linux Runtime](../platforms/linux-runtimes.md)和[主机要求](../getting_started/installation.md#1-检查主机环境)。
-
 ### 开发者快速开始
 
 参与开发或使用最新源码时，克隆仓库，由 uv 准备 editable 项目和开发工具：
@@ -48,54 +58,11 @@ uv sync
 uv run acprof tui
 ```
 
-`uv sync` 自动创建和同步当前 checkout 的 `.venv`，无需手动激活。每个 Git worktree 使用独立环境，并共享 uv 下载缓存。普通发行用户仍使用 `uv tool install acprof` 和 `acprof tui`。
+开发环境的配置和测试方法详见[开发环境](../development/distribution.md#本地开发环境)与[测试指南](../development/testing.md)。
 
-完整流程见[开发环境](../development/distribution.md#本地开发环境)和[测试指南](../development/testing.md)。
+## 文档
 
-Docker Runtime 默认复用通过校验的模型镜像，缺失时自动构建。需要单次重建时，使用 `--rebuild-image` 或 TUI 的“镜像高级操作”；仍可使用 Docker 缓存。Process 在 TUI 中选择 basic 和继承 CPU/内存限制。详见[镜像准备](../models/images.md#构建复用和验证)和 [Runtime 选择](../platforms/linux-runtimes.md#选择与准备)。
-
-TUI 通过结构化事件显示采集与探测进度。采集进程退出后，会核对已保存的实验身份并审计结果，再判断是否成功；仅有正常退出码不足以证明采集成功。
-
-输入模型 ID 后，AC-Prof 根据轻量元数据和注册 Adapter 解析推理接口，自动选择唯一且完整的执行路径，并合并路径与有效解码配置相同的用途。SentenceTransformers 模块链保持编码接口，底层 MaskedLM head 不会被列成额外任务。多个独立路径需要选择，信息不足或矛盾时要求补充配置。`google-t5/t5-small` 的摘要与翻译解码配置不同，因此四项用途形成两个 Seq2Seq 采集组。界面只展示共同配置、差异和代表输入，完整证据与执行指纹保存在实验元数据中。CLI 可用 `--tasks` 选择用途或推理组，`--tasks all` 选择全部、同组自动去重。每条所选路径必须先通过独立的加载、输入处理、推理和输出验证，再开始测量；验证失败不会自动改选任务。详见[推理分组](../models/routing.md#任务发现与选择)和[按任务保存与恢复](../profiling/artifacts.md#按任务保存与恢复)。
-
-监控页按阶段显示下载进度、运行验证结果或 Case 与资源配置，隐藏当前无关的信息。运行结束后保留简洁的最终状态，不再额外显示恢复操作行；历史实验恢复、开始采集时的已有目录检查和 CLI `--resume` 均保留。错误详情和 traceback 在可滚动的日志中显示，支持级别配色、筛选、文字搜索、复制当前视图和导出保留原文。下载指标区分缓存数据与 SDK 网络 payload。保留上限和测量期间的行为见[日志与下载进度](../usage/tui-experiments.md#日志查看与复制)。
-
-下载模型权重前，TUI 支持逐个采集组确认输入规模、Batch Size，以及原生 Transformers 生成接口的输出长度、采样与 Beam 参数。调整计算参数后重新确定有效采集组身份，相同路径自动合并，并保留冻结配置用于恢复。详见[按采集组调整模型参数](../usage/tui-experiments.md#按采集组调整模型参数)。
-
-结果目录通过校验并初始化后，每次准备都会保留经脱敏的主进程 Python 日志和结构化阶段／失败摘要。恢复保留历史尝试，界面显示前的两个日志队列也有明确容量上限。保存范围和失败处理见[准备阶段诊断](../profiling/artifacts.md#准备阶段诊断)。
-
-下载确认按概览、运行环境与来源、存储空间、网络预检分区展示，所有信息直接展开。确认前会进行总计至多 256 KiB 的限量模型 GET 探测，计入下载预算；零预算跳过 GET。完整下载只有确认后才开始。预检通过不保证完整传输成功，详见[下载与磁盘预检](../usage/tui-experiments.md#下载与磁盘预检)。
-
-模型开始推理前，完整 CSV 表头与结果目录已经存在。每个完成的测量窗口同步追加到根目录模块 CSV，实验完成时冻结不可变快照。恢复和后处理期间，使用 AC-Prof 读取器获取一致的已提交数据。详见[实时结果与恢复](../profiling/artifacts.md#实时提交与后处理)。
-
-### 不额外生成文件也能查看统计
-
-统计无需先保存文件：“实验结果”共享一个实验选择，包含概览、统计、比较和导入 / 导出分区。点击“计算统计”直接显示窗口均值、标准差和 95% 置信区间；适用的 PNG 曲线使用同一窗口估计器，样本不足时不绘制区间。只有主动导出才写统计 CSV 或 JSON，正式分层 CSV 与 `result_layers.json` 保持不变。
-
-### 生成交互式报告
-
-运行 `acprof tui` → **实验结果** → **选择实验** → **导入 / 导出** → **生成 HTML**。页面会显示完整输出路径、窗口数量与数据质量限制。本地图形桌面可点击 **打开 HTML**，也可展开 **导出 / 远程获取** → **导出 HTML**，复制为新文件。每次生成保留旧报告；实验结束不会自动生成 HTML。
-
-HTML 单文件包含 **Comparison Matrix**、**Pareto / Trade-off** 和 **Scaling**，无需网络或 Web 服务。在 dor-server 等 SSH 服务器上，用 SFTP 或远程 IDE 下载页面显示的文件，再用本机浏览器打开。多个输入和输出目录见 [TUI 报告流程](../usage/tui-pages.md#交互式-html-报告)。
-
-CLI 仍可独立使用：
-
-```bash
-acprof report results/run-a/ results/run-b/ --output comparison.html
-```
-
-## 文档导航
-
-| 想做什么 | 阅读入口 |
-| --- | --- |
-| 准备主机、跑通首个 CPU 实验或查看结果 | [安装与运行](../getting_started/installation.md) |
-| 了解终端界面 | [TUI 用户指南](../usage/tui.md) |
-| 使用命令行选项与工具 | [CLI 参考](../usage/cli.md) |
-| 理解指标、分层 CSV 和报告 | [指标与结果分析](../results/metrics.md) |
-| 了解支持的模型与运行环境 | [运行兼容](../models/runtime.md) |
-| 开发或贡献 AC-Prof | [开发安装](../development/distribution.md#本地开发环境)、[代码架构](../development/architecture.md)、[测试指南](../development/testing.md) |
-
-[完整文档索引](../README.md) · [运行排障](../usage/troubleshooting.md)
+使用指南、技术参考和开发文档，请参阅[文档索引](../README.md)。
 
 ## 贡献与安全
 

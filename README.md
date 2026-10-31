@@ -9,13 +9,25 @@ AC-Prof profiles AI model inference across CPU, memory, GPU, and input-size conf
 
 ## What AC-Prof does
 
-| Capability | Description |
-| --- | --- |
-| Performance and resources | Application latency, throughput, CPU and memory usage; GPU metrics when available |
-| Full profiling | Energy, packet-level timing, CPU hardware counters, and optional independent profilers |
-| Reproducible experiments | Input and environment metadata, layered CSV results, plots, and reports |
+| Capability                | Description                                                                            |
+| ------------------------- | -------------------------------------------------------------------------------------- |
+| Performance and resources | Application latency, throughput, CPU and memory usage; GPU metrics when available      |
+| Full profiling            | Energy, packet-level timing, CPU hardware counters, and optional independent profilers |
+| Reproducible experiments  | Input and environment metadata, layered CSV results, plots, and reports                |
 
 AC-Prof supports text, vision, audio, time series, diffusion, multimodal, and structured-data workloads when the model meets the [supported task interfaces](docs/models/supported-tasks.md#任务支持范围). A task label alone does not guarantee that every checkpoint will run.
+
+## Collection environments and metrics
+
+| Environment                                                     | Supported collection modes | Collectable metrics                                                                                                                                                     | Main limitations                                                                                                      |
+| --------------------------------------------------------------- | :------------------------: | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| Native Linux x86_64 + local Docker                              |  `basic`,<br />`full`  | `basic`: latency, throughput, container CPU/memory and available GPU metrics;<br />`full`: additionally supports energy, PMU, packet timing, and optional profilers | `full` requires cgroup v2, RAPL, perf, and packet-capture permissions                                               |
+| Linux VM/cloud host + local Docker                              |         `basic`         | Latency, throughput, container CPU/memory and available GPU metrics                                                                                                     | Environment capability tier remains `PARTIAL`; no energy, PMU, or packet collection                                 |
+| Linux x86_64 + Process (including Docker-free cloud containers) |         `basic`         | Latency, throughput, process-tree CPU/RSS, and available device-wide GPU utilization/VRAM                                                                               | No energy, PMU, packet capture, or independent profilers; numeric resource quotas require delegated cgroup v2         |
+| WSL2 + Docker/Process                                           |         `basic`         | Latency, throughput, Linux guest CPU/memory, and limited GPU metrics                                                                                                    | `PARTIAL` tier; no native hardware energy/PMU; Docker collection requires an engine inside WSL2, not Docker Desktop |
+| Native Windows/macOS                                            |             —             | —                                                                                                                                                                      | —                                                                                                                    |
+
+`basic`/`full` are collection modes, not the environment capability tiers `FULL`/`PARTIAL`. Available metrics depend on hardware and permissions; independent profilers must be explicitly enabled, and GPU collection on cloud hosts or WSL2 requires instance-specific validation. See [Linux runtimes](docs/platforms/linux-runtimes.md), [WSL2](docs/platforms/wsl2.md), [metric coverage](docs/results/metrics.md), and [host requirements](docs/getting_started/installation.md#1-检查主机环境).
 
 ## Quick start
 
@@ -35,8 +47,6 @@ uv tool upgrade acprof
 
 For a GitHub Release wheel or Linux standalone binary, see the [latest release](https://github.com/kainam15/AC-Prof/releases/latest) and the [installation guide](docs/getting_started/installation.md#github-release-fallback) for checksum verification.
 
-Native Linux x86_64 with local Docker and cgroup v2 remains the FULL measurement platform. Current source builds also provide basic collection through Process Runtime on Linux without Docker or root. Process CPU/RSS, inherited limits, and shared-device GPU metrics retain separate evidence and comparison rules. Cloud GPU deployments still require platform-specific validation. See [Linux runtimes](docs/platforms/linux-runtimes.md) and [host requirements](docs/getting_started/installation.md#1-检查主机环境).
-
 ### Develop from source
 
 To contribute or work on the latest source code, clone the repository and let uv prepare the editable project and development tools:
@@ -48,54 +58,11 @@ uv sync
 uv run acprof tui
 ```
 
-`uv sync` creates and updates this checkout's `.venv`; no manual activation is needed. Each Git worktree has its own environment and shares uv's download cache. Ordinary release users continue to use `uv tool install acprof` and `acprof tui`.
-
-See [developer setup](docs/development/distribution.md#本地开发环境) and [testing](docs/development/testing.md) for the full workflow.
-
-Docker Runtime reuses verified model images automatically and builds missing ones. Use `--rebuild-image` or the TUI's advanced image options for a one-time rebuild; Docker cache may still be used. For Process, choose basic mode and inherited CPU/memory limits in the TUI. See [image preparation](docs/models/images.md#构建复用和验证) and [runtime selection](docs/platforms/linux-runtimes.md#选择与准备).
-
-The TUI tracks collection and probe progress through structured events. After a collection exits, it verifies the saved experiment identity and audits the result before reporting success; a successful process exit alone is insufficient.
-
-Enter a model ID to resolve its inference interfaces from lightweight metadata and registered Adapters. AC-Prof selects one complete execution path automatically and groups use cases with the same path and effective decoding settings. SentenceTransformers module chains remain encoding interfaces even when their backbone declares a MaskedLM head. Multiple independent paths require selection; missing or conflicting evidence requires configuration. For `google-t5/t5-small`, four declared use cases form two Seq2Seq groups because summarization and translation use different decoding settings. The selector shows common settings, differences and representative inputs; full evidence and execution fingerprints are saved in experiment metadata. CLI users can choose use cases or profiles with `--tasks`, or all with `--tasks all`; identical profiles are collected once. Each selected path must pass isolated loading, input, inference and output validation before measurement. Validation failures never select another task automatically. See [inference grouping](docs/models/routing.md#任务发现与选择) and [profile results and resume](docs/profiling/artifacts.md#按任务保存与恢复).
-
-Before downloading model weights, the TUI reviews input scales and batch size per selected inference group; native Transformers generation interfaces also expose output length, sampling, and beam options. Editing compute settings updates the effective group identity, coalesces identical paths, and keeps experiment overrides frozen for reliable resume. See [inference group parameters](docs/usage/tui-experiments.md#按采集组调整模型参数).
-
-The monitor shows download progress, runtime validation results, or case and resource configuration according to the current phase, hiding unrelated information. After a run ends, it keeps a compact final status without an extra recovery action row. Recovery remains available through historical experiments, existing-directory checks when starting collection, and CLI `--resume`. Error details and tracebacks appear in the scrollable log, which supports colored levels, filtering, literal search, copying the current view, and exporting retained original text. Download metrics distinguish cached data from SDK network payload. See [logs and download progress](docs/usage/tui-experiments.md#日志查看与复制) for retention limits and measurement behavior.
-
-Once the validated result directory is initialized, each preparation attempt retains a redacted host Python log and a structured stage/failure summary. Resume preserves earlier attempts, and both UI log queues have explicit retention limits. See [preparation diagnostics](docs/profiling/artifacts.md#准备阶段诊断) for scope and failure handling.
-
-Download confirmation groups the overview, Runtime and sources, storage, and network preflight into labeled sections with all information expanded. Before confirmation, a bounded model GET probe reads up to 256 KiB in total, within the download budget; zero budget skips GET. Full downloads begin only after confirmation. A passing probe does not guarantee the complete transfer. See [download preflight](docs/usage/tui-experiments.md#下载与磁盘预检).
-
-CSV headers and result directories exist before inference starts. Each completed measurement window appends to the root module CSVs; completion freezes an immutable snapshot. Use AC-Prof readers for a consistent committed view, including during recovery and postprocessing. See [live results and recovery](docs/profiling/artifacts.md#实时提交与后处理).
-
-### View statistics without extra files
-
-The **Results** page shares one experiment selection across its overview, statistics, comparison, and import/export views. **Calculate statistics** displays window means, standard deviations, and 95% confidence intervals without saving a statistics JSON file. PNG plots use the same window estimator where applicable; insufficient samples have no interval. **Import / Export** saves statistics CSV or JSON only when requested. Formal CSV layers and `result_layers.json` are unchanged.
-
-### Generate an interactive report
-
-Run `acprof tui` → **Results** → **Select experiment** → **Import / Export** → **Generate HTML**. The page shows the full output path, window counts, and data quality limitations. Choose **Open HTML** on a local graphical desktop, or **Export / Remote access** → **Export HTML** to copy it to a new file. Each generation preserves older reports; collection completion never generates HTML automatically.
-
-The self-contained HTML includes **Comparison Matrix**, **Pareto / Trade-off**, and **Scaling**, with no network or web service required. On an SSH server such as dor-server, download the displayed file using SFTP or your remote IDE and open it in your local browser. See the [TUI report workflow](docs/usage/tui-pages.md#交互式-html-报告) for multiple inputs and output locations.
-
-The standalone CLI remains available:
-
-```bash
-acprof report results/run-a/ results/run-b/ --output comparison.html
-```
+For developer environment setup and testing, see [developer setup](docs/development/distribution.md#本地开发环境) and [testing](docs/development/testing.md).
 
 ## Documentation
 
-| Goal | Guide |
-| --- | --- |
-| Prepare the host, run a first CPU experiment, or inspect results | [Installation and experiments](docs/getting_started/installation.md) |
-| Understand the terminal interface | [TUI user guide](docs/usage/tui.md) |
-| Use command-line options and tools | [CLI reference](docs/usage/cli.md) |
-| Interpret metrics, CSV layers, and reports | [Metrics and results](docs/results/metrics.md) |
-| Understand supported models and runtimes | [Runtime compatibility](docs/models/runtime.md) |
-| Develop or contribute to AC-Prof | [Developer installation](docs/development/distribution.md#本地开发环境), [architecture](docs/development/architecture.md), [testing](docs/development/testing.md) |
-
-[All documentation](docs/README.md) · [Troubleshooting](docs/usage/troubleshooting.md)
+For user guides, technical references, and development documentation, see the [documentation index](docs/README.md).
 
 ## Contributing and security
 
