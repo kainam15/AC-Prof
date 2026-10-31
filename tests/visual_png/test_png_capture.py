@@ -59,6 +59,35 @@ def test_stale_png_does_not_mask_missing_capture(
     assert not stale.exists()
 
 
+def test_fixture_pins_environment_only_during_render(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from acprof import platform
+    from acprof.platform import Environment
+    from tests.visual_png import fixture_app
+
+    # Simulate a virtualized CI runner without depending on the actual host.
+    monkeypatch.setattr(platform, "detect_environment", lambda: Environment(environment="vm"))
+    observed: list[str] = []
+
+    class FakeVisualFixture:
+        def __init__(self, scenario: str, *, settings_path: Path) -> None:
+            assert scenario == "form"
+            assert settings_path == tmp_path / "settings.json"
+
+        def run(self) -> int:
+            observed.append(platform.detect_environment().label)
+            return 0
+
+    monkeypatch.setattr(fixture_app, "VisualFixtureApp", FakeVisualFixture)
+    monkeypatch.setattr(
+        sys, "argv", ["fixture_app.py", "--scenario", "form", "--fixture-dir", str(tmp_path)]
+    )
+    assert fixture_app.main() == 0
+    assert observed == ["Native Linux / FULL"]
+    assert platform.detect_environment().label == "vm / PARTIAL"
+
+
 @pytest.mark.skipif(
     os.environ.get("ACPROF_PNG_VISUAL") != "1", reason="opt-in VHS screenshot suite"
 )

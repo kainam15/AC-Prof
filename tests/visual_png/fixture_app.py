@@ -3,6 +3,7 @@
 Do not use in a production run. No real preflight, downloads, subprocesses,
 hardware queries, model resolution, or profiling are allowed in this fixture.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -11,6 +12,7 @@ from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 
+from acprof.platform import Environment
 from acprof.tui.app import AcprofTui
 from tests.visual_png.scenarios import SCENARIOS
 
@@ -48,8 +50,14 @@ def main() -> int:
     args = parser.parse_args()
     fixture_dir = args.fixture_dir.resolve()
     fixture_dir.mkdir(parents=True, exist_ok=True)
-    with patch("acprof.tui.app.PROJECT_DIR", fixture_dir / "workspace"), patch(
-        "acprof.tui.app.PYTHON_EXECUTABLE", Path(sys.executable)
+    # Golden PNGs must not depend on the runner's native/VM/WSL identity.
+    with (
+        patch("acprof.tui.app.PROJECT_DIR", fixture_dir / "workspace"),
+        patch("acprof.tui.app.PYTHON_EXECUTABLE", Path(sys.executable)),
+        patch(
+            "acprof.platform.detect_environment",
+            return_value=Environment(environment="native_linux"),
+        ),
     ):
         app = VisualFixtureApp(args.scenario, settings_path=fixture_dir / "settings.json")
         return app.run() or 0

@@ -46,6 +46,8 @@ ACPROF_PNG_VISUAL=1 uv run pytest tests/visual_png -v
 默认结果为 `internal-testing/tui-png/` 下的 6 张 PNG；其中 `form-small` 使用 **80×24**，其他场景使用 **120×36**，目录已由 Git 忽略。
 所有场景使用固定字体、16 px 字体大小、中文语言、
 Graphite 主题、UTC、固定测试数据与隔离的临时 HOME/缓存。
+测试夹具还将环境身份固定模拟为 `Native Linux / FULL`，避免 CI 虚拟机的实际身份引入 PNG 差异。
+该模拟仅在测试夹具进程中生效，不修改正式运行时的环境检测。
 `--all` 逐场景启动，避免一个场景遗留 UI 状态或本地设置影响另一个。
 
 测试复用真实 `AcprofTui` 的页面与弹窗组件，但由
