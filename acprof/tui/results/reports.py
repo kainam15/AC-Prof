@@ -33,6 +33,10 @@ class ReportView:
 _METRIC_LABELS = {
     "latency_app_s": "应用延迟",
     "latency_s": "抓包延迟",
+    "throughput_samples_per_s": "吞吐量",
+    "container_mem_usage_peak_bytes": "容器内存峰值",
+    "process_rss_peak_bytes": "进程常驻内存峰值",
+    "gpu_mem_used_peak_bytes": "GPU 内存峰值",
     "cpu_energy_total_j": "CPU 总能耗",
     "gpu_energy_total_j": "GPU 总能耗",
     "container_attributed_energy_eff_j": "容器归因有效能耗",

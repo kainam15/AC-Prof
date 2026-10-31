@@ -200,6 +200,7 @@ MESSAGES: dict[str, Entry] = {
     "results.metric.gpu_peak_memory": Entry(zh="GPU 内存峰值", en="GPU peak memory"),
     "results.metric.gpu_total_energy": Entry(zh="GPU 总能耗", en="GPU total energy"),
     "results.metric.packet_latency": Entry(zh="抓包延迟", en="Packet latency"),
+    "results.metric.process_peak_rss": Entry(zh="进程常驻内存峰值", en="Process peak RSS"),
     "results.metric.throughput": Entry(zh="吞吐量", en="Throughput"),
     "results.outcome.already_complete": Entry(
         zh="已有实验已完成；本次未重新采集。",
@@ -378,6 +379,10 @@ MESSAGES: dict[str, Entry] = {
     "results.summary.grouping_description": Entry(
         zh="按 CPU / 内存上限 / GPU / 输入规模 / 环境分组；仅统计正式成功窗口。",
         en="Grouped by CPU / memory cap / GPU / input scale / environment; successful formal windows only.",
+    ),
+    "results.summary.inherited_configuration": Entry(
+        zh="\nCPU={0} · MEM={1} · GPU={2} · 输入={3:g} · {4}",
+        en="\nCPU={0} · MEM={1} · GPU={2} · input={3:g} · {4}",
     ),
     "results.summary.metric": Entry(zh="{0}：{1} · 有效窗口 {2} · {3}", en="{0}: {1} · valid windows {2} · {3}"),
     'results.summary.no_data': Entry(zh='该实验尚未生成可读取的测量数据。', en='This experiment has not produced readable measurement data yet.'),

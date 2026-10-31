@@ -322,6 +322,9 @@ def summarize_result_csv(result_csv: str | Path, *, cancelled: Callable[[], bool
     if cancelled():
         raise CancelledError()
     path = Path(result_csv).expanduser()
+    if path.is_dir() or (path.name == "result_layers.json" and not path.is_file()):
+        from acprof.results.layout import resolve_single_result_source
+        path = resolve_single_result_source(path)
     if path.is_dir():
         path /= "result_layers.json"
     snapshot = read_result_csv_snapshot(path, validate_measurements=False, cancelled=cancelled)
@@ -339,8 +342,10 @@ def summarize_result_csv(result_csv: str | Path, *, cancelled: Callable[[], bool
         groups = tuple(summarize_windows(rows, metrics, include_intervals=False, cancelled=cancelled)["groups"])
         # Unselected/inapplicable energy and device metrics stay out of the summary.
         groups = tuple(sorted((group for group in groups if group["n_windows"] or group["metric"] == "latency_app_s"),
-            key=lambda group: (group["cpu_cores"], group["mem_cap_gb"], group["gpu_mode"],
-                               group["input_scale"], group["environment_class"], metrics.index(group["metric"]))))
+            key=lambda group: ((group["cpu_cores"] is None, group["cpu_cores"] or 0.0),
+                               (group["mem_cap_gb"] is None, group["mem_cap_gb"] or 0.0),
+                               group["gpu_mode"], group["input_scale"], group["environment_class"],
+                               metrics.index(group["metric"]))))
     else:
         detail = message_id('results.statistics.no_successful_windows')
     if cancelled():
@@ -388,7 +393,8 @@ def result_summary_text(summary: ResultSummary, path: Path) -> str:
     if summary.grouping_detail:
         lines.append(summary.grouping_detail)
     labels = {"latency_app_s": "应用延迟", "throughput_samples_per_s": "吞吐量",
-              "container_mem_usage_peak_bytes": "容器内存峰值", "gpu_mem_used_peak_bytes": "GPU 内存峰值",
+              "container_mem_usage_peak_bytes": "容器内存峰值", "process_rss_peak_bytes": "进程常驻内存峰值",
+              "gpu_mem_used_peak_bytes": "GPU 内存峰值",
               "container_attributed_energy_eff_j": "容器归因有效能耗",
               "cpu_energy_total_j": "CPU 总能耗", "gpu_energy_total_j": "GPU 总能耗"}
     previous = None
@@ -400,7 +406,15 @@ def result_summary_text(summary: ResultSummary, path: Path) -> str:
             if configurations > 30:
                 lines.append(message_id('results.summary.configuration_limit'))
                 break
-            lines.append(message_id('results.summary.configuration', *key))
+            if key[0] is None or key[1] is None:
+                lines.append(message_id(
+                    'results.summary.inherited_configuration',
+                    "inherited" if key[0] is None else f"{key[0]:g}",
+                    "inherited" if key[1] is None else f"{key[1]:g}GB",
+                    key[2], key[3], key[4],
+                ))
+            else:
+                lines.append(message_id('results.summary.configuration', *key))
             previous = key
         unit = group["unit"]
         factor, unit = (1000, "ms") if unit == "s" else (1 / 1048576, "MiB") if unit == "byte" else (1, unit)

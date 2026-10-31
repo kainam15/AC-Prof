@@ -14,7 +14,13 @@ from acprof.tui.i18n import message_id
 
 def existing_html_report(inputs: tuple[Path, ...]) -> Path | None:
     """Find the newest conventional report for the first selected experiment."""
+    from acprof.results.layout import resolve_single_result_source
     first = inputs[0]
+    if first.is_dir():
+        try:
+            first = resolve_single_result_source(first)
+        except (OSError, ValueError):
+            pass
     layout = ArtifactLayout.discover(first) if first.is_dir() else ArtifactLayout.from_csv(first)
     candidates = [layout.root / "report.html", *layout.path("analysis").glob("report*.html")]
     files = [path for path in candidates if path.is_file()]

@@ -303,3 +303,76 @@ async def test_selection_change_releases_a_waiting_layer_reader_at_80x24(source,
             assert "20 ms" in str(app.query_one("#result-summary", Static).content)
             assert not app.is_busy()
     assert source_hashes(blocked) == before
+
+
+def test_process_runtime_summary_and_task_collection_tui_commands(tmp_path):
+    from acprof.results.layout import ArtifactLayout
+    from acprof.tui.commands import (
+        html_report_inputs,
+        prepare_comparison,
+        prepare_plot,
+        prepare_profile,
+        prepare_stats,
+    )
+    from acprof.tui.results.report_files import existing_html_report
+
+    collection = tmp_path / "fixture--model"
+    run_id = "0f5b00643cd94562b7f740b502bfdb91"
+    task_id = "tabular-classification-fefaea4b3421"
+    task_dir = collection / "tasks" / task_id / run_id
+    layout = ArtifactLayout.for_new_run(task_dir)
+    layout.initialize()
+    fields = [
+        "run_id", "cpu_cores", "mem_cap_gb", "gpu_mode", "input_scale", "warmup", "repeat_idx",
+        "status", "latency_app_s", "throughput_samples_per_s", "process_rss_peak_bytes",
+        "environment_class", "runtime_kind", "resource_scope",
+    ]
+    rows = [
+        {
+            "run_id": run_id, "cpu_cores": "", "mem_cap_gb": "", "gpu_mode": "off",
+            "input_scale": "1", "warmup": "0", "repeat_idx": str(index), "status": "ok",
+            "latency_app_s": "0.02", "throughput_samples_per_s": "50.0",
+            "process_rss_peak_bytes": str(100 * 1024 * 1024),
+            "environment_class": "native_linux", "runtime_kind": "process",
+            "resource_scope": "observed_process_tree",
+        }
+        for index in range(3)
+    ]
+    publish_result_rows(fields, rows, task_dir)
+    layout.path("static_meta.json").write_text(json.dumps({
+        "model_name": "fixture/model", "model_revision": "a" * 40,
+        "runtime_kind": "process", "comparability_class": "native_linux",
+        "collection_tier": "full", "environment_class": "native_linux",
+        "platform": {"environment": "native_linux", "native": True},
+    }), encoding="utf-8")
+    layout.path("run_state.json").write_text(json.dumps({
+        "schema_version": 1, "layout_version": 2, "run_id": run_id, "status": "complete",
+    }), encoding="utf-8")
+    layout.path("quality_checks.json").write_text(json.dumps({"schema_version": 1, "checks": []}), encoding="utf-8")
+    report_html = layout.path("analysis") / "report-20261031-000000-000000000000.html"
+    report_html.parent.mkdir(parents=True, exist_ok=True)
+    report_html.write_text("<html></html>", encoding="utf-8")
+    task_runs = collection / "metadata" / "task_runs"
+    task_runs.mkdir(parents=True, exist_ok=True)
+    (task_runs / f"{run_id}.json").write_text(json.dumps({
+        "schema_version": 1, "run_id": run_id, "status": "complete",
+        "tasks": [{"task_id": task_id, "status": "complete"}],
+    }), encoding="utf-8")
+
+    summary = diagnostics.summarize_result_csv(collection)
+    text = str(diagnostics.result_summary_text(summary, collection))
+    assert "CPU=inherited · MEM=inherited" in text
+    assert "进程常驻内存峰值" in text
+
+    python_exe = Path("/usr/bin/python3")
+    assert Path(prepare_plot(str(collection), project_dir=tmp_path, python_executable=python_exe).result_csv) == task_dir / "result_layers.json"
+    assert Path(prepare_stats(str(collection), project_dir=tmp_path, python_executable=python_exe).result_csv) == task_dir / "result_layers.json"
+    inputs = html_report_inputs(str(collection), project_dir=tmp_path)
+    assert inputs == (task_dir.resolve(),)
+    assert existing_html_report((collection,)) == report_html
+    compare = prepare_comparison(str(collection), str(collection), baseline="left", purpose="same-hardware",
+                                 project_dir=tmp_path, python_executable=python_exe)
+    assert str(task_dir.resolve()) in compare.command
+    profile = prepare_profile(str(collection), tools="torch", dry_run=True,
+                              project_dir=tmp_path, python_executable=python_exe)
+    assert Path(profile.result_dir) == task_dir
