@@ -1,4 +1,4 @@
-"""Versioned non-streaming HTTP load protocol, separate from formal energy windows."""
+"""Shared HTTP load scheduling, separate from formal energy measurement windows."""
 from __future__ import annotations
 
 import hashlib
@@ -13,10 +13,13 @@ import time
 from collections import Counter
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from dataclasses import asdict, dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit
 
 from acprof.artifacts import loads_finite_json
+
+if TYPE_CHECKING:
+    from acprof.host.measurement.streaming import OpenAIStreamingAdapter
 
 
 @dataclass(frozen=True)
@@ -88,24 +91,72 @@ def _distribution(values: list[float]) -> dict[str, Any]:
         return ordered[low] + (ordered[min(low + 1, len(ordered) - 1)] - ordered[low]) * (position - low)
 
     return {"mean": statistics.fmean(ordered) if ordered else None,
-            "p50": percentile(0.5), "p95": percentile(0.95), "p99": percentile(0.99)}
+            "p50": percentile(0.5), "p90": percentile(0.9),
+            "p95": percentile(0.95), "p99": percentile(0.99), "sample_count": len(ordered)}
 
 
-def run_load(url, payload, config: LoadConfig, *, token) -> dict[str, Any]:
+def _streaming_summary(records: list[dict[str, Any]]) -> dict[str, Any]:
+    """Request metrics are equally weighted; interval metrics pool valid intervals."""
+    succeeded = [row for row in records if row["status"] == "ok"]
+    summary: dict[str, Any] = {"time_unit": "seconds", "percentile_method": "linear",
+                              "excluded_requests": len(records) - len(succeeded),
+                              "failed_requests": sum(row["status"] == "error" for row in records),
+                              "cancelled_requests": sum(row["status"] == "cancelled" for row in records),
+                              "dropped_requests": sum(row["status"] == "dropped" for row in records)}
+    for name in ("ttft_s", "tpot_s", "output_e2e_s", "e2e_s"):
+        values = [row[name] for row in succeeded if row.get(name) is not None]
+        summary[name] = {**_distribution(values), "sample_unit": "request",
+                         "unit": "seconds_per_token" if name == "tpot_s" else "seconds",
+                         "missing_requests": len(succeeded) - len(values)}
+    for field, name, unit in (("itl_s", "itl_s", "token_interval"),
+                              ("output_event_intervals_s", "output_event_interval_s", "output_event_interval")):
+        values = [value for row in succeeded for value in (row.get(field) or [])]
+        summary[name] = {**_distribution(values), "sample_unit": unit, "unit": "seconds",
+                         "requests_with_samples": sum(bool(row.get(field)) for row in succeeded),
+                         "missing_requests": sum(not row.get(field) for row in succeeded)}
+    summary["output_token_count_sources"] = dict(Counter(
+        row.get("output_token_count_source", "unavailable") for row in succeeded))
+    summary["token_count_errors"] = sum(bool(row.get("token_count_error")) for row in succeeded)
+    summary["errors"] = dict(Counter(row.get("error_code", row["status"])
+                                    for row in records if row["status"] != "ok"))
+    return summary
+
+
+def run_load(
+    url, payload, config: LoadConfig, *, token,
+    adapter: OpenAIStreamingAdapter | None = None,
+    headers: dict[str, str] | None = None,
+) -> dict[str, Any]:
     """Closed-loop workers or an open-loop scheduler with bounded pending work.
 
-    Timestamps are client call boundaries, not NIC timestamps. Only a fully read,
-    successful JSON response contributes to successful latency distributions.
+    Timestamps are client call boundaries, not NIC timestamps. The default
+    /predict JSON protocol is preserved. An optional streaming adapter consumes
+    SSE on the same worker connections and scheduler; failures never contribute
+    to successful latency distributions.
     """
     config.validate()
     target = urlsplit(url)
     if target.scheme not in {"http", "https"} or not target.hostname or target.username or target.query or target.fragment:
         raise ValueError("load target must be an HTTP(S) base URL without credentials, query or fragment")
-    body = json.dumps(payload, separators=(",", ":"), allow_nan=False).encode()
+    extra_headers = dict(headers or {})
+    reserved = {"content-type", "connection", "x-req-id", "host", "content-length", "transfer-encoding"}
+    if any(not isinstance(key, str) or key.lower() in reserved
+           or not isinstance(value, str) or "\r" in key + value or "\n" in key + value
+           for key, value in extra_headers.items()):
+        raise ValueError("invalid or reserved load request header")
+    prepared = adapter.prepare_payload(payload) if adapter is not None else payload
+    body = json.dumps(prepared, separators=(",", ":"), allow_nan=False).encode()
+    endpoint = adapter.endpoint if adapter is not None else "/predict"
+    protocol = config.protocol()
+    if adapter is not None:
+        protocol = {**protocol, "kind": "openai_stream_http_load", "adapter": adapter.protocol(),
+                    "tokenizer_count_phase": "after_load_duration"}
+    protocol_sha256 = hashlib.sha256(json.dumps(protocol, sort_keys=True, allow_nan=False).encode()).hexdigest()
     schedule = config.schedule()
     records: list[dict[str, Any] | None] = [None] * config.requests
     local, lock = threading.local(), threading.Lock()
     connections = []
+    active_sockets: dict[int, socket.socket] = {}
     cancelled = threading.Event()
     factory = http.client.HTTPSConnection if target.scheme == "https" else http.client.HTTPConnection
 
@@ -128,28 +179,51 @@ def run_load(url, payload, config: LoadConfig, *, token) -> dict[str, Any]:
         if cancelled.is_set():
             return
         client = connection()
+        response: http.client.HTTPResponse | None = None
         try:
             record["sent_s"] = time.perf_counter() - epoch
-            client.request("POST", target.path.rstrip("/") + "/predict", body=body, headers={
-                "Content-Type": "application/json", "Connection": "keep-alive" if config.connections == "reuse" else "close",
+            client.request("POST", target.path.rstrip("/") + endpoint, body=body, headers={
+                **extra_headers, "Content-Type": "application/json",
+                "Connection": "keep-alive" if config.connections == "reuse" else "close",
                 "X-Req-Id": record["request_id"]})
             record["connection"] = list(client.sock.getsockname()) if client.sock is not None else None
+            with lock:
+                if client.sock is not None:
+                    active_sockets[index] = client.sock
+            if cancelled.is_set():
+                raise RuntimeError("load cancelled before response headers")
             response = client.getresponse()
-            raw = response.read()
-            record["completed_s"] = time.perf_counter() - epoch
-            record["http_status"] = response.status
-            result = loads_finite_json(raw.decode("utf-8"))
-            if response.status != 200 or not isinstance(result, dict) or result.get("error"):
-                raise RuntimeError("/predict did not return a completed successful JSON response")
+            if adapter is None:
+                raw = response.read()
+                record["completed_s"] = time.perf_counter() - epoch
+                record["http_status"] = response.status
+                result = loads_finite_json(raw.decode("utf-8"))
+                if response.status != 200 or not isinstance(result, dict) or result.get("error"):
+                    raise RuntimeError("/predict did not return a completed successful JSON response")
+                record["workload_contract"] = result.get("workload_contract")
+            else:
+                record["http_status"] = response.status
+                adapter.consume(response, record, clock=lambda: time.perf_counter() - epoch,
+                                cancelled=cancelled, defer_tokenization=True)
             if config.connections == "reuse" and response.will_close:
                 raise RuntimeError("connection reuse requested but server closed the connection")
-            record.update(status="ok", workload_contract=result.get("workload_contract"))
+            record["status"] = "ok"
         except Exception as error:
-            record.update(status="error", error=f"{type(error).__name__}: {error}")
+            error_code = ("cancelled" if cancelled.is_set() else
+                          "timeout" if isinstance(error, TimeoutError) else
+                          getattr(error, "code", "transport_error"))
+            record.update(status="cancelled" if error_code == "cancelled" else "error",
+                          error=f"{type(error).__name__}: {error}", error_code=error_code)
+            if adapter is not None:
+                adapter.invalidate(record, error_code)
             client.close()
         finally:
             if record["completed_s"] is None:
                 record["completed_s"] = time.perf_counter() - epoch
+            with lock:
+                active_sockets.pop(index, None)
+            if response is not None:
+                response.close()
             if config.connections == "close":
                 client.close()
 
@@ -196,10 +270,13 @@ def run_load(url, payload, config: LoadConfig, *, token) -> dict[str, Any]:
         for future in pending:
             future.cancel()
         with lock:
-            for client in connections:
+            # HTTPConnection may detach its socket after Connection: close
+            # headers. Retain the active socket until its body is consumed.
+            sockets = set(active_sockets.values()) | {
+                client.sock for client in connections if client.sock is not None}
+            for active_socket in sockets:
                 try:
-                    if client.sock is not None:
-                        client.sock.shutdown(socket.SHUT_RDWR)
+                    active_socket.shutdown(socket.SHUT_RDWR)
                 except OSError:
                     pass
     finally:
@@ -213,11 +290,30 @@ def run_load(url, payload, config: LoadConfig, *, token) -> dict[str, Any]:
                               "sent_s": None, "completed_s": None, "status": "cancelled",
                               "error": "not submitted", "connection": None}
     completed_records = [record for record in records if record is not None]
+    if adapter is not None:
+        for record in completed_records:
+            if record["status"] != "ok":
+                adapter.invalidate(record, record.get("error_code", record["status"]))
+                continue
+            try:
+                adapter.finalize(record)
+            except Exception as error:
+                # Optional local counting cannot turn a completed HTTP request
+                # into a server failure or manufacture a token denominator.
+                record.update(output_tokens=None, output_token_count_source="unavailable",
+                              token_count_scope="unavailable", tpot_s=None, itl_s=None,
+                              tpot_precision="unavailable", itl_precision="unavailable",
+                              token_count_error=f"{type(error).__name__}: {error}")
+                record["missing_reasons"].update(tpot_s="tokenizer_error", itl_s="tokenizer_error")
+            except BaseException as error:
+                primary_error = primary_error or error
+                break
     counts = Counter(record["status"] for record in completed_records)
     succeeded = [record for record in completed_records if record["status"] == "ok"]
     sent = sum(record["sent_s"] is not None for record in completed_records)
-    report = {"schema_version": 1, "kind": "nonstream_load_result", "protocol": config.protocol(),
-              "protocol_sha256": config.identity(), "successful": primary_error is None and counts["ok"] == config.requests,
+    report = {"schema_version": 1, "kind": "stream_load_result" if adapter is not None else "nonstream_load_result",
+              "protocol": protocol, "protocol_sha256": protocol_sha256,
+              "successful": primary_error is None and counts["ok"] == config.requests,
               "duration_s": duration, "target_requests_per_s": config.rate,
               "sent_requests_per_s": sent / duration if duration > 0 else None,
               "completed_requests_per_s": sum(record["http_status"] is not None for record in completed_records
@@ -231,6 +327,11 @@ def run_load(url, payload, config: LoadConfig, *, token) -> dict[str, Any]:
               "queue_delay_s": _distribution([record["sent_s"] - record["planned_s"] for record in completed_records if record["sent_s"] is not None]),
               "connection_count": len({tuple(record["connection"]) for record in completed_records if record["connection"]}),
               "requests": completed_records}
+    if adapter is not None:
+        report["streaming"] = _streaming_summary(completed_records)
+        report["completed_requests_per_s"] = sum(
+            row.get("stream_completed_s") is not None for row in completed_records
+        ) / duration if duration > 0 else None
     if primary_error is not None:
         setattr(primary_error, "load_report", report)
         raise primary_error
