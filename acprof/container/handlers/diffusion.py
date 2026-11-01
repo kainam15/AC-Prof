@@ -332,6 +332,173 @@ def _native_preprocess(model_ctx: dict[str, Any], raw: dict[str, Any], task: str
             "_probe_reason": "diffusion input scale is denoising steps" if task in STEP_TASKS else "diffusion input scale is square output video resolution in pixels"}
 
 
+def _standard_prompts(raw_input: dict[str, Any], task: str, conditioned: bool,
+                      budget: InputBudget) -> list[str]:
+    prompt = raw_input.get("prompt")
+    if isinstance(prompt, str):
+        prompts = [prompt]
+    elif isinstance(prompt, list) and prompt and all(isinstance(item, str) for item in prompt):
+        budget.batch(len(prompt))
+        prompts = list(prompt)
+    else:
+        raise ValueError("prompt must be a non-empty string or string array")
+    if any(not item.strip() for item in prompts):
+        raise ValueError("prompt entries must not be empty")
+    if conditioned and len(prompts) != 1:
+        raise ValueError(f"{task} requires one prompt and batch_size=1")
+    return prompts
+
+
+def _negative_prompt(value: Any, prompt_count: int) -> list[str] | None:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return [value] * prompt_count
+    if isinstance(value, list) and all(isinstance(item, str) for item in value):
+        if len(value) != prompt_count:
+            raise ValueError("negative_prompt array length must match prompt array length")
+        return value
+    raise ValueError("negative_prompt must be a string or string array")
+
+
+def _standard_parameters(params: dict[str, Any], task: str, conditioned: bool,
+                         prompt_count: int) -> tuple[int, float, int, list[str] | None]:
+    allowed = {"num_inference_steps", "guidance_scale", "seed", "negative_prompt"}
+    if conditioned:
+        allowed.update({"strength", "image_guidance_scale"})
+    if task == "image-text-to-video":
+        allowed.add("num_frames")
+    unsupported = sorted(set(params) - allowed)
+    if unsupported:
+        raise ValueError(f"unsupported {task} params: " + ", ".join(unsupported))
+    steps = positive_integer(
+        params.get("num_inference_steps", DEFAULT_NUM_INFERENCE_STEPS), "num_inference_steps"
+    )
+    try:
+        guidance_scale = float(params.get("guidance_scale", DEFAULT_GUIDANCE_SCALE))
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError("guidance_scale must be a finite non-negative number") from exc
+    if not math.isfinite(guidance_scale) or guidance_scale < 0:
+        raise ValueError("guidance_scale must be a finite non-negative number")
+    raw_seed = params.get("seed", DEFAULT_SEED)
+    if isinstance(raw_seed, bool):
+        raise ValueError("seed must be an integer")
+    try:
+        seed = int(raw_seed)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError("seed must be an integer") from exc
+    if seed != raw_seed:
+        raise ValueError("seed must be an integer")
+    return steps, guidance_scale, seed, _negative_prompt(params.get("negative_prompt"), prompt_count)
+
+
+def _conditioned_extra_parameters(pipe: Any, params: dict[str, Any]) -> dict[str, Any]:
+    extra: dict[str, Any] = {}
+    for name in ("strength", "image_guidance_scale"):
+        if name in params:
+            _require_pipeline_parameters(pipe, {name})
+            try:
+                value = float(params[name])
+            except (TypeError, ValueError, OverflowError) as exc:
+                raise ValueError(f"{name} must be a finite number") from exc
+            if isinstance(params[name], bool) or not math.isfinite(value) or value < 0:
+                raise ValueError(f"{name} must be a finite non-negative number")
+            if name == "strength" and value > 1:
+                raise ValueError("strength must be between 0 and 1")
+            extra[name] = value
+    return extra
+
+
+def _require_complete_conditioned_call(parameters: dict[str, inspect.Parameter],
+                                       negative_prompt: list[str] | None, extra: dict[str, Any]) -> None:
+    supplied = {
+        "prompt", "image", "height", "width", "num_inference_steps",
+        "guidance_scale", "generator", "output_type", "return_dict", *extra,
+    }
+    if negative_prompt is not None:
+        supplied.add("negative_prompt")
+    missing = [
+        name for name, parameter in parameters.items()
+        if parameter.default is inspect.Parameter.empty and name not in supplied
+    ]
+    if missing:
+        raise ValueError("unsupported required pipeline parameters: " + ", ".join(missing))
+
+
+def _conditioned_preprocessing(raw_input: dict[str, Any], pipe: Any, task: str,
+                               params: dict[str, Any], steps: int, negative_prompt: list[str] | None,
+                               resolution: int, budget: InputBudget,
+                               parameters: dict[str, inspect.Parameter]) -> dict[str, Any]:
+    processed = {
+        "image": _decode_images(
+            [raw_input.get("image_base64")], "image_base64", resolution, budget=budget
+        )[0]
+    }
+    extra = _conditioned_extra_parameters(pipe, params)
+    strength_parameter = parameters.get("strength")
+    strength = extra.get(
+        "strength", strength_parameter.default if strength_parameter is not None else None
+    )
+    if isinstance(strength, (int, float)) and int(steps * strength) < 1:
+        raise ValueError("strength * num_inference_steps must provide at least one denoising step")
+    if negative_prompt is not None:
+        _require_pipeline_parameters(pipe, {"negative_prompt"})
+    if task == "image-text-to-video":
+        frames = positive_integer(params.get("num_frames", DEFAULT_NUM_FRAMES), "num_frames")
+        temporal = getattr(pipe, "vae_scale_factor_temporal", None)
+        if isinstance(temporal, int) and temporal > 1 and (frames - 1) % temporal:
+            raise ValueError(f"num_frames must be 1 + a multiple of pipeline temporal factor {temporal}")
+        extra["num_frames"] = frames
+    processed["pipeline_params"] = extra
+    processed["pipeline_size_params"] = {
+        name: resolution for name in ("height", "width") if name in parameters
+    }
+    _require_complete_conditioned_call(parameters, negative_prompt, extra)
+    return processed
+
+
+def _standard_preprocess(model_ctx: dict[str, Any], raw_input: dict[str, Any], task: str) -> dict[str, Any]:
+    budget = InputBudget.from_value(raw_input.get("input_budget"))
+    conditioned = task in {"image-text-to-image", "image-text-to-video"}
+    prompts = _standard_prompts(raw_input, task, conditioned, budget)
+    resolution = positive_integer(raw_input.get("resolution"), "resolution")
+    if resolution < 64 or resolution % 8 != 0:
+        raise ValueError("resolution must be at least 64 and divisible by 8")
+    pipe = model_ctx.get("pipeline")
+    parameters: dict[str, inspect.Parameter] = {}
+    if conditioned:
+        parameters = _conditioned_pipeline_parameters(pipe, task)
+        multiple = _spatial_multiple(pipe)
+        if resolution % multiple:
+            raise ValueError(f"resolution must be divisible by pipeline spatial multiple {multiple}")
+    raw_params = raw_input.get("params", {})
+    if not isinstance(raw_params, dict):
+        raise ValueError("params must be an object")
+    params = dict(raw_params)
+    frames_for_budget = positive_integer(params.get("num_frames", DEFAULT_NUM_FRAMES), "num_frames") if task == "image-text-to-video" else 1
+    budget.pixels(resolution, resolution, frames=frames_for_budget, batch=len(prompts))
+    budget.text(sum(map(len, prompts)), batch_items=len(prompts))
+    steps, guidance_scale, seed, negative_prompt = _standard_parameters(
+        params, task, conditioned, len(prompts)
+    )
+    processed = {
+        "prompt": prompts,
+        "resolution": resolution,
+        "num_inference_steps": steps,
+        "guidance_scale": guidance_scale,
+        "seed": seed,
+        "negative_prompt": negative_prompt,
+        "_effective_input_scale": float(resolution),
+        "_truncated_by_limit": False,
+        "_probe_reason": "diffusion input scale is square output resolution in pixels",
+    }
+    if conditioned:
+        processed.update(_conditioned_preprocessing(
+            raw_input, pipe, task, params, steps, negative_prompt, resolution, budget, parameters
+        ))
+    return processed
+
+
 class DiffusionHandler(BaseHandler):
     """Return generation metadata without encoding output media over HTTP."""
 
@@ -384,161 +551,10 @@ class DiffusionHandler(BaseHandler):
         }
 
     def preprocess(self, model_ctx: dict[str, Any], raw_input: dict[str, Any]) -> Any:
-        budget = InputBudget.from_value(raw_input.get("input_budget"))
         task = _canonical_task(model_ctx.get("task_type", "text-to-image"))
         if task in NATIVE_TASKS:
             return _native_preprocess(model_ctx, raw_input, task)
-        conditioned = task in {"image-text-to-image", "image-text-to-video"}
-        prompt = raw_input.get("prompt")
-        if isinstance(prompt, str):
-            prompts = [prompt]
-        elif isinstance(prompt, list) and prompt and all(
-            isinstance(item, str) for item in prompt
-        ):
-            budget.batch(len(prompt))
-            prompts = list(prompt)
-        else:
-            raise ValueError("prompt must be a non-empty string or string array")
-        if any(not item.strip() for item in prompts):
-            raise ValueError("prompt entries must not be empty")
-        if conditioned and len(prompts) != 1:
-            raise ValueError(f"{task} requires one prompt and batch_size=1")
-
-        resolution = positive_integer(raw_input.get("resolution"), "resolution")
-        if resolution < 64 or resolution % 8 != 0:
-            raise ValueError("resolution must be at least 64 and divisible by 8")
-        pipe = model_ctx.get("pipeline")
-        parameters: dict[str, inspect.Parameter] = {}
-        if conditioned:
-            parameters = _conditioned_pipeline_parameters(pipe, task)
-            multiple = _spatial_multiple(pipe)
-            if resolution % multiple:
-                raise ValueError(f"resolution must be divisible by pipeline spatial multiple {multiple}")
-
-        raw_params = raw_input.get("params", {})
-        if not isinstance(raw_params, dict):
-            raise ValueError("params must be an object")
-        params = dict(raw_params)
-        frames_for_budget = positive_integer(params.get("num_frames", DEFAULT_NUM_FRAMES), "num_frames") if task == "image-text-to-video" else 1
-        budget.pixels(resolution, resolution, frames=frames_for_budget, batch=len(prompts))
-        budget.text(sum(map(len, prompts)), batch_items=len(prompts))
-        allowed_params = {
-            "num_inference_steps",
-            "guidance_scale",
-            "seed",
-            "negative_prompt",
-        }
-        if conditioned:
-            allowed_params.update({"strength", "image_guidance_scale"})
-        if task == "image-text-to-video":
-            allowed_params.add("num_frames")
-        unsupported = sorted(set(params) - allowed_params)
-        if unsupported:
-            raise ValueError(
-                f"unsupported {task} params: " + ", ".join(unsupported)
-            )
-
-        steps = positive_integer(
-            params.get("num_inference_steps", DEFAULT_NUM_INFERENCE_STEPS),
-            "num_inference_steps",
-        )
-        try:
-            guidance_scale = float(
-                params.get("guidance_scale", DEFAULT_GUIDANCE_SCALE)
-            )
-        except (TypeError, ValueError, OverflowError) as exc:
-            raise ValueError("guidance_scale must be a finite non-negative number") from exc
-        if not math.isfinite(guidance_scale) or guidance_scale < 0:
-            raise ValueError("guidance_scale must be a finite non-negative number")
-
-        raw_seed = params.get("seed", DEFAULT_SEED)
-        if isinstance(raw_seed, bool):
-            raise ValueError("seed must be an integer")
-        try:
-            seed = int(raw_seed)
-        except (TypeError, ValueError, OverflowError) as exc:
-            raise ValueError("seed must be an integer") from exc
-        if seed != raw_seed:
-            raise ValueError("seed must be an integer")
-
-        negative_prompt = params.get("negative_prompt")
-        if negative_prompt is not None:
-            if isinstance(negative_prompt, str):
-                negative_prompt = [negative_prompt] * len(prompts)
-            elif isinstance(negative_prompt, list) and all(
-                isinstance(item, str) for item in negative_prompt
-            ):
-                if len(negative_prompt) != len(prompts):
-                    raise ValueError(
-                        "negative_prompt array length must match prompt array length"
-                    )
-            else:
-                raise ValueError(
-                    "negative_prompt must be a string or string array"
-                )
-
-        processed = {
-            "prompt": prompts,
-            "resolution": resolution,
-            "num_inference_steps": steps,
-            "guidance_scale": guidance_scale,
-            "seed": seed,
-            "negative_prompt": negative_prompt,
-            "_effective_input_scale": float(resolution),
-            "_truncated_by_limit": False,
-            "_probe_reason": "diffusion input scale is square output resolution in pixels",
-        }
-        if conditioned:
-            processed["image"] = _decode_images([raw_input.get("image_base64")], "image_base64",
-                                                 resolution, budget=budget)[0]
-            extra_params = {}
-            for name in ("strength", "image_guidance_scale"):
-                if name in params:
-                    _require_pipeline_parameters(pipe, {name})
-                    try:
-                        value = float(params[name])
-                    except (TypeError, ValueError, OverflowError) as exc:
-                        raise ValueError(f"{name} must be a finite number") from exc
-                    if isinstance(params[name], bool) or not math.isfinite(value) or value < 0:
-                        raise ValueError(f"{name} must be a finite non-negative number")
-                    if name == "strength" and value > 1:
-                        raise ValueError("strength must be between 0 and 1")
-                    extra_params[name] = value
-            strength_parameter = parameters.get("strength")
-            strength = extra_params.get(
-                "strength", strength_parameter.default if strength_parameter is not None else None
-            )
-            if isinstance(strength, (int, float)) and int(steps * strength) < 1:
-                raise ValueError("strength * num_inference_steps must provide at least one denoising step")
-            if negative_prompt is not None:
-                _require_pipeline_parameters(pipe, {"negative_prompt"})
-            if task == "image-text-to-video":
-                frames = positive_integer(params.get("num_frames", DEFAULT_NUM_FRAMES), "num_frames")
-                temporal = getattr(pipe, "vae_scale_factor_temporal", None)
-                if isinstance(temporal, int) and temporal > 1 and (frames - 1) % temporal:
-                    raise ValueError(
-                        f"num_frames must be 1 + a multiple of pipeline temporal factor {temporal}"
-                    )
-                extra_params["num_frames"] = frames
-            processed["pipeline_params"] = extra_params
-            processed["pipeline_size_params"] = {
-                name: resolution for name in ("height", "width") if name in parameters
-            }
-            # Check mandatory model-specific arguments now, before model execution.
-            supplied = {
-                "prompt", "image", "height", "width", "num_inference_steps",
-                "guidance_scale", "generator", "output_type", "return_dict",
-                *extra_params,
-            }
-            if negative_prompt is not None:
-                supplied.add("negative_prompt")
-            missing = [
-                name for name, parameter in parameters.items()
-                if parameter.default is inspect.Parameter.empty and name not in supplied
-            ]
-            if missing:
-                raise ValueError("unsupported required pipeline parameters: " + ", ".join(missing))
-        return processed
+        return _standard_preprocess(model_ctx, raw_input, task)
 
     def predict(self, model_ctx: dict[str, Any], processed_input: Any) -> Any:
         import torch

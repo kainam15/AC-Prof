@@ -35,6 +35,15 @@ _TASKS = {
     "visual-document-retrieval", "any-to-any",
 }
 _QA_TASKS = {"visual-question-answering", "document-question-answering"}
+_IMAGE_TASKS = {
+    "image-text-to-text", "visual-question-answering",
+    "document-question-answering", "visual-document-retrieval",
+}
+_MODALITY_TASKS = {
+    "image_base64": _IMAGE_TASKS,
+    "audio_base64": {"audio-text-to-text"},
+    "video_frames_base64": {"video-text-to-text"},
+}
 _OMNI_SYSTEM_PROMPT = (
     "You are Qwen, a virtual human developed by the Qwen Team, Alibaba Group, "
     "capable of perceiving auditory and visual inputs, as well as generating text and speech."
@@ -219,8 +228,7 @@ class MultimodalHandler(BaseHandler):
                 raise ValueError("document boxes must be ordered [x0,y0,x1,y1] integers normalized to 0..1000")
         return list(zip(words, boxes, strict=True))
 
-    def preprocess(self, model_ctx: dict[str, Any], raw_input: dict[str, Any]) -> Any:
-        task = model_ctx["task_type"]
+    def _request(self, raw_input: dict[str, Any], task: str) -> tuple[dict[str, Any], str, dict[str, Any]]:
         unknown = set(raw_input) - {"samples", "params", "input_scale", "input_scale_type", "input_budget"}
         if unknown:
             raise ValueError(f"unsupported request fields: {', '.join(sorted(unknown))}")
@@ -242,26 +250,15 @@ class MultimodalHandler(BaseHandler):
         if not isinstance(text, str) or not text.strip():
             raise ValueError("sample text must be a non-empty string")
         params = self._params(task, raw_input.get("params", {}))
-        image_tasks = {
-            "image-text-to-text", "visual-question-answering",
-            "document-question-answering", "visual-document-retrieval",
-        }
-        if task in image_tasks and "image_base64" not in sample:
-            raise ValueError(f"{task} requires image_base64")
-        if task == "audio-text-to-text" and "audio_base64" not in sample:
-            raise ValueError("audio-text-to-text requires audio_base64")
-        if task == "video-text-to-text" and "video_frames_base64" not in sample:
-            raise ValueError("video-text-to-text requires video_frames_base64")
-        if task != "any-to-any":
-            for key, valid_tasks in (
-                ("image_base64", image_tasks),
-                ("audio_base64", {"audio-text-to-text"}),
-                ("video_frames_base64", {"video-text-to-text"}),
-            ):
-                if key in sample and task not in valid_tasks:
-                    raise ValueError(f"{task} does not accept {key}")
-        budget = InputBudget.from_value(raw_input.get("input_budget"))
-        budget.text(len(text), batch_items=1)
+        for key, valid_tasks in _MODALITY_TASKS.items():
+            if task in valid_tasks and key not in sample:
+                raise ValueError(f"{task} requires {key}")
+            if task != "any-to-any" and key in sample and task not in valid_tasks:
+                raise ValueError(f"{task} does not accept {key}")
+        return sample, text, params
+
+    @staticmethod
+    def _decode_visuals(sample: dict[str, Any], budget: InputBudget) -> tuple[dict[str, Any], Any]:
         groups = {}
         if "image_base64" in sample:
             groups["image_base64"] = [sample["image_base64"]]
@@ -275,7 +272,11 @@ class MultimodalHandler(BaseHandler):
             groups["video_frames_base64"] = frames
         visuals = decode_image_groups(groups, budget=budget, same_size={"video_frames_base64"})
         image = visuals["image_base64"][0] if "image_base64" in visuals else None
-        media_scales = {}
+        return visuals, image
+
+    @staticmethod
+    def _image_metadata(image: Any, text: str) -> tuple[dict[str, float], dict[str, dict[str, object]]]:
+        media_scales: dict[str, float] = {}
         modality_facts: dict[str, dict[str, object]] = {"text": {"characters": len(text)}}
         if image is not None:
             if image.width != image.height:
@@ -284,22 +285,11 @@ class MultimodalHandler(BaseHandler):
             modality_facts["images"] = {"count": 1, "original_resolution": list(image.size),
                                          "original_pixels": image.width * image.height,
                                          "processed_shape": None, "processed_shape_status": "unavailable"}
-        if task in _QA_TASKS:
-            explicit_generation_params = {"max_new_tokens", "do_sample"}.intersection(
-                raw_input.get("params", {})
-            )
-            if not model_ctx["pipeline"].model.can_generate() and explicit_generation_params:
-                raise ValueError("generation params are inapplicable to a classification/extractive QA model")
-            return {**self._preprocess_qa(model_ctx, sample, image, params),
-                    "_workload": {"input": modality_facts}, **self._scale_metadata(raw_input, media_scales)}
-        processor, model = model_ctx["processor"], model_ctx["model"]
-        if task == "visual-document-retrieval":
-            return {
-                "query_inputs": _to_device(processor.process_queries(text=[text], return_tensors="pt"), model),
-                "document_inputs": _to_device(processor.process_images(images=[image], return_tensors="pt"), model),
-                "_workload": {"input": modality_facts},
-                **self._scale_metadata(raw_input, media_scales),
-            }
+        return media_scales, modality_facts
+
+    def _generation_media(self, model_ctx: dict[str, Any], sample: dict[str, Any], text: str,
+                          visuals: dict[str, Any], image: Any, media_scales: dict[str, float],
+                          modality_facts: dict[str, dict[str, object]]) -> tuple[list[dict[str, str]], dict[str, object]]:
         content: list[dict[str, str]] = []
         media_kwargs: dict[str, object] = {}
         if image is not None:
@@ -310,6 +300,7 @@ class MultimodalHandler(BaseHandler):
             rate = positive_integer(sample.get("sampling_rate"), "sampling_rate", allow_integral_float=False)
             if rate != header_rate:
                 raise ValueError("sampling_rate does not match the WAV header")
+            processor = model_ctx["processor"]
             required_rate = getattr(getattr(processor, "feature_extractor", None), "sampling_rate", None)
             if isinstance(required_rate, int) and rate != required_rate:
                 raise ValueError(
@@ -335,11 +326,10 @@ class MultimodalHandler(BaseHandler):
             modality_facts["video"] = {"frame_count": len(frames), "fps": float(fps),
                                         "original_resolution": [int(decoded[0].shape[1]), int(decoded[0].shape[0])]}
         content.append({"type": "text", "text": text})
-        inputs = self._generation_inputs(model_ctx, content, media_kwargs)
-        from acprof.container.handlers.generation_evidence import count_input_tokens
+        return content, media_kwargs
 
-        actual_input_tokens = count_input_tokens(inputs)
-        modality_facts["text"].update(tokens=actual_input_tokens, token_scope="model_input_including_modality_and_special_tokens")
+    @staticmethod
+    def _record_processed_shapes(inputs: Any, modality_facts: dict[str, dict[str, object]]) -> None:
         for modality, keys in (("images", ("pixel_values", "image_pixel_values")),
                                ("video", ("pixel_values_videos", "video_pixel_values", "pixel_values")),
                                ("audio", ("input_features", "audio_values", "audio_features"))):
@@ -347,7 +337,9 @@ class MultimodalHandler(BaseHandler):
                 tensor = next((inputs[key] for key in keys if key in inputs), None)
                 modality_facts[modality]["processed_shape"] = list(tensor.shape) if tensor is not None and hasattr(tensor, "shape") else None
                 modality_facts[modality]["processed_shape_status"] = "available" if hasattr(tensor, "shape") else "unavailable"
-        inputs = _to_device(inputs, model)
+
+    @staticmethod
+    def _validate_generation_inputs(inputs: Any, sample: dict[str, Any], image: Any) -> None:
         if "input_ids" not in inputs:
             raise ValueError("multimodal processor did not return input_ids")
         for modality, present, expected_keys in (
@@ -362,6 +354,41 @@ class MultimodalHandler(BaseHandler):
             for key in ("input_features", "audio_values", "audio_features")
         ):
             raise ValueError("processor returned empty audio features")
+
+    def preprocess(self, model_ctx: dict[str, Any], raw_input: dict[str, Any]) -> Any:
+        task = model_ctx["task_type"]
+        sample, text, params = self._request(raw_input, task)
+        budget = InputBudget.from_value(raw_input.get("input_budget"))
+        budget.text(len(text), batch_items=1)
+        visuals, image = self._decode_visuals(sample, budget)
+        media_scales, modality_facts = self._image_metadata(image, text)
+        if task in _QA_TASKS:
+            explicit_generation_params = {"max_new_tokens", "do_sample"}.intersection(
+                raw_input.get("params", {})
+            )
+            if not model_ctx["pipeline"].model.can_generate() and explicit_generation_params:
+                raise ValueError("generation params are inapplicable to a classification/extractive QA model")
+            return {**self._preprocess_qa(model_ctx, sample, image, params),
+                    "_workload": {"input": modality_facts}, **self._scale_metadata(raw_input, media_scales)}
+        processor, model = model_ctx["processor"], model_ctx["model"]
+        if task == "visual-document-retrieval":
+            return {
+                "query_inputs": _to_device(processor.process_queries(text=[text], return_tensors="pt"), model),
+                "document_inputs": _to_device(processor.process_images(images=[image], return_tensors="pt"), model),
+                "_workload": {"input": modality_facts},
+                **self._scale_metadata(raw_input, media_scales),
+            }
+        content, media_kwargs = self._generation_media(
+            model_ctx, sample, text, visuals, image, media_scales, modality_facts
+        )
+        inputs = self._generation_inputs(model_ctx, content, media_kwargs)
+        from acprof.container.handlers.generation_evidence import count_input_tokens
+
+        actual_input_tokens = count_input_tokens(inputs)
+        modality_facts["text"].update(tokens=actual_input_tokens, token_scope="model_input_including_modality_and_special_tokens")
+        self._record_processed_shapes(inputs, modality_facts)
+        inputs = _to_device(inputs, model)
+        self._validate_generation_inputs(inputs, sample, image)
         pipeline_kwargs = {}
         if model_ctx["mode"] == "custom_pipeline":
             from acprof.container.handlers.custom_pipeline import pipeline_forward_kwargs
