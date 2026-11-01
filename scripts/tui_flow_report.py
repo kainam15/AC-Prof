@@ -13,6 +13,7 @@ from typing import Any
 
 from scripts.tui_flow_catalog import ROOT, load_catalog, svg_inventory
 from scripts.tui_journey_report import JOURNEY_STYLE, render_journey
+from scripts.tui_svg_preview_png import load_preview_index
 
 FLOW_STYLE = """
 .view-tabs{display:flex;gap:9px;flex-wrap:wrap;margin:25px 0 18px}
@@ -35,6 +36,8 @@ FLOW_STYLE = """
 .flow-thumb{margin:12px 0 0;border:1px solid #343d49;border-radius:6px;overflow:hidden}
 .flow-thumb img{display:block;max-width:100%;max-height:260px;margin:auto;object-fit:contain}
 .flow-thumb figcaption{font-size:.77rem;background:#262d36;padding:6px 10px;color:#c5ced8}
+.svg-original{margin:10px 0;border-top:1px solid #343d49;padding-top:8px}
+.svg-original summary{cursor:pointer;color:#bcd5e8;font-size:.83rem}
 .flow-card details{margin-top:12px;border-top:1px solid #343d49;padding-top:10px}
 .flow-card summary,.svg-gallery summary{cursor:pointer;color:#bcdaee}
 .flow-card ul{padding-left:20px;overflow-wrap:anywhere;font-size:.83rem}
@@ -102,6 +105,22 @@ def _thumbnail(path: Path, label: str, mime: str) -> str:
     )
 
 
+def _svg_evidence(
+    source: str, *, root: Path, previews: dict[str, Path], historical: bool = False
+) -> str:
+    """Use stable CJK PNG only as a human preview; preserve the original SVG."""
+    preview = previews.get(source)
+    if preview is None:
+        label = "SVG 历史基准" if historical else "已审阅 SVG 基准（非本次截图）"
+        return _thumbnail(root / source, label, "image/svg+xml")
+    return (
+        _thumbnail(preview, "SVG 基准的 CJK PNG 预览（非 Golden PNG）", "image/png")
+        + '<details class="svg-original"><summary>查看原始 SVG Golden（诊断）</summary>'
+        + _thumbnail(root / source, "原始 SVG Golden · 可能存在字体错位", "image/svg+xml")
+        + "</details>"
+    )
+
+
 def _checkpoint_card(
     item: dict,
     *,
@@ -111,13 +130,12 @@ def _checkpoint_card(
     baselines: Path,
     png_status: dict[str, str],
     pilot_count: int,
+    previews: dict[str, Path],
 ) -> str:
     svg = item["svg"]
     png = item["png"]
     tests = item["tests"]
-    view = (
-        [_thumbnail(root / svg[0], "已审阅 SVG 基准（非本次截图）", "image/svg+xml")] if svg else []
-    )
+    view = [_svg_evidence(svg[0], root=root, previews=previews)] if svg else []
     if png:
         first = png[0]
         live = actual / f"{first}.png"
@@ -163,6 +181,7 @@ def render_flow_report(
     checkpoints = catalog["checkpoints"]
     status = {row["scene"]: row["status"] for row in png_results or ()}
     journey_html, pilot_counts = render_journey(actual)
+    previews = load_preview_index(root=root, output=actual / "svg-preview")
     grouped = [
         (
             "采集主路径 · 条件性确认按实际顺序穿插",
@@ -183,6 +202,7 @@ def render_flow_report(
                 baselines=baselines,
                 png_status=status,
                 pilot_count=pilot_counts.get(item["id"], 0),
+                previews=previews,
             )
             for item in checkpoints
             if included(item)
@@ -254,13 +274,13 @@ def render_flow_report(
     for path in svg_all:
         gallery.append(
             f"<details><summary>{_safe(names.get(path, '未关联'))} · {_safe(Path(path).name)}</summary>"
-            + _thumbnail(root / path, "SVG 历史基准", "image/svg+xml")
+            + _svg_evidence(path, root=root, previews=previews, historical=True)
             + "</details>"
         )
     svg_gallery = (
         f"<h2>SVG 基准图库（{len(svg_all)} 张）</h2>"
-        '<p class="flow-note">所有已登记的 SVG 自动收录；它们不参与本次 PNG 像素差异比较，'
-        "也不等同于本次 SVG CI 通过。</p>"
+        '<p class="flow-note">已登记的历史 SVG 以固定 CJK 字体的 PNG 供人查看，原 SVG 可展开追溯。'
+        "这些预览 PNG 不属于 Golden，不参与本次 PNG 像素差异比较，也不表示 SVG CI 通过。</p>"
         '<div class="svg-gallery">' + "".join(gallery) + "</div>"
     )
     return workflow, coverage, svg_gallery
