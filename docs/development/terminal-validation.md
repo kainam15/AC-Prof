@@ -152,7 +152,8 @@ uv run --locked --no-default-groups --group test python scripts/check_hardware.p
 ```
 
 矩阵 schema v1 要求 1–16 个 case，每项必须包含唯一安全目录名 `name`、`model`、40 位
-`revision`、`task` 和 `input_scales`；CPU、内存、GPU 和采样参数沿用命令行公共选项。
+`revision`、`task` 和 `input_scales`；可用 `workload_spec` 指定 workload 文件，准备后的矩阵保留该路径；
+CPU、内存、GPU 和采样参数沿用命令行公共选项。
 全部配置先验证，再串行执行，各 case 使用独立结果目录。失败、清理错误或取消会停止后续 case，
 `hardware_matrix.json` 保存源码/主机身份以及 `passed`、`failed`、`cancelled`、`not_run`，
 中断时保留已完成证据；强制终止可能留下 `running`，不能解释为通过。
@@ -180,6 +181,18 @@ uv run --locked --no-default-groups --group test python scripts/check_hardware.p
 且两种延迟、CPU 能量、PMU instructions 和 GPU 模式下的 GPU 能量均为有效数值。
 未通过不自动更改原参数或覆盖产物。`--compute-profile-tool` / `--execution-profile-tool`
 可另测指定工具，工具字段仍需根据其计划和错误列验收，不能用主采集成功代替工具成功。
+
+2026-11-01 本地 Native Linux full 验收已覆盖六类真实预训练 checkpoint 的 CPU/GPU 路径：
+`internal-testing/shared/hardware-real-20261101T102912Z/measurements/hardware_matrix.json`
+记录 48 行完整结果，其中 36 行正式成功、12 行 warmup、1 行 warn、0 行 error，六个 case 均为
+`passed` 且 `validated_gpu_modes=[off,on]`。Structured 修正 workload 声明后的独立重试保存于
+`internal-testing/shared/hardware-real-20261101T102912Z/measurements-structured-workload/hardware_matrix.json`，
+4 行完整结果中 3 行正式成功、1 行 warmup，CPU 路径通过。所有 case 的必需延迟、CPU 能量、
+PMU instructions 及所选 GPU 能量均无缺失，准备与测量阶段的源码和依赖哈希一致。
+原始 `quality_checks` 保留 CPU idle baseline 稳定性警告、Tiny-SD GPU idle baseline 警告、
+BERT 未使用 checkpoint 权重警告及 Chronos 的 warn 行；验收通过不等于能耗基线稳定或模型准确率已验证。
+首次 Structured 失败产物保留在 `measurements-structured/`，不得与成功重试混为一次运行。
+这些是本地手动证据，`ci_commit` 未绑定 GitHub 提交，不能替代发布所需的同提交 main 硬件门禁。
 
 采样线程及 CLI/TUI 开销的独立对照入口和统计假设见[指标分析](../results/comparisons.md#窗口置信区间与开销对照)。
 `compare_ui.py --ui terminal` 继承当前终端，要求 stdout 为 TTY；自动化可用 `script` 分配 PTY
