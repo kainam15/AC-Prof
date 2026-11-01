@@ -74,282 +74,356 @@ def apply_model_candidate(task_info: Any, resolution: dict) -> dict:
     return resolution
 
 
-def discover_model_candidates(task_info: Any, *, override_tag: str | None = None,
-                              override_backend: str | None = None) -> dict:
-    """Collect static evidence before selecting a route. Never import model code."""
-    from acprof.extensions import CATALOG
+class _CandidateDiscovery:
+    def __init__(self, task_info: Any, override_tag: str | None, override_backend: str | None):
+        from acprof.extensions import CATALOG
 
-    # Evidence collection is a query, not an update to the caller's task.
-    # The selected route is applied explicitly by the owning workflow.
-    task_info = copy.copy(task_info)
-    config = task_info.model_config or {}
-    metadata = task_info.repository_metadata or {}
-    files: set[str] = set(task_info.repository_files or ())
-    spec = task_model_spec(task_info)
-    errors: list[str] = []
-    conflicts: list[str] = []
-    candidates: list[dict[str, Any]] = []
-    if spec:
-        try:
-            validate_model_spec(spec)
-        except (ValueError, TypeError) as exc:
-            errors.append(str(exc))
-            spec = {}
-    hub_metadata = getattr(task_info, "hub_metadata", {}) or {}
-    hub_task = hub_metadata.get("pipeline_tag", task_info.pipeline_tag)
-    raw_hub_task = hub_task
-    # Retain the raw Hub label as evidence, but do not let an unsupported generic
-    # tag override a registered, architecture-specific executable protocol.
-    if (hub_task not in CATALOG.task_families
-            and hub_metadata.get("task_hint_source") == "registered_architecture"):
-        hub_task = hub_metadata.get("task_hint")
-    if hub_task == "unknown" or task_info.detection_method == "config_infer":
-        hub_task = None
-    if spec.get("pipeline_task") and hub_task == spec["pipeline_task"]:
-        hub_task = spec["task"]
-    declared_task = spec.get("task")
-    transformers_info = hub_metadata.get("transformers_info", {})
-    if declared_task and hub_task and hub_task != declared_task and not override_tag:
-        conflicts.append(f"task conflict: Hub={hub_task}, model spec={declared_task}; select --task explicitly")
-    if override_tag and declared_task and override_tag != declared_task:
-        conflicts.append("--task conflicts with model spec task; update --model-spec")
-    declared_format = spec.get("format")
-    declared_backend = FORMAT_BACKENDS.get(declared_format) if isinstance(declared_format, str) else None
-    if override_backend and declared_backend and override_backend != declared_backend:
-        conflicts.append("--backend conflicts with model spec format; update --model-spec")
+        self.catalog = CATALOG
+        self.override_tag = override_tag
+        self.override_backend = override_backend
+        # Discovery is a query; only the owning workflow applies the selected route.
+        self.task_info = copy.copy(task_info)
+        self.config = self.task_info.model_config or {}
+        self.metadata = self.task_info.repository_metadata or {}
+        self.files: set[str] = set(self.task_info.repository_files or ())
+        self.spec = task_model_spec(self.task_info)
+        self.hub_metadata = getattr(self.task_info, "hub_metadata", {}) or {}
+        self.errors: list[str] = []
+        self.conflicts: list[str] = []
+        self.overridden_conflicts: list[str] = []
+        self.candidates: list[dict[str, Any]] = []
+        self.route_errors: dict[str, str] = {}
+        self.hub_task: str | None = None
+        self.raw_hub_task: str | None = None
+        self.declared_task: str | None = None
+        self.declared_backend: str | None = None
+        self.transformers_info: dict[str, Any] = {}
+        self.structure_task: str | None = None
+        self.primary_task: str | None = None
+        self.encoder = False
+        self.loader_hint: str | None = None
+        self.transformers_task: str | None = None
+        self.unsupported_transformers_hint: str | None = None
+        self.spec_source = ""
 
-    route_errors: dict[str, str] = {}
+    def _read_declarations(self) -> None:
+        if self.spec:
+            try:
+                validate_model_spec(self.spec)
+            except (ValueError, TypeError) as exc:
+                self.errors.append(str(exc))
+                self.spec = {}
+        hub_task = self.hub_metadata.get("pipeline_tag", self.task_info.pipeline_tag)
+        self.raw_hub_task = hub_task
+        # Generic Hub labels must not override a registered executable head.
+        if (hub_task not in self.catalog.task_families
+                and self.hub_metadata.get("task_hint_source") == "registered_architecture"):
+            hub_task = self.hub_metadata.get("task_hint")
+        if hub_task == "unknown" or self.task_info.detection_method == "config_infer":
+            hub_task = None
+        if self.spec.get("pipeline_task") and hub_task == self.spec["pipeline_task"]:
+            hub_task = self.spec["task"]
+        self.hub_task = hub_task
+        self.declared_task = self.spec.get("task")
+        self.transformers_info = self.hub_metadata.get("transformers_info", {})
+        if self.declared_task and hub_task and hub_task != self.declared_task and not self.override_tag:
+            self.conflicts.append(
+                f"task conflict: Hub={hub_task}, model spec={self.declared_task}; select --task explicitly"
+            )
+        if self.override_tag and self.declared_task and self.override_tag != self.declared_task:
+            self.conflicts.append("--task conflicts with model spec task; update --model-spec")
+        declared_format = self.spec.get("format")
+        self.declared_backend = FORMAT_BACKENDS.get(declared_format) if isinstance(declared_format, str) else None
+        if self.override_backend and self.declared_backend and self.override_backend != self.declared_backend:
+            self.conflicts.append("--backend conflicts with model spec format; update --model-spec")
 
-    def backend_for(task: str, *, required: bool = False) -> str:
+    def _backend_for(self, task: str, *, required: bool = False) -> str:
         from acprof.extensions import UnsupportedExtensionError
         try:
-            return CATALOG.resolve(
-                task=task, library=task_info.library_name, config=config,
-                backend=override_backend or declared_backend or "", model_id=task_info.model_id,
-                files=files, metadata=metadata,
+            return self.catalog.resolve(
+                task=task, library=self.task_info.library_name, config=self.config,
+                backend=self.override_backend or self.declared_backend or "", model_id=self.task_info.model_id,
+                files=self.files, metadata=self.metadata,
             ).backend
         except UnsupportedExtensionError as exc:
-            route_errors[task] = str(exc)
-            if required and str(exc) not in errors:
-                errors.append(str(exc))
+            self.route_errors[task] = str(exc)
+            if required and str(exc) not in self.errors:
+                self.errors.append(str(exc))
             return "unknown"
 
-    from acprof.tasks.interfaces import (
-        component_scoped,
-        execution_path,
-        inference_evidence,
-        structured_interface,
-    )
-    try:
-        structure_task = structured_interface(task_info)
-    except ValueError as exc:
-        structure_task = None
-        errors.append(str(exc))
-    primary_task = declared_task or hub_task or structure_task
-    encoder = component_scoped(
-        task_info, primary_task, backend_for(primary_task) if primary_task else "unknown")
-    loader_hint = None
-    if _generic_pipeline_loader_hint(config, transformers_info):
-        loader_hint = "AutoModel is a generic loader for config.custom_pipelines, not a task declaration"
-    else:
-        auto_model = transformers_info.get("auto_model")
-        generic_task = "feature-extraction" if auto_model == "AutoModel" else _AUTO_TASKS.get(auto_model)
-        # Only the canonical library task for a matching Auto class is a hint.
-        # Two authored tasks sharing a loader (e.g. translation/summarization)
-        # still disagree. A library tag without its Auto class is not enough.
-        if (primary_task and generic_task and primary_task != generic_task
-                and transformers_info.get("pipeline_tag") == generic_task):
-            shared_operation = set(TASK_MAPPINGS.get(primary_task, ())) & set(TASK_MAPPINGS.get(generic_task, ()))
-            if encoder:
-                loader_hint = "modules.json selects SentenceTransformer AutoModel encoding, not the checkpoint head"
-            elif shared_operation and auto_model != "AutoModel":
-                loader_hint = f"{auto_model} is a shared loader for {primary_task}; its library tag does not declare another workload"
-    transformers_task = None if loader_hint else transformers_info.get("pipeline_tag")
-    unsupported_transformers_hint = None
-    if transformers_task and transformers_task not in CATALOG.task_families:
-        # E.g. `pretraining` is a Hub metadata label, not a runnable task.
-        # Do not let it outrank an executable head registered by an extension.
-        unsupported_transformers_hint = (
-            f"{transformers_task!r} is not a registered executable task; "
-            "task semantics still require a declaration or a recognized checkpoint head"
+    def _resolve_structure(self) -> None:
+        from acprof.tasks.interfaces import component_scoped, structured_interface
+        try:
+            self.structure_task = structured_interface(self.task_info)
+        except ValueError as exc:
+            self.errors.append(str(exc))
+        self.primary_task = self.declared_task or self.hub_task or self.structure_task
+        self.encoder = component_scoped(
+            self.task_info, self.primary_task,
+            self._backend_for(self.primary_task) if self.primary_task else "unknown",
         )
-        transformers_task = None
-    if spec.get("pipeline_task") and transformers_task == spec["pipeline_task"]:
-        transformers_task = declared_task
-    observed_tasks = {value for value in (declared_task, hub_task, transformers_task) if value}
-    overridden_conflicts: list[str] = []
-    # Without a primary Hub task, a *supported* TransformersInfo task must not
-    # silently contradict a uniquely registered checkpoint head.
-    head_tasks = {inferred for architecture in config.get("architectures") or []
-                  if isinstance(architecture, str)
-                  if (inferred := CATALOG.infer_task([architecture], ""))}
-    if (not hub_task and not declared_task and len(head_tasks) == 1 and transformers_task
-            and transformers_task not in head_tasks):
-        disagreement = (f"task conflict: transformers_info={transformers_task} "
-                        f"disagrees with registered checkpoint head={next(iter(head_tasks))}")
-        (overridden_conflicts if override_tag else conflicts).append(disagreement)
-    if len(observed_tasks) > 1:
-        disagreement = "task conflict between declarations/Hub: " + ", ".join(sorted(observed_tasks))
-        (overridden_conflicts if override_tag else conflicts).append(disagreement)
 
-    def add(task: str | None, source: str) -> None:
+    def _resolve_transformers_task(self) -> None:
+        if _generic_pipeline_loader_hint(self.config, self.transformers_info):
+            self.loader_hint = "AutoModel is a generic loader for config.custom_pipelines, not a task declaration"
+        else:
+            auto_model = self.transformers_info.get("auto_model", "")
+            generic_task = "feature-extraction" if auto_model == "AutoModel" else _AUTO_TASKS.get(auto_model)
+            # A shared loader is a hint, not another authored workload declaration.
+            if (self.primary_task and generic_task and self.primary_task != generic_task
+                    and self.transformers_info.get("pipeline_tag") == generic_task):
+                shared_operation = (set(TASK_MAPPINGS.get(self.primary_task, ()))
+                                    & set(TASK_MAPPINGS.get(generic_task, ())))
+                if self.encoder:
+                    self.loader_hint = "modules.json selects SentenceTransformer AutoModel encoding, not the checkpoint head"
+                elif shared_operation and auto_model != "AutoModel":
+                    self.loader_hint = (
+                        f"{auto_model} is a shared loader for {self.primary_task}; "
+                        "its library tag does not declare another workload"
+                    )
+        transformers_task = None if self.loader_hint else self.transformers_info.get("pipeline_tag")
+        if transformers_task and transformers_task not in self.catalog.task_families:
+            self.unsupported_transformers_hint = (
+                f"{transformers_task!r} is not a registered executable task; "
+                "task semantics still require a declaration or a recognized checkpoint head"
+            )
+            transformers_task = None
+        if self.spec.get("pipeline_task") and transformers_task == self.spec["pipeline_task"]:
+            transformers_task = self.declared_task
+        self.transformers_task = transformers_task
+
+    def _record_declaration_conflicts(self) -> None:
+        observed_tasks = {value for value in (self.declared_task, self.hub_task, self.transformers_task) if value}
+        head_tasks = {inferred for architecture in self.config.get("architectures") or []
+                      if isinstance(architecture, str)
+                      if (inferred := self.catalog.infer_task([architecture], ""))}
+        if (not self.hub_task and not self.declared_task and len(head_tasks) == 1
+                and self.transformers_task and self.transformers_task not in head_tasks):
+            disagreement = (f"task conflict: transformers_info={self.transformers_task} "
+                            f"disagrees with registered checkpoint head={next(iter(head_tasks))}")
+            (self.overridden_conflicts if self.override_tag else self.conflicts).append(disagreement)
+        if len(observed_tasks) > 1:
+            disagreement = "task conflict between declarations/Hub: " + ", ".join(sorted(observed_tasks))
+            (self.overridden_conflicts if self.override_tag else self.conflicts).append(disagreement)
+
+    def _add(self, task: str | None, source: str) -> None:
         if not task:
             return
-        backend = backend_for(task)
-        previous = next((item for item in candidates if (item["task"], item["backend"]) == (task, backend)), None)
+        backend = self._backend_for(task)
+        previous = next((item for item in self.candidates
+                         if (item["task"], item["backend"]) == (task, backend)), None)
         if previous is not None:
             if source not in previous["evidence"]:
                 previous["evidence"].append(source)
             return
-        family = CATALOG.task_families.get(task, "unknown")
-        candidate = {"task": task, "family": family, "backend": backend, "evidence": [source]}
-        if task in route_errors:
-            candidate["unsupported_reason"] = route_errors[task]
-        candidates.append(candidate)
+        candidate = {
+            "task": task,
+            "family": self.catalog.task_families.get(task, "unknown"),
+            "backend": backend,
+            "evidence": [source],
+        }
+        if task in self.route_errors:
+            candidate["unsupported_reason"] = self.route_errors[task]
+        self.candidates.append(candidate)
 
-    add(override_tag, "explicit_task")
-    spec_source = ("local_model_spec" if getattr(task_info, "model_spec", {}) else
-                   "repository_model_spec" if metadata.get("acprof_model.json") else "generated_contract")
-    add(declared_task, spec_source)
-    if not declared_task and not hub_task:
-        add(structure_task, "modules.json")
-    add(hub_task, ("registered_architecture" if raw_hub_task != hub_task
-                   else "hub_metadata" if task_info.detection_method == "hub_api" else task_info.detection_method))
-    add(hub_metadata.get("task_hint"), hub_metadata.get("task_hint_source", "extension_catalog"))
-    add(transformers_task, "hub.transformers_info.pipeline_tag")
-    if not transformers_task:
-        add(_AUTO_TASKS.get(transformers_info.get("auto_model")), "hub.transformers_info.auto_model")
-    elif transformers_info.get("auto_model"):
-        # A loader hint is correlated metadata, not another semantic vote.
-        add(_AUTO_TASKS.get(transformers_info["auto_model"]), "hub.transformers_info.auto_model")
-    for architecture in config.get("architectures") or []:
-        if isinstance(architecture, str):
-            inferred = CATALOG.infer_task([architecture], str(config.get("model_type") or ""))
-            for task in (inferred,) if inferred else _architecture_tasks(architecture):
-                add(task, "config.architectures")
-    if config.get("model_type"):
-        add(CATALOG.infer_task([], str(config["model_type"])), "config.model_type")
-    auto_map = config.get("auto_map") or {}
-    if isinstance(auto_map, dict):
-        for auto_class in auto_map:
-            add(_AUTO_TASKS.get(auto_class), "config.auto_map")
-    custom_tasks = config.get("custom_pipelines") or {}
-    if isinstance(custom_tasks, dict):
-        for custom_task in custom_tasks:
-            if custom_task in CATALOG.task_families:
-                add(custom_task, "config.custom_pipelines")
-    if not candidates and "modules.json" in metadata:
-        add("feature-extraction", "modules.json")
+    def _collect_primary_candidates(self) -> None:
+        self._add(self.override_tag, "explicit_task")
+        self.spec_source = ("local_model_spec" if getattr(self.task_info, "model_spec", {}) else
+                            "repository_model_spec" if self.metadata.get("acprof_model.json") else "generated_contract")
+        self._add(self.declared_task, self.spec_source)
+        if not self.declared_task and not self.hub_task:
+            self._add(self.structure_task, "modules.json")
+        self._add(self.hub_task, ("registered_architecture" if self.raw_hub_task != self.hub_task
+                                  else "hub_metadata" if self.task_info.detection_method == "hub_api"
+                                  else self.task_info.detection_method))
+        self._add(self.hub_metadata.get("task_hint"),
+                  self.hub_metadata.get("task_hint_source", "extension_catalog"))
+        self._add(self.transformers_task, "hub.transformers_info.pipeline_tag")
+        if not self.transformers_task:
+            self._add(_AUTO_TASKS.get(self.transformers_info.get("auto_model", "")),
+                      "hub.transformers_info.auto_model")
+        elif self.transformers_info.get("auto_model", ""):
+            self._add(_AUTO_TASKS.get(self.transformers_info["auto_model"]),
+                      "hub.transformers_info.auto_model")
 
-    selected = override_tag or declared_task or hub_task or structure_task or transformers_task
-    selected_operations = set(TASK_MAPPINGS.get(selected or "", ()))
-    hints: list[tuple[str, tuple[str | None, ...]]] = [] if encoder else [
-        ("transformersInfo.auto_model", (_AUTO_TASKS.get(transformers_info.get("auto_model")),))
-    ]
-    if not encoder and not config.get("auto_map") and not config.get("custom_pipelines"):
-        architectures = [item for item in config.get("architectures") or [] if isinstance(item, str)]
-        hints.append(("config.architectures:" + ",".join(architectures), tuple({task
-                      for architecture in architectures for task in _architecture_tasks(architecture)})))
-    for source, hint_tasks in hints:
-        hint_operations = {operation for task in hint_tasks for operation in TASK_MAPPINGS.get(task or "", ())}
-        if selected_operations and hint_operations and selected_operations.isdisjoint(hint_operations):
-            disagreement = f"task conflict: {selected} is incompatible with {source}"
-            conflicts.append(disagreement)
-    status = "candidate"
-    if not selected:
-        if len(candidates) == 1:
-            selected = candidates[0]["task"]
-        elif len(candidates) > 1:
-            status = "ambiguous"
-        else:
-            status = "needs_configuration"
-            if any(name.lower().endswith(".onnx") for name in files):
-                for extension in CATALOG.extensions.values():
-                    if "onnxruntime" in extension.backends:
-                        for candidate_task in extension.tasks:
-                            add(candidate_task, "artifact.onnx; task semantics required")
-            errors.append("task semantics are unknown; provide --task or --model-spec")
-    if selected:
-        task_info.pipeline_tag = selected
-        task_info.task_family = CATALOG.task_families.get(selected, "unknown")
-        task_info.runtime_backend = backend_for(selected, required=True)
-    if errors:
-        status = "needs_configuration"
-    if conflicts:
-        status = "ambiguous"
-    from acprof.models.evidence import resolution_provenance
-    provenance = resolution_provenance(task_info, candidates, hub_task=(
-        raw_hub_task if raw_hub_task != hub_task and hub_metadata.get("task_hint_source") == "registered_architecture"
-        else hub_task), selected=selected,
-                                        status=status, explicit_task=override_tag, explicit_backend=override_backend,
-                                        overridden_conflicts=overridden_conflicts, loader_hint=loader_hint,
-                                         unsupported_task_hint=unsupported_transformers_hint)
-    semantic_status = ("conflict" if conflicts else "unresolved" if errors or not selected else
-                       "explicit" if override_tag else "declared" if (declared_task and spec_source != "generated_contract"
-                        or hub_task and hub_metadata.get("task_hint_source") != "registered_architecture"
-                        or transformers_task) else "inferred")
-    resolution = {"schema_version": 1, "status": status, "model_revision": task_info.model_revision,
-            "provenance": provenance, "semantics": {"status": semantic_status, "task": selected,
-                                                     "scope": "selected_workload; not_author_intent_or_model_quality"},
-            "benchmark_kind": "task_pipeline", "adapter_origin": "repository" if spec.get("format") == "transformers-pipeline" else "builtin",
-            "execution": {"interface": task_info.runtime_backend if selected else None,
-                          "entrypoint": "handler.predict", "stages": ["preprocess", "predict", "completion", "postprocess"],
-                          "timing_protocol": "acprof_task_pipeline"},
-            "runtime_validation": {"status": "not_run"},
-            "candidates": candidates, "conflicts": conflicts, "missing": errors,
-            "selection": {"task": selected, "backend": task_info.runtime_backend if selected else None,
-                          "source": "explicit" if override_tag or override_backend or
-                                    getattr(task_info, "model_spec", {}) else "metadata"}}
+    def _collect_config_candidates(self) -> None:
+        for architecture in self.config.get("architectures") or []:
+            if isinstance(architecture, str):
+                inferred = self.catalog.infer_task([architecture], str(self.config.get("model_type") or ""))
+                for task in (inferred,) if inferred else _architecture_tasks(architecture):
+                    self._add(task, "config.architectures")
+        if self.config.get("model_type"):
+            self._add(self.catalog.infer_task([], str(self.config["model_type"])), "config.model_type")
+        auto_map = self.config.get("auto_map") or {}
+        if isinstance(auto_map, dict):
+            for auto_class in auto_map:
+                self._add(_AUTO_TASKS.get(auto_class), "config.auto_map")
+        custom_tasks = self.config.get("custom_pipelines") or {}
+        if isinstance(custom_tasks, dict):
+            for custom_task in custom_tasks:
+                if custom_task in self.catalog.task_families:
+                    self._add(custom_task, "config.custom_pipelines")
+        if not self.candidates and "modules.json" in self.metadata:
+            self._add("feature-extraction", "modules.json")
 
-    for item in candidates:
-        if not item.get("unsupported_reason"):
-            try:
-                item["execution_path"] = execution_path(task_info, item["task"], backend=item["backend"])
-            except ValueError as exc:
-                item["unsupported_reason"] = str(exc)
-                if item["task"] == selected:
-                    errors.append(str(exc))
-    from acprof.models.tasks import build_task_discovery
-    discovery = build_task_discovery(task_info, resolution, component_scope=encoder,
-                                     override_backend=override_backend or "", explicit_task=bool(override_tag or declared_task))
-    resolution["task_discovery"] = discovery
-    resolution["evidence"] = inference_evidence(task_info, candidates, component_scope=encoder)
-    executable_tasks = {item["interface"] for item in discovery["tasks"]}
-    for item in resolution["evidence"]:
-        item["disposition"] = ("component_hint" if item["scope"] == "component" else
-                               "usage_only" if item["kind"] == "usage" else
-                               "executable_candidate" if item.get("task") in executable_tasks else "not_selected")
-    if discovery["status"] == "ready":
-        # Workloads normalize semantic aliases to the actual execution protocol.
-        executable = discovery["tasks"][0]
-        resolution["execution"] = copy.deepcopy(executable["execution_path"])
-        resolution["status"] = "candidate"
+    def _validate_loader_compatibility(self, selected: str | None) -> None:
+        selected_operations = set(TASK_MAPPINGS.get(selected or "", ()))
+        hints: list[tuple[str, tuple[str | None, ...]]] = [] if self.encoder else [
+            ("transformersInfo.auto_model", (_AUTO_TASKS.get(self.transformers_info.get("auto_model", "")),))
+        ]
+        if not self.encoder and not self.config.get("auto_map") and not self.config.get("custom_pipelines"):
+            architectures = [item for item in self.config.get("architectures") or [] if isinstance(item, str)]
+            hints.append(("config.architectures:" + ",".join(architectures), tuple({task
+                          for architecture in architectures for task in _architecture_tasks(architecture)})))
+        for source, hint_tasks in hints:
+            hint_operations = {operation for task in hint_tasks for operation in TASK_MAPPINGS.get(task or "", ())}
+            if selected_operations and hint_operations and selected_operations.isdisjoint(hint_operations):
+                self.conflicts.append(f"task conflict: {selected} is incompatible with {source}")
+
+    def _add_onnx_candidates(self) -> None:
+        if not any(name.lower().endswith(".onnx") for name in self.files):
+            return
+        for extension in self.catalog.extensions.values():
+            if "onnxruntime" in extension.backends:
+                for candidate_task in extension.tasks:
+                    self._add(candidate_task, "artifact.onnx; task semantics required")
+
+    def _select(self) -> tuple[str | None, str]:
+        selected = (self.override_tag or self.declared_task or self.hub_task
+                    or self.structure_task or self.transformers_task)
+        self._validate_loader_compatibility(selected)
+        status = "candidate"
         if not selected:
-            resolution["selection"].update(task=executable["interface"],
-                                            backend=executable["execution_path"]["backend"])
-            resolution["semantics"].update(status="inferred", task=executable["interface"])
-    elif discovery["status"] == "selection_required":
-        resolution["status"] = "selection_required"
-    else:
-        resolution["status"] = "ambiguous" if conflicts else "needs_configuration"
-        errors.extend(item["reason"] for item in discovery["unresolved"] if item["reason"] not in errors)
-        conflicts.extend(reason for reason in discovery["conflicts"] if reason not in conflicts)
-    if conflicts or errors:
-        resolution["semantics"]["status"] = "conflict" if conflicts else "unresolved"
-    resolution["provenance"]["decision"] = (
-        "abstain" if resolution["status"] != "candidate" else
-        "explicit" if override_tag else "consistent_evidence")
-    resolution["provenance"].update(status=resolution["status"],
-                                    selected_task=resolution["selection"]["task"])
-    resolution["provenance"]["raw_evidence"] = copy.deepcopy({
-        "hub": hub_metadata, "config": config, "metadata": metadata})
-    from acprof.models.evidence import content_digest
-    resolution["provenance"]["resolver_version"] = "model-interfaces-v1"
-    resolution["provenance"]["identity_sha256"] = content_digest({
-        "sources": resolution["provenance"]["sources"], "raw": resolution["provenance"]["raw_evidence"],
-        "evidence": resolution["evidence"], "discovery": discovery,
-        "selection": resolution["selection"], "resolver_version": "model-interfaces-v1"})
-    return resolution
+            if len(self.candidates) == 1:
+                selected = self.candidates[0]["task"]
+            elif len(self.candidates) > 1:
+                status = "ambiguous"
+            else:
+                status = "needs_configuration"
+                self._add_onnx_candidates()
+                self.errors.append("task semantics are unknown; provide --task or --model-spec")
+        if selected:
+            self.task_info.pipeline_tag = selected
+            self.task_info.task_family = self.catalog.task_families.get(selected, "unknown")
+            self.task_info.runtime_backend = self._backend_for(selected, required=True)
+        if self.errors:
+            status = "needs_configuration"
+        if self.conflicts:
+            status = "ambiguous"
+        return selected, status
+
+    def _base_resolution(self, selected: str | None, status: str) -> dict:
+        from acprof.models.evidence import resolution_provenance
+        provenance = resolution_provenance(
+            self.task_info, self.candidates,
+            hub_task=(self.raw_hub_task if self.raw_hub_task != self.hub_task
+                      and self.hub_metadata.get("task_hint_source") == "registered_architecture" else self.hub_task),
+            selected=selected, status=status, explicit_task=self.override_tag,
+            explicit_backend=self.override_backend, overridden_conflicts=self.overridden_conflicts,
+            loader_hint=self.loader_hint, unsupported_task_hint=self.unsupported_transformers_hint,
+        )
+        semantic_status = (
+            "conflict" if self.conflicts else "unresolved" if self.errors or not selected else
+            "explicit" if self.override_tag else "declared" if (
+                self.declared_task and self.spec_source != "generated_contract"
+                or self.hub_task and self.hub_metadata.get("task_hint_source") != "registered_architecture"
+                or self.transformers_task
+            ) else "inferred"
+        )
+        return {"schema_version": 1, "status": status, "model_revision": self.task_info.model_revision,
+                "provenance": provenance, "semantics": {"status": semantic_status, "task": selected,
+                                                         "scope": "selected_workload; not_author_intent_or_model_quality"},
+                "benchmark_kind": "task_pipeline",
+                "adapter_origin": "repository" if self.spec.get("format") == "transformers-pipeline" else "builtin",
+                "execution": {"interface": self.task_info.runtime_backend if selected else None,
+                              "entrypoint": "handler.predict",
+                              "stages": ["preprocess", "predict", "completion", "postprocess"],
+                              "timing_protocol": "acprof_task_pipeline"},
+                "runtime_validation": {"status": "not_run"},
+                "candidates": self.candidates, "conflicts": self.conflicts, "missing": self.errors,
+                "selection": {"task": selected,
+                              "backend": self.task_info.runtime_backend if selected else None,
+                              "source": "explicit" if self.override_tag or self.override_backend or
+                                        getattr(self.task_info, "model_spec", {}) else "metadata"}}
+
+    def _attach_execution_paths(self, selected: str | None) -> None:
+        from acprof.tasks.interfaces import execution_path
+        for item in self.candidates:
+            if not item.get("unsupported_reason"):
+                try:
+                    item["execution_path"] = execution_path(self.task_info, item["task"], backend=item["backend"])
+                except ValueError as exc:
+                    item["unsupported_reason"] = str(exc)
+                    if item["task"] == selected:
+                        self.errors.append(str(exc))
+
+    def _apply_task_discovery(self, resolution: dict, selected: str | None) -> dict:
+        from acprof.models.tasks import build_task_discovery
+        from acprof.tasks.interfaces import inference_evidence
+        discovery = build_task_discovery(
+            self.task_info, resolution, component_scope=self.encoder,
+            override_backend=self.override_backend or "",
+            explicit_task=bool(self.override_tag or self.declared_task),
+        )
+        resolution["task_discovery"] = discovery
+        resolution["evidence"] = inference_evidence(self.task_info, self.candidates, component_scope=self.encoder)
+        executable_tasks = {item["interface"] for item in discovery["tasks"]}
+        for item in resolution["evidence"]:
+            item["disposition"] = ("component_hint" if item["scope"] == "component" else
+                                   "usage_only" if item["kind"] == "usage" else
+                                   "executable_candidate" if item.get("task") in executable_tasks else "not_selected")
+        if discovery["status"] == "ready":
+            executable = discovery["tasks"][0]
+            resolution["execution"] = copy.deepcopy(executable["execution_path"])
+            resolution["status"] = "candidate"
+            if not selected:
+                resolution["selection"].update(task=executable["interface"],
+                                                backend=executable["execution_path"]["backend"])
+                resolution["semantics"].update(status="inferred", task=executable["interface"])
+        elif discovery["status"] == "selection_required":
+            resolution["status"] = "selection_required"
+        else:
+            resolution["status"] = "ambiguous" if self.conflicts else "needs_configuration"
+            self.errors.extend(item["reason"] for item in discovery["unresolved"] if item["reason"] not in self.errors)
+            self.conflicts.extend(reason for reason in discovery["conflicts"] if reason not in self.conflicts)
+        if self.conflicts or self.errors:
+            resolution["semantics"]["status"] = "conflict" if self.conflicts else "unresolved"
+        return discovery
+
+    def _finalize_provenance(self, resolution: dict, discovery: dict) -> None:
+        resolution["provenance"]["decision"] = (
+            "abstain" if resolution["status"] != "candidate" else
+            "explicit" if self.override_tag else "consistent_evidence")
+        resolution["provenance"].update(status=resolution["status"],
+                                        selected_task=resolution["selection"]["task"])
+        resolution["provenance"]["raw_evidence"] = copy.deepcopy({
+            "hub": self.hub_metadata, "config": self.config, "metadata": self.metadata})
+        from acprof.models.evidence import content_digest
+        resolution["provenance"]["resolver_version"] = "model-interfaces-v1"
+        resolution["provenance"]["identity_sha256"] = content_digest({
+            "sources": resolution["provenance"]["sources"], "raw": resolution["provenance"]["raw_evidence"],
+            "evidence": resolution["evidence"], "discovery": discovery,
+            "selection": resolution["selection"], "resolver_version": "model-interfaces-v1"})
+
+    def run(self) -> dict:
+        self._read_declarations()
+        self._resolve_structure()
+        self._resolve_transformers_task()
+        self._record_declaration_conflicts()
+        self._collect_primary_candidates()
+        self._collect_config_candidates()
+        selected, status = self._select()
+        resolution = self._base_resolution(selected, status)
+        self._attach_execution_paths(selected)
+        discovery = self._apply_task_discovery(resolution, selected)
+        self._finalize_provenance(resolution, discovery)
+        return resolution
+
+
+def discover_model_candidates(task_info: Any, *, override_tag: str | None = None,
+                              override_backend: str | None = None) -> dict:
+    """Collect static evidence before selecting a route. Never import model code."""
+    return _CandidateDiscovery(task_info, override_tag, override_backend).run()
 
 
 def resolve_task_backends(task_info: Any, tasks: list[dict], *, override_backend: str = "") -> dict[str, str]:
