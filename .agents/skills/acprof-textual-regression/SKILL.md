@@ -1,13 +1,13 @@
 ---
 name: acprof-textual-regression
-description: 用于修改或排查 AC-Prof 的 Textual TUI 布局、焦点与光标、日志交互、设置和中英文文案；验证终端显示及交互，并保护正式测量窗口。
+description: 用于设计、修改或排查 AC-Prof Textual TUI 的信息层级、布局、焦点、日志与状态交互；按需验证可见行为，并保护正式测量窗口。
 ---
 
-# AC-Prof TUI 回归检查
+# AC-Prof TUI 设计与回归
 
 ## 使用范围
 
-针对 Textual 终端界面的可观察行为。先确认用户所在终端、复现操作和窗口尺寸，再选择相关检查；不把网页设计或浏览器测试直接套到 TUI。
+针对 Textual 终端界面的设计和可观察行为。根据任务确认主要用户操作和终端尺寸；排查缺陷时再复现具体动作，不把网页布局或浏览器测试直接套到 TUI。
 
 本流程参考 [Textual 官方测试指南](https://textual.textualize.io/guide/testing/) 及其 [GitHub 文档](https://github.com/Textualize/textual/blob/main/docs/guide/testing.md)，复用项目现有 `pytest` 和 Textual `Pilot`；调试、性质测试和视觉回归按需选择下述辅助工具。
 
@@ -19,7 +19,11 @@ description: 用于修改或排查 AC-Prof 的 Textual TUI 布局、焦点与光
 | 设置持久化、语言或历史格式 | [TUI 本地设置](../../../docs/usage/configuration.md#tui-本地设置) |
 | 模块职责、兼容入口或 mock 位置 | [TUI 与兼容维护](../../../docs/development/consumers.md#tui-与兼容维护) |
 
-本技能维护交互验证流程；操作和设置契约由上述文档维护。只读与当前改动相关的章节；纯布局或文案调整无需读取整份指标字典。若改动会影响命令参数、测量流程或产物，再沿调用链读取相应契约。
+本技能维护设计审查与交互验证流程；操作和设置契约由上述文档维护。只读与当前改动相关的章节；纯布局或文案调整无需读取整份指标字典。若改动会影响命令参数、测量流程或产物，再沿调用链读取相应契约。
+
+## 设计改动先审视用户操作
+
+涉及页面结构、主要操作路径、视觉层级或导航交互时，按需阅读 [TUI 设计审查](references/design-review.md)，先确定主要用户动作、必须持续可见的信息和不同状态的反馈，再决定布局；单纯修复控件缺陷、文案或验证回归时无需读取。设计以本项目的 Python/Textual 实现和既有主题为准，不引入另一套 TUI 框架。
 
 ## 从实际模块和测试进入
 
