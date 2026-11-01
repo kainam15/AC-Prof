@@ -96,6 +96,11 @@ def test_hardware_workflow_is_manual_and_never_exposes_fork_prs():
     assert "real-matrix" in preset["options"]
     preparation = next(step["run"] for step in job["steps"] if "scripts/prepare_hardware.py" in step.get("run", ""))
     assert "examples/hardware-validation-real.json" in preparation
+    assert "examples/hardware-validation-real-cpu.json" in preparation
+    assert "--gpus off" in preparation
+    measurement = next(step["run"] for step in job["steps"] if "scripts/check_hardware.py" in step.get("run", ""))
+    assert "preparation-structured/prepared-matrix.json" in measurement
+    assert "measurements-structured" in measurement
 
 
 def test_release_requires_hardware_proof_before_both_publications():

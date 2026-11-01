@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {
+      "name": "iris-onnx-tabular-classification",
+      "model": "Ritual-Net/iris-classification",
+      "revision": "273d867c65e8e5fa5c64c23dcf19738282452beb",
+      "task": "tabular-classification",
+      "input_scales": "1"
+    }
+  ]
+}

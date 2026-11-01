@@ -66,14 +66,27 @@ def test_real_checkpoint_matrix_has_a_pinned_serial_execution_path(tmp_path):
     output = tmp_path / 'output'
     with patch.object(check_hardware, 'run_config', return_value={'successful': True}) as run:
         assert check_hardware.main(['--matrix', str(path), '--output-dir', str(output)]) == 0
-        assert run.call_count == 3
+        assert run.call_count == 6
         assert [call.args[0].task for call in run.call_args_list] == [
-            'fill-mask', 'image-classification', 'visual-question-answering']
+            'fill-mask', 'image-classification', 'visual-question-answering',
+            'automatic-speech-recognition', 'time-series-forecasting', 'text-to-image']
         assert all(call.args[0].revision and len(call.args[0].revision) == 40
                    for call in run.call_args_list)
     report = json.loads((output / 'hardware_matrix.json').read_text())
     assert report['successful'] is True
-    assert [case['status'] for case in report['cases']] == ['passed'] * 3
+    assert [case['status'] for case in report['cases']] == ['passed'] * 6
+
+
+def test_structured_real_checkpoint_matrix_stays_on_cpu(tmp_path):
+    path = Path(__file__).resolve().parents[3] / 'examples/hardware-validation-real-cpu.json'
+    output = tmp_path / 'output'
+    with patch.object(check_hardware, 'run_config', return_value={'successful': True}) as run:
+        assert check_hardware.main(
+            ['--matrix', str(path), '--gpus', 'off', '--output-dir', str(output)]) == 0
+    config = run.call_args.args[0]
+    assert config.task == 'tabular-classification'
+    assert config.gpus == 'off'
+    assert len(config.revision) == 40
 
 
 @pytest.mark.parametrize('bad', ['unresolved', 'duplicate', 'escape', 'unknown', 'empty'])
