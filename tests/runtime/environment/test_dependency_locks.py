@@ -8,6 +8,7 @@ import pytest
 
 from acprof.host.detect import TaskInfo
 from acprof.host.images.environment import runtime_fingerprint
+from acprof.runtime.dependency_locks import read_python_lock
 from acprof.runtime.profiles import PLATFORMS, PYTHON_BASE_IMAGE, select_runtime_profile
 from tests.support.runtime_fixture import ROOT, copy_dependency_tree
 
@@ -70,6 +71,13 @@ class TestDependencyLock:
             root = Path(directory)
             copy_dependency_tree(root)
             common = root / environment.platform.requirements_lock
-            common.write_text(common.read_text().replace('filelock-4.2.4-', 'filelock-4.2.5-'))
+            original = common.read_text()
+            filelock = next(entry for entry in read_python_lock(common) if entry['name'] == 'filelock')
+            current_wheel = f"filelock-{filelock['version']}-"
+            conflicting_version = '0.0.0' if filelock['version'] != '0.0.0' else '1.0.0'
+            assert current_wheel in original
+            modified = original.replace(current_wheel, f'filelock-{conflicting_version}-', 1)
+            assert modified != original
+            common.write_text(modified)
             with pytest.raises(ValueError, match='父层'):
                 runtime_fingerprint(environment, root)
