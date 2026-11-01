@@ -14,7 +14,9 @@ def baseline():
 def test_all_critical_paths_are_present_and_pass():
     assert {"acprof/host/client.py", "acprof/monitors/energy_cpu.py",
             "acprof/host/measurement/execution.py", "acprof/host/measurement/metrics.py",
-            "acprof/results/layers.py"} <= set(BRANCH_FLOORS)
+            "acprof/host/model_store/store.py", "acprof/host/model_store/preparation.py",
+            "acprof/container/handlers/multimodal.py", "acprof/container/handlers/diffusion.py",
+            "acprof/results/layers.py", "acprof/results/metrics.py"} <= set(BRANCH_FLOORS)
     assert check_report(baseline()) == []
 
 

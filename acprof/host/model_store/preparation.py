@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit
 
 from acprof.container.model_files import seal_plan
@@ -12,8 +13,13 @@ from acprof.hub.huggingface.endpoints import hf_endpoints
 from acprof.hub.huggingface.transport import observed_hf_provenance, observed_hf_sources
 from acprof.network_policy import DownloadSource
 
+if TYPE_CHECKING:
+    from acprof.host.preparation.download_progress import DownloadReporter
 
-def _download_repository(root: Path, repo: dict, progress, offline: bool, endpoint: str) -> tuple[str, str]:
+
+def _download_repository(
+    root: Path, repo: dict[str, Any], progress: DownloadReporter, offline: bool, endpoint: str
+) -> tuple[str, str]:
     from huggingface_hub import snapshot_download
 
     progress.start_attempt()
@@ -52,7 +58,7 @@ def _download_repository(root: Path, repo: dict, progress, offline: bool, endpoi
 def prepare_repository(
     root: Path,
     key: str,
-    repo: dict,
+    repo: dict[str, Any],
     budget: DownloadSource,
     *,
     offline: bool,
@@ -88,7 +94,7 @@ def prepare_repository(
     return Path(target), endpoint
 
 
-def record_download_provenance(repo: dict, *, endpoint: str, offline: bool) -> None:
+def record_download_provenance(repo: dict[str, Any], *, endpoint: str, offline: bool) -> None:
     source = repo.get("source", "huggingface")
     repo["source"] = source
     repo["endpoint"] = endpoint

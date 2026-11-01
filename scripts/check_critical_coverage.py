@@ -14,14 +14,19 @@ from pathlib import Path
 BRANCH_FLOORS = {
     "acprof/results/csv.py": 65.0,
     "acprof/results/layers.py": 70.0,
+    "acprof/results/metrics.py": 50.0,
     "acprof/host/matrix_plan.py": 60.0,
     "acprof/host/run_state.py": 65.0,
+    "acprof/host/model_store/store.py": 75.0,
+    "acprof/host/model_store/preparation.py": 80.0,
     "acprof/monitors/energy_cpu.py": 55.0,
     "acprof/host/result_cleanup.py": 75.0,
     "acprof/host/client.py": 65.0,
     # Preserve the client floor when window lifecycle and row reduction move.
     "acprof/host/measurement/execution.py": 65.0,
     "acprof/host/measurement/metrics.py": 65.0,
+    "acprof/container/handlers/multimodal.py": 65.0,
+    "acprof/container/handlers/diffusion.py": 35.0,
 }
 
 

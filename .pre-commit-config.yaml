@@ -36,11 +36,11 @@ repos:
         require_serial: true
 
       - id: core-complexity
-        name: Check audit and model candidate complexity
+        name: Check core evidence and handler complexity
         entry: uv run --locked ruff check --select C901 --force-exclude
         language: system
         types: [python]
-        files: '^acprof/(analysis/audit|models/candidates)\.py$'
+        files: '^acprof/(analysis/audit|models/candidates|host/model_store/preparation|container/handlers/(multimodal|diffusion))\.py$'
         require_serial: true
 
   - repo: https://github.com/pre-commit/pre-commit-hooks

@@ -206,10 +206,8 @@ def _decode_images(encoded: list[Any], name: str, resolution: int | None = None,
     return images
 
 
-def _native_preprocess(model_ctx: dict[str, Any], raw: dict[str, Any], task: str) -> dict[str, Any]:
-    budget = InputBudget.from_value(raw.get("input_budget"))
-    pipe = model_ctx["pipeline"]
-    parameters = _native_pipeline_parameters(pipe, task)
+def _native_input_contract(raw: dict[str, Any], task: str,
+                           parameters: dict[str, inspect.Parameter]) -> tuple[bool, bool]:
     optional_prompt = task in {"image-to-video", "image-to-image"}
     has_prompt = task in {"text-to-video", "video-to-video", "text-to-3d"} or (optional_prompt and "prompt" in parameters)
     has_image = task in {"image-to-video", "image-to-3d", "image-to-image"}
@@ -229,6 +227,11 @@ def _native_preprocess(model_ctx: dict[str, Any], raw: dict[str, Any], task: str
     unsupported = sorted(set(raw) - allowed_inputs)
     if unsupported:
         raise ValueError(f"unsupported {task} inputs: " + ", ".join(unsupported))
+    return has_prompt, has_image
+
+
+def _native_params(raw: dict[str, Any], task: str, parameters: dict[str, inspect.Parameter],
+                   has_prompt: bool) -> dict[str, Any]:
     params = raw.get("params", {})
     if not isinstance(params, dict):
         raise ValueError("params must be an object")
@@ -248,6 +251,10 @@ def _native_preprocess(model_ctx: dict[str, Any], raw: dict[str, Any], task: str
     unsupported = sorted(set(params) - allowed)
     if unsupported:
         raise ValueError(f"unsupported {task} params: " + ", ".join(unsupported))
+    return params
+
+
+def _native_steps_seed(pipe: Any, params: dict[str, Any]) -> tuple[int, int]:
     steps = positive_integer(params.get("num_inference_steps", DEFAULT_NUM_INFERENCE_STEPS), "num_inference_steps")
     train_steps = getattr(getattr(getattr(pipe, "scheduler", None), "config", None), "num_train_timesteps", None)
     if isinstance(train_steps, int) and steps > train_steps:
@@ -255,28 +262,38 @@ def _native_preprocess(model_ctx: dict[str, Any], raw: dict[str, Any], task: str
     seed = params.get("seed", DEFAULT_SEED)
     if isinstance(seed, bool) or not isinstance(seed, int):
         raise ValueError("seed must be an integer")
-    kwargs: dict[str, Any] = {"num_inference_steps": steps, "output_type": "mesh" if task in {"text-to-3d", "image-to-3d"} else "pil", "return_dict": True}
-    if has_prompt:
-        prompt = raw.get("prompt")
-        if isinstance(prompt, str):
-            prompt = [prompt]
-        if not isinstance(prompt, list) or len(prompt) != 1 or not isinstance(prompt[0], str) or not prompt[0].strip():
-            raise ValueError(f"{task} requires one non-empty prompt and batch_size=1")
-        kwargs["prompt"] = prompt
-    if task == "unconditional-image-generation":
-        kwargs["batch_size"] = 1
+    return steps, seed
+
+
+def _native_prompt(raw: dict[str, Any], task: str, has_prompt: bool) -> list[str] | None:
+    if not has_prompt:
+        return None
+    prompt = raw.get("prompt")
+    if isinstance(prompt, str):
+        prompt = [prompt]
+    if not isinstance(prompt, list) or len(prompt) != 1 or not isinstance(prompt[0], str) or not prompt[0].strip():
+        raise ValueError(f"{task} requires one non-empty prompt and batch_size=1")
+    return prompt
+
+
+def _native_scale(raw: dict[str, Any], task: str, steps: int, pipe: Any,
+                  parameters: dict[str, inspect.Parameter], kwargs: dict[str, Any]) -> tuple[int, int | None]:
     if task in STEP_TASKS:
         scale = positive_integer(raw.get("input_scale"), "input_scale")
         if scale != steps:
             raise ValueError("input_scale must equal num_inference_steps")
-        resolution = None
-    else:
-        resolution = positive_integer(raw.get("resolution"), "resolution")
-        multiple = _spatial_multiple(pipe)
-        if resolution < 64 or resolution % multiple:
-            raise ValueError(f"resolution must be at least 64 and divisible by pipeline spatial multiple {multiple}")
-        scale = resolution
-        kwargs.update({name: resolution for name in ("height", "width") if name in parameters})
+        return scale, None
+    resolution = positive_integer(raw.get("resolution"), "resolution")
+    multiple = _spatial_multiple(pipe)
+    if resolution < 64 or resolution % multiple:
+        raise ValueError(f"resolution must be at least 64 and divisible by pipeline spatial multiple {multiple}")
+    kwargs.update({name: resolution for name in ("height", "width") if name in parameters})
+    return resolution, resolution
+
+
+def _native_media(raw: dict[str, Any], task: str, params: dict[str, Any], pipe: Any,
+                  parameters: dict[str, inspect.Parameter], has_image: bool, resolution: int | None,
+                  budget: InputBudget, kwargs: dict[str, Any]) -> int | None:
     frame_count = positive_integer(params.get("num_frames", DEFAULT_NUM_FRAMES), "num_frames") if task in VIDEO_TASKS else 1
     if resolution is not None:
         budget.pixels(resolution, resolution, frames=frame_count)
@@ -284,21 +301,25 @@ def _native_preprocess(model_ctx: dict[str, Any], raw: dict[str, Any], task: str
         budget.pixels(*_native_image_size(pipe))
     if has_image:
         kwargs["image"] = _decode_images([raw.get("image_base64")], "image_base64", resolution, budget=budget)[0]
-    frames = None
-    if task in VIDEO_TASKS:
-        frames = positive_integer(params.get("num_frames", DEFAULT_NUM_FRAMES), "num_frames")
-        temporal = getattr(pipe, "vae_scale_factor_temporal", None)
-        if isinstance(temporal, int) and temporal > 1 and (frames - 1) % temporal:
-            raise ValueError(f"num_frames must be 1 + a multiple of pipeline temporal factor {temporal}")
-        if task == "video-to-video":
-            encoded = raw.get("frames_base64")
-            if not isinstance(encoded, list) or len(encoded) != frames:
-                raise ValueError("frames_base64 must contain exactly num_frames ordered images")
-            kwargs["video"] = _decode_images(encoded, "frames_base64", resolution, budget=budget)
-            if "num_frames" in parameters:
-                kwargs["num_frames"] = frames
-        else:
+    if task not in VIDEO_TASKS:
+        return None
+    frames = positive_integer(params.get("num_frames", DEFAULT_NUM_FRAMES), "num_frames")
+    temporal = getattr(pipe, "vae_scale_factor_temporal", None)
+    if isinstance(temporal, int) and temporal > 1 and (frames - 1) % temporal:
+        raise ValueError(f"num_frames must be 1 + a multiple of pipeline temporal factor {temporal}")
+    if task == "video-to-video":
+        encoded = raw.get("frames_base64")
+        if not isinstance(encoded, list) or len(encoded) != frames:
+            raise ValueError("frames_base64 must contain exactly num_frames ordered images")
+        kwargs["video"] = _decode_images(encoded, "frames_base64", resolution, budget=budget)
+        if "num_frames" in parameters:
             kwargs["num_frames"] = frames
+    else:
+        kwargs["num_frames"] = frames
+    return frames
+
+
+def _native_extra_parameters(pipe: Any, params: dict[str, Any], kwargs: dict[str, Any]) -> None:
     for name, value in params.items():
         if name in {"seed", "num_inference_steps", "num_frames"}:
             continue
@@ -319,6 +340,9 @@ def _native_preprocess(model_ctx: dict[str, Any], raw: dict[str, Any], task: str
             if name == "strength" and value > 1:
                 raise ValueError("strength must be between 0 and 1")
         kwargs[name] = value
+
+
+def _validate_native_call(parameters: dict[str, inspect.Parameter], kwargs: dict[str, Any], steps: int) -> None:
     strength_parameter = parameters.get("strength")
     strength = kwargs.get("strength", strength_parameter.default if strength_parameter is not None else None)
     if isinstance(strength, (float, int)) and int(steps * strength) < 1:
@@ -327,6 +351,25 @@ def _native_preprocess(model_ctx: dict[str, Any], raw: dict[str, Any], task: str
     missing = [name for name, value in parameters.items() if value.default is inspect.Parameter.empty and name not in supplied]
     if missing:
         raise ValueError("unsupported required pipeline parameters: " + ", ".join(missing))
+
+
+def _native_preprocess(model_ctx: dict[str, Any], raw: dict[str, Any], task: str) -> dict[str, Any]:
+    budget = InputBudget.from_value(raw.get("input_budget"))
+    pipe = model_ctx["pipeline"]
+    parameters = _native_pipeline_parameters(pipe, task)
+    has_prompt, has_image = _native_input_contract(raw, task, parameters)
+    params = _native_params(raw, task, parameters, has_prompt)
+    steps, seed = _native_steps_seed(pipe, params)
+    kwargs: dict[str, Any] = {"num_inference_steps": steps, "output_type": "mesh" if task in {"text-to-3d", "image-to-3d"} else "pil", "return_dict": True}
+    prompt = _native_prompt(raw, task, has_prompt)
+    if prompt is not None:
+        kwargs["prompt"] = prompt
+    if task == "unconditional-image-generation":
+        kwargs["batch_size"] = 1
+    scale, resolution = _native_scale(raw, task, steps, pipe, parameters, kwargs)
+    frames = _native_media(raw, task, params, pipe, parameters, has_image, resolution, budget, kwargs)
+    _native_extra_parameters(pipe, params, kwargs)
+    _validate_native_call(parameters, kwargs, steps)
     return {"native_kwargs": kwargs, "seed": seed, "resolution": resolution, "num_frames": frames,
             "_effective_input_scale": float(scale), "_truncated_by_limit": False,
             "_probe_reason": "diffusion input scale is denoising steps" if task in STEP_TASKS else "diffusion input scale is square output video resolution in pixels"}
@@ -499,6 +542,93 @@ def _standard_preprocess(model_ctx: dict[str, Any], raw_input: dict[str, Any], t
     return processed
 
 
+def _mesh_metadata(model_ctx: dict[str, Any], raw_output: Any) -> dict[str, Any]:
+    meshes = getattr(raw_output, "images", None)
+    if meshes is None and isinstance(raw_output, dict):
+        meshes = raw_output.get("images")
+    if not isinstance(meshes, (list, tuple)) or len(meshes) != 1:
+        raise ValueError("ShapE must return one decoded mesh")
+    vertices: list[int] = []
+    faces: list[int] = []
+    for mesh in meshes:
+        for attr, target in (("verts", vertices), ("faces", faces)):
+            shape = getattr(getattr(mesh, attr, None), "shape", None)
+            if shape is None or len(shape) != 2 or shape[1] != 3 or shape[0] < 1:
+                raise ValueError("ShapE returned an empty or invalid mesh")
+            target.append(int(shape[0]))
+    return {"task": model_ctx["task_type"], "output_type": "mesh", "n_results": len(meshes),
+            "output_length": len(meshes), "mesh_vertex_count": sum(vertices), "mesh_face_count": sum(faces),
+            "mesh_vertex_counts": vertices, "mesh_face_counts": faces}
+
+
+def _video_metadata(model_ctx: dict[str, Any], raw_output: Any) -> dict[str, Any]:
+    frames = getattr(raw_output, "frames", None)
+    if frames is None and isinstance(raw_output, dict):
+        frames = raw_output.get("frames")
+    if frames is None and isinstance(raw_output, tuple) and raw_output:
+        frames = raw_output[0]
+    if not isinstance(frames, (list, tuple)) or not frames:
+        raise ValueError("Diffusers pipeline returned no decoded video frame collection")
+    frame_counts = []
+    size = None
+    for video in frames:
+        if not isinstance(video, (list, tuple)) or not video:
+            raise ValueError("expected video output as non-empty batches of PIL frames")
+        frame_counts.append(len(video))
+        for frame in video:
+            frame_size = getattr(frame, "size", None)
+            if not isinstance(frame_size, tuple) or len(frame_size) != 2:
+                raise ValueError("expected decoded PIL video frames")
+            if size is not None and frame_size != size:
+                raise ValueError("video frames must have consistent dimensions")
+            size = frame_size
+    if len(set(frame_counts)) != 1:
+        raise ValueError("video batches must have consistent frame counts")
+    if size is None:
+        raise ValueError("Diffusers video output must contain frame dimensions")
+    video_width, video_height = int(size[0]), int(size[1])
+    return {
+        "task": model_ctx["task_type"],
+        "output_type": "video",
+        "n_results": len(frames),
+        "output_length": sum(frame_counts),
+        "video_frame_count": frame_counts[0],
+        "video_width": video_width,
+        "video_height": video_height,
+        "output_shape": [len(frames), frame_counts[0], video_height, video_width, 3],
+    }
+
+
+def _image_metadata(model_ctx: dict[str, Any], raw_output: Any) -> dict[str, Any]:
+    images = getattr(raw_output, "images", None)
+    if images is None and isinstance(raw_output, dict):
+        images = raw_output.get("images")
+    if images is None and isinstance(raw_output, tuple) and raw_output:
+        images = raw_output[0]
+    if not isinstance(images, (list, tuple)):
+        raise ValueError("Diffusers pipeline returned no image collection")
+    width = None
+    height = None
+    if images:
+        size = getattr(images[0], "size", None)
+        if isinstance(size, tuple) and len(size) == 2:
+            width, height = int(size[0]), int(size[1])
+    task = _canonical_task(model_ctx["task_type"])
+    if task == "unconditional-image-generation":
+        expected = _native_image_size(model_ctx["pipeline"])
+        if len(images) != 1 or (width, height) != expected:
+            raise ValueError("unconditional output differs from native UNet sample_size")
+    return {
+        "task": model_ctx["task_type"],
+        "output_type": "image",
+        "n_results": len(images),
+        "output_length": len(images),
+        "image_width": width,
+        "image_height": height,
+        "output_shape": [len(images), height, width, 3],
+    }
+
+
 class DiffusionHandler(BaseHandler):
     """Return generation metadata without encoding output media over HTTP."""
 
@@ -621,86 +751,10 @@ class DiffusionHandler(BaseHandler):
             return metadata
         task = _canonical_task(model_ctx["task_type"])
         if task in {"text-to-3d", "image-to-3d"}:
-            meshes = getattr(raw_output, "images", None)
-            if meshes is None and isinstance(raw_output, dict):
-                meshes = raw_output.get("images")
-            if not isinstance(meshes, (list, tuple)) or len(meshes) != 1:
-                raise ValueError("ShapE must return one decoded mesh")
-            vertices: list[int] = []
-            faces: list[int] = []
-            for mesh in meshes:
-                for attr, target in (("verts", vertices), ("faces", faces)):
-                    shape = getattr(getattr(mesh, attr, None), "shape", None)
-                    if shape is None or len(shape) != 2 or shape[1] != 3 or shape[0] < 1:
-                        raise ValueError("ShapE returned an empty or invalid mesh")
-                    target.append(int(shape[0]))
-            return {"task": model_ctx["task_type"], "output_type": "mesh", "n_results": len(meshes),
-                    "output_length": len(meshes), "mesh_vertex_count": sum(vertices), "mesh_face_count": sum(faces),
-                    "mesh_vertex_counts": vertices, "mesh_face_counts": faces}
+            return _mesh_metadata(model_ctx, raw_output)
         if task in VIDEO_TASKS:
-            frames = getattr(raw_output, "frames", None)
-            if frames is None and isinstance(raw_output, dict):
-                frames = raw_output.get("frames")
-            if frames is None and isinstance(raw_output, tuple) and raw_output:
-                frames = raw_output[0]
-            if not isinstance(frames, (list, tuple)) or not frames:
-                raise ValueError("Diffusers pipeline returned no decoded video frame collection")
-            frame_counts = []
-            size = None
-            for video in frames:
-                if not isinstance(video, (list, tuple)) or not video:
-                    raise ValueError("expected video output as non-empty batches of PIL frames")
-                frame_counts.append(len(video))
-                for frame in video:
-                    frame_size = getattr(frame, "size", None)
-                    if not isinstance(frame_size, tuple) or len(frame_size) != 2:
-                        raise ValueError("expected decoded PIL video frames")
-                    if size is not None and frame_size != size:
-                        raise ValueError("video frames must have consistent dimensions")
-                    size = frame_size
-            if len(set(frame_counts)) != 1:
-                raise ValueError("video batches must have consistent frame counts")
-            if size is None:
-                raise ValueError("Diffusers video output must contain frame dimensions")
-            video_width, video_height = int(size[0]), int(size[1])
-            return {
-                "task": model_ctx["task_type"],
-                "output_type": "video",
-                "n_results": len(frames),
-                "output_length": sum(frame_counts),
-                "video_frame_count": frame_counts[0],
-                "video_width": video_width,
-                "video_height": video_height,
-                "output_shape": [len(frames), frame_counts[0], video_height, video_width, 3],
-            }
-        images = getattr(raw_output, "images", None)
-        if images is None and isinstance(raw_output, dict):
-            images = raw_output.get("images")
-        if images is None and isinstance(raw_output, tuple) and raw_output:
-            images = raw_output[0]
-        if not isinstance(images, (list, tuple)):
-            raise ValueError("Diffusers pipeline returned no image collection")
-
-        width = None
-        height = None
-        if images:
-            size = getattr(images[0], "size", None)
-            if isinstance(size, tuple) and len(size) == 2:
-                width, height = int(size[0]), int(size[1])
-        if task == "unconditional-image-generation":
-            expected = _native_image_size(model_ctx["pipeline"])
-            if len(images) != 1 or (width, height) != expected:
-                raise ValueError("unconditional output differs from native UNet sample_size")
-
-        return {
-            "task": model_ctx["task_type"],
-            "output_type": "image",
-            "n_results": len(images),
-            "output_length": len(images),
-            "image_width": width,
-            "image_height": height,
-            "output_shape": [len(images), height, width, 3],
-        }
+            return _video_metadata(model_ctx, raw_output)
+        return _image_metadata(model_ctx, raw_output)
 
     def get_scale_metadata(
         self,

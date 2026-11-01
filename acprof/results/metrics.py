@@ -4,6 +4,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from dataclasses import asdict, dataclass
 from types import MappingProxyType
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -26,7 +27,7 @@ class Metric:
     row_group: str = ""
     row_order: int | None = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if not self.label:
             object.__setattr__(self, "label", self.name)
         if self.direction not in {"higher", "lower", "neutral"}:
@@ -34,7 +35,7 @@ class Metric:
         if self.scale not in {"linear", "log"}:
             raise ValueError(f"Invalid scale: {self.scale}")
 
-    def to_dict(self):
+    def to_dict(self) -> dict[str, Any]:
         metadata = asdict(self)
         metadata.pop("row_group")
         metadata.pop("row_order")

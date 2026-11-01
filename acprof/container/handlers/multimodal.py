@@ -71,6 +71,55 @@ def _as_numpy(value: Any) -> np.ndarray:
 
 
 class MultimodalHandler(BaseHandler):
+    @staticmethod
+    def _load_qa(transformers: Any, model_source: str, task_type: str, device: str,
+                 dtype: Any, source_kwargs: dict[str, Any], attention_options: dict[str, Any],
+                 ctx: dict[str, Any]) -> dict[str, Any]:
+        pipe = transformers.pipeline(
+            task=task_type, model=model_source, **source_kwargs,
+            device_map="cpu" if device == "cpu" else "auto",
+            torch_dtype=dtype, **attention_options,
+        )
+        # Supplied word boxes must bypass OCR, including processor OCR.
+        if task_type == "document-question-answering":
+            for component in (getattr(pipe, "image_processor", None), getattr(pipe, "feature_extractor", None)):
+                if component is not None and hasattr(component, "apply_ocr"):
+                    component.apply_ocr = False
+        return {**ctx, "pipeline": pipe, "model": pipe.model, "mode": "qa"}
+
+    @staticmethod
+    def _model_selection(transformers: Any, task_type: str, config: Any,
+                         model_type: str) -> tuple[str, str, dict[str, Any]]:
+        model_kwargs: dict[str, Any] = {}
+        if task_type == "any-to-any":
+            if model_type != "qwen2_5_omni":
+                raise ValueError(
+                    f"unsupported any-to-any architecture {model_type!r}; "
+                    "expected qwen2_5_omni for text+audio output"
+                )
+            return "Qwen2_5OmniForConditionalGeneration", "omni", model_kwargs
+        if task_type == "audio-text-to-text":
+            from acprof.models.support import audio_text_loader
+
+            selection = audio_text_loader(transformers.__version__, config.to_dict())
+            if selection is None:
+                raise ValueError(
+                    f"unsupported audio-text-to-text architecture {model_type!r}; "
+                    f"no native text-output Auto interface in transformers=={transformers.__version__}"
+                )
+            class_name, config_key = selection
+            model_kwargs["config"] = getattr(config, config_key) if config_key else config
+            return class_name, "generate", model_kwargs
+        if task_type == "visual-document-retrieval":
+            retrieval_class_name = {"colpali": "ColPaliForRetrieval", "colqwen2": "ColQwen2ForRetrieval"}.get(model_type)
+            if retrieval_class_name is None:
+                raise ValueError(
+                    f"unsupported visual-document-retrieval architecture {model_type!r}; "
+                    "expected colpali or colqwen2"
+                )
+            return retrieval_class_name, "retrieval", model_kwargs
+        return "AutoModelForImageTextToText", "generate", model_kwargs
+
     def load(
         self,
         model_source: str,
@@ -111,51 +160,12 @@ class MultimodalHandler(BaseHandler):
                 from acprof.container.handlers.custom_pipeline import load_custom_pipeline
                 return {**ctx, **load_custom_pipeline(model_source, task_type, device, dtype, spec, attention_options, trust_remote_code=policy["trust_remote_code"])}
         if task_type in _QA_TASKS:
-            pipe = transformers.pipeline(
-                task=task_type, model=model_source, **source_kwargs,
-                device_map="cpu" if device == "cpu" else "auto",
-                torch_dtype=dtype, **attention_options,
+            return self._load_qa(
+                transformers, model_source, task_type, device, dtype, source_kwargs, attention_options, ctx
             )
-            # Supplied word boxes must bypass OCR, including processor OCR.
-            if task_type == "document-question-answering":
-                for component in (getattr(pipe, "image_processor", None), getattr(pipe, "feature_extractor", None)):
-                    if component is not None and hasattr(component, "apply_ocr"):
-                        component.apply_ocr = False
-            return {**ctx, "pipeline": pipe, "model": pipe.model, "mode": "qa"}
-
         config = transformers.AutoConfig.from_pretrained(model_source, **source_kwargs)
         model_type = str(config.model_type)
-        mode = "generate"
-        model_kwargs = {}
-        if task_type == "any-to-any":
-            if model_type != "qwen2_5_omni":
-                raise ValueError(
-                    f"unsupported any-to-any architecture {model_type!r}; "
-                    "expected qwen2_5_omni for text+audio output"
-                )
-            class_name, mode = "Qwen2_5OmniForConditionalGeneration", "omni"
-        elif task_type == "audio-text-to-text":
-            from acprof.models.support import audio_text_loader
-
-            selection = audio_text_loader(transformers.__version__, config.to_dict())
-            if selection is None:
-                raise ValueError(
-                    f"unsupported audio-text-to-text architecture {model_type!r}; "
-                    f"no native text-output Auto interface in transformers=={transformers.__version__}"
-                )
-            class_name, config_key = selection
-            model_kwargs["config"] = getattr(config, config_key) if config_key else config
-        elif task_type == "visual-document-retrieval":
-            retrieval_class_name = {"colpali": "ColPaliForRetrieval", "colqwen2": "ColQwen2ForRetrieval"}.get(model_type)
-            if retrieval_class_name is None:
-                raise ValueError(
-                    f"unsupported visual-document-retrieval architecture {model_type!r}; "
-                    "expected colpali or colqwen2"
-                )
-            class_name = retrieval_class_name
-            mode = "retrieval"
-        else:
-            class_name = "AutoModelForImageTextToText"
+        class_name, mode, model_kwargs = self._model_selection(transformers, task_type, config, model_type)
         model_class = getattr(transformers, class_name, None)
         if model_class is None:
             raise RuntimeError(f"{class_name} is unavailable; rebuild the selected locked multimodal environment")
@@ -176,9 +186,7 @@ class MultimodalHandler(BaseHandler):
         return {**ctx, "model": model, "processor": processor, "model_type": model_type, "mode": mode}
 
     @staticmethod
-    def _params(task: str, value: Any) -> dict[str, Any]:
-        if not isinstance(value, dict):
-            raise ValueError("params must be an object")
+    def _allowed_params(task: str) -> set[str]:
         allowed = {"max_new_tokens", "do_sample"}
         if task in _QA_TASKS:
             allowed |= {"top_k"}
@@ -186,15 +194,10 @@ class MultimodalHandler(BaseHandler):
             allowed |= {"max_answer_len", "max_seq_len", "doc_stride"}
         if task == "any-to-any":
             allowed |= {"talker_max_new_tokens", "speaker", "return_audio", "seed"}
-        if task == "visual-document-retrieval":
-            allowed = set()
-        unknown = set(value) - allowed
-        if unknown:
-            raise ValueError(f"unsupported params for {task}: {', '.join(sorted(unknown))}")
-        params = dict(value)
-        for name in ("max_new_tokens", "talker_max_new_tokens", "top_k", "max_answer_len", "max_seq_len", "doc_stride"):
-            if name in params:
-                params[name] = positive_integer(params[name], name, allow_integral_float=False)
+        return set() if task == "visual-document-retrieval" else allowed
+
+    @staticmethod
+    def _validate_params(params: dict[str, Any]) -> None:
         if "do_sample" in params and params["do_sample"] is not False:
             raise ValueError("do_sample must be false for reproducible multimodal workloads")
         if "speaker" in params and params["speaker"] not in {"Chelsie", "Ethan"}:
@@ -207,6 +210,19 @@ class MultimodalHandler(BaseHandler):
             or not 0 <= params["seed"] < 2**63
         ):
             raise ValueError("seed must be an integer in [0, 2**63)")
+
+    @classmethod
+    def _params(cls, task: str, value: Any) -> dict[str, Any]:
+        if not isinstance(value, dict):
+            raise ValueError("params must be an object")
+        unknown = set(value) - cls._allowed_params(task)
+        if unknown:
+            raise ValueError(f"unsupported params for {task}: {', '.join(sorted(unknown))}")
+        params = dict(value)
+        for name in ("max_new_tokens", "talker_max_new_tokens", "top_k", "max_answer_len", "max_seq_len", "doc_stride"):
+            if name in params:
+                params[name] = positive_integer(params[name], name, allow_integral_float=False)
+        cls._validate_params(params)
         if task != "visual-document-retrieval":
             params.setdefault("max_new_tokens", 64)
             params.setdefault("do_sample", False)
@@ -548,56 +564,58 @@ class MultimodalHandler(BaseHandler):
                 pass
         return {"n_results": len(texts), "output_length": sum(map(len, texts)), "output_token_count": token_count}
 
-    def postprocess(self, model_ctx: dict[str, Any], raw_output: Any) -> dict[str, Any]:
-        task, mode = model_ctx["task_type"], model_ctx["mode"]
-        result = {"task": task}
-        if mode == "custom_pipeline":
-            from acprof.container.handlers.custom_pipeline import pipeline_texts
-            texts = pipeline_texts(model_ctx, raw_output["pipeline_output"])
-            return {**result, "output_type": "text", "texts": texts,
-                    **self._text_summary(getattr(model_ctx["pipeline"], "tokenizer", None), texts)}
-        if mode == "qa":
-            import torch
+    def _postprocess_qa(self, model_ctx: dict[str, Any], raw_output: Any,
+                        result: dict[str, Any]) -> dict[str, Any]:
+        import torch
 
-            pipe = model_ctx["pipeline"]
-            outputs = pipe._ensure_tensor_on_device(raw_output["qa_outputs"], device=torch.device("cpu"))
-            answers = pipe.postprocess(
-                outputs if task == "document-question-answering" else outputs[0],
-                **raw_output["post_params"],
-            )
-            if not isinstance(answers, list) or any(
-                not isinstance(answer, dict)
-                or not isinstance(answer.get("answer"), (str, type(None)))
-                for answer in answers
-            ):
-                raise ValueError("QA output must contain answer records")
-            texts = [answer.get("answer") or "" for answer in answers]
-            return {
-                **result, "output_type": "answers", "answers": answers,
-                **self._text_summary(getattr(pipe, "tokenizer", None), texts),
-            }
-        if mode == "retrieval":
-            scores = _as_numpy(raw_output["scores"])
-            if scores.shape != (1, 1) or not np.isfinite(scores).all():
-                raise ValueError("retrieval scores must be a finite 1x1 matrix")
-            return {
-                **result, "output_type": "retrieval_scores", "scores": scores.tolist(),
-                "n_queries": 1, "n_documents": 1, "n_results": 1,
-                "retrieval_scope": "query_and_document_encoding_plus_scoring",
-            }
-        generated = raw_output["generated"]
-        audio_summary = {}
-        if mode == "omni":
-            if not isinstance(generated, tuple) or len(generated) != 2:
-                raise ValueError("any-to-any requires joint text and audio output")
-            generated, audio = generated
-            waveform = _as_numpy(audio)
-            if waveform.size == 0 or waveform.ndim not in (1, 2) or not np.isfinite(waveform).all():
-                raise ValueError("any-to-any returned invalid or empty audio")
-            audio_summary = {
-                "audio_num_samples": int(waveform.size), "audio_sample_rate": 24000,
-                "audio_duration_s": waveform.size / 24000,
-            }
+        pipe = model_ctx["pipeline"]
+        outputs = pipe._ensure_tensor_on_device(raw_output["qa_outputs"], device=torch.device("cpu"))
+        answers = pipe.postprocess(
+            outputs if model_ctx["task_type"] == "document-question-answering" else outputs[0],
+            **raw_output["post_params"],
+        )
+        if not isinstance(answers, list) or any(
+            not isinstance(answer, dict)
+            or not isinstance(answer.get("answer"), (str, type(None)))
+            for answer in answers
+        ):
+            raise ValueError("QA output must contain answer records")
+        texts = [answer.get("answer") or "" for answer in answers]
+        return {
+            **result, "output_type": "answers", "answers": answers,
+            **self._text_summary(getattr(pipe, "tokenizer", None), texts),
+        }
+
+    @staticmethod
+    def _postprocess_retrieval(raw_output: Any, result: dict[str, Any]) -> dict[str, Any]:
+        scores = _as_numpy(raw_output["scores"])
+        if scores.shape != (1, 1) or not np.isfinite(scores).all():
+            raise ValueError("retrieval scores must be a finite 1x1 matrix")
+        return {
+            **result, "output_type": "retrieval_scores", "scores": scores.tolist(),
+            "n_queries": 1, "n_documents": 1, "n_results": 1,
+            "retrieval_scope": "query_and_document_encoding_plus_scoring",
+        }
+
+    @staticmethod
+    def _omni_summary(generated: Any, mode: str) -> tuple[Any, dict[str, Any]]:
+        if mode != "omni":
+            return generated, {}
+        if not isinstance(generated, tuple) or len(generated) != 2:
+            raise ValueError("any-to-any requires joint text and audio output")
+        generated, audio = generated
+        waveform = _as_numpy(audio)
+        if waveform.size == 0 or waveform.ndim not in (1, 2) or not np.isfinite(waveform).all():
+            raise ValueError("any-to-any returned invalid or empty audio")
+        return generated, {
+            "audio_num_samples": int(waveform.size), "audio_sample_rate": 24000,
+            "audio_duration_s": waveform.size / 24000,
+        }
+
+    def _postprocess_generation(self, model_ctx: dict[str, Any], raw_output: Any,
+                                result: dict[str, Any]) -> dict[str, Any]:
+        mode = model_ctx["mode"]
+        generated, audio_summary = self._omni_summary(raw_output["generated"], mode)
         if hasattr(generated, "sequences"):
             generated = generated.sequences
         if callable(getattr(generated, "detach", None)):
@@ -623,6 +641,20 @@ class MultimodalHandler(BaseHandler):
             **self._text_summary(getattr(processor, "tokenizer", None), texts), **audio_summary,
             **evidence,
         }
+
+    def postprocess(self, model_ctx: dict[str, Any], raw_output: Any) -> dict[str, Any]:
+        mode = model_ctx["mode"]
+        result = {"task": model_ctx["task_type"]}
+        if mode == "custom_pipeline":
+            from acprof.container.handlers.custom_pipeline import pipeline_texts
+            texts = pipeline_texts(model_ctx, raw_output["pipeline_output"])
+            return {**result, "output_type": "text", "texts": texts,
+                    **self._text_summary(getattr(model_ctx["pipeline"], "tokenizer", None), texts)}
+        if mode == "qa":
+            return self._postprocess_qa(model_ctx, raw_output, result)
+        if mode == "retrieval":
+            return self._postprocess_retrieval(raw_output, result)
+        return self._postprocess_generation(model_ctx, raw_output, result)
 
     def get_scale_metadata(self, model_ctx: dict[str, Any], raw_input: dict[str, Any]) -> dict[str, Any]:
         processor = model_ctx.get("processor")
