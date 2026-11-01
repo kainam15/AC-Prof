@@ -69,6 +69,16 @@ VHS 只操作该测试应用，没有向 AC-Prof CLI 添加截图选项。
 
 直接执行 `python3 scripts/render_tui_png_report.py` 即可重新生成带流程视图的离线 HTML；既有 PNG 截图、差异计算、Artifact 与 Pages 发布命令不变。需要真实采集验收时继续使用独立的硬件验证入口，并在受控位置保存证据，不能把它当作 Golden 图片来源。
 
+## 连续 Pilot 跨阶段走查（无真实采集）
+
+`uv run --locked --no-default-groups --group test python scripts/capture_tui_journey.py`
+会在独立的临时配置目录中运行 **同一个 Textual 应用实例**，模拟实际鼠标点击、恢复检查、下载确认、下载进度、正式窗口、完成核验、结果读取与页面切换。测试夹具从不启动真实模型、Docker、下载、计量或 profiler；成功状态通过明确的合成 `RunResult` 注入，不代表生产采集结果已验证。
+
+- 截图放在 `internal-testing/shared/tui-png/journey/`，包含 `zh-wide`（120×36）、`zh-small`（80×24）、`en-small`（80×24）三组可复现的 SVG 和一个 `manifest.json`。每个步骤记录动作、Tab、屏幕、焦点、按钮与布局位置。它们是**每次执行生成的诊断证据**，不是 Golden SVG，不添加到 `tests/visual/__snapshots__/`，也不进入 PNG 像素比较。
+- 现有 HTML 报告的「流程走查」会把连续 Pilot 截图按顺序展示，并在「覆盖矩阵」标明每个检查点的新截图数量；若未执行走查，报告必须标注证据不可用。合成截图不得与真实采集的通过证据混同。
+- `tests/tui/workflows/test_tui_visual_journey.py` 提供交互回归，核验 80×24 下的实际按钮点击、任务执行时配置锁定、窗口结束后停留监控页，以及点击结果页后的成功 CSV 读取。测试同时说明：**新目录直接启动监控；已有实验目录才显示恢复检查弹窗**。
+- TUI PNG Visual 工作流会在生成 HTML 之前自动采集这些纯合成截图；可公开的报告仅嵌入经过固定场景身份校验的证据，不接受任意路径、当前项目日志或真实实验目录。任何真实模型及硬件验收仍使用原有独立入口。
+
 ## 长期维护的 Golden PNG
 
 仓库将人工审阅的基线保存在 `tests/visual_png/__snapshots__/*.png`：

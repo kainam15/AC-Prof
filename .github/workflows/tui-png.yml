@@ -17,6 +17,11 @@ on:
       - 'scripts/smoke_tui_png_environment.py'
       - 'scripts/compare_tui_png.py'
       - 'scripts/render_tui_png_report.py'
+      - 'scripts/capture_tui_journey.py'
+      - 'scripts/tui_journey_contract.py'
+      - 'scripts/tui_journey_report.py'
+      - 'tests/tui/workflows/visual_journey.py'
+      - 'tests/tui/workflows/test_tui_visual_journey.py'
       - 'scripts/tui_flow_catalog.py'
       - 'scripts/tui_flow_report.py'
       - '.github/workflows/tui-png.yml'
@@ -35,6 +40,11 @@ on:
       - 'scripts/smoke_tui_png_environment.py'
       - 'scripts/compare_tui_png.py'
       - 'scripts/render_tui_png_report.py'
+      - 'scripts/capture_tui_journey.py'
+      - 'scripts/tui_journey_contract.py'
+      - 'scripts/tui_journey_report.py'
+      - 'tests/tui/workflows/visual_journey.py'
+      - 'tests/tui/workflows/test_tui_visual_journey.py'
       - 'scripts/tui_flow_catalog.py'
       - 'scripts/tui_flow_report.py'
       - '.github/workflows/tui-png.yml'
@@ -111,6 +121,14 @@ jobs:
           TZ: UTC
           PYTHONHASHSEED: '0'
         run: uv run --locked --no-default-groups --group test python -m pytest tests/visual_png -v
+      - name: Capture continuous synthetic TUI Pilot journey
+        if: always()
+        run: |
+          if [ -x .venv/bin/python ]; then
+            uv run --locked --no-default-groups --group test python scripts/capture_tui_journey.py
+          else
+            echo 'Test environment unavailable; journey evidence not generated.'
+          fi
       - name: Render standalone HTML comparison report
         if: always()
         run: python3 scripts/render_tui_png_report.py
@@ -127,6 +145,8 @@ jobs:
             internal-testing/shared/tui-png/diff/**/*.png
             internal-testing/shared/tui-png/report.html
             internal-testing/shared/tui-png/report.json
+            internal-testing/shared/tui-png/journey/manifest.json
+            internal-testing/shared/tui-png/journey/**/*.svg
             tests/visual_png/__snapshots__/*.png
           if-no-files-found: warn
       # Prepare a public, standalone viewer only for main. Keep PR evidence in
