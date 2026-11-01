@@ -48,12 +48,21 @@ def render_journey(actual: Path) -> tuple[str, dict[str, int]]:
         for number, step in enumerate(scenario["steps"], 1):
             counts[step["checkpoint"]] = counts.get(step["checkpoint"], 0) + 1
             path = folder / step["image"]
-            svg = base64.b64encode(path.read_bytes()).decode("ascii")
+            preview = step.get("preview")
+            if preview:
+                path = folder / preview
+            data = base64.b64encode(path.read_bytes()).decode("ascii")
+            mime = "image/png" if preview else "image/svg+xml"
+            caption = (
+                "合成 Pilot PNG（Noto CJK）· 非 Golden 基准"
+                if preview
+                else "合成 Pilot SVG 诊断 · 非 Golden 基准"
+            )
             image = (
                 '<figure class="flow-thumb">'
-                "<figcaption>合成 Pilot 证据 · 非 Golden 基准</figcaption>"
+                f"<figcaption>{caption}</figcaption>"
                 f'<img loading="lazy" alt="{_safe(step["id"])}" '
-                f'src="data:image/svg+xml;base64,{svg}"></figure>'
+                f'src="data:{mime};base64,{data}"></figure>'
             )
             cards.append(
                 f'<article class="pilot-step" id="pilot-step-{_safe(scenario["id"])}-{_safe(step["id"])}">'

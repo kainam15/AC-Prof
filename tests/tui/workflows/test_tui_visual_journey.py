@@ -52,3 +52,17 @@ async def test_fresh_experiment_starts_without_a_confirmation_modal(tmp_path):
             assert app.screen.id == "_default"
             assert app.query_one("#main-tabs", TabbedContent).active == "monitor-tab"
             execute.assert_called_once()
+
+
+async def test_pilot_evidence_uses_noto_svg_and_keeps_ansi_for_png(tmp_path):
+    frames = tmp_path / "frames"
+    await exercise_journey(
+        workspace=tmp_path / "workspace", size=(80, 24), language="zh", capture=frames
+    )
+    svg = (frames / "configuration.svg").read_text(encoding="utf-8")
+    ansi = (frames / "configuration.ansi").read_bytes()
+    assert 'font-family: "Noto Sans Mono CJK SC", monospace;' in svg
+    assert "Fira Code" not in svg
+    assert "cdnjs.cloudflare.com" not in svg
+    assert b"\x1b[?25l" in ansi
+    assert "实验配置".encode() in ansi

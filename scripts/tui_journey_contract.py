@@ -87,7 +87,11 @@ def load_manifest(folder: Path) -> dict | None:
                 "regions",
                 "terminal",
             }
-            if not isinstance(row, dict) or set(row) != required:
+            if (
+                not isinstance(row, dict)
+                or not required.issubset(row)
+                or set(row) - required not in (set(), {"preview"})
+            ):
                 raise ValueError("synthetic Pilot step schema mismatch")
             step = row["id"]
             if (
@@ -111,6 +115,18 @@ def load_manifest(folder: Path) -> dict | None:
                 or b"<svg" not in path.read_bytes()[:3000]
             ):
                 raise ValueError("invalid/missing synthetic Pilot image")
+            if "preview" in row:
+                preview = f"{name}/{step}.png"
+                if row["preview"] != preview:
+                    raise ValueError("unsafe synthetic Pilot preview path")
+                image = folder / name / f"{step}.png"
+                if (
+                    not image.is_file()
+                    or image.is_symlink()
+                    or image.stat().st_size > 2_000_000
+                    or not image.read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
+                ):
+                    raise ValueError("invalid/missing synthetic Pilot PNG preview")
             if (
                 row["terminal"] not in (list(size), [80, 24])
                 or row["page"] not in {"run-tab", "monitor-tab", "results-tab"}

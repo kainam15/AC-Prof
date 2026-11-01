@@ -11,6 +11,7 @@ from dataclasses import replace
 from pathlib import Path
 from unittest.mock import Mock, patch
 
+from rich.console import Console
 from textual.widgets import Button, Input, Static, TabbedContent
 
 from acprof.events.download import DownloadProgress
@@ -20,6 +21,7 @@ from acprof.tui.run.recovery_controller import RecoveryScreen
 from acprof.tui.run.results import RunResult
 from acprof.tui.run.stages import Stage
 from acprof.tui.ui.progress_widgets import DownloadProgressPanel
+from scripts.tui_pilot_font import use_cjk_svg_font
 from tests.support.tui_fixtures import AcprofTui
 
 
@@ -102,7 +104,31 @@ async def exercise_journey(
                 records.append(entry)
                 if capture is not None:
                     capture.mkdir(parents=True, exist_ok=True)
-                    app.save_screenshot(filename=filename, path=str(capture))
+                    svg_path = Path(app.save_screenshot(filename=filename, path=str(capture)))
+                    svg_path.write_text(
+                        use_cjk_svg_font(svg_path.read_text(encoding="utf-8")), encoding="utf-8"
+                    )
+                    # Keep a faithful ANSI rendering of this same Pilot state.
+                    # VHS/xterm.js renders it with the fixed Noto font; rasterizing
+                    # Rich SVG directly still suffers from SVG textLength CJK drift.
+                    terminal = io.StringIO()
+                    console = Console(
+                        width=pilot.app.size.width,
+                        height=pilot.app.size.height,
+                        file=terminal,
+                        force_terminal=True,
+                        color_system="truecolor",
+                        legacy_windows=False,
+                        safe_box=False,
+                    )
+                    console.print(
+                        app.screen._compositor.render_update(
+                            full=True, screen_stack=app._background_screens
+                        )
+                    )
+                    svg_path.with_suffix(".ansi").write_bytes(
+                        ("\x1b[?25l" + terminal.getvalue().rstrip("\n")).encode("utf-8")
+                    )
 
             assert tabs.active == "run-tab"
             await record("configuration", "entered experiment configuration")

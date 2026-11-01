@@ -23,7 +23,7 @@ DEFAULT = ROOT / "internal-testing/shared/tui-png/journey"
 from scripts.tui_journey_contract import CHECKPOINTS, SCENARIOS  # noqa: E402
 
 
-async def capture(output: Path) -> Path:
+async def capture(output: Path, *, png_preview: bool = False) -> Path:
     output.mkdir(parents=True, exist_ok=True)
     manifest = output / "manifest.json"
     manifest.unlink(missing_ok=True)
@@ -46,6 +46,10 @@ async def capture(output: Path) -> Path:
             {"id": scenario, "language": language, "terminal": list(size), "steps": rows}
         )
         print(f"{scenario}: {len(rows)} checkpoints, no real subprocess", flush=True)
+    if png_preview:
+        from scripts.tui_pilot_png import capture_pilot_previews
+
+        capture_pilot_previews(output, scenarios)
     document = {
         "schema_version": 1,
         "fixture": "synthetic-pilot",
@@ -63,8 +67,13 @@ async def capture(output: Path) -> Path:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, default=DEFAULT)
+    parser.add_argument(
+        "--png-preview",
+        action="store_true",
+        help="Render Noto CJK PNG previews with existing headless VHS tooling",
+    )
     args = parser.parse_args()
-    print(asyncio.run(capture(args.output.resolve())))
+    print(asyncio.run(capture(args.output.resolve(), png_preview=args.png_preview)))
 
 
 if __name__ == "__main__":

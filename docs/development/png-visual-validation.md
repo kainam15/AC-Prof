@@ -74,10 +74,11 @@ VHS 只操作该测试应用，没有向 AC-Prof CLI 添加截图选项。
 `uv run --locked --no-default-groups --group test python scripts/capture_tui_journey.py`
 会在独立的临时配置目录中运行 **同一个 Textual 应用实例**，模拟实际鼠标点击、恢复检查、下载确认、下载进度、正式窗口、完成核验、结果读取与页面切换。测试夹具从不启动真实模型、Docker、下载、计量或 profiler；成功状态通过明确的合成 `RunResult` 注入，不代表生产采集结果已验证。
 
-- 截图放在 `internal-testing/shared/tui-png/journey/`，包含 `zh-wide`（120×36）、`zh-small`（80×24）、`en-small`（80×24）三组可复现的 SVG 和一个 `manifest.json`。每个步骤记录动作、Tab、屏幕、焦点、按钮与布局位置。它们是**每次执行生成的诊断证据**，不是 Golden SVG，不添加到 `tests/visual/__snapshots__/`，也不进入 PNG 像素比较。
+- 截图放在 `internal-testing/shared/tui-png/journey/`，包含 `zh-wide`（120×36）、`zh-small`（80×24）、`en-small`（80×24）三组可复现的 SVG、ANSI 终端状态与一个 `manifest.json`。每个步骤记录动作、Tab、屏幕、焦点、按钮与布局位置。它们是**每次执行生成的诊断证据**，不是 Golden SVG，不添加到 `tests/visual/__snapshots__/`，也不进入 PNG 像素比较。
+- 使用 `--png-preview` 时，复用现有 VHS/xterm.js 与 `Noto Sans Mono CJK SC` 从同一实例的 ANSI 状态生成清晰的 PNG 预览（不启动真实采集）；HTML 优先显示 PNG，SVG 留作诊断。Rich 原生 SVG 的字体默认是 Fira Code，且其 CJK `textLength` 在浏览器的 `<img>` 中可能挤压字符，单纯替换字体无法保证排版。生成的诊断 SVG 也会改为引用本机 Noto 字体，不再请求 Fira Code CDN，但不以此代替 PNG 验收。对走查过程中动态变为 80×24 的检查点，使用独立终端尺寸生成 PNG，避免错用宽屏图。缺少 VHS 时仍能运行不带该选项的原有 Pilot 测试；正式运行和普通 pytest 不需要 VHS。
 - 现有 HTML 报告的「流程走查」会把连续 Pilot 截图按顺序展示，并在「覆盖矩阵」标明每个检查点的新截图数量；若未执行走查，报告必须标注证据不可用。合成截图不得与真实采集的通过证据混同。
 - `tests/tui/workflows/test_tui_visual_journey.py` 提供交互回归，核验 80×24 下的实际按钮点击、任务执行时配置锁定、窗口结束后停留监控页，以及点击结果页后的成功 CSV 读取。测试同时说明：**新目录直接启动监控；已有实验目录才显示恢复检查弹窗**。
-- TUI PNG Visual 工作流会在生成 HTML 之前自动采集这些纯合成截图；可公开的报告仅嵌入经过固定场景身份校验的证据，不接受任意路径、当前项目日志或真实实验目录。任何真实模型及硬件验收仍使用原有独立入口。
+- TUI PNG Visual 工作流会在生成 HTML 之前以 `--png-preview` 自动采集这些纯合成截图和 Noto PNG 预览；可公开的报告仅嵌入经过固定场景身份校验的证据，不接受任意路径、当前项目日志或真实实验目录。任何真实模型及硬件验收仍使用原有独立入口。
 
 ## 长期维护的 Golden PNG
 

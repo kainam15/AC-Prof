@@ -19,6 +19,8 @@ on:
       - 'scripts/render_tui_png_report.py'
       - 'scripts/tui_png_review_ui.py'
       - 'scripts/capture_tui_journey.py'
+      - 'scripts/tui_pilot_png.py'
+      - 'scripts/tui_pilot_font.py'
       - 'scripts/tui_journey_contract.py'
       - 'scripts/tui_journey_report.py'
       - 'tests/tui/workflows/visual_journey.py'
@@ -43,6 +45,8 @@ on:
       - 'scripts/render_tui_png_report.py'
       - 'scripts/tui_png_review_ui.py'
       - 'scripts/capture_tui_journey.py'
+      - 'scripts/tui_pilot_png.py'
+      - 'scripts/tui_pilot_font.py'
       - 'scripts/tui_journey_contract.py'
       - 'scripts/tui_journey_report.py'
       - 'tests/tui/workflows/visual_journey.py'
@@ -127,7 +131,7 @@ jobs:
         if: always()
         run: |
           if [ -x .venv/bin/python ]; then
-            uv run --locked --no-default-groups --group test python scripts/capture_tui_journey.py
+            uv run --locked --no-default-groups --group test python scripts/capture_tui_journey.py --png-preview
           else
             echo 'Test environment unavailable; journey evidence not generated.'
           fi
@@ -149,6 +153,7 @@ jobs:
             internal-testing/shared/tui-png/report.json
             internal-testing/shared/tui-png/journey/manifest.json
             internal-testing/shared/tui-png/journey/**/*.svg
+            internal-testing/shared/tui-png/journey/**/*.png
             tests/visual_png/__snapshots__/*.png
           if-no-files-found: warn
       # Prepare a public, standalone viewer only for main. Keep PR evidence in

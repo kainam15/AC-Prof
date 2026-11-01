@@ -6,9 +6,12 @@ import json
 from pathlib import Path
 
 import pytest
+from PIL import Image
+from rich.console import Console
 
 from scripts.render_tui_png_report import render_report
 from scripts.tui_journey_contract import CHECKPOINTS, SCENARIOS, load_manifest
+from scripts.tui_pilot_font import use_cjk_svg_font
 
 STEPS = (
     "configuration",
@@ -123,3 +126,56 @@ def test_manifest_cannot_claim_real_collection_execution(tmp_path):
     (folder / "manifest.json").write_text(json.dumps(document))
     with pytest.raises(ValueError, match="invalid synthetic Pilot manifest identity"):
         render_report(actual=tmp_path)
+
+
+def test_rich_svg_font_override_is_cjk_and_offline():
+    console = Console(record=True, width=40)
+    console.print("中文 CJK glyphs")
+    patched = use_cjk_svg_font(console.export_svg())
+    assert 'font-family: "Noto Sans Mono CJK SC", monospace;' in patched
+    assert 'font-family: "Fira Code";' not in patched
+    assert "cdnjs.cloudflare.com" not in patched
+    assert "中文" in patched
+
+
+def test_pilot_png_previews_take_priority_over_svg(tmp_path):
+    folder = make_synthetic_manifest(tmp_path)
+    preview = folder / "zh-wide/configuration.png"
+    Image.new("RGB", (100, 50), "white").save(preview)
+    doc = json.loads((folder / "manifest.json").read_text(encoding="utf-8"))
+    doc["scenarios"][0]["steps"][0]["preview"] = "zh-wide/configuration.png"
+    (folder / "manifest.json").write_text(json.dumps(doc), encoding="utf-8")
+    html = render_report(actual=tmp_path).read_text(encoding="utf-8")
+    assert "合成 Pilot PNG（Noto CJK）" in html
+    assert "data:image/png;base64," in html
+    assert 'id="pilot-step-zh-wide-configuration"' in html
+
+
+def test_untrusted_pilot_png_reference_is_rejected(tmp_path):
+    folder = make_synthetic_manifest(tmp_path)
+    doc = json.loads((folder / "manifest.json").read_text(encoding="utf-8"))
+    doc["scenarios"][0]["steps"][0]["preview"] = "../../private.png"
+    (folder / "manifest.json").write_text(json.dumps(doc), encoding="utf-8")
+    with pytest.raises(ValueError, match="unsafe synthetic Pilot preview path"):
+        render_report(actual=tmp_path)
+
+
+def test_pilot_png_renderer_uses_exact_dimensions_for_resized_steps(tmp_path):
+    from unittest.mock import call, patch
+
+    from scripts.tui_pilot_png import capture_pilot_previews
+
+    steps = [
+        {"id": "configuration", "terminal": [120, 36]},
+        {"id": "results-small", "terminal": [80, 24]},
+    ]
+    scenarios = [{"id": "zh-wide", "terminal": [120, 36], "steps": steps}]
+    with (
+        patch("scripts.tui_pilot_png.check_capture_prerequisites"),
+        patch("scripts.tui_pilot_png._capture_size") as capture_size,
+    ):
+        capture_pilot_previews(tmp_path, scenarios)
+    assert capture_size.call_args_list == [
+        call(tmp_path, "zh-wide", (120, 36), [steps[0]]),
+        call(tmp_path, "zh-wide", (80, 24), [steps[1]]),
+    ]
