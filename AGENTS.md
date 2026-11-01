@@ -59,6 +59,7 @@ AC-Prof 用于对来自 Hugging Face 和 ModelScope 的模型推理工作负载�
 - 禁止直接在 main 上开发、修改或提交代码。 main 仅用于集成已完成且通过验证的任务。
 - 完成开发后按逻辑主题拆分 commit，避免把无关修改混入同一个提交。
 - **Git 提交信息统一遵循 `.github/commit-message.instructions.md`**
+- 当 Merge 需要创建 Merge Commit 时，不要使用 Git 自动生成的 `Merge branch '...' into '...'` 等默认消息，应该遵循  `.github/commit-message.instructions.md`
 - 除非用户另有要求，任务完成并通过与改动相称的验证后，默认将本次任务的提交整合到本地 `main`，优先使用 `git merge --ff-only`；确认提交已纳入 `main` 后，清理本任务的临时工作树并删除已合并的任务分支，无需再次确认。清理前保留需要的验证记录，保护其他任务的工作树和未提交改动，最后需要汇报分支清理情况。
 
 ## 文档
