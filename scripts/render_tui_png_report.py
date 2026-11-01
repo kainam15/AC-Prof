@@ -12,10 +12,15 @@ import base64
 import html
 import json
 import re
+import sys
 from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+
+from scripts.tui_flow_report import FLOW_SCRIPT, FLOW_STYLE, render_flow_report  # noqa: E402
+
 ACTUAL = ROOT / "internal-testing" / "shared" / "tui-png"
 BASELINES = ROOT / "tests" / "visual_png" / "__snapshots__"
 SCENE_NAME = re.compile(r"[a-z0-9][a-z0-9-]*\Z")
@@ -68,6 +73,10 @@ for (const button of document.querySelectorAll('[data-filter]')) {
   });
 }
 """
+
+
+STYLE += FLOW_STYLE
+SCRIPT += FLOW_SCRIPT
 
 
 def _escape(value: object) -> str:
@@ -169,6 +178,11 @@ def render_report(
         )
     elif not rows:
         cards = '<div class="notice" role="alert">No scene results were recorded.</div>'
+    workflow, coverage, svg_gallery = render_flow_report(
+        actual=actual,
+        baselines=baselines,
+        png_results=rows,
+    )
     filters = (
         f'<nav class="filters" aria-label="Filter scenes">'
         f'<button type="button" data-filter="all" aria-pressed="true">All ({count})</button>'
@@ -197,10 +211,22 @@ def render_report(
     <div class="count"><strong>{failed}</strong><span>Changed / unavailable</span></div>
   </div>
 </header>
+<nav class="view-tabs" aria-label="Report views">
+  <button type="button" data-report-view="workflow" aria-pressed="true">流程走查</button>
+  <button type="button" data-report-view="visual" aria-pressed="false">视觉对比</button>
+  <button type="button" data-report-view="coverage" aria-pressed="false">覆盖矩阵</button>
+</nav>
+<section class="view-panel" data-view-panel="workflow">{workflow}</section>
+<section class="view-panel" data-view-panel="visual" hidden>
+<h2>PNG 基准对比</h2>
+<p class="flow-note">PNG 状态来自本次 report.json；SVG 属于历史基准，不能用它推断 SVG CI 通过。</p>
 {filters}
 {cards}
+{svg_gallery}
+</section>
+<section class="view-panel" data-view-panel="coverage" hidden>{coverage}</section>
 <footer>Comparison decisions come from report.json. Images are embedded for offline review.
-The report does not approve or update baselines.</footer>
+The report does not approve or update baselines. Flow evidence indexes do not imply test execution.</footer>
 </main>
 <script>{SCRIPT}</script>
 </body>

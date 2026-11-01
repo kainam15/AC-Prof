@@ -58,6 +58,17 @@ Graphite 主题、UTC、固定测试数据与隔离的临时 HOME/缓存。
 不会解析下载模型、联系外部服务、采样真实硬件或写入正式实验结果。
 VHS 只操作该测试应用，没有向 AC-Prof CLI 添加截图选项。
 
+## 全流程走查与覆盖矩阵
+
+现有 SVG、PNG 与交互测试通过 [流程场景索引](../../tests/visual/flow_catalog.json) 汇总，不新增平行截图框架：
+
+- `tests/visual/flow_catalog.json` 定义五个主页面及按采集阶段排列的检查点，标注触发条件、预期状态、可选/异常路径，并引用现有 PNG、SVG 与 Pilot 测试文件；索引由 `scripts/tui_flow_catalog.py` 校验。新增并纳入 Git 的 SVG 自动出现在图库中，未关联场景会明确提示；未跟踪的本地截图不会公开。
+- `scripts/render_tui_png_report.py` 仍以 `report.json` 作为**唯一 PNG 比较结论**来源。在原有 HTML 中加入「流程走查」「视觉对比」「覆盖矩阵」三个视图；视觉对比同时展示现有 PNG 差异和只读 SVG 基准图库。没有 `report.json` 时必须显示「未比较」，不能推断通过。SVG 通过情况仍由独立的 SVG CI 决定。
+- 流程检查点的测试文件只表示**可追溯的交互测试入口**，不代表这些测试已在本次运行通过；缺少固定截图的节点会列为视觉覆盖缺口。只有高价值稳定场景才需要增加长期 Golden。
+- 所有嵌入网页的截图仅来自受版本控制的 `tests/visual*/__snapshots__/` 或现有隔离 PNG 夹具输出；报告不读取真实采集日志、实验结果、用户配置或密钥。GitHub Pages 是公开网站，禁止将真实运行证据合并到自动发布的报告中。
+
+直接执行 `python3 scripts/render_tui_png_report.py` 即可重新生成带流程视图的离线 HTML；既有 PNG 截图、差异计算、Artifact 与 Pages 发布命令不变。需要真实采集验收时继续使用独立的硬件验证入口，并在受控位置保存证据，不能把它当作 Golden 图片来源。
+
 ## 长期维护的 Golden PNG
 
 仓库将人工审阅的基线保存在 `tests/visual_png/__snapshots__/*.png`：
