@@ -355,7 +355,7 @@ cgroup CPU/内存、actual workload、输出验证和能力状态。合成图只
 真实 ORT、WordPiece tokenizer、HTTP probe 与既有规划器的联合回归还覆盖超限拒绝和自动尺度规划。
 真实 HTTP 回归还验证异步等待、后台失败、超时及请求内不执行输出验证。
 服务只发布 loopback 端口，不使用 privileged、Docker socket 挂载或硬件 runner；完成或失败后
-清理本次容器。`.github/workflows/hardware.yml` 每周自动运行固定矩阵，也可在 main 上手动执行；Release 的同提交证据门禁不接受缺失的 GPU/能耗/perf 指标。
+清理本次容器。`.github/workflows/hardware.yml` 当前仅支持在 main 上手动执行固定矩阵，定期周检暂停；Release 的同提交证据门禁不接受缺失的 GPU/能耗/perf 指标。
 
 两个预训练小模型可另行验证；第一步联网准备，第二步在同一无 Torch 环境断网执行。
 以下目录需尚未存在或为空，重复检查请换新目录：
