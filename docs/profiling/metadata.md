@@ -206,7 +206,8 @@ ModelScope SDK 未暴露的存储链、未观察到的本地缓存原始地址�
 
 | code | 观察值与边界 |
 | --- | --- |
-| `cpu_idle_baseline_unstable` / `gpu_idle_baseline_unstable` | 该 case 的空闲功率 `(max-min)/mean`，无量纲；保存原始 W 样本与现有阈值，不改变能耗公式或采样窗口 |
+| `cpu_idle_baseline_unstable` / `gpu_idle_baseline_unstable` | 该 case 正式行（`warmup=0`）的空闲功率 `(max-min)/mean`，无量纲；保存正式 W 样本与现有 5% 阈值，不改变能耗公式或采样窗口 |
+| `cpu_idle_baseline_insufficient_samples` / `gpu_idle_baseline_insufficient_samples` | 正式基线少于 2 条，无法判断跨窗口漂移；observed 为正式样本数，threshold 为 2，质量保持 unknown |
 | `weights_reinitialized` | Transformers loading info 的 missing/mismatched keys；threshold 为 0 个 key |
 | `unused_checkpoint_weights` | loading info 的 unexpected keys；保留 loader 来源，不根据告警文本归类 |
 | `missing_cli_exit_code` | process return code 为 null；threshold 表示需要进程退出证据 |
@@ -214,6 +215,9 @@ ModelScope SDK 未暴露的存储链、未观察到的本地缓存原始地址�
 加载质量在独立 probe 的 `devices.<device>.quality_checks` 中保存，case 能耗质量在窗口结束后
 写入 case sidecar。资源矩阵退出时（包括中途失败或取消）保存根目录 `quality_checks.json`；失败的 probe 仍可由 audit 直接读取。
 quality 数据不进入 capability evidence；普通 warning 不改变 `full_profile_complete=true`。
+新写入的 case 能耗质量 evidence 通过 `scope=formal`、`sample_count` 和
+`excluded_warmup_rows` 明确统计范围；warmup 原始记录继续保留。未注明 scope 的历史证据
+保持原样，不推断为仅正式行，也不自动重算。少于两条正式基线不会以零极差报告稳定。
 兼容性报告据此区分 `full_success` 与 `full_success_with_warnings`。
 审计和质量消费者只读取不超过 4 MiB 的 UTF-8 JSON 对象，并拒绝 NaN、Infinity 和溢出为无穷值的数字。
 损坏的运行元数据记为 `invalid_metadata` error；损坏的 canonical quality evidence 记为

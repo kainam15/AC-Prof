@@ -165,13 +165,18 @@ J/request，避免改变旧结果含义；新增 DRAM 明确区分 window 与 pe
 
 ### CPU idle baseline 波动 warning
 
-- `cpu_idle_power_w` 的 case 级相对极差达到或超过 5% 时，case 结束后会输出 warning，实验继续运行。常见原因是 host 后台进程、IDE/远程桌面、Docker 其他容器、系统索引或 CPU 温度/频率策略变化。
+正式基线至少需要 2 条才能比较跨窗口漂移；不足时记录 `*_idle_baseline_insufficient_samples`
+warning，质量保持 unknown，不能用 warmup 补足样本数。通过相对极差检查也不代表已证明
+物理测量精度或统计置信度。CPU/GPU 检查均在窗口结束后运行；完整 case 的非法 formal
+标记或非正、非有限基线仍会报错，中断 case 只按原有规则排除 error 行。
+
+- `cpu_idle_power_w` 仅使用该 case 的正式行（`warmup=0`）计算相对极差；达到或超过 5% 时，case 结束后会输出 warning，实验继续运行。warmup 保留为原始诊断，不参与正式质量判断。常见原因是 host 后台进程、IDE/远程桌面、Docker 其他容器、系统索引或 CPU 温度/频率策略变化。
 - 可先增大 `--idle-cooldown-seconds` 让上一轮 workload 的瞬态结束；如果单次 idle 窗口本身仍然抖动，再增大 `--idle-seconds`。同时关闭非必要后台进程，并检查 `static_meta.json` 中的 `cpu_governor` / `cpu_boost` 是否符合实验设置。
 - 需要定位具体时间点和进程时，加 `--idle-debug` 重跑；优先查看 `debug/idle/<case-id>.jsonl`（旧目录为 `debug_idle_diag/result_case_*.csv.idle_diag.jsonl`） 中同一 row 的 `rapl_trace.top_power_windows`、`idle_host_active_delta_s`、`idle_container_cpu_delta_s`，再结合 control window 结束后采集的 loadavg、top CPU processes 和 Docker 快照。`idle_proc_cpu_top` 在 matched control 模式下保持为空，避免 `/proc` 全量遍历进入 baseline 能量。
 
 ### GPU idle baseline 波动 warning
 
-- `gpu_idle_power_w` 的 case 级相对极差达到或超过 5% 时，case 结束后会输出 warning，实验继续运行。常见原因是桌面显示栈、其他 GPU 进程、P-state/clock 调整、温度或电源管理状态变化。
+- `gpu_idle_power_w` 仅使用 GPU-on case 的正式行计算相对极差；达到或超过 5% 时，case 结束后会输出 warning，实验继续运行。样本不足与 warmup 排除规则同 CPU。常见原因是桌面显示栈、其他 GPU 进程、P-state/clock 调整、温度或电源管理状态变化。
 - 可先增大 `--idle-cooldown-seconds`，等待上一轮 workload 后的 GPU clock/power 状态回落；如果 idle trace 内部仍抖动，再增大 `--idle-seconds`。
 - 需要定位具体时间点和进程时，加 `--idle-debug` 重跑；优先查看同一 row 的 `gpu_idle_power_samples`、`nvidia_smi_gpu`、`nvidia_smi_pmon` 和 `nvidia_smi_compute_apps`。
 
