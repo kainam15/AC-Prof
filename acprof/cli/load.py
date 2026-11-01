@@ -1,4 +1,4 @@
-"""在新容器中重放源实验，执行独立的非流式 HTTP 负载协议。"""
+"""Replay a source experiment or measure an existing OpenAI-compatible streaming service."""
 from __future__ import annotations
 
 import argparse
@@ -102,8 +102,8 @@ def _read_source_input_entry(
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("source", type=Path, help="已完成的正式实验目录")
-    parser.add_argument("--gpu", choices=("off", "on"), required=True)
+    parser.add_argument("source", type=Path, nargs="?", help="已完成的正式实验目录")
+    parser.add_argument("--gpu", choices=("off", "on"))
     parser.add_argument("--cpu", type=int)
     parser.add_argument("--mem", type=int)
     parser.add_argument("--input-scale", type=float)
@@ -116,10 +116,19 @@ def main(argv=None):
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--max-pending", type=int, default=1024)
     parser.add_argument("--warmup", type=int, default=5)
-    parser.add_argument("--capture", action="store_true", help="保存并校验 PCAP；reuse 自动启用")
+    parser.add_argument("--capture", action="store_true", help="Source replay: save and validate PCAP; reuse enables capture")
     parser.add_argument("--output-dir", type=Path, required=True)
+    from acprof.cli.streaming_load import (
+        add_streaming_arguments,
+        run_streaming_load,
+        validate_replay_arguments,
+    )
+    add_streaming_arguments(parser)
     args = parser.parse_args(argv)
+    if args.base_url is not None:
+        return run_streaming_load(args, parser)
     try:
+        validate_replay_arguments(args)
         bootstrap_project_env(Path.cwd())
         args.source = resolve_single_result_source(args.source).resolve()
         state = load_run_state(args.source)

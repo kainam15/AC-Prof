@@ -39,6 +39,10 @@ dependencies = [
     "psutil>=7.2,<8",
 ]
 
+[project.optional-dependencies]
+# Streaming uses stdlib HTTP; only local tokenizer fallback needs this extra.
+streaming-tokenizer = ["tokenizers>=0.21,<1"]
+
 [dependency-groups]
 # `uv sync` prepares the complete everyday development environment.
 dev = [
