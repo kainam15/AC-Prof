@@ -258,7 +258,8 @@ def audit_result(source: str | Path, *, result_snapshot: ResultCsvSnapshot | Non
     if not report["failures"]:
         prep_status = preparation.get("status")
         if prep_status in {"failed", "cancelled"}:
-            prep_exc = preparation.get("exception") if isinstance(preparation.get("exception"), dict) else {}
+            prep_exception = preparation.get("exception")
+            prep_exc = prep_exception if isinstance(prep_exception, dict) else {}
             issue(
                 preparation.get("reason_code") or f"preparation_{prep_status}",
                 prep_exc.get("message") or f"preparation {prep_status}",

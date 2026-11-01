@@ -240,14 +240,18 @@ def report_results(sources: list[Path], output: Path) -> dict:
         interface = read("interface_validation.json")
         state = read("run_state.json")
         invalid_names = {problem["evidence"]["artifact_name"] for problem in invalid}
-        if not resolution and "model_resolution.json" not in invalid_names and isinstance(metadata.get("model_resolution"), dict):
-            resolution = metadata["model_resolution"]
-        if not capability and "capability_report.json" not in invalid_names and isinstance(metadata.get("capability_report"), dict):
-            capability = metadata["capability_report"]
-        if not validation and "runtime_validation.json" not in invalid_names and isinstance(metadata.get("runtime_validation"), dict):
-            validation = metadata["runtime_validation"]
-        if not interface and "interface_validation.json" not in invalid_names and isinstance(resolution.get("interface_validation"), dict):
-            interface = resolution["interface_validation"]
+        recorded_resolution = metadata.get("model_resolution")
+        if not resolution and "model_resolution.json" not in invalid_names and isinstance(recorded_resolution, dict):
+            resolution = recorded_resolution
+        recorded_capability = metadata.get("capability_report")
+        if not capability and "capability_report.json" not in invalid_names and isinstance(recorded_capability, dict):
+            capability = recorded_capability
+        recorded_validation = metadata.get("runtime_validation")
+        if not validation and "runtime_validation.json" not in invalid_names and isinstance(recorded_validation, dict):
+            validation = recorded_validation
+        recorded_interface = resolution.get("interface_validation")
+        if not interface and "interface_validation.json" not in invalid_names and isinstance(recorded_interface, dict):
+            interface = recorded_interface
         preparation = {}
         attempts = state.get("attempts")
         if isinstance(attempts, list) and attempts and isinstance(attempts[-1], dict):
@@ -257,9 +261,12 @@ def report_results(sources: list[Path], output: Path) -> dict:
         if not any((metadata, resolution, capability, validation, failure_report, interface, state, invalid)):
             raise ValueError(f"No recorded compatibility evidence: {source}")
 
-        provenance = resolution.get("provenance") if isinstance(resolution.get("provenance"), dict) else {}
-        sources_map = provenance.get("sources") if isinstance(provenance.get("sources"), dict) else {}
-        snapshot = sources_map.get("repository_snapshot") if isinstance(sources_map.get("repository_snapshot"), dict) else {}
+        recorded_provenance = resolution.get("provenance")
+        provenance = recorded_provenance if isinstance(recorded_provenance, dict) else {}
+        recorded_sources = provenance.get("sources")
+        sources_map = recorded_sources if isinstance(recorded_sources, dict) else {}
+        recorded_snapshot = sources_map.get("repository_snapshot")
+        snapshot = recorded_snapshot if isinstance(recorded_snapshot, dict) else {}
         meta_model = metadata.get("model_id") or metadata.get("model_name")
         res_model = resolution.get("model_id") or provenance.get("model_id") or snapshot.get("model_id")
         if isinstance(meta_model, str) and meta_model and isinstance(res_model, str) and res_model and meta_model != res_model:
@@ -318,10 +325,14 @@ def report_results(sources: list[Path], output: Path) -> dict:
             failures.append(resolution_failure)
         failures.extend(invalid)
 
-        state_runtime = state.get("runtime") if isinstance(state.get("runtime"), dict) else {}
-        state_task = state_runtime.get("task") if isinstance(state_runtime.get("task"), dict) else {}
-        state_options = state.get("options") if isinstance(state.get("options"), dict) else {}
-        runtime_env = metadata.get("runtime_environment") if isinstance(metadata.get("runtime_environment"), dict) else {}
+        recorded_runtime = state.get("runtime")
+        state_runtime = recorded_runtime if isinstance(recorded_runtime, dict) else {}
+        recorded_task = state_runtime.get("task")
+        state_task = recorded_task if isinstance(recorded_task, dict) else {}
+        recorded_options = state.get("options")
+        state_options = recorded_options if isinstance(recorded_options, dict) else {}
+        recorded_runtime_env = metadata.get("runtime_environment")
+        runtime_env = recorded_runtime_env if isinstance(recorded_runtime_env, dict) else {}
         model_id = (meta_model or res_model or interface.get("model_id")
                     or state_task.get("model_id") or state_options.get("model") or source.name)
         revision = (meta_rev or res_rev or interface.get("revision")
@@ -342,7 +353,8 @@ def report_results(sources: list[Path], output: Path) -> dict:
                 runtime_status = "unverified"
         extra_row = {}
         if not failures and runtime_status in {"failed", "cancelled"}:
-            prep_exc = preparation.get("exception") if isinstance(preparation.get("exception"), dict) else {}
+            prep_exception = preparation.get("exception")
+            prep_exc = prep_exception if isinstance(prep_exception, dict) else {}
             extra_row = {
                 "stage": preparation.get("last_stage") or interface.get("failed_stage") or "",
                 "reason_code": (preparation.get("reason_code")

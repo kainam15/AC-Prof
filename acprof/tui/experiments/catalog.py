@@ -178,7 +178,8 @@ def _record(layout: ArtifactLayout, warnings: list[str]) -> ExperimentRecord:
         'cpu ' + str(metadata.get('cpu_model', 'unknown')) if options.get('gpus') == 'off' else options.get('gpus', 'unknown')))
     run_id = state.get('run_id')
     issues = ('unsupported_run_state',) if state and state.get('schema_version') != 1 else ()
-    runtime_env = metadata.get('runtime_environment') if isinstance(metadata.get('runtime_environment'), dict) else {}
+    recorded_runtime_env = metadata.get('runtime_environment')
+    runtime_env = recorded_runtime_env if isinstance(recorded_runtime_env, dict) else {}
     return ExperimentRecord(directory, (directory,), run_id if isinstance(run_id, str) and run_id else None,
         str(metadata.get('model_name') or metadata.get('model_id') or task.get('model_id') or resolution.get('model_id') or options.get('model') or 'unknown'),
         str(metadata.get('model_revision') or task.get('model_revision') or resolution.get('model_revision') or 'unknown'),

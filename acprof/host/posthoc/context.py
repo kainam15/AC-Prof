@@ -268,7 +268,7 @@ def load_result_context(result_dir: str | os.PathLike[str], *, result_snapshot: 
     check_cancelled(cancelled)
     from acprof.results.layout import ArtifactLayout, resolve_single_result_source
     try:
-        directory = resolve_single_result_source(result_dir).expanduser().resolve()
+        directory = resolve_single_result_source(Path(result_dir)).expanduser().resolve()
     except (OSError, ValueError) as exc:
         raise PosthocError(str(exc)) from exc
     if not directory.is_dir():

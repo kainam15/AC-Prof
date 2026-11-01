@@ -17,6 +17,12 @@ from acprof.host.validation_logs import last_prefixed_record
 from acprof.results.layout import ArtifactLayout
 
 
+class ProcessValidationError(RuntimeError):
+    def __init__(self, message: str, observed: dict):
+        super().__init__(message)
+        self.observed = observed
+
+
 def run_validation(task, info, module, prefix, output_dir, *, gpu="off", payload=None, timeout=300,
                    cpu=None, memory=None):
     from acprof.host.model_store.store import acquire_mount
@@ -43,9 +49,10 @@ def run_validation(task, info, module, prefix, output_dir, *, gpu="off", payload
         observed = json.loads(record) if record is not None else {}
         if code or observed.get("status") != "ok":
             error = observed.get("error") or process.log_tail().replace("\r\n", "\n").replace("\r", "\n")[-4000:]
-            exc = RuntimeError(error or f"Process validation exit {code}")
-            exc.observed = observed if isinstance(observed, dict) else {}
-            raise exc
+            raise ProcessValidationError(
+                error or f"Process validation exit {code}",
+                observed if isinstance(observed, dict) else {},
+            )
         return observed
     finally:
         if process is not None:
@@ -114,9 +121,7 @@ def validate_process(*, task_info, image_info, planned, cpu_list, mem_list, gpu_
                 stages = {item["stage"] for item in observed.get("stages", []) if item.get("status") == "verified"}
                 if not required <= stages or any(observed.get("validation", {}).get(layer, {}).get("status") != "verified"
                                                 for layer in ("protocol", "task")):
-                    exc = RuntimeError("Process runtime validation is incomplete")
-                    exc.observed = observed
-                    raise exc
+                    raise ProcessValidationError("Process runtime validation is incomplete", observed)
             except subprocess.TimeoutExpired as exc:
                 detail = f"runtime_validation_timeout ({timeout_seconds:g}s); compatibility budget exhausted"
                 value = Failure(
@@ -134,14 +139,16 @@ def validate_process(*, task_info, image_info, planned, cpu_list, mem_list, gpu_
                                  else {"status": "error", "error": str(exc)})
                 device_result["status"] = "error"
                 device_result.setdefault("error", str(exc))
-                if not isinstance(device_result.get("failure"), dict):
-                    device_result["failure"] = failure_from_exception(
+                failure_record = device_result.get("failure")
+                if not isinstance(failure_record, dict):
+                    failure_record = failure_from_exception(
                         RuntimeError(device_result["error"]),
                         stage=device_result.get("failed_stage", "runtime_validation"),
                         device=gpu,
                         runtime_profile=getattr(task_info, "runtime_profile_id", ""),
                     ).to_dict()
-                value = Failure(**device_result["failure"])
+                    device_result["failure"] = failure_record
+                value = Failure(**failure_record)
                 device_result["failure"] = value.to_dict()
                 report["devices"][gpu] = device_result
                 report.update(status="error", error=device_result["error"])
