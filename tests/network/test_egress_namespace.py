@@ -9,13 +9,22 @@ from scripts import egress_namespace, validate_measurement_egress as validation
 @pytest.mark.parametrize('case', ['host', 'pid-reused', 'valid'])
 def test_namespace_guard_pins_identity_and_never_enters_host(monkeypatch, case):
     monkeypatch.setattr(egress_namespace, 'process_start_ticks', Mock(side_effect=[42, 43 if case == 'pid-reused' else 42]))
-    monkeypatch.setattr(egress_namespace.os, 'open', Mock(return_value=77))
-    monkeypatch.setattr(egress_namespace.os, 'fstat', Mock(return_value=SimpleNamespace(st_dev=1, st_ino=1 if case == 'host' else 2)))
-    monkeypatch.setattr(egress_namespace.os, 'stat', Mock(return_value=SimpleNamespace(st_dev=1, st_ino=1)))
+    # Replace this module's dependency, not the process-wide os functions used by pytest.
+    real_os = egress_namespace.os
     enter = Mock()
     close = Mock()
-    monkeypatch.setattr(egress_namespace.os, 'setns', enter)
-    monkeypatch.setattr(egress_namespace.os, 'close', close)
+    fake_os = SimpleNamespace(
+        O_RDONLY=real_os.O_RDONLY,
+        O_CLOEXEC=real_os.O_CLOEXEC,
+        open=Mock(return_value=77),
+        fstat=Mock(return_value=SimpleNamespace(st_dev=1, st_ino=1 if case == 'host' else 2)),
+        stat=Mock(return_value=SimpleNamespace(st_dev=1, st_ino=1)),
+        setns=enter,
+        close=close,
+    )
+    monkeypatch.setattr(egress_namespace, 'os', fake_os)
+    assert real_os.stat is not fake_os.stat
+    assert real_os.fstat is not fake_os.fstat
     if case == 'valid':
         egress_namespace.enter_namespace(1234, 42)
         enter.assert_called_once_with(77, 0)
@@ -29,7 +38,7 @@ def test_namespace_guard_pins_identity_and_never_enters_host(monkeypatch, case):
 def test_pid_reuse_before_namespace_open_is_rejected(monkeypatch):
     monkeypatch.setattr(egress_namespace, 'process_start_ticks', lambda _pid: 43)
     opened = Mock()
-    monkeypatch.setattr(egress_namespace.os, 'open', opened)
+    monkeypatch.setattr(egress_namespace, 'os', SimpleNamespace(open=opened))
     with pytest.raises(RuntimeError, match='identity changed'):
         egress_namespace.enter_namespace(1234, 42)
     opened.assert_not_called()
