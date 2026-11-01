@@ -87,9 +87,11 @@ def test_structured_real_checkpoint_matrix_stays_on_cpu(tmp_path):
     assert config.task == 'tabular-classification'
     assert config.gpus == 'off'
     assert len(config.revision) == 40
+    workload = json.loads((Path(__file__).resolve().parents[3] / config.workload_spec).read_text())
+    assert workload['feature_dim'] == 4
 
 
-@pytest.mark.parametrize('bad', ['unresolved', 'duplicate', 'escape', 'unknown', 'empty'])
+@pytest.mark.parametrize('bad', ['unresolved', 'duplicate', 'escape', 'unknown', 'workload_spec_type', 'empty'])
 def test_invalid_matrix_is_rejected_before_running_any_case(tmp_path, bad):
     path = matrix_file(tmp_path)
     payload = json.loads(path.read_text())
@@ -101,6 +103,8 @@ def test_invalid_matrix_is_rejected_before_running_any_case(tmp_path, bad):
         payload['cases'][0]['name'] = '../outside'
     elif bad == 'unknown':
         payload['cases'][0]['input_scale'] = 'wrong field'
+    elif bad == 'workload_spec_type':
+        payload['cases'][0]['workload_spec'] = {'feature_dim': 4}
     else:
         payload['cases'] = []
     path.write_text(json.dumps(payload))

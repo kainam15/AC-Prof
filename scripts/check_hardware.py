@@ -81,9 +81,10 @@ def load_hardware_matrix(path: Path, defaults: RunConfig, output: Path) -> list[
         raise ValueError("hardware matrix requires 1..16 cases and no unknown fields")
     selected, names = [], set()
     required = {"name", "model", "revision", "task", "input_scales"}
+    allowed = required | {"workload_spec"}
     for case in cases:
-        if not isinstance(case, dict) or set(case) != required or any(
-            not isinstance(value, str) or not value.strip() for value in case.values()
+        if not isinstance(case, dict) or not required <= case.keys() or case.keys() - allowed or any(
+            not isinstance(case[key], str) or not case[key].strip() for key in allowed & case.keys()
         ):
             raise ValueError("hardware matrix case requires name, model, revision, task and input_scales")
         name = case["name"]
@@ -92,7 +93,8 @@ def load_hardware_matrix(path: Path, defaults: RunConfig, output: Path) -> list[
         if not re.fullmatch(r"[0-9a-f]{40}", case["revision"]):
             raise ValueError("hardware matrix revision must be an immutable 40-character commit SHA")
         names.add(name)
-        config = replace(defaults, **{key: case[key] for key in required - {"name"}},
+        values = {key: case[key] for key in allowed & case.keys() if key != "name"}
+        config = replace(defaults, **values,
                          output_dir=str(output / name / "results")).validate(project_dir=ROOT)
         selected.append((name, config))
     return selected

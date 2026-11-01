@@ -69,6 +69,27 @@ def test_prepares_every_case_and_only_then_publishes_pinned_selection(tmp_path):
     assert [call.args[0].gpus for call in workflow.resolve.call_args_list] == ["off,on", "off,on"]
 
 
+def test_prepared_matrix_round_trips_workload_spec(tmp_path):
+    config = RunConfig(model="demo/iris", revision="a" * 40, task="tabular-classification",
+                       gpus="off", input_scales="1", workload_spec="examples/onnxruntime/iris.json")
+    output = tmp_path / "prepare"
+    output.mkdir()
+    task = SimpleNamespace(model_id=config.model, model_revision=config.revision,
+                           pipeline_tag=config.task, model_download_policy="")
+    workflow = Mock()
+    workflow.resolve.return_value = task
+    with patch.object(prepare_hardware, "PreparationWorkflow", return_value=workflow), patch.object(
+        prepare_hardware, "MeasurementLock", side_effect=lambda: observed_lock([])
+    ), patch.object(prepare_hardware, "prepare_image", return_value=image_for("iris")):
+        assert prepare_hardware.prepare_cases([("iris", config)], output)
+    matrix = json.loads((output / "prepared-matrix.json").read_text())
+    assert matrix["cases"][0]["workload_spec"] == "examples/onnxruntime/iris.json"
+    loaded = check_hardware.load_hardware_matrix(
+        output / "prepared-matrix.json", RunConfig(gpus="off"), tmp_path / "measurements"
+    )
+    assert loaded[0][1].workload_spec == "examples/onnxruntime/iris.json"
+
+
 def test_custom_branch_is_pinned_for_offline_validation(tmp_path):
     output = tmp_path / "preparation"
     task = task_for("demo/custom", "d" * 40)

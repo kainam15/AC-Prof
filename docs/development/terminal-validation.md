@@ -106,7 +106,9 @@ image-classification 使用固定 checkpoint SHA；它们是随机权重接口�
 不代表生产模型质量或完整模型兼容性。`real-matrix` 使用
 `examples/hardware-validation-real.json` 中固定 SHA 的 BERT-small、ResNet-18、ViLT、Whisper、
 Chronos-Bolt 和 Tiny-SD 真实预训练 checkpoint，覆盖 NLP、CV、多模态、音频、时间序列与扩散任务；
-另用 `examples/hardware-validation-real-cpu.json` 中的 Iris ONNX checkpoint 验证 Structured CPU 路径。
+另用 `examples/hardware-validation-real-cpu.json` 中的 Iris ONNX checkpoint 验证 Structured CPU 路径；
+该 case 通过 `examples/onnxruntime/iris.json` 固定 `feature_dim=4`、输入尺度和合成输入 provenance，
+准备后的矩阵保留同一 workload 文件，避免离线验收时丢失输入约束。
 通过时证明对应模型、设备和采集环境兼容，仍不评价模型准确率，也不能把入口或 mock 测试当作已完成实机验证。
 GitHub Actions 在同一个专用 self-hosted job 内先完成离线故障回归，再运行
 `scripts/prepare_hardware.py` 准备当前源码指纹对应的 Docker 平台、依赖环境、模型镜像及

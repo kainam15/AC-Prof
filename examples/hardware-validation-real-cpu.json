@@ -6,7 +6,8 @@
       "model": "Ritual-Net/iris-classification",
       "revision": "273d867c65e8e5fa5c64c23dcf19738282452beb",
       "task": "tabular-classification",
-      "input_scales": "1"
+      "input_scales": "1",
+      "workload_spec": "examples/onnxruntime/iris.json"
     }
   ]
 }

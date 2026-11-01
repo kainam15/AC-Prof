@@ -71,10 +71,13 @@ def prepare_cases(cases: list[tuple[str, RunConfig]], output: Path) -> bool:
                         raise RuntimeError("prepared revision differs from requested pinned revision")
                     if task.model_id != config.model:
                         raise RuntimeError("prepared model identity differs from requested model")
-                    prepared.append({
+                    prepared_case = {
                         "name": name, "model": task.model_id, "revision": revision,
                         "task": task.pipeline_tag, "input_scales": config.input_scales,
-                    })
+                    }
+                    if config.workload_spec:
+                        prepared_case["workload_spec"] = config.workload_spec
+                    prepared.append(prepared_case)
                     row.update(status="passed", revision=revision, image_id=image.tag, image_name=image.name)
                     print(f"[hardware-prepare] {name}: ready {image.name}", flush=True)
                 except BaseException as exc:
