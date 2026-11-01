@@ -63,6 +63,10 @@ uv run python scripts/measure_overhead.py results/example-run \
 `overhead.json` schema v2 同时记录每个采集器的周期诊断、策略/频率和主机进程 CPU 秒数。
 `host_process_cpu_s` 仅包含请求循环内 Python 进程所有线程的 CPU 时间，排除容器 CPU、
 collector start/stop、文件落盘；`host_process_cpu_pct` 以一个 CPU 核心为 100%，不是整机利用率。
+每轮 `host_process_memory` 记录 collector start 前和 stop/close 后的整进程 RSS、实际差值及
+`monitor_buffer_samples`。RSS 包含解释器、HTTP client 和其他保留对象，差值可以为负，
+不能归因于某个 collector；样本数是停止后内存缓冲区中的实际数量，不是落盘保留数。
+这些字段用于同机长时间／高频采样基线，不设跨机器绝对阈值，也不改变正式测量或原始证据协议。
 `--modes none,basic,full` 的内部采集对照仍要求单频率、单策略。该诊断不产生正式画像，
 也不包含原样本序列化成本；窗口后持久化成本需结合整个 case 生命周期另行评估。
 

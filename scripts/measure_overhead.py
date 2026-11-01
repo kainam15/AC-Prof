@@ -99,8 +99,10 @@ def _write_window_boundaries(monitors: MonitorGroup, path: Path | None, *, token
 def measure_window(url, payload, *, count, monitors: MonitorGroup, token,
                    control_window=None, timeout: float = 60,
                    boundary_output: Path | None = None) -> dict[str, Any]:
+    import psutil
     import requests
 
+    process = psutil.Process()
     lifecycle = time.perf_counter()
     timings = []
     contracts: defaultdict[str, int] = defaultdict(int)
@@ -111,6 +113,7 @@ def measure_window(url, payload, *, count, monitors: MonitorGroup, token,
             raise ValueError("request count must be positive")
         if control_window is not None:
             control_window()
+        rss_before = process.memory_info().rss
         monitors.start()
         cpu_started = time.process_time()
         wall_started = time.perf_counter()
@@ -141,6 +144,7 @@ def measure_window(url, payload, *, count, monitors: MonitorGroup, token,
         finally:
             try:
                 monitors.finish(len(timings), statistics.fmean(timings) if timings else math.nan)
+                rss_after = process.memory_info().rss
                 if primary_error is None or isinstance(primary_error, Exception):
                     monitors.raise_if_failed()
             finally:
@@ -168,6 +172,13 @@ def measure_window(url, payload, *, count, monitors: MonitorGroup, token,
     result = {"latency_app_s": statistics.fmean(timings), "request_count": count,
             "host_process_cpu_s": cpu_time, "request_loop_wall_s": wall_time,
             "host_process_cpu_pct": 100.0 * cpu_time / wall_time if wall_time > 0.0 else None,
+            "host_process_memory": {
+                "rss_before_bytes": rss_before, "rss_after_bytes": rss_after,
+                "rss_delta_bytes": rss_after - rss_before,
+                "monitor_buffer_samples": sum(item["samples"] for item in stopped),
+                "scope": ("whole host Python process RSS before monitor start and after monitor shutdown; "
+                          "includes non-collector allocations and retained buffers; delta is not collector-exclusive"),
+            },
             "lifecycle_wall_s": time.perf_counter() - lifecycle, "monitors": stopped,
             "perf": perf_result, "workload_contracts": [
                 {"count": n, "contract": json.loads(contract)} for contract, n in contracts.items()]}

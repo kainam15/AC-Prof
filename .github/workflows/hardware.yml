@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       preset:
-        description: 固定小模型矩阵或自定义单模型（先自动准备镜像，再离线验收）
+        description: 随机小模型、真实 checkpoint 矩阵或自定义单模型（先准备镜像，再离线验收）
         type: choice
-        options: ['pinned-matrix', 'custom']
+        options: ['pinned-matrix', 'real-matrix', 'custom']
         default: pinned-matrix
       model:
         description: Hugging Face 模型 ID
@@ -82,6 +82,8 @@ jobs:
         run: |
           if [[ "$VALIDATION_PRESET" == pinned-matrix ]]; then
             selection=(--matrix examples/hardware-validation.json)
+          elif [[ "$VALIDATION_PRESET" == real-matrix ]]; then
+            selection=(--matrix examples/hardware-validation-real.json)
           else
             selection=(--model "$VALIDATION_MODEL" --task "$VALIDATION_TASK" --revision "$VALIDATION_REVISION")
           fi

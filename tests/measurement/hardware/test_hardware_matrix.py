@@ -61,6 +61,21 @@ def test_checked_in_matrix_has_a_successful_serial_execution_path(tmp_path):
     assert [case['status'] for case in report['cases']] == ['passed', 'passed']
 
 
+def test_real_checkpoint_matrix_has_a_pinned_serial_execution_path(tmp_path):
+    path = Path(__file__).resolve().parents[3] / 'examples/hardware-validation-real.json'
+    output = tmp_path / 'output'
+    with patch.object(check_hardware, 'run_config', return_value={'successful': True}) as run:
+        assert check_hardware.main(['--matrix', str(path), '--output-dir', str(output)]) == 0
+        assert run.call_count == 3
+        assert [call.args[0].task for call in run.call_args_list] == [
+            'fill-mask', 'image-classification', 'visual-question-answering']
+        assert all(call.args[0].revision and len(call.args[0].revision) == 40
+                   for call in run.call_args_list)
+    report = json.loads((output / 'hardware_matrix.json').read_text())
+    assert report['successful'] is True
+    assert [case['status'] for case in report['cases']] == ['passed'] * 3
+
+
 @pytest.mark.parametrize('bad', ['unresolved', 'duplicate', 'escape', 'unknown', 'empty'])
 def test_invalid_matrix_is_rejected_before_running_any_case(tmp_path, bad):
     path = matrix_file(tmp_path)

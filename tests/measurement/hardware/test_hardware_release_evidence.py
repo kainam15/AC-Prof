@@ -92,6 +92,10 @@ def test_hardware_workflow_is_manual_and_never_exposes_fork_prs():
     assert "git diff --quiet" in tracked
     assert "pinned-matrix" in job["env"]["VALIDATION_PRESET"]
     assert "off,on" in job["env"]["VALIDATION_GPUS"]
+    preset = trigger["workflow_dispatch"]["inputs"]["preset"]
+    assert "real-matrix" in preset["options"]
+    preparation = next(step["run"] for step in job["steps"] if "scripts/prepare_hardware.py" in step.get("run", ""))
+    assert "examples/hardware-validation-real.json" in preparation
 
 
 def test_release_requires_hardware_proof_before_both_publications():

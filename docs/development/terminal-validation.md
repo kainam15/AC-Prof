@@ -67,8 +67,12 @@ Headless 能检查布局、键盘路径和输出状态；SVG、tmux 与真实 VS
 ## 真实采集与实验隔离
 
 手动 `hardware.yml` 默认选择 `examples/hardware-validation.json` 的固定小模型矩阵，
-也可选择 `custom` 单模型。矩阵中的 BERT fill-mask 与 ViT image-classification 使用固定
-checkpoint SHA；它们是随机权重接口样例，验证采集链路，不代表生产模型质量或完整模型兼容性。
+也可选择 `real-matrix` 或 `custom` 单模型。默认矩阵中的 BERT fill-mask 与 ViT
+image-classification 使用固定 checkpoint SHA；它们是随机权重接口样例，验证采集链路，
+不代表生产模型质量或完整模型兼容性。`real-matrix` 使用
+`examples/hardware-validation-real.json` 中固定 SHA 的 BERT-small、ResNet-18 和 ViLT
+真实预训练 checkpoint，覆盖 NLP、CV 与多模态问答；通过时证明对应模型和采集环境兼容，
+仍不评价模型准确率，也不能把入口或 mock 测试当作已完成实机验证。
 GitHub Actions 在同一个专用 self-hosted job 内先完成离线故障回归，再运行
 `scripts/prepare_hardware.py` 准备当前源码指纹对应的 Docker 平台、依赖环境、模型镜像及
 Model Store。准备阶段允许缺失产物的拉取或构建；通过 `ACPROF_MODEL_MAX_DOWNLOAD=4GB` 限制
@@ -101,7 +105,7 @@ uv run --locked --no-default-groups --group test python scripts/check_hardware.p
 中断时保留已完成证据；强制终止可能留下 `running`，不能解释为通过。
 workflow 将离线故障回归保存到 `offline-faults/`、镜像准备报告及固定选择保存到 `preparation/`，
 实际采集和审计证据保存到 `measurements/`；其中离线故障回归使用 mock，不代表真实硬件故障已实测。
-`.github/workflows/hardware.yml` 每周一自动运行固定矩阵，也支持从 `main` 手动触发；不会由 PR 触发。
+`.github/workflows/hardware.yml` 目前只支持从 `main` 手动触发，定期周检暂停；不会由 PR 触发。
 自定义单模型即使输入 branch 或留空 revision，准备成功后也会固定为解析到的 commit，
 再交给验收阶段，不在验收时重新解析浮动 revision。运行时必须具备 Docker/cgroup v2、RAPL、
 perf、抓包权限及所选 GPU 的实际权限；没有这些条件仍会如实失败，不会以 mock 代替。

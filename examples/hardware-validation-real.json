@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {
+      "name": "bert-small-fill-mask",
+      "model": "google/bert_uncased_L-2_H-128_A-2",
+      "revision": "30b0a37ccaaa32f332884b96992754e246e48c5f",
+      "task": "fill-mask",
+      "input_scales": "64"
+    },
+    {
+      "name": "resnet-image-classification",
+      "model": "microsoft/resnet-18",
+      "revision": "65a5785d9156231087c481e0c7dd33a5ff6f7e3e",
+      "task": "image-classification",
+      "input_scales": "1"
+    },
+    {
+      "name": "vilt-visual-qa",
+      "model": "dandelin/vilt-b32-finetuned-vqa",
+      "revision": "d0a1f6ab88522427a7ae76ceb6e1e1e7b68a1d08",
+      "task": "visual-question-answering",
+      "input_scales": "224"
+    }
+  ]
+}

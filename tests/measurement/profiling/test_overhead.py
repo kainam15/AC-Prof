@@ -29,6 +29,26 @@ def test_known_paired_increase_and_zero_change():
     assert (result[0]["latency_mean_s"]) == (35 / 12) or round(abs((result[0]["latency_mean_s"]) - (35 / 12)), 7) == 0
     assert (result[0]["latency_stdev_s"]) > (0)
 
+
+def test_window_records_rss_and_in_memory_sample_counts():
+    from scripts.measure_overhead import measure_window
+    monitor = Mock()
+    monitor.stop.return_value = CPUStopResult(None, "", [1, 2])
+    process = Mock()
+    process.memory_info.side_effect = [Mock(rss=1000), Mock(rss=1400)]
+    response = Mock(status_code=200)
+    response.json.return_value = {}
+    with patch("psutil.Process", return_value=process), patch("requests.post", return_value=response):
+        result = measure_window("http://example.invalid", {}, count=1,
+                                monitors=group(monitor), token="memory")
+    memory = result["host_process_memory"]
+    assert memory["rss_before_bytes"] == 1000
+    assert memory["rss_after_bytes"] == 1400
+    assert memory["rss_delta_bytes"] == 400
+    assert memory["monitor_buffer_samples"] == 2
+    assert "not collector-exclusive" in memory["scope"]
+
+
 @pytest.mark.parametrize(("status", "body"), [(202, {'status': 'pending'}), (200, {'error': 'background failure'})])
 def test_failed_or_unfinished_response_is_not_a_latency_sample(status, body):
     from scripts.measure_overhead import measure_window
