@@ -60,6 +60,30 @@ class MissingReasons:
             self._enabled[tool] = not isinstance(enabled, list) or any(tool in str(item) for item in enabled)
         return self._enabled[tool]
 
+    @staticmethod
+    def _process_reason(row: dict, field: str) -> str | None:
+        if field in {"cpu_cores", "mem_cap_gb"}:
+            return "inherited_limit_not_controlled"
+        if field.startswith("container_") or field.startswith("cold_start_"):
+            return "unsupported_by_process_runtime"
+        if field in {"process_cpu_time_s", "process_cpu_util_avg_pct", "process_rss_avg_bytes", "process_rss_peak_bytes"}:
+            return str(row.get("process_resource_status", "unavailable"))
+        if field.startswith("gpu_util_"):
+            return str(row.get("gpu_utilization_status", "unavailable"))
+        if field in {"gpu_mem_used_avg_bytes", "gpu_mem_used_peak_bytes"}:
+            return str(row.get("gpu_memory_status", "unavailable"))
+        if field in {"gpu_mem_util_avg_pct", "gpu_mem_util_peak_pct"}:
+            return "not_requested"
+        return None
+
+    def _tool_reason(self, tool: str, row: dict, reasons: dict[str, str | None]) -> str | None:
+        if tool not in reasons:
+            suffix = "torch_profiler_eager" if tool == "torch" else tool
+            error = csv_diagnostic_text(row.get(f"compute_profile_error_{suffix}"))
+            reasons[tool] = ("profiler_reported_error" if error else
+                             "tool_not_enabled" if not self._tool_enabled(tool) else None)
+        return reasons[tool]
+
     def for_row(self, row: dict) -> Callable[[str], str]:
         """Bind row state; the row must stay read-only while resolving its fields."""
         process = row.get("runtime_kind", self._metadata.get("runtime_kind")) == "process"
@@ -72,19 +96,8 @@ class MissingReasons:
             if field not in row:
                 return "not_recorded"
             metric = METRICS[field]
-            if process:
-                if field in {"cpu_cores", "mem_cap_gb"}:
-                    return "inherited_limit_not_controlled"
-                if field.startswith("container_") or field.startswith("cold_start_"):
-                    return "unsupported_by_process_runtime"
-                if field in {"process_cpu_time_s", "process_cpu_util_avg_pct", "process_rss_avg_bytes", "process_rss_peak_bytes"}:
-                    return str(row.get("process_resource_status", "unavailable"))
-                if field.startswith("gpu_util_"):
-                    return str(row.get("gpu_utilization_status", "unavailable"))
-                if field in {"gpu_mem_used_avg_bytes", "gpu_mem_used_peak_bytes"}:
-                    return str(row.get("gpu_memory_status", "unavailable"))
-                if field in {"gpu_mem_util_avg_pct", "gpu_mem_util_peak_pct"}:
-                    return "not_requested"
+            if process and (process_reason := self._process_reason(row, field)) is not None:
+                return process_reason
             if self._wsl and native_only_metric(metric):
                 return "unavailable_on_wsl2"
             if metric.applicability in {"gpu", "gpu_idle_debug"} and gpu == "off":
@@ -93,15 +106,8 @@ class MissingReasons:
                 return "not_applicable"
             if failed:
                 return "measurement_failed"
-            if metric.tool:
-                if metric.tool not in tool_reasons:
-                    suffix = "torch_profiler_eager" if metric.tool == "torch" else metric.tool
-                    error = csv_diagnostic_text(row.get(f"compute_profile_error_{suffix}"))
-                    tool_reasons[metric.tool] = ("profiler_reported_error" if error else
-                                               "tool_not_enabled" if not self._tool_enabled(metric.tool) else None)
-                tool_reason = tool_reasons[metric.tool]
-                if tool_reason is not None:
-                    return tool_reason
+            if metric.tool and (tool_reason := self._tool_reason(metric.tool, row, tool_reasons)) is not None:
+                return tool_reason
             if row_process:
                 return "not_requested" if metric.row_group in {"cpu_energy", "gpu_energy", "mips", "gpu_runtime_state"} else "unavailable"
             return "unavailable_unspecified"
@@ -154,6 +160,278 @@ def _check_workload_counts(row: dict) -> None:
         raise ValueError("workload_contract.request_count 与 repeat_in_window 不一致")
 
 
+def _recorded_failure(name, location, value, issue):
+    try:
+        if not isinstance(value, dict):
+            raise ValueError("typed failure must be an object")
+        failure = Failure(**value)
+        string_fields = (failure.stage, failure.detail, failure.device, failure.runtime_profile,
+                         failure.exception_type)
+        if (not failure.stage or not failure.detail or any(not isinstance(item, str) for item in string_fields)
+                or not isinstance(failure.evidence, dict)):
+            raise ValueError("typed failure fields have invalid types")
+        return failure.to_dict()
+    except (TypeError, ValueError) as error:
+        issue("invalid_metadata", f"{name} {location}: {error}")
+        return None
+
+
+def _collect_recorded_failures(validation, resolution, recorded, issue):
+    failures = []
+    devices = validation.get("devices", {})
+    if not isinstance(devices, dict):
+        issue("invalid_metadata", "runtime_validation.json devices: expected an object")
+    else:
+        for device, item in devices.items():
+            if not isinstance(item, dict):
+                issue("invalid_metadata", f"runtime_validation.json devices.{device}: expected an object")
+            elif item.get("failure") is not None:
+                failure = _recorded_failure("runtime_validation.json", f"devices.{device}.failure", item["failure"], issue)
+                if failure is not None:
+                    failures.append(failure)
+    if not isinstance(recorded, list):
+        issue("invalid_metadata", "runtime_failures.json failures: expected a list")
+    else:
+        for index, value in enumerate(recorded):
+            failure = _recorded_failure("runtime_failures.json", f"failures[{index}]", value, issue)
+            if failure is not None:
+                failures.append(failure)
+    if resolution.get("failure") is not None:
+        failure = _recorded_failure("model_resolution.json", "failure", resolution["failure"], issue)
+        if failure is not None:
+            failures.append(failure)
+    return failures
+
+
+def _read_preparation(state, read_json):
+    attempts = state.get("attempts")
+    if isinstance(attempts, list) and attempts and isinstance(attempts[-1], dict):
+        prep_rel = attempts[-1].get("preparation_evidence")
+        if isinstance(prep_rel, str) and prep_rel:
+            return read_json(prep_rel)
+    return {}
+
+
+def _record_early_failure(report, state, preparation, interface, issue):
+    if report["failures"]:
+        return
+    prep_status = preparation.get("status")
+    if prep_status in {"failed", "cancelled"}:
+        prep_exception = preparation.get("exception")
+        prep_exc = prep_exception if isinstance(prep_exception, dict) else {}
+        issue(
+            preparation.get("reason_code") or f"preparation_{prep_status}",
+            prep_exc.get("message") or f"preparation {prep_status}",
+            stage=preparation.get("last_stage") or "preparation",
+        )
+    elif interface.get("status") in {"error", "cancelled"}:
+        iface_status = interface["status"]
+        issue(
+            "interface_validation_failed" if iface_status == "error" else "interface_validation_cancelled",
+            interface.get("error") or f"interface validation {iface_status}",
+            stage=interface.get("failed_stage") or "interface",
+        )
+    elif state.get("status") in {"failed", "cancelled"} and not state.get("runtime"):
+        issue(f"run_{state['status']}", f"run_state.json status is {state['status']}")
+
+
+def _audit_metadata(report, path, metadata_reader, read_json, issue):
+    metadata = read_json("static_meta.json")
+    validation = read_json("runtime_validation.json")
+    resolution = read_json("model_resolution.json")
+    interface = read_json("interface_validation.json")
+    recorded_interface = resolution.get("interface_validation")
+    if not interface and isinstance(recorded_interface, dict):
+        interface = recorded_interface
+    recorded = read_json("runtime_failures.json").get("failures", [])
+    report["failures"] = _collect_recorded_failures(validation, resolution, recorded, issue)
+    report.update(read_quality(path, metadata_snapshot=metadata_reader))
+    for failure in report["failures"]:
+        issue(failure["reason_code"], failure["detail"], failure=failure)
+    for check in report["quality_checks"]:
+        issue(check["code"], check["detail"], severity=check["severity"], quality_check=check)
+    report.update(recorded_identity(metadata))
+    state = read_json("run_state.json")
+    if state:
+        report["run_status"] = state.get("status")
+        report["run_id"] = state.get("run_id")
+        report["completion"] = "complete" if state.get("status") == "complete" else "incomplete"
+        if state.get("status") != "complete" and not state.get("runtime"):
+            report["measurement_status"] = "incomplete"
+    preparation = _read_preparation(state, read_json)
+    _record_early_failure(report, state, preparation, interface, issue)
+    return metadata, state
+
+
+def _load_result_rows(path, result_snapshot, verify_result_snapshot, report, issue):
+    try:
+        snapshot = result_snapshot or read_result_csv_snapshot(path)
+        if snapshot.path != path.resolve():
+            raise ValueError("result CSV snapshot belongs to a different path")
+        fields, rows = snapshot.fields, snapshot.rows
+        if result_snapshot is not None:
+            rows = validate_result_rows(fields, rows, snapshot.path,
+                                        allow_empty=path.name == "result_layers.json").rows
+        report["result_sha256"] = snapshot.sha256
+        if verify_result_snapshot and not result_csv_snapshot_unchanged(snapshot, verify_rows=result_snapshot is not None):
+            issue("changing_snapshot", "读取期间 CSV 发生变化，请采集结束后重新审计")
+        return fields, rows
+    except (ValueError, OSError, csv.Error) as error:
+        issue("invalid_csv", error)
+        return None
+
+
+def _process_hardware(layout, runtime, read_json, issue):
+    if runtime != "process":
+        return {}
+    from acprof.hardware_conditions import conditions_path
+    hardware = read_json(str(conditions_path(layout).relative_to(layout.root))).get("cases", {})
+    if not isinstance(hardware, dict):
+        issue("invalid_metadata", "hardware conditions cases must be an object")
+        return {}
+    return hardware
+
+
+def _audit_environment(report, fields, rows, issue):
+    if "environment_class" not in fields:
+        issue("missing_environment_class", "结果缺少 environment_class 环境身份列")
+    environments = {row.get("environment_class", "unknown") for row in rows}
+    report["row_environment_classes"] = sorted(environments)
+    if len(environments) > 1 or any(value not in {"unknown", report["environment_class"]}
+                                  for value in environments):
+        issue("environment_mismatch", "CSV 与元数据环境身份不一致，或包含混合环境结果")
+    if report["environment_class"] == "unknown":
+        issue("unknown_environment", "环境身份 unknown；不能作为 Native Linux baseline", severity="warning")
+    report["execution"] = collection_outcomes(rows)
+    report["unknown_columns"] = [name for name in fields if name not in METRICS]
+    report["missing_columns"] = [name for name in METRICS if name not in fields]
+
+
+def _audit_input_plan(metadata_reader, metadata, issue):
+    expected_hash = metadata.get("input_scale_plan_sha256")
+    if not expected_hash or str(expected_hash).lower() in MISSING_CSV_TEXT:
+        return
+    try:
+        if (not metadata_reader.exists("input_scale_plan.json") or
+                hashlib.sha256(metadata_reader.read("input_scale_plan.json").content).hexdigest() != expected_hash):
+            issue("input_plan_hash", "输入计划与 static_meta.json 中的 SHA256 不一致")
+    except (OSError, ValueError) as error:
+        issue("input_plan_hash", error)
+
+
+def _audit_plan_coverage(report, state, rows, issue):
+    if not state.get("runtime"):
+        return
+    try:
+        options = state["options"]
+        expected = expected_measurements(
+            [None] if options["cpus"] == "auto" else [int(value) for value in options["cpus"].split(",")],
+            [None] if options["mems"] == "auto" else [int(value) for value in options["mems"].split(",")], options["gpus"].split(","),
+            state["runtime"]["planned"]["scales"], options["warmup"], options["repeat"],
+        )
+        actual = {measurement_key(row) for row in rows}
+        report["coverage"] = {"expected": len(expected), "actual": len(actual),
+                              "missing": len(expected - actual), "unexpected": len(actual - expected)}
+        if expected != actual:
+            issue("plan_coverage", "结果行与原实验计划不完全一致")
+    except (ValueError, KeyError, TypeError, AttributeError) as error:
+        issue("invalid_run_state", error)
+
+
+def _audit_process_row(report, runtime, metadata, hardware, index, row, status, issue):
+    if runtime != "process" and row.get("runtime_kind") != "process":
+        return
+    from acprof.results.layout import resource_case_id
+    if (runtime != "process" or row.get("runtime_kind") != "process"
+            or not metadata.get("runtime_id") or row.get("runtime_id") != metadata["runtime_id"]):
+        issue("runtime_identity", "Process Runtime 身份与元数据不一致", row=index)
+    if row.get("resource_scope") != "observed_process_tree":
+        issue("resource_scope", "Process 指标必须标记 observed_process_tree", row=index)
+    if status not in {"ok", "warn"}:
+        return
+    case_id = resource_case_id(row["cpu_cores"], row["mem_cap_gb"], row["gpu_mode"])
+    record = hardware.get(case_id, {})
+    plan = record.get("resource_plan", {}) if isinstance(record, dict) else {}
+    if not isinstance(plan, dict) or plan.get("verified") is not True:
+        issue("resource_enforcement", "缺少已验证的 Process 资源限制证据", row=index)
+        return
+    requested = plan.get("requested", {})
+    for field, name in (("cpu_cores", "cpu_quota"), ("mem_cap_gb", "memory_gib")):
+        value = number(row.get(field))
+        if (value != requested.get(name)
+                or value is not None and plan.get("method") != "cgroup_v2"):
+            issue("resource_enforcement", f"{field} 与实际实施的限制不符", row=index, field=field)
+    if row.get("resource_limit_source") != plan.get("method"):
+        issue("resource_enforcement", "资源限制来源与执行证据不符", row=index)
+
+
+def _audit_numeric_row(report, runtime, missing_reasons, missing, index, row, formal, issue):
+    reason_for_row = None
+    for field in NUMERIC_FIELDS:
+        if (runtime == "process" and (field.startswith("container_") or field.startswith("cold_start_"))
+                and number(row.get(field)) is not None):
+            issue("unsupported_process_metric", f"Process 不能记录 Docker 专属指标 {field}", row=index, field=field)
+        if (report["environment_class"] == "wsl2" and native_only_metric(METRICS[field])
+                and number(row.get(field)) is not None):
+            issue("unsupported_wsl_metric", f"WSL2 不允许记录 Native 专属指标 {field}", row=index, field=field)
+        raw = str(row.get(field, "nan"))
+        absent = raw in MISSING_CSV_TEXT
+        if not absent:
+            raw = raw.strip().lower()
+            absent = raw in MISSING_CSV_TEXT
+        if not absent and number(raw) is None:
+            issue("invalid_number", f"{field} 不是有限数值或 nan", row=index, field=field)
+        elif formal and absent:
+            if reason_for_row is None:
+                reason_for_row = missing_reasons.for_row(row)
+            reason = reason_for_row(field)
+            missing[field][reason] += 1
+
+
+def _audit_formula_row(index, row, formal, issue):
+    if not formal:
+        return
+    for field, expected_value in _formula_checks(row).items():
+        actual_value = number(row.get(field))
+        # CSV 保存到 6 位小数，容忍加减的累计舍入，不把缺失分母解释为错误。
+        if actual_value is not None and not math.isclose(actual_value, expected_value, rel_tol=2e-5, abs_tol=2e-6):
+            issue("formula_mismatch", f"{field}: 实际 {actual_value:g}，应为 {expected_value:g}", row=index, field=field)
+
+
+def _audit_rows(report, runtime, metadata, hardware, rows, issue):
+    missing: dict[str, Counter[str]] = defaultdict(Counter)
+    missing_reasons = MissingReasons(metadata, environment_class=report["environment_class"])
+    for index, row in enumerate(rows, 2):
+        status = row.get("status", "").strip().lower()
+        warmup = number(row["warmup"]) == 1
+        report["counts"]["warmup"] += warmup
+        if status not in {"ok", "warn", "error"}:
+            issue("invalid_status", "status 应为 ok、warn 或 error", row=index)
+        if status in {"warn", "error"}:
+            report["counts"][status] += 1
+        formal = status == "ok" and not warmup
+        report["counts"]["formal_ok"] += formal
+        _audit_process_row(report, runtime, metadata, hardware, index, row, status, issue)
+        try:
+            _check_workload_counts(row)
+        except (ValueError, TypeError) as error:
+            issue("workload_contract", error, row=index)
+        _audit_numeric_row(report, runtime, missing_reasons, missing, index, row, formal, issue)
+        _audit_formula_row(index, row, formal, issue)
+    report["missing_metrics"] = {name: dict(reasons) for name, reasons in missing.items()}
+
+
+def _finalize_measurement_status(report):
+    coverage = report["coverage"]
+    if coverage is None:
+        return
+    formal = report["counts"]["rows"] - report["counts"]["warmup"]
+    report["measurement_status"] = (
+        "complete" if report["completion"] == "complete" and not coverage["missing"]
+        and not coverage["unexpected"] and formal > 0 and formal == report["counts"]["formal_ok"]
+        else "incomplete")
+
+
 def audit_result(source: str | Path, *, result_snapshot: ResultCsvSnapshot | None = None,
                  metadata_snapshot: ResultMetadataSnapshot | None = None,
                  verify_result_snapshot: bool = True) -> dict:
@@ -170,30 +448,6 @@ def audit_result(source: str | Path, *, result_snapshot: ResultCsvSnapshot | Non
         if severity == "error":
             report["valid"] = False
 
-    def read_json(name):
-        try:
-            if not metadata_reader.exists(name):
-                return {}
-            return metadata_reader.read(name).payload
-        except (ValueError, OSError) as error:
-            issue("invalid_metadata", f"{name}: {error}")
-            return {}
-
-    def recorded_failure(name, location, value):
-        try:
-            if not isinstance(value, dict):
-                raise ValueError("typed failure must be an object")
-            failure = Failure(**value)
-            string_fields = (failure.stage, failure.detail, failure.device, failure.runtime_profile,
-                             failure.exception_type)
-            if (not failure.stage or not failure.detail or any(not isinstance(item, str) for item in string_fields)
-                    or not isinstance(failure.evidence, dict)):
-                raise ValueError("typed failure fields have invalid types")
-            return failure.to_dict()
-        except (TypeError, ValueError) as error:
-            issue("invalid_metadata", f"{name} {location}: {error}")
-            return None
-
     try:
         path = resolve_single_result_source(source)
         if path.is_dir():
@@ -205,205 +459,30 @@ def audit_result(source: str | Path, *, result_snapshot: ResultCsvSnapshot | Non
     except (ValueError, OSError) as error:
         issue("invalid_layout", error)
         return report
+
+    def read_json(name):
+        try:
+            if not metadata_reader.exists(name):
+                return {}
+            return metadata_reader.read(name).payload
+        except (ValueError, OSError) as error:
+            issue("invalid_metadata", f"{name}: {error}")
+            return {}
+
     report["layout_version"] = layout.layout_version
-    metadata = read_json("static_meta.json")
-    validation = read_json("runtime_validation.json")
-    resolution = read_json("model_resolution.json")
-    interface = read_json("interface_validation.json")
-    if not interface and isinstance(resolution.get("interface_validation"), dict):
-        interface = resolution["interface_validation"]
-    report["failures"] = []
-    devices = validation.get("devices", {})
-    if not isinstance(devices, dict):
-        issue("invalid_metadata", "runtime_validation.json devices: expected an object")
-    else:
-        for device, item in devices.items():
-            if not isinstance(item, dict):
-                issue("invalid_metadata", f"runtime_validation.json devices.{device}: expected an object")
-            elif item.get("failure") is not None:
-                failure = recorded_failure("runtime_validation.json", f"devices.{device}.failure", item["failure"])
-                if failure is not None:
-                    report["failures"].append(failure)
-    recorded = read_json("runtime_failures.json").get("failures", [])
-    if not isinstance(recorded, list):
-        issue("invalid_metadata", "runtime_failures.json failures: expected a list")
-    else:
-        for index, value in enumerate(recorded):
-            failure = recorded_failure("runtime_failures.json", f"failures[{index}]", value)
-            if failure is not None:
-                report["failures"].append(failure)
-    if resolution.get("failure") is not None:
-        failure = recorded_failure("model_resolution.json", "failure", resolution["failure"])
-        if failure is not None:
-            report["failures"].append(failure)
-    report.update(read_quality(path, metadata_snapshot=metadata_reader))
-    for failure in report["failures"]:
-        issue(failure["reason_code"], failure["detail"], failure=failure)
-    for check in report["quality_checks"]:
-        issue(check["code"], check["detail"], severity=check["severity"], quality_check=check)
-    report.update(recorded_identity(metadata))
-    state = read_json("run_state.json")
-    if state:
-        report["run_status"] = state.get("status")
-        report["run_id"] = state.get("run_id")
-        report["completion"] = "complete" if state.get("status") == "complete" else "incomplete"
-        if state.get("status") != "complete" and not state.get("runtime"):
-            report["measurement_status"] = "incomplete"
-    preparation = {}
-    attempts = state.get("attempts")
-    if isinstance(attempts, list) and attempts and isinstance(attempts[-1], dict):
-        prep_rel = attempts[-1].get("preparation_evidence")
-        if isinstance(prep_rel, str) and prep_rel:
-            preparation = read_json(prep_rel)
-    if not report["failures"]:
-        prep_status = preparation.get("status")
-        if prep_status in {"failed", "cancelled"}:
-            prep_exception = preparation.get("exception")
-            prep_exc = prep_exception if isinstance(prep_exception, dict) else {}
-            issue(
-                preparation.get("reason_code") or f"preparation_{prep_status}",
-                prep_exc.get("message") or f"preparation {prep_status}",
-                stage=preparation.get("last_stage") or "preparation",
-            )
-        elif interface.get("status") in {"error", "cancelled"}:
-            iface_status = interface["status"]
-            issue(
-                "interface_validation_failed" if iface_status == "error" else "interface_validation_cancelled",
-                interface.get("error") or f"interface validation {iface_status}",
-                stage=interface.get("failed_stage") or "interface",
-            )
-        elif state.get("status") in {"failed", "cancelled"} and not state.get("runtime"):
-            issue(f"run_{state['status']}", f"run_state.json status is {state['status']}")
-    try:
-        snapshot = result_snapshot or read_result_csv_snapshot(path)
-        if snapshot.path != path.resolve():
-            raise ValueError("result CSV snapshot belongs to a different path")
-        fields, rows = snapshot.fields, snapshot.rows
-        if result_snapshot is not None:
-            rows = validate_result_rows(fields, rows, snapshot.path,
-                                        allow_empty=path.name == "result_layers.json").rows
-        report["result_sha256"] = snapshot.sha256
-        if verify_result_snapshot and not result_csv_snapshot_unchanged(snapshot, verify_rows=result_snapshot is not None):
-            issue("changing_snapshot", "读取期间 CSV 发生变化，请采集结束后重新审计")
-    except (ValueError, OSError, csv.Error) as error:
-        issue("invalid_csv", error)
+    metadata, state = _audit_metadata(report, path, metadata_reader, read_json, issue)
+    loaded = _load_result_rows(path, result_snapshot, verify_result_snapshot, report, issue)
+    if loaded is None:
         return report
+    fields, rows = loaded
     report["counts"]["rows"] = len(rows)
     runtime = metadata.get("runtime_kind", "docker")
     report["runtime_kind"] = runtime
     report["resource_scope"] = "observed_process_tree" if runtime == "process" else "container_cgroup"
-    hardware = {}
-    if runtime == "process":
-        from acprof.hardware_conditions import conditions_path
-        hardware = read_json(str(conditions_path(layout).relative_to(layout.root))).get("cases", {})
-        if not isinstance(hardware, dict):
-            issue("invalid_metadata", "hardware conditions cases must be an object")
-            hardware = {}
-    if "environment_class" not in fields:
-        issue("missing_environment_class", "结果缺少 environment_class 环境身份列")
-    environments = {row.get("environment_class", "unknown") for row in rows}
-    report["row_environment_classes"] = sorted(environments)
-    if len(environments) > 1 or any(value not in {"unknown", report["environment_class"]}
-                                  for value in environments):
-        issue("environment_mismatch", "CSV 与元数据环境身份不一致，或包含混合环境结果")
-    if report["environment_class"] == "unknown":
-        issue("unknown_environment", "环境身份 unknown；不能作为 Native Linux baseline", severity="warning")
-    report["execution"] = collection_outcomes(rows)
-    report["unknown_columns"] = [name for name in fields if name not in METRICS]
-    report["missing_columns"] = [name for name in METRICS if name not in fields]
-    expected_hash = metadata.get("input_scale_plan_sha256")
-    if expected_hash and str(expected_hash).lower() not in MISSING_CSV_TEXT:
-        try:
-            if (not metadata_reader.exists("input_scale_plan.json") or
-                    hashlib.sha256(metadata_reader.read("input_scale_plan.json").content).hexdigest() != expected_hash):
-                issue("input_plan_hash", "输入计划与 static_meta.json 中的 SHA256 不一致")
-        except (OSError, ValueError) as error:
-            issue("input_plan_hash", error)
-    if state.get("runtime"):
-        try:
-            options = state["options"]
-            expected = expected_measurements(
-                [None] if options["cpus"] == "auto" else [int(value) for value in options["cpus"].split(",")],
-                [None] if options["mems"] == "auto" else [int(value) for value in options["mems"].split(",")], options["gpus"].split(","),
-                state["runtime"]["planned"]["scales"], options["warmup"], options["repeat"],
-            )
-            actual = {measurement_key(row) for row in rows}
-            report["coverage"] = {"expected": len(expected), "actual": len(actual),
-                                  "missing": len(expected - actual), "unexpected": len(actual - expected)}
-            if expected != actual:
-                issue("plan_coverage", "结果行与原实验计划不完全一致")
-        except (ValueError, KeyError, TypeError, AttributeError) as error:
-            issue("invalid_run_state", error)
-    missing: dict[str, Counter[str]] = defaultdict(Counter)
-    missing_reasons = MissingReasons(metadata, environment_class=report["environment_class"])
-    for index, row in enumerate(rows, 2):
-        status = row.get("status", "").strip().lower()
-        warmup = number(row["warmup"]) == 1
-        report["counts"]["warmup"] += warmup
-        if status not in {"ok", "warn", "error"}:
-            issue("invalid_status", "status 应为 ok、warn 或 error", row=index)
-        if status in {"warn", "error"}:
-            report["counts"][status] += 1
-        formal = status == "ok" and not warmup
-        report["counts"]["formal_ok"] += formal
-        if runtime == "process" or row.get("runtime_kind") == "process":
-            from acprof.results.layout import resource_case_id
-            if (runtime != "process" or row.get("runtime_kind") != "process"
-                    or not metadata.get("runtime_id") or row.get("runtime_id") != metadata["runtime_id"]):
-                issue("runtime_identity", "Process Runtime 身份与元数据不一致", row=index)
-            if row.get("resource_scope") != "observed_process_tree":
-                issue("resource_scope", "Process 指标必须标记 observed_process_tree", row=index)
-            if status in {"ok", "warn"}:
-                case_id = resource_case_id(row["cpu_cores"], row["mem_cap_gb"], row["gpu_mode"])
-                record = hardware.get(case_id, {})
-                plan = record.get("resource_plan", {}) if isinstance(record, dict) else {}
-                if not isinstance(plan, dict) or plan.get("verified") is not True:
-                    issue("resource_enforcement", "缺少已验证的 Process 资源限制证据", row=index)
-                else:
-                    requested = plan.get("requested", {})
-                    for field, name in (("cpu_cores", "cpu_quota"), ("mem_cap_gb", "memory_gib")):
-                        value = number(row.get(field))
-                        if (value != requested.get(name)
-                                or value is not None and plan.get("method") != "cgroup_v2"):
-                            issue("resource_enforcement", f"{field} 与实际实施的限制不符", row=index, field=field)
-                    if row.get("resource_limit_source") != plan.get("method"):
-                        issue("resource_enforcement", "资源限制来源与执行证据不符", row=index)
-        try:
-            _check_workload_counts(row)
-        except (ValueError, TypeError) as error:
-            issue("workload_contract", error, row=index)
-        reason_for_row = None
-        for field in NUMERIC_FIELDS:
-            if (runtime == "process" and (field.startswith("container_") or field.startswith("cold_start_"))
-                    and number(row.get(field)) is not None):
-                issue("unsupported_process_metric", f"Process 不能记录 Docker 专属指标 {field}", row=index, field=field)
-            if (report["environment_class"] == "wsl2" and native_only_metric(METRICS[field])
-                    and number(row.get(field)) is not None):
-                issue("unsupported_wsl_metric", f"WSL2 不允许记录 Native 专属指标 {field}", row=index, field=field)
-            raw = str(row.get(field, "nan"))
-            absent = raw in MISSING_CSV_TEXT
-            if not absent:
-                raw = raw.strip().lower()
-                absent = raw in MISSING_CSV_TEXT
-            if not absent and number(raw) is None:
-                issue("invalid_number", f"{field} 不是有限数值或 nan", row=index, field=field)
-            elif formal and absent:
-                if reason_for_row is None:
-                    reason_for_row = missing_reasons.for_row(row)
-                reason = reason_for_row(field)
-                missing[field][reason] += 1
-        if formal:
-            for field, expected_value in _formula_checks(row).items():
-                actual_value = number(row.get(field))
-                # CSV 保存到 6 位小数，容忍加减的累计舍入，不把缺失分母解释为错误。
-                if actual_value is not None and not math.isclose(actual_value, expected_value, rel_tol=2e-5, abs_tol=2e-6):
-                    issue("formula_mismatch", f"{field}: 实际 {actual_value:g}，应为 {expected_value:g}", row=index, field=field)
-    report["missing_metrics"] = {name: dict(reasons) for name, reasons in missing.items()}
-    coverage = report["coverage"]
-    if coverage is not None:
-        formal = report["counts"]["rows"] - report["counts"]["warmup"]
-        report["measurement_status"] = (
-            "complete" if report["completion"] == "complete" and not coverage["missing"]
-            and not coverage["unexpected"] and formal > 0 and formal == report["counts"]["formal_ok"]
-            else "incomplete")
+    hardware = _process_hardware(layout, runtime, read_json, issue)
+    _audit_environment(report, fields, rows, issue)
+    _audit_input_plan(metadata_reader, metadata, issue)
+    _audit_plan_coverage(report, state, rows, issue)
+    _audit_rows(report, runtime, metadata, hardware, rows, issue)
+    _finalize_measurement_status(report)
     return report
