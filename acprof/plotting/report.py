@@ -35,8 +35,11 @@ def report_payload(model: AnalysisModel, baseline: str | None = None, *, compari
                         for s in model.sources]}
 
 
+_JSON_LIST_BATCH_SIZE = 64
+
+
 def _write_report_json(stream: TextIO, payload: dict[str, object]) -> None:
-    """Encode growing top-level lists one entry at a time with the C encoder."""
+    """Encode bounded list batches without assembling the full document in memory."""
     encoder = json.JSONEncoder(ensure_ascii=True, allow_nan=False)
 
     def append(item: object) -> None:
@@ -51,10 +54,11 @@ def _write_report_json(stream: TextIO, payload: dict[str, object]) -> None:
         stream.write(encoder.key_separator)
         if isinstance(value, list):
             stream.write("[")
-            for entry_index, entry in enumerate(value):
-                if entry_index:
+            for start in range(0, len(value), _JSON_LIST_BATCH_SIZE):
+                if start:
                     stream.write(encoder.item_separator)
-                append(entry)
+                batch = encoder.encode(value[start:start + _JSON_LIST_BATCH_SIZE])
+                stream.write(batch[1:-1].replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026"))
             stream.write("]")
         else:
             append(value)

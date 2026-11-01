@@ -154,8 +154,9 @@ CLI help 和 `test_hf_auto_download.py`。测试工具从 `runtime-test` 组导�
 这些工具只在编辑、提交和 CI 中执行，不进入正式测量窗口。coverage 子进程配置与合并链路
 由 `tests/quality/test_coverage_subprocess.py` 独立验证，不在普通 pytest 或正式采集入口启用插桩。
 
-离线可视化的定向入口为 `test_metric_registry.py`、`test_analysis_model.py`、`test_report.py`；检查旧 CSV、
-分组隔离、能量范围、缺失值、冷启动去重、转义及公共 report 入口。浏览器交互由 CI 的独立
+离线可视化的定向入口为 `test_metric_registry.py`、`test_analysis_model.py`、`test_report.py` 和
+`test_report_streaming.py`；检查旧 CSV、分组隔离、能量范围、缺失值、冷启动去重、转义、公共 report 入口及
+JSON 分批边界。浏览器交互由 CI 的独立
 `report-browser` job 执行，Python 3.12、Playwright 和绘图依赖统一锁在 `uv.lock` 的 `browser` 组，
 环境仍与日常开发和推理 runtime 隔离：
 

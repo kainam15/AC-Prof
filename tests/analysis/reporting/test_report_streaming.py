@@ -2,6 +2,8 @@
 
 import errno
 import gc
+import io
+import json
 import tracemalloc
 from typing import TextIO
 
@@ -9,7 +11,7 @@ import pytest
 
 from acprof.analysis.model import AnalysisModel
 from acprof.artifacts import atomic_write
-from acprof.plotting.report import write_report
+from acprof.plotting.report import _write_report_json, write_report
 
 ESCAPED_DATA = '{"name": "__STYLE__ \\u003c/script\\u003e\\u0026\\u4e2d\\ud83d\\ude00"}'
 
@@ -100,3 +102,16 @@ def test_failure_after_a_written_fragment_leaves_no_partial_report(tmp_path, mon
     assert opened[0].closed
     assert not output.exists()
     assert not list(tmp_path.glob(".report.html.*.tmp"))
+
+
+@pytest.mark.parametrize("count", [0, 1, 63, 64, 65, 130])
+def test_json_list_batching_preserves_exact_encoding(count):
+    payload = {
+        "configs": [{"index": index, "text": "</script>&中😀"} for index in range(count)],
+        "nested": {"enabled": True},
+    }
+    stream = io.StringIO()
+    _write_report_json(stream, payload)
+    expected = json.dumps(payload, ensure_ascii=True, allow_nan=False)
+    expected = expected.replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
+    assert stream.getvalue() == expected
