@@ -1,0 +1,145 @@
+{
+  "schema_version": 1,
+  "pages": [
+    {"id": "run-tab", "title": "实验配置", "purpose": "准备模型、资源矩阵、输入和运行计划"},
+    {"id": "monitor-tab", "title": "运行监控", "purpose": "查看准备、验证、正式测量、日志和终止状态"},
+    {"id": "results-tab", "title": "实验结果", "purpose": "查看结果摘要、统计、比较、Profiler 和报告"},
+    {"id": "images-tab", "title": "镜像管理", "purpose": "查看镜像、依赖、空间和清理操作"},
+    {"id": "settings-tab", "title": "应用设置", "purpose": "管理界面偏好、连接和权限"}
+  ],
+  "checkpoints": [
+    {
+      "id": "configure", "title": "配置实验", "page": "run-tab", "group": "main",
+      "trigger": "启动 TUI、修改模型与资源参数", "expected": "配置、命令预览和执行计划一致；窄终端可操作",
+      "png": ["form", "form-small", "near-match"],
+      "svg": [
+        "tests/visual/__snapshots__/test_snapshots/test_fixed_scenes[zh-size0-form].svg",
+        "tests/visual/__snapshots__/test_snapshots/test_fixed_scenes[en-size1-form].svg",
+        "tests/visual/__snapshots__/test_snapshots/test_fixed_scenes[zh-size2-form].svg"
+      ],
+      "tests": ["tests/tui/widgets/test_tui_page_chrome.py", "tests/tui/workflows/test_tui_config_errors.py"]
+    },
+    {
+      "id": "launch-review", "title": "启动确认", "page": "run-tab", "group": "main",
+      "trigger": "点击开始采集并检查目标目录", "expected": "显示启动条件；存在历史记录时明确恢复或新建，不误启动",
+      "png": [], "svg": [],
+      "tests": ["tests/tui/widgets/test_tui_page_chrome.py", "tests/tui/workflows/test_tui_recovery_flow.py"]
+    },
+    {
+      "id": "prepare", "title": "模型准备与接口解析", "page": "monitor-tab", "group": "main",
+      "trigger": "确认启动后自动切入运行监控", "expected": "阶段、准备状态和日志一致；不显示尚未开始的 Case",
+      "png": [],
+      "svg": [
+        "tests/visual/__snapshots__/test_snapshots/test_fixed_scenes[zh-size7-wsl-preparation].svg",
+        "tests/visual/__snapshots__/test_snapshots/test_fixed_scenes[en-size8-wsl-preparation].svg"
+      ],
+      "tests": ["tests/tui/workflows/test_tui_onboarding.py", "tests/tui/logging/test_tui_monitor_phases.py"]
+    },
+    {
+      "id": "task-selection", "title": "选择模型任务", "page": "monitor-tab", "group": "optional",
+      "trigger": "自动识别出多个候选任务", "expected": "选择内容、按钮、退出方式清晰；长文本可滚动",
+      "png": ["task-selection"],
+      "svg": [
+        "tests/visual/__snapshots__/test_task_selection/test_long_task_selection[en].svg",
+        "tests/visual/__snapshots__/test_task_selection/test_long_task_selection[zh].svg",
+        "tests/visual/__snapshots__/test_task_selection/test_task_selection[en].svg",
+        "tests/visual/__snapshots__/test_task_selection/test_task_selection[zh].svg",
+        "tests/visual/__snapshots__/test_task_selection/test_task_selection_wide[size0-en].svg",
+        "tests/visual/__snapshots__/test_task_selection/test_task_selection_wide[size0-zh].svg",
+        "tests/visual/__snapshots__/test_task_selection/test_task_selection_wide[size1-en].svg",
+        "tests/visual/__snapshots__/test_task_selection/test_task_selection_wide[size1-zh].svg"
+      ],
+      "tests": ["tests/tui/catalog/test_tui_task_selection.py", "tests/tui/workflows/test_tui_collection_workflow.py"]
+    },
+    {
+      "id": "model-review", "title": "模型字段与参数确认", "page": "monitor-tab", "group": "optional",
+      "trigger": "模型字段或运行参数需要用户确认", "expected": "弹窗清楚展示待确认字段和可用操作，确认后回到监控",
+      "png": [],
+      "svg": [
+        "tests/visual/__snapshots__/test_snapshots/test_fixed_scenes[zh-size9-wsl-review].svg",
+        "tests/visual/__snapshots__/test_snapshots/test_fixed_scenes[en-size10-wsl-review].svg"
+      ],
+      "tests": ["tests/tui/catalog/test_tui_parameter_review.py", "tests/tui/catalog/test_tui_model_resolution.py"]
+    },
+    {
+      "id": "download", "title": "下载确认与进度", "page": "monitor-tab", "group": "optional",
+      "trigger": "准备阶段需要下载模型或镜像", "expected": "预算、来源、缓存、大小和下载状态按阶段展示",
+      "png": [], "svg": [],
+      "tests": ["tests/tui/logging/test_tui_download_layout.py", "tests/tui/workflows/test_tui_auto_download.py"]
+    },
+    {
+      "id": "validation", "title": "模型运行验证", "page": "monitor-tab", "group": "main",
+      "trigger": "接口解析与准备完成", "expected": "显示运行验证结果；隐藏已经结束的下载信息",
+      "png": [], "svg": [],
+      "tests": ["tests/tui/logging/test_tui_monitor_phases.py", "tests/tui/workflows/test_tui_collection_workflow.py"]
+    },
+    {
+      "id": "measurement", "title": "正式测量", "page": "monitor-tab", "group": "main",
+      "trigger": "进入资源矩阵测量窗口", "expected": "Case、资源、状态和耗时可读；常规日志不干扰正式窗口",
+      "png": ["measuring"],
+      "svg": ["tests/visual/__snapshots__/test_snapshots/test_fixed_scenes[zh-size5-measuring].svg"],
+      "tests": ["tests/tui/logging/test_tui_monitor_phases.py", "tests/tui/logging/test_tui_deferred_diagnostics.py"]
+    },
+    {
+      "id": "finish", "title": "结束采集与核验", "page": "monitor-tab", "group": "main",
+      "trigger": "子进程退出、结果进行归属核验", "expected": "成功、部分完成和失败状态与本次结果证据一致",
+      "png": [], "svg": [],
+      "tests": ["tests/tui/workflows/test_tui_process_completion.py", "tests/tui/workflows/test_tui_collection_workflow.py"]
+    },
+    {
+      "id": "results", "title": "查看结果与统计", "page": "results-tab", "group": "main",
+      "trigger": "选择本次或已有实验并读取结果", "expected": "结果源与统计口径明确，表格与操作适应终端尺寸",
+      "png": [],
+      "svg": ["tests/visual/__snapshots__/test_snapshots/test_fixed_scenes[en-size4-resized-table].svg"],
+      "tests": ["tests/tui/results/test_tui_result_tools.py", "tests/tui/results/test_tui_reports.py"]
+    },
+    {
+      "id": "profiler", "title": "查看或补充 Profiler", "page": "results-tab", "group": "optional",
+      "trigger": "从结果页展开深度分析", "expected": "区分已完成、缺失、部分完成、不适用及补采选择",
+      "png": [],
+      "svg": [
+        "tests/visual/__snapshots__/test_snapshots/test_fixed_scenes[zh-size11-profiler].svg",
+        "tests/visual/__snapshots__/test_snapshots/test_fixed_scenes[en-size12-profiler].svg"
+      ],
+      "tests": ["tests/tui/results/test_tui_profiler_selection.py", "tests/tui/results/test_tui_profile_status.py"]
+    },
+    {
+      "id": "recover", "title": "恢复 / 新建实验", "page": "run-tab", "group": "optional",
+      "trigger": "输出目录存在旧实验，或从历史选择器申请恢复", "expected": "核验可恢复性，明确继续、重试准备和新建实验的区别",
+      "png": [], "svg": [],
+      "tests": ["tests/tui/workflows/test_tui_recovery_flow.py", "tests/tui/workflows/test_tui_resume.py"]
+    },
+    {
+      "id": "preflight-error", "title": "环境检查异常", "page": "run-tab", "group": "exception",
+      "trigger": "预检缺少能力、出现警告或阻断采集", "expected": "异常原因、检查入口与禁用操作均明确",
+      "png": ["error-modal"], "svg": [],
+      "tests": ["tests/tui/workflows/test_tui_preflight.py", "tests/tui/catalog/test_environment_tui.py"]
+    },
+    {
+      "id": "stop-confirm", "title": "停止任务确认", "page": "monitor-tab", "group": "exception",
+      "trigger": "点击终止任务或选择取消准备", "expected": "避免误终止，明确保留已写入数据的语义",
+      "png": [],
+      "svg": ["tests/visual/__snapshots__/test_snapshots/test_fixed_scenes[zh-size3-modal].svg"],
+      "tests": ["tests/tui/workflows/test_tui_collection_workflow.py", "tests/tui/widgets/test_tui_confirm.py"]
+    },
+    {
+      "id": "cleanup-incomplete", "title": "清理未完成", "page": "monitor-tab", "group": "exception",
+      "trigger": "采集进程退出或清理超时", "expected": "保留进程所有权并警告；不得误标为已完成",
+      "png": [],
+      "svg": ["tests/visual/__snapshots__/test_snapshots/test_fixed_scenes[en-size6-cleanup-incomplete].svg"],
+      "tests": ["tests/tui/logging/test_tui_monitor_phases.py", "tests/tui/workflows/test_tui_process_lifecycle.py"]
+    },
+    {
+      "id": "images", "title": "镜像管理", "page": "images-tab", "group": "support",
+      "trigger": "切换到镜像管理页", "expected": "搜索、筛选、树或表格、空间与删除操作一致",
+      "png": [], "svg": [],
+      "tests": ["tests/tui/catalog/test_tui_images.py", "tests/tui/catalog/test_tui_storage.py"]
+    },
+    {
+      "id": "settings", "title": "应用设置", "page": "settings-tab", "group": "support",
+      "trigger": "切换到应用设置页", "expected": "语言、主题、日志、权限配置及保存行为明确",
+      "png": [], "svg": [],
+      "tests": ["tests/tui/widgets/test_tui_settings.py", "tests/tui/widgets/test_tui_layout_settings.py"]
+    }
+  ]
+}

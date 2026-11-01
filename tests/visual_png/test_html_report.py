@@ -62,7 +62,9 @@ def test_html_renders_pass_and_failure_with_embedded_pngs(tmp_path: Path) -> Non
     assert "Historical baseline" in document
     assert "Current capture" in document
     assert "Highlighted differences" in document
-    assert document.count("data:image/png;base64,") == 5
+    # Original PNG comparisons remain intact; flow cards also embed preview images.
+    assert document.count("data:image/png;base64,") >= 5
+    assert 'data-view-panel="workflow"' in document
     assert "&lt;script&gt;alert" in document
     assert "<script>alert" not in document
     assert '<div class="placeholder">No significant differences</div>' in document
