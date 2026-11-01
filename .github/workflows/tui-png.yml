@@ -137,8 +137,17 @@ jobs:
           else
             echo 'Test environment unavailable; journey evidence not generated.'
           fi
-      - name: Render CJK previews of reviewed SVG baselines
+      - name: Smoke-test one reviewed CJK SVG preview
+        id: svg_preview_smoke
         if: always()
+        run: |
+          if [ ! -x .venv/bin/python ]; then
+            echo 'Test environment unavailable; cannot render SVG preview smoke.'
+            exit 1
+          fi
+          uv run --locked --no-default-groups --group test python scripts/tui_svg_preview_png.py --smoke
+      - name: Render CJK previews of reviewed SVG baselines
+        if: ${{ always() && steps.svg_preview_smoke.outcome == 'success' }}
         run: |
           if [ -x .venv/bin/python ]; then
             uv run --locked --no-default-groups --group test python scripts/tui_svg_preview_png.py
@@ -166,6 +175,7 @@ jobs:
             internal-testing/shared/tui-png/journey/**/*.png
             internal-testing/shared/tui-png/svg-preview/**/*.png
             internal-testing/shared/tui-png/svg-preview/manifest.json
+            internal-testing/shared/tui-png/svg-preview-failures/**/*
             tests/visual_png/__snapshots__/*.png
           if-no-files-found: warn
       # Prepare a public, standalone viewer only for main. Keep PR evidence in
