@@ -120,7 +120,7 @@ extend-exclude = ["internal-testing", "results", "evidence"]
 # 基础错误、import 排序、Python 3.12 语法及 pytest 约束。
 select = ["E4", "E7", "E9", "F", "B006", "B012", "B904", "B905", "I", "UP", "PT", "RUF010", "RUF013", "SIM101", "S110"]
 
-# Incremental complexity gate for shared validation/input/GPU boundaries.
+# Incremental complexity gates for shared boundaries and core audit/model resolution.
 [tool.ruff.lint.mccabe]
 max-complexity = 12
 
