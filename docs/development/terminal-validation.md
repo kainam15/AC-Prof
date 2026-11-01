@@ -64,6 +64,40 @@ Headless 能检查布局、键盘路径和输出状态；SVG、tmux 与真实 VS
 原生光标、剪贴板、闪烁和宿主快捷键路由只能在相应终端确认。交付注明实际验证环境；
 流程见 [TUI 回归 Skill](../../.agents/skills/acprof-textual-regression/SKILL.md)，模块分工见[架构](consumers.md#tui-与兼容维护)。
 
+## 低成本真实 TUI / 模型下载验收（手动）
+
+与 `tests/tui/workflows/visual_journey.py` 的**纯模拟**流程不同，
+`scripts/accept_real_tui_iris.py` 使用 production `AcprofTui`、实际 Textual Pilot 点击、真实 CLI 子进程、
+固定 revision 的 `Ritual-Net/iris-classification` 与 Docker CPU/basic runtime。
+采集限定为 1 CPU、1 GiB、GPU off、1 个 input scale、0 warmup、1 个正式窗口、无 profiler，
+模型下载预算 5 MB、独立 Model Store 128 MB。执行前拒绝已有 Docker 运行容器与可用磁盘低于 8 GiB 的情况。
+截屏和只读结果分析不在正式测量窗口执行。它不是准确率、稳定性、性能或真实 VS Code 客户端终端验收；
+有缓存的模型不会为了截图而删除共享缓存，且**模型下载预算不限制 Docker 镜像/依赖总流量**。
+
+从仓库根目录执行，输出位置需是不存在的新目录（不可覆盖旧证据）：
+
+```bash
+uv run --locked --no-default-groups --group test python scripts/accept_real_tui_iris.py \
+  --output internal-testing/evidence/tui-real-iris-manual
+```
+
+如果已存在同一模型镜像，其 Model Store 身份却指向另一根目录，校验会拒绝错误复用，
+不会隐式联网重建。可另用已有且已验证的 Store 执行**缓存路径**复验，必须显式声明缓存语义：
+
+```bash
+uv run --locked --no-default-groups --group test python scripts/accept_real_tui_iris.py \
+  --output internal-testing/evidence/tui-real-iris-cached \
+  --model-store /path/to/verified/model-store --allow-cached
+```
+
+脚本保留真实下载回执、测量阶段、TUI 点击决策、准备/下载/完成/结果截图、`results verify`、严格 `audit`，
+不把“进度百分比”当作下载真实性证明，必须有 `transferred_bytes > 0`；
+缓存运行则单独标注未发生新传输。使用 `scripts/render_real_tui_iris_report.py` 可从指定三组
+独立回执生成**仅本地保存**的 HTML。真实证据不得自动并入公开 GitHub Pages / PNG Golden，
+也不得将跨两个运行的图片伪称为同一实例连续采集。这种分层延续
+[Textual 的 Pilot 测试语义](https://github.com/Textualize/textual/blob/v8.2.8/docs/guide/testing.md)，
+但实际下载与结果归属需要后端原始日志、模型缓存记录与严格审计共同验证。
+
 ## 真实采集与实验隔离
 
 手动 `hardware.yml` 默认选择 `examples/hardware-validation.json` 的固定小模型矩阵，
