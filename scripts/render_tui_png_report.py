@@ -20,6 +20,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from scripts.tui_flow_report import FLOW_SCRIPT, FLOW_STYLE, render_flow_report  # noqa: E402
+from scripts.tui_png_review_ui import REVIEW_SCRIPT, REVIEW_STYLE, ReviewContext  # noqa: E402
 
 ACTUAL = ROOT / "internal-testing" / "shared" / "tui-png"
 BASELINES = ROOT / "tests" / "visual_png" / "__snapshots__"
@@ -75,7 +76,7 @@ for (const button of document.querySelectorAll('[data-filter]')) {
 """
 
 
-STYLE += FLOW_STYLE
+STYLE += FLOW_STYLE + REVIEW_STYLE
 SCRIPT += FLOW_SCRIPT
 
 
@@ -118,7 +119,9 @@ def _load_results(path: Path) -> list[dict[str, Any]] | None:
     return rows
 
 
-def _card(row: dict[str, Any], *, actual: Path, baselines: Path) -> str:
+def _card(
+    row: dict[str, Any], *, actual: Path, baselines: Path, review_enabled: bool = False
+) -> str:
     scene = row["scene"]
     status = row["status"]
     passed = status == "passed"
@@ -151,12 +154,25 @@ def _card(row: dict[str, Any], *, actual: Path, baselines: Path) -> str:
         if comparison_completed
         else "Not compared"
     )
+    selectable = (
+        review_enabled
+        and status in {"visual-regression", "size-mismatch"}
+        and _image_data(actual / f"{scene}.png") is not None
+    )
+    approval = (
+        f'<div class="golden-choice-wrap"><label class="golden-choice">'
+        f'<input type="checkbox" data-golden-scene="{_escape(scene)}">'
+        f"接受此截图作为新的 Golden 基准（{_escape(scene)}.png）"
+        f"</label></div>"
+        if selectable
+        else ""
+    )
     return (
         f'<section class="scene" data-state="{state}">'
         f'<div class="scene-head"><h2>{_escape(scene)}</h2>'
         f'<span class="status {"pass" if passed else "fail"}">{badge}: {_escape(status)}</span>'
         f'<span class="metrics">{metrics}</span>'
-        f'</div>{message}<div class="comparison">{frames}</div></section>'
+        f'</div>{message}<div class="comparison">{frames}</div>{approval}</section>'
     )
 
 
@@ -168,7 +184,33 @@ def render_report(
     passed = sum(row["status"] == "passed" for row in rows or ())
     failed = len(rows) - passed if rows is not None else 0
     count = len(rows) if rows is not None else 0
-    cards = "".join(_card(row, actual=actual, baselines=baselines) for row in rows or ())
+    review = ReviewContext.from_environment()
+    cards = "".join(
+        _card(row, actual=actual, baselines=baselines, review_enabled=review is not None)
+        for row in rows or ()
+    )
+    available = sum(
+        row["status"] in {"visual-regression", "size-mismatch"}
+        and _image_data(actual / f"{row['scene']}.png") is not None
+        for row in rows or ()
+    )
+    review_panel = ""
+    if review is not None and available:
+        review_panel = (
+            f'<section class="golden-review" data-golden-review-panel '
+            f'data-repository="{_escape(review.repository)}" '
+            f'data-run-id="{review.run_id}" data-head-sha="{review.head_sha}">'
+            "<h3>Golden 基准审核</h3>"
+            "<p>选中经过人工检查的变更截图；未选中的截图保持原基准。</p>"
+            '<div class="review-buttons">'
+            '<button type="button" data-golden-select-all>全选可更新场景</button>'
+            '<button type="button" data-golden-clear>清空选择</button>'
+            '<button type="button" class="primary" data-golden-submit disabled>'
+            "通过 GitHub 提交更新请求（已选 <span data-golden-count>0</span>）</button></div>"
+            "<small>将在 GitHub 打开预填的公开 Issue。需要登录并点击 Submit new issue。"
+            "只有仓库所有者的有效请求才能触发受控工作流创建 PR；不会直接修改 main。</small>"
+            "</section>"
+        )
     if rows is None:
         cards = (
             '<div class="notice" role="alert"><strong>Comparison not available.</strong> '
@@ -192,6 +234,7 @@ def render_report(
         if rows
         else ""
     )
+    review_script = SCRIPT + (REVIEW_SCRIPT if review_panel else "")
     document = f"""<!doctype html>
 <html lang="en">
 <head>
@@ -221,14 +264,15 @@ def render_report(
 <h2>PNG 基准对比</h2>
 <p class="flow-note">PNG 状态来自本次 report.json；SVG 属于历史基准，不能用它推断 SVG CI 通过。</p>
 {filters}
+{review_panel}
 {cards}
 {svg_gallery}
 </section>
 <section class="view-panel" data-view-panel="coverage" hidden>{coverage}</section>
 <footer>Comparison decisions come from report.json. Images are embedded for offline review.
-The report does not approve or update baselines. Flow evidence indexes do not imply test execution.</footer>
+Baseline updates require owner approval on GitHub and a reviewed PR. Flow evidence indexes do not imply test execution.</footer>
 </main>
-<script>{SCRIPT}</script>
+<script>{review_script}</script>
 </body>
 </html>
 """

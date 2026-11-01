@@ -101,6 +101,19 @@ cp internal-testing/shared/tui-png/candidates/*.png tests/visual_png/__snapshots
 ACPROF_PNG_VISUAL=1 uv run pytest tests/visual_png -v
 ```
 
+### 在 HTML 报告审核 Golden 变更
+
+主分支 `TUI PNG Visual` 的 [GitHub Pages 报告](https://kainam15.github.io/AC-Prof/) 在有有效的 `visual-regression` / `size-mismatch` 结果时，会在 **视觉对比** 页显示 **Golden 基准审核**。使用方法：
+
+1. 打开 **视觉对比**，逐项查看左侧 Golden、当前 PNG 与差异图，勾选确认接受的场景；也可全选或清空。
+2. 点击 **通过 GitHub 提交更新请求**。静态页面会打开预填信息的 GitHub Issue 创建页（需要登录）；审阅标题、场景和 CI run 后，手动点击 **Submit new issue**。
+3. 只有由仓库所有者创建的有效 Issue 才会启动 [TUI PNG Golden Review](../../.github/workflows/tui-png-golden-review.yml)。工作流校验来源属于 main 的 `tui-png.yml`、run 已完成、head SHA 与当前 main 一致、场景处于已完成的视觉回归状态，然后从指定 run 的 Artifact 提取 **仅被勾选的 PNG**，在独立分支创建 PR。
+4. 在 PR 中继续审阅并验证变更，确认后合并。未选中的 Golden PNG 不会变化；HTML 或 Issue 本身都不能直接修改 main。
+
+**安全边界**：网页和 Issue 均公开，但页面不存储任何 GitHub Token；只有创建 Issue 的仓库所有者具备更新权限。Issue 触发的工作流不执行 Issue 中的命令，只解析限定字段并校验 CI provenance。**若 main 已经前进，旧报告会被拒绝**，需要在最新 main 手动重新运行 `TUI PNG Visual` 并刷新网页。缺失截图或运行环境失败不能被审核通过。若 Artifact 已过期，也必须重新运行。GitHub Actions 使用内置 `GITHUB_TOKEN` 创建 PR：仓库需在 **Settings → Actions → General → Workflow permissions** 允许 Actions 创建 Pull Request；若 bot 创建的 PR 被标为需要批准工作流，应由有权限的维护者批准后再合并。此功能不会自动合并 PR，也不自动更新 Golden。
+
+无需线上审核时仍可沿用上面的**本地候选截图 + 人工提交 PNG**流程；离线 HTML 没有 GitHub 主分支审核上下文，保持纯查看报告。
+
 必须在 PR 审阅中明确确认 Golden PNG 变化；**CI 绝不在测试失败时更新基线**。基线是经过审阅的变化检测依据，不代表程序能够从零判断中文排版是否美观。Textual 几何断言与 SVG 快照继续发挥互补作用。
 
 ## CI 与验证边界

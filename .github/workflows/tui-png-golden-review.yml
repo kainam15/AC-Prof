@@ -1,0 +1,36 @@
+name: TUI PNG Golden Review
+
+# GitHub Pages is public and cannot write to Git. A signed-in GitHub user
+# explicitly submits a pre-filled Issue; only the repository owner can approve.
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  update-golden:
+    if: >-
+      ${{ github.event.issue.title == '[TUI Golden] Approve selected screenshots'
+          && github.event.issue.user.login == github.repository_owner }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: write
+      pull-requests: write
+      issues: write
+    concurrency:
+      group: golden-review-${{ github.event.issue.number }}
+      cancel-in-progress: false
+    steps:
+      - name: Check out trusted default branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: true
+      - name: Verify run and stage owner-reviewed Golden PNG changes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/approve_tui_png_goldens.py

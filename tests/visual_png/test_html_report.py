@@ -21,7 +21,11 @@ def _results(actual: Path, rows: list[dict[str, object]]) -> None:
     (actual / "report.json").write_text(json.dumps(rows), encoding="utf-8")
 
 
-def test_html_renders_pass_and_failure_with_embedded_pngs(tmp_path: Path) -> None:
+def test_html_renders_pass_and_failure_with_embedded_pngs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # This test checks portable/offline HTML, not the main-branch review flow.
+    monkeypatch.delenv("GITHUB_REF", raising=False)
     actual, baselines = tmp_path / "actual", tmp_path / "baselines"
     for name in ("form", "error-modal"):
         _png(actual / f"{name}.png")
