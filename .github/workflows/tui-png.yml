@@ -41,9 +41,16 @@ on:
 permissions:
   contents: read
 
+# Serialize runs for each ref so an older build cannot replace a newer report.
+concurrency:
+  group: tui-png-visual-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   png-visual:
     runs-on: ubuntu-24.04
+    outputs:
+      pages_ready: ${{ steps.prepare_pages.outputs.ready }}
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -118,3 +125,38 @@ jobs:
             internal-testing/shared/tui-png/report.json
             tests/visual_png/__snapshots__/*.png
           if-no-files-found: warn
+      # Prepare a public, standalone viewer only for main. Keep PR evidence in
+      # the run-specific Artifact above; never deploy unreviewed PR output.
+      - name: Prepare GitHub Pages report
+        id: prepare_pages
+        if: ${{ !cancelled() && github.ref == 'refs/heads/main' && github.event_name != 'pull_request' }}
+        shell: bash
+        run: |
+          report=internal-testing/shared/tui-png/report.html
+          if [ -s "$report" ]; then
+            mkdir -p "$RUNNER_TEMP/tui-png-pages"
+            cp "$report" "$RUNNER_TEMP/tui-png-pages/index.html"
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Upload GitHub Pages artifact
+        if: ${{ !cancelled() && steps.prepare_pages.outputs.ready == 'true' }}
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: ${{ runner.temp }}/tui-png-pages
+
+  deploy-pages:
+    needs: png-visual
+    # !cancelled() also allows a failed PNG regression to publish its diagnosis.
+    # A missing HTML report must leave the previously published site intact.
+    if: ${{ !cancelled() && github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && needs.png-visual.outputs.pages_ready == 'true' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy visual report
+        id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
