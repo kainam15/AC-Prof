@@ -256,6 +256,8 @@ def prepare_df(
     if missing:
         raise ValueError(f"CSV missing required columns: {missing}")
 
+    # Consolidate blocks from wide CSV inputs before inserting the config label.
+    df = df.copy()
     df["config"] = make_config_labels(df)
 
     return df
