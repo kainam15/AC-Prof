@@ -20,7 +20,6 @@ from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from threading import Event, RLock
-from urllib.parse import urlsplit
 
 import acprof.artifacts as artifact_io
 from acprof.container.model_files import (
@@ -36,14 +35,9 @@ from acprof.host.model_store.views import (
     snapshot_path,
     view_complete,
 )
-from acprof.hub.huggingface.auth import hf_token_for_url
 from acprof.hub.huggingface.download import try_hf_endpoints
 from acprof.hub.huggingface.endpoints import hf_endpoints
-from acprof.hub.huggingface.transport import (
-    configure_hf_transport,
-    observed_hf_provenance,
-    observed_hf_sources,
-)
+from acprof.hub.huggingface.transport import configure_hf_transport
 from acprof.hub.repository import MetadataFile, read_metadata_file
 from acprof.models.spec import model_download_request, validate_dependencies
 from acprof.network_policy import (
@@ -539,13 +533,12 @@ def enforce_model_download_budgets(plan: dict) -> None:
 
 def prepare_model(task, plan: dict, root: Path | None = None, *, planned_download_bytes: int | None = None) -> dict:
     """Prepare an independent verified receipt, preserving the caller's retry input."""
+    from acprof.host.model_store.preparation import prepare_repository, record_download_provenance
+
     validate_plan(plan)
     request = model_download_request(task)
     validate_plan_request(plan, request)
     plan = copy.deepcopy(plan)
-    from huggingface_hub import snapshot_download
-
-    from acprof.container.download_model import verify_download
     root = root or store_root()
     key = entry_key(task)
     configure_hf_transport()
@@ -571,60 +564,14 @@ def prepare_model(task, plan: dict, root: Path | None = None, *, planned_downloa
         if planned_download_bytes is not None and needed > planned_download_bytes:
             raise DownloadPolicyError("Model Store 缓存自预检后已变化；尚未下载权重，请重新预检")
         targets = []
-        escape = {"[": "[[]", "*": "[*]", "?": "[?]"}
         for repo, budget in zip(repository_plans(plan), sources, strict=True):
             offline = existing is not None or all(cached_file(root, repo, f) for f in repo["files"])
-            source = repo.get("source", "huggingface")
-            from acprof.host.preparation.download_progress import DownloadReporter
-            progress = DownloadReporter(repo["model_id"], source, repo["selected_bytes"],
-                                        budget.cached_bytes, len(repo["files"]))
-            def download(endpoint):
-                progress.start_attempt()
-                if source == "modelscope":
-                    from acprof.hub.repository import modelscope_file, modelscope_snapshot
-                    if not offline:
-                        for record in repo["files"]:
-                            modelscope_file(repo["model_id"], record["path"], repo["model_revision"], root,
-                                            sha256=record["lfs_sha256"])
-                    return str(modelscope_snapshot(root, repo["model_id"], repo["model_revision"])), endpoint
-                progress_kwargs = {"tqdm_class": progress.tqdm_class()} if progress.enabled else {}
-                target = snapshot_download(repo_id=repo["model_id"], revision=repo["model_revision"],
-                    cache_dir=str(root / "hf"), endpoint=endpoint, token=False if offline else hf_token_for_url(endpoint),
-                    allow_patterns=["".join(escape.get(c, c) for c in f["path"]) for f in repo["files"]],
-                    local_files_only=offline, **progress_kwargs)
-                return target, endpoint
-            try:
-                if not needs_publish:
-                    progress.start_attempt()
-                    target, endpoint = str(snapshot_path(root, key, repo)), repo["endpoint"]
-                elif offline or source == "modelscope":
-                    target, endpoint = download(repo["endpoint"])
-                else:
-                    choices = list(dict.fromkeys([repo["endpoint"], *hf_endpoints()]))
-                    target, endpoint = try_hf_endpoints(repo["model_id"], download, endpoints=choices)
-                progress.finish("verifying")
-                # Verification happens before any runtime or formal measurement starts.
-                verify_download(Path(target), repo)
-            except BaseException as exc:
-                progress.finish("cancelled" if isinstance(exc, (KeyboardInterrupt, SystemExit)) else "failed")
-                raise
-            progress.finish("complete")
+            target, endpoint = prepare_repository(
+                root, key, repo, budget, offline=offline, needs_publish=needs_publish
+            )
             if not existing:
-                repo["source"] = source
-                repo["endpoint"] = endpoint
-                repo["actual_source_hosts"] = [] if offline or source == "modelscope" else observed_hf_sources()
-                repo["download_provenance"] = ({"schema_version": 1, "cache_hit": True,
-                    "public_egress": "externally-managed"} if offline else {"schema_version": 1,
-                    "public_egress": "externally-managed", "requests": [], "observation": "SDK redirects unobserved"}
-                    if source == "modelscope" else observed_hf_provenance())
-                events = repo["download_provenance"].get("requests", [])
-                payloads = [event for event in events if event["method"] == "GET" and event["status"] in {200, 206}
-                            and "/api/" not in urlsplit(event["url"]).path]
-                repo["download_provenance"]["final_endpoint_type"] = ("cache" if offline else
-                    payloads[-1]["endpoint_type"] if payloads else "unknown")
-                repo["download_provenance"]["hub_endpoint"] = endpoint
-                seal_plan(repo)
-            targets.append(Path(target))
+                record_download_provenance(repo, endpoint=endpoint, offline=offline)
+            targets.append(target)
         if plan.get("dependencies"):
             plan["total_selected_bytes"] = sum(repo["selected_bytes"] for repo in repository_plans(plan))
         seal_plan(plan)
