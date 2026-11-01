@@ -39,7 +39,8 @@
 | `run_state` | 目录锁、实验身份、已完成 case 校验、中断备份和恢复；仅在测量窗口外运行 |
 | `measurement.monitors` | `MonitorGroup` 所有权、固定启停顺序及共享 `run_matched_control_window`；不导入硬件或 workload |
 | `execution_conditions` | 保存／恢复线程环境、固定 GPU UUID、CPU affinity 和请求超时；开销诊断与负载重放共用 |
-| `measurement.load` | 独立非流式 HTTP 调度与连接生命周期；结果不进入正式能耗 CSV |
+| `measurement.load` | 共享 HTTP Scheduler、连接生命周期与独立负载统计；支持 `/predict` 和可选 SSE Adapter，不进入正式能耗 CSV |
+| `measurement.streaming` | OpenAI-compatible SSE 解码、有效输出时间、Token 来源与流式指标；不调度负载或采集硬件 |
 | `client` | 环境与 workload 初始化、短连接 HTTP 请求适配、窗口调度和完成结果发布 |
 | `measurement.metrics` | 已完成采样结果的纯计算与格式化；`WindowMetrics` 保留部分计算结果、判定指标状态并组装完整结果行 |
 | `measurement.execution` | `WindowExecutor.execute` 拥有单窗口 collector 构造、对照采集、请求、停止、请求证据发布和异常优先级 |

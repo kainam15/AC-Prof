@@ -132,7 +132,8 @@ PCAP 以 HTTP `request_in` 校验逐请求响应与完整 `X-Req-Id`，并检查
 `load.json` 保存独立 `run_id`、完整协议、源身份与新的 `identity_sha256`；连接、调度或并发不同
 即属于不同实验。失败和取消也保留报告；输出目录必须为空。该产物不生成正式能耗 CSV，
 不参与 `--resume`，也不接受作为正式窗口统计／跨实验比较的输入。字段定义见
-[负载报告](../results/comparisons.md#非流式负载报告)。流式 token 指标需另行实现真实服务端事件。
+[负载报告](../results/comparisons.md#非流式负载报告)。对已启动的 OpenAI-compatible 服务，使用
+[流式测量](streaming.md)的 `--base-url` 模式；复用同一 Scheduler，分别保留输出事件和可信 Token 证据。
 
 ### 硬件条件证据
 

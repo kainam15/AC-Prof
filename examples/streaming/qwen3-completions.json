@@ -1,0 +1,9 @@
+{
+  "model": "Qwen/Qwen3-0.6B",
+  "prompt": "Continue this sequence: one, two, three,",
+  "max_tokens": 32,
+  "temperature": 0,
+  "seed": 7,
+  "ignore_eos": true,
+  "repetition_penalty": 1.0
+}

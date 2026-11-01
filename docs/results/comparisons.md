@@ -163,7 +163,7 @@ blocked/unknown 暂停默认自动优选，但数值观测和描述统计仍保�
 请求时间戳均为客户端 `perf_counter` 相对实验起点的秒数：`planned_s` 是计划提交时间，
 `sent_s` 是调用 HTTP 发送前的时间，`completed_s` 是完整读取响应后的时间，均不是网卡时间戳。
 `latency_s=completed_s-sent_s`；`scheduled_latency_s=completed_s-planned_s` 包含调度与排队等待；
-`queue_delay_s=sent_s-planned_s`。各自输出均值及 P50/P95/P99，使用线性插值。
+`queue_delay_s=sent_s-planned_s`。各自输出均值及 P50/P90/P95/P99 和样本数，使用线性插值。
 前两种分布仅包含成功响应，排队分布包含全部已发送请求。丢弃／未发送请求时间为 `null`。
 
 计数分别记录 offered、sent、succeeded、failed、dropped、cancelled；成功率以 offered 为分母。
@@ -171,7 +171,9 @@ blocked/unknown 暂停默认自动优选，但数值观测和描述统计仍保�
 目标请求率单独保留，不能用成功吞吐替代目标到达率。HTTP 错误、JSON 错误和超时不计入成功时延。
 连接模式、并发数、调度、随机种子、超时、队列上限、请求数、预热数、抓包与源设备条件都进入身份。
 服务返回的 Workload Contract 描述单请求工作量；真实客户端调度以报告的 `protocol` 为准。
-本报告不采集能耗，不输出 token 首响应或间隔，也不与正式串行关闭连接的 CSV 合并。
+非流式报告不采集能耗或 Token 首响应／间隔，不与正式串行关闭连接的 CSV 合并。
+OpenAI-compatible 模式另用 `stream_load_experiment`／`stream_load_result`，其 TTFT、TPOT、
+严格 ITL、输出事件间隔及完整流 E2E 的字段、缺失值与统计定义见[流式测量](../profiling/streaming.md)。
 
 HTML 默认显示全部观测；“质量范围”可筛选满足质量要求的候选，“质量状态”可单独筛选。
 配置行分开展示运行、完整性、可比性和质量状态；选中行后可展开完整原始质量证据。
