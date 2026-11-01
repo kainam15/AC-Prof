@@ -82,7 +82,11 @@ uv run --locked --no-default-groups --group test python scripts/accept_real_tui_
 ```
 
 如果已存在同一模型镜像，其 Model Store 身份却指向另一根目录，校验会拒绝错误复用，
-不会隐式联网重建。可另用已有且已验证的 Store 执行**缓存路径**复验，必须显式声明缓存语义：
+不会隐式联网重建。新隔离 Store 可显式传 `--rebuild-image` 重新准备模型镜像，仍允许使用
+Docker 构建缓存；下载与构建继续通过生产准备确认流程。
+显式重建场景允许每次尝试在生产镜像错误弹窗选择一次“重新构建镜像”，并记录该决策；
+重复失败仍退出，不循环重建。已有且已验证的 Store 也可
+执行**缓存路径**复验，必须显式声明缓存语义：
 
 ```bash
 uv run --locked --no-default-groups --group test python scripts/accept_real_tui_iris.py \
@@ -97,6 +101,31 @@ uv run --locked --no-default-groups --group test python scripts/accept_real_tui_
 也不得将跨两个运行的图片伪称为同一实例连续采集。这种分层延续
 [Textual 的 Pilot 测试语义](https://github.com/Textualize/textual/blob/v8.2.8/docs/guide/testing.md)，
 但实际下载与结果归属需要后端原始日志、模型缓存记录与严格审计共同验证。
+
+### 准备阶段取消后重试
+
+`--scenario cancel-retry` 在同一 Textual Pilot 会话中启动两个真实 CLI 尝试。第一次在生产准备确认弹窗
+点击“终止任务”并确认，待子进程退出、执行所有权释放且确认尚未进入正式测量后，再点击开始；
+若生产恢复弹窗要求决定，只接受准备阶段的“重试准备”。第二次沿原流程完成结果概览、统计、
+`results verify` 与严格 `audit`。
+
+```bash
+uv run --locked --no-default-groups --group test python scripts/accept_real_tui_iris.py \
+  --scenario cancel-retry --rebuild-image \
+  --output internal-testing/evidence/tui-real-iris-cancel-retry
+```
+
+收据为每次尝试记录 PID、命令、独立执行身份、子进程退出码、所有权释放状态及既有协议核验后的结果归属；
+阶段、弹窗、截图和日志均标明尝试编号。最终选中的 CSV 必须属于成功的第二次尝试。
+准备取消可以保留恢复目录和空结果索引；脚本读取规范分层结果，确认其中没有任何测量行。
+下载事件的 `execution_attempt` 对应 TUI 尝试，原有 `attempt` 保留下载器内部的重试编号；
+新传输证据必须来自最终成功的 TUI 尝试。
+该场景证明准备阶段取消后可重试，不覆盖正式测量中断、已有 case 续跑或真实 VS Code 终端操作。
+默认 `complete` 行为仍保留。
+
+默认新建隔离 Model Store。`--model-store` 仅应指向预算相符、已验证的独立 Iris 缓存，
+不要对装有其他模型的共享缓存应用脚本的 128MB Store 上限。
+截图和收据均在正式测量窗口外写入。
 
 ## 真实采集与实验隔离
 
