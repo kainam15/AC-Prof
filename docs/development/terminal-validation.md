@@ -99,6 +99,22 @@ uv run --locked --no-default-groups --group test python scripts/check_hardware.p
   --output-dir internal-testing/shared/hardware-matrix
 ```
 
+真实预训练模型的六类 CPU/GPU 任务与 Structured CPU 任务分别使用独立目录：
+```bash
+uv run --locked --no-default-groups --group test python scripts/prepare_hardware.py \
+  --matrix examples/hardware-validation-real.json --gpus off,on \
+  --output-dir internal-testing/shared/hardware-real-prepare
+uv run --locked --no-default-groups --group test python scripts/check_hardware.py \
+  --matrix internal-testing/shared/hardware-real-prepare/prepared-matrix.json --gpus off,on \
+  --output-dir internal-testing/shared/hardware-real
+uv run --locked --no-default-groups --group test python scripts/prepare_hardware.py \
+  --matrix examples/hardware-validation-real-cpu.json --gpus off \
+  --output-dir internal-testing/shared/hardware-structured-prepare
+uv run --locked --no-default-groups --group test python scripts/check_hardware.py \
+  --matrix internal-testing/shared/hardware-structured-prepare/prepared-matrix.json --gpus off \
+  --output-dir internal-testing/shared/hardware-structured
+```
+
 矩阵 schema v1 要求 1–16 个 case，每项必须包含唯一安全目录名 `name`、`model`、40 位
 `revision`、`task` 和 `input_scales`；CPU、内存、GPU 和采样参数沿用命令行公共选项。
 全部配置先验证，再串行执行，各 case 使用独立结果目录。失败、清理错误或取消会停止后续 case，
