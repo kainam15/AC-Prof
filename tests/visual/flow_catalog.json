@@ -17,13 +17,13 @@
         "tests/visual/__snapshots__/test_snapshots/test_fixed_scenes[en-size1-form].svg",
         "tests/visual/__snapshots__/test_snapshots/test_fixed_scenes[zh-size2-form].svg"
       ],
-      "tests": ["tests/tui/widgets/test_tui_page_chrome.py", "tests/tui/workflows/test_tui_config_errors.py"]
+      "tests": ["tests/tui/widgets/test_tui_page_chrome.py", "tests/tui/workflows/test_tui_config_errors.py", "tests/tui/workflows/test_tui_visual_journey.py"]
     },
     {
-      "id": "launch-review", "title": "启动确认", "page": "run-tab", "group": "main",
-      "trigger": "点击开始采集并检查目标目录", "expected": "显示启动条件；存在历史记录时明确恢复或新建，不误启动",
+      "id": "launch-review", "title": "已有目录的启动检查", "page": "run-tab", "group": "main",
+      "trigger": "点击开始采集且输出目录已有实验或其他文件；全新目录不显示恢复弹窗", "expected": "先明确恢复、重试准备或新建实验；选择新建后进入监控页",
       "png": [], "svg": [],
-      "tests": ["tests/tui/widgets/test_tui_page_chrome.py", "tests/tui/workflows/test_tui_recovery_flow.py"]
+      "tests": ["tests/tui/widgets/test_tui_page_chrome.py", "tests/tui/workflows/test_tui_recovery_flow.py", "tests/tui/workflows/test_tui_visual_journey.py"]
     },
     {
       "id": "prepare", "title": "模型准备与接口解析", "page": "monitor-tab", "group": "main",
@@ -33,7 +33,7 @@
         "tests/visual/__snapshots__/test_snapshots/test_fixed_scenes[zh-size7-wsl-preparation].svg",
         "tests/visual/__snapshots__/test_snapshots/test_fixed_scenes[en-size8-wsl-preparation].svg"
       ],
-      "tests": ["tests/tui/workflows/test_tui_onboarding.py", "tests/tui/logging/test_tui_monitor_phases.py"]
+      "tests": ["tests/tui/workflows/test_tui_onboarding.py", "tests/tui/logging/test_tui_monitor_phases.py", "tests/tui/workflows/test_tui_visual_journey.py"]
     },
     {
       "id": "task-selection", "title": "选择模型任务", "page": "monitor-tab", "group": "optional",
@@ -65,7 +65,7 @@
       "id": "download", "title": "下载确认与进度", "page": "monitor-tab", "group": "optional",
       "trigger": "准备阶段需要下载模型或镜像", "expected": "预算、来源、缓存、大小和下载状态按阶段展示",
       "png": [], "svg": [],
-      "tests": ["tests/tui/logging/test_tui_download_layout.py", "tests/tui/workflows/test_tui_auto_download.py"]
+      "tests": ["tests/tui/logging/test_tui_download_layout.py", "tests/tui/workflows/test_tui_auto_download.py", "tests/tui/workflows/test_tui_visual_journey.py"]
     },
     {
       "id": "validation", "title": "模型运行验证", "page": "monitor-tab", "group": "main",
@@ -78,20 +78,20 @@
       "trigger": "进入资源矩阵测量窗口", "expected": "Case、资源、状态和耗时可读；常规日志不干扰正式窗口",
       "png": ["measuring"],
       "svg": ["tests/visual/__snapshots__/test_snapshots/test_fixed_scenes[zh-size5-measuring].svg"],
-      "tests": ["tests/tui/logging/test_tui_monitor_phases.py", "tests/tui/logging/test_tui_deferred_diagnostics.py"]
+      "tests": ["tests/tui/logging/test_tui_monitor_phases.py", "tests/tui/logging/test_tui_deferred_diagnostics.py", "tests/tui/workflows/test_tui_visual_journey.py"]
     },
     {
       "id": "finish", "title": "结束采集与核验", "page": "monitor-tab", "group": "main",
       "trigger": "子进程退出、结果进行归属核验", "expected": "成功、部分完成和失败状态与本次结果证据一致",
       "png": [], "svg": [],
-      "tests": ["tests/tui/workflows/test_tui_process_completion.py", "tests/tui/workflows/test_tui_collection_workflow.py"]
+      "tests": ["tests/tui/workflows/test_tui_process_completion.py", "tests/tui/workflows/test_tui_collection_workflow.py", "tests/tui/workflows/test_tui_visual_journey.py"]
     },
     {
       "id": "results", "title": "查看结果与统计", "page": "results-tab", "group": "main",
       "trigger": "选择本次或已有实验并读取结果", "expected": "结果源与统计口径明确，表格与操作适应终端尺寸",
       "png": [],
       "svg": ["tests/visual/__snapshots__/test_snapshots/test_fixed_scenes[en-size4-resized-table].svg"],
-      "tests": ["tests/tui/results/test_tui_result_tools.py", "tests/tui/results/test_tui_reports.py"]
+      "tests": ["tests/tui/results/test_tui_result_tools.py", "tests/tui/results/test_tui_reports.py", "tests/tui/workflows/test_tui_visual_journey.py"]
     },
     {
       "id": "profiler", "title": "查看或补充 Profiler", "page": "results-tab", "group": "optional",
@@ -107,7 +107,7 @@
       "id": "recover", "title": "恢复 / 新建实验", "page": "run-tab", "group": "optional",
       "trigger": "输出目录存在旧实验，或从历史选择器申请恢复", "expected": "核验可恢复性，明确继续、重试准备和新建实验的区别",
       "png": [], "svg": [],
-      "tests": ["tests/tui/workflows/test_tui_recovery_flow.py", "tests/tui/workflows/test_tui_resume.py"]
+      "tests": ["tests/tui/workflows/test_tui_recovery_flow.py", "tests/tui/workflows/test_tui_resume.py", "tests/tui/workflows/test_tui_visual_journey.py"]
     },
     {
       "id": "preflight-error", "title": "环境检查异常", "page": "run-tab", "group": "exception",

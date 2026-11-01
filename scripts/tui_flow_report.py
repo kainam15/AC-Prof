@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from scripts.tui_flow_catalog import ROOT, load_catalog, svg_inventory
+from scripts.tui_journey_report import JOURNEY_STYLE, render_journey
 
 FLOW_STYLE = """
 .view-tabs{display:flex;gap:9px;flex-wrap:wrap;margin:25px 0 18px}
@@ -52,6 +53,8 @@ FLOW_STYLE = """
 @media(max-width:680px){.flow-list{grid-template-columns:1fr}
   .coverage-table{font-size:.8rem}.coverage-table th,.coverage-table td{padding:8px 5px}}
 """
+
+FLOW_STYLE += JOURNEY_STYLE
 
 FLOW_SCRIPT = """
 for (const button of document.querySelectorAll('[data-report-view]')) {
@@ -107,6 +110,7 @@ def _checkpoint_card(
     actual: Path,
     baselines: Path,
     png_status: dict[str, str],
+    pilot_count: int,
 ) -> str:
     svg = item["svg"]
     png = item["png"]
@@ -135,6 +139,7 @@ def _checkpoint_card(
         f'<span class="flow-chip {"missing" if not png else ""}">PNG {len(png)}</span>'
         f'<span class="flow-chip {"missing" if not svg else ""}">SVG {len(svg)}</span>'
         f'<span class="flow-chip">测试文件 {len(tests)}（非运行结果）</span>'
+        f'<span class="flow-chip">Pilot 截图 {pilot_count}（模拟）</span>'
     )
     return (
         f'<article class="flow-card" id="flow-{_safe(item["id"])}">'
@@ -157,6 +162,7 @@ def render_flow_report(
     page_names = {page["id"]: page["title"] for page in pages}
     checkpoints = catalog["checkpoints"]
     status = {row["scene"]: row["status"] for row in png_results or ()}
+    journey_html, pilot_counts = render_journey(actual)
     grouped = [
         (
             "采集主路径 · 条件性确认按实际顺序穿插",
@@ -176,6 +182,7 @@ def render_flow_report(
                 actual=actual,
                 baselines=baselines,
                 png_status=status,
+                pilot_count=pilot_counts.get(item["id"], 0),
             )
             for item in checkpoints
             if included(item)
@@ -192,13 +199,16 @@ def render_flow_report(
         f'<div class="flow-count">主页面：<strong>{len(pages)}</strong></div>'
         f'<div class="flow-count">流程检查点：<strong>{len(checkpoints)}</strong></div>'
         f'<div class="flow-count">SVG 基准：<strong>{len(svg_all)}</strong></div>'
-        f'<div class="flow-count">无图片证据：<strong>{len(missing_visual)}</strong></div></div>'
+        f'<div class="flow-count">无固定图片基准：<strong>{len(missing_visual)}</strong></div></div>'
     )
     workflow = (
         "<h2>采集流程与界面证据</h2>"
         '<p class="flow-note">流程按常见路径排列；条件性步骤可能跳过，异常步骤不是必经流程。'
         "截图只证明该固定状态曾被记录，测试文件索引不代表本次执行通过。"
-        "这里展示的是脱敏测试夹具，不含真实采集日志或用户配置。</p>" + counts + "".join(sections)
+        "这里展示的是脱敏测试夹具，不含真实采集日志或用户配置。</p>"
+        + counts
+        + journey_html
+        + "".join(sections)
     )
     page_rows = []
     for page in pages:
@@ -217,18 +227,20 @@ def render_flow_report(
         step_rows.append(
             f"<tr><td>{_safe(item['title'])}</td><td>{_safe(item['page'])}</td>"
             f"<td>{len(item['png'])}</td><td>{len(item['svg'])}</td>"
+            f"<td>{pilot_counts.get(item['id'], 0)}</td>"
             f"<td>{len(item['tests'])}</td><td>{missing}</td></tr>"
         )
     coverage = (
         "<h2>覆盖矩阵</h2>"
         '<p class="flow-note">下表统计已登记的截图和测试源码，不是本次通过率。'
-        "PNG 测试通过与否只以“视觉对比”页的 report.json 为准；SVG 通过情况应查看独立 SVG CI。</p>"
+        "PNG 测试通过与否只以“视觉对比”页的 report.json 为准；SVG 通过情况应查看独立 SVG CI。"
+        "连续 Pilot 图像由测试夹具生成，不能证明真实采集。</p>"
         '<h3>主页面</h3><div class="coverage-wrap"><table class="coverage-table">'
         "<thead><tr><th>页面</th><th>检查点</th><th>PNG</th><th>SVG</th><th>无截图</th></tr></thead><tbody>"
         + "".join(page_rows)
         + "</tbody></table></div>"
         '<h3>流程检查点</h3><div class="coverage-wrap"><table class="coverage-table">'
-        "<thead><tr><th>检查点</th><th>所在页面</th><th>PNG</th><th>SVG</th><th>测试文件</th><th>视觉覆盖</th></tr></thead><tbody>"
+        "<thead><tr><th>检查点</th><th>所在页面</th><th>PNG</th><th>SVG</th><th>Pilot 帧</th><th>测试文件</th><th>固定截图</th></tr></thead><tbody>"
         + "".join(step_rows)
         + "</tbody></table></div>"
         + (
