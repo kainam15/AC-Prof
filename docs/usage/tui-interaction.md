@@ -9,6 +9,10 @@
 底部输入框还支持 `/run`、`/probe`、`/check`、`/status`、`/stop`、`/plot`、`/stats`、`/report`、`/images`、`/profile` 和 `/help`
 等快捷命令。
 
+任务进入“正在创建子进程”后即可使用“终止任务”或 `Ctrl+X`。确认停止时若还在读取历史产物、
+尚未创建子进程，本次启动会取消；读取工作退出前仍保持占用，结束后可直接重新开始。
+若子进程已在创建，TUI 会在取得进程后按现有 SIGINT / SIGTERM 清理流程安全停止。
+
 ### VS Code 中的 Ctrl+Q
 
 如果 `Ctrl+Q` 在普通终端有效、在 VS Code 集成终端无效，可能是按键被 VS Code 拦截。

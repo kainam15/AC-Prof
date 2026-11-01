@@ -29,12 +29,15 @@ class ProcessController:
     def execute_command(self, command: list[str], kind: str, *, config: RunConfig | None) -> Worker[None]:
         """Schedule this operation on the owning App worker manager."""
         return self.app.run_worker(
-            partial(self._execute_command_worker, command, kind, config=config),
+            partial(self._execute_command_worker, command, kind, config=config,
+                    token=self.app.execution.session.token),
             name="execute_command", thread=True, group='process', exclusive=True, exit_on_error=False,
         )
 
-    def _execute_command_worker(self, command: list[str], kind: str, *, config: RunConfig | None) -> None:
-        token = self.app.execution.session.token
+    def _execute_command_worker(self, command: list[str], kind: str, *, config: RunConfig | None,
+                                token: object | None) -> None:
+        if not self.app.execution.accepts(token):
+            return
         def deliver(callback, *args):
             self.app.call_from_thread(self.deliver_process_callback, token, callback, *args)
         run_before = None
@@ -69,9 +72,11 @@ class ProcessController:
             # ANSI redraws, when the TUI itself is launched inside tmux.
             child_env.pop("TMUX", None)
             child_env.pop("TMUX_PANE", None)
-            process = self.app.execution.lifecycle.start(command, cwd=self.app.project_dir, env=child_env)
+            process = self.app.execution.start(token, command, cwd=self.app.project_dir, env=child_env)
+            if process is None:
+                return
             if self.app.execution.session.stop_requested:
-                self.app.execution.lifecycle.stop()
+                self.app.execution.lifecycle.stop(expected_process=process)
             deliver(self.app.process_started, process.pid, kind)
             assert process.stdout is not None
             output = iter(partial(process.stdout.read, 65536), "") if analysis is not None else process.stdout

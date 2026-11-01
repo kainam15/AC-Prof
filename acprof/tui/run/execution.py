@@ -7,6 +7,7 @@ identity. A child that hasn't exited remains owned by ProcessLifecycle.
 
 from __future__ import annotations
 
+import subprocess
 import time
 from dataclasses import dataclass, field
 
@@ -31,6 +32,7 @@ class ExecutionSession:
     command: tuple[str, ...] = ()
     started_monotonic: float = 0.0
     stop_requested: bool = False
+    launch_pending: bool = False
     snapshot: ProgressSnapshot = field(default_factory=ProgressSnapshot)
     token: object | None = None
     result: RunResult = field(default_factory=RunResult)
@@ -61,6 +63,7 @@ class ExecutionCoordinator:
             config=pending.config if pending.kind == "run" else None,
             command=pending.command,
             started_monotonic=time.monotonic(),
+            launch_pending=True,
             snapshot=ProgressSnapshot(
                 stage=Stage.STARTING, detail="正在创建子进程"
             ),
@@ -70,6 +73,18 @@ class ExecutionCoordinator:
 
     def accepts(self, token: object | None) -> bool:
         return token is not None and token is self.session.token and bool(self.session.kind)
+
+    def start(self, token: object | None, command: list[str], *, cwd, env) -> subprocess.Popen[str] | None:
+        """A cancelled or stale launch cannot create a new child."""
+        if not self.accepts(token):
+            return None
+        session = self.session
+        try:
+            if session.stop_requested:
+                return None
+            return self.lifecycle.start(command, cwd=cwd, env=env)
+        finally:
+            session.launch_pending = False
 
     def accept_result(self, token: object, result: RunResult) -> bool:
         if not self.accepts(token):
@@ -118,6 +133,7 @@ class ExecutionCoordinator:
         self.session.kind = ""
         self.session.command = ()
         self.session.stop_requested = False
+        self.session.launch_pending = False
         self.session.token = None
         self.session.snapshot = completion.final_snapshot
         return completion

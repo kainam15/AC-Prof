@@ -12,6 +12,7 @@ from unittest.mock import Mock, patch
 import pytest
 from textual.widgets import Button, Static
 
+from acprof.tui.commands import PendingLaunch
 from acprof.tui.run.process import ProcessLifecycle, StopResult
 from tests.support.tui_fixtures import AcprofTui
 
@@ -42,6 +43,7 @@ def test_release_exited_process_ignores_broken_stdin_pipe():
 def test_callback_failure_keeps_live_process_busy_and_does_not_finish():
     with tempfile.TemporaryDirectory() as directory:
         app = AcprofTui(settings_path=Path(directory) / "settings.json")
+        token = app.execution.begin(PendingLaunch(("collector",), "run"))
         process = Mock(pid=987654, stdout=io.StringIO("output\n"))
         process.poll.return_value = None
         process.wait.side_effect = subprocess.TimeoutExpired("collector", 5)
@@ -55,7 +57,7 @@ def test_callback_failure_keeps_live_process_busy_and_does_not_finish():
             patch.object(app.process, 'watch_failed_process'),
             patch.object(app, 'process_cleanup_incomplete'),
         ):
-            app.process._execute_command_worker(["collector"], "run", config=None)
+            app.process._execute_command_worker(["collector"], "run", config=None, token=token)
         assert (app.is_busy()), "live collector must remain owned"
         app.process_finished.assert_not_called()
 

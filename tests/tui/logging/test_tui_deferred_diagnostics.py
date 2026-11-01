@@ -52,6 +52,7 @@ def test_failed_replay_keeps_ownership_for_late_cleanup(tmp_path):
     from acprof.tui.run.process import StopResult
 
     app = AcprofTui(settings_path=tmp_path / "settings.json")
+    token = app.execution.begin(PendingLaunch(("fixture",), "run"))
     lines = [
         encode_event("case_started", "fixture"),
         encode_event("measurement_started", "fixture"),
@@ -71,7 +72,7 @@ def test_failed_replay_keeps_ownership_for_late_cleanup(tmp_path):
         patch.object(app.process, "safe_process_callback"),
         patch.object(app.process, "watch_failed_process") as watch,
     ):
-        app.process._execute_command_worker(["fixture"], "run", config=None)
+        app.process._execute_command_worker(["fixture"], "run", config=None, token=token)
     watch.assert_called_once()
     buffer = watch.call_args.args[-2]
     assert buffer.snapshot().entries == ("[WARN] preserved after failed callback",)

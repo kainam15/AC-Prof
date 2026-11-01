@@ -221,7 +221,7 @@ class AcprofTui(BarCursorApp):
         process = self.execution.lifecycle.process
         return OperationState(
             process=process is not None or bool(self.execution.session.kind),
-            stoppable=process is not None and process.poll() is None,
+            stoppable=self.execution.session.launch_pending or (process is not None and process.poll() is None),
             checking=self.preflight.check_running, reading=bool(self.read_jobs),
             maintenance=bool(self.images.operation) or self.images.storage_loading,
             configuring=self.configuration.environment_open or self.catalog.picker_open,
