@@ -107,4 +107,7 @@ TUI“实验结果 → 比较”复用同一入口，可选择左右组、基线
 执行独立 HTTP 负载；到达率使用 `--scenario arrival-rate --rate 10 --arrival poisson`。
 协议、连接复用前提和失败口径见[独立非流式负载](../profiling/lifecycle.md#独立非流式负载)。
 `acprof load --base-url http://127.0.0.1:8000 --protocol openai-chat --model Qwen/Qwen3-0.6B --prompt Hello --output-dir <新目录>`
-可直接测量已启动服务的 SSE；完整命令、Token 计数和指标口径见[流式测量](../profiling/streaming.md)。
+可直接测量已启动服务的 SSE；可选 `--slo-ttft-s/--slo-tpot-s/--slo-e2e-s` 计算单点 SLO Goodput，
+`--service-backend/--service-version` 保存声明，`--service-probe vllm` 在预热前观测有限服务身份。
+`acprof report <load.json 或所在目录>` 生成单点容量 HTML；完整命令、Token 计数、吞吐分母和
+v1/v2 报告口径见[流式测量](../profiling/streaming.md)。

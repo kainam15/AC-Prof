@@ -76,6 +76,22 @@ Metric Registry 在原有采集声明上增加 `label`、`group`、`direction`�
 首批覆盖 Performance、Resource、Energy、Startup、CPU PMU、GPU；其余未审定字段保留 neutral。
 CPU/GPU utilization 不默认判定越高或越低越好。
 
+### 单负载点流式容量报告
+
+OpenAI-compatible `load.json` 可生成独立 HTML，不进入正式实验的 `AnalysisModel`：
+
+```bash
+acprof report results/qwen-capacity/load.json
+acprof report results/qwen-capacity/ --output results/qwen-capacity/capacity.html
+```
+
+报告展示 offered／成功／失败／丢弃计数、客户端并发、成功请求吞吐、SLO Goodput、Token/s 及
+coverage／scope、TTFT／TPOT／E2E 分布和服务身份。v2 会从原始 requests、`duration_s`、声明 SLO 和
+客户端并发重新计算 capacity，并核对 `identity_sha256` 与持久化摘要；不一致即拒绝生成。v1 可读取，
+新增能力显示 unavailable，不以零替代。CLI 只接受一个流式 load 输入，拒绝与 baseline、比较用途或
+其他结果组合；默认生成 `load_report.html`，已有文件、目录或符号链接均不覆盖，并遵守离线分析锁。
+该报告只有一个负载点，不生成容量曲线或最大容量结论。字段公式见[流式测量](../profiling/streaming.md)。
+
 ### 交互式配置比较报告
 
 可通过 `acprof tui` → “实验结果” → “选择实验” → “导入 / 导出” → “生成 HTML”完成生成、查看和导出，

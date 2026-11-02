@@ -174,6 +174,8 @@ blocked/unknown 暂停默认自动优选，但数值观测和描述统计仍保�
 非流式报告不采集能耗或 Token 首响应／间隔，不与正式串行关闭连接的 CSV 合并。
 OpenAI-compatible 模式另用 `stream_load_experiment`／`stream_load_result`，其 TTFT、TPOT、
 严格 ITL、输出事件间隔及完整流 E2E 的字段、缺失值与统计定义见[流式测量](../profiling/streaming.md)。
+新运行为 schema v2，单点 SLO Goodput、Token/s 和服务身份仍只保存在该 load 协议及独立容量 HTML 中，
+不作为正式 CSV 输入，也不与多实验比较或容量曲线混用。
 
 HTML 默认显示全部观测；“质量范围”可筛选满足质量要求的候选，“质量状态”可单独筛选。
 配置行分开展示运行、完整性、可比性和质量状态；选中行后可展开完整原始质量证据。

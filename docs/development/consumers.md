@@ -18,6 +18,9 @@ CPU/GPU 拟合、尺度基函数说明和残差整理各有独立函数。`write
 `tail_latency` 独立准备与渲染窗口分位数，按同一窗口的有效 P50/P95 配对聚合，保留缺失尺度的断线。
 尾延迟和冷启动分解共用 `data.representative_max_memory_rows` 选择配置，
 常规指标和尾延迟共用 `styles.configurations_with_colors` 取得颜色。
+`analysis.streaming_capacity` 以原始流式请求、正式负载时长和声明 SLO 纯计算单点 Goodput、
+Token 覆盖及吞吐，不导入采集或渲染模块；`plotting.load_report` 复用同一实现校验并渲染 v2，
+对 v1 保留 unavailable，不建立第二套公式。入口与边界见[流式测量](../profiling/streaming.md)。
 `plotting.pipeline.plot_results` 组织数据准备、PNG 渲染和模型报告发布；CLI 负责参数与锁的生命周期，
 在取得 `host.run_state.offline_analysis_lock()` 后才导入 pipeline。
 同一 guard 用于 report、stats、compare、结果 audit 与 results 校验/导出；Linux 复用

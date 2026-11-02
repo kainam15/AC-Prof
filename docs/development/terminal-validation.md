@@ -186,10 +186,16 @@ CPU、内存、GPU 和采样参数沿用命令行公共选项。
 全部配置先验证，再串行执行，各 case 使用独立结果目录。失败、清理错误或取消会停止后续 case，
 `hardware_matrix.json` 保存源码/主机身份以及 `passed`、`failed`、`cancelled`、`not_run`，
 中断时保留已完成证据；强制终止可能留下 `running`，不能解释为通过。
+case 的 `passed` 与矩阵 `successful` 只表示执行兼容和必需采集指标验收通过。矩阵顶层同时聚合
+`quality_status`、`quality_checks`、`quality_reasons` 和 `auto_selection_eligible`；缺质量证据、
+能耗基线不稳定或样本不足不会被其他成功 case 覆盖为 `passed`。只有 `successful=true` 且
+`auto_selection_eligible=true` 才允许自动优选；这不构成模型准确率证明。
 workflow 将离线故障回归保存到 `offline-faults/`、镜像准备报告及固定选择保存到 `preparation/`，
 实际采集和审计证据保存到 `measurements/`；Structured 的对应证据分别保存到
 `preparation-structured/` 与 `measurements-structured/`。其中离线故障回归使用 mock，不代表真实硬件故障已实测。
 `.github/workflows/hardware.yml` 目前只支持从 `main` 手动触发，定期周检暂停；不会由 PR 触发。
+专用主机复用 `.venv` 和已忽略的本地产物，但测量前会拒绝 tracked diff、staged diff 及任何
+非忽略的未跟踪文件，避免未绑定提交的源码进入离线回归、构建或采集。
 自定义单模型即使输入 branch 或留空 revision，准备成功后也会固定为解析到的 commit，
 再交给验收阶段，不在验收时重新解析浮动 revision。运行时必须具备 Docker/cgroup v2、RAPL、
 perf、抓包权限及所选 GPU 的实际权限；没有这些条件仍会如实失败，不会以 mock 代替。
@@ -208,8 +214,11 @@ uv run --locked --no-default-groups --group test python scripts/check_hardware.p
 默认每个设备 1 个 case、warmup=1、repeat=3、2 秒请求窗口及 2 秒 idle，属于短 smoke。
 `command.json`、`run.log`、原始结果及 `audit.json` 一同保留；验收要求正式行为 `ok`、计划完整，
 且两种延迟、CPU 能量、PMU instructions 和 GPU 模式下的 GPU 能量均为有效数值。
-未通过不自动更改原参数或覆盖产物。`--compute-profile-tool` / `--execution-profile-tool`
-可另测指定工具，工具字段仍需根据其计划和错误列验收，不能用主采集成功代替工具成功。
+未通过不自动更改原参数或覆盖产物。显式指定 `--compute-profile-tool` / `--execution-profile-tool` 时，
+严格验收分别要求 capability 为 `verified`、对应 plan 覆盖全部适用正式行且无错误、
+plan 与正式 CSV 主指标均为有限数值，
+以及 CSV 工具错误列为空；缺工具、缺适用行或任一工具失败都不能由主采集成功或另一工具成功抵消。
+普通 `acprof run` 的能力 warning 语义不因此改变。
 
 2026-11-01 本地 Native Linux full 验收已覆盖六类真实预训练 checkpoint 的 CPU/GPU 路径：
 `internal-testing/shared/hardware-real-20261101T102912Z/measurements/hardware_matrix.json`

@@ -20,6 +20,15 @@ acprof load --base-url http://127.0.0.1:8000 --protocol openai-completions \
   --request-json request.json --scenario concurrent --concurrency 2 \
   --connections reuse --requests 8 --warmup 1 \
   --output-dir results/qwen-completion-streaming
+
+acprof load --base-url http://127.0.0.1:8000 --protocol openai-chat \
+  --model Qwen/Qwen3-0.6B --prompt "Explain throughput in one sentence." \
+  --max-tokens 64 --requests 20 --scenario concurrent --concurrency 4 \
+  --slo-ttft-s 0.5 --slo-tpot-s 0.05 --slo-e2e-s 3 \
+  --service-backend vllm --service-version 0.11.2 --service-probe vllm \
+  --output-dir results/qwen-capacity
+acprof report results/qwen-capacity/load.json \
+  --output results/qwen-capacity/capacity.html
 ```
 
 `--request-json` 接受完整请求对象，例如：
@@ -46,6 +55,10 @@ Chat 的确定性对照可显式传入 `chat_template_kwargs.enable_thinking=fal
 不是整个请求的总 deadline。预热报告与正式负载分开；不自动重试。
 `--seed` 控制到达调度的随机序列；prompt 模式用 `--generation-seed` 指定模型采样 seed，
 或在 `--request-json` 中显式传入；JSON 请求不允许叠加生成参数覆盖。
+`--slo-ttft-s`、`--slo-tpot-s`、`--slo-e2e-s` 可独立设置，必须是有限正数；
+SLO 违反不改变请求的协议成功状态。`--service-backend` 与 `--service-version` 保存用户声明，
+`--service-probe vllm` 在预热前进行有限身份观测，默认 `none` 不发送额外请求。
+这些选项仅适用于 endpoint 模式，source replay 会在读取源实验、联网或创建输出前拒绝。
 
 协议只接受单个文本生成选择（`n=1`）；tool/function、多选择等尚未支持的输出明确失败。
 Streaming Adapter 强制请求 SSE 与 usage。它处理 UTF-8 跨网络读取、BOM、
@@ -107,6 +120,23 @@ role-only、usage-only、心跳、空文本元数据、结束标记不产生虚�
 `requests_with_samples` 及错误分组说明分母；无有效样本是 JSON `null`。
 失败、取消、丢弃请求不进入成功指标分布，原始观测留作诊断。
 
+## SLO Goodput 与单点容量
+
+schema v2 的 `result.capacity` 以同一个 `result.duration_s`（记为 `D`）汇总单次正式负载，
+预热和 tokenizer 后处理不进入该窗口。`counts` 分别保存 offered、sent、succeeded、failed、
+dropped、cancelled；`client_concurrency` 是客户端 Scheduler worker 上限，不是服务端实际并发。
+`successful_requests_per_s` 为成功请求数除以 `D`，目标到达率仍由原有字段单独保存。
+
+对每个成功请求，已配置的 TTFT／TPOT／E2E 指标按以下三值规则评价：任一已知值严格大于阈值即
+`violated`；没有已知违反但至少一个必需指标为 `null` 即 `unevaluable`；全部指标存在且不超过阈值
+才为 `satisfied`。阈值相等视为满足。单 Token、合并输出事件或未知 Token 导致的 TPOT 缺失不能按零计算。
+失败、取消和丢弃请求不进入 satisfied／violated／unevaluable 计数，但也不会计入满足数。
+
+设满足请求数为 `A`，则 `goodput_requests_per_s = A / D`。未配置任何 SLO 时 goodput 为 `null`，
+不以成功吞吐替代；配置后没有满足请求时 goodput 是有效的 `0`。`slo` 保存阈值、三类请求计数和
+逐指标计数；报告可由原始请求、时长和声明阈值重新计算。单次 `load` 只有一个负载点，不能据此宣称
+容量曲线、拐点或最大容量。
+
 ## Token 计数与可复现信息
 
 优先使用通过类型、范围及一致性校验的服务端
@@ -142,8 +172,33 @@ acprof load --base-url http://127.0.0.1:8000 --protocol openai-chat \
 和 tokenizer 元数据一起解释数值。没有匹配的输入模板证据时，不从 prompt 字符数推测输入 Token 数。
 
 端点实验保存请求参数／请求体身份、模型声明、协议、预热、连接和调度设置。
-未被接口观测或使用者明确声明的服务端版本、缓存策略、硬件与运行参数保持未知，
-不依据客户端模型名猜测。P1 将继续补充服务端元数据、吞吐量、SLO Goodput 与可视化。
+
+### 系统 Token 吞吐
+
+`capacity.token_throughput` 分别汇总 input、output 和 total。每个分量的 `tokens` 与 `tokens_per_s`
+只在全部成功请求的对应分量都已知时提供；任何一个成功请求缺失，完整总量和完整 Token/s 都为 `null`。
+`observed_tokens` 与 `observed_tokens_per_s` 可描述已知子集，但必须同时读取 `covered_requests`、
+`successful_requests` 和 `coverage_ratio`；没有观测时仍为 `null`，已知零 Token 是有效观测。
+total 只累加同一请求 input 与 output 均已知的样本，不拼接不同请求的部分值。
+
+输入 scope 由 `input_token_count_scope` 记录，服务端 prompt usage 为 `server_prompt_tokens`；
+原有 `token_count_scope` 继续表示输出 scope。`scope_request_counts` 分别保存 input、output 及
+total 的 scope 组合请求数，total 以 `input_scope+output_scope` 命名；`source_request_counts`
+分别保存输入和输出的计数来源。这样不会把服务端输入与本地可见文本输出的组合误称为纯服务端总 Token。
+这些速率是本次客户端成功请求集合在整个 `D` 上的聚合，不是服务端全局吞吐、其他租户流量、
+Decode 阶段吞吐、`1 / TPOT` 或每秒峰值。
+
+### 服务身份
+
+`service_identity` schema v1 分开保存 `declared`、`observed`、`probe`、`matches` 和 `mismatches`。
+声明的 backend、版本、模型、revision 与 SLO 进入 `identity_sha256`；运行中观测不进入该哈希。
+未观测或无法取得的字段保持 `null`，声明与观测冲突时双方保留并记录 mismatch，不互相覆盖。
+
+`--service-probe vllm` 在预热前请求 `/version` 和 `/v1/models`，复用现有 Authorization 且不落盘，
+连接关闭、响应限制为 1 MiB。模型列表仅保留 `id/root/max_model_len`，按请求模型 ID 精确且唯一匹配；
+未找到或重复匹配时选中模型为 `null`。`root` 不能解释为 checkpoint revision。单个端点失败时身份为
+`partial`，两者均失败为 `unavailable`，均成功为 `available`；探测或 mismatch 不改变推理请求状态。
+标准 OpenAI 端点未暴露的缓存策略、dtype、硬件、调度上限及实际 revision 仍保持未知，不能从模型名猜测。
 
 ## 失败及结果边界
 
@@ -157,8 +212,9 @@ acprof load --base-url http://127.0.0.1:8000 --protocol openai-chat \
 | 不支持的多选择、tool/function、无效计数 | 明确失败或明确不可用，不静默替换 |
 | 无 Token 计数证据／非逐 Token 流 | 相应指标 `null`，记录缺失原因 |
 
-该协议使用独立的 `stream_load_experiment`／`stream_load_result` schema v1，
-保存到新输出目录；原来的 `nonstream_load_*` 协议继续读取和执行。
+新运行使用独立的 `stream_load_experiment`／`stream_load_result` schema v2 并保存到新输出目录；
+容量报告只读兼容 v1，缺少的 SLO、Token 吞吐和服务身份显示 unavailable，不回填为零或改写历史文件。
+原来的 `nonstream_load_*` schema v1 继续读取和执行。
 流式结果不写入正式窗口的指标登记表／能耗 CSV，也不混入已有实验的 resume 或补采。
 同一共享 GPU 上的并发请求不能直接分别使用整卡能耗作为每请求或每 Token 精确能耗；
 未来能耗扩展必须声明归因方法和窗口。
@@ -168,6 +224,8 @@ acprof load --base-url http://127.0.0.1:8000 --protocol openai-chat \
 `tests/execution/operations/test_streaming.py` 用受控时间与字节流核对协议、公式、缺失值；
 `test_streaming_load.py` 用真实本地 HTTP 验证两个端点、复用、并发、Poisson、
 断流、超时、取消和统计；`test_streaming_cli.py` 验证入口、身份与失败产物。
+`test_streaming_capacity.py` 独立重算 SLO 与 Token 覆盖，`test_service_identity.py` 验证有界 vLLM 观测；
+`tests/analysis/reporting/test_load_report.py` 覆盖 v1/v2 报告、原始记录重建、防篡改与拒绝覆盖。
 
 例如 `s=0`，输出事件在 `0.10 / 0.14 / 0.18` 秒到达，
 usage 为 5 Token，`[DONE]` 在 `0.23` 秒到达：
