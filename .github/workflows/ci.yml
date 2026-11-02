@@ -213,7 +213,9 @@ jobs:
         if: always()
         with:
           name: host-${{ matrix.python }}-${{ matrix.shard }}
-          path: evidence/
+          path: |
+            evidence/
+            !evidence/coverage/**
       - name: 上传 Python 3.12 coverage 分片
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always() && matrix.python == '3.12'

@@ -32,7 +32,7 @@ repos:
         entry: uv run --locked ruff check --select BLE001,C901 --force-exclude
         language: system
         types: [python]
-        files: '^acprof/(config_constraints|input_budget|image_inputs|gpu_probe|host/gpu_metadata)\.py$'
+        files: '^acprof/(experiments/constraints|input_budget|image_inputs|gpu_probe|host/metadata/gpu)\.py$'
         require_serial: true
 
       - id: core-complexity

@@ -1,14 +1,32 @@
 """Import boundaries that keep application entry points out of core code."""
 import ast
+import re
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
+import yaml
 
 from scripts.check_private_api import read_baseline, scan_sources
 
 PROJECT_DIR = Path(__file__).resolve().parents[2]
+
+
+def test_shared_boundaries_gate_tracks_current_modules():
+    config = yaml.safe_load((PROJECT_DIR / ".pre-commit-config.yaml").read_text(encoding="utf-8"))
+    local_repo = next(repo for repo in config["repos"] if repo["repo"] == "local")
+    hook = next(item for item in local_repo["hooks"] if item["id"] == "shared-boundaries")
+    pattern = re.compile(hook["files"])
+    expected = {
+        "acprof/experiments/constraints.py",
+        "acprof/input_budget.py",
+        "acprof/image_inputs.py",
+        "acprof/gpu_probe.py",
+        "acprof/host/metadata/gpu.py",
+    }
+    assert all(pattern.fullmatch(path) for path in expected)
+    assert all((PROJECT_DIR / path).is_file() for path in expected)
 
 
 def test_repository_root_has_no_python_files():

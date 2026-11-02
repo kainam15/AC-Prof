@@ -75,6 +75,21 @@ def test_manual_and_release_reusable_workflows_force_full(workflow):
     assert "refs/tags/" in expr
 
 
+def test_host_artifact_excludes_dedicated_coverage_shards(workflow):
+    steps = workflow["jobs"]["host"]["steps"]
+    host_upload = next(
+        step for step in steps
+        if step.get("with", {}).get("name") == "host-${{ matrix.python }}-${{ matrix.shard }}"
+    )
+    coverage_upload = next(
+        step for step in steps
+        if step.get("with", {}).get("name") == "coverage-3.12-${{ matrix.shard }}"
+    )
+    assert "!evidence/coverage/**" in host_upload["with"]["path"]
+    assert coverage_upload["with"]["path"] == "evidence/coverage/.coverage.*"
+    assert coverage_upload["with"]["include-hidden-files"] == "true"
+
+
 def test_host_summary_skips_when_host_is_not_requested(workflow):
     summary = workflow["jobs"]["host-summary"]
     assert set(summary["needs"]) == {"changes", "host"}

@@ -87,9 +87,12 @@ def test_hardware_workflow_is_manual_and_never_exposes_fork_prs():
     assert "pull_request" not in trigger
     job = hardware["jobs"]["profile"]
     assert "refs/heads/main" in job["if"]
-    tracked = next(step["run"] for step in job["steps"] if "git diff --cached --quiet" in step.get("run", ""))
-    assert "git rev-parse HEAD" in tracked
-    assert "git diff --quiet" in tracked
+    source_check = next(
+        step["run"] for step in job["steps"] if "git diff --cached --quiet" in step.get("run", "")
+    )
+    assert "git rev-parse HEAD" in source_check
+    assert "git diff --quiet" in source_check
+    assert "git ls-files --others --exclude-standard" in source_check
     assert "pinned-matrix" in job["env"]["VALIDATION_PRESET"]
     assert "off,on" in job["env"]["VALIDATION_GPUS"]
     preset = trigger["workflow_dispatch"]["inputs"]["preset"]
