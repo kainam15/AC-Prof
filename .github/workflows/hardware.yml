@@ -38,7 +38,6 @@ jobs:
     env:
       VIRTUAL_ENV: ''
       HARDWARE_WORKSPACE: ${{ github.workspace }}/acprof-hardware-${{ github.run_id }}-${{ github.run_attempt }}
-      UV_PROJECT_ENVIRONMENT: ${{ runner.temp }}/acprof-hardware-venv-${{ github.run_id }}-${{ github.run_attempt }}
       VALIDATION_PRESET: ${{ github.event_name == 'schedule' && 'pinned-matrix' || inputs.preset }}
       VALIDATION_MODEL: ${{ inputs.model }}
       VALIDATION_TASK: ${{ inputs.task }}
@@ -60,6 +59,9 @@ jobs:
         with:
           version-file: ${{ env.HARDWARE_WORKSPACE }}/pyproject.toml
           python-version: '3.12'
+      - name: Configure isolated UV environment
+        run: |
+          echo "UV_PROJECT_ENVIRONMENT=${RUNNER_TEMP}/acprof-hardware-venv-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_ENV"
       - name: 在测量开始前同步锁定的主机和测试环境
         working-directory: ${{ env.HARDWARE_WORKSPACE }}
         run: uv sync --locked --no-default-groups --group test
