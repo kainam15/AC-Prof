@@ -109,5 +109,6 @@ TUI“实验结果 → 比较”复用同一入口，可选择左右组、基线
 `acprof load --base-url http://127.0.0.1:8000 --protocol openai-chat --model Qwen/Qwen3-0.6B --prompt Hello --output-dir <新目录>`
 可直接测量已启动服务的 SSE；可选 `--slo-ttft-s/--slo-tpot-s/--slo-e2e-s` 计算单点 SLO Goodput，
 `--service-backend/--service-version` 保存声明，`--service-probe vllm` 在预热前观测有限服务身份。
+`--max-run-response-bytes` 与 `--max-run-output-events` 设置每轮 warmup／正式 run 的独立硬预算。
 `acprof report <load.json 或所在目录>` 生成单点容量 HTML；完整命令、Token 计数、吞吐分母和
 v1/v2 报告口径见[流式测量](../profiling/streaming.md)。

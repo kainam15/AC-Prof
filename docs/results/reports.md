@@ -87,8 +87,10 @@ acprof report results/qwen-capacity/ --output results/qwen-capacity/capacity.htm
 
 报告展示 offered／成功／失败／丢弃计数、客户端并发、成功请求吞吐、SLO Goodput、Token/s 及
 coverage／scope、TTFT／TPOT／E2E 分布和服务身份。v2 会从原始 requests、`duration_s`、声明 SLO 和
-客户端并发重新计算 capacity，并核对 `identity_sha256` 与持久化摘要；不一致即拒绝生成。v1 可读取，
-新增能力显示 unavailable，不以零替代。CLI 只接受一个流式 load 输入，拒绝与 baseline、比较用途或
+客户端并发重新计算 capacity 与完整 streaming 分布，并核对 `identity_sha256`、两份持久化摘要及
+服务声明／probe；不一致即拒绝生成，实际渲染重算后的分布。早期 v2 未在 `identity.service` 重复
+model／revision 时，使用哈希身份中的对应声明校验，不会跳过一致性检查。v1 可读取，新增能力显示
+unavailable，不以零替代。CLI 只接受一个流式 load 输入，拒绝与 baseline、比较用途或
 其他结果组合；默认生成 `load_report.html`，已有文件、目录或符号链接均不覆盖，并遵守离线分析锁。
 该报告只有一个负载点，不生成容量曲线或最大容量结论。字段公式见[流式测量](../profiling/streaming.md)。
 

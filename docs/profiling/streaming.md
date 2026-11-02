@@ -87,6 +87,20 @@ role-only、usage-only、心跳、空文本元数据、结束标记不产生虚�
 读到逻辑结束后仍完成 HTTP 响应读取，连接可复用性经过检查；
 后续错误、正文不完整或要求复用但服务端关闭连接仍会使该请求失败。
 
+正式 `duration_s` 在全部请求传输完成、worker 和连接收尾后固定。事件 Token 求和、全文拼接、
+ITL 列表复制、可选 tokenizer 计数和指标派生随后统一执行一次，不在 worker 内重复聚合。
+窗口外发现的协议错误仍令请求失败；可选 tokenizer 错误只记录 `token_count_error`，保留已观测时延，
+不伪装成服务端失败。tokenizer 与模型 ID／revision 不匹配时明确拒绝，此计数不等同于服务端生成 Token 数。
+
+### 运行级资源上限
+
+单响应仍受 1 MiB SSE 事件、64 MiB 正文和 100000 输出事件限制。每次 warmup 或正式 run 另有
+独立、跨 worker 原子累计的硬预算：默认最多 256 MiB 原始 SSE 字节和 1000000 输出事件。
+可用 `--max-run-response-bytes` 与 `--max-run-output-events` 设置正整数；二者进入 adapter 与
+identity。预算包括失败请求已接收的数据，避免仅凭并发或单响应限制造成全实验内存无界增长。
+超限分别以 `run_response_limit`／`run_output_event_limit` 失败，实验不再成功，后续请求不再发送；
+不静默截断原始证据。原始事件仍在预算内保留，报告生成也不应被解释为流式存储。
+
 ## 指标约定
 
 设 `s` 为发送时刻，`f` 为首输出时刻，`l` 为末输出时刻，
@@ -196,8 +210,10 @@ Decode 阶段吞吐、`1 / TPOT` 或每秒峰值。
 
 `--service-probe vllm` 在预热前请求 `/version` 和 `/v1/models`，复用现有 Authorization 且不落盘，
 连接关闭、响应限制为 1 MiB。模型列表仅保留 `id/root/max_model_len`，按请求模型 ID 精确且唯一匹配；
-未找到或重复匹配时选中模型为 `null`。`root` 不能解释为 checkpoint revision。单个端点失败时身份为
-`partial`，两者均失败为 `unavailable`，均成功为 `available`；探测或 mismatch 不改变推理请求状态。
+未找到或重复匹配时选中模型为 `null`。`root` 不能解释为 checkpoint revision。只有取得有效
+`/version` 才能把观测 backend 记为 `vllm`；通用 `/v1/models` 响应不能证明后端身份。
+单个端点失败时身份为 `partial`，两者均失败为 `unavailable`，均成功为 `available`；探测或 mismatch
+不改变推理请求状态。
 标准 OpenAI 端点未暴露的缓存策略、dtype、硬件、调度上限及实际 revision 仍保持未知，不能从模型名猜测。
 
 ## 失败及结果边界
@@ -207,10 +223,15 @@ Decode 阶段吞吐、`1 / TPOT` 或每秒峰值。
 | HTTP 非 200／非 SSE 响应 | 失败，保留 HTTP 状态 |
 | HTTP 200 中的 `error` 或 SSE error 事件 | 失败，即使此前已有输出 |
 | 无 `[DONE]`、截断 UTF-8／SSE、无效 JSON、正文断流 | 协议或传输错误，不计完成成功样本 |
+| SSE JSON 含孤立 Unicode 代理 | `invalid_unicode`，请求及实验失败，最终 `load.json` 仍可发布 |
+| 超过 run 级字节／事件硬预算 | 对应 run limit 错误，不发送后续请求，实验不成功 |
 | 读取无进展 | timeout，保留已收到的输出事件 |
 | 用户中断 | cancelled，终止活动连接，保留部分报告 |
 | 不支持的多选择、tool/function、无效计数 | 明确失败或明确不可用，不静默替换 |
 | 无 Token 计数证据／非逐 Token 流 | 相应指标 `null`，记录缺失原因 |
+
+request JSON 中的孤立代理会在联网和创建输出前拒绝；probe 中的同类文本按端点失败处理，
+不进入身份产物。合法 surrogate pair 与正常 Unicode 不受此限制。
 
 新运行使用独立的 `stream_load_experiment`／`stream_load_result` schema v2 并保存到新输出目录；
 容量报告只读兼容 v1，缺少的 SLO、Token 吞吐和服务身份显示 unavailable，不回填为零或改写历史文件。
@@ -223,7 +244,7 @@ Decode 阶段吞吐、`1 / TPOT` 或每秒峰值。
 
 `tests/execution/operations/test_streaming.py` 用受控时间与字节流核对协议、公式、缺失值；
 `test_streaming_load.py` 用真实本地 HTTP 验证两个端点、复用、并发、Poisson、
-断流、超时、取消和统计；`test_streaming_cli.py` 验证入口、身份与失败产物。
+断流、超时、取消、窗口外一次聚合、运行预算和 Unicode 失败发布；`test_streaming_cli.py` 验证入口、身份与失败产物。
 `test_streaming_capacity.py` 独立重算 SLO 与 Token 覆盖，`test_service_identity.py` 验证有界 vLLM 观测；
 `tests/analysis/reporting/test_load_report.py` 覆盖 v1/v2 报告、原始记录重建、防篡改与拒绝覆盖。
 

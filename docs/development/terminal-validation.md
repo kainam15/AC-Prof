@@ -194,8 +194,10 @@ workflow 将离线故障回归保存到 `offline-faults/`、镜像准备报告�
 实际采集和审计证据保存到 `measurements/`；Structured 的对应证据分别保存到
 `preparation-structured/` 与 `measurements-structured/`。其中离线故障回归使用 mock，不代表真实硬件故障已实测。
 `.github/workflows/hardware.yml` 目前只支持从 `main` 手动触发，定期周检暂停；不会由 PR 触发。
-专用主机复用 `.venv` 和已忽略的本地产物，但测量前会拒绝 tracked diff、staged diff 及任何
-非忽略的未跟踪文件，避免未绑定提交的源码进入离线回归、构建或采集。
+专用主机按 run ID／attempt 使用独立 checkout，并将 `UV_PROJECT_ENVIRONMENT` 指向 `runner.temp`
+下的新虚拟环境；不再复用宿主工作区或 `.venv`，避免忽略的 `.pth`、`sitecustomize.py` 等可执行文件
+绕过提交身份。测量前仍拒绝 tracked diff、staged diff 及非忽略未跟踪文件，模型和镜像准备复用
+不改变这一环境与源码隔离边界。
 自定义单模型即使输入 branch 或留空 revision，准备成功后也会固定为解析到的 commit，
 再交给验收阶段，不在验收时重新解析浮动 revision。运行时必须具备 Docker/cgroup v2、RAPL、
 perf、抓包权限及所选 GPU 的实际权限；没有这些条件仍会如实失败，不会以 mock 代替。
