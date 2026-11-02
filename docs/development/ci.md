@@ -75,6 +75,50 @@ GitHub 官方说明 [路径过滤导致的 Required Check Pending](https://docs.
 [vLLM-Omni 的 docs-only CI 分流](https://github.com/vllm-project/vllm-omni/blob/main/docs/contributing/README.md)，
 只借鉴按差异缩减验证的思路，不复制其 Buildkite/GPU 管线。
 
+## 代表模型与多尺度扩展验收
+
+[多尺度矩阵](../../examples/hardware-validation-scales.json) 为六类真实模型固定 checkpoint revision，
+每个模型提供两档请求输入。它复用现有硬件验收入口；运行前须完成环境、镜像及模型缓存准备，
+确认 Docker full 所需能力可用。先按内部测试流程创建证据目录，将 `matrix_run_dir` 设置为该任务目录；
+正式采集串行执行，期间不并行测试、构建或其他 profiler。
+
+```bash
+uv run --locked --no-sync python scripts/check_hardware.py \
+  --matrix examples/hardware-validation-scales.json \
+  --cpus 2 --mems 8 --gpus off,on \
+  --repeat 2 --repeat-window-seconds 1 \
+  --idle-seconds 2 --sample-hz 20 \
+  --output-dir "$matrix_run_dir/docker-scales"
+```
+
+| 模型 | 请求尺度 | 实际输入口径 |
+| --- | --- | --- |
+| BERT small | `32,128` | 本轮输入计划的实际 token 数为 `32,130`；以结果记录为准 |
+| ResNet-18 | `1,2` | 原始图像为 `224×224`、`448×448`；处理器可能归一化模型输入 |
+| ViLT VQA | `1,2` | 原始图像为 `224×224`、`448×448`，不直接代表模型张量或计算量翻倍 |
+| Whisper tiny | `1,5` | 同一 16 kHz 音频夹具的 1 秒、5 秒前缀 |
+| Chronos Bolt small | `64,256` | 上下文为 64、256 个时间点，预测长度固定为 64 |
+| TinySD | `64,128` | 输出为 `64×64`、`128×128`，其余生成参数固定 |
+
+每组配置包含 1 个 warmup 和 2 个正式窗口，六模型矩阵计划产生 72 行：24 个 warmup 和 48 个正式窗口。
+`check_hardware.py` 仍要求全部正式行的状态为 `ok`；正式行 `warn` 与独立的 `quality_status`
+不是同一口径。失败会保留当前模型与后续未执行项；继续覆盖时使用冻结的剩余子矩阵另存结果，
+不覆盖原始告警。行完整性、正式行状态、独立质量摘要和自动优选资格分别报告。
+
+资源扩展另行验证 BERT 的 `1/2 CPU × 2/4 GiB × CPU/GPU` 与两档输入，
+以及 Iris 的 `1/2 CPU × 1/2 GiB` CPU 组合。Iris 使用
+[Structured CPU 矩阵](../../examples/hardware-validation-real-cpu.json)，
+只覆盖固定 `[1,4]` 输入，不属于六模型多尺度夹具。
+
+Process basic 使用独立公共 CLI；`cpus/mems=auto` 表示继承资源，不能等同于 Docker 数值限额，
+也不套用 full 专属指标要求。具体指标与支持范围见[Linux Runtime](../platforms/linux-runtimes.md)。
+Profiler 后处理与正式采集分开，逐工具记录适用设备、输入、探针资源和原始产物，
+并核对核心测量字段与行身份未改变。BERT 的代表性后处理不构成全部资源与工具组合的覆盖。
+
+本地扩展验收验证选定组合的执行、采集与质量边界；每配置仅 2 个正式窗口，
+不支持稳定性能排名或准确率结论，也不替代同一提交上的 GitHub release gate。
+本轮结果与未完成项见[路线图](../roadmap.md#代表性矩阵扩展2026-11)。
+
 ## CI 与环境测试
 
 各 Python job 使用固定 SHA 的 `astral-sh/setup-uv`，从 `pyproject.toml` 读取 uv 版本，

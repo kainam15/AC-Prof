@@ -25,6 +25,10 @@ CLI、doctor 和 TUI 在依赖准备前通过短生命周期 helper 验证进程
 缓存默认位于 `~/.cache/acprof/process-environments`，可通过 `ACPROF_PROCESS_STORE` 调整；
 依赖版本、已安装文件树、服务代码、Python 解释器及模型身份参与复用校验；版本号未变的依赖代码修改也会拒绝复用。
 文件树哈希只在准备/恢复阶段计算，不进入测量窗口。
+Process 环境缓存 schema 3 还记录依赖锁的相对路径与 SHA-256：准备时将锁复制到服务代码快照，
+`uv` 安装器与模型 loader 使用同一份锁。发布或复用环境前核对文件类型、路径范围、内容哈希及制品记录；
+缺锁、被修改、符号链接或旧 schema 缓存均不能直接复用，须重新准备。
+固定 wheel URL 的 size 元数据用于下载预算预检；已知大小不豁免预算，零预算不能安装尚未缓存的依赖。
 环境创建、依赖安装和包清单检查各自拥有独立进程组；命令超时或取消时先 TERM、再按需 KILL，
 终止同组后代后才清理临时环境，失败的准备不会发布缓存。
 测量期间使用已准备的环境和 snapshot，不安装包或下载模型。HF offline 设置不等于网络隔离；Python 环境也不是安全沙箱。
@@ -111,7 +115,7 @@ Docker adapter 调用原有生命周期；Process 通过独立 supervisor 和控
 
 | 环境 | 实现路径 | 验证边界 |
 | --- | --- | --- |
-| Native Linux | Docker basic/full；Process basic | Process CPU 小型 ONNX 已在无 Docker CLI、不可用 Docker socket 的启动配置下完成 Smoke、audit 与退出检查；Docker 完整硬件协议仍需回归实测 |
+| Native Linux | Docker basic/full；Process basic | 小型 ONNX 已完成隔离 Docker 入口的 Process CPU Smoke；BERT CPU/GPU basic、Iris basic 及代表模型 Docker full 扩展已有本地实测，质量边界见下文 |
 | 普通 Linux VM / 云 VM | 本机 Docker basic 或 Process basic | 无 RAPL/PMU 不阻止 basic；AWS/阿里云/腾讯云尚需实例实测 |
 | AutoDL 类无 Docker GPU 容器 | Process basic，GPU 遥测按权限 | 尚未取得对应云容器与 GPU 的端到端验收证据 |
 | WSL2 | basic/PARTIAL | 保持独立环境身份，不能进入 Native 完整画像基准 |
@@ -121,6 +125,15 @@ Docker adapter 调用原有生命周期；Process 通过独立 supervisor 和控
 不等价于 AutoDL、无 Docker 镜像或 GPU 实例实测。故障回归覆盖控制进程取消/异常退出、后代进程回收与缺失权限。
 同一小型 ONNX 还已完成 Docker basic 与生产 TUI headless 的真实子进程验收；两条路径均通过结果审计。
 Process 的首次准备和后续缓存复用均通过文件完整性核验。Headless 证据不代表用户 SSH/IDE 终端已验收。
+
+本地代表性扩展还完成了 Process basic 的 BERT CPU/GPU 双尺度（实际 token 数 `32/130`），
+以及固定 `[1,4]` 的 Iris，共 15 行、10 个正式窗口，正式行均为 `ok`。
+本轮观测的 `latency_app_s`、`process_startup_s`、`process_cpu_time_s`、
+`process_cpu_util_avg_pct`、`process_rss_avg_bytes` 和 `process_rss_peak_bytes` 在全部行中均为有限值；
+这些观测不改变可选指标的缺失语义。BERT GPU 结果记录设备 UUID，BERT 的未使用 checkpoint 权重仍保留质量告警。
+两者均使用 `cpus/mems=auto` 继承资源；未据此验证数值 cgroup 限额、Process full 或云实例。
+锁快照修复后已验证离线制品复用；首次准备与缓存复用证据分开保留。
+Docker full 的多尺度及资源扩展口径见[扩展验收](../development/ci.md#代表模型与多尺度扩展验收)。
 
 ## 参考与取舍
 
