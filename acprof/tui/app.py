@@ -624,6 +624,9 @@ class AcprofTui(BarCursorApp):
     @on(Input.Changed, '#html-report-path')
     def on_results_html_path_changed(self) -> None:
         self.results.update_report_actions()
+    @on(Input.Changed, '#html-extra-sources')
+    def on_results_html_extra_changed(self) -> None:
+        self.results.update_html_extra_button()
 
     @on(Button.Pressed, '#analysis-export-csv, #analysis-export-json')
     def on_analysis_export(self, event: Button.Pressed) -> None:
@@ -656,6 +659,21 @@ class AcprofTui(BarCursorApp):
     @on(Button.Pressed, '#html-report-export')
     def on_results_export_html(self) -> None:
         self.results.export_html_report()
+    @on(Button.Pressed, '#html-extra-toggle')
+    def on_results_toggle_html_extra(self) -> None:
+        self.results.toggle_html_extra_sources()
+
+    @on(Button.Pressed, '#html-export-toggle')
+    def on_results_toggle_html_export(self) -> None:
+        self.results.toggle_html_export_fields()
+
+    @on(Button.Pressed, '#html-existing-toggle')
+    def on_results_toggle_html_existing(self) -> None:
+        self.results.toggle_html_existing_path()
+
+    @on(Button.Pressed, '#html-report-copy')
+    def on_results_copy_html_path(self) -> None:
+        self.results.copy_html_path()
 
     @on(Button.Pressed, '#html-report-cancel')
     def on_results_cancel_html(self) -> None:

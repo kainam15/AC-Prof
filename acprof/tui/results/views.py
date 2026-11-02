@@ -100,21 +100,31 @@ def compose_exports(app: AcprofTui) -> ComposeResult:
             with Horizontal(classes="path-picker-row"):
                 yield local(Input(id="report-json-path", classes="report-control", placeholder="JSON 文件路径"))
                 yield local(Button("查看 JSON", id="report-open", classes="report-control"))
-        with local(Collapsible(title="交互式 HTML 报告", collapsed=False, id="html-report-panel")):
+        with Vertical(id="html-report-panel"):
+            yield local(Label(message_id("results.html.title"), classes="html-section-title"))
+            with Horizontal(id="html-source-row", classes="html-actions"):
+                yield local(Static(message_id("results.html.current_source"), id="html-current-source"))
+                yield local(Button(message_id("results.html.add_inputs"), id="html-extra-toggle", classes="report-control"))
+            yield local(Input(id="html-extra-sources", classes="report-control",
+                              placeholder=message_id("results.html.additional_inputs_hint")))
             with Horizontal(classes="html-actions"):
-                yield local(Button("生成 HTML", id="html-report-generate", classes="report-control"))
-                yield local(Button("打开 HTML", id="html-report-open", classes="report-control"))
-                yield local(Button("取消生成", id="html-report-cancel", disabled=True))
+                yield local(Button(message_id("results.html.generate"), id="html-report-generate",
+                                   classes="report-control", variant="primary"))
+                yield local(Button(message_id("results.html.cancel"), id="html-report-cancel", disabled=True))
+            yield local(Static(message_id("results.html.generation_note"), id="html-report-status", markup=False))
+            with Vertical(id="html-report-file"):
+                yield local(Static(message_id("results.html.selected_report"), classes="html-file-heading"))
+                yield Static("", id="html-report-filename", markup=False)
+                yield Static("", id="html-report-location", markup=False)
+                with Horizontal(classes="html-actions"):
+                    yield local(Button(message_id("results.html.open"), id="html-report-open", classes="report-control"))
+                    yield local(Button(message_id("results.html.copy_path"), id="html-report-copy", classes="report-control"))
+                    yield local(Button(message_id("results.html.save_as"), id="html-export-toggle", classes="report-control"))
+            with Horizontal(id="html-export-fields", classes="path-picker-row"):
+                yield local(Input(id="html-export-path", classes="report-control",
+                                  placeholder=message_id("results.html.export_path_hint")))
+                yield local(Button(message_id("results.html.export"), id="html-report-export", classes="report-control"))
+            yield local(Button(message_id("results.html.use_existing"), id="html-existing-toggle", classes="report-control"))
             yield local(Input(app.configuration.saved_settings.last_html_report, id="html-report-path",
-                              classes="report-control", placeholder="已有 HTML 路径；生成成功后自动填入"))
-            yield local(Static("每次生成新文件，保留旧报告。HTML 包含 quality 限制、统计口径与来源。",
-                               id="html-report-status", markup=False))
-            with local(Collapsible(title=message_id("results.html.additional_inputs_label"), collapsed=True)):
-                yield local(Input(id="html-extra-sources", classes="report-control",
-                                  placeholder=message_id("results.html.additional_inputs_hint")))
-            with local(Collapsible(title="导出 / 远程获取", collapsed=True, id="html-export-options")):
-                with Horizontal(classes="path-picker-row"):
-                    yield local(Input(id="html-export-path", classes="report-control",
-                                      placeholder="导出到新 .html 文件（目录须已存在）"))
-                    yield local(Button("导出 HTML", id="html-report-export", classes="report-control"))
-                yield local(Static("SSH / 无桌面：用 SFTP 或远程 IDE 下载上方 HTML 到本机，再用浏览器打开；无需 Web 服务。", markup=False))
+                              classes="report-control", placeholder=message_id("results.html.path_hint")))
+            yield local(Static(message_id("results.html.remote_download_hint"), id="html-remote-hint", markup=False))

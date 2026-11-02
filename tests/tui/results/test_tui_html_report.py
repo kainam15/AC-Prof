@@ -8,7 +8,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-from textual.widgets import Button, Collapsible, Input, Static, TabbedContent
+from textual.widgets import Button, Input, Static, TabbedContent
 from tests.support.tui_fixtures import AcprofTui
 
 from acprof.results.layout import ArtifactLayout
@@ -90,6 +90,57 @@ async def test_generate_button_is_reachable_and_measurement_blocks_it(tmp_path, 
             assert execute.call_count == 1
 
 
+async def test_html_controls_show_optional_fields_only_when_requested(tmp_path):
+    report = tmp_path / "previous report.html"
+    report.write_text("<html>previous</html>", encoding="utf-8")
+    app = AcprofTui(settings_path=tmp_path / "settings.json")
+    async with app.run_test(size=(80, 24)) as pilot:
+        app.results.show_result_section("exports-view")
+        await pilot.pause()
+        assert not app.query_one("#html-extra-sources", Input).display
+        assert not app.query_one("#html-report-file").display
+        assert not app.query_one("#html-export-fields").display
+        assert not app.query_one("#html-report-path", Input).display
+
+        extra_toggle = app.query_one("#html-extra-toggle", Button)
+        extra_toggle.scroll_visible(animate=False, immediate=True)
+        await pilot.pause()
+        assert await pilot.click(extra_toggle)
+        extra = app.query_one("#html-extra-sources", Input)
+        assert extra.display
+        extra.value = str(tmp_path / "additional.csv")
+        assert await pilot.click(extra_toggle)
+        assert not extra.display
+        assert extra.value == str(tmp_path / "additional.csv")
+        assert "已添加" in str(extra_toggle.label)
+
+        existing_toggle = app.query_one("#html-existing-toggle", Button)
+        existing_toggle.scroll_visible(animate=False, immediate=True)
+        await pilot.pause()
+        assert await pilot.click(existing_toggle)
+        path_field = app.query_one("#html-report-path", Input)
+        assert path_field.display
+        path_field.value = str(report)
+        await pilot.pause()
+        assert app.query_one("#html-report-file").display
+        assert report.name in str(app.query_one("#html-report-filename", Static).content)
+        assert str(report) in str(app.query_one("#html-report-location", Static).content)
+        assert not app.query_one("#html-export-fields").display
+
+        copy_button = app.query_one("#html-report-copy", Button)
+        copy_button.scroll_visible(animate=False, immediate=True)
+        await pilot.pause()
+        with patch.object(app, "copy_to_clipboard") as copy:
+            assert await pilot.click(copy_button)
+            copy.assert_called_once_with(str(report))
+        save_button = app.query_one("#html-export-toggle", Button)
+        save_button.scroll_visible(animate=False, immediate=True)
+        await pilot.pause()
+        assert await pilot.click(save_button)
+        assert app.query_one("#html-export-fields").display
+        assert app.query_one("#html-report-generate", Button).display
+
+
 async def test_real_cli_success_persists_path_and_preserves_input(tmp_path, csv_result):
     settings = tmp_path / "settings.json"
     app = AcprofTui(settings_path=settings)
@@ -113,6 +164,9 @@ async def test_real_cli_success_persists_path_and_preserves_input(tmp_path, csv_
         assert app.query_one("#main-tabs", TabbedContent).active == "results-tab"
         assert not app.is_busy()
         assert "quality" in str(app.query_one("#html-report-status", Static).content)
+        assert app.query_one("#html-report-file").display
+        assert str(output) in str(app.query_one("#html-report-location", Static).content)
+        assert output.name in str(app.query_one("#html-report-filename", Static).content)
     restored = AcprofTui(settings_path=settings)
     async with restored.run_test():
         assert restored.query_one("#html-report-path", Input).value == str(output)
@@ -180,13 +234,15 @@ async def test_export_button_and_failure_keep_generated_artifact(
     app = AcprofTui(settings_path=settings)
     async with app.run_test(size=(80, 24)) as pilot:
         app.results.show_result_section("exports-view")
-        app.query_one("#html-report-panel", Collapsible).collapsed = False
-        app.query_one("#html-export-options", Collapsible).collapsed = False
         app.query_one("#html-report-path", Input).value = str(source)
+        await pilot.pause()
+        save_as = app.query_one("#html-export-toggle", Button)
+        save_as.scroll_visible(animate=False, immediate=True)
+        await pilot.pause()
+        assert await pilot.click(save_as)
         app.query_one("#html-export-path", Input).value = str(destination)
         await pilot.pause()
-        # Expanding the nested panels schedules scrolling after refresh.
-        await pilot.wait_for_scheduled_animations()
+        assert app.query_one("#html-export-fields").display
         button = app.query_one("#html-report-export", Button)
         button.scroll_visible(animate=False, immediate=True)
         await pilot.pause()
@@ -258,8 +314,8 @@ async def test_html_actions_fit_visible_report_page(tmp_path, size, language):
     app = AcprofTui(settings_path=settings)
     async with app.run_test(size=size) as pilot:
         app.results.show_result_section("exports-view")
-        app.query_one("#html-report-panel", Collapsible).collapsed = False
         await pilot.pause()
+        assert not app.query_one("#html-report-file").display
         assert not app.query_one("#html-report-open", Button).display
         assert not app.query_one("#html-report-cancel", Button).display
         app.query_one("#html-report-path", Input).value = str(tmp_path / "existing.html")

@@ -365,16 +365,32 @@ class ResultController:
         self.app.query_one("#report-open", Button).disabled = not (
             json_path and state.allows("report")
         )
+        has_html = bool(html_path)
+        self.app.query_one("#html-report-file").display = has_html
+        self.app.query_one("#html-report-filename", Static).update(Path(html_path).name if has_html else "")
+        location = self.app.query_one("#html-report-location", Static)
+        location.update(html_path)
+        location.tooltip = html_path or None
+        if not has_html:
+            self.app.query_one("#html-export-fields").display = False
+        from acprof.platform import can_open_local_browser
+        self.app.query_one("#html-remote-hint").display = has_html and not can_open_local_browser()
         open_html = self.app.query_one("#html-report-open", Button)
-        open_html.display = bool(html_path)
-        open_html.disabled = not (html_path and state.allows("html-open"))
-        export_html = self.app.query_one("#html-report-export", Button)
-        export_html.disabled = not (html_path and state.allows("html-export"))
-        cancel = self.app.query_one("#html-report-cancel", Button)
-        cancel.display = self.app.execution.session.kind == "html-report"
-        cancel.disabled = not (
-            self.app.execution.session.kind == "html-report" and state.allows("stop")
+        open_html.display = has_html
+        open_html.disabled = not (has_html and state.allows("html-open"))
+        self.app.query_one("#html-report-copy", Button).disabled = not (
+            has_html and state.allows("html-open")
         )
+        self.app.query_one("#html-export-toggle", Button).disabled = not (
+            has_html and state.allows("html-export")
+        )
+        export_html = self.app.query_one("#html-report-export", Button)
+        export_html.disabled = not (has_html and state.allows("html-export"))
+        generating = self.app.execution.session.kind == "html-report"
+        self.app.query_one("#html-report-generate", Button).display = not generating
+        cancel = self.app.query_one("#html-report-cancel", Button)
+        cancel.display = generating
+        cancel.disabled = not (generating and state.allows("stop"))
 
     def clear_report(self, status: str, *, phase: str = 'empty', empty_hint=None) -> None:
         self.report_view = None
@@ -615,11 +631,41 @@ class ResultController:
         self.app.set_busy(self.app.is_busy())
         self.app.localization.set_text(self.app.query_one("#analysis-export-status", Static), status)
 
-    def set_html_status(self, text: str, *, expand: bool = True) -> None:
-        if expand:
-            self.app.query_one("#html-report-panel", Collapsible).collapsed = False
+    def set_html_status(self, text: str) -> None:
         self.app.localization.set_text(self.app.query_one("#html-report-status", Static), text)
         self.update_report_actions()
+
+    def update_html_extra_button(self) -> None:
+        has_extra = bool(self.app.configuration.input("html-extra-sources").strip())
+        key = "results.html.edit_inputs" if has_extra else "results.html.add_inputs"
+        self.app.localization.set_text(self.app.query_one("#html-extra-toggle", Button), message_id(key), attribute="label")
+
+    def toggle_html_extra_sources(self) -> None:
+        field = self.app.query_one("#html-extra-sources", Input)
+        field.display = not field.display
+        if field.display:
+            field.focus()
+
+    def toggle_html_export_fields(self) -> None:
+        field = self.app.query_one("#html-export-fields")
+        field.display = not field.display
+        if field.display:
+            self.app.query_one("#html-export-path", Input).focus()
+
+    def toggle_html_existing_path(self) -> None:
+        field = self.app.query_one("#html-report-path", Input)
+        field.display = not field.display
+        if field.display:
+            field.focus()
+
+    def copy_html_path(self) -> None:
+        if not self.app.allow_operation("html-open"):
+            return
+        source = self.app.configuration.input("html-report-path").strip()
+        if source:
+            path = resolve_result_path(source, self.app.project_dir).resolve()
+            self.app.copy_to_clipboard(str(path))
+            self.set_html_status(message_id("results.html.path_copied", path))
 
     def html_source(self, *, include_extra: bool = False) -> str:
         # The unified selector is ONE literal path; extra HTML sources are explicit.
@@ -645,11 +691,11 @@ class ResultController:
             paths = html_report_inputs(self.html_source(), project_dir=self.app.project_dir)
             existing = existing_html_report(paths)
         except (OSError, ValueError) as exc:
-            self.set_html_status(error_message(exc), expand=False)
+            self.set_html_status(error_message(exc))
             self.app.query_one("#html-report-path", Input).value = ""
             return
         self.app.query_one("#html-report-path", Input).value = str(existing) if existing else ""
-        self.set_html_status(message_id('results.html.existing_report', existing) if existing else message_id('results.html.generation_note'), expand=False)
+        self.set_html_status(message_id('results.html.existing_report') if existing else message_id('results.html.generation_note'))
 
     def launch_html_report(self) -> None:
         if not self.app.allow_operation("html-report"):
@@ -704,7 +750,7 @@ class ResultController:
         elif output is not None:
             self.app.query_one("#html-report-path", Input).value = str(output)
             self.app.configuration.remember_last_used(html_report=str(output))
-            self.set_html_status(join_messages("\n", (message_id('results.html.generated', output), self.html_summary)))
+            self.set_html_status(join_messages("\n", (message_id('results.html.generated_short'), self.html_summary)))
         self.html_log.clear()
         self.html_summary = ""
 
