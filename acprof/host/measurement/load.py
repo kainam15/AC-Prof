@@ -126,6 +126,8 @@ def run_load(
     url, payload, config: LoadConfig, *, token,
     adapter: OpenAIStreamingAdapter | None = None,
     headers: dict[str, str] | None = None,
+    slo_thresholds: dict[str, float | None] | None = None,
+    include_capacity: bool = True,
 ) -> dict[str, Any]:
     """Closed-loop workers or an open-loop scheduler with bounded pending work.
 
@@ -135,6 +137,10 @@ def run_load(
     to successful latency distributions.
     """
     config.validate()
+    if adapter is None and slo_thresholds is not None:
+        raise ValueError("SLO thresholds require streaming load")
+    if not include_capacity and slo_thresholds is not None:
+        raise ValueError("capacity-disabled load cannot evaluate SLO thresholds")
     target = urlsplit(url)
     if target.scheme not in {"http", "https"} or not target.hostname or target.username or target.query or target.fragment:
         raise ValueError("load target must be an HTTP(S) base URL without credentials, query or fragment")
@@ -311,7 +317,8 @@ def run_load(
     counts = Counter(record["status"] for record in completed_records)
     succeeded = [record for record in completed_records if record["status"] == "ok"]
     sent = sum(record["sent_s"] is not None for record in completed_records)
-    report = {"schema_version": 1, "kind": "stream_load_result" if adapter is not None else "nonstream_load_result",
+    report = {"schema_version": 2 if adapter is not None else 1,
+              "kind": "stream_load_result" if adapter is not None else "nonstream_load_result",
               "protocol": protocol, "protocol_sha256": protocol_sha256,
               "successful": primary_error is None and counts["ok"] == config.requests,
               "duration_s": duration, "target_requests_per_s": config.rate,
@@ -332,6 +339,11 @@ def run_load(
         report["completed_requests_per_s"] = sum(
             row.get("stream_completed_s") is not None for row in completed_records
         ) / duration if duration > 0 else None
+        if include_capacity:
+            from acprof.analysis.streaming_capacity import build_capacity
+            report["capacity"] = build_capacity(
+                completed_records, duration, config.concurrency, slo_thresholds,
+            )
     if primary_error is not None:
         setattr(primary_error, "load_report", report)
         raise primary_error

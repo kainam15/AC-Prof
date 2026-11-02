@@ -152,6 +152,8 @@ def test_timing_uses_outputs_and_separates_done_from_last_output():
     assert record["output_tokens"] == 5
     assert record["input_tokens"] == 7
     assert record["output_token_count_source"] == "server_usage"
+    assert record["input_token_count_scope"] == "server_prompt_tokens"
+    assert record["token_count_scope"] == "server_generated_tokens"
     assert len(record["output_events"]) == 3
 
 

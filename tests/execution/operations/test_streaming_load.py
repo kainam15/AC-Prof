@@ -115,6 +115,21 @@ def test_streaming_reuses_existing_scheduler_and_connection(endpoint):
     assert report["streaming"]["ttft_s"]["sample_count"] == 3
 
 
+def test_slo_violation_does_not_change_stream_request_success():
+    endpoint = "/v1/chat/completions"
+    with streaming_server() as (url, _, _, _, _):
+        report = run_load(
+            url, payload(endpoint), LoadConfig(requests=2), token="slo",
+            adapter=OpenAIStreamingAdapter(), slo_thresholds={"ttft_s": 1e-9},
+        )
+    assert report["schema_version"] == 2
+    assert report["successful"] is True
+    assert report["counts"]["succeeded"] == 2
+    assert report["capacity"]["slo"]["counts"] == {"satisfied": 0, "violated": 2, "unevaluable": 0}
+    assert report["capacity"]["goodput_requests_per_s"] == 0
+    assert report["capacity"]["token_throughput"]["output"]["tokens"] == 6
+
+
 @pytest.mark.parametrize(("scenario", "options"), [
     ("concurrent", {"concurrency": 2}),
     ("arrival-rate", {"concurrency": 2, "rate": 30, "arrival": "poisson", "seed": 7}),

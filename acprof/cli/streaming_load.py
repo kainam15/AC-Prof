@@ -13,8 +13,10 @@ from typing import Any
 from urllib.parse import urlsplit
 from uuid import uuid4
 
+from acprof.analysis.streaming_capacity import normalize_slo_thresholds
 from acprof.artifacts import atomic_write_json, read_json_object
 from acprof.host.measurement.load import LoadConfig, run_load
+from acprof.host.measurement.service_identity import initial_service_identity, probe_service
 from acprof.host.run_state import MeasurementLock, host_identity
 from acprof.installation import resource_root
 
@@ -26,6 +28,7 @@ _ENDPOINT_OPTIONS = (
     "model", "prompt", "request_json", "max_tokens", "temperature",
     "generation_seed", "request_timeout", "api_key_env", "model_revision",
     "tokenizer_json", "tokenizer_model", "tokenizer_revision",
+    "slo_ttft_s", "slo_tpot_s", "slo_e2e_s", "service_backend", "service_version",
 )
 
 
@@ -45,12 +48,20 @@ def add_streaming_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--tokenizer-json", type=Path, help="Local tokenizer.json; never downloads code or files")
     parser.add_argument("--tokenizer-model", help="Explicit tokenizer model ID; must match --model/body model")
     parser.add_argument("--tokenizer-revision", help="Explicit tokenizer revision; must match --model-revision")
+    parser.add_argument("--slo-ttft-s", type=float, help="Request TTFT SLO threshold in seconds")
+    parser.add_argument("--slo-tpot-s", type=float, help="Request TPOT SLO threshold in seconds/token")
+    parser.add_argument("--slo-e2e-s", type=float, help="Request E2E SLO threshold in seconds")
+    parser.add_argument("--service-backend", help="User-declared inference backend")
+    parser.add_argument("--service-version", help="User-declared inference backend version")
+    parser.add_argument("--service-probe", choices=("none", "vllm"),
+                        help="Optional pre-warmup service identity probe (default: none)")
 
 
 def validate_replay_arguments(args: argparse.Namespace) -> None:
     if args.source is None or args.gpu is None:
         raise ValueError("source replay requires a source experiment and --gpu")
-    if args.protocol != "predict" or any(getattr(args, name) is not None for name in _ENDPOINT_OPTIONS):
+    if (args.protocol != "predict" or args.service_probe is not None
+            or any(getattr(args, name) is not None for name in _ENDPOINT_OPTIONS)):
         raise ValueError("OpenAI request options require --base-url and an OpenAI protocol")
 
 
@@ -149,13 +160,30 @@ def _token_counter(args: argparse.Namespace, model: str) -> tuple[Any, dict[str,
     return counter, evidence
 
 
-def _prepare(args: argparse.Namespace) -> tuple[str, dict[str, Any], LoadConfig, Any, dict[str, str], Any]:
+def _slo_thresholds(args: argparse.Namespace) -> dict[str, float | None]:
+    return normalize_slo_thresholds({
+        "ttft_s": args.slo_ttft_s, "tpot_s": args.slo_tpot_s, "e2e_s": args.slo_e2e_s,
+    })
+
+
+def _validate_service_declaration(args: argparse.Namespace) -> None:
+    for name in ("service_backend", "service_version"):
+        value = getattr(args, name)
+        if value is not None and not value.strip():
+            raise ValueError(f"--{name.replace('_', '-')} must be nonempty text")
+
+
+def _prepare(args: argparse.Namespace) -> tuple[
+    str, dict[str, Any], LoadConfig, Any, dict[str, str], Any, dict[str, float | None],
+]:
     if args.source is not None or any(getattr(args, name) is not None for name in ("gpu", "cpu", "mem", "input_scale")) or args.capture:
         raise ValueError("endpoint mode cannot use source replay, --gpu, --cpu, --mem, --input-scale or --capture")
     if args.protocol not in _ENDPOINTS:
         raise ValueError("--base-url requires --protocol openai-chat or openai-completions")
     if args.warmup < 0:
         raise ValueError("--warmup must be nonnegative")
+    slo_thresholds = _slo_thresholds(args)
+    _validate_service_declaration(args)
     origin = _validate_origin(args.base_url)
     config = LoadConfig(
         scenario=args.scenario, connections=args.connections, concurrency=args.concurrency,
@@ -171,19 +199,20 @@ def _prepare(args: argparse.Namespace) -> tuple[str, dict[str, Any], LoadConfig,
     from acprof.host.measurement.streaming import OpenAIStreamingAdapter
     adapter = OpenAIStreamingAdapter(endpoint=_ENDPOINTS[args.protocol], token_counter=counter)
     payload = adapter.prepare_payload(payload)
-    return origin, payload, config, adapter, _authorization(args), tokenizer
+    return origin, payload, config, adapter, _authorization(args), tokenizer, slo_thresholds
 
 
 def run_streaming_load(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
     """Run a bounded endpoint workload; no server lifecycle or hardware attribution."""
     try:
-        origin, payload, config, adapter, headers, tokenizer = _prepare(args)
+        origin, payload, config, adapter, headers, tokenizer, slo_thresholds = _prepare(args)
         output = args.output_dir.resolve()
         output.mkdir(parents=True, exist_ok=True)
         if any(output.iterdir()):
             raise ValueError("load output directory must be empty")
     except (OSError, KeyError, TypeError, ValueError) as error:
         parser.error(str(error))
+    service_probe = args.service_probe or "none"
     identity = {
         "target_origin": origin, "endpoint": adapter.endpoint,
         "model": payload["model"], "model_revision": args.model_revision,
@@ -196,10 +225,20 @@ def run_streaming_load(args: argparse.Namespace, parser: argparse.ArgumentParser
         "tokenizer": tokenizer, "warmup_requests": args.warmup,
         "warmup_scenario": "serial", "warmup_connections": "close",
         "authentication": "bearer_environment" if headers else "none",
+        "slo_thresholds_s": slo_thresholds,
+        "service": {
+            "schema_version": 1, "backend": args.service_backend,
+            "version": args.service_version, "probe": service_probe,
+        },
+    }
+    declared_service = {
+        "backend": args.service_backend, "version": args.service_version,
+        "model": payload["model"], "revision": args.model_revision,
     }
     report: dict[str, Any] = {
-        "schema_version": 1, "kind": "stream_load_experiment", "run_id": uuid4().hex,
+        "schema_version": 2, "kind": "stream_load_experiment", "run_id": uuid4().hex,
         "successful": False, "status": "running", "identity": identity,
+        "service_identity": initial_service_identity(declared_service, service_probe),
         "identity_sha256": hashlib.sha256(
             json.dumps(identity, sort_keys=True, allow_nan=False).encode()
         ).hexdigest(),
@@ -210,13 +249,23 @@ def run_streaming_load(args: argparse.Namespace, parser: argparse.ArgumentParser
     phase = "warmup"
     try:
         with MeasurementLock():
+            report["service_identity"] = probe_service(
+                origin, declared_service, service_probe,
+                headers=headers, timeout_s=config.timeout_seconds,
+            )
             if args.warmup:
                 warmup_config = LoadConfig(requests=args.warmup, timeout_seconds=config.timeout_seconds)
-                report["warmup"] = run_load(origin, payload, warmup_config, token="warmup", adapter=adapter, headers=headers)
+                report["warmup"] = run_load(
+                    origin, payload, warmup_config, token="warmup", adapter=adapter,
+                    headers=headers, include_capacity=False,
+                )
                 if not report["warmup"]["successful"]:
                     raise RuntimeError("streaming warmup failed; inspect load.json warmup records")
             phase = "result"
-            report["result"] = run_load(origin, payload, config, token=report["run_id"], adapter=adapter, headers=headers)
+            report["result"] = run_load(
+                origin, payload, config, token=report["run_id"], adapter=adapter,
+                headers=headers, slo_thresholds=slo_thresholds,
+            )
         report.update(successful=report["result"]["successful"], status="complete")
     except BaseException as error:
         if hasattr(error, "load_report"):

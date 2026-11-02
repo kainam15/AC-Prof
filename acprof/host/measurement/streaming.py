@@ -271,7 +271,8 @@ class OpenAIStreamingAdapter:
             first_output_s=None, last_output_s=None, stream_completed_s=None,
             transport_completed_s=None, finish_reason=None, input_tokens=None,
             output_tokens=None, input_token_count_source="unavailable",
-            output_token_count_source="unavailable", token_count_scope="unavailable",
+            output_token_count_source="unavailable", input_token_count_scope="unavailable",
+            token_count_scope="unavailable",
             tokenizer=self.token_counter.identity() if self.token_counter else None,
             server_usage=None, stream_error_code=None,
             output_usage_event_count=None, output_usage_status="unavailable",
@@ -306,6 +307,8 @@ class OpenAIStreamingAdapter:
             if usage.get(key) is not None:
                 record[f"{field}_tokens"] = usage[key]
                 record[f"{field}_token_count_source"] = "server_usage"
+        if record["input_tokens"] is not None:
+            record["input_token_count_scope"] = "server_prompt_tokens"
         if record["output_tokens"] is not None:
             record["token_count_scope"] = "server_generated_tokens"
 
