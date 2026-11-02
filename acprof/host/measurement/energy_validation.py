@@ -36,31 +36,51 @@ def check_idle_power_values_stable(
     threshold: float,
     remediation: str,
     skip_when_no_rows: bool = False,
+    excluded_warmup_rows: int = 0,
 ) -> None:
-    if row_count == 0 and skip_when_no_rows:
+    if row_count == 0 and skip_when_no_rows and not excluded_warmup_rows:
         return
-    if invalid_rows or not idle_values:
+    if invalid_rows or (not idle_values and not excluded_warmup_rows):
         raise EnergyProfilingError(
             f"{metric_name} case validation failed: "
             f"csv={csv_path}, valid_rows={len(idle_values)}, invalid_rows={invalid_rows}. "
             f"This case's energy data is not reliable. {remediation}"
         )
 
-    mean_idle = sum(idle_values) / len(idle_values)
+    mean_idle = sum(idle_values) / len(idle_values) if idle_values else math.nan
     if mean_idle <= 0.0:
         raise EnergyProfilingError(
             f"{metric_name} case validation failed: idle baseline mean is not positive. "
             f"csv={csv_path}. This case's energy data is not reliable. {remediation}"
         )
 
+    from acprof.quality import QualityCheck, write_quality
+    from acprof.results.layout import case_sidecar
+
+    device = "cpu" if metric_name == "cpu_idle_power_w" else "gpu"
+    evidence = {"source": csv_path, "metric": metric_name, "scope": "formal",
+                "values_w": idle_values, "sample_count": len(idle_values),
+                "excluded_warmup_rows": excluded_warmup_rows}
+    if len(idle_values) < 2:
+        write_quality(case_sidecar(csv_path, "quality_checks"), [QualityCheck(
+            f"{device}_idle_baseline_insufficient_samples", "warning", len(idle_values), 2,
+            "At least two formal idle baselines are required to evaluate drift", evidence,
+        ).to_dict()], append=True)
+        print(
+            f"[energy][WARN] {metric_name} case stability is unknown: "
+            f"csv={csv_path}, formal_rows={len(idle_values)}, "
+            f"excluded_warmup_rows={excluded_warmup_rows}. "
+            "Collect at least two formal repeat windows; experiment will continue.",
+            file=sys.stderr,
+        )
+        return
+
     relative_range = (max(idle_values) - min(idle_values)) / mean_idle
     if relative_range >= threshold:
-        from acprof.quality import QualityCheck, write_quality
-        from acprof.results.layout import case_sidecar
         write_quality(case_sidecar(csv_path, "quality_checks"), [QualityCheck(
-            "cpu_idle_baseline_unstable" if metric_name == "cpu_idle_power_w" else "gpu_idle_baseline_unstable",
-            "warning", relative_range, threshold, "Idle baseline relative range exceeds the case threshold",
-            {"source": csv_path, "metric": metric_name, "values_w": idle_values, "formula": "(max-min)/mean"}).to_dict()], append=True)
+            f"{device}_idle_baseline_unstable",
+            "warning", relative_range, threshold, "Formal idle baseline relative range reaches the case threshold",
+            {**evidence, "formula": "(max-min)/mean"}).to_dict()], append=True)
         print(
             f"[energy][WARN] {metric_name} case check warning: "
             f"csv={csv_path}, {metric_name}={_format_watts(idle_values)} W, "
@@ -74,7 +94,8 @@ def check_idle_power_values_stable(
 
     print(
         f"[energy] {metric_name} case check passed: "
-        f"rows={len(idle_values)}, min={min(idle_values):.3f} W, "
+        f"formal_rows={len(idle_values)}, excluded_warmup_rows={excluded_warmup_rows}, "
+        f"min={min(idle_values):.3f} W, "
         f"max={max(idle_values):.3f} W, mean={mean_idle:.3f} W, "
         f"relative_range={relative_range * 100.0:.1f}%",
     )
@@ -85,7 +106,7 @@ def check_case_gpu_idle_power_stable(
     threshold: float = IDLE_POWER_RELATIVE_RANGE_THRESHOLD,
     ignore_error_rows: bool = False,
 ) -> None:
-    """Validate that GPU idle baseline did not drift across a finished case CSV."""
+    """Validate GPU idle drift across formal rows, retaining warmup only as raw evidence."""
     if not os.path.exists(csv_path):
         raise EnergyProfilingError(
             f"gpu_idle_power_w case validation failed: result CSV does not exist: {csv_path}"
@@ -93,6 +114,7 @@ def check_case_gpu_idle_power_stable(
 
     gpu_rows = 0
     invalid_rows = 0
+    excluded_warmup_rows = 0
     idle_values: list[float] = []
     with open(csv_path, encoding="utf-8", newline="") as f:
         allow_large_csv_fields()
@@ -102,7 +124,14 @@ def check_case_gpu_idle_power_stable(
                 continue
             if normalize_gpu_mode(row.get("gpu_mode", "off")) != "on":
                 continue
+            warmup = parse_csv_float(row.get("warmup"))
+            if warmup == 1:
+                excluded_warmup_rows += 1
+                continue
             gpu_rows += 1
+            if warmup != 0:
+                invalid_rows += 1
+                continue
             gpu_idle_power_w = parse_csv_float(
                 row.get("gpu_idle_power_w", row.get("idle_power_w"))
             )
@@ -123,6 +152,7 @@ def check_case_gpu_idle_power_stable(
             "clocks/power to stabilize, then rerun."
         ),
         skip_when_no_rows=True,
+        excluded_warmup_rows=excluded_warmup_rows,
     )
 
 
@@ -131,7 +161,7 @@ def check_case_cpu_idle_power_stable(
     threshold: float = IDLE_POWER_RELATIVE_RANGE_THRESHOLD,
     ignore_error_rows: bool = False,
 ) -> None:
-    """Validate that CPU package idle baseline did not drift across a finished case CSV."""
+    """Validate CPU package idle drift across formal rows of a finished case CSV."""
     if not os.path.exists(csv_path):
         raise EnergyProfilingError(
             f"cpu_idle_power_w case validation failed: result CSV does not exist: {csv_path}"
@@ -139,6 +169,7 @@ def check_case_cpu_idle_power_stable(
 
     rows = 0
     invalid_rows = 0
+    excluded_warmup_rows = 0
     idle_values: list[float] = []
     with open(csv_path, encoding="utf-8", newline="") as f:
         allow_large_csv_fields()
@@ -146,7 +177,14 @@ def check_case_cpu_idle_power_stable(
         for row in reader:
             if ignore_error_rows and row_has_error_status(row):
                 continue
+            warmup = parse_csv_float(row.get("warmup"))
+            if warmup == 1:
+                excluded_warmup_rows += 1
+                continue
             rows += 1
+            if warmup != 0:
+                invalid_rows += 1
+                continue
             cpu_idle_power_w = parse_csv_float(row.get("cpu_idle_power_w"))
             if not math.isfinite(cpu_idle_power_w) or cpu_idle_power_w <= 0.0:
                 invalid_rows += 1
@@ -165,6 +203,7 @@ def check_case_cpu_idle_power_stable(
             "CPU package power to stabilize, then rerun."
         ),
         skip_when_no_rows=ignore_error_rows,
+        excluded_warmup_rows=excluded_warmup_rows,
     )
 
 
