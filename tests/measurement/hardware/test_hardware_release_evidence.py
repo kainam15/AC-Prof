@@ -104,7 +104,16 @@ def test_hardware_workflow_is_manual_and_never_exposes_fork_prs():
     assert checkout["clean"] == "true"
     assert "${{ github.run_id }}" in checkout["path"]
     assert "${{ github.run_attempt }}" in checkout["path"]
-    assert job["env"]["UV_PROJECT_ENVIRONMENT"].startswith("${{ runner.temp }}/")
+    environment_step = next(
+        step for step in job["steps"] if step.get("name") == "Configure isolated UV environment"
+    )
+    assert (
+        "UV_PROJECT_ENVIRONMENT=${RUNNER_TEMP}/acprof-hardware-venv-"
+        "${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+    ) in environment_step["run"]
+    assert '>> "$GITHUB_ENV"' in environment_step["run"]
+    sync_step = next(step for step in job["steps"] if "uv sync --locked" in step.get("run", ""))
+    assert job["steps"].index(environment_step) < job["steps"].index(sync_step)
     assert job["env"]["HARDWARE_WORKSPACE"].endswith(checkout["path"])
     uv_steps = [step for step in job["steps"] if "uv " in step.get("run", "")]
     assert all(step.get("working-directory") == workspace for step in uv_steps)

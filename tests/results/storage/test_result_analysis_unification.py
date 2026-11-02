@@ -238,11 +238,14 @@ async def test_cancel_analysis_reaps_child_and_leaves_no_report(result_csv, tmp_
         command = (sys.executable, "-u", "-c", "import time; time.sleep(30)")
         app.launch(PendingLaunch(command, "stats", result_csv=str(result_csv)))
         try:
+            # Cancel is enabled even during launch_pending; wait for an actual
+            # child before asserting that cancellation reaps that child.
             async with asyncio.timeout(5):
-                while app.query_one("#results-cancel", Button).disabled:
+                while app.execution.lifecycle.process is None:
                     await pilot.pause()
             process = app.execution.lifecycle.process
             assert process is not None
+            assert not app.query_one("#results-cancel", Button).disabled
             for name in ("results-cancel", "report-calculate", "plot-results"):
                 button = app.query_one("#" + name, Button)
                 assert button.region.right <= app.size.width

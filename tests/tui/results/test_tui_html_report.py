@@ -312,13 +312,20 @@ async def test_cancel_reaps_process_and_keeps_previous_html(tmp_path, csv_result
         command = (sys.executable, "-u", "-c", "import time; print('ready', flush=True); time.sleep(30)")
         pending = commands.PendingLaunch(command, "html-report", report_path=str(tmp_path / "new.html"))
         app.launch(pending)
+        # Stop is available before child creation. Allow the launch's deferred
+        # monitor-button focus to settle before navigating to the results page.
         async with asyncio.timeout(5):
-            while app.query_one("#stop-run", Button).disabled:
+            while app.execution.lifecycle.process is None:
                 await pilot.pause()
+        await pilot.pause()
         app.results.show_result_section("exports-view")
+        await pilot.pause()
         cancel = app.query_one("#html-report-cancel", Button)
         cancel.scroll_visible(animate=False, immediate=True)
         await pilot.pause()
+        assert app.query_one("#main-tabs", TabbedContent).active == "results-tab"
+        assert not cancel.disabled
+        assert cancel.region.width > 0 and cancel.region.height > 0
         assert await pilot.click(cancel)
         await pilot.pause()
         # Escape cancels the stop dialog without terminating the task.
