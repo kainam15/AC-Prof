@@ -270,6 +270,23 @@ adapter 不一致；该边界不提供单进程任意切换 adapter 的能力。
 应用构造方式参考 [Flask application factories](https://flask.palletsprojects.com/en/stable/patterns/appfactories/)，
 沿用现有 Flask 和四阶段 Handler，不增加依赖或新的适配器框架。
 
+`NLPHandler` 在加载时消费声明中已合并的 `encoder` 选项，选定
+`SentenceEncoderHandler` 处理句向量、相似度和重排；选择保存在各自的模型 context，
+同一个缓存的 NLP Handler 可以交替处理不同会话。专用处理器集中拥有 SentenceTransformer／
+CrossEncoder 的加载、输入准备、预测和输出摘要；通用 NLP 保留 Pipeline、生成和其他任务逻辑。
+原有 `sentence_transformers`、`cross_encoder` 及 `transformers_pipeline` 的相似度／重排别名
+继续使用同一扩展声明和入口，context 中的 backend、task、revision 和加载选项保持原值。
+`load_handler` 仍是唯一的加载质量记录与异常包装边界。
+
+`container.handlers.text_inputs` 提供两类 Handler 共用的模型长度、单文本和成对文本预算、
+截断及 fill-mask 占位符处理；模块导入只依赖标准库。专用规则保留默认／具名 prompt、
+prompt 与文本拼接后的 token 检查、完整句向量输出、逐批候选对应关系和原始重排分数。
+测试使用轻量 tokenizer／SDK 替身，分别覆盖专用规则、既有路由和跨会话状态隔离，
+并复用原有 fill-mask、QA、生成与服务源码打包回归。
+接口边界参考 [SentenceTransformer.encode](https://github.com/huggingface/sentence-transformers/blob/main/sentence_transformers/sentence_transformer/model.py)
+与 [CrossEncoder.predict](https://github.com/huggingface/sentence-transformers/blob/main/sentence_transformers/cross_encoder/model.py)；
+仅借鉴职责划分，继续使用项目锁定的依赖版本和既有调用参数，未复制上游实现。
+
 Workload 使用同一声明的可选 `workload_entrypoint`，按 family 延迟导入；任务参数在实现的
 `from_config` 中处理。`container.execution.complete_prediction` 调用所选运行时的可选请求完成
 hook，等待计入既有窗口，窗口外验证仍在独立进程。`runtime_settings` 统一可选线程/Provider

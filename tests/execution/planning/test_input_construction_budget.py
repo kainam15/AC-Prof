@@ -6,6 +6,7 @@ import pytest
 
 from acprof.container.handlers.diffusion import DiffusionHandler
 from acprof.container.handlers.nlp import NLPHandler
+from acprof.container.handlers.sentence_encoders import SentenceEncoderHandler
 from acprof.failures import failure_from_exception
 from acprof.input_budget import InputBudget, InputBudgetExceeded, check_nlp_input
 from acprof.workloads.diffusion import DiffusionWorkloadGenerator
@@ -31,8 +32,11 @@ def test_nlp_joint_candidate_batch_budget_is_checked_before_expansion(task):
     payload = {"text": "hello", "query": "q", "documents": ["a", "b"],
                "candidate_labels": ["a", "b"], "batch_size": 3,
                "input_budget": {"max_batch_items": 4}}
+    handler = NLPHandler() if task == "zero-shot-classification" else SentenceEncoderHandler(
+        "sentence" if task == "sentence-similarity" else "cross",
+    )
     with pytest.raises(ValueError, match="input_budget_exceeded"):
-        NLPHandler().preprocess({"task_type": task, "pipeline": pipe}, payload)
+        handler.preprocess({"task_type": task, "pipeline": pipe}, payload)
     pipe.tokenizer.encode.assert_not_called()
 
 

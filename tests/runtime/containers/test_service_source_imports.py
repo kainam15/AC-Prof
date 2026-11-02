@@ -21,6 +21,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
     "acprof.container.runtime_manifest",
     "acprof.container.compute_profile_runner",
     "acprof.container.handlers.nlp",
+    "acprof.container.handlers.sentence_encoders",
+    "acprof.container.handlers.text_inputs",
 ])
 def test_service_entrypoint_imports_without_checkout(tmp_path, module):
     context = tmp_path / "service"

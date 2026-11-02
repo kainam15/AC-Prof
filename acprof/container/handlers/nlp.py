@@ -16,6 +16,14 @@ from acprof.container.handlers import (
 )
 from acprof.container.handlers.generation_evidence import count_input_tokens, generation_evidence
 from acprof.container.handlers.text_generation import text_output_metrics
+from acprof.container.handlers.text_inputs import (
+    get_model_max_length,
+    max_effective_qa_context_length,
+    max_effective_single_text_length,
+    string_list,
+    truncate_qa_context,
+    truncate_single_text,
+)
 from acprof.container.load_policy import load_policy
 from acprof.input_budget import check_nlp_input, positive_integer
 from acprof.models.spec import pipeline_task
@@ -29,39 +37,6 @@ _GENERATIVE_TASKS = {
 
 class NLPHandler(BaseHandler):
 
-    # Host workloads use one model-independent placeholder.  The container has
-    # the loaded tokenizer, so it is the only layer that can safely translate
-    # that placeholder to the model's native mask token.
-    _FILL_MASK_PLACEHOLDER = "[MASK]"
-
-    @staticmethod
-    def _get_tokenizer_max_length(tokenizer: Any) -> int | None:
-        max_len = getattr(tokenizer, "model_max_length", None)
-        if max_len is None:
-            return None
-        try:
-            value = int(max_len)
-            return value if 0 < value < 1_000_000 else None
-        except (TypeError, ValueError, OverflowError):
-            return None
-
-    @classmethod
-    def _get_model_max_length(cls, pipe: Any) -> int | None:
-        limits = [cls._get_tokenizer_max_length(getattr(pipe, "tokenizer", None))]
-        # Sentence Transformers may configure a shorter sequence limit than
-        # the underlying tokenizer; CrossEncoder exposes max_length instead.
-        for name in ("max_seq_length", "max_length"):
-            value = getattr(pipe, name, None)
-            if isinstance(value, (int, float)) and 0 < value < 1_000_000:
-                limits.append(int(value))
-        config = getattr(getattr(pipe, "model", None), "config", None)
-        for name in ("max_position_embeddings", "n_positions"):
-            value = getattr(config, name, None)
-            if isinstance(value, (int, float)) and 0 < value < 1_000_000:
-                limits.append(int(value))
-        known = [value for value in limits if value is not None]
-        return min(known) if known else None
-
     @staticmethod
     def _generation_token_reserve(pipe: Any, task_type: str, params: dict[str, Any]) -> int:
         config = getattr(getattr(pipe, "model", None), "config", None)
@@ -72,177 +47,6 @@ class NLPHandler(BaseHandler):
             raise ValueError("max_new_tokens must be a positive integer")
         return value
 
-    @staticmethod
-    def _single_text_budget(max_len: int, special_tokens: int, reserved_tokens: int) -> int:
-        available = max_len - special_tokens - reserved_tokens
-        if reserved_tokens and available < 1:
-            raise ValueError("max_new_tokens leaves no input token budget within the model context limit")
-        return max(1, available)
-
-    @classmethod
-    def _prepare_fill_mask_input(
-        cls,
-        tokenizer: Any,
-        text: str,
-    ) -> tuple[str, list, Any]:
-        raw_mask_token = getattr(tokenizer, "mask_token", None)
-        if raw_mask_token is None or not str(raw_mask_token):
-            raise ValueError(
-                "fill-mask task requires a tokenizer with a configured mask_token"
-            )
-        mask_token = str(raw_mask_token)
-
-        mask_token_id = getattr(tokenizer, "mask_token_id", None)
-        if mask_token_id is None:
-            convert_tokens_to_ids = getattr(tokenizer, "convert_tokens_to_ids", None)
-            if callable(convert_tokens_to_ids):
-                mask_token_id = convert_tokens_to_ids(mask_token)
-        if mask_token_id is None:
-            raise ValueError(
-                "fill-mask task requires a tokenizer with a configured mask_token_id"
-            )
-
-        if mask_token != cls._FILL_MASK_PLACEHOLDER:
-            text = text.replace(cls._FILL_MASK_PLACEHOLDER, mask_token)
-
-        token_ids = tokenizer.encode(text, add_special_tokens=False)
-        if mask_token_id not in token_ids:
-            separator = "" if not text or text[-1].isspace() else " "
-            text = f"{text}{separator}{mask_token}"
-            token_ids = tokenizer.encode(text, add_special_tokens=False)
-
-        if mask_token_id not in token_ids:
-            raise ValueError(
-                "tokenizer could not encode its configured mask_token "
-                f"{mask_token!r} as mask_token_id={mask_token_id!r}"
-            )
-
-        return text, token_ids, mask_token_id
-
-    def _truncate_single_text(
-        self,
-        pipe: Any,
-        text: str,
-        task_type: str,
-        reserved_tokens: int = 0,
-    ) -> tuple[str, int | None, bool | None, str]:
-        tokenizer = getattr(pipe, "tokenizer", None)
-        if not tokenizer:
-            return text, None, None, "tokenizer_missing"
-
-        mask_token_id = None
-        if task_type == "fill-mask":
-            text, token_ids, mask_token_id = self._prepare_fill_mask_input(
-                tokenizer,
-                text,
-            )
-        else:
-            token_ids = tokenizer.encode(text, add_special_tokens=False)
-
-        max_len = self._get_model_max_length(pipe)
-        if max_len is None:
-            return text, len(token_ids), None, "max_length_unknown"
-
-        special_tokens = tokenizer.num_special_tokens_to_add(pair=False)
-        available = self._single_text_budget(max_len, int(special_tokens), reserved_tokens)
-        truncated_by_limit = len(token_ids) > available
-        if truncated_by_limit:
-            if task_type == "fill-mask":
-                mask_pos = token_ids.index(mask_token_id)
-                if mask_pos < available:
-                    token_ids = token_ids[:available]
-                else:
-                    token_ids = token_ids[:available - 1] + [mask_token_id]
-                text = tokenizer.decode(token_ids, skip_special_tokens=False)
-            else:
-                token_ids = token_ids[:available]
-                text = tokenizer.decode(token_ids, skip_special_tokens=True)
-            token_ids = tokenizer.encode(text, add_special_tokens=False)
-            if task_type == "fill-mask" and mask_token_id not in token_ids:
-                raise ValueError(
-                    "tokenizer decode/encode round trip removed the configured "
-                    "mask token while truncating fill-mask input"
-                )
-
-        reason = (
-            f"truncated_to_model_limit(max_length={max_len},available={available})"
-            if truncated_by_limit
-            else f"within_model_limit(max_length={max_len},available={available})"
-        )
-        if reserved_tokens:
-            reason += f"; reserved_output_tokens={reserved_tokens}"
-        return text, len(token_ids), truncated_by_limit, reason
-
-    def _truncate_qa_context(
-        self,
-        pipe: Any,
-        question: str,
-        context: str,
-    ) -> tuple[str, int | None, bool | None, str]:
-        tokenizer = getattr(pipe, "tokenizer", None)
-        if not tokenizer:
-            return context, None, None, "tokenizer_missing"
-
-        context_ids = tokenizer.encode(context, add_special_tokens=False)
-        max_len = self._get_model_max_length(pipe)
-        if max_len is None:
-            return context, len(context_ids), None, "max_length_unknown"
-
-        question_ids = tokenizer.encode(question, add_special_tokens=False)
-        special_tokens = tokenizer.num_special_tokens_to_add(pair=True)
-        available = max(0, max_len - len(question_ids) - int(special_tokens))
-        truncated_by_limit = len(context_ids) > available
-        if truncated_by_limit:
-            context_ids = context_ids[:available]
-            context = tokenizer.decode(context_ids, skip_special_tokens=True)
-            context_ids = tokenizer.encode(context, add_special_tokens=False)
-
-        reason = (
-            f"truncated_context_to_model_limit(max_length={max_len},available={available})"
-            if truncated_by_limit
-            else f"within_model_limit(max_length={max_len},available={available})"
-        )
-        return context, len(context_ids), truncated_by_limit, reason
-
-    def _max_effective_single_text_length(
-        self, pipe: Any, reserved_tokens: int = 0,
-    ) -> tuple[int | None, str]:
-        tokenizer = getattr(pipe, "tokenizer", None)
-        if not tokenizer:
-            return None, "tokenizer_missing"
-
-        max_len = self._get_model_max_length(pipe)
-        if max_len is None:
-            return None, "max_length_unknown"
-
-        special_tokens = tokenizer.num_special_tokens_to_add(pair=False)
-        available = self._single_text_budget(max_len, int(special_tokens), reserved_tokens)
-        reason = f"max_effective_single_text_length(max_length={max_len},available={available})"
-        if reserved_tokens:
-            reason += f"; reserved_output_tokens={reserved_tokens}"
-        return available, reason
-
-    def _max_effective_qa_context_length(
-        self,
-        pipe: Any,
-        question: str,
-    ) -> tuple[int | None, str]:
-        tokenizer = getattr(pipe, "tokenizer", None)
-        if not tokenizer:
-            return None, "tokenizer_missing"
-
-        max_len = self._get_model_max_length(pipe)
-        if max_len is None:
-            return None, "max_length_unknown"
-
-        question_ids = tokenizer.encode(question, add_special_tokens=False)
-        special_tokens = tokenizer.num_special_tokens_to_add(pair=True)
-        available = max(0, max_len - len(question_ids) - int(special_tokens))
-        return available, (
-            "max_effective_qa_context_length("
-            f"max_length={max_len},question_tokens={len(question_ids)},available={available})"
-        )
-
     def load(
         self,
         model_source: str,
@@ -252,11 +56,19 @@ class NLPHandler(BaseHandler):
         model_revision: str = "main",
         load_options: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        encoder = handler_declaration(task_type, backend).handler_options.get("encoder", "")
+        if encoder:
+            from acprof.container.handlers.sentence_encoders import SentenceEncoderHandler
+            delegate = SentenceEncoderHandler(encoder)
+            context = delegate.load(model_source, task_type, backend, device, model_revision,
+                                    load_options=load_options)
+            context["_encoder_handler"] = delegate
+            return context
+
         device_map = device if device == "cpu" else "auto"
         policy = load_policy(model_source, task_type, backend, device, load_options)
         torch_dtype = policy["dtype"]
         pipeline_options = transformers_pipeline_load_kwargs(load_options)
-        encoder = handler_declaration(task_type, backend).handler_options.get("encoder", "")
         if backend == "transformers_model" and task_type in {"text2text-generation", "summarization", "translation"}:
             from acprof.container.handlers.text_generation import load_seq2seq
             pipe = load_seq2seq(model_source, model_revision, device=device, dtype=torch_dtype,
@@ -283,22 +95,6 @@ class NLPHandler(BaseHandler):
                 model_source, dtype=torch_dtype, trust_remote_code=False,
                 **revision_args, **local_args, **model_kwargs).to(device).eval()
             pipe = SimpleNamespace(model=model, tokenizer=tokenizer)
-        elif encoder:
-            if encoder == "sentence":
-                from sentence_transformers import SentenceTransformer as Encoder
-            else:
-                from sentence_transformers import CrossEncoder as Encoder
-            pipe = Encoder(
-                model_source,
-                **model_revision_kwargs(model_source, model_revision),
-                device=device,
-                local_files_only=os.path.isdir(model_source),
-                trust_remote_code=policy["trust_remote_code"],
-                model_kwargs={"torch_dtype": torch_dtype,
-                              **pipeline_options.get("model_kwargs", {})},
-            )
-            if task_type == "text-ranking" and pipe.num_labels != 1:
-                raise ValueError("text-ranking requires a single relevance score (num_labels=1)")
         else:
             from transformers import pipeline as hf_pipeline
             pipe = hf_pipeline(
@@ -324,7 +120,6 @@ class NLPHandler(BaseHandler):
             "pipeline": pipe,
             "task_type": task_type,
             "backend": backend,
-            "encoder": encoder,
             "device": device,
             "model_revision": model_revision or "main",
             "load_options": dict(load_options or {}),
@@ -399,17 +194,8 @@ class NLPHandler(BaseHandler):
     def _batch_size(raw_input: dict[str, Any]) -> int:
         return positive_integer(raw_input.get("batch_size", 1), "batch_size")
 
-    @staticmethod
-    def _string_list(raw_input: dict[str, Any], field: str) -> list[str]:
-        values = raw_input.get(field)
-        if not isinstance(values, list) or not values or not all(
-            isinstance(value, str) and value.strip() for value in values
-        ):
-            raise ValueError(f"{field} must be a nonempty list of nonempty strings")
-        return list(values)
-
     def _zero_shot_hypotheses(self, pipe: Any, raw_input: dict[str, Any]) -> tuple[list[str], str, str]:
-        labels = self._string_list(raw_input, "candidate_labels")
+        labels = string_list(raw_input, "candidate_labels")
         template = raw_input.get("hypothesis_template", "This example is {}.")
         if not isinstance(template, str) or "{}" not in template:
             raise ValueError("hypothesis_template must contain a {} placeholder")
@@ -445,61 +231,35 @@ class NLPHandler(BaseHandler):
         token_ids = encoded["input_ids"]
         if len(token_ids) and isinstance(token_ids[0], list):
             token_ids = token_ids[0]
-        max_len = self._get_model_max_length(pipe)
+        max_len = get_model_max_length(pipe)
         if max_len is not None and len(token_ids) > max_len:
             raise ValueError(f"table exceeds model token limit ({len(token_ids)} > {max_len}); reduce table_rows")
         return {"table": frame, "query": query, "_effective_input_scale": next(iter(row_counts)),
                 "_truncated_by_limit": False, "_probe_reason": "complete_table_rows_no_truncation"}
 
     def preprocess(self, model_ctx: dict[str, Any], raw_input: dict[str, Any]) -> Any:
+        delegate = model_ctx.get("_encoder_handler")
+        if delegate is not None:
+            return delegate.preprocess(model_ctx, raw_input)
         task_type = model_ctx["task_type"]
         text = raw_input.get("text", "")
         params = raw_input.get("params", {})
         pipe = model_ctx["pipeline"]
         if not isinstance(params, dict):
             raise ValueError("params must be an object")
-        embedding_prompt = self._embedding_options(pipe, params)[1] if (
-            task_type == "sentence-similarity" or model_ctx.get("encoder") == "sentence"
-        ) else ""
-        budget = check_nlp_input(raw_input, task_type, embedding_prompt=embedding_prompt)
+        budget = check_nlp_input(raw_input, task_type)
         common = {"params": params, "batch_size": self._batch_size(raw_input),
                   "input_budget": budget.as_dict()}
-        if (task_type == "feature-extraction" and model_ctx.get("encoder") != "sentence"
+        if (task_type == "feature-extraction"
                 and set(params) & {"prompt", "prompt_name", "normalize_embeddings"}):
             raise ValueError("sentence embedding parameters require backend=sentence_transformers")
 
         if task_type == "table-question-answering":
             return {**common, **self._preprocess_table(pipe, raw_input)}
 
-        if task_type in {"sentence-similarity", "text-ranking"}:
-            documents = self._string_list(raw_input, "documents")
-            query = raw_input.get("query")
-            if not isinstance(query, str) or not query.strip():
-                raise ValueError(f"{task_type} requires a nonempty query")
-            prepare = self._prepare_embedding_text if task_type == "sentence-similarity" else self._truncate_single_text
-            options: dict[str, Any] = {"params": params} if task_type == "sentence-similarity" else {}
-            checked_query, _, query_truncated, _ = prepare(pipe, query, task_type, **options)
-            if query_truncated:
-                raise ValueError("query exceeds model token limit")
-            results = [self._truncate_qa_context(pipe, checked_query, doc)
-                       if task_type == "text-ranking" else
-                       prepare(pipe, doc, task_type, **options) for doc in documents]
-            if any(item[1] == 0 for item in results):
-                raise ValueError("query leaves no model token budget for documents")
-            scales = [item[1] for item in results if item[1] is not None]
-            return {**common, "query": checked_query, "documents": [item[0] for item in results],
-                    "_effective_input_scale": max(scales) if scales else None,
-                    "_truncated_by_limit": any(item[2] for item in results),
-                    "_probe_reason": "per_candidate_tokens; " + results[0][3]}
-
-        if task_type == "feature-extraction" and model_ctx.get("encoder") == "sentence":
-            text, scale, truncated, reason = self._prepare_embedding_text(pipe, text, task_type, params=params)
-            return {**common, "text": text, "_effective_input_scale": scale,
-                    "_truncated_by_limit": truncated, "_probe_reason": reason}
-
         if task_type == "zero-shot-classification":
             labels, template, longest = self._zero_shot_hypotheses(pipe, raw_input)
-            text, scale, truncated, reason = self._truncate_qa_context(pipe, longest, text)
+            text, scale, truncated, reason = truncate_qa_context(pipe, longest, text)
             if scale == 0:
                 raise ValueError("candidate hypotheses leave no model token budget for text")
             return {**common, "text": text, "candidate_labels": labels,
@@ -509,7 +269,7 @@ class NLPHandler(BaseHandler):
         if task_type == "question-answering":
             question = raw_input.get("question", text)
             context = raw_input.get("context", text)
-            context, effective_input_scale, truncated_by_limit, reason = self._truncate_qa_context(
+            context, effective_input_scale, truncated_by_limit, reason = truncate_qa_context(
                 pipe,
                 question,
                 context,
@@ -526,7 +286,7 @@ class NLPHandler(BaseHandler):
                 "_probe_reason": reason,
             }
 
-        text, effective_input_scale, truncated_by_limit, reason = self._truncate_single_text(
+        text, effective_input_scale, truncated_by_limit, reason = truncate_single_text(
             pipe,
             text,
             task_type,
@@ -542,6 +302,9 @@ class NLPHandler(BaseHandler):
         }
 
     def get_scale_metadata(self, model_ctx: dict[str, Any], raw_input: dict[str, Any]) -> dict[str, Any]:
+        delegate = model_ctx.get("_encoder_handler")
+        if delegate is not None:
+            return delegate.get_scale_metadata(model_ctx, raw_input)
         task_type = model_ctx["task_type"]
         pipe = model_ctx["pipeline"]
 
@@ -549,16 +312,15 @@ class NLPHandler(BaseHandler):
             return {"input_scale_type": "table_rows", "max_effective_input_scale": None,
                     "reason": "table capacity depends on tokenized cells and query; no row truncation"}
 
-        if task_type in {"text-ranking", "zero-shot-classification"}:
-            fixed_text = (raw_input.get("query", "") if task_type == "text-ranking"
-                          else self._zero_shot_hypotheses(pipe, raw_input)[2])
-            available, reason = self._max_effective_qa_context_length(pipe, fixed_text)
+        if task_type == "zero-shot-classification":
+            fixed_text = self._zero_shot_hypotheses(pipe, raw_input)[2]
+            available, reason = max_effective_qa_context_length(pipe, fixed_text)
             return {"input_scale_type": "seq_length", "max_effective_input_scale": available,
                     "reason": reason}
 
         if task_type == "question-answering":
             question = raw_input.get("question", raw_input.get("text", ""))
-            available, reason = self._max_effective_qa_context_length(pipe, question)
+            available, reason = max_effective_qa_context_length(pipe, question)
             return {
                 "input_scale_type": "seq_length",
                 "max_effective_input_scale": available,
@@ -566,11 +328,7 @@ class NLPHandler(BaseHandler):
             }
 
         reserve = self._generation_token_reserve(pipe, task_type, raw_input.get("params", {}))
-        if task_type == "sentence-similarity" or model_ctx.get("encoder") == "sentence":
-            _, prompt = self._embedding_options(pipe, raw_input.get("params", {}))
-            tokenizer = getattr(pipe, "tokenizer", None)
-            reserve += len(tokenizer.encode(prompt, add_special_tokens=False)) if prompt and tokenizer else 0
-        available, reason = self._max_effective_single_text_length(pipe, reserved_tokens=reserve)
+        available, reason = max_effective_single_text_length(pipe, reserved_tokens=reserve)
         return {
             "input_scale_type": "seq_length",
             "max_effective_input_scale": available,
@@ -581,37 +339,10 @@ class NLPHandler(BaseHandler):
     # For these, pass truncation via tokenizer_kwargs instead.
     _TRUNCATION_VIA_KWARGS_TASKS = {"fill-mask"}
 
-    @staticmethod
-    def _embedding_options(pipe: Any, params: dict[str, Any]) -> tuple[dict, str]:
-        options = {key: params[key] for key in ("prompt", "prompt_name", "normalize_embeddings") if key in params}
-        if "normalize_embeddings" in options and not isinstance(options["normalize_embeddings"], bool):
-            raise ValueError("normalize_embeddings must be a boolean")
-        if "prompt" in options and "prompt_name" in options:
-            raise ValueError("set either prompt or prompt_name, not both")
-        prompts = getattr(pipe, "prompts", {})
-        prompts = prompts if isinstance(prompts, dict) else {}
-        name = options.get("prompt_name", getattr(pipe, "default_prompt_name", None))
-        if "prompt_name" in options and name not in prompts:
-            raise ValueError(f"unknown sentence embedding prompt_name: {name!r}")
-        prompt = options.get("prompt", prompts.get(name, "") if isinstance(name, str) else "")
-        if not isinstance(prompt, str):
-            raise ValueError("sentence embedding prompt must be a string")
-        return options, prompt
-
-    def _prepare_embedding_text(self, pipe: Any, text: str, task_type: str, *, params: dict) -> tuple:
-        _, prompt = self._embedding_options(pipe, params)
-        tokenizer = getattr(pipe, "tokenizer", None)
-        reserve = len(tokenizer.encode(prompt, add_special_tokens=False)) if prompt and tokenizer else 0
-        result = self._truncate_single_text(pipe, text, task_type, reserved_tokens=reserve)
-        limit = self._get_model_max_length(pipe)
-        if tokenizer and limit is not None:
-            # Check the concatenation as well: BPE boundaries need not be additive.
-            length = len(tokenizer.encode(prompt + result[0], add_special_tokens=False))
-            if length + tokenizer.num_special_tokens_to_add(pair=False) > limit:
-                raise ValueError("sentence embedding prompt and text exceed model token limit")
-        return result
-
     def predict(self, model_ctx: dict[str, Any], processed_input: Any) -> Any:
+        delegate = model_ctx.get("_encoder_handler")
+        if delegate is not None:
+            return delegate.predict(model_ctx, processed_input)
         pipe = model_ctx["pipeline"]
         task_type = model_ctx["task_type"]
         params = processed_input.get("params", {})
@@ -639,31 +370,6 @@ class NLPHandler(BaseHandler):
             return pipe(table=processed_input["table"],
                         query=[query] * batch_size if batch_size > 1 else query,
                         batch_size=1, truncation=False, sequential=False)
-
-        if task_type == "sentence-similarity":
-            documents = processed_input["documents"]
-            sample = [processed_input["query"], *documents]
-            embeddings = pipe.encode(sample * batch_size, batch_size=len(sample) * batch_size,
-                                     show_progress_bar=False, convert_to_tensor=True,
-                                     **self._embedding_options(pipe, params)[0])
-            return [pipe.similarity(embeddings[offset:offset + 1],
-                                    embeddings[offset + 1:offset + len(sample)])[0]
-                    for offset in range(0, len(sample) * batch_size, len(sample))]
-
-        if task_type == "feature-extraction" and model_ctx.get("encoder") == "sentence":
-            return pipe.encode([processed_input["text"]] * batch_size, batch_size=batch_size,
-                               show_progress_bar=False, convert_to_tensor=True,
-                               **self._embedding_options(pipe, params)[0])
-
-        if task_type == "text-ranking":
-            documents = processed_input["documents"]
-            pairs = [[processed_input["query"], document] for document in documents] * batch_size
-            scores = pipe.predict(pairs, batch_size=len(pairs), show_progress_bar=False,
-                                  convert_to_numpy=True)
-            count = len(documents)
-            return [sorted([{"corpus_id": index, "score": float(scores[offset + index])}
-                            for index in range(count)], key=lambda item: item["score"], reverse=True)
-                    for offset in range(0, len(pairs), count)]
 
         if task_type == "question-answering":
             if batch_size > 1:
@@ -704,6 +410,9 @@ class NLPHandler(BaseHandler):
             return pipe(request_inputs, truncation=True, **batch_kwargs)
 
     def postprocess(self, model_ctx: dict[str, Any], raw_output: Any) -> dict[str, Any]:
+        delegate = model_ctx.get("_encoder_handler")
+        if delegate is not None:
+            return delegate.postprocess(model_ctx, raw_output)
         task_type = model_ctx["task_type"]
 
         if task_type == "replaced-token-detection":
@@ -711,13 +420,6 @@ class NLPHandler(BaseHandler):
             if len(shape) != 2 or any(dimension <= 0 for dimension in shape):
                 raise ValueError("replaced-token-detection requires [batch, sequence] logits")
             return {"task": task_type, "output_type": "token_scores", "output_shape": shape,
-                    "n_results": shape[0]}
-
-        if task_type == "feature-extraction" and model_ctx.get("encoder") == "sentence":
-            shape = list(raw_output.shape)
-            if len(shape) != 2 or any(size <= 0 for size in shape):
-                raise ValueError("sentence encoder must return a nonempty batch of sentence embeddings")
-            return {"task": task_type, "output_type": "embedding", "output_shape": shape,
                     "n_results": shape[0]}
 
         if isinstance(raw_output, list):
@@ -731,7 +433,6 @@ class NLPHandler(BaseHandler):
             "task": task_type,
             "output_type": ("text" if task_type in _GENERATIVE_TASKS
                             else {"table-question-answering": "table_answer",
-                                  "sentence-similarity": "similarity", "text-ranking": "ranking",
                                   "feature-extraction": "embedding"}.get(task_type, "label")),
             "n_results": n_results,
             **(text_output_metrics(getattr(model_ctx["pipeline"], "tokenizer", None), raw_output)

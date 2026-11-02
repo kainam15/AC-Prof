@@ -15,7 +15,6 @@ from acprof.host.detect import TaskInfo, detect_task
 from acprof.host.preparation.task_support import TaskSupportError, require_task_support
 from acprof.runtime.profiles import select_runtime_profile
 from acprof.workloads import get_generator
-from tests.workloads.nlp.test_nlp_handler import FakeTokenizer
 
 
 @pytest.mark.parametrize('class_name', ['ChronosPipeline', 'ChronosBoltPipeline', 'Chronos2Pipeline'])
@@ -98,24 +97,6 @@ def test_feature_extraction_uses_complete_sentence_transformer():
     assert (result["n_results"]) == (2)
     assert (encoder.encode.call_args.args[0]) == (["hello", "hello"])
     pipeline.assert_not_called()
-
-def test_default_prompt_is_preserved_and_included_in_token_budget():
-    encoder = SimpleNamespace(
-        tokenizer=FakeTokenizer("[MASK]", model_max_length=8), max_seq_length=8,
-        prompts={"search": "find passage "}, default_prompt_name="search",
-        encode=Mock(return_value=np.eye(3)), similarity=Mock(return_value=np.array([[.2, .9]])),
-    )
-    context = {"pipeline": encoder, "task_type": "sentence-similarity", "backend": "sentence_transformers"}
-    handler = NLPHandler()
-    prepared = handler.preprocess(context, {
-        "query": "query", "documents": ["one two three four five"] * 2,
-    })
-    assert (prepared["documents"]) == (["one two three four"] * 2)
-    assert (prepared["_truncated_by_limit"])
-    handler.predict(context, prepared)
-    assert (encoder.encode.call_args.kwargs.get("prompt")) != ("")
-    metadata = handler.get_scale_metadata(context, {})
-    assert (metadata["max_effective_input_scale"]) == (4)
 
 def test_embedding_parameters_are_materialized_by_shared_workload():
     with tempfile.TemporaryDirectory() as directory:
