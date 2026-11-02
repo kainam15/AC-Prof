@@ -13,6 +13,7 @@
 - 字体 `Noto Sans Mono CJK SC`（Ubuntu: `fonts-noto-cjk`）
 - Golden 基线采用 Ubuntu 24.04 / VHS v0.12.1 / Chrome 147.0.7727.116；CI 从 Chrome for Testing 下载固定版本，并验证字体文件 SHA-256。跨系统运行可能产生噪声，请在与 CI 一致的环境制作基线。
 - Ubuntu 24.04 的 AppArmor 可能阻止临时目录中的 Chrome for Testing 创建用户命名空间。CI 仅在对应限制启用时，为该次 runner 中**固定路径的 Chrome 可执行文件**加载 `userns` AppArmor profile；不关闭全局限制、不使用 `--no-sandbox`。参考 [Chromium 官方说明](https://chromium.googlesource.com/chromium/src/+/main/docs/security/apparmor-userns-restrictions.md)。
+- CI 为历史 Rich SVG 的 CJK 预览额外固定 [Chrome for Testing Headless Shell](https://developer.chrome.com/docs/automation-and-testing/headless-chrome-shell) 147.0.7727.116，并核验下载包 SHA-256。其独立可执行文件使用专属 `userns` AppArmor profile（与主 Chrome 一样保留沙箱）；VHS 继续使用原固定 Chrome，不改变 Golden PNG 的浏览器与字体基准。未安装 Headless Shell 的本地环境沿用 Chrome/Chromium。
 
 Ubuntu 示例（VHS 本体可从 [官方 Releases](https://github.com/charmbracelet/vhs/releases) 下载、核验校验和后安装）：
 
