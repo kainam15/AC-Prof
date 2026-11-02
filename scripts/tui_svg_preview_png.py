@@ -142,6 +142,11 @@ def _chrome_capture(chrome: str, html: Path, png: Path, *, width: int, height: i
         chrome,
         "--headless",
         "--ozone-platform=headless",
+        # do not let offline preview capture wait on Chrome update/sync traffic
+        "--disable-background-networking",
+        "--disable-component-update",
+        "--disable-default-apps",
+        "--disable-sync",
         "--disable-gpu",
         "--disable-dev-shm-usage",
         "--no-first-run",

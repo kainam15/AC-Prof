@@ -126,10 +126,11 @@ def test_chrome_capture_accepts_png_before_browser_exits(tmp_path):
     fake_chrome = tmp_path / "fake-chrome"
     fake_chrome.write_text(
         f"#!{sys.executable}\n"
-        "import shutil, sys, time\n"
+        "import json, shutil, sys, time\n"
         "destination = next(arg.split('=', 1)[1] for arg in sys.argv "
         "if arg.startswith('--screenshot='))\n"
         f"shutil.copyfile({str(reference)!r}, destination)\n"
+        f"open({str(tmp_path / 'chrome-argv.json')!r}, 'w').write(json.dumps(sys.argv[1:]))\n"
         "time.sleep(30)\n",
         encoding="utf-8",
     )
@@ -140,6 +141,10 @@ def test_chrome_capture_accepts_png_before_browser_exits(tmp_path):
     _chrome_capture(str(fake_chrome), html, tmp_path / "scene.png", width=120, height=100)
     assert time.monotonic() - start < 5
     assert (tmp_path / "scene.png").is_file()
+    flags = json.loads((tmp_path / "chrome-argv.json").read_text(encoding="utf-8"))
+    assert "--disable-background-networking" in flags
+    assert "--disable-component-update" in flags
+    assert "--no-sandbox" not in flags
 
 
 def test_chrome_capture_timeout_reports_stderr_and_reaps(tmp_path, monkeypatch):
@@ -186,5 +191,7 @@ def test_svg_preview_ci_runs_one_actual_chrome_smoke_before_batch():
     smoke = workflow.index("Smoke-test one reviewed CJK SVG preview")
     full = workflow.index("Render CJK previews of reviewed SVG baselines")
     assert smoke < full
+    assert full < workflow.index("Capture and check real TUI scenes")
+    assert full < workflow.index("Capture continuous synthetic TUI Pilot journey")
     assert "scripts/tui_svg_preview_png.py --smoke" in workflow
     assert "svg-preview-failures/**/*" in workflow

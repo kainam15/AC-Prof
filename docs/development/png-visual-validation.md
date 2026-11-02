@@ -124,6 +124,8 @@ ACPROF_PNG_VISUAL=1 uv run pytest tests/visual_png -v
 
 独立的 [TUI PNG Visual](../../.github/workflows/tui-png.yml) 工作流在 **push main / Pull Request 修改 TUI、任务呈现、视觉夹具、锁文件或测试配置时自动运行**，也可通过 `workflow_dispatch` 手动触发。安装截图工具后，先用 `scripts/smoke_tui_png_environment.py` 验证 Chrome DevTools 调试端点就绪（并安全结束其进程组），再检查 VHS 能否产生有效 PNG；若环境失败，直接输出浏览器 stderr，避免误报为 TUI 快照差异。冒烟通过才运行 PNG Golden 比对，并在 PNG 测试步骤后（无论通过还是失败）用 Python 标准库生成 HTML，并通过 GitHub Actions Artifact 上传 `report.html`、actual / expected / diff / `report.json`。截图环境提前失败而没有 `report.json` 时，HTML 只说明无法取得比较结论，具体原因查看 Actions 日志。报告是临时生成物，不提交到 Git 仓库。主分支 main 的 PNG 工作流在生成 HTML 后，将单文件报告作为网页入口 index.html 发布到 [GitHub Pages](https://kainam15.github.io/AC-Prof/)；无须下载 Artifact 即可浏览最新一次**成功部署**的报告。PNG Golden 比较失败时仍尝试发布失败诊断，但无法生成 HTML 时保留此前网站版本；手动从 main 触发也会发布，PR 仅上传 Artifact、不部署。首次使用需在仓库 **Settings → Pages → Build and deployment → Source** 选择 **GitHub Actions**，并建议将 github-pages 环境限制为仅 main 可部署。网页公开可读，不能把敏感运行数据加入测试夹具。GitHub Pages 为最新报告展示入口，旧运行证据继续从各次 Actions Artifact 查看；仍不影响原有 CI 的 SVG 快照。正式运行与完整测试环境无需安装 VHS 或桌面。
 
+历史 Rich SVG 的 CJK PNG 预览在安装 test 依赖后、长时间 VHS/Pilot 采集前生成：先对已提交的中文 SVG 运行一次真实 Chrome 截图冒烟，再批量渲染。该离线浏览器进程禁用后台网络更新与同步，仍保留 sandbox；无有效 PNG 时保存受限的截图/日志诊断并使 CI 失败，不跳过校验、不自动更新 Golden。
+
 VHS 的 xterm.js + Chrome 反映的是一个确定的无头终端模拟环境，
 不是 VS Code Windows 终端、SSH/tmux 或用户本地字体渲染的完全复刻；
 涉及终端原生渲染差异时仍需在实际客户端截图验收。

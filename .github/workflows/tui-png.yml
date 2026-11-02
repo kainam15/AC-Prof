@@ -123,20 +123,7 @@ jobs:
         run: python3 scripts/smoke_tui_png_environment.py
       - name: Install host test dependencies
         run: uv sync --locked --no-default-groups --group test
-      - name: Capture and check real TUI scenes
-        env:
-          ACPROF_PNG_VISUAL: '1'
-          TZ: UTC
-          PYTHONHASHSEED: '0'
-        run: uv run --locked --no-default-groups --group test python -m pytest tests/visual_png -v
-      - name: Capture continuous synthetic TUI Pilot journey
-        if: always()
-        run: |
-          if [ -x .venv/bin/python ]; then
-            uv run --locked --no-default-groups --group test python scripts/capture_tui_journey.py --png-preview
-          else
-            echo 'Test environment unavailable; journey evidence not generated.'
-          fi
+      # Prepare offline SVG previews before long-running VHS/Pilot captures.
       - name: Smoke-test one reviewed CJK SVG preview
         id: svg_preview_smoke
         if: always()
@@ -153,6 +140,20 @@ jobs:
             uv run --locked --no-default-groups --group test python scripts/tui_svg_preview_png.py
           else
             echo 'Test environment unavailable; SVG CJK previews not generated.'
+          fi
+      - name: Capture and check real TUI scenes
+        env:
+          ACPROF_PNG_VISUAL: '1'
+          TZ: UTC
+          PYTHONHASHSEED: '0'
+        run: uv run --locked --no-default-groups --group test python -m pytest tests/visual_png -v
+      - name: Capture continuous synthetic TUI Pilot journey
+        if: always()
+        run: |
+          if [ -x .venv/bin/python ]; then
+            uv run --locked --no-default-groups --group test python scripts/capture_tui_journey.py --png-preview
+          else
+            echo 'Test environment unavailable; journey evidence not generated.'
           fi
       - name: Render standalone HTML comparison report
         if: always()
