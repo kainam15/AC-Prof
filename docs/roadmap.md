@@ -6,4 +6,4 @@
 | M3 · Runtime / Profiler | 统一扩展能力和采集边界       | 不同环境、采集器有清晰的能力声明、生命周期和验证结果                               | 进行中（预检与验证产物已对齐；开销诊断增加 RSS／缓冲基线） |
 | M4 · TUI 体验           | 完整、简洁的操作流程         | 在真实终端中完成配置、运行、诊断、恢复与结果查看                                   | 进行中（SVG/PNG 统一报告、历史 SVG 的 CJK PNG 预览、Golden 网页审阅→PR、连续 Pilot 走查已建立；真实采集跨阶段验收待补） |
 | M5 · 科研结果           | 可解释、可复现、可比较       | 输入与推理参数、指标、CSV、统计和报告一致，缺失能力不误报                          | 进行中（统计、对比与审计已统一；核心审计增加复杂度门禁） |
-| M6 · 交付使用           | 安装、文档与发布             | 干净环境能安装、运行示例、导出结果和排查常见问题                                   | 已完成（wheel／uv tool／standalone 验收；安装后 BERT basic CPU smoke、审计与离线报告通过） |
+| M6 · 交付使用           | 安装、文档与发布             | 干净环境能安装、运行示例、导出结果和排查常见问题                                   | 进行中（wheel／uv tool／standalone 已验收；PR #10 将 CUDA12.4 setuptools 升至 84.1.0，但 release-risk 仍受 Transformers 4.57.6、CUDA12.8 setuptools 及特殊 Torch wheel 未审计阻塞；见[安全基线](development/runtime-security.md)） |

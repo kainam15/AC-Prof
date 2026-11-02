@@ -2,8 +2,9 @@
 
 [← CI 与审计入口](ci.md)
 
-本记录针对 2026-10-24 的 Python 3.12.15 依赖基线。锁、制品身份、兼容性验证和漏洞状态
-分别记录；构建成功、推理通过或扫描器跳过某个包，都不能证明该包安全。以下剩余问题是
+本记录以 2026-10-24 的 Python 3.12.15 依赖基线为起点，并记录 2026-11-02 的局部修复。
+锁、制品身份、兼容性验证和漏洞状态分别记录；构建成功、推理通过或扫描器跳过某个包，
+都不能证明该包安全。以下剩余问题是
 待处理风险，不表示维护者已经接受风险，也不替代正式发布审批。
 
 ## Python 包审计
@@ -21,7 +22,7 @@
 跨锁和 advisory alias 按连通关系去重后，Python 包扫描剩余 **8 个不同漏洞**；
 不得把各锁的漏洞数相加，也不得将 PYSEC、GHSA、CVE 别名重复计数。
 
-当前固定 Pillow 13.0.0、filelock 4.2.4、pip 26.2.2、Flask 3.1.3、ONNX 1.22.0、
+原基线固定 Pillow 13.0.0、filelock 4.2.4（PR #10 已刷新至 4.2.6）、pip 26.2.2、Flask 3.1.3、ONNX 1.22.0、
 sentence-transformers 5.6.0；原 Transformers 5.6.0 环境升级为 5.10.4。
 CPU / 无 Torch 平台采用 setuptools 84.1.0。上述版本在本次 pip-audit 中无已知漏洞，
 不代表未公开问题不存在。特别是 [sentence-transformers 5.6.0](https://github.com/huggingface/sentence-transformers/releases/tag/v5.6.0)
@@ -33,7 +34,12 @@ CPU / 无 Torch 平台采用 setuptools 84.1.0。上述版本在本次 pip-audit
 | Transformers 4.57.6 | CVE-2026-1839 | Trainer RNG 恢复路径；本项目不训练，现有 Torch 均不低于 2.6，但不能据此删除整个依赖的漏洞记录。 |
 | Transformers 4.57.6 | CVE-2026-4372、CVE-2026-5241 | 模型配置和嵌套加载可绕过代码信任检查；属于需要继续处理的加载风险，离线设置不等于恶意配置审计。 |
 | Transformers 4.57.6 | CVE-2026-9856、CVE-2026-80047 | `save_pretrained` 路径穿越、custom generation 代码下载顺序；不向未受信任模型开放这些能力，保留风险记录。 |
-| GPU setuptools 81.0.0 | CVE-2026-59890 / GHSA-h35f-9h28-mq5c、GHSA-xmj3-9gf7-h52w | 公告涉及 macOS sdist 名称和 Windows legacy egg 安装路径。Linux 推理镜像仅安装校验哈希的 wheel；cu128 的 Torch 2.11 要求 `<82`，不能强行改锁到 84.1。cu124 的 Torch 2.6 没有这项上限，但升级兼容验证随该平台正式验收暂缓，保留未修复记录。 |
+| CUDA 12.8 setuptools 81.0.0 | CVE-2026-59890 / GHSA-h35f-9h28-mq5c、GHSA-xmj3-9gf7-h52w | 公告分别涉及 macOS sdist 名称和 Windows legacy egg 安装路径。Linux 推理环境仅安装带哈希的 wheel；但 Torch 2.11.0+cu128 明确依赖 `setuptools<82`，无法解析到已修复版本 84.1.0。继续保留发布阻塞。 |
+
+2026-11-02 在 PR #10 中将 CUDA 12.4 平台锁及 8 个子环境锁的 `setuptools` 从 81.0.0 更新为
+84.1.0，配对的 wheel URL、SHA256 和大小均由固定版 uv 解析生成。其余依赖版本保持不变；
+`compile_locks.py --check`、相关 Runtime/发布风险测试通过。该升级消除了 CUDA 12.4
+平台对应的两项 setuptools 已知漏洞，但**不意味着 CUDA 12.8 或其他漏洞已解决**。
 
 4.57.6 是本次检查可用的最后一个 4.x 版本；5.x 已移除 image-to-image、image-to-text、
 question-answering、summarization、text2text-generation、translation、visual-question-answering
@@ -44,6 +50,16 @@ setuptools 范围依据[macOS 公告](https://github.com/pypa/setuptools/securit
 [Windows 公告](https://github.com/pypa/setuptools/security/advisories/GHSA-xmj3-9gf7-h52w)和
 [Torch 2.11 依赖声明](https://github.com/pytorch/pytorch/blob/v2.11.0/pyproject.toml)。
 扫描数据库与公告的修复版本存在差异时，两者均保留，不据此改写为“已修复”。
+
+### 发布安全门禁的后续处置
+
+- PR #10 仍需修复 Transformers 4.57.6 的模型加载风险，评估 5.x 对现有 CV／NLP／Audio／Multimodal
+  pipeline 的功能覆盖；不得直接删除 4.x 环境或凭 `trust_remote_code=False` 断言安全。
+- CUDA 12.8 必须先获得兼容新版 setuptools 的官方 Torch 发行版，或经有依据的、版本／公告／环境限定的
+  风险评估；不能覆盖 Torch 声明的 `<82` 约束，也不能自行批准风险豁免。
+- PyTorch 特殊 wheel 的来源、精确文件名和哈希验证属于供应链身份核验，**不等于** PyPI 漏洞扫描已覆盖；
+  `pip-audit` 报告的 `unassessed` 必须继续阻断发布。正式风险决策应保留维护者、证据和到期日。
+- 上述问题未解决前保持 `.github/release-risk.json` 为空豁免列表，发布门禁继续 fail-closed。
 
 ## 特殊 PyTorch wheel
 
