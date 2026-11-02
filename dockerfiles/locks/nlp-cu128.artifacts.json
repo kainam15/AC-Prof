@@ -416,18 +416,21 @@
     {
       "name": "torch",
       "sha256": "d252cf975fb18c94a85336323ad425f473df56dab35a44b00399bd70c7a3b997",
+      "size": 820326880,
       "url": "https://download-r2.pytorch.org/whl/cu128/torch-2.11.0%2Bcu128-cp312-cp312-manylinux_2_28_x86_64.whl",
       "version": "2.11.0+cu128"
     },
     {
       "name": "torchaudio",
       "sha256": "78b86a17f164bdaabdcee93fdfde2587fc43b9ebf15cd61dcf730b4f8615176b",
+      "size": 1683878,
       "url": "https://download-r2.pytorch.org/whl/cu128/torchaudio-2.11.0%2Bcu128-cp312-cp312-manylinux_2_28_x86_64.whl",
       "version": "2.11.0+cu128"
     },
     {
       "name": "torchvision",
       "sha256": "ccf26b4b659cfce6f2208cb8326071d51c70219a34856dfdf468d1e19af52c0d",
+      "size": 8057226,
       "url": "https://download-r2.pytorch.org/whl/cu128/torchvision-0.26.0%2Bcu128-cp312-cp312-manylinux_2_28_x86_64.whl",
       "version": "0.26.0+cu128"
     },
@@ -448,6 +451,7 @@
     {
       "name": "triton",
       "sha256": "6f5928e6d44c34a97bbe164cceddc0ef2007121c89ebcfba5415cf452de7ee9f",
+      "size": 188273546,
       "url": "https://download-r2.pytorch.org/whl/triton-3.6.0-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
       "version": "3.6.0"
     },
