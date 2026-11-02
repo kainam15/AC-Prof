@@ -6,6 +6,7 @@ only against a temporary offline HTML rendering of each fixed SVG snapshot.
 
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
 import math
@@ -14,14 +15,19 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
+from scripts.smoke_tui_png_environment import _stop_browser_group  # noqa: E402
 from scripts.tui_flow_catalog import SVG_DIR as SVG_ROOT, svg_inventory  # noqa: E402
 
 DEFAULT_OUTPUT = ROOT / "internal-testing/shared/tui-png/svg-preview"
+FAILURES_OUTPUT = ROOT / "internal-testing/shared/tui-png/svg-preview-failures"
+SMOKE_SCENE = "tests/visual/__snapshots__/test_snapshots/test_fixed_scenes[zh-size0-form].svg"
+CHROME_CAPTURE_TIMEOUT_SECONDS = 30
 FONT_FAMILY = "Noto Sans Mono CJK SC"
 FONT_FACE = re.compile(r"(?m)^    @font-face \{\n.*?^    \}\n", re.DOTALL)
 TEXT_LENGTH = re.compile(r'(<text\b[^>]*\btextLength="[^"]+"[^>]*)(?=>)')
@@ -128,8 +134,92 @@ def load_preview_index(*, root: Path, output: Path) -> dict[str, Path]:
     return index
 
 
-def generate(*, root: Path = ROOT, output: Path = DEFAULT_OUTPUT) -> int:
-    """Build an isolated, deterministic preview set from committed SVGs."""
+def _chrome_capture(chrome: str, html: Path, png: Path, *, width: int, height: int) -> None:
+    """Wait for an intact PNG, not Chrome's potentially lingering child processes."""
+    from PIL import Image
+
+    argv = [
+        chrome,
+        "--headless",
+        "--ozone-platform=headless",
+        # do not let offline preview capture wait on Chrome update/sync traffic
+        "--disable-background-networking",
+        "--disable-component-update",
+        "--disable-default-apps",
+        "--disable-sync",
+        "--disable-gpu",
+        "--disable-dev-shm-usage",
+        "--no-first-run",
+        "--no-default-browser-check",
+        "--hide-scrollbars",
+        "--force-device-scale-factor=1",
+        f"--user-data-dir={html.parent / (html.stem + '-profile')}",
+        f"--screenshot={png}",
+        f"--window-size={width},{height + 100}",
+        html.as_uri(),
+    ]
+    stdout_path = html.with_suffix(".stdout.log")
+    stderr_path = html.with_suffix(".stderr.log")
+    outcome = "Chrome screenshot not produced"
+    with stdout_path.open("wb") as stdout, stderr_path.open("wb") as stderr:
+        try:
+            process = subprocess.Popen(argv, stdout=stdout, stderr=stderr, start_new_session=True)
+        except OSError as exc:
+            raise RuntimeError(f"Cannot launch Chrome screenshot: {exc}") from exc
+        try:
+            deadline = time.monotonic() + CHROME_CAPTURE_TIMEOUT_SECONDS
+            while time.monotonic() < deadline:
+                if png.is_file() and png.stat().st_size >= 1024:
+                    try:
+                        with Image.open(png) as picture:
+                            picture.verify()
+                        return
+                    except (OSError, ValueError):
+                        # Chrome may still be writing the PNG.
+                        pass
+                code = process.poll()
+                if code is not None:
+                    outcome = f"Chrome exited {code} without a valid screenshot"
+                    break
+                time.sleep(0.1)
+            else:
+                outcome = (
+                    f"Chrome did not produce a valid screenshot within "
+                    f"{CHROME_CAPTURE_TIMEOUT_SECONDS}s"
+                )
+        finally:
+            # Chrome's wrapper/zygotes can outlive --screenshot; always reap the
+            # whole process group, as in the existing VHS browser smoke check.
+            _stop_browser_group(process)
+    stderr_tail = stderr_path.read_text(encoding="utf-8", errors="replace")[-4000:]
+    stdout_tail = stdout_path.read_text(encoding="utf-8", errors="replace")[-1000:]
+    raise RuntimeError(
+        f"{outcome}: {html.name}; PNG exists={png.is_file()}, "
+        f"bytes={png.stat().st_size if png.is_file() else 0}.\n"
+        f"Chrome stderr:\n{stderr_tail}\nChrome stdout:\n{stdout_tail}"
+    )
+
+
+def _retain_failure(html: Path, png: Path, *, index: int, scene: str) -> Path:
+    """Keep only fixture-derived evidence in the ignored CI artifact directory."""
+    if FAILURES_OUTPUT.is_symlink():
+        raise ValueError("unsafe SVG preview failure directory")
+    FAILURES_OUTPUT.mkdir(parents=True, exist_ok=True)
+    target = FAILURES_OUTPUT / f"scene-{index:02d}"
+    if target.exists():
+        if target.is_symlink() or not target.is_dir():
+            raise ValueError("unsafe SVG preview failure evidence")
+        shutil.rmtree(target)
+    target.mkdir()
+    for item in (html, html.with_suffix(".stdout.log"), html.with_suffix(".stderr.log"), png):
+        if item.is_file():
+            shutil.copy2(item, target / item.name)
+    (target / "source.txt").write_text(scene + "\n", encoding="utf-8")
+    return target
+
+
+def generate(*, root: Path = ROOT, output: Path = DEFAULT_OUTPUT, smoke: bool = False) -> int:
+    """Build committed SVG previews, or smoke-test one real Chinese Golden."""
     from PIL import Image
 
     if output.absolute() != (root / "internal-testing/shared/tui-png/svg-preview").absolute():
@@ -147,15 +237,22 @@ def generate(*, root: Path = ROOT, output: Path = DEFAULT_OUTPUT) -> int:
     ).stdout
     if FONT_FAMILY not in family:
         raise RuntimeError(f"Missing required CJK font: {FONT_FAMILY} ({family})")
-    sources = [root / name for name in svg_inventory(root=root)]
-    if not sources:
-        raise RuntimeError("No committed SVG baselines found")
-    # Remove stale preview evidence before the new capture. Manifest is last.
-    if output.exists():
-        if output.is_symlink() or not output.is_dir():
-            raise ValueError("unsafe SVG preview output directory")
-        shutil.rmtree(output)
-    output.mkdir(parents=True)
+    catalog = svg_inventory(root=root)
+    if not catalog or (smoke and SMOKE_SCENE not in catalog):
+        raise RuntimeError("Required committed SVG baselines missing")
+    sources = [root / name for name in ([SMOKE_SCENE] if smoke else catalog)]
+    # Failed runs must not leave an older preview manifest that looks complete.
+    # The smoke path never touches the full set of previews.
+    if not smoke:
+        if output.exists():
+            if output.is_symlink() or not output.is_dir():
+                raise ValueError("unsafe SVG preview output directory")
+            shutil.rmtree(output)
+        output.mkdir(parents=True)
+    if FAILURES_OUTPUT.exists():
+        if FAILURES_OUTPUT.is_symlink() or not FAILURES_OUTPUT.is_dir():
+            raise ValueError("unsafe SVG preview failure directory")
+        shutil.rmtree(FAILURES_OUTPUT)
     entries = []
     with tempfile.TemporaryDirectory(prefix="acprof-svg-cjk-preview-") as temp:
         tmp = Path(temp)
@@ -166,7 +263,7 @@ def generate(*, root: Path = ROOT, output: Path = DEFAULT_OUTPUT) -> int:
                 raise ValueError("symlinked SVG baseline")
             relative = source.relative_to(root).as_posix()
             target_name = _preview_name(relative)
-            target = output / target_name
+            target = (tmp / "smoke-preview.png") if smoke else (output / target_name)
             target.parent.mkdir(parents=True, exist_ok=True)
             svg, width, height = _prepare_svg(source.read_text(encoding="utf-8"))
             html = tmp / f"scene-{i}.html"
@@ -177,37 +274,21 @@ def generate(*, root: Path = ROOT, output: Path = DEFAULT_OUTPUT) -> int:
                 encoding="utf-8",
             )
             png = tmp / f"scene-{i}.png"
-            result = subprocess.run(
-                [
-                    chrome,
-                    "--headless=new",
-                    "--disable-gpu",
-                    "--disable-dev-shm-usage",
-                    "--no-first-run",
-                    "--no-default-browser-check",
-                    "--hide-scrollbars",
-                    "--force-device-scale-factor=1",
-                    f"--user-data-dir={tmp / f'profile-{i}'}",
-                    f"--screenshot={png}",
-                    f"--window-size={width},{height + 100}",
-                    html.as_uri(),
-                ],
-                capture_output=True,
-                text=True,
-                timeout=30,
-                check=False,
-            )
-            if result.returncode or not png.is_file():
+            try:
+                _chrome_capture(chrome, html, png, width=width, height=height)
+            except RuntimeError as exc:
+                evidence = _retain_failure(html, png, index=i, scene=relative)
                 raise RuntimeError(
-                    f"SVG preview Chrome failed for {relative}: "
-                    + (result.stdout + result.stderr)[-1800:]
-                )
+                    f"SVG preview failed for {relative}; diagnostic files: {evidence}. {exc}"
+                ) from exc
             with Image.open(png) as picture:
                 if picture.width < width or picture.height < height:
                     raise RuntimeError(f"truncated SVG preview: {relative}")
                 picture.crop((0, 0, width, height)).convert("RGB").save(target)
             if target.stat().st_size > 2_000_000:
                 raise RuntimeError(f"SVG preview too large: {relative}")
+            if smoke:
+                return 1
             entries.append(
                 {
                     "source": relative,
@@ -229,7 +310,11 @@ def generate(*, root: Path = ROOT, output: Path = DEFAULT_OUTPUT) -> int:
 
 
 def main() -> None:
-    print(f"Generated {generate()} Noto CJK SVG previews")
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--smoke", action="store_true", help="Render one committed CJK SVG")
+    args = parser.parse_args()
+    count = generate(smoke=args.smoke)
+    print(f"{'Smoke-verified' if args.smoke else 'Generated'} {count} Noto CJK SVG previews")
 
 
 if __name__ == "__main__":

@@ -111,3 +111,87 @@ def test_symlinked_preview_does_not_embed_external_files(tmp_path):
     target.symlink_to(outside)
     with pytest.raises(ValueError, match="invalid/stale SVG preview"):
         load_preview_index(root=ROOT, output=tmp_path / "svg-preview")
+
+
+def test_chrome_capture_accepts_png_before_browser_exits(tmp_path):
+    """Real process group: a usable screenshot beats a stuck Chrome shutdown."""
+    import sys
+    import time
+
+    from scripts.tui_svg_preview_png import _chrome_capture
+
+    reference = tmp_path / "valid.png"
+    Image.effect_noise((120, 100), 100).convert("RGB").save(reference)
+    assert reference.stat().st_size >= 1024
+    fake_chrome = tmp_path / "fake-chrome"
+    fake_chrome.write_text(
+        f"#!{sys.executable}\n"
+        "import json, shutil, sys, time\n"
+        "destination = next(arg.split('=', 1)[1] for arg in sys.argv "
+        "if arg.startswith('--screenshot='))\n"
+        f"shutil.copyfile({str(reference)!r}, destination)\n"
+        f"open({str(tmp_path / 'chrome-argv.json')!r}, 'w').write(json.dumps(sys.argv[1:]))\n"
+        "time.sleep(30)\n",
+        encoding="utf-8",
+    )
+    fake_chrome.chmod(0o755)
+    html = tmp_path / "scene.html"
+    html.write_text("<html></html>", encoding="utf-8")
+    start = time.monotonic()
+    _chrome_capture(str(fake_chrome), html, tmp_path / "scene.png", width=120, height=100)
+    assert time.monotonic() - start < 5
+    assert (tmp_path / "scene.png").is_file()
+    flags = json.loads((tmp_path / "chrome-argv.json").read_text(encoding="utf-8"))
+    assert "--disable-background-networking" in flags
+    assert "--disable-component-update" in flags
+    assert "--no-sandbox" not in flags
+
+
+def test_chrome_capture_timeout_reports_stderr_and_reaps(tmp_path, monkeypatch):
+    import sys
+
+    from scripts import tui_svg_preview_png as preview
+
+    monkeypatch.setattr(preview, "CHROME_CAPTURE_TIMEOUT_SECONDS", 0.4)
+    fake_chrome = tmp_path / "fake-chrome-hang"
+    fake_chrome.write_text(
+        f"#!{sys.executable}\n"
+        "import sys, time\n"
+        "sys.stderr.write('CHROME_TEST_HANG\\n')\n"
+        "sys.stderr.flush()\n"
+        "time.sleep(30)\n",
+        encoding="utf-8",
+    )
+    fake_chrome.chmod(0o755)
+    html = tmp_path / "scene.html"
+    html.write_text("<html></html>", encoding="utf-8")
+    with pytest.raises(RuntimeError, match="CHROME_TEST_HANG"):
+        preview._chrome_capture(
+            str(fake_chrome), html, tmp_path / "scene.png", width=120, height=100
+        )
+    assert (tmp_path / "scene.stderr.log").is_file()
+
+
+def test_failed_capture_preserves_only_fixture_evidence(tmp_path, monkeypatch):
+    from scripts import tui_svg_preview_png as preview
+
+    monkeypatch.setattr(preview, "FAILURES_OUTPUT", tmp_path / "evidence")
+    html = tmp_path / "scene-0.html"
+    html.write_text("<html>test-only fixture</html>", encoding="utf-8")
+    html.with_suffix(".stderr.log").write_text("browser stderr", encoding="utf-8")
+    evidence = preview._retain_failure(html, tmp_path / "missing.png", index=0, scene=SAMPLE)
+    assert (evidence / "scene-0.html").read_text(encoding="utf-8").startswith("<html>")
+    assert (evidence / "scene-0.stderr.log").read_text(encoding="utf-8") == "browser stderr"
+    assert (evidence / "source.txt").read_text(encoding="utf-8").strip() == SAMPLE
+    assert not (evidence / "missing.png").exists()
+
+
+def test_svg_preview_ci_runs_one_actual_chrome_smoke_before_batch():
+    workflow = (ROOT / ".github/workflows/tui-png.yml").read_text(encoding="utf-8")
+    smoke = workflow.index("Smoke-test one reviewed CJK SVG preview")
+    full = workflow.index("Render CJK previews of reviewed SVG baselines")
+    assert smoke < full
+    assert full < workflow.index("Capture and check real TUI scenes")
+    assert full < workflow.index("Capture continuous synthetic TUI Pilot journey")
+    assert "scripts/tui_svg_preview_png.py --smoke" in workflow
+    assert "svg-preview-failures/**/*" in workflow

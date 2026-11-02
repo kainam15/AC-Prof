@@ -65,6 +65,7 @@ VHS 只操作该测试应用，没有向 AC-Prof CLI 添加截图选项。
 - `tests/visual/flow_catalog.json` 定义五个主页面及按采集阶段排列的检查点，标注触发条件、预期状态、可选/异常路径，并引用现有 PNG、SVG 与 Pilot 测试文件；索引由 `scripts/tui_flow_catalog.py` 校验。新增并纳入 Git 的 SVG 自动出现在图库中，未关联场景会明确提示；未跟踪的本地截图不会公开。
 - `scripts/render_tui_png_report.py` 仍以 `report.json` 作为**唯一 PNG 比较结论**来源。在原有 HTML 中加入「流程走查」「视觉对比」「覆盖矩阵」三个视图；视觉对比同时展示现有 PNG 差异和只读 SVG 基准图库。没有 `report.json` 时必须显示「未比较」，不能推断通过。SVG 通过情况仍由独立的 SVG CI 决定。
 - **历史 SVG 的网页预览**：`uv run --locked --no-default-groups --group test python scripts/tui_svg_preview_png.py` 只读取 Git 追踪的 `tests/visual/__snapshots__/*.svg`，在隔离的无头 Chrome 中去掉 Rich 的外部 Fira Code 字体引用，固定使用 `Noto Sans Mono CJK SC`，调整字符宽度渲染，将 PNG 写入 `internal-testing/shared/tui-png/svg-preview/` 并记录源文件和预览的 SHA-256。HTML 优先展示这些 PNG，可展开原始 SVG。预览是**旧 SVG 的可读渲染版本**，不等于现有 VHS 真实终端 PNG，也不属于 Golden，不改变 SVG/PNG 比较规则、覆盖数量或结论。旧 SVG 的原始定位和字符内容不会被修改，极端历史字距异常未必能完全修复。未运行生成器时 HTML 保留原 SVG 作为回退；无有效 manifest 或源哈希不一致时不接受旧预览。
+- 使用 `uv run --locked --no-default-groups --group test python scripts/tui_svg_preview_png.py --smoke` 仅验证一张已追踪的中文 SVG 能用当前无头 Chrome 生成有效 PNG，不触碰 Golden 或完整预览目录；CI 在批量生成前独立执行这一验证。截图进程使用独立进程组，取得有效图片后会清理浏览器及子进程，避免 Chrome 延迟退出造成假超时。若生成失败，限定的 HTML、stderr/stdout 及可能存在的 PNG 会写入 `internal-testing/shared/tui-png/svg-preview-failures/scene-*/` 并上传到 CI Artifact，不公开到 GitHub Pages；未成功完成批量生成时不写入 `manifest.json`，报告保持原 SVG 回退。
 - 流程检查点的测试文件只表示**可追溯的交互测试入口**，不代表这些测试已在本次运行通过；缺少固定截图的节点会列为视觉覆盖缺口。只有高价值稳定场景才需要增加长期 Golden。
 - 所有嵌入网页的截图仅来自受版本控制的 `tests/visual*/__snapshots__/` 或现有隔离 PNG 夹具输出；报告不读取真实采集日志、实验结果、用户配置或密钥。GitHub Pages 是公开网站，禁止将真实运行证据合并到自动发布的报告中。
 
@@ -122,6 +123,8 @@ ACPROF_PNG_VISUAL=1 uv run pytest tests/visual_png -v
 ## CI 与验证边界
 
 独立的 [TUI PNG Visual](../../.github/workflows/tui-png.yml) 工作流在 **push main / Pull Request 修改 TUI、任务呈现、视觉夹具、锁文件或测试配置时自动运行**，也可通过 `workflow_dispatch` 手动触发。安装截图工具后，先用 `scripts/smoke_tui_png_environment.py` 验证 Chrome DevTools 调试端点就绪（并安全结束其进程组），再检查 VHS 能否产生有效 PNG；若环境失败，直接输出浏览器 stderr，避免误报为 TUI 快照差异。冒烟通过才运行 PNG Golden 比对，并在 PNG 测试步骤后（无论通过还是失败）用 Python 标准库生成 HTML，并通过 GitHub Actions Artifact 上传 `report.html`、actual / expected / diff / `report.json`。截图环境提前失败而没有 `report.json` 时，HTML 只说明无法取得比较结论，具体原因查看 Actions 日志。报告是临时生成物，不提交到 Git 仓库。主分支 main 的 PNG 工作流在生成 HTML 后，将单文件报告作为网页入口 index.html 发布到 [GitHub Pages](https://kainam15.github.io/AC-Prof/)；无须下载 Artifact 即可浏览最新一次**成功部署**的报告。PNG Golden 比较失败时仍尝试发布失败诊断，但无法生成 HTML 时保留此前网站版本；手动从 main 触发也会发布，PR 仅上传 Artifact、不部署。首次使用需在仓库 **Settings → Pages → Build and deployment → Source** 选择 **GitHub Actions**，并建议将 github-pages 环境限制为仅 main 可部署。网页公开可读，不能把敏感运行数据加入测试夹具。GitHub Pages 为最新报告展示入口，旧运行证据继续从各次 Actions Artifact 查看；仍不影响原有 CI 的 SVG 快照。正式运行与完整测试环境无需安装 VHS 或桌面。
+
+历史 Rich SVG 的 CJK PNG 预览在安装 test 依赖后、长时间 VHS/Pilot 采集前生成：先对已提交的中文 SVG 运行一次真实 Chrome 截图冒烟，再批量渲染。该离线浏览器进程禁用后台网络更新与同步，仍保留 sandbox；无有效 PNG 时保存受限的截图/日志诊断并使 CI 失败，不跳过校验、不自动更新 Golden。
 
 VHS 的 xterm.js + Chrome 反映的是一个确定的无头终端模拟环境，
 不是 VS Code Windows 终端、SSH/tmux 或用户本地字体渲染的完全复刻；
