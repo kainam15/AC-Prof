@@ -56,7 +56,7 @@ jobs:
           git diff --quiet
           git diff --cached --quiet
           test -z "$(git ls-files --others --exclude-standard)"
-      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
         with:
           version-file: ${{ env.HARDWARE_WORKSPACE }}/pyproject.toml
           python-version: '3.12'
