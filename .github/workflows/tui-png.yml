@@ -17,6 +17,7 @@ on:
       - 'scripts/smoke_tui_png_environment.py'
       - 'scripts/compare_tui_png.py'
       - 'scripts/render_tui_png_report.py'
+      - 'scripts/tui_ci_status.py'
       - 'scripts/tui_png_review_ui.py'
       - 'scripts/capture_tui_journey.py'
       - 'scripts/tui_pilot_png.py'
@@ -44,6 +45,7 @@ on:
       - 'scripts/smoke_tui_png_environment.py'
       - 'scripts/compare_tui_png.py'
       - 'scripts/render_tui_png_report.py'
+      - 'scripts/tui_ci_status.py'
       - 'scripts/tui_png_review_ui.py'
       - 'scripts/capture_tui_journey.py'
       - 'scripts/tui_pilot_png.py'
@@ -82,7 +84,24 @@ jobs:
           python-version: '3.12'
           enable-cache: true
           cache-dependency-glob: uv.lock
+      - name: Install host test dependencies
+        id: install_deps
+        run: uv sync --locked --no-default-groups --group test
+      # The SVG job in ci.yml remains independent. Re-run the same SVG suite
+      # here so all three HTML statuses refer to this exact commit and run.
+      - name: Run same-commit SVG Golden regression
+        id: svg_regression
+        if: ${{ always() && steps.install_deps.outcome == 'success' }}
+        env:
+          TZ: UTC
+          PYTHONHASHSEED: '0'
+        run: |
+          mkdir -p internal-testing/shared/tui-png
+          uv run --locked --no-default-groups --group test python -m pytest tests/visual -q \
+            --junitxml=internal-testing/shared/tui-png/svg-tests.xml
       - name: Install optional headless terminal tooling
+        id: tooling
+        if: ${{ always() && steps.install_deps.outcome == 'success' }}
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends ttyd ffmpeg fonts-noto-cjk unzip apparmor
@@ -120,9 +139,9 @@ jobs:
           echo 'b76b0433203017ca80401b2ee0dd69350349871c4b19d504c34dbdd80541690a  /usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc' | sha256sum --check
           fc-match 'Noto Sans Mono CJK SC'
       - name: Smoke-test headless Chrome and VHS recording
+        id: terminal_smoke
+        if: ${{ always() && steps.tooling.outcome == 'success' }}
         run: python3 scripts/smoke_tui_png_environment.py
-      - name: Install host test dependencies
-        run: uv sync --locked --no-default-groups --group test
       # Prepare offline SVG previews before long-running VHS/Pilot captures.
       - name: Smoke-test one reviewed CJK SVG preview
         id: svg_preview_smoke
@@ -142,19 +161,32 @@ jobs:
             echo 'Test environment unavailable; SVG CJK previews not generated.'
           fi
       - name: Capture and check real TUI scenes
+        id: png_regression
+        if: ${{ always() && steps.install_deps.outcome == 'success' && steps.terminal_smoke.outcome == 'success' }}
         env:
           ACPROF_PNG_VISUAL: '1'
           TZ: UTC
           PYTHONHASHSEED: '0'
         run: uv run --locked --no-default-groups --group test python -m pytest tests/visual_png -v
       - name: Capture continuous synthetic TUI Pilot journey
-        if: always()
+        id: pilot_regression
+        if: ${{ always() && steps.install_deps.outcome == 'success' && steps.terminal_smoke.outcome == 'success' }}
         run: |
-          if [ -x .venv/bin/python ]; then
-            uv run --locked --no-default-groups --group test python scripts/capture_tui_journey.py --png-preview
-          else
-            echo 'Test environment unavailable; journey evidence not generated.'
-          fi
+          uv run --locked --no-default-groups --group test python -m pytest \
+            tests/tui/workflows/test_tui_visual_journey.py -q
+          uv run --locked --no-default-groups --group test python \
+            scripts/capture_tui_journey.py --png-preview
+      - name: Record same-run SVG, PNG and Pilot CI statuses
+        if: always()
+        env:
+          SVG_OUTCOME: ${{ steps.svg_regression.outcome }}
+          PNG_OUTCOME: ${{ steps.png_regression.outcome }}
+          PILOT_OUTCOME: ${{ steps.pilot_regression.outcome }}
+        run: |
+          python3 scripts/tui_ci_status.py \
+            --svg-outcome "$SVG_OUTCOME" \
+            --png-outcome "$PNG_OUTCOME" \
+            --pilot-outcome "$PILOT_OUTCOME"
       - name: Render standalone HTML comparison report
         if: always()
         run: python3 scripts/render_tui_png_report.py
@@ -171,6 +203,8 @@ jobs:
             internal-testing/shared/tui-png/diff/**/*.png
             internal-testing/shared/tui-png/report.html
             internal-testing/shared/tui-png/report.json
+            internal-testing/shared/tui-png/ci-status.json
+            internal-testing/shared/tui-png/svg-tests.xml
             internal-testing/shared/tui-png/journey/manifest.json
             internal-testing/shared/tui-png/journey/**/*.svg
             internal-testing/shared/tui-png/journey/**/*.png

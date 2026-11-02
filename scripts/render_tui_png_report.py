@@ -19,6 +19,7 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+from scripts.tui_ci_status import STYLE as CI_STYLE, load_status, render_status  # noqa: E402
 from scripts.tui_flow_report import FLOW_SCRIPT, FLOW_STYLE, render_flow_report  # noqa: E402
 from scripts.tui_png_review_ui import REVIEW_SCRIPT, REVIEW_STYLE, ReviewContext  # noqa: E402
 
@@ -76,7 +77,7 @@ for (const button of document.querySelectorAll('[data-filter]')) {
 """
 
 
-STYLE += FLOW_STYLE + REVIEW_STYLE
+STYLE += FLOW_STYLE + REVIEW_STYLE + CI_STYLE
 SCRIPT += FLOW_SCRIPT
 
 
@@ -184,6 +185,7 @@ def render_report(
     passed = sum(row["status"] == "passed" for row in rows or ())
     failed = len(rows) - passed if rows is not None else 0
     count = len(rows) if rows is not None else 0
+    ci_header = render_status(load_status(actual / "ci-status.json"))
     review = ReviewContext.from_environment()
     cards = "".join(
         _card(row, actual=actual, baselines=baselines, review_enabled=review is not None)
@@ -254,6 +256,7 @@ def render_report(
     <div class="count"><strong>{failed}</strong><span>Changed / unavailable</span></div>
   </div>
 </header>
+{ci_header}
 <nav class="view-tabs" aria-label="Report views">
   <button type="button" data-report-view="workflow" aria-pressed="true">流程走查</button>
   <button type="button" data-report-view="visual" aria-pressed="false">视觉对比</button>

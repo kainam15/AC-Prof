@@ -66,3 +66,32 @@ async def test_pilot_evidence_uses_noto_svg_and_keeps_ansi_for_png(tmp_path):
     assert "cdnjs.cloudflare.com" not in svg
     assert b"\x1b[?25l" in ansi
     assert "实验配置".encode() in ansi
+
+
+async def test_standalone_synthetic_capture_uses_its_own_measurement_lock(tmp_path, monkeypatch):
+    """A concurrently running real collector must not block fake Pilot results."""
+    from unittest.mock import patch
+
+    from acprof.host import run_state
+    from scripts import capture_tui_journey
+
+    external_root = tmp_path / "external-collector"
+    external_namespace = b"acprof.production-test-namespace"
+    inspected = []
+
+    async def fake_journey(*, workspace, size, language, capture):
+        inspected.append(language)
+        assert run_state.MEASUREMENT_LOCK_ROOT != external_root
+        assert run_state.MEASUREMENT_LOCK_NAMESPACE != external_namespace
+        assert run_state.MEASUREMENT_LOCK_NAMESPACE.startswith(b"acprof.pilot.")
+        return []  # Only inspect lock isolation, not the full scene contract.
+
+    monkeypatch.setattr(capture_tui_journey, "exercise_journey", fake_journey)
+    with (
+        patch.object(run_state, "MEASUREMENT_LOCK_ROOT", external_root),
+        patch.object(run_state, "MEASUREMENT_LOCK_NAMESPACE", external_namespace),
+    ):
+        await capture_tui_journey.capture(tmp_path / "synthetic-capture")
+        assert run_state.MEASUREMENT_LOCK_ROOT == external_root
+        assert run_state.MEASUREMENT_LOCK_NAMESPACE == external_namespace
+    assert inspected == ["zh", "zh", "en"]

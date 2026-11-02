@@ -288,7 +288,9 @@ async def exercise_journey(
             assert tabs.active == "results-tab"
             assert app.query_one("#result-csv", Input).value == str(result_csv)
             result_summary = str(app.query_one("#result-summary", Static).content)
-            assert ("成功 1" if language == "zh" else "OK 1") in result_summary
+            assert ("成功 1" if language == "zh" else "OK 1") in result_summary, (
+                "Unexpected results summary after Pilot selection: " + repr(result_summary)
+            )
             await record("result-overview", "clicked Results tab; read synthetic CSV")
             if size[0] > 80:
                 await pilot.resize_terminal(80, 24)

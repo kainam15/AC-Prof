@@ -120,6 +120,29 @@ ACPROF_PNG_VISUAL=1 uv run pytest tests/visual_png -v
 
 必须在 PR 审阅中明确确认 Golden PNG 变化；**CI 绝不在测试失败时更新基线**。基线是经过审阅的变化检测依据，不代表程序能够从零判断中文排版是否美观。Textual 几何断言与 SVG 快照继续发挥互补作用。
 
+## 首页统一验收状态（同一次 CI）
+
+`TUI PNG Visual` 工作流会**在同一提交、同一次工作流运行中**分别执行与主 CI 相同的
+`tests/visual` SVG 快照测试、现有 VHS PNG Golden 回归，以及连续 Pilot 测试与截图。
+SVG 在这个工作流重新运行，是为了避免跨工作流状态竞争；主 CI 的 SVG 检查仍独立存在，
+**本页的 SVG 通过不宣称另一条主 CI 已通过**。
+
+完成（或失败、跳过）后，`scripts/tui_ci_status.py` 使用三个 `steps.<id>.outcome` 和各自的真实产物
+核对状态，再写入 `internal-testing/shared/tui-png/ci-status.json`：
+
+- **SVG**：工作流的 SVG pytest 步骤成功，JUnit XML 有实际执行的通过用例且没有失败/错误；
+- **PNG**：VHS/pytest 步骤成功，`report.json` 与本次全部 Golden 场景一一对应、每张状态为 `passed`，并有实际 PNG 文件；
+- **Pilot**：Pilot 交互 pytest 与连续截图步骤均成功，并且合成走查 manifest 与截图通过安全校验。
+
+首页在「流程走查」等三个视图上方显示三项状态、证据数量、完整 Commit SHA 的前缀、生成时间及对应
+GitHub Actions Run 链接。**任何一步失败、跳过、缺失产物、数据损坏或发现不同提交 / 不同 CI Run 时均不能显示通过**。
+在本地直接生成 HTML 而没有本次 CI 元数据时，三项一律显示「未运行 / 无法核验」，不会凭已有 Golden 截图猜测成功。
+这份 JSON 与 SVG JUnit 也保存在该次 Actions Artifact，可用于人工诊断；不改写长期 Golden，也不包含真实模型采集数据。
+
+当前 Pages 行为**保持不变**：main 的工作流即便出现视觉回归，仍可发布红色诊断报告；如无法生成 HTML 则
+保留上一次已部署的网页。PR 仅产生 Artifact，不发布。若要实现「只有全部通过才覆盖正式首页」，需要另行
+调整发布策略，不能把它当成本次状态合并已经实现。
+
 ## CI 与验证边界
 
 独立的 [TUI PNG Visual](../../.github/workflows/tui-png.yml) 工作流在 **push main / Pull Request 修改 TUI、任务呈现、视觉夹具、锁文件或测试配置时自动运行**，也可通过 `workflow_dispatch` 手动触发。安装截图工具后，先用 `scripts/smoke_tui_png_environment.py` 验证 Chrome DevTools 调试端点就绪（并安全结束其进程组），再检查 VHS 能否产生有效 PNG；若环境失败，直接输出浏览器 stderr，避免误报为 TUI 快照差异。冒烟通过才运行 PNG Golden 比对，并在 PNG 测试步骤后（无论通过还是失败）用 Python 标准库生成 HTML，并通过 GitHub Actions Artifact 上传 `report.html`、actual / expected / diff / `report.json`。截图环境提前失败而没有 `report.json` 时，HTML 只说明无法取得比较结论，具体原因查看 Actions 日志。报告是临时生成物，不提交到 Git 仓库。主分支 main 的 PNG 工作流在生成 HTML 后，将单文件报告作为网页入口 index.html 发布到 [GitHub Pages](https://kainam15.github.io/AC-Prof/)；无须下载 Artifact 即可浏览最新一次**成功部署**的报告。PNG Golden 比较失败时仍尝试发布失败诊断，但无法生成 HTML 时保留此前网站版本；手动从 main 触发也会发布，PR 仅上传 Artifact、不部署。首次使用需在仓库 **Settings → Pages → Build and deployment → Source** 选择 **GitHub Actions**，并建议将 github-pages 环境限制为仅 main 可部署。网页公开可读，不能把敏感运行数据加入测试夹具。GitHub Pages 为最新报告展示入口，旧运行证据继续从各次 Actions Artifact 查看；仍不影响原有 CI 的 SVG 快照。正式运行与完整测试环境无需安装 VHS 或桌面。

@@ -8,11 +8,13 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import hashlib
 import json
 import shutil
 import sys
 import tempfile
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -32,10 +34,19 @@ async def capture(output: Path, *, png_preview: bool = False) -> Path:
         images = output / scenario
         if images.exists():
             shutil.rmtree(images)
+        # Unlike pytest's autouse fixtures, this standalone capture command
+        # otherwise shares the production measurement socket with real runs.
+        # Isolate the *synthetic* Pilot's offline result reads as well.
         with tempfile.TemporaryDirectory(prefix="acprof-tui-synthetic-") as temporary:
-            rows = await exercise_journey(
-                workspace=Path(temporary), size=size, language=language, capture=images
-            )
+            root = Path(temporary)
+            namespace = b"acprof.pilot." + hashlib.sha256(str(root).encode()).hexdigest().encode()
+            with (
+                patch("acprof.host.run_state.MEASUREMENT_LOCK_ROOT", root),
+                patch("acprof.host.run_state.MEASUREMENT_LOCK_NAMESPACE", namespace),
+            ):
+                rows = await exercise_journey(
+                    workspace=root, size=size, language=language, capture=images
+                )
         assert {item["id"] for item in rows}.issubset(CHECKPOINTS)
         for row in rows:
             row["checkpoint"] = CHECKPOINTS[row["id"]]
