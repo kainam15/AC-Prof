@@ -218,6 +218,14 @@ def _retain_failure(html: Path, png: Path, *, index: int, scene: str) -> Path:
     return target
 
 
+def _svg_renderer() -> str:
+    """Prefer Chrome's standalone headless shell for offline Rich SVG previews."""
+    for binary in ("chrome-headless-shell", "google-chrome", "chromium"):
+        if executable := shutil.which(binary):
+            return executable
+    raise RuntimeError("Chrome Headless Shell/Chrome/Chromium required for SVG PNG previews")
+
+
 def generate(*, root: Path = ROOT, output: Path = DEFAULT_OUTPUT, smoke: bool = False) -> int:
     """Build committed SVG previews, or smoke-test one real Chinese Golden."""
     from PIL import Image
@@ -225,9 +233,7 @@ def generate(*, root: Path = ROOT, output: Path = DEFAULT_OUTPUT, smoke: bool = 
     if output.absolute() != (root / "internal-testing/shared/tui-png/svg-preview").absolute():
         raise ValueError("SVG previews must use their dedicated output directory")
 
-    chrome = shutil.which("google-chrome") or shutil.which("chromium")
-    if chrome is None:
-        raise RuntimeError("Chrome/Chromium required for SVG PNG previews")
+    chrome = _svg_renderer()
     family = subprocess.run(
         ["fc-match", "-f", "%{family}", FONT_FAMILY],
         capture_output=True,

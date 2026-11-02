@@ -13,6 +13,13 @@ from scripts.render_tui_png_report import render_report
 from scripts.tui_ci_status import ROOT, load_status, record_status
 from tests.visual_png.test_journey_report import make_synthetic_manifest
 
+
+@pytest.fixture(autouse=True)
+def _isolate_synthetic_ci_run(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Tests create fake run IDs; only the explicit CI-context test opts into CI matching."""
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+
+
 SHA = "a" * 40
 REPO = "kainam15/AC-Prof"
 RUN = "123456"
@@ -180,6 +187,12 @@ def test_workflow_uses_same_run_evidence_before_html_and_retains_private_pr_repo
         Loader=yaml.BaseLoader,
     )
     assert "scripts/tui_ci_status.py" in workflow["on"]["push"]["paths"]
+    status_step = next(
+        step
+        for step in workflow["jobs"]["png-visual"]["steps"]
+        if step.get("name") == "Record same-run SVG, PNG and Pilot CI statuses"
+    )
+    assert "python3 -m scripts.tui_ci_status" in status_step["run"]
     job = workflow["jobs"]["png-visual"]
     steps = job["steps"]
     by_id = {step["id"]: (index, step) for index, step in enumerate(steps) if "id" in step}

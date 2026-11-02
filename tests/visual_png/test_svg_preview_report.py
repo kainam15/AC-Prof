@@ -113,6 +113,22 @@ def test_symlinked_preview_does_not_embed_external_files(tmp_path):
         load_preview_index(root=ROOT, output=tmp_path / "svg-preview")
 
 
+def test_svg_preview_prefers_dedicated_headless_shell(monkeypatch):
+    from scripts import tui_svg_preview_png as preview
+
+    available = {
+        "chrome-headless-shell": "/opt/chrome-headless-shell",
+        "google-chrome": "/opt/google-chrome",
+    }
+    monkeypatch.setattr(preview.shutil, "which", available.get)
+    assert preview._svg_renderer() == "/opt/chrome-headless-shell"
+    available.pop("chrome-headless-shell")
+    assert preview._svg_renderer() == "/opt/google-chrome"
+    available.clear()
+    with pytest.raises(RuntimeError, match="Chrome Headless Shell"):
+        preview._svg_renderer()
+
+
 def test_chrome_capture_accepts_png_before_browser_exits(tmp_path):
     """Real process group: a usable screenshot beats a stuck Chrome shutdown."""
     import sys
@@ -194,4 +210,7 @@ def test_svg_preview_ci_runs_one_actual_chrome_smoke_before_batch():
     assert full < workflow.index("Capture and check real TUI scenes")
     assert full < workflow.index("Capture continuous synthetic TUI Pilot journey")
     assert "scripts/tui_svg_preview_png.py --smoke" in workflow
+    assert "chrome-headless-shell-linux64.zip" in workflow
+    assert "8b3584f747a3a7155e1f99dc712dfd0576eedafe3da331819ccd52e17bee61a6" in workflow
+    assert "acprof-svg-preview-chrome-shell" in workflow
     assert "svg-preview-failures/**/*" in workflow
