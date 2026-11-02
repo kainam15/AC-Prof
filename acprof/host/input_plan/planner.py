@@ -5,7 +5,6 @@ import math
 from acprof.config import SCALING_DIMENSIONS
 from acprof.extensions import CATALOG
 from acprof.host.detect import TaskInfo
-from acprof.host.images.runtime import ImageInfo
 from acprof.host.input_plan.families import (
     default_family_max_scale,
     plan_audio_scales,
@@ -22,11 +21,12 @@ from acprof.host.input_plan.scales import (
     serialize_input_scales,
 )
 from acprof.host.input_plan.types import PlannedInputScales
+from acprof.host.runtimes.contracts import RuntimeArtifact
 
 
 def plan_input_scales(
     task_info: TaskInfo,
-    image_info: ImageInfo,
+    image_info: RuntimeArtifact,
     cpu_list: list[int],
     mem_list: list[int],
     gpu_list: list[str],
@@ -80,7 +80,7 @@ def input_plan_summary(task_info: TaskInfo, plan: PlannedInputScales) -> dict:
 
 def _plan_input_scales(
     task_info: TaskInfo,
-    image_info: ImageInfo,
+    image_info: RuntimeArtifact,
     cpu_list: list[int],
     mem_list: list[int],
     gpu_list: list[str],

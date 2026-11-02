@@ -2,7 +2,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
+
+if TYPE_CHECKING:
+    from acprof.host.images.runtime import ImageInfo
 
 
 class RuntimeCleanupError(RuntimeError):
@@ -24,11 +27,14 @@ class ProcessInfo:
     runtime_environment: dict[str, Any] = field(default_factory=dict)
 
 
-def runtime_kind(artifact) -> str:
+type RuntimeArtifact = ImageInfo | ProcessInfo
+
+
+def runtime_kind(artifact: RuntimeArtifact) -> str:
     return "process" if isinstance(artifact, ProcessInfo) else "docker"
 
 
-def runtime_identity(artifact) -> str:
+def runtime_identity(artifact: RuntimeArtifact) -> str:
     return artifact.environment_id if isinstance(artifact, ProcessInfo) else artifact.tag
 
 
@@ -41,12 +47,13 @@ class ExecutionRuntime(Protocol):
 
     kind: str
 
-    def prepare(self, task_info, project_dir, output_dir, *, rebuild=False, timeout_seconds=300): ...
+    def prepare(self, task_info, project_dir, output_dir, *, rebuild=False,
+                timeout_seconds=300, gpu_device: dict | None = None) -> RuntimeArtifact: ...
     def validate(self, **kwargs) -> dict: ...
     def start(self, **kwargs): ...
     def stop(self, session, *, log_prefix=None) -> None: ...
     def failure(self, session, memory, returncode) -> str: ...
-    def restore(self, snapshot: dict): ...
+    def restore(self, snapshot: dict, *, output_dir=None) -> RuntimeArtifact: ...
 
 
 class ServiceSession(Protocol):

@@ -1,11 +1,17 @@
 """Docker adapter retains the existing native lifecycle and measurement semantics."""
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from acprof.host.images.runtime import ImageInfo
+
 
 class DockerRuntime:
     kind = "docker"
 
-    def prepare(self, task_info, project_dir, output_dir, *, rebuild=False, timeout_seconds=300):
+    def prepare(self, task_info, project_dir, output_dir, *, rebuild=False,
+                timeout_seconds=300, gpu_device: dict | None = None) -> ImageInfo:
         from acprof.host.images.runtime import prepare_image
         from acprof.host.preparation.interface_probe import probe_interface
         probe_interface(task_info, output_dir, timeout_seconds=timeout_seconds)
@@ -27,7 +33,7 @@ class DockerRuntime:
         from acprof.host.container_state import container_runtime_oom_error
         return container_runtime_oom_error(session.name, memory, returncode) or ""
 
-    def restore(self, snapshot: dict):
+    def restore(self, snapshot: dict, *, output_dir=None) -> ImageInfo:
         from acprof.host.images.runtime import ImageInfo, require_image_identity
         image = ImageInfo(**snapshot)
         if not image.tag.startswith("sha256:"):

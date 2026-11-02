@@ -5,7 +5,7 @@ import os
 import socket
 import time
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -65,13 +65,25 @@ class RunningProcess:
 class ProcessRuntime:
     kind = "process"
 
-    def prepare(self, task_info, project_dir, output_dir, *, rebuild=False, timeout_seconds=300):
+    def prepare(self, task_info, project_dir, output_dir, *, rebuild=False,
+                timeout_seconds=300, gpu_device: dict | None = None) -> ProcessInfo:
         from acprof.host.runtimes.environment import prepare_process
-        return prepare_process(task_info, project_dir, output_dir, rebuild=rebuild, timeout_seconds=timeout_seconds)
+        info = prepare_process(task_info, project_dir, output_dir, rebuild=rebuild,
+                               timeout_seconds=timeout_seconds)
+        return replace(info, runtime_environment={
+            **info.runtime_environment, "gpu_device": dict(gpu_device or {}),
+        })
 
-    def restore(self, snapshot):
+    def restore(self, snapshot: dict, *, output_dir=None) -> ProcessInfo:
         from acprof.host.runtimes.environment import restore_process
-        return restore_process(snapshot)
+        info = restore_process(snapshot)
+        if output_dir is None:
+            return info
+        # Rebind only the log location; recorded model, environment and GPU
+        # identities remain authoritative and the frozen snapshot stays intact.
+        return replace(info, runtime_environment={
+            **info.runtime_environment, "logs_dir": str(Path(output_dir).absolute() / "logs"),
+        })
 
     def validate(self, **kwargs):
         from acprof.host.runtimes.validation import validate_process

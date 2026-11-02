@@ -7,7 +7,6 @@ from typing import Any
 from acprof.config import SCALING_DIMENSIONS
 from acprof.extensions import CATALOG
 from acprof.host.detect import TaskInfo
-from acprof.host.images.runtime import ImageInfo
 from acprof.host.input_plan.materialize import (
     get_task_generator,
     materialize_scale_plan,
@@ -30,13 +29,13 @@ from acprof.host.input_plan.scales import (
     serialize_input_scales,
 )
 from acprof.host.input_plan.types import PlannedInputScales
-from acprof.host.runtimes.contracts import ServiceSession
+from acprof.host.runtimes.contracts import RuntimeArtifact, ServiceSession
 from acprof.host.runtimes.service import stop_service_session
 
 
 def plan_manual_nlp_scales(
     task_info: TaskInfo,
-    image_info: ImageInfo,
+    image_info: RuntimeArtifact,
     cpu_list: list[int],
     mem_list: list[int],
     gpu_list: list[str],
@@ -105,7 +104,7 @@ def plan_manual_nlp_scales(
 
 def plan_nlp_auto_scales(
     task_info: TaskInfo,
-    image_info: ImageInfo,
+    image_info: RuntimeArtifact,
     cpu_list: list[int],
     mem_list: list[int],
     gpu_list: list[str],
@@ -250,7 +249,7 @@ def default_family_max_scale(task_info: TaskInfo, batch_size: int) -> float:
 def plan_audio_scales(
     *,
     task_info: TaskInfo,
-    image_info: ImageInfo,
+    image_info: RuntimeArtifact,
     cpu_list: list[int],
     mem_list: list[int],
     gpu_list: list[str],
@@ -343,7 +342,7 @@ def plan_audio_scales(
 
 def plan_timeseries_scales(
     task_info: TaskInfo,
-    image_info: ImageInfo,
+    image_info: RuntimeArtifact,
     cpu_list: list[int],
     mem_list: list[int],
     gpu_list: list[str],

@@ -513,7 +513,9 @@ class RunState:
         snapshot = self.data["runtime"]
         task = TaskInfo(**snapshot["task"])
         validate_execution_identity(task)
-        image = execution_runtime(snapshot.get("kind", "docker")).restore(snapshot["image"])
+        image = execution_runtime(snapshot.get("kind", "docker")).restore(
+            snapshot["image"], output_dir=self.directory,
+        )
         plan = dict(snapshot["planned"])
         if plan.get("plan_file"):
             plan["plan_file"] = str(self.artifact_path(plan["plan_file"]))

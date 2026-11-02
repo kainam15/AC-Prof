@@ -29,14 +29,14 @@ from acprof.results.layout import ArtifactLayout
 
 if TYPE_CHECKING:
     from acprof.host.detect import TaskInfo
-    from acprof.host.images.runtime import ImageInfo
     from acprof.host.input_plan import PlannedInputScales
+    from acprof.host.runtimes.contracts import RuntimeArtifact
 
 
 @dataclass
 class PreparedRuntime:
     task_info: TaskInfo
-    image_info: ImageInfo
+    image_info: RuntimeArtifact
     planned_input_scales: PlannedInputScales
     compute_profile_plan_file: str
     execution_profile_plan_file: str
@@ -85,8 +85,6 @@ def prepare_runtime(args, *, run_state, task_info, output_dir, cpu_list, mem_lis
     if run_state.ready:
         (task_info, image_info, planned_input_scales, compute_profile_plan_file,
          execution_profile_plan_file) = run_state.restore_runtime()
-        if getattr(args, "runtime", "docker") == "process":
-            image_info.runtime_environment["logs_dir"] = str(Path(output_dir).absolute() / "logs")
         workflow.emit("input", "passed", input_plan=input_plan_summary(task_info, planned_input_scales))
         notices.update_plan(model_id=task_info.model_id, output_dir=output_dir,
                                       total_cases=total_cases)
@@ -110,13 +108,12 @@ def prepare_runtime(args, *, run_state, task_info, output_dir, cpu_list, mem_lis
             image_info = workflow.run("image", runtime.prepare,
                 task_info, project_dir, output_dir, rebuild=(args.rebuild_image or workflow.rebuild_environment),
                 timeout_seconds=args.request_timeout_seconds,
+                gpu_device=getattr(args, "process_gpu", None),
             )
         except (RuntimeError, OSError) as exc:
             print(f"\n[build][ERROR] {exc}", file=sys.stderr)
             raise CollectionFailed(str(exc)) from exc
 
-        if args.runtime == "process":
-            image_info.runtime_environment["gpu_device"] = getattr(args, "process_gpu", {})
         os.makedirs(output_dir, exist_ok=True)
         if task_info.model_resolution:
             from acprof.models.contract import write_model_resolution

@@ -6,14 +6,13 @@ from typing import Any
 from acprof.gpu_mode import normalize_gpu_mode
 from acprof.host.detect import TaskInfo
 from acprof.host.images.identity import model_token
-from acprof.host.images.runtime import ImageInfo
-from acprof.host.runtimes.contracts import ServiceSession
+from acprof.host.runtimes.contracts import RuntimeArtifact, ServiceSession
 from acprof.host.runtimes.service import start_service_session
 
 
 def start_probe_session(
     task_info: TaskInfo,
-    image_info: ImageInfo,
+    image_info: RuntimeArtifact,
     cpu_list: list[int],
     mem_list: list[int],
     gpu_list: list[str],

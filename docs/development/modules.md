@@ -51,6 +51,7 @@
 | `acprof/host/preparation/` | 模型确认、接口探测、下载预检、模型覆盖审计和准备记录的统一编排边界 |
 | `acprof/host/model_store/` | 共享权重缓存、lease/容量策略、受限文件系统访问及只读视图发布 |
 | `acprof/host/images/` | `environment` 构建依赖环境镜像，`dependencies` / `scan` 收集依赖证据，`inventory` / `graph` 管理清单和层关系，`runtime` / `identity` 组装并标识模型镜像 |
+| `acprof/host/runtimes/` | `RuntimeArtifact` 描述 Docker／Process 制品；各实现拥有准备、恢复、启动和停止，Process 自行绑定 GPU 与恢复日志路径，共享编排不修改其环境字典 |
 | `acprof/host/measurement/` | 客户端配置、请求窗口、监测器编排、纯指标计算、检查点与发布；`host.client` 保留进程入口 |
 | `acprof/host/profiling/` | 独立 compute/execution 计划、进度及工具支持；`tools/` 放置各 profiler 的执行和解析实现 |
 | `acprof/host/posthoc/` | 已有结果的 profiler 补采、回填、备份与回滚 |

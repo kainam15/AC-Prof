@@ -9,7 +9,6 @@ from typing import Any
 from acprof.artifacts import atomic_write_json, read_json_object
 from acprof.config import STATIC_META_FIELDS, STATIC_META_SCHEMA_VERSION
 from acprof.host.detect import TaskInfo
-from acprof.host.images.runtime import ImageInfo
 from acprof.host.input_plan import (
     PlannedInputScales,
 )
@@ -20,6 +19,7 @@ from acprof.host.model_schema import (
     _inference_precision_by_device,
     _model_io_formats,
 )
+from acprof.host.runtimes.contracts import RuntimeArtifact
 from acprof.monitors.rapl_topology import discover_rapl_topology
 from acprof.platform import detect_environment
 
@@ -147,7 +147,7 @@ def _build_model_download_url(model_id: str) -> str:
 
 def collect_static_meta(
     task_info: TaskInfo,
-    image_info: ImageInfo,
+    image_info: RuntimeArtifact,
     batch_size: int,
     input_scale_type: str,
     run_command: str = "",
@@ -165,6 +165,8 @@ def collect_static_meta(
     from acprof.host.runtimes.contracts import runtime_identity, runtime_kind
     from acprof.installation import resource_root
     process = runtime_kind(image_info) == 'process'
+    identity = runtime_identity(image_info)
+    image_tag = '' if process else identity
     environment = detect_environment()
     cpu_power_source, vcpu_power_method = (
         machine_metadata.cpu_power_metadata() if measurement_requested(profiling_mode, "cpu_energy")
@@ -178,14 +180,14 @@ def collect_static_meta(
     input_format, output_format = _model_io_formats(task_info)
     manifest = getattr(image_info, "runtime_environment", {})
     store = manifest.get("model_store")
-    model_bytes = store["model_artifact_bytes"] if store else None if process else machine_metadata.docker_model_cache_bytes(image_info.tag)
-    image_bytes = None if process else machine_metadata.docker_image_size_bytes(image_info.tag)
+    model_bytes = store["model_artifact_bytes"] if store else None if process else machine_metadata.docker_model_cache_bytes(image_tag)
+    image_bytes = None if process else machine_metadata.docker_image_size_bytes(image_tag)
     gpu_probe = probe_gpu_metadata(gpu_device=gpu_device, device_index=device_index)
     gpu_memory = gpu_probe["fields"]["memory_total_bytes"]["value"]
     static_meta = StaticMeta(
         **environment.metadata(),
         platform_runtime=collect_platform_metadata(environment, resource_root(), runtime_kind=runtime_kind(image_info)),
-        runtime_kind=runtime_kind(image_info), runtime_id=runtime_identity(image_info),
+        runtime_kind=runtime_kind(image_info), runtime_id=identity,
         model_name=task_info.model_id,
         profiling_mode=profiling_mode,
         model_revision=task_info.model_revision,
@@ -206,8 +208,8 @@ def collect_static_meta(
         task_family=task_info.task_family,
         pipeline_tag=task_info.pipeline_tag,
         runtime_backend=task_info.runtime_backend,
-        image_tag='' if process else image_info.tag,
-        image_id='' if process else image_info.tag if image_info.tag.startswith("sha256:") else "",
+        image_tag=image_tag,
+        image_id=image_tag if image_tag.startswith("sha256:") else "",
         image_name=getattr(image_info, "name", ""),
         runtime_environment=dict(getattr(image_info, "runtime_environment", {})),
         batch_size=batch_size,

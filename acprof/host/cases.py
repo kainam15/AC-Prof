@@ -14,7 +14,7 @@ from acprof.config import (
     DEFAULT_REQUEST_TIMEOUT_SECONDS,
 )
 from acprof.host.detect import TaskInfo
-from acprof.host.images.runtime import ImageInfo
+from acprof.host.runtimes.contracts import RuntimeArtifact
 
 if TYPE_CHECKING:
     from acprof.host.run_state import RunState
@@ -34,13 +34,13 @@ class MatrixProgress:
 
 @dataclass(frozen=True)
 class CaseRequest:
-    """Identity, resources, and locations for one container execution."""
+    """Identity, resources, and locations for one runtime execution."""
 
     task_info: TaskInfo
     cpu: int
     mem: int
     gpu: str
-    image_info: ImageInfo
+    image_info: RuntimeArtifact
     output_dir: str
     project_dir: str
     cpuset_cpus: str = ""
@@ -90,7 +90,7 @@ class MatrixRequest:
     """Frozen inputs shared by every case in one resource matrix."""
 
     task_info: TaskInfo
-    image_info: ImageInfo
+    image_info: RuntimeArtifact
     cpu_list: list[int]
     mem_list: list[int]
     gpu_list: list[str]
