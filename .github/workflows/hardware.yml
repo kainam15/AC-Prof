@@ -37,6 +37,8 @@ jobs:
     timeout-minutes: 180
     env:
       VIRTUAL_ENV: ''
+      HARDWARE_WORKSPACE: ${{ github.workspace }}/acprof-hardware-${{ github.run_id }}-${{ github.run_attempt }}
+      UV_PROJECT_ENVIRONMENT: ${{ runner.temp }}/acprof-hardware-venv-${{ github.run_id }}-${{ github.run_attempt }}
       VALIDATION_PRESET: ${{ github.event_name == 'schedule' && 'pinned-matrix' || inputs.preset }}
       VALIDATION_MODEL: ${{ inputs.model }}
       VALIDATION_TASK: ${{ inputs.task }}
@@ -45,8 +47,10 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          clean: false # 专用主机复用已准备的 .venv 和本地验证产物。
+          path: acprof-hardware-${{ github.run_id }}-${{ github.run_attempt }}
+          clean: true
       - name: 拒绝与触发提交不一致的源码
+        working-directory: ${{ env.HARDWARE_WORKSPACE }}
         run: |
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           git diff --quiet
@@ -54,11 +58,13 @@ jobs:
           test -z "$(git ls-files --others --exclude-standard)"
       - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
         with:
-          version-file: pyproject.toml
+          version-file: ${{ env.HARDWARE_WORKSPACE }}/pyproject.toml
           python-version: '3.12'
       - name: 在测量开始前同步锁定的主机和测试环境
+        working-directory: ${{ env.HARDWARE_WORKSPACE }}
         run: uv sync --locked --no-default-groups --group test
       - name: 离线故障回归（取消、恢复、清理和采样失败，不作为硬件证据）
+        working-directory: ${{ env.HARDWARE_WORKSPACE }}
         env:
           ACPROF_WECOM_WEBHOOK_URL: ''
         run: |
@@ -69,6 +75,7 @@ jobs:
             --require-no-skips \
             --report "internal-testing/shared/hardware-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}/offline-faults/host.json"
       - name: 测量前准备缺失的模型和 Docker 镜像
+        working-directory: ${{ env.HARDWARE_WORKSPACE }}
         timeout-minutes: 90
         env:
           ACPROF_WECOM_WEBHOOK_URL: ''
@@ -96,6 +103,7 @@ jobs:
               --output-dir "internal-testing/shared/hardware-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}/preparation-structured"
           fi
       - name: 使用已准备的不可变镜像离线采集并验收
+        working-directory: ${{ env.HARDWARE_WORKSPACE }}
         timeout-minutes: 60
         env:
           ACPROF_WECOM_WEBHOOK_URL: ''
@@ -114,4 +122,4 @@ jobs:
         if: always()
         with:
           name: hardware
-          path: internal-testing/shared/hardware-${{ github.run_id }}-${{ github.run_attempt }}/
+          path: ${{ env.HARDWARE_WORKSPACE }}/internal-testing/shared/hardware-${{ github.run_id }}-${{ github.run_attempt }}/

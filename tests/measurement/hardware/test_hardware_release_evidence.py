@@ -91,12 +91,27 @@ def test_hardware_workflow_is_manual_and_never_exposes_fork_prs():
     assert "pull_request" not in trigger
     job = hardware["jobs"]["profile"]
     assert "refs/heads/main" in job["if"]
-    source_check = next(
-        step["run"] for step in job["steps"] if "git diff --cached --quiet" in step.get("run", "")
+    workspace = "${{ env.HARDWARE_WORKSPACE }}"
+    source_step = next(
+        step for step in job["steps"] if "git diff --cached --quiet" in step.get("run", "")
     )
+    source_check = source_step["run"]
     assert "git rev-parse HEAD" in source_check
     assert "git diff --quiet" in source_check
     assert "git ls-files --others --exclude-standard" in source_check
+    assert source_step["working-directory"] == workspace
+    checkout = job["steps"][0]["with"]
+    assert checkout["clean"] == "true"
+    assert "${{ github.run_id }}" in checkout["path"]
+    assert "${{ github.run_attempt }}" in checkout["path"]
+    assert job["env"]["UV_PROJECT_ENVIRONMENT"].startswith("${{ runner.temp }}/")
+    assert job["env"]["HARDWARE_WORKSPACE"].endswith(checkout["path"])
+    uv_steps = [step for step in job["steps"] if "uv " in step.get("run", "")]
+    assert all(step.get("working-directory") == workspace for step in uv_steps)
+    setup_uv = next(step for step in job["steps"] if "astral-sh/setup-uv@" in step.get("uses", ""))
+    assert setup_uv["with"]["version-file"] == workspace + "/pyproject.toml"
+    upload = next(step for step in job["steps"] if step.get("with", {}).get("name") == "hardware")
+    assert upload["with"]["path"].startswith(workspace + "/internal-testing/")
     assert "pinned-matrix" in job["env"]["VALIDATION_PRESET"]
     assert "off,on" in job["env"]["VALIDATION_GPUS"]
     preset = trigger["workflow_dispatch"]["inputs"]["preset"]
