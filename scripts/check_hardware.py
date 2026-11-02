@@ -17,12 +17,259 @@ from acprof.artifacts import (  # noqa: E402 -- 脚本先设置仓库导入路�
     read_json_object,
     require_schema_version,
 )
+from acprof.capabilities import (  # noqa: E402 -- 脚本先设置仓库导入路径。
+    PROFILER_MEASUREMENTS,
+    PROFILER_PRIMARY_FIELDS,
+    CapabilityReport,
+    CapabilityStatus,
+)
 from acprof.experiments.configuration import (  # noqa: E402 -- 脚本先设置仓库导入路径。
     RunConfig,
     build_run_command,
 )
+from acprof.host.profiling.compute_plan import (  # noqa: E402 -- 脚本先设置仓库导入路径。
+    NCU_ERROR_FIELD,
+    TORCH_ERROR_FIELD,
+    find_compute_profile_entry,
+    load_compute_profile_plan,
+)
+from acprof.host.profiling.execution_plan import (  # noqa: E402 -- 脚本先设置仓库导入路径。
+    MASSIF_ERROR_FIELD,
+    NSYS_ERROR_FIELD,
+    ExecutionProfileResolver,
+    load_execution_profile_plan,
+)
 from acprof.host.run_state import host_identity  # noqa: E402 -- 脚本先设置仓库导入路径。
-from acprof.results.csv import read_result_csv  # noqa: E402 -- 脚本先设置仓库导入路径。
+from acprof.quality import QUALITY_FIELDS, combine_quality, summarize_quality  # noqa: E402
+from acprof.results.csv import csv_diagnostic_text, read_result_csv  # noqa: E402
+from acprof.results.layout import ArtifactLayout  # noqa: E402 -- 脚本先设置仓库导入路径。
+
+_PROFILER_ERROR_FIELDS = {
+    "torch_profiler_eager": TORCH_ERROR_FIELD,
+    "ncu": NCU_ERROR_FIELD,
+    "massif": MASSIF_ERROR_FIELD,
+    "nsys": NSYS_ERROR_FIELD,
+}
+
+
+def _profiler_issue(code: str, message: str, **detail) -> dict:
+    return {"code": code, "message": message, "severity": "error", **detail}
+
+
+def _requested_profilers(config: RunConfig) -> list[str]:
+    tools = []
+    if config.compute_profile_tool in {"torch", "both"}:
+        tools.append("torch_profiler_eager")
+    if config.compute_profile_tool in {"ncu", "both"}:
+        tools.append("ncu")
+    if config.execution_profile_tool in {"massif", "both"}:
+        tools.append("massif")
+    if config.execution_profile_tool in {"nsys", "both"}:
+        tools.append("nsys")
+    return tools
+
+
+def _profiler_applicable(tool: str, gpu_mode: str) -> bool:
+    if tool == "ncu" or tool == "nsys":
+        return gpu_mode == "on"
+    if tool == "massif":
+        return gpu_mode == "off"
+    return gpu_mode in {"off", "on"}
+
+
+def _formal_profiler_rows(rows: list[dict], tool: str) -> list[tuple[int, dict]]:
+    return [
+        (index, row) for index, row in enumerate(rows, 2)
+        if row.get("warmup") == "0" and row.get("status") == "ok"
+        and _profiler_applicable(tool, row.get("gpu_mode", ""))
+    ]
+
+
+def _profiler_capability_issues(result_dir: Path, tool: str) -> list[dict]:
+    path = result_dir / "capability_report.json"
+    measurement = PROFILER_MEASUREMENTS[tool]
+    try:
+        payload = read_json_object(path, label="capability report")
+        report = CapabilityReport.from_dict(payload)
+    except (OSError, ValueError, TypeError, KeyError) as error:
+        return [_profiler_issue(
+            "profiler_capability_invalid", f"{tool} capability 无法读取：{error}",
+            tool=tool, artifact=str(path),
+        )]
+    if measurement not in report.requested:
+        return [_profiler_issue(
+            "profiler_capability_not_requested", f"{tool} 未记录为显式请求的能力",
+            tool=tool, artifact=str(path), measurement=measurement,
+        )]
+    capability = report.measurement.get(measurement)
+    if capability is None or capability.status != CapabilityStatus.VERIFIED:
+        status = CapabilityStatus(capability.status).value if capability is not None else "missing"
+        return [_profiler_issue(
+            "profiler_capability_not_verified", f"{tool} capability 状态为 {status}，不是 verified",
+            tool=tool, artifact=str(path), measurement=measurement, status=status,
+        )]
+    return []
+
+
+def _profiler_plan_profiles(plan: dict, tool: str) -> list[tuple[str, dict]]:
+    selected = []
+    if tool in {"torch_profiler_eager", "ncu"}:
+        profiles = plan.get("profiles", {})
+        if not isinstance(profiles, dict):
+            return []
+        for device, tools in profiles.items():
+            if tool == "ncu" and device != "gpu":
+                continue
+            if isinstance(tools, dict) and tool in tools:
+                selected.append((str(device), tools[tool]))
+        return selected
+    profiles = plan.get("profiles", [])
+    if not isinstance(profiles, list):
+        return []
+    expected_mode = "off" if tool == "massif" else "on"
+    for index, case in enumerate(profiles):
+        if not isinstance(case, dict) or case.get("gpu_mode") != expected_mode:
+            continue
+        tools = case.get("tools")
+        if isinstance(tools, dict) and tool in tools:
+            selected.append((f"case[{index}]", tools[tool]))
+    return selected
+
+
+def _json_error_values(value: dict, error_field: str) -> list[tuple[str, str]]:
+    errors = []
+    for field in dict.fromkeys(("error", error_field)):
+        error = str(value.get(field) or "").strip()
+        if error:
+            errors.append((field, error))
+    return errors
+
+
+def _profiler_plan_issues(plan: dict, tool: str) -> list[dict]:
+    load_error = str(plan.get("_load_error") or "").strip()
+    if load_error:
+        return [_profiler_issue("profiler_plan_invalid", load_error, tool=tool)]
+    profiles = _profiler_plan_profiles(plan, tool)
+    if not profiles:
+        return [_profiler_issue("profiler_plan_missing", f"{tool} 没有适用的 plan profile", tool=tool)]
+    issues = []
+    primary = PROFILER_PRIMARY_FIELDS[tool]
+    error_field = _PROFILER_ERROR_FIELDS[tool]
+    for location, profile in profiles:
+        if not isinstance(profile, dict):
+            issues.append(_profiler_issue(
+                "profiler_plan_invalid", f"{tool} profile 不是对象", tool=tool, location=location,
+            ))
+            continue
+        for field, error in _json_error_values(profile, error_field):
+            issues.append(_profiler_issue(
+                "profiler_plan_error", error, tool=tool, location=location, field=field,
+            ))
+        entries = profile.get("entries")
+        if not isinstance(entries, list) or not entries:
+            issues.append(_profiler_issue(
+                "profiler_plan_entries_missing", f"{tool} profile 没有 entries",
+                tool=tool, location=location,
+            ))
+            continue
+        for index, entry in enumerate(entries):
+            if not isinstance(entry, dict):
+                issues.append(_profiler_issue(
+                    "profiler_plan_invalid", f"{tool} entry 不是对象",
+                    tool=tool, location=location, entry=index,
+                ))
+                continue
+            for field, error in _json_error_values(entry, error_field):
+                issues.append(_profiler_issue(
+                    "profiler_plan_error", error,
+                    tool=tool, location=location, entry=index, field=field,
+                ))
+            if number(entry.get(primary)) is None:
+                issues.append(_profiler_issue(
+                    "profiler_plan_metric_missing", f"{tool} plan 主指标不是有限数值",
+                    tool=tool, location=location, entry=index, field=primary,
+                ))
+    return issues
+
+
+def _profiler_coverage_issues(
+    plan: dict, tool: str, rows: list[tuple[int, dict]],
+) -> list[dict]:
+    if not rows:
+        return [_profiler_issue(
+            "profiler_no_applicable_rows", f"显式请求 {tool}，但没有适用的正式成功行", tool=tool,
+        )]
+    primary = PROFILER_PRIMARY_FIELDS[tool]
+    error_field = _PROFILER_ERROR_FIELDS[tool]
+    resolver = None
+    if tool in {"massif", "nsys"}:
+        try:
+            resolver = ExecutionProfileResolver(plan)
+        except (TypeError, ValueError) as exc:
+            return [_profiler_issue("profiler_plan_invalid", str(exc), tool=tool)]
+    issues = []
+    for index, row in rows:
+        scale = number(row.get("input_scale"))
+        if scale is None:
+            issues.append(_profiler_issue(
+                "profiler_plan_coverage", f"{tool} 无法匹配非有限 input_scale",
+                tool=tool, row=index, field="input_scale",
+            ))
+            continue
+        if resolver is None:
+            resolved = find_compute_profile_entry(plan, row["gpu_mode"], scale)
+        else:
+            resolved = resolver.resolve(
+                row.get("cpu_cores", ""), row.get("mem_cap_gb", ""), row["gpu_mode"], scale,
+            )
+        if number(resolved.get(primary)) is None:
+            issues.append(_profiler_issue(
+                "profiler_plan_coverage", f"{tool} plan 未覆盖该正式行",
+                tool=tool, row=index, field=primary,
+            ))
+        error = str(resolved.get(error_field) or "").strip()
+        if error:
+            issues.append(_profiler_issue(
+                "profiler_plan_coverage", error, tool=tool, row=index, field=error_field,
+            ))
+    return issues
+
+
+def validate_requested_profilers(
+    config: RunConfig, rows: list[dict], required_metrics_missing: list[dict],
+) -> list[dict]:
+    tools = _requested_profilers(config)
+    if not tools:
+        return []
+    result_dir = config.result_dir(ROOT)
+    try:
+        layout = ArtifactLayout.discover(result_dir)
+    except (OSError, ValueError) as exc:
+        return [_profiler_issue("profiler_artifact_layout", str(exc))]
+    plans = {}
+    issues = []
+    for tool in tools:
+        issues.extend(_profiler_capability_issues(result_dir, tool))
+        kind = "compute" if tool in {"torch_profiler_eager", "ncu"} else "execution"
+        if kind not in plans:
+            path = layout.path(f"{kind}_profile_plan.json")
+            loader = load_compute_profile_plan if kind == "compute" else load_execution_profile_plan
+            plans[kind] = loader(str(path))
+        plan = plans[kind]
+        applicable = _formal_profiler_rows(rows, tool)
+        issues.extend(_profiler_plan_issues(plan, tool))
+        issues.extend(_profiler_coverage_issues(plan, tool, applicable))
+        primary = PROFILER_PRIMARY_FIELDS[tool]
+        error_field = _PROFILER_ERROR_FIELDS[tool]
+        for index, row in applicable:
+            if number(row.get(primary)) is None:
+                required_metrics_missing.append({"row": index, "field": primary})
+            error = csv_diagnostic_text(row.get(error_field))
+            if error:
+                issues.append(_profiler_issue(
+                    "profiler_csv_error", error, tool=tool, row=index, field=error_field,
+                ))
+    return issues
 
 
 def run_config(config: RunConfig, output: Path, *, ui: str = "cli") -> dict:
@@ -52,8 +299,9 @@ def run_config(config: RunConfig, output: Path, *, ui: str = "cli") -> dict:
     audit["successful"] = code == 0 and audit["valid"] and audit["completion"] == "complete"
     counts = audit["counts"]
     audit["successful"] &= counts["formal_ok"] > 0 and counts["formal_ok"] == counts["rows"] - counts["warmup"]
-    unavailable = []
+    unavailable: list[dict] = []
     validated_gpu_modes = set()
+    profiler_issues = []
     if audit["valid"]:
         _, rows = read_result_csv(config.result_csv(ROOT))
         for index, row in enumerate(rows, 2):
@@ -65,9 +313,13 @@ def run_config(config: RunConfig, output: Path, *, ui: str = "cli") -> dict:
                 unavailable.extend({"row": index, "field": name} for name in missing)
                 if not missing and row.get("status") == "ok":
                     validated_gpu_modes.add(row["gpu_mode"])
+        profiler_issues = validate_requested_profilers(config, rows, unavailable)
+    audit["issues"].extend(profiler_issues)
+    if profiler_issues:
+        audit["valid"] = False
     audit["validated_gpu_modes"] = sorted(validated_gpu_modes)
     audit["required_metrics_missing"] = unavailable
-    audit["successful"] &= not unavailable
+    audit["successful"] &= not unavailable and not profiler_issues
     atomic_write_json(output / "audit.json", audit)
     return audit
 
@@ -100,18 +352,35 @@ def load_hardware_matrix(path: Path, defaults: RunConfig, output: Path) -> list[
     return selected
 
 
+def _matrix_quality(cases: list[dict]) -> dict:
+    summaries = []
+    for case in cases:
+        audit = case.get("audit")
+        if isinstance(audit, dict) and all(field in audit for field in QUALITY_FIELDS):
+            summaries.append({field: audit[field] for field in QUALITY_FIELDS})
+        else:
+            summaries.append(summarize_quality(None))
+    return combine_quality(summaries)
+
+
+def _write_matrix(destination: Path, report: dict) -> None:
+    report.update(_matrix_quality(report["cases"]))
+    atomic_write_json(destination, report)
+
+
 def run_matrix(cases: list[tuple[str, RunConfig]], output: Path, *, ui: str) -> dict:
     """Run cases serially and preserve failed/cancelled/not-run evidence separately."""
     report = {"schema_version": 1, "kind": "hardware_matrix", "successful": False,
+              **summarize_quality(None),
               "source": host_identity(ROOT), "ci_commit": os.environ.get("GITHUB_SHA"),
               "cases": [{"name": name, "config": asdict(config), "output_dir": str(output / name),
                          "status": "not_run"} for name, config in cases]}
     destination = output / "hardware_matrix.json"
-    atomic_write_json(destination, report)
+    _write_matrix(destination, report)
     try:
         for row, (name, config) in zip(report["cases"], cases, strict=True):
             row["status"] = "running"
-            atomic_write_json(destination, report)
+            _write_matrix(destination, report)
             try:
                 (output / name).mkdir()
                 audit = run_config(config, output / name, ui=ui)
@@ -123,12 +392,12 @@ def run_matrix(cases: list[tuple[str, RunConfig]], output: Path, *, ui: str) -> 
                 if not isinstance(exc, Exception):
                     raise
             finally:
-                atomic_write_json(destination, report)
+                _write_matrix(destination, report)
             if row["status"] != "passed":
                 break  # Cleanup or measurement failure must not start another case.
         report["successful"] = all(row["status"] == "passed" for row in report["cases"])
     finally:
-        atomic_write_json(destination, report)
+        _write_matrix(destination, report)
     return report
 
 
@@ -187,7 +456,10 @@ def main(argv=None):
     cases, config = selected_hardware_cases(args, output, parser)
     output.mkdir(parents=True, exist_ok=True)
     report = run_matrix(cases, output, ui=args.ui) if args.matrix else run_config(config, output, ui=args.ui)
-    print(f"硬件验证{'通过' if report['successful'] else '未通过'}，证据：{output}")
+    quality = report.get("quality_status", "unknown")
+    eligible = report["successful"] and report.get("auto_selection_eligible") is True
+    print(f"硬件执行验收{'通过' if report['successful'] else '未通过'}；科研质量 {quality}；"
+          f"自动优选{'允许' if eligible else '禁止'}；证据：{output}")
     return 0 if report["successful"] else 1
 
 

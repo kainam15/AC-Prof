@@ -7,6 +7,7 @@ from unittest.mock import patch
 import pytest
 
 from acprof.experiments.configuration import RunConfig
+from acprof.quality import summarize_quality
 from scripts import check_hardware, compare_ui
 
 
@@ -59,6 +60,50 @@ def test_checked_in_matrix_has_a_successful_serial_execution_path(tmp_path):
     report = json.loads((output / 'hardware_matrix.json').read_text())
     assert report['successful'] is True
     assert [case['status'] for case in report['cases']] == ['passed', 'passed']
+    assert report['quality_status'] == 'unknown'
+    assert report['quality_reasons'] == ['quality_evidence_missing']
+    assert report['auto_selection_eligible'] is False
+
+
+def quality_audit(code=None):
+    checks = [] if code is None else [{
+        'code': code, 'severity': 'warning', 'observed': 1, 'threshold': 0,
+        'detail': code, 'evidence': {'source': 'test'},
+    }]
+    return {'successful': True, **summarize_quality(checks)}
+
+
+def test_passed_matrix_preserves_unknown_energy_quality(tmp_path):
+    path = matrix_file(tmp_path)
+    output = tmp_path / 'output'
+    audits = [
+        quality_audit(),
+        quality_audit('cpu_idle_baseline_unstable'),
+        quality_audit(),
+    ]
+    with patch.object(check_hardware, 'run_config', side_effect=audits):
+        assert check_hardware.main(['--matrix', str(path), '--output-dir', str(output)]) == 0
+    report = json.loads((output / 'hardware_matrix.json').read_text())
+    assert report['successful'] is True
+    assert [case['status'] for case in report['cases']] == ['passed'] * 3
+    assert report['quality_status'] == 'unknown'
+    assert report['auto_selection_eligible'] is False
+    assert 'cpu_idle_baseline_unstable' in report['quality_reasons']
+    assert [check['code'] for check in report['quality_checks']] == ['cpu_idle_baseline_unstable']
+
+
+def test_known_benign_warning_keeps_quality_and_execution_semantics(tmp_path):
+    path = matrix_file(tmp_path)
+    output = tmp_path / 'output'
+    with patch.object(
+        check_hardware, 'run_config',
+        side_effect=[quality_audit('unused_checkpoint_weights')] * 3,
+    ):
+        assert check_hardware.main(['--matrix', str(path), '--output-dir', str(output)]) == 0
+    report = json.loads((output / 'hardware_matrix.json').read_text())
+    assert report['successful'] is True
+    assert report['quality_status'] == 'warning'
+    assert report['auto_selection_eligible'] is True
 
 
 def test_real_checkpoint_matrix_has_a_pinned_serial_execution_path(tmp_path):
@@ -136,6 +181,8 @@ def test_matrix_stops_on_failure_and_records_unrun_cases(tmp_path, failure):
     assert [case['status'] for case in report['cases']] == [
         'passed', 'cancelled' if failure == 'cancelled' else 'failed', 'not_run']
     assert report['source']['source_sha256']
+    assert report['quality_status'] == 'unknown'
+    assert report['auto_selection_eligible'] is False
     assert all(Path(case['output_dir']).is_relative_to(output) for case in report['cases'])
 
 

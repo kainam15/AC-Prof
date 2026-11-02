@@ -15,10 +15,14 @@ def fixture(tmp_path):
     matrix = json.loads((ROOT / "examples/hardware-validation.json").read_text())
     matrix_file = tmp_path / "matrix.json"
     matrix_file.write_text(json.dumps(matrix))
-    audit = {"successful": True, "valid": True, "completion": "complete",
+    quality_check = {"code": "cpu_idle_baseline_unstable", "severity": "warning",
+                     "observed": 0.1, "threshold": 0.05, "detail": "idle drift", "evidence": {}}
+    quality = {"quality_status": "unknown", "quality_checks": [quality_check],
+               "quality_reasons": ["cpu_idle_baseline_unstable"], "auto_selection_eligible": False}
+    audit = {"successful": True, "valid": True, "completion": "complete", **quality,
              "exit_code": 0, "required_metrics_missing": [], "validated_gpu_modes": ["off", "on"],
              "counts": {"formal_ok": 4}}
-    report = {"kind": "hardware_matrix", "ci_commit": "a" * 40, "successful": True,
+    report = {"kind": "hardware_matrix", "ci_commit": "a" * 40, "successful": True, **quality,
               "source": {"environment_class": "native_linux", "collection_tier": "full",
                          "platform": {"native": True}},
               "cases": [{"name": case["name"], "status": "passed",
