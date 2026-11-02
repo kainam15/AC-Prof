@@ -2,6 +2,21 @@
 
 [← 返回专题目录](testing.md)
 
+## Git worktree 与合并
+
+每个独立开发任务创建专属的 **具名分支与 Git worktree**，两者一一对应；不在 `main`
+直接开发、修改或提交，也不以 Detached HEAD 持续开发。启动任务先核对其他工作树、
+已有未提交内容及任务范围，不清理、覆盖或错误合并他人的并行工作。
+
+仅提交本任务相关变更，按逻辑主题拆分 commit。消息遵守
+[commit-message.instructions.md](../../.github/commit-message.instructions.md)；
+需要 merge commit 时不得沿用 `Merge branch ...` 等自动生成的消息。
+完成与改动相称的验证并审查完整 diff 后，除用户另有要求外，默认以
+`git merge --ff-only` 合入本地 `main`；遇到非快进或未提交变更冲突，先保护证据并
+说明阻塞，不强行 reset、clean、覆盖或改写其他任务。
+确认已合入且保留必要的验证证据之后，再删除本任务的 worktree 与已合并分支，
+汇报提交、验证和清理状态。
+
 产物布局改动的定向入口包括 `test_artifact_layout.py`、`test_run_recovery.py`、
 `test_auto.py`、`test_posthoc.py`、`test_result_audit.py`、`test_result_comparison.py`、
 `test_latency_model_report.py` 和 `test_tui_reports.py`。覆盖新目录写入、flat 目录读取及恢复、

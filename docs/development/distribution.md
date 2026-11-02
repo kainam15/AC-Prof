@@ -63,6 +63,10 @@ uv run acprof tui
 每个 Git worktree 在自己的目录运行相同命令，保留独立 `.venv`；不要用符号链接共享环境，
 也不要全局设置指向其他 worktree 的 `UV_PROJECT_ENVIRONMENT`。
 uv 的下载缓存可共享，环境和源码绑定保持独立。
+主机发行和开发依赖统一由 `pyproject.toml` 声明，版本与制品锁由 `uv.lock` 管理，
+不手工在项目环境中另建依赖来源；开发使用 `uv sync` / `uv run`，
+CI 和需要冻结环境的验证使用 `--locked`。Docker 目标平台的 Python wheel、
+哈希和系统锁由 `dockerfiles/` 独立维护，项目 `uv.lock` 不能替代推理环境身份。
 
 | 用途 | 命令 |
 | --- | --- |

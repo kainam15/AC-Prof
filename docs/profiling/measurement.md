@@ -4,6 +4,12 @@
 
 ## 协议不变量
 
+正式测量窗口只包含目标工作负载及协议定义的采集行为。TUI、绘图、通知、额外诊断、
+环境检查和开发辅助逻辑不得污染正式测量窗口。静态检查、startup probe、正式实验
+及 post-hoc profiling 保持独立的触发条件、窗口、产物和来源身份。
+重构不得无意改变已有实验的字段定义、单位、采集边界、resume 或 provenance 语义；
+具体缺失值及字段说明见[结果字段](../results/fields.md)。
+
 - CPU package、估算 vCPU、GPU device 与 container-attributed 数据分别命名和解释，整机测量不能静默替换容器归因。
 - 单请求、workload window、进程生命周期、独立 profiler 使用不同窗口与分母；比较前核对请求数、尺度单位及来源资源。
 - 数值 `0`、CSV `nan`、JSON `null` 和字段缺失含义不同；未知历史数据不补成零，推导或代表资源复用不冒充独立实测。

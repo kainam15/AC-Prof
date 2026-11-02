@@ -90,7 +90,7 @@ acprof profile results/google-bert--bert-base-uncased --dry-run
 acprof profile results/google-bert--bert-base-uncased --tools torch,ncu
 ```
 
-不传 `--tools` 时，默认补齐适用且尚未成功的 `torch,ncu,nsys,massif`。
+不传 `--tools` 时，默认补齐适用且尚未成功的 `torch,ncu,nsys,massif`。这可能触发耗时较久的 Massif/NCU 等工具；开发期间 Agent 不得因可选字段缺失而自行调用补采，用户要求实测时应明确工具与预算。
 TUI 在“实验结果”页先读取实验摘要和分析指标状态，展开“性能深度分析”并点击
 “补充性能分析”后，只允许选择适用且未完成的工具；默认推荐缺失的 `torch`、`ncu`，
 `nsys`、`massif` 须主动勾选。已完成及不适用工具不可选，执行时再确认。

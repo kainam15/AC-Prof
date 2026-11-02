@@ -1,6 +1,6 @@
 ---
 name: acprof-model-adaptation
-description: 为 AC-Prof 新增或修复模型、adapter、任务族或 backend 适配，联动路由、依赖镜像、输入输出和实际推理验证；单纯选择已有模型时无需使用。
+description: 为 AC-Prof 新增或修复模型、adapter、任务族或 backend 适配；默认以路由、依赖、输入输出的离线验证交付，真实推理与 Profiler 由用户明确授权后执行。
 ---
 
 # AC-Prof 模型与后端适配
@@ -18,8 +18,8 @@ description: 为 AC-Prof 新增或修复模型、adapter、任务族或 backend 
 2. **声明路由与环境。** 在 `acprof/extensions/*/manifest.json` v2 声明 task、architecture/model type、backend、adapter 与执行/测量能力；共同尺度、默认参数、IO、精度和输入规划能力放入 family 默认值，差异用 task/backend 覆盖。规则显式填写 `priority`，用 `CATALOG.resolve()` 的黄金用例与未知/冲突失败用例核对消费行为。平台、环境/profile 及 adapter 提示词也在声明中维护，新依赖再补精确锁；字段与优先级查[扩展声明](../../../docs/models/extensions.md#扩展声明与按需加载)。允许无 Torch 平台，不能靠放宽预检宣称支持。
 3. **补齐推理协议。** 能复用时选择 `family-default`；需要 adapter 时继续实现 `BaseHandler` 四阶段协议，并由 manifest 的 Handler entrypoint 按需导入，不增加平行抽象或静默覆盖注册。通过 `validate_output` 或声明的 validator 在独立验证进程检查真实输出；用 `_workload` 补充已观测的模态事实。提示词和参数经 workload、物化输入计划进入 server 与 profiler。
 4. **覆盖失败路径。** 根据适配内容检查路由冲突、依赖不匹配、离线加载、模态丢失、尺度截断、输出序列化和镜像错配。数值字段有变化时沿生产者与消费者补齐兼容验证。
-5. **构建并实测。** 依赖组合在目标 Python/CUDA 容器解析，导出精确锁并执行 `pip check`；复用已有环境时核对匹配性。构建实际镜像，用独立输出目录验证所声明设备的加载、预处理、推理和输出，再分别验证涉及的 profiler。
-6. **更新覆盖说明。** 在运行兼容文档记录支持接口和限制，更新受影响的参数、字段或用户示例。报告实际设备、工具、结果与未验证范围；普通推理成功不外推为所有工具兼容。
+5. **按成本分层验证。** 默认用静态声明、解析/路由、离线 fixture、合成输入输出与定向测试检查适配和失败路径；必要时检查已有镜像或锁的一致性。真实镜像构建、checkpoint 下载、设备上的加载/推理，以及各独立 Profiler 都是高成本验收，只有用户明确授权执行具体任务时才启动；不因编写了新 adapter 自动运行长矩阵。不能以模拟测试声称真实设备兼容。
+6. **更新覆盖说明。** 在运行兼容文档记录支持接口和限制，更新受影响的参数、字段或用户示例。按静态、fixture、真实设备及所选 Profiler 分别报告证据和未验证范围；缺少真实证据的能力保持未验证，不自动扩大测试任务。
 
 只修复已有路径时执行受影响的步骤，不重建无关任务族。验证选择见[测试指南](../../../docs/development/testing.md)。
 
