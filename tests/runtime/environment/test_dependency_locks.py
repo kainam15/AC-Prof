@@ -9,7 +9,12 @@ import pytest
 from acprof.host.detect import TaskInfo
 from acprof.host.images.environment import runtime_fingerprint
 from acprof.runtime.dependency_locks import read_python_lock
-from acprof.runtime.profiles import PLATFORMS, PYTHON_BASE_IMAGE, select_runtime_profile
+from acprof.runtime.profiles import (
+    ENVIRONMENTS,
+    PLATFORMS,
+    PYTHON_BASE_IMAGE,
+    select_runtime_profile,
+)
 from tests.support.runtime_fixture import ROOT, copy_dependency_tree
 
 
@@ -64,6 +69,18 @@ class TestDependencyLock:
         assert (profile.profile_id) == ('nlp-cu124')
         assert (select_runtime_profile(task)) == (profile)
         assert ('torch==2.6.0+cu124') in ((ROOT / profile.environment.requirements_lock).read_text())
+
+    def test_cuda124_pinned_setuptools_is_patched_in_every_layer(self):
+        from packaging.version import Version
+
+        platform = PLATFORMS['cu124']
+        paths = {platform.requirements_lock, *(environment.requirements_lock
+                  for environment in ENVIRONMENTS.values()
+                  if environment.platform.platform_id == platform.platform_id)}
+        for relative in paths:
+            versions = {record['name']: record['version']
+                        for record in read_python_lock(ROOT / relative)}
+            assert Version(versions['setuptools']) >= Version('84.1.0'), relative
 
     def test_shared_lock_conflict_is_rejected_before_image_reuse(self):
         environment = select_runtime_profile(self.task()).environment

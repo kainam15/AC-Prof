@@ -101,8 +101,20 @@ jobs:
             "$RUNNER_TEMP/chrome-for-testing/chrome-linux64/chrome" \
             > "$RUNNER_TEMP/chrome-shim/google-chrome"
           chmod +x "$RUNNER_TEMP/chrome-shim/google-chrome"
+          # Use Chrome's dedicated headless shell for offline SVG rendering;
+          # full Chrome's GCM/background services can stall its screenshot CLI.
+          curl --fail --location --silent --show-error --retry 3 \
+            -o "$RUNNER_TEMP/chrome-headless-shell-linux64.zip" \
+            https://storage.googleapis.com/chrome-for-testing-public/147.0.7727.116/linux64/chrome-headless-shell-linux64.zip
+          echo "8b3584f747a3a7155e1f99dc712dfd0576eedafe3da331819ccd52e17bee61a6  $RUNNER_TEMP/chrome-headless-shell-linux64.zip" | sha256sum --check
+          unzip -q "$RUNNER_TEMP/chrome-headless-shell-linux64.zip" -d "$RUNNER_TEMP/chrome-for-testing"
+          printf '#!/usr/bin/env bash\nexec "%s" "$@"\n' \
+            "$RUNNER_TEMP/chrome-for-testing/chrome-headless-shell-linux64/chrome-headless-shell" \
+            > "$RUNNER_TEMP/chrome-shim/chrome-headless-shell"
+          chmod +x "$RUNNER_TEMP/chrome-shim/chrome-headless-shell"
           echo "$RUNNER_TEMP/chrome-shim" >> "$GITHUB_PATH"
           "$RUNNER_TEMP/chrome-shim/google-chrome" --version | grep '147.0.7727.116'
+          "$RUNNER_TEMP/chrome-shim/chrome-headless-shell" --version | grep '147.0.7727.116'
           # Ubuntu 24.04 restricts user namespaces for unpackaged Chrome for Testing.
           # Allow only this pinned Chrome executable to create its own sandbox.
           # Do not disable the kernel restriction or launch Chrome with --no-sandbox.
@@ -115,6 +127,16 @@ jobs:
               printf '  userns,\n}\n'
             } | sudo tee "$profile" >/dev/null
             sudo apparmor_parser --replace "$profile"
+            # Keep the same userns restriction exception, scoped only to the
+            # downloaded headless-shell binary (never a global sandbox bypass).
+            shell_binary="$RUNNER_TEMP/chrome-for-testing/chrome-headless-shell-linux64/chrome-headless-shell"
+            profile="/etc/apparmor.d/acprof-svg-preview-chrome-shell"
+            {
+              printf 'abi <abi/4.0>,\ninclude <tunables/global>\n'
+              printf 'profile acprof-svg-preview-chrome-shell %s flags=(unconfined) {\n' "$shell_binary"
+              printf '  userns,\n}\n'
+            } | sudo tee "$profile" >/dev/null
+            sudo apparmor_parser --replace "$profile"
           fi
           sysctl kernel.apparmor_restrict_unprivileged_userns || true
           echo 'b76b0433203017ca80401b2ee0dd69350349871c4b19d504c34dbdd80541690a  /usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc' | sha256sum --check
@@ -123,20 +145,7 @@ jobs:
         run: python3 scripts/smoke_tui_png_environment.py
       - name: Install host test dependencies
         run: uv sync --locked --no-default-groups --group test
-      - name: Capture and check real TUI scenes
-        env:
-          ACPROF_PNG_VISUAL: '1'
-          TZ: UTC
-          PYTHONHASHSEED: '0'
-        run: uv run --locked --no-default-groups --group test python -m pytest tests/visual_png -v
-      - name: Capture continuous synthetic TUI Pilot journey
-        if: always()
-        run: |
-          if [ -x .venv/bin/python ]; then
-            uv run --locked --no-default-groups --group test python scripts/capture_tui_journey.py --png-preview
-          else
-            echo 'Test environment unavailable; journey evidence not generated.'
-          fi
+      # Prepare offline SVG previews before long-running VHS/Pilot captures.
       - name: Smoke-test one reviewed CJK SVG preview
         id: svg_preview_smoke
         if: always()
@@ -153,6 +162,20 @@ jobs:
             uv run --locked --no-default-groups --group test python scripts/tui_svg_preview_png.py
           else
             echo 'Test environment unavailable; SVG CJK previews not generated.'
+          fi
+      - name: Capture and check real TUI scenes
+        env:
+          ACPROF_PNG_VISUAL: '1'
+          TZ: UTC
+          PYTHONHASHSEED: '0'
+        run: uv run --locked --no-default-groups --group test python -m pytest tests/visual_png -v
+      - name: Capture continuous synthetic TUI Pilot journey
+        if: always()
+        run: |
+          if [ -x .venv/bin/python ]; then
+            uv run --locked --no-default-groups --group test python scripts/capture_tui_journey.py --png-preview
+          else
+            echo 'Test environment unavailable; journey evidence not generated.'
           fi
       - name: Render standalone HTML comparison report
         if: always()

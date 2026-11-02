@@ -113,6 +113,25 @@ def test_symlinked_preview_does_not_embed_external_files(tmp_path):
         load_preview_index(root=ROOT, output=tmp_path / "svg-preview")
 
 
+def test_svg_preview_prefers_headless_shell_and_keeps_chrome_fallback(monkeypatch):
+    from scripts import tui_svg_preview_png as preview
+
+    found = {
+        "chrome-headless-shell": "/runner/pinned/chrome-headless-shell",
+        "google-chrome": "/usr/bin/google-chrome",
+        "chromium": "/usr/bin/chromium",
+    }
+    monkeypatch.setattr(preview.shutil, "which", found.get)
+    assert preview._svg_renderer() == found["chrome-headless-shell"]
+    del found["chrome-headless-shell"]
+    assert preview._svg_renderer() == found["google-chrome"]
+    del found["google-chrome"]
+    assert preview._svg_renderer() == found["chromium"]
+    del found["chromium"]
+    with pytest.raises(RuntimeError, match="required for SVG PNG previews"):
+        preview._svg_renderer()
+
+
 def test_chrome_capture_accepts_png_before_browser_exits(tmp_path):
     """Real process group: a usable screenshot beats a stuck Chrome shutdown."""
     import sys
@@ -126,10 +145,11 @@ def test_chrome_capture_accepts_png_before_browser_exits(tmp_path):
     fake_chrome = tmp_path / "fake-chrome"
     fake_chrome.write_text(
         f"#!{sys.executable}\n"
-        "import shutil, sys, time\n"
+        "import json, shutil, sys, time\n"
         "destination = next(arg.split('=', 1)[1] for arg in sys.argv "
         "if arg.startswith('--screenshot='))\n"
         f"shutil.copyfile({str(reference)!r}, destination)\n"
+        f"open({str(tmp_path / 'chrome-argv.json')!r}, 'w').write(json.dumps(sys.argv[1:]))\n"
         "time.sleep(30)\n",
         encoding="utf-8",
     )
@@ -140,6 +160,10 @@ def test_chrome_capture_accepts_png_before_browser_exits(tmp_path):
     _chrome_capture(str(fake_chrome), html, tmp_path / "scene.png", width=120, height=100)
     assert time.monotonic() - start < 5
     assert (tmp_path / "scene.png").is_file()
+    flags = json.loads((tmp_path / "chrome-argv.json").read_text(encoding="utf-8"))
+    assert "--disable-background-networking" in flags
+    assert "--disable-component-update" in flags
+    assert "--no-sandbox" not in flags
 
 
 def test_chrome_capture_timeout_reports_stderr_and_reaps(tmp_path, monkeypatch):
@@ -186,5 +210,11 @@ def test_svg_preview_ci_runs_one_actual_chrome_smoke_before_batch():
     smoke = workflow.index("Smoke-test one reviewed CJK SVG preview")
     full = workflow.index("Render CJK previews of reviewed SVG baselines")
     assert smoke < full
+    assert full < workflow.index("Capture and check real TUI scenes")
+    assert full < workflow.index("Capture continuous synthetic TUI Pilot journey")
     assert "scripts/tui_svg_preview_png.py --smoke" in workflow
     assert "svg-preview-failures/**/*" in workflow
+    assert "chrome-headless-shell-linux64.zip" in workflow
+    assert "8b3584f747a3a7155e1f99dc712dfd0576eedafe3da331819ccd52e17bee61a6" in workflow
+    assert "acprof-svg-preview-chrome-shell" in workflow
+    assert '"$RUNNER_TEMP/chrome-shim/chrome-headless-shell" --version' in workflow
