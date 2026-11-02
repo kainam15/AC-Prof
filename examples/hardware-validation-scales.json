@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {
+      "name": "bert-small-fill-mask",
+      "model": "google/bert_uncased_L-2_H-128_A-2",
+      "revision": "30b0a37ccaaa32f332884b96992754e246e48c5f",
+      "task": "fill-mask",
+      "input_scales": "32,128"
+    },
+    {
+      "name": "resnet-image-classification",
+      "model": "microsoft/resnet-18",
+      "revision": "65a5785d9156231087c481e0c7dd33a5ff6f7e3e",
+      "task": "image-classification",
+      "input_scales": "1,2"
+    },
+    {
+      "name": "vilt-visual-qa",
+      "model": "dandelin/vilt-b32-finetuned-vqa",
+      "revision": "d0a1f6ab88522427a7ae76ceb6e1e1e7b68a1d08",
+      "task": "visual-question-answering",
+      "input_scales": "224,448"
+    },
+    {
+      "name": "whisper-tiny-asr",
+      "model": "openai/whisper-tiny",
+      "revision": "169d4a4341b33bc18d8881c4b69c2e104e1cc0af",
+      "task": "automatic-speech-recognition",
+      "input_scales": "1,5"
+    },
+    {
+      "name": "chronos-bolt-small-forecast",
+      "model": "amazon/chronos-bolt-small",
+      "revision": "772f3d25d38aec6d914c8949dab4462e2d46f5d8",
+      "task": "time-series-forecasting",
+      "input_scales": "64,256"
+    },
+    {
+      "name": "tiny-sd-text-to-image",
+      "model": "segmind/tiny-sd",
+      "revision": "cad0bd7495fa6c4bcca01b19a723dc91627fe84f",
+      "task": "text-to-image",
+      "input_scales": "64,128"
+    }
+  ]
+}
