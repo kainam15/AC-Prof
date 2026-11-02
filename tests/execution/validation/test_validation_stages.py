@@ -38,6 +38,45 @@ class TestValidationStage:
         stack.enter_context(patch.object(execution_module, "complete_prediction", side_effect=lambda e, c, output: output))
         return handler
 
+    @pytest.mark.parametrize(("name", "failed_stage"), [
+        ("TASK_FAMILY", "execution"), ("RUNTIME_BACKEND", "execution"),
+        ("MODEL_ID", "load"), ("TASK_TYPE", "load"), ("MODEL_REVISION", "load"),
+    ])
+    def test_missing_configuration_preserves_failure_stage(self, monkeypatch, name, failed_stage):
+        stages = []
+        with ExitStack() as stack:
+            handler = self.fixtures(stack)
+            monkeypatch.delenv(name)
+            with pytest.raises(KeyError) as caught:
+                runtime_validate.validate({"text": "hello"}, stages=stages)
+        assert caught.value.args == (name,)
+        assert stages[-1]["stage"] == failed_stage
+        assert stages[-1]["status"] == "error"
+        if failed_stage == "load":
+            assert stages[0] == {"stage": "execution", "status": "verified"}
+        handler.load.assert_not_called()
+        handler.predict.assert_not_called()
+
+    @pytest.mark.parametrize(("value", "expected"), [("0", False), ("1", True), ("2", False), ("true", False)])
+    def test_validation_keeps_exact_gpu_flag_semantics(self, monkeypatch, value, expected):
+        with ExitStack() as stack:
+            self.fixtures(stack)
+            monkeypatch.setenv("USE_GPU", value)
+            runtime_validate.validate({"text": "hello"})
+            execution = import_module("acprof.container.execution").configured_execution
+            assert execution.call_args.kwargs["use_gpu"] is expected
+
+    def test_invalid_thread_configuration_is_an_execution_failure(self, monkeypatch):
+        stages = []
+        with ExitStack() as stack:
+            handler = self.fixtures(stack)
+            monkeypatch.setenv("ACPROF_RUNTIME_THREADS", "invalid")
+            with pytest.raises(ValueError, match="ACPROF_RUNTIME_THREADS must be an integer"):
+                runtime_validate.validate({"text": "hello"}, stages=stages)
+        assert stages[-1]["stage"] == "execution"
+        assert stages[-1]["status"] == "error"
+        handler.load.assert_not_called()
+
     def test_success_records_each_phase_separately(self):
         with ExitStack() as stack:
             self.fixtures(stack)

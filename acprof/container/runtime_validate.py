@@ -15,11 +15,14 @@ STAGE_PREFIX = "ACPROF_RUNTIME_STAGE="
 
 
 def validate(payload: dict, *, stages: list[dict] | None = None) -> dict:
-    from acprof.container.execution import complete_prediction, configured_execution
-    from acprof.container.handlers import HandlerRegistry, load_handler, resolve_model_source
+    from acprof.container.execution import complete_prediction
+    from acprof.container.model_session import (
+        ModelLoadConfig,
+        load_model_session,
+        prepare_execution,
+    )
     from acprof.extensions import get_extension
     from acprof.quality import runtime_quality_constraints
-    from acprof.runtime.settings import runtime_threads
 
     stages = [] if stages is None else stages
     quality_constraints = runtime_quality_constraints()
@@ -36,27 +39,33 @@ def validate(payload: dict, *, stages: list[dict] | None = None) -> dict:
         print(STAGE_PREFIX + json.dumps(stages[-1]), flush=True)
         return result
 
-    use_gpu = os.getenv("USE_GPU", "0") == "1"
-    execution, device = check("execution", lambda: configured_execution(
-        os.environ["TASK_FAMILY"], os.environ["RUNTIME_BACKEND"], use_gpu=use_gpu,
-        threads=runtime_threads(default=1),
-        adapter=os.getenv("ACPROF_MODEL_ADAPTER", "family-default"),
-    ))
+    def require_environment(*names):
+        for name in names:
+            if name not in os.environ:
+                raise KeyError(name)
+
+    def prepare():
+        require_environment("TASK_FAMILY", "RUNTIME_BACKEND")
+        config = ModelLoadConfig.from_environment(
+            default_threads=1,
+            use_gpu=os.getenv("USE_GPU", "0") == "1",
+        )
+        execution, device = prepare_execution(config)
+        return config, execution, device
+
+    config, execution, device = check("execution", prepare)
 
     def load():
-        handler = HandlerRegistry.get(os.environ["TASK_FAMILY"], os.environ["RUNTIME_BACKEND"])
-        context = load_handler(handler,
-            resolve_model_source(os.environ["MODEL_ID"]), os.environ["TASK_TYPE"],
-            os.environ["RUNTIME_BACKEND"], device, os.environ["MODEL_REVISION"],
-        )
-        context["_validation_entrypoint"] = get_extension(
-            os.environ["TASK_FAMILY"], os.environ["RUNTIME_BACKEND"],
-            adapter=os.getenv("ACPROF_MODEL_ADAPTER", "family-default"),
-            task=os.environ["TASK_TYPE"],
+        # Missing model identity remains a load failure, after execution setup.
+        require_environment("MODEL_ID", "TASK_TYPE", "MODEL_REVISION")
+        session = load_model_session(config, execution, device)
+        session.context["_validation_entrypoint"] = get_extension(
+            config.task_family, config.backend, adapter=config.adapter, task=config.task_type,
         ).validation_entrypoint
-        return handler, context
+        return session
 
-    handler, context = check("load", load)
+    session = check("load", load)
+    handler, context = session.handler, session.context
     processed = check("preprocess", lambda: handler.preprocess(context, payload))
     with execution.inference_context():
         output = check("predict", lambda: handler.predict(context, processed))

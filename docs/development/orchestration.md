@@ -243,6 +243,26 @@ profile 选择按任务／架构匹配已锁定环境，平台切换保留版本
 复用上游接口与现有 Handler，公共采集器不增加 checkpoint 分支。
 `container.execution` 只加载所选声明的可选执行模块；Torch 上下文位于 `torch_execution`。
 无执行模块时采用 CPU/nullcontext，复用同一个 `BaseHandler`，不增加平行适配器层次。
+
+模型入口共用 `container.model_session`：不可变的 `ModelLoadConfig` 集中读取模型身份、
+本地 snapshot、adapter、设备和线程配置；`select_handler`、`prepare_execution`、
+`load_model_session` 分别选择 Handler、初始化执行上下文和加载模型，仍委派现有注册表及
+`load_handler`。已加载的 `ModelSession` 只保存配置、Handler、context、execution 和 device，
+不自动推理、warmup、验证或启动 profiler。
+`server.create_app(session)` 将 HTTP 路由绑定到已加载会话；导入 `server` 不加载模型、
+初始化设备或修改离线环境。生产入口 `create_runtime_app()` 在显式启动时设置离线策略，
+保留服务准备、CUDA 初始化和模型加载的计时分段；`python -m acprof.container.server`
+仍启动原有 HTTP 服务与继承 socket 路径。
+
+`runtime_validate` 继续拥有各阶段事件、必填配置检查和输出质量门禁；
+`compute_profile_runner` 继续拥有 profiler 支持检查、专用 `load_options`、warmup 与采集窗口。
+三个入口只共享加载组装，正式 HTTP 请求仍按 preprocess → predict → completion → postprocess
+执行。Handler 内部仍按隔离进程环境读取 adapter 声明，因此组装时拒绝配置与当前环境中的
+adapter 不一致；该边界不提供单进程任意切换 adapter 的能力。应用会话可独立注入，
+请求完成超时等进程级设置仍由现有 runtime settings 管理。
+应用构造方式参考 [Flask application factories](https://flask.palletsprojects.com/en/stable/patterns/appfactories/)，
+沿用现有 Flask 和四阶段 Handler，不增加依赖或新的适配器框架。
+
 Workload 使用同一声明的可选 `workload_entrypoint`，按 family 延迟导入；任务参数在实现的
 `from_config` 中处理。`container.execution.complete_prediction` 调用所选运行时的可选请求完成
 hook，等待计入既有窗口，窗口外验证仍在独立进程。`runtime_settings` 统一可选线程/Provider

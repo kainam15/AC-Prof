@@ -1,14 +1,11 @@
 """真实本地 HTTP 服务的完成边界；可控异步替身，不宣称 GPU 验证。"""
 import importlib.util
 import json
-import os
-import runpy
 from concurrent.futures import Future, ThreadPoolExecutor
-from contextlib import ExitStack, nullcontext
+from contextlib import nullcontext
 from functools import partial
 from threading import Event, Thread
 from types import SimpleNamespace
-from unittest.mock import patch
 from urllib.error import HTTPError
 from urllib.request import ProxyHandler, Request, build_opener
 
@@ -22,10 +19,13 @@ class TestONNXServerCompletion:
     @pytest.fixture(autouse=True)
     def _setup(self, request, tmp_path, monkeypatch):
         self._request = request
+        monkeypatch.setenv('ACPROF_REQUEST_TIMEOUT_S', '0.2')
     def start_server(self, future):
         from werkzeug.serving import make_server
 
         from acprof.container.handlers import BaseHandler
+        from acprof.container.model_session import ModelLoadConfig, ModelSession
+        from acprof.container.server import create_app
 
         events, entered = [], Event()
 
@@ -59,18 +59,14 @@ class TestONNXServerCompletion:
 
         runtime = SimpleNamespace(inference_context=nullcontext, metadata=lambda: {},
                                   wait_for_completion=wait_for_completion)
-        contexts = ExitStack()
-        self._request.addfinalizer(partial(contexts.close))
-        contexts.enter_context(patch('acprof.container.handlers.HandlerRegistry.get', return_value=AsyncHandler()))
-        contexts.enter_context(patch('acprof.container.execution.configured_execution', return_value=(runtime, 'cpu')))
-        contexts.enter_context(patch.dict(os.environ, {
-            'TASK_FAMILY': 'structured', 'TASK_TYPE': 'tabular-regression', 'RUNTIME_BACKEND': 'onnxruntime',
-            'MODEL_ID': 'local/async-fixture', 'MODEL_REVISION': 'fixture', 'MODEL_LOCAL_PATH': '',
-            'USE_GPU': '0', 'ACPROF_MODEL_ADAPTER': 'family-default', 'ACPROF_REQUEST_TIMEOUT_S': '0.2',
-        }))
-        namespace = runpy.run_module('acprof.container.server', run_name='acprof_test_http_server')
-        self.server_app = namespace['app']
-        server = make_server('127.0.0.1', 0, namespace['app'], threaded=True)
+        config = ModelLoadConfig(
+            model_id='local/async-fixture', model_revision='fixture',
+            task_family='structured', task_type='tabular-regression', backend='onnxruntime',
+        )
+        session = ModelSession(config, AsyncHandler(),
+                               {'task_type': config.task_type, 'device': 'cpu'}, runtime, 'cpu')
+        self.server_app = create_app(session)
+        server = make_server('127.0.0.1', 0, self.server_app, threaded=True)
         thread = Thread(target=server.serve_forever, kwargs={'poll_interval': 0.01}, daemon=True)
         thread.start()
 

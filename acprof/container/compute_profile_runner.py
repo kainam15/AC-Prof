@@ -16,12 +16,16 @@ os.environ["HF_HUB_OFFLINE"] = "1"
 os.environ["TRANSFORMERS_OFFLINE"] = "1"
 
 from acprof.artifacts import read_input_scale_plan
-from acprof.container.execution import complete_prediction, configured_execution
-from acprof.container.handlers import HandlerRegistry, load_handler, resolve_model_source
+from acprof.container.execution import complete_prediction
+from acprof.container.model_session import (
+    ModelLoadConfig,
+    load_model_session,
+    prepare_execution,
+    select_handler,
+)
 from acprof.experiments.constraints import integer
 from acprof.gpu_probe import gpu_probe_report, record_gpu_probe_error, set_gpu_probe_value
 from acprof.input_budget import positive_integer
-from acprof.runtime.settings import runtime_threads
 
 # Populated only for explicitly selected Torch/NVIDIA profiling paths.
 torch = None
@@ -286,42 +290,30 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    model_id = os.getenv("MODEL_ID", "")
-    model_revision = os.getenv("MODEL_REVISION", "main")
-    model_source = resolve_model_source(model_id, os.getenv("MODEL_LOCAL_PATH"))
-    task_family = os.getenv("TASK_FAMILY", "nlp")
-    task_type = os.getenv("TASK_TYPE", os.getenv("PIPELINE_TAG", "text-generation"))
-    runtime_backend = os.getenv("RUNTIME_BACKEND", "transformers_pipeline")
-    use_gpu = int(os.getenv("USE_GPU", "0"))
-    execution, device = configured_execution(
-        task_family, runtime_backend, use_gpu=bool(use_gpu), threads=runtime_threads(),
-        adapter=os.getenv("ACPROF_MODEL_ADAPTER", "family-default"),
+    config = ModelLoadConfig.from_environment(
+        task_type_default=os.getenv("PIPELINE_TAG", "text-generation"),
     )
-
-    handler = HandlerRegistry.get(task_family, runtime_backend)
+    model_id, model_revision = config.model_id, config.model_revision
+    model_source = config.resolve_source()
+    runtime_backend = config.backend
+    execution, device = prepare_execution(config)
+    handler = select_handler(config)
     load_options = _load_options_for_profile_mode(args.profile_mode)
     torch_eager_mode = load_options is not None
     if torch_eager_mode or args.profile_mode == "gpu":
         from acprof.extensions import get_extension
-        declaration = get_extension(task_family, runtime_backend,
-                                    adapter=os.getenv("ACPROF_MODEL_ADAPTER", "family-default"))
+        declaration = get_extension(config.task_family, runtime_backend, adapter=config.adapter)
         capability = "torch_profiler_eager" if torch_eager_mode else "ncu"
         if declaration.measurement.get(capability) == "unsupported":
             raise ValueError(f"unsupported profiler={capability} backend={runtime_backend}")
         import torch as selected_torch
         torch = selected_torch
     t_load = time.perf_counter()
-    handler_load_kwargs: dict[str, Any] = {}
-    if load_options is not None:
-        handler_load_kwargs["load_options"] = load_options
-    model_ctx = load_handler(handler,
-        model_source,
-        task_type,
-        runtime_backend,
-        device,
-        model_revision,
-        **handler_load_kwargs,
+    session = load_model_session(
+        config, execution, device, handler=handler, model_source=model_source,
+        load_options=load_options,
     )
+    model_ctx = session.context
     attention_implementation = (
         _verify_eager_attention(model_ctx)
         if torch_eager_mode

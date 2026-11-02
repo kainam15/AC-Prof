@@ -3,6 +3,29 @@ import subprocess
 import sys
 
 
+def test_server_and_session_imports_do_not_initialize_runtime_or_change_environment():
+    result = subprocess.run([sys.executable, "-c", """
+import importlib.abc
+import os
+import sys
+from unittest.mock import patch
+
+class NoRuntime(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, path=None, target=None):
+        blocked = ("torch", "transformers", "flask", "acprof.container.handlers", "acprof.container.execution")
+        if any(fullname == name or fullname.startswith(name + ".") for name in blocked):
+            raise AssertionError("import attempted runtime initialization: " + fullname)
+
+sys.meta_path.insert(0, NoRuntime())
+before = dict(os.environ)
+with patch("socket.socket", side_effect=AssertionError("import must not listen")):
+    import acprof.container.model_session
+    import acprof.container.server
+assert dict(os.environ) == before
+"""], text=True, capture_output=True, timeout=15)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
 def test_generic_runner_import_does_not_import_torch():
     result = subprocess.run([sys.executable, '-c', '''
 import importlib.abc, sys

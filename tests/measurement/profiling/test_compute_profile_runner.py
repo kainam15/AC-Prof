@@ -29,20 +29,12 @@ class TestComputeProfileRunnerITT:
             inference_mode=lambda: None,
             set_num_threads=lambda *_args, **_kwargs: None,
         )
-        fake_handlers = types.ModuleType("acprof.container.handlers")
-        fake_handlers.HandlerRegistry = types.SimpleNamespace(
-            get=lambda *_args, **_kwargs: None
-        )
-        fake_handlers.resolve_model_source = (
-            lambda model_id, model_path=None: model_path or model_id
-        )
-        fake_handlers.load_handler = lambda handler, *args, **kwargs: handler.load(*args, **kwargs)
         sys.modules.pop("acprof.container.compute_profile_runner", None)
         # Container entrypoints set offline flags; keep that process setup local
         # to the fixture so later host SDK imports see the original environment.
         with patch.dict(os.environ), patch.dict(
             sys.modules,
-            {"torch": fake_torch, "acprof.container.handlers": fake_handlers},
+            {"torch": fake_torch},
         ):
             runner = importlib.import_module("acprof.container.compute_profile_runner")
         runner.torch = fake_torch
@@ -229,13 +221,16 @@ class TestComputeProfileRunnerITT:
         with ExitStack() as stack:
             stack.enter_context(patch.dict(sys.modules, {"torch": runner.torch}))
             execution = types.SimpleNamespace(inference_context=nullcontext, synchronize=lambda: None)
-            stack.enter_context(patch.object(runner, "configured_execution", return_value=(execution, "cpu")))
+            stack.enter_context(patch.object(runner, "prepare_execution", return_value=(execution, "cpu")))
             stack.enter_context(patch.dict(runner.os.environ, {"MODEL_ID": "local/tiny"}, clear=True))
             stack.enter_context(patch.object(sys, "argv", [
                 "compute_profile_runner", "--payload-file", "unused.json",
                 "--input-scale", "64", "--repeat", "2", "--profile-mode", mode,
             ]))
-            stack.enter_context(patch.object(runner.HandlerRegistry, "get", return_value=Handler()))
+            stack.enter_context(patch.object(runner, "select_handler", return_value=Handler()))
+            handlers = importlib.import_module('acprof.container.handlers')
+            stack.enter_context(patch.object(handlers, 'load_handler',
+                                            side_effect=lambda handler, *args, **kwargs: handler.load(*args, **kwargs)))
             stack.enter_context(patch.object(runner, "_find_payload", return_value={"resolution": 64}))
             stack.enter_context(patch.object(runner.torch, "inference_mode", side_effect=nullcontext))
             stack.enter_context(patch.object(runner.torch.profiler, "profile", side_effect=profiler))
@@ -277,7 +272,7 @@ class TestComputeProfileRunnerITT:
 
         events, references = [], []
         with self._main_context(mode, events) as (runner, stdout):
-            handler = runner.HandlerRegistry.get()
+            handler = runner.select_handler()
 
             def predict(*_args):
                 if references:
@@ -300,7 +295,7 @@ class TestComputeProfileRunnerITT:
 
             handler.predict = predict
             handler.postprocess = postprocess
-            runner.configured_execution.return_value[0].wait_for_completion = complete
+            runner.prepare_execution.return_value[0].wait_for_completion = complete
             runner.main()
         assert (len(references)) == (3)
         assert (all(reference() is None for reference in references))

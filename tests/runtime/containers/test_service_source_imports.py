@@ -15,6 +15,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
     "acprof.input_budget",
     "acprof.config",
     "acprof.container.execution",
+    "acprof.container.model_session",
+    "acprof.container.server",
     "acprof.container.load_policy",
     "acprof.container.runtime_manifest",
     "acprof.container.compute_profile_runner",

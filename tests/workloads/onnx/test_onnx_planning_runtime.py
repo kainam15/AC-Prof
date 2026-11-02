@@ -2,7 +2,6 @@
 import importlib.util
 import json
 import os
-import runpy
 import string
 import sys
 from contextlib import ExitStack
@@ -27,6 +26,7 @@ class TestONNXWordPiecePlanning:
         from tokenizers import Tokenizer, models, pre_tokenizers, processors
         from werkzeug.serving import make_server
 
+        from acprof.container.server import create_runtime_app
         from acprof.host.detect import TaskInfo
         from acprof.host.input_plan import families
         from examples.onnxruntime.fixtures import create_text_fixture
@@ -54,8 +54,8 @@ class TestONNXWordPiecePlanning:
             'MODEL_ID': 'local/wordpiece-fixture', 'MODEL_REVISION': 'fixture', 'MODEL_LOCAL_PATH': str(model),
             'USE_GPU': '0', 'ACPROF_MODEL_ADAPTER': 'family-default',
         }))
-        namespace = runpy.run_module('acprof.container.server', run_name='acprof_test_wordpiece_server')
-        server = make_server('127.0.0.1', 0, namespace['app'], threaded=True)
+        app = create_runtime_app()
+        server = make_server('127.0.0.1', 0, app, threaded=True)
         thread = Thread(target=server.serve_forever, kwargs={'poll_interval': 0.01}, daemon=True)
         thread.start()
 
