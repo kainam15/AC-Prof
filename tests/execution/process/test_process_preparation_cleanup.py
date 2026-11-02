@@ -9,7 +9,7 @@ import pytest
 
 from acprof.host.runtimes import environment
 from acprof.process_identity import process_identity, same_process
-from acprof.runtime.dependency_locks import content_digest
+from acprof.runtime.dependency_locks import content_digest, read_python_lock
 
 
 @pytest.mark.parametrize("phase", ["venv", "install", "inspect"])
@@ -39,7 +39,10 @@ elif phase == "inspect":
 ''')
     installer.chmod(0o755)
     root = tmp_path / "environments"
-    identity = {"artifacts": []}
+    lock = tmp_path / "requirements.lock"
+    lock.write_text("fixture @ https://example.org/fixture-1-py3-none-any.whl --hash=sha256:" + "a" * 64 + "\n")
+    identity = {"artifacts": read_python_lock(lock), "requirements_lock": "requirements.lock",
+                "requirements_lock_sha256": environment.file_sha256(lock)}
     declaration = SimpleNamespace(requirements_lock="requirements.lock",
                                   platform=SimpleNamespace(python_version="3.12"))
     monkeypatch.setattr(environment, "environment_plan", lambda *args: (root, identity, declaration))

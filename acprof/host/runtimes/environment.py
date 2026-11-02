@@ -21,6 +21,26 @@ def host_abi() -> dict:
     return {"system": platform.system(), "machine": platform.machine(), "libc": list(platform.libc_ver())}
 
 
+def _dependency_lock_path(code: Path, relative: str | None) -> Path:
+    if not isinstance(relative, str) or not relative:
+        raise ValueError("Process environment lacks dependency lock identity; prepare it again")
+    path = Path(relative)
+    if path.is_absolute() or path.as_posix() != relative or ".." in path.parts:
+        raise ValueError("Invalid Process dependency lock path")
+    destination = code / path
+    if not destination.resolve().is_relative_to(code.resolve()):
+        raise ValueError("Process dependency lock escapes the service snapshot")
+    return destination
+
+
+def _verify_dependency_lock(root: Path, identity: dict) -> None:
+    lock = _dependency_lock_path(root / "code", identity.get("requirements_lock"))
+    if (lock.is_symlink() or not lock.is_file()
+            or file_sha256(lock) != identity.get("requirements_lock_sha256")
+            or read_python_lock(lock) != identity["artifacts"]):
+        raise ValueError("Process dependency lock changed or is missing; prepare it again")
+
+
 def installed_packages(python: str) -> dict:
     result = run_command([python, "-I", "-B", "-c",
         "import importlib.metadata as m,json;print(json.dumps({d.metadata['Name'].lower().replace('_','-'):d.version for d in m.distributions()}))"],
@@ -52,8 +72,10 @@ def environment_plan(task, project_dir: str | Path):
         raise ValueError("Process dependency locks currently target Linux x86_64")
     lock = project / declaration.requirements_lock
     records = read_python_lock(lock)
-    identity = {"schema_version": 2, "kind": "process", "host_abi": abi,
+    identity = {"schema_version": 3, "kind": "process", "host_abi": abi,
                 "python": declaration.platform.python_version, "artifacts": records,
+                "requirements_lock": declaration.requirements_lock,
+                "requirements_lock_sha256": file_sha256(lock),
                 "service_sha256": source_fingerprint(project, service_sources(project), scope="process-service-v1")}
     root = Path(os.environ.get("ACPROF_PROCESS_STORE", "~/.cache/acprof/process-environments")).expanduser().resolve()
     return root, identity, declaration
@@ -80,10 +102,14 @@ def prepare_environment(task, project_dir: str | Path) -> tuple[Path, dict]:
             raise RuntimeError("Process preparation requires uv; install uv before starting collection")
         with tempfile.TemporaryDirectory(prefix=".preparing-", dir=root) as directory:
             staging = Path(directory) / "environment"
+            staged_lock = _dependency_lock_path(staging / "code", identity["requirements_lock"])
+            staged_lock.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(lock, staged_lock)
+            _verify_dependency_lock(staging, identity)
             run_command([uv, "venv", "--relocatable", "--python", declaration.platform.python_version,
                          str(staging / "venv")], check=True, timeout=300, kill_process_group=True)
             python = str(staging / "venv/bin/python")
-            run_command([uv, "pip", "sync", "--python", python, "--link-mode", "copy", "--require-hashes", str(lock)],
+            run_command([uv, "pip", "sync", "--python", python, "--link-mode", "copy", "--require-hashes", str(staged_lock)],
                         check=True, timeout=3600, kill_process_group=True)
             actual = installed_packages(python)
             expected = package_versions(records)
@@ -108,6 +134,7 @@ def verify_environment(root: Path, manifest: dict) -> None:
     identity = manifest["identity"]
     if content_digest(identity) != manifest["environment_id"] or identity["host_abi"] != host_abi():
         raise ValueError("Process environment identity or host ABI changed")
+    _verify_dependency_lock(root, identity)
     if installed_packages(str(root / "venv/bin/python")) != manifest["packages"]:
         raise ValueError("Process environment packages changed; refuse reuse")
     if file_sha256(root / "venv/bin/python") != manifest["interpreter_sha256"]:

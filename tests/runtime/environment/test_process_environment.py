@@ -4,7 +4,7 @@ import hashlib
 import pytest
 
 from acprof.host.runtimes import environment
-from acprof.runtime.dependency_locks import content_digest
+from acprof.runtime.dependency_locks import content_digest, read_python_lock
 
 
 def test_reuse_rejects_dependency_edits_with_unchanged_package_versions(tmp_path, monkeypatch):
@@ -13,7 +13,12 @@ def test_reuse_rejects_dependency_edits_with_unchanged_package_versions(tmp_path
         path = tmp_path / 'venv' / name
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(data)
-    identity = {'host_abi': environment.host_abi(), 'service_sha256': 'fixture-code'}
+    lock = tmp_path / 'code/requirements.lock'
+    lock.parent.mkdir()
+    lock.write_text('fixture @ https://example.org/fixture-1-py3-none-any.whl --hash=sha256:' + 'a' * 64 + '\n')
+    identity = {'host_abi': environment.host_abi(), 'service_sha256': 'fixture-code',
+                'requirements_lock': 'requirements.lock', 'requirements_lock_sha256': hashlib.sha256(lock.read_bytes()).hexdigest(),
+                'artifacts': read_python_lock(lock)}
     manifest = {'identity': identity, 'environment_id': content_digest(identity), 'packages': {'fixture': '1'},
                 'interpreter_sha256': hashlib.sha256(files['bin/python']).hexdigest(),
                 'installed_tree_sha256': content_digest({name: hashlib.sha256(data).hexdigest() for name, data in files.items()})}
