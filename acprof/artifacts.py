@@ -56,6 +56,22 @@ def loads_finite_json(content: str) -> Any:
     )
 
 
+def reject_isolated_surrogates(payload: Any) -> None:
+    pending = [payload]
+    while pending:
+        value = pending.pop()
+        if isinstance(value, str):
+            try:
+                value.encode("utf-8")
+            except UnicodeEncodeError as error:
+                raise ValueError("JSON contains an isolated surrogate") from error
+        elif isinstance(value, list):
+            pending.extend(value)
+        elif isinstance(value, dict):
+            pending.extend(value.keys())
+            pending.extend(value.values())
+
+
 @dataclass(frozen=True, slots=True)
 class JsonObjectSnapshot:
     """The original bytes and finite object decoded from one open file."""

@@ -29,6 +29,7 @@ _ENDPOINT_OPTIONS = (
     "generation_seed", "request_timeout", "api_key_env", "model_revision",
     "tokenizer_json", "tokenizer_model", "tokenizer_revision",
     "slo_ttft_s", "slo_tpot_s", "slo_e2e_s", "service_backend", "service_version",
+    "max_run_response_bytes", "max_run_output_events",
 )
 
 
@@ -53,6 +54,10 @@ def add_streaming_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--slo-e2e-s", type=float, help="Request E2E SLO threshold in seconds")
     parser.add_argument("--service-backend", help="User-declared inference backend")
     parser.add_argument("--service-version", help="User-declared inference backend version")
+    parser.add_argument("--max-run-response-bytes", type=int,
+                        help="Maximum raw SSE bytes received across one warmup or measured run")
+    parser.add_argument("--max-run-output-events", type=int,
+                        help="Maximum output events retained across one warmup or measured run")
     parser.add_argument("--service-probe", choices=("none", "vllm"),
                         help="Optional pre-warmup service identity probe (default: none)")
 
@@ -197,7 +202,13 @@ def _prepare(args: argparse.Namespace) -> tuple[
         raise ValueError("OpenAI streaming requires a nonempty model")
     counter, tokenizer = _token_counter(args, model)
     from acprof.host.measurement.streaming import OpenAIStreamingAdapter
-    adapter = OpenAIStreamingAdapter(endpoint=_ENDPOINTS[args.protocol], token_counter=counter)
+    limits = {
+        name: value for name in ("max_run_response_bytes", "max_run_output_events")
+        if (value := getattr(args, name)) is not None
+    }
+    adapter = OpenAIStreamingAdapter(
+        endpoint=_ENDPOINTS[args.protocol], token_counter=counter, **limits,
+    )
     payload = adapter.prepare_payload(payload)
     return origin, payload, config, adapter, _authorization(args), tokenizer, slo_thresholds
 
@@ -213,6 +224,11 @@ def run_streaming_load(args: argparse.Namespace, parser: argparse.ArgumentParser
     except (OSError, KeyError, TypeError, ValueError) as error:
         parser.error(str(error))
     service_probe = args.service_probe or "none"
+    declared_service = {
+        "schema_version": 1, "backend": args.service_backend,
+        "version": args.service_version, "model": payload["model"],
+        "revision": args.model_revision, "probe": service_probe,
+    }
     identity = {
         "target_origin": origin, "endpoint": adapter.endpoint,
         "model": payload["model"], "model_revision": args.model_revision,
@@ -226,14 +242,7 @@ def run_streaming_load(args: argparse.Namespace, parser: argparse.ArgumentParser
         "warmup_scenario": "serial", "warmup_connections": "close",
         "authentication": "bearer_environment" if headers else "none",
         "slo_thresholds_s": slo_thresholds,
-        "service": {
-            "schema_version": 1, "backend": args.service_backend,
-            "version": args.service_version, "probe": service_probe,
-        },
-    }
-    declared_service = {
-        "backend": args.service_backend, "version": args.service_version,
-        "model": payload["model"], "revision": args.model_revision,
+        "service": declared_service,
     }
     report: dict[str, Any] = {
         "schema_version": 2, "kind": "stream_load_experiment", "run_id": uuid4().hex,

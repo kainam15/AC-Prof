@@ -8,12 +8,40 @@ from html import escape
 from pathlib import Path
 from typing import Any, TextIO
 
+from acprof.analysis.streaming import STREAMING_LATENCY_METRICS, streaming_summary
 from acprof.analysis.streaming_capacity import SLO_METRICS, build_capacity
 from acprof.artifacts import atomic_write, read_json_object
 
 
 def _canonical(value: Any) -> str:
     return json.dumps(value, sort_keys=True, allow_nan=False, separators=(",", ":"))
+
+
+def _validate_v2_service_declaration(
+    experiment: Mapping[str, Any], identity: Mapping[str, Any],
+) -> None:
+    declaration = identity.get("service")
+    service = experiment.get("service_identity")
+    if not isinstance(declaration, dict) or not isinstance(service, dict):
+        raise ValueError("stream load v2 requires a service declaration and service_identity")
+    required = {"schema_version", "backend", "version", "probe"}
+    if not required <= set(declaration) <= required | {"model", "revision"}:
+        raise ValueError("stream load identity has an invalid service declaration")
+    if declaration.get("schema_version") != 1:
+        raise ValueError("stream load identity has an invalid service declaration")
+    model = declaration.get("model", identity.get("model"))
+    revision = declaration.get("revision", identity.get("model_revision"))
+    expected = {
+        "backend": declaration["backend"], "version": declaration["version"],
+        "model": model, "revision": revision,
+    }
+    if service.get("declared") != expected:
+        raise ValueError("stream load service declaration differs from service_identity.declared")
+    if identity.get("model") != model or identity.get("model_revision") != revision:
+        raise ValueError("stream load model declarations differ")
+    probe = service.get("probe")
+    if not isinstance(probe, dict) or probe.get("kind") != declaration["probe"]:
+        raise ValueError("stream load service probe declaration differs")
 
 
 def _v2_capacity(experiment: Mapping[str, Any], result: Mapping[str, Any]) -> dict[str, Any]:
@@ -25,6 +53,7 @@ def _v2_capacity(experiment: Mapping[str, Any], result: Mapping[str, Any]) -> di
     ).hexdigest()
     if experiment.get("identity_sha256") != expected_identity:
         raise ValueError("stream load identity_sha256 does not match declared inputs")
+    _validate_v2_service_declaration(experiment, identity)
     protocol = result.get("protocol")
     requests = result.get("requests")
     if not isinstance(protocol, dict) or not isinstance(requests, list):
@@ -42,6 +71,17 @@ def _v2_capacity(experiment: Mapping[str, Any], result: Mapping[str, Any]) -> di
     return persisted
 
 
+def _v2_streaming(result: Mapping[str, Any]) -> dict[str, Any]:
+    requests = result.get("requests")
+    if not isinstance(requests, list):
+        raise ValueError("stream load v2 requires raw requests")
+    expected = streaming_summary(requests)
+    persisted = result.get("streaming")
+    if not isinstance(persisted, dict) or _canonical(persisted) != _canonical(expected):
+        raise ValueError("streaming latency is inconsistent with raw requests")
+    return expected
+
+
 def read_load_report(source: str | Path) -> dict[str, Any]:
     path = Path(source)
     path = path / "load.json" if path.is_dir() else path
@@ -57,7 +97,11 @@ def read_load_report(source: str | Path) -> dict[str, Any]:
     if result.get("schema_version") != version:
         raise ValueError("stream load experiment and result schema versions differ")
     capacity = _v2_capacity(experiment, result) if version == 2 else None
-    return {"experiment": experiment, "result": result, "capacity": capacity, "version": version}
+    streaming = _v2_streaming(result) if version == 2 else result.get("streaming")
+    return {
+        "experiment": experiment, "result": result, "capacity": capacity,
+        "streaming": streaming, "version": version,
+    }
 
 
 def _object(value: Any) -> dict[str, Any]:
@@ -179,10 +223,10 @@ def _token_section(capacity: Mapping[str, Any] | None) -> str:
     )
 
 
-def _latency_section(result: Mapping[str, Any]) -> str:
-    streaming = _object(result.get("streaming"))
+def _latency_section(streaming: Any) -> str:
+    streaming = _object(streaming)
     rows = []
-    for name in SLO_METRICS:
+    for name in STREAMING_LATENCY_METRICS:
         distribution = _object(streaming.get(name))
         rows.append([name, *[distribution.get(key) for key in ("mean", "p50", "p90", "p95", "p99", "sample_count")]])
     return (
@@ -214,7 +258,7 @@ def render_load_report(data: Mapping[str, Any]) -> str:
         + _capacity_section(result, capacity)
         + _slo_section(capacity)
         + _token_section(capacity)
-        + _latency_section(result)
+        + _latency_section(data.get("streaming"))
         + "</body></html>\n"
     )
     return content

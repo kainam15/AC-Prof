@@ -7,7 +7,7 @@ from collections.abc import Mapping
 from typing import Any
 from urllib.parse import urlsplit
 
-from acprof.artifacts import loads_finite_json
+from acprof.artifacts import loads_finite_json, reject_isolated_surrogates
 
 MAX_PROBE_RESPONSE_BYTES = 1024 * 1024
 _SERVICE_FIELDS = ("backend", "version", "model", "revision")
@@ -46,6 +46,7 @@ def _read_json(origin: str, path: str, headers: Mapping[str, str], timeout_s: fl
         if len(raw) > MAX_PROBE_RESPONSE_BYTES:
             raise ValueError(f"GET {path} exceeded the 1 MiB response limit")
         payload = loads_finite_json(raw.decode("utf-8"))
+        reject_isolated_surrogates(payload)
         if not isinstance(payload, dict):
             raise ValueError(f"GET {path} must return a JSON object")
         return payload
@@ -113,7 +114,7 @@ def probe_vllm(
         matched_models = [model for model in models or [] if model["id"] == declared.get("model")]
         matched = matched_models[0] if len(matched_models) == 1 else None
         observed = {
-            "backend": "vllm",
+            "backend": "vllm" if version is not None else None,
             "version": version,
             "model": matched["id"] if matched is not None else None,
             "revision": None,

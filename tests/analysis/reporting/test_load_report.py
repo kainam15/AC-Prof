@@ -18,11 +18,27 @@ def request():
         "input_tokens": 2, "output_tokens": 3,
         "input_token_count_source": "server_usage", "output_token_count_source": "server_usage",
         "input_token_count_scope": "server_prompt_tokens", "token_count_scope": "server_generated_tokens",
-        "ttft_s": 0.1, "tpot_s": 0.02, "e2e_s": 0.3,
+        "ttft_s": 0.1, "tpot_s": 0.02, "e2e_s": 0.3, "output_e2e_s": 0.14,
+        "itl_s": None, "output_event_intervals_s": [0.04],
     }
 
 
 def experiment(version=2):
+    def request_distribution(value, unit="seconds"):
+        return {
+            "mean": value, "p50": value, "p90": value, "p95": value, "p99": value,
+            "sample_count": int(value is not None), "sample_unit": "request", "unit": unit,
+            "missing_requests": int(value is None),
+        }
+
+    def interval_distribution(value, sample_unit):
+        return {
+            "mean": value, "p50": value, "p90": value, "p95": value, "p99": value,
+            "sample_count": int(value is not None), "sample_unit": sample_unit, "unit": "seconds",
+            "requests_with_samples": int(value is not None),
+            "missing_requests": int(value is None),
+        }
+
     thresholds = {"ttft_s": 0.1, "tpot_s": 0.02, "e2e_s": 0.3}
     identity = {
         "model": "fixture", "model_revision": "declared-revision", "load_config": {"concurrency": 2},
@@ -34,8 +50,17 @@ def experiment(version=2):
         "counts": {"offered": 1, "sent": 1, "succeeded": 1, "failed": 0, "dropped": 0, "cancelled": 0},
         "requests": [request()],
         "streaming": {
-            name: {"mean": value, "p50": value, "p90": value, "p95": value, "p99": value, "sample_count": 1}
-            for name, value in (("ttft_s", 0.1), ("tpot_s", 0.02), ("e2e_s", 0.3))
+            "time_unit": "seconds", "percentile_method": "linear",
+            "excluded_requests": 0, "failed_requests": 0,
+            "cancelled_requests": 0, "dropped_requests": 0,
+            "ttft_s": request_distribution(0.1),
+            "tpot_s": request_distribution(0.02, "seconds_per_token"),
+            "output_e2e_s": request_distribution(0.14),
+            "e2e_s": request_distribution(0.3),
+            "itl_s": interval_distribution(None, "token_interval"),
+            "output_event_interval_s": interval_distribution(0.04, "output_event_interval"),
+            "output_token_count_sources": {"server_usage": 1},
+            "token_count_errors": 0, "errors": {},
         },
     }
     payload = {
@@ -44,6 +69,10 @@ def experiment(version=2):
     }
     if version == 2:
         identity["slo_thresholds_s"] = thresholds
+        identity["service"] = {
+            "schema_version": 1, "backend": "vllm", "version": "0.11.2",
+            "model": "fixture", "revision": "declared-revision", "probe": "vllm",
+        }
         result["capacity"] = build_capacity(result["requests"], result["duration_s"], 2, thresholds)
         payload["service_identity"] = {
             "schema_version": 1,
@@ -77,6 +106,24 @@ def test_v2_report_recomputes_capacity_and_renders_single_point_metrics(tmp_path
     assert '<th scope="row">goodput_requests_per_s</th><td>0.5</td>' in html
     assert '<th scope="row">input</th><td>2</td><td>1</td><td>2</td><td>1</td><td>1</td><td>1</td><td>1</td>' in html
     assert '<th scope="row">revision</th><td>declared-revision</td><td>unavailable</td>' in html
+
+
+def test_v2_report_reads_legacy_declaration_and_still_rejects_drift(tmp_path):
+    payload = experiment()
+    payload["identity"]["service"].pop("model")
+    payload["identity"]["service"].pop("revision")
+    payload["identity_sha256"] = hashlib.sha256(
+        json.dumps(payload["identity"], sort_keys=True, allow_nan=False).encode()
+    ).hexdigest()
+    directory = tmp_path / "legacy-v2"
+    directory.mkdir()
+    source = directory / "load.json"
+    source.write_text(json.dumps(payload))
+    assert read_load_report(source)["version"] == 2
+    payload["service_identity"]["declared"]["backend"] = "other"
+    source.write_text(json.dumps(payload))
+    with pytest.raises(ValueError, match="service declaration differs"):
+        read_load_report(source)
 
 
 def test_v1_report_keeps_new_capacity_and_token_values_unavailable(tmp_path):
@@ -140,6 +187,63 @@ def test_v2_report_rejects_inconsistent_or_tampered_evidence(tmp_path, tamper):
     with pytest.raises(ValueError, match="inconsistent|identity_sha256"):
         write_load_report(source, output)
     assert not output.exists()
+
+
+def test_v2_report_rejects_latency_drift_without_slo_threshold_crossing(tmp_path):
+    source = save_experiment(tmp_path)
+    payload = json.loads(source.read_text())
+    payload["result"]["requests"][0]["ttft_s"] = 0.05
+    source.write_text(json.dumps(payload))
+    with pytest.raises(ValueError, match="streaming latency"):
+        write_load_report(source, tmp_path / "drift.html")
+
+
+def test_v2_report_rejects_latency_drift_when_no_slo_is_configured(tmp_path):
+    source = save_experiment(tmp_path)
+    payload = json.loads(source.read_text())
+    thresholds = {"ttft_s": None, "tpot_s": None, "e2e_s": None}
+    payload["identity"]["slo_thresholds_s"] = thresholds
+    payload["identity_sha256"] = hashlib.sha256(
+        json.dumps(payload["identity"], sort_keys=True, allow_nan=False).encode()
+    ).hexdigest()
+    result = payload["result"]
+    result["capacity"] = build_capacity(result["requests"], result["duration_s"], 2, thresholds)
+    result["requests"][0]["e2e_s"] = 0.2
+    source.write_text(json.dumps(payload))
+    with pytest.raises(ValueError, match="streaming latency"):
+        write_load_report(source, tmp_path / "without-slo.html")
+
+
+def test_v2_report_rejects_persisted_streaming_summary_drift(tmp_path):
+    source = save_experiment(tmp_path)
+    payload = json.loads(source.read_text())
+    payload["result"]["streaming"]["ttft_s"]["mean"] = 0.11
+    source.write_text(json.dumps(payload))
+    with pytest.raises(ValueError, match="streaming latency"):
+        write_load_report(source, tmp_path / "summary-drift.html")
+
+
+@pytest.mark.parametrize("field", ["backend", "version", "model", "revision"])
+def test_v2_report_rejects_service_declaration_drift(tmp_path, field):
+    source = save_experiment(tmp_path)
+    payload = json.loads(source.read_text())
+    payload["service_identity"]["declared"][field] = "drift"
+    source.write_text(json.dumps(payload))
+    with pytest.raises(ValueError, match="service declaration"):
+        write_load_report(source, tmp_path / f"{field}-drift.html")
+
+
+def test_v2_report_rejects_service_probe_drift_but_allows_observation_drift(tmp_path):
+    source = save_experiment(tmp_path)
+    payload = json.loads(source.read_text())
+    payload["service_identity"]["probe"]["kind"] = "none"
+    source.write_text(json.dumps(payload))
+    with pytest.raises(ValueError, match="probe declaration"):
+        write_load_report(source, tmp_path / "probe-drift.html")
+    payload["service_identity"]["probe"]["kind"] = "vllm"
+    payload["service_identity"]["observed"]["version"] = "later-observation"
+    source.write_text(json.dumps(payload))
+    assert write_load_report(source, tmp_path / "observed.html").is_file()
 
 
 def test_load_report_never_overwrites_existing_output(tmp_path):

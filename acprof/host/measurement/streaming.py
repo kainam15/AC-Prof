@@ -4,11 +4,12 @@ from __future__ import annotations
 import codecs
 import math
 import re
+import threading
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from acprof.artifacts import loads_finite_json
+from acprof.artifacts import loads_finite_json, reject_isolated_surrogates
 
 _ENDPOINTS = {"/v1/chat/completions", "/v1/completions"}
 _METRICS = ("ttft_s", "tpot_s", "itl_s", "output_e2e_s", "e2e_s")
@@ -22,8 +23,48 @@ class StreamProtocolError(ValueError):
         self.code = code
 
 
+class StreamTokenCountError(StreamProtocolError):
+    def __init__(self, original: Exception):
+        super().__init__(getattr(original, "code", "tokenizer_error"), str(original))
+        self.original = original
+
+
 class StreamCancelledError(RuntimeError):
     code = "cancelled"
+
+
+class StreamRunBudget:
+    def __init__(self, max_response_bytes: int, max_output_events: int):
+        self.max_response_bytes = max_response_bytes
+        self.max_output_events = max_output_events
+        self._lock = threading.Lock()
+        self._response_bytes = 0
+        self._output_events = 0
+        self._failure: tuple[str, str] | None = None
+
+    def _raise_failure(self) -> None:
+        if self._failure is not None:
+            raise StreamProtocolError(*self._failure)
+
+    def check(self) -> None:
+        with self._lock:
+            self._raise_failure()
+
+    def reserve_response_bytes(self, count: int) -> None:
+        with self._lock:
+            self._raise_failure()
+            if self._response_bytes + count > self.max_response_bytes:
+                self._failure = ("run_response_limit", "run exceeds max_run_response_bytes")
+                self._raise_failure()
+            self._response_bytes += count
+
+    def reserve_output_event(self) -> None:
+        with self._lock:
+            self._raise_failure()
+            if self._output_events >= self.max_output_events:
+                self._failure = ("run_output_event_limit", "run exceeds max_run_output_events")
+                self._raise_failure()
+            self._output_events += 1
 
 
 class _Cancellation(Protocol):
@@ -191,12 +232,16 @@ class OpenAIStreamingAdapter:
         max_event_bytes: int = 1024 * 1024,
         max_response_bytes: int = 64 * 1024 * 1024,
         max_output_events: int = 100000,
+        max_run_response_bytes: int = 256 * 1024 * 1024,
+        max_run_output_events: int = 1000000,
     ):
         if endpoint not in _ENDPOINTS:
             raise ValueError("unsupported OpenAI streaming endpoint")
         for name, value in (
             ("max_event_bytes", max_event_bytes), ("max_response_bytes", max_response_bytes),
             ("max_output_events", max_output_events),
+            ("max_run_response_bytes", max_run_response_bytes),
+            ("max_run_output_events", max_run_output_events),
         ):
             if type(value) is not int or value < 1:
                 raise ValueError(f"{name} must be a positive integer")
@@ -205,10 +250,16 @@ class OpenAIStreamingAdapter:
         self.max_event_bytes = max_event_bytes
         self.max_response_bytes = max_response_bytes
         self.max_output_events = max_output_events
+        self.max_run_response_bytes = max_run_response_bytes
+        self.max_run_output_events = max_run_output_events
+
+    def new_run_budget(self) -> StreamRunBudget:
+        return StreamRunBudget(self.max_run_response_bytes, self.max_run_output_events)
 
     def prepare_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(payload, dict) or not isinstance(payload.get("model"), str) or not payload["model"].strip():
             raise ValueError("OpenAI streaming requires a nonempty model")
+        reject_isolated_surrogates(payload)
         if self.token_counter is not None and payload["model"] != self.token_counter.model_id:
             raise ValueError("tokenizer fallback model does not match the request model")
         if "n" in payload and (type(payload["n"]) is not int or payload["n"] != 1):
@@ -253,6 +304,8 @@ class OpenAIStreamingAdapter:
                 "max_event_bytes": self.max_event_bytes,
                 "max_response_bytes": self.max_response_bytes,
                 "max_output_events": self.max_output_events,
+                "max_run_response_bytes": self.max_run_response_bytes,
+                "max_run_output_events": self.max_run_output_events,
             },
         }
 
@@ -274,7 +327,7 @@ class OpenAIStreamingAdapter:
             output_token_count_source="unavailable", input_token_count_scope="unavailable",
             token_count_scope="unavailable",
             tokenizer=self.token_counter.identity() if self.token_counter else None,
-            server_usage=None, stream_error_code=None,
+            server_usage=None, stream_error_code=None, stream_finalized=False,
             output_usage_event_count=None, output_usage_status="unavailable",
         )
         self.invalidate(record, "incomplete_request")
@@ -312,7 +365,9 @@ class OpenAIStreamingAdapter:
         if record["output_tokens"] is not None:
             record["token_count_scope"] = "server_generated_tokens"
 
-    def _choice(self, record: dict[str, Any], choice: Any, received_s: float) -> None:
+    def _choice(
+        self, record: dict[str, Any], choice: Any, received_s: float, run_budget: StreamRunBudget,
+    ) -> None:
         if not isinstance(choice, dict) or ("index" in choice and (
             type(choice["index"]) is not int or choice["index"] != 0
         )):
@@ -339,6 +394,7 @@ class OpenAIStreamingAdapter:
                 raise StreamProtocolError("output_after_finish", "output followed a finish reason")
             if len(record["output_events"]) >= self.max_output_events:
                 raise StreamProtocolError("output_event_limit", "stream exceeds max_output_events")
+            run_budget.reserve_output_event()
             previous = record["last_output_s"]
             if previous is None:
                 record["first_output_s"] = received_s
@@ -356,7 +412,9 @@ class OpenAIStreamingAdapter:
                 raise StreamProtocolError("invalid_finish_reason", "finish_reason must be nonempty text")
             record["finish_reason"] = finish
 
-    def _event(self, record: dict[str, Any], event: SSEEvent, received_s: float) -> None:
+    def _event(
+        self, record: dict[str, Any], event: SSEEvent, received_s: float, run_budget: StreamRunBudget,
+    ) -> None:
         if event.event == "error":
             raise StreamProtocolError("server_error", "server emitted an SSE error event")
         if record["stream_completed_s"] is not None:
@@ -369,6 +427,10 @@ class OpenAIStreamingAdapter:
             payload = loads_finite_json(event.data)
         except (TypeError, ValueError) as error:
             raise StreamProtocolError("invalid_json", "SSE data is not finite JSON") from error
+        try:
+            reject_isolated_surrogates(payload)
+        except ValueError as error:
+            raise StreamProtocolError("invalid_unicode", "SSE JSON contains an isolated surrogate") from error
         if not isinstance(payload, dict):
             raise StreamProtocolError("invalid_json", "SSE data must be a JSON object")
         if payload.get("error") is not None:
@@ -381,41 +443,19 @@ class OpenAIStreamingAdapter:
         if not isinstance(choices, list) or len(choices) > 1:
             raise StreamProtocolError("invalid_choices", "expected zero or one output choice")
         if choices:
-            self._choice(record, choices[0], received_s)
+            self._choice(record, choices[0], received_s, run_budget)
         usage = payload.get("usage")
         if usage is not None and usage.get("completion_tokens") is not None:
             # Usage covers the output in the same event as well.
             record["output_usage_event_count"] = len(record["output_events"])
             record["output_usage_status"] = "covers_last_output"
 
-    def _finish(self, record: dict[str, Any], *, allow_tokenizer: bool) -> None:
-        events = record["output_events"]
-        if record["output_token_count_source"] == "server_usage" and record["output_usage_event_count"] != len(events):
-            record.update(output_tokens=None, output_token_count_source="unavailable",
-                          token_count_scope="unavailable", output_usage_status="stale_before_last_output")
-        if record["output_tokens"] is None and events and all(event["token_count"] is not None for event in events):
-            record["output_tokens"] = sum(event["token_count"] for event in events)
-            record["output_token_count_source"] = "server_event_tokens"
-            record["token_count_scope"] = "server_generated_tokens"
-        if record["output_tokens"] is None and self.token_counter is not None and allow_tokenizer:
-            text = "".join(event["text"] for event in events)
-            record["output_tokens"] = _count(self.token_counter.count(text), "tokenizer output count")
-            record["output_token_count_source"] = "matched_tokenizer"
-            record["token_count_scope"] = "decoded_output_text_without_added_special_tokens"
+    @staticmethod
+    def _derive_token_timings(
+        record: dict[str, Any], events: list[dict[str, Any]], explicit: bool,
+    ) -> None:
         count = record["output_tokens"]
-        if count == 0 and events:
-            raise StreamProtocolError("invalid_usage", "zero output tokens contradict observed output")
-        known_event_tokens = sum(event["token_count"] or 0 for event in events)
-        if count is not None and record["token_count_scope"] == "server_generated_tokens" and known_event_tokens > count:
-            raise StreamProtocolError("invalid_token_evidence", "observed event tokens exceed server output count")
-        record["e2e_s"] = record["stream_completed_s"] - record["sent_s"]
-        record["stream_successful"] = True
-        missing: dict[str, str] = {}
-        if events:
-            record["ttft_s"] = record["first_output_s"] - record["sent_s"]
-            record["output_e2e_s"] = record["last_output_s"] - record["sent_s"]
-        else:
-            missing.update(ttft_s="no_output_event", output_e2e_s="no_output_event")
+        missing = record["missing_reasons"]
         if count is None:
             missing["tpot_s"] = "unknown_output_token_count"
         elif count < 2:
@@ -425,31 +465,93 @@ class OpenAIStreamingAdapter:
         else:
             record["tpot_s"] = (record["last_output_s"] - record["first_output_s"]) / (count - 1)
             record["tpot_precision"] = "client_output_event_estimate"
-        explicit = bool(events) and all(event["token_count"] == 1 for event in events)
-        if count is not None and count > 1 and explicit and len(events) == count and record["token_count_scope"] == "server_generated_tokens":
+        if (
+            count is not None and count > 1 and explicit and len(events) == count
+            and record["token_count_scope"] == "server_generated_tokens"
+        ):
             record["itl_s"] = list(record["output_event_intervals_s"])
             record["itl_precision"] = "client_receive_explicit_single_token_events"
             if record["tpot_s"] is not None:
                 record["tpot_precision"] = "client_receive_explicit_single_token_events"
         else:
             missing["itl_s"] = "per_token_timing_unavailable"
+
+    def _finish(self, record: dict[str, Any]) -> None:
+        if record["stream_finalized"]:
+            return
+        events = record["output_events"]
+        if (
+            record["output_token_count_source"] == "server_usage"
+            and record["output_usage_event_count"] != len(events)
+        ):
+            record.update(output_tokens=None, output_token_count_source="unavailable",
+                          token_count_scope="unavailable", output_usage_status="stale_before_last_output")
+        known_event_tokens = 0
+        all_event_tokens_known = True
+        for event in events:
+            event_count = event["token_count"]
+            if event_count is None:
+                all_event_tokens_known = False
+            else:
+                known_event_tokens += event_count
+        if record["output_tokens"] is None and events and all_event_tokens_known:
+            record["output_tokens"] = known_event_tokens
+            record["output_token_count_source"] = "server_event_tokens"
+            record["token_count_scope"] = "server_generated_tokens"
+        count = record["output_tokens"]
+        if count == 0 and events:
+            raise StreamProtocolError("invalid_usage", "zero output tokens contradict observed output")
+        if (
+            count is not None and record["token_count_scope"] == "server_generated_tokens"
+            and known_event_tokens > count
+        ):
+            raise StreamProtocolError(
+                "invalid_token_evidence", "observed event tokens exceed server output count",
+            )
+        record["e2e_s"] = record["stream_completed_s"] - record["sent_s"]
+        record["stream_successful"] = True
+        missing: dict[str, str] = {}
+        if events:
+            record["ttft_s"] = record["first_output_s"] - record["sent_s"]
+            record["output_e2e_s"] = record["last_output_s"] - record["sent_s"]
+        else:
+            missing.update(ttft_s="no_output_event", output_e2e_s="no_output_event")
         record["missing_reasons"] = missing
+        record["stream_finalized"] = True
+        if record["output_tokens"] is None and self.token_counter is not None:
+            try:
+                text = "".join(event["text"] for event in events)
+                count = _count(self.token_counter.count(text), "tokenizer output count")
+                if count == 0 and events:
+                    raise StreamProtocolError(
+                        "invalid_usage", "zero output tokens contradict observed output",
+                    )
+            except Exception as error:
+                raise StreamTokenCountError(error) from error
+            record["output_tokens"] = count
+            record["output_token_count_source"] = "matched_tokenizer"
+            record["token_count_scope"] = "decoded_output_text_without_added_special_tokens"
+        self._derive_token_timings(
+            record, events, bool(events) and all_event_tokens_known and known_event_tokens == len(events),
+        )
 
     def finalize(self, record: dict[str, Any]) -> None:
-        """Count complete decoded text after the scheduler has stopped its timed window."""
         if record.get("stream_successful"):
-            self._finish(record, allow_tokenizer=True)
+            self._finish(record)
 
     def consume(
         self, response: _Response, record: dict[str, Any], *,
         clock: Callable[[], float], cancelled: _Cancellation, defer_tokenization: bool = False,
+        run_budget: StreamRunBudget | None = None,
     ) -> None:
         """Drain HTTP framing; all SSE events from one read share its timestamp."""
         self._initialize(record)
+        run_budget = run_budget if run_budget is not None else self.new_run_budget()
         received_bytes = 0
         parser = SSEDecoder(self.max_event_bytes)
         previous = record["sent_s"]
         try:
+            run_budget.check()
             if response.status != 200:
                 raise StreamProtocolError("http_error", f"streaming HTTP status {response.status}")
             content_type = (response.getheader("Content-Type") or "").split(";", 1)[0].strip().lower()
@@ -471,14 +573,18 @@ class OpenAIStreamingAdapter:
                     record["transport_completed_s"] = received_s
                     break
                 received_bytes += len(chunk)
+                run_budget.reserve_response_bytes(len(chunk))
                 if received_bytes > self.max_response_bytes:
                     raise StreamProtocolError("response_limit", "stream exceeds max_response_bytes")
                 for event in parser.feed(chunk):
-                    self._event(record, event, received_s)
+                    self._event(record, event, received_s, run_budget)
             parser.finish()
             if record["stream_completed_s"] is None:
                 raise StreamProtocolError("incomplete_stream", "stream ended without [DONE]")
-            self._finish(record, allow_tokenizer=not defer_tokenization)
+            if defer_tokenization:
+                record["stream_successful"] = True
+            else:
+                self._finish(record)
         except BaseException as error:
             code = getattr(error, "code", "transport_error")
             record["stream_error_code"] = code

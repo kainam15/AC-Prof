@@ -7,19 +7,21 @@ import json
 import math
 import random
 import socket
-import statistics
 import threading
 import time
 from collections import Counter
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from dataclasses import asdict, dataclass
-from typing import TYPE_CHECKING, Any
+from typing import Any
 from urllib.parse import urlsplit
 
+from acprof.analysis.streaming import distribution, streaming_summary
 from acprof.artifacts import loads_finite_json
-
-if TYPE_CHECKING:
-    from acprof.host.measurement.streaming import OpenAIStreamingAdapter
+from acprof.host.measurement.streaming import (
+    OpenAIStreamingAdapter,
+    StreamProtocolError,
+    StreamTokenCountError,
+)
 
 
 @dataclass(frozen=True)
@@ -80,48 +82,6 @@ class LoadConfig:
         return offsets
 
 
-def _distribution(values: list[float]) -> dict[str, Any]:
-    ordered = sorted(values)
-
-    def percentile(p):
-        if not ordered:
-            return None
-        position = (len(ordered) - 1) * p
-        low = math.floor(position)
-        return ordered[low] + (ordered[min(low + 1, len(ordered) - 1)] - ordered[low]) * (position - low)
-
-    return {"mean": statistics.fmean(ordered) if ordered else None,
-            "p50": percentile(0.5), "p90": percentile(0.9),
-            "p95": percentile(0.95), "p99": percentile(0.99), "sample_count": len(ordered)}
-
-
-def _streaming_summary(records: list[dict[str, Any]]) -> dict[str, Any]:
-    """Request metrics are equally weighted; interval metrics pool valid intervals."""
-    succeeded = [row for row in records if row["status"] == "ok"]
-    summary: dict[str, Any] = {"time_unit": "seconds", "percentile_method": "linear",
-                              "excluded_requests": len(records) - len(succeeded),
-                              "failed_requests": sum(row["status"] == "error" for row in records),
-                              "cancelled_requests": sum(row["status"] == "cancelled" for row in records),
-                              "dropped_requests": sum(row["status"] == "dropped" for row in records)}
-    for name in ("ttft_s", "tpot_s", "output_e2e_s", "e2e_s"):
-        values = [row[name] for row in succeeded if row.get(name) is not None]
-        summary[name] = {**_distribution(values), "sample_unit": "request",
-                         "unit": "seconds_per_token" if name == "tpot_s" else "seconds",
-                         "missing_requests": len(succeeded) - len(values)}
-    for field, name, unit in (("itl_s", "itl_s", "token_interval"),
-                              ("output_event_intervals_s", "output_event_interval_s", "output_event_interval")):
-        values = [value for row in succeeded for value in (row.get(field) or [])]
-        summary[name] = {**_distribution(values), "sample_unit": unit, "unit": "seconds",
-                         "requests_with_samples": sum(bool(row.get(field)) for row in succeeded),
-                         "missing_requests": sum(not row.get(field) for row in succeeded)}
-    summary["output_token_count_sources"] = dict(Counter(
-        row.get("output_token_count_source", "unavailable") for row in succeeded))
-    summary["token_count_errors"] = sum(bool(row.get("token_count_error")) for row in succeeded)
-    summary["errors"] = dict(Counter(row.get("error_code", row["status"])
-                                    for row in records if row["status"] != "ok"))
-    return summary
-
-
 def run_load(
     url, payload, config: LoadConfig, *, token,
     adapter: OpenAIStreamingAdapter | None = None,
@@ -164,6 +124,7 @@ def run_load(
     connections = []
     active_sockets: dict[int, socket.socket] = {}
     cancelled = threading.Event()
+    run_budget = adapter.new_run_budget() if adapter is not None else None
     factory = http.client.HTTPSConnection if target.scheme == "https" else http.client.HTTPConnection
 
     hostname = str(target.hostname)
@@ -187,6 +148,8 @@ def run_load(
         client = connection()
         response: http.client.HTTPResponse | None = None
         try:
+            if run_budget is not None:
+                run_budget.check()
             record["sent_s"] = time.perf_counter() - epoch
             client.request("POST", target.path.rstrip("/") + endpoint, body=body, headers={
                 **extra_headers, "Content-Type": "application/json",
@@ -209,8 +172,10 @@ def run_load(
                 record["workload_contract"] = result.get("workload_contract")
             else:
                 record["http_status"] = response.status
-                adapter.consume(response, record, clock=lambda: time.perf_counter() - epoch,
-                                cancelled=cancelled, defer_tokenization=True)
+                adapter.consume(
+                    response, record, clock=lambda: time.perf_counter() - epoch,
+                    cancelled=cancelled, defer_tokenization=True, run_budget=run_budget,
+                )
             if config.connections == "reuse" and response.will_close:
                 raise RuntimeError("connection reuse requested but server closed the connection")
             record["status"] = "ok"
@@ -303,14 +268,17 @@ def run_load(
                 continue
             try:
                 adapter.finalize(record)
-            except Exception as error:
-                # Optional local counting cannot turn a completed HTTP request
-                # into a server failure or manufacture a token denominator.
+            except StreamTokenCountError as error:
+                cause = error.original
                 record.update(output_tokens=None, output_token_count_source="unavailable",
                               token_count_scope="unavailable", tpot_s=None, itl_s=None,
                               tpot_precision="unavailable", itl_precision="unavailable",
-                              token_count_error=f"{type(error).__name__}: {error}")
+                              token_count_error=f"{type(cause).__name__}: {cause}")
                 record["missing_reasons"].update(tpot_s="tokenizer_error", itl_s="tokenizer_error")
+            except StreamProtocolError as error:
+                record.update(status="error", error=f"{type(error).__name__}: {error}",
+                              error_code=error.code, stream_error_code=error.code)
+                adapter.invalidate(record, error.code)
             except BaseException as error:
                 primary_error = primary_error or error
                 break
@@ -329,13 +297,13 @@ def run_load(
               "success_rate": counts["ok"] / config.requests,
               "counts": {"offered": config.requests, "sent": sent, "succeeded": counts["ok"],
                          "failed": counts["error"], "dropped": counts["dropped"], "cancelled": counts["cancelled"]},
-              "latency_s": _distribution([record["completed_s"] - record["sent_s"] for record in succeeded]),
-              "scheduled_latency_s": _distribution([record["completed_s"] - record["planned_s"] for record in succeeded]),
-              "queue_delay_s": _distribution([record["sent_s"] - record["planned_s"] for record in completed_records if record["sent_s"] is not None]),
+              "latency_s": distribution([record["completed_s"] - record["sent_s"] for record in succeeded]),
+              "scheduled_latency_s": distribution([record["completed_s"] - record["planned_s"] for record in succeeded]),
+              "queue_delay_s": distribution([record["sent_s"] - record["planned_s"] for record in completed_records if record["sent_s"] is not None]),
               "connection_count": len({tuple(record["connection"]) for record in completed_records if record["connection"]}),
               "requests": completed_records}
     if adapter is not None:
-        report["streaming"] = _streaming_summary(completed_records)
+        report["streaming"] = streaming_summary(completed_records)
         report["completed_requests_per_s"] = sum(
             row.get("stream_completed_s") is not None for row in completed_records
         ) / duration if duration > 0 else None

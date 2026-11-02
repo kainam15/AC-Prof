@@ -274,11 +274,14 @@ def test_matched_tokenizer_counts_whole_output_once_and_can_be_deferred():
     ], adapter, defer_tokenization=True)
     assert calls == []
     assert record["output_tokens"] is None
-    assert record["ttft_s"] == 0.1
+    assert record["ttft_s"] is None
+    assert record["e2e_s"] is None
     adapter.finalize(record)
     adapter.finalize(record)
     assert calls == ["hello"]
     assert record["output_tokens"] == 2
+    assert record["ttft_s"] == 0.1
+    assert record["e2e_s"] == 0.25
     assert record["tpot_s"] == pytest.approx(0.1)
     assert record["output_token_count_source"] == "matched_tokenizer"
     assert record["token_count_scope"] == "decoded_output_text_without_added_special_tokens"
@@ -344,6 +347,24 @@ def test_cancellation_does_not_read_body_or_produce_timings():
     assert response.reads == 0
     assert record["stream_error_code"] == "cancelled"
     assert record["e2e_s"] is None
+
+
+@pytest.mark.parametrize("payload", [
+    b'data: {"choices":[],"nested":{"value":"\\ud800"}}\n\n',
+    b'data: {"choices":[],"\\ud800":"nested-key"}\n\n',
+    b'data: {"choices":[{"delta":{"content":"\\ud800"}}]}\n\n',
+])
+def test_sse_json_rejects_isolated_surrogates_in_values_and_keys(payload):
+    with pytest.raises(StreamProtocolError) as error:
+        consume([(0.1, payload), (0.2, frame("[DONE]"))])
+    assert error.value.code == "invalid_unicode"
+    assert error.value.__cause__ is not None
+
+
+def test_sse_json_accepts_valid_surrogate_pairs():
+    payload = b'data: {"choices":[],"nested":{"value":"\\ud83d\\ude00"}}\n\n'
+    record = consume([(0.1, payload), (0.2, frame("[DONE]"))])
+    assert record["stream_successful"]
 
 
 @pytest.mark.parametrize(("options", "code"), [

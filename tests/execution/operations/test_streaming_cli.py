@@ -91,6 +91,7 @@ def test_request_json_preserves_exact_generation_parameters(endpoint_cli, tmp_pa
     ["--max-tokens", "0"], ["--tokenizer-model", "fixture-model"],
     ["--slo-ttft-s", "0"], ["--slo-tpot-s", "nan"], ["--slo-e2e-s", "inf"],
     ["--slo-e2e-s", "-1"], ["--service-backend", " "], ["--service-version", " "],
+    ["--max-run-response-bytes", "0"], ["--max-run-output-events", "0"],
 ])
 def test_invalid_endpoint_options_fail_before_network_or_output(endpoint_cli, extra):
     base, output, calls = endpoint_cli
@@ -130,6 +131,16 @@ def test_request_json_rejects_overrides_and_nonfinite_values(endpoint_cli, tmp_p
         load_cli.main([
             *base, "--protocol", "openai-completions", "--request-json", str(request), "--max-tokens", "3",
         ])
+    assert not calls
+    assert not output.exists()
+
+
+def test_request_json_rejects_isolated_surrogates_before_output(endpoint_cli, tmp_path):
+    base, output, calls = endpoint_cli
+    request = tmp_path / "request.json"
+    request.write_text(r'{"model":"fixture-model","prompt":"\ud800"}')
+    with pytest.raises(SystemExit):
+        load_cli.main([*base, "--protocol", "openai-completions", "--request-json", str(request)])
     assert not calls
     assert not output.exists()
 
@@ -273,9 +284,29 @@ def test_slo_and_service_declarations_enter_identity_but_not_request_status(endp
     assert report["identity_sha256"] == expected_identity
     assert report["identity"]["slo_thresholds_s"]["tpot_s"] == 0.03
     assert report["identity"]["service"] == {
-        "schema_version": 1, "backend": "vllm", "version": "0.11.2", "probe": "none",
+        "schema_version": 1, "backend": "vllm", "version": "0.11.2",
+        "model": "fixture-model", "revision": None, "probe": "none",
+    }
+    assert report["service_identity"]["declared"] == {
+        "backend": "vllm", "version": "0.11.2",
+        "model": "fixture-model", "revision": None,
     }
     assert report["successful"] is True
+
+
+def test_run_budget_options_are_endpoint_identity_and_adapter_inputs(endpoint_cli):
+    base, output, calls = endpoint_cli
+    assert load_cli.main([
+        *base, "--protocol", "openai-chat", "--model", "fixture-model", "--prompt", "hello",
+        "--warmup", "0", "--requests", "1", "--max-run-response-bytes", "4096",
+        "--max-run-output-events", "20",
+    ]) == 0
+    adapter = calls[0][4]
+    assert adapter.max_run_response_bytes == 4096
+    assert adapter.max_run_output_events == 20
+    report = json.loads((output / "load.json").read_text())
+    assert report["identity"]["adapter"]["limits"]["max_run_response_bytes"] == 4096
+    assert report["identity"]["adapter"]["limits"]["max_run_output_events"] == 20
 
 
 def test_identity_hash_ignores_service_observations_and_changes_with_slo(endpoint_cli, monkeypatch, tmp_path):
@@ -311,6 +342,7 @@ def test_identity_hash_ignores_service_observations_and_changes_with_slo(endpoin
     ["--slo-ttft-s", "1"], ["--slo-tpot-s", "0.1"], ["--slo-e2e-s", "2"],
     ["--service-backend", "vllm"], ["--service-version", "1"],
     ["--service-probe", "vllm"], ["--service-probe", "none"],
+    ["--max-run-response-bytes", "1024"], ["--max-run-output-events", "100"],
 ])
 def test_source_replay_rejects_p1_options_before_source_or_output(tmp_path, monkeypatch, options):
     monkeypatch.setattr(

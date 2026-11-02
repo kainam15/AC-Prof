@@ -11,7 +11,8 @@ from acprof.host.measurement.service_identity import probe_vllm
 
 @contextmanager
 def identity_server(
-    *, version_status=200, models_status=200, invalid_models=False, model_id="fixture", duplicate=False,
+    *, version_status=200, models_status=200, invalid_models=False, invalid_version=False,
+    surrogate_version=False, model_id="fixture", duplicate=False,
 ):
     requests = []
 
@@ -22,7 +23,9 @@ def identity_server(
         def do_GET(self):
             requests.append((self.path, self.headers.get("Authorization")))
             if self.path == "/version":
-                status, payload = version_status, {"version": "0.11.2", "private": "discard"}
+                status = version_status
+                version = "" if invalid_version else "\ud800" if surrogate_version else "0.11.2"
+                payload = {"version": version, "private": "discard"}
             elif self.path == "/v1/models":
                 status = models_status
                 model = {
@@ -108,9 +111,32 @@ def test_vllm_probe_404_is_partial_and_does_not_invent_revision():
         result = probe_vllm(origin, declared(), timeout_s=2)
     assert result["probe"]["status"] == "partial"
     assert "HTTP 404" in result["probe"]["errors"]["version"]
+    assert result["observed"]["backend"] is None
     assert result["observed"]["version"] is None
     assert result["observed"]["model"] == "fixture"
     assert result["observed"]["revision"] is None
+    assert result["matches"]["backend"] is None
+    assert result["mismatches"] == []
+
+
+def test_vllm_probe_invalid_version_cannot_establish_backend():
+    with identity_server(invalid_version=True) as (origin, _):
+        result = probe_vllm(origin, declared(), timeout_s=2)
+    assert result["observed"]["backend"] is None
+    assert result["observed"]["version"] is None
+    assert result["observed"]["model"] == "fixture"
+    assert result["matches"]["backend"] is None
+    assert "nonempty text" in result["probe"]["errors"]["version"]
+
+
+def test_vllm_probe_surrogate_version_is_bounded_and_json_publishable():
+    with identity_server(surrogate_version=True) as (origin, _):
+        result = probe_vllm(origin, declared(), timeout_s=2)
+    assert result["observed"]["backend"] is None
+    assert result["observed"]["version"] is None
+    assert result["observed"]["model"] == "fixture"
+    assert "isolated surrogate" in result["probe"]["errors"]["version"]
+    json.dumps(result, ensure_ascii=False).encode("utf-8")
 
 
 def test_vllm_probe_invalid_json_is_partial():
