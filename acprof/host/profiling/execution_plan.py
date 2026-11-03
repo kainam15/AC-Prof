@@ -153,8 +153,8 @@ def _integer_value(value: Any) -> int | None:
 def _resource_case_matches(
     profile: Mapping[str, Any],
     *,
-    cpu_cores: int | str,
-    mem_cap_gb: int | str,
+    cpu_cores: int | str | None,
+    mem_cap_gb: int | str | None,
     gpu_mode: str,
 ) -> bool:
     profile_cpu = _integer_value(profile.get("cpu_cores"))
@@ -236,8 +236,8 @@ def _enabled_tools(plan: Mapping[str, Any]) -> set[str]:
 def _find_resource_case(
     plan: Mapping[str, Any],
     *,
-    cpu_cores: int | str,
-    mem_cap_gb: int | str,
+    cpu_cores: int | str | None,
+    mem_cap_gb: int | str | None,
     gpu_mode: str,
     tool_key: str,
 ) -> Mapping[str, Any] | None:
@@ -325,8 +325,8 @@ def _resolve_tool_entry(
 def _missing_case_error(
     *,
     tool_key: str,
-    cpu_cores: int | str,
-    mem_cap_gb: int | str,
+    cpu_cores: int | str | None,
+    mem_cap_gb: int | str | None,
     gpu_mode: str,
 ) -> str:
     return (
@@ -441,8 +441,8 @@ class ExecutionProfileResolver:
 
     def resolve(
         self,
-        cpu_cores: int | str,
-        mem_cap_gb: int | str,
+        cpu_cores: int | str | None,
+        mem_cap_gb: int | str | None,
         gpu_mode: str,
         input_scale: float,
     ) -> dict[str, Any]:
@@ -484,8 +484,8 @@ class ExecutionProfileResolver:
 
 def find_execution_profile_entry(
     plan: dict[str, Any] | ExecutionProfileResolver,
-    cpu_cores: int | str,
-    mem_cap_gb: int | str,
+    cpu_cores: int | str | None,
+    mem_cap_gb: int | str | None,
     gpu_mode: str,
     input_scale: float,
 ) -> dict[str, Any]:

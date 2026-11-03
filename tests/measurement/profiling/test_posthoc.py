@@ -44,7 +44,7 @@ class TestPosthocProfile:
             layout.path("execution_profile_plan.json").write_text(json.dumps(self._execution_plan()))
             original = (root / "result_layers.json").read_bytes()
             with patch("acprof.host.posthoc.service.find_active_processes", return_value=[]), patch(
-                "acprof.host.posthoc.service._validate_profiler_runtime", side_effect=AssertionError("should reuse")):
+                "acprof.host.posthoc.service.validate_profiler_runtime", side_effect=AssertionError("should reuse")):
                 summary = posthoc.run_posthoc(root)
             assert (set(summary.reused_tools)) == ({"ncu", "nsys", "massif"})
             backup = Path(summary.backup_dir)
@@ -66,7 +66,7 @@ class TestPosthocProfile:
             ), patch('acprof.host.images.runtime.require_image_identity'), patch(
                 'acprof.host.runtime_validation.validate_runtime', return_value={'status': 'ok'},
             ) as validate:
-                host_posthoc_plans._validate_profiler_runtime(context, gpu_modes=['off'])
+                host_posthoc_plans.validate_profiler_runtime(context, gpu_modes=['off'])
             kwargs = validate.call_args.kwargs
             assert (kwargs['gpu_list']) == (['off'])
             assert (kwargs['image_info'].tag) == (context.image_tag)
@@ -91,7 +91,7 @@ class TestPosthocProfile:
             ), patch('acprof.host.runtime_validation.validate_runtime',
                      side_effect=validation_result if isinstance(validation_result, Exception) else None,
                      return_value=validation_result) as validate, patch(
-                'acprof.host.posthoc.service._collect_execution_plan',
+                'acprof.host.posthoc.service.collect_execution_plan',
             ) as collect, pytest.raises(host_posthoc_context.PosthocError, match='validation|验证'):
                 posthoc.run_posthoc(root, tools='massif', force_reprofile=True)
             collect.assert_not_called()
@@ -142,7 +142,7 @@ class TestPosthocProfile:
 
         monkeypatch.setattr(service, "PosthocLock", concurrent_publication_before_lock)
         monkeypatch.setattr(service, "find_active_processes", lambda *args, **kwargs: [])
-        with patch.object(service, "_validate_profiler_runtime") as validate, patch.object(
+        with patch.object(service, "validate_profiler_runtime") as validate, patch.object(
             service, "create_backup"
         ) as backup, pytest.raises(host_posthoc_context.PosthocError, match="result changed"):
             posthoc.run_posthoc(tmp_path, tools="ncu", force_reprofile=True)
@@ -595,7 +595,7 @@ class TestPosthocProfile:
             }).encode()
             path.write_bytes(content)
 
-            assert (host_posthoc_context._read_plan(path)) is (None)
+            assert (host_posthoc_context.read_plan(path)) is (None)
             assert (path.read_bytes()) == (content)
 
     def test_load_context_rejects_embedded_histories_without_rewriting(self):
@@ -684,7 +684,7 @@ class TestPosthocProfile:
             with patch(
                 "acprof.host.posthoc.service.find_active_processes", return_value=[]
             ), patch(
-                "acprof.host.posthoc.service._validate_profiler_runtime",
+                "acprof.host.posthoc.service.validate_profiler_runtime",
                 side_effect=AssertionError("complete Torch plan should be reused"),
             ):
                 summary = posthoc.run_posthoc(root, tools="torch")
@@ -709,10 +709,10 @@ class TestPosthocProfile:
 
             before = {path.relative_to(root): path.read_bytes() for path in root.rglob("*") if path.is_file()}
             with patch("acprof.host.posthoc.service.find_active_processes", return_value=[]), patch(
-                "acprof.host.posthoc.service._validate_profiler_runtime",
+                "acprof.host.posthoc.service.validate_profiler_runtime",
                 side_effect=AssertionError("complete rows must not start a profiler"),
             ), patch(
-                "acprof.host.posthoc.service._find_reusable_compute_plan",
+                "acprof.host.posthoc.service.find_reusable_compute_plan",
                 side_effect=AssertionError("complete rows must not reread a plan"),
             ):
                 repeated = posthoc.run_posthoc(root, tools="torch")
@@ -738,7 +738,7 @@ class TestPosthocProfile:
                 "acprof.host.profiling.compute.collect_compute_profile_plan",
                 side_effect=fake_collect,
             ) as collect:
-                plan = host_posthoc_plans._collect_compute_plan(
+                plan = host_posthoc_plans.collect_compute_plan(
                     context,
                     root / "posthoc_profiles" / "torch",
                     tool="torch",
@@ -823,7 +823,7 @@ class TestPosthocProfile:
             with patch(
                 "acprof.host.posthoc.service.find_active_processes", return_value=[]
             ), patch(
-                "acprof.host.posthoc.service._validate_profiler_runtime",
+                "acprof.host.posthoc.service.validate_profiler_runtime",
                 side_effect=AssertionError("runtime should not be used"),
             ):
                 summary = posthoc.run_posthoc(root)
@@ -865,7 +865,7 @@ class TestPosthocProfile:
             path.chmod(0o640)
 
             with patch("acprof.artifacts.os.fsync", wraps=os.fsync) as fsync:
-                host_posthoc_storage._atomic_write_json(path, {"schema_version": 1})
+                host_posthoc_storage.atomic_write_json(path, {"schema_version": 1})
 
             assert stat.S_IMODE(path.stat().st_mode) == 0o640
             assert json.loads(path.read_text(encoding="utf-8")) == {"schema_version": 1}
@@ -880,7 +880,7 @@ class TestPosthocProfile:
             path.write_bytes(original)
             payload = {"schema_version": 1, "metric": float("nan")}
 
-            write = (host_posthoc_storage._atomic_write_json if writer == "atomic"
+            write = (host_posthoc_storage.atomic_write_json if writer == "atomic"
                      else host_posthoc_storage._write_json_temporary)
             with pytest.raises(ValueError, match="Out of range float values"):
                 write(path, payload)
@@ -1092,12 +1092,12 @@ class TestPosthocProfile:
             with patch(
                 "acprof.host.posthoc.service.find_active_processes", return_value=[]
             ), patch(
-                "acprof.host.posthoc.service._validate_profiler_runtime"
+                "acprof.host.posthoc.service.validate_profiler_runtime"
             ) as validate_runtime, patch(
-                "acprof.host.posthoc.service._collect_compute_plan",
+                "acprof.host.posthoc.service.collect_compute_plan",
                 return_value=self._compute_plan(),
             ) as collect_compute, patch(
-                "acprof.host.posthoc.service._collect_execution_plan",
+                "acprof.host.posthoc.service.collect_execution_plan",
                 return_value=self._execution_plan(),
             ) as collect_execution:
                 summary = posthoc.run_posthoc(root)
@@ -1122,7 +1122,7 @@ class TestPosthocProfile:
             path.write_text(json.dumps(metadata))
             original_csv = (root / "result_all.csv").read_bytes()
             with patch("acprof.host.posthoc.service.find_active_processes", return_value=[]), patch(
-                "acprof.host.posthoc.service._validate_profiler_runtime"
+                "acprof.host.posthoc.service.validate_profiler_runtime"
             ) as validate, pytest.raises(host_posthoc_context.PosthocError, match="gpu_device.uuid"):
                 posthoc.run_posthoc(root, tools="ncu", force_reprofile=True)
             validate.assert_not_called()

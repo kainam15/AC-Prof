@@ -56,7 +56,7 @@ class RunPresenter:
         if pending.kind in {"stats", "compare"}:
             self.app.results.begin_analysis(pending)
         if pending.kind == "html-report":
-            self.app.results.html_report_started(pending)
+            self.app.results.html.started(pending)
         self.app.preflight.preparation_cancelled = False
         self.app.preflight.reset_download()
         self.app.set_busy(True)
@@ -129,7 +129,7 @@ class RunPresenter:
         state_changed: bool,
     ) -> None:
         if self.app.execution.session.kind == "html-report" and line:
-            self.app.results.consume_html_line(line)
+            self.app.results.html.consume_line(line)
         if snapshot is not None:
             if self.app.execution.session.kind == "run" and snapshot.stage is Stage.COMPLETED:
                 snapshot = replace(snapshot, stage=Stage.VERIFYING_ARTIFACT, detail="进程已报告完成，等待本次产物核验。")
@@ -207,7 +207,7 @@ class RunPresenter:
         self.app.logs.suspend(False)
         cancelled = self.app.execution.session.stop_requested
         if kind == "html-report" and not cancelled:
-            launch_error = self.app.results.html_report_error(returncode, launch_error)
+            launch_error = self.app.results.html.completion_error(returncode, launch_error)
         completion = self.app.execution.finish(
             kind, returncode, snapshot, launch_error,
             analysis_ready=self.app.results.analysis_view is not None,
@@ -269,4 +269,4 @@ class RunPresenter:
         if kind in {"stats", "compare"}:
             self.app.results.finish_analysis(error=completion.launch_error, cancelled=cancelled)
         elif kind == "html-report":
-            self.app.results.html_report_finished(error=completion.launch_error, cancelled=cancelled)
+            self.app.results.html.finished(error=completion.launch_error, cancelled=cancelled)

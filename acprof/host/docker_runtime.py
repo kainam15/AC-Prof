@@ -123,21 +123,6 @@ def _cold_start_breakdown(
     }
 
 
-def cold_start_client_env(session: RunningContainer) -> dict[str, str]:
-    return {
-        "COLD_START_STARTED_AT": session.cold_start_started_at,
-        "COLD_START_READY_AT": session.cold_start_ready_at,
-        "COLD_START_CONTAINER_LAUNCH_S": str(
-            session.cold_start_container_launch_s
-        ),
-        "COLD_START_SERVER_SETUP_S": str(session.cold_start_server_setup_s),
-        "COLD_START_CUDA_INIT_S": str(session.cold_start_cuda_init_s),
-        "COLD_START_MODEL_LOAD_S": str(session.cold_start_model_load_s),
-        "COLD_START_READY_WAIT_S": str(session.cold_start_ready_wait_s),
-        "COLD_START_S": f"{session.cold_start_s:.6f}",
-    }
-
-
 def service_port(cpu: int, mem: int) -> int:
     return SERVER_PORT + cpu * 100 + mem
 

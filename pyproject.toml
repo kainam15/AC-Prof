@@ -144,6 +144,8 @@ warn_redundant_casts = true
 [[tool.mypy.overrides]]
 module = [
     "acprof.analysis.precision",
+    "acprof.application.outcome",
+    "acprof.application.publication",
     "acprof.experiments.constraints",
     "acprof.input_budget",
     "acprof.image_inputs",
@@ -152,8 +154,11 @@ module = [
     "acprof.host.measurement.config",
     "acprof.analysis.latency_validation",
     "acprof.host.measurement.metrics",
+    "acprof.host.measurement.collector_metrics",
+    "acprof.host.measurement.numbers",
     "acprof.host.measurement.error_rows",
     "acprof.host.cases",
+    "acprof.host.case_recovery",
     "acprof.host.metadata.machine",
     "acprof.host.input_plan.types",
     "acprof.host.input_plan.scales",

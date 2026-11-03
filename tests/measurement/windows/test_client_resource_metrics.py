@@ -107,7 +107,7 @@ class TestClientResourceMetrics:
         with tempfile.TemporaryDirectory() as tmp_dir:
             out_csv = f"{tmp_dir}/result.csv"
             with patch_client(self.runner, "OUT_CSV", out_csv
-            ), patch_client(self.runner, "CPU_CORES", "1"
+            ), patch_client(self.runner, "CPU_CORES", 1
             ), patch_client(self.runner, "WARMUP", 0
             ), patch_client(self.runner, "REPEAT", 1
             ), patch_client(self.runner, "REPEAT_IN_WINDOW", 2

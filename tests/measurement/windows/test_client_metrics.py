@@ -13,7 +13,7 @@ from acprof.config import (
     STATIC_META_SCHEMA_VERSION,
 )
 from acprof.host.client import ClientRunner
-from acprof.host.measurement import metrics as client_metrics
+from acprof.host.measurement import collector_metrics, metrics as client_metrics
 from acprof.host.measurement.config import ClientConfig
 from tests.support.client_fixtures import patch_client
 
@@ -162,7 +162,7 @@ class TestClientMetrics:
         assert (CSV_FIELDS[start + len(expected)]) == ("gpu_util_avg_pct")
 
     def test_gpu_runtime_metrics_normalize_pstate(self) -> None:
-        metrics = client_metrics._gpu_runtime_metrics_from_result(
+        metrics = collector_metrics.gpu_runtime_metrics_from_result(
             SimpleNamespace(
                 gpu_sm_clock_mhz=1800.0,
                 gpu_memory_clock_mhz=7500.0,

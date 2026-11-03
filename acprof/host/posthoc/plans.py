@@ -20,8 +20,8 @@ from acprof.host.posthoc.context import (
     TOOL_METRIC_FIELDS,
     PosthocError,
     ResultContext,
-    _finite_float,
-    _read_plan,
+    finite_float,
+    read_plan,
 )
 from acprof.host.profiling.compute_plan import (
     NCU_PROFILE_KEY,
@@ -93,7 +93,7 @@ def compute_plan_covers_tool(
         for scale in scales:
             profile = find_compute_profile_entry(dict(plan), mode, scale)
             if not all(
-                math.isfinite(_finite_float(profile.get(field)))
+                math.isfinite(finite_float(profile.get(field)))
                 for field in COMPUTE_PLAN_METRIC_FIELDS[tool]
             ):
                 return False
@@ -119,7 +119,7 @@ def execution_plan_covers_tool(
         for scale in scales:
             profile = profiles.resolve(cpu, mem, gpu_mode, scale)
             if not all(
-                math.isfinite(_finite_float(profile.get(field)))
+                math.isfinite(finite_float(profile.get(field)))
                 for field in TOOL_METRIC_FIELDS[tool]
             ):
                 return False
@@ -175,13 +175,13 @@ def _execution_plan_candidates(
     ]
 
 
-def _find_reusable_compute_plan(
+def find_reusable_compute_plan(
     context: ResultContext,
     workspace: Path,
     tool: str,
 ) -> dict[str, Any] | None:
     for path in _compute_plan_candidates(context, workspace, tool):
-        plan = _read_plan(path)
+        plan = read_plan(path)
         if (
             plan is not None
             and _plan_matches_context(plan, context)
@@ -192,13 +192,13 @@ def _find_reusable_compute_plan(
     return None
 
 
-def _find_reusable_execution_plan(
+def find_reusable_execution_plan(
     context: ResultContext,
     workspace: Path,
     tool: str,
 ) -> dict[str, Any] | None:
     for path in _execution_plan_candidates(context, workspace, tool):
-        plan = _read_plan(path)
+        plan = read_plan(path)
         if (
             plan is not None
             and _plan_matches_context(plan, context)
@@ -209,7 +209,7 @@ def _find_reusable_execution_plan(
     return None
 
 
-def _validate_profiler_runtime(
+def validate_profiler_runtime(
     context: ResultContext, *, gpu_modes: list[str] | None = None,
 ) -> None:
     # Validate outputs in a separate container before any profiler starts;
@@ -279,7 +279,7 @@ def _validate_profiler_runtime(
         )
 
 
-def _collect_compute_plan(
+def collect_compute_plan(
     context: ResultContext,
     output_dir: Path,
     *,
@@ -321,7 +321,7 @@ def _collect_compute_plan(
         compute_profile_tool=tool,
         resume_existing_ncu_profiles=resume_existing_ncu_profiles,
     )
-    plan = _read_plan(Path(plan_path))
+    plan = read_plan(Path(plan_path))
     if plan is None:
         raise PosthocError(
             f"{tool} collector did not produce a valid compute plan: {plan_path}"
@@ -407,7 +407,7 @@ def expand_representative_massif_plan(
     return expanded
 
 
-def _collect_execution_plan(
+def collect_execution_plan(
     context: ResultContext,
     output_dir: Path,
     *,
@@ -459,7 +459,7 @@ def _collect_execution_plan(
         )
     except ValueError as exc:
         raise PosthocError(str(exc)) from exc
-    plan = _read_plan(Path(plan_path))
+    plan = read_plan(Path(plan_path))
     if plan is None:
         raise PosthocError(
             f"{tool} collector did not produce a valid plan: {plan_path}"

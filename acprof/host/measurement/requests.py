@@ -11,7 +11,17 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-from acprof.host.measurement.metrics import to_float_or_nan
+from acprof.host.measurement.numbers import to_float_or_nan
+
+
+def prepared_body_size_bytes(response: Any) -> float:
+    prepared = getattr(response, "request", None)
+    body = getattr(prepared, "body", None)
+    if isinstance(body, str):
+        return float(len(body.encode("utf-8")))
+    if isinstance(body, (bytes, bytearray, memoryview)):
+        return float(len(body))
+    return float("nan")
 
 
 def canonical_task_param(payload: dict[str, Any] | None) -> str:

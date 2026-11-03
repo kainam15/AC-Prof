@@ -80,13 +80,13 @@ async def test_generate_button_is_reachable_and_measurement_blocks_it(tmp_path, 
             assert execute.call_count == 1
             assert app.execution.session.kind == "html-report"
             assert button.disabled
-            app.results.launch_html_report()
+            app.results.html.launch()
             assert execute.call_count == 1
             app.process_finished("html-report", 1, None, "fixture failure")
             assert "fixture failure" in str(app.query_one("#html-report-status", Static).content)
             assert not app.is_busy()
             app.execution.session.snapshot = replace(app.execution.session.snapshot, measurement_active=True)
-            app.results.launch_html_report()
+            app.results.html.launch()
             assert execute.call_count == 1
 
 
@@ -149,7 +149,7 @@ async def test_real_cli_success_persists_path_and_preserves_input(tmp_path, csv_
         app.results.show_result_section("exports-view")
         app.query_one("#result-csv", Input).value = str(csv_result)
         await pilot.pause()
-        app.results.launch_html_report()
+        app.results.html.launch()
         await app.workers.wait_for_complete()
         await pilot.pause()
         output = Path(app.query_one("#html-report-path", Input).value)
@@ -185,7 +185,7 @@ async def test_real_layer_manifest_and_csv_comparison_keep_three_views(tmp_path,
         app.query_one("#result-csv", Input).value = str(layered / "result_layers.json")
         await pilot.pause()
         app.query_one("#html-extra-sources", Input).value = str(second)
-        app.results.launch_html_report()
+        app.results.html.launch()
         await app.workers.wait_for_complete()
         await pilot.pause()
         output = Path(app.query_one("#html-report-path", Input).value)
@@ -209,7 +209,7 @@ async def test_no_valid_windows_retains_evidence_and_displays_limit(tmp_path, cs
     async with app.run_test() as pilot:
         app.query_one("#result-csv", Input).value = str(csv_result)
         await pilot.pause()
-        app.results.launch_html_report()
+        app.results.html.launch()
         await app.workers.wait_for_complete()
         await pilot.pause()
         assert Path(app.query_one("#html-report-path", Input).value).is_file()
@@ -330,7 +330,7 @@ async def test_html_actions_fit_visible_report_page(tmp_path, size, language):
             assert button.region.y >= 0
             assert button.region.bottom <= size[1]
         with patch.object(ProcessController, "execute_command") as execute:
-            app.results.launch_html_report()
+            app.results.html.launch()
             execute.assert_not_called()
         status = str(app.query_one("#html-report-status", Static).content)
         assert ("Select an experiment" if language == "en" else "请先选择实验") in status
@@ -348,7 +348,7 @@ async def test_real_cli_failure_shows_error_and_keeps_old_report(tmp_path, csv_r
         app.query_one("#result-csv", Input).value = str(csv_result)
         await pilot.pause()
         assert app.query_one("#html-report-path", Input).value == str(old)
-        app.results.launch_html_report()
+        app.results.html.launch()
         await app.workers.wait_for_complete()
         await pilot.pause()
         assert error in str(app.query_one("#html-report-status", Static).content)
@@ -409,7 +409,7 @@ async def test_remote_or_headless_never_launches_browser(tmp_path, environment):
     async with app.run_test():
         app.query_one("#html-report-path", Input).value = str(report)
         with patch.dict(os.environ, environment, clear=True), patch("acprof.platform.platform.system", return_value="Linux"), patch("webbrowser.open") as browser:
-            app.results.open_html_report()
+            app.results.html.open()
             browser.assert_not_called()
         status = str(app.query_one("#html-report-status", Static).content)
         assert str(report) in status
@@ -424,7 +424,7 @@ async def test_local_browser_action_does_not_change_report(tmp_path, outcome):
     async with app.run_test() as pilot:
         app.query_one("#html-report-path", Input).value = str(report)
         with patch("acprof.platform.can_open_local_browser", return_value=True), patch("webbrowser.open", side_effect=outcome if isinstance(outcome, Exception) else None, return_value=outcome) as browser:
-            app.results.open_html_report()
+            app.results.html.open()
             await app.workers.wait_for_complete()
             await pilot.pause()
             browser.assert_called_once_with(report.as_uri(), new=2)

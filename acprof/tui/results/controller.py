@@ -5,10 +5,6 @@ lifecycle; read-only work is never initiated from a measurement window.
 """
 from __future__ import annotations
 
-import csv
-import io
-import json
-from collections import deque
 from collections.abc import Iterator
 from contextlib import AbstractContextManager, contextmanager
 from dataclasses import replace
@@ -25,9 +21,7 @@ from acprof.experiments.configuration import RunConfigError
 from acprof.messages import join_messages
 from acprof.tui.commands import (
     PendingLaunch,
-    html_report_inputs,
     prepare_comparison,
-    prepare_html_report,
     prepare_plot,
     prepare_stats,
     resolve_result_path,
@@ -37,6 +31,8 @@ from acprof.tui.experiments.catalog import ExperimentSourceDisplay, experiment_s
 from acprof.tui.i18n import error_message, message_id
 from acprof.tui.ui.input import BarCursorInput as Input
 from acprof.tui.ui.presentation import CALCULATING
+from acprof.tui.results.html_controller import HtmlReportController
+from acprof.tui.results.report_actions import report_action_state
 from acprof.tui.results.reports import ReportView, read_report
 
 if TYPE_CHECKING:
@@ -83,6 +79,7 @@ class ResultController:
 
     def __init__(self, app: AcprofTui) -> None:
         self.app = app
+        self.html = HtmlReportController(app)
         self.offline_reads = _OverlappingOfflineReads()
         self.summary_request: Event | None = None
         self.summary_path: Path | None = None
@@ -92,9 +89,6 @@ class ResultController:
         self.analysis_view: ReportView | None = None
         self.analysis_source = app.project_dir
         self.analysis_selection: tuple[str, ...] = ()
-        self.html_output: Path | None = None
-        self.html_log: deque[str] = deque(maxlen=20)
-        self.html_summary = ""
         self.source_display: ExperimentSourceDisplay | None = None
         self.unavailable_remembered_source = ""
         self.formal_ok_rows: int | None = None
@@ -336,61 +330,56 @@ class ResultController:
                          if display is not None and display.run_id else tooltip_source or None)
 
     def update_report_actions(self) -> None:
-        """Keep actions bound to the correct input and the existing operation lock."""
+        """Apply pure action rules to the existing widgets and operation lock."""
         if not self.app.is_running or not self.app.form_ready or self.app.ui_closing:
             return
-        state = self.app.operation_state()
-        source_ready = bool(self.source_display and self.source_display.can_read)
-        can_analyze = source_ready and (self.formal_ok_rows is None or self.formal_ok_rows > 0)
-        cancel_analysis = self.app.query_one("#results-cancel", Button)
-        cancel_analysis.display = self.app.execution.session.kind in {"stats", "compare"}
-        cancel_analysis.disabled = not state.allows("stop")
-        payload = self.report_view.payload if self.report_view is not None else {}
-        for format in ("csv", "json"):
-            available = bool(payload) and (format == "json" or bool(payload.get("groups")))
-            self.app.query_one("#analysis-export-" + format, Button).disabled = not (
-                available and state.allows("analysis-export")
-            )
-        for selector, operation in (("#summarize-results", "summary"), ("#plot-results", "plot")):
-            allowed = source_ready if operation == 'summary' else can_analyze
-            self.app.query_one(selector, Button).disabled = not (allowed and state.allows(operation))
-        json_path = self.app.configuration.input("report-json-path").strip()
-        html_path = self.app.configuration.input("html-report-path").strip()
-        self.app.query_one("#report-calculate", Button).disabled = not (
-            can_analyze and state.allows("stats")
-        )
-        self.app.query_one("#html-report-generate", Button).disabled = not (
-            can_analyze and state.allows("html-report")
-        )
-        self.app.query_one("#report-open", Button).disabled = not (
-            json_path and state.allows("report")
-        )
-        has_html = bool(html_path)
-        self.app.query_one("#html-report-file").display = has_html
-        self.app.query_one("#html-report-filename", Static).update(Path(html_path).name if has_html else "")
-        location = self.app.query_one("#html-report-location", Static)
-        location.update(html_path)
-        location.tooltip = html_path or None
-        if not has_html:
-            self.app.query_one("#html-export-fields").display = False
         from acprof.platform import can_open_local_browser
-        self.app.query_one("#html-remote-hint").display = has_html and not can_open_local_browser()
+
+        actions = report_action_state(
+            self.app.operation_state(),
+            source_ready=bool(self.source_display and self.source_display.can_read),
+            formal_ok_rows=self.formal_ok_rows,
+            analysis_payload=self.report_view.payload if self.report_view is not None else {},
+            report_json_path=self.app.configuration.input("report-json-path"),
+            html_path=self.app.configuration.input("html-report-path"),
+            execution_kind=self.app.execution.session.kind,
+            browser_available=can_open_local_browser(),
+        )
+        cancel_analysis = self.app.query_one("#results-cancel", Button)
+        cancel_analysis.display = actions.cancel_analysis_visible
+        cancel_analysis.disabled = not actions.cancel_analysis_enabled
+        for format, enabled in (
+            ("csv", actions.analysis_export_csv_enabled),
+            ("json", actions.analysis_export_json_enabled),
+        ):
+            self.app.query_one("#analysis-export-" + format, Button).disabled = not enabled
+        for selector, enabled in (
+            ("#summarize-results", actions.summary_enabled),
+            ("#plot-results", actions.plot_enabled),
+            ("#report-calculate", actions.calculate_enabled),
+            ("#html-report-generate", actions.html_generate_enabled),
+            ("#report-open", actions.report_open_enabled),
+            ("#html-report-copy", actions.html_copy_enabled),
+            ("#html-export-toggle", actions.html_export_toggle_enabled),
+            ("#html-report-export", actions.html_export_enabled),
+        ):
+            self.app.query_one(selector, Button).disabled = not enabled
+        self.app.query_one("#html-report-file").display = actions.html_file_visible
+        self.app.query_one("#html-report-filename", Static).update(actions.html_filename)
+        location = self.app.query_one("#html-report-location", Static)
+        location.update(actions.html_location)
+        location.tooltip = actions.html_location or None
+        if actions.hide_html_export_fields:
+            self.app.query_one("#html-export-fields").display = False
+        self.app.query_one("#html-remote-hint").display = actions.html_remote_hint_visible
         open_html = self.app.query_one("#html-report-open", Button)
-        open_html.display = has_html
-        open_html.disabled = not (has_html and state.allows("html-open"))
-        self.app.query_one("#html-report-copy", Button).disabled = not (
-            has_html and state.allows("html-open")
-        )
-        self.app.query_one("#html-export-toggle", Button).disabled = not (
-            has_html and state.allows("html-export")
-        )
-        export_html = self.app.query_one("#html-report-export", Button)
-        export_html.disabled = not (has_html and state.allows("html-export"))
-        generating = self.app.execution.session.kind == "html-report"
-        self.app.query_one("#html-report-generate", Button).display = not generating
+        open_html.display = actions.html_open_visible
+        open_html.disabled = not actions.html_open_enabled
+        generate_html = self.app.query_one("#html-report-generate", Button)
+        generate_html.display = actions.html_generate_visible
         cancel = self.app.query_one("#html-report-cancel", Button)
-        cancel.display = generating
-        cancel.disabled = not (generating and state.allows("stop"))
+        cancel.display = actions.html_cancel_visible
+        cancel.disabled = not actions.html_cancel_enabled
 
     def clear_report(self, status: str, *, phase: str = 'empty', empty_hint=None) -> None:
         self.report_view = None
@@ -424,7 +413,7 @@ class ResultController:
         # Do not conflate discovery of a historical report with permission to generate a new one.
         if (self.app.operation_state().allows('html-report')
                 and self.app.configuration.input('result-csv').strip()):
-            self.find_html_report()
+            self.html.find()
         self.clear_report(message_id('results.statistics.source_hint') if self.source_display and self.source_display.can_read
                           else '', empty_hint=self.statistics_empty_hint())
         self.update_report_actions()
@@ -630,182 +619,3 @@ class ResultController:
         self.app.read_jobs.discard(token)
         self.app.set_busy(self.app.is_busy())
         self.app.localization.set_text(self.app.query_one("#analysis-export-status", Static), status)
-
-    def set_html_status(self, text: str) -> None:
-        self.app.localization.set_text(self.app.query_one("#html-report-status", Static), text)
-        self.update_report_actions()
-
-    def update_html_extra_button(self) -> None:
-        has_extra = bool(self.app.configuration.input("html-extra-sources").strip())
-        key = "results.html.edit_inputs" if has_extra else "results.html.add_inputs"
-        self.app.localization.set_text(self.app.query_one("#html-extra-toggle", Button), message_id(key), attribute="label")
-
-    def toggle_html_extra_sources(self) -> None:
-        field = self.app.query_one("#html-extra-sources", Input)
-        field.display = not field.display
-        if field.display:
-            field.focus()
-
-    def toggle_html_export_fields(self) -> None:
-        field = self.app.query_one("#html-export-fields")
-        field.display = not field.display
-        if field.display:
-            self.app.query_one("#html-export-path", Input).focus()
-
-    def toggle_html_existing_path(self) -> None:
-        field = self.app.query_one("#html-report-path", Input)
-        field.display = not field.display
-        if field.display:
-            field.focus()
-
-    def copy_html_path(self) -> None:
-        if not self.app.allow_operation("html-open"):
-            return
-        source = self.app.configuration.input("html-report-path").strip()
-        if source:
-            path = resolve_result_path(source, self.app.project_dir).resolve()
-            self.app.copy_to_clipboard(str(path))
-            self.set_html_status(message_id("results.html.path_copied", path))
-
-    def html_source(self, *, include_extra: bool = False) -> str:
-        # The unified selector is ONE literal path; extra HTML sources are explicit.
-        sources = [self.app.configuration.input("result-csv").strip()]
-        if not sources[0]:
-            return ""
-        if include_extra:
-            extra = self.app.configuration.input("html-extra-sources").strip()
-            if extra:
-                sources.extend(next(csv.reader([extra], delimiter=";", skipinitialspace=True, strict=True)))
-        output = io.StringIO()
-        csv.writer(output, delimiter=";", lineterminator="").writerow(sources)
-        return output.getvalue()
-
-    def find_html_report(self) -> None:
-        """Small directory lookup only; all result parsing stays in the CLI."""
-        from acprof.tui.results.report_files import existing_html_report
-        source = self.app.configuration.input("result-csv")
-        # Viewing a JSON statistics report must not replace the HTML selection.
-        if source.endswith(".json") and not source.endswith("result_layers.json"):
-            return
-        try:
-            paths = html_report_inputs(self.html_source(), project_dir=self.app.project_dir)
-            existing = existing_html_report(paths)
-        except (OSError, ValueError) as exc:
-            self.set_html_status(error_message(exc))
-            self.app.query_one("#html-report-path", Input).value = ""
-            return
-        self.app.query_one("#html-report-path", Input).value = str(existing) if existing else ""
-        self.set_html_status(message_id('results.html.existing_report') if existing else message_id('results.html.generation_note'))
-
-    def launch_html_report(self) -> None:
-        if not self.app.allow_operation("html-report"):
-            return
-        self.show_result_section("exports-view")
-        try:
-            pending = prepare_html_report(self.html_source(include_extra=True),
-                project_dir=self.app.project_dir, python_executable=self.app.python_executable)
-        except (OSError, ValueError, csv.Error) as exc:
-            self.set_html_status(error_message(exc))
-            return
-        self.app.launch(pending)
-
-    def html_report_started(self, pending: PendingLaunch) -> None:
-        self.html_output = Path(pending.report_path)
-        self.html_log.clear()
-        self.html_summary = ""
-        self.set_html_status(message_id('results.html.generating', self.html_output))
-
-    def consume_html_line(self, line: str) -> None:
-        if not line.startswith("ACPROF_REPORT "):
-            self.html_log.append(line)
-            return
-        receipt = json.loads(line.removeprefix("ACPROF_REPORT "))
-        if (not isinstance(receipt, dict) or receipt.get("report_path") != str(self.html_output)
-                or any(type(receipt.get(key)) is not int or receipt[key] < 0
-                       for key in ("config_count", "valid_windows", "excluded_rows"))
-                or any(not isinstance(receipt.get(key), list) or not receipt[key]
-                       or any(not isinstance(value, str) for value in receipt[key])
-                       for key in ("quality_status", "measurement_status"))):
-            raise ValueError(message_id('results.html.invalid_receipt'))
-        self.html_summary = message_id('results.html.receipt_summary', receipt["config_count"], receipt["valid_windows"],
-            receipt["excluded_rows"], ", ".join(receipt["quality_status"]), ", ".join(receipt["measurement_status"]))
-        if receipt["valid_windows"] == 0:
-            self.html_summary = join_messages("\n", (self.html_summary, message_id('results.html.no_valid_windows')))
-
-    def html_report_error(self, returncode: int, error: str) -> str:
-        if error:
-            return error
-        if returncode:
-            return "\n".join(self.html_log) or message_id('run.completion.failed_exit_code', returncode)
-        if self.html_output is None or not self.html_output.is_file() or not self.html_summary:
-            return message_id('results.html.output_missing')
-        return ""
-
-    def html_report_finished(self, *, error: str, cancelled: bool) -> None:
-        output, self.html_output = self.html_output, None
-        if cancelled:
-            self.set_html_status(message_id('results.html.cancelled'))
-        elif error:
-            self.set_html_status(message_id('results.html.generation_failed', error))
-        elif output is not None:
-            self.app.query_one("#html-report-path", Input).value = str(output)
-            self.app.configuration.remember_last_used(html_report=str(output))
-            self.set_html_status(join_messages("\n", (message_id('results.html.generated_short'), self.html_summary)))
-        self.html_log.clear()
-        self.html_summary = ""
-
-    def open_html_report(self) -> None:
-        from acprof.platform import can_open_local_browser
-        from acprof.tui.results.report_files import require_html_file
-        if not self.app.allow_operation("html-open"):
-            return
-        source = self.app.configuration.input("html-report-path")
-        if not source:
-            self.set_html_status(message_id('results.html.open_requires_report'))
-            return
-        path = resolve_result_path(source, self.app.project_dir).resolve()
-        try:
-            require_html_file(path)
-        except (OSError, ValueError) as exc:
-            self.set_html_status(error_message(exc))
-            return
-        if not can_open_local_browser():
-            self.set_html_status(message_id('results.html.remote_open_instructions', path))
-            return
-        self.run_html_file_action("open", path)
-
-    def export_html_report(self) -> None:
-        if not self.app.allow_operation("html-export"):
-            return
-        source = self.app.configuration.input("html-report-path")
-        destination = self.app.configuration.input("html-export-path")
-        if not source or not destination:
-            self.set_html_status(message_id('results.html.export_requires_paths'))
-            return
-        self.run_html_file_action("export", resolve_result_path(source, self.app.project_dir),
-                                 resolve_result_path(destination, self.app.project_dir))
-
-    def run_html_file_action(self, action: str, source: Path, destination: Path | None = None) -> None:
-        token = object()
-        self.app.read_jobs.add(token)
-        self.app.set_busy(True)
-        self.app.run_worker(partial(self._html_file_worker, token, action, source, destination),
-                            name="html_file_action", thread=True, group="html-file", exit_on_error=False)
-
-    def _html_file_worker(self, token: object, action: str, source: Path, destination: Path | None) -> None:
-        from acprof.tui.results.report_files import export_html_file, open_html_file
-        try:
-            if action == "export" and destination is not None:
-                export_html_file(source, destination)
-                status = message_id('results.html.exported', destination)
-            else:
-                open_html_file(source)
-                status = message_id('results.html.browser_requested', source)
-        except Exception as exc:
-            status = message_id('results.html.file_action_failed', error_message(exc), source)
-        self.app.process.safe_process_callback(self.html_file_finished, token, status)
-
-    def html_file_finished(self, token: object, status: str) -> None:
-        self.app.read_jobs.discard(token)
-        self.app.set_busy(self.app.is_busy())
-        self.set_html_status(status)

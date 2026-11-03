@@ -21,6 +21,13 @@
 后续重构范围继续由职责、测试耦合和实际重复实现决定。
 实现边界见[主机编排与测量模块](development/orchestration.md)。
 
+## 核心架构边界清理（2026-11）
+
+- `ClientConfig` 统一类型化配置与环境变量 codec，资源继承、资源计划和输入顺序不再在 orchestrator 与 client 之间重复进行字符串映射。
+- case 归档与清理恢复从 `RunState` 分离；checkpoint 查询保持只读。collector 指标投影与共享数值转换独立维护，`build_row()` 不再修改 idle history。
+- 应用结果发布、TUI HTML 操作与按钮纯规则分别拆出；posthoc 跨模块协作改用包内公共 API，生产 private dependency 由 35 项降至 20 项。
+- 全仓 Ruff、446 个源码文件的 mypy、核心 C901 与导入边界通过；窗口/运行时、应用恢复/posthoc、架构质量及 TUI 定向回归通过。未执行真实模型采集或硬件验收，真实客户端终端仍需后续验收。
+
 ## 代表性矩阵扩展（2026-11）
 
 已完成六模型双尺度 Docker full、BERT/Iris 资源矩阵，以及 BERT CPU/GPU 与 Iris 的 Process basic 本地采集。

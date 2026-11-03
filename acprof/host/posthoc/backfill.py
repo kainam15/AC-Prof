@@ -21,9 +21,9 @@ from acprof.host.posthoc.context import (
     TOOL_METRIC_FIELDS,
     PosthocError,
     ResultContext,
-    _finite_float,
-    _fmt_float,
-    _integer,
+    finite_float,
+    fmt_float,
+    integer,
 )
 from acprof.host.profiling.compute_plan import (
     NCU_ERROR_FIELD,
@@ -52,7 +52,7 @@ from acprof.results.metrics import order_csv_fields
 def row_tool_complete(row: Mapping[str, Any], tool: str) -> bool:
     error = csv_diagnostic_text(row.get(TOOL_ERROR_FIELD[tool]))
     return not error and all(
-        math.isfinite(_finite_float(row.get(field)))
+        math.isfinite(finite_float(row.get(field)))
         for field in TOOL_METRIC_FIELDS[tool]
     )
 
@@ -83,16 +83,16 @@ def _backfill_torch_row(
     plan: Mapping[str, Any],
 ) -> None:
     mode = normalize_gpu_mode(row.get("gpu_mode"))
-    scale = _finite_float(row.get("input_scale"))
+    scale = finite_float(row.get("input_scale"))
     profile = find_compute_profile_entry(dict(plan), mode, scale)
     logical_mflop = profile.get(TORCH_LOGICAL_MFLOP_FIELD)
     row.update(
         {
-            TORCH_LOGICAL_MFLOP_FIELD: _fmt_float(logical_mflop),
-            "model_logical_mflops_app_torch_profiler_eager": _fmt_float(
+            TORCH_LOGICAL_MFLOP_FIELD: fmt_float(logical_mflop),
+            "model_logical_mflops_app_torch_profiler_eager": fmt_float(
                 compute_mflops(logical_mflop, row.get("latency_app_s"))
             ),
-            "model_logical_mflops_packet_torch_profiler_eager": _fmt_float(
+            "model_logical_mflops_packet_torch_profiler_eager": fmt_float(
                 _packet_mflops(logical_mflop, row)
             ),
             TORCH_ERROR_FIELD: str(profile.get(TORCH_ERROR_FIELD) or ""),
@@ -104,31 +104,31 @@ def _backfill_ncu_row(
     row: dict[str, str],
     plan: Mapping[str, Any],
 ) -> None:
-    scale = _finite_float(row.get("input_scale"))
+    scale = finite_float(row.get("input_scale"))
     profile = find_compute_profile_entry(dict(plan), "on", scale)
     total = profile.get(NCU_TOTAL_MFLOP_FIELD)
     row.update(
         {
-            NCU_TOTAL_MFLOP_FIELD: _fmt_float(total),
-            NCU_TENSOR_MFLOP_FIELD: _fmt_float(
+            NCU_TOTAL_MFLOP_FIELD: fmt_float(total),
+            NCU_TENSOR_MFLOP_FIELD: fmt_float(
                 profile.get(NCU_TENSOR_MFLOP_FIELD)
             ),
-            NCU_SCALAR_MFLOP_FIELD: _fmt_float(
+            NCU_SCALAR_MFLOP_FIELD: fmt_float(
                 profile.get(NCU_SCALAR_MFLOP_FIELD)
             ),
-            NCU_TENSOR_SHARE_FIELD: _fmt_float(
+            NCU_TENSOR_SHARE_FIELD: fmt_float(
                 profile.get(NCU_TENSOR_SHARE_FIELD)
             ),
-            NCU_DERIVED_APP_FIELD: _fmt_float(
+            NCU_DERIVED_APP_FIELD: fmt_float(
                 compute_mflops(total, row.get("latency_app_s"))
             ),
-            NCU_DERIVED_PACKET_FIELD: _fmt_float(
+            NCU_DERIVED_PACKET_FIELD: fmt_float(
                 _packet_mflops(total, row)
             ),
-            NCU_KERNEL_COUNT_FIELD: _fmt_float(
+            NCU_KERNEL_COUNT_FIELD: fmt_float(
                 profile.get(NCU_KERNEL_COUNT_FIELD)
             ),
-            NCU_KERNEL_TIME_FIELD: _fmt_float(
+            NCU_KERNEL_TIME_FIELD: fmt_float(
                 profile.get(NCU_KERNEL_TIME_FIELD)
             ),
             NCU_ERROR_FIELD: str(profile.get(NCU_ERROR_FIELD) or ""),
@@ -142,14 +142,14 @@ def _backfill_execution_row(
     tool: str,
 ) -> None:
     profile = profiles.resolve(
-        _integer(row.get("cpu_cores"), "cpu_cores"),
-        _integer(row.get("mem_cap_gb"), "mem_cap_gb"),
+        integer(row.get("cpu_cores"), "cpu_cores"),
+        integer(row.get("mem_cap_gb"), "mem_cap_gb"),
         normalize_gpu_mode(row.get("gpu_mode")),
-        _finite_float(row.get("input_scale")),
+        finite_float(row.get("input_scale")),
     )
     fields = MASSIF_METRIC_FIELDS if tool == "massif" else NSYS_METRIC_FIELDS
     for field in fields:
-        row[field] = _fmt_float(profile.get(field))
+        row[field] = fmt_float(profile.get(field))
     error_field = TOOL_ERROR_FIELD[tool]
     row[error_field] = str(profile.get(error_field) or "")
 
@@ -256,8 +256,8 @@ def _static_flops_from_compute_plan(
         for entry in entries:
             if not isinstance(entry, Mapping) or entry.get("error"):
                 continue
-            scale = _finite_float(entry.get("input_scale"))
-            mflop = _finite_float(entry.get(TORCH_LOGICAL_MFLOP_FIELD))
+            scale = finite_float(entry.get("input_scale"))
+            mflop = finite_float(entry.get(TORCH_LOGICAL_MFLOP_FIELD))
             if not math.isfinite(scale) or not math.isfinite(mflop) or mflop < 0:
                 continue
             normalized_scale: int | float = (

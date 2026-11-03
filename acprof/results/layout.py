@@ -195,7 +195,7 @@ class ArtifactLayout:
         from acprof.result_store.initialization import initialize_results
         initialize_results(self)
 
-    def case(self, model_id: str, cpu: int, mem: int, gpu: str) -> CaseArtifacts:
+    def case(self, model_id: str, cpu: int | None, mem: int | None, gpu: str) -> CaseArtifacts:
         case_id = resource_case_id(cpu, mem, gpu)
         if not _CASE_ID.fullmatch(case_id):
             raise ValueError(f"Invalid case ID: {case_id}")

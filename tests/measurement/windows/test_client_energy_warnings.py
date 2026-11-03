@@ -15,7 +15,11 @@ import pytest
 from acprof.config import CSV_FIELDS
 from acprof.host import client
 from acprof.host.client import ClientRunner
-from acprof.host.measurement import metrics as client_metrics, requests as window_requests
+from acprof.host.measurement import (
+    collector_metrics,
+    metrics as client_metrics,
+    requests as window_requests,
+)
 from acprof.host.measurement.config import ClientConfig
 from acprof.monitors import energy_cpu
 from tests.support.client_fixtures import patch_client
@@ -88,7 +92,7 @@ class TestClientWindowEnergy:
             assert (rows[1]["status"]) == ("error")
             assert ("offline fixture") in (rows[1]["error"])
 
-    @pytest.mark.parametrize('invalid', ['[16,32]', '[16,32,32]', '[16,32,128]'])
+    @pytest.mark.parametrize('invalid', [[16, 32], [16, 32, 32], [16, 32, 128]])
     def test_frozen_scale_order_changes_execution_without_changing_payloads(self, invalid):
         entries = [{"input_scale": scale, "payload": {"text": f"payload-{scale}"}}
                    for scale in (16, 32, 64)]
@@ -96,7 +100,7 @@ class TestClientWindowEnergy:
             path = Path(tmp, "input_scale_plan.json")
             path.write_text(json.dumps({"schema_version": 2, "entries": entries}))
             original = path.read_bytes()
-            with patch_client(self.runner, "INPUT_SCALE_PLAN_FILE", str(path)), patch.object(self.runner.config, "input_scale_order", "[64,16,32]"):
+            with patch_client(self.runner, "INPUT_SCALE_PLAN_FILE", str(path)), patch.object(self.runner.config, "input_scale_order", [64, 16, 32]):
                 loaded = self.runner._load_input_scale_entries()
                 assert ([e["input_scale"] for e in loaded]) == ([64, 16, 32])
                 assert ([e["payload"]["text"] for e in loaded]) == (["payload-64", "payload-16", "payload-32"])
@@ -346,7 +350,7 @@ class TestClientWindowEnergy:
             out_csv = os.path.join(tmp_dir, "result.csv")
             with patch_client(self.runner, "OUT_CSV", out_csv), patch_client(self.runner, "WARMUP", 0
             ), patch_client(self.runner, "REPEAT", 1), patch_client(self.runner, "REPEAT_IN_WINDOW", 2
-            ), patch_client(self.runner, "BATCH_SIZE", 2), patch_client(self.runner, "CPU_CORES", "2"
+            ), patch_client(self.runner, "BATCH_SIZE", 2), patch_client(self.runner, "CPU_CORES", 2
             ), patch_client(self.runner, "USE_ENERGY", False), patch_client(self.runner, "USE_MIPS", False
             ), patch_client(self.runner, "energy_mod", None), patch_client(self.runner, "cpu_energy_mod", None
             ), patch_client(self.runner, "resource_usage_mod", None), patch_client(self.runner,
@@ -527,7 +531,7 @@ class TestClientWindowEnergy:
         assert (rows[0]["latency_app_tail_ratio"]) == ("3.000000")
 
     def test_efficiency_metrics_are_derived_without_new_measurements(self) -> None:
-        metrics = client_metrics._derived_efficiency_metrics(
+        metrics = collector_metrics.derived_efficiency_metrics(
             gpu_mode="on",
             batch_size=2,
             latency_app_s=0.5,
@@ -544,7 +548,7 @@ class TestClientWindowEnergy:
         assert (metrics["container_attributed_j_per_output_token"]) == (0.05) or round(abs((metrics["container_attributed_j_per_output_token"]) - (0.05)), 7) == 0
         assert (metrics["container_attributed_j_per_input_unit"]) == (0.0625) or round(abs((metrics["container_attributed_j_per_input_unit"]) - (0.0625)), 7) == 0
 
-        missing_gpu = client_metrics._derived_efficiency_metrics(
+        missing_gpu = collector_metrics.derived_efficiency_metrics(
             gpu_mode="on",
             batch_size=1,
             latency_app_s=0.5,
@@ -1016,7 +1020,7 @@ class TestClientWindowEnergy:
         assert (sidecar_rows) == ([{"sniff_group_id": "case_seq1_r0"}])
 
     def test_negative_effective_metrics_are_reported_per_field(self) -> None:
-        warnings = client_metrics._eff_negative_warnings(
+        warnings = collector_metrics._eff_negative_warnings(
             avg_power_eff_w=-0.1,
             peak_power_eff_w=0.0,
             energy_eff_j=-0.001,
@@ -1025,7 +1029,7 @@ class TestClientWindowEnergy:
         assert (warnings) == (["gpu_avg_power_eff_w<0", "gpu_energy_eff_j<0"])
 
     def test_cpu_vcpu_negative_effective_metrics_keep_full_field_names(self) -> None:
-        warnings = client_metrics._named_negative_warnings({
+        warnings = collector_metrics._named_negative_warnings({
             "cpu_energy_eff_j": -0.001,
             "vcpu_avg_power_eff_w": -0.1,
             "vcpu_energy_total_j": 1.0,
@@ -1136,8 +1140,8 @@ class TestClientWindowEnergy:
             )
             with patch_client(self.runner, "OUT_CSV", out_csv
             ), patch_client(self.runner, "CASE_NAME", "case"
-            ), patch_client(self.runner, "CPU_CORES", "1"
-            ), patch_client(self.runner, "MEM_CAP_GB", "2"
+            ), patch_client(self.runner, "CPU_CORES", 1
+            ), patch_client(self.runner, "MEM_CAP_GB", 2
             ), patch_client(self.runner, "WARMUP", 0
             ), patch_client(self.runner, "REPEAT", 2
             ), patch_client(self.runner, "REPEAT_IN_WINDOW", 1

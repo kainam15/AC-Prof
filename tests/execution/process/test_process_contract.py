@@ -67,7 +67,7 @@ def test_inherited_limits_have_unambiguous_keys_and_never_zero():
 
 
 def test_optional_process_permission_failure_retains_application_metrics():
-    config = ClientConfig(runtime_kind='process', profiling_mode='basic', cpu_cores='nan', mem_cap_gb='nan')
+    config = ClientConfig(runtime_kind='process', profiling_mode='basic', cpu_cores=None, mem_cap_gb=None)
     observed = WindowObservations(resource_result=ProcessUsageResult(**asdict(empty_resource_result()), process_resource_status='permission_denied'), resource_error='permission denied')
     values = WindowMetrics(config, {'input_scale': 1}, use_energy=False)
     values.reduce(WindowRequestProgress(count=2, latencies=[.1, .3]), observed)

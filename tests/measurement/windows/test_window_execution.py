@@ -9,8 +9,10 @@ import pytest
 from acprof.host.measurement.config import ClientConfig
 from acprof.host.measurement.errors import RequestTimeoutAbort
 from acprof.host.measurement.execution import WindowExecutor
+from acprof.host.measurement.metrics import WindowMetrics
 from acprof.host.measurement.monitors import MonitorCleanupError
-from acprof.host.measurement.types import MonitorDependencies, WindowSpec
+from acprof.host.measurement.requests import WindowRequestProgress
+from acprof.host.measurement.types import MonitorDependencies, WindowObservations, WindowSpec
 from acprof.host.profiling.execution_plan import ExecutionProfileResolver
 from acprof.monitors import resource_metrics
 
@@ -78,7 +80,7 @@ class Journal:
 
 def executor(collector, request, *, config=None, dependencies=None):
     config = config or ClientConfig(
-        case_name="case", cpu_cores="2", mem_cap_gb="4",
+        case_name="case", cpu_cores=2, mem_cap_gb=4,
         batch_size=2, repeat_in_window=2, idle_seconds=0.0,
         idle_cooldown_seconds=0.0, use_mips=False,
     )
@@ -141,6 +143,41 @@ def test_completed_window_returns_row_and_writes_requests_after_shutdown(tmp_pat
     assert record["latency_app_s"] == [0.1, 0.3]
     assert record["input_scale"] == 10.0
     assert record["status"] == "ok"
+
+
+def test_row_building_does_not_mutate_idle_history():
+    config = ClientConfig(
+        case_name="case", cpu_cores=2, mem_cap_gb=4, batch_size=1,
+        repeat_in_window=1, idle_debug=True, idle_seconds=0.0,
+        idle_cooldown_seconds=0.0,
+    )
+    window = spec()
+    values = WindowMetrics(config, window.scale_entry, use_energy=False)
+    progress = WindowRequestProgress(count=1, latencies=[0.2])
+    observations = WindowObservations()
+    values.reduce(progress, observations)
+    values.cpu["cpu_idle_power_w"] = 5.0
+    values.gpu["gpu_idle_power_w"] = 6.0
+    cpu_history = []
+    gpu_history = []
+    values.record_idle_history(cpu_history, gpu_history)
+    arguments = dict(
+        warmup=0,
+        repeat_idx=0,
+        environment_class="native_linux",
+        cold_start={},
+        compute_profile_plan={"_disabled": True},
+        execution_profiles=ExecutionProfileResolver({"_disabled": True}),
+        cpu_idle_history=cpu_history,
+        gpu_idle_history=gpu_history,
+    )
+
+    first = values.build_row(progress, observations, **arguments)
+    second = values.build_row(progress, observations, **arguments)
+
+    assert first == second
+    assert cpu_history == [5.0]
+    assert gpu_history == [6.0]
 
 
 def test_failed_window_retains_completed_requests_without_success_metrics(tmp_path):

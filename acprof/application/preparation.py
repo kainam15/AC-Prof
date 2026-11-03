@@ -88,7 +88,7 @@ def prepare_runtime(args, *, run_state, task_info, output_dir, cpu_list, mem_lis
         workflow.emit("input", "passed", input_plan=input_plan_summary(task_info, planned_input_scales))
         notices.update_plan(model_id=task_info.model_id, output_dir=output_dir,
                                       total_cases=total_cases)
-        print(f"[resume] 恢复实验 {run_state.data['run_id']}，复用原镜像和输入计划")
+        print(f"[resume] 恢复实验 {run_state.run_id}，复用原镜像和输入计划")
         saved_meta = read_json_object(static_meta_json, label="static metadata")
         capability_report = CapabilityReport.from_dict(saved_meta.get("capability_report", {
             "profiling_mode": args.profiling_mode,

@@ -15,6 +15,9 @@ acprof/tui/
 ├── logging/                # 日志保留、显示、导出
 ├── models/                 # 模型候选和 Store 确认
 ├── results/                # 历史结果、统计、报告与 profiler
+│   ├── controller.py       # 结果选择、统计读取/呈现与操作控件副作用
+│   ├── html_controller.py  # HTML 生成回执、完成状态及打开/导出操作
+│   └── report_actions.py   # 不依赖 Textual 的按钮可用性/显示纯计算
 ├── run/                    # 执行、预检、恢复、进度与命令呈现
 │   ├── execution.py        # 唯一执行会话/身份和进程所有者
 │   ├── process.py          # 进程/进程组启动、停止和回收
@@ -34,6 +37,7 @@ acprof/tui/
 - `ProcessLifecycle` 只能在目标进程确认退出后释放。清理超时保留进程占用状态，禁止新实验开始；停止必须携带期望的进程对象，防止迟到的 SIGINT 误伤替换进程。
 - `run/process_controller.py` 使用唯一 App Worker Manager 调度日志读取和失败后的回收。Textual 窗口卸载不等于采集进程结束；UI 回调必须在 App 存活且 Token 匹配时投递。
 - `RunPresenter` 仅修改现有控件、焦点、通知和计时器。它通过 App 的明确接口读取 `ExecutionCoordinator`，不缓存执行身份，不创建第二个 Worker Manager，也不修改测量协议。
+- `ResultController` 组合 `HtmlReportController`，后者持有 HTML 生成回执和完成状态，并通过 App 调度文件 Worker；二者都不持有执行会话或进程。`report_actions.py` 只根据 `OperationState`、结果可用性和执行种类计算控件规则，测量互斥仍由 App 的同一个 `OperationState` 提供。
 - `AcprofTui` 仅是 Textual 宿主：事件路由、组合页面、全局互斥、Worker/Timer 和卸载回收桥接。少量公共 callback 方法委派给 `RunPresenter`，供 Textual 和线程安全回调使用；这些委派不是独立状态副本。
 - `commands.py`、`i18n.py` 和 `acprof.tui` 包导入不能提前加载 Textual。重依赖仍在使用时才导入。
 

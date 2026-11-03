@@ -2,6 +2,10 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
+
+from acprof.host.measurement.config import ClientConfig
+from acprof.host.runtimes.service import configure_client
 
 
 def test_import_does_not_read_runtime_environment_or_initialize_workload():
@@ -18,3 +22,63 @@ assert dict(os.environ) == before
         capture_output=True, text=True, timeout=20)
     assert (result.returncode) == (0), result.stderr
     assert (result.stdout) == ("")
+
+
+def test_client_config_environment_codec_preserves_structured_values():
+    config = ClientConfig(
+        cpu_cores=2,
+        mem_cap_gb=4,
+        resource_plan={"method": "docker_cgroup", "verified": True},
+        input_scale_order=[1.0, 4.0],
+        idle_debug=True,
+        use_mips=True,
+    )
+
+    encoded = config.to_env()
+    restored = ClientConfig.from_env(encoded)
+
+    assert encoded["CPU_CORES"] == "2"
+    assert encoded["MEM_CAP_GB"] == "4"
+    assert restored == config
+
+
+def test_client_config_environment_codec_preserves_inherited_process_resources():
+    config = ClientConfig(
+        runtime_kind="process",
+        profiling_mode="basic",
+        process_pid=123,
+        process_start_ticks=456,
+        cpu_cores=None,
+        mem_cap_gb=None,
+        resource_plan={"method": "inherited"},
+    )
+
+    encoded = config.to_env()
+
+    assert encoded["CPU_CORES"] == "nan"
+    assert encoded["MEM_CAP_GB"] == "nan"
+    assert ClientConfig.from_env(encoded) == config
+
+
+def test_process_session_populates_typed_client_configuration():
+    session = SimpleNamespace(
+        runtime_kind="process",
+        base_url="http://127.0.0.1:9000",
+        gpu_device={"index": 2, "uuid": "GPU-fixture"},
+        process=SimpleNamespace(identity={"pid": 123, "start_ticks": 456}),
+        resource_plan={"method": "inherited", "verified": True},
+        startup={"process_startup_s": 1.25},
+    )
+
+    config = configure_client(ClientConfig(profiling_mode="basic"), session)
+    config.validate()
+
+    assert config.base_url == session.base_url
+    assert config.runtime_kind == "process"
+    assert config.process_pid == 123
+    assert config.process_start_ticks == 456
+    assert config.resource_plan == session.resource_plan
+    assert config.resource_plan is not session.resource_plan
+    assert config.process_startup_s == "1.25"
+    assert config.device_index == 2
+    assert config.gpu_device_uuid == "GPU-fixture"

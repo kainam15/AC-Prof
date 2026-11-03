@@ -35,7 +35,7 @@
 | 位置 | 职责 |
 | --- | --- |
 | `acprof/cli/` | 参数、命令分发、进程信号与退出码；`run.py` 将共享 `RunConfig` 交给采集应用层 |
-| `acprof/application/` | `RunApplication` 持有单次运行、终端日志及通知生命周期；`preparation` 构建／恢复运行时证据，`resources` 校验资源轴，`notifications` 和 `terminal_log` 负责窗口外输出；只依赖共享协议与 host，不反向导入 CLI/TUI |
+| `acprof/application/` | `RunApplication` 持有单次运行、终端日志及通知生命周期；`preparation` 构建／恢复运行时证据，`resources` 校验资源轴，`publication` 合并并发布矩阵结果，`outcome` 定义运行结果，`notifications` 和 `terminal_log` 负责窗口外输出；只依赖共享协议与 host，不反向导入 CLI/TUI |
 | `acprof/tui/` | Textual 页面、事件、命令构造、进度、设置和日志控件 |
 | `acprof/analysis/` | 延迟模型的数值计算、验证与报告文件 |
 | `acprof/plotting/` | 当前 CSV 校验、图表配置、颜色与渲染 |
@@ -51,8 +51,9 @@
 | `acprof/host/preparation/` | 模型确认、接口探测、下载预检、模型覆盖审计和准备记录的统一编排边界 |
 | `acprof/host/model_store/` | 共享权重缓存、lease/容量策略、受限文件系统访问及只读视图发布 |
 | `acprof/host/images/` | `environment` 构建依赖环境镜像，`dependencies` / `scan` 收集依赖证据，`inventory` / `graph` 管理清单和层关系，`runtime` / `identity` 组装并标识模型镜像 |
-| `acprof/host/runtimes/` | `RuntimeArtifact` 描述 Docker／Process 制品；各实现拥有准备、恢复、启动和停止，Process 自行绑定 GPU 与恢复日志路径，共享编排不修改其环境字典 |
-| `acprof/host/measurement/` | 客户端配置、请求窗口、监测器编排、纯指标计算、检查点与发布；`host.client` 保留进程入口 |
+| `acprof/host/runtimes/` | `RuntimeArtifact` 描述 Docker／Process 制品；各实现拥有准备、恢复、启动和停止，Process 自行绑定 GPU 与恢复日志路径，`service.configure_client()` 将 session 写入类型化 Client 配置 |
+| `acprof/host/case_recovery.py`、`acprof/host/run_state.py` | 前者负责 case 归档、checkpoint 恢复与清理债务，后者保留结果目录/测量锁、状态快照与持久化；checkpoint 查询不执行清理 |
+| `acprof/host/measurement/` | `config` 提供类型化 Client 配置及环境变量 codec，`collector_metrics` 纯投影 collector 结果，`numbers` 提供共享数值转换，`metrics` 归约窗口并组装行；请求窗口、监测器编排、检查点与发布保持独立，`host.client` 保留进程入口 |
 | `acprof/host/profiling/` | 独立 compute/execution 计划、进度及工具支持；`tools/` 放置各 profiler 的执行和解析实现 |
 | `acprof/host/posthoc/` | 已有结果的 profiler 补采、回填、备份与回滚 |
 | `acprof/container/` | 容器内模型下载、HTTP server、推理处理器和 profiler runner |
@@ -121,9 +122,9 @@ flowchart TD
 记录 `acprof/` 中的 `(source, target, symbol)`，CI 拒绝未登记的新 private dependency，
 也拒绝已经失效但仍留在 baseline 中的条目；具体范围与维护命令见
 [private API 检查](static-checks.md#跨模块-private-api-检查)。
-`measurement.metrics` 与 client/diagnostics、`resource_metrics` 与资源采样器属于现有内部协作边界，
-继续逐条登记，不给予整个子系统无限制豁免。`latency_model` 的 analysis/plotting 边界同样保留
-现有条目，后续按职责处理，不以消除下划线数量为目标。
+`client` 与 `measurement.publication`、`resource_metrics` 与资源采样器仍逐条登记，不给予整个子系统
+无限制豁免。posthoc 的 plan/profile 读取和数值转换使用包内公共 API；`latency_model` 的 analysis/plotting
+边界同样保留现有条目，后续按职责处理，不以消除下划线数量为目标。
 
 用户统一使用 `acprof <command>`，TUI 的正式入口为 `acprof tui`，由 `acprof.cli.main:main` 分发。
 `acprof.cli.tui` 是 TUI 命令的内部实现模块。根目录不包含 Python 文件；

@@ -15,6 +15,7 @@ from acprof.config import (
 )
 from acprof.host.detect import TaskInfo
 from acprof.host.runtimes.contracts import RuntimeArtifact
+from acprof.monitors.sampling import SamplingPolicy
 
 if TYPE_CHECKING:
     from acprof.host.run_state import RunState
@@ -26,8 +27,8 @@ class MatrixProgress:
 
     completed_cases: int
     total_cases: int
-    cpu: int
-    mem: int
+    cpu: int | None
+    mem: int | None
     gpu: str
     result_csv: str | None
 
@@ -37,8 +38,8 @@ class CaseRequest:
     """Identity, resources, and locations for one runtime execution."""
 
     task_info: TaskInfo
-    cpu: int
-    mem: int
+    cpu: int | None
+    mem: int | None
     gpu: str
     image_info: RuntimeArtifact
     output_dir: str
@@ -70,7 +71,7 @@ class CaseMeasurement:
     require_packet_latency: bool = True
     profiling_mode: str = "full"
     dram_energy: str = "auto"
-    sampling_policy: str = "burst"
+    sampling_policy: SamplingPolicy = "burst"
     raw_sample_limit: int = 100000
 
 
@@ -91,8 +92,8 @@ class MatrixRequest:
 
     task_info: TaskInfo
     image_info: RuntimeArtifact
-    cpu_list: list[int]
-    mem_list: list[int]
+    cpu_list: list[int | None]
+    mem_list: list[int | None]
     gpu_list: list[str]
     output_dir: str
     project_dir: str
@@ -106,7 +107,7 @@ class MatrixRequest:
     matrix_seed: int = 0
     cpuset_cpus: str = ""
 
-    def case_request(self, cpu: int, mem: int, gpu: str) -> CaseRequest:
+    def case_request(self, cpu: int | None, mem: int | None, gpu: str) -> CaseRequest:
         return CaseRequest(
             task_info=self.task_info,
             cpu=cpu,

@@ -72,7 +72,7 @@ def test_posthoc_rejects_unverified_parse_even_if_path_is_restored(tmp_path, mon
     changed = json.loads(original)
     changed["entries"][0]["payload"]["text"] = "unverified replacement"
     path.write_text(json.dumps(changed), encoding="utf-8")
-    reader = posthoc_context._load_json_object
+    reader = posthoc_context.load_json_object
 
     def restore_after_parse(candidate, label, **kwargs):
         value = reader(candidate, label, **kwargs)
@@ -80,7 +80,7 @@ def test_posthoc_rejects_unverified_parse_even_if_path_is_restored(tmp_path, mon
             path.write_bytes(original)
         return value
 
-    monkeypatch.setattr(posthoc_context, "_load_json_object", restore_after_parse)
+    monkeypatch.setattr(posthoc_context, "load_json_object", restore_after_parse)
     with pytest.raises(posthoc_context.PosthocError, match="hash does not match"):
         posthoc_context.load_result_context(tmp_path)
 

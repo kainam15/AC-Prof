@@ -317,6 +317,7 @@ def test_cleanup_debt_is_verified_before_retrying_only_postprocessing(measured_c
     with pytest.raises(ContainerCleanupError):
         orchestrator.run_single_case(**arguments)
     monkeypatch.setattr(container_lifecycle, "recover_cleanup_debt", cannot_stop)
+    assert state.processing_checkpoint(str(case.csv), 1, 4, "off") is not None
     with pytest.raises(ContainerCleanupError):
         state.prepare_case("unused.csv", 1, 4, "off")
     assert calls["client"] == calls["container"] == 1

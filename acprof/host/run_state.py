@@ -21,8 +21,7 @@ from acprof.artifacts import (
     atomic_write_json,
     file_sha256,
     read_json_object,
-    replace_file_durably,
-    sync_directory,
+    sync_directory_chain,
 )
 from acprof.experiments.arguments import flatten_run_options
 from acprof.gpu_mode import normalize_gpu_mode
@@ -43,19 +42,6 @@ MEASUREMENT_LOCK_ROOT = Path("/tmp")
 # A Linux abstract address has no pathname to unlink. Keep its identity stable
 # across checkouts, outputs, sessions and environment variables.
 MEASUREMENT_LOCK_NAMESPACE = b"acprof.measurement"
-
-
-def _sync_directory_chain(directory: Path, root: Path) -> None:
-    """Persist recovery-directory entries from a copied file up to the experiment root."""
-    directory = directory.absolute()
-    root = root.absolute()
-    if not directory.is_relative_to(root):
-        raise ValueError(f"Recovery directory escapes experiment root: {directory}")
-    while True:
-        sync_directory(directory)
-        if directory == root:
-            return
-        directory = directory.parent
 
 
 class RunStateError(RuntimeError):
@@ -414,6 +400,21 @@ class RunState:
     def complete(self) -> bool:
         return self.data.get("status") == "complete"
 
+    @property
+    def run_id(self) -> str:
+        return self.data["run_id"]
+
+    @property
+    def has_cases(self) -> bool:
+        return bool(self.data.get("cases"))
+
+    def case_paths(self) -> tuple[Path, ...]:
+        return tuple(self.artifact_path(name) for name in self.data["cases"])
+
+    def case_record(self, path: str) -> dict:
+        key = str(Path(path).relative_to(self.directory))
+        return dict(self.data["cases"][key])
+
     def save(self) -> None:
         self.data["updated_at"] = utc_now()
         atomic_write_json(self.path, self.data)
@@ -459,7 +460,7 @@ class RunState:
                 os.fsync(stream.fileno())
             backup_directories.add(target.parent)
         for directory in sorted(backup_directories, key=lambda path: len(path.parts), reverse=True):
-            _sync_directory_chain(directory, self.directory)
+            sync_directory_chain(directory, self.directory)
         return str(backup.relative_to(self.directory))
 
     def bind_matrix_plan(self, plan: dict) -> None:
@@ -526,89 +527,9 @@ class RunState:
     def expected(self, cpu=None, mem=None, gpu=None):
         return _expected(self.data, cpu, mem, gpu)
 
-    def prepare_case(self, filename: str, cpu: int, mem: int, gpu: str) -> str | None:
-        path = (self.layout.case("", cpu, mem, gpu).csv if self.layout.layout_version == 2
-                else self.artifact_path(filename))
-        filename = str(path.relative_to(self.directory))
-        case = self.layout.case_from_csv(path)
-        record = self.data["cases"].get(filename, {})
-        if record.get("status") == "complete":
-            if not path.is_file() or file_sha256(path) != record["sha256"]:
-                raise RunStateError(f"已完成 case 的 CSV 缺失或改变：{path}")
-            read_result_csv(path, expected=self.expected(cpu, mem, gpu))
-            return str(path)
-        if record.get("case_attempt_id") and record.get("measurement_status") != "complete":
-            from acprof.host.measurement.checkpoint import discover_measurement_checkpoint
-            try:
-                reference = discover_measurement_checkpoint(
-                    case, run_id=self.data["run_id"], attempt_id=record["case_attempt_id"],
-                    expected=self.expected(cpu, mem, gpu),
-                )
-            except (OSError, ValueError, KeyError) as exc:
-                raise RunStateError(f"已发布测量快照无法恢复：{exc}") from exc
-            if reference is not None:
-                record.update(status="measured", measurement_status="complete", processing_status="pending",
-                              measurement_checkpoint=reference, recovered_checkpoint_at=utc_now())
-                self.save()
-        if record.get("measurement_status") == "complete":
-            self.processing_checkpoint(str(path), cpu, mem, gpu)
-            return None
-        if record.get("cleanup_process") and record.get("cleanup_status") != "complete":
-            from acprof.host.runtimes.process_control import recover_process
-            recover_process(record["cleanup_process"], directory=self.layout.path("logs"))
-            record["cleanup_status"] = "complete"
-            self.save()
-        candidates = [*case.temporary_files(), case.retained_requests, case.idle]
-        existing = list(dict.fromkeys(candidate for candidate in candidates if candidate.exists() or candidate.is_symlink()))
-        previous_attempts = list(record.get("previous_attempts", []))
-        previous = {name: value for name, value in record.items() if name != "previous_attempts"}
-        if existing:
-            archived = record.get("status") == "archived" and bool(record.get("backup"))
-            backup = (self.layout.contained(record["backup"]) if archived else
-                      self.layout.path("interrupted_cases") / case.case_id / uuid4().hex)
-            backup.mkdir(parents=True, exist_ok=bool(archived))
-            backup_directories: set[Path] = set()
-            # Preserve every source before removing any file, including partial PCAPs.
-            for source in existing:
-                self.artifact_path(str(source.relative_to(self.directory)))
-                if source.is_symlink() or not source.is_file():
-                    raise RunStateError(f"不支持的 case 产物类型：{source}")
-                # Raw samples and idle diagnostics share case IDs; retain provenance.
-                target = backup / source.relative_to(self.directory)
-                if archived:
-                    if not target.is_file() or file_sha256(target) != file_sha256(source):
-                        raise RunStateError(f"Interrupted archive disagrees with its remaining projection: {source}")
-                    continue
-                target.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(source, target)
-                with target.open("rb") as stream:
-                    os.fsync(stream.fileno())
-                backup_directories.add(target.parent)
-            for directory in sorted(backup_directories, key=lambda path: len(path.parts), reverse=True):
-                _sync_directory_chain(directory, self.directory)
-            self.data["cases"][filename] = {**record, "status": "archived", "backup": str(backup.relative_to(self.directory))}
-            previous["backup"] = str(backup.relative_to(self.directory))
-            self.save()
-            for source in existing:
-                source.unlink()
-        if previous:
-            previous_attempts.append(previous)
-        self.data["cases"][filename] = {
-            "status": "running", "started_at": utc_now(), "case_attempt_id": uuid4().hex,
-            "measurement_status": "running", "processing_status": "pending",
-            "resources": [cpu, mem, gpu],
-            "previous_attempts": previous_attempts,
-        }
-        self.save()
-        path.parent.mkdir(parents=True, exist_ok=True)
-        from acprof.host.measurement.window_recovery import is_incremental, restore_case_windows
-        if is_incremental(self.layout):
-            count = (restore_case_windows(case, run_id=self.data["run_id"], expected=self.expected(cpu, mem, gpu))
-                     if self.layout.window_records_root(case.case_id).exists() else 0)
-            self.data["cases"][filename]["restored_windows"] = count
-            self.data["cases"][filename]["resume_semantics"] = "window-v1; runtime segments have separate attempts"
-            self.save()
-        return None
+    def prepare_case(self, filename: str, cpu: int | None, mem: int | None, gpu: str) -> str | None:
+        from acprof.host.case_recovery import prepare_case
+        return prepare_case(self, filename, cpu, mem, gpu)
 
     def case_attempt_id(self, path: str) -> str:
         record = self.data["cases"][str(Path(path).relative_to(self.directory))]
@@ -627,7 +548,7 @@ class RunState:
         record.update(cleanup_process=evidence, cleanup_status="pending")
         self.save()
 
-    def checkpoint_measurement(self, path: str, cpu: int, mem: int, gpu: str, *, processing: dict,
+    def checkpoint_measurement(self, path: str, cpu: int | None, mem: int | None, gpu: str, *, processing: dict,
                                container_id: str) -> None:
         from acprof.host.measurement.checkpoint import publish_measurement_checkpoint
         key = str(Path(path).relative_to(self.directory))
@@ -645,7 +566,7 @@ class RunState:
                       cleanup_container_id=container_id)
         self.save()
 
-    def processing_checkpoint(self, path: str, cpu: int, mem: int, gpu: str) -> dict | None:
+    def processing_checkpoint(self, path: str, cpu: int | None, mem: int | None, gpu: str) -> dict | None:
         from acprof.host.measurement.checkpoint import read_measurement_checkpoint
         record = self.data["cases"].get(str(Path(path).relative_to(self.directory)), {})
         if record.get("measurement_status") != "complete":
@@ -658,28 +579,13 @@ class RunState:
             )
         except (OSError, ValueError, KeyError) as exc:
             raise RunStateError(f"已完成测量的原始证据无效：{exc}") from exc
-        if record.get("cleanup_status") != "complete":
-            if record.get("cleanup_process"):
-                from acprof.host.runtimes.process_control import recover_process
-                recover_process(record["cleanup_process"], directory=self.layout.path("logs"))
-                recovery = {"kind": "process", "status": "complete"}
-            else:
-                from acprof.host.container_lifecycle import recover_cleanup_debt
-                from acprof.system import command as host_command
-                recovery = recover_cleanup_debt(
-                    [{"container_id": record.get("cleanup_container_id", "")}], host_command.run_command,
-                )
-            case = self.layout.case_from_csv(path)
-            error = case.sidecar("cleanup_error")
-            if error.exists():
-                target = self.layout.contained(f"raw/cleanup/{case.case_id}/{record['case_attempt_id']}.json")
-                target.parent.mkdir(parents=True, exist_ok=True)
-                if target.exists():
-                    raise RunStateError(f"Cleanup evidence already exists: {target}")
-                replace_file_durably(error, target)
-            record.update(cleanup_status="complete", cleanup_recovery=recovery)
-            self.save()
         return checkpoint
+
+    def recover_processing_checkpoint(
+        self, path: str, cpu: int | None, mem: int | None, gpu: str,
+    ) -> dict | None:
+        from acprof.host.case_recovery import recover_processing_checkpoint
+        return recover_processing_checkpoint(self, path, cpu, mem, gpu)
 
     def record_case_processing(self, path: str, status: str) -> None:
         if status not in {"running", "failed", "complete"}:
@@ -700,7 +606,7 @@ class RunState:
         record["cleanup_status"] = status
         self.save()
 
-    def finish_case(self, path: str, cpu: int, mem: int, gpu: str) -> None:
+    def finish_case(self, path: str, cpu: int | None, mem: int | None, gpu: str) -> None:
         _, rows = read_result_csv(path, expected=self.expected(cpu, mem, gpu))
         case = self.layout.case_from_csv(path)
         case.retain_requests()

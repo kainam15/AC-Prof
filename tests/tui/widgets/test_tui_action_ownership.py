@@ -9,6 +9,7 @@ from textual.message_pump import MessagePump
 
 from acprof.tui.app import AcprofTui
 from acprof.tui.results.controller import ResultController
+from acprof.tui.results.html_controller import HtmlReportController
 from acprof.tui.results.profile_controller import ProfileController
 from acprof.tui.run.experiment_controller import ExperimentController
 from acprof.tui.run.preflight_controller import PreflightController
@@ -56,6 +57,23 @@ def test_report_worker_uses_the_app_worker_manager(tmp_path):
     assert operation.func.__self__ is app.results
     assert operation.args == (report, token)
     assert schedule.call_args.kwargs["group"] == "report"
+    assert schedule.call_args.kwargs["thread"] is True
+
+
+def test_html_file_worker_uses_the_app_worker_manager(tmp_path):
+    app = AcprofTui(settings_path=tmp_path / "settings.json")
+    controller = app.results.html
+    report = tmp_path / "report.html"
+    assert isinstance(controller, HtmlReportController)
+    assert controller.app is app
+    assert not issubclass(HtmlReportController, MessagePump)
+    assert not hasattr(app, "run_file_action")
+    with patch.object(app, "run_worker") as schedule:
+        controller.run_file_action("open", report)
+    operation = schedule.call_args.args[0]
+    assert operation.func.__self__ is controller
+    assert operation.args[1:] == ("open", report, None)
+    assert schedule.call_args.kwargs["group"] == "html-file"
     assert schedule.call_args.kwargs["thread"] is True
 
 

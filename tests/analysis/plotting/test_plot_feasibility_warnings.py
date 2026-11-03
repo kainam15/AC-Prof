@@ -89,7 +89,7 @@ def test_warning_status_stays_paired_with_its_diagnostic_across_repeats():
 
 @pytest.mark.parametrize("kind", ["gpu", "cpu", "resource", "negative_energy"])
 def test_current_monitor_diagnostics_remain_warnings_in_feasibility(kind):
-    from acprof.host.measurement.metrics import window_monitor_warnings
+    from acprof.host.measurement.collector_metrics import window_monitor_warnings
 
     gpu_metrics = dict.fromkeys(["gpu_avg_power_eff_w", "gpu_peak_power_eff_w", "gpu_energy_eff_j"], 0.)
     cpu_metrics = dict.fromkeys([

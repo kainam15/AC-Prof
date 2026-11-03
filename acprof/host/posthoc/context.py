@@ -146,7 +146,7 @@ class PosthocSummary:
     updated_rows_by_tool: dict[str, int]
 
 
-def _finite_float(value: Any) -> float:
+def finite_float(value: Any) -> float:
     try:
         if value is None or (isinstance(value, str) and not value.strip()):
             return float("nan")
@@ -156,19 +156,19 @@ def _finite_float(value: Any) -> float:
     return number if math.isfinite(number) else float("nan")
 
 
-def _fmt_float(value: Any) -> str:
-    number = _finite_float(value)
+def fmt_float(value: Any) -> str:
+    number = finite_float(value)
     return f"{number:.6f}" if math.isfinite(number) else "nan"
 
 
-def _integer(value: Any, field: str) -> int:
-    number = _finite_float(value)
+def integer(value: Any, field: str) -> int:
+    number = finite_float(value)
     if not math.isfinite(number) or not number.is_integer() or number <= 0:
         raise PosthocError(f"invalid {field} in result CSV: {value!r}")
     return int(number)
 
 
-def _load_json_object(
+def load_json_object(
     path: Path, label: str, *, expected_sha256: str | None = None,
     cancelled: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
@@ -209,7 +209,7 @@ def _load_result_csv(path: Path, *, result_snapshot: ResultCsvSnapshot | None = 
 def _unique_scales(rows: Iterable[Mapping[str, Any]], *, cancelled: Callable[[], bool] | None = None) -> list[float]:
     scales: list[float] = []
     for row in cancellable(rows, cancelled):
-        scale = _finite_float(row.get("input_scale"))
+        scale = finite_float(row.get("input_scale"))
         if not math.isfinite(scale):
             raise PosthocError(
                 f"invalid input_scale in result CSV: {row.get('input_scale')!r}"
@@ -237,7 +237,7 @@ def _input_plan_scales(plan: Mapping[str, Any], *, cancelled: Callable[[], bool]
             raise PosthocError(
                 f"invalid input scale plan entry at index {index}: payload missing"
             )
-        scale = _finite_float(entry.get("input_scale"))
+        scale = finite_float(entry.get("input_scale"))
         if not math.isfinite(scale):
             raise PosthocError(
                 f"invalid input scale plan entry at index {index}: input_scale missing"
@@ -294,7 +294,7 @@ def load_result_context(result_dir: str | os.PathLike[str], *, result_snapshot: 
         raise PosthocError("Independent post-hoc profilers currently require Docker Runtime")
     collection_history_existed = collection_history_path.is_file()
     collection_history_payload = (
-        _load_json_object(collection_history_path, COLLECTION_HISTORY_NAME, cancelled=cancelled)
+        load_json_object(collection_history_path, COLLECTION_HISTORY_NAME, cancelled=cancelled)
         if collection_history_existed
         else None
     )
@@ -304,7 +304,7 @@ def load_result_context(result_dir: str | os.PathLike[str], *, result_snapshot: 
         raise PosthocError(f"invalid collection history: {exc}") from exc
     check_cancelled(cancelled)
     expected_plan_hash = str(static_meta.get("input_scale_plan_sha256") or "").strip()
-    input_plan = _load_json_object(
+    input_plan = load_json_object(
         input_scale_plan_path, INPUT_SCALE_PLAN_NAME,
         expected_sha256=expected_plan_hash or None,
         cancelled=cancelled,
@@ -329,8 +329,8 @@ def load_result_context(result_dir: str | os.PathLike[str], *, result_snapshot: 
         resource_cases = sorted(
             {
                 (
-                    _integer(row.get("cpu_cores"), "cpu_cores"),
-                    _integer(row.get("mem_cap_gb"), "mem_cap_gb"),
+                    integer(row.get("cpu_cores"), "cpu_cores"),
+                    integer(row.get("mem_cap_gb"), "mem_cap_gb"),
                     normalize_gpu_mode(row.get("gpu_mode")),
                 )
                 for row in cancellable(rows, cancelled)
@@ -410,7 +410,7 @@ def load_result_context(result_dir: str | os.PathLike[str], *, result_snapshot: 
     )
 
 
-def _read_plan(path: Path) -> dict[str, Any] | None:
+def read_plan(path: Path) -> dict[str, Any] | None:
     if not path.is_file():
         return None
     try:

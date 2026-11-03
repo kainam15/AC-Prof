@@ -189,6 +189,18 @@ def sync_directory(directory: Path) -> None:
         os.fsync(directory_fd)
 
 
+def sync_directory_chain(directory: Path, root: Path) -> None:
+    directory = directory.absolute()
+    root = root.absolute()
+    if not directory.is_relative_to(root):
+        raise ValueError(f"Recovery directory escapes experiment root: {directory}")
+    while True:
+        sync_directory(directory)
+        if directory == root:
+            return
+        directory = directory.parent
+
+
 def create_durable_directory(directory: Path) -> None:
     """Persist newly created directory entries before publishing files below them."""
     missing = []

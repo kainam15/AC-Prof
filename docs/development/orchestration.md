@@ -7,6 +7,8 @@
 | 模块 | 职责 |
 | --- | --- |
 | `application/task_runs` | 保存推理组集合与配置，按不同执行路径串行调度独立 `RunApplication`；组间失败隔离、恢复及 workload 物化均在测量外 |
+| `application/run` / `application/outcome` | 单次运行生命周期与类型化 `RunOutcome`；应用层不解析 argv 或调用 `sys.exit` |
+| `application/publication` | 合并 case CSV、校验 capability、完成 `RunState`、清理本次中间产物并输出完成回执 |
 | `models/candidates` / `tasks/workloads` / `tasks/groups` / `host/preparation/task_selection` | 分离模型声明、语义输入模板、计算配置分组与交互选择；不以架构候选替代明确任务证据，也不为 prompt-only 变化重跑资源矩阵 |
 | `preflight` | 原生 Linux、本机 Docker、cgroup 与 CPU 能耗前置检查 |
 | `preparation/network_preflight` / `preparation/download_probe` | Docker/Process 下载计划与确认、来源元数据检查及共享预算的限量 GET；复用 HF transport，全部在准备阶段执行 |
@@ -36,28 +38,32 @@
 | `measurement.capture` | tcpdump 前置检查及 capture/parser 命令构造 |
 | `orchestrator` | case/matrix 调度、idle 稳定性、失败与超时处理、OOM pruning 和 CSV 合并 |
 
-| `run_state` | 目录锁、实验身份、已完成 case 校验、中断备份和恢复；仅在测量窗口外运行 |
+| `run_state` | 目录锁、实验身份、状态快照与原子持久化；case 归档和清理由 `host.case_recovery` 负责，均在测量窗口外运行 |
 | `measurement.monitors` | `MonitorGroup` 所有权、固定启停顺序及共享 `run_matched_control_window`；不导入硬件或 workload |
 | `execution_conditions` | 保存／恢复线程环境、固定 GPU UUID、CPU affinity 和请求超时；开销诊断与负载重放共用 |
 | `measurement.load` | 共享 HTTP Scheduler、连接生命周期与独立负载统计；支持 `/predict` 和可选 SSE Adapter，不进入正式能耗 CSV |
 | `measurement.streaming` | OpenAI-compatible SSE 解码、有效输出时间、Token 来源与流式指标；不调度负载或采集硬件 |
 | `client` | 环境与 workload 初始化、短连接 HTTP 请求适配、窗口调度和完成结果发布 |
-| `measurement.metrics` | 已完成采样结果的纯计算与格式化；`WindowMetrics` 保留部分计算结果、判定指标状态并组装完整结果行 |
+| `measurement.config` | `ClientConfig` 是子进程配置的唯一类型化对象；集中处理 `from_env()` / `to_env()`，资源限制、资源计划和输入顺序在进程内部保持结构化类型 |
+| `measurement.numbers` | 请求归约与结果序列化共用的数值转换；不读取环境、collector 或文件 |
+| `measurement.collector_metrics` | 已完成 collector 结果到 GPU/CPU/资源/PMU 指标组的纯投影及 monitor 告警计算 |
+| `measurement.metrics` | `WindowMetrics` 保留部分归约结果、判定指标状态并组装完整结果行；idle history 由显式方法更新，行组装不修改历史 |
 | `measurement.execution` | `WindowExecutor.execute` 拥有单窗口 collector 构造、对照采集、请求、停止、请求证据发布和异常优先级 |
 | `measurement.types` / `measurement.errors` | `WindowSpec`、`WindowObservations`、`WindowResult` 与共享的致命测量异常；不访问硬件 |
-| `measurement.requests` | 串行请求进度、实际参数和有效输入尺度一致性；不拥有 collector 或文件 |
+| `measurement.requests` | 串行请求进度、HTTP body 大小、实际参数和有效输入尺度一致性；不拥有 collector 或文件 |
 | `monitors/rapl_topology` | powercap 完整域发现、alias 去重、package/DRAM 来源选择与可用性；独立于矩阵计划 |
 | `monitors/common` | Docker PID 查询与 CPU/资源采样的绝对时刻调度；保留各监控器的异常类型 |
 | `host/container_lifecycle` | 按主机与进程身份确认废弃服务容器，在冷启动计时前回收 |
-| `profiling.compute` / `profiling.execution` | profiler 计划编排及汇总；工具执行实现统一放在 `profilers/` 下 |
-| `profilers/ncu` / `profilers/torch` / `profilers/advisor` | 各自的容器执行与产物处理；NCU 另拥有 checkpoint、export 和 resume |
-| `profilers/massif` / `profilers/nsys` | 隔离执行、错误条目与产物处理；Massif 拥有 checkpoint/resume，Nsys 拥有 stats、SQLite 与 raw stream 清理 |
+| `host.case_recovery` | case 归档、checkpoint 恢复与清理债务；`RunState` 保留锁、状态快照和持久化，`processing_checkpoint()` 只读，显式恢复入口才执行清理 |
+| `profiling.compute` / `profiling.execution` | profiler 计划编排及汇总；工具执行实现统一放在 `profiling/tools/` 下 |
+| `profiling.tools.ncu` / `profiling.tools.torch` / `profiling.tools.advisor` | 各自的容器执行与产物处理；NCU 另拥有 checkpoint、export 和 resume |
+| `profiling.tools.massif` / `profiling.tools.nsys` | 隔离执行、错误条目与产物处理；Massif 拥有 checkpoint/resume，Nsys 拥有 stats、SQLite 与 raw stream 清理 |
 | `measurement.diagnostics` / `measurement.publication` | 窗口外 idle/NVIDIA 诊断，以及停止后请求 JSONL、CSV 与 sidecar 的发布 |
-| `measurement.error_rows` | case 失败、timeout 和 startup-OOM 行的纯归约与发布；校验 measurement key、保留已提交成功行，并维持 sniff sidecar 先于 CSV 的提交顺序 |
+| `measurement.error_rows` | 失败、timeout 和 startup-OOM 行的纯归约与发布；校验 measurement key、保留已提交成功行，并维持 sniff sidecar 先于 CSV 的提交顺序 |
 | `monitors/resource_readers` / `monitors/resource_metrics` | cgroup/proc/sysfs discovery 和 raw reader；纯 sample reduction 与 counter 派生计算 |
-| `profilers/compute_parsers` / `profilers/execution_parsers` | Advisor/NCU CSV、Massif snapshot 和 Nsys stats 的纯标准库解析 |
-| `profilers/tool_discovery` | 可执行文件、版本目录优先级和完整工具挂载路径 |
-| `profilers/execution_environment` | 原始模型镜像的 profiler 能力核验、工具版本查询 |
+| `profiling.tools.compute_parsers` / `profiling.tools.execution_parsers` | Advisor/NCU CSV、Massif snapshot 和 Nsys stats 的纯标准库解析 |
+| `profiling.tools.tool_discovery` | 可执行文件、版本目录优先级和完整工具挂载路径 |
+| `profiling.tools.execution_environment` | 原始模型镜像的 profiler 能力核验、工具版本查询 |
 | `profiling.support` | 两类 profiler 的容器命令、runner 参数、输入计划与产物路径；复用 `artifacts.atomic_write` 发布原有 profiler JSON |
 | `application/terminal_log` | tmux pane pipe 的启动、停止与日志发布；不覆盖已有 pipe，由本次 `RunApplication` 持有并在 finally 清理 |
 
@@ -66,14 +72,15 @@
 `host.result_cleanup` 只有在合并结果存在且非空时才回收逐 case 临时文件，
 `cli.run` 只负责参数与调度，v2/flat 路由与请求证据保留策略由结果模块维护。
 
-`measurement.metrics` 对跨模块使用的 CPU/GPU/资源样本转换公开 `cpu_metrics_from_result`、
-`gpu_metrics_from_result` 与 `resource_usage_metrics_from_result`；其他局部计算保留模块私有，
-不为降低 private API 计数机械公开所有助手函数。
+`measurement.collector_metrics` 对跨模块使用的 CPU/GPU/资源样本转换公开 `cpu_metrics_from_result`、
+`gpu_metrics_from_result` 与 `resource_usage_metrics_from_result`；`measurement.numbers` 提供共享数值转换，
+其他局部计算保留模块私有，不为降低 private API 计数机械公开所有助手函数。
 
-`runtimes/service` 是输入规划的下层，Docker adapter 继续使用 `docker_runtime`；`metadata/static` 引用 runtime、输入计划类型和
+`runtimes/service` 是输入规划的下层，Docker adapter 继续使用 `docker_runtime`；`configure_client()` 将 Runtime session
+直接写入类型化 `ClientConfig`，orchestrator 不再维护另一套环境变量字段映射。`metadata/static` 引用 runtime、输入计划类型和
 任务 schema；这些模块均不反向引用 `orchestrator`。调用方直接引用各模块。
 两类 profiler 单向依赖 `profiling.support`，TaskInfo 只在类型检查时导入；
-解析与工具查找使用 `profilers/` 下的实现。`profiling.execution` 通过 Massif/Nsys 的
+解析与工具查找使用 `profiling/tools/` 下的实现。`profiling.execution` 通过 Massif/Nsys 的
 `profile` 与 `error_entry` 调度各工具，私有采集、恢复或解析实现只由所属模块调用。
 解析器不导入 Docker、模型检测或采集编排，单独读取报告无需安装推理框架。
 测试在函数实际查找依赖的位置 mock。
@@ -92,7 +99,8 @@
 
 `WindowMetrics` 在采集结束后按既定顺序归约数据。数值计算中途失败时保留此前已取得的字段，
 吞吐量保持未知；请求本身失败时保留请求证据和完成数量，不将该不完整窗口重新归约为成功结果。
-idle history 由执行器按 case 保存，GPU idle 来源在 workload stop 完成累计计数器回退后读取。
+执行器通过 `record_idle_history()` 显式更新 case 基线后才调用 `build_row()`；行组装可重复执行且不修改历史。
+GPU idle 来源在 workload stop 完成累计计数器回退后读取。
 
 边界测试直接使用替代 collector 和请求端口，验证完整窗口、部分请求、初始化失败、
 清理次数和组合故障的异常优先级；CLI/CSV 集成测试继续验证外部产物。
@@ -186,8 +194,8 @@ machine events 继续由 `RunProgressTracker` 解析。
 Docker 实现保持既有镜像准备和不可变镜像身份校验。
 `RunConfig.validate()` 汇总纯参数约束与逐字段 `ConfigIssue`，并规范化 profiler 重复次数和参考资源。`config_constraints` 提供 CLI、表单、冻结参数及 `ClientConfig` 共用的无损数值解析，拒绝布尔值、非有限值和小数截断；主机 CPU 亲和可用性、环境 SLO 与硬件能力仍在 preflight 检查。用户实验的 `repeat` 至少为 1，直接测量入口允许准备／清理用的 0 窗口；这一区别显式保留在共享规则中。底层测量还验证进程身份和证据目录等运行不变量。
 `_execute()` 只串联执行选项校验、任务集合分派、主机预检、准备、矩阵执行和结果发布；
-`_collect_matrix()` 消费单一 `MatrixRequest`，`_publish_matrix_results()` 负责 capability 校验、
-CSV 合并、RunState 完成与清理，task child 继续使用同一 `_finalize()` 所有权和异常优先级。
+`_collect_matrix()` 消费单一 `MatrixRequest`，`application.publication.publish_matrix_results()` 负责
+capability 校验、CSV 合并、RunState 完成与清理，task child 继续使用同一 `_finalize()` 所有权和异常优先级。
 日志关闭、RunState 关闭、终态通知与通知上下文重置按顺序尝试，任一收尾失败都不能跳过后续步骤。
 应用释放实例占用后才发送 `run_finished`；事件输出失败也必须保留此前的运行与清理错误。
 收尾统一复用 `system.cleanup.cleanup_on_exit`：保留原始异常及附带诊断；清理期间的取消优先于

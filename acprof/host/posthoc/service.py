@@ -22,23 +22,23 @@ from acprof.host.posthoc.context import (
     TOOL_GPU_MODES,
     PosthocError,
     PosthocSummary,
-    _read_plan,
     load_result_context,
+    read_plan,
 )
 from acprof.host.posthoc.plans import (
-    _collect_compute_plan,
-    _collect_execution_plan,
-    _find_reusable_compute_plan,
-    _find_reusable_execution_plan,
-    _validate_profiler_runtime,
     applicable_tools,
+    collect_compute_plan,
+    collect_execution_plan,
+    find_reusable_compute_plan,
+    find_reusable_execution_plan,
     merge_compute_plans,
     merge_execution_plans,
     parse_tools,
+    validate_profiler_runtime,
 )
 from acprof.host.posthoc.storage import (
     PosthocLock,
-    _atomic_write_json,
+    atomic_write_json,
     commit_result_files,
     create_backup,
     find_active_processes,
@@ -92,7 +92,7 @@ def run_posthoc(
 
     selected = parse_tools(tools)
     directory = Path(result_dir).expanduser().resolve()
-    early_meta = _read_plan(directory / STATIC_META_NAME) or {}
+    early_meta = read_plan(directory / STATIC_META_NAME) or {}
     model_id = str(early_meta.get("model_name") or "").strip()
     active = find_active_processes(directory, model_id=model_id)
     if active:
@@ -173,9 +173,9 @@ def run_posthoc(
             reusable: dict[str, Any] | None = None
             if not force_reprofile:
                 reusable = (
-                    _find_reusable_compute_plan(context, workspace, tool)
+                    find_reusable_compute_plan(context, workspace, tool)
                     if tool in {"torch", "ncu"}
-                    else _find_reusable_execution_plan(context, workspace, tool)
+                    else find_reusable_execution_plan(context, workspace, tool)
                 )
             if reusable is not None:
                 plans_by_tool[tool] = reusable
@@ -188,7 +188,7 @@ def run_posthoc(
                     if not device_uuid:
                         raise PosthocError("GPU profiling requires recorded gpu_device.uuid; regenerate the main experiment")
                     pin_gpu_device(device_uuid)
-                _validate_profiler_runtime(
+                validate_profiler_runtime(
                     context,
                     gpu_modes=[
                         mode for mode in ("off", "on")
@@ -199,7 +199,7 @@ def run_posthoc(
                 runtime_validated = True
             print(f"[profile][{tool}] Collecting isolated profiler probes...")
             if tool in {"torch", "ncu"}:
-                plan = _collect_compute_plan(
+                plan = collect_compute_plan(
                     context,
                     workspace / tool,
                     tool=tool,
@@ -211,7 +211,7 @@ def run_posthoc(
                     resume_existing_ncu_profiles=not force_reprofile,
                 )
             else:
-                plan = _collect_execution_plan(
+                plan = collect_execution_plan(
                     context,
                     workspace / tool,
                     tool=tool,
@@ -250,9 +250,9 @@ def run_posthoc(
             else None
         )
         if compute_plan is not None:
-            _atomic_write_json(workspace / "compute_profile_plan.json", compute_plan)
+            atomic_write_json(workspace / "compute_profile_plan.json", compute_plan)
         if execution_plan is not None:
-            _atomic_write_json(
+            atomic_write_json(
                 workspace / "execution_profile_plan.json", execution_plan
             )
 

@@ -20,12 +20,17 @@ from acprof.host.measurement import (
 )
 from acprof.host.measurement.config import ClientConfig
 from acprof.host.measurement.errors import EnergyAbort, MIPSAbort, RequestTimeoutAbort
-from acprof.host.measurement.metrics import WindowMetrics, to_float_or_nan
+from acprof.host.measurement.metrics import (
+    WindowMetrics,
+    idle_debug_stats,
+    idle_power_debug_stats,
+)
 from acprof.host.measurement.monitors import (
     MonitorCleanupError,
     MonitorGroup,
     run_matched_control_window,
 )
+from acprof.host.measurement.numbers import resource_text, to_float_or_nan
 from acprof.host.measurement.requests import (
     WindowRequestProgress,
     execute_requests,
@@ -109,6 +114,7 @@ class WindowExecutor:
             self._preserve_uncommitted(spec, group_id, progress, observations, exc)
             raise
 
+        metrics.record_idle_history(self.cpu_idle_history, self.gpu_idle_history)
         row = metrics.build_row(
             progress, observations,
             warmup=spec.warmup,
@@ -120,7 +126,7 @@ class WindowExecutor:
             cpu_idle_history=self.cpu_idle_history,
             gpu_idle_history=self.gpu_idle_history,
         )
-        diagnostic = self._idle_diagnostic(row, group_id, observations, metrics) if self.config.idle_debug else None
+        diagnostic = self._idle_diagnostic(row, group_id, observations) if self.config.idle_debug else None
         evidence = self._evidence(spec, group_id, progress, observations)
         return WindowResult(row, diagnostic, group_id, evidence, observations.request_record)
 
@@ -148,8 +154,9 @@ class WindowExecutor:
                       "case_attempt_id": self.config.case_attempt_id or None, "window_id": group_id},
             context={"input_scale": spec.scale, "scale_label": spec.scale_entry["scale_label"],
                      "warmup": spec.warmup, "repeat_idx": spec.repeat_idx,
-                     "completed_requests": progress.count, "cpu_cores": self.config.cpu_cores,
-                     "mem_cap_gb": self.config.mem_cap_gb, "gpu_mode": self.config.gpu_mode,
+                     "completed_requests": progress.count,
+                     "cpu_cores": resource_text(self.config.cpu_cores),
+                     "mem_cap_gb": resource_text(self.config.mem_cap_gb), "gpu_mode": self.config.gpu_mode,
                      "profiling_mode": self.config.profiling_mode,
                      "model_revision": self.config.model_revision, "image_tag": self.config.image_tag,
                      "sampling_policy": self.config.sampling_policy, "sample_hz": self.config.sample_hz,
@@ -359,7 +366,7 @@ class WindowExecutor:
             return True
         return latency_sum_s < self.config.repeat_window_seconds
 
-    def _idle_diagnostic(self, row, group_id, observations, metrics):
+    def _idle_diagnostic(self, row, group_id, observations):
         """Assemble diagnostic provenance only after all monitors have finalized."""
         # Workload stop may reject a cumulative GPU counter and recompute
         # the paired idle baseline from its original power samples. Read
@@ -372,8 +379,8 @@ class WindowExecutor:
         return {
             "case_name": self.config.case_name,
             "gpu_mode": self.config.gpu_mode,
-            "cpu_cores": self.config.cpu_cores,
-            "mem_cap_gb": self.config.mem_cap_gb,
+            "cpu_cores": resource_text(self.config.cpu_cores),
+            "mem_cap_gb": resource_text(self.config.mem_cap_gb),
             "input_scale": row["input_scale"],
             "warmup": row["warmup"],
             "repeat_idx": row["repeat_idx"],
@@ -390,12 +397,12 @@ class WindowExecutor:
             "gpu_energy_counter_envelope_valid_samples": getattr(observations.gpu_result, "counter_envelope_valid_samples", None),
             "gpu_power_samples": [[t - observations.gpu_samples[0][0], p] for t, p in observations.gpu_samples],
             "gpu_idle_power_w": to_float_or_nan(row["gpu_idle_power_w"]),
-            **metrics.gpu_idle_stats,
+            **idle_power_debug_stats(self.gpu_idle_history, "gpu"),
             **observations.gpu_idle_trace,
             **(observations.gpu_idle_debug_snapshot or {}),
             "cpu_idle_measured_at": row["cpu_idle_measured_at"],
             "cpu_idle_power_w": to_float_or_nan(row["cpu_idle_power_w"]),
-            **metrics.cpu_idle_stats,
+            **idle_debug_stats(self.cpu_idle_history),
             **observations.idle_trace,
             **observations.idle_debug_snapshot,
         }

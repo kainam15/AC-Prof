@@ -462,7 +462,7 @@ class TestTuiReports:
             assert Path(json_path.value) == imported
             assert app.query_one("#report-content", ContentSwitcher).current == "report-results"
             with patch.object(app, "launch") as launch:
-                app.results.launch_html_report()
+                app.results.html.launch()
             launch.assert_called_once()
             command = launch.call_args.args[0].command
             assert str(self.csv_path) in command

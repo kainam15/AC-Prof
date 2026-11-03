@@ -8,9 +8,7 @@ import os
 from typing import Any
 
 from acprof.gpu_probe import require_gpu_identity
-from acprof.host.measurement.metrics import (
-    to_float_or_nan as _to_float_or_nan,
-)
+from acprof.host.measurement.numbers import to_float_or_nan as _to_float_or_nan
 from acprof.system.command import run_command
 
 

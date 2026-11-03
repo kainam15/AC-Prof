@@ -120,8 +120,8 @@ def test_successful_csv_with_missing_diagnostics_skips_all_work_without_writing(
     def unexpected_work(*args, **kwargs):
         raise AssertionError("complete CSV must not validate a runtime, reuse a plan, or start a profiler")
 
-    for name in ("_validate_profiler_runtime", "_find_reusable_compute_plan", "_find_reusable_execution_plan",
-                 "_collect_compute_plan", "_collect_execution_plan"):
+    for name in ("validate_profiler_runtime", "find_reusable_compute_plan", "find_reusable_execution_plan",
+                 "collect_compute_plan", "collect_execution_plan"):
         monkeypatch.setattr(service, name, unexpected_work)
 
     summary = service.run_posthoc(tmp_path)

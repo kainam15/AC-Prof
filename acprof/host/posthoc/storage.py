@@ -26,7 +26,7 @@ from acprof.host.posthoc.context import (
     STATIC_META_NAME,
     PosthocError,
     ResultContext,
-    _load_json_object,
+    load_json_object,
 )
 from acprof.host.posthoc.copying import copy_backup_file
 from acprof.results.csv import allow_large_csv_fields
@@ -37,7 +37,7 @@ def _write_csv_text(stream: TextIO, text: str) -> None:
     stream.write(text)
 
 
-def _atomic_write_json(path: Path, payload: Mapping[str, Any]) -> None:
+def atomic_write_json(path: Path, payload: Mapping[str, Any]) -> None:
     def write(stream) -> None:
         json.dump(payload, stream, ensure_ascii=False, indent=2, allow_nan=False)
         stream.write("\n")
@@ -128,9 +128,9 @@ def create_backup(context: ResultContext) -> Path:
                 directories.update(parent for parent in destination.parents if parent.is_relative_to(backup))
         # Verify the copy itself: valid source files do not prove a valid backup.
         read_result_csv(backup / context.result_csv.absolute().relative_to(layout.root))
-        _load_json_object(backup / context.static_meta_path.absolute().relative_to(layout.root), "backup static metadata")
+        load_json_object(backup / context.static_meta_path.absolute().relative_to(layout.root), "backup static metadata")
         if context.collection_history_existed:
-            normalize_collection_history(_load_json_object(
+            normalize_collection_history(load_json_object(
                 backup / context.collection_history_path.absolute().relative_to(layout.root), "backup collection history"))
         for directory in sorted(directories, key=lambda path: (-len(path.parts), path.as_posix())):
             _fsync_directory(directory)
@@ -240,8 +240,8 @@ def _commit_layer_result_files(context: ResultContext, *, fieldnames, rows, stat
         meta_stage, history_stage = stage / STATIC_META_NAME, stage / COLLECTION_HISTORY_NAME
         atomic_write_json(meta_stage, static_meta)
         atomic_write_json(history_stage, collection_history)
-        _load_json_object(meta_stage, "staged static metadata")
-        normalize_collection_history(_load_json_object(history_stage, "staged collection history"))
+        load_json_object(meta_stage, "staged static metadata")
+        normalize_collection_history(load_json_object(history_stage, "staged collection history"))
         try:
             # Publish metadata before the result manifest; rollback restores both.
             for candidate, destination in (
@@ -332,8 +332,8 @@ def commit_result_files(
                 allow_large_csv_fields()
                 if sum(1 for _row in csv.DictReader(f)) != len(rows):
                     raise PosthocError("temporary result CSV row-count validation failed")
-            _load_json_object(meta_temporary, "temporary static metadata")
-            temporary_history = _load_json_object(
+            load_json_object(meta_temporary, "temporary static metadata")
+            temporary_history = load_json_object(
                 history_temporary,
                 "temporary collection history",
             )

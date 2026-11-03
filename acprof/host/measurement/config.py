@@ -1,9 +1,11 @@
 """Client configuration is read and validated only at the execution boundary."""
 from __future__ import annotations
 
+import json
 import os
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Any
 
 from acprof.capabilities import require_profiling_mode
 from acprof.config import (
@@ -15,7 +17,31 @@ from acprof.config import (
 )
 from acprof.experiments.constraints import MEASUREMENT_NUMBERS, ConstraintViolation
 from acprof.gpu_mode import normalize_gpu_mode
+from acprof.host.measurement.numbers import resource_text
 from acprof.monitors.sampling import DEFAULT_RAW_SAMPLE_LIMIT, SamplingPolicy, sampling_policy
+
+
+def _resource_from_env(value: str) -> int | None:
+    text = value.strip()
+    if text.lower() in {"", "nan", "none", "inherited"}:
+        return None
+    return int(text)
+
+
+def _resource_plan_from_env(value: str) -> dict[str, Any]:
+    plan = json.loads(value)
+    if not isinstance(plan, dict):
+        raise ValueError("ACPROF_RESOURCE_PLAN must be a JSON object")
+    return plan
+
+
+def _input_scale_order_from_env(value: str) -> list[float] | None:
+    if not value.strip():
+        return None
+    order = json.loads(value)
+    if not isinstance(order, list):
+        raise ValueError("INPUT_SCALE_ORDER must be a JSON list")
+    return [float(item) for item in order]
 
 
 @dataclass
@@ -23,15 +49,15 @@ class ClientConfig:
     runtime_kind: str = 'docker'
     process_pid: int = 0
     process_start_ticks: int = 0
-    resource_plan: str = '{}'
+    resource_plan: dict[str, Any] = field(default_factory=dict)
     process_startup_s: str = 'nan'
     model_revision: str = 'main'
     task_family: str = 'nlp'
     pipeline_tag: str = 'text-generation'
     runtime_backend: str = 'transformers_pipeline'
     image_tag: str = ''
-    cpu_cores: str = ''
-    mem_cap_gb: str = ''
+    cpu_cores: int | None = None
+    mem_cap_gb: int | None = None
     gpu_mode: str = 'off'
     base_url: str = 'http://127.0.0.1:8002'
     endpoint: str = '/predict'
@@ -78,7 +104,7 @@ class ClientConfig:
     input_scale_plan_file: str = ''
     compute_profile_plan_file: str = ''
     execution_profile_plan_file: str = ''
-    input_scale_order: str = ""
+    input_scale_order: list[float] | None = None
 
     @property
     def request_namespace(self) -> str:
@@ -93,8 +119,8 @@ class ClientConfig:
         pipeline_tag = env.get("PIPELINE_TAG", "text-generation")
         runtime_backend = env.get("RUNTIME_BACKEND", "transformers_pipeline")
         image_tag = env.get("IMAGE_TAG", "")
-        cpu_cores = env.get("CPU_CORES", "")
-        mem_cap_gb = env.get("MEM_CAP_GB", "")
+        cpu_cores = _resource_from_env(env.get("CPU_CORES", ""))
+        mem_cap_gb = _resource_from_env(env.get("MEM_CAP_GB", ""))
         gpu_mode = normalize_gpu_mode(env.get("GPU_MODE", "off"))
         base_url = env.get("BASE_URL", "http://127.0.0.1:8002").rstrip("/")
         endpoint = env.get("ENDPOINT", "/predict")
@@ -147,7 +173,7 @@ class ClientConfig:
             runtime_kind=env.get('ACPROF_EXECUTION_RUNTIME', 'docker'),
             process_pid=int(env.get('ACPROF_PROCESS_PID', '0')),
             process_start_ticks=int(env.get('ACPROF_PROCESS_START_TICKS', '0')),
-            resource_plan=env.get('ACPROF_RESOURCE_PLAN', '{}'),
+            resource_plan=_resource_plan_from_env(env.get('ACPROF_RESOURCE_PLAN', '{}')),
             process_startup_s=env.get('ACPROF_PROCESS_STARTUP_S', 'nan'),
             model_revision=model_revision,
             task_family=task_family,
@@ -202,10 +228,79 @@ class ClientConfig:
             input_scale_plan_file=input_scale_plan_file,
             compute_profile_plan_file=compute_profile_plan_file,
             execution_profile_plan_file=execution_profile_plan_file,
-            input_scale_order=env.get("INPUT_SCALE_ORDER", ""),
+            input_scale_order=_input_scale_order_from_env(env.get("INPUT_SCALE_ORDER", "")),
         )
         config.validate()
         return config
+
+    def to_env(self) -> dict[str, str]:
+        values = {
+            "ACPROF_EXECUTION_RUNTIME": self.runtime_kind,
+            "ACPROF_PROCESS_PID": str(self.process_pid),
+            "ACPROF_PROCESS_START_TICKS": str(self.process_start_ticks),
+            "ACPROF_RESOURCE_PLAN": json.dumps(self.resource_plan),
+            "ACPROF_PROCESS_STARTUP_S": self.process_startup_s,
+            "MODEL_REVISION": self.model_revision,
+            "TASK_FAMILY": self.task_family,
+            "PIPELINE_TAG": self.pipeline_tag,
+            "RUNTIME_BACKEND": self.runtime_backend,
+            "IMAGE_TAG": self.image_tag,
+            "CPU_CORES": resource_text(self.cpu_cores),
+            "MEM_CAP_GB": resource_text(self.mem_cap_gb),
+            "GPU_MODE": self.gpu_mode,
+            "BASE_URL": self.base_url,
+            "ENDPOINT": self.endpoint,
+            "BATCH_SIZE": str(self.batch_size),
+            "WARMUP": str(self.warmup),
+            "REPEAT": str(self.repeat),
+            "REPEAT_IN_WINDOW": str(self.repeat_in_window),
+            "REPEAT_WINDOW_SECONDS": str(self.repeat_window_seconds),
+            "REQUEST_TIMEOUT_SECONDS": f"{self.request_timeout_seconds:g}",
+            "COLD_START_S": self.cold_start_s,
+            "COLD_START_STARTED_AT": self.cold_start_started_at,
+            "COLD_START_READY_AT": self.cold_start_ready_at,
+            "COLD_START_CONTAINER_LAUNCH_S": self.cold_start_container_launch_s,
+            "COLD_START_SERVER_SETUP_S": self.cold_start_server_setup_s,
+            "COLD_START_CUDA_INIT_S": self.cold_start_cuda_init_s,
+            "COLD_START_MODEL_LOAD_S": self.cold_start_model_load_s,
+            "COLD_START_READY_WAIT_S": self.cold_start_ready_wait_s,
+            "OUT_CSV": self.out_csv,
+            "CASE_NAME": self.case_name,
+            "CONTAINER_NAME": self.container_name,
+            "IDLE_DEBUG": "1" if self.idle_debug else "0",
+            "IDLE_DIAG_PATH": self.idle_diag_path,
+            "CLIENT_ERROR_PATH": self.client_error_path,
+            "USE_MIPS": "1" if self.use_mips else "0",
+            "PROFILING_MODE": self.profiling_mode,
+            "DRAM_ENERGY": self.dram_energy,
+            "SAMPLE_HZ": str(self.sample_hz),
+            "ACPROF_SAMPLING_POLICY": self.sampling_policy,
+            "ACPROF_RAW_SAMPLE_LIMIT": str(self.raw_sample_limit),
+            "ACPROF_RUN_ID": self.run_id,
+            "ACPROF_CASE_ID": self.case_id,
+            "ACPROF_CASE_ATTEMPT_ID": self.case_attempt_id,
+            "ACPROF_WINDOW_RECORDS_DIR": self.window_records_dir,
+            "ACPROF_TELEMETRY_DIR": self.telemetry_dir,
+            "ACPROF_RESULT_ROOT": self.result_root,
+            "IDLE_SECONDS": str(self.idle_seconds),
+            "DEVICE_INDEX": str(self.device_index),
+            "GPU_DEVICE_UUID": self.gpu_device_uuid,
+            "IDLE_COOLDOWN_SECONDS": str(self.idle_cooldown_seconds),
+            "INPUT_SCALES": self.input_scales_str,
+            "INPUT_SCALE_PLAN_FILE": self.input_scale_plan_file,
+            "COMPUTE_PROFILE_PLAN_FILE": self.compute_profile_plan_file,
+            "EXECUTION_PROFILE_PLAN_FILE": self.execution_profile_plan_file,
+            "INPUT_SCALE_ORDER": (
+                json.dumps(self.input_scale_order) if self.input_scale_order is not None else ""
+            ),
+        }
+        if self.auto_warmup_requests != 5:
+            values["AUTO_WARMUP_REQUESTS"] = str(self.auto_warmup_requests)
+        if self.sniff_groups_path:
+            values["SNIFF_GROUPS_PATH"] = self.sniff_groups_path
+        if self.idle_debug_trace_interval_s != 0.1:
+            values["IDLE_DEBUG_TRACE_INTERVAL_S"] = str(self.idle_debug_trace_interval_s)
+        return values
 
     def validate(self) -> None:
         if self.runtime_kind not in {'process', 'docker'}:

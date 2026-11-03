@@ -27,6 +27,7 @@ from acprof.host.measurement.capture import (
     _packet_latency_error,
     _resolve_packet_latency_runtime,
 )
+from acprof.host.measurement.config import ClientConfig
 from acprof.host.measurement.energy_validation import (
     EnergyProfilingError,
     check_case_cpu_idle_power_stable,
@@ -48,7 +49,7 @@ from acprof.host.runtimes.contracts import (
 )
 from acprof.host.runtimes.service import (
     bind_session,
-    client_environment,
+    configure_client,
     service_failure,
     start_service_session,
     stop_service_session,
@@ -182,12 +183,12 @@ class _CaseExecution:
     def run(self) -> str:
         self.case.csv.parent.mkdir(parents=True, exist_ok=True)
         if self.run_state is not None:
-            checkpoint = self.run_state.processing_checkpoint(
+            checkpoint = self.run_state.recover_processing_checkpoint(
                 self.out_csv, self.request.cpu, self.request.mem, self.request.gpu
             )
             if checkpoint is not None:
                 return _resume_case_processing(self.case, checkpoint, self.run_state, self.case_name)
-        self.run_id = self.run_state.data["run_id"] if self.run_state is not None else uuid4().hex
+        self.run_id = self.run_state.run_id if self.run_state is not None else uuid4().hex
         self.attempt_id = (
             self.run_state.case_attempt_id(self.out_csv)
             if self.run_state is not None else uuid4().hex
@@ -287,53 +288,67 @@ class _CaseExecution:
             print(f"[sniff] packet_latency=not_requested (profiling_mode={self.measurement.profiling_mode})")
         return runtime
 
-    def _client_environment(self, session: ServiceSession) -> dict[str, str]:
+    def _client_config(self, session: ServiceSession) -> ClientConfig:
         request, workload, measurement, plans = self.request, self.workload, self.measurement, self.plans
         task_info = request.task_info
         scales = plans.input_scales or serialize_input_scales(
             resolve_input_scales(task_info.task_family, input_scales=None)
         )
+        config = ClientConfig(
+            model_revision=task_info.model_revision,
+            task_family=task_info.task_family,
+            pipeline_tag=task_info.pipeline_tag,
+            runtime_backend=task_info.runtime_backend,
+            image_tag=runtime_identity(request.image_info),
+            cpu_cores=request.cpu,
+            mem_cap_gb=request.mem,
+            gpu_mode=request.gpu,
+            batch_size=workload.batch_size,
+            warmup=workload.warmup,
+            repeat=workload.repeat,
+            repeat_in_window=workload.repeat_in_window,
+            repeat_window_seconds=workload.repeat_window_seconds,
+            request_timeout_seconds=workload.request_timeout_seconds,
+            out_csv=self.out_csv,
+            case_name=self.case_name,
+            container_name=session.name,
+            use_mips=measurement_requested(measurement.profiling_mode, "cpu_instructions"),
+            profiling_mode=measurement.profiling_mode,
+            dram_energy=measurement.dram_energy,
+            sample_hz=measurement.sample_hz,
+            sampling_policy=measurement.sampling_policy,
+            raw_sample_limit=measurement.raw_sample_limit,
+            run_id=self.run_id,
+            case_id=self.case.case_id,
+            case_attempt_id=self.attempt_id,
+            window_records_dir=str(self.case.window_records(self.attempt_id)),
+            telemetry_dir=str(self.case.telemetry(self.attempt_id)),
+            result_root=str(self.case.layout.root) if self.run_state is not None else "",
+            idle_seconds=measurement.idle_seconds,
+            idle_cooldown_seconds=measurement.idle_cooldown_seconds,
+            idle_debug=measurement.idle_debug,
+            idle_diag_path=str(self.case.idle) if measurement.idle_debug else "",
+            client_error_path=str(self.case.sidecar("client_error")),
+            input_scales_str=scales,
+            input_scale_plan_file=plans.input_scale_plan_file or "",
+            compute_profile_plan_file=plans.compute_profile_plan_file or "",
+            execution_profile_plan_file=plans.execution_profile_plan_file or "",
+            input_scale_order=(
+                list(plans.input_scale_order) if plans.input_scale_order is not None else None
+            ),
+        )
+        configured = configure_client(config, session)
+        configured.validate()
+        return configured
+
+    def _client_environment(self, session: ServiceSession) -> dict[str, str]:
+        task_info = self.request.task_info
         environment = {
             **os.environ,
+            **self._client_config(session).to_env(),
             "MODEL_ID": task_info.model_id,
-            "MODEL_REVISION": task_info.model_revision,
             "ACPROF_RUNTIME_PROFILE": task_info.runtime_profile_id,
-            "TASK_FAMILY": task_info.task_family,
-            "PIPELINE_TAG": task_info.pipeline_tag,
-            "RUNTIME_BACKEND": task_info.runtime_backend,
-            "IMAGE_TAG": runtime_identity(request.image_info),
-            "CPU_CORES": str(request.cpu) if request.cpu is not None else "nan", "MEM_CAP_GB": str(request.mem) if request.mem is not None else "nan", "GPU_MODE": request.gpu,
-            "BASE_URL": session.base_url, "ENDPOINT": "/predict",
-            "BATCH_SIZE": str(workload.batch_size), "WARMUP": str(workload.warmup),
-            "REPEAT": str(workload.repeat), "REPEAT_IN_WINDOW": str(workload.repeat_in_window),
-            "REPEAT_WINDOW_SECONDS": str(workload.repeat_window_seconds),
-            "REQUEST_TIMEOUT_SECONDS": f"{workload.request_timeout_seconds:g}",
-            **client_environment(session),
-            "OUT_CSV": self.out_csv, "CASE_NAME": self.case_name, "CONTAINER_NAME": session.name,
-            "USE_MIPS": "1" if measurement_requested(measurement.profiling_mode, "cpu_instructions") else "0",
-            "PROFILING_MODE": measurement.profiling_mode, "DRAM_ENERGY": measurement.dram_energy,
-            "INPUT_SCALE_ORDER": json.dumps(plans.input_scale_order) if plans.input_scale_order is not None else "",
-            "SAMPLE_HZ": str(measurement.sample_hz),
-            "ACPROF_SAMPLING_POLICY": measurement.sampling_policy,
-            "ACPROF_RAW_SAMPLE_LIMIT": str(measurement.raw_sample_limit),
-            "ACPROF_RUN_ID": self.run_id, "ACPROF_CASE_ID": self.case.case_id,
-            "ACPROF_CASE_ATTEMPT_ID": self.attempt_id,
-            "ACPROF_WINDOW_RECORDS_DIR": str(self.case.window_records(self.attempt_id)),
-            "ACPROF_TELEMETRY_DIR": str(self.case.telemetry(self.attempt_id)),
-            "ACPROF_RESULT_ROOT": str(self.case.layout.root) if self.run_state is not None else "",
-            "IDLE_SECONDS": str(measurement.idle_seconds),
-            "IDLE_COOLDOWN_SECONDS": str(measurement.idle_cooldown_seconds),
-            "IDLE_DEBUG": "1" if measurement.idle_debug else "0",
-            "IDLE_DIAG_PATH": str(self.case.idle) if measurement.idle_debug else "",
-            "CLIENT_ERROR_PATH": str(self.case.sidecar("client_error")),
-            "DEVICE_INDEX": str(session.gpu_device.get("index", 0)),
-            "GPU_DEVICE_UUID": str(session.gpu_device.get("uuid", "")),
-            "INPUT_SCALES": scales,
-            "INPUT_SCALE_PLAN_FILE": plans.input_scale_plan_file or "",
-            "COMPUTE_PROFILE_PLAN_FILE": plans.compute_profile_plan_file or "",
-            "EXECUTION_PROFILE_PLAN_FILE": plans.execution_profile_plan_file or "",
         }
-        # Keep notification credentials out of the measured subprocess.
         environment.pop("ACPROF_WECOM_WEBHOOK_URL", None)
         return environment
 
@@ -432,8 +447,7 @@ class _CaseExecution:
     ) -> None:
         try:
             from acprof.host.measurement.window_recovery import archived_captures
-            record = (self.run_state.data["cases"][str(self.case.csv.relative_to(self.case.layout.root))]
-                      if self.run_state is not None else {})
+            record = self.run_state.case_record(self.out_csv) if self.run_state is not None else {}
             segments = archived_captures(self.case, record)
             _finalize_case(
                 capture_available, sniff_runtime, outcome.incomplete, outcome.completed_rows,
@@ -675,7 +689,7 @@ def run_matrix(request: cases.MatrixRequest) -> list[str]:
                     or startup_oom_prefixes(evidence) != plan["startup_oom_prefixes"]):
                 raise ValueError("matrix plan startup probe evidence mismatch")
     else:
-        if run_state is not None and run_state.data.get("cases"):
+        if run_state is not None and run_state.has_cases:
             raise ValueError("missing frozen matrix plan for existing cases; start a new experiment")
         prefixes = {}
         if prune_startup_oom:
@@ -706,9 +720,12 @@ def run_matrix(request: cases.MatrixRequest) -> list[str]:
             print(f"[resume] 已完成，复用 case：{filename}")
             emit_event("case_skipped", case_name, status="completed")
         elif case["result_origin"] == "inferred_not_measured":
+            reference_cpu = min((value for value in cpu_list if value is not None), default=None)
+            if reference_cpu is None or cpu is None or mem is None:
+                raise ValueError("Startup OOM pruning requires explicit Docker resources")
             csv_path = write_startup_oom_pruned_case_csv(
                 task_info=task_info, output_dir=request.output_dir, cpu=cpu, mem=mem, gpu=gpu,
-                reference_cpu=min(cpu_list), warmup=workload.warmup, repeat=workload.repeat,
+                reference_cpu=reference_cpu, warmup=workload.warmup, repeat=workload.repeat,
                 repeat_in_window=workload.repeat_in_window, input_scales=request.plans.input_scales)
             emit_event("case_skipped", case_name, status="oom_pruned")
         else:

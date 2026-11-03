@@ -28,13 +28,9 @@ from acprof.host.measurement import publication as client_publication
 from acprof.host.measurement.config import ClientConfig
 from acprof.host.measurement.errors import EnergyAbort, MIPSAbort, RequestTimeoutAbort
 from acprof.host.measurement.execution import WindowExecutor
-from acprof.host.measurement.metrics import (
-    _fmt_float,
-    _prepared_body_size_bytes,
-    to_float_or_nan as _to_float_or_nan,
-)
 from acprof.host.measurement.monitors import MonitorCleanupError
-from acprof.host.measurement.requests import canonical_task_param
+from acprof.host.measurement.numbers import format_float, resource_text, to_float_or_nan
+from acprof.host.measurement.requests import canonical_task_param, prepared_body_size_bytes
 from acprof.host.measurement.types import MonitorDependencies, WindowSpec
 from acprof.host.profiling.compute_plan import (
     load_compute_profile_plan as _load_compute_profile_plan,
@@ -152,7 +148,7 @@ class ClientRunner:
             "cold_start_cuda_init_s": self.config.cold_start_cuda_init_s or "nan",
             "cold_start_model_load_s": self.config.cold_start_model_load_s or "nan",
             "cold_start_ready_wait_s": self.config.cold_start_ready_wait_s or "nan",
-            "cold_start_first_predict_app_s": _fmt_float(self.first_predict_app_s),
+            "cold_start_first_predict_app_s": format_float(self.first_predict_app_s),
             "cold_start_s": self.config.cold_start_s or "nan",
         }
         return dict.fromkeys(result, "nan") if self.config.runtime_kind == "process" else result
@@ -266,9 +262,9 @@ class ClientRunner:
             "latency_app_s": request_latency_s,
             "resp": resp,
             "effective_input_scale": _parse_effective_input_scale(resp),
-            "request_payload_bytes": _prepared_body_size_bytes(r),
-            "output_length": _to_float_or_nan(resp.get("output_length")),
-            "output_token_count": _to_float_or_nan(resp.get("output_token_count")),
+            "request_payload_bytes": prepared_body_size_bytes(r),
+            "output_length": to_float_or_nan(resp.get("output_length")),
+            "output_token_count": to_float_or_nan(resp.get("output_token_count")),
             "task_param": canonical_task_param(payload),
             "workload_contract": resp.get("workload_contract"),
         }
@@ -312,13 +308,13 @@ class ClientRunner:
                 })
 
             scale_order = self.config.input_scale_order
-            if scale_order:
-                order = json.loads(scale_order)
+            if scale_order is not None:
                 available = {entry["input_scale"]: entry for entry in loaded_entries}
-                if (not isinstance(order, list) or len(order) != len(available)
-                        or len(set(order)) != len(order) or set(order) != set(available)):
+                if (len(scale_order) != len(available)
+                        or len(set(scale_order)) != len(scale_order)
+                        or set(scale_order) != set(available)):
                     raise ValueError("frozen matrix input-scale order does not match input plan")
-                loaded_entries = [available[scale] for scale in order]
+                loaded_entries = [available[scale] for scale in scale_order]
             return loaded_entries
 
         raise ValueError("INPUT_SCALE_PLAN_FILE is required; generate a schema v2 input plan first")
@@ -439,8 +435,8 @@ class ClientRunner:
             if ready_error is not None:
                 row = {k: "nan" for k in CSV_FIELDS}
                 row.update({
-                    "cpu_cores": self.config.cpu_cores,
-                    "mem_cap_gb": self.config.mem_cap_gb,
+                    "cpu_cores": resource_text(self.config.cpu_cores),
+                    "mem_cap_gb": resource_text(self.config.mem_cap_gb),
                     "gpu_mode": self.config.gpu_mode,
                     **self._cold_start_row_metrics(),
                     "status": "error",

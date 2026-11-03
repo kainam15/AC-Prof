@@ -23,16 +23,6 @@
     },
     {
       "source": "acprof.host.client",
-      "target": "acprof.host.measurement.metrics",
-      "symbol": "_fmt_float"
-    },
-    {
-      "source": "acprof.host.client",
-      "target": "acprof.host.measurement.metrics",
-      "symbol": "_prepared_body_size_bytes"
-    },
-    {
-      "source": "acprof.host.client",
       "target": "acprof.host.measurement.publication",
       "symbol": "_append_row"
     },
@@ -70,71 +60,6 @@
       "source": "acprof.host.orchestrator",
       "target": "acprof.host.measurement.capture",
       "symbol": "_resolve_packet_latency_runtime"
-    },
-    {
-      "source": "acprof.host.posthoc.backfill",
-      "target": "acprof.host.posthoc.context",
-      "symbol": "_finite_float"
-    },
-    {
-      "source": "acprof.host.posthoc.backfill",
-      "target": "acprof.host.posthoc.context",
-      "symbol": "_fmt_float"
-    },
-    {
-      "source": "acprof.host.posthoc.backfill",
-      "target": "acprof.host.posthoc.context",
-      "symbol": "_integer"
-    },
-    {
-      "source": "acprof.host.posthoc.plans",
-      "target": "acprof.host.posthoc.context",
-      "symbol": "_finite_float"
-    },
-    {
-      "source": "acprof.host.posthoc.plans",
-      "target": "acprof.host.posthoc.context",
-      "symbol": "_read_plan"
-    },
-    {
-      "source": "acprof.host.posthoc.service",
-      "target": "acprof.host.posthoc.context",
-      "symbol": "_read_plan"
-    },
-    {
-      "source": "acprof.host.posthoc.service",
-      "target": "acprof.host.posthoc.plans",
-      "symbol": "_collect_compute_plan"
-    },
-    {
-      "source": "acprof.host.posthoc.service",
-      "target": "acprof.host.posthoc.plans",
-      "symbol": "_collect_execution_plan"
-    },
-    {
-      "source": "acprof.host.posthoc.service",
-      "target": "acprof.host.posthoc.plans",
-      "symbol": "_find_reusable_compute_plan"
-    },
-    {
-      "source": "acprof.host.posthoc.service",
-      "target": "acprof.host.posthoc.plans",
-      "symbol": "_find_reusable_execution_plan"
-    },
-    {
-      "source": "acprof.host.posthoc.service",
-      "target": "acprof.host.posthoc.plans",
-      "symbol": "_validate_profiler_runtime"
-    },
-    {
-      "source": "acprof.host.posthoc.service",
-      "target": "acprof.host.posthoc.storage",
-      "symbol": "_atomic_write_json"
-    },
-    {
-      "source": "acprof.host.posthoc.storage",
-      "target": "acprof.host.posthoc.context",
-      "symbol": "_load_json_object"
     },
     {
       "source": "acprof.host.preflight",
