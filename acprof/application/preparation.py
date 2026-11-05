@@ -25,6 +25,7 @@ from acprof.host.collection_history import (
     write_collection_history_json,
 )
 from acprof.host.gpu_device import selected_gpu_device
+from acprof.host.runtimes.contracts import RuntimeCleanupError
 from acprof.results.layout import ArtifactLayout
 
 if TYPE_CHECKING:
@@ -110,6 +111,8 @@ def prepare_runtime(args, *, run_state, task_info, output_dir, cpu_list, mem_lis
                 timeout_seconds=args.request_timeout_seconds,
                 gpu_device=getattr(args, "process_gpu", None),
             )
+        except RuntimeCleanupError:
+            raise
         except (RuntimeError, OSError) as exc:
             print(f"\n[build][ERROR] {exc}", file=sys.stderr)
             raise CollectionFailed(str(exc)) from exc
@@ -178,6 +181,8 @@ def prepare_runtime(args, *, run_state, task_info, output_dir, cpu_list, mem_lis
                 workload_spec_path=args.workload_spec,
                 input_scale_policy=args.input_scale_policy,
             )
+        except RuntimeCleanupError:
+            raise
         except Exception as exc:
             print(f"\n[scale][ERROR] {exc}", file=sys.stderr)
             raise CollectionFailed(str(exc)) from exc
@@ -222,6 +227,8 @@ def prepare_runtime(args, *, run_state, task_info, output_dir, cpu_list, mem_lis
             static_meta = enrich_static_meta(static_meta, {"runtime_validation": validation,
                                                          "model_resolution": task_info.model_resolution})
             write_static_meta_json(static_meta, static_meta_json)
+        except RuntimeCleanupError:
+            raise
         except (RuntimeError, OSError, ValueError) as exc:
             print(f"[runtime-check][ERROR] {exc}", file=sys.stderr)
             raise CollectionFailed(str(exc)) from exc
@@ -270,6 +277,8 @@ def prepare_runtime(args, *, run_state, task_info, output_dir, cpu_list, mem_lis
                 workflow.emit("compute_profile", "passed")
             except Exception as exc:
                 workflow.emit("compute_profile", "failed", detail=str(exc))
+                if isinstance(exc, RuntimeCleanupError):
+                    raise
                 print(f"[compute][WARN] Compute profiling unavailable: {exc}")
 
         execution_profile_plan_file = ""
@@ -323,6 +332,8 @@ def prepare_runtime(args, *, run_state, task_info, output_dir, cpu_list, mem_lis
                 workflow.emit("execution_profile", "passed")
             except Exception as exc:
                 workflow.emit("execution_profile", "failed", detail=str(exc))
+                if isinstance(exc, RuntimeCleanupError):
+                    raise
                 print(
                     "[execution-profile][WARN] Execution profiling unavailable: "
                     f"{exc}"

@@ -16,6 +16,7 @@ from typing import Any
 from acprof.artifacts import atomic_write_json, loads_finite_json, read_json_object, sync_directory
 from acprof.events.preparation import MAX_MESSAGE, encode_event
 from acprof.host.preparation.model_errors import ModelLookupError
+from acprof.host.runtimes.contracts import RuntimeCleanupError
 from acprof.models.evidence import content_digest, pinned_revision
 
 
@@ -116,7 +117,8 @@ class PreparationWorkflow:
                     self.observer(stage, "failed", {"exception_type": type(exc).__name__,
                                                      "exception_message": str(exc)})
                 detail = traceback.format_exc()[-24000:]
-                if not self.interactive or self.continue_on_task_failure and stage == "runtime":
+                if (isinstance(exc, RuntimeCleanupError) or not self.interactive
+                        or self.continue_on_task_failure and stage == "runtime"):
                     raise
                 fields: dict[str, Any] = {"model_error": exc.to_dict()} if isinstance(exc, ModelLookupError) else {}
                 from acprof.hub.huggingface.download import HfDownloadError, exception_chain

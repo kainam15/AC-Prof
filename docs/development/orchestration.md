@@ -105,6 +105,14 @@ Profiler 命令统一经过 `profiling.commands.run_profiler_command`：主机�
 （Apache-2.0）与 [Docker CLI 的 cidfile 写入](https://github.com/docker/cli/blob/master/cli/command/container/create.go)，
 复用项目现有 CLI、清理和异常保留工具，不增加 SDK、后台清理服务或依赖。
 
+`RuntimeCleanupError` 在准备和多任务边界同样必须中止当前执行：`PreparationWorkflow` 记录失败后直接传播，
+不提供交互 retry/rebuild；`application.preparation` 不将其包装为普通准备失败或可选 profiler 告警，
+不绑定 runtime，也不启动后续 profiler 或正式矩阵。`TaskCollection` 保存当前任务失败、已有成功结果
+和未执行任务的 pending 状态，将 collection 标为 interrupted 后传播原始异常；目录锁照常释放。
+普通任务失败仍继续独立任务，普通可选 profiler 失败仍报告能力缺口。
+这一停止调度原则参考 [CPython ProcessPoolExecutor 的 broken 状态处理](https://github.com/python/cpython/blob/7b06d6f80df2729a68f78d2a346c043d10f82fd6/Lib/concurrent/futures/process.py)，
+沿用既有异常和状态格式，不引入 executor 或新依赖。应用入口与落盘状态使用离线故障注入验证。
+
 ### 单窗口执行边界
 
 `ClientRunner` 在准备阶段加载 profiler 计划、建立 execution profile 解析快照，

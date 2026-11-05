@@ -11,6 +11,7 @@ from acprof.application import task_runs
 from acprof.application.run import RunOutcome
 from acprof.experiments.configuration import RunConfig
 from acprof.host.run_state import ResultDirectoryLock
+from acprof.host.runtimes.contracts import RuntimeCleanupError
 from tests.models.discovery.test_task_runs import selected_model
 
 
@@ -40,6 +41,35 @@ def assert_released(collection):
     with ResultDirectoryLock(collection.root / "metadata/task_run_locks" / collection.run_id):
         pass
     assert list(collection.path.parent.iterdir()) == [collection.path]
+
+
+@pytest.mark.parametrize("failure_index", [0, 1])
+def test_cleanup_failure_stops_tasks_and_preserves_completed_results(collection, failure_index):
+    failure = RuntimeCleanupError("runtime cleanup unconfirmed")
+    completed_csv = collection.root / "completed.csv"
+    seen = []
+
+    def execute(config, task):
+        seen.append(task)
+        if len(seen) - 1 == failure_index:
+            raise failure
+        completed_csv.write_text("committed result\n")
+        return RunOutcome("ok", str(completed_csv), 1)
+
+    with pytest.raises(RuntimeCleanupError) as caught:
+        collection.run(execute)
+
+    assert caught.value is failure
+    assert len(seen) == failure_index + 1
+    saved = json.loads(collection.path.read_text())
+    assert saved["status"] == "interrupted"
+    assert [task["status"] for task in saved["tasks"]] == (
+        ["failed", "pending"] if failure_index == 0 else ["ok", "failed"])
+    assert saved["tasks"][failure_index]["error"] == f"RuntimeCleanupError: {failure}"
+    if failure_index:
+        assert saved["tasks"][0]["final_csv"] == str(completed_csv)
+        assert completed_csv.read_text() == "committed result\n"
+    assert_released(collection)
 
 
 @pytest.mark.parametrize("cancellation_type", [KeyboardInterrupt, asyncio.CancelledError])

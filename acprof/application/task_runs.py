@@ -13,6 +13,7 @@ from acprof.artifacts import atomic_write_json, read_json_object
 from acprof.experiments.configuration import RunConfig
 from acprof.host.detect import TaskInfo
 from acprof.host.preparation.task_selection import activate_task
+from acprof.host.runtimes.contracts import RuntimeCleanupError
 from acprof.models.evidence import content_digest
 from acprof.system.cleanup import cleanup_on_exit, format_exception_notes
 from acprof.tasks.workloads import merge_generation_parameters, task_fingerprint, workload_manifest
@@ -178,6 +179,8 @@ class TaskCollection:
                     detail = format_exception_notes(exc)
                     record.update(status="failed", error=f"{type(exc).__name__}: {detail}")
                     print(f"[tasks][ERROR] {selected['task_id']}: {detail}", flush=True)
+                    if isinstance(exc, RuntimeCleanupError):
+                        raise
                 atomic_write_json(self.path, self.manifest)
             status = "ok" if all(item["status"] == "ok" for item in self.manifest["tasks"]) else "failed"
             self.manifest.update(status=status, final_csvs=final_csvs)
