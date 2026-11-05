@@ -1,7 +1,8 @@
 """Cancellation must not leave a partially published post-hoc transaction."""
 import asyncio
 import json
-from functools import partial
+import os
+import stat
 from pathlib import Path
 
 import pytest
@@ -9,6 +10,7 @@ import pytest
 from acprof.host.posthoc import context as posthoc_context, storage
 from tests.measurement.profiling.test_posthoc import TestPosthocProfile as _PosthocFixture
 from tests.measurement.profiling.test_posthoc_rollback import _transaction
+from tests.support.storage_faults import fail_directory_sync
 
 CANCELLATIONS = (KeyboardInterrupt, SystemExit, asyncio.CancelledError)
 
@@ -82,12 +84,9 @@ def test_cancellation_restores_all_attempted_publications(tmp_path, monkeypatch,
             raise cancellation
         return result
 
-    def interrupt_sync(*_paths):
-        raise cancellation
-
     monkeypatch.setattr(storage.os, "replace", interrupt_replace)
     if stage == "sync":
-        monkeypatch.setattr(storage, "_fsync_parent_directories", interrupt_sync)
+        fail_directory_sync(monkeypatch, context.result_csv, before[context.result_csv], cancellation)
     with pytest.raises(cancellation_type) as caught:
         storage.commit_result_files(context, **arguments)
     assert caught.value is cancellation
@@ -101,21 +100,28 @@ def test_cancellation_restores_all_attempted_publications(tmp_path, monkeypatch,
 @pytest.mark.parametrize("cancellation_type", CANCELLATIONS)
 @pytest.mark.parametrize("writer", ["csv", "json"])
 def test_cancelled_temporary_writer_removes_its_partial_file(tmp_path, monkeypatch, cancellation_type, writer):
-    path = tmp_path / ("result.csv" if writer == "csv" else "metadata.json")
-    path.write_bytes(b"original artifact")
+    context, arguments, before = _transaction(tmp_path, history_existed=True, legacy_csv=True)
     cancellation = cancellation_type("intentional writer cancellation")
+    original_sync = os.fsync
 
-    def interrupt_sync(_fd):
-        raise cancellation
+    def interrupt_sync(descriptor):
+        descriptor_stat = os.fstat(descriptor)
+        if stat.S_ISREG(descriptor_stat.st_mode):
+            # Select the serialized format, independent of helper names,
+            # temporary filenames, or the order in which documents are staged.
+            content = next(path.read_bytes() for path in tmp_path.iterdir()
+                           if os.path.samestat(path.stat(), descriptor_stat))
+            if content.lstrip().startswith(b"{") == (writer == "json"):
+                raise cancellation
+        return original_sync(descriptor)
 
-    monkeypatch.setattr(storage.os, "fsync", interrupt_sync)
-    write = (partial(storage._write_csv_temporary, path, fieldnames=["value"],
-                     rows=[{"value": "new"}], encoding="utf-8") if writer == "csv"
-             else partial(storage._write_json_temporary, path, {"value": "new"}))
+    monkeypatch.setattr(os, "fsync", interrupt_sync)
     with pytest.raises(cancellation_type) as caught:
-        write()
+        storage.commit_result_files(context, **arguments)
     assert caught.value is cancellation
-    assert path.read_bytes() == b"original artifact"
+    assert {path: path.read_bytes() for path in before} == before
+    for path, content in before.items():
+        assert (arguments["backup_dir"] / path.name).read_bytes() == content
     assert list(tmp_path.glob(".*.tmp")) == []
 
 
@@ -146,18 +152,15 @@ def test_rollback_cancellation_does_not_skip_other_files(tmp_path, monkeypatch, 
     context, arguments, before = _transaction(tmp_path, history_existed=True)
     primary = OSError("publication sync failed")
     cancellation = cancellation_type("cancelled during CSV restore")
-    restore = storage._restore_from_backup
+    replace = os.replace
 
-    def fail_publication(*_paths):
-        raise primary
-
-    def interrupt_csv(destination, backup):
-        if destination == context.result_csv:
+    def interrupt_csv(source, destination):
+        if destination == context.result_csv and Path(source).read_bytes() == before[destination]:
             raise cancellation
-        return restore(destination, backup)
+        return replace(source, destination)
 
-    monkeypatch.setattr(storage, "_fsync_parent_directories", fail_publication)
-    monkeypatch.setattr(storage, "_restore_from_backup", interrupt_csv)
+    fail_directory_sync(monkeypatch, context.result_csv, before[context.result_csv], primary)
+    monkeypatch.setattr(os, "replace", interrupt_csv)
     with pytest.raises(cancellation_type) as caught:
         storage.commit_result_files(context, **arguments)
     assert caught.value is cancellation
@@ -174,18 +177,15 @@ def test_rollback_cancellation_does_not_skip_other_files(tmp_path, monkeypatch, 
 def test_primary_cancellation_retains_secondary_recovery_diagnostics(tmp_path, monkeypatch, cancellation_type):
     context, arguments, before = _transaction(tmp_path, history_existed=True)
     cancellation = cancellation_type("original transaction cancellation")
-    restore = storage._restore_from_backup
+    replace = os.replace
 
-    def interrupt_publication(*_paths):
-        raise cancellation
-
-    def fail_csv(destination, backup):
-        if destination == context.result_csv:
+    def fail_csv(source, destination):
+        if destination == context.result_csv and Path(source).read_bytes() == before[destination]:
             raise OSError("CSV restore failed")
-        return restore(destination, backup)
+        return replace(source, destination)
 
-    monkeypatch.setattr(storage, "_fsync_parent_directories", interrupt_publication)
-    monkeypatch.setattr(storage, "_restore_from_backup", fail_csv)
+    fail_directory_sync(monkeypatch, context.result_csv, before[context.result_csv], cancellation)
+    monkeypatch.setattr(os, "replace", fail_csv)
     with pytest.raises(cancellation_type) as caught:
         storage.commit_result_files(context, **arguments)
     assert caught.value is cancellation

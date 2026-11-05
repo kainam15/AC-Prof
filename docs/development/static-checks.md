@@ -95,6 +95,12 @@ Ruff 的 `combine-as-imports` 保留显式重导出分组；脚本先设置路�
 同模块访问、dunder、第三方模块和实例私有属性不进入本 gate；测试的 private helper 引用单独统计。
 这是显式静态依赖检查，不追踪动态 `importlib`/`getattr`、运行时 re-export 或任意赋值的数据流。
 
+测试中的 private 引用不以清零为目标。优先改造随重构反复修改的用例：通过公共入口检查
+输入输出、异常传播和产物契约，在文件系统或外部服务边界注入故障，避免仅为测试提升内部 API。
+`test_posthoc_cancellation.py` 和 `test_posthoc_rollback.py` 通过 `commit_result_files()` 验证
+取消、备份和跨文件恢复；故障发生于文件同步或原子替换，按已发布内容定位阶段，
+不依赖内部 helper 名称、暂存顺序或固定调用次数。迁移保留测试 ID 与参数场景，另核对故障检出能力。
+
 `tests/private_api_baseline.json` 保存排序且去重的 `source`、`target`、`symbol`，不保存行号或单一总数。
 新增 tuple 与过期 tuple 都令 CI 和 architecture test 失败；删除依赖后必须同步删除条目，
 以后重新加入会再次被拒绝。确需新增共享 private dependency 时，审查具体 tuple 和职责理由，
