@@ -17,7 +17,6 @@ from acprof.gpu_mode import normalize_gpu_mode
 from acprof.host.collection_history import COLLECTION_HISTORY_NAME, normalize_collection_history
 from acprof.host.detect import TaskInfo
 from acprof.host.profiling.compute_plan import (
-    INPUT_SCALE_ABS_TOLERANCE,
     NCU_ERROR_FIELD,
     NCU_KERNEL_COUNT_FIELD,
     NCU_KERNEL_TIME_FIELD,
@@ -215,12 +214,7 @@ def _unique_scales(rows: Iterable[Mapping[str, Any]], *, cancelled: Callable[[],
                 f"invalid input_scale in result CSV: {row.get('input_scale')!r}"
             )
         if not any(
-            math.isclose(
-                scale,
-                existing,
-                rel_tol=0.0,
-                abs_tol=INPUT_SCALE_ABS_TOLERANCE,
-            )
+            scale == existing
             for existing in cancellable(scales, cancelled)
         ):
             scales.append(scale)
@@ -247,15 +241,7 @@ def _input_plan_scales(plan: Mapping[str, Any], *, cancelled: Callable[[], bool]
 
 
 def _scale_is_present(scale: float, candidates: Iterable[float]) -> bool:
-    return any(
-        math.isclose(
-            scale,
-            candidate,
-            rel_tol=0.0,
-            abs_tol=INPUT_SCALE_ABS_TOLERANCE,
-        )
-        for candidate in candidates
-    )
+    return any(scale == candidate for candidate in candidates)
 
 
 def load_result_context(result_dir: str | os.PathLike[str], *, result_snapshot: ResultCsvSnapshot | None = None,

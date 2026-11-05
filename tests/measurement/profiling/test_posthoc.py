@@ -23,6 +23,31 @@ from acprof.platform import Environment
 
 
 class TestPosthocProfile:
+    @pytest.mark.parametrize("missing_exact_plan", [False, True])
+    def test_context_preserves_close_scales_and_requires_exact_plan(self, tmp_path, missing_exact_plan):
+        from acprof.results.layers import publish_result_rows, read_result_layers
+
+        self._write_fixture(tmp_path, include_gpu=False)
+        scales = [1.0000001, 1.0000002]
+        fields, rows = read_result_layers(tmp_path)
+        publish_result_rows(fields, [{**rows[0], "input_scale": str(scale)} for scale in scales], tmp_path)
+        plan_path = tmp_path / host_posthoc_context.INPUT_SCALE_PLAN_NAME
+        plan = json.loads(plan_path.read_text())
+        planned_scales = scales[:1] if missing_exact_plan else scales
+        plan["entries"] = [{"input_scale": scale, "payload": {"text": str(scale)}} for scale in planned_scales]
+        plan_path.write_text(json.dumps(plan))
+        metadata_path = tmp_path / host_posthoc_context.STATIC_META_NAME
+        metadata = json.loads(metadata_path.read_text())
+        metadata["input_scale_plan_sha256"] = hashlib.sha256(plan_path.read_bytes()).hexdigest()
+        metadata_path.write_text(json.dumps(metadata))
+
+        if missing_exact_plan:
+            with pytest.raises(host_posthoc_context.PosthocError, match="scales are missing"):
+                host_posthoc_context.load_result_context(tmp_path)
+        else:
+            context = host_posthoc_context.load_result_context(tmp_path)
+            assert context.scales_by_mode["off"] == scales
+
     @pytest.fixture(autouse=True)
     def _setup(self, request, tmp_path, monkeypatch):
         self._request = request

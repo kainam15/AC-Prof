@@ -59,8 +59,8 @@ def test_first_tool_presence_wins_over_later_valid_profile(first, expected_error
     assert math.isnan(result[plans.MASSIF_HEAP_PEAK_FIELD])
 
 
-def test_scale_tolerance_keeps_first_matching_entry_and_error_override():
-    epsilon = plans.INPUT_SCALE_ABS_TOLERANCE
+def test_exact_scale_preserves_error_override_and_rejects_neighbor():
+    epsilon = 1e-6
     tool = _tool(error="tool failed")
     tool["entries"][0][plans.MASSIF_ERROR_FIELD] = ""
     tool["entries"].append({
@@ -69,9 +69,15 @@ def test_scale_tolerance_keeps_first_matching_entry_and_error_override():
         "error": "later entry",
     })
     resolver = plans.ExecutionProfileResolver({"profiles": [_case({"massif": tool})]})
-    result = resolver.resolve("2.0", "4", " OFF ", 1.0 + epsilon * 0.5)
+    result = resolver.resolve("2.0", "4", " OFF ", 1.0)
     assert result[plans.MASSIF_HEAP_PEAK_FIELD] == 123
     assert result[plans.MASSIF_ERROR_FIELD] == ""
+    later = resolver.resolve(2, 4, "off", 1.0 + epsilon * 0.75)
+    assert later[plans.MASSIF_HEAP_PEAK_FIELD] == 456
+    assert later[plans.MASSIF_ERROR_FIELD] == "later entry"
+    neighbor = resolver.resolve(2, 4, "off", 1.0 + epsilon * 0.5)
+    assert "execution_profile_missing_scale" in neighbor[plans.MASSIF_ERROR_FIELD]
+    assert math.isnan(neighbor[plans.MASSIF_HEAP_PEAK_FIELD])
     missing = resolver.resolve(2, 4, "off", 1.1)
     assert missing[plans.MASSIF_ERROR_FIELD] == "execution_profile_missing_scale:massif:1.1"
     assert math.isnan(missing[plans.MASSIF_HEAP_PEAK_FIELD])

@@ -24,10 +24,11 @@ CONTAINER_INPUT_SCALE_PLAN_FILE = "/payloads/input_scale_plan.json"
 
 
 def format_scale_value(scale: float) -> str:
+    """Preserve float identity in runner arguments and artifact names."""
     value = float(scale)
     if value.is_integer():
         return str(int(value))
-    return f"{value:g}"
+    return repr(value)
 
 
 def parse_last_json_line(text: str) -> dict[str, Any]:

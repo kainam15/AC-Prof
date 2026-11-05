@@ -103,6 +103,16 @@ NCU 和 Massif 会按 input scale 保存 checkpoint。NCU 可复用匹配的 CSV
 `.ncu-rep` 恢复，Massif 可复用匹配的 `.out`；模型 revision、镜像、资源、repeat 和
 NCU metrics（适用时）必须匹配，才能恢复旧报告。分析固定使用不可变镜像 ID，
 旧 tag 形式的 Massif checkpoint 与新 ID 不匹配时会重采。完整成功的已有 plan 也可复用。
+
+`input_scale` 是计划条目的数值身份。Profiler 命令参数和原始文件名保留已解析浮点值的
+完整可往返表示，整数尺度仍使用 `8` 这样的紧凑形式。payload、plan 指标及 NCU／Massif
+checkpoint 均按精确数值匹配，不用容差将相近尺度合并；缺少精确条目时报告缺失或重采，
+不借用邻近尺度的结果。新文件名不回退查找历史舍入名称；旧实验文件不自动迁移或改写。
+补采上下文保留所有不同尺度，历史 NCU summary 也按精确值查重和回填；CSV 尺度未在
+输入计划中精确出现时拒绝补采。
+此修复不能追溯证明历史 Profiler 使用了正确 payload；需要重新确认时，应在使用当前
+runner 的运行环境中显式执行 `--force-reprofile`，不能把旧值重新关联到新尺度来修复。
+
 NCU plan 和 checkpoint 的 `flop_counting_version=2` 表示已按双 lane 计算 FP16 指令；
 静态元数据对应记录 `ncu_flop_counting_version`。未标版本或旧版本的派生 plan 不用于补齐新值，
 匹配的 raw CSV 则重新解析并更新 checkpoint，保留原 GPU 身份与采集证据，无需重采。

@@ -14,7 +14,6 @@ from typing import Any
 
 from acprof.gpu_mode import normalize_gpu_mode
 from acprof.host.profiling.compute_plan import (
-    INPUT_SCALE_ABS_TOLERANCE,
     NCU_ERROR_FIELD,
     NCU_KERNEL_COUNT_FIELD,
     NCU_KERNEL_TIME_FIELD,
@@ -178,15 +177,7 @@ def _read_ncu_summary(path: str) -> list[tuple[float, dict[str, Any]]]:
                 raise ValueError(
                     f"NCU summary CSV has invalid input_scale at row {row_index}"
                 )
-            if any(
-                math.isclose(
-                    scale,
-                    existing_scale,
-                    rel_tol=0.0,
-                    abs_tol=INPUT_SCALE_ABS_TOLERANCE,
-                )
-                for existing_scale, _entry in entries
-            ):
+            if any(scale == existing_scale for existing_scale, _entry in entries):
                 raise ValueError(
                     f"NCU summary CSV has duplicate input_scale: {scale:g}"
                 )
@@ -208,12 +199,7 @@ def _find_ncu_summary_entry(
     input_scale: float,
 ) -> dict[str, Any] | None:
     for entry_scale, entry in entries:
-        if math.isclose(
-            entry_scale,
-            input_scale,
-            rel_tol=0.0,
-            abs_tol=INPUT_SCALE_ABS_TOLERANCE,
-        ):
+        if entry_scale == input_scale:
             return entry
     return None
 

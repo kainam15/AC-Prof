@@ -27,6 +27,38 @@ OBSOLETE_RESULT_FIELDS = (
 
 
 class TestBackfillComputeProfile:
+    @pytest.mark.parametrize("summary_scales", [[1.0000001, 1.0000002], [1.0000001]])
+    def test_ncu_summary_backfill_keeps_distinct_scale_identity(self, tmp_path, summary_scales):
+        input_csv = tmp_path / "input.csv"
+        output_csv = tmp_path / "output.csv"
+        plan_path = tmp_path / "compute_profile_plan.json"
+        summary_path = tmp_path / "ncu_summary.csv"
+        field = "gpu_executed_mflop_per_request_ncu"
+        scales = [1.0000001, 1.0000002]
+        self._write_csv(input_csv, ["gpu_mode", "input_scale", "latency_app_s"], [
+            {"gpu_mode": "on", "input_scale": scale, "latency_app_s": 1.0}
+            for scale in scales
+        ])
+        self._write_csv(summary_path, ["input_scale", field], [
+            {"input_scale": scale, field: value}
+            for scale, value in zip(summary_scales, [10.0, 20.0], strict=False)
+        ])
+        plan_path.write_text(json.dumps({"profiles": {}}))
+        before = input_csv.read_bytes()
+
+        backfill_compute_profile_csv(str(input_csv), str(plan_path), str(output_csv), ncu_summary=str(summary_path))
+
+        with output_csv.open(newline="") as stream:
+            rows = list(csv.DictReader(stream))
+        assert [float(row["input_scale"]) for row in rows] == scales
+        assert float(rows[0][field]) == 10.0
+        if len(summary_scales) == 2:
+            assert float(rows[1][field]) == 20.0
+        else:
+            assert rows[1][field] == "nan"
+            assert rows[1]["compute_profile_error_ncu"]
+        assert input_csv.read_bytes() == before
+
     def _write_csv(self, path, fieldnames, rows):
         with open(path, "w", encoding="utf-8", newline="") as f:
             writer = csv.DictWriter(f, fieldnames=fieldnames)
@@ -355,7 +387,7 @@ class TestBackfillComputeProfile:
         ]
         ncu_rows = [
             {
-                "input_scale": "64.0000005",
+                "input_scale": "64.0000000",
                 "gpu_hw_mflop_per_request_ncu": "120",
                 "gpu_hw_tensor_mflop_per_request_ncu": "100",
                 "gpu_hw_scalar_mflop_per_request_ncu": "20",

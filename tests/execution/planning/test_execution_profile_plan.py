@@ -226,7 +226,7 @@ class TestExecutionProfilePlan:
 
         assert (result[MASSIF_HEAP_PEAK_FIELD]) == (200.0)
 
-    def test_scale_matching_uses_one_micro_abs_tolerance(self):
+    def test_scale_matching_requires_exact_numeric_identity(self):
         plan = {
             "profiles": [
                 _profile(
@@ -240,14 +240,14 @@ class TestExecutionProfilePlan:
             2,
             4,
             "off",
-            8.0000005,
+            8.0,
         )
         missing = find_execution_profile_entry(
             plan,
             2,
             4,
             "off",
-            8.0000011,
+            8.0000005,
         )
 
         assert (matched[MASSIF_HEAP_PEAK_FIELD]) == (1000.0)

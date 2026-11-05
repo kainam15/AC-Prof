@@ -16,7 +16,6 @@ from typing import Any
 from acprof.artifacts import read_json_object
 from acprof.gpu_mode import normalize_gpu_mode
 
-INPUT_SCALE_ABS_TOLERANCE = 1e-6
 MASSIF_TOOL_KEY = "massif"
 NSYS_TOOL_KEY = "nsys"
 
@@ -300,12 +299,7 @@ def _resolve_tool_entry(
         if not (
             math.isfinite(target_scale)
             and math.isfinite(entry_scale)
-            and math.isclose(
-                entry_scale,
-                target_scale,
-                rel_tol=0.0,
-                abs_tol=INPUT_SCALE_ABS_TOLERANCE,
-            )
+            and entry_scale == target_scale
         ):
             continue
         if error_field in entry:
@@ -474,7 +468,7 @@ class ExecutionProfileResolver:
         target_scale = _finite_float_or_nan(input_scale)
         if math.isfinite(target_scale):
             for entry in profile.entries:
-                if math.isclose(entry.scale, target_scale, rel_tol=0.0, abs_tol=INPUT_SCALE_ABS_TOLERANCE):
+                if entry.scale == target_scale:
                     result.update(zip(metric_fields, entry.metrics, strict=True))
                     result[error_field] = entry.error
                     return result

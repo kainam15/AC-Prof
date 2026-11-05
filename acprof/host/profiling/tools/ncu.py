@@ -367,7 +367,7 @@ def _ncu_checkpoint_matches(
         and str(checkpoint.get("model_revision") or "main")
         == str(task_info.model_revision or "main")
         and str(checkpoint.get("image_tag") or "") == image_tag
-        and math.isclose(checkpoint_scale, input_scale, abs_tol=1e-9)
+        and checkpoint_scale == input_scale
         and checkpoint_repeat == max(1, int(repeat))
         and list(checkpoint.get("metrics") or []) == list(metrics)
     )

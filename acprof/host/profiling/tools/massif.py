@@ -192,7 +192,7 @@ def _massif_checkpoint_matches(
         and str(checkpoint.get("derived_image") or "") == derived_image
         and checkpoint_cpu == int(cpu)
         and checkpoint_mem == int(mem)
-        and math.isclose(checkpoint_scale, input_scale, abs_tol=1e-9)
+        and checkpoint_scale == input_scale
         and checkpoint_repeat == max(1, int(repeat))
     )
 

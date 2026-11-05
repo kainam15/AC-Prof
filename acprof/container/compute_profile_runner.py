@@ -48,7 +48,7 @@ def _find_payload(payload_file: str, input_scale: float) -> dict[str, Any]:
             scale = float(raw_scale)
         except (TypeError, ValueError):
             continue
-        if math.isclose(scale, float(input_scale), rel_tol=0.0, abs_tol=1e-6):
+        if math.isfinite(scale) and scale == float(input_scale):
             payload = entry.get("payload")
             if not isinstance(payload, dict):
                 raise RuntimeError(f"compute payload entry has no payload for scale={input_scale}")

@@ -12,7 +12,6 @@ from typing import Any
 from acprof.artifacts import read_json_object
 from acprof.gpu_mode import normalize_gpu_mode
 
-INPUT_SCALE_ABS_TOLERANCE = 1e-6
 TORCH_PROFILE_KEY = "torch_profiler_eager"
 NCU_PROFILE_KEY = "ncu"
 
@@ -120,12 +119,7 @@ def _resolve_profile_entry(
             entry_scale = float(raw_scale)
         except (TypeError, ValueError):
             continue
-        if math.isclose(
-            entry_scale,
-            float(input_scale),
-            rel_tol=0.0,
-            abs_tol=INPUT_SCALE_ABS_TOLERANCE,
-        ):
+        if math.isfinite(entry_scale) and entry_scale == float(input_scale):
             entry_error = (
                 str(entry.get("error") or "")
                 if "error" in entry
