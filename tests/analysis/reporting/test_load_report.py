@@ -96,6 +96,15 @@ def save_experiment(tmp_path: Path, version=2) -> Path:
     return path
 
 
+def replace_slo_thresholds(payload, thresholds):
+    payload["identity"]["slo_thresholds_s"] = thresholds
+    payload["identity_sha256"] = hashlib.sha256(
+        json.dumps(payload["identity"], sort_keys=True, allow_nan=False).encode()
+    ).hexdigest()
+    result = payload["result"]
+    result["capacity"] = build_capacity(result["requests"], result["duration_s"], 2, thresholds)
+
+
 def test_v2_report_recomputes_capacity_and_renders_single_point_metrics(tmp_path):
     source = save_experiment(tmp_path)
     output = tmp_path / "capacity.html"
@@ -202,12 +211,8 @@ def test_v2_report_rejects_latency_drift_when_no_slo_is_configured(tmp_path):
     source = save_experiment(tmp_path)
     payload = json.loads(source.read_text())
     thresholds = {"ttft_s": None, "tpot_s": None, "e2e_s": None}
-    payload["identity"]["slo_thresholds_s"] = thresholds
-    payload["identity_sha256"] = hashlib.sha256(
-        json.dumps(payload["identity"], sort_keys=True, allow_nan=False).encode()
-    ).hexdigest()
+    replace_slo_thresholds(payload, thresholds)
     result = payload["result"]
-    result["capacity"] = build_capacity(result["requests"], result["duration_s"], 2, thresholds)
     result["requests"][0]["e2e_s"] = 0.2
     source.write_text(json.dumps(payload))
     with pytest.raises(ValueError, match="streaming latency"):
@@ -328,12 +333,8 @@ def test_report_cli_rejects_invalid_latency_even_when_summaries_match(
     source = save_experiment(tmp_path)
     payload = json.loads(source.read_text())
     thresholds = dict.fromkeys(("ttft_s", "tpot_s", "e2e_s"))
-    payload["identity"]["slo_thresholds_s"] = thresholds
-    payload["identity_sha256"] = hashlib.sha256(
-        json.dumps(payload["identity"], sort_keys=True, allow_nan=False).encode()
-    ).hexdigest()
+    replace_slo_thresholds(payload, thresholds)
     result = payload["result"]
-    result["capacity"] = build_capacity(result["requests"], result["duration_s"], 2, thresholds)
     result["requests"][0][field] = value
     # Preserve an internally consistent but invalid summary to isolate raw-value validation.
     summary = result["streaming"][summary_field]
