@@ -116,10 +116,15 @@ acprof load results/model --gpu off --scenario arrival-rate --concurrency 4 \
   --output-dir internal-testing/shared/load-arrivals
 ```
 
-`load` 从已完成实验恢复固定镜像、revision、输入计划 hash、线程设置、CPU 集合、GPU UUID 和请求超时，
-启动独立容器并使用主机测量锁。默认选源矩阵最大 CPU／内存及第一个输入尺度；可用 `--cpu`、
-`--mem`、`--input-scale` 选择源实验已有配置。缺少 GPU UUID、设备不可解析或 CPU affinity 无法满足时
-明确失败；当前 shell 的 GPU／线程变量不能覆盖源条件。硬件观测保存到独立输出目录。
+`load` 从已完成的 Docker 或 Process 实验恢复原 Runtime、固定 revision、输入计划 hash、线程设置、
+CPU 集合、GPU UUID 和请求超时。复用公共 Runtime 的恢复、启动和清理接口，持有主机测量锁；
+Docker 核对不可变镜像 ID，Process 核对原环境、模型缓存与代码快照，将服务日志绑定到新的输出目录。
+原制品缺失或身份变化时失败，不自动重建环境、下载模型或切换 Runtime。
+默认选源矩阵最大 CPU／内存及第一个输入尺度；Process 源中的 `auto` 继续表示继承限制。
+可用 `--cpu`、`--mem`、`--input-scale` 选择源实验已有数值配置，不能把继承限制改成新的配额。
+缺少 GPU UUID、设备不可解析或 CPU affinity 无法满足时明确失败；Process GPU 按记录的 CUDA
+可见设备绑定调用 CUDA driver 探针，并核对实际 UUID，不要求 `nvidia-smi` 完成设备选择。
+当前 shell 的 GPU／线程变量不能覆盖源条件。硬件观测与日志保存到独立输出目录，原实验保持不变。
 
 `serial` 一次只有一个请求；`concurrent` 是完成后补发的闭环；`arrival-rate` 预先生成固定或泊松
 到达时间，不因服务变慢重新排程，首请求在起点提交。`--concurrency` 限制工作线程，
@@ -127,8 +132,10 @@ acprof load results/model --gpu off --scenario arrival-rate --concurrency 4 \
 `--warmup` 默认 5 个串行请求，排除在测量窗口之外。无自动重试，超时沿用连接／读取无进展口径。
 
 `--connections close` 为默认；`reuse` 每个工作线程复用连接，并自动要求抓包验证。
-服务必须支持 HTTP keep-alive；现有 Flask development server 会主动关闭连接，对这类源镜像
-`reuse` 明确失败，不把重新建连冒充复用。本次不替换源镜像的 HTTP server。
+服务必须支持 HTTP keep-alive；现有 Flask development server 会主动关闭连接，对这类源服务
+`reuse` 明确失败，不把重新建连冒充复用。回放沿用源 Runtime 的 HTTP server。
+Process 抓包与解析使用本次动态服务端口，源 `sniff_iface` 必须覆盖 loopback 流量；Docker 继续使用
+容器内的 8002 端口。显式抓包及 `reuse` 仍需原有 tcpdump／tshark 权限，不因 Process 自动降级。
 PCAP 以 HTTP `request_in` 校验逐请求响应与完整 `X-Req-Id`，并检查实际出现了共享 TCP 流。
 同一流包含多个请求时，流级字节只记录一次；逐请求 wire-byte 指标标为不可分摊，避免重复归因。
 关闭连接的既有正式采集仍沿用单请求独占流的字节口径。

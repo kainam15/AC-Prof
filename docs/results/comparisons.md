@@ -174,6 +174,10 @@ blocked/unknown 暂停默认自动优选，但数值观测和描述统计仍保�
 ## 非流式负载报告
 `acprof load` 输出 `load.json`（`nonstream_load_experiment`，schema v1），内嵌
 `nonstream_load_result`。协议与命令见[独立负载协议](../profiling/lifecycle.md#独立非流式负载)。
+
+新的回放身份包含 `runtime_kind` 与 `runtime_id`，分别记录 Docker 不可变镜像 ID 或 Process
+环境与模型的组合身份；Docker 继续保留 `image_id`。旧 Docker 报告缺少新字段时不补造观测。
+Process 继承限制的 `cpu_cores`／`mem_cap_gb` 为 `null`，不表示零配额；实际资源观测另存硬件条件文件。
 请求时间戳均为客户端 `perf_counter` 相对实验起点的秒数：`planned_s` 是计划提交时间，
 `sent_s` 是调用 HTTP 发送前的时间，`completed_s` 是完整读取响应后的时间，均不是网卡时间戳。
 `latency_s=completed_s-sent_s`；`scheduled_latency_s=completed_s-planned_s` 包含调度与排队等待；

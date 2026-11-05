@@ -24,6 +24,11 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         body = json.dumps(dict(status="ok", service_token=os.environ["ACPROF_SERVICE_TOKEN"], startup_timing={})).encode()
         self.send_response(200); self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body)
+    def do_POST(self):
+        payload = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+        body = json.dumps({"workload_contract": {"fixture_payload": payload}}).encode()
+        self.send_response(200); self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body)
     def log_message(self, *args): pass
 server = HTTPServer(("127.0.0.1", 0), Handler, bind_and_activate=False)
 server.socket.close()

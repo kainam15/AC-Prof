@@ -72,14 +72,26 @@ class ExecutionConditions:
         return {"cpuset_cpus": self.cpuset_cpus, "request_timeout_seconds": self.request_timeout_seconds}
 
     @contextmanager
-    def activate(self):
+    def activate(self, *, process_gpu: Mapping | None = None):
         with source_runtime_environment(self.environment), gpu_device_scope():
             requested = parse_cpu_set(self.cpuset_cpus)
             if requested and not requested <= os.sched_getaffinity(0):
                 raise ValueError("source CPU affinity is unavailable on this host")
             device = {}
             if self.gpu_mode == "on":
-                device = pin_gpu_device(self.gpu_uuid)
+                if process_gpu is None:
+                    device = pin_gpu_device(self.gpu_uuid)
+                else:
+                    from acprof.host.runtimes.gpu import process_gpu_device
+                    if process_gpu.get("uuid") != self.gpu_uuid:
+                        raise ValueError("source Process GPU UUID differs from the source options")
+                    visible = process_gpu.get("cuda_visible_devices")
+                    if not isinstance(visible, str) or not visible:
+                        raise ValueError("source Process CUDA device binding is missing")
+                    os.environ["CUDA_VISIBLE_DEVICES"] = visible
+                    device = process_gpu_device("0")
+                    if device.get("status") != "available":
+                        raise ValueError(f"source Process CUDA device is unavailable: {device.get('error', 'unknown')}")
                 if device["uuid"] != self.gpu_uuid:
                     raise ValueError("resolved GPU UUID differs from the source")
                 os.environ.update(ACPROF_GPU_DEVICE=self.gpu_uuid, GPU_DEVICE_UUID=self.gpu_uuid,

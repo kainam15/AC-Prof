@@ -56,7 +56,7 @@ def test_replay_rejects_invalid_schedule_before_input_or_runtime_preparation(
     preparation = Mock(side_effect=AssertionError('invalid schedule reached input preparation'))
     runtime = Mock(side_effect=AssertionError('invalid schedule reached runtime'))
     monkeypatch.setattr('acprof.cli.load.ArtifactLayout.discover', preparation)
-    monkeypatch.setattr('acprof.cli.load.start_container_session', runtime)
+    monkeypatch.setattr('acprof.cli.load.execution_runtime', runtime)
 
     with pytest.raises(SystemExit) as caught:
         load_cli.main([str(source), '--gpu', 'off', '--output-dir', str(output),

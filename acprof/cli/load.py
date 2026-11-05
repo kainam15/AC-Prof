@@ -15,25 +15,24 @@ from uuid import uuid4
 
 from acprof.artifacts import atomic_write_json, read_input_scale_plan
 from acprof.host.detect import TaskInfo
-from acprof.host.docker_runtime import start_container_session, stop_container_session
 from acprof.host.env_utils import bootstrap_project_env
 from acprof.host.execution_conditions import ExecutionConditions
 from acprof.host.hardware_conditions import record_case_conditions
-from acprof.host.images.runtime import ImageInfo, require_image_identity
 from acprof.host.measurement.load import LoadConfig, run_load
 from acprof.host.run_state import MeasurementLock, file_sha256, host_identity, load_run_state
+from acprof.host.runtimes.service import execution_runtime
 from acprof.installation import module_command, resource_root
 from acprof.results.layout import ArtifactLayout, resolve_single_result_source
 from acprof.system.command import run_command
 
 
 @contextmanager
-def capture_packets(path, *, interface):
+def capture_packets(path, *, interface, port=8002):
     from acprof.host.measurement.capture import require_packet_latency_prerequisites
     require_packet_latency_prerequisites(interface)
     with path.with_suffix(".log").open("w") as log:
         capture = subprocess.Popen(["tcpdump", "-i", interface, "-n", "-U", "-w", str(path),
-                                    "tcp", "port", "8002"], stdout=log, stderr=log)
+                                    "tcp", "port", str(port)], stdout=log, stderr=log)
         try:
             time.sleep(0.2)
             if capture.poll() is not None:
@@ -56,9 +55,9 @@ def capture_packets(path, *, interface):
             raise RuntimeError("load did not produce a valid PCAP")
 
 
-def validate_packets(path, result):
+def validate_packets(path, result, *, port=8002):
     command = module_command("acprof.packet.sniff_parse_pcap", python_executable=sys.executable)
-    parsed = run_command([*command, str(path), "8002"], capture_output=True, text=True, check=True)
+    parsed = run_command([*command, str(path), str(port)], capture_output=True, text=True, check=True)
     packets = json.loads(parsed.stdout)
     records = list(packets["requests"].values())
     identifiers = [record.get("request_id") for record in records]
@@ -98,6 +97,18 @@ def _read_source_input_entry(
         raise ValueError(f"invalid input scale plan entry: {entry!r}")
     float(entry["input_scale"])
     return entry
+
+
+def _replay_resource(values: str, requested: int | None, kind: str) -> int | None:
+    available: list[int | None] = [None] if kind == "process" and values == "auto" else [
+        int(value) for value in values.split(",")
+    ]
+    if any(value is not None and value < 1 for value in available):
+        raise ValueError("source resources must be positive or Process auto")
+    selected = requested if requested is not None else max(available, key=lambda value: value or 0)
+    if selected not in available:
+        raise ValueError("load resources must be present in the source experiment")
+    return selected
 
 
 def main(argv=None):
@@ -142,16 +153,17 @@ def main(argv=None):
         config.schedule()  # Reject overflow before input/runtime preparation or output creation.
         if args.warmup < 0:
             raise ValueError("warmup must be nonnegative")
-        if state["runtime"].get("kind", "docker") == "process":
-            raise ValueError("load replay currently requires a Docker source; Process supports basic run collection")
-        cpus, mems = [int(v) for v in options["cpus"].split(",")], [int(v) for v in options["mems"].split(",")]
-        cpu, mem = args.cpu if args.cpu is not None else max(cpus), args.mem if args.mem is not None else max(mems)
-        if cpu not in cpus or mem not in mems:
-            raise ValueError("load resources must be present in the source experiment")
+        snapshot = state["runtime"]
+        runtime = execution_runtime(snapshot.get("kind", "docker"))
+        cpu = _replay_resource(options["cpus"], args.cpu, runtime.kind)
+        mem = _replay_resource(options["mems"], args.mem, runtime.kind)
         plan_path = ArtifactLayout.discover(args.source).path("input_scale_plan.json")
         expected = state["artifacts"].get(str(plan_path.relative_to(args.source)))
         entry = _read_source_input_entry(plan_path, expected, args.input_scale)
-        task, image = TaskInfo(**state["runtime"]["task"]), ImageInfo(**state["runtime"]["image"])
+        task = TaskInfo(**snapshot["task"])
+        runtime_id = snapshot["image"]["environment_id" if runtime.kind == "process" else "tag"]
+        if not isinstance(runtime_id, str) or not runtime_id:
+            raise ValueError("source runtime identity is missing")
         output = args.output_dir.resolve()
         output.mkdir(parents=True, exist_ok=True)
         if any(output.iterdir()):
@@ -159,36 +171,43 @@ def main(argv=None):
     except (OSError, KeyError, TypeError, ValueError) as error:
         parser.error(str(error))
     capture = args.capture or args.connections == "reuse"
-    identity = {"source_run_id": state["run_id"], "image_id": image.tag, "model_revision": task.model_revision,
+    identity = {"source_run_id": state["run_id"], "runtime_kind": runtime.kind, "runtime_id": runtime_id,
+                "model_revision": task.model_revision,
                 "input_scale_plan_sha256": expected, "input_scale": entry["input_scale"],
                 "cpu_cores": cpu, "mem_cap_gb": mem, "conditions": asdict(conditions),
                 "protocol": config.protocol(), "capture": capture, "warmup": args.warmup}
+    if runtime.kind == "docker":
+        identity["image_id"] = runtime_id
     report: dict[str, Any] = {"schema_version": 1, "kind": "nonstream_load_experiment", "run_id": uuid4().hex,
               "successful": False, "status": "running", "identity": identity,
               "identity_sha256": hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest(),
               "host": host_identity(resource_root()), "scope": "HTTP load; no energy or profiler metrics; not formal experiment result layers"}
     atomic_write_json(output / "load.json", report)
     try:
-        with MeasurementLock(), conditions.activate():
-            require_image_identity(image.tag, image.runtime_environment)
-            session = start_container_session(task, cpu, mem, args.gpu, image, "acprof-load", "[load]",
-                                               **conditions.container_options)
-            try:
-                record_case_conditions(output, f"{cpu}c_{mem}g_{args.gpu}", session, cpuset_cpus=conditions.cpuset_cpus)
-                report["gpu_device"] = session.gpu_device
-                if args.warmup:
-                    warmup = run_load(session.base_url, entry["payload"],
-                                      LoadConfig(requests=args.warmup, timeout_seconds=conditions.request_timeout_seconds), token="warmup")
-                    if not warmup["successful"]:
-                        raise RuntimeError("load warmup failed")
-                from contextlib import nullcontext
-                pcap = output / "load.pcap"
-                with capture_packets(pcap, interface=options["sniff_iface"]) if capture else nullcontext():
-                    report["result"] = run_load(session.base_url, entry["payload"], config, token=report["run_id"])
-                if capture:
-                    report["packet_validation"] = validate_packets(pcap, report["result"])
-            finally:
-                stop_container_session(session, "[load]")
+        with MeasurementLock():
+            image = runtime.restore(snapshot["image"], output_dir=output)
+            process_gpu = image.runtime_environment.get("gpu_device", {}) if runtime.kind == "process" else None
+            with conditions.activate(process_gpu=process_gpu):
+                session = runtime.start(task_info=task, cpu=cpu, mem=mem, gpu=args.gpu, image_info=image,
+                                        container_name="acprof-load", log_prefix="[load]", **conditions.container_options)
+                try:
+                    case_id = f"{cpu if cpu is not None else 'inherited'}c_{mem if mem is not None else 'inherited'}g_{args.gpu}"
+                    record_case_conditions(output, case_id, session, cpuset_cpus=conditions.cpuset_cpus)
+                    report["gpu_device"] = session.gpu_device
+                    if args.warmup:
+                        warmup = run_load(session.base_url, entry["payload"],
+                                          LoadConfig(requests=args.warmup, timeout_seconds=conditions.request_timeout_seconds), token="warmup")
+                        if not warmup["successful"]:
+                            raise RuntimeError("load warmup failed")
+                    from contextlib import nullcontext
+                    pcap = output / "load.pcap"
+                    port = session.host_port if runtime.kind == "process" else 8002
+                    with capture_packets(pcap, interface=options["sniff_iface"], port=port) if capture else nullcontext():
+                        report["result"] = run_load(session.base_url, entry["payload"], config, token=report["run_id"])
+                    if capture:
+                        report["packet_validation"] = validate_packets(pcap, report["result"], port=port)
+                finally:
+                    runtime.stop(session, log_prefix="[load]")
         report.update(successful=report["result"]["successful"], status="complete")
     except BaseException as error:
         if hasattr(error, "load_report"):

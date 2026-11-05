@@ -59,6 +59,17 @@ uv run acprof run --runtime process --profiling-mode basic \
 
 ## 资源与指标口径
 
+已完成的 Process 实验也可独立回放：
+
+```bash
+acprof load results/process-smoke --gpu off --requests 5 --warmup 1 \
+  --output-dir results/process-replay
+```
+
+沿用冻结环境、输入计划和资源选择，将日志写入新目录，不重新安装依赖或下载模型。
+调度、连接复用和抓包条件见[独立非流式负载](../profiling/lifecycle.md#独立非流式负载)。
+该入口仅测 HTTP 负载，不增加 Process full、能耗或独立 Profiler 能力。
+
 | 项目 | Process 行为 |
 | --- | --- |
 | `--cpus auto --mems auto` | 继承当前容器/VM 的限制；结果中的数值资源轴为空，case ID 使用 `inherited`，不会记录成零或已实施配额 |
