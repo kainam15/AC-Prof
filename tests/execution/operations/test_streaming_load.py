@@ -196,6 +196,7 @@ def test_cancellation_during_connect_does_not_start_waiting_for_response(monkeyp
     from types import SimpleNamespace
 
     import acprof.host.measurement.load as load_module
+    import acprof.host.measurement.load_transport as transport_module
 
     cancellation = threading.Event()
     requesting = threading.Event()
@@ -222,11 +223,11 @@ def test_cancellation_during_connect_does_not_start_waiting_for_response(monkeyp
         assert requesting.wait(2)
         raise KeyboardInterrupt
 
-    monkeypatch.setattr(load_module, "threading", SimpleNamespace(
+    monkeypatch.setattr(transport_module, "threading", SimpleNamespace(
         Event=lambda: cancellation, local=threading.local, Lock=threading.Lock,
         Barrier=threading.Barrier,
     ))
-    monkeypatch.setattr(load_module.http.client, "HTTPConnection", DelayedConnection)
+    monkeypatch.setattr(transport_module.http.client, "HTTPConnection", DelayedConnection)
     monkeypatch.setattr(load_module, "wait", interrupt)
     with pytest.raises(KeyboardInterrupt) as caught:
         run_load("http://127.0.0.1:1", payload("/v1/chat/completions"),
@@ -269,8 +270,14 @@ def test_tokenizer_counting_runs_after_all_requests_and_failure_keeps_timings(in
     from acprof.host.measurement.streaming import MatchedTokenCounter
 
     calls = []
+    clock_offset = 0.0
+    monotonic = time.perf_counter
+    monkeypatch.setattr(time, "perf_counter", lambda: monotonic() + clock_offset)
     with streaming_server(fault="no_usage") as (url, _, _, bodies, _):
         def count(text):
+            nonlocal clock_offset
+            # Model slow post-load tokenization without sleeping or running a model.
+            clock_offset += 1000
             calls.append((len(bodies), text))
             return True if invalid_count else 3
 
@@ -288,6 +295,7 @@ def test_tokenizer_counting_runs_after_all_requests_and_failure_keeps_timings(in
                           token="fallback", adapter=adapter)
     assert aggregations == [(3, f"fallback:{index}") for index in range(3)]
     assert calls == [(3, "Hello world!")] * 3
+    assert report["duration_s"] < 1000, "tokenization must be outside the load duration"
     assert report["successful"]
     assert report["streaming"]["ttft_s"]["sample_count"] == 3
     assert report["streaming"]["token_count_errors"] == (3 if invalid_count else 0)
@@ -297,6 +305,30 @@ def test_tokenizer_counting_runs_after_all_requests_and_failure_keeps_timings(in
         if invalid_count:
             assert row["tpot_s"] is None
             assert row["missing_reasons"]["tpot_s"] == "tokenizer_error"
+
+
+@pytest.mark.parametrize("error_type", [RuntimeError, KeyboardInterrupt])
+def test_finalization_error_retains_completed_transport_evidence(error_type, monkeypatch):
+    error = error_type("finalization interrupted")
+    adapter = OpenAIStreamingAdapter()
+
+    def interrupt(_record):
+        raise error
+
+    monkeypatch.setattr(adapter, "finalize", interrupt)
+    with streaming_server() as (url, _, _, _, _):
+        with pytest.raises(error_type, match="finalization interrupted") as caught:
+            run_load(url, payload("/v1/chat/completions"), LoadConfig(requests=2),
+                     token="finalize-error", adapter=adapter)
+
+    assert caught.value is error
+    report = caught.value.load_report
+    assert not report["successful"]
+    assert report["counts"] == {
+        "offered": 2, "sent": 2, "succeeded": 2, "failed": 0, "dropped": 0, "cancelled": 0,
+    }
+    assert [row["request_id"] for row in report["requests"]] == ["finalize-error:0", "finalize-error:1"]
+    assert all(row["stream_completed_s"] is not None for row in report["requests"])
 
 
 def test_final_protocol_validation_failure_remains_a_request_failure():

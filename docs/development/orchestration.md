@@ -41,7 +41,9 @@
 | `run_state` | 目录锁、实验身份、状态快照与原子持久化；case 归档和清理由 `host.case_recovery` 负责，均在测量窗口外运行 |
 | `measurement.monitors` | `MonitorGroup` 所有权、固定启停顺序及共享 `run_matched_control_window`；不导入硬件或 workload |
 | `execution_conditions` | 保存／恢复线程环境、固定 GPU UUID、CPU affinity 和请求超时；开销诊断与负载重放共用 |
-| `measurement.load` | 共享 HTTP Scheduler、连接生命周期与独立负载统计；支持 `/predict` 和可选 SSE Adapter，不进入正式能耗 CSV |
+| `measurement.load` | 共享 HTTP Scheduler、配置和 `run_load` 入口；协调 `/predict` 与可选 SSE Adapter，不进入正式能耗 CSV |
+| `measurement.load_transport` | 单次负载的线程局部连接、HTTP 请求与活动 socket 所有权；取消时唤醒读取，线程退出后关闭连接 |
+| `measurement.load_reporting` | 补齐未发送请求记录、窗口外 Token 派生与负载报告；保留原始错误、成功样本筛选及 v1/v2 产物语义 |
 | `measurement.streaming` | OpenAI-compatible SSE 解码、有效输出时间、Token 来源与流式指标；不调度负载或采集硬件 |
 | `client` | 环境与 workload 初始化、短连接 HTTP 请求适配、窗口调度和完成结果发布 |
 | `measurement.config` | `ClientConfig` 是子进程配置的唯一类型化对象；集中处理 `from_env()` / `to_env()`，资源限制、资源计划和输入顺序在进程内部保持结构化类型 |
@@ -66,6 +68,13 @@
 | `profiling.tools.execution_environment` | 原始模型镜像的 profiler 能力核验、工具版本查询 |
 | `profiling.support` | 两类 profiler 的容器命令、runner 参数、输入计划与产物路径；复用 `artifacts.atomic_write` 发布原有 profiler JSON |
 | `application/terminal_log` | tmux pane pipe 的启动、停止与日志发布；不覆盖已有 pipe，由本次 `RunApplication` 持有并在 finally 清理 |
+
+`measurement.load.run_load()` 保留公共调用参数与 v1/v2 报告协议。Scheduler 在 worker 就绪后开始计时，
+取消时先设置取消状态、撤销待执行任务并唤醒活动 socket，再等待线程退出；负载耗时在最终连接关闭和
+Token 派生之前冻结。`load_reporting` 在此后补齐未提交请求、派生流式指标并汇总，原始异常仍携带
+`load_report` 返回调用方。线程池行为沿用 [CPython ThreadPoolExecutor](https://github.com/python/cpython/blob/3.12/Lib/concurrent/futures/thread.py)，
+清理阶段分工参考 [Locust Runner](https://github.com/locustio/locust/blob/42c4ac9554e6c74cbe52e67fc8f0cf2557c2dfa8/locust/runners.py)；
+仅借鉴生命周期设计，不引入 gevent、新依赖或额外后台任务。三个 load 模块共同纳入 C901 ≤ 12 门禁。
 
 `host.measurement.energy_validation` 在正式采样结束后读取 case CSV 并核验 CPU/GPU idle 功率基线，
 保留既定错误状态、告警 sidecar 与阈值；`orchestrator` 仅调度该校验。
