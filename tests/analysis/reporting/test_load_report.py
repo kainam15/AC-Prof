@@ -262,3 +262,52 @@ def test_nonstream_load_is_not_treated_as_a_capacity_report(tmp_path):
     source.write_text(json.dumps(payload))
     with pytest.raises(ValueError, match="stream_load_experiment"):
         read_load_report(source)
+
+
+@pytest.mark.parametrize(("version", "record_path"), [
+    pytest.param(1, (), id="v1-experiment"),
+    pytest.param(2, (), id="v2-experiment"),
+    pytest.param(1, ("result",), id="v1-result"),
+    pytest.param(2, ("result",), id="v2-result"),
+    pytest.param(2, ("identity", "service"), id="service-declaration"),
+    pytest.param(2, ("service_identity",), id="service-observation"),
+])
+@pytest.mark.parametrize("invalid_version", [True, 1.0, 2.0, "1", None, [], {}, 3])
+def test_load_report_rejects_invalid_schema_versions(tmp_path, version, record_path, invalid_version):
+    source = save_experiment(tmp_path, version)
+    payload = json.loads(source.read_text())
+    record = payload
+    for key in record_path:
+        record = record[key]
+    record["schema_version"] = invalid_version
+    payload["identity_sha256"] = hashlib.sha256(
+        json.dumps(payload["identity"], sort_keys=True, allow_nan=False).encode()
+    ).hexdigest()
+    source.write_text(json.dumps(payload))
+    before = source.read_bytes()
+    output = tmp_path / "invalid-schema.html"
+
+    with pytest.raises(ValueError, match="schema|service declaration"):
+        write_load_report(source, output)
+
+    assert not output.exists()
+    assert source.read_bytes() == before
+
+
+@pytest.mark.parametrize("invalid_version", [True, 1.0, [], {}])
+def test_load_report_cli_rejects_invalid_schema_without_publishing(tmp_path, capsys, invalid_version):
+    source = save_experiment(tmp_path, version=1)
+    payload = json.loads(source.read_text())
+    payload["schema_version"] = invalid_version
+    source.write_text(json.dumps(payload))
+    output = tmp_path / "invalid-cli-schema.html"
+
+    with pytest.raises(SystemExit) as error:
+        main(["report", str(source), "--output", str(output)])
+
+    assert error.value.code == 1
+    captured = capsys.readouterr()
+    assert "报告生成失败" in captured.err
+    assert "schema" in captured.err
+    assert "ACPROF_REPORT" not in captured.out
+    assert not output.exists()

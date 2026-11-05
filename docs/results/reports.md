@@ -97,7 +97,9 @@ coverage／scope、TTFT／TPOT／E2E 分布和服务身份。v2 会从原始 req
 客户端并发重新计算 capacity 与完整 streaming 分布，并核对 `identity_sha256`、两份持久化摘要及
 服务声明／probe；不一致即拒绝生成，实际渲染重算后的分布。早期 v2 未在 `identity.service` 重复
 model／revision 时，使用哈希身份中的对应声明校验，不会跳过一致性检查。v1 可读取，新增能力显示
-unavailable，不以零替代。CLI 只接受一个流式 load 输入，拒绝与 baseline、比较用途或
+unavailable，不以零替代。实验与结果的 `schema_version` 必须为相同的整数 1 或 2；v2 的
+`identity.service` 与 `service_identity` 必须为整数版本 1。布尔值、浮点数、缺失及未知版本均拒绝，
+CLI 明确报错且不发布 HTML。CLI 只接受一个流式 load 输入，拒绝与 baseline、比较用途或
 其他结果组合；默认生成 `load_report.html`，已有文件、目录或符号链接均不覆盖，并遵守离线分析锁。
 该报告只有一个负载点，不生成容量曲线或最大容量结论。字段公式见[流式测量](../profiling/streaming.md)。
 

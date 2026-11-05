@@ -10,7 +10,7 @@ from typing import Any, TextIO
 
 from acprof.analysis.streaming import STREAMING_LATENCY_METRICS, streaming_summary
 from acprof.analysis.streaming_capacity import SLO_METRICS, build_capacity
-from acprof.artifacts import atomic_write, read_json_object
+from acprof.artifacts import atomic_write, read_json_object, require_schema_version
 
 
 def _canonical(value: Any) -> str:
@@ -27,8 +27,8 @@ def _validate_v2_service_declaration(
     required = {"schema_version", "backend", "version", "probe"}
     if not required <= set(declaration) <= required | {"model", "revision"}:
         raise ValueError("stream load identity has an invalid service declaration")
-    if declaration.get("schema_version") != 1:
-        raise ValueError("stream load identity has an invalid service declaration")
+    require_schema_version(declaration, 1, "stream load service declaration")
+    require_schema_version(service, 1, "stream load service_identity")
     model = declaration.get("model", identity.get("model"))
     revision = declaration.get("revision", identity.get("model_revision"))
     expected = {
@@ -89,13 +89,16 @@ def read_load_report(source: str | Path) -> dict[str, Any]:
         raise ValueError("capacity report input must be load.json or its containing directory")
     experiment = read_json_object(path, label="stream load experiment", bounded=False)
     version = experiment.get("schema_version")
-    if experiment.get("kind") != "stream_load_experiment" or version not in {1, 2}:
+    if (
+        experiment.get("kind") != "stream_load_experiment"
+        or type(version) is not int
+        or version not in {1, 2}
+    ):
         raise ValueError("capacity report supports only stream_load_experiment schema v1/v2")
     result = experiment.get("result")
     if not isinstance(result, dict) or result.get("kind") != "stream_load_result":
         raise ValueError("stream load experiment has no stream_load_result")
-    if result.get("schema_version") != version:
-        raise ValueError("stream load experiment and result schema versions differ")
+    require_schema_version(result, version, "stream load result")
     capacity = _v2_capacity(experiment, result) if version == 2 else None
     streaming = _v2_streaming(result) if version == 2 else result.get("streaming")
     return {
