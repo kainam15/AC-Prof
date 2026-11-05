@@ -93,9 +93,11 @@ uv run pytest tests/visual
 避免将临时虚拟环境中的第三方代码视为项目实现。调用分析无法解析已找到的 Python 符号时，
 结合符号文档和源码核对调用者；空结果不能证明没有依赖。
 
-若 `analyze_calls` 返回两条相同的候选标识，使用 `search_symbol(include_external=true)`
-核对是否同时找到源码和 `.venv/.../acprof/_bundle` 中的安装副本。`.venv` 的项目排除规则
-不排除 Python SDK 库索引。editable 安装不应复制这份 bundle；修复 build hook 后，执行
+若搜索或调用树混入嵌套 worktree，在当前 IDE 项目的内容根中排除其目录，例如
+`.kilo/worktrees`；保留 worktree 本身，并验证搜索与调用树只引用预期 checkout。
+相同候选还可能来自安装副本：使用 `search_symbol(include_external=true)` 核对
+是否同时找到源码和 `.venv/.../acprof/_bundle`。`.venv` 的项目排除规则不排除 Python SDK
+库索引。确认 editable 安装错误复制 bundle 时，修复 build hook 后执行
 `uv sync --locked --reinstall-package acprof` 更新安装，
 再验证入向和出向调用。资源打包约定见[安装包说明](distribution.md#工作目录与资源)。
 
@@ -103,13 +105,28 @@ PyCharm 2026.2.3（build `262.10968.92`）已复现一种 MCP 兼容问题：
 `analyze_calls` 的 `isCallableSymbol` 依赖显示文本中的 `name(...)`，
 而 Python 函数的 Usage View 文本只有名称，因此真实 `PyFunction` 也会被过滤。
 这类错误应修复 IDE 工具的函数识别，不需要改动业务函数或重建 Python 环境。
-修复验收应包含真实函数的入向、出向调用和不存在符号的错误路径；
-本机兼容补丁还需验证版本匹配、撤销与启动加载，并区分独立 JVM 检查和完整 IDE 重启。
+同一版本还存在完整名称消歧问题：`matchesPlainFqn` 接受缩短后的限定名，
+使不存在命名空间下的 `main.main` 也能匹配其他模块；`readableSignature` 又可能只返回
+`main`，使候选标识无法再次使用。本机限定名补丁复用 Python QualifiedNameProvider，
+在 Read Action 内生成完整候选标识，匹配阶段仅比较缓存字符串；Python 完整名称严格匹配，
+不再进入模糊搜索兜底，其他语言保留原逻辑。调用树仍由 IDE 原生 provider 构建。
+补丁资源使用独立命名空间，避免同一进程加载多个 agent 时取到旧版本的 class 资源。
+
+修复验收包含真实函数双向调用、不同模块的同名函数、可复用候选和子树路径、
+不存在及近似命名空间的拒绝，并检查 IDE 日志没有新增线程访问错误。
+本机兼容补丁安装时核对 IDE build，加载时校验原 class SHA，
+验证撤销、重新应用、启动加载和 class 不匹配时跳过；
+独立 JVM 启动验证不等于完整 IDE 重启。安装目录保留源码、清单、原配置备份与撤销入口，
+不覆盖 JetBrains 原始 JAR，也不移除既有的 Python 函数识别补丁。
 实现依据见 [JetBrains Call Hierarchy](https://github.com/JetBrains/intellij-community/blob/master/plugins/mcp-server/mcpserver.toolsets/src/general/CallHierarchyAnalysisSupport.kt)
-与 [Python Usage View](https://github.com/JetBrains/intellij-community/blob/master/python/src/com/jetbrains/python/findUsages/PyElementDescriptionProvider.java)。
+、[Python QualifiedNameProvider](https://github.com/JetBrains/intellij-community/blob/94e95f9d1785ba472e90d84b1a4ff56729ceabd5/python/python-code-insight/src/com/jetbrains/python/actions/PyQualifiedNameProvider.java)
+与 [Python Usage View](https://github.com/JetBrains/intellij-community/blob/7fdbbc746badb3512d4a33f114d0d5e7ec3e18fc/python/src/com/jetbrains/python/findUsages/PyElementDescriptionProvider.java)（Apache-2.0）。
 
 PyCharm 在 **Settings → Tools → Python Integrated Tools → Testing** 中选择 **pytest**，
 使用项目 `.venv`；已有 Run Configuration 的 target 改为 pytest 的文件或 node ID。
+测试目录或类名迁移后，旧 `PYTHON` 目标可能退化为运行整个 `tests` 目录，配置名称不能证明
+实际执行范围。重建为当前文件的 `PATH` 目标或由当前测试位置生成配置，再核对
+`Launching pytest` 参数、收集数量、完整输出和退出码；超出预期范围时立即停止本次运行。
 VS Code 的 Python Test Explorer 使用 `python.testing.pytestEnabled: true`、
 `python.testing.pytestArgs: ["tests"]`，解释器选择同一 `.venv`。
 CLI、IDE、host CI 与 SVG job 使用同一配置。需要 CI evidence 时追加 `--report <文件.json>`；
