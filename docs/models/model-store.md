@@ -190,9 +190,15 @@ Python/CUDA runtime build 默认消费锁定的精确 wheel URL，`PYPI_MIRROR_I
 构建时的 wheel / `.deb` GET 遇到 TLS EOF、连接中断、超时、`IncompleteRead` 或
 HTTP 429 / 500 / 502 / 503 / 504 时，最多尝试 3 次。默认在重试前分别等待 1、2 秒；
 HTTP `Retry-After` 支持秒数和日期，可延长等待但单次不超过 30 秒，无效值沿用默认退避。
-每次保持同一选定 URL、客户端标识和重定向策略，关闭 HTTP 错误响应，并在日志中记录状态码。
+重试保持客户端标识和重定向策略，关闭 HTTP 错误响应，并在日志中记录状态码。
+默认 Debian snapshot 下载遇到上述暂时性故障时，在同一三次总尝试预算内改用
+`https://deb.debian.org/debian/` 或 `https://deb.debian.org/debian-security/` 的同一 `pool/` 文件。
+仅接受固定时间戳的官方 HTTPS snapshot `.deb` 地址，不重新解析版本，也不修改锁定 URL、SHA256 或缓存键。
+官方 live archive 已删除旧包并返回 404 / 410 时，剩余尝试回到原 snapshot；两处都不可用则传播最后一次错误。
+每次切换均记录来源并丢弃 `.part`，避免跨来源续传；成功证据保留原锁 URL 和实际下载 host。
+显式选择国内直连镜像时仍不退回官方源；wheel、证书错误和哈希错误不触发 Debian 备用路径。
 同来源、同 SHA256 的 `.part` 保留供 Range 恢复；服务器忽略 Range 时重新下载，
-完整 SHA256 核验通过才发布缓存。耗尽次数后传播原错误；其他 HTTP 状态、证书、来源策略、
+完整 SHA256 核验通过才发布缓存。耗尽次数后传播原错误；除上述备用路径的 404 / 410 外，其他 HTTP 状态、证书、来源策略、
 磁盘权限和哈希错误不重试。成功记录中的 payload bytes 是最终通过核验的文件大小，
 不包含失败尝试的未知传输量，`wire_bytes` 仍为未知。
 有限重试参考 [pip 网络会话](https://github.com/pypa/pip/blob/main/src/pip/_internal/network/session.py)
@@ -200,6 +206,14 @@ HTTP `Retry-After` 支持秒数和日期，可延长等待但单次不超过 30 
 （MIT），并核对 [pip Issue #11843](https://github.com/pypa/pip/issues/11843) 与
 [PR #12500](https://github.com/pypa/pip/pull/12500) 对瞬时错误的取舍；这里只重试明确的传输故障和瞬时 HTTP 状态，
 沿用标准库实现，不引入 pip 私有 API、额外依赖或测量窗口内重试。
+
+Debian 备用路径参考 [Distroless Issue #269](https://github.com/GoogleContainerTools/distroless/issues/269)
+对 snapshot 503 与固定环境的讨论，以及
+[repro-get 的 Debian providers](https://github.com/reproducible-containers/repro-get/blob/master/pkg/distro/debian/debian.go)
+和[按 SHA256 下载](https://github.com/reproducible-containers/repro-get/blob/master/pkg/downloader/downloader.go)
+的思路（Apache-2.0）。后者已标记 soft-deprecated，因此仅借鉴同一制品多来源的设计，
+不复制其实现或引入依赖；AC-Prof 继续优先原 snapshot，备用路径仅使用
+[Debian 官方 CDN](https://deb.debian.org/) 的 HTTPS 地址，保持来源隔离和有限预算。
 
 旧 `python -m acprof.container.download_model` 下载入口已停用并明确报错，避免绕过主机预检、容量检查和预算。
 

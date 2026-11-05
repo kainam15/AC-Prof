@@ -13,6 +13,9 @@
 构建期 wheel / Debian 制品下载将瞬时 HTTP 状态纳入已有的三次重试预算，支持有界 `Retry-After`，
 保留同来源的断点恢复、整文件 SHA256 和失败退出语义。受控 HTTP 与离线回归覆盖网关错误恢复、
 重试耗尽、永久错误及缓存发布；完整 Docker 冷构建和远端 CI 仍需单独验证。
+针对 CI #209 的 Debian snapshot 503 / 504，下载器在原三次总预算内增加官方 live archive
+同名制品备用路径，保留固定版本与 SHA256；切换来源时清除片段，旧包在 live archive 缺失时回到 snapshot。
+离线回归覆盖来源记录、哈希拒绝、跨来源片段隔离和国内镜像失败边界；远端恢复仍待修复提交的 CI 验证。
 具体约束见[下载网络与 Model Store](models/model-store.md)。
 
 ## 开发工具维护（2026-11）

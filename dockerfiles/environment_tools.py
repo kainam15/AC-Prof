@@ -33,6 +33,7 @@ from dependency_locks import (
 )
 from network_policy import (
     DEPENDENCY_USER_AGENT,
+    debian_snapshot_fallback_url,
     dependency_artifact_url,
     is_direct_artifact_mirror,
     require_direct_artifact_mirror_redirect,
@@ -107,6 +108,8 @@ def cached_artifact(entry, path, category):
         return path
 
     source_url = dependency_artifact_url(category, entry["url"])
+    original_url = source_url
+    fallback_url = debian_snapshot_fallback_url(source_url) if category == "debian" else None
     direct_mirror = is_direct_artifact_mirror(source_url)
     temporary = path.with_suffix(path.suffix + ".part")
     partial_meta = temporary.with_suffix(temporary.suffix + ".source.json")
@@ -207,7 +210,9 @@ def cached_artifact(entry, path, category):
             except (OSError, IncompleteRead) as exc:
                 if isinstance(exc, HTTPError):
                     exc.close()
-                if attempt == 3 or not _retryable_download_error(exc):
+                missing_fallback = (source_url == fallback_url and isinstance(exc, HTTPError)
+                                    and exc.code in {404, 410})
+                if attempt == 3 or not (_retryable_download_error(exc) or missing_fallback):
                     raise
                 delay = _download_retry_delay(exc, attempt)
                 reason = (f"HTTP{exc.code}" if isinstance(exc, HTTPError)
@@ -219,6 +224,13 @@ def cached_artifact(entry, path, category):
                     flush=True,
                 )
                 time.sleep(delay)
+                next_source = original_url if missing_fallback else fallback_url
+                if next_source is not None and next_source != source_url:
+                    require_source_transition(source_url, next_source)
+                    # Range bytes are tied to their source, even for the same locked hash.
+                    discard_partial()
+                    metadata = {}
+                    source_url = next_source
             else:
                 break
         if _digest(temporary) != entry["sha256"]:

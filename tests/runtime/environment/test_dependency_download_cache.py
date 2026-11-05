@@ -368,6 +368,207 @@ class TestDependencyDownloadCache:
         assert list(tmp_path.iterdir()) == []
 
 
+class TestDebianSnapshotFallback:
+    snapshot = "https://snapshot.debian.org/archive/debian/20261023T202718Z/pool/main/m/make.deb"
+    fallback = "https://deb.debian.org/debian/pool/main/m/make.deb"
+
+    @pytest.fixture(autouse=True)
+    def official_source(self, monkeypatch):
+        monkeypatch.delenv("ACPROF_DEBIAN_ARTIFACT_MIRROR", raising=False)
+
+    @pytest.mark.parametrize(("archive", "package", "status"), [
+        ("debian", "pool/main/g/glibc/libc6-dev_2.41-12%2bdeb13u4_amd64.deb", 503),
+        ("debian-security", "pool/updates/main/l/linux/linux-libc-dev_6.12.113-1_all.deb", 504),
+    ])
+    def test_snapshot_outage_uses_same_locked_package_from_official_archive(
+        self, archive, package, status, tmp_path, capsys,
+    ):
+        helper = TestDependencyDownloadCache().helper()
+        snapshot = f"https://snapshot.debian.org/archive/{archive}/20261023T202718Z/{package}"
+        fallback = f"https://deb.debian.org/{archive}/{package}"
+        payload = b"exact locked Debian package"
+        entry = {"name": "example", "url": snapshot, "sha256": hashlib.sha256(payload).hexdigest()}
+        original = dict(entry)
+        response = BytesIO(payload)
+        response.geturl = lambda: fallback
+
+        def open_source(request, timeout):
+            if request.full_url == snapshot:
+                raise HTTPError(snapshot, status, "snapshot unavailable", {"Retry-After": "5"}, BytesIO())
+            assert request.full_url == fallback
+            return response
+
+        opener = SimpleNamespace(open=Mock(side_effect=open_source))
+        target = tmp_path / "package.deb"
+        with patch("urllib.request.build_opener", return_value=opener), \
+                patch.object(helper.time, "sleep") as sleep, patch.object(helper, "_record_transfer") as record:
+            assert helper.cached_artifact(entry, target, "debian") == target
+            assert helper.cached_artifact(entry, target, "debian") == target
+        assert target.read_bytes() == payload
+        assert entry == original
+        assert [call.args[0].full_url for call in opener.open.call_args_list] == [snapshot, fallback]
+        assert record.call_args_list[0].args == (original, "debian", len(payload), "deb.debian.org", "miss")
+        assert record.call_args_list[1].args == (original, "debian", 0, "deb.debian.org", "hit")
+        sleep.assert_called_once_with(5)
+        assert "snapshot.debian.org -> deb.debian.org" in capsys.readouterr().out
+        assert not target.with_suffix(".deb.part").exists()
+
+    @pytest.mark.parametrize("status", [404, 410])
+    def test_pruned_archive_package_returns_to_snapshot_within_total_budget(self, tmp_path, status):
+        helper = TestDependencyDownloadCache().helper()
+        payload = b"historical locked package"
+        entry = {"name": "example", "url": self.snapshot, "sha256": hashlib.sha256(payload).hexdigest()}
+        response = BytesIO(payload)
+        response.geturl = lambda: self.snapshot
+        opener = SimpleNamespace(open=Mock(side_effect=[
+            HTTPError(self.snapshot, 504, "timeout", {}, BytesIO()),
+            HTTPError(self.fallback, status, "package removed", {}, BytesIO()), response,
+        ]))
+        target = tmp_path / "package.deb"
+        with patch("urllib.request.build_opener", return_value=opener), \
+                patch.object(helper.time, "sleep"), patch.object(helper, "_record_transfer") as record:
+            helper.cached_artifact(entry, target, "debian")
+        assert target.read_bytes() == payload
+        assert [call.args[0].full_url for call in opener.open.call_args_list] == [
+            self.snapshot, self.fallback, self.snapshot,
+        ]
+        record.assert_called_once_with(entry, "debian", len(payload), "snapshot.debian.org", "miss")
+
+    def test_source_change_discards_partial_then_resumes_only_new_source(self, tmp_path):
+        helper = TestDependencyDownloadCache().helper()
+        payload = b"a complete package with source-specific resume"
+        entry = {"name": "example", "url": self.snapshot, "sha256": hashlib.sha256(payload).hexdigest()}
+        target = tmp_path / "package.deb"
+        target.with_suffix(".deb.part").write_bytes(b"old source bytes")
+        target.with_suffix(".deb.part.source.json").write_text(json.dumps({
+            "url": self.snapshot, "sha256": entry["sha256"], "actual_source_host": "snapshot.debian.org",
+        }))
+        partial = BytesIO(payload[:8])
+        partial.geturl = lambda: self.fallback
+        partial.headers = {"Content-Length": str(len(payload))}
+        rest = BytesIO(payload[8:])
+        rest.geturl = lambda: self.fallback
+        rest.status = 206
+        rest.headers = {"Content-Range": f"bytes 8-{len(payload) - 1}/{len(payload)}"}
+        opener = SimpleNamespace(open=Mock(side_effect=[
+            HTTPError(self.snapshot, 503, "unavailable", {}, BytesIO()), partial, rest,
+        ]))
+        with patch("urllib.request.build_opener", return_value=opener), \
+                patch.object(helper.time, "sleep"), patch.object(helper, "_record_transfer") as record:
+            helper.cached_artifact(entry, target, "debian")
+        assert [call.args[0].full_url for call in opener.open.call_args_list] == [
+            self.snapshot, self.fallback, self.fallback,
+        ]
+        assert [call.args[0].get_header("Range") for call in opener.open.call_args_list] == [
+            "bytes=16-", None, "bytes=8-",
+        ]
+        assert target.read_bytes() == payload
+        record.assert_called_once_with(entry, "debian", len(payload), "deb.debian.org", "miss")
+        assert not target.with_suffix(".deb.part.source.json").exists()
+
+    def test_both_sources_unavailable_raise_after_three_attempts(self, tmp_path):
+        helper = TestDependencyDownloadCache().helper()
+        entry = {"name": "example", "url": self.snapshot, "sha256": "a" * 64}
+        errors = [HTTPError(url, 503, "unavailable", {}, BytesIO())
+                  for url in (self.snapshot, self.fallback, self.fallback)]
+        opener = SimpleNamespace(open=Mock(side_effect=errors))
+        with patch("urllib.request.build_opener", return_value=opener), \
+                patch.object(helper.time, "sleep") as sleep, patch.object(helper, "_record_transfer") as record:
+            with pytest.raises(HTTPError) as caught:
+                helper.cached_artifact(entry, tmp_path / "package.deb", "debian")
+        assert caught.value is errors[-1]
+        assert [call.args[0].full_url for call in opener.open.call_args_list] == [
+            self.snapshot, self.fallback, self.fallback,
+        ]
+        assert [call.args[0] for call in sleep.call_args_list] == [1, 2]
+        assert all(error.fp.closed for error in errors)
+        record.assert_not_called()
+        assert list(tmp_path.iterdir()) == []
+
+    def test_fallback_hash_mismatch_is_not_retried_or_published(self, tmp_path):
+        helper = TestDependencyDownloadCache().helper()
+        entry = {"name": "example", "url": self.snapshot, "sha256": hashlib.sha256(b"correct").hexdigest()}
+        response = BytesIO(b"wrong package")
+        response.geturl = lambda: self.fallback
+        opener = SimpleNamespace(open=Mock(side_effect=[
+            HTTPError(self.snapshot, 503, "unavailable", {}, BytesIO()), response,
+        ]))
+        with patch("urllib.request.build_opener", return_value=opener), \
+                patch.object(helper.time, "sleep"), patch.object(helper, "_record_transfer") as record:
+            with pytest.raises(ValueError, match="artifact SHA256 mismatch"):
+                helper.cached_artifact(entry, tmp_path / "package.deb", "debian")
+        assert [call.args[0].full_url for call in opener.open.call_args_list] == [self.snapshot, self.fallback]
+        record.assert_not_called()
+        assert list(tmp_path.iterdir()) == []
+
+    @pytest.mark.parametrize(("category", "url"), [
+        ("python", snapshot),
+        ("debian", snapshot.replace("https:", "http:")),
+        ("debian", snapshot.replace("snapshot.debian.org", "snapshot.example.org")),
+        ("debian", snapshot.replace("snapshot.debian.org", "user@snapshot.debian.org")),
+        ("debian", snapshot.replace("snapshot.debian.org", "snapshot.debian.org:8443")),
+        ("debian", snapshot + "?download=1"),
+        ("debian", snapshot + "#fragment"),
+        ("debian", snapshot.replace("/20261023T202718Z/", "/latest/")),
+        ("debian", snapshot.replace("/main/", "/%2e%2e/")),
+        ("debian", snapshot.replace("/main/", "/../")),
+        ("debian", snapshot.replace("/debian/", "/debian-ports/")),
+    ])
+    def test_fallback_does_not_rewrite_other_sources(self, tmp_path, category, url):
+        helper = TestDependencyDownloadCache().helper()
+        entry = {"name": "example", "url": url, "sha256": "a" * 64}
+        error = HTTPError(url, 503, "unavailable", {}, BytesIO())
+        opener = SimpleNamespace(open=Mock(side_effect=error))
+        with patch("urllib.request.build_opener", return_value=opener), \
+                patch.object(helper.time, "sleep"), patch.object(helper, "_record_transfer") as record:
+            with pytest.raises(HTTPError) as caught:
+                helper.cached_artifact(entry, tmp_path / "package.deb", category)
+        assert caught.value is error
+        assert [call.args[0].full_url for call in opener.open.call_args_list] == [url] * 3
+        record.assert_not_called()
+        assert list(tmp_path.iterdir()) == []
+
+    @pytest.mark.parametrize("failure_source", ["snapshot", "fallback"])
+    def test_certificate_failure_never_tries_another_source(self, tmp_path, failure_source):
+        helper = TestDependencyDownloadCache().helper()
+        entry = {"name": "example", "url": self.snapshot, "sha256": "a" * 64}
+        error = URLError(ssl.SSLCertVerificationError(1, "certificate rejected"))
+        errors = [error] if failure_source == "snapshot" else [
+            HTTPError(self.snapshot, 503, "unavailable", {}, BytesIO()), error,
+        ]
+        opener = SimpleNamespace(open=Mock(side_effect=errors))
+        with patch("urllib.request.build_opener", return_value=opener), \
+                patch.object(helper.time, "sleep"), patch.object(helper, "_record_transfer") as record:
+            with pytest.raises(URLError) as caught:
+                helper.cached_artifact(entry, tmp_path / "package.deb", "debian")
+        assert caught.value is error
+        expected = [self.snapshot] if failure_source == "snapshot" else [self.snapshot, self.fallback]
+        assert [call.args[0].full_url for call in opener.open.call_args_list] == expected
+        record.assert_not_called()
+        assert list(tmp_path.iterdir()) == []
+
+    @pytest.mark.parametrize(("mirror", "status"), [
+        ("", 403), ("", 404), ("tencent", 403), ("tencent", 404), ("tencent", 503),
+    ])
+    def test_permanent_errors_and_selected_domestic_mirror_do_not_fall_back(
+        self, tmp_path, monkeypatch, mirror, status,
+    ):
+        monkeypatch.setenv("ACPROF_DEBIAN_ARTIFACT_MIRROR", mirror)
+        helper = TestDependencyDownloadCache().helper()
+        entry = {"name": "example", "url": self.snapshot, "sha256": "a" * 64}
+        source = network_policy.dependency_artifact_url("debian", self.snapshot)
+        error = HTTPError(source, status, "unavailable", {}, BytesIO())
+        opener = SimpleNamespace(open=Mock(side_effect=error))
+        with patch("urllib.request.build_opener", return_value=opener), \
+                patch.object(helper.time, "sleep"), patch.object(helper, "_record_transfer") as record:
+            with pytest.raises(HTTPError) as caught:
+                helper.cached_artifact(entry, tmp_path / "package.deb", "debian")
+        assert caught.value is error
+        assert [call.args[0].full_url for call in opener.open.call_args_list] == [source] * (3 if status == 503 else 1)
+        record.assert_not_called()
+        assert list(tmp_path.iterdir()) == []
+
+
 class TestDomesticPyPIArtifactMirror:
     """A selected direct mirror cannot silently fall back to a costly proxy."""
 

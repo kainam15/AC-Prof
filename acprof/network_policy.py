@@ -7,7 +7,7 @@ from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from decimal import Decimal
 from urllib import request as urllib_request
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
 
 DEPENDENCY_USER_AGENT = "acprof-dependency-downloader/1.0"
 
@@ -65,6 +65,23 @@ def dependency_artifact_url(category: str, locked_url: str, environ: Mapping[str
             raise DownloadPolicyError("cannot mirror an unexpected Debian snapshot URL")
         return TENCENT_DEBIAN_ARTIFACT_PREFIX + "/pool/" + parsed.path.split("/pool/", 1)[1]
     return locked_url
+
+
+def debian_snapshot_fallback_url(source_url: str) -> str | None:
+    """Locate the identical pool filename on Debian's live archive, never resolve versions."""
+    parsed = urlsplit(source_url)
+    if (parsed.scheme != "https" or parsed.netloc != "snapshot.debian.org"
+            or parsed.query or parsed.fragment):
+        return None
+    match = re.fullmatch(
+        r"/archive/(debian(?:-security)?)/[0-9]{8}T[0-9]{6}Z/(pool/.+\.deb)", parsed.path,
+    )
+    if match is None:
+        return None
+    package = unquote(match[2])
+    if "\\" in package or any(part in {"", ".", ".."} for part in package.split("/")):
+        return None
+    return f"https://deb.debian.org/{match[1]}/{match[2]}"
 
 
 def is_direct_artifact_mirror(url: str, environ: Mapping[str, str] | None = None) -> bool:
