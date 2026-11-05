@@ -219,8 +219,7 @@ def test_torch_adapter_preserves_probe_on_success_and_parse_failure(monkeypatch,
     )
     monkeypatch.setattr(torch_profiler, "profile_runner_args", lambda *args: ["runner"])
     monkeypatch.setattr(
-        torch_profiler,
-        "run_profiler_command",
+        "acprof.host.profiling.tools.torch.run_profiler_command",
         lambda *args, **kwargs: SimpleNamespace(
             returncode=0,
             stdout=json.dumps(payload),

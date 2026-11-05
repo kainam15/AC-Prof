@@ -25,7 +25,7 @@ def test_profiler_queries_are_bounded(monkeypatch):
         calls.append((argv, kwargs))
         return SimpleNamespace(returncode=0, stdout='{"Id":"sha256:' + 'a' * 64 + '"}', stderr="")
 
-    monkeypatch.setattr(execution_environment, "run_profiler_command", run)
+    monkeypatch.setattr("acprof.host.profiling.tools.execution_environment.run_profiler_command", run)
     monkeypatch.setattr(execution_environment, "find_nsys_importer", lambda _: "/nsys/importer")
     execution_environment._inspect_execution_image("fixture")
     execution_environment.get_massif_version("fixture")
