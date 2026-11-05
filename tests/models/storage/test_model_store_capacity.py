@@ -78,14 +78,14 @@ def test_capacity_stat_failures_are_not_reported_as_absence(tmp_path, monkeypatc
     payload.write_bytes(b'weights')
     failed = tmp_path if target == 'root' else payload
     failure = OSError(error_number, 'capacity stat failed', str(failed))
-    original = Path.stat
+    original = os.stat
 
     def stat_path(path: Path, *args, **kwargs):
         if path == failed:
             raise failure
         return original(path, *args, **kwargs)
 
-    monkeypatch.setattr(Path, 'stat', stat_path)
+    monkeypatch.setattr(os, 'stat', stat_path)
     with pytest.raises(OSError, match='capacity stat failed') as caught:
         model_store.disk_report(tmp_path)
     assert caught.value is failure
@@ -99,14 +99,14 @@ def test_capacity_scan_tolerates_concurrent_prune(tmp_path, monkeypatch, kind):
     payload = directory / 'weights.bin'
     payload.write_bytes(b'old weights')
     if kind == 'file':
-        original_stat = Path.stat
+        original_stat = os.stat
 
         def stat_path(path: Path, *args, **kwargs):
             if path == payload:
                 payload.unlink()
             return original_stat(path, *args, **kwargs)
 
-        monkeypatch.setattr(Path, 'stat', stat_path)
+        monkeypatch.setattr(os, 'stat', stat_path)
     else:
         original_scan = os.scandir
 
