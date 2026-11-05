@@ -28,6 +28,12 @@ from acprof.container.model_files import (
     validate_plan,
     validate_plan_request,
 )
+from acprof.host.model_store.consumers import (
+    DockerConsumer,
+    DockerConsumerInspector,
+    create_consumer,
+    remove_consumer,
+)
 from acprof.host.model_store.paths import StorePaths, store_paths
 from acprof.host.model_store.views import (
     make_traversable,
@@ -47,20 +53,22 @@ from acprof.network_policy import (
     parse_bytes,
 )
 from acprof.runtime.dependency_locks import content_digest
+from acprof.system.cleanup import cleanup_on_exit
 
 ENTRY_METADATA_MAX_BYTES = 4 * 1024 * 1024
 _ENTRY_ID = re.compile(r"[a-f0-9]{64}")
 class ModelStoreMount:
     """One explicitly owned runtime mount lease.
 
-    The shared flock must stay alive for exactly as long as a consumer may
-    access the read-only Model Store bind mount. Closing is idempotent so
-    cleanup paths can hand ownership to a RunningContainer safely.
+    Live clients hold a shared flock. Docker records also protect consumers
+    after client exit; Process supervisors inherit the flock descriptor.
+    Close only after consumer cleanup has been confirmed.
     """
 
-    def __init__(self, args: list[str], lock=None):
+    def __init__(self, args: list[str], lock=None, consumer: DockerConsumer | None = None):
         self.args = args
         self._lock = lock
+        self._consumer = consumer
 
     @property
     def pass_fds(self) -> tuple[int, ...]:
@@ -69,6 +77,10 @@ class ModelStoreMount:
 
     def close(self) -> None:
         with _RETAINED_MOUNTS_LOCK:
+            if self._consumer is not None:
+                with store_lock(self._consumer.root):
+                    remove_consumer(self._consumer)
+                self._consumer = None
             if self._lock is not None:
                 # Preserve the retry handle and retention if close itself fails.
                 self._lock.close()
@@ -554,6 +566,9 @@ def prepare_model(task, plan: dict, root: Path | None = None, *, planned_downloa
                 fcntl.flock(lease, fcntl.LOCK_EX | fcntl.LOCK_NB)
             except BlockingIOError as exc:
                 raise RuntimeError("Model Store 文件视图缺失或不完整且存在活动 lease；停止消费者后才能重新准备") from exc
+            with store_paths(root, lambda: None) as paths:
+                if DockerConsumerInspector().protects(paths, Path("entries") / key):
+                    raise RuntimeError("Model Store still has Docker consumers; stop them before rebuilding the view")
         sources = model_sources(plan, root, entry_id=key)
         require_space(sources, root)
         sizes = [source.estimated_bytes for source in sources]
@@ -614,8 +629,10 @@ def _runtime_mount_args(root: Path, key: str, plan: dict) -> list[str]:
             "-e", f"MODEL_LOCAL_PATH={snapshot}"]
 
 
-def acquire_mount(manifest: dict, root: Path | None = None) -> ModelStoreMount:
+def acquire_mount(manifest: dict, root: Path | None = None, *, runtime: str = "docker") -> ModelStoreMount:
     """Validate a Model Store entry and hold its GC lease until close()."""
+    if runtime not in {"docker", "process"}:
+        raise ValueError("Model Store consumer runtime must be docker or process")
     record = manifest.get("model_store")
     if not record:
         return ModelStoreMount([])
@@ -626,14 +643,17 @@ def acquire_mount(manifest: dict, root: Path | None = None) -> ModelStoreMount:
         # Repair after validating the entry, while holding the store lock.
         make_traversable(root / "entries" / key)
         lock = _open_lock_file(root / (key + ".lease"), label="Model Store lease")
+        consumer = None
         try:
             fcntl.flock(lock, fcntl.LOCK_SH)
             (root / "entries" / key / "last-used").touch()
             args = _runtime_mount_args(root, key, plan)
+            if runtime == "docker":
+                consumer = create_consumer(root, key)
         except BaseException:
-            lock.close()
-            raise
-    return ModelStoreMount(args, lock)
+            with cleanup_on_exit(lock.close, description="failed Model Store mount acquisition"):
+                raise
+    return ModelStoreMount(args, lock, consumer)
 
 
 def verify_entry(manifest: dict, root: Path | None = None) -> None:
@@ -682,6 +702,7 @@ def _plan_prune(paths: StorePaths, keep: set[str], target: int | None,
     root = paths.root
     candidates, entry_blobs, entry_bytes = [], {}, {}
     references: Counter[Path] = Counter()
+    consumers = DockerConsumerInspector()
     for entry in paths.directories(Path('entries'), missing_ok=True):
         # A lost plan prevents new mounts, but existing leases and links still own blobs.
         try:
@@ -699,11 +720,14 @@ def _plan_prune(paths: StorePaths, keep: set[str], target: int | None,
             leased = True
         links = set()
         size = 0
-        for item, info in paths.walk(entry):
+        children: list[tuple[Path, os.stat_result]] = []
+        for item, info in paths.walk(entry, children=children):
             if stat.S_ISLNK(info.st_mode):
                 links.add((root / item).resolve())
             elif stat.S_ISREG(info.st_mode):
                 size += info.st_size
+        if not leased:
+            leased = consumers.protects(paths, entry, children=children)
         entry_blobs[key] = links
         entry_bytes[key] = size
         references.update(links)

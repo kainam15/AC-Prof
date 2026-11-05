@@ -40,7 +40,7 @@ def run_validation(task, info, module, prefix, output_dir, *, gpu="off", payload
     lease = None
     process = None
     try:
-        lease = acquire_mount(info.runtime_environment)
+        lease = acquire_mount(info.runtime_environment, runtime="process")
         process = ManagedProcess(command, python=info.python, env=service_environment(task, info, gpu=gpu),
                                  directory=directory, name=name, pass_fds=lease.pass_fds, cgroup=limits.path)
         code = process.wait(timeout)

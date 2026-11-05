@@ -101,7 +101,7 @@ class ProcessRuntime:
         lease = None
         process = None
         try:
-            lease = acquire_mount(image_info.runtime_environment)
+            lease = acquire_mount(image_info.runtime_environment, runtime="process")
             token = uuid.uuid4().hex
             env = service_environment(task_info, image_info, gpu=gpu, timeout=request_timeout_seconds)
             started = time.monotonic()

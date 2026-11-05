@@ -23,7 +23,8 @@ def validation_log(tmp_path, monkeypatch):
     process.log_tail = MethodType(ManagedProcess.log_tail, process)
     lease = SimpleNamespace(pass_fds=(), close=Mock())
     limits = SimpleNamespace(path="", close=Mock())
-    monkeypatch.setattr(model_store, "acquire_mount", lambda _: lease)
+    acquire = Mock(return_value=lease)
+    monkeypatch.setattr(model_store, "acquire_mount", acquire)
     monkeypatch.setattr(resources, "ProcessLimits", lambda *args: limits)
     monkeypatch.setattr(validation, "service_environment", lambda *args, **kwargs: {})
     monkeypatch.setattr(validation, "ManagedProcess", lambda *args, **kwargs: process)
@@ -33,6 +34,7 @@ def validation_log(tmp_path, monkeypatch):
         return validation.run_validation(None, info, "fixture.module", PREFIX, tmp_path)
 
     yield SimpleNamespace(path=path, run=run, process=process)
+    acquire.assert_called_once_with(info.runtime_environment, runtime="process")
     process.close.assert_called_once()
     lease.close.assert_called_once()
     limits.close.assert_called_once()

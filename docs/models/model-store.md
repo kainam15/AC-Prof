@@ -129,7 +129,39 @@ Model Store 租约。已发起 Docker 但拿不到 ID、清理失败或清理被
 停止正式运行容器失败或被取消时，其租约由当前进程继续强引用，即使上层丢弃会话对象也不会
 提前解除 GC 保护。重复失败只保留一次；按不可变 ID 确认清理成功后关闭对应租约并移除保留记录，
 其他消费者的独立租约不受影响。描述符关闭失败保留重试句柄，不把未完成关闭标为已完成。
-该保留表仅在当前进程内有效，不能替代进程崩溃／退出后的持久化消费者身份和清理恢复。
+该保留表仅在当前进程内有效；Docker 挂载另在 entry 根目录原子发布
+`.docker-consumer-<consumer_id>.json`，在启动前完成文件与目录同步，以保留客户端异常退出后的身份。
+正常清理先删除本次消费者记录并同步目录，再释放文件锁；删除或同步失败时保留句柄供重试。
+记录发布失败则不返回挂载，也不继续启动；若记录已经发布但同步报错，保留它供后续核查。
+Process Runtime 继续由 supervisor 继承共享 lease 描述符，不创建 Docker 消费者记录。
+
+消费者记录是 Model Store 控制面协议，所有写入均在准备／清理阶段，不属于测量样本或结果字段：
+
+| 字段 | 来源与语义 |
+| --- | --- |
+| `schema_version` | 整数 `1`；未知版本或布尔值拒绝读取 |
+| `consumer_id` | 每次挂载生成的 32 位小写 UUID hex；必须与文件名一致 |
+| `entry_id` | 所属 entry 的固定标识；必须与父目录一致 |
+| `owner_labels` | 复用 Docker lifecycle 标签及 host、uid、boot、pid、start 身份；`start` 是 `/proc/<pid>/stat` 的启动时钟 tick，其他值是版本或身份标识 |
+| `record_sha256` | 除本字段外的规范 JSON 的 SHA256；复用现有 `content_digest`，防止合法 JSON 中的身份值意外改变 |
+
+记录上限 4096 字节，必须是当前用户拥有、只有一个硬链接的普通文件；不跟随符号链接。
+格式、身份、摘要或读取失败会阻止删除，不按“记录不存在”处理；摘要校验不替代运行状态核查。
+GC 与破损视图重建在原有 store lock 内核查记录：owner 存活、退出状态未知或属于其他主机／用户时保留。
+只有明确退出的本机同用户 owner，才在验证本机 Native Docker daemon 后，以全部 owner 标签执行有界
+`docker ps -aq --no-trunc`。任意匹配容器（包括已停止的容器）都会保护该 owner 的记录，
+清单为空才允许回收；Docker 查询失败保留数据并报错。GC 不停止或删除容器，也不按 TTL 猜测过期。
+查询结果仅在本次操作内按 owner 复用，下次预览或执行重新查询；消费者检查复用 entry 遍历结果，
+不增加一次目录扫描。预览保持只读，有消费者的破损视图在下载前拒绝重建。
+
+历史无记录 entry 沿用原有 lease 与 GC 规则；新保护只覆盖升级后创建的 Docker 消费者，
+不能把旧记录缺失当作旧容器已停止的证据。查询保护的是 daemon 已登记的容器；
+父进程退出时仍在途的 Docker 创建请求不由一次空清单证明已结束，启动握手仍需单独完善与验证。
+本轮子进程异常退出和 Mock Docker 回归不替代真实 Docker 崩溃恢复验收。
+设计参考 [containerd 的资源与 lease 保护](https://github.com/containerd/containerd/blob/79e23749d4840f5f12d7b4fc54147479f2254f96/docs/garbage-collection.md)
+及 [client lease 创建／释放](https://github.com/containerd/containerd/blob/79e23749d4840f5f12d7b4fc54147479f2254f96/client/lease.go)
+（Apache-2.0）。借鉴持久化引用与明确释放的边界，沿用本项目标准库和 Docker ownership，
+不复制源码、不引入 containerd 服务或依赖，也不采用其默认过期时间。
 
 ```bash
 acprof run --model google-bert/bert-base-uncased --max-download 5GB

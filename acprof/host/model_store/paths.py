@@ -67,7 +67,9 @@ class StorePaths:
             if stat.S_ISDIR(info.st_mode):
                 yield path
 
-    def walk(self, relative: Path, *, missing_ok: bool = False) -> Iterator[tuple[Path, os.stat_result]]:
+    def walk(self, relative: Path, *, missing_ok: bool = False,
+             children: list[tuple[Path, os.stat_result]] | None = None) -> Iterator[tuple[Path, os.stat_result]]:
+        """Walk files, optionally retaining the immediate children from the same scan."""
         with ExitStack() as stack:
             try:
                 descriptor = stack.enter_context(self.directory(relative))
@@ -75,14 +77,17 @@ class StorePaths:
                 if missing_ok:
                     return
                 raise
-            yield from self._walk(relative, descriptor)
+            yield from self._walk(relative, descriptor, children)
 
-    def _walk(self, relative: Path, descriptor: int) -> Iterator[tuple[Path, os.stat_result]]:
+    def _walk(self, relative: Path, descriptor: int,
+              children: list[tuple[Path, os.stat_result]] | None = None) -> Iterator[tuple[Path, os.stat_result]]:
         with os.scandir(descriptor) as entries:
             for entry in entries:
                 self.check_cancelled()
                 path = relative / entry.name
                 info = entry.stat(follow_symlinks=False)
+                if children is not None:
+                    children.append((path, info))
                 if stat.S_ISDIR(info.st_mode):
                     child = os.open(entry.name, _DIRECTORY_FLAGS, dir_fd=descriptor)
                     try:

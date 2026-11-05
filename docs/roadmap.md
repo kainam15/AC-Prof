@@ -86,6 +86,12 @@ BERT 后处理完成 Torch CPU/GPU 双尺度 4/4 探针、NCU GPU 双尺度 2/2�
 当前所有者遗留或清单／回收失败则停止启动；离线用例覆盖 PID 复用、所有权隔离及有界查询。
 机制见[主机编排与测量模块](development/orchestration.md#主机编排与测量)。
 
+Model Store 已补充 Docker 消费者持久化记录：客户端异常退出后，daemon 中仍存在的带标签容器
+继续保护 entry 与共享权重；明确退出的 owner 需经本机 daemon 空清单核查，才允许回收或重建视图。
+记录损坏、查询失败、取消及发布／释放故障有离线回归，Process 仍沿用继承文件锁。
+升级前无记录消费者与仍在途的 Docker 创建请求不在本轮保护证明内；真实 Docker 崩溃恢复未验收。
+协议、兼容性及参考实现见[Model Store](models/model-store.md)。
+
 当前开发优先通用模型适配、采集实现正确性、可控的 Runtime 资源限制及 TUI 体验。
 能耗基线稳定性与重复样本、Massif 的完整实测及跨环境性能对照列为**用户主导的后续实验**，
 不作为日常 Agent 开发阻塞项。

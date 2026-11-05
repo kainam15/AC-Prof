@@ -93,9 +93,10 @@ def _inspect_container(identifier: str, run: Callable, operations: list[dict], *
     raise ContainerCleanupError(identifier, operations, run_error=run_error)
 
 
-def _list_owner_containers(current: dict[str, str], run: Callable, operations: list[dict]) -> tuple[str, ...]:
+def _list_owner_containers(current: dict[str, str], run: Callable, operations: list[dict], *,
+                           scope_labels: tuple[str, ...] = _OWNER_SCOPE_LABELS) -> tuple[str, ...]:
     command = ["docker", "ps", "-aq", "--no-trunc"]
-    for key in _OWNER_SCOPE_LABELS:
+    for key in scope_labels:
         command += ["--filter", f"label={key}={current[key]}"]
     listed = _execute(command, run, operations, INSPECT_TIMEOUT_S)
     if listed is None or listed.returncode or not isinstance(listed.stdout, str):
@@ -105,6 +106,11 @@ def _list_owner_containers(current: dict[str, str], run: Callable, operations: l
         operations[-1]["detail"] = "invalid container ID"
         raise ContainerCleanupError("", operations)
     return identifiers
+
+
+def owner_containers_absent(owner: dict[str, str], run: Callable) -> bool:
+    """Inspect an exact recorded owner; caller verifies the local Docker daemon."""
+    return not _list_owner_containers(owner, run, [], scope_labels=tuple(sorted(owner)))
 
 
 def remove_owned_container(identifier: str, run: Callable, *, stop: bool = False) -> None:
@@ -145,7 +151,8 @@ def container_owner_labels() -> dict[str, str]:
     }
 
 
-def _owner_has_exited(labels: dict, current: dict[str, str]) -> bool:
+def container_owner_has_exited(labels: dict, current: dict[str, str]) -> bool:
+    """Only positive exit evidence within this host/user scope permits recovery."""
     if any(labels.get(key) != current[key] for key in _OWNER_SCOPE_LABELS):
         return False
     boot = labels.get(OWNER_PREFIX + "boot")
@@ -187,7 +194,7 @@ def recover_abandoned_containers(current: dict[str, str], run: Callable) -> tupl
             raise ContainerCleanupError(identifier, [{"operation": "preflight", "detail":
                 "Current owner has an unremoved container; refusing a new start"}], final_state="present",
                 docker_state=state if isinstance(state, dict) else None)
-        if not _owner_has_exited(labels, current):
+        if not container_owner_has_exited(labels, current):
             continue
         remove_owned_container(identifier, run)
         removed.append(identifier)
