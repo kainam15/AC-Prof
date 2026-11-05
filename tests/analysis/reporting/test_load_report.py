@@ -311,3 +311,47 @@ def test_load_report_cli_rejects_invalid_schema_without_publishing(tmp_path, cap
     assert "schema" in captured.err
     assert "ACPROF_REPORT" not in captured.out
     assert not output.exists()
+
+
+@pytest.mark.parametrize(("field", "value", "summary_field", "summary_value"), [
+    ("ttft_s", True, "ttft_s", 1.0),
+    ("tpot_s", -0.01, "tpot_s", -0.01),
+    ("e2e_s", -0.25, "e2e_s", -0.25),
+    ("output_e2e_s", -0.5, "output_e2e_s", -0.5),
+    ("itl_s", [-0.02], "itl_s", -0.02),
+    ("output_event_intervals_s", [-0.03], "output_event_interval_s", -0.03),
+    ("output_event_intervals_s", False, "output_event_interval_s", None),
+])
+def test_report_cli_rejects_invalid_latency_even_when_summaries_match(
+    tmp_path, capsys, field, value, summary_field, summary_value,
+):
+    source = save_experiment(tmp_path)
+    payload = json.loads(source.read_text())
+    thresholds = dict.fromkeys(("ttft_s", "tpot_s", "e2e_s"))
+    payload["identity"]["slo_thresholds_s"] = thresholds
+    payload["identity_sha256"] = hashlib.sha256(
+        json.dumps(payload["identity"], sort_keys=True, allow_nan=False).encode()
+    ).hexdigest()
+    result = payload["result"]
+    result["capacity"] = build_capacity(result["requests"], result["duration_s"], 2, thresholds)
+    result["requests"][0][field] = value
+    # Preserve an internally consistent but invalid summary to isolate raw-value validation.
+    summary = result["streaming"][summary_field]
+    summary.update(dict.fromkeys(("mean", "p50", "p90", "p95", "p99"), summary_value))
+    if field in {"itl_s", "output_event_intervals_s"}:
+        count = int(summary_value is not None)
+        summary.update(sample_count=count, requests_with_samples=count, missing_requests=1 - count)
+    source.write_text(json.dumps(payload))
+    before = source.read_bytes()
+    output = tmp_path / "invalid-latency.html"
+
+    with pytest.raises(SystemExit) as error:
+        main(["report", str(source), "--output", str(output)])
+
+    assert error.value.code == 1
+    captured = capsys.readouterr()
+    assert "报告生成失败" in captured.err
+    assert field in captured.err
+    assert "ACPROF_REPORT" not in captured.out
+    assert not output.exists()
+    assert source.read_bytes() == before

@@ -101,6 +101,7 @@ unavailable，不以零替代。实验与结果的 `schema_version` 必须为相
 `identity.service` 与 `service_identity` 必须为整数版本 1。布尔值、浮点数、缺失及未知版本均拒绝，
 CLI 明确报错且不发布 HTML。CLI 只接受一个流式 load 输入，拒绝与 baseline、比较用途或
 其他结果组合；默认生成 `load_report.html`，已有文件、目录或符号链接均不覆盖，并遵守离线分析锁。
+v2 无论是否配置 SLO，均检查成功请求的延迟及区间数组；非法数值或类型即报错，即使持久化摘要与原始值一致也不发布。
 该报告只有一个负载点，不生成容量曲线或最大容量结论。字段公式见[流式测量](../profiling/streaming.md)。
 
 ### 交互式配置比较报告

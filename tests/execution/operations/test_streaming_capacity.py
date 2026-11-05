@@ -140,3 +140,9 @@ def test_failed_request_tokens_never_enter_observed_or_complete_totals():
     ], 1, 1)
     assert capacity["token_throughput"]["total"]["tokens"] == 2
     assert capacity["token_throughput"]["total"]["observed_tokens"] == 2
+
+
+@pytest.mark.parametrize("field", ["ttft_s", "tpot_s", "e2e_s"])
+def test_capacity_rejects_unrepresentable_latency_with_field_error(field):
+    with pytest.raises(ValueError, match=field):
+        build_capacity([request(**{field: 10 ** 400})], 2, 1, {field: 1})

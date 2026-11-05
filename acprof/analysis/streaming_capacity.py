@@ -6,6 +6,8 @@ from collections import Counter
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from acprof.analysis.streaming import nonnegative_latency
+
 SLO_METRICS = ("ttft_s", "tpot_s", "e2e_s")
 _REQUEST_STATUSES = {"ok", "error", "dropped", "cancelled"}
 
@@ -43,15 +45,6 @@ def _token_count(row: Mapping[str, Any], field: str) -> int | None:
     return value
 
 
-def _metric_value(row: Mapping[str, Any], field: str) -> float | None:
-    value = row.get(field)
-    if value is None:
-        return None
-    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0:
-        raise ValueError(f"{field} must be a finite nonnegative number or null")
-    return float(value)
-
-
 def _slo_summary(
     succeeded: Sequence[Mapping[str, Any]], thresholds: Mapping[str, float | None], duration_s: float,
 ) -> tuple[dict[str, Any], float | None]:
@@ -71,7 +64,8 @@ def _slo_summary(
         violated = False
         unevaluable = False
         for name, threshold in configured.items():
-            value = _metric_value(row, name)
+            raw = row.get(name)
+            value = nonnegative_latency(raw, name) if raw is not None else None
             if value is None:
                 unevaluable = True
                 per_metric[name]["unevaluable"] += 1

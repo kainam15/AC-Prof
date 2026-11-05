@@ -141,6 +141,11 @@ identity。预算包括失败请求已接收的数据，避免仅凭并发或单
 `requests_with_samples` 及错误分组说明分母；无有效样本是 JSON `null`。
 失败、取消、丢弃请求不进入成功指标分布，原始观测留作诊断。
 
+成功请求的延迟及区间样本必须为有限非负数，布尔值、数字字符串及无法表示的数值均拒绝；
+`itl_s`／`output_event_intervals_s` 必须为数组或 `null`，数组内不能含 `null`。
+合法零值保留，缺失字段／`null` 和空区间数组沿用缺失计数，不把错误类型替换成缺失值。
+汇总和 SLO 评估共用数值校验；未配置 SLO 时，v2 报告仍检查全部成功请求的延迟证据。
+
 ## SLO Goodput 与单点容量
 
 schema v2 的 `result.capacity` 以同一个 `result.duration_s`（记为 `D`）汇总单次正式负载，
