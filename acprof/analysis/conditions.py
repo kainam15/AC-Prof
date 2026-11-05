@@ -146,51 +146,39 @@ class PreparedComparison:
             {**variant, "fields": dict(variant["fields"]), "controlled": list(variant["controlled"])}
             for variant in profile["variants"]]}
 
-    def profile(self, *, purpose="same-hardware", case=None):
-        """Project recorded evidence to a selected CSV case, without rereading files."""
-        if purpose not in PURPOSES:
-            raise ValueError(f"comparison purpose must be one of {PURPOSES}")
-        snapshot = self._snapshot
-        conditions = dict(snapshot["conditions"])
-        hardware = dict(snapshot["hardware"])
-        workload = conditions.pop("actual_workload")
-        if case is not None:
-            cpu, memory, gpu, scale = case
-            from acprof.results.layout import resource_case_id
-            case_id = resource_case_id(cpu, memory, gpu)
-            conditions["resources"] = {**conditions["resources"], "cpus": str(cpu), "mems": str(memory), "gpus": gpu}
-            conditions["planned_inputs"] = self._planned_inputs(scale)
-            selected_case = canonical(list(case))
-            workload = ({selected_case: workload[selected_case]} if workload and selected_case in workload else None)
-            hardware = {name: {case_id: values.get(case_id)} if isinstance(values, dict) else None
-                        for name, values in hardware.items()}
-        if not unknown(hardware.get("runtime_threads")):
-            conditions["runtime_threads"] = hardware["runtime_threads"]
-        workload_profiles: dict[str, dict[str, object]] | None = None
-        if workload is not None:
-            workload_profiles = {}
-            for key, item in workload.items():
-                normalized_key = canonical(json.loads(key)[2:]) if purpose == "resource-scaling" else key
-                profile = self._workload_profile(key, item)
-                previous = workload_profiles.get(normalized_key)
-                if previous and previous != profile:
-                    profile = {"ambiguous": True}
-                workload_profiles[normalized_key] = profile
-        if purpose == "resource-scaling":
-            # Resource labels in case maps are coordinates, not hardware facts.
-            # Different measured policies/threads across resource cases stay visible.
-            def remove_resource_keys(values):
-                if not isinstance(values, dict):
-                    return values
-                by_device: dict[str, dict[str, object]] = {}
-                for key, value in values.items():
-                    by_device.setdefault(key.rsplit("_", 1)[-1], {})[canonical(value)] = value
-                return {device: [items[key] for key in sorted(items)] for device, items in by_device.items()}
-            hardware = {name: remove_resource_keys(values) for name, values in hardware.items()}
-            if not unknown(snapshot["hardware"].get("runtime_threads")):
-                conditions["runtime_threads"] = hardware["runtime_threads"]
-        checks = {}
+    def _project_case_evidence(self, conditions, hardware, workload, case):
+        cpu, memory, gpu, scale = case
+        from acprof.results.layout import resource_case_id
+        case_id = resource_case_id(cpu, memory, gpu)
+        conditions["resources"] = {
+            **conditions["resources"], "cpus": str(cpu), "mems": str(memory), "gpus": gpu,
+        }
+        conditions["planned_inputs"] = self._planned_inputs(scale)
+        selected_case = canonical(list(case))
+        projected_workload = (
+            {selected_case: workload[selected_case]}
+            if workload and selected_case in workload else None
+        )
+        projected_hardware = {
+            name: {case_id: values.get(case_id)} if isinstance(values, dict) else None
+            for name, values in hardware.items()
+        }
+        return projected_workload, projected_hardware
 
+    def _build_workload_profiles(self, workload, purpose):
+        if workload is None:
+            return None
+        workload_profiles: dict[str, dict[str, object]] = {}
+        for key, item in workload.items():
+            normalized_key = canonical(json.loads(key)[2:]) if purpose == "resource-scaling" else key
+            profile = self._workload_profile(key, item)
+            previous = workload_profiles.get(normalized_key)
+            if previous and previous != profile:
+                profile = {"ambiguous": True}
+            workload_profiles[normalized_key] = profile
+        return workload_profiles
+
+    def _populate_condition_checks(self, checks, conditions, hardware, purpose):
         def add(name, value, difference="incompatible"):
             for key, token in _check_tokens(name, value):
                 checks[key] = {"value": token, "difference": difference}
@@ -198,7 +186,11 @@ class PreparedComparison:
         for name, value in conditions.items():
             if name == "resources" and purpose == "resource-scaling":
                 for key, item in value.items():
-                    add(f"resources.{key}", item, "expected_difference" if key in {"cpus", "mems"} else "incompatible")
+                    add(
+                        f"resources.{key}",
+                        item,
+                        "expected_difference" if key in {"cpus", "mems"} else "incompatible",
+                    )
             elif name in {"resources", "planned_inputs", "runtime_threads"}:
                 add(name, value)
             else:
@@ -211,10 +203,34 @@ class PreparedComparison:
         for name, value in hardware.items():
             if purpose == "cross-hardware" and name != "runtime_threads":
                 # Whole maps are allowed to differ, but every recorded leaf must exist.
-                checks[f"hardware_{name}"] = {"value": None if unknown(value) else digest(value),
-                                             "difference": "expected_difference"}
+                checks[f"hardware_{name}"] = {
+                    "value": None if unknown(value) else digest(value),
+                    "difference": "expected_difference",
+                }
             else:
                 add(f"hardware_{name}", value)
+
+    def profile(self, *, purpose="same-hardware", case=None):
+        """Project recorded evidence to a selected CSV case, without rereading files."""
+        if purpose not in PURPOSES:
+            raise ValueError(f"comparison purpose must be one of {PURPOSES}")
+        snapshot = self._snapshot
+        conditions = dict(snapshot["conditions"])
+        hardware = dict(snapshot["hardware"])
+        workload = conditions.pop("actual_workload")
+        if case is not None:
+            workload, hardware = self._project_case_evidence(conditions, hardware, workload, case)
+        if not unknown(hardware.get("runtime_threads")):
+            conditions["runtime_threads"] = hardware["runtime_threads"]
+        workload_profiles = self._build_workload_profiles(workload, purpose)
+        if purpose == "resource-scaling":
+            # Resource labels in case maps are coordinates, not hardware facts.
+            # Different measured policies/threads across resource cases stay visible.
+            hardware = {name: _remove_resource_keys(values) for name, values in hardware.items()}
+            if not unknown(snapshot["hardware"].get("runtime_threads")):
+                conditions["runtime_threads"] = hardware["runtime_threads"]
+        checks: dict[str, dict[str, object]] = {}
+        self._populate_condition_checks(checks, conditions, hardware, purpose)
         profile = {"purpose": purpose, "valid": snapshot["valid"], "checks": checks, "workload": workload_profiles}
         verdict = compare_profiles(profile, profile)
         profile["status"] = verdict["status"]
@@ -224,6 +240,15 @@ class PreparedComparison:
         profile["cohort"] = digest({"checks": {key: item["value"] if item["difference"] != "expected_difference" else True
                                                 for key, item in checks.items()}, "workload": workload_profiles})
         return profile
+
+
+def _remove_resource_keys(values):
+    if not isinstance(values, dict):
+        return values
+    by_device: dict[str, dict[str, object]] = {}
+    for key, value in values.items():
+        by_device.setdefault(key.rsplit("_", 1)[-1], {})[canonical(value)] = value
+    return {device: [items[key] for key in sorted(items)] for device, items in by_device.items()}
 
 
 def compare_profiles(left, right):

@@ -30,10 +30,7 @@ def validate_window_options(metrics, *, confidence=0.95, resamples=5000, block_s
     return precision_target
 
 
-def summarize_windows(rows, metrics, *, confidence=0.95, resamples=5000, seed=0, block_size=1,
-                      include_intervals=True, cancelled=lambda: False, precision_target=None):
-    precision_target = validate_window_options(metrics, confidence=confidence, resamples=resamples,
-                                              block_size=block_size, precision_target=precision_target)
+def _collect_window_cases(rows, *, cancelled, precision_target):
     cases, keys = defaultdict(list), set()
     excluded: defaultdict[tuple[str, ...], int] = defaultdict(int)
     for row in rows:
@@ -41,7 +38,11 @@ def summarize_windows(rows, metrics, *, confidence=0.95, resamples=5000, seed=0,
             raise CancelledError()
         key = measurement_key(row)
         environment = row.get("environment_class", "unknown")
-        runtime = (row.get("runtime_kind", "docker"), row.get("runtime_id", ""), row.get("resource_scope", "container_cgroup"))
+        runtime = (
+            row.get("runtime_kind", "docker"),
+            row.get("runtime_id", ""),
+            row.get("resource_scope", "container_cgroup"),
+        )
         if (environment, runtime, key) in keys:
             raise ValueError(f"duplicate measurement: {key}")
         keys.add((environment, runtime, key))
@@ -51,6 +52,116 @@ def summarize_windows(rows, metrics, *, confidence=0.95, resamples=5000, seed=0,
                 cases[case].append(row)
             elif precision_target is not None:
                 excluded[case] += 1
+    return cases, excluded
+
+
+def _finite_metric_values(ordered, name: str) -> list[float]:
+    values = []
+    for row in ordered:
+        try:
+            value = float(row.get(name, "nan"))
+        except (ValueError, TypeError):
+            value = float("nan")
+        if math.isfinite(value):
+            values.append(value)
+    return values
+
+
+def _precision_unavailable_reason(
+    result: dict,
+    values: list[float],
+    *,
+    excluded_count: int,
+    gaps: bool,
+    resamples: int,
+) -> str:
+    if result["reason"]:
+        return result["reason"]
+    if result["missing_windows"]:
+        return "missing_windows"
+    if excluded_count:
+        return "excluded_windows"
+    if gaps:
+        return "nonconsecutive_windows"
+    if any(value < 0 for value in values):
+        return "negative_values"
+    if resamples < 2:
+        return "insufficient_resamples"
+    if (
+        result["ci_low"] is not None
+        and result["ci_low"] == result["ci_high"]
+        and any(value != values[0] for value in values)
+    ):
+        return "degenerate_interval"
+    return ""
+
+
+def _summarize_case_metric(
+    case: tuple[str, ...],
+    ordered: list[dict],
+    name: str,
+    *,
+    gaps: bool,
+    excluded_count: int,
+    confidence: float,
+    resamples: int,
+    seed: int,
+    block_size: int,
+    include_intervals: bool,
+    precision_target: float | None,
+) -> dict:
+    values = _finite_metric_values(ordered, name)
+    count = len(values)
+    mean_val: float | None = statistics.fmean(values) if values else None
+    ci_low: float | None = None
+    ci_high: float | None = None
+    result: dict[str, object] = {
+        "cpu_cores": None if case[0] == "inherited" else float(case[0]),
+        "mem_cap_gb": None if case[1] == "inherited" else float(case[1]),
+        "gpu_mode": case[2],
+        "environment_class": case[4],
+        "runtime_kind": case[5],
+        "runtime_id": case[6],
+        "resource_scope": case[7],
+        "input_scale": float(case[3]),
+        "metric": name,
+        "unit": METRICS[name].unit,
+        "n_windows": count,
+        "missing_windows": len(ordered) - count,
+        "mean": mean_val,
+        "std": statistics.stdev(values) if count > 1 else None,
+        "ci_low": ci_low,
+        "ci_high": ci_high,
+        "reason": "",
+    }
+    if count < max(3, 3 * block_size):
+        result["reason"] = "insufficient_windows"
+    elif block_size > 1 and count != len(ordered):
+        result["reason"] = "missing_windows_break_blocks"
+    elif block_size > 1 and gaps:
+        result["reason"] = "nonconsecutive_windows"
+    elif include_intervals:
+        ci_low, ci_high = bootstrap_mean_interval(
+            values, confidence=confidence, resamples=resamples, seed=seed, block_size=block_size
+        )
+        result["ci_low"], result["ci_high"] = ci_low, ci_high
+    if precision_target is not None:
+        reason = _precision_unavailable_reason(
+            result, values, excluded_count=excluded_count, gaps=gaps, resamples=resamples
+        )
+        result.update(assess_mean_precision(
+            mean_val, ci_low, ci_high,
+            target=precision_target, unavailable_reason=reason,
+        ))
+        result["precision_excluded_windows"] = excluded_count
+    return result
+
+
+def summarize_windows(rows, metrics, *, confidence=0.95, resamples=5000, seed=0, block_size=1,
+                      include_intervals=True, cancelled=lambda: False, precision_target=None):
+    precision_target = validate_window_options(metrics, confidence=confidence, resamples=resamples,
+                                              block_size=block_size, precision_target=precision_target)
+    cases, excluded = _collect_window_cases(rows, cancelled=cancelled, precision_target=precision_target)
     groups = []
     for case in sorted(cases):
         ordered = sorted(cases[case], key=lambda row: float(row["repeat_idx"]))
@@ -60,52 +171,13 @@ def summarize_windows(rows, metrics, *, confidence=0.95, resamples=5000, seed=0,
         for name in metrics:
             if cancelled():
                 raise CancelledError()
-            values = []
-            for row in ordered:
-                try:
-                    value = float(row.get(name, "nan"))
-                except (ValueError, TypeError):
-                    value = float("nan")
-                if math.isfinite(value):
-                    values.append(value)
-            count = len(values)
-            result = {"cpu_cores": None if case[0] == "inherited" else float(case[0]), "mem_cap_gb": None if case[1] == "inherited" else float(case[1]), "gpu_mode": case[2],
-                      "environment_class": case[4], "runtime_kind": case[5], "runtime_id": case[6], "resource_scope": case[7],
-                      "input_scale": float(case[3]), "metric": name, "unit": METRICS[name].unit,
-                      "n_windows": count, "missing_windows": len(ordered) - count,
-                      "mean": statistics.fmean(values) if values else None,
-                      "std": statistics.stdev(values) if count > 1 else None,
-                      "ci_low": None, "ci_high": None, "reason": ""}
-            if count < max(3, 3 * block_size):
-                result["reason"] = "insufficient_windows"
-            elif block_size > 1 and count != len(ordered):
-                result["reason"] = "missing_windows_break_blocks"
-            elif block_size > 1 and gaps:
-                result["reason"] = "nonconsecutive_windows"
-            elif include_intervals:
-                result["ci_low"], result["ci_high"] = bootstrap_mean_interval(
-                    values, confidence=confidence, resamples=resamples, seed=seed, block_size=block_size)
-            if precision_target is not None:
-                reason = result["reason"]
-                if not reason:
-                    if result["missing_windows"]:
-                        reason = "missing_windows"
-                    elif excluded[case]:
-                        reason = "excluded_windows"
-                    elif gaps:
-                        reason = "nonconsecutive_windows"
-                    elif any(value < 0 for value in values):
-                        reason = "negative_values"
-                    elif resamples < 2:
-                        reason = "insufficient_resamples"
-                    elif (result["ci_low"] is not None and result["ci_low"] == result["ci_high"]
-                          and any(value != values[0] for value in values)):
-                        reason = "degenerate_interval"
-                result.update(assess_mean_precision(
-                    result["mean"], result["ci_low"], result["ci_high"],
-                    target=precision_target, unavailable_reason=reason))
-                result["precision_excluded_windows"] = excluded[case]
-            groups.append(result)
+            groups.append(_summarize_case_metric(
+                case, ordered, name,
+                gaps=gaps, excluded_count=excluded[case],
+                confidence=confidence, resamples=resamples, seed=seed,
+                block_size=block_size, include_intervals=include_intervals,
+                precision_target=precision_target,
+            ))
     report = {"schema_version": 1, "confidence": confidence, "resamples": resamples, "seed": seed,
               "block_size": block_size, "method": "circular_block_percentile_bootstrap",
               "resampling_unit": "csv_request_window", "filter": "status=ok and warmup=0",

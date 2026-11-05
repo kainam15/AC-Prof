@@ -175,11 +175,10 @@ def _model_features(
     raise ValueError(f"unknown latency hardware model: {hardware_model}")
 
 
-def _fit_rank_revealing_linear_model(
+def _validate_linear_model_inputs(
     feature_matrix: np.ndarray,
     target: np.ndarray,
-) -> dict:
-    """Solve a standardized linear model after removing dependent columns."""
+) -> None:
     if feature_matrix.ndim != 2 or target.ndim != 1:
         raise ValueError("model matrix and target have invalid dimensions")
     if feature_matrix.shape[0] != target.shape[0]:
@@ -189,6 +188,10 @@ def _fit_rank_revealing_linear_model(
     if not np.isfinite(feature_matrix).all() or not np.isfinite(target).all():
         raise ValueError("model inputs contain non-finite values")
 
+
+def _standardize_predictors(
+    feature_matrix: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     means = np.zeros(feature_matrix.shape[1], dtype=float)
     scales = np.ones(feature_matrix.shape[1], dtype=float)
     standardized = np.zeros_like(feature_matrix)
@@ -201,6 +204,16 @@ def _fit_rank_revealing_linear_model(
             standardized[:, feature_idx] = (
                 column - means[feature_idx]
             ) / scales[feature_idx]
+    return standardized, means, scales
+
+
+def _fit_rank_revealing_linear_model(
+    feature_matrix: np.ndarray,
+    target: np.ndarray,
+) -> dict:
+    """Solve a standardized linear model after removing dependent columns."""
+    _validate_linear_model_inputs(feature_matrix, target)
+    standardized, means, scales = _standardize_predictors(feature_matrix)
 
     selected_indices: list[int] = []
     for feature_idx in range(standardized.shape[1]):

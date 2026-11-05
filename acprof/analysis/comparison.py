@@ -171,6 +171,109 @@ def _metric_availability(rows: list[dict[str, str]]) -> dict[str, bool]:
             for name, metric in METRICS.items() if metric.kind == "number"}
 
 
+def _read_snapshot_json(metadata_snapshot: ResultMetadataSnapshot, name: str, issues: list[str]) -> dict:
+    try:
+        if not metadata_snapshot.exists(name):
+            return {}
+        return metadata_snapshot.read(name).payload
+    except (OSError, ValueError) as error:
+        issues.append(f"{name}: {error}")
+        return {}
+
+
+def _object_field(parent: dict, name: str, issues: list[str]) -> dict:
+    value = parent.get(name, {})
+    if not isinstance(value, dict):
+        issues.append(f"{name}: 应为 JSON 对象")
+        return {}
+    return value
+
+
+def _normalize_hardware_cases(hardware_payload: dict, issues: list[str]) -> dict[str, dict]:
+    hardware_cases = hardware_payload.get("cases", {})
+    if hardware_payload and (hardware_payload.get("schema_version") != 1 or not isinstance(hardware_cases, dict)):
+        issues.append("hardware_conditions.json: unsupported schema")
+        hardware_cases = {}
+    hardware_cases = dict(hardware_cases)
+    for case_id, record in list(hardware_cases.items()):
+        if not isinstance(record, dict):
+            issues.append(f"hardware_conditions.json: invalid case {case_id}")
+            hardware_cases[case_id] = {}
+    return hardware_cases
+
+
+def _planned_inputs_from_plan(plan: dict, issues: list[str]) -> tuple[str | None, list[dict] | None]:
+    entries = plan.get("entries")
+    if not (plan.get("schema_version") == 2 and isinstance(entries, list) and entries):
+        return None, None
+    if not all(isinstance(entry, dict) and isinstance(entry.get("payload"), dict)
+               and entry.get("input_scale") is not None for entry in entries):
+        return None, None
+    projected = [{key: entry[key] for key in ("input_scale", "payload")} for entry in entries]
+    try:
+        return _digest(projected), projected
+    except (ValueError, TypeError) as error:
+        issues.append(f"input_scale_plan.json: {error}")
+        return None, None
+
+
+def _observed_runtime_threads(
+    metadata: dict,
+    environment: dict | None,
+    issues: list[str],
+) -> dict[str, int | None]:
+    threads: dict[str, int | None] = {}
+    validation = _object_field(metadata, "runtime_validation", issues)
+    devices = _object_field(validation, "devices", issues)
+    # The independent probe injects quota-derived TORCH_NUM_THREADS, while the
+    # ordinary server preserves runtime defaults. Its effective count only
+    # establishes a shared setting when this run explicitly requested threads.
+    thread_names: tuple[str, ...] = (
+        ("ACPROF_ONNX_INTRA_OP_THREADS",) if metadata.get("runtime_backend") == "onnxruntime" else ()
+    )
+    thread_names += ("ACPROF_RUNTIME_THREADS", "TORCH_NUM_THREADS")
+    env_map = environment or {}
+    thread_request = next((env_map[name] for name in thread_names if name in env_map), None)
+    try:
+        explicit_threads = (
+            thread_request is not None and not isinstance(thread_request, bool) and int(thread_request) > 0
+        )
+    except (TypeError, ValueError):
+        explicit_threads = False
+    for device in devices:
+        result = _object_field(devices, device, issues)
+        parameters = _object_field(result, "runtime_parameters", issues)
+        effective = _object_field(parameters, "effective", issues)
+        observed = effective.get("threads")
+        threads[device] = (
+            observed if explicit_threads and result.get("status") == "ok"
+            and type(observed) is int and observed > 0 else None
+        )
+    return threads
+
+
+def _resolve_actual_workload_and_cases(
+    result_snapshot: ResultCsvSnapshot | None,
+    read_error: Exception | None,
+    issues: list[str],
+) -> tuple[list[dict[str, str]], dict | None, set[str]]:
+    try:
+        if read_error is not None:
+            raise read_error
+        assert result_snapshot is not None
+        rows = result_snapshot.rows
+        actual = _actual_workload(rows)
+        from acprof.results.layout import resource_case_id
+        case_ids = {
+            resource_case_id(row["cpu_cores"], row["mem_cap_gb"], row["gpu_mode"])
+            for row in rows if row.get("status") in {"ok", "warn"}
+        }
+        return rows, actual, case_ids
+    except (OSError, ValueError, TypeError, AttributeError) as error:
+        issues.append(f"actual workload: {error}")
+        return [], None, set()
+
+
 def load_comparison_snapshot(source: str | Path, *, result_snapshot: ResultCsvSnapshot | None = None,
                              metadata_snapshot: ResultMetadataSnapshot | None = None,
                              verify_result_snapshot: bool = True) -> dict:
@@ -194,91 +297,31 @@ def load_comparison_snapshot(source: str | Path, *, result_snapshot: ResultCsvSn
         invalid_csv = next((issue for issue in audit["issues"] if issue["code"] == "invalid_csv"), None)
         if invalid_csv is not None:
             read_error = ValueError(invalid_csv["message"])
-    issues = []
+    issues: list[str] = []
 
-    def read_json(name):
-        try:
-            if not metadata_snapshot.exists(name):
-                return {}
-            return metadata_snapshot.read(name).payload
-        except (OSError, ValueError) as error:
-            issues.append(f"{name}: {error}")
-            return {}
+    state = _read_snapshot_json(metadata_snapshot, "run_state.json", issues)
+    metadata = _read_snapshot_json(metadata_snapshot, "static_meta.json", issues)
+    plan = _read_snapshot_json(metadata_snapshot, "input_scale_plan.json", issues)
+    hardware_payload = _read_snapshot_json(
+        metadata_snapshot, str(conditions_path(layout).relative_to(layout.root)), issues,
+    )
+    hardware_cases = _normalize_hardware_cases(hardware_payload, issues)
 
-    state = read_json("run_state.json")
-    metadata = read_json("static_meta.json")
-    plan = read_json("input_scale_plan.json")
-    hardware_payload = read_json(str(conditions_path(layout).relative_to(layout.root)))
-    hardware_cases = hardware_payload.get("cases", {})
-    if hardware_payload and (hardware_payload.get("schema_version") != 1 or not isinstance(hardware_cases, dict)):
-        issues.append("hardware_conditions.json: unsupported schema")
-        hardware_cases = {}
-    hardware_cases = dict(hardware_cases)
-    for case_id, record in list(hardware_cases.items()):
-        if not isinstance(record, dict):
-            issues.append(f"hardware_conditions.json: invalid case {case_id}")
-            hardware_cases[case_id] = {}
-
-    def object_field(parent, name):
-        value = parent.get(name, {})
-        if not isinstance(value, dict):
-            issues.append(f"{name}: 应为 JSON 对象")
-            return {}
-        return value
-
-    options = object_field(state, "options")
-    environment = object_field(options, "measurement_environment") if "measurement_environment" in options else None
+    options = _object_field(state, "options", issues)
+    environment = (
+        _object_field(options, "measurement_environment", issues)
+        if "measurement_environment" in options else None
+    )
     runtime_environment = {key: value for key, value in (environment or {}).items() if key in RUNTIME_ENVIRONMENT}
     measurement_environment = (_digest({key: value for key, value in environment.items()
                                        if key not in RUNTIME_ENVIRONMENT})
                                if isinstance(environment, dict) else None)
-    entries = plan.get("entries")
-    inputs = None
-    if plan.get("schema_version") == 2 and isinstance(entries, list) and entries:
-        if all(isinstance(entry, dict) and isinstance(entry.get("payload"), dict)
-               and entry.get("input_scale") is not None for entry in entries):
-            try:
-                inputs = _digest([{key: entry[key] for key in ("input_scale", "payload")} for entry in entries])
-            except (ValueError, TypeError) as error:
-                issues.append(f"input_scale_plan.json: {error}")
-    threads = {}
-    validation = object_field(metadata, "runtime_validation")
-    devices = object_field(validation, "devices")
-    # The independent probe injects quota-derived TORCH_NUM_THREADS, while the
-    # ordinary server preserves runtime defaults. Its effective count only
-    # establishes a shared setting when this run explicitly requested threads.
-    thread_names: tuple[str, ...] = (("ACPROF_ONNX_INTRA_OP_THREADS",) if metadata.get("runtime_backend") == "onnxruntime" else ())
-    thread_names += ("ACPROF_RUNTIME_THREADS", "TORCH_NUM_THREADS")
-    thread_request = next(((environment or {})[name] for name in thread_names if name in (environment or {})), None)
-    try:
-        explicit_threads = thread_request is not None and not isinstance(thread_request, bool) and int(thread_request) > 0
-    except (TypeError, ValueError):
-        explicit_threads = False
-    for device in devices:
-        result = object_field(devices, device)
-        parameters = object_field(result, "runtime_parameters")
-        effective = object_field(parameters, "effective")
-        observed = effective.get("threads")
-        threads[device] = (observed if explicit_threads and result.get("status") == "ok"
-                           and type(observed) is int and observed > 0 else None)
-    case_ids = set()
-    rows: list[dict[str, str]] = []
-    try:
-        if read_error is not None:
-            raise read_error
-        assert result_snapshot is not None
-        rows = result_snapshot.rows
-        actual = _actual_workload(rows)
-        from acprof.results.layout import resource_case_id
-        case_ids = {resource_case_id(row["cpu_cores"], row["mem_cap_gb"], row["gpu_mode"])
-                    for row in rows if row.get("status") in {"ok", "warn"}}
-
-    except (OSError, ValueError, TypeError, AttributeError) as error:
-        actual = None
-        issues.append(f"actual workload: {error}")
+    inputs, planned_entries = _planned_inputs_from_plan(plan, issues)
+    threads = _observed_runtime_threads(metadata, environment, issues)
+    rows, actual, case_ids = _resolve_actual_workload_and_cases(result_snapshot, read_error, issues)
     # Only the input payload and semantic conditions are compared. Model/export,
     # packages and backend hashes continue to belong to the existing run identity.
-    host = object_field(state, "host")
+    host = _object_field(state, "host", issues)
     measured_rows = [row for row in rows if row.get("status") == "ok" and measurement_key(row)[4] == "0"]
     return {
         **recorded_identity(metadata),
@@ -288,8 +331,7 @@ def load_comparison_snapshot(source: str | Path, *, result_snapshot: ResultCsvSn
         "missing_metrics": audit["missing_metrics"],
         **{key: audit[key] for key in QUALITY_FIELDS},
         "valid": audit["valid"] and not issues, "issues": issues,
-        "planned_input_entries": ([{key: entry[key] for key in ("input_scale", "payload")} for entry in entries]
-                                  if inputs is not None else None),
+        "planned_input_entries": planned_entries,
         "conditions": {
             "execution_runtime": {"kind": metadata.get("runtime_kind", "docker"),
                                   "resource_scope": "observed_process_tree" if metadata.get("runtime_kind") == "process" else "container_cgroup",
@@ -334,6 +376,37 @@ def compare_results(left: str | Path, right: str | Path, *, purpose: str = "same
     return compare_snapshots(load_comparison_snapshot(left), load_comparison_snapshot(right), purpose=purpose)
 
 
+def _resource_scaling_workload(cases: dict | None) -> dict[str, dict] | None:
+    if cases is None:
+        return None
+    normalized: dict[str, dict] = {}
+    for key, value in cases.items():
+        projected = _canonical(json.loads(key)[2:])
+        if projected in normalized and workload_case_profile(normalized[projected]) != workload_case_profile(value):
+            return None
+        normalized[projected] = value
+    return normalized
+
+
+def _metric_comparability_map(
+    lhs: dict,
+    rhs: dict,
+    status: str,
+    environment_status: str,
+) -> dict[str, dict[str, str]]:
+    metric_comparability = {}
+    for name in lhs["metric_availability"]:
+        available = lhs["metric_availability"][name] and rhs["metric_availability"][name]
+        metric_comparability[name] = {
+            "status": "comparable" if status == "compatible" and available else "not comparable",
+            "reason": ("missing_measurement" if not available else
+                       "environment_" + environment_status
+                       if environment_status != "compatible" else
+                       "conditions_" + status if status != "compatible" else ""),
+        }
+    return metric_comparability
+
+
 def compare_snapshots(left: dict, right: dict, *, purpose: str = "same-hardware") -> dict:
     """Compare loaded evidence without reading files or mutating the snapshots."""
     if purpose not in PURPOSES:
@@ -345,18 +418,10 @@ def compare_snapshots(left: dict, right: dict, *, purpose: str = "same-hardware"
     conditions["actual_workload"] = _workload_condition(lhs["conditions"]["actual_workload"],
                                                         rhs["conditions"]["actual_workload"])
     if purpose == "resource-scaling":
-        def resource_workload(cases):
-            if cases is None:
-                return None
-            normalized: dict[str, dict] = {}
-            for key, value in cases.items():
-                projected = _canonical(json.loads(key)[2:])
-                if projected in normalized and workload_case_profile(normalized[projected]) != workload_case_profile(value):
-                    return None
-                normalized[projected] = value
-            return normalized
-        conditions["actual_workload"] = _workload_condition(resource_workload(lhs["conditions"]["actual_workload"]),
-                                                            resource_workload(rhs["conditions"]["actual_workload"]))
+        conditions["actual_workload"] = _workload_condition(
+            _resource_scaling_workload(lhs["conditions"]["actual_workload"]),
+            _resource_scaling_workload(rhs["conditions"]["actual_workload"]),
+        )
     for name in HARDWARE_FIELDS:
         left_value, right_value = lhs["hardware"].get(name), rhs["hardware"].get(name)
         item = _condition(left_value, right_value)
@@ -385,16 +450,9 @@ def compare_snapshots(left: dict, right: dict, *, purpose: str = "same-hardware"
         warnings.append(f"Environment comparison blocked: {lhs['comparability_class']} vs "
                         f"{rhs['comparability_class']}. WSL measurements must not be treated as "
                         "native Linux measurements; unknown provenance cannot enter a Native baseline.")
-    metric_comparability = {}
-    for name in lhs["metric_availability"]:
-        available = lhs["metric_availability"][name] and rhs["metric_availability"][name]
-        metric_comparability[name] = {
-            "status": "comparable" if status == "compatible" and available else "not comparable",
-            "reason": ("missing_measurement" if not available else
-                       "environment_" + environment_condition["status"]
-                       if environment_condition["status"] != "compatible" else
-                       "conditions_" + status if status != "compatible" else ""),
-        }
+    metric_comparability = _metric_comparability_map(
+        lhs, rhs, status, environment_condition["status"],
+    )
     return {"schema_version": 2, "purpose": purpose, "status": status, "valid": valid,
             "allowed_resource_dimensions": ALLOWED_RESOURCE_DIMENSIONS if purpose == "resource-scaling" else [],
             "comparison_reasons": qualification["reasons"],

@@ -63,6 +63,140 @@ def _aggregate_evidence(records):
                                    "complete" if measurement == {"complete"} else "unknown")}
 
 
+_FINGERPRINTED_METADATA_FILES = (
+    "run_state.json",
+    "input_scale_plan.json",
+    "static_meta.json",
+    "hardware_conditions.json",
+    "quality_checks.json",
+    "runtime_validation.json",
+    "model_resolution.json",
+    "runtime_failures.json",
+)
+
+
+def _record_experiment_fingerprints(
+    metadata_snapshot: ResultMetadataSnapshot,
+    result_path: Path,
+    result_snapshot: Any,
+    fingerprints: dict[Path, str | None],
+) -> None:
+    layout = metadata_snapshot.layout
+    fingerprints[result_path] = result_snapshot.sha256
+    # Capture identity before reading any state used to select runs.
+    for name in _FINGERPRINTED_METADATA_FILES:
+        artifact = conditions_path(layout) if name == "hardware_conditions.json" else layout.path(name)
+        logical_name = str(artifact.relative_to(layout.root)) if name == "hardware_conditions.json" else name
+        fingerprints[artifact] = file_sha256(artifact) if metadata_snapshot.exists(logical_name) else None
+
+
+def _collect_run_case_groups(
+    rows: list[dict[str, str]],
+    *,
+    run_id: str,
+    complete: bool,
+    purpose: str,
+    metrics: list[str],
+    evidence: dict[str, Any],
+    side: str,
+    groups: defaultdict[tuple[str, ...], dict[str, list[dict[str, Any]]]],
+) -> None:
+    by_case = defaultdict(list)
+    for row in rows:
+        key = measurement_key(row)
+        if key[4] == "0":
+            by_case[key[:4]].append(row)
+    scaling_cases = set()
+    for case, windows in by_case.items():
+        comparison_case = case
+        if purpose == "resource-scaling":
+            if case[2:] in scaling_cases:
+                raise ValueError("resource-scaling requires one resource configuration per device/input in each run")
+            scaling_cases.add(case[2:])
+            comparison_case = ("0", "0", *case[2:])
+        for metric in metrics:
+            window_values: list[float] = []
+            for row in windows:
+                value = number(row.get(metric))
+                if row.get("status") == "ok" and value is not None:
+                    window_values.append(value)
+            groups[(*comparison_case, metric)][side].append({
+                "run_id": run_id,
+                "mean": statistics.fmean(window_values) if window_values and complete else None,
+                "resource_coordinates": {"cpu_cores": number(case[0]), "mem_cap_gb": number(case[1])},
+                "valid_windows": len(window_values),
+                "failed_windows": sum(row.get("status") != "ok" for row in windows),
+                "missing_windows": sum(row.get("status") == "ok" and number(row.get(metric)) is None for row in windows),
+                "eligible": complete,
+                **evidence,
+            })
+
+
+def _summarize_group_metric(
+    case_metric: tuple[str, ...],
+    sides: dict[str, list[dict[str, Any]]],
+    *,
+    sources: dict[str, list],
+    checks: list[dict[str, Any]],
+    status: str,
+    purpose: str,
+    confidence: float,
+    resamples: int,
+    seed: int,
+) -> dict[str, Any]:
+    cpu, mem, gpu, scale, metric = case_metric
+    coordinates = {side: records[0]["resource_coordinates"] if records else None for side, records in sides.items()}
+    baseline_coordinates = coordinates["left"] or coordinates["right"]
+    if purpose == "resource-scaling":
+        if baseline_coordinates is None:
+            raise ValueError("resource-scaling case has no recorded resource coordinates")
+        cpu, mem = baseline_coordinates["cpu_cores"], baseline_coordinates["mem_cap_gb"]
+    result: dict[str, Any] = {
+        "cpu_cores": number(cpu), "mem_cap_gb": number(mem), "gpu_mode": gpu,
+        "resource_coordinates": coordinates,
+        "input_scale": float(scale), "metric": metric, "unit": METRICS[metric].unit,
+        "difference": None, "ratio": None, "difference_ci": None, "ratio_ci": None, "reason": "",
+    }
+    blocked = any(
+        check.get("metric_comparability", {}).get(metric, {}).get("status") == "not comparable"
+        for check in checks
+    )
+    result["comparability"] = "not comparable" if blocked or status != "compatible" else "comparable"
+    values: dict[str, list[float]] = {}
+    for side in ("left", "right"):
+        records = sides[side]
+        values[side] = [record["mean"] for record in records if record["mean"] is not None]
+        result[side] = {
+            **_aggregate_evidence(records),
+            "n_runs": len(values[side]),
+            "requested_runs": len(sources[side]),
+            "missing_runs": len(sources[side]) - len(values[side]),
+            "mean": statistics.fmean(values[side]) if values[side] else None,
+            "std": statistics.stdev(values[side]) if len(values[side]) > 1 else None,
+            "failed_windows": sum(record["failed_windows"] for record in records),
+            "missing_windows": sum(record["missing_windows"] for record in records),
+            "runs": records,
+        }
+    if blocked:
+        result["reason"] = "not comparable"
+    elif status != "compatible":
+        result["reason"] = "conditions_" + status
+    elif not values["left"] or not values["right"]:
+        result["reason"] = "missing_comparable_runs"
+    else:
+        a, b = result["left"]["mean"], result["right"]["mean"]
+        result.update(difference=b - a, ratio=b / a if a > 0 else None)
+        if min(len(values["left"]), len(values["right"])) < 3:
+            result["reason"] = "insufficient_independent_runs"
+        else:
+            result["difference_ci"], result["ratio_ci"] = _bootstrap(
+                values["left"], values["right"], confidence=confidence, resamples=resamples, seed=seed
+            )
+            if result["ratio_ci"] is None:
+                result["reason"] = "nonpositive_baseline_for_ratio"
+    return result
+
+
 def compare_experiments(left, right, *, metrics, purpose="same-hardware",
                         confidence=0.95, resamples=5000, seed=0):
     # Reuse the metric/window validation contract; no profiler or lifecycle reuse values.
@@ -76,7 +210,7 @@ def compare_experiments(left, right, *, metrics, purpose="same-hardware",
     groups: defaultdict[tuple[str, ...], dict[str, list[dict[str, Any]]]] = defaultdict(
         lambda: {"left": [], "right": []}
     )
-    checks = []
+    checks: list[dict[str, Any]] = []
     reference_snapshot = None
     for side, paths in sources.items():
         experiments[side] = []
@@ -87,14 +221,7 @@ def compare_experiments(left, right, *, metrics, purpose="same-hardware",
             layout = metadata_snapshot.layout
             result_path = layout.result_csv if source.is_dir() else source.absolute()
             result_snapshot = read_result_csv_snapshot(result_path)
-            fingerprints[result_path] = result_snapshot.sha256
-            # Capture identity before reading any state used to select runs.
-            for name in ("run_state.json", "input_scale_plan.json",
-                         "static_meta.json", "hardware_conditions.json", "quality_checks.json",
-                         "runtime_validation.json", "model_resolution.json", "runtime_failures.json"):
-                artifact = conditions_path(layout) if name == "hardware_conditions.json" else layout.path(name)
-                logical_name = str(artifact.relative_to(layout.root)) if name == "hardware_conditions.json" else name
-                fingerprints[artifact] = file_sha256(artifact) if metadata_snapshot.exists(logical_name) else None
+            _record_experiment_fingerprints(metadata_snapshot, result_path, result_snapshot, fingerprints)
             state = metadata_snapshot.read("run_state.json", label="run state").payload
             run_id = state.get("run_id")
             if not isinstance(run_id, str) or not run_id:
@@ -102,7 +229,6 @@ def compare_experiments(left, right, *, metrics, purpose="same-hardware",
             if run_id in run_ids:
                 raise ValueError(f"duplicate independent run: {run_id}")
             run_ids.add(run_id)
-            rows = result_snapshot.rows
             complete = state.get("status") == "complete"
             current_snapshot = load_comparison_snapshot(path, result_snapshot=result_snapshot,
                                                         metadata_snapshot=metadata_snapshot,
@@ -128,76 +254,21 @@ def compare_experiments(left, right, *, metrics, purpose="same-hardware",
                 checks.append({"status": "incompatible", "run_id": run_id,
                                "reason": "replicates_change_experiment_identity",
                                "differences": within["expected_differences"]})
-            by_case = defaultdict(list)
-            for row in rows:
-                key = measurement_key(row)
-                if key[4] == "0":
-                    by_case[key[:4]].append(row)
-            scaling_cases = set()
-            for case, windows in by_case.items():
-                comparison_case = case
-                if purpose == "resource-scaling":
-                    if case[2:] in scaling_cases:
-                        raise ValueError("resource-scaling requires one resource configuration per device/input in each run")
-                    scaling_cases.add(case[2:])
-                    comparison_case = ("0", "0", *case[2:])
-                for metric in metrics:
-                    window_values: list[float] = []
-                    for row in windows:
-                        value = number(row.get(metric))
-                        if row.get("status") == "ok" and value is not None:
-                            window_values.append(value)
-                    groups[(*comparison_case, metric)][side].append({
-                        "run_id": run_id, "mean": statistics.fmean(window_values) if window_values and complete else None,
-                        "resource_coordinates": {"cpu_cores": number(case[0]), "mem_cap_gb": number(case[1])},
-                        "valid_windows": len(window_values), "failed_windows": sum(row.get("status") != "ok" for row in windows),
-                        "missing_windows": sum(row.get("status") == "ok" and number(row.get(metric)) is None for row in windows),
-                        "eligible": complete, **evidence,
-                    })
+            _collect_run_case_groups(
+                result_snapshot.rows, run_id=run_id, complete=complete,
+                purpose=purpose, metrics=metrics, evidence=evidence,
+                side=side, groups=groups,
+            )
     statuses = {check["status"] for check in checks}
     status = "incompatible" if "incompatible" in statuses else "unknown" if "unknown" in statuses else "compatible"
-    output = []
-    for (cpu, mem, gpu, scale, metric), sides in sorted(groups.items()):
-        coordinates = {side: records[0]["resource_coordinates"] if records else None for side, records in sides.items()}
-        baseline_coordinates = coordinates["left"] or coordinates["right"]
-        if purpose == "resource-scaling":
-            if baseline_coordinates is None:
-                raise ValueError("resource-scaling case has no recorded resource coordinates")
-            cpu, mem = baseline_coordinates["cpu_cores"], baseline_coordinates["mem_cap_gb"]
-        result: dict[str, Any] = {"cpu_cores": number(cpu), "mem_cap_gb": number(mem), "gpu_mode": gpu,
-                  "resource_coordinates": coordinates,
-                  "input_scale": float(scale), "metric": metric, "unit": METRICS[metric].unit,
-                  "difference": None, "ratio": None, "difference_ci": None, "ratio_ci": None, "reason": ""}
-        blocked = any(check.get("metric_comparability", {}).get(metric, {}).get("status") == "not comparable"
-                      for check in checks)
-        result["comparability"] = "not comparable" if blocked or status != "compatible" else "comparable"
-        values = {}
-        for side in ("left", "right"):
-            records = sides[side]
-            values[side] = [record["mean"] for record in records if record["mean"] is not None]
-            result[side] = {**_aggregate_evidence(records), "n_runs": len(values[side]), "requested_runs": len(sources[side]),
-                            "missing_runs": len(sources[side]) - len(values[side]),
-                            "mean": statistics.fmean(values[side]) if values[side] else None,
-                            "std": statistics.stdev(values[side]) if len(values[side]) > 1 else None,
-                            "failed_windows": sum(record["failed_windows"] for record in records),
-                            "missing_windows": sum(record["missing_windows"] for record in records), "runs": records}
-        if blocked:
-            result["reason"] = "not comparable"
-        elif status != "compatible":
-            result["reason"] = "conditions_" + status
-        elif not values["left"] or not values["right"]:
-            result["reason"] = "missing_comparable_runs"
-        else:
-            a, b = result["left"]["mean"], result["right"]["mean"]
-            result.update(difference=b - a, ratio=b / a if a > 0 else None)
-            if min(len(values["left"]), len(values["right"])) < 3:
-                result["reason"] = "insufficient_independent_runs"
-            else:
-                result["difference_ci"], result["ratio_ci"] = _bootstrap(
-                    values["left"], values["right"], confidence=confidence, resamples=resamples, seed=seed)
-                if result["ratio_ci"] is None:
-                    result["reason"] = "nonpositive_baseline_for_ratio"
-        output.append(result)
+    output = [
+        _summarize_group_metric(
+            case_metric, sides, sources=sources, checks=checks,
+            status=status, purpose=purpose, confidence=confidence,
+            resamples=resamples, seed=seed,
+        )
+        for case_metric, sides in sorted(groups.items())
+    ]
     for artifact, digest in fingerprints.items():
         _verify_source(artifact, digest)
     return {"schema_version": 1, "kind": "independent_experiment_comparison", "status": status,

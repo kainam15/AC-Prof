@@ -262,6 +262,77 @@ def input_scale_validation(
     }, predictions
 
 
+def _exceeds_upper_threshold(value: Any, threshold: float) -> bool:
+    return value is None or not math.isfinite(float(value)) or float(value) > threshold
+
+
+def _fold_exceeds_quality_thresholds(fold_detail: dict[str, Any]) -> bool:
+    if fold_detail.get("status") != "ok":
+        return False
+    fold_metrics = fold_detail["metrics"]
+    return (
+        _exceeds_upper_threshold(
+            fold_metrics.get("relative_mae"),
+            LATENCY_MODEL_MAX_CONFIGURATION_FOLD_RELATIVE_MAE,
+        )
+        or _exceeds_upper_threshold(
+            fold_metrics.get("mean_absolute_percentage_error"),
+            LATENCY_MODEL_MAX_CONFIGURATION_FOLD_MAPE,
+        )
+        or int(fold_metrics.get("nonfinite_prediction_count") or 0) > 0
+        or int(fold_metrics.get("nonpositive_prediction_count") or 0) > 0
+    )
+
+
+def _fold_severity_ratio(value: Any, threshold: float) -> float:
+    if value is None or not math.isfinite(float(value)):
+        return math.inf
+    return float(value) / threshold
+
+
+def _fold_severity_key(fold_detail: dict[str, Any]) -> float:
+    fold_metrics = fold_detail["metrics"]
+    return max(
+        _fold_severity_ratio(
+            fold_metrics.get("relative_mae"),
+            LATENCY_MODEL_MAX_CONFIGURATION_FOLD_RELATIVE_MAE,
+        ),
+        _fold_severity_ratio(
+            fold_metrics.get("mean_absolute_percentage_error"),
+            LATENCY_MODEL_MAX_CONFIGURATION_FOLD_MAPE,
+        ),
+    )
+
+
+def _overall_metric_quality_failures(
+    validation_name: str,
+    validation: dict[str, Any],
+    metrics: dict[str, Any],
+) -> list[str]:
+    failures: list[str] = []
+    if validation.get("r2_quality_gate_applicable", True):
+        r2 = metrics.get("r2")
+        if r2 is None or not math.isfinite(float(r2)) or float(r2) < LATENCY_MODEL_MIN_VALIDATION_R2:
+            failures.append(f"{validation_name} r2={r2!r} is below {LATENCY_MODEL_MIN_VALIDATION_R2}")
+    relative_mae = metrics.get("relative_mae")
+    if _exceeds_upper_threshold(relative_mae, LATENCY_MODEL_MAX_VALIDATION_RELATIVE_MAE):
+        failures.append(
+            f"{validation_name} relative_mae={relative_mae!r} exceeds "
+            f"{LATENCY_MODEL_MAX_VALIDATION_RELATIVE_MAE}"
+        )
+    mean_absolute_percentage_error = metrics.get("mean_absolute_percentage_error")
+    if _exceeds_upper_threshold(mean_absolute_percentage_error, LATENCY_MODEL_MAX_VALIDATION_MAPE):
+        failures.append(
+            f"{validation_name} mean_absolute_percentage_error="
+            f"{mean_absolute_percentage_error!r} exceeds {LATENCY_MODEL_MAX_VALIDATION_MAPE}"
+        )
+    if int(metrics.get("nonfinite_prediction_count") or 0) > 0:
+        failures.append(f"{validation_name} contains non-finite predictions")
+    if int(metrics.get("nonpositive_prediction_count") or 0) > 0:
+        failures.append(f"{validation_name} contains non-positive predictions")
+    return failures
+
+
 def validation_quality_failures(validation_name: str, validation: dict[str, Any]) -> list[str]:
     if not validation.get("available"):
         return [
@@ -277,46 +348,13 @@ def validation_quality_failures(validation_name: str, validation: dict[str, Any]
         )
     if int(validation.get("train_test_group_overlap_count") or 0) > 0:
         failures.append(f"{validation_name} has train/test group leakage")
-    failed_quality_folds = []
-    for fold_detail in validation.get("fold_details", []):
-        if fold_detail.get("status") != "ok":
-            continue
-        fold_metrics = fold_detail["metrics"]
-        fold_relative_mae = fold_metrics.get("relative_mae")
-        fold_mape = fold_metrics.get("mean_absolute_percentage_error")
-        if (
-            fold_relative_mae is None
-            or not math.isfinite(float(fold_relative_mae))
-            or float(fold_relative_mae) > LATENCY_MODEL_MAX_CONFIGURATION_FOLD_RELATIVE_MAE
-            or fold_mape is None
-            or not math.isfinite(float(fold_mape))
-            or float(fold_mape) > LATENCY_MODEL_MAX_CONFIGURATION_FOLD_MAPE
-            or int(fold_metrics.get("nonfinite_prediction_count") or 0) > 0
-            or int(fold_metrics.get("nonpositive_prediction_count") or 0) > 0
-        ):
-            failed_quality_folds.append(fold_detail)
+    failed_quality_folds = [
+        fold_detail
+        for fold_detail in validation.get("fold_details", [])
+        if _fold_exceeds_quality_thresholds(fold_detail)
+    ]
     if failed_quality_folds:
-        worst_fold = max(
-            failed_quality_folds,
-            key=lambda fold_detail: max(
-                math.inf
-                if (
-                    fold_detail["metrics"].get("relative_mae") is None
-                    or not math.isfinite(float(fold_detail["metrics"]["relative_mae"]))
-                )
-                else float(fold_detail["metrics"]["relative_mae"])
-                / LATENCY_MODEL_MAX_CONFIGURATION_FOLD_RELATIVE_MAE,
-                math.inf
-                if (
-                    fold_detail["metrics"].get("mean_absolute_percentage_error") is None
-                    or not math.isfinite(
-                        float(fold_detail["metrics"]["mean_absolute_percentage_error"])
-                    )
-                )
-                else float(fold_detail["metrics"]["mean_absolute_percentage_error"])
-                / LATENCY_MODEL_MAX_CONFIGURATION_FOLD_MAPE,
-            ),
-        )
+        worst_fold = max(failed_quality_folds, key=_fold_severity_key)
         failures.append(
             f"{validation_name} has {len(failed_quality_folds)} held-out "
             "configuration fold(s) above the relative-MAE/MAPE/validity threshold; "
@@ -327,9 +365,8 @@ def validation_quality_failures(validation_name: str, validation: dict[str, Any]
             f"{worst_fold['metrics'].get('mean_absolute_percentage_error')!r}"
         )
     worst_case_relative_error = validation.get("worst_case_relative_error")
-    if worst_case_relative_error is not None and (
-        not math.isfinite(float(worst_case_relative_error))
-        or float(worst_case_relative_error) > LATENCY_MODEL_MAX_VALIDATION_CASE_RELATIVE_ERROR
+    if worst_case_relative_error is not None and _exceeds_upper_threshold(
+        worst_case_relative_error, LATENCY_MODEL_MAX_VALIDATION_CASE_RELATIVE_ERROR
     ):
         failures.append(
             f"{validation_name} worst case relative_error="
@@ -337,34 +374,7 @@ def validation_quality_failures(validation_name: str, validation: dict[str, Any]
             f"{LATENCY_MODEL_MAX_VALIDATION_CASE_RELATIVE_ERROR}; "
             f"configuration={validation.get('worst_case_configuration')!r}"
         )
-    if validation.get("r2_quality_gate_applicable", True):
-        r2 = metrics.get("r2")
-        if r2 is None or not math.isfinite(float(r2)) or float(r2) < LATENCY_MODEL_MIN_VALIDATION_R2:
-            failures.append(f"{validation_name} r2={r2!r} is below {LATENCY_MODEL_MIN_VALIDATION_R2}")
-    relative_mae = metrics.get("relative_mae")
-    if (
-        relative_mae is None
-        or not math.isfinite(float(relative_mae))
-        or float(relative_mae) > LATENCY_MODEL_MAX_VALIDATION_RELATIVE_MAE
-    ):
-        failures.append(
-            f"{validation_name} relative_mae={relative_mae!r} exceeds "
-            f"{LATENCY_MODEL_MAX_VALIDATION_RELATIVE_MAE}"
-        )
-    mean_absolute_percentage_error = metrics.get("mean_absolute_percentage_error")
-    if (
-        mean_absolute_percentage_error is None
-        or not math.isfinite(float(mean_absolute_percentage_error))
-        or float(mean_absolute_percentage_error) > LATENCY_MODEL_MAX_VALIDATION_MAPE
-    ):
-        failures.append(
-            f"{validation_name} mean_absolute_percentage_error="
-            f"{mean_absolute_percentage_error!r} exceeds {LATENCY_MODEL_MAX_VALIDATION_MAPE}"
-        )
-    if int(metrics.get("nonfinite_prediction_count") or 0) > 0:
-        failures.append(f"{validation_name} contains non-finite predictions")
-    if int(metrics.get("nonpositive_prediction_count") or 0) > 0:
-        failures.append(f"{validation_name} contains non-positive predictions")
+    failures.extend(_overall_metric_quality_failures(validation_name, validation, metrics))
     return failures
 
 

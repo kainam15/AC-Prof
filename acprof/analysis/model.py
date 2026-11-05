@@ -181,6 +181,45 @@ class AnalysisModel:
                 "records": self.records, "configs": self.configs, "summary": self.summary}
 
 
+def _validated_csv_fields(path: Path, raw_fields: list[str]) -> tuple[bool, tuple[str, ...]]:
+    fields = [name.strip() for name in raw_fields]
+    field_names = set(fields)
+    if not fields or any(not name for name in fields) or len(fields) != len(field_names):
+        raise ValueError(f"missing or duplicate CSV columns: {path}")
+    numeric_fields = tuple(
+        name for name, metric in ANALYSIS_METRICS.items()
+        if metric.kind == "number" and name in field_names
+    )
+    return fields != raw_fields, numeric_fields
+
+
+def _build_analysis_configs(
+    groups: dict[str, list[dict[str, Any]]],
+    comparisons: dict[str, PreparedComparison],
+) -> list[dict[str, Any]]:
+    configs = []
+    for config_id, rows in groups.items():
+        formal = [r for r in rows if number(r["row"].get("warmup")) == 0]
+        valid = sum(r["eligible"] for r in rows)
+        inferred = any(_text(r["row"].get("result_origin")) == "inferred_not_measured" for r in formal)
+        status = ("ok" if valid and valid == len(formal) else "partial" if valid else
+                  "inferred_not_measured" if inferred else "failed" if formal else "no_formal_windows")
+        config = {key: rows[0][key] for key in DIMENSIONS}
+        config.update({key: rows[0][key] for key in (*QUALITY_FIELDS, "run_status", "measurement_status", "missing_metrics")})
+        try:
+            case = measurement_key(rows[0]["row"])[:4]
+        except ValueError:
+            case = None
+        config["comparison_profiles"] = {purpose: comparisons[rows[0]["source"]].profile(
+            purpose=purpose, case=case) for purpose in PURPOSES}
+        config["comparability"] = config["comparison_profiles"]["same-hardware"]["status"]
+        config.update(config_id=config_id, status=status, valid_windows=valid,
+                      excluded_rows=len(rows) - valid, source=rows[0]["source"],
+                      metrics={name: _summarize(rows, name) for name in VIEW_METRICS})
+        configs.append(config)
+    return configs
+
+
 def load_analysis(sources) -> AnalysisModel:
     """Load authoritative experiment layers without writing a wide CSV."""
     snapshots, groups, seen_paths = [], defaultdict(list), set()
@@ -211,13 +250,7 @@ def load_analysis(sources) -> AnalysisModel:
                           "run_state": state.get("status", "unknown"), "metadata": meta, **evidence})
         device_quality = {}
         first_entry = len(entries)
-        fields = [name.strip() for name in result_snapshot.fields]
-        field_names = set(fields)
-        if not fields or any(not name for name in fields) or len(fields) != len(field_names):
-            raise ValueError(f"missing or duplicate CSV columns: {path}")
-        normalize_fields = fields != result_snapshot.fields
-        numeric_fields = tuple(name for name, metric in ANALYSIS_METRICS.items()
-                               if metric.kind == "number" and name in field_names)
+        normalize_fields, numeric_fields = _validated_csv_fields(path, result_snapshot.fields)
         for line, original in enumerate(result_snapshot.rows, 2):
             raw = ({name.strip(): value for name, value in original.items()}
                    if normalize_fields else original)
@@ -260,24 +293,4 @@ def load_analysis(sources) -> AnalysisModel:
             raise ValueError(f"CSV changed during analysis: {path}: {error}") from error
     if not snapshots:
         raise ValueError("at least one result CSV is required")
-    configs = []
-    for config_id, rows in groups.items():
-        formal = [r for r in rows if number(r["row"].get("warmup")) == 0]
-        valid = sum(r["eligible"] for r in rows)
-        inferred = any(_text(r["row"].get("result_origin")) == "inferred_not_measured" for r in formal)
-        status = ("ok" if valid and valid == len(formal) else "partial" if valid else
-                  "inferred_not_measured" if inferred else "failed" if formal else "no_formal_windows")
-        config = {key: rows[0][key] for key in DIMENSIONS}
-        config.update({key: rows[0][key] for key in (*QUALITY_FIELDS, "run_status", "measurement_status", "missing_metrics")})
-        try:
-            case = measurement_key(rows[0]["row"])[:4]
-        except ValueError:
-            case = None
-        config["comparison_profiles"] = {purpose: comparisons[rows[0]["source"]].profile(
-            purpose=purpose, case=case) for purpose in PURPOSES}
-        config["comparability"] = config["comparison_profiles"]["same-hardware"]["status"]
-        config.update(config_id=config_id, status=status, valid_windows=valid,
-                      excluded_rows=len(rows) - valid, source=rows[0]["source"],
-                      metrics={name: _summarize(rows, name) for name in VIEW_METRICS})
-        configs.append(config)
-    return AnalysisModel(snapshots, entries, configs)
+    return AnalysisModel(snapshots, entries, _build_analysis_configs(groups, comparisons))
