@@ -10,6 +10,13 @@
 `measurement.load` 的串行／并发／固定或 Poisson 到达调度和每工作线程连接管理。
 本入口不启动或管理模型服务，不声明 Docker／Process 硬件采集能力，不产生正式能耗 CSV。
 
+`arrival-rate` 的 `rate` 必须为有限正数，生成的每个相对到达时刻也必须有限；
+极小速率或累计间隔导致浮点溢出时，CLI 在创建输出目录、warmup 和 Runtime 准备前报错，
+直接 `run_load()` 在创建 transport／worker 前拒绝。可提高速率或减少请求数后重新运行。
+固定与 Poisson 计划仍在负载计时前生成，保留既有 seed 和到达分布；不截断或重标定计划。
+设计核对了 [vLLM 的计时前到达计划生成](https://github.com/vllm-project/vllm/blob/831dd92674c818d7e440e750cbdcc7c9e8f4a97b/vllm/benchmarks/serve.py#L431)
+（Apache-2.0），沿用标准库随机源，不复制实现或引入 vLLM 依赖。
+
 ```bash
 acprof load --base-url http://127.0.0.1:8000 --protocol openai-chat \
   --model Qwen/Qwen3-0.6B --prompt "Explain what a token is in one sentence." \

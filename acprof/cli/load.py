@@ -139,6 +139,7 @@ def main(argv=None):
         config = LoadConfig(scenario=args.scenario, connections=args.connections, concurrency=args.concurrency,
                             requests=args.requests, rate=args.rate, arrival=args.arrival, seed=args.seed,
                             max_pending=args.max_pending, timeout_seconds=conditions.request_timeout_seconds).validate()
+        config.schedule()  # Reject overflow before input/runtime preparation or output creation.
         if args.warmup < 0:
             raise ValueError("warmup must be nonnegative")
         if state["runtime"].get("kind", "docker") == "process":

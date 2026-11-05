@@ -71,11 +71,13 @@ class LoadConfig:
             return None
         if self.rate is None:
             raise ValueError("arrival-rate requires a finite positive target rate")
-        if self.arrival == "fixed":
-            return [index / self.rate for index in range(self.requests)]
-        rng, offsets = random.Random(self.seed), [0.0]
-        for _ in range(self.requests - 1):
-            offsets.append(offsets[-1] + rng.expovariate(self.rate))
+        rng = random.Random(self.seed) if self.arrival == "poisson" else None
+        offsets = [0.0]
+        for index in range(1, self.requests):
+            planned = index / self.rate if rng is None else offsets[-1] + rng.expovariate(self.rate)
+            if not math.isfinite(planned):
+                raise ValueError("arrival-rate schedule must contain only finite offsets; increase rate or reduce requests")
+            offsets.append(planned)
         return offsets
 
 

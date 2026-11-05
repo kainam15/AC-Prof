@@ -105,6 +105,19 @@ def test_invalid_endpoint_options_fail_before_network_or_output(endpoint_cli, ex
     assert not output.exists()
 
 
+@pytest.mark.parametrize('arrival', ['fixed', 'poisson'])
+def test_invalid_arrival_schedule_fails_before_warmup_and_output(endpoint_cli, capsys, arrival):
+    base, output, calls = endpoint_cli
+    with pytest.raises(SystemExit) as caught:
+        load_cli.main(base + ['--protocol', 'openai-chat', '--model', 'fixture/model',
+                             '--prompt', 'hello', '--warmup', '1', '--scenario', 'arrival-rate',
+                             '--rate', '1e-320', '--requests', '2', '--arrival', arrival])
+    assert caught.value.code == 2
+    assert 'arrival-rate schedule' in capsys.readouterr().err
+    assert calls == []
+    assert not output.exists()
+
+
 @pytest.mark.parametrize("origin", [
     "file:///tmp/server", "http://u:p@example.com", "http://example.com/v1",
     "http://example.com?token=bad", "http://example.com#fragment", "http://example.com:99999",

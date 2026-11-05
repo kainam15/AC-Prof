@@ -196,6 +196,7 @@ def _prepare(args: argparse.Namespace) -> tuple[
         max_pending=args.max_pending,
         timeout_seconds=args.request_timeout if args.request_timeout is not None else 300,
     ).validate()
+    config.schedule()  # A finite rate can still overflow the plan; check before warmup/output.
     payload = _request_payload(args)
     model = payload.get("model")
     if not isinstance(model, str) or not model.strip():

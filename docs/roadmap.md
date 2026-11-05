@@ -108,6 +108,10 @@ v1 无握手记录保持保护，历史无记录 entry 沿用原有规则；无�
 
 ## LLM 服务画像优先序
 
+独立 HTTP Load 已补齐到达计划的有限数值检查：固定和 Poisson 间隔溢出在 warmup、
+输出创建与 Runtime 准备前拒绝；直接调用也不会先发请求。离线回归覆盖单次间隔及累计溢出，
+保留原有 seed、分布和正常计划；未新增真实服务或硬件测量证据。
+
 | 优先级 | 状态 | 范围与下一步 |
 | --- | --- | --- |
 | P0 · 流式测量基础 | 已完成 | 可选 OpenAI Chat／Completions SSE Adapter；TTFT／TPOT／严格 ITL／E2E 与分位数、缺失语义、Token 计数来源；确定性测试及 Qwen3-0.6B + vLLM 实测对照。定义与复现入口见[流式测量](profiling/streaming.md)。 |
