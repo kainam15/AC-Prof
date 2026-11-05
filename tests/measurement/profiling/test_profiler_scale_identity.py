@@ -4,6 +4,7 @@ import math
 import sys
 from contextlib import nullcontext
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import Mock
 
 import pytest
@@ -25,7 +26,7 @@ def test_runner_argument_preserves_scale(scale):
 
 
 @pytest.mark.parametrize(("requested", "expected"), [(SCALES[1], "second"), (1.00000015, None)])
-def test_runner_selects_only_exact_payload(tmp_path, monkeypatch, requested, expected):
+def test_runner_selects_only_exact_payload(tmp_path, monkeypatch: pytest.MonkeyPatch, requested, expected):
     from acprof.container import compute_profile_runner as runner
 
     payload_file = tmp_path / "input_scale_plan.json"
@@ -62,7 +63,7 @@ def test_runner_selects_only_exact_payload(tmp_path, monkeypatch, requested, exp
     ("off", "torch_profiler_eager", compute_plan.TORCH_LOGICAL_MFLOP_FIELD, compute_plan.TORCH_ERROR_FIELD),
     ("on", "ncu", compute_plan.NCU_TOTAL_MFLOP_FIELD, compute_plan.NCU_ERROR_FIELD),
 ])
-def test_compute_plan_uses_exact_scale(mode, tool, field, error):
+def test_compute_plan_uses_exact_scale(mode: str, tool: str, field: str, error: str):
     plan = {"profiles": {"cpu" if mode == "off" else "gpu": {tool: {"entries": [
         {"input_scale": SCALES[0], field: 10.0, "error": "first only"},
         {"input_scale": SCALES[1], field: 20.0, "error": ""},
@@ -80,7 +81,7 @@ def test_compute_plan_uses_exact_scale(mode, tool, field, error):
     ("off", "massif", execution_plan.MASSIF_HEAP_PEAK_FIELD, execution_plan.MASSIF_ERROR_FIELD),
     ("on", "nsys", execution_plan.NSYS_HOST_WALL_TIME_FIELD, execution_plan.NSYS_ERROR_FIELD),
 ])
-def test_execution_plan_uses_exact_scale(indexed, mode, tool, field, error):
+def test_execution_plan_uses_exact_scale(indexed: bool, mode: str, tool: str, field: str, error: str):
     plan = {"profiles": [{
         "cpu_cores": 2, "mem_cap_gb": 4, "gpu_mode": mode,
         "tools": {tool: {"entries": [
@@ -98,7 +99,7 @@ def test_execution_plan_uses_exact_scale(indexed, mode, tool, field, error):
 
 
 @pytest.fixture
-def profile_fixture(tmp_path, monkeypatch):
+def profile_fixture(tmp_path, monkeypatch: pytest.MonkeyPatch):
     task = TaskInfo(
         model_id="fixture/model", model_revision="fixed", pipeline_tag="fill-mask",
         task_family="nlp", runtime_backend="transformers_pipeline",
@@ -175,7 +176,7 @@ def test_resume_requires_exact_checkpoint_scale(tmp_path, profile_fixture, tool,
     raw = tmp_path / (prefix + (".csv" if tool == "ncu" else ".out"))
     raw.write_text("cached fixture\n")
     fields = ncu.NCU_COMPLETE_ENTRY_FIELDS if tool == "ncu" else massif.MASSIF_FIELDS
-    checkpoint = {
+    checkpoint: dict[str, Any] = {
         "schema_version": 1, "model_id": task.model_id, "model_revision": task.model_revision,
         "input_scale": checkpoint_scale, "repeat": 1,
         "entry": {"input_scale": checkpoint_scale, **dict.fromkeys(fields, 42.0), "error": ""},
