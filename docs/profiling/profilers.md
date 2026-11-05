@@ -200,6 +200,11 @@ Torch eager 记录模型逻辑计算量，NCU 记录 GPU 实际执行量；两�
 | `gpu_kernel_time_sum_ms_per_request_ncu` | NCU 报告中的 kernel duration 总和，换算为 ms 并按 `--ncu-repeat` 归一化到单 request。 |
 | `compute_profile_error_ncu` | NCU probe 的独立诊断；正常为空，工具缺失、性能计数器受限或报告解析失败时记录原因。 |
 
+MFLOPS 的工作量和延迟必须是有限数值，延迟还必须大于零；无法解析、非有限输入或除法溢出时，
+派生速率为 `nan`，不能把无限延迟算成零速率。有效的零工作量仍得到 `0`。
+补采中 packet 速率不可用时沿用 application latency 回退，两者都不可用时保留 `nan`；
+回填不修改原始延迟或工作量来源，已有实验也不会因升级自动重写。
+
 ## Massif 与 Nsight Systems 执行指标
 
 | 字段 | 含义 |

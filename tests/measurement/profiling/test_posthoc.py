@@ -24,6 +24,41 @@ from acprof.platform import Environment
 
 
 class TestPosthocProfile:
+    @pytest.mark.parametrize("tool", ["torch", "ncu"])
+    @pytest.mark.parametrize(("app_latency", "packet_latency", "app_rate", "packet_rate"), [
+        ("inf", "0.5", "nan", "240.000000"),
+        ("0.4", "inf", "300.000000", "300.000000"),
+        ("inf", "inf", "nan", "nan"),
+        ("1e999", "0.5", "nan", "240.000000"),
+        ("0.4", "1e999", "300.000000", "300.000000"),
+        ("-inf", "0.5", "nan", "240.000000"),
+        ("0.4", "0", "300.000000", "300.000000"),
+        ("invalid", "", "nan", "nan"),
+    ])
+    def test_compute_backfill_nonfinite_rates(
+        self, tmp_path: Path, tool: str, app_latency: str, packet_latency: str, app_rate: str, packet_rate: str,
+    ) -> None:
+        self._write_fixture(tmp_path, include_cpu=False, torch_complete=False)
+        context = host_posthoc_context.load_result_context(tmp_path)
+        context.rows[0].update(latency_app_s=app_latency, latency_s=packet_latency)
+        original = dict(context.rows[0])
+        profile_key, work_field, app_field, packet_field = {
+            "torch": ("torch_profiler_eager", TORCH_LOGICAL_MFLOP_FIELD,
+                      "model_logical_mflops_app_torch_profiler_eager",
+                      "model_logical_mflops_packet_torch_profiler_eager"),
+            "ncu": ("ncu", host_compute_profile_plan.NCU_TOTAL_MFLOP_FIELD,
+                    host_posthoc_context.NCU_DERIVED_APP_FIELD, host_posthoc_context.NCU_DERIVED_PACKET_FIELD),
+        }[tool]
+        plan = {"profiles": {"gpu": {profile_key: {"entries": [{"input_scale": 8, work_field: 120}]}}}}
+        _, rows, updated = host_posthoc_backfill.backfill_rows(context, tools=(tool,), compute_plan=plan)
+        assert updated == {tool: 1}
+        assert rows[0][work_field] == "120.000000"
+        assert rows[0][app_field] == app_rate
+        assert rows[0][packet_field] == packet_rate
+        assert rows[0]["latency_app_s"] == app_latency
+        assert rows[0]["latency_s"] == packet_latency
+        assert context.rows[0] == original
+
     def test_compute_lookup_work_does_not_grow_with_repeated_windows(self, tmp_path: Path):
         self._write_fixture(tmp_path, torch_complete=False)
         context = host_posthoc_context.load_result_context(tmp_path)

@@ -248,9 +248,10 @@ def find_compute_profile_entry(
 
 
 def compute_mflops(model_mflop_per_request: Any, latency_s: Any) -> float:
-    """Calculate MFLOPS for numeric model work and a positive latency."""
+    """Return finite MFLOPS for finite model work and a positive finite latency."""
     mflop = _to_float_or_nan(model_mflop_per_request)
     latency = _to_float_or_nan(latency_s)
-    if mflop == mflop and latency == latency and latency > 0:
-        return mflop / latency
+    if math.isfinite(mflop) and math.isfinite(latency) and latency > 0:
+        rate = mflop / latency
+        return rate if math.isfinite(rate) else float("nan")
     return float("nan")
