@@ -38,7 +38,7 @@ def test_packet_permission_failure_does_not_grant_capability():
         packet_capture.os, "geteuid", return_value=1000,
     ), patch("acprof.system.command.run_command", return_value=failed) as run:
         with pytest.raises(packet_capture.PacketLatencyError):
-            packet_capture._resolve_packet_latency_runtime(".", "/tmp/test.pcap", "docker0")
+            packet_capture.resolve_packet_latency_runtime(".", "/tmp/test.pcap", "docker0")
     assert (all(call.args[0][0] == "getcap" for call in run.call_args_list))
 
 def test_tcpdump_needs_only_effective_net_raw_and_disables_promiscuous_mode():
@@ -47,7 +47,7 @@ def test_tcpdump_needs_only_effective_net_raw_and_disables_promiscuous_mode():
     ), patch("acprof.system.command.run_command", return_value=subprocess.CompletedProcess(
         [], 0, "/usr/bin/tcpdump cap_net_raw=ep\n", "",
     )):
-        runtime = packet_capture._resolve_packet_latency_runtime(".", "/tmp/test.pcap", "docker0")
+        runtime = packet_capture.resolve_packet_latency_runtime(".", "/tmp/test.pcap", "docker0")
     assert (runtime.tcpdump_cmd[0]) == ("/usr/bin/tcpdump")
     assert ("-p") in (runtime.tcpdump_cmd)
 

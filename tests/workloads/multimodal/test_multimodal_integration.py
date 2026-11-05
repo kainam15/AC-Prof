@@ -10,7 +10,7 @@ from acprof.host.detect import TaskInfo, detect_task
 from acprof.host.images.runtime import ImageInfo
 from acprof.host.input_plan import plan_input_scales
 from acprof.host.metadata.static import StaticMeta, enrich_static_meta_from_input_plan
-from acprof.host.model_schema import _model_io_formats
+from acprof.host.model_schema import model_io_formats
 from acprof.host.preparation.task_support import TaskSupportError, require_task_support
 
 MULTIMODAL_TASKS = ("audio-text-to-text", "image-text-to-text", "visual-question-answering", "document-question-answering", "video-text-to-text", "visual-document-retrieval", "any-to-any")
@@ -59,7 +59,7 @@ def test_manifest_plan_persists_exact_payload_parameters_and_scale_semantics():
         assert (enriched.run_command) == ("acprof run --model org/model")
 
 def test_io_contract_describes_multimodal_request_and_retrieval_summary():
-    inputs, outputs = _model_io_formats(info("visual-document-retrieval"))
+    inputs, outputs = model_io_formats(info("visual-document-retrieval"))
     assert ("samples") in (inputs["json_schema"]["required"])
     assert ("scores") in (outputs["json_schema"]["properties"])
 

@@ -21,8 +21,8 @@ def test_io_counter_reset_is_not_reported_as_zero():
     readers = resource_readers._ContainerReaders(
         io=lambda: (counters["read"], counters["write"])
     )
-    with patch.object(resource_readers, "_resolve_container_metric_readers", return_value=readers), patch.object(
-        resource_readers, "_prepare_cpu_frequency_reader", return_value=lambda: (None, None)
+    with patch.object(resource_readers, "resolve_container_metric_readers", return_value=readers), patch.object(
+        resource_readers, "prepare_cpu_frequency_reader", return_value=lambda: (None, None)
     ):
         monitor = resource_usage.ResourceUsageMonitor(sample_hz=1, container_name="case")
         try:
@@ -38,7 +38,7 @@ def test_io_counter_reset_is_not_reported_as_zero():
 
 
 def test_resource_errors_keep_distinct_gpu_queries_and_other_causes():
-    with patch.object(resource_readers, "_resolve_container_metric_readers",
+    with patch.object(resource_readers, "resolve_container_metric_readers",
                       return_value=resource_readers._ContainerReaders()):
         monitor = resource_usage.ResourceUsageMonitor()
     monitor._partial_platform = False
@@ -129,7 +129,7 @@ def test_ready_failure_materializes_full_error_matrix_without_packet_misdiagnosi
     with patch("acprof.host.orchestrator.start_service_session", return_value=docker_runtime.RunningContainer(
         name="case_google-bert--bert-base-uncased_1c_4g_off",
         base_url="http://127.0.0.1:8106", host_port=8106, cold_start_s=1,
-    )), patch("acprof.host.orchestrator._resolve_packet_latency_runtime", return_value=None), patch(
+    )), patch("acprof.host.orchestrator.resolve_packet_latency_runtime", return_value=None), patch(
         "acprof.host.orchestrator.stop_service_session"
     ), patch("acprof.system.command.run_command", side_effect=fake_run):
         path = orchestrator.run_single_case(

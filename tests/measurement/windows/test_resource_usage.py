@@ -17,7 +17,7 @@ class TestResourceUsageMonitor:
         native_policy(self._request)
 
     def test_sampling_does_not_rediscover_cpu_topology(self):
-        with patch.object(resource_readers, "_resolve_container_metric_readers", return_value=resource_readers._ContainerReaders()), patch.object(
+        with patch.object(resource_readers, "resolve_container_metric_readers", return_value=resource_readers._ContainerReaders()), patch.object(
             resource_readers, "_discover_cpu_ids", return_value=[],
         ):
             monitor = resource_usage.ResourceUsageMonitor(container_name="case")
@@ -149,7 +149,7 @@ class TestResourceUsageMonitor:
             ) as f:
                 f.write("1800000\n")
 
-            avg_hz, peak_hz = resource_readers._prepare_cpu_frequency_reader(
+            avg_hz, peak_hz = resource_readers.prepare_cpu_frequency_reader(
                 cpu_sysfs_root=cpu_root,
                 proc_cpuinfo_path=os.path.join(tmp, "missing_cpuinfo"),
             )()
@@ -271,7 +271,7 @@ class TestResourceUsageMonitor:
 
             fake_completed = SimpleNamespace(returncode=0, stdout="123\n", stderr="")
             with patch("acprof.monitors.common.run_command", return_value=fake_completed):
-                readers = resource_readers._resolve_container_metric_readers(
+                readers = resource_readers.resolve_container_metric_readers(
                     "case_container",
                     cgroup_root=cgroup_root,
                     proc_root=proc_root,
@@ -417,7 +417,7 @@ class TestResourceUsageMonitor:
 
             fake_completed = SimpleNamespace(returncode=0, stdout="123\n", stderr="")
             with patch("acprof.monitors.common.run_command", return_value=fake_completed):
-                readers = resource_readers._resolve_container_metric_readers(
+                readers = resource_readers.resolve_container_metric_readers(
                     "case_container",
                     cgroup_root=cgroup_root,
                     proc_root=proc_root,
@@ -537,10 +537,10 @@ class TestResourceUsageMonitor:
         )
 
         with patch(
-            "acprof.monitors.resource_readers._resolve_container_metric_readers",
+            "acprof.monitors.resource_readers.resolve_container_metric_readers",
             return_value=readers,
         ), patch(
-            "acprof.monitors.resource_readers._prepare_cpu_frequency_reader",
+            "acprof.monitors.resource_readers.prepare_cpu_frequency_reader",
             return_value=lambda: (None, None),
         ):
             monitor = resource_usage.ResourceUsageMonitor(
@@ -605,11 +605,11 @@ class TestResourceUsageMonitor:
         readers = resource_readers._ContainerReaders(cpu=lambda: 0.0)
         with patch.object(
             resource_readers,
-            "_resolve_container_metric_readers",
+            "resolve_container_metric_readers",
             return_value=readers,
         ), patch.object(
             resource_readers,
-            "_prepare_cpu_frequency_reader",
+            "prepare_cpu_frequency_reader",
             return_value=lambda: (None, None),
         ):
             monitor = resource_usage.ResourceUsageMonitor(

@@ -239,7 +239,7 @@ class TestInputPlan:
             detection_method="unit",
         )
 
-        _, output_format = model_schema._model_io_formats(task_info)
+        _, output_format = model_schema.model_io_formats(task_info)
         properties = output_format["json_schema"]["properties"]
 
         assert (properties["effective_input_scale"]) == ({"type": "number"})

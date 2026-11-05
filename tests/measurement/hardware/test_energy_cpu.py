@@ -150,7 +150,7 @@ def test_alternate_package_interfaces_are_not_additive():
     with tempfile.TemporaryDirectory() as tmp:
         _write_rapl_domain(tmp, 'intel-rapl:0', 'package-0')
         _write_rapl_domain(tmp, 'intel-rapl-mmio:0', 'package-0')
-        domains = energy_cpu._discover_rapl_domains(tmp)
+        domains = energy_cpu.discover_rapl_domains(tmp)
         assert ([d.name for d in domains]) == (['intel-rapl:0'])
 
 def test_dram_permission_denied_keeps_full_topology_and_package_source():
@@ -187,7 +187,7 @@ def test_sysfs_alias_is_not_counted_twice():
     with tempfile.TemporaryDirectory() as tmp:
         path = _write_rapl_domain(tmp, "intel-rapl:0", "package-0")
         os.symlink(path, os.path.join(tmp, "intel-rapl:9"))
-        domains = energy_cpu._discover_rapl_domains(tmp)
+        domains = energy_cpu.discover_rapl_domains(tmp)
         assert (len(domains)) == (1)
 
 def test_apply_control_baseline_uses_control_average_and_records_method(monkeypatch) -> None:
@@ -219,7 +219,7 @@ def test_discover_rapl_domains_uses_package_domains_only() -> None:
         _write_rapl_domain(tmp, "intel-rapl:0", "package-0")
         _write_rapl_domain(tmp, "intel-rapl:0:0", "core")
 
-        domains = energy_cpu._discover_rapl_domains(tmp)
+        domains = energy_cpu.discover_rapl_domains(tmp)
 
     assert ([domain.name for domain in domains]) == (["intel-rapl:0"])
 

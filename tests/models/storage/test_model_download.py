@@ -151,7 +151,7 @@ class TestModelDownload:
             with patch.dict(os.environ, {"TASK_FAMILY": "nlp", "RUNTIME_BACKEND": "transformers_pipeline"}), patch(
                 "huggingface_hub.HfApi.model_info", return_value=info,
             ), patch("huggingface_hub.hf_hub_download", return_value=str(config)):
-                plan = download_model._prepare_repository_plan("https://hf-mirror.com", "example/bert", "a" * 40,
+                plan = download_model.prepare_repository_plan("https://hf-mirror.com", "example/bert", "a" * 40,
                     cache_dir=str(root / "hf"), native_types={"bert"})
             assert ({record["path"] for record in plan["files"]}) == ({"config.json", "model.safetensors"})
 

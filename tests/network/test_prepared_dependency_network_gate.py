@@ -14,7 +14,7 @@ def test_required_prepared_platform_does_not_pull_or_build(tmp_path: Path) -> No
     platform = SimpleNamespace(platform_id="python-cpu", python_version="3.10",
                                python_base_image="python:3.10-slim", architecture="amd64")
     with (patch.dict("os.environ", {"ACPROF_REQUIRE_PREPARED_IMAGE": "1"}),
-          patch.object(dependency_images, "_platform_fingerprint", return_value="a" * 64),
+          patch.object(dependency_images, "platform_identity_fingerprint", return_value="a" * 64),
           patch.object(dependency_images, "checked_image", return_value=None),
           patch.object(dependency_images, "_pull_cached_image") as pull,
           patch.object(dependency_images, "build_dependency") as build):

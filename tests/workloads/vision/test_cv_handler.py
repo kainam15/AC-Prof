@@ -8,7 +8,7 @@ from PIL import Image
 
 from acprof.container.handlers.cv import CVHandler
 from acprof.host.detect import TaskInfo
-from acprof.host.model_schema import _model_io_formats
+from acprof.host.model_schema import model_io_formats
 from acprof.host.preparation.task_support import require_task_support
 from acprof.workloads.cv import CVWorkloadGenerator
 
@@ -107,7 +107,7 @@ class TestCVCaption:
             library_name="transformers", model_revision="revision", detection_method="unit",
         )
         require_task_support(info)
-        _, output = _model_io_formats(info)
+        _, output = model_io_formats(info)
         properties = output["json_schema"]["properties"]
         assert (properties["output_type"]["enum"]) == (["caption"])
         assert (properties["captions"]) == ({"type": "array", "items": {"type": "string"}})

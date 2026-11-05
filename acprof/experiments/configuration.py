@@ -45,12 +45,12 @@ class RunConfigError(ValueError):
                                  for item in self.issues))
 
 
-def _csv_values(value: str) -> list[str]:
+def csv_values(value: str) -> list[str]:
     return [item.strip() for item in str(value).split(",") if item.strip()]
 
 
 def _positive_int_csv(value: str, label: str, field: str) -> list[int]:
-    raw_values = _csv_values(value)
+    raw_values = csv_values(value)
     if not raw_values:
         raise RunConfigError([ConfigIssue(field, message('{0}不能为空', label))])
     try:
@@ -63,7 +63,7 @@ def _positive_int_csv(value: str, label: str, field: str) -> list[int]:
 
 
 def _positive_float_csv(value: str, label: str, field: str) -> list[float]:
-    raw_values = _csv_values(value)
+    raw_values = csv_values(value)
     if not raw_values:
         return []
     try:
@@ -228,7 +228,7 @@ class RunConfig(RunOptions):
             errors.extend(exc.issues)
             mems = []
 
-        gpus = _csv_values(self.gpus)
+        gpus = csv_values(self.gpus)
         if self.runtime not in {"auto", "docker", "process"}:
             errors.append(ConfigIssue("runtime", message("执行运行时必须是 auto、docker 或 process")))
         if self.runtime == "process" and (self.profiling_mode != "basic"
@@ -348,7 +348,7 @@ class RunConfig(RunOptions):
             cpuset_cpus=cpuset_cpus,
             mems="auto" if self.mems == "auto" else ",".join(str(value) for value in mems),
             gpus=",".join(gpus),
-            input_scales=",".join(_csv_values(self.input_scales)),
+            input_scales=",".join(csv_values(self.input_scales)),
             workload_spec=workload_spec,
             model_spec=model_spec,
             output_dir=self.output_dir.strip(),

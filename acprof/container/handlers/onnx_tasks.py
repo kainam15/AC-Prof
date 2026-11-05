@@ -7,7 +7,7 @@ from typing import Any
 import numpy as np
 
 from acprof.container.handlers import BaseHandler, InputLimitError
-from acprof.container.handlers.structured import _artifact_path
+from acprof.container.handlers.structured import artifact_path
 from acprof.container.onnx_session import (
     load_session,
     run_session,
@@ -172,7 +172,7 @@ class ONNXTextClassificationHandler(_ClassificationHandler):
         if not isinstance(config.get('add_special_tokens'), bool):
             raise ValueError('tokenizer add_special_tokens must be explicit boolean')
         config['max_length'] = positive_integer(config.get('max_length'), 'tokenizer max_length')
-        tokenizer = Tokenizer.from_file(str(_artifact_path(context['model_root'], config.get('file'))))
+        tokenizer = Tokenizer.from_file(str(artifact_path(context['model_root'], config.get('file'))))
         tokenizer.no_padding()
         tokenizer.no_truncation()
         names = {spec.name for spec in context['input_specs']}

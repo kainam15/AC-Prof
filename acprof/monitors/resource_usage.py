@@ -55,7 +55,7 @@ class ResourceUsageMonitor:
         self._partial_platform = detect_environment().environment == "wsl2"
         self.gpu_query_errors: dict[str, str] = {}
         self._cpu_frequency_reader = ((lambda: (None, None)) if self._partial_platform else
-                                     resource_readers._prepare_cpu_frequency_reader(
+                                     resource_readers.prepare_cpu_frequency_reader(
                                          cpu_sysfs_root, proc_cpuinfo_path))
 
         self.samples: list[resource_metrics.ResourceUsageSample] = []
@@ -90,7 +90,7 @@ class ResourceUsageMonitor:
         self._closed = False
 
         try:
-            readers = resource_readers._resolve_container_metric_readers(
+            readers = resource_readers.resolve_container_metric_readers(
                 container_name,
                 cgroup_root=cgroup_root,
                 proc_root=proc_root,
@@ -411,7 +411,7 @@ class ResourceUsageMonitor:
             except Exception as exc:
                 self._gpu_query_error("memory_clock", exc)
             try:
-                gpu_pstate = resource_metrics._normalize_pstate(
+                gpu_pstate = resource_metrics.normalize_pstate(
                     pynvml.nvmlDeviceGetPerformanceState(self._gpu_handle)
                 )
             except Exception as exc:

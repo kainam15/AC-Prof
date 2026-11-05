@@ -15,7 +15,7 @@ from acprof.host.detect import TaskInfo
 from acprof.host.docker_runtime import RunningContainer
 from acprof.host.images.runtime import ImageInfo
 from acprof.host.measurement.capture import PacketLatencyRuntime
-from acprof.host.measurement.publication import _append_row, append_request_window
+from acprof.host.measurement.publication import append_request_window, append_row
 from acprof.results.windows import WindowPublicationContext
 from acprof.telemetry import window_evidence
 
@@ -73,7 +73,7 @@ def measured_case(tmp_path, monkeypatch):
                                             warmup=0, repeat_idx=0, latencies=[0.1])
             writer = csv.DictWriter(output, fieldnames=CSV_FIELDS)
             writer.writeheader()
-            _append_row(writer, row, output, groups, group, publication=context,
+            append_row(writer, row, output, groups, group, publication=context,
                         telemetry_evidence=evidence, request_record=request)
         case.pcap.write_bytes(b"fixture-captured-packets")
         return SimpleNamespace(returncode=0)
@@ -81,7 +81,7 @@ def measured_case(tmp_path, monkeypatch):
     monkeypatch.setattr(orchestrator, "start_service_session", start)
     monkeypatch.setattr(orchestrator, "stop_service_session", stop)
     monkeypatch.setattr(orchestrator, "record_case_conditions", lambda *a, **k: None)
-    monkeypatch.setattr(orchestrator, "_resolve_packet_latency_runtime", lambda **k: PacketLatencyRuntime(
+    monkeypatch.setattr(orchestrator, "resolve_packet_latency_runtime", lambda **k: PacketLatencyRuntime(
         mode="local", tcpdump_cmd=["fixture-capture"], parse_cmd=["fixture-parser"]))
     monkeypatch.setattr(orchestrator.subprocess, "Popen", lambda *a, **k: Capture())
     monkeypatch.setattr(orchestrator.time, "sleep", lambda *a: None)

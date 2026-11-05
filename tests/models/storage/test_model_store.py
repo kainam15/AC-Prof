@@ -357,7 +357,7 @@ class TestModelStore:
             "acprof.host.model_store.store.store_lock",
             side_effect=PermissionError("read-only store lock"),
         ), patch(
-            "acprof.container.download_model._prepare_repository_plan",
+            "acprof.container.download_model.prepare_repository_plan",
             side_effect=AssertionError("cached planning attempted a download"),
         ):
             assert model_store.plan_model(self.task, self.root) == expected

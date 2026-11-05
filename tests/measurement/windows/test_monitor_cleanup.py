@@ -64,8 +64,8 @@ class TestMonitorCleanup:
                 runner, "_one_request", side_effect=request,
             ), patch.object(client_publication, "append_request_window", side_effect=publish(
                 client_publication.append_request_window, "requests",
-            )), patch.object(client_publication, "_append_row", side_effect=publish(
-                client_publication._append_row, "result",
+            )), patch.object(client_publication, "append_row", side_effect=publish(
+                client_publication.append_row, "result",
             )), patch.object(logging.Logger, "isEnabledFor", return_value=True), patch.object(
                 logging.Logger, "handle", side_effect=capture_log,
             ):
@@ -94,7 +94,7 @@ class TestMonitorCleanup:
                 client.requests,
                 "get",
                 side_effect=RuntimeError("requests bug"),
-            ), patch.object(client_publication, "_append_row") as append_row:
+            ), patch.object(client_publication, "append_row") as append_row:
                 with pytest.raises(RuntimeError, match="requests bug"):
                     runner.main()
             append_row.assert_not_called()
@@ -115,7 +115,7 @@ class TestMonitorCleanup:
                 client.requests,
                 "get",
                 side_effect=client.requests.exceptions.ConnectionError("refused"),
-            ), patch.object(client_publication, "_append_row") as append_row:
+            ), patch.object(client_publication, "append_row") as append_row:
                 runner.main()
             append_row.assert_called_once()
             assert append_row.call_args.args[1]["status"] == "error"

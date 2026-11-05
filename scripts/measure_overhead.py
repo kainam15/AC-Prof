@@ -220,7 +220,7 @@ def measure_profile_window(session, entry, *, scenario, rate, count, name, cpu, 
                            token, output, options, window_boundaries: bool = False,
                            sampling_policy: SamplingPolicy = "burst") -> dict[str, Any]:
     """Internal comparison; reuse collectors and the production idle lifecycle."""
-    from acprof.host.measurement.capture import _resolve_packet_latency_runtime
+    from acprof.host.measurement.capture import resolve_packet_latency_runtime
     from acprof.monitors.energy_cpu import CPUEnergyMonitor
     from acprof.monitors.energy_nvml import GPUEnergyMonitor
     from acprof.monitors.perf_mips import PerfMIPSMonitor
@@ -238,12 +238,12 @@ def measure_profile_window(session, entry, *, scenario, rate, count, name, cpu, 
             if scenario == "full":
                 import shutil
 
-                from acprof.host.measurement.capture import _tcpdump_can_capture_without_sudo
+                from acprof.host.measurement.capture import tcpdump_can_capture_without_sudo
                 tcpdump = shutil.which("tcpdump")
-                if not tcpdump or not _tcpdump_can_capture_without_sudo(tcpdump):
+                if not tcpdump or not tcpdump_can_capture_without_sudo(tcpdump):
                     raise RuntimeError("full 对照缺少现有 tcpdump capability；不会修改系统权限")
                 pcap = output / f"{token}.pcap"
-                runtime = _resolve_packet_latency_runtime(str(ROOT), str(pcap), options["sniff_iface"])
+                runtime = resolve_packet_latency_runtime(str(ROOT), str(pcap), options["sniff_iface"])
                 if runtime is None:
                     raise RuntimeError("full 对照缺少 tcpdump/tshark")
                 capture_log = resources.enter_context((output / f"{token}-tcpdump.log").open("w"))

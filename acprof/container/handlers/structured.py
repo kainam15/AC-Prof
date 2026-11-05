@@ -23,7 +23,7 @@ TASK_OUTPUT_TYPES = {
 }
 
 
-def _local_snapshot(model_source: str, model_revision: str) -> Path:
+def local_snapshot(model_source: str, model_revision: str) -> Path:
     path = Path(model_source)
     if path.is_dir():
         return path.resolve()
@@ -33,7 +33,7 @@ def _local_snapshot(model_source: str, model_revision: str) -> Path:
                                   local_files_only=True, token=False)).resolve()
 
 
-def _artifact_path(root: Path, filename: Any) -> Path:
+def artifact_path(root: Path, filename: Any) -> Path:
     if not isinstance(filename, str) or not filename or Path(filename).is_absolute() or ".." in Path(filename).parts:
         raise ValueError("model_file must be a relative file within the model snapshot")
     path = root / filename
@@ -43,7 +43,7 @@ def _artifact_path(root: Path, filename: Any) -> Path:
     return path
 
 
-def _dense_matrix(value: Any, feature_dim: int, name: str) -> np.ndarray:
+def dense_matrix(value: Any, feature_dim: int, name: str) -> np.ndarray:
     if not isinstance(value, list) or not value:
         raise ValueError(f"{name} must be a non-empty matrix of finite numbers")
     for row in value:
@@ -70,7 +70,7 @@ class StructuredHandler(BaseHandler):
             raise ValueError("structured artifacts do not support attention/profiler load options; export the required model implementation")
         if device != "cpu" and declaration.execution.get("cuda") == "unsupported":
             raise ValueError(f"{backend} supports this task only on CPU")
-        root = _local_snapshot(model_source, model_revision)
+        root = local_snapshot(model_source, model_revision)
         manifest = load_model_spec(str(root), task_type, expected_format=backend) or None
         if manifest:
             if not isinstance(manifest, dict) or manifest.get("schema_version") != 1 or isinstance(manifest.get("schema_version"), bool):
@@ -80,7 +80,7 @@ class StructuredHandler(BaseHandler):
             if manifest.get("format") != backend:
                 raise ValueError("acprof_model.json format must match runtime backend")
             feature_dim = positive_integer(manifest.get("feature_dim"), "feature_dim")
-            artifact = _artifact_path(root, manifest.get("model_file"))
+            artifact = artifact_path(root, manifest.get("model_file"))
         elif options.get("requires_model_spec"):
             raise ValueError("TorchScript task support requires acprof_model.json with schema_version, task, format, model_file and feature_dim; arbitrary Hub models are not supported")
         else:
@@ -126,7 +126,7 @@ class StructuredHandler(BaseHandler):
             for index, graph in enumerate(graphs):
                 if not isinstance(graph, dict):
                     raise ValueError("each graph must be an object")
-                x = _dense_matrix(graph.get("node_features"), feature_dim, "node_features")
+                x = dense_matrix(graph.get("node_features"), feature_dim, "node_features")
                 if len(x) != scale:
                     raise ValueError("input_scale must match node_count of every graph")
                 edge_index = graph.get("edge_index")
@@ -146,7 +146,7 @@ class StructuredHandler(BaseHandler):
             )
         else:
             key = "features" if task.startswith("tabular-") else "observations"
-            values = _dense_matrix(raw_input.get(key), feature_dim, key)
+            values = dense_matrix(raw_input.get(key), feature_dim, key)
             if len(values) != batch_size * scale:
                 raise ValueError(f"input_scale * batch_size must match actual {key} row count")
             arrays = (values,)

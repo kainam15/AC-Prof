@@ -18,7 +18,7 @@ def test_result_row_waits_for_sniff_group_durability() -> None:
         side_effect=OSError("disk full"),
     ):
         with pytest.raises(OSError, match="disk full"):
-            client_publication._append_row(
+            client_publication.append_row(
                 writer,
                 {"status": "ok", "error": ""},
                 result_stream,

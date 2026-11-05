@@ -10,7 +10,7 @@ import pytest
 from acprof.host import detect
 from acprof.host.images.runtime import ImageInfo
 from acprof.host.input_plan import plan_input_scales
-from acprof.host.model_schema import _model_io_formats
+from acprof.host.model_schema import model_io_formats
 from acprof.host.preparation.task_support import TaskSupportError, require_task_support
 
 CV_TASKS = (
@@ -108,14 +108,14 @@ def test_cv_manifest_reaches_materialized_plan_and_preserves_parameters():
 
 @pytest.mark.parametrize(("task", "expected"), [('depth-estimation', 'depth'), ('image-segmentation', 'segmentation'), ('mask-generation', 'masks'), ('image-feature-extraction', 'features'), ('keypoint-detection', 'keypoints'), ('text-to-video', 'video'), ('text-to-3d', 'mesh'), ('image-to-3d', 'mesh')])
 def test_static_contract_uses_correct_media_and_output_types(task, expected):
-    _, outputs = _model_io_formats(task_info(task))
+    _, outputs = model_io_formats(task_info(task))
     assert (outputs["json_schema"]["properties"]["output_type"]["enum"]) == ([expected])
     for task in ("video-classification", "video-to-video"):
-        inputs, _ = _model_io_formats(task_info(task))
+        inputs, _ = model_io_formats(task_info(task))
         assert ("frames_base64") in (inputs["json_schema"]["required"])
         assert ("image_base64") not in (inputs["json_schema"]["required"])
     for task in ("unconditional-image-generation", "image-to-3d", "image-to-video"):
-        inputs, _ = _model_io_formats(task_info(task))
+        inputs, _ = model_io_formats(task_info(task))
         assert ("prompt") not in (inputs["json_schema"]["required"])
 
 @pytest.mark.parametrize('task', ['unconditional-image-generation', 'text-to-3d', 'image-to-3d'])

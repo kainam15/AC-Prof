@@ -7,7 +7,7 @@ from typing import Any
 import onnxruntime as ort
 
 from acprof.container.handlers import BaseHandler
-from acprof.container.handlers.structured import _dense_matrix
+from acprof.container.handlers.structured import dense_matrix
 from acprof.container.onnx_session import (
     load_session,
     run_session,
@@ -45,7 +45,7 @@ class ONNXRuntimeHandler(BaseHandler):
     def preprocess(self, model_ctx: dict, raw_input: dict) -> dict:
         scale = positive_integer(raw_input.get('input_scale'), 'input_scale')
         batch = positive_integer(raw_input.get('batch_size', 1), 'batch_size')
-        features = _dense_matrix(raw_input.get('features'), model_ctx['feature_dim'], 'features')
+        features = dense_matrix(raw_input.get('features'), model_ctx['feature_dim'], 'features')
         if len(features) != scale * batch:
             raise ValueError('input_scale * batch_size must match actual feature rows')
         fixed = model_ctx['input_shape'][0]

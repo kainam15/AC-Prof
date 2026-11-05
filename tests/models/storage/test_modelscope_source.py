@@ -104,12 +104,12 @@ def test_modelscope_metadata_returns_verified_content_with_snapshot_identity(tmp
 
 
 def test_configured_endpoint_cannot_change_huggingface_source():
-    from acprof.container.download_model import _prepare_repository_plan
+    from acprof.container.download_model import prepare_repository_plan
     info = SimpleNamespace(sha="a" * 40, siblings=[SimpleNamespace(rfilename="config.json", size=2)])
     with patch("huggingface_hub.HfApi.model_info", return_value=info) as hf, patch(
             "acprof.hub.repository.modelscope_info", side_effect=AssertionError("silent source change")), patch(
             "acprof.container.download_model._library_versions", return_value={}):
-        plan = _prepare_repository_plan("https://modelscope.cn", "demo/model", "a" * 40,
+        plan = prepare_repository_plan("https://modelscope.cn", "demo/model", "a" * 40,
                                         dependency={"allow_patterns": ["config.json"]})
     hf.assert_called_once()
     assert plan["source"] == "huggingface"

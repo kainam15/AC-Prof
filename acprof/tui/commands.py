@@ -10,7 +10,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
-from acprof.experiments.configuration import ConfigIssue, RunConfig, RunConfigError, _csv_values
+from acprof.experiments.configuration import ConfigIssue, RunConfig, RunConfigError, csv_values
 from acprof.experiments.options import configuration_arguments
 from acprof.installation import cli_command
 from acprof.tui.i18n import message_id
@@ -246,7 +246,7 @@ def build_profile_command(
     project_dir: Path,
     python_executable: str | Path = sys.executable,
 ) -> list[str]:
-    normalized_tools = ",".join(_csv_values(tools))
+    normalized_tools = ",".join(csv_values(tools))
     if not normalized_tools:
         raise RunConfigError([ConfigIssue(None, message_id('validation.profiling.empty_tools'))])
     command = [

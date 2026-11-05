@@ -339,10 +339,10 @@ def probe_perf_instructions(*, env=None) -> Capability:
 
 
 def require_mips_prerequisites() -> Capability:
-    from acprof.monitors.perf_mips import _friendly_mips_error
+    from acprof.monitors.perf_mips import friendly_mips_error
     result = probe_perf_instructions()
     if result.status != CapabilityStatus.AVAILABLE:
-        print(_friendly_mips_error(result.detail), file=sys.stderr)
+        print(friendly_mips_error(result.detail), file=sys.stderr)
         raise SystemExit(1)
     return result
 

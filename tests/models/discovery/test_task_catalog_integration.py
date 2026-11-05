@@ -92,6 +92,6 @@ def test_text_audio_uses_token_planning_and_forwards_manifest(task):
 
 @pytest.mark.parametrize(("task", "family", "required", "output_type"), [('table-question-answering', 'nlp', {'table', 'query'}, 'table_answer'), ('sentence-similarity', 'nlp', {'query', 'documents'}, 'similarity'), ('text-ranking', 'nlp', {'query', 'documents'}, 'ranking'), ('text-to-speech', 'audio', {'text'}, 'audio'), ('text-to-audio', 'audio', {'text'}, 'audio')])
 def test_static_input_contracts_describe_task_inputs(task, family, required, output_type):
-    inputs, outputs = model_schema._model_io_formats(info(task, family))
+    inputs, outputs = model_schema.model_io_formats(info(task, family))
     assert (required.issubset(inputs["json_schema"]["required"]))
     assert (output_type) in (outputs["json_schema"]["properties"]["output_type"]["enum"])

@@ -123,7 +123,7 @@ def test_declared_dependency_is_checked_before_weight_download():
     from pathlib import Path
     from unittest.mock import patch
 
-    from acprof.container.download_model import _prepare_repository_plan
+    from acprof.container.download_model import prepare_repository_plan
     index = 'model.safetensors.index.json'
     names = ['config.json', index, 'first.safetensors']
     hub = SimpleNamespace(sha='a' * 40, siblings=[SimpleNamespace(rfilename=name, size=100) for name in names])
@@ -133,7 +133,7 @@ def test_declared_dependency_is_checked_before_weight_download():
         with patch('huggingface_hub.HfApi.model_info', return_value=hub), patch(
             'huggingface_hub.hf_hub_download', return_value=str(path),
         ) as downloaded, pytest.raises(ValueError, match='missing checkpoint shards'):
-            _prepare_repository_plan('https://fixture.invalid', 'fixture/model', 'a' * 40,
+            prepare_repository_plan('https://fixture.invalid', 'fixture/model', 'a' * 40,
                                      dependency={'allow_patterns': names}, native_types=set(), library_versions={})
         assert (all(call.args[1] == index for call in downloaded.call_args_list))
 
@@ -143,7 +143,7 @@ def test_metadata_byte_limit_is_checked_after_download():
     from pathlib import Path
     from unittest.mock import patch
 
-    from acprof.container.download_model import _prepare_repository_plan
+    from acprof.container.download_model import prepare_repository_plan
     index = 'model.safetensors.index.json'
     hub = SimpleNamespace(sha='a' * 40, siblings=[SimpleNamespace(rfilename=index, size=100)])
     with tempfile.TemporaryDirectory() as directory:
@@ -152,7 +152,7 @@ def test_metadata_byte_limit_is_checked_after_download():
         with patch('huggingface_hub.HfApi.model_info', return_value=hub), patch(
             'huggingface_hub.hf_hub_download', return_value=str(path),
         ), pytest.raises(ValueError, match='invalid model metadata'):
-            _prepare_repository_plan('https://fixture.invalid', 'fixture/model', 'a' * 40,
+            prepare_repository_plan('https://fixture.invalid', 'fixture/model', 'a' * 40,
                                      dependency={'allow_patterns': [index]}, native_types=set(), library_versions={})
 
 

@@ -122,9 +122,9 @@ flowchart TD
 记录 `acprof/` 中的 `(source, target, symbol)`，CI 拒绝未登记的新 private dependency，
 也拒绝已经失效但仍留在 baseline 中的条目；具体范围与维护命令见
 [private API 检查](static-checks.md#跨模块-private-api-检查)。
-`client` 与 `measurement.publication`、`resource_metrics` 与资源采样器仍逐条登记，不给予整个子系统
-无限制豁免。posthoc 的 plan/profile 读取和数值转换使用包内公共 API；`latency_model` 的 analysis/plotting
-边界同样保留现有条目，后续按职责处理，不以消除下划线数量为目标。
+生产代码当前保持零跨模块 private dependency 基线；`client` 与 `measurement.publication`、
+`resource_metrics`/`resource_readers` 与资源采样器、posthoc 及结构化/ONNX 容器适配器均通过
+职责所属模块的显式公共 API 协作，不给予子系统无限制豁免。
 
 用户统一使用 `acprof <command>`，TUI 的正式入口为 `acprof tui`，由 `acprof.cli.main:main` 分发。
 `acprof.cli.tui` 是 TUI 命令的内部实现模块。根目录不包含 Python 文件；

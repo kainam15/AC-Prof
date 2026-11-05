@@ -7,14 +7,14 @@ from acprof.extensions import CATALOG, UnsupportedExtensionError
 from acprof.host.detect import TaskInfo
 
 
-def _model_io_formats(task_info: TaskInfo) -> tuple[dict[str, Any], dict[str, Any]]:
+def model_io_formats(task_info: TaskInfo) -> tuple[dict[str, Any], dict[str, Any]]:
     formats = CATALOG.describe(task_info).io_format
     if not {"input", "output"} <= formats.keys():
         raise UnsupportedExtensionError(f"IO format is not declared for {task_info.pipeline_tag}")
     return formats["input"], formats["output"]
 
 
-def _inference_precision_by_device(task_info: TaskInfo) -> dict[str, str]:
+def inference_precision_by_device(task_info: TaskInfo) -> dict[str, str]:
     policy = task_info.model_resolution.get("precision", {})
     if policy:
         return {"cpu" if device in {"cpu", "off"} else "gpu": value["dtype"] for device, value in policy.items()}

@@ -96,10 +96,10 @@ def recipe_identity(root: Path, recipe: str) -> dict:
 
 def platform_fingerprint(platform: PlatformSpec, project_dir=PROJECT_ROOT) -> str:
     root = Path(project_dir)
-    return _platform_fingerprint(platform_identity(platform, root), root)
+    return platform_identity_fingerprint(platform_identity(platform, root), root)
 
 
-def _platform_fingerprint(identity: dict, root: Path) -> str:
+def platform_identity_fingerprint(identity: dict, root: Path) -> str:
     return content_digest({"platform": identity,
                            "recipe": recipe_identity(root, "platform.Dockerfile")})
 
@@ -108,7 +108,7 @@ def runtime_fingerprint(environment: DependencyEnvironment, project_dir=PROJECT_
     """构建声明指纹；实际环境镜像的缓存键另加入固定平台 image ID。"""
     root = Path(project_dir)
     identity = environment_identity(environment, root)
-    return _runtime_fingerprint(identity, _platform_fingerprint(identity["platform"], root), root)
+    return _runtime_fingerprint(identity, platform_identity_fingerprint(identity["platform"], root), root)
 
 
 def _runtime_fingerprint(identity: dict, platform_key: str, root: Path) -> str:
@@ -234,7 +234,7 @@ def _source_policy(image_source: str | None) -> str:
 def _prepare_platform(platform: PlatformSpec, root: Path, platform_data: dict,
                       source_policy: str, registry: str | None) -> PreparedPlatform:
     # 构建键与输入目录必须来自同一份声明，避免读锁和计算键之间的变更被误标为新缓存。
-    platform_key = _platform_fingerprint(platform_data, root)
+    platform_key = platform_identity_fingerprint(platform_data, root)
     platform_name = f"acprof-platform-{platform.platform_id}:{platform_key[:20]}"
     expected_platform = {"platform_id": platform.platform_id, "platform_definition_id": content_digest(platform_data),
                          "platform_build_fingerprint": platform_key, "python_version": platform.python_version,

@@ -23,13 +23,13 @@ from acprof.plotting.data import (
     normalized_metric_spec,
 )
 from acprof.plotting.styles import (
-    _sort_key,
     build_cpu_base_colors,
     build_gpu_mixed_colors,
     color_for_mem,
     configurations_with_colors,
     shade_for_cpu,
     shade_for_mem,
+    sort_key,
 )
 from acprof.plotting.uncertainty import (
     INTERVAL_NOTE,
@@ -73,7 +73,7 @@ def plot_metric(
             (resource_coordinate(row.cpu_cores), resource_coordinate(row.mem_cap_gb), bool(row.gpu_on))
             for row in agg_df.itertuples(index=False)
         },
-        key=_sort_key,
+        key=sort_key,
     )
     has_cpu_series = any(not gpu_on for _, _, gpu_on in configs)
     gpu_mixed_colors = build_gpu_mixed_colors(configs) if has_cpu_series else {}
@@ -626,7 +626,7 @@ def plot_cold_start_bar(
             (resource_coordinate(row.cpu_cores), resource_coordinate(row.mem_cap_gb), bool(row.gpu_on), row.config, float(row.cold_start_s))
             for row in agg_df.itertuples(index=False)
         ],
-        key=lambda item: _sort_key(item[:3]),
+        key=lambda item: sort_key(item[:3]),
     )
     has_cpu_series = any(not gpu_on for _, _, gpu_on, _, _ in configs)
     gpu_mixed_colors = build_gpu_mixed_colors([item[:3] for item in configs]) if has_cpu_series else {}

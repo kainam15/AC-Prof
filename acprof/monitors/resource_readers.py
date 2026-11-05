@@ -246,7 +246,7 @@ def _read_proc_cpuinfo_freqs_hz(proc_cpuinfo_path: str) -> list[float]:
     return freqs
 
 
-def _prepare_cpu_frequency_reader(
+def prepare_cpu_frequency_reader(
     cpu_sysfs_root: str = "/sys/devices/system/cpu",
     proc_cpuinfo_path: str = "/proc/cpuinfo",
 ) -> Callable[[], tuple[float | None, float | None]]:
@@ -290,7 +290,7 @@ def _first_existing(paths: list[str]) -> str | None:
     return None
 
 
-def _resolve_container_metric_readers(
+def resolve_container_metric_readers(
     container_name: str,
     cgroup_root: str = "/sys/fs/cgroup",
     proc_root: str = "/proc",

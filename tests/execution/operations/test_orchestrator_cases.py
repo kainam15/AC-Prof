@@ -281,7 +281,7 @@ class TestOrchestratorCases:
                 cold_start_model_load_s=0.6,
                 cold_start_ready_wait_s=0.1,
             ),
-        ), patch("acprof.host.orchestrator._resolve_packet_latency_runtime", return_value=None), patch(
+        ), patch("acprof.host.orchestrator.resolve_packet_latency_runtime", return_value=None), patch(
             "acprof.host.orchestrator.stop_service_session"
         ), patch("acprof.system.command.run_command", side_effect=fake_run):
             orchestrator.run_single_case(
@@ -341,7 +341,7 @@ class TestOrchestratorCases:
                 host_port=8106,
                 cold_start_s=1.0,
             ),
-        ), patch("acprof.host.orchestrator._resolve_packet_latency_runtime", return_value=None), patch(
+        ), patch("acprof.host.orchestrator.resolve_packet_latency_runtime", return_value=None), patch(
             "acprof.host.orchestrator.stop_service_session"
         ), patch("acprof.system.command.run_command", side_effect=fake_run):
             orchestrator.run_single_case(
@@ -397,7 +397,7 @@ class TestOrchestratorCases:
                 cold_start_s=1.0,
             ),
         ), patch(
-            "acprof.host.orchestrator._resolve_packet_latency_runtime",
+            "acprof.host.orchestrator.resolve_packet_latency_runtime",
             return_value=None,
         ), patch(
             "acprof.host.orchestrator.stop_service_session"
@@ -457,7 +457,7 @@ class TestOrchestratorCases:
                 host_port=8106,
                 cold_start_s=1.0,
             ),
-        ), patch("acprof.host.orchestrator._resolve_packet_latency_runtime", return_value=None), patch(
+        ), patch("acprof.host.orchestrator.resolve_packet_latency_runtime", return_value=None), patch(
             "acprof.host.orchestrator.stop_service_session"
         ), patch("acprof.system.command.run_command", side_effect=fake_run):
             orchestrator.run_single_case(
@@ -519,7 +519,7 @@ class TestOrchestratorCases:
                 host_port=8106,
                 cold_start_s=1.0,
             ),
-        ) as start_container, patch("acprof.host.orchestrator._resolve_packet_latency_runtime", return_value=None), patch(
+        ) as start_container, patch("acprof.host.orchestrator.resolve_packet_latency_runtime", return_value=None), patch(
             "acprof.host.orchestrator.stop_service_session"
         ), patch("acprof.system.command.run_command", side_effect=fake_run):
             orchestrator.run_single_case(
@@ -578,7 +578,7 @@ class TestOrchestratorCases:
                 host_port=8106,
                 cold_start_s=1.0,
             ),
-        ), patch("acprof.host.orchestrator._resolve_packet_latency_runtime", return_value=None), patch(
+        ), patch("acprof.host.orchestrator.resolve_packet_latency_runtime", return_value=None), patch(
             "acprof.host.orchestrator.stop_service_session"
         ), patch("acprof.system.command.run_command", side_effect=fake_run):
             orchestrator.run_single_case(
@@ -639,7 +639,7 @@ class TestOrchestratorCases:
                 host_port=8106,
                 cold_start_s=1.0,
             ),
-        ), patch("acprof.host.orchestrator._resolve_packet_latency_runtime", return_value=None), patch(
+        ), patch("acprof.host.orchestrator.resolve_packet_latency_runtime", return_value=None), patch(
             "acprof.host.orchestrator.stop_service_session"
         ), patch(
             "acprof.host.container_state.container_runtime_oom_error",
@@ -746,7 +746,7 @@ class TestOrchestratorCases:
                 cold_start_s=1.0,
             ),
         ), patch(
-            "acprof.host.orchestrator._resolve_packet_latency_runtime",
+            "acprof.host.orchestrator.resolve_packet_latency_runtime",
             return_value=None,
         ), patch(
             "acprof.host.container_state.inspect_container_state",
@@ -827,7 +827,7 @@ class TestOrchestratorCases:
                 cold_start_s=1.0,
             ),
         ), patch(
-            "acprof.host.orchestrator._resolve_packet_latency_runtime",
+            "acprof.host.orchestrator.resolve_packet_latency_runtime",
             return_value=None,
         ), patch(
             "acprof.host.container_state.container_runtime_oom_error",
@@ -920,7 +920,7 @@ class TestOrchestratorCases:
                 cold_start_s=1.0,
             ),
         ), patch(
-            "acprof.host.orchestrator._resolve_packet_latency_runtime",
+            "acprof.host.orchestrator.resolve_packet_latency_runtime",
             return_value=None,
         ), patch(
             "acprof.host.orchestrator.stop_service_session"
@@ -1034,7 +1034,7 @@ class TestOrchestratorCases:
                 cold_start_s=1.0,
             ),
         ), patch(
-            "acprof.host.orchestrator._resolve_packet_latency_runtime",
+            "acprof.host.orchestrator.resolve_packet_latency_runtime",
             return_value=None,
         ), patch(
             "acprof.host.orchestrator.stop_service_session"
@@ -1167,7 +1167,7 @@ class TestOrchestratorCases:
                 host_port=8106,
                 cold_start_s=1.0,
             ),
-        ), patch("acprof.host.orchestrator._resolve_packet_latency_runtime", return_value=None), patch(
+        ), patch("acprof.host.orchestrator.resolve_packet_latency_runtime", return_value=None), patch(
             "acprof.host.orchestrator.stop_service_session"
         ), patch("acprof.system.command.run_command", side_effect=fake_run):
             csv_path = orchestrator.run_single_case(
@@ -1220,7 +1220,7 @@ class TestOrchestratorCases:
                 host_port=8106,
                 cold_start_s=1.0,
             ),
-        ), patch("acprof.host.orchestrator._resolve_packet_latency_runtime", return_value=None), patch(
+        ), patch("acprof.host.orchestrator.resolve_packet_latency_runtime", return_value=None), patch(
             "acprof.host.orchestrator.stop_service_session"
         ), patch("acprof.system.command.run_command", side_effect=fake_run), redirect_stderr(stdout):
             csv_path = orchestrator.run_single_case(
@@ -1280,7 +1280,7 @@ class TestOrchestratorCases:
                 host_port=8106,
                 cold_start_s=1.0,
             ),
-        ), patch("acprof.host.orchestrator._resolve_packet_latency_runtime", return_value=None), patch(
+        ), patch("acprof.host.orchestrator.resolve_packet_latency_runtime", return_value=None), patch(
             "acprof.host.orchestrator.stop_service_session"
         ), patch("acprof.system.command.run_command", side_effect=fake_run), redirect_stderr(stdout):
             csv_path = orchestrator.run_single_case(
@@ -1317,7 +1317,7 @@ class TestOrchestratorCases:
 
     def test_resolve_packet_latency_runtime_requires_local_linux_tools(self) -> None:
         with patch("acprof.host.measurement.capture.shutil.which", return_value=None):
-            runtime = packet_capture._resolve_packet_latency_runtime(
+            runtime = packet_capture.resolve_packet_latency_runtime(
                 project_dir="/repo",
                 pcap_file="/repo/results/sniff_case.pcap",
                 sniff_iface="docker0",
@@ -1345,7 +1345,7 @@ class TestOrchestratorCases:
             "acprof.system.command.run_command",
             side_effect=fake_run,
         ):
-            runtime = packet_capture._resolve_packet_latency_runtime(
+            runtime = packet_capture.resolve_packet_latency_runtime(
                 project_dir="/repo",
                 pcap_file="/repo/results/sniff_case.pcap",
                 sniff_iface="docker0",
@@ -1364,7 +1364,7 @@ class TestOrchestratorCases:
             returncode=0, stdout='', stderr='',
         )) as run:
             with pytest.raises(packet_capture.PacketLatencyError, match='capture capability'):
-                packet_capture._resolve_packet_latency_runtime('/repo', '/tmp/test.pcap', 'docker0')
+                packet_capture.resolve_packet_latency_runtime('/repo', '/tmp/test.pcap', 'docker0')
         assert (run.call_args_list[0].args[0]) == (['getcap', '/usr/bin/tcpdump'])
         assert (run.call_count) == (1)
 
@@ -1387,7 +1387,7 @@ class TestOrchestratorCases:
                 host_port=8106,
                 cold_start_s=1.0,
             ),
-        ), patch("acprof.host.orchestrator._resolve_packet_latency_runtime", return_value=None), patch(
+        ), patch("acprof.host.orchestrator.resolve_packet_latency_runtime", return_value=None), patch(
             "acprof.host.orchestrator.stop_service_session"
         ):
             with pytest.raises(packet_capture.PacketLatencyError) as raised:

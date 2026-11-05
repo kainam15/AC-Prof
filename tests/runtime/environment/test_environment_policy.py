@@ -172,7 +172,7 @@ class TestEnvironmentPolicy:
 
         from acprof.monitors import resource_readers, resource_usage
         with patch("acprof.platform.detect_environment", return_value=WSL), patch.object(
-            resource_readers, "_resolve_container_metric_readers", return_value=resource_readers._ContainerReaders(),
+            resource_readers, "resolve_container_metric_readers", return_value=resource_readers._ContainerReaders(),
         ):
             monitor = resource_usage.ResourceUsageMonitor()
         monitor._gpu_handle = "gpu"

@@ -11,7 +11,7 @@ from acprof.container.handlers.diffusion import DiffusionHandler
 from acprof.host.detect import TaskInfo
 from acprof.host.images.runtime import ImageInfo
 from acprof.host.input_plan import plan_input_scales
-from acprof.host.model_schema import _inference_precision_by_device, _model_io_formats
+from acprof.host.model_schema import inference_precision_by_device, model_io_formats
 from acprof.workloads.diffusion import (
     BASE_SEED,
     DEFAULT_GUIDANCE_SCALE,
@@ -205,11 +205,11 @@ class TestDiffusionMetadata:
         )
 
     def test_static_io_contract_and_precision_are_diffusion_specific(self) -> None:
-        input_format, output_format = _model_io_formats(self._task_info())
+        input_format, output_format = model_io_formats(self._task_info())
 
         assert (input_format["json_schema"]["properties"]["resolution"]["multipleOf"]) == (8)
         assert (output_format["json_schema"]["properties"]["output_type"]["enum"]) == (["image"])
-        assert (_inference_precision_by_device(self._task_info())) == ({"cpu": "FP32", "gpu": "FP16"})
+        assert (inference_precision_by_device(self._task_info())) == ({"cpu": "FP32", "gpu": "FP16"})
 
     def test_default_scale_plan_uses_supported_resolutions(self) -> None:
         with tempfile.TemporaryDirectory() as output_dir:

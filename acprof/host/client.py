@@ -442,7 +442,7 @@ class ClientRunner:
                     "status": "error",
                     "error": f"ready_failed: {ready_error!r}",
                 })
-                client_publication._append_row(writer, row, f, sidecar_f, "")
+                client_publication.append_row(writer, row, f, sidecar_f, "")
                 return
 
             for scale_entry in self.input_scale_entries:
@@ -479,7 +479,7 @@ class ClientRunner:
                     result.row["packet_status"] = (
                         "pending" if measurement_requested(self.config.profiling_mode, "packet_latency") else "not_requested"
                     )
-                    client_publication._append_row(
+                    client_publication.append_row(
                         writer,
                         result.row,
                         f,

@@ -27,7 +27,7 @@ from acprof.results.csv import (
     verify_result_source,
 )
 from acprof.system.command import run_command
-from acprof.tui.commands import _csv_values
+from acprof.tui.commands import csv_values
 from acprof.tui.i18n import error_message, message_id
 
 if TYPE_CHECKING:
@@ -85,8 +85,8 @@ def _readable_rapl_paths(
     powercap_root: str | os.PathLike[str] = "/sys/class/powercap",
 ) -> list[str]:
     """Use the production package-domain reader, including real read checks."""
-    from acprof.monitors.energy_cpu import _discover_rapl_domains
-    return sorted(domain.energy_path for domain in _discover_rapl_domains(os.fspath(powercap_root)))
+    from acprof.monitors.energy_cpu import discover_rapl_domains
+    return sorted(domain.energy_path for domain in discover_rapl_domains(os.fspath(powercap_root)))
 
 
 def quick_preflight(
@@ -246,7 +246,7 @@ def quick_preflight(
     else:
         checks.append(PreflightCheck("perf instructions", "not_requested" if perf_status == "not_requested" else "fail", f"{perf_status}: {perf.detail}", perf_status))
 
-    if "on" in [normalize_gpu_mode(value) for value in _csv_values(config.gpus)]:
+    if "on" in [normalize_gpu_mode(value) for value in csv_values(config.gpus)]:
         nvidia_smi = shutil.which("nvidia-smi")
         if nvidia_smi:
             try:

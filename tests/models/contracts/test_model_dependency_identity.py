@@ -66,7 +66,7 @@ def test_distinct_ids_cannot_alias_the_same_loader_directory(collides_with):
 def test_planning_rejects_main_collision_before_metadata_or_cache_creation(tmp_path, source):
     plan = _plan(source, dependency_id="example/model")
     root = tmp_path / "store"
-    with patch("acprof.container.download_model._prepare_repository_plan",
+    with patch("acprof.container.download_model.prepare_repository_plan",
                side_effect=AssertionError("unexpected repository request")) as metadata:
         with pytest.raises(ValueError, match="offline loader"):
             model_store.plan_model(_task(plan), root)

@@ -16,8 +16,8 @@ from acprof.host.metadata import machine as machine_metadata
 from acprof.host.metadata.gpu import probe_gpu_metadata
 from acprof.host.metadata.platform import operating_system_label
 from acprof.host.model_schema import (
-    _inference_precision_by_device,
-    _model_io_formats,
+    inference_precision_by_device,
+    model_io_formats,
 )
 from acprof.host.runtimes.contracts import RuntimeArtifact
 from acprof.monitors.rapl_topology import discover_rapl_topology
@@ -177,7 +177,7 @@ def collect_static_meta(
     docker_storage: dict[str, Any] = dict.fromkeys(('docker_storage_total_bytes', 'docker_storage_available_bytes_at_start'), None) if process else machine_metadata.docker_storage_metadata()
     if process:
         docker_storage.update(docker_storage_filesystem='not_applicable', docker_storage_device='not_applicable', docker_storage_type='not_applicable')
-    input_format, output_format = _model_io_formats(task_info)
+    input_format, output_format = model_io_formats(task_info)
     manifest = getattr(image_info, "runtime_environment", {})
     store = manifest.get("model_store")
     model_bytes = store["model_artifact_bytes"] if store else None if process else machine_metadata.docker_model_cache_bytes(image_tag)
@@ -195,7 +195,7 @@ def collect_static_meta(
         parameter_bytes=task_info.parameter_bytes,
         precision_dtype=task_info.precision_dtype,
         parameter_dtype_counts=dict(task_info.parameter_dtype_counts),
-        inference_precision_by_device=_inference_precision_by_device(task_info),
+        inference_precision_by_device=inference_precision_by_device(task_info),
         input_format=input_format,
         output_format=output_format,
         quantized=task_info.quantized,

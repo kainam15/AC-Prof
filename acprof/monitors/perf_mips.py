@@ -348,7 +348,7 @@ def resolve_perf_command_prefix_for_pid(pid: int) -> list[str]:
     raise MIPSProfilingError(f"{last_error}; see docs/getting_started/installation.md#最小权限安装")
 
 
-def _friendly_mips_error(detail: str, *, perf_path: str | None = None,
+def friendly_mips_error(detail: str, *, perf_path: str | None = None,
                          paranoid: str | None = None) -> str:
     perf_path = perf_path if perf_path is not None else shutil.which("perf") or "not found"
     paranoid = paranoid if paranoid is not None else read_perf_event_paranoid()
@@ -373,7 +373,7 @@ def require_mips_prerequisites() -> None:
     try:
         resolve_perf_command_prefix()
     except Exception as exc:
-        print(_friendly_mips_error(str(exc)), file=sys.stderr)
+        print(friendly_mips_error(str(exc)), file=sys.stderr)
         raise SystemExit(1) from None
 
 
@@ -553,7 +553,7 @@ class PerfMIPSMonitor:
             parsed = parse_perf_stat_output(output, fallback_elapsed_s=wall_elapsed_s)
         except MIPSProfilingError as exc:
             detail = output.strip() or str(exc)
-            raise MIPSProfilingError(_friendly_mips_error(
+            raise MIPSProfilingError(friendly_mips_error(
                 detail, perf_path=self._perf_path, paranoid=self._paranoid)) from exc
 
         repeat = max(1, int(repeat_in_window))

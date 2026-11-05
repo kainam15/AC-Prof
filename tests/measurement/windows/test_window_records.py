@@ -40,7 +40,7 @@ def publish(tmp_path, context, *, failure=None):
                 def writerow(self, row):
                     raise OSError("CSV disk full")
             writer = BrokenWriter()
-        client_publication._append_row(
+        client_publication.append_row(
             writer, {"status": "ok", "error": "", "latency_app_s": "0.200000"},
             result_stream, sidecar_stream, "case_scale1_r0", publication=context,
             telemetry_evidence=evidence, request_record=request,

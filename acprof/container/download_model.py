@@ -40,7 +40,7 @@ def _library_versions() -> dict[str, str]:
     return result
 
 
-def _prepare_repository_plan(endpoint: str, model_id: str, revision: str, *, dependency: dict | None = None,
+def prepare_repository_plan(endpoint: str, model_id: str, revision: str, *, dependency: dict | None = None,
                              cache_dir: str | None = None, task=None, native_types=None, library_versions=None,
                              source: str = "huggingface") -> dict:
     from huggingface_hub import HfApi, hf_hub_download

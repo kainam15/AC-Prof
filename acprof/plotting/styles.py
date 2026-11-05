@@ -13,7 +13,7 @@ from acprof.plotting.config import (
 )
 
 
-def _sort_key(config: tuple[float, float, bool]) -> tuple[int, float, float]:
+def sort_key(config: tuple[float, float, bool]) -> tuple[int, float, float]:
     cpu, mem, gpu_on = config
     return 0 if gpu_on else 1, cpu, mem
 
@@ -95,7 +95,7 @@ def configurations_with_colors(
             (resource_coordinate(row.cpu_cores), resource_coordinate(row.mem_cap_gb), bool(row.gpu_on))
             for row in agg_df.itertuples(index=False)
         },
-        key=_sort_key,
+        key=sort_key,
     )
     has_cpu_series = any(not gpu_on for _, _, gpu_on in configs)
     gpu_mixed_colors = build_gpu_mixed_colors(configs) if has_cpu_series else {}

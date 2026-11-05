@@ -11,7 +11,7 @@ import pytest
 
 from acprof.extensions import CATALOG, UnsupportedExtensionError, load_catalog
 from acprof.host.detect import TaskInfo
-from acprof.host.model_schema import _inference_precision_by_device, _model_io_formats
+from acprof.host.model_schema import inference_precision_by_device, model_io_formats
 
 
 @pytest.mark.parametrize('row', [row for row in json.loads((Path(__file__).parents[2] / "fixtures").joinpath("extension_contracts_v1.json").read_text())["cases"] if row["extension"] != "torch-timeseries-legacy"])
@@ -21,8 +21,8 @@ def test_existing_io_and_precision_contracts(row):
         return  # Rejected execution route, covered separately below.
     task = TaskInfo("fixture/model", row["task"], row["family"], row["backend"], "", "fixed", "manual",
                     model_adapter=row["adapter"])
-    assert (_inference_precision_by_device(task)) == (row["precision"])
-    digest = hashlib.sha256(json.dumps(_model_io_formats(task), sort_keys=True).encode()).hexdigest()
+    assert (inference_precision_by_device(task)) == (row["precision"])
+    digest = hashlib.sha256(json.dumps(model_io_formats(task), sort_keys=True).encode()).hexdigest()
     assert (digest) == (row["io_sha256"])
 
 @pytest.mark.parametrize('task_case', range(15))
@@ -68,10 +68,10 @@ def test_schema_v1_and_malformed_nested_fields_fail(payload):
 
 def test_precision_policy_is_independent_of_checkpoint_storage_dtype():
     task = TaskInfo("fixture/model", "time-series-forecasting", "timeseries", "chronos", "chronos", "fixed", "manual")
-    assert (_inference_precision_by_device(replace(task, precision_dtype="BF16"))) == ({"cpu": "FP32", "gpu": "FP16"})
-    first, _ = _model_io_formats(task)
+    assert (inference_precision_by_device(replace(task, precision_dtype="BF16"))) == ({"cpu": "FP32", "gpu": "FP16"})
+    first, _ = model_io_formats(task)
     first["json_schema"]["required"].clear()
-    assert (_model_io_formats(task)[0]["json_schema"]["required"]) == (["context", "prediction_length"])
+    assert (model_io_formats(task)[0]["json_schema"]["required"]) == (["context", "prediction_length"])
 
 def test_priority_is_order_independent_and_equal_priority_conflicts_fail():
     from acprof.extensions.schema import BackendRule
@@ -186,5 +186,5 @@ def test_new_family_and_non_torch_runtime_reach_existing_consumers():
             planned = input_plan.plan_input_scales(task, None, [1], [2], ["off"], 1, tmp, workload_spec_path="fixture.json")
             assert (planned.scales) == ([2, 4])
             assert (json.loads(Path(planned.plan_file).read_text())["entries"][1]["payload"]) == ({"values": [1, 1, 1, 1]})
-            assert (model_schema._model_io_formats(task)) == ((io_format["input"], io_format["output"]))
+            assert (model_schema.model_io_formats(task)) == ((io_format["input"], io_format["output"]))
             start.assert_not_called()

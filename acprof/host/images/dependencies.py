@@ -41,7 +41,7 @@ def dependency_stage(rows: list[dict]) -> str:
 
 
 def describe_dependencies(inventory: ImageInventory) -> ImageInventory:
-    from acprof.host.images.environment import _platform_fingerprint
+    from acprof.host.images.environment import platform_identity_fingerprint
     from acprof.installation import resource_root
     from acprof.runtime.dependency_locks import content_digest, package_versions
     from acprof.runtime.profiles import (
@@ -55,7 +55,7 @@ def describe_dependencies(inventory: ImageInventory) -> ImageInventory:
     for spec in PLATFORMS.values():
         try:
             identity = platform_identity(spec, root)
-            platforms[(spec.platform_id, _platform_fingerprint(identity, root))] = identity
+            platforms[(spec.platform_id, platform_identity_fingerprint(identity, root))] = identity
         except (OSError, ValueError, KeyError):
             continue
     for spec in ENVIRONMENTS.values():

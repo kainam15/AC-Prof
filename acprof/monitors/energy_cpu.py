@@ -105,7 +105,7 @@ def _clock_ticks_per_second() -> float:
     return 100.0
 
 
-def _discover_rapl_domains(powercap_root: str = "/sys/class/powercap") -> list[RaplDomain]:
+def discover_rapl_domains(powercap_root: str = "/sys/class/powercap") -> list[RaplDomain]:
     return _topology_domains(discover_rapl_topology(powercap_root), "package")
 
 
@@ -115,7 +115,7 @@ def _topology_domains(topology: dict, kind: str) -> list[RaplDomain]:
 
 
 def detect_cpu_power_source(powercap_root: str = "/sys/class/powercap") -> str:
-    return "rapl" if _discover_rapl_domains(powercap_root) else "unavailable"
+    return "rapl" if discover_rapl_domains(powercap_root) else "unavailable"
 
 
 def detect_vcpu_power_method(

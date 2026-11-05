@@ -24,8 +24,8 @@ from acprof.host.images.identity import model_token
 from acprof.host.input_plan import resolve_input_scales, serialize_input_scales
 from acprof.host.measurement.capture import (
     PacketLatencyRuntime,
-    _packet_latency_error,
-    _resolve_packet_latency_runtime,
+    packet_latency_error,
+    resolve_packet_latency_runtime,
 )
 from acprof.host.measurement.config import ClientConfig
 from acprof.host.measurement.energy_validation import (
@@ -79,15 +79,15 @@ def _assert_packet_latency_csv_complete(
     import csv
 
     if not os.path.exists(csv_path):
-        raise _packet_latency_error(f"result CSV does not exist: {csv_path}")
+        raise packet_latency_error(f"result CSV does not exist: {csv_path}")
 
     with open(csv_path, encoding="utf-8", newline="") as f:
         allow_large_csv_fields()
         reader = csv.DictReader(f)
         if not reader.fieldnames:
-            raise _packet_latency_error(f"result CSV is empty: {csv_path}")
+            raise packet_latency_error(f"result CSV is empty: {csv_path}")
         if "latency_s" not in reader.fieldnames:
-            raise _packet_latency_error(f"latency_s column is missing in {csv_path}")
+            raise packet_latency_error(f"latency_s column is missing in {csv_path}")
 
         total = 0
         missing = 0
@@ -106,10 +106,10 @@ def _assert_packet_latency_csv_complete(
                 missing += 1
 
     if total == 0 and not ignore_error_rows:
-        raise _packet_latency_error(f"result CSV has no rows: {csv_path}")
+        raise packet_latency_error(f"result CSV has no rows: {csv_path}")
 
     if missing:
-        raise _packet_latency_error(
+        raise packet_latency_error(
             f"latency_s is missing for {missing}/{total} row(s) in {csv_path}"
         )
 
@@ -262,7 +262,7 @@ class _CaseExecution:
             raise
 
     def _start_capture(self) -> PacketLatencyRuntime | None:
-        runtime = _resolve_packet_latency_runtime(
+        runtime = resolve_packet_latency_runtime(
             project_dir=self.request.project_dir, pcap_file=str(self.case.pcap),
             sniff_iface=self.measurement.sniff_iface,
         ) if measurement_requested(self.measurement.profiling_mode, "packet_latency") else None
@@ -273,15 +273,15 @@ class _CaseExecution:
                     runtime.tcpdump_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                 )
             except OSError as exc:
-                raise _packet_latency_error("failed to start tcpdump", repr(exc)) from exc
+                raise packet_latency_error("failed to start tcpdump", repr(exc)) from exc
             time.sleep(0.3)
             if self.require_packet_latency and self.capture.poll() is not None:
-                raise _packet_latency_error(
+                raise packet_latency_error(
                     "tcpdump exited before workload started",
                     f"command={' '.join(runtime.tcpdump_cmd)}",
                 )
         elif self.require_packet_latency:
-            raise _packet_latency_error("tcpdump/tshark runtime could not be resolved")
+            raise packet_latency_error("tcpdump/tshark runtime could not be resolved")
         elif measurement_requested(self.measurement.profiling_mode, "packet_latency"):
             print("[sniff] tcpdump/tshark unavailable, skipping packet-level latency")
         else:
@@ -567,26 +567,26 @@ def _finalize_case(capture_available: bool, sniff_runtime, case_incomplete, comp
             )
         elif not os.path.exists(pcap_file) or os.path.getsize(pcap_file) <= 0:
             if require_packet_latency:
-                raise _packet_latency_error(
+                raise packet_latency_error(
                     f"pcap file is missing or empty: {pcap_file}"
                 )
         else:
             print("[sniff] Parsing pcap -> packet latencies...")
             if sniff_runtime is None:
-                raise _packet_latency_error("packet capture parser was not initialized")
+                raise packet_latency_error("packet capture parser was not initialized")
             parse_result = run_packet_command(sniff_runtime.parse_cmd, stage="pcap parsing")
             parse_output = parse_result.stdout.strip()
             if parse_result.returncode != 0:
-                raise _packet_latency_error(
+                raise packet_latency_error(
                     "pcap parsing failed",
                     (parse_result.stderr or parse_result.stdout or "").strip(),
                 )
             if not parse_output:
-                raise _packet_latency_error("pcap parser produced no output")
+                raise packet_latency_error("pcap parser produced no output")
             try:
                 latency_payload = json.loads(parse_output)
             except json.JSONDecodeError as exc:
-                raise _packet_latency_error(
+                raise packet_latency_error(
                     "pcap parser produced invalid JSON",
                     repr(exc),
                 ) from exc
@@ -601,7 +601,7 @@ def _finalize_case(capture_available: bool, sniff_runtime, case_incomplete, comp
                 latency_payload = merge_capture_segments(latency_payload, capture_segments, SERVER_PORT)
                 latency_records = latency_payload["requests"]
             if not isinstance(latency_records, dict) or not latency_records:
-                raise _packet_latency_error(
+                raise packet_latency_error(
                     "pcap parser did not find matching request latency records"
                 )
             atomic_write(
@@ -615,7 +615,7 @@ def _finalize_case(capture_available: bool, sniff_runtime, case_incomplete, comp
             )
 
             if not os.path.exists(out_csv):
-                raise _packet_latency_error(
+                raise packet_latency_error(
                     f"client did not produce result CSV: {out_csv}"
                 )
 
@@ -623,12 +623,12 @@ def _finalize_case(capture_available: bool, sniff_runtime, case_incomplete, comp
             merged_csv = out_csv + ".merged"
             merge_result = run_packet_command([*module_command('acprof.packet.merge_packet_latency'), out_csv, lat_json, merged_csv], stage="packet latency merge")
             if merge_result.returncode != 0:
-                raise _packet_latency_error(
+                raise packet_latency_error(
                     "packet latency merge failed",
                     (merge_result.stderr or merge_result.stdout or "").strip(),
                 )
             if not os.path.exists(merged_csv):
-                raise _packet_latency_error(
+                raise packet_latency_error(
                     f"packet latency merge did not produce {merged_csv}"
                 )
             replace_file_durably(merged_csv, out_csv)

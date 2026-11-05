@@ -128,7 +128,7 @@ def append_request_window(stream, *, sniff_group_id, input_scale, warmup, repeat
     }}
 
 
-def _append_row(
+def append_row(
     writer: csv.DictWriter,
     row: dict[str, Any],
     f,

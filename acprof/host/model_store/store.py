@@ -321,7 +321,7 @@ def plan_model(task, root: Path | None = None) -> dict:
     request = model_download_request(task)
     dependencies = validate_dependencies(request["dependencies"],
                                          primary_model_id=task.model_id)
-    from acprof.container.download_model import _prepare_repository_plan
+    from acprof.container.download_model import prepare_repository_plan
     from acprof.installation import resource_root
     from acprof.runtime.dependency_locks import package_versions, read_python_lock
     from acprof.runtime.profiles import select_runtime_profile
@@ -349,14 +349,14 @@ def plan_model(task, root: Path | None = None) -> dict:
         source = getattr(task, "model_source", "huggingface")
         endpoints = [MODELSCOPE_ENDPOINT] if source == "modelscope" else hf_endpoints()
         def prepare(endpoint):
-            plan = _prepare_repository_plan(endpoint, task.model_id, task.model_revision,
+            plan = prepare_repository_plan(endpoint, task.model_id, task.model_revision,
                                                 cache_dir=str(root / "hf"), task=task,
                                                 native_types=native_types, library_versions=versions, source=source)
             if dependencies:
                 plan["dependencies"] = []
                 for item in dependencies:
                     def prepare_dependency(hub):
-                        return _prepare_repository_plan(hub, item["repo_id"], item["revision"], dependency=item,
+                        return prepare_repository_plan(hub, item["repo_id"], item["revision"], dependency=item,
                             cache_dir=str(root / "hf"), task=task, native_types=native_types, library_versions=versions)
                     dependency = (try_hf_endpoints(item["repo_id"], prepare_dependency)
                                   if source == "modelscope" else prepare_dependency(endpoint))

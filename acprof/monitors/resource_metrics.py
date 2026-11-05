@@ -128,7 +128,7 @@ def _mean(values: list[float]) -> float:
     return sum(values) / len(values) if values else float("nan")
 
 
-def _normalize_pstate(value: object) -> str | None:
+def normalize_pstate(value: object) -> str | None:
     if isinstance(value, str):
         normalized = value.strip().upper()
         if normalized.startswith("P") and normalized[1:].isdigit():
@@ -144,7 +144,7 @@ def _normalize_pstate(value: object) -> str | None:
 
 
 def _dominant_pstate(values: list[str]) -> str:
-    normalized = [state for value in values if (state := _normalize_pstate(value))]
+    normalized = [state for value in values if (state := normalize_pstate(value))]
     if not normalized:
         return "nan"
     counts = Counter(normalized)

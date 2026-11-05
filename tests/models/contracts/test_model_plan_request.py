@@ -77,7 +77,7 @@ def test_preparation_binds_plan_to_task_before_any_cache_or_transport(task, plan
 def test_cached_plan_must_match_the_task_without_network_fallback(task, plan, tmp_path, field):
     path = _publish(tmp_path, model_store.entry_key(task), _mismatch(plan, field))
     before = path.read_bytes()
-    with patch("acprof.container.download_model._prepare_repository_plan", side_effect=AssertionError("unexpected metadata")) as lookup:
+    with patch("acprof.container.download_model.prepare_repository_plan", side_effect=AssertionError("unexpected metadata")) as lookup:
         with pytest.raises(ModelFilesError, match=field):
             model_store.plan_model(task, tmp_path)
     lookup.assert_not_called()
@@ -96,7 +96,7 @@ def test_cached_plan_appearing_while_waiting_for_lock_is_also_bound_to_task(task
             yield
 
     with patch.object(model_store, "store_lock", side_effect=publish_under_lock), patch(
-            "acprof.container.download_model._prepare_repository_plan", side_effect=AssertionError("unexpected metadata")) as lookup:
+            "acprof.container.download_model.prepare_repository_plan", side_effect=AssertionError("unexpected metadata")) as lookup:
         with pytest.raises(ModelFilesError, match="model_id"):
             model_store.plan_model(task, root)
     lookup.assert_not_called()
@@ -129,7 +129,7 @@ def test_legacy_source_and_transport_context_do_not_change_pinned_identity(task,
     original = path.read_bytes()
     task.requested_revision = "release-v1"
     with patch.object(model_store, "store_lock", side_effect=AssertionError("cache hit took write lock")), patch(
-            "acprof.container.download_model._prepare_repository_plan", side_effect=AssertionError("cache hit requested metadata")):
+            "acprof.container.download_model.prepare_repository_plan", side_effect=AssertionError("cache hit requested metadata")):
         result = model_store.plan_model(task, tmp_path)
     assert "source" not in result
     assert result == json.loads(original)

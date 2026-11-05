@@ -7,7 +7,7 @@ from typing import Any
 import numpy as np
 import onnxruntime as ort
 
-from acprof.container.handlers.structured import _artifact_path, _local_snapshot
+from acprof.container.handlers.structured import artifact_path, local_snapshot
 from acprof.models.spec import load_model_spec
 from acprof.runtime.settings import onnx_runtime_parameters
 
@@ -25,10 +25,10 @@ def load_session(model_source: str, task_type: str, backend: str, device: str,
         raise ValueError('unsupported: ONNX Runtime extension is CPU only and requires backend=onnxruntime')
     if load_options:
         raise ValueError('unsupported: ONNX Runtime does not implement Torch attention/profiler options')
-    root = _local_snapshot(model_source, model_revision)
+    root = local_snapshot(model_source, model_revision)
     manifest = load_model_spec(str(root), task_type, expected_format='onnxruntime')
     if manifest:
-        artifact = _artifact_path(root, manifest.get('model_file'))
+        artifact = artifact_path(root, manifest.get('model_file'))
     else:
         artifacts = sorted(root.rglob('*.onnx'))
         if len(artifacts) != 1:
