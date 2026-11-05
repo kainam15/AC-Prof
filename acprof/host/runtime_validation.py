@@ -119,6 +119,7 @@ def validate_runtime(
             cidfile = Path(temporary) / f"{device_mode}.cid"
             model_store_mount = acquire_mount(image_info.runtime_environment)
             try:
+                cidfile = model_store_mount.begin_launch(cidfile)
                 command = [
                     "docker", "run", "--name", name, "--cidfile", str(cidfile), *labels, "--network", "none",
                     "--read-only", "--cap-drop=ALL", "--security-opt", "no-new-privileges", "--pids-limit=256",

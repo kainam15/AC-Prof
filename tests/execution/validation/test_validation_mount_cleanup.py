@@ -21,7 +21,7 @@ CID = "c" * 64
 @pytest.fixture
 def validation(tmp_path, monkeypatch):
     options = _ValidationFixture().fixture(tmp_path)
-    mount = SimpleNamespace(args=[], close=Mock())
+    mount = SimpleNamespace(args=[], close=Mock(), begin_launch=lambda path: path)
     retained = Mock()
     monkeypatch.setattr("acprof.host.model_store.store.acquire_mount", Mock(return_value=mount))
     monkeypatch.setattr("acprof.host.model_store.store.retain_mount_for_cleanup_debt", retained)

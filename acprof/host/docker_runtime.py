@@ -22,7 +22,9 @@ from acprof.config import (
 from acprof.gpu_mode import normalize_gpu_mode
 from acprof.host import container_state
 from acprof.host.container_lifecycle import (
+    ContainerCleanupError,
     container_owner_labels,
+    owned_container_id,
     recover_abandoned_containers,
     remove_owned_container,
 )
@@ -127,26 +129,31 @@ def service_port(cpu: int, mem: int) -> int:
     return SERVER_PORT + cpu * 100 + mem
 
 
-def _launch_container(command: list[str]) -> str:
+def _launch_container(command: list[str], *, cidfile: Path | None = None) -> str:
     """Track ownership even if Docker creates a container but fails to start it."""
-    with tempfile.TemporaryDirectory(prefix="acprof-container-") as directory:
-        cidfile = Path(directory) / "container.cid"
+    if cidfile is None:
+        with tempfile.TemporaryDirectory(prefix="acprof-container-") as directory:
+            return _launch_container(command, cidfile=Path(directory) / "container.cid")
+    try:
+        result = host_command.run_command(
+            [*command[:3], '--cidfile', str(cidfile), *command[3:]],
+            check=False, timeout=DOCKER_RUN_TIMEOUT_S,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(f"docker run failed: {result.stderr.strip()}")
+        identifier = result.stdout.strip()
+        if not re.fullmatch(r"[0-9a-f]{64}", identifier):
+            raise RuntimeError("docker run did not return an immutable container ID")
+        return identifier
+    except BaseException as run_error:
         try:
-            result = host_command.run_command(
-                [*command[:3], '--cidfile', str(cidfile), *command[3:]],
-                check=False, timeout=DOCKER_RUN_TIMEOUT_S,
-            )
-            if result.returncode != 0:
-                raise RuntimeError(f"docker run failed: {result.stderr.strip()}")
-            identifier = result.stdout.strip()
-            if not re.fullmatch(r"[0-9a-f]{64}", identifier):
-                raise RuntimeError("docker run did not return an immutable container ID")
-            return identifier
-        except BaseException:
-            identifier = cidfile.read_text().strip() if cidfile.is_file() else ""
-            if re.fullmatch(r"[0-9a-f]{64}", identifier):
-                remove_owned_container(identifier, host_command.run_command)
-            raise
+            identifier = owned_container_id(cidfile)
+        except ContainerCleanupError as cleanup_error:
+            cleanup_error.run_error = run_error
+            raise cleanup_error from run_error
+        if identifier:
+            remove_owned_container(identifier, host_command.run_command)
+        raise
 
 
 def start_container_session(
@@ -216,11 +223,14 @@ def start_container_session(
         model_store_mount.close()
         raise
 
-    t0_wall = time.time()
-    t0 = time.perf_counter()
     container_id = ""
     try:
-        container_id = _launch_container(docker_cmd)
+        with tempfile.TemporaryDirectory(prefix="acprof-container-") as directory:
+            cidfile = model_store_mount.begin_launch(Path(directory) / "container.cid")
+            # Control-plane persistence stays outside the cold-start interval.
+            t0_wall = time.time()
+            t0 = time.perf_counter()
+            container_id = _launch_container(docker_cmd, cidfile=cidfile)
     except BaseException:
         # _launch_container owns best-effort cleanup when Docker created an ID.
         # If launch itself fails, absence cannot be re-proven here without that

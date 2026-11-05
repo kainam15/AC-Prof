@@ -52,7 +52,8 @@ def test_policy_failure_does_not_release_model_startup_gate(tmp_path, monkeypatc
     monkeypatch.setattr(experiment, 'wait_ready', ready)
     try:
         with pytest.raises(RuntimeError, match='cannot install policy'):
-            experiment.model_case('controlled', SimpleNamespace(args=[]), gpu=False, controlled=True)
+            experiment.model_case('controlled', SimpleNamespace(args=[], begin_launch=lambda path: path),
+                                  gpu=False, controlled=True)
         assert (tmp_path / 'controlled-gate').is_dir()
         assert not (tmp_path / 'controlled-gate' / 'release').exists()
         ready.assert_not_called()
@@ -60,7 +61,7 @@ def test_policy_failure_does_not_release_model_startup_gate(tmp_path, monkeypatc
         experiment.client.close()
 
 
-def test_cleanup_failure_still_releases_model_store_lease(tmp_path, monkeypatch):
+def test_cleanup_failure_retains_model_store_lease(tmp_path, monkeypatch):
     from contextlib import nullcontext
 
     experiment = Mock()
@@ -70,11 +71,14 @@ def test_cleanup_failure_still_releases_model_store_lease(tmp_path, monkeypatch)
     experiment.run.side_effect = ['image', 'head', 'docker-version', 'nft-version', '{}', 'old-parser']
     experiment.close.side_effect = RuntimeError('cleanup failed')
     mount = Mock()
+    retained = Mock()
     monkeypatch.setattr(validation, 'Experiment', Mock(return_value=experiment))
     monkeypatch.setattr(validation, 'MeasurementLock', nullcontext)
     monkeypatch.setattr(validation, 'acquire_mount', Mock(return_value=mount))
+    monkeypatch.setattr(validation, 'retain_mount_for_cleanup_debt', retained)
     monkeypatch.setattr(validation.sys, 'argv', ['validate', '--image', 'image', '--gpu-uuid', 'gpu',
                                                '--output', str(tmp_path / 'output'), '--protocols-only'])
     with pytest.raises(RuntimeError, match='cleanup failed'):
         validation.main()
-    mount.close.assert_called_once_with()
+    mount.close.assert_not_called()
+    retained.assert_called_once_with(mount)

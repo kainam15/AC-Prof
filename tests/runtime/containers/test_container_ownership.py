@@ -51,7 +51,7 @@ class TestContainerOwnership:
 
     def test_runtime_mount_lease_is_released_only_after_container_cleanup(self):
         response = SimpleNamespace(status_code=200, text="", json=lambda: {"status": "ok"})
-        mount = SimpleNamespace(args=[], close=Mock())
+        mount = SimpleNamespace(args=[], close=Mock(), begin_launch=lambda path: path)
         with patch("acprof.host.model_store.store.acquire_mount", return_value=mount), patch(
             "acprof.system.command.run_command", side_effect=self.command
         ), patch("requests.get", return_value=response), redirect_stdout(io.StringIO()):
@@ -62,7 +62,7 @@ class TestContainerOwnership:
         assert session._model_store_mount is None
 
     def test_runtime_mount_lease_is_released_when_command_setup_fails_before_docker_run(self):
-        mount = SimpleNamespace(args=[], close=Mock())
+        mount = SimpleNamespace(args=[], close=Mock(), begin_launch=lambda path: path)
         def fake_run(command, **_kwargs):
             if command[:2] == ["docker", "run"]:
                 raise AssertionError("unexpected container launch")
@@ -77,6 +77,27 @@ class TestContainerOwnership:
             self.start()
 
         mount.close.assert_called_once_with()
+
+    def test_dispatch_persistence_completes_before_cold_start_clocks_begin(self):
+        clock = SimpleNamespace(time=Mock(return_value=1.0), perf_counter=Mock(return_value=2.0))
+
+        def begin(path):
+            clock.time.assert_not_called()
+            clock.perf_counter.assert_not_called()
+            return path
+
+        mount = SimpleNamespace(args=[], close=Mock(), begin_launch=Mock(side_effect=begin))
+        response = SimpleNamespace(status_code=200, text="", json=lambda: {"status": "ok"})
+        with patch("acprof.host.model_store.store.acquire_mount", return_value=mount), patch(
+            "acprof.host.docker_runtime.time", clock
+        ), patch("acprof.system.command.run_command", side_effect=self.command), patch(
+            "requests.get", return_value=response
+        ):
+            session = self.start()
+            docker_runtime.stop_container_session(session)
+        mount.begin_launch.assert_called_once()
+        assert clock.time.called
+        assert clock.perf_counter.called
 
     def test_launched_container_records_process_ownership_for_crash_recovery(self):
         response = SimpleNamespace(status_code=200, text='', json=lambda: {'status': 'ok'})

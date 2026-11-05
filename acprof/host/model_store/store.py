@@ -33,6 +33,7 @@ from acprof.host.model_store.consumers import (
     DockerConsumerInspector,
     create_consumer,
     remove_consumer,
+    set_launch_state,
 )
 from acprof.host.model_store.paths import StorePaths, store_paths
 from acprof.host.model_store.views import (
@@ -74,6 +75,19 @@ class ModelStoreMount:
     def pass_fds(self) -> tuple[int, ...]:
         """A Process supervisor retains the GC lease until descendant cleanup."""
         return (self._lock.fileno(),) if self._lock is not None else ()
+
+    def begin_launch(self, fallback: Path) -> Path:
+        """Persist dispatch before Docker runs, using an entry-owned cidfile."""
+        if self._consumer is None:
+            return fallback
+        with store_lock(self._consumer.root):
+            return set_launch_state(self._consumer, dispatched=True)
+
+    def finish_launch(self) -> None:
+        """Allow another dispatch only after the caller confirms container cleanup."""
+        if self._consumer is not None:
+            with store_lock(self._consumer.root):
+                set_launch_state(self._consumer, dispatched=False)
 
     def close(self) -> None:
         with _RETAINED_MOUNTS_LOCK:
@@ -568,7 +582,7 @@ def prepare_model(task, plan: dict, root: Path | None = None, *, planned_downloa
                 raise RuntimeError("Model Store 文件视图缺失或不完整且存在活动 lease；停止消费者后才能重新准备") from exc
             with store_paths(root, lambda: None) as paths:
                 if DockerConsumerInspector().protects(paths, Path("entries") / key):
-                    raise RuntimeError("Model Store still has Docker consumers; stop them before rebuilding the view")
+                    raise RuntimeError("Model Store Docker consumers are active or unconfirmed; settle them before rebuilding the view")
         sources = model_sources(plan, root, entry_id=key)
         require_space(sources, root)
         sizes = [source.estimated_bytes for source in sources]

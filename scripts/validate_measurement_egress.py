@@ -26,7 +26,8 @@ from pathlib import Path
 
 import requests
 
-from acprof.host.model_store.store import acquire_mount, store_root
+from acprof.host.container_lifecycle import container_owner_labels
+from acprof.host.model_store.store import acquire_mount, retain_mount_for_cleanup_debt, store_root
 from acprof.host.run_state import MeasurementLock
 from acprof.monitors.energy_nvml import GPUEnergyMonitor
 
@@ -88,8 +89,8 @@ class Experiment:
             raise RuntimeError(f'{command[:3]} exited {result.returncode}: {result.stderr[-4000:]}')
         return result.stdout.strip()
 
-    def create(self, name, network, arguments, code):
-        cidfile = self.output / (name + '.cid')
+    def create(self, name, network, arguments, code, *, cidfile=None):
+        cidfile = self.output / (name + '.cid') if cidfile is None else cidfile
         self.cidfiles.append(cidfile)
         cid = self.run(['docker', 'create', '--cidfile', str(cidfile), '--name', self.identifier + '-' + name,
                         '--label', 'acprof.review-egress=' + self.identifier,
@@ -292,8 +293,10 @@ class Experiment:
         gate = self.output / (name + '-gate')
         gate.mkdir()
         arguments += ['--mount', f'type=bind,src={gate},dst=/egress-gate,readonly']
+        arguments += [part for key, value in container_owner_labels().items() for part in ('--label', f'{key}={value}')]
+        cidfile = mount.begin_launch(self.output / (name + '.cid'))
         started = time.perf_counter()
-        cid, info = self.create(name, 'bridge', arguments, WAIT_AND_SERVE)
+        cid, info = self.create(name, 'bridge', arguments, WAIT_AND_SERVE, cidfile=cidfile)
         if controlled:
             policy = self.policy(info)
         else:
@@ -335,6 +338,7 @@ class Experiment:
         self.results['cases'][name] = result
         (self.output / (name + '-container.log')).write_text(self.run(['docker', 'logs', cid]))
         self.remove(cid)
+        mount.finish_launch()
         print(name + ': ready/predict passed; 12 requests; legacy packet fields identical', flush=True)
 
     def close(self):
@@ -368,6 +372,18 @@ class Experiment:
             raise RuntimeError('cleanup incomplete: ' + '; '.join(failures))
 
 
+def _close_experiment(experiment, mount, *, completed):
+    released = False
+    try:
+        experiment.close()
+        if mount is not None and completed:
+            mount.close()
+            released = True
+    finally:
+        if mount is not None and not released:
+            retain_mount_for_cleanup_debt(mount)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--image', required=True, help='Existing tiny BERT AC-Prof service image')
@@ -380,6 +396,7 @@ def main():
     with MeasurementLock():
         experiment = Experiment(args.output, args.image, args.gpu_uuid)
         mount = None
+        completed = False
         try:
             experiment.image = experiment.run(['docker', 'image', 'inspect', args.image, '--format', '{{.Id}}'])
             experiment.results['image_id'] = experiment.image
@@ -403,15 +420,12 @@ def main():
                         experiment.model_case(name, mount, gpu=gpu, controlled=controlled)
             experiment.extra_protocols()
             experiment.extra_protocols(ipv6=True)
+            completed = True
         except BaseException as exc:
             experiment.results["failure"] = {"type": type(exc).__name__, "message": str(exc)}
             raise
         finally:
-            try:
-                experiment.close()
-            finally:
-                if mount is not None:
-                    mount.close()
+            _close_experiment(experiment, mount, completed=completed)
 
 
 if __name__ == '__main__':

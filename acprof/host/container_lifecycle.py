@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 import re
+import stat
 import subprocess
 import sys
 from collections.abc import Callable
@@ -50,10 +51,18 @@ class ContainerCleanupError(RuntimeCleanupError):
 def owned_container_id(cidfile: Path) -> str:
     """A Docker-created cidfile is the ownership proof, never a mutable name."""
     try:
-        identifier = cidfile.read_text().strip()
+        descriptor = os.open(cidfile, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+        with os.fdopen(descriptor, "rb", buffering=0) as stream:
+            info = os.fstat(stream.fileno())
+            if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_nlink != 1:
+                raise ValueError("cidfile must be a regular file owned only by this user")
+            raw = stream.read(66)
+        if len(raw) > 65:
+            raise ValueError("cidfile exceeds 65 bytes")
+        identifier = raw.decode("ascii").strip()
     except FileNotFoundError:
         return ""
-    except OSError as exc:
+    except (OSError, ValueError) as exc:
         raise ContainerCleanupError("", [{"operation": "read_cidfile", "exception_type": type(exc).__name__,
                                          "detail": str(exc)}]) from exc
     if not re.fullmatch(r"[0-9a-f]{64}", identifier):

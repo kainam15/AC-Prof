@@ -91,7 +91,7 @@ class TestRuntimeValidation:
                 return subprocess.CompletedProcess(command, 0, stdout=SUCCESS, stderr='')
             return subprocess.CompletedProcess(command, 0, stdout='', stderr='')
 
-        mounts = [SimpleNamespace(args=[], close=Mock()), SimpleNamespace(args=[], close=Mock())]
+        mounts = [SimpleNamespace(args=[], close=Mock(), begin_launch=lambda path: path) for _ in range(2)]
         with tempfile.TemporaryDirectory() as temporary, patch(
             'acprof.host.runtime_validation.run_command', side_effect=run,
         ), patch('acprof.host.container_state.inspect_container_state', return_value={}), patch(
@@ -116,7 +116,7 @@ class TestRuntimeValidation:
         assert all(mount.close.call_count == 1 for mount in mounts)
 
     def test_mount_is_released_when_command_setup_fails_before_docker_run(self, tmp_path):
-        mount = SimpleNamespace(args=[], close=Mock())
+        mount = SimpleNamespace(args=[], close=Mock(), begin_launch=lambda path: path)
         with patch(
             "acprof.host.model_store.store.acquire_mount", return_value=mount,
         ), patch(
@@ -340,7 +340,7 @@ class TestRuntimeValidation:
             if command[1] == 'run':
                 return subprocess.CompletedProcess(command, 1, '', 'inference failed first')
             raise subprocess.TimeoutExpired(command, kwargs['timeout'])
-        mount = SimpleNamespace(args=[], close=Mock())
+        mount = SimpleNamespace(args=[], close=Mock(), begin_launch=lambda path: path)
         retained = Mock()
         with tempfile.TemporaryDirectory() as directory, patch(
             'acprof.host.runtime_validation.run_command', side_effect=run,

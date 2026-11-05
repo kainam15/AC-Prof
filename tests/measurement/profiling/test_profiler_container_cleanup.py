@@ -26,7 +26,7 @@ def profiler_engine(monkeypatch):
         owner=container_owner_labels(), labels={}, states={}, inventory_failure=None,
         failure=None, cleanup_failure=False, returncode=0, publish_id=True,
         launch_error=None, auto_remove=False, raw_stream=None,
-        mount=SimpleNamespace(args=[], close=Mock()), retained=Mock(),
+        mount=SimpleNamespace(args=[], close=Mock(), begin_launch=lambda path: path, finish_launch=Mock()), retained=Mock(),
     )
 
     def run(argv, **kwargs):

@@ -131,7 +131,7 @@ Model Store 租约。已发起 Docker 但拿不到 ID、清理失败或清理被
 其他消费者的独立租约不受影响。描述符关闭失败保留重试句柄，不把未完成关闭标为已完成。
 该保留表仅在当前进程内有效；Docker 挂载另在 entry 根目录原子发布
 `.docker-consumer-<consumer_id>.json`，在启动前完成文件与目录同步，以保留客户端异常退出后的身份。
-正常清理先删除本次消费者记录并同步目录，再释放文件锁；删除或同步失败时保留句柄供重试。
+正常清理先删除本次消费者记录及创建回执并同步目录，再释放文件锁；删除或同步失败时保留句柄供重试。
 记录发布失败则不返回挂载，也不继续启动；若记录已经发布但同步报错，保留它供后续核查。
 Process Runtime 继续由 supervisor 继承共享 lease 描述符，不创建 Docker 消费者记录。
 
@@ -139,29 +139,45 @@ Process Runtime 继续由 supervisor 继承共享 lease 描述符，不创建 Do
 
 | 字段 | 来源与语义 |
 | --- | --- |
-| `schema_version` | 整数 `1`；未知版本或布尔值拒绝读取 |
+| `schema_version` | 当前为整数 `2`；兼容读取 `1`，未知版本或布尔值拒绝读取 |
 | `consumer_id` | 每次挂载生成的 32 位小写 UUID hex；必须与文件名一致 |
 | `entry_id` | 所属 entry 的固定标识；必须与父目录一致 |
 | `owner_labels` | 复用 Docker lifecycle 标签及 host、uid、boot、pid、start 身份；`start` 是 `/proc/<pid>/stat` 的启动时钟 tick，其他值是版本或身份标识 |
+| `launch_state` | v2 必需的字符串：`idle` 表示尚未派发或已确认清理，`dispatched` 表示启动已派发或可能派发；无单位 |
 | `record_sha256` | 除本字段外的规范 JSON 的 SHA256；复用现有 `content_digest`，防止合法 JSON 中的身份值意外改变 |
 
 记录上限 4096 字节，必须是当前用户拥有、只有一个硬链接的普通文件；不跟随符号链接。
 格式、身份、摘要或读取失败会阻止删除，不按“记录不存在”处理；摘要校验不替代运行状态核查。
+每次 Docker `run`／`create` 前，在 store lock 内清除上一次回执，再原子发布并同步 `dispatched`；
+派发准备失败则不继续启动。Docker CLI 使用 entry 内的 `.docker-cid-<consumer_id>` 作为 `--cidfile`，
+在 daemon 返回创建成功的不可变容器 ID 后写入。客户端退出不会删除这个路径，迟到的创建仍能留下证据。
+只有确认容器已清理，调用方才允许转回 `idle` 并移除回执；未结束的派发拒绝再次启动。
+正式运行、独立验证、所有独立 Profiler 和 egress 验证脚本均使用此边界；
+Profiler 的嵌套命令构造通过当前作用域绑定的租约连接，退出时恢复上一作用域。
+正式运行与 egress 的状态持久化在 cold-start 时钟开始前完成，避免把控制面写入计入启动区间。
+
 GC 与破损视图重建在原有 store lock 内核查记录：owner 存活、退出状态未知或属于其他主机／用户时保留。
-只有明确退出的本机同用户 owner，才在验证本机 Native Docker daemon 后，以全部 owner 标签执行有界
-`docker ps -aq --no-trunc`。任意匹配容器（包括已停止的容器）都会保护该 owner 的记录，
+v2 的本机同用户 owner 明确退出后，`idle` 可以回收；`dispatched` 必须先有合法创建回执。
+回执缺失或为空时继续保护，不能用空容器清单代替创建完成。回执同样要求当前用户、普通文件及单硬链接，
+不跟随符号链接；最多读取 66 字节，内容上限 65 字节，解析为 64 位小写十六进制 ID。
+损坏或读取失败明确报错，不转成“没有容器”。取得回执后，才在验证本机 Native Docker daemon 后，
+以全部 owner 标签执行有界 `docker ps -aq --no-trunc`。任意匹配容器（包括已停止的容器）都会继续保护，
 清单为空才允许回收；Docker 查询失败保留数据并报错。GC 不停止或删除容器，也不按 TTL 猜测过期。
 查询结果仅在本次操作内按 owner 复用，下次预览或执行重新查询；消费者检查复用 entry 遍历结果，
 不增加一次目录扫描。预览保持只读，有消费者的破损视图在下载前拒绝重建。
 
-历史无记录 entry 沿用原有 lease 与 GC 规则；新保护只覆盖升级后创建的 Docker 消费者，
-不能把旧记录缺失当作旧容器已停止的证据。查询保护的是 daemon 已登记的容器；
-父进程退出时仍在途的 Docker 创建请求不由一次空清单证明已结束，启动握手仍需单独完善与验证。
+历史 v1 消费者记录没有启动握手证据，保持保护，不自动升级为 `idle`；原所有者仍可在确认清理后释放。
+创建回执永久缺失、旧 owner 已退出等无法确认的记录需另行核查，不能仅凭空清单删除。
+历史无记录 entry 沿用原有 lease 与 GC 规则；不能把旧记录缺失当作旧容器已停止的证据。
 本轮子进程异常退出和 Mock Docker 回归不替代真实 Docker 崩溃恢复验收。
 设计参考 [containerd 的资源与 lease 保护](https://github.com/containerd/containerd/blob/79e23749d4840f5f12d7b4fc54147479f2254f96/docs/garbage-collection.md)
 及 [client lease 创建／释放](https://github.com/containerd/containerd/blob/79e23749d4840f5f12d7b4fc54147479f2254f96/client/lease.go)
 （Apache-2.0）。借鉴持久化引用与明确释放的边界，沿用本项目标准库和 Docker ownership，
 不复制源码、不引入 containerd 服务或依赖，也不采用其默认过期时间。
+
+创建握手另核对了 [Docker CLI 的 cidfile 写入顺序](https://github.com/docker/cli/blob/0133bfa4fd0cf21cf2dbd8f350c0fbbde0a15475/cli/command/container/create.go)
+及 [Moby 在返回前登记容器](https://github.com/moby/moby/blob/b3b7197adfc8f056dd50b74317ed3c26d1abb82f/daemon/create.go)
+（均为 Apache-2.0）。复用既有 CLI 回执，不复制源码、不新增 daemon 或 API 客户端依赖。
 
 ```bash
 acprof run --model google-bert/bert-base-uncased --max-download 5GB

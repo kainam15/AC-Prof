@@ -97,6 +97,7 @@ def load_input_scale_plan_entries(
 @contextmanager
 def _profiler_mount_scope(mount: Any) -> Iterator[None]:
     from acprof.host.model_store.store import retain_mount_for_cleanup_debt
+    from acprof.host.profiling.commands import profiler_model_mount
 
     cleanup_pending = False
 
@@ -110,7 +111,7 @@ def _profiler_mount_scope(mount: Any) -> Iterator[None]:
             retain_mount_for_cleanup_debt(mount)
             raise
 
-    with cleanup_on_exit(close, description="profiler Model Store lease"):
+    with profiler_model_mount(mount), cleanup_on_exit(close, description="profiler Model Store lease"):
         try:
             yield
         except RuntimeCleanupError:

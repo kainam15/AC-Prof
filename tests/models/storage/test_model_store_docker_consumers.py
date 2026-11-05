@@ -35,13 +35,20 @@ def cached_model(tmp_path) -> CachedModel:
     return CachedModel(root=tmp_path, blob=blob, key=key, manifest=manifest)
 
 
-def abandon_mount(*models: CachedModel):
+def abandon_mount(*models: CachedModel, phase="registered"):
     result = subprocess.run([
         sys.executable, "-c",
         "import json,os,sys; from pathlib import Path; "
         "from acprof.host.model_store.store import acquire_mount; "
-        "leases=[acquire_mount(manifest, Path(root)) for root,manifest in json.loads(sys.argv[1])]; os._exit(0)",
-        json.dumps([(str(model.root), model.manifest) for model in models]),
+        "leases=[acquire_mount(manifest, Path(root)) for root,manifest in json.loads(sys.argv[1])]\n"
+        "if sys.argv[2] != 'idle':\n"
+        " for lease in leases:\n"
+        "  cidfile=lease.begin_launch(Path('unused.cid'))\n"
+        "  if sys.argv[2] in {'registered','settled','redispatched'}: cidfile.write_text('a' * 64)\n"
+        "  if sys.argv[2] in {'settled','redispatched'}: lease.finish_launch()\n"
+        "  if sys.argv[2] == 'redispatched': lease.begin_launch(Path('unused.cid'))\n"
+        "os._exit(0)",
+        json.dumps([(str(model.root), model.manifest) for model in models]), phase,
     ], capture_output=True, text=True, timeout=10, check=False)
     assert result.returncode == 0, result.stderr
 
@@ -236,7 +243,7 @@ def test_invalid_consumer_evidence_fails_before_deleting_any_payload(cached_mode
             record.mkdir()
     else:
         if damage in {"version", "boolean_version"}:
-            payload["schema_version"] = 2 if damage == "version" else True
+            payload["schema_version"] = 3 if damage == "version" else True
         elif damage == "entry":
             payload["entry_id"] = "f" * 64
         elif damage == "identity":

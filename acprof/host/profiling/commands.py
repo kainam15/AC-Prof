@@ -3,9 +3,11 @@ from __future__ import annotations
 
 import subprocess
 import tempfile
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
+from contextvars import ContextVar
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from acprof.host.container_lifecycle import (
     ContainerCleanupError,
@@ -16,6 +18,21 @@ from acprof.host.container_lifecycle import (
 )
 from acprof.system.cleanup import cleanup_on_exit
 from acprof.system.command import CommandResult, run_command
+
+if TYPE_CHECKING:
+    from acprof.host.model_store.store import ModelStoreMount
+
+_MODEL_MOUNT: ContextVar[ModelStoreMount | None] = ContextVar("profiler_model_mount", default=None)
+
+
+@contextmanager
+def profiler_model_mount(mount: ModelStoreMount) -> Iterator[None]:
+    """Bind ownership through nested command builders without changing argv."""
+    token = _MODEL_MOUNT.set(mount)
+    try:
+        yield
+    finally:
+        _MODEL_MOUNT.reset(token)
 
 
 def run_profiler_command(command: Sequence[str], **kwargs: Any) -> CommandResult:
@@ -34,6 +51,9 @@ def run_profiler_command(command: Sequence[str], **kwargs: Any) -> CommandResult
     temporary = tempfile.TemporaryDirectory(prefix="acprof-profiler-")
     with cleanup_on_exit(temporary.cleanup, description="profiler container identity directory"):
         cidfile = Path(temporary.name) / "container.cid"
+        mount = _MODEL_MOUNT.get()
+        if mount is not None:
+            cidfile = mount.begin_launch(cidfile)
         argv = [*command[:2], "--cidfile", str(cidfile), *labels, *command[2:]]
         failure: BaseException | None = None
         identifier = ""
@@ -57,6 +77,8 @@ def run_profiler_command(command: Sequence[str], **kwargs: Any) -> CommandResult
                         "operation": "read_cidfile",
                         "detail": "no immutable ID after profiler dispatch; container absence is unconfirmed",
                     }])
+                if mount is not None:
+                    mount.finish_launch()
             except ContainerCleanupError as exc:
                 exc.run_error = failure
                 if failure is not None:

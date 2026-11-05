@@ -26,7 +26,7 @@ def docker_validation(request, tmp_path, monkeypatch):
     kind = request.param
     module = interface_probe if kind == "interface" else runtime_validation
     removed = Mock()
-    lease = SimpleNamespace(args=[], close=Mock())
+    lease = SimpleNamespace(args=[], close=Mock(), begin_launch=lambda path: path)
     monkeypatch.setattr(module, "recover_abandoned_containers", Mock())
     monkeypatch.setattr(module, "remove_owned_container", removed)
     monkeypatch.setattr(container_state, "inspect_container_state", lambda _: {"Running": True})
