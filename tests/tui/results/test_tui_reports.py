@@ -1,6 +1,7 @@
 """验证用户从 TUI 计算和查看报告，保持原始结果与测量隔离。"""
 import csv
 import json
+import shlex
 from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
@@ -16,14 +17,14 @@ from textual.widgets import (
     TabbedContent,
     TabPane,
 )
-from tests.support.tui_fixtures import AcprofTui
 
 from acprof.experiments.configuration import RunConfig
 from acprof.tui.commands import PendingLaunch
-from acprof.tui.run.progress import ProgressSnapshot
 from acprof.tui.results.reports import ReportView
+from acprof.tui.run.progress import ProgressSnapshot
 from acprof.tui.run.results import RunResult
 from acprof.tui.settings.preferences import TuiSettings, save_settings
+from tests.support.tui_fixtures import AcprofTui
 
 
 class TestTuiReports:
@@ -254,13 +255,12 @@ class TestTuiReports:
         app.results.show_result_section("statistics-view")
         await pilot.pause()
 
-    async def click_import(self, app, pilot):
-        app.results.show_result_section("exports-view")
-        app.query_one("#report-file-options", Collapsible).collapsed = False
-        button = app.query_one("#report-open", Button)
-        button.scroll_visible(animate=False, immediate=True)
-        await pilot.pause()
-        assert await pilot.click(button)
+    async def import_report(self, app, pilot):
+        command = app.query_one("#slash-command", Input)
+        source = app.query_one("#report-json-path", Input).value
+        command.value = f"/report {shlex.quote(source)}"
+        command.focus()
+        await pilot.press("enter")
 
     async def finish_workers(self, app, pilot):
         # Complete the owned analysis process or imported-report reader.
@@ -349,19 +349,19 @@ class TestTuiReports:
             json_path = app.query_one("#report-json-path", Input)
             json_path.value = str(report)
             await pilot.pause()
-            await self.click_import(app, pilot)
+            await self.import_report(app, pilot)
             await self.finish_workers(app, pilot)
             assert content.current == "report-results"
             assert table.row_count == 1
             json_path.value = str(self.directory / "missing.json")
             await pilot.pause()
             assert content.current == "report-empty"
-            await self.click_import(app, pilot)
+            await self.import_report(app, pilot)
             await self.finish_workers(app, pilot)
             assert content.current == "report-error"
             assert table.row_count == 0
             json_path.value = str(report)
-            await self.click_import(app, pilot)
+            await self.import_report(app, pilot)
             await self.finish_workers(app, pilot)
             assert content.current == "report-results"
             assert table.row_count == 1
@@ -378,7 +378,7 @@ class TestTuiReports:
             source = app.query_one("#report-json-path", Input)
             source.value = str(report)
             await pilot.pause()
-            await self.click_import(app, pilot)
+            await self.import_report(app, pilot)
             await self.finish_workers(app, pilot)
             files.collapsed = True
             await pilot.pause()
@@ -409,7 +409,7 @@ class TestTuiReports:
             source = app.query_one("#report-json-path", Input)
             source.value = str(self.overhead_report())
             await pilot.pause()
-            await self.click_import(app, pilot)
+            await self.import_report(app, pilot)
             await self.finish_workers(app, pilot)
             assert (app.query_one("#report-table", DataTable).row_count) == (1)
             invalid = self.directory / "损坏.json"
@@ -418,7 +418,7 @@ class TestTuiReports:
                 invalid.write_text(content)
                 source.value = str(invalid)
                 await pilot.pause()
-                await self.click_import(app, pilot)
+                await self.import_report(app, pilot)
                 await self.finish_workers(app, pilot)
                 assert (app.query_one("#report-table", DataTable).row_count) == (0)
                 assert ("报告读取失败") in (str(app.query_one("#report-error", Static).content))

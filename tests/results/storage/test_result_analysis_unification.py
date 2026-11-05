@@ -217,13 +217,17 @@ async def test_unified_results_statistics_with_hidden_exports(size, language, re
         assert result_csv.read_bytes() == original
         app.results.show_result_section("exports-view")
         await pilot.pause()
-        controls = app.query("#analysis-export-path, #analysis-export-csv, #analysis-export-json")
+        controls = app.query(
+            "#analysis-export-path, #analysis-export-csv, #analysis-export-json, "
+            "#report-file-options, #report-json-path, #report-open"
+        )
         for control in controls:
             assert control.region.area == 0
             assert control not in app.screen.focus_chain
         panel = app.query_one("#result-export-panel")
-        assert app.query_one("#report-file-options").region.y == panel.content_region.y
-        assert app.query_one("#html-report-panel").region.area > 0
+        html = app.query_one("#html-report-panel")
+        assert html.region.y == panel.content_region.y + 1
+        assert html.region.area > 0
         target = tmp_path / "statistics.csv"
         app.query_one("#analysis-export-path", Input).value = str(target)
         await pilot.pause()
