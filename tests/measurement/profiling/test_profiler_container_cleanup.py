@@ -20,8 +20,9 @@ from acprof.system import command
 
 @pytest.fixture
 def profiler_engine(monkeypatch):
+    active: set[str] = set()
     state = SimpleNamespace(
-        active=set(), launched=[], removed=[], cidfiles=[], commands=[], present_at_launch=[],
+        active=active, launched=[], removed=[], cidfiles=[], commands=[], present_at_launch=[],
         owner=container_owner_labels(), labels={}, states={}, inventory_failure=None,
         failure=None, cleanup_failure=False, returncode=0, publish_id=True,
         launch_error=None, auto_remove=False, raw_stream=None,
@@ -38,7 +39,7 @@ def profiler_engine(monkeypatch):
                 return subprocess.CompletedProcess(argv, 1, "", "daemon unavailable")
             filters = [argv[i + 1].removeprefix("label=").split("=", 1)
                        for i, value in enumerate(argv) if value == "--filter"]
-            identifiers = [identifier for identifier in sorted(state.active)
+            identifiers = [identifier for identifier in sorted(active)
                            if all(state.labels[identifier].get(key) == value for key, value in filters)]
             return subprocess.CompletedProcess(argv, 0, "\n".join(identifiers), "")
         if argv[:2] == ["docker", "run"]:
