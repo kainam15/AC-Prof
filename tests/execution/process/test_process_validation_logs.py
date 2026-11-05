@@ -26,8 +26,8 @@ def validation_log(tmp_path, monkeypatch):
     acquire = Mock(return_value=lease)
     monkeypatch.setattr(model_store, "acquire_mount", acquire)
     monkeypatch.setattr(resources, "ProcessLimits", lambda *args: limits)
-    monkeypatch.setattr(validation, "service_environment", lambda *args, **kwargs: {})
-    monkeypatch.setattr(validation, "ManagedProcess", lambda *args, **kwargs: process)
+    monkeypatch.setattr("acprof.host.runtimes.validation.service_environment", lambda *args, **kwargs: {})
+    monkeypatch.setattr("acprof.host.runtimes.validation.ManagedProcess", lambda *args, **kwargs: process)
     info = SimpleNamespace(python="fixture-python", runtime_environment={})
 
     def run():

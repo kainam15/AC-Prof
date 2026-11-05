@@ -3,6 +3,8 @@ import json
 import os
 import subprocess
 import sys
+from dataclasses import dataclass
+from pathlib import Path
 from threading import Event
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -14,17 +16,26 @@ from acprof.models.evidence import content_digest
 from tests.support.model_store_fixtures import ModelStoreFixture
 
 
+@dataclass(frozen=True)
+class CachedModel:
+    root: Path
+    blob: Path
+    key: str
+    manifest: dict
+
+
 @pytest.fixture
-def cached_model(tmp_path):
+def cached_model(tmp_path) -> CachedModel:
     fixture = ModelStoreFixture(tmp_path)
     blob = fixture.blob("payload", 128)
     key = fixture.entry(1, [blob])
     plan = store.read_entry(key, tmp_path)
+    assert isinstance(plan, dict)
     manifest = {"model_store": {"entry_id": key, "plan_sha256": plan["plan_sha256"]}}
-    return SimpleNamespace(root=tmp_path, blob=blob, key=key, manifest=manifest)
+    return CachedModel(root=tmp_path, blob=blob, key=key, manifest=manifest)
 
 
-def abandon_mount(*models):
+def abandon_mount(*models: CachedModel):
     result = subprocess.run([
         sys.executable, "-c",
         "import json,os,sys; from pathlib import Path; "
@@ -78,7 +89,7 @@ def test_crashed_client_cannot_make_a_live_docker_consumer_gc_eligible(cached_mo
     assert not model.blob.exists()
 
 
-def consumer_files(model):
+def consumer_files(model: CachedModel) -> list[Path]:
     return sorted((model.root / "entries" / model.key).glob(".docker-consumer-*.json"))
 
 
@@ -86,7 +97,8 @@ def test_owner_inventory_is_reused_within_each_prune_but_refreshed_next_time(cac
     model = cached_model
     key = ModelStoreFixture(model.root).entry(2, [model.blob])
     plan = store.read_entry(key, model.root)
-    other = SimpleNamespace(root=model.root, manifest={"model_store": {
+    assert isinstance(plan, dict)
+    other = CachedModel(root=model.root, blob=model.blob, key=key, manifest={"model_store": {
         "entry_id": key, "plan_sha256": plan["plan_sha256"]}})
     abandon_mount(model, other)
 
@@ -321,6 +333,7 @@ def test_missing_plan_cannot_be_rebuilt_while_a_crashed_clients_container_remain
 
     model = cached_model
     plan = store.read_entry(model.key, model.root)
+    assert isinstance(plan, dict)
     abandon_mount(model)
     (model.root / "entries" / model.key / PLAN_FILENAME).unlink()
     task = TaskInfo("example/test", "fill-mask", "nlp", "transformers_pipeline",

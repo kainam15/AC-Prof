@@ -101,7 +101,7 @@ class DockerConsumerInspector:
     """Read-only, invocation-local evidence for GC and explicit view rebuilding."""
 
     def __init__(self) -> None:
-        self._current: dict[str, str] | None = None
+        self._current: dict[str, str] = {}
         self._docker_verified = False
         self._protected: dict[tuple[tuple[str, str], ...], bool] = {}
 
@@ -118,7 +118,7 @@ class DockerConsumerInspector:
 
     def _owner_protected(self, owner: dict[str, str], check_cancelled: Callable[[], None]) -> bool:
         check_cancelled()
-        if self._current is None:
+        if not self._current:
             self._current = container_owner_labels()
         if not container_owner_has_exited(owner, self._current):
             return True
