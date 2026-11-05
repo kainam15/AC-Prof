@@ -229,7 +229,13 @@ Docker 实现保持既有镜像准备和不可变镜像身份校验。
 `RunConfig.validate()` 汇总纯参数约束与逐字段 `ConfigIssue`，并规范化 profiler 重复次数和参考资源。`experiments.constraints` 提供 CLI、表单、冻结参数及 `ClientConfig` 共用的无损数值解析，拒绝布尔值、非有限值和小数截断；主机 CPU 亲和可用性、环境 SLO 与硬件能力仍在 preflight 检查。用户实验的 `repeat` 至少为 1，直接测量入口允许准备／清理用的 0 窗口；这一区别显式保留在共享规则中。底层测量还验证进程身份和证据目录等运行不变量。
 `_execute()` 只串联执行选项校验、任务集合分派、主机预检、准备、矩阵执行和结果发布；
 `_collect_matrix()` 消费单一 `MatrixRequest`，`application.publication.publish_matrix_results()` 负责
-capability 校验、CSV 合并、RunState 完成与清理，task child 继续使用同一 `_finalize()` 所有权和异常优先级。
+capability 校验、CSV 合并、RunState 完成、清理及自动统计 JSON 发布，task child 继续使用同一 `_finalize()` 所有权和异常优先级。
+`publish_run_statistics()` 在结果提交后复用 `analysis.statistics_report`，已完成实验的 Resume
+也经过同一入口；整个计算与发布期间继续持有 RunState 的测量锁和目录锁，不重复申请离线锁。
+报告直接放在实验根目录的 `analysis/`，既有 Layout v2 路由清单及 HTML 报告路径保持兼容。
+完成阶段发布的设计参考 [pytest-benchmark 的 session.finish / handle_saving](https://github.com/ionelmc/pytest-benchmark/blob/97c52d8e0de0ac4f307e35716f723bf0376d63d2/src/pytest_benchmark/session.py)
+与 [Google Benchmark JSONReporter](https://github.com/google/benchmark/blob/42786a7876120b03e2ecff269695729337d243d9/src/json_reporter.cc)；
+统计计算、快照校验、原子发布及去重均沿用项目现有实现，不复制外部源码或引入依赖。
 日志关闭、RunState 关闭、终态通知与通知上下文重置按顺序尝试，任一收尾失败都不能跳过后续步骤。
 应用释放实例占用后才发送 `run_finished`；事件输出失败也必须保留此前的运行与清理错误。
 收尾统一复用 `system.cleanup.cleanup_on_exit`：保留原始异常及附带诊断；清理期间的取消优先于

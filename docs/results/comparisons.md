@@ -6,6 +6,19 @@
 Linux 上与同用户的采集及其他离线命令互斥，占锁时立即报错；释放后重试仍可复用相同统计报告。
 
 ## 窗口置信区间与开销对照
+
+`acprof run`（包括 `auto` 和 TUI 发起的采集）在每个实验完成结果提交后，自动生成
+`results/<实验>/analysis/window-statistics-YYYYMMDD-HHMMSS-ffffff.json`，并在日志中打印路径。
+多任务集合分别写入各子实验的 `analysis/`。报告复用 `acprof stats` 的 schema 和默认参数：
+应用延迟、抓包延迟、容器归因有效能耗，95% 区间、5000 次重采样、seed=0、block-size=1。
+统计计算位于正式测量窗口之后，期间仍持有实验的测量锁和目录锁。
+
+`--resume` 遇到已完成实验时也会补生成报告；完整内容相同则复用已有文件，不重新采集。
+未完成、被中断或必需指标校验失败的实验不生成自动报告。统计计算或保存失败明确返回
+`自动统计失败` 和非零退出码，保留已提交结果与已有报告；修复后可用原参数加 `--resume`
+重试，或单独执行 `acprof stats results/<实验>/ --output-dir results/<实验>/analysis/`。
+已有历史实验不会被批量补写；手动统计仍可指定其他指标和输出路径：
+
 ```bash
 acprof stats results/<model>/ --metric latency_app_s --metric latency_s \
   --confidence 0.95 --resamples 5000 --seed 0 --output internal-testing/shared/window-statistics.json

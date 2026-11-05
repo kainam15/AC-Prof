@@ -159,6 +159,7 @@ JSON object，拒绝非有限数值和损坏内容。未知或不一致的 manif
 | `raw/probes/largest_scale_<timestamp>_<pid>/` | `acprof probe` 的独立输入计划与 `largest_scale_probe.json`，不含正式 CSV。 |
 | `raw/execution_profiles/` | 默认保留 raw Massif `.out` 与 Nsight Systems `.nsys-rep`；stats 导出的 `.sqlite` 缓存会自动删除。传入 `--discard-execution-profiles` 时 raw artifacts 也会在汇总后删除。 |
 | `logs/terminal.log` | 在 tmux pane 内运行 `acprof run` 时自动记录的完整终端显示。实验正常结束或报错退出时落盘，不受 tmux 历史行数上限影响。 |
+| `analysis/window-statistics-YYYYMMDD-HHMMSS-ffffff.json` | 每个实验完成后自动保存的窗口统计 JSON，包含均值、样本标准差、bootstrap 区间及结果质量状态；相同内容复用，完成后的 Resume 可补生成。计算与失败语义见[统计分析](../results/comparisons.md#窗口置信区间与开销对照)。 |
 | `plots/latency_model/latency_model_report.json` | `acprof plot` 生成的 latency 拟合报告。包含分 CPU/GPU 的正值模型、整配置留一与最大尺度外推指标、质量门槛、系数和训练范围。 |
 | `plots/latency_model/latency_model_residuals-<generation>.csv` | `acprof plot` 生成的 case-level residual；以报告的 `residuals_csv` 选择当前代，保留历史固定名与旧代 CSV。每个 `GPU mode × CPU × memory × input scale` 聚合 case 一行，包含重复数/离散度、full-fit、resource-config OOF 和最大尺度 holdout 预测。 |
 | `plots/latency_model/latency_model_fit_curves.png` | `acprof plot` 生成的 full-fit 曲线图。横轴为 input scale，CPU-off 与 GPU-on 分面展示，每个 `CPU × memory` 资源配置一条拟合曲线，并叠加实测 case 中位数。 |

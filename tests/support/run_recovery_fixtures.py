@@ -55,7 +55,7 @@ class RunRecoveryFixture:
         return PlannedInputScales([64.0], "manual", str(path), {},
                                   hashlib.sha256(path.read_bytes()).hexdigest())
 
-    def invoke(self, *extra, case=None, validation=None, image=None, output=None):
+    def invoke(self, *extra, case=None, validation=None, image=None, output=None, error_output=None):
         from acprof.platform import Environment
         metadata = StaticMeta(
             **Environment("native_linux").metadata(),
@@ -92,7 +92,7 @@ class RunRecoveryFixture:
             stack.enter_context(patch("acprof.host.input_plan.plan_input_scales", side_effect=self.prepare_plan))
             stack.enter_context(patch("acprof.host.orchestrator.run_single_case", side_effect=case or self.write_case))
             stack.enter_context(redirect_stdout(output if output is not None else io.StringIO()))
-            stack.enter_context(redirect_stderr(io.StringIO()))
+            stack.enter_context(redirect_stderr(error_output if error_output is not None else io.StringIO()))
             run_cli.main()
 
     def assert_missing_required_measurements_rejected(self, mode):
