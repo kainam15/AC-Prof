@@ -105,8 +105,22 @@ unavailable，不以零替代。CLI 只接受一个流式 load 输入，拒绝�
 
 HTML 是统一的离线实验分析报告，在配置图表之外展示窗口统计、数据质量与实验完整性。
 
-可通过 `acprof tui` → “实验结果” → “选择实验” → “导入 / 导出” → “生成 HTML”完成生成、查看和导出，
-详见 [TUI 操作](../usage/tui-pages.md#交互式-html-报告)。下面的 CLI 仍可独立使用。
+#### 实验结束后自动生成
+
+`acprof run` 在实验结果提交、必需指标检查通过并保存窗口统计 JSON 后，自动生成 HTML。
+TUI 启动的实验使用同一完成流程。新版实验保存到 `plots/analysis/report-<UTC时间>-<随机标识>.html`，
+旧布局保存到 `analysis/`；终端打印实际路径，不自动打开浏览器。报告优先复用刚保存到根目录
+`analysis/` 的有效统计 JSON，生成期间继续持有测量锁，避免与下一次正式采集重叠。
+
+已完成实验的 `--resume` 会补生成一份新 HTML，不重跑测量、不覆盖已有报告；统计 JSON 仍按内容复用。
+报告生成失败时明确报错，保留已提交结果和统计 JSON，可修复后用原参数加 `--resume` 重试，
+或执行错误信息中的 `acprof report ... --output ...` 命令。无结果、必需指标缺失或采集中断时，
+不会自动发布 HTML；中断实验在 Resume 完成后生成。历史及部分结果仍可使用下面的 CLI 手动分析。
+
+完成阶段生成的设计参考 [pytest-html 的 session finish hook](https://github.com/pytest-dev/pytest-html/blob/master/src/pytest_html/basereport.py)
+（MPL-2.0）；复用 AC-Prof 的分析和原子发布实现，不复制第三方代码、不新增依赖。
+
+#### 手动生成与比较
 
 ```bash
 acprof report results/<model>/
@@ -114,7 +128,7 @@ acprof report results/run-a/ results/run-b/ --output comparison.html
 acprof report results/<model>/ --baseline '<config_id>' --output baseline.html
 ```
 
-默认在第一个实验目录生成新的 `report.html`，已有输出拒绝覆盖。HTML 内嵌数据与 Plotly.js，
+手动命令默认在第一个实验目录生成新的 `report.html`，已有输出拒绝覆盖。HTML 内嵌数据与 Plotly.js，
 不依赖 CDN、服务器或 GUI；可复制到 Windows 用浏览器直接打开。生成过程在 Linux 遵守主机测量锁，
 不能与同用户正式采集并行。打开浏览器分析也应避开正式测量窗口。
 发布时仍会原子检查目标是否存在：若其他写入方抢先创建文件、目录或符号链接，生成失败并保留目标，
@@ -148,8 +162,8 @@ input case、experiment batch 和环境筛选；点击表格行或图中点后�
 
 #### HTML 窗口统计与 JSON 复用
 
-每个实验分别搜索其 `ArtifactLayout.path("analysis")` 和根目录中的 `window-statistics-*.json`：
-新版布局为 `plots/analysis/`，旧布局为 `analysis/`，兼容时间戳和历史 UUID 文件名。
+每个实验分别搜索 `plots/analysis/`（新版布局）、`analysis/` 和根目录中的 `window-statistics-*.json`，
+兼容自动统计、手动统计以及时间戳和历史 UUID 文件名。
 按修改时间从新到旧检查；修改时间只决定候选顺序，不证明有效性。只复用 schema v1、95% 置信水平、
 既有循环块 percentile Bootstrap 口径且来源 SHA256、当前质量与完整性状态一致的报告。
 还会以同一分析快照校验配置分组、均值／标准差／窗口数和区间结构；命中时不再运行 Bootstrap，
@@ -160,7 +174,7 @@ input case、experiment batch 和环境筛选；点击表格行或图中点后�
 从本次已读取的原始测量窗口调用既有 `summarize_windows`，默认计算 `latency_app_s`、`latency_s`、
 `container_attributed_energy_eff_j`，confidence=0.95、resamples=5000、seed=0、block_size=1。
 候选 JSON 有 32 MiB 读取上限，超限标为不可复用；权限与存储故障明确报错。
-HTML 生成不改写原始数据或统计 JSON，也不自动保存新的 JSON；需要单独文件时仍使用 `acprof stats`。
+HTML 生成器不改写原始数据或统计 JSON；实验完成流程会先保存 JSON，手动统计仍使用 `acprof stats`。
 分层结果只消费 manifest 声明的 committed 数据，不读取未提交尾部；统计结束及发布 HTML 前
 复核结果与已解析元数据的内容，发生变化时拒绝发布。
 
@@ -187,7 +201,7 @@ HTML 的 `comparison_profiles` 从相同 Python 规则生成，按当前配置�
 用途或筛选变化后不沿用上一轮的判断，也不在配置对象上保存缓存。
 这些比较用于探索已记录数据，不证明不同模型质量等价、持续硬件隔离或统计显著性。
 独立实验的条件审计和 CI 继续使用[跨独立实验比较](comparisons.md#跨独立实验比较)；已有 `acprof compare` 语义保持不变。
-HTML 沿用现有 TUI 的生成、打开和导出流程；窗口统计不改变独立 JSON / CSV 导出入口。
+窗口统计不改变独立 JSON / CSV 导出入口。
 
 实现直接复用 [Plotly](https://github.com/plotly/plotly.py) 的图形与离线 bundle，参考
 [HTML renderer](https://github.com/plotly/plotly.py/blob/main/plotly/io/_html.py) 和

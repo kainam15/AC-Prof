@@ -68,7 +68,7 @@ def test_completed_run_saves_statistics_after_commit_under_the_measurement_lock(
     assert groups["latency_app_s"]["ci_low"] is None
     assert groups["container_attributed_energy_eff_j"]["mean"] is None
     assert str(saved) in output.getvalue()
-    assert not (experiment.directory / "plots/analysis").exists()
+    assert not list(experiment.directory.glob("plots/analysis/window-statistics-*.json"))
     with MeasurementLock():
         pass
 

@@ -11,7 +11,7 @@ from acprof.application.errors import CollectionFailed
 from acprof.application.notifications import RunNotifications
 from acprof.application.outcome import RunOutcome
 from acprof.application.preparation import prepare_runtime
-from acprof.application.publication import publish_matrix_results, publish_run_statistics
+from acprof.application.publication import publish_matrix_results, publish_run_reports
 from acprof.application.resources import resource_matrix
 from acprof.application.terminal_log import (
     format_run_command,
@@ -381,7 +381,7 @@ class RunApplication:
         self.run_state = run_state
         if run_state.complete:
             print(f"[resume] 实验已经完成：{run_state.layout.result_csv}")
-            publish_run_statistics(run_state.layout)
+            publish_run_reports(run_state.layout)
             emit_event("result_published", final_csv=str(run_state.layout.result_csv))
             return RunOutcome("ok", str(run_state.layout.result_csv))
         self.terminal_log = self.terminal_start(output_dir, command)

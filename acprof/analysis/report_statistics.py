@@ -26,7 +26,7 @@ _MAX_CACHE_BYTES = 32 * 1024 * 1024
 def _candidates(source: Path) -> list[Path]:
     layout = ArtifactLayout.from_csv(source)
     candidates = []
-    for directory in (layout.path("analysis"), layout.root):
+    for directory in dict.fromkeys((layout.path("analysis"), layout.contained("analysis"), layout.root)):
         try:
             # iterdir preserves permission/storage errors that glob can suppress.
             paths = list(directory.iterdir())

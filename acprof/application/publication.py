@@ -6,6 +6,8 @@ import shlex
 import sys
 import time
 from argparse import Namespace
+from datetime import UTC, datetime
+from uuid import uuid4
 
 from acprof.application.errors import CollectionFailed
 from acprof.application.notifications import RunNotifications
@@ -45,6 +47,27 @@ def publish_run_statistics(layout: ArtifactLayout) -> None:
             f"修复后可使用原参数加 --resume 重试，或单独运行：{command}"
         ) from exc
     print(f"[stats] {'已有相同报告' if reused else '统计 JSON 已保存'}：{saved}", flush=True)
+
+
+def publish_run_reports(layout: ArtifactLayout) -> None:
+    """Generate reports after commit, retaining RunState's locks through publication."""
+    publish_run_statistics(layout)
+    print("[report] 正在生成 HTML 报告…", flush=True)
+    filename = f"report-{datetime.now(UTC):%Y%m%d-%H%M%S}-{uuid4().hex[:12]}.html"
+    try:
+        from acprof.analysis.model import load_analysis
+        from acprof.plotting.report import write_report
+
+        output = layout.path("analysis") / filename
+        write_report(load_analysis([layout.result_csv]), output)
+    except (ValueError, OSError, csv.Error, ImportError) as exc:
+        command = shlex.join(["acprof", "report", str(layout.root),
+                              "--output", str(layout.root / filename)])
+        raise CollectionFailed(
+            f"自动 HTML 报告生成失败，已提交的实验结果与统计 JSON 保留：{format_exception_notes(exc)}\n"
+            f"修复后可使用原参数加 --resume 重试，或单独运行：{command}"
+        ) from exc
+    print(f"[report] HTML 报告已保存：{output}", flush=True)
 
 
 def publish_matrix_results(
@@ -87,7 +110,7 @@ def publish_matrix_results(
     run_state.finish(final_csv)
     emit_event("result_published", final_csv=final_csv)
     cleanup_intermediate_results(csv_paths, str(layout.root), final_csv)
-    publish_run_statistics(layout)
+    publish_run_reports(layout)
     elapsed = format_elapsed(time.perf_counter() - start_time)
     print(f"\n{'=' * 60}")
     print("Profiling complete!")

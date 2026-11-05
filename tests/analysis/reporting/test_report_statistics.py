@@ -181,7 +181,8 @@ def test_sources_changed_during_statistics_never_publish_html(source, monkeypatc
     assert not output.exists()
 
 
-def test_layered_results_reuse_json_without_consuming_uncommitted_tail(tmp_path, monkeypatch):
+@pytest.mark.parametrize("directory", ["plots/analysis", "analysis", "."])
+def test_layered_results_reuse_json_without_consuming_uncommitted_tail(tmp_path, monkeypatch, directory):
     from acprof.result_store.writer import ResultWriter
     from tests.results.storage.test_incremental_results import initialized, receipt
 
@@ -189,7 +190,7 @@ def test_layered_results_reuse_json_without_consuming_uncommitted_tail(tmp_path,
     with ResultWriter(tmp_path) as writer:
         for index in range(3):
             writer.append_window(receipt(tmp_path, index))
-    cached = save_cache(layout.result_csv)
+    cached, _ = save_unique_statistics_report(tmp_path / directory, build_statistics_report(layout.result_csv))
     # A committed prefix, rather than all bytes currently in a layer, is the source.
     layer = layout.layer_csv("performance")
     with layer.open("ab") as stream:
