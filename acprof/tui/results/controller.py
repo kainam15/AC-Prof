@@ -18,8 +18,8 @@ from textual.widgets import Button, Collapsible, ContentSwitcher, DataTable, Sta
 from textual.worker import Worker
 
 from acprof.experiments.configuration import RunConfigError
-from acprof.results.layout import experiment_result_file, resolve_single_result_source
 from acprof.messages import join_messages
+from acprof.results.layout import experiment_result_file, resolve_single_result_source
 from acprof.tui.commands import (
     PendingLaunch,
     prepare_comparison,
@@ -27,14 +27,14 @@ from acprof.tui.commands import (
     prepare_stats,
     resolve_result_path,
 )
-from acprof.tui.run.diagnostics import summarize_result_csv
 from acprof.tui.experiments.catalog import ExperimentSourceDisplay, experiment_source_display
 from acprof.tui.i18n import error_message, message_id
-from acprof.tui.ui.input import BarCursorInput as Input
-from acprof.tui.ui.presentation import CALCULATING
 from acprof.tui.results.html_controller import HtmlReportController
 from acprof.tui.results.report_actions import report_action_state
 from acprof.tui.results.reports import ReportView, read_report
+from acprof.tui.run.diagnostics import summarize_result_csv
+from acprof.tui.ui.input import BarCursorInput as Input
+from acprof.tui.ui.presentation import CALCULATING
 
 if TYPE_CHECKING:
     from acprof.tui.app import AcprofTui
@@ -181,7 +181,9 @@ class ResultController:
 
     def show_result_section(self, section: str) -> None:
         self.app.activate_tab("results-tab")
-        self.app.query_one("#result-views", TabbedContent).active = section
+        views = self.app.query_one("#result-views", TabbedContent)
+        if views.get_tab(section).display:
+            views.active = section
 
     def summarize_results_button(self) -> None:
         self.show_result_section("overview-view")

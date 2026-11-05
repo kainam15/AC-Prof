@@ -185,6 +185,11 @@ class AcprofTui(BarCursorApp):
         self.configuration.configure_scrollbars()
         self.localization.capture_language_text()
         self.configuration.apply_ui_preferences()
+        result_views = self.query_one("#result-views", TabbedContent)
+        # Keep backend-bound widgets mounted, but prevent programmatic focus
+        # from reactivating the hidden pane.
+        result_views.disable_tab("exports-view")
+        result_views.hide_tab("exports-view")
         self.localization.set_text(self.query_one('#settings-location', Static), message_id('settings.load.file_path', self.configuration.settings_path))
         self.update_responsive_layout()
         self.configuration.selected_preset = self.configuration.select("run-preset")

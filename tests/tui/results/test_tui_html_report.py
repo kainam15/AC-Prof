@@ -8,14 +8,14 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-from textual.widgets import Button, Input, Static, TabbedContent
-from tests.support.tui_fixtures import AcprofTui
+from textual.widgets import Button, ContentSwitcher, Input, Static, TabbedContent, Tabs
 
-from acprof.results.layout import ArtifactLayout
 from acprof.experiments.configuration import RunConfigError
+from acprof.results.layout import ArtifactLayout
 from acprof.tui import commands
 from acprof.tui.run.process_controller import ProcessController
 from acprof.tui.settings.preferences import TuiSettings, UiPreferences, save_settings
+from tests.support.tui_fixtures import AcprofTui
 
 
 @pytest.fixture
@@ -91,17 +91,16 @@ def test_missing_or_malformed_inputs_are_rejected(tmp_path, source):
         prepare(source, tmp_path)
 
 
-async def test_generate_button_is_reachable_and_measurement_blocks_it(tmp_path, csv_result):
+async def test_hidden_html_generation_preserves_backend_and_measurement_guard(tmp_path, csv_result):
     app = AcprofTui(settings_path=tmp_path / "settings.json")
     async with app.run_test(size=(80, 24)) as pilot:
         app.results.show_result_section("exports-view")
         app.query_one("#result-csv", Input).value = str(csv_result)
         await pilot.pause()
         button = app.query_one("#html-report-generate", Button)
-        button.scroll_visible(animate=False, immediate=True)
-        await pilot.pause()
+        assert button.region.area == 0
         with patch.object(ProcessController, "execute_command") as execute:
-            assert await pilot.click(button)
+            app.results.html.launch()
             await pilot.pause()
             assert execute.call_count == 1
             assert app.execution.session.kind == "html-report"
@@ -116,7 +115,7 @@ async def test_generate_button_is_reachable_and_measurement_blocks_it(tmp_path, 
             assert execute.call_count == 1
 
 
-async def test_html_controls_show_optional_fields_only_when_requested(tmp_path):
+async def test_hidden_html_controls_preserve_optional_fields_and_copy(tmp_path):
     report = tmp_path / "previous report.html"
     report.write_text("<html>previous</html>", encoding="utf-8")
     app = AcprofTui(settings_path=tmp_path / "settings.json")
@@ -129,21 +128,17 @@ async def test_html_controls_show_optional_fields_only_when_requested(tmp_path):
         assert not app.query_one("#html-report-path", Input).display
 
         extra_toggle = app.query_one("#html-extra-toggle", Button)
-        extra_toggle.scroll_visible(animate=False, immediate=True)
-        await pilot.pause()
-        assert await pilot.click(extra_toggle)
+        app.results.html.toggle_extra_sources()
         extra = app.query_one("#html-extra-sources", Input)
         assert extra.display
         extra.value = str(tmp_path / "additional.csv")
-        assert await pilot.click(extra_toggle)
+        await pilot.pause()
+        app.results.html.toggle_extra_sources()
         assert not extra.display
         assert extra.value == str(tmp_path / "additional.csv")
         assert "已添加" in str(extra_toggle.label)
 
-        existing_toggle = app.query_one("#html-existing-toggle", Button)
-        existing_toggle.scroll_visible(animate=False, immediate=True)
-        await pilot.pause()
-        assert await pilot.click(existing_toggle)
+        app.results.html.toggle_existing_path()
         path_field = app.query_one("#html-report-path", Input)
         assert path_field.display
         path_field.value = str(report)
@@ -153,18 +148,14 @@ async def test_html_controls_show_optional_fields_only_when_requested(tmp_path):
         assert str(report) in str(app.query_one("#html-report-location", Static).content)
         assert not app.query_one("#html-export-fields").display
 
-        copy_button = app.query_one("#html-report-copy", Button)
-        copy_button.scroll_visible(animate=False, immediate=True)
-        await pilot.pause()
         with patch.object(app, "copy_to_clipboard") as copy:
-            assert await pilot.click(copy_button)
+            app.results.html.copy_path()
             copy.assert_called_once_with(str(report))
-        save_button = app.query_one("#html-export-toggle", Button)
-        save_button.scroll_visible(animate=False, immediate=True)
+        app.results.html.toggle_export_fields()
         await pilot.pause()
-        assert await pilot.click(save_button)
         assert app.query_one("#html-export-fields").display
         assert app.query_one("#html-report-generate", Button).display
+        assert app.query_one("#exports-view").region.area == 0
 
 
 async def test_real_cli_success_persists_path_and_preserves_input(tmp_path, csv_result):
@@ -246,7 +237,7 @@ async def test_no_valid_windows_retains_evidence_and_displays_limit(tmp_path, cs
     ("zh", "失败", "HTML 已导出"), ("en", "failed", "HTML exported"),
 ])
 @pytest.mark.parametrize("failure_kind", ["existing", "copy", "directory_sync"])
-async def test_export_button_and_failure_keep_generated_artifact(
+async def test_hidden_html_export_and_failure_keep_generated_artifact(
     tmp_path, monkeypatch, language, failed, exported, failure_kind,
 ):
     from acprof import artifacts
@@ -262,17 +253,13 @@ async def test_export_button_and_failure_keep_generated_artifact(
         app.results.show_result_section("exports-view")
         app.query_one("#html-report-path", Input).value = str(source)
         await pilot.pause()
-        save_as = app.query_one("#html-export-toggle", Button)
-        save_as.scroll_visible(animate=False, immediate=True)
-        await pilot.pause()
-        assert await pilot.click(save_as)
+        app.results.html.toggle_export_fields()
         app.query_one("#html-export-path", Input).value = str(destination)
         await pilot.pause()
         assert app.query_one("#html-export-fields").display
         button = app.query_one("#html-report-export", Button)
-        button.scroll_visible(animate=False, immediate=True)
-        await pilot.pause()
-        assert await pilot.click(button)
+        assert button.region.area == 0
+        app.results.html.export()
         await app.workers.wait_for_complete()
         await pilot.pause()
         assert destination.read_bytes() == source.read_bytes()
@@ -292,9 +279,7 @@ async def test_export_button_and_failure_keep_generated_artifact(
                 monkeypatch.setattr(report_files.shutil, "copyfileobj", fail_copy)
             else:
                 monkeypatch.setattr(artifacts, "sync_directory", fail_sync)
-        button.scroll_visible(animate=False, immediate=True)
-        await pilot.pause()
-        assert await pilot.click(button)
+        app.results.html.export()
         await app.workers.wait_for_complete()
         await pilot.pause()
         assert failed in str(app.query_one("#html-report-status", Static).content)
@@ -333,33 +318,50 @@ def test_cli_receipt_reports_excluded_windows_and_quality(tmp_path, csv_result, 
     assert receipts[0]["quality_status"] == ["unknown"]
 
 
-@pytest.mark.parametrize(("size", "language"), [((80, 24), "en"), ((120, 30), "zh"), ((150, 45), "en")])
-async def test_html_actions_fit_visible_report_page(tmp_path, size, language):
+@pytest.mark.parametrize("size", [(80, 24), (120, 30), (150, 45)])
+@pytest.mark.parametrize("language", ["zh", "en"])
+async def test_import_export_tab_stays_hidden_during_navigation(tmp_path, size, language):
     settings = tmp_path / "settings.json"
     save_settings(settings, TuiSettings(ui=UiPreferences(language=language)), tmp_path)
     app = AcprofTui(settings_path=settings)
     async with app.run_test(size=size) as pilot:
+        app.results.show_result_section("overview-view")
+        await pilot.pause()
+        views = app.query_one("#result-views", TabbedContent)
+        assert not views.get_tab("exports-view").display
+        assert views.get_tab("exports-view").region.area == 0
+        assert views.get_pane("exports-view").region.area == 0
+        assert [views.get_tab(name).display for name in (
+            "overview-view", "statistics-view", "comparison-view",
+        )] == [True, True, True]
+        views.query_one(Tabs).focus()
+        for key, expected in (("right", "statistics-view"), ("right", "comparison-view"),
+                              ("right", "overview-view"), ("left", "comparison-view")):
+            await pilot.press(key)
+            assert views.active == expected
         app.results.show_result_section("exports-view")
         await pilot.pause()
+        assert views.active == "comparison-view"
         assert not app.query_one("#html-report-file").display
         assert not app.query_one("#html-report-open", Button).display
         assert not app.query_one("#html-report-cancel", Button).display
         app.query_one("#html-report-path", Input).value = str(tmp_path / "existing.html")
         await pilot.pause()
-        for name in ("generate", "open"):
-            button = app.query_one(f"#html-report-{name}", Button)
-            button.scroll_visible(animate=False, immediate=True)
-            await pilot.pause()
-            assert button.region.width >= button.get_content_width(button.size, button.size)
-            assert button.region.x >= 0
-            assert button.region.right <= size[0]
-            assert button.region.y >= 0
-            assert button.region.bottom <= size[1]
+        for control in views.get_pane("exports-view").query("Input, Button"):
+            assert control.region.area == 0
+            assert control not in app.screen.focus_chain
         with patch.object(ProcessController, "execute_command") as execute:
             app.results.html.launch()
             execute.assert_not_called()
         status = str(app.query_one("#html-report-status", Static).content)
         assert ("Select an experiment" if language == "en" else "请先选择实验") in status
+        assert views.active == "comparison-view"
+        app.results.open_report("invalid.csv")
+        await pilot.pause()
+        assert views.active == "statistics-view"
+        assert app.query_one("#report-content", ContentSwitcher).current == "report-error"
+        assert app.query_one("#report-error").region.area > 0
+        assert views.get_pane("exports-view").region.area == 0
 
 
 @pytest.mark.parametrize(("data", "error"), [("", "missing or duplicate CSV columns"),
@@ -403,19 +405,17 @@ async def test_cancel_reaps_process_and_keeps_previous_html(tmp_path, csv_result
         app.results.show_result_section("exports-view")
         await pilot.pause()
         cancel = app.query_one("#html-report-cancel", Button)
-        cancel.scroll_visible(animate=False, immediate=True)
-        await pilot.pause()
         assert app.query_one("#main-tabs", TabbedContent).active == "results-tab"
         assert not cancel.disabled
-        assert cancel.region.width > 0 and cancel.region.height > 0
-        assert await pilot.click(cancel)
+        assert cancel.region.area == 0
+        app.on_results_cancel_html()
         await pilot.pause()
         # Escape cancels the stop dialog without terminating the task.
         await pilot.press("escape")
         await pilot.pause()
         assert app.is_busy()
         assert not app.execution.session.stop_requested
-        assert await pilot.click(cancel)
+        app.on_results_cancel_html()
         await pilot.pause()
         assert await pilot.click("#confirm-yes")
         await app.workers.wait_for_complete()
