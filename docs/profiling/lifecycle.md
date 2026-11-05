@@ -102,6 +102,10 @@ TUI 的 `ProcessLifecycle` 统一普通停止、回调异常和卸载清理：�
 超时仍先停止全部 monitor，再由编排器清理容器；错误 sidecar 的 `timeout_semantics`
 记录为 `connect_or_read_inactivity`。不把客户端停止等待当作模型已经停止推理。
 
+主机向测量客户端、Docker 服务及独立验证传递超时时，保留已解析的浮点值，
+环境变量序列化不额外舍入有效数字。服务端完成等待仍遵守
+[`ACPROF_REQUEST_TIMEOUT_S` 的显式覆盖与 `none` 规则](../models/extensions.md#运行参数与请求完成)。
+
 ### 独立非流式负载
 
 ```bash

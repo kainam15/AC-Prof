@@ -96,7 +96,14 @@ class TestRuntimeSettings:
             assert (complete_prediction(runtime, {}, 'ready')) == ('ready')
         assert (captured) == ([expected])
 
-    @pytest.mark.parametrize(('timeout', 'override', 'expected'), [(600, None, '600'), (None, None, 'none'), (600, '120', '120')])
+    @pytest.mark.parametrize(('timeout', 'override', 'expected'), [
+        (600, None, 600.0),
+        (None, None, None),
+        (600, '120', 120.0),
+        (123.45678901234567, None, 123.45678901234567),
+        (600, '123.45678901234567', 123.45678901234567),
+        (600, 'none', None),
+    ])
     def test_service_inherits_requested_deadline_with_explicit_override_priority(self, timeout, override, expected):
         from acprof.host.docker_runtime import start_container_session
         from acprof.host.images.runtime import ImageInfo
@@ -111,5 +118,6 @@ class TestRuntimeSettings:
             start_container_session(task, 1, 1, 'off', ImageInfo(tag='fixture'), 'test-deadline', '[test]',
                                      request_timeout_seconds=timeout)
         command = next(command for command in commands if command[:3] == ['docker', 'run', '-d'])
-        values = [item for item in command if item.startswith('ACPROF_REQUEST_TIMEOUT_S=')]
-        assert (values[-1]) == ('ACPROF_REQUEST_TIMEOUT_S=' + expected)
+        forwarded = dict(command[i + 1].split('=', 1) for i, part in enumerate(command) if part == '-e')
+        with patch.dict(os.environ, forwarded, clear=True):
+            assert self.settings().request_timeout_s() == expected

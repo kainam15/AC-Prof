@@ -255,7 +255,7 @@ class ClientConfig:
             "REPEAT": str(self.repeat),
             "REPEAT_IN_WINDOW": str(self.repeat_in_window),
             "REPEAT_WINDOW_SECONDS": str(self.repeat_window_seconds),
-            "REQUEST_TIMEOUT_SECONDS": f"{self.request_timeout_seconds:g}",
+            "REQUEST_TIMEOUT_SECONDS": str(self.request_timeout_seconds),
             "COLD_START_S": self.cold_start_s,
             "COLD_START_STARTED_AT": self.cold_start_started_at,
             "COLD_START_READY_AT": self.cold_start_ready_at,

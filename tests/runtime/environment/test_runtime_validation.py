@@ -1,4 +1,5 @@
 import json
+import os
 import subprocess
 import tempfile
 from contextlib import ExitStack
@@ -13,6 +14,7 @@ from acprof.host.detect import TaskInfo
 from acprof.host.images.runtime import ImageInfo
 from acprof.host.profiling.support import profiler_container_command
 from acprof.host.runtime_validation import validate_runtime
+from acprof.runtime.settings import request_timeout_s
 from tests.support.command_fixtures import redirect_command_output
 
 SUCCESS = 'ACPROF_RUNTIME_VALIDATION=' + json.dumps({
@@ -77,13 +79,20 @@ class TestRuntimeValidation:
         ), pytest.raises(ValueError, match='4 MiB'):
             validate_runtime(**options)
 
-    def test_both_devices_use_smallest_planned_payload_and_separate_containers(self):
+    @pytest.mark.parametrize(('timeout', 'override', 'expected'), [
+        (30, None, 30.0),
+        (30.123456789, None, 30.123456789),
+        (30, '12.345678901234567', 12.345678901234567),
+        (30, 'none', None),
+    ])
+    def test_both_devices_use_smallest_planned_payload_and_separate_containers(self, timeout, override, expected):
         commands = []
 
         @redirect_command_output
         def run(command, **kwargs):
             commands.append(command)
             if command[:2] == ['docker', 'run']:
+                assert kwargs['timeout'] == timeout
                 assert ('--network') in (command)
                 assert ('--memory=8g') in (command)
                 mount = command[command.index('-v') + 1].split(':')[0]
@@ -92,13 +101,15 @@ class TestRuntimeValidation:
             return subprocess.CompletedProcess(command, 0, stdout='', stderr='')
 
         mounts = [SimpleNamespace(args=[], close=Mock(), begin_launch=lambda path: path) for _ in range(2)]
+        environment = {} if override is None else {'ACPROF_REQUEST_TIMEOUT_S': override}
         with tempfile.TemporaryDirectory() as temporary, patch(
             'acprof.host.runtime_validation.run_command', side_effect=run,
         ), patch('acprof.host.container_state.inspect_container_state', return_value={}), patch(
             'acprof.host.model_store.store.acquire_mount', side_effect=mounts,
-        ):
+        ), patch.dict(os.environ, environment, clear=True):
             root = Path(temporary)
-            report = validate_runtime(**self.fixture(root))
+            options = {**self.fixture(root), 'timeout_seconds': timeout}
+            report = validate_runtime(**options)
             saved = json.loads((root / 'runtime_validation.json').read_text())
             assert (saved) == (report)
             assert (report['status']) == ('ok')
@@ -112,7 +123,10 @@ class TestRuntimeValidation:
         assert ({c[-1] for c in removals}) == ({'c' * 64})
         assert ('--gpus') not in (runs[0])
         assert ('--gpus') in (runs[1])
-        assert (all('ACPROF_REQUEST_TIMEOUT_S=30' in command for command in runs))
+        for command in runs:
+            forwarded = dict(command[i + 1].split('=', 1) for i, part in enumerate(command) if part == '-e')
+            with patch.dict(os.environ, forwarded, clear=True):
+                assert request_timeout_s() == expected
         assert all(mount.close.call_count == 1 for mount in mounts)
 
     def test_mount_is_released_when_command_setup_fails_before_docker_run(self, tmp_path):

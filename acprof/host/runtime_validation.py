@@ -133,7 +133,7 @@ def validate_runtime(
                     "-e", f"RUNTIME_BACKEND={task_info.runtime_backend}",
                     "-e", f"USE_GPU={int(device_mode == 'on')}",
                     "-e", f"TORCH_NUM_THREADS={max(cpu_list)}",
-                    "-e", f"ACPROF_REQUEST_TIMEOUT_S={timeout_seconds:g}",
+                    "-e", f"ACPROF_REQUEST_TIMEOUT_S={timeout_seconds}",
                     *runtime_docker_env_args(),
                     *hf_offline_docker_env_args(),
                     *model_store_mount.args,

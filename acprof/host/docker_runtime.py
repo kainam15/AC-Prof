@@ -176,7 +176,7 @@ def start_container_session(
             raise ValueError("request_timeout_seconds must be finite and positive, or None")
     from acprof.cpu_affinity import normalize_cpu_set
     cpuset_cpus = normalize_cpu_set(cpuset_cpus)
-    completion_timeout = "none" if request_timeout_seconds is None else f"{request_timeout_seconds:g}"
+    completion_timeout = "none" if request_timeout_seconds is None else str(request_timeout_seconds)
     host_port = service_port(cpu, mem)
 
     container_name = f"{container_name}-{uuid.uuid4().hex[:12]}"

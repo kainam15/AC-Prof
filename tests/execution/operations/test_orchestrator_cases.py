@@ -15,6 +15,7 @@ from acprof.host import cases, docker_runtime, orchestrator
 from acprof.host.detect import TaskInfo
 from acprof.host.images import runtime as runtime_images
 from acprof.host.measurement import capture as packet_capture, error_rows
+from acprof.host.measurement.config import ClientConfig
 
 
 def _write_gpu_case_csv(
@@ -493,7 +494,8 @@ class TestOrchestratorCases:
                 os.path.basename(captured_env["OUT_CSV"]) + ".idle_diag.jsonl",
             ))
 
-    def test_run_single_case_passes_auto_repeat_window_settings_to_client(self) -> None:
+    @pytest.mark.parametrize("request_timeout", [123.5, 123.45678901234567])
+    def test_run_single_case_passes_auto_repeat_window_settings_to_client(self, request_timeout) -> None:
         task_info = TaskInfo(
             model_id="google-bert/bert-base-uncased",
             pipeline_tag="fill-mask",
@@ -537,7 +539,7 @@ class TestOrchestratorCases:
                     repeat=1,
                     repeat_in_window=0,
                     repeat_window_seconds=10.0,
-                    request_timeout_seconds=123.5,
+                    request_timeout_seconds=request_timeout,
                 ),
                 measurement=cases.CaseMeasurement(
                     require_packet_latency=False,
@@ -549,8 +551,8 @@ class TestOrchestratorCases:
 
         assert (captured_env["REPEAT_IN_WINDOW"]) == ("0")
         assert (captured_env["REPEAT_WINDOW_SECONDS"]) == ("10.0")
-        assert (captured_env["REQUEST_TIMEOUT_SECONDS"]) == ("123.5")
-        assert (start_container.call_args.kwargs["request_timeout_seconds"]) == (123.5)
+        assert ClientConfig.from_env(captured_env).request_timeout_seconds == request_timeout
+        assert start_container.call_args.kwargs["request_timeout_seconds"] == request_timeout
 
     def test_run_single_case_preserves_manual_repeat_window_to_client(self) -> None:
         task_info = TaskInfo(

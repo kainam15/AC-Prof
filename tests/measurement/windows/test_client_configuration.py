@@ -1,8 +1,11 @@
+import math
 import os
 import subprocess
 import sys
 from pathlib import Path
 from types import SimpleNamespace
+
+import pytest
 
 from acprof.host.measurement.config import ClientConfig
 from acprof.host.runtimes.service import configure_client
@@ -40,6 +43,23 @@ def test_client_config_environment_codec_preserves_structured_values():
     assert encoded["CPU_CORES"] == "2"
     assert encoded["MEM_CAP_GB"] == "4"
     assert restored == config
+
+
+@pytest.mark.parametrize("timeout", [
+    300.0,
+    123.5,
+    1.2345678901234567,
+    300.123456789,
+    math.nextafter(300.0, math.inf),
+    1.2345678901234567e-5,
+])
+def test_client_config_environment_codec_preserves_request_timeout(timeout):
+    config = ClientConfig(request_timeout_seconds=timeout)
+    config.validate()
+
+    restored = ClientConfig.from_env(config.to_env())
+
+    assert restored.request_timeout_seconds == timeout
 
 
 def test_client_config_environment_codec_preserves_inherited_process_resources():
