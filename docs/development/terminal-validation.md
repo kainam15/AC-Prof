@@ -14,6 +14,11 @@ Linux 原生终端、SSH 会话及浏览器 Web Terminal。SSH 只传输终端�
 使用 pytest 原生 async 测试和 `pytest-asyncio`、Textual `run_test()` / `Pilot` 和临时 `settings_path`。
 普通界面测试使用 `tests/support/tui_fixtures.py` 的就绪环境替身，保留启动状态机但不触发真实硬件探测；
 启动 preflight 专项使用真实 `AcprofTui` 和 thread worker，只模拟 host diagnostics 边界。
+`test_tui_measurement_resume.py` 复用离线 CLI Fixture，以真实子进程和隔离锁覆盖
+进入测量状态、拒绝/确认停止、进程回收、恢复审核、已完成 case 复用、未完成 case 重试，
+并审计合成产物和结果摘要；覆盖中文 80×24、英文 120×30 及恢复框缩至 80×24。
+它沿用 [Textual Pilot](https://github.com/Textualize/textual/blob/v8.2.8/docs/guide/testing.md)
+的点击、按键和消息等待，不运行模型、Docker 或 Profiler，也不证明真实测量中断或客户端终端行为。
 覆盖整个 fixture 生命周期的环境隔离使用 `tests/support/environment_fixtures.py` 的
 `isolated_environment()`，保留 `PYTEST_` 与 `TEXTUAL_SNAPSHOT_` 测试运行状态，
 不继承应用设置、凭据或代理。`KeyboardInterrupt` 后，session 退出钩子可能先于 fixture
