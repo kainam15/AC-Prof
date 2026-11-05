@@ -61,7 +61,7 @@ def test_old_ncu_counters_are_not_selected():
 
 def test_failed_ncu_query_does_not_guess_a_metric_list():
     failed = SimpleNamespace(returncode=1, stdout="", stderr="query unavailable")
-    with patch("acprof.host.profiling.tools.ncu.run_command", return_value=failed):
+    with patch("acprof.host.profiling.tools.ncu.run_profiler_command", return_value=failed):
         metrics, error = _resolve_ncu_metrics("ncu")
     assert (metrics) == ([])
     assert ("query unavailable") in (error)

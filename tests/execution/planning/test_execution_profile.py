@@ -220,7 +220,7 @@ heap_tree=peak
             report_path = os.path.join(tmp, "report.nsys-rep")
             sqlite_path = os.path.join(tmp, "report.sqlite")
             with patch(
-                "acprof.host.profiling.tools.nsys.run_command",
+                "acprof.host.profiling.tools.nsys.run_profiler_command",
                 side_effect=fake_run,
             ):
                 outputs = nsys._run_nsys_stats(
@@ -256,7 +256,7 @@ heap_tree=peak
                 )
 
             with patch(
-                "acprof.host.profiling.tools.nsys.run_command",
+                "acprof.host.profiling.tools.nsys.run_profiler_command",
                 side_effect=fake_run,
             ), pytest.raises(RuntimeError, match="nsys_stats_failed"):
                 nsys._run_nsys_stats(
@@ -337,7 +337,7 @@ heap_tree=peak
                 )
 
             with patch(
-                "acprof.host.profiling.tools.execution_environment.run_command",
+                "acprof.host.profiling.tools.execution_environment.run_profiler_command",
                 side_effect=fake_run,
             ):
                 version = (
@@ -842,7 +842,7 @@ heap_tree=peak
                     "acprof.host.profiling.tools.nsys.profiler_container_command",
                 return_value=nullcontext(["docker", "run", "acprof-test:latest"]),
             ), patch(
-                "acprof.host.profiling.tools.nsys.run_command",
+                "acprof.host.profiling.tools.nsys.run_profiler_command",
                 side_effect=fake_run,
             ), patch(
                 "acprof.host.profiling.tools.nsys._run_nsys_stats",
@@ -904,7 +904,7 @@ heap_tree=peak
                     "acprof.host.profiling.tools.nsys.profiler_container_command",
                 return_value=nullcontext(["docker", "run", "acprof-test:latest"]),
             ), patch(
-                "acprof.host.profiling.tools.nsys.run_command",
+                "acprof.host.profiling.tools.nsys.run_profiler_command",
                 side_effect=fake_run,
             ):
                 result = nsys._collect_nsys_entry(

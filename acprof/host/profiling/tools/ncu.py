@@ -17,6 +17,7 @@ from acprof.gpu_probe import (
     set_gpu_probe_value,
 )
 from acprof.host.detect import TaskInfo
+from acprof.host.profiling.commands import run_profiler_command
 from acprof.host.profiling.support import (
     format_scale_value,
     parse_last_json_line,
@@ -35,7 +36,7 @@ from acprof.host.profiling.tools.compute_parsers import (
     to_float,
 )
 from acprof.host.profiling.tools.tool_discovery import tool_mount_roots
-from acprof.system.command import run_command
+from acprof.host.runtimes.contracts import RuntimeCleanupError
 
 NCU_TOOL = "ncu"
 
@@ -121,7 +122,7 @@ def _resolve_ncu_metrics(
             ["--query-metrics", "--query-metrics-mode", "all"],
             ["--query-metrics"],
         ):
-            result = run_command(
+            result = run_profiler_command(
                 [*command_prefix, ncu_bin, *query_args],
                 check=False,
             )
@@ -143,7 +144,7 @@ def _resolve_ncu_metrics(
 
 
 def _ncu_supports_nvtx_filter(ncu_bin: str) -> bool:
-    result = run_command([ncu_bin, "--help"], check=False)
+    result = run_profiler_command([ncu_bin, "--help"], check=False)
     return result.returncode == 0 and "--nvtx-include" in result.stdout
 
 
@@ -319,7 +320,7 @@ def _export_ncu_report(
         "--page", "raw",
         "--csv",
     ]
-    result = run_command([*base_cmd, *import_cmd], check=False)
+    result = run_profiler_command([*base_cmd, *import_cmd], check=False)
     if result.returncode != 0:
         detail = (result.stderr or result.stdout or "ncu import failed").strip()
         return False, detail
@@ -585,7 +586,7 @@ def _run_ncu_for_entry(
         tool_mount_roots=tool_mount_roots,
         requires_gpu_counters=True,
     ) as base_cmd:
-        result = run_command([*base_cmd, *collect_cmd], check=False)
+        result = run_profiler_command([*base_cmd, *collect_cmd], check=False)
     if result.returncode != 0:
         return ncu_error_entries(
             [entry],
@@ -723,6 +724,8 @@ def profile_gpu_entries(
                         host_csv=host_csv,
                         entry=profile_entry,
                     )
+        except RuntimeCleanupError:
+            raise
         except Exception as exc:
             profile_entry = ncu_error_entries(
                 [entry],

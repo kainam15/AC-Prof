@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from acprof.host.detect import TaskInfo
+from acprof.host.profiling.commands import run_profiler_command
 from acprof.host.profiling.support import (
     docker_env,
     execution_thread_environment,
@@ -24,7 +25,7 @@ from acprof.host.profiling.tools.execution_parsers import (
     finite_float,
     parse_nsys_stats_reports,
 )
-from acprof.system.command import run_command
+from acprof.host.runtimes.contracts import RuntimeCleanupError
 
 NSYS_TOOL = "nsys"
 
@@ -93,7 +94,7 @@ def _run_nsys_stats(nsys_bin: str, report_path: str) -> dict[str, str]:
             # file directly so later reports do not repeat that freshness
             # check.
             stats_input = report_path if index == 0 else sqlite_path
-            result = run_command(
+            result = run_profiler_command(
                 [
                     nsys_bin,
                     "stats",
@@ -196,7 +197,9 @@ def _collect_nsys_entry(
                 f"--output=/profiles/{stem}",
                 *profile_runner_args(dict(entry), repeat, "gpu"),
             ]
-            result = run_command(command, check=False)
+            result = run_profiler_command(command, check=False)
+    except RuntimeCleanupError:
+        raise
     except Exception:
         _discard_nsys_raw_stream(host_raw_stream)
         raise
@@ -311,6 +314,8 @@ def profile(
                         repeat=repeat,
                     )
                 )
+            except RuntimeCleanupError:
+                raise
             except Exception as exc:
                 profiled_entries.append(
                     error_entry(

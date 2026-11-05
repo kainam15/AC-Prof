@@ -8,6 +8,7 @@ from typing import Any
 
 from acprof.artifacts import read_json_object
 from acprof.host.detect import TaskInfo
+from acprof.host.profiling.commands import run_profiler_command
 from acprof.host.profiling.support import (
     execution_thread_environment,
     format_scale_value,
@@ -24,7 +25,7 @@ from acprof.host.profiling.tools.execution_parsers import (
     finite_float,
     parse_massif_output,
 )
-from acprof.system.command import run_command
+from acprof.host.runtimes.contracts import RuntimeCleanupError
 
 MASSIF_TOOL = "massif"
 
@@ -327,7 +328,7 @@ def _collect_massif_entry(
             f"--massif-out-file=/profiles/{filename}",
             *profile_runner_args(dict(entry), repeat, "cpu"),
         ]
-        result = run_command(command, check=False)
+        result = run_profiler_command(command, check=False)
     if result.returncode != 0:
         return error_entry(
             entry,
@@ -403,6 +404,8 @@ def profile(
                         repeat=repeat,
                     )
                 profiled_entries.append(profiled)
+            except RuntimeCleanupError:
+                raise
             except Exception as exc:
                 profiled_entries.append(
                     error_entry(

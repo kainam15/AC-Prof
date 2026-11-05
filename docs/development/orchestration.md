@@ -94,6 +94,17 @@ Token 派生之前冻结。`load_reporting` 在此后补齐未提交请求、派
 解析器不导入 Docker、模型检测或采集编排，单独读取报告无需安装推理框架。
 测试在函数实际查找依赖的位置 mock。
 
+Profiler 命令统一经过 `profiling.commands.run_profiler_command`：主机工具查询保留原有执行方式，
+每次 `docker run` 单独分配 cidfile 和现有进程所有权标签，按不可变 ID 有界回收容器。
+`--rm`、客户端退出或超时不能单独证明回收完成；删除失败时由 `container_lifecycle`
+检查同一 ID 是否确实不存在。清理未确认则传播 `RuntimeCleanupError`，停止后续工具、
+输入尺度及计划发布，并保留 Model Store 租约；原始运行错误或取消保留在异常链和 `run_error` 中。
+清理成功时继续原有工具错误语义，取消仍传播；租约关闭失败保留重试句柄和原始异常。
+这些操作在独立 profiler／准备阶段执行，不进入正式测量窗口，不增加 profiler 运行时限。
+参考 [Testcontainers 的容器作用域](https://github.com/testcontainers/testcontainers-python/blob/6146aa1170f415fcc825ed9bddc4eacbeb937a12/src/testcontainers/core/container.py)
+（Apache-2.0）与 [Docker CLI 的 cidfile 写入](https://github.com/docker/cli/blob/master/cli/command/container/create.go)，
+复用项目现有 CLI、清理和异常保留工具，不增加 SDK、后台清理服务或依赖。
+
 ### 单窗口执行边界
 
 `ClientRunner` 在准备阶段加载 profiler 计划、建立 execution profile 解析快照，

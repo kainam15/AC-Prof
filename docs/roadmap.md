@@ -70,9 +70,15 @@ BERT 后处理完成 Torch CPU/GPU 双尺度 4/4 探针、NCU GPU 双尺度 2/2�
 第二尺度未执行，Massif 为 0/2 完成。恢复仅写回前三个工具的成功结果，
 原 12 行及 201 个非 profiler 列的内容摘要保持一致。
 
+已补充独立 Profiler 容器清理：Massif、Nsys、Torch、NCU 和 Advisor 共用不可变容器 ID
+及有界回收，清理未确认时保留 Model Store 租约并停止后续任务和计划发布。
+离线故障注入覆盖退出、超时、取消、未知 ID、删除失败与租约关闭异常；
+这是实现与回归证据，Massif 的完整硬件实测仍未补齐。
+机制见[主机编排与测量模块](development/orchestration.md#主机编排与测量)。
+
 当前开发优先通用模型适配、采集实现正确性、可控的 Runtime 资源限制及 TUI 体验。
 能耗基线稳定性与重复样本、Massif 的完整实测及跨环境性能对照列为**用户主导的后续实验**，
-不作为日常 Agent 开发阻塞项。Massif 超时清理的实现/确定性回归可继续低成本开发。
+不作为日常 Agent 开发阻塞项。
 当前小样本用于覆盖验收，不能据此给出稳定性能排名；
 本地证据不替代同提交的 GitHub release gate。复现协议见[扩展验收](development/ci.md#代表模型与多尺度扩展验收)。
 

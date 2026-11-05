@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import Any
 
 from acprof.host.detect import TaskInfo
+from acprof.host.profiling.commands import run_profiler_command
 from acprof.host.profiling.support import (
     parse_last_json_line,
     profile_runner_args,
@@ -12,7 +13,7 @@ from acprof.host.profiling.support import (
 from acprof.host.profiling.tools.compute_parsers import (
     to_float,
 )
-from acprof.system.command import run_command
+from acprof.host.runtimes.contracts import RuntimeCleanupError
 
 TORCH_PROFILER_TOOL = "torch_profiler_eager"
 
@@ -55,7 +56,7 @@ def _run_torch_profiler_for_entry(
         profile_root=profile_root,
         tool_mount_roots=(),
     ) as base_cmd:
-        result = run_command(
+        result = run_profiler_command(
             [*base_cmd, *profile_runner_args(entry, repeat, runner_mode)],
             check=False,
         )
@@ -135,6 +136,8 @@ def profile_torch_entries(
                 entry=entry,
                 repeat=repeat,
             )
+        except RuntimeCleanupError:
+            raise
         except Exception as exc:
             profile_entry = torch_error_entries(
                 [entry],

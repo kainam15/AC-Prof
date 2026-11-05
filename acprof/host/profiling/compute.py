@@ -23,6 +23,7 @@ from acprof.host.profiling.progress import (
 from acprof.host.profiling.support import load_input_scale_plan_entries, write_profile_json
 from acprof.host.profiling.tools import advisor, ncu, torch
 from acprof.host.profiling.tools.tool_discovery import find_executable
+from acprof.host.runtimes.contracts import RuntimeCleanupError
 from acprof.system.command import run_command
 
 _LOG = logging.getLogger(__name__)
@@ -97,6 +98,8 @@ def _safe_profile_tool(
             if error:
                 return _failed_tool_profile(tool=tool, entries=entries, repeat=repeat, error=error)
         return callback()
+    except RuntimeCleanupError:
+        raise
     except Exception as exc:
         _LOG.debug("profiler failed: tool=%s error_type=%s", tool, type(exc).__name__)
         return _failed_tool_profile(

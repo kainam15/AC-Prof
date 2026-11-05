@@ -6,8 +6,10 @@ import os
 import re
 from typing import Any
 
+from acprof.host.profiling.commands import run_profiler_command
 from acprof.host.profiling.tools.tool_discovery import find_nsys_importer
-from acprof.system.command import DOCKER_INSPECT_TIMEOUT_S, DOCKER_RUN_TIMEOUT_S, run_command
+from acprof.host.runtimes.contracts import RuntimeCleanupError
+from acprof.system.command import DOCKER_INSPECT_TIMEOUT_S, DOCKER_RUN_TIMEOUT_S
 
 MASSIF_TOOL = "massif"
 NSYS_TOOL = "nsys"
@@ -29,7 +31,7 @@ def command_detail(result: Any, limit: int = 2000) -> str:
 
 
 def _inspect_execution_image(image_ref: str) -> dict[str, Any] | None:
-    result = run_command(
+    result = run_profiler_command(
         ["docker", "image", "inspect", image_ref, "--format", "{{json .}}"],
         check=False,
         timeout=DOCKER_INSPECT_TIMEOUT_S,
@@ -74,11 +76,13 @@ def get_massif_version(derived_image: str | None) -> str:
     if not derived_image:
         return "unknown"
     try:
-        result = run_command(
+        result = run_profiler_command(
             ["docker", "run", "--rm", derived_image, "valgrind", "--version"],
             check=False,
             timeout=DOCKER_RUN_TIMEOUT_S,
         )
+    except RuntimeCleanupError:
+        raise
     except Exception:
         return "unknown"
     if result.returncode != 0:
@@ -91,7 +95,9 @@ def get_nsys_version(nsys_bin: str | None) -> str:
     if not nsys_bin:
         return "unknown"
     try:
-        result = run_command([nsys_bin, "--version"], check=False, timeout=DOCKER_INSPECT_TIMEOUT_S)
+        result = run_profiler_command([nsys_bin, "--version"], check=False, timeout=DOCKER_INSPECT_TIMEOUT_S)
+    except RuntimeCleanupError:
+        raise
     except Exception:
         return "unknown"
     if result.returncode != 0:
@@ -115,7 +121,7 @@ def validate_nsys_container_runtime(
             "nsys_importer_not_found:"
             f"root={os.path.abspath(os.fspath(nsys_mount_root))}"
         )
-    result = run_command(
+    result = run_profiler_command(
         [
             "docker",
             "run",

@@ -6,6 +6,7 @@ from collections.abc import Sequence
 from typing import Any
 
 from acprof.host.detect import TaskInfo
+from acprof.host.profiling.commands import run_profiler_command
 from acprof.host.profiling.support import (
     format_scale_value,
     profile_runner_args,
@@ -15,7 +16,6 @@ from acprof.host.profiling.tools.compute_parsers import (
     parse_advisor_self_gflop_csv,
 )
 from acprof.host.profiling.tools.tool_discovery import tool_mount_roots
-from acprof.system.command import run_command
 
 
 def tool_error_entries(
@@ -92,7 +92,7 @@ def _run_advisor_for_entry(
             profile_root=profile_root,
             tool_mount_roots=tool_mount_roots,
         ) as base_cmd:
-            result = run_command([*base_cmd, *command], check=False)
+            result = run_profiler_command([*base_cmd, *command], check=False)
         if result.returncode != 0:
             return {
                 "input_scale": float(entry["input_scale"]),

@@ -1,7 +1,6 @@
 import csv
 import json
 import os
-import subprocess
 import tempfile
 from contextlib import nullcontext
 from functools import partial
@@ -18,6 +17,7 @@ from acprof.host.detect import TaskInfo
 from acprof.host.profiling import compute as compute_profile, support as profiler_support
 from acprof.host.profiling.compute_plan import load_compute_profile_plan
 from acprof.host.profiling.tools import advisor, compute_parsers, ncu, tool_discovery, torch
+from acprof.host.runtimes.contracts import RuntimeCleanupError
 
 
 def _write_input_scale_plan(directory: str, input_scale: float = 8.0) -> str:
@@ -272,7 +272,7 @@ class TestComputeProfile:
         else:
             assert profile_root.stat().st_mode & 0o777 == 0o700
 
-    def test_profiler_container_command_retains_mount_if_execution_is_interrupted(self) -> None:
+    def test_profiler_container_command_retains_mount_if_cleanup_is_incomplete(self) -> None:
         task_info = SimpleNamespace(
             model_id="fixture",
             model_revision="main",
@@ -286,7 +286,7 @@ class TestComputeProfile:
 
         with patch("acprof.host.model_store.store.acquire_mount", return_value=mount), patch(
             "acprof.host.model_store.store.retain_mount_for_cleanup_debt"
-        ) as retain, pytest.raises(subprocess.TimeoutExpired):
+        ) as retain, pytest.raises(RuntimeCleanupError, match="unconfirmed container cleanup"):
             with profiler_support.profiler_container_command(
                 task_info=task_info,
                 image_tag="acprof-test:latest",
@@ -297,7 +297,7 @@ class TestComputeProfile:
                 profile_root="/tmp/profiles",
                 tool_mount_roots=(),
             ):
-                raise subprocess.TimeoutExpired(["docker", "run"], 1)
+                raise RuntimeCleanupError("unconfirmed container cleanup")
 
         retain.assert_called_once_with(mount)
         mount.close.assert_not_called()
@@ -537,7 +537,7 @@ class TestComputeProfile:
                 "acprof.host.profiling.tools.torch.profiler_container_command",
             return_value=nullcontext(["docker"]),
         ), patch(
-            "acprof.host.profiling.tools.torch.run_command",
+            "acprof.host.profiling.tools.torch.run_profiler_command",
             return_value=SimpleNamespace(
                 returncode=0,
                 stdout=json.dumps(runner_result),
@@ -605,7 +605,7 @@ class TestComputeProfile:
                 "acprof.host.profiling.tools.ncu._ncu_section_args",
                 return_value=[],
             ), patch(
-                "acprof.host.profiling.tools.ncu.run_command",
+                "acprof.host.profiling.tools.ncu.run_profiler_command",
                 side_effect=[collect_result, import_result],
             ):
                 result = ncu._run_ncu_for_entry(
@@ -666,7 +666,7 @@ class TestComputeProfile:
                 "acprof.host.profiling.tools.ncu._ncu_section_args",
                 return_value=[],
             ), patch(
-                "acprof.host.profiling.tools.ncu.run_command",
+                "acprof.host.profiling.tools.ncu.run_profiler_command",
                 side_effect=[command_result, command_result],
             ):
                 result = ncu._run_ncu_for_entry(
@@ -742,7 +742,7 @@ class TestComputeProfile:
                 stderr="",
             )
 
-        with patch("acprof.host.profiling.tools.ncu.run_command", side_effect=fake_run):
+        with patch("acprof.host.profiling.tools.ncu.run_profiler_command", side_effect=fake_run):
             metrics, error = ncu._resolve_ncu_metrics("/opt/ncu")
 
         assert (metrics) == ([])
@@ -792,7 +792,7 @@ class TestComputeProfile:
                 ),
             )
 
-        with patch("acprof.host.profiling.tools.ncu.run_command", side_effect=fake_run):
+        with patch("acprof.host.profiling.tools.ncu.run_profiler_command", side_effect=fake_run):
             metrics, error = ncu._resolve_ncu_metrics(
                 "/opt/ncu",
                 container_base_cmd=container_base_cmd,

@@ -36,6 +36,7 @@ from acprof.host.profiling.tools.execution_environment import (
 from acprof.host.profiling.tools.massif import MASSIF_TOOL
 from acprof.host.profiling.tools.nsys import NSYS_TOOL
 from acprof.host.profiling.tools.tool_discovery import find_nsys_executable, find_nsys_mount_root
+from acprof.host.runtimes.contracts import RuntimeCleanupError
 
 EXECUTION_PROFILE_PLAN_NAME = "execution_profile_plan.json"
 EXECUTION_PROFILE_DIRNAME = "execution_profiles"
@@ -385,6 +386,8 @@ def _prepare_nsys(
                     image = require_execution_image(request.image_tag, NSYS_TOOL)
                     validate_nsys_container_runtime(image, mount_root)
                     logging.getLogger(__name__).debug("nsys importer preflight passed: image=%s", image)
+                except RuntimeCleanupError:
+                    raise
                 except Exception as exc:
                     detail = str(exc)
                     error = detail if detail.startswith("nsys_") else f"nsys_runtime_preflight_failed:{exc!r}"

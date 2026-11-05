@@ -6,7 +6,6 @@ import math
 import os
 import re
 import stat
-import subprocess
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any
@@ -17,7 +16,9 @@ if TYPE_CHECKING:
     from acprof.host.detect import TaskInfo
 from acprof.host.env_utils import hf_offline_docker_env_args
 from acprof.host.gpu_device import gpu_docker_args
+from acprof.host.runtimes.contracts import RuntimeCleanupError
 from acprof.runtime.settings import runtime_docker_env_args
+from acprof.system.cleanup import cleanup_on_exit
 
 CONTAINER_INPUT_SCALE_PLAN_FILE = "/payloads/input_scale_plan.json"
 
@@ -93,23 +94,28 @@ def load_input_scale_plan_entries(
     return entries
 
 
-class _ProfilerMountScope:
-    def __init__(self, mount: Any):
-        self._mount = mount
+@contextmanager
+def _profiler_mount_scope(mount: Any) -> Iterator[None]:
+    from acprof.host.model_store.store import retain_mount_for_cleanup_debt
 
-    def __enter__(self):
-        return self._mount
+    cleanup_pending = False
 
-    def __exit__(self, exc_type, _exc, _tb):
-        if exc_type is not None and issubclass(
-            exc_type, (subprocess.TimeoutExpired, KeyboardInterrupt)
-        ):
-            from acprof.host.model_store.store import retain_mount_for_cleanup_debt
+    def close() -> None:
+        if cleanup_pending:
+            retain_mount_for_cleanup_debt(mount)
+            return
+        try:
+            mount.close()
+        except BaseException:
+            retain_mount_for_cleanup_debt(mount)
+            raise
 
-            retain_mount_for_cleanup_debt(self._mount)
-        else:
-            self._mount.close()
-        return False
+    with cleanup_on_exit(close, description="profiler Model Store lease"):
+        try:
+            yield
+        except RuntimeCleanupError:
+            cleanup_pending = True
+            raise
 
 
 @contextmanager
@@ -189,7 +195,7 @@ def profiler_container_command(
     cmd.append(image_tag)
     if requires_gpu_counters:
         cmd.extend(["sh", "-c", 'umask 0002; exec "$@"', "acprof-profiler"])
-    with _ProfilerMountScope(model_store_mount):
+    with _profiler_mount_scope(model_store_mount):
         yield cmd
 
 
