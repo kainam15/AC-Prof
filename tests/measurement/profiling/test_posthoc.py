@@ -6,6 +6,7 @@ import stat
 import tempfile
 from functools import partial
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -545,7 +546,7 @@ class TestPosthocProfile:
         publish_result_layers(csv_path)
         return csv_path
 
-    def _compute_plan(self):
+    def _compute_plan(self) -> dict[str, Any]:
         return {
             "model_id": "example/model",
             "task_family": "nlp",
@@ -580,7 +581,7 @@ class TestPosthocProfile:
             },
         }
 
-    def _torch_plan(self):
+    def _torch_plan(self) -> dict[str, Any]:
         def profile(value):
             return {
                 "tool": "torch_profiler_eager",
