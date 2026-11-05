@@ -5,13 +5,14 @@ import subprocess
 from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import pytest
 
 from acprof.host.container_lifecycle import ContainerCleanupError
+from acprof.host.detect import TaskInfo
 from acprof.host.model_store import store
-from acprof.host.profiling import compute, execution, support
+from acprof.host.profiling import compute, execution
 from acprof.host.profiling.commands import run_profiler_command
 from acprof.host.profiling.tools import advisor, execution_environment, massif, ncu, nsys, torch
 from acprof.system import command
@@ -76,15 +77,15 @@ def profiler_engine(monkeypatch):
     monkeypatch.setattr(command.subprocess, "run", run)
     monkeypatch.setattr(store, "acquire_mount", lambda *_: state.mount)
     monkeypatch.setattr(store, "retain_mount_for_cleanup_debt", state.retained)
-    monkeypatch.setattr(support, "gpu_docker_args", lambda: ["--gpus", "device=GPU-fixture"])
-    return state
+    with patch("acprof.host.profiling.support.gpu_docker_args", return_value=["--gpus", "device=GPU-fixture"]):
+        yield state
 
 
 def collect_massif(tmp_path, *, entries=1):
-    task = SimpleNamespace(
+    task = TaskInfo(
         model_id="fixture", model_revision="fixed", task_family="nlp",
         pipeline_tag="fill-mask", runtime_backend="transformers_pipeline",
-        runtime_profile_id="fixture", model_store={},
+        runtime_profile_id="fixture", library_name="transformers", detection_method="test",
     )
     return massif.profile(
         entries=[{"input_scale": float(i + 1), "payload": {}} for i in range(entries)],
@@ -163,10 +164,10 @@ def test_failed_command_detail_survives_missing_container_identity(tmp_path, pro
 
 @pytest.mark.parametrize("tool", ["torch", "ncu", "nsys", "advisor"])
 def test_other_profilers_abort_on_cleanup_debt(tmp_path, profiler_engine, tool):
-    task = SimpleNamespace(
+    task = TaskInfo(
         model_id="fixture", model_revision="fixed", task_family="nlp",
         pipeline_tag="fill-mask", runtime_backend="transformers_pipeline",
-        runtime_profile_id="fixture", model_store={},
+        runtime_profile_id="fixture", library_name="transformers", detection_method="test",
     )
     common = dict(
         entries=[{"input_scale": 1.0, "payload": {}}, {"input_scale": 2.0, "payload": {}}],
@@ -192,14 +193,15 @@ def test_other_profilers_abort_on_cleanup_debt(tmp_path, profiler_engine, tool):
         assert profiler_engine.raw_stream.read_bytes() == b"active profiler output"
 
 
-def test_compute_plan_does_not_publish_or_start_next_tool_with_cleanup_debt(tmp_path, monkeypatch, profiler_engine):
+def test_compute_plan_does_not_publish_or_start_next_tool_with_cleanup_debt(tmp_path, profiler_engine):
     from tests.execution.planning.test_execution_profile import _task_info
     from tests.measurement.profiling.test_compute_profile import _write_input_scale_plan
 
     plan = _write_input_scale_plan(str(tmp_path))
     profiler_engine.cleanup_failure = True
-    monkeypatch.setattr(compute, "find_executable", lambda *_: None)
-    with pytest.raises(ContainerCleanupError, match="cleanup present"):
+    with patch("acprof.host.profiling.compute.find_executable", return_value=None), pytest.raises(
+        ContainerCleanupError, match="cleanup present",
+    ):
         compute.collect_compute_profile_plan(
             task_info=_task_info(), image_tag="fixture", cpu_list=[1], mem_list=[2],
             gpu_list=["off", "on"], output_dir=str(tmp_path), input_scale_plan_file=plan,
@@ -282,20 +284,23 @@ def test_massif_version_probe_cannot_downgrade_cleanup_debt_to_unknown(profiler_
     assert len(profiler_engine.launched) == 1
 
 
-def test_execution_plan_aborts_when_nsys_preflight_leaves_a_container(tmp_path, monkeypatch, profiler_engine):
+def test_execution_plan_aborts_when_nsys_preflight_leaves_a_container(tmp_path, profiler_engine):
     from tests.execution.planning.test_execution_profile import _task_info, _write_input_scale_plan
 
     plan = _write_input_scale_plan(str(tmp_path))
-    monkeypatch.setattr(execution, "require_execution_image", lambda *_: "fixture")
-    monkeypatch.setattr(execution, "find_nsys_executable", lambda *_: str(tmp_path / "nsys"))
-    monkeypatch.setattr(execution, "find_nsys_mount_root", lambda *_: str(tmp_path))
-    monkeypatch.setattr(execution_environment, "find_nsys_importer", lambda *_: str(tmp_path / "importer"))
     profiler_engine.cleanup_failure = True
     request = execution.ExecutionProfileRequest(
         _task_info(), "fixture", [1], [2], ["on"], str(tmp_path), plan,
     )
     options = execution.ExecutionProfileOptions(tool_mode="nsys", nsys_root=str(tmp_path))
-    with pytest.raises(ContainerCleanupError, match="cleanup present"):
+    with (
+        patch("acprof.host.profiling.execution.require_execution_image", return_value="fixture"),
+        patch("acprof.host.profiling.execution.find_nsys_executable", return_value=str(tmp_path / "nsys")),
+        patch("acprof.host.profiling.execution.find_nsys_mount_root", return_value=str(tmp_path)),
+        patch("acprof.host.profiling.tools.execution_environment.find_nsys_importer",
+              return_value=str(tmp_path / "importer")),
+        pytest.raises(ContainerCleanupError, match="cleanup present"),
+    ):
         execution.collect_execution_profile_plan(request, options)
     assert len(profiler_engine.launched) == 1
     assert not list(tmp_path.rglob("execution_profile_plan.json"))
