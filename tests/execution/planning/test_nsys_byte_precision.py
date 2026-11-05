@@ -40,7 +40,7 @@ def test_nsys_stats_preserve_exact_memcpy_bytes(tmp_path, monkeypatch):
             output = reports[name]
         return SimpleNamespace(returncode=0, stdout=output, stderr="")
 
-    monkeypatch.setattr(nsys, "run_command", fake_stats)
+    monkeypatch.setattr(nsys, "run_profiler_command", fake_stats)
 
     outputs = nsys._run_nsys_stats("/unused/nsys", str(report))
     parsed = execution_parsers.parse_nsys_stats_reports(outputs)

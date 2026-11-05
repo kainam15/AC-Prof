@@ -54,6 +54,7 @@
 - case 归档与清理恢复从 `RunState` 分离；checkpoint 查询保持只读。collector 指标投影与共享数值转换独立维护，`build_row()` 不再修改 idle history。
 - 应用结果发布、TUI HTML 操作与按钮纯规则分别拆出；跨模块协作改用显式包内公共 API，生产 private dependency 清零（35 → 0），diffusion handler 离线分支覆盖门禁提升至 65%。
 - DRAM 指标与 posthoc 上下文取消回归已对齐重构后的模块和符号，保留能耗回绕、请求分母及取消时拒绝部分上下文的断言。
+- CI #211 的 Profiler 回归已对齐 `run_profiler_command` mock 入口，保留 Nsys 字节精度、短命令超时和 Torch GPU 探针成功／解析失败断言；本地 72 项离线定向回归通过，远端 CI 仍待修复提交验证。
 - posthoc 取消与回滚回归改用公开事务入口和文件系统故障注入，保留原有 52 个测试场景；内部 helper 改名后仍通过，关闭回滚可被检出。静态可识别的测试 private 引用由 238 降至 233，仍按维护收益逐步处理；边界见[静态检查](development/static-checks.md#跨模块-private-api-检查)。
 - HTTP load 按调度、连接／socket 生命周期和窗口外报告拆分，保留 `run_load()` 入口、v1/v2 协议及取消证据；三个模块纳入 C901 ≤ 12 门禁。定向回归 563 项通过、1 项因未安装可选 tokenizer 依赖跳过；计时边界回归可检出将 Token 派生计入负载耗时的错误。未新增真实模型或硬件采集证据。
 - 全仓 Ruff、446 个源码文件的 mypy、核心 C901 与导入边界通过；窗口/运行时、应用恢复/posthoc、架构质量及 TUI 定向回归通过。未执行真实模型采集或硬件验收，真实客户端终端仍需后续验收。
