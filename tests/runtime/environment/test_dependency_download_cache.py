@@ -23,8 +23,9 @@ from acprof.runtime import dependency_locks
 
 class TestDependencyDownloadCache:
     @contextmanager
-    def artifact_server(self, payload):
+    def artifact_server(self, payload, failures=()):
         requests = []
+        responses = iter(failures)
 
         class Handler(BaseHTTPRequestHandler):
             def do_HEAD(self):
@@ -37,6 +38,10 @@ class TestDependencyDownloadCache:
                     self.send_header("Location", "/payload")
                     self.end_headers()
                 else:
+                    status = next(responses, 200)
+                    if status != 200:
+                        self.send_error(status)
+                        return
                     self.send_response(200)
                     self.send_header("Content-Length", str(len(payload)))
                     self.end_headers()
@@ -75,6 +80,29 @@ class TestDependencyDownloadCache:
             assert (requests[0][2]) == (requests[1][2])
             assert (json.loads(target.with_suffix(".whl.source.json").read_text())) == ({"actual_source_host": "127.0.0.1"})
             assert not (target.with_suffix(".whl.part").exists())
+
+    def test_gateway_failures_retry_through_redirect_then_publish_verified_cache(self, tmp_path, capsys):
+        helper = self.helper()
+        payload = b"locked Debian dependency"
+        target = tmp_path / "example.deb"
+        with self.artifact_server(payload, failures=(503, 504)) as (base_url, requests):
+            entry = {"name": "example", "sha256": hashlib.sha256(payload).hexdigest(),
+                     "url": base_url + "/artifact"}
+            with patch.object(helper.time, "sleep") as sleep, patch.object(helper, "_record_transfer") as recorded:
+                assert helper.cached_artifact(entry, target, "debian") == target
+                assert target.read_bytes() == payload
+                assert helper.cached_artifact(entry, target, "debian") == target
+            assert [(method, path) for method, path, _ in requests] == [
+                ("GET", "/artifact"), ("GET", "/payload"),
+            ] * 3
+            assert all(agent == network_policy.DEPENDENCY_USER_AGENT for _, _, agent in requests)
+            assert [call.args[0] for call in sleep.call_args_list] == [1, 2]
+            assert recorded.call_args_list[0].args == (entry, "debian", len(payload), "127.0.0.1", "miss")
+            assert recorded.call_args_list[1].args == (entry, "debian", 0, "127.0.0.1", "hit")
+        output = capsys.readouterr().out
+        assert "reason=HTTP503" in output
+        assert "reason=HTTP504" in output
+        assert not target.with_suffix(".deb.part").exists()
 
     def test_preflight_identifies_client_through_redirect_without_getting_payload(self):
         payload = b"fixed dependency payload"
@@ -134,6 +162,8 @@ class TestDependencyDownloadCache:
         URLError(ssl.SSLEOFError(8, 'unexpected EOF during handshake')),
         TimeoutError('connection timeout'), ConnectionResetError('connection reset'),
         IncompleteRead(b'partial', 100),
+        *[HTTPError('https://files.pythonhosted.org/example.whl', code, 'temporary failure', {}, BytesIO())
+          for code in (429, 500, 502, 503, 504)],
     ])
     def test_transient_get_failure_retries_same_source_before_publishing(self, tmp_path, error):
         helper = self.helper()
@@ -154,6 +184,33 @@ class TestDependencyDownloadCache:
         assert sleep.call_count == 1
         recorded.assert_called_once_with(entry, 'python', len(payload), 'files.pythonhosted.org', 'miss')
         assert not target.with_suffix('.whl.part').exists()
+        if isinstance(error, HTTPError):
+            assert error.fp.closed
+
+    @pytest.mark.parametrize(("retry_after", "expected_delay"), [
+        (None, 1), ("7", 7), ("0", 1), ("86400", 30),
+        ("Thu, 01 Jan 1970 00:00:07 GMT", 7),
+        ("Wed, 31 Dec 1969 23:59:59 GMT", 1), ("invalid", 1), ("-5", 1),
+    ])
+    def test_retry_after_is_bounded_and_preserves_verified_publication(self, tmp_path, retry_after, expected_delay):
+        helper = self.helper()
+        payload = b"verified retry-after payload"
+        entry = {"name": "example", "sha256": hashlib.sha256(payload).hexdigest(),
+                 "url": "https://files.pythonhosted.org/example.whl"}
+        headers = {} if retry_after is None else {"Retry-After": retry_after}
+        error = HTTPError(entry["url"], 503, "unavailable", headers, BytesIO(b"gateway error"))
+        response = BytesIO(payload)
+        response.geturl = lambda: entry["url"]
+        opener = SimpleNamespace(open=Mock(side_effect=[error, response]))
+        with patch("urllib.request.build_opener", return_value=opener), \
+                patch.object(helper.time, "sleep") as sleep, patch.object(helper.time, "time", return_value=0), \
+                patch.object(helper, "_record_transfer") as recorded:
+            target = helper.cached_artifact(entry, tmp_path / "example.whl", "python")
+        assert target.read_bytes() == payload
+        sleep.assert_called_once_with(expected_delay)
+        assert error.fp.closed
+        assert response.closed
+        recorded.assert_called_once_with(entry, "python", len(payload), "files.pythonhosted.org", "miss")
 
     def test_partial_download_is_discarded_before_retry(self, tmp_path):
         helper = self.helper()
@@ -174,10 +231,14 @@ class TestDependencyDownloadCache:
         assert not target.with_suffix('.whl.part').exists()
         assert recorded.call_count == 1
 
-    def test_transient_download_failure_exhausts_budget_and_leaves_no_cache(self, tmp_path):
+    @pytest.mark.parametrize('error', [
+        URLError(ssl.SSLEOFError(8, 'unexpected EOF')),
+        *[HTTPError('https://files.pythonhosted.org/example.whl', code, 'unavailable', {}, BytesIO())
+          for code in (503, 504)],
+    ])
+    def test_transient_download_failure_exhausts_budget_and_leaves_no_cache(self, tmp_path, error):
         helper = self.helper()
         entry = {'name': 'example', 'sha256': 'a' * 64, 'url': 'https://files.pythonhosted.org/example.whl'}
-        error = URLError(ssl.SSLEOFError(8, 'unexpected EOF'))
         opener = SimpleNamespace(open=Mock(side_effect=error))
         with patch('urllib.request.build_opener', return_value=opener), \
                 patch('time.sleep') as sleep, patch.object(helper, '_record_transfer') as recorded:
@@ -188,8 +249,14 @@ class TestDependencyDownloadCache:
         assert [call.args[0] for call in sleep.call_args_list] == [1, 2]
         recorded.assert_not_called()
         assert list(tmp_path.iterdir()) == []
+        if isinstance(error, HTTPError):
+            assert error.fp.closed
 
-    def test_resume_after_interrupted_build_keeps_partial_and_verifies_complete_hash(self, tmp_path):
+    @pytest.mark.parametrize('error', [
+        TimeoutError("network paused"),
+        HTTPError("https://files.pythonhosted.org/example.whl", 503, "unavailable", {}, BytesIO()),
+    ])
+    def test_resume_after_interrupted_build_keeps_partial_and_verifies_complete_hash(self, tmp_path, error):
         helper = self.helper()
         payload = b"complete SHA256 must cover every byte of this wheel"
         prefix = payload[:17]
@@ -201,12 +268,14 @@ class TestDependencyDownloadCache:
         first.status = 200
         first.headers = {"Content-Length": str(len(payload))}
         first_opener = SimpleNamespace(open=Mock(side_effect=[
-            first, TimeoutError("network paused"), TimeoutError("network paused"),
+            first, error, error,
         ]))
         with patch("urllib.request.build_opener", return_value=first_opener), \
                 patch("time.sleep"), patch.object(helper, "_record_transfer"):
-            with pytest.raises(TimeoutError, match="network paused"):
+            with pytest.raises(type(error)) as caught:
                 helper.cached_artifact(entry, target, "python")
+        assert caught.value is error
+        assert first_opener.open.call_count == 3
         partial = target.with_suffix(".whl.part")
         metadata = target.with_suffix(".whl.part.source.json")
         assert partial.read_bytes() == prefix
@@ -279,7 +348,8 @@ class TestDependencyDownloadCache:
     @pytest.mark.parametrize('error', [
         URLError(ssl.SSLCertVerificationError(1, 'certificate rejected')),
         URLError(ssl.SSLError(1, 'unsupported TLS version')),
-        HTTPError('https://files.pythonhosted.org/example.whl', 403, 'Forbidden', {}, None),
+        *[HTTPError('https://files.pythonhosted.org/example.whl', code, 'permanent error', {}, None)
+          for code in (400, 401, 403, 404, 416, 501, 505)],
         network_policy.DownloadPolicyError('source transition forbidden'),
         PermissionError('cache not writable'),
     ])
@@ -353,20 +423,22 @@ class TestDomesticPyPIArtifactMirror:
             "mirrors.cloud.tencent.com"
         )
 
-    def test_mirror_http_error_fails_closed_and_never_requests_official(self, monkeypatch, tmp_path):
+    @pytest.mark.parametrize(("status", "attempts"), [(403, 1), (503, 3), (504, 3)])
+    def test_mirror_http_error_fails_closed_and_never_requests_official(self, monkeypatch, tmp_path, status, attempts):
         helper = TestDependencyDownloadCache().helper()
         monkeypatch.setenv("ACPROF_PYPI_ARTIFACT_MIRROR", "tencent")
         entry = {"name": "example", "sha256": "a" * 64,
                  "url": "https://files.pythonhosted.org/packages/example.whl"}
-        error = HTTPError("https://mirrors.cloud.tencent.com/pypi/packages/example.whl", 403,
-                          "Forbidden", {}, None)
+        error = HTTPError("https://mirrors.cloud.tencent.com/pypi/packages/example.whl", status,
+                          "mirror error", {}, None)
         opener = SimpleNamespace(open=Mock(side_effect=error))
         with patch("urllib.request.build_opener", return_value=opener), \
-                patch.object(helper, "_record_transfer"):
-            with pytest.raises(HTTPError):
+                patch.object(helper.time, "sleep"), patch.object(helper, "_record_transfer"):
+            with pytest.raises(HTTPError) as caught:
                 helper.cached_artifact(entry, tmp_path / "file.whl", "python")
-        assert opener.open.call_count == 1
-        assert opener.open.call_args.args[0].full_url.startswith("https://mirrors.cloud.tencent.com/")
+        assert caught.value is error
+        assert opener.open.call_count == attempts
+        assert all(call.args[0].full_url == error.url for call in opener.open.call_args_list)
 
     def test_old_source_partial_is_invalidated_before_mirror_request(self, monkeypatch, tmp_path):
         helper = TestDependencyDownloadCache().helper()

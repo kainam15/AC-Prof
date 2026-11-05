@@ -14,9 +14,11 @@ import sys
 import tempfile
 import time
 import urllib.request
+from datetime import UTC
+from email.utils import parsedate_to_datetime
 from http.client import IncompleteRead
 from pathlib import Path
-from urllib.error import URLError
+from urllib.error import HTTPError, URLError
 from urllib.parse import unquote, urlsplit
 
 from dependency_locks import (
@@ -62,10 +64,31 @@ def _record_transfer(entry, category, actual_bytes, source_host, cache_status):
 
 
 def _retryable_download_error(error):
-    # HTTP/certificate/policy/hash errors are not transient transport failures.
+    # Only explicit transient HTTP statuses may retry the same locked GET.
+    if isinstance(error, HTTPError):
+        return error.code in {429, 500, 502, 503, 504}
     if isinstance(error, URLError):
         error = error.reason
     return isinstance(error, (TimeoutError, ConnectionError, ssl.SSLEOFError, IncompleteRead))
+
+
+def _download_retry_delay(error, attempt):
+    delay = 2 ** (attempt - 1)
+    if not isinstance(error, HTTPError):
+        return delay
+    retry_after = (error.headers or {}).get("Retry-After", "").strip()
+    if not retry_after:
+        return delay
+    try:
+        if re.fullmatch(r"[0-9]+", retry_after):
+            seconds = int(retry_after)
+        else:
+            date = parsedate_to_datetime(retry_after)
+            seconds = date.replace(tzinfo=date.tzinfo or UTC).timestamp() - time.time()
+    except (ValueError, TypeError, OverflowError):
+        return delay
+    # Honor useful server hints without allowing an unbounded build-time sleep.
+    return min(30, max(delay, seconds))
 
 
 def cached_artifact(entry, path, category):
@@ -182,10 +205,13 @@ def cached_artifact(entry, path, category):
                     if match is not None and temporary.stat().st_size != int(match[3]):
                         raise IncompleteRead(b"", int(match[3]) - temporary.stat().st_size)
             except (OSError, IncompleteRead) as exc:
+                if isinstance(exc, HTTPError):
+                    exc.close()
                 if attempt == 3 or not _retryable_download_error(exc):
                     raise
-                delay = 2 ** (attempt - 1)
-                reason = type(exc.reason if isinstance(exc, URLError) else exc).__name__
+                delay = _download_retry_delay(exc, attempt)
+                reason = (f"HTTP{exc.code}" if isinstance(exc, HTTPError)
+                          else type(exc.reason if isinstance(exc, URLError) else exc).__name__)
                 print(
                     f"[dependency-cache] {category} retry name={entry['name']} "
                     f"attempt={attempt}/3 source={urlsplit(source_url).hostname} "
