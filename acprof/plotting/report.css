@@ -55,6 +55,12 @@ tbody tr.selected td { outline: 2px solid #9363b6; outline-offset: -2px; }
 .evidence { color: var(--muted); font-size: 12px; margin-top: 20px; overflow-wrap: anywhere; }
 .evidence summary { font-size: 14px; }
 .evidence pre { white-space: pre-wrap; }
+.statistics-source { border-top: 1px solid var(--line); margin-top: 20px; padding-top: 12px; overflow-wrap: anywhere; }
+.statistics-source h3 { font-size: 15px; }
+.statistics-source p { font-size: 12px; }
+#statistics td:nth-child(2), #statistics td:last-child { text-align: left; }
+#statistics td:last-child { min-width: 210px; }
+#statistics-metric { max-width: 100%; }
 footer { color: var(--muted); text-align: center; font-size: 11px; padding: 12px; }
 #error { padding: 15px; color: #9a2438; background: #fff0f0; border-radius: 6px; }
 [hidden] { display: none !important; }

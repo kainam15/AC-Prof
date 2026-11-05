@@ -329,6 +329,7 @@ def load_comparison_snapshot(source: str | Path, *, result_snapshot: ResultCsvSn
         "run_id": state.get("run_id"), "result_csv": audit["result_csv"],
         "run_status": audit["run_status"], "measurement_status": audit["measurement_status"],
         "missing_metrics": audit["missing_metrics"],
+        "audit": {key: audit[key] for key in ("valid", "issues", "counts", "coverage", "completion")},
         **{key: audit[key] for key in QUALITY_FIELDS},
         "valid": audit["valid"] and not issues, "issues": issues,
         "planned_input_entries": planned_entries,

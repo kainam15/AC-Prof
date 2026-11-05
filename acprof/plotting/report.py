@@ -1,4 +1,4 @@
-"""Render the three exploratory views as an offline, self-contained HTML artifact."""
+"""Render charts, window statistics and evidence as a self-contained HTML artifact."""
 from __future__ import annotations
 
 import json
@@ -9,7 +9,13 @@ from pathlib import Path
 from typing import TextIO
 
 from acprof.analysis.conditions import ALLOWED_RESOURCE_DIMENSIONS, PURPOSES
-from acprof.analysis.model import DEFAULT_MATRIX, SUMMARY_FIELDS, AnalysisModel
+from acprof.analysis.model import (
+    DEFAULT_MATRIX,
+    SUMMARY_FIELDS,
+    AnalysisModel,
+    verify_analysis_sources,
+)
+from acprof.analysis.report_statistics import build_report_statistics
 from acprof.artifacts import atomic_write
 from acprof.quality import QUALITY_FIELDS
 from acprof.results.metrics import ANALYSIS_METRICS, VIEW_METRICS
@@ -25,6 +31,7 @@ def report_payload(model: AnalysisModel, baseline: str | None = None, *, compari
             raise ValueError("baseline 必须匹配唯一 config_id；run_id 含多个配置时请在报告中选择")
         selected = matches[0]["config_id"]
     return {"schema_version": 1, "configs": model.configs, "baseline": selected,
+            "window_statistics": build_report_statistics(model),
             "comparison_purpose": comparison_purpose,
             "comparison_policies": {purpose: {"allowed_resource_dimensions":
                 ALLOWED_RESOURCE_DIMENSIONS if purpose == "resource-scaling" else []} for purpose in PURPOSES},
@@ -95,6 +102,7 @@ def write_report(model: AnalysisModel, output: str | Path, *, baseline: str | No
                 stream.write(replacements[match.group()])
             position = match.end()
         stream.write(template[position:])
+        verify_analysis_sources(model)
 
     atomic_write(output, write, overwrite=False)
     return output

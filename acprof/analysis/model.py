@@ -181,6 +181,14 @@ class AnalysisModel:
                 "records": self.records, "configs": self.configs, "summary": self.summary}
 
 
+def verify_analysis_sources(model: AnalysisModel) -> None:
+    """Reject changed result or parsed metadata evidence before publication."""
+    for source in model.sources:
+        verify_result_source(Path(source["path"]), source["sha256"])
+        for path, digest in source.get("metadata_sha256", {}).items():
+            verify_result_source(Path(path), digest)
+
+
 def _validated_csv_fields(path: Path, raw_fields: list[str]) -> tuple[bool, tuple[str, ...]]:
     fields = [name.strip() for name in raw_fields]
     field_names = set(fields)
@@ -247,7 +255,8 @@ def load_analysis(sources) -> AnalysisModel:
         evidence = {"run_status": state.get("status", "unknown"),
                     **{key: snapshot[key] for key in ("measurement_status", "missing_metrics", *QUALITY_FIELDS)}}
         snapshots.append({"path": str(path), "display_name": path.parent.name, "sha256": digest, "run_id": run_id,
-                          "run_state": state.get("status", "unknown"), "metadata": meta, **evidence})
+                          "run_state": state.get("status", "unknown"), "metadata": meta,
+                          "audit": snapshot["audit"], **evidence})
         device_quality = {}
         first_entry = len(entries)
         normalize_fields, numeric_fields = _validated_csv_fields(path, result_snapshot.fields)
@@ -289,6 +298,8 @@ def load_analysis(sources) -> AnalysisModel:
             raise ValueError(f"CSV has no measurement rows: {path}")
         try:
             verify_result_source(path, digest)
+            fingerprints = metadata_snapshot.observed_fingerprints()
+            snapshots[-1]["metadata_sha256"] = {str(artifact): expected for artifact, expected in fingerprints.items()}
         except (OSError, ValueError, csv.Error) as error:
             raise ValueError(f"CSV changed during analysis: {path}: {error}") from error
     if not snapshots:

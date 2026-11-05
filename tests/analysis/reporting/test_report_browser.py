@@ -119,6 +119,72 @@ class TestReportBrowser:
         assert (self.remote_requests) == ([])
         assert (self.page.locator("#error").is_hidden())
 
+    def test_window_statistics_share_filters_selection_and_explain_missing_intervals(self):
+        self.page.click("[data-view=statistics]")
+        self.settled()
+        assert self.page.locator("#statistics tbody tr").count() == 15
+        assert "95% 置信区间" in self.page.locator("#statistics thead").inner_text()
+        assert "标准差" in self.page.locator("#statistics thead").inner_text()
+        assert "resamples=5000" in self.page.locator("#statistics-evidence").inner_text()
+        assert "seed=0" in self.page.locator("#statistics-evidence").inner_text()
+        assert "数据质量" in self.page.locator("#statistics-evidence").inner_text()
+        assert "实验完整性" in self.page.locator("#statistics-evidence").inner_text()
+        row = self.page.locator("#statistics tbody tr").first
+        assert "窗口不足" in row.inner_text()
+        config = row.get_attribute("data-stat-config-id")
+        row.locator("td").first.click()
+        self.settled()
+        self.page.click("[data-view=matrix]")
+        self.settled()
+        assert self.page.locator(f'#matrix tr[data-config-id="{config}"]').get_attribute("class") == "selected"
+        self.page.click("[data-view=statistics]")
+        self.page.select_option("#filter-memory", "4")
+        self.settled()
+        assert self.page.locator("#statistics tbody tr").count() == 9
+        self.page.select_option("#statistics-metric", "latency_app_s")
+        self.settled()
+        assert self.page.locator("#statistics tbody tr").count() == 3
+        self.page.select_option("#filter-cpu", "8")
+        self.page.select_option("#filter-memory", "8")
+        self.settled()
+        assert self.page.locator("#statistics-empty").is_visible()
+
+    def test_window_statistics_show_cached_values_offline_on_a_narrow_screen(self):
+        from acprof.analysis.model import load_analysis
+        from acprof.analysis.statistics_report import (
+            build_statistics_report,
+            save_unique_statistics_report,
+        )
+        from acprof.plotting.report import write_report
+        root = self.fixture_root
+        source = root / "result_all.csv"
+        source.write_text("cpu_cores,mem_cap_gb,gpu_mode,input_scale,repeat_idx,warmup,status,latency_app_s\n"
+                          "2,4,off,32,0,0,ok,1\n2,4,off,32,1,0,ok,2\n2,4,off,32,2,0,ok,3\n")
+        (root / "static_meta.json").write_text(json.dumps({"model_name": "<img src=x onerror=alert(1)>"}))
+        cache, _ = save_unique_statistics_report(root / "analysis", build_statistics_report(
+            source, metrics=["latency_app_s"], resamples=101, seed=17))
+        report = write_report(load_analysis([source]), root / "report.html")
+        self.page.goto(report.as_uri())
+        self.page.click("[data-view=statistics]")
+        self.settled()
+        cells = self.page.locator("#statistics tbody tr").first.locator("td")
+        assert cells.nth(2).inner_text() == "2"
+        assert cells.nth(3).inner_text() == "1"
+        assert cells.nth(4).inner_text().startswith("[")
+        assert cells.nth(5).inner_text() == "3 / 0"
+        evidence = self.page.locator("#statistics-evidence")
+        assert "复用统计 JSON" in evidence.inner_text()
+        assert "resamples=101" in evidence.inner_text()
+        assert cache.name in evidence.inner_text()
+        assert self.page.locator("#statistics img").count() == 0
+        self.page.set_viewport_size({"width": 390, "height": 844})
+        self.settled()
+        assert self.page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+        if self.artifacts:
+            self.page.screenshot(path=str(self.artifacts / "window-statistics-narrow.png"), full_page=True)
+            self.page.set_viewport_size({"width": 1440, "height": 1000})
+            self.page.screenshot(path=str(self.artifacts / "window-statistics-wide.png"), full_page=True)
+
     def test_baseline_sort_filter_and_shared_selection(self):
         assert (self.page.locator("#matrix tbody tr").count()) == (5)
         row = self.page.locator("#matrix tbody tr").first

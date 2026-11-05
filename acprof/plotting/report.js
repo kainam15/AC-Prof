@@ -16,6 +16,22 @@
   const signed = value => (value > 0 ? "+" : "") + fmt(value);
   const direction = metric => ({higher: "↑", lower: "↓", neutral: "·"})[registry[metric].direction];
   const metricTitle = metric => `${registry[metric].label} (${registry[metric].unit})`;
+  const statistics = data.window_statistics || [];
+  const reasonLabels = {
+    insufficient_windows: "窗口不足", no_successful_windows: "无正式成功窗口",
+    missing_windows_break_blocks: "缺失窗口打断连续块", nonconsecutive_windows: "窗口序号不连续",
+    invalid_window_identity: "缺少有效窗口身份", not_recorded: "未记录字段",
+    unavailable_unspecified: "不可用（未记录具体原因）", not_applicable: "不适用",
+    measurement_failed: "测量失败", unsupported_by_process_runtime: "Process Runtime 不支持",
+    unavailable_on_wsl2: "WSL2 不可用", not_requested: "未请求采集",
+    warmup: "预热", error: "失败", warn: "告警", inferred_not_measured: "推断、未实测",
+    source_changed: "原始数据已变化", audit_changed: "质量或完整性状态已变化",
+    incompatible_statistics_contract: "统计版本或口径不匹配",
+    configuration_groups_changed: "配置分组不匹配", statistics_summary_changed: "统计摘要不匹配",
+    invalid_confidence_interval: "置信区间无效", invalid_statistics_groups: "统计分组无效",
+  };
+  const reasonText = reason => reasonLabels[reason] || reason;
+  const reasonCounts = reasons => Object.entries(reasons || {}).map(([reason, count]) => `${reasonText(reason)} ${count}`).join(" · ");
   const inputLabel = (input, detailed = false) => {
     try {
       const parsed = JSON.parse(input);
@@ -59,6 +75,11 @@
   $("comparison-purpose").value = data.comparison_purpose;
   $("comparison-purpose").onchange = schedule;
   $("quality-filter").onchange = schedule;
+  option($("statistics-metric"), "", "全部统计指标");
+  for (const metric of new Set(statistics.flatMap(report => report.groups.map(group => group.metric)))) {
+    option($("statistics-metric"), metric, registry[metric]?.label || metric);
+  }
+  $("statistics-metric").onchange = schedule;
   option($("preset"), "Core", "Core · 六项比较");
   option($("preset"), "Summary", "Summary · 核心指标");
   for (const group of new Set(Object.values(registry).map(metric => metric.group))) option($("preset"), group, group);
@@ -88,6 +109,7 @@
   };
   $("reset").onclick = () => {
     $("quality-filter").value = "all";
+    $("statistics-metric").value = "";
     for (const [field] of filterFields) $("filter-" + field).value = "";
     state.selected = null;
     schedule();
@@ -255,6 +277,66 @@
         yaxis: axis(metric)});
     }
   }
+  function statisticsEvidence(report) {
+    const article = element("article", undefined, "statistics-source");
+    const parameters = report.parameters, audit = report.audit;
+    article.append(element("h3", report.origin === "cached" ? "复用统计 JSON" : "从原始测量窗口重新计算"),
+      element("p", report.source, "muted"));
+    if (report.report_path) article.append(element("p", report.report_path, "muted"));
+    article.append(element("p", `Bootstrap · ${parameters.method} · confidence=${parameters.confidence} · ` +
+      `resamples=${parameters.resamples} · seed=${parameters.seed} · block_size=${parameters.block_size}`),
+      element("p", `抽样单位：${parameters.resampling_unit} · 筛选：${parameters.filter}；推断行排除。${parameters.assumption}`),
+      element("p", `数据质量：${audit.quality_status} · 运行状态：${audit.run_status} · 实验完整性：${audit.measurement_status}`));
+    article.append(element("p", `结果审计：${audit.valid === true ? "通过" : audit.valid === false ? "存在问题" : "unknown"}` +
+      ` · 诊断 ${(audit.issues || []).length} 项`));
+    const coverage = audit.coverage;
+    article.append(element("p", coverage ?
+      `实验计划覆盖（全配置，含预热）：${coverage.actual} / ${coverage.expected} · 未写入 ${coverage.missing} · 计划外 ${coverage.unexpected}` :
+      "计划覆盖：unknown（缺少可核验计划；已写入窗口成功不代表实验完整）"));
+    for (const diagnostic of report.cache_diagnostics) {
+      article.append(element("p", `未复用 ${diagnostic.path}：${reasonText(diagnostic.reason)}`, "muted"));
+    }
+    const details = element("details", undefined, "evidence");
+    details.append(element("summary", "质量与完整性原始证据"), element("pre", JSON.stringify({
+      result_sha256: report.result_sha256, ...audit,
+    }, null, 2)));
+    article.append(details);
+    return article;
+  }
+  function drawStatistics(configs) {
+    const visible = new Map(configs.map(config => [config.config_id, config]));
+    const body = $("statistics").tBodies[0], evidence = $("statistics-evidence");
+    body.replaceChildren(); evidence.replaceChildren();
+    const metric = $("statistics-metric").value;
+    for (const report of statistics) {
+      const groups = report.groups.filter(group => visible.has(group.config_id) && (!metric || group.metric === metric));
+      if (!groups.length) continue;
+      for (const group of groups) {
+        const config = visible.get(group.config_id), row = element("tr");
+        row.dataset.statConfigId = group.config_id;
+        row.classList.toggle("selected", state.selected === group.config_id);
+        row.onclick = () => selectConfig(config);
+        row.tabIndex = 0;
+        row.onkeydown = event => { if (event.key === "Enter") selectConfig(config); };
+        const identity = element("td");
+        identity.append(element("strong", label(config)), element("small", inputLabel(config.input_case, true)),
+          element("small", `run=${config.run_id} · ${group.config_id.slice(-8)}`),
+          element("small", `质量 ${config.quality_status} · 完整性 ${config.measurement_status}`));
+        const name = element("td", registry[group.metric]?.label || group.metric);
+        name.append(element("small", `${group.metric} · ${group.unit}`));
+        const interval = V.finite(group.ci_low) && V.finite(group.ci_high) ? `[${fmt(group.ci_low)}, ${fmt(group.ci_high)}]` : "—";
+        const reasons = element("td", reasonText(group.reason) || "已估计");
+        reasons.append(element("small", reasonCounts(group.missing_reasons) || "无指标缺失"),
+          element("small", `排除：${reasonCounts(group.excluded_windows) || "无"}`));
+        if (group.detail) reasons.append(element("small", group.detail));
+        row.append(identity, name, element("td", fmt(group.mean)), element("td", fmt(group.std)),
+          element("td", interval), element("td", `${group.n_windows} / ${group.missing_windows}`), reasons);
+        body.append(row);
+      }
+      evidence.append(statisticsEvidence(report));
+    }
+    $("statistics-empty").hidden = body.rows.length > 0;
+  }
   async function draw() {
     const configs = filtered();
     const purpose = $("comparison-purpose").value;
@@ -274,11 +356,12 @@
       quality_status: selected.quality_status, auto_selection_eligible: selected.auto_selection_eligible,
       quality_reasons: selected.quality_reasons, quality_checks: selected.quality_checks}, null, 2) : "选择配置后查看状态、原因和原始证据。";
     $("selection").textContent = selected ? `已选：${fullLabel(selected)}${configs.includes(selected) ? "" : "（当前筛选隐藏）"}` :
-      "点击表格行或图中数据点，可在三个视图中定位同一配置。";
-    for (const view of ["matrix", "pareto", "scaling"]) $(view + "-panel").hidden = state.view !== view;
+      "点击表格行或图中数据点，可在各视图中定位同一配置。";
+    for (const view of ["matrix", "pareto", "scaling", "statistics"]) $(view + "-panel").hidden = state.view !== view;
     if (state.view === "matrix") drawMatrix(configs, comparison);
     else if (state.view === "pareto") await drawPareto(configs, comparison);
-    else await drawScaling(configs);
+    else if (state.view === "scaling") await drawScaling(configs);
+    else drawStatistics(configs);
     document.body.dataset.ready = "true";
   }
   let pending = Promise.resolve();

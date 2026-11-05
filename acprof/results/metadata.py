@@ -69,3 +69,16 @@ class ResultMetadataSnapshot:
                 path = self.layout.path(name)
                 if path not in fingerprints or hashlib.sha256(record.content).hexdigest() != fingerprints[path]:
                     raise ValueError(f"metadata content differs from its initial fingerprint: {path}")
+
+    def observed_fingerprints(self) -> dict[Path, str | None]:
+        """Identify parsed bytes and observed absences for later source checks.
+
+        Failed reads supply diagnostics, not parsed evidence or a fingerprint.
+        """
+        fingerprints: dict[Path, str | None] = {
+            self.layout.path(name): None for name, present in self._presence.items() if present is False
+        }
+        for name, record in self._records.items():
+            if isinstance(record, JsonObjectSnapshot):
+                fingerprints[self.layout.path(name)] = hashlib.sha256(record.content).hexdigest()
+        return fingerprints

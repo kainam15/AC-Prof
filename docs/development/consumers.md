@@ -166,6 +166,12 @@ fingerprint 绑定；缺少起始 fingerprint 或内容不一致便拒绝比较�
 `plotting/report.py` 按需加载 Plotly 并内嵌 HTML/CSS/JavaScript；`view_model.js` 集中处理
 baseline、颜色、Pareto 和 Scaling 分组，`report.js` 处理交互。该入口复用现有 CSV 和布局协议，
 不引入 Web 服务或 TUI 依赖，详见[分析模型](../results/reports.md#统一分析模型与精简汇总)。
+`analysis/report_statistics.py` 为 HTML 复用有效的窗口统计 JSON，或从 `AnalysisModel.raw_rows`
+按 config ID 调用既有 `summarize_windows`；缓存校验只重算廉价摘要，不重跑 Bootstrap。
+缺失原因复用 `audit.MissingReasons`，质量及计划覆盖复用比较快照携带的 audit 结果，避免再次读取 CSV。
+`ResultMetadataSnapshot.observed_fingerprints` 记录实际解析字节及已观察到的缺失；
+HTML 统计与原子发布末尾复核结果和这些元数据，变化时撤销临时输出。该检查不提供跨文件原子快照。
+缓存选择、读取预算和统计口径见 [HTML 窗口统计](../results/reports.md#html-窗口统计与-json-复用)。
 HTML 按原始模板的占位符逐片段写入同目录临时文件，不再拼接完整页面副本；JSON 与资源文本
 中的同名标记保持原样。转义规则、独占原子发布和失败时临时文件清理保持不变。
 内嵌 JSON 的顶层列表（包括配置与来源）按至多 64 项一批使用标准 `JSONEncoder.encode` 编码并转义，

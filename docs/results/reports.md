@@ -103,6 +103,8 @@ unavailable，不以零替代。CLI 只接受一个流式 load 输入，拒绝�
 
 ### 交互式配置比较报告
 
+HTML 是统一的离线实验分析报告，在配置图表之外展示窗口统计、数据质量与实验完整性。
+
 可通过 `acprof tui` → “实验结果” → “选择实验” → “导入 / 导出” → “生成 HTML”完成生成、查看和导出，
 详见 [TUI 操作](../usage/tui-pages.md#交互式-html-报告)。下面的 CLI 仍可独立使用。
 
@@ -118,7 +120,7 @@ acprof report results/<model>/ --baseline '<config_id>' --output baseline.html
 发布时仍会原子检查目标是否存在：若其他写入方抢先创建文件、目录或符号链接，生成失败并保留目标，
 不发出成功回执。输出文件系统不支持这种拒绝覆盖的发布操作时明确报错，不退回覆盖写入。
 
-报告聚焦三个视图，共用 model/task/runtime、CPU/GPU、CPU count、memory、concurrency、
+报告提供三个图表视图及「窗口统计」，共用 model/task/runtime、CPU/GPU、CPU count、memory、concurrency、
 input case、experiment batch 和环境筛选；点击表格行或图中点后，其他视图保留同一配置的选中状态。
 
 - **Comparison Matrix**：默认六项 latency/throughput/memory/energy/IPC/startup；显示实际值、
@@ -139,6 +141,40 @@ input case、experiment batch 和环境筛选；点击表格行或图中点后�
 - **Scaling**：CPU cores、memory、concurrency 可作资源轴，其他指标作 Y 轴；按 model/runtime、
   环境和输入条件分面。每条线固定其他资源、device、GPU 和 run，空值处断线；不跨配置条件连线。
   历史 CSV 没有 concurrency 时明确显示缺少该资源轴，不推断为 1。
+- **窗口统计**：按配置与指标展示均值、样本标准差（ddof=1）、95% CI、有效／缺失窗口数，
+  分开列出指标缺失原因和预热、warn/error、推断行等排除数量；支持指标筛选和跨视图配置选择。
+  来源区展示 Bootstrap 参数、抽样单位、统计假设、JSON 复用／重新计算原因，以及当前质量、
+  运行状态、实验完整性、计划覆盖和可展开的原始审计证据。
+
+#### HTML 窗口统计与 JSON 复用
+
+每个实验分别搜索其 `ArtifactLayout.path("analysis")` 和根目录中的 `window-statistics-*.json`：
+新版布局为 `plots/analysis/`，旧布局为 `analysis/`，兼容时间戳和历史 UUID 文件名。
+按修改时间从新到旧检查；修改时间只决定候选顺序，不证明有效性。只复用 schema v1、95% 置信水平、
+既有循环块 percentile Bootstrap 口径且来源 SHA256、当前质量与完整性状态一致的报告。
+还会以同一分析快照校验配置分组、均值／标准差／窗口数和区间结构；命中时不再运行 Bootstrap，
+保留该 JSON 的指标选择、resamples、seed 和 block_size。不同 run、concurrency、输入或环境不混合，
+旧 JSON 的分组无法唯一对应 HTML 配置时重新计算。
+
+缺失、过期、损坏或不兼容的 JSON 在报告中保留原因，并继续寻找可用候选；没有命中时，
+从本次已读取的原始测量窗口调用既有 `summarize_windows`，默认计算 `latency_app_s`、`latency_s`、
+`container_attributed_energy_eff_j`，confidence=0.95、resamples=5000、seed=0、block_size=1。
+候选 JSON 有 32 MiB 读取上限，超限标为不可复用；权限与存储故障明确报错。
+HTML 生成不改写原始数据或统计 JSON，也不自动保存新的 JSON；需要单独文件时仍使用 `acprof stats`。
+分层结果只消费 manifest 声明的 committed 数据，不读取未提交尾部；统计结束及发布 HTML 前
+复核结果与已解析元数据的内容，发生变化时拒绝发布。
+
+均值和标准差描述窗口观测，CI 描述**同一实验内**窗口均值的不确定性；有效窗口不是请求样本或独立实验。
+标准差至少需要两个有效窗口；CI 至少需要 `max(3, 3 × block_size)` 个有效窗口，连续块还要求
+无指标缺失、序号连续。不可用时显示空值与原因，不用零或单点区间补齐。
+指标缺失数只统计正式成功窗口中的缺失；被过滤的行及计划中尚未写入的窗口分别展示。
+没有可核验计划时完整性保持 unknown；`run_status=complete`、观测窗口成功或 CI 可用均不单独证明实验完整。
+只有失败或预热记录的配置也保留不可用统计。历史记录缺少有效窗口身份时说明限制，不推断样本身份。
+
+设计参考 [SciPy 的 Bootstrap 参数与结果契约](https://github.com/scipy/scipy/blob/main/scipy/stats/_resampling.py)
+和 [Joblib 的缓存有效性检查](https://github.com/joblib/joblib/blob/main/joblib/memory.py)（均为 BSD-3-Clause）。
+借鉴参数显式记录和复用前校验的设计，直接复用 AC-Prof 的统计、缺失原因与审计实现，
+不复制第三方代码、不新增依赖；所有检查与计算位于正式测量窗口之外。
 
 HTML 的 `comparison_profiles` 从相同 Python 规则生成，按当前配置选择物化输入与实际 workload；
 浏览器只比较归一化证据和精确有理数分布，不自行放宽 task 或硬件策略。
@@ -151,7 +187,7 @@ HTML 的 `comparison_profiles` 从相同 Python 规则生成，按当前配置�
 用途或筛选变化后不沿用上一轮的判断，也不在配置对象上保存缓存。
 这些比较用于探索已记录数据，不证明不同模型质量等价、持续硬件隔离或统计显著性。
 独立实验的条件审计和 CI 继续使用[跨独立实验比较](comparisons.md#跨独立实验比较)；已有 `acprof compare` 语义保持不变。
-首期未接入 TUI Results、Run Detail/Profile、原始证据交互钻取或完整 CSV 导出工作流。
+HTML 沿用现有 TUI 的生成、打开和导出流程；窗口统计不改变独立 JSON / CSV 导出入口。
 
 实现直接复用 [Plotly](https://github.com/plotly/plotly.py) 的图形与离线 bundle，参考
 [HTML renderer](https://github.com/plotly/plotly.py/blob/main/plotly/io/_html.py) 和

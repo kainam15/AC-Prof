@@ -14,6 +14,8 @@ from acprof.results.csv import read_result_csv_snapshot, result_csv_snapshot_unc
 from acprof.results.layout import resolve_single_result_source
 from acprof.system.cleanup import cleanup_on_exit
 
+DEFAULT_STATISTICS_METRICS = ("latency_app_s", "latency_s", "container_attributed_energy_eff_j")
+
 
 def build_statistics_report(path: Path, metrics=None, *, confidence=0.95, resamples=5000,
                             seed=0, block_size=1, precision_target=None) -> dict:
@@ -22,7 +24,7 @@ def build_statistics_report(path: Path, metrics=None, *, confidence=0.95, resamp
     if path.is_dir():
         path = path / "result_layers.json"
     snapshot = read_result_csv_snapshot(path)
-    report = summarize_windows(snapshot.rows, metrics or ["latency_app_s", "latency_s", "container_attributed_energy_eff_j"],
+    report = summarize_windows(snapshot.rows, metrics or DEFAULT_STATISTICS_METRICS,
                                confidence=confidence, resamples=resamples, seed=seed,
                                block_size=block_size, precision_target=precision_target)
     report["result_sha256"] = snapshot.sha256
