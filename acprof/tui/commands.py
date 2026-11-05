@@ -67,12 +67,12 @@ def resolve_result_path(source: str, project_dir: Path) -> Path:
 
 
 def _resolve_single_tui_source(path: Path) -> Path | None:
+    """Unwrap a single task without choosing a command-specific result file."""
     if not path.is_dir() and (path.name != "result_layers.json" or path.is_file()):
         return path
-    from acprof.results.layout import experiment_result_file, resolve_single_result_source
+    from acprof.results.layout import resolve_single_result_source
     try:
-        resolved = resolve_single_result_source(path)
-        return experiment_result_file(resolved) if resolved.is_dir() else resolved
+        return resolve_single_result_source(path)
     except (OSError, ValueError):
         return None
 

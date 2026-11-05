@@ -46,6 +46,8 @@ TUI 的「选择实验」、结果查看和离线统计／绘图／HTML／对比
 优先使用已存在的 `result_layers.json`，仅在旧版实验目录缺少该清单时读取
 `result_all.csv`。新版布局的结果清单缺失或损坏不会自动降级到旧 CSV，
 历史 CSV 可用于分析也不代表实验已完成或通过可比性审计。
+TUI 的单实验入口会展开仅含一个任务的集合及其上级输出目录；补采命令使用展开后的
+实验目录，统计和绘图再选择该目录中的结果文件。
 
 `summary` 默认提供 19 列：配置 ID、model/runtime/device、CPU quota、memory cap、GPU 身份，
 应用 P50/P95、samples/s、QPS、CPU/memory/GPU/VRAM peak、cold start、观测总能量、
