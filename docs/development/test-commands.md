@@ -31,6 +31,11 @@ standalone 和真实 `uv tool install` 保留在发布或按需流程；构建�
 共同的数据构造器放在领域 fixture 模块，避免实例化另一测试 class。
 模拟网络、Docker、硬件与通知边界；避免测试触发真实采集或改写用户设置。
 
+本地 HTTP Fixture 显式设置 `serve_forever(poll_interval=0.01)`，缩短关闭轮询等待；保留请求
+timeout 和模拟服务延迟。请求线程设为 `daemon_threads = False`，使 `server_close()` 等待处理结束；
+保留 `shutdown()`、`server_close()`、`thread.join()` 清理链，覆盖客户端已超时而服务端仍在处理的情况。
+用法参考 [CPython 的 socketserver 测试](https://github.com/python/cpython/blob/2ac2b93ca763170efeca0482b09455e0ae6afa3d/Lib/test/test_socketserver.py)。
+
 隔离整份 `os.environ` 时，使用 `tests/support/environment_fixtures.py` 的 `isolated_environment()`
 保留 pytest 的会话状态，并由外层 fixture 恢复完整字典，包括业务代码直接新增的键。
 autouse fixture 只请求实际使用的依赖：未使用的 `monkeypatch` 依赖会让其撤销发生在环境恢复之后，

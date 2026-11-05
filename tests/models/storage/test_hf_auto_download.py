@@ -416,7 +416,8 @@ def test_system_http_proxy_is_used_without_changing_environment(scheme):
         def log_message(self, *_args):
             pass
     server = ThreadingHTTPServer(("127.0.0.1", 0), Proxy)
-    thread = Thread(target=server.serve_forever, daemon=True)
+    server.daemon_threads = False
+    thread = Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True)
     thread.start()
     endpoint = f"{scheme}://fixture.hub.invalid"
     env = {"HF_ENDPOINT": endpoint, f"{scheme.upper()}_PROXY": f"http://127.0.0.1:{server.server_port}"}
