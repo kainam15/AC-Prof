@@ -9,7 +9,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from acprof.host.container_lifecycle import ContainerCleanupError
+from acprof.host.container_lifecycle import ContainerCleanupError, container_owner_labels
 from acprof.host.detect import TaskInfo
 from acprof.host.model_store import store
 from acprof.host.profiling import compute, execution
@@ -21,7 +21,8 @@ from acprof.system import command
 @pytest.fixture
 def profiler_engine(monkeypatch):
     state = SimpleNamespace(
-        active=set(), launched=[], removed=[], cidfiles=[], commands=[],
+        active=set(), launched=[], removed=[], cidfiles=[], commands=[], present_at_launch=[],
+        owner=container_owner_labels(), labels={}, states={}, inventory_failure=None,
         failure=None, cleanup_failure=False, returncode=0, publish_id=True,
         launch_error=None, auto_remove=False, raw_stream=None,
         mount=SimpleNamespace(args=[], close=Mock()), retained=Mock(),
@@ -29,12 +30,26 @@ def profiler_engine(monkeypatch):
 
     def run(argv, **kwargs):
         state.commands.append((argv, kwargs))
+        if argv[:2] == ["docker", "ps"]:
+            assert 0 < kwargs["timeout"] <= 30
+            if isinstance(state.inventory_failure, BaseException):
+                raise state.inventory_failure
+            if state.inventory_failure:
+                return subprocess.CompletedProcess(argv, 1, "", "daemon unavailable")
+            filters = [argv[i + 1].removeprefix("label=").split("=", 1)
+                       for i, value in enumerate(argv) if value == "--filter"]
+            identifiers = [identifier for identifier in sorted(state.active)
+                           if all(state.labels[identifier].get(key) == value for key, value in filters)]
+            return subprocess.CompletedProcess(argv, 0, "\n".join(identifiers), "")
         if argv[:2] == ["docker", "run"]:
             if state.launch_error:
                 raise state.launch_error
+            state.present_at_launch.append(set(state.active))
             identifier = f"{len(state.launched) + 1:064x}"
             state.launched.append(identifier)
             state.active.add(identifier)
+            state.labels[identifier] = dict(argv[i + 1].split("=", 1)
+                                            for i, value in enumerate(argv) if value == "--label")
             if state.raw_stream is not None:
                 state.raw_stream.write_bytes(b"active profiler output")
             if "--cidfile" in argv:
@@ -62,7 +77,8 @@ def profiler_engine(monkeypatch):
             if argv[-1] not in state.active:
                 return subprocess.CompletedProcess(argv, 1, "", f"No such object: {argv[-1]}")
             return subprocess.CompletedProcess(
-                argv, 0, json.dumps([{"Id": argv[-1], "State": {"Running": True}}]), "",
+                argv, 0, json.dumps([{"Id": argv[-1], "Config": {"Labels": state.labels[argv[-1]]},
+                                     "State": state.states.get(argv[-1], {"Running": True})}]), "",
             )
         if "--query-metrics" in argv:
             return subprocess.CompletedProcess(
@@ -75,6 +91,7 @@ def profiler_engine(monkeypatch):
         raise AssertionError(f"unexpected command: {argv}")
 
     monkeypatch.setattr(command.subprocess, "run", run)
+    monkeypatch.setattr("acprof.host.profiling.commands.container_owner_labels", lambda: state.owner)
     monkeypatch.setattr(store, "acquire_mount", lambda *_: state.mount)
     monkeypatch.setattr(store, "retain_mount_for_cleanup_debt", state.retained)
     with patch("acprof.host.profiling.support.gpu_docker_args", return_value=["--gpus", "device=GPU-fixture"]):
@@ -93,6 +110,116 @@ def collect_massif(tmp_path, *, entries=1):
         payload_file=str(tmp_path / "payload.json"), profile_root=str(tmp_path),
         output_dir=str(tmp_path), repeat=1,
     )
+
+
+@pytest.mark.parametrize("abandoned", ["previous_boot", "reused_pid", "missing_pid"])
+def test_profiler_preflight_recovers_abandoned_container_before_launch(tmp_path, profiler_engine, abandoned):
+    engine = profiler_engine
+    identifier = "a" * 64
+    engine.active.add(identifier)
+    labels = {**engine.owner, "org.acprof.owner.pid": "99999999"}
+    engine.labels[identifier] = labels
+    identity = Mock(return_value=(engine.owner["org.acprof.owner.start"], "S"))
+    if abandoned == "previous_boot":
+        labels["org.acprof.owner.boot"] = "previous-boot"
+    elif abandoned == "reused_pid":
+        labels["org.acprof.owner.start"] = str(int(engine.owner["org.acprof.owner.start"]) + 1)
+    else:
+        identity.side_effect = FileNotFoundError("owner exited")
+
+    with patch("acprof.host.container_lifecycle._process_identity", identity):
+        collect_massif(tmp_path)
+
+    assert engine.removed == [identifier, *engine.launched]
+    assert len(engine.launched) == 1
+    assert not engine.active
+    assert engine.present_at_launch == [set()]
+    engine.mount.close.assert_called_once_with()
+    engine.retained.assert_not_called()
+
+
+@pytest.mark.parametrize("running", [True, False])
+def test_profiler_preflight_blocks_current_owner_residue(tmp_path, profiler_engine, running):
+    engine = profiler_engine
+    identifier = "a" * 64
+    engine.active.add(identifier)
+    engine.labels[identifier] = engine.owner
+    engine.states[identifier] = {"Running": running}
+
+    with pytest.raises(ContainerCleanupError) as caught:
+        collect_massif(tmp_path)
+
+    assert caught.value.container_id == identifier
+    assert caught.value.final_state == "present"
+    assert caught.value.docker_state == {"Running": running}
+    assert not engine.launched
+    assert not engine.removed
+    engine.mount.close.assert_not_called()
+    engine.retained.assert_called_once_with(engine.mount)
+
+
+def test_profiler_preflight_blocks_start_when_abandoned_cleanup_fails(tmp_path, profiler_engine):
+    engine = profiler_engine
+    identifier = "a" * 64
+    engine.active.add(identifier)
+    engine.labels[identifier] = {**engine.owner, "org.acprof.owner.boot": "previous-boot"}
+    engine.cleanup_failure = True
+
+    with pytest.raises(ContainerCleanupError) as caught:
+        collect_massif(tmp_path)
+
+    assert caught.value.container_id == identifier
+    assert not engine.launched
+    assert engine.active == {identifier}
+    engine.mount.close.assert_not_called()
+    engine.retained.assert_called_once_with(engine.mount)
+
+
+@pytest.mark.parametrize("failure", [True, PermissionError("daemon denied"),
+                                   subprocess.TimeoutExpired(["docker", "ps"], 1)])
+def test_profiler_preflight_blocks_start_when_inventory_is_unavailable(tmp_path, profiler_engine, failure):
+    engine = profiler_engine
+    engine.inventory_failure = failure
+
+    with pytest.raises(ContainerCleanupError) as caught:
+        collect_massif(tmp_path)
+
+    assert caught.value.final_state == "unknown"
+    assert caught.value.operations[0]["operation"] == "ps"
+    assert not engine.launched
+    assert not engine.cidfiles
+    engine.mount.close.assert_not_called()
+    engine.retained.assert_called_once_with(engine.mount)
+
+
+@pytest.mark.parametrize("owner", ["live", "unreadable", "foreign_scope"])
+def test_profiler_preflight_preserves_other_owners(tmp_path, profiler_engine, owner):
+    engine = profiler_engine
+    identifier = "a" * 64
+    engine.active.add(identifier)
+    labels = {**engine.owner, "org.acprof.owner.pid": "99999999"}
+    engine.labels[identifier] = labels
+    identity = Mock(return_value=(labels["org.acprof.owner.start"], "S"))
+    if owner == "unreadable":
+        identity.side_effect = PermissionError("procfs denied")
+    elif owner == "foreign_scope":
+        labels["org.acprof.owner.uid"] = "foreign-user"
+
+    with patch("acprof.host.container_lifecycle._process_identity", identity):
+        collect_massif(tmp_path)
+
+    assert len(engine.launched) == 1
+    assert engine.active == {identifier}
+    assert engine.removed == engine.launched
+    engine.mount.close.assert_called_once_with()
+    engine.retained.assert_not_called()
+
+
+def test_host_probe_does_not_run_container_preflight(profiler_engine):
+    profiler_engine.inventory_failure = True
+    result = run_profiler_command(["nsys", "--version"], check=False)
+    assert result.stdout == "fixture-version"
+    assert [argv for argv, _kwargs in profiler_engine.commands] == [["nsys", "--version"]]
 
 
 @pytest.mark.parametrize("returncode", [0, 125, 137])

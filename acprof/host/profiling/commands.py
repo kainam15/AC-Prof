@@ -11,6 +11,7 @@ from acprof.host.container_lifecycle import (
     ContainerCleanupError,
     container_owner_labels,
     owned_container_id,
+    recover_abandoned_containers,
     remove_owned_container,
 )
 from acprof.system.cleanup import cleanup_on_exit
@@ -20,13 +21,15 @@ from acprof.system.command import CommandResult, run_command
 def run_profiler_command(command: Sequence[str], **kwargs: Any) -> CommandResult:
     """Settle each Docker run before returning; host tool commands pass through.
 
-    A failed or interrupted client does not prove that its container exited.
+    Recover positively abandoned containers before dispatch, and reject any
+    current-owner residue. A failed client does not prove its container exited.
     Cleanup failures supersede tool errors and keep the original as evidence,
     so callers can retain model leases and abort the remaining profiler plan.
     """
     if list(command[:2]) != ["docker", "run"]:
         return run_command(command, **kwargs)
     owner = container_owner_labels()
+    recover_abandoned_containers(owner, run_command)
     labels = [part for key, value in owner.items() for part in ("--label", f"{key}={value}")]
     temporary = tempfile.TemporaryDirectory(prefix="acprof-profiler-")
     with cleanup_on_exit(temporary.cleanup, description="profiler container identity directory"):

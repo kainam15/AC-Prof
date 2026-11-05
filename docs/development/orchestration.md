@@ -96,6 +96,10 @@ Token 派生之前冻结。`load_reporting` 在此后补齐未提交请求、派
 
 Profiler 命令统一经过 `profiling.commands.run_profiler_command`：主机工具查询保留原有执行方式，
 每次 `docker run` 单独分配 cidfile 和现有进程所有权标签，按不可变 ID 有界回收容器。
+启动前同样复用 `container_lifecycle.recover_abandoned_containers`，只回收已确认退出的所有者
+留下的容器；当前所有者的遗留容器、清单查询失败或回收失败均阻止新启动。
+其他存活、身份无法确认或不在当前 host/user 范围的所有者不会被自动删除。
+每次容器启动前增加一次有界 `docker ps`，对候选执行 inspect／回收；主机工具查询不走此流程。
 `--rm`、客户端退出或超时不能单独证明回收完成；删除失败时由 `container_lifecycle`
 检查同一 ID 是否确实不存在。清理未确认则传播 `RuntimeCleanupError`，停止后续工具、
 输入尺度及计划发布，并保留 Model Store 租约；原始运行错误或取消保留在异常链和 `run_error` 中。
@@ -104,6 +108,8 @@ Profiler 命令统一经过 `profiling.commands.run_profiler_command`：主机�
 参考 [Testcontainers 的容器作用域](https://github.com/testcontainers/testcontainers-python/blob/6146aa1170f415fcc825ed9bddc4eacbeb937a12/src/testcontainers/core/container.py)
 （Apache-2.0）与 [Docker CLI 的 cidfile 写入](https://github.com/docker/cli/blob/master/cli/command/container/create.go)，
 复用项目现有 CLI、清理和异常保留工具，不增加 SDK、后台清理服务或依赖。
+所有权范围参考 [Testcontainers 的 session 标签](https://github.com/testcontainers/testcontainers-python/blob/6146aa1170f415fcc825ed9bddc4eacbeb937a12/src/testcontainers/core/labels.py)，
+AC-Prof 继续使用自身 host/user/boot/PID/start-time 身份与既有恢复判定。
 
 `RuntimeCleanupError` 在准备和多任务边界同样必须中止当前执行：`PreparationWorkflow` 记录失败后直接传播，
 不提供交互 retry/rebuild；`application.preparation` 不将其包装为普通准备失败或可选 profiler 告警，
