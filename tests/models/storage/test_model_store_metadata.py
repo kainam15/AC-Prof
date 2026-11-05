@@ -4,6 +4,7 @@ import json
 import os
 import tempfile
 from collections import Counter
+from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import patch
 
@@ -75,10 +76,12 @@ class TestModelStoreMetadata:
 
         observed = []
         real_stat = os.stat
-        real_rglob = Path.rglob
+        real_scandir = os.scandir
 
-        def ordered_rglob(path, pattern):
-            return iter(sorted(real_rglob(path, pattern), reverse=reverse))
+        @contextmanager
+        def ordered_scandir(path):
+            with real_scandir(path) as children:
+                yield iter(sorted(children, key=lambda child: child.name, reverse=reverse))
 
         def track_stat(path, *args, **kwargs):
             candidate = Path(path)
@@ -87,7 +90,7 @@ class TestModelStoreMetadata:
             return real_stat(path, *args, **kwargs)
 
         with (
-            patch.object(Path, 'rglob', ordered_rglob),
+            patch.object(os, 'scandir', ordered_scandir),
             patch.object(model_store.os, 'stat', side_effect=track_stat),
         ):
             report = model_store.disk_report(self.root)

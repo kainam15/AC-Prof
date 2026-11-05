@@ -490,27 +490,55 @@ def probe_model_download(plan: dict, root: Path | None = None, *, entry_id: str 
     return reports
 
 
+def _scan_inventory(root: Path, cancel: Event | None) -> tuple[int, list[Path]]:
+    """Observe capacity and published plan paths in one error-visible scan."""
+    used = 0
+    plans = []
+    pending = [root]
+    entries_root = root / "entries"
+    while pending:
+        _check_cancelled(cancel)
+        directory = pending.pop()
+        try:
+            with os.scandir(directory) as children:
+                for child in children:
+                    _check_cancelled(cancel)
+                    path = directory / child.name
+                    try:
+                        info = path.stat(follow_symlinks=False)
+                    except FileNotFoundError:
+                        continue  # A concurrent prune may remove an observed path.
+                    if stat.S_ISDIR(info.st_mode):
+                        pending.append(path)
+                    elif stat.S_ISREG(info.st_mode):
+                        used += info.st_size
+                    elif stat.S_ISLNK(info.st_mode) and (
+                        path == entries_root or directory == entries_root and _ENTRY_ID.fullmatch(child.name)
+                    ):
+                        raise ValueError("Model Store entry directory must not be a symlink")
+                    if (child.name == PLAN_FILENAME and directory.parent == entries_root
+                            and _ENTRY_ID.fullmatch(directory.name)):
+                        plans.append(path)
+        except FileNotFoundError:
+            continue  # Unlocked inventory also tolerates a directory pruned before opening.
+    return used, plans
+
+
 def disk_report(root: Path | None = None, *, cancel: Event | None = None) -> dict:
     _check_cancelled(cancel)
     root = root or store_root()
     existing = root
-    while not existing.exists():
-        existing = existing.parent
-    free = shutil.disk_usage(existing).free
-    used = 0
-    for path in root.rglob("*"):
-        _check_cancelled(cancel)
+    while True:
         try:
-            info = path.stat(follow_symlinks=False)
-            if stat.S_ISREG(info.st_mode):
-                used += info.st_size
+            existing.stat()
+            break
         except FileNotFoundError:
-            continue  # Unlocked capacity summaries may overlap another task's cleanup.
+            existing = existing.parent
+    free = shutil.disk_usage(existing).free
+    used, plans = _scan_inventory(root, cancel)
     models = []
-    for path in sorted((root / "entries").glob(f"*/{PLAN_FILENAME}")):
+    for path in sorted(plans):
         _check_cancelled(cancel)
-        if not _ENTRY_ID.fullmatch(path.parent.name):
-            continue  # Staging files consume space but are not published model entries.
         try:
             plan = read_entry(path.parent.name, root)
             if plan is None:

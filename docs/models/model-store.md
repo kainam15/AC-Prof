@@ -189,6 +189,13 @@ acprof model-store prune --target-size 100GB --apply      # 显式执行
 
 `--model-store-max` 在下载前核对总容量；同时检查文件系统 free space 并预留 64 MiB 元数据余量。大小未知、容量不足或磁盘不足直接停止。清理为显式操作，按最久未使用顺序选择，保留活动 lease 和 `--keep <entry-id>`。可回收量包括将删除的 entry 常规文件与共享 blobs；多个模型的逻辑大小不能直接相加。容量与可回收量均按常规文件长度统计，不重复累计符号链接指向的内容，也不等同于文件系统实际释放的存储块。旧 baked 镜像可能仍被历史实验/补采引用，应通过镜像管理明确清理；新构建不再向 Docker 写入第二份权重。
 
+容量查询通过一次目录扫描同时统计文件长度并发现已发布清单，不跟随子目录符号链接。
+目录打开、遍历或文件属性读取发生权限／I/O 错误时直接失败，空间预检和按容量清理不能使用不完整总量。
+查询保持无锁，允许并发 prune 导致文件或目录消失；它是容量观察，不是锁定快照。
+实现核对了 [CPython 目录遍历的错误处理](https://github.com/python/cpython/blob/3.13/Lib/os.py)
+与 [Hugging Face 缓存扫描](https://github.com/huggingface/huggingface_hub/blob/main/src/huggingface_hub/utils/_cache_manager.py)。
+沿用标准库 `os.scandir()` 和显式属性检查，不复制扫描器或新增依赖；未增加正式测量窗口内的工作。
+
 目标容量预览只扫描一次 entry 文件与 blob 引用关系，在内存中按 LRU 顺序减少引用计数；
 选中 entry 时累计其清单、refs 等常规文件，最后一个引用被选入删除范围后才累计该 blob 的可回收字节。
 这样达到容量目标后不会因漏算元数据继续淘汰模型。容量统计与引用扫描次数固定，
