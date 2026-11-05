@@ -3,14 +3,27 @@ import ast
 import re
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
 
 import pytest
 import yaml
 
+from scripts.check_critical_coverage import BRANCH_FLOORS
 from scripts.check_private_api import read_baseline, scan_sources
 
 PROJECT_DIR = Path(__file__).resolve().parents[2]
+
+
+def _expand_regex_alternations(pattern: str) -> list[str]:
+    match = re.search(r"\(([^()]+)\)", pattern)
+    if not match:
+        return [pattern]
+    prefix, suffix = pattern[:match.start()], pattern[match.end():]
+    expanded = []
+    for option in match.group(1).split("|"):
+        expanded.extend(_expand_regex_alternations(f"{prefix}{option}{suffix}"))
+    return expanded
 
 
 def test_shared_boundaries_gate_tracks_current_modules():
@@ -27,6 +40,37 @@ def test_shared_boundaries_gate_tracks_current_modules():
     }
     assert all(pattern.fullmatch(path) for path in expected)
     assert all((PROJECT_DIR / path).is_file() for path in expected)
+
+
+def test_quality_gate_module_targets_exist_in_repository():
+    all_py_files = [
+        path.relative_to(PROJECT_DIR).as_posix()
+        for path in (PROJECT_DIR / "acprof").rglob("*.py")
+    ]
+    pre_commit = yaml.safe_load((PROJECT_DIR / ".pre-commit-config.yaml").read_text(encoding="utf-8"))
+    local_hooks = {
+        hook["id"]: hook
+        for repo in pre_commit.get("repos", [])
+        if repo.get("repo") == "local"
+        for hook in repo.get("hooks", [])
+    }
+    for hook_id in ("shared-boundaries", "core-complexity"):
+        pattern = local_hooks[hook_id]["files"]
+        for branch in _expand_regex_alternations(pattern):
+            matched = [path for path in all_py_files if re.search(branch, path)]
+            assert matched, f"pre-commit hook {hook_id!r} branch {branch!r} matches no files"
+
+    pyproject = tomllib.loads((PROJECT_DIR / "pyproject.toml").read_text(encoding="utf-8"))
+    for override in pyproject.get("tool", {}).get("mypy", {}).get("overrides", []):
+        for module in override.get("module", []):
+            module_rel = module.replace(".", "/")
+            assert (
+                (PROJECT_DIR / f"{module_rel}.py").is_file()
+                or (PROJECT_DIR / module_rel / "__init__.py").is_file()
+            ), f"mypy override module {module!r} does not exist"
+
+    for path in BRANCH_FLOORS:
+        assert (PROJECT_DIR / path).is_file(), f"coverage floor target {path!r} does not exist"
 
 
 def test_repository_root_has_no_python_files():

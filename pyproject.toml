@@ -162,7 +162,7 @@ module = [
     "acprof.host.metadata.machine",
     "acprof.host.input_plan.types",
     "acprof.host.input_plan.scales",
-    "acprof.host.command",
+    "acprof.system.command",
     "acprof.host.images.identity",
     "acprof.host.model_store.preparation",
     "acprof.monitors.interfaces",
