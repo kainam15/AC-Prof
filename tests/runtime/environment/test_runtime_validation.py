@@ -123,8 +123,8 @@ class TestRuntimeValidation:
         assert ({c[-1] for c in removals}) == ({'c' * 64})
         assert ('--gpus') not in (runs[0])
         assert ('--gpus') in (runs[1])
-        for command in runs:
-            forwarded = dict(command[i + 1].split('=', 1) for i, part in enumerate(command) if part == '-e')
+        for launched_command in runs:
+            forwarded = dict(launched_command[i + 1].split('=', 1) for i, part in enumerate(launched_command) if part == '-e')
             with patch.dict(os.environ, forwarded, clear=True):
                 assert request_timeout_s() == expected
         assert all(mount.close.call_count == 1 for mount in mounts)
