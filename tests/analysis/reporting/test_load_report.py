@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from acprof.analysis.streaming import streaming_summary
 from acprof.analysis.streaming_capacity import build_capacity
 from acprof.cli.main import main
 from acprof.plotting.load_report import read_load_report, write_load_report
@@ -103,6 +104,32 @@ def replace_slo_thresholds(payload, thresholds):
     ).hexdigest()
     result = payload["result"]
     result["capacity"] = build_capacity(result["requests"], result["duration_s"], 2, thresholds)
+
+
+def save_failed_experiment(tmp_path, version=2, error_code="timeout"):
+    source = save_experiment(tmp_path, version)
+    payload = json.loads(source.read_text())
+    result = payload["result"]
+    result["requests"][0].update(
+        output_tokens=None, tpot_s=None, output_token_count_source="unavailable",
+        token_count_scope="unavailable", token_count_error="fixture tokenizer error",
+        output_event_intervals_s=[0.04, 0.04],
+    )
+    result["requests"].extend([
+        {"status": "error", "sent_s": 0.1, "error_code": error_code} for _ in range(2)
+    ])
+    capacity = build_capacity(
+        result["requests"], result["duration_s"], 2, payload["identity"].get("slo_thresholds_s"),
+    )
+    result.update(
+        streaming=streaming_summary(result["requests"]), counts=capacity["counts"],
+        successful=False, success_rate=1 / 3,
+    )
+    if version == 2:
+        result["capacity"] = capacity
+    payload.update(successful=False, status="failed")
+    source.write_text(json.dumps(payload))
+    return source
 
 
 def test_v2_report_recomputes_capacity_and_renders_single_point_metrics(tmp_path):
@@ -356,3 +383,58 @@ def test_report_cli_rejects_invalid_latency_even_when_summaries_match(
     assert "ACPROF_REPORT" not in captured.out
     assert not output.exists()
     assert source.read_bytes() == before
+
+
+@pytest.mark.parametrize("version", [1, 2])
+@pytest.mark.parametrize(("error_code", "escaped_code"), [
+    ("timeout", "timeout"),
+    ("</td><script>alert(1)</script>", "&lt;/td&gt;&lt;script&gt;alert(1)&lt;/script&gt;"),
+])
+def test_load_report_shows_error_counts_and_token_diagnostics(tmp_path, version, error_code, escaped_code):
+    source = save_failed_experiment(tmp_path, version, error_code)
+    before = source.read_bytes()
+    output = write_load_report(source, tmp_path / "diagnostics.html")
+    html = output.read_text()
+    assert f'<th scope="row">{escaped_code}</th><td>2</td>' in html
+    assert '<th scope="row">token_count_errors</th><td>1</td>' in html
+    assert '<th scope="row">excluded_requests</th><td>2</td>' in html
+    assert "Token count errors are counted among successful requests." in html
+    assert "<script>" not in html
+    assert source.read_bytes() == before
+
+
+@pytest.mark.parametrize("version", [1, 2])
+def test_load_report_distinguishes_recorded_zero_errors(tmp_path, version):
+    source = save_experiment(tmp_path, version)
+    html = write_load_report(source, tmp_path / "no-errors.html").read_text()
+    assert "No request errors recorded." in html
+    assert '<th scope="row">token_count_errors</th><td>0</td>' in html
+    assert '<th scope="row">excluded_requests</th><td>0</td>' in html
+
+
+@pytest.mark.parametrize("missing", ["fields", "streaming"])
+def test_load_report_keeps_missing_legacy_diagnostics_unknown(tmp_path, missing):
+    source = save_experiment(tmp_path, version=1)
+    payload = json.loads(source.read_text())
+    if missing == "streaming":
+        payload["result"].pop("streaming")
+    else:
+        for field in ("errors", "token_count_errors", "excluded_requests"):
+            payload["result"]["streaming"].pop(field)
+    source.write_text(json.dumps(payload))
+    html = write_load_report(source, tmp_path / "unknown-errors.html").read_text()
+    assert '<th scope="row">token_count_errors</th><td>unavailable</td>' in html
+    assert '<th scope="row">excluded_requests</th><td>unavailable</td>' in html
+    assert "<h3>Request error codes</h3><p>unavailable</p>" in html
+    assert "No request errors recorded." not in html
+
+
+@pytest.mark.parametrize("version", [1, 2])
+def test_load_report_shows_latency_sample_coverage_and_event_intervals(tmp_path, version):
+    source = save_failed_experiment(tmp_path, version)
+    html = write_load_report(source, tmp_path / "coverage.html").read_text()
+    assert '<th scope="row">output_event_interval_s</th>' + '<td>0.04</td>' * 5 + '<td>2</td>' in html
+    assert '<th scope="row">ttft_s</th><td>seconds</td><td>request</td><td>1</td><td>0</td>' in html
+    assert '<th scope="row">tpot_s</th><td>seconds_per_token</td><td>request</td><td>0</td><td>1</td>' in html
+    assert '<th scope="row">itl_s</th><td>seconds</td><td>token_interval</td><td>0</td><td>1</td>' in html
+    assert '<th scope="row">output_event_interval_s</th><td>seconds</td><td>output_event_interval</td><td>1</td><td>0</td>' in html

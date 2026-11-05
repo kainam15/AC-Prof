@@ -132,7 +132,10 @@ def _table(headers: list[str], rows: list[list[Any]]) -> str:
         body.append("<tr><th scope=\"row\">" + _cell(row[0]) + "</th>" + "".join(
             f"<td>{_cell(value)}</td>" for value in row[1:]
         ) + "</tr>")
-    return f"<table><thead><tr><th scope=\"col\">Metric</th>{head}</tr></thead><tbody>{''.join(body)}</tbody></table>"
+    return (
+        "<div class=\"table-scroll\"><table><thead><tr><th scope=\"col\">Metric</th>"
+        + head + "</tr></thead><tbody>" + "".join(body) + "</tbody></table></div>"
+    )
 
 
 def _service_section(experiment: Mapping[str, Any], version: int) -> str:
@@ -177,6 +180,27 @@ def _capacity_section(result: Mapping[str, Any], capacity: Mapping[str, Any] | N
         ["goodput_requests_per_s", capacity.get("goodput_requests_per_s") if capacity else None],
     ])
     return "<section><h2>Single load point</h2>" + _table(["Value"], rows) + "</section>"
+
+
+def _diagnostics_section(streaming: Any) -> str:
+    streaming = _object(streaming)
+    errors = streaming.get("errors")
+    if not isinstance(errors, dict):
+        error_content = "<p>unavailable</p>"
+    elif not errors:
+        error_content = "<p>No request errors recorded.</p>"
+    else:
+        error_content = _table(["Requests"], [[code, count] for code, count in sorted(errors.items())])
+    return (
+        "<section><h2>Request diagnostics</h2>"
+        + _table(["Requests"], [
+            ["excluded_requests", streaming.get("excluded_requests")],
+            ["token_count_errors", streaming.get("token_count_errors")],
+        ])
+        + "<p>Latency distributions include successful requests only. "
+        "Token count errors are counted among successful requests.</p>"
+        + "<h3>Request error codes</h3>" + error_content + "</section>"
+    )
 
 
 def _slo_section(capacity: Mapping[str, Any] | None) -> str:
@@ -229,12 +253,24 @@ def _token_section(capacity: Mapping[str, Any] | None) -> str:
 def _latency_section(streaming: Any) -> str:
     streaming = _object(streaming)
     rows = []
-    for name in STREAMING_LATENCY_METRICS:
+    coverage = []
+    for name in (*STREAMING_LATENCY_METRICS, "output_event_interval_s"):
         distribution = _object(streaming.get(name))
         rows.append([name, *[distribution.get(key) for key in ("mean", "p50", "p90", "p95", "p99", "sample_count")]])
+        sample_unit = distribution.get("sample_unit")
+        requests_with_samples = distribution.get(
+            "sample_count" if sample_unit == "request" else "requests_with_samples"
+        )
+        coverage.append([
+            name, distribution.get("unit"), sample_unit,
+            requests_with_samples, distribution.get("missing_requests"),
+        ])
     return (
         "<section><h2>Streaming latency distribution</h2>"
-        + _table(["Mean", "p50", "p90", "p95", "p99", "Samples"], rows) + "</section>"
+        + _table(["Mean", "p50", "p90", "p95", "p99", "Samples"], rows)
+        + "<h3>Sample units and coverage</h3>"
+        + _table(["Unit", "Sample unit", "Requests with samples", "Missing requests"], coverage)
+        + "</section>"
     )
 
 
@@ -248,7 +284,8 @@ def render_load_report(data: Mapping[str, Any]) -> str:
         "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
         "<title>AC-Prof single-point load capacity</title>"
         "<style>body{font-family:system-ui,sans-serif;max-width:1200px;margin:2rem auto;padding:0 1rem;"
-        "color:#172033}table{border-collapse:collapse;width:100%;margin:1rem 0 2rem}"
+        "color:#172033}.table-scroll{max-width:100%;overflow-x:auto}"
+        "table{border-collapse:collapse;width:100%;margin:1rem 0 2rem}"
         "th,td{border:1px solid #ccd3df;padding:.45rem;text-align:left}th{background:#f2f5f9}"
         ".boundary{padding:1rem;background:#fff4ce;border:1px solid #d6b656}</style></head><body>"
         "<h1>AC-Prof single-point load capacity</h1>"
@@ -259,6 +296,7 @@ def render_load_report(data: Mapping[str, Any]) -> str:
         ])
         + _service_section(experiment, version)
         + _capacity_section(result, capacity)
+        + _diagnostics_section(data.get("streaming"))
         + _slo_section(capacity)
         + _token_section(capacity)
         + _latency_section(data.get("streaming"))
