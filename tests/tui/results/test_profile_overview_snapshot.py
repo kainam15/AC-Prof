@@ -277,7 +277,7 @@ def test_context_cancellation_during_validation_does_not_return_partial_context(
     profile_store(tmp_path)
     cancelled = Event()
     processed = []
-    owner, name = (artifacts, "read_static_metadata") if phase == "metadata" else (posthoc_context, "_integer")
+    owner, name = (artifacts, "read_static_metadata") if phase == "metadata" else (posthoc_context, "integer")
     original = getattr(owner, name)
 
     def cancel_after(*args, **kwargs):
