@@ -110,7 +110,7 @@ def test_replay_restores_runtime_and_runs_frozen_payload_without_changing_source
 def test_process_replay_accepts_inherited_memory_and_selected_numeric_cpu(tmp_path, monkeypatch):
     replay = replay_environment(tmp_path, monkeypatch, cpus="2,4")
     run = Mock(return_value={"successful": True, "success_rate": 1})
-    monkeypatch.setattr(load_cli, "run_load", run)
+    monkeypatch.setattr("acprof.cli.load.run_load", run)
     assert load_cli.main([*replay.argv, "--cpu", "2", "--warmup", "0"]) == 0
     assert replay.start.call_args.kwargs["cpu"] == 2
     assert replay.start.call_args.kwargs["mem"] is None
@@ -145,7 +145,7 @@ def test_process_replay_failure_keeps_report_and_releases_owned_session(tmp_path
     else:
         error.load_report = partial
         run.side_effect = [{"successful": True, "success_rate": 1}, error]
-    monkeypatch.setattr(load_cli, "run_load", run)
+    monkeypatch.setattr("acprof.cli.load.run_load", run)
     with pytest.raises(type(error), match="warmup failed" if stage == "warmup" else str(error)):
         load_cli.main(replay.argv)
     report = json.loads((replay.output / "load.json").read_text())
@@ -171,7 +171,7 @@ def test_replay_capture_and_validation_use_runtime_service_port(tmp_path, monkey
     monkeypatch.setattr(load_cli, "capture_packets", capture)
     validate = Mock(return_value={"successful_request_coverage": 2})
     monkeypatch.setattr(load_cli, "validate_packets", validate)
-    monkeypatch.setattr(load_cli, "run_load", Mock(return_value={"successful": True, "success_rate": 1}))
+    monkeypatch.setattr("acprof.cli.load.run_load", Mock(return_value={"successful": True, "success_rate": 1}))
     assert load_cli.main([*replay.argv, "--connections", "reuse"]) == 0
     expected = 43123 if kind == "process" else 8002
     assert captured == [(replay.output / "load.pcap", "lo", expected)]
@@ -191,7 +191,7 @@ def test_process_replay_checks_recorded_cuda_device_without_nvidia_smi(tmp_path,
         return {"status": "available", "uuid": observed_uuid, "index": 0, "cuda_visible_devices": "1"}
 
     monkeypatch.setattr("acprof.host.runtimes.gpu.process_gpu_device", cuda_probe)
-    monkeypatch.setattr(load_cli, "run_load", Mock(return_value={"successful": True, "success_rate": 1}))
+    monkeypatch.setattr("acprof.cli.load.run_load", Mock(return_value={"successful": True, "success_rate": 1}))
     if observed_uuid == "GPU-source":
         assert load_cli.main(replay.argv) == 0
         replay.start.assert_called_once()
@@ -229,7 +229,7 @@ def test_process_gpu_failures_are_reported_before_start_and_restore_caller(tmp_p
 def test_legacy_docker_source_without_kind_uses_recorded_image(tmp_path, monkeypatch):
     replay = replay_environment(tmp_path, monkeypatch, "docker", cpus="1", mems="2")
     replay.state["runtime"].pop("kind")
-    monkeypatch.setattr(load_cli, "run_load", Mock(return_value={"successful": True, "success_rate": 1}))
+    monkeypatch.setattr("acprof.cli.load.run_load", Mock(return_value={"successful": True, "success_rate": 1}))
     assert load_cli.main(replay.argv) == 0
     assert replay.start.call_args.kwargs["image_info"].tag == "sha256:" + "a" * 64
 
@@ -274,7 +274,7 @@ def test_packet_helpers_forward_dynamic_port_and_keep_request_coverage(tmp_path,
     parsed = {"requests": {"first": {"request_id": "a", "tcp_stream": 1},
                            "second": {"request_id": "b", "tcp_stream": 1}}}
     parse = Mock(return_value=SimpleNamespace(stdout=json.dumps(parsed)))
-    monkeypatch.setattr(load_cli, "run_command", parse)
+    monkeypatch.setattr("acprof.cli.load.run_command", parse)
     result = {"successful": True, "protocol": {"connections": "reuse"},
               "requests": [{"request_id": name, "status": "ok"} for name in ("a", "b")]}
     validation = load_cli.validate_packets(pcap, result, port=43123)
@@ -285,15 +285,16 @@ def test_packet_helpers_forward_dynamic_port_and_keep_request_coverage(tmp_path,
 
 def test_process_replay_owns_real_fixture_service_and_cleans_up(tmp_path, monkeypatch, service):
     real_start, real_stop = ProcessRuntime.start, ProcessRuntime.stop
+    cleanup = ProcessRuntime().stop
     replay = replay_environment(tmp_path, monkeypatch)
     _task, info = service
     replay.state["runtime"]["image"] = asdict(info)
     sessions = []
 
     def start(runtime, **kwargs):
-        session = real_start(runtime, **kwargs)
-        sessions.append(session)
-        return session
+        started_session = real_start(runtime, **kwargs)
+        sessions.append(started_session)
+        return started_session
 
     monkeypatch.setattr(ProcessRuntime, "start", start)
     monkeypatch.setattr(ProcessRuntime, "stop", real_stop)
@@ -314,4 +315,4 @@ def test_process_replay_owns_real_fixture_service_and_cleans_up(tmp_path, monkey
     finally:
         for session in sessions:
             if same_process(session.process.identity):
-                real_stop(ProcessRuntime(), session)
+                cleanup(session)
