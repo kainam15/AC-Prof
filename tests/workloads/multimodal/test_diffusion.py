@@ -191,6 +191,113 @@ class TestDiffusionHandler:
                 {"prompt": "test", "resolution": 250, "params": {}},
             )
 
+    def test_get_scale_metadata_and_validation_contracts(self) -> None:
+        from acprof.container.handlers.diffusion import (
+            _conditioned_extra_parameters,
+            _image_metadata,
+            _load_eager_attention,
+            _mesh_metadata,
+            _negative_prompt,
+            _pipeline_parameters,
+            _spatial_multiple,
+            _standard_parameters,
+            _standard_prompts,
+            _video_metadata,
+        )
+        from acprof.input_budget import InputBudget
+
+        handler = DiffusionHandler()
+        uncond_pipe = types.SimpleNamespace(
+            unet=types.SimpleNamespace(config=types.SimpleNamespace(sample_size=(32, 64)))
+        )
+        assert handler.get_scale_metadata(
+            {"task_type": "unconditional-image-generation", "pipeline": uncond_pipe}, {}
+        ) == {
+            "input_scale_type": "denoising_steps",
+            "minimum_denoising_steps": 1,
+            "native_output_width": 64,
+            "native_output_height": 32,
+        }
+        assert handler.get_scale_metadata({"task_type": "text-to-3d"}, {}) == {
+            "input_scale_type": "denoising_steps",
+            "minimum_denoising_steps": 1,
+            "output_type": "mesh",
+            "frame_size_applicable": False,
+        }
+
+        class Img2ImgPipe:
+            vae_scale_factor_spatial = False
+            vae_scale_factor = 0
+            transformer = types.SimpleNamespace(config=types.SimpleNamespace(patch_size=(1, 2, 2)))
+
+            def __call__(self, image, prompt=None):
+                return image
+
+        assert _spatial_multiple(Img2ImgPipe()) == 16
+        assert handler.get_scale_metadata(
+            {"task_type": "image-to-image", "pipeline": Img2ImgPipe()}, {}
+        ) == {
+            "input_scale_type": "resolution_px",
+            "resolution_multiple": 16,
+            "minimum_resolution_px": 64,
+            "prompt_consumed": True,
+        }
+
+        with pytest.raises(ValueError, match="cannot inspect"):
+            _pipeline_parameters(object())
+        with pytest.raises(ValueError, match="unsupported handler load options"):
+            _load_eager_attention(object(), {"extra_opt": True})
+        with pytest.raises(ValueError, match="must be 'eager'"):
+            _load_eager_attention(object(), {"attention_implementation": "sdpa"})
+        with pytest.raises(ValueError, match="unsupported diffusion task_type"):
+            handler.load("model", "text-generation", "diffusers", "cpu")
+        with pytest.raises(ValueError, match="unsupported diffusion backend"):
+            handler.load("model", "text-to-image", "transformers", "cpu")
+
+        budget = InputBudget.from_value(None)
+        with pytest.raises(ValueError, match="non-empty string"):
+            _standard_prompts({"prompt": []}, "text-to-image", False, budget)
+        with pytest.raises(ValueError, match="must not be empty"):
+            _standard_prompts({"prompt": ["  "]}, "text-to-image", False, budget)
+        assert _negative_prompt("bad", 2) == ["bad", "bad"]
+        assert _negative_prompt(["a", "b"], 2) == ["a", "b"]
+        with pytest.raises(ValueError, match="array length must match"):
+            _negative_prompt(["only_one"], 2)
+        with pytest.raises(ValueError, match="string or string array"):
+            _negative_prompt(123, 1)
+
+        with pytest.raises(ValueError, match="unsupported text-to-image params"):
+            _standard_parameters({"unknown": 1}, "text-to-image", False, 1)
+        with pytest.raises(ValueError, match="guidance_scale"):
+            _standard_parameters({"guidance_scale": "bad"}, "text-to-image", False, 1)
+        with pytest.raises(ValueError, match="guidance_scale"):
+            _standard_parameters({"guidance_scale": -1.0}, "text-to-image", False, 1)
+        for bad_seed in (True, "bad", 1.5):
+            with pytest.raises(ValueError, match="seed must be an integer"):
+                _standard_parameters({"seed": bad_seed}, "text-to-image", False, 1)
+
+        class StrengthPipe:
+            def __call__(self, image, strength=0.8):
+                return image
+
+        with pytest.raises(ValueError, match="strength must be a finite number"):
+            _conditioned_extra_parameters(StrengthPipe(), {"strength": "bad"})
+        with pytest.raises(ValueError, match="strength must be a finite non-negative"):
+            _conditioned_extra_parameters(StrengthPipe(), {"strength": -0.1})
+        with pytest.raises(ValueError, match="strength must be between 0 and 1"):
+            _conditioned_extra_parameters(StrengthPipe(), {"strength": 1.5})
+
+        mesh = types.SimpleNamespace(
+            verts=types.SimpleNamespace(shape=(4, 3)),
+            faces=types.SimpleNamespace(shape=(2, 3)),
+        )
+        assert _mesh_metadata({"task_type": "text-to-3d"}, {"images": [mesh]})["mesh_vertex_count"] == 4
+        with pytest.raises(ValueError, match="one decoded mesh"):
+            _mesh_metadata({"task_type": "text-to-3d"}, {"images": []})
+        frame = types.SimpleNamespace(size=(64, 64))
+        assert _video_metadata({"task_type": "text-to-video"}, ([[frame]],))["video_frame_count"] == 1
+        assert _image_metadata({"task_type": "text-to-image"}, ([frame],))["image_width"] == 64
+
 
 class TestDiffusionMetadata:
     def _task_info(self) -> TaskInfo:

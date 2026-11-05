@@ -26,7 +26,7 @@ BRANCH_FLOORS = {
     "acprof/host/measurement/execution.py": 65.0,
     "acprof/host/measurement/metrics.py": 65.0,
     "acprof/container/handlers/multimodal.py": 65.0,
-    "acprof/container/handlers/diffusion.py": 35.0,
+    "acprof/container/handlers/diffusion.py": 65.0,
 }
 
 

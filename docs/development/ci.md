@@ -245,7 +245,7 @@ CI 仅在 Python 3.12 的八个 host shard 使用 branch coverage；Python 3.13 
 再确认八个 coverage 目录齐全，执行 `coverage combine --keep`、`xml`、`json`、`html`，
 发布 `coverage-baseline-3.12` artifact。缺分片不能生成完整 baseline。
 
-仍不设全仓百分比 gate，也不排除错误与清理路径来提高数字。关键模块采用保守的逐文件 branch 覆盖门槛：result_csv 65%、result_layers 70%、result_metrics 50%、matrix_plan 60%、run_state 65%、energy_cpu 55%、result_cleanup 75%，host/client、host/window_execution、host/client_metrics 各 65%，Model Store store／preparation 分别为 75%／80%，multimodal／diffusion handler 分别为 65%／35%。原始下限源于 2026-10-18 的定向 host 测试基线；新增 Model Store、指标登记和 handler 下限低于 2026-11-01 的定向实测，完整套件只可能增加覆盖合集。窗口生命周期和结果组装移出 client 后，原 65% 约束随职责分别检查，避免重构造成覆盖盲区。`scripts/check_critical_coverage.py` 对合并后的 coverage JSON 执行检查；缺失文件、无效计数或不足下限均会使 `host-summary` 失败。上传原始 coverage artifact 先于门禁执行，失败时仍保留报告用于排查。门槛不等于 Docker/硬件路径覆盖率。
+仍不设全仓百分比 gate，也不排除错误与清理路径来提高数字。关键模块采用保守的逐文件 branch 覆盖门槛：result_csv 65%、result_layers 70%、result_metrics 50%、matrix_plan 60%、run_state 65%、energy_cpu 55%、result_cleanup 75%，host/client、host/window_execution、host/client_metrics 各 65%，Model Store store／preparation 分别为 75%／80%，multimodal／diffusion handler 各 65%。原始下限源于 2026-10-18 的定向 host 测试基线；新增 Model Store、指标登记和 handler 下限低于 2026-11-01 的定向实测，完整套件只可能增加覆盖合集。窗口生命周期和结果组装移出 client 后，原 65% 约束随职责分别检查，避免重构造成覆盖盲区。`scripts/check_critical_coverage.py` 对合并后的 coverage JSON 执行检查；缺失文件、无效计数或不足下限均会使 `host-summary` 失败。上传原始 coverage artifact 先于门禁执行，失败时仍保留报告用于排查。门槛不等于 Docker/硬件路径覆盖率。
 `pyproject.toml` 固定 `source=["acprof"]`、branch、relative paths 和 `patch="subprocess"`；
 未运行的模块仍进入报告。子进程使用独立 parallel data，经同一 `coverage combine` 汇总；
 `tests/quality/test_coverage_subprocess.py` 以真实父子进程验证配置、采集、合并和报告链路。
