@@ -49,7 +49,7 @@ def test_cleanup_failure_stops_tasks_and_preserves_completed_results(collection,
     completed_csv = collection.root / "completed.csv"
     seen = []
 
-    def execute(config, task):
+    def execute(_config, task):
         seen.append(task)
         if len(seen) - 1 == failure_index:
             raise failure

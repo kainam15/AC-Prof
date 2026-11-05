@@ -33,12 +33,16 @@ def prepared_application(tmp_path, monkeypatch):
     monkeypatch.setattr("acprof.host.runtimes.service.execution_runtime", Mock(return_value=runtime))
     monkeypatch.setattr("acprof.host.runtimes.selection.select_runtime", Mock(
         return_value=RuntimeSelection("docker", "docker", "fixture")))
-    monkeypatch.setattr(run, "require_collection_host", Mock())
+    monkeypatch.setattr("acprof.application.run.require_collection_host", Mock())
     monkeypatch.setattr("acprof.host.images.runtime.configure_runtime_profile", Mock())
     monkeypatch.setattr("acprof.host.metadata.static.collect_static_meta", Mock(return_value=SimpleNamespace()))
-    for name in ("enrich_static_meta", "enrich_static_meta_from_input_plan",
-                 "enrich_static_meta_from_compute_plan", "enrich_static_meta_from_execution_plan"):
-        monkeypatch.setattr(f"acprof.host.metadata.static.{name}", lambda metadata, _values: metadata)
+    def unchanged_metadata(metadata, _values):
+        return metadata
+
+    monkeypatch.setattr("acprof.host.metadata.static.enrich_static_meta", unchanged_metadata)
+    monkeypatch.setattr("acprof.host.metadata.static.enrich_static_meta_from_input_plan", unchanged_metadata)
+    monkeypatch.setattr("acprof.host.metadata.static.enrich_static_meta_from_compute_plan", unchanged_metadata)
+    monkeypatch.setattr("acprof.host.metadata.static.enrich_static_meta_from_execution_plan", unchanged_metadata)
     monkeypatch.setattr("acprof.host.metadata.static.write_static_meta_json", Mock())
     stages = {
         "image": runtime.prepare,
