@@ -370,6 +370,22 @@ def resolve_task_collection_dirs(source: str | Path) -> list[Path] | None:
     return expanded
 
 
+def experiment_result_file(directory: Path) -> Path:
+    """Prefer a layered result; use legacy flat CSV only for legacy directories.
+
+    Missing/corrupt v2 results must not be hidden by an unrelated CSV export.
+    Return the missing layered path when neither format is available.
+    """
+    directory = Path(directory)
+    layered = directory / "result_layers.json"
+    layout = directory / MANIFEST_NAME
+    if (layered.exists() or layered.is_symlink() or layout.exists() or layout.is_symlink()
+            or (directory / ".acprof/run_state.json").exists()):
+        return layered
+    flat = directory / "result_all.csv"
+    return flat if flat.is_file() else layered
+
+
 def resolve_single_result_source(source: str | Path) -> Path:
     """Resolve a single experiment directory or result_layers.json, unwrapping a 1-task collection."""
     path = Path(source).expanduser()

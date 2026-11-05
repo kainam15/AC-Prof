@@ -42,6 +42,11 @@ run_id, model, runtime, device, cpu, memory, concurrency, metric, value, unit
 同一次加载复用来源解析快照，完成后复核内容；读取期间 CSV 或 manifest 引用的数据层改变时
 拒绝生成报告。历史 CSV 能显示原始观测，不代表它已通过严格的实验身份和可比性校验。
 
+TUI 的「选择实验」、结果查看和离线统计／绘图／HTML／对比入口均按实际产物选择来源：
+优先使用已存在的 `result_layers.json`，仅在旧版实验目录缺少该清单时读取
+`result_all.csv`。新版布局的结果清单缺失或损坏不会自动降级到旧 CSV，
+历史 CSV 可用于分析也不代表实验已完成或通过可比性审计。
+
 `summary` 默认提供 19 列：配置 ID、model/runtime/device、CPU quota、memory cap、GPU 身份，
 应用 P50/P95、samples/s、QPS、CPU/memory/GPU/VRAM peak、cold start、观测总能量、
 观测 energy/request 和 status。完整长表及原始字段仍可由同一模型访问。

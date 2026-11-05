@@ -18,6 +18,7 @@ from textual.widgets import Button, Collapsible, ContentSwitcher, DataTable, Sta
 from textual.worker import Worker
 
 from acprof.experiments.configuration import RunConfigError
+from acprof.results.layout import experiment_result_file, resolve_single_result_source
 from acprof.messages import join_messages
 from acprof.tui.commands import (
     PendingLaunch,
@@ -104,11 +105,17 @@ class ResultController:
         """Keep unavailable recent paths in settings, not in the active selection."""
         source = self.app.configuration.input('result-csv').strip()
         if source and source == self.app.configuration.saved_settings.last_result_csv:
-            display = experiment_source_display(resolve_result_path(source, self.app.project_dir))
+            path = resolve_result_path(source, self.app.project_dir)
+            display = experiment_source_display(path)
             if not display.can_read:
-                self.unavailable_remembered_source = source
-                with self.app.prevent(Input.Changed):
-                    self.app.query_one('#result-csv', Input).value = ''
+                fallback = (experiment_result_file(path.parent)
+                            if path.name == 'result_layers.json' and not path.exists() else path)
+                if fallback != path and experiment_source_display(fallback).can_read:
+                    self.app.configuration.remember_last_used(result_csv=str(fallback))
+                else:
+                    self.unavailable_remembered_source = source
+                    with self.app.prevent(Input.Changed):
+                        self.app.query_one('#result-csv', Input).value = ''
         # On mount, refresh labels only: resetting the report source would erase the
         # independently remembered HTML path before the user has selected anything.
         self.update_report_source_label()
@@ -188,6 +195,13 @@ class ResultController:
                 self.app.notify("请填写结果 CSV 路径", severity="warning")
             return
         path = resolve_result_path(result_csv, self.app.project_dir)
+        if path.is_dir():
+            try:
+                path = resolve_single_result_source(path)
+            except (OSError, ValueError):
+                pass  # The reader reports an invalid/ambiguous directory.
+            if path.is_dir():
+                path = experiment_result_file(path)
         if self.app.configuration.input("result-csv") != str(path):
             self.select_result(str(path), summarize=False)
         if self.summary_request is not None:

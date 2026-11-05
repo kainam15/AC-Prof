@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 
 from textual.widgets import Button, Static
 
+from acprof.results.layout import experiment_result_file
 from acprof.tui.commands import PendingLaunch, resolve_result_path
 from acprof.tui.experiments.catalog import (
     ExperimentRecord,
@@ -77,7 +78,9 @@ class CatalogController:
         if action == 'view':
             self.view_experiment(record)
         elif action == 'select':
-            path = record.directory / 'result_layers.json' if target == 'result-csv' else record.directory
+            result_file = experiment_result_file(record.directory)
+            path = (result_file if target == 'result-csv' or result_file.name == 'result_all.csv'
+                    else record.directory)
             value = str(path)
             if target in {'comparison-left', 'comparison-right'}:
                 # Keep CLI's quoted-semicolon grammar for directories containing separators.
@@ -102,7 +105,7 @@ class CatalogController:
     def view_experiment(self, record: ExperimentRecord) -> None:
         self.app.configuration.remember_last_used(result_dir=str(record.directory))
         self.app.results.show_result_section('overview-view')
-        csv_path = record.directory / 'result_layers.json'
+        csv_path = experiment_result_file(record.directory)
         if csv_path.is_file():
             self.app.results.select_result(str(csv_path))
         else:

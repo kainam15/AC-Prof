@@ -18,7 +18,11 @@ from acprof.artifacts import read_json_object
 from acprof.experiments.arguments import flatten_run_options
 from acprof.experiments.configuration import RunConfig
 from acprof.installation import cli_command
-from acprof.results.layout import ArtifactLayout, resolve_single_result_source
+from acprof.results.layout import (
+    ArtifactLayout,
+    experiment_result_file,
+    resolve_single_result_source,
+)
 
 MAX_DUPLICATE_BYTES = 32 * 1024 * 1024
 
@@ -97,13 +101,13 @@ class ExperimentSourceDisplay:
 
 def experiment_source_display(source: Path) -> ExperimentSourceDisplay:
     """Describe one source without scanning measured rows or changing saved metadata."""
-    fallback = source.parent.name if source.name == 'result_layers.json' else source.name
+    fallback = source.parent.name if source.name in {'result_layers.json', 'result_all.csv'} else source.name
     if re.fullmatch(r'[0-9a-fA-F]{32}', fallback):
         fallback = ''  # Internal Run ID is not a human-readable experiment name.
     try:
         source = resolve_single_result_source(source)
         if source.is_dir():
-            root, result_file = source, source / 'result_layers.json'
+            root, result_file = source, experiment_result_file(source)
         elif source.name == 'result_layers.json' or source.suffix.lower() == '.csv':
             root, result_file = source.parent, source
         else:
@@ -239,6 +243,22 @@ def _duplicate_digest(record: ExperimentRecord, cancelled: Callable[[], bool], b
             layer_digest = consume(path)
             if layer_digest != manifest['layers'][layer]['sha256']:
                 raise ValueError('duplicate_evidence_unverified: modified result layer')
+    flat_path = record.directory / 'result_all.csv'
+    if experiment_result_file(record.directory) == flat_path:
+        if flat_path.is_symlink() or not flat_path.resolve().is_relative_to(record.directory):
+            raise ValueError('duplicate_evidence_unverified: unsafe legacy CSV')
+        digest.update(b'legacy-flat-csv\0')
+        with flat_path.open('rb', buffering=0) as stream:
+            while True:
+                if cancelled():
+                    raise InterruptedError('experiment scan cancelled')
+                chunk = stream.read(min(1024 * 1024, budget[0] + 1))
+                if not chunk:
+                    break
+                budget[0] -= len(chunk)
+                if budget[0] < 0:
+                    raise ValueError('duplicate_evidence_unverified: CSV byte budget exceeded')
+                digest.update(chunk)
     return digest.hexdigest()
 
 
@@ -272,7 +292,7 @@ def scan_experiments(roots: Iterable[Path], *, cancelled: Callable[[], bool] = l
             layout = ArtifactLayout.discover(directory)
             is_collection = (directory / 'metadata' / 'task_runs').is_dir()
             is_experiment = not is_collection and any(layout.path(name).is_file() for name in (
-                'run_state.json', 'static_meta.json', 'model_resolution.json', 'result_layers.json'))
+                'run_state.json', 'static_meta.json', 'model_resolution.json', 'result_layers.json', 'result_all.csv'))
             record = _record(layout, warnings) if is_experiment else None
         except (OSError, ValueError, TypeError, AttributeError) as exc:
             warnings.append(f'{directory}: invalid_experiment: {exc}')

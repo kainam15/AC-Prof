@@ -1,4 +1,5 @@
 """Existing result pages discover records, reuse full options and review exact resume commands."""
+import csv
 import json
 import tempfile
 from dataclasses import replace
@@ -120,6 +121,52 @@ class TestCatalogWorkflow:
                 assert (parsed.matrix_seed) == (71)
                 assert (parsed.output_dir) == (str(path.parent))
                 assert (parsed.resume)
+
+    @pytest.mark.parametrize('target', ['result-csv', 'comparison-left', 'comparison-right'])
+    async def test_preference_for_layered_manifest_with_flat_csv_also_present(self, target):
+        root = self.fixture.root
+        path = self.fixture.record('both-formats')
+        (path / 'result_all.csv').write_text('legacy\n1\n')
+        record = scan_experiments([path]).records[0]
+        app = AcprofTui(replace(RunConfig.smoke('demo/model'), output_dir=str(root)), settings_path=root / 'settings.json')
+        async with app.run_test(size=(120, 30)) as pilot:
+            await pilot.pause()
+            app.catalog.experiment_selected(target, ('select', record))
+            selected = app.query_one('#' + target, Input).value
+            expected = path / 'result_layers.json' if target == 'result-csv' else path
+            assert selected == str(expected)
+
+    async def test_legacy_flat_csv_is_selected_for_view_reports_and_comparison(self):
+        from acprof.results.csv import read_result_csv
+
+        root = self.fixture.root
+        path = self.fixture.record('legacy-flat')
+        manifest = path / 'result_layers.json'
+        fields, rows = read_result_csv(manifest)
+        flat_csv = path / 'result_all.csv'
+        with flat_csv.open('w', newline='', encoding='utf-8') as stream:
+            writer = csv.DictWriter(stream, fieldnames=fields)
+            writer.writeheader()
+            writer.writerows(rows)
+        manifest.unlink()
+
+        app = AcprofTui(replace(RunConfig.smoke('demo/model'), output_dir=str(root)), settings_path=root / 'settings.json')
+        async with app.run_test(size=(120, 30)) as pilot:
+            await pilot.pause()
+            record = scan_experiments([path]).records[0]
+            app.catalog.experiment_selected('result-csv', ('select', record))
+            assert app.query_one('#result-csv', Input).value == str(flat_csv)
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+            assert not app.query_one('#html-report-generate', Button).disabled
+
+            app.catalog.experiment_selected('comparison-left', ('select', record))
+            assert app.query_one('#comparison-left', Input).value == str(flat_csv)
+            app.catalog.view_experiment(record)
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+            assert app.query_one('#result-csv', Input).value == str(flat_csv)
+            assert 'no result' not in str(app.query_one('#result-summary', Static).content).lower()
 
     async def test_paths_are_selected_in_existing_pages_and_measurement_blocks_discovery(self):
         root = self.fixture.root

@@ -69,9 +69,10 @@ def resolve_result_path(source: str, project_dir: Path) -> Path:
 def _resolve_single_tui_source(path: Path) -> Path | None:
     if not path.is_dir() and (path.name != "result_layers.json" or path.is_file()):
         return path
-    from acprof.results.layout import resolve_single_result_source
+    from acprof.results.layout import experiment_result_file, resolve_single_result_source
     try:
-        return resolve_single_result_source(path)
+        resolved = resolve_single_result_source(path)
+        return experiment_result_file(resolved) if resolved.is_dir() else resolved
     except (OSError, ValueError):
         return None
 
@@ -81,9 +82,10 @@ def prepare_plot(source: str, *, project_dir: Path, python_executable: Path) -> 
     resolved = _resolve_single_tui_source(raw_path)
     path = resolved if resolved is not None else raw_path
     if path.is_dir():
-        path /= "result_layers.json"
+        from acprof.results.layout import experiment_result_file
+        path = experiment_result_file(path)
     if not path.is_file() or (path.name != "result_layers.json" and path.suffix.lower() != ".csv"):
-        missing = raw_path / "result_layers.json" if raw_path.is_dir() else raw_path
+        missing = path if raw_path.is_dir() else raw_path
         raise RunConfigError([ConfigIssue(None, message_id("results.input.missing_file", missing))])
     command = build_plot_command(path, project_dir=project_dir, python_executable=python_executable)
     return PendingLaunch(tuple(command), "plot", result_csv=str(path))
@@ -94,7 +96,8 @@ def prepare_stats(source: str, *, project_dir: Path, python_executable: Path) ->
     resolved = _resolve_single_tui_source(raw_path)
     path = resolved if resolved is not None else raw_path
     if path.is_dir():
-        path /= "result_layers.json"
+        from acprof.results.layout import experiment_result_file
+        path = experiment_result_file(path)
     if not path.is_file() or (path.name != "result_layers.json" and path.suffix.lower() != ".csv"):
         raise RunConfigError([ConfigIssue(None, message_id("results.input.invalid_source"))])
     command = build_stats_command(path, project_dir=project_dir, python_executable=python_executable)
@@ -108,7 +111,7 @@ def html_report_inputs(source: str, *, project_dir: Path) -> tuple[Path, ...]:
     documents directories and CSVs. Preserve all layers by passing its directory.
     This only validates paths; analysis belongs to the report subprocess.
     """
-    from acprof.results.layout import expand_result_sources
+    from acprof.results.layout import expand_result_sources, experiment_result_file
     try:
         values = next(csv.reader([source], delimiter=";", skipinitialspace=True, strict=True))
     except csv.Error as exc:
@@ -126,7 +129,7 @@ def html_report_inputs(source: str, *, project_dir: Path) -> tuple[Path, ...]:
             raise RunConfigError([ConfigIssue(None, message_id('results.html.invalid_input', raw_path))]) from exc
         for candidate in candidates:
             path = candidate.resolve()
-            reference = path / "result_layers.json" if path.is_dir() else path
+            reference = experiment_result_file(path) if path.is_dir() else path
             if not reference.is_file() or (reference.name != "result_layers.json" and reference.suffix.lower() != ".csv"):
                 raise RunConfigError([ConfigIssue(None, message_id('results.html.invalid_input', raw_path))])
             normalized = reference.parent if reference.name == "result_layers.json" else reference
@@ -154,7 +157,7 @@ def prepare_html_report(source: str, *, project_dir: Path, python_executable: Pa
 def prepare_comparison(left: str, right: str, *, baseline: str, purpose: str,
                        project_dir: Path, python_executable: Path) -> PendingLaunch:
     """Read the public comparison command's stdout without a mandatory artifact."""
-    from acprof.results.layout import expand_result_sources
+    from acprof.results.layout import expand_result_sources, experiment_result_file
     if baseline not in {"left", "right"} or purpose not in {"same-hardware", "cross-hardware", "resource-scaling"}:
         raise RunConfigError([ConfigIssue(None, message_id('results.comparison.invalid_options'))])
     groups = []
@@ -173,10 +176,10 @@ def prepare_comparison(left: str, right: str, *, baseline: str, purpose: str,
                 raise RunConfigError([ConfigIssue(None, message_id("results.input.invalid_source"))]) from exc
             for candidate in candidates:
                 path = candidate.resolve()
-                source = path / "result_layers.json" if path.is_dir() else path
+                source = experiment_result_file(path) if path.is_dir() else path
                 if not source.is_file() or (source.name != "result_layers.json" and source.suffix.lower() != ".csv"):
                     raise RunConfigError([ConfigIssue(None, message_id("results.input.invalid_source"))])
-                paths.append(path)
+                paths.append(source if path.is_dir() and source.name == 'result_all.csv' else path)
         groups.append(paths)
     if baseline == "right":
         groups.reverse()

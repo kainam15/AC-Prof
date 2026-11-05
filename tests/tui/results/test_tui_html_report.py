@@ -49,6 +49,32 @@ def test_command_normalizes_manifest_and_multiple_inputs_without_writing(tmp_pat
     assert prepare(str(root), tmp_path).report_path != pending.report_path
 
 
+def test_legacy_flat_directory_works_in_offline_report_and_comparison_commands(tmp_path, csv_result):
+    from acprof.tui.commands import prepare_comparison, prepare_plot, prepare_stats
+
+    directory = str(csv_result.parent)
+    for prepare_command in (prepare_plot, prepare_stats):
+        pending = prepare_command(directory, project_dir=tmp_path, python_executable=Path('/python'))
+        assert pending.result_csv == str(csv_result)
+    pending = prepare(directory, tmp_path)
+    assert pending.command[5] == str(csv_result)
+    comparison = prepare_comparison(directory, str(csv_result), baseline='left',
+        purpose='resource-scaling', project_dir=tmp_path, python_executable=Path('/python'))
+    assert comparison.command[comparison.command.index('--left') + 1] == str(csv_result)
+
+
+def test_missing_layered_result_in_v2_does_not_fall_back_to_csv(tmp_path, csv_result):
+    from acprof.results.layout import experiment_result_file
+
+    directory = tmp_path / 'v2'
+    ArtifactLayout.for_new_run(directory).initialize()
+    (directory / 'result_layers.json').unlink()
+    (directory / 'result_all.csv').write_bytes(csv_result.read_bytes())
+    assert experiment_result_file(directory) == directory / 'result_layers.json'
+    with pytest.raises(RunConfigError):
+        prepare(str(directory), tmp_path)
+
+
 def test_relative_csv_and_existing_output_get_new_versions(tmp_path, csv_result):
     pending = prepare(str(csv_result.relative_to(tmp_path)), tmp_path)
     output = Path(pending.report_path)

@@ -119,6 +119,35 @@ class TestTuiReports:
             await pilot.pause()
             assert str(label.content) == 'No experiment results available'
 
+    async def test_legacy_directory_input_loads_summary_from_flat_csv(self):
+        directory = self.directory / 'legacy-directory'
+        directory.mkdir()
+        flat = directory / 'result_all.csv'
+        flat.write_bytes(self.csv_path.read_bytes())
+        app = self.make_app()
+        async with app.run_test(size=(120, 30)) as pilot:
+            await pilot.pause()
+            app.results.select_result(str(directory), summarize=False)
+            app.results.update_result_summary(str(directory))
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+            assert app.query_one('#result-csv', Input).value == str(flat)
+            assert app.results.formal_ok_rows == 3
+
+    async def test_remembered_missing_manifest_recovers_legacy_csv(self):
+        directory = self.directory / 'legacy'
+        directory.mkdir()
+        flat = directory / 'result_all.csv'
+        flat.write_bytes(self.csv_path.read_bytes())
+        missing = directory / 'result_layers.json'
+        save_settings(self.directory / 'tui.json', TuiSettings(last_result_csv=str(missing)), Path.cwd())
+        app = self.make_app()
+        async with app.run_test(size=(120, 30)) as pilot:
+            await pilot.pause()
+            assert app.query_one('#result-csv', Input).value == str(flat)
+            assert not app.query_one('#html-report-generate', Button).disabled
+            assert app.configuration.saved_settings.last_result_csv == str(flat)
+
     @pytest.mark.parametrize('size', [(80, 24), (120, 30)])
     async def test_stale_remembered_result_is_not_a_selected_experiment(self, size):
         run_id = '33dec6b68b6a4369a278d1b1744b71e4'

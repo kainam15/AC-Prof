@@ -158,6 +158,22 @@ def test_duplicate_run_detects_tampered_layer_even_when_manifest_unchanged(tmp_p
     assert "duplicate_evidence_unverified" in report.records[0].issues
 
 
+def test_duplicate_run_detects_changed_legacy_flat_csv(tmp_path):
+    from acprof.tui.experiments.catalog import scan_experiments
+
+    fixture = CatalogFixture()
+    fixture.root = tmp_path
+    original = fixture.record('legacy')
+    (original / 'result_layers.json').unlink()
+    (original / 'result_all.csv').write_text('cpu_cores,status\n1,ok\n')
+    clone = tmp_path / 'clone' / original.name
+    shutil.copytree(original, clone)
+    (clone / 'result_all.csv').write_text('cpu_cores,status\n1,error\n')
+    catalog = scan_experiments([tmp_path])
+    assert len(catalog.records) == 1
+    assert 'run_id_content_conflict' in catalog.records[0].issues
+
+
 def test_experiment_source_title_uses_saved_metadata_without_changing_run_identity(tmp_path):
     from acprof.results.layout import ArtifactLayout
     from acprof.tui.experiments.catalog import experiment_source_title
@@ -197,6 +213,29 @@ def test_experiment_source_title_uses_saved_metadata_without_changing_run_identi
     assert experiment_source_display(root / 'result_layers.json').availability == 'missing'
     assert experiment_source_display(tmp_path / 'absent' / run_id / 'result_layers.json').availability == 'missing'
     assert experiment_source_display(tmp_path / 'unsupported.json').availability == 'unsupported'
+
+
+def test_legacy_flat_experiment_is_discoverable_and_reports_available_source(tmp_path):
+    from acprof.results.layout import experiment_result_file
+    from acprof.tui.experiments.catalog import experiment_source_display, scan_experiments
+
+    directory = tmp_path / 'legacy'
+    directory.mkdir()
+    flat = directory / 'result_all.csv'
+    flat.write_text('cpu_cores,mem_cap_gb,gpu_mode,input_scale,warmup,repeat_idx,status\n'
+                    '1,2,off,1,0,0,ok\n')
+    assert len(scan_experiments([directory]).records) == 1
+    assert experiment_result_file(directory) == flat
+    assert experiment_source_display(directory).availability == 'selected'
+    assert experiment_source_display(flat).availability == 'selected'
+    assert experiment_source_display(flat).title == 'legacy'
+    manifest = directory / 'result_layers.json'
+    manifest.write_text('{}')
+    assert experiment_result_file(directory) == manifest
+    manifest.unlink()
+    flat.unlink()
+    assert experiment_result_file(directory) == manifest
+    assert experiment_source_display(directory).availability == 'no_data'
 
 
 def test_catalog_reads_canonical_runtime_environment_profile_id(tmp_path):
