@@ -183,14 +183,14 @@ def test_failed_dispatch_publication_prevents_start_and_allows_pre_dispatch_clos
     mount = store.acquire_mount(model.manifest, model.root)
     original = consumers.atomic_write_json
 
-    def fail(path, record, **kwargs):
+    def fail(path, payload, **kwargs):
         if published:
-            original(path, record, **kwargs)
+            original(path, payload, **kwargs)
         raise OSError("dispatch publication failed")
 
     try:
         with monkeypatch.context() as patcher:
-            patcher.setattr(consumers, "atomic_write_json", fail)
+            patcher.setattr("acprof.host.model_store.consumers.atomic_write_json", fail)
             with pytest.raises(OSError, match="dispatch publication failed"):
                 mount.begin_launch(model.root / "fallback.cid")
         assert mount.pass_fds
@@ -224,7 +224,7 @@ def test_cleanup_receipt_unlink_failure_can_retry_without_stale_identity(cached_
         def fail(path, *args, **kwargs):
             if os.fspath(path) == cidfile.name:
                 raise PermissionError("receipt unlink failed")
-            return unlink(path, *args, **kwargs)
+            unlink(path, *args, **kwargs)
 
         with monkeypatch.context() as patcher:
             patcher.setattr(consumers.os, "unlink", fail)
@@ -262,7 +262,7 @@ def test_profiler_commands_keep_the_correct_mount_across_nested_scopes(cached_mo
     other = {"model_store": {"entry_id": key, "plan_sha256": plan["plan_sha256"]}}
     cidfiles: list[Path] = []
 
-    def run(argv, **kwargs):
+    def run(argv, **_kwargs):
         if argv[:2] == ["docker", "run"]:
             cidfile = Path(argv[argv.index("--cidfile") + 1])
             assert not cidfile.exists()
@@ -272,7 +272,7 @@ def test_profiler_commands_keep_the_correct_mount_across_nested_scopes(cached_mo
             assert argv[:2] in (["docker", "ps"], ["docker", "rm"])
         return subprocess.CompletedProcess(argv, 0, "", "")
 
-    monkeypatch.setattr(commands, "run_command", run)
+    monkeypatch.setattr("acprof.host.profiling.commands.run_command", run)
     with store.acquire_mount(model.manifest, model.root) as first, store.acquire_mount(other, model.root) as second:
         with commands.profiler_model_mount(first):
             commands.run_profiler_command(["docker", "run", "fixture"])
@@ -293,7 +293,7 @@ def test_egress_harness_releases_mount_only_after_completed_work_and_cleanup(mon
     experiment = SimpleNamespace(close=Mock())
     mount = SimpleNamespace(close=Mock())
     retained = Mock()
-    monkeypatch.setattr(egress, "retain_mount_for_cleanup_debt", retained)
+    monkeypatch.setattr("scripts.validate_measurement_egress.retain_mount_for_cleanup_debt", retained)
     if failure_at == "experiment":
         experiment.close.side_effect = OSError("cleanup failed")
     if failure_at == "mount":

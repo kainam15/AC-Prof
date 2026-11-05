@@ -22,7 +22,7 @@ def test_namespace_guard_pins_identity_and_never_enters_host(monkeypatch, case):
         setns=enter,
         close=close,
     )
-    monkeypatch.setattr(egress_namespace, 'os', fake_os)
+    monkeypatch.setattr('scripts.egress_namespace.os', fake_os)
     assert real_os.stat is not fake_os.stat
     assert real_os.fstat is not fake_os.fstat
     if case == 'valid':
@@ -38,7 +38,7 @@ def test_namespace_guard_pins_identity_and_never_enters_host(monkeypatch, case):
 def test_pid_reuse_before_namespace_open_is_rejected(monkeypatch):
     monkeypatch.setattr(egress_namespace, 'process_start_ticks', lambda _pid: 43)
     opened = Mock()
-    monkeypatch.setattr(egress_namespace, 'os', SimpleNamespace(open=opened))
+    monkeypatch.setattr('scripts.egress_namespace.os', SimpleNamespace(open=opened))
     with pytest.raises(RuntimeError, match='identity changed'):
         egress_namespace.enter_namespace(1234, 42)
     opened.assert_not_called()
@@ -73,9 +73,9 @@ def test_cleanup_failure_retains_model_store_lease(tmp_path, monkeypatch):
     mount = Mock()
     retained = Mock()
     monkeypatch.setattr(validation, 'Experiment', Mock(return_value=experiment))
-    monkeypatch.setattr(validation, 'MeasurementLock', nullcontext)
-    monkeypatch.setattr(validation, 'acquire_mount', Mock(return_value=mount))
-    monkeypatch.setattr(validation, 'retain_mount_for_cleanup_debt', retained)
+    monkeypatch.setattr('scripts.validate_measurement_egress.MeasurementLock', nullcontext)
+    monkeypatch.setattr('scripts.validate_measurement_egress.acquire_mount', Mock(return_value=mount))
+    monkeypatch.setattr('scripts.validate_measurement_egress.retain_mount_for_cleanup_debt', retained)
     monkeypatch.setattr(validation.sys, 'argv', ['validate', '--image', 'image', '--gpu-uuid', 'gpu',
                                                '--output', str(tmp_path / 'output'), '--protocols-only'])
     with pytest.raises(RuntimeError, match='cleanup failed'):
