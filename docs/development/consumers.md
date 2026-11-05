@@ -392,6 +392,10 @@ CLI 的权威预检。`views.EnvironmentPreflightScreen` 只展示缓存问题�
 随后流式 hash 复核，不重编码宽 CSV 或为最终复核重新组装行表。
 `load_result_context` 借用快照时核对路径并重新执行共享行校验，不修改借用行，也不重复读取 CSV；
 外层消费者负责工作结束后的来源复核。上下文的元数据、模型、运行时、不可变镜像与输入计划规则保持不变。
+尺度去重及输入计划匹配使用本次调用内的集合索引，按精确数值匹配有限浮点数；各 GPU 模式仍返回
+升序尺度。结果行与计划条目继续逐项校验和检查取消，重复尺度也不能跳过条目的 payload 校验。
+集合去重参考 [more-itertools `unique_everseen`](https://github.com/more-itertools/more-itertools/blob/f42daddf205f335fea6e200dad46049f33e71221/more_itertools/recipes.py)，
+沿用标准库 `set`，不引入依赖或跨调用缓存。
 Profiler 完成计数在一次行遍历中复用 `row_tool_complete`，不保留各工具的行表副本或再次计算完成状态。
 `ResultSummary` 只携带统计结果、概览及其错误；原始快照不会保存在 TUI 状态中。概览的元数据错误
 保留为独立提示，仍可展示通过来源核验的统计；源文件变化则拒绝整个摘要。共享范围是结果行，

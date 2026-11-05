@@ -23,6 +23,83 @@ from acprof.platform import Environment
 
 
 class TestPosthocProfile:
+    def test_scale_preparation_work_grows_linearly_with_matrix_size(self, tmp_path: Path):
+        from acprof.results.layers import publish_result_rows, read_result_layers
+
+        check_counts = []
+        for count in (80, 160):
+            root = tmp_path / str(count)
+            self._write_fixture(root)
+            fields, base_rows = read_result_layers(root)
+            scales = list(range(1, count + 1))
+            rows = [{**row, "input_scale": str(scale), "repeat_idx": str(repeat)}
+                    for row in base_rows for scale in scales for repeat in range(2)]
+            publish_result_rows(fields, rows, root)
+            plan_path = root / host_posthoc_context.INPUT_SCALE_PLAN_NAME
+            plan = json.loads(plan_path.read_text())
+            plan["entries"] = [{"input_scale": scale, "payload": {"text": str(scale)}} for scale in scales]
+            plan_path.write_text(json.dumps(plan))
+            metadata_path = root / host_posthoc_context.STATIC_META_NAME
+            metadata = json.loads(metadata_path.read_text())
+            metadata["input_scale_plan_sha256"] = hashlib.sha256(plan_path.read_bytes()).hexdigest()
+            metadata_path.write_text(json.dumps(metadata))
+            checks = 0
+
+            def cancelled() -> bool:
+                nonlocal checks
+                checks += 1
+                return False
+
+            context = host_posthoc_context.load_result_context(root, cancelled=cancelled)
+            assert context.scales_by_mode == {"off": scales, "on": scales}
+            assert len(context.rows) == 4 * count
+            check_counts.append(checks)
+
+        # Count cooperative work, not wall time. Doubling input must not cause
+        # a near-fourfold rise from repeated scans of all previously seen scales.
+        assert check_counts[1] < 3 * check_counts[0], check_counts
+
+    @pytest.mark.parametrize("stage", ["rows", "plan"])
+    def test_scale_index_preparation_remains_cancellable(self, tmp_path: Path, stage: str):
+        from concurrent.futures import CancelledError
+
+        self._write_fixture(tmp_path)
+        paths = [tmp_path / name for name in (
+            "result_layers.json", host_posthoc_context.STATIC_META_NAME, host_posthoc_context.INPUT_SCALE_PLAN_NAME,
+        )]
+        before = {path: path.read_bytes() for path in paths}
+        finite_float = host_posthoc_context.finite_float
+        cancel_requested = False
+        # Distinguish CSV scale parsing from the earlier CPU/memory validation.
+        cancel_value = "8" if stage == "rows" else 8.0
+
+        def parse(value: object) -> float:
+            nonlocal cancel_requested
+            if value == cancel_value:
+                cancel_requested = True
+            return finite_float(value)
+
+        with patch("acprof.host.posthoc.context.finite_float", side_effect=parse):
+            with pytest.raises(CancelledError):
+                host_posthoc_context.load_result_context(tmp_path, cancelled=lambda: cancel_requested)
+
+        assert cancel_requested
+        assert {path: path.read_bytes() for path in paths} == before
+
+    def test_duplicate_plan_scale_does_not_hide_invalid_payload(self, tmp_path: Path):
+        self._write_fixture(tmp_path)
+        plan_path = tmp_path / host_posthoc_context.INPUT_SCALE_PLAN_NAME
+        plan = json.loads(plan_path.read_text())
+        plan["entries"].append({"input_scale": 8.0, "payload": None})
+        plan_path.write_text(json.dumps(plan))
+        metadata_path = tmp_path / host_posthoc_context.STATIC_META_NAME
+        metadata = json.loads(metadata_path.read_text())
+        metadata["input_scale_plan_sha256"] = hashlib.sha256(plan_path.read_bytes()).hexdigest()
+        metadata_path.write_text(json.dumps(metadata))
+
+        with pytest.raises(host_posthoc_context.PosthocError, match="payload missing"):
+            host_posthoc_context.load_result_context(tmp_path)
+
     @pytest.mark.parametrize("missing_exact_plan", [False, True])
     def test_context_preserves_close_scales_and_requires_exact_plan(self, tmp_path, missing_exact_plan):
         from acprof.results.layers import publish_result_rows, read_result_layers

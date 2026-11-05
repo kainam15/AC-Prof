@@ -206,26 +206,22 @@ def _load_result_csv(path: Path, *, result_snapshot: ResultCsvSnapshot | None = 
 
 
 def _unique_scales(rows: Iterable[Mapping[str, Any]], *, cancelled: Callable[[], bool] | None = None) -> list[float]:
-    scales: list[float] = []
+    scales: set[float] = set()
     for row in cancellable(rows, cancelled):
         scale = finite_float(row.get("input_scale"))
         if not math.isfinite(scale):
             raise PosthocError(
                 f"invalid input_scale in result CSV: {row.get('input_scale')!r}"
             )
-        if not any(
-            scale == existing
-            for existing in cancellable(scales, cancelled)
-        ):
-            scales.append(scale)
+        scales.add(scale)
     return sorted(scales)
 
 
-def _input_plan_scales(plan: Mapping[str, Any], *, cancelled: Callable[[], bool] | None = None) -> list[float]:
+def _input_plan_scales(plan: Mapping[str, Any], *, cancelled: Callable[[], bool] | None = None) -> set[float]:
     entries = plan.get("entries")
     if not isinstance(entries, list) or not entries:
         raise PosthocError("input_scale_plan.json has no entries")
-    scales: list[float] = []
+    scales: set[float] = set()
     for index, entry in enumerate(cancellable(entries, cancelled)):
         if not isinstance(entry, Mapping) or not isinstance(entry.get("payload"), dict):
             raise PosthocError(
@@ -236,12 +232,8 @@ def _input_plan_scales(plan: Mapping[str, Any], *, cancelled: Callable[[], bool]
             raise PosthocError(
                 f"invalid input scale plan entry at index {index}: input_scale missing"
             )
-        scales.append(scale)
+        scales.add(scale)
     return scales
-
-
-def _scale_is_present(scale: float, candidates: Iterable[float]) -> bool:
-    return any(scale == candidate for candidate in candidates)
 
 
 def load_result_context(result_dir: str | os.PathLike[str], *, result_snapshot: ResultCsvSnapshot | None = None,
@@ -339,7 +331,7 @@ def load_result_context(result_dir: str | os.PathLike[str], *, result_snapshot: 
         scale
         for scales in scales_by_mode.values()
         for scale in cancellable(scales, cancelled)
-        if not _scale_is_present(scale, cancellable(planned_scales, cancelled))
+        if scale not in planned_scales
     ]
     if missing_scales:
         labels = ", ".join(f"{scale:g}" for scale in sorted(set(missing_scales)))
