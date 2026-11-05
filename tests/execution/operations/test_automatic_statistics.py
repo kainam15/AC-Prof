@@ -2,6 +2,7 @@
 import io
 import json
 import re
+from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
@@ -16,13 +17,13 @@ from tests.support.run_recovery_fixtures import RunRecoveryFixture
 
 
 @pytest.fixture
-def experiment(request, tmp_path):
+def experiment(request, tmp_path) -> RunRecoveryFixture:
     fixture = RunRecoveryFixture()
     fixture.build(request, tmp_path)
     return fixture
 
 
-def reports(experiment):
+def reports(experiment: RunRecoveryFixture) -> list[Path]:
     return sorted((experiment.directory / "analysis").glob("window-statistics-*.json"))
 
 
