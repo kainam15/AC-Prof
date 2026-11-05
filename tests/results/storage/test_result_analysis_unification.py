@@ -14,7 +14,6 @@ import numpy as np
 import pandas as pd
 import pytest
 from textual.widgets import Button, DataTable, Input, Static, TabbedContent
-from tests.support.tui_fixtures import AcprofTui
 
 from acprof.analysis.export import export_analysis
 from acprof.analysis.uncertainty import summarize_windows
@@ -25,9 +24,10 @@ from acprof.plotting.uncertainty import (
     aggregate_plot_metric,
     aggregate_plot_series,
 )
-from acprof.tui.results.analysis_output import AnalysisOutput
 from acprof.tui.commands import PendingLaunch
+from acprof.tui.results.analysis_output import AnalysisOutput
 from acprof.tui.results.reports import report_view
+from tests.support.tui_fixtures import AcprofTui
 
 
 def windows(**changes):
@@ -194,10 +194,12 @@ def test_analysis_transport_is_bounded(monkeypatch):
         output.append("中文")
 
 
-@pytest.mark.parametrize("size", [(80, 24), (120, 30), (160, 45)])
-async def test_unified_results_statistics_and_explicit_exports(size, result_csv, tmp_path):
+@pytest.mark.parametrize("size", [(80, 24), (120, 30), (150, 45)])
+@pytest.mark.parametrize("language", ["zh", "en"])
+async def test_unified_results_statistics_with_hidden_exports(size, language, result_csv, tmp_path):
     original = result_csv.read_bytes()
     app = AcprofTui(RunConfig.smoke("demo/model"), settings_path=tmp_path / "settings.json")
+    app.configuration.preferences = replace(app.configuration.preferences, language=language)
     async with app.run_test(size=size) as pilot:
         app.results.select_result(str(result_csv), summarize=False)
         await pilot.pause()
@@ -214,13 +216,18 @@ async def test_unified_results_statistics_and_explicit_exports(size, result_csv,
         assert app.query_one("#report-json-path", Input).value == ""
         assert result_csv.read_bytes() == original
         app.results.show_result_section("exports-view")
+        await pilot.pause()
+        controls = app.query("#analysis-export-path, #analysis-export-csv, #analysis-export-json")
+        for control in controls:
+            assert control.region.area == 0
+            assert control not in app.screen.focus_chain
+        panel = app.query_one("#result-export-panel")
+        assert app.query_one("#report-file-options").region.y == panel.content_region.y
+        assert app.query_one("#html-report-panel").region.area > 0
         target = tmp_path / "statistics.csv"
         app.query_one("#analysis-export-path", Input).value = str(target)
         await pilot.pause()
-        button = app.query_one("#analysis-export-csv", Button)
-        button.scroll_visible(animate=False, immediate=True)
-        await pilot.pause()
-        assert await pilot.click(button)
+        app.results.export_analysis("csv")
         await app.workers.wait_for_complete()
         await pilot.pause()
         assert target.is_file()

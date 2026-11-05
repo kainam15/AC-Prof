@@ -89,13 +89,14 @@ def compose_comparison(app: AcprofTui) -> ComposeResult:
 def compose_exports(app: AcprofTui) -> ComposeResult:
     local = app.localization.localized_widget
     with VerticalScroll(classes="pane-scroll", id="result-export-panel"):
-        yield local(Label(message_id("results.export.path_label")))
-        yield local(Input(id="analysis-export-path", classes="report-control",
-                          placeholder=message_id("results.export.path_hint")))
-        with Horizontal(classes="html-actions"):
-            yield local(Button(message_id("results.export.csv"), id="analysis-export-csv", name="csv", classes="report-control"))
-            yield local(Button(message_id("results.export.json"), id="analysis-export-json", name="json", classes="report-control"))
-        yield Static("", id="analysis-export-status", markup=False)
+        with Vertical(id="analysis-export-controls"):
+            yield local(Label(message_id("results.export.path_label")))
+            yield local(Input(id="analysis-export-path", classes="report-control",
+                              placeholder=message_id("results.export.path_hint")))
+            with Horizontal(classes="html-actions"):
+                yield local(Button(message_id("results.export.csv"), id="analysis-export-csv", name="csv", classes="report-control"))
+                yield local(Button(message_id("results.export.json"), id="analysis-export-json", name="json", classes="report-control"))
+            yield Static("", id="analysis-export-status", markup=False)
         with local(Collapsible(title="已有 JSON 报告", collapsed=True, id="report-file-options")):
             with Horizontal(classes="path-picker-row"):
                 yield local(Input(id="report-json-path", classes="report-control", placeholder="JSON 文件路径"))
