@@ -23,6 +23,104 @@ from acprof.platform import Environment
 
 
 class TestPosthocProfile:
+    def test_compute_lookup_work_does_not_grow_with_repeated_windows(self, tmp_path: Path):
+        self._write_fixture(tmp_path, torch_complete=False)
+        context = host_posthoc_context.load_result_context(tmp_path)
+        base_rows = context.rows
+        scales = [1.0000001, 1.0000002, 2.0]
+        scans = 0
+
+        class CountedScale(float):
+            def __float__(self) -> float:
+                nonlocal scans
+                scans += 1
+                return super().__float__()
+
+        plan = {"profiles": {
+            device: {tool: {"entries": [
+                {"input_scale": CountedScale(scale),
+                 TORCH_LOGICAL_MFLOP_FIELD: 100 * index * factor,
+                 host_compute_profile_plan.NCU_TOTAL_MFLOP_FIELD: 200 * index * factor}
+                for index, scale in enumerate(scales, start=1)
+            ]} for tool in tools}
+            for device, factor, tools in (
+                ("cpu", 1, ("torch_profiler_eager",)),
+                ("gpu", 2, ("torch_profiler_eager", "ncu")),
+            )
+        }}
+        counts = []
+        for repeats in (1, 8):
+            context.rows = [{**row, "input_scale": str(scale), "latency_app_s": str(repeat + 1),
+                             "latency_s": str(2 * (repeat + 1))}
+                            for row in base_rows for scale in scales for repeat in range(repeats)]
+            original = [dict(row) for row in context.rows]
+            scans = 0
+            _, rows, updated = host_posthoc_backfill.backfill_rows(
+                context, tools=("torch", "ncu"), compute_plan=plan,
+            )
+            counts.append(scans)
+            assert updated == {"torch": 6 * repeats, "ncu": 3 * repeats}
+            assert context.rows == original
+            for row in rows:
+                factor = 2 if row["gpu_mode"] == "on" else 1
+                logical = 100 * (scales.index(float(row["input_scale"])) + 1) * factor
+                assert float(row[TORCH_LOGICAL_MFLOP_FIELD]) == logical
+                assert float(row["model_logical_mflops_app_torch_profiler_eager"]) == pytest.approx(
+                    logical / float(row["latency_app_s"]), abs=1e-6,
+                )
+                if row["gpu_mode"] == "on":
+                    assert float(row[host_compute_profile_plan.NCU_TOTAL_MFLOP_FIELD]) == 2 * logical
+                    assert float(row[host_posthoc_context.NCU_DERIVED_PACKET_FIELD]) == pytest.approx(
+                        2 * logical / float(row["latency_s"]), abs=1e-6,
+                    )
+
+        assert counts[0] > 0
+        assert counts[1] == counts[0], counts
+
+    def test_compute_lookup_rebuilds_between_backfills(self, tmp_path: Path):
+        self._write_fixture(tmp_path, include_cpu=False, torch_complete=False)
+        context = host_posthoc_context.load_result_context(tmp_path)
+        plan = self._torch_plan()
+        _, first, _ = host_posthoc_backfill.backfill_rows(context, tools=("torch",), compute_plan=plan)
+        assert first[0][TORCH_LOGICAL_MFLOP_FIELD] == "222.000000"
+        first[0][TORCH_LOGICAL_MFLOP_FIELD] = "caller changed result"
+        plan["profiles"]["gpu"]["torch_profiler_eager"]["entries"][0][TORCH_LOGICAL_MFLOP_FIELD] = 333.0
+        _, second, _ = host_posthoc_backfill.backfill_rows(context, tools=("torch",), compute_plan=plan)
+        assert second[0][TORCH_LOGICAL_MFLOP_FIELD] == "333.000000"
+
+    @pytest.mark.parametrize("force", [False, True])
+    def test_compute_lookup_skips_complete_or_inapplicable_rows(self, tmp_path: Path, force: bool):
+        self._write_fixture(tmp_path, include_gpu=False)
+        context = host_posthoc_context.load_result_context(tmp_path)
+        if force:
+            with pytest.raises(host_posthoc_context.PosthocError, match="compute plan is required"):
+                host_posthoc_backfill.backfill_rows(context, tools=("torch", "ncu"), force=True)
+        else:
+            _, rows, updated = host_posthoc_backfill.backfill_rows(context, tools=("torch", "ncu"))
+            assert rows == context.rows
+            assert updated == {"torch": 0, "ncu": 0}
+
+    @pytest.mark.parametrize("failed_tool", ["torch_profiler_eager", "ncu"])
+    def test_compute_lookup_keeps_tool_errors_independent(self, tmp_path: Path, failed_tool: str):
+        self._write_fixture(tmp_path, include_cpu=False, torch_complete=False)
+        context = host_posthoc_context.load_result_context(tmp_path)
+        context.rows *= 2
+        plan = self._torch_plan()
+        gpu = plan["profiles"]["gpu"]
+        gpu["ncu"] = self._compute_plan()["profiles"]["gpu"]["ncu"]
+        gpu[failed_tool]["entries"][0]["error"] = "fixture tool failure"
+        _, rows, updated = host_posthoc_backfill.backfill_rows(context, tools=("torch", "ncu"), compute_plan=plan)
+        assert updated == {"torch": 2, "ncu": 2}
+        for row in rows:
+            assert row[host_compute_profile_plan.TORCH_ERROR_FIELD] == (
+                "fixture tool failure" if failed_tool == "torch_profiler_eager" else ""
+            )
+            assert row[host_compute_profile_plan.NCU_ERROR_FIELD] == (
+                "fixture tool failure" if failed_tool == "ncu" else ""
+            )
+            assert row[TORCH_LOGICAL_MFLOP_FIELD] == "222.000000"
+            assert row[host_compute_profile_plan.NCU_TOTAL_MFLOP_FIELD] == "100.000000"
+
     @staticmethod
     def _save_input_plan(root: Path, plan: dict[str, object]) -> None:
         plan_path = root / host_posthoc_context.INPUT_SCALE_PLAN_NAME

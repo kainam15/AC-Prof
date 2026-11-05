@@ -80,11 +80,8 @@ def _packet_mflops(total_mflop: Any, row: Mapping[str, Any]) -> float:
 
 def _backfill_torch_row(
     row: dict[str, str],
-    plan: Mapping[str, Any],
+    profile: Mapping[str, Any],
 ) -> None:
-    mode = normalize_gpu_mode(row.get("gpu_mode"))
-    scale = finite_float(row.get("input_scale"))
-    profile = find_compute_profile_entry(dict(plan), mode, scale)
     logical_mflop = profile.get(TORCH_LOGICAL_MFLOP_FIELD)
     row.update(
         {
@@ -102,10 +99,8 @@ def _backfill_torch_row(
 
 def _backfill_ncu_row(
     row: dict[str, str],
-    plan: Mapping[str, Any],
+    profile: Mapping[str, Any],
 ) -> None:
-    scale = finite_float(row.get("input_scale"))
-    profile = find_compute_profile_entry(dict(plan), "on", scale)
     total = profile.get(NCU_TOTAL_MFLOP_FIELD)
     row.update(
         {
@@ -171,6 +166,7 @@ def backfill_rows(
 
     rows = [dict(row) for row in context.rows]
     updated = {tool: 0 for tool in selected}
+    compute_profiles: dict[tuple[str, float], dict[str, Any]] = {}
     execution_profiles: ExecutionProfileResolver | None = None
     for row in rows:
         mode = normalize_gpu_mode(row.get("gpu_mode"))
@@ -184,10 +180,17 @@ def backfill_rows(
                     raise PosthocError(
                         f"compute plan is required for {tool} backfill"
                     )
+                scale = finite_float(row.get("input_scale"))
+                key = (mode, scale)
+                profile = compute_profiles.get(key)
+                if profile is None:
+                    profile = find_compute_profile_entry(dict(compute_plan), mode, scale)
+                    if math.isfinite(scale):
+                        compute_profiles[key] = profile
                 if tool == "torch":
-                    _backfill_torch_row(row, compute_plan)
+                    _backfill_torch_row(row, profile)
                 else:
-                    _backfill_ncu_row(row, compute_plan)
+                    _backfill_ncu_row(row, profile)
             else:
                 if execution_plan is None:
                     raise PosthocError(

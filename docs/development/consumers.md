@@ -196,6 +196,11 @@ context ← backfill / plans / storage ← service ← CLI
 
 dry-run、已有数据完整性判断、计划复用、备份和发布顺序沿用既有语义。
 项目根目录由 `context` 统一定位，避免更深的包目录影响 Dockerfile 和结果路径解析。
+批量回填在本次调用内按规范化 GPU 模式与精确输入尺度复用 compute plan 查找结果，
+Torch 与 NCU 共用该次解析，但各行仍以自己的延迟计算速率，工具错误保持独立。
+只有适用且需要更新的行才触发查找；下次回填重新读取传入计划，不跨调用缓存。
+参考 [CPython functools 的按参数复用结果方式](https://github.com/python/cpython/blob/288cc2bfc83d30cac834abcb4e69c36eda1ef5cb/Lib/functools.py#L620-L628)，
+使用局部字典，不引入依赖或后台缓存。
 
 采集准备按 `resolve → interface validation → prepare runtime → runtime validation → matrix measurement` 执行。
 接口检查不接触权重；完整运行验证使用每个选中设备的最小输入，全部成功才允许正式矩阵。

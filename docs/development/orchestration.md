@@ -197,7 +197,7 @@ machine events 继续由 `RunProgressTracker` 解析。
 `ExecutionProfileResolver` 在载入 execution profile plan 后建立一次资源索引，
 常规窗口、post-hoc 完整性检查和批量回填各自复用同一解析器。
 解析器只保存实际使用工具的标量结果快照，不复制 report 等大型载荷；
-计划合并或变更后须重新建立解析器。输入尺度仍按原顺序使用 `isclose` 容差匹配，
+计划合并或变更后须重新建立解析器。输入尺度按精确数值匹配，重复尺度使用首项，
 首个含目标工具的资源 case、disabled/missing/invalid 和错误优先级保持不变。
 单次 `find_execution_profile_entry` 仍支持直接读取计划；持久化 schema 与 provenance 不变。
 
