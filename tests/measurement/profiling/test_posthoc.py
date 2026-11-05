@@ -23,6 +23,15 @@ from acprof.platform import Environment
 
 
 class TestPosthocProfile:
+    @staticmethod
+    def _save_input_plan(root: Path, plan: dict[str, object]) -> None:
+        plan_path = root / host_posthoc_context.INPUT_SCALE_PLAN_NAME
+        plan_path.write_text(json.dumps(plan))
+        metadata_path = root / host_posthoc_context.STATIC_META_NAME
+        metadata = json.loads(metadata_path.read_text())
+        metadata["input_scale_plan_sha256"] = hashlib.sha256(plan_path.read_bytes()).hexdigest()
+        metadata_path.write_text(json.dumps(metadata))
+
     def test_scale_preparation_work_grows_linearly_with_matrix_size(self, tmp_path: Path):
         from acprof.results.layers import publish_result_rows, read_result_layers
 
@@ -38,11 +47,7 @@ class TestPosthocProfile:
             plan_path = root / host_posthoc_context.INPUT_SCALE_PLAN_NAME
             plan = json.loads(plan_path.read_text())
             plan["entries"] = [{"input_scale": scale, "payload": {"text": str(scale)}} for scale in scales]
-            plan_path.write_text(json.dumps(plan))
-            metadata_path = root / host_posthoc_context.STATIC_META_NAME
-            metadata = json.loads(metadata_path.read_text())
-            metadata["input_scale_plan_sha256"] = hashlib.sha256(plan_path.read_bytes()).hexdigest()
-            metadata_path.write_text(json.dumps(metadata))
+            self._save_input_plan(root, plan)
             checks = 0
 
             def cancelled() -> bool:
@@ -91,11 +96,7 @@ class TestPosthocProfile:
         plan_path = tmp_path / host_posthoc_context.INPUT_SCALE_PLAN_NAME
         plan = json.loads(plan_path.read_text())
         plan["entries"].append({"input_scale": 8.0, "payload": None})
-        plan_path.write_text(json.dumps(plan))
-        metadata_path = tmp_path / host_posthoc_context.STATIC_META_NAME
-        metadata = json.loads(metadata_path.read_text())
-        metadata["input_scale_plan_sha256"] = hashlib.sha256(plan_path.read_bytes()).hexdigest()
-        metadata_path.write_text(json.dumps(metadata))
+        self._save_input_plan(tmp_path, plan)
 
         with pytest.raises(host_posthoc_context.PosthocError, match="payload missing"):
             host_posthoc_context.load_result_context(tmp_path)
@@ -112,11 +113,7 @@ class TestPosthocProfile:
         plan = json.loads(plan_path.read_text())
         planned_scales = scales[:1] if missing_exact_plan else scales
         plan["entries"] = [{"input_scale": scale, "payload": {"text": str(scale)}} for scale in planned_scales]
-        plan_path.write_text(json.dumps(plan))
-        metadata_path = tmp_path / host_posthoc_context.STATIC_META_NAME
-        metadata = json.loads(metadata_path.read_text())
-        metadata["input_scale_plan_sha256"] = hashlib.sha256(plan_path.read_bytes()).hexdigest()
-        metadata_path.write_text(json.dumps(metadata))
+        self._save_input_plan(tmp_path, plan)
 
         if missing_exact_plan:
             with pytest.raises(host_posthoc_context.PosthocError, match="scales are missing"):
