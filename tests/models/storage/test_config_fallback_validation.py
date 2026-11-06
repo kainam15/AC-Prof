@@ -9,6 +9,7 @@ from huggingface_hub.errors import OfflineModeIsEnabled
 from acprof.cli.main import main
 from acprof.host.detect import detect_task
 from acprof.host.preparation.model_errors import ModelLookupError
+from tests.support.model_lookup_fixtures import hf_lookup_environment as hf_lookup_environment
 
 MODEL = "fixture/config-fallback"
 SHA = "a" * 40
@@ -16,12 +17,7 @@ VALID_CONFIG = {"model_type": "bert", "architectures": ["BertForMaskedLM"]}
 
 
 @pytest.fixture
-def snapshot(tmp_path, monkeypatch):
-    monkeypatch.setenv("ACPROF_MODEL_SOURCE", "huggingface")
-    monkeypatch.setenv("ACPROF_MODEL_STORE", str(tmp_path / "store"))
-    monkeypatch.setenv("HF_DOWNLOAD_MODE", "mirror-only")
-    monkeypatch.setenv("HF_ENDPOINT", "https://hf-mirror.com")
-    monkeypatch.setenv("HF_FALLBACK_ENDPOINTS", "")
+def snapshot(tmp_path, monkeypatch, hf_lookup_environment):
     path = tmp_path / "snapshots" / SHA / "config.json"
     path.parent.mkdir(parents=True)
     path.write_text(json.dumps(VALID_CONFIG), encoding="utf-8")

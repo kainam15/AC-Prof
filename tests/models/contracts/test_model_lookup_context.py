@@ -15,6 +15,7 @@ from huggingface_hub.errors import (
 
 from acprof.host.detect import detect_task
 from acprof.host.preparation.model_errors import ModelLookupError, model_lookup_error
+from tests.support.model_lookup_fixtures import hf_lookup_environment as hf_lookup_environment
 
 MODEL = "fixture/lookup-context"
 SHA = "a" * 40
@@ -37,11 +38,7 @@ def implicit_wrapper(failure):
 
 
 @pytest.fixture
-def cached_config(tmp_path, monkeypatch):
-    monkeypatch.setenv("ACPROF_MODEL_STORE", str(tmp_path / "store"))
-    monkeypatch.setenv("HF_DOWNLOAD_MODE", "mirror-only")
-    monkeypatch.setenv("HF_ENDPOINT", "https://hf-mirror.com")
-    monkeypatch.setenv("HF_FALLBACK_ENDPOINTS", "")
+def cached_config(tmp_path, monkeypatch, hf_lookup_environment):
     path = tmp_path / "snapshots" / SHA / "config.json"
     path.parent.mkdir(parents=True)
     path.write_text(json.dumps({"model_type": "bert", "architectures": ["BertForMaskedLM"]}))
