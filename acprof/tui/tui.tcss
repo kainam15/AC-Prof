@@ -15,9 +15,17 @@ Screen {
 
 VerticalScroll, TextArea, DataTable, #command-preview { scrollbar-size: 1 1; }
 
+/* Keep both header rows together when the log is maximized. */
+#app-header { dock: top; height: 2; }
 /* Keep the title bar one row tall, including Textual's click-expanded state. */
 Header, Header.-tall { height: 1; background: $surface; color: $text; }
 HeaderIcon, HeaderClockSpace { display: none; }
+#current-environment {
+    height: 1;
+    padding: 0 2;
+    background: $surface;
+    color: $text-muted;
+}
 /* Dock the action row as a unit: separate right docks overlap each other. */
 #header-actions {
     dock: right;

@@ -4,8 +4,9 @@ from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 
-from textual.widgets import Button
+from textual.widgets import Button, Header, Static
 
+from acprof import __version__
 from acprof.experiments.configuration import RunConfig
 from acprof.platform import Environment
 from acprof.tui.run.preparation import PreparationScreen
@@ -21,7 +22,12 @@ async def test_partial_launch_keeps_monitor_visible_at_two_sizes():
             config = replace(RunConfig.smoke("example/model"), profiling_mode="basic")
             app = AcprofTui(config, settings_path=Path(directory) / "settings.json")
             async with app.run_test(size=size) as pilot:
-                assert ("WSL2 / PARTIAL") in (app.sub_title)
+                await pilot.pause()
+                environment = app.query_one("#current-environment", Static)
+                assert environment.content == "当前环境   WSL2/PARTIAL"
+                assert environment.region.y == app.query_one(Header).region.bottom
+                assert app.title == f"AC-Prof {__version__}"
+                assert app.sub_title == ""
                 with patch.object(app.process, "execute_command") as launch:
                     await pilot.press("f5")
                     await pilot.pause()

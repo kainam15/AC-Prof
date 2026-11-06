@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 from typing import Literal
 
+from acprof import __version__, platform
 from acprof.tui.i18n import message_id
 
 try:
@@ -86,10 +87,9 @@ PYTHON_EXECUTABLE = Path(sys.executable).absolute()
 class AcprofTui(BarCursorApp):
     """Full-screen controller for AC-Prof collection and diagnostics."""
 
-    TITLE = "AC-Prof"
-    SUB_TITLE = "推理实验控制台"
+    TITLE = f"AC-Prof {__version__}"
     ENABLE_COMMAND_PALETTE = False
-    ALLOW_IN_MAXIMIZED_VIEW = "Header"
+    ALLOW_IN_MAXIMIZED_VIEW = "#app-header"
 
     BINDINGS = [
         ("f5", "request_run", "开始采集"),
@@ -164,12 +164,17 @@ class AcprofTui(BarCursorApp):
 
     def compose(self) -> ComposeResult:
         # A ticking clock would force periodic redraws during RAPL windows.
-        with Header(show_clock=False):
-            with Horizontal(id="header-actions"):
-                yield Button("", id="environment-status", compact=True)
-                yield self.localization.localized_widget(Button(
-                    "×", id="quit-app", name="退出", tooltip="退出（Ctrl+Q）", compact=True,
-                ))
+        with Vertical(id="app-header"):
+            with Header(show_clock=False):
+                with Horizontal(id="header-actions"):
+                    yield Button("", id="environment-status", compact=True)
+                    yield self.localization.localized_widget(Button(
+                        "×", id="quit-app", name="退出", tooltip="退出（Ctrl+Q）", compact=True,
+                    ))
+            yield self.localization.localized_widget(Static(
+                message_id("common.app.environment", platform.detect_environment().label.replace(" / ", "/")),
+                id="current-environment", markup=False,
+            ))
         with TabbedContent(initial="run-tab", id="main-tabs"):
             yield from compose_run_tab(self)
             yield from compose_monitor_tab(self)

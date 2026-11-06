@@ -11,6 +11,9 @@
 acprof tui
 ```
 
+页头显示 `AC-Prof <version>`，下一行显示“当前环境”，例如 `当前环境   Native Linux/FULL`。
+版本号与 CLI 使用同一来源；环境行随界面语言切换，放大日志时也保持可见。
+
 也可以预填模型并直接加载最小 smoke 配置：
 
 ```bash

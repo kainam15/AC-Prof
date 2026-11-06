@@ -9,7 +9,6 @@ from textual.binding import Binding
 from textual.widget import Widget
 from textual.widgets import Button, Checkbox, Collapsible, Select, Static, Tab
 
-from acprof import platform
 from acprof.tui.i18n import translate
 from acprof.tui.ui.input import BarCursorInput as Input
 
@@ -85,7 +84,6 @@ class LocalizationController:
         # Keep mounted widgets, drafts, selected values, log text/selection,
         # scroll positions and progress state. This runs only on a UI change.
         with self.app.prevent(Select.Changed), self.app.batch_update():
-            self.app.sub_title = f"{platform.detect_environment().label} · {self.tr(self.app.SUB_TITLE)}"
             for (widget, attribute), source in self.localized_text.items():
                 self.render_text(widget, attribute, source)
             for widget, sources in self.localized_selects.items():

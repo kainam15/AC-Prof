@@ -16,7 +16,7 @@ MESSAGES: dict[str, Entry] = {
     "common.action.quit_shortcut": Entry(zh="退出（Ctrl+Q）", en="Quit (Ctrl+Q)"),
     "common.action.refresh": Entry(zh="刷新", en="Refresh"),
     "common.action.retry": Entry(zh="重试", en="Retry"),
-    "common.app.subtitle": Entry(zh="推理实验控制台", en="Inference experiment console"),
+    "common.app.environment": Entry(zh="当前环境   {0}", en="Current environment   {0}"),
     "common.commands.help": Entry(
         zh="[TUI] /run 采集 · /probe 最大输入探测 · /check 环境检查 · /status 状态 · /stop 终止 · /smoke 最小预设 · /main 主矩阵 · /preview 命令预览 · /plot [csv] 绘图 · /profile [dir] [tools] 补采计划 · /profile-run [dir] [tools] 执行补采 · /results [csv] 摘要 · /stats [csv/dir] 统计 · /report [json] 报告 · /images 镜像管理 · /settings 应用设置 · /log 放大日志 · /clear 清日志 · /quit 退出",
         en="[TUI] /run collect · /probe largest input · /check host checks · /status status · /stop stop · /smoke minimal preset · /main main matrix · /preview command preview · /plot [csv] plot · /profile [dir] [tools] plan backfill · /profile-run [dir] [tools] run backfill · /results [csv] summary · /stats [csv/dir] statistics · /report [json] report · /images images · /settings app settings · /log expand log · /clear clear log · /quit quit",

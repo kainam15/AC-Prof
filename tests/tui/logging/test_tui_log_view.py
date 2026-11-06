@@ -82,6 +82,9 @@ class TestTuiLogView:
             assert (await pilot.click("#expand-log", offset=(3, 0)))
             await pilot.pause()
             assert (app.screen.maximized) is (panel)
+            environment = app.query_one("#current-environment")
+            assert environment.region.y == 1
+            assert app.get_widget_at(*environment.region.center)[0] is environment
             assert (log.content_region.height) > (normal_height)
             toolbar = app.query_one("#log-toolbar")
             # Maximized content fills the panel above its controls; avoid a
