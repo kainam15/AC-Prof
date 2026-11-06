@@ -8,8 +8,10 @@ from collections import defaultdict
 from concurrent.futures import CancelledError
 
 from acprof.analysis.precision import assess_mean_precision, validate_precision_target
-from acprof.results.csv import measurement_key
+from acprof.results.csv import is_measured_success, measurement_key
 from acprof.results.metrics import METRICS
+
+WINDOW_FILTER = "status=ok and warmup=0 and result_origin!=inferred_not_measured"
 
 
 def validate_window_options(metrics, *, confidence=0.95, resamples=5000, block_size=1,
@@ -48,7 +50,7 @@ def _collect_window_cases(rows, *, cancelled, precision_target):
         keys.add((environment, runtime, key))
         if key[4] == "0":
             case = (*key[:4], environment, *runtime)
-            if str(row.get("status", "")).strip().lower() == "ok":
+            if is_measured_success(row):
                 cases[case].append(row)
             elif precision_target is not None:
                 excluded[case] += 1
@@ -180,7 +182,7 @@ def summarize_windows(rows, metrics, *, confidence=0.95, resamples=5000, seed=0,
             ))
     report = {"schema_version": 1, "confidence": confidence, "resamples": resamples, "seed": seed,
               "block_size": block_size, "method": "circular_block_percentile_bootstrap",
-              "resampling_unit": "csv_request_window", "filter": "status=ok and warmup=0",
+              "resampling_unit": "csv_request_window", "filter": WINDOW_FILTER,
               "assumption": "窗口（或选定连续块）之间可视为独立；区间仅描述本实验内变异", "groups": groups}
     if precision_target is not None:
         report["precision"] = {

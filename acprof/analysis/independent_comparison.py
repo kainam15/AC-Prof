@@ -17,7 +17,12 @@ from acprof.analysis.uncertainty import validate_window_options
 from acprof.artifacts import file_sha256
 from acprof.hardware_conditions import conditions_path
 from acprof.quality import QUALITY_FIELDS, combine_quality
-from acprof.results.csv import measurement_key, read_result_csv_snapshot, verify_result_source
+from acprof.results.csv import (
+    is_measured_success,
+    measurement_key,
+    read_result_csv_snapshot,
+    verify_result_source,
+)
 from acprof.results.layout import expand_result_sources
 from acprof.results.metadata import ResultMetadataSnapshot
 from acprof.results.metrics import METRICS
@@ -119,7 +124,7 @@ def _collect_run_case_groups(
             window_values: list[float] = []
             for row in windows:
                 value = number(row.get(metric))
-                if row.get("status") == "ok" and value is not None:
+                if is_measured_success(row) and value is not None:
                     window_values.append(value)
             groups[(*comparison_case, metric)][side].append({
                 "run_id": run_id,
@@ -127,7 +132,8 @@ def _collect_run_case_groups(
                 "resource_coordinates": {"cpu_cores": number(case[0]), "mem_cap_gb": number(case[1])},
                 "valid_windows": len(window_values),
                 "failed_windows": sum(row.get("status") != "ok" for row in windows),
-                "missing_windows": sum(row.get("status") == "ok" and number(row.get(metric)) is None for row in windows),
+                "missing_windows": sum(is_measured_success(row) and number(row.get(metric)) is None for row in windows),
+                "inferred_windows": sum(row.get("result_origin", "").strip() == "inferred_not_measured" for row in windows),
                 "eligible": complete,
                 **evidence,
             })
@@ -177,6 +183,7 @@ def _summarize_group_metric(
             "std": statistics.stdev(values[side]) if len(values[side]) > 1 else None,
             "failed_windows": sum(record["failed_windows"] for record in records),
             "missing_windows": sum(record["missing_windows"] for record in records),
+            "inferred_windows": sum(record["inferred_windows"] for record in records),
             "runs": records,
         }
     if blocked:

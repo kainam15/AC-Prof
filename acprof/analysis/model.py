@@ -19,6 +19,7 @@ from acprof.platform import recorded_identity
 from acprof.quality import QUALITY_FIELDS, read_quality
 from acprof.results.csv import (
     MISSING_CSV_TEXT,
+    is_measured_success,
     measurement_key,
     read_result_csv_snapshot,
     verify_result_source,
@@ -288,8 +289,7 @@ def load_analysis(sources) -> AnalysisModel:
                     kind = "duplicate" if signature == previous_signature else "conflicting"
                     raise ValueError(f"{kind} measurement for run {identity['run_id']}: {path}:{line}; first seen {previous}")
                 seen_keys[key] = (signature, f"{path}:{line}")
-            eligible = (row.get("status", "").lower() == "ok" and warmup == 0
-                        and row.get("result_origin") != "inferred_not_measured")
+            eligible = is_measured_success(row) and warmup == 0
             mode = row.get("gpu_mode")
             if mode not in device_quality:
                 device_quality[mode] = read_quality(path, device=mode, metadata_snapshot=metadata_snapshot)

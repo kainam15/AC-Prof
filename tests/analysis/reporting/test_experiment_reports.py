@@ -28,6 +28,27 @@ def test_two_independent_runs_keep_differences_and_no_window_based_ci(runs):
     assert group["reason"] == "insufficient_independent_runs"
 
 
+def test_independent_run_means_exclude_inferred_values_and_keep_their_count(runs):
+    import csv
+
+    left = runs.replicate("left", 0, [2, 999])
+    right = runs.replicate("right", 0, [4, 4])
+    source = left / "result_all.csv"
+    with source.open(newline="") as stream:
+        reader = csv.DictReader(stream)
+        fields, rows = reader.fieldnames, list(reader)
+    rows[1]["result_origin"] = "inferred_not_measured"
+    with source.open("w", newline="") as stream:
+        writer = csv.DictWriter(stream, list(dict.fromkeys([*fields, "result_origin"])))
+        writer.writeheader()
+        writer.writerows(rows)
+    result = runs.compare([left], [right])["groups"][0]
+    assert result["left"]["mean"] == 2
+    assert result["left"]["inferred_windows"] == 1
+    assert result["left"]["failed_windows"] == 0
+    assert (result["difference"], result["ratio"]) == (2, 2)
+
+
 def test_explicit_groups_reuse_strict_bootstrap_and_preserve_source_evidence(runs):
     left = [runs.replicate("left", i, [2, 2, 2]) for i in range(3)]
     right = [runs.replicate("right", i, [4, 4, 4]) for i in range(3)]

@@ -8,7 +8,7 @@ from pathlib import Path
 from acprof.analysis.audit import MissingReasons, number
 from acprof.analysis.model import AnalysisModel, verify_analysis_sources
 from acprof.analysis.statistics_report import DEFAULT_STATISTICS_METRICS
-from acprof.analysis.uncertainty import summarize_windows, validate_window_options
+from acprof.analysis.uncertainty import WINDOW_FILTER, summarize_windows, validate_window_options
 from acprof.artifacts import read_json_object
 from acprof.quality import QUALITY_FIELDS
 from acprof.results.csv import ResultValidationError, measurement_key
@@ -106,7 +106,7 @@ def _cache_settings(report: dict, *, confidence=.95):
             or report.get("confidence") != confidence
             or report.get("method") != "circular_block_percentile_bootstrap"
             or report.get("resampling_unit") != "csv_request_window"
-            or report.get("filter") != "status=ok and warmup=0"):
+            or report.get("filter") not in {"status=ok and warmup=0", WINDOW_FILTER}):
         raise ValueError("incompatible_statistics_contract")
     groups = report.get("groups")
     if not isinstance(groups, list) or not groups or any(not isinstance(group, dict) for group in groups):

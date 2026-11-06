@@ -85,6 +85,17 @@ def test_plot_cache_keys_include_changed_values_and_reuses_identical_groups():
         assert changed.iloc[0]["latency_app_s"] == pytest.approx(.03)
 
 
+def test_plot_filter_and_cache_keep_observation_provenance():
+    rows = windows()
+    cache = WindowStatistics()
+    initial = aggregate_plot_metric(pd.DataFrame(rows), "latency_app_s", statistics=cache)
+    rows[2]["result_origin"] = "inferred_not_measured"
+    filtered = aggregate_plot_metric(pd.DataFrame(rows), "latency_app_s", statistics=cache)
+    assert initial.iloc[0]["latency_app_s"] == .02
+    assert filtered.iloc[0]["latency_app_s"] == pytest.approx(.015)
+    assert filtered.iloc[0]["n_windows"] == 2
+
+
 def test_process_inherited_resources_and_gaps_keep_real_identity():
     rows = windows(runtime_kind="process", runtime_id="env", resource_scope="observed_process_tree", config="inherited")
     for row in rows:

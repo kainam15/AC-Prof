@@ -28,7 +28,7 @@ class WindowStatistics:
         self.groups: dict[tuple, dict | None] = {}
 
     def summarize(self, rows: list[dict], metric: str) -> dict | None:
-        fields = (*KEY_FIELDS, *_CONTEXT, "status", metric)
+        fields = (*KEY_FIELDS, *_CONTEXT, "status", "result_origin", metric)
         key = (metric, tuple(sorted(tuple(str(row.get(name, "")) for name in fields) for row in rows)))
         if key not in self.groups:
             groups = summarize_windows(rows, [metric])["groups"]
@@ -64,7 +64,7 @@ def aggregate_plot_series(
     source, factor = specification
     cache = statistics if statistics is not None else WindowStatistics()
     group_columns = [*config_columns, "input_scale"]
-    fields = list(dict.fromkeys([*KEY_FIELDS, *[name for name in _CONTEXT if name in frame], "status", source]))
+    fields = list(dict.fromkeys([*KEY_FIELDS, *[name for name in (*_CONTEXT, "result_origin") if name in frame], "status", source]))
     records = []
     for coordinates, group in frame.groupby(group_columns, dropna=False, sort=sort):
         summary = cache.summarize(group[fields].to_dict("records"), source)

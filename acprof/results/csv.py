@@ -26,6 +26,12 @@ MISSING_CSV_TEXT = frozenset({"", "nan", "none", "null", "n/a"})
 _CSV_FIELD_LIMIT = min(sys.maxsize, (1 << (8 * struct.calcsize("l") - 1)) - 1)
 
 
+def is_measured_success(row: Mapping[str, object]) -> bool:
+    """Successful observations exclude inferred values; callers select warmup scope."""
+    return (str(row.get("status", "")).strip().lower() == "ok"
+            and str(row.get("result_origin", "")).strip() != "inferred_not_measured")
+
+
 def csv_diagnostic_text(value: object) -> str:
     """Read a CSV diagnostic without treating a missing marker as an error.
 

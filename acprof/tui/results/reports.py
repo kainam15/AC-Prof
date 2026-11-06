@@ -9,6 +9,8 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Literal, overload
 
+from acprof.analysis.changes import metric_change
+from acprof.analysis.uncertainty import WINDOW_FILTER
 from acprof.messages import join_messages, message
 from acprof.tui.i18n import message_id
 from acprof.tui.ui.presentation import NOT_APPLICABLE, STATUS_LEGEND, UNKNOWN
@@ -122,7 +124,7 @@ def render_quality_summary(payload: dict) -> str:
 
 def _windows(source: Path, data: dict) -> ReportView:
     confidence = _number(data.get("confidence"))
-    if not 0 < confidence < 1 or data.get("filter") != "status=ok and warmup=0":
+    if not 0 < confidence < 1 or data.get("filter") not in {"status=ok and warmup=0", WINDOW_FILTER}:
         raise ValueError(message_id('results.report.unsupported_statistics_contract'))
     rows = []
     for group in _objects(data.get("groups")):
@@ -240,6 +242,9 @@ def _independent_comparison(source: Path, data: dict) -> ReportView:
         if not isinstance(left, dict) or not isinstance(right, dict):
             raise ValueError(message_id('results.report.no_valid_rows'))
         ratio = _number(group.get("ratio"), nullable=True)
+        percent = (metric_change(_number(left.get("mean"), nullable=True),
+                                 _number(right.get("mean"), nullable=True))["percent"]
+                   if ratio is not None else None)
         reason = _text(group.get("reason")) or _text(group.get("comparability"))
         qualities = "/".join(_text(side.get("quality_status"), "unknown") for side in (left, right))
         explanation = f"{reason} · quality={qualities}"
@@ -253,7 +258,7 @@ def _independent_comparison(source: Path, data: dict) -> ReportView:
                                      _text(group.get("gpu_mode")), f"{_number(group.get('input_scale')):g}"))
         detail = json.dumps(group, ensure_ascii=False, indent=2)
         rows.append(ReportRow((explanation, config, message(_METRIC_LABELS.get(metric, metric)),
-            value(left.get("mean")), value(right.get("mean")), UNKNOWN if ratio is None else f"{(ratio - 1) * 100:+.6g}%",
+            value(left.get("mean")), value(right.get("mean")), UNKNOWN if percent is None else f"{percent:+.6g}%",
             value(group.get("difference")), interval("difference_ci"), interval("ratio_ci", ratio=True),
             f"{_count(left.get('n_runs'))}/{_count(right.get('n_runs'))}"), detail))
     note = join_messages("\n", (

@@ -59,7 +59,7 @@ window.ACProfExperiments = ({data, $, V, element, option, fmt, metricTitle, plot
         fmt(group.difference), `${fmt(group.ratio)} / ${fmt(group.percent)}%`,
         `${interval(group.difference_ci)} / ${interval(group.ratio_ci)} (${report.confidence * 100}%)`,
         `${left.n_runs} / ${right.n_runs}`,
-        `${reasons[group.reason] || group.reason || group.comparability} · 失败 ${left.failed_windows}/${right.failed_windows} · 缺失 ${left.missing_windows}/${right.missing_windows}`];
+        `${reasons[group.reason] || group.reason || group.comparability} · 失败 ${left.failed_windows}/${right.failed_windows} · 缺失 ${left.missing_windows}/${right.missing_windows} · 推断 ${left.inferred_windows || 0}/${right.inferred_windows || 0}`];
       for (const cell of cells) row.append(element("td", cell));
       $("experiments").tBodies[0].append(row);
     }

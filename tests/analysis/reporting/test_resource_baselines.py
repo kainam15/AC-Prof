@@ -83,3 +83,16 @@ def test_explicit_statistics_options_invalidate_cached_parameters(tmp_path):
     assert result["parameters"]["seed"] == 7
     assert result["parameters"]["resamples"] == 99
     assert result["cache_diagnostics"][0]["reason"] == "statistics_parameters_changed"
+
+
+def test_cli_window_statistics_and_html_exclude_inferred_observations_consistently(tmp_path):
+    from acprof.analysis.statistics_report import build_statistics_report
+
+    source = matrix(tmp_path, [row(2, 2), row(2, 999, result_origin="inferred_not_measured") | {"repeat_idx": 1}])
+    cli = build_statistics_report(source, metrics=["latency_app_s"], resamples=99)
+    html = report_payload(load_analysis([source]), statistics_options={"metrics": ["latency_app_s"], "resamples": 99})
+    group = html["window_statistics"][0]["groups"][0]
+    assert cli["groups"][0]["mean"] == group["mean"] == 2
+    assert cli["groups"][0]["n_windows"] == group["n_windows"] == 1
+    assert group["excluded_windows"] == {"inferred_not_measured": 1}
+    assert html["configs"][0]["metrics"]["latency_app_s"]["value"] == 2
