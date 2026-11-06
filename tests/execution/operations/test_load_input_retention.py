@@ -3,6 +3,7 @@ import hashlib
 import json
 import weakref
 from copy import deepcopy
+from typing import Any
 from unittest.mock import Mock
 
 import pytest
@@ -29,7 +30,7 @@ class ObservedAdapter(OpenAIStreamingAdapter):
         return prepared
 
 
-def request_rows(endpoint, count=40):
+def request_rows(endpoint: str, count: int = 40) -> tuple[dict[str, Any], ...]:
     return tuple(
         {"model": "fixture", "max_tokens": index + 1,
          **({"messages": [{"role": "user", "content": f"请求 {index}"}]} if "chat" in endpoint
