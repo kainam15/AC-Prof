@@ -21,6 +21,8 @@ from acprof.host.measurement.load_transport import LoadTransport
 from acprof.host.measurement.streaming import OpenAIStreamingAdapter
 from acprof.system.cleanup import cleanup_on_exit
 
+MAX_SWEEP_POINTS = 256
+
 
 @dataclass(frozen=True)
 class LoadConfig:

@@ -83,6 +83,48 @@ Metric Registry 在原有采集声明上增加 `label`、`group`、`direction`�
 首批覆盖 Performance、Resource、Energy、Startup、CPU PMU、GPU；其余未审定字段保留 neutral。
 CPU/GPU utilization 不默认判定越高或越低越好。
 
+### 多负载点流式容量报告
+
+已有端点 sweep 可直接生成离线交互 HTML：
+
+```bash
+acprof report results/qwen-sweep/sweep.json
+acprof report results/qwen-sweep/ --output results/qwen-sweep/capacity.html
+```
+
+默认输出 `load_sweep_report.html`，只接受一个 sweep，不搭配 `--baseline`、
+`--comparison-purpose` 或其他结果输入。报告不发送请求、不重新采集；沿用离线分析锁，
+原子发布到新文件，拒绝覆盖已有文件、目录或符号链接。Plotly.js 与 license 随 HTML 内嵌，
+打开报告不需要网络。CLI 的 `ACPROF_REPORT` 标记使用 `kind=stream_load_sweep_capacity`，
+包含 `point_count`、`valid_points`、`partial_points`、`unavailable_points` 和输出路径。
+
+报告读取 schema v1 `stream_load_sweep` 清单及其 schema v2 单点报告，复用单点的原始请求、
+capacity 与 streaming 校验；另核对完整负载配置、请求体 SHA256、protocol、run ID、
+请求预算和成功声明。清单结构、重复配置或非法路径使报告失败；子报告缺失、损坏或包含
+符号链接时保留诊断行并排除该点，不影响其他点。`not_run` 的计划文件不会读取。
+逐点读取并提取摘要，不在聚合数据中保留 prompt 或逐请求数组；发布前重核已读取文件的
+SHA256 和预期缺失文件，输入变化时拒绝发布，避免拼接不同时间的结果。
+
+横轴可选客户端并发或目标到达率，指标包括成功请求/s、SLO Goodput/s、完整输出 token/s，
+以及 P99 TTFT、TPOT、E2E。每条线固定另一负载轴，按请求与生成配置、预算、预热、SLO、
+客户端主机、已观测服务身份／配置，以及 token 计数来源／scope 分组；不同条件不合并。
+服务观测只反映启动前 probe，未知值不证明服务相同，相同观测也不证明扫描期间未变化。
+
+`valid_points` 指清单和子报告均为 `complete` 且证据通过校验的点，**可包含失败请求**；
+这些点继续参与曲线，并显示失败、丢弃、取消和成功比例。有效但中断或状态不一致的证据计入
+`partial_points`，只画独立菱形标记。缺失、无效、未运行点计入 `unavailable_points`。
+空值及缺失坐标处断线，不补零、不跨条件插值。逐点表保留全部点、时长、P99 样本数、token
+覆盖和原始 `load.json` 链接；条件筛选仍保留无法确定条件的诊断行。
+
+吞吐分母为各点正式负载的 `duration_s`；Goodput 使用该点声明的 SLO，未配置时为空。
+输出 token/s 要求覆盖全部成功请求，部分覆盖只显示覆盖比例，不作为完整 token 吞吐。
+分位数仍按各点成功请求计算，不汇池、不平均多个点，也不计算跨独立实验置信区间。
+顺序 sweep 未重置服务或缓存，曲线只描述已采样点，不能据此声称最大容量或硬件归因。
+
+设计参考 [vLLM 离线 sweep 可视化](https://github.com/vllm-project/vllm/blob/61968a50d578ba9078dcf036eaf16d688d10cc46/tools/recipes/VISUALIZATION.md)
+和 [GenAI-Perf analyze](https://github.com/triton-inference-server/perf_analyzer/blob/24f6b9af4db5f7bba335b622ab776ef261a66fc3/genai-perf/docs/analyze.md)
+的离线图表与逐点证据组织，沿用 AC-Prof 口径；没有复制上游代码或增加运行依赖。
+
 ### 单负载点流式容量报告
 
 OpenAI-compatible `load.json` 可生成独立 HTML，不进入正式实验的 `AnalysisModel`：

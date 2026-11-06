@@ -313,6 +313,13 @@ def test_real_local_http_sweep_retains_readable_single_point_reports(tmp_path, m
         assert report["result"]["counts"]["succeeded"] == 3
         assert [row["output_tokens"] for row in report["result"]["requests"]] == [3, 3, 3]
         read_load_report(source)
+    from acprof.analysis.load_sweep import read_load_sweep
+    from acprof.plotting.load_sweep import write_load_sweep_report
+    analysis = read_load_sweep(output)
+    assert analysis.payload["valid_points"] == 2
+    assert len(analysis.payload["conditions"]) == 1
+    assert [point["counts"]["succeeded"] for point in analysis.payload["points"]] == [3, 3]
+    assert write_load_sweep_report(output, output / "report.html")["valid_points"] == 2
 
 
 def test_progress_publication_failure_retains_finished_point_and_stops_next(sweep, monkeypatch):

@@ -118,5 +118,8 @@ SGLang 另保留白名单启动配置，按字段区分未知与无效值，详�
 端点模式的 `--sweep-concurrency 1,2,4` 和 `--sweep-rate 1,5,10` 可按显式列表串行运行多个负载点，
 支持 `--dry-run` 校验预览；请求数与预热数按点生效，清单与失败边界见[多负载点编排](../profiling/streaming.md#多负载点编排)。
 使用并发列表需显式选择 `concurrent` 或 `arrival-rate`，到达率列表必须搭配 `arrival-rate`。
-`acprof report <load.json 或所在目录>` 生成单点容量 HTML；完整命令、Token 计数、吞吐分母和
-v1/v2 报告口径见[流式测量](../profiling/streaming.md)。
+`acprof report <load.json 或所在目录>` 生成单点容量 HTML；
+`acprof report <sweep.json 或所在目录>` 生成离线多点曲线，默认保存 `load_sweep_report.html`，
+支持并发／到达率、吞吐／Goodput／P99 切换，保留分组条件、缺失和失败诊断。
+两种输入均不搭配 baseline 或比较用途，也不覆盖已有输出；详见[容量报告](../results/reports.md#多负载点流式容量报告)。
+完整命令、Token 计数、吞吐分母和 v1/v2 报告口径见[流式测量](../profiling/streaming.md)。

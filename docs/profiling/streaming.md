@@ -121,8 +121,11 @@ acprof load --base-url http://127.0.0.1:8000 --protocol openai-chat \
 已有异常仍保留为主异常，写失败追加到 notes，磁盘清单可能停在上次成功发布的状态，
 已发布的分点报告保持可读。该入口没有 sweep 恢复功能。
 
-`acprof report results/qwen-sweep/points/0001/load.json` 可生成对应单点容量 HTML；
-目前应指定某个点，根清单不作为容量曲线或多实验比较输入。
+`acprof report results/qwen-sweep/` 可生成离线 `load_sweep_report.html`，切换并发／到达率轴与
+吞吐、Goodput、P99 时延指标，并保留失败、未运行和部分证据；不同条件分组、空值断线。
+口径与限制见[多负载点容量报告](../results/reports.md#多负载点流式容量报告)。
+`acprof report results/qwen-sweep/points/0001/load.json` 仍可生成对应单点容量 HTML；
+根清单不作为正式 CSV 或多实验比较输入。
 设计参考了 [vLLM sweeps](https://github.com/vllm-project/vllm/blob/0f0172d90329d0dc3d867c0881d156f25c16b8bf/docs/benchmarking/sweeps.md)
 的显式参数组合、预览与分点产物（Apache-2.0），复用本项目单点测量与原子写入实现，
 不复制源码或增加 vLLM 依赖。

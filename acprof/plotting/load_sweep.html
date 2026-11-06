@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>AC-Prof · 流式负载扫描</title>
+  <style>__STYLE__</style>
+</head>
+<body>
+  <main>
+    <header><p class="eyebrow">AC-PROF / STREAMING LOAD</p><h1>流式负载扫描</h1>
+      <p id="summary"></p>
+      <p id="diagnostics"></p>
+      <p class="muted">顺序运行的负载点；服务未重置。曲线表示已采样表现，不推断最大容量，也不提供独立实验置信区间。</p>
+    </header>
+    <section aria-labelledby="chart-title">
+      <h2 id="chart-title">吞吐与时延</h2>
+      <div class="controls">
+        <label>负载轴<select id="axis"><option value="concurrency">Client concurrency</option><option value="rate">Target rate (req/s)</option></select></label>
+        <label>指标<select id="metric"></select></label>
+        <label>条件组<select id="condition"><option value="all">全部条件组</option></select></label>
+      </div>
+      <p class="muted">每条线固定另一负载轴及输入、SLO、主机、服务观测和 token 计数口径。空值与缺失点断开；中断或未确认完成的点仅显示为菱形标记。</p>
+      <div id="chart" role="img" aria-label="所选负载轴和指标的容量曲线；详细数值见下方逐点证据"></div>
+      <p id="chart-status" role="status"></p>
+    </section>
+    <section aria-labelledby="points-title">
+      <h2 id="points-title">逐点证据</h2>
+      <p class="muted">完整运行中的请求失败仍参与曲线。输出 token/s 需要覆盖全部成功请求；未配置 SLO 时 Goodput 不可用。P99 为各点成功请求的分位数，样本不会跨点合并。</p>
+      <div class="table-scroll"><table><thead><tr>
+        <th>点 / 条件</th><th>负载</th><th>状态</th><th>成功 / 预算</th><th>吞吐 req/s</th><th>Goodput req/s</th>
+        <th>输出 token/s</th><th>P99 TTFT (s) / TPOT (s/token) / E2E (s)</th><th>样本 / 覆盖</th><th>诊断 / 来源</th>
+      </tr></thead><tbody id="points"></tbody></table></div>
+    </section>
+    <section aria-labelledby="conditions-title"><h2 id="conditions-title">条件与来源</h2>
+      <p class="muted">服务观测来自启动前的可选 probe。观测缺失不证明服务相同；相同观测也不能证明扫描期间没有变化。条件摘要保留请求体 SHA256，不嵌入 prompt 或逐请求记录。</p>
+      <div id="conditions"></div>
+      <details><summary>输入文件 SHA256</summary><pre id="sources"></pre></details>
+    </section>
+    <details class="license"><summary>Plotly.js license</summary><pre>__LICENSE__</pre></details>
+  </main>
+  <script id="sweep-data" type="application/json">__DATA__</script>
+  <script>__PLOTLY__</script>
+  <script>__APP__</script>
+</body>
+</html>

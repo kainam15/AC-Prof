@@ -1,4 +1,4 @@
-"""Generate formal-result comparisons or a single-point streaming load report."""
+"""Generate formal-result comparisons or streaming load point/sweep reports."""
 from __future__ import annotations
 
 import argparse
@@ -11,7 +11,7 @@ from acprof.analysis.resource_comparison import REPORT_PURPOSES
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("results", nargs="*", type=Path, help="实验目录、CSV 或单个流式 load.json")
+    parser.add_argument("results", nargs="*", type=Path, help="实验目录、CSV、流式 load.json 或 sweep.json")
     parser.add_argument("--left", type=Path, action="append", help="基线组独立实验，可重复")
     parser.add_argument("--right", type=Path, action="append", help="对照组独立实验，可重复")
     parser.add_argument("--baseline", help="唯一 config_id（或仅有一个配置的 run_id）")
@@ -21,7 +21,7 @@ def main(argv=None):
     parser.add_argument("--resamples", type=int)
     parser.add_argument("--seed", type=int)
     parser.add_argument("--block-size", type=int)
-    parser.add_argument("--output", type=Path, help="新 HTML 路径；默认 report.html 或 load_report.html")
+    parser.add_argument("--output", type=Path, help="新 HTML 路径；默认 report.html、load_report.html 或 load_sweep_report.html")
     args = parser.parse_args(argv)
     if bool(args.left) != bool(args.right):
         parser.error("--left and --right must be provided together")
@@ -32,14 +32,28 @@ def main(argv=None):
         with offline_analysis_lock():
             selected = args.results or [*args.left, *args.right]
             first = selected[0]
+            sweep_inputs = [
+                path for path in [*selected, *(args.left or []), *(args.right or [])]
+                if path.name == "sweep.json" or (path.is_dir() and (path / "sweep.json").is_file())
+            ]
+            comparison_requested = args.baseline or args.comparison_purpose or args.left or any(
+                value is not None for value in (args.metric, args.confidence, args.resamples, args.seed, args.block_size)
+            )
             load_inputs = [
                 path for path in selected
                 if path.name == "load.json" or (path.is_dir() and (path / "load.json").is_file())
             ]
+            if sweep_inputs:
+                if len(selected) != 1 or load_inputs or comparison_requested:
+                    raise ValueError("sweep report supports one sweep.json without mixed inputs or comparison options")
+                from acprof.plotting.load_sweep import write_load_sweep_report
+                output = args.output or (first if first.is_dir() else first.parent) / "load_sweep_report.html"
+                summary = write_load_sweep_report(first, output)
+                print("ACPROF_REPORT " + json.dumps({"report_path": str(output.resolve()), **summary}, ensure_ascii=False))
+                print(f"流式负载扫描报告已生成：{output.resolve()}（{summary['point_count']} 个负载点）")
+                return 0
             if load_inputs:
-                if len(selected) != 1 or args.baseline or args.comparison_purpose or args.left or any(
-                    value is not None for value in (args.metric, args.confidence, args.resamples, args.seed, args.block_size)
-                ):
+                if len(selected) != 1 or comparison_requested:
                     raise ValueError("capacity report supports one load.json without baseline or comparison options")
                 from acprof.plotting.load_report import write_load_report
                 output = args.output or (first if first.is_dir() else first.parent) / "load_report.html"
