@@ -1,4 +1,5 @@
 """Statistics parameters belong to the offline HTML, with a reachable TUI launch."""
+import asyncio
 from dataclasses import replace
 from unittest.mock import Mock
 
@@ -22,6 +23,7 @@ async def test_html_generation_needs_only_an_experiment_selection(tmp_path, monk
     open_file = Mock()
     monkeypatch.setattr(app.results.html, "run_file_action", open_file)
     async with app.run_test(size=size) as pilot:
+        await app.workers.wait_for_complete()
         app.activate_tab("results-tab")
         app.results.show_result_section("statistics-view")
         app.query_one("#experiment-source", Input).value = str(source)
@@ -29,6 +31,9 @@ async def test_html_generation_needs_only_an_experiment_selection(tmp_path, monk
         for name in ("metrics", "confidence", "resamples", "seed", "block-size"):
             assert not app.query("#analysis-" + name)
         button = app.query_one("#report-calculate", Button)
+        async with asyncio.timeout(5):
+            while button.disabled:
+                await pilot.pause()
         assert not button.disabled
         assert button.region.width > 0
         assert button.region.bottom <= size[1]

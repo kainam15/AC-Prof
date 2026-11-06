@@ -212,10 +212,13 @@ async def test_unified_results_html_preserves_hidden_statistics_exports(size, la
     app = AcprofTui(RunConfig.smoke("demo/model"), settings_path=tmp_path / "settings.json")
     app.configuration.preferences = replace(app.configuration.preferences, language=language)
     async with app.run_test(size=size) as pilot:
-        app.results.select_result(str(result_csv), summarize=False)
+        await app.workers.wait_for_complete()
+        app.results.select_result(str(result_csv))
+        await app.workers.wait_for_complete()
         await pilot.pause()
         app.results.show_result_section("statistics-view")
         await pilot.pause()
+        assert not app.query_one("#report-calculate", Button).disabled
         assert await pilot.click("#report-calculate")
         await app.workers.wait_for_complete()
         await pilot.pause()
@@ -238,7 +241,8 @@ async def test_unified_results_html_preserves_hidden_statistics_exports(size, la
         assert views.active == "statistics-view"
         assert not views.get_tab("exports-view").display
         assert app.query_one("#result-export-panel").region.area == 0
-        assert app.query_one("#html-report-panel").region.area == 0
+        assert app.query_one("#html-report-panel").region.area > 0
+        assert app.query_one("#html-legacy-controls").region.area == 0
         target = tmp_path / "statistics.csv"
         app.query_one("#analysis-export-path", Input).value = str(target)
         await pilot.pause()

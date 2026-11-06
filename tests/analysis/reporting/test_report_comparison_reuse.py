@@ -28,7 +28,8 @@ def test_report_loads_each_run_once_for_all_ordered_comparisons(runs, storage):
     paths = [incremental_copy(path) for path in roots] if storage == "v3" else [path / "result_all.csv" for path in roots]
     model = load_analysis(paths)
     options = {"metrics": ["latency_app_s"], "resamples": 19}
-    expected = [comparison.compare_experiments([left], [right], **options)
+    expected = [{**comparison.compare_experiments([left], [right], **options),
+                 "engine": "python", "origin": "computed", "rng": "python_random_mt19937"}
                 for left, right in permutations([source["path"] for source in model.sources], 2)]
     with patch("acprof.analysis.independent_comparison.read_result_csv_snapshot",
                wraps=comparison.read_result_csv_snapshot) as reads, \

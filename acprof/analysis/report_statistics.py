@@ -124,7 +124,8 @@ def _window_inputs(configs, source, metrics, budget):
     catalog = {name: {"label": metric.label, "unit": metric.unit} for name, metric in METRICS.items()
                if name in available and metric.kind == "number"
                and metric.window in {"request_window", "matched_control"}}
-    digest, size, fragments = hashlib.sha256(), 0, []
+    digest, size = hashlib.sha256(), 0
+    fragments: list[str] = []
     embedded = True
     for chunk in window_input_chunks(configs, source, catalog):
         encoded = chunk.encode("ascii")
