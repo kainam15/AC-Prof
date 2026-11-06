@@ -34,7 +34,6 @@ MESSAGES: dict[str, Entry] = {
     "profiling.backfill.plan": Entry(zh="补采计划（dry-run）", en="Plan backfill"),
     "profiling.backfill.preview": Entry(zh="查看补采计划", en="Preview profiling plan"),
     "profiling.backfill.run": Entry(zh="执行补采", en="Run backfill"),
-    "profiling.backfill.source_hint": Entry(zh="选择需要补采的实验", en="Select an experiment to backfill"),
     "profiling.backfill.title": Entry(zh="补采实验", en="Backfill"),
     "profiling.backfill.tools": Entry(zh="补采工具", en="Backfill tools"),
     "profiling.backfill.torch_toggle_hint": Entry(zh="逻辑 FLOP；点击或按空格切换。", en="Logical FLOP; click or press Space to toggle."),

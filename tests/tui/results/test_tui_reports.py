@@ -155,6 +155,7 @@ class TestTuiReports:
         async with app.run_test(size=(120, 30)) as pilot:
             await pilot.pause()
             assert app.query_one('#result-csv', Input).value == str(flat)
+            assert app.query_one('#backfill-source', Input).value == str(flat)
             assert not app.query_one('#html-report-generate', Button).disabled
             assert app.configuration.saved_settings.last_result_csv == str(flat)
 
@@ -172,6 +173,7 @@ class TestTuiReports:
             assert '上次保存的结果路径已失效' in str(summary.content)
             assert run_id not in str(summary.content)
             assert app.query_one('#result-csv', Input).value == ''
+            assert app.query_one('#backfill-source', Input).value == ''
             assert '失效' in str(app.query_one('#report-empty', Static).content)
             for selector in ('#summarize-results', '#plot-results', '#report-calculate', '#html-report-generate'):
                 assert app.query_one(selector, Button).disabled
@@ -463,7 +465,7 @@ class TestTuiReports:
             app.execution.session.snapshot = ProgressSnapshot(measurement_active=True)
             app.set_busy(True)
             with patch.object(app.process, 'execute_command') as execute:
-                for selector in ("#report-open", "#report-calculate", "#result-csv", "#report-json-path"):
+                for selector in ("#report-open", "#report-calculate", "#result-csv", "#backfill-source", "#report-json-path"):
                     assert (app.query_one(selector).disabled)
                 for command in ("/stats", "/report"):
                     field = app.query_one("#slash-command", Input)
@@ -478,6 +480,7 @@ class TestTuiReports:
             app.execution.session.snapshot = ProgressSnapshot()
             app.set_busy(False)
             assert not (app.query_one("#report-open", Button).disabled)
+            assert not app.query_one("#backfill-source", Input).disabled
 
     async def test_current_result_is_shared_and_source_change_invalidates_imported_report(self):
         app = self.make_app()

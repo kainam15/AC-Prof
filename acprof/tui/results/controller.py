@@ -305,12 +305,12 @@ class ResultController:
 
     def refresh_source_display(self) -> None:
         """Refresh source availability for summary hints and analysis actions."""
-        source = self.app.configuration.input('result-csv').strip()
+        value = self.app.query_one('#result-csv', Input).value
+        source = value.strip()
         self.source_display = (experiment_source_display(resolve_result_path(source, self.app.project_dir))
                                if source else None)
-        backfill_source = self.app.query_one("#backfill-source", Static)
-        self.app.localization.set_text(backfill_source, source or message_id("profiling.backfill.source_hint"))
-        backfill_source.tooltip = source or None
+        with self.app.prevent(Input.Changed):
+            self.app.query_one("#backfill-source", Input).value = value
 
     def update_report_actions(self) -> None:
         """Apply pure action rules to the existing widgets and operation lock."""

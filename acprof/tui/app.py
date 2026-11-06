@@ -287,7 +287,7 @@ class AcprofTui(BarCursorApp):
             self.query_one(selector, Button).disabled = not state.allows(operation)
         self.query_one("#html-report-cancel", Button).disabled = not (
             self.execution.session.kind == "html-report" and state.allows("stop"))
-        for selector in ("#result-csv",):
+        for selector in ("#result-csv", "#backfill-source"):
             self.query_one(selector, Input).disabled = not state.allows("summary")
         self.refresh_bindings()
         if not busy:
@@ -617,6 +617,12 @@ class AcprofTui(BarCursorApp):
     @on(Input.Changed, '#result-csv')
     def on_results_result_source_changed(self) -> None:
         self.results.result_source_changed()
+
+    @on(Input.Changed, '#backfill-source')
+    def on_backfill_result_source_changed(self, event: TextualInput.Changed) -> None:
+        # Read the current value: queued startup events may predate restoration.
+        if event.input.value != self.query_one('#result-csv', Input).value:
+            self.results.select_result(event.input.value, summarize=False)
 
     @on(Button.Pressed, '#summarize-results')
     def on_results_summarize_results_button(self) -> None:

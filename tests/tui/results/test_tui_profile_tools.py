@@ -4,6 +4,7 @@ from unittest.mock import patch
 
 import pytest
 from rich.cells import cell_len
+from textual import events
 from textual.containers import VerticalScroll
 from textual.widgets import Button, Checkbox, Input, Select, Static, TabbedContent
 
@@ -15,6 +16,79 @@ from acprof.tui.ui.dialogs import ConfirmActionScreen
 from tests.runtime.containers.test_layer_read_cancellation import source_hashes
 from tests.support.tui_fixtures import AcprofTui, checkbox_text
 from tests.tui.results.test_profile_overview_snapshot import profile_store
+
+
+@pytest.mark.parametrize("language", ["zh", "en"])
+async def test_experiment_source_editing_is_shared_across_pages(tmp_path, language):
+    root = tmp_path / "experiment"
+    profile_store(root, 3)
+    settings = tmp_path / "settings.json"
+    save_settings(settings, TuiSettings(ui=UiPreferences(language=language)), tmp_path)
+    app = AcprofTui(settings_path=settings)
+    async with app.run_test(size=(120, 30)) as pilot:
+        app.activate_tab("backfill-tab")
+        await pilot.pause()
+        source = app.query_one("#backfill-source")
+        assert await pilot.click(source)
+        assert app.focused is source
+        app.post_message(events.Paste(str(root)))
+        await pilot.pause()
+        result_source = app.query_one("#result-csv", Input)
+        assert result_source.value == str(root)
+        assert await pilot.click("#summarize-backfill")
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        assert app.profiles.overview.result_dir == root
+        assert source.value == result_source.value == str(root / "result_layers.json")
+
+        # A manual edit invalidates both pages, without starting a new reader.
+        assert await pilot.click(source)
+        await pilot.press("ctrl+a")
+        long_path = "/" + "模型 [draft]/" * 18 + "result_all.csv"
+        app.post_message(events.Paste(long_path))
+        await pilot.pause()
+        assert source.value == result_source.value == long_path
+        assert app.profiles.overview is None
+        assert app.query_one("#open-result-profiling", Button).disabled
+        assert not app.read_jobs
+
+        for size in ((120, 30), (80, 24), (150, 45)):
+            await pilot.resize_terminal(*size)
+            regions = []
+            for tab, field, picker_id in (
+                ("results-tab", result_source, "choose-result-csv"),
+                ("backfill-tab", source, "choose-backfill-result"),
+            ):
+                app.activate_tab(tab)
+                await pilot.pause()
+                assert await pilot.click(field)
+                await pilot.press("end")
+                assert field.cursor_position == len(long_path)
+                assert field.scroll_x > 0
+                assert "result_all.csv" in field.render_line(0).text
+                await pilot.press("home")
+                assert field.cursor_position == 0
+                assert field.scroll_x == 0
+                assert "模型 [draft]" in field.render_line(0).text
+                picker = app.query_one("#" + picker_id, Button)
+                assert field.region.height == picker.region.height == 3
+                assert field.region.right < picker.region.x
+                assert picker.region.right <= size[0]
+                regions.append((field.region, picker.region))
+                await pilot.press("tab")
+                assert app.focused is picker
+                with patch.object(app.catalog, "open_experiment_picker") as open_picker:
+                    assert await pilot.click(picker)
+                    open_picker.assert_called_once_with("result-csv")
+            assert regions[0] == regions[1]
+
+        # Clearing the backfill input also clears the result page selection.
+        assert await pilot.click(source)
+        await pilot.press("ctrl+a", "backspace")
+        assert source.value == result_source.value == ""
+        assert source.placeholder == result_source.placeholder
+        assert app.query_one("#summarize-backfill", Button).disabled
+        assert app.query_one("#report-calculate", Button).disabled
 
 
 @pytest.mark.parametrize("language", ["zh", "en"])
@@ -39,7 +113,7 @@ async def test_real_summary_missing_profiler_records_show_uncollected_choices(tm
         assert not app.read_jobs
         assert app.profiles.overview is not None
         assert app.query_one("#main-tabs", TabbedContent).active == "backfill-tab"
-        assert str(root / "result_layers.json") in str(app.query_one("#backfill-source", Static).content)
+        assert app.query_one("#backfill-source", Input).value == str(root / "result_layers.json")
 
         choice = app.query_one("#open-result-profiling", Button)
         choice.scroll_visible(animate=False, immediate=True)
@@ -111,7 +185,7 @@ async def test_backfill_navigation_shares_selection_and_reports_read_failures(tm
         source.value = str(root)
         await pilot.pause()
         assert app.profiles.overview is None
-        assert str(app.query_one("#backfill-source", Static).content) == str(root)
+        assert app.query_one("#backfill-source", Input).value == str(root)
         assert await pilot.click(tabs.get_tab("backfill-tab"))
         with patch("acprof.tui.results.controller.summarize_result_csv", side_effect=ValueError("fixture summary failed")):
             assert await pilot.click("#summarize-backfill")

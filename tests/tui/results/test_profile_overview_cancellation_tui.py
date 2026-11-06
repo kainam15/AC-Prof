@@ -13,7 +13,7 @@ from tests.tui.results.test_profile_overview_snapshot import profile_store
 
 
 @pytest.mark.parametrize("language", ["zh", "en"])
-@pytest.mark.parametrize("action", ["change-source", "cancel-backfill"])
+@pytest.mark.parametrize("action", ["change-source", "change-backfill-source", "cancel-backfill"])
 async def test_selection_change_during_profiler_inspection_cancels_and_allows_retry(tmp_path, monkeypatch, language, action):
     first, second = tmp_path / "first", tmp_path / "second"
     profile_store(first, 3)
@@ -55,6 +55,11 @@ async def test_selection_change_during_profiler_inspection_cancels_and_allows_re
                 await pilot.pause()
                 assert app.tr("读取已取消；等待后台任务释放资源。") in str(app.query_one("#profile-status").content)
             else:
+                if action == "change-backfill-source":
+                    app.activate_tab("backfill-tab")
+                    selector = app.query_one("#backfill-source", Input)
+                    button = app.query_one("#summarize-backfill", Button)
+                    await pilot.pause()
                 selector.scroll_visible(animate=False, immediate=True)
                 await pilot.pause()
                 assert await pilot.click(selector)
@@ -71,6 +76,7 @@ async def test_selection_change_during_profiler_inspection_cancels_and_allows_re
         if action == "cancel-backfill":
             app.results.select_result(str(second), summarize=False)
         assert selector.value == str(second)
+        assert app.query_one("#result-csv", Input).value == str(second)
         assert not button.disabled
         button.scroll_visible(animate=False, immediate=True)
         await pilot.pause()

@@ -8,6 +8,7 @@ from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.widgets import Button, Label, Static, TabPane
 
 from acprof.tui.i18n import message_id
+from acprof.tui.ui.input import BarCursorInput as Input
 
 if TYPE_CHECKING:
     from acprof.tui.app import AcprofTui
@@ -18,7 +19,8 @@ def compose_backfill_tab(app: AcprofTui) -> ComposeResult:
     with TabPane(message_id("profiling.backfill.title"), id="backfill-tab"):
         with Vertical(classes="page-header"):
             with Horizontal(classes="path-picker-row"):
-                yield local(Static(message_id("profiling.backfill.source_hint"), id="backfill-source", markup=False))
+                yield local(Input(app.configuration.saved_settings.last_result_csv, id="backfill-source",
+                                  placeholder=message_id("results.input.source_hint")))
                 yield local(Button("选择实验", name="result-csv", id="choose-backfill-result", classes="experiment-picker"))
         with VerticalScroll(id="backfill-body", classes="pane-scroll"):
             yield local(Label(message_id("profiling.overview.title"), classes="section-title"))
