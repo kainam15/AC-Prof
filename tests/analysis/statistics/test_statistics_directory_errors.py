@@ -4,6 +4,7 @@ import fcntl
 import io
 import json
 import os
+from contextlib import ExitStack
 from pathlib import Path
 
 import pytest
@@ -18,10 +19,10 @@ from tests.support.run_recovery_fixtures import RunRecoveryFixture
 def _fail_directory_reads(monkeypatch, directory: Path, failure: OSError) -> list[str]:
     attempts = []
 
-    def wrap(function, name):
+    def wrap(function, operation):
         def read(path="."):
             if not isinstance(path, int) and Path(os.fsdecode(path)) == directory:
-                attempts.append(name)
+                attempts.append(operation)
                 raise failure
             return function(path)
         return read
@@ -52,11 +53,10 @@ def test_directory_scan_failure_aborts_without_publication_and_releases_lock(
     assert len(attempts) == 1
     assert list(tmp_path.iterdir()) == [existing]
     assert existing.read_bytes() == original
-    descriptor = os.open(tmp_path, os.O_RDONLY | os.O_DIRECTORY)
-    try:
+    with ExitStack() as stack:
+        descriptor = os.open(tmp_path, os.O_RDONLY | os.O_DIRECTORY)
+        stack.callback(os.close, descriptor)
         fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    finally:
-        os.close(descriptor)
     saved, reused = save_unique_statistics_report(tmp_path, report)
     assert reused is identical
     assert (saved == existing) is identical
