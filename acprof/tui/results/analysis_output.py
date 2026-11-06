@@ -24,10 +24,12 @@ class AnalysisOutput:
             raise ValueError("Analysis output exceeds 32 MiB; select fewer experiments or metrics")
         self.parts.append(text)
 
-    def finish(self, kind: str, returncode: int, source: Path) -> ReportView:
+    def finish(self, kind: str, returncode: int, source: Path, *, expected_html: str = "") -> ReportView:
         text = "".join(self.parts)
         self.parts.clear()
         if returncode not in ({0, 1} if kind == "compare" else {0}):
+            raise ValueError(text[-4000:].strip() or f"Analysis exited with status {returncode}")
+        if returncode and not text.lstrip().startswith("{"):
             raise ValueError(text[-4000:].strip() or f"Analysis exited with status {returncode}")
         try:
             payload = json.loads(text)
@@ -46,4 +48,9 @@ class AnalysisOutput:
                 raise ValueError("Comparison exit status disagrees with its payload")
         else:
             raise ValueError(f"Unsupported analysis process: {kind}")
+        if expected_html:
+            from acprof.tui.results.report_files import require_html_file
+            if payload.get("html_report_path") != expected_html:
+                raise ValueError("Comparison returned no matching HTML report")
+            require_html_file(Path(expected_html))
         return report_view(source, payload)

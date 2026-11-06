@@ -5,6 +5,18 @@ from .entry import Entry
 
 MESSAGES: dict[str, Entry] = {
     "results.action.view": Entry(zh="查看结果", en="View"),
+    "results.analysis.advanced": Entry(zh="统计数据与导出", en="Statistics and exports"),
+    "results.analysis.block_size": Entry(zh="窗口块大小", en="Window block size"),
+    "results.analysis.compare": Entry(zh="比较并生成 HTML", en="Compare to HTML"),
+    "results.analysis.comparing": Entry(zh="正在比较独立实验并生成 HTML…", en="Comparing independent runs and generating HTML…"),
+    "results.analysis.confidence": Entry(zh="置信水平", en="Confidence"),
+    "results.analysis.generate": Entry(zh="生成 HTML 分析", en="Analyze to HTML"),
+    "results.analysis.metrics": Entry(zh="指标（逗号分隔）", en="Metrics (comma-separated)"),
+    "results.analysis.parameters": Entry(zh="分析参数（留空复用默认或有效缓存）", en="Analysis options (blank uses defaults or valid cache)"),
+    "results.analysis.resamples": Entry(zh="Bootstrap 次数", en="Bootstrap resamples"),
+    "results.analysis.seed": Entry(zh="随机 Seed", en="Random seed"),
+    "results.analysis.shared_parameters": Entry(zh="使用“分析报告”中的指标与 Bootstrap 参数；窗口块大小不用于独立运行。", en="Uses metrics and Bootstrap settings from Analysis. Window block size does not apply to independent runs."),
+    "results.analysis.window_json": Entry(zh="计算窗口统计", en="Compute window statistics"),
     "results.capability.invalid_report": Entry(zh="能力报告 {0} 无效：{1}", en="Capability report {0} is invalid: {1}"),
     "results.capability.size_limit_exceeded": Entry(zh="超过 4 MiB 读取上限", en="Exceeds the 4 MiB read limit"),
     "results.charts.generate_png": Entry(zh="生成 PNG 图表", en="Generate PNG"),
@@ -332,8 +344,8 @@ MESSAGES: dict[str, Entry] = {
     "results.statistics.cancel": Entry(zh="取消分析", en="Cancel analysis"),
     "results.statistics.cancelled": Entry(zh="分析已取消；未保存统计文件。", en="Analysis cancelled; no statistics file was saved."),
     "results.statistics.empty_hint": Entry(
-        zh="选择实验后点击“计算统计”。统计只显示在这里，导出时才保存文件。",
-        en="Select an experiment and calculate statistics. Results stay in memory until explicitly exported.",
+        zh="选择实验生成 HTML 分析；窗口 JSON 与 CSV 可在此单独计算和导出。",
+        en="Generate an HTML analysis for the selected experiment; compute and export window JSON or CSV here when needed.",
     ),
     "results.statistics.estimated": Entry(zh="已估计", en="Estimated"),
     "results.statistics.identical_report_exists": Entry(zh="已有相同报告：{0}", en="Identical report already exists: {0}"),
@@ -413,7 +425,7 @@ MESSAGES: dict[str, Entry] = {
     "results.tabs.compare": Entry(zh="比较", en="Compare"),
     "results.tabs.import_export": Entry(zh="导入 / 导出", en="Import / Export"),
     "results.tabs.overview": Entry(zh="概览", en="Overview"),
-    "results.tabs.statistics": Entry(zh="统计", en="Statistics"),
+    "results.tabs.statistics": Entry(zh="分析报告", en="Analysis"),
     "results.workspace.existing": Entry(zh="已有结果", en="Existing results"),
     "results.workspace.selection_hint": Entry(
         zh="选择实验查看摘要、生成图表或补充性能分析。",

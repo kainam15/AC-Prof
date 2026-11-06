@@ -91,7 +91,8 @@ def prepare_plot(source: str, *, project_dir: Path, python_executable: Path) -> 
     return PendingLaunch(tuple(command), "plot", result_csv=str(path))
 
 
-def prepare_stats(source: str, *, project_dir: Path, python_executable: Path) -> PendingLaunch:
+def prepare_stats(source: str, *, project_dir: Path, python_executable: Path,
+                  analysis_args: tuple[str, ...] = ()) -> PendingLaunch:
     raw_path = resolve_result_path(source, project_dir)
     resolved = _resolve_single_tui_source(raw_path)
     path = resolved if resolved is not None else raw_path
@@ -101,7 +102,7 @@ def prepare_stats(source: str, *, project_dir: Path, python_executable: Path) ->
     if not path.is_file() or (path.name != "result_layers.json" and path.suffix.lower() != ".csv"):
         raise RunConfigError([ConfigIssue(None, message_id("results.input.invalid_source"))])
     command = build_stats_command(path, project_dir=project_dir, python_executable=python_executable)
-    return PendingLaunch(tuple(command), "stats", result_csv=str(path))
+    return PendingLaunch((*command, *analysis_args), "stats", result_csv=str(path))
 
 
 def html_report_inputs(source: str, *, project_dir: Path) -> tuple[Path, ...]:
@@ -141,21 +142,25 @@ def html_report_inputs(source: str, *, project_dir: Path) -> tuple[Path, ...]:
     return tuple(paths)
 
 
-def prepare_html_report(source: str, *, project_dir: Path, python_executable: Path) -> PendingLaunch:
-    """Prepare a new offline HTML artifact without importing analysis or Plotly."""
+def _html_output_path(first: Path) -> Path:
     from acprof.results.layout import ArtifactLayout
-
-    paths = html_report_inputs(source, project_dir=project_dir)
-    first = paths[0]
     layout = ArtifactLayout.discover(first) if first.is_dir() else ArtifactLayout.from_csv(first)
-    output = layout.path("analysis") / f"report-{datetime.now(UTC):%Y%m%d-%H%M%S}-{uuid4().hex[:12]}.html"
+    return layout.path("analysis") / f"report-{datetime.now(UTC):%Y%m%d-%H%M%S}-{uuid4().hex[:12]}.html"
+
+
+def prepare_html_report(source: str, *, project_dir: Path, python_executable: Path,
+                        analysis_args: tuple[str, ...] = ()) -> PendingLaunch:
+    """Prepare a new offline HTML artifact without importing analysis or Plotly."""
+    paths = html_report_inputs(source, project_dir=project_dir)
+    output = _html_output_path(paths[0])
     command = (*cli_command("report", python_executable=python_executable),
-               *(str(path) for path in paths), "--output", str(output))
+               *(str(path) for path in paths), "--output", str(output), *analysis_args)
     return PendingLaunch(command, "html-report", report_path=str(output))
 
 
 def prepare_comparison(left: str, right: str, *, baseline: str, purpose: str,
-                       project_dir: Path, python_executable: Path) -> PendingLaunch:
+                       project_dir: Path, python_executable: Path, html_report: bool = False,
+                       analysis_args: tuple[str, ...] = ()) -> PendingLaunch:
     """Read the public comparison command's stdout without a mandatory artifact."""
     from acprof.results.layout import expand_result_sources, experiment_result_file
     if baseline not in {"left", "right"} or purpose not in {"same-hardware", "cross-hardware", "resource-scaling"}:
@@ -188,7 +193,11 @@ def prepare_comparison(left: str, right: str, *, baseline: str, purpose: str,
         for path in paths:
             command.extend((name, str(path)))
     command.extend(("--purpose", purpose))
-    return PendingLaunch(tuple(command), "compare")
+    command.extend(analysis_args)
+    output = _html_output_path(groups[0][0]) if html_report else None
+    if output is not None:
+        command.extend(("--html-output", str(output)))
+    return PendingLaunch(tuple(command), "compare", report_path=str(output) if output else "")
 
 
 def prepare_profile(source: str, *, tools: str, dry_run: bool,

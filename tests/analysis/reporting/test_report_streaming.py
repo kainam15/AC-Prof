@@ -23,6 +23,7 @@ def resources(tmp_path, monkeypatch):
     for name, content in {
         "report.css": "STYLE __APP__",
         "report.js": "APP __DATA__",
+        "report_export.js": "EXPORT",
         "report_experiments.js": "EXPERIMENTS",
         "view_model.js": "VIEW __LICENSE__",
         "plotly-LICENSE.txt": '<MIT> & "author"',

@@ -90,6 +90,8 @@ class ResultController:
         self.analysis_view: ReportView | None = None
         self.analysis_source = app.project_dir
         self.analysis_selection: tuple[str, ...] = ()
+        self.analysis_kind = "stats"
+        self.analysis_html_path = ""
         self.source_display: ExperimentSourceDisplay | None = None
         self.unavailable_remembered_source = ""
         self.formal_ok_rows: int | None = None
@@ -180,6 +182,8 @@ class ResultController:
             self.update_result_summary(source, notify=False)
 
     def show_result_section(self, section: str) -> None:
+        if section == "exports-view":
+            section = "statistics-view"
         self.app.activate_tab("results-tab")
         views = self.app.query_one("#result-views", TabbedContent)
         if views.get_tab(section).display:
@@ -372,7 +376,8 @@ class ResultController:
         for selector, enabled in (
             ("#summarize-results", actions.summary_enabled),
             ("#plot-results", actions.plot_enabled),
-            ("#report-calculate", actions.calculate_enabled),
+            ("#report-calculate", actions.html_generate_enabled),
+            ("#report-window-stats", actions.calculate_enabled),
             ("#html-report-generate", actions.html_generate_enabled),
             ("#report-open", actions.report_open_enabled),
             ("#html-report-copy", actions.html_copy_enabled),
@@ -454,6 +459,8 @@ class ResultController:
         if not self.app.allow_operation("report"):
             return
         self.show_result_section("statistics-view")
+        self.app.query_one("#analysis-details", Collapsible).collapsed = False
+        self.app.query_one("#report-panel").scroll_visible(animate=False)
         source = path if path is not None else self.app.configuration.input("report-json-path")
         if not source.strip():
             self.clear_report(message_id("results.import.json_required"), phase="error")
@@ -514,6 +521,7 @@ class ResultController:
         view = self.report_view
         if view is None:
             return
+        self.app.query_one("#analysis-details", Collapsible).collapsed = False
         table = self.app.query_one("#report-table", DataTable)
         cursor, scroll = table.cursor_coordinate, table.scroll_offset
         table.clear(columns=True)
@@ -545,7 +553,20 @@ class ResultController:
         self.app.localization.set_text(self.app.query_one("#report-detail", Static), join_messages("\n", (detail, view.note)))
 
     def calculate_report_button(self) -> None:
-        self.launch_stats()
+        self.html.launch()
+
+    def analysis_arguments(self, *, independent: bool = False) -> tuple[str, ...]:
+        arguments: list[str] = []
+        for name in ("confidence", "resamples", "seed", "block-size"):
+            if independent and name == "block-size":
+                continue
+            value = self.app.configuration.input("analysis-" + name).strip()
+            if value:
+                arguments.extend(("--" + name, value))
+        for metric in self.app.configuration.input("analysis-metrics").split(","):
+            if metric.strip():
+                arguments.extend(("--metric", metric.strip()))
+        return tuple(arguments)
 
     def compare_experiments_button(self) -> None:
         if not self.app.allow_operation("compare"):
@@ -553,8 +574,10 @@ class ResultController:
         try:
             pending = prepare_comparison(self.app.configuration.input("comparison-left"), self.app.configuration.input("comparison-right"),
                 baseline=self.app.configuration.select("comparison-baseline"), purpose=self.app.configuration.select("comparison-purpose"),
-                project_dir=self.app.project_dir, python_executable=self.app.python_executable)
+                project_dir=self.app.project_dir, python_executable=self.app.python_executable,
+                html_report=True, analysis_args=self.analysis_arguments(independent=True))
         except (RunConfigError, ValueError, OSError) as exc:
+            self.app.localization.set_text(self.app.query_one("#comparison-status", Static), error_message(exc))
             self.app.notify(error_message(exc), severity="error")
             return
         self.app.launch(pending)
@@ -563,12 +586,15 @@ class ResultController:
         if not self.app.allow_operation("stats"):
             return
         self.show_result_section("statistics-view")
+        self.app.query_one("#analysis-details", Collapsible).collapsed = False
+        self.app.query_one("#report-panel").scroll_visible(animate=False)
         source = path if path is not None else self.app.configuration.input("result-csv")
         if not source.strip():
             self.clear_report(message_id("results.statistics.input_required"), phase="error")
             return
         try:
-            pending = prepare_stats(source, project_dir=self.app.project_dir, python_executable=self.app.python_executable)
+            pending = prepare_stats(source, project_dir=self.app.project_dir, python_executable=self.app.python_executable,
+                                    analysis_args=self.analysis_arguments())
         except (OSError, ValueError) as exc:
             self.clear_report(error_message(exc), phase="error")
             return
@@ -584,7 +610,11 @@ class ResultController:
                      )
 
     def begin_analysis(self, pending: PendingLaunch) -> None:
+        self.analysis_kind = pending.kind
+        self.analysis_html_path = pending.report_path
         self.clear_report(message_id("results.statistics.calculating"), phase="loading")
+        if pending.kind == "compare":
+            self.app.localization.set_text(self.app.query_one("#comparison-status", Static), message_id("results.analysis.comparing"))
         self.analysis_selection = self.selection_identity()
         source = pending.result_csv if pending.kind == "stats" else pending.command[pending.command.index("--left") + 1]
         self.analysis_source = Path(source)
@@ -597,12 +627,24 @@ class ResultController:
 
     def finish_analysis(self, *, error: str, cancelled: bool) -> None:
         view, self.analysis_view = self.analysis_view, None
-        self.show_result_section("statistics-view")
         if cancelled or error or view is None:
-            self.clear_report(error or message_id("results.statistics.cancelled" if cancelled else "results.statistics.invalid_analysis_output"), phase="error")
+            status = error or message_id("results.statistics.cancelled" if cancelled else "results.statistics.invalid_analysis_output")
+            self.clear_report(status, phase="error")
+            section = "comparison-view" if self.analysis_kind == "compare" else "statistics-view"
+            self.show_result_section(section)
+            if self.analysis_kind == "compare":
+                self.app.localization.set_text(self.app.query_one("#comparison-status", Static), status)
         else:
+            self.show_result_section("statistics-view")
             self.report_view = view
             self.render_report_view()
+            html_path = view.payload.get("html_report_path")
+            if html_path and html_path == self.analysis_html_path:
+                self.app.query_one("#html-report-path", Input).value = html_path
+                self.app.configuration.remember_last_used(html_report=html_path)
+                self.html.set_status(message_id("results.comparison.created_notice"))
+                self.app.query_one("#analysis-details", Collapsible).collapsed = True
+                self.app.query_one("#html-report-panel").scroll_visible(animate=False)
         self.update_report_actions()
 
     def export_analysis(self, format: str) -> None:

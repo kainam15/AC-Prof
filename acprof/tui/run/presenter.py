@@ -61,8 +61,11 @@ class RunPresenter:
         self.app.preflight.reset_download()
         self.app.set_busy(True)
         if pending.kind in {"stats", "compare"}:
-            self.app.results.show_result_section("statistics-view")
+            self.app.results.show_result_section("comparison-view" if pending.kind == "compare" else "statistics-view")
             self.app.query_one("#results-cancel", Button).focus()
+        elif pending.kind == "html-report":
+            self.app.results.show_result_section("statistics-view")
+            self.app.query_one("#html-report-cancel", Button).focus()
         else:
             self.app.activate_tab("monitor-tab")
             # Moving focus away from inputs stops the native cursor's blink timer.

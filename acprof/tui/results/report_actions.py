@@ -61,7 +61,7 @@ def report_action_state(
         summary_enabled=source_ready and operation.allows("summary"),
         plot_enabled=can_analyze and operation.allows("plot"),
         calculate_enabled=can_analyze and operation.allows("stats"),
-        html_generate_enabled=can_analyze and operation.allows("html-report"),
+        html_generate_enabled=source_ready and operation.allows("html-report"),
         report_open_enabled=bool(json_path) and operation.allows("report"),
         html_file_visible=has_html,
         html_filename=Path(selected_html).name if has_html else "",

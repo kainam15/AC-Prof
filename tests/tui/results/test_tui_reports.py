@@ -232,9 +232,10 @@ class TestTuiReports:
             heading = str(app.query_one('#report-experiment', Static).content)
             assert heading == '没有正式成功测量窗口：only-warmup.csv'
             assert app.query_one('#summarize-results', Button).disabled is False
-            assert app.query_one('#report-calculate', Button).disabled
+            assert app.query_one('#report-window-stats', Button).disabled
             assert app.query_one('#plot-results', Button).disabled
-            assert app.query_one('#html-report-generate', Button).disabled
+            assert not app.query_one('#report-calculate', Button).disabled
+            assert not app.query_one('#html-report-generate', Button).disabled
             app.results.select_result(str(self.csv_path))
             await self.finish_workers(app, pilot)
             assert str(app.query_one('#report-experiment', Static).content) == '已选择结果：模型结果.csv · 有效窗口 3'
@@ -254,6 +255,14 @@ class TestTuiReports:
         assert ("results-tab") in ([pane.id for pane in tabs.query(TabPane)]), "TUI 应提供统计报告页，让用户查看已有报告和计算窗口统计"
         app.results.show_result_section("statistics-view")
         await pilot.pause()
+
+    async def click_statistics(self, app, pilot):
+        app.query_one("#analysis-details", Collapsible).collapsed = False
+        await pilot.pause()
+        button = app.query_one("#report-window-stats", Button)
+        button.scroll_visible(animate=False, immediate=True)
+        await pilot.pause()
+        assert await pilot.click(button)
 
     async def import_report(self, app, pilot):
         command = app.query_one("#slash-command", Input)
@@ -284,7 +293,7 @@ class TestTuiReports:
         async with app.run_test(size=(120, 30)) as pilot:
             await self.open_tab(app, pilot)
             app.query_one("#result-csv", Input).value = str(self.csv_path)
-            assert (await pilot.click("#report-calculate"))
+            await self.click_statistics(app, pilot)
             await self.finish_workers(app, pilot)
             assert (app.query_one("#main-tabs", TabbedContent).active) == ("results-tab")
             assert app.query_one("#report-json-path", Input).value == ""
@@ -309,7 +318,7 @@ class TestTuiReports:
         async with app.run_test(size=(80, 24)) as pilot:
             await self.open_tab(app, pilot)
             app.query_one("#result-csv", Input).value = str(self.csv_path)
-            assert await pilot.click("#report-calculate")
+            await self.click_statistics(app, pilot)
             await self.finish_workers(app, pilot)
             assert app.results.report_view is not None
             payload = app.results.report_view.payload
@@ -320,7 +329,7 @@ class TestTuiReports:
                 app.configuration.preferences = replace(app.configuration.preferences, language=language)
                 app.configuration.apply_ui_preferences()
                 await pilot.pause()
-                assert await pilot.click("#report-calculate")
+                await self.click_statistics(app, pilot)
                 await self.finish_workers(app, pilot)
                 assert app.results.report_view.payload == payload
                 assert app.query_one("#report-json-path", Input).value == ""
@@ -387,9 +396,14 @@ class TestTuiReports:
             assert ("+2%") in ([str(cell) for cell in table.get_row_at(0)])
             assert ("方向不确定") in ([str(cell) for cell in table.get_row_at(0)])
             for selector in ("#report-calculate", "#report-table"):
-                region = app.query_one(selector).region
-                assert region.height > 0
-                assert region.bottom <= (size[1] - 3)
+                widget = app.query_one(selector)
+                widget.scroll_visible(animate=False, immediate=True)
+                await pilot.pause()
+                assert widget.region.height > 0
+                if selector == "#report-table":
+                    assert widget.region.overlaps(app.query_one("#analysis-workflow").region)
+                else:
+                    assert widget.region.bottom <= size[1] - 3
             table.focus()
             await pilot.pause()
             await pilot.press("right", "left", "down")
@@ -481,7 +495,7 @@ class TestTuiReports:
             source = app.query_one("#result-csv", Input)
             json_path = app.query_one("#report-json-path", Input)
             source.value = str(self.csv_path)
-            assert await pilot.click("#report-calculate")
+            await self.click_statistics(app, pilot)
             await self.finish_workers(app, pilot)
             assert source.value == str(self.csv_path)
             assert json_path.value == ""
@@ -522,7 +536,7 @@ class TestTuiReports:
         async with app.run_test(size=(80, 24)) as pilot:
             await self.open_tab(app, pilot)
             app.query_one("#result-csv", Input).value = str(self.csv_path)
-            await pilot.click("#report-calculate")
+            await self.click_statistics(app, pilot)
             await self.finish_workers(app, pilot)
             assert (app.query_one("#main-tabs", TabbedContent).active) == ("results-tab")
             assert "统计失败" in str(app.query_one("#report-error", Static).content)

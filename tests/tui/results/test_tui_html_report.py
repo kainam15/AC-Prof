@@ -91,14 +91,14 @@ def test_missing_or_malformed_inputs_are_rejected(tmp_path, source):
         prepare(source, tmp_path)
 
 
-async def test_hidden_html_generation_preserves_backend_and_measurement_guard(tmp_path, csv_result):
+async def test_html_generation_preserves_backend_and_measurement_guard(tmp_path, csv_result):
     app = AcprofTui(settings_path=tmp_path / "settings.json")
     async with app.run_test(size=(80, 24)) as pilot:
         app.results.show_result_section("exports-view")
         app.query_one("#result-csv", Input).value = str(csv_result)
         await pilot.pause()
         button = app.query_one("#html-report-generate", Button)
-        assert button.region.area == 0
+        assert button.region.area > 0
         with patch.object(ProcessController, "execute_command") as execute:
             app.results.html.launch()
             await pilot.pause()
@@ -115,7 +115,7 @@ async def test_hidden_html_generation_preserves_backend_and_measurement_guard(tm
             assert execute.call_count == 1
 
 
-async def test_hidden_html_controls_preserve_optional_fields_and_copy(tmp_path):
+async def test_html_controls_preserve_optional_fields_and_copy(tmp_path):
     report = tmp_path / "previous report.html"
     report.write_text("<html>previous</html>", encoding="utf-8")
     app = AcprofTui(settings_path=tmp_path / "settings.json")
@@ -237,7 +237,7 @@ async def test_no_valid_windows_retains_evidence_and_displays_limit(tmp_path, cs
     ("zh", "失败", "HTML 已导出"), ("en", "failed", "HTML exported"),
 ])
 @pytest.mark.parametrize("failure_kind", ["existing", "copy", "directory_sync"])
-async def test_hidden_html_export_and_failure_keep_generated_artifact(
+async def test_html_export_and_failure_keep_generated_artifact(
     tmp_path, monkeypatch, language, failed, exported, failure_kind,
 ):
     from acprof import artifacts
@@ -258,8 +258,10 @@ async def test_hidden_html_export_and_failure_keep_generated_artifact(
         await pilot.pause()
         assert app.query_one("#html-export-fields").display
         button = app.query_one("#html-report-export", Button)
-        assert button.region.area == 0
-        app.results.html.export()
+        assert button.region.area > 0
+        button.scroll_visible(animate=False, immediate=True)
+        await pilot.pause()
+        assert await pilot.click(button)
         await app.workers.wait_for_complete()
         await pilot.pause()
         assert destination.read_bytes() == source.read_bytes()
@@ -279,7 +281,9 @@ async def test_hidden_html_export_and_failure_keep_generated_artifact(
                 monkeypatch.setattr(report_files.shutil, "copyfileobj", fail_copy)
             else:
                 monkeypatch.setattr(artifacts, "sync_directory", fail_sync)
-        app.results.html.export()
+        button.scroll_visible(animate=False, immediate=True)
+        await pilot.pause()
+        assert await pilot.click(button)
         await app.workers.wait_for_complete()
         await pilot.pause()
         assert failed in str(app.query_one("#html-report-status", Static).content)
@@ -341,7 +345,7 @@ async def test_import_export_tab_stays_hidden_during_navigation(tmp_path, size, 
             assert views.active == expected
         app.results.show_result_section("exports-view")
         await pilot.pause()
-        assert views.active == "comparison-view"
+        assert views.active == "statistics-view"
         assert not app.query_one("#html-report-file").display
         assert not app.query_one("#html-report-open", Button).display
         assert not app.query_one("#html-report-cancel", Button).display
@@ -355,7 +359,7 @@ async def test_import_export_tab_stays_hidden_during_navigation(tmp_path, size, 
             execute.assert_not_called()
         status = str(app.query_one("#html-report-status", Static).content)
         assert ("Select an experiment" if language == "en" else "请先选择实验") in status
-        assert views.active == "comparison-view"
+        assert views.active == "statistics-view"
         app.results.open_report("invalid.csv")
         await pilot.pause()
         assert views.active == "statistics-view"
@@ -407,8 +411,8 @@ async def test_cancel_reaps_process_and_keeps_previous_html(tmp_path, csv_result
         cancel = app.query_one("#html-report-cancel", Button)
         assert app.query_one("#main-tabs", TabbedContent).active == "results-tab"
         assert not cancel.disabled
-        assert cancel.region.area == 0
-        app.on_results_cancel_html()
+        assert cancel.region.area > 0
+        assert await pilot.click(cancel)
         await pilot.pause()
         # Escape cancels the stop dialog without terminating the task.
         await pilot.press("escape")

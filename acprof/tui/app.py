@@ -276,7 +276,7 @@ class AcprofTui(BarCursorApp):
             "#start-run": "run", "#probe-largest": "probe",
             "#summarize-results": "summary", "#plot-results": "plot",
             "#report-open": "report",
-            "#report-calculate": "stats", "#stop-run": "stop",
+            "#report-calculate": "html-report", "#report-window-stats": "stats", "#stop-run": "stop",
             "#html-report-generate": "html-report", "#html-report-open": "html-open",
             "#html-report-export": "html-export",
         }.items():
@@ -648,6 +648,10 @@ class AcprofTui(BarCursorApp):
     @on(Button.Pressed, '#report-calculate')
     def on_results_calculate_report_button(self) -> None:
         self.results.calculate_report_button()
+
+    @on(Button.Pressed, "#report-window-stats")
+    def on_results_window_statistics(self) -> None:
+        self.results.launch_stats()
 
     @on(Button.Pressed, '#report-compare')
     def on_results_compare_experiments_button(self) -> None:

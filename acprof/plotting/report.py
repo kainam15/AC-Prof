@@ -48,6 +48,11 @@ def report_payload(model: AnalysisModel, baseline: str | None = None, *, compari
                 ALLOWED_RESOURCE_DIMENSIONS if purpose == "resource-scaling" else []} for purpose in PURPOSES},
             "registry": {name: ANALYSIS_METRICS[name].to_dict() for name in VIEW_METRICS},
             "default_matrix": DEFAULT_MATRIX, "summary_fields": SUMMARY_FIELDS,
+            "overview": [{"source": source["path"], "identity": {
+                key: source["metadata"].get(key, "unknown") for key in (
+                    "model_name", "model_revision", "runtime_backend", "pipeline_tag", "input_scale_type",
+                    "cpu", "cpu_model", "gpu", "gpu_name", "platform_fingerprint")}}
+                for source in model.sources],
             "sources": [{k: s[k] for k in ("path", "sha256", "run_id", "run_state",
                         "run_status", "measurement_status", *QUALITY_FIELDS)}
                         for s in model.sources]}
@@ -100,6 +105,7 @@ def write_report(model: AnalysisModel, output: str | Path, *, baseline: str | No
         "__VIEW_MODEL__": resources.joinpath("view_model.js").read_text(encoding="utf-8"),
         "__APP__": resources.joinpath("report.js").read_text(encoding="utf-8"),
         "__EXPERIMENTS__": resources.joinpath("report_experiments.js").read_text(encoding="utf-8"),
+        "__EXPORT__": resources.joinpath("report_export.js").read_text(encoding="utf-8"),
         "__STYLE__": resources.joinpath("report.css").read_text(encoding="utf-8"),
         "__LICENSE__": escape(resources.joinpath("plotly-LICENSE.txt").read_text(encoding="utf-8")),
     }

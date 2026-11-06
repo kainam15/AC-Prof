@@ -312,6 +312,7 @@
     const body = $("statistics").tBodies[0], evidence = $("statistics-evidence");
     body.replaceChildren(); evidence.replaceChildren();
     const metric = $("statistics-metric").value;
+    $("statistics-confidence").textContent = [...new Set(statistics.map(report => report.parameters.confidence * 100))].join(" / ") + "% 置信区间";
     for (const report of statistics) {
       const groups = report.groups.filter(group => visible.has(group.config_id) && (!metric || group.metric === metric));
       if (!groups.length) continue;
@@ -341,6 +342,33 @@
     }
     $("statistics-empty").hidden = body.rows.length > 0;
   }
+  function drawOverview(configs) {
+    $("overview-content").replaceChildren();
+    for (const source of data.overview || []) {
+      const matches = configs.filter(config => config.source === source.source);
+      if (!matches.length) continue;
+      const article = element("article", undefined, "statistics-source");
+      article.append(element("h3", matches[0].model), element("p", source.source),
+        element("p", `${matches.length} 个配置 · ${matches.reduce((sum, config) => sum + config.valid_windows, 0)} 个有效窗口`),
+        element("pre", JSON.stringify(source.identity, null, 2)));
+      $("overview-content").append(article);
+    }
+  }
+  function drawQuality(configs) {
+    $("quality-content").replaceChildren();
+    const visible = new Set(configs.map(config => config.config_id));
+    for (const report of statistics) {
+      const groups = report.groups.filter(group => visible.has(group.config_id));
+      if (!groups.length) continue;
+      $("quality-content").append(statisticsEvidence(report));
+      const details = element("details", undefined, "evidence");
+      details.append(element("summary", "缺失字段与排除窗口明细"), element("pre", JSON.stringify(groups.map(group => ({
+        config_id:group.config_id, metric:group.metric, missing_reasons:group.missing_reasons,
+        excluded_windows:group.excluded_windows, reason:group.reason, detail:group.detail,
+      })), null, 2)));
+      $("quality-content").append(details);
+    }
+  }
   async function draw() {
     const configs = filtered();
     const purpose = $("comparison-purpose").value;
@@ -362,12 +390,14 @@
       quality_reasons: selected.quality_reasons, quality_checks: selected.quality_checks}, null, 2) : "选择配置后查看状态、原因和原始证据。";
     $("selection").textContent = selected ? `已选：${fullLabel(selected)}${configs.includes(selected) ? "" : "（当前筛选隐藏）"}` :
       "点击表格行或图中数据点，可在各视图中定位同一配置。";
-    for (const view of ["matrix", "pareto", "scaling", "statistics", "experiments"]) $(view + "-panel").hidden = state.view !== view;
+    for (const view of ["overview", "matrix", "pareto", "scaling", "statistics", "experiments", "quality"]) $(view + "-panel").hidden = state.view !== view;
     if (state.view === "matrix") drawMatrix(configs, comparison);
     else if (state.view === "pareto") await drawPareto(configs, comparison);
     else if (state.view === "scaling") await drawScaling(configs);
     else if (state.view === "statistics") drawStatistics(configs);
-    else await experiments.draw(configs);
+    else if (state.view === "experiments") await experiments.draw(configs);
+    else if (state.view === "overview") drawOverview(configs);
+    else drawQuality(configs);
     document.body.dataset.ready = "true";
   }
   let pending = Promise.resolve();
@@ -379,5 +409,6 @@
     }).finally(() => { document.body.dataset.busy = "false"; });
   }
   const experiments = window.ACProfExperiments({data, $, V, element, option, fmt, metricTitle, plot, axis, schedule, filtered, escape});
+  window.ACProfExport({data, $, V, state, filtered, experiments});
   schedule();
 })();

@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import pytest
-from textual.widgets import Button, DataTable, Input, Static, TabbedContent
+from textual.widgets import Button, Collapsible, DataTable, Input, Static, TabbedContent
 
 from acprof.analysis.export import export_analysis
 from acprof.analysis.uncertainty import summarize_windows
@@ -196,7 +196,7 @@ def test_analysis_transport_is_bounded(monkeypatch):
 
 @pytest.mark.parametrize("size", [(80, 24), (120, 30), (150, 45)])
 @pytest.mark.parametrize("language", ["zh", "en"])
-async def test_unified_results_statistics_with_hidden_exports(size, language, result_csv, tmp_path):
+async def test_unified_results_html_with_optional_statistics_exports(size, language, result_csv, tmp_path):
     original = result_csv.read_bytes()
     app = AcprofTui(RunConfig.smoke("demo/model"), settings_path=tmp_path / "settings.json")
     app.configuration.preferences = replace(app.configuration.preferences, language=language)
@@ -210,6 +210,15 @@ async def test_unified_results_statistics_with_hidden_exports(size, language, re
         await pilot.pause()
         assert app.query_one("#main-tabs", TabbedContent).active == "results-tab"
         assert not list(app.query("#reports-tab, #plot-tab, #report-source"))
+        assert Path(app.query_one("#html-report-path", Input).value).is_file()
+        app.query_one("#analysis-details", Collapsible).collapsed = False
+        await pilot.pause()
+        stats = app.query_one("#report-window-stats", Button)
+        stats.scroll_visible(animate=False, immediate=True)
+        await pilot.pause()
+        assert await pilot.click(stats)
+        await app.workers.wait_for_complete()
+        await pilot.pause()
         assert app.results.report_view is not None
         assert app.query_one("#report-table", DataTable).row_count == 3
         assert not list(tmp_path.glob("**/window-statistics-*.json"))
@@ -220,21 +229,15 @@ async def test_unified_results_statistics_with_hidden_exports(size, language, re
         views = app.query_one("#result-views", TabbedContent)
         assert views.active == "statistics-view"
         assert not views.get_tab("exports-view").display
-        controls = app.query(
-            "#analysis-export-path, #analysis-export-csv, #analysis-export-json, "
-            "#report-file-options, #report-json-path, #report-open"
-        )
-        for control in controls:
-            assert control.region.area == 0
-            assert control not in app.screen.focus_chain
-        panel = app.query_one("#result-export-panel")
-        html = app.query_one("#html-report-panel")
-        assert panel.region.area == 0
-        assert html.region.area == 0
+        assert app.query_one("#result-export-panel").region.area > 0
+        assert app.query_one("#html-report-panel").region.area > 0
         target = tmp_path / "statistics.csv"
         app.query_one("#analysis-export-path", Input).value = str(target)
         await pilot.pause()
-        app.results.export_analysis("csv")
+        export = app.query_one("#analysis-export-csv", Button)
+        export.scroll_visible(animate=False, immediate=True)
+        await pilot.pause()
+        assert await pilot.click(export)
         await app.workers.wait_for_complete()
         await pilot.pause()
         assert target.is_file()

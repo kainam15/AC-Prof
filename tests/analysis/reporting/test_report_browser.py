@@ -149,6 +149,37 @@ class TestReportBrowser:
         self.settled()
         assert self.page.locator("#statistics-empty").is_visible()
 
+    def test_exports_keep_python_values_and_overview_quality_share_filters(self):
+        import io
+        configs = self.page.evaluate("JSON.parse(document.getElementById('report-data').textContent).configs")
+        baseline = next(config for config in configs if config["cpu"] == 2 and config["memory"] == 4)
+        self.page.select_option("#baseline", baseline["config_id"])
+        self.page.select_option("#filter-memory", "4")
+        self.settled()
+        with self.page.expect_download() as download:
+            self.page.click("#export-csv")
+        rows = list(csv.DictReader(io.StringIO(Path(download.value.path()).read_text())))
+        row = next(row for row in rows if row["cpu"] == "4" and row["metric"] == "latency_app_p95_s")
+        assert float(row["value"]) == .04
+        assert float(row["delta"]) == pytest.approx(-.06)
+        assert float(row["ratio"]) == pytest.approx(.4)
+        assert row["unit"] == "s"
+        self.page.click("[data-view=statistics]")
+        self.page.select_option("#statistics-metric", "latency_app_s")
+        self.settled()
+        with self.page.expect_download() as download:
+            self.page.click("#export-json")
+        payload = json.loads(Path(download.value.path()).read_text())
+        assert payload["resampling_unit"] == "csv_request_window"
+        assert len(payload["groups"]) == 3
+        assert all(group["mem_cap_gb"] == 4 for group in payload["groups"])
+        self.page.click("[data-view=overview]")
+        self.settled()
+        assert "3 个配置" in self.page.locator("#overview-content").inner_text()
+        self.page.click("[data-view=quality]")
+        self.settled()
+        assert "结果审计" in self.page.locator("#quality-content").inner_text()
+
     def test_window_statistics_show_cached_values_offline_on_a_narrow_screen(self):
         from acprof.analysis.model import load_analysis
         from acprof.analysis.statistics_report import (
@@ -278,7 +309,7 @@ class TestReportBrowser:
         reads["pareto"] = self.page.evaluate("window.workloadReads")
         if self.artifacts:
             (self.artifacts / "comparison-reads.json").write_text(json.dumps(reads, indent=2), encoding="utf-8")
-        assert reads["one_metric"] > 0
+        assert reads["one_metric"] == 0  # Python precomputes policy and arithmetic once.
         assert reads["all_metrics"] == reads["one_metric"]
         assert reads["pareto"] == reads["one_metric"]
 
@@ -444,30 +475,35 @@ class TestReportBrowser:
         assert coordinates() == [[.08, 6]]
 
     def test_zero_baseline_and_environment_isolation(self):
-        result = self.page.evaluate("""() => {
+        from acprof.analysis.changes import metric_change
+        result = self.page.evaluate("""changes => {
           const profiles = JSON.parse(document.getElementById('report-data').textContent).configs[0].comparison_profiles;
-          const a = {run_id:'a', environment_class:'native_linux', comparison_profiles:profiles, metrics:{x:{value:0}}};
-          const b = {...a,metrics:{x:{value:4}}};
+          const a = {config_id:'a', run_id:'a', environment_class:'native_linux', comparison_profiles:profiles, metrics:{x:{value:0}}};
+          const b = {...a,config_id:'b',metrics:{x:{value:4}}};
           const changed = structuredClone(profiles);
           changed['same-hardware'].checks.comparability_class.value = 'other-environment';
-          const comparison = ACProfViews.comparisonContext(a);
+          const pairs = {pairs:{a:{b:{metrics:{x:changes.zero},policies:{}}}, negative:{b:{metrics:{x:changes.negative},policies:{}}}},qualifications:[]};
+          const comparison = ACProfViews.comparisonContext(a, 'same-hardware', pairs);
           return {zero:comparison.delta(b,'x'),
             mixed:comparison.delta({...b,comparison_profiles:changed},'x'),
             unknown:comparison.delta({...b,comparison_profiles:{}},'x'),
-            missing:comparison.delta({...b,metrics:{x:{value:null}}},'x'),
+            missing:comparison.delta({...b,config_id:'missing',metrics:{x:{value:null}}},'x'),
             noBaseline:ACProfViews.comparisonContext().delta(b,'x'),
-            negative:ACProfViews.comparisonContext({...a,metrics:{x:{value:-2}}}).delta(b,'x'),
+            negative:ACProfViews.comparisonContext({...a,config_id:'negative'},'same-hardware',pairs).delta(b,'x'),
             sorted:ACProfViews.sort([{...a,config_id:'zero'}, {...b,config_id:'four'},
               {...a,config_id:'missing',metrics:{x:{value:null}}}], 'x', true).map(c=>c.config_id)};
-        }""")
-        assert (result["zero"]["delta"]) == (4)
-        assert (result["zero"]["percent"]) is None
-        assert (result["mixed"]["reason"]) == ("incompatible")
-        assert (result["unknown"]["reason"]) == ("unknown")
-        assert result["missing"] == {"delta": None, "percent": None, "reason": "missing"}
+        }""", {"zero": metric_change(0, 4), "negative": metric_change(-2, 4)})
+        assert result["zero"]["delta"] == 4
+        assert result["zero"]["percent"] is None
+        assert result["mixed"]["reason"] == "incompatible"
+        assert result["unknown"]["reason"] == "unknown"
+        assert result["missing"]["reason"] == "missing"
+        assert result["missing"]["delta"] is None
         assert result["noBaseline"] == {"delta": None, "percent": None, "reason": "no_baseline"}
-        assert result["negative"] == {"delta": 6, "percent": 300, "reason": ""}
-        assert (result["sorted"]) == (["four", "zero", "missing"])
+        assert result["negative"]["delta"] == 6
+        assert result["negative"]["percent"] == 300
+        assert result["negative"]["ratio"] is None
+        assert result["sorted"] == ["four", "zero", "missing"]
 
     def test_scaling_keeps_other_resources_fixed_and_clicks_link_back(self):
         self.page.click("[data-view=scaling]")

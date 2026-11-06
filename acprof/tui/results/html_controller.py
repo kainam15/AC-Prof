@@ -105,12 +105,13 @@ class HtmlReportController:
     def launch(self) -> None:
         if not self.app.allow_operation("html-report"):
             return
-        self.app.results.show_result_section("exports-view")
+        self.app.results.show_result_section("statistics-view")
         try:
             pending = prepare_html_report(
                 self.source(include_extra=True),
                 project_dir=self.app.project_dir,
                 python_executable=self.app.python_executable,
+                analysis_args=self.app.results.analysis_arguments(),
             )
         except (OSError, ValueError, csv.Error) as exc:
             self.set_status(error_message(exc))

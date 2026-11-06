@@ -155,7 +155,8 @@ class ProcessController:
             if analysis is not None and not self.app.execution.session.stop_requested:
                 from acprof.host.run_state import offline_analysis_lock
                 with offline_analysis_lock():
-                    view = analysis.finish(kind, returncode, self.app.results.analysis_source)
+                    view = analysis.finish(kind, returncode, self.app.results.analysis_source,
+                                           expected_html=self.app.results.analysis_html_path)
                 deliver(self.app.results.accept_analysis, view)
         except Exception as exc:  # process errors must become visible in the UI
             launch_error = f"{type(exc).__name__}: {exc}"
