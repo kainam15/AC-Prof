@@ -176,6 +176,8 @@ class TestReportBrowser:
         self.page.click("[data-view=overview]")
         self.settled()
         assert "3 个配置" in self.page.locator("#overview-content").inner_text()
+        assert self.page.locator("#overview-content tbody tr").count() == 3
+        assert self.page.locator("#overview-content tbody tr").nth(1).locator("td").nth(1).inner_text() == "0.04"
         self.page.click("[data-view=quality]")
         self.settled()
         assert "结果审计" in self.page.locator("#quality-content").inner_text()
@@ -261,6 +263,7 @@ class TestReportBrowser:
         assert "独立运行不足" in cells.nth(8).inner_text()
         self.page.locator("details:has(#experiment-evidence) summary").click()
         assert "independent_run_mean" in self.page.locator("#experiment-evidence").inner_text()
+        assert self.page.locator("#experiment-evidence").evaluate("node => node.clientHeight < 500 && node.scrollHeight > node.clientHeight")
         options = self.page.locator("#experiment-left option").evaluate_all("items => items.map(item => item.value)")
         self.page.select_option("#experiment-left", options[1])
         self.settled()

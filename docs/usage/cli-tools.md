@@ -57,9 +57,11 @@ Windows/macOS 的离线命令不申请 Linux 专用锁；这不改变采集平�
 新实验不会默认写出 `result_all.csv`；Posthoc 成功后仅更新发生变化的模块。旧宽表实验
 不再提供默认兼容或续跑。详见[分层结果 CSV](../results/metrics.md#分层结果-csv唯一正式结果)。
 
-`acprof report <实验目录或 CSV> [更多输入 ...]` 生成 Comparison Matrix、Pareto 与 Scaling 的离线 HTML。
+`acprof report <实验目录或 CSV> [更多输入 ...]` 生成包含资源矩阵、窗口统计、独立实验对照和数据质量的离线 HTML。
 `--output <新文件.html>` 指定输出，默认首个实验目录下 `report.html`，拒绝覆盖已有文件；
 `--baseline <config_id>` 预选配置，单配置 run 也可直接使用 run ID。无需 GUI 或 Web 服务，
+`--metric`、`--confidence`、`--resamples`、`--seed`、`--block-size` 指定统计参数；
+重复 `--left` / `--right` 可直接指定独立实验组，多个位置参数则分别作为单次来源，不自动合并独立样本。
 不递归扫描输入目录中的备份，源 CSV 保持不变。详细语义见[交互式配置比较报告](../results/reports.md#交互式配置比较报告)。
 
 `acprof plot` 接收结果 CSV 路径，`acprof tui` 可用 `--model` 预填模型、用 `--preset` 选择预设。
@@ -100,7 +102,9 @@ acprof tui --help
 `acprof compare --left <实验> --right <实验>` 支持重复指定两侧独立实验，输出差值、比值和跨实验区间；
 参数与统计假设见[跨独立实验比较](../results/comparisons.md#跨独立实验比较)。
 `--purpose` 支持 `same-hardware`、`cross-hardware`、`resource-scaling`；组内重复始终按相同硬件核验。
-`audit --compare` 和 `report` 使用同名取值的 `--comparison-purpose`；HTML 可在生成后切换用途。
+`audit --compare` 的 `--comparison-purpose` 使用相同的三个严格用途。`report` 另外支持默认的
+`within-experiment` 描述性资源比较，HTML 可以切换资源比较用途；独立运行比较沿用生成时的严格用途。
+`compare --html-output <新文件.html> --csv-output <新文件.csv>` 可与 JSON `--output` 同时导出，复用同一比较结果。
 资源扩容只放开 CPU/内存配额，双方资源坐标和仍需匹配的条件见[比较规则](../results/comparisons.md#跨独立实验比较)。
 TUI“实验结果 → 比较”复用同一入口，可选择左右组、基线和比较用途，直接展示结果而不强制保存中间 JSON；也可在“导入 / 导出”读取 CLI 输出的 JSON。
 `acprof load <源实验> --gpu off --scenario concurrent --concurrency 4 --output-dir <新目录>`

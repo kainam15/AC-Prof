@@ -97,11 +97,11 @@ start/stop/close 调用耗时，以及它们已有的逻辑采样边界；`windo
 其 `successful` 只反映请求、生命周期和快照状态，不代表硬件准确度通过。
 默认关闭时不增加计时、快照或文件，正式 CSV、采集器启停顺序与能耗公式保持原义。
 
-TUI 的“实验结果 → 统计”调用同一个 `acprof stats`，默认分析应用延迟、抓包延迟和容器归因有效能耗，
-使用 95% 区间、5000 次重采样、seed=0、block-size=1。子进程将结构化结果传回内存，直接显示表格，不强制生成 JSON 文件。
-“导入 / 导出”可显式保存 CSV 或完整 JSON；需要其他指标或连续块参数时，可先用 CLI 生成报告，再在 TUI 打开。
-表格将秒转换为 ms，能耗保留报告中的单位；真实零、无有效窗口、窗口不足和连续块中断分别显示。
-统计只描述已写入的正式成功窗口，不能代替 `acprof audit --require-complete --require-ok` 对实验完成度的验收。
+TUI 的“实验结果 → 分析报告”默认生成统一 HTML；“统计数据与导出”使用同一个 `acprof stats`。
+默认指标和参数不变，可在“分析参数”设置指标与 Bootstrap 参数；JSON / CSV 导出按需执行。
+统计表将秒转换为 ms，导出保留原始单位。窗口统计、配置汇总与独立运行均值都排除
+`inferred_not_measured`；独立报告将推断行单列为 `inferred_windows`，保留失败和缺失数量。
+统计仅描述已写入观测，不能代替 `acprof audit --require-complete --require-ok`。
 
 该页还可直接读取上述两种开销工具的成功报告，显示配对轮数、延迟变化和区间；headless 与 terminal
 的测量范围分别注明。未完成、失败、损坏或未知版本的报告显示错误，不保留上一份结果冒充新报告。
@@ -119,6 +119,9 @@ acprof compare --left results/a1/model --left results/a2/model --left results/a3
 `--output` 只接受新路径，已有文件、目录和符号链接（包括悬空链接）均拒绝覆盖。
 计算期间若目标被其他写入方创建，发布时仍会原子拒绝覆盖；写入、序列化或发布失败返回
 `比较失败` 和非零退出码，不留下未完成的 JSON。省略 `--output` 时继续向 stdout 输出 JSON。
+可同时使用 `--html-output comparison.html` 与 `--csv-output comparison.csv`；三个产物共享一次
+`compare_experiments` 结果，目的路径必须互不相同且不存在。HTML 附带各来源的资源矩阵和窗口统计，
+不会将窗口置信区间当作独立运行区间；HTML 筛选不重算运行分组。
 
 两侧分别代表同一实验定义的多次独立重启。每份源文件需要唯一 `run_id`；复制目录不能增加
 重复次数，同组中的模型／镜像／源码身份变化会阻止比较。使用现有条件审计匹配资源矩阵、

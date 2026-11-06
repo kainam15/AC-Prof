@@ -141,17 +141,19 @@ acprof report results/<model>/ --baseline '<config_id>' --output baseline.html
 发布时仍会原子检查目标是否存在：若其他写入方抢先创建文件、目录或符号链接，生成失败并保留目标，
 不发出成功回执。输出文件系统不支持这种拒绝覆盖的发布操作时明确报错，不退回覆盖写入。
 
-报告提供三个图表视图及「窗口统计」，共用 model/task/runtime、CPU/GPU、CPU count、memory、concurrency、
+报告包含「总览」「Comparison Matrix」「Pareto」「Scaling」「窗口统计」「实验对照」「数据质量」，共用 model/task/runtime、CPU/GPU、CPU count、memory、concurrency、
 input case、experiment batch 和环境筛选；点击表格行或图中点后，其他视图保留同一配置的选中状态。
 
 - **Comparison Matrix**：默认六项 latency/throughput/memory/energy/IPC/startup；显示实际值、
-  单位、状态和窗口数。列标题按数值排序，空值始终置后；可选 Summary、六个指标组或自定义指标。
+  单位、聚合口径、状态和窗口数。列标题按数值排序，空值始终置后；可选 Summary、六个指标组或自定义指标。
   同条件内逐列着色，lower/higher 从 Registry 读取，neutral 与 unavailable 保持灰色；颜色不是跨指标总分。
   每次筛选按“比较组 × 指标”预计算一次颜色范围，单元格仅做常数时间归一化；该部分为 O(MN)，
   不因单元格逐一重扫整组。排序不改变颜色范围，筛选后按剩余符合条件的观测重新计算。
 - **Baseline**：从任意配置选择，显示绝对值、`current - baseline` 和相对百分比。
-  baseline 为 0 时保留绝对差、百分比 unavailable。按所选用途共用严格比较的条件规则；
-  不兼容或证据不足时显示原因，保留绝对值，不计算改善比例。
+  默认 `within-experiment` 允许同一来源的历史数据做描述性资源比较，展示 CPU／内存／GPU 变化维度，
+  同时改变多项不归因于单一资源。额外展示 `current / baseline` 与按指标方向归一化的性能比；
+  基线为零时保留差值，百分比与比值不可用，非正基线不计算性能比。
+  已知输入或测量条件冲突时保留原因和绝对值，严格用途仍要求完整证据。
   `--baseline` 接受 config ID，只有单配置 run 才能直接用 run ID。
 - **Pareto / Trade-off**：四种 latency/throughput 与 energy/memory/VRAM 预设，X/Y 可选，
   点大小可映射第三指标，runtime/device 由颜色及形状区分。frontier 只比较当前用途下条件已核验
@@ -162,7 +164,7 @@ input case、experiment batch 和环境筛选；点击表格行或图中点后�
 - **Scaling**：CPU cores、memory、concurrency 可作资源轴，其他指标作 Y 轴；按 model/runtime、
   环境和输入条件分面。每条线固定其他资源、device、GPU 和 run，空值处断线；不跨配置条件连线。
   历史 CSV 没有 concurrency 时明确显示缺少该资源轴，不推断为 1。
-- **窗口统计**：按配置与指标展示均值、样本标准差（ddof=1）、95% CI、有效／缺失窗口数，
+- **窗口统计**：按配置与指标展示均值、样本标准差（ddof=1）、指定置信水平的 CI（默认 95%）、有效／缺失窗口数，
   分开列出指标缺失原因和预热、warn/error、推断行等排除数量；支持指标筛选和跨视图配置选择。
   来源区展示 Bootstrap 参数、抽样单位、统计假设、JSON 复用／重新计算原因，以及当前质量、
   运行状态、实验完整性、计划覆盖和可展开的原始审计证据。
@@ -171,16 +173,19 @@ input case、experiment batch 和环境筛选；点击表格行或图中点后�
 
 每个实验分别搜索 `plots/analysis/`（新版布局）、`analysis/` 和根目录中的 `window-statistics-*.json`，
 兼容自动统计、手动统计以及时间戳和历史 UUID 文件名。
-按修改时间从新到旧检查；修改时间只决定候选顺序，不证明有效性。只复用 schema v1、95% 置信水平、
+按修改时间从新到旧检查；修改时间只决定候选顺序，不证明有效性。只复用 schema v1、匹配置信水平（默认 95%）、
 既有循环块 percentile Bootstrap 口径且来源 SHA256、当前质量与完整性状态一致的报告。
 还会以同一分析快照校验配置分组、均值／标准差／窗口数和区间结构；命中时不再运行 Bootstrap，
-保留该 JSON 的指标选择、resamples、seed 和 block_size。不同 run、concurrency、输入或环境不混合，
+未显式覆盖时保留该 JSON 的指标选择、resamples、seed 和 block_size；
+显式 `--metric`、`--confidence`、`--resamples`、`--seed`、`--block-size` 不匹配则重新计算。不同 run、concurrency、输入或环境不混合，
 旧 JSON 的分组无法唯一对应 HTML 配置时重新计算。
 
 缺失、过期、损坏或不兼容的 JSON 在报告中保留原因，并继续寻找可用候选；没有命中时，
 从本次已读取的原始测量窗口调用既有 `summarize_windows`，默认计算 `latency_app_s`、`latency_s`、
 `container_attributed_energy_eff_j`，confidence=0.95、resamples=5000、seed=0、block_size=1。
 候选 JSON 有 32 MiB 读取上限，超限标为不可复用；权限与存储故障明确报错。
+所有窗口统计、配置汇总和独立运行均值统一排除 `inferred_not_measured`，不把推断值作为实测样本。
+旧 JSON 只有分组与重核摘要一致才复用；改变统计口径导致均值或窗口数不一致时重新计算。
 HTML 生成器不改写原始数据或统计 JSON；实验完成流程会先保存 JSON，手动统计仍使用 `acprof stats`。
 分层结果只消费 manifest 声明的 committed 数据，不读取未提交尾部；统计结束及发布 HTML 前
 复核结果与已解析元数据的内容，发生变化时拒绝发布。
@@ -198,17 +203,18 @@ HTML 生成器不改写原始数据或统计 JSON；实验完成流程会先保�
 不复制第三方代码、不新增依赖；所有检查与计算位于正式测量窗口之外。
 
 HTML 的 `comparison_profiles` 从相同 Python 规则生成，按当前配置选择物化输入与实际 workload；
-浏览器只比较归一化证据和精确有理数分布，不自行放宽 task 或硬件策略。
+基线的条件判定及差值、百分比、比值由 Python 预计算，浏览器只选择对应结果，不重复实现统计公式。
 同一次加载复用各来源的固定条件哈希、输入规模索引和 workload 归一化证据，原始输入顺序及内容
 仍参与比较。资源坐标、硬件策略和 runtime threads 继续按配置与用途核对。
 复用限定在本次加载，各用途的返回结果独立；后续加载会重新读取并准备来源证据。
 `--comparison-purpose` 指定初始用途，报告内也可切换。没有 baseline 时按完整证据分组；选择后立即显示成对原因。
-每次刷新在独立的比较上下文中核验各配置一次，摘要、所选配置详情、各指标差值和 Pareto
-共享该结果；显示更多指标不会重复核验 workload。下一次刷新重新建立上下文，baseline、
-用途或筛选变化后不沿用上一轮的判断，也不在配置对象上保存缓存。
+浏览器刷新按 baseline 和用途选择预计算结果，摘要、所选配置详情、各指标差值和 Pareto 共用资格；
+展示更多指标不会重复核验 workload。颜色和 frontier 是图形布局计算，统计公式仍留在 Python。
 这些比较用于探索已记录数据，不证明不同模型质量等价、持续硬件隔离或统计显著性。
 独立实验的条件审计和 CI 继续使用[跨独立实验比较](comparisons.md#跨独立实验比较)；已有 `acprof compare` 语义保持不变。
-窗口统计不改变独立 JSON / CSV 导出入口。
+窗口统计不改变独立 JSON / CSV 导出入口。报告的导出按钮保存当前筛选的已计算值及参数、来源 hash；
+独立比较筛选仅隐藏完整配置组，不重算或删除该组中的独立运行。总览显示模型、硬件、窗口规模及逐配置的关键指标，不平均不同资源条件，
+数据质量页集中显示来源审计、失败／缺失／推断行和身份限制；unknown 保留原义。
 
 实现直接复用 [Plotly](https://github.com/plotly/plotly.py) 的图形与离线 bundle，参考
 [HTML renderer](https://github.com/plotly/plotly.py/blob/main/plotly/io/_html.py) 和
@@ -324,3 +330,9 @@ HTML 原样展示 `independent_comparison.compare_experiments()` 的条件检查
 缺少真实运行身份的历史 CSV 继续支持窗口统计和资源矩阵，但独立比较明确 unavailable，
 不会补造 `run_state.json`。跨模型图按任务、输入及环境分面；条件不兼容时仅并列显示绝对值。
 即使条件兼容，也不能把不同任务的原始延迟或不同质量目标解释为模型优劣。
+
+统一分析借鉴 [pyperf 的基线与比值展示](https://github.com/psf/pyperf/blob/main/pyperf/_compare.py)、
+[ASV 的统计层](https://github.com/airspeed-velocity/asv/blob/main/asv/_stats.py)及
+[ASV #752 的近似比值误读讨论](https://github.com/airspeed-velocity/asv/issues/752)。复用现有
+Plotly 离线 bundle、AC-Prof AnalysisModel 和运行级 Bootstrap；不引入 pyperf/ASV 依赖，
+不复制它们的显著性判定，也不以窗口数替代独立运行。所有新增分析仅在测量窗口之外执行。

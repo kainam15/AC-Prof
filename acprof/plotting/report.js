@@ -349,8 +349,25 @@
       if (!matches.length) continue;
       const article = element("article", undefined, "statistics-source");
       article.append(element("h3", matches[0].model), element("p", source.source),
-        element("p", `${matches.length} 个配置 · ${matches.reduce((sum, config) => sum + config.valid_windows, 0)} 个有效窗口`),
-        element("pre", JSON.stringify(source.identity, null, 2)));
+        element("p", `${matches.length} 个配置 · ${matches.reduce((sum, config) => sum + config.valid_windows, 0)} 个有效窗口`));
+      for (const [key, title] of [["model_revision", "Revision"], ["runtime_backend", "Runtime"],
+        ["pipeline_tag", "任务"], ["input_scale_type", "输入单位"], ["cpu_model", "CPU"], ["gpu", "GPU"]]) {
+        article.append(element("p", `${title}: ${text(source.identity[key])}`));
+      }
+      article.append(element("h3", "关键指标 · 按配置展示，不合并不同资源条件"));
+      const wrap = element("div", undefined, "table-scroll"), table = element("table");
+      const head = element("thead"), titles = element("tr"), body = element("tbody");
+      const metrics = ["latency_app_p95_s", "throughput_samples_per_s", "observed_energy_per_request_j"];
+      titles.append(element("th", "配置 / 输入"));
+      for (const metric of metrics) titles.append(element("th", metricTitle(metric)));
+      head.append(titles);
+      for (const config of matches) {
+        const row = element("tr"); row.dataset.configId = config.config_id;
+        row.append(element("td", fullLabel(config)));
+        for (const metric of metrics) row.append(element("td", fmt(V.value(config, metric))));
+        row.onclick = () => selectConfig(config); body.append(row);
+      }
+      table.append(head, body); wrap.append(table); article.append(wrap);
       $("overview-content").append(article);
     }
   }

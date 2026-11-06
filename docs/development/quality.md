@@ -189,7 +189,9 @@ unset UV_PROJECT_ENVIRONMENT
 CI 在准备阶段用 `playwright install --with-deps chromium` 安装锁定 Playwright 对应的 Chromium。
 默认使用这份浏览器；`ACPROF_BROWSER_EXECUTABLE` 仅供显式验证其他浏览器版本时覆盖，不自动选择系统 Chrome。
 测试使用 `offline=True`，页面不得产生 HTTP(S) 请求或 JavaScript 异常；覆盖原有五项 baseline、筛选、
-排序、跨图选择、Pareto、窄屏交互，以及质量筛选和原始证据展示。未设置 `ACPROF_BROWSER_TESTS=1` 时
+排序、跨图选择、Pareto、窄屏交互，以及质量筛选和原始证据展示。
+统一报告另覆盖资源基线的 Python 差值／比值、窗口统计缓存、独立运行数与区间隔离、
+总览与数据质量的共享筛选，以及 CSV / JSON 导出值。原始证据限高滚动，避免展开后撑长整个页面。未设置 `ACPROF_BROWSER_TESTS=1` 时
 普通主机测试明确 skip，浏览器 job 使用 `--require-no-skips` 要求实际执行。
 报告固定保存在 artifact 目录，测试失败另保存页面截图、DOM、console/page error、原报告和 Playwright trace。
 测试报告和日志无论成功失败均由 CI 上传。浏览器安装需要网络，页面交互本身离线。

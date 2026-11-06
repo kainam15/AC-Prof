@@ -15,7 +15,16 @@ AC-Prof 用于分析 AI 模型在不同 CPU、内存、GPU 配置和输入规模
 | 完整画像   | 能耗、抓包计时、CPU 硬件计数器，以及按需启用的独立 Profiler |
 | 可复现实验 | 输入与环境元数据、分层 CSV 结果、图表和报告                 |
 
-[离线 HTML 报告](../results/reports.md#html-窗口统计与-json-复用)统一展示图表、窗口均值与标准差、95% 实验内置信区间，以及质量和完整性证据；优先复用有效的统计 JSON，否则从已记录窗口重新计算。实验完成后（含 `--resume`）自动在 `plots/analysis/` 生成新报告并打印路径。
+[离线 HTML 报告](../results/reports.md#交互式配置比较报告)是统一分析入口。一份 `result_all.csv` 即可比较 CPU、内存和 GPU 配置并查看实验内窗口统计；显式独立运行分组复用原有身份与条件检查，每侧至少三次有效独立运行才估计 Bootstrap 置信区间。多个模型可以并列展示，并提示任务与输入的可比性限制。Python 负责全部统计计算并复用匹配的统计 JSON，离线浏览器负责筛选、图表与 CSV / JSON 导出。历史 CSV 无需补造运行身份或重新采集。实验完成后（含 `--resume`）也会在 `plots/analysis/` 生成新报告。
+
+```bash
+acprof report result_all.csv --output resources.html
+acprof report model-a.csv model-b.csv --output models.html
+acprof compare --left run-a/ --right run-b/ --html-output comparison.html \
+  --output comparison.json --csv-output comparison.csv
+```
+
+重复 `--left` 和 `--right` 可添加独立重复实验。每侧只有一次运行时展示描述性差值与比值，不生成运行级区间。TUI 的“实验结果 → 分析报告”统一提供输入、参数和 HTML 操作；“比较”完成后显示报告入口，保留可选 JSON / CSV 导出。
 
 支持文本、视觉、音频、时间序列、Diffusion、多模态与结构化数据任务，但模型仍需满足[任务接口要求](../models/supported-tasks.md#任务支持范围)，并非所有同类 checkpoint 都保证可运行。
 

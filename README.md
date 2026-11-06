@@ -15,7 +15,16 @@ AC-Prof profiles AI model inference across CPU, memory, GPU, and input-size conf
 | Full profiling            | Energy, packet-level timing, CPU hardware counters, and optional independent profilers |
 | Reproducible experiments  | Input and environment metadata, layered CSV results, plots, and reports                |
 
-The [offline HTML report](docs/results/reports.md#html-窗口统计与-json-复用) combines charts, window means and standard deviations, 95% within-run confidence intervals, and quality/completeness evidence. It reuses valid statistics JSON or recalculates from recorded windows. Completed experiments (including `--resume`) automatically generate a new report under `plots/analysis/` and print its path.
+The [offline HTML report](docs/results/reports.md#交互式配置比较报告) is the unified analysis entry point. One `result_all.csv` supports descriptive CPU, memory and GPU comparisons and within-run window statistics. Explicit groups of independent runs use the existing strict identity and condition checks; each side needs at least three valid runs for a Bootstrap confidence interval. Multiple models can be viewed side by side with task/input comparability limits. Python computes all estimates and reuses matching statistics JSON; the offline browser filters, plots and exports CSV / JSON. Historical CSVs remain usable without fabricated run identities or new collection. Completed experiments (including `--resume`) also generate a new report under `plots/analysis/`.
+
+```bash
+acprof report result_all.csv --output resources.html
+acprof report model-a.csv model-b.csv --output models.html
+acprof compare --left run-a/ --right run-b/ --html-output comparison.html \
+  --output comparison.json --csv-output comparison.csv
+```
+
+Repeat `--left` and `--right` for independent replicates. A single run per side shows descriptive differences and ratios without a run-level interval. In the TUI, **Results → Analysis** provides inputs, analysis options and HTML actions; **Compare** opens the generated report and retains optional JSON / CSV exports.
 
 AC-Prof supports text, vision, audio, time series, diffusion, multimodal, and structured-data workloads when the model meets the [supported task interfaces](docs/models/supported-tasks.md#任务支持范围). A task label alone does not guarantee that every checkpoint will run.
 
