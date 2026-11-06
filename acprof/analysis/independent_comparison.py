@@ -88,7 +88,7 @@ _FINGERPRINTED_METADATA_FILES = (
 def _record_experiment_fingerprints(
     metadata_snapshot: ResultMetadataSnapshot,
     result_path: Path,
-    result_snapshot: Any,
+    result_snapshot: ResultCsvSnapshot,
     fingerprints: dict[Path, str | None],
 ) -> None:
     layout = metadata_snapshot.layout
@@ -107,10 +107,8 @@ def _collect_run_case_groups(
     complete: bool,
     purpose: str,
     metrics: list[str],
-    evidence: dict[str, Any],
-    side: str,
-    groups: defaultdict[tuple[str, ...], dict[str, list[dict[str, Any]]]],
-) -> None:
+) -> dict[tuple[str, ...], dict[str, Any]]:
+    groups = {}
     by_case = defaultdict(list)
     for row in rows:
         key = measurement_key(row)
@@ -130,7 +128,7 @@ def _collect_run_case_groups(
         inferred_count = sum(row.get("result_origin", "").strip() == "inferred_not_measured" for row in windows)
         for metric in metrics:
             window_values = [value for row in measured if (value := number(row.get(metric))) is not None]
-            groups[(*comparison_case, metric)][side].append({
+            groups[(*comparison_case, metric)] = {
                 "run_id": run_id,
                 "mean": statistics.fmean(window_values) if window_values and complete else None,
                 "resource_coordinates": {"cpu_cores": number(case[0]), "mem_cap_gb": number(case[1])},
@@ -139,8 +137,8 @@ def _collect_run_case_groups(
                 "missing_windows": len(measured) - len(window_values),
                 "inferred_windows": inferred_count,
                 "eligible": complete,
-                **evidence,
-            })
+            }
+    return groups
 
 
 def _summarize_group_metric(
@@ -216,7 +214,7 @@ def _summarize_group_metric(
 class _ExperimentSnapshot:
     run_id: str
     status: Any
-    result: ResultCsvSnapshot
+    groups: dict[tuple[str, ...], dict[str, Any]]
     comparison: dict[str, Any]
     fingerprints: dict[Path, str | None]
 
@@ -230,13 +228,13 @@ def _unique_run_id(run_id: object, seen: set[str]) -> str:
 
 
 class ExperimentComparisonSession:
-    """Reuse parsed runs within one report; each comparison rechecks its sources."""
+    """Reuse run summaries within one report; each comparison rechecks its sources."""
 
     def __init__(self) -> None:
-        self._snapshots: dict[Path, _ExperimentSnapshot] = {}
+        self._snapshots: dict[tuple[Path, tuple[str, ...], bool], _ExperimentSnapshot] = {}
 
-    def _load(self, source: Path, run_ids: set[str]) -> _ExperimentSnapshot:
-        key = source.resolve()
+    def _load(self, source: Path, run_ids: set[str], *, metrics: list[str], purpose: str) -> _ExperimentSnapshot:
+        key = (source.resolve(), tuple(metrics), purpose == "resource-scaling")
         if cached := self._snapshots.get(key):
             _unique_run_id(cached.run_id, run_ids)
             return cached
@@ -255,7 +253,11 @@ class ExperimentComparisonSession:
             metadata_snapshot.verify_observed_sources(fingerprints)
         except ValueError as error:
             raise ValueError(f"experiment changed during comparison: {error}") from error
-        loaded = _ExperimentSnapshot(run_id, state.get("status"), result_snapshot,
+        groups = _collect_run_case_groups(
+            result_snapshot.rows, run_id=run_id, complete=state.get("status") == "complete",
+            purpose=purpose, metrics=metrics,
+        )
+        loaded = _ExperimentSnapshot(run_id, state.get("status"), groups,
                                      current_snapshot, fingerprints)
         self._snapshots[key] = loaded
         return loaded
@@ -280,7 +282,7 @@ class ExperimentComparisonSession:
             group_snapshot = None
             for path in paths:
                 source = Path(path)
-                loaded = self._load(source, run_ids)
+                loaded = self._load(source, run_ids, metrics=metrics, purpose=purpose)
                 run_id = loaded.run_id
                 run_ids.add(run_id)
                 complete = loaded.status == "complete"
@@ -304,11 +306,8 @@ class ExperimentComparisonSession:
                     checks.append({"status": "incompatible", "run_id": run_id,
                                    "reason": "replicates_change_experiment_identity",
                                    "differences": within["expected_differences"]})
-                _collect_run_case_groups(
-                    loaded.result.rows, run_id=run_id, complete=complete,
-                    purpose=purpose, metrics=metrics, evidence=evidence,
-                    side=side, groups=groups,
-                )
+                for case_metric, record in deepcopy(loaded.groups).items():
+                    groups[case_metric][side].append({**record, **evidence})
         statuses = {check["status"] for check in checks}
         status = "incompatible" if "incompatible" in statuses else "unknown" if "unknown" in statuses else "compatible"
         output = [
