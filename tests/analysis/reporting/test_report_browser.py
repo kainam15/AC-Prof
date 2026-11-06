@@ -381,6 +381,10 @@ class TestReportBrowser:
         previous = self.page.locator("#statistics tbody").inner_text()
         self.page.select_option("#statistics-resamples", "10000")
         self.page.click("#statistics-recalculate")
+        # Progress counts the selected metric, not every available metric's input arrays.
+        self.page.wait_for_function("() => document.querySelector('#statistics-progress').value >= .5")
+        assert self.page.locator("#statistics-progress").get_attribute("value") != "1"
+        assert self.page.locator("body").get_attribute("data-calculating") == "true"
         self.page.click("#statistics-cancel")
         self.page.wait_for_function("() => document.body.dataset.calculating === 'false'")
         self.settled()

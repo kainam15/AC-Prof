@@ -68,8 +68,10 @@ window.ACProfStatisticsControls = ({workspace, $, option, refresh, schedule}) =>
     controller = job; busy(true); progress(0);
     try {
       const options = selection(), windows = [], comparisons = [];
-      const jobs = Math.max(1, data.window_statistics.reduce((n, report) => n + (report.recalculation?.groups?.length || report.groups.length), 0) +
-        data.experiment_comparisons.reduce((n, entry) => n + (entry.report?.groups.length || 0), 0));
+      const selectedCount = groups => groups.filter(group => options.metrics.includes(group.metric)).length;
+      const jobs = Math.max(1, data.window_statistics.reduce((n, report) => n + selectedCount(
+        importedInputs.get(key(report)) || report.recalculation?.groups || report.groups), 0) +
+        data.experiment_comparisons.reduce((n, entry) => n + selectedCount(entry.report?.groups || []), 0));
       let done = 0;
       const hooks = {signal:job.signal, onProgress:fraction => {
         progress(Math.min(.99, (done + fraction) / jobs));
@@ -80,6 +82,7 @@ window.ACProfStatisticsControls = ({workspace, $, option, refresh, schedule}) =>
         const initial = workspace.initialStatistics().find(report => key(report) === key(current));
         if (initial && initial.engine !== "browser" && matches(initial, options)) {
           windows.push({...initial, groups:initial.groups.filter(group => options.metrics.includes(group.metric))});
+          done += selectedCount(initial.groups);
           continue;
         }
         const inputs = importedInputs.get(key(current)) || current.recalculation?.groups;
