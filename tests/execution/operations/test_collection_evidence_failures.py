@@ -38,18 +38,18 @@ def test_evidence_failures_keep_primary_other_reports_and_resume(collection, fai
     def measure(request, **kwargs):
         if request.cpu == 2 and primary is not None:
             raise primary
-        path = Path(collection.write_case(request, **kwargs))
-        measurements[path] = path.read_bytes()
+        case_csv = Path(collection.write_case(request, **kwargs))
+        measurements[case_csv] = case_csv.read_bytes()
         if request.cpu == 1:
-            layout = ArtifactLayout.discover(collection.directory)
-            for kind, payload in payloads.items():
-                sidecar = case_sidecar(path, kind)
-                sidecar.write_text("{broken" if kind in broken else json.dumps(payload))
-                sidecars[kind] = sidecar
-                report = layout.path(kind + ".json")
-                report.write_text('{"schema_version": 1, "checks": [], "failures": []}\n')
-                reports[kind], originals[kind] = report, report.read_bytes()
-        return str(path)
+            case_layout = ArtifactLayout.discover(collection.directory)
+            for evidence_kind, payload in payloads.items():
+                sidecar = case_sidecar(case_csv, evidence_kind)
+                sidecar.write_text("{broken" if evidence_kind in broken else json.dumps(payload))
+                sidecars[evidence_kind] = sidecar
+                aggregate = case_layout.path(evidence_kind + ".json")
+                aggregate.write_text('{"schema_version": 1, "checks": [], "failures": []}\n')
+                reports[evidence_kind], originals[evidence_kind] = aggregate, aggregate.read_bytes()
+        return str(case_csv)
 
     errors = io.StringIO()
     with pytest.raises(type(primary) if primary is not None else SystemExit) as caught:
@@ -57,7 +57,7 @@ def test_evidence_failures_keep_primary_other_reports_and_resume(collection, fai
 
     if primary is not None:
         assert caught.value is primary
-        diagnostic = "\n".join((str(primary), *primary.__notes__))
+        diagnostic = "\n".join((str(caught.value), *caught.value.__notes__))
     else:
         assert isinstance(caught.value, SystemExit)
         assert caught.value.code == 2
@@ -94,7 +94,7 @@ def test_evidence_failures_keep_primary_other_reports_and_resume(collection, fai
 def test_evidence_read_cancellation_keeps_prior_failure_and_collects_other_report(collection, monkeypatch, failure_type):
     primary = failure_type("fixture matrix failure")
     cancellation = KeyboardInterrupt("fixture evidence read cancelled")
-    quality_path = None
+    quality_path: Path | None = None
     original_open = Path.open
 
     def measure(request, **kwargs):
@@ -108,7 +108,7 @@ def test_evidence_read_cancellation_keeps_prior_failure_and_collects_other_repor
         quality_path = quality
         return str(path)
 
-    def open_file(path, *args, **kwargs):
+    def open_file(path: Path, *args, **kwargs):
         if path == quality_path:
             raise cancellation
         return original_open(path, *args, **kwargs)
