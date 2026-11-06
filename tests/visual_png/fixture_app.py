@@ -7,10 +7,13 @@ hardware queries, model resolution, or profiling are allowed in this fixture.
 from __future__ import annotations
 
 import argparse
+import asyncio
 import sys
 from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
+
+from textual import events
 
 from acprof.platform import Environment
 from acprof.tui.app import AcprofTui
@@ -24,6 +27,8 @@ def forbidden_operation(*_args: object, **_kwargs: object) -> None:
 class VisualFixtureApp(AcprofTui):
     def __init__(self, scenario: str, *, settings_path: Path):
         self.scenario = SCENARIOS[scenario]
+        self.scene_ready = asyncio.Event()
+        self.scene_started = False
         super().__init__(self.scenario.config(), settings_path=settings_path)
         self.configuration.preferences = replace(
             self.configuration.preferences,
@@ -38,9 +43,16 @@ class VisualFixtureApp(AcprofTui):
         self.results.restore_recent_result = lambda: None  # type: ignore[method-assign]
         self.images.refresh_images = forbidden_operation  # type: ignore[method-assign]
 
-    def on_mount(self) -> None:
-        super().on_mount()
-        self.call_after_refresh(self.scenario.mount, self)
+    def on_descendant_focus(self, event: events.DescendantFocus) -> None:
+        # AcprofTui initially focuses #model. Wait for that event to bubble
+        # before switching scenes, so a stale TabPane.Focused cannot reopen Run.
+        if event.widget.id != "model" or self.scene_started:
+            return
+        self.scene_started = True
+        def prepare_scene() -> None:
+            self.scenario.mount(self)
+            self.call_after_refresh(self.scene_ready.set)
+        self.call_after_refresh(prepare_scene)
 
 
 def main() -> int:

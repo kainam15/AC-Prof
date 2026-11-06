@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from itertools import combinations
 
 import pytest
@@ -32,13 +33,16 @@ async def test_visible_controls_fit_without_overlap(
     spec = SCENARIOS[scene]
     app = VisualFixtureApp(scene, settings_path=tmp_path / "settings.json")
     async with app.run_test(size=(spec.columns, spec.rows)) as pilot:
-        await pilot.pause()
+        await asyncio.wait_for(app.scene_ready.wait(), timeout=5)
         await app.workers.wait_for_complete()
         await pilot.pause()
         controls = [app.screen.query_one(selector) for selector in selectors]
+        state = {"main": app.query_one("#main-tabs").active,
+                 "results": app.query_one("#result-views").active,
+                 "focused": str(app.focused), "pane_display": app.query_one("#results-tab").display}
         for control in controls:
             region = control.region
-            assert region.width > 0, f"{scene}: invisible {control.id}"
+            assert region.width > 0, f"{scene}: invisible {control.id}; {state}"
             assert region.height > 0, f"{scene}: invisible {control.id}"
             assert region.x >= 0, f"{scene}: negative {control.id}"
             assert region.y >= 0, f"{scene}: negative {control.id}"
