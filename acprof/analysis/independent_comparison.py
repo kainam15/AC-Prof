@@ -6,6 +6,8 @@ import math
 import random
 import statistics
 from collections import defaultdict
+from copy import deepcopy
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +20,7 @@ from acprof.artifacts import file_sha256
 from acprof.hardware_conditions import conditions_path
 from acprof.quality import QUALITY_FIELDS, combine_quality
 from acprof.results.csv import (
+    ResultCsvSnapshot,
     is_measured_success,
     measurement_key,
     read_result_csv_snapshot,
@@ -209,90 +212,134 @@ def _summarize_group_metric(
     return result
 
 
+@dataclass(frozen=True)
+class _ExperimentSnapshot:
+    run_id: str
+    status: Any
+    result: ResultCsvSnapshot
+    comparison: dict[str, Any]
+    fingerprints: dict[Path, str | None]
+
+
+def _unique_run_id(run_id: object, seen: set[str]) -> str:
+    if not isinstance(run_id, str) or not run_id:
+        raise ValueError("independent comparison requires recorded run IDs")
+    if run_id in seen:
+        raise ValueError(f"duplicate independent run: {run_id}")
+    return run_id
+
+
+class ExperimentComparisonSession:
+    """Reuse parsed runs within one report; each comparison rechecks its sources."""
+
+    def __init__(self) -> None:
+        self._snapshots: dict[Path, _ExperimentSnapshot] = {}
+
+    def _load(self, source: Path, run_ids: set[str]) -> _ExperimentSnapshot:
+        key = source.resolve()
+        if cached := self._snapshots.get(key):
+            _unique_run_id(cached.run_id, run_ids)
+            return cached
+        metadata_snapshot = ResultMetadataSnapshot(source)
+        layout = metadata_snapshot.layout
+        result_path = layout.result_csv if source.is_dir() else source.absolute()
+        result_snapshot = read_result_csv_snapshot(result_path)
+        fingerprints: dict[Path, str | None] = {}
+        _record_experiment_fingerprints(metadata_snapshot, result_path, result_snapshot, fingerprints)
+        state = metadata_snapshot.read("run_state.json", label="run state").payload
+        run_id = _unique_run_id(state.get("run_id"), run_ids)
+        current_snapshot = load_comparison_snapshot(source, result_snapshot=result_snapshot,
+                                                    metadata_snapshot=metadata_snapshot,
+                                                    verify_result_snapshot=False)
+        try:
+            metadata_snapshot.verify_observed_sources(fingerprints)
+        except ValueError as error:
+            raise ValueError(f"experiment changed during comparison: {error}") from error
+        loaded = _ExperimentSnapshot(run_id, state.get("status"), result_snapshot,
+                                     current_snapshot, fingerprints)
+        self._snapshots[key] = loaded
+        return loaded
+
+    def compare(self, left, right, *, metrics, purpose="same-hardware",
+                confidence=0.95, resamples=5000, seed=0):
+        # Reuse the metric/window validation contract; no profiler or lifecycle reuse values.
+        validate_window_options(metrics, confidence=confidence, resamples=resamples)
+        if not left or not right:
+            raise ValueError("both comparison groups require at least one experiment")
+        sources = {"left": expand_result_sources(left), "right": expand_result_sources(right)}
+        experiments: dict[str, list[dict[str, Any]]] = {}
+        run_ids: set[str] = set()
+        fingerprints: dict[Path, str | None] = {}
+        groups: defaultdict[tuple[str, ...], dict[str, list[dict[str, Any]]]] = defaultdict(
+            lambda: {"left": [], "right": []}
+        )
+        checks: list[dict[str, Any]] = []
+        reference_snapshot = None
+        for side, paths in sources.items():
+            experiments[side] = []
+            group_snapshot = None
+            for path in paths:
+                source = Path(path)
+                loaded = self._load(source, run_ids)
+                run_id = loaded.run_id
+                run_ids.add(run_id)
+                complete = loaded.status == "complete"
+                fingerprints.update(loaded.fingerprints)
+                # Returned comparison dictionaries must not expose the reusable evidence.
+                current_snapshot = deepcopy(loaded.comparison)
+                if reference_snapshot is None:
+                    reference_snapshot = current_snapshot
+                if group_snapshot is None:
+                    group_snapshot = current_snapshot
+                cross = compare_snapshots(reference_snapshot, current_snapshot, purpose=purpose)
+                snapshot = cross["experiments"]["right"]
+                evidence = {key: snapshot[key] for key in (*QUALITY_FIELDS, "run_status", "measurement_status")}
+                experiments[side].append({"run_id": run_id, "source": str(source.resolve()),
+                                          "state": loaded.status, "eligible": complete, **evidence})
+                checks.append({"left_run_id": next(iter(experiments["left"]))["run_id"],
+                               "right_run_id": run_id, **cross})
+                within = compare_snapshots(group_snapshot, current_snapshot, purpose="same-hardware")
+                checks.append({**within, "group": side, "within_group": True, "run_id": run_id})
+                if within and within["expected_differences"]:
+                    checks.append({"status": "incompatible", "run_id": run_id,
+                                   "reason": "replicates_change_experiment_identity",
+                                   "differences": within["expected_differences"]})
+                _collect_run_case_groups(
+                    loaded.result.rows, run_id=run_id, complete=complete,
+                    purpose=purpose, metrics=metrics, evidence=evidence,
+                    side=side, groups=groups,
+                )
+        statuses = {check["status"] for check in checks}
+        status = "incompatible" if "incompatible" in statuses else "unknown" if "unknown" in statuses else "compatible"
+        output = [
+            _summarize_group_metric(
+                case_metric, sides, sources=sources, checks=checks,
+                status=status, purpose=purpose, confidence=confidence,
+                resamples=resamples, seed=seed,
+            )
+            for case_metric, sides in sorted(groups.items())
+        ]
+        for artifact, digest in fingerprints.items():
+            _verify_source(artifact, digest)
+        return {"schema_version": 1, "kind": "independent_experiment_comparison", "status": status,
+                "allowed_resource_dimensions": ALLOWED_RESOURCE_DIMENSIONS if purpose == "resource-scaling" else [],
+                "purpose": purpose, "confidence": confidence, "resamples": resamples, "seed": seed,
+                "resampling_unit": "independent_run_mean", "method": "unpaired_percentile_bootstrap",
+                "direction": "right_minus_left_and_right_divided_by_left", "groups": output,
+                "experiments": experiments, "condition_checks": checks,
+                "quality": {side: combine_quality(records) for side, records in experiments.items()},
+                "limitations": ["distinct run IDs and independent restarts are required; independence is an experimental assumption",
+                                "resource-scaling allows CPU and memory quotas; simultaneous changes do not isolate either effect",
+                                "successful windows are averaged equally within a run; run means are then weighted equally",
+                                "intervals describe run variability, not continuous isolation, thermal equivalence or model quality",
+                                "failed and missing windows are excluded and reported; success-conditioned estimates may be biased"],
+                "source_sha256": {str(path): digest for path, digest in fingerprints.items()}}
+
+
 def compare_experiments(left, right, *, metrics, purpose="same-hardware",
                         confidence=0.95, resamples=5000, seed=0):
-    # Reuse the metric/window validation contract; no profiler or lifecycle reuse values.
-    validate_window_options(metrics, confidence=confidence, resamples=resamples)
-    if not left or not right:
-        raise ValueError("both comparison groups require at least one experiment")
-    sources = {"left": expand_result_sources(left), "right": expand_result_sources(right)}
-    experiments: dict[str, list[dict[str, Any]]] = {}
-    run_ids: set[str] = set()
-    fingerprints: dict[Path, str | None] = {}
-    groups: defaultdict[tuple[str, ...], dict[str, list[dict[str, Any]]]] = defaultdict(
-        lambda: {"left": [], "right": []}
+    """Compare one pair of groups using a fresh source-reading session."""
+    return ExperimentComparisonSession().compare(
+        left, right, metrics=metrics, purpose=purpose,
+        confidence=confidence, resamples=resamples, seed=seed,
     )
-    checks: list[dict[str, Any]] = []
-    reference_snapshot = None
-    for side, paths in sources.items():
-        experiments[side] = []
-        group_snapshot = None
-        for path in paths:
-            source = Path(path)
-            metadata_snapshot = ResultMetadataSnapshot(source)
-            layout = metadata_snapshot.layout
-            result_path = layout.result_csv if source.is_dir() else source.absolute()
-            result_snapshot = read_result_csv_snapshot(result_path)
-            _record_experiment_fingerprints(metadata_snapshot, result_path, result_snapshot, fingerprints)
-            state = metadata_snapshot.read("run_state.json", label="run state").payload
-            run_id = state.get("run_id")
-            if not isinstance(run_id, str) or not run_id:
-                raise ValueError("independent comparison requires recorded run IDs")
-            if run_id in run_ids:
-                raise ValueError(f"duplicate independent run: {run_id}")
-            run_ids.add(run_id)
-            complete = state.get("status") == "complete"
-            current_snapshot = load_comparison_snapshot(path, result_snapshot=result_snapshot,
-                                                        metadata_snapshot=metadata_snapshot,
-                                                        verify_result_snapshot=False)
-            try:
-                metadata_snapshot.verify_observed_sources(fingerprints)
-            except ValueError as error:
-                raise ValueError(f"experiment changed during comparison: {error}") from error
-            if reference_snapshot is None:
-                reference_snapshot = current_snapshot
-            if group_snapshot is None:
-                group_snapshot = current_snapshot
-            cross = compare_snapshots(reference_snapshot, current_snapshot, purpose=purpose)
-            snapshot = cross["experiments"]["right"]
-            evidence = {key: snapshot[key] for key in (*QUALITY_FIELDS, "run_status", "measurement_status")}
-            experiments[side].append({"run_id": run_id, "source": str(source.resolve()),
-                                      "state": state.get("status"), "eligible": complete, **evidence})
-            checks.append({"left_run_id": next(iter(experiments["left"]))["run_id"],
-                           "right_run_id": run_id, **cross})
-            within = compare_snapshots(group_snapshot, current_snapshot, purpose="same-hardware")
-            checks.append({**within, "group": side, "within_group": True, "run_id": run_id})
-            if within and within["expected_differences"]:
-                checks.append({"status": "incompatible", "run_id": run_id,
-                               "reason": "replicates_change_experiment_identity",
-                               "differences": within["expected_differences"]})
-            _collect_run_case_groups(
-                result_snapshot.rows, run_id=run_id, complete=complete,
-                purpose=purpose, metrics=metrics, evidence=evidence,
-                side=side, groups=groups,
-            )
-    statuses = {check["status"] for check in checks}
-    status = "incompatible" if "incompatible" in statuses else "unknown" if "unknown" in statuses else "compatible"
-    output = [
-        _summarize_group_metric(
-            case_metric, sides, sources=sources, checks=checks,
-            status=status, purpose=purpose, confidence=confidence,
-            resamples=resamples, seed=seed,
-        )
-        for case_metric, sides in sorted(groups.items())
-    ]
-    for artifact, digest in fingerprints.items():
-        _verify_source(artifact, digest)
-    return {"schema_version": 1, "kind": "independent_experiment_comparison", "status": status,
-            "allowed_resource_dimensions": ALLOWED_RESOURCE_DIMENSIONS if purpose == "resource-scaling" else [],
-            "purpose": purpose, "confidence": confidence, "resamples": resamples, "seed": seed,
-            "resampling_unit": "independent_run_mean", "method": "unpaired_percentile_bootstrap",
-            "direction": "right_minus_left_and_right_divided_by_left", "groups": output,
-            "experiments": experiments, "condition_checks": checks,
-            "quality": {side: combine_quality(records) for side, records in experiments.items()},
-            "limitations": ["distinct run IDs and independent restarts are required; independence is an experimental assumption",
-                            "resource-scaling allows CPU and memory quotas; simultaneous changes do not isolate either effect",
-                            "successful windows are averaged equally within a run; run means are then weighted equally",
-                            "intervals describe run variability, not continuous isolation, thermal equivalence or model quality",
-                            "failed and missing windows are excluded and reported; success-conditioned estimates may be biased"],
-            "source_sha256": {str(path): digest for path, digest in fingerprints.items()}}

@@ -437,6 +437,9 @@ HTML 原样展示 `independent_comparison.compare_experiments()` 的条件检查
 是比较 JSON 的可选增量字段，不改变原 CSV；旧 JSON 仍可导入。每组少于三次有效独立运行
 仅给描述性差值，原因保留 `insufficient_independent_runs`。窗口的 block-size 不用于独立运行抽样。
 复用既有严格报告时，生成前和发布前都复核其来源指纹，不能用过期比较配合新 CSV。
+同一次报告生成中的多个有向对照复用每个来源的 CSV 解析快照和比较审计；
+每个对照仍核对来源内容与元数据指纹，来源变化时拒绝发布。复用只持续到本次生成结束，
+下次生成重新读取；缓存中的同一 run ID 仍不能作为多个独立重复。
 
 缺少真实运行身份的历史 CSV 继续支持窗口统计和资源矩阵，但独立比较明确 unavailable，
 不会补造 `run_state.json`。跨模型图按任务、输入及环境分面；条件不兼容时仅并列显示绝对值。
@@ -447,3 +450,5 @@ HTML 原样展示 `independent_comparison.compare_experiments()` 的条件检查
 [ASV #752 的近似比值误读讨论](https://github.com/airspeed-velocity/asv/issues/752)。复用现有
 Plotly 离线 bundle、AC-Prof AnalysisModel 和运行级 Bootstrap；不引入 pyperf/ASV 依赖，
 不复制它们的显著性判定，也不以窗口数替代独立运行。所有新增分析仅在测量窗口之外执行。
+对照快照复用参考 [ASV 先读取结果再逐项比较的实现](https://github.com/airspeed-velocity/asv/blob/1f9db13755820bf3d7b7fbfc0f76f7fe0af4aa68/asv/commands/compare.py#L218)
+（BSD-3-Clause）；仅借鉴调用内复用方式，保留 AC-Prof 的内容校验，不增加依赖。

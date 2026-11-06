@@ -4,7 +4,7 @@ from __future__ import annotations
 from itertools import permutations
 from pathlib import Path
 
-from acprof.analysis.independent_comparison import compare_experiments
+from acprof.analysis.independent_comparison import ExperimentComparisonSession
 from acprof.analysis.model import AnalysisModel, verify_analysis_sources
 from acprof.analysis.statistics_report import DEFAULT_STATISTICS_METRICS
 from acprof.results.csv import ResultValidationError, verify_result_source
@@ -28,7 +28,7 @@ def verify_independent_report(report: dict) -> None:
         verify_result_source(Path(path), expected)
 
 
-def _comparison_entry(model, left, right, *, options, purpose, report=None):
+def _comparison_entry(model, left, right, *, options, purpose, session, report=None):
     sources = {source["path"]: source for source in model.sources}
     if not left or not right or any(path not in sources for path in [*left, *right]):
         raise ValueError("comparison groups must select sources included in this report")
@@ -45,7 +45,7 @@ def _comparison_entry(model, left, right, *, options, purpose, report=None):
                 reason = "resource_scaling_requires_single_configuration_per_device_input"
     if report is None and not reason:
         try:
-            report = compare_experiments(left, right, purpose=purpose, **options)
+            report = session.compare(left, right, purpose=purpose, **options)
         except ResultValidationError as error:
             reason = f"invalid_measurement_identity: {error}"
     if report is not None:
@@ -74,7 +74,8 @@ def build_experiment_comparisons(model: AnalysisModel, *, groups=None, independe
                               and METRICS[name].window in {"request_window", "matched_control"}] or list(DEFAULT_STATISTICS_METRICS)
     pairs = ([tuple(comparison_sources(side) for side in groups)] if groups else
              [([a["path"]], [b["path"]]) for a, b in permutations(model.sources, 2)])
-    result = [_comparison_entry(model, left, right, options=options, purpose=purpose, report=independent_report)
+    session = ExperimentComparisonSession()
+    result = [_comparison_entry(model, left, right, options=options, purpose=purpose, session=session, report=independent_report)
               for left, right in pairs]
     verify_analysis_sources(model)
     return result
