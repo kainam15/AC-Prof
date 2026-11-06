@@ -153,5 +153,5 @@ v1 无握手记录保持保护，历史无记录 entry 沿用原有规则；无�
 | 优先级 | 状态 | 范围与下一步 |
 | --- | --- | --- |
 | P0 · 流式测量基础 | 已完成 | 可选 OpenAI Chat／Completions SSE Adapter；TTFT／TPOT／严格 ITL／E2E 与分位数、缺失语义、Token 计数来源；确定性测试及 Qwen3-0.6B + vLLM 实测对照。定义与复现入口见[流式测量](profiling/streaming.md)。 |
-| P1 · 服务性能画像 | 进行中 | 已复用现有 Scheduler 的并发、固定／Poisson 到达率和连接复用；已补 SLO Goodput、完整／部分 Token 吞吐与覆盖、有限 vLLM 服务身份、运行级资源预算及 v1/v2 单点容量 HTML。[多负载点编排](profiling/streaming.md#多负载点编排)支持显式并发／到达率列表、dry-run 和逐点失败证据；离线与本地 HTTP Fixture 覆盖，真实服务 sweep 待用户按需验收。Process 来源实验已接入公共 Runtime 独立回放，继承资源、日志绑定、动态抓包端口及失败清理通过离线验证；真实模型与 GPU 回放待用户按需验收。后续补充更完整服务端元数据。 |
+| P1 · 服务性能画像 | 进行中 | 已复用现有 Scheduler 的并发、固定／Poisson 到达率和连接复用；已补 SLO Goodput、完整／部分 Token 吞吐与覆盖、有限 vLLM／SGLang 服务身份、SGLang 白名单启动配置、运行级资源预算及 v1/v2 单点容量 HTML。[多负载点编排](profiling/streaming.md#多负载点编排)支持显式并发／到达率列表、dry-run 和逐点失败证据；离线与本地 HTTP Fixture 覆盖，真实服务 sweep 待用户按需验收。Process 来源实验已接入公共 Runtime 独立回放，继承资源、日志绑定、动态抓包端口及失败清理通过离线验证；真实模型与 GPU 回放待用户按需验收。SGLang 新旧身份路由、配置缺失／错误及 HTML 展示通过离线与本地 HTTP Fixture 验证，真实服务观测待用户按需验收。后续完善实际运行元数据。 |
 | P2 · 深入 LLM 画像 | 待展开 | Prefill／Decode、阶段 GPU 资源与能耗、多后端对照、容量曲线及可选服务端时间戳。共享 GPU 能耗必须声明归因方法，不能直接作为每请求的精确 Token 能耗。 |

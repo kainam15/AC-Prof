@@ -17,7 +17,7 @@ AC-Prof profiles AI model inference across CPU, memory, GPU, and input-size conf
 
 The [offline HTML report](docs/results/reports.md#html-窗口统计与-json-复用) combines charts, window means and standard deviations, 95% within-run confidence intervals, and quality/completeness evidence. It reuses valid statistics JSON or recalculates from recorded windows. Completed experiments (including `--resume`) automatically generate a new report under `plots/analysis/` and print its path.
 
-`acprof load --base-url` measures an existing OpenAI-compatible streaming service. Explicit concurrency and request-rate sweeps support `--dry-run` planning and separate reports for each point; see [streaming load sweeps](docs/profiling/streaming.md#多负载点编排).
+`acprof load --base-url` measures an existing OpenAI-compatible streaming service. Explicit concurrency and request-rate sweeps support `--dry-run` planning and separate reports for each point; see [streaming load sweeps](docs/profiling/streaming.md#多负载点编排). Optional [vLLM/SGLang identity probes](docs/profiling/streaming.md#服务身份) preserve service observations separately from user declarations; SGLang also reports selected startup configuration.
 
 AC-Prof supports text, vision, audio, time series, diffusion, multimodal, and structured-data workloads when the model meets the [supported task interfaces](docs/models/supported-tasks.md#任务支持范围). A task label alone does not guarantee that every checkpoint will run.
 

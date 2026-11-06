@@ -17,7 +17,7 @@ AC-Prof 用于分析 AI 模型在不同 CPU、内存、GPU 配置和输入规模
 
 [离线 HTML 报告](../results/reports.md#html-窗口统计与-json-复用)统一展示图表、窗口均值与标准差、95% 实验内置信区间，以及质量和完整性证据；优先复用有效的统计 JSON，否则从已记录窗口重新计算。实验完成后（含 `--resume`）自动在 `plots/analysis/` 生成新报告并打印路径。
 
-`acprof load --base-url` 可测量已启动的 OpenAI-compatible 流式服务。显式并发数、到达率列表支持 `--dry-run` 计划预览，每个负载点分别保留报告；详见[多负载点编排](../profiling/streaming.md#多负载点编排)。
+`acprof load --base-url` 可测量已启动的 OpenAI-compatible 流式服务。显式并发数、到达率列表支持 `--dry-run` 计划预览，每个负载点分别保留报告；详见[多负载点编排](../profiling/streaming.md#多负载点编排)。可选的 [vLLM／SGLang 身份探测](../profiling/streaming.md#服务身份)分别保留服务观测与用户声明，SGLang 还记录部分启动配置。
 
 支持文本、视觉、音频、时间序列、Diffusion、多模态与结构化数据任务，但模型仍需满足[任务接口要求](../models/supported-tasks.md#任务支持范围)，并非所有同类 checkpoint 都保证可运行。
 

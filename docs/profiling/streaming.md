@@ -281,7 +281,53 @@ Decode 阶段吞吐、`1 / TPOT` 或每秒峰值。
 `/version` 才能把观测 backend 记为 `vllm`；通用 `/v1/models` 响应不能证明后端身份。
 单个端点失败时身份为 `partial`，两者均失败为 `unavailable`，均成功为 `available`；探测或 mismatch
 不改变推理请求状态。
-标准 OpenAI 端点未暴露的缓存策略、dtype、硬件、调度上限及实际 revision 仍保持未知，不能从模型名猜测。
+仅靠标准 OpenAI 端点无法确定缓存策略、dtype、硬件、调度上限及实际 revision，不能从模型名猜测。
+
+`--service-probe sglang` 先请求 `/server_info`，再请求 `/v1/models`，沿用相同的鉴权、
+连接关闭与 1 MiB 响应限制。仅当 `/server_info` 明确返回 HTTP 404 时，才请求旧版
+`/get_server_info`；401／403、其他 HTTP 错误、超时或无效 JSON 均不会触发旧路由。
+`probe.requests` 按顺序保存请求路径、可确认的 `http_status` 和可选错误；
+状态无法确认时为 `null`。旧路由成功可得到 `available`，最初的 404 访问记录仍保留。
+默认 `--service-probe none` 不发送身份请求，source replay 不接受这些端点选项。
+
+```bash
+acprof load --base-url http://127.0.0.1:30000 --protocol openai-chat \
+  --model Qwen/Qwen3-0.6B --prompt "Explain throughput in one sentence." \
+  --requests 5 --warmup 1 --service-backend sglang --service-probe sglang \
+  --output-dir results/qwen-sglang
+acprof report results/qwen-sglang/load.json --output results/qwen-sglang/capacity.html
+```
+
+有效的 server-info `version` 建立 SGLang backend／版本观测；
+当前请求模型仍必须在 `/v1/models` 中精确且唯一匹配，不能拿启动配置中的
+`served_model_name` 替代。模型列表中的 `root` 可能只是服务别名，不等同于模型文件路径。
+server-info 返回的白名单字段保存在可选的 `observed.configuration` 中：
+`source` 是实际使用的路径，`scope=reported_startup_configuration`，
+`values` 中字段规则如下。
+
+| 字段 | 类型与含义 |
+| --- | --- |
+| `model_path`、`served_model_name`、`revision` | 非空文本；服务报告的启动模型配置，不能证明热更新后的 checkpoint 身份 |
+| `dtype`、`kv_cache_dtype`、`quantization`、`schedule_policy` | 非空文本；按服务返回保留，包括 `auto`，不推断最终精度或调度行为 |
+| `tp_size`、`pp_size`、`dp_size`、`attn_dp_size` | 正整数；保留上游并行配置字段，不相乘推导设备数或实时并发 |
+| `context_length`、`max_running_requests`、`max_total_tokens`、`max_prefill_tokens` | 正整数；服务端启动配置的上下文、请求及 Token 限制，不是本次实际使用量 |
+| `disable_radix_cache` | 布尔值；原样保留 Radix Cache 禁用配置，不替代缓存命中测量 |
+
+缺失或显式 `null` 均保持未知，不填上游默认值。字段类型或范围错误时只将该字段置为
+`null`，在 `probe.errors["configuration.<field>"]` 记录原因，
+整体状态为 `partial`，其余有效观测保留。
+任一端点失败也会保留另一端点证据；全部不可用时 `observed=null`、状态为 `unavailable`。
+取消会向外传播；普通身份探测失败与 mismatch 不改变推理请求成功状态。
+实际加载的 `observed.revision` 仍为 `null`，启动配置的 revision 不补填到该字段。
+服务启动配置和其他运行观测均不进入声明的 `identity_sha256`。
+
+容量 HTML 单独展示配置来源、scope、字段值及 probe 错误；历史文件缺少配置时不补造数据。
+只保留上述字段，不保存返回对象中的 API key、启动命令、环境变量或内部调度状态。
+每个 sweep 点仍在自己的 warmup 前重新 probe。
+协议核对了 [SGLang v0.5.5 HTTP server](https://github.com/sgl-project/sglang/blob/v0.5.5/python/sglang/srt/entrypoints/http_server.py#L498)、
+[当前 server-info 与模型列表](https://github.com/sgl-project/sglang/blob/93cfea6b12a908161719edf0e3a732e771ac9fad/python/sglang/srt/entrypoints/http_server.py#L859)
+及上游 [404 旧路由兼容逻辑](https://github.com/sgl-project/sglang/blob/93cfea6b12a908161719edf0e3a732e771ac9fad/sgl-model-gateway/src/core/steps/worker/local/discover_metadata.rs#L128)
+（Apache-2.0）；复用 AC-Prof HTTP 与单点报告，不引入 SGLang 依赖。
 
 ## 失败及结果边界
 

@@ -138,6 +138,18 @@ def _table(headers: list[str], rows: list[list[Any]]) -> str:
     )
 
 
+def _service_configuration(observed: Mapping[str, Any]) -> str:
+    configuration = _object(observed.get("configuration"))
+    if not configuration:
+        return ""
+    values = _object(configuration.get("values"))
+    return (
+        "<h3>Reported server startup configuration</h3>"
+        + _table(["Value"], [["source", configuration.get("source")], ["scope", configuration.get("scope")]])
+        + _table(["Value"], [[name, value] for name, value in values.items()])
+    )
+
+
 def _service_section(experiment: Mapping[str, Any], version: int) -> str:
     identity = _object(experiment.get("identity"))
     service = _object(experiment.get("service_identity"))
@@ -156,10 +168,17 @@ def _service_section(experiment: Mapping[str, Any], version: int) -> str:
     mismatch_text = ", ".join(mismatches) if isinstance(mismatches, list) and mismatches else (
         "none" if mismatches == [] else None
     )
+    errors = _object(probe.get("errors"))
+    diagnostics = (
+        "<h3>Service probe errors</h3>" + _table(["Error"], [[name, value] for name, value in errors.items()])
+        if errors else ""
+    )
     return (
         "<section><h2>Service identity</h2>"
         + _table(["Declared", "Observed"], rows)
         + _table(["Value"], [["probe", probe.get("status")], ["mismatches", mismatch_text]])
+        + _service_configuration(observed)
+        + diagnostics
         + "</section>"
     )
 

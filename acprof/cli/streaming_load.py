@@ -19,7 +19,11 @@ from acprof.analysis.streaming_capacity import normalize_slo_thresholds
 from acprof.artifacts import read_json_object
 from acprof.cli.load_evidence import load_phase, publish_load_report
 from acprof.host.measurement.load import LoadConfig, run_load
-from acprof.host.measurement.service_identity import initial_service_identity, probe_service
+from acprof.host.measurement.service_identity import (
+    SERVICE_PROBES,
+    initial_service_identity,
+    probe_service,
+)
 from acprof.host.measurement.streaming import OpenAIStreamingAdapter
 from acprof.host.run_state import MeasurementLock, host_identity
 from acprof.installation import resource_root
@@ -75,7 +79,7 @@ def add_streaming_arguments(parser: argparse.ArgumentParser) -> None:
                         help="Maximum raw SSE bytes received across one warmup or measured run")
     parser.add_argument("--max-run-output-events", type=int,
                         help="Maximum output events retained across one warmup or measured run")
-    parser.add_argument("--service-probe", choices=("none", "vllm"),
+    parser.add_argument("--service-probe", choices=SERVICE_PROBES,
                         help="Optional pre-warmup service identity probe (default: none)")
     parser.add_argument("--sweep-concurrency", help="Endpoint sweep: distinct worker counts, e.g. 1,2,4; overrides --concurrency")
     parser.add_argument("--sweep-rate", help="Endpoint arrival-rate sweep: distinct requests/s, e.g. 1,5,10; overrides --rate")
