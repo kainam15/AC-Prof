@@ -121,20 +121,20 @@ def _collect_run_case_groups(
                 raise ValueError("resource-scaling requires one resource configuration per device/input in each run")
             scaling_cases.add(case[2:])
             comparison_case = ("0", "0", *case[2:])
+        # Window classification is shared by every metric in this resource case.
+        measured = [row for row in windows if is_measured_success(row)]
+        failed_count = sum(result_row_status(row) != "ok" for row in windows)
+        inferred_count = sum(row.get("result_origin", "").strip() == "inferred_not_measured" for row in windows)
         for metric in metrics:
-            window_values: list[float] = []
-            for row in windows:
-                value = number(row.get(metric))
-                if is_measured_success(row) and value is not None:
-                    window_values.append(value)
+            window_values = [value for row in measured if (value := number(row.get(metric))) is not None]
             groups[(*comparison_case, metric)][side].append({
                 "run_id": run_id,
                 "mean": statistics.fmean(window_values) if window_values and complete else None,
                 "resource_coordinates": {"cpu_cores": number(case[0]), "mem_cap_gb": number(case[1])},
                 "valid_windows": len(window_values),
-                "failed_windows": sum(result_row_status(row) != "ok" for row in windows),
-                "missing_windows": sum(is_measured_success(row) and number(row.get(metric)) is None for row in windows),
-                "inferred_windows": sum(row.get("result_origin", "").strip() == "inferred_not_measured" for row in windows),
+                "failed_windows": failed_count,
+                "missing_windows": len(measured) - len(window_values),
+                "inferred_windows": inferred_count,
                 "eligible": complete,
                 **evidence,
             })
