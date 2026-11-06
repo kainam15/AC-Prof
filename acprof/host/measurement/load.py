@@ -71,14 +71,15 @@ def _execute_load(
     transport: LoadTransport, schedule: list[float] | None,
 ) -> tuple[float, BaseException | None]:
     config = transport.config
-    pool = ThreadPoolExecutor(max_workers=config.concurrency, thread_name_prefix="acprof-load")
+    workers = min(config.concurrency, config.requests)
+    pool = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="acprof-load")
     pending: set[Future[None]] = set()
     primary_error: BaseException | None = None
     transport.epoch = time.perf_counter()
-    barrier = threading.Barrier(config.concurrency + 1)
+    barrier = threading.Barrier(workers + 1)
     try:
-        # Start worker threads before the timed schedule.
-        ready = [pool.submit(barrier.wait) for _ in range(config.concurrency)]
+        # Prestart only workers this finite request budget can use, before timing.
+        ready = [pool.submit(barrier.wait) for _ in range(workers)]
         barrier.wait()
         for ready_future in ready:
             ready_future.result()

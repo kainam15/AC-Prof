@@ -129,6 +129,8 @@ Docker 核对不可变镜像 ID，Process 核对原环境、模型缓存与代�
 `serial` 一次只有一个请求；`concurrent` 是完成后补发的闭环；`arrival-rate` 预先生成固定或泊松
 到达时间，不因服务变慢重新排程，首请求在起点提交。`--concurrency` 限制工作线程，
 `--max-pending`（默认 1024）限制执行中加排队请求，满额的新到达记为 dropped。
+JSON 与 SSE 共用的调度器在计时前预启动 `min(requests, concurrency)` 个工作线程，
+避免短负载创建用不到的线程；报告仍保留配置的并发上限与请求数。
 `--warmup` 默认 5 个串行请求，排除在测量窗口之外。无自动重试，超时沿用连接／读取无进展口径。
 
 `--connections close` 为默认；`reuse` 每个工作线程复用连接，并自动要求抓包验证。

@@ -71,7 +71,9 @@
 | `profiling.support` | 两类 profiler 的容器命令、runner 参数、输入计划与产物路径；复用 `artifacts.atomic_write` 发布原有 profiler JSON |
 | `application/terminal_log` | tmux pane pipe 的启动、停止与日志发布；不覆盖已有 pipe，由本次 `RunApplication` 持有并在 finally 清理 |
 
-`measurement.load.run_load()` 保留公共调用参数与 v1/v2 报告协议。Scheduler 在 worker 就绪后开始计时，
+`measurement.load.run_load()` 保留公共调用参数与 v1/v2 报告协议。线程池和就绪屏障统一使用
+请求数与配置并发数的较小值，避免短负载预启动闲置线程；报告中的配置并发上限不变。
+Scheduler 在 worker 就绪后开始计时，
 取消时先设置取消状态、撤销待执行任务并唤醒活动 socket，再等待线程退出；负载耗时在最终连接关闭和
 Token 派生之前冻结。`load_reporting` 在此后补齐未提交请求、派生流式指标并汇总，原始异常仍携带
 `load_report` 返回调用方。线程池行为沿用 [CPython ThreadPoolExecutor](https://github.com/python/cpython/blob/3.12/Lib/concurrent/futures/thread.py)，
