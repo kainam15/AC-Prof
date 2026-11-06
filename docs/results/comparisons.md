@@ -51,6 +51,10 @@ acprof stats results/<model>/ --metric latency_app_s --metric latency_s \
 得到零宽区间时也不可评估；保留原始均值和区间。排除的正式行单独计数，不改变既有
 `n_windows`、`missing_windows` 的含义。不传参数时不新增精度字段。
 
+启用精度诊断时，已有正式行但全部为 warn/error 或推断值的配置也保留在报告中，
+标记 `not_assessable`／`insufficient_windows`，有效与缺失窗口数为 0，排除数量单独记录，
+均值和区间均为 `null`。只有预热行或从未写入正式行的计划配置不会生成统计组。
+
 `met` 只表示已观察窗口在既有 bootstrap 假设下满足用户的区间宽度目标，不证明实验完整、
 独立 run 数量足够或论文证据充分。CSV 无法推断所有尚未写入的计划首尾缺口，完整性仍由
 `audit` 验收；此诊断不提供自动补采、自动停止或按结果反复加样直至通过的流程。

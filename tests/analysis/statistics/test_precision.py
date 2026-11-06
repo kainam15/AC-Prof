@@ -183,3 +183,77 @@ def test_default_report_retains_its_historical_shape():
                    for group in report["groups"] for field in group)
     assert report == summarize_windows(_rows([3, 3, 3]), ["latency_app_s"],
                                        resamples=50, precision_target=None)
+
+
+@pytest.mark.parametrize("excluded", [
+    {"status": "warn"},
+    {"status": "error"},
+    {"result_origin": "inferred_not_measured"},
+], ids=["warn", "error", "inferred"])
+@pytest.mark.parametrize("block_size", [1, 2])
+def test_precision_keeps_configurations_without_any_eligible_window(excluded, block_size):
+    rows = [{**row, **excluded} for row in _rows([3, 3, 3])]
+    metrics = ["latency_app_s", "container_attributed_energy_eff_j"]
+    report = summarize_windows(rows, metrics, resamples=20, block_size=block_size,
+                               precision_target=0.05)
+    assert [group["metric"] for group in report["groups"]] == metrics
+    for group in report["groups"]:
+        assert group["cpu_cores"] == 1
+        assert group["mem_cap_gb"] == 4
+        assert group["gpu_mode"] == "off"
+        assert group["input_scale"] == 64
+        assert group["n_windows"] == group["missing_windows"] == 0
+        assert group["precision_excluded_windows"] == 3
+        assert group["precision_status"] == "not_assessable"
+        assert group["reason"] == group["precision_reason"] == "insufficient_windows"
+        assert all(group[name] is None for name in (
+            "mean", "std", "ci_low", "ci_high", "relative_ci_half_width",
+        ))
+    # The optional assessment must not alter historical default filtering.
+    assert summarize_windows(rows, metrics, resamples=20)["groups"] == []
+
+
+@pytest.mark.parametrize("identity", [
+    {"cpu_cores": "2"},
+    {"input_scale": "128"},
+    {"environment_class": "native_linux"},
+    {"runtime_kind": "process", "runtime_id": "other", "resource_scope": "process_tree"},
+], ids=["resources", "input", "environment", "runtime"])
+def test_precision_does_not_hide_failed_group_beside_a_met_group(identity):
+    successful = _rows([3, 3, 3])
+    failed = [{**row, **identity, "status": "error"} for row in _rows([99, 99, 99])]
+    report = summarize_windows(successful + failed, ["latency_app_s"], resamples=20,
+                               precision_target=0.05)
+    assert len(report["groups"]) == 2
+    by_status = {group["precision_status"]: group for group in report["groups"]}
+    assert set(by_status) == {"met", "not_assessable"}
+    assert by_status["met"]["mean"] == 3
+    assert by_status["met"]["n_windows"] == 3
+    unavailable = by_status["not_assessable"]
+    assert unavailable["mean"] is None
+    assert unavailable["precision_excluded_windows"] == 3
+    for name, value in identity.items():
+        assert unavailable[name] == (float(value) if name in {"cpu_cores", "input_scale"} else value)
+
+
+def test_precision_keeps_missing_and_excluded_windows_distinct():
+    rows = _rows(["nan", "nan", "nan"])
+    rows.extend({**row, "cpu_cores": "2", "status": "error"} for row in _rows([4, 5, 6]))
+    report = summarize_windows(rows, ["latency_app_s"], precision_target=0.05)
+    assert len(report["groups"]) == 2
+    missing, excluded = report["groups"]
+    assert (missing["n_windows"], missing["missing_windows"], missing["precision_excluded_windows"]) == (0, 3, 0)
+    assert (excluded["n_windows"], excluded["missing_windows"], excluded["precision_excluded_windows"]) == (0, 0, 3)
+
+
+def test_precision_does_not_create_groups_from_warmup_or_absent_windows():
+    rows = [{**row, "warmup": "1", "status": "error"} for row in _rows([3, 3, 3])]
+    assert summarize_windows(rows, ["latency_app_s"], precision_target=0.05)["groups"] == []
+    assert summarize_windows([], ["latency_app_s"], precision_target=0.05)["groups"] == []
+
+
+def test_excluded_only_precision_groups_still_reject_duplicate_windows():
+    rows = [{**row, "status": "error"} for row in _rows([3, 3, 3])]
+    rows.append(dict(rows[0]))
+    with pytest.raises(ValueError, match="duplicate measurement"):
+        summarize_windows(rows, ["latency_app_s"], precision_target=0.05)

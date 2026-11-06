@@ -288,6 +288,52 @@ def test_precision_output_reuse_includes_the_user_target(precision_csv, tmp_path
     assert len(list(directory.glob("*.json"))) == 2
 
 
+@pytest.mark.parametrize("mixed", [False, True], ids=["all-failed", "mixed"])
+def test_precision_publishes_excluded_configurations_without_reusing_incomplete_report(
+        precision_csv, tmp_path, capsys, mixed):
+    from acprof.tui.results.reports import read_report
+
+    lines = precision_csv.read_text(encoding="utf-8").splitlines()
+    lines = [lines[0] + ",error", *[line + "," for line in lines[1:]]]
+    if not mixed:
+        lines = lines[:1]
+    lines.extend(f"4,8,off,64,0,{index},error,nan,fixture failure" for index in range(3))
+    precision_csv.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    original_source = precision_csv.read_bytes()
+    common = [str(precision_csv), "--metric", "latency_app_s", "--resamples", "20",
+              "--precision-target", "0.05"]
+    assert main(common) == 0
+    report = json.loads(capsys.readouterr().out)
+    assert len(report["groups"]) == (2 if mixed else 1)
+    excluded = next(group for group in report["groups"] if group["cpu_cores"] == 4)
+    assert excluded["precision_status"] == "not_assessable"
+    assert excluded["precision_excluded_windows"] == 3
+    assert excluded["mean"] is excluded["ci_low"] is excluded["ci_high"] is None
+
+    directory = tmp_path / "reports"
+    directory.mkdir()
+    legacy = directory / "window-statistics-legacy.json"
+    # Older reports omitted the configuration with no eligible windows.
+    legacy.write_text(json.dumps({**report, "groups": [
+        group for group in report["groups"] if group["cpu_cores"] != 4
+    ]}), encoding="utf-8")
+    original_legacy = legacy.read_bytes()
+
+    assert main([*common, "--output-dir", str(directory)]) == 0
+    receipt = json.loads(capsys.readouterr().out.removeprefix("ACPROF_STATS "))
+    assert receipt["reused"] is False
+    saved = Path(receipt["report_path"])
+    published = saved.read_bytes()
+    assert json.loads(published) == report
+    assert len(read_report(saved).rows) == (2 if mixed else 1)
+    assert main([*common, "--output-dir", str(directory)]) == 0
+    assert json.loads(capsys.readouterr().out.removeprefix("ACPROF_STATS ")) == {**receipt, "reused": True}
+    assert saved.read_bytes() == published
+    assert legacy.read_bytes() == original_legacy
+    assert precision_csv.read_bytes() == original_source
+    assert set(directory.iterdir()) == {saved, legacy}
+
+
 @pytest.mark.parametrize(
     ("values", "options", "reason", "mean"),
     [([1, 100, 10000], ["--resamples", "1"], "insufficient_resamples", 3367),

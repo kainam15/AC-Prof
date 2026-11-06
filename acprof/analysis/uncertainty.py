@@ -165,7 +165,8 @@ def summarize_windows(rows, metrics, *, confidence=0.95, resamples=5000, seed=0,
                                               block_size=block_size, precision_target=precision_target)
     cases, excluded = _collect_window_cases(rows, cancelled=cancelled, precision_target=precision_target)
     groups = []
-    for case in sorted(cases):
+    # Excluded formal windows still identify a case for optional precision assessment.
+    for case in sorted(cases.keys() | excluded.keys()):
         ordered = sorted(cases[case], key=lambda row: float(row["repeat_idx"]))
         gaps = ((block_size > 1 or precision_target is not None)
                 and any(float(b["repeat_idx"]) != float(a["repeat_idx"]) + 1
