@@ -34,6 +34,11 @@ JSON 解析与基础结构校验通过后，文件才进入候选识别使用的
 尚未固定 revision 的 config fallback 保留 SDK 的分支／tag 解析与 ref 写入，确保首次下载后
 仍能按默认分支离线复用；返回路径仍须通过固定 snapshot 检查。此 fallback 在下载后、
 解析前限制文件大小，首次网络下载量暂不具备同样的下载前上限；不把它描述为有界下载。
+fallback 的 `config.json` 顶层必须为 JSON 对象；读取、解码、JSON 或 snapshot 身份校验失败后
+立即停止本次配置推断，保留具体错误，不再追加“未声明任务”诊断。合法对象但无法识别任务时，
+仍保留原有任务缺口提示；修复缓存后可重新识别。对象约束参考
+[Transformers v4.57.6 配置字典契约](https://github.com/huggingface/transformers/blob/v4.57.6/src/transformers/configuration_utils.py#L774)
+（Apache-2.0），主机继续使用现有有界 JSON 解析，不导入 Transformers。
 
 此边界采用现有 `huggingface_hub>=1.0` 的公开 API，参照
 [Hub v1.0.0 下载实现](https://github.com/huggingface/huggingface_hub/blob/v1.0.0/src/huggingface_hub/file_download.py)

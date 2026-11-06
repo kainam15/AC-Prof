@@ -558,9 +558,6 @@ def _detect_from_config(
     *, requested_revision: str | None = None, failures: list[Exception] | None = None,
 ) -> TaskInfo | None:
     """Level 2: Infer task from model architecture name."""
-    architectures: list[str] = []
-    config_data = {}
-    revision = "main"
     try:
         from acprof.models.evidence import pinned_revision
         metadata = _download_metadata(model_id, "config.json", requested_revision) if requested_revision else _download_metadata(model_id, "config.json")
@@ -571,6 +568,8 @@ def _detect_from_config(
         if requested_revision is not None and pinned_revision(requested_revision) and revision != requested_revision:
             raise ValueError("config fallback returned a different model revision")
         config_data = _read_json_metadata(metadata)
+        if not isinstance(config_data, dict):
+            raise ValueError("config.json must contain dict")
         architectures = config_data.get("architectures") or []
         if not architectures:
             _record_failure(diagnostics, "config_json", "config.json has no architectures field")
@@ -578,6 +577,7 @@ def _detect_from_config(
         _record_failure(diagnostics, "config_json", _format_failure(exc))
         if failures is not None:
             failures.append(exc)
+        return None
 
     try:
         resolved = CATALOG.resolve(library="transformers", config=config_data, model_id=model_id)
