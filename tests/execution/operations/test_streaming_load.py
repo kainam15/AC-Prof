@@ -19,7 +19,7 @@ def event(value):
 
 
 @contextmanager
-def streaming_server(*, endpoint="/v1/chat/completions", fault=None, metadata=None):
+def streaming_server(*, endpoint="/v1/chat/completions", fault=None, metadata=None, raw_body=None):
     ports, paths, bodies = [], [], []
     first_sent = threading.Event()
     release = threading.Event()
@@ -66,6 +66,11 @@ def streaming_server(*, endpoint="/v1/chat/completions", fault=None, metadata=No
                 return {"choices": [choice]}
 
             try:
+                if raw_body is not None:
+                    chunk(raw_body)
+                    self.wfile.write(b"0\r\n\r\n")
+                    self.wfile.flush()
+                    return
                 chunk(event(output("\ud800" if fault == "surrogate" else "Hello")))
                 first_sent.set()
                 if fault in {"timeout", "cancel"}:
@@ -427,6 +432,48 @@ def test_isolated_surrogate_fails_request_and_publishes_final_load_json(tmp_path
     assert report["result"]["requests"][0]["error_code"] == "invalid_unicode"
     assert report["result"]["requests"][0]["status"] == "error"
     assert read_load_report(output)["streaming"] == report["result"]["streaming"]
+
+
+@pytest.mark.parametrize("endpoint", ["/v1/chat/completions", "/v1/completions"])
+@pytest.mark.parametrize("done", [False, True])
+def test_failed_stream_prefix_is_published_and_excluded_from_success_metrics(tmp_path, endpoint, done):
+    from acprof.cli import load as load_cli
+    from acprof.plotting.load_report import read_load_report
+
+    choice = {"index": 0, **({"delta": {"content": "kept"}} if "chat" in endpoint else {"text": "kept"})}
+    raw = event({"choices": [choice]}) + event({"choices": [], "usage": {"completion_tokens": 1}})
+    if done:
+        raw += event("[DONE]")
+    raw += b"data: \xff\n\n"
+    output = tmp_path / "failed-stream"
+    with streaming_server(endpoint=endpoint, raw_body=raw) as (url, _, paths, _, _):
+        assert load_cli.main([
+            "--base-url", url, "--protocol", "openai-chat" if "chat" in endpoint else "openai-completions",
+            "--model", "fixture", "--prompt", "hello", "--warmup", "0", "--requests", "1",
+            "--output-dir", str(output),
+        ]) == 1
+    assert paths == [endpoint]
+    original = (output / "load.json").read_bytes()
+    report = json.loads(original)
+    result = report["result"]
+    row = result["requests"][0]
+    assert not report["successful"]
+    assert row["status"] == "error"
+    assert row["error_code"] == "invalid_utf8"
+    assert [item["text"] for item in row["output_events"]] == ["kept"]
+    assert row["observed_ttft_s"] is not None
+    assert row["output_tokens"] == 1
+    assert (row["stream_completed_s"] is not None) is done
+    assert result["counts"]["failed"] == 1
+    assert result["counts"]["succeeded"] == 0
+    assert result["successful_requests_per_s"] == 0
+    assert result["streaming"]["ttft_s"]["sample_count"] == 0
+    output_tokens = result["capacity"]["token_throughput"]["output"]
+    assert output_tokens["tokens"] is None
+    assert output_tokens["observed_tokens"] is None
+    assert output_tokens["covered_requests"] == output_tokens["successful_requests"] == 0
+    assert read_load_report(output)["streaming"] == result["streaming"]
+    assert (output / "load.json").read_bytes() == original
 
 
 @pytest.mark.parametrize("headers", [{"Connection": "close"}, {"Authorization": "bad\r\nvalue"}])

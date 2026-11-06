@@ -5,7 +5,7 @@ import codecs
 import math
 import re
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from typing import Any, Protocol
 
@@ -158,24 +158,34 @@ class SSEDecoder:
             self._event = value
         return None
 
-    def feed(self, chunk: bytes) -> list[SSEEvent]:
+    def _decode(self, chunk: bytes) -> str:
         try:
-            text = self._decoder.decode(chunk)
+            return self._decoder.decode(chunk)
         except UnicodeDecodeError as error:
             raise StreamProtocolError("invalid_utf8", "SSE is not valid UTF-8") from error
-        if self._skip_lf and text:
-            text = text[1:] if text.startswith("\n") else text
+
+    def iter_events(self, chunk: bytes) -> Iterator[SSEEvent]:
+        """Deliver complete events before decoding a possibly malformed suffix."""
+        if self._skip_lf and chunk:
+            chunk = chunk[1:] if chunk.startswith(b"\n") else chunk
             self._skip_lf = False
-        parts = re.split(r"(\r\n|\r|\n)", text)
-        result = []
-        for index in range(0, len(parts) - 1, 2):
-            self._append(parts[index])
+        start = 0
+        for match in re.finditer(rb"\r\n|\r|\n", chunk):
+            end = match.end()
+            # Include the delimiter in strict decoding so an incomplete UTF-8
+            # character cannot cross a line boundary and create a false event.
+            text = self._decode(chunk[start:end])
+            self._append(text[:-len(match.group())])
             event = self._line()
+            self._skip_lf = match.group() == b"\r" and end == len(chunk)
+            start = end
             if event is not None:
-                result.append(event)
-            self._skip_lf = parts[index + 1] == "\r" and index == len(parts) - 3 and not parts[-1]
-        self._append(parts[-1])
-        return result
+                yield event
+        self._append(self._decode(chunk[start:]))
+
+    def feed(self, chunk: bytes) -> list[SSEEvent]:
+        """Collect a chunk; consumers retaining failure evidence use iter_events."""
+        return list(self.iter_events(chunk))
 
     def finish(self) -> None:
         try:
@@ -547,7 +557,7 @@ class OpenAIStreamingAdapter:
                 run_budget.reserve_response_bytes(len(chunk))
                 if received_bytes > self.max_response_bytes:
                     raise StreamProtocolError("response_limit", "stream exceeds max_response_bytes")
-                for event in parser.feed(chunk):
+                for event in parser.iter_events(chunk):
                     self._event(record, event, received_s, run_budget)
             parser.finish()
             if record["stream_completed_s"] is None:

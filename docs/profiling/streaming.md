@@ -498,6 +498,11 @@ result；负载异常后仍尝试 after，二次错误不覆盖原始异常，sw
 | 不支持的多选择、tool/function、无效计数 | 明确失败或明确不可用，不静默替换 |
 | 无 Token 计数证据／非逐 Token 流 | 相应指标 `null`，记录缺失原因 |
 
+在响应／运行字节预算内，完整事件按顺序记入观测。同一次网络读取中的后续非法 UTF-8、
+超大事件或协议错误，不抹除此前的输出、usage 或 `[DONE]`；先遇到的事件错误优先报告。
+同次读取中完成的事件仍共用该次接收时刻，未完成事件不提前发布。
+保留的前缀仅供失败诊断，该请求仍排除在成功时延、Token 吞吐和 SLO 统计之外。
+
 request JSON 中的孤立代理会在联网和创建输出前拒绝；probe 中的同类文本按端点失败处理，
 不进入身份产物。合法 surrogate pair 与正常 Unicode 不受此限制。
 
@@ -515,8 +520,9 @@ request JSON 中的孤立代理会在联网和创建输出前拒绝；probe 中�
 ## 测试与上游对照
 
 `tests/execution/operations/test_streaming.py` 用受控时间与字节流核对协议、公式、缺失值；
+`test_sse_failure_evidence.py` 对照合并／分片读取，验证损坏后缀前的完整事件、首个错误及接收时刻；
 `test_streaming_load.py` 用真实本地 HTTP 验证两个端点、复用、并发、Poisson、
-断流、超时、取消、窗口外一次聚合、运行预算和 Unicode 失败发布；`test_streaming_cli.py` 验证入口、身份与失败产物。
+断流、超时、取消、窗口外一次聚合、运行预算和 Unicode／部分输出失败发布；`test_streaming_cli.py` 验证入口、身份与失败产物。
 `test_streaming_capacity.py` 独立重算 SLO 与 Token 覆盖，`test_service_identity.py` 验证有界 vLLM 观测；
 `tests/analysis/reporting/test_load_report.py` 覆盖 v1/v2 报告、原始记录重建、防篡改与拒绝覆盖。
 `test_streaming_request_dataset.py` 与 `test_load_dataset_report.py` 覆盖 JSONL 输入冻结、前置拒绝、
@@ -599,6 +605,11 @@ vLLM 详细结果中的 `ttfts`、`itls`、`output_lens` 可独立核对分布�
 该 vLLM 版本的 E2EL 截至最后输出，应与本协议 `output_e2e_s` 比较；
 它的 ITL 使用流输出事件间隔，应与本协议 `output_event_interval_s` 汇总比较，
 不能直接与严格 `itl_s` 相比。不同安装版本必须检查其实际源码。
+
+逐行解码和逐事件交付参考
+[openai-python 的 SSE 解码器](https://github.com/openai/openai-python/blob/c6fc264689d384d5caec150fafa1a9567c4a3f56/src/openai/_streaming.py)
+及其[增量解码 PR](https://github.com/openai/openai-python/pull/3687)（Apache-2.0）。
+复用处理顺序的思路，保留本项目的大小限制、严格 UTF-8 与 EOF 不补发规则，不引入 SDK 依赖。
 
 [Ray LLMPerf](https://github.com/ray-project/llmperf) 与
 [NVIDIA GenAI-Perf](https://github.com/triton-inference-server/perf_analyzer/tree/main/genai-perf)
