@@ -303,6 +303,8 @@ Select:disabled > SelectCurrent { color: $ui-disabled; border: solid $ui-disable
 #report-file-options Label { margin-top: 1; }
 #report-file-options > Input { width: 100%; }
 #html-report-panel {
+    /* Retain report state and backend bindings without exposing this section. */
+    display: none;
     height: auto;
     margin-top: 1;
     padding: 1 0;

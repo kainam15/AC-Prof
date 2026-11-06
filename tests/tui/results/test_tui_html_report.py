@@ -98,7 +98,7 @@ async def test_html_generation_preserves_backend_and_measurement_guard(tmp_path,
         app.query_one("#result-csv", Input).value = str(csv_result)
         await pilot.pause()
         button = app.query_one("#html-report-generate", Button)
-        assert button.region.area > 0
+        assert button.region.area == 0
         with patch.object(ProcessController, "execute_command") as execute:
             app.results.html.launch()
             await pilot.pause()
@@ -258,10 +258,8 @@ async def test_html_export_and_failure_keep_generated_artifact(
         await pilot.pause()
         assert app.query_one("#html-export-fields").display
         button = app.query_one("#html-report-export", Button)
-        assert button.region.area > 0
-        button.scroll_visible(animate=False, immediate=True)
-        await pilot.pause()
-        assert await pilot.click(button)
+        assert button.region.area == 0
+        app.results.html.export()
         await app.workers.wait_for_complete()
         await pilot.pause()
         assert destination.read_bytes() == source.read_bytes()
@@ -281,9 +279,7 @@ async def test_html_export_and_failure_keep_generated_artifact(
                 monkeypatch.setattr(report_files.shutil, "copyfileobj", fail_copy)
             else:
                 monkeypatch.setattr(artifacts, "sync_directory", fail_sync)
-        button.scroll_visible(animate=False, immediate=True)
-        await pilot.pause()
-        assert await pilot.click(button)
+        app.results.html.export()
         await app.workers.wait_for_complete()
         await pilot.pause()
         assert failed in str(app.query_one("#html-report-status", Static).content)
@@ -324,7 +320,7 @@ def test_cli_receipt_reports_excluded_windows_and_quality(tmp_path, csv_result, 
 
 @pytest.mark.parametrize("size", [(80, 24), (120, 30), (150, 45)])
 @pytest.mark.parametrize("language", ["zh", "en"])
-async def test_comparison_exports_and_existing_html_stay_hidden_during_navigation(tmp_path, size, language):
+async def test_comparison_exports_and_html_panel_stay_hidden_during_navigation(tmp_path, size, language):
     settings = tmp_path / "settings.json"
     save_settings(settings, TuiSettings(ui=UiPreferences(language=language)), tmp_path)
     app = AcprofTui(settings_path=settings)
@@ -361,13 +357,23 @@ async def test_comparison_exports_and_existing_html_stay_hidden_during_navigatio
         await pilot.pause()
         app.results.html.toggle_existing_path()
         await pilot.pause()
-        for identifier in ("html-existing-toggle", "html-report-path"):
-            control = app.query_one(f"#{identifier}")
+        panel = app.query_one("#html-report-panel")
+        assert panel.region.area == 0
+        app.results.html.toggle_extra_sources()
+        app.results.html.toggle_export_fields()
+        await pilot.pause()
+        for control in panel.query("Input, Button"):
             assert control.region.area == 0
             assert control not in app.screen.focus_chain
             control.focus()
             await pilot.pause()
             assert app.focused is not control
+        for key in ("tab", "tab", "shift+tab", "shift+tab"):
+            await pilot.press(key)
+            assert app.focused not in panel.query("Input, Button")
+        await pilot.resize_terminal(80, 24)
+        await pilot.pause()
+        assert panel.region.area == 0
         for control in views.get_pane("exports-view").query("Input, Button"):
             assert control.region.area == 0
             assert control not in app.screen.focus_chain
@@ -428,8 +434,8 @@ async def test_cancel_reaps_process_and_keeps_previous_html(tmp_path, csv_result
         cancel = app.query_one("#html-report-cancel", Button)
         assert app.query_one("#main-tabs", TabbedContent).active == "results-tab"
         assert not cancel.disabled
-        assert cancel.region.area > 0
-        assert await pilot.click(cancel)
+        assert cancel.region.area == 0
+        app.on_results_cancel_html()
         await pilot.pause()
         # Escape cancels the stop dialog without terminating the task.
         await pilot.press("escape")

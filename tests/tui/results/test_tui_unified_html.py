@@ -58,7 +58,7 @@ async def test_primary_analysis_action_generates_html_and_keeps_parameters(tmp_p
             assert pending.command[pending.command.index("--seed") + 1] == "7"
         button = app.query_one("#report-calculate", Button)
         assert button.region.right <= 80
-        assert app.query_one("#html-report-panel").region.area > 0
+        assert app.query_one("#html-report-panel").region.area == 0
 
 
 async def test_successful_comparison_offers_existing_html_and_preserves_json_export(tmp_path):

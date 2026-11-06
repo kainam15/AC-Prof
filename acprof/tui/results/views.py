@@ -122,7 +122,7 @@ def compose_exports(app: AcprofTui) -> ComposeResult:
 
 def compose_html(app: AcprofTui) -> ComposeResult:
     local = app.localization.localized_widget
-    with Vertical(id="html-report-panel"):
+    with Vertical(id="html-report-panel", disabled=True):
         yield local(Label(message_id("results.html.title"), classes="html-section-title"))
         with Horizontal(id="html-source-row", classes="html-actions"):
             yield local(Static(message_id("results.html.current_source"), id="html-current-source"))
