@@ -324,7 +324,7 @@ def test_cli_receipt_reports_excluded_windows_and_quality(tmp_path, csv_result, 
 
 @pytest.mark.parametrize("size", [(80, 24), (120, 30), (150, 45)])
 @pytest.mark.parametrize("language", ["zh", "en"])
-async def test_comparison_and_export_tabs_stay_hidden_during_navigation(tmp_path, size, language):
+async def test_comparison_exports_and_existing_html_stay_hidden_during_navigation(tmp_path, size, language):
     settings = tmp_path / "settings.json"
     save_settings(settings, TuiSettings(ui=UiPreferences(language=language)), tmp_path)
     app = AcprofTui(settings_path=settings)
@@ -359,6 +359,15 @@ async def test_comparison_and_export_tabs_stay_hidden_during_navigation(tmp_path
         assert not app.query_one("#html-report-cancel", Button).display
         app.query_one("#html-report-path", Input).value = str(tmp_path / "existing.html")
         await pilot.pause()
+        app.results.html.toggle_existing_path()
+        await pilot.pause()
+        for identifier in ("html-existing-toggle", "html-report-path"):
+            control = app.query_one(f"#{identifier}")
+            assert control.region.area == 0
+            assert control not in app.screen.focus_chain
+            control.focus()
+            await pilot.pause()
+            assert app.focused is not control
         for control in views.get_pane("exports-view").query("Input, Button"):
             assert control.region.area == 0
             assert control not in app.screen.focus_chain

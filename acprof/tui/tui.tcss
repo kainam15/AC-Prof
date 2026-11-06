@@ -313,6 +313,8 @@ Select:disabled > SelectCurrent { color: $ui-disabled; border: solid $ui-disable
 #html-current-source { width: 1fr; height: 3; content-align: left middle; color: $text-muted; }
 #html-extra-sources, #html-report-path, #html-export-fields, #html-report-file,
 #html-remote-hint { display: none; }
+/* Keep the stored report path available without exposing manual selection. */
+#html-existing-controls { display: none; }
 #html-extra-sources, #html-report-path { width: 100%; margin-bottom: 1; }
 #html-report-file { height: auto; margin-top: 1; padding-top: 1; border-top: solid $panel; }
 .html-file-heading { height: 1; color: $text-muted; }

@@ -146,7 +146,8 @@ def compose_html(app: AcprofTui) -> ComposeResult:
             yield local(Input(id="html-export-path", classes="report-control",
                               placeholder=message_id("results.html.export_path_hint")))
             yield local(Button(message_id("results.html.export"), id="html-report-export", classes="report-control"))
-        yield local(Button(message_id("results.html.use_existing"), id="html-existing-toggle", classes="report-control"))
-        yield local(Input(app.configuration.saved_settings.last_html_report, id="html-report-path",
-                          classes="report-control", placeholder=message_id("results.html.path_hint")))
+        with Vertical(id="html-existing-controls", disabled=True):
+            yield local(Button(message_id("results.html.use_existing"), id="html-existing-toggle", classes="report-control"))
+            yield local(Input(app.configuration.saved_settings.last_html_report, id="html-report-path",
+                              classes="report-control", placeholder=message_id("results.html.path_hint")))
         yield local(Static(message_id("results.html.remote_download_hint"), id="html-remote-hint", markup=False))
