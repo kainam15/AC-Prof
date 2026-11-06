@@ -26,6 +26,8 @@ acprof compare --left run-a/ --right run-b/ --html-output comparison.html \
 
 Repeat `--left` and `--right` for independent replicates. A single run per side shows descriptive differences and ratios without a run-level interval. In the TUI, **Results → Analysis** provides inputs, analysis options and HTML actions; **Compare** opens the generated report and retains optional JSON / CSV exports.
 
+`acprof load --base-url` measures an existing OpenAI-compatible streaming service. Explicit concurrency and request-rate sweeps support `--dry-run` planning and separate reports for each point; see [streaming load sweeps](docs/profiling/streaming.md#多负载点编排). Optional [vLLM/SGLang identity probes](docs/profiling/streaming.md#服务身份) preserve service observations separately from user declarations; SGLang also reports selected startup configuration.
+
 AC-Prof supports text, vision, audio, time series, diffusion, multimodal, and structured-data workloads when the model meets the [supported task interfaces](docs/models/supported-tasks.md#任务支持范围). A task label alone does not guarantee that every checkpoint will run.
 
 ## Collection environments and metrics

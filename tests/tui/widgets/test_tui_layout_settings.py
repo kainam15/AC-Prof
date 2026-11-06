@@ -492,7 +492,7 @@ class TestTuiModelMemory:
                 app.activate_tab("results-tab")
                 await pilot.pause()
                 assert (app.query_one("#result-csv", Input).value) == ("")
-                assert (app.query_one('#report-experiment', Static).content) == ('上次选择的实验结果不可用')
+                assert '上次保存的结果路径已失效' in str(app.query_one('#result-summary', Static).content)
                 assert (app.configuration.saved_settings.last_result_dir) == (self.saved.last_result_dir)
                 read_results.assert_not_called()
         assert (self.settings_path.read_bytes()) == (original)

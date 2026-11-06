@@ -213,6 +213,8 @@ OpenAI-compatible 模式另用 `stream_load_experiment`／`stream_load_result`�
 严格 ITL、输出事件间隔及完整流 E2E 的字段、缺失值与统计定义见[流式测量](../profiling/streaming.md)。
 新运行为 schema v2，单点 SLO Goodput、Token/s 和服务身份仍只保存在该 load 协议及独立容量 HTML 中，
 不作为正式 CSV 输入，也不与多实验比较或容量曲线混用。
+端点 sweep 的根 `sweep.json` 只登记有序负载点及状态，测量以各点 `load.json` 为准；
+清单协议、写失败与未运行状态见[多负载点编排](../profiling/streaming.md#多负载点编排)。
 
 HTML 默认显示全部观测；“质量范围”可筛选满足质量要求的候选，“质量状态”可单独筛选。
 配置行分开展示运行、完整性、可比性和质量状态；选中行后可展开完整原始质量证据。

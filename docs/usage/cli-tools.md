@@ -74,7 +74,7 @@ Windows/macOS 的离线命令不申请 Linux 专用锁；这不改变采集平�
 `--output-dir DIR` 在指定目录中比较完整 JSON 内容，相同则复用已有文件，否则以本地日期时间
 `window-statistics-YYYYMMDD-HHMMSS-ffffff.json` 保存。两个输出选项互斥。
 目录模式向 stdout 输出一行 `ACPROF_STATS {"report_path": "绝对路径", "reused": false}`；复用时 `reused` 为 `true`。
-TUI“实验结果”页的“计算统计”使用默认统计参数和 stdout 模式，不自动创建统计 JSON；结果直接显示在“统计”分区。可在“导入 / 导出”明确保存新的统计 CSV 或 JSON，CSV 保留单位、统计参数与来源标识。CLI 的显式 `--output` / `--output-dir` 行为不变。
+TUI“实验结果 → 分析报告”的“计算窗口统计”使用所选统计参数和 stdout 模式，不自动创建统计 JSON；结果显示在“统计数据与导出”折叠区，可显式导出 CSV / JSON，保留单位、参数与来源。CLI 的 `--output` / `--output-dir` 行为不变。
 `/stats [csv/dir]` 与按钮等价；`/report [json]` 或“查看报告”读取已有窗口统计、监测开销或 CLI/TUI 对照报告。
 这些操作需要 TUI 空闲；开销实验仍通过独立脚本显式运行。报告展示与路径带入方式见 [TUI 说明](tui-pages.md#统计报告)。
 `/images` 打开“镜像管理”页并自动读取数据，空闲时每轮读取完成后 5 秒更新；离开页面或运行任务时暂停。
@@ -106,13 +106,17 @@ acprof tui --help
 `within-experiment` 描述性资源比较，HTML 可以切换资源比较用途；独立运行比较沿用生成时的严格用途。
 `compare --html-output <新文件.html> --csv-output <新文件.csv>` 可与 JSON `--output` 同时导出，复用同一比较结果。
 资源扩容只放开 CPU/内存配额，双方资源坐标和仍需匹配的条件见[比较规则](../results/comparisons.md#跨独立实验比较)。
-TUI“实验结果 → 比较”复用同一入口，可选择左右组、基线和比较用途，直接展示结果而不强制保存中间 JSON；也可在“导入 / 导出”读取 CLI 输出的 JSON。
+TUI“实验结果 → 比较”复用同一入口，可选择左右组、基线和用途，比较完成优先显示 HTML 入口；“分析报告 → 统计数据与导出”保留 CSV / JSON 导出和历史 JSON 读取。
 `acprof load <源实验> --gpu off --scenario concurrent --concurrency 4 --output-dir <新目录>`
 执行独立 HTTP 负载；到达率使用 `--scenario arrival-rate --rate 10 --arrival poisson`。
 协议、连接复用前提和失败口径见[独立非流式负载](../profiling/lifecycle.md#独立非流式负载)。
 `acprof load --base-url http://127.0.0.1:8000 --protocol openai-chat --model Qwen/Qwen3-0.6B --prompt Hello --output-dir <新目录>`
 可直接测量已启动服务的 SSE；可选 `--slo-ttft-s/--slo-tpot-s/--slo-e2e-s` 计算单点 SLO Goodput，
-`--service-backend/--service-version` 保存声明，`--service-probe vllm` 在预热前观测有限服务身份。
+`--service-backend/--service-version` 保存声明，`--service-probe vllm` 或 `sglang` 在预热前观测服务身份；
+SGLang 另保留白名单启动配置，按字段区分未知与无效值，详见[服务身份](../profiling/streaming.md#服务身份)。
 `--max-run-response-bytes` 与 `--max-run-output-events` 设置每轮 warmup／正式 run 的独立硬预算。
+端点模式的 `--sweep-concurrency 1,2,4` 和 `--sweep-rate 1,5,10` 可按显式列表串行运行多个负载点，
+支持 `--dry-run` 校验预览；请求数与预热数按点生效，清单与失败边界见[多负载点编排](../profiling/streaming.md#多负载点编排)。
+使用并发列表需显式选择 `concurrent` 或 `arrival-rate`，到达率列表必须搭配 `arrival-rate`。
 `acprof report <load.json 或所在目录>` 生成单点容量 HTML；完整命令、Token 计数、吞吐分母和
 v1/v2 报告口径见[流式测量](../profiling/streaming.md)。

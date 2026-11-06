@@ -72,6 +72,61 @@ Streaming Adapter 强制请求 SSE 与 usage。它处理 UTF-8 跨网络读取�
 LF／CRLF／CR、注释心跳、多行 data、JSON 错误、finish reason 和 `[DONE]`。
 网络读取块、SSE 事件、模型 Token 是三种不同单位。
 
+## 多负载点编排
+
+端点模式可用 `--sweep-concurrency` 指定并发数列表，用 `--sweep-rate` 指定到达率列表
+（单位 requests/s）。两者均为逗号分隔的正数，保持输入顺序，拒绝空项与重复值；
+并发数必须是整数，到达率必须有限。并发列表要求 `--scenario concurrent` 或
+`arrival-rate`，到达率列表要求 `arrival-rate`。列表覆盖对应的单值
+`--concurrency`／`--rate`；未提供列表的轴沿用单值。两个列表同时使用时，
+按并发数外层、到达率内层枚举笛卡尔积，最多 256 点。
+
+```bash
+acprof load --base-url http://127.0.0.1:8000 --protocol openai-chat \
+  --model Qwen/Qwen3-0.6B --prompt "Explain throughput in one sentence." \
+  --scenario arrival-rate --sweep-concurrency 1,2 --sweep-rate 1,5 \
+  --requests 20 --warmup 1 --max-tokens 64 \
+  --output-dir results/qwen-sweep --dry-run
+```
+
+`--dry-run` 必须与至少一个列表搭配：校验全部负载点及请求配置，并输出 JSON 计划，
+不创建目录、不获取测量锁、不访问服务（包括身份 probe）。它仍会读取请求文件、所需鉴权
+环境变量及可选本地 tokenizer；不证明服务可达或目标输出目录可写、为空。
+检查计划后，移除 `--dry-run` 才会执行；实际执行要求输出目录为空。
+全部点的 `LoadConfig` 和到达计划会在创建输出、发送任何请求之前校验。
+
+所有点串行执行，共享一次测量锁。请求体、鉴权、tokenizer 和 SLO 配置在开始前准备一次，
+每点独立执行所选身份 probe、串行关闭连接的 warmup 和正式负载；
+`--requests`、`--warmup`、运行级字节／事件预算均按点生效。
+各点沿用同一到达 seed 和输入，不重启服务、不清空服务缓存，也不自动添加重复实验。
+顺序运行的不同负载点不构成同一条件下的独立重复，不能据此计算跨独立实验区间。
+
+根目录的 `sweep.json` 是 schema v1、kind `stream_load_sweep` 的执行清单；
+每点仍写 schema v2 单点报告 `points/0001/load.json`、`points/0002/load.json` 等。
+单点测量值、请求身份、服务观测和阶段错误以各自 `load.json` 为准，清单不复制请求记录。
+
+| 字段 | 含义 |
+| --- | --- |
+| `run_id` | 本次 sweep 的唯一 ID；与各点的 ID 分开 |
+| `execution_order` | `listed_concurrency_then_rate`，按列表顺序先并发、后到达率 |
+| `status` | `running`、`complete`、`failed` 或 `cancelled`；`complete` 表示全部点正常返回，可含请求失败 |
+| `successful` | 仅全部点成功且编排正常结束时为 `true` |
+| `points[]` | 按执行顺序记录 `point_id`、相对 `report_path`、完整 `load_config`、`status`、`successful`、`run_id` |
+| 点状态 | 初始 `not_run`，然后 `running`，最终 `complete`／`failed`／`cancelled`；未返回前 `run_id` 为 `null`，未运行及运行中 `successful` 为 `null` |
+| `error` | 根或点异常时的可选类型与诊断，含异常 notes；正常请求失败的明细在单点报告内 |
+
+清单在开始、每点前后和退出时原子发布。普通请求失败会使该点及整个 sweep 不成功，
+但继续下一点；预热失败、抛出异常或取消会停止，后续点保持 `not_run`，不创建其目录。
+`report_path` 是计划写入位置，不保证文件已发布。清单写失败会传播错误；
+已有异常仍保留为主异常，写失败追加到 notes，磁盘清单可能停在上次成功发布的状态，
+已发布的分点报告保持可读。该入口没有 sweep 恢复功能。
+
+`acprof report results/qwen-sweep/points/0001/load.json` 可生成对应单点容量 HTML；
+目前应指定某个点，根清单不作为容量曲线或多实验比较输入。
+设计参考了 [vLLM sweeps](https://github.com/vllm-project/vllm/blob/0f0172d90329d0dc3d867c0881d156f25c16b8bf/docs/benchmarking/sweeps.md)
+的显式参数组合、预览与分点产物（Apache-2.0），复用本项目单点测量与原子写入实现，
+不复制源码或增加 vLLM 依赖。
+
 ## 采样点与单位
 
 所有时刻是客户端 `perf_counter` 相对本次负载起点的秒数，不是服务端调度时刻、
@@ -226,7 +281,53 @@ Decode 阶段吞吐、`1 / TPOT` 或每秒峰值。
 `/version` 才能把观测 backend 记为 `vllm`；通用 `/v1/models` 响应不能证明后端身份。
 单个端点失败时身份为 `partial`，两者均失败为 `unavailable`，均成功为 `available`；探测或 mismatch
 不改变推理请求状态。
-标准 OpenAI 端点未暴露的缓存策略、dtype、硬件、调度上限及实际 revision 仍保持未知，不能从模型名猜测。
+仅靠标准 OpenAI 端点无法确定缓存策略、dtype、硬件、调度上限及实际 revision，不能从模型名猜测。
+
+`--service-probe sglang` 先请求 `/server_info`，再请求 `/v1/models`，沿用相同的鉴权、
+连接关闭与 1 MiB 响应限制。仅当 `/server_info` 明确返回 HTTP 404 时，才请求旧版
+`/get_server_info`；401／403、其他 HTTP 错误、超时或无效 JSON 均不会触发旧路由。
+`probe.requests` 按顺序保存请求路径、可确认的 `http_status` 和可选错误；
+状态无法确认时为 `null`。旧路由成功可得到 `available`，最初的 404 访问记录仍保留。
+默认 `--service-probe none` 不发送身份请求，source replay 不接受这些端点选项。
+
+```bash
+acprof load --base-url http://127.0.0.1:30000 --protocol openai-chat \
+  --model Qwen/Qwen3-0.6B --prompt "Explain throughput in one sentence." \
+  --requests 5 --warmup 1 --service-backend sglang --service-probe sglang \
+  --output-dir results/qwen-sglang
+acprof report results/qwen-sglang/load.json --output results/qwen-sglang/capacity.html
+```
+
+有效的 server-info `version` 建立 SGLang backend／版本观测；
+当前请求模型仍必须在 `/v1/models` 中精确且唯一匹配，不能拿启动配置中的
+`served_model_name` 替代。模型列表中的 `root` 可能只是服务别名，不等同于模型文件路径。
+server-info 返回的白名单字段保存在可选的 `observed.configuration` 中：
+`source` 是实际使用的路径，`scope=reported_startup_configuration`，
+`values` 中字段规则如下。
+
+| 字段 | 类型与含义 |
+| --- | --- |
+| `model_path`、`served_model_name`、`revision` | 非空文本；服务报告的启动模型配置，不能证明热更新后的 checkpoint 身份 |
+| `dtype`、`kv_cache_dtype`、`quantization`、`schedule_policy` | 非空文本；按服务返回保留，包括 `auto`，不推断最终精度或调度行为 |
+| `tp_size`、`pp_size`、`dp_size`、`attn_dp_size` | 正整数；保留上游并行配置字段，不相乘推导设备数或实时并发 |
+| `context_length`、`max_running_requests`、`max_total_tokens`、`max_prefill_tokens` | 正整数；服务端启动配置的上下文、请求及 Token 限制，不是本次实际使用量 |
+| `disable_radix_cache` | 布尔值；原样保留 Radix Cache 禁用配置，不替代缓存命中测量 |
+
+缺失或显式 `null` 均保持未知，不填上游默认值。字段类型或范围错误时只将该字段置为
+`null`，在 `probe.errors["configuration.<field>"]` 记录原因，
+整体状态为 `partial`，其余有效观测保留。
+任一端点失败也会保留另一端点证据；全部不可用时 `observed=null`、状态为 `unavailable`。
+取消会向外传播；普通身份探测失败与 mismatch 不改变推理请求成功状态。
+实际加载的 `observed.revision` 仍为 `null`，启动配置的 revision 不补填到该字段。
+服务启动配置和其他运行观测均不进入声明的 `identity_sha256`。
+
+容量 HTML 单独展示配置来源、scope、字段值及 probe 错误；历史文件缺少配置时不补造数据。
+只保留上述字段，不保存返回对象中的 API key、启动命令、环境变量或内部调度状态。
+每个 sweep 点仍在自己的 warmup 前重新 probe。
+协议核对了 [SGLang v0.5.5 HTTP server](https://github.com/sgl-project/sglang/blob/v0.5.5/python/sglang/srt/entrypoints/http_server.py#L498)、
+[当前 server-info 与模型列表](https://github.com/sgl-project/sglang/blob/93cfea6b12a908161719edf0e3a732e771ac9fad/python/sglang/srt/entrypoints/http_server.py#L859)
+及上游 [404 旧路由兼容逻辑](https://github.com/sgl-project/sglang/blob/93cfea6b12a908161719edf0e3a732e771ac9fad/sgl-model-gateway/src/core/steps/worker/local/discover_metadata.rs#L128)
+（Apache-2.0）；复用 AC-Prof HTTP 与单点报告，不引入 SGLang 依赖。
 
 ## 失败及结果边界
 
