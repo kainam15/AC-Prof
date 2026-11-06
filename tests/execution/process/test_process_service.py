@@ -4,6 +4,7 @@ import csv
 import sys
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import pytest
 
@@ -86,7 +87,7 @@ def test_sigkill_exit_without_oom_counter_is_not_oom():
 @pytest.fixture
 def failed_start(service, tmp_path, monkeypatch):
     from acprof.host.model_store import store
-    from acprof.host.runtimes import process, resources
+    from acprof.host.runtimes import resources
 
     task, info = service
     scope = tmp_path / 'owned-resource-scope'
@@ -123,10 +124,10 @@ def failed_start(service, tmp_path, monkeypatch):
             monkeypatch.setattr(child, 'close', cleanup_failed)
         return child
 
-    monkeypatch.setattr(process, 'ManagedProcess', launch_process)
     state.start = lambda: ProcessRuntime().start(task, None, None, 'off', info, 'fixture', '[test]')
     try:
-        yield state
+        with patch('acprof.host.runtimes.process.ManagedProcess', launch_process):
+            yield state
     finally:
         # The failing implementation can leave this real fixture service alive.
         try:
@@ -205,13 +206,15 @@ def test_unconfirmed_startup_cleanup_keeps_lease_and_failure_evidence(failed_sta
     with pytest.raises(ProcessCleanupError) as caught:
         state.start()
     assert caught.value is state.cleanup_error
-    assert caught.value.run_error is state.primary
+    startup_error = caught.value.run_error
+    assert startup_error is not None
+    assert startup_error is state.primary
     assert state.retained == [state.lease]
     assert not state.lease_stream.closed
     assert state.scope.exists()
     assert same_process(state.process.identity)
     if diagnostic_fails:
-        assert 'memory.events read failed' in format_exception_notes(caught.value.run_error)
+        assert 'memory.events read failed' in format_exception_notes(startup_error)
 
 
 def test_process_startup_diagnostics_reach_error_rows_and_stderr(failed_start, tmp_path, capsys):
