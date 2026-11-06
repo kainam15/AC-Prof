@@ -22,7 +22,10 @@ def worker():
     if os.fork() == 0:
         os.setsid()
         if os.fork() == 0:
-            Path("descendant.pid").write_text(str(os.getpid()))
+            # The final filename signals that the complete PID is ready to read.
+            pid_file = Path("descendant.pid.tmp")
+            pid_file.write_text(str(os.getpid()))
+            pid_file.replace("descendant.pid")
             time.sleep(60)
         os._exit(0)
 threading.Thread(target=worker).start()
@@ -49,6 +52,7 @@ time.sleep(60)
         assert (tmp_path / 'descendant.pid').exists()
         from acprof.process_identity import process_identity
         descendant = process_identity(int((tmp_path / 'descendant.pid').read_text()))
+        assert same_process(descendant)
         parent.send_signal(signal.SIGKILL)
         parent.wait(5)
         deadline = time.monotonic() + 10
