@@ -168,9 +168,9 @@ def write_report(model: AnalysisModel, output: str | Path, *, baseline: str | No
             return False
         return (current.st_dev, current.st_ino) == identity
 
-    def discard_input(path: Path) -> None:
+    def discard_input(path: Path, html: Path) -> None:
         # Preserve inputs once our HTML is visible, even if its directory sync fails.
-        if not is_published(output) and is_published(path):
+        if not is_published(html) and is_published(path):
             path.unlink(missing_ok=True)
 
     with ExitStack() as cleanup:
@@ -182,7 +182,7 @@ def write_report(model: AnalysisModel, output: str | Path, *, baseline: str | No
                     raise ValueError(f"output must be a new file: {sidecar}")
                 # Register before publication: a link can succeed before fsync raises.
                 cleanup.enter_context(cleanup_on_exit(
-                    partial(discard_input, sidecar), description=f"report window inputs {sidecar}",
+                    partial(discard_input, sidecar, output), description=f"report window inputs {sidecar}",
                     on_error_only=True,
                 ))
                 publish(sidecar, lambda stream: write_window_inputs(model, report, stream))

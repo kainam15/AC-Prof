@@ -49,11 +49,11 @@ def test_post_publication_sync_failure_cleans_inputs_until_html_is_visible(bundl
     failure = KeyboardInterrupt('directory sync cancelled') if cancel else OSError('directory sync failed')
     original_sync = os.fsync
 
-    def fail_after_publication(descriptor):
+    def fail_after_publication(descriptor: int) -> None:
         # Observe the public destination, not a call count or private staging order.
         if stat.S_ISDIR(os.fstat(descriptor).st_mode) and target.is_file():
             raise failure
-        return original_sync(descriptor)
+        original_sync(descriptor)
 
     with monkeypatch.context() as scoped:
         scoped.setattr(os, 'fsync', fail_after_publication)
@@ -120,11 +120,11 @@ def test_competing_html_does_not_keep_this_attempts_orphan_inputs(bundle, monkey
     original_link = os.link
     competing = []
 
-    def compete_at_publication(source, destination, **options):
+    def compete_at_publication(source, destination, **options) -> None:
         if Path(destination) == output:
             create_competitor(output, kind)
             competing.append(output.lstat())
-        return original_link(source, destination, **options)
+        original_link(source, destination, **options)
 
     monkeypatch.setattr(os, 'link', compete_at_publication)
     with pytest.raises(FileExistsError):
@@ -142,10 +142,10 @@ def test_input_cleanup_attempts_all_files_and_preserves_failures(bundle, monkeyp
     secondary = KeyboardInterrupt('cleanup cancelled') if cancel_cleanup else PermissionError('cleanup denied')
     original_unlink = Path.unlink
 
-    def fail_unlink(path, **options):
+    def fail_unlink(path: Path, **options) -> None:
         if path == sidecars[1]:
             raise secondary
-        return original_unlink(path, **options)
+        original_unlink(path, **options)
 
     from acprof.artifacts import atomic_write
 
