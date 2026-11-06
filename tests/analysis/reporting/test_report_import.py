@@ -500,6 +500,121 @@ def test_equal_csv_values_with_distinct_python_run_evidence_are_separate_experim
     assert page.locator("#experiment-list tbody tr").count() == 3, page.locator("#import-status").inner_text()
 
 
+@pytest.fixture
+def same_path_bundles(tmp_path):
+    directory = tmp_path / "recorded"
+    directory.mkdir()
+    path = directory / "result_all.csv"
+    path.write_text(
+        "cpu_cores,mem_cap_gb,gpu_mode,input_scale,repeat_idx,warmup,status,latency_app_s\n"
+        "2,4,off,32,0,0,ok,2\n4,4,off,32,0,0,ok,4\n", encoding="utf-8")
+    bundles = []
+    for run_id in ("left", "right"):
+        (directory / "run_state.json").write_text(json.dumps({"run_id": run_id}))
+        bundles.append(report_payload(load_analysis([path]), statistics_options={"metrics": ["latency_app_s"], "resamples": 19}))
+    assert bundles[0]["sources"][0]["path"] == bundles[1]["sources"][0]["path"]
+    assert bundles[0]["sources"][0]["sha256"] == bundles[1]["sources"][0]["sha256"]
+    return bundles
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+@pytest.mark.parametrize("local_ids", [False, True])
+def test_same_path_runs_have_distinct_import_identities(page, same_path_bundles, reverse, local_ids):
+    bundles = same_path_bundles[::-1] if reverse else same_path_bundles
+    if local_ids:
+        # Portable IDs need only be unique within their own bundle.
+        for bundle in bundles:
+            ids = {config["config_id"]: f"config-{index}" for index, config in enumerate(bundle["configs"])}
+            for config in bundle["configs"]:
+                config["config_id"] = ids[config["config_id"]]
+            for report in bundle["window_statistics"]:
+                for group in report["groups"]:
+                    group["config_id"] = ids[group["config_id"]]
+            bundle["baseline_comparisons"]["pairs"] = {
+                ids[key]: {ids[other]: pair for other, pair in pairs.items()}
+                for key, pairs in bundle["baseline_comparisons"]["pairs"].items()}
+    actual = page.evaluate("""bundles => {
+      const original = JSON.parse(document.getElementById('report-data').textContent);
+      const before = JSON.stringify(bundles), workspace = ACProfWorkspace(original);
+      workspace.add(bundles, 'same path');
+      const exported = workspace.bundle(workspace.data.configs);
+      return {exported:ACProfImport.validate(exported, original.registry), unchanged:before === JSON.stringify(bundles)};
+    }""", bundles)
+    assert actual["unchanged"]
+    exported = actual["exported"]
+    assert len({source["path"] for source in exported["sources"]}) == 3
+    assert len({config["config_id"] for config in exported["configs"]}) == 5
+    configs = {config["config_id"]: config for config in exported["configs"]}
+    for report in exported["window_statistics"][1:]:
+        for group in report["groups"]:
+            assert configs[group["config_id"]]["source"] == report["source"]
+            assert group["mean"] == configs[group["config_id"]]["metrics"]["latency_app_s"]["value"]
+    for source in exported["sources"][1:]:
+        assert source["original_path"] == bundles[0]["sources"][0]["path"]
+    for config in exported["configs"][1:]:
+        assert set(exported["baseline_comparisons"]["pairs"][config["config_id"]]).issubset(configs)
+
+
+@pytest.mark.parametrize("width", [1280, 390])
+def test_same_path_runs_compare_export_restore_and_remove(page, same_path_bundles, tmp_path, width):
+    original_url = page.url
+    page.set_viewport_size({"width": width, "height": 900})
+    for index, bundle in enumerate(same_path_bundles):
+        content = json.dumps(bundle)
+        if index:
+            content = f'<script id="report-data" type="application/json">{content}</script>'
+        import_file(page, "run.html" if index else "run.json", content)
+    assert page.locator("#experiment-list tbody tr").count() == 3
+    assert page.locator("#experiment-left option").count() == 3
+    exported = download_json(page)["analysis_bundle"]
+    left, right = [next(config for config in exported["configs"] if config["run_id"] == run and config["cpu"] == 2)
+                   for run in ("left", "right")]
+    page.select_option("#active-experiment-left", left["experiment_id"])
+    page.select_option("#active-experiment-right", right["experiment_id"])
+    page.select_option("#filter-cpu", "2")
+    page.select_option("#comparison-purpose", "same-hardware")
+    page.click("[data-view=experiments]")
+    settled(page)
+    assert json.loads(page.locator("#experiment-left").input_value()) == [left["source"]]
+    assert json.loads(page.locator("#experiment-right").input_value()) == [right["source"]]
+    page.select_option("#experiment-metric", "latency_app_s")
+    settled(page)
+    comparison = download_json(page)
+    assert len(comparison["groups"]) == 1
+    assert comparison["groups"][0]["baseline_value"] == comparison["groups"][0]["value"] == 2
+    assert comparison["groups"][0]["delta"] is None
+    assert comparison["groups"][0]["comparison"]["status"] == "incompatible"
+    assert "invalid_artifacts" in comparison["groups"][0]["comparison"]["reasons"]
+    assert comparison["groups"][0]["statistics_status"] == "not_computed"
+    page.click("[data-view=matrix]")
+    settled(page)
+    page.locator(f'#matrix tr[data-config-id="{right["config_id"]}"]').click()
+    settled(page)
+    filtered = download_json(page)["analysis_bundle"]
+    assert len(filtered["configs"]) == len(filtered["sources"]) == 2
+    with page.expect_download() as result:
+        page.click("#export-html")
+    saved = tmp_path / "same-path.html"
+    result.value.save_as(saved)
+    page.goto(saved.as_uri())
+    settled(page)
+    assert page.locator("#baseline").input_value() == left["config_id"]
+    assert page.locator("#filter-cpu").input_value() == "2"
+    assert page.locator("#matrix tr.selected").get_attribute("data-config-id") == right["config_id"]
+    assert download_json(page)["analysis_bundle"] == filtered
+    page.locator(f'#experiment-list button[data-remove="{left["experiment_id"]}"]').click()
+    settled(page)
+    remaining = download_json(page)["analysis_bundle"]
+    assert [config["run_id"] for config in remaining["configs"]] == ["right"]
+    assert page.evaluate("bundle => ACProfImport.validate(bundle, bundle.registry)", remaining) == remaining
+    page.goto(original_url)
+    settled(page)
+    import_file(page, "filtered.json", json.dumps(filtered))
+    assert page.locator("#experiment-list tbody tr").count() == 3
+    imported = download_json(page)["analysis_bundle"]
+    assert {config["config_id"] for config in imported["configs"] if config["run_id"] != "original"} == {left["config_id"], right["config_id"]}
+
+
 def test_formal_group_ci_is_retained_without_browser_estimation(page, tmp_path):
     from tests.support.independent_comparison_fixtures import IndependentComparisonFixture
     fixture = IndependentComparisonFixture()

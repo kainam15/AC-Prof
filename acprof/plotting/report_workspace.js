@@ -48,8 +48,9 @@ window.ACProfWorkspace = (original, restored = null) => {
     }
   }
   function namespace(bundle) {
-    const paths = new Map(bundle.sources.map(source => [source.path, `import:${source.sha256}/${source.original_path || source.path}`]));
-    const ids = new Map(bundle.configs.map(config => [config.config_id, `import:${bundle.sources.find(source => source.path === config.source).sha256.slice(0,16)}/${config.original_config_id || config.config_id}`]));
+    const experiments = new Map(bundle.sources.map(source => [source.path, experimentId(bundle, source)]));
+    const paths = new Map(bundle.sources.map(source => [source.path, `import:${experiments.get(source.path)}/${source.original_path || source.path}`]));
+    const ids = new Map(bundle.configs.map(config => [config.config_id, `import:${experiments.get(config.source)}/${config.original_config_id || config.config_id}`]));
     const copy = I.clone(bundle);
     copy.sources.forEach(source => { source.original_path ||= source.path; source.path = paths.get(source.path); });
     copy.configs.forEach(config => { config.original_config_id ||= config.config_id; config.config_id = ids.get(config.config_id); config.source = paths.get(config.source); });
