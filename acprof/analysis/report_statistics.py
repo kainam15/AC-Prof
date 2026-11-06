@@ -232,7 +232,7 @@ def _validate_interval(group, expected, bounds: tuple[float, float] | None):
         raise ValueError("invalid_window_count")
     if any(value is not None and type(value) not in (int, float) for value in (group["mean"], group["std"])):
         raise ValueError("invalid_statistics_value")
-    low, high = group.get("ci_low"), group.get("ci_high")
+    low, high = group["ci_low"], group["ci_high"]
     if expected["reason"]:
         valid = low is None and high is None
     else:

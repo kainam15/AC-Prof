@@ -2,6 +2,7 @@
 import csv
 import json
 import os
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -96,7 +97,7 @@ def test_equal_size_and_mtime_csv_change_invalidates_json(source):
     lambda data: data["groups"].clear(),
 ], ids=["confidence", "schema", "method", "interval", "above-observations", "below-observations",
         "lower-outside", "upper-outside", "summary", "missing-bound", "invalid-metric", "missing-groups"])
-def test_incompatible_or_corrupt_json_is_recomputed_with_a_visible_reason(source, mutation):
+def test_incompatible_or_corrupt_json_is_recomputed_with_a_visible_reason(source, mutation: Callable[[dict], object]):
     cached = save_cache(source)
     payload = json.loads(cached.read_text())
     mutation(payload)
