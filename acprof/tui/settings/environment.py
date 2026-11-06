@@ -12,7 +12,7 @@ from textual.screen import ModalScreen
 from textual.widgets import Button, Checkbox, Collapsible, Label, Static, TabbedContent, TabPane
 
 from acprof.experiments.configuration import RunConfig
-from acprof.host.env_utils import configurable_env_values, save_project_env
+from acprof.host.env_utils import ProjectEnvSnapshot
 from acprof.host.permissions import build_permission_plan, execute_permission_plan
 from acprof.host.run_state import MeasurementLock
 from acprof.system.cleanup import format_exception_notes
@@ -63,11 +63,8 @@ class EnvironmentSettingsScreen(ModalScreen[bool]):
         self.project_dir = project_dir
         self.backup_dir = backup_dir
         self.sniff_iface = sniff_iface
-        self.values = configurable_env_values(project_dir)
-        path = project_dir / '.env.local'
-        if path.is_symlink():
-            raise ValueError('.env.local must be a regular file, not a symbolic link')
-        self.original_text = path.read_text(encoding='utf-8') if path.exists() else ''
+        self.environment_snapshot = ProjectEnvSnapshot.read(project_dir)
+        self.values = self.environment_snapshot.configurable_values()
         self._working = False
         self.saved = False
 
@@ -139,13 +136,12 @@ class EnvironmentSettingsScreen(ModalScreen[bool]):
             return
         values = {key: self.query_one('#' + field_id(key), Input).value for key, *_ in FIELDS}
         try:
-            path = save_project_env(self.project_dir, values, expected_text=self.original_text)
-            self.original_text = path.read_text(encoding='utf-8')
+            self.environment_snapshot = self.environment_snapshot.save(values)
         except (OSError, ValueError) as exc:
             self._status(message_id('settings.environment.save_failed', format_exception_notes(exc)), error=True)
             return
         self.saved = True
-        self._status(message_id('settings.environment.saved', path))
+        self._status(message_id('settings.environment.saved', self.environment_snapshot.path))
 
     def _set_working(self, working):
         self._working = working

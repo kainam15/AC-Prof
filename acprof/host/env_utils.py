@@ -8,6 +8,7 @@ import re
 import stat
 import tempfile
 from collections.abc import Iterable, Mapping, MutableMapping
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from acprof.artifacts import sync_directory
@@ -48,11 +49,13 @@ def _parse_env_line(raw_line: str) -> tuple[str, str] | None:
     return key, value
 
 
-def _read_env_values(path: Path) -> dict[str, str]:
-    if not path.exists():
-        return {}
-    return dict(item for line in path.read_text(encoding="utf-8").splitlines()
+def _env_values(text: str) -> dict[str, str]:
+    return dict(item for line in text.splitlines()
                 if (item := _parse_env_line(line)) is not None)
+
+
+def _read_env_values(path: Path) -> dict[str, str]:
+    return _env_values(path.read_text(encoding="utf-8")) if path.exists() else {}
 
 
 def project_env_values(project_dir: str | os.PathLike[str]) -> dict[str, str]:
@@ -64,10 +67,37 @@ def project_env_values(project_dir: str | os.PathLike[str]) -> dict[str, str]:
 
 
 def configurable_env_values(project_dir, *, environ=None) -> dict[str, str]:
-    values = project_env_values(project_dir)
+    return _configurable_values(project_env_values(project_dir), environ=environ)
+
+
+def _configurable_values(values: dict[str, str], *, environ: Mapping[str, str] | None) -> dict[str, str]:
     values.update(os.environ if environ is None else environ)
     return {key: values.get(key, values.get(_ENV_ALIASES.get(key, ""), ""))
             for key in CONFIGURABLE_ENV_KEYS}
+
+
+@dataclass(frozen=True)
+class ProjectEnvSnapshot:
+    """Keep editable values and their conflict baseline tied to the same text."""
+
+    path: Path
+    text: str = field(repr=False)
+
+    @classmethod
+    def read(cls, project_dir: str | os.PathLike[str]) -> ProjectEnvSnapshot:
+        path = Path(project_dir) / ".env.local"
+        return cls(path, _private_env_text(path))
+
+    def configurable_values(self, *, environ: Mapping[str, str] | None = None) -> dict[str, str]:
+        values = _read_env_values(self.path.parent / ".env")
+        values.update(_env_values(self.text))
+        return _configurable_values(values, environ=environ)
+
+    def save(
+        self, values: Mapping[str, str], *, environ: MutableMapping[str, str] | None = None,
+    ) -> ProjectEnvSnapshot:
+        """Return exactly the published text, without rereading the mutable path."""
+        return _save_project_env(self.path.parent, values, environ=environ, expected_text=self.text)
 
 
 def _private_env_text(path: Path) -> str:
@@ -110,6 +140,13 @@ def save_project_env(
     save updates the current process and its children; ordinary bootstrap still
     gives inherited environment variables priority.
     """
+    return _save_project_env(project_dir, values, environ=environ, expected_text=expected_text).path
+
+
+def _save_project_env(
+    project_dir: str | os.PathLike[str], values: Mapping[str, str], *,
+    environ: MutableMapping[str, str] | None, expected_text: str | None,
+) -> ProjectEnvSnapshot:
     if set(values) - set(CONFIGURABLE_ENV_KEYS):
         raise ValueError("Unsupported environment setting")
     updates = {}
@@ -150,9 +187,10 @@ def save_project_env(
     lines.extend(f"{key}={json.dumps(value, ensure_ascii=False)}\n" for key, value in remaining.items())
     if path.exists():
         _atomic_private_text(path.with_name(".env.local.bak"), original)
-    _atomic_private_text(path, "".join(lines))
+    text = "".join(lines)
+    _atomic_private_text(path, text)
     (os.environ if environ is None else environ).update(updates)
-    return path
+    return ProjectEnvSnapshot(path, text)
 
 
 def _iter_env_files(project_dir: str | os.PathLike[str]) -> Iterable[Path]:

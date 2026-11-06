@@ -12,7 +12,7 @@ from rich.cells import cell_len
 from textual.widgets import Button, Checkbox, Input, Static, TabbedContent
 
 from acprof.experiments.configuration import RunConfig
-from acprof.host.env_utils import load_project_env
+from acprof.host.env_utils import ProjectEnvSnapshot, load_project_env
 from acprof.tui.ui.dialogs import ConfirmActionScreen
 from tests.support.environment_fixtures import isolated_environment
 from tests.support.tui_fixtures import AcprofTui, checkbox_text
@@ -288,7 +288,7 @@ class TestTuiEnvironment:
             screen.query_one('#env-hf-token', Input).value = 'hf_testonly'
             error = OSError('file sync failed')
             error.add_note('Cleanup failed: temporary unlink failed')
-            with patch('acprof.tui.settings.environment.save_project_env', side_effect=error):
+            with patch.object(ProjectEnvSnapshot, 'save', side_effect=error):
                 assert await pilot.click('#save-environment-settings')
                 await pilot.pause()
             status = screen.query_one('#environment-save-status', Static)
@@ -325,3 +325,115 @@ class TestTuiEnvironment:
             await pilot.press('escape')
             await pilot.pause()
             assert not app.is_busy()
+
+    @pytest.mark.parametrize('language', ['zh', 'en'])
+    async def test_successful_save_does_not_reopen_published_file(self, language, monkeypatch):
+        app = AcprofTui(RunConfig.smoke('demo/model'), settings_path=self.root / 'tui.json')
+        app.configuration.preferences = replace(app.configuration.preferences, language=language)
+        target = self.root / '.env.local'
+        original_replace, original_read = os.replace, Path.read_text
+        published = False
+
+        def publish(source, destination, *args, **kwargs):
+            nonlocal published
+            original_replace(source, destination, *args, **kwargs)
+            if Path(destination) == target:
+                published = True
+
+        def read_text(path, *args, **kwargs):
+            if Path(path) == target and published:
+                raise OSError('post-save read failed')
+            return original_read(path, *args, **kwargs)
+
+        async with app.run_test(size=(80, 24)) as pilot:
+            await pilot.press('f2')
+            await pilot.pause()
+            await self.open_connections(app, pilot)
+            app.screen.query_one('#env-hf-token', Input).value = 'hf_saved'
+            with monkeypatch.context() as faults:
+                faults.setattr(os, 'replace', publish)
+                faults.setattr(Path, 'read_text', read_text)
+                assert await pilot.click('#save-environment-settings')
+                await pilot.pause()
+            loaded = {}
+            load_project_env(self.root, environ=loaded)
+            assert loaded['HF_TOKEN'] == 'hf_saved'
+            assert os.environ['HF_TOKEN'] == 'hf_saved'
+            status = app.screen.query_one('#environment-save-status', Static).content
+            assert isinstance(status, str)
+            success = '已保存到' if language == 'zh' else 'Saved to'
+            assert status.startswith(success)
+            visible = ''.join(fromstring(app.export_screenshot()).itertext()).replace('\N{NO-BREAK SPACE}', ' ')
+            assert success in visible
+            assert 'hf_saved' not in visible
+
+    @pytest.mark.parametrize('language', ['zh', 'en'])
+    async def test_external_edit_after_save_keeps_conflict_guard(self, language, monkeypatch):
+        app = AcprofTui(RunConfig.smoke('demo/model'), settings_path=self.root / 'tui.json')
+        app.configuration.preferences = replace(app.configuration.preferences, language=language)
+        target = self.root / '.env.local'
+        external = 'HF_TOKEN=hf_external\n'
+        original_replace = os.replace
+
+        def publish_then_edit(source, destination, *args, **kwargs):
+            original_replace(source, destination, *args, **kwargs)
+            if Path(destination) == target:
+                target.write_text(external)
+
+        async with app.run_test(size=(80, 24)) as pilot:
+            await pilot.press('f2')
+            await pilot.pause()
+            await self.open_connections(app, pilot)
+            token = app.screen.query_one('#env-hf-token', Input)
+            token.value = 'hf_saved'
+            with monkeypatch.context() as faults:
+                faults.setattr(os, 'replace', publish_then_edit)
+                assert await pilot.click('#save-environment-settings')
+                await pilot.pause()
+            assert target.read_text() == external
+            assert os.environ['HF_TOKEN'] == 'hf_saved'
+            token.value = 'hf_retry'
+            await pilot.pause(app.screen.query_one('#save-environment-settings', Button).active_effect_duration)
+            assert await pilot.click('#save-environment-settings')
+            await pilot.pause()
+            assert target.read_text() == external
+            assert os.environ['HF_TOKEN'] == 'hf_saved'
+            assert not (self.root / '.env.local.bak').exists()
+            status = app.screen.query_one('#environment-save-status', Static).content
+            assert isinstance(status, str)
+            assert 'changed since this form opened' in status
+
+    @pytest.mark.parametrize('language', ['zh', 'en'])
+    async def test_external_edit_during_open_does_not_match_stale_fields(self, language, monkeypatch):
+        target = self.root / '.env.local'
+        target.write_text('HF_TOKEN=hf_initial\n')
+        external = 'HF_TOKEN=hf_external\n'
+        original_read = Path.read_text
+        changed = False
+
+        def read_then_edit(path, *args, **kwargs):
+            nonlocal changed
+            text = original_read(path, *args, **kwargs)
+            if Path(path) == target and not changed:
+                target.write_text(external)
+                changed = True
+            return text
+
+        app = AcprofTui(RunConfig.smoke('demo/model'), settings_path=self.root / 'tui.json')
+        app.configuration.preferences = replace(app.configuration.preferences, language=language)
+        async with app.run_test(size=(80, 24)) as pilot:
+            await pilot.press('f2')
+            await pilot.pause()
+            with monkeypatch.context() as faults:
+                faults.setattr(Path, 'read_text', read_then_edit)
+                await self.open_connections(app, pilot)
+            assert app.screen.query_one('#env-hf-token', Input).value == 'hf_initial'
+            assert target.read_text() == external
+            assert await pilot.click('#save-environment-settings')
+            await pilot.pause()
+            assert target.read_text() == external
+            assert not (self.root / '.env.local.bak').exists()
+            assert 'HF_TOKEN' not in os.environ
+            status = app.screen.query_one('#environment-save-status', Static).content
+            assert isinstance(status, str)
+            assert 'changed since this form opened' in status
