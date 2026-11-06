@@ -24,6 +24,13 @@ Hub cache 的固定 snapshot 后才分析内容。AST 沿声明文件和相对 i
 下载后再次核对文件大小，并在解析前执行有界读取。固定版本的 config、Diffusers
 `model_index.json`、依赖索引和源码均使用此边界。
 
+JSON 解析与基础结构校验通过后，文件才进入候选识别使用的元数据集合。
+`modules.json` 的数量上限（64 个）和所有 module 路径先整体校验；失败时保留原始诊断，
+排除该声明，也不读取由其前半段派生出的配置。其他独立元数据继续读取，准备阶段仍明确报错。
+合法的根目录空路径／`.`、子目录及重复路径保持兼容，同一配置仅读取一次。
+校验顺序参照 [Sentence Transformers 模块加载](https://github.com/huggingface/sentence-transformers/blob/aed54f0cfda2ccba9a11b5d0a94a047645b7b06f/sentence_transformers/base/model.py#L1342)
+（Apache-2.0）；只借鉴先校验再消费的设计，不引入其主机推理依赖。
+
 尚未固定 revision 的 config fallback 保留 SDK 的分支／tag 解析与 ref 写入，确保首次下载后
 仍能按默认分支离线复用；返回路径仍须通过固定 snapshot 检查。此 fallback 在下载后、
 解析前限制文件大小，首次网络下载量暂不具备同样的下载前上限；不把它描述为有界下载。

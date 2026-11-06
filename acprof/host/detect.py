@@ -132,14 +132,13 @@ def _repository_metadata(model_id: str, revision: str, info: Any) -> dict[str, A
                 continue
             try:
                 downloaded = _download_metadata(model_id, name, revision)
-                metadata[name] = _read_json_metadata(downloaded)
+                value = _read_json_metadata(downloaded)
                 expected = list if name == "modules.json" else dict
-                if not isinstance(metadata[name], expected):
-                    del metadata[name]
+                if not isinstance(value, expected):
                     raise ValueError(f"{name} must contain {expected.__name__}")
                 if name == "modules.json":
                     from pathlib import PurePosixPath
-                    modules = metadata[name]
+                    modules = value
                     if len(modules) > 64:
                         raise ValueError("modules.json exceeds 64 modules")
                     for module in modules:
@@ -147,10 +146,13 @@ def _repository_metadata(model_id: str, revision: str, info: Any) -> dict[str, A
                         if (not isinstance(directory, str) or "\\" in directory
                                 or PurePosixPath(directory).is_absolute() or ".." in directory.split("/")):
                             raise ValueError("module path must stay inside the model snapshot")
+                    # Validate the entire declaration before expanding reads.
+                    for module in modules:
                         for filename in ("config.json", "sentence_bert_config.json"):
-                            filename = str(PurePosixPath(directory) / filename)
+                            filename = str(PurePosixPath(module["path"]) / filename)
                             if filename not in names:
                                 names.append(filename)
+                metadata[name] = value
             except Exception as exc:
                 errors.append(f"{name}: {_format_failure(exc)}")
     return {"repository_files": files, "repository_metadata": metadata, "metadata_errors": tuple(errors)}
