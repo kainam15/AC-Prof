@@ -16,9 +16,10 @@ from acprof.host.posthoc.context import (
 )
 from acprof.results.layers import publish_result_layers
 from acprof.tui.results import profile_status
+from acprof.tui.results.data_status import inspect_experiment_data
 from tests.measurement.profiling.test_posthoc import TestPosthocProfile as _PosthocFixture
 from tests.runtime.containers.test_layer_read_cancellation import source_hashes
-from tests.tui.results.test_profile_overview_snapshot import profile_store, run_summary_worker
+from tests.tui.results.test_profile_overview_snapshot import profile_store
 
 
 def complete_row(tool, error="nan"):
@@ -31,10 +32,11 @@ def test_uncollected_layers_are_missing_in_the_complete_summary_worker(tmp_path,
     profile_store(tmp_path, version)
     before = source_hashes(tmp_path)
 
-    _, _, _, summary, error, _, overview, profile_error = run_summary_worker(tmp_path / "result_layers.json")
+    summary = inspect_experiment_data(tmp_path / "result_layers.json")
+    overview = summary.profiler_overview
 
-    assert summary is not None, error
-    assert overview is not None, profile_error
+    assert summary.profiler_error == ""
+    assert overview is not None
     assert [(s.tool, s.state, s.completed, s.total, s.errors) for s in overview.tools] == [
         ("torch", "complete", 2, 2, 0), ("ncu", "missing", 0, 1, 0),
         ("nsys", "missing", 0, 1, 0), ("massif", "missing", 0, 1, 0),
