@@ -57,7 +57,10 @@ def test_fixed_scenes(snap_compare, tmp_path, monkeypatch, language, size, scene
     monkeypatch.setattr("acprof.tui.logging.controller.time", SimpleNamespace(monotonic=lambda: 1.0))
     app = AcprofTui(RunConfig.smoke("fixture/model"), settings_path=tmp_path / "settings.json")
     monkeypatch.setattr(app.process, "execute_command", lambda *args, **kwargs: None)
-    app.configuration.preferences = replace(app.configuration.preferences, theme="acprof-graphite", language=language)
+    # Keep these fixed scenes covering the explicitly enabled command bar.
+    app.configuration.preferences = replace(
+        app.configuration.preferences, theme="acprof-graphite", language=language, show_command_bar=True,
+    )
 
     async def prepare(pilot):
         await pilot.pause()

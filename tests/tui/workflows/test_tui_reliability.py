@@ -242,6 +242,7 @@ class TestTuiReliability:
 
     async def test_preflight_blocks_button_f5_and_command_and_recovers_on_error(self):
         app = self.make_app()
+        app.configuration.preferences = replace(app.configuration.preferences, show_command_bar=True)
         async with app.run_test(size=(120, 30)) as pilot:
             await pilot.pause()
             with patch.object(app.preflight, 'execute_quick_check'), patch.object(app, 'launch') as launch:

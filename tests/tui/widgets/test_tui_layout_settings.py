@@ -277,6 +277,9 @@ class TestTuiLayoutSettings:
     async def test_ui_preferences_apply_save_and_restore_after_restart(self):
         app = AcprofTui(RunConfig.smoke("demo/model"), settings_path=self.settings_path)
         async with app.run_test(size=(150, 45)) as pilot:
+            assert not app.query_one("#ui-command-bar", Checkbox).value
+            assert not app.query_one("#slash-command-bar").display
+            assert app.query_one("#bottom-panel").region.height == 0
             await pilot.press("f2")
             app.query_one("#ui-theme", Select).value = "acprof-light"
             app.query_one("#ui-log-lines", Select).value = 1000
@@ -287,8 +290,8 @@ class TestTuiLayoutSettings:
             assert (app.theme) == ("acprof-light")
             assert not (app.query_one("#run-log", SelectableLog).wrap)
             assert (app.query_one("#run-log", SelectableLog).max_lines) == (1000)
-            assert not (app.query_one("#slash-command-bar").display)
-            assert (app.query_one("#bottom-panel").region.height) == (0)
+            assert app.query_one("#slash-command-bar").display
+            assert app.query_one("#bottom-panel").region.height > 0
             assert not (self.settings_path.exists())
             assert (await pilot.click("#save-ui-settings", offset=(3, 1)))
             await pilot.pause()
@@ -297,10 +300,17 @@ class TestTuiLayoutSettings:
         async with restarted.run_test(size=(150, 45)) as pilot:
             await pilot.pause()
             assert (restarted.theme) == ("acprof-light")
-            assert not (restarted.query_one("#slash-command-bar").display)
+            assert restarted.query_one("#ui-command-bar", Checkbox).value
+            assert restarted.query_one("#slash-command-bar").display
             assert not (restarted.query_one("#run-log", SelectableLog).wrap)
             assert (restarted.query_one("#run-log", SelectableLog).max_lines) == (1000)
             assert (restarted.configuration.initial_config) == (RunConfig.smoke())
+            await pilot.press("f2")
+            assert await pilot.click("#restore-ui-defaults", offset=(3, 1))
+            await pilot.pause()
+            assert not restarted.query_one("#ui-command-bar", Checkbox).value
+            assert not restarted.query_one("#slash-command-bar").display
+            assert restarted.query_one("#bottom-panel").region.height == 0
 
     async def test_saving_ui_preserves_remembered_experiment_and_saving_experiment_preserves_ui(self):
         config = RunConfig.smoke("demo/remembered")

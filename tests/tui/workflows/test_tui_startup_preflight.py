@@ -163,6 +163,7 @@ class TestStartupPreflight:
 
     async def test_error_blocks_all_launch_paths_until_retry_succeeds(self):
         app = self.make_app()
+        app.configuration.preferences = replace(app.configuration.preferences, show_command_bar=True)
         app.configuration.initial_config = RunConfig.smoke("demo/model")
         with patch("acprof.tui.run.preflight_controller.quick_preflight", side_effect=[
             OSError("diagnostic failed"), [PreflightCheck("Docker", "ok", "ready")],

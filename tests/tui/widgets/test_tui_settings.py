@@ -31,6 +31,7 @@ class TestTuiSettings:
         assert not warning
         assert settings.last_log_export_dir == ''
         assert settings.ui.language == 'en'
+        assert not settings.ui.show_command_bar
         assert settings.last_model == 'demo/model'
         assert self.path.read_bytes() == original
 
@@ -126,6 +127,7 @@ class TestTuiSettings:
     def test_first_launch_is_read_only_and_has_no_experiment_defaults(self):
         settings, warning = load_settings(self.path, self.project)
         assert (settings) == (TuiSettings())
+        assert not settings.ui.show_command_bar
         assert (settings.run_defaults) is None
         assert (warning) == ("")
         assert not (self.path.parent.exists())

@@ -320,6 +320,7 @@ class TestTuiImages:
 
     async def test_images_page_loads_automatically_only_after_opening(self):
         app = self.make_app()
+        app.configuration.preferences = replace(app.configuration.preferences, show_command_bar=True)
         async with app.run_test(size=(80, 24)) as pilot:
             await pilot.pause()
             tabs = app.query_one("#main-tabs", TabbedContent)

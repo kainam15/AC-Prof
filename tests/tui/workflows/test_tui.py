@@ -377,6 +377,7 @@ class TestTuiApp:
             RunConfig.smoke("google-bert/bert-base-uncased"),
             settings_path=Path(temporary.name) / "tui.json",
         )
+        app.configuration.preferences = replace(app.configuration.preferences, show_command_bar=True)
         async with app.run_test(size=(150, 52)) as pilot:
             await pilot.pause()
             assert not (app.ENABLE_COMMAND_PALETTE)
@@ -674,6 +675,7 @@ class TestTuiApp:
     @pytest.mark.parametrize('command', ['matrix', 'board'])
     async def test_removed_matrix_commands_are_rejected_and_absent_from_help(self, command):
         app = AcprofTui(RunConfig.smoke("demo/model"))
+        app.configuration.preferences = replace(app.configuration.preferences, show_command_bar=True)
         async with app.run_test(size=(140, 48)) as pilot:
             await pilot.pause()
             input_widget = app.query_one("#slash-command", Input)

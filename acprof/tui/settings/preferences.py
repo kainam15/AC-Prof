@@ -32,7 +32,7 @@ class UiPreferences:
     theme: str = "acprof-graphite"
     log_wrap: bool = True
     log_max_lines: int = 3000
-    show_command_bar: bool = True
+    show_command_bar: bool = False
     language: str = "zh"
 
     def validate(self) -> UiPreferences:
