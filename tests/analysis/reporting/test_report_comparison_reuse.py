@@ -1,16 +1,18 @@
 """One report reuses parsed runs while every comparison retains source checks."""
 import csv
+from importlib import import_module
 from itertools import permutations
 from unittest.mock import patch
 
 import pytest
 
-from acprof.analysis import independent_comparison as comparison
 from acprof.analysis.model import load_analysis
 from acprof.analysis.report_comparison import build_experiment_comparisons
 from acprof.plotting.report import write_report
 from tests.analysis.comparison.test_comparison_source_integrity import incremental_copy
 from tests.support.independent_comparison_fixtures import IndependentComparisonFixture
+
+comparison = import_module("acprof.analysis.independent_comparison")
 
 
 @pytest.fixture
@@ -66,6 +68,7 @@ def test_next_report_reads_new_values_instead_of_reusing_prior_snapshots(runs):
     with paths[0].open(newline="") as stream:
         reader = csv.DictReader(stream)
         fields, rows = reader.fieldnames, list(reader)
+    assert fields is not None
     rows[0]["latency_app_s"] = "9"
     with paths[0].open("w", newline="") as stream:
         writer = csv.DictWriter(stream, fields)
