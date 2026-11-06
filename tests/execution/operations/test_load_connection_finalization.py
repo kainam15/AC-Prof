@@ -132,25 +132,26 @@ def test_cancellation_during_close_keeps_preceding_scheduler_error(endpoint, mon
 
 
 def test_failed_final_close_stays_outside_the_load_duration(endpoint, monkeypatch):
-    offset = 0.0
+    clock_state = SimpleNamespace(offset=0.0)
     clock = time.perf_counter
-    monkeypatch.setattr(time, "perf_counter", lambda: clock() + offset)
+    monkeypatch.setattr(time, "perf_counter", lambda: clock() + clock_state.offset)
 
     def slow_close():
-        nonlocal offset
-        offset += 1000
+        clock_state.offset += 1000
 
     with connection_faults(monkeypatch, [OSError("fixture close failed")], on_close=slow_close):
         with pytest.raises(OSError, match="close failed") as caught:
             run(endpoint)
-        assert offset == 1000
+        assert clock_state.offset == 1000
         report = getattr(caught.value, "load_report")
         assert 0 < report["duration_s"] < 1000
         assert report["successful_requests_per_s"] == 2 / report["duration_s"]
 
 
 @pytest.mark.parametrize("error_types", [(OSError, OSError), (OSError, KeyboardInterrupt), (KeyboardInterrupt, OSError)])
-def test_all_connections_are_closed_despite_multiple_failures(endpoint, monkeypatch, error_types):
+def test_all_connections_are_closed_despite_multiple_failures(
+    endpoint, monkeypatch, error_types: tuple[type[BaseException], type[BaseException]],
+):
     errors = [kind(f"fixture close {index} failed") for index, kind in enumerate(error_types)]
     expected = errors[1] if error_types[1] is KeyboardInterrupt else errors[0]
     with connection_faults(monkeypatch, errors, workers=2) as connections:
@@ -160,8 +161,9 @@ def test_all_connections_are_closed_despite_multiple_failures(endpoint, monkeypa
         assert caught.value is expected
         detail = "\n".join((str(expected), *expected.__notes__))
         assert all(str(error) in detail for error in errors)
-        assert caught.value.load_report["counts"]["succeeded"] == 4
-        assert caught.value.load_report["successful"] is False
+        report = getattr(caught.value, "load_report")
+        assert report["counts"]["succeeded"] == 4
+        assert report["successful"] is False
 
 
 @pytest.mark.parametrize("warmup", [0, 1])
