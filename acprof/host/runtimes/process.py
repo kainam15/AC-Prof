@@ -11,8 +11,9 @@ from typing import Any
 
 from acprof.config import DEFAULT_REQUEST_TIMEOUT_SECONDS, READY_TIMEOUT_S
 from acprof.gpu_mode import normalize_gpu_mode
-from acprof.host.runtimes.contracts import ProcessInfo
+from acprof.host.runtimes.contracts import ProcessInfo, RuntimeCleanupError
 from acprof.host.runtimes.process_control import ManagedProcess
+from acprof.system.cleanup import cleanup_on_exit, format_exception_notes
 
 
 def service_environment(task, info: ProcessInfo, *, gpu="off", timeout=300) -> dict[str, str]:
@@ -100,50 +101,60 @@ class ProcessRuntime:
         limits = ProcessLimits(cpu, mem, cpuset_cpus)
         lease = None
         process = None
-        try:
-            lease = acquire_mount(image_info.runtime_environment, runtime="process")
-            token = uuid.uuid4().hex
-            env = service_environment(task_info, image_info, gpu=gpu, timeout=request_timeout_seconds)
-            started = time.monotonic()
-            with socket.socket() as reservation:
-                reservation.bind(("127.0.0.1", 0))
-                reservation.listen(128)
-                port = reservation.getsockname()[1]
-                env.update(ACPROF_SERVER_PORT=str(port), ACPROF_SERVICE_TOKEN=token,
-                           ACPROF_SERVER_FD=str(reservation.fileno()))
-                process = ManagedProcess([image_info.python, "-P", "-m", "acprof.container.server"],
-                    python=image_info.python, env=env, directory=Path(image_info.runtime_environment["logs_dir"]),
-                    name=f"{container_name}-{token}", cpuset=",".join(map(str, sorted(parse_cpu_set(cpuset_cpus)))),
-                    cgroup=limits.path, pass_fds=(reservation.fileno(), *lease.pass_fds))
-            session = RunningProcess(container_name, f"http://127.0.0.1:{port}", port, process,
-                                     limits.evidence(), lease=lease, limits=limits,
-                                     gpu_device=image_info.runtime_environment.get('gpu_device', {}) if gpu == 'on' else {})
-            deadline = time.monotonic() + READY_TIMEOUT_S
-            with requests.Session() as client:
-                client.trust_env = False
-                while time.monotonic() < deadline:
-                    if process.poll() is not None:
-                        raise RuntimeError(f"process exited before ready ({process.poll()}): {process.log_tail()}")
-                    try:
-                        response = client.get(session.base_url + "/ready", timeout=1)
-                        body = response.json() if response.status_code == 200 else {}
-                    except (requests.RequestException, ValueError):
-                        body = {}
-                    if body.get("service_token") == token and body.get("status") == "ok":
-                        session.startup = {"process_startup_s": time.monotonic() - started,
-                                           "server": body.get("startup_timing", {})}
-                        limits.verify(process.pid)
-                        session.resource_plan = limits.evidence()
-                        print(f"{log_prefix} Process ready: pid={process.pid}, port={port}")
-                        return session
-                    time.sleep(0.05)
-            raise TimeoutError(f"Process readiness timed out: {process.log_tail()}")
-        except BaseException as exc:
+        oom = False
+
+        def diagnose_oom() -> None:
+            nonlocal oom
             oom = limits.oom_killed()
+
+        try:
+            # Read OOM evidence before releasing its resource scope, without
+            # allowing diagnostic failures to bypass ownership cleanup below.
+            with cleanup_on_exit(diagnose_oom, description="Process startup OOM diagnostics", on_error_only=True):
+                lease = acquire_mount(image_info.runtime_environment, runtime="process")
+                token = uuid.uuid4().hex
+                env = service_environment(task_info, image_info, gpu=gpu, timeout=request_timeout_seconds)
+                started = time.monotonic()
+                with socket.socket() as reservation:
+                    reservation.bind(("127.0.0.1", 0))
+                    reservation.listen(128)
+                    port = reservation.getsockname()[1]
+                    env.update(ACPROF_SERVER_PORT=str(port), ACPROF_SERVICE_TOKEN=token,
+                               ACPROF_SERVER_FD=str(reservation.fileno()))
+                    process = ManagedProcess([image_info.python, "-P", "-m", "acprof.container.server"],
+                        python=image_info.python, env=env, directory=Path(image_info.runtime_environment["logs_dir"]),
+                        name=f"{container_name}-{token}", cpuset=",".join(map(str, sorted(parse_cpu_set(cpuset_cpus)))),
+                        cgroup=limits.path, pass_fds=(reservation.fileno(), *lease.pass_fds))
+                session = RunningProcess(container_name, f"http://127.0.0.1:{port}", port, process,
+                                         limits.evidence(), lease=lease, limits=limits,
+                                         gpu_device=image_info.runtime_environment.get('gpu_device', {}) if gpu == 'on' else {})
+                deadline = time.monotonic() + READY_TIMEOUT_S
+                with requests.Session() as client:
+                    client.trust_env = False
+                    while time.monotonic() < deadline:
+                        if process.poll() is not None:
+                            raise RuntimeError(f"process exited before ready ({process.poll()}): {process.log_tail()}")
+                        try:
+                            response = client.get(session.base_url + "/ready", timeout=1)
+                            body = response.json() if response.status_code == 200 else {}
+                        except (requests.RequestException, ValueError):
+                            body = {}
+                        if body.get("service_token") == token and body.get("status") == "ok":
+                            session.startup = {"process_startup_s": time.monotonic() - started,
+                                               "server": body.get("startup_timing", {})}
+                            limits.verify(process.pid)
+                            session.resource_plan = limits.evidence()
+                            print(f"{log_prefix} Process ready: pid={process.pid}, port={port}")
+                            return session
+                        time.sleep(0.05)
+                raise TimeoutError(f"Process readiness timed out: {process.log_tail()}")
+        except BaseException as exc:
             if process is not None:
                 try:
                     process.close()
-                except BaseException:
+                except BaseException as cleanup_error:
+                    if isinstance(cleanup_error, RuntimeCleanupError):
+                        cleanup_error.run_error = exc
                     from acprof.host.model_store.store import retain_mount_for_cleanup_debt
                     if lease is not None:
                         retain_mount_for_cleanup_debt(lease)
@@ -152,7 +163,9 @@ class ProcessRuntime:
                 lease.close()
             limits.close()
             if oom and isinstance(exc, Exception):
-                raise RuntimeError(f"runtime_oom: owned cgroup memory.events oom_kill increased; {exc}") from exc
+                raise RuntimeError(
+                    f"runtime_oom: owned cgroup memory.events oom_kill increased; {format_exception_notes(exc)}"
+                ) from exc
             raise
 
     def stop(self, session, *, log_prefix=None):

@@ -59,6 +59,7 @@ from acprof.monitors.perf_mips import MIPS_EXIT_CODE
 from acprof.results.csv import allow_large_csv_fields
 from acprof.results.layout import ArtifactLayout, resource_case_id
 from acprof.system import command as host_command
+from acprof.system.cleanup import format_exception_notes
 
 if TYPE_CHECKING:
     from acprof.host.run_state import RunState
@@ -249,7 +250,7 @@ class _CaseExecution:
             raise
         except (RuntimeError, OSError) as exc:
             kind = "process" if runtime_kind(self.request.image_info) == "process" else "container"
-            error = f"{kind}_start_failed: {exc}"
+            error = f"{kind}_start_failed: {format_exception_notes(exc)}"
             print(f"[case] {error}", file=sys.stderr)
             self._write_error(error)
             emit_event("case_finished", self.case_name, status="error")

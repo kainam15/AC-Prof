@@ -96,6 +96,12 @@ Token 派生之前冻结。`load_reporting` 在此后补齐未提交请求、派
 解析器不导入 Docker、模型检测或采集编排，单独读取报告无需安装推理框架。
 测试在函数实际查找依赖的位置 mock。
 
+Process 启动失败时先尝试读取 OOM 证据，再执行既有的进程终止与资源释放。
+普通诊断错误不得绕过清理或替代原始启动故障／取消；错误作为异常备注保留，
+普通启动失败的 stderr 与错误 CSV 同时保留这些备注。只有成功读取的 OOM 证据才能改变故障分类。
+进程清理未确认时仍保留 Model Store 租约与资源范围，传播 `RuntimeCleanupError` 阻止后续执行，
+其 `run_error` 保留原始启动异常。轻量真实服务加故障注入可验证所有权与传播；真实 cgroup OOM 仍需硬件验收。
+
 Profiler 命令统一经过 `profiling.commands.run_profiler_command`：主机工具查询保留原有执行方式，
 每次 `docker run` 单独分配 cidfile 和现有进程所有权标签，按不可变 ID 有界回收容器。
 启动前同样复用 `container_lifecycle.recover_abandoned_containers`，只回收已确认退出的所有者
