@@ -27,7 +27,7 @@ class VisualFixtureApp(AcprofTui):
         super().__init__(self.scenario.config(), settings_path=settings_path)
         self.configuration.preferences = replace(
             self.configuration.preferences,
-            language="zh",
+            language=self.scenario.language,
             theme="acprof-graphite",
             show_command_bar=True,
         )

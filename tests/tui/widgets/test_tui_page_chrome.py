@@ -61,7 +61,7 @@ class TestTuiPageChrome:
             pages = (
                 ('run-tab', 'start-run', ('open-run-settings', 'probe-largest')),
                 ('monitor-tab', 'stop-run', ('copy-log-all', 'follow-log', 'expand-log', 'clear-log')),
-                ('results-tab', 'plot-results', ('summarize-results',)),
+                ('results-tab', 'report-calculate', ('summarize-results',)),
                 ('backfill-tab', 'open-result-profiling', ('summarize-backfill',)),
                 ('images-tab', 'image-delete', ('image-toggle', 'image-model', 'image-clear')),
                 ('settings-tab', 'save-ui-settings', ('restore-ui-defaults',)),

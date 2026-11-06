@@ -320,7 +320,7 @@ class TestTuiLanguage:
                 ("settings-tab", ("ui-language", "restore-ui-defaults", "save-ui-settings")),
                 ("run-tab", ("open-run-settings", "probe-largest", "start-run")),
                 ("monitor-tab", ("copy-log-all", "follow-log", "expand-log", "clear-log", "stop-run")),
-                ("results-tab", ("result-csv", "summarize-results", "plot-results")),
+                ("results-tab", ("result-csv", "summarize-results", "report-calculate")),
             ):
                 tabs = app.query_one("#main-tabs", TabbedContent)
                 tab_button = tabs.get_tab(tab)

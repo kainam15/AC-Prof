@@ -361,7 +361,9 @@ async def test_comparison_exports_and_report_panels_stay_hidden_during_navigatio
         app.results.html.toggle_export_fields()
         app.query_one("#analysis-details", Collapsible).collapsed = False
         await pilot.pause()
-        for panel in app.query("#html-report-panel, #analysis-details"):
+        # The new flow exposes status/path/open, while legacy controls stay hidden.
+        assert app.query_one("#html-report-panel").region.area > 0
+        for panel in app.query("#html-legacy-controls, #analysis-details"):
             assert panel.region.area == 0
             controls = panel.query("Input, Button, DataTable, CollapsibleTitle")
             for control in controls:
@@ -375,7 +377,8 @@ async def test_comparison_exports_and_report_panels_stay_hidden_during_navigatio
                 assert app.focused not in controls
         await pilot.resize_terminal(80, 24)
         await pilot.pause()
-        assert app.query_one("#html-report-panel").region.area == 0
+        assert app.query_one("#html-report-panel").region.area > 0
+        assert app.query_one("#html-legacy-controls").region.area == 0
         assert app.query_one("#analysis-details").region.area == 0
         for control in views.get_pane("exports-view").query("Input, Button"):
             assert control.region.area == 0

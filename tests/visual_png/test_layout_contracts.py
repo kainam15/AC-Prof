@@ -18,6 +18,8 @@ pytestmark = pytest.mark.visual_png
     [
         ("form-small", ("#model", "#start-run")),
         ("error-modal", ("#preflight-close", "#preflight-retry")),
+        ("statistics", ("#result-csv", "#summarize-results", "#report-calculate")),
+        ("statistics-en", ("#result-csv", "#summarize-results", "#report-calculate")),
         (
             "task-selection",
             ("#preparation-cancel", "#preparation-select-all", "#preparation-apply"),

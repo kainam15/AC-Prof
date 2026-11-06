@@ -295,7 +295,9 @@ async def exercise_journey(
             if size[0] > 80:
                 await pilot.resize_terminal(80, 24)
                 await pilot.pause()
-                assert app.query_one("#plot-results", Button).region.bottom <= 24
+                action = app.query_one("#report-calculate", Button)
+                assert action.region.width > 0
+                assert action.region.bottom <= 24
                 await record("results-small", "resized results page to 80x24")
             # Read-only measurement semantics: no collection process was ever spawned.
             execute.assert_called_once()

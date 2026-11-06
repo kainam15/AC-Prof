@@ -46,21 +46,20 @@ async def test_primary_analysis_action_generates_html_and_keeps_parameters(tmp_p
         await pilot.pause()
         app.results.select_result(str(source), summarize=False)
         app.results.show_result_section("statistics-view")
-        app.query_one("#analysis-resamples", Input).value = "101"
-        app.query_one("#analysis-seed", Input).value = "7"
+        assert not app.query("#analysis-parameters")
         await pilot.pause()
         with patch.object(app, "launch") as launch:
             assert await pilot.click("#report-calculate")
             await pilot.pause()
             pending = launch.call_args.args[0]
             assert pending.kind == "html-report"
-            assert pending.command[pending.command.index("--resamples") + 1] == "101"
-            assert pending.command[pending.command.index("--seed") + 1] == "7"
+            assert pending.command[pending.command.index("--resamples") + 1] == "5000"
+            assert pending.command[pending.command.index("--seed") + 1] == "0"
         button = app.query_one("#report-calculate", Button)
         assert button.region.right <= 80
-        assert app.query_one("#html-report-panel").region.area == 0
+        assert app.query_one("#html-report-panel").region.area > 0
         assert app.query_one("#analysis-details").region.area == 0
-        assert app.query_one("#analysis-parameters").region.area > 0
+        assert app.query_one("#html-legacy-controls").region.area == 0
 
 
 async def test_successful_comparison_offers_existing_html_and_preserves_json_export(tmp_path):

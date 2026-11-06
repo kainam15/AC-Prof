@@ -54,17 +54,7 @@ def compose_statistics(app: AcprofTui) -> ComposeResult:
     local = app.localization.localized_widget
     with VerticalScroll(id="analysis-workflow", classes="pane-scroll"):
         yield from compose_html(app)
-        with local(Collapsible(title=message_id("results.analysis.parameters"), collapsed=True, id="analysis-parameters")):
-            with Grid(classes="form-grid tool-form-grid"):
-                for name, label, hint in (
-                    ("metrics", message_id("results.analysis.metrics"), "latency_app_s,throughput_samples_per_s"),
-                    ("confidence", message_id("results.analysis.confidence"), "0.95"),
-                    ("resamples", message_id("results.analysis.resamples"), "5000"),
-                    ("seed", message_id("results.analysis.seed"), "0"),
-                    ("block-size", message_id("results.analysis.block_size"), "1"),
-                ):
-                    yield local(Label(label))
-                    yield Input(id="analysis-" + name, placeholder=hint, classes="report-control")
+        yield local(Static(message_id("results.analysis.html_parameters"), id="statistics-html-hint", markup=False))
         with local(Collapsible(title=message_id("results.analysis.advanced"), collapsed=True, id="analysis-details", disabled=True)):
             yield local(Button(message_id("results.analysis.window_json"), id="report-window-stats", classes="report-control"))
             with Vertical(id="report-panel"):
@@ -119,17 +109,8 @@ def compose_exports(app: AcprofTui) -> ComposeResult:
 
 def compose_html(app: AcprofTui) -> ComposeResult:
     local = app.localization.localized_widget
-    with Vertical(id="html-report-panel", disabled=True):
+    with Vertical(id="html-report-panel"):
         yield local(Label(message_id("results.html.title"), classes="html-section-title"))
-        with Horizontal(id="html-source-row", classes="html-actions"):
-            yield local(Static(message_id("results.html.current_source"), id="html-current-source"))
-            yield local(Button(message_id("results.html.add_inputs"), id="html-extra-toggle", classes="report-control"))
-        yield local(Input(id="html-extra-sources", classes="report-control",
-                          placeholder=message_id("results.html.additional_inputs_hint")))
-        with Horizontal(classes="html-actions"):
-            yield local(Button(message_id("results.html.generate"), id="html-report-generate",
-                               classes="report-control", variant="primary"))
-            yield local(Button(message_id("results.html.cancel"), id="html-report-cancel", disabled=True))
         yield local(Static(message_id("results.html.generation_note"), id="html-report-status", markup=False))
         with Vertical(id="html-report-file"):
             yield local(Static(message_id("results.html.selected_report"), classes="html-file-heading"))
@@ -137,14 +118,23 @@ def compose_html(app: AcprofTui) -> ComposeResult:
             yield Static("", id="html-report-location", markup=False)
             with Horizontal(classes="html-actions"):
                 yield local(Button(message_id("results.html.open"), id="html-report-open", classes="report-control"))
-                yield local(Button(message_id("results.html.copy_path"), id="html-report-copy", classes="report-control"))
-                yield local(Button(message_id("results.html.save_as"), id="html-export-toggle", classes="report-control"))
-        with Horizontal(id="html-export-fields", classes="path-picker-row"):
-            yield local(Input(id="html-export-path", classes="report-control",
-                              placeholder=message_id("results.html.export_path_hint")))
-            yield local(Button(message_id("results.html.export"), id="html-report-export", classes="report-control"))
-        with Vertical(id="html-existing-controls", disabled=True):
-            yield local(Button(message_id("results.html.use_existing"), id="html-existing-toggle", classes="report-control"))
-            yield local(Input(app.configuration.saved_settings.last_html_report, id="html-report-path",
-                              classes="report-control", placeholder=message_id("results.html.path_hint")))
         yield local(Static(message_id("results.html.remote_download_hint"), id="html-remote-hint", markup=False))
+        # Retain paused import/export bindings; the visible workflow is select -> generate -> open.
+        with Vertical(id="html-legacy-controls", disabled=True):
+            with Horizontal(id="html-source-row", classes="html-actions"):
+                yield local(Static(message_id("results.html.current_source"), id="html-current-source"))
+                yield local(Button(message_id("results.html.add_inputs"), id="html-extra-toggle", classes="report-control"))
+            yield local(Input(id="html-extra-sources", classes="report-control",
+                              placeholder=message_id("results.html.additional_inputs_hint")))
+            yield local(Button(message_id("results.html.generate"), id="html-report-generate", classes="report-control"))
+            yield local(Button(message_id("results.html.cancel"), id="html-report-cancel", disabled=True))
+            yield local(Button(message_id("results.html.copy_path"), id="html-report-copy", classes="report-control"))
+            yield local(Button(message_id("results.html.save_as"), id="html-export-toggle", classes="report-control"))
+            with Horizontal(id="html-export-fields", classes="path-picker-row"):
+                yield local(Input(id="html-export-path", classes="report-control",
+                                  placeholder=message_id("results.html.export_path_hint")))
+                yield local(Button(message_id("results.html.export"), id="html-report-export", classes="report-control"))
+            with Vertical(id="html-existing-controls", disabled=True):
+                yield local(Button(message_id("results.html.use_existing"), id="html-existing-toggle", classes="report-control"))
+                yield local(Input(app.configuration.saved_settings.last_html_report, id="html-report-path",
+                                  classes="report-control", placeholder=message_id("results.html.path_hint")))

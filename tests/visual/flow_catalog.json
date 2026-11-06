@@ -88,10 +88,14 @@
     },
     {
       "id": "results", "title": "查看结果与统计", "page": "results-tab", "group": "main",
-      "trigger": "选择本次或已有实验并读取结果", "expected": "结果源与统计口径明确，表格与操作适应终端尺寸",
-      "png": [],
-      "svg": ["tests/visual/__snapshots__/test_snapshots/test_fixed_scenes[en-size4-resized-table].svg"],
-      "tests": ["tests/tui/results/test_tui_result_tools.py", "tests/tui/results/test_tui_reports.py", "tests/tui/workflows/test_tui_visual_journey.py"]
+      "trigger": "选择本次或已有实验并读取结果", "expected": "结果源与统计口径明确，生成并打开 HTML 后调整统计参数",
+      "png": ["statistics", "statistics-en"],
+      "svg": [
+        "tests/visual/__snapshots__/test_snapshots/test_fixed_scenes[en-size4-resized-table].svg",
+        "tests/visual/__snapshots__/test_snapshots/test_fixed_scenes[zh-size15-statistics].svg",
+        "tests/visual/__snapshots__/test_snapshots/test_fixed_scenes[en-size16-statistics].svg"
+      ],
+      "tests": ["tests/tui/results/test_tui_result_tools.py", "tests/tui/results/test_tui_reports.py", "tests/tui/workflows/test_tui_html_statistics.py", "tests/tui/workflows/test_tui_visual_journey.py"]
     },
     {
       "id": "profiler", "title": "查看或补充 Profiler", "page": "results-tab", "group": "optional",

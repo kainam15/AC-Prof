@@ -522,19 +522,6 @@ class ResultController:
     def calculate_report_button(self) -> None:
         self.html.launch()
 
-    def analysis_arguments(self, *, independent: bool = False) -> tuple[str, ...]:
-        arguments: list[str] = []
-        for name in ("confidence", "resamples", "seed", "block-size"):
-            if independent and name == "block-size":
-                continue
-            value = self.app.configuration.input("analysis-" + name).strip()
-            if value:
-                arguments.extend(("--" + name, value))
-        for metric in self.app.configuration.input("analysis-metrics").split(","):
-            if metric.strip():
-                arguments.extend(("--metric", metric.strip()))
-        return tuple(arguments)
-
     def compare_experiments_button(self) -> None:
         if not self.app.allow_operation("compare"):
             return
@@ -542,7 +529,7 @@ class ResultController:
             pending = prepare_comparison(self.app.configuration.input("comparison-left"), self.app.configuration.input("comparison-right"),
                 baseline=self.app.configuration.select("comparison-baseline"), purpose=self.app.configuration.select("comparison-purpose"),
                 project_dir=self.app.project_dir, python_executable=self.app.python_executable,
-                html_report=True, analysis_args=self.analysis_arguments(independent=True))
+                html_report=True)
         except (RunConfigError, ValueError, OSError) as exc:
             self.app.localization.set_text(self.app.query_one("#comparison-status", Static), error_message(exc))
             self.app.notify(error_message(exc), severity="error")
@@ -561,7 +548,7 @@ class ResultController:
             return
         try:
             pending = prepare_stats(source, project_dir=self.app.project_dir, python_executable=self.app.python_executable,
-                                    analysis_args=self.analysis_arguments())
+                                    analysis_args=())
         except (OSError, ValueError) as exc:
             self.clear_report(error_message(exc), phase="error")
             return

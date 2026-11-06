@@ -41,6 +41,8 @@ pytestmark = pytest.mark.visual
     ("en", (80, 24), "profiler"),
     ("zh", (80, 24), "backfill"),
     ("en", (120, 30), "backfill"),
+    ("zh", (80, 24), "statistics"),
+    ("en", (80, 24), "statistics"),
 ])
 def test_fixed_scenes(snap_compare, tmp_path, monkeypatch, language, size, scene):
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
@@ -120,6 +122,10 @@ def test_fixed_scenes(snap_compare, tmp_path, monkeypatch, language, size, scene
                     assert app.get_widget_at(button.region.x + 1, button.region.y + 1)[0] is button
                 await pilot.press("tab")
                 assert app.focused.id in {"preparation-cancel", "preparation-continue"}
+        elif scene == "statistics":
+            app.activate_tab("results-tab")
+            app.results.show_result_section("statistics-view")
+            await pilot.pause()
         elif scene == "modal":
             app.push_screen(ConfirmActionScreen("终止当前任务？", "确认后将请求采集进程安全停止。", "终止任务"))
         elif scene == "backfill":

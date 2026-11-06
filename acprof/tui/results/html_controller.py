@@ -111,7 +111,7 @@ class HtmlReportController:
                 self.source(include_extra=True),
                 project_dir=self.app.project_dir,
                 python_executable=self.app.python_executable,
-                analysis_args=self.app.results.analysis_arguments(),
+                analysis_args=("--confidence", "0.95", "--resamples", "5000", "--seed", "0", "--block-size", "1"),
             )
         except (OSError, ValueError, csv.Error) as exc:
             self.set_status(error_message(exc))
