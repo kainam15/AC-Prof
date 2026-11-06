@@ -221,8 +221,9 @@ def _server_metrics_section(data: Mapping[str, Any]) -> str:
     if metrics is None:
         return ""
     observation = data["experiment"]["server_metrics"]
+    phases = metrics["phases"]
     rows = [[phase, row["status"], row["count"], row["sum_s"], row["mean_s"], row["reason"]]
-            for phase, row in metrics["phases"].items()]
+            for phase, row in phases.items()]
     snapshots = [[name, observation[name]["status"], observation[name]["started_s"],
                   observation[name]["finished_s"], observation[name]["error"]]
                  for name in ("before", "after")]

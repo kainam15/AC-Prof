@@ -39,12 +39,12 @@ def metrics_server(*, failure=None, metrics_body=None, content_type="text/plain;
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
 
-        def log_message(self, *_args):
+        def log_message(self, format, *args):
             pass
 
-        def reply(self, status, body, content_type):
+        def reply(self, status, body, response_type):
             self.send_response(status)
-            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Type", response_type)
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
@@ -72,7 +72,7 @@ def metrics_server(*, failure=None, metrics_body=None, content_type="text/plain;
             raw = "".join(f"data: {json.dumps(value)}\n\n" for value in choices) + "data: [DONE]\n\n"
             self.reply(200, raw.encode(), "text/event-stream")
 
-    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    server = ThreadingHTTPServer(("127.0.0.1", 0), lambda *args: Handler(*args))
     server.daemon_threads = False
     thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01})
     thread.start()
