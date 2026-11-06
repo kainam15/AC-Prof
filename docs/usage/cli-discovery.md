@@ -71,6 +71,8 @@ acprof inspect MODEL --probe-interface --output-dir results/inspection/model-int
 正式矩阵和报告。模糊名称不按下载量替换，访问失败不改选其他模型；语义冲突保留解释和 draft 后退出。
 
 除模型改为位置参数外，其余资源、输入、窗口和 profiler 参数与 `run` 相同，默认矩阵也相同。
+静态参数与本地声明文件先按 `run` 的共享规则校验，相对路径以当前工作目录为准；
+共享校验失败时以字段原因和退出码 2 返回，不执行环境设置、模型查询、实验加锁或准备产物创建。
 首次验证建议显式限制矩阵：
 
 ```bash

@@ -14,6 +14,13 @@ def main(argv=None) -> int:
     from acprof.host.run_state import MeasurementLock, ResultDirectoryLock
     parser = build_parser(automatic=True)
     args = parser.parse_args(argv)
+    from acprof.experiments.configuration import RunConfig, RunConfigError
+    try:
+        # Check static inputs before environment setup, locks, repository access
+        # or preparation artifacts; capability checks still select the mode.
+        RunConfig.from_namespace(args).validate(project_dir=Path.cwd(), allow_auto_profiling=True)
+    except RunConfigError as exc:
+        parser.error(format_exception_notes(exc))
     from acprof.application.download import apply_download_arguments
     apply_download_arguments(args)
     bootstrap_project_env(Path.cwd())

@@ -184,8 +184,9 @@ class RunConfig(RunOptions):
             execution_profile_tool="none",
         )
 
-    def validate(self, *, project_dir: Path | None = None) -> RunConfig:
-        """Normalize form values and reject invalid or misleading runs."""
+    def validate(self, *, project_dir: Path | None = None, allow_auto_profiling: bool = False) -> RunConfig:
+        """Validate static inputs; automatic preflight may retain a pending profiling mode."""
+        pending_profiling = allow_auto_profiling and self.profiling_mode == "auto"
         errors: list[ConfigIssue] = []
         for name, identifier in (("task_run_id", self.task_run_id), *[("tasks", item) for item in self.tasks.split(",")]):
             if identifier and not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", identifier):
@@ -231,7 +232,7 @@ class RunConfig(RunOptions):
         gpus = csv_values(self.gpus)
         if self.runtime not in {"auto", "docker", "process"}:
             errors.append(ConfigIssue("runtime", message("执行运行时必须是 auto、docker 或 process")))
-        if self.runtime == "process" and (self.profiling_mode != "basic"
+        if self.runtime == "process" and ((self.profiling_mode != "basic" and not pending_profiling)
                 or self.compute_profile_tool != "none" or self.execution_profile_tool != "none"
                 or extra_options.get("dram_energy") == "required"):
             errors.append(ConfigIssue("runtime", message("Process Runtime 目前仅支持 basic 采集，且不能启用独立分析器")))
@@ -289,7 +290,7 @@ class RunConfig(RunOptions):
             errors.append(ConfigIssue("task_family", message('任务族必须是 nlp/cv/audio/timeseries/diffusion/multimodal/structured')))
         if self.compute_profile_tool not in COMPUTE_PROFILE_TOOLS:
             errors.append(ConfigIssue("compute_profile_tool", message('无效的计算分析器')))
-        if self.profiling_mode not in {"full", "basic"}:
+        if self.profiling_mode not in {"full", "basic"} and not pending_profiling:
             errors.append(ConfigIssue("profiling_mode", message('无效的画像模式')))
         if self.sampling_policy not in {"burst", "skip"}:
             errors.append(ConfigIssue("sampling_policy", message("采样策略必须是 burst 或 skip")))

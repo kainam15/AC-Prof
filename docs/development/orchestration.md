@@ -251,6 +251,12 @@ machine events 继续由 `RunProgressTracker` 解析。
 应用准备层不再直接修改 Process 制品，恢复操作也不会改写保存的快照；
 Docker 实现保持既有镜像准备和不可变镜像身份校验。
 `RunConfig.validate()` 汇总纯参数约束与逐字段 `ConfigIssue`，并规范化 profiler 重复次数和参考资源。`experiments.constraints` 提供 CLI、表单、冻结参数及 `ClientConfig` 共用的无损数值解析，拒绝布尔值、非有限值和小数截断；主机 CPU 亲和可用性、环境 SLO 与硬件能力仍在 preflight 检查。用户实验的 `repeat` 至少为 1，直接测量入口允许准备／清理用的 0 窗口；这一区别显式保留在共享规则中。底层测量还验证进程身份和证据目录等运行不变量。
+`auto` 在环境设置、锁和模型访问之前复用该校验；只有自动准备入口允许保留尚未选择的
+`profiling_mode=auto`，不提前决定 basic/full，也不放宽 Process 的显式 Profiler 或 DRAM 限制。
+校验保持原始 CLI Namespace，未指定的下载选项继续为 `None`；本地声明按当前工作目录解析。
+参考 [Click 的解析与命令调用分离](https://github.com/pallets/click/blob/main/src/click/core.py)
+及 [CPython argparse 的参数错误处理](https://github.com/python/cpython/blob/3.12/Lib/argparse.py)，
+仅借鉴设计，沿用项目共享约束与标准库，不复制代码或引入新的 CLI 依赖。
 `_execute()` 只串联执行选项校验、任务集合分派、主机预检、准备、矩阵执行和结果发布；
 `_collect_matrix()` 消费单一 `MatrixRequest`，`application.publication.publish_matrix_results()` 负责
 capability 校验、CSV 合并、RunState 完成、清理及自动统计 JSON 发布，task child 继续使用同一 `_finalize()` 所有权和异常优先级。
