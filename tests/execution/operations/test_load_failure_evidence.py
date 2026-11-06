@@ -10,8 +10,10 @@ import pytest
 
 from acprof.cli import load as load_cli
 from acprof.host.runtimes.contracts import RuntimeCleanupError
+from tests.execution.operations import test_streaming_cli
 from tests.execution.operations.test_process_load_replay import replay_environment
-from tests.execution.operations.test_streaming_cli import endpoint_cli as endpoint_cli
+
+endpoint_environment = test_streaming_cli.endpoint_cli
 
 
 @pytest.fixture(name="invocation", params=["replay", "endpoint"])
@@ -21,7 +23,7 @@ def load_invocation(request, tmp_path, monkeypatch):
         replay = replay_environment(tmp_path, monkeypatch)
         argv, output, module = replay.argv, replay.output, "acprof.cli.load"
     else:
-        base, output, _calls = request.getfixturevalue("endpoint_cli")
+        base, output, _calls = request.getfixturevalue("endpoint_environment")
         argv = [*base, "--protocol", "openai-chat", "--model", "fixture-model", "--prompt", "hello",
                 "--warmup", "1", "--requests", "2"]
         module = "acprof.cli.streaming_load"
@@ -137,7 +139,7 @@ def test_success_keeps_warmup_separate_without_failure_diagnostics(invocation):
     assert "error" not in report
 
 
-def fail_report_publication(invocation, monkeypatch, *, attempt, error_type=PermissionError):
+def fail_report_publication(invocation, monkeypatch, *, attempt, error_type: type[BaseException] = PermissionError):
     real_replace = os.replace
     calls = []
     failure = error_type("fixture report publication denied")
@@ -147,7 +149,7 @@ def fail_report_publication(invocation, monkeypatch, *, attempt, error_type=Perm
             calls.append(Path(destination))
             if len(calls) == attempt:
                 raise failure
-        return real_replace(source, destination)
+        real_replace(source, destination)
 
     monkeypatch.setattr("acprof.artifacts.os.replace", replace)
     return failure, calls
@@ -201,7 +203,7 @@ def test_replay_request_evidence_survives_packet_capture_cleanup_failure(tmp_pat
     replay = replay_environment(tmp_path, monkeypatch)
     partial = {"successful": False, "success_rate": 0, "requests": [{"request_id": "measured:0", "status": "cancelled"}]}
     failure = KeyboardInterrupt("fixture interrupted")
-    failure.load_report = partial
+    setattr(failure, "load_report", partial)
     run = Mock(side_effect=[{"successful": True, "success_rate": 1}, failure])
     monkeypatch.setattr("acprof.cli.load.run_load", run)
 
@@ -225,7 +227,7 @@ def test_replay_request_evidence_survives_packet_capture_cleanup_failure(tmp_pat
 def test_replay_cleanup_failure_still_propagates_when_publication_also_fails(tmp_path, monkeypatch):
     replay = replay_environment(tmp_path, monkeypatch)
     operation = KeyboardInterrupt("fixture interrupted")
-    operation.load_report = {"successful": False, "requests": []}
+    setattr(operation, "load_report", {"successful": False, "requests": []})
     monkeypatch.setattr("acprof.cli.load.run_load", Mock(side_effect=operation))
     cleanup = RuntimeCleanupError("fixture cleanup unconfirmed")
     replay.stop.side_effect = cleanup
