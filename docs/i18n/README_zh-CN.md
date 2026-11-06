@@ -26,7 +26,7 @@ acprof compare --left run-a/ --right run-b/ --html-output comparison.html \
   --output comparison.json --csv-output comparison.csv
 ```
 
-重复 `--left` 和 `--right` 可添加独立重复实验。每侧只有一次运行时展示描述性差值与比值，不生成运行级区间。TUI 的“实验结果 → 分析报告”负责选择实验、生成和打开 HTML；统计参数、图表、比较与导出在 HTML 中完成。CLI 保留高级统计参数；旧 TUI 统计、比较、导入导出和 PNG 控件保持隐藏，后端能力保留。
+重复 `--left` 和 `--right` 可添加独立重复实验。每侧只有一次运行时展示描述性差值与比值，不生成运行级区间。TUI 选择实验目录后自动加载元数据概览和 Profiling 状态；“实验结果 → 分析报告”生成并打开 HTML，同时核对报告与当前数据的来源。补采仍需主动选择并确认；统计参数、图表、比较与导出在 HTML 中完成。CLI 保留高级统计参数；旧 TUI 统计、比较、导入导出和 PNG 控件保持隐藏，后端能力保留。
 
 `acprof load --base-url` 可测量已启动的 OpenAI-compatible 流式服务。显式并发数、到达率列表支持 `--dry-run` 计划预览，每个负载点分别保留报告；详见[多负载点编排](../profiling/streaming.md#多负载点编排)。`acprof report <sweep.json>` 可生成[离线吞吐与时延曲线](../results/reports.md#多负载点流式容量报告)，保留条件分组、失败点和缺失证据。可选的 [vLLM／SGLang 身份探测](../profiling/streaming.md#服务身份)分别保留服务观测与用户声明。显式选择 `vllm-config` 可从已开放的开发端点读取部分引擎配置，SGLang 也记录部分启动配置。
 

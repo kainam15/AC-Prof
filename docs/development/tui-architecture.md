@@ -15,7 +15,7 @@ acprof/tui/
 ├── logging/                # 日志保留、显示、导出
 ├── models/                 # 模型候选和 Store 确认
 ├── results/                # 历史结果、统计、报告与 profiler
-│   ├── controller.py       # 结果选择、统计读取/呈现与操作控件副作用
+│   ├── controller.py       # 实验选择、独立元数据/数据 Worker 与操作控件副作用
 │   ├── html_controller.py  # HTML 生成回执、完成状态及打开/导出操作
 │   └── report_actions.py   # 不依赖 Textual 的按钮可用性/显示纯计算
 ├── run/                    # 执行、预检、恢复、进度与命令呈现
@@ -59,3 +59,7 @@ acprof/tui/
 [Toolong 的进程/查看器分工](https://github.com/Textualize/toolong/tree/main/src/toolong) 和
 [Textual Worker 生命周期讨论](https://github.com/Textualize/textual/issues/2593)。
 只借鉴独立生命周期、数据流和展示职责，不复制源代码，也不依赖新框架。
+
+实验选择保留目录，命令准备统一使用 `results.layout.resolve_result_file` 的单实验解析；多任务目录需显式选择。`results/overview.py` 只读取目录元数据，`results/data_status.py` 在后台让质量审计与 `inspect_profile_result` 借用一次结果快照，不调用统计聚合。两个 Worker 复用 App 的管理器、取消令牌和共享只读测量锁，返回时检查当前选择身份。HTML 来源校验只在后台进行，旧报告没有来源证据时保留 unverified；补采在用户确认后再次检查来源及互斥状态。
+
+线程取消与 UI 回调核验参考 [Textual Workers 指南及示例](https://github.com/Textualize/textual/blob/main/docs/guide/workers.md)。复用已锁定的 Textual，不增加依赖；同一取消令牌传递给现有结果解析器，避免仅取消 Worker 而遗留正在执行的读取。
