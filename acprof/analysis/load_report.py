@@ -122,11 +122,11 @@ def _validate_summary(
         ) / capacity["duration_s"]
     for name, expected in expected_rates.items():
         value = result.get(name)
-        if (
-            isinstance(value, bool) or not isinstance(value, (int, float))
-            or value != expected or not math.isfinite(value)
-        ):
-            raise ValueError(f"stream load {name} is inconsistent with raw requests or duration")
+        message = f"stream load {name} is inconsistent with raw requests or duration"
+        if not isinstance(value, (int, float)) or isinstance(value, bool):
+            raise ValueError(message)
+        if value != expected or not math.isfinite(value):
+            raise ValueError(message)
     _validate_completion(experiment, result, counts["succeeded"] == counts["offered"])
 
 
