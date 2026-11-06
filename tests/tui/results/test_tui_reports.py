@@ -265,13 +265,11 @@ class TestTuiReports:
         app.results.show_result_section("statistics-view")
         await pilot.pause()
 
-    async def click_statistics(self, app, pilot):
-        app.query_one("#analysis-details", Collapsible).collapsed = False
-        await pilot.pause()
-        button = app.query_one("#report-window-stats", Button)
-        button.scroll_visible(animate=False, immediate=True)
-        await pilot.pause()
-        assert await pilot.click(button)
+    async def request_statistics(self, app, pilot):
+        command = app.query_one("#slash-command", Input)
+        command.value = "/stats"
+        command.focus()
+        await pilot.press("enter")
 
     async def import_report(self, app, pilot):
         command = app.query_one("#slash-command", Input)
@@ -302,7 +300,7 @@ class TestTuiReports:
         async with app.run_test(size=(120, 30)) as pilot:
             await self.open_tab(app, pilot)
             app.query_one("#result-csv", Input).value = str(self.csv_path)
-            await self.click_statistics(app, pilot)
+            await self.request_statistics(app, pilot)
             await self.finish_workers(app, pilot)
             assert (app.query_one("#main-tabs", TabbedContent).active) == ("results-tab")
             assert app.query_one("#report-json-path", Input).value == ""
@@ -315,6 +313,7 @@ class TestTuiReports:
             assert (latency["mean"]) == (0.02) or round(abs((latency["mean"]) - (0.02)), 7) == 0
             table = app.query_one("#report-table", DataTable)
             assert (table.row_count) == (3)
+            assert app.query_one("#analysis-details").region.area == 0
             cells = [str(cell) for cell in table.get_row_at(0)]
             assert ("20 ms") in (cells)
             assert not (app.is_busy())
@@ -327,7 +326,7 @@ class TestTuiReports:
         async with app.run_test(size=(80, 24)) as pilot:
             await self.open_tab(app, pilot)
             app.query_one("#result-csv", Input).value = str(self.csv_path)
-            await self.click_statistics(app, pilot)
+            await self.request_statistics(app, pilot)
             await self.finish_workers(app, pilot)
             assert app.results.report_view is not None
             payload = app.results.report_view.payload
@@ -338,7 +337,7 @@ class TestTuiReports:
                 app.configuration.preferences = replace(app.configuration.preferences, language=language)
                 app.configuration.apply_ui_preferences()
                 await pilot.pause()
-                await self.click_statistics(app, pilot)
+                await self.request_statistics(app, pilot)
                 await self.finish_workers(app, pilot)
                 assert app.results.report_view.payload == payload
                 assert app.query_one("#report-json-path", Input).value == ""
@@ -408,19 +407,22 @@ class TestTuiReports:
                 widget = app.query_one(selector)
                 widget.scroll_visible(animate=False, immediate=True)
                 await pilot.pause()
-                assert widget.region.height > 0
                 if selector == "#report-table":
-                    assert widget.region.overlaps(app.query_one("#analysis-workflow").region)
+                    assert widget.region.area == 0
+                    assert widget not in app.screen.focus_chain
                 else:
+                    assert widget.region.height > 0
                     assert widget.region.bottom <= size[1] - 3
             table.focus()
             await pilot.pause()
+            assert app.focused is not table
             await pilot.press("right", "left", "down")
             app.configuration.preferences = replace(app.configuration.preferences, language="en")
             app.configuration.apply_ui_preferences()
             await pilot.pause()
             assert source.value == str(report)
             assert ("Uncertain direction") in ([str(cell) for cell in table.get_row_at(0)])
+            assert app.query_one("#analysis-details").region.area == 0
             assert "Result" in app.query_one("#main-tabs", TabbedContent).get_tab("results-tab").label.plain
         assert report.read_bytes() == original
 
@@ -504,7 +506,7 @@ class TestTuiReports:
             source = app.query_one("#result-csv", Input)
             json_path = app.query_one("#report-json-path", Input)
             source.value = str(self.csv_path)
-            await self.click_statistics(app, pilot)
+            await self.request_statistics(app, pilot)
             await self.finish_workers(app, pilot)
             assert source.value == str(self.csv_path)
             assert json_path.value == ""
@@ -545,7 +547,7 @@ class TestTuiReports:
         async with app.run_test(size=(80, 24)) as pilot:
             await self.open_tab(app, pilot)
             app.query_one("#result-csv", Input).value = str(self.csv_path)
-            await self.click_statistics(app, pilot)
+            await self.request_statistics(app, pilot)
             await self.finish_workers(app, pilot)
             assert (app.query_one("#main-tabs", TabbedContent).active) == ("results-tab")
             assert "统计失败" in str(app.query_one("#report-error", Static).content)

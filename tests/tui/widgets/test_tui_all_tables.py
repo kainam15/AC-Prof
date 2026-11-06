@@ -38,6 +38,10 @@ class TestAllTables:
         app = self.make_app()
         async with app.run_test(size=(120, 30)) as pilot:
             await pilot.pause()
+            # Exercise the retained table widget independently of its hidden entry.
+            panel = app.query_one("#analysis-details")
+            panel.display = True
+            panel.disabled = False
             app.results.show_result_section("statistics-view")
             app.results.report_view = ReportView(Path("example.json"), "统计", ("指标", "均值"),
                                           (ReportRow(("Latency", "20 ms"), "来源"),), "说明")
@@ -72,6 +76,10 @@ class TestAllTables:
         app = self.make_app()
         async with app.run_test(size=(120, 30)) as pilot:
             await pilot.pause()
+            # Exercise the retained table widget independently of its hidden entry.
+            panel = app.query_one("#analysis-details")
+            panel.display = True
+            panel.disabled = False
             app.results.show_result_section("statistics-view")
             app.results.report_view = ReportView(Path("example.json"), "统计", ("指标", "均值"),
                                           (ReportRow(("Latency", "20 ms"), "来源"),), "说明")
@@ -165,6 +173,10 @@ class TestAllTables:
             app.configuration.apply_ui_preferences()
             await pilot.pause()
             if tab == "results-tab":
+                # Only this widget regression reveals the retained report table.
+                panel = app.query_one("#analysis-details")
+                panel.display = True
+                panel.disabled = False
                 app.results.show_result_section("statistics-view")
             else:
                 app.activate_tab(tab)

@@ -137,6 +137,10 @@ def test_fixed_scenes(snap_compare, tmp_path, monkeypatch, language, size, scene
             await pilot.press("space")
             app.logs.flush()
         elif scene == "resized-table":
+            # Preserve the table component snapshot; its production entry is hidden.
+            panel = app.query_one("#analysis-details")
+            panel.display = True
+            panel.disabled = False
             app.results.report_view = ReportView(Path("fixture.json"), "Latency report", ("Metric", "Mean", "Status"),
                 (ReportRow(("Application latency", "25 ms", "ok"), "Fixed fixture"),), "Fixed fixture")
             app.results.render_report_view()

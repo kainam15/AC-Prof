@@ -26,7 +26,7 @@ acprof compare --left run-a/ --right run-b/ --html-output comparison.html \
   --output comparison.json --csv-output comparison.csv
 ```
 
-Repeat `--left` and `--right` for independent replicates. A single run per side shows descriptive differences and ratios without a run-level interval. In the TUI, **Results → Analysis** provides inputs, analysis options, footer HTML generation and optional JSON / CSV exports. The **Interactive HTML report** section and **Compare** page are hidden; report and comparison backends, CLI commands and HTML reports remain available.
+Repeat `--left` and `--right` for independent replicates. A single run per side shows descriptive differences and ratios without a run-level interval. In the TUI, **Results → Analysis** provides inputs, analysis options and footer HTML generation. The **Interactive HTML report** and **Statistics and exports** sections and **Compare** page are hidden; statistics, export and comparison backends, CLI commands and HTML reports remain available.
 
 `acprof load --base-url` measures an existing OpenAI-compatible streaming service. Explicit concurrency and request-rate sweeps support `--dry-run` planning and separate reports for each point; see [streaming load sweeps](docs/profiling/streaming.md#多负载点编排). `acprof report <sweep.json>` generates [offline throughput and latency curves](docs/results/reports.md#多负载点流式容量报告), with condition groups, failed points and missing evidence preserved. Optional [vLLM/SGLang identity probes](docs/profiling/streaming.md#服务身份) preserve service observations separately from user declarations. Explicit `vllm-config` probes read selected engine settings from an already available development endpoint; SGLang also reports selected startup configuration.
 

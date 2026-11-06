@@ -8,7 +8,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-from textual.widgets import Button, ContentSwitcher, Input, Static, TabbedContent, Tabs
+from textual.widgets import Button, Collapsible, ContentSwitcher, Input, Static, TabbedContent, Tabs
 
 from acprof.experiments.configuration import RunConfigError
 from acprof.results.layout import ArtifactLayout
@@ -320,7 +320,7 @@ def test_cli_receipt_reports_excluded_windows_and_quality(tmp_path, csv_result, 
 
 @pytest.mark.parametrize("size", [(80, 24), (120, 30), (150, 45)])
 @pytest.mark.parametrize("language", ["zh", "en"])
-async def test_comparison_exports_and_html_panel_stay_hidden_during_navigation(tmp_path, size, language):
+async def test_comparison_exports_and_report_panels_stay_hidden_during_navigation(tmp_path, size, language):
     settings = tmp_path / "settings.json"
     save_settings(settings, TuiSettings(ui=UiPreferences(language=language)), tmp_path)
     app = AcprofTui(settings_path=settings)
@@ -357,23 +357,26 @@ async def test_comparison_exports_and_html_panel_stay_hidden_during_navigation(t
         await pilot.pause()
         app.results.html.toggle_existing_path()
         await pilot.pause()
-        panel = app.query_one("#html-report-panel")
-        assert panel.region.area == 0
         app.results.html.toggle_extra_sources()
         app.results.html.toggle_export_fields()
+        app.query_one("#analysis-details", Collapsible).collapsed = False
         await pilot.pause()
-        for control in panel.query("Input, Button"):
-            assert control.region.area == 0
-            assert control not in app.screen.focus_chain
-            control.focus()
-            await pilot.pause()
-            assert app.focused is not control
-        for key in ("tab", "tab", "shift+tab", "shift+tab"):
-            await pilot.press(key)
-            assert app.focused not in panel.query("Input, Button")
+        for panel in app.query("#html-report-panel, #analysis-details"):
+            assert panel.region.area == 0
+            controls = panel.query("Input, Button, DataTable, CollapsibleTitle")
+            for control in controls:
+                assert control.region.area == 0
+                assert control not in app.screen.focus_chain
+                control.focus()
+                await pilot.pause()
+                assert app.focused is not control
+            for key in ("tab", "tab", "shift+tab", "shift+tab"):
+                await pilot.press(key)
+                assert app.focused not in controls
         await pilot.resize_terminal(80, 24)
         await pilot.pause()
-        assert panel.region.area == 0
+        assert app.query_one("#html-report-panel").region.area == 0
+        assert app.query_one("#analysis-details").region.area == 0
         for control in views.get_pane("exports-view").query("Input, Button"):
             assert control.region.area == 0
             assert control not in app.screen.focus_chain
@@ -387,7 +390,7 @@ async def test_comparison_exports_and_html_panel_stay_hidden_during_navigation(t
         await pilot.pause()
         assert views.active == "statistics-view"
         assert app.query_one("#report-content", ContentSwitcher).current == "report-error"
-        assert app.query_one("#report-error").region.area > 0
+        assert app.query_one("#report-error").region.area == 0
         assert views.get_pane("exports-view").region.area == 0
 
 

@@ -291,7 +291,8 @@ Select:disabled > SelectCurrent { color: $ui-disabled; border: solid $ui-disable
 #result-views { height: 1fr; }
 #result-views Tab { padding: 0 1; }
 #result-export-panel Input { width: 1fr; }
-/* Secondary data exports live inside the analysis details disclosure. */
+/* Retain statistics and export bindings without exposing the details section. */
+#analysis-details { display: none; }
 #analysis-export-controls { height: auto; }
 #analysis-export-status { height: auto; max-height: 4; overflow-y: auto; }
 #results-cancel { display: none; }

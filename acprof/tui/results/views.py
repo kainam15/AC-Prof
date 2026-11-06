@@ -68,7 +68,7 @@ def compose_statistics(app: AcprofTui) -> ComposeResult:
                 ):
                     yield local(Label(label))
                     yield Input(id="analysis-" + name, placeholder=hint, classes="report-control")
-        with local(Collapsible(title=message_id("results.analysis.advanced"), collapsed=True, id="analysis-details")):
+        with local(Collapsible(title=message_id("results.analysis.advanced"), collapsed=True, id="analysis-details", disabled=True)):
             yield local(Button(message_id("results.analysis.window_json"), id="report-window-stats", classes="report-control"))
             with Vertical(id="report-panel"):
                 yield local(Static('', id='report-status', classes='page-summary', markup=False))
