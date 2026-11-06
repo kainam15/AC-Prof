@@ -27,8 +27,8 @@ run_id, model, runtime, device, cpu, memory, concurrency, metric, value, unit
 
 长表同时保留 `config_id`、task、input case、experiment batch、GPU 身份、环境、
 `source`、CSV 行号、`eligible` 和 `evidence`。`source_row` 从 2 开始（第 1 行是表头），
-来源快照记录 CSV SHA256。未记录 run ID 的旧 CSV 使用内容摘要生成 `legacy-*` 标识，
-它只用于定位文件，不证明实验独立性。缺少 model/runtime/concurrency 或环境时保持 unknown/null；
+来源快照记录 CSV SHA256。未记录 run ID 的旧 CSV 保留 `run_id=unknown`，配置 ID 使用
+`source-<内容摘要>` 前缀定位来源，不生成实验身份。缺少 model/runtime/concurrency 或环境时保持 unknown/null；
 不能用当前主机身份补全历史实验。相邻 `static_meta.json` 按已有明确字段读取，不要求历史 schema
 升级；未知列完整保留，但已废弃且归因不明的能耗/计算字段不自动映射为当前指标。
 每个来源的数值列按表头准备一次，长表指标仍按登记顺序输出。已知缺失标记直接归为 null；
@@ -287,3 +287,16 @@ acprof audit results/left --compare results/right \
 或热状态不变。比较不修改 run identity，不改变恢复校验。
 actual workload 的 `variants` 计数必须覆盖 `request_count`，已有 `repeat_in_window` 时还需一致；
 显式失败案例的终态与成功状态分别显示，不将 OOM/timeout 归为未开始或成功。
+
+### 单次实验资源基线
+
+`acprof report result_all.csv` 默认使用 `within-experiment`，同一来源、模型、任务、输入和运行时条件
+下允许 CPU、内存、GPU 变化。选择 Baseline 后展示 Python 计算的差值、百分比、当前/基线比值及
+按指标方向定义的性能比（大于 1 表示改善，neutral 不评级）。输入或已知测量条件冲突时保留绝对值和原因。
+这是描述性比较，单轴或多轴变化均不证明因果；历史元数据缺失不会阻止此功能，也不会获得严格比较资格。
+现有相同硬件、跨硬件及 CPU/内存扩容策略仍可单独选择，Pareto 优选继续要求完整条件和质量证据。
+
+窗口统计复用现有 `summarize_windows`。`--metric` 可重复，`--confidence`、`--resamples`、`--seed`
+和 `--block-size` 可显式指定；来源摘要、审计、分组及请求参数匹配才复用 JSON。
+未指定的参数可沿用已验证缓存中的值，并在报告中展示实际参数。CSV 与 JSON 的独立导出入口保留。
+图表峰值、生命周期、请求加权能耗仍按登记表聚合，不将它们冒充等权窗口均值。

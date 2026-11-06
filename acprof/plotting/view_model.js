@@ -5,6 +5,7 @@ window.ACProfViews = (() => {
   const value = (config, metric) => config.metrics[metric]?.value ?? null;
   const key = values => JSON.stringify(values);
   function cohort(config, purpose = "same-hardware") {
+    if (purpose === "within-experiment") purpose = "resource-scaling";
     const profile = config.comparison_profiles?.[purpose];
     return profile?.status === "compatible" ? profile.cohort : config.config_id;
   }
@@ -53,26 +54,30 @@ window.ACProfViews = (() => {
       reasons: [...new Set(Object.keys(checks).filter(name => ["incompatible", "unknown"].includes(checks[name]))
         .map(name => name.split(".")[0]))].sort()};
   }
-  function comparisonContext(baseline = null, purpose = "same-hardware") {
+  function comparisonContext(baseline = null, purpose = "same-hardware", pairs = {}) {
     // Owned by one draw: summary, cells and frontier share checks, while a new
     // baseline, purpose or refresh always starts with fresh evidence.
     const comparisons = new Map();
+    const pair = config => pairs.pairs?.[baseline?.config_id || config.config_id]?.[config.config_id];
+    const verdict = index => pairs.qualifications?.[index];
     function qualification(config) {
-      if (!comparisons.has(config)) comparisons.set(config, compareProfiles(
-        config.comparison_profiles?.[purpose], (baseline || config).comparison_profiles?.[purpose]));
+      if (!comparisons.has(config)) comparisons.set(config,
+        purpose === "within-experiment" ? verdict(pair(config)?.resource) || {status:"unknown", reasons:["comparison_evidence_missing"]} :
+          verdict(pair(config)?.policies[purpose]) || compareProfiles(
+            config.comparison_profiles?.[purpose], (baseline || config).comparison_profiles?.[purpose]));
       return comparisons.get(config);
     }
     function delta(config, metric) {
-      const current = value(config, metric), reference = baseline && value(baseline, metric);
       if (!baseline) return {delta: null, percent: null, reason: "no_baseline"};
       const comparison = qualification(config);
-      if (comparison.status !== "compatible") return {delta: null, percent: null, reason: comparison.status, reasons: comparison.reasons};
-      if (!finite(current) || !finite(reference)) return {delta: null, percent: null, reason: "missing"};
-      return {delta: current - reference,
-        percent: reference === 0 ? null : 100 * (current - reference) / Math.abs(reference),
-        reason: reference === 0 ? "zero_baseline" : ""};
+      if (!["compatible", "descriptive"].includes(comparison.status)) return {delta: null, percent: null, reason: comparison.status, reasons: comparison.reasons};
+      return pair(config)?.metrics[metric] || {delta:null, percent:null, ratio:null, performance_ratio:null, reason:"missing"};
     }
-    return Object.freeze({baseline, purpose, qualification, delta});
+    function automaticQualification(config) {
+      return purpose === "within-experiment" ? verdict(pair(config)?.policies["resource-scaling"]) ||
+        {status:"unknown", reasons:["comparison_evidence_missing"]} : qualification(config);
+    }
+    return Object.freeze({baseline, purpose, qualification, automaticQualification, delta});
   }
   const transform = (value, metric) => finite(value) ?
     (metric.scale === "log" ? (value > 0 ? Math.log(value) : null) : value) : null;
@@ -87,6 +92,7 @@ window.ACProfViews = (() => {
     return {low, high};
   }
   function colorRanges(configs, metrics, registry, purpose = "same-hardware") {
+    if (purpose === "within-experiment") purpose = "resource-scaling";
     const groups = new Map(), ranges = new Map();
     for (const config of configs) {
       if (!config.auto_selection_eligible || config.comparison_profiles?.[purpose]?.status !== "compatible") continue;
@@ -119,7 +125,7 @@ window.ACProfViews = (() => {
     const directions = [registry[xMetric].direction, registry[yMetric].direction];
     if (directions.includes("neutral")) return [];
     const eligible = configs.filter(c => c.status === "ok" && c.auto_selection_eligible === true &&
-      comparison.qualification(c).status === "compatible" && finite(value(c, xMetric)) && finite(value(c, yMetric)));
+      comparison.automaticQualification(c).status === "compatible" && finite(value(c, xMetric)) && finite(value(c, yMetric)));
     const groups = new Map(), frontier = new Set();
     const xSign = directions[0] === "higher" ? -1 : 1, ySign = directions[1] === "higher" ? -1 : 1;
     for (const config of eligible) {

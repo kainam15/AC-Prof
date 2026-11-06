@@ -14,7 +14,7 @@
 <p>比较已有实验，查看配置取舍、窗口统计与数据质量。</p></div><div id="counts" aria-live="polite"></div></div>
 <section class="card" aria-label="统一筛选"><div class="section-heading"><h2>筛选实验</h2><button id="reset">重置筛选</button></div><div id="filters" class="filters"></div></section>
 <div class="controls card"><label class="grow">Baseline<select id="baseline" aria-label="Baseline"></select></label>
-<label>比较用途<select id="comparison-purpose"><option value="same-hardware">相同硬件</option><option value="cross-hardware">跨硬件</option><option value="resource-scaling">资源扩容（CPU / 内存）</option></select></label>
+<label>比较用途<select id="comparison-purpose"><option value="within-experiment">单次实验资源比较</option><option value="same-hardware">相同硬件</option><option value="cross-hardware">跨硬件</option><option value="resource-scaling">资源扩容（CPU / 内存）</option></select></label>
 <label>质量范围<select id="quality-filter"><option value="all">全部观测</option><option value="eligible">满足质量要求的候选</option></select></label>
 <label>指标预设<select id="preset" aria-label="指标预设"></select></label>
 <details><summary>自定义指标</summary><select id="metrics" multiple aria-label="自定义指标"></select></details></div>

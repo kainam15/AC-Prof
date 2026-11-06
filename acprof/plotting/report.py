@@ -16,14 +16,16 @@ from acprof.analysis.model import (
     verify_analysis_sources,
 )
 from acprof.analysis.report_statistics import build_report_statistics
+from acprof.analysis.resource_comparison import REPORT_PURPOSES, build_baseline_comparisons
 from acprof.artifacts import atomic_write
 from acprof.quality import QUALITY_FIELDS
 from acprof.results.metrics import ANALYSIS_METRICS, VIEW_METRICS
 
 
-def report_payload(model: AnalysisModel, baseline: str | None = None, *, comparison_purpose="same-hardware") -> dict:
-    if comparison_purpose not in PURPOSES:
-        raise ValueError(f"comparison purpose must be one of {PURPOSES}")
+def report_payload(model: AnalysisModel, baseline: str | None = None, *, comparison_purpose="within-experiment",
+                   statistics_options=None) -> dict:
+    if comparison_purpose not in REPORT_PURPOSES:
+        raise ValueError(f"comparison purpose must be one of {REPORT_PURPOSES}")
     selected = None
     if baseline:
         matches = [c for c in model.configs if baseline in {c["config_id"], c["run_id"]}]
@@ -31,7 +33,8 @@ def report_payload(model: AnalysisModel, baseline: str | None = None, *, compari
             raise ValueError("baseline 必须匹配唯一 config_id；run_id 含多个配置时请在报告中选择")
         selected = matches[0]["config_id"]
     return {"schema_version": 1, "configs": model.configs, "baseline": selected,
-            "window_statistics": build_report_statistics(model),
+            "window_statistics": build_report_statistics(model, **(statistics_options or {})),
+            "baseline_comparisons": build_baseline_comparisons(model),
             "comparison_purpose": comparison_purpose,
             "comparison_policies": {purpose: {"allowed_resource_dimensions":
                 ALLOWED_RESOURCE_DIMENSIONS if purpose == "resource-scaling" else []} for purpose in PURPOSES},
@@ -73,11 +76,12 @@ def _write_report_json(stream: TextIO, payload: dict[str, object]) -> None:
 
 
 def write_report(model: AnalysisModel, output: str | Path, *, baseline: str | None = None,
-                 comparison_purpose="same-hardware") -> Path:
+                 comparison_purpose="within-experiment", statistics_options=None) -> Path:
     output = Path(output)
     if output.exists() or output.is_symlink():
         raise ValueError(f"output must be a new file: {output}")
-    payload = report_payload(model, baseline, comparison_purpose=comparison_purpose)
+    payload = report_payload(model, baseline, comparison_purpose=comparison_purpose,
+                             statistics_options=statistics_options)
     # Imported only after analysis and destination validation, never by collectors or --help.
     from plotly.offline import get_plotlyjs
     resources = files("acprof.plotting")

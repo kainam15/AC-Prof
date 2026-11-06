@@ -8,7 +8,7 @@
     ["model", "Model"], ["runtime", "Runtime"], ["device", "CPU / GPU"],
     ["input_case", "Input case"], ["environment_class", "环境"], ["task", "Task"],
     ["cpu", "CPU cores"], ["memory", "Memory (GiB)"], ["concurrency", "Concurrency"],
-    ["experiment_batch", "Experiment batch"], ["quality_status", "质量状态"],
+    ["experiment_batch", "Experiment batch"], ["quality_status", "质量状态"], ["gpu", "GPU identity"],
   ];
   const text = value => value == null ? "unknown" : String(value);
   const escape = value => text(value).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -29,6 +29,7 @@
     incompatible_statistics_contract: "统计版本或口径不匹配",
     configuration_groups_changed: "配置分组不匹配", statistics_summary_changed: "统计摘要不匹配",
     invalid_confidence_interval: "置信区间无效", invalid_statistics_groups: "统计分组无效",
+    statistics_parameters_changed: "统计指标或 Bootstrap 参数不匹配",
   };
   const reasonText = reason => reasonLabels[reason] || reason;
   const reasonCounts = reasons => Object.entries(reasons || {}).map(([reason, count]) => `${reasonText(reason)} ${count}`).join(" · ");
@@ -159,13 +160,14 @@
         element("small", `运行 ${config.run_status} · 完整性 ${config.measurement_status}`),
         element("small", `可比性 ${qualification.status} · 质量 ${config.quality_status}`),
         element("small", qualification.reasons.join(", ")),
+        element("small", qualification.changed_resources ? `变化资源：${qualification.changed_resources.join(" + ") || "无"} · 描述性比较，不推断因果` : ""),
         element("small", config.auto_selection_eligible ? "质量可参与优选" : `优选暂停：${config.quality_reasons.join(", ")}`),
         element("small", `${config.model.split("/").pop()} · ${config.runtime}`),
         element("small", `${inputLabel(config.input_case)} · n=${config.valid_windows}`));
       row.append(identity);
       for (const name of metrics) {
         const value = V.value(config, name), cell = element("td", fmt(value));
-        const score = config.auto_selection_eligible && qualification.status === "compatible" ?
+        const score = config.auto_selection_eligible && comparison.automaticQualification(config).status === "compatible" ?
           V.score(value, ranges.get(V.cohort(config, purpose))?.[name], registry[name]) : null;
         if (score != null) cell.style.backgroundColor = `hsl(${12 + 140 * score} 43% 91%)`;
         const stats = config.metrics[name];
@@ -173,7 +175,8 @@
         if (baseline) {
           const change = comparison.delta(config, name);
           const content = change.delta == null ? (change.reasons ? `${change.reason}: ${change.reasons.join(", ")}` : "— vs baseline") :
-            `Δ ${signed(change.delta)} ${registry[name].unit} · ${change.percent == null ? "% —（baseline=0）" : signed(change.percent) + "%"}`;
+            `Δ ${signed(change.delta)} ${registry[name].unit} · ${change.percent == null ? "% —" : signed(change.percent) + "%"}` +
+            ` · 比值 ${fmt(change.ratio)} · 性能比 ${fmt(change.performance_ratio)}`;
           cell.append(element("small", content));
         }
         row.append(cell);
@@ -341,12 +344,13 @@
     const configs = filtered();
     const purpose = $("comparison-purpose").value;
     const baseline = data.configs.find(config => config.config_id === $("baseline").value);
-    const comparison = V.comparisonContext(baseline, purpose);
+    const comparison = V.comparisonContext(baseline, purpose, data.baseline_comparisons);
     const qualifications = configs.map(config => comparison.qualification(config));
-    $("comparison-note").textContent = `用途：${purpose} · ` + ["compatible", "incompatible", "unknown"]
+    $("comparison-note").textContent = `用途：${purpose} · ` + ["descriptive", "compatible", "incompatible", "unknown"]
       .map(status => `${status}: ${qualifications.filter(item => item.status === status).length}`).join(" · ") +
       (purpose === "resource-scaling" ? "。允许 CPU / memory 配额变化；双轴同时变化不能归因某一个轴。" : "。") +
-      (baseline ? "以所选 baseline 检查条件；不兼容或证据不足时不展示改善比例。" : "选择 baseline 后显示成对检查原因。") +
+      (purpose === "within-experiment" ? "同一来源、任务及输入条件的描述性比较；历史元数据缺失不证明实验独立性。多资源变化不能单独归因。" : "") +
+      (baseline ? "比值=当前/基线；性能比按指标方向计算，>1 表示改善，neutral 不评级。" : "选择 baseline 后显示成对检查原因。") +
       [...new Set(qualifications.flatMap(item => item.reasons))].join(", ");
     $("counts").replaceChildren(element("strong", String(configs.length)), document.createTextNode(`/ ${data.configs.length} 配置`));
     const selected = data.configs.find(c => c.config_id === state.selected);

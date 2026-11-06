@@ -6,14 +6,19 @@ import csv
 import json
 from pathlib import Path
 
-from acprof.analysis.conditions import PURPOSES
+from acprof.analysis.resource_comparison import REPORT_PURPOSES
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("results", nargs="+", type=Path, help="实验目录、CSV 或单个流式 load.json")
     parser.add_argument("--baseline", help="唯一 config_id（或仅有一个配置的 run_id）")
-    parser.add_argument("--comparison-purpose", choices=PURPOSES)
+    parser.add_argument("--comparison-purpose", choices=REPORT_PURPOSES)
+    parser.add_argument("--metric", action="append", help="窗口统计指标，可重复")
+    parser.add_argument("--confidence", type=float)
+    parser.add_argument("--resamples", type=int)
+    parser.add_argument("--seed", type=int)
+    parser.add_argument("--block-size", type=int)
     parser.add_argument("--output", type=Path, help="新 HTML 路径；默认 report.html 或 load_report.html")
     args = parser.parse_args(argv)
     from acprof.host.run_state import offline_analysis_lock
@@ -42,7 +47,11 @@ def main(argv=None):
             model = load_analysis(args.results)
             write_report(
                 model, output, baseline=args.baseline,
-                comparison_purpose=args.comparison_purpose or "same-hardware",
+                comparison_purpose=args.comparison_purpose or "within-experiment",
+                statistics_options={key: value for key, value in {
+                    "metrics": args.metric, "confidence": args.confidence, "resamples": args.resamples,
+                    "seed": args.seed, "block_size": args.block_size,
+                }.items() if value is not None},
             )
             print("ACPROF_REPORT " + json.dumps({
                 "report_path": str(output.resolve()), "config_count": len(model.configs),

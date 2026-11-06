@@ -17,6 +17,11 @@
 
 ## HTML 统一实验分析（2026-11）
 
+P0 资源基线已补齐：单 CSV 历史数据可做描述性 CPU／内存／GPU 对比，差值和比值在 Python 计算，
+显式统计参数参与 JSON 复用校验，未知运行身份不再生成伪 run ID。定向单元与 headless Chrome
+检查通过；Whisper、Stable Diffusion 历史 CSV 分别生成 192、194 配置的报告，未重新采集。
+P1 独立实验 HTML 接入与 P2 TUI 工作流仍在本任务中推进。
+
 实验完成及已完成实验的 Resume 会在统计 JSON 保存后自动生成 HTML，打印路径并保留旧报告；
 补齐根目录 `analysis/` 的统计复用，失败保留结果并提供重试命令。离线回归覆盖完成顺序、
 测量锁、Resume 不重采、取消、生成失败与拒绝覆盖；见[自动生成](results/reports.md#实验结束后自动生成)。

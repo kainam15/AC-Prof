@@ -101,9 +101,9 @@ def _summaries(configs, source, metrics, options, *, include_intervals):
     return report
 
 
-def _cache_settings(report: dict):
+def _cache_settings(report: dict, *, confidence=.95):
     if (type(report.get("schema_version")) is not int or report.get("schema_version") != 1
-            or report.get("confidence") != .95
+            or report.get("confidence") != confidence
             or report.get("method") != "circular_block_percentile_bootstrap"
             or report.get("resampling_unit") != "csv_request_window"
             or report.get("filter") != "status=ok and warmup=0"):
@@ -142,12 +142,15 @@ def _validate_interval(group, expected):
         raise ValueError("invalid_confidence_interval")
 
 
-def _reuse(report, source, configs):
+def _reuse(report, source, configs, requested_metrics, requested_options):
     if report.get("result_sha256") != source["sha256"]:
         raise ValueError("source_changed")
     if any(report.get(key) != source[key] for key in _AUDIT):
         raise ValueError("audit_changed")
-    metrics, options = _cache_settings(report)
+    metrics, options = _cache_settings(report, confidence=requested_options.get("confidence", .95))
+    if (requested_metrics is not None and set(metrics) != set(requested_metrics)
+            or any(options.get(key) != value for key, value in requested_options.items())):
+        raise ValueError("statistics_parameters_changed")
     expected = _summaries(configs, source, metrics, options, include_intervals=False)
     expected_groups = expected["groups"]
     keys = [_group_key(group) for group in expected_groups]
@@ -163,21 +166,21 @@ def _reuse(report, source, configs):
     return expected
 
 
-def _source_statistics(source, configs):
+def _source_statistics(source, configs, metrics, options):
     diagnostics = []
     report_path = None
     for candidate in _candidates(Path(source["path"])):
         try:
             cached = read_json_object(candidate, label="window statistics", bounded=False,
                                       byte_budget=[_MAX_CACHE_BYTES])
-            report = _reuse(cached, source, configs)
+            report = _reuse(cached, source, configs, metrics, options)
         except (FileNotFoundError, IsADirectoryError, ValueError, TypeError) as error:
             diagnostics.append({"path": str(candidate), "reason": str(error)})
             continue
         report_path = str(candidate)
         break
     else:
-        report = _summaries(configs, source, DEFAULT_STATISTICS_METRICS, {}, include_intervals=True)
+        report = _summaries(configs, source, metrics or DEFAULT_STATISTICS_METRICS, options, include_intervals=True)
     return {"source": source["path"], "result_sha256": source["sha256"],
             "origin": "cached" if report_path else "computed", "report_path": report_path,
             "cache_diagnostics": diagnostics,
@@ -185,12 +188,14 @@ def _source_statistics(source, configs):
             "audit": {**source.get("audit", {}), **{key: source[key] for key in _AUDIT}}}
 
 
-def build_report_statistics(model: AnalysisModel) -> list[dict]:
+def build_report_statistics(model: AnalysisModel, *, metrics=None, **options) -> list[dict]:
     """Keep estimates per HTML configuration and sources read-only, including on cache misses."""
     verify_analysis_sources(model)
+    validate_window_options(metrics or DEFAULT_STATISTICS_METRICS,
+                            **{key: value for key, value in options.items() if key != "seed"})
     entries_by_source: dict[str, dict[str, list[dict]]] = defaultdict(lambda: defaultdict(list))
     for entry in model.raw_rows:
         entries_by_source[entry["source"]][entry["config_id"]].append(entry)
-    result = [_source_statistics(source, entries_by_source[source["path"]]) for source in model.sources]
+    result = [_source_statistics(source, entries_by_source[source["path"]], metrics, options) for source in model.sources]
     verify_analysis_sources(model)
     return result

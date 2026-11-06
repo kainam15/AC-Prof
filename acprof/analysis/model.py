@@ -28,7 +28,8 @@ from acprof.results.metadata import ResultMetadataSnapshot
 from acprof.results.metrics import ANALYSIS_METRICS, VIEW_METRICS
 
 DIMENSIONS = ("run_id", "model", "runtime", "device", "cpu", "memory", "gpu", "concurrency",
-              "environment_class", "task", "input_case", "experiment_batch")
+              "environment_class", "task", "input_case", "experiment_batch",
+              "runtime_kind", "runtime_id", "resource_scope")
 SUMMARY_FIELDS = ("config_id", "model", "runtime", "device", "cpu", "memory", "gpu",
                   *[name for name in VIEW_METRICS if ANALYSIS_METRICS[name].summary], "status",
                   "run_status", "measurement_status", "comparability", *QUALITY_FIELDS)
@@ -85,6 +86,7 @@ def _identity(row, meta, run_id, batch):
         recorded if recorded != "unknown" else environment,
         _text(row.get("task") or meta.get("pipeline_tag") or meta.get("task_family")),
         _text(input_case), _text(row.get("experiment_batch"), batch),
+        *(_text(row.get(key) or meta.get(key)) for key in ("runtime_kind", "runtime_id", "resource_scope")),
     ), strict=True))
 
 
@@ -222,6 +224,7 @@ def _build_analysis_configs(
             purpose=purpose, case=case) for purpose in PURPOSES}
         config["comparability"] = config["comparison_profiles"]["same-hardware"]["status"]
         config.update(config_id=config_id, status=status, valid_windows=valid,
+                      input_scale=number(rows[0]["row"].get("input_scale")),
                       excluded_rows=len(rows) - valid, source=rows[0]["source"],
                       metrics={name: _summarize(rows, name) for name in VIEW_METRICS})
         configs.append(config)
@@ -247,7 +250,7 @@ def load_analysis(sources) -> AnalysisModel:
         meta, state = (metadata_snapshot.read(name, label="analysis metadata").payload
                        if metadata_snapshot.exists(name) else {}
                        for name in ("static_meta.json", "run_state.json"))
-        run_id = _text(state.get("run_id"), "legacy-" + digest[:16])
+        run_id = _text(state.get("run_id"))
         snapshot = load_comparison_snapshot(path, result_snapshot=result_snapshot,
                                             metadata_snapshot=metadata_snapshot,
                                             verify_result_snapshot=False)
@@ -271,7 +274,8 @@ def load_analysis(sources) -> AnalysisModel:
             # A batch label and artifact location are presentation, not recorded
             # experimental conditions. Moving a result must not create a run.
             stable_identity = {key: value for key, value in identity.items() if key != "experiment_batch"}
-            config_id = identity["run_id"] + ":" + _digest(stable_identity)
+            source_id = "source-" + digest[:16]
+            config_id = (identity["run_id"] if identity["run_id"] != "unknown" else source_id) + ":" + _digest(stable_identity)
             repeat = number(row.get("repeat_idx"))
             warmup = number(row.get("warmup"))
             if repeat is not None:
