@@ -1,3 +1,4 @@
+from dataclasses import replace
 from unittest.mock import patch
 
 import pytest
@@ -16,7 +17,9 @@ class TestTuiResultTools:
         self.settings_path = self.directory / "tui.json"
 
     def make_app(self):
-        return AcprofTui(RunConfig.smoke("demo/model"), settings_path=self.settings_path)
+        app = AcprofTui(RunConfig.smoke("demo/model"), settings_path=self.settings_path)
+        app.configuration.preferences = replace(app.configuration.preferences, show_command_bar=True)
+        return app
 
     async def test_results_page_keeps_plotting_and_optional_profiling_separate(self):
         app = self.make_app()

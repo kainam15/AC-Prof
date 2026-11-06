@@ -1,4 +1,5 @@
 import asyncio
+from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -207,7 +208,9 @@ class TestTuiProfileTools:
         profile_store(tmp_path, 3)
 
     def make_app(self):
-        return AcprofTui(RunConfig.smoke("demo/model"), settings_path=self.settings_path)
+        app = AcprofTui(RunConfig.smoke("demo/model"), settings_path=self.settings_path)
+        app.configuration.preferences = replace(app.configuration.preferences, show_command_bar=True)
+        return app
 
     def overview(self):
         return ProfilerOverview(self.result_dir, (

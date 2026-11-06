@@ -258,7 +258,9 @@ class TestTuiReports:
             assert 'Valid formal windows: 3' in str(app.query_one('#result-data-status', Static).content)
 
     def make_app(self):
-        return AcprofTui(RunConfig.smoke("demo/model"), settings_path=self.directory / "tui.json")
+        app = AcprofTui(RunConfig.smoke("demo/model"), settings_path=self.directory / "tui.json")
+        app.configuration.preferences = replace(app.configuration.preferences, show_command_bar=True)
+        return app
 
     async def open_tab(self, app, pilot):
         await pilot.pause()
