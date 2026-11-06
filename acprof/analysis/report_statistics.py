@@ -1,6 +1,8 @@
 """Reuse window-statistics JSON in HTML, or estimate from its analysis snapshot."""
 from __future__ import annotations
 
+import hashlib
+import json
 import math
 from collections import Counter, defaultdict
 from pathlib import Path
@@ -21,6 +23,7 @@ _IDENTITY = ("cpu_cores", "mem_cap_gb", "gpu_mode", "input_scale", "environment_
 _SUMMARY = (*_IDENTITY, "metric", "unit", "n_windows", "missing_windows", "mean", "std", "reason")
 _AUDIT = (*QUALITY_FIELDS, "run_status", "measurement_status")
 _MAX_CACHE_BYTES = 32 * 1024 * 1024
+MAX_EMBEDDED_WINDOW_BYTES = 8 * 1024 * 1024
 
 
 def _candidates(source: Path) -> list[Path]:
@@ -70,7 +73,7 @@ def _unavailable_groups(metrics, reason, detail="") -> list[dict]:
              "detail": detail} for metric in metrics]
 
 
-def _config_summary(entries, source, metrics, options, *, include_intervals):
+def _config_summary(entries, source, metrics, options, *, include_intervals, include_inputs=False):
     rows = [{key: value.strip() for key, value in entry["row"].items()}
             for entry in entries if entry["eligible"]]
     try:
@@ -87,11 +90,73 @@ def _config_summary(entries, source, metrics, options, *, include_intervals):
     for group in groups:
         reasons: Counter[str] = Counter()
         metric = group["metric"]
-        for row in _matching_rows(rows, group):
+        matching = _matching_rows(rows, group)
+        for row in matching:
             if number(row.get(metric)) is None:
                 reasons[resolver.for_row(row)(metric)] += 1
         group.update(config_id=entries[0]["config_id"], missing_reasons=dict(reasons), excluded_windows=excluded)
+        if include_inputs:
+            ordered = sorted(matching, key=lambda row: float(row["repeat_idx"]))
+            group.update(values=[number(row.get(metric)) for row in ordered],
+                         repeat_indices=[float(row["repeat_idx"]) for row in ordered])
     return groups
+
+
+def window_input_chunks(configs, source, metrics):
+    """One canonical JSON stream for embedded inputs and optional offline import files."""
+    header = {"kind": "acprof_window_inputs", "schema_version": 1, "result_sha256": source["sha256"]}
+    def encode(value):
+        return json.dumps(value, ensure_ascii=True, allow_nan=False, separators=(",", ":"))
+    yield encode(header)[:-1] + ',"groups":['
+    first = True
+    for entries in configs.values():
+        for group in _config_summary(entries, source, metrics, {}, include_intervals=False, include_inputs=True):
+            yield ("" if first else ",") + encode(group)
+            first = False
+    yield "]}"
+
+
+def _window_inputs(configs, source, metrics, budget):
+    available = set(metrics) | set(DEFAULT_STATISTICS_METRICS)
+    for entries in configs.values():
+        for entry in entries:
+            available.update(entry["row"])
+    catalog = {name: {"label": metric.label, "unit": metric.unit} for name, metric in METRICS.items()
+               if name in available and metric.kind == "number"
+               and metric.window in {"request_window", "matched_control"}}
+    digest, size, fragments = hashlib.sha256(), 0, []
+    embedded = True
+    for chunk in window_input_chunks(configs, source, catalog):
+        encoded = chunk.encode("ascii")
+        digest.update(encoded)
+        size += len(encoded)
+        if size > budget[0]:
+            embedded = False
+            fragments.clear()
+        elif embedded:
+            fragments.append(chunk)
+    result = {"schema_version": 1, "status": "embedded" if embedded else "external_required",
+              "metrics": catalog, "sha256": digest.hexdigest(), "bytes": size}
+    if embedded:
+        budget[0] -= size
+        result["groups"] = json.loads("".join(fragments))["groups"]
+    return result
+
+
+def write_window_inputs(model, report, stream):
+    """Regenerate oversized inputs from the same verified snapshot, without source writes."""
+    source = next(source for source in model.sources if source["path"] == report["source"])
+    configs = defaultdict(list)
+    for entry in model.raw_rows:
+        if entry["source"] == source["path"]:
+            configs[entry["config_id"]].append(entry)
+    digest = hashlib.sha256()
+    for chunk in window_input_chunks(configs, source, report["recalculation"]["metrics"]):
+        digest.update(chunk.encode("ascii"))
+        stream.write(chunk)
+    if digest.hexdigest() != report["recalculation"]["sha256"]:
+        raise ValueError("window input snapshot changed")
+    verify_analysis_sources(model)
 
 
 def _summaries(configs, source, metrics, options, *, include_intervals):
@@ -166,7 +231,7 @@ def _reuse(report, source, configs, requested_metrics, requested_options):
     return expected
 
 
-def _source_statistics(source, configs, metrics, options):
+def _source_statistics(source, configs, metrics, options, budget):
     diagnostics = []
     report_path = None
     for candidate in _candidates(Path(source["path"])):
@@ -183,6 +248,8 @@ def _source_statistics(source, configs, metrics, options):
         report = _summaries(configs, source, metrics or DEFAULT_STATISTICS_METRICS, options, include_intervals=True)
     return {"source": source["path"], "result_sha256": source["sha256"],
             "origin": "cached" if report_path else "computed", "report_path": report_path,
+            "engine": "python", "rng": "python_random_mt19937",
+            "recalculation": _window_inputs(configs, source, [g["metric"] for g in report["groups"]], budget),
             "cache_diagnostics": diagnostics,
             "parameters": {key: report[key] for key in _PARAMETERS}, "groups": report["groups"],
             "audit": {**source.get("audit", {}), **{key: source[key] for key in _AUDIT}}}
@@ -196,6 +263,8 @@ def build_report_statistics(model: AnalysisModel, *, metrics=None, **options) ->
     entries_by_source: dict[str, dict[str, list[dict]]] = defaultdict(lambda: defaultdict(list))
     for entry in model.raw_rows:
         entries_by_source[entry["source"]][entry["config_id"]].append(entry)
-    result = [_source_statistics(source, entries_by_source[source["path"]], metrics, options) for source in model.sources]
+    budget = [MAX_EMBEDDED_WINDOW_BYTES]
+    result = [_source_statistics(source, entries_by_source[source["path"]], metrics, options, budget)
+              for source in model.sources]
     verify_analysis_sources(model)
     return result

@@ -19,7 +19,7 @@ from acprof.analysis.report_comparison import (
     build_experiment_comparisons,
     verify_independent_report,
 )
-from acprof.analysis.report_statistics import build_report_statistics
+from acprof.analysis.report_statistics import build_report_statistics, write_window_inputs
 from acprof.analysis.resource_comparison import REPORT_PURPOSES, build_baseline_comparisons
 from acprof.artifacts import atomic_write
 from acprof.quality import QUALITY_FIELDS
@@ -142,5 +142,20 @@ def write_report(model: AnalysisModel, output: str | Path, *, baseline: str | No
             if comparison["report"] is not None:
                 verify_independent_report(comparison["report"])
 
-    atomic_write(output, write, overwrite=False)
+    created_inputs = []
+    try:
+        for index, report in enumerate(payload.get("window_statistics", [])):
+            inputs = report.get("recalculation", {})
+            if inputs.get("status") == "external_required":
+                sidecar = output.with_name(f"{output.stem}.windows-{index + 1}.json")
+                if sidecar.exists() or sidecar.is_symlink():
+                    raise ValueError(f"output must be a new file: {sidecar}")
+                atomic_write(sidecar, lambda stream: write_window_inputs(model, report, stream), overwrite=False)
+                created_inputs.append(sidecar)
+                inputs["file"] = sidecar.name
+        atomic_write(output, write, overwrite=False)
+    except BaseException:
+        for path in created_inputs:
+            path.unlink(missing_ok=True)
+        raise
     return output
