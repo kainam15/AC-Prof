@@ -28,6 +28,8 @@ Repeat `--left` and `--right` for independent replicates. A single run per side 
 
 `acprof load --base-url` measures an existing OpenAI-compatible streaming service. Explicit concurrency and request-rate sweeps support `--dry-run` planning and separate reports for each point; see [streaming load sweeps](docs/profiling/streaming.md#多负载点编排). `acprof report <sweep.json>` generates [offline throughput and latency curves](docs/results/reports.md#多负载点流式容量报告), with condition groups, failed points and missing evidence preserved. Optional [vLLM/SGLang identity probes](docs/profiling/streaming.md#服务身份) preserve service observations separately from user declarations. Explicit `vllm-config` probes read selected engine settings from an already available development endpoint; SGLang also reports selected startup configuration.
 
+`acprof load --request-jsonl` runs an [ordered local request dataset](docs/profiling/streaming.md#本地请求集) with distinct prompts and generation settings. Dataset reports preserve input order and per-request mappings for offline analysis.
+
 AC-Prof supports text, vision, audio, time series, diffusion, multimodal, and structured-data workloads when the model meets the [supported task interfaces](docs/models/supported-tasks.md#任务支持范围). A task label alone does not guarantee that every checkpoint will run.
 
 ## Collection environments and metrics

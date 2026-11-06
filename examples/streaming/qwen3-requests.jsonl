@@ -1,0 +1,3 @@
+{"model":"Qwen/Qwen3-0.6B","messages":[{"role":"user","content":"Explain what a token is in one sentence."}],"max_tokens":32,"temperature":0,"chat_template_kwargs":{"enable_thinking":false}}
+{"model":"Qwen/Qwen3-0.6B","messages":[{"role":"user","content":"List three ways to measure the latency of a streaming service."}],"max_tokens":64,"temperature":0,"chat_template_kwargs":{"enable_thinking":false}}
+{"model":"Qwen/Qwen3-0.6B","messages":[{"role":"system","content":"Answer briefly."},{"role":"user","content":"How does increasing concurrency affect throughput and tail latency?"}],"max_tokens":96,"temperature":0,"chat_template_kwargs":{"enable_thinking":false}}

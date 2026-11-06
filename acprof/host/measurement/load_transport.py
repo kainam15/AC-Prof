@@ -21,7 +21,7 @@ class LoadTransport:
     """Own worker-local connections and retain active sockets through body consumption."""
 
     def __init__(
-        self, target: SplitResult, body: bytes, config: LoadConfig, *, token: str,
+        self, target: SplitResult, body: bytes | tuple[bytes, ...], config: LoadConfig, *, token: str,
         adapter: OpenAIStreamingAdapter | None, headers: dict[str, str],
     ) -> None:
         self.target = target
@@ -56,8 +56,9 @@ class LoadTransport:
     def _send(self, client: http.client.HTTPConnection, index: int, record: dict[str, Any]) -> None:
         if self._run_budget is not None:
             self._run_budget.check()
+        body = self.body[index] if isinstance(self.body, tuple) else self.body
         record["sent_s"] = self.now()
-        client.request("POST", self.target.path.rstrip("/") + self.endpoint, body=self.body, headers={
+        client.request("POST", self.target.path.rstrip("/") + self.endpoint, body=body, headers={
             **self.headers, "Content-Type": "application/json",
             "Connection": "keep-alive" if self.config.connections == "reuse" else "close",
             "X-Req-Id": record["request_id"]})

@@ -19,6 +19,11 @@ from acprof.analysis.streaming_capacity import normalize_slo_thresholds
 from acprof.artifacts import read_json_object
 from acprof.cli.load_evidence import load_phase, publish_load_report
 from acprof.host.measurement.load import LoadConfig, run_load
+from acprof.host.measurement.request_inputs import (
+    read_request_dataset,
+    request_digest,
+    validate_request_credentials,
+)
 from acprof.host.measurement.service_identity import (
     SERVICE_PROBES,
     initial_service_identity,
@@ -33,7 +38,7 @@ _ENDPOINTS = {
     "openai-completions": "/v1/completions",
 }
 _ENDPOINT_OPTIONS = (
-    "model", "prompt", "request_json", "max_tokens", "temperature",
+    "model", "prompt", "request_json", "request_jsonl", "max_tokens", "temperature",
     "generation_seed", "request_timeout", "api_key_env", "model_revision",
     "tokenizer_json", "tokenizer_model", "tokenizer_revision",
     "slo_ttft_s", "slo_tpot_s", "slo_e2e_s", "service_backend", "service_version",
@@ -47,11 +52,12 @@ class StreamingLoadContext:
     """Request and authentication inputs prepared once for an endpoint invocation."""
 
     origin: str
-    payload: dict[str, Any]
+    payload: dict[str, Any] | tuple[dict[str, Any], ...]
     adapter: OpenAIStreamingAdapter
     headers: dict[str, str] = field(repr=False)
     tokenizer: dict[str, Any] | None
     slo_thresholds: dict[str, float | None]
+    request_dataset: dict[str, Any] | None = None
 
 
 def add_streaming_arguments(parser: argparse.ArgumentParser) -> None:
@@ -61,6 +67,8 @@ def add_streaming_arguments(parser: argparse.ArgumentParser) -> None:
     inputs = parser.add_mutually_exclusive_group()
     inputs.add_argument("--prompt", help="Text prompt; converted to one user message in chat mode")
     inputs.add_argument("--request-json", type=Path, help="Complete JSON request body (maximum 4 MiB)")
+    inputs.add_argument("--request-jsonl", type=Path,
+                        help="Ordered complete request objects; use first --requests rows without repetition (maximum 64 MiB)")
     parser.add_argument("--max-tokens", type=int, help="Output token limit (prompt mode default: 128)")
     parser.add_argument("--temperature", type=float, help="Generation temperature (prompt mode default: 0)")
     parser.add_argument("--generation-seed", type=int, help="Generation seed; --seed controls arrivals")
@@ -135,9 +143,43 @@ def _request_payload(args: argparse.Namespace) -> dict[str, Any]:
             payload["messages"] = [{"role": "user", "content": args.prompt}]
         else:
             payload["prompt"] = args.prompt
-    if any(str(key).lower() in {"authorization", "api_key", "apikey", "headers"} for key in payload):
-        raise ValueError("credentials and headers are not request body fields; use --api-key-env")
+    validate_request_credentials(payload)
     return payload
+
+
+def _request_inputs(args: argparse.Namespace) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
+    if args.request_jsonl is None:
+        return [_request_payload(args)], None
+    if any(getattr(args, name) is not None for name in ("max_tokens", "temperature", "generation_seed")):
+        raise ValueError("--request-jsonl cannot be combined with generation overrides")
+    bodies, source = read_request_dataset(args.request_jsonl)
+    if len(bodies) < max(args.requests, args.warmup):
+        raise ValueError("request JSONL needs at least max(--requests, --warmup) rows; requests are not repeated")
+    model = args.model if args.model is not None else bodies[0].get("model")
+    for body, line in zip(bodies, source["lines"], strict=True):
+        if body.get("model") != model:
+            raise ValueError(f"request JSONL line {line}: every model must exactly match the declared dataset model")
+    return bodies, source
+
+
+def _prepare_inputs(
+    bodies: list[dict[str, Any]], source: dict[str, Any] | None, adapter: OpenAIStreamingAdapter, needed: int,
+) -> tuple[dict[str, Any] | tuple[dict[str, Any], ...], dict[str, Any] | None]:
+    prepared = []
+    for index, body in enumerate(bodies):
+        try:
+            value = adapter.prepare_payload(body)
+        except ValueError as error:
+            if source is None:
+                raise
+            raise ValueError(f"request JSONL line {source['lines'][index]}: {error}") from error
+        if source is None or index < needed:
+            prepared.append(value)
+    if source is None:
+        return prepared[0], None
+    dataset = {"selection": "listed_prefix", "bodies": prepared, "sha256": request_digest(prepared),
+               "source": {**source, "lines": source["lines"][:needed]}}
+    return tuple(prepared), dataset
 
 
 def _authorization(args: argparse.Namespace) -> dict[str, str]:
@@ -212,8 +254,8 @@ def _prepare(args: argparse.Namespace) -> StreamingLoadContext:
     slo_thresholds = _slo_thresholds(args)
     _validate_service_declaration(args)
     origin = _validate_origin(args.base_url)
-    payload = _request_payload(args)
-    model = payload.get("model")
+    bodies, source = _request_inputs(args)
+    model = bodies[0].get("model")
     if not isinstance(model, str) or not model.strip():
         raise ValueError("OpenAI streaming requires a nonempty model")
     counter, tokenizer = _token_counter(args, model)
@@ -224,8 +266,8 @@ def _prepare(args: argparse.Namespace) -> StreamingLoadContext:
     adapter = OpenAIStreamingAdapter(
         endpoint=_ENDPOINTS[args.protocol], token_counter=counter, **limits,
     )
-    payload = adapter.prepare_payload(payload)
-    return StreamingLoadContext(origin, payload, adapter, _authorization(args), tokenizer, slo_thresholds)
+    payload, dataset = _prepare_inputs(bodies, source, adapter, max(args.requests, args.warmup))
+    return StreamingLoadContext(origin, payload, adapter, _authorization(args), tokenizer, slo_thresholds, dataset)
 
 
 def run_prepared_streaming_load(
@@ -235,20 +277,17 @@ def run_prepared_streaming_load(
     """Publish one point in an empty directory; a sweep supplies its already-held scope."""
     origin, payload, adapter = prepared.origin, prepared.payload, prepared.adapter
     headers, tokenizer, slo_thresholds = prepared.headers, prepared.tokenizer, prepared.slo_thresholds
+    model = payload[0]["model"] if isinstance(payload, tuple) else payload["model"]
     service_probe = args.service_probe or "none"
     declared_service = {
         "schema_version": 1, "backend": args.service_backend,
-        "version": args.service_version, "model": payload["model"],
+        "version": args.service_version, "model": model,
         "revision": args.model_revision, "probe": service_probe,
     }
     identity = {
         "target_origin": origin, "endpoint": adapter.endpoint,
-        "model": payload["model"], "model_revision": args.model_revision,
+        "model": model, "model_revision": args.model_revision,
         "model_revision_source": "user_declared" if args.model_revision else "unavailable",
-        "request_body": payload,
-        "request_body_sha256": hashlib.sha256(
-            json.dumps(payload, sort_keys=True, allow_nan=False).encode()
-        ).hexdigest(),
         "load_config": asdict(config), "adapter": adapter.protocol(),
         "tokenizer": tokenizer, "warmup_requests": args.warmup,
         "warmup_scenario": "serial", "warmup_connections": "close",
@@ -256,8 +295,13 @@ def run_prepared_streaming_load(
         "slo_thresholds_s": slo_thresholds,
         "service": declared_service,
     }
+    if prepared.request_dataset is None:
+        identity.update(request_body=payload, request_body_sha256=request_digest(payload))
+    else:
+        identity["request_dataset"] = prepared.request_dataset
     report: dict[str, Any] = {
-        "schema_version": 2, "kind": "stream_load_experiment", "run_id": uuid4().hex,
+        "schema_version": 3 if prepared.request_dataset is not None else 2,
+        "kind": "stream_load_experiment", "run_id": uuid4().hex,
         "successful": False, "status": "running", "identity": identity,
         "service_identity": initial_service_identity(declared_service, service_probe),
         "identity_sha256": hashlib.sha256(
@@ -312,6 +356,8 @@ def run_streaming_load(args: argparse.Namespace, parser: argparse.ArgumentParser
             "schema_version": 1, "kind": "stream_load_sweep_plan", "target_origin": prepared.origin,
             "endpoint": prepared.adapter.endpoint, "output_dir": str(output),
             "warmup_requests_per_point": args.warmup, "points": [asdict(config) for config in configs],
+            **({"request_dataset": {key: value for key, value in prepared.request_dataset.items() if key != "bodies"}}
+               if prepared.request_dataset is not None else {}),
         }, allow_nan=False))
         return 0
     if sweeping:

@@ -72,6 +72,48 @@ Streaming Adapter 强制请求 SSE 与 usage。它处理 UTF-8 跨网络读取�
 LF／CRLF／CR、注释心跳、多行 data、JSON 错误、finish reason 和 `[DONE]`。
 网络读取块、SSE 事件、模型 Token 是三种不同单位。
 
+## 本地请求集
+
+`--request-jsonl` 接受 UTF-8 JSONL，每个非空行是一个完整的 Chat 或 Completions
+请求对象；可在同一次运行中使用不同提示词、文本消息历史和生成参数。
+所有请求必须使用同一个 served model，显式 `--model` 必须与每行一致。
+它与 `--prompt`、`--request-json`、生成参数覆盖互斥；仍拒绝正文中的凭据与 headers，
+鉴权沿用 `--api-key-env`。不自动生成内容、加载数据集、套用 chat template 或下载 tokenizer。
+
+```bash
+acprof load --base-url http://127.0.0.1:8000 --protocol openai-chat \
+  --request-jsonl examples/streaming/qwen3-requests.jsonl \
+  --requests 3 --warmup 1 --scenario concurrent --concurrency 2 \
+  --output-dir results/qwen-request-dataset
+acprof report results/qwen-request-dataset
+```
+
+[三请求示例](../../examples/streaming/qwen3-requests.jsonl)分别指定 32、64、96 的输出上限；
+实际输出 Token 数仍来自响应证据，不能用上限代替。JSON 字符串 `"00123"` 保持文本，
+空行不计作请求，诊断与来源保留物理行号。文件最多 64 MiB、100000 条请求，每个物理行最多
+4 MiB（含行结束字节）；目录、非法 UTF-8／JSON、非有限数值和不支持的请求形态明确报错。
+整个文件在创建输出、身份 probe 和 warmup 前读一次并校验，未选中的行也必须有效。
+
+正式负载取前 `--requests` 条，warmup 单独取前 `--warmup` 条；每个 sweep 点重新从索引 0 开始。
+文件必须至少有 `max(requests, warmup)` 条请求；保留既有 CLI 默认值 `100`／`5`，小文件应显式设置。
+不自动打乱、补采样、循环、过滤失败行或改变到达 seed。重复输入只能由文件显式提供。
+准备后的输入在本次调用内冻结，执行途中原文件变化不影响已准备的点。
+warmup 与正式输入可能重叠，服务缓存也不清空，不能将此运行解释为冷缓存或真实生产流量。
+
+请求集实验及阶段结果使用 schema v3；单请求模式继续使用 v2。v3 的 `identity.request_dataset`
+保存 `selection=listed_prefix`、所需前缀的规范化 `bodies` 与有序 SHA256，`source` 保存原文件路径、
+原始字节 SHA256、非空行数 `rows` 及所保留请求的物理 `lines`。原始提示词随输入身份保存在 JSON，
+不在 sweep 汇总中复制。它不同时保存误导性的单个 `request_body`。
+每阶段 `protocol.request_inputs_sha256` 绑定其实际前缀；每条记录的零基 `input_index`
+按调度序号选取输入，独立于线程完成顺序，失败、丢弃和取消不移动后续输入。
+文件读取、规范化、序列化和输入 hash 均在负载计时前完成；索引注记在计时后添加。
+现有 TTFT／TPOT／ITL／E2E、SLO 与吞吐公式保持不变，原文件删除后仍可离线校验和生成报告。
+
+输入准备参考 [vLLM CustomDataset](https://github.com/vllm-project/vllm/blob/4bfcd5d65fa8ea24e33d3b8296d204dea2f5bfc3/vllm/benchmarks/datasets/datasets.py)
+（Apache-2.0）的逐请求输入与输出预算，以及[请求 ID 唯一性修复](https://github.com/vllm-project/vllm/pull/64537)
+和[结果保存数据集身份的讨论](https://github.com/vllm-project/vllm/pull/62089)。沿用本项目调度器、
+SSE 校验和有限 JSON 解析，不复制其采样实现，也不增加 pandas／datasets／tokenizer 依赖。
+
 ## 多负载点编排
 
 端点模式可用 `--sweep-concurrency` 指定并发数列表，用 `--sweep-rate` 指定到达率列表
@@ -102,7 +144,7 @@ acprof load --base-url http://127.0.0.1:8000 --protocol openai-chat \
 顺序运行的不同负载点不构成同一条件下的独立重复，不能据此计算跨独立实验区间。
 
 根目录的 `sweep.json` 是 schema v1、kind `stream_load_sweep` 的执行清单；
-每点仍写 schema v2 单点报告 `points/0001/load.json`、`points/0002/load.json` 等。
+每点写 schema v2（单请求）或 v3（请求集）单点报告 `points/0001/load.json`、`points/0002/load.json` 等。
 单点测量值、请求身份、服务观测和阶段错误以各自 `load.json` 为准，清单不复制请求记录。
 
 | 字段 | 含义 |
@@ -206,7 +248,7 @@ identity。预算包括失败请求已接收的数据，避免仅凭并发或单
 
 ## SLO Goodput 与单点容量
 
-schema v2 的 `result.capacity` 以同一个 `result.duration_s`（记为 `D`）汇总单次正式负载，
+schema v2/v3 的 `result.capacity` 以同一个 `result.duration_s`（记为 `D`）汇总单次正式负载，
 预热和 tokenizer 后处理不进入该窗口。`counts` 分别保存 offered、sent、succeeded、failed、
 dropped、cancelled；`client_concurrency` 是客户端 Scheduler worker 上限，不是服务端实际并发。
 `successful_requests_per_s` 为成功请求数除以 `D`，目标到达率仍由原有字段单独保存。
@@ -396,7 +438,7 @@ request JSON 中的孤立代理会在联网和创建输出前拒绝；probe 中�
 `phase_errors`，不被后续清理错误覆盖。最终报告写入发生普通异常时保留活动异常并附加写失败诊断，
 磁盘文件可能仍是初始 `running` 状态。字段及发布边界见[负载报告](../results/comparisons.md#非流式负载报告)。
 
-新运行使用独立的 `stream_load_experiment`／`stream_load_result` schema v2 并保存到新输出目录；
+单请求运行使用独立的 `stream_load_experiment`／`stream_load_result` schema v2，请求集使用 v3，均保存到新输出目录；
 容量报告只读兼容 v1，缺少的 SLO、Token 吞吐和服务身份显示 unavailable，不回填为零或改写历史文件。
 原来的 `nonstream_load_*` schema v1 继续读取和执行。
 流式结果不写入正式窗口的指标登记表／能耗 CSV，也不混入已有实验的 resume 或补采。
@@ -410,6 +452,8 @@ request JSON 中的孤立代理会在联网和创建输出前拒绝；probe 中�
 断流、超时、取消、窗口外一次聚合、运行预算和 Unicode 失败发布；`test_streaming_cli.py` 验证入口、身份与失败产物。
 `test_streaming_capacity.py` 独立重算 SLO 与 Token 覆盖，`test_service_identity.py` 验证有界 vLLM 观测；
 `tests/analysis/reporting/test_load_report.py` 覆盖 v1/v2 报告、原始记录重建、防篡改与拒绝覆盖。
+`test_streaming_request_dataset.py` 与 `test_load_dataset_report.py` 覆盖 JSONL 输入冻结、前置拒绝、
+顺序映射、v3 校验、历史兼容及不同请求集的 sweep 分组；浏览器用例检查来源展示和窄屏。
 
 例如 `s=0`，输出事件在 `0.10 / 0.14 / 0.18` 秒到达，
 usage 为 5 Token，`[DONE]` 在 `0.23` 秒到达：

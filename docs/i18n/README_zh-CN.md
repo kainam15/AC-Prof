@@ -28,6 +28,8 @@ acprof compare --left run-a/ --right run-b/ --html-output comparison.html \
 
 `acprof load --base-url` 可测量已启动的 OpenAI-compatible 流式服务。显式并发数、到达率列表支持 `--dry-run` 计划预览，每个负载点分别保留报告；详见[多负载点编排](../profiling/streaming.md#多负载点编排)。`acprof report <sweep.json>` 可生成[离线吞吐与时延曲线](../results/reports.md#多负载点流式容量报告)，保留条件分组、失败点和缺失证据。可选的 [vLLM／SGLang 身份探测](../profiling/streaming.md#服务身份)分别保留服务观测与用户声明。显式选择 `vllm-config` 可从已开放的开发端点读取部分引擎配置，SGLang 也记录部分启动配置。
 
+`acprof load --request-jsonl` 支持按[固定顺序运行本地请求集](../profiling/streaming.md#本地请求集)，使用不同提示词和生成参数。请求集报告保留输入顺序与逐请求映射，供离线分析使用。
+
 支持文本、视觉、音频、时间序列、Diffusion、多模态与结构化数据任务，但模型仍需满足[任务接口要求](../models/supported-tasks.md#任务支持范围)，并非所有同类 checkpoint 都保证可运行。
 
 ## 采集环境与指标

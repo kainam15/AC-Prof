@@ -112,6 +112,7 @@ TUI 的“比较”页面已隐藏，CLI 与 HTML 比较能力保留；“分析
 协议、连接复用前提和失败口径见[独立非流式负载](../profiling/lifecycle.md#独立非流式负载)。
 `acprof load --base-url http://127.0.0.1:8000 --protocol openai-chat --model Qwen/Qwen3-0.6B --prompt Hello --output-dir <新目录>`
 可直接测量已启动服务的 SSE；可选 `--slo-ttft-s/--slo-tpot-s/--slo-e2e-s` 计算单点 SLO Goodput，
+`--request-jsonl` 可按固定顺序运行同模型的不同文本请求，输入与阶段映射保存在 v3 报告；见[本地请求集](../profiling/streaming.md#本地请求集)。
 `--service-backend/--service-version` 保存声明，`--service-probe vllm` 或 `sglang` 在预热前观测服务身份；
 显式选择 `--service-probe vllm-config` 可额外读取已开放的 vLLM 开发配置端点；
 SGLang 也保留白名单启动配置，均按字段区分未知与无效值，详见[服务身份](../profiling/streaming.md#服务身份)。

@@ -98,7 +98,7 @@ acprof report results/qwen-sweep/ --output results/qwen-sweep/capacity.html
 打开报告不需要网络。CLI 的 `ACPROF_REPORT` 标记使用 `kind=stream_load_sweep_capacity`，
 包含 `point_count`、`valid_points`、`partial_points`、`unavailable_points` 和输出路径。
 
-报告读取 schema v1 `stream_load_sweep` 清单及其 schema v2 单点报告，复用单点的原始请求、
+报告读取 schema v1 `stream_load_sweep` 清单及其 schema v2/v3 单点报告，复用单点的原始请求、
 capacity 与 streaming 校验；另核对完整负载配置、请求体 SHA256、protocol、run ID、
 请求预算和成功声明。清单结构、重复配置或非法路径使报告失败；子报告缺失、损坏或包含
 符号链接时保留诊断行并排除该点，不影响其他点。`not_run` 的计划文件不会读取。
@@ -109,6 +109,9 @@ SHA256 和预期缺失文件，输入变化时拒绝发布，避免拼接不同�
 以及 P99 TTFT、TPOT、E2E。每条线固定另一负载轴，按请求与生成配置、预算、预热、SLO、
 客户端主机、已观测服务身份／配置，以及 token 计数来源／scope 分组；不同条件不合并。
 服务观测只反映启动前 probe，未知值不证明服务相同，相同观测也不证明扫描期间未变化。
+v3 请求集按规范化的有序输入摘要分组，提示词、生成参数或顺序变化时分组；原文件路径或
+空白格式变化本身不拆分相同输入。逐点「请求集来源」保留源文件路径、行号和原始摘要，
+不复制完整请求正文；输入协议见[本地请求集](../profiling/streaming.md#本地请求集)。
 
 `valid_points` 指清单和子报告均为 `complete` 且证据通过校验的点，**可包含失败请求**；
 这些点继续参与曲线，并显示失败、丢弃、取消和成功比例。有效但中断或状态不一致的证据计入
@@ -135,19 +138,21 @@ acprof report results/qwen-capacity/ --output results/qwen-capacity/capacity.htm
 ```
 
 报告展示 offered／成功／失败／丢弃计数、客户端并发、成功请求吞吐、SLO Goodput、Token/s 及
-coverage／scope、TTFT／TPOT／E2E 分布和服务身份。v2 会从原始 requests、`duration_s`、声明 SLO 和
+coverage／scope、TTFT／TPOT／E2E 分布和服务身份。v2/v3 会从原始 requests、`duration_s`、声明 SLO 和
 客户端并发重新计算 capacity 与完整 streaming 分布，并核对 `identity_sha256`、两份持久化摘要及
 服务声明／probe；不一致即拒绝生成，实际渲染重算后的分布。早期 v2 未在 `identity.service` 重复
 model／revision 时，使用哈希身份中的对应声明校验，不会跳过一致性检查。v1 可读取，新增能力显示
-unavailable，不以零替代。实验与结果的 `schema_version` 必须为相同的整数 1 或 2；v2 的
+unavailable，不以零替代。实验与结果的 `schema_version` 必须为相同的整数 1、2 或 3；v2/v3 的
 `identity.service` 与 `service_identity` 必须为整数版本 1。布尔值、浮点数、缺失及未知版本均拒绝，
 CLI 明确报错且不发布 HTML。CLI 只接受一个流式 load 输入，拒绝与 baseline、比较用途或
 其他结果组合；默认生成 `load_report.html`，已有文件、目录或符号链接均不覆盖，并遵守离线分析锁。
-v2 无论是否配置 SLO，均检查成功请求的延迟及区间数组；非法数值或类型即报错，即使持久化摘要与原始值一致也不发布。
+v2/v3 无论是否配置 SLO，均检查成功请求的延迟及区间数组；非法数值或类型即报错，即使持久化摘要与原始值一致也不发布。
+v3 另校验请求集顺序与摘要、同模型声明、各阶段的前缀摘要、负载配置及每条记录的输入索引／ID。
+HTML 的 Request workload 展示来源与选取方式，不需要原始 JSONL；v1/v2 不能声明请求集以绕过新校验。
 诊断区展示被排除的请求数、按错误码分组的请求数，以及成功请求中的 Token 计数错误数；
 已记录的零错误与历史诊断缺失（unavailable）分别显示。延迟区同时展示输出事件间隔、单位、
 采样单位、含有效样本的请求数与缺失请求数，保留请求等权和区间池化的区别。
-这些展示复用已有 streaming 摘要；v2 使用经过原始记录重算与一致性校验的值，v1 不补造缺失字段。
+这些展示复用已有 streaming 摘要；v2/v3 使用经过原始记录重算与一致性校验的值，v1 不补造缺失字段。
 该报告只有一个负载点，不生成容量曲线或最大容量结论。字段公式见[流式测量](../profiling/streaming.md)。
 
 ### 交互式配置比较报告

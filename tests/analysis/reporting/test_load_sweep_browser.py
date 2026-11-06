@@ -10,7 +10,13 @@ import pytest
 
 from acprof.host.measurement.load import LoadConfig
 from acprof.plotting.load_sweep import write_load_sweep_report
+from tests.analysis.reporting.test_load_dataset_report import (
+    make_dataset_sweep,
+    saved_dataset_report,
+)
 from tests.support.load_sweep_fixtures import change_manifest, change_point, make_sweep
+
+__all__ = ["saved_dataset_report"]
 
 pytestmark = [pytest.mark.integration, pytest.mark.skipif(
     os.environ.get("ACPROF_BROWSER_TESTS") != "1", reason="opt-in headless browser test",
@@ -141,3 +147,22 @@ def test_rate_curves_fix_concurrency_and_xss_text_stays_literal(browser_page, tm
     href = page.locator("#points a").first.get_attribute("href")
     assert isinstance(href, str)
     assert (output.parent / href).resolve().is_file()
+
+
+def test_dataset_sources_are_visible_safe_and_narrow(browser_page, tmp_path, dataset_report):
+    page, open_report = browser_page
+    hostile = "</script><script>window.injected=true</script>.jsonl"
+    root = make_dataset_sweep(tmp_path / "source", dataset_report, "source", source_path=hostile)
+    open_report(root)
+    assert page.locator("#points summary").count() == 3
+    source = page.locator("#points details").nth(1)
+    source.locator("summary").click()
+    assert hostile in source.locator("pre").inner_text()
+    assert "a" * 64 in source.locator("pre").inner_text()
+    assert source.locator("pre").evaluate("element => element.clientHeight <= 200")
+    assert page.evaluate("window.injected === undefined")
+    assert page.locator("#condition option").count() == 2  # identical inputs despite different source paths
+    page.set_viewport_size({"width": 390, "height": 844})
+    settled(page)
+    page.wait_for_function("document.documentElement.scrollWidth <= innerWidth")
+    assert source.locator("summary").is_visible()

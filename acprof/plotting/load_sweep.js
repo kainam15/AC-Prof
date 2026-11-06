@@ -59,6 +59,11 @@
       const samples = point.latency_samples;
       element("td", samples ? `TTFT ${samples.ttft_s} · TPOT ${samples.tpot_s} · E2E ${samples.e2e_s}\ntokens ${percent(point.output_token_coverage)}\nduration ${fmt(point.duration_s)} s` : "不可用", tr);
       const detail = element("td", point.diagnostics.join("\n"), tr);
+      if (point.request_dataset) {
+        const inputs = element("details", "", detail);
+        element("summary", "请求集来源", inputs);
+        element("pre", JSON.stringify(point.request_dataset, null, 2), inputs);
+      }
       if (point.slo?.configured) element("div", `SLO: met ${point.slo.counts.satisfied} · violated ${point.slo.counts.violated} · unevaluable ${point.slo.counts.unevaluable}`, detail);
       if (point.report_href) {
         const link = element("a", "load.json", detail);

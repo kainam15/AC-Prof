@@ -18,6 +18,7 @@ from acprof.host.measurement.load_reporting import (
     finalize_streams,
 )
 from acprof.host.measurement.load_transport import LoadTransport
+from acprof.host.measurement.request_inputs import request_digest, validate_request_credentials
 from acprof.host.measurement.streaming import OpenAIStreamingAdapter
 from acprof.system.cleanup import cleanup_on_exit
 
@@ -165,6 +166,24 @@ def _execute_load(
     return duration, primary_error
 
 
+def _request_bodies(payload, adapter: OpenAIStreamingAdapter | None, count: int) -> tuple[bytes | tuple[bytes, ...], str | None]:
+    if not isinstance(payload, tuple):
+        prepared = adapter.prepare_payload(payload) if adapter is not None else payload
+        return json.dumps(prepared, separators=(",", ":"), allow_nan=False).encode(), None
+    if adapter is None:
+        raise ValueError("request datasets require an OpenAI streaming adapter")
+    if len(payload) < count:
+        raise ValueError("request dataset has fewer entries than the request budget")
+    prepared_rows = [adapter.prepare_payload(row) for row in payload]
+    if len({row["model"] for row in prepared_rows}) != 1:
+        raise ValueError("request dataset must use one served model")
+    for row in prepared_rows:
+        validate_request_credentials(row)
+    selected = prepared_rows[:count]
+    encoded = tuple(json.dumps(row, separators=(",", ":"), allow_nan=False).encode() for row in selected)
+    return encoded, request_digest(selected)
+
+
 def run_load(
     url, payload, config: LoadConfig, *, token,
     adapter: OpenAIStreamingAdapter | None = None,
@@ -187,23 +206,29 @@ def run_load(
     if target.scheme not in {"http", "https"} or not target.hostname or target.username or target.query or target.fragment:
         raise ValueError("load target must be an HTTP(S) base URL without credentials, query or fragment")
     extra_headers = _request_headers(headers)
-    prepared = adapter.prepare_payload(payload) if adapter is not None else payload
-    body = json.dumps(prepared, separators=(",", ":"), allow_nan=False).encode()
+    body, inputs_digest = _request_bodies(payload, adapter, config.requests)
     protocol = config.protocol()
     if adapter is not None:
         protocol = {**protocol, "kind": "openai_stream_http_load", "adapter": adapter.protocol(),
                     "tokenizer_count_phase": "after_load_duration"}
+    if inputs_digest is not None:
+        protocol.update(request_selection="listed_prefix", request_inputs_sha256=inputs_digest)
     protocol_sha256 = hashlib.sha256(json.dumps(protocol, sort_keys=True, allow_nan=False).encode()).hexdigest()
     schedule = config.schedule()
     transport = LoadTransport(target, body, config, token=token, adapter=adapter, headers=extra_headers)
     duration, primary_error = _execute_load(transport, schedule)
     records = complete_records(transport.records, token, schedule)
+    if inputs_digest is not None:
+        for index, record in enumerate(records):
+            record["input_index"] = index
     if adapter is not None:
         primary_error = finalize_streams(records, adapter, primary_error)
     report = build_load_report(
         records, config, protocol, protocol_sha256, duration, streaming=adapter is not None,
         primary_error=primary_error, include_capacity=include_capacity, slo_thresholds=slo_thresholds,
     )
+    if inputs_digest is not None:
+        report["schema_version"] = 3
     if primary_error is not None:
         setattr(primary_error, "load_report", report)
         raise primary_error

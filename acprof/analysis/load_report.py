@@ -1,4 +1,4 @@
-"""Shared offline validation for stream_load_experiment v1/v2."""
+"""Shared offline validation for stream_load_experiment v1/v2/v3."""
 from __future__ import annotations
 
 import hashlib
@@ -7,6 +7,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from acprof.analysis.load_inputs import validate_dataset_inputs
 from acprof.analysis.streaming import streaming_summary
 from acprof.analysis.streaming_capacity import build_capacity
 from acprof.artifacts import read_json_object, require_schema_version
@@ -96,15 +97,20 @@ def analyze_load_report(experiment: dict[str, Any]) -> dict[str, Any]:
     if (
         experiment.get("kind") != "stream_load_experiment"
         or type(version) is not int
-        or version not in {1, 2}
+        or version not in {1, 2, 3}
     ):
-        raise ValueError("capacity report supports only stream_load_experiment schema v1/v2")
+        raise ValueError("capacity report supports only stream_load_experiment schema v1/v2/v3")
     result = experiment.get("result")
     if not isinstance(result, dict) or result.get("kind") != "stream_load_result":
         raise ValueError("stream load experiment has no stream_load_result")
     require_schema_version(result, version, "stream load result")
-    capacity = _v2_capacity(experiment, result) if version == 2 else None
-    streaming = _v2_streaming(result) if version == 2 else result.get("streaming")
+    if version == 3:
+        validate_dataset_inputs(experiment)
+    elif ((isinstance(experiment.get("identity"), dict) and "request_dataset" in experiment["identity"])
+          or (isinstance(result.get("protocol"), dict) and "request_selection" in result["protocol"])):
+        raise ValueError("request datasets require stream_load_experiment schema v3")
+    capacity = _v2_capacity(experiment, result) if version >= 2 else None
+    streaming = _v2_streaming(result) if version >= 2 else result.get("streaming")
     return {
         "experiment": experiment, "result": result, "capacity": capacity,
         "streaming": streaming, "version": version,

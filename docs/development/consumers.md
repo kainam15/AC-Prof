@@ -20,7 +20,8 @@ CPU/GPU 拟合、尺度基函数说明和残差整理各有独立函数。`write
 常规指标和尾延迟共用 `styles.configurations_with_colors` 取得颜色。
 `analysis.streaming` 提供共享分布和完整 streaming 汇总，采集与离线报告复用同一实现；
 `analysis.streaming_capacity` 以原始流式请求、正式负载时长和声明 SLO 纯计算单点 Goodput、
-Token 覆盖及吞吐，不导入采集或渲染模块；`plotting.load_report` 复用二者校验并渲染 v2，
+Token 覆盖及吞吐，不导入采集或渲染模块；`analysis.load_report` 复用二者校验 v2/v3，
+其中 `analysis.load_inputs` 校验 v3 请求集及阶段映射，按需复用请求规范化；`plotting.load_report` 只负责渲染，
 对 v1 保留 unavailable，不建立第二套公式。入口与边界见[流式测量](../profiling/streaming.md)。
 `plotting.pipeline.plot_results` 组织数据准备、PNG 渲染和模型报告发布；CLI 负责参数与锁的生命周期，
 在取得 `host.run_state.offline_analysis_lock()` 后才导入 pipeline。

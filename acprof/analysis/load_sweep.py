@@ -97,8 +97,8 @@ def _check_child_path(path: Path, root: Path) -> None:
 
 def _validate_child(point: dict[str, Any], report: dict[str, Any]) -> None:
     experiment, result, capacity = report["experiment"], report["result"], report["capacity"]
-    if report["version"] != 2:
-        raise ValueError("sweep requires schema v2 point reports")
+    if report["version"] not in {2, 3}:
+        raise ValueError("sweep requires schema v2/v3 point reports")
     run_id = experiment.get("run_id")
     if not isinstance(run_id, str) or not run_id or (point["run_id"] is not None and point["run_id"] != run_id):
         raise ValueError("sweep point run ID differs from its report")
@@ -106,8 +106,9 @@ def _validate_child(point: dict[str, Any], report: dict[str, Any]) -> None:
     protocol_config = {key: result["protocol"].get(key) for key in config}
     if _digest(identity.get("load_config")) != _digest(config) or _digest(protocol_config) != _digest(config):
         raise ValueError("sweep point declared configuration differs from its report or protocol")
-    if not isinstance(identity.get("request_body"), dict) or identity.get("request_body_sha256") != _digest(
-        identity["request_body"],
+    if report["version"] == 2 and (
+        not isinstance(identity.get("request_body"), dict)
+        or identity.get("request_body_sha256") != _digest(identity["request_body"])
     ):
         raise ValueError("sweep point request body digest differs")
     counts = capacity["counts"]
@@ -133,7 +134,11 @@ def _condition(report: dict[str, Any]) -> tuple[str, dict[str, Any]]:
     experiment, capacity = report["experiment"], report["capacity"]
     identity = dict(experiment["identity"])
     identity["load_config"] = {k: v for k, v in identity["load_config"].items() if k not in {"concurrency", "rate"}}
-    identity.pop("request_body")  # Its validated digest retains all input/generation differences.
+    identity.pop("request_body", None)  # Validated digests retain all input/generation differences.
+    if "request_dataset" in identity:
+        dataset = identity["request_dataset"]
+        identity["request_dataset"] = {"selection": dataset["selection"], "sha256": dataset["sha256"],
+                                       "entries": len(dataset["bodies"])}
     service = experiment["service_identity"]
     probe = service.get("probe", {})
     service_evidence = {"observed": service.get("observed", {}), "probe": probe,
@@ -150,7 +155,9 @@ def _condition(report: dict[str, Any]) -> tuple[str, dict[str, Any]]:
 def _point_metrics(report: dict[str, Any]) -> dict[str, Any]:
     capacity, streaming = report["capacity"], report["streaming"]
     tokens = capacity["token_throughput"]["output"]
+    dataset = report["experiment"]["identity"].get("request_dataset")
     return {
+        **({"request_dataset": {key: value for key, value in dataset.items() if key != "bodies"}} if dataset else {}),
         "metrics": {
             "successful_requests_per_s": capacity["successful_requests_per_s"],
             "goodput_requests_per_s": capacity["goodput_requests_per_s"],

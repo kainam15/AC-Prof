@@ -1,4 +1,4 @@
-"""Offline single-point capacity report for stream_load_experiment v1/v2."""
+"""Offline single-point capacity report for stream_load_experiment v1/v2/v3."""
 from __future__ import annotations
 
 import json
@@ -70,7 +70,7 @@ def _service_section(experiment: Mapping[str, Any], version: int) -> str:
     rows = []
     for name in ("backend", "version", "model", "revision", "root", "max_model_len"):
         rows.append([name, declared.get(name), observed.get(name)])
-    mismatches = service.get("mismatches") if version == 2 else None
+    mismatches = service.get("mismatches") if version >= 2 else None
     mismatch_text = ", ".join(mismatches) if isinstance(mismatches, list) and mismatches else (
         "none" if mismatches == [] else None
     )
@@ -86,6 +86,23 @@ def _service_section(experiment: Mapping[str, Any], version: int) -> str:
         + _service_configuration(observed)
         + diagnostics
         + "</section>"
+    )
+
+
+def _workload_section(experiment: Mapping[str, Any]) -> str:
+    identity = _object(experiment.get("identity"))
+    dataset = _object(identity.get("request_dataset"))
+    if not dataset:
+        return ""
+    source = _object(dataset.get("source"))
+    return (
+        "<section><h2>Request workload</h2>"
+        + _table(["Value"], [["selection", dataset.get("selection")], ["source", source.get("path")],
+                            ["source rows", source.get("rows")], ["source SHA256", source.get("sha256")],
+                            ["prepared input SHA256", dataset.get("sha256")],
+                            ["measured requests", _object(identity.get("load_config")).get("requests")],
+                            ["warmup requests", identity.get("warmup_requests")]])
+        + "<p>Warmup and measurement each start at input index 0. Inputs follow file order without automatic repetition.</p></section>"
     )
 
 
@@ -220,6 +237,7 @@ def render_load_report(data: Mapping[str, Any]) -> str:
             ["experiment_status", experiment.get("status")], ["request_successful", result.get("successful")],
         ])
         + _service_section(experiment, version)
+        + _workload_section(experiment)
         + _capacity_section(result, capacity)
         + _diagnostics_section(data.get("streaming"))
         + _slo_section(capacity)
