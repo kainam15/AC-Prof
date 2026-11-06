@@ -66,6 +66,8 @@ acprof tui
 uv tool upgrade acprof
 ```
 
+TUI 启动时检查一次 PyPI，发现新版后显示当前版本、最新版本及升级命令。**应用设置 → 版本更新**保留检查结果，包括网络失败原因；详见[启动行为](../usage/tui-pages.md#启动和页面)。
+
 如需从 GitHub Release 下载 Wheel 或 Linux standalone，可查看[最新正式版](https://github.com/kainam15/AC-Prof/releases/latest)，并按[安装说明](../getting_started/installation.md#github-release-fallback)校验文件哈希。
 
 ### 开发者快速开始

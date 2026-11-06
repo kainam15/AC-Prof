@@ -66,6 +66,8 @@ Upgrade an existing PyPI installation with:
 uv tool upgrade acprof
 ```
 
+The TUI checks PyPI once at startup and shows the current version, latest version, and upgrade command when an update is available. **App settings → Version updates** retains the result, including network failures; see [startup behavior](docs/usage/tui-pages.md#启动和页面).
+
 For a GitHub Release wheel or Linux standalone binary, see the [latest release](https://github.com/kainam15/AC-Prof/releases/latest) and the [installation guide](docs/getting_started/installation.md#github-release-fallback) for checksum verification.
 
 ### Develop from source

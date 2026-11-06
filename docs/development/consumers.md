@@ -320,6 +320,14 @@ HTML 导出按 1 MiB 分块复制原始字节，通过 `artifacts.atomic_write_b
 `commands` 复用原来的命令构造函数，另持有 `PendingLaunch`、结果路径与 plot/stats/compare/profile 启动参数准备；
 `app` 继续持有控件、busy/measurement 状态和进程生命周期；controller 通过 App 的准入检查操作控件，并管理各自的请求 token。
 `commands.OperationState` 统一操作可用性；系统忙碌与存在可停止的子进程分别判断。
+`tui.updates` 在启动预检释放锁后通过 App 的异步 Worker 查询一次 PyPI JSON API；
+复用 HTTPX、`packaging.version.Version` 和 `MeasurementLock`，总期限 3 秒、正文上限 1 MiB。
+操作准入在检查结束前禁止采集，表单仍可编辑；退出取消并关闭请求，启动任务前清除通知。
+版本取正在运行的 `acprof.__version__`，只提示更高且未撤回的正式版本；失败保留原因，不伪装成已是最新。
+参考 [pip 自检源码](https://github.com/pypa/pip/blob/main/src/pip/_internal/self_outdated_check.py)、
+[运行版本来源修复 #14217](https://github.com/pypa/pip/pull/14217) 及
+[失败原因修复 #14035](https://github.com/pypa/pip/pull/14035)（MIT，持续维护）；
+仅借鉴版本语义及失败反馈，按本项目启动需求不复刻 pip 的缓存和包解析器，不新增依赖或测量期任务。
 `run_results` 在子进程退出后关联现有 `run_state.run_id/attempts/pid` 与启动前快照，并调用 `audit_result`；
 manifest 只用于路径路由，CSV 存在或退出码 0 都不单独构成当前运行成功证据，不另写结果协议。
 摘要与报告线程保留独立请求身份，切换路径后旧结果只释放任务占用，不更新页面；退出阶段先检查应用生命周期。

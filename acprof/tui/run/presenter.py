@@ -35,6 +35,8 @@ class RunPresenter:
             return
         if not self.app.allow_operation("run"):
             return
+        # Startup notices must not expire/redraw over a measurement window.
+        self.app.clear_notifications()
         self.app.logs.flush()
         if pending.kind in {"run", "probe"}:
             with self.app.prevent(Checkbox.Changed):

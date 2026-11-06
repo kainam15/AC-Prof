@@ -8,7 +8,8 @@ from textual.app import ComposeResult
 from textual.containers import Grid, Horizontal, Vertical, VerticalScroll
 from textual.widgets import Button, Label, Static, TabPane
 
-from acprof.tui.i18n import LANGUAGE_OPTIONS
+from acprof import __version__
+from acprof.tui.i18n import LANGUAGE_OPTIONS, message_id
 from acprof.tui.ui.checkbox import StatusCheckbox
 from acprof.tui.ui.themes import THEME_OPTIONS
 
@@ -64,6 +65,12 @@ def compose_settings_tab(app: AcprofTui) -> ComposeResult:
                     classes="page-hint", markup=False,
                 ))
                 yield app.localization.localized_widget(Button("管理连接与权限", id="open-environment-settings"))
+            with Vertical(id="settings-version", classes="settings-section") as section:
+                app.localization.set_text(section, message_id("common.updates.title"), "border_title")
+                yield app.localization.localized_widget(Static(
+                    message_id("common.updates.checking", __version__),
+                    id="version-status", markup=False,
+                ))
             yield app.localization.localized_widget(Static("", id="settings-location", classes="page-hint", markup=False))
         with Horizontal(id="settings-actions", classes="action-bar"):
             with Horizontal(classes="action-secondary"):

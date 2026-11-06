@@ -75,6 +75,7 @@ from acprof.tui.ui.rendering import CjkScreen
 from acprof.tui.ui.slash_controller import SlashController
 from acprof.tui.ui.table import ResizableDataTable
 from acprof.tui.ui.themes import THEME_CATALOG
+from acprof.tui.updates import UpdateController
 
 PROJECT_DIR = Path.cwd()
 # Keep the virtual-environment path. Resolving this symlink would turn
@@ -144,6 +145,7 @@ class AcprofTui(BarCursorApp):
         self.localization = LocalizationController(self)
         self.experiments = ExperimentController(self)
         self.preflight = PreflightController(self)
+        self.updates = UpdateController(self)
         self.results = ResultController(self)
         self.profiles = ProfileController(self)
         self.recovery = RecoveryController(self)
@@ -232,7 +234,7 @@ class AcprofTui(BarCursorApp):
         return OperationState(
             process=process is not None or bool(self.execution.session.kind),
             stoppable=self.execution.session.launch_pending or (process is not None and process.poll() is None),
-            checking=self.preflight.check_running, reading=bool(self.read_jobs),
+            checking=self.preflight.check_running or self.updates.checking, reading=bool(self.read_jobs),
             maintenance=bool(self.images.operation) or self.images.storage_loading,
             configuring=self.configuration.environment_open or self.catalog.picker_open,
             measuring=self.execution.session.snapshot.measurement_active, closing=self.ui_closing,

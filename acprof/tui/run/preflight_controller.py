@@ -314,6 +314,7 @@ class PreflightController:
         self.checked_config = self.check_config
         self.checks = tuple(checks)
         self.error = error
+        self.app.updates.start_check()
         self.app.set_busy(False)
         # Preflight only retains diagnostic fields, not the user's workload or
         # window counts. Re-read the editable form with the resolved runtime.

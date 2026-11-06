@@ -55,6 +55,31 @@ MESSAGES: dict[str, Entry] = {
     "common.unit.runs": Entry(zh="次", en="runs"),
     "common.unit.steps": Entry(zh="步", en="steps"),
     "common.unit.timesteps": Entry(zh="时间步", en="timesteps"),
+    "common.updates.ahead": Entry(
+        zh="当前版本高于 PyPI 最新版本。", en="Your version is newer than the latest on PyPI.",
+    ),
+    "common.updates.available": Entry(
+        zh="发现新版本，可执行 `uv tool upgrade acprof` 更新。",
+        en="A new version is available. Run `uv tool upgrade acprof` to update.",
+    ),
+    "common.updates.checking": Entry(
+        zh="当前版本：{0}\n正在检查 PyPI 最新版本……",
+        en="Current version: {0}\nChecking the latest version on PyPI…",
+    ),
+    "common.updates.current": Entry(zh="当前已是最新版本。", en="You are up to date."),
+    "common.updates.failed": Entry(
+        zh="当前版本：{0}\n无法检查 PyPI 最新版本：{1}\n仍可正常使用 AC-Prof。",
+        en="Current version: {0}\nCould not check the latest version on PyPI: {1}\nYou can continue using AC-Prof.",
+    ),
+    "common.updates.title": Entry(zh="版本更新", en="Version updates"),
+    "common.updates.unstable": Entry(
+        zh="PyPI 最新版本为预发布或已撤回，暂不建议更新。",
+        en="The latest PyPI release is a prerelease or yanked; no update is recommended.",
+    ),
+    "common.updates.versions": Entry(
+        zh="当前版本：{0}\n最新版本：{1}",
+        en="Current version: {0}\nLatest version: {1}",
+    ),
     "common.value.approximate": Entry(zh="约 {0}", en="about {0}"),
     "common.value.availability_legend": Entry(zh="— 不适用 · … 正在计算 · 未知 无法确定", en="— Not applicable · … Calculating · Unknown Cannot determine"),
     "common.value.none": Entry(zh="无", en="None"),
