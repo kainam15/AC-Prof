@@ -482,7 +482,7 @@
     for (const name of new Set(data.window_statistics.flatMap(report => report.groups.map(group => group.metric)))) option($("statistics-metric"), name, metricTitle(name));
     $("statistics-metric").value = metric;
   };
-  window.ACProfExperimentManager({workspace, $, element, option, refresh, schedule, state, getState, template});
+  window.ACProfExperimentManager({workspace, $, element, option, refresh, schedule, state, getState, template, syncExperiments:experiments.syncFromActive});
   window.ACProfExport({data, $, V, state, filtered, experiments, workspace});
   $("language").onchange = schedule;
   if (restored?.state) {

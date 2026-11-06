@@ -428,3 +428,21 @@ def test_legacy_unknown_runs_keep_distinct_models(page, source):
     assert len(actual) == 2
     assert [config['valid_windows'] for config in actual] == [2, 2]
     assert {config['run_id'] for config in actual} == {'unknown'}
+
+
+def test_experiment_selectors_share_one_visible_comparison(page, source):
+    for name in ("second", "third"):
+        import_file(page, name + ".csv", source.read_text().replace("original", name))
+    page.select_option("#active-experiment-left", index=1)
+    third = page.locator("#active-experiment-right option").filter(has_text="third.csv").get_attribute("value")
+    page.select_option("#active-experiment-right", third)
+    page.click("[data-view=experiments]")
+    settled(page)
+    assert "third.csv" in page.locator("#experiment-right").input_value()
+    second = page.locator("#experiment-right option").filter(has_text="second.csv").get_attribute("value")
+    page.select_option("#experiment-right", second)
+    settled(page)
+    assert "second.csv" in page.locator("#active-experiment-right option:checked").inner_text()
+    rows = download_json(page)["groups"]
+    assert rows
+    assert {row["run_id"] for row in rows} == {"second"}

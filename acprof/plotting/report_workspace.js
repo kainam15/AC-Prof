@@ -107,7 +107,7 @@ window.ACProfWorkspace = (original, restored = null) => {
     snapshot:state => ({schema_version:1, imports, state, colors:[...colors]}), bundle:configs => subset(data, configs)};
 };
 
-window.ACProfExperimentManager = ({workspace, $, element, option, refresh, schedule, state, getState, template}) => {
+window.ACProfExperimentManager = ({workspace, $, element, option, refresh, schedule, state, getState, template, syncExperiments}) => {
   let controller = null;
   const data = workspace.data;
   function render() {
@@ -172,9 +172,9 @@ window.ACProfExperimentManager = ({workspace, $, element, option, refresh, sched
   $("experiment-manager").ondrop = event => { event.preventDefault(); importFiles([...event.dataTransfer.files]); };
   $("active-experiment-left").onchange = () => {
     const entry = workspace.entries().find(entry => entry.id === $("active-experiment-left").value);
-    $("baseline").value = entry?.configs[0].config_id || ""; schedule();
+    $("baseline").value = entry?.configs[0].config_id || ""; syncExperiments(); schedule();
   };
-  $("active-experiment-right").onchange = schedule;
+  $("active-experiment-right").onchange = () => { syncExperiments(); schedule(); };
   $("export-html").onclick = () => {
     const json = JSON.stringify(workspace.snapshot(getState())).replace(/[<>&]/g, character => ({"<":"\\u003c", ">":"\\u003e", "&":"\\u0026"})[character]);
     const html = template.replace(/(<script id="report-session" type="application\/json">)[\s\S]*?(<\/script>)/,

@@ -37,8 +37,22 @@ window.ACProfExperiments = ({data, $, V, element, option, fmt, metricTitle, plot
     $("experiment-metric").value = metric;
   }
   refresh();
-  $("experiment-left").onchange = () => { selectRight(); schedule(); };
-  $("experiment-right").onchange = schedule;
+  function syncFromActive() {
+    const paths = side => [...new Set(data.configs.filter(config => config.experiment_id === $("active-experiment-" + side).value).map(config => config.source))];
+    const left = paths("left"), right = paths("right");
+    if (left.length) { $("experiment-left").value = sourceKey(left); selectRight(); }
+    if (right.length) $("experiment-right").value = sourceKey(right);
+  }
+  function syncActive() {
+    const left = JSON.parse($("experiment-left").value || "[]"), right = JSON.parse($("experiment-right").value || "[]");
+    for (const [side, paths] of [["left", left], ["right", right]]) {
+      $("active-experiment-" + side).value = left.length === 1 && right.length === 1 ?
+        data.configs.find(config => config.source === paths[0])?.experiment_id || "" : "";
+    }
+    if (left.length === 1) $("baseline").value = data.configs.find(config => config.source === left[0])?.config_id || "";
+  }
+  $("experiment-left").onchange = () => { selectRight(); syncActive(); schedule(); };
+  $("experiment-right").onchange = () => { syncActive(); schedule(); };
   $("experiment-metric").onchange = schedule;
   for (const name of Object.keys(data.registry)) option($("cross-model-metric"), name, metricTitle(name));
   $("cross-model-metric").value = "latency_app_s";
@@ -138,5 +152,5 @@ window.ACProfExperiments = ({data, $, V, element, option, fmt, metricTitle, plot
         marker:{color:group.map(color)}}], {height:380, yaxis:axis(metric), xaxis:{automargin:true}, showlegend:false});
     }
   }
-  return {draw, current, groups, refresh, descriptions};
+  return {draw, current, groups, refresh, descriptions, syncFromActive};
 };
