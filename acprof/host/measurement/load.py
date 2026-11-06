@@ -9,7 +9,7 @@ from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from typing import Any
 from urllib.parse import urlsplit
 
-from acprof.experiments.load import MAX_SWEEP_POINTS as MAX_SWEEP_POINTS, LoadConfig as LoadConfig
+from acprof.experiments.load import MAX_SWEEP_POINTS, LoadConfig
 from acprof.experiments.streaming import request_digest, validate_request_credentials
 from acprof.host.measurement.load_reporting import (
     build_load_report,
@@ -19,6 +19,8 @@ from acprof.host.measurement.load_reporting import (
 from acprof.host.measurement.load_transport import LoadTransport
 from acprof.host.measurement.streaming import OpenAIStreamingAdapter
 from acprof.system.cleanup import cleanup_on_exit
+
+__all__ = ["MAX_SWEEP_POINTS", "LoadConfig", "run_load"]
 
 
 def _request_headers(headers: dict[str, str] | None) -> dict[str, str]:
