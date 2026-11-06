@@ -298,7 +298,11 @@ def test_output_cannot_create_a_missing_planned_point(tmp_path, not_run):
     assert not output.exists()
 
 
-@pytest.mark.parametrize("extra", [["--baseline", "other"], ["--comparison-purpose", "same-hardware"], ["load"]])
+@pytest.mark.parametrize("extra", [
+    ["--baseline", "other"], ["--comparison-purpose", "same-hardware"], ["load"],
+    ["--metric", "latency_app_s"], ["--confidence", "0.95"], ["--resamples", "100"],
+    ["--seed", "0"], ["--block-size", "1"], ["--left", "left", "--right", "right"],
+])
 def test_sweep_cli_rejects_mixed_inputs_or_comparison_options(tmp_path, monkeypatch, capsys, extra):
     root = make_sweep(tmp_path / "sweep")
     monkeypatch.setattr("acprof.host.run_state.offline_analysis_lock", nullcontext)
@@ -307,3 +311,12 @@ def test_sweep_cli_rejects_mixed_inputs_or_comparison_options(tmp_path, monkeypa
     assert caught.value.code == 1
     assert "without mixed inputs or comparison options" in capsys.readouterr().err
     assert not (root / "load_sweep_report.html").exists()
+
+
+def test_sweep_in_independent_groups_is_rejected_even_with_positional_sources(tmp_path, monkeypatch, capsys):
+    root = make_sweep(tmp_path / "sweep")
+    monkeypatch.setattr("acprof.host.run_state.offline_analysis_lock", nullcontext)
+    with pytest.raises(SystemExit) as caught:
+        main(["report", str(tmp_path / "formal.csv"), "--left", str(root), "--right", "other"])
+    assert caught.value.code == 1
+    assert "without mixed inputs or comparison options" in capsys.readouterr().err
