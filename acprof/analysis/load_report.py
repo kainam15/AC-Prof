@@ -61,9 +61,15 @@ def _v2_capacity(experiment: Mapping[str, Any], result: Mapping[str, Any]) -> di
     if not isinstance(protocol, dict) or not isinstance(requests, list):
         raise ValueError("stream load v2 requires protocol and raw requests")
     load_config = identity.get("load_config")
-    concurrency = load_config.get("concurrency") if isinstance(load_config, dict) else None
+    if not isinstance(load_config, dict):
+        raise ValueError("stream load v2 requires a declared load configuration")
+    concurrency = load_config.get("concurrency")
     if not isinstance(concurrency, int) or protocol.get("concurrency") != concurrency:
         raise ValueError("stream load declared and observed client concurrency differ")
+    # Compare only declared fields, preserving JSON types and explicit null values.
+    protocol_config = {key: protocol[key] for key in load_config if key in protocol}
+    if _canonical(protocol_config) != _canonical(load_config):
+        raise ValueError("stream load declared configuration differs from result protocol")
     expected = build_capacity(
         requests, result.get("duration_s"), concurrency, identity["slo_thresholds_s"],
     )

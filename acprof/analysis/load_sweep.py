@@ -96,16 +96,15 @@ def _check_child_path(path: Path, root: Path) -> None:
 
 
 def _validate_child(point: dict[str, Any], report: dict[str, Any]) -> None:
-    experiment, result, capacity = report["experiment"], report["result"], report["capacity"]
+    experiment, capacity = report["experiment"], report["capacity"]
     if report["version"] not in {2, 3}:
         raise ValueError("sweep requires schema v2/v3 point reports")
     run_id = experiment.get("run_id")
     if not isinstance(run_id, str) or not run_id or (point["run_id"] is not None and point["run_id"] != run_id):
         raise ValueError("sweep point run ID differs from its report")
     config, identity = point["load_config"], experiment["identity"]
-    protocol_config = {key: result["protocol"].get(key) for key in config}
-    if _digest(identity.get("load_config")) != _digest(config) or _digest(protocol_config) != _digest(config):
-        raise ValueError("sweep point declared configuration differs from its report or protocol")
+    if _digest(identity.get("load_config")) != _digest(config):
+        raise ValueError("sweep point declared configuration differs from its report")
     if report["version"] == 2 and (
         not isinstance(identity.get("request_body"), dict)
         or identity.get("request_body_sha256") != _digest(identity["request_body"])
