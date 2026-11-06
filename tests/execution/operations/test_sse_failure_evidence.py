@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import threading
+from typing import Any
 
 import pytest
 
@@ -27,7 +28,7 @@ def test_stream_failure_keeps_complete_prefix(suffix, code, line_ending, packeti
     chunks = {"coalesced": [raw], "events": [b"\xef\xbb\xbf", *parts],
               "bytes": [raw[index:index + 1] for index in range(len(raw))]}[packetization]
     response = TimedResponse([(0.125, chunk) for chunk in chunks])
-    record = {"sent_s": 0.0, "completed_s": None}
+    record: dict[str, Any] = {"sent_s": 0.0, "completed_s": None}
     adapter = OpenAIStreamingAdapter(max_event_bytes=160)
 
     with pytest.raises(StreamProtocolError) as caught:
@@ -56,7 +57,7 @@ def test_stream_failure_keeps_complete_prefix(suffix, code, line_ending, packeti
 ], ids=["server-error", "invalid-json"])
 def test_first_invalid_event_is_not_masked_by_later_framing_error(suffix, bad_event, code):
     response = TimedResponse([(0.125, frame(chat("kept")) + bad_event + suffix)])
-    record = {"sent_s": 0.0}
+    record: dict[str, Any] = {"sent_s": 0.0}
     with pytest.raises(StreamProtocolError) as caught:
         OpenAIStreamingAdapter(max_event_bytes=160).consume(
             response, record, clock=lambda: response.now, cancelled=threading.Event(),
@@ -73,7 +74,7 @@ def test_failure_keeps_the_receive_time_of_each_completed_event():
         (0.1, first[:-1]),
         (0.2, first[-1:] + frame(chat("second")) + b"data: \xff\n\n"),
     ])
-    record = {"sent_s": 0.0}
+    record: dict[str, Any] = {"sent_s": 0.0}
     with pytest.raises(StreamProtocolError, match="UTF-8"):
         OpenAIStreamingAdapter().consume(
             response, record, clock=lambda: response.now, cancelled=threading.Event(),
