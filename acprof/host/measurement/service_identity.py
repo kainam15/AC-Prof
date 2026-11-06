@@ -10,7 +10,7 @@ from urllib.parse import urlsplit
 from acprof.artifacts import loads_finite_json, reject_isolated_surrogates
 
 MAX_PROBE_RESPONSE_BYTES = 1024 * 1024
-SERVICE_PROBES = ("none", "vllm", "sglang")
+SERVICE_PROBES = ("none", "vllm", "vllm-config", "sglang")
 _SERVICE_FIELDS = ("backend", "version", "model", "revision")
 _SGLANG_CONFIGURATION_TYPES = {
     **dict.fromkeys(("model_path", "served_model_name", "revision", "dtype", "kv_cache_dtype",
@@ -19,6 +19,19 @@ _SGLANG_CONFIGURATION_TYPES = {
                      "max_running_requests", "max_total_tokens", "max_prefill_tokens"), int),
     "disable_radix_cache": bool,
 }
+_VLLM_CONFIGURATION_TYPES = {
+    **dict.fromkeys(("model_config.model", "model_config.revision", "model_config.tokenizer",
+                     "model_config.tokenizer_revision", "model_config.dtype", "model_config.quantization",
+                     "parallel_config.distributed_executor_backend", "cache_config.cache_dtype"), str),
+    **dict.fromkeys(("model_config.max_model_len", "parallel_config.tensor_parallel_size",
+                     "parallel_config.pipeline_parallel_size", "parallel_config.data_parallel_size",
+                     "scheduler_config.max_num_seqs", "scheduler_config.max_num_batched_tokens",
+                     "cache_config.block_size"), int),
+    "scheduler_config.enable_chunked_prefill": bool,
+    "cache_config.enable_prefix_caching": bool,
+    "cache_config.gpu_memory_utilization": float,
+}
+_VLLM_CONFIGURATION_PATH = "/server_info?config_format=json"
 
 
 class _ProbeHTTPError(ValueError):
@@ -124,38 +137,43 @@ def _observed_identity(
 
 def probe_vllm(
     origin: str, declared: Mapping[str, Any], *, headers: Mapping[str, str] | None = None,
-    timeout_s: float = 10,
+    timeout_s: float = 10, include_configuration: bool = False,
 ) -> dict[str, Any]:
     if not math.isfinite(timeout_s) or timeout_s <= 0:
         raise ValueError("service probe timeout must be finite and positive")
-    result = initial_service_identity(declared, "vllm")
+    kind = "vllm-config" if include_configuration else "vllm"
+    result = initial_service_identity(declared, kind)
     errors: dict[str, str] = {}
+    attempts: list[dict[str, Any]] = []
     version_payload: dict[str, Any] | None = None
     models: list[dict[str, Any]] | None = None
     for name, path in (("version", "/version"), ("models", "/v1/models")):
         try:
-            payload = _read_json(origin, path, headers or {}, timeout_s)
+            payload = (
+                _read_recorded(origin, path, headers or {}, timeout_s, attempts) if include_configuration
+                else _read_json(origin, path, headers or {}, timeout_s)
+            )
             if name == "version":
                 version_payload = payload
             else:
                 models = _models(payload)
         except Exception as error:
             errors[name] = f"{type(error).__name__}: {error}"
+    configuration = _vllm_configuration(origin, headers or {}, timeout_s, errors, attempts) if include_configuration else None
     observed: dict[str, Any] | None = None
-    if version_payload is not None or models is not None:
+    if version_payload is not None or models is not None or configuration is not None:
         version = version_payload.get("version") if version_payload is not None else None
         if version_payload is not None and (not isinstance(version, str) or not version):
             errors["version"] = "ValueError: version must be nonempty text"
             version = None
         observed = _observed_identity("vllm", version, models, declared)
-    if not errors:
-        status = "available"
-    elif version_payload is None and models is None:
-        status = "unavailable"
-    else:
-        status = "partial"
+        if include_configuration:
+            observed["configuration"] = configuration
+    status = "available" if not errors else "unavailable" if observed is None else "partial"
     result.update(observed=observed)
-    result["probe"] = {"kind": "vllm", "status": status, "errors": errors}
+    result["probe"] = {"kind": kind, "status": status, "errors": errors}
+    if include_configuration:
+        result["probe"]["requests"] = attempts
     result["matches"] = _matches(declared, observed, models is not None)
     result["mismatches"] = [name for name, matched in result["matches"].items() if matched is False]
     return result
@@ -174,23 +192,60 @@ def _read_recorded(
     return payload
 
 
-def _sglang_configuration(payload: Mapping[str, Any], errors: dict[str, str]) -> dict[str, Any]:
-    values: dict[str, Any] = {}
-    for name, expected in _SGLANG_CONFIGURATION_TYPES.items():
-        value = payload.get(name)
+def _configuration_value(payload: Mapping[str, Any], name: str, errors: dict[str, str]) -> Any:
+    value: Any = payload
+    parts = name.split(".")
+    for index, part in enumerate(parts):
         if value is None:
-            valid = True
-        elif expected is str:
-            valid = isinstance(value, str) and bool(value.strip())
-        elif expected is bool:
-            valid = type(value) is bool
-        else:
-            valid = type(value) is int and value > 0
+            return None
+        if not isinstance(value, Mapping):
+            parent = ".".join(parts[:index])
+            errors[f"configuration.{parent}"] = f"ValueError: {parent} must be a JSON object or null"
+            return None
+        value = value.get(part)
+    return value
+
+
+def _configuration_valid(value: Any, expected: type) -> bool:
+    if value is None:
+        return True
+    if expected is str:
+        return isinstance(value, str) and bool(value.strip())
+    if expected is bool:
+        return type(value) is bool
+    if expected is float:
+        return type(value) in {int, float} and 0 < value <= 1
+    return type(value) is int and value > 0
+
+
+def _configuration_values(
+    payload: Mapping[str, Any], expected_types: Mapping[str, type], errors: dict[str, str],
+) -> dict[str, Any]:
+    values: dict[str, Any] = {}
+    descriptions = {str: "nonempty text", bool: "boolean", int: "positive integer", float: "number in (0, 1]"}
+    for name, expected in expected_types.items():
+        value = _configuration_value(payload, name, errors)
+        valid = _configuration_valid(value, expected)
         values[name] = value if valid else None
         if not valid:
-            kind = "nonempty text" if expected is str else "boolean" if expected is bool else "positive integer"
-            errors[f"configuration.{name}"] = f"ValueError: {name} must be {kind} or null"
+            errors[f"configuration.{name}"] = f"ValueError: {name} must be {descriptions[expected]} or null"
     return values
+
+
+def _vllm_configuration(
+    origin: str, headers: Mapping[str, str], timeout_s: float,
+    errors: dict[str, str], attempts: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    try:
+        payload = _read_recorded(origin, _VLLM_CONFIGURATION_PATH, headers, timeout_s, attempts)
+        configuration = payload.get("vllm_config")
+        if not isinstance(configuration, dict):
+            raise ValueError("vllm_config must be a JSON object; text configuration is not parsed")
+        return {"source": _VLLM_CONFIGURATION_PATH, "scope": "reported_engine_configuration",
+                "values": _configuration_values(configuration, _VLLM_CONFIGURATION_TYPES, errors)}
+    except Exception as error:
+        errors["server_info"] = f"{type(error).__name__}: {error}"
+        return None
 
 
 def probe_sglang(
@@ -230,7 +285,7 @@ def probe_sglang(
             **_observed_identity("sglang", version, models, declared),
             "configuration": None if info is None else {
                 "source": info_path, "scope": "reported_startup_configuration",
-                "values": _sglang_configuration(info, errors),
+                "values": _configuration_values(info, _SGLANG_CONFIGURATION_TYPES, errors),
             },
         }
     status = "available" if not errors else "unavailable" if info is None and models is None else "partial"
@@ -249,6 +304,8 @@ def probe_service(
         return initial_service_identity(declared, probe)
     if probe == "vllm":
         return probe_vllm(origin, declared, headers=headers, timeout_s=timeout_s)
+    if probe == "vllm-config":
+        return probe_vllm(origin, declared, headers=headers, timeout_s=timeout_s, include_configuration=True)
     if probe == "sglang":
         return probe_sglang(origin, declared, headers=headers, timeout_s=timeout_s)
     raise ValueError("unsupported service probe")

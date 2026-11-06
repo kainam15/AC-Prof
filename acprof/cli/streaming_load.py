@@ -80,7 +80,7 @@ def add_streaming_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--max-run-output-events", type=int,
                         help="Maximum output events retained across one warmup or measured run")
     parser.add_argument("--service-probe", choices=SERVICE_PROBES,
-                        help="Optional pre-warmup service identity probe (default: none)")
+                        help="Pre-warmup identity probe; vllm-config also reads the development configuration endpoint (default: none)")
     parser.add_argument("--sweep-concurrency", help="Endpoint sweep: distinct worker counts, e.g. 1,2,4; overrides --concurrency")
     parser.add_argument("--sweep-rate", help="Endpoint arrival-rate sweep: distinct requests/s, e.g. 1,5,10; overrides --rate")
     parser.add_argument("--dry-run", action="store_true", help="Validate and print an endpoint sweep plan without requests or output files")

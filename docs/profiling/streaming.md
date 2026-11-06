@@ -286,6 +286,49 @@ Decode 阶段吞吐、`1 / TPOT` 或每秒峰值。
 不改变推理请求状态。
 仅靠标准 OpenAI 端点无法确定缓存策略、dtype、硬件、调度上限及实际 revision，不能从模型名猜测。
 
+`--service-probe vllm-config` 在上述两个身份请求之后，额外读取一次
+`/server_info?config_format=json`，仅接受对象形式的 `vllm_config`；不解析字符串配置。
+这是显式选择的扩展模式，原有 `vllm` 仍只发出两个请求。上游将 server-info 放在
+[开发路由](https://github.com/vllm-project/vllm/blob/fce61a05a76ccf34e1af6511ff7071affc306424/vllm/entrypoints/serve/__init__.py)；
+服务需要已开放该端点，AC-Prof 不改变服务启动设置。未开放、拒绝访问或解析失败时，
+保留错误和可用的身份观测，不能把配置未知解释为配置相同。
+
+```bash
+acprof load --base-url http://127.0.0.1:8000 --protocol openai-chat \
+  --model Qwen/Qwen3-0.6B --prompt "Explain throughput in one sentence." \
+  --requests 5 --warmup 1 --service-backend vllm --service-probe vllm-config \
+  --output-dir results/qwen-vllm-config
+```
+
+配置沿用 `observed.configuration`：`source=/server_info?config_format=json`、
+`scope=reported_engine_configuration`，`values` 使用下面的点分路径作为键。
+原始响应中的 `vllm_env`、`system_env`、完整配置、凭据和其他对象不会保存。
+
+| 路径前缀 | 白名单字段 | 类型与含义 |
+| --- | --- | --- |
+| `model_config` | `model`、`revision`、`tokenizer`、`tokenizer_revision`、`dtype`、`quantization` | 非空文本或 `null`；服务报告的引擎配置，保留 `auto` 等原值 |
+| `model_config` | `max_model_len` | 正整数或 `null`；引擎配置上限，单独保留，不覆盖模型列表的同名值 |
+| `parallel_config` | `tensor_parallel_size`、`pipeline_parallel_size`、`data_parallel_size` | 正整数或 `null`；配置值，不相乘推导实际设备数或客户端并发 |
+| `parallel_config` | `distributed_executor_backend` | 非空文本或 `null` |
+| `scheduler_config` | `max_num_seqs`、`max_num_batched_tokens` | 正整数或 `null`；调度上限，不是本次实际使用量 |
+| `scheduler_config` | `enable_chunked_prefill` | 布尔值或 `null`；不能替代 Prefill 阶段计时 |
+| `cache_config` | `cache_dtype`、`block_size`、`enable_prefix_caching`、`gpu_memory_utilization` | 分别为非空文本、正整数、布尔值、`(0,1]` 内数值，均可为 `null`；最后一项是内存预算比例，不是 GPU 利用率或能耗 |
+
+缺失和显式 `null` 保持未知。字段或容器形状错误记入 `probe.errors["configuration.<path>"]`，
+保留其他有效字段；非有限 JSON、无效响应或 `vllm_config` 形状错误使整个配置不可用。
+新模式的 `probe.requests` 记录三个请求的路径、HTTP 状态与访问错误；沿用每响应 1 MiB 上限、
+关闭连接、鉴权不落盘及取消传播。没有静默跳转、重试或其他路径回退。
+有错误但仍取得观测为 `partial`，全部不可用为 `unavailable`，无错误为 `available`；
+`available` 不保证所有可选字段都有值。
+
+引擎配置中的模型路径和 revision 不能证明当前请求所用的模型或 LoRA 身份。
+`observed.model` 仍由 `/v1/models` 精确且唯一匹配，`observed.revision` 仍保持 `null`；
+版本端点无效时不借助配置猜测 backend。配置不进入声明哈希，但进入 sweep 条件分组，
+配置变化或观测缺失时不与其他条件连接成同一曲线。所有请求仍在每点 warmup 之前完成。
+接口与类型核对了上游 [JSON server-info](https://github.com/vllm-project/vllm/blob/fce61a05a76ccf34e1af6511ff7071affc306424/vllm/entrypoints/serve/dev/server_info/api_router.py)
+及 [CacheConfig](https://github.com/vllm-project/vllm/blob/fce61a05a76ccf34e1af6511ff7071affc306424/vllm/config/cache.py)
+（Apache-2.0）；复用本项目 HTTP、字段校验和报告实现，没有引入 vLLM 依赖。
+
 `--service-probe sglang` 先请求 `/server_info`，再请求 `/v1/models`，沿用相同的鉴权、
 连接关闭与 1 MiB 响应限制。仅当 `/server_info` 明确返回 HTTP 404 时，才请求旧版
 `/get_server_info`；401／403、其他 HTTP 错误、超时或无效 JSON 均不会触发旧路由。

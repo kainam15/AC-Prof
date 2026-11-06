@@ -113,7 +113,8 @@ TUI 的“比较”页面已隐藏，CLI 与 HTML 比较能力保留；“分析
 `acprof load --base-url http://127.0.0.1:8000 --protocol openai-chat --model Qwen/Qwen3-0.6B --prompt Hello --output-dir <新目录>`
 可直接测量已启动服务的 SSE；可选 `--slo-ttft-s/--slo-tpot-s/--slo-e2e-s` 计算单点 SLO Goodput，
 `--service-backend/--service-version` 保存声明，`--service-probe vllm` 或 `sglang` 在预热前观测服务身份；
-SGLang 另保留白名单启动配置，按字段区分未知与无效值，详见[服务身份](../profiling/streaming.md#服务身份)。
+显式选择 `--service-probe vllm-config` 可额外读取已开放的 vLLM 开发配置端点；
+SGLang 也保留白名单启动配置，均按字段区分未知与无效值，详见[服务身份](../profiling/streaming.md#服务身份)。
 `--max-run-response-bytes` 与 `--max-run-output-events` 设置每轮 warmup／正式 run 的独立硬预算。
 端点模式的 `--sweep-concurrency 1,2,4` 和 `--sweep-rate 1,5,10` 可按显式列表串行运行多个负载点，
 支持 `--dry-run` 校验预览；请求数与预热数按点生效，清单与失败边界见[多负载点编排](../profiling/streaming.md#多负载点编排)。
