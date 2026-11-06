@@ -217,9 +217,9 @@ def _latency_section(streaming: Any) -> str:
 
 
 def _server_metrics_section(data: Mapping[str, Any]) -> str:
-    metrics = data.get("server_metrics")
-    if metrics is None:
+    if data.get("server_metrics") is None:
         return ""
+    metrics: dict[str, Any] = data["server_metrics"]
     observation = data["experiment"]["server_metrics"]
     phases = metrics["phases"]
     rows = [[phase, row["status"], row["count"], row["sum_s"], row["mean_s"], row["reason"]]
