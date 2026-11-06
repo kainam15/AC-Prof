@@ -30,8 +30,10 @@ def test_report_loads_each_run_once_for_all_ordered_comparisons(runs, storage):
     options = {"metrics": ["latency_app_s"], "resamples": 19}
     expected = [comparison.compare_experiments([left], [right], **options)
                 for left, right in permutations([source["path"] for source in model.sources], 2)]
-    with patch.object(comparison, "read_result_csv_snapshot", wraps=comparison.read_result_csv_snapshot) as reads, \
-            patch.object(comparison, "load_comparison_snapshot", wraps=comparison.load_comparison_snapshot) as audits:
+    with patch("acprof.analysis.independent_comparison.read_result_csv_snapshot",
+               wraps=comparison.read_result_csv_snapshot) as reads, \
+            patch("acprof.analysis.independent_comparison.load_comparison_snapshot",
+                  wraps=comparison.load_comparison_snapshot) as audits:
         actual = build_experiment_comparisons(model, statistics_options=options)
     assert [entry["report"] for entry in actual] == expected
     assert [entry["report"]["groups"][0]["difference"] for entry in actual] == [1, 2, 3, -1, 1, 2, -2, -1, 1, -3, -2, -1]
@@ -52,7 +54,7 @@ def test_report_rechecks_cached_sources_before_publication(runs, monkeypatch, tm
             (roots[0] / artifact).write_text('{"changed": true}')
         return original(*args, **kwargs)
 
-    monkeypatch.setattr(comparison, "compare_snapshots", change_in_second_pair)
+    monkeypatch.setattr("acprof.analysis.independent_comparison.compare_snapshots", change_in_second_pair)
     target = tmp_path / "report.html"
     with pytest.raises(ValueError, match="experiment changed during comparison"):
         write_report(model, target, statistics_options={"metrics": ["latency_app_s"], "resamples": 19})
