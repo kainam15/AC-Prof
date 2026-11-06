@@ -26,9 +26,14 @@ MISSING_CSV_TEXT = frozenset({"", "nan", "none", "null", "n/a"})
 _CSV_FIELD_LIMIT = min(sys.maxsize, (1 << (8 * struct.calcsize("l") - 1)) - 1)
 
 
+def result_row_status(row: Mapping[str, object]) -> str:
+    """Interpret CSV status consistently without changing the retained row."""
+    return str(row.get("status", "")).strip().lower()
+
+
 def is_measured_success(row: Mapping[str, object]) -> bool:
     """Successful observations exclude inferred values; callers select warmup scope."""
-    return (str(row.get("status", "")).strip().lower() == "ok"
+    return (result_row_status(row) == "ok"
             and str(row.get("result_origin", "")).strip() != "inferred_not_measured")
 
 
@@ -194,7 +199,7 @@ def validate_result_rows(fields: Sequence[str], source_rows: Iterable[dict], pat
                 raise ResultValidationError(f"{path}:{index}: {exc}") from exc
             if key in keys:
                 raise ResultValidationError(f"duplicate measurement: {path}:{index}: {key}")
-            if row.get("status", "").strip().lower() == "error" and not row.get("error", "").strip():
+            if result_row_status(row) == "error" and not row.get("error", "").strip():
                 raise ResultValidationError(f"status=error without an error diagnostic: {path}:{index}")
             keys[key] = None
             if row.get("environment_class") not in {"native_linux", "wsl2", "vm", "cloud", "container_host", "unknown"}:

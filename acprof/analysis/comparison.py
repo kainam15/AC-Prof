@@ -25,6 +25,7 @@ from acprof.results.csv import (
     ResultCsvSnapshot,
     measurement_key,
     read_result_csv_snapshot,
+    result_row_status,
 )
 from acprof.results.layout import resolve_single_result_source
 from acprof.results.metadata import ResultMetadataSnapshot
@@ -76,7 +77,7 @@ def _actual_workload(rows: list[dict]) -> dict | None:
     facts: dict[str, Counter] = {}
     for row in rows:
         row_key = measurement_key(row)
-        if row.get("status") not in {"ok", "warn"} or row_key[4] != "0":
+        if result_row_status(row) not in {"ok", "warn"} or row_key[4] != "0":
             continue
         raw = row.get("workload_contract")
         if not raw or raw.lower() in {"nan", "null", "none"}:
@@ -266,7 +267,7 @@ def _resolve_actual_workload_and_cases(
         from acprof.results.layout import resource_case_id
         case_ids = {
             resource_case_id(row["cpu_cores"], row["mem_cap_gb"], row["gpu_mode"])
-            for row in rows if row.get("status") in {"ok", "warn"}
+            for row in rows if result_row_status(row) in {"ok", "warn"}
         }
         return rows, actual, case_ids
     except (OSError, ValueError, TypeError, AttributeError) as error:
@@ -322,7 +323,7 @@ def load_comparison_snapshot(source: str | Path, *, result_snapshot: ResultCsvSn
     # Only the input payload and semantic conditions are compared. Model/export,
     # packages and backend hashes continue to belong to the existing run identity.
     host = _object_field(state, "host", issues)
-    measured_rows = [row for row in rows if row.get("status") == "ok" and measurement_key(row)[4] == "0"]
+    measured_rows = [row for row in rows if result_row_status(row) == "ok" and measurement_key(row)[4] == "0"]
     return {
         **recorded_identity(metadata),
         "metric_availability": _metric_availability(measured_rows),

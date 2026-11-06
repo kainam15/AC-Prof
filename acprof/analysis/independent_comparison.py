@@ -21,6 +21,7 @@ from acprof.results.csv import (
     is_measured_success,
     measurement_key,
     read_result_csv_snapshot,
+    result_row_status,
     verify_result_source,
 )
 from acprof.results.layout import expand_result_sources
@@ -131,7 +132,7 @@ def _collect_run_case_groups(
                 "mean": statistics.fmean(window_values) if window_values and complete else None,
                 "resource_coordinates": {"cpu_cores": number(case[0]), "mem_cap_gb": number(case[1])},
                 "valid_windows": len(window_values),
-                "failed_windows": sum(row.get("status") != "ok" for row in windows),
+                "failed_windows": sum(result_row_status(row) != "ok" for row in windows),
                 "missing_windows": sum(is_measured_success(row) and number(row.get(metric)) is None for row in windows),
                 "inferred_windows": sum(row.get("result_origin", "").strip() == "inferred_not_measured" for row in windows),
                 "eligible": complete,
