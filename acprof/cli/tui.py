@@ -5,10 +5,6 @@ import argparse
 from collections.abc import Sequence
 from dataclasses import replace
 
-from acprof.experiments.configuration import RunConfigError
-from acprof.tui.app import AcprofTui
-from acprof.tui.run.form import infer_preset
-
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
@@ -42,6 +38,11 @@ def _build_parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> None:
     parser = _build_parser()
     args = parser.parse_args(argv)
+    # Help and argument errors must not initialize the TUI runtime.
+    from acprof.experiments.configuration import RunConfigError
+    from acprof.tui.app import AcprofTui
+    from acprof.tui.run.form import infer_preset
+
     try:
         app = AcprofTui(color_system=args.color_system)
     except ValueError as exc:

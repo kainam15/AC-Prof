@@ -40,6 +40,8 @@ console script 为 `acprof = "acprof.cli.main:main"`。`acprof` 不带子命令�
 开发者可以安装本地 wheel：`uv tool install ./dist/acprof-<version>-py3-none-any.whl`，
 或在源码目录执行 `uv tool install .`。源码开发使用 editable 包，入口仍为 `acprof <command>`。
 根目录不包含 Python 文件或额外启动器；顶层帮助和版本查询不会加载 Textual、绘图库或推理框架。
+`acprof tui --help`、`-h` 与参数错误在加载 TUI 运行依赖前处理；查看帮助无需初始化应用或读取 TUI 设置。
+正常启动仍需要完整默认依赖，缺失依赖时明确失败。
 Python 依赖范围由 `pyproject.toml` 声明；CI 同时验证已锁定环境和按发行依赖范围解析的干净环境。
 
 ## 从源码安装（开发者）
