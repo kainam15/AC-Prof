@@ -5,6 +5,8 @@ import hashlib
 import http.client
 import json
 from contextlib import nullcontext
+from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -12,10 +14,10 @@ from acprof.cli.main import main
 from tests.execution.operations.test_streaming_load import streaming_server
 
 
-def write_dataset(path, endpoint="/v1/chat/completions"):
+def write_dataset(path: Path, endpoint: str = "/v1/chat/completions") -> list[dict[str, Any]]:
     bodies = []
     for index, prompt in enumerate(("00123", "解释吞吐量", "longer prompt with several words")):
-        body = {"model": "fixture", "max_tokens": index + 2, "temperature": 0}
+        body: dict[str, Any] = {"model": "fixture", "max_tokens": index + 2, "temperature": 0}
         body.update({"messages": [{"role": "user", "content": prompt}]} if "chat" in endpoint else {"prompt": prompt})
         bodies.append(body)
     path.write_text("\n".join(json.dumps(body, ensure_ascii=False) for body in bodies) + "\n", encoding="utf-8")
@@ -164,7 +166,7 @@ def test_sweep_freezes_file_and_maps_bodies_by_request_id(tmp_path, monkeypatch,
         return original_probe(*args, **kwargs)
 
     monkeypatch.setattr(http.client.HTTPConnection, "request", request)
-    monkeypatch.setattr(streaming_load, "probe_service", probe)
+    monkeypatch.setattr("acprof.cli.streaming_load.probe_service", probe)
     with streaming_server() as (origin, _ports, _paths, received, _ready):
         assert main(["load", "--base-url", origin, "--protocol", "openai-chat", "--request-jsonl", str(source),
                      "--requests", "3", "--warmup", "1", "--scenario", "concurrent", "--sweep-concurrency", "1,2",
@@ -217,7 +219,6 @@ def test_dataset_source_replay_is_rejected_before_reading(tmp_path, capsys):
 
 
 def test_cancellation_retains_every_scheduled_input_index(tmp_path, monkeypatch):
-    from acprof.host.measurement import load as load_module
     from acprof.host.measurement.load import LoadConfig, run_load
     from acprof.host.measurement.streaming import OpenAIStreamingAdapter
 
@@ -227,7 +228,7 @@ def test_cancellation_retains_every_scheduled_input_index(tmp_path, monkeypatch)
             assert ready.wait(2)
             raise KeyboardInterrupt("dataset cancelled")
 
-        monkeypatch.setattr(load_module, "wait", interrupt)
+        monkeypatch.setattr("acprof.host.measurement.load.wait", interrupt)
         with pytest.raises(KeyboardInterrupt, match="dataset cancelled") as caught:
             run_load(origin, bodies, LoadConfig(requests=3, timeout_seconds=2), token="cancelled",
                      adapter=OpenAIStreamingAdapter())
@@ -294,8 +295,8 @@ def test_dataset_encoding_and_hashing_stay_outside_load_duration(tmp_path, monke
         calls.append("digest")
         return digest_function(value)
 
-    monkeypatch.setattr(load_module, "json", SimpleNamespace(dumps=encode))
-    monkeypatch.setattr(load_module, "request_digest", digest_input)
+    monkeypatch.setattr("acprof.host.measurement.load.json", SimpleNamespace(dumps=encode))
+    monkeypatch.setattr("acprof.host.measurement.load.request_digest", digest_input)
     monkeypatch.setattr(load_module, "_execute_load", timed)
     with streaming_server() as (origin, _ports, _paths, _bodies, _ready):
         report = run_load(origin, tuple(write_dataset(tmp_path / "requests.jsonl")), LoadConfig(requests=3),
