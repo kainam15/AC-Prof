@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 import pytest
 from rich.console import Console
-from textual.widgets import Button, Static
+from textual.widgets import Button, Select, Static
 
 from acprof.events.download import DownloadProgress
 from acprof.experiments.configuration import RunConfig
@@ -168,6 +168,8 @@ async def test_export_copies_retained_raw_text_and_holds_operation_gate(tmp_path
         app.logs.export()
         await pilot.pause()
         app.screen.query_one('#log-export-directory', Input).value = str(tmp_path / 'exports')
+        app.screen.query_one('#log-export-scope', Select).value = 'all'
+        await pilot.pause()
         assert app.read_jobs
         assert app.query_one('#start-run', Button).disabled
         await pilot.click('#log-export-save')

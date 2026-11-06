@@ -11,10 +11,15 @@ from textual import on
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
-from textual.widgets import Button, OptionList, Static
+from textual.widgets import Button, OptionList, Select, Static
 
 from acprof.tui.i18n import message_id
-from acprof.tui.logging.export import export_directory, log_export_error, log_export_path
+from acprof.tui.logging.export import (
+    LogExportRequest,
+    export_directory,
+    log_export_error,
+    log_export_path,
+)
 from acprof.tui.ui.contracts import translated_app
 from acprof.tui.ui.input import BarCursorInput as Input
 from acprof.tui.ui.rendering import CjkCompositor
@@ -22,7 +27,7 @@ from acprof.tui.ui.rendering import CjkCompositor
 type DirectoryLoader = Callable[[ExportDirectoryScreen, Path, bool], None]
 
 
-class LogExportScreen(ModalScreen[Path | None]):
+class LogExportScreen(ModalScreen[LogExportRequest | None]):
     BINDINGS = [('escape', 'cancel', '取消')]
     CSS = """
     LogExportScreen { align: center middle; }
@@ -30,7 +35,7 @@ class LogExportScreen(ModalScreen[Path | None]):
         border: round $accent; background: $surface; padding: 0 1; }
     #log-export-body { height: auto; max-height: 75vh; }
     #log-export-title { text-style: bold; height: 1; }
-    #log-export-host, #log-export-hint { height: auto; color: $text-muted; }
+    #log-export-host, #log-export-hint, #log-export-scope-hint { height: auto; color: $text-muted; }
     .log-export-label { height: 1; }
     #log-export-directory-row { height: 3; }
     #log-export-directory { width: 1fr; }
@@ -40,11 +45,15 @@ class LogExportScreen(ModalScreen[Path | None]):
     #log-export-actions Button { min-width: 10; margin-left: 1; }
     """
 
-    def __init__(self, directory: Path, filename: str, load_directory: DirectoryLoader) -> None:
+    def __init__(
+        self, directory: Path, filename: str, load_directory: DirectoryLoader, *,
+        filtered_lines: tuple[str, ...], retained_lines: tuple[str, ...],
+    ) -> None:
         super().__init__(id='log-export-screen')
         self._compositor = CjkCompositor()
         self.directory, self.filename = directory, filename
         self.load_directory = load_directory
+        self.filtered_lines, self.retained_lines = filtered_lines, retained_lines
 
     def compose(self) -> ComposeResult:
         tr = translated_app(self.app).tr
@@ -52,6 +61,11 @@ class LogExportScreen(ModalScreen[Path | None]):
             with VerticalScroll(id='log-export-body'):
                 yield Static(tr(message_id('logs.export.title')), id='log-export-title', markup=False)
                 yield Static(tr(message_id('logs.export.host_location', gethostname())), id='log-export-host', markup=False)
+                yield Select([
+                    (tr(message_id('logs.export.filtered_scope', len(self.filtered_lines))), 'filtered'),
+                    (tr(message_id('logs.export.all_scope', len(self.retained_lines))), 'all'),
+                ], value='filtered', allow_blank=False, id='log-export-scope')
+                yield Static('', id='log-export-scope-hint', markup=False)
                 yield Static(tr(message_id('logs.export.directory_label')), classes='log-export-label')
                 with Horizontal(id='log-export-directory-row'):
                     yield Input(str(self.directory), id='log-export-directory')
@@ -62,10 +76,23 @@ class LogExportScreen(ModalScreen[Path | None]):
                 yield Static('', id='log-export-error', markup=False)
             with Horizontal(id='log-export-actions'):
                 yield Button(tr('取消'), id='log-export-cancel')
-                yield Button(tr(message_id('logs.export.save')), id='log-export-save', variant='primary')
+                yield Button(tr(message_id('logs.export.save')), id='log-export-save', variant='primary',
+                             disabled=not self.filtered_lines)
 
     def on_mount(self) -> None:
+        self.scope_changed()
         self.query_one('#log-export-filename', Input).focus()
+
+    @property
+    def selected_lines(self) -> tuple[str, ...]:
+        return self.retained_lines if self.query_one('#log-export-scope', Select).value == 'all' else self.filtered_lines
+
+    @on(Select.Changed, '#log-export-scope')
+    def scope_changed(self) -> None:
+        empty = not self.selected_lines
+        self.query_one('#log-export-save', Button).disabled = empty
+        hint = message_id('logs.export.empty_filter') if empty else message_id('logs.export.snapshot_hint')
+        self.query_one('#log-export-scope-hint', Static).update(translated_app(self.app).tr(hint))
 
     def show_error(self, error: Exception) -> None:
         widget = self.query_one('#log-export-error', Static)
@@ -91,13 +118,16 @@ class LogExportScreen(ModalScreen[Path | None]):
     @on(Input.Submitted)
     @on(Button.Pressed, '#log-export-save')
     def save(self) -> None:
+        lines = self.selected_lines
+        if not lines:
+            return
         try:
             path = log_export_path(self.query_one('#log-export-directory', Input).value,
                                    self.query_one('#log-export-filename', Input).value)
         except (ValueError, RuntimeError) as exc:
             self.show_error(exc)
             return
-        self.dismiss(path)
+        self.dismiss(LogExportRequest(path, lines))
 
     @on(Button.Pressed, '#log-export-cancel')
     def action_cancel(self) -> None:

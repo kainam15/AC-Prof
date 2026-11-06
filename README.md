@@ -56,6 +56,8 @@ acprof --version
 acprof tui
 ```
 
+In **Monitor → Tools → Export**, log export defaults to the current level and keyword filters. The save dialog also offers **Export all retained logs** and previews the original line count for each scope. It saves the logs captured when the dialog opened, preserving original lines and order without visual wrapping. See [log viewing and export](docs/usage/tui-experiments.md#日志查看与复制).
+
 Upgrade an existing PyPI installation with:
 
 ```bash

@@ -125,6 +125,13 @@ class SelectableLog(TextArea):
         return tuple(record.raw for record in self.records.records)
 
     @property
+    def filtered_lines(self) -> tuple[str, ...]:
+        """Original lines matching the current filters, before presentation folding."""
+        return tuple(row.record.raw for row in self.records.project(
+            level=self.level_filter, details=True, query=self.search_query,
+        ))
+
+    @property
     def raw_text(self) -> str:
         return self.records.raw_text
 

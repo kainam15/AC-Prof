@@ -2,12 +2,21 @@
 from __future__ import annotations
 
 import errno
+from dataclasses import dataclass
 from datetime import datetime
 from itertools import count
 from pathlib import Path
 from threading import Event
 
 from acprof.tui.i18n import error_message, message_id
+
+
+@dataclass(frozen=True)
+class LogExportRequest:
+    """A destination and the original lines previewed in the save dialog."""
+
+    path: Path
+    lines: tuple[str, ...]
 
 
 def default_log_export_dir() -> Path:

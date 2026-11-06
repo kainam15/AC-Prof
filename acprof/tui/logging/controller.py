@@ -12,6 +12,7 @@ from textual.widgets import Select, Static
 from acprof.tui.i18n import message_id
 from acprof.tui.logging.diagnostic_buffer import BoundedLogBuffer
 from acprof.tui.logging.export import (
+    LogExportRequest,
     default_log_export_dir,
     default_log_export_filename,
     list_export_directories,
@@ -151,13 +152,15 @@ class LogController:
             self.app.notify(self.app.localization.tr(message_id('common.task.wait_until_finished')), severity="warning")
             return
         self.flush()
-        if not self.log.raw_text:
+        retained_lines = tuple(self.log.lines)
+        if not retained_lines:
             return
         token = self.begin_export_job()
         previous = self.app.configuration.saved_settings.last_log_export_dir
         self.app.push_screen(LogExportScreen(
             Path(previous) if previous else default_log_export_dir(),
             default_log_export_filename(), self.load_export_directories,
+            filtered_lines=self.log.filtered_lines, retained_lines=retained_lines,
         ), partial(self.export_chosen, token))
 
     def begin_export_job(self) -> object:
@@ -192,18 +195,16 @@ class LogController:
 
         self.app.run_worker(read, thread=True, group="log-export-directory", exit_on_error=False)
 
-    def export_chosen(self, token: object, path: Path | None) -> None:
-        if path is None:
+    def export_chosen(self, token: object, request: LogExportRequest | None) -> None:
+        if request is None:
             self.finish_export_job(token)
             return
-        self.flush()
-        text = self.log.raw_text
 
         def write() -> None:
-            destination = path
+            destination = request.path
             error = ""
             try:
-                destination = write_log_export(path, text)
+                destination = write_log_export(request.path, "\n".join(request.lines))
             except (OSError, ValueError, UnicodeError) as exc:
                 error = log_export_error(exc)
             self.app.process.safe_process_callback(self.export_finished, token, destination, error)

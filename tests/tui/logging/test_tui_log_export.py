@@ -132,7 +132,7 @@ async def test_save_enter_remembers_directory_and_exposes_path_actions(tmp_path,
         app.logs.toggle_tools()
         log = app.query_one('#run-log', SelectableLog)
         log.write(raw)
-        log.set_view(level='ERROR', query='missing')
+        log.set_view(level='WARN', query='retry')
         await pilot.pause()
         assert await pilot.click('#export-log')
         await pilot.pause()
@@ -155,7 +155,7 @@ async def test_save_enter_remembers_directory_and_exposes_path_actions(tmp_path,
             assert any(call.args == (('日志已导出' if language == 'zh' else 'Logs exported'),)
                        for call in notify.call_args_list)
         exported = target / 'history.log'
-        assert exported.read_bytes() == raw.encode('utf-8')
+        assert exported.read_bytes() == b'[WARN] retry\n[WARN] retry'
         assert not app.read_jobs
         assert await pilot.click('#copy-log-export-path')
         assert app.clipboard == str(exported)

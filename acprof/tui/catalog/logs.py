@@ -22,13 +22,19 @@ MESSAGES: dict[str, Entry] = {
     "logs.directory.select": Entry(zh="使用此目录", en="Use directory"),
     "logs.directory.title": Entry(zh="选择主机上的目录", en="Choose a directory on the host"),
     "logs.export.absolute_directory_required": Entry(zh="请输入绝对目录或以 ~ 开头的目录。", en="Enter an absolute directory or a directory starting with ~."),
+    "logs.export.all_scope": Entry(zh="导出全部保留日志（{0} 行）", en="Export all retained logs (lines: {0})"),
     "logs.export.browse": Entry(zh="浏览目录", en="Browse"),
     "logs.export.completed": Entry(zh="日志已导出", en="Logs exported"),
     "logs.export.copy_path": Entry(zh="复制路径", en="Copy path"),
     "logs.export.directory_label": Entry(zh="保存目录", en="Save directory"),
     "logs.export.disk_full": Entry(zh="磁盘空间不足：{0}", en="Not enough disk space: {0}"),
+    "logs.export.empty_filter": Entry(
+        zh="当前筛选结果为空。可导出全部保留日志，或取消后调整筛选。",
+        en="No matching lines. Choose all retained logs, or cancel and adjust the filters.",
+    ),
     "logs.export.failed": Entry(zh="日志导出失败：{0}", en="Log export failed: {0}"),
     "logs.export.filename_label": Entry(zh="文件名", en="Filename"),
+    "logs.export.filtered_scope": Entry(zh="导出筛选结果（{0} 行）", en="Export filtered results (lines: {0})"),
     "logs.export.host_location": Entry(
         zh="保存到运行 AC-Prof 的主机：{0}（SSH 时为远程主机）。",
         en="Save on the host running AC-Prof: {0} (the remote host over SSH).",
@@ -40,6 +46,10 @@ MESSAGES: dict[str, Entry] = {
     "logs.export.save_hint": Entry(
         zh="确认后创建缺失目录；同名文件自动加序号。Enter 保存，Esc 取消。",
         en="Missing directories are created on save; duplicate names get a suffix. Enter saves, Esc cancels.",
+    ),
+    "logs.export.snapshot_hint": Entry(
+        zh="以打开窗口时的日志为准；保留原始行，不插入显示换行。",
+        en="Uses logs from when this dialog opened; preserves original lines without visual wrapping.",
     ),
     "logs.export.title": Entry(zh="导出日志", en="Export logs"),
     "logs.export.view_path": Entry(zh="查看路径", en="View path"),

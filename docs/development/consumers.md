@@ -272,6 +272,12 @@ HTML 导出按 1 MiB 分块复制原始字节，通过 `artifacts.atomic_write_b
 `logging.controller` 管理日志批量展示、搜索、筛选和保留原文导出；`logging.records` 保留有界原文并生成可逆的显示投影，
 `SelectableLog` 继续负责 TextArea 选择、滚动及样式。采用 [TextArea.get_line](https://textual.textualize.io/widgets/text_area/#textual.widgets.TextArea.get_line)
 扩展点（MIT），不往原文写 Rich markup，不引入独立日志框架。
+导出的筛选范围通过现有投影的 `details=True` 复用级别与关键词匹配，取回 `LogRecord.raw`；
+不另写筛选器，也不从 TextArea 的显示文字重建日志。保存窗口持有打开时的原始行快照，
+两种范围的行数预览和后台写出共享同一快照；不增加计时器或正式测量期间的扫描。
+参考 [lnav 的原文写出实现](https://github.com/tstack/lnav/blob/0a6570f0ff0268736bd213dc0149ab86f22a220c/src/cmds.io.cc)
+与[筛选结果导出讨论](https://github.com/tstack/lnav/issues/606)（BSD-2-Clause），
+借鉴区分原始记录与屏幕投影的思路，不复制 C++ 实现或引入依赖。
 `logging.export_screen` 提供保存表单和逐级目录浏览，`logging.export` 负责路径校验、目录读取及独占创建文件；
 它们不调用实验的 `ArtifactLayout`。后台读写经 App 的 worker manager 调度，controller 持有 `read_jobs`
 直到线程实际返回，取消弹窗不会提前释放读取任务。成功导出后复用配置 controller 的原子保存路径，
