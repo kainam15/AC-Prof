@@ -226,10 +226,12 @@ def probe_sglang(
         if info is not None and (not isinstance(version, str) or not version.strip()):
             errors["version"] = "ValueError: version must be nonempty text"
             version = None
-        observed = _observed_identity("sglang", version, models, declared)
-        observed["configuration"] = None if info is None else {
-            "source": info_path, "scope": "reported_startup_configuration",
-            "values": _sglang_configuration(info, errors),
+        observed = {
+            **_observed_identity("sglang", version, models, declared),
+            "configuration": None if info is None else {
+                "source": info_path, "scope": "reported_startup_configuration",
+                "values": _sglang_configuration(info, errors),
+            },
         }
     status = "available" if not errors else "unavailable" if info is None and models is None else "partial"
     result["observed"] = observed

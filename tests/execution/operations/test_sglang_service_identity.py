@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import http.client
 import json
 import threading
 from contextlib import nullcontext
@@ -31,7 +32,7 @@ def server():
     calls = []
 
     class Handler(BaseHTTPRequestHandler):
-        def log_message(self, format: str, *args: Any) -> None:
+        def log_message(self, *_args: Any, **_kwargs: Any) -> None:
             pass
 
         def get(self) -> None:
@@ -49,8 +50,8 @@ def server():
 
     setattr(Handler, "do_GET", Handler.get)
 
-    def handler_factory(request: Any, address: Any, httpd: Any) -> BaseHTTPRequestHandler:
-        return Handler(request, address, httpd)
+    def handler_factory(request: Any, address: Any, server_instance: Any) -> BaseHTTPRequestHandler:
+        return Handler(request, address, server_instance)
 
     httpd = ThreadingHTTPServer(("127.0.0.1", 0), handler_factory)
     thread = threading.Thread(target=httpd.serve_forever, kwargs={"poll_interval": 0.01})
@@ -298,17 +299,19 @@ def test_sglang_transport_timeout_is_diagnostic_and_cancellation_propagates(serv
     error = KeyboardInterrupt("fixture probe cancelled") if cancelled else TimeoutError("fixture probe timed out")
 
     class Connection:
-        def request(self, _method, path, **_kwargs):
+        @staticmethod
+        def request(_method, path, **_kwargs):
             opened.append(path)
 
-        def getresponse(self):
+        @staticmethod
+        def getresponse():
             raise error
 
-        def close(self):
+        @staticmethod
+        def close():
             closed.append(True)
 
-    monkeypatch.setattr("acprof.host.measurement.service_identity.http.client.HTTPConnection",
-                        lambda *_args, **_kwargs: Connection())
+    monkeypatch.setattr(http.client, "HTTPConnection", lambda *_args, **_kwargs: Connection())
     if cancelled:
         with pytest.raises(KeyboardInterrupt, match="probe cancelled") as caught:
             probe(server)
