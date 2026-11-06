@@ -337,7 +337,10 @@ HTML、脚本、图表库和已完成结果仍可单文件离线查看；超预�
 兼容自动统计、手动统计以及时间戳和历史 UUID 文件名。
 按修改时间从新到旧检查；修改时间只决定候选顺序，不证明有效性。只复用 schema v1、匹配置信水平（默认 95%）、
 既有循环块 percentile Bootstrap 口径且来源 SHA256、当前质量与完整性状态一致的报告。
-还会以同一分析快照校验配置分组、均值／标准差／窗口数和区间结构；命中时不再运行 Bootstrap，
+还会以同一分析快照校验配置分组、均值／标准差／窗口数和区间结构。均值的 percentile 区间
+须位于对应配置、指标的有效窗口观测范围内，允许 `1e-12` 的相对浮点舍入误差，不使用绝对容差；
+超界候选保留 `interval_outside_observed_range` 原因并继续寻找有效缓存。此检查是区间的必要约束，
+不重新核算完整重采样分布。命中时不再运行 Bootstrap，
 未显式覆盖时保留该 JSON 的指标选择、resamples、seed 和 block_size；
 显式 `--metric`、`--confidence`、`--resamples`、`--seed`、`--block-size` 不匹配则重新计算。不同 run、concurrency、输入或环境不混合，
 旧 JSON 的分组无法唯一对应 HTML 配置时重新计算。

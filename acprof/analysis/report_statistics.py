@@ -59,15 +59,39 @@ def _excluded(entries: list[dict]) -> dict[str, int]:
     return dict(reasons)
 
 
-def _rows_by_identity(rows: list[dict]) -> dict[tuple, list[dict]]:
+def _row_identity(row: dict) -> tuple:
     defaults = {"environment_class": "unknown", "runtime_kind": "docker", "runtime_id": "",
                 "resource_scope": "container_cgroup"}
+    identity = []
+    for key in _IDENTITY:
+        value = row.get(key, defaults.get(key))
+        identity.append(number(value) if key in {"cpu_cores", "mem_cap_gb", "input_scale"}
+                        else value.strip() if isinstance(value, str) else value)
+    return tuple(identity)
+
+
+def _rows_by_identity(rows: list[dict]) -> dict[tuple, list[dict]]:
     indexed = defaultdict(list)
     for row in rows:
-        identity = tuple(number(row.get(key)) if key in {"cpu_cores", "mem_cap_gb", "input_scale"}
-                         else row.get(key, defaults.get(key)) for key in _IDENTITY)
-        indexed[identity].append(row)
+        indexed[_row_identity(row)].append(row)
     return indexed
+
+
+def _observed_bounds(configs, metrics) -> dict[tuple, tuple[float, float]]:
+    bounds: dict[tuple, tuple[float, float]] = {}
+    for entries in configs.values():
+        for entry in entries:
+            if not entry["eligible"]:
+                continue
+            row = entry["row"]
+            identity = _row_identity(row)
+            for metric in metrics:
+                value = number(row.get(metric))
+                if value is not None:
+                    key = (*identity, metric)
+                    low, high = bounds.get(key, (value, value))
+                    bounds[key] = (min(low, value), max(high, value))
+    return bounds
 
 
 def _unavailable_groups(metrics, reason, detail="") -> list[dict]:
@@ -201,7 +225,7 @@ def _group_key(group):
     return tuple(group.get(key) for key in (*_IDENTITY, "metric"))
 
 
-def _validate_interval(group, expected):
+def _validate_interval(group, expected, bounds: tuple[float, float] | None):
     if not set((*_SUMMARY, "ci_low", "ci_high")).issubset(group):
         raise ValueError("incomplete_statistics_group")
     if any(type(group[key]) is not int for key in ("n_windows", "missing_windows")):
@@ -216,6 +240,14 @@ def _validate_interval(group, expected):
         valid = valid and low <= high
     if not valid:
         raise ValueError("invalid_confidence_interval")
+    # A percentile interval for resampled means stays within the observations,
+    # allowing relative roundoff without masking errors in tiny-valued metrics.
+    if not expected["reason"] and (
+        bounds is None
+        or low < bounds[0] and not math.isclose(low, bounds[0], rel_tol=1e-12, abs_tol=0)
+        or high > bounds[1] and not math.isclose(high, bounds[1], rel_tol=1e-12, abs_tol=0)
+    ):
+        raise ValueError("interval_outside_observed_range")
 
 
 def _reuse(report, source, configs, requested_metrics, requested_options):
@@ -233,11 +265,12 @@ def _reuse(report, source, configs, requested_metrics, requested_options):
     cached = {_group_key(group): group for group in report["groups"]}
     if len(set(keys)) != len(keys) or len(cached) != len(report["groups"]) or set(keys) != cached.keys():
         raise ValueError("configuration_groups_changed")
+    bounds = _observed_bounds(configs, metrics)
     for group in expected_groups:
         saved = cached[_group_key(group)]
         if any(saved.get(key) != group.get(key) for key in _SUMMARY):
             raise ValueError("statistics_summary_changed")
-        _validate_interval(saved, group)
+        _validate_interval(saved, group, bounds.get(_group_key(group)))
         group.update(ci_low=saved["ci_low"], ci_high=saved["ci_high"])
     return expected
 

@@ -86,11 +86,16 @@ def test_equal_size_and_mtime_csv_change_invalidates_json(source):
     lambda data: data.update(schema_version=999),
     lambda data: data.update(method="BCa"),
     lambda data: data["groups"][0].update(ci_low=10, ci_high=-10),
+    lambda data: data["groups"][0].update(ci_low=10, ci_high=20),
+    lambda data: data["groups"][0].update(ci_low=.25, ci_high=.75),
+    lambda data: data["groups"][0].update(ci_low=0, ci_high=3),
+    lambda data: data["groups"][0].update(ci_low=1, ci_high=4),
     lambda data: data["groups"][0].update(mean=999),
     lambda data: data["groups"][0].pop("ci_low"),
     lambda data: data["groups"][0].update(metric=["latency_app_s"]),
     lambda data: data["groups"].clear(),
-], ids=["confidence", "schema", "method", "interval", "summary", "missing-bound", "invalid-metric", "missing-groups"])
+], ids=["confidence", "schema", "method", "interval", "above-observations", "below-observations",
+        "lower-outside", "upper-outside", "summary", "missing-bound", "invalid-metric", "missing-groups"])
 def test_incompatible_or_corrupt_json_is_recomputed_with_a_visible_reason(source, mutation):
     cached = save_cache(source)
     payload = json.loads(cached.read_text())
@@ -100,6 +105,84 @@ def test_incompatible_or_corrupt_json_is_recomputed_with_a_visible_reason(source
     assert result["origin"] == "computed"
     assert result["groups"][0]["mean"] == 2
     assert result["cache_diagnostics"]
+
+
+@pytest.mark.parametrize("excluded", [
+    {"status": "error", "error": "fixture failure"}, {"warmup": "1"},
+    {"result_origin": "inferred_not_measured"},
+], ids=["failed", "warmup", "inferred"])
+def test_cached_interval_bounds_exclude_non_measured_rows(source, excluded):
+    write_rows(source, [row(index, value) for index, value in enumerate((1, 2, 3))]
+               + [row(3, 100, **excluded)])
+    cached = save_cache(source, metrics=["latency_app_s"])
+    payload = json.loads(cached.read_text())
+    payload["groups"][0].update(ci_low=10, ci_high=20)
+    cached.write_text(json.dumps(payload))
+    original_csv, original_cache = source.read_bytes(), cached.read_bytes()
+
+    result = statistics(source)
+
+    assert result["origin"] == "computed"
+    assert result["cache_diagnostics"][0]["reason"] == "interval_outside_observed_range"
+    group = next(item for item in result["groups"] if item["metric"] == "latency_app_s")
+    assert (group["ci_low"], group["ci_high"]) == (1, 3)
+    assert source.read_bytes() == original_csv
+    assert cached.read_bytes() == original_cache
+
+
+@pytest.mark.parametrize("separate", ["configuration", "metric"])
+def test_cached_interval_bounds_do_not_mix_configurations_or_metrics(source, separate):
+    metric = "container_attributed_energy_eff_j"
+    rows = [row(index, value, **{metric: str(value * 100)})
+            for index, value in enumerate((1, 2, 3))]
+    if separate == "configuration":
+        rows += [row(index, value * 100, cpu_cores="4") for index, value in enumerate((1, 2, 3))]
+    write_rows(source, rows)
+    cached = save_cache(source, metrics=["latency_app_s", metric])
+    payload = json.loads(cached.read_text())
+    target = next(group for group in payload["groups"]
+                  if group["metric"] == "latency_app_s" and group["cpu_cores"] == 2)
+    target.update(ci_low=10, ci_high=20)
+    cached.write_text(json.dumps(payload))
+
+    result = statistics(source)
+
+    assert result["origin"] == "computed"
+    assert result["cache_diagnostics"][0]["reason"] == "interval_outside_observed_range"
+    group = next(item for item in result["groups"]
+                 if item["metric"] == "latency_app_s" and item["cpu_cores"] == 2)
+    assert (group["ci_low"], group["ci_high"]) == (1, 3)
+
+
+@pytest.mark.parametrize("value", [.1, -.1, 1e-200])
+def test_constant_interval_roundoff_still_reuses_cache(source, value, monkeypatch):
+    metric = "container_attributed_energy_eff_j"
+    write_rows(source, [row(index, 1, **{metric: str(value)}) for index in range(3)])
+    cached = save_cache(source, metrics=[metric], resamples=17)
+    expected = json.loads(cached.read_text())["groups"][0]
+    monkeypatch.setattr("acprof.analysis.uncertainty.bootstrap_mean_interval",
+                        lambda *_args, **_kwargs: pytest.fail("valid interval must retain cache reuse"))
+
+    result = statistics(source)
+
+    assert result["origin"] == "cached"
+    assert result["cache_diagnostics"] == []
+    group = result["groups"][0]
+    assert (group["ci_low"], group["ci_high"]) == (expected["ci_low"], expected["ci_high"])
+    assert group["mean"] == pytest.approx(value, rel=1e-12, abs=0)
+
+
+def test_tiny_observations_do_not_admit_large_absolute_tolerance(source):
+    write_rows(source, [row(index, value * 1e-200) for index, value in enumerate((1, 2, 3))])
+    cached = save_cache(source, metrics=["latency_app_s"])
+    payload = json.loads(cached.read_text())
+    payload["groups"][0].update(ci_low=0, ci_high=1e-15)
+    cached.write_text(json.dumps(payload))
+
+    result = statistics(source)
+
+    assert result["origin"] == "computed"
+    assert result["cache_diagnostics"][0]["reason"] == "interval_outside_observed_range"
 
 
 def test_quality_change_invalidates_cache_and_keeps_current_evidence(source):
