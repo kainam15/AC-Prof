@@ -178,12 +178,10 @@ def test_child_symlink_is_never_read(sweep_reader, tmp_path, monkeypatch):
     path = root / "points/0002/load.json"
     path.unlink()
     path.symlink_to(outside)
-    original = Path.open
-
     def checked_open(opened: Path, *args, **kwargs):
         assert opened != outside
         assert opened != root / "points/0002/load.json"
-        return original(opened, *args, **kwargs)
+        return open(opened, *args, **kwargs)
 
     monkeypatch.setattr(Path, "open", checked_open)
     data = sweep_reader.read_load_sweep(root).payload
