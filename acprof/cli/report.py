@@ -11,7 +11,9 @@ from acprof.analysis.resource_comparison import REPORT_PURPOSES
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("results", nargs="+", type=Path, help="实验目录、CSV 或单个流式 load.json")
+    parser.add_argument("results", nargs="*", type=Path, help="实验目录、CSV 或单个流式 load.json")
+    parser.add_argument("--left", type=Path, action="append", help="基线组独立实验，可重复")
+    parser.add_argument("--right", type=Path, action="append", help="对照组独立实验，可重复")
     parser.add_argument("--baseline", help="唯一 config_id（或仅有一个配置的 run_id）")
     parser.add_argument("--comparison-purpose", choices=REPORT_PURPOSES)
     parser.add_argument("--metric", action="append", help="窗口统计指标，可重复")
@@ -21,16 +23,23 @@ def main(argv=None):
     parser.add_argument("--block-size", type=int)
     parser.add_argument("--output", type=Path, help="新 HTML 路径；默认 report.html 或 load_report.html")
     args = parser.parse_args(argv)
+    if bool(args.left) != bool(args.right):
+        parser.error("--left and --right must be provided together")
+    if not args.results and not args.left:
+        parser.error("provide result sources or both comparison groups")
     from acprof.host.run_state import offline_analysis_lock
     try:
         with offline_analysis_lock():
-            first = args.results[0]
+            selected = args.results or [*args.left, *args.right]
+            first = selected[0]
             load_inputs = [
-                path for path in args.results
+                path for path in selected
                 if path.name == "load.json" or (path.is_dir() and (path / "load.json").is_file())
             ]
             if load_inputs:
-                if len(args.results) != 1 or args.baseline or args.comparison_purpose:
+                if len(selected) != 1 or args.baseline or args.comparison_purpose or args.left or any(
+                    value is not None for value in (args.metric, args.confidence, args.resamples, args.seed, args.block_size)
+                ):
                     raise ValueError("capacity report supports one load.json without baseline or comparison options")
                 from acprof.plotting.load_report import write_load_report
                 output = args.output or (first if first.is_dir() else first.parent) / "load_report.html"
@@ -44,7 +53,10 @@ def main(argv=None):
             from acprof.plotting.report import write_report
 
             output = args.output or (first if first.is_dir() else first.parent) / "report.html"
-            model = load_analysis(args.results)
+            if args.left:
+                from acprof.analysis.report_comparison import comparison_sources
+                selected = list(dict.fromkeys(comparison_sources([*selected, *args.left, *args.right])))
+            model = load_analysis(selected)
             write_report(
                 model, output, baseline=args.baseline,
                 comparison_purpose=args.comparison_purpose or "within-experiment",
@@ -52,6 +64,7 @@ def main(argv=None):
                     "metrics": args.metric, "confidence": args.confidence, "resamples": args.resamples,
                     "seed": args.seed, "block_size": args.block_size,
                 }.items() if value is not None},
+                comparison_groups=(args.left, args.right) if args.left else None,
             )
             print("ACPROF_REPORT " + json.dumps({
                 "report_path": str(output.resolve()), "config_count": len(model.configs),

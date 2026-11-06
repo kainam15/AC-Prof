@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from acprof.analysis.audit import number
+from acprof.analysis.changes import metric_change
 from acprof.analysis.comparison import compare_snapshots, load_comparison_snapshot
 from acprof.analysis.conditions import ALLOWED_RESOURCE_DIMENSIONS
 from acprof.analysis.uncertainty import validate_window_options
@@ -155,7 +156,8 @@ def _summarize_group_metric(
         "cpu_cores": number(cpu), "mem_cap_gb": number(mem), "gpu_mode": gpu,
         "resource_coordinates": coordinates,
         "input_scale": float(scale), "metric": metric, "unit": METRICS[metric].unit,
-        "difference": None, "ratio": None, "difference_ci": None, "ratio_ci": None, "reason": "",
+        "difference": None, "ratio": None, "percent": None, "performance_ratio": None,
+        "difference_ci": None, "ratio_ci": None, "reason": "",
     }
     blocked = any(
         check.get("metric_comparability", {}).get(metric, {}).get("status") == "not comparable"
@@ -185,7 +187,9 @@ def _summarize_group_metric(
         result["reason"] = "missing_comparable_runs"
     else:
         a, b = result["left"]["mean"], result["right"]["mean"]
-        result.update(difference=b - a, ratio=b / a if a > 0 else None)
+        changes = metric_change(a, b, direction=METRICS[metric].direction)
+        result.update(difference=changes["delta"], ratio=changes["ratio"], percent=changes["percent"],
+                      performance_ratio=changes["performance_ratio"])
         if min(len(values["left"]), len(values["right"])) < 3:
             result["reason"] = "insufficient_independent_runs"
         else:

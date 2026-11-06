@@ -15,6 +15,10 @@ from acprof.analysis.model import (
     AnalysisModel,
     verify_analysis_sources,
 )
+from acprof.analysis.report_comparison import (
+    build_experiment_comparisons,
+    verify_independent_report,
+)
 from acprof.analysis.report_statistics import build_report_statistics
 from acprof.analysis.resource_comparison import REPORT_PURPOSES, build_baseline_comparisons
 from acprof.artifacts import atomic_write
@@ -23,7 +27,7 @@ from acprof.results.metrics import ANALYSIS_METRICS, VIEW_METRICS
 
 
 def report_payload(model: AnalysisModel, baseline: str | None = None, *, comparison_purpose="within-experiment",
-                   statistics_options=None) -> dict:
+                   statistics_options=None, comparison_groups=None, independent_report=None) -> dict:
     if comparison_purpose not in REPORT_PURPOSES:
         raise ValueError(f"comparison purpose must be one of {REPORT_PURPOSES}")
     selected = None
@@ -35,6 +39,10 @@ def report_payload(model: AnalysisModel, baseline: str | None = None, *, compari
     return {"schema_version": 1, "configs": model.configs, "baseline": selected,
             "window_statistics": build_report_statistics(model, **(statistics_options or {})),
             "baseline_comparisons": build_baseline_comparisons(model),
+            "experiment_comparisons": build_experiment_comparisons(
+                model, groups=comparison_groups, independent_report=independent_report,
+                purpose="same-hardware" if comparison_purpose == "within-experiment" else comparison_purpose,
+                statistics_options=statistics_options),
             "comparison_purpose": comparison_purpose,
             "comparison_policies": {purpose: {"allowed_resource_dimensions":
                 ALLOWED_RESOURCE_DIMENSIONS if purpose == "resource-scaling" else []} for purpose in PURPOSES},
@@ -76,12 +84,14 @@ def _write_report_json(stream: TextIO, payload: dict[str, object]) -> None:
 
 
 def write_report(model: AnalysisModel, output: str | Path, *, baseline: str | None = None,
-                 comparison_purpose="within-experiment", statistics_options=None) -> Path:
+                 comparison_purpose="within-experiment", statistics_options=None,
+                 comparison_groups=None, independent_report=None) -> Path:
     output = Path(output)
     if output.exists() or output.is_symlink():
         raise ValueError(f"output must be a new file: {output}")
     payload = report_payload(model, baseline, comparison_purpose=comparison_purpose,
-                             statistics_options=statistics_options)
+                             statistics_options=statistics_options, comparison_groups=comparison_groups,
+                             independent_report=independent_report)
     # Imported only after analysis and destination validation, never by collectors or --help.
     from plotly.offline import get_plotlyjs
     resources = files("acprof.plotting")
@@ -89,6 +99,7 @@ def write_report(model: AnalysisModel, output: str | Path, *, baseline: str | No
         "__PLOTLY__": get_plotlyjs().replace("</script", "<\\/script"),
         "__VIEW_MODEL__": resources.joinpath("view_model.js").read_text(encoding="utf-8"),
         "__APP__": resources.joinpath("report.js").read_text(encoding="utf-8"),
+        "__EXPERIMENTS__": resources.joinpath("report_experiments.js").read_text(encoding="utf-8"),
         "__STYLE__": resources.joinpath("report.css").read_text(encoding="utf-8"),
         "__LICENSE__": escape(resources.joinpath("plotly-LICENSE.txt").read_text(encoding="utf-8")),
     }
@@ -107,6 +118,9 @@ def write_report(model: AnalysisModel, output: str | Path, *, baseline: str | No
             position = match.end()
         stream.write(template[position:])
         verify_analysis_sources(model)
+        for comparison in payload.get("experiment_comparisons", []):
+            if comparison["report"] is not None:
+                verify_independent_report(comparison["report"])
 
     atomic_write(output, write, overwrite=False)
     return output

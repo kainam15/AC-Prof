@@ -207,6 +207,40 @@ class TestReportBrowser:
         self.settled()
         assert ("3 个有效点") in (self.page.locator("#pareto-note").inner_text())
 
+    def test_independent_run_panel_keeps_counts_and_intervals_separate_from_windows(self):
+        from acprof.analysis.model import load_analysis
+        from acprof.plotting.report import write_report
+        from tests.support.independent_comparison_fixtures import IndependentComparisonFixture
+        fixture = IndependentComparisonFixture()
+        fixture.build(self._request, self.fixture_root)
+        left = fixture.replicate("left", 0, [1, 2, 3])
+        right = fixture.replicate("right", 0, [2, 4, 6])
+        output = write_report(load_analysis([left, right]), self.fixture_root / "comparison.html",
+                              statistics_options={"metrics": ["latency_app_s"], "resamples": 99})
+        self.page.goto(output.as_uri())
+        self.page.click("[data-view=experiments]")
+        self.settled()
+        cells = self.page.locator("#experiments tbody tr").first.locator("td")
+        assert cells.nth(2).inner_text() == "2"
+        assert cells.nth(3).inner_text() == "4"
+        assert cells.nth(4).inner_text() == "2"
+        assert cells.nth(5).inner_text() == "2 / 100%"
+        assert "— / —" in cells.nth(6).inner_text()
+        assert cells.nth(7).inner_text() == "1 / 1"
+        assert "独立运行不足" in cells.nth(8).inner_text()
+        self.page.locator("details:has(#experiment-evidence) summary").click()
+        assert "independent_run_mean" in self.page.locator("#experiment-evidence").inner_text()
+        options = self.page.locator("#experiment-left option").evaluate_all("items => items.map(item => item.value)")
+        self.page.select_option("#experiment-left", options[1])
+        self.settled()
+        assert self.page.locator("#experiments tbody tr td").nth(4).inner_text() == "-2"
+        assert self.page.locator("#cross-model-charts .js-plotly-plot").count() > 0
+        self.page.set_viewport_size({"width": 390, "height": 844})
+        self.settled()
+        assert self.page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+        if self.artifacts:
+            self.page.screenshot(path=str(self.artifacts / "experiment-comparison-narrow.png"), full_page=True)
+
     def test_comparison_work_is_independent_of_metric_count_and_shared_with_pareto(self):
         self.page.add_init_script("""(() => {
           const parse = JSON.parse;

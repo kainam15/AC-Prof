@@ -16,7 +16,7 @@ from acprof.plotting.report import write_report
 def json_resources(tmp_path, monkeypatch) -> Path:
     directory = tmp_path / "assets"
     directory.mkdir()
-    for name in ("report.css", "report.js", "view_model.js", "plotly-LICENSE.txt"):
+    for name in ("report.css", "report.js", "report_experiments.js", "view_model.js", "plotly-LICENSE.txt"):
         (directory / name).write_text("", encoding="utf-8")
     (directory / "report.html").write_text("__DATA__", encoding="utf-8")
     monkeypatch.setattr("acprof.plotting.report.files", lambda _package: directory)

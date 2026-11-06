@@ -1,30 +1,17 @@
 """Descriptive baseline values computed in Python for every offline consumer."""
 from __future__ import annotations
 
+from acprof.analysis.changes import metric_change
 from acprof.analysis.conditions import (
     PURPOSES,
     canonical,
     compare_profiles,
     compare_workload_profiles,
 )
-from acprof.analysis.model import AnalysisModel, number
+from acprof.analysis.model import AnalysisModel
 from acprof.results.metrics import ANALYSIS_METRICS
 
 REPORT_PURPOSES = ("within-experiment", *PURPOSES)
-
-
-def metric_change(reference, current, *, direction="neutral") -> dict:
-    """Right minus/divided by left; a performance ratio above one is better."""
-    a, b = number(reference), number(current)
-    result = {"delta": None, "percent": None, "ratio": None, "performance_ratio": None, "reason": "missing"}
-    if a is None or b is None:
-        return result
-    result.update(delta=number(b - a), percent=number(100 * ((b - a) / abs(a))) if a else None,
-                  ratio=number(b / a) if a > 0 else None,
-                  performance_ratio=(number(a / b) if direction == "lower" and a > 0 and b > 0 else
-                                     number(b / a) if direction == "higher" and a > 0 and b >= 0 else None),
-                  reason="" if a > 0 else "nonpositive_baseline_for_ratio")
-    return result
 
 
 def resource_qualification(left: dict, right: dict) -> dict:

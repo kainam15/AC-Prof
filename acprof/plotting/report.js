@@ -60,6 +60,7 @@
   for (const [field, title] of filterFields) {
     const wrapper = element("label", title), select = element("select");
     select.id = "filter-" + field;
+    if (field === "model") { select.multiple = true; select.size = 3; }
     select.setAttribute("aria-label", title);
     option(select, "", "全部");
     const values = [...new Set(data.configs.map(config => text(config[field])))];
@@ -125,8 +126,8 @@
   }
   function filtered() {
     return data.configs.filter(config => ($("quality-filter").value !== "eligible" || config.auto_selection_eligible === true) && filterFields.every(([field]) => {
-      const chosen = $("filter-" + field).value;
-      return !chosen || chosen === text(config[field]);
+      const chosen = [...$("filter-" + field).selectedOptions].map(option => option.value);
+      return !chosen.length || chosen.includes("") || chosen.includes(text(config[field]));
     }));
   }
   function drawMatrix(configs, comparison) {
@@ -361,11 +362,12 @@
       quality_reasons: selected.quality_reasons, quality_checks: selected.quality_checks}, null, 2) : "选择配置后查看状态、原因和原始证据。";
     $("selection").textContent = selected ? `已选：${fullLabel(selected)}${configs.includes(selected) ? "" : "（当前筛选隐藏）"}` :
       "点击表格行或图中数据点，可在各视图中定位同一配置。";
-    for (const view of ["matrix", "pareto", "scaling", "statistics"]) $(view + "-panel").hidden = state.view !== view;
+    for (const view of ["matrix", "pareto", "scaling", "statistics", "experiments"]) $(view + "-panel").hidden = state.view !== view;
     if (state.view === "matrix") drawMatrix(configs, comparison);
     else if (state.view === "pareto") await drawPareto(configs, comparison);
     else if (state.view === "scaling") await drawScaling(configs);
-    else drawStatistics(configs);
+    else if (state.view === "statistics") drawStatistics(configs);
+    else await experiments.draw(configs);
     document.body.dataset.ready = "true";
   }
   let pending = Promise.resolve();
@@ -376,5 +378,6 @@
       $("error").textContent = "视图生成失败：" + error.message;
     }).finally(() => { document.body.dataset.busy = "false"; });
   }
+  const experiments = window.ACProfExperiments({data, $, V, element, option, fmt, metricTitle, plot, axis, schedule, filtered, escape});
   schedule();
 })();

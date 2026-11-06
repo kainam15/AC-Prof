@@ -25,6 +25,7 @@
 <button data-view="pareto" aria-pressed="false">Pareto / Trade-off</button>
 <button data-view="scaling" aria-pressed="false">Scaling</button>
 <button data-view="statistics" aria-pressed="false">窗口统计</button>
+<button data-view="experiments" aria-pressed="false">实验对照 / 跨模型</button>
 </nav>
 <p id="selection" aria-live="polite">点击表格行或图中数据点，可在各视图中定位同一配置。</p>
 <details class="card evidence" id="quality-evidence"><summary>所选配置的质量证据</summary><pre id="quality-detail">选择配置后查看状态、原因和原始证据。</pre></details>
@@ -62,6 +63,23 @@
 <p id="statistics-empty" hidden>没有匹配的窗口统计。请调整筛选条件。</p>
 <div id="statistics-evidence" aria-live="polite"></div>
 </section>
+<section id="experiments-panel" class="card" hidden>
+<div class="section-heading"><h2>独立实验对照</h2><span class="muted">复用 Python 独立运行统计</span></div>
+<div class="controls"><label>基线实验 / 组<select id="experiment-left"></select></label>
+<label>对照实验 / 组<select id="experiment-right"></select></label>
+<label>比较指标<select id="experiment-metric"></select></label></div>
+<p class="notice">先对各独立运行的成功窗口求均值，再对运行均值等权统计。每组至少 3 次有效独立运行才估计 Bootstrap CI；
+窗口数不能代替独立运行数。筛选只控制整组展示，不改变组内独立样本。不同模型的可比性不代表模型质量相等。</p>
+<p id="experiment-status" role="status"></p>
+<div class="table-scroll"><table id="experiments"><thead><tr><th>资源 / 输入</th><th>指标 / 单位</th>
+<th>基线均值</th><th>对照均值</th><th>差值</th><th>比值 / 变化</th><th>差值 CI / 比值 CI</th>
+<th>有效独立运行</th><th>原因 / 失败与缺失窗口</th></tr></thead><tbody></tbody></table></div>
+<details class="evidence"><summary>实验身份、兼容性及统计参数</summary><pre id="experiment-evidence"></pre></details>
+<div class="section-heading"><h2>跨模型并列观测</h2><label>观察指标<select id="cross-model-metric"></select></label></div>
+<p class="notice">沿用上方统一筛选。不同任务、输入单位、生成长度或推理语义的数据仅并列展示；
+原始延迟差异不能解释为模型优劣。可直接比较的条件及指标由上方严格检查单独说明。</p>
+<div id="cross-model-charts" class="small-multiples"></div>
+</section>
 <details class="card evidence"><summary>数据来源与分析口径</summary><ul id="sources"></ul>
 <p>配置状态 ok 只描述已写入的正式窗口，不证明整个实验计划已完成；完成度仍以原始 run state 和 audit 验收为准。</p>
 <p>原始 CSV 保持完整。CPU package + GPU 总能量仅覆盖成功请求窗口；CPU 配置只计 package，GPU 配置须同时具有 package 与所选 GPU 的记录。没有加入 DRAM、启动或 idle 时段，也不等同于整机墙插能耗。</p>
@@ -75,6 +93,7 @@
 <script id="report-data" type="application/json">__DATA__</script>
 <script>__PLOTLY__</script>
 <script>__VIEW_MODEL__</script>
+<script>__EXPERIMENTS__</script>
 <script>__APP__</script>
 </body>
 </html>

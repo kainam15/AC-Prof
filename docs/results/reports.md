@@ -300,3 +300,27 @@ actual workload 的 `variants` 计数必须覆盖 `request_count`，已有 `repe
 和 `--block-size` 可显式指定；来源摘要、审计、分组及请求参数匹配才复用 JSON。
 未指定的参数可沿用已验证缓存中的值，并在报告中展示实际参数。CSV 与 JSON 的独立导出入口保留。
 图表峰值、生命周期、请求加权能耗仍按登记表聚合，不将它们冒充等权窗口均值。
+
+### 独立运行与跨模型对照
+
+多个位置参数会逐个来源做成对独立比较；HTML 中可以选择基线与对照来源。若每侧需要汇总多次
+独立重启，显式重复 `--left` 和 `--right`，不要根据文件名、模型名或目录名自动推断分组：
+
+```bash
+acprof report --left results/a1 --left results/a2 --left results/a3 \
+  --right results/b1 --right results/b2 --right results/b3 \
+  --metric latency_app_s --resamples 5000 --seed 0 --output comparison.html
+acprof compare --left results/a1 --right results/b1 \
+  --html-output comparison.html --output comparison.json --csv-output comparison.csv
+```
+
+HTML 原样展示 `independent_comparison.compare_experiments()` 的条件检查、来源指纹、运行均值、
+差值、比值、有效运行数及 Bootstrap 区间。`percent` 为 `(right-left)/abs(left)*100`，基线为零时
+不可用；`performance_ratio` 根据指标方向定义，neutral 和不适用分母为 null。这两个新增字段
+是比较 JSON 的可选增量字段，不改变原 CSV；旧 JSON 仍可导入。每组少于三次有效独立运行
+仅给描述性差值，原因保留 `insufficient_independent_runs`。窗口的 block-size 不用于独立运行抽样。
+复用既有严格报告时，生成前和发布前都复核其来源指纹，不能用过期比较配合新 CSV。
+
+缺少真实运行身份的历史 CSV 继续支持窗口统计和资源矩阵，但独立比较明确 unavailable，
+不会补造 `run_state.json`。跨模型图按任务、输入及环境分面；条件不兼容时仅并列显示绝对值。
+即使条件兼容，也不能把不同任务的原始延迟或不同质量目标解释为模型优劣。
