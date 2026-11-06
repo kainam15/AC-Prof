@@ -7,7 +7,9 @@ import json
 import math
 import os
 import re
-from dataclasses import asdict
+from collections.abc import Callable
+from contextlib import AbstractContextManager, nullcontext
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -18,6 +20,7 @@ from acprof.artifacts import read_json_object
 from acprof.cli.load_evidence import load_phase, publish_load_report
 from acprof.host.measurement.load import LoadConfig, run_load
 from acprof.host.measurement.service_identity import initial_service_identity, probe_service
+from acprof.host.measurement.streaming import OpenAIStreamingAdapter
 from acprof.host.run_state import MeasurementLock, host_identity
 from acprof.installation import resource_root
 
@@ -31,7 +34,20 @@ _ENDPOINT_OPTIONS = (
     "tokenizer_json", "tokenizer_model", "tokenizer_revision",
     "slo_ttft_s", "slo_tpot_s", "slo_e2e_s", "service_backend", "service_version",
     "max_run_response_bytes", "max_run_output_events",
+    "sweep_concurrency", "sweep_rate",
 )
+
+
+@dataclass(frozen=True)
+class StreamingLoadContext:
+    """Request and authentication inputs prepared once for an endpoint invocation."""
+
+    origin: str
+    payload: dict[str, Any]
+    adapter: OpenAIStreamingAdapter
+    headers: dict[str, str] = field(repr=False)
+    tokenizer: dict[str, Any] | None
+    slo_thresholds: dict[str, float | None]
 
 
 def add_streaming_arguments(parser: argparse.ArgumentParser) -> None:
@@ -61,12 +77,15 @@ def add_streaming_arguments(parser: argparse.ArgumentParser) -> None:
                         help="Maximum output events retained across one warmup or measured run")
     parser.add_argument("--service-probe", choices=("none", "vllm"),
                         help="Optional pre-warmup service identity probe (default: none)")
+    parser.add_argument("--sweep-concurrency", help="Endpoint sweep: distinct worker counts, e.g. 1,2,4; overrides --concurrency")
+    parser.add_argument("--sweep-rate", help="Endpoint arrival-rate sweep: distinct requests/s, e.g. 1,5,10; overrides --rate")
+    parser.add_argument("--dry-run", action="store_true", help="Validate and print an endpoint sweep plan without requests or output files")
 
 
 def validate_replay_arguments(args: argparse.Namespace) -> None:
     if args.source is None or args.gpu is None:
         raise ValueError("source replay requires a source experiment and --gpu")
-    if (args.protocol != "predict" or args.service_probe is not None
+    if (args.protocol != "predict" or args.service_probe is not None or args.dry_run
             or any(getattr(args, name) is not None for name in _ENDPOINT_OPTIONS)):
         raise ValueError("OpenAI request options require --base-url and an OpenAI protocol")
 
@@ -179,9 +198,7 @@ def _validate_service_declaration(args: argparse.Namespace) -> None:
             raise ValueError(f"--{name.replace('_', '-')} must be nonempty text")
 
 
-def _prepare(args: argparse.Namespace) -> tuple[
-    str, dict[str, Any], LoadConfig, Any, dict[str, str], Any, dict[str, float | None],
-]:
+def _prepare(args: argparse.Namespace) -> StreamingLoadContext:
     if args.source is not None or any(getattr(args, name) is not None for name in ("gpu", "cpu", "mem", "input_scale")) or args.capture:
         raise ValueError("endpoint mode cannot use source replay, --gpu, --cpu, --mem, --input-scale or --capture")
     if args.protocol not in _ENDPOINTS:
@@ -191,19 +208,11 @@ def _prepare(args: argparse.Namespace) -> tuple[
     slo_thresholds = _slo_thresholds(args)
     _validate_service_declaration(args)
     origin = _validate_origin(args.base_url)
-    config = LoadConfig(
-        scenario=args.scenario, connections=args.connections, concurrency=args.concurrency,
-        requests=args.requests, rate=args.rate, arrival=args.arrival, seed=args.seed,
-        max_pending=args.max_pending,
-        timeout_seconds=args.request_timeout if args.request_timeout is not None else 300,
-    ).validate()
-    config.schedule()  # A finite rate can still overflow the plan; check before warmup/output.
     payload = _request_payload(args)
     model = payload.get("model")
     if not isinstance(model, str) or not model.strip():
         raise ValueError("OpenAI streaming requires a nonempty model")
     counter, tokenizer = _token_counter(args, model)
-    from acprof.host.measurement.streaming import OpenAIStreamingAdapter
     limits = {
         name: value for name in ("max_run_response_bytes", "max_run_output_events")
         if (value := getattr(args, name)) is not None
@@ -212,19 +221,16 @@ def _prepare(args: argparse.Namespace) -> tuple[
         endpoint=_ENDPOINTS[args.protocol], token_counter=counter, **limits,
     )
     payload = adapter.prepare_payload(payload)
-    return origin, payload, config, adapter, _authorization(args), tokenizer, slo_thresholds
+    return StreamingLoadContext(origin, payload, adapter, _authorization(args), tokenizer, slo_thresholds)
 
 
-def run_streaming_load(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
-    """Run a bounded endpoint workload; no server lifecycle or hardware attribution."""
-    try:
-        origin, payload, config, adapter, headers, tokenizer, slo_thresholds = _prepare(args)
-        output = args.output_dir.resolve()
-        output.mkdir(parents=True, exist_ok=True)
-        if any(output.iterdir()):
-            raise ValueError("load output directory must be empty")
-    except (OSError, KeyError, TypeError, ValueError) as error:
-        parser.error(str(error))
+def run_prepared_streaming_load(
+    args: argparse.Namespace, prepared: StreamingLoadContext, config: LoadConfig, output: Path, *,
+    measurement_scope: Callable[[], AbstractContextManager[Any]] | None = None,
+) -> dict[str, Any]:
+    """Publish one point in an empty directory; a sweep supplies its already-held scope."""
+    origin, payload, adapter = prepared.origin, prepared.payload, prepared.adapter
+    headers, tokenizer, slo_thresholds = prepared.headers, prepared.tokenizer, prepared.slo_thresholds
     service_probe = args.service_probe or "none"
     declared_service = {
         "schema_version": 1, "backend": args.service_backend,
@@ -257,7 +263,7 @@ def run_streaming_load(args: argparse.Namespace, parser: argparse.ArgumentParser
         "scope": "client HTTP streaming latency; external service; no GPU energy, profiler or managed runtime measurements",
     }
     with publish_load_report(output / "load.json", report):
-        with MeasurementLock():
+        with (MeasurementLock if measurement_scope is None else measurement_scope)():
             report["service_identity"] = probe_service(
                 origin, declared_service, service_probe,
                 headers=headers, timeout_s=config.timeout_seconds,
@@ -277,5 +283,38 @@ def run_streaming_load(args: argparse.Namespace, parser: argparse.ArgumentParser
                     headers=headers, slo_thresholds=slo_thresholds,
                 )
         report.update(successful=report["result"]["successful"], status="complete")
+    return report
+
+
+def run_streaming_load(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
+    """Run one point or a validated sequential sweep without managing a server."""
+    from acprof.cli.load_sweep import load_configurations, run_load_sweep
+
+    sweeping = args.sweep_concurrency is not None or args.sweep_rate is not None
+    try:
+        if args.dry_run and not sweeping:
+            raise ValueError("--dry-run requires --sweep-concurrency or --sweep-rate")
+        configs = load_configurations(args)
+        prepared = _prepare(args)
+        output = args.output_dir.resolve()
+        if not args.dry_run:
+            output.mkdir(parents=True, exist_ok=True)
+            if any(output.iterdir()):
+                raise ValueError("load output directory must be empty")
+    except (OSError, KeyError, TypeError, ValueError) as error:
+        parser.error(str(error))
+    if args.dry_run:
+        print(json.dumps({
+            "schema_version": 1, "kind": "stream_load_sweep_plan", "target_origin": prepared.origin,
+            "endpoint": prepared.adapter.endpoint, "output_dir": str(output),
+            "warmup_requests_per_point": args.warmup, "points": [asdict(config) for config in configs],
+        }, allow_nan=False))
+        return 0
+    if sweeping:
+        def execute(config: LoadConfig, point_output: Path) -> dict[str, Any]:
+            return run_prepared_streaming_load(args, prepared, config, point_output, measurement_scope=nullcontext)
+
+        return run_load_sweep(output, configs, execute, measurement_scope=MeasurementLock)
+    report = run_prepared_streaming_load(args, prepared, configs[0], output)
     print(f"Streaming load: {output / 'load.json'}; success rate {report['result']['success_rate']:.1%}")
     return 0 if report["successful"] else 1

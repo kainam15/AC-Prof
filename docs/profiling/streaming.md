@@ -72,6 +72,61 @@ Streaming Adapter 强制请求 SSE 与 usage。它处理 UTF-8 跨网络读取�
 LF／CRLF／CR、注释心跳、多行 data、JSON 错误、finish reason 和 `[DONE]`。
 网络读取块、SSE 事件、模型 Token 是三种不同单位。
 
+## 多负载点编排
+
+端点模式可用 `--sweep-concurrency` 指定并发数列表，用 `--sweep-rate` 指定到达率列表
+（单位 requests/s）。两者均为逗号分隔的正数，保持输入顺序，拒绝空项与重复值；
+并发数必须是整数，到达率必须有限。并发列表要求 `--scenario concurrent` 或
+`arrival-rate`，到达率列表要求 `arrival-rate`。列表覆盖对应的单值
+`--concurrency`／`--rate`；未提供列表的轴沿用单值。两个列表同时使用时，
+按并发数外层、到达率内层枚举笛卡尔积，最多 256 点。
+
+```bash
+acprof load --base-url http://127.0.0.1:8000 --protocol openai-chat \
+  --model Qwen/Qwen3-0.6B --prompt "Explain throughput in one sentence." \
+  --scenario arrival-rate --sweep-concurrency 1,2 --sweep-rate 1,5 \
+  --requests 20 --warmup 1 --max-tokens 64 \
+  --output-dir results/qwen-sweep --dry-run
+```
+
+`--dry-run` 必须与至少一个列表搭配：校验全部负载点及请求配置，并输出 JSON 计划，
+不创建目录、不获取测量锁、不访问服务（包括身份 probe）。它仍会读取请求文件、所需鉴权
+环境变量及可选本地 tokenizer；不证明服务可达或目标输出目录可写、为空。
+检查计划后，移除 `--dry-run` 才会执行；实际执行要求输出目录为空。
+全部点的 `LoadConfig` 和到达计划会在创建输出、发送任何请求之前校验。
+
+所有点串行执行，共享一次测量锁。请求体、鉴权、tokenizer 和 SLO 配置在开始前准备一次，
+每点独立执行所选身份 probe、串行关闭连接的 warmup 和正式负载；
+`--requests`、`--warmup`、运行级字节／事件预算均按点生效。
+各点沿用同一到达 seed 和输入，不重启服务、不清空服务缓存，也不自动添加重复实验。
+顺序运行的不同负载点不构成同一条件下的独立重复，不能据此计算跨独立实验区间。
+
+根目录的 `sweep.json` 是 schema v1、kind `stream_load_sweep` 的执行清单；
+每点仍写 schema v2 单点报告 `points/0001/load.json`、`points/0002/load.json` 等。
+单点测量值、请求身份、服务观测和阶段错误以各自 `load.json` 为准，清单不复制请求记录。
+
+| 字段 | 含义 |
+| --- | --- |
+| `run_id` | 本次 sweep 的唯一 ID；与各点的 ID 分开 |
+| `execution_order` | `listed_concurrency_then_rate`，按列表顺序先并发、后到达率 |
+| `status` | `running`、`complete`、`failed` 或 `cancelled`；`complete` 表示全部点正常返回，可含请求失败 |
+| `successful` | 仅全部点成功且编排正常结束时为 `true` |
+| `points[]` | 按执行顺序记录 `point_id`、相对 `report_path`、完整 `load_config`、`status`、`successful`、`run_id` |
+| 点状态 | 初始 `not_run`，然后 `running`，最终 `complete`／`failed`／`cancelled`；未返回前 `run_id` 为 `null`，未运行及运行中 `successful` 为 `null` |
+| `error` | 根或点异常时的可选类型与诊断，含异常 notes；正常请求失败的明细在单点报告内 |
+
+清单在开始、每点前后和退出时原子发布。普通请求失败会使该点及整个 sweep 不成功，
+但继续下一点；预热失败、抛出异常或取消会停止，后续点保持 `not_run`，不创建其目录。
+`report_path` 是计划写入位置，不保证文件已发布。清单写失败会传播错误；
+已有异常仍保留为主异常，写失败追加到 notes，磁盘清单可能停在上次成功发布的状态，
+已发布的分点报告保持可读。该入口没有 sweep 恢复功能。
+
+`acprof report results/qwen-sweep/points/0001/load.json` 可生成对应单点容量 HTML；
+目前应指定某个点，根清单不作为容量曲线或多实验比较输入。
+设计参考了 [vLLM sweeps](https://github.com/vllm-project/vllm/blob/0f0172d90329d0dc3d867c0881d156f25c16b8bf/docs/benchmarking/sweeps.md)
+的显式参数组合、预览与分点产物（Apache-2.0），复用本项目单点测量与原子写入实现，
+不复制源码或增加 vLLM 依赖。
+
 ## 采样点与单位
 
 所有时刻是客户端 `perf_counter` 相对本次负载起点的秒数，不是服务端调度时刻、

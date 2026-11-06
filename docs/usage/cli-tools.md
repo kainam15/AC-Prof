@@ -110,5 +110,8 @@ TUI“实验结果 → 比较”复用同一入口，可选择左右组、基线
 可直接测量已启动服务的 SSE；可选 `--slo-ttft-s/--slo-tpot-s/--slo-e2e-s` 计算单点 SLO Goodput，
 `--service-backend/--service-version` 保存声明，`--service-probe vllm` 在预热前观测有限服务身份。
 `--max-run-response-bytes` 与 `--max-run-output-events` 设置每轮 warmup／正式 run 的独立硬预算。
+端点模式的 `--sweep-concurrency 1,2,4` 和 `--sweep-rate 1,5,10` 可按显式列表串行运行多个负载点，
+支持 `--dry-run` 校验预览；请求数与预热数按点生效，清单与失败边界见[多负载点编排](../profiling/streaming.md#多负载点编排)。
+使用并发列表需显式选择 `concurrent` 或 `arrival-rate`，到达率列表必须搭配 `arrival-rate`。
 `acprof report <load.json 或所在目录>` 生成单点容量 HTML；完整命令、Token 计数、吞吐分母和
 v1/v2 报告口径见[流式测量](../profiling/streaming.md)。
