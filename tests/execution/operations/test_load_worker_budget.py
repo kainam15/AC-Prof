@@ -8,9 +8,10 @@ from unittest.mock import Mock
 import pytest
 
 from acprof.host.measurement.load import LoadConfig, run_load
-from acprof.host.measurement.streaming import OpenAIStreamingAdapter
+from tests.execution.operations.test_load_connection_finalization import (
+    endpoint_fixture as endpoint_fixture,
+)
 from tests.execution.operations.test_load_protocol import server
-from tests.execution.operations.test_streaming_load import streaming_server
 
 
 @pytest.fixture
@@ -28,17 +29,6 @@ def observed_workers(monkeypatch):
 
     monkeypatch.setattr("acprof.host.measurement.load.ThreadPoolExecutor", executor)
     return observed
-
-
-@pytest.fixture(params=[False, True], ids=["json", "sse"])
-def endpoint(request):
-    streaming = request.param
-    with streaming_server() if streaming else server() as running:
-        yield SimpleNamespace(
-            url=running[0], ports=running[1],
-            payload={"model": "fixture", "messages": [{"role": "user", "content": "hello"}]} if streaming else {},
-            adapter=OpenAIStreamingAdapter() if streaming else None,
-        )
 
 
 @pytest.mark.parametrize(("requests", "concurrency"), [(1, 16), (2, 16), (8, 2), (3, 3)])
