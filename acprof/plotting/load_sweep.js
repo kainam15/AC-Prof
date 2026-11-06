@@ -59,6 +59,13 @@
       const samples = point.latency_samples;
       element("td", samples ? `TTFT ${samples.ttft_s} · TPOT ${samples.tpot_s} · E2E ${samples.e2e_s}\ntokens ${percent(point.output_token_coverage)}\nduration ${fmt(point.duration_s)} s` : "不可用", tr);
       const detail = element("td", point.diagnostics.join("\n"), tr);
+      if (point.server_metrics) {
+        const server = element("details", "", detail);
+        server.className = "server-metrics";
+        element("summary", "服务端阶段统计", server);
+        element("p", "服务级直方图差值；包含其他流量与延迟更新，不是客户端请求或 GPU 时间。", server);
+        element("pre", JSON.stringify(point.server_metrics, null, 2), server);
+      }
       if (point.request_dataset) {
         const inputs = element("details", "", detail);
         element("summary", "请求集来源", inputs);

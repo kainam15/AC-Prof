@@ -32,6 +32,8 @@ Repeat `--left` and `--right` for independent replicates. A single run per side 
 
 AC-Prof supports text, vision, audio, time series, diffusion, multimodal, and structured-data workloads when the model meets the [supported task interfaces](docs/models/supported-tasks.md#任务支持范围). A task label alone does not guarantee that every checkpoint will run.
 
+Optional `--server-metrics vllm` captures [server phase histograms](docs/profiling/streaming.md#服务端阶段统计) before and after load. Reports show service-wide Prefill/Decode statistics and missing evidence; these are not per-client-request or GPU timings.
+
 ## Collection environments and metrics
 
 | Environment                                                     | Supported collection modes | Collectable metrics                                                                                                                                                     | Main limitations                                                                                                      |

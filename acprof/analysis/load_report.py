@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from acprof.analysis.load_inputs import validate_dataset_inputs
+from acprof.analysis.server_metrics import validate_server_metrics
 from acprof.analysis.streaming import streaming_summary
 from acprof.analysis.streaming_capacity import build_capacity
 from acprof.artifacts import read_json_object, require_schema_version
@@ -111,7 +112,8 @@ def analyze_load_report(experiment: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("request datasets require stream_load_experiment schema v3")
     capacity = _v2_capacity(experiment, result) if version >= 2 else None
     streaming = _v2_streaming(result) if version >= 2 else result.get("streaming")
+    server_metrics = validate_server_metrics(experiment)
     return {
         "experiment": experiment, "result": result, "capacity": capacity,
-        "streaming": streaming, "version": version,
+        "streaming": streaming, "version": version, "server_metrics": server_metrics,
     }

@@ -32,6 +32,8 @@ acprof compare --left run-a/ --right run-b/ --html-output comparison.html \
 
 支持文本、视觉、音频、时间序列、Diffusion、多模态与结构化数据任务，但模型仍需满足[任务接口要求](../models/supported-tasks.md#任务支持范围)，并非所有同类 checkpoint 都保证可运行。
 
+可选 `--server-metrics vllm` 在负载前后读取[服务端阶段直方图](../profiling/streaming.md#服务端阶段统计)。报告展示服务级 Prefill／Decode 统计与缺失证据，不能当作本次客户端请求或 GPU 的精确计时。
+
 ## 采集环境与指标
 
 | 运行环境                                       |      支持的采集模式      | 可采集项目                                                                                                       | 主要限制                                                                                   |

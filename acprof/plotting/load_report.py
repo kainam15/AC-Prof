@@ -216,6 +216,27 @@ def _latency_section(streaming: Any) -> str:
     )
 
 
+def _server_metrics_section(data: Mapping[str, Any]) -> str:
+    metrics = data.get("server_metrics")
+    if metrics is None:
+        return ""
+    observation = data["experiment"]["server_metrics"]
+    rows = [[phase, row["status"], row["count"], row["sum_s"], row["mean_s"], row["reason"]]
+            for phase, row in metrics["phases"].items()]
+    snapshots = [[name, observation[name]["status"], observation[name]["started_s"],
+                  observation[name]["finished_s"], observation[name]["error"]]
+                 for name in ("before", "after")]
+    return (
+        "<section><h2>Server phase timing</h2><p class=\"boundary\">"
+        + _cell(observation["scope"]) + "</p>"
+        + _table(["Status", "Observations", "Total (s)", "Mean (s)", "Unavailable reason"], rows)
+        + _table(["Status", "Scrape start (s)", "Scrape end (s)", "Error"], snapshots)
+        + "<p>Scrape times are relative to the observation start, outside the client load duration. "
+        "Means use server histogram counts. Warmup or earlier requests may appear in delayed updates; "
+        "current requests may not yet be exported. Two scrapes cannot detect every hidden counter reset.</p></section>"
+    )
+
+
 def render_load_report(data: Mapping[str, Any]) -> str:
     experiment = data["experiment"]
     result = data["result"]
@@ -238,6 +259,7 @@ def render_load_report(data: Mapping[str, Any]) -> str:
         ])
         + _service_section(experiment, version)
         + _workload_section(experiment)
+        + _server_metrics_section(data)
         + _capacity_section(result, capacity)
         + _diagnostics_section(data.get("streaming"))
         + _slo_section(capacity)

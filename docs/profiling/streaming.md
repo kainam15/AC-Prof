@@ -417,6 +417,69 @@ server-info 返回的白名单字段保存在可选的 `observed.configuration` 
 及上游 [404 旧路由兼容逻辑](https://github.com/sgl-project/sglang/blob/93cfea6b12a908161719edf0e3a732e771ac9fad/sgl-model-gateway/src/core/steps/worker/local/discover_metadata.rs#L128)
 （Apache-2.0）；复用 AC-Prof HTTP 与单点报告，不引入 SGLang 依赖。
 
+## 服务端阶段统计
+
+可显式添加 `--server-metrics vllm`，从同一 origin 的 `/metrics` 读取服务级阶段直方图：
+
+```bash
+acprof load --base-url http://127.0.0.1:8000 --protocol openai-chat \
+  --model Qwen/Qwen3-0.6B --prompt Hello --requests 10 --warmup 1 \
+  --server-metrics vllm --output-dir results/qwen-server-phases
+acprof report results/qwen-server-phases
+```
+
+默认关闭，不增加请求。启用后，每个负载点在 warmup 完成后、`run_load()` 之前抓取一次，
+并在负载返回或抛出异常后再抓取一次；均位于现有锁范围内、正式负载 `duration_s` 之外。
+不轮询、不刷新服务缓存、不等待 exporter 补齐，也不启动或更改服务。沿用环境变量鉴权；
+关闭连接、不跟随重定向、不重试。每次最多读取 4 MiB，连接／读取无进展超时为
+`min(--request-timeout, 10)` 秒；只接受请求的 Prometheus `text/plain` 格式。
+
+精确选择 `model_name` 等于请求模型名的序列，保留全部标签（包括 `engine`）。
+不匹配的模型不纳入；若服务用另一个别名导出指标，会明确失败，不猜测映射。
+仅保留以下 histogram 的 `_count`、`_sum` 和可用的 `_created`：
+
+| 阶段 | vLLM metric |
+| --- | --- |
+| Queue | `vllm:request_queue_time_seconds` |
+| Prefill | `vllm:request_prefill_time_seconds` |
+| Decode | `vllm:request_decode_time_seconds` |
+| Inference | `vllm:request_inference_time_seconds` |
+| E2E | `vllm:e2e_request_latency_seconds` |
+
+每个标签序列分别计算 `Δcount = after.count - before.count` 和
+`Δsum_s = after.sum_s - before.sum_s`，检查后再跨序列相加；
+均值为 `ΣΔsum_s / ΣΔcount`，分母是该阶段的服务端观察数，绝不使用客户端请求数替代。
+没有新观察时保留 count=0、sum=0，mean 为 `null`；有效零时长观察的 mean 可以为 0。
+未导出的阶段、标签集合变化、计数下降、创建时间变化、无新增计数却增加 sum、
+聚合溢出均有独立不可用原因，不填零。可用的无标签 `process_start_time_seconds`
+变化或消失也使差值不可用；两次快照无法排除所有未观测到的重启。
+最多保留 4096 个阶段／标签序列；重复、残缺、非有限或非整数计数拒绝。
+count 不超过 2⁵³；显式样本时间戳尚不支持，不能将缓存样本冒充本次抓取。
+
+**这是服务级累计观察，不是本次请求的精确阶段分解。** 其他流量可能贡献样本，
+exporter 延迟可能纳入 warmup／更早请求，或遗漏刚完成的请求；数量相同也不能证明独占。
+这些阶段是服务报告的请求生命周期时间，不能解释为 GPU kernel 时间、阶段资源、能耗，
+也不与客户端 TTFT／E2E 拼成同一时间轴；不从两个 sum/count 快照推导分位数。
+
+v2/v3 的可选 `identity.server_metrics` 声明选择、边界和读取预算，参与 identity 哈希与
+sweep 条件分组。可选 `server_metrics` 使用独立整数 schema 1，保存 before／after
+快照、相对观测起点的开始／结束秒数、原响应 SHA256／字节数、筛选后的序列及重算摘要。
+不保留整个 exposition 或 Authorization；SHA256 标识当时读取的响应，不能单凭摘要
+独立重建或验证未保留的响应正文。离线报告直接校验保留的序列、差值、时间边界和声明；
+缺少本扩展的历史报告继续读取，不回填观测。
+
+HTTP、解析或清理失败会使实验失败：before 失败不启动正式请求，after 失败保留已有
+result；负载异常后仍尝试 after，二次错误不覆盖原始异常，sweep 停止后续点。
+个别指标缺失或重置只影响服务统计，不改变已完成的客户端请求成功率；CLI 显示状态与原因。
+单点 HTML 展示阶段表，sweep 逐点展示有界详情；客户端曲线保持原有口径。
+
+上游依据为 [vLLM metrics 定义](https://github.com/vllm-project/vllm/blob/e336407a3ddb204edf6cfdfdd002cb28b9715438/docs/design/metrics.md)
+及 [V1 histogram 实现](https://github.com/vllm-project/vllm/blob/e336407a3ddb204edf6cfdfdd002cb28b9715438/vllm/v1/metrics/loggers.py)。
+复用 [Prometheus client_python parser](https://github.com/prometheus/client_python/blob/master/prometheus_client/parser.py)
+（安装包许可证为 Apache-2.0 AND BSD-2-Clause）；新增一个纯 Python host 依赖，
+`uv.lock` 固定版本。解析只在负载外执行，
+不引入 vLLM、GPU 或 Docker 依赖，也不复制上游实现。
+
 ## 失败及结果边界
 
 | 情况 | 处理 |
@@ -454,6 +517,8 @@ request JSON 中的孤立代理会在联网和创建输出前拒绝；probe 中�
 `tests/analysis/reporting/test_load_report.py` 覆盖 v1/v2 报告、原始记录重建、防篡改与拒绝覆盖。
 `test_streaming_request_dataset.py` 与 `test_load_dataset_report.py` 覆盖 JSONL 输入冻结、前置拒绝、
 顺序映射、v3 校验、历史兼容及不同请求集的 sweep 分组；浏览器用例检查来源展示和窄屏。
+`test_server_metrics.py` 与 `test_server_metrics_report.py` 覆盖服务阶段快照边界、错误发布、
+精确模型与标签选择、重置、独立差值期望及离线一致性；headless browser 检查单点与 sweep 展示。
 
 例如 `s=0`，输出事件在 `0.10 / 0.14 / 0.18` 秒到达，
 usage 为 5 Token，`[DONE]` 在 `0.23` 秒到达：

@@ -43,6 +43,7 @@
 | `execution_conditions` | 保存／恢复线程环境、固定 GPU UUID、CPU affinity 和请求超时；开销诊断与负载重放共用 |
 | `measurement.load` | 共享 HTTP Scheduler、配置和 `run_load` 入口；协调 `/predict` 与可选 SSE Adapter，不进入正式能耗 CSV |
 | `measurement.request_inputs` | 计时前的有界 JSONL 读取、来源与有序输入摘要、凭据字段拒绝；不调度请求或下载内容 |
+| `measurement.server_metrics` | 显式选择的服务端 Prometheus 快照，位于每点负载前后；保留采样错误，复用异常清理机制，不进入负载计时或正式能耗 CSV |
 | `measurement.load_transport` | 单次负载的线程局部连接、HTTP 请求与活动 socket 所有权；取消时唤醒读取，线程退出后关闭连接 |
 | `measurement.load_reporting` | 补齐未发送请求记录、窗口外 Token 派生与负载报告；保留原始错误及成功样本筛选，v3 输入索引由 `load` 在窗口外附加 |
 | `measurement.streaming` | OpenAI-compatible SSE 解码、有效输出时间、Token 来源与流式指标；不调度负载或采集硬件 |

@@ -15,6 +15,7 @@ from typing import Any
 from urllib.parse import urlsplit
 from uuid import uuid4
 
+from acprof.analysis.server_metrics import metrics_declaration
 from acprof.analysis.streaming_capacity import normalize_slo_thresholds
 from acprof.artifacts import read_json_object
 from acprof.cli.load_evidence import load_phase, publish_load_report
@@ -24,6 +25,7 @@ from acprof.host.measurement.request_inputs import (
     request_digest,
     validate_request_credentials,
 )
+from acprof.host.measurement.server_metrics import observe_server_metrics
 from acprof.host.measurement.service_identity import (
     SERVICE_PROBES,
     initial_service_identity,
@@ -43,7 +45,7 @@ _ENDPOINT_OPTIONS = (
     "tokenizer_json", "tokenizer_model", "tokenizer_revision",
     "slo_ttft_s", "slo_tpot_s", "slo_e2e_s", "service_backend", "service_version",
     "max_run_response_bytes", "max_run_output_events",
-    "sweep_concurrency", "sweep_rate",
+    "sweep_concurrency", "sweep_rate", "server_metrics",
 )
 
 
@@ -89,6 +91,8 @@ def add_streaming_arguments(parser: argparse.ArgumentParser) -> None:
                         help="Maximum output events retained across one warmup or measured run")
     parser.add_argument("--service-probe", choices=SERVICE_PROBES,
                         help="Pre-warmup identity probe; vllm-config also reads the development configuration endpoint (default: none)")
+    parser.add_argument("--server-metrics", choices=("vllm",),
+                        help="Observe server-wide phase histograms via /metrics before and after load (default: disabled)")
     parser.add_argument("--sweep-concurrency", help="Endpoint sweep: distinct worker counts, e.g. 1,2,4; overrides --concurrency")
     parser.add_argument("--sweep-rate", help="Endpoint arrival-rate sweep: distinct requests/s, e.g. 1,5,10; overrides --rate")
     parser.add_argument("--dry-run", action="store_true", help="Validate and print an endpoint sweep plan without requests or output files")
@@ -299,6 +303,8 @@ def run_prepared_streaming_load(
         identity.update(request_body=payload, request_body_sha256=request_digest(payload))
     else:
         identity["request_dataset"] = prepared.request_dataset
+    if args.server_metrics is not None:
+        identity["server_metrics"] = metrics_declaration(args.server_metrics, model, config.timeout_seconds)
     report: dict[str, Any] = {
         "schema_version": 3 if prepared.request_dataset is not None else 2,
         "kind": "stream_load_experiment", "run_id": uuid4().hex,
@@ -325,12 +331,16 @@ def run_prepared_streaming_load(
                     )
                     if not report["warmup"]["successful"]:
                         raise RuntimeError("streaming warmup failed; inspect load.json warmup records")
-            with load_phase(report, "result"):
+            with observe_server_metrics(report, origin, headers), load_phase(report, "result"):
                 report["result"] = run_load(
                     origin, payload, config, token=report["run_id"], adapter=adapter,
                     headers=headers, slo_thresholds=slo_thresholds,
                 )
         report.update(successful=report["result"]["successful"], status="complete")
+    if "server_metrics" in report:
+        summary = report["server_metrics"]["summary"]
+        missing = ", ".join(f"{phase}: {row['reason']}" for phase, row in summary["phases"].items() if row["reason"])
+        print(f"Server metrics: {summary['status']}" + (f"; {missing}" if missing else ""))
     return report
 
 
@@ -356,6 +366,9 @@ def run_streaming_load(args: argparse.Namespace, parser: argparse.ArgumentParser
             "schema_version": 1, "kind": "stream_load_sweep_plan", "target_origin": prepared.origin,
             "endpoint": prepared.adapter.endpoint, "output_dir": str(output),
             "warmup_requests_per_point": args.warmup, "points": [asdict(config) for config in configs],
+            **({"server_metrics": metrics_declaration(args.server_metrics,
+                 prepared.payload[0]["model"] if isinstance(prepared.payload, tuple) else prepared.payload["model"],
+                 configs[0].timeout_seconds)} if args.server_metrics is not None else {}),
             **({"request_dataset": {key: value for key, value in prepared.request_dataset.items() if key != "bodies"}}
                if prepared.request_dataset is not None else {}),
         }, allow_nan=False))

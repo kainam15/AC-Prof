@@ -158,6 +158,7 @@ def _point_metrics(report: dict[str, Any]) -> dict[str, Any]:
     dataset = report["experiment"]["identity"].get("request_dataset")
     return {
         **({"request_dataset": {key: value for key, value in dataset.items() if key != "bodies"}} if dataset else {}),
+        **({"server_metrics": report["server_metrics"]} if report.get("server_metrics") is not None else {}),
         "metrics": {
             "successful_requests_per_s": capacity["successful_requests_per_s"],
             "goodput_requests_per_s": capacity["goodput_requests_per_s"],

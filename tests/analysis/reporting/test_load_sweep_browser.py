@@ -14,9 +14,13 @@ from tests.analysis.reporting.test_load_dataset_report import (
     make_dataset_sweep,
     saved_dataset_report,
 )
+from tests.analysis.reporting.test_server_metrics_report import (
+    make_metrics_sweep,
+    saved_metrics_report,
+)
 from tests.support.load_sweep_fixtures import change_manifest, change_point, make_sweep
 
-__all__ = ["saved_dataset_report"]
+__all__ = ["saved_dataset_report", "saved_metrics_report"]
 
 pytestmark = [pytest.mark.integration, pytest.mark.skipif(
     os.environ.get("ACPROF_BROWSER_TESTS") != "1", reason="opt-in headless browser test",
@@ -68,6 +72,41 @@ def fixture_browser_page(request):
 
 def settled(page):
     page.wait_for_function("document.documentElement.dataset.reportReady === 'true'")
+
+
+def test_server_phase_summaries_are_explicit_and_bounded(browser_page, tmp_path, metrics_report):
+    page, open_report = browser_page
+    root = make_metrics_sweep(tmp_path / "metrics", metrics_report)
+    open_report(root)
+    summary = page.locator("#points summary").filter(has_text="服务端阶段统计")
+    assert summary.count() == 3
+    summary.first.click()
+    panel = page.locator("#points details").first
+    assert "其他流量" in panel.inner_text()
+    assert '"mean_s": 2' in panel.inner_text()
+    assert panel.locator("pre").evaluate("node => node.clientHeight") <= 200
+    assert panel.evaluate("node => node.clientHeight") <= 300
+    page.set_viewport_size({"width": 390, "height": 844})
+    page.wait_for_function("document.documentElement.scrollWidth <= innerWidth")
+    panel.scroll_into_view_if_needed()
+    assert traces(page)[0]["y"] == [1, 2, 3]
+
+
+def test_single_point_server_phase_table_is_readable(browser_page, tmp_path, metrics_report):
+    from acprof.plotting.load_report import write_load_report
+
+    page, open_report = browser_page
+    root = make_metrics_sweep(tmp_path / "metrics", metrics_report)
+    sweep_html = open_report(root)
+    point_html = sweep_html.parent / "point.html"
+    write_load_report(root / "points/0001/load.json", point_html)
+    page.goto(point_html.as_uri())
+    assert page.get_by_role("heading", name="Server phase timing").is_visible()
+    section = page.locator("section").filter(has=page.get_by_role("heading", name="Server phase timing"))
+    assert "other traffic" in section.inner_text()
+    assert section.get_by_role("row", name="prefill ok 3 6 2 unavailable", exact=True).count() == 1
+    page.set_viewport_size({"width": 390, "height": 844})
+    page.wait_for_function("document.documentElement.scrollWidth <= innerWidth")
 
 
 def traces(page):

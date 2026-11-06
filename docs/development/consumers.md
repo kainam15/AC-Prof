@@ -23,6 +23,8 @@ CPU/GPU 拟合、尺度基函数说明和残差整理各有独立函数。`write
 Token 覆盖及吞吐，不导入采集或渲染模块；`analysis.load_report` 复用二者校验 v2/v3，
 其中 `analysis.load_inputs` 校验 v3 请求集及阶段映射，按需复用请求规范化；`plotting.load_report` 只负责渲染，
 对 v1 保留 unavailable，不建立第二套公式。入口与边界见[流式测量](../profiling/streaming.md)。
+`analysis.server_metrics` 使用 Prometheus 官方 parser 选择服务阶段直方图，统一序列校验、
+重置判断及差值计算；采集和离线分析共用，HTML 只展示服务级结果，不推导 GPU 或请求归因。
 `plotting.pipeline.plot_results` 组织数据准备、PNG 渲染和模型报告发布；CLI 负责参数与锁的生命周期，
 在取得 `host.run_state.offline_analysis_lock()` 后才导入 pipeline。
 同一 guard 用于 report、stats、compare、结果 audit 与 results 校验/导出；Linux 复用
