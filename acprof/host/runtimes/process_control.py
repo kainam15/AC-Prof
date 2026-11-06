@@ -225,7 +225,7 @@ class ManagedProcess:
                 raise failure from cleanup_error
             # Preserve actual launch state: only a failed Popen may bypass
             # supervisor status checks during later recovery.
-            recovery = {**launch, "launch_state": "failed"}
+            recovery: dict[str, object] = {**launch, "launch_state": "failed"}
             if self.process is not None:
                 recovery.update(launch_state="started", owner_pid=self.process.pid)
             with cleanup_on_exit(

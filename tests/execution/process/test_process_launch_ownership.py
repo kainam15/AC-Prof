@@ -67,7 +67,7 @@ def launch_fault(service, tmp_path, monkeypatch):
                 raise state.primary
             if state.persistent_publication_error:
                 raise OSError('recovery ledger publication failed')
-        return atomic_write_json(path, payload, **kwargs)
+        atomic_write_json(path, payload, **kwargs)
 
     def close(child):
         state.controller = child
@@ -241,21 +241,21 @@ def test_control_read_end_close_error_still_reaps_the_launched_supervisor(tmp_pa
         descriptors = original_pipe()
         if not controls:
             controls.extend(descriptors)
-            metadata = os.fstat(descriptors[0])
-            pipe_identity = (metadata.st_dev, metadata.st_ino)
+            pipe_stat = os.fstat(descriptors[0])
+            pipe_identity = (pipe_stat.st_dev, pipe_stat.st_ino)
         return descriptors
 
-    def close(descriptor):
+    def close(read_descriptor):
         nonlocal injected
-        original_close(descriptor)
-        if controls and descriptor == controls[0] and not injected:
+        original_close(read_descriptor)
+        if controls and read_descriptor == controls[0] and not injected:
             injected = True
             raise failure
 
     def popen(*args, **kwargs):
-        child = original_popen(*args, **kwargs)
-        children.append(child)
-        return child
+        opened_child = original_popen(*args, **kwargs)
+        children.append(opened_child)
+        return opened_child
 
     try:
         with patch('os.pipe', pipe), patch('os.close', close), patch('subprocess.Popen', popen):
