@@ -19,6 +19,7 @@ from acprof.host.measurement.load_reporting import (
 )
 from acprof.host.measurement.load_transport import LoadTransport
 from acprof.host.measurement.streaming import OpenAIStreamingAdapter
+from acprof.system.cleanup import cleanup_on_exit
 
 
 @dataclass(frozen=True)
@@ -152,7 +153,13 @@ def _execute_load(
     finally:
         pool.shutdown(wait=True, cancel_futures=True)
         duration = time.perf_counter() - transport.epoch
-        transport.close()
+        # Workers have joined; preserve their evidence and failure while closing sockets.
+        try:
+            with cleanup_on_exit(transport.close, description="HTTP load connections"):
+                if primary_error is not None:
+                    raise primary_error
+        except BaseException as error:
+            primary_error = error
     return duration, primary_error
 
 

@@ -5,11 +5,13 @@ import http.client
 import socket
 import threading
 import time
+from contextlib import ExitStack
 from typing import TYPE_CHECKING, Any
 from urllib.parse import SplitResult
 
 from acprof.artifacts import loads_finite_json
 from acprof.host.measurement.streaming import OpenAIStreamingAdapter
+from acprof.system.cleanup import cleanup_on_exit
 
 if TYPE_CHECKING:
     from acprof.host.measurement.load import LoadConfig
@@ -135,6 +137,8 @@ class LoadTransport:
                     pass
 
     def close(self) -> None:
-        """Close remaining connections after workers have returned."""
-        for client in self._connections:
-            client.close()
+        """Attempt every close after workers return, retaining all failure diagnostics."""
+        with ExitStack() as stack:
+            # Keep creation order while ExitStack unwinds in reverse registration order.
+            for client in reversed(self._connections):
+                stack.enter_context(cleanup_on_exit(client.close, description="HTTP load connection"))
