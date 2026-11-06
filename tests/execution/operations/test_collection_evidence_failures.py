@@ -95,7 +95,7 @@ def test_evidence_read_cancellation_keeps_prior_failure_and_collects_other_repor
     primary = failure_type("fixture matrix failure")
     cancellation = KeyboardInterrupt("fixture evidence read cancelled")
     quality_path: Path | None = None
-    original_open = Path.open
+    original_open = io.open
 
     def measure(request, **kwargs):
         nonlocal quality_path
@@ -108,13 +108,13 @@ def test_evidence_read_cancellation_keeps_prior_failure_and_collects_other_repor
         quality_path = quality
         return str(path)
 
-    def open_file(path: Path, *args, **kwargs):
-        if path == quality_path:
+    def open_file(file: str | bytes | Path | int, *args, **kwargs):
+        if file == quality_path:
             raise cancellation
-        return original_open(path, *args, **kwargs)
+        return original_open(file, *args, **kwargs)
 
     with monkeypatch.context() as scoped:
-        scoped.setattr(Path, "open", open_file)
+        scoped.setattr(io, "open", open_file)
         with pytest.raises(KeyboardInterrupt) as caught:
             collection.invoke(case=measure)
     assert caught.value is (primary if failure_type is KeyboardInterrupt else cancellation)
