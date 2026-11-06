@@ -69,3 +69,11 @@ footer { color: var(--muted); text-align: center; font-size: 11px; padding: 12px
 #error { padding: 15px; color: #9a2438; background: #fff0f0; border-radius: 6px; }
 [hidden] { display: none !important; }
 @media (max-width: 850px) { .filters { grid-template-columns: repeat(2, minmax(0, 1fr)); } .intro { align-items: start; } .tabs { overflow: auto; } .tabs button { white-space: nowrap; padding: 8px 10px; } main { padding: 20px 12px; } .card { padding: 14px; } }
+#experiment-manager { border-top: 3px solid var(--accent); }
+#experiment-manager .controls { margin-top: 12px; }
+#experiment-list td { font-size: 12px; overflow-wrap: anywhere; }
+#experiment-list td:nth-child(4) { max-width: 300px; }
+#import-status { white-space: pre-wrap; overflow-wrap: anywhere; }
+#import-progress { width: 100%; }
+button:disabled { cursor: wait; opacity: .6; }
+header label { min-width: 90px; flex-shrink: 0; }

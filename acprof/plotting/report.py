@@ -36,7 +36,11 @@ def report_payload(model: AnalysisModel, baseline: str | None = None, *, compari
         if len(matches) != 1:
             raise ValueError("baseline 必须匹配唯一 config_id；run_id 含多个配置时请在报告中选择")
         selected = matches[0]["config_id"]
-    return {"schema_version": 1, "configs": model.configs, "baseline": selected,
+    return {"kind": "acprof_analysis_bundle", "schema_version": 1,
+            "analysis_contract": {"version": 1, "statistics_engine": "python",
+                "filter": "status=ok and warmup=0 and result_origin!=inferred_not_measured",
+                "aggregation": "acprof.analysis.model", "comparison": "acprof.analysis.conditions"},
+            "configs": model.configs, "baseline": selected,
             "window_statistics": build_report_statistics(model, **(statistics_options or {})),
             "baseline_comparisons": build_baseline_comparisons(model),
             "experiment_comparisons": build_experiment_comparisons(
@@ -53,8 +57,8 @@ def report_payload(model: AnalysisModel, baseline: str | None = None, *, compari
                     "model_name", "model_revision", "runtime_backend", "pipeline_tag", "input_scale_type",
                     "cpu", "cpu_model", "gpu", "gpu_name", "platform_fingerprint")}}
                 for source in model.sources],
-            "sources": [{k: s[k] for k in ("path", "sha256", "run_id", "run_state",
-                        "run_status", "measurement_status", *QUALITY_FIELDS)}
+            "sources": [{k: s[k] for k in ("path", "sha256", "run_id", "run_state", "display_name",
+                        "metadata", "metadata_sha256", "run_status", "measurement_status", *QUALITY_FIELDS)}
                         for s in model.sources]}
 
 
@@ -100,6 +104,7 @@ def write_report(model: AnalysisModel, output: str | Path, *, baseline: str | No
     # Imported only after analysis and destination validation, never by collectors or --help.
     from plotly.offline import get_plotlyjs
     resources = files("acprof.plotting")
+    template = resources.joinpath("report.html").read_text(encoding="utf-8")
     replacements = {
         "__PLOTLY__": get_plotlyjs().replace("</script", "<\\/script"),
         "__VIEW_MODEL__": resources.joinpath("view_model.js").read_text(encoding="utf-8"),
@@ -109,7 +114,16 @@ def write_report(model: AnalysisModel, output: str | Path, *, baseline: str | No
         "__STYLE__": resources.joinpath("report.css").read_text(encoding="utf-8"),
         "__LICENSE__": escape(resources.joinpath("plotly-LICENSE.txt").read_text(encoding="utf-8")),
     }
-    template = resources.joinpath("report.html").read_text(encoding="utf-8")
+    # Optional template tokens also keep minimal/custom template consumers working.
+    for token, asset in {"__IMPORT__": "report_import.js", "__WORKSPACE__": "report_workspace.js",
+                         "__I18N__": "report_i18n.js", "__PAPA__": "vendor/papaparse.min.js",
+                         "__SHA256__": "vendor/sha256.js"}.items():
+        if token in template:
+            replacements[token] = resources.joinpath(asset).read_text(encoding="utf-8")
+    if "__IMPORT_LICENSE__" in template:
+        replacements["__IMPORT_LICENSE__"] = escape("\n\n".join(
+            resources.joinpath("vendor", name).read_text(encoding="utf-8")
+            for name in ("papaparse-LICENSE.txt", "sha256-LICENSE.txt")))
 
     def write(stream: TextIO) -> None:
         # Only scan the original template: asset and user-data tokens are literal.

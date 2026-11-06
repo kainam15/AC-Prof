@@ -41,3 +41,11 @@ The audio retains CC-BY-4.0 and is not relicensed under Apache-2.0.
 Downloaded model code, weights, external datasets and separately installed
 dependencies retain their respective licenses. Their inclusion or use does
 not imply endorsement by their authors or by the original project team.
+
+Offline report browser components
+---------------------------------
+Papa Parse 5.5.3: Copyright (c) 2015 Matthew Holt (MIT).
+js-sha256 0.11.1: Copyright (c) 2014-2025 Chen, Yi-Cyuan (MIT).
+Sources, pinned hashes and full license notices are provided under
+acprof/plotting/vendor/ and embedded in generated configuration reports.
+These components only run during offline analysis, not workload collection.

@@ -114,7 +114,7 @@ class TestReportBrowser:
             self.context.tracing.stop()
 
     def settled(self):
-        self.page.wait_for_function("document.body.dataset.ready === 'true' && document.body.dataset.busy === 'false'")
+        self.page.wait_for_function("() => document.body.dataset.ready === 'true' && document.body.dataset.busy === 'false'")
         assert (self.errors) == ([])
         assert (self.remote_requests) == ([])
         assert (self.page.locator("#error").is_hidden())

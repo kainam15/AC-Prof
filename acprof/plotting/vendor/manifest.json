@@ -1,0 +1,22 @@
+{
+  "packages": [
+    {
+      "name": "Papa Parse",
+      "version": "5.5.3",
+      "path": "papaparse.min.js",
+      "source": "https://raw.githubusercontent.com/mholt/PapaParse/5.5.3/papaparse.min.js",
+      "sha256": "2b88bf82c84067abc22c5c21dbd6f56c1afec714e315cbfcfa103f2f1387b052",
+      "license": "MIT",
+      "license_file": "papaparse-LICENSE.txt"
+    },
+    {
+      "name": "js-sha256",
+      "version": "0.11.1",
+      "path": "sha256.js",
+      "source": "https://raw.githubusercontent.com/emn178/js-sha256/v0.11.1/src/sha256.js",
+      "sha256": "2db6c8e554fbee14672368a0d7551a8ddd841ee96c91526eb7987a0179cfc717",
+      "license": "MIT",
+      "license_file": "sha256-LICENSE.txt"
+    }
+  ]
+}

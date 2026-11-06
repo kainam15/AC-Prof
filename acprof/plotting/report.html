@@ -8,10 +8,23 @@
 <style>__STYLE__</style>
 </head>
 <body>
-<header><div class="brand">AC-Prof <span>/ 实验分析</span></div><span class="tag">离线报告</span></header>
+<header><div class="brand">AC-Prof <span>/ 实验分析</span></div><label>Language<select id="language"><option value="zh">简体中文</option><option value="en">English</option></select></label><span class="tag">离线报告</span></header>
 <main>
 <div class="intro"><div><p class="eyebrow">DOR VISUALIZATION</p><h1>性能、资源与能耗</h1>
 <p>比较已有实验，查看配置取舍、窗口统计与数据质量。</p></div><div id="counts" aria-live="polite"></div></div>
+<section id="experiment-manager" class="card" aria-label="实验管理 / Experiments">
+<div class="section-heading"><h2>实验管理 / Experiments</h2><div class="controls">
+<button id="add-experiment">添加实验 / Add experiment</button><button id="cancel-import" hidden>取消 / Cancel</button>
+<button id="reset-baseline">恢复默认基线 / Reset baseline</button>
+<button id="export-html">另存自包含 HTML / Save HTML</button></div></div>
+<input id="experiment-files" type="file" accept=".csv,.json,.html,.htm" multiple hidden>
+<p class="notice">选择或拖放 result_all.csv、AC-Prof HTML、分析 JSON。CSV 缺少完整元数据时仅作描述性展示；严格统计未计算。 / Drop CSV, AC-Prof HTML or analysis JSON. CSV-only comparisons are descriptive; strict statistics are not computed.</p>
+<progress id="import-progress" max="1" value="0" hidden aria-label="导入进度 / Import progress"></progress>
+<p id="import-status" role="status" aria-live="polite"></p>
+<div class="table-scroll"><table id="experiment-list"><thead><tr><th>实验 / Experiment</th><th>模型 / Model</th><th>Run ID</th><th>来源 / Source</th><th>配置 / Configurations</th><th>质量 / Quality</th><th>操作 / Actions</th></tr></thead><tbody></tbody></table></div>
+<div class="controls"><label>基线实验 / Baseline experiment<select id="active-experiment-left"></select></label>
+<label>对照实验 / Comparison experiment<select id="active-experiment-right"></select></label></div>
+</section>
 <section class="card" aria-label="统一筛选"><div class="section-heading"><h2>筛选实验</h2><button id="reset">重置筛选</button></div><div id="filters" class="filters"></div></section>
 <div class="controls card"><label class="grow">Baseline<select id="baseline" aria-label="Baseline"></select></label>
 <label>比较用途<select id="comparison-purpose"><option value="within-experiment">单次实验资源比较</option><option value="same-hardware">相同硬件</option><option value="cross-hardware">跨硬件</option><option value="resource-scaling">资源扩容（CPU / 内存）</option></select></label>
@@ -29,7 +42,7 @@
 <button data-view="experiments" aria-pressed="false">实验对照 / 跨模型</button>
 <button data-view="quality" aria-pressed="false">数据质量</button>
 </nav>
-<div class="controls export-controls"><span class="muted">导出当前视图及筛选对应的 Python 分析数据</span>
+<div class="controls export-controls"><span class="muted">导出当前视图及筛选数据；浏览器描述性结果与 Python 统计分别标记</span>
 <button id="export-json">导出 JSON</button><button id="export-csv">导出 CSV</button></div>
 <p id="selection" aria-live="polite">点击表格行或图中数据点，可在各视图中定位同一配置。</p>
 <details class="card evidence" id="quality-evidence"><summary>所选配置的质量证据</summary><pre id="quality-detail">选择配置后查看状态、原因和原始证据。</pre></details>
@@ -95,11 +108,18 @@
 <p>QPS 仅展示显式记录的 request/s；不会从 samples/s 推断。颜色与 frontier 按已核验条件分组；历史单来源比较仅为描述性对比。窗口统计展示 within-run CI；实验对照另行展示独立运行 CI，不重新计算合并请求分位数。</p>
 </details>
 <details class="evidence"><summary>Plotly.js 许可</summary><pre>__LICENSE__</pre></details>
+<details class="evidence"><summary>CSV parser / SHA256 · MIT licenses</summary><pre>__IMPORT_LICENSE__</pre></details>
 <p id="error" role="alert" hidden></p>
 <footer>AC-Prof · 只读分析 · 报告生成后不连接服务器</footer>
 </main>
 <script id="report-data" type="application/json">__DATA__</script>
+<script id="report-session" type="application/json">null</script>
 <script>__PLOTLY__</script>
+<script>__PAPA__</script>
+<script>__SHA256__</script>
+<script>__IMPORT__</script>
+<script>__WORKSPACE__</script>
+<script>__I18N__</script>
 <script>__VIEW_MODEL__</script>
 <script>__EXPERIMENTS__</script>
 <script>__EXPORT__</script>

@@ -1,7 +1,7 @@
 /* Render Python's independent-run estimates; no statistical calculations here. */
 "use strict";
-window.ACProfExperiments = ({data, $, V, element, option, fmt, metricTitle, plot, axis, schedule, filtered, escape}) => {
-  const comparisons = data.experiment_comparisons || [];
+window.ACProfExperiments = ({data, $, V, element, option, fmt, metricTitle, plot, axis, schedule, filtered, escape, color, selectConfig}) => {
+
   const sourceKey = sources => JSON.stringify(sources);
   const reasons = {
     missing_recorded_run_identity: "缺少 run_state.json 中可核验的运行身份；仅提供描述性分析",
@@ -10,31 +10,73 @@ window.ACProfExperiments = ({data, $, V, element, option, fmt, metricTitle, plot
     missing_comparable_runs: "缺少可比较的完整运行",
     nonpositive_baseline_for_ratio: "基线非正，比值区间不可用",
   };
-  for (const [key, entry] of new Map(comparisons.map(item => [sourceKey(item.left), item]))) {
-    option($("experiment-left"), key, entry.left_label);
+  function choices() {
+    const result = new Map();
+    for (const item of data.experiment_comparisons) {
+      for (const side of ["left", "right"]) result.set(sourceKey(item[side]), item[side + "_label"]);
+    }
+    for (const source of data.sources) result.set(sourceKey([source.path]),
+      (source.display_name || source.path) + " · " + source.run_id);
+    return result;
   }
   function selectRight() {
     const previous = $("experiment-right").value;
     $("experiment-right").replaceChildren();
-    for (const item of comparisons.filter(item => sourceKey(item.left) === $("experiment-left").value)) {
-      option($("experiment-right"), sourceKey(item.right), item.right_label);
-    }
+    const left = JSON.parse($("experiment-left").value || "[]");
+    for (const [key, label] of choices()) if (!JSON.parse(key).some(path => left.includes(path))) option($("experiment-right"), key, label);
     if ([...$("experiment-right").options].some(item => item.value === previous)) $("experiment-right").value = previous;
   }
-  selectRight();
+  function refresh() {
+    const previous = $("experiment-left").value, metric = $("experiment-metric").value;
+    $("experiment-left").replaceChildren();
+    for (const [key, label] of choices()) option($("experiment-left"), key, label);
+    if ([...$("experiment-left").options].some(item => item.value === previous)) $("experiment-left").value = previous;
+    selectRight();
+    $("experiment-metric").replaceChildren(); option($("experiment-metric"), "", "全部比较指标");
+    for (const name of Object.keys(data.registry)) option($("experiment-metric"), name, data.registry[name].label);
+    $("experiment-metric").value = metric;
+  }
+  refresh();
   $("experiment-left").onchange = () => { selectRight(); schedule(); };
   $("experiment-right").onchange = schedule;
-  option($("experiment-metric"), "", "全部比较指标");
-  for (const name of new Set(comparisons.flatMap(item => (item.report?.groups || []).map(group => group.metric)))) {
-    option($("experiment-metric"), name, data.registry[name]?.label || name);
-  }
   $("experiment-metric").onchange = schedule;
   for (const name of Object.keys(data.registry)) option($("cross-model-metric"), name, metricTitle(name));
   $("cross-model-metric").value = "latency_app_s";
   $("cross-model-metric").onchange = schedule;
   const interval = bounds => bounds ? `[${bounds.map(fmt).join(", ")}]` : "—";
-  const current = () => comparisons.find(item => sourceKey(item.left) === $("experiment-left").value &&
-    sourceKey(item.right) === $("experiment-right").value);
+  function current() {
+    const paths = side => {
+      const active = $("active-experiment-" + side).value;
+      return active ? [...new Set(data.configs.filter(config => config.experiment_id === active).map(config => config.source))] :
+        JSON.parse($("experiment-" + side).value || "[]");
+    };
+    const left = paths("left"), right = paths("right");
+    if (!left.length || !right.length || left.some(path => right.includes(path))) return null;
+    const purpose = $("comparison-purpose").value === "within-experiment" ? "same-hardware" : $("comparison-purpose").value;
+    return data.experiment_comparisons.find(item => sourceKey(item.left) === sourceKey(left) && sourceKey(item.right) === sourceKey(right) &&
+      (!item.report || item.report.purpose === purpose)) || {left, right, report:null, reason:"statistics_not_computed", display_only:true};
+  }
+  function descriptions() {
+    const entry = current(), configs = filtered(), purpose = $("comparison-purpose").value;
+    if (!entry || entry.report) return [];
+    const metrics = $("experiment-metric").value ? [$("experiment-metric").value] : data.default_matrix;
+    const rows = [];
+    for (const left of configs.filter(config => entry.left.includes(config.source))) {
+      for (const right of configs.filter(config => entry.right.includes(config.source))) {
+        // Match resource coordinates; input or semantic conflicts remain visible in the verdict.
+        if (left.input_scale !== right.input_scale || left.device !== right.device ||
+            purpose !== "resource-scaling" && (left.cpu !== right.cpu || left.memory !== right.memory)) continue;
+        const comparison = V.comparisonContext(left, purpose, data.baseline_comparisons, data.registry);
+        for (const metric of metrics) rows.push({left_config_id:left.config_id, config_id:right.config_id,
+          left_source:left.source, source:right.source, left_experiment:left.experiment_name, experiment:right.experiment_name,
+          model:right.model, run_id:right.run_id, cpu:right.cpu, memory:right.memory, input_scale:right.input_scale, device:right.device,
+          left_cpu:left.cpu, left_memory:left.memory, metric, unit:data.registry[metric].unit,
+          baseline_value:V.value(left, metric), value:V.value(right, metric), ...comparison.delta(right, metric),
+          comparison:comparison.qualification(right), scope:"browser_descriptive", statistics_status:"not_computed"});
+      }
+    }
+    return rows;
+  }
   function visible(group, entry, configs) {
     return ["left", "right"].every(side => configs.some(config => entry[side].includes(config.source) &&
       config.cpu === (group.resource_coordinates?.[side]?.cpu_cores ?? group.cpu_cores) &&
@@ -49,7 +91,7 @@ window.ACProfExperiments = ({data, $, V, element, option, fmt, metricTitle, plot
     const entry = current(), report = entry?.report;
     $("experiments").tBodies[0].replaceChildren();
     $("experiment-status").textContent = report ? `${report.status} · ${entry.display_only ? "仅并列展示，差值和比值暂停" : "条件可比；统计范围见逐指标样本数"}` :
-      entry ? reasons[entry.reason] || entry.reason : "需要至少两个来源；可使用 acprof report --left RUN --right RUN 指定独立组。";
+      entry ? "浏览器描述性比较 · 严格统计未计算 / Browser descriptive comparison; strict statistics not computed. " + (reasons[entry.reason] || entry.reason) : "需要至少两个来源；可使用 acprof report --left RUN --right RUN 指定独立组。";
     $("experiment-evidence").textContent = JSON.stringify(report || entry || {}, null, 2);
     for (const group of groups()) {
       const row = element("tr"), left = group.left, right = group.right;
@@ -63,6 +105,21 @@ window.ACProfExperiments = ({data, $, V, element, option, fmt, metricTitle, plot
       for (const cell of cells) row.append(element("td", cell));
       $("experiments").tBodies[0].append(row);
     }
+    for (const group of descriptions()) {
+      const row = element("tr"); row.dataset.configId = group.config_id;
+      row.onclick = () => {
+        $("baseline").value = group.left_config_id;
+        selectConfig(data.configs.find(config => config.config_id === group.config_id));
+        document.querySelector('[data-view="matrix"]').click();
+      };
+      row.tabIndex = 0; row.onkeydown = event => { if (event.key === "Enter") row.click(); };
+      const cells = [`${group.left_experiment} ${group.left_cpu}c/${group.left_memory}G → ${group.experiment} ${group.cpu}c/${group.memory}G · scale ${group.input_scale}`,
+        metricTitle(group.metric), fmt(group.baseline_value), fmt(group.value), fmt(group.delta), `${fmt(group.ratio)} / ${fmt(group.percent)}%`,
+        "未计算 / Not computed", "未核验 / Not verified", `${group.comparison.status} · ${group.comparison.reasons.join(", ")}`];
+      for (const cell of cells) row.append(element("td", cell));
+      $("experiments").tBodies[0].append(row);
+    }
+    if (entry && !report && !descriptions().length) $("experiment-status").textContent += " · 没有匹配的配置 / No matching configurations";
     for (const chart of $("cross-model-charts").querySelectorAll(".scaling-chart")) Plotly.purge(chart);
     $("cross-model-charts").replaceChildren();
     const metric = $("cross-model-metric").value;
@@ -78,8 +135,8 @@ window.ACProfExperiments = ({data, $, V, element, option, fmt, metricTitle, plot
       $("cross-model-charts").append(article);
       await plot(chart, [{type:"bar", x:group.map(config => escape(`${config.model} · ${config.device} · ${config.cpu}c/${config.memory}G · ${config.config_id.slice(-6)}`)),
         y:group.map(config => V.value(config, metric)), customdata:group.map(config => config.config_id),
-        marker:{color:"#087f8c"}}], {height:380, yaxis:axis(metric), xaxis:{automargin:true}, showlegend:false});
+        marker:{color:group.map(color)}}], {height:380, yaxis:axis(metric), xaxis:{automargin:true}, showlegend:false});
     }
   }
-  return {draw, current, groups};
+  return {draw, current, groups, refresh, descriptions};
 };

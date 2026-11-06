@@ -54,7 +54,37 @@ window.ACProfViews = (() => {
       reasons: [...new Set(Object.keys(checks).filter(name => ["incompatible", "unknown"].includes(checks[name]))
         .map(name => name.split(".")[0]))].sort()};
   }
-  function comparisonContext(baseline = null, purpose = "same-hardware", pairs = {}) {
+  function descriptiveChange(reference, current, direction = "neutral") {
+    const result = {delta:null, percent:null, ratio:null, performance_ratio:null, reason:"missing"};
+    if (!finite(reference) || !finite(current)) return result;
+    const safe = value => finite(value) ? value : null;
+    return {delta:safe(current - reference), percent:reference ? safe(100 * ((current - reference) / Math.abs(reference))) : null,
+      ratio:reference > 0 ? safe(current / reference) : null,
+      performance_ratio:direction === "lower" && reference > 0 && current > 0 ? safe(reference / current) :
+        direction === "higher" && reference > 0 && current >= 0 ? safe(current / reference) : null,
+      reason:reference > 0 ? "" : "nonpositive_baseline_for_ratio"};
+  }
+  function descriptiveQualification(left, right, purpose) {
+    const policy = purpose === "within-experiment" ? "resource-scaling" : purpose;
+    if (left.comparison_profiles?.[policy] && right.comparison_profiles?.[policy]) {
+      return compareProfiles(left.comparison_profiles[policy], right.comparison_profiles[policy]);
+    }
+    const fields = ["task", "runtime", "runtime_kind", "resource_scope", "input_scale", "concurrency", "device"];
+    if (policy !== "resource-scaling") fields.push("cpu", "memory");
+    const known = value => value != null && value !== "unknown";
+    const reasons = fields.filter(name => known(left[name]) && known(right[name]) && left[name] !== right[name]);
+    try {
+      const a = JSON.parse(left.input_case), b = JSON.parse(right.input_case);
+      if (Object.keys(a).some(name => known(a[name]) && known(b[name]) && key(a[name]) !== key(b[name]))) reasons.push("input_case");
+    } catch {
+      if (known(left.input_case) && known(right.input_case) && left.input_case !== right.input_case) reasons.push("input_case");
+    }
+    if (policy !== "cross-hardware" && known(left.gpu) && known(right.gpu) && left.gpu !== right.gpu) reasons.push("gpu");
+    if (known(left.environment_class) && known(right.environment_class) && left.environment_class !== right.environment_class) reasons.push("environment_class");
+    // CSV cannot establish hardware, input semantics or independent run identity.
+    return {status:reasons.length ? "incompatible" : "unknown", reasons:reasons.length ? reasons : ["comparison_evidence_missing", "descriptive_only"]};
+  }
+  function comparisonContext(baseline = null, purpose = "same-hardware", pairs = {}, registry = {}) {
     // Owned by one draw: summary, cells and frontier share checks, while a new
     // baseline, purpose or refresh always starts with fresh evidence.
     const comparisons = new Map();
@@ -62,6 +92,7 @@ window.ACProfViews = (() => {
     const verdict = index => pairs.qualifications?.[index];
     function qualification(config) {
       if (!comparisons.has(config)) comparisons.set(config,
+        config.experiment_id && baseline?.experiment_id && !pair(config) ? descriptiveQualification(baseline, config, purpose) :
         purpose === "within-experiment" ? verdict(pair(config)?.resource) || {status:"unknown", reasons:["comparison_evidence_missing"]} :
           verdict(pair(config)?.policies[purpose]) || compareProfiles(
             config.comparison_profiles?.[purpose], (baseline || config).comparison_profiles?.[purpose]));
@@ -70,6 +101,11 @@ window.ACProfViews = (() => {
     function delta(config, metric) {
       if (!baseline) return {delta: null, percent: null, reason: "no_baseline"};
       const comparison = qualification(config);
+      if (config.experiment_id && baseline.experiment_id && !pair(config)) {
+        if (comparison.status === "incompatible") return {delta:null, percent:null, ratio:null, performance_ratio:null, reason:"incompatible", reasons:comparison.reasons};
+        return {...descriptiveChange(value(baseline, metric), value(config, metric), registry[metric]?.direction),
+          scope:"browser_descriptive", statistics_status:"not_computed"};
+      }
       if (!["compatible", "descriptive"].includes(comparison.status)) return {delta: null, percent: null, reason: comparison.status, reasons: comparison.reasons};
       return pair(config)?.metrics[metric] || {delta:null, percent:null, ratio:null, performance_ratio:null, reason:"missing"};
     }
@@ -156,7 +192,7 @@ window.ACProfViews = (() => {
         config.task, config.input_case]);
       // Vary only the selected resource. In particular, CPU curves never join different memory caps.
       const held = ["cpu", "memory", "concurrency"].filter(name => name !== axis);
-      const seriesKey = key([config.run_id, config.device, config.gpu, ...held.map(name => config[name])]);
+      const seriesKey = key([config.experiment_id, config.run_id, config.device, config.gpu, ...held.map(name => config[name])]);
       if (!facets.has(facet)) facets.set(facet, {config, series: new Map()});
       const series = facets.get(facet).series;
       if (!series.has(seriesKey)) series.set(seriesKey, {config, held, points: []});
@@ -166,5 +202,5 @@ window.ACProfViews = (() => {
       series: [...facet.series.values()].map(series => ({...series,
         points: series.points.sort((a, b) => a.x - b.x)}))}));
   }
-  return {finite, value, cohort, compareProfiles, comparisonContext, range, colorRanges, score, sort, pareto, scaling};
+  return {finite, value, cohort, compareProfiles, descriptiveChange, descriptiveQualification, comparisonContext, range, colorRanges, score, sort, pareto, scaling};
 })();

@@ -1,10 +1,21 @@
 "use strict";
 (() => {
-  const data = JSON.parse(document.getElementById("report-data").textContent);
+  const template = "<!doctype html>\n" + document.documentElement.outerHTML;
+  const original = JSON.parse(document.getElementById("report-data").textContent);
+  const restored = JSON.parse(document.getElementById("report-session").textContent);
+  let workspace;
+  try { workspace = window.ACProfWorkspace(original, restored); }
+  catch (error) {
+    document.getElementById("error").hidden = false;
+    document.getElementById("error").textContent = "恢复失败 / Restore failed: " + error.message;
+    return;
+  }
+  const data = workspace.data;
   const registry = data.registry, V = window.ACProfViews;
   const $ = id => document.getElementById(id);
   const state = {view: "matrix", selected: null, sort: data.default_matrix[0], descending: false};
   const filterFields = [
+    ["experiment_name", "实验名称 / Experiment"], ["hardware", "Hardware"], ["input_scale", "Input scale"],
     ["model", "Model"], ["runtime", "Runtime"], ["device", "CPU / GPU"],
     ["input_case", "Input case"], ["environment_class", "环境"], ["task", "Task"],
     ["cpu", "CPU cores"], ["memory", "Memory (GiB)"], ["concurrency", "Concurrency"],
@@ -16,7 +27,7 @@
   const signed = value => (value > 0 ? "+" : "") + fmt(value);
   const direction = metric => ({higher: "↑", lower: "↓", neutral: "·"})[registry[metric].direction];
   const metricTitle = metric => `${registry[metric].label} (${registry[metric].unit})`;
-  const statistics = data.window_statistics || [];
+
   const reasonLabels = {
     insufficient_windows: "窗口不足", no_successful_windows: "无正式成功窗口",
     missing_windows_break_blocks: "缺失窗口打断连续块", nonconsecutive_windows: "窗口序号不连续",
@@ -40,7 +51,7 @@
         (detailed ? ` · param=${text(parsed.task_param)}` : "");
     } catch { return input; }
   };
-  const label = config => `${config.model} · ${config.runtime} · ${config.device} · CPU ${text(config.cpu)} · ${text(config.memory)} GiB`;
+  const label = config => `${config.experiment_name || ""} · ${config.model} · ${config.runtime} · ${config.device} · CPU ${text(config.cpu)} · ${text(config.memory)} GiB`;
   const fullLabel = config => `${label(config)} · ${inputLabel(config.input_case, true)} · ${config.run_id} · ${config.config_id.slice(-8)}`;
   function element(tag, content, className) {
     const item = document.createElement(tag);
@@ -57,28 +68,36 @@
     state.selected = state.selected === config.config_id ? null : config.config_id;
     schedule();
   }
-  for (const [field, title] of filterFields) {
-    const wrapper = element("label", title), select = element("select");
-    select.id = "filter-" + field;
-    if (field === "model") { select.multiple = true; select.size = 3; }
-    select.setAttribute("aria-label", title);
-    option(select, "", "全部");
-    const values = [...new Set(data.configs.map(config => text(config[field])))];
-    values.sort((a, b) => a.localeCompare(b, "zh-CN", {numeric: true}));
-    for (const value of values) option(select, value, field === "input_case" ? inputLabel(value, true) : value);
-    select.onchange = schedule;
-    wrapper.append(select);
-    $("filters").append(wrapper);
+  function refreshFilters() {
+    const selectedFilters = Object.fromEntries(filterFields.map(([field]) => [field, [...($("filter-" + field)?.selectedOptions || [])].map(item => item.value)]));
+    $("filters").replaceChildren();
+    for (const [field, title] of filterFields) {
+      const wrapper = element("label", title), select = element("select");
+      select.id = "filter-" + field;
+      if (field === "model") { select.multiple = true; select.size = 3; }
+      select.setAttribute("aria-label", title);
+      option(select, "", "全部");
+      const values = [...new Set(data.configs.map(config => text(config[field])))];
+      values.sort((a, b) => a.localeCompare(b, "zh-CN", {numeric: true}));
+      for (const value of values) option(select, value, field === "input_case" ? inputLabel(value, true) : value);
+      for (const item of select.options) item.selected = (selectedFilters[field] || [""]).includes(item.value);
+      select.onchange = schedule;
+      wrapper.append(select);
+      $("filters").append(wrapper);
+    }
+    const previousBaseline = $("baseline").value || data.baseline || "";
+    $("baseline").replaceChildren();
+    option($("baseline"), "", "无 Baseline · 仅显示绝对值");
+    for (const config of data.configs) option($("baseline"), config.config_id, fullLabel(config));
+    $("baseline").value = data.configs.some(config => config.config_id === previousBaseline) ? previousBaseline : "";
   }
-  option($("baseline"), "", "无 Baseline · 仅显示绝对值");
-  for (const config of data.configs) option($("baseline"), config.config_id, fullLabel(config));
-  $("baseline").value = data.baseline || "";
+  refreshFilters();
   $("baseline").onchange = schedule;
   $("comparison-purpose").value = data.comparison_purpose;
   $("comparison-purpose").onchange = schedule;
   $("quality-filter").onchange = schedule;
   option($("statistics-metric"), "", "全部统计指标");
-  for (const metric of new Set(statistics.flatMap(report => report.groups.map(group => group.metric)))) {
+  for (const metric of new Set(data.window_statistics.flatMap(report => report.groups.map(group => group.metric)))) {
     option($("statistics-metric"), metric, registry[metric]?.label || metric);
   }
   $("statistics-metric").onchange = schedule;
@@ -114,18 +133,25 @@
     $("statistics-metric").value = "";
     for (const [field] of filterFields) $("filter-" + field).value = "";
     state.selected = null;
+    $("active-experiment-left").value = "";
+    $("active-experiment-right").value = "";
     schedule();
   };
+  $("reset-baseline").onclick = () => { $("baseline").value = original.baseline || ""; $("active-experiment-left").value = ""; schedule(); };
   for (const button of document.querySelectorAll("[data-view]")) button.onclick = () => {
     state.view = button.dataset.view;
     for (const item of document.querySelectorAll("[data-view]")) item.setAttribute("aria-pressed", String(item === button));
     schedule();
   };
-  for (const source of data.sources) {
-    $("sources").append(element("li", `${source.path} · run=${source.run_id} · state=${source.run_state} · quality=${source.quality_status} · SHA256 ${source.sha256}`));
+  function refreshSources() {
+    $("sources").replaceChildren();
+    for (const source of data.sources) $("sources").append(element("li", `${source.original_path || source.path} · run=${source.run_id} · state=${source.run_state} · quality=${source.quality_status} · SHA256 ${source.sha256}`));
   }
+  refreshSources();
   function filtered() {
-    return data.configs.filter(config => ($("quality-filter").value !== "eligible" || config.auto_selection_eligible === true) && filterFields.every(([field]) => {
+    const selectedExperiments = [$("active-experiment-left").value, $("active-experiment-right").value].filter(Boolean);
+    return data.configs.filter(config => (!selectedExperiments.length || selectedExperiments.includes(config.experiment_id)) &&
+      ($("quality-filter").value !== "eligible" || config.auto_selection_eligible === true) && filterFields.every(([field]) => {
       const chosen = [...$("filter-" + field).selectedOptions].map(option => option.value);
       return !chosen.length || chosen.includes("") || chosen.includes(text(config[field]));
     }));
@@ -155,8 +181,10 @@
       row.tabIndex = 0;
       row.onkeydown = event => { if (event.key === "Enter") selectConfig(config); };
       const identity = element("td");
+      identity.style.borderLeft = `4px solid ${workspace.color(config)}`;
       identity.title = fullLabel(config) + ` · GPU=${config.gpu}`;
       identity.append(element("strong", `${config.device} · CPU ${text(config.cpu)} · ${text(config.memory)} GiB`),
+        element("small", config.experiment_name),
         element("span", config.status, "status"),
         element("small", `运行 ${config.run_status} · 完整性 ${config.measurement_status}`),
         element("small", `可比性 ${qualification.status} · 质量 ${config.quality_status}`),
@@ -186,9 +214,7 @@
     }
     $("matrix-empty").hidden = configs.length > 0;
   }
-  const palette = ["#087f8c", "#c57532", "#7161ab", "#2673a8", "#a54967", "#4e824d", "#986833"];
-  const colorKeys = [...new Set(data.configs.map(c => `${c.runtime} / ${c.device}`))];
-  const color = config => palette[colorKeys.indexOf(`${config.runtime} / ${config.device}`) % palette.length];
+  const color = config => workspace.color(config);
   const axis = metric => ({title: {text: escape(metricTitle(metric))}, type: registry[metric].scale,
     automargin: true, gridcolor: "#e8eef2", zeroline: false});
   const layout = {paper_bgcolor: "white", plot_bgcolor: "white", font: {family: "system-ui", color: "#29475d"},
@@ -220,8 +246,9 @@
       return size && V.finite(v) && v >= 0 && maxSize > 0 ? 8 + 25 * Math.sqrt(v / maxSize) : 11;
     };
     const traces = [];
-    for (const key of colorKeys) {
-      const group = visible.filter(c => `${c.runtime} / ${c.device}` === key);
+    for (const entry of workspace.entries()) {
+      const key = entry.name + " · " + entry.configs[0].run_id;
+      const group = visible.filter(c => c.experiment_id === entry.id);
       if (!group.length) continue;
       traces.push({type: "scatter", mode: "markers", name: escape(key),
         x: group.map(c => V.value(c, x)), y: group.map(c => V.value(c, y)),
@@ -260,16 +287,16 @@
       const seriesLabel = series => {
         const held = series.held.filter(k => series.config[k] != null).map(k =>
           `${({cpu: "CPU", memory: "Mem", concurrency: "C"})[k]} ${series.config[k]}${k === "memory" ? " GiB" : ""}`);
-        return `${series.config.device} · ${held.join(" · ")}` +
+        return `${series.config.experiment_name} · ${series.config.device} · ${held.join(" · ")}` +
           (runs.length > 1 ? ` · run ${runs.indexOf(series.config.run_id) + 1}` : "") +
           (devices.filter(d => d !== "n/a").length > 1 && series.config.device === "GPU" ? ` · GPU ${devices.indexOf(series.config.gpu) + 1}` : "");
       };
-      const traces = facet.series.map((series, index) => ({type: "scatter", mode: "lines+markers",
+      const traces = facet.series.map(series => ({type: "scatter", mode: "lines+markers",
         name: escape(seriesLabel(series)),
         x: series.points.map(p => p.x), y: series.points.map(p => p.y), connectgaps: false,
         customdata: series.points.map(p => p.config.config_id), text: series.points.map(p => tooltip(p.config)),
         hovertemplate: `%{text}<br>${escape(resource)}: %{x}<br>${escape(metricTitle(metric))}: %{y}<extra></extra>`,
-        line: {color: palette[index % palette.length], dash: series.config.device === "GPU" ? "solid" : "dot"},
+        line: {color: color(series.config), dash: series.config.device === "GPU" ? "solid" : "dot"},
         marker: {size: series.points.map(p => p.config.config_id === state.selected ? 13 : 7),
           symbol: series.config.device === "GPU" ? "square" : "circle"}}));
       const hasValues = facet.series.some(s => s.points.some(p => V.finite(p.y)));
@@ -312,8 +339,8 @@
     const body = $("statistics").tBodies[0], evidence = $("statistics-evidence");
     body.replaceChildren(); evidence.replaceChildren();
     const metric = $("statistics-metric").value;
-    $("statistics-confidence").textContent = [...new Set(statistics.map(report => report.parameters.confidence * 100))].join(" / ") + "% 置信区间";
-    for (const report of statistics) {
+    $("statistics-confidence").textContent = [...new Set(data.window_statistics.map(report => report.parameters.confidence * 100))].join(" / ") + "% 置信区间";
+    for (const report of data.window_statistics) {
       const groups = report.groups.filter(group => visible.has(group.config_id) && (!metric || group.metric === metric));
       if (!groups.length) continue;
       for (const group of groups) {
@@ -339,6 +366,12 @@
         body.append(row);
       }
       evidence.append(statisticsEvidence(report));
+    }
+    for (const config of configs.filter(config => config.statistics_status === "not_computed")) {
+      const row = element("tr"); row.dataset.statConfigId = config.config_id; row.onclick = () => selectConfig(config);
+      for (const cell of [label(config), metric || "—", "—", "未计算 / Not computed", "未计算 / Not computed",
+        String(config.valid_windows), "CSV 仅作描述性汇总 / CSV summaries are descriptive"]) row.append(element("td", cell));
+      body.append(row);
     }
     $("statistics-empty").hidden = body.rows.length > 0;
   }
@@ -373,8 +406,15 @@
   }
   function drawQuality(configs) {
     $("quality-content").replaceChildren();
+    for (const config of configs.filter(config => config.statistics_status === "not_computed")) {
+      const article = element("article", undefined, "statistics-source");
+      article.append(element("h3", fullLabel(config)), element("p", "元数据缺失，严格统计未计算 / Missing metadata; strict statistics not computed"),
+        element("pre", JSON.stringify({source:config.source, status:config.status, valid_windows:config.valid_windows,
+          excluded_rows:config.excluded_rows, quality_status:config.quality_status, reasons:config.quality_reasons}, null, 2)));
+      $("quality-content").append(article);
+    }
     const visible = new Set(configs.map(config => config.config_id));
-    for (const report of statistics) {
+    for (const report of data.window_statistics) {
       const groups = report.groups.filter(group => visible.has(group.config_id));
       if (!groups.length) continue;
       $("quality-content").append(statisticsEvidence(report));
@@ -386,11 +426,17 @@
       $("quality-content").append(details);
     }
   }
+  let chartsDirty = false;
   async function draw() {
+    if (chartsDirty) {
+      for (const chart of document.querySelectorAll(".js-plotly-plot")) Plotly.purge(chart);
+      $("scaling-charts").replaceChildren(); $("cross-model-charts").replaceChildren();
+      chartsDirty = false;
+    }
     const configs = filtered();
     const purpose = $("comparison-purpose").value;
     const baseline = data.configs.find(config => config.config_id === $("baseline").value);
-    const comparison = V.comparisonContext(baseline, purpose, data.baseline_comparisons);
+    const comparison = V.comparisonContext(baseline, purpose, data.baseline_comparisons, registry);
     const qualifications = configs.map(config => comparison.qualification(config));
     $("comparison-note").textContent = `用途：${purpose} · ` + ["descriptive", "compatible", "incompatible", "unknown"]
       .map(status => `${status}: ${qualifications.filter(item => item.status === status).length}`).join(" · ") +
@@ -415,6 +461,7 @@
     else if (state.view === "experiments") await experiments.draw(configs);
     else if (state.view === "overview") drawOverview(configs);
     else drawQuality(configs);
+    window.ACProfI18n.apply($("language").value);
     document.body.dataset.ready = "true";
   }
   let pending = Promise.resolve();
@@ -425,7 +472,30 @@
       $("error").textContent = "视图生成失败：" + error.message;
     }).finally(() => { document.body.dataset.busy = "false"; });
   }
-  const experiments = window.ACProfExperiments({data, $, V, element, option, fmt, metricTitle, plot, axis, schedule, filtered, escape});
-  window.ACProfExport({data, $, V, state, filtered, experiments});
+  const experiments = window.ACProfExperiments({data, $, V, element, option, fmt, metricTitle, plot, axis, schedule, filtered, escape, color, selectConfig});
+  const getState = () => ({...state, controls:Object.fromEntries([...document.querySelectorAll("select")].map(select =>
+    [select.id, [...select.selectedOptions].map(option => option.value)])), evidenceOpen:$("quality-evidence").open});
+  const refresh = () => {
+    chartsDirty = true; refreshFilters(); refreshSources(); experiments.refresh();
+    const metric = $("statistics-metric").value;
+    $("statistics-metric").replaceChildren(); option($("statistics-metric"), "", "全部统计指标");
+    for (const name of new Set(data.window_statistics.flatMap(report => report.groups.map(group => group.metric)))) option($("statistics-metric"), name, metricTitle(name));
+    $("statistics-metric").value = metric;
+  };
+  window.ACProfExperimentManager({workspace, $, element, option, refresh, schedule, state, getState, template});
+  window.ACProfExport({data, $, V, state, filtered, experiments, workspace});
+  $("language").onchange = schedule;
+  if (restored?.state) {
+    for (const [id, values] of Object.entries(restored.state.controls || {})) {
+      const select = $(id);
+      if (select?.tagName === "SELECT" && Array.isArray(values)) {
+        for (const option of select.options) option.selected = values.includes(option.value);
+        if (id === "experiment-left") experiments.refresh();
+      }
+    }
+    for (const key of ["view", "selected", "sort", "descending"]) if (Object.hasOwn(restored.state, key)) state[key] = restored.state[key];
+    $("quality-evidence").open = Boolean(restored.state.evidenceOpen);
+    for (const button of document.querySelectorAll("[data-view]")) button.setAttribute("aria-pressed", String(button.dataset.view === state.view));
+  }
   schedule();
 })();
