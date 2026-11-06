@@ -242,7 +242,7 @@ def _validate_interval(group, expected, bounds: tuple[float, float] | None):
         raise ValueError("invalid_confidence_interval")
     # A percentile interval for resampled means stays within the observations,
     # allowing relative roundoff without masking errors in tiny-valued metrics.
-    if not expected["reason"] and (
+    if low is not None and high is not None and (
         bounds is None
         or low < bounds[0] and not math.isclose(low, bounds[0], rel_tol=1e-12, abs_tol=0)
         or high > bounds[1] and not math.isclose(high, bounds[1], rel_tol=1e-12, abs_tol=0)
