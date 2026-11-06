@@ -220,7 +220,7 @@ Torch 与 NCU 共用该次解析，但各行仍以自己的延迟计算速率，
 
 ## TUI 与兼容维护
 
-统一 HTML 工作流的参数与底栏生成保留在“分析报告”。其中 `html-report-panel` 和 `analysis-details` 按用户要求整体隐藏并禁用，保留报告状态、控件、统计、JSON 读取及 CSV / JSON 导出后端绑定；采用 [Textual 的 `display: none`](https://github.com/Textualize/textual/blob/main/docs/styles/display.md) 释放布局空间，并禁用 [Collapsible](https://github.com/Textualize/textual/blob/v8.2.8/src/textual/widgets/_collapsible.py) 标题与子控件焦点，不新增依赖。旧 `exports-view` 仅保留隐藏兼容占位，内部跳转重定向。“比较”页 `comparison-view` 已隐藏并禁用，保留控件与后端绑定，键盘导航、内部跳转及子控件焦点不会重新显示它；CLI 与 HTML 比较能力保留。隐藏实现沿用 [Textual 的标签与页面禁用机制](https://github.com/Textualize/textual/blob/main/src/textual/widgets/_tabbed_content.py)。主动隐藏内容遵守以下暂停规则。
+统计参数迁至 HTML 后，“分析报告”只提供实验选择、底栏生成，以及 `html-report-panel` 中的状态、路径和打开操作。五个参数输入框已删除；TUI 生成显式使用默认 Bootstrap 参数，CLI 高级参数保留。旧 HTML 操作放入隐藏并禁用的 `html-legacy-controls`，`analysis-details` 继续隐藏并禁用；统计、JSON 读取及 CSV / JSON 导出后端绑定保留。采用 [Textual 的 `display: none`](https://github.com/Textualize/textual/blob/main/docs/styles/display.md) 释放布局空间，并禁用 [Collapsible](https://github.com/Textualize/textual/blob/v8.2.8/src/textual/widgets/_collapsible.py) 标题与子控件焦点，不新增依赖。旧 `exports-view` 仅保留隐藏兼容占位，内部跳转重定向。“比较”页 `comparison-view` 已隐藏并禁用，保留控件与后端绑定，键盘导航、内部跳转及子控件焦点不会重新显示它；CLI 与 HTML 比较能力保留。隐藏实现沿用 [Textual 的标签与页面禁用机制](https://github.com/Textualize/textual/blob/main/src/textual/widgets/_tabbed_content.py)。本次用户要求的选择、生成、打开流程已恢复，其余主动隐藏内容继续遵守以下暂停规则。
 
 已主动隐藏的 TUI 页面、入口和控件暂停维护与优化，直到用户明确要求恢复。
 暂停范围包括这些入口专用的布局、交互、文案与实现，不自动扩展、重构或恢复显示。

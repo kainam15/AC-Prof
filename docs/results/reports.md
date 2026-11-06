@@ -8,7 +8,7 @@
 
 PNG 的适用数值曲线、指标概览和 Process 输入尺度图复用 `analysis.uncertainty.summarize_windows`，
 按资源、输入尺度、环境和运行时身份筛选 `status=ok,warmup=0` 窗口，等权计算均值与标准差。
-95% within-run percentile bootstrap 使用 5000 次重采样、seed=0、block-size=1，与 TUI 默认窗口统计一致。
+95% within-run percentile bootstrap 使用 5000 次重采样、seed=0、block-size=1，与 HTML 默认窗口统计一致。
 曲线保留均值点，置信带及竖线表示区间；有效窗口不足三个或无有效数据时不伪造区间，缺失尺度不连成完整观测。
 仅在一次绘图调用内复用包含实际观测和身份的统计缓存；重新生成图表会重新读取数据。
 
@@ -248,7 +248,7 @@ input case、experiment batch 和环境筛选；点击表格行或图中点后�
 
 分析包包含 `analysis_contract.version=1`、配置、Metric Registry（单位／聚合方式／方向）、
 来源指纹、元数据、质量、比较条件、窗口统计与独立比较结果。`statistics_engine` 区分
-`python`、`not_computed`、`mixed`。Python 通过 `report_payload()` 生成该契约；旧版 HTML
+`python`、`browser`、`not_computed`、`mixed`。Python 通过 `report_payload()` 生成该契约；旧版 HTML
 没有 `kind` 或契约标签时按既有 schema v1 读取，但仍须通过字段与指标口径校验。
 导入不会重新读取原始文件或重新审计运行环境，记录的 SHA256 是来源标识，不是数字签名。
 
@@ -257,17 +257,18 @@ input case、experiment batch 和环境筛选；点击表格行或图中点后�
 - 内容与运行身份用于发现重复或冲突；不同已记录运行可以有相同测量值，不能仅凭相等结果认定重复或独立。
 - 导入后的来源与配置标识按实验身份隔离：不同已记录运行即使路径和 CSV 内容相同，也保留各自的统计、比较选择与导出关联。原始路径和配置 ID 另行保留，保存会话或再次导入不会叠加标识前缀；缺失 run ID 时仍不能据此推断独立运行。
 - 已有 Python 条件 profile 复用同一检查规则，区分 `compatible`、`incompatible`、`unknown`，原始单来源资源比较保留 `descriptive`。CSV-only 缺失证据保持 `unknown`，只提供明确标注的描述性差值；已知输入、资源或测量条件冲突暂停差值。
-- 延迟／吞吐等按成功窗口等权汇总，峰值取最大值，energy/request 按请求数加权，cold start 按启动身份去重；定义沿用上文。浏览器不计算标准差、Bootstrap、显著性或独立运行判定。
+- 延迟／吞吐等描述性结果按成功窗口等权汇总，峰值取最大值，energy/request 按请求数加权，cold start 按启动身份去重；定义沿用上文。CSV-only 导入不估计区间；带 Python 核验窗口的报告可按下述口径重算标准差与 Bootstrap。浏览器不推断独立运行身份或额外执行显著性检验。
 - 实验对照按输入规模、设备与资源配置匹配；`resource-scaling` 可并列不同 CPU／内存配额。不同条件不会自动进入 Pareto 优选；多个资源同时变化不支持单因素归因。
 - 统一筛选增加实验名称、硬件和输入规模；各图表使用一致的实验颜色。`重置筛选` 保留当前配置 Baseline，`恢复默认基线` 返回报告原始设置。
 - `导出 CSV / JSON` 遵循当前视图及筛选；JSON 同时携带可重新导入的分析包。过滤不重新估计 CI，不把独立组的部分配置伪装成新的正式统计。CSV 对可能触发电子表格公式的文本加前缀，数值与原始 JSON 不改变。
-- `另存自包含 HTML` 保存全部已加载实验、筛选、指标、视图、选中配置、基线／对照和语言。重新打开恢复相同数据与可比性，原始内嵌数据保持原样；新增实验仍可删除。
+- `另存自包含 HTML` 保存全部已加载实验、筛选、指标、视图、选中配置、基线／对照、语言及已完成的重算结果。重新打开或导入该 HTML 保留当前统计与可比性，原始内嵌数据保持原样；新增实验仍可删除。超预算的外部窗口文件不会重新内嵌，下次重算仍需导入该文件。
 
 CSV 按 256 KiB 块读取并在块间让出浏览器事件循环，不保留全部原始行；未完成行缓存设 8 Mi 字符保护阈值。
 JSON／HTML 采用整体解析，单文件上限 128 MiB。取消尚未完成的文件不留下部分实验，
 同一批次之前成功加入的文件保留。脚本、图表库、解析器和许可全部内嵌，`file://` 下不请求 CDN、
-服务器或外部 API。浏览器临时比较不是新生成的 Python 正式统计；严格分析仍通过
-`acprof report --left RUN --right RUN` / `acprof compare` 生成，再导入含该结果的 HTML。
+服务器或外部 API。浏览器结果标记为浏览器计算。新增独立运行分组及其严格条件检查仍通过
+`acprof report --left RUN --right RUN` / `acprof compare` 完成，再导入含该结果的 HTML；
+浏览器可以调整已核验分组的 Bootstrap 参数，不把临时 CSV 对比升级为已核验的独立运行分析。
 
 解析器采用固定版本 [Papa Parse 5.5.3](https://github.com/mholt/PapaParse/tree/5.5.3)，
 分块 SHA256 使用 [js-sha256 0.11.1](https://github.com/emn178/js-sha256/tree/v0.11.1)，两者为 MIT。
@@ -279,6 +280,53 @@ CSV 文本导出参考 [PR #1149](https://github.com/mholt/PapaParse/pull/1149) 
 本功能的自动化证据为 Linux headless Chrome、离线 `file://`、中英文及窄窗口交互；
 Windows Edge／Chrome 的实际桌面操作仍需在目标平台验收。分块测试与重复导入删除检查不等同于
 任意大小数据的性能或长期内存稳定性承诺。
+
+#### HTML 统计参数与离线重算
+
+TUI 只需选择实验、生成并打开报告。进入 HTML 的“窗口统计”，展开“统计参数”，
+多选延迟、吞吐量、能耗等已记录指标后点击“重新计算”。默认指标为 `latency_app_s`、
+`latency_s`、`container_attributed_energy_eff_j`，置信水平为 95%，Bootstrap 为 5000 次。
+置信水平可选 90%、95%、99%，次数可选 1000、5000、10000；高级设置中的 Seed 默认为 0，
+窗口块大小默认为 1。Seed 接受 JavaScript 安全整数范围内的正负整数，块大小须为正整数。
+CLI 的高级参数和已有自动化调用保持兼容。
+
+Python 的 `analysis/uncertainty.py` 是统计定义的权威来源。生成报告时复用其有效窗口筛选，
+排除预热、失败／警告和推断行；按实验来源、模型、资源、运行环境和输入规模保留原有分组。
+内嵌数值与 repeat 索引来自同一份只读快照，缺失指标保留 `null`、数量和原因，不能补成零。
+浏览器按相同定义计算均值、样本标准差（ddof=1）和线性插值的 percentile Bootstrap 区间：
+块大小 1 为普通 Bootstrap，更大的块使用循环移动块。0 个有效窗口无均值，1 个无标准差，
+少于 3 个无区间；块方法还要求至少 `3 × block_size` 个有效窗口、无缺失且索引连续。
+有效窗口不足、缺失和不连续分别保留 Python 的不可计算原因；窗口数仍不是独立运行数。
+
+计算分批让出事件循环，显示进度并支持取消；参数无效、数据错误或取消时保留上次完整结果。
+完成后同时更新窗口统计表、均值与区间图，以及当前筛选对应的 CSV／JSON。
+“恢复默认参数”只恢复输入，点击重算后才应用；“恢复初始结果”恢复该报告最初的统计与参数。
+来源区区分“复用 Python 缓存”“Python 预计算”“浏览器重新计算”，导出保留参数、来源 SHA256、
+方法、`engine` 和 `rng`。只有来源与数值参数匹配、所选指标已具备时才复用初始 Python 结果；
+参数变化不会误用旧区间。TUI 显式传入默认参数；CLI 未指定参数时的历史缓存兼容规则不变。
+
+所有来源共用 **8 MiB 的内嵌原始窗口数据预算**，这不是整个 HTML 的大小上限。
+超出预算时初始统计仍可查看，报告旁新建 `报告名.windows-N.json`，HTML 明确提示文件名。
+在“统计参数”选择该文件即可通过来源哈希和完整内容 SHA256 校验后离线重算；
+文件不匹配会拒绝且不改当前结果。单个导入文件上限为 128 MiB，更大的输入使用 Python CLI。
+HTML、脚本、图表库和已完成结果仍可单文件离线查看；超预算输入只在重新计算时需要外部 JSON，
+无需服务器或 CDN，也不修改已有实验文件。旧 HTML 缺少核验窗口时应通过 Python 重新生成。
+
+“实验对照”复用置信水平、Bootstrap 次数和 Seed，独立实验比较始终按独立运行均值抽样，
+不继承窗口块大小。保留 Python 已核验的分组、可比性、数据质量与每侧至少三次有效运行的要求。
+尚未由 Python 核验的指标明确列为不可用；选择更多指标不会自动扩展严格比较的条件检查。
+
+随机数实现采用与 CPython 整数 Seed 兼容的 MT19937、`randrange` 和 53 位浮点抽样，
+标识为 `python_random_mt19937`。固定数据、正负及大整数 Seed 的测试对照 Python，
+均值、标准差、窗口及独立运行区间使用相对／绝对 `1e-12` 容差；浮点求和实现仍可能产生舍入差异，
+不承诺任意数据的逐位一致或真实硬件的科研级重复性。
+
+实现参考 [SciPy 的分批 Bootstrap](https://github.com/scipy/scipy/blob/main/scipy/stats/_resampling.py)
+和 [内存讨论 #14645](https://github.com/scipy/scipy/issues/14645)（BSD-3-Clause），
+避免创建重采样次数乘窗口数的矩阵；对照
+[CPython `_randommodule.c`](https://github.com/python/cpython/blob/3.12/Modules/_randommodule.c)
+与 [random-js 的整数运算](https://github.com/ckknight/random-js/blob/master/src/engine/MersenneTwister19937.ts)
+（MIT）实现短小的兼容随机源，并保留 MT19937 的 BSD 许可。没有引入第二套统计库、npm 运行时或测量阶段依赖。
 
 #### HTML 窗口统计与 JSON 复用
 

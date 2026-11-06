@@ -45,8 +45,8 @@ uv run python scripts/render_tui_png_report.py
 ACPROF_PNG_VISUAL=1 uv run pytest tests/visual_png -v
 ```
 
-默认结果为 `internal-testing/shared/tui-png/` 下的 6 张 PNG；其中 `form-small` 使用 **80×24**，其他场景使用 **120×36**，目录已由 Git 忽略。
-所有场景使用固定字体、16 px 字体大小、中文语言、
+默认结果为 `internal-testing/shared/tui-png/` 下的 8 张 PNG；其中 `form-small`、`statistics` 和 `statistics-en` 使用 **80×24**，其他场景使用 **120×36**，目录已由 Git 忽略。
+所有场景使用固定字体、16 px 字体大小；`statistics-en` 使用英文，其余使用中文，
 Graphite 主题、UTC、固定测试数据与隔离的临时 HOME/缓存。
 测试夹具还将环境身份固定模拟为 `Native Linux / FULL`，避免 CI 虚拟机的实际身份引入 PNG 差异。
 该模拟仅在测试夹具进程中生效，不修改正式运行时的环境检测。
@@ -100,7 +100,7 @@ VHS 只操作该测试应用，没有向 AC-Prof CLI 添加截图选项。
 
 ```bash
 uv run python scripts/capture_tui_png.py --all --output internal-testing/shared/tui-png/candidates
-# 仔细人工审查全部 6 张 PNG，不应包含中文重叠/边框缺口
+# 仔细人工审查全部 8 张 PNG，不应包含中文重叠/边框缺口
 cp internal-testing/shared/tui-png/candidates/*.png tests/visual_png/__snapshots__/
 ACPROF_PNG_VISUAL=1 uv run pytest tests/visual_png -v
 ```

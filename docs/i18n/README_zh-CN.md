@@ -15,9 +15,9 @@ AC-Prof 用于分析 AI 模型在不同 CPU、内存、GPU 配置和输入规模
 | 完整画像   | 能耗、抓包计时、CPU 硬件计数器，以及按需启用的独立 Profiler |
 | 可复现实验 | 输入与环境元数据、分层 CSV 结果、图表和报告                 |
 
-[离线 HTML 报告](../results/reports.md#交互式配置比较报告)是统一分析入口。一份 `result_all.csv` 即可比较 CPU、内存和 GPU 配置并查看实验内窗口统计；显式独立运行分组复用原有身份与条件检查，每侧至少三次有效独立运行才估计 Bootstrap 置信区间。多个模型可以并列展示，并提示任务与输入的可比性限制。Python 负责严格统计并复用匹配的统计 JSON，离线浏览器负责筛选、图表与描述性差异计算。历史 CSV 无需补造运行身份或重新采集。实验完成后（含 `--resume`）也会在 `plots/analysis/` 生成新报告。
+[离线 HTML 报告](../results/reports.md#交互式配置比较报告)是统一分析入口。一份 `result_all.csv` 即可比较 CPU、内存和 GPU 配置并查看实验内窗口统计；显式独立运行分组复用原有身份与条件检查，每侧至少三次有效独立运行才估计 Bootstrap 置信区间。多个模型可以并列展示，并提示任务与输入的可比性限制。Python 定义统计口径、核验有效窗口并生成初始结果或复用匹配的统计 JSON；离线浏览器可按该口径重新计算，记录参数与来源。历史 CSV 无需补造运行身份或重新采集。实验完成后（含 `--resume`）也会在 `plots/analysis/` 生成新报告。
 
-打开报告后点击“添加实验”，即可导入本地 CSV、AC-Prof HTML 或分析 JSON，选择基线和对照，导出筛选后的 CSV / JSON，或将当前会话另存为自包含 HTML。只有 CSV 的导入保持可比性未知，不生成置信区间。
+打开“窗口统计 → 统计参数”，可多选指标、置信水平（90%、95%、99%）和 Bootstrap 次数（1000、5000、10000）；Seed 与窗口块大小放在高级设置中。重新计算、取消、恢复默认参数或恢复初始结果均无需返回 TUI。“添加实验”支持本地 CSV、AC-Prof HTML 或分析 JSON。图表与 CSV / JSON 导出使用当前结果和筛选，另存 HTML 保留当前会话。只有 CSV 的导入保持可比性未知，不生成置信区间。超出 8 MiB 内嵌窗口数据预算的报告提供带哈希校验的 JSON 文件供离线导入，详见[统计参数与离线重算](../results/reports.md#html-统计参数与离线重算)。
 
 ```bash
 acprof report result_all.csv --output resources.html
@@ -26,7 +26,7 @@ acprof compare --left run-a/ --right run-b/ --html-output comparison.html \
   --output comparison.json --csv-output comparison.csv
 ```
 
-重复 `--left` 和 `--right` 可添加独立重复实验。每侧只有一次运行时展示描述性差值与比值，不生成运行级区间。TUI 的“实验结果 → 分析报告”统一提供输入、参数和底栏 HTML 生成。“交互式 HTML 报告”“统计数据与导出”区域和“比较”页面已隐藏，统计、导出与比较后端及 CLI、HTML 能力保留。
+重复 `--left` 和 `--right` 可添加独立重复实验。每侧只有一次运行时展示描述性差值与比值，不生成运行级区间。TUI 的“实验结果 → 分析报告”负责选择实验、生成和打开 HTML；统计参数、图表、比较与导出在 HTML 中完成。CLI 保留高级统计参数；旧 TUI 统计、比较、导入导出和 PNG 控件保持隐藏，后端能力保留。
 
 `acprof load --base-url` 可测量已启动的 OpenAI-compatible 流式服务。显式并发数、到达率列表支持 `--dry-run` 计划预览，每个负载点分别保留报告；详见[多负载点编排](../profiling/streaming.md#多负载点编排)。`acprof report <sweep.json>` 可生成[离线吞吐与时延曲线](../results/reports.md#多负载点流式容量报告)，保留条件分组、失败点和缺失证据。可选的 [vLLM／SGLang 身份探测](../profiling/streaming.md#服务身份)分别保留服务观测与用户声明。显式选择 `vllm-config` 可从已开放的开发端点读取部分引擎配置，SGLang 也记录部分启动配置。
 
