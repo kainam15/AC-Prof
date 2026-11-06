@@ -1,11 +1,11 @@
 """Connection settings use an isolated project and never send notifications."""
 import os
-import xml.etree.ElementTree as ET
 from contextlib import nullcontext
 from dataclasses import replace
 from functools import partial
 from pathlib import Path
 from unittest.mock import patch
+from xml.etree.ElementTree import fromstring
 
 import pytest
 from rich.cells import cell_len
@@ -292,13 +292,14 @@ class TestTuiEnvironment:
                 assert await pilot.click('#save-environment-settings')
                 await pilot.pause()
             status = screen.query_one('#environment-save-status', Static)
-            assert isinstance(status.content, str)
-            assert 'file sync failed' in status.content
-            assert 'temporary unlink failed' in status.content
-            assert 'hf_testonly' not in status.content
+            failure_text = status.content
+            assert isinstance(failure_text, str)
+            assert 'file sync failed' in failure_text
+            assert 'temporary unlink failed' in failure_text
+            assert 'hf_testonly' not in failure_text
             assert status.display
             assert status.region.height > 0
-            visible = ''.join(ET.fromstring(app.export_screenshot()).itertext()).replace('\N{NO-BREAK SPACE}', ' ')
+            visible = ''.join(fromstring(app.export_screenshot()).itertext()).replace('\N{NO-BREAK SPACE}', ' ')
             assert 'file sync failed' in visible
             assert 'temporary unlink failed' in visible
             assert not (self.root / '.env.local').exists()
@@ -318,7 +319,9 @@ class TestTuiEnvironment:
             load_project_env(self.root, environ=loaded)
             assert loaded['HF_TOKEN'] == 'hf_testonly'
             assert os.environ['HF_TOKEN'] == 'hf_testonly'
-            assert 'file sync failed' not in str(status.content)
+            saved_text = status.content
+            assert isinstance(saved_text, str)
+            assert 'file sync failed' not in saved_text
             await pilot.press('escape')
             await pilot.pause()
             assert not app.is_busy()

@@ -58,7 +58,7 @@ def fail_temp_cleanup(monkeypatch, error):
     def unlink(path, *args, **kwargs):
         if Path(path).name.startswith(".env.local.") and str(path).endswith(".tmp"):
             raise error
-        return original(path, *args, **kwargs)
+        original(path, *args, **kwargs)
 
     monkeypatch.setattr(os, "unlink", unlink)
 
@@ -103,14 +103,14 @@ def test_open_failure_closes_raw_descriptor(tmp_path, monkeypatch, error_type, c
         assert_descriptor_closed(descriptors[0])
     finally:
         # Reclaim the known descriptor when exercising the original leaking code.
-        for descriptor in descriptors:
+        for cleanup_descriptor in descriptors:
             try:
-                os.fstat(descriptor)
+                os.fstat(cleanup_descriptor)
             except OSError as error:
                 if error.errno != errno.EBADF:
                     raise
             else:
-                os.close(descriptor)
+                os.close(cleanup_descriptor)
 
 
 @pytest.mark.parametrize("error_type", [OSError, KeyboardInterrupt])
@@ -181,7 +181,7 @@ def test_publish_failure_preserves_existing_config_and_environment(tmp_path, mon
     def replace(source, destination, *args, **kwargs):
         if Path(destination).name == failed_target:
             raise primary
-        return original_replace(source, destination, *args, **kwargs)
+        original_replace(source, destination, *args, **kwargs)
 
     monkeypatch.setattr(os, "replace", replace)
     fail_temp_cleanup(monkeypatch, PermissionError("temporary unlink failed"))
@@ -216,7 +216,7 @@ def test_directory_sync_failure_retains_published_file_and_primary_error(tmp_pat
             if stage == "backup" or "hf_testonly" in target.read_text():
                 failed_descriptors.append(descriptor)
                 raise primary
-        return original_sync(descriptor)
+        original_sync(descriptor)
 
     def close(descriptor):
         original_close(descriptor)
