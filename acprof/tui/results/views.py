@@ -27,7 +27,6 @@ def compose_results_tab(app: AcprofTui) -> ComposeResult:
     local = app.localization.localized_widget
     with TabPane("实验结果", id="results-tab"):
         with Vertical(id="result-source-header", classes="page-header"):
-            yield local(Static(message_id('results.selection.no_results'), id='report-experiment', markup=False))
             with Horizontal(classes="path-picker-row"):
                 yield local(Input(app.configuration.saved_settings.last_result_csv, id="result-csv",
                                   placeholder=message_id("results.input.source_hint")))
