@@ -14,6 +14,7 @@ from typing import Any
 from uuid import uuid4
 
 from acprof.artifacts import atomic_write_json, read_input_scale_plan
+from acprof.cli.load_evidence import load_phase, publish_load_report
 from acprof.host.detect import TaskInfo
 from acprof.host.env_utils import bootstrap_project_env
 from acprof.host.execution_conditions import ExecutionConditions
@@ -182,8 +183,7 @@ def main(argv=None):
               "successful": False, "status": "running", "identity": identity,
               "identity_sha256": hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest(),
               "host": host_identity(resource_root()), "scope": "HTTP load; no energy or profiler metrics; not formal experiment result layers"}
-    atomic_write_json(output / "load.json", report)
-    try:
+    with publish_load_report(output / "load.json", report):
         with MeasurementLock():
             image = runtime.restore(snapshot["image"], output_dir=output)
             process_gpu = image.runtime_environment.get("gpu_device", {}) if runtime.kind == "process" else None
@@ -195,27 +195,23 @@ def main(argv=None):
                     record_case_conditions(output, case_id, session, cpuset_cpus=conditions.cpuset_cpus)
                     report["gpu_device"] = session.gpu_device
                     if args.warmup:
-                        warmup = run_load(session.base_url, entry["payload"],
-                                          LoadConfig(requests=args.warmup, timeout_seconds=conditions.request_timeout_seconds), token="warmup")
-                        if not warmup["successful"]:
-                            raise RuntimeError("load warmup failed")
+                        with load_phase(report, "warmup"):
+                            report["warmup"] = run_load(
+                                session.base_url, entry["payload"],
+                                LoadConfig(requests=args.warmup, timeout_seconds=conditions.request_timeout_seconds), token="warmup",
+                            )
+                            if not report["warmup"]["successful"]:
+                                raise RuntimeError("load warmup failed; inspect load.json warmup records")
                     from contextlib import nullcontext
                     pcap = output / "load.pcap"
                     port = session.host_port if runtime.kind == "process" else 8002
                     with capture_packets(pcap, interface=options["sniff_iface"], port=port) if capture else nullcontext():
-                        report["result"] = run_load(session.base_url, entry["payload"], config, token=report["run_id"])
+                        with load_phase(report, "result"):
+                            report["result"] = run_load(session.base_url, entry["payload"], config, token=report["run_id"])
                     if capture:
                         report["packet_validation"] = validate_packets(pcap, report["result"], port=port)
                 finally:
                     runtime.stop(session, log_prefix="[load]")
         report.update(successful=report["result"]["successful"], status="complete")
-    except BaseException as error:
-        if hasattr(error, "load_report"):
-            report["result"] = error.load_report
-        report.update(successful=False, status="cancelled" if isinstance(error, KeyboardInterrupt) else "failed",
-                      error=f"{type(error).__name__}: {error}")
-        raise
-    finally:
-        atomic_write_json(output / "load.json", report)
     print(f"负载实验：{output / 'load.json'}；成功率 {report['result']['success_rate']:.1%}")
     return 0 if report["successful"] else 1

@@ -175,6 +175,17 @@ blocked/unknown 暂停默认自动优选，但数值观测和描述统计仍保�
 `acprof load` 输出 `load.json`（`nonstream_load_experiment`，schema v1），内嵌
 `nonstream_load_result`。协议与命令见[独立负载协议](../profiling/lifecycle.md#独立非流式负载)。
 
+两种独立 load 报告均将预热写入 `warmup`，正式负载写入 `result`；未开始的阶段不生成请求记录。
+阶段抛出异常时，先将已有部分证据记入内存报告，再执行外层抓包、服务和测量锁清理；
+`phase_errors.<warmup|result>` 保存 `exception_type` 和含异常 notes 的 `detail`。
+清理失败仍向外传播，顶层 `error`／`status` 表示最终退出原因，阶段错误与请求证据保留在各自字段。
+这些是原 schema 的可选补充字段，历史报告缺失时不补造预热或阶段错误。
+
+报告在负载启动前和退出时原子写入。最终写入发生普通异常时，有活动异常就保留它并附加写失败 note，
+否则直接抛出写失败；若写入期间取消，则沿用清理工具的取消优先规则，保留此前错误的异常链和 notes。
+这些情况均不打印成功率或成功退出。磁盘上可能仅保留初始 `running` 报告，
+不能据此推断实验仍在运行或终态已持久化；此时应结合命令异常诊断。
+
 新的回放身份包含 `runtime_kind` 与 `runtime_id`，分别记录 Docker 不可变镜像 ID 或 Process
 环境与模型的组合身份；Docker 继续保留 `image_id`。旧 Docker 报告缺少新字段时不补造观测。
 Process 继承限制的 `cpu_cores`／`mem_cap_gb` 为 `null`，不表示零配额；实际资源观测另存硬件条件文件。

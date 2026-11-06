@@ -238,12 +238,16 @@ Decode 阶段吞吐、`1 / TPOT` 或每秒峰值。
 | SSE JSON 含孤立 Unicode 代理 | `invalid_unicode`，请求及实验失败，最终 `load.json` 仍可发布 |
 | 超过 run 级字节／事件硬预算 | 对应 run limit 错误，不发送后续请求，实验不成功 |
 | 读取无进展 | timeout，保留已收到的输出事件 |
-| 用户中断 | cancelled，终止活动连接，保留部分报告 |
+| 用户中断 | cancelled，终止活动连接，保留当前阶段的部分报告；后续清理失败仍报错 |
 | 不支持的多选择、tool/function、无效计数 | 明确失败或明确不可用，不静默替换 |
 | 无 Token 计数证据／非逐 Token 流 | 相应指标 `null`，记录缺失原因 |
 
 request JSON 中的孤立代理会在联网和创建输出前拒绝；probe 中的同类文本按端点失败处理，
 不进入身份产物。合法 surrogate pair 与正常 Unicode 不受此限制。
+
+预热和正式负载的部分证据分别位于 `warmup`／`result`，在外层清理前记入内存报告；阶段异常另存
+`phase_errors`，不被后续清理错误覆盖。最终报告写入发生普通异常时保留活动异常并附加写失败诊断，
+磁盘文件可能仍是初始 `running` 状态。字段及发布边界见[负载报告](../results/comparisons.md#非流式负载报告)。
 
 新运行使用独立的 `stream_load_experiment`／`stream_load_result` schema v2 并保存到新输出目录；
 容量报告只读兼容 v1，缺少的 SLO、Token 吞吐和服务身份显示 unavailable，不回填为零或改写历史文件。

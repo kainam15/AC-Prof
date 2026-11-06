@@ -14,7 +14,8 @@ from urllib.parse import urlsplit
 from uuid import uuid4
 
 from acprof.analysis.streaming_capacity import normalize_slo_thresholds
-from acprof.artifacts import atomic_write_json, read_json_object
+from acprof.artifacts import read_json_object
+from acprof.cli.load_evidence import load_phase, publish_load_report
 from acprof.host.measurement.load import LoadConfig, run_load
 from acprof.host.measurement.service_identity import initial_service_identity, probe_service
 from acprof.host.run_state import MeasurementLock, host_identity
@@ -255,9 +256,7 @@ def run_streaming_load(args: argparse.Namespace, parser: argparse.ArgumentParser
         "host": host_identity(resource_root()),
         "scope": "client HTTP streaming latency; external service; no GPU energy, profiler or managed runtime measurements",
     }
-    atomic_write_json(output / "load.json", report)
-    phase = "warmup"
-    try:
+    with publish_load_report(output / "load.json", report):
         with MeasurementLock():
             report["service_identity"] = probe_service(
                 origin, declared_service, service_probe,
@@ -265,28 +264,18 @@ def run_streaming_load(args: argparse.Namespace, parser: argparse.ArgumentParser
             )
             if args.warmup:
                 warmup_config = LoadConfig(requests=args.warmup, timeout_seconds=config.timeout_seconds)
-                report["warmup"] = run_load(
-                    origin, payload, warmup_config, token="warmup", adapter=adapter,
-                    headers=headers, include_capacity=False,
+                with load_phase(report, "warmup"):
+                    report["warmup"] = run_load(
+                        origin, payload, warmup_config, token="warmup", adapter=adapter,
+                        headers=headers, include_capacity=False,
+                    )
+                    if not report["warmup"]["successful"]:
+                        raise RuntimeError("streaming warmup failed; inspect load.json warmup records")
+            with load_phase(report, "result"):
+                report["result"] = run_load(
+                    origin, payload, config, token=report["run_id"], adapter=adapter,
+                    headers=headers, slo_thresholds=slo_thresholds,
                 )
-                if not report["warmup"]["successful"]:
-                    raise RuntimeError("streaming warmup failed; inspect load.json warmup records")
-            phase = "result"
-            report["result"] = run_load(
-                origin, payload, config, token=report["run_id"], adapter=adapter,
-                headers=headers, slo_thresholds=slo_thresholds,
-            )
         report.update(successful=report["result"]["successful"], status="complete")
-    except BaseException as error:
-        if hasattr(error, "load_report"):
-            report[phase] = error.load_report
-        report.update(
-            successful=False,
-            status="cancelled" if isinstance(error, KeyboardInterrupt) else "failed",
-            error=f"{type(error).__name__}: {error}",
-        )
-        raise
-    finally:
-        atomic_write_json(output / "load.json", report)
     print(f"Streaming load: {output / 'load.json'}; success rate {report['result']['success_rate']:.1%}")
     return 0 if report["successful"] else 1
