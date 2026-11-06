@@ -110,7 +110,7 @@ def _validate_summary(
     config = experiment["identity"]["load_config"]
     if "requests" in config and (type(config["requests"]) is not int or config["requests"] != counts["offered"]):
         raise ValueError("stream load request budget differs from retained records")
-    expected_rates = {
+    expected_rates: dict[str, float] = {
         "success_rate": counts["succeeded"] / counts["offered"],
         "successful_requests_per_s": capacity["successful_requests_per_s"],
     }
@@ -123,9 +123,10 @@ def _validate_summary(
     for name, expected in expected_rates.items():
         value = result.get(name)
         message = f"stream load {name} is inconsistent with raw requests or duration"
-        if value is None or not isinstance(value, (int, float)) or isinstance(value, bool):
+        if not isinstance(value, (int, float)) or isinstance(value, bool):
             raise ValueError(message)
-        if value != expected or not math.isfinite(value):
+        # Compare against a finite derived rate without converting untrusted integers to float.
+        if not math.isfinite(expected) or value != expected:
             raise ValueError(message)
     _validate_completion(experiment, result, counts["succeeded"] == counts["offered"])
 
