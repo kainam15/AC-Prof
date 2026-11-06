@@ -36,12 +36,13 @@ window.ACProfImport = (() => {
       const mode = raw.gpu_mode.toLowerCase();
       const device = ["on", "1", "1.0", "true", "yes", "gpu"].includes(mode) ? "GPU" :
         ["off", "0", "0.0", "false", "no", "cpu"].includes(mode) ? "CPU" : fail(`CSV gpu_mode 无效 / Invalid gpu_mode: ${raw.gpu_mode}`);
-      const input = raw.input_case || canonical({scale:nums.input_scale, type:"unknown", task_param:text(raw.task_param),
-        batch_size:number(raw.batch_size), input_units:number(raw.input_units_per_request)});
+      const input = {scale:nums.input_scale, type:"unknown", task_param:text(raw.task_param),
+        batch_size:number(raw.batch_size), input_units:number(raw.input_units_per_request)};
+      if (raw.input_case && !["none", "null", "nan"].includes(raw.input_case.toLowerCase())) input.name = raw.input_case;
       const identity = {run_id:text(raw.run_id), model:text(raw.model || raw.model_name), runtime:text(raw.runtime || raw.runtime_backend),
         device, cpu:nums.cpu_cores, memory:nums.mem_cap_gb, gpu:device === "GPU" ? text(raw.gpu_device_uuid) : "n/a",
         concurrency:number(raw.concurrency), environment_class:["native_linux", "wsl2", "vm", "cloud", "container_host"].includes(raw.environment_class) ? raw.environment_class : "unknown",
-        task:text(raw.task), input_case:input, experiment_batch:text(raw.experiment_batch), runtime_kind:text(raw.runtime_kind),
+        task:text(raw.task), input_case:canonical(input), experiment_batch:text(raw.experiment_batch), runtime_kind:text(raw.runtime_kind),
         runtime_id:text(raw.runtime_id), resource_scope:text(raw.resource_scope)};
       const stable = {...identity}; delete stable.experiment_batch;
       const key = JSON.stringify(stable);

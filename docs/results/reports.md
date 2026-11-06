@@ -35,6 +35,10 @@ run_id, model, runtime, device, cpu, memory, concurrency, metric, value, unit
 其他值经过有限数值检查，派生能耗复用同一行已解析的 CPU、GPU 能耗和请求数。
 
 `config_id` 使用记录的 run ID 和配置条件摘要；目录名和 `experiment_batch` 展示标签不参与身份。
+命名 `input_case` 与已记录的输入尺度、尺度类型、batch size、请求输入量及任务参数共同构成输入身份；
+同名不能合并不同参数的窗口或产生资源性能比。规范化后的 `input_case` 是包含这些参数及可选 `name`
+的 JSON 字符串，原始名称仍保留在 CSV 原始行；HTML 同时显示名称和参数。Python 分析和浏览器 CSV
+导入遵循同一分组规则。此前已生成且混合了同名不同参数的报告需从原始 CSV 重新生成，旧分析包不追溯重算。
 移动或重命名原始目录不会改变配置 ID，来源路径和目录展示名仍保留。
 同时导入原件与副本时，同一记录的 `run_id + measurement_key` 明确拒绝为重复；数据或配置条件
 不同则报告内容冲突，并给出两个 CSV 的行号。旧 CSV 的内容标识仅能识别完全相同的已知内容，

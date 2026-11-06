@@ -44,13 +44,7 @@
   };
   const reasonText = reason => reasonLabels[reason] || reason;
   const reasonCounts = reasons => Object.entries(reasons || {}).map(([reason, count]) => `${reasonText(reason)} ${count}`).join(" · ");
-  const inputLabel = (input, detailed = false) => {
-    try {
-      const parsed = JSON.parse(input);
-      return `scale=${text(parsed.scale)} · batch=${text(parsed.batch_size)} · ${text(parsed.type)}` +
-        (detailed ? ` · param=${text(parsed.task_param)}` : "");
-    } catch { return input; }
-  };
+  const inputLabel = V.inputLabel;
   const label = config => `${config.experiment_name || ""} · ${config.model} · ${config.runtime} · ${config.device} · CPU ${text(config.cpu)} · ${text(config.memory)} GiB`;
   const fullLabel = config => `${label(config)} · ${inputLabel(config.input_case, true)} · ${config.run_id} · ${config.config_id.slice(-8)}`;
   function element(tag, content, className) {

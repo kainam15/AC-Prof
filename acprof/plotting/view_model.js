@@ -4,6 +4,15 @@ window.ACProfViews = (() => {
   const finite = value => typeof value === "number" && Number.isFinite(value);
   const value = (config, metric) => config.metrics[metric]?.value ?? null;
   const key = values => JSON.stringify(values);
+  function inputLabel(input, detailed = false) {
+    const text = value => value == null ? "unknown" : String(value);
+    try {
+      const parsed = JSON.parse(input);
+      return (parsed.name ? `${text(parsed.name)} · ` : "") +
+        `scale=${text(parsed.scale)} · batch=${text(parsed.batch_size)} · ${text(parsed.type)}` +
+        (detailed ? ` · param=${text(parsed.task_param)} · units=${text(parsed.input_units)}` : "");
+    } catch { return input; }
+  }
   function cohort(config, purpose = "same-hardware") {
     if (purpose === "within-experiment") purpose = "resource-scaling";
     const profile = config.comparison_profiles?.[purpose];
@@ -202,5 +211,5 @@ window.ACProfViews = (() => {
       series: [...facet.series.values()].map(series => ({...series,
         points: series.points.sort((a, b) => a.x - b.x)}))}));
   }
-  return {finite, value, cohort, compareProfiles, descriptiveChange, descriptiveQualification, comparisonContext, range, colorRanges, score, sort, pareto, scaling};
+  return {finite, value, inputLabel, cohort, compareProfiles, descriptiveChange, descriptiveQualification, comparisonContext, range, colorRanges, score, sort, pareto, scaling};
 })();

@@ -71,12 +71,14 @@ def _identity(row, meta, run_id, batch):
     # Historical analysis tables may contain only a device label, with no mode.
     device = {"off": "CPU", "on": "GPU"}[normalize_gpu_mode(mode)] if mode else _text(row.get("device"))
     scale = number(row.get("input_scale"))
-    input_case = row.get("input_case") or _canonical({
+    input_case = {
         "scale": scale, "type": meta.get("input_scale_type", "unknown"),
         "task_param": _text(row.get("task_param")),
         "batch_size": number(row.get("batch_size", meta.get("batch_size"))),
         "input_units": number(row.get("input_units_per_request")),
-    })
+    }
+    if name := _text(row.get("input_case"), default=""):
+        input_case["name"] = name
     return dict(zip(DIMENSIONS, (
         _text(row.get("run_id"), run_id),
         _text(row.get("model") or row.get("model_name") or meta.get("model_name")),
@@ -86,7 +88,7 @@ def _identity(row, meta, run_id, batch):
         number(row.get("concurrency", meta.get("concurrency"))),
         recorded if recorded != "unknown" else environment,
         _text(row.get("task") or meta.get("pipeline_tag") or meta.get("task_family")),
-        _text(input_case), _text(row.get("experiment_batch"), batch),
+        _canonical(input_case), _text(row.get("experiment_batch"), batch),
         *(_text(row.get(key) or meta.get(key)) for key in ("runtime_kind", "runtime_id", "resource_scope")),
     ), strict=True))
 

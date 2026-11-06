@@ -79,6 +79,75 @@ def download_json(page):
     return json.loads(Path(result.value.path()).read_text())
 
 
+@pytest.mark.parametrize(("field", "value"), [
+    ("input_scale", "64"), ("batch_size", "2"),
+    ("input_units_per_request", "64"), ("task_param", "other"),
+])
+def test_named_csv_import_preserves_python_input_parameters(page, tmp_path, field, value):
+    rows = [dict(cpu_cores="2", mem_cap_gb="4", gpu_mode="off", input_scale="32", repeat_idx=str(index),
+                 warmup="0", status="ok", latency_app_s=latency, input_case="shared <input>",
+                 batch_size="1", input_units_per_request="32", task_param="fixture")
+            for index, latency in enumerate(("2", "20"))]
+    rows[1][field] = value
+    path = tmp_path / "named.csv"
+    with path.open("w", newline="") as stream:
+        writer = csv.DictWriter(stream, list(rows[0]))
+        writer.writeheader()
+        writer.writerows(rows)
+    before = path.read_bytes()
+    expected = load_analysis([path]).configs
+    import_file(page, path.name, path.read_text())
+    assert page.locator("#matrix tbody tr").count() == 3
+    actual = [config for config in download_json(page)["analysis_bundle"]["configs"]
+              if config.get("statistics_status") == "not_computed"]
+    assert len(expected) == len(actual) == 2
+    for python_config, browser_config in zip(expected, actual, strict=True):
+        assert json.loads(browser_config["input_case"]) == json.loads(python_config["input_case"])
+        assert browser_config["metrics"]["latency_app_s"]["value"] == python_config["metrics"]["latency_app_s"]["value"]
+    assert path.read_bytes() == before
+
+
+@pytest.mark.parametrize("width", [1280, 390])
+def test_named_input_labels_filters_and_scaling_stay_separate(page, tmp_path, width):
+    path = tmp_path / "named.csv"
+    path.write_text(
+        "cpu_cores,mem_cap_gb,gpu_mode,input_scale,repeat_idx,warmup,status,latency_app_s,input_case\n"
+        "2,4,off,32,0,0,ok,4,named <input>\n4,4,off,32,0,0,ok,2,named <input>\n"
+        "2,4,off,64,1,0,ok,40,named <input>\n4,4,off,64,1,0,ok,20,named <input>\n")
+    report = write_report(load_analysis([path]), tmp_path / "named.html")
+    page.set_viewport_size({"width": width, "height": 900})
+    page.goto(report.as_uri())
+    settled(page)
+    assert page.locator("#matrix tbody tr").count() == 4
+    labels = page.locator("#filter-input_case option").all_text_contents()[1:]
+    assert len(labels) == 2
+    assert all("named <input>" in label for label in labels)
+    assert any("scale=32" in label for label in labels)
+    assert any("scale=64" in label for label in labels)
+    page.click("[data-view=scaling]")
+    settled(page)
+    page.select_option("#scaling-metric", "latency_app_s")
+    settled(page)
+    assert page.locator("#scaling-charts .scaling-chart").count() == 2
+    assert page.locator("#scaling-charts .js-plotly-plot").evaluate_all(
+        "charts => charts.map(chart => chart.data[0].y)") == [[4, 2], [40, 20]]
+    page.click("[data-view=experiments]")
+    settled(page)
+    titles = page.locator("#cross-model-charts h3").all_text_contents()
+    assert len(titles) == 2
+    assert all("named <input>" in title and "scale=" in title and "{" not in title for title in titles)
+    assert page.locator("#cross-model-charts .js-plotly-plot").evaluate_all(
+        "charts => charts.map(chart => chart.data[0].y)") == [[4, 2], [40, 20]]
+    if artifacts := os.environ.get("ACPROF_BROWSER_ARTIFACT_DIR"):
+        directory = Path(artifacts)
+        directory.mkdir(parents=True, exist_ok=True)
+        page.screenshot(path=str(directory / f"named-input-{width}.png"), full_page=True)
+    page.select_option("#filter-input_case", index=1)
+    page.click("[data-view=matrix]")
+    settled(page)
+    assert page.locator("#matrix tbody tr").count() == 2
+
+
 def test_csv_import_compare_export_remove_preserves_embedded_data(page, source):
     assert page.locator("#add-experiment").count() == 1
     embedded = page.locator("#report-data").text_content()

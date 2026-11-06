@@ -145,7 +145,7 @@ window.ACProfExperiments = ({data, $, V, element, option, fmt, metricTitle, plot
     }
     for (const group of facets.values()) {
       const article = element("article"), chart = element("div", undefined, "scaling-chart");
-      article.append(element("h3", `${group[0].task} · ${group[0].input_case}`), chart);
+      article.append(element("h3", `${group[0].task} · ${V.inputLabel(group[0].input_case, true)}`), chart);
       $("cross-model-charts").append(article);
       await plot(chart, [{type:"bar", x:group.map(config => escape(`${config.model} · ${config.device} · ${config.cpu}c/${config.memory}G · ${config.config_id.slice(-6)}`)),
         y:group.map(config => V.value(config, metric)), customdata:group.map(config => config.config_id),
