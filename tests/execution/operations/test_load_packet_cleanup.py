@@ -136,7 +136,7 @@ def test_replay_report_keeps_request_failure_and_capture_cleanup_notes(packet_ca
     partial = {"successful": False, "requests": [{"request_id": "result:0", "status": status}]}
     failure = error_type("fixture request interrupted")
     setattr(failure, "load_report", partial)
-    monkeypatch.setattr(load_cli, "run_load", Mock(side_effect=failure))
+    monkeypatch.setattr("acprof.cli.load.run_load", Mock(side_effect=failure))
     packet_capture.process.terminate.side_effect = OSError("fixture capture termination failed")
     with pytest.raises(error_type, match="fixture request interrupted") as caught:
         load_cli.main([*replay.argv, "--warmup", "0", "--capture"])
