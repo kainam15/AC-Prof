@@ -67,3 +67,23 @@ def test_large_inputs_publish_hash_bound_sidecar_without_overwriting(tmp_path, m
         write_report(load_analysis([source]), output)
     assert sidecar.read_bytes() == before
     assert not output.exists()
+
+
+def test_publication_error_preserves_inputs_of_an_already_visible_html(tmp_path, monkeypatch):
+    from acprof.plotting import report as rendering
+
+    monkeypatch.setattr("acprof.analysis.report_statistics.MAX_EMBEDDED_WINDOW_BYTES", 1)
+    source, output = tmp_path / "result_all.csv", tmp_path / "report.html"
+    write_rows(source, [row(i, i + 1) for i in range(3)])
+    original = rendering.atomic_write
+
+    def publish_then_fail(path, write, **options):
+        original(path, write, **options)
+        if path == output:
+            raise OSError("directory sync failed after publication")
+
+    monkeypatch.setattr(rendering, "atomic_write", publish_then_fail)
+    with pytest.raises(OSError, match="directory sync"):
+        rendering.write_report(load_analysis([source]), output)
+    assert output.is_file()
+    assert (tmp_path / "report.windows-1.json").is_file()

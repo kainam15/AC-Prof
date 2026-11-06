@@ -305,7 +305,8 @@
   function statisticsEvidence(report) {
     const article = element("article", undefined, "statistics-source");
     const parameters = report.parameters, audit = report.audit;
-    article.append(element("h3", report.origin === "cached" ? "复用统计 JSON" : "从原始测量窗口重新计算"),
+    article.append(element("h3", report.origin === "browser" ? "浏览器重新计算 / Browser recalculation" :
+      report.origin === "cached" ? "复用 Python 缓存（复用统计 JSON） / Reused Python cache" : "Python 预计算 / Python precomputed"),
       element("p", report.source, "muted"));
     if (report.report_path) article.append(element("p", report.report_path, "muted"));
     article.append(element("p", `Bootstrap · ${parameters.method} · confidence=${parameters.confidence} · ` +
@@ -328,16 +329,19 @@
     article.append(details);
     return article;
   }
-  function drawStatistics(configs) {
+  async function drawStatistics(configs) {
     const visible = new Map(configs.map(config => [config.config_id, config]));
     const body = $("statistics").tBodies[0], evidence = $("statistics-evidence");
     body.replaceChildren(); evidence.replaceChildren();
     const metric = $("statistics-metric").value;
+    const plotted = new Map();
     $("statistics-confidence").textContent = [...new Set(data.window_statistics.map(report => report.parameters.confidence * 100))].join(" / ") + "% 置信区间";
     for (const report of data.window_statistics) {
       const groups = report.groups.filter(group => visible.has(group.config_id) && (!metric || group.metric === metric));
       if (!groups.length) continue;
       for (const group of groups) {
+        if (!plotted.has(group.metric)) plotted.set(group.metric, []);
+        plotted.get(group.metric).push(group);
         const config = visible.get(group.config_id), row = element("tr");
         row.dataset.statConfigId = group.config_id;
         row.classList.toggle("selected", state.selected === group.config_id);
@@ -368,6 +372,19 @@
       body.append(row);
     }
     $("statistics-empty").hidden = body.rows.length > 0;
+    for (const chart of $("statistics-charts").querySelectorAll(".scaling-chart")) Plotly.purge(chart);
+    $("statistics-charts").replaceChildren();
+    for (const [name, groups] of plotted) {
+      const article = element("article"), chart = element("div", undefined, "scaling-chart");
+      article.append(element("h3", `${registry[name]?.label || name} (${groups[0].unit})`), chart);
+      $("statistics-charts").append(article);
+      await plot(chart, [{type:"scatter", mode:"markers", x:groups.map(group => escape(fullLabel(visible.get(group.config_id)))),
+        y:groups.map(group => group.mean), customdata:groups.map(group => group.config_id),
+        error_y:{type:"data", symmetric:false, array:groups.map(group => group.ci_high === null ? null : group.ci_high - group.mean),
+          arrayminus:groups.map(group => group.ci_low === null ? null : group.mean - group.ci_low)},
+        marker:{color:groups.map(group => color(visible.get(group.config_id))), size:9}}],
+        {height:360, showlegend:false, yaxis:{title:{text:groups[0].unit}}, xaxis:{showticklabels:false, title:{text:"配置 / Configuration"}}});
+    }
   }
   function drawOverview(configs) {
     $("overview-content").replaceChildren();
@@ -451,7 +468,7 @@
     if (state.view === "matrix") drawMatrix(configs, comparison);
     else if (state.view === "pareto") await drawPareto(configs, comparison);
     else if (state.view === "scaling") await drawScaling(configs);
-    else if (state.view === "statistics") drawStatistics(configs);
+    else if (state.view === "statistics") await drawStatistics(configs);
     else if (state.view === "experiments") await experiments.draw(configs);
     else if (state.view === "overview") drawOverview(configs);
     else drawQuality(configs);
@@ -468,18 +485,25 @@
   }
   const experiments = window.ACProfExperiments({data, $, V, element, option, fmt, metricTitle, plot, axis, schedule, filtered, escape, color, selectConfig});
   const getState = () => ({...state, controls:Object.fromEntries([...document.querySelectorAll("select")].map(select =>
-    [select.id, [...select.selectedOptions].map(option => option.value)])), evidenceOpen:$("quality-evidence").open});
+    [select.id, [...select.selectedOptions].map(option => option.value)])), evidenceOpen:$("quality-evidence").open,
+    statisticsInputs:{seed:$("statistics-seed").value, block_size:$("statistics-block-size").value}});
   const refresh = () => {
     chartsDirty = true; refreshFilters(); refreshSources(); experiments.refresh();
     const metric = $("statistics-metric").value;
     $("statistics-metric").replaceChildren(); option($("statistics-metric"), "", "全部统计指标");
-    for (const name of new Set(data.window_statistics.flatMap(report => report.groups.map(group => group.metric)))) option($("statistics-metric"), name, metricTitle(name));
+    for (const name of new Set(data.window_statistics.flatMap(report => report.groups.map(group => group.metric)))) option($("statistics-metric"), name, registry[name] ? metricTitle(name) : name);
     $("statistics-metric").value = metric;
+    statisticsControls.update();
   };
+  const statisticsControls = window.ACProfStatisticsControls({workspace, $, option, refresh, schedule});
   window.ACProfExperimentManager({workspace, $, element, option, refresh, schedule, state, getState, template, syncExperiments:experiments.syncFromActive});
   window.ACProfExport({data, $, V, state, filtered, experiments, workspace});
   $("language").onchange = schedule;
   if (restored?.state) {
+    if (restored.state.statisticsInputs) {
+      $("statistics-seed").value = restored.state.statisticsInputs.seed;
+      $("statistics-block-size").value = restored.state.statisticsInputs.block_size;
+    }
     for (const [id, values] of Object.entries(restored.state.controls || {})) {
       const select = $(id);
       if (select?.tagName === "SELECT" && Array.isArray(values)) {

@@ -50,6 +50,7 @@ def _comparison_entry(model, left, right, *, options, purpose, session, report=N
             reason = f"invalid_measurement_identity: {error}"
     if report is not None:
         verify_independent_report(report)
+        report = {**report, "engine": "python", "origin": "computed", "rng": "python_random_mt19937"}
     def label(paths):
         names = [str(sources[path]["metadata"].get("model_name", "unknown")) + " / " + sources[path]["run_id"]
                  for path in paths]

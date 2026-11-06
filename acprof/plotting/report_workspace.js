@@ -5,18 +5,26 @@ window.ACProfWorkspace = (original, restored = null) => {
   const data = {...original}, palette = ["#087f8c", "#c57532", "#7161ab", "#2673a8", "#a54967", "#4e824d", "#986833"];
   const colors = new Map((restored?.colors || []).filter(([, color]) => palette.includes(color)));
   let entries = [];
+  let revision = 0;
+  const statisticsUpdates = new Map(), comparisonUpdates = new Map();
+  const statisticsKey = report => JSON.stringify([report.source, report.result_sha256]);
+  const comparisonKey = entry => JSON.stringify([entry.left, entry.right, entry.report?.purpose, entry.report?.source_sha256]);
+  const bundles = () => [original, ...imports.map(item => item.bundle)];
   const known = value => value && value !== "unknown";
   const runsFor = (bundle, source) => [...new Set(bundle.configs.filter(config => config.source === source.path).map(config => config.run_id).filter(known))].sort();
   const experimentId = (bundle, source) => `experiment-${source.sha256}-${sha256(JSON.stringify(runsFor(bundle, source))).slice(0,12)}`;
   function subset(bundle, configs) {
     const ids = new Set(configs.map(config => config.config_id)), paths = new Set(configs.map(config => config.source));
+    const engines = new Set(bundle.window_statistics.filter(report => paths.has(report.source)).map(report => report.engine || "python"));
+    if (configs.some(config => config.statistics_status === "not_computed")) engines.add("not_computed");
     return {...bundle, kind:"acprof_analysis_bundle", schema_version:1,
       analysis_contract:{...bundle.analysis_contract, version:1, statistics_engine:
-        configs.every(config => config.statistics_status === "not_computed") ? "not_computed" :
-        configs.some(config => config.statistics_status === "not_computed") ? "mixed" : "python"}, configs,
+        engines.size > 1 ? "mixed" : [...engines][0] || "not_computed"}, configs,
       sources:bundle.sources.filter(source => paths.has(source.path)),
       overview:bundle.overview.filter(source => paths.has(source.source)),
-      window_statistics:bundle.window_statistics.map(report => ({...report, groups:report.groups.filter(group => ids.has(group.config_id))})).filter(report => report.groups.length),
+      window_statistics:bundle.window_statistics.map(report => ({...report, groups:report.groups.filter(group => ids.has(group.config_id)),
+        ...(report.recalculation ? {recalculation:{...report.recalculation,
+          ...(report.recalculation.groups ? {groups:report.recalculation.groups.filter(group => ids.has(group.config_id))} : {})}} : {})})).filter(report => report.groups.length),
       experiment_comparisons:bundle.experiment_comparisons.filter(entry => [...entry.left, ...entry.right].every(path =>
         paths.has(path) && bundle.configs.filter(config => config.source === path).every(config => ids.has(config.config_id)))),
       baseline_comparisons:{qualifications:bundle.baseline_comparisons.qualifications,
@@ -24,6 +32,7 @@ window.ACProfWorkspace = (original, restored = null) => {
           [id, Object.fromEntries(Object.entries(pairs).filter(([other]) => ids.has(other)))]))}};
   }
   function rebuild() {
+    revision++;
     entries = [];
     for (const name of ["configs", "sources", "overview", "window_statistics", "experiment_comparisons"]) data[name] = [];
     data.baseline_comparisons = {pairs:{}, qualifications:[]};
@@ -46,6 +55,8 @@ window.ACProfWorkspace = (original, restored = null) => {
       }
       for (const name of ["sources", "overview", "window_statistics", "experiment_comparisons"]) data[name].push(...bundle[name]);
     }
+    data.window_statistics = data.window_statistics.map(report => ({...report, ...(statisticsUpdates.get(statisticsKey(report)) || {})}));
+    data.experiment_comparisons = data.experiment_comparisons.map(entry => comparisonUpdates.get(comparisonKey(entry)) || entry);
   }
   function namespace(bundle) {
     const experiments = new Map(bundle.sources.map(source => [source.path, experimentId(bundle, source)]));
@@ -55,7 +66,10 @@ window.ACProfWorkspace = (original, restored = null) => {
     copy.sources.forEach(source => { source.original_path ||= source.path; source.path = paths.get(source.path); });
     copy.configs.forEach(config => { config.original_config_id ||= config.config_id; config.config_id = ids.get(config.config_id); config.source = paths.get(config.source); });
     copy.overview.forEach(source => { source.source = paths.get(source.source); });
-    copy.window_statistics.forEach(report => { report.original_source ||= report.source; report.source = paths.get(report.source); report.groups.forEach(group => { group.config_id = ids.get(group.config_id); }); });
+    copy.window_statistics.forEach(report => {
+      report.original_source ||= report.source; report.source = paths.get(report.source);
+      for (const group of [...report.groups, ...(report.recalculation?.groups || [])]) group.config_id = ids.get(group.config_id);
+    });
     copy.experiment_comparisons.forEach(entry => {
       for (const side of ["left", "right"]) entry[side] = entry[side].map(path => paths.get(path));
       if (entry.report) {
@@ -103,9 +117,30 @@ window.ACProfWorkspace = (original, restored = null) => {
   if (restored) {
     if (restored.schema_version !== 1 || !Array.isArray(restored.imports)) throw new Error("会话版本不兼容 / Unsupported session version");
     add(restored.imports.map(item => item.bundle), "restored", true);
+    if (restored.statistics) {
+      const candidate = {...data, window_statistics:restored.statistics.windows.map(saved => ({
+        ...data.window_statistics.find(report => statisticsKey(report) === statisticsKey(saved)), ...saved})),
+        experiment_comparisons:restored.statistics.comparisons};
+      I.validate(candidate, original.registry);
+      setStatistics(candidate.window_statistics, candidate.experiment_comparisons);
+    }
   }
-  return {data, add, remove, entries:() => entries, color:config => colors.get(config.experiment_id) || palette[0],
-    snapshot:state => ({schema_version:1, imports, state, colors:[...colors]}), bundle:configs => subset(data, configs)};
+  function setStatistics(windows, comparisons) {
+    for (const report of windows) {
+      const {recalculation, ...saved} = report;
+      statisticsUpdates.set(statisticsKey(report), saved);
+    }
+    for (const entry of comparisons) comparisonUpdates.set(comparisonKey(entry), entry);
+    rebuild();
+  }
+  function restoreStatistics() { statisticsUpdates.clear(); comparisonUpdates.clear(); rebuild(); }
+  return {data, add, remove, setStatistics, restoreStatistics, revision:() => revision,
+    initialStatistics:() => bundles().flatMap(bundle => bundle.window_statistics),
+    initialComparisons:() => bundles().flatMap(bundle => bundle.experiment_comparisons),
+    entries:() => entries, color:config => colors.get(config.experiment_id) || palette[0],
+    snapshot:state => ({schema_version:1, imports, state, colors:[...colors], statistics:{
+      windows:data.window_statistics.map(({recalculation, ...report}) => report), comparisons:data.experiment_comparisons}}),
+    bundle:configs => subset(data, configs)};
 };
 
 window.ACProfExperimentManager = ({workspace, $, element, option, refresh, schedule, state, getState, template, syncExperiments}) => {

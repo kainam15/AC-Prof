@@ -4,6 +4,7 @@ window.ACProfExport = ({data, $, V, state, filtered, experiments, workspace}) =>
   function selectedStatistics(configs) {
     const visible = new Set(configs.map(config => config.config_id));
     return (data.window_statistics || []).map(report => ({schema_version:1, ...report.parameters, ...report.audit,
+      engine:report.engine || "python", origin:report.origin, rng:report.rng || "python_random_mt19937",
       result_csv:report.source, result_sha256:report.result_sha256,
       groups:report.groups.filter(group => visible.has(group.config_id) &&
         (!$("statistics-metric").value || group.metric === $("statistics-metric").value))})).filter(report => report.groups.length);
@@ -13,7 +14,8 @@ window.ACProfExport = ({data, $, V, state, filtered, experiments, workspace}) =>
     if (state.view === "experiments" && experiments.current()?.report) {
       const payload = {...experiments.current().report, groups:experiments.groups()};
       return {payload, rows:payload.groups.map(group => ({...group, analysis:{confidence:payload.confidence,
-        resamples:payload.resamples, seed:payload.seed, resampling_unit:payload.resampling_unit, source_sha256:payload.source_sha256}}))};
+        resamples:payload.resamples, seed:payload.seed, resampling_unit:payload.resampling_unit, source_sha256:payload.source_sha256,
+        method:payload.method, engine:payload.engine || "python", origin:payload.origin || "computed", rng:payload.rng || "python_random_mt19937"}}))};
     }
     if (state.view === "experiments" && !experiments.current()?.report) {
       const rows = experiments.descriptions();

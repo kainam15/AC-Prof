@@ -72,6 +72,27 @@
 </section>
 <section id="statistics-panel" class="card" hidden>
 <div class="section-heading"><h2>窗口统计</h2><label>统计指标<select id="statistics-metric" aria-label="统计指标"></select></label></div>
+<details id="statistics-parameters" class="evidence">
+<summary>统计参数 / Statistical parameters</summary>
+<div class="controls statistics-options">
+<label class="grow">分析指标（多选） / Metrics<select id="statistics-metrics" multiple size="5"></select></label>
+<label>置信水平 / Confidence<select id="statistics-level"><option value=".9">90%</option><option value=".95" selected>95%</option><option value=".99">99%</option></select></label>
+<label>Bootstrap 次数 / Resamples<select id="statistics-resamples"><option>1000</option><option selected>5000</option><option>10000</option></select></label>
+</div>
+<details id="statistics-advanced"><summary>高级设置 / Advanced</summary><div class="controls">
+<label>随机 Seed<input id="statistics-seed" type="number" step="1" value="0"></label>
+<label>窗口块大小 / Window block size<input id="statistics-block-size" type="number" min="1" step="1" value="1"></label>
+</div></details>
+<p class="notice">块大小 1 为普通 Bootstrap；大于 1 为循环移动块 Bootstrap。独立实验比较仅复用指标、置信水平、次数和 Seed。 / Independent comparisons resample run means and ignore window block size.</p>
+<div class="controls"><button id="statistics-recalculate">重新计算 / Recalculate</button>
+<button id="statistics-cancel" hidden>取消计算 / Cancel</button>
+<button id="statistics-defaults">恢复默认参数 / Default parameters</button>
+<button id="statistics-restore">恢复初始统计结果 / Restore initial results</button>
+<label class="window-import">导入窗口 JSON / Import windows<input id="statistics-input-file" type="file" accept=".json"></label></div>
+</details>
+<progress id="statistics-progress" max="1" value="0" hidden aria-label="统计计算进度 / Calculation progress"></progress>
+<p id="statistics-input-status" class="notice"></p>
+<p id="statistics-operation" role="status" aria-live="polite"></p>
 <p class="notice">均值与样本标准差（ddof=1）按正式成功窗口等权计算；CI 描述本实验内窗口均值的不确定性，置信水平以各来源参数为准。
 窗口数不是请求数或独立实验数，区间不证明跨实验重复性。窗口不足或连续块不完整时保留原因，空值显示 —。</p>
 <div class="table-scroll"><table id="statistics"><thead><tr>
@@ -79,6 +100,7 @@
 <th>有效 / 缺失窗口</th><th>缺失与排除原因</th>
 </tr></thead><tbody></tbody></table></div>
 <p id="statistics-empty" hidden>没有匹配的窗口统计。请调整筛选条件。</p>
+<div id="statistics-charts" class="small-multiples"></div>
 <div id="statistics-evidence" aria-live="polite"></div>
 </section>
 <section id="quality-panel" class="card" hidden><h2>数据质量与来源</h2>
@@ -86,6 +108,11 @@
 <div id="quality-content"></div></section>
 <section id="experiments-panel" class="card" hidden>
 <div class="section-heading"><h2>独立实验对照</h2><span class="muted">复用 Python 独立运行统计</span></div>
+<div class="controls"><button id="experiment-parameters">修改统计参数 / Statistical parameters</button>
+<button id="experiment-recalculate">按当前参数重算 / Recalculate</button>
+<button id="experiment-cancel" hidden>取消计算 / Cancel</button></div>
+<progress id="experiment-progress" max="1" value="0" hidden aria-label="统计计算进度 / Calculation progress"></progress>
+<p id="experiment-operation" role="status" aria-live="polite"></p>
 <div class="controls"><label>基线实验 / 组<select id="experiment-left"></select></label>
 <label>对照实验 / 组<select id="experiment-right"></select></label>
 <label>比较指标<select id="experiment-metric"></select></label></div>
@@ -117,12 +144,15 @@
 <script>__PLOTLY__</script>
 <script>__PAPA__</script>
 <script>__SHA256__</script>
+<script>__STATISTICS_RNG__</script>
+<script>__STATISTICS_ENGINE__</script>
 <script>__IMPORT__</script>
 <script>__WORKSPACE__</script>
 <script>__I18N__</script>
 <script>__VIEW_MODEL__</script>
 <script>__EXPERIMENTS__</script>
 <script>__EXPORT__</script>
+<script>__STATISTICS_CONTROLS__</script>
 <script>__APP__</script>
 </body>
 </html>

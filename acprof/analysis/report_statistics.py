@@ -231,7 +231,7 @@ def _reuse(report, source, configs, requested_metrics, requested_options):
     return expected
 
 
-def _source_statistics(source, configs, metrics, options, budget):
+def _source_statistics(source, configs, metrics, options, budget, input_metrics):
     diagnostics = []
     report_path = None
     for candidate in _candidates(Path(source["path"])):
@@ -249,7 +249,7 @@ def _source_statistics(source, configs, metrics, options, budget):
     return {"source": source["path"], "result_sha256": source["sha256"],
             "origin": "cached" if report_path else "computed", "report_path": report_path,
             "engine": "python", "rng": "python_random_mt19937",
-            "recalculation": _window_inputs(configs, source, [g["metric"] for g in report["groups"]], budget),
+            "recalculation": _window_inputs(configs, source, [*input_metrics, *(g["metric"] for g in report["groups"])], budget),
             "cache_diagnostics": diagnostics,
             "parameters": {key: report[key] for key in _PARAMETERS}, "groups": report["groups"],
             "audit": {**source.get("audit", {}), **{key: source[key] for key in _AUDIT}}}
@@ -264,7 +264,8 @@ def build_report_statistics(model: AnalysisModel, *, metrics=None, **options) ->
     for entry in model.raw_rows:
         entries_by_source[entry["source"]][entry["config_id"]].append(entry)
     budget = [MAX_EMBEDDED_WINDOW_BYTES]
-    result = [_source_statistics(source, entries_by_source[source["path"]], metrics, options, budget)
+    input_metrics = {key for entry in model.raw_rows for key in entry["row"]}
+    result = [_source_statistics(source, entries_by_source[source["path"]], metrics, options, budget, input_metrics)
               for source in model.sources]
     verify_analysis_sources(model)
     return result

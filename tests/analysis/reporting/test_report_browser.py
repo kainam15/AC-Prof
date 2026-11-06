@@ -119,6 +119,295 @@ class TestReportBrowser:
         assert (self.remote_requests) == ([])
         assert (self.page.locator("#error").is_hidden())
 
+    def test_browser_bootstrap_matches_python_with_fixed_inputs_and_seeds(self):
+        from acprof.analysis.uncertainty import summarize_windows
+        from tests.analysis.reporting.test_report_statistics import row
+
+        assert self.page.evaluate("typeof window.ACProfStatistics") == "object"
+        for values, indices, block_size in [
+            ([], [], 1), ([1], [0], 1), ([1, 2], [0, 1], 1), ([1, 2, 3], [0, 1, 2], 1),
+            ([1, None, 3], [0, 1, 2], 1), ([1, 2, 3], [0, 2, 3], 1),
+            ([1, 2, 3, 5, 7, 11], list(range(6)), 2),
+            ([1, 2, 3, 5, 7, 11], [0, 1, 2, 4, 5, 6], 2),
+            ([1, 2, None, 5, 7, 11, 13], list(range(7)), 2),
+            ([1e12 + i / 8 for i in range(12)], list(range(12)), 3),
+        ]:
+            for seed in (0, 17, -5, 2**40 + 123):
+                options = dict(confidence=.9, resamples=1000, seed=seed, block_size=block_size)
+                rows = [row(index, value if value is not None else "nan") for index, value in zip(indices, values, strict=True)]
+                expected = summarize_windows(rows, ["latency_app_s"], **options)["groups"]
+                actual = self.page.evaluate("""async ([values, indices, options]) =>
+                    ACProfStatistics.summarize({values, repeat_indices:indices, metric:'latency_app_s',
+                        reason:values.length ? '' : 'no_successful_windows'}, options)""", [values, indices, options])
+                if not expected:
+                    assert actual["n_windows"] == 0
+                    assert actual["ci_low"] is None
+                    continue
+                for field in ("mean", "std", "ci_low", "ci_high"):
+                    assert actual[field] == pytest.approx(expected[0][field], rel=1e-12, abs=1e-12)
+                for field in ("reason", "n_windows", "missing_windows"):
+                    assert actual[field] == expected[0][field]
+
+    def test_bootstrap_is_cancellable_and_rejects_invalid_parameters(self):
+        assert self.page.evaluate("typeof window.ACProfStatistics") == "object"
+        result = self.page.evaluate("""async () => {
+            const controller = new AbortController(); let ticks = 0, progress = 0;
+            const timer = setInterval(() => { ticks++; controller.abort(); }, 10);
+            try {
+                await ACProfStatistics.summarize({values:Array.from({length:50000}, (_, i) => i),
+                    repeat_indices:Array.from({length:50000}, (_, i) => i)},
+                    {confidence:.95, resamples:10000, seed:0, block_size:1},
+                    {signal:controller.signal, onProgress:value => { progress = value; }});
+                return {error:'not cancelled'};
+            } catch (error) { return {error:error.name, ticks, progress}; }
+            finally { clearInterval(timer); }
+        }""")
+        assert result["error"] == "AbortError"
+        assert result["ticks"] > 0
+        assert result["progress"] < 1
+        for invalid in ({"confidence": 1}, {"resamples": 0}, {"seed": .5}, {"block_size": 0}):
+            result = self.page.evaluate("""async invalid => {
+                try { await ACProfStatistics.summarize({values:[1,2,3], repeat_indices:[0,1,2]},
+                    {confidence:.95, resamples:1000, seed:0, block_size:1, ...invalid}); return false; }
+                catch (error) { return error.message; }
+            }""", invalid)
+            assert result
+
+    def test_statistics_controls_recompute_export_and_restore_offline(self):
+        from acprof.analysis.model import load_analysis
+        from acprof.plotting.report import write_report
+        from tests.analysis.reporting.test_report_statistics import row, write_rows
+
+        source = self.fixture_root / "result_all.csv"
+        write_rows(source, [row(i, value, throughput_samples_per_s=str(20 / value))
+                            for i, value in enumerate([1, 2, 4, 8, 9, 12])])
+        report = write_report(load_analysis([source]), self.fixture_root / "statistics.html")
+        before = source.read_bytes()
+        self.page.goto(report.as_uri())
+        self.page.click("[data-view=statistics]")
+        self.settled()
+        assert self.page.locator("#statistics-parameters").count() == 1
+        self.page.click("#statistics-parameters > summary")
+        self.page.select_option("#statistics-metrics", ["latency_app_s", "throughput_samples_per_s"])
+        self.page.select_option("#statistics-level", ".9")
+        self.page.select_option("#statistics-resamples", "1000")
+        self.page.click("#statistics-advanced > summary")
+        self.page.fill("#statistics-seed", "17")
+        self.page.fill("#statistics-block-size", "2")
+        self.page.click("#statistics-recalculate")
+        self.page.wait_for_function("() => document.body.dataset.calculating === 'false'")
+        self.settled()
+        assert self.page.locator("#statistics tbody tr").count() == 2
+        assert "浏览器重新计算" in self.page.locator("#statistics-evidence").inner_text()
+        assert "90%" in self.page.locator("#statistics-confidence").inner_text()
+        with self.page.expect_download() as download:
+            self.page.click("#export-json")
+        payload = json.loads(Path(download.value.path()).read_text())
+        assert (payload["engine"], payload["confidence"], payload["seed"], payload["block_size"]) == ("browser", .9, 17, 2)
+        assert payload["result_sha256"]
+        assert payload["rng"] == "python_random_mt19937"
+        assert len(payload["groups"]) == 2
+        chart = self.page.evaluate("document.querySelector('#statistics-charts .js-plotly-plot').data[0]")
+        assert chart["y"][0] == payload["groups"][0]["mean"]
+        assert chart["error_y"]["array"][0] == pytest.approx(payload["groups"][0]["ci_high"] - payload["groups"][0]["mean"])
+        self.page.select_option("#statistics-metric", "throughput_samples_per_s")
+        self.settled()
+        with self.page.expect_download() as download:
+            self.page.click("#export-csv")
+        import io
+        rows = list(csv.DictReader(io.StringIO(Path(download.value.path()).read_text())))
+        assert len(rows) == 1
+        assert rows[0]["metric"] == "throughput_samples_per_s"
+        assert rows[0]["analysis.engine"] == "browser"
+        assert float(rows[0]["analysis.confidence"]) == .9
+        with self.page.expect_download() as download:
+            self.page.click("#export-html")
+        saved = self.fixture_root / "saved.html"
+        download.value.save_as(saved)
+        imported = self.page.evaluate("""async html => {
+            const registry = JSON.parse(document.getElementById('report-data').textContent).registry;
+            const bundles = await ACProfImport.read(new File([html], 'saved.html'), registry, {});
+            return bundles.flatMap(bundle => bundle.window_statistics).map(report => report.engine);
+        }""", saved.read_text())
+        assert imported == ["browser"]
+        self.page.goto(saved.as_uri())
+        self.settled()
+        assert "浏览器重新计算" in self.page.locator("#statistics-evidence").inner_text()
+        self.page.click("#statistics-parameters > summary")
+        self.page.click("#statistics-restore")
+        self.settled()
+        assert "Python 预计算" in self.page.locator("#statistics-evidence").inner_text()
+        self.page.click("#statistics-defaults")
+        assert self.page.input_value("#statistics-level") == ".95"
+        assert self.page.input_value("#statistics-resamples") == "5000"
+        assert self.page.input_value("#statistics-seed") == "0"
+        assert self.page.input_value("#statistics-block-size") == "1"
+        assert source.read_bytes() == before
+
+    def test_window_file_import_checks_hash_and_recalculates_offline(self, monkeypatch):
+        from acprof.analysis.model import load_analysis
+        from acprof.plotting.report import write_report
+        from tests.analysis.reporting.test_report_statistics import row, write_rows
+
+        monkeypatch.setattr("acprof.analysis.report_statistics.MAX_EMBEDDED_WINDOW_BYTES", 1)
+        source = self.fixture_root / "result_all.csv"
+        write_rows(source, [row(index, index + 1) for index in range(6)])
+        output = write_report(load_analysis([source]), self.fixture_root / "external.html")
+        self.page.goto(output.as_uri())
+        self.page.click("[data-view=statistics]")
+        self.page.click("#statistics-parameters > summary")
+        self.page.select_option("#statistics-metrics", "latency_app_s")
+        self.page.select_option("#statistics-resamples", "1000")
+        self.page.click("#statistics-recalculate")
+        assert "缺少重算窗口" in self.page.locator("#statistics-operation").inner_text()
+        field = self.page.locator("#statistics-input-file")
+        field.set_input_files({"name": "invalid.json", "mimeType": "application/json", "buffer": b"{}"})
+        self.page.wait_for_function("() => document.querySelector('#statistics-operation').textContent.includes('SHA256 mismatch')")
+        field.set_input_files(self.fixture_root / "external.windows-1.json")
+        self.page.wait_for_function("() => document.querySelector('#statistics-operation').textContent.includes('Window file verified')")
+        self.page.click("#statistics-recalculate")
+        self.page.wait_for_function("() => document.body.dataset.calculating === 'false'")
+        self.settled()
+        assert "浏览器重新计算" in self.page.locator("#statistics-evidence").inner_text()
+        assert self.page.locator("#statistics tbody tr").count() == 1
+
+    def test_matching_python_cache_skips_browser_calculation_and_changes_invalidate_it(self):
+        from acprof.analysis.model import load_analysis
+        from acprof.plotting.report import write_report
+        from tests.analysis.reporting.test_report_statistics import row, save_cache, write_rows
+
+        source = self.fixture_root / "result_all.csv"
+        write_rows(source, [row(index, index + 1) for index in range(6)])
+        save_cache(source, metrics=["latency_app_s"], resamples=1000, seed=17)
+        output = write_report(load_analysis([source]), self.fixture_root / "cached.html")
+        self.page.goto(output.as_uri())
+        self.page.click("[data-view=statistics]")
+        self.page.click("#statistics-parameters > summary")
+        self.page.evaluate("() => { ACProfStatistics.summarize = () => { throw new Error('browser estimator reached'); }; }")
+        self.page.click("#statistics-recalculate")
+        self.page.wait_for_function("() => document.body.dataset.calculating === 'false'")
+        self.settled()
+        assert "计算完成" in self.page.locator("#statistics-operation").inner_text()
+        assert "复用 Python 缓存" in self.page.locator("#statistics-evidence").inner_text()
+        self.page.select_option("#statistics-level", ".9")
+        self.page.click("#statistics-recalculate")
+        self.page.wait_for_function("() => document.body.dataset.calculating === 'false'")
+        assert "browser estimator reached" in self.page.locator("#statistics-operation").inner_text()
+        assert "95%" in self.page.locator("#statistics-confidence").inner_text()
+
+    def test_independent_recalculation_matches_python_and_ignores_window_blocks(self):
+        from acprof.analysis.model import load_analysis
+        from acprof.plotting.report import report_payload, write_report
+        from tests.support.independent_comparison_fixtures import IndependentComparisonFixture
+
+        fixture = IndependentComparisonFixture()
+        fixture.build(self._request, self.fixture_root)
+        left = [fixture.replicate("left", i, [value] * 3) for i, value in enumerate([1, 3, 5])]
+        right = [fixture.replicate("right", i, [value] * 3) for i, value in enumerate([2, 6, 10])]
+        output = write_report(load_analysis([*left, *right]), self.fixture_root / "independent.html",
+                              comparison_groups=(left, right), statistics_options={"metrics": ["latency_app_s"], "resamples": 99})
+        self.page.goto(output.as_uri())
+        self.page.click("[data-view=statistics]")
+        self.page.click("#statistics-parameters > summary")
+        self.page.select_option("#statistics-level", ".99")
+        self.page.select_option("#statistics-resamples", "1000")
+        self.page.click("#statistics-advanced > summary")
+        self.page.fill("#statistics-block-size", "100")
+        self.page.fill("#statistics-seed", "23")
+        self.page.click("[data-view=experiments]")
+        self.page.click("#experiment-recalculate")
+        self.page.wait_for_function("() => document.body.dataset.calculating === 'false'")
+        self.settled()
+        report = json.loads(self.page.locator("#experiment-evidence").text_content())
+        expected = report_payload(load_analysis([*left, *right]), comparison_groups=(left, right),
+                                  statistics_options={"metrics": ["latency_app_s"], "confidence": .99,
+                                                      "resamples": 1000, "seed": 23, "block_size": 100})
+        expected_group = expected["experiment_comparisons"][0]["report"]["groups"][0]
+        assert report["groups"][0]["difference_ci"] == pytest.approx(expected_group["difference_ci"], rel=1e-12, abs=1e-12)
+        assert report["groups"][0]["ratio_ci"] == pytest.approx(expected_group["ratio_ci"], rel=1e-12, abs=1e-12)
+        assert report["engine"] == "browser"
+        assert "block_size" not in report
+        assert report["condition_checks"]
+        assert report["source_sha256"]
+        # Incompatible conditions never gain a CI from browser recomputation.
+        blocked = {**report["groups"][0], "comparability": "not comparable", "reason": "not comparable"}
+        blocked_result = self.page.evaluate("""group => ACProfStatistics.independent(group,
+            {confidence:.99, resamples:1000, seed:23, block_size:100})""", blocked)
+        assert blocked_result["difference_ci"] is None
+        assert blocked_result["reason"] == "not comparable"
+
+    def test_independent_numeric_overflow_is_an_explicit_error(self):
+        outcome = self.page.evaluate("""async () => {
+            const runs = value => ({runs:Array.from({length:3}, () => ({mean:value}))});
+            try {
+                await ACProfStatistics.independent({comparability:'comparable', reason:'',
+                    left:runs(1e-308), right:runs(1e308)},
+                    {confidence:.95, resamples:1000, seed:0, block_size:1});
+                return 'silently published';
+            } catch (error) { return error.message; }
+        }""")
+        assert "overflow" in outcome
+
+    def test_larger_window_report_yields_and_cancel_preserves_applied_results(self):
+        from acprof.analysis.model import load_analysis
+        from acprof.plotting.report import write_report
+        from tests.analysis.reporting.test_report_statistics import row, write_rows
+
+        source = self.fixture_root / "result_all.csv"
+        write_rows(source, [row(index, index % 10 + 1) for index in range(6000)])
+        output = write_report(load_analysis([source]), self.fixture_root / "large-windows.html",
+                              statistics_options={"metrics": ["latency_app_s"], "resamples": 1})
+        self.page.goto(output.as_uri())
+        self.page.click("[data-view=statistics]")
+        self.settled()
+        loaded_ms = self.page.evaluate("performance.now()")
+        self.page.click("#statistics-parameters > summary")
+        self.page.select_option("#statistics-resamples", "1000")
+        self.page.evaluate("""() => {
+            window.statisticsTiming = {start:performance.now(), last:performance.now(), ticks:0, maxDelay:0};
+            window.statisticsTimer = setInterval(() => {
+                const timing = window.statisticsTiming, now = performance.now();
+                timing.ticks++; timing.maxDelay = Math.max(timing.maxDelay, now - timing.last); timing.last = now;
+            }, 10);
+        }""")
+        self.page.click("#statistics-recalculate")
+        self.page.wait_for_function("() => document.body.dataset.calculating === 'false'")
+        self.settled()
+        timing = self.page.evaluate("""() => { clearInterval(window.statisticsTimer);
+            return {...window.statisticsTiming, elapsed:performance.now() - window.statisticsTiming.start}; }""")
+        assert timing["ticks"] > 1
+        assert self.page.locator("#statistics tbody tr td").nth(2).inner_text() == "5.5"
+        assert self.page.locator("#statistics tbody tr td").nth(5).inner_text() == "6000 / 0"
+        previous = self.page.locator("#statistics tbody").inner_text()
+        self.page.select_option("#statistics-resamples", "10000")
+        self.page.click("#statistics-recalculate")
+        self.page.click("#statistics-cancel")
+        self.page.wait_for_function("() => document.body.dataset.calculating === 'false'")
+        self.settled()
+        assert "已取消" in self.page.locator("#statistics-operation").inner_text()
+        assert self.page.locator("#statistics tbody").inner_text() == previous
+        assert "resamples=1000 ·" in self.page.locator("#statistics-evidence").inner_text()
+        self.page.click("[data-view=experiments]")
+        self.page.click("#experiment-recalculate")
+        self.page.wait_for_function("() => document.body.dataset.calculating === 'true'")
+        assert self.page.locator("#experiment-progress").is_visible()
+        self.page.click("#experiment-cancel")
+        self.page.wait_for_function("() => document.body.dataset.calculating === 'false'")
+        assert "Cancelled" in self.page.locator("#experiment-operation").inner_text()
+        self.page.click("[data-view=statistics]")
+        self.settled()
+        assert self.page.locator("#statistics tbody").inner_text() == previous
+        self.page.set_viewport_size({"width": 390, "height": 844})
+        self.page.select_option("#language", "en")
+        self.settled()
+        assert self.page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+        if self.artifacts:
+            (self.artifacts / "window-computation-timing.json").write_text(json.dumps({
+                "windows": 6000, "resamples": 1000, "html_bytes": output.stat().st_size,
+                "loaded_ms": loaded_ms, **timing,
+            }, indent=2))
+            self.page.screenshot(path=str(self.artifacts / "statistics-controls-narrow.png"), full_page=True)
+
     def test_window_statistics_share_filters_selection_and_explain_missing_intervals(self):
         self.page.click("[data-view=statistics]")
         self.settled()

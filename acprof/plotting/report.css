@@ -77,3 +77,10 @@ footer { color: var(--muted); text-align: center; font-size: 11px; padding: 12px
 #import-progress { width: 100%; }
 button:disabled { cursor: wait; opacity: .6; }
 header label { min-width: 90px; flex-shrink: 0; }
+/* Statistics controls share the report's wrapping layout, including file:// use. */
+.statistics-options { align-items: flex-start; }
+.statistics-options select[multiple] { min-width: 16rem; max-width: 100%; }
+#statistics-parameters input[type=number] { width: 12rem; max-width: 100%; padding: .5rem; }
+.window-import input { max-width: 16rem; }
+#statistics-operation, #statistics-input-status, #experiment-operation { overflow-wrap: anywhere; white-space: pre-line; }
+#statistics-progress, #experiment-progress { width: 100%; }

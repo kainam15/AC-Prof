@@ -1,4 +1,4 @@
-/* Render Python's independent-run estimates; no statistical calculations here. */
+/* Render the current independent-run estimates and retained Python condition checks. */
 "use strict";
 window.ACProfExperiments = ({data, $, V, element, option, fmt, metricTitle, plot, axis, schedule, filtered, escape, color, selectConfig}) => {
 
@@ -106,6 +106,8 @@ window.ACProfExperiments = ({data, $, V, element, option, fmt, metricTitle, plot
     $("experiments").tBodies[0].replaceChildren();
     $("experiment-status").textContent = report ? `${report.status} · ${entry.display_only ? "仅并列展示，差值和比值暂停" : "条件可比；统计范围见逐指标样本数"}` :
       entry ? "浏览器描述性比较 · 严格统计未计算 / Browser descriptive comparison; strict statistics not computed. " + (reasons[entry.reason] || entry.reason) : "需要至少两个来源；可使用 acprof report --left RUN --right RUN 指定独立组。";
+    if (report) $("experiment-status").textContent += ` · ${report.engine === "browser" ? "浏览器重新计算 / Browser recalculation" : "Python 预计算 / Python precomputed"} · confidence=${report.confidence} · resamples=${report.resamples} · seed=${report.seed}`;
+    if (report?.unavailable_metrics?.length) $("experiment-status").textContent += " · 缺少 Python 比较证据 / Missing Python comparison evidence: " + report.unavailable_metrics.join(", ");
     $("experiment-evidence").textContent = JSON.stringify(report || entry || {}, null, 2);
     for (const group of groups()) {
       const row = element("tr"), left = group.left, right = group.right;

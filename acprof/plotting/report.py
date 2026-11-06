@@ -117,7 +117,9 @@ def write_report(model: AnalysisModel, output: str | Path, *, baseline: str | No
     # Optional template tokens also keep minimal/custom template consumers working.
     for token, asset in {"__IMPORT__": "report_import.js", "__WORKSPACE__": "report_workspace.js",
                          "__I18N__": "report_i18n.js", "__PAPA__": "vendor/papaparse.min.js",
-                         "__SHA256__": "vendor/sha256.js"}.items():
+                         "__SHA256__": "vendor/sha256.js", "__STATISTICS_RNG__": "statistics_rng.js",
+                         "__STATISTICS_ENGINE__": "statistics_engine.js",
+                         "__STATISTICS_CONTROLS__": "report_statistics.js"}.items():
         if token in template:
             replacements[token] = resources.joinpath(asset).read_text(encoding="utf-8")
     if "__IMPORT_LICENSE__" in template:
@@ -155,7 +157,9 @@ def write_report(model: AnalysisModel, output: str | Path, *, baseline: str | No
                 inputs["file"] = sidecar.name
         atomic_write(output, write, overwrite=False)
     except BaseException:
-        for path in created_inputs:
-            path.unlink(missing_ok=True)
+        # A post-publication fsync error must not strand an already visible HTML.
+        if not output.exists():
+            for path in created_inputs:
+                path.unlink(missing_ok=True)
         raise
     return output

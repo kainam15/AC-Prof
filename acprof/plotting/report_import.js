@@ -184,9 +184,26 @@ window.ACProfImport = (() => {
     if (new Set(configSources.values()).size !== sources.size) fail("来源没有配置 / Source has no configurations");
     for (const report of data.window_statistics) {
       if (!sources.has(report.source) || report.result_sha256 !== data.sources.find(s => s.path === report.source).sha256 || !Array.isArray(report.groups) || !report.parameters || !report.audit || !Array.isArray(report.cache_diagnostics)) fail("统计来源不匹配 / Invalid statistics provenance");
+      const parameters = report.parameters, inputs = report.recalculation;
+      if (!(parameters.confidence > 0 && parameters.confidence < 1) || !Number.isInteger(parameters.resamples) || parameters.resamples < 1 ||
+          !Number.isInteger(parameters.seed) || !Number.isInteger(parameters.block_size) || parameters.block_size < 1 ||
+          parameters.method !== "circular_block_percentile_bootstrap" || parameters.resampling_unit !== "csv_request_window") fail("统计参数或方法无效 / Invalid statistics contract");
+      if (inputs) {
+        if (inputs.schema_version !== 1 || !["embedded", "external_required"].includes(inputs.status) ||
+            !object(inputs.metrics) || !/^[a-f0-9]{64}$/.test(inputs.sha256) || !count(inputs.bytes) ||
+            inputs.status === "embedded" && !Array.isArray(inputs.groups)) fail("重算数据格式无效 / Invalid recalculation inputs");
+        for (const group of inputs.groups || []) {
+          if (configSources.get(group.config_id) !== report.source) fail("重算窗口来源不匹配 / Recalculation source mismatch");
+          if (!inputs.metrics[group.metric] ||
+              group.unit !== inputs.metrics[group.metric].unit || !Array.isArray(group.values) || !Array.isArray(group.repeat_indices) ||
+              group.values.length !== group.repeat_indices.length || !group.values.every(numeric) ||
+              group.repeat_indices.some((value, index) => !finite(value) || value < 0 || index > 0 && value <= group.repeat_indices[index - 1])) fail("重算窗口损坏 / Invalid recalculation windows");
+        }
+      }
       for (const group of report.groups) {
         if (configSources.get(group.config_id) !== report.source) fail("统计配置来源不匹配 / Statistics configuration source mismatch");
-        if (!registry[group.metric] || group.unit !== registry[group.metric].unit ||
+        const metric = registry[group.metric] || inputs?.metrics[group.metric];
+        if (!metric || group.unit !== metric.unit ||
             !count(group.n_windows) || !count(group.missing_windows) ||
             [group.mean, group.std, group.ci_low, group.ci_high].some(value => value !== null && !finite(value)) ||
             (group.ci_low === null) !== (group.ci_high === null) || group.ci_low > group.ci_high ||
@@ -245,7 +262,17 @@ window.ACProfImport = (() => {
     const html = /\.html?$/i.test(file.name), data = html ? extract(content, "report-data") : JSON.parse(content);
     const session = html ? extract(content, "report-session", false) : null;
     if (session && (session.schema_version !== 1 || !Array.isArray(session.imports))) fail("会话版本不兼容 / Unsupported session version");
-    return [data, ...(session?.imports || []).map(item => item.bundle)].map(item => validate(item, registry));
+    const bundles = [data, ...(session?.imports || []).map(item => item.bundle)].map(item => validate(item, registry));
+    if (!session?.statistics) return bundles;
+    const saved = session.statistics;
+    if (!Array.isArray(saved.windows) || !Array.isArray(saved.comparisons)) fail("统计会话损坏 / Invalid statistics session");
+    return bundles.map(bundle => validate({...bundle,
+      window_statistics:bundle.window_statistics.map(report => ({...report, ...saved.windows.find(item =>
+        item.source === report.source && item.result_sha256 === report.result_sha256)})),
+      experiment_comparisons:bundle.experiment_comparisons.map(entry => saved.comparisons.find(item =>
+        JSON.stringify([item.left, item.right, item.report?.purpose, item.report?.source_sha256]) ===
+        JSON.stringify([entry.left, entry.right, entry.report?.purpose, entry.report?.source_sha256])) || entry),
+    }, registry));
   }
   return {read, readCsv, validate, clone, checkCancelled};
 })();

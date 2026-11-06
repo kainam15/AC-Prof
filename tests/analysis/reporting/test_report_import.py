@@ -528,7 +528,7 @@ def test_same_path_runs_have_distinct_import_identities(page, same_path_bundles,
             for config in bundle["configs"]:
                 config["config_id"] = ids[config["config_id"]]
             for report in bundle["window_statistics"]:
-                for group in report["groups"]:
+                for group in [*report["groups"], *report.get("recalculation", {}).get("groups", [])]:
                     group["config_id"] = ids[group["config_id"]]
             bundle["baseline_comparisons"]["pairs"] = {
                 ids[key]: {ids[other]: pair for other, pair in pairs.items()}
