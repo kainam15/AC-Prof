@@ -88,6 +88,32 @@ def test_fixture_pins_environment_only_during_render(
     assert platform.detect_environment().label == "vm / PARTIAL"
 
 
+@pytest.mark.parametrize("no_color", [None, "", "1"])
+def test_fixture_keeps_color_independent_of_parent_environment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, no_color: str | None
+) -> None:
+    from tests.visual_png import fixture_app
+
+    if no_color is None:
+        monkeypatch.delenv("NO_COLOR", raising=False)
+    else:
+        monkeypatch.setenv("NO_COLOR", no_color)
+    observed: list[bool] = []
+
+    def observe(app: fixture_app.VisualFixtureApp) -> int:
+        observed.append(app.no_color)
+        return 0
+
+    monkeypatch.setattr(fixture_app.VisualFixtureApp, "run", observe)
+    monkeypatch.setattr(
+        sys, "argv", ["fixture_app.py", "--scenario", "statistics", "--fixture-dir", str(tmp_path)]
+    )
+
+    assert fixture_app.main() == 0
+    assert observed == [False]
+    assert os.environ.get("NO_COLOR") == no_color
+
+
 @pytest.mark.skipif(
     os.environ.get("ACPROF_PNG_VISUAL") != "1", reason="opt-in VHS screenshot suite"
 )

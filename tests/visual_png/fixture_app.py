@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import os
 import sys
 from dataclasses import replace
 from pathlib import Path
@@ -64,6 +65,7 @@ def main() -> int:
     fixture_dir.mkdir(parents=True, exist_ok=True)
     # Golden PNGs must not depend on the runner's native/VM/WSL identity.
     with (
+        patch.dict(os.environ),
         patch("acprof.tui.app.PROJECT_DIR", fixture_dir / "workspace"),
         patch("acprof.tui.app.PYTHON_EXECUTABLE", Path(sys.executable)),
         patch(
@@ -71,6 +73,9 @@ def main() -> int:
             return_value=Environment(environment="native_linux"),
         ),
     ):
+        # Textual treats even an empty NO_COLOR as a monochrome request.
+        # Keep the reviewed palette fixed and restore the caller's environment.
+        os.environ.pop("NO_COLOR", None)
         app = VisualFixtureApp(args.scenario, settings_path=fixture_dir / "settings.json")
         return app.run() or 0
 

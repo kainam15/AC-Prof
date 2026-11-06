@@ -50,6 +50,10 @@ ACPROF_PNG_VISUAL=1 uv run pytest tests/visual_png -v
 Graphite 主题、UTC、固定测试数据与隔离的临时 HOME/缓存。
 测试夹具还将环境身份固定模拟为 `Native Linux / FULL`，避免 CI 虚拟机的实际身份引入 PNG 差异。
 该模拟仅在测试夹具进程中生效，不修改正式运行时的环境检测。
+截图入口在构造 App 前临时移除 `NO_COLOR`，退出后恢复原值，避免本地灰度设置进入 Golden。
+这与现有 SVG fixture 一致；[Textual 8.2.8](https://github.com/Textualize/textual/blob/v8.2.8/src/textual/app.py)
+只要发现该变量就启用灰度过滤，设置为空字符串也不能关闭。沿用现有 MIT 依赖和标准库，
+不复制上游代码或引入运行时依赖。
 `--all` 逐场景启动，避免一个场景遗留 UI 状态或本地设置影响另一个。
 
 测试复用真实 `AcprofTui` 的页面与弹窗组件，但由
