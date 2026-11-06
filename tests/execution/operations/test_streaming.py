@@ -41,10 +41,10 @@ class TimedResponse:
         self.now = 0.0
         self.reads = 0
 
-    def getheader(self, name: str, default: str = "") -> str:
+    def getheader(self, _name: str, _default: str = "") -> str:
         return self.content_type
 
-    def read1(self, size: int) -> bytes:
+    def read1(self, _size: int) -> bytes:
         self.reads += 1
         timestamp, chunk = next(self.chunks, (self.eof, b""))
         self.now = timestamp
