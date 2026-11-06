@@ -14,7 +14,7 @@ from acprof.host.measurement.streaming import OpenAIStreamingAdapter
 from acprof.system.cleanup import cleanup_on_exit
 
 if TYPE_CHECKING:
-    from acprof.host.measurement.load import LoadConfig
+    from acprof.experiments.load import LoadConfig
 
 
 class LoadTransport:

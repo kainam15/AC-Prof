@@ -21,8 +21,16 @@ CPU/GPU 拟合、尺度基函数说明和残差整理各有独立函数。`write
 `analysis.streaming` 提供共享分布和完整 streaming 汇总，采集与离线报告复用同一实现；
 `analysis.streaming_capacity` 以原始流式请求、正式负载时长和声明 SLO 纯计算单点 Goodput、
 Token 覆盖及吞吐，不导入采集或渲染模块；`analysis.load_report` 复用二者校验 v2/v3，
-其中 `analysis.load_inputs` 校验 v3 请求集及阶段映射，按需复用请求规范化；`plotting.load_report` 只负责渲染，
+其中 `analysis.load_inputs` 校验 v3 请求集及阶段映射；`plotting.load_report` 只负责渲染，
 对 v1 保留 unavailable，不建立第二套公式。入口与边界见[流式测量](../profiling/streaming.md)。
+`experiments.load` 定义共享 `LoadConfig`、到达计划和扫描点上限；
+`experiments.streaming` 定义请求规范化、凭据字段校验与摘要。执行端和离线单点／扫描报告
+都直接使用这些纯契约，分析不导入 Host、Transport 或 Streaming Adapter。
+`host.measurement.load` 和 `host.measurement.request_inputs` 显式重导出既有公开契约，
+`OpenAIStreamingAdapter.prepare_payload()` 委托共享校验，保留原有协议、摘要与校验语义。
+该依赖方向参考 HTTPX 的 [配置对象](https://github.com/encode/httpx/blob/b5addb64f0161ff6bfe94c124ef76f6a1fba5254/httpx/_config.py)
+与 [Client 消费入口](https://github.com/encode/httpx/blob/b5addb64f0161ff6bfe94c124ef76f6a1fba5254/httpx/_client.py)；
+仅借鉴职责分离，不复制源码或增加依赖。隔离子进程回归直接读取本地 Fixture 产物并拒绝执行层导入。
 `analysis.server_metrics` 使用 Prometheus 官方 parser 选择服务阶段直方图，统一序列校验、
 重置判断及差值计算；采集和离线分析共用，HTML 只展示服务级结果，不推导 GPU 或请求归因。
 `plotting.pipeline.plot_results` 组织数据准备、PNG 渲染和模型报告发布；CLI 负责参数与锁的生命周期，

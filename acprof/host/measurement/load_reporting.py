@@ -12,7 +12,7 @@ from acprof.host.measurement.streaming import (
 )
 
 if TYPE_CHECKING:
-    from acprof.host.measurement.load import LoadConfig
+    from acprof.experiments.load import LoadConfig
 
 
 def complete_records(

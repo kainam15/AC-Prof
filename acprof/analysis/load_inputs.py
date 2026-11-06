@@ -3,13 +3,15 @@ from __future__ import annotations
 
 import re
 from dataclasses import asdict
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from acprof.artifacts import require_schema_version
-from acprof.host.measurement.request_inputs import request_digest, validate_request_credentials
-
-if TYPE_CHECKING:
-    from acprof.host.measurement.load import LoadConfig
+from acprof.experiments.load import LoadConfig
+from acprof.experiments.streaming import (
+    prepare_streaming_payload,
+    request_digest,
+    validate_request_credentials,
+)
 
 
 def _source(source: Any, count: int) -> None:
@@ -30,8 +32,6 @@ def _source(source: Any, count: int) -> None:
 
 
 def _bodies(identity: dict[str, Any], needed: int) -> list[dict[str, Any]]:
-    from acprof.host.measurement.streaming import OpenAIStreamingAdapter
-
     dataset = identity.get("request_dataset")
     if not isinstance(dataset, dict) or dataset.get("selection") != "listed_prefix":
         raise ValueError("stream load v3 requires a listed_prefix request dataset")
@@ -46,9 +46,8 @@ def _bodies(identity: dict[str, Any], needed: int) -> list[dict[str, Any]]:
     endpoint = identity.get("endpoint")
     if not isinstance(endpoint, str):
         raise ValueError("request dataset endpoint must be text")
-    adapter = OpenAIStreamingAdapter(endpoint=endpoint)
     for body in bodies:
-        normalized = adapter.prepare_payload(body)
+        normalized = prepare_streaming_payload(body, endpoint=endpoint)
         validate_request_credentials(body)
         if request_digest(normalized) != request_digest(body) or body["model"] != identity.get("model"):
             raise ValueError("request dataset body is not normalized or differs from the served model")
@@ -79,8 +78,6 @@ def _phase(phase: Any, bodies: list[dict[str, Any]], config: LoadConfig, token: 
 
 
 def validate_dataset_inputs(experiment: dict[str, Any]) -> None:
-    from acprof.host.measurement.load import LoadConfig
-
     identity = experiment.get("identity")
     if not isinstance(identity, dict) or not isinstance(identity.get("load_config"), dict):
         raise ValueError("stream load v3 requires load configuration")

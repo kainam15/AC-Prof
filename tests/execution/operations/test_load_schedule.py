@@ -99,7 +99,7 @@ def test_closed_loop_still_has_no_arrival_plan(scenario):
 def test_overflow_stops_generation_at_the_first_nonfinite_offset(monkeypatch):
     generator = random.Random(0)
     draw = Mock(wraps=generator.expovariate)
-    monkeypatch.setattr('acprof.host.measurement.load.random.Random',
+    monkeypatch.setattr('acprof.experiments.load.random.Random',
                         lambda _seed: SimpleNamespace(expovariate=draw))
     config = load.LoadConfig(scenario='arrival-rate', rate=1e-320, requests=100, arrival='poisson')
     with pytest.raises(ValueError, match='arrival-rate schedule.*finite'):

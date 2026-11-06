@@ -10,8 +10,8 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 
 from acprof.artifacts import loads_finite_json, reject_isolated_surrogates
+from acprof.experiments.streaming import OPENAI_STREAMING_ENDPOINTS, prepare_streaming_payload
 
-_ENDPOINTS = {"/v1/chat/completions", "/v1/completions"}
 _METRICS = ("ttft_s", "tpot_s", "itl_s", "output_e2e_s", "e2e_s")
 
 
@@ -235,7 +235,7 @@ class OpenAIStreamingAdapter:
         max_run_response_bytes: int = 256 * 1024 * 1024,
         max_run_output_events: int = 1000000,
     ):
-        if endpoint not in _ENDPOINTS:
+        if endpoint not in OPENAI_STREAMING_ENDPOINTS:
             raise ValueError("unsupported OpenAI streaming endpoint")
         for name, value in (
             ("max_event_bytes", max_event_bytes), ("max_response_bytes", max_response_bytes),
@@ -257,39 +257,10 @@ class OpenAIStreamingAdapter:
         return StreamRunBudget(self.max_run_response_bytes, self.max_run_output_events)
 
     def prepare_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
-        if not isinstance(payload, dict) or not isinstance(payload.get("model"), str) or not payload["model"].strip():
-            raise ValueError("OpenAI streaming requires a nonempty model")
-        reject_isolated_surrogates(payload)
-        if self.token_counter is not None and payload["model"] != self.token_counter.model_id:
-            raise ValueError("tokenizer fallback model does not match the request model")
-        if "n" in payload and (type(payload["n"]) is not int or payload["n"] != 1):
-            raise ValueError("OpenAI streaming currently supports n=1 only")
-        if "stream" in payload and payload["stream"] is not True:
-            raise ValueError("OpenAI streaming requires stream=true")
-        if any(payload.get(name) for name in ("tools", "functions", "tool_choice", "function_call", "audio")):
-            raise ValueError("OpenAI streaming currently supports text output only")
-        if payload.get("echo"):
-            raise ValueError("echo output cannot be counted as generated tokens")
-        if self.endpoint == "/v1/completions":
-            if not isinstance(payload.get("prompt"), str):
-                raise ValueError("completions requires one text prompt")
-            if "best_of" in payload and (type(payload["best_of"]) is not int or payload["best_of"] != 1):
-                raise ValueError("streaming completions supports best_of=1 only")
-        else:
-            messages = payload.get("messages")
-            if not isinstance(messages, list) or not messages or any(
-                not isinstance(message, dict)
-                or not isinstance(message.get("role"), str) or not message["role"].strip()
-                or not isinstance(message.get("content"), str)
-                for message in messages
-            ):
-                raise ValueError("chat completions requires nonempty text messages")
-        options = payload.get("stream_options", {})
-        if not isinstance(options, dict):
-            raise ValueError("stream_options must be an object")
-        if "include_usage" in options and options["include_usage"] is not True:
-            raise ValueError("streaming measurement requires stream_options.include_usage=true")
-        return {**payload, "stream": True, "n": 1, "stream_options": {**options, "include_usage": True}}
+        return prepare_streaming_payload(
+            payload, endpoint=self.endpoint,
+            tokenizer_model=self.token_counter.model_id if self.token_counter is not None else None,
+        )
 
     def protocol(self) -> dict[str, Any]:
         return {

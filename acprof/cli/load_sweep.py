@@ -13,7 +13,7 @@ from uuid import uuid4
 
 from acprof.artifacts import atomic_write_json
 from acprof.cli.load_evidence import publish_load_report
-from acprof.host.measurement.load import MAX_SWEEP_POINTS, LoadConfig
+from acprof.experiments.load import MAX_SWEEP_POINTS, LoadConfig
 from acprof.system.cleanup import format_exception_notes
 
 

@@ -19,12 +19,10 @@ from acprof.analysis.server_metrics import metrics_declaration
 from acprof.analysis.streaming_capacity import normalize_slo_thresholds
 from acprof.artifacts import read_json_object
 from acprof.cli.load_evidence import load_phase, publish_load_report
-from acprof.host.measurement.load import LoadConfig, run_load
-from acprof.host.measurement.request_inputs import (
-    read_request_dataset,
-    request_digest,
-    validate_request_credentials,
-)
+from acprof.experiments.load import LoadConfig
+from acprof.experiments.streaming import request_digest, validate_request_credentials
+from acprof.host.measurement.load import run_load
+from acprof.host.measurement.request_inputs import read_request_dataset
 from acprof.host.measurement.server_metrics import observe_server_metrics
 from acprof.host.measurement.service_identity import (
     SERVICE_PROBES,

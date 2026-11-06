@@ -2,23 +2,17 @@
 from __future__ import annotations
 
 import hashlib
-import json
 from pathlib import Path
 from typing import Any
 
 from acprof.artifacts import MAX_JSON_ARTIFACT_BYTES, loads_finite_json, reject_isolated_surrogates
+from acprof.experiments.streaming import (
+    request_digest as request_digest,
+    validate_request_credentials as validate_request_credentials,
+)
 
 MAX_REQUEST_DATASET_BYTES = 64 * 1024 * 1024
 MAX_REQUEST_DATASET_ROWS = 100_000
-
-
-def request_digest(value: Any) -> str:
-    return hashlib.sha256(json.dumps(value, sort_keys=True, allow_nan=False).encode()).hexdigest()
-
-
-def validate_request_credentials(payload: dict[str, Any]) -> None:
-    if any(str(key).lower() in {"authorization", "api_key", "apikey", "headers"} for key in payload):
-        raise ValueError("credentials and headers are not request body fields; use --api-key-env")
 
 
 def read_request_dataset(path: Path) -> tuple[list[dict[str, Any]], dict[str, Any]]:

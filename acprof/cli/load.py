@@ -15,11 +15,12 @@ from uuid import uuid4
 
 from acprof.artifacts import atomic_write_json, read_input_scale_plan
 from acprof.cli.load_evidence import load_phase, publish_load_report
+from acprof.experiments.load import LoadConfig
 from acprof.host.detect import TaskInfo
 from acprof.host.env_utils import bootstrap_project_env
 from acprof.host.execution_conditions import ExecutionConditions
 from acprof.host.hardware_conditions import record_case_conditions
-from acprof.host.measurement.load import LoadConfig, run_load
+from acprof.host.measurement.load import run_load
 from acprof.host.run_state import MeasurementLock, file_sha256, host_identity, load_run_state
 from acprof.host.runtimes.service import execution_runtime
 from acprof.installation import module_command, resource_root

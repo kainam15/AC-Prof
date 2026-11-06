@@ -9,7 +9,7 @@ from typing import Any
 
 from acprof.analysis.load_report import analyze_load_report
 from acprof.artifacts import file_sha256, read_json_object_snapshot, require_schema_version
-from acprof.host.measurement.load import MAX_SWEEP_POINTS, LoadConfig
+from acprof.experiments.load import MAX_SWEEP_POINTS, LoadConfig
 
 _STATES = {"running", "complete", "failed", "cancelled"}
 _CONFIG_FIELDS = {field.name for field in fields(LoadConfig)}
