@@ -11,6 +11,7 @@ from PIL import Image
 
 from scripts.render_tui_png_report import render_report
 from scripts.tui_ci_status import ROOT, load_status, record_status
+from tests.visual_png.scenarios import SCENARIOS
 from tests.visual_png.test_journey_report import make_synthetic_manifest
 
 
@@ -32,7 +33,7 @@ def _fixtures(actual: Path) -> None:
         encoding="utf-8",
     )
     rows = []
-    for name in ("form", "form-small", "error-modal", "near-match", "measuring", "task-selection"):
+    for name in SCENARIOS:
         Image.new("RGB", (4, 4), "white").save(actual / f"{name}.png")
         rows.append({"scene": name, "status": "passed"})
     (actual / "report.json").write_text(json.dumps(rows), encoding="utf-8")
@@ -68,7 +69,7 @@ def test_all_passed_requires_independent_same_run_evidence(tmp_path: Path) -> No
     }
     assert {name: row["count"] for name, row in status["checks"].items()} == {
         "svg": 21,
-        "png": 6,
+        "png": len(SCENARIOS),
         "pilot": 21,
     }
     _write(tmp_path, status)

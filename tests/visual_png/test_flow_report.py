@@ -7,15 +7,30 @@ from copy import deepcopy
 from pathlib import Path
 
 import pytest
+from textual.widgets import TabbedContent
 
 from scripts.render_tui_png_report import render_report
 from scripts.tui_flow_catalog import CATALOG, ROOT, load_catalog, png_inventory, svg_inventory
+from tests.support.tui_fixtures import AcprofTui
+
+
+async def test_flow_catalog_matches_visible_tui_pages(tmp_path: Path) -> None:
+    catalog = load_catalog()
+    app = AcprofTui(settings_path=tmp_path / "settings.json")
+    async with app.run_test(size=(80, 24)) as pilot:
+        await pilot.pause()
+        tabs = app.query_one("#main-tabs", TabbedContent)
+        visible_pages = [
+            (pane.id, tabs.get_tab(pane).label.plain)
+            for pane in app.query("#main-tabs > ContentSwitcher > TabPane")
+            if tabs.get_tab(pane).display
+        ]
+        assert [(page["id"], page["title"]) for page in catalog["pages"]] == visible_pages
 
 
 def test_flow_catalog_references_existing_public_fixtures_and_pages() -> None:
     catalog = load_catalog()
     steps = catalog["checkpoints"]
-    assert len(catalog["pages"]) == 5
     assert {item["id"] for item in steps} >= {
         "configure",
         "prepare",
@@ -23,6 +38,7 @@ def test_flow_catalog_references_existing_public_fixtures_and_pages() -> None:
         "measurement",
         "finish",
         "results",
+        "profiler",
         "recover",
     }
     assert {name for item in steps for name in item["png"]} == set(png_inventory())
@@ -67,10 +83,11 @@ def test_report_includes_workflow_coverage_all_svgs_and_png_comparison(tmp_path:
         "measurement",
         "finish",
         "results",
+        "profiler",
         "settings",
     ):
         assert f'id="flow-{checkpoint}"' in page
-    assert "SVG 基准图库（21 张）" in page
+    assert f"SVG 基准图库（{len(svg_inventory())} 张）" in page
     assert page.count('alt="SVG 历史基准"') == len(svg_inventory())
     assert "data:image/svg+xml;base64," in page
     # Optional confirmations belong before runtime validation in the flow view.

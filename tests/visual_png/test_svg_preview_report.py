@@ -10,6 +10,7 @@ import pytest
 from PIL import Image
 
 from scripts.render_tui_png_report import BASELINES, ROOT, render_report
+from scripts.tui_flow_catalog import svg_inventory
 from scripts.tui_svg_preview_png import (
     FONT_FAMILY,
     _prepare_svg,
@@ -71,7 +72,7 @@ def test_html_prefers_png_preview_without_changing_golden_counts(tmp_path):
     assert "data:image/png;base64," in report
     assert "data:image/svg+xml;base64," in report
     assert "Comparison not available." in report
-    assert "SVG 基准图库（21 张）" in report
+    assert f"SVG 基准图库（{len(svg_inventory())} 张）" in report
 
 
 def test_absent_previews_keep_original_svg_behavior(tmp_path):

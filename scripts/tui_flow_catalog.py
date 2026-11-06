@@ -55,7 +55,7 @@ def load_catalog(*, source: Path = CATALOG, root: Path = ROOT) -> dict:
     )
     _require(data["schema_version"] == 1, "unsupported schema version")
     pages, checkpoints = data["pages"], data["checkpoints"]
-    _require(isinstance(pages, list) and len(pages) == 5, "expected five top-level pages")
+    _require(isinstance(pages, list) and bool(pages), "pages must be nonempty")
     _require(isinstance(checkpoints, list) and bool(checkpoints), "checkpoints must be nonempty")
     page_ids: set[str] = set()
     for page in pages:
@@ -69,7 +69,9 @@ def load_catalog(*, source: Path = CATALOG, root: Path = ROOT) -> dict:
         _string(page["title"], "page title")
         _string(page["purpose"], "page purpose")
     _require(
-        page_ids == {"run-tab", "monitor-tab", "results-tab", "images-tab", "settings-tab"},
+        page_ids == {
+            "run-tab", "monitor-tab", "results-tab", "backfill-tab", "images-tab", "settings-tab"
+        },
         "page catalog must match actual TUI tabs",
     )
 

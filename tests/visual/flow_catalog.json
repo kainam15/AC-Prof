@@ -3,7 +3,8 @@
   "pages": [
     {"id": "run-tab", "title": "实验配置", "purpose": "准备模型、资源矩阵、输入和运行计划"},
     {"id": "monitor-tab", "title": "运行监控", "purpose": "查看准备、验证、正式测量、日志和终止状态"},
-    {"id": "results-tab", "title": "实验结果", "purpose": "查看结果摘要、统计、比较、Profiler 和报告"},
+    {"id": "results-tab", "title": "实验结果", "purpose": "读取实验摘要、生成并打开 HTML 分析报告"},
+    {"id": "backfill-tab", "title": "补采实验", "purpose": "查看所选实验的 Profiler 状态并选择补采工具"},
     {"id": "images-tab", "title": "镜像管理", "purpose": "查看镜像、依赖、空间和清理操作"},
     {"id": "settings-tab", "title": "应用设置", "purpose": "管理界面偏好、连接和权限"}
   ],
@@ -98,14 +99,16 @@
       "tests": ["tests/tui/results/test_tui_result_tools.py", "tests/tui/results/test_tui_reports.py", "tests/tui/workflows/test_tui_html_statistics.py", "tests/tui/workflows/test_tui_visual_journey.py"]
     },
     {
-      "id": "profiler", "title": "查看或补充 Profiler", "page": "results-tab", "group": "optional",
-      "trigger": "从结果页展开深度分析", "expected": "区分已完成、缺失、部分完成、不适用及补采选择",
+      "id": "profiler", "title": "查看或补充 Profiler", "page": "backfill-tab", "group": "optional",
+      "trigger": "切换到补采实验页，读取所选实验并选择补采工具", "expected": "共享结果页的实验来源，区分已完成、缺失、部分完成、不适用及补采选择",
       "png": [],
       "svg": [
+        "tests/visual/__snapshots__/test_snapshots/test_fixed_scenes[zh-size13-backfill].svg",
+        "tests/visual/__snapshots__/test_snapshots/test_fixed_scenes[en-size14-backfill].svg",
         "tests/visual/__snapshots__/test_snapshots/test_fixed_scenes[zh-size11-profiler].svg",
         "tests/visual/__snapshots__/test_snapshots/test_fixed_scenes[en-size12-profiler].svg"
       ],
-      "tests": ["tests/tui/results/test_tui_profiler_selection.py", "tests/tui/results/test_tui_profile_status.py"]
+      "tests": ["tests/tui/results/test_tui_profile_tools.py", "tests/tui/results/test_tui_profiler_selection.py", "tests/tui/results/test_tui_profile_status.py"]
     },
     {
       "id": "recover", "title": "恢复 / 新建实验", "page": "run-tab", "group": "optional",

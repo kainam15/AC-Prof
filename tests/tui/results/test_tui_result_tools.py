@@ -1,7 +1,7 @@
 from unittest.mock import patch
 
 import pytest
-from textual.widgets import Button, Collapsible, Input, Static, TabbedContent
+from textual.widgets import Button, Input, Static, TabbedContent
 from tests.support.tui_fixtures import AcprofTui
 
 from acprof.experiments.configuration import RunConfig
@@ -24,7 +24,7 @@ class TestTuiResultTools:
             await pilot.pause()
             tabs = app.query_one("#main-tabs", TabbedContent)
             assert [tabs.get_tab(pane).label.plain for pane in app.query("#main-tabs > ContentSwitcher > TabPane")] == [
-                "实验配置", "运行监控", "实验结果", "镜像管理", "应用设置"]
+                "实验配置", "运行监控", "实验结果", "补采实验", "镜像管理", "应用设置"]
             assert not app.query("#profile-tab, #result-dir")
             app.activate_tab("results-tab")
             app.query_one("#result-csv", Input).value = str(self.csv_path)
@@ -33,15 +33,23 @@ class TestTuiResultTools:
             await app.workers.wait_for_complete()
             await pilot.pause()
             assert "成功 1" in app.query_one("#result-summary", Static).content
-            assert app.query_one("#profile-section", Collapsible).collapsed
-            app.query_one("#profile-section", Collapsible).collapsed = False
+            assert not app.query("#results-tab #profile-status, #results-tab #open-result-profiling")
+            assert await pilot.click(tabs.get_tab("backfill-tab"))
             await pilot.pause()
+            assert tabs.active == "backfill-tab"
+            assert app.query_one("#backfill-source", Input).value == str(self.csv_path)
             # A loose CSV is fine for plotting, but cannot carry immutable replay identity.
             assert "独立 CSV" in str(app.query_one("#profile-status", Static).content)
             assert app.query_one("#open-result-profiling", Button).disabled
 
+            assert await pilot.click(tabs.get_tab("results-tab"))
+            await pilot.pause()
             with patch.object(app.process, "execute_command") as execute:
-                assert await pilot.click("#plot-results", offset=(2, 1))
+                # PNG plotting remains available through the public slash command.
+                field = app.query_one("#slash-command", Input)
+                field.value = f'/plot "{self.csv_path}"'
+                field.focus()
+                await pilot.press("enter")
                 await pilot.pause()
                 execute.assert_called_once()
                 command, kind = execute.call_args.args
