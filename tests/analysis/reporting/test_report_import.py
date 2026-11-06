@@ -187,6 +187,72 @@ def test_rejects_invalid_inputs_atomically(page, content, expected):
     assert page.locator("#experiment-list tbody tr").count() == 1
 
 
+@pytest.fixture
+def linked_bundle(tmp_path):
+    paths = []
+    for name, latency in (("left", 2), ("right", 20)):
+        path = tmp_path / f"{name}.csv"
+        path.write_text(
+            "cpu_cores,mem_cap_gb,gpu_mode,input_scale,repeat_idx,warmup,status,latency_app_s,run_id\n"
+            f"2,4,off,32,0,0,ok,{latency},{name}\n"
+            f"4,4,off,32,0,0,ok,{latency * 2},{name}\n", encoding="utf-8")
+        paths.append(path)
+    return report_payload(load_analysis(paths), statistics_options={"metrics": ["latency_app_s"], "resamples": 19})
+
+
+@pytest.mark.parametrize("extension", ["json", "html"])
+@pytest.mark.parametrize("defect", ["unused_source", "foreign_config", "foreign_report"])
+def test_bundle_source_links_reject_before_changing_workspace(page, linked_bundle, defect, extension):
+    damaged = json.loads(json.dumps(linked_bundle))
+    if defect == "unused_source":
+        damaged["sources"].append({**damaged["sources"][0], "path": "unused.csv", "sha256": "a" * 64})
+    elif defect == "foreign_config":
+        damaged["window_statistics"][0]["groups"][0]["config_id"] = damaged["configs"][2]["config_id"]
+    else:
+        report = damaged["window_statistics"][0]
+        report["source"] = damaged["sources"][1]["path"]
+        report["result_sha256"] = damaged["sources"][1]["sha256"]
+    content = json.dumps(damaged)
+    if extension == "html":
+        content = f'<script id="report-data" type="application/json">{content}</script>'
+    before = download_json(page)["analysis_bundle"]
+    import_file(page, f"damaged.{extension}", content)
+    assert "来源" in page.locator("#import-status").inner_text()
+    assert page.locator("#experiment-list tbody tr").count() == 1
+    assert download_json(page)["analysis_bundle"] == before
+    # Rejection must not reserve these sources/run IDs or poison a later valid import.
+    import_file(page, "valid.json", json.dumps(linked_bundle))
+    assert page.locator("#experiment-list tbody tr").count() == 3
+    page.click("[data-view=statistics]")
+    settled(page)
+    payload = download_json(page)
+    assert sorted(group["mean"] for report in payload["reports"][1:] for group in report["groups"]) == [2, 4, 20, 40]
+
+
+def test_bundle_source_links_survive_filter_export_remove_and_html_restore(page, linked_bundle, tmp_path):
+    import_file(page, "valid.json", json.dumps(linked_bundle))
+    page.select_option("#filter-cpu", "2")
+    settled(page)
+    exported = download_json(page)["analysis_bundle"]
+    assert len(exported["configs"]) == 3
+    assert page.evaluate("bundle => ACProfImport.validate(bundle, bundle.registry)", exported) == exported
+    page.click("#reset")
+    settled(page)
+    page.locator("#experiment-list button[data-remove]").first.click()
+    settled(page)
+    exported = download_json(page)["analysis_bundle"]
+    assert len(exported["sources"]) == 2
+    assert all(config["run_id"] != "left" for config in exported["configs"])
+    assert page.evaluate("bundle => ACProfImport.validate(bundle, bundle.registry)", exported) == exported
+    with page.expect_download() as result:
+        page.click("#export-html")
+    saved = tmp_path / "retained.html"
+    result.value.save_as(saved)
+    page.goto(saved.as_uri())
+    settled(page)
+    assert download_json(page)["analysis_bundle"] == exported
+
+
 def test_duplicate_fingerprints_and_run_identity_are_rejected(page, source):
     import_file(page, "renamed.csv", source.read_text())
     assert "重复" in page.locator("#import-status").inner_text()

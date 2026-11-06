@@ -140,7 +140,7 @@ window.ACProfImport = (() => {
       if (!Array.isArray(data[name])) fail("数据包缺失字段 / Missing bundle field: " + name);
     }
     if (!data.configs.length || !data.sources.length || !data.registry || !data.baseline_comparisons) fail("数据包缺失配置或来源 / Missing configurations or sources");
-    const ids = new Set(), sources = new Set();
+    const configSources = new Map(), sources = new Set();
     const object = value => value && typeof value === "object" && !Array.isArray(value);
     const count = value => Number.isInteger(value) && value >= 0;
     const numeric = value => value === null || finite(value);
@@ -150,8 +150,8 @@ window.ACProfImport = (() => {
       sources.add(source.path);
     }
     for (const config of data.configs) {
-      if (typeof config.config_id !== "string" || ids.has(config.config_id) || !sources.has(config.source)) fail("配置身份缺失或重复 / Invalid or duplicate configuration identity");
-      ids.add(config.config_id);
+      if (typeof config.config_id !== "string" || configSources.has(config.config_id) || !sources.has(config.source)) fail("配置身份缺失或重复 / Invalid or duplicate configuration identity");
+      configSources.set(config.config_id, config.source);
       for (const name of ["model", "run_id", "runtime", "device", "input_case", "quality_status", "status"]) {
         if (typeof config[name] !== "string") fail("配置缺失字段 / Missing configuration field: " + name);
       }
@@ -181,10 +181,12 @@ window.ACProfImport = (() => {
             !Number.isInteger(values.missing) || values.missing < 0 || ![metric.aggregation, "lifecycle_conflict"].includes(values.aggregation)) fail("指标值损坏或缺失 / Invalid metric values: " + name);
       }
     }
+    if (new Set(configSources.values()).size !== sources.size) fail("来源没有配置 / Source has no configurations");
     for (const report of data.window_statistics) {
       if (!sources.has(report.source) || report.result_sha256 !== data.sources.find(s => s.path === report.source).sha256 || !Array.isArray(report.groups) || !report.parameters || !report.audit || !Array.isArray(report.cache_diagnostics)) fail("统计来源不匹配 / Invalid statistics provenance");
       for (const group of report.groups) {
-        if (!ids.has(group.config_id) || !registry[group.metric] || group.unit !== registry[group.metric].unit ||
+        if (configSources.get(group.config_id) !== report.source) fail("统计配置来源不匹配 / Statistics configuration source mismatch");
+        if (!registry[group.metric] || group.unit !== registry[group.metric].unit ||
             !count(group.n_windows) || !count(group.missing_windows) ||
             [group.mean, group.std, group.ci_low, group.ci_high].some(value => value !== null && !finite(value)) ||
             (group.ci_low === null) !== (group.ci_high === null) || group.ci_low > group.ci_high ||
@@ -210,9 +212,9 @@ window.ACProfImport = (() => {
     if (!object(pairs.pairs) || !Array.isArray(pairs.qualifications)) fail("基线比较缺失 / Missing baseline comparisons");
     for (const verdict of pairs.qualifications) if (!object(verdict) || !["compatible", "incompatible", "unknown", "descriptive"].includes(verdict.status) || !Array.isArray(verdict.reasons)) fail("基线比较状态无效 / Invalid baseline qualification");
     for (const [id, others] of Object.entries(pairs.pairs)) {
-      if (!ids.has(id) || !object(others)) fail("基线身份无效 / Invalid baseline identity");
+      if (!configSources.has(id) || !object(others)) fail("基线身份无效 / Invalid baseline identity");
       for (const [other, pair] of Object.entries(others)) {
-        if (!ids.has(other) || !object(pair.policies) || !object(pair.metrics) ||
+        if (!configSources.has(other) || !object(pair.policies) || !object(pair.metrics) ||
             [pair.resource, ...Object.values(pair.policies)].some(index => !count(index) || !pairs.qualifications[index])) fail("基线证据索引无效 / Invalid baseline evidence reference");
         for (const change of Object.values(pair.metrics)) if (![change.delta, change.percent, change.ratio, change.performance_ratio].every(numeric)) fail("基线差值无效 / Invalid baseline change");
       }
