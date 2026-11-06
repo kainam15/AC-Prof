@@ -140,10 +140,10 @@ def test_input_cleanup_attempts_all_files_and_preserves_failures(bundle, monkeyp
     _sources, model, output, sidecars = bundle
     primary = KeyboardInterrupt('render cancelled') if cancel_render else OSError('render failed')
     secondary = KeyboardInterrupt('cleanup cancelled') if cancel_cleanup else PermissionError('cleanup denied')
-    original_unlink = Path.unlink
+    original_unlink = os.unlink
 
-    def fail_unlink(path: Path, **options) -> None:
-        if path == sidecars[1]:
+    def fail_unlink(path: str | Path, **options) -> None:
+        if Path(path) == sidecars[1]:
             raise secondary
         original_unlink(path, **options)
 
@@ -154,7 +154,7 @@ def test_input_cleanup_attempts_all_files_and_preserves_failures(bundle, monkeyp
             raise primary
         atomic_write(path, writer, **options)
 
-    monkeypatch.setattr(Path, 'unlink', fail_unlink)
+    monkeypatch.setattr(os, 'unlink', fail_unlink)
     expected = secondary if cancel_cleanup and not cancel_render else primary
     with patch('acprof.plotting.report.atomic_write', fail_render), \
             pytest.raises(type(expected), match=str(expected)) as caught:
