@@ -15,7 +15,7 @@ from acprof.input_budget import InputBudgetExceeded
 def wrapped_error(cause: Exception, *, suppressed: bool = False) -> RuntimeError:
     try:
         raise cause
-    except Exception:
+    except type(cause):
         try:
             if suppressed:
                 raise RuntimeError("fixture SDK wrapper") from None
