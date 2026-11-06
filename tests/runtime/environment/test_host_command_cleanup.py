@@ -19,7 +19,7 @@ def command_children(monkeypatch, primary_error):
     children = []
 
     def launch(*args, **kwargs):
-        process = real_popen(*args, **kwargs)
+        process: subprocess.Popen[str] = real_popen(*args, **kwargs)
         children.append(process)
         if primary_error is not None:
             communicate = process.communicate
@@ -40,13 +40,13 @@ def command_children(monkeypatch, primary_error):
         yield children
     finally:
         # The regression must not leak children even against the broken code.
-        for process in children:
+        for child in children:
             try:
-                real_killpg(process.pid, signal.SIGKILL)
+                real_killpg(child.pid, signal.SIGKILL)
             except ProcessLookupError:
                 pass
-            process.wait(timeout=5)
-            for stream in (process.stdin, process.stdout, process.stderr):
+            child.wait(timeout=5)
+            for stream in (child.stdin, child.stdout, child.stderr):
                 if stream is not None:
                     stream.close()
 
@@ -60,7 +60,7 @@ def test_term_failure_preserves_error_and_reaps_real_child(monkeypatch, primary_
     def refuse_term(pid, sig):
         if sig == signal.SIGTERM:
             raise PermissionError("fixture SIGTERM refusal")
-        return real_killpg(pid, sig)
+        real_killpg(pid, sig)
 
     monkeypatch.setattr(os, "killpg", refuse_term)
     error_type = type(primary_error) if primary_error is not None else subprocess.TimeoutExpired
@@ -72,7 +72,7 @@ def test_term_failure_preserves_error_and_reaps_real_child(monkeypatch, primary_
         assert isinstance(caught.value, subprocess.TimeoutExpired)
     else:
         assert caught.value is primary_error
-    assert caught.value.command_metadata.error_type == type(caught.value).__name__
+    assert getattr(caught.value, "command_metadata").error_type == type(caught.value).__name__
     assert "fixture SIGTERM refusal" in "\n".join(caught.value.__notes__)
     process, = command_children
     assert process.returncode is not None
@@ -149,7 +149,7 @@ def test_cleanup_failure_is_reported_after_command_exit(command_process, returnc
         assert "fixture group cleanup failed" in "\n".join(caught.value.__notes__)
     else:
         assert caught.value is cleanup_error
-    assert caught.value.command_metadata.error_type == type(caught.value).__name__
+    assert getattr(caught.value, "command_metadata").error_type == type(caught.value).__name__
     process.wait.assert_called_once()
     assert all(stream.closed for stream in (process.stdin, process.stdout, process.stderr))
 
@@ -166,6 +166,6 @@ def test_cleanup_cancellation_retains_command_failure_and_closes_pipes(command_p
     assert caught.value is cancellation
     assert caught.value.__cause__ is primary
     assert "fixture read failed" in "\n".join(caught.value.__notes__)
-    assert caught.value.command_metadata.error_type == "KeyboardInterrupt"
+    assert getattr(caught.value, "command_metadata").error_type == "KeyboardInterrupt"
     process.wait.assert_called_once()
     assert all(stream.closed for stream in (process.stdin, process.stdout, process.stderr))
