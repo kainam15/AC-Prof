@@ -59,12 +59,15 @@ def _excluded(entries: list[dict]) -> dict[str, int]:
     return dict(reasons)
 
 
-def _matching_rows(rows: list[dict], group: dict) -> list[dict]:
+def _rows_by_identity(rows: list[dict]) -> dict[tuple, list[dict]]:
     defaults = {"environment_class": "unknown", "runtime_kind": "docker", "runtime_id": "",
                 "resource_scope": "container_cgroup"}
-    return [row for row in rows if all(
-        (number(row.get(key)) if key in {"cpu_cores", "mem_cap_gb", "input_scale"}
-         else row.get(key, defaults.get(key))) == group.get(key) for key in _IDENTITY)]
+    indexed = defaultdict(list)
+    for row in rows:
+        identity = tuple(number(row.get(key)) if key in {"cpu_cores", "mem_cap_gb", "input_scale"}
+                         else row.get(key, defaults.get(key)) for key in _IDENTITY)
+        indexed[identity].append(row)
+    return indexed
 
 
 def _unavailable_groups(metrics, reason, detail="") -> list[dict]:
@@ -87,16 +90,21 @@ def _config_summary(entries, source, metrics, options, *, include_intervals, inc
         groups = report["groups"] or _unavailable_groups(metrics, "no_successful_windows")
     excluded = _excluded(entries)
     resolver = MissingReasons(source["metadata"], environment_class=entries[0]["environment_class"])
+    indexed = _rows_by_identity(rows)
+    ordered_by_identity: dict[tuple, list[dict]] = {}
     for group in groups:
         reasons: Counter[str] = Counter()
         metric = group["metric"]
-        matching = _matching_rows(rows, group)
+        identity = tuple(group.get(key) for key in _IDENTITY)
+        matching = indexed.get(identity, [])
         for row in matching:
             if number(row.get(metric)) is None:
                 reasons[resolver.for_row(row)(metric)] += 1
         group.update(config_id=entries[0]["config_id"], missing_reasons=dict(reasons), excluded_windows=excluded)
         if include_inputs:
-            ordered = sorted(matching, key=lambda row: float(row["repeat_idx"]))
+            if identity not in ordered_by_identity:
+                ordered_by_identity[identity] = sorted(matching, key=lambda sample: float(sample["repeat_idx"]))
+            ordered = ordered_by_identity[identity]
             group.update(values=[number(row.get(metric)) for row in ordered],
                          repeat_indices=[float(row["repeat_idx"]) for row in ordered])
     return groups

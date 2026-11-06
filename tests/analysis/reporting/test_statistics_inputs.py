@@ -6,7 +6,77 @@ import pytest
 
 from acprof.analysis.model import load_analysis
 from acprof.plotting.report import report_payload, write_report
+from acprof.results.metrics import METRICS
 from tests.analysis.reporting.test_report_statistics import row, write_rows
+
+
+@pytest.mark.parametrize('metric_count', [1, 16])
+def test_report_classifies_window_identity_independently_of_metric_count(tmp_path, monkeypatch, metric_count):
+    from acprof.analysis import report_statistics
+
+    metrics = [name for name, metric in METRICS.items() if metric.kind == 'number'
+               and metric.window in {'request_window', 'matched_control'}][:metric_count]
+    source = tmp_path / 'result_all.csv'
+    rows = [row(index, .125, cpu_cores='37.25', **{name: '.125' for name in metrics}) for index in range(8)]
+    write_rows(source, rows)
+    model = load_analysis([source])
+    parse = report_statistics.number
+    identity_reads = []
+
+    def observe(value):
+        if value == '37.25':
+            identity_reads.append(value)
+        return parse(value)
+
+    monkeypatch.setattr(report_statistics, 'number', observe)
+    payload = report_payload(model, statistics_options={'metrics': metrics, 'resamples': 1})
+
+    # Initial estimates and browser inputs may each classify the windows.
+    # Adding metrics must not repeat that classification for every metric.
+    assert len(identity_reads) <= 4 * len(rows)
+    report = payload['window_statistics'][0]
+    assert all(group['cpu_cores'] == 37.25 and group['mean'] == .125 for group in report['groups'])
+    assert all(group['repeat_indices'] == list(range(8)) for group in report['recalculation']['groups'])
+
+
+def test_invalid_window_identity_stays_unavailable_without_sorting_bad_repeat(tmp_path):
+    source = tmp_path / 'result_all.csv'
+    write_rows(source, [row('invalid', 2), row(0, 1)])
+
+    report = report_payload(load_analysis([source]))['window_statistics'][0]
+
+    assert all(group['reason'] == 'invalid_window_identity' for group in report['groups'])
+    assert all(group['values'] == [] and group['repeat_indices'] == []
+               for group in report['recalculation']['groups'])
+
+
+@pytest.mark.parametrize('runtime', ['docker', 'process'])
+def test_window_inputs_keep_numeric_identity_and_inherited_resource_axes(tmp_path, runtime):
+    source = tmp_path / 'result_all.csv'
+    rows = [row(2, 3, cpu_cores='2e0', mem_cap_gb='4.0', input_scale='3.2e1'),
+            row(0, 1, cpu_cores='2.0', mem_cap_gb='4e0'), row(1, 'nan'),
+            row(3, 99, status='error'), row(4, 99, result_origin='inferred_not_measured'),
+            row(0, 99, warmup='1')]
+    if runtime == 'process':
+        for record in rows:
+            record.update(cpu_cores='', mem_cap_gb='', runtime_kind='process',
+                          runtime_id='fixture-env', resource_scope='observed_process_tree')
+    write_rows(source, rows)
+    original = source.read_bytes()
+
+    report = report_payload(load_analysis([source]))['window_statistics'][0]
+
+    groups = [group for group in report['recalculation']['groups'] if group['metric'] == 'latency_app_s']
+    assert len(groups) == 1
+    group = groups[0]
+    assert group['runtime_kind'] == runtime
+    assert (group['cpu_cores'], group['mem_cap_gb']) == ((None, None) if runtime == 'process' else (2., 4.))
+    assert group['input_scale'] == 32.
+    assert group['values'] == [1., None, 3.]
+    assert group['repeat_indices'] == [0., 1., 2.]
+    assert group['missing_reasons'] == {'unavailable' if runtime == 'process' else 'unavailable_unspecified': 1}
+    assert group['excluded_windows'] == {'error': 1, 'inferred_not_measured': 1, 'warmup': 1}
+    assert source.read_bytes() == original
 
 
 def test_inputs_keep_missing_values_and_exclude_non_measurements(tmp_path):

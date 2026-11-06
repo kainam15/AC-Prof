@@ -180,6 +180,11 @@ baseline、颜色、Pareto 和 Scaling 分组，`report.js` 处理交互。该�
 不引入 Web 服务或 TUI 依赖，详见[分析模型](../results/reports.md#统一分析模型与精简汇总)。
 `analysis/report_statistics.py` 为 HTML 复用有效的窗口统计 JSON，或从 `AnalysisModel.raw_rows`
 按 config ID 调用既有 `summarize_windows`；缓存校验只重算廉价摘要，不重跑 Bootstrap。
+窗口身份在每次配置汇总中只归一化、分组一次，多个指标共享行引用；浏览器重算输入按身份各排序一次。
+缺失原因沿原始行顺序累积，数值与 repeat indices 沿既有窗口顺序导出，保留默认 Docker 身份、
+Process 继承资源及无效窗口身份的不可用语义。分组只在本次汇总内复用，不改变来源复核或导出字节。
+这一组织方式参考 [pandas BaseGrouper 的分组索引与排序复用](https://github.com/pandas-dev/pandas/blob/5db5929d07629538ddba99853696bc3c42dc8e0a/pandas/core/groupby/ops.py#L679-L725)
+（BSD-3-Clause），使用标准库字典和现有数值规则，不创建 DataFrame 或引入分析依赖。
 缺失原因复用 `audit.MissingReasons`，质量及计划覆盖复用比较快照携带的 audit 结果，避免再次读取 CSV。
 `ResultMetadataSnapshot.observed_fingerprints` 记录实际解析字节及已观察到的缺失；
 HTML 统计与原子发布末尾复核结果和这些元数据，变化时撤销临时输出。该检查不提供跨文件原子快照。
