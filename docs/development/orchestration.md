@@ -102,6 +102,15 @@ Process 启动失败时先尝试读取 OOM 证据，再执行既有的进程终�
 进程清理未确认时仍保留 Model Store 租约与资源范围，传播 `RuntimeCleanupError` 阻止后续执行，
 其 `run_error` 保留原始启动异常。轻量真实服务加故障注入可验证所有权与传播；真实 cgroup OOM 仍需硬件验收。
 
+`ManagedProcess` 构造期间即持有控制管道，父端关闭或所有权握手失败也必须尝试回收 supervisor。
+构造尚未返回时发生的未确认清理统一传播 `ProcessCleanupError`，由服务与验证入口保留租约和资源范围。
+确认回收后补写实际启动账本：已启动的 supervisor 保留 `started` 与 owner PID，只有未创建进程才标记
+`failed`；账本仍无法发布时保留错误备注，Resume 继续拒绝缺失证据，不绕过 supervisor 状态核验。
+接口与运行时验证保留清理错误类型及 `cleanup_status=incomplete`，立即停止后续设备验证；
+报告或 Model Resolution 写入的普通错误仅追加诊断，不能将清理未确认改成普通兼容性失败。
+该构造失败处理借鉴 [CPython multiprocessing.Pool 的部分创建回收](https://github.com/python/cpython/blob/3.12/Lib/multiprocessing/pool.py#L183-L222)，
+复用项目现有异常与收尾工具，不引入依赖。轻量真实子进程、文件锁与故障注入覆盖此路径，资源范围使用 Fixture。
+
 Profiler 命令统一经过 `profiling.commands.run_profiler_command`：主机工具查询保留原有执行方式，
 每次 `docker run` 单独分配 cidfile 和现有进程所有权标签，按不可变 ID 有界回收容器。
 启动前同样复用 `container_lifecycle.recover_abandoned_containers`，只回收已确认退出的所有者

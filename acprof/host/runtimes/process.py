@@ -14,6 +14,7 @@ from acprof.gpu_mode import normalize_gpu_mode
 from acprof.host.runtimes.contracts import ProcessInfo, RuntimeCleanupError
 from acprof.host.runtimes.process_control import ManagedProcess
 from acprof.system.cleanup import cleanup_on_exit, format_exception_notes
+from acprof.system.exceptions import exception_chain
 
 
 def service_environment(task, info: ProcessInfo, *, gpu="off", timeout=300) -> dict[str, str]:
@@ -149,6 +150,11 @@ class ProcessRuntime:
                         time.sleep(0.05)
                 raise TimeoutError(f"Process readiness timed out: {process.log_tail()}")
         except BaseException as exc:
+            if process is None and any(isinstance(error, RuntimeCleanupError) for error in exception_chain(exc)):
+                from acprof.host.model_store.store import retain_mount_for_cleanup_debt
+                if lease is not None:
+                    retain_mount_for_cleanup_debt(lease)
+                raise
             if process is not None:
                 try:
                     process.close()

@@ -13,6 +13,7 @@ from pathlib import Path
 from acprof.artifacts import MAX_JSON_ARTIFACT_BYTES, loads_finite_json
 from acprof.host.runtimes.contracts import RuntimeCleanupError
 from acprof.process_identity import same_process
+from acprof.system.cleanup import cleanup_on_exit, format_exception_notes
 
 
 class ProcessCleanupError(RuntimeCleanupError):
@@ -181,22 +182,17 @@ class ManagedProcess:
         self.identity: dict = {}
         self._control: int | None = None
         self.process: subprocess.Popen | None = None
-        read_fd, write_fd = os.pipe()
+        read_fd, self._control = os.pipe()
         try:
-            supervisor = str(Path(__file__).with_name("supervisor.py"))
-            self.process = subprocess.Popen([
-                python, supervisor, str(read_fd), str(self.status_path), str(self.log_path),
-                cpuset, cgroup, *command,
-            ], env=env, pass_fds=(read_fd, *pass_fds), start_new_session=True,
-                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            self._control = write_fd
-        except BaseException:
-            os.close(write_fd)
-            atomic_write_json(self.owner_path, {**launch, "launch_state": "failed"})
-            raise
-        finally:
-            os.close(read_fd)
-        try:
+            try:
+                supervisor = str(Path(__file__).with_name("supervisor.py"))
+                self.process = subprocess.Popen([
+                    python, supervisor, str(read_fd), str(self.status_path), str(self.log_path),
+                    cpuset, cgroup, *command,
+                ], env=env, pass_fds=(read_fd, *pass_fds), start_new_session=True,
+                    stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            finally:
+                os.close(read_fd)
             atomic_write_json(self.owner_path, {**launch, "launch_state": "started", "owner_pid": self.process.pid})
             deadline = time.monotonic() + 10
             while time.monotonic() < deadline:
@@ -212,9 +208,31 @@ class ManagedProcess:
                 time.sleep(0.01)
             else:
                 raise TimeoutError("process supervisor did not publish ownership")
-        except BaseException:
-            self.close()
-            raise
+        except BaseException as run_error:
+            try:
+                self.close()
+            except BaseException as cleanup_error:
+                # No instance reaches the caller when construction fails. Keep
+                # unconfirmed ownership distinguishable from a normal failure.
+                if isinstance(cleanup_error, ProcessCleanupError):
+                    cleanup_error.run_error = run_error
+                    raise
+                failure = ProcessCleanupError(
+                    f"process startup cleanup unconfirmed: {type(cleanup_error).__name__}: "
+                    f"{format_exception_notes(cleanup_error)}"
+                )
+                failure.run_error = run_error
+                raise failure from cleanup_error
+            # Preserve actual launch state: only a failed Popen may bypass
+            # supervisor status checks during later recovery.
+            recovery = {**launch, "launch_state": "failed"}
+            if self.process is not None:
+                recovery.update(launch_state="started", owner_pid=self.process.pid)
+            with cleanup_on_exit(
+                lambda: atomic_write_json(self.owner_path, recovery),
+                description="Process launch recovery ledger",
+            ):
+                raise
 
     @property
     def pid(self) -> int:
