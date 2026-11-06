@@ -189,8 +189,8 @@ def validation_shutdown(service, owned_processes, tmp_path, monkeypatch):
             yield state
     finally:
         try:
-            for child in owned_processes.children:
-                close_process(child)
+            for completed_child in owned_processes.children:
+                close_process(completed_child)
         finally:
             mount.close()
             if scope.exists():

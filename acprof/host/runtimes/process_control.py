@@ -304,8 +304,8 @@ class ManagedProcess:
                 return
             try:
                 process.wait(timeout=12)
-            except subprocess.TimeoutExpired as exc:
-                raise ProcessCleanupError("process supervisor cleanup timed out; retained ownership evidence") from exc
+            except subprocess.TimeoutExpired as timeout_error:
+                raise ProcessCleanupError("process supervisor cleanup timed out; retained ownership evidence") from timeout_error
             status = self.state()
             if not status.get('cleanup_complete') or status.get("cleanup_error") or (self.identity and same_process(self.identity)):
                 raise ProcessCleanupError(f"workload cleanup unconfirmed: {status}")
