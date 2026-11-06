@@ -3,7 +3,7 @@ import io
 import json
 import subprocess
 from pathlib import Path
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -91,7 +91,7 @@ def test_evidence_failures_keep_primary_other_reports_and_resume(collection, fai
 
 
 @pytest.mark.parametrize("failure_type", [RuntimeError, KeyboardInterrupt])
-def test_evidence_read_cancellation_keeps_prior_failure_and_collects_other_report(collection, monkeypatch, failure_type):
+def test_evidence_read_cancellation_keeps_prior_failure_and_collects_other_report(collection, failure_type):
     primary = failure_type("fixture matrix failure")
     cancellation = KeyboardInterrupt("fixture evidence read cancelled")
     quality_path: Path | None = None
@@ -113,10 +113,8 @@ def test_evidence_read_cancellation_keeps_prior_failure_and_collects_other_repor
             raise cancellation
         return original_open(file, *args, **kwargs)
 
-    with monkeypatch.context() as scoped:
-        scoped.setattr(io, "open", open_file)
-        with pytest.raises(KeyboardInterrupt) as caught:
-            collection.invoke(case=measure)
+    with patch("io.open", open_file), pytest.raises(KeyboardInterrupt) as caught:
+        collection.invoke(case=measure)
     assert caught.value is (primary if failure_type is KeyboardInterrupt else cancellation)
     diagnostic = "\n".join((str(caught.value), *caught.value.__notes__))
     assert "fixture matrix failure" in diagnostic
