@@ -59,7 +59,10 @@ def save_unique_statistics_report(directory: Path, report: dict) -> tuple[Path, 
     with cleanup_on_exit(lambda: os.close(descriptor), description=f"statistics directory lock {directory}"):
         fcntl.flock(descriptor, fcntl.LOCK_EX)
         read_budget = None
-        for candidate in sorted(directory.glob("window-statistics-*.json")):
+        # glob suppresses scan errors; complete enumeration must succeed before reuse or publication.
+        candidates = (path for path in directory.iterdir()
+                      if path.name.startswith("window-statistics-") and path.suffix == ".json")
+        for candidate in sorted(candidates):
             if read_budget is None:
                 read_budget = _report_read_budget(report)
             try:
