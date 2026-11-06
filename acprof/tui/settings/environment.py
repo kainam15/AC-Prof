@@ -15,6 +15,7 @@ from acprof.experiments.configuration import RunConfig
 from acprof.host.env_utils import configurable_env_values, save_project_env
 from acprof.host.permissions import build_permission_plan, execute_permission_plan
 from acprof.host.run_state import MeasurementLock
+from acprof.system.cleanup import format_exception_notes
 from acprof.tui.i18n import message_id
 from acprof.tui.run.diagnostics import quick_preflight
 from acprof.tui.ui.checkbox import StatusCheckbox
@@ -43,7 +44,7 @@ class EnvironmentSettingsScreen(ModalScreen[bool]):
     #environment-dialog { width: 96%; max-width: 120; height: 94%; border: round $accent; background: $surface; }
     #environment-heading { height: auto; padding: 0 1; }
     #environment-title { height: 1; text-style: bold; }
-    #environment-status { height: auto; max-height: 3; overflow-y: auto; }
+    #environment-save-status { height: auto; max-height: 3; overflow-y: auto; }
     #environment-tabs { height: 1fr; }
     .environment-scroll { height: 1fr; padding: 0 1; }
     .environment-fields { grid-size: 2; grid-columns: 22 1fr; height: auto; }
@@ -84,7 +85,7 @@ class EnvironmentSettingsScreen(ModalScreen[bool]):
             with Vertical(id='environment-heading'):
                 yield Static(tr('连接与权限'), id='environment-title')
                 yield Static(tr(message_id('settings.environment.save_scope', self.project_dir / '.env.local')),
-                             id='environment-status', markup=False)
+                             id='environment-save-status', markup=False)
             with TabbedContent(id='environment-tabs'):
                 with TabPane(tr('连接配置'), id='connections-tab'):
                     with VerticalScroll(classes='environment-scroll'):
@@ -128,7 +129,7 @@ class EnvironmentSettingsScreen(ModalScreen[bool]):
                 self.query_one('#' + field_id(key), Input).password = not event.value
 
     def _status(self, text, *, error=False):
-        widget = self.query_one('#environment-status', Static)
+        widget = self.query_one('#environment-save-status', Static)
         widget.update(translated_app(self.app).tr(text))
         widget.set_class(error, 'stage-error')
 
@@ -141,7 +142,7 @@ class EnvironmentSettingsScreen(ModalScreen[bool]):
             path = save_project_env(self.project_dir, values, expected_text=self.original_text)
             self.original_text = path.read_text(encoding='utf-8')
         except (OSError, ValueError) as exc:
-            self._status(message_id('settings.environment.save_failed', str(exc)), error=True)
+            self._status(message_id('settings.environment.save_failed', format_exception_notes(exc)), error=True)
             return
         self.saved = True
         self._status(message_id('settings.environment.saved', path))

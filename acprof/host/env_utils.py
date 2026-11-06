@@ -10,12 +10,14 @@ import tempfile
 from collections.abc import Iterable, Mapping, MutableMapping
 from pathlib import Path
 
+from acprof.artifacts import sync_directory
 from acprof.config import (
     CONTAINER_HF_HOME,
     CONTAINER_MODEL_LOCAL_PATH,
 )
 from acprof.hub.huggingface.auth import hf_auth_origins
 from acprof.hub.huggingface.endpoints import hf_endpoints
+from acprof.system.cleanup import cleanup_on_exit
 
 CONFIGURABLE_ENV_KEYS = (
     "HF_TOKEN", "HF_ENDPOINT", "HF_FALLBACK_ENDPOINTS", "HF_DOWNLOAD_MODE", "ACPROF_HF_AUTH_ORIGINS",
@@ -77,22 +79,25 @@ def _private_env_text(path: Path) -> str:
 def _atomic_private_text(path: Path, text: str) -> None:
     _private_env_text(path)
     fd, name = tempfile.mkstemp(prefix=".env.local.", suffix=".tmp", dir=path.parent)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as stream:
-            os.fchmod(stream.fileno(), stat.S_IRUSR | stat.S_IWUSR)
-            stream.write(text)
-            stream.flush()
-            os.fsync(stream.fileno())
+    temporary = Path(name)
+    cleanup_required = True
+
+    def remove_temporary() -> None:
+        if cleanup_required:
+            temporary.unlink(missing_ok=True)
+
+    with cleanup_on_exit(remove_temporary, description=f"temporary configuration {temporary}"):
+        with cleanup_on_exit(lambda: os.close(fd), description=f"configuration descriptor {temporary}"):
+            # Keep descriptor ownership even if constructing the text stream fails.
+            stream = os.fdopen(fd, "w", encoding="utf-8", closefd=False)
+            with cleanup_on_exit(stream.close, description=f"configuration stream {temporary}"):
+                os.fchmod(stream.fileno(), stat.S_IRUSR | stat.S_IWUSR)
+                stream.write(text)
+                stream.flush()
+                os.fsync(stream.fileno())
         os.replace(name, path)
-        if os.name == "posix":
-            directory_fd = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
-            try:
-                os.fsync(directory_fd)
-            finally:
-                os.close(directory_fd)
-    finally:
-        if os.path.exists(name):
-            os.unlink(name)
+        cleanup_required = False
+        sync_directory(path.parent)
 
 
 def save_project_env(

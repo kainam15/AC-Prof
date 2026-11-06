@@ -1,5 +1,6 @@
 """Connection settings use an isolated project and never send notifications."""
 import os
+import xml.etree.ElementTree as ET
 from contextlib import nullcontext
 from dataclasses import replace
 from functools import partial
@@ -83,7 +84,10 @@ class TestTuiEnvironment:
                 'acprof.tui.settings.environment.execute_permission_plan',
             ) as install:
                 build.return_value.commands = (('/usr/sbin/setcap', 'cap_net_raw=ep', '/usr/bin/tcpdump'),)
-                assert await pilot.click('#configure-environment-permissions')
+                configure = screen.query_one('#configure-environment-permissions', Button)
+                configure.focus()
+                await pilot.pause()
+                assert await pilot.click(configure)
                 await pilot.pause()
                 build.assert_called_once_with(('tcpdump',))
                 await pilot.press('escape')
@@ -140,7 +144,7 @@ class TestTuiEnvironment:
                 await pilot.pause()
                 install.assert_called_once()
                 assert (app.screen) is (screen)
-                status = screen.query_one('#environment-status', Static).content
+                status = screen.query_one('#environment-save-status', Static).content
                 assert isinstance(status, str)
                 assert ('sudo cancelled') in (status)
                 assert not (screen.query_one('#close-environment-settings', Button).disabled)
@@ -245,7 +249,7 @@ class TestTuiEnvironment:
             assert 'HTTP_PROXY' not in env
             assert 'HTTPS_PROXY' not in env
             assert not ((self.root / 'tui.json').exists())
-            status = app.screen.query_one('#environment-status', Static).content
+            status = app.screen.query_one('#environment-save-status', Static).content
             assert isinstance(status, str)
             assert ('hf_testonly') not in (status)
             await pilot.press('escape')
@@ -271,3 +275,50 @@ class TestTuiEnvironment:
             assert (app.query_one('#open-environment-settings', Button).disabled)
             app.execution.session.kind = ''
             app.set_busy(False)
+
+    @pytest.mark.parametrize('language', ['zh', 'en'])
+    async def test_save_failure_shows_cleanup_notes_and_can_retry(self, language):
+        app = AcprofTui(RunConfig.smoke('demo/model'), settings_path=self.root / 'tui.json')
+        app.configuration.preferences = replace(app.configuration.preferences, language=language)
+        async with app.run_test(size=(80, 24)) as pilot:
+            await pilot.press('f2')
+            await pilot.pause()
+            await self.open_connections(app, pilot)
+            screen = app.screen
+            screen.query_one('#env-hf-token', Input).value = 'hf_testonly'
+            error = OSError('file sync failed')
+            error.add_note('Cleanup failed: temporary unlink failed')
+            with patch('acprof.tui.settings.environment.save_project_env', side_effect=error):
+                assert await pilot.click('#save-environment-settings')
+                await pilot.pause()
+            status = screen.query_one('#environment-save-status', Static)
+            assert isinstance(status.content, str)
+            assert 'file sync failed' in status.content
+            assert 'temporary unlink failed' in status.content
+            assert 'hf_testonly' not in status.content
+            assert status.display
+            assert status.region.height > 0
+            visible = ''.join(ET.fromstring(app.export_screenshot()).itertext()).replace('\N{NO-BREAK SPACE}', ' ')
+            assert 'file sync failed' in visible
+            assert 'temporary unlink failed' in visible
+            assert not (self.root / '.env.local').exists()
+            assert 'HF_TOKEN' not in os.environ
+            for widget_id in ('save-environment-settings', 'close-environment-settings'):
+                button = screen.query_one('#' + widget_id, Button)
+                assert not button.disabled
+                assert button.region.height > 0
+                assert button.region.bottom <= 24
+                assert app.get_widget_at(*button.region.center)[0] is button
+            app.save_screenshot(path=str(self.root), filename=f'save-failure-{language}.svg')
+            # Textual ignores repeat clicks until the button's active effect ends.
+            await pilot.pause(screen.query_one('#save-environment-settings', Button).active_effect_duration)
+            assert await pilot.click('#save-environment-settings')
+            await pilot.pause()
+            loaded = {}
+            load_project_env(self.root, environ=loaded)
+            assert loaded['HF_TOKEN'] == 'hf_testonly'
+            assert os.environ['HF_TOKEN'] == 'hf_testonly'
+            assert 'file sync failed' not in str(status.content)
+            await pilot.press('escape')
+            await pilot.pause()
+            assert not app.is_busy()
