@@ -214,7 +214,7 @@ def test_unconfirmed_startup_cleanup_keeps_lease_and_failure_evidence(failed_sta
     assert state.scope.exists()
     assert same_process(state.process.identity)
     if diagnostic_fails:
-        assert 'memory.events read failed' in format_exception_notes(startup_error)
+        assert 'memory.events read failed' in format_exception_notes(state.primary)
 
 
 def test_process_startup_diagnostics_reach_error_rows_and_stderr(failed_start, tmp_path, capsys):
