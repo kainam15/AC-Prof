@@ -44,6 +44,8 @@ class TestAllTables:
             app.results.render_report_view()
             await pilot.pause()
             table = app.query_one("#report-table", DataTable)
+            table.scroll_visible(animate=False, immediate=True)
+            await pilot.pause()
             column = table.ordered_columns[0]
             width = column.get_render_width(table) - 2 * table.cell_padding
             # 首先按原生表格坐标发送事件，以便缺失功能时确实失败于列宽。
@@ -76,6 +78,8 @@ class TestAllTables:
             app.results.render_report_view()
             await pilot.pause()
             table = app.query_one("#report-table", DataTable)
+            table.scroll_visible(animate=False, immediate=True)
+            await pilot.pause()
             width = table.ordered_columns[0].get_render_width(table) - 2 * table.cell_padding
             await drag(pilot, table, (width + 1, 0), 5)
             assert (table.ordered_columns[0].width) == (width + 5)
@@ -171,9 +175,13 @@ class TestAllTables:
             if view:
                 assert (await pilot.click("#image-view-" + view))
             table = app.query_one(selector, DataTable)
+            table.scroll_visible(animate=False, immediate=True)
+            await pilot.pause()
             column = table.ordered_columns[index]
             width = column.get_render_width(table) - 2 * table.cell_padding
-            await drag(pilot, table, header_offset(table, index), delta)
+            start = header_offset(table, index)
+            assert app.screen.get_widget_at(table.region.x + start[0], table.region.y + start[1])[0] is table
+            await drag(pilot, table, start, delta)
             assert (table.columns[column.key].width) == (width + delta)
             assert ("本次会话" if language == "zh" else "this session") in (table.tooltip)
             assert (app.mouse_captured) is None
