@@ -253,8 +253,9 @@ Docker 实现保持既有镜像准备和不可变镜像身份校验。
 `RunConfig.validate()` 汇总纯参数约束与逐字段 `ConfigIssue`，并规范化 profiler 重复次数和参考资源。`experiments.constraints` 提供 CLI、表单、冻结参数及 `ClientConfig` 共用的无损数值解析，拒绝布尔值、非有限值和小数截断；主机 CPU 亲和可用性、环境 SLO 与硬件能力仍在 preflight 检查。用户实验的 `repeat` 至少为 1，直接测量入口允许准备／清理用的 0 窗口；这一区别显式保留在共享规则中。底层测量还验证进程身份和证据目录等运行不变量。
 `auto` 在环境设置、锁和模型访问之前复用该校验；只有自动准备入口允许保留尚未选择的
 `profiling_mode=auto`，不提前决定 basic/full，也不放宽 Process 的显式 Profiler 或 DRAM 限制。
-校验保持原始 CLI Namespace，未指定的下载选项继续为 `None`；本地声明按当前工作目录解析。
-参考 [Click 的解析与命令调用分离](https://github.com/pallets/click/blob/main/src/click/core.py)
+校验返回值通过既有 `RunConfig.to_namespace()` 转交准备与采集入口，保持路径、任务与资源值一致；
+原 CLI 中未指定的选项继续为 `None`，避免规范化默认值覆盖下载环境配置。本地声明按当前工作目录解析。
+参考 [Click 的参数转换、来源与命令调用分离](https://github.com/pallets/click/blob/main/src/click/core.py)
 及 [CPython argparse 的参数错误处理](https://github.com/python/cpython/blob/3.12/Lib/argparse.py)，
 仅借鉴设计，沿用项目共享约束与标准库，不复制代码或引入新的 CLI 依赖。
 `_execute()` 只串联执行选项校验、任务集合分派、主机预检、准备、矩阵执行和结果发布；

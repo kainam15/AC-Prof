@@ -1,4 +1,6 @@
 """Automatic runs reject static input errors before preparing an experiment."""
+import json
+import os
 from contextlib import nullcontext
 from dataclasses import replace
 from types import SimpleNamespace
@@ -6,6 +8,7 @@ from unittest.mock import Mock
 
 import pytest
 
+from acprof.application.download import apply_download_arguments
 from acprof.cli.main import main
 from acprof.experiments.configuration import RunConfig, RunConfigError
 
@@ -31,6 +34,19 @@ def preparation(monkeypatch):
     ):
         monkeypatch.setattr(path, boundary)
     return boundaries
+
+
+@pytest.fixture
+def automatic_handoff(tmp_path, preparation, monkeypatch):
+    task = SimpleNamespace(model_id="fixture/model", model_revision="a" * 40)
+    automatic = Mock(root=tmp_path / "output", preparation_artifacts={}, collection_path=None)
+    automatic.prepare.return_value = task
+    automatic.finish.return_value = 0
+    factory = Mock(return_value=automatic)
+    monkeypatch.setattr("acprof.host.automation.AutomaticRun", factory)
+    preparation.collection.side_effect = None
+    preparation.collection.return_value = SimpleNamespace(task_collection_path=None)
+    return factory, automatic, task
 
 
 @pytest.mark.parametrize(("options", "field"), [
@@ -83,18 +99,11 @@ def test_missing_auto_input_files_fail_before_preparation(tmp_path, preparation,
 
 @pytest.mark.parametrize("runtime", ["auto", "process"])
 def test_valid_auto_preserves_pending_mode_relative_paths_and_omitted_transport(
-    tmp_path, preparation, monkeypatch, runtime,
+    tmp_path, preparation, automatic_handoff, monkeypatch, runtime,
 ):
     monkeypatch.chdir(tmp_path)
     (tmp_path / "workload.json").write_text("{}", encoding="utf-8")
-    task = SimpleNamespace(model_id="fixture/model", model_revision="a" * 40)
-    automatic = Mock(root=tmp_path / "output", preparation_artifacts={}, collection_path=None)
-    automatic.prepare.return_value = task
-    automatic.finish.return_value = 0
-    factory = Mock(return_value=automatic)
-    monkeypatch.setattr("acprof.host.automation.AutomaticRun", factory)
-    preparation.collection.side_effect = None
-    preparation.collection.return_value = SimpleNamespace(task_collection_path=None)
+    factory, automatic, task = automatic_handoff
 
     assert main(["auto", "fixture/model", "--profiling-mode", "auto", "--runtime", runtime,
                  "--notify", "none", "--output-dir", str(tmp_path / "output"),
@@ -110,6 +119,100 @@ def test_valid_auto_preserves_pending_mode_relative_paths_and_omitted_transport(
     preparation.environment.assert_called_once_with(tmp_path)
     preparation.collection.assert_called_once_with(args=options, prepared_task=task, preparation_artifacts={})
     automatic.finish.assert_called_once_with(None)
+
+
+@pytest.mark.parametrize(("model", "flags", "expected"), [
+    (" fixture/model ", [], {"model": "fixture/model"}),
+    ("fixture/model", ["--output-dir", " output "], {"output_dir": "output"}),
+    ("fixture/model", ["--task-family", " NLP ", "--backend", " transformers ", "--task", " text-generation "],
+     {"task_family": "nlp", "backend": "transformers", "task": "text-generation"}),
+    ("fixture/model", ["--model-spec", " model.json ", "--workload-spec", " workload.json "],
+     {"model_spec": "model.json", "workload_spec": "workload.json"}),
+    ("fixture/model", ["--cpus", " 01, 02 ", "--mems", "04, 08", "--gpus", " CPU ",
+                       "--input-scales", " 32 , 64 ", "--cpuset-cpus", "3,1-2", "--sniff-iface", " fixture0 "],
+     {"cpus": "1,2", "mems": "4,8", "gpus": "off", "input_scales": "32,64",
+      "cpuset_cpus": "1-3", "sniff_iface": "fixture0"}),
+], ids=["model", "output-directory", "task-options", "input-files", "resource-options"])
+def test_auto_handoff_uses_validated_values(
+    tmp_path, preparation, automatic_handoff, monkeypatch, model, flags, expected,
+):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "workload.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "model.json").write_text(json.dumps({
+        "schema_version": 1, "format": "transformers-pipeline",
+        "task": "text-generation", "pipeline_task": "text-generation",
+    }), encoding="utf-8")
+    factory, _automatic, _task = automatic_handoff
+
+    assert main(["auto", model, "--profiling-mode", "auto", "--notify", "none",
+                 "--output-dir", str(tmp_path / "output"), *flags]) == 0
+
+    options = factory.call_args.args[0]
+    assert {name: getattr(options, name) for name in expected} == expected
+    assert preparation.collection.call_args.kwargs["args"] is options
+    assert options.profiling_mode == "auto"
+
+
+@pytest.mark.parametrize("explicit", [False, True], ids=["inherited", "explicit-defaults"])
+def test_auto_normalization_retains_download_environment_priority(
+    tmp_path, preparation, automatic_handoff, monkeypatch, explicit,
+):
+    inherited = {"ACPROF_MODEL_SOURCE": "modelscope", "HF_DOWNLOAD_MODE": "mirror-only",
+                 "ACPROF_MAX_DOWNLOAD": "17MiB", "ACPROF_MODEL_STORE": str(tmp_path / "inherited-store"),
+                 "ACPROF_MODEL_STORE_MAX": "19MiB"}
+    for name, value in inherited.items():
+        monkeypatch.setenv(name, value)
+    preparation.download.side_effect = apply_download_arguments
+    options = ["--model-source", "huggingface", "--download-mode", "auto",
+               "--max-download", "0", "--model-store", str(tmp_path / "explicit-store"),
+               "--model-store-max", "0"] if explicit else []
+
+    assert main(["auto", "fixture/model", "--profiling-mode", "auto", "--notify", "none",
+                 "--output-dir", str(tmp_path / "output"), *options]) == 0
+
+    expected = {"ACPROF_MODEL_SOURCE": "huggingface", "HF_DOWNLOAD_MODE": "auto",
+                "ACPROF_MAX_DOWNLOAD": "0", "ACPROF_MODEL_STORE": str(tmp_path / "explicit-store"),
+                "ACPROF_MODEL_STORE_MAX": "0"} if explicit else inherited
+    assert {name: os.environ[name] for name in expected} == expected
+
+
+def test_auto_preparation_and_completion_share_the_normalized_output_directory(tmp_path, preparation, monkeypatch):
+    from acprof.artifacts import atomic_write_json
+    from acprof.host.doctor import DoctorCheck
+    from acprof.results.layout import ArtifactLayout
+    from tests.execution.planning.test_resolution_decisions import candidate
+
+    monkeypatch.chdir(tmp_path)
+    output = tmp_path / "output"
+    layout = ArtifactLayout.for_new_run(output / "example--model")
+    preparation.access.side_effect = None
+    preparation.access.return_value = {"status": "accessible"}
+    preparation.resolution.side_effect = None
+    preparation.resolution.return_value = candidate(tag="text-generation")
+    monkeypatch.setattr("acprof.host.doctor.collect_checks", Mock(return_value=[
+        DoctorCheck("docker", "available", "fixture"),
+    ]))
+
+    def collect(**_kwargs):
+        layout.path("run_state.json").parent.mkdir(parents=True, exist_ok=True)
+        layout.path("capability_report.json").parent.mkdir(parents=True, exist_ok=True)
+        atomic_write_json(layout.path("run_state.json"), {"status": "complete", "outcome": "ok"})
+        atomic_write_json(layout.path("capability_report.json"), {
+            "requested_measurements_complete": True, "collection_succeeded": True,
+        })
+
+    preparation.collection.side_effect = collect
+
+    assert main(["auto", "example/model", "--profiling-mode", "basic", "--gpus", "off",
+                 "--output-dir", " output ", "--notify", "none"]) == 0
+
+    report = json.loads(layout.path("auto_report.json").read_text())
+    assert report["status"] == "succeeded"
+    assert report["model_id"] == "example/model"
+    assert layout.path("model_resolution.json").is_file()
+    assert preparation.collection.call_args.kwargs["args"].output_dir == str(output)
+    assert not (tmp_path / " output ").exists()
+    assert list(tmp_path.rglob("auto_report.json")) == [layout.path("auto_report.json")]
 
 
 @pytest.mark.parametrize("runtime", ["auto", "docker", "process"])
