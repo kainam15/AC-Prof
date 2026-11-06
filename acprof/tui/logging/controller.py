@@ -199,12 +199,13 @@ class LogController:
         if request is None:
             self.finish_export_job(token)
             return
+        path, lines = request.path, request.lines
 
         def write() -> None:
-            destination = request.path
+            destination = path
             error = ""
             try:
-                destination = write_log_export(request.path, "\n".join(request.lines))
+                destination = write_log_export(path, "\n".join(lines))
             except (OSError, ValueError, UnicodeError) as exc:
                 error = log_export_error(exc)
             self.app.process.safe_process_callback(self.export_finished, token, destination, error)
