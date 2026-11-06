@@ -31,7 +31,6 @@ def compose_results_tab(app: AcprofTui) -> ComposeResult:
                 yield local(Input(app.configuration.saved_settings.last_result_csv, id="experiment-source",
                                   placeholder=message_id("results.input.source_hint")))
                 yield local(Button("选择实验", name="experiment-source", id="choose-experiment-source", classes="experiment-picker"))
-                yield local(Button(message_id("results.overview.copy_path"), id="copy-experiment-path"))
         with TabbedContent(initial="overview-view", id="result-views"):
             with TabPane(message_id("results.tabs.overview"), id="overview-view"):
                 with VerticalScroll(id="plot-body", classes="pane-scroll"):

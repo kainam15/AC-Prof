@@ -22,7 +22,6 @@ def compose_backfill_tab(app: AcprofTui) -> ComposeResult:
                 yield local(Input(app.configuration.saved_settings.last_result_csv, id="backfill-source",
                                   placeholder=message_id("results.input.source_hint")))
                 yield local(Button("选择实验", name="experiment-source", id="choose-backfill-result", classes="experiment-picker"))
-                yield local(Button(message_id("results.overview.copy_path"), id="copy-backfill-path"))
         with VerticalScroll(id="backfill-body", classes="pane-scroll"):
             yield local(Label(message_id("profiling.overview.title"), classes="section-title"))
             yield local(Static(message_id("profiling.overview.select_experiment"), id="profile-status", markup=False))

@@ -273,7 +273,6 @@ MESSAGES: dict[str, Entry] = {
     "results.overview.case_progress": Entry(zh='{0}/{1} 个资源配置完成', en='{0}/{1} resource cases complete'),
     "results.overview.checking": Entry(zh='正在检查数据完整性…', en='Checking data integrity…'),
     "results.overview.complete": Entry(zh='完成', en='Completed'),
-    "results.overview.copy_path": Entry(zh='复制路径', en='Copy path'),
     "results.overview.damaged": Entry(zh='损坏', en='Damaged'),
     "results.overview.data_counts": Entry(zh='有效正式窗口：{0} · 失败：{1} · 警告：{2} · 预热：{3}', en='Valid formal windows: {0} · Failed: {1} · Warnings: {2} · Warmup: {3}'),
     "results.overview.exists": Entry(zh='存在', en='Present'),

@@ -636,13 +636,6 @@ class AcprofTui(BarCursorApp):
     def on_backfill_refresh_experiment(self) -> None:
         self.results.refresh_experiment()
 
-    @on(Button.Pressed, '#copy-experiment-path')
-    @on(Button.Pressed, '#copy-backfill-path')
-    def on_copy_experiment_path(self) -> None:
-        source = self.configuration.input("experiment-source")
-        if source:
-            self.copy_to_clipboard(source)
-
     @on(Button.Pressed, '#overview-profiling')
     def on_overview_profiling(self) -> None:
         self.profiles.open_selection_dialog()

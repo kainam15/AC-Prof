@@ -353,16 +353,13 @@ async def test_restored_legacy_path_loads_overview_and_narrow_controls_remain_us
         assert app.configuration.saved_settings.last_result_csv == str(root)
         assert app.profiles.overview is not None
         assert not app.query_one("#report-calculate", Button).disabled, (app.operation_state(), app.results.source_display, app.read_jobs)
-        for selector in ("#experiment-source", "#choose-experiment-source", "#copy-experiment-path",
+        for selector in ("#experiment-source", "#choose-experiment-source",
                          "#refresh-experiment-state", "#report-calculate"):
             widget = app.query_one(selector)
             region = widget.region
             assert 0 <= region.x < region.right <= 80
             assert 0 <= region.y < region.bottom <= 24
             assert app.get_widget_at(region.x + 1, region.y + 1)[0] is widget
-        with patch.object(app, "copy_to_clipboard") as copy:
-            assert await pilot.click("#copy-experiment-path")
-            copy.assert_called_once_with(str(root))
         app.clear_notifications()
         app.logs.flush()
         await pilot.pause()
