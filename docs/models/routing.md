@@ -113,6 +113,10 @@ ONNX 文件本身只能证明格式，不能凭输入 shape 猜分类、回归�
 revision 不存在、离线模式、网络连接/超时、服务限流/故障分别处理，不通过错误文字猜测原因。
 明确的仓库、权限或 revision 错误不继续配置回退，也不能用手动任务覆盖；临时网络失败仍可使用固定 SHA
 的缓存配置恢复。已读取元数据但缺少任务的模型继续保留未决证据，不归为仓库不存在。
+错误分类与下载诊断共用异常链遍历：优先沿显式 `__cause__`，无显式原因时沿隐式 `__context__`，
+并防止循环引用。SDK 包装异常后，底层权限／revision 错误仍阻止配置回退；网络、服务故障和离线
+状态也保留原分类与重试语义。异常链完整性的参考见
+[Hub 对原因和上下文的保留](https://github.com/huggingface/huggingface_hub/blob/fd5dccbb731e212df4f1dfa53b8f406b866070d3/src/huggingface_hub/file_download.py#L1858)。
 分类复用当前锁定的 Hugging Face SDK [异常类型](https://github.com/huggingface/huggingface_hub/blob/main/src/huggingface_hub/errors.py)
 与 [ID 校验](https://github.com/huggingface/huggingface_hub/blob/main/src/huggingface_hub/utils/_validators.py)
 （官方维护，Apache-2.0），不复制下载实现、不增加依赖；所有检查仅在正式测量前执行。

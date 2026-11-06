@@ -102,16 +102,13 @@ def model_lookup_error(model_id: str, exc: BaseException, *, revision: str | Non
     """Classify actual exception types and causes, never natural-language text."""
     if isinstance(exc, ModelLookupError):
         return exc
+    from acprof.hub.huggingface.download import HfDownloadError, exception_chain
+
     reason = "lookup_failed"
-    cause: BaseException | None = exc
-    seen: set[int] = set()
-    while cause is not None and id(cause) not in seen:
-        seen.add(id(cause))
+    for cause in exception_chain(exc):
         reason = _reason(cause)
         if reason != "lookup_failed":
             break
-        cause = cause.__cause__
     detail = "\n".join(diagnostics) if diagnostics else f"{type(exc).__name__}: {exc}"
-    from acprof.hub.huggingface.download import HfDownloadError, exception_chain
     download_error = next((cause.to_dict() for cause in exception_chain(exc) if isinstance(cause, HfDownloadError)), None)
     return ModelLookupError(model_id, reason, revision=revision or "", detail=detail, download_error=download_error)
