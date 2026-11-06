@@ -166,9 +166,10 @@ def probe_vllm(
         if version_payload is not None and (not isinstance(version, str) or not version):
             errors["version"] = "ValueError: version must be nonempty text"
             version = None
-        observed = _observed_identity("vllm", version, models, declared)
+        identity = _observed_identity("vllm", version, models, declared)
         if include_configuration:
-            observed["configuration"] = configuration
+            identity["configuration"] = configuration
+        observed = identity
     status = "available" if not errors else "unavailable" if observed is None else "partial"
     result.update(observed=observed)
     result["probe"] = {"kind": kind, "status": status, "errors": errors}
@@ -222,7 +223,7 @@ def _configuration_values(
     payload: Mapping[str, Any], expected_types: Mapping[str, type], errors: dict[str, str],
 ) -> dict[str, Any]:
     values: dict[str, Any] = {}
-    descriptions = {str: "nonempty text", bool: "boolean", int: "positive integer", float: "number in (0, 1]"}
+    descriptions: dict[type, str] = {str: "nonempty text", bool: "boolean", int: "positive integer", float: "number in (0, 1]"}
     for name, expected in expected_types.items():
         value = _configuration_value(payload, name, errors)
         valid = _configuration_valid(value, expected)
