@@ -8,10 +8,10 @@ from unittest.mock import Mock
 import pytest
 
 from acprof.host.measurement.load import LoadConfig, run_load
-from tests.execution.operations.test_load_connection_finalization import (
-    endpoint_fixture as endpoint_fixture,
-)
+from tests.execution.operations import test_load_connection_finalization
 from tests.execution.operations.test_load_protocol import server
+
+endpoint_fixture = test_load_connection_finalization.endpoint_fixture
 
 
 @pytest.fixture
