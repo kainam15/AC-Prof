@@ -71,7 +71,7 @@
 | `profiling.support` | 两类 profiler 的容器命令、runner 参数、输入计划与产物路径；复用 `artifacts.atomic_write` 发布原有 profiler JSON |
 | `application/terminal_log` | tmux pane pipe 的启动、停止与日志发布；不覆盖已有 pipe，由本次 `RunApplication` 持有并在 finally 清理 |
 
-`measurement.load.run_load()` 保留公共调用参数与 v1/v2 报告协议。线程池和就绪屏障统一使用
+`measurement.load.run_load()` 保留公共调用参数与 v1/v2/v3 报告协议。线程池和就绪屏障统一使用
 请求数与配置并发数的较小值，避免短负载预启动闲置线程；报告中的配置并发上限不变。
 Scheduler 在 worker 就绪后开始计时，
 取消时先设置取消状态、撤销待执行任务并唤醒活动 socket，再等待线程退出；负载耗时在最终连接关闭和
@@ -79,6 +79,10 @@ Token 派生之前冻结。`load_reporting` 在此后补齐未提交请求、派
 `load_report` 返回调用方。线程池行为沿用 [CPython ThreadPoolExecutor](https://github.com/python/cpython/blob/3.12/Lib/concurrent/futures/thread.py)，
 清理阶段分工参考 [Locust Runner](https://github.com/locustio/locust/blob/42c4ac9554e6c74cbe52e67fc8f0cf2557c2dfa8/locust/runners.py)；
 仅借鉴生命周期设计，不引入 gevent、新依赖或额外后台任务。三个 load 模块共同纳入 C901 ≤ 12 门禁。
+
+请求集准备逐行完成模型、形态与凭据校验，只保留本阶段前缀的规范化副本；整个校验、编码及摘要
+仍在启动 worker 和计时前完成。设计参考 [Hugging Face Datasets 的逐条转换](https://github.com/huggingface/datasets/blob/a1269ca9dbb6e0858a9c375e8982329a3fcc84af/src/datasets/iterable_dataset.py#L1512)，
+沿用项目已有 adapter 与 CLI 的前缀保留方式，不复制源码或引入 Datasets 依赖。
 
 回放 CLI 的抓包收尾复用 `cleanup_on_exit` 保留原始错误与取消，并独立尝试强杀后的有界回收。
 设计参考 [CPython subprocess](https://github.com/python/cpython/blob/3.12/Lib/subprocess.py) 的信号与等待分工，

@@ -113,12 +113,17 @@ def _request_bodies(payload, adapter: OpenAIStreamingAdapter | None, count: int)
         raise ValueError("request datasets require an OpenAI streaming adapter")
     if len(payload) < count:
         raise ValueError("request dataset has fewer entries than the request budget")
-    prepared_rows = [adapter.prepare_payload(row) for row in payload]
-    if len({row["model"] for row in prepared_rows}) != 1:
-        raise ValueError("request dataset must use one served model")
-    for row in prepared_rows:
+    selected = []
+    model: str | None = None
+    for index, value in enumerate(payload):
+        row = adapter.prepare_payload(value)
+        if model is not None and row["model"] != model:
+            raise ValueError("request dataset must use one served model")
+        model = row["model"]
         validate_request_credentials(row)
-    selected = prepared_rows[:count]
+        # Validate unused rows too, retaining only this phase's normalized prefix.
+        if index < count:
+            selected.append(row)
     encoded = tuple(json.dumps(row, separators=(",", ":"), allow_nan=False).encode() for row in selected)
     return encoded, request_digest(selected)
 
