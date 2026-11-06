@@ -163,10 +163,11 @@ class AcprofTui(BarCursorApp):
     def compose(self) -> ComposeResult:
         # A ticking clock would force periodic redraws during RAPL windows.
         with Header(show_clock=False):
-            yield self.localization.localized_widget(Button(
-                "×", id="quit-app", name="退出", tooltip="退出（Ctrl+Q）", compact=True,
-            ))
-            yield Button("", id="environment-status", compact=True)
+            with Horizontal(id="header-actions"):
+                yield Button("", id="environment-status", compact=True)
+                yield self.localization.localized_widget(Button(
+                    "×", id="quit-app", name="退出", tooltip="退出（Ctrl+Q）", compact=True,
+                ))
         with TabbedContent(initial="run-tab", id="main-tabs"):
             yield from compose_run_tab(self)
             yield from compose_monitor_tab(self)

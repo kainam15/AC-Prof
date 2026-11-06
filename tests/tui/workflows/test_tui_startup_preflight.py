@@ -232,6 +232,12 @@ class TestStartupPreflight:
                         entry = app.query_one("#environment-status", Button)
                         assert (entry.region.width) > (0)
                         assert (str(entry.label)) == ("环境异常" if language == "zh" else "Environment error")
+                        quit_button = app.query_one("#quit-app", Button)
+                        assert quit_button.region.width > 0
+                        assert quit_button.region.height == 1
+                        assert quit_button.region.right == width
+                        assert entry.region.right <= quit_button.region.x
+                        assert app.get_widget_at(*quit_button.region.center)[0] is quit_button
                         assert (await pilot.click(entry))
                         await pilot.pause()
                         retry = app.screen.query_one("#preflight-retry", Button)
@@ -241,6 +247,33 @@ class TestStartupPreflight:
                         assert (retry.region.bottom) <= (height)
                         await pilot.press("escape")
                         await pilot.pause()
+                        await pilot.press("tab")
+                        assert app.focused is quit_button
+                        await pilot.press("shift+tab")
+                        assert app.focused is entry
+
+    @pytest.mark.parametrize("language", ["zh", "en"])
+    @pytest.mark.parametrize("status", ["ready", "warning", "failure", "exception", "process"])
+    async def test_quit_button_exits_with_each_environment_status(self, language, status):
+        app = self.make_app()
+        app.configuration.preferences = replace(app.configuration.preferences, language=language)
+        checks = {
+            "ready": [],
+            "warning": [PreflightCheck("Docker", "warn", "optional capability missing")],
+            "failure": [PreflightCheck("Docker", "fail", "daemon unavailable")],
+            "exception": [],
+            "process": [PreflightCheck("Runtime", "ok", "ready", runtime_kind="process")],
+        }[status]
+        error = AttributeError("module 'os' has no attribute 'geteuid'") if status == "exception" else None
+        with patch("acprof.tui.run.preflight_controller.quick_preflight", return_value=checks, side_effect=error):
+            async with app.run_test(size=(80, 24)) as pilot:
+                await self.finish_check(app, pilot)
+                quit_button = app.query_one("#quit-app", Button)
+                assert app.query_one("#environment-status").display == (status != "ready")
+                assert app.get_widget_at(*quit_button.region.center)[0] is quit_button
+                assert await pilot.click(quit_button)
+                await pilot.pause()
+                assert not app.is_running
 
     async def test_form_changes_during_check_do_not_accept_old_results(self):
         release = threading.Event()

@@ -18,8 +18,13 @@ VerticalScroll, TextArea, DataTable, #command-preview { scrollbar-size: 1 1; }
 /* Keep the title bar one row tall, including Textual's click-expanded state. */
 Header, Header.-tall { height: 1; background: $surface; color: $text; }
 HeaderIcon, HeaderClockSpace { display: none; }
-#quit-app {
+/* Dock the action row as a unit: separate right docks overlap each other. */
+#header-actions {
     dock: right;
+    width: auto;
+    height: 1;
+}
+#quit-app {
     width: 5;
     min-width: 5;
     height: 1;
@@ -37,7 +42,6 @@ HeaderIcon, HeaderClockSpace { display: none; }
 }
 #environment-status {
     display: none;
-    dock: right;
     width: auto;
     min-width: 16;
     height: 1;
