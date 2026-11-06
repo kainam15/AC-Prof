@@ -252,6 +252,10 @@ schema v2/v3 的 `result.capacity` 以同一个 `result.duration_s`（记为 `D`
 预热和 tokenizer 后处理不进入该窗口。`counts` 分别保存 offered、sent、succeeded、failed、
 dropped、cancelled；`client_concurrency` 是客户端 Scheduler worker 上限，不是服务端实际并发。
 `successful_requests_per_s` 为成功请求数除以 `D`，目标到达率仍由原有字段单独保存。
+`success_rate` 为成功请求数除以 offered 请求数；`sent_requests_per_s` 以非空
+`sent_s` 计数，`completed_requests_per_s` 以非空 `stream_completed_s` 计数，再各自除以 `D`。
+流完成后仍可能因协议、连接收尾等原因失败，因此完成吞吐不等于成功吞吐，也不按 HTTP 状态码计数。
+单点与扫描的离线读取共享这些摘要的一致性检查，具体失败及历史兼容行为见[容量报告](../results/reports.md#单负载点流式容量报告)。
 
 对每个成功请求，已配置的 TTFT／TPOT／E2E 指标按以下三值规则评价：任一已知值严格大于阈值即
 `violated`；没有已知违反但至少一个必需指标为 `null` 即 `unevaluable`；全部指标存在且不超过阈值

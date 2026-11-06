@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
@@ -83,6 +84,52 @@ def _v2_streaming(result: Mapping[str, Any]) -> dict[str, Any]:
     return expected
 
 
+def _validate_completion(
+    experiment: Mapping[str, Any], result: Mapping[str, Any], all_requests_succeeded: bool,
+) -> None:
+    state = experiment.get("status")
+    if not isinstance(state, str) or state not in {"running", "complete", "failed", "cancelled"}:
+        raise ValueError("invalid stream load experiment status")
+    successful = result.get("successful")
+    if type(successful) is not bool or (successful and not all_requests_succeeded):
+        raise ValueError("stream load result success contradicts its requests")
+    if state == "complete" and successful != all_requests_succeeded:
+        raise ValueError("completed stream load success contradicts its requests")
+    # Cleanup or cancellation may fail after all requests have succeeded.
+    expected = state == "complete" and successful
+    if type(experiment.get("successful")) is not bool or experiment["successful"] != expected:
+        raise ValueError("stream load experiment success contradicts its result")
+
+
+def _validate_summary(
+    experiment: Mapping[str, Any], result: Mapping[str, Any], capacity: Mapping[str, Any],
+) -> None:
+    counts = capacity["counts"]
+    if counts["offered"] < 1 or _canonical(result.get("counts")) != _canonical(counts):
+        raise ValueError("stream load counts are inconsistent with raw requests")
+    config = experiment["identity"]["load_config"]
+    if "requests" in config and (type(config["requests"]) is not int or config["requests"] != counts["offered"]):
+        raise ValueError("stream load request budget differs from retained records")
+    expected_rates = {
+        "success_rate": counts["succeeded"] / counts["offered"],
+        "successful_requests_per_s": capacity["successful_requests_per_s"],
+    }
+    if "sent_requests_per_s" in result:
+        expected_rates["sent_requests_per_s"] = counts["sent"] / capacity["duration_s"]
+    if "completed_requests_per_s" in result:
+        expected_rates["completed_requests_per_s"] = sum(
+            row.get("stream_completed_s") is not None for row in result["requests"]
+        ) / capacity["duration_s"]
+    for name, expected in expected_rates.items():
+        value = result.get(name)
+        if (
+            isinstance(value, bool) or not isinstance(value, (int, float))
+            or value != expected or not math.isfinite(value)
+        ):
+            raise ValueError(f"stream load {name} is inconsistent with raw requests or duration")
+    _validate_completion(experiment, result, counts["succeeded"] == counts["offered"])
+
+
 def read_load_report(source: str | Path) -> dict[str, Any]:
     path = Path(source)
     path = path / "load.json" if path.is_dir() else path
@@ -112,6 +159,8 @@ def analyze_load_report(experiment: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("request datasets require stream_load_experiment schema v3")
     capacity = _v2_capacity(experiment, result) if version >= 2 else None
     streaming = _v2_streaming(result) if version >= 2 else result.get("streaming")
+    if capacity is not None:
+        _validate_summary(experiment, result, capacity)
     server_metrics = validate_server_metrics(experiment)
     return {
         "experiment": experiment, "result": result, "capacity": capacity,

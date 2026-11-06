@@ -21,6 +21,7 @@ CPU/GPU 拟合、尺度基函数说明和残差整理各有独立函数。`write
 `analysis.streaming` 提供共享分布和完整 streaming 汇总，采集与离线报告复用同一实现；
 `analysis.streaming_capacity` 以原始流式请求、正式负载时长和声明 SLO 纯计算单点 Goodput、
 Token 覆盖及吞吐，不导入采集或渲染模块；`analysis.load_report` 复用二者校验 v2/v3，
+并统一检查持久化计数、成功率、吞吐和完成状态；扫描只另核对清单与点报告的绑定，不重复维护摘要校验。
 其中 `analysis.load_inputs` 校验 v3 请求集及阶段映射；`plotting.load_report` 只负责渲染，
 对 v1 保留 unavailable，不建立第二套公式。入口与边界见[流式测量](../profiling/streaming.md)。
 `experiments.load` 定义共享 `LoadConfig`、到达计划和扫描点上限；

@@ -112,21 +112,9 @@ def _validate_child(point: dict[str, Any], report: dict[str, Any]) -> None:
     ):
         raise ValueError("sweep point request body digest differs")
     counts = capacity["counts"]
-    if counts["offered"] != config["requests"] or _digest(result.get("counts")) != _digest(counts):
+    if counts["offered"] != config["requests"]:
         raise ValueError("sweep point request counts differ from its configured request budget")
-    state = experiment.get("status")
-    if not isinstance(state, str) or state not in _STATES:
-        raise ValueError("invalid sweep child report status")
-    expected_success = counts["succeeded"] == counts["offered"]
-    # A failed finalizer can leave every request successful; it is still partial evidence.
-    if type(result.get("successful")) is not bool or (result["successful"] and not expected_success):
-        raise ValueError("sweep point result success contradicts its requests")
-    if state == "complete" and result["successful"] != expected_success:
-        raise ValueError("completed sweep point success contradicts its requests")
-    success = state == "complete" and result["successful"]
-    if type(experiment.get("successful")) is not bool or experiment["successful"] != success:
-        raise ValueError("sweep point success contradicts its result")
-    if point["status"] == state == "complete" and point["successful"] != success:
+    if point["status"] == experiment["status"] == "complete" and point["successful"] != experiment["successful"]:
         raise ValueError("sweep point success differs from its manifest")
 
 
