@@ -1,19 +1,20 @@
 import asyncio
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
 from rich.cells import cell_len
-from tests.runtime.containers.test_layer_read_cancellation import source_hashes
-from tests.tui.results.test_profile_overview_snapshot import profile_store
 from textual.containers import VerticalScroll
-from textual.widgets import Button, Checkbox, Collapsible, Input, Select, Static
-from tests.support.tui_fixtures import AcprofTui, checkbox_text
+from textual.widgets import Button, Checkbox, Input, Select, Static, TabbedContent
 
 from acprof.experiments.configuration import RunConfig
 from acprof.tui.results.profile_screen import ProfilerChoiceScreen
 from acprof.tui.results.profile_status import ProfilerOverview, ProfilerStatus
 from acprof.tui.settings.preferences import TuiSettings, UiPreferences, save_settings
 from acprof.tui.ui.dialogs import ConfirmActionScreen
+from tests.runtime.containers.test_layer_read_cancellation import source_hashes
+from tests.support.tui_fixtures import AcprofTui, checkbox_text
+from tests.tui.results.test_profile_overview_snapshot import profile_store
 
 
 @pytest.mark.parametrize("language", ["zh", "en"])
@@ -25,10 +26,11 @@ async def test_real_summary_missing_profiler_records_show_uncollected_choices(tm
     save_settings(settings, TuiSettings(ui=UiPreferences(language=language)), tmp_path)
     app = AcprofTui(settings_path=settings)
     async with app.run_test(size=(80, 24)) as pilot:
-        app.activate_tab("results-tab")
-        app.query_one("#result-csv", Input).value = str(root)
         await pilot.pause()
-        summarize = app.query_one("#summarize-results", Button)
+        app.results.select_result(str(root), summarize=False)
+        app.activate_tab("backfill-tab")
+        await pilot.pause()
+        summarize = app.query_one("#summarize-backfill", Button)
         summarize.scroll_visible(animate=False, immediate=True)
         await pilot.pause()
         assert await pilot.click(summarize)
@@ -36,12 +38,9 @@ async def test_real_summary_missing_profiler_records_show_uncollected_choices(tm
         await pilot.pause()
         assert not app.read_jobs
         assert app.profiles.overview is not None
+        assert app.query_one("#main-tabs", TabbedContent).active == "backfill-tab"
+        assert str(root / "result_layers.json") in str(app.query_one("#backfill-source", Static).content)
 
-        title = app.query_one("#profile-section CollapsibleTitle")
-        title.scroll_visible(animate=False, immediate=True)
-        await pilot.pause()
-        assert await pilot.click(title)
-        await pilot.pause()
         choice = app.query_one("#open-result-profiling", Button)
         choice.scroll_visible(animate=False, immediate=True)
         await pilot.pause()
@@ -77,6 +76,52 @@ async def test_real_summary_missing_profiler_records_show_uncollected_choices(tm
     assert source_hashes(root) == before
 
 
+@pytest.mark.parametrize("language", ["zh", "en"])
+async def test_backfill_navigation_shares_selection_and_reports_read_failures(tmp_path, language):
+    root = tmp_path / "experiment"
+    profile_store(root, 3)
+    settings = tmp_path / "settings.json"
+    save_settings(settings, TuiSettings(ui=UiPreferences(language=language)), tmp_path)
+    app = AcprofTui(settings_path=settings)
+    async with app.run_test(size=(80, 24)) as pilot:
+        tabs = app.query_one("#main-tabs", TabbedContent)
+        app.activate_tab("results-tab")
+        await pilot.pause()
+        assert not app.query_one("#results-tab").query("#open-result-profiling, #profile-status")
+        await pilot.press("right")
+        await pilot.pause()
+        assert tabs.active == "backfill-tab"
+        assert tabs.get_tab("backfill-tab").label.plain == ("补采实验" if language == "zh" else "Backfill")
+        assert app.query_one("#open-result-profiling", Button).disabled
+        assert app.query_one("#summarize-backfill", Button).disabled
+        with patch.object(app.catalog, "open_experiment_picker") as picker:
+            assert await pilot.click("#choose-backfill-result")
+            picker.assert_called_once_with("result-csv")
+        app.catalog.experiment_selected("result-csv", ("select", SimpleNamespace(directory=root)))
+        await asyncio.wait_for(app.workers.wait_for_complete(), timeout=3)
+        await pilot.pause()
+        assert tabs.active == "backfill-tab"
+        assert app.profiles.overview.result_dir == root
+        assert not app.query_one("#open-result-profiling", Button).disabled
+
+        app.activate_tab("results-tab")
+        await pilot.pause()
+        source = app.query_one("#result-csv", Input)
+        assert source.value == str(root / "result_layers.json")
+        source.value = str(root)
+        await pilot.pause()
+        assert app.profiles.overview is None
+        assert str(app.query_one("#backfill-source", Static).content) == str(root)
+        assert await pilot.click(tabs.get_tab("backfill-tab"))
+        with patch("acprof.tui.results.controller.summarize_result_csv", side_effect=ValueError("fixture summary failed")):
+            assert await pilot.click("#summarize-backfill")
+            await asyncio.wait_for(app.workers.wait_for_complete(), timeout=3)
+            await pilot.pause()
+        assert "fixture summary failed" in str(app.query_one("#profile-status", Static).content)
+        assert app.query_one("#open-result-profiling", Button).disabled
+        assert not app.is_busy()
+
+
 class TestTuiProfileTools:
     @pytest.fixture(autouse=True)
     def _setup(self, tmp_path):
@@ -98,20 +143,15 @@ class TestTuiProfileTools:
         # Complete initial TabbedContent activation before changing pages.
         # Otherwise its queued run-tab event may override the test navigation.
         await pilot.pause()
-        app.activate_tab("results-tab")
+        app.activate_tab("backfill-tab")
         await pilot.pause()
         app.profiles.show_overview(self.overview())
         text = str(app.query_one("#profile-status").content)
         assert "torch" in text
         assert "ncu" in text
         assert "massif" in text
-        app.query_one("#profile-section", Collapsible).collapsed = False
-        await pilot.pause()
         button = app.query_one("#open-result-profiling", Button)
-        # A button-level visibility request may leave the final row behind the
-        # fixed actions while the collapsed section relayouts at 80x24.
-        # Scroll the containing pane to its true end after the next refresh.
-        app.query_one("#plot-body", VerticalScroll).scroll_end(animate=False)
+        app.query_one("#backfill-body", VerticalScroll).scroll_end(animate=False)
         await pilot.pause()
         assert app.screen.get_widget_at(button.region.x + 2, button.region.y + 1)[0] is button
         assert await pilot.click(button, offset=(2, 1))

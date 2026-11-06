@@ -51,8 +51,8 @@ class TestTuiPageChrome:
     @pytest.mark.parametrize('language', ['zh', 'en'])
     @pytest.mark.parametrize('size', [(80, 24), (120, 30), (150, 45)])
     async def test_all_pages_keep_top_content_and_rightmost_actions_fixed_when_scrolling_and_resizing(self, language, size):
-        # Retain all five page x language x size assertions without relaunching
-        # the entire TUI five times for an otherwise identical environment.
+        # Check each page without relaunching the entire TUI for an otherwise
+        # identical environment.
         app = self.app
         async with app.run_test(size=(150, 45)) as pilot:
             await pilot.resize_terminal(*size)
@@ -62,6 +62,7 @@ class TestTuiPageChrome:
                 ('run-tab', 'start-run', ('open-run-settings', 'probe-largest')),
                 ('monitor-tab', 'stop-run', ('copy-log-all', 'follow-log', 'expand-log', 'clear-log')),
                 ('results-tab', 'plot-results', ('summarize-results',)),
+                ('backfill-tab', 'open-result-profiling', ('summarize-backfill',)),
                 ('images-tab', 'image-delete', ('image-toggle', 'image-model', 'image-clear')),
                 ('settings-tab', 'save-ui-settings', ('restore-ui-defaults',)),
             )

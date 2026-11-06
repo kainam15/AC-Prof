@@ -211,7 +211,15 @@ Button:disabled, Button:disabled:hover, Button:disabled:focus, Button:disabled.-
 }
 Input:disabled { color: $ui-disabled; border: solid $ui-disabled; }
 Select:disabled > SelectCurrent { color: $ui-disabled; border: solid $ui-disabled; }
-#profile-section { height: auto; margin: 0; padding: 0; border: none; }
+#backfill-source {
+    width: 1fr;
+    height: 3;
+    padding: 0 1;
+    border: solid $panel;
+    content-align: left middle;
+    overflow: hidden hidden;
+    text-overflow: ellipsis;
+}
 #profile-status { height: auto; color: $text-muted; margin-bottom: 1; }
 #open-result-profiling { width: auto; }
 .settings-section {

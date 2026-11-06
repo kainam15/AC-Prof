@@ -66,6 +66,7 @@ from acprof.tui.settings.controller import ConfigurationController
 from acprof.tui.settings.localization_controller import LocalizationController
 from acprof.tui.ui.dialogs import ConfirmActionScreen
 from acprof.tui.ui.input import BarCursorApp, BarCursorInput as Input
+from acprof.tui.ui.pages.backfill import compose_backfill_tab
 from acprof.tui.ui.pages.images import compose_images_tab
 from acprof.tui.ui.pages.monitor import compose_monitor_tab
 from acprof.tui.ui.pages.run import compose_run_tab
@@ -170,6 +171,7 @@ class AcprofTui(BarCursorApp):
             yield from compose_run_tab(self)
             yield from compose_monitor_tab(self)
             yield from compose_results_tab(self)
+            yield from compose_backfill_tab(self)
             yield from compose_images_tab(self)
             yield from compose_settings_tab(self)
 
@@ -276,6 +278,7 @@ class AcprofTui(BarCursorApp):
         for selector, operation in {
             "#start-run": "run", "#probe-largest": "probe",
             "#summarize-results": "summary", "#plot-results": "plot",
+            "#summarize-backfill": "summary",
             "#report-open": "report",
             "#report-calculate": "html-report", "#report-window-stats": "stats", "#stop-run": "stop",
             "#html-report-generate": "html-report", "#html-report-open": "html-open",
@@ -618,6 +621,14 @@ class AcprofTui(BarCursorApp):
     @on(Button.Pressed, '#summarize-results')
     def on_results_summarize_results_button(self) -> None:
         self.results.summarize_results_button()
+
+    @on(Button.Pressed, '#summarize-backfill')
+    def on_backfill_summarize_results_button(self) -> None:
+        self.results.update_result_summary(self.configuration.input("result-csv"))
+
+    @on(Button.Pressed, '#backfill-cancel')
+    def on_backfill_cancel_read(self) -> None:
+        self.results.cancel_result_reads()
 
     @on(Button.Pressed, '#plot-results')
     def on_results_plot_results_button(self) -> None:

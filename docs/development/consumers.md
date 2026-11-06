@@ -251,7 +251,8 @@ App 的 `tr/notify` 是 Textual 与小部件使用的展示接口，不翻译原
 `run.experiment_controller` 负责预设、采集及探测确认，实际 `launch` 仍由 App 执行。
 `run.preflight_controller` 管理启动检测与模型准备弹窗，`results.controller` 管理摘要/报告读取及请求身份，
 `results.profile_controller` 管理补采决策和确认，`results.profile_status` 复用 posthoc 行级完成判定读取分层结果，
-`results.profile_screen` 提供实验结果页的按需补采弹窗，`ui.slash_controller` 分发快捷命令。Profiler 仍通过独立 CLI 运行，不进入正式测量窗口。
+`ui.pages.backfill` 组合与实验结果同级的补采页面，复用 `results.controller` 的实验选择和摘要读取；
+`results.profile_screen` 提供补采工具选择弹窗，`ui.slash_controller` 分发快捷命令。Profiler 仍通过独立 CLI 运行，不进入正式测量窗口。
 HTML 报告复用 `PendingLaunch` 与 `acprof report` 子进程；`results.controller` 只管理输出路径、
 完成回执和展示，不导入分析或绘图库。`results.report_files` 负责已有 HTML 的发现、主动浏览器打开和独占发布导出文件；
 文件操作仍交给 App worker manager，导出使用 `offline_analysis_lock()`。`platform.can_open_local_browser`

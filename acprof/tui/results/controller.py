@@ -212,7 +212,7 @@ class ResultController:
             self.summary_request.set()
         token = self.summary_request = Event()
         self.summary_path = path
-        self.app.profiles.reset_overview()
+        self.app.profiles.reset_overview(message_id('results.read.loading_summary', CALCULATING))
         self.app.read_jobs.add(token)
         self.app.localization.set_text(self.app.query_one("#result-summary", Static), message_id('results.read.loading_summary', CALCULATING))
         self.app.set_busy(True)
@@ -254,7 +254,7 @@ class ResultController:
             self.formal_ok_rows = 0
             self.refresh_source_display()
             self.update_report_actions()
-            self.app.profiles.reset_overview()
+            self.app.profiles.show_overview(None, error)
             self.app.localization.set_text(self.app.query_one("#result-summary", Static), message_id('results.summary.read_failed', error))
             if notify:
                 self.app.notify(error, severity="error")
@@ -282,7 +282,7 @@ class ResultController:
             self.report_request.set()
         self.summary_request = self.report_request = None
         self.app.localization.set_text(self.app.query_one("#result-summary", Static), "读取已取消；等待后台任务释放资源。")
-        self.app.profiles.reset_overview()
+        self.app.profiles.reset_overview("读取已取消；等待后台任务释放资源。")
         self.clear_report("读取已取消；等待后台任务释放资源。")
         self.app.set_busy(self.app.is_busy())
 
@@ -308,6 +308,9 @@ class ResultController:
         source = self.app.configuration.input('result-csv').strip()
         self.source_display = (experiment_source_display(resolve_result_path(source, self.app.project_dir))
                                if source else None)
+        backfill_source = self.app.query_one("#backfill-source", Static)
+        self.app.localization.set_text(backfill_source, source or message_id("profiling.backfill.source_hint"))
+        backfill_source.tooltip = source or None
 
     def update_report_actions(self) -> None:
         """Apply pure action rules to the existing widgets and operation lock."""
@@ -328,6 +331,9 @@ class ResultController:
         cancel_analysis = self.app.query_one("#results-cancel", Button)
         cancel_analysis.display = actions.cancel_analysis_visible
         cancel_analysis.disabled = not actions.cancel_analysis_enabled
+        cancel_backfill = self.app.query_one("#backfill-cancel", Button)
+        cancel_backfill.display = self.summary_request in self.app.read_jobs
+        cancel_backfill.disabled = not cancel_backfill.display
         for format, enabled in (
             ("csv", actions.analysis_export_csv_enabled),
             ("json", actions.analysis_export_json_enabled),
@@ -335,6 +341,7 @@ class ResultController:
             self.app.query_one("#analysis-export-" + format, Button).disabled = not enabled
         for selector, enabled in (
             ("#summarize-results", actions.summary_enabled),
+            ("#summarize-backfill", actions.summary_enabled),
             ("#plot-results", actions.plot_enabled),
             ("#report-calculate", actions.html_generate_enabled),
             ("#report-window-stats", actions.calculate_enabled),

@@ -35,9 +35,6 @@ def compose_results_tab(app: AcprofTui) -> ComposeResult:
             with TabPane(message_id("results.tabs.overview"), id="overview-view"):
                 with VerticalScroll(id="plot-body", classes="pane-scroll"):
                     yield local(Static(message_id('results.summary.empty'), id='result-summary', markup=False))
-                    with local(Collapsible(title="性能深度分析", collapsed=True, id="profile-section")):
-                        yield local(Static(message_id("profiling.overview.select_experiment"), id="profile-status", markup=False))
-                        yield local(Button(message_id("profiling.overview.open"), id="open-result-profiling", disabled=True))
             with TabPane(message_id("results.tabs.statistics"), id="statistics-view"):
                 yield from compose_statistics(app)
             with TabPane(message_id("results.tabs.compare"), id="comparison-view"):

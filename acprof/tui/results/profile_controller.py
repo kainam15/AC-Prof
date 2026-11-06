@@ -25,10 +25,10 @@ class ProfileController:
         self.app = app
         self.overview: ProfilerOverview | None = None
 
-    def reset_overview(self) -> None:
+    def reset_overview(self, status: str = "") -> None:
         self.overview = None
         self.app.localization.set_text(
-            self.app.query_one("#profile-status", Static), message_id("profiling.overview.select_experiment"))
+            self.app.query_one("#profile-status", Static), status or message_id("profiling.overview.select_experiment"))
         self.update_action_availability()
 
     def show_overview(self, overview: ProfilerOverview | None, error: str = "") -> None:
@@ -100,7 +100,7 @@ class ProfileController:
             if self.overview is not None and path.resolve() == self.overview.result_dir.resolve():
                 selected = ",".join(self.overview.suggested_tools)
             if not selected:
-                self.app.notify("请在实验结果中选择补充分析工具，或在命令中指定工具", severity="warning")
+                self.app.notify(message_id("profiling.backfill.choose_tools"), severity="warning")
                 return None
         try:
             pending = prepare_profile(str(path), tools=selected, dry_run=dry_run,

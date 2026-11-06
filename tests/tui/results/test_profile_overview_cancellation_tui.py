@@ -3,17 +3,18 @@ import asyncio
 from threading import Event
 
 import pytest
-from tests.runtime.containers.test_layer_read_cancellation import source_hashes
-from tests.tui.results.test_profile_overview_snapshot import profile_store
 from textual.widgets import Button, Input
-from tests.support.tui_fixtures import AcprofTui
 
 from acprof.tui.results import profile_status
 from acprof.tui.settings.preferences import TuiSettings, UiPreferences, save_settings
+from tests.runtime.containers.test_layer_read_cancellation import source_hashes
+from tests.support.tui_fixtures import AcprofTui
+from tests.tui.results.test_profile_overview_snapshot import profile_store
 
 
 @pytest.mark.parametrize("language", ["zh", "en"])
-async def test_selection_change_during_profiler_inspection_cancels_and_allows_retry(tmp_path, monkeypatch, language):
+@pytest.mark.parametrize("action", ["change-source", "cancel-backfill"])
+async def test_selection_change_during_profiler_inspection_cancels_and_allows_retry(tmp_path, monkeypatch, language, action):
     first, second = tmp_path / "first", tmp_path / "second"
     profile_store(first, 3)
     profile_store(second, 3)
@@ -46,11 +47,19 @@ async def test_selection_change_during_profiler_inspection_cancels_and_allows_re
             assert await asyncio.to_thread(entered.wait, 2)
             assert app.read_jobs
             assert app.profiles.overview is None
-            selector.scroll_visible(animate=False, immediate=True)
-            await pilot.pause()
-            assert await pilot.click(selector)
-            await pilot.press("ctrl+a")
-            await pilot.press(*str(second))
+            if action == "cancel-backfill":
+                app.activate_tab("backfill-tab")
+                await pilot.pause()
+                button = app.query_one("#summarize-backfill", Button)
+                assert await pilot.click("#backfill-cancel")
+                await pilot.pause()
+                assert app.tr("读取已取消；等待后台任务释放资源。") in str(app.query_one("#profile-status").content)
+            else:
+                selector.scroll_visible(animate=False, immediate=True)
+                await pilot.pause()
+                assert await pilot.click(selector)
+                await pilot.press("ctrl+a")
+                await pilot.press(*str(second))
         finally:
             release.set()
         await asyncio.wait_for(app.workers.wait_for_complete(), timeout=3)
@@ -59,6 +68,8 @@ async def test_selection_change_during_profiler_inspection_cancels_and_allows_re
         assert not app.read_jobs
         assert not app.is_busy()
         assert app.profiles.overview is None
+        if action == "cancel-backfill":
+            app.results.select_result(str(second), summarize=False)
         assert selector.value == str(second)
         assert not button.disabled
         button.scroll_visible(animate=False, immediate=True)

@@ -4,6 +4,10 @@ from __future__ import annotations
 from .entry import Entry
 
 MESSAGES: dict[str, Entry] = {
+    "profiling.backfill.choose_tools": Entry(
+        zh="请在补采实验中选择补充分析工具，或在命令中指定工具",
+        en="Select profiling tools on the Backfill page, or specify them in the command",
+    ),
     "profiling.backfill.complete_experiment_required": Entry(
         zh="请先选择可补采的完整实验",
         en="Select a complete experiment that supports posthoc profiling first",
@@ -30,6 +34,8 @@ MESSAGES: dict[str, Entry] = {
     "profiling.backfill.plan": Entry(zh="补采计划（dry-run）", en="Plan backfill"),
     "profiling.backfill.preview": Entry(zh="查看补采计划", en="Preview profiling plan"),
     "profiling.backfill.run": Entry(zh="执行补采", en="Run backfill"),
+    "profiling.backfill.source_hint": Entry(zh="选择需要补采的实验", en="Select an experiment to backfill"),
+    "profiling.backfill.title": Entry(zh="补采实验", en="Backfill"),
     "profiling.backfill.tools": Entry(zh="补采工具", en="Backfill tools"),
     "profiling.backfill.torch_toggle_hint": Entry(zh="逻辑 FLOP；点击或按空格切换。", en="Logical FLOP; click or press Space to toggle."),
     "profiling.metric.cpu_memory_peak": Entry(zh="CPU 内存峰值", en="CPU memory peak"),

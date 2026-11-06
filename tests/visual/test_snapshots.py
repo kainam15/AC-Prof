@@ -39,6 +39,8 @@ pytestmark = pytest.mark.visual
     ("en", (120, 30), "wsl-review"),
     ("zh", (80, 24), "profiler"),
     ("en", (80, 24), "profiler"),
+    ("zh", (80, 24), "backfill"),
+    ("en", (120, 30), "backfill"),
 ])
 def test_fixed_scenes(snap_compare, tmp_path, monkeypatch, language, size, scene):
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
@@ -120,8 +122,10 @@ def test_fixed_scenes(snap_compare, tmp_path, monkeypatch, language, size, scene
                 assert app.focused.id in {"preparation-cancel", "preparation-continue"}
         elif scene == "modal":
             app.push_screen(ConfirmActionScreen("终止当前任务？", "确认后将请求采集进程安全停止。", "终止任务"))
+        elif scene == "backfill":
+            app.activate_tab("backfill-tab")
         elif scene == "profiler":
-            app.activate_tab("results-tab")
+            app.activate_tab("backfill-tab")
             overview = ProfilerOverview(Path("/workspace/results/fixture-model"), (
                 ProfilerStatus("torch", "complete", 8, 8, 0),
                 ProfilerStatus("ncu", "missing", 0, 4, 0),
@@ -150,14 +154,22 @@ def test_fixed_scenes(snap_compare, tmp_path, monkeypatch, language, size, scene
             # This scene verifies the drag result, without a timing-dependent
             # help tooltip covering its cells during slower test runs.
             table.tooltip = None
+            # Let the revealed panel finish measuring columns before taking
+            # the boundary coordinates used by Pilot.
+            await pilot.pause()
             # Drag the visible first header separator with actual mouse events.
+            column = table.ordered_columns[0]
+            width = column.get_render_width(table) - 2 * table.cell_padding
             boundary = next(table._header_boundaries())[0]
             origin = table.content_region.offset - table.region.offset
             start = (origin.x + boundary, origin.y)
-            await pilot.mouse_down(table, offset=start)
+            assert app.get_widget_at(table.region.x + start[0], table.region.y + start[1])[0] is table
+            assert await pilot.mouse_down(table, offset=start)
+            assert app.mouse_captured is table
             end = (table.region.x + start[0] + 5, table.region.y + start[1])
             await pilot.hover(offset=end)
             await pilot.mouse_up(offset=end)
+            assert column.width == width + 5
         elif scene in {"measuring", "cleanup-incomplete"}:
             process = Mock(pid=12345, returncode=None)
             process.poll.return_value = None

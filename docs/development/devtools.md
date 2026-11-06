@@ -39,7 +39,7 @@ Hypothesis 可用于同步 pytest 测试，并使用 `python -m pytest <文件>`
 新增依赖这些工具的常规测试时，先补齐相应开发依赖与 CI 环境，不能仅依赖本机安装。
 
 快照用例使用 `snap_compare` fixture，显式指定 `terminal_size`，固定语言、主题和输入，
-仓库的 `tests/visual/test_snapshots.py` 固定十一个场景：中文窄终端、英文常规尺寸、宽终端、
+仓库的 `tests/visual/test_snapshots.py` 固定十五个场景，包含中英文补采页面：中文窄终端、英文常规尺寸、宽终端、
 弹窗覆盖、实际拖动表格之后、测量中、清理未完成、中英文 WSL2 模型检测等待，以及中英文模型确认对话框；
 覆盖 `80×24`、`120×30`、`150×45`。
 通用场景固定 Native Linux 身份，WSL2 场景固定 PARTIAL，避免基线随运行测试的主机变化。
