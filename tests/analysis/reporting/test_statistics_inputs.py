@@ -1,6 +1,7 @@
 """Browser inputs preserve Python's window selection, identity and publication guard."""
 import hashlib
 import json
+from unittest.mock import patch
 
 import pytest
 
@@ -11,7 +12,7 @@ from tests.analysis.reporting.test_report_statistics import row, write_rows
 
 
 @pytest.mark.parametrize('metric_count', [1, 16])
-def test_report_classifies_window_identity_independently_of_metric_count(tmp_path, monkeypatch, metric_count):
+def test_report_classifies_window_identity_independently_of_metric_count(tmp_path, metric_count):
     from acprof.analysis import report_statistics
 
     metrics = [name for name, metric in METRICS.items() if metric.kind == 'number'
@@ -28,8 +29,8 @@ def test_report_classifies_window_identity_independently_of_metric_count(tmp_pat
             identity_reads.append(value)
         return parse(value)
 
-    monkeypatch.setattr(report_statistics, 'number', observe)
-    payload = report_payload(model, statistics_options={'metrics': metrics, 'resamples': 1})
+    with patch('acprof.analysis.report_statistics.number', observe):
+        payload = report_payload(model, statistics_options={'metrics': metrics, 'resamples': 1})
 
     # Initial estimates and browser inputs may each classify the windows.
     # Adding metrics must not repeat that classification for every metric.
@@ -152,8 +153,7 @@ def test_publication_error_preserves_inputs_of_an_already_visible_html(tmp_path,
         if path == output:
             raise OSError("directory sync failed after publication")
 
-    monkeypatch.setattr(rendering, "atomic_write", publish_then_fail)
-    with pytest.raises(OSError, match="directory sync"):
+    with patch('acprof.plotting.report.atomic_write', publish_then_fail), pytest.raises(OSError, match="directory sync"):
         rendering.write_report(load_analysis([source]), output)
     assert output.is_file()
     assert (tmp_path / "report.windows-1.json").is_file()
