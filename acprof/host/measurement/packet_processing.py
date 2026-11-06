@@ -25,7 +25,10 @@ def run_packet_command(command: list[str], *, stage: str):
     try:
         return host_command.run_command(command, check=False, timeout=timeout, kill_process_group=True)
     except subprocess.TimeoutExpired as exc:
-        raise PacketLatencyError(
+        failure = PacketLatencyError(
             f"{stage} timed out after {timeout:g}s; completed measurements are retained. "
             "Adjust ACPROF_POSTPROCESS_TIMEOUT_S and resume to retry postprocessing only."
-        ) from exc
+        )
+        for note in getattr(exc, "__notes__", ()):
+            failure.add_note(note)
+        raise failure from exc

@@ -243,6 +243,10 @@ capability 校验、CSV 合并、RunState 完成、清理及自动统计 JSON �
 收尾统一复用 `system.cleanup.cleanup_on_exit`：保留原始异常及附带诊断；清理期间的取消优先于
 普通运行错误，已有取消不会被后续错误替换。CLI 错误输出及 task collection 的字符串 `error`
 记录保留 exception notes；任务状态、后续任务执行规则和恢复协议不变。
+矩阵结束时，质量证据和运行失败证据各自独立汇总；一份汇总失败仍尝试另一份，
+并保留原始采集异常或取消。成功采集后的汇总失败仍阻止完成发布；旧报告沿用原子写入保护，
+修复证据后 Resume 复用已提交 case。PCAP 超时包装和 packet／energy／MIPS 的应用层转换
+保留 exception notes，CLI 可以显示清理故障；超时消息不直接拼入原始命令或部分输出。
 设计借鉴 [CPython unittest.doCleanups](https://github.com/python/cpython/blob/main/Lib/unittest/case.py)
 的独立清理与错误保留，并核对取消传播问题
 [gh-148427](https://github.com/python/cpython/issues/148427) 及其

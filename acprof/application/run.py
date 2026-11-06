@@ -193,66 +193,72 @@ class RunApplication:
         from acprof.host.input_plan import serialize_input_scales
         from acprof.host.orchestrator import run_matrix
 
-        try:
-            return (self.matrix_runner or run_matrix)(MatrixRequest(
-                task_info=task_info,
-                image_info=prepared.image_info,
-                cpu_list=cpu_list,
-                mem_list=mem_list,
-                gpu_list=gpu_list,
-                output_dir=output_dir,
-                project_dir=PROJECT_DIR,
-                workload=CaseWorkload(
-                    batch_size=args.batch_size,
-                    warmup=args.warmup,
-                    repeat=args.repeat,
-                    repeat_in_window=args.repeat_in_window,
-                    repeat_window_seconds=args.repeat_window_seconds,
-                    request_timeout_seconds=args.request_timeout_seconds,
-                ),
-                measurement=CaseMeasurement(
-                    sample_hz=args.sample_hz,
-                    sampling_policy=args.sampling_policy,
-                    raw_sample_limit=args.raw_sample_limit,
-                    idle_seconds=args.idle_seconds,
-                    idle_cooldown_seconds=args.idle_cooldown_seconds,
-                    idle_debug=args.idle_debug,
-                    sniff_iface=args.sniff_iface,
-                    profiling_mode=args.profiling_mode,
-                    dram_energy=args.dram_energy,
-                ),
-                plans=CasePlans(
-                    input_scales=serialize_input_scales(prepared.planned_input_scales.scales),
-                    input_scale_plan_file=prepared.planned_input_scales.plan_file,
-                    compute_profile_plan_file=prepared.compute_profile_plan_file,
-                    execution_profile_plan_file=prepared.execution_profile_plan_file,
-                ),
-                progress_callback=(
-                    self.notifications.notify_case
-                    if self.notifications.active()
-                    else None
-                ),
-                prune_startup_oom=args.prune_startup_oom,
-                run_state=run_state,
-                matrix_order=args.matrix_order,
-                matrix_seed=args.matrix_seed,
-                cpuset_cpus=args.cpuset_cpus,
-            ))
-        except PacketLatencyError as exc:
-            print(f"\n[sniff][ERROR] {exc}", file=sys.stderr)
-            raise CollectionFailed(str(exc)) from exc
-        except EnergyProfilingError as exc:
-            print(f"\n[energy][ERROR] {exc}", file=sys.stderr)
-            raise CollectionFailed(str(exc)) from exc
-        except MIPSProfilingError as exc:
-            print(f"\n[mips][ERROR] {exc}", file=sys.stderr)
-            raise CollectionFailed(str(exc)) from exc
-        finally:
+        def collect_evidence() -> None:
             from acprof.failures import collect_failures
             from acprof.quality import collect_quality
             recorded_cases = list(run_state.case_paths())
-            collect_quality(Path(output_dir), recorded_cases)
-            collect_failures(Path(output_dir), recorded_cases)
+            with cleanup_on_exit(lambda: collect_failures(Path(output_dir), recorded_cases),
+                                 description="runtime failure evidence"):
+                collect_quality(Path(output_dir), recorded_cases)
+
+        try:
+            with cleanup_on_exit(collect_evidence, description="collection evidence"):
+                return (self.matrix_runner or run_matrix)(MatrixRequest(
+                    task_info=task_info,
+                    image_info=prepared.image_info,
+                    cpu_list=cpu_list,
+                    mem_list=mem_list,
+                    gpu_list=gpu_list,
+                    output_dir=output_dir,
+                    project_dir=PROJECT_DIR,
+                    workload=CaseWorkload(
+                        batch_size=args.batch_size,
+                        warmup=args.warmup,
+                        repeat=args.repeat,
+                        repeat_in_window=args.repeat_in_window,
+                        repeat_window_seconds=args.repeat_window_seconds,
+                        request_timeout_seconds=args.request_timeout_seconds,
+                    ),
+                    measurement=CaseMeasurement(
+                        sample_hz=args.sample_hz,
+                        sampling_policy=args.sampling_policy,
+                        raw_sample_limit=args.raw_sample_limit,
+                        idle_seconds=args.idle_seconds,
+                        idle_cooldown_seconds=args.idle_cooldown_seconds,
+                        idle_debug=args.idle_debug,
+                        sniff_iface=args.sniff_iface,
+                        profiling_mode=args.profiling_mode,
+                        dram_energy=args.dram_energy,
+                    ),
+                    plans=CasePlans(
+                        input_scales=serialize_input_scales(prepared.planned_input_scales.scales),
+                        input_scale_plan_file=prepared.planned_input_scales.plan_file,
+                        compute_profile_plan_file=prepared.compute_profile_plan_file,
+                        execution_profile_plan_file=prepared.execution_profile_plan_file,
+                    ),
+                    progress_callback=(
+                        self.notifications.notify_case
+                        if self.notifications.active()
+                        else None
+                    ),
+                    prune_startup_oom=args.prune_startup_oom,
+                    run_state=run_state,
+                    matrix_order=args.matrix_order,
+                    matrix_seed=args.matrix_seed,
+                    cpuset_cpus=args.cpuset_cpus,
+                ))
+        except PacketLatencyError as exc:
+            detail = format_exception_notes(exc)
+            print(f"\n[sniff][ERROR] {detail}", file=sys.stderr)
+            raise CollectionFailed(detail) from exc
+        except EnergyProfilingError as exc:
+            detail = format_exception_notes(exc)
+            print(f"\n[energy][ERROR] {detail}", file=sys.stderr)
+            raise CollectionFailed(detail) from exc
+        except MIPSProfilingError as exc:
+            detail = format_exception_notes(exc)
+            print(f"\n[mips][ERROR] {detail}", file=sys.stderr)
+            raise CollectionFailed(detail) from exc
 
     def _validate_execution_options(self, config: RunConfig):
         args = config.validate(project_dir=Path.cwd()).to_namespace()
