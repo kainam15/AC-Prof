@@ -215,7 +215,7 @@ input case、experiment batch 和环境筛选；点击表格行或图中点后�
   已知输入或测量条件冲突时保留原因和绝对值，严格用途仍要求完整证据。
   `--baseline` 接受 config ID，只有单配置 run 才能直接用 run ID。
 - **Pareto / Trade-off**：四种 latency/throughput 与 energy/memory/VRAM 预设，X/Y 可选，
-  点大小可映射第三指标，runtime/device 由颜色及形状区分。frontier 只比较当前用途下条件已核验
+  点大小可映射第三指标，实验由颜色区分，device 由形状区分。frontier 只比较当前用途下条件已核验
   且质量允许优选的成功配置；选择 baseline 后还需与之可比。缺失坐标和 partial/failed 不参与支配判断，重复最优点全部保留。
   neutral 轴只画 scatter，不自动指定优化方向。筛选变化后重新计算 frontier。
   二维 frontier 在各比较组内排序扫描，最坏时间复杂度为 O(N log N)，避免逐对比较。
@@ -227,6 +227,52 @@ input case、experiment batch 和环境筛选；点击表格行或图中点后�
   分开列出指标缺失原因和预热、warn/error、推断行等排除数量；支持指标筛选和跨视图配置选择。
   来源区展示 Bootstrap 参数、抽样单位、统计假设、JSON 复用／重新计算原因，以及当前质量、
   运行状态、实验完整性、计划覆盖和可展开的原始审计证据。
+
+#### 在浏览器中添加实验
+
+操作流程：**打开 HTML → 添加实验 → 选择基线和对照 → 查看图表与差异 → 导出结果**。
+顶部“实验管理”接受文件选择或拖放，可同时选择多个文件；逐文件显示进度、错误与取消状态。
+成功导入后共用原有筛选、Comparison Matrix、Pareto、Scaling、实验对照和质量证据。
+实验列表保留名称、模型、run ID、原始来源、配置数和质量状态。原始内嵌实验不可删除，
+新增实验可以删除；不改写源 CSV，也不把浏览器操作保存回原报告。
+
+| 输入 | 处理方式与统计边界 |
+| --- | --- |
+| `result_all.csv` | UTF-8（可含 BOM）分块解码；只汇总正式成功且非推断的窗口。元数据与质量未核验，严格统计显示“未计算”；不会把 CSV 中的 run ID 当成独立运行证明 |
+| AC-Prof 配置分析 HTML | 只提取 `report-data` 和可选 `report-session` JSON；不执行导入文件中的脚本。兼容原 schema v1 报告；load/sweep 等不同类型报告明确拒绝 |
+| 标准化分析 JSON | 接受 `kind=acprof_analysis_bundle, schema_version=1`，或“导出 JSON”中的 `analysis_bundle`；单独窗口统计 JSON 缺少完整配置／来源，不能作为实验包导入 |
+
+分析包包含 `analysis_contract.version=1`、配置、Metric Registry（单位／聚合方式／方向）、
+来源指纹、元数据、质量、比较条件、窗口统计与独立比较结果。`statistics_engine` 区分
+`python`、`not_computed`、`mixed`。Python 通过 `report_payload()` 生成该契约；旧版 HTML
+没有 `kind` 或契约标签时按既有 schema v1 读取，但仍须通过字段与指标口径校验。
+导入不会重新读取原始文件或重新审计运行环境，记录的 SHA256 是来源标识，不是数字签名。
+
+- 缺少必需列、重复列／窗口、损坏行、无效数值结构、不兼容版本／单位、来源不匹配或无依据的区间会明确拒绝；每个文件完成校验后才整体加入。
+- 内容与运行身份用于发现重复或冲突；不同已记录运行可以有相同测量值，不能仅凭相等结果认定重复或独立。
+- 已有 Python 条件 profile 复用同一检查规则，区分 `compatible`、`incompatible`、`unknown`，原始单来源资源比较保留 `descriptive`。CSV-only 缺失证据保持 `unknown`，只提供明确标注的描述性差值；已知输入、资源或测量条件冲突暂停差值。
+- 延迟／吞吐等按成功窗口等权汇总，峰值取最大值，energy/request 按请求数加权，cold start 按启动身份去重；定义沿用上文。浏览器不计算标准差、Bootstrap、显著性或独立运行判定。
+- 实验对照按输入规模、设备与资源配置匹配；`resource-scaling` 可并列不同 CPU／内存配额。不同条件不会自动进入 Pareto 优选；多个资源同时变化不支持单因素归因。
+- 统一筛选增加实验名称、硬件和输入规模；各图表使用一致的实验颜色。`重置筛选` 保留当前配置 Baseline，`恢复默认基线` 返回报告原始设置。
+- `导出 CSV / JSON` 遵循当前视图及筛选；JSON 同时携带可重新导入的分析包。过滤不重新估计 CI，不把独立组的部分配置伪装成新的正式统计。CSV 对可能触发电子表格公式的文本加前缀，数值与原始 JSON 不改变。
+- `另存自包含 HTML` 保存全部已加载实验、筛选、指标、视图、选中配置、基线／对照和语言。重新打开恢复相同数据与可比性，原始内嵌数据保持原样；新增实验仍可删除。
+
+CSV 按 256 KiB 块读取并在块间让出浏览器事件循环，不保留全部原始行；未完成行缓存设 8 Mi 字符保护阈值。
+JSON／HTML 采用整体解析，单文件上限 128 MiB。取消尚未完成的文件不留下部分实验，
+同一批次之前成功加入的文件保留。脚本、图表库、解析器和许可全部内嵌，`file://` 下不请求 CDN、
+服务器或外部 API。浏览器临时比较不是新生成的 Python 正式统计；严格分析仍通过
+`acprof report --left RUN --right RUN` / `acprof compare` 生成，再导入含该结果的 HTML。
+
+解析器采用固定版本 [Papa Parse 5.5.3](https://github.com/mholt/PapaParse/tree/5.5.3)，
+分块 SHA256 使用 [js-sha256 0.11.1](https://github.com/emn178/js-sha256/tree/v0.11.1)，两者为 MIT。
+源码与许可内嵌资源的版本／SHA256 见 `acprof/plotting/vendor/manifest.json`。复用成熟解析器处理
+引号和换行，在外层增量 UTF-8 解码以保护分块边界；不引入 npm 运行时或第二套统计依赖，
+也不增加测量阶段开销。流式使用注意事项参考 [Papa Parse #437](https://github.com/mholt/PapaParse/issues/437)，
+CSV 文本导出参考 [PR #1149](https://github.com/mholt/PapaParse/pull/1149) 的多行公式边界。
+
+本功能的自动化证据为 Linux headless Chrome、离线 `file://`、中英文及窄窗口交互；
+Windows Edge／Chrome 的实际桌面操作仍需在目标平台验收。分块测试与重复导入删除检查不等同于
+任意大小数据的性能或长期内存稳定性承诺。
 
 #### HTML 窗口统计与 JSON 复用
 

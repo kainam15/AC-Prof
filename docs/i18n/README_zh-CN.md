@@ -15,7 +15,9 @@ AC-Prof 用于分析 AI 模型在不同 CPU、内存、GPU 配置和输入规模
 | 完整画像   | 能耗、抓包计时、CPU 硬件计数器，以及按需启用的独立 Profiler |
 | 可复现实验 | 输入与环境元数据、分层 CSV 结果、图表和报告                 |
 
-[离线 HTML 报告](../results/reports.md#交互式配置比较报告)是统一分析入口。一份 `result_all.csv` 即可比较 CPU、内存和 GPU 配置并查看实验内窗口统计；显式独立运行分组复用原有身份与条件检查，每侧至少三次有效独立运行才估计 Bootstrap 置信区间。多个模型可以并列展示，并提示任务与输入的可比性限制。Python 负责全部统计计算并复用匹配的统计 JSON，离线浏览器负责筛选、图表与 CSV / JSON 导出。历史 CSV 无需补造运行身份或重新采集。实验完成后（含 `--resume`）也会在 `plots/analysis/` 生成新报告。
+[离线 HTML 报告](../results/reports.md#交互式配置比较报告)是统一分析入口。一份 `result_all.csv` 即可比较 CPU、内存和 GPU 配置并查看实验内窗口统计；显式独立运行分组复用原有身份与条件检查，每侧至少三次有效独立运行才估计 Bootstrap 置信区间。多个模型可以并列展示，并提示任务与输入的可比性限制。Python 负责严格统计并复用匹配的统计 JSON，离线浏览器负责筛选、图表与描述性差异计算。历史 CSV 无需补造运行身份或重新采集。实验完成后（含 `--resume`）也会在 `plots/analysis/` 生成新报告。
+
+打开报告后点击“添加实验”，即可导入本地 CSV、AC-Prof HTML 或分析 JSON，选择基线和对照，导出筛选后的 CSV / JSON，或将当前会话另存为自包含 HTML。只有 CSV 的导入保持可比性未知，不生成置信区间。
 
 ```bash
 acprof report result_all.csv --output resources.html
