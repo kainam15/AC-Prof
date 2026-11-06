@@ -99,7 +99,7 @@ class TestIndependentComparisonUi:
     def _setup(self, request, tmp_path, monkeypatch):
         self._request = request
         self.fixture_root = tmp_path
-    async def test_compare_selection_baseline_and_measurement_guard_at_narrow_width(self):
+    async def test_hidden_compare_retains_selection_baseline_and_measurement_guard(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             left, right = root / "left experiment", root / "right experiment"
@@ -117,10 +117,10 @@ class TestIndependentComparisonUi:
                 app.query_one("#comparison-purpose", Select).value = "resource-scaling"
                 await pilot.pause()
                 button = app.query_one("#report-compare", Button)
-                button.scroll_visible(animate=False, immediate=True)
-                await pilot.pause()
+                assert button.region.area == 0
+                assert button not in app.screen.focus_chain
                 with patch.object(app, 'launch') as launch:
-                    assert (await pilot.click(button))
+                    app.results.compare_experiments_button()
                     await pilot.pause()
                     launch.assert_called_once()
                     pending = launch.call_args.args[0]

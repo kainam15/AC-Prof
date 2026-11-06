@@ -208,7 +208,7 @@ Torch 与 NCU 共用该次解析，但各行仍以自己的延迟计算速率，
 
 ## TUI 与兼容维护
 
-统一 HTML 工作流已按用户要求恢复报告生成、打开、JSON 导入与 CSV / JSON 导出，集中在“分析报告”。旧 `exports-view` 仅保留隐藏兼容占位，内部跳转重定向；其他主动隐藏内容仍遵守以下暂停规则。
+统一 HTML 工作流已按用户要求恢复报告生成、打开、JSON 导入与 CSV / JSON 导出，集中在“分析报告”。旧 `exports-view` 仅保留隐藏兼容占位，内部跳转重定向。“比较”页 `comparison-view` 已隐藏并禁用，保留控件与后端绑定，键盘导航、内部跳转及子控件焦点不会重新显示它；CLI 与 HTML 比较能力保留。隐藏实现沿用 [Textual 的标签与页面禁用机制](https://github.com/Textualize/textual/blob/main/src/textual/widgets/_tabbed_content.py)，不新增依赖。主动隐藏内容遵守以下暂停规则。
 
 已主动隐藏的 TUI 页面、入口和控件暂停维护与优化，直到用户明确要求恢复。
 暂停范围包括这些入口专用的布局、交互、文案与实现，不自动扩展、重构或恢复显示。
@@ -467,7 +467,7 @@ runtime/host/device/资源条件不完整或变化时降为需要重新验证。
 存储 worker 由 `ImageController` 管理，打开和手动刷新时才查询；关闭弹窗不取消尚在执行的 Docker 子进程，查询完成前保持与采集互斥。
 `ImageWorkspace` 按可用空间分配列表和详情高度；`ImageDetailResizeHandle` 使用 Textual 鼠标捕获和屏幕坐标处理上下拖动，也支持聚焦后按键调整。
 两侧各保留至少三行，手动高度仅存于控件的本次会话，窗口缩小不覆盖偏好。拖动只触发布局更新；禁用、隐藏、窗口缩放、失去捕获或按 `Esc` 时释放鼠标，沿用镜像控件的任务互斥，不增加后台扫描或定时器。
-`result_views.compose_results_tab` 构建单一实验结果入口及概览、统计、比较、导入/导出分区。
+`result_views.compose_results_tab` 构建单一实验结果入口及可见的概览、分析报告分区；比较表单与旧导出占位保持隐藏。
 `ResultController` 持有唯一实验选择和内存分析结果；切换来源撤销旧读取，选择身份及 App 的 process token 共同阻止过期回调发布。
 `stats` / `compare` 继续使用原 CLI 子进程与主机测量锁，但不传输出路径；`analysis_output.AnalysisOutput`
 在既有 process worker 内有界收集 stdout，复用 `reports.report_view` 的格式校验，再交给 UI 展示。

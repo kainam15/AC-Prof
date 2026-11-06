@@ -1,4 +1,4 @@
-"""HTML is the primary analysis destination; failed comparisons stay at their inputs."""
+"""HTML is the primary analysis destination; failures never reopen hidden pages."""
 from unittest.mock import patch
 
 import pytest
@@ -18,15 +18,17 @@ def test_failed_comparison_plain_error_never_enters_json_decoder(tmp_path):
             output.finish("compare", 1, tmp_path)
 
 
-async def test_failed_comparison_stays_on_comparison_form(tmp_path):
+async def test_failed_comparison_does_not_reopen_hidden_page(tmp_path):
     app = AcprofTui(RunConfig.smoke("demo/model"), settings_path=tmp_path / "settings.json")
     async with app.run_test(size=(80, 24)) as pilot:
         await pilot.pause()
-        app.results.show_result_section("comparison-view")
+        app.results.show_result_section("overview-view")
         app.results.begin_analysis(PendingLaunch(("acprof", "compare", "--left", str(tmp_path)), "compare"))
         app.results.finish_analysis(error="missing run_state.json", cancelled=False)
         await pilot.pause()
-        assert app.query_one("#result-views", TabbedContent).active == "comparison-view"
+        views = app.query_one("#result-views", TabbedContent)
+        assert views.active == "overview-view"
+        assert views.get_pane("comparison-view").region.area == 0
         assert "missing run_state.json" in str(app.query_one("#comparison-status", Static).content)
         assert app.results.report_view is None
 

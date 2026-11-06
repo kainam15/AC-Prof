@@ -324,7 +324,7 @@ def test_cli_receipt_reports_excluded_windows_and_quality(tmp_path, csv_result, 
 
 @pytest.mark.parametrize("size", [(80, 24), (120, 30), (150, 45)])
 @pytest.mark.parametrize("language", ["zh", "en"])
-async def test_import_export_tab_stays_hidden_during_navigation(tmp_path, size, language):
+async def test_comparison_and_export_tabs_stay_hidden_during_navigation(tmp_path, size, language):
     settings = tmp_path / "settings.json"
     save_settings(settings, TuiSettings(ui=UiPreferences(language=language)), tmp_path)
     app = AcprofTui(settings_path=settings)
@@ -332,17 +332,25 @@ async def test_import_export_tab_stays_hidden_during_navigation(tmp_path, size, 
         app.results.show_result_section("overview-view")
         await pilot.pause()
         views = app.query_one("#result-views", TabbedContent)
-        assert not views.get_tab("exports-view").display
-        assert views.get_tab("exports-view").region.area == 0
-        assert views.get_pane("exports-view").region.area == 0
+        for hidden in ("comparison-view", "exports-view"):
+            assert not views.get_tab(hidden).display
+            assert views.get_tab(hidden).region.area == 0
+            assert views.get_pane(hidden).region.area == 0
         assert [views.get_tab(name).display for name in (
-            "overview-view", "statistics-view", "comparison-view",
-        )] == [True, True, True]
+            "overview-view", "statistics-view",
+        )] == [True, True]
         views.query_one(Tabs).focus()
-        for key, expected in (("right", "statistics-view"), ("right", "comparison-view"),
-                              ("right", "overview-view"), ("left", "comparison-view")):
+        for key, expected in (("right", "statistics-view"), ("right", "overview-view"),
+                              ("left", "statistics-view"), ("left", "overview-view")):
             await pilot.press(key)
             assert views.active == expected
+        app.results.show_result_section("comparison-view")
+        app.query_one("#comparison-left", Input).focus()
+        await pilot.pause()
+        assert views.active == "overview-view"
+        for control in views.get_pane("comparison-view").query("Input, Select, Button"):
+            assert control.region.area == 0
+            assert control not in app.screen.focus_chain
         app.results.show_result_section("exports-view")
         await pilot.pause()
         assert views.active == "statistics-view"

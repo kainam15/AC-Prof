@@ -106,7 +106,7 @@ acprof tui --help
 `within-experiment` 描述性资源比较，HTML 可以切换资源比较用途；独立运行比较沿用生成时的严格用途。
 `compare --html-output <新文件.html> --csv-output <新文件.csv>` 可与 JSON `--output` 同时导出，复用同一比较结果。
 资源扩容只放开 CPU/内存配额，双方资源坐标和仍需匹配的条件见[比较规则](../results/comparisons.md#跨独立实验比较)。
-TUI“实验结果 → 比较”复用同一入口，可选择左右组、基线和用途，比较完成优先显示 HTML 入口；“分析报告 → 统计数据与导出”保留 CSV / JSON 导出和历史 JSON 读取。
+TUI 的“比较”页面已隐藏，CLI 与 HTML 比较能力保留；“分析报告 → 统计数据与导出”保留 CSV / JSON 导出和历史 JSON 读取。
 `acprof load <源实验> --gpu off --scenario concurrent --concurrency 4 --output-dir <新目录>`
 执行独立 HTTP 负载；到达率使用 `--scenario arrival-rate --rate 10 --arrival poisson`。
 协议、连接复用前提和失败口径见[独立非流式负载](../profiling/lifecycle.md#独立非流式负载)。
