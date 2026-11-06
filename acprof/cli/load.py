@@ -25,7 +25,29 @@ from acprof.host.run_state import MeasurementLock, file_sha256, host_identity, l
 from acprof.host.runtimes.service import execution_runtime
 from acprof.installation import module_command, resource_root
 from acprof.results.layout import ArtifactLayout, resolve_single_result_source
+from acprof.system.cleanup import cleanup_on_exit
 from acprof.system.command import run_command
+
+
+def _stop_packet_capture(capture: subprocess.Popen[bytes]) -> None:
+    def reap_after_kill() -> None:
+        try:
+            capture.wait(timeout=5)
+        except subprocess.TimeoutExpired as error:
+            raise RuntimeError("tcpdump could not be reaped after kill") from error
+
+    def force_stop() -> None:
+        if capture.returncode is None:
+            with cleanup_on_exit(reap_after_kill, description="packet capture reap after kill"):
+                capture.kill()
+
+    # A signal or wait failure must not bypass the remaining owned-child cleanup.
+    with cleanup_on_exit(force_stop, description="packet capture forced stop"):
+        capture.terminate()
+        try:
+            capture.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            pass  # Escalate to a bounded kill/reap when graceful termination times out.
 
 
 @contextmanager
@@ -35,24 +57,14 @@ def capture_packets(path, *, interface, port=8002):
     with path.with_suffix(".log").open("w") as log:
         capture = subprocess.Popen(["tcpdump", "-i", interface, "-n", "-U", "-w", str(path),
                                     "tcp", "port", str(port)], stdout=log, stderr=log)
-        try:
+        with (
+            cleanup_on_exit(lambda: _stop_packet_capture(capture), description="packet capture"),
+            cleanup_on_exit(lambda: time.sleep(1), description="packet capture drain"),
+        ):
             time.sleep(0.2)
             if capture.poll() is not None:
                 raise RuntimeError("tcpdump exited before load started")
             yield
-        finally:
-            try:
-                time.sleep(1)
-            finally:
-                capture.terminate()
-                try:
-                    capture.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    capture.kill()
-                    try:
-                        capture.wait(timeout=5)
-                    except subprocess.TimeoutExpired as kill_exc:
-                        raise RuntimeError("tcpdump could not be reaped after kill") from kill_exc
         if capture.returncode != 0 or path.stat().st_size <= 24:
             raise RuntimeError("load did not produce a valid PCAP")
 

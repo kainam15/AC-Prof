@@ -78,6 +78,11 @@ Token 派生之前冻结。`load_reporting` 在此后补齐未提交请求、派
 清理阶段分工参考 [Locust Runner](https://github.com/locustio/locust/blob/42c4ac9554e6c74cbe52e67fc8f0cf2557c2dfa8/locust/runners.py)；
 仅借鉴生命周期设计，不引入 gevent、新依赖或额外后台任务。三个 load 模块共同纳入 C901 ≤ 12 门禁。
 
+回放 CLI 的抓包收尾复用 `cleanup_on_exit` 保留原始错误与取消，并独立尝试强杀后的有界回收。
+设计参考 [CPython subprocess](https://github.com/python/cpython/blob/3.12/Lib/subprocess.py) 的信号与等待分工，
+以及 [取消后显式回收的 PR 讨论](https://github.com/python/cpython/pull/160941)；仅借鉴设计，不复制源码或引入依赖。
+抓包成功后仍执行原有 PCAP 有效性和请求覆盖检查，失败诊断见[负载报告](../results/comparisons.md#非流式负载报告)。
+
 `host.measurement.energy_validation` 在正式采样结束后读取 case CSV 并核验 CPU/GPU idle 功率基线，
 保留既定错误状态、告警 sidecar 与阈值；`orchestrator` 仅调度该校验。
 `host.result_cleanup` 只有在合并结果存在且非空时才回收逐 case 临时文件，
