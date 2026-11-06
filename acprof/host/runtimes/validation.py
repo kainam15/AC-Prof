@@ -58,7 +58,8 @@ def run_validation(task, info, module, prefix, output_dir, *, gpu="off", payload
             )
         return observed
     finally:
-        if process is None and isinstance(sys.exception(), RuntimeCleanupError):
+        run_error = sys.exception()
+        if process is None and isinstance(run_error, RuntimeCleanupError):
             from acprof.host.model_store.store import retain_mount_for_cleanup_debt
             if lease is not None:
                 retain_mount_for_cleanup_debt(lease)
@@ -66,7 +67,9 @@ def run_validation(task, info, module, prefix, output_dir, *, gpu="off", payload
             if process is not None:
                 try:
                     process.close()
-                except BaseException:
+                except BaseException as cleanup_error:
+                    if isinstance(cleanup_error, RuntimeCleanupError) and run_error is not cleanup_error:
+                        cleanup_error.run_error = run_error or cleanup_error.run_error
                     from acprof.host.model_store.store import retain_mount_for_cleanup_debt
                     if lease is not None:
                         retain_mount_for_cleanup_debt(lease)

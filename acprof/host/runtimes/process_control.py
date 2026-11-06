@@ -298,18 +298,33 @@ class ManagedProcess:
                 "log_file": str(self.log_path)}
 
     def close(self) -> None:
-        if self._control is not None:
-            os.close(self._control)
-            self._control = None
-        if self.process is None:
-            return
+        def wait_for_cleanup() -> None:
+            process = self.process
+            if process is None:
+                return
+            try:
+                process.wait(timeout=12)
+            except subprocess.TimeoutExpired as exc:
+                raise ProcessCleanupError("process supervisor cleanup timed out; retained ownership evidence") from exc
+            status = self.state()
+            if not status.get('cleanup_complete') or status.get("cleanup_error") or (self.identity and same_process(self.identity)):
+                raise ProcessCleanupError(f"workload cleanup unconfirmed: {status}")
+
         try:
-            self.process.wait(timeout=12)
-        except subprocess.TimeoutExpired as exc:
-            raise ProcessCleanupError("process supervisor cleanup timed out; retained ownership evidence") from exc
-        status = self.state()
-        if not status.get('cleanup_complete') or status.get("cleanup_error") or (self.identity and same_process(self.identity)):
-            raise ProcessCleanupError(f"workload cleanup unconfirmed: {status}")
+            with cleanup_on_exit(wait_for_cleanup, description="Process supervisor cleanup"):
+                if self._control is not None:
+                    # Linux releases the fd even when close reports an error.
+                    # Never retry it after another resource may reuse the number.
+                    control, self._control = self._control, None
+                    os.close(control)
+        except ProcessCleanupError:
+            raise
+        except BaseException as exc:
+            # An interrupted wait or unreadable status also leaves ownership
+            # unconfirmed, so callers must retain leases and stop scheduling.
+            raise ProcessCleanupError(
+                f"process cleanup unconfirmed: {type(exc).__name__}: {format_exception_notes(exc)}"
+            ) from exc
 
 
 def recover_process(evidence: dict, *, directory: Path) -> None:

@@ -111,6 +111,13 @@ Process 启动失败时先尝试读取 OOM 证据，再执行既有的进程终�
 该构造失败处理借鉴 [CPython multiprocessing.Pool 的部分创建回收](https://github.com/python/cpython/blob/3.12/Lib/multiprocessing/pool.py#L183-L222)，
 复用项目现有异常与收尾工具，不引入依赖。轻量真实子进程、文件锁与故障注入覆盖此路径，资源范围使用 Fixture。
 
+Process 收尾先撤销控制管道描述符的所有权，再执行一次关闭；按照
+[Linux close(2) 的错误处理规则](https://man7.org/linux/man-pages/man2/close.2.html)，关闭报错后不得重试可能已被复用的描述符。
+管道关闭失败仍有界等待 supervisor 并检查清理记录，多重故障保留诊断；状态读取失败或清理中断同样
+传播 `ProcessCleanupError`，不能降为普通兼容性错误后继续调度。独立验证将原始失败、超时或取消写入
+清理错误的 `run_error`，未确认清理时保留 Model Store 租约和资源范围。
+真实子进程、文件描述符复用与父进程文件锁回归验证此边界；资源范围 Fixture 不代表真实 cgroup 验收。
+
 Profiler 命令统一经过 `profiling.commands.run_profiler_command`：主机工具查询保留原有执行方式，
 每次 `docker run` 单独分配 cidfile 和现有进程所有权标签，按不可变 ID 有界回收容器。
 启动前同样复用 `container_lifecycle.recover_abandoned_containers`，只回收已确认退出的所有者
