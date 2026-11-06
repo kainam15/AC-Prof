@@ -8,9 +8,12 @@ import re
 import signal
 import subprocess
 from collections.abc import Mapping, Sequence
+from contextlib import ExitStack
 from dataclasses import asdict, dataclass
 from time import perf_counter
 from typing import Any
+
+from acprof.system.cleanup import cleanup_on_exit
 
 _LOG = logging.getLogger(__name__)
 _SENSITIVE = re.compile(r"password|passwd|token|secret|credential|authorization|api[-_]?key|webhook|^key$", re.I)
@@ -79,6 +82,25 @@ def _signal_group(pid: int, sig: signal.Signals) -> None:
         pass  # The whole group already exited.
 
 
+def _cleanup_process_group(process: subprocess.Popen[str]) -> None:
+    with ExitStack() as cleanup:
+        for name in ("stdin", "stdout", "stderr"):
+            stream = getattr(process, name)
+            if stream is not None:
+                cleanup.enter_context(cleanup_on_exit(stream.close, description=f"host command {name}"))
+        cleanup.enter_context(cleanup_on_exit(lambda: process.wait(timeout=5), description="host command reap"))
+        # KILL, reap and every pipe close must still run if an earlier step fails.
+        # A successful wrapper must not leave detached work in its owned group.
+        cleanup.enter_context(cleanup_on_exit(lambda: _signal_group(process.pid, signal.SIGKILL),
+                                              description="host command SIGKILL"))
+        if process.returncode is None:
+            _signal_group(process.pid, signal.SIGTERM)
+            try:
+                process.communicate(timeout=2)
+            except subprocess.TimeoutExpired:
+                pass  # Escalate even when descendants keep inherited pipes open.
+
+
 def _run_process_group(argv: list[str], *, check: bool, capture_output: bool,
                        timeout: float | None, **kwargs: Any) -> subprocess.CompletedProcess[str]:
     """Own a POSIX command tree with bounded termination, including cancellation."""
@@ -98,28 +120,11 @@ def _run_process_group(argv: list[str], *, check: bool, capture_output: bool,
             raise ValueError("capture_output cannot be combined with stdout/stderr")
         kwargs.update(stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     process = subprocess.Popen(argv, start_new_session=True, **kwargs)
-    try:
-        try:
-            stdout, stderr = process.communicate(input_data, timeout=timeout)
-        except BaseException:
-            _signal_group(process.pid, signal.SIGTERM)
-            try:
-                process.communicate(timeout=2)
-            except subprocess.TimeoutExpired:
-                pass  # Escalate even when descendants keep inherited pipes open.
-            finally:
-                _signal_group(process.pid, signal.SIGKILL)
-                process.wait(timeout=5)
-            raise
+    with cleanup_on_exit(lambda: _cleanup_process_group(process), description="host command process group"):
+        stdout, stderr = process.communicate(input_data, timeout=timeout)
         if check and process.returncode:
             raise subprocess.CalledProcessError(process.returncode, argv, stdout, stderr)
         return subprocess.CompletedProcess(argv, process.returncode, stdout, stderr)
-    finally:
-        # A successful wrapper must not leave detached work in its owned group.
-        _signal_group(process.pid, signal.SIGKILL)
-        for stream in (process.stdin, process.stdout, process.stderr):
-            if stream is not None:
-                stream.close()
 
 
 def run_command(
@@ -134,7 +139,8 @@ def run_command(
     over it (or the parent). Timeout kills/waits for the direct child, exactly as
     subprocess.run does. Callers can opt into ``kill_process_group`` for bounded
     POSIX trees: TERM, then KILL after a 2-second grace and at most 5 seconds to
-    reap the direct child. Retries and artifact publication belong to callers.
+    reap the direct child. Cleanup attempts every step; secondary failures are
+    attached as exception notes. Retries and artifact publication belong to callers.
     Exceptions retain raw stdout/stderr and gain command_metadata;
     only the latter is safe to publish. Never call from a sampling window.
     """

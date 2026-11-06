@@ -13,6 +13,10 @@ PCAP parse 与 packet merge 各自默认最多运行 300 秒；可用
 回收最多等待 5 秒。失败会沿现有清理路径退出并标记 `processing_status=failed`，
 保留原始 measurement checkpoint。调整预算后 resume 只重做后处理。
 
+主机命令的进程组清理在发送信号或回收失败后，仍会尝试剩余的 KILL、wait 和全部管道关闭。
+清理中的普通错误以 exception notes 附加，不覆盖原始超时、执行失败或取消；
+清理期间发生新的取消会保留先前错误。命令本身成功但清理失败时仍报错。
+
 镜像 inspect／本地版本查询使用 15 秒预算，镜像清单读取及容器内版本查询使用
 120 秒预算；build、pull 和正式工作负载仍按各自生命周期管理。
 
