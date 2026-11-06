@@ -1,7 +1,7 @@
 """Independent comparison classifies windows once and parses each selected cell once."""
 import csv
 from collections import Counter
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -22,7 +22,7 @@ def comparison_runs(request, tmp_path):
 
 
 @pytest.mark.parametrize("metric_count", [1, 4, 8])
-def test_additional_metrics_do_not_reclassify_windows_or_reparse_cells(runs, monkeypatch, metric_count):
+def test_additional_metrics_do_not_reclassify_windows_or_reparse_cells(runs, metric_count):
     left = runs.replicate("left", 0, [2.5] * 12)
     right = runs.replicate("right", 0, [3.5] * 12)
     classify = Mock(wraps=comparison.is_measured_success)
@@ -34,10 +34,8 @@ def test_additional_metrics_do_not_reclassify_windows_or_reparse_cells(runs, mon
         parsed[value] += 1
         return parse(value)
 
-    monkeypatch.setattr(comparison, "is_measured_success", classify)
-    monkeypatch.setattr(comparison, "result_row_status", status)
-    monkeypatch.setattr(comparison, "number", count_parse)
-    report = comparison.compare_experiments([left], [right], metrics=list(METRICS[:metric_count]), resamples=20)
+    with patch.multiple(comparison, is_measured_success=classify, result_row_status=status, number=count_parse):
+        report = comparison.compare_experiments([left], [right], metrics=list(METRICS[:metric_count]), resamples=20)
 
     groups = {group["metric"]: group for group in report["groups"]}
     assert len(groups) == metric_count
@@ -76,12 +74,10 @@ def _mixed_run(runs, side, complete):
         {"latency_app_s": "invalid", "cpu_energy_total_j": "nan"},
         {"latency_app_s": "-inf", "cpu_energy_total_j": "nan"},
     ]
-    for row, change in zip(rows, changes, strict=True):
-        row.update(change)
     with path.open("w", newline="") as stream:
         writer = csv.DictWriter(stream, fields)
         writer.writeheader()
-        writer.writerows(rows)
+        writer.writerows({**row, **change} for row, change in zip(rows, changes, strict=True))
     runs.fixture.refresh(directory)
     return directory
 
