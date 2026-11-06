@@ -60,7 +60,7 @@ def test_sweep_retains_order_independent_metrics_and_compact_conditions(sweep_re
 
 def test_completed_request_failures_remain_curve_points(sweep_reader, tmp_path):
     root = make_sweep(tmp_path / "sweep")
-    change_point(root, 2, lambda point: point["result"]["requests"][0].update(status="error"))
+    change_point(root, 2, lambda experiment: experiment["result"]["requests"][0].update(status="error"))
     change_manifest(root, lambda manifest: (manifest.update(successful=False),
                                             manifest["points"][1].update(successful=False)))
     data = sweep_reader.read_load_sweep(root).payload
@@ -114,9 +114,9 @@ def test_changed_conditions_are_separate_groups(sweep_reader, tmp_path, change):
 
 def test_missing_token_and_slo_evidence_is_not_zero(sweep_reader, tmp_path):
     root = make_sweep(tmp_path / "sweep")
-    change_point(root, 2, lambda point: (
-        point["identity"].update(slo_thresholds_s={}),
-        point["result"]["requests"][0].update(output_tokens=None, tpot_s=None),
+    change_point(root, 2, lambda experiment: (
+        experiment["identity"].update(slo_thresholds_s={}),
+        experiment["result"]["requests"][0].update(output_tokens=None, tpot_s=None),
     ))
     point = sweep_reader.read_load_sweep(root).payload["points"][1]
     assert point["metrics"]["goodput_requests_per_s"] is None
@@ -180,10 +180,10 @@ def test_child_symlink_is_never_read(sweep_reader, tmp_path, monkeypatch):
     path.symlink_to(outside)
     original = Path.open
 
-    def checked_open(path, *args, **kwargs):
-        assert path != outside
-        assert path != root / "points/0002/load.json"
-        return original(path, *args, **kwargs)
+    def checked_open(opened: Path, *args, **kwargs):
+        assert opened != outside
+        assert opened != root / "points/0002/load.json"
+        return original(opened, *args, **kwargs)
 
     monkeypatch.setattr(Path, "open", checked_open)
     data = sweep_reader.read_load_sweep(root).payload

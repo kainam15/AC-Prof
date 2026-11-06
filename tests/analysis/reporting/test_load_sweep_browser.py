@@ -52,10 +52,10 @@ def fixture_browser_page(request):
             assert remote == []
         finally:
             if artifact_dir:
-                destination = Path(artifact_dir) / request.node.name
-                destination.mkdir(parents=True, exist_ok=True)
-                page.screenshot(path=str(destination / "page.png"), full_page=True)
-                (destination / "events.json").write_text(json.dumps({"errors": errors, "remote_requests": remote}))
+                capture_dir = Path(artifact_dir) / request.node.name
+                capture_dir.mkdir(parents=True, exist_ok=True)
+                page.screenshot(path=str(capture_dir / "page.png"), full_page=True)
+                (capture_dir / "events.json").write_text(json.dumps({"errors": errors, "remote_requests": remote}))
             context.close()
             browser.close()
 
@@ -127,7 +127,9 @@ def test_rate_curves_fix_concurrency_and_xss_text_stays_literal(browser_page, tm
         change_point(root, index, lambda point: point["service_identity"]["observed"].update(version=hostile))
     output = open_report(root)
     assert page.evaluate("window.injected === undefined")
-    assert hostile in page.locator("#conditions").text_content()
+    conditions_text = page.locator("#conditions").text_content()
+    assert conditions_text is not None
+    assert hostile in conditions_text
     chart = traces(page)
     assert [trace["x"] for trace in chart] == [[10, 20], [10, 20]]
     assert [trace["y"] for trace in chart] == [[2, 1], [4, 3]]
@@ -137,4 +139,5 @@ def test_rate_curves_fix_concurrency_and_xss_text_stays_literal(browser_page, tm
     assert [trace["y"] for trace in traces(page)] == [[1, 3], [2, 4]]
     assert all("rate=" in trace["name"] for trace in traces(page))
     href = page.locator("#points a").first.get_attribute("href")
+    assert isinstance(href, str)
     assert (output.parent / href).resolve().is_file()
