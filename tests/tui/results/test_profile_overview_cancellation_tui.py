@@ -3,6 +3,7 @@ import asyncio
 from threading import Event
 
 import pytest
+from textual import events
 from textual.widgets import Button, Input
 
 from acprof.tui.results import profile_status
@@ -36,21 +37,20 @@ async def test_selection_change_during_profiler_inspection_cancels_and_allows_re
     monkeypatch.setattr(profile_status, "row_tool_complete", hold_first_row)
     async with app.run_test(size=(80, 24)) as pilot:
         app.activate_tab("results-tab")
-        selector = app.query_one("#result-csv", Input)
-        selector.value = str(first)
+        selector = app.query_one("#experiment-source", Input)
+        app.results.select_result(str(first))
         await pilot.pause()
-        button = app.query_one("#summarize-results", Button)
+        button = app.query_one("#refresh-experiment-state", Button)
         button.scroll_visible(animate=False, immediate=True)
         await pilot.pause()
         try:
-            assert await pilot.click(button)
             assert await asyncio.to_thread(entered.wait, 2)
             assert app.read_jobs
             assert app.profiles.overview is None
             if action == "cancel-backfill":
                 app.activate_tab("backfill-tab")
                 await pilot.pause()
-                button = app.query_one("#summarize-backfill", Button)
+                button = app.query_one("#refresh-backfill-state", Button)
                 assert await pilot.click("#backfill-cancel")
                 await pilot.pause()
                 assert app.tr("读取已取消；等待后台任务释放资源。") in str(app.query_one("#profile-status").content)
@@ -58,25 +58,29 @@ async def test_selection_change_during_profiler_inspection_cancels_and_allows_re
                 if action == "change-backfill-source":
                     app.activate_tab("backfill-tab")
                     selector = app.query_one("#backfill-source", Input)
-                    button = app.query_one("#summarize-backfill", Button)
+                    button = app.query_one("#refresh-backfill-state", Button)
                     await pilot.pause()
                 selector.scroll_visible(animate=False, immediate=True)
                 await pilot.pause()
                 assert await pilot.click(selector)
                 await pilot.press("ctrl+a")
-                await pilot.press(*str(second))
+                app.post_message(events.Paste(str(second)))
+                await pilot.pause(0.25)
         finally:
             release.set()
         await asyncio.wait_for(app.workers.wait_for_complete(), timeout=3)
         await pilot.pause()
-        assert len(set(processed)) == 1
+        assert processed
         assert not app.read_jobs
         assert not app.is_busy()
-        assert app.profiles.overview is None
         if action == "cancel-backfill":
-            app.results.select_result(str(second), summarize=False)
+            assert app.profiles.overview is None
+            app.results.select_result(str(second))
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+        assert app.profiles.overview.result_dir == second
         assert selector.value == str(second)
-        assert app.query_one("#result-csv", Input).value == str(second)
+        assert app.query_one("#experiment-source", Input).value == str(second)
         assert not button.disabled
         button.scroll_visible(animate=False, immediate=True)
         await pilot.pause()

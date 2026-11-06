@@ -19,6 +19,7 @@ from acprof.experiments.configuration import RunConfig
 from acprof.results.layout import ArtifactLayout
 from acprof.tui.commands import PendingLaunch
 from acprof.tui.i18n import translate
+from acprof.tui.results.data_status import inspect_experiment_data
 from acprof.tui.run.diagnostics import quick_preflight, summarize_result_csv
 from acprof.tui.run.form import infer_preset, matches_preset
 from acprof.tui.run.progress import ProgressSnapshot
@@ -272,7 +273,7 @@ class TestTuiReliability:
         original = path.read_bytes()
         async with app.run_test(size=(120, 30)) as pilot:
             await pilot.pause()
-            with patch.object(app.process, 'execute_command'), patch("acprof.tui.results.controller.summarize_result_csv", wraps=summarize_result_csv) as read:
+            with patch.object(app.process, 'execute_command'), patch("acprof.tui.results.controller.inspect_experiment_data", wraps=inspect_experiment_data) as read:
                 app.launch(PendingLaunch(("collector",), "run", config))
                 app.process_finished("run", 2, None, "")
                 await pilot.pause()
@@ -352,49 +353,58 @@ class TestTuiReliability:
             if path == a:
                 started.set()
                 release.wait(10)
-            return summarize_result_csv(path, **kwargs)
+            return inspect_experiment_data(path, **kwargs)
         async with app.run_test(size=(80, 24)) as pilot:
             await pilot.pause()
-            with patch("acprof.tui.results.controller.summarize_result_csv", side_effect=read):
-                app.results.update_result_summary(str(a))
+            with patch("acprof.tui.results.controller.inspect_experiment_data", side_effect=read):
+                app.results.select_result(str(a))
                 assert (await asyncio.to_thread(started.wait, 2))
-                assert ("正在读取") in (str(app.query_one("#result-summary", Static).content))
+                assert "正在检查" in str(app.query_one("#result-data-status", Static).content)
                 await pilot.press("f2")
                 await pilot.pause()
-                app.results.update_result_summary(str(b))
+                app.results.select_result(str(b))
                 for _ in range(100):
                     await pilot.pause()
-                    if "40 ms" in str(app.query_one("#result-summary", Static).content):
+                    if app.results.data_status is not None and app.results.data_status.path == b:
                         break
                     await asyncio.sleep(0.01)
-                assert ("40 ms") in (str(app.query_one("#result-summary", Static).content))
+                assert "有效正式窗口：2" in str(app.query_one("#result-data-status", Static).content)
                 assert (app.query_one("#start-run", Button).disabled), "旧读取结束前不能启动采集"
                 release.set()
                 await app.workers.wait_for_complete()
                 await pilot.pause()
-            assert (str(b)) in (str(app.query_one("#result-summary", Static).content))
-            assert (str(a)) not in (str(app.query_one("#result-summary", Static).content))
+            assert app.query_one("#experiment-source", Input).value == str(b)
+            assert app.results.data_status.path == b
             assert not (app.is_busy())
 
     async def test_cancelled_and_failed_reads_release_controls(self):
         app = self.make_app()
         async with app.run_test(size=(120, 30)) as pilot:
             await pilot.pause()
-            app.results.update_result_summary(str(self.directory / "missing.csv"))
+            app.results.select_result(str(self.directory / "missing.csv"))
             await app.workers.wait_for_complete()
             await pilot.pause()
             assert ("无法读取结果") in (str(app.query_one("#result-summary", Static).content))
             assert not (app.is_busy())
-            with patch.object(app.results, 'execute_summary_read'):
-                app.results.update_result_summary("cancel.csv")
-                token = app.results.summary_request
-                assert token is not None
-                app.results.cancel_result_reads()
-                assert (token.is_set())
-                assert (app.is_busy())
-                app.results.show_result_summary(Path("cancel.csv"), token, None, "cancelled", True)
-            assert ("读取已取消") in (str(app.query_one("#result-summary", Static).content))
-            assert not (app.is_busy())
+            path = self.directory / "cancel.csv"
+            write_csv(path)
+            started, release = threading.Event(), threading.Event()
+            def read(source, **kwargs):
+                started.set()
+                assert release.wait(5)
+                return inspect_experiment_data(source, **kwargs)
+            with patch("acprof.tui.results.controller.inspect_experiment_data", side_effect=read):
+                app.results.select_result(str(path))
+                try:
+                    assert await asyncio.to_thread(started.wait, 2)
+                    app.results.cancel_result_reads()
+                    assert app.is_busy()
+                finally:
+                    release.set()
+                await app.workers.wait_for_complete()
+                await pilot.pause()
+            assert "读取已取消" in str(app.query_one("#result-data-status", Static).content)
+            assert not app.is_busy()
 
             with patch.object(app.results, 'execute_report_read'):
                 app.results.open_report(str(self.directory / "cancel.json"))
@@ -423,7 +433,7 @@ class TestTuiReliability:
             await asyncio.wait_for(app._task, timeout=5)
         with patch.object(app, app.query_one.__name__, side_effect=AssertionError("unmounted UI access")):
             app.preflight.show_quick_check([], "late error", token)
-            app.results.show_result_summary(self.directory, object(), None, "late error", False)
+            app.results.experiment_read_finished(self.directory, threading.Event(), "data", None, "late error")
             app.results.show_report(None, "late error", object())
 
     async def test_child_attempt_is_audited_then_updates_current_result(self):
@@ -458,8 +468,8 @@ print("Profiling complete!", flush=True)
                 await app.workers.wait_for_complete()
                 await pilot.pause()
             assert (app.execution.session.snapshot.stage) == (Stage.COMPLETED)
-            assert (app.query_one("#result-csv", Input).value) == (str(directory / "result_layers.json"))
-            assert ("20 ms") in (str(app.query_one("#result-summary", Static).content))
+            assert (app.query_one("#experiment-source", Input).value) == (str(directory))
+            assert "有效正式窗口：1" in str(app.query_one("#result-data-status", Static).content)
             assert not (app.is_busy())
 
     async def test_quit_during_summary_read_does_not_wait_for_io_or_apply_late_data(self):
@@ -472,21 +482,22 @@ print("Profiling complete!", flush=True)
         def read(*args, **kwargs):
             started.set()
             release.wait(10)
-            return summarize_result_csv(*args, **kwargs)
+            return inspect_experiment_data(*args, **kwargs)
 
         def deliver(*args):
             try:
                 original_callback(*args)
             finally:
-                delivered.set()
+                if len(args) > 3 and args[3] == "data":
+                    delivered.set()
 
-        with patch("acprof.tui.results.controller.summarize_result_csv", side_effect=read), patch.object(
+        with patch("acprof.tui.results.controller.inspect_experiment_data", side_effect=read), patch.object(
             app.process, 'safe_process_callback', side_effect=deliver,
         ):
             try:
                 async with app.run_test(size=(120, 30)) as pilot:
                     await pilot.pause()
-                    app.results.update_result_summary(str(path))
+                    app.results.select_result(str(path))
                     assert (await asyncio.to_thread(started.wait, 5))
                     assert (app.is_busy())
                     app.action_request_quit()
@@ -508,17 +519,17 @@ print("Profiling complete!", flush=True)
         ui_thread = threading.get_ident()
         def read(path, **kwargs):
             assert (threading.get_ident()) != (ui_thread)
-            return summarize_result_csv(path, **kwargs)
+            return inspect_experiment_data(path, **kwargs)
         async with app.run_test(size=(120, 30)) as pilot:
             await pilot.pause()
-            with patch("acprof.tui.results.controller.summarize_result_csv", side_effect=read):
-                app.results.update_result_summary(str(path))
+            with patch("acprof.tui.results.controller.inspect_experiment_data", side_effect=read):
+                app.results.select_result(str(path))
                 await pilot.press("f2")
                 assert (app.query_one("#main-tabs", TabbedContent).active) == ("settings-tab")
                 await app.workers.wait_for_complete()
                 await pilot.pause()
-            assert ("有效窗口 100000") in (str(app.query_one("#result-summary", Static).content))
-            assert ("10 ms") in (str(app.query_one("#result-summary", Static).content))
+            assert "有效正式窗口：100000" in str(app.query_one("#result-data-status", Static).content)
+            assert "10 ms" not in str(app.query_one("#result-summary", Static).content)
             assert not (app.is_busy())
 
     async def test_preset_labels_and_quiet_unselected_checks_in_both_languages_and_sizes(self):

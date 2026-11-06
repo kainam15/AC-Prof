@@ -2,9 +2,9 @@ from unittest.mock import patch
 
 import pytest
 from textual.widgets import Button, Input, Static, TabbedContent
-from tests.support.tui_fixtures import AcprofTui
 
 from acprof.experiments.configuration import RunConfig
+from tests.support.tui_fixtures import AcprofTui
 
 
 class TestTuiResultTools:
@@ -27,12 +27,12 @@ class TestTuiResultTools:
                 "实验配置", "运行监控", "实验结果", "补采实验", "镜像管理", "应用设置"]
             assert not app.query("#profile-tab, #result-dir")
             app.activate_tab("results-tab")
-            app.query_one("#result-csv", Input).value = str(self.csv_path)
+            app.query_one("#experiment-source", Input).value = str(self.csv_path)
             await pilot.pause()
-            assert await pilot.click("#summarize-results", offset=(2, 1))
+            assert await pilot.click("#refresh-experiment-state", offset=(2, 1))
             await app.workers.wait_for_complete()
             await pilot.pause()
-            assert "成功 1" in app.query_one("#result-summary", Static).content
+            assert "有效正式窗口：1" in app.query_one("#result-data-status", Static).content
             assert not app.query("#results-tab #profile-status, #results-tab #open-result-profiling")
             assert await pilot.click(tabs.get_tab("backfill-tab"))
             await pilot.pause()
@@ -45,9 +45,9 @@ class TestTuiResultTools:
             assert await pilot.click(tabs.get_tab("results-tab"))
             await pilot.pause()
             with patch.object(app.process, "execute_command") as execute:
-                # PNG plotting remains available through the public slash command.
+                # PNG plotting uses the same selected experiment via its public command.
                 field = app.query_one("#slash-command", Input)
-                field.value = f'/plot "{self.csv_path}"'
+                field.value = "/plot"
                 field.focus()
                 await pilot.press("enter")
                 await pilot.pause()
@@ -58,7 +58,7 @@ class TestTuiResultTools:
                 assert command[5] == str(self.csv_path)
                 assert tabs.active == "monitor-tab"
                 assert all(widget.disabled for widget in app.query(
-                    "#summarize-results, #plot-results, #open-result-profiling"))
+                    "#refresh-experiment-state, #plot-results, #open-result-profiling"))
                 app.process_finished("plot", 0, None, "")
                 await pilot.pause()
                 assert not app.query_one("#plot-results", Button).disabled
@@ -78,6 +78,6 @@ class TestTuiResultTools:
             await pilot.pause()
             assert app.query_one("#main-tabs", TabbedContent).active == "results-tab"
             summary = app.query_one("#result-summary", Static)
-            assert "成功 1" in summary.content
+            assert "有效正式窗口：1" in app.query_one("#result-data-status", Static).content
             assert summary.region.height > 0
             assert not app.query_one("#plot-results", Button).disabled

@@ -32,6 +32,14 @@ class HtmlReportController:
         self.output: Path | None = None
         self.log: deque[str] = deque(maxlen=20)
         self.summary = ""
+        self.freshness = "unverified"
+
+    def show_discovered(self, path: Path | None, state: str) -> None:
+        self.freshness = state
+        self.app.query_one("#html-report-path", Input).value = str(path) if path else ""
+        status = message_id("results.overview.html_" + state)
+        self.app.localization.set_text(self.app.query_one("#result-html-status", Static), status)
+        self.set_status(status)
 
     def set_status(self, text: str) -> None:
         self.app.localization.set_text(self.app.query_one("#html-report-status", Static), text)
@@ -73,7 +81,7 @@ class HtmlReportController:
 
     def source(self, *, include_extra: bool = False) -> str:
         # The unified selector is ONE literal path; extra HTML sources are explicit.
-        sources = [self.app.configuration.input("result-csv").strip()]
+        sources = [self.app.configuration.input("experiment-source").strip()]
         if not sources[0]:
             return ""
         if include_extra:
@@ -88,7 +96,7 @@ class HtmlReportController:
         """Small directory lookup only; all result parsing stays in the CLI."""
         from acprof.tui.results.report_files import existing_html_report
 
-        source = self.app.configuration.input("result-csv")
+        source = self.app.configuration.input("experiment-source")
         # Viewing a JSON statistics report must not replace the HTML selection.
         if source.endswith(".json") and not source.endswith("result_layers.json"):
             return
@@ -162,7 +170,9 @@ class HtmlReportController:
         elif output is not None:
             self.app.query_one("#html-report-path", Input).value = str(output)
             self.app.configuration.remember_last_used(html_report=str(output))
+            self.freshness = "current"
             self.set_status(join_messages("\n", (message_id("results.html.generated_short"), self.summary)))
+            self.app.localization.set_text(self.app.query_one("#result-html-status", Static), message_id("results.overview.html_current"))
         self.log.clear()
         self.summary = ""
 
@@ -177,6 +187,9 @@ class HtmlReportController:
             self.set_status(message_id("results.html.open_requires_report"))
             return
         path = resolve_result_path(source, self.app.project_dir).resolve()
+        if self.freshness == "stale":
+            self.set_status(message_id("results.overview.html_stale"))
+            return
         try:
             require_html_file(path)
         except (OSError, ValueError) as exc:

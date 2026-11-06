@@ -76,8 +76,8 @@ class SlashController:
                 tools=args[1] if len(args) > 1 else None,
             )
         elif command in {"results", "summary"}:
-            path = args[0] if args else self.app.configuration.input("result-csv")
-            self.app.results.update_result_summary(path)
+            path = args[0] if args else self.app.configuration.input("experiment-source")
+            self.app.results.select_result(path)
             self.app.results.show_result_section("overview-view")
         elif command in {"log", "logs"}:
             self.app.configuration.toggle_log_view()

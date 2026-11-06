@@ -46,7 +46,7 @@ class RunPresenter:
             self.app.configuration.planned_input = None
             self.app.configuration.planned_input_identity = None
             self.app.configuration.remember_last_used(model=model)
-            self.app.results.summary_request = None
+            self.app.results.invalidate_reads()
             self.app.profiles.reset_overview()
             self.app.localization.set_text(self.app.query_one("#result-summary", Static),
                            "本次尚未产生结果；历史结果可通过原路径查看。")
@@ -264,10 +264,10 @@ class RunPresenter:
                     model_spec="", resume=False, rebuild_image=False,
                     output_dir=str(Path(config.output_dir) / ("modelscope-" + uuid4().hex[:8]))))
         if completion.current_csv:
-            self.app.results.update_result_summary(completion.current_csv, notify=False)
-        elif kind == "profile" and self.app.results.summary_path is not None:
+            self.app.results.select_result(completion.current_csv)
+        elif kind == "profile" and self.app.results.source_path is not None:
             # Posthoc can publish profiler layers without touching base rows.
-            self.app.results.update_result_summary(str(self.app.results.summary_path), notify=False)
+            self.app.results.refresh_data_status()
         self.app.images.sync_image_refresh_timer()
         if kind in {"stats", "compare"}:
             self.app.results.finish_analysis(error=completion.launch_error, cancelled=cancelled)

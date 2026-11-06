@@ -10,17 +10,21 @@ from threading import Event
 from types import SimpleNamespace
 
 import pytest
-from tests.runtime.containers.test_layer_read_cancellation import source_hashes, watch_cancelled_read
-from tests.measurement.profiling.test_posthoc import TestPosthocProfile as _PosthocFixture
 
-from acprof.results import csv as result_csv
-from acprof.results.layout import ArtifactLayout
 from acprof.host.posthoc import backfill, context as posthoc_context
-from acprof.results.layers import LAYER_FILES, layer_fields
 from acprof.result_store import protocol
-from acprof.tui.run import diagnostics
+from acprof.results import csv as result_csv
+from acprof.results.layers import LAYER_FILES, layer_fields
+from acprof.results.layout import ArtifactLayout
+from acprof.tui.i18n import error_message
 from acprof.tui.results import profile_status
-from acprof.tui.results.controller import ResultController
+from acprof.tui.results.data_status import inspect_experiment_data
+from acprof.tui.run import diagnostics
+from tests.measurement.profiling.test_posthoc import TestPosthocProfile as _PosthocFixture
+from tests.runtime.containers.test_layer_read_cancellation import (
+    source_hashes,
+    watch_cancelled_read,
+)
 
 
 def profile_store(root, version=2):
@@ -56,16 +60,11 @@ def profile_store(root, version=2):
     return manifest
 
 
-def run_summary_worker(path, cancelled=None):
-    callbacks = []
-    app = SimpleNamespace(
-        project_dir=path.parent,
-        process=SimpleNamespace(safe_process_callback=lambda *args: callbacks.append(args)),
-    )
-    controller = ResultController(app)
-    controller._execute_summary_read_worker(path, cancelled or Event(), False)
-    assert len(callbacks) == 1
-    return callbacks[0]
+def read_status(path, cancelled=None):
+    try:
+        return inspect_experiment_data(path, cancelled=(cancelled or Event()).is_set), ""
+    except Exception as exc:
+        return None, error_message(exc)
 
 
 @pytest.mark.parametrize("version", [1, 2, 3])
@@ -81,7 +80,9 @@ def test_complete_summary_worker_parses_each_layer_once(tmp_path, monkeypatch, v
 
     monkeypatch.setattr(result_csv, "parse_result_stream", observe)
     monkeypatch.setattr(protocol, "parse_result_stream", observe)
-    _, _, _, summary, error, _, overview, profile_error = run_summary_worker(tmp_path / "result_layers.json")
+    summary, error = read_status(tmp_path / "result_layers.json")
+    overview = summary.profiler_overview if summary else None
+    profile_error = summary.profiler_error if summary else error
     assert summary is not None, error
     assert overview is not None, profile_error
     assert parses == Counter({tmp_path / info["path"]: 1 for info in manifest["layers"].values()})
@@ -186,7 +187,8 @@ def test_source_change_during_profiler_inspection_rejects_the_whole_summary(tmp_
         return original(row, tool)
 
     monkeypatch.setattr(profile_status, "row_tool_complete", change_source)
-    _, _, _, summary, error, _, overview, _ = run_summary_worker(path)
+    summary, error = read_status(path)
+    overview = summary.profiler_overview if summary else None
     assert modified
     assert summary is None
     assert overview is None
@@ -200,7 +202,8 @@ def test_unexpected_profiler_failure_still_completes_worker_callback(tmp_path, m
         raise KeyError("broken profiler inspection")
 
     monkeypatch.setattr(profile_status, "row_tool_complete", fail)
-    _, _, _, summary, error, _, overview, _ = run_summary_worker(tmp_path / "result_layers.json")
+    summary, error = read_status(tmp_path / "result_layers.json")
+    overview = summary.profiler_overview if summary else None
     assert summary is None
     assert overview is None
     assert "broken profiler inspection" in error
@@ -218,7 +221,8 @@ def test_cancelled_profiler_count_discards_summary_and_still_completes_worker_ca
         return original(row, tool)
 
     monkeypatch.setattr(profile_status, "row_tool_complete", cancel_after_first)
-    _, _, _, summary, _, _, overview, _ = run_summary_worker(tmp_path / "result_layers.json", cancelled)
+    summary, _ = read_status(tmp_path / "result_layers.json", cancelled)
+    overview = summary.profiler_overview if summary else None
     assert summary is None
     assert overview is None
     assert len(set(processed)) == 1

@@ -292,7 +292,7 @@ async def test_stale_analysis_cannot_replace_changed_selection(tmp_path):
     app = AcprofTui(RunConfig.smoke("demo/model"), settings_path=tmp_path / "settings.json")
     async with app.run_test() as pilot:
         app.results.analysis_selection = app.results.selection_identity()
-        app.query_one("#result-csv", Input).value = "changed.csv"
+        app.query_one("#experiment-source", Input).value = "changed.csv"
         await pilot.pause()
         app.results.accept_analysis(report_view(Path("old.csv"), statistics_payload()))
         assert app.results.analysis_view is None

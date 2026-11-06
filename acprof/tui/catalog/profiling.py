@@ -58,8 +58,8 @@ MESSAGES: dict[str, Entry] = {
     "profiling.overview.complete_summary": Entry(zh="已完成 {0}/{1} 项适用分析，无需补采。", en="Completed {0}/{1} applicable tools; nothing to collect."),
     "profiling.overview.open": Entry(zh="补充性能分析…", en="Additional profiling…"),
     "profiling.overview.select_experiment": Entry(
-        zh="选择实验并读取摘要后，可查看补充分析。",
-        en="Select an experiment and read its summary to inspect additional analysis.",
+        zh="选择实验后自动检查 Profiling 状态。",
+        en="Select an experiment to check Profiling status automatically.",
     ),
     "profiling.overview.title": Entry(zh="性能深度分析", en="Advanced performance analysis"),
     "profiling.overview.tool_status": Entry(zh="{0} 分析：{1}", en="{0} profiling: {1}"),

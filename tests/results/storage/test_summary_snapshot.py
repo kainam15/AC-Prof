@@ -11,12 +11,12 @@ from pathlib import Path
 from threading import Event
 
 import pytest
-from tests.results.storage.test_sequential_result_reads import artifact_hashes, snapshot_store
 
 from acprof.analysis import audit
 from acprof.config import CSV_FIELDS
 from acprof.results.layers import LAYER_FILES, publish_result_rows
 from acprof.tui.run import diagnostics
+from tests.results.storage.test_sequential_result_reads import artifact_hashes, snapshot_store
 
 
 @pytest.fixture
@@ -208,54 +208,55 @@ async def test_changed_source_error_and_retry_remain_usable_at_80x24(
     source, tmp_path, monkeypatch, language, failed,
 ):
     from textual.widgets import Button, Input, Static
-    from tests.support.tui_fixtures import AcprofTui
 
     from acprof.tui.settings.preferences import TuiSettings, UiPreferences, save_settings
+    from tests.support.tui_fixtures import AcprofTui
 
     settings = tmp_path / "settings.json"
     save_settings(settings, TuiSettings(ui=UiPreferences(language=language)), tmp_path)
     app = AcprofTui(settings_path=settings)
-    summarize = diagnostics.summarize_windows
+    audit_result = audit.audit_result
 
     def change_result(*args, **kwargs):
-        result = summarize(*args, **kwargs)
+        result = audit_result(*args, **kwargs)
         source.write_bytes(source.read_bytes().replace(b"0.01", b"0.05"))
         return result
 
     async with app.run_test(size=(80, 24)) as pilot:
         app.activate_tab("results-tab")
-        app.query_one("#result-csv", Input).value = str(source)
-        await pilot.pause()
-        button = app.query_one("#summarize-results", Button)
+        app.query_one("#experiment-source", Input).value = str(source)
+        await pilot.pause(0.25)
+        await app.workers.wait_for_complete()
+        button = app.query_one("#refresh-experiment-state", Button)
         button.scroll_visible(animate=False, immediate=True)
         await pilot.pause()
         with monkeypatch.context() as scoped:
-            scoped.setattr(diagnostics, "summarize_windows", change_result)
+            scoped.setattr(audit, "audit_result", change_result)
             assert await pilot.click(button)
             await app.workers.wait_for_complete()
             await pilot.pause()
-        assert failed in str(app.query_one("#result-summary", Static).content)
+        assert failed in str(app.query_one("#result-data-status", Static).content)
         assert not app.is_busy()
         assert not button.disabled
-        assert app.query_one("#result-csv", Input).value == str(source)
+        assert app.query_one("#experiment-source", Input).value == str(source.parent)
         assert await pilot.click(button)
         await app.workers.wait_for_complete()
         await pilot.pause()
-        assert "40 ms" in str(app.query_one("#result-summary", Static).content)
+        assert ("有效正式窗口：2" if language == "zh" else "Valid formal windows: 2") in str(app.query_one("#result-data-status", Static).content)
         assert not app.is_busy()
         assert not button.disabled
 
 
 @pytest.mark.parametrize("language", ["zh", "en"])
 async def test_selection_change_releases_a_waiting_layer_reader_at_80x24(source, tmp_path, monkeypatch, language):
-    from tests.runtime.containers.test_layer_read_cancellation import source_hashes
-    from tests.results.storage.test_result_row_assembly import row_store
     from textual.widgets import Button, Input, Static
-    from tests.support.tui_fixtures import AcprofTui
 
-    from acprof.results.layout import ArtifactLayout
     from acprof.result_store.protocol import publication_lock
+    from acprof.results.layout import ArtifactLayout
     from acprof.tui.settings.preferences import TuiSettings, UiPreferences, save_settings
+    from tests.results.storage.test_result_row_assembly import row_store
+    from tests.runtime.containers.test_layer_read_cancellation import source_hashes
+    from tests.support.tui_fixtures import AcprofTui
 
     blocked = tmp_path / "blocked"
     row_store(blocked, 3, count=1, width=1)
@@ -274,10 +275,10 @@ async def test_selection_change_releases_a_waiting_layer_reader_at_80x24(source,
     monkeypatch.setattr(fcntl, "flock", observe)
     async with app.run_test(size=(80, 24)) as pilot:
         app.activate_tab("results-tab")
-        selector = app.query_one("#result-csv", Input)
+        selector = app.query_one("#experiment-source", Input)
         selector.value = str(blocked)
         await pilot.pause()
-        button = app.query_one("#summarize-results", Button)
+        button = app.query_one("#refresh-experiment-state", Button)
         button.scroll_visible(animate=False, immediate=True)
         await pilot.pause()
         with publication_lock(ArtifactLayout(blocked), exclusive=True):
@@ -288,19 +289,20 @@ async def test_selection_change_releases_a_waiting_layer_reader_at_80x24(source,
             await pilot.pause()
             assert await pilot.click(selector)
             await pilot.press("ctrl+a")
-            await pilot.press(*str(source))
+            selector.value = str(source)
+            await pilot.pause(0.25)
             await asyncio.wait_for(app.workers.wait_for_complete(), timeout=2)
             await pilot.pause()
             assert not app.read_jobs
             assert not app.is_busy()
-            assert selector.value == str(source)
+            assert selector.value == str(source.parent)
             assert not button.disabled
             button.scroll_visible(animate=False, immediate=True)
             await pilot.pause()
             assert await pilot.click(button)
             await asyncio.wait_for(app.workers.wait_for_complete(), timeout=2)
             await pilot.pause()
-            assert "20 ms" in str(app.query_one("#result-summary", Static).content)
+            assert ("有效正式窗口：2" if language == "zh" else "Valid formal windows: 2") in str(app.query_one("#result-data-status", Static).content)
             assert not app.is_busy()
     assert source_hashes(blocked) == before
 

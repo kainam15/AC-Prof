@@ -288,8 +288,8 @@ Select:disabled > SelectCurrent { color: $ui-disabled; border: solid $ui-disable
     background: transparent;
     border: none;
     border-top: solid $panel;
-    padding: 1 0;
-    margin-top: 1;
+    padding: 0;
+    margin-top: 0;
 }
 #result-views { height: 1fr; }
 #result-views Tab { padding: 0 1; }

@@ -29,7 +29,7 @@ from acprof.tui.ui.slash_controller import SlashController
     ("process", ProcessController, "execute_command"),
     ("process", ProcessController, "watch_failed_process"),
     ("process", ProcessController, "safe_process_callback"),
-    ("results", ResultController, "execute_summary_read"),
+    ("results", ResultController, "refresh_experiment"),
     ("results", ResultController, "execute_report_read"),
     ("profiles", ProfileController, "open_selection_dialog"),
     ("slash", SlashController, "slash_command_submitted"),

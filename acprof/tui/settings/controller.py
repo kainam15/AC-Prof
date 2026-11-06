@@ -417,8 +417,11 @@ class ConfigurationController:
         if result_dir:
             updates["last_result_dir"] = result_dir
         if result_csv:
-            if self.input("result-csv") != result_csv:
-                self.app.results.select_result(result_csv, summarize=False)
+            from acprof.tui.commands import resolve_result_path
+            from acprof.tui.results.overview import selection_path
+            result_csv = str(selection_path(resolve_result_path(result_csv, self.app.project_dir)))
+            if self.input("experiment-source") != result_csv:
+                self.app.results.select_result(result_csv, load=False)
             updates["last_result_csv"] = result_csv
         settings = replace(
             self.saved_settings,

@@ -201,7 +201,8 @@ class AcprofTui(BarCursorApp):
         self.results.restore_recent_result()
         self.results.update_report_actions()
         self.configuration.refresh_command_preview(notify=False)
-        self.call_after_refresh(self.preflight.quick_check)
+        if not self.read_jobs:
+            self.call_after_refresh(self.preflight.quick_check)
         self.query_one("#model", Input).focus()
         self.images.refresh_timer = self.set_interval(
             self.IMAGE_REFRESH_INTERVAL, self.images.refresh_images, pause=True,
@@ -266,7 +267,7 @@ class AcprofTui(BarCursorApp):
             ".config-control, .experiment-picker, #model-candidates, #run-preset, .ui-preference, .profile-tool, .report-control, "
             "#save-run-default, #restore-ui-defaults, #save-ui-settings, #open-environment-settings"
         ):
-            if widget.id in {"result-csv", "report-open"} and state.allows("report"):
+            if widget.id in {"experiment-source", "report-open"} and state.allows("report"):
                 widget.disabled = False
                 continue
             if busy and widget.has_focus:
@@ -278,8 +279,8 @@ class AcprofTui(BarCursorApp):
             widget.disabled = (busy and self.images.operation != "refresh") or self.execution.session.snapshot.measurement_active
         for selector, operation in {
             "#start-run": "run", "#probe-largest": "probe",
-            "#summarize-results": "summary", "#plot-results": "plot",
-            "#summarize-backfill": "summary",
+            "#refresh-experiment-state": "summary", "#plot-results": "plot",
+            "#refresh-backfill-state": "summary",
             "#report-open": "report",
             "#report-calculate": "html-report", "#report-window-stats": "stats", "#stop-run": "stop",
             "#html-report-generate": "html-report", "#html-report-open": "html-open",
@@ -288,7 +289,7 @@ class AcprofTui(BarCursorApp):
             self.query_one(selector, Button).disabled = not state.allows(operation)
         self.query_one("#html-report-cancel", Button).disabled = not (
             self.execution.session.kind == "html-report" and state.allows("stop"))
-        for selector in ("#result-csv", "#backfill-source"):
+        for selector in ("#experiment-source", "#backfill-source"):
             self.query_one(selector, Input).disabled = not state.allows("summary")
         self.refresh_bindings()
         if not busy:
@@ -370,7 +371,7 @@ class AcprofTui(BarCursorApp):
     ) -> None:
         self.run_ui.process_finished(kind, returncode, snapshot, launch_error)
 
-    @on(Button.Pressed, "#stop-run, #results-cancel")
+    @on(Button.Pressed, "#stop-run")
     def stop_button(self) -> None:
         self.action_request_stop()
 
@@ -418,8 +419,7 @@ class AcprofTui(BarCursorApp):
         if not self.operation_state().allows("quit"):
             self.notify("任务仍在运行，请先使用 /stop 安全终止", severity="warning", timeout=6)
             return
-        if self.results.summary_request is not None:
-            self.results.summary_request.set()
+        self.results.invalidate_reads()
         self.ui_closing = True
         self.exit()
 
@@ -430,11 +430,10 @@ class AcprofTui(BarCursorApp):
         if self.recovery.recovery_request is not None:
             self.recovery.recovery_request.set()
         self.recovery.recovery_after_check = None
-        if self.results.summary_request is not None:
-            self.results.summary_request.set()
+        self.results.invalidate_reads()
         if self.results.report_request is not None:
             self.results.report_request.set()
-        self.results.summary_request = self.results.report_request = self.preflight.check_request = None
+        self.results.report_request = self.preflight.check_request = None
         self.configuration.cancel_preview_timer()
         if self.elapsed_timer is not None:
             self.elapsed_timer.stop()
@@ -615,27 +614,44 @@ class AcprofTui(BarCursorApp):
     def on_results_clear_log_button(self) -> None:
         self.results.clear_log_button()
 
-    @on(Input.Changed, '#result-csv')
+    @on(Input.Changed, '#experiment-source')
     def on_results_result_source_changed(self) -> None:
         self.results.result_source_changed()
 
     @on(Input.Changed, '#backfill-source')
     def on_backfill_result_source_changed(self, event: TextualInput.Changed) -> None:
         # Read the current value: queued startup events may predate restoration.
-        if event.input.value != self.query_one('#result-csv', Input).value:
-            self.results.select_result(event.input.value, summarize=False)
+        if event.input.value != self.query_one('#experiment-source', Input).value:
+            with self.prevent(Input.Changed):
+                self.query_one('#experiment-source', Input).value = event.input.value
+            self.results.result_source_changed()
 
-    @on(Button.Pressed, '#summarize-results')
-    def on_results_summarize_results_button(self) -> None:
-        self.results.summarize_results_button()
+    @on(Button.Pressed, '#refresh-experiment-state')
+    def on_results_refresh_experiment(self) -> None:
+        self.results.refresh_experiment()
 
-    @on(Button.Pressed, '#summarize-backfill')
-    def on_backfill_summarize_results_button(self) -> None:
-        self.results.update_result_summary(self.configuration.input("result-csv"))
+    @on(Button.Pressed, '#refresh-backfill-state')
+    def on_backfill_refresh_experiment(self) -> None:
+        self.results.refresh_experiment()
+
+    @on(Button.Pressed, '#copy-experiment-path')
+    @on(Button.Pressed, '#copy-backfill-path')
+    def on_copy_experiment_path(self) -> None:
+        source = self.configuration.input("experiment-source")
+        if source:
+            self.copy_to_clipboard(source)
+
+    @on(Button.Pressed, '#overview-profiling')
+    def on_overview_profiling(self) -> None:
+        self.profiles.open_selection_dialog()
 
     @on(Button.Pressed, '#backfill-cancel')
+    @on(Button.Pressed, '#results-cancel')
     def on_backfill_cancel_read(self) -> None:
-        self.results.cancel_result_reads()
+        if self.execution.session.kind in {"stats", "compare"}:
+            self.action_request_stop()
+        else:
+            self.results.cancel_result_reads()
 
     @on(Button.Pressed, '#plot-results')
     def on_results_plot_results_button(self) -> None:

@@ -14,12 +14,12 @@ from threading import Event, Lock
 from typing import TYPE_CHECKING
 
 from rich.text import Text
+from textual.timer import Timer
 from textual.widgets import Button, Collapsible, ContentSwitcher, DataTable, Static, TabbedContent
 from textual.worker import Worker
 
 from acprof.experiments.configuration import RunConfigError
 from acprof.messages import join_messages
-from acprof.results.layout import experiment_result_file, resolve_single_result_source
 from acprof.tui.commands import (
     PendingLaunch,
     prepare_comparison,
@@ -27,14 +27,14 @@ from acprof.tui.commands import (
     prepare_stats,
     resolve_result_path,
 )
-from acprof.tui.experiments.catalog import ExperimentSourceDisplay, experiment_source_display
+from acprof.tui.experiments.catalog import ExperimentSourceDisplay
 from acprof.tui.i18n import error_message, message_id
+from acprof.tui.results.data_status import data_status_text, inspect_experiment_data
 from acprof.tui.results.html_controller import HtmlReportController
+from acprof.tui.results.overview import overview_text, read_experiment_overview, selection_path
 from acprof.tui.results.report_actions import report_action_state
 from acprof.tui.results.reports import ReportView, read_report
-from acprof.tui.run.diagnostics import summarize_result_csv
 from acprof.tui.ui.input import BarCursorInput as Input
-from acprof.tui.ui.presentation import CALCULATING
 
 if TYPE_CHECKING:
     from acprof.tui.app import AcprofTui
@@ -82,8 +82,12 @@ class ResultController:
         self.app = app
         self.html = HtmlReportController(app)
         self.offline_reads = _OverlappingOfflineReads()
-        self.summary_request: Event | None = None
-        self.summary_path: Path | None = None
+        self.overview_request: Event | None = None
+        self.data_request: Event | None = None
+        self.source_path: Path | None = None
+        self.overview = None
+        self.data_status = None
+        self.selection_timer: Timer | None = None
         self.report_request: Event | None = None
         self.report_path: Path | None = None
         self.report_view: ReportView | None = None
@@ -104,22 +108,17 @@ class ResultController:
 
     def restore_recent_result(self) -> None:
         """Keep unavailable recent paths in settings, not in the active selection."""
-        source = self.app.configuration.input('result-csv').strip()
-        if source and source == self.app.configuration.saved_settings.last_result_csv:
-            path = resolve_result_path(source, self.app.project_dir)
-            display = experiment_source_display(path)
-            if not display.can_read:
-                fallback = (experiment_result_file(path.parent)
-                            if path.name == 'result_layers.json' and not path.exists() else path)
-                if fallback != path and experiment_source_display(fallback).can_read:
-                    self.app.configuration.remember_last_used(result_csv=str(fallback))
-                else:
-                    self.unavailable_remembered_source = source
-                    with self.app.prevent(Input.Changed):
-                        self.app.query_one('#result-csv', Input).value = ''
-        # On mount, refresh source availability only: resetting the report would erase the
-        # independently remembered HTML path before the user has selected anything.
-        self.refresh_source_display()
+        source = self.app.configuration.input('experiment-source').strip()
+        if source:
+            path = selection_path(resolve_result_path(source, self.app.project_dir))
+            if not path.exists():
+                self.unavailable_remembered_source = source
+                with self.app.prevent(Input.Changed):
+                    self.app.query_one('#experiment-source', Input).value = ''
+                self.refresh_source_display()
+            else:
+                self.select_result(str(path))
+                return
         self.app.localization.set_text(self.app.query_one('#report-empty', Static), self.statistics_empty_hint())
         self.app.localization.set_text(self.app.query_one('#result-summary', Static), self.source_summary_hint())
 
@@ -152,32 +151,25 @@ class ResultController:
         return message_id('results.statistics.empty_hint')
 
     def result_source_changed(self, *, force: bool = False) -> None:
-        if self.app.form_ready:
-            # A queued Changed event can arrive after a relative path was
-            # normalized and its reader started. Do not reset its verified state.
-            if (not force and self.summary_request is not None
-                    and resolve_result_path(self.app.configuration.input("result-csv"), self.app.project_dir) == self.summary_path):
-                return
-            self.formal_ok_rows = None
-            # Initial Input.Changed may arrive after restoring a missing recent path.
-            # A deliberate picker selection (including Clear) supersedes the stale
-            # notice; a delayed empty startup event does not.
-            if force or self.app.configuration.input('result-csv').strip():
-                self.unavailable_remembered_source = ''
-            if self.summary_request is not None:
-                self.summary_request.set()
-            self.summary_request = None
-            self.app.profiles.reset_overview()
-            self.report_source_changed()
-            self.app.localization.set_text(self.app.query_one('#result-summary', Static), self.source_summary_hint())
+        if not self.app.form_ready:
+            return
+        source = self.app.configuration.input("experiment-source").strip()
+        path = resolve_result_path(source, self.app.project_dir) if source else None
+        if not force and path == self.source_path:
+            return
+        self.refresh_experiment(source, load=False)
+        if source:
+            self.app.localization.set_text(self.app.query_one("#result-summary", Static), message_id("results.overview.loading"))
+            self.app.profiles.reset_overview(message_id("results.overview.profiles_checking"))
+            self.selection_timer = self.app.set_timer(0.2, self.start_experiment_reads)
 
-    def select_result(self, source: str, *, summarize: bool = True) -> None:
-        """One selection for all consumers; picker selection loads only the light summary."""
+    def select_result(self, source: str, *, load: bool = True) -> None:
+        """Retain the experiment directory as the shared, persistent selection."""
+        if source:
+            source = str(selection_path(resolve_result_path(source, self.app.project_dir)))
         with self.app.prevent(Input.Changed):
-            self.app.query_one("#result-csv", Input).value = source
-        self.result_source_changed(force=True)
-        if summarize and source:
-            self.update_result_summary(source, notify=False)
+            self.app.query_one("#experiment-source", Input).value = source
+        self.refresh_experiment(source, load=load)
 
     def show_result_section(self, section: str) -> None:
         if section == "exports-view":
@@ -187,101 +179,143 @@ class ResultController:
         if views.get_tab(section).display:
             views.active = section
 
-    def summarize_results_button(self) -> None:
-        self.show_result_section("overview-view")
-        self.update_result_summary(self.app.configuration.input("result-csv"))
+    def refresh_experiment(self, source: str | None = None, *, load: bool = True) -> None:
+        source = self.app.configuration.input("experiment-source").strip() if source is None else source
+        if source != self.app.configuration.input("experiment-source"):
+            self.select_result(source, load=load)
+            return
+        self.invalidate_reads()
+        self.source_path = resolve_result_path(source, self.app.project_dir) if source else None
+        self.overview = self.data_status = self.source_display = None
+        self.formal_ok_rows = None
+        self.unavailable_remembered_source = ""
+        self.app.profiles.reset_overview()
+        self.report_source_changed()
+        for selector in ("#result-data-status", "#result-html-status"):
+            self.app.localization.set_text(self.app.query_one(selector, Static), "")
+        self.app.localization.set_text(self.app.query_one("#result-summary", Static), self.source_summary_hint())
+        if not source or not load:
+            return
+        self.start_experiment_reads()
 
-    def update_result_summary(self, result_csv: str, *, notify: bool = True) -> None:
-        if not self.app.allow_operation("summary"):
+    def start_experiment_reads(self) -> None:
+        """Start a settled selection without clearing independently edited reports."""
+        self.selection_timer = None
+        if self.source_path is None or not self.app.is_running or self.app.ui_closing:
             return
-        if not result_csv:
-            if notify:
-                self.app.notify("请填写结果 CSV 路径", severity="warning")
+        if not self.app.operation_state().allows("summary"):
+            self.app.localization.set_text(self.app.query_one("#result-summary", Static), "请等待当前任务完成")
             return
-        path = resolve_result_path(result_csv, self.app.project_dir)
-        if path.is_dir():
-            try:
-                path = resolve_single_result_source(path)
-            except (OSError, ValueError):
-                pass  # The reader reports an invalid/ambiguous directory.
-            if path.is_dir():
-                path = experiment_result_file(path)
-        if self.app.configuration.input("result-csv") != str(path):
-            self.select_result(str(path), summarize=False)
-        if self.summary_request is not None:
-            self.summary_request.set()
-        token = self.summary_request = Event()
-        self.summary_path = path
-        self.app.profiles.reset_overview(message_id('results.read.loading_summary', CALCULATING))
-        self.app.read_jobs.add(token)
-        self.app.localization.set_text(self.app.query_one("#result-summary", Static), message_id('results.read.loading_summary', CALCULATING))
+        self.source_path = selection_path(self.source_path)
+        with self.app.prevent(Input.Changed):
+            self.app.query_one("#experiment-source", Input).value = str(self.source_path)
+        self.refresh_source_display()
+        self.app.localization.set_text(self.app.query_one("#result-summary", Static), message_id("results.overview.loading"))
+        self.app.localization.set_text(self.app.query_one("#result-data-status", Static), message_id("results.overview.checking"))
+        self.app.profiles.reset_overview(message_id("results.overview.profiles_checking"))
+        self.html.show_discovered(None, "checking")
+        self.overview_request, self.data_request = Event(), Event()
+        for kind, token in (("overview", self.overview_request), ("data", self.data_request)):
+            self.app.read_jobs.add(token)
+            self.app.run_worker(
+                partial(self._read_experiment, self.source_path, token, kind),
+                name="read_experiment_" + kind, thread=True, group="experiment-" + kind, exit_on_error=False,
+            )
         self.app.set_busy(True)
-        self.execute_summary_read(path, token, notify)
 
-    def execute_summary_read(self, path: Path, token: Event, notify: bool) -> Worker[None]:
-        """Schedule this operation on the owning App worker manager."""
-        return self.app.run_worker(
-            partial(self._execute_summary_read_worker, path, token, notify),
-            name="execute_summary_read", thread=True, group='summary', exit_on_error=False,
-        )
+    def refresh_data_status(self) -> None:
+        """Posthoc completion refreshes data/profiler/report state, retaining metadata."""
+        if self.source_path is None or not self.app.operation_state().allows("summary"):
+            return
+        if self.data_request is not None:
+            self.data_request.set()
+        token = self.data_request = Event()
+        self.data_status = None
+        self.app.profiles.reset_overview(message_id("results.overview.profiles_checking"))
+        self.html.show_discovered(None, "checking")
+        self.app.localization.set_text(self.app.query_one("#result-data-status", Static), message_id("results.overview.checking"))
+        self.app.read_jobs.add(token)
+        self.app.run_worker(partial(self._read_experiment, self.source_path, token, "data"),
+            name="read_experiment_data", thread=True, group="experiment-data", exit_on_error=False)
+        self.app.set_busy(True)
 
-    def _execute_summary_read_worker(self, path: Path, token: Event, notify: bool) -> None:
-        from concurrent.futures import CancelledError
+    def _read_experiment(self, path: Path, token: Event, kind: str) -> None:
+        from acprof.cancellation import check_cancelled
 
         try:
             with self.offline_reads.read():
-                if token.is_set():
-                    raise CancelledError()
-                summary, error = summarize_result_csv(path, cancelled=token.is_set), ""
+                check_cancelled(token.is_set)
+                result = (read_experiment_overview(path) if kind == "overview"
+                          else inspect_experiment_data(path, cancelled=token.is_set))
+                check_cancelled(token.is_set)
+            error = ""
         except Exception as exc:
-            summary, error = None, error_message(exc)
-        self.app.process.safe_process_callback(
-            self.show_result_summary, path, token, summary, error, notify,
-            summary.profiler_overview if summary is not None else None,
-            summary.profiler_error if summary is not None else "")
+            result, error = None, error_message(exc)
+        self.app.process.safe_process_callback(self.experiment_read_finished, path, token, kind, result, error)
 
-    def show_result_summary(
-        self, path, token, summary, error: str, notify: bool, overview=None, profile_error: str = "",
-    ) -> None:
+    def experiment_read_finished(self, path: Path, token: Event, kind: str, result, error: str) -> None:
         self.app.read_jobs.discard(token)
         if not self.app.is_running or self.app.ui_closing:
             return
         self.app.set_busy(self.app.is_busy())
-        if (token is not self.summary_request or
-                resolve_result_path(self.app.configuration.input("result-csv"), self.app.project_dir) != path):
+        if not self.app.read_jobs and not self.app.preflight.check_completed and not self.app.preflight.check_running:
+            self.app.call_after_refresh(self.app.preflight.quick_check)
+        current = self.overview_request if kind == "overview" else self.data_request
+        if token is not current or token.is_set() or path != self.source_path:
             return
-        if summary is None:
-            self.formal_ok_rows = 0
-            self.refresh_source_display()
-            self.update_report_actions()
-            self.app.profiles.show_overview(None, error)
-            self.app.localization.set_text(self.app.query_one("#result-summary", Static), message_id('results.summary.read_failed', error))
-            if notify:
-                self.app.notify(error, severity="error")
-            return
-        from acprof.tui.run.diagnostics import result_summary_text
-        self.formal_ok_rows = summary.formal_ok_rows
-        self.refresh_source_display()
+        if kind == "overview":
+            self.overview = result
+            if result is None:
+                self.source_display = ExperimentSourceDisplay("", None, "", "missing")
+                self.app.localization.set_text(self.app.query_one("#result-summary", Static), message_id("results.summary.read_failed", error))
+            else:
+                self.source_display = ExperimentSourceDisplay(result.record.model_id, result.record.run_id,
+                    result.record.status, "selected" if result.data_state == "exists" else "no_data")
+                self.app.localization.set_text(self.app.query_one("#result-summary", Static), overview_text(result))
+                with self.app.prevent(Input.Changed):
+                    self.app.query_one("#experiment-source", Input).value = str(path)
+                self.refresh_source_display()
+                self.app.configuration.remember_last_used(result_csv=str(path))
+        else:
+            self.data_status = result
+            self.formal_ok_rows = result.formal_ok_rows if result else 0
+            self.app.localization.set_text(self.app.query_one("#result-data-status", Static),
+                data_status_text(result) if result else message_id("results.summary.read_failed", error))
+            self.app.profiles.show_overview(result.profiler_overview if result else None,
+                                            result.profiler_error if result else error)
+            if result:
+                self.html.show_discovered(result.html_path, result.html_state)
+            else:
+                self.html.show_discovered(None, "unverified")
+            if result is not None and self.formal_ok_rows == 0:
+                self.app.localization.set_text(self.app.query_one("#report-empty", Static), message_id("results.statistics.no_successful_windows"))
+        if self.source_display and not self.source_display.can_read:
+            self.app.localization.set_text(self.app.query_one("#report-empty", Static), self.statistics_empty_hint())
         self.update_report_actions()
-        self.app.configuration.remember_last_used(result_csv=str(path))
-        self.app.localization.set_text(self.app.query_one("#result-summary", Static), result_summary_text(summary, path))
-        self.app.profiles.show_overview(overview, profile_error)
-        if self.formal_ok_rows == 0 and self.app.query_one('#report-content', ContentSwitcher).current == 'report-empty':
-            self.app.localization.set_text(self.app.query_one('#report-empty', Static),
-                                           message_id('results.statistics.no_successful_windows'))
-        if notify:
-            self.app.notify("结果摘要已更新", timeout=3)
+
+    def invalidate_reads(self) -> None:
+        self.app.profiles.cancel_validation()
+        if self.selection_timer is not None:
+            self.selection_timer.stop()
+            self.selection_timer = None
+        for token in (self.overview_request, self.data_request):
+            if token is not None:
+                token.set()
+        self.overview_request = self.data_request = None
 
     def cancel_result_reads(self) -> None:
         if self.app.recovery.recovery_request is not None:
             self.app.recovery.recovery_request.set()
         self.app.recovery.recovery_after_check = None
-        if self.summary_request is not None:
-            self.summary_request.set()
+        self.invalidate_reads()
         if self.report_request is not None:
             self.report_request.set()
-        self.summary_request = self.report_request = None
-        self.app.localization.set_text(self.app.query_one("#result-summary", Static), "读取已取消；等待后台任务释放资源。")
+        self.report_request = None
+        if self.overview is None:
+            self.app.localization.set_text(self.app.query_one("#result-summary", Static), message_id("results.read.cancelling"))
+        if self.html.freshness == "checking":
+            self.html.show_discovered(None, "unverified")
+        self.app.localization.set_text(self.app.query_one("#result-data-status", Static), "读取已取消；等待后台任务释放资源。")
         self.app.profiles.reset_overview("读取已取消；等待后台任务释放资源。")
         self.clear_report("读取已取消；等待后台任务释放资源。")
         self.app.set_busy(self.app.is_busy())
@@ -292,7 +326,7 @@ class ResultController:
     def launch_plot(self, path: str | None = None) -> None:
         if not self.app.allow_operation("plot"):
             return
-        result_csv = path or self.app.configuration.input("result-csv")
+        result_csv = path or self.app.configuration.input("experiment-source")
         if not result_csv:
             self.app.notify("请填写结果 CSV 路径", severity="warning")
             return
@@ -305,10 +339,9 @@ class ResultController:
 
     def refresh_source_display(self) -> None:
         """Refresh source availability for summary hints and analysis actions."""
-        value = self.app.query_one('#result-csv', Input).value
+        value = self.app.query_one('#experiment-source', Input).value
         source = value.strip()
-        self.source_display = (experiment_source_display(resolve_result_path(source, self.app.project_dir))
-                               if source else None)
+        self.app.query_one("#experiment-source", Input).tooltip = source or None
         with self.app.prevent(Input.Changed):
             self.app.query_one("#backfill-source", Input).value = value
 
@@ -320,7 +353,7 @@ class ResultController:
 
         actions = report_action_state(
             self.app.operation_state(),
-            source_ready=bool(self.source_display and self.source_display.can_read),
+            source_ready=bool(self.source_display and self.source_display.can_read and (self.data_status is not None or self.data_request in self.app.read_jobs)),
             formal_ok_rows=self.formal_ok_rows,
             analysis_payload=self.report_view.payload if self.report_view is not None else {},
             report_json_path=self.app.configuration.input("report-json-path"),
@@ -329,10 +362,12 @@ class ResultController:
             browser_available=can_open_local_browser(),
         )
         cancel_analysis = self.app.query_one("#results-cancel", Button)
-        cancel_analysis.display = actions.cancel_analysis_visible
-        cancel_analysis.disabled = not actions.cancel_analysis_enabled
+        reading = any(token in self.app.read_jobs for token in (
+            self.overview_request, self.data_request, self.app.profiles.validation_request))
+        cancel_analysis.display = actions.cancel_analysis_visible or reading
+        cancel_analysis.disabled = not (actions.cancel_analysis_enabled or reading)
         cancel_backfill = self.app.query_one("#backfill-cancel", Button)
-        cancel_backfill.display = self.summary_request in self.app.read_jobs
+        cancel_backfill.display = reading
         cancel_backfill.disabled = not cancel_backfill.display
         for format, enabled in (
             ("csv", actions.analysis_export_csv_enabled),
@@ -340,8 +375,8 @@ class ResultController:
         ):
             self.app.query_one("#analysis-export-" + format, Button).disabled = not enabled
         for selector, enabled in (
-            ("#summarize-results", actions.summary_enabled),
-            ("#summarize-backfill", actions.summary_enabled),
+            ("#refresh-experiment-state", bool(self.source_path) and self.app.operation_state().allows("summary")),
+            ("#refresh-backfill-state", bool(self.source_path) and self.app.operation_state().allows("summary")),
             ("#plot-results", actions.plot_enabled),
             ("#report-calculate", actions.html_generate_enabled),
             ("#report-window-stats", actions.calculate_enabled),
@@ -362,7 +397,7 @@ class ResultController:
         self.app.query_one("#html-remote-hint").display = actions.html_remote_hint_visible
         open_html = self.app.query_one("#html-report-open", Button)
         open_html.display = actions.html_open_visible
-        open_html.disabled = not actions.html_open_enabled
+        open_html.disabled = not actions.html_open_enabled or self.html.freshness in {"stale", "damaged"}
         generate_html = self.app.query_one("#html-report-generate", Button)
         generate_html.display = actions.html_generate_visible
         cancel = self.app.query_one("#html-report-cancel", Button)
@@ -397,11 +432,6 @@ class ResultController:
             self.app.query_one("#report-json-path", Input).value = ""
             self.app.query_one("#html-report-path", Input).value = ""
         self.app.localization.set_text(self.app.query_one("#analysis-export-status", Static), "")
-        # Existing HTML remains available even when the source CSV has been removed or damaged.
-        # Do not conflate discovery of a historical report with permission to generate a new one.
-        if (self.app.operation_state().allows('html-report')
-                and self.app.configuration.input('result-csv').strip()):
-            self.html.find()
         self.clear_report(message_id('results.statistics.source_hint') if self.source_display and self.source_display.can_read
                           else '', empty_hint=self.statistics_empty_hint())
         self.update_report_actions()
@@ -542,7 +572,7 @@ class ResultController:
         self.show_result_section("statistics-view")
         self.app.query_one("#analysis-details", Collapsible).collapsed = False
         self.app.query_one("#report-panel").scroll_visible(animate=False)
-        source = path if path is not None else self.app.configuration.input("result-csv")
+        source = path if path is not None else self.app.configuration.input("experiment-source")
         if not source.strip():
             self.clear_report(message_id("results.statistics.input_required"), phase="error")
             return
@@ -552,13 +582,13 @@ class ResultController:
         except (OSError, ValueError) as exc:
             self.clear_report(error_message(exc), phase="error")
             return
-        if pending.result_csv != self.app.configuration.input("result-csv"):
-            self.select_result(pending.result_csv, summarize=False)
+        if pending.result_csv != self.app.configuration.input("experiment-source"):
+            self.select_result(pending.result_csv, load=False)
         self.app.launch(pending)
 
     def selection_identity(self) -> tuple[str, ...]:
         return tuple(self.app.configuration.input(name) for name in
-                     ("result-csv", "comparison-left", "comparison-right")) + (
+                     ("experiment-source", "comparison-left", "comparison-right")) + (
                          self.app.configuration.select("comparison-baseline"),
                          self.app.configuration.select("comparison-purpose"),
                      )

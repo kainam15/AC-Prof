@@ -405,7 +405,7 @@ class TestTuiModelMemory:
             assert (restarted.query_one("#cpus", Input).value) == ("1,3")
             assert (restarted.theme) == ("acprof-light")
             assert (restarted.configuration.saved_settings.last_result_dir) == (expected.last_result_dir)
-            assert (restarted.query_one("#result-csv", Input).value) == ("")
+            assert (restarted.query_one("#experiment-source", Input).value) == ("")
             assert (restarted.configuration.saved_settings.last_result_csv) == (expected.last_result_csv)
 
     async def test_draft_preview_and_cancel_do_not_replace_last_model(self):
@@ -414,7 +414,7 @@ class TestTuiModelMemory:
         app = AcprofTui(settings_path=self.settings_path)
         async with app.run_test(size=(120, 30)) as pilot:
             app.query_one("#model", Input).value = "demo/draft"
-            app.query_one("#result-csv", Input).value = "results/draft/custom.csv"
+            app.query_one("#experiment-source", Input).value = "results/draft/custom.csv"
             await pilot.pause(0.12)
             assert (self.settings_path.read_bytes()) == (original)
             with patch.object(app.process, 'execute_command') as execute:
@@ -497,11 +497,11 @@ class TestTuiModelMemory:
         save_settings(self.settings_path, self.saved, PROJECT_DIR)
         original = self.settings_path.read_bytes()
         app = AcprofTui(RunConfig.smoke("demo/other"), settings_path=self.settings_path)
-        with patch("acprof.tui.results.controller.summarize_result_csv") as read_results:
+        with patch("acprof.tui.results.controller.inspect_experiment_data") as read_results:
             async with app.run_test(size=(80, 24)) as pilot:
                 app.activate_tab("results-tab")
                 await pilot.pause()
-                assert (app.query_one("#result-csv", Input).value) == ("")
+                assert (app.query_one("#experiment-source", Input).value) == ("")
                 assert '上次保存的结果路径已失效' in str(app.query_one('#result-summary', Static).content)
                 assert (app.configuration.saved_settings.last_result_dir) == (self.saved.last_result_dir)
                 read_results.assert_not_called()
@@ -536,7 +536,7 @@ class TestTuiModelMemory:
                 # The automatic summary reuses the remembered CSV, without a
                 # duplicate write or any write during the worker's lifetime.
                 save.assert_called_once()
-            assert (app.query_one("#result-csv", Input).value) == (str(csv_path))
+            assert (app.query_one("#experiment-source", Input).value) == (str(csv_path))
             assert (app.configuration.saved_settings.last_result_dir) == (str(csv_path.parent))
         expected = replace(
             self.saved, last_result_csv=str(csv_path), last_result_dir=str(csv_path.parent),
@@ -544,7 +544,7 @@ class TestTuiModelMemory:
         assert (load_settings(self.settings_path, PROJECT_DIR)) == ((expected, ""))
         restarted = AcprofTui(settings_path=self.settings_path)
         async with restarted.run_test(size=(120, 30)):
-            assert (restarted.query_one("#result-csv", Input).value) == (str(csv_path))
+            assert (restarted.query_one("#experiment-source", Input).value) == (str(csv_path))
             assert (restarted.configuration.saved_settings.last_result_dir) == (str(csv_path.parent))
 
     async def test_summary_remembers_only_successfully_read_csv(self):
@@ -552,18 +552,18 @@ class TestTuiModelMemory:
         save_settings(self.settings_path, self.saved, PROJECT_DIR)
         app = AcprofTui(settings_path=self.settings_path)
         async with app.run_test(size=(120, 30)):
-            app.query_one("#result-csv", Input).value = str(csv_path.relative_to(PROJECT_DIR))
-            app.results.summarize_results_button()
+            app.query_one("#experiment-source", Input).value = str(csv_path.relative_to(PROJECT_DIR))
+            app.results.refresh_experiment()
             await app.workers.wait_for_complete()
             expected = replace(self.saved, last_result_csv=str(csv_path))
             assert (load_settings(self.settings_path, PROJECT_DIR)) == ((expected, ""))
-            assert (app.query_one("#result-csv", Input).value) == (str(csv_path))
-            assert ("成功 1") in (app.query_one("#result-summary", Static).content)
+            assert (app.query_one("#experiment-source", Input).value) == (str(csv_path))
+            assert ("有效正式窗口：1") in (app.query_one("#result-data-status", Static).content)
             original = self.settings_path.read_bytes()
             with patch("acprof.tui.settings.controller.save_settings") as save:
-                app.results.summarize_results_button()
-                app.query_one("#result-csv", Input).value = str(csv_path.with_name("missing.csv"))
-                app.results.summarize_results_button()
+                app.results.refresh_experiment()
+                app.query_one("#experiment-source", Input).value = str(csv_path.with_name("missing.csv"))
+                app.results.refresh_experiment()
                 save.assert_not_called()
             assert (self.settings_path.read_bytes()) == (original)
 
@@ -571,6 +571,10 @@ class TestTuiModelMemory:
     async def test_result_tools_remember_confirmed_paths_before_starting(self, kind_case):
         csv_path = self.write_result()
         (kind, frozen) = tuple(product(('plot', 'profile-dry-run', 'profile'), (False, True)))[kind_case]
+        if kind != "plot":
+            from tests.tui.results.test_profile_overview_snapshot import profile_store
+
+            profile_store(csv_path.parent, 3)
         with patch("sys.frozen", frozen, create=True):
             save_settings(self.settings_path, self.saved, PROJECT_DIR)
             original = self.settings_path.read_bytes()
@@ -593,23 +597,32 @@ class TestTuiModelMemory:
                         assert (self.settings_path.read_bytes()) == (original)
                         app.results.launch_plot(str(csv_path.relative_to(PROJECT_DIR)))
                     elif kind == "profile-dry-run":
-                        app.profiles.launch_profile(dry_run=True, result_dir=str(csv_path.parent / "missing"), tools="torch")
+                        app.profiles.launch_profile(dry_run=True, result_dir=str(csv_path.parent / "missing"), tools="ncu")
+                        await app.workers.wait_for_complete()
                         assert (self.settings_path.read_bytes()) == (original)
-                        app.profiles.launch_profile(dry_run=True, result_dir=str(csv_path.parent.relative_to(PROJECT_DIR)), tools="torch")
+                        app.profiles.launch_profile(dry_run=True, result_dir=str(csv_path.parent.relative_to(PROJECT_DIR)), tools="ncu")
                     else:
-                        app.profiles.request_profile_run(result_dir=str(csv_path.parent), tools="torch")
+                        app.profiles.request_profile_run(result_dir=str(csv_path.parent), tools="ncu")
                         await pilot.pause()
                         assert (await pilot.click("#confirm-no"))
                         await pilot.pause()
                         assert (self.settings_path.read_bytes()) == (original)
                         execute.assert_not_called()
-                        app.profiles.request_profile_run(result_dir=str(csv_path.parent), tools="torch")
+                        app.profiles.request_profile_run(result_dir=str(csv_path.parent), tools="ncu")
                         await pilot.pause()
-                        # Confirmation retains its frozen directory if selected
-                        # result changes while the dialog is open.
-                        app.query_one("#result-csv", Input).value = "results/draft"
+                        # Changing the selection invalidates a pending decision.
+                        app.query_one("#experiment-source", Input).value = "results/draft"
                         assert (await pilot.click("#confirm-yes"))
+                        await pilot.pause(0.25)
+                        await app.workers.wait_for_complete()
+                        execute.assert_not_called()
+                        assert self.settings_path.read_bytes() == original
+                        app.profiles.request_profile_run(result_dir=str(csv_path.parent), tools="ncu")
                         await pilot.pause()
+                        assert await pilot.click("#confirm-yes")
+                        await pilot.pause()
+                    await app.workers.wait_for_complete()
+                    await pilot.pause()
                     execute.assert_called_once()
 
     @pytest.mark.parametrize('corrupt', [False, True])
@@ -622,11 +635,11 @@ class TestTuiModelMemory:
         app = AcprofTui(settings_path=self.settings_path)
         async with app.run_test(size=(120, 30)):
             with patch("acprof.tui.settings.controller.save_settings", side_effect=OSError("disk error")) as save:
-                app.results.update_result_summary(str(csv_path))
+                app.results.select_result(str(csv_path))
                 await app.workers.wait_for_complete()
                 assert (save.call_count) == (0 if corrupt else 1)
-            assert ("成功 1") in (app.query_one("#result-summary", Static).content)
-            assert (app.query_one("#result-csv", Input).value) == (str(csv_path))
+            assert ("有效正式窗口：1") in (app.query_one("#result-data-status", Static).content)
+            assert (app.query_one("#experiment-source", Input).value) == (str(csv_path))
         assert (self.settings_path.read_bytes()) == (original)
 
     async def test_manual_summary_is_blocked_while_a_task_is_running(self):
@@ -637,9 +650,9 @@ class TestTuiModelMemory:
             app.execution.session.kind = "run"
             app.execution.session.snapshot = ProgressSnapshot(measurement_active=True)
             app.set_busy(True)
-            assert (app.query_one("#summarize-results", Button).disabled)
-            with patch("acprof.tui.results.controller.summarize_result_csv") as read_results:
-                app.results.summarize_results_button()
+            assert (app.query_one("#refresh-experiment-state", Button).disabled)
+            with patch("acprof.tui.results.controller.inspect_experiment_data") as read_results:
+                app.results.refresh_experiment()
                 app.slash.slash_command_submitted(Input.Submitted(
                     app.query_one("#slash-command", Input), "/results unused.csv",
                 ))

@@ -61,8 +61,8 @@ class TestTuiPageChrome:
             pages = (
                 ('run-tab', 'start-run', ('open-run-settings', 'probe-largest')),
                 ('monitor-tab', 'stop-run', ('copy-log-all', 'follow-log', 'expand-log', 'clear-log')),
-                ('results-tab', 'report-calculate', ('summarize-results',)),
-                ('backfill-tab', 'open-result-profiling', ('summarize-backfill',)),
+                ('results-tab', 'report-calculate', ('refresh-experiment-state',)),
+                ('backfill-tab', 'open-result-profiling', ('refresh-backfill-state',)),
                 ('images-tab', 'image-delete', ('image-toggle', 'image-model', 'image-clear')),
                 ('settings-tab', 'save-ui-settings', ('restore-ui-defaults',)),
             )
@@ -143,7 +143,7 @@ class TestTuiPageChrome:
             assert (button.styles.color) == (original)
             app.activate_tab("results-tab")
             await pilot.pause()
-            normal = app.query_one("#summarize-results", Button)
+            normal = app.query_one("#refresh-experiment-state", Button)
             normal.disabled = False
             await pilot.pause()
             foreground = app.current_theme.foreground

@@ -171,7 +171,7 @@ async def test_run_and_probe_keep_actionable_failure_visible_in_both_languages(l
                 state = tracker.feed(line)
                 app.consume_process_line(line, state, previous != state)
             with patch.object(app, "notify") as notify, patch.object(
-                app.results, "update_result_summary"
+                app.results, "select_result"
             ) as read_old_results:
                 app.process_finished(kind, 2, tracker.snapshot, "")
             await pilot.pause()

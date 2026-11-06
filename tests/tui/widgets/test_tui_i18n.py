@@ -27,7 +27,7 @@ from acprof.tui.app import PROJECT_DIR
 from acprof.tui.catalog import ENGLISH_BY_ID, MESSAGES, SOURCE_BY_ID, SOURCE_TO_ID
 from acprof.tui.i18n import ENGLISH, CatalogMessage, error_message, message_id, translate
 from acprof.tui.logging.widget import SelectableLog
-from acprof.tui.run.diagnostics import PreflightCheck, ResultSummary
+from acprof.tui.run.diagnostics import PreflightCheck
 from acprof.tui.run.progress import ProgressSnapshot, RunProgressTracker
 from acprof.tui.run.stages import Stage
 from acprof.tui.settings.preferences import TuiSettings, load_settings, save_settings
@@ -208,18 +208,18 @@ class TestTuiLanguage:
             )
             app.execution.session.snapshot = snapshot
             app.render_snapshot(snapshot)
-            summary = ResultSummary(3, 2, 1, 1, 2, groups=(dict(cpu_cores=1, mem_cap_gb=4,
-                gpu_mode="off", input_scale=64, environment_class="unknown", metric="latency_app_s",
-                mean=0.02, unit="s", n_windows=1, reason="insufficient_windows"),))
-            with patch("acprof.tui.results.controller.summarize_result_csv", return_value=summary) as read_results:
-                app.results.update_result_summary("read-once.csv", notify=False)
+            from acprof.tui.results.data_status import inspect_experiment_data
+            csv_path = self.settings_path.parent / "read-once.csv"
+            csv_path.write_text("status,warmup,latency_app_s\nok,0,0.02\n")
+            with patch("acprof.tui.results.controller.inspect_experiment_data", wraps=inspect_experiment_data) as read_results:
+                app.results.select_result(str(csv_path))
                 await app.workers.wait_for_complete()
                 await pilot.pause()
                 remembered = self.settings_path.read_bytes()
-                assert (load_settings(self.settings_path, PROJECT_DIR)) == ((TuiSettings(last_result_csv=str(PROJECT_DIR / "read-once.csv")), ""))
+                assert load_settings(self.settings_path, PROJECT_DIR) == (TuiSettings(last_result_csv=str(csv_path)), "")
                 await self.switch(app, pilot, "en")
-                assert (read_results.call_count) == (1)
-                assert ("App latency: 20 ms") in (app.query_one("#result-summary", Static).content)
+                assert read_results.call_count == 1
+                assert "Valid formal windows: 1" in app.query_one("#result-data-status", Static).content
             assert (model.value) == ("等待/{模型}")
             assert (model.cursor_position) == (2)
             assert (app.query_one("#run-preset", Select).value) == (preset)
@@ -237,7 +237,7 @@ class TestTuiLanguage:
             assert ((log.text, log.selection, log.scroll_y)) == ((old_text, old_selection, old_scroll))
             assert not (log.following)
             assert (self.settings_path.read_bytes()) == (remembered)
-            assert (app.query_one("#result-csv", Input).value) == (str(PROJECT_DIR / "read-once.csv"))
+            assert (app.query_one("#experiment-source", Input).value) == (str(csv_path))
             await self.switch(app, pilot, "zh")
             assert (str(app.query_one("#open-run-settings", Button).label)) == ("返回基本配置")
             assert (app.query_one("#status-case", Static).content) == ("当前 1 · 已完成 1/2")
@@ -320,7 +320,7 @@ class TestTuiLanguage:
                 ("settings-tab", ("ui-language", "restore-ui-defaults", "save-ui-settings")),
                 ("run-tab", ("open-run-settings", "probe-largest", "start-run")),
                 ("monitor-tab", ("copy-log-all", "follow-log", "expand-log", "clear-log", "stop-run")),
-                ("results-tab", ("result-csv", "summarize-results", "report-calculate")),
+                ("results-tab", ("experiment-source", "refresh-experiment-state", "report-calculate")),
             ):
                 tabs = app.query_one("#main-tabs", TabbedContent)
                 tab_button = tabs.get_tab(tab)

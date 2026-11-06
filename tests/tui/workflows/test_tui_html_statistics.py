@@ -24,7 +24,7 @@ async def test_html_generation_needs_only_an_experiment_selection(tmp_path, monk
     async with app.run_test(size=size) as pilot:
         app.activate_tab("results-tab")
         app.results.show_result_section("statistics-view")
-        app.query_one("#result-csv", Input).value = str(source)
+        app.query_one("#experiment-source", Input).value = str(source)
         await pilot.pause()
         for name in ("metrics", "confidence", "resamples", "seed", "block-size"):
             assert not app.query("#analysis-" + name)

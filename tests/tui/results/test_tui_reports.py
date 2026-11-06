@@ -103,9 +103,9 @@ class TestTuiReports:
         app = self.make_app()
         async with app.run_test(size=(120, 30)) as pilot:
             await self.open_tab(app, pilot)
-            app.results.select_result(str(root / 'result_layers.json'), summarize=False)
+            app.results.select_result(str(root / 'result_layers.json'))
             await pilot.pause()
-            source = app.query_one('#result-csv', Input)
+            source = app.query_one('#experiment-source', Input)
             for language, size in [('zh', (120, 30)), ('en', (80, 24))]:
                 app.configuration.preferences = replace(app.configuration.preferences, language=language)
                 app.configuration.apply_ui_preferences()
@@ -115,16 +115,16 @@ class TestTuiReports:
                 header = app.query_one('#result-source-header')
                 assert header.region.height == source.region.height == 3
                 assert header.region.y == source.region.y
-                assert source.value == str(root / 'result_layers.json')
-                picker = app.query_one('#choose-result-csv', Button)
+                assert source.value == str(root)
+                picker = app.query_one('#choose-experiment-source', Button)
                 assert picker.region.area > 0
                 assert picker.region.right <= size[0]
                 assert not app.query_one('#report-calculate', Button).disabled
-            app.results.select_result(str(self.csv_path), summarize=False)
+            app.results.select_result(str(self.csv_path))
             await pilot.pause()
             assert source.value == str(self.csv_path)
             assert not app.query_one('#report-calculate', Button).disabled
-            app.results.select_result('', summarize=False)
+            app.results.select_result('')
             await pilot.pause()
             assert source.value == ''
             assert app.query_one('#report-calculate', Button).disabled
@@ -137,11 +137,10 @@ class TestTuiReports:
         app = self.make_app()
         async with app.run_test(size=(120, 30)) as pilot:
             await pilot.pause()
-            app.results.select_result(str(directory), summarize=False)
-            app.results.update_result_summary(str(directory))
+            app.results.select_result(str(directory))
             await app.workers.wait_for_complete()
             await pilot.pause()
-            assert app.query_one('#result-csv', Input).value == str(flat)
+            assert app.query_one('#experiment-source', Input).value == str(directory)
             assert app.results.formal_ok_rows == 3
 
     async def test_remembered_missing_manifest_recovers_legacy_csv(self):
@@ -154,17 +153,16 @@ class TestTuiReports:
         app = self.make_app()
         async with app.run_test(size=(120, 30)) as pilot:
             await pilot.pause()
-            assert app.query_one('#result-csv', Input).value == str(flat)
-            assert app.query_one('#backfill-source', Input).value == str(flat)
+            assert app.query_one('#experiment-source', Input).value == str(directory)
+            assert app.query_one('#backfill-source', Input).value == str(directory)
             assert not app.query_one('#html-report-generate', Button).disabled
-            assert app.configuration.saved_settings.last_result_csv == str(flat)
+            assert app.configuration.saved_settings.last_result_csv == str(directory)
 
     @pytest.mark.parametrize('size', [(80, 24), (120, 30)])
     async def test_stale_remembered_result_is_not_a_selected_experiment(self, size):
         run_id = '33dec6b68b6a4369a278d1b1744b71e4'
         missing = self.directory / run_id / 'result_layers.json'
         save_settings(self.directory / 'tui.json', TuiSettings(last_result_csv=str(missing)), Path.cwd())
-        original = (self.directory / 'tui.json').read_bytes()
         app = self.make_app()
         async with app.run_test(size=size) as pilot:
             app.results.show_result_section('statistics-view')
@@ -172,10 +170,10 @@ class TestTuiReports:
             summary = app.query_one('#result-summary', Static)
             assert '上次保存的结果路径已失效' in str(summary.content)
             assert run_id not in str(summary.content)
-            assert app.query_one('#result-csv', Input).value == ''
+            assert app.query_one('#experiment-source', Input).value == ''
             assert app.query_one('#backfill-source', Input).value == ''
             assert '失效' in str(app.query_one('#report-empty', Static).content)
-            for selector in ('#summarize-results', '#plot-results', '#report-calculate', '#html-report-generate'):
+            for selector in ('#refresh-experiment-state', '#plot-results', '#report-calculate', '#html-report-generate'):
                 assert app.query_one(selector, Button).disabled
             for language, expected in (('en', 'The last saved result path is unavailable.'),
                                        ('zh', '上次保存的结果路径已失效。')):
@@ -185,16 +183,16 @@ class TestTuiReports:
                 assert expected in str(summary.content)
             # The remembered source stays in settings without being treated as live results.
             assert app.configuration.saved_settings.last_result_csv == str(missing)
-            app.results.select_result('', summarize=False)
+            app.results.select_result('')
             await pilot.pause()
             assert app.query_one('#report-calculate', Button).disabled
             assert '失效' not in str(summary.content)
-            app.results.select_result(str(self.csv_path), summarize=False)
+            app.results.select_result(str(self.csv_path))
             await pilot.pause()
-            assert app.query_one('#result-csv', Input).value == str(self.csv_path)
-            assert '结果选择已更改' in str(summary.content)
+            assert app.query_one('#experiment-source', Input).value == str(self.csv_path)
+            assert '产物：结果数据 存在' in str(summary.content)
             assert not app.query_one('#report-calculate', Button).disabled
-        assert (self.directory / 'tui.json').read_bytes() == original
+        assert app.configuration.saved_settings.last_result_csv == str(self.csv_path)
 
     async def test_unmeasured_or_missing_experiment_does_not_enable_analysis(self):
         from acprof.results.layout import ArtifactLayout
@@ -211,21 +209,23 @@ class TestTuiReports:
         app = self.make_app()
         async with app.run_test(size=(120, 30)) as pilot:
             app.results.show_result_section('statistics-view')
-            app.results.select_result(str(root / 'result_layers.json'), summarize=False)
+            app.results.select_result(str(root / 'result_layers.json'))
             await pilot.pause()
             summary = app.query_one('#result-summary', Static)
-            assert str(summary.content) == '该实验尚未生成可读取的测量数据。'
-            assert run_id not in str(summary.content)
+            assert '结果数据 缺失' in str(summary.content)
+            assert 'demo/unmeasured' in str(summary.content)
+            assert run_id in str(summary.content)
             assert '测量数据' in str(app.query_one('#report-empty', Static).content)
             assert app.query_one('#plot-results', Button).disabled
             assert app.query_one('#report-calculate', Button).disabled
-            app.results.select_result(str(self.directory / 'missing.csv'), summarize=False)
+            app.results.select_result(str(self.directory / 'missing.csv'))
             await pilot.pause()
             assert '结果路径不存在' in str(summary.content)
             assert app.query_one('#report-calculate', Button).disabled
-            app.results.select_result(str(self.directory / 'file.txt'), summarize=False)
+            (self.directory / 'file.txt').write_text('unsupported source')
+            app.results.select_result(str(self.directory / 'file.txt'))
             await pilot.pause()
-            assert str(summary.content) == '输入的路径不是受支持的实验结果来源。'
+            assert '输入的路径不是受支持的实验结果来源。' in str(summary.content)
 
     async def test_summary_provenance_controls_analysis_only_for_formal_success_windows(self):
         warmup_csv = self.directory / 'only-warmup.csv'
@@ -242,20 +242,20 @@ class TestTuiReports:
             app.results.select_result(str(warmup_csv))
             await self.finish_workers(app, pilot)
             assert '没有可统计的正式成功窗口' in str(app.query_one('#report-empty', Static).content)
-            assert app.query_one('#summarize-results', Button).disabled is False
+            assert app.query_one('#refresh-experiment-state', Button).disabled is False
             assert app.query_one('#report-window-stats', Button).disabled
             assert app.query_one('#plot-results', Button).disabled
             assert not app.query_one('#report-calculate', Button).disabled
             assert not app.query_one('#html-report-generate', Button).disabled
             app.results.select_result(str(self.csv_path))
             await self.finish_workers(app, pilot)
-            assert '有效窗口 3' in str(app.query_one('#result-summary', Static).content)
+            assert '有效正式窗口：3' in str(app.query_one('#result-data-status', Static).content)
             assert not app.query_one('#report-calculate', Button).disabled
             assert not app.query_one('#plot-results', Button).disabled
             app.configuration.preferences = replace(app.configuration.preferences, language='en')
             app.configuration.apply_ui_preferences()
             await pilot.pause()
-            assert 'valid windows 3' in str(app.query_one('#result-summary', Static).content)
+            assert 'Valid formal windows: 3' in str(app.query_one('#result-data-status', Static).content)
 
     def make_app(self):
         return AcprofTui(RunConfig.smoke("demo/model"), settings_path=self.directory / "tui.json")
@@ -268,6 +268,8 @@ class TestTuiReports:
         await pilot.pause()
 
     async def request_statistics(self, app, pilot):
+        await pilot.pause(0.25)  # Finish the experiment-path edit debounce.
+        await self.finish_workers(app, pilot)
         command = app.query_one("#slash-command", Input)
         command.value = "/stats"
         command.focus()
@@ -301,12 +303,12 @@ class TestTuiReports:
         app = self.make_app()
         async with app.run_test(size=(120, 30)) as pilot:
             await self.open_tab(app, pilot)
-            app.query_one("#result-csv", Input).value = str(self.csv_path)
+            app.query_one("#experiment-source", Input).value = str(self.csv_path)
             await self.request_statistics(app, pilot)
             await self.finish_workers(app, pilot)
             assert (app.query_one("#main-tabs", TabbedContent).active) == ("results-tab")
             assert app.query_one("#report-json-path", Input).value == ""
-            assert app.query_one("#result-csv", Input).value == str(self.csv_path)
+            assert app.query_one("#experiment-source", Input).value == str(self.csv_path)
             assert not list(self.directory.rglob("window-statistics-*.json"))
             assert app.results.report_view is not None
             data = app.results.report_view.payload
@@ -327,7 +329,7 @@ class TestTuiReports:
         app = self.make_app()
         async with app.run_test(size=(80, 24)) as pilot:
             await self.open_tab(app, pilot)
-            app.query_one("#result-csv", Input).value = str(self.csv_path)
+            app.query_one("#experiment-source", Input).value = str(self.csv_path)
             await self.request_statistics(app, pilot)
             await self.finish_workers(app, pilot)
             assert app.results.report_view is not None
@@ -457,7 +459,7 @@ class TestTuiReports:
         app = self.make_app()
         async with app.run_test(size=(120, 30)) as pilot:
             await self.open_tab(app, pilot)
-            app.query_one("#result-csv", Input).value = str(self.csv_path)
+            app.query_one("#experiment-source", Input).value = str(self.csv_path)
             await pilot.pause()
             app.query_one("#report-json-path", Input).value = str(self.overhead_report())
             await pilot.pause()
@@ -465,7 +467,7 @@ class TestTuiReports:
             app.execution.session.snapshot = ProgressSnapshot(measurement_active=True)
             app.set_busy(True)
             with patch.object(app.process, 'execute_command') as execute:
-                for selector in ("#report-open", "#report-calculate", "#result-csv", "#backfill-source", "#report-json-path"):
+                for selector in ("#report-open", "#report-calculate", "#experiment-source", "#backfill-source", "#report-json-path"):
                     assert (app.query_one(selector).disabled)
                 for command in ("/stats", "/report"):
                     field = app.query_one("#slash-command", Input)
@@ -491,7 +493,7 @@ class TestTuiReports:
             app.process_finished("run", 0, ProgressSnapshot(final_csv=str(self.csv_path)), "")
             await app.workers.wait_for_complete()
             await pilot.pause()
-            source = app.query_one("#result-csv", Input)
+            source = app.query_one("#experiment-source", Input)
             assert (source.value) == (str(self.csv_path))
             assert not (list(app.workers))
             source.value = str(self.directory / "explicit.csv")
@@ -506,7 +508,7 @@ class TestTuiReports:
         app = self.make_app()
         async with app.run_test(size=(80, 24)) as pilot:
             await self.open_tab(app, pilot)
-            source = app.query_one("#result-csv", Input)
+            source = app.query_one("#experiment-source", Input)
             json_path = app.query_one("#report-json-path", Input)
             source.value = str(self.csv_path)
             await self.request_statistics(app, pilot)
@@ -549,7 +551,7 @@ class TestTuiReports:
         app = self.make_app()
         async with app.run_test(size=(80, 24)) as pilot:
             await self.open_tab(app, pilot)
-            app.query_one("#result-csv", Input).value = str(self.csv_path)
+            app.query_one("#experiment-source", Input).value = str(self.csv_path)
             await self.request_statistics(app, pilot)
             await self.finish_workers(app, pilot)
             assert (app.query_one("#main-tabs", TabbedContent).active) == ("results-tab")
@@ -557,4 +559,4 @@ class TestTuiReports:
             assert app.query_one("#report-content", ContentSwitcher).current == "report-error"
             assert (app.query_one("#report-table", DataTable).row_count) == (0)
             assert not (app.is_busy())
-            assert not (app.query_one("#report-calculate", Button).disabled)
+            assert app.query_one("#report-calculate", Button).disabled

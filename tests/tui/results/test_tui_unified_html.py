@@ -44,7 +44,7 @@ async def test_primary_analysis_action_generates_html_and_keeps_parameters(tmp_p
     app.configuration.preferences = replace(app.configuration.preferences, language=language)
     async with app.run_test(size=(80, 24)) as pilot:
         await pilot.pause()
-        app.results.select_result(str(source), summarize=False)
+        app.results.select_result(str(source))
         app.results.show_result_section("statistics-view")
         assert not app.query("#analysis-parameters")
         await pilot.pause()

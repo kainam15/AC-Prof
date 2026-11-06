@@ -114,7 +114,7 @@ def experiment_source_display(source: Path) -> ExperimentSourceDisplay:
             return ExperimentSourceDisplay(fallback, None, '', 'unsupported')
         available = result_file.is_file() and result_file.stat().st_size > 0
         present = source.exists()
-    except OSError:
+    except (OSError, ValueError):
         return ExperimentSourceDisplay(fallback, None, '', 'missing')
 
     title, run_id, status = fallback, None, ''
@@ -191,6 +191,13 @@ def _record(layout: ArtifactLayout, warnings: list[str]) -> ExperimentRecord:
         str(state.get('created_at') or metadata.get('created_at') or 'unknown'),
         str(state.get('status') or ('failed' if failures else 'unknown')), device,
         options, state, metadata, validation, tuple(failures), issues)
+
+
+def read_experiment_record(directory: Path) -> ExperimentRecord:
+    """Read one experiment's bounded metadata without catalog or CSV scanning."""
+    warnings: list[str] = []
+    record = _record(ArtifactLayout.discover(directory), warnings)
+    return replace(record, issues=(*record.issues, *warnings))
 
 
 def _duplicate_digest(record: ExperimentRecord, cancelled: Callable[[], bool], budget: list[int]) -> str:

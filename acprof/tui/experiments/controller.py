@@ -6,9 +6,8 @@ import io
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from textual.widgets import Button, Static
+from textual.widgets import Button
 
-from acprof.results.layout import experiment_result_file
 from acprof.tui.commands import PendingLaunch, resolve_result_path
 from acprof.tui.experiments.catalog import (
     ExperimentRecord,
@@ -16,7 +15,6 @@ from acprof.tui.experiments.catalog import (
     scan_experiments,
 )
 from acprof.tui.experiments.picker import SearchPickerScreen, experiment_choice
-from acprof.tui.i18n import message_id
 from acprof.tui.ui.input import BarCursorInput as Input
 
 if TYPE_CHECKING:
@@ -33,7 +31,7 @@ class CatalogController:
     def catalog_roots(self) -> tuple[Path, ...]:
         roots = []
         for source in (self.app.configuration.input('output-dir'), self.app.configuration.saved_settings.last_result_dir,
-                       self.app.configuration.input('result-csv'), self.app.configuration.saved_settings.last_result_dir):
+                       self.app.configuration.input('experiment-source'), self.app.configuration.saved_settings.last_result_dir):
             if not source.strip():
                 continue
             path = resolve_result_path(source, self.app.project_dir)
@@ -50,7 +48,7 @@ class CatalogController:
             self.app.set_busy(self.app.is_busy())
 
     def select_experiment(self, event: Button.Pressed) -> None:
-        self.open_experiment_picker(event.button.name or 'result-csv')
+        self.open_experiment_picker(event.button.name or 'experiment-source')
 
     def open_experiment_picker(self, target: str) -> None:
         if not self.app.allow_operation('catalog'):
@@ -78,16 +76,13 @@ class CatalogController:
         if action == 'view':
             self.view_experiment(record)
         elif action == 'select':
-            result_file = experiment_result_file(record.directory)
-            path = (result_file if target == 'result-csv' or result_file.name == 'result_all.csv'
-                    else record.directory)
-            value = str(path)
+            value = str(record.directory)
             if target in {'comparison-left', 'comparison-right'}:
                 # Keep CLI's quoted-semicolon grammar for directories containing separators.
                 output = io.StringIO()
                 csv.writer(output, delimiter=';', lineterminator='').writerow([value])
                 value = output.getvalue()
-            if target == 'result-csv':
+            if target == 'experiment-source':
                 self.app.results.select_result(value)
             else:
                 self.app.query_one('#' + target, Input).value = value
@@ -105,13 +100,7 @@ class CatalogController:
     def view_experiment(self, record: ExperimentRecord) -> None:
         self.app.configuration.remember_last_used(result_dir=str(record.directory))
         self.app.results.show_result_section('overview-view')
-        csv_path = experiment_result_file(record.directory)
-        if csv_path.is_file():
-            self.app.results.select_result(str(csv_path))
-        else:
-            self.app.results.select_result(str(csv_path), summarize=False)
-            self.app.localization.set_text(self.app.query_one('#result-summary', Static),
-                message_id('results.evidence.no_csv', experiment_choice(record).detail))
+        self.app.results.select_result(str(record.directory))
 
     def resume_experiment(self, record: ExperimentRecord) -> None:
         from acprof.experiments.configuration import build_run_command

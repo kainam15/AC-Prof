@@ -6,7 +6,7 @@ from dataclasses import replace
 from unittest.mock import patch
 
 import pytest
-from textual.widgets import Button, Static
+from textual.widgets import Button, Input, Static
 
 from acprof.analysis.audit import audit_result
 from acprof.experiments.configuration import RunConfig
@@ -130,9 +130,9 @@ async def test_measurement_stop_resume_preserves_completed_case_and_displays_res
             assert audit["coverage"]["missing"] == 0
             assert list((directory / ".acprof/recovery/interrupted_cases").rglob("*.csv"))
             assert app.results.formal_ok_rows == 2
-            assert ('结果已读取' if language == 'zh' else 'Results loaded') in str(
-                app.query_one('#result-summary', Static).content)
-            assert str(directory / "result_layers.json") in str(app.query_one("#result-summary", Static).content)
+            assert ('有效正式窗口：2' if language == 'zh' else 'Valid formal windows: 2') in str(
+                app.query_one('#result-data-status', Static).content)
+            assert app.query_one("#experiment-source", Input).value == str(directory)
             assert str(app.query_one("#status-stage", Static).content) == app.tr(Stage.COMPLETED.label)
             assert not app.query_one("#start-run", Button).disabled
             assert app.query_one("#stop-run", Button).disabled

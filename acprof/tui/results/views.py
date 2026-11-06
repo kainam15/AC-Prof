@@ -28,13 +28,18 @@ def compose_results_tab(app: AcprofTui) -> ComposeResult:
     with TabPane("实验结果", id="results-tab"):
         with Vertical(id="result-source-header", classes="page-header"):
             with Horizontal(classes="path-picker-row"):
-                yield local(Input(app.configuration.saved_settings.last_result_csv, id="result-csv",
+                yield local(Input(app.configuration.saved_settings.last_result_csv, id="experiment-source",
                                   placeholder=message_id("results.input.source_hint")))
-                yield local(Button("选择实验", name="result-csv", id="choose-result-csv", classes="experiment-picker"))
+                yield local(Button("选择实验", name="experiment-source", id="choose-experiment-source", classes="experiment-picker"))
+                yield local(Button(message_id("results.overview.copy_path"), id="copy-experiment-path"))
         with TabbedContent(initial="overview-view", id="result-views"):
             with TabPane(message_id("results.tabs.overview"), id="overview-view"):
                 with VerticalScroll(id="plot-body", classes="pane-scroll"):
                     yield local(Static(message_id('results.summary.empty'), id='result-summary', markup=False))
+                    yield local(Static('', id='result-data-status', markup=False))
+                    yield local(Static('', id='result-profile-status', markup=False))
+                    yield local(Button(message_id('profiling.overview.open'), id='overview-profiling', disabled=True))
+                    yield local(Static('', id='result-html-status', markup=False))
             with TabPane(message_id("results.tabs.statistics"), id="statistics-view"):
                 yield from compose_statistics(app)
             with TabPane(message_id("results.tabs.compare"), id="comparison-view"):
@@ -43,7 +48,7 @@ def compose_results_tab(app: AcprofTui) -> ComposeResult:
                 yield Static("", id="legacy-exports-placeholder")
         with Horizontal(id="result-actions", classes="action-bar"):
             with Horizontal(classes="action-secondary"):
-                yield local(Button("读取摘要", id="summarize-results"))
+                yield local(Button(message_id("results.overview.refresh"), id="refresh-experiment-state"))
                 yield local(Button(message_id("results.statistics.cancel"), id="results-cancel", disabled=True))
             with Horizontal(classes="action-primary"):
                 yield local(Button(message_id("results.analysis.generate"), id="report-calculate", classes="report-control", variant="primary"))

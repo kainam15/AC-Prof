@@ -81,7 +81,7 @@ class TestCatalogWorkflow:
             await pilot.pause()
             app.activate_tab('results-tab')
             await pilot.pause()
-            button = app.query_one('#choose-result-csv', Button)
+            button = app.query_one('#choose-experiment-source', Button)
             assert (await pilot.click(button))
             await app.workers.wait_for_complete()
             await pilot.pause()
@@ -98,7 +98,7 @@ class TestCatalogWorkflow:
             await pilot.pause()
             assert ('resource_limit') in (str(app.query_one('#result-summary', Static).content))
             record = scan_experiments([path]).records[0]
-            app.catalog.experiment_selected('result-csv', ('reuse', record))
+            app.catalog.experiment_selected('experiment-source', ('reuse', record))
             await pilot.pause()
             reused = app.configuration.collect_config()
             assert not (reused.resume)
@@ -108,7 +108,7 @@ class TestCatalogWorkflow:
             assert (app.query_one('#run-preset', Select).value) == ('custom')
             assert ('--matrix-seed 71') in (str(app.query_one('#command-preview', Static).content))
             with patch.object(app, 'launch') as launch:
-                app.catalog.experiment_selected('result-csv', ('resume', record))
+                app.catalog.experiment_selected('experiment-source', ('resume', record))
                 await app.workers.wait_for_complete()
                 await pilot.pause()
                 launch.assert_not_called()
@@ -122,7 +122,7 @@ class TestCatalogWorkflow:
                 assert (parsed.output_dir) == (str(path.parent))
                 assert (parsed.resume)
 
-    @pytest.mark.parametrize('target', ['result-csv', 'comparison-left', 'comparison-right'])
+    @pytest.mark.parametrize('target', ['experiment-source', 'comparison-left', 'comparison-right'])
     async def test_preference_for_layered_manifest_with_flat_csv_also_present(self, target):
         root = self.fixture.root
         path = self.fixture.record('both-formats')
@@ -133,7 +133,7 @@ class TestCatalogWorkflow:
             await pilot.pause()
             app.catalog.experiment_selected(target, ('select', record))
             selected = app.query_one('#' + target, Input).value
-            expected = path / 'result_layers.json' if target == 'result-csv' else path
+            expected = path
             assert selected == str(expected)
 
     async def test_legacy_flat_csv_is_selected_for_view_reports_and_comparison(self):
@@ -154,18 +154,18 @@ class TestCatalogWorkflow:
         async with app.run_test(size=(120, 30)) as pilot:
             await pilot.pause()
             record = scan_experiments([path]).records[0]
-            app.catalog.experiment_selected('result-csv', ('select', record))
-            assert app.query_one('#result-csv', Input).value == str(flat_csv)
+            app.catalog.experiment_selected('experiment-source', ('select', record))
+            assert app.query_one('#experiment-source', Input).value == str(path)
             await app.workers.wait_for_complete()
             await pilot.pause()
             assert not app.query_one('#html-report-generate', Button).disabled
 
             app.catalog.experiment_selected('comparison-left', ('select', record))
-            assert app.query_one('#comparison-left', Input).value == str(flat_csv)
+            assert app.query_one('#comparison-left', Input).value == str(path)
             app.catalog.view_experiment(record)
             await app.workers.wait_for_complete()
             await pilot.pause()
-            assert app.query_one('#result-csv', Input).value == str(flat_csv)
+            assert app.query_one('#experiment-source', Input).value == str(path)
             assert 'no result' not in str(app.query_one('#result-summary', Static).content).lower()
 
     async def test_paths_are_selected_in_existing_pages_and_measurement_blocks_discovery(self):
@@ -175,15 +175,15 @@ class TestCatalogWorkflow:
         async with app.run_test(size=(120, 30)) as pilot:
             await pilot.pause()
             record = scan_experiments([path]).records[0]
-            for target in ('result-csv', 'comparison-left', 'comparison-right'):
+            for target in ('experiment-source', 'comparison-left', 'comparison-right'):
                 app.catalog.experiment_selected(target, ('select', record))
-                expected = path / 'result_layers.json' if target == 'result-csv' else path
+                expected = path
                 assert (app.query_one('#' + target, Input).value) == (str(expected))
                 await app.workers.wait_for_complete()
                 await pilot.pause()
             app.execution.session.snapshot = replace(app.execution.session.snapshot, measurement_active=True)
             with patch('acprof.tui.experiments.controller.scan_experiments') as scan:
-                app.catalog.open_experiment_picker('result-csv')
+                app.catalog.open_experiment_picker('experiment-source')
                 await pilot.pause()
                 scan.assert_not_called()
             assert not isinstance(app.screen, SearchPickerScreen)

@@ -408,6 +408,21 @@ def resolve_single_result_source(source: str | Path) -> Path:
     return task_dirs[0] / "result_layers.json" if as_layer_manifest else task_dirs[0]
 
 
+def resolve_result_file(source: str | Path) -> Path:
+    """Locate one result without falling back from a declared layered experiment.
+
+    A multi-task collection requires an explicit task directory. File inputs
+    remain literal, for compatibility with standalone CSV analysis.
+    """
+    path = resolve_single_result_source(source)
+    if path.is_dir():
+        ArtifactLayout.discover(path)
+        return experiment_result_file(path)
+    if path.name == "result_layers.json":
+        ArtifactLayout.discover(path.parent)
+    return path
+
+
 def expand_result_sources(sources: Iterable[str | Path]) -> list[Path]:
     """Expand any TaskCollection or parent output_dir entries into their task run directories."""
     expanded: list[Path] = []

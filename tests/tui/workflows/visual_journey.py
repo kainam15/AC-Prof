@@ -286,10 +286,10 @@ async def exercise_journey(
             await app.workers.wait_for_complete()
             await pilot.pause()
             assert tabs.active == "results-tab"
-            assert app.query_one("#result-csv", Input).value == str(result_csv)
-            result_summary = str(app.query_one("#result-summary", Static).content)
-            assert ("成功 1" if language == "zh" else "OK 1") in result_summary, (
-                "Unexpected results summary after Pilot selection: " + repr(result_summary)
+            assert app.query_one("#experiment-source", Input).value == str(result_csv)
+            data_status = str(app.query_one("#result-data-status", Static).content)
+            assert ("有效正式窗口：1" if language == "zh" else "Valid formal windows: 1") in data_status, (
+                "Unexpected data status after Pilot selection: " + repr(data_status)
             )
             await record("result-overview", "clicked Results tab; read synthetic CSV")
             if size[0] > 80:

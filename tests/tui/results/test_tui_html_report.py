@@ -95,7 +95,7 @@ async def test_html_generation_preserves_backend_and_measurement_guard(tmp_path,
     app = AcprofTui(settings_path=tmp_path / "settings.json")
     async with app.run_test(size=(80, 24)) as pilot:
         app.results.show_result_section("exports-view")
-        app.query_one("#result-csv", Input).value = str(csv_result)
+        app.query_one("#experiment-source", Input).value = str(csv_result)
         await pilot.pause()
         button = app.query_one("#html-report-generate", Button)
         assert button.region.area == 0
@@ -164,7 +164,7 @@ async def test_real_cli_success_persists_path_and_preserves_input(tmp_path, csv_
     original = csv_result.read_bytes()
     async with app.run_test(size=(120, 30)) as pilot:
         app.results.show_result_section("exports-view")
-        app.query_one("#result-csv", Input).value = str(csv_result)
+        app.query_one("#experiment-source", Input).value = str(csv_result)
         await pilot.pause()
         app.results.html.launch()
         await app.workers.wait_for_complete()
@@ -199,7 +199,7 @@ async def test_real_layer_manifest_and_csv_comparison_keep_three_views(tmp_path,
     original = {path: path.read_bytes() for path in layered.rglob("*") if path.is_file()}
     app = AcprofTui(settings_path=tmp_path / "settings.json")
     async with app.run_test() as pilot:
-        app.query_one("#result-csv", Input).value = str(layered / "result_layers.json")
+        app.query_one("#experiment-source", Input).value = str(layered / "result_layers.json")
         await pilot.pause()
         app.query_one("#html-extra-sources", Input).value = str(second)
         app.results.html.launch()
@@ -224,7 +224,7 @@ async def test_no_valid_windows_retains_evidence_and_displays_limit(tmp_path, cs
     csv_result.write_text(csv_result.read_text().replace(",ok,", ",failed,"))
     app = AcprofTui(settings_path=tmp_path / "settings.json")
     async with app.run_test() as pilot:
-        app.query_one("#result-csv", Input).value = str(csv_result)
+        app.query_one("#experiment-source", Input).value = str(csv_result)
         await pilot.pause()
         app.results.html.launch()
         await app.workers.wait_for_complete()
@@ -406,7 +406,7 @@ async def test_real_cli_failure_shows_error_and_keeps_old_report(tmp_path, csv_r
     old.write_text("old report")
     app = AcprofTui(settings_path=tmp_path / "settings.json")
     async with app.run_test() as pilot:
-        app.query_one("#result-csv", Input).value = str(csv_result)
+        app.query_one("#experiment-source", Input).value = str(csv_result)
         await pilot.pause()
         assert app.query_one("#html-report-path", Input).value == str(old)
         app.results.html.launch()
@@ -424,7 +424,7 @@ async def test_cancel_reaps_process_and_keeps_previous_html(tmp_path, csv_result
     old.write_text("old")
     app = AcprofTui(settings_path=tmp_path / "settings.json")
     async with app.run_test() as pilot:
-        app.query_one("#result-csv", Input).value = str(csv_result)
+        app.query_one("#experiment-source", Input).value = str(csv_result)
         await pilot.pause()
         command = (sys.executable, "-u", "-c", "import time; print('ready', flush=True); time.sleep(30)")
         pending = commands.PendingLaunch(command, "html-report", report_path=str(tmp_path / "new.html"))
