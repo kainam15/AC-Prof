@@ -123,7 +123,7 @@ def _validate_summary(
     for name, expected in expected_rates.items():
         value = result.get(name)
         message = f"stream load {name} is inconsistent with raw requests or duration"
-        if not isinstance(value, (int, float)) or isinstance(value, bool):
+        if value is None or not isinstance(value, (int, float)) or isinstance(value, bool):
             raise ValueError(message)
         if value != expected or not math.isfinite(value):
             raise ValueError(message)
