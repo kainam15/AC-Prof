@@ -9,6 +9,7 @@ from typing import Any
 
 from acprof.artifacts import read_json_object
 from acprof.input_budget import InputBudgetExceeded
+from acprof.system.exceptions import exception_chain
 
 REASON_CODES = frozenset({
     "runtime_task_unsupported", "runtime_dependency_missing", "runtime_dependency_incompatible",
@@ -53,11 +54,8 @@ class RuntimeFailure(ValueError):
 
 def failure_from_exception(exc: BaseException, *, stage: str, device: str = "unknown",
                            runtime_profile: str = "", evidence: dict | None = None) -> Failure:
-    """Keep the original typed cause; never classify natural-language messages."""
-    cause: BaseException | None = exc
-    seen: set[int] = set()
-    while cause is not None and id(cause) not in seen:
-        seen.add(id(cause))
+    """Keep typed causes and implicit context; never classify natural-language messages."""
+    for cause in exception_chain(exc):
         if isinstance(cause, RuntimeFailure):
             value = cause.failure
             return replace(value, device=device if value.device == "unknown" else value.device,
@@ -77,7 +75,6 @@ def failure_from_exception(exc: BaseException, *, stage: str, device: str = "unk
             code, retry = ("request_timeout", "higher_budget") if isinstance(cause, TimeoutError) else (
                 ("resource_limit", "higher_budget") if isinstance(cause, MemoryError) else ("access_denied", "after_configuration"))
             return Failure(stage, code, str(exc), device, runtime_profile, retry, evidence or {}, type(cause).__name__)
-        cause = cause.__cause__
     code = "inference_failed" if stage in {"predict", "preprocess", "completion", "postprocess", "validate_output"} else "runtime_initialization_failed"
     return Failure(stage, code, str(exc), device, runtime_profile,
                    evidence=evidence or {}, exception_type=type(exc).__name__)

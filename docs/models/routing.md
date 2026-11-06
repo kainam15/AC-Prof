@@ -292,6 +292,10 @@ TorchScript/graph/structured extension 的 `requires_model_spec` 在 resolver �
 失败由 [`Failure`](../../acprof/failures.py) 统一描述，CLI、audit、`models.csv`、TUI 和 `REPORT.md`
 直接传递 `reason_code`；异常链与原始日志保留用于诊断。`request_timeout` 表示请求期限耗尽，
 `compatibility_budget_exhausted` 表示独立验证整体预算耗尽，均为 `inconclusive`。
+运行失败分类与 Hub 共用轻量异常链遍历：优先显式 cause，否则检查隐式 context，遇到循环停止；
+`from None` 只控制 traceback 展示，不清除可供类型分类的 context。SDK 包装后的依赖缺失、
+输入预算、权限、超时和内存错误保留对应原因及重试建议，不误报为 processor 不兼容。
+已有 `RuntimeFailure` 保留来源阶段与已知设备／profile，并按原规则合并调用方证据；未知类型不解析正文猜测原因。
 已有结果中的兼容性 JSON 按单文件 4 MiB 上限读取，并要求对象结构及有限数值；损坏证据记录为
 `recorded_evidence_invalid` 和 `inconclusive`。同一结果目录中的有效 typed failure 继续优先展示，
 不会因另一份产物损坏而被覆盖，也不会把损坏产物解释成模型本身不兼容。

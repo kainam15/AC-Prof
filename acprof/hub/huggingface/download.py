@@ -17,6 +17,7 @@ from acprof.hub.huggingface.transport import (
     safe_url,
 )
 from acprof.network_policy import require_source_transition
+from acprof.system.exceptions import exception_chain as exception_chain
 
 
 @dataclass(frozen=True)
@@ -38,15 +39,6 @@ def hf_endpoint_scope() -> Iterator[None]:
         yield
     finally:
         _ENDPOINT_SELECTIONS.reset(token)
-
-
-def exception_chain(exc: BaseException):
-    seen = set()
-    cause: BaseException | None = exc
-    while cause is not None and id(cause) not in seen:
-        seen.add(id(cause))
-        yield cause
-        cause = cause.__cause__ or cause.__context__
 
 
 def _model_failure(exc: BaseException) -> bool:

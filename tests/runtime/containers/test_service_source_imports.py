@@ -12,6 +12,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
 
 @pytest.mark.parametrize("module", [
+    "acprof.failures",
+    "acprof.system.exceptions",
     "acprof.input_budget",
     "acprof.config",
     "acprof.container.execution",

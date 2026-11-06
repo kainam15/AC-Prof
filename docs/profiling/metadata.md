@@ -227,6 +227,8 @@ typed `failure` 包含 `stage`、`reason_code`、`detail`、`device`、`runtime_
 `retryability`、`evidence`、`exception_type`。`reason_code` 包括 task、dependency、precision、
 contract、artifact、processor、access、initialization、inference 与 timeout/resource 原因；
 稳定代码定义在 [`failures.py`](../../acprof/failures.py)。原始异常链和日志用于诊断，不作为报告分类输入。
+生产端按异常类型检查显式 cause 和隐式 context，包装异常不会使已知依赖／预算／权限／资源失败
+变成普通初始化或推理错误；消费者仍直接使用已记录的原因码，不从日志重新推断。
 CLI 使用 `ACPROF_FAILURE=` JSON 记录，TUI 按该结构展示；HTTP 错误响应携带同一 failure，
 client 在请求及 monitor 结束后写入 case sidecar，资源矩阵退出时汇总为根目录 `runtime_failures.json`。
 非零 client 退出优先保留结构化原因；恢复运行时，旧 case 失败随该次尝试归档，根侧车只反映当前 case 证据。
