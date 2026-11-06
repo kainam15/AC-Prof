@@ -1,14 +1,44 @@
 """Browser inputs preserve Python's window selection, identity and publication guard."""
+import gc
 import hashlib
 import json
+import tracemalloc
+from collections import defaultdict
 from unittest.mock import patch
 
 import pytest
 
 from acprof.analysis.model import load_analysis
+from acprof.analysis.report_statistics import window_input_chunks, write_window_inputs
 from acprof.plotting.report import report_payload, write_report
 from acprof.results.metrics import METRICS
 from tests.analysis.reporting.test_report_statistics import row, write_rows
+
+
+def test_window_input_stream_does_not_retain_arrays_for_all_metrics(tmp_path):
+    metrics = [name for name, metric in METRICS.items() if metric.kind == 'number'
+               and metric.window in {'request_window', 'matched_control'}][:32]
+    source = tmp_path / 'result_all.csv'
+    write_rows(source, [row(index, 1, **{name: str(index % 17 + 1) for name in metrics})
+                        for index in range(1024)])
+    model = load_analysis([source])
+    configs = defaultdict(list)
+    for entry in model.raw_rows:
+        configs[entry['config_id']].append(entry)
+    peaks, sizes = [], []
+    for selected in (metrics[:1], metrics):
+        # Keep the source width fixed and discard encoded chunks. This measures
+        # stream preparation, not loading the model or retaining its full output.
+        gc.collect()
+        tracemalloc.start()
+        try:
+            size = sum(len(chunk) for chunk in window_input_chunks(configs, model.sources[0], selected))
+            peaks.append(tracemalloc.get_traced_memory()[1])
+        finally:
+            tracemalloc.stop()
+        sizes.append(size)
+    assert sizes[1] > 20 * sizes[0]
+    assert peaks[1] < 1.5 * peaks[0], peaks
 
 
 @pytest.mark.parametrize('metric_count', [1, 16])
@@ -157,3 +187,39 @@ def test_publication_error_preserves_inputs_of_an_already_visible_html(tmp_path,
         rendering.write_report(load_analysis([source]), output)
     assert output.is_file()
     assert (tmp_path / "report.windows-1.json").is_file()
+
+
+@pytest.mark.parametrize('cancel', [False, True])
+def test_late_window_stream_failure_preserves_existing_reports_and_source(tmp_path, monkeypatch, cancel):
+    monkeypatch.setattr('acprof.analysis.report_statistics.MAX_EMBEDDED_WINDOW_BYTES', 1)
+    source = tmp_path / 'result_all.csv'
+    write_rows(source, [row(index, index + 1) for index in range(3)])
+    model = load_analysis([source])
+    write_report(model, tmp_path / 'previous.html')
+    before = {path.name: path.read_bytes() for path in tmp_path.iterdir()}
+    failure = KeyboardInterrupt('cancelled window stream') if cancel else OSError('window stream failed')
+    emitted = []
+
+    def interrupted_chunks(*args):
+        chunks = window_input_chunks(*args)
+        try:
+            yield next(chunks)
+            first_group = next(chunks)
+            emitted.append(json.loads(first_group))
+            yield first_group
+            raise failure
+        finally:
+            chunks.close()
+
+    def interrupted_write(*args):
+        with patch('acprof.analysis.report_statistics.window_input_chunks', interrupted_chunks):
+            write_window_inputs(*args)
+
+    with patch('acprof.plotting.report.write_window_inputs', interrupted_write), \
+            pytest.raises(type(failure), match=str(failure)) as caught:
+        write_report(model, tmp_path / 'new.html')
+
+    assert caught.value is failure
+    assert len(emitted) == 1
+    assert emitted[0]['repeat_indices'] == [0, 1, 2]
+    assert {path.name: path.read_bytes() for path in tmp_path.iterdir()} == before

@@ -92,7 +92,9 @@ def _config_summary(entries, source, metrics, options, *, include_intervals, inc
     resolver = MissingReasons(source["metadata"], environment_class=entries[0]["environment_class"])
     indexed = _rows_by_identity(rows)
     ordered_by_identity: dict[tuple, list[dict]] = {}
-    for group in groups:
+    for summary in groups:
+        # Keep window arrays off the retained summaries so each emitted group can be released.
+        group = dict(summary)
         reasons: Counter[str] = Counter()
         metric = group["metric"]
         identity = tuple(group.get(key) for key in _IDENTITY)
@@ -107,7 +109,7 @@ def _config_summary(entries, source, metrics, options, *, include_intervals, inc
             ordered = ordered_by_identity[identity]
             group.update(values=[number(row.get(metric)) for row in ordered],
                          repeat_indices=[float(row["repeat_idx"]) for row in ordered])
-    return groups
+        yield group
 
 
 def window_input_chunks(configs, source, metrics):

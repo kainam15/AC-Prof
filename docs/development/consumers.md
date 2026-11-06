@@ -185,6 +185,14 @@ baseline、颜色、Pareto 和 Scaling 分组，`report.js` 处理交互。该�
 Process 继承资源及无效窗口身份的不可用语义。分组只在本次汇总内复用，不改变来源复核或导出字节。
 这一组织方式参考 [pandas BaseGrouper 的分组索引与排序复用](https://github.com/pandas-dev/pandas/blob/5db5929d07629538ddba99853696bc3c42dc8e0a/pandas/core/groupby/ops.py#L679-L725)
 （BSD-3-Clause），使用标准库字典和现有数值规则，不创建 DataFrame 或引入分析依赖。
+浏览器重算输入逐组构造窗口数组并编码，统计摘要列表不持有已经输出的数组，避免临时内存随
+指标数与窗口数的乘积累计；原始行副本、分组排序、统计摘要及正在生成／编码的组仍占用内存。
+内嵌预算约束保留的 JSON 片段，超预算的外置文件使用同一码流、字节数和 SHA256；
+流中途失败或取消时原子写入撤销未发布的临时文件，保留原始结果和已有报告。
+设计参考 [CPython 的 JSON 迭代写入](https://github.com/python/cpython/blob/3.12/Lib/json/__init__.py#L163-L180)
+及[分块写入开销讨论](https://github.com/python/cpython/issues/129711)；
+[相关提案](https://github.com/python/cpython/pull/130076)已关闭、未合入，本项目保留既有按组标准库编码，
+只调整数组生命周期，不移植编码器或新增依赖，也不进入正式测量路径。
 缺失原因复用 `audit.MissingReasons`，质量及计划覆盖复用比较快照携带的 audit 结果，避免再次读取 CSV。
 `ResultMetadataSnapshot.observed_fingerprints` 记录实际解析字节及已观察到的缺失；
 HTML 统计与原子发布末尾复核结果和这些元数据，变化时撤销临时输出。该检查不提供跨文件原子快照。
