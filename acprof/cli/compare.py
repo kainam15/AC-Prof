@@ -5,6 +5,7 @@ from pathlib import Path
 
 from acprof.analysis.conditions import PURPOSES
 from acprof.artifacts import atomic_write_json
+from acprof.system.cleanup import format_exception_notes
 
 
 def main(argv=None):
@@ -49,5 +50,5 @@ def main(argv=None):
             else:
                 print(json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False))
     except (OSError, ValueError, RunStateError) as error:
-        parser.exit(1, f"比较失败：{error}\n")
+        parser.exit(1, f"比较失败：{format_exception_notes(error)}\n")
     return 0 if report["status"] == "compatible" else 1

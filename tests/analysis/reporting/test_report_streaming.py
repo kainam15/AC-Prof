@@ -86,13 +86,19 @@ def test_failure_after_a_written_fragment_leaves_no_partial_report(tmp_path, mon
             opened.append(stream)
 
             class FailingWriter:
+                def __init__(self, underlying):
+                    self.underlying = underlying
+
+                def fileno(self):
+                    return self.underlying.fileno()
+
                 def write(self, fragment: str) -> int:
                     if written:
                         raise failure
                     written.append(fragment)
-                    return stream.write(fragment)
+                    return self.underlying.write(fragment)
 
-            write(FailingWriter())
+            write(FailingWriter(stream))
 
         atomic_write(path, fail_late, **kwargs)
 

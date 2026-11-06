@@ -189,6 +189,12 @@ Process 继承资源及无效窗口身份的不可用语义。分组只在本次
 指标数与窗口数的乘积累计；原始行副本、分组排序、统计摘要及正在生成／编码的组仍占用内存。
 内嵌预算约束保留的 JSON 片段，超预算的外置文件使用同一码流、字节数和 SHA256；
 流中途失败或取消时原子写入撤销未发布的临时文件，保留原始结果和已有报告。
+`write_report` 在写入回调中记录临时文件的设备号与 inode，并在发布前登记异常清理。
+回滚前使用 `lstat` 匹配目标身份，既覆盖外置输入发布后的同步失败，也保留已被替换的目标；
+只有本次 HTML 已发布才保留本次配套输入。此检查不是跨文件原子事务。
+清理复用 `cleanup_on_exit` 和标准库
+[ExitStack 的逐项退出与异常链处理](https://github.com/python/cpython/blob/3.12/Lib/contextlib.py#L566-L611)，
+所有已登记输入均尝试清理，主错误、取消优先级及次生诊断保留；`report`／`compare` CLI 显示异常 notes。
 设计参考 [CPython 的 JSON 迭代写入](https://github.com/python/cpython/blob/3.12/Lib/json/__init__.py#L163-L180)
 及[分块写入开销讨论](https://github.com/python/cpython/issues/129711)；
 [相关提案](https://github.com/python/cpython/pull/130076)已关闭、未合入，本项目保留既有按组标准库编码，

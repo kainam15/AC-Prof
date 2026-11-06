@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 
 from acprof.analysis.resource_comparison import REPORT_PURPOSES
+from acprof.system.cleanup import format_exception_notes
 
 
 def main(argv=None):
@@ -89,5 +90,5 @@ def main(argv=None):
             }, ensure_ascii=False))
             print(f"报告已生成：{output.resolve()}（{len(model.configs)} 个配置）")
     except (OSError, ValueError, RuntimeError, ImportError, csv.Error) as error:
-        parser.exit(1, f"报告生成失败：{error}\n")
+        parser.exit(1, f"报告生成失败：{format_exception_notes(error)}\n")
     return 0

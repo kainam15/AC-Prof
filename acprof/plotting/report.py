@@ -2,7 +2,11 @@
 from __future__ import annotations
 
 import json
+import os
 import re
+from collections.abc import Callable
+from contextlib import ExitStack
+from functools import partial
 from html import escape
 from importlib.resources import files
 from pathlib import Path
@@ -24,6 +28,7 @@ from acprof.analysis.resource_comparison import REPORT_PURPOSES, build_baseline_
 from acprof.artifacts import atomic_write
 from acprof.quality import QUALITY_FIELDS
 from acprof.results.metrics import ANALYSIS_METRICS, VIEW_METRICS
+from acprof.system.cleanup import cleanup_on_exit
 
 
 def report_payload(model: AnalysisModel, baseline: str | None = None, *, comparison_purpose="within-experiment",
@@ -144,22 +149,43 @@ def write_report(model: AnalysisModel, output: str | Path, *, baseline: str | No
             if comparison["report"] is not None:
                 verify_independent_report(comparison["report"])
 
-    created_inputs = []
-    try:
+    identities: dict[Path, tuple[int, int]] = {}
+
+    def publish(path: Path, writer: Callable[[TextIO], None]) -> None:
+        def tracked_write(stream: TextIO) -> None:
+            opened = os.fstat(stream.fileno())
+            identities[path] = (opened.st_dev, opened.st_ino)
+            writer(stream)
+        atomic_write(path, tracked_write, overwrite=False)
+
+    def is_published(path: Path) -> bool:
+        identity = identities.get(path)
+        if identity is None:
+            return False
+        try:
+            current = path.lstat()
+        except FileNotFoundError:
+            return False
+        return (current.st_dev, current.st_ino) == identity
+
+    def discard_input(path: Path) -> None:
+        # Preserve inputs once our HTML is visible, even if its directory sync fails.
+        if not is_published(output) and is_published(path):
+            path.unlink(missing_ok=True)
+
+    with ExitStack() as cleanup:
         for index, report in enumerate(payload.get("window_statistics", [])):
             inputs = report.get("recalculation", {})
             if inputs.get("status") == "external_required":
                 sidecar = output.with_name(f"{output.stem}.windows-{index + 1}.json")
                 if sidecar.exists() or sidecar.is_symlink():
                     raise ValueError(f"output must be a new file: {sidecar}")
-                atomic_write(sidecar, lambda stream: write_window_inputs(model, report, stream), overwrite=False)
-                created_inputs.append(sidecar)
+                # Register before publication: a link can succeed before fsync raises.
+                cleanup.enter_context(cleanup_on_exit(
+                    partial(discard_input, sidecar), description=f"report window inputs {sidecar}",
+                    on_error_only=True,
+                ))
+                publish(sidecar, lambda stream: write_window_inputs(model, report, stream))
                 inputs["file"] = sidecar.name
-        atomic_write(output, write, overwrite=False)
-    except BaseException:
-        # A post-publication fsync error must not strand an already visible HTML.
-        if not output.exists():
-            for path in created_inputs:
-                path.unlink(missing_ok=True)
-        raise
+        publish(output, write)
     return output
