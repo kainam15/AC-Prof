@@ -344,13 +344,11 @@ class AcprofTui(BarCursorApp):
     @on(PageNavigation.Selected)
     def on_page_selected(self, event: PageNavigation.Selected) -> None:
         tabs = self.query_one("#main-tabs", TabbedContent)
-        # Explicit activity activation toggles the sidebar; internal page
-        # changes keep the user's current presentation preference.
-        self.set_class(
-            tabs.active == event.pane_id and not self.has_class("collapsed-navigation"),
-            "collapsed-navigation",
-        )
-        self.update_responsive_layout()
+        # Only reactivating the selected item toggles sidebar visibility.
+        # Switching pages preserves the current presentation preference.
+        if tabs.active == event.pane_id:
+            self.toggle_class("collapsed-navigation")
+            self.update_responsive_layout()
         self.activate_tab(event.pane_id)
         self.query_one(PageNavigation).sync(tabs)
 

@@ -52,7 +52,7 @@ async def test_sidebar_clicks_keyboard_and_resize_preserve_form(tmp_path, monkey
 
 
 @pytest.mark.parametrize(("language", "size"), [("zh", (80, 24)), ("en", (80, 24)), ("en", (120, 30)), ("zh", (150, 45))])
-async def test_selected_activity_toggles_sidebar_and_other_activity_expands_it(tmp_path, language, size):
+async def test_only_selected_activity_toggles_sidebar(tmp_path, language, size):
     app = AcprofTui(RunConfig.smoke("demo/model"), settings_path=tmp_path / "settings.json")
     app.configuration.preferences = replace(app.configuration.preferences, language=language)
     async with app.run_test(size=size) as pilot:
@@ -68,6 +68,7 @@ async def test_selected_activity_toggles_sidebar_and_other_activity_expands_it(t
         assert await pilot.click("#nav-run-tab")
         await pilot.pause()
         assert navigation.region.width < expanded_width
+        collapsed_width = navigation.region.width
         assert tabs.region.width > content_width
         assert str(tabs.active) == "run-tab"
         assert app.query_one("#model") is model
@@ -96,17 +97,28 @@ async def test_selected_activity_toggles_sidebar_and_other_activity_expands_it(t
         await pilot.press("down", "enter")
         await pilot.pause()
         assert str(tabs.active) == "monitor-tab"
-        assert navigation.region.width == expanded_width
+        assert navigation.region.width == collapsed_width
         assert app.focused is app.query_one("#nav-monitor-tab")
+        assert list(navigation.query(".selected-page")) == [app.query_one("#nav-monitor-tab")]
 
+        await pilot.press("enter")
+        await pilot.pause()
+        assert navigation.region.width == expanded_width
         assert await pilot.click("#nav-monitor-tab")
         await pilot.pause()
-        assert navigation.region.width < expanded_width
+        assert navigation.region.width == collapsed_width
+        assert await pilot.click("#nav-run-tab")
+        await pilot.pause()
+        assert navigation.region.width == collapsed_width
+        assert str(tabs.active) == "run-tab"
+        assert model.value == "demo/edited-model"
         assert await pilot.click("#nav-run-tab")
         await pilot.pause()
         assert navigation.region.width == expanded_width
-        assert str(tabs.active) == "run-tab"
-        assert model.value == "demo/edited-model"
+        assert await pilot.click("#nav-monitor-tab")
+        await pilot.pause()
+        assert str(tabs.active) == "monitor-tab"
+        assert navigation.region.width == expanded_width
 
 
 async def test_collapsed_sidebar_survives_language_resize_and_programmatic_navigation(tmp_path):

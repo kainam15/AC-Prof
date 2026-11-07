@@ -19,8 +19,8 @@
 详情在入口下方展开。点击、方向键与 `Enter`、`F2` 和业务自动切页共用现有页面状态，保留草稿和后台页面。
 侧栏导航聚焦时移除文字下划线，继续用加粗与背景提示焦点，并用左侧竖线标记当前页面。
 再次点击当前活动项或按 `Enter` 可折叠／展开侧边栏；折叠时保留图标、选中标记和双语提示，主内容区按释放后的宽度重新排布。
-点击其他活动项会切页并展开；语言切换、缩放、`F2` 和内部跳转保留会话内的折叠状态与草稿。
-交互参考 VS Code 的 [ViewContainerActivityAction](https://github.com/microsoft/vscode/blob/6531648f5ace8b77ae799262bdc97bf048461938/src/vs/workbench/browser/parts/paneCompositeBar.ts)（MIT，上游维护）；仅借鉴活动项与侧栏显隐的判断，沿用 Textual 8.2.8 的控件和 CSS，无新增依赖或测量期轮询。
+点击其他活动项只切页并保留侧栏状态，折叠时再次点击已选中项才展开；语言切换、缩放、`F2` 和内部跳转保留会话内的折叠状态与草稿。
+交互参考 VS Code 的 [ViewContainerActivityAction](https://github.com/microsoft/vscode/blob/6531648f5ace8b77ae799262bdc97bf048461938/src/vs/workbench/browser/parts/paneCompositeBar.ts)（MIT，上游维护）；借鉴重复点击当前项切换显隐的交互，按本项目要求让切页保留侧栏状态。沿用 Textual 8.2.8 的控件和 CSS，无新增依赖或测量期轮询。
 参考 Textual 官方 [Sidebar 布局](https://github.com/Textualize/textual/blob/main/docs/examples/guide/layout/dock_layout1_sidebar.py)
 与 [TabbedContent.active](https://github.com/Textualize/textual/blob/v8.2.8/docs/widgets/tabbed_content.md)，
 复用现有 MIT 依赖和公开 API，仅借鉴布局与状态分离思路，不复制源码、不增加依赖或测量期轮询。
