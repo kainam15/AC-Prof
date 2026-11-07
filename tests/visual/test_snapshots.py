@@ -43,6 +43,9 @@ pytestmark = pytest.mark.visual
     ("en", (120, 30), "backfill"),
     ("zh", (80, 24), "statistics"),
     ("en", (80, 24), "statistics"),
+    ("zh", (80, 24), "environment"),
+    ("en", (120, 30), "environment-details"),
+    ("zh", (150, 45), "environment"),
 ])
 def test_fixed_scenes(snap_compare, tmp_path, monkeypatch, language, size, scene):
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
@@ -55,7 +58,9 @@ def test_fixed_scenes(snap_compare, tmp_path, monkeypatch, language, size, scene
     monkeypatch.setattr("acprof.tui.run.preflight_controller.quick_preflight", lambda *args, **kwargs: [])
     # Freeze stage-log durations without changing Textual's event-loop clock.
     monkeypatch.setattr("acprof.tui.logging.controller.time", SimpleNamespace(monotonic=lambda: 1.0))
-    app = AcprofTui(RunConfig.smoke("fixture/model"), settings_path=tmp_path / "settings.json")
+    from tests.visual_png.scenarios import error_modal
+    config = error_modal.initial_config() if scene.startswith("environment") else RunConfig.smoke("fixture/model")
+    app = AcprofTui(config, settings_path=tmp_path / "settings.json")
     monkeypatch.setattr(app.process, "execute_command", lambda *args, **kwargs: None)
     # Keep these fixed scenes covering the explicitly enabled command bar.
     app.configuration.preferences = replace(
@@ -125,6 +130,15 @@ def test_fixed_scenes(snap_compare, tmp_path, monkeypatch, language, size, scene
                     assert app.get_widget_at(button.region.x + 1, button.region.y + 1)[0] is button
                 await pilot.press("tab")
                 assert app.focused.id in {"preparation-cancel", "preparation-continue"}
+        elif scene.startswith("environment"):
+            error_modal.mount(app)
+            await pilot.pause()
+            if scene == "environment-details":
+                assert await pilot.click("#preflight-expand")
+                await pilot.pause()
+                assert app.preflight.panel.display
+                assert app.query_one("#preflight-details").display
+                app.set_focus(None)
         elif scene == "statistics":
             app.activate_tab("results-tab")
             app.results.show_result_section("statistics-view")

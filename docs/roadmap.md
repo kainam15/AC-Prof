@@ -13,13 +13,20 @@
 已将 TUI 界面改动可直接在 `main` 开发和提交的例外同步到根目录协作入口与
 [Git 协作规则](development/quality.md#git-worktree-与合并)，明确适用范围、现有修改保护和验证要求。
 
-## TUI 页头版本与环境分行（2026-11）
+## TUI 左上角环境面板（2026-11）
 
-顶部仅显示 `AC-Prof <version>`，版本号复用包版本；其下新增“当前环境”行，移除“推理实验控制台”。
-沿用 Textual Header 与 Static、中英文翻译和既有环境识别，放大日志时仍显示环境，不新增测量期刷新。
-定向 headless 回归覆盖中英文切换、窄窗、退出与日志放大，受影响 SVG 基线比较通过；
-真实客户端终端与远端 CI 未验证。
-显示方式见[启动和页面](usage/tui-pages.md#启动和页面)。
+`AC-Prof <version>` 与环境行统一左对齐。环境行支持悬停、点击固定及键盘访问，
+悬浮面板提供状态、能力摘要、「展开详情 / 收起详情」、单项原因、脱敏复制、重检和采集权限入口。
+复用 `PreflightController` 与 `quick_preflight()` 缓存；稳定检查标识仅服务展示，
+保留模式与指标语义、正式启动校验和测量锁。过期结果及旧 Runtime auto 解析不能用于新配置。
+实现借鉴 Textual 的 [Select overlay](https://github.com/Textualize/textual/blob/v8.2.8/src/textual/widgets/_select.py)
+与 [Collapsible](https://github.com/Textualize/textual/blob/v8.2.8/src/textual/widgets/_collapsible.py)，
+沿用现有 MIT 依赖，无新增检测器、依赖或测量期轮询。
+定向 Mock / Pilot 回归覆盖中英文三种尺寸、浅深主题与 NO_COLOR、悬停和固定、键盘与日志最大化、
+过期结果、检查失败、脱敏复制和测量期禁用。SVG 已审阅；8 个 VHS PNG 场景已生成对比报告，
+其中 7 个包含预期设计差异，PNG Golden 保持原版，等待用户人工确认。
+未执行真实客户端终端、实际硬件采集或远端 CI 验收。
+操作说明见[环境检查](usage/tui-interaction.md#环境检查)。
 
 ## TUI 快捷命令框默认隐藏（2026-11）
 

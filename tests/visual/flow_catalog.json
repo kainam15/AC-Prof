@@ -119,8 +119,13 @@
     {
       "id": "preflight-error", "title": "环境检查异常", "page": "run-tab", "group": "exception",
       "trigger": "预检缺少能力、出现警告或阻断采集", "expected": "异常原因、检查入口与禁用操作均明确",
-      "png": ["error-modal"], "svg": [],
-      "tests": ["tests/tui/workflows/test_tui_preflight.py", "tests/tui/catalog/test_environment_tui.py"]
+      "png": ["error-modal"],
+      "svg": [
+        "tests/visual/__snapshots__/test_snapshots/test_fixed_scenes[zh-size17-environment].svg",
+        "tests/visual/__snapshots__/test_snapshots/test_fixed_scenes[en-size18-environment-details].svg",
+        "tests/visual/__snapshots__/test_snapshots/test_fixed_scenes[zh-size19-environment].svg"
+      ],
+      "tests": ["tests/tui/workflows/test_tui_preflight.py", "tests/tui/workflows/test_tui_environment_popover.py", "tests/tui/catalog/test_environment_tui.py"]
     },
     {
       "id": "stop-confirm", "title": "停止任务确认", "page": "monitor-tab", "group": "exception",

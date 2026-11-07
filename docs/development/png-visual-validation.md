@@ -93,7 +93,7 @@ VHS 只操作该测试应用，没有向 AC-Prof CLI 添加截图选项。
 
 - `form`：中文普通表单（120×36）
 - `form-small`：小终端、截断与滚动（80×24）
-- `error-modal`：中文长错误弹窗
+- `error-modal`：左上角环境阻断悬浮面板（沿用原场景标识），含详情、重检、权限与复制操作
 - `near-match`：BAAI/bge-m3 自定义配置
 - `measuring`：模拟测量阶段与日志布局
 - `task-selection`：多任务选择弹窗
