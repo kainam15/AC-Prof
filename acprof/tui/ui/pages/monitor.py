@@ -11,7 +11,7 @@ from textual.widgets import Button, Static, TabPane
 from acprof.tui.i18n import message_id
 from acprof.tui.logging.widget import SelectableLog
 from acprof.tui.ui.input import BarCursorInput as Input
-from acprof.tui.ui.progress_widgets import DownloadProgressPanel, PreparationStatus
+from acprof.tui.ui.progress_widgets import DownloadProgressPanel, PhaseTimes, PreparationStatus
 
 if TYPE_CHECKING:
     from acprof.tui.app import AcprofTui
@@ -38,6 +38,7 @@ def compose_monitor_tab(app: AcprofTui) -> ComposeResult:
                 yield app.localization.localized_widget(Static("尚未启动", id="status-detail", classes="detail-status", markup=False))
 
             yield PreparationStatus(id="status-preparation")
+            yield PhaseTimes("", id="status-phase-times", markup=False)
             yield DownloadProgressPanel(id="download-progress")
             with LogPanel(id="log-panel"):
                 with Horizontal(id="log-controls"):

@@ -95,6 +95,23 @@ class RunPresenter:
         if str(widget.content) != elapsed:
             # Fixed-size clock cell: avoid a full layout pass for each tick.
             self.app.localization.set_text(widget, elapsed, layout=False)
+        if not self.app.execution.session.snapshot.measurement_active:
+            self.render_phase_times(self.app.execution.session.snapshot)
+
+    def render_phase_times(self, snapshot: ProgressSnapshot) -> None:
+        widget = self.app.query_one("#status-phase-times", Static)
+        widget.display = bool(snapshot.preparation_started_at)
+        if not widget.display:
+            return
+        now = time.monotonic()
+        preparation = (snapshot.preparation_elapsed_s if snapshot.preparation_finished else
+                       max(0.0, now - snapshot.preparation_started_at))
+        measurement = snapshot.measurement_elapsed_s + (
+            max(0.0, now - snapshot.measurement_started_at) if snapshot.measurement_started_at else 0.0)
+        measured = (self.format_elapsed(measurement) if snapshot.measurement_status != "not_started"
+                    else message_id("run.status.not_started"))
+        text = message_id("run.monitor.phase_times", self.format_elapsed(preparation), measured)
+        self.app.localization.set_text(widget, text, layout=False)
 
     def process_cleanup_incomplete(self, result: StopResult) -> None:
         detail = message_id('run.process.cleanup_incomplete', result.pid, result.error)
@@ -159,6 +176,7 @@ class RunPresenter:
         return f"{hours:02d}:{minutes:02d}:{secs:02d}"
 
     def render_snapshot(self, snapshot: ProgressSnapshot) -> None:
+        self.render_phase_times(snapshot)
         self.app.logs.stage_changed(snapshot)
         from acprof.tui.ui.progress_widgets import PreparationStatus
         self.app.query_one("#status-preparation", PreparationStatus).update_snapshot(snapshot)
@@ -217,6 +235,15 @@ class RunPresenter:
             kind, returncode, snapshot, launch_error,
             analysis_ready=self.app.results.analysis_view is not None,
         )
+        final = self.app.execution.session.snapshot
+        now = time.monotonic()
+        if final.preparation_started_at and not final.preparation_finished:
+            final = replace(final, preparation_finished=True,
+                            preparation_elapsed_s=max(0.0, now - final.preparation_started_at))
+        if final.measurement_started_at:
+            final = replace(final, measurement_started_at=0.0,
+                            measurement_elapsed_s=final.measurement_elapsed_s + max(0.0, now - final.measurement_started_at))
+        self.app.execution.update_snapshot(final)
         self.app.preflight.close_preparation()
         # Stop the elapsed-time ticker.
         if self.app.elapsed_timer is not None:

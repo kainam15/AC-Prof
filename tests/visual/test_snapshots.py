@@ -58,6 +58,8 @@ def test_fixed_scenes(snap_compare, tmp_path, monkeypatch, language, size, scene
     monkeypatch.setattr("acprof.tui.run.preflight_controller.quick_preflight", lambda *args, **kwargs: [])
     # Freeze stage-log durations without changing Textual's event-loop clock.
     monkeypatch.setattr("acprof.tui.logging.controller.time", SimpleNamespace(monotonic=lambda: 1.0))
+    monkeypatch.setattr("acprof.tui.run.progress.time", SimpleNamespace(monotonic=lambda: 1.0))
+    monkeypatch.setattr("acprof.tui.run.presenter.time", SimpleNamespace(monotonic=lambda: 1.0))
     from tests.visual_png.scenarios import error_modal
     config = error_modal.initial_config() if scene.startswith("environment") else RunConfig.smoke("fixture/model")
     app = AcprofTui(config, settings_path=tmp_path / "settings.json")

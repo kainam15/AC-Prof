@@ -18,6 +18,7 @@ from textual.widgets import Button, Static
 from textual.worker import Worker
 
 from acprof.events.download import DownloadProgress
+from acprof.events.image import ImageProgress
 from acprof.experiments.configuration import RunConfig
 from acprof.host.preparation.preparation_log import redact_text
 from acprof.host.run_state import MeasurementLock
@@ -58,13 +59,13 @@ class PreflightController:
         self.preparation_cancelled = False
         self.pending_source_change: dict[str, str] | None = None
         self.preparation_request: tuple[subprocess.Popen[str], int] | None = None
-        self.latest_download: DownloadProgress | None = None
+        self.latest_download: DownloadProgress | ImageProgress | None = None
 
     def reset_download(self) -> None:
         self.latest_download = None
         self.app.query_one("#download-progress").display = False
 
-    def download_progress(self, progress: DownloadProgress) -> None:
+    def download_progress(self, progress: DownloadProgress | ImageProgress) -> None:
         if self.app.execution.session.snapshot.measurement_active:
             raise RuntimeError("download progress inside measurement window")
         from acprof.tui.ui.progress_widgets import DownloadProgressPanel
@@ -74,7 +75,9 @@ class PreflightController:
         widget.update_progress(progress)
 
     def finish_download(self, *, cancelled: bool) -> None:
-        if self.latest_download is not None and self.latest_download.state in {"downloading", "verifying"}:
+        if isinstance(self.latest_download, ImageProgress) and self.latest_download.phase not in {"complete", "failed"}:
+            self.download_progress(replace(self.latest_download, phase="failed"))
+        elif isinstance(self.latest_download, DownloadProgress) and self.latest_download.state in {"downloading", "verifying"}:
             self.download_progress(replace(self.latest_download, state="cancelled" if cancelled else "failed",
                                            rate_bytes_s=None))
 
@@ -142,6 +145,8 @@ class PreflightController:
             screen.close()
 
     def preparation_event(self, event: dict) -> None:
+        if "image_progress" in event:
+            self.download_progress(ImageProgress(**event["image_progress"]))
         if event.get("input_plan") is not None and self.app.execution.session.config is not None:
             if self.app.execution.session.snapshot.measurement_active:
                 raise RuntimeError("input plan update inside measurement window")

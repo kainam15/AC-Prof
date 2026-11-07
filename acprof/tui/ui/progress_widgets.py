@@ -10,6 +10,7 @@ from textual.containers import VerticalScroll
 from textual.widgets import Static
 
 from acprof.events.download import DownloadProgress
+from acprof.events.image import ImageProgress
 from acprof.tui.i18n import message_id
 from acprof.tui.run.monitor import visible_statuses
 from acprof.tui.run.progress import ProgressSnapshot
@@ -37,6 +38,12 @@ class ProgressSummary(Static):
 
     def metric(self, label: str, value: str, role: str = "value") -> Text:
         return Text.assemble(self.text(label, "label"), "  ", self.text(value, role))
+
+    def byte_bar(self, current: int, total: int, role: str = "active") -> ProgressBar:
+        return ProgressBar(total=total, completed=current, width=12,
+                           complete_style=self.get_component_rich_style(f"progress--{role}"),
+                           finished_style=self.get_component_rich_style(f"progress--{role}"),
+                           style=self.get_component_rich_style("progress--label"))
 
 
 class PreparationStatus(ProgressSummary):
@@ -67,12 +74,57 @@ class PreparationStatus(ProgressSummary):
         return table
 
 
+class PhaseTimes(Static):
+    DEFAULT_CSS = "PhaseTimes { display: none; height: auto; padding: 0 2; color: $text-muted; }"
+
+
 class DownloadProgressPanel(VerticalScroll):
     def compose(self) -> ComposeResult:
         yield DownloadProgressContent()
+        yield ImageProgressContent()
 
-    def update_progress(self, progress: DownloadProgress) -> None:
-        self.query_one(DownloadProgressContent).update_progress(progress)
+    def update_progress(self, progress: DownloadProgress | ImageProgress) -> None:
+        model = self.query_one(DownloadProgressContent)
+        image = self.query_one(ImageProgressContent)
+        image.display = isinstance(progress, ImageProgress)
+        model.display = not image.display
+        if isinstance(progress, ImageProgress):
+            image.update_progress(progress)
+        else:
+            model.update_progress(progress)
+
+
+class ImageProgressContent(ProgressSummary):
+    progress: ImageProgress | None = None
+
+    def update_progress(self, progress: ImageProgress) -> None:
+        self.progress = progress
+        self.refresh(layout=True)
+
+    def render(self) -> RenderableType:
+        progress = self.progress
+        if progress is None:
+            return Text()
+        parts: list[RenderableType] = [self.metric(message_id("run.docker.component." + progress.component),
+                                                 message_id("run.docker.phase." + progress.phase), "active")]
+        parts.append(Text(progress.image, overflow="fold"))
+        if progress.content:
+            content = progress.content
+            status = content["status"]
+            label = self.text(message_id("run.docker.content." + status), "success" if status == "complete" else "warning")
+            if content.get("present") is not None:
+                label.append(f" ({content['present']}/{content.get('required') or '?'})")
+            parts.append(label)
+        if progress.current is not None and progress.total is not None:
+            row = Table.grid(padding=(0, 2))
+            row.add_row(self.byte_bar(progress.current, progress.total), self.text(message_id("run.docker.transfer",
+                        format_bytes(progress.current), format_bytes(progress.total), f"{progress.current / progress.total:.0%}")))
+            parts.append(row)
+        elif progress.phase in {"pulling", "building"}:
+            parts.append(self.text(message_id("run.docker.unknown_size"), "label"))
+        if progress.detail:
+            parts.append(Text(progress.detail, overflow="fold"))
+        return Group(*parts)
 
 
 class DownloadProgressContent(ProgressSummary):
@@ -110,12 +162,7 @@ class DownloadProgressContent(ProgressSummary):
         progress_row = Table.grid(padding=(0, 2))
         if progress.completed_bytes is not None and progress.total_bytes > 0:
             # Rich's determinate bar renders only when an existing event updates us.
-            progress_row.add_row(ProgressBar(
-                total=progress.total_bytes, completed=progress.completed_bytes, width=12,
-                complete_style=self.get_component_rich_style(f"progress--{role}"),
-                finished_style=self.get_component_rich_style(f"progress--{role}"),
-                style=self.get_component_rich_style("progress--label"),
-            ), amount)
+            progress_row.add_row(self.byte_bar(progress.completed_bytes, progress.total_bytes, role), amount)
         else:
             progress_row.add_row(amount)
 

@@ -30,6 +30,27 @@ def download_failure(request):
 
 
 def failure_text(request, stage, tr):
+    if error := request.get("docker_error"):
+        code = error["reason_code"]
+        lines = [tr(message_id("run.docker.error." + code)) if code in {
+            "docker_content_incomplete", "docker_auth_failed", "docker_network_failed", "docker_disk_full",
+            "docker_repair_unverified", "docker_repair_forbidden",
+        } else tr(message_id("run.docker.error.generic"))]
+        lines.append(tr(message_id("run.docker.failed_step", error.get("step") or error.get("image", ""))))
+        if content := error.get("content"):
+            lines.append(tr(message_id("run.docker.content." + content["status"])) +
+                         (f" ({content['present']}/{content.get('required') or '?'})" if content.get("present") is not None else ""))
+            from acprof.host.images.content import version_needs_upgrade
+            if version_needs_upgrade(content.get("engine_version", "")):
+                lines.append(tr(message_id("run.docker.upgrade", content["engine_version"])))
+        if error.get("exit_code") is not None:
+            lines.append(tr(message_id("run.docker.exit_code", error["exit_code"])))
+        if error.get("detail"):
+            lines.append(error["detail"][-1200:])
+        if error.get("log_path"):
+            lines.append(tr(message_id("run.docker.log_path", error["log_path"])))
+        lines.append(tr(message_id("run.docker.recovery_hint")))
+        return "\n".join(lines)
     if failure := download_failure(request):
         last = failure["attempts"][-1]
         return "\n".join((tr("无法获取 Hugging Face 模型"),
@@ -128,6 +149,7 @@ class PreparationScreen(ModalScreen):
         request = self.event.get("request", {})
         review = request.get("kind") == "review"
         failed = request.get("kind") == "error"
+        docker_error = request.get("docker_error")
         ready = request.get("resolved") is True
         report = request.get("download_report")
         download = review and report is not None
@@ -135,6 +157,8 @@ class PreparationScreen(ModalScreen):
         parameter_review = request.get("purpose") == "workload_parameters"
         title = (message_id("models.parameters.title") if parameter_review else
                  "模型确认" if review else "模型无法正常运行" if failed else "正在检测模型")
+        if failed and (docker_error or request.get("failed_stage", self.event["stage"]) in {"image", "environment", "preflight"}):
+            title = message_id("run.docker.preparation_failed")
         with Vertical(id="preparation-dialog", classes=(
             "task-selection" if task_selection else "download-confirmation" if download else "preparation-failure" if failed else ""
         )):
@@ -177,7 +201,7 @@ class PreparationScreen(ModalScreen):
                         yield Static(tr(summary), id="preparation-summary", markup=False)
                 elif failed:
                     yield Static(failure_text(request, self.event["stage"], tr), id="preparation-detail", markup=False)
-                    with Collapsible(title=tr("详细信息"), id="preparation-diagnostics", collapsed=False):
+                    with Collapsible(title=tr("详细信息"), id="preparation-diagnostics", collapsed=bool(docker_error)):
                         detail = request.get("detail", "")
                         if failure := download_failure(request):
                             import json
@@ -190,7 +214,8 @@ class PreparationScreen(ModalScreen):
                     yield Static(tr("首次使用可能需要准备模型，请稍候。"), markup=False)
             yield Static("", id="preparation-error", markup=False)
             with Horizontal(id="preparation-actions", classes=(
-                "extra-action" if failed and download_failure(request) and self.event["stage"] in {"image", "runtime"} else ""
+                "extra-action" if failed and (download_failure(request) or docker_error and "repair" in docker_error.get("actions", []))
+                and self.event["stage"] in {"image", "environment", "runtime"} else ""
             )):
                 cancel_label = (tr(message_id("common.action.cancel")) if task_selection else
                                 tr("返回配置" if failed or parameter_review else "终止任务"))
@@ -209,9 +234,12 @@ class PreparationScreen(ModalScreen):
                         yield Button(tr("确认下载" if download else "确定"), id="preparation-continue",
                                      disabled=not ready, variant="primary" if ready else "default")
                 elif failed:
-                    yield Button(tr("重试"), id="preparation-continue", variant="primary",
+                    yield Button(tr(message_id("run.environment.retry")) if docker_error else tr("重试"), id="preparation-continue", variant="primary",
                                  tooltip=tr(message_id("run.preparation.retry_hint")))
-                    if self.event["stage"] in {"image", "runtime"}:
+                    if docker_error and "repair" in docker_error.get("actions", []):
+                        yield Button(tr(message_id("run.docker.repair")), id="preparation-repair",
+                                     tooltip=tr(message_id("run.docker.repair_hint")))
+                    if self.event["stage"] in {"image", "environment", "runtime"}:
                         yield Button(tr("重新准备环境"), id="preparation-rebuild",
                                      tooltip=tr(message_id("run.preparation.rebuild_hint")))
                     if download_failure(request):
@@ -294,6 +322,11 @@ class PreparationScreen(ModalScreen):
     @on(Button.Pressed, "#preparation-rebuild")
     def rebuild(self):
         self.send({"action": "rebuild"})
+
+    @on(Button.Pressed, "#preparation-repair")
+    def repair(self):
+        if "repair" in self.event.get("request", {}).get("docker_error", {}).get("actions", []):
+            self.send({"action": "repair"})
 
     @on(Button.Pressed, "#preparation-modelscope")
     def switch_modelscope(self):
