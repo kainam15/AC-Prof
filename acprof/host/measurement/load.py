@@ -55,11 +55,11 @@ def _submit_requests(
     completed: SimpleQueue[Future[None]] = SimpleQueue()
     completed_ref = weakref.ref(completed)
 
-    def record_completion(future: Future[None]) -> None:
+    def record_completion(finished_future: Future[None]) -> None:
         # Futures retain callbacks; a weak reference avoids a queue/Future cycle.
         queue = completed_ref()
         if queue is not None:
-            queue.put(future)
+            queue.put(finished_future)
 
     for index in range(config.requests):
         if schedule is not None:

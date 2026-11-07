@@ -2,6 +2,7 @@
 import gc
 import threading
 import weakref
+from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor, wait
 from contextlib import contextmanager
 from types import SimpleNamespace
@@ -38,7 +39,7 @@ def controlled_load(monkeypatch):
         pool = ThreadPoolExecutor(*args, **kwargs, initializer=initialized)
         pools.append(pool)
 
-        def submit(function, *arguments, **keywords):
+        def submit(function: Callable[..., object], *arguments: object, **keywords: object) -> Future[object]:
             future = pool.submit(function, *arguments, **keywords)
             if not isinstance(getattr(function, "__self__", None), threading.Barrier):
                 state.futures.add(future)
@@ -91,8 +92,8 @@ def controlled_load(monkeypatch):
         yield state
     finally:
         state.release.set()
-        for pool in pools:
-            pool.shutdown(wait=True, cancel_futures=True)
+        for owned_pool in pools:
+            owned_pool.shutdown(wait=True, cancel_futures=True)
 
 
 def assert_resources_closed(state):
