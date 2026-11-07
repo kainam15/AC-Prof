@@ -131,10 +131,10 @@ class TestStartupPreflight:
 
     async def test_warning_entry_opens_details_and_retry_clears_it(self):
         app = self.make_app()
-        with patch("acprof.tui.run.preflight_controller.quick_preflight", side_effect=[
+        with patch("acprof.tui.run.preflight_controller.scan_environment", side_effect=[
             [PreflightCheck("optional collector", "warn", "not supported [detail]")],
             [PreflightCheck("Docker", "ok", "ready")],
-        ]) as check:
+        ]) as check, patch("acprof.tui.run.preflight_controller.quick_preflight", return_value=[]):
             async with app.run_test(size=(80, 24)) as pilot:
                 await self.finish_check(app, pilot)
                 assert not (app.query_one("#start-run", Button).disabled)
@@ -223,9 +223,9 @@ class TestStartupPreflight:
 
     async def test_issue_entry_and_retry_fit_languages_and_resize(self):
         app = self.make_app()
-        with patch("acprof.tui.run.preflight_controller.quick_preflight", return_value=[
+        with patch("acprof.tui.run.preflight_controller.scan_environment", return_value=[
             PreflightCheck("Docker", "fail", "daemon unavailable\n" + "details\n" * 50),
-        ]):
+        ]), patch("acprof.tui.run.preflight_controller.quick_preflight", return_value=[]):
             async with app.run_test(size=(80, 24)) as pilot:
                 await self.finish_check(app, pilot)
                 for language in ("zh", "en"):
@@ -236,7 +236,7 @@ class TestStartupPreflight:
                         await pilot.pause()
                         entry = app.query_one("#current-environment", Static)
                         assert (entry.region.width) > (0)
-                        assert ("阻断" if language == "zh" else "Blocked") in str(entry.content)
+                        assert ("部分可用" if language == "zh" else "Partly available") in str(entry.content)
                         quit_button = app.query_one("#quit-app", Button)
                         assert quit_button.region.width > 0
                         assert quit_button.region.height == 1

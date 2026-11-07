@@ -11,25 +11,22 @@ from textual.geometry import Offset
 from textual.timer import Timer
 from textual.widgets import Button, Static
 
-from acprof.capabilities import measurement_requested
 from acprof.host.preparation.preparation_log import redact_text
-from acprof.platform import capability_matrix
 from acprof.tui.i18n import message_id
 from acprof.tui.run.diagnostics import PreflightCheck
+from acprof.tui.run.environment_checks import ENVIRONMENT_CHECK_IDS
 from acprof.tui.ui.rendering import CjkScreen
 
 if TYPE_CHECKING:
     from acprof.tui.run.preflight_controller import PreflightController
 
 
-METRICS = (
-    "latency", "throughput", "container_cpu", "container_memory", "process_cpu", "process_memory",
-    "cpu_energy", "cpu_instructions", "capture_interface", "gpu_device", "gpu_memory", "gpu_utilization", "gpu_power",
-)
 LABELS = {
     "environment": "environment", "docker": "docker", "cgroup": "cgroup", "uv": "uv",
     "process_resources": "process_resources", "latency": "latency", "throughput": "throughput",
-    "container_cpu": "cpu", "container_memory": "memory", "process_cpu": "cpu", "process_memory": "memory",
+    "container_cpu": "cgroup_cpu", "container_memory": "cgroup_memory", "process_cpu": "process_cpu", "process_memory": "process_memory",
+    "process_runtime": "process_runtime", "ncu": "ncu", "nsys": "nsys", "intel_advisor": "advisor",
+    "torch": "torch", "massif": "massif",
     "cpu_energy": "rapl", "cpu_instructions": "perf", "capture_interface": "capture",
     "capture_permissions": "capture_permissions",
     "gpu_device": "gpu", "gpu_memory": "gpu_memory", "gpu_utilization": "gpu_utilization", "gpu_power": "gpu_power",
@@ -49,42 +46,15 @@ def item_status(row: PreflightCheck) -> str:
 
 
 def display_checks(controller: PreflightController) -> tuple[PreflightCheck, ...]:
-    """Fill evidence gaps for display only; never feed these rows into launch policy."""
-    config = controller.preflight_config()
-    fresh = controller.check_completed and controller.config_matches()
-    # Cached results cannot describe capabilities of a newly selected runtime,
-    # device or collection mode.
-    rows = list(controller.checks) if fresh else []
-    if fresh and controller.error:
-        rows.append(PreflightCheck(message_id("run.environment.label.check_error"), "error", controller.error,
+    """Present machine evidence without consulting the editable experiment."""
+    rows = list(controller.environment_checks)
+    if controller.environment_error:
+        rows.append(PreflightCheck(message_id("run.environment.label.check_error"), "error", controller.environment_error,
                                    check_id="check_error"))
-    known = {row.check_id for row in rows}
-    runtime = controller.selected_runtime or config.runtime
-    support = capability_matrix(controller.app.environment)
-    gpu = "on" in config.gpus.split(",")
-    for name in METRICS:
-        if name.startswith("container_") and runtime == "process":
-            continue
-        if name.startswith("process_") and runtime != "process":
-            continue
-        metric = {"capture_interface": "packet_latency", "process_cpu": "container_cpu",
-                  "process_memory": "container_memory"}.get(name, name)
-        requested = (gpu if name in {"gpu_device", "gpu_memory", "gpu_utilization"} else
-                     measurement_requested(config.profiling_mode, metric, gpu=gpu))
-        if name in known:
-            continue
-        status = ("not_requested" if not requested else
-                  "declared" if fresh and name in support else "pending")
-        detail = message_id("run.environment.unverified")
-        if status == "not_requested":
-            detail = message_id("run.preflight.not_collected")
-        rows.append(PreflightCheck(name, status, detail, check_id=name,
-                                   source=f"capability_matrix: {support[name]}" if status == "declared" else "not_checked"))
-    tools = tuple(tool for tool in (config.compute_profile_tool, config.execution_profile_tool) if tool != "none")
-    rows.append(PreflightCheck("Profiler", "pending" if tools else "not_requested",
-                              message_id("run.environment.profiler_detail", ", ".join(tools)) if tools else
-                              message_id("run.preflight.not_collected"), check_id="profiler", source="configuration"))
-    # A capability status never overrides the UI severity from quick_preflight.
+    if not controller.check_completed:
+        rows.extend(PreflightCheck(name, "pending", message_id("run.environment.checking_all"),
+                                   check_id=name, source="not_checked") for name in ENVIRONMENT_CHECK_IDS
+                    if name not in {row.check_id for row in rows})
     return tuple(rows)
 
 
@@ -146,9 +116,15 @@ class EnvironmentSignal(Static, can_focus=True):
         status = item_status(self.row)
         role = {"ok": "success", "fail": "error", "error": "error", "not_requested": "muted"}.get(status, "warning")
         dot = "○" if status == "not_requested" else "●"
+        status_label = self.panel.tr("signal." + status)
+        label = Text(self.panel.label(self.row))
+        if self.size.width:
+            # Keep availability readable even when a long translated name is
+            # shortened in the two-column layout.
+            label.truncate(max(1, self.size.width - Text(status_label).cell_len - 5), overflow="ellipsis")
         return Text.assemble(
             (dot, self.get_component_rich_style("environment--" + role)),
-            f" {self.panel.label(self.row)} · {self.panel.tr('signal.' + status)}",
+            " ", label, " · " + status_label,
         )
 
     def on_enter(self) -> None:
@@ -274,24 +250,20 @@ class EnvironmentPopover(Vertical):
             return
         self.fit()
         controller = self.controller
-        config = controller.preflight_config()
         state = controller.display_state
-        runtime = controller.selected_runtime or (config.runtime if config.runtime != "auto" else self.tr("runtime_pending"))
         completed = controller.completed_at.strftime("%Y-%m-%d %H:%M:%S %Z") if controller.completed_at else self.tr("no_check")
         self.query_one("#preflight-title", Static).update(self.tr("title", self.tr("state." + state),
                                                            self.tr("pinned" if self.pinned else "hover")))
-        summary = self.tr("summary", runtime.title(), config.profiling_mode.title(), config.gpus.title(), completed)
-        can_start = not controller.preflight_run_reason() and controller.app.operation_state().allows("run")
-        summary += "\n" + self.tr("can_start" if can_start else "cannot_start")
+        summary = self.tr("summary", completed)
         self.query_one("#preflight-summary", Static).update(summary)
         rows = display_checks(controller)
-        lines = [self.tr("stale_notice")] if state == "stale" else []
+        lines = []
         if state == "error":
             lines.append(self.tr("check_error_hint"))
         self.query_one("#preflight-issues", Static).update("\n".join(lines))
         self.query_one("#preflight-issues").display = bool(lines)
         self.query_one("#preflight-boundary", Static).update(self.tr("boundary"))
-        evidence = self.tr("evidence") + "\n" + self.tr("lock_cached" if controller.lock_acquired else "lock_unknown")
+        evidence = self.tr("lock_cached" if controller.lock_acquired else "lock_unknown")
         self.query_one("#preflight-evidence", Static).update(evidence)
         allowed = controller.app.operation_state().allows("check")
         self.query_one("#preflight-retry", Button).disabled = not allowed

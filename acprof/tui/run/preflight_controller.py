@@ -25,6 +25,7 @@ from acprof.messages import join_messages, message
 from acprof.tui.i18n import message_id
 from acprof.tui.run import form as run_form, planning as run_planning
 from acprof.tui.run.diagnostics import PreflightCheck, quick_preflight
+from acprof.tui.run.environment_checks import scan_environment
 from acprof.tui.run.monitor import MonitorPhase, monitor_phase
 from acprof.tui.ui.environment import EnvironmentIndicator, EnvironmentPopover
 
@@ -48,6 +49,8 @@ class PreflightController:
         self.checked_config: RunConfig | None = None
         self.checks: tuple[PreflightCheck, ...] = ()
         self.error = ""
+        self.environment_checks: tuple[PreflightCheck, ...] = ()
+        self.environment_error = ""
         self.completed_at: datetime | None = None
         self.lock_acquired = False
         self.preparation_screen: PreparationScreen | None = None
@@ -92,13 +95,9 @@ class PreflightController:
     def display_state(self) -> str:
         if self.check_running or not self.check_completed:
             return "checking"
-        if not self.config_matches():
-            return "stale"
-        if self.error:
+        if self.environment_error:
             return "error"
-        if any(check.status == "fail" for check in self.checks):
-            return "blocked"
-        if any(check.status == "warn" for check in self.checks):
+        if any(check.status != "ok" for check in self.environment_checks):
             return "limited"
         return "ready"
 
@@ -256,12 +255,10 @@ class PreflightController:
         if not self.app.is_running or not self.app.form_ready or self.app.ui_closing:
             return
         reason = self.preflight_run_reason()
-        config = self.preflight_config()
         entry = self.app.query_one(EnvironmentIndicator)
-        runtime = self.selected_runtime or config.runtime
         self.app.localization.set_text(entry, message_id(
-            "run.environment.entry", self.app.environment.label.split(" / ")[0], runtime.title(),
-            config.profiling_mode.title(), message_id("run.environment.state." + self.display_state),
+            "run.environment.entry", self.app.environment.label.split(" / ")[0],
+            message_id("run.environment.state." + self.display_state),
         ))
         entry.set_class(self.display_state in {"blocked", "error"}, "environment-error")
         entry.set_class(self.display_state in {"limited", "stale"}, "environment-warning")
@@ -303,17 +300,27 @@ class PreflightController:
 
     def _execute_quick_check_worker(self, config: RunConfig, token: object) -> None:
         lock_acquired = False
+        environment_checks: Sequence[PreflightCheck] = ()
+        environment_error = ""
         try:
             # Perf probes and other diagnostics must never overlap a formal
             # measurement, including one owned by another AC-Prof process.
             with MeasurementLock():
                 lock_acquired = True
+                try:
+                    environment_checks = scan_environment(project_dir=self.app.project_dir)
+                except Exception as exc:
+                    environment_error = f"{type(exc).__name__}: {exc}"
                 checks = quick_preflight(config, project_dir=self.app.project_dir)
             error = ""
         except Exception as exc:
             checks = []
             error = f"{type(exc).__name__}: {exc}"
-        self.app.process.safe_process_callback(self.show_quick_check, checks, error, token, lock_acquired)
+            if not lock_acquired:
+                environment_error = error
+        self.app.process.safe_process_callback(
+            self.show_quick_check, checks, error, token, lock_acquired, environment_checks, environment_error,
+        )
 
     def show_quick_check(
         self,
@@ -321,6 +328,8 @@ class PreflightController:
         error: str,
         token: object,
         lock_acquired: bool = False,
+        environment_checks: Sequence[PreflightCheck] = (),
+        environment_error: str = "",
     ) -> None:
         if not self.app.is_running or not self.app.form_ready or self.app.ui_closing or token is not self.check_request:
             return
@@ -330,6 +339,8 @@ class PreflightController:
         self.checked_config = self.check_config
         self.checks = tuple(checks)
         self.error = error
+        self.environment_checks = tuple(environment_checks)
+        self.environment_error = environment_error
         self.completed_at = datetime.now().astimezone()
         self.lock_acquired = lock_acquired
         self.app.updates.start_check()

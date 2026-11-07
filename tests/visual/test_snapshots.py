@@ -134,7 +134,7 @@ def test_fixed_scenes(snap_compare, tmp_path, monkeypatch, language, size, scene
             error_modal.mount(app)
             await pilot.pause()
             if scene == "environment-details":
-                app.query_one("#preflight-signal-runtime").focus()
+                app.query_one("#preflight-signal-docker").focus()
                 await pilot.pause()
                 assert app.preflight.panel.display
                 details = str(app.query_one("#preflight-explanation", Static).content)

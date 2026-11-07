@@ -15,23 +15,19 @@
 
 ## TUI 左上角环境面板（2026-11）
 
-`AC-Prof <version>` 与环境行统一左对齐。环境行支持悬停、点击固定及键盘访问，
-悬浮面板提供状态、能力摘要和脱敏的单项详情；底部仅保留「重新检查」。
-移除面板内的权限设置、复制摘要、关闭按钮及重复的展开列表，继续通过环境行、外部点击或 `Esc` 关闭。
-检查项以绿、黄、红圆点及灰色空心圆区分通过、受限或待验证、阻断或异常、未启用；
-状态文字保留，悬停或键盘聚焦统一显示检查信息、来源、底层状态与脱敏原始输出，长内容内部滚动。
-仅受限、阻断或检查异常的项目显示「原因」和「解决方法」，正常、未启用及待验证项目不显示修复栏目。
-复用 `PreflightController` 与 `quick_preflight()` 缓存；稳定检查标识仅服务展示，
-保留模式与指标语义、正式启动校验和测量锁。过期结果及旧 Runtime auto 解析不能用于新配置。
-实现借鉴 Textual 的 [Select overlay](https://github.com/Textualize/textual/blob/v8.2.8/src/textual/widgets/_select.py)，
-沿用现有 MIT 依赖，无新增检测器、依赖或测量期轮询。
-逐项说明复用官方 [Widget 的焦点与事件机制](https://github.com/Textualize/textual/blob/v8.2.8/docs/guide/widgets.md)
-及项目已有主题组件样式，避免仅用颜色传达状态。
-定向 Mock / Pilot 回归覆盖中英文三种尺寸、浅深主题与 NO_COLOR、悬停和固定、键盘与日志最大化、
-过期结果、检查失败、详情脱敏和测量期禁用。SVG 已审阅；8 个 VHS PNG 场景已生成对比报告，
-其中 7 个包含预期设计差异，PNG Golden 保持原版，等待用户人工确认。
-未执行真实客户端终端、实际硬件采集或远端 CI 验收。
-操作说明见[环境检查](usage/tui-interaction.md#环境检查)。
+环境面板改为独立机器能力清单：默认检查 Docker / Process、进程和 cgroup CPU / 内存、
+RAPL、perf、抓包、所有可见 GPU 的显存／利用率／功耗，以及各 Profiler 的环境前置条件。
+实验配置不改变环境清单，不再显示「仅声明」或因未勾选而跳过；实验启动校验保持独立。
+工具版本查询和镜像检查保留证据边界，模型／容器／Profiler 真实执行仍需单独验收。
+继续支持悬停、固定、键盘、逐项脱敏说明与测量期间只读缓存。
+
+实现参考 Flutter [doctor](https://github.com/flutter/flutter/blob/main/packages/flutter_tools/lib/src/doctor.dart)
+的逐项诊断与错误呈现，采用其设计思路而非复制 BSD 源码；复用项目现有探测器、NVML、psutil
+和 Profiler 发现逻辑，无新增依赖或测量期间轮询。
+定向 Mock / Pilot 回归覆盖中英文窄屏、缩放、可选工具缺失、逐设备 GPU 失败、测量锁与配置隔离；
+SVG 差异已审阅。本机轻量读取与工具版本查询通过，Torch / Massif 的 Runtime 内执行仍待验证。
+未执行真实客户端终端、模型或完整 Profiler 采集、远端 CI。
+用法见[环境检查](usage/tui-interaction.md#环境检查)。
 
 ## TUI 快捷命令框默认隐藏（2026-11）
 

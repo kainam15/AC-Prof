@@ -14,6 +14,8 @@ def apply_fixture_preflight(app: AcprofTui) -> None:
     """Mark a synthetic host check as passed without probing a real host."""
     app.preflight.checks = ()
     app.preflight.error = ""
+    app.preflight.environment_checks = ()
+    app.preflight.environment_error = ""
     app.preflight.checked_config = app.preflight.preflight_config()
     app.preflight.check_completed = True
     app.preflight.check_running = False

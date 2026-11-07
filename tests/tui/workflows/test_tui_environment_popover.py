@@ -10,6 +10,7 @@ from textual.widgets import Button, Select, Static, TabbedContent
 from acprof.experiments.configuration import RunConfig
 from acprof.tui.app import AcprofTui
 from acprof.tui.run.diagnostics import PreflightCheck
+from acprof.tui.run.environment_checks import ENVIRONMENT_CHECK_IDS
 from acprof.tui.run.progress import ProgressSnapshot
 from acprof.tui.ui.dialogs import ConfirmActionScreen
 from acprof.tui.ui.environment import display_checks
@@ -22,6 +23,14 @@ def app(tmp_path, monkeypatch):
     monkeypatch.delenv("NO_COLOR", raising=False)
     probe = Mock(return_value=[PreflightCheck("Docker", "warn", "fixture diagnostic")])
     monkeypatch.setattr("acprof.tui.run.preflight_controller.quick_preflight", probe)
+
+    def machine_checks(**kwargs):
+        rows = list(probe.return_value)
+        known = {row.check_id for row in rows}
+        return rows + [PreflightCheck(name, "ok", "fixture environment read", check_id=name)
+                       for name in ENVIRONMENT_CHECK_IDS if name not in known]
+
+    monkeypatch.setattr("acprof.tui.run.preflight_controller.scan_environment", machine_checks)
     instance = AcprofTui(RunConfig.smoke(""), settings_path=tmp_path / "settings.json")
     return instance, probe
 
@@ -163,7 +172,7 @@ async def test_environment_overlay_remains_reachable_above_maximized_log(app):
     ("docker", "full", "off"), ("docker", "full", "on"),
     ("process", "basic", "off"), ("process", "basic", "on"),
 ])
-async def test_projection_separates_probes_declarations_and_disabled_metrics(app, runtime, mode, gpu):
+async def test_projection_always_displays_all_machine_capabilities(app, runtime, mode, gpu):
     app, probe = app
     app.configuration.initial_config = replace(RunConfig.smoke(""), runtime=runtime, profiling_mode=mode, gpus=gpu)
     probe.return_value = [PreflightCheck("Runtime", "ok", runtime, runtime_kind=runtime, check_id="runtime")]
@@ -172,15 +181,11 @@ async def test_projection_separates_probes_declarations_and_disabled_metrics(app
     async with app.run_test(size=(80, 24)) as pilot:
         await settle(app, pilot)
         rows = {row.check_id: row for row in display_checks(app.preflight)}
-        assert rows["cpu_energy"].status == ("not_requested" if mode == "basic" else "declared")
-        assert rows["gpu_power"].status == ("not_requested" if mode == "basic" or gpu == "off" else "declared")
-        assert rows["gpu_memory"].status == ("not_requested" if gpu == "off" else "declared")
-        assert rows["profiler"].status == "not_requested"
-        assert rows["latency"].status == "declared"
-        if runtime == "process":
-            assert "docker" not in rows
-            assert "container_cpu" not in rows
-            assert rows["process_cpu"].status == "ok"
+        for name in ("cpu_energy", "gpu_power", "gpu_memory", "process_cpu", "container_cpu", "ncu", "nsys", "torch", "massif"):
+            assert rows[name].status == "ok"
+        assert "docker" in rows
+        assert "latency" not in rows
+        assert "throughput" not in rows
         probe.assert_called_once()
 
 
@@ -233,7 +238,7 @@ async def test_status_dots_explain_cached_checks_on_hover_and_keyboard_focus(app
         await pilot.pause()
         assert app.query("#preflight-signal-cpu_instructions"), "each check needs an individual status indicator"
         for identifier, color in (("docker", "success"), ("cpu_energy", "warning"),
-                                  ("cpu_instructions", "error"), ("check_error", "error"), ("latency", "warning")):
+                                  ("cpu_instructions", "error"), ("check_error", "error"), ("gpu_memory", "success")):
             signal = app.query_one(f"#preflight-signal-{identifier}")
             signal.scroll_visible(animate=False, top=True)
             await pilot.pause()
@@ -242,6 +247,9 @@ async def test_status_dots_explain_cached_checks_on_hover_and_keyboard_focus(app
             cell = app.screen._compositor.render_strips()[region.y].crop(region.x, region.x + 1)
             assert cell.text == "●"
             assert next(iter(cell)).style.color.get_truecolor() == Color.parse(app.theme_variables[color]).get_truecolor()
+            if language == "en" and identifier in {"docker", "cpu_instructions", "gpu_memory"}:
+                visible = app.screen._compositor.render_strips()[region.y].crop(region.x, region.right).text
+                assert ("Unavailable" if identifier == "cpu_instructions" else "Available") in visible
             explanation = str(app.query_one("#preflight-explanation", Static).content)
             problem = identifier in {"cpu_energy", "cpu_instructions", "check_error"}
             assert (("原因：" if language == "zh" else "Reason:") in explanation) == problem
@@ -253,9 +261,9 @@ async def test_status_dots_explain_cached_checks_on_hover_and_keyboard_focus(app
             explanation = str(app.query_one("#preflight-explanation", Static).content)
             assert ("原因：" if language == "zh" else "Reason:") not in explanation
             assert ("解决方法：" if language == "zh" else "Solution:") not in explanation
-        disabled = app.query_one("#preflight-signal-gpu_device")
-        assert "○" in disabled.render().plain
-        assert ("未启用" if language == "zh" else "Not enabled") in disabled.render().plain
+        device = app.query_one("#preflight-signal-gpu_device")
+        assert "●" in device.render().plain
+        assert ("可用" if language == "zh" else "Available") in device.render().plain
         failure = app.query_one("#preflight-signal-cpu_instructions")
         failure.scroll_visible(animate=False, top=True)
         await pilot.pause()
@@ -276,11 +284,12 @@ async def test_status_dots_explain_cached_checks_on_hover_and_keyboard_focus(app
         probe.assert_called_once()
         app.execution.session.snapshot = ProgressSnapshot()
         app.set_busy(False)
+        previous_detail = str(app.query_one("#preflight-explanation", Static).content)
         app.query_one("#gpus", Select).value = "on"
         await pilot.pause()
-        assert app.preflight.display_state == "stale"
-        assert "Permission denied" not in str(app.query_one("#preflight-explanation", Static).content)
-        assert all(("通过" if language == "zh" else "Passed") not in signal.render().plain
+        assert app.preflight.display_state == "limited"
+        assert str(app.query_one("#preflight-explanation", Static).content) == previous_detail
+        assert any(("可用" if language == "zh" else "Available") in signal.render().plain
                    for signal in app.query(".environment-signal"))
         probe.assert_called_once()
 
@@ -294,11 +303,11 @@ async def test_stale_auto_runtime_and_measurement_actions(app):
         app.query_one("#runtime", Select).value = "docker"
         await pilot.pause()
         assert app.preflight.selected_runtime == ""
-        assert app.preflight.display_state == "stale"
+        assert app.preflight.display_state == "ready"
         assert app.query_one("#start-run", Button).disabled
         await pilot.click("#current-environment")
-        assert "Docker" in str(app.query_one("#preflight-summary", Static).content)
-        assert "Process" not in str(app.query_one("#preflight-summary", Static).content)
+        assert "Runtime" not in str(app.query_one("#preflight-summary", Static).content)
+        assert "自动检查全部" in str(app.query_one("#preflight-summary", Static).content)
         app.execution.session.snapshot = ProgressSnapshot(measurement_active=True)
         app.set_busy(True)
         await pilot.press("f6")
@@ -326,8 +335,8 @@ async def test_palette_and_long_panel_fit(app, theme, no_color, monkeypatch):
         await pilot.pause()
         panel = app.preflight.panel
         assert panel.region.bottom <= 24
-        assert "受限" in str(app.query_one("#preflight-title", Static).content)
-        assert any("未启用" in signal.render().plain for signal in app.query(".environment-signal"))
+        assert "部分可用" in str(app.query_one("#preflight-title", Static).content)
+        assert not any("未启用" in signal.render().plain for signal in app.query(".environment-signal"))
         assert all(panel.region.contains_region(button.region) for button in panel.query(Button))
         assert app.theme == theme
         colors = {
