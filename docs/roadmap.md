@@ -27,6 +27,9 @@ SVG 差异已审阅并更新对应基线；真实客户端终端、VHS PNG 与�
 待验证项用灰色 `◌` 单独计数，重检时保留缓存并显示检查提示。
 悬停符号或数量只展示对应检查项，平台和时间移至面板。
 各类别已拆为可独立聚焦的入口，移除下划线；每次只显示一份详情，分别保留各类别的固定状态。
+入口聚焦时仅加粗，不再反转前景与背景色，避免选中后出现白底；状态颜色和固定行为保持不变。
+依据 Textual 8.2.8 [Link 的焦点样式](https://github.com/Textualize/textual/blob/v8.2.8/src/textual/widgets/_link.py)
+定向移除 `reverse`，复用既有样式，无新增依赖或测量期开销。
 鼠标切换类别不会继承另一类别的固定状态，点击、键盘与 `Esc` 仅改变对应类别；入口间空白不触发。
 参考 Textual [ToggleButton 的独立状态与局部焦点样式](https://github.com/Textualize/textual/blob/main/src/textual/widgets/_toggle_button.py)，
 复用现有 Textual / Rich、缓存和单个面板，不新增依赖或轮询。

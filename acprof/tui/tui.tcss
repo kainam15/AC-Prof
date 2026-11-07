@@ -33,7 +33,7 @@ HeaderTitle { content-align: left middle; padding: 0 2; }
 }
 EnvironmentIndicator { width: auto; height: 1; margin-right: 3; }
 EnvironmentIndicator:hover, EnvironmentIndicator.pinned { text-style: bold; background: $boost; }
-EnvironmentIndicator:focus { text-style: bold reverse; }
+EnvironmentIndicator:focus { text-style: bold; }
 #environment-popover {
     display: none;
     overlay: screen;
