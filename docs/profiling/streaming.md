@@ -331,6 +331,11 @@ Decode 阶段吞吐、`1 / TPOT` 或每秒峰值。
 正常的定长、连接关闭和 chunked 响应均可读取。此检查参考 [urllib3 的长度完整性修复](https://github.com/urllib3/urllib3/pull/2514)，
 复用本项目 server metrics 的判断方式，保留标准库 HTTP transport，不增加依赖或自动重试。
 
+响应与连接分别尝试关闭；普通关闭故障不会覆盖原始错误或取消，附加诊断保留在现有
+`probe.errors`／`probe.requests` 错误文本中。读取成功但关闭失败仍按该端点失败处理。
+读取或关闭时发生取消均停止后续探测与负载，CLI 保存取消及清理诊断；尚未开始负载的 JSON
+不生成容量分析。SGLang 的 HTTP 404 旧路由规则保留，附带关闭错误仍记录在该次访问中。
+
 `--service-probe vllm` 在预热前请求 `/version` 和 `/v1/models`，复用现有 Authorization 且不落盘，
 连接关闭、响应限制为 1 MiB。模型列表仅保留 `id/root/max_model_len`，按请求模型 ID 精确且唯一匹配；
 未找到或重复匹配时选中模型为 `null`。`root` 不能解释为 checkpoint revision。只有取得有效

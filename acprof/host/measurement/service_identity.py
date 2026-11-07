@@ -8,6 +8,7 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from acprof.artifacts import loads_finite_json, reject_isolated_surrogates
+from acprof.system.cleanup import cleanup_on_exit, format_exception_notes
 
 MAX_PROBE_RESPONSE_BYTES = 1024 * 1024
 SERVICE_PROBES = ("none", "vllm", "vllm-config", "sglang")
@@ -67,29 +68,24 @@ def _read_json(
         raise ValueError("service probe requires an HTTP(S) origin")
     factory = http.client.HTTPSConnection if target.scheme == "https" else http.client.HTTPConnection
     connection = factory(hostname, target.port, timeout=timeout_s)
-    response: http.client.HTTPResponse | None = None
-    try:
+    with cleanup_on_exit(connection.close, description=f"service probe connection {path}"):
         connection.request("GET", path, headers={**headers, "Connection": "close"})
         received = connection.getresponse()
-        response = received
-        if observation is not None:
-            observation["http_status"] = received.status
-        if received.status != 200:
-            raise _ProbeHTTPError(path, received.status)
-        raw = received.read(MAX_PROBE_RESPONSE_BYTES + 1)
-        if len(raw) > MAX_PROBE_RESPONSE_BYTES:
-            raise ValueError(f"GET {path} exceeded the 1 MiB response limit")
-        if received.length not in (None, 0):
-            raise ValueError(f"GET {path} ended before Content-Length")
-        payload = loads_finite_json(raw.decode("utf-8"))
-        reject_isolated_surrogates(payload)
-        if not isinstance(payload, dict):
-            raise ValueError(f"GET {path} must return a JSON object")
-        return payload
-    finally:
-        if response is not None:
-            response.close()
-        connection.close()
+        with cleanup_on_exit(received.close, description=f"service probe response {path}"):
+            if observation is not None:
+                observation["http_status"] = received.status
+            if received.status != 200:
+                raise _ProbeHTTPError(path, received.status)
+            raw = received.read(MAX_PROBE_RESPONSE_BYTES + 1)
+            if len(raw) > MAX_PROBE_RESPONSE_BYTES:
+                raise ValueError(f"GET {path} exceeded the 1 MiB response limit")
+            if received.length not in (None, 0):
+                raise ValueError(f"GET {path} ended before Content-Length")
+            payload = loads_finite_json(raw.decode("utf-8"))
+            reject_isolated_surrogates(payload)
+            if not isinstance(payload, dict):
+                raise ValueError(f"GET {path} must return a JSON object")
+            return payload
 
 
 def _models(payload: Mapping[str, Any]) -> list[dict[str, Any]]:
@@ -160,7 +156,7 @@ def probe_vllm(
             else:
                 models = _models(payload)
         except Exception as error:
-            errors[name] = f"{type(error).__name__}: {error}"
+            errors[name] = f"{type(error).__name__}: {format_exception_notes(error)}"
     configuration = _vllm_configuration(origin, headers or {}, timeout_s, errors, attempts) if include_configuration else None
     observed: dict[str, Any] | None = None
     if version_payload is not None or models is not None or configuration is not None:
@@ -190,7 +186,7 @@ def _read_recorded(
     try:
         payload = _read_json(origin, path, headers, timeout_s, observation=attempt)
     except Exception as error:
-        attempt["error"] = f"{type(error).__name__}: {error}"
+        attempt["error"] = f"{type(error).__name__}: {format_exception_notes(error)}"
         raise
     return payload
 
@@ -247,7 +243,7 @@ def _vllm_configuration(
         return {"source": _VLLM_CONFIGURATION_PATH, "scope": "reported_engine_configuration",
                 "values": _configuration_values(configuration, _VLLM_CONFIGURATION_TYPES, errors)}
     except Exception as error:
-        errors["server_info"] = f"{type(error).__name__}: {error}"
+        errors["server_info"] = f"{type(error).__name__}: {format_exception_notes(error)}"
         return None
 
 
@@ -273,11 +269,11 @@ def probe_sglang(
             info_path = "/get_server_info"
             info = _read_recorded(origin, info_path, headers or {}, timeout_s, attempts)
     except Exception as error:
-        errors["server_info"] = f"{type(error).__name__}: {error}"
+        errors["server_info"] = f"{type(error).__name__}: {format_exception_notes(error)}"
     try:
         models = _models(_read_recorded(origin, "/v1/models", headers or {}, timeout_s, attempts))
     except Exception as error:
-        errors["models"] = f"{type(error).__name__}: {error}"
+        errors["models"] = f"{type(error).__name__}: {format_exception_notes(error)}"
     observed: dict[str, Any] | None = None
     if info is not None or models is not None:
         version = info.get("version") if info is not None else None
