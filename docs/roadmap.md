@@ -25,6 +25,16 @@
 验证仅限离线 Fixture、headless 与 VHS/xterm.js，未运行真实采集、用户客户端终端或远端 CI。
 用法见[启动和页面](usage/tui-pages.md#启动和页面)。
 
+## Docker 环境准备与恢复（2026-11）
+
+已加入能力受限的 OCI 内容检查，区分完整、缺失、不可用与未验证；已确认缺层的镜像不能因
+pull 返回 up to date 或检查器随后不可用而被当作修复成功。错误分类、Docker 原始诊断和日志位置贯穿准备事件，
+环境阶段支持重新检查、同 digest pull 修复及定向重新构建；保留其他缓存、Model Store 和结果。
+复用下载面板呈现结构化 Docker 进度，准备计时与正式测量窗口累计时间分开。
+实现和适用边界见[Docker 内容完整性与恢复](models/images.md#docker-内容完整性与恢复)。
+离线 Docker／containerd transcript、故障注入和中英文 Headless 交互已覆盖；真实 WSL2 缺层恢复、
+Engine 升级、Docker/GPU 构建和用户客户端终端效果仍未验收。
+
 ## TUI 页头环境面板（2026-11）
 
 页头环境文字入口改为红色 `⊘`、黄色 `⚠`、绿色 `✔` 与各类检查数量；

@@ -84,6 +84,65 @@ provenance 在 resume 和补采时保持冻结，不用新的默认值重新计�
 不回填；新构建必须具备并核验这些身份字段，schema 版本保持不变。Torch、NCU、Massif、Nsys 的工具版本、
 可用性、输出与错误继续由各自计划记录；普通推理成功不代表所有工具已验证成功。
 
+## Docker 内容完整性与恢复
+
+镜像标签、`docker image inspect` 和容器可运行，只能证明相应元数据或解包文件存在。
+依赖缓存、服务镜像以及构建父镜像还会独立检查 OCI 内容可用性；检查仅发生在准备阶段。
+
+| 状态 | 处理 |
+| --- | --- |
+| `complete` | 所需内容对象已存在；继续原有指纹、标签、依赖 Manifest 和 Model Store 校验 |
+| `incomplete` | 缺少部分内容对象，停止复用及后续构建；显示已存在／所需数量 |
+| `unavailable` | 连所需内容集合也无法完整解析，停止复用及后续构建 |
+| `unverified` | 没有可靠的检查能力，明确显示未验证；继续原有身份校验，不宣称内容完整 |
+
+目前支持 Linux x86_64 上、标准本机 Docker Unix socket 对应的 containerd image store。
+检查使用当前用户可执行的 `ctr`，固定 Docker 管理的 socket 与 `moby` namespace，
+并将检查返回的 target digest 与 Docker 的 OCI descriptor 对齐；检查的是 linux/amd64 所需内容。
+无 `ctr`、权限不足、传统 graphdriver、Rootless、Docker Desktop、远程 context、其他架构、
+旧 Engine 不暴露 descriptor、结果不一致或超时均为 `unverified`。不会调用 sudo、导出整个镜像、
+写入 containerd 数据库或删除内容。`complete` 表示内容可用性检查通过，不等于重新哈希全部大层、
+磁盘健康检查或模型推理验收。
+
+准备失败使用稳定的 `reason_code` 区分内容缺失、仓库鉴权、网络、磁盘及一般构建错误。
+保留失败步骤、Docker 退出码、脱敏输出和准备日志路径；日志沿用
+`logs/preparation/<attempt>.log` 的有界记录，结构化错误进入准备摘要的 `last_failure`。
+该日志包括本次 Docker CLI／Engine 输出，不保证保留无限日志；超限会显式记录截断。
+
+TUI 提供以下动作：
+
+- **重新检查**：保留缓存、重试失败阶段。已确认缺层后，必须复查为完整才能继续；
+  检查器随后不可用不能将已知缺层转成成功。
+- **修复缓存**：仅在缺层镜像具有匹配的不可变 registry digest 时启用。先复查，再 pull 同一 digest，
+  最后独立验证；即使 Docker 返回 `Image is up to date`，仍缺层也会失败。已有有效层由 Docker 复用。
+  仓库网络／权限失败不会触发删除。`ACPROF_REQUIRE_PREPARED_IMAGE` 和下载预算模式禁止此路径绕过独立下载准备。
+- **重新准备环境**：环境阶段也可使用。对识别出的本地失败依赖目标重新构建并校验，
+  其构建使用 `--no-cache`；其他完整依赖、Model Store 和实验结果保留。普通 `--rebuild-image`
+  仍保留原来的 Docker cache 语义。重新构建不能修复缺失的基础镜像 blob，基础内容仍需先恢复。
+
+无法检查的 Docker 主机可先执行 `docker context show`、`docker version` 和
+`docker image inspect <image>`，由 Docker 主机管理员核对实际 store 与权限。
+仅在确认是本机 Docker 管理的 containerd 后，使用
+`ctr --address /var/run/docker/containerd/containerd.sock --namespace moby images check 'target.digest==sha256:…'`
+检查目标；不要将系统默认 containerd 当作 Docker store。镜像来自 registry 时，可手动
+`docker pull <repository@sha256:…>`，随后重新启动准备以复查。没有准确 digest 或检查能力时不提供自动修复承诺。
+
+[Moby PR #53615](https://github.com/moby/moby/pull/53615) 修复了已有解包 snapshot 时跳过必要 blob 的 pull 行为，
+已进入 [Docker Engine 29.9.0](https://docs.docker.com/engine/release-notes/29/#2990)。旧版本的相关错误会提示评估升级，
+不会自动升级 Engine。升级与 GPU Runtime、现有镜像的真实兼容性仍需用户另行验证。
+
+准备进度复用 TUI 下载面板：Platform、Environment、Model、Service 分别显示检查、下载、构建和验证状态，
+模型权重仍使用原来的 Hugging Face／ModelScope 进度协议。BuildKit 使用 `rawjson`，本机匿名 Unix socket pull
+使用 Engine JSON 流；配置了 Docker 凭据／credential helper、SSH／TLS context 时保留 Docker CLI 的连接和鉴权行为，
+只显示阶段及日志。只有明确的当前传输字节数才显示进度条，不将局部层进度当作镜像总下载量。
+准备计时与正式 `measurement_started`／`measurement_stopped` 窗口累计时间分开；测量期间该行仅在边界更新，
+不新增轮询或周期刷新。均为 UI 耗时，不能当作结果延迟指标。
+
+实现参考 [containerd `images check`](https://github.com/containerd/containerd/blob/main/cmd/ctr/commands/images/images.go)
+的 required／present／missing 语义，以及 [BuildKit SolveStatus](https://github.com/moby/buildkit/blob/master/client/graph.go)
+和 [Buildx rawjson](https://github.com/docker/buildx/blob/master/docs/reference/buildx_build.md#progress)。这些项目采用 Apache-2.0，
+本项目借鉴协议与检查边界，未复制其实现；复用已有 HTTPX 和 TUI 组件，没有增加 runtime 依赖。
+
 ## 镜像管理与清理
 
 ### GHCR 预构建依赖镜像
