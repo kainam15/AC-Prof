@@ -28,6 +28,16 @@ def main():
             if token is not self.check_request:
                 return
             super().show_quick_check(checks, error, token)
+            self.app.run_worker(self.launch_after_updates(), name="launch_validation", group="validation")
+
+        async def launch_after_updates(self):
+            # Version checks keep collection disabled after preflight completes.
+            # Wait in a separate worker so the UI and preflight callback can finish.
+            for worker in list(self.app.workers):
+                if worker.group == "updates":
+                    await worker.wait()
+            if self.app.ui_closing or not self.app.is_running:
+                return
             reason = self.preflight_run_reason()
             if reason:
                 # A validation-only failure is a synthetic attempt; register its

@@ -48,7 +48,10 @@ Textual 8.2.8 的 `Pilot.hover()` 固定传入 `delta_y=0`，此场景需向 App
 设置持久化测试先进入实际设置页，按锁定版本的
 [Textual 测试流程](https://github.com/Textualize/textual/blob/v8.2.8/docs/guide/testing.md)
 等待初始化和控件变更事件完成，确认主题等偏好已应用后再保存并检查文件。
-`scripts/run_tui_validation.py` 在子进程结束后，通过 `call_after_refresh` 等待监控页显示且日志控件
+`scripts/run_tui_validation.py` 在预检后通过独立 Worker 等待版本检查结束，再启动验证子进程；
+版本查询失败也按正常启动规则继续，避免检查期间的互斥使启动请求丢失。复用锁定的
+[Textual Worker 等待机制](https://github.com/Textualize/textual/blob/v8.2.8/docs/guide/workers.md)（MIT），
+不增加依赖或测量期轮询。子进程结束后，通过 `call_after_refresh` 等待监控页显示且日志控件
 进入实际屏幕布局，再保存 `tui-finished.svg` 并返回退出码。排队的焦点事件若切回配置页，辅助入口
 会重新选中监控页并等待刷新；10 秒内未就绪则明确报错。`test_tui_validation_runner.py` 覆盖真实子进程、
 首次刷新前立即完成、排队的页面切换及启动失败；这些检查仅验证辅助入口的

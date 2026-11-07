@@ -20,7 +20,7 @@ class TestTuiValidationRunner:
     def _isolate_child_measurement_lock(self, measurement_lock_root):
         self.measurement_root = measurement_lock_root
 
-    def run_validation(self, child, *, returncode=0, expected="validation child finished", runner=None):
+    def run_validation(self, child, *, returncode=0, expected="validation child finished", runner=None, version_status=200):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory)
             config = replace(RunConfig.smoke("test/model"), output_dir=str(output / "results"), notify="none")
@@ -34,9 +34,21 @@ def protect_production_lock(event, args):
 sys.addaudithook(protect_production_lock)
 """
             runner = (
+                "import asyncio\nimport httpx\n"
                 "from pathlib import Path\nfrom unittest.mock import patch\n"
+                "from textual.app import active_app\n"
+                "from acprof import __version__\n"
+                "async def version_response(_transport, request):\n"
+                "    assert str(request.url) == 'https://pypi.org/pypi/acprof/json'\n"
+                "    app = active_app.get()\n"
+                "    assert app.updates.checking\n"
+                "    refreshed = asyncio.Event()\n"
+                "    app.call_after_refresh(refreshed.set)\n"
+                "    await refreshed.wait()\n"
+                f"    return httpx.Response({version_status}, json={{'info': {{'version': __version__, 'yanked': False}}}})\n"
                 "with (\n"
                 "    patch('acprof.tui.run.preflight_controller.quick_preflight', return_value=[]),\n"
+                "    patch('httpx.AsyncHTTPTransport.handle_async_request', version_response),\n"
                 f"    patch('acprof.host.run_state.MEASUREMENT_LOCK_ROOT', Path({str(self.measurement_root)!r})),\n"
                 "):\n"
                 f"    exec({runner!r})\n"
@@ -53,8 +65,9 @@ sys.addaudithook(protect_production_lock)
             rendered = " ".join(ET.parse(output / "tui-finished.svg").getroot().itertext()).replace("\u00a0", " ")
             assert (expected) in (rendered)
 
-    def test_headless_runner_mounts_once_and_records_completed_screen(self):
-        self.run_validation([sys.executable, "-c", "print('validation child finished')"])
+    @pytest.mark.parametrize("version_status", [200, 503])
+    def test_headless_runner_mounts_once_and_records_completed_screen(self, version_status):
+        self.run_validation([sys.executable, "-c", "print('validation child finished')"], version_status=version_status)
 
     @pytest.mark.parametrize('returncode', [0, 7])
     def test_completion_before_monitor_refresh_keeps_output_and_exit_code(self, returncode):
