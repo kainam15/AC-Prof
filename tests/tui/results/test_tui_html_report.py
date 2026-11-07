@@ -401,14 +401,17 @@ async def test_comparison_exports_and_report_panels_stay_hidden_during_navigatio
     ("cpu_cores,status,warmup\n", "no measurement rows"),
     ('cpu_cores,status,warmup\n"broken\n', "unexpected end of data")])
 async def test_real_cli_failure_shows_error_and_keeps_old_report(tmp_path, csv_result, data, error):
-    csv_result.write_text(data)
     old = csv_result.parent / "report.html"
     old.write_text("old report")
     app = AcprofTui(settings_path=tmp_path / "settings.json")
     async with app.run_test() as pilot:
-        app.query_one("#experiment-source", Input).value = str(csv_result)
+        await app.workers.wait_for_complete()
+        app.results.select_result(str(csv_result))
+        await app.workers.wait_for_complete()
         await pilot.pause()
         assert app.query_one("#html-report-path", Input).value == str(old)
+        # A previously selected report must survive a later source/CLI failure.
+        csv_result.write_text(data)
         app.results.html.launch()
         await app.workers.wait_for_complete()
         await pilot.pause()
@@ -424,8 +427,11 @@ async def test_cancel_reaps_process_and_keeps_previous_html(tmp_path, csv_result
     old.write_text("old")
     app = AcprofTui(settings_path=tmp_path / "settings.json")
     async with app.run_test() as pilot:
-        app.query_one("#experiment-source", Input).value = str(csv_result)
+        await app.workers.wait_for_complete()
+        app.results.select_result(str(csv_result))
+        await app.workers.wait_for_complete()
         await pilot.pause()
+        assert app.query_one("#html-report-path", Input).value == str(old)
         command = (sys.executable, "-u", "-c", "import time; print('ready', flush=True); time.sleep(30)")
         pending = commands.PendingLaunch(command, "html-report", report_path=str(tmp_path / "new.html"))
         app.launch(pending)

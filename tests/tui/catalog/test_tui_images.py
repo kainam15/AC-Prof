@@ -1304,7 +1304,8 @@ class TestTuiImages:
                 assert (widget.region.height) > (0), selector
                 assert (widget.region.x) >= (0), selector
                 assert (widget.region.right) <= (size[0]), selector
-                assert (widget.region.bottom) <= (size[1] - 3), selector
+                assert widget.region.intersection(app.query_one("#images-tab").content_region) == widget.region, selector
+                assert widget.region.intersection(app.screen.region) == widget.region, selector
             # 过滤别名仍命中合并后的同一行，清空按钮清掉筛选外的选择。
             app.query_one("#image-search", Input).value = "acprof-build-source"
             await pilot.pause()

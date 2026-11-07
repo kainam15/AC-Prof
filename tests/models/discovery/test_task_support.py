@@ -145,6 +145,7 @@ def test_progress_preserves_unsupported_task_and_points_to_remedies():
     assert ("log") in (translate(state.detail, "en"))
 
 
+@pytest.mark.tui
 @pytest.mark.parametrize('language', ['zh', 'en'])
 @pytest.mark.parametrize('kind', ['run', 'probe'])
 @pytest.mark.parametrize('size', [(80, 24), (120, 30)])
@@ -159,11 +160,13 @@ async def test_run_and_probe_keep_actionable_failure_visible_in_both_languages(l
         old_csv.write_text("existing measurement\n", encoding="utf-8")
         app = AcprofTui(config, settings_path=Path(tmp) / "tui.json")
         async with app.run_test(size=size) as pilot:
+            await app.workers.wait_for_complete()
             await pilot.pause()
             app.configuration.preferences = replace(app.configuration.preferences, language=language)
             app.localization.apply_language()
-            with patch.object(app.process, "execute_command"):
+            with patch.object(app.process, "execute_command") as execute:
                 app.launch(PendingLaunch(("unused",), kind, config))
+                execute.assert_called_once_with(["unused"], kind, config=config)
             await pilot.pause()
             tracker = RunProgressTracker()
             for line in lines:
