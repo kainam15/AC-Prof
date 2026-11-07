@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "pages": [
-    {"id": "run-tab", "title": "实验配置", "tab_label": "≡  实验配置", "purpose": "准备模型、资源矩阵、输入和运行计划"},
+    {"id": "run-tab", "title": "实验配置", "tab_label": "☰  实验配置", "purpose": "准备模型、资源矩阵、输入和运行计划"},
     {"id": "monitor-tab", "title": "运行监控", "tab_label": "◷  运行监控", "purpose": "查看准备、验证、正式测量、日志和终止状态"},
     {"id": "results-tab", "title": "实验结果", "tab_label": "▥  实验结果", "purpose": "读取实验摘要、生成并打开 HTML 分析报告"},
     {"id": "backfill-tab", "title": "补采实验", "tab_label": "↻  补采实验", "purpose": "查看所选实验的 Profiler 状态并选择补采工具"},
