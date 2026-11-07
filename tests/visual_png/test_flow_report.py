@@ -25,7 +25,23 @@ async def test_flow_catalog_matches_visible_tui_pages(tmp_path: Path) -> None:
             for pane in app.query("#main-tabs > ContentSwitcher > TabPane").results(TabPane)
             if tabs.get_tab(pane).display
         ]
-        assert [(page["id"], page["title"]) for page in catalog["pages"]] == visible_pages
+        assert [(page["id"], page.get("tab_label", page["title"])) for page in catalog["pages"]] == visible_pages
+
+
+@pytest.mark.parametrize("label", ["⚙", "", 7])
+def test_catalog_checks_icon_tab_label_separately_from_page_title(tmp_path, label):
+    data = json.loads(CATALOG.read_text(encoding="utf-8"))
+    settings = next(page for page in data["pages"] if page["id"] == "settings-tab")
+    settings["tab_label"] = label
+    source = tmp_path / "catalog.json"
+    source.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    if label == "⚙":
+        loaded = load_catalog(source=source)
+        assert loaded["pages"][-1]["title"] == "应用设置"
+        assert loaded["pages"][-1]["tab_label"] == "⚙"
+    else:
+        with pytest.raises(ValueError, match="page tab label must be nonempty text"):
+            load_catalog(source=source)
 
 
 def test_flow_catalog_references_existing_public_fixtures_and_pages() -> None:

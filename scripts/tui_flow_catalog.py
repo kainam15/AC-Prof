@@ -59,7 +59,12 @@ def load_catalog(*, source: Path = CATALOG, root: Path = ROOT) -> dict:
     _require(isinstance(checkpoints, list) and bool(checkpoints), "checkpoints must be nonempty")
     page_ids: set[str] = set()
     for page in pages:
-        _require(isinstance(page, dict) and set(page) == {"id", "title", "purpose"}, "invalid page")
+        _require(
+            isinstance(page, dict)
+            and {"id", "title", "purpose"}.issubset(page)
+            and set(page) <= {"id", "title", "purpose", "tab_label"},
+            "invalid page",
+        )
         page_id = _string(page["id"], "page id")
         _require(
             bool(SAFE_ID.fullmatch(page_id)) and page_id not in page_ids,
@@ -68,6 +73,8 @@ def load_catalog(*, source: Path = CATALOG, root: Path = ROOT) -> dict:
         page_ids.add(page_id)
         _string(page["title"], "page title")
         _string(page["purpose"], "page purpose")
+        if "tab_label" in page:
+            _string(page["tab_label"], "page tab label")
     _require(
         page_ids == {
             "run-tab", "monitor-tab", "results-tab", "backfill-tab", "images-tab", "settings-tab"

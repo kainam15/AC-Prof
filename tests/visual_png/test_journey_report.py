@@ -49,7 +49,7 @@ def make_synthetic_manifest(actual: Path) -> Path:
                 if step == "launch-review"
                 else "PreparationScreen"
                 if step == "download-review"
-                else "CjkScreen"
+                else "EnvironmentHostScreen"
             )
             steps.append(
                 {
@@ -78,6 +78,23 @@ def make_synthetic_manifest(actual: Path) -> Path:
         encoding="utf-8",
     )
     return folder
+
+
+@pytest.mark.parametrize("screen", ["CjkScreen", "EnvironmentHostScreen", "UntrustedScreen"])
+def test_pilot_manifest_accepts_only_known_default_screens(tmp_path, screen):
+    folder = make_synthetic_manifest(tmp_path)
+    manifest = folder / "manifest.json"
+    doc = json.loads(manifest.read_text(encoding="utf-8"))
+    for scenario in doc["scenarios"]:
+        for step in scenario["steps"]:
+            if step["screen"] == "EnvironmentHostScreen":
+                step["screen"] = screen
+    manifest.write_text(json.dumps(doc), encoding="utf-8")
+    if screen == "UntrustedScreen":
+        with pytest.raises(ValueError, match="unsafe synthetic Pilot step metadata"):
+            load_manifest(folder)
+    else:
+        assert load_manifest(folder) == doc
 
 
 def test_pilot_journey_is_visible_separately_from_golden_comparisons(tmp_path):

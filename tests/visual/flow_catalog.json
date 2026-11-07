@@ -6,7 +6,7 @@
     {"id": "results-tab", "title": "实验结果", "purpose": "读取实验摘要、生成并打开 HTML 分析报告"},
     {"id": "backfill-tab", "title": "补采实验", "purpose": "查看所选实验的 Profiler 状态并选择补采工具"},
     {"id": "images-tab", "title": "镜像管理", "purpose": "查看镜像、依赖、空间和清理操作"},
-    {"id": "settings-tab", "title": "应用设置", "purpose": "管理界面偏好、连接和权限"}
+    {"id": "settings-tab", "title": "应用设置", "tab_label": "⚙", "purpose": "管理界面偏好、连接和权限"}
   ],
   "checkpoints": [
     {

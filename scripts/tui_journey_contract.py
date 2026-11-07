@@ -130,7 +130,7 @@ def load_manifest(folder: Path) -> dict | None:
             if (
                 row["terminal"] not in (list(size), [80, 24])
                 or row["page"] not in {"run-tab", "monitor-tab", "results-tab"}
-                or row["screen"] not in {"CjkScreen", "RecoveryScreen", "PreparationScreen"}
+                or row["screen"] not in {"CjkScreen", "EnvironmentHostScreen", "RecoveryScreen", "PreparationScreen"}
                 or not isinstance(row["action"], str)
                 or len(row["action"]) > 180
                 or not isinstance(row["regions"], dict)

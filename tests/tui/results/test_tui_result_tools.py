@@ -27,7 +27,7 @@ class TestTuiResultTools:
             await pilot.pause()
             tabs = app.query_one("#main-tabs", TabbedContent)
             assert [tabs.get_tab(pane).label.plain for pane in app.query("#main-tabs > ContentSwitcher > TabPane")] == [
-                "实验配置", "运行监控", "实验结果", "补采实验", "镜像管理", "应用设置"]
+                "实验配置", "运行监控", "实验结果", "补采实验", "镜像管理", "⚙"]
             assert not app.query("#profile-tab, #result-dir")
             app.activate_tab("results-tab")
             app.query_one("#experiment-source", Input).value = str(self.csv_path)
