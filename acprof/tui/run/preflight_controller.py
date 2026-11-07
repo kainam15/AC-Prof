@@ -257,12 +257,7 @@ class PreflightController:
             return
         reason = self.preflight_run_reason()
         entry = self.app.query_one(EnvironmentIndicator)
-        self.app.localization.set_text(entry, message_id(
-            "run.environment.entry", self.app.environment.label.split(" / ")[0],
-            message_id("run.environment.state." + self.display_state),
-        ))
-        entry.set_class(self.display_state in {"blocked", "error"}, "environment-error")
-        entry.set_class(self.display_state in {"limited", "stale"}, "environment-warning")
+        entry.update_cached()
         self.panel.update_cached()
         detail = self.app.query_one("#preflight-run-reason", Static)
         detail.display = bool(reason)

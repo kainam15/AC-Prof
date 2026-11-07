@@ -43,6 +43,99 @@ async def settle(app, pilot):
 
 
 @pytest.mark.parametrize("language", ["zh", "en"])
+async def test_environment_counts_filter_cached_checks_on_hover(app, language, monkeypatch):
+    from unittest.mock import Mock
+
+    app, probe = app
+    app.configuration.preferences = replace(app.configuration.preferences, language=language)
+    scan = Mock(return_value=[
+        PreflightCheck("Docker", "ok", "daemon ready", check_id="docker"),
+        PreflightCheck("uv", "ok", "uv ready", check_id="uv"),
+        PreflightCheck("RAPL", "warn", "partial RAPL access", check_id="cpu_energy"),
+        PreflightCheck("perf", "fail", "permission denied", check_id="cpu_instructions"),
+        PreflightCheck("GPU power", "warn", "NVML error", "error", check_id="gpu_power"),
+        PreflightCheck("Torch", "pending", "self-check budget exhausted", check_id="torch"),
+    ])
+    monkeypatch.setattr("acprof.tui.run.preflight_controller.scan_environment", scan)
+    async with app.run_test(size=(80, 24)) as pilot:
+        await settle(app, pilot)
+        entry = app.query_one("#current-environment", Static)
+        assert str(entry.content) == "⊘ 2   ⚠ 1   ✔ 2   ◌ 1"
+        panel = app.preflight.panel
+        assert not panel.display
+        tabs = app.query_one("#main-tabs").region
+        for symbol, identifiers, label in (
+            ("⊘", {"cpu_instructions", "gpu_power"}, "异常" if language == "zh" else "Error"),
+            ("⚠", {"cpu_energy"}, "警告" if language == "zh" else "Warning"),
+            ("✔", {"docker", "uv"}, "通过" if language == "zh" else "Passed"),
+            ("◌", {"torch"}, "待验证" if language == "zh" else "Unverified"),
+        ):
+            offset = Text(str(entry.content).split(symbol)[0]).cell_len + 2
+            assert await pilot.hover(entry, offset=(offset, 0))
+            await pilot.pause()
+            assert panel.display
+            assert {signal.row.check_id for signal in panel.query(".environment-signal")} == identifiers
+            assert label in str(panel.query_one("#preflight-title", Static).content)
+            assert app.environment.label.split(" / ")[0] in str(panel.query_one("#preflight-summary", Static).content)
+            assert app.query_one("#main-tabs").region == tabs
+            assert await pilot.hover(entry, offset=(offset + 2, 0)), "the count is part of the hover target"
+            assert {signal.row.check_id for signal in panel.query(".environment-signal")} == identifiers
+
+        # A selected category can still be pinned and inspected with the keyboard.
+        await pilot.click(entry, offset=(offset, 0))
+        await pilot.hover("#quit-app")
+        await pilot.pause(0.25)
+        assert panel.display
+        assert panel.pinned
+        app.query_one("#preflight-signal-torch").focus()
+        await pilot.pause()
+        assert "self-check budget exhausted" in str(panel.query_one("#preflight-explanation", Static).content)
+        await pilot.press("escape")
+        assert app.focused is entry
+        await pilot.press("enter")
+        await pilot.pause()
+        assert len(panel.query(".environment-signal")) == 6, "keyboard entry must reach all checks"
+        probe.assert_called_once()
+        scan.assert_called_once()
+
+
+async def test_environment_counts_keep_pending_errors_and_refresh_visible(app):
+    app, probe = app
+    async with app.run_test(size=(80, 24)) as pilot:
+        await settle(app, pilot)
+        entry = app.query_one("#current-environment", Static)
+        app.preflight.environment_checks = ()
+        app.preflight.check_completed = False
+        app.preflight.refresh_preflight_state()
+        assert str(entry.content) == "⊘ 0   ⚠ 0   ✔ 0   ◌ 24"
+        app.preflight.check_completed = True
+        app.preflight.environment_error = "fixture scanner failed"
+        app.preflight.refresh_preflight_state()
+        assert str(entry.content) == "⊘ 1   ⚠ 0   ✔ 0"
+        await pilot.hover(entry, offset=(2, 0))
+        await pilot.pause()
+        assert app.query("#preflight-signal-check_error")
+        app.preflight.environment_error = ""
+        app.preflight.environment_checks = (PreflightCheck("Docker", "ok", "daemon ready", check_id="docker"),)
+        app.preflight.refresh_preflight_state()
+        await pilot.pause()
+        assert str(entry.content) == "⊘ 0   ⚠ 0   ✔ 1"
+        assert not app.query(".environment-signal"), "the hovered error group must discard stale checks"
+        assert "没有对应检查项" in str(app.query_one("#preflight-explanation", Static).content)
+        app.preflight.check_running = True
+        app.preflight.refresh_preflight_state()
+        assert str(entry.content) == "⊘ 0   ⚠ 0   ✔ 1   ◌ …", "rechecking cached results must remain visible"
+        await pilot.pause()
+        await pilot.hover(entry, offset=(20, 0))
+        assert "正在检查全部机器能力" in str(app.query_one("#preflight-explanation", Static).content)
+        app.preflight.environment_checks = (PreflightCheck("Torch", "pending", "unverified", check_id="torch"),)
+        app.preflight.refresh_preflight_state()
+        assert str(entry.content) == "⊘ 0   ⚠ 0   ✔ 0   ◌ …"
+        app.preflight.check_running = False
+        probe.assert_called_once()
+
+
+@pytest.mark.parametrize("language", ["zh", "en"])
 async def test_environment_entry_ignores_header_whitespace_after_resize(app, language):
     app, probe = app
     app.configuration.preferences = replace(app.configuration.preferences, language=language)
@@ -344,7 +437,7 @@ async def test_stale_auto_runtime_and_measurement_actions(app):
         assert app.query_one("#start-run", Button).disabled
         await pilot.click("#current-environment")
         assert "Runtime" not in str(app.query_one("#preflight-summary", Static).content)
-        assert str(app.query_one("#preflight-summary", Static).content).startswith("最近检查：")
+        assert str(app.query_one("#preflight-summary", Static).content).splitlines()[1].startswith("最近检查：")
         app.execution.session.snapshot = ProgressSnapshot(measurement_active=True)
         app.set_busy(True)
         await pilot.press("f6")

@@ -27,13 +27,12 @@ HeaderTitle { content-align: left middle; padding: 0 2; }
     height: 1;
     padding: 0 2;
     background: $surface;
-    color: $text-muted;
+    color: $text;
     text-wrap: nowrap;
     text-overflow: ellipsis;
 }
-#current-environment:hover, #current-environment:focus { color: $text; text-style: bold underline; }
-#current-environment.environment-error { color: $error; }
-#current-environment.environment-warning { color: $warning; }
+#current-environment:hover, #current-environment:focus { text-style: bold; }
+#current-environment:focus { text-style: bold underline; }
 #environment-popover {
     display: none;
     overlay: screen;

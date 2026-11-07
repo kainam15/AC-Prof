@@ -236,7 +236,7 @@ class TestStartupPreflight:
                         await pilot.pause()
                         entry = app.query_one("#current-environment", Static)
                         assert (entry.region.width) > (0)
-                        assert ("部分可用" if language == "zh" else "Partly available") in str(entry.content)
+                        assert str(entry.content) == "⊘ 1   ⚠ 0   ✔ 0"
                         quit_button = app.query_one("#quit-app", Button)
                         assert quit_button.region.width > 0
                         assert quit_button.region.height == 1

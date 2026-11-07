@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from rich.style import Style
 from rich.text import Text
 from textual import events, on
 from textual.app import ComposeResult
@@ -45,6 +46,10 @@ def item_status(row: PreflightCheck) -> str:
     return "error" if row.capability_status == "error" and row.status != "not_requested" else row.status
 
 
+def check_group(row: PreflightCheck) -> str:
+    return {"ok": "success", "fail": "error", "error": "error", "warn": "warning"}.get(item_status(row), "pending")
+
+
 def display_checks(controller: PreflightController) -> tuple[PreflightCheck, ...]:
     """Present machine evidence without consulting the editable experiment."""
     rows = list(controller.environment_checks)
@@ -59,21 +64,57 @@ def display_checks(controller: PreflightController) -> tuple[PreflightCheck, ...
 
 
 class EnvironmentIndicator(Static, can_focus=True):
+    """Compact counts with a separate hover target for each cached status."""
+
+    COMPONENT_CLASSES = {"environment--success", "environment--warning", "environment--error", "environment--pending"}
+    DEFAULT_CSS = """
+    EnvironmentIndicator .environment--success { color: $success; }
+    EnvironmentIndicator .environment--warning { color: $warning; }
+    EnvironmentIndicator .environment--error { color: $error; }
+    EnvironmentIndicator .environment--pending { color: $text-muted; }
+    """
     BINDINGS = [("enter,space", "toggle_environment", "Environment")]
 
     def __init__(self, controller: PreflightController) -> None:
         super().__init__("", id="current-environment", markup=False)
         self.controller = controller
 
+    def render(self) -> Text:
+        counts = dict.fromkeys(("error", "warning", "success", "pending"), 0)
+        for row in display_checks(self.controller):
+            counts[check_group(row)] += 1
+        text = Text()
+        for group, symbol in (("error", "⊘"), ("warning", "⚠"), ("success", "✔"), ("pending", "◌")):
+            if group == "pending" and not counts[group] and not self.controller.check_running:
+                continue
+            if text:
+                text.append("   ")
+            start = len(text)
+            text.append(symbol, self.get_component_rich_style("environment--" + group))
+            count = "…" if group == "pending" and self.controller.check_running else str(counts[group])
+            text.append(" " + count)
+            text.stylize(Style(meta={"environment_group": group}), start)
+        return text
+
+    def update_cached(self) -> None:
+        self.update(self.render())
+
     def action_toggle_environment(self) -> None:
         self.controller.show_environment_status()
 
     def on_click(self, event: events.Click) -> None:
         event.stop()
-        self.action_toggle_environment()
+        self.controller.panel.toggle(group=event.style.meta.get("environment_group"))
 
     def on_enter(self) -> None:
-        self.controller.panel.show()
+        if not self.controller.panel.pinned:
+            self.controller.panel.show()
+
+    def on_mouse_move(self, event: events.MouseMove) -> None:
+        group = event.style.meta.get("environment_group")
+        panel = self.controller.panel
+        if group is not None and (not panel.display or panel.group != group):
+            panel.show(group=group)
 
     def on_leave(self) -> None:
         self.controller.panel.schedule_close()
@@ -140,6 +181,7 @@ class EnvironmentPopover(Vertical):
         super().__init__(id="environment-popover")
         self.controller = controller
         self.pinned = False
+        self.group: str | None = None
         self.close_timer: Timer | None = None
         self._rows: tuple[PreflightCheck, ...] = ()
         self._rows_language = ""
@@ -165,19 +207,20 @@ class EnvironmentPopover(Vertical):
             self.close_timer.stop()
             self.close_timer = None
 
-    def show(self, *, pin: bool = False) -> None:
+    def show(self, *, pin: bool = False, group: str | None = None) -> None:
         if self.app.screen is not self.screen or not self.controller.app.form_ready:
             return
         self.cancel_close()
         self.pinned = self.pinned or pin
+        self.group = group
         self.display = True
         self.update_cached()
 
-    def toggle(self) -> None:
-        if self.display and self.pinned:
+    def toggle(self, *, group: str | None = None) -> None:
+        if self.display and self.pinned and self.group == group:
             self.close()
         else:
-            self.show(pin=True)
+            self.show(pin=True, group=group)
 
     def close(self, *, restore_focus: bool = True) -> None:
         self.cancel_close()
@@ -221,7 +264,7 @@ class EnvironmentPopover(Vertical):
         height = max(1, self.app.size.height - 2)
         self.styles.max_height = height
         reason_height = 2 if self.query_one("#preflight-action-reason").display else 0
-        self.query_one("#preflight-scroll").styles.max_height = max(1, height - 12 - reason_height)
+        self.query_one("#preflight-scroll").styles.max_height = max(1, height - 13 - reason_height)
         self.query_one("#preflight-capabilities").styles.grid_size_columns = 2 if self.app.size.width >= 60 else 1
 
     def label(self, row: PreflightCheck) -> str:
@@ -249,12 +292,15 @@ class EnvironmentPopover(Vertical):
         self.fit()
         controller = self.controller
         state = controller.display_state
-        completed = controller.completed_at.strftime("%Y-%m-%d %H:%M:%S %Z") if controller.completed_at else self.tr("no_check")
-        self.query_one("#preflight-title", Static).update(self.tr("title", self.tr("state." + state),
-                                                           self.tr("pinned" if self.pinned else "hover")))
-        summary = self.tr("summary", completed)
-        self.query_one("#preflight-summary", Static).update(summary)
         rows = display_checks(controller)
+        if self.group is not None:
+            rows = tuple(row for row in rows if check_group(row) == self.group)
+        heading = self.tr("state." + state) if self.group is None else self.tr("group_count", self.tr("group." + self.group), len(rows))
+        completed = controller.completed_at.strftime("%Y-%m-%d %H:%M:%S %Z") if controller.completed_at else self.tr("no_check")
+        self.query_one("#preflight-title", Static).update(self.tr("title", heading,
+                                                           self.tr("pinned" if self.pinned else "hover")))
+        summary = controller.app.environment.label.split(" / ")[0] + "\n" + self.tr("summary", completed)
+        self.query_one("#preflight-summary", Static).update(summary)
         lines = []
         if state == "error":
             lines.append(self.tr("check_error_hint"))
@@ -277,8 +323,13 @@ class EnvironmentPopover(Vertical):
         language = controller.app.configuration.preferences.language
         if rows != self._rows or language != self._rows_language:
             self._rows, self._rows_language = rows, language
-            self.query_one("#preflight-explanation", Static).update(self.tr("inspect_hint"))
+            self.query_one("#preflight-explanation", Static).update(self.tr("inspect_hint" if rows else "empty_group"))
+            self.query_one("#preflight-scroll").scroll_home(animate=False)
+            self.query_one("#preflight-inspection").scroll_home(animate=False)
             self.call_later(self.render_rows, rows)
+        if not rows:
+            checking = self.group == "pending" and state == "checking"
+            self.query_one("#preflight-explanation", Static).update(self.tr("checking_all" if checking else "empty_group"))
 
     async def render_rows(self, rows: tuple[PreflightCheck, ...]) -> None:
         if rows != self._rows or not self.is_mounted:

@@ -24,7 +24,10 @@ async def test_partial_launch_keeps_monitor_visible_at_two_sizes():
             async with app.run_test(size=size) as pilot:
                 await pilot.pause()
                 environment = app.query_one("#current-environment", Static)
-                assert str(environment.content).startswith("当前环境   WSL2 · Auto · Basic · 就绪")
+                assert str(environment.content) == "⊘ 0   ⚠ 0   ✔ 0"
+                await pilot.hover(environment)
+                assert str(app.query_one("#preflight-summary", Static).content).splitlines()[0] == "WSL2"
+                await pilot.press("escape")
                 assert environment.region.y == app.query_one(Header).region.bottom
                 assert app.title == f"AC-Prof {__version__}"
                 assert app.sub_title == ""
