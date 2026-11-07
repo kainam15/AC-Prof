@@ -18,7 +18,7 @@ from acprof.host.run_state import MeasurementLock
 from acprof.platform import Environment
 from acprof.tui.run.diagnostics import PreflightCheck
 from acprof.tui.run.environment_checks import scan_environment
-from acprof.tui.ui.environment import display_checks
+from acprof.tui.ui.environment import EnvironmentSignal, display_checks
 
 
 def test_machine_results_survive_unselected_gpu_and_changed_experiment():
@@ -167,11 +167,12 @@ async def test_runtime_self_check_details_are_accessible_without_selecting_profi
         await asyncio.wait_for(app.workers.wait_for_complete(), 10)
         await pilot.click("#current-environment")
         for tool, reading in (("torch", "128"), ("massif", "131072")):
-            signal = app.query_one("#preflight-signal-" + tool)
+            signal = app.query_one("#preflight-signal-" + tool, EnvironmentSignal)
             signal.focus()
             await pilot.pause()
             assert ("可用" if language == "zh" else "Available") in signal.render().plain
-            detail = str(app.query_one("#preflight-explanation", Static).content)
+            detail = app.query_one("#preflight-explanation", Static).content
+            assert isinstance(detail, str)
             assert ("自动运行最小 CPU 自检" if language == "zh" else "Automatic minimal CPU self-check") in detail
             assert reading in detail
             assert "sha256:" in detail
