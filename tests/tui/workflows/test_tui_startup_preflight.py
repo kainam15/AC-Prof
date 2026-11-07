@@ -138,7 +138,7 @@ class TestStartupPreflight:
             async with app.run_test(size=(80, 24)) as pilot:
                 await self.finish_check(app, pilot)
                 assert not (app.query_one("#start-run", Button).disabled)
-                assert (await pilot.click("#current-environment"))
+                assert (await pilot.click("#environment-warning"))
                 await pilot.pause()
                 assert await pilot.hover("#preflight-signal-0")
                 await pilot.pause()
@@ -149,7 +149,7 @@ class TestStartupPreflight:
                 assert (len(app.screen_stack)) == (1)
                 assert app.query_one("#current-environment").display
                 assert app.preflight.panel.display
-                assert "就绪" in str(app.query_one("#preflight-title", Static).content)
+                assert "警告（0）" in str(app.query_one("#preflight-title", Static).content)
 
     async def test_success_does_not_reapply_initial_preset_or_notify(self):
         app = self.make_app()
@@ -234,9 +234,9 @@ class TestStartupPreflight:
                     for width, height in ((80, 24), (120, 30), (150, 45)):
                         await pilot.resize_terminal(width, height)
                         await pilot.pause()
-                        entry = app.query_one("#current-environment", Static)
+                        entry = app.query_one("#environment-error", Static)
                         assert (entry.region.width) > (0)
-                        assert str(entry.content) == "⊘ 1   ⚠ 0   ✔ 0"
+                        assert str(entry.content) == "⊘ 1"
                         quit_button = app.query_one("#quit-app", Button)
                         assert quit_button.region.width > 0
                         assert quit_button.region.height == 1
@@ -336,7 +336,7 @@ class TestStartupPreflight:
                 app.execution.session.snapshot = ProgressSnapshot(measurement_active=True)
                 app.set_busy(True)
                 app.preflight.quick_check()
-                assert (await pilot.click("#current-environment"))
+                assert (await pilot.click("#environment-warning"))
                 await pilot.pause()
                 assert (app.screen.query_one("#preflight-retry", Button).disabled)
                 check.assert_called_once()

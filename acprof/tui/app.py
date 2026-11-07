@@ -68,7 +68,7 @@ from acprof.tui.settings.localization_controller import LocalizationController
 from acprof.tui.ui.dialogs import ConfirmActionScreen
 from acprof.tui.ui.environment import (
     EnvironmentHostScreen,
-    EnvironmentIndicator,
+    EnvironmentIndicators,
     EnvironmentPopover,
 )
 from acprof.tui.ui.input import BarCursorApp, BarCursorInput as Input
@@ -176,7 +176,7 @@ class AcprofTui(BarCursorApp):
                     yield self.localization.localized_widget(Button(
                         "×", id="quit-app", name="退出", tooltip="退出（Ctrl+Q）", compact=True,
                     ))
-            yield EnvironmentIndicator(self.preflight)
+            yield EnvironmentIndicators(self.preflight)
         yield EnvironmentPopover(self.preflight)
         with TabbedContent(initial="run-tab", id="main-tabs"):
             yield from compose_run_tab(self)

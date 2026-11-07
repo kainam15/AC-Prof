@@ -131,7 +131,7 @@ def test_fixed_scenes(snap_compare, tmp_path, monkeypatch, language, size, scene
                 await pilot.press("tab")
                 assert app.focused.id in {"preparation-cancel", "preparation-continue"}
         elif scene.startswith("environment"):
-            error_modal.mount(app)
+            error_modal.mount(app, group="success" if scene == "environment-details" else "error")
             await pilot.pause()
             if scene == "environment-details":
                 app.query_one("#preflight-signal-docker").focus()

@@ -15,7 +15,7 @@ def initial_config() -> RunConfig:
     return replace(RunConfig.smoke("fixture/model"), runtime="docker", profiling_mode="full")
 
 
-def mount(app: AcprofTui) -> None:
+def mount(app: AcprofTui, *, group: str = "error") -> None:
     freeze_for_screenshot(app)
     apply_fixture_preflight(app)
     app.preflight.checks = (
@@ -32,7 +32,8 @@ def mount(app: AcprofTui) -> None:
     app.preflight.completed_at = datetime(2026, 11, 7, 8, 0, tzinfo=UTC)
     app.preflight.lock_acquired = True
     app.preflight.refresh_preflight_state()
-    app.preflight.panel.show(pin=True)
+    app.preflight.panel.show(pin=True, group=group)
+    identifier = "docker" if group == "success" else "cpu_instructions"
     app.preflight.panel.call_later(
-        lambda: app.query_one("#preflight-signal-cpu_instructions").focus(scroll_visible=False)
+        lambda: app.query_one("#preflight-signal-" + identifier).focus(scroll_visible=False)
     )

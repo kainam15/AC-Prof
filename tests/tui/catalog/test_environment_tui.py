@@ -23,9 +23,9 @@ async def test_partial_launch_keeps_monitor_visible_at_two_sizes():
             app = AcprofTui(config, settings_path=Path(directory) / "settings.json")
             async with app.run_test(size=size) as pilot:
                 await pilot.pause()
-                environment = app.query_one("#current-environment", Static)
-                assert str(environment.content) == "⊘ 0   ⚠ 0   ✔ 0"
-                await pilot.hover(environment)
+                environment = app.query_one("#current-environment")
+                assert [str(entry.content) for entry in environment.query(Static) if entry.display] == ["⊘ 0", "⚠ 0", "✔ 0"]
+                await pilot.hover("#environment-error")
                 assert str(app.query_one("#preflight-summary", Static).content).splitlines()[0] == "WSL2"
                 await pilot.press("escape")
                 assert environment.region.y == app.query_one(Header).region.bottom

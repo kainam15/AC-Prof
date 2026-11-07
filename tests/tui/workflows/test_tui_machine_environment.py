@@ -165,7 +165,7 @@ async def test_runtime_self_check_details_are_accessible_without_selecting_profi
     app.configuration.preferences = replace(app.configuration.preferences, language=language)
     async with app.run_test(size=(80, 24)) as pilot:
         await asyncio.wait_for(app.workers.wait_for_complete(), 10)
-        await pilot.click("#current-environment")
+        await pilot.click("#environment-success")
         for tool, reading in (("torch", "128"), ("massif", "131072")):
             signal = app.query_one("#preflight-signal-" + tool, EnvironmentSignal)
             signal.focus()
@@ -194,7 +194,7 @@ async def test_all_machine_checks_run_once_and_ignore_experiment_edits(tmp_path,
         await asyncio.wait_for(app.workers.wait_for_complete(), 10)
         await pilot.pause()
         assert not app.query_one("#start-run", Button).disabled, "an optional host tool cannot block a basic run"
-        await pilot.click("#current-environment")
+        await pilot.click("#environment-success")
         await pilot.pause()
         initial = str(app.query_one("#preflight-summary", Static).content)
         assert "Runtime" not in initial

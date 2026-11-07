@@ -28,7 +28,7 @@ from acprof.tui.run import form as run_form, planning as run_planning
 from acprof.tui.run.diagnostics import PreflightCheck, quick_preflight
 from acprof.tui.run.environment_checks import scan_environment
 from acprof.tui.run.monitor import MonitorPhase, monitor_phase
-from acprof.tui.ui.environment import EnvironmentIndicator, EnvironmentPopover
+from acprof.tui.ui.environment import EnvironmentIndicators, EnvironmentPopover
 
 if TYPE_CHECKING:
     from acprof.tui.run.preparation import PreparationScreen
@@ -101,9 +101,6 @@ class PreflightController:
         if any(check.status != "ok" for check in self.environment_checks):
             return "limited"
         return "ready"
-
-    def show_environment_status(self) -> None:
-        self.panel.toggle()
 
     def network_preflight_report(self, line: str) -> None:
         report = json.loads(line.split(" ", 1)[1])
@@ -256,7 +253,7 @@ class PreflightController:
         if not self.app.is_running or not self.app.form_ready or self.app.ui_closing:
             return
         reason = self.preflight_run_reason()
-        entry = self.app.query_one(EnvironmentIndicator)
+        entry = self.app.query_one(EnvironmentIndicators)
         entry.update_cached()
         self.panel.update_cached()
         detail = self.app.query_one("#preflight-run-reason", Static)

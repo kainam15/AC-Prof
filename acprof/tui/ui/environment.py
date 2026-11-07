@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from rich.style import Style
 from rich.text import Text
 from textual import events, on
 from textual.app import ComposeResult
@@ -63,8 +62,32 @@ def display_checks(controller: PreflightController) -> tuple[PreflightCheck, ...
     return tuple(rows)
 
 
+GROUP_SYMBOLS = {"error": "⊘", "warning": "⚠", "success": "✔", "pending": "◌"}
+
+
+class EnvironmentIndicators(Horizontal):
+    """Independent, content-width targets for each cached status."""
+
+    def __init__(self, controller: PreflightController) -> None:
+        super().__init__(id="current-environment")
+        self.controller = controller
+
+    def compose(self) -> ComposeResult:
+        for group in GROUP_SYMBOLS:
+            yield EnvironmentIndicator(self.controller, group)
+
+    def update_cached(self) -> None:
+        counts = dict.fromkeys(GROUP_SYMBOLS, 0)
+        for row in display_checks(self.controller):
+            counts[check_group(row)] += 1
+        for entry in self.query(EnvironmentIndicator):
+            entry.display = entry.group != "pending" or bool(counts[entry.group]) or self.controller.check_running
+            count = "…" if entry.group == "pending" and self.controller.check_running else str(counts[entry.group])
+            entry.update(GROUP_SYMBOLS[entry.group] + " " + count)
+
+
 class EnvironmentIndicator(Static, can_focus=True):
-    """Compact counts with a separate hover target for each cached status."""
+    """One status entry, with its own keyboard focus and pinned detail."""
 
     COMPONENT_CLASSES = {"environment--success", "environment--warning", "environment--error", "environment--pending"}
     DEFAULT_CSS = """
@@ -75,46 +98,27 @@ class EnvironmentIndicator(Static, can_focus=True):
     """
     BINDINGS = [("enter,space", "toggle_environment", "Environment")]
 
-    def __init__(self, controller: PreflightController) -> None:
-        super().__init__("", id="current-environment", markup=False)
+    def __init__(self, controller: PreflightController, group: str) -> None:
+        super().__init__("", id="environment-" + group, markup=False)
         self.controller = controller
+        self.group = group
 
     def render(self) -> Text:
-        counts = dict.fromkeys(("error", "warning", "success", "pending"), 0)
-        for row in display_checks(self.controller):
-            counts[check_group(row)] += 1
-        text = Text()
-        for group, symbol in (("error", "⊘"), ("warning", "⚠"), ("success", "✔"), ("pending", "◌")):
-            if group == "pending" and not counts[group] and not self.controller.check_running:
-                continue
-            if text:
-                text.append("   ")
-            start = len(text)
-            text.append(symbol, self.get_component_rich_style("environment--" + group))
-            count = "…" if group == "pending" and self.controller.check_running else str(counts[group])
-            text.append(" " + count)
-            text.stylize(Style(meta={"environment_group": group}), start)
-        return text
-
-    def update_cached(self) -> None:
-        self.update(self.render())
+        content = self.content
+        assert isinstance(content, str)
+        label = Text(content)
+        label.stylize(self.get_component_rich_style("environment--" + self.group), 0, 1)
+        return label
 
     def action_toggle_environment(self) -> None:
-        self.controller.show_environment_status()
+        self.controller.panel.toggle(group=self.group)
 
     def on_click(self, event: events.Click) -> None:
         event.stop()
-        self.controller.panel.toggle(group=event.style.meta.get("environment_group"))
+        self.action_toggle_environment()
 
     def on_enter(self) -> None:
-        if not self.controller.panel.pinned:
-            self.controller.panel.show()
-
-    def on_mouse_move(self, event: events.MouseMove) -> None:
-        group = event.style.meta.get("environment_group")
-        panel = self.controller.panel
-        if group is not None and (not panel.display or panel.group != group):
-            panel.show(group=group)
+        self.controller.panel.show(group=self.group)
 
     def on_leave(self) -> None:
         self.controller.panel.schedule_close()
@@ -180,11 +184,19 @@ class EnvironmentPopover(Vertical):
     def __init__(self, controller: PreflightController) -> None:
         super().__init__(id="environment-popover")
         self.controller = controller
-        self.pinned = False
-        self.group: str | None = None
+        self.pinned_groups: set[str] = set()
+        self.group = "error"
         self.close_timer: Timer | None = None
         self._rows: tuple[PreflightCheck, ...] = ()
         self._rows_language = ""
+
+    @property
+    def pinned(self) -> bool:
+        return self.group in self.pinned_groups
+
+    def update_entries(self) -> None:
+        for entry in self.controller.app.query(EnvironmentIndicator):
+            entry.set_class(entry.group in self.pinned_groups, "pinned")
 
     def tr(self, key: str, *values: object) -> str:
         return self.controller.app.tr(message_id(f"run.environment.{key}", *values))
@@ -207,17 +219,20 @@ class EnvironmentPopover(Vertical):
             self.close_timer.stop()
             self.close_timer = None
 
-    def show(self, *, pin: bool = False, group: str | None = None) -> None:
+    def show(self, *, pin: bool = False, group: str = "error") -> None:
         if self.app.screen is not self.screen or not self.controller.app.form_ready:
             return
         self.cancel_close()
-        self.pinned = self.pinned or pin
         self.group = group
+        if pin:
+            self.pinned_groups.add(group)
+        self.update_entries()
         self.display = True
         self.update_cached()
 
-    def toggle(self, *, group: str | None = None) -> None:
-        if self.display and self.pinned and self.group == group:
+    def toggle(self, *, group: str = "error") -> None:
+        if group in self.pinned_groups:
+            self.group = group
             self.close()
         else:
             self.show(pin=True, group=group)
@@ -226,14 +241,15 @@ class EnvironmentPopover(Vertical):
         self.cancel_close()
         focused = self.app.focused
         inside = focused is not None and (focused is self or self in focused.ancestors)
-        self.pinned = False
+        self.pinned_groups.discard(self.group)
+        self.update_entries()
         self.display = False
         if restore_focus and inside and self.app.screen is self.screen:
-            self.controller.app.query_one("#current-environment").focus(scroll_visible=False)
+            self.controller.app.query_one("#environment-" + self.group).focus(scroll_visible=False)
 
     def dismiss_outside(self, point: Offset) -> None:
-        entry = self.controller.app.query_one("#current-environment")
-        if self.display and not self.region.contains_point(point) and not entry.region.contains_point(point):
+        entries = self.controller.app.query(EnvironmentIndicator)
+        if self.display and not self.region.contains_point(point) and not any(entry.region.contains_point(point) for entry in entries):
             self.close(restore_focus=False)
 
     def schedule_close(self) -> None:
@@ -292,10 +308,8 @@ class EnvironmentPopover(Vertical):
         self.fit()
         controller = self.controller
         state = controller.display_state
-        rows = display_checks(controller)
-        if self.group is not None:
-            rows = tuple(row for row in rows if check_group(row) == self.group)
-        heading = self.tr("state." + state) if self.group is None else self.tr("group_count", self.tr("group." + self.group), len(rows))
+        rows = tuple(row for row in display_checks(controller) if check_group(row) == self.group)
+        heading = self.tr("group_count", self.tr("group." + self.group), len(rows))
         completed = controller.completed_at.strftime("%Y-%m-%d %H:%M:%S %Z") if controller.completed_at else self.tr("no_check")
         self.query_one("#preflight-title", Static).update(self.tr("title", heading,
                                                            self.tr("pinned" if self.pinned else "hover")))

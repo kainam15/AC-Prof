@@ -152,8 +152,8 @@ class TestTuiLanguage:
         app = self.make_app(RunConfig.smoke("demo/model"))
         async with app.run_test(size=(80, 24)) as pilot:
             await pilot.pause()
-            environment = app.query_one("#current-environment", Static)
-            assert str(environment.content) == "⊘ 0   ⚠ 0   ✔ 0"
+            environment = app.query_one("#current-environment")
+            assert [str(entry.content) for entry in environment.query(Static) if entry.display] == ["⊘ 0", "⚠ 0", "✔ 0"]
             app.query_one('#notify', Select).value = 'none'
             await pilot.press("f2")
             await pilot.pause()
@@ -164,7 +164,7 @@ class TestTuiLanguage:
             await pilot.press("end", "enter")
             await pilot.pause()
             assert (app.configuration.preferences.language) == ("en")
-            assert str(environment.content) == "⊘ 0   ⚠ 0   ✔ 0"
+            assert [str(entry.content) for entry in environment.query(Static) if entry.display] == ["⊘ 0", "⚠ 0", "✔ 0"]
             assert (app.query_one("#ui-language SelectCurrent #label", Static).content) == ("English")
             assert app.query_one('#notify SelectCurrent #label', Static).content == 'Off'
             assert app.query_one('#notify', Select).value == 'none'
@@ -173,7 +173,7 @@ class TestTuiLanguage:
             await pilot.press("home", "enter")
             await pilot.pause()
             assert (app.configuration.preferences.language) == ("zh")
-            assert str(environment.content) == "⊘ 0   ⚠ 0   ✔ 0"
+            assert [str(entry.content) for entry in environment.query(Static) if entry.display] == ["⊘ 0", "⚠ 0", "✔ 0"]
             assert (app.query_one("#ui-language SelectCurrent #label", Static).content) == ("简体中文")
             assert app.query_one('#notify SelectCurrent #label', Static).content == '关闭'
             assert app.query_one('#notify', Select).value == 'none'

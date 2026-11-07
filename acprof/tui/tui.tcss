@@ -31,8 +31,9 @@ HeaderTitle { content-align: left middle; padding: 0 2; }
     text-wrap: nowrap;
     text-overflow: ellipsis;
 }
-#current-environment:hover, #current-environment:focus { text-style: bold; }
-#current-environment:focus { text-style: bold underline; }
+EnvironmentIndicator { width: auto; height: 1; margin-right: 3; }
+EnvironmentIndicator:hover, EnvironmentIndicator.pinned { text-style: bold; background: $boost; }
+EnvironmentIndicator:focus { text-style: bold reverse; }
 #environment-popover {
     display: none;
     overlay: screen;

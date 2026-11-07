@@ -4,7 +4,6 @@ from dataclasses import replace
 
 import pytest
 from rich.color import Color
-from rich.text import Text
 from textual import events
 from textual.widgets import Button, Select, Static, TabbedContent
 
@@ -14,7 +13,7 @@ from acprof.tui.run.diagnostics import PreflightCheck
 from acprof.tui.run.environment_checks import ENVIRONMENT_CHECK_IDS
 from acprof.tui.run.progress import ProgressSnapshot
 from acprof.tui.ui.dialogs import ConfirmActionScreen
-from acprof.tui.ui.environment import display_checks
+from acprof.tui.ui.environment import EnvironmentIndicator, display_checks
 
 
 @pytest.fixture
@@ -42,6 +41,62 @@ async def settle(app, pilot):
     await pilot.pause()
 
 
+def counts(app):
+    return [str(entry.content) for entry in app.query(EnvironmentIndicator) if entry.display]
+
+
+@pytest.mark.parametrize("language", ["zh", "en"])
+async def test_category_pins_are_independent_with_one_visible_detail(app, language):
+    app, probe = app
+    app.configuration.preferences = replace(app.configuration.preferences, language=language)
+    async with app.run_test(size=(80, 24)) as pilot:
+        await settle(app, pilot)
+        panel = app.preflight.panel
+        pinned_label = "已固定" if language == "zh" else "Pinned"
+        hover_label = "点击入口可固定" if language == "zh" else "Click entry to pin"
+        for group in ("error", "warning", "success"):
+            await pilot.hover("#environment-" + group)
+            assert hover_label in str(panel.query_one("#preflight-title", Static).content)
+            assert not panel.pinned, "another category must not inherit a previous pin"
+            await pilot.click("#environment-" + group)
+            assert panel.pinned
+            assert pinned_label in str(panel.query_one("#preflight-title", Static).content)
+            assert len(app.query("EnvironmentPopover")) == 1
+            await pilot.hover("#quit-app")
+            await pilot.pause(0.25)
+            assert panel.display
+        for group in ("error", "warning", "success"):
+            await pilot.hover("#environment-" + group)
+            assert panel.pinned, "each category must remember its own pin"
+            assert panel.group == group
+        await pilot.click("#environment-warning")
+        assert not panel.display
+        await pilot.hover("#environment-warning")
+        assert not panel.pinned
+        await pilot.hover("#quit-app")
+        await pilot.pause(0.25)
+        assert not panel.display
+        await pilot.hover("#environment-error")
+        assert panel.pinned
+        await pilot.press("escape")
+        await pilot.hover("#environment-success")
+        assert panel.pinned, "Escape must only clear the displayed category"
+        await pilot.click("HeaderTitle")
+        await pilot.hover("#environment-success")
+        assert not panel.pinned, "outside click must clear the displayed category"
+        for group in ("error", "warning"):
+            app.query_one("#environment-" + group).focus()
+            await pilot.press("enter")
+            assert panel.group == group
+            assert panel.pinned
+        app.query_one("#environment-error").focus()
+        await pilot.press("space")
+        assert not panel.display, "keyboard unpin must close the selected category"
+        await pilot.hover("#environment-warning")
+        assert panel.pinned, "keyboard unpin must preserve other categories"
+        probe.assert_called_once()
+
+
 @pytest.mark.parametrize("language", ["zh", "en"])
 async def test_environment_counts_filter_cached_checks_on_hover(app, language, monkeypatch):
     from unittest.mock import Mock
@@ -59,30 +114,29 @@ async def test_environment_counts_filter_cached_checks_on_hover(app, language, m
     monkeypatch.setattr("acprof.tui.run.preflight_controller.scan_environment", scan)
     async with app.run_test(size=(80, 24)) as pilot:
         await settle(app, pilot)
-        entry = app.query_one("#current-environment", Static)
-        assert str(entry.content) == "⊘ 2   ⚠ 1   ✔ 2   ◌ 1"
+        assert counts(app) == ["⊘ 2", "⚠ 1", "✔ 2", "◌ 1"]
         panel = app.preflight.panel
         assert not panel.display
         tabs = app.query_one("#main-tabs").region
-        for symbol, identifiers, label in (
-            ("⊘", {"cpu_instructions", "gpu_power"}, "异常" if language == "zh" else "Error"),
-            ("⚠", {"cpu_energy"}, "警告" if language == "zh" else "Warning"),
-            ("✔", {"docker", "uv"}, "通过" if language == "zh" else "Passed"),
-            ("◌", {"torch"}, "待验证" if language == "zh" else "Unverified"),
+        for group, identifiers, label in (
+            ("error", {"cpu_instructions", "gpu_power"}, "异常" if language == "zh" else "Error"),
+            ("warning", {"cpu_energy"}, "警告" if language == "zh" else "Warning"),
+            ("success", {"docker", "uv"}, "通过" if language == "zh" else "Passed"),
+            ("pending", {"torch"}, "待验证" if language == "zh" else "Unverified"),
         ):
-            offset = Text(str(entry.content).split(symbol)[0]).cell_len + 2
-            assert await pilot.hover(entry, offset=(offset, 0))
+            entry = app.query_one("#environment-" + group)
+            assert await pilot.hover(entry)
             await pilot.pause()
             assert panel.display
             assert {signal.row.check_id for signal in panel.query(".environment-signal")} == identifiers
             assert label in str(panel.query_one("#preflight-title", Static).content)
             assert app.environment.label.split(" / ")[0] in str(panel.query_one("#preflight-summary", Static).content)
             assert app.query_one("#main-tabs").region == tabs
-            assert await pilot.hover(entry, offset=(offset + 2, 0)), "the count is part of the hover target"
+            assert await pilot.hover(entry, offset=(2, 0)), "the count is part of the hover target"
             assert {signal.row.check_id for signal in panel.query(".environment-signal")} == identifiers
 
         # A selected category can still be pinned and inspected with the keyboard.
-        await pilot.click(entry, offset=(offset, 0))
+        await pilot.click(entry)
         await pilot.hover("#quit-app")
         await pilot.pause(0.25)
         assert panel.display
@@ -94,7 +148,7 @@ async def test_environment_counts_filter_cached_checks_on_hover(app, language, m
         assert app.focused is entry
         await pilot.press("enter")
         await pilot.pause()
-        assert len(panel.query(".environment-signal")) == 6, "keyboard entry must reach all checks"
+        assert {signal.row.check_id for signal in panel.query(".environment-signal")} == {"torch"}
         probe.assert_called_once()
         scan.assert_called_once()
 
@@ -103,34 +157,33 @@ async def test_environment_counts_keep_pending_errors_and_refresh_visible(app):
     app, probe = app
     async with app.run_test(size=(80, 24)) as pilot:
         await settle(app, pilot)
-        entry = app.query_one("#current-environment", Static)
         app.preflight.environment_checks = ()
         app.preflight.check_completed = False
         app.preflight.refresh_preflight_state()
-        assert str(entry.content) == "⊘ 0   ⚠ 0   ✔ 0   ◌ 24"
+        assert counts(app) == ["⊘ 0", "⚠ 0", "✔ 0", "◌ 24"]
         app.preflight.check_completed = True
         app.preflight.environment_error = "fixture scanner failed"
         app.preflight.refresh_preflight_state()
-        assert str(entry.content) == "⊘ 1   ⚠ 0   ✔ 0"
-        await pilot.hover(entry, offset=(2, 0))
+        assert counts(app) == ["⊘ 1", "⚠ 0", "✔ 0"]
+        await pilot.hover("#environment-error")
         await pilot.pause()
         assert app.query("#preflight-signal-check_error")
         app.preflight.environment_error = ""
         app.preflight.environment_checks = (PreflightCheck("Docker", "ok", "daemon ready", check_id="docker"),)
         app.preflight.refresh_preflight_state()
         await pilot.pause()
-        assert str(entry.content) == "⊘ 0   ⚠ 0   ✔ 1"
+        assert counts(app) == ["⊘ 0", "⚠ 0", "✔ 1"]
         assert not app.query(".environment-signal"), "the hovered error group must discard stale checks"
         assert "没有对应检查项" in str(app.query_one("#preflight-explanation", Static).content)
         app.preflight.check_running = True
         app.preflight.refresh_preflight_state()
-        assert str(entry.content) == "⊘ 0   ⚠ 0   ✔ 1   ◌ …", "rechecking cached results must remain visible"
+        assert counts(app) == ["⊘ 0", "⚠ 0", "✔ 1", "◌ …"], "rechecking cached results must remain visible"
         await pilot.pause()
-        await pilot.hover(entry, offset=(20, 0))
+        await pilot.hover("#environment-pending")
         assert "正在检查全部机器能力" in str(app.query_one("#preflight-explanation", Static).content)
         app.preflight.environment_checks = (PreflightCheck("Torch", "pending", "unverified", check_id="torch"),)
         app.preflight.refresh_preflight_state()
-        assert str(entry.content) == "⊘ 0   ⚠ 0   ✔ 0   ◌ …"
+        assert counts(app) == ["⊘ 0", "⚠ 0", "✔ 0", "◌ …"]
         app.preflight.check_running = False
         probe.assert_called_once()
 
@@ -141,26 +194,27 @@ async def test_environment_entry_ignores_header_whitespace_after_resize(app, lan
     app.configuration.preferences = replace(app.configuration.preferences, language=language)
     async with app.run_test(size=(80, 24)) as pilot:
         await settle(app, pilot)
-        entry = app.query_one("#current-environment", Static)
+        entry = app.query_one("#current-environment")
         panel = app.preflight.panel
         for width, height in ((80, 24), (120, 30), (150, 45)):
             await pilot.resize_terminal(width, height)
             await pilot.pause()
-            after_label = entry.content_region.x + Text(str(entry.content)).cell_len + 2
-            for x in (after_label, width - 1):
+            after_label = entry.region.right + 2
+            between_entries = app.query_one("#environment-error").region.right + 1
+            for x in (between_entries, after_label, width - 1):
                 blank = (x, entry.region.y)
                 await pilot.hover(offset=blank)
                 assert not panel.display, "header whitespace must not open the environment panel"
                 await pilot.click(offset=blank)
                 assert not panel.display, "header whitespace must not pin the environment panel"
 
-            await pilot.hover(entry, offset=(2, 0))
+            await pilot.hover("#environment-error")
             assert panel.display
             await pilot.hover(offset=blank)
             await pilot.pause(0.25)
             assert not panel.display, "leaving the entry for header whitespace must close the panel"
 
-            await pilot.click(entry, offset=(2, 0))
+            await pilot.click("#environment-error")
             await pilot.hover(offset=blank)
             await pilot.pause(0.25)
             assert panel.display, "clicking the entry must still pin the panel"
@@ -178,7 +232,7 @@ async def test_hover_pin_and_dismiss_keep_page_layout_and_cached_probe(app):
         assert app.query("#environment-popover"), "the header needs an interactive cached overlay"
         panel = app.query_one("#environment-popover")
         assert not panel.display
-        await pilot.hover("#current-environment")
+        await pilot.hover("#environment-warning")
         await pilot.pause()
         assert panel.display
         assert [button.id for button in panel.query(Button)] == ["preflight-retry"]
@@ -190,7 +244,7 @@ async def test_hover_pin_and_dismiss_keep_page_layout_and_cached_probe(app):
         await pilot.hover("#preflight-signal-0")
         await pilot.pause()
         assert "fixture diagnostic" in str(app.query_one("#preflight-explanation", Static).content)
-        await pilot.click("#current-environment")
+        await pilot.click("#environment-warning")
         await pilot.hover("#quit-app")
         await pilot.pause(0.25)
         assert panel.display, "click pins the panel"
@@ -205,11 +259,21 @@ async def test_keyboard_overlay_and_left_aligned_title_survive_resize(app, langu
     app.configuration.preferences = replace(app.configuration.preferences, language=language)
     async with app.run_test(size=(80, 24)) as pilot:
         await settle(app, pilot)
-        entry = app.query_one("#current-environment", Static)
-        assert entry.can_focus, "Tab must reach the environment entry"
+        entry = app.query_one("#environment-warning", Static)
+        assert entry.can_focus, "Tab must reach each environment entry"
+        app.query_one("#quit-app").focus()
+        for group in ("error", "warning", "success"):
+            await pilot.press("tab")
+            assert app.focused is app.query_one("#environment-" + group)
+        await pilot.press("shift+tab")
+        assert app.focused is entry
         for width, height in ((80, 24), (120, 30), (150, 45)):
             await pilot.resize_terminal(width, height)
             entry.focus()
+            await pilot.pause()
+            region = app.query_one("#current-environment").region
+            strip = app.screen._compositor.render_strips()[region.y].crop(region.x, region.right)
+            assert all(not segment.style or not segment.style.underline for segment in strip)
             await pilot.press("enter")
             await pilot.pause()
             panel = app.query_one("#environment-popover")
@@ -246,7 +310,7 @@ async def test_hover_reentry_and_modal_hide_transient_panel(app):
     async with app.run_test(size=(120, 30)) as pilot:
         await settle(app, pilot)
         panel = app.preflight.panel
-        await pilot.hover("#current-environment")
+        await pilot.hover("#environment-warning")
         # Pilot.hover waits for CPU idle before and after each move, which can
         # exceed the close delay. Queue rapid movement without those pauses.
         for selector in ("#quit-app", "#preflight-retry"):
@@ -260,7 +324,7 @@ async def test_hover_reentry_and_modal_hide_transient_panel(app):
         await pilot.hover("#quit-app")
         await pilot.pause(0.25)
         assert not panel.display
-        await pilot.hover("#current-environment")
+        await pilot.hover("#environment-warning")
         app.push_screen(ConfirmActionScreen("fixture", "fixture"))
         await pilot.pause()
         assert not panel.display
@@ -269,10 +333,10 @@ async def test_hover_reentry_and_modal_hide_transient_panel(app):
         app.query_one("#quit-app").focus()
         await pilot.pause()
         await pilot.press("tab")
-        assert app.focused is app.query_one("#current-environment")
+        assert app.focused is app.query_one("#environment-error")
         await pilot.press("enter")
         assert panel.display
-        await pilot.click("#current-environment")
+        await pilot.click("#environment-error")
         assert not panel.display
         probe.assert_called_once()
 
@@ -283,7 +347,7 @@ async def test_environment_overlay_remains_reachable_above_maximized_log(app):
         await settle(app, pilot)
         await pilot.press("f8")
         assert app.screen.maximized is not None
-        await pilot.hover("#current-environment")
+        await pilot.hover("#environment-warning")
         await pilot.pause()
         panel = app.preflight.panel
         assert panel.display
@@ -327,7 +391,7 @@ async def test_details_and_start_reason_are_redacted_and_scrollable(app):
     async with app.run_test(size=(80, 24)) as pilot:
         await settle(app, pilot)
         assert "fixture-secret" not in str(app.query_one("#preflight-run-reason", Static).content)
-        await pilot.click("#current-environment")
+        await pilot.click("#environment-error")
         await pilot.pause()
         row = app.query_one("#preflight-signal-cpu_instructions")
         row.scroll_visible(animate=False, top=True)
@@ -362,11 +426,12 @@ async def test_status_dots_explain_cached_checks_on_hover_and_keyboard_focus(app
     ]
     async with app.run_test(size=(80, 24)) as pilot:
         await settle(app, pilot)
-        await pilot.click("#current-environment")
+        await pilot.click("#environment-warning")
         await pilot.pause()
-        assert app.query("#preflight-signal-cpu_instructions"), "each check needs an individual status indicator"
         for identifier, color in (("docker", "success"), ("cpu_energy", "warning"),
                                   ("cpu_instructions", "error"), ("check_error", "error"), ("gpu_memory", "success")):
+            await pilot.hover("#environment-" + color)
+            await pilot.pause()
             signal = app.query_one(f"#preflight-signal-{identifier}")
             signal.scroll_visible(animate=False, top=True)
             await pilot.pause()
@@ -395,6 +460,8 @@ async def test_status_dots_explain_cached_checks_on_hover_and_keyboard_focus(app
         device = app.query_one("#preflight-signal-gpu_device")
         assert "●" in device.render().plain
         assert " · " not in device.render().plain
+        await pilot.hover("#environment-error")
+        await pilot.pause()
         failure = app.query_one("#preflight-signal-cpu_instructions")
         failure.scroll_visible(animate=False, top=True)
         await pilot.pause()
@@ -405,10 +472,10 @@ async def test_status_dots_explain_cached_checks_on_hover_and_keyboard_focus(app
         assert "Permission denied" in explanation
         assert "fixture-secret" not in explanation
         assert ("采集权限" if language == "zh" else "Permissions") in explanation
-        app.query_one("#preflight-signal-docker").focus()
+        app.query_one("#preflight-signal-check_error").focus()
         await pilot.press("shift+tab")
-        assert app.focused is app.query_one("#preflight-signal-cpu_energy")
-        assert "RAPL fixture limitation" in str(app.query_one("#preflight-explanation", Static).content)
+        assert app.focused is failure
+        assert "Permission denied" in str(app.query_one("#preflight-explanation", Static).content)
         app.execution.session.snapshot = ProgressSnapshot(measurement_active=True)
         app.set_busy(True)
         await pilot.hover(failure)
@@ -420,7 +487,6 @@ async def test_status_dots_explain_cached_checks_on_hover_and_keyboard_focus(app
         await pilot.pause()
         assert app.preflight.display_state == "limited"
         assert str(app.query_one("#preflight-explanation", Static).content) == previous_detail
-        assert " · " not in device.render().plain
         probe.assert_called_once()
 
 
@@ -435,7 +501,7 @@ async def test_stale_auto_runtime_and_measurement_actions(app):
         assert app.preflight.selected_runtime == ""
         assert app.preflight.display_state == "ready"
         assert app.query_one("#start-run", Button).disabled
-        await pilot.click("#current-environment")
+        await pilot.click("#environment-warning")
         assert "Runtime" not in str(app.query_one("#preflight-summary", Static).content)
         assert str(app.query_one("#preflight-summary", Static).content).splitlines()[1].startswith("最近检查：")
         app.execution.session.snapshot = ProgressSnapshot(measurement_active=True)
@@ -461,11 +527,11 @@ async def test_palette_and_long_panel_fit(app, theme, no_color, monkeypatch):
     app.configuration.preferences = replace(app.configuration.preferences, theme=theme)
     async with app.run_test(size=(80, 24)) as pilot:
         await settle(app, pilot)
-        await pilot.click("#current-environment")
+        await pilot.click("#environment-warning")
         await pilot.pause()
         panel = app.preflight.panel
         assert panel.region.bottom <= 24
-        assert "部分可用" in str(app.query_one("#preflight-title", Static).content)
+        assert "警告" in str(app.query_one("#preflight-title", Static).content)
         assert not any("未启用" in signal.render().plain for signal in app.query(".environment-signal"))
         assert all(panel.region.contains_region(button.region) for button in panel.query(Button))
         assert app.theme == theme
