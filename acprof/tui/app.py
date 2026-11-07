@@ -249,7 +249,8 @@ class AcprofTui(BarCursorApp):
     def update_responsive_layout(self, size: Size | None = None) -> None:
         size = self.size if size is None else size
         # Reserve sidebar cells before choosing the form's column layout.
-        self.set_class(size.width < 132, "narrow")
+        navigation_width = 5 if self.has_class("collapsed-navigation") else (17 if size.width < 100 else 22)
+        self.set_class(size.width - navigation_width < 110, "narrow")
         self.set_class(size.width < 100, "compact-navigation")
         self.set_class(size.height < 35, "short")
 
@@ -342,7 +343,16 @@ class AcprofTui(BarCursorApp):
 
     @on(PageNavigation.Selected)
     def on_page_selected(self, event: PageNavigation.Selected) -> None:
+        tabs = self.query_one("#main-tabs", TabbedContent)
+        # Explicit activity activation toggles the sidebar; internal page
+        # changes keep the user's current presentation preference.
+        self.set_class(
+            tabs.active == event.pane_id and not self.has_class("collapsed-navigation"),
+            "collapsed-navigation",
+        )
+        self.update_responsive_layout()
         self.activate_tab(event.pane_id)
+        self.query_one(PageNavigation).sync(tabs)
 
 
     def launch(self, pending: PendingLaunch) -> None:

@@ -27,12 +27,14 @@ class PageNavigation(VerticalScroll, can_focus=False):
             yield Button("", id=f"nav-{pane_id}", name=pane_id, compact=True)
 
     def sync(self, tabs: TabbedContent) -> None:
+        collapsed = self.app.has_class("collapsed-navigation")
         for button in self.query(Button):
             pane_id = button.name
             assert pane_id is not None
             tab = tabs.get_tab(pane_id)
-            button.label = f"{self.ICONS[pane_id]}  {tab.label.plain}"
-            button.tooltip = tab.tooltip
+            icon = self.ICONS[pane_id]
+            button.label = icon if collapsed else f"{icon}  {tab.label.plain}"
+            button.tooltip = tab.tooltip or tab.label.plain
             button.set_class(tabs.active == pane_id, "selected-page")
 
     @on(Button.Pressed)

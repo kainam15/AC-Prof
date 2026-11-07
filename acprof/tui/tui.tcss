@@ -134,6 +134,12 @@ Tab { padding: 0 2; }
 #navigation-divider { height: 1; border-top: solid $panel; margin: 1 0; }
 AcprofTui.compact-navigation #page-navigation { width: 17; padding: 1 0; }
 AcprofTui.compact-navigation #page-navigation Button { padding: 0; }
+AcprofTui.collapsed-navigation #page-navigation { width: 5; padding: 1 0; }
+AcprofTui.collapsed-navigation #page-navigation Button {
+    padding: 0;
+    content-align: center middle;
+    text-align: center;
+}
 AcprofTui.short #page-navigation Button { height: 2; }
 /* Preserve complete toolbar labels in the content width left by the sidebar. */
 AcprofTui.compact-navigation #log-toolbar Button {
