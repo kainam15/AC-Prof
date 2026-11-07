@@ -53,6 +53,18 @@
 - **HTML 报告**：优先统一信息组织、筛选状态、颜色含义、通知和可读性；保留既有独立 HTML 生成、离线打开与结果来源校验，不能为了视觉一致性改变统计计算、CSV 或字段语义。
 - **实现纪律**：优先复用项目现有 Textual/Rich 控件、主题和测试夹具；确有偏离 Carbon 的终端适配时，在相关代码审查或设计说明中说明原因，避免增添平行设计系统。
 
+## 导航图案预览
+
+在源码目录运行 `uv run --locked python scripts/preview_nav_icons.py`，可比较 36 种 Unicode、
+Emoji、ASCII 与无图案候选，同时查看当前项与候选的展开、折叠效果。
+方向键或点击切换，`L` 切换中英文标题，`T` 切换现有主题，`R` 回到当前图案；
+点击“选定并退出”或按 `Ctrl+S` 仅将选择输出到终端，`Esc` 取消。`--list` 可直接打印全部候选。
+
+工具参考 Textual 8.2.8 的 [OptionList 示例](https://github.com/Textualize/textual/blob/v8.2.8/docs/examples/widgets/option_list_options.py)，
+复用现有 MIT 依赖、主题与导航符号，无新增依赖、设置写入或正式采集逻辑。
+[Nerd Fonts](https://github.com/ryanoasis/nerd-fonts) 依赖客户端字体配置，本工具未引入其字体资产；
+Emoji 与宽字符仍需以实际终端显示为准，离线截图只能用于候选比较。
+
 ## 设计审查与验收
 
 对新增页面、视觉重排和交互变化，记录「**主要动作 → 必须可见的信息 → 状态/失败反馈 → 鼠标与键盘路径 → 所需终端验收**」。至少核查：
