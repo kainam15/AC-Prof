@@ -39,7 +39,7 @@ def controlled_load(monkeypatch):
         pool = ThreadPoolExecutor(*args, **kwargs, initializer=initialized)
         pools.append(pool)
 
-        def submit(function: Callable[..., object], *arguments: object, **keywords: object) -> Future[object]:
+        def submit[T, **P](function: Callable[P, T], *arguments: P.args, **keywords: P.kwargs) -> Future[T]:
             future = pool.submit(function, *arguments, **keywords)
             if not isinstance(getattr(function, "__self__", None), threading.Barrier):
                 state.futures.add(future)
