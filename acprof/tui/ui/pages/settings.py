@@ -17,7 +17,7 @@ if TYPE_CHECKING:
     from acprof.tui.app import AcprofTui
 
 def compose_settings_tab(app: AcprofTui) -> ComposeResult:
-    with TabPane("⚙", id="settings-tab"):
+    with TabPane(message_id("settings.app.tooltip"), id="settings-tab"):
         with Vertical(classes="page-header"):
             yield app.localization.localized_widget(Static("应用设置", classes="page-title"))
             yield app.localization.localized_widget(Static(

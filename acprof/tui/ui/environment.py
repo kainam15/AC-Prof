@@ -7,7 +7,7 @@ from rich.text import Text
 from textual import events, on
 from textual.app import ComposeResult
 from textual.containers import Grid, Horizontal, Vertical, VerticalScroll
-from textual.geometry import Offset
+from textual.geometry import Offset, Size
 from textual.timer import Timer
 from textual.widgets import Button, Static
 
@@ -274,14 +274,17 @@ class EnvironmentPopover(Vertical):
     def on_resize(self) -> None:
         self.fit()
 
-    def fit(self) -> None:
+    def fit(self, size: Size | None = None) -> None:
         if not self.is_mounted:
             return
-        height = max(1, self.app.size.height - 2)
+        size = self.app.size if size is None else size
+        width = min(68, size.width)
+        self.styles.offset = (max(0, size.width - width - 5), 1)
+        height = max(1, size.height - 1)
         self.styles.max_height = height
         reason_height = 2 if self.query_one("#preflight-action-reason").display else 0
         self.query_one("#preflight-scroll").styles.max_height = max(1, height - 13 - reason_height)
-        self.query_one("#preflight-capabilities").styles.grid_size_columns = 2 if self.app.size.width >= 60 else 1
+        self.query_one("#preflight-capabilities").styles.grid_size_columns = 2 if size.width >= 60 else 1
 
     def label(self, row: PreflightCheck) -> str:
         return self.tr("label." + LABELS[row.check_id]) if row.check_id in LABELS else self.controller.app.tr(row.label)

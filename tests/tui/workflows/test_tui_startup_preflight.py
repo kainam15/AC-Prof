@@ -241,7 +241,8 @@ class TestStartupPreflight:
                         assert quit_button.region.width > 0
                         assert quit_button.region.height == 1
                         assert quit_button.region.right == width
-                        assert entry.region.y > quit_button.region.y
+                        assert entry.region.y == quit_button.region.y
+                        assert entry.region.right <= quit_button.region.x
                         assert app.get_widget_at(*quit_button.region.center)[0] is quit_button
                         assert (await pilot.click(entry))
                         await pilot.pause()
@@ -253,9 +254,9 @@ class TestStartupPreflight:
                         await pilot.press("escape")
                         await pilot.pause()
                         quit_button.focus()
-                        await pilot.press("tab")
+                        await pilot.press("shift+tab", "shift+tab", "shift+tab")
                         assert app.focused is entry
-                        await pilot.press("shift+tab")
+                        await pilot.press("tab", "tab", "tab")
                         assert app.focused is quit_button
 
     @pytest.mark.parametrize("language", ["zh", "en"])

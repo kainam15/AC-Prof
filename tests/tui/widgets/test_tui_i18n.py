@@ -317,7 +317,7 @@ class TestTuiLanguage:
             await pilot.pause()
             await pilot.resize_terminal(*size)
             await pilot.pause()
-            assert (app.has_class("narrow")) == (size[0] < 110)
+            assert app.has_class("narrow") == (app.query_one("#main-tabs").region.width < 110)
             assert (app.has_class("short")) == (size[1] < 35)
             await self.switch(app, pilot, language)
             for tab, ids in (
@@ -327,7 +327,7 @@ class TestTuiLanguage:
                 ("results-tab", ("experiment-source", "refresh-experiment-state", "report-calculate")),
             ):
                 tabs = app.query_one("#main-tabs", TabbedContent)
-                tab_button = tabs.get_tab(tab)
+                tab_button = app.query_one(f"#nav-{tab}", Button)
                 assert (tab_button.region.width) > (0), tab
                 assert (tab_button.region.x) >= (0), tab
                 assert (tab_button.region.right) <= (size[0]), tab

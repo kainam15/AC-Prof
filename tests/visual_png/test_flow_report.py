@@ -7,7 +7,7 @@ from copy import deepcopy
 from pathlib import Path
 
 import pytest
-from textual.widgets import TabbedContent, TabPane
+from textual.widgets import Button
 
 from scripts.render_tui_png_report import render_report
 from scripts.tui_flow_catalog import CATALOG, ROOT, load_catalog, png_inventory, svg_inventory
@@ -19,11 +19,10 @@ async def test_flow_catalog_matches_visible_tui_pages(tmp_path: Path) -> None:
     app = AcprofTui(settings_path=tmp_path / "settings.json")
     async with app.run_test(size=(80, 24)) as pilot:
         await pilot.pause()
-        tabs = app.query_one("#main-tabs", TabbedContent)
         visible_pages = [
-            (pane.id, tabs.get_tab(pane).label.plain)
-            for pane in app.query("#main-tabs > ContentSwitcher > TabPane").results(TabPane)
-            if tabs.get_tab(pane).display
+            (button.name, button.label.plain)
+            for button in app.query("#page-navigation Button").results(Button)
+            if button.display
         ]
         assert [(page["id"], page.get("tab_label", page["title"])) for page in catalog["pages"]] == visible_pages
 

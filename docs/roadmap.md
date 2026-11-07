@@ -13,15 +13,19 @@
 已将 TUI 界面改动可直接在 `main` 开发和提交的例外同步到根目录协作入口与
 [Git 协作规则](development/quality.md#git-worktree-与合并)，明确适用范围、现有修改保护和验证要求。
 
-## TUI 设置齿轮入口（2026-11）
+## TUI 左侧导航与页头环境入口（2026-11）
 
-顶部导航最右侧的应用设置改为 `⚙`，悬停显示“设置”／`Settings`，点击与 `F2` 继续打开设置页。
-复用 Textual 8.2.8 的 [Widget.tooltip](https://github.com/Textualize/textual/blob/v8.2.8/src/textual/widget.py#L842)
-及现有翻译机制，不增加依赖或测量期工作。中英文三种尺寸、缩放、悬停与导航已做定向 headless 检查，
-SVG 差异已审阅并更新对应基线；真实客户端终端、VHS PNG 与远端 CI 未执行。
+六个主页面改用左侧栏导航，设置以 `⚙ 设置` 放在分隔线下；环境分类计数移至同一行退出按钮左侧，
+详情在入口下方展开。点击、方向键与 `Enter`、`F2` 和业务自动切页共用现有页面状态，保留草稿和后台页面。
+参考 Textual 官方 [Sidebar 布局](https://github.com/Textualize/textual/blob/main/docs/examples/guide/layout/dock_layout1_sidebar.py)
+与 [TabbedContent.active](https://github.com/Textualize/textual/blob/v8.2.8/docs/widgets/tabbed_content.md)，
+复用现有 MIT 依赖和公开 API，仅借鉴布局与状态分离思路，不复制源码、不增加依赖或测量期轮询。
+定向 Pilot 覆盖中英文、80×24／120×30／150×45、缩放、键盘、日志放大与模拟测量切页；
+20 个 SVG 比较通过，审阅并更新 15 张 SVG、7 张 PNG；8 张 PNG 候选已审阅，中文表单与英文结果窄窗复采一致。
+验证仅限离线 Fixture、headless 与 VHS/xterm.js，未运行真实采集、用户客户端终端或远端 CI。
 用法见[启动和页面](usage/tui-pages.md#启动和页面)。
 
-## TUI 左上角环境面板（2026-11）
+## TUI 页头环境面板（2026-11）
 
 页头环境文字入口改为红色 `⊘`、黄色 `⚠`、绿色 `✔` 与各类检查数量；
 待验证项用灰色 `◌` 单独计数，重检时保留缓存并显示检查提示。

@@ -199,9 +199,9 @@ async def test_environment_entry_ignores_header_whitespace_after_resize(app, lan
         for width, height in ((80, 24), (120, 30), (150, 45)):
             await pilot.resize_terminal(width, height)
             await pilot.pause()
-            after_label = entry.region.right + 2
+            before_label = entry.region.x - 2
             between_entries = app.query_one("#environment-error").region.right + 1
-            for x in (between_entries, after_label, width - 1):
+            for x in (between_entries, before_label):
                 blank = (x, entry.region.y)
                 await pilot.hover(offset=blank)
                 assert not panel.display, "header whitespace must not open the environment panel"
@@ -262,7 +262,10 @@ async def test_keyboard_overlay_and_left_aligned_title_survive_resize(app, langu
         entry = app.query_one("#environment-warning", Static)
         assert entry.can_focus, "Tab must reach each environment entry"
         app.query_one("#quit-app").focus()
-        for group in ("error", "warning", "success"):
+        await pilot.press("shift+tab")
+        assert app.focused is app.query_one("#environment-success")
+        app.query_one("#environment-error").focus()
+        for group in ("warning", "success"):
             await pilot.press("tab")
             assert app.focused is app.query_one("#environment-" + group)
         await pilot.press("shift+tab")
@@ -279,7 +282,8 @@ async def test_keyboard_overlay_and_left_aligned_title_survive_resize(app, langu
             panel = app.query_one("#environment-popover")
             quit_button = app.query_one("#quit-app", Button)
             assert panel.display
-            assert panel.region.y == entry.region.bottom == 2
+            assert panel.region.y == entry.region.bottom == 1
+            assert panel.region.right <= quit_button.region.x
             assert panel.region.width <= 70
             assert panel.region.bottom <= height
             assert app.get_widget_at(*quit_button.region.center)[0] is quit_button
@@ -294,7 +298,7 @@ async def test_keyboard_overlay_and_left_aligned_title_survive_resize(app, langu
             visible = "\n".join(strip.crop(region.x, region.right).text
                                 for strip in app.screen._compositor.render_strips()[region.y:region.bottom])
             assert ("重新检查" if language == "zh" else "Check again") in visible
-            assert panel.region.y == 2
+            assert panel.region.y == 1
             assert app.get_widget_at(*retry.region.center)[0] is retry
             await pilot.press("escape")
             assert app.focused is entry

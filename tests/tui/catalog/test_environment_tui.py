@@ -28,7 +28,7 @@ async def test_partial_launch_keeps_monitor_visible_at_two_sizes():
                 await pilot.hover("#environment-error")
                 assert str(app.query_one("#preflight-summary", Static).content).splitlines()[0] == "WSL2"
                 await pilot.press("escape")
-                assert environment.region.y == app.query_one(Header).region.bottom
+                assert environment.region.y == app.query_one(Header).region.y
                 assert app.title == f"AC-Prof {__version__}"
                 assert app.sub_title == ""
                 with patch.object(app.process, "execute_command") as launch:

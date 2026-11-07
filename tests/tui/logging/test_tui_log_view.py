@@ -6,7 +6,7 @@ from unittest.mock import Mock, patch
 import pytest
 from rich.console import Console
 from textual.widget import Widget
-from textual.widgets import Button, Static, Tabs
+from textual.widgets import Button, Static
 from textual.widgets.text_area import Selection
 
 from acprof.experiments.configuration import RunConfig
@@ -82,8 +82,8 @@ class TestTuiLogView:
             assert (await pilot.click("#expand-log", offset=(3, 0)))
             await pilot.pause()
             assert (app.screen.maximized) is (panel)
-            environment = app.query_one("#current-environment")
-            assert environment.region.y == 1
+            environment = app.query_one("#environment-error")
+            assert environment.region.y == 0
             assert app.get_widget_at(*environment.region.center)[0] is environment
             assert (log.content_region.height) > (normal_height)
             toolbar = app.query_one("#log-toolbar")
@@ -192,7 +192,7 @@ class TestTuiLogView:
             log.clear_log().write("\n".join(f"line {index:03d} " + "payload " * 30 for index in range(80)))
             app.theme = theme
             await pilot.pause()
-            active_tab = app.query_one(Tabs).active_tab
+            active_tab = app.query_one("#nav-monitor-tab", Button)
             assert (active_tab.styles.color) != (active_tab.styles.background)
             scrollable_widgets = [widget for widget in app.query(Widget) if widget.is_scrollable]
             assert (scrollable_widgets)

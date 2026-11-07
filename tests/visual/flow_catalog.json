@@ -1,12 +1,12 @@
 {
   "schema_version": 1,
   "pages": [
-    {"id": "run-tab", "title": "实验配置", "purpose": "准备模型、资源矩阵、输入和运行计划"},
-    {"id": "monitor-tab", "title": "运行监控", "purpose": "查看准备、验证、正式测量、日志和终止状态"},
-    {"id": "results-tab", "title": "实验结果", "purpose": "读取实验摘要、生成并打开 HTML 分析报告"},
-    {"id": "backfill-tab", "title": "补采实验", "purpose": "查看所选实验的 Profiler 状态并选择补采工具"},
-    {"id": "images-tab", "title": "镜像管理", "purpose": "查看镜像、依赖、空间和清理操作"},
-    {"id": "settings-tab", "title": "应用设置", "tab_label": "⚙", "purpose": "管理界面偏好、连接和权限"}
+    {"id": "run-tab", "title": "实验配置", "tab_label": "≡  实验配置", "purpose": "准备模型、资源矩阵、输入和运行计划"},
+    {"id": "monitor-tab", "title": "运行监控", "tab_label": "◷  运行监控", "purpose": "查看准备、验证、正式测量、日志和终止状态"},
+    {"id": "results-tab", "title": "实验结果", "tab_label": "▥  实验结果", "purpose": "读取实验摘要、生成并打开 HTML 分析报告"},
+    {"id": "backfill-tab", "title": "补采实验", "tab_label": "↻  补采实验", "purpose": "查看所选实验的 Profiler 状态并选择补采工具"},
+    {"id": "images-tab", "title": "镜像管理", "tab_label": "▣  镜像管理", "purpose": "查看镜像、依赖、空间和清理操作"},
+    {"id": "settings-tab", "title": "应用设置", "tab_label": "⚙  设置", "purpose": "管理界面偏好、连接和权限"}
   ],
   "checkpoints": [
     {

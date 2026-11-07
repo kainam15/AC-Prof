@@ -7,10 +7,11 @@ from typing import TYPE_CHECKING
 from rich.text import Text
 from textual.binding import Binding
 from textual.widget import Widget
-from textual.widgets import Button, Checkbox, Collapsible, Select, Static, Tab
+from textual.widgets import Button, Checkbox, Collapsible, Select, Static, Tab, TabbedContent
 
 from acprof.tui.i18n import translate
 from acprof.tui.ui.input import BarCursorInput as Input
+from acprof.tui.ui.navigation import PageNavigation
 
 if TYPE_CHECKING:
     from acprof.tui.app import AcprofTui
@@ -86,6 +87,7 @@ class LocalizationController:
         with self.app.prevent(Select.Changed), self.app.batch_update():
             for (widget, attribute), source in self.localized_text.items():
                 self.render_text(widget, attribute, source)
+            self.app.query_one(PageNavigation).sync(self.app.query_one("#main-tabs", TabbedContent))
             for widget, sources in self.localized_selects.items():
                 value = widget.value
                 widget.set_options((self.tr(label), key) for label, key in sources)

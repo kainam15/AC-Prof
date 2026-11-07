@@ -29,7 +29,6 @@ try:
         Select,
         Static,
         TabbedContent,
-        Tabs,
         Tree,
     )
 except ModuleNotFoundError as exc:  # pragma: no cover - exercised before tests install deps
@@ -72,6 +71,7 @@ from acprof.tui.ui.environment import (
     EnvironmentPopover,
 )
 from acprof.tui.ui.input import BarCursorApp, BarCursorInput as Input
+from acprof.tui.ui.navigation import PageNavigation
 from acprof.tui.ui.pages.backfill import compose_backfill_tab
 from acprof.tui.ui.pages.images import compose_images_tab
 from acprof.tui.ui.pages.monitor import compose_monitor_tab
@@ -173,18 +173,20 @@ class AcprofTui(BarCursorApp):
         with Vertical(id="app-header"):
             with Header(show_clock=False):
                 with Horizontal(id="header-actions"):
+                    yield EnvironmentIndicators(self.preflight)
                     yield self.localization.localized_widget(Button(
                         "×", id="quit-app", name="退出", tooltip="退出（Ctrl+Q）", compact=True,
                     ))
-            yield EnvironmentIndicators(self.preflight)
         yield EnvironmentPopover(self.preflight)
-        with TabbedContent(initial="run-tab", id="main-tabs"):
-            yield from compose_run_tab(self)
-            yield from compose_monitor_tab(self)
-            yield from compose_results_tab(self)
-            yield from compose_backfill_tab(self)
-            yield from compose_images_tab(self)
-            yield from compose_settings_tab(self)
+        with Horizontal(id="workspace"):
+            yield PageNavigation(id="page-navigation")
+            with TabbedContent(initial="run-tab", id="main-tabs"):
+                yield from compose_run_tab(self)
+                yield from compose_monitor_tab(self)
+                yield from compose_results_tab(self)
+                yield from compose_backfill_tab(self)
+                yield from compose_images_tab(self)
+                yield from compose_settings_tab(self)
 
         with Vertical(id="bottom-panel"):
             with Horizontal(id="slash-command-bar"):
@@ -238,13 +240,17 @@ class AcprofTui(BarCursorApp):
         # App.size can still refer to the previous frame while Resize is
         # dispatched. Use the event's new dimensions for responsive classes.
         self.update_responsive_layout(event.size)
+        if self.form_ready:
+            self.preflight.panel.fit(event.size)
         if (self.form_ready and self.images.inventory is not None and not self.images.images_unavailable(allow_refresh=True)
                 and self.query_one("#main-tabs", TabbedContent).active == "images-tab"):
             self.images.render_images(width=event.size.width)
 
     def update_responsive_layout(self, size: Size | None = None) -> None:
         size = self.size if size is None else size
-        self.set_class(size.width < 110, "narrow")
+        # Reserve sidebar cells before choosing the form's column layout.
+        self.set_class(size.width < 132, "narrow")
+        self.set_class(size.width < 100, "compact-navigation")
         self.set_class(size.height < 35, "short")
 
 
@@ -295,7 +301,8 @@ class AcprofTui(BarCursorApp):
                 widget.disabled = False
                 continue
             if busy and widget.has_focus:
-                self.screen.set_focus(self.query_one("#main-tabs", TabbedContent).query_one(Tabs), scroll_visible=False)
+                active = self.query_one("#main-tabs", TabbedContent).active
+                self.screen.set_focus(self.query_one(f"#nav-{active}"), scroll_visible=False)
             widget.disabled = busy or (state.checking and widget.id in {
                 "open-environment-settings", "open-model-store",
             })
@@ -330,8 +337,12 @@ class AcprofTui(BarCursorApp):
         tabs = self.query_one("#main-tabs", TabbedContent)
         # Move focus before hiding the outgoing pane. Widget.focus() defers
         # this change, allowing an old pane's focus event to undo the switch.
-        self.screen.set_focus(tabs.query_one(Tabs), scroll_visible=False)
+        self.screen.set_focus(self.query_one(f"#nav-{tab_id}"), scroll_visible=False)
         tabs.active = tab_id
+
+    @on(PageNavigation.Selected)
+    def on_page_selected(self, event: PageNavigation.Selected) -> None:
+        self.activate_tab(event.pane_id)
 
 
     def launch(self, pending: PendingLaunch) -> None:
@@ -510,6 +521,7 @@ class AcprofTui(BarCursorApp):
 
     @on(TabbedContent.TabActivated, '#main-tabs')
     def on_images_image_tab_activated(self, event: TabbedContent.TabActivated) -> None:
+        self.query_one(PageNavigation).sync(event.tabbed_content)
         self.images.image_tab_activated(event)
 
     @on(Button.Pressed, '#image-view-tree, #image-view-list, #image-view-layers')

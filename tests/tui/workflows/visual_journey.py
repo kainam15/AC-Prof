@@ -245,7 +245,7 @@ async def exercise_journey(
             assert app.query_one("#run-log").suspended
             assert app.query_one("#status-case", Static).display
             await record("measurement", "synthetic measurement boundary")
-            assert await pilot.click(tabs.get_tab("run-tab"))
+            assert await pilot.click("#nav-run-tab")
             await pilot.pause()
             assert tabs.active == "run-tab"
             assert app.query_one("#start-run", Button).disabled
@@ -253,7 +253,7 @@ async def exercise_journey(
                 "measurement-config",
                 "clicked Configuration during measurement; start remains disabled",
             )
-            assert await pilot.click(tabs.get_tab("monitor-tab"))
+            assert await pilot.click("#nav-monitor-tab")
             await pilot.pause()
             assert tabs.active == "monitor-tab"
             assert app.execution.session.snapshot.measurement_active
@@ -282,7 +282,7 @@ async def exercise_journey(
             assert app.query_one("#stop-run", Button).disabled
             assert tabs.active == "monitor-tab"  # No automatic results switch.
             await record("finished", "synthetic verified completion, remained in monitor")
-            assert await pilot.click(tabs.get_tab("results-tab"))
+            assert await pilot.click("#nav-results-tab")
             await app.workers.wait_for_complete()
             await pilot.pause()
             assert tabs.active == "results-tab"

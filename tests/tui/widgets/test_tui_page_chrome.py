@@ -41,12 +41,13 @@ class TestTuiPageChrome:
 
     def assert_actions_aligned(self, pane, secondary_ids, primary):
         secondary = [pane.query_one("#" + widget_id) for widget_id in secondary_ids]
+        gap = 0 if pane.id == "monitor-tab" and self.app.has_class("compact-navigation") else 1
         assert (secondary[0].region.x) == (pane.region.x + 2)
         for left, right in zip(secondary, secondary[1:], strict=False):
-            assert (right.region.x) == (left.region.right + 1), right.id
+            assert (right.region.x) == (left.region.right + gap), right.id
         for action in secondary:
             assert (action.region.y) == (primary.region.y), action.id
-        assert (primary.region.x) >= (secondary[-1].region.right + 1)
+        assert (primary.region.x) >= (secondary[-1].region.right + gap)
 
     @pytest.mark.parametrize('language', ['zh', 'en'])
     @pytest.mark.parametrize('size', [(80, 24), (120, 30), (150, 45)])
