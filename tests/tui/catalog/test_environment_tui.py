@@ -24,7 +24,7 @@ async def test_partial_launch_keeps_monitor_visible_at_two_sizes():
             async with app.run_test(size=size) as pilot:
                 await pilot.pause()
                 environment = app.query_one("#current-environment", Static)
-                assert environment.content == "当前环境   WSL2/PARTIAL"
+                assert str(environment.content).startswith("当前环境   WSL2 · Auto · Basic · 就绪")
                 assert environment.region.y == app.query_one(Header).region.bottom
                 assert app.title == f"AC-Prof {__version__}"
                 assert app.sub_title == ""

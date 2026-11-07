@@ -110,7 +110,7 @@ class TestStartupPreflight:
                     await pilot.press("a", "b", "c")
                     assert (app.query_one("#model", Input).value) == ("abc")
                     assert not (app.query("#quick-check"))
-                    assert not (app.query_one("#environment-status").display)
+                    assert app.query_one("#current-environment").display
                     app.preflight.quick_check()
                     assert (check.call_count) == (1), "no duplicate worker while checking"
                     app.clear_notifications()
@@ -122,7 +122,7 @@ class TestStartupPreflight:
                 assert not (app.query_one("#open-model-store", Button).disabled)
                 assert (app.query_one("#run-log", SelectableLog).text) == ("")
                 assert not (app._notifications)
-                assert not (app.query_one("#environment-status").display)
+                assert app.query_one("#current-environment").display
                 app.activate_tab("settings-tab")
                 app.activate_tab("run-tab")
                 await pilot.resize_terminal(120, 30)
@@ -138,14 +138,16 @@ class TestStartupPreflight:
             async with app.run_test(size=(80, 24)) as pilot:
                 await self.finish_check(app, pilot)
                 assert not (app.query_one("#start-run", Button).disabled)
-                assert (await pilot.click("#environment-status"))
+                assert (await pilot.click("#current-environment"))
                 await pilot.pause()
-                assert ("not supported [detail]") in (str(app.screen.query_one("#preflight-details", Static).content))
+                assert "not supported [detail]" in app.preflight.panel.diagnostic_summary()
                 assert (await pilot.click("#preflight-retry"))
                 await self.finish_check(app, pilot)
                 assert (check.call_count) == (2)
                 assert (len(app.screen_stack)) == (1)
-                assert not (app.query_one("#environment-status").display)
+                assert app.query_one("#current-environment").display
+                assert app.preflight.panel.display
+                assert "就绪" in str(app.query_one("#preflight-title", Static).content)
 
     async def test_success_does_not_reapply_initial_preset_or_notify(self):
         app = self.make_app()
@@ -210,7 +212,7 @@ class TestStartupPreflight:
 
                 await asyncio.wait_for(configuration_invalidated(), timeout=3)
                 assert (app.query_one("#start-run", Button).disabled)
-                assert (app.query_one("#environment-status").display)
+                assert (app.query_one("#current-environment").display)
                 assert (check.call_count) == (2), "form edits do not start more probes"
                 app.preflight.quick_check()
                 await self.finish_check(app, pilot)
@@ -230,14 +232,14 @@ class TestStartupPreflight:
                     for width, height in ((80, 24), (120, 30), (150, 45)):
                         await pilot.resize_terminal(width, height)
                         await pilot.pause()
-                        entry = app.query_one("#environment-status", Button)
+                        entry = app.query_one("#current-environment", Static)
                         assert (entry.region.width) > (0)
-                        assert (str(entry.label)) == ("环境异常" if language == "zh" else "Environment error")
+                        assert ("阻断" if language == "zh" else "Blocked") in str(entry.content)
                         quit_button = app.query_one("#quit-app", Button)
                         assert quit_button.region.width > 0
                         assert quit_button.region.height == 1
                         assert quit_button.region.right == width
-                        assert entry.region.right <= quit_button.region.x
+                        assert entry.region.y > quit_button.region.y
                         assert app.get_widget_at(*quit_button.region.center)[0] is quit_button
                         assert (await pilot.click(entry))
                         await pilot.pause()
@@ -248,10 +250,11 @@ class TestStartupPreflight:
                         assert (retry.region.bottom) <= (height)
                         await pilot.press("escape")
                         await pilot.pause()
+                        quit_button.focus()
                         await pilot.press("tab")
-                        assert app.focused is quit_button
-                        await pilot.press("shift+tab")
                         assert app.focused is entry
+                        await pilot.press("shift+tab")
+                        assert app.focused is quit_button
 
     @pytest.mark.parametrize("language", ["zh", "en"])
     @pytest.mark.parametrize("status", ["ready", "warning", "failure", "exception", "process"])
@@ -270,7 +273,7 @@ class TestStartupPreflight:
             async with app.run_test(size=(80, 24)) as pilot:
                 await self.finish_check(app, pilot)
                 quit_button = app.query_one("#quit-app", Button)
-                assert app.query_one("#environment-status").display == (status != "ready")
+                assert app.query_one("#current-environment").display
                 assert app.get_widget_at(*quit_button.region.center)[0] is quit_button
                 assert await pilot.click(quit_button)
                 await pilot.pause()
@@ -297,7 +300,7 @@ class TestStartupPreflight:
                     release.set()
                 await self.finish_check(app, pilot)
                 assert (app.query_one("#start-run", Button).disabled)
-                assert (app.query_one("#environment-status").display)
+                assert (app.query_one("#current-environment").display)
                 assert ("obsolete error") not in (app.preflight.preflight_run_reason())
                 check.assert_called_once()
                 with patch.object(app, 'set_busy') as update:
@@ -331,7 +334,7 @@ class TestStartupPreflight:
                 app.execution.session.snapshot = ProgressSnapshot(measurement_active=True)
                 app.set_busy(True)
                 app.preflight.quick_check()
-                assert (await pilot.click("#environment-status"))
+                assert (await pilot.click("#current-environment"))
                 await pilot.pause()
                 assert (app.screen.query_one("#preflight-retry", Button).disabled)
                 check.assert_called_once()

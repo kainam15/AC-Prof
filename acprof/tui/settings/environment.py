@@ -57,12 +57,13 @@ class EnvironmentSettingsScreen(ModalScreen[bool]):
     #show-environment-secrets { margin-left: 1; }
     """
 
-    def __init__(self, project_dir: Path, backup_dir: Path, *, sniff_iface: str = 'docker0'):
+    def __init__(self, project_dir: Path, backup_dir: Path, *, sniff_iface: str = 'docker0', permissions: bool = False):
         super().__init__()
         self._compositor = CjkCompositor()
         self.project_dir = project_dir
         self.backup_dir = backup_dir
         self.sniff_iface = sniff_iface
+        self.permissions = permissions
         self.environment_snapshot = ProjectEnvSnapshot.read(project_dir)
         self.values = self.environment_snapshot.configurable_values()
         self._working = False
@@ -83,7 +84,7 @@ class EnvironmentSettingsScreen(ModalScreen[bool]):
                 yield Static(tr('连接与权限'), id='environment-title')
                 yield Static(tr(message_id('settings.environment.save_scope', self.project_dir / '.env.local')),
                              id='environment-save-status', markup=False)
-            with TabbedContent(id='environment-tabs'):
+            with TabbedContent(initial='permissions-tab' if self.permissions else 'connections-tab', id='environment-tabs'):
                 with TabPane(tr('连接配置'), id='connections-tab'):
                     with VerticalScroll(classes='environment-scroll'):
                         yield Static(tr('Token 留空可使用 hf login。下载策略：自动。使用系统网络环境。'),

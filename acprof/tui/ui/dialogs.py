@@ -14,49 +14,6 @@ from acprof.tui.ui.contracts import translated_app
 from acprof.tui.ui.rendering import CjkCompositor
 
 
-class EnvironmentPreflightScreen(ModalScreen[bool]):
-    """Show cached issues without running probes while the dialog is open."""
-
-    AUTO_FOCUS = "#preflight-close"
-    BINDINGS = [("escape", "close", "关闭详情")]
-    CSS = """
-    EnvironmentPreflightScreen { align: center middle; }
-    #preflight-dialog {
-        width: 92%; max-width: 100; height: auto; max-height: 85%;
-        border: round $accent; background: $surface; padding: 1 2;
-    }
-    #preflight-title { height: auto; text-style: bold; margin-bottom: 1; }
-    #preflight-scroll { height: auto; max-height: 45vh; margin-bottom: 1; }
-    #preflight-details { height: auto; }
-    #preflight-buttons { height: auto; align-horizontal: right; }
-    #preflight-buttons Button { margin-left: 1; }
-    """
-
-    def __init__(self, details: str, *, retry_disabled: bool):
-        super().__init__()
-        self._compositor = CjkCompositor()
-        self.details = details
-        self.retry_disabled = retry_disabled
-
-    def compose(self) -> ComposeResult:
-        tr = translated_app(self.app).tr
-        with Vertical(id="preflight-dialog"):
-            yield Static(tr("环境状态"), id="preflight-title")
-            with VerticalScroll(id="preflight-scroll"):
-                yield Static(tr(self.details), id="preflight-details", markup=False)
-            with Horizontal(id="preflight-buttons"):
-                yield Button(tr("关闭详情"), id="preflight-close")
-                yield Button(tr("重新检查"), id="preflight-retry", variant="primary",
-                             disabled=self.retry_disabled)
-
-    @on(Button.Pressed, "#preflight-close")
-    def action_close(self) -> None:
-        self.dismiss(False)
-
-    @on(Button.Pressed, "#preflight-retry")
-    def retry(self) -> None:
-        self.dismiss(True)
-
 class ConfirmActionScreen(ModalScreen[bool]):
     """Small confirmation screen for long-running or mutating actions."""
 

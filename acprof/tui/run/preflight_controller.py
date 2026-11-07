@@ -9,6 +9,7 @@ import json
 import subprocess
 from collections.abc import Sequence
 from dataclasses import replace
+from datetime import datetime
 from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -18,13 +19,14 @@ from textual.worker import Worker
 
 from acprof.events.download import DownloadProgress
 from acprof.experiments.configuration import RunConfig
+from acprof.host.preparation.preparation_log import redact_text
 from acprof.host.run_state import MeasurementLock
 from acprof.messages import join_messages, message
 from acprof.tui.i18n import message_id
 from acprof.tui.run import form as run_form, planning as run_planning
 from acprof.tui.run.diagnostics import PreflightCheck, quick_preflight
 from acprof.tui.run.monitor import MonitorPhase, monitor_phase
-from acprof.tui.ui.dialogs import EnvironmentPreflightScreen
+from acprof.tui.ui.environment import EnvironmentIndicator, EnvironmentPopover
 
 if TYPE_CHECKING:
     from acprof.tui.run.preparation import PreparationScreen
@@ -46,6 +48,8 @@ class PreflightController:
         self.checked_config: RunConfig | None = None
         self.checks: tuple[PreflightCheck, ...] = ()
         self.error = ""
+        self.completed_at: datetime | None = None
+        self.lock_acquired = False
         self.preparation_screen: PreparationScreen | None = None
         self.preparation_cancelled = False
         self.pending_source_change: dict[str, str] | None = None
@@ -72,27 +76,34 @@ class PreflightController:
 
     @property
     def selected_runtime(self) -> str:
+        if self.checked_config is None:
+            return ""
+        # A cached auto resolution belongs to its configuration, including edits
+        # made while a worker was running. Never reuse it in a new run plan.
+        if not self.config_matches():
+            return ""
         return next((check.runtime_kind for check in self.checks if check.runtime_kind), "")
 
-    def show_environment_status(self) -> None:
-        lines = []
-        reason = self.preflight_run_reason()
-        if reason:
-            lines.append(reason)
-        lines.extend(message("[{0}] {1}: {2}",
-                             check.capability_status or check.status,
-                             check.label, check.detail)
-                     for check in self.checks)
-        if not lines:
-            return
-        self.app.push_screen(EnvironmentPreflightScreen(
-            join_messages("\n\n", lines),
-            retry_disabled=not self.app.operation_state().allows("check"),
-        ), self.preflight_dialog_closed)
+    @property
+    def panel(self) -> EnvironmentPopover:
+        return self.app.query_one(EnvironmentPopover)
 
-    def preflight_dialog_closed(self, retry: bool | None) -> None:
-        if retry:
-            self.quick_check()
+    @property
+    def display_state(self) -> str:
+        if self.check_running or not self.check_completed:
+            return "checking"
+        if not self.config_matches():
+            return "stale"
+        if self.error:
+            return "error"
+        if any(check.status == "fail" for check in self.checks):
+            return "blocked"
+        if any(check.status == "warn" for check in self.checks):
+            return "limited"
+        return "ready"
+
+    def show_environment_status(self) -> None:
+        self.panel.toggle()
 
     def network_preflight_report(self, line: str) -> None:
         report = json.loads(line.split(" ", 1)[1])
@@ -213,11 +224,11 @@ class PreflightController:
             return message_id('run.preflight.checking_notice')
         if self.check_running or not self.check_completed:
             return message_id('run.preflight.checking_notice')
-        if self.error:
-            return message_id('run.preflight.check_failed', self.error)
         if not self.config_matches():
             return message_id('run.preflight.configuration_changed')
-        failures = [message("{0}: {1}", check.label, check.detail)
+        if self.error:
+            return message_id('run.preflight.check_failed', redact_text(self.error))
+        failures = [message("{0}: {1}", redact_text(self.app.tr(check.label)), redact_text(self.app.tr(check.detail)))
                     for check in self.checks if check.status == "fail"]
         return message_id('run.preflight.collection_blocked', join_messages("；", failures)) if failures else ""
 
@@ -225,7 +236,8 @@ class PreflightController:
         current, checked = self.preflight_config(), self.checked_config
         if checked is None:
             return False
-        if current.runtime != "process" and self.selected_runtime != "process":
+        cached_runtime = next((check.runtime_kind for check in self.checks if check.runtime_kind), "")
+        if current.runtime != "process" and cached_runtime != "process":
             # Docker preflight does not validate numeric matrix enforcement;
             # form validation and the runner retain that responsibility.
             current = replace(current, cpus="auto", mems="auto", cpuset_cpus="")
@@ -244,15 +256,16 @@ class PreflightController:
         if not self.app.is_running or not self.app.form_ready or self.app.ui_closing:
             return
         reason = self.preflight_run_reason()
-        issues = [check for check in self.checks if check.status in {"warn", "fail"}]
-        stale = self.check_completed and not self.config_matches()
-        entry = self.app.query_one("#environment-status", Button)
-        entry.display = bool(issues or self.error or stale or self.selected_runtime == "process")
-        failed = bool(self.error or any(check.status == "fail" for check in issues))
-        warning = bool(issues or stale)
-        self.app.localization.set_text(entry, "环境异常" if failed else "环境警告" if warning else "环境能力", "label")
-        entry.variant = "error" if failed else "warning" if warning else "default"
-        self.app.localization.set_text(entry, "查看环境问题与重新检查", "tooltip")
+        config = self.preflight_config()
+        entry = self.app.query_one(EnvironmentIndicator)
+        runtime = self.selected_runtime or config.runtime
+        self.app.localization.set_text(entry, message_id(
+            "run.environment.entry", self.app.environment.label.split(" / ")[0], runtime.title(),
+            config.profiling_mode.title(), message_id("run.environment.state." + self.display_state),
+        ))
+        entry.set_class(self.display_state in {"blocked", "error"}, "environment-error")
+        entry.set_class(self.display_state in {"limited", "stale"}, "environment-warning")
+        self.panel.update_cached()
         detail = self.app.query_one("#preflight-run-reason", Static)
         detail.display = bool(reason)
         self.app.localization.set_text(detail, reason)
@@ -289,22 +302,25 @@ class PreflightController:
         )
 
     def _execute_quick_check_worker(self, config: RunConfig, token: object) -> None:
+        lock_acquired = False
         try:
             # Perf probes and other diagnostics must never overlap a formal
             # measurement, including one owned by another AC-Prof process.
             with MeasurementLock():
+                lock_acquired = True
                 checks = quick_preflight(config, project_dir=self.app.project_dir)
             error = ""
         except Exception as exc:
             checks = []
             error = f"{type(exc).__name__}: {exc}"
-        self.app.process.safe_process_callback(self.show_quick_check, checks, error, token)
+        self.app.process.safe_process_callback(self.show_quick_check, checks, error, token, lock_acquired)
 
     def show_quick_check(
         self,
         checks: Sequence[PreflightCheck],
         error: str,
         token: object,
+        lock_acquired: bool = False,
     ) -> None:
         if not self.app.is_running or not self.app.form_ready or self.app.ui_closing or token is not self.check_request:
             return
@@ -314,6 +330,8 @@ class PreflightController:
         self.checked_config = self.check_config
         self.checks = tuple(checks)
         self.error = error
+        self.completed_at = datetime.now().astimezone()
+        self.lock_acquired = lock_acquired
         self.app.updates.start_check()
         self.app.set_busy(False)
         # Preflight only retains diagnostic fields, not the user's workload or

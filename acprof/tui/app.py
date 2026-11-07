@@ -66,6 +66,11 @@ from acprof.tui.run.stages import Stage
 from acprof.tui.settings.controller import ConfigurationController
 from acprof.tui.settings.localization_controller import LocalizationController
 from acprof.tui.ui.dialogs import ConfirmActionScreen
+from acprof.tui.ui.environment import (
+    EnvironmentHostScreen,
+    EnvironmentIndicator,
+    EnvironmentPopover,
+)
 from acprof.tui.ui.input import BarCursorApp, BarCursorInput as Input
 from acprof.tui.ui.pages.backfill import compose_backfill_tab
 from acprof.tui.ui.pages.images import compose_images_tab
@@ -89,7 +94,7 @@ class AcprofTui(BarCursorApp):
 
     TITLE = f"AC-Prof {__version__}"
     ENABLE_COMMAND_PALETTE = False
-    ALLOW_IN_MAXIMIZED_VIEW = "#app-header"
+    ALLOW_IN_MAXIMIZED_VIEW = "#app-header, #environment-popover"
 
     BINDINGS = [
         ("f5", "request_run", "开始采集"),
@@ -140,6 +145,7 @@ class AcprofTui(BarCursorApp):
         self.ui_closing: bool = False
         self.read_jobs: set[object] = set()
         self.form_ready: bool = False
+        self.environment = platform.detect_environment()
         self.elapsed_timer: Timer | None = None
         self.configuration = ConfigurationController(self, initial_config, settings_path=settings_path)
         self.localization = LocalizationController(self)
@@ -160,21 +166,18 @@ class AcprofTui(BarCursorApp):
         self.theme = self.configuration.preferences.theme
 
     def get_default_screen(self) -> CjkScreen:
-        return CjkScreen(id="_default")
+        return EnvironmentHostScreen(id="_default")
 
     def compose(self) -> ComposeResult:
         # A ticking clock would force periodic redraws during RAPL windows.
         with Vertical(id="app-header"):
             with Header(show_clock=False):
                 with Horizontal(id="header-actions"):
-                    yield Button("", id="environment-status", compact=True)
                     yield self.localization.localized_widget(Button(
                         "×", id="quit-app", name="退出", tooltip="退出（Ctrl+Q）", compact=True,
                     ))
-            yield self.localization.localized_widget(Static(
-                message_id("common.app.environment", platform.detect_environment().label.replace(" / ", "/")),
-                id="current-environment", markup=False,
-            ))
+            yield EnvironmentIndicator(self.preflight)
+        yield EnvironmentPopover(self.preflight)
         with TabbedContent(initial="run-tab", id="main-tabs"):
             yield from compose_run_tab(self)
             yield from compose_monitor_tab(self)
@@ -216,6 +219,16 @@ class AcprofTui(BarCursorApp):
         )
         if self.configuration.settings_warning:
             self.notify(self.configuration.settings_warning, title="设置读取提示", severity="warning", timeout=8)
+
+    async def on_event(self, event: events.Event) -> None:
+        # Close the overlay before Escape reaches an editor or a maximized log.
+        if (self.form_ready and not self.ui_closing and isinstance(event, events.Key)
+                and event.key == "escape" and not event.is_forwarded):
+            panel = self.preflight.panel
+            if panel.display and panel.screen is self.screen:
+                panel.close()
+                return
+        await super().on_event(event)
 
     def on_resize(self, event: events.Resize) -> None:
         # App.size can still refer to the previous frame while Resize is
@@ -723,10 +736,6 @@ class AcprofTui(BarCursorApp):
     def on_results_cancel_html(self) -> None:
         if self.execution.session.kind == "html-report":
             self.action_request_stop()
-
-    @on(Button.Pressed, '#environment-status')
-    def on_preflight_show_environment_status(self) -> None:
-        self.preflight.show_environment_status()
 
     @on(Button.Pressed, '#open-model-store')
     def on_preflight_open_model_store(self) -> None:

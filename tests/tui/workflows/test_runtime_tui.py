@@ -37,7 +37,8 @@ async def test_process_inherited_button_builds_runnable_basic_command(tmp_path, 
         assert command[command.index('--cpus') + 1] == 'auto'
 
 
-def test_process_preflight_keeps_optional_permission_failures_nonfatal(tmp_path, monkeypatch):
+@pytest.mark.parametrize("mode", ["basic", "full"])
+def test_process_preflight_preserves_mode_and_optional_permission_severity(tmp_path, monkeypatch, mode):
     from acprof.host.runtimes import capabilities, resources
     monkeypatch.setattr(resources, 'preflight_resources', lambda *args: None)
     monkeypatch.setattr('acprof.host.runtimes.process_control.require_process_supervision', lambda: 'available')
@@ -51,10 +52,12 @@ def test_process_preflight_keeps_optional_permission_failures_nonfatal(tmp_path,
         assert name != 'docker'
         return '/fixture/uv' if name == 'uv' else None
     monkeypatch.setattr('acprof.tui.run.diagnostics.shutil.which', which)
-    config = replace(RunConfig.smoke('fixture/model'), runtime='process', cpus='auto', mems='auto')
+    config = replace(RunConfig.smoke('fixture/model'), runtime='process', cpus='auto', mems='auto', profiling_mode=mode)
     checks = quick_preflight(config, project_dir=tmp_path,
                              command_runner=lambda *a, **kw: pytest.fail('Process preflight must not invoke Docker'))
-    assert not any(check.status == 'fail' for check in checks)
+    assert any(check.status == 'fail' for check in checks) == (mode == "full")
+    assert config.profiling_mode == mode
+    assert all(check.check_id for check in checks)
     assert next(check for check in checks if check.label == 'process_cpu').capability_status == 'permission_denied'
     assert next(check for check in checks if check.label == 'gpu_memory').status == 'not_requested'
 

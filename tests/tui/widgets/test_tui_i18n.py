@@ -164,7 +164,7 @@ class TestTuiLanguage:
             await pilot.press("end", "enter")
             await pilot.pause()
             assert (app.configuration.preferences.language) == ("en")
-            assert environment.content.startswith("Current environment   ")
+            assert environment.content.startswith("Environment   ")
             assert (app.query_one("#ui-language SelectCurrent #label", Static).content) == ("English")
             assert app.query_one('#notify SelectCurrent #label', Static).content == 'Off'
             assert app.query_one('#notify', Select).value == 'none'
@@ -300,7 +300,7 @@ class TestTuiLanguage:
             app.preflight.show_quick_check([PreflightCheck(message("原生 Linux"), "ok", message("统一层级可用"))], "", app.preflight.check_request)
             log = app.query_one("#run-log", SelectableLog)
             assert ("Native Linux") not in (log.text)
-            assert not (app.query_one("#environment-status").display)
+            assert not app.query("#environment-status")
             app.consume_process_line("等待 原始子进程输出 {raw}", None, False)
             async with asyncio.timeout(2):
                 while "等待 原始子进程输出 {raw}" not in log.text:

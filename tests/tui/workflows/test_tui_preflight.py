@@ -71,6 +71,8 @@ class TestTuiPreflight:
                 command_runner=self.host_command,
             )
         # A perf failure must leave the remaining independent checks usable.
+        assert all(check.check_id for check in checks)
+        assert len({check.check_id for check in checks}) == len(checks)
         assert (next(check for check in checks if check.label == "NVIDIA GPU").status) == ("ok")
         for call in run.call_args_list:
             assert (call.kwargs["timeout"]) == (PERF_PROBE_TIMEOUT_S)

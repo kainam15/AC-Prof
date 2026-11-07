@@ -20,12 +20,48 @@ VerticalScroll, TextArea, DataTable, #command-preview { scrollbar-size: 1 1; }
 /* Keep the title bar one row tall, including Textual's click-expanded state. */
 Header, Header.-tall { height: 1; background: $surface; color: $text; }
 HeaderIcon, HeaderClockSpace { display: none; }
+HeaderTitle { content-align: left middle; padding: 0 2; }
 #current-environment {
     height: 1;
     padding: 0 2;
     background: $surface;
     color: $text-muted;
+    text-wrap: nowrap;
+    text-overflow: ellipsis;
 }
+#current-environment:hover, #current-environment:focus { color: $text; text-style: bold underline; }
+#current-environment.environment-error { color: $error; }
+#current-environment.environment-warning { color: $warning; }
+#environment-popover {
+    display: none;
+    overlay: screen;
+    position: absolute;
+    offset: 0 2;
+    width: 68;
+    max-width: 100%;
+    height: auto;
+    border: round $accent;
+    background: $surface;
+    color: $text;
+    padding: 0 1;
+    overflow: hidden;
+}
+#preflight-title { height: 1; text-style: bold; }
+#preflight-scroll { height: auto; overflow-x: hidden; }
+#preflight-summary, #preflight-capabilities, #preflight-issues, #preflight-evidence,
+#preflight-action-reason, #preflight-details, #preflight-rows { height: auto; }
+#preflight-summary, #preflight-capabilities { margin-bottom: 1; }
+#preflight-issues, #preflight-action-reason { color: $warning; }
+#preflight-action-reason { max-height: 2; }
+#preflight-evidence { color: $text-muted; }
+#preflight-details { display: none; }
+.environment-section { height: auto; text-style: bold; margin-top: 1; }
+#preflight-rows Collapsible { padding: 0; margin: 0; }
+#preflight-rows Collapsible > Contents { padding: 0 1; }
+#preflight-rows Static { height: auto; }
+#preflight-buttons { height: 3; }
+#preflight-buttons Button { width: auto; min-width: 0; margin: 0 1 0 0; padding: 0; }
+#preflight-buttons #preflight-close { width: 3; margin: 0; padding: 0; border: none; }
 /* Dock the action row as a unit: separate right docks overlap each other. */
 #header-actions {
     dock: right;
@@ -48,16 +84,6 @@ HeaderIcon, HeaderClockSpace { display: none; }
     color: $background;
     text-style: bold;
 }
-#environment-status {
-    display: none;
-    width: auto;
-    min-width: 16;
-    height: 1;
-    min-height: 1;
-    padding: 0 1;
-    border: none;
-}
-#environment-status:hover, #environment-status:focus { text-style: bold underline; }
 #preflight-run-reason {
     display: none;
     height: auto;

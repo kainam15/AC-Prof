@@ -150,13 +150,14 @@ class ConfigurationController:
     def show_settings(self) -> None:
         self.app.activate_tab("settings-tab")
 
-    def open_environment_settings(self) -> None:
+    def open_environment_settings(self, *, permissions: bool = False) -> None:
         if self.app.is_busy() or self.app.preflight.check_running:
             return
         from acprof.tui.settings.environment import EnvironmentSettingsScreen
         try:
             screen = EnvironmentSettingsScreen(
                 self.app.project_dir, self.settings_path.parent, sniff_iface=self.input("sniff-iface"),
+                permissions=permissions,
             )
         except (OSError, ValueError) as read_error:
             self.app.notify(message_id('settings.environment.read_failed', type(read_error).__name__), severity="error")
@@ -241,6 +242,7 @@ class ConfigurationController:
         if not self.app.is_running or not self.app.form_ready or self.applying_config or self.app.is_busy():
             return
         self.cancel_preview_timer()
+        self.app.preflight.refresh_preflight_state()
         # Coalesce typing and preset field updates into one validation/render.
         self.preview_timer = self.app.set_timer(0.05, self.sync_form_state)
 

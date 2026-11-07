@@ -46,6 +46,8 @@ class PreflightCheck:
     detail: str
     capability_status: str = ""
     runtime_kind: str = ""
+    check_id: str = ""
+    source: str = "quick_preflight"
 
 
 def collection_preview(config: RunConfig):
@@ -106,6 +108,7 @@ def quick_preflight(
             message_id('run.preflight.environment_label'),
             "fail" if policy_error else "ok",
             policy_error or environment.label,
+            check_id="environment",
         )
     )
 
@@ -118,12 +121,13 @@ def quick_preflight(
             "cgroup v2",
             "ok" if cgroup_v2 else "fail",
             message_id('run.preflight.cgroup_available') if cgroup_v2 else message_id('run.preflight.cgroup_missing'),
+            check_id="cgroup",
         )
     )
 
     docker_cli = shutil.which("docker")
     if not docker_cli:
-        checks.append(PreflightCheck("Docker", "fail", message_id('run.preflight.docker_cli_missing')))
+        checks.append(PreflightCheck("Docker", "fail", message_id('run.preflight.docker_cli_missing'), check_id="docker"))
     else:
         endpoint = "unknown"
         try:
@@ -168,18 +172,18 @@ def quick_preflight(
         except (OSError, subprocess.TimeoutExpired) as exc:
             status = "fail"
             detail = message_id('run.preflight.docker_check_failed', exc)
-        checks.append(PreflightCheck(message_id('run.preflight.local_docker'), status, detail))
+        checks.append(PreflightCheck(message_id('run.preflight.local_docker'), status, detail, check_id="docker"))
 
     if config.runtime == "auto" and config.profiling_mode == "basic" and any(check.status == "fail" for check in checks[1:]):
         reasons = "; ".join(str(check.detail) for check in checks[1:] if check.status == "fail")
-        checks = checks[:1] + [PreflightCheck("Runtime auto → Process", "ok", reasons)]
+        checks = checks[:1] + [PreflightCheck("Runtime auto → Process", "ok", reasons, check_id="runtime_auto")]
         return checks + _process_checks(config)
-    checks.append(PreflightCheck("Runtime", "ok", "Docker", runtime_kind="docker"))
+    checks.append(PreflightCheck("Runtime", "ok", "Docker", runtime_kind="docker", check_id="runtime"))
 
     for tool in (("tcpdump", "tshark") if measurement_requested(config.profiling_mode, "packet_latency") else ()):
         path = shutil.which(tool)
         checks.append(
-            PreflightCheck(tool, "ok" if path else "fail", path or message_id('common.state.not_installed'))
+            PreflightCheck(tool, "ok" if path else "fail", path or message_id('common.state.not_installed'), check_id=tool)
         )
         if tool == 'tcpdump' and path:
             allowed = os.geteuid() == 0
@@ -195,7 +199,7 @@ def quick_preflight(
             except (OSError, subprocess.TimeoutExpired):
                 detail = message_id('run.preflight.capture_permission_unknown')
             checks.append(PreflightCheck('tcpdump permissions', 'ok' if allowed else 'fail', detail,
-                                         'available' if allowed else 'permission_denied'))
+                                         'available' if allowed else 'permission_denied', check_id="capture_permissions"))
 
     ip_cli = shutil.which("ip") if measurement_requested(config.profiling_mode, "packet_latency") else None
     if ip_cli:
@@ -209,14 +213,15 @@ def quick_preflight(
                     message_id('run.network.capture_interface'),
                     "ok" if iface.returncode == 0 else "fail",
                     config.sniff_iface,
+                    check_id="capture_interface",
                 )
             )
         except (OSError, subprocess.TimeoutExpired) as exc:
-            checks.append(PreflightCheck(message_id('run.network.capture_interface'), "fail", str(exc)))
+            checks.append(PreflightCheck(message_id('run.network.capture_interface'), "fail", str(exc), check_id="capture_interface"))
     elif measurement_requested(config.profiling_mode, "packet_latency"):
-        checks.append(PreflightCheck(message_id('run.network.capture_interface'), "fail", message_id('run.preflight.ip_missing')))
+        checks.append(PreflightCheck(message_id('run.network.capture_interface'), "fail", message_id('run.preflight.ip_missing'), check_id="capture_interface"))
     else:
-        checks.append(PreflightCheck(message_id('run.network.capture_interface'), "not_requested", message_id('run.preflight.not_collected'), "not_requested"))
+        checks.append(PreflightCheck(message_id('run.network.capture_interface'), "not_requested", message_id('run.preflight.not_collected'), "not_requested", check_id="capture_interface"))
 
     rapl = probe_cpu_energy() if measurement_requested(config.profiling_mode, "cpu_energy") else Capability("not_requested", "basic", "profiling_mode")
     rapl_status = CapabilityStatus(rapl.status).value
@@ -225,6 +230,7 @@ def quick_preflight(
             "CPU RAPL",
             "ok" if rapl_status == "available" else "not_requested" if rapl_status == "not_requested" else "fail",
             f"{rapl_status}: {rapl.detail}", rapl_status,
+            check_id="cpu_energy", source=rapl.source,
         )
     )
 
@@ -242,9 +248,9 @@ def quick_preflight(
     perf_status = CapabilityStatus(perf.status).value
     if perf_status == "available":
         detail = message_id('run.preflight.perf_isolation_verified')
-        checks.append(PreflightCheck("perf instructions", "ok", detail, perf_status))
+        checks.append(PreflightCheck("perf instructions", "ok", detail, perf_status, check_id="cpu_instructions", source=perf.source))
     else:
-        checks.append(PreflightCheck("perf instructions", "not_requested" if perf_status == "not_requested" else "fail", f"{perf_status}: {perf.detail}", perf_status))
+        checks.append(PreflightCheck("perf instructions", "not_requested" if perf_status == "not_requested" else "fail", f"{perf_status}: {perf.detail}", perf_status, check_id="cpu_instructions", source=perf.source))
 
     if "on" in [normalize_gpu_mode(value) for value in csv_values(config.gpus)]:
         nvidia_smi = shutil.which("nvidia-smi")
@@ -260,7 +266,7 @@ def quick_preflight(
                 status, detail = "fail", str(exc)
         else:
             status, detail = "fail", message_id('run.preflight.nvidia_smi_missing')
-        checks.append(PreflightCheck("NVIDIA GPU", status, detail))
+        checks.append(PreflightCheck("NVIDIA GPU", status, detail, check_id="gpu_device"))
 
     return checks
 
@@ -271,17 +277,17 @@ def _process_checks(config):
     from acprof.application.resources import resource_matrix
     from acprof.host.runtimes.process_control import require_process_supervision
     from acprof.host.runtimes.resources import preflight_resources
-    checks = [PreflightCheck("Runtime", "ok", "Process: managed subprocess; basic collection", runtime_kind="process")]
+    checks = [PreflightCheck("Runtime", "ok", "Process: managed subprocess; basic collection", runtime_kind="process", check_id="runtime")]
     try:
         replace(config, runtime="process").validate()
         require_process_supervision()
         cpus, mems, _ = resource_matrix(replace(config, runtime="process").to_namespace())
         preflight_resources(cpus, mems, config.cpuset_cpus)
     except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired) as exc:
-        checks.append(PreflightCheck("Process resources", "fail", str(exc)))
+        checks.append(PreflightCheck("Process resources", "fail", str(exc), check_id="process_resources"))
     else:
         checks.append(PreflightCheck("Process resources", "ok",
-                                    f"CPU={config.cpus}, memory={config.mems}; auto=inherited, sharing=unknown"))
+                                    f"CPU={config.cpus}, memory={config.mems}; auto=inherited, sharing=unknown", check_id="process_resources"))
     from acprof.host.runtimes.capabilities import probe_collection_plan
     from acprof.host.runtimes.gpu import process_gpu_device
     gpu = process_gpu_device(config.to_namespace().gpu_device) if "on" in config.gpus.split(",") else {}
@@ -290,9 +296,9 @@ def _process_checks(config):
         requested = name in {"process_cpu", "process_memory", "gpu_memory", "gpu_utilization"}
         status = ("not_requested" if not requested or item["status"] == "not_requested" else
                   "ok" if item["status"] == "available" else "warn")
-        checks.append(PreflightCheck(name, status, f"{item['status']}: {item['detail']}", item['status']))
-    if shutil.which("uv") is None:
-        checks.append(PreflightCheck("uv", "fail", "Process environment preparation requires uv"))
+        checks.append(PreflightCheck(name, status, f"{item['status']}: {item['detail']}", item['status'], check_id=name, source=item.get("source", "probe_collection_plan")))
+    uv = shutil.which("uv")
+    checks.append(PreflightCheck("uv", "ok" if uv else "fail", uv or "Process environment preparation requires uv", check_id="uv"))
     return checks
 
 

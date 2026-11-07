@@ -100,6 +100,8 @@ class LocalizationController:
                 for key, bindings in self.source_bindings.items()
             }
             self.app.refresh_bindings()
+            if self.app.form_ready:
+                self.app.preflight.refresh_preflight_state()
             self.app.logs.refresh_status()
             self.app.query_one("#status-preparation").refresh(layout=True)
             if self.app.preflight.latest_download is not None and not self.app.execution.session.snapshot.measurement_active:
