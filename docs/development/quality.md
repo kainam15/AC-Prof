@@ -4,14 +4,21 @@
 
 ## Git worktree 与合并
 
-每个独立开发任务创建专属的 **具名分支与 Git worktree**，两者一一对应；不在 `main`
-直接开发、修改或提交，也不以 Detached HEAD 持续开发。启动任务先核对其他工作树、
-已有未提交内容及任务范围，不清理、覆盖或错误合并他人的并行工作。
+默认每个独立开发任务创建专属的 **具名分支与 Git worktree**，两者一一对应，
+不在 `main` 直接开发、修改或提交。
+
+**TUI 界面改动可以直接在 `main` 开发、修改和提交，无需另建 worktree 或分支。**
+此例外适用于布局、样式、文案、控件展示与界面交互，以及对应的测试和文档。
+同时涉及采集、模型执行、结果协议等后端行为的任务，仍使用专属 worktree 与具名分支。
+直接修改 `main` 时仍须按[验证策略](validation-scope.md#验证范围)完成相称检查并审阅完整 diff。
+
+所有任务均不得以 Detached HEAD 持续开发。启动任务先核对其他工作树、已有未提交内容及
+任务范围，不清理、覆盖或错误合并他人的并行工作。
 
 仅提交本任务相关变更，按逻辑主题拆分 commit。消息遵守
 [commit-message.instructions.md](../../.github/commit-message.instructions.md)；
 需要 merge commit 时不得沿用 `Merge branch ...` 等自动生成的消息。
-完成与改动相称的验证并审查完整 diff 后，除用户另有要求外，默认以
+完成与改动相称的验证并审查完整 diff 后，使用 worktree 的任务除用户另有要求外，默认以
 `git merge --ff-only` 合入本地 `main`；遇到非快进或未提交变更冲突，先保护证据并
 说明阻塞，不强行 reset、clean、覆盖或改写其他任务。
 确认已合入且保留必要的验证证据之后，再删除本任务的 worktree 与已合并分支，
