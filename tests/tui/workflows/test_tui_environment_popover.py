@@ -307,7 +307,7 @@ async def test_stale_auto_runtime_and_measurement_actions(app):
         assert app.query_one("#start-run", Button).disabled
         await pilot.click("#current-environment")
         assert "Runtime" not in str(app.query_one("#preflight-summary", Static).content)
-        assert "自动检查全部" in str(app.query_one("#preflight-summary", Static).content)
+        assert str(app.query_one("#preflight-summary", Static).content).startswith("最近检查：")
         app.execution.session.snapshot = ProgressSnapshot(measurement_active=True)
         app.set_busy(True)
         await pilot.press("f6")

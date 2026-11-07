@@ -153,7 +153,6 @@ class EnvironmentPopover(Vertical):
         with VerticalScroll(id="preflight-scroll"):
             yield Static("", id="preflight-summary", markup=False)
             yield Static("", id="preflight-issues", markup=False)
-            yield Static("", id="preflight-boundary", markup=False)
             yield Grid(id="preflight-capabilities")
         with VerticalScroll(id="preflight-inspection"):
             yield Static("", id="preflight-explanation", markup=False)
@@ -262,7 +261,6 @@ class EnvironmentPopover(Vertical):
             lines.append(self.tr("check_error_hint"))
         self.query_one("#preflight-issues", Static).update("\n".join(lines))
         self.query_one("#preflight-issues").display = bool(lines)
-        self.query_one("#preflight-boundary", Static).update(self.tr("boundary"))
         evidence = self.tr("lock_cached" if controller.lock_acquired else "lock_unknown")
         self.query_one("#preflight-evidence", Static).update(evidence)
         allowed = controller.app.operation_state().allows("check")
