@@ -134,11 +134,13 @@ def test_fixed_scenes(snap_compare, tmp_path, monkeypatch, language, size, scene
             error_modal.mount(app)
             await pilot.pause()
             if scene == "environment-details":
-                assert await pilot.click("#preflight-expand")
+                app.query_one("#preflight-signal-runtime").focus()
                 await pilot.pause()
                 assert app.preflight.panel.display
-                assert app.query_one("#preflight-details").display
-                app.set_focus(None)
+                details = str(app.query_one("#preflight-explanation", Static).content)
+                assert "Docker" in details
+                assert "Reason:" not in details
+                assert "Solution:" not in details
         elif scene == "statistics":
             app.activate_tab("results-tab")
             app.results.show_result_section("statistics-view")

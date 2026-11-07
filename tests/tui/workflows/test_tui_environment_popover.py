@@ -5,7 +5,7 @@ from dataclasses import replace
 import pytest
 from rich.color import Color
 from textual import events
-from textual.widgets import Button, Collapsible, Select, Static, TabbedContent
+from textual.widgets import Button, Select, Static, TabbedContent
 
 from acprof.experiments.configuration import RunConfig
 from acprof.tui.app import AcprofTui
@@ -32,7 +32,7 @@ async def settle(app, pilot):
     await pilot.pause()
 
 
-async def test_hover_pin_expand_and_dismiss_keep_page_layout_and_cached_probe(app):
+async def test_hover_pin_and_dismiss_keep_page_layout_and_cached_probe(app):
     app, probe = app
     async with app.run_test(size=(80, 24)) as pilot:
         await settle(app, pilot)
@@ -44,15 +44,15 @@ async def test_hover_pin_expand_and_dismiss_keep_page_layout_and_cached_probe(ap
         await pilot.hover("#current-environment")
         await pilot.pause()
         assert panel.display
-        assert [button.id for button in panel.query(Button)] == ["preflight-expand", "preflight-retry"]
+        assert [button.id for button in panel.query(Button)] == ["preflight-retry"]
         assert tabs.region == before
         assert tabs.active == "run-tab"
-        await pilot.hover("#preflight-expand")
+        await pilot.hover("#preflight-retry")
         await pilot.pause(0.25)
         assert panel.display, "crossing into the panel must cancel delayed closure"
-        await pilot.click("#preflight-expand")
+        await pilot.hover("#preflight-signal-0")
         await pilot.pause()
-        assert app.query_one("#preflight-details").display
+        assert "fixture diagnostic" in str(app.query_one("#preflight-explanation", Static).content)
         await pilot.click("#current-environment")
         await pilot.hover("#quit-app")
         await pilot.pause(0.25)
@@ -86,16 +86,15 @@ async def test_keyboard_overlay_and_left_aligned_title_survive_resize(app, langu
                 assert panel.region.contains_region(button.region)
                 assert app.get_widget_at(*button.region.center)[0] is button
             assert app.query_one("HeaderTitle").styles.content_align_horizontal == "left"
-            await pilot.click("#preflight-expand")
+            retry = app.query_one("#preflight-retry", Button)
+            retry.focus()
             await pilot.pause()
-            expand = app.query_one("#preflight-expand", Button)
-            region = expand.content_region
+            region = retry.content_region
             visible = "\n".join(strip.crop(region.x, region.right).text
                                 for strip in app.screen._compositor.render_strips()[region.y:region.bottom])
-            assert ("收起详情" if language == "zh" else "Collapse") in visible
+            assert ("重新检查" if language == "zh" else "Check again") in visible
             assert panel.region.y == 2
-            assert app.get_widget_at(*expand.region.center)[0] is expand
-            await pilot.click(expand)
+            assert app.get_widget_at(*retry.region.center)[0] is retry
             await pilot.press("escape")
             assert app.focused is entry
             await pilot.press("space")
@@ -113,7 +112,7 @@ async def test_hover_reentry_and_modal_hide_transient_panel(app):
         await pilot.hover("#current-environment")
         # Pilot.hover waits for CPU idle before and after each move, which can
         # exceed the close delay. Queue rapid movement without those pauses.
-        for selector in ("#quit-app", "#preflight-expand"):
+        for selector in ("#quit-app", "#preflight-retry"):
             x, y = app.query_one(selector).region.center
             app.post_message(events.MouseMove(
                 app.screen, x, y, delta_x=0, delta_y=0, button=0,
@@ -151,7 +150,7 @@ async def test_environment_overlay_remains_reachable_above_maximized_log(app):
         await pilot.pause()
         panel = app.preflight.panel
         assert panel.display
-        button = app.query_one("#preflight-expand", Button)
+        button = app.query_one("#preflight-retry", Button)
         assert app.get_widget_at(*button.region.center)[0] is button
         await pilot.press("escape")
         assert not panel.display
@@ -190,26 +189,30 @@ async def test_details_and_start_reason_are_redacted_and_scrollable(app):
     app.configuration.initial_config = replace(RunConfig.smoke(""), profiling_mode="full")
     probe.return_value = [PreflightCheck(
         "perf instructions", "fail", 'token=fixture-secret\nhttps://user:password@example.org/check?key=hidden\n' +
-        "very long diagnostic " * 500, "permission_denied", check_id="cpu_instructions", source="perf_stat",
+        "very long diagnostic " * 250 + "\nEND OF CHECK OUTPUT", "permission_denied", check_id="cpu_instructions", source="perf_stat",
     )]
     async with app.run_test(size=(80, 24)) as pilot:
         await settle(app, pilot)
         assert "fixture-secret" not in str(app.query_one("#preflight-run-reason", Static).content)
         await pilot.click("#current-environment")
-        await pilot.click("#preflight-expand")
         await pilot.pause()
-        row = app.query_one("#preflight-item-cpu_instructions", Collapsible)
+        row = app.query_one("#preflight-signal-cpu_instructions")
         row.scroll_visible(animate=False, top=True)
         await pilot.pause()
-        await pilot.click(row.query_one("CollapsibleTitle"))
+        await pilot.hover(row)
         await pilot.pause()
-        assert not row.collapsed
-        assert app.query_one("#preflight-scroll").max_scroll_y > 0
-        details = "\n".join(str(widget.content) for widget in row.query(Static))
+        inspection = app.query_one("#preflight-inspection")
+        assert inspection.max_scroll_y > 0
+        details = str(app.query_one("#preflight-explanation", Static).content)
         for secret in ("fixture-secret", "user:password", "key=hidden"):
             assert secret not in details
         assert "[REDACTED]" in details
         assert "perf_stat" in details
+        assert "permission_denied" in details
+        assert "\nEND OF CHECK OUTPUT" in details
+        inspection.focus()
+        await pilot.press("end")
+        assert inspection.scroll_y > 0
         probe.assert_called_once()
 
 
@@ -222,6 +225,7 @@ async def test_status_dots_explain_cached_checks_on_hover_and_keyboard_focus(app
         PreflightCheck("Docker", "ok", "daemon ready", check_id="docker"),
         PreflightCheck("RAPL", "warn", "RAPL fixture limitation", "unsupported", check_id="cpu_energy"),
         PreflightCheck("perf", "fail", "Permission denied; token=fixture-secret", "permission_denied", check_id="cpu_instructions"),
+        PreflightCheck("check exception", "error", "fixture check error", check_id="check_error"),
     ]
     async with app.run_test(size=(80, 24)) as pilot:
         await settle(app, pilot)
@@ -229,7 +233,7 @@ async def test_status_dots_explain_cached_checks_on_hover_and_keyboard_focus(app
         await pilot.pause()
         assert app.query("#preflight-signal-cpu_instructions"), "each check needs an individual status indicator"
         for identifier, color in (("docker", "success"), ("cpu_energy", "warning"),
-                                  ("cpu_instructions", "error"), ("latency", "warning")):
+                                  ("cpu_instructions", "error"), ("check_error", "error"), ("latency", "warning")):
             signal = app.query_one(f"#preflight-signal-{identifier}")
             signal.scroll_visible(animate=False, top=True)
             await pilot.pause()
@@ -238,6 +242,17 @@ async def test_status_dots_explain_cached_checks_on_hover_and_keyboard_focus(app
             cell = app.screen._compositor.render_strips()[region.y].crop(region.x, region.x + 1)
             assert cell.text == "●"
             assert next(iter(cell)).style.color.get_truecolor() == Color.parse(app.theme_variables[color]).get_truecolor()
+            explanation = str(app.query_one("#preflight-explanation", Static).content)
+            problem = identifier in {"cpu_energy", "cpu_instructions", "check_error"}
+            assert (("原因：" if language == "zh" else "Reason:") in explanation) == problem
+            assert (("解决方法：" if language == "zh" else "Solution:") in explanation) == problem
+        for identifier in ("capture_interface", "gpu_device"):
+            signal = app.query_one(f"#preflight-signal-{identifier}")
+            signal.focus()
+            await pilot.pause()
+            explanation = str(app.query_one("#preflight-explanation", Static).content)
+            assert ("原因：" if language == "zh" else "Reason:") not in explanation
+            assert ("解决方法：" if language == "zh" else "Solution:") not in explanation
         disabled = app.query_one("#preflight-signal-gpu_device")
         assert "○" in disabled.render().plain
         assert ("未启用" if language == "zh" else "Not enabled") in disabled.render().plain
@@ -246,8 +261,8 @@ async def test_status_dots_explain_cached_checks_on_hover_and_keyboard_focus(app
         await pilot.pause()
         await pilot.hover(failure)
         explanation = str(app.query_one("#preflight-explanation", Static).content)
-        assert ("为什么" if language == "zh" else "Why") in explanation
-        assert ("怎么解决" if language == "zh" else "What to do") in explanation
+        assert ("原因：" if language == "zh" else "Reason:") in explanation
+        assert ("解决方法：" if language == "zh" else "Solution:") in explanation
         assert "Permission denied" in explanation
         assert "fixture-secret" not in explanation
         assert ("采集权限" if language == "zh" else "Permissions") in explanation
@@ -290,7 +305,6 @@ async def test_stale_auto_runtime_and_measurement_actions(app):
         await pilot.click("#preflight-retry")
         assert app.query_one("#preflight-retry", Button).disabled
         assert "测量中" in str(app.query_one("#preflight-action-reason", Static).content)
-        await pilot.click("#preflight-expand")
         await pilot.pause()
         for button in app.preflight.panel.query(Button):
             assert button.region.bottom < app.preflight.panel.region.bottom
@@ -309,7 +323,6 @@ async def test_palette_and_long_panel_fit(app, theme, no_color, monkeypatch):
     async with app.run_test(size=(80, 24)) as pilot:
         await settle(app, pilot)
         await pilot.click("#current-environment")
-        await pilot.click("#preflight-expand")
         await pilot.pause()
         panel = app.preflight.panel
         assert panel.region.bottom <= 24

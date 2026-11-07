@@ -49,7 +49,7 @@ HeaderTitle { content-align: left middle; padding: 0 2; }
 #preflight-title { height: 1; text-style: bold; }
 #preflight-scroll { height: auto; overflow-x: hidden; }
 #preflight-summary, #preflight-capabilities, #preflight-issues, #preflight-evidence, #preflight-boundary,
-#preflight-action-reason, #preflight-details, #preflight-rows { height: auto; }
+#preflight-action-reason { height: auto; }
 #preflight-summary { margin-bottom: 1; }
 #preflight-capabilities { grid-size: 2; grid-columns: 1fr 1fr; grid-rows: 1; grid-gutter: 0 1; }
 .environment-signal { height: 1; text-wrap: nowrap; text-overflow: ellipsis; }
@@ -59,11 +59,6 @@ HeaderTitle { content-align: left middle; padding: 0 2; }
 #preflight-issues, #preflight-action-reason { color: $warning; }
 #preflight-action-reason { max-height: 2; }
 #preflight-evidence, #preflight-boundary { color: $text-muted; }
-#preflight-details { display: none; }
-.environment-section { height: auto; text-style: bold; margin-top: 1; }
-#preflight-rows Collapsible { padding: 0; margin: 0; }
-#preflight-rows Collapsible > Contents { padding: 0 1; }
-#preflight-rows Static { height: auto; }
 #preflight-buttons { height: 3; }
 #preflight-buttons Button { width: auto; min-width: 0; margin: 0 1 0 0; padding: 0; }
 /* Dock the action row as a unit: separate right docks overlap each other. */

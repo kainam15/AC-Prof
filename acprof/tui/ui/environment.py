@@ -3,14 +3,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from rich.markup import escape
 from rich.text import Text
 from textual import events, on
 from textual.app import ComposeResult
 from textual.containers import Grid, Horizontal, Vertical, VerticalScroll
 from textual.geometry import Offset
 from textual.timer import Timer
-from textual.widgets import Button, Collapsible, Static
+from textual.widgets import Button, Static
 
 from acprof.capabilities import measurement_requested
 from acprof.host.preparation.preparation_log import redact_text
@@ -23,7 +22,6 @@ if TYPE_CHECKING:
     from acprof.tui.run.preflight_controller import PreflightController
 
 
-FOUNDATIONS = {"environment", "runtime", "runtime_auto", "docker", "cgroup", "uv", "process_resources", "check_error"}
 METRICS = (
     "latency", "throughput", "container_cpu", "container_memory", "process_cpu", "process_memory",
     "cpu_energy", "cpu_instructions", "capture_interface", "gpu_device", "gpu_memory", "gpu_utilization", "gpu_power",
@@ -167,7 +165,6 @@ class EnvironmentPopover(Vertical):
         super().__init__(id="environment-popover")
         self.controller = controller
         self.pinned = False
-        self.expanded = False
         self.close_timer: Timer | None = None
         self._rows: tuple[PreflightCheck, ...] = ()
         self._rows_language = ""
@@ -182,14 +179,11 @@ class EnvironmentPopover(Vertical):
             yield Static("", id="preflight-issues", markup=False)
             yield Static("", id="preflight-boundary", markup=False)
             yield Grid(id="preflight-capabilities")
-            with Vertical(id="preflight-details"):
-                yield Static("", id="preflight-evidence", markup=False)
-                yield Vertical(id="preflight-rows")
         with VerticalScroll(id="preflight-inspection"):
             yield Static("", id="preflight-explanation", markup=False)
+            yield Static("", id="preflight-evidence", markup=False)
         yield Static("", id="preflight-action-reason", markup=False)
         with Horizontal(id="preflight-buttons"):
-            yield Button("", id="preflight-expand", compact=True)
             yield Button("", id="preflight-retry", compact=True)
 
     def cancel_close(self) -> None:
@@ -263,16 +257,15 @@ class EnvironmentPopover(Vertical):
         return self.tr("item." + item_status(row))
 
     def remedy(self, row: PreflightCheck) -> str:
-        if row.status in {"ok", "not_requested", "declared", "pending"}:
-            return self.tr("remedy." + row.status)
         return self.tr("remedy." + REMEDIES.get(row.check_id, "generic"))
 
     def explain(self, row: PreflightCheck) -> None:
         if not self.display or row not in self._rows:
             return
-        reason = " ".join(self.controller.app.tr(row.detail).split())
-        text = self.tr("explanation", self.label(row), self.status(row),
-                       redact_text(reason, limit=400), self.remedy(row))
+        detail = redact_text(self.controller.app.tr(row.detail), limit=8192)
+        text = self.tr("capability_line", self.label(row), self.status(row)) + "\n"
+        text += self.tr("explanation", detail, self.remedy(row)) if item_status(row) in {"warn", "fail", "error"} else detail
+        text += "\n" + self.tr("source", row.source, row.capability_status or row.status)
         self.query_one("#preflight-explanation", Static).update(redact_text(text, limit=None))
         self.query_one("#preflight-inspection").scroll_home(animate=False)
 
@@ -306,14 +299,12 @@ class EnvironmentPopover(Vertical):
         self.query_one("#preflight-action-reason", Static).update(reason)
         self.query_one("#preflight-action-reason").display = bool(reason)
         self.fit()
-        for name, key in (("expand", "collapse" if self.expanded else "expand"), ("retry", "retry")):
-            button = self.query_one(f"#preflight-{name}", Button)
-            label = self.tr(key)
-            if str(button.label) != label:
-                button.label = label
-                button.refresh(layout=True)
-            button.tooltip = reason if button.disabled else None
-        self.query_one("#preflight-details").display = self.expanded
+        button = self.query_one("#preflight-retry", Button)
+        label = self.tr("retry")
+        if str(button.label) != label:
+            button.label = label
+            button.refresh(layout=True)
+        button.tooltip = reason if button.disabled else None
         language = controller.app.configuration.preferences.language
         if rows != self._rows or language != self._rows_language:
             self._rows, self._rows_language = rows, language
@@ -328,35 +319,8 @@ class EnvironmentPopover(Vertical):
         priority = {"fail": 0, "error": 0, "warn": 1, "ok": 2, "declared": 3, "pending": 3, "not_requested": 4}
         ordered = sorted(enumerate(rows), key=lambda pair: priority[item_status(pair[1])])
         await summary.mount(*(EnvironmentSignal(self, row, row.check_id or str(index)) for index, row in ordered))
-        container = self.query_one("#preflight-rows")
-        opened = {widget.id for widget in container.query(Collapsible) if not widget.collapsed}
-        await container.remove_children()
-        for foundation, key in ((True, "foundations"), (False, "measurements")):
-            await container.mount(Static(self.tr(key), classes="environment-section"))
-            for index, row in enumerate(rows):
-                if (row.check_id in FOUNDATIONS) != foundation:
-                    continue
-                identifier = "preflight-item-" + (row.check_id or str(index))
-                text = self.tr("source", row.source, row.capability_status or row.status)
-                text += "\n" + self.controller.app.tr(row.detail)
-                if row.status in {"warn", "fail"}:
-                    text += "\n" + self.remedy(row)
-                await container.mount(Collapsible(
-                    Static(redact_text(text, limit=8192), markup=False), id=identifier,
-                    title=escape(redact_text(self.tr("capability_line", self.label(row), self.status(row)))),
-                    collapsed=identifier not in opened,
-                ))
 
-    @on(Button.Pressed)
+    @on(Button.Pressed, "#preflight-retry")
     def operate(self, event: Button.Pressed) -> None:
         event.stop()
-        action = event.button.id
-        if action == "preflight-expand":
-            self.expanded = not self.expanded
-            self.update_cached()
-            if self.expanded:
-                self.call_after_refresh(self.query_one("#preflight-details").scroll_visible, animate=False, top=True)
-            else:
-                self.query_one("#preflight-scroll").scroll_home(animate=False)
-        elif action == "preflight-retry":
-            self.controller.quick_check()
+        self.controller.quick_check()
