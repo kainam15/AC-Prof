@@ -21,7 +21,7 @@ from acprof.host.runtimes.process_control import require_process_supervision
 from acprof.host.runtimes.resources import current_cgroup
 from acprof.platform import detect_environment
 from acprof.tui.i18n import message_id
-from acprof.tui.run.diagnostics import PreflightCheck, _completed_command, quick_preflight
+from acprof.tui.run.diagnostics import PreflightCheck, completed_command, quick_preflight
 
 GPU_METRICS = ("gpu_device", "gpu_memory", "gpu_utilization", "gpu_power")
 ENVIRONMENT_CHECK_IDS = (
@@ -158,7 +158,7 @@ def _runtime_profiler_checks(command_runner, docker_available: bool) -> list[Pre
         return [_failure(name, exc, "runtime self-check") for name in ("torch", "massif")]
 
 
-def scan_environment(*, project_dir: str | Path | None = None, command_runner=_completed_command) -> list[PreflightCheck]:
+def scan_environment(*, project_dir: str | Path | None = None, command_runner=completed_command) -> list[PreflightCheck]:
     """Always inspect the same host capabilities, including unselected tools."""
     # Reuse established Docker, capture-permission, RAPL and perf diagnostics.
     # This fixed diagnostic config never comes from or modifies the experiment.

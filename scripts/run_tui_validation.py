@@ -24,10 +24,12 @@ def main():
     config = RunConfig(**payload["config"])
 
     class ValidationPreflight(PreflightController):
-        def show_quick_check(self, checks, error, token):
+        def show_quick_check(
+            self, checks, error, token, lock_acquired=False, environment_checks=(), environment_error="",
+        ):
             if token is not self.check_request:
                 return
-            super().show_quick_check(checks, error, token)
+            super().show_quick_check(checks, error, token, lock_acquired, environment_checks, environment_error)
             self.app.run_worker(self.launch_after_updates(), name="launch_validation", group="validation")
 
         async def launch_after_updates(self):

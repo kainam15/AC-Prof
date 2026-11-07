@@ -67,11 +67,12 @@ def collection_preview(config: RunConfig):
                    ", ".join(missing) or "—")
 
 
-def _completed_command(
+def completed_command(
     command: Sequence[str],
     *,
     timeout: float = 10.0,
 ) -> subprocess.CompletedProcess[str]:
+    """Run a bounded diagnostic command with consistent decoded output."""
     return run_command(
         list(command),
         capture_output=True,
@@ -95,7 +96,7 @@ def quick_preflight(
     config: RunConfig,
     *,
     project_dir: str | os.PathLike[str] | None = None,
-    command_runner: Callable[..., subprocess.CompletedProcess[str]] = _completed_command,
+    command_runner: Callable[..., subprocess.CompletedProcess[str]] = completed_command,
 ) -> list[PreflightCheck]:
     """Run read-only host checks; acprof run remains the authoritative preflight."""
     checks: list[PreflightCheck] = []

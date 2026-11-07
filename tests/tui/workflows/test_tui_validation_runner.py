@@ -48,6 +48,7 @@ sys.addaudithook(protect_production_lock)
                 f"    return httpx.Response({version_status}, json={{'info': {{'version': __version__, 'yanked': False}}}})\n"
                 "with (\n"
                 "    patch('acprof.tui.run.preflight_controller.quick_preflight', return_value=[]),\n"
+                "    patch('acprof.tui.run.preflight_controller.scan_environment', return_value=[]),\n"
                 "    patch('httpx.AsyncHTTPTransport.handle_async_request', version_response),\n"
                 f"    patch('acprof.host.run_state.MEASUREMENT_LOCK_ROOT', Path({str(self.measurement_root)!r})),\n"
                 "):\n"
@@ -61,6 +62,7 @@ sys.addaudithook(protect_production_lock)
                 capture_output=True, text=True, timeout=30)
             assert (result.returncode) == (returncode), result.stderr
             assert ("DuplicateKey") not in (result.stderr)
+            assert "callback failed" not in result.stderr
             assert ((output / "tui-finished.svg").is_file()), result.stderr
             rendered = " ".join(ET.parse(output / "tui-finished.svg").getroot().itertext()).replace("\u00a0", " ")
             assert (expected) in (rendered)
