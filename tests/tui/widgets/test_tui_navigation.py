@@ -75,7 +75,8 @@ async def test_only_selected_activity_toggles_sidebar(tmp_path, language, size):
         assert model.value == "demo/edited-model"
         assert app.has_class("narrow") == (tabs.region.width < 110)
         for button in navigation.query(Button):
-            assert cell_len(str(button.label)) == 1
+            assert len(str(button.label)) == 1
+            assert cell_len(str(button.label)) <= button.content_region.width
             tooltip, pane_id = button.tooltip, button.name
             assert isinstance(tooltip, str)
             assert pane_id is not None
@@ -129,7 +130,7 @@ async def test_collapsed_sidebar_survives_language_resize_and_programmatic_navig
         assert await pilot.click("#nav-run-tab")
         await pilot.pause()
         collapsed_width = navigation.region.width
-        assert cell_len(str(app.query_one("#nav-run-tab", Button).label)) == 2
+        assert str(app.query_one("#nav-run-tab", Button).label) == "☰"
 
         app.activate_tab("monitor-tab")
         await pilot.pause()
@@ -150,7 +151,8 @@ async def test_collapsed_sidebar_survives_language_resize_and_programmatic_navig
             assert navigation.region.width == collapsed_width
             assert app.has_class("narrow") == (tabs.region.width < 110)
             for button in navigation.query(Button):
-                assert cell_len(str(button.label)) == (2 if button.id == "nav-run-tab" else 1)
+                assert len(str(button.label)) == 1
+                assert cell_len(str(button.label)) <= button.content_region.width
                 assert button.region.bottom <= app.query_one("#bottom-panel").region.y
                 assert app.get_widget_at(*button.region.center)[0] is button
 

@@ -1,4 +1,6 @@
 """CLI help and argument errors must work without loading the TUI runtime."""
+import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -69,3 +71,43 @@ def test_tui_start_does_not_hide_missing_runtime_dependencies(tmp_path):
     assert "ModuleNotFoundError" in result.stderr
     assert result.stdout == ""
     assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize(("terminal", "version", "expected_version", "expected_width"), [
+    ("vscode", None, "11.0.0", 1),
+    ("vscode", "17.0.0", "17.0.0", 2),
+    ("xterm", None, None, 2),
+])
+def test_tui_start_matches_terminal_unicode_before_rendering(
+    terminal, version, expected_version, expected_width,
+):
+    # Rich caches its first auto-selected width table; each launch needs a fresh process.
+    env = {key: value for key, value in os.environ.items() if key != "UNICODE_VERSION"}
+    env["TERM_PROGRAM"] = terminal
+    if version is not None:
+        env["UNICODE_VERSION"] = version
+    result = subprocess.run(
+        [sys.executable, "-c", """
+import json
+import os
+import sys
+from types import SimpleNamespace
+
+class WidthProbe:
+    def __init__(self, **kwargs):
+        from rich.cells import cell_len
+        from acprof.tui.ui.navigation import PageNavigation
+        icon = PageNavigation.ICONS['run-tab']
+        print(json.dumps([os.environ.get('UNICODE_VERSION'), icon,
+                          cell_len(icon), cell_len('实验配置')]))
+        raise SystemExit(0)
+
+sys.modules['acprof.tui.app'] = SimpleNamespace(AcprofTui=WidthProbe)
+sys.modules['acprof.tui.run.form'] = SimpleNamespace(infer_preset=None)
+from acprof.cli.main import main
+main(['tui'])
+"""],
+        cwd=ROOT, env=env, capture_output=True, text=True, check=False, timeout=10,
+    )
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == [expected_version, "☰", expected_width, 8]

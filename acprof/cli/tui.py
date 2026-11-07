@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 from collections.abc import Sequence
 from dataclasses import replace
 
@@ -38,6 +39,10 @@ def _build_parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> None:
     parser = _build_parser()
     args = parser.parse_args(argv)
+    # Rich caches its first width table. Match VS Code's default before Textual
+    # imports it: Unicode 16+ makes ☰ wide, but VS Code's Unicode 11 keeps it narrow.
+    if os.environ.get("TERM_PROGRAM") == "vscode":
+        os.environ.setdefault("UNICODE_VERSION", "11.0.0")
     # Help and argument errors must not initialize the TUI runtime.
     from acprof.experiments.configuration import RunConfigError
     from acprof.tui.app import AcprofTui

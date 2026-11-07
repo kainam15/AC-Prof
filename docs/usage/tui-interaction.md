@@ -98,6 +98,14 @@ Full 必需能力仍会阻断，绝不自动降级。相关实验参数变化后
 
 ## 输入与确认
 
+`acprof tui` 在 VS Code 集成终端（`TERM_PROGRAM=vscode`）默认采用 Unicode 11 字宽，
+使 `☰` 与终端一致占 1 格，避免同一行右侧表单和边框错位。显式设置的 `UNICODE_VERSION` 优先，
+其他终端沿用 Rich 默认规则；SSH 环境未传递终端标识时可用 `UNICODE_VERSION=11.0.0 acprof tui`。
+此兼容处理在首次加载 Textual 前执行，复用 Rich 的
+[`UNICODE_VERSION` 支持](https://github.com/Textualize/rich/blob/v15.0.0/rich/_unicode_data/__init__.py)
+及 VS Code 的 [Unicode 11 默认配置](https://github.com/microsoft/vscode/blob/f38b6d8928a171c65a42174e8394270760203fac/src/vs/workbench/contrib/terminal/common/terminalConfiguration.ts)，
+无新增依赖、轮询或第三方库补丁。
+
 表单输入框、选择框及其展开菜单默认使用 `solid` 细线边框，普通、聚焦和禁用状态保持同一种线框。
 这减少了对终端拼接 `tall` 块状字符的依赖，无需额外设置。终端仍需支持 UTF-8、中文字体和
 基础 Unicode 线框；`--color-system` 只调整颜色深度，不改变字体或边框字符，也不提供纯 ASCII 界面。
