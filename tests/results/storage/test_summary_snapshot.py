@@ -203,6 +203,7 @@ def test_cancelled_work_does_not_produce_a_summary(source, monkeypatch, phase):
         diagnostics.summarize_result_csv(source, cancelled=cancelled.is_set)
 
 
+@pytest.mark.tui
 @pytest.mark.parametrize(("language", "failed"), [("zh", "结果快照"), ("en", "result snapshot")])
 async def test_changed_source_error_and_retry_remain_usable_at_80x24(
     source, tmp_path, monkeypatch, language, failed,
@@ -216,37 +217,51 @@ async def test_changed_source_error_and_retry_remain_usable_at_80x24(
     save_settings(settings, TuiSettings(ui=UiPreferences(language=language)), tmp_path)
     app = AcprofTui(settings_path=settings)
     audit_result = audit.audit_result
+    original = source.read_bytes()
+    changed = original.replace(b"0.01", b"0.05")
+    audited_snapshots = []
 
     def change_result(*args, **kwargs):
         result = audit_result(*args, **kwargs)
-        source.write_bytes(source.read_bytes().replace(b"0.01", b"0.05"))
+        audited_snapshots.append(kwargs["result_snapshot"].sha256)
+        source.write_bytes(changed)
         return result
 
     async with app.run_test(size=(80, 24)) as pilot:
+        await app.workers.wait_for_complete()
         app.activate_tab("results-tab")
-        app.query_one("#experiment-source", Input).value = str(source)
-        await pilot.pause(0.25)
+        # Start the initial read directly so no input debounce can consume the
+        # fault injection immediately before the manual refresh below.
+        app.results.select_result(str(source))
         await app.workers.wait_for_complete()
         button = app.query_one("#refresh-experiment-state", Button)
         button.scroll_visible(animate=False, immediate=True)
         await pilot.pause()
+        ready = "有效正式窗口：2" if language == "zh" else "Valid formal windows: 2"
+        assert ready in str(app.query_one("#result-data-status", Static).content)
+        assert not app.is_busy()
+        assert not button.disabled
+        assert source.read_bytes() == original
         with monkeypatch.context() as scoped:
             scoped.setattr(audit, "audit_result", change_result)
-            assert await pilot.click(button)
+            assert await pilot.click(button, offset=(2, 1))
             await app.workers.wait_for_complete()
             await pilot.pause()
+        assert audited_snapshots == [hashlib.sha256(original).hexdigest()]
         assert failed in str(app.query_one("#result-data-status", Static).content)
         assert not app.is_busy()
         assert not button.disabled
         assert app.query_one("#experiment-source", Input).value == str(source.parent)
-        assert await pilot.click(button)
+        assert await pilot.click(button, offset=(2, 1))
         await app.workers.wait_for_complete()
         await pilot.pause()
-        assert ("有效正式窗口：2" if language == "zh" else "Valid formal windows: 2") in str(app.query_one("#result-data-status", Static).content)
+        assert ready in str(app.query_one("#result-data-status", Static).content)
         assert not app.is_busy()
         assert not button.disabled
+        assert source.read_bytes() == changed
 
 
+@pytest.mark.tui
 @pytest.mark.parametrize("language", ["zh", "en"])
 async def test_selection_change_releases_a_waiting_layer_reader_at_80x24(source, tmp_path, monkeypatch, language):
     from textual.widgets import Button, Input, Static
