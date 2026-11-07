@@ -197,6 +197,10 @@ class AcprofTui(BarCursorApp):
         self.configuration.configure_interaction()
         self.configuration.configure_scrollbars()
         self.localization.capture_language_text()
+        self.localization.set_text(
+            self.query_one("#main-tabs", TabbedContent).get_tab("settings-tab"),
+            message_id("settings.app.tooltip"), "tooltip",
+        )
         self.configuration.apply_ui_preferences()
         result_views = self.query_one("#result-views", TabbedContent)
         # Keep backend-bound widgets mounted, but prevent programmatic focus

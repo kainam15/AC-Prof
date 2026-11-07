@@ -13,6 +13,14 @@
 已将 TUI 界面改动可直接在 `main` 开发和提交的例外同步到根目录协作入口与
 [Git 协作规则](development/quality.md#git-worktree-与合并)，明确适用范围、现有修改保护和验证要求。
 
+## TUI 设置齿轮入口（2026-11）
+
+顶部导航最右侧的应用设置改为 `⚙`，悬停显示“设置”／`Settings`，点击与 `F2` 继续打开设置页。
+复用 Textual 8.2.8 的 [Widget.tooltip](https://github.com/Textualize/textual/blob/v8.2.8/src/textual/widget.py#L842)
+及现有翻译机制，不增加依赖或测量期工作。中英文三种尺寸、缩放、悬停与导航已做定向 headless 检查，
+SVG 差异已审阅并更新对应基线；真实客户端终端、VHS PNG 与远端 CI 未执行。
+用法见[启动和页面](usage/tui-pages.md#启动和页面)。
+
 ## TUI 左上角环境面板（2026-11）
 
 页头环境文字入口改为红色 `⊘`、黄色 `⚠`、绿色 `✔` 与各类检查数量；

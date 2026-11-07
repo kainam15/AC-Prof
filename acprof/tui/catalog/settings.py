@@ -8,6 +8,7 @@ MESSAGES: dict[str, Entry] = {
     "settings.action.reuse": Entry(zh="复用配置", en="Reuse"),
     "settings.action.save_configuration": Entry(zh="保存配置", en="Save configuration"),
     "settings.app.title": Entry(zh="应用设置", en="App settings"),
+    "settings.app.tooltip": Entry(zh="设置", en="Settings"),
     "settings.connections.endpoint_hint": Entry(
         zh="Token 留空可使用 hf login；镜像源留空使用官方 Hub。备用地址用逗号分隔。",
         en="Leave the token blank to use hf login, and the endpoint blank for the official Hub. Separate fallback URLs with commas.",
