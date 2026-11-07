@@ -16,14 +16,15 @@
 ## TUI 左上角环境面板（2026-11）
 
 `AC-Prof <version>` 与环境行统一左对齐。环境行支持悬停、点击固定及键盘访问，
-悬浮面板提供状态、能力摘要、「展开详情 / 收起详情」、单项原因、脱敏复制、重检和采集权限入口。
+悬浮面板提供状态、能力摘要和脱敏的单项原因；底部仅保留「展开详情 / 收起详情」与「重新检查」。
+移除面板内的权限设置、复制摘要和关闭按钮，继续通过环境行、外部点击或 `Esc` 关闭。
 复用 `PreflightController` 与 `quick_preflight()` 缓存；稳定检查标识仅服务展示，
 保留模式与指标语义、正式启动校验和测量锁。过期结果及旧 Runtime auto 解析不能用于新配置。
 实现借鉴 Textual 的 [Select overlay](https://github.com/Textualize/textual/blob/v8.2.8/src/textual/widgets/_select.py)
 与 [Collapsible](https://github.com/Textualize/textual/blob/v8.2.8/src/textual/widgets/_collapsible.py)，
 沿用现有 MIT 依赖，无新增检测器、依赖或测量期轮询。
 定向 Mock / Pilot 回归覆盖中英文三种尺寸、浅深主题与 NO_COLOR、悬停和固定、键盘与日志最大化、
-过期结果、检查失败、脱敏复制和测量期禁用。SVG 已审阅；8 个 VHS PNG 场景已生成对比报告，
+过期结果、检查失败、详情脱敏和测量期禁用。SVG 已审阅；8 个 VHS PNG 场景已生成对比报告，
 其中 7 个包含预期设计差异，PNG Golden 保持原版，等待用户人工确认。
 未执行真实客户端终端、实际硬件采集或远端 CI 验收。
 操作说明见[环境检查](usage/tui-interaction.md#环境检查)。

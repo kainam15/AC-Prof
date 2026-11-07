@@ -61,7 +61,6 @@ HeaderTitle { content-align: left middle; padding: 0 2; }
 #preflight-rows Static { height: auto; }
 #preflight-buttons { height: 3; }
 #preflight-buttons Button { width: auto; min-width: 0; margin: 0 1 0 0; padding: 0; }
-#preflight-buttons #preflight-close { width: 3; margin: 0; padding: 0; border: none; }
 /* Dock the action row as a unit: separate right docks overlap each other. */
 #header-actions {
     dock: right;

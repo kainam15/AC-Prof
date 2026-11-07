@@ -3,6 +3,7 @@ import asyncio
 from dataclasses import replace
 
 import pytest
+from textual import events
 from textual.widgets import Button, Collapsible, Select, Static, TabbedContent
 
 from acprof.experiments.configuration import RunConfig
@@ -41,6 +42,7 @@ async def test_hover_pin_expand_and_dismiss_keep_page_layout_and_cached_probe(ap
         await pilot.hover("#current-environment")
         await pilot.pause()
         assert panel.display
+        assert [button.id for button in panel.query(Button)] == ["preflight-expand", "preflight-retry"]
         assert tabs.region == before
         assert tabs.active == "run-tab"
         await pilot.hover("#preflight-expand")
@@ -107,8 +109,14 @@ async def test_hover_reentry_and_modal_hide_transient_panel(app):
         await settle(app, pilot)
         panel = app.preflight.panel
         await pilot.hover("#current-environment")
-        await pilot.hover("#quit-app")
-        await pilot.hover("#preflight-expand")
+        # Pilot.hover waits for CPU idle before and after each move, which can
+        # exceed the close delay. Queue rapid movement without those pauses.
+        for selector in ("#quit-app", "#preflight-expand"):
+            x, y = app.query_one(selector).region.center
+            app.post_message(events.MouseMove(
+                app.screen, x, y, delta_x=0, delta_y=0, button=0,
+                shift=False, meta=False, ctrl=False, screen_x=x, screen_y=y,
+            ))
         await pilot.pause(0.25)
         assert panel.display
         await pilot.hover("#quit-app")
@@ -175,15 +183,13 @@ async def test_projection_separates_probes_declarations_and_disabled_metrics(app
         probe.assert_called_once()
 
 
-async def test_details_copy_and_start_reason_are_redacted_and_scrollable(app, monkeypatch):
+async def test_details_and_start_reason_are_redacted_and_scrollable(app):
     app, probe = app
     app.configuration.initial_config = replace(RunConfig.smoke(""), profiling_mode="full")
     probe.return_value = [PreflightCheck(
         "perf instructions", "fail", 'token=fixture-secret\nhttps://user:password@example.org/check?key=hidden\n' +
         "very long diagnostic " * 500, "permission_denied", check_id="cpu_instructions", source="perf_stat",
     )]
-    copied = []
-    monkeypatch.setattr(app, "copy_to_clipboard", copied.append)
     async with app.run_test(size=(80, 24)) as pilot:
         await settle(app, pilot)
         assert "fixture-secret" not in str(app.query_one("#preflight-run-reason", Static).content)
@@ -197,14 +203,11 @@ async def test_details_copy_and_start_reason_are_redacted_and_scrollable(app, mo
         await pilot.pause()
         assert not row.collapsed
         assert app.query_one("#preflight-scroll").max_scroll_y > 0
-        await pilot.click("#preflight-copy")
-        assert copied
+        details = "\n".join(str(widget.content) for widget in row.query(Static))
         for secret in ("fixture-secret", "user:password", "key=hidden"):
-            assert secret not in copied[0]
-        assert "[REDACTED]" in copied[0]
-        assert "perf_stat" in copied[0]
-        await pilot.click("#preflight-permissions")
-        assert app.screen.query_one("#environment-tabs", TabbedContent).active == "permissions-tab"
+            assert secret not in details
+        assert "[REDACTED]" in details
+        assert "perf_stat" in details
         probe.assert_called_once()
 
 
@@ -227,7 +230,6 @@ async def test_stale_auto_runtime_and_measurement_actions(app):
         await pilot.press("f6")
         await pilot.click("#preflight-retry")
         assert app.query_one("#preflight-retry", Button).disabled
-        assert app.query_one("#preflight-permissions", Button).disabled
         assert "测量中" in str(app.query_one("#preflight-action-reason", Static).content)
         await pilot.click("#preflight-expand")
         await pilot.pause()

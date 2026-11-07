@@ -48,8 +48,8 @@ def display_checks(controller: PreflightController) -> tuple[PreflightCheck, ...
     """Fill evidence gaps for display only; never feed these rows into launch policy."""
     config = controller.preflight_config()
     fresh = controller.check_completed and controller.config_matches()
-    # Old results remain available in the diagnostic copy; they cannot describe
-    # capabilities of a newly selected runtime, device or collection mode.
+    # Cached results cannot describe capabilities of a newly selected runtime,
+    # device or collection mode.
     rows = list(controller.checks) if fresh else []
     if fresh and controller.error:
         rows.append(PreflightCheck(message_id("run.environment.label.check_error"), "error", controller.error,
@@ -150,9 +150,6 @@ class EnvironmentPopover(Vertical):
         with Horizontal(id="preflight-buttons"):
             yield Button("", id="preflight-expand", compact=True)
             yield Button("", id="preflight-retry", compact=True)
-            yield Button("", id="preflight-permissions", compact=True)
-            yield Button("", id="preflight-copy", compact=True)
-            yield Button("×", id="preflight-close", compact=True)
 
     def cancel_close(self) -> None:
         if self.close_timer is not None:
@@ -264,13 +261,11 @@ class EnvironmentPopover(Vertical):
         self.query_one("#preflight-evidence", Static).update(self.tr("evidence"))
         allowed = controller.app.operation_state().allows("check")
         self.query_one("#preflight-retry", Button).disabled = not allowed
-        self.query_one("#preflight-permissions", Button).disabled = not allowed
         reason = "" if allowed else self.tr("measurement_cached" if controller.app.execution.session.snapshot.measurement_active else "operation_busy")
         self.query_one("#preflight-action-reason", Static).update(reason)
         self.query_one("#preflight-action-reason").display = bool(reason)
         self.fit()
-        for name, key in (("expand", "collapse" if self.expanded else "expand"), ("retry", "retry"),
-                          ("permissions", "permissions"), ("copy", "copy")):
+        for name, key in (("expand", "collapse" if self.expanded else "expand"), ("retry", "retry")):
             button = self.query_one(f"#preflight-{name}", Button)
             label = self.tr(key)
             if str(button.label) != label:
@@ -309,9 +304,7 @@ class EnvironmentPopover(Vertical):
     def operate(self, event: Button.Pressed) -> None:
         event.stop()
         action = event.button.id
-        if action == "preflight-close":
-            self.close()
-        elif action == "preflight-expand":
+        if action == "preflight-expand":
             self.expanded = not self.expanded
             self.update_cached()
             if self.expanded:
@@ -320,18 +313,3 @@ class EnvironmentPopover(Vertical):
                 self.query_one("#preflight-scroll").scroll_home(animate=False)
         elif action == "preflight-retry":
             self.controller.quick_check()
-        elif action == "preflight-copy":
-            self.app.copy_to_clipboard(self.diagnostic_summary())
-        elif action == "preflight-permissions":
-            self.close(restore_focus=False)
-            self.controller.app.configuration.open_environment_settings(permissions=True)
-
-    def diagnostic_summary(self) -> str:
-        parts = [str(self.query_one(f"#preflight-{name}", Static).content)
-                 for name in ("summary", "capabilities", "issues", "evidence")]
-        for row in self.controller.checks:
-            parts.append(f"[{row.check_id or row.source}] {self.label(row)}: {self.status(row)}\n"
-                         f"{row.source}\n{self.controller.app.tr(row.detail)}")
-        if self.controller.error:
-            parts.append(self.controller.error)
-        return redact_text("\n\n".join(parts), limit=None)

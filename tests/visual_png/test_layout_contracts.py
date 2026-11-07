@@ -18,7 +18,7 @@ pytestmark = pytest.mark.visual_png
     ("scene", "selectors"),
     [
         ("form-small", ("#model", "#start-run")),
-        ("error-modal", ("#preflight-close", "#preflight-retry")),
+        ("error-modal", ("#preflight-expand", "#preflight-retry")),
         ("statistics", ("#experiment-source", "#refresh-experiment-state", "#report-calculate")),
         ("statistics-en", ("#experiment-source", "#refresh-experiment-state", "#report-calculate")),
         (

@@ -150,14 +150,13 @@ class ConfigurationController:
     def show_settings(self) -> None:
         self.app.activate_tab("settings-tab")
 
-    def open_environment_settings(self, *, permissions: bool = False) -> None:
+    def open_environment_settings(self) -> None:
         if self.app.is_busy() or self.app.preflight.check_running:
             return
         from acprof.tui.settings.environment import EnvironmentSettingsScreen
         try:
             screen = EnvironmentSettingsScreen(
                 self.app.project_dir, self.settings_path.parent, sniff_iface=self.input("sniff-iface"),
-                permissions=permissions,
             )
         except (OSError, ValueError) as read_error:
             self.app.notify(message_id('settings.environment.read_failed', type(read_error).__name__), severity="error")
