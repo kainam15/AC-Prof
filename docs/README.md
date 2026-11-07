@@ -2,6 +2,8 @@
 
 文档按主题目录维护。每个概念、命令或协议只在一个权威位置完整定义；本文档只放导航和链接。
 
+界面设计统一参考 [AC-Prof UI/UX 设计规范（IBM Carbon 适配）](development/ui-design-system.md)，适用于 TUI 与 HTML 报告。
+
 ## 文档导航
 
 | 分类                               |                                                                                                   权威文档                                                                                                   |

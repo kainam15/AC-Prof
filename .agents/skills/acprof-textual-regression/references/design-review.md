@@ -1,5 +1,7 @@
 # TUI 设计审查（按需）
 
+AC-Prof 的界面设计以 [UI/UX 设计规范（IBM Carbon 适配）](../../../../docs/development/ui-design-system.md) 为权威依据；Carbon 提供设计语义，实际控件与显示行为按 Textual、既有主题及终端兼容性适配。
+
 仅在新增或重排页面、改变操作路径、交互规则或视觉层级时使用。审查现有界面并按本次目标选择建议，不为套用某种 TUI 风格而重构。实际代码与测试入口以 [TUI 架构](../../../../docs/development/tui-architecture.md) 和 [场景矩阵](scenario-matrix.md) 为准。
 
 ## 按用户任务组织信息
