@@ -130,7 +130,7 @@ Tab { padding: 0 2; }
     text-style: bold;
 }
 #page-navigation Button:hover { background: $boost; color: $text; }
-#page-navigation Button:focus { background: $boost; text-style: bold underline; }
+#page-navigation Button:focus { background: $boost; text-style: bold; }
 #navigation-divider { height: 1; border-top: solid $panel; margin: 1 0; }
 AcprofTui.compact-navigation #page-navigation { width: 17; padding: 1 0; }
 AcprofTui.compact-navigation #page-navigation Button { padding: 0; }

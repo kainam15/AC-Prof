@@ -17,6 +17,7 @@
 
 六个主页面改用左侧栏导航，设置以 `⚙ 设置` 放在分隔线下；环境分类计数移至同一行退出按钮左侧，
 详情在入口下方展开。点击、方向键与 `Enter`、`F2` 和业务自动切页共用现有页面状态，保留草稿和后台页面。
+侧栏导航聚焦时移除文字下划线，继续用加粗与背景提示焦点，并用左侧竖线标记当前页面。
 参考 Textual 官方 [Sidebar 布局](https://github.com/Textualize/textual/blob/main/docs/examples/guide/layout/dock_layout1_sidebar.py)
 与 [TabbedContent.active](https://github.com/Textualize/textual/blob/v8.2.8/docs/widgets/tabbed_content.md)，
 复用现有 MIT 依赖和公开 API，仅借鉴布局与状态分离思路，不复制源码、不增加依赖或测量期轮询。
