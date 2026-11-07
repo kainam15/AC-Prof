@@ -249,7 +249,10 @@ async def test_status_dots_explain_cached_checks_on_hover_and_keyboard_focus(app
             assert next(iter(cell)).style.color.get_truecolor() == Color.parse(app.theme_variables[color]).get_truecolor()
             if language == "en" and identifier in {"docker", "cpu_instructions", "gpu_memory"}:
                 visible = app.screen._compositor.render_strips()[region.y].crop(region.x, region.right).text
-                assert ("Unavailable" if identifier == "cpu_instructions" else "Available") in visible
+                if identifier == "cpu_instructions":
+                    assert "Unavailable" in visible
+                else:
+                    assert " · " not in visible
             explanation = str(app.query_one("#preflight-explanation", Static).content)
             problem = identifier in {"cpu_energy", "cpu_instructions", "check_error"}
             assert (("原因：" if language == "zh" else "Reason:") in explanation) == problem
@@ -263,7 +266,7 @@ async def test_status_dots_explain_cached_checks_on_hover_and_keyboard_focus(app
             assert ("解决方法：" if language == "zh" else "Solution:") not in explanation
         device = app.query_one("#preflight-signal-gpu_device")
         assert "●" in device.render().plain
-        assert ("可用" if language == "zh" else "Available") in device.render().plain
+        assert " · " not in device.render().plain
         failure = app.query_one("#preflight-signal-cpu_instructions")
         failure.scroll_visible(animate=False, top=True)
         await pilot.pause()
@@ -289,8 +292,7 @@ async def test_status_dots_explain_cached_checks_on_hover_and_keyboard_focus(app
         await pilot.pause()
         assert app.preflight.display_state == "limited"
         assert str(app.query_one("#preflight-explanation", Static).content) == previous_detail
-        assert any(("可用" if language == "zh" else "Available") in signal.render().plain
-                   for signal in app.query(".environment-signal"))
+        assert " · " not in device.render().plain
         probe.assert_called_once()
 
 

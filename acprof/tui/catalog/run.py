@@ -100,8 +100,6 @@ MESSAGES: dict[str, Entry] = {
     "run.environment.signal.error": Entry(zh="异常", en="Error"),
     "run.environment.signal.fail": Entry(zh="不可用", en="Unavailable"),
     "run.environment.signal.not_requested": Entry(zh="未启用", en="Not enabled"),
-    "run.environment.signal.ok": Entry(zh="可用", en="Available"),
-    "run.environment.signal.pending": Entry(zh="待验证", en="Unverified"),
     "run.environment.signal.warn": Entry(zh="受限", en="Limited"),
     "run.environment.source": Entry(zh="来源：{0} · 底层状态：{1}", en="Source: {0} · Underlying status: {1}"),
     "run.environment.stale_notice": Entry(zh="配置已变化：旧结果仅供诊断，重新检查后才能开始。", en="Configuration changed: cached results are diagnostic only. Check again before starting."),

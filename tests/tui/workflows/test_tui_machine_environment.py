@@ -170,7 +170,7 @@ async def test_runtime_self_check_details_are_accessible_without_selecting_profi
             signal = app.query_one("#preflight-signal-" + tool, EnvironmentSignal)
             signal.focus()
             await pilot.pause()
-            assert ("可用" if language == "zh" else "Available") in signal.render().plain
+            assert signal.render().plain == "● " + ("Torch Profiler" if tool == "torch" else "Valgrind Massif")
             detail = app.query_one("#preflight-explanation", Static).content
             assert isinstance(detail, str)
             assert ("自动运行最小 CPU 自检" if language == "zh" else "Automatic minimal CPU self-check") in detail

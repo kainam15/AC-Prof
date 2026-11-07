@@ -116,15 +116,14 @@ class EnvironmentSignal(Static, can_focus=True):
         status = item_status(self.row)
         role = {"ok": "success", "fail": "error", "error": "error", "not_requested": "muted"}.get(status, "warning")
         dot = "○" if status == "not_requested" else "●"
-        status_label = self.panel.tr("signal." + status)
+        suffix = "" if status in {"ok", "pending"} else " · " + self.panel.tr("signal." + status)
         label = Text(self.panel.label(self.row))
         if self.size.width:
-            # Keep availability readable even when a long translated name is
-            # shortened in the two-column layout.
-            label.truncate(max(1, self.size.width - Text(status_label).cell_len - 5), overflow="ellipsis")
+            # Reserve space for the dot and any problem status.
+            label.truncate(max(1, self.size.width - Text(suffix).cell_len - 2), overflow="ellipsis")
         return Text.assemble(
             (dot, self.get_component_rich_style("environment--" + role)),
-            " ", label, " · " + status_label,
+            " ", label, suffix,
         )
 
     def on_enter(self) -> None:
