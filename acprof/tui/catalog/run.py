@@ -96,7 +96,7 @@ MESSAGES: dict[str, Entry] = {
     "run.environment.remedy.uv": Entry(zh="在 PATH 中安装 uv 后重新检查。", en="Install uv on PATH, then check again."),
     "run.environment.retry": Entry(zh="重新检查", en="Check again"),
     "run.environment.runtime_pending": Entry(zh="Auto（待解析）", en="Auto (unresolved)"),
-    "run.environment.runtime_tools_read": Entry(zh="已检查本地 Runtime 镜像：{0} 个。此工具在 Runtime 内提供；镜像存在不能证明工具可执行，需在运行环境准备时验证。", en="Inspected {0} local runtime images. This tool is supplied inside the runtime; image presence does not verify execution. Checked during runtime preparation."),
+    "run.environment.runtime_self_check": Entry(zh="自动运行最小 CPU 自检，每项找到可用 Runtime 后停止。记录实际算子或堆分配报告；不代表其他 Runtime、GPU 或模型采集通过。\n{0}", en="Automatic minimal CPU self-check; each tool stops at its first working runtime. Verifies operator events or a heap report, not other runtimes, GPU or model collection.\n{0}"),
     "run.environment.signal.declared": Entry(zh="仅声明", en="Declared"),
     "run.environment.signal.error": Entry(zh="异常", en="Error"),
     "run.environment.signal.fail": Entry(zh="不可用", en="Unavailable"),

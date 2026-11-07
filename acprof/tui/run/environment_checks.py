@@ -1,7 +1,7 @@
 """Bounded machine inventory, independent of an experiment's RunConfig.
 
-The caller holds MeasurementLock. Never load a model, start a container, build
-an image, or launch a profiler workload here.
+The caller holds MeasurementLock. Runtime tools use bounded, model-free self
+checks in local images. Never download, build or load a model here.
 """
 from __future__ import annotations
 
@@ -14,7 +14,9 @@ from pathlib import Path
 
 from acprof.capabilities import CapabilityStatus, capability_from_error
 from acprof.experiments.configuration import RunConfig
+from acprof.host.profiling.runtime_checks import check_runtime_tools
 from acprof.host.profiling.tools.tool_discovery import find_executable, find_nsys_executable
+from acprof.host.runtimes.contracts import RuntimeCleanupError
 from acprof.host.runtimes.process_control import require_process_supervision
 from acprof.host.runtimes.resources import current_cgroup
 from acprof.platform import detect_environment
@@ -141,20 +143,19 @@ def _tool_check(identifier: str, path: str | None, command_runner) -> PreflightC
 
 
 def _runtime_profiler_checks(command_runner, docker_available: bool) -> list[PreflightCheck]:
-    """Inspect all local runtime images; metadata is not execution evidence."""
+    """Use actual runtime self-check evidence, independently of the form."""
     try:
         if not docker_available:
             raise RuntimeError("local Docker unavailable; runtime images cannot be inspected")
-        result = command_runner(("docker", "image", "ls", "--filter", "label=org.acprof.environment",
-                                 "--format", "{{.ID}}"), timeout=10.0)
-        if result.returncode:
-            raise RuntimeError((result.stderr or result.stdout).strip())
-        images = tuple(dict.fromkeys(result.stdout.split()))
-        detail = message_id("run.environment.runtime_tools_read", len(images))
-        return [PreflightCheck(name, "pending", detail, check_id=name, source="docker image ls")
-                for name in ("torch", "massif")]
+        return [PreflightCheck(
+            check.tool, check.status, message_id("run.environment.runtime_self_check", check.detail),
+            "available" if check.status == "ok" else "unavailable" if check.status == "fail" else "",
+            check_id=check.tool, source="runtime self-check",
+        ) for check in check_runtime_tools(command_runner)]
+    except RuntimeCleanupError:
+        raise
     except Exception as exc:
-        return [_failure(name, exc, "docker image ls") for name in ("torch", "massif")]
+        return [_failure(name, exc, "runtime self-check") for name in ("torch", "massif")]
 
 
 def scan_environment(*, project_dir: str | Path | None = None, command_runner=_completed_command) -> list[PreflightCheck]:

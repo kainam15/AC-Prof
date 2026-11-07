@@ -1,8 +1,10 @@
 """Machine diagnostics stay independent of experiment selections and launch policy."""
 import asyncio
+import json
 import subprocess
 import sys
 from dataclasses import replace
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -11,6 +13,8 @@ from textual.widgets import Button, Select, Static
 
 from acprof.capabilities import Capability
 from acprof.experiments.configuration import RunConfig
+from acprof.host.container_lifecycle import ContainerCleanupError
+from acprof.host.run_state import MeasurementLock
 from acprof.platform import Environment
 from acprof.tui.run.diagnostics import PreflightCheck
 from acprof.tui.run.environment_checks import scan_environment
@@ -63,6 +67,20 @@ def host(monkeypatch, tmp_path):
     monkeypatch.setitem(sys.modules, "pynvml", nvml)
     commands = []
 
+    def runtime_runner(command, **kwargs):
+        commands.append(tuple(command))
+        assert 0 < kwargs["timeout"] <= 30
+        output = ""
+        if command[:2] == ["docker", "run"]:
+            Path(command[command.index("--cidfile") + 1]).write_text("a" * 64)
+            tool = command[-1]
+            evidence = {"torch": {"version": "2.9", "events": 1, "flops": 128},
+                        "massif": {"version": "valgrind-3.24", "snapshots": 2, "peak_heap_bytes": 131072}}
+            output = json.dumps({"tool": tool, **evidence[tool]})
+        return subprocess.CompletedProcess(command, 0, stdout=output, stderr="")
+
+    monkeypatch.setattr("acprof.host.profiling.commands.run_command", runtime_runner)
+
     def command_runner(command, *, timeout):
         commands.append(tuple(command))
         assert 0 < timeout <= 15
@@ -71,7 +89,7 @@ def host(monkeypatch, tmp_path):
         elif "getcap" in command[0]:
             output = "/tools/tcpdump cap_net_raw=eip"
         elif "image" in command:
-            output = "123456\n"
+            output = "sha256:" + "b" * 64 + "\n"
         else:
             output = "fixture version / host"
         return subprocess.CompletedProcess(command, 0, stdout=output, stderr="")
@@ -90,8 +108,12 @@ def test_scan_checks_all_host_interfaces_and_tools_without_experiment(host, tmp_
     assert "GPU 1" in rows["gpu_power"].detail
     assert "0 %" in rows["gpu_utilization"].detail, "zero is valid evidence"
     assert all(row.status not in {"declared", "not_requested"} for row in rows.values())
-    assert rows["torch"].status == rows["massif"].status == "pending", "image presence is not a tool execution check"
-    assert not any("run" in command or "build" in command or "pull" in command for command in host.commands)
+    assert rows["torch"].status == rows["massif"].status == "ok", "both tools must actually pass runtime self-checks"
+    launches = [command for command in host.commands if command[:2] == ("docker", "run")]
+    assert len(launches) == 2
+    assert {command[-1] for command in launches} == {"torch", "massif"}
+    assert all("--pull=never" in command and "--network=none" in command for command in launches)
+    assert not any("build" in command or "pull" in command for command in host.commands)
     host.rapl.assert_called_once()
     host.perf.assert_called_once()
     host.nvml.nvmlShutdown.assert_called_once()
@@ -122,6 +144,38 @@ def test_no_gpu_reports_unavailable_for_every_gpu_metric(host, tmp_path):
         assert rows[name].status == "fail"
         assert "no NVIDIA GPU" in rows[name].detail
     host.nvml.nvmlShutdown.assert_called_once()
+
+
+def test_runtime_cleanup_error_is_not_downgraded_to_an_optional_tool_failure(host, monkeypatch):
+    monkeypatch.setattr("acprof.host.profiling.runtime_checks.run_profiler_command",
+                        Mock(side_effect=ContainerCleanupError("a" * 64, [], final_state="present")))
+    with pytest.raises(ContainerCleanupError):
+        scan_environment(command_runner=host.runner)
+
+
+@pytest.mark.parametrize("language", ["zh", "en"])
+async def test_runtime_self_check_details_are_accessible_without_selecting_profilers(host, tmp_path, monkeypatch, language):
+    from acprof.tui.app import AcprofTui
+
+    rows = scan_environment(command_runner=host.runner)
+    scan = Mock(return_value=rows)
+    monkeypatch.setattr("acprof.tui.run.preflight_controller.scan_environment", scan)
+    monkeypatch.setattr("acprof.tui.run.preflight_controller.quick_preflight", lambda *args, **kwargs: [])
+    app = AcprofTui(RunConfig.smoke(""), settings_path=tmp_path / "settings.json")
+    app.configuration.preferences = replace(app.configuration.preferences, language=language)
+    async with app.run_test(size=(80, 24)) as pilot:
+        await asyncio.wait_for(app.workers.wait_for_complete(), 10)
+        await pilot.click("#current-environment")
+        for tool, reading in (("torch", "128"), ("massif", "131072")):
+            signal = app.query_one("#preflight-signal-" + tool)
+            signal.focus()
+            await pilot.pause()
+            assert ("可用" if language == "zh" else "Available") in signal.render().plain
+            detail = str(app.query_one("#preflight-explanation", Static).content)
+            assert ("自动运行最小 CPU 自检" if language == "zh" else "Automatic minimal CPU self-check") in detail
+            assert reading in detail
+            assert "sha256:" in detail
+        scan.assert_called_once()
 
 
 @pytest.mark.parametrize("language", ["zh", "en"])
@@ -156,3 +210,42 @@ async def test_all_machine_checks_run_once_and_ignore_experiment_edits(tmp_path,
         await asyncio.wait_for(app.workers.wait_for_complete(), 10)
         await pilot.pause()
         assert scan.call_count == 2
+
+
+async def test_runtime_cleanup_failure_blocks_launch_and_remaining_preflight(tmp_path, monkeypatch):
+    from acprof.tui.app import AcprofTui
+
+    failure = ContainerCleanupError("a" * 64, [], final_state="present")
+    scan = Mock(side_effect=failure)
+    preflight = Mock(return_value=[])
+    monkeypatch.setattr("acprof.tui.run.preflight_controller.scan_environment", scan)
+    monkeypatch.setattr("acprof.tui.run.preflight_controller.quick_preflight", preflight)
+    app = AcprofTui(RunConfig.smoke(""), settings_path=tmp_path / "settings.json")
+    async with app.run_test(size=(80, 24)) as pilot:
+        await asyncio.wait_for(app.workers.wait_for_complete(), 10)
+        await pilot.pause()
+        assert app.query_one("#start-run", Button).disabled
+        assert "ContainerCleanupError" in app.preflight.environment_error
+        assert "ContainerCleanupError" in app.preflight.error
+        preflight.assert_not_called()
+        scan.side_effect = None
+        scan.return_value = []
+        app.preflight.quick_check()
+        await asyncio.wait_for(app.workers.wait_for_complete(), 10)
+        await pilot.pause()
+        assert not app.query_one("#start-run", Button).disabled
+        preflight.assert_called_once()
+
+
+async def test_measurement_lock_prevents_runtime_self_checks(tmp_path, monkeypatch):
+    from acprof.tui.app import AcprofTui
+
+    scan = Mock(return_value=[])
+    monkeypatch.setattr("acprof.tui.run.preflight_controller.scan_environment", scan)
+    app = AcprofTui(RunConfig.smoke(""), settings_path=tmp_path / "settings.json")
+    with MeasurementLock():
+        async with app.run_test(size=(80, 24)) as pilot:
+            await asyncio.wait_for(app.workers.wait_for_complete(), 10)
+            await pilot.pause()
+            scan.assert_not_called()
+            assert app.query_one("#start-run", Button).disabled

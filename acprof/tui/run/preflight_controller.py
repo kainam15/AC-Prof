@@ -21,6 +21,7 @@ from acprof.events.download import DownloadProgress
 from acprof.experiments.configuration import RunConfig
 from acprof.host.preparation.preparation_log import redact_text
 from acprof.host.run_state import MeasurementLock
+from acprof.host.runtimes.contracts import RuntimeCleanupError
 from acprof.messages import join_messages, message
 from acprof.tui.i18n import message_id
 from acprof.tui.run import form as run_form, planning as run_planning
@@ -309,6 +310,8 @@ class PreflightController:
                 lock_acquired = True
                 try:
                     environment_checks = scan_environment(project_dir=self.app.project_dir)
+                except RuntimeCleanupError:
+                    raise
                 except Exception as exc:
                     environment_error = f"{type(exc).__name__}: {exc}"
                 checks = quick_preflight(config, project_dir=self.app.project_dir)
@@ -316,7 +319,7 @@ class PreflightController:
         except Exception as exc:
             checks = []
             error = f"{type(exc).__name__}: {exc}"
-            if not lock_acquired:
+            if not lock_acquired or isinstance(exc, RuntimeCleanupError):
                 environment_error = error
         self.app.process.safe_process_callback(
             self.show_quick_check, checks, error, token, lock_acquired, environment_checks, environment_error,

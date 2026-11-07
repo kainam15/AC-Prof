@@ -18,14 +18,19 @@
 环境面板改为独立机器能力清单：默认检查 Docker / Process、进程和 cgroup CPU / 内存、
 RAPL、perf、抓包、所有可见 GPU 的显存／利用率／功耗，以及各 Profiler 的环境前置条件。
 实验配置不改变环境清单，不再显示「仅声明」或因未勾选而跳过；实验启动校验保持独立。
-工具版本查询和镜像检查保留证据边界，模型／容器／Profiler 真实执行仍需单独验收。
+Torch Profiler / Massif 自动在本地 Runtime 执行最小 CPU 自检，验证实际算子和堆报告；
+每项找到可用 Runtime 后停止，保留验证对象、失败原因与超时边界。模型／GPU／完整 Profiler 仍独立验收。
 继续支持悬停、固定、键盘、逐项脱敏说明与测量期间只读缓存。
 
 实现参考 Flutter [doctor](https://github.com/flutter/flutter/blob/main/packages/flutter_tools/lib/src/doctor.dart)
 的逐项诊断与错误呈现，采用其设计思路而非复制 BSD 源码；复用项目现有探测器、NVML、psutil
 和 Profiler 发现逻辑，无新增依赖或测量期间轮询。
 定向 Mock / Pilot 回归覆盖中英文窄屏、缩放、可选工具缺失、逐设备 GPU 失败、测量锁与配置隔离；
-SVG 差异已审阅。本机轻量读取与工具版本查询通过，Torch / Massif 的 Runtime 内执行仍待验证。
+SVG 差异已审阅。本机轻量读取、工具版本查询及 Torch / Massif 的最小 Runtime 自检通过，
+自检容器已确认清理。Mock 覆盖无镜像、无效证据、超时、候选回退、预算耗尽、清理失败阻断与测量锁。
+自检方式参考 PyTorch [CPU Profiler 测试](https://github.com/pytorch/pytorch/blob/main/test/profiler/test_profiler_tree.py)
+和 Valgrind [Massif 测试](https://github.com/tklengyel/valgrind/blob/master/massif/tests/basic.vgtest)，
+借鉴事件／报告验收方式，复用项目容器所有权与清理机制，不复制上游源码或引入依赖。
 未执行真实客户端终端、模型或完整 Profiler 采集、远端 CI。
 用法见[环境检查](usage/tui-interaction.md#环境检查)。
 
