@@ -26,3 +26,6 @@ def mount(app: AcprofTui) -> None:
     app.preflight.lock_acquired = True
     app.preflight.refresh_preflight_state()
     app.preflight.panel.show(pin=True)
+    app.preflight.panel.call_later(
+        lambda: app.query_one("#preflight-signal-cpu_instructions").focus(scroll_visible=False)
+    )

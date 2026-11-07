@@ -48,12 +48,17 @@ HeaderTitle { content-align: left middle; padding: 0 2; }
 }
 #preflight-title { height: 1; text-style: bold; }
 #preflight-scroll { height: auto; overflow-x: hidden; }
-#preflight-summary, #preflight-capabilities, #preflight-issues, #preflight-evidence,
+#preflight-summary, #preflight-capabilities, #preflight-issues, #preflight-evidence, #preflight-boundary,
 #preflight-action-reason, #preflight-details, #preflight-rows { height: auto; }
-#preflight-summary, #preflight-capabilities { margin-bottom: 1; }
+#preflight-summary { margin-bottom: 1; }
+#preflight-capabilities { grid-size: 2; grid-columns: 1fr 1fr; grid-rows: 1; grid-gutter: 0 1; }
+.environment-signal { height: 1; text-wrap: nowrap; text-overflow: ellipsis; }
+.environment-signal:hover, .environment-signal:focus { text-style: bold underline; }
+#preflight-inspection { height: 6; border-top: solid $accent; overflow-x: hidden; }
+#preflight-explanation { height: auto; }
 #preflight-issues, #preflight-action-reason { color: $warning; }
 #preflight-action-reason { max-height: 2; }
-#preflight-evidence { color: $text-muted; }
+#preflight-evidence, #preflight-boundary { color: $text-muted; }
 #preflight-details { display: none; }
 .environment-section { height: auto; text-style: bold; margin-top: 1; }
 #preflight-rows Collapsible { padding: 0; margin: 0; }

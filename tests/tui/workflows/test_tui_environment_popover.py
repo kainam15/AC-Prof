@@ -3,6 +3,7 @@ import asyncio
 from dataclasses import replace
 
 import pytest
+from rich.color import Color
 from textual import events
 from textual.widgets import Button, Collapsible, Select, Static, TabbedContent
 
@@ -18,6 +19,7 @@ from acprof.tui.ui.environment import display_checks
 def app(tmp_path, monkeypatch):
     from unittest.mock import Mock
 
+    monkeypatch.delenv("NO_COLOR", raising=False)
     probe = Mock(return_value=[PreflightCheck("Docker", "warn", "fixture diagnostic")])
     monkeypatch.setattr("acprof.tui.run.preflight_controller.quick_preflight", probe)
     instance = AcprofTui(RunConfig.smoke(""), settings_path=tmp_path / "settings.json")
@@ -211,6 +213,63 @@ async def test_details_and_start_reason_are_redacted_and_scrollable(app):
         probe.assert_called_once()
 
 
+@pytest.mark.parametrize("language", ["zh", "en"])
+async def test_status_dots_explain_cached_checks_on_hover_and_keyboard_focus(app, language):
+    app, probe = app
+    app.configuration.preferences = replace(app.configuration.preferences, language=language)
+    app.configuration.initial_config = replace(RunConfig.smoke(""), runtime="docker", profiling_mode="full")
+    probe.return_value = [
+        PreflightCheck("Docker", "ok", "daemon ready", check_id="docker"),
+        PreflightCheck("RAPL", "warn", "RAPL fixture limitation", "unsupported", check_id="cpu_energy"),
+        PreflightCheck("perf", "fail", "Permission denied; token=fixture-secret", "permission_denied", check_id="cpu_instructions"),
+    ]
+    async with app.run_test(size=(80, 24)) as pilot:
+        await settle(app, pilot)
+        await pilot.click("#current-environment")
+        await pilot.pause()
+        assert app.query("#preflight-signal-cpu_instructions"), "each check needs an individual status indicator"
+        for identifier, color in (("docker", "success"), ("cpu_energy", "warning"),
+                                  ("cpu_instructions", "error"), ("latency", "warning")):
+            signal = app.query_one(f"#preflight-signal-{identifier}")
+            signal.scroll_visible(animate=False, top=True)
+            await pilot.pause()
+            assert await pilot.hover(signal)
+            region = signal.content_region
+            cell = app.screen._compositor.render_strips()[region.y].crop(region.x, region.x + 1)
+            assert cell.text == "●"
+            assert next(iter(cell)).style.color.get_truecolor() == Color.parse(app.theme_variables[color]).get_truecolor()
+        disabled = app.query_one("#preflight-signal-gpu_device")
+        assert "○" in disabled.render().plain
+        assert ("未启用" if language == "zh" else "Not enabled") in disabled.render().plain
+        failure = app.query_one("#preflight-signal-cpu_instructions")
+        failure.scroll_visible(animate=False, top=True)
+        await pilot.pause()
+        await pilot.hover(failure)
+        explanation = str(app.query_one("#preflight-explanation", Static).content)
+        assert ("为什么" if language == "zh" else "Why") in explanation
+        assert ("怎么解决" if language == "zh" else "What to do") in explanation
+        assert "Permission denied" in explanation
+        assert "fixture-secret" not in explanation
+        assert ("采集权限" if language == "zh" else "Permissions") in explanation
+        app.query_one("#preflight-signal-docker").focus()
+        await pilot.press("shift+tab")
+        assert app.focused is app.query_one("#preflight-signal-cpu_energy")
+        assert "RAPL fixture limitation" in str(app.query_one("#preflight-explanation", Static).content)
+        app.execution.session.snapshot = ProgressSnapshot(measurement_active=True)
+        app.set_busy(True)
+        await pilot.hover(failure)
+        probe.assert_called_once()
+        app.execution.session.snapshot = ProgressSnapshot()
+        app.set_busy(False)
+        app.query_one("#gpus", Select).value = "on"
+        await pilot.pause()
+        assert app.preflight.display_state == "stale"
+        assert "Permission denied" not in str(app.query_one("#preflight-explanation", Static).content)
+        assert all(("通过" if language == "zh" else "Passed") not in signal.render().plain
+                   for signal in app.query(".environment-signal"))
+        probe.assert_called_once()
+
+
 async def test_stale_auto_runtime_and_measurement_actions(app):
     app, probe = app
     probe.return_value = [PreflightCheck("Runtime", "ok", "Process", runtime_kind="process", check_id="runtime")]
@@ -255,7 +314,7 @@ async def test_palette_and_long_panel_fit(app, theme, no_color, monkeypatch):
         panel = app.preflight.panel
         assert panel.region.bottom <= 24
         assert "受限" in str(app.query_one("#preflight-title", Static).content)
-        assert "未启用" in str(app.query_one("#preflight-capabilities", Static).content)
+        assert any("未启用" in signal.render().plain for signal in app.query(".environment-signal"))
         assert all(panel.region.contains_region(button.region) for button in panel.query(Button))
         assert app.theme == theme
         colors = {

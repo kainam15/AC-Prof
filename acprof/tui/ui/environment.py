@@ -4,9 +4,10 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from rich.markup import escape
+from rich.text import Text
 from textual import events, on
 from textual.app import ComposeResult
-from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.containers import Grid, Horizontal, Vertical, VerticalScroll
 from textual.geometry import Offset
 from textual.timer import Timer
 from textual.widgets import Button, Collapsible, Static
@@ -41,7 +42,12 @@ REMEDIES = {
     "process_resources": "resources", "cpu_energy": "rapl", "cpu_instructions": "permissions",
     "tcpdump": "capture_tools", "tshark": "capture_tools", "capture_permissions": "permissions",
     "capture_interface": "interface", "gpu_device": "gpu", "gpu_memory": "gpu", "gpu_utilization": "gpu",
+    "gpu_power": "gpu", "process_cpu": "process_metrics", "process_memory": "process_metrics",
 }
+
+
+def item_status(row: PreflightCheck) -> str:
+    return "error" if row.capability_status == "error" and row.status != "not_requested" else row.status
 
 
 def display_checks(controller: PreflightController) -> tuple[PreflightCheck, ...]:
@@ -122,6 +128,38 @@ class EnvironmentHostScreen(CjkScreen):
         super()._forward_event(event)
 
 
+class EnvironmentSignal(Static, can_focus=True):
+    """A cached check with a theme-aware dot and hover/keyboard explanation."""
+
+    COMPONENT_CLASSES = {"environment--success", "environment--warning", "environment--error", "environment--muted"}
+    DEFAULT_CSS = """
+    EnvironmentSignal .environment--success { color: $success; }
+    EnvironmentSignal .environment--warning { color: $warning; }
+    EnvironmentSignal .environment--error { color: $error; }
+    EnvironmentSignal .environment--muted { color: $text-muted; }
+    """
+
+    def __init__(self, panel: EnvironmentPopover, row: PreflightCheck, identifier: str) -> None:
+        super().__init__(id=f"preflight-signal-{identifier}", classes="environment-signal", markup=False)
+        self.panel = panel
+        self.row = row
+
+    def render(self) -> Text:
+        status = item_status(self.row)
+        role = {"ok": "success", "fail": "error", "error": "error", "not_requested": "muted"}.get(status, "warning")
+        dot = "○" if status == "not_requested" else "●"
+        return Text.assemble(
+            (dot, self.get_component_rich_style("environment--" + role)),
+            f" {self.panel.label(self.row)} · {self.panel.tr('signal.' + status)}",
+        )
+
+    def on_enter(self) -> None:
+        self.panel.explain(self.row)
+
+    def on_focus(self) -> None:
+        self.panel.explain(self.row)
+
+
 class EnvironmentPopover(Vertical):
     CLOSE_DELAY = 0.18
 
@@ -142,10 +180,13 @@ class EnvironmentPopover(Vertical):
         with VerticalScroll(id="preflight-scroll"):
             yield Static("", id="preflight-summary", markup=False)
             yield Static("", id="preflight-issues", markup=False)
-            yield Static("", id="preflight-evidence", markup=False)
-            yield Static("", id="preflight-capabilities", markup=False)
+            yield Static("", id="preflight-boundary", markup=False)
+            yield Grid(id="preflight-capabilities")
             with Vertical(id="preflight-details"):
+                yield Static("", id="preflight-evidence", markup=False)
                 yield Vertical(id="preflight-rows")
+        with VerticalScroll(id="preflight-inspection"):
+            yield Static("", id="preflight-explanation", markup=False)
         yield Static("", id="preflight-action-reason", markup=False)
         with Horizontal(id="preflight-buttons"):
             yield Button("", id="preflight-expand", compact=True)
@@ -212,17 +253,28 @@ class EnvironmentPopover(Vertical):
         height = max(1, self.app.size.height - 2)
         self.styles.max_height = height
         reason_height = 2 if self.query_one("#preflight-action-reason").display else 0
-        self.query_one("#preflight-scroll").styles.max_height = max(1, height - 6 - reason_height)
+        self.query_one("#preflight-scroll").styles.max_height = max(1, height - 12 - reason_height)
+        self.query_one("#preflight-capabilities").styles.grid_size_columns = 2 if self.app.size.width >= 60 else 1
 
     def label(self, row: PreflightCheck) -> str:
         return self.tr("label." + LABELS[row.check_id]) if row.check_id in LABELS else self.controller.app.tr(row.label)
 
     def status(self, row: PreflightCheck) -> str:
-        status = "error" if row.capability_status == "error" and row.status != "not_requested" else row.status
-        return self.tr("item." + status)
+        return self.tr("item." + item_status(row))
 
     def remedy(self, row: PreflightCheck) -> str:
+        if row.status in {"ok", "not_requested", "declared", "pending"}:
+            return self.tr("remedy." + row.status)
         return self.tr("remedy." + REMEDIES.get(row.check_id, "generic"))
+
+    def explain(self, row: PreflightCheck) -> None:
+        if not self.display or row not in self._rows:
+            return
+        reason = " ".join(self.controller.app.tr(row.detail).split())
+        text = self.tr("explanation", self.label(row), self.status(row),
+                       redact_text(reason, limit=400), self.remedy(row))
+        self.query_one("#preflight-explanation", Static).update(redact_text(text, limit=None))
+        self.query_one("#preflight-inspection").scroll_home(animate=False)
 
     def update_cached(self) -> None:
         if not self.is_mounted or not self.display:
@@ -238,27 +290,16 @@ class EnvironmentPopover(Vertical):
         summary = self.tr("summary", runtime.title(), config.profiling_mode.title(), config.gpus.title(), completed)
         can_start = not controller.preflight_run_reason() and controller.app.operation_state().allows("run")
         summary += "\n" + self.tr("can_start" if can_start else "cannot_start")
-        summary += "\n" + self.tr("lock_cached" if controller.lock_acquired else "lock_unknown")
         self.query_one("#preflight-summary", Static).update(summary)
         rows = display_checks(controller)
-        # Summarize requested evidence, never treat declarations or disabled
-        # metrics as passed probes or as an alternative launch policy.
-        measurements = [row for row in rows if row.check_id in {*METRICS, "tcpdump", "tshark", "capture_permissions"}]
-        capabilities = "\n".join(
-            self.tr("capability_line", self.tr("item." + status),
-                    ", ".join(self.label(row) for row in measurements if row.status == status))
-            for status in ("fail", "warn", "ok", "declared", "pending", "not_requested")
-            if any(row.status == status for row in measurements)
-        )
-        self.query_one("#preflight-capabilities", Static).update(capabilities)
-        issues = sorted((row for row in rows if row.status in {"fail", "warn"}), key=lambda row: row.status != "fail")
         lines = [self.tr("stale_notice")] if state == "stale" else []
-        if controller.error:
+        if state == "error":
             lines.append(self.tr("check_error_hint"))
-        lines.extend(self.tr("issue", self.label(row), self.status(row), self.remedy(row)) for row in issues)
         self.query_one("#preflight-issues", Static).update("\n".join(lines))
         self.query_one("#preflight-issues").display = bool(lines)
-        self.query_one("#preflight-evidence", Static).update(self.tr("evidence"))
+        self.query_one("#preflight-boundary", Static).update(self.tr("boundary"))
+        evidence = self.tr("evidence") + "\n" + self.tr("lock_cached" if controller.lock_acquired else "lock_unknown")
+        self.query_one("#preflight-evidence", Static).update(evidence)
         allowed = controller.app.operation_state().allows("check")
         self.query_one("#preflight-retry", Button).disabled = not allowed
         reason = "" if allowed else self.tr("measurement_cached" if controller.app.execution.session.snapshot.measurement_active else "operation_busy")
@@ -274,13 +315,19 @@ class EnvironmentPopover(Vertical):
             button.tooltip = reason if button.disabled else None
         self.query_one("#preflight-details").display = self.expanded
         language = controller.app.configuration.preferences.language
-        if self.expanded and (rows != self._rows or language != self._rows_language):
+        if rows != self._rows or language != self._rows_language:
             self._rows, self._rows_language = rows, language
+            self.query_one("#preflight-explanation", Static).update(self.tr("inspect_hint"))
             self.call_later(self.render_rows, rows)
 
     async def render_rows(self, rows: tuple[PreflightCheck, ...]) -> None:
         if rows != self._rows or not self.is_mounted:
             return
+        summary = self.query_one("#preflight-capabilities")
+        await summary.remove_children()
+        priority = {"fail": 0, "error": 0, "warn": 1, "ok": 2, "declared": 3, "pending": 3, "not_requested": 4}
+        ordered = sorted(enumerate(rows), key=lambda pair: priority[item_status(pair[1])])
+        await summary.mount(*(EnvironmentSignal(self, row, row.check_id or str(index)) for index, row in ordered))
         container = self.query_one("#preflight-rows")
         opened = {widget.id for widget in container.query(Collapsible) if not widget.collapsed}
         await container.remove_children()
