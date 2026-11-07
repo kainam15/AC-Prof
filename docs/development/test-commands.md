@@ -113,7 +113,7 @@ uv run python scripts/run_local_tests.py --scope full --jobs 1
 成功后清理临时 basetemp，失败时保留诊断文件；`--output` 只接受 `internal-testing/shared/` 内的新路径；默认使用受管的 `runs/`。
 其它域包含共享状态、TUI 和资源敏感场景，未经隔离验证不开放本地并行。
 同一机器的多个 worktree 仍需人工协调总并发，正式采集窗口不能与测试并行。
-本地不安装 `pytest-xdist`，不改变 CI 的完整八分片协议。
+本地不安装 `pytest-xdist`，不改变 CI 的完整分片协议；CI 分片数量以 workflow 为准。
 
 耗时报告复用已有 evidence 的每条用例 `duration_s`（setup/call/teardown 之和），
 聚合按文件与去除参数后缀的测试组排序；这是**累计用例耗时**，并非所有用例可以并行节省的实际墙钟时间。

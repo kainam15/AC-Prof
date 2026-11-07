@@ -130,12 +130,12 @@ Profiler 后处理与正式采集分开，逐工具记录适用设备、输入�
 
 `.github/workflows/ci.yml` 在 Python 3.12 / 3.13 上安装同一 `uv.lock` 的项目与 `test` 组并执行主机回归；
 Python 3.13 的架构、私有 API、资源监控及测量契约回归由同版本 host 矩阵覆盖；相同安装方式与环境复用这些证据。
-每个版本将完整测试集按排序后的 test ID 轮转分成八片，保留 20 分钟作业超时。
+每个版本将完整测试集按排序后的 test ID 轮转分成十二片，保留 20 分钟作业超时。
 工作流的 `HOST_TEST_SHARDS` 同时传入测试 runner、证据汇总与 coverage 完整性检查；
 修改分片数时同步矩阵 index，避免 coverage 开销使单片超时并丢失最终报告。
 所有分片都执行完整 discovery，新增测试会自动分配；不使用手写文件白名单。
 独立 Python 3.12 `contracts` job 统一执行容器锁、`uv lock --check` 和指标文档同步检查，
-不在 16 个 host shard 重复运行。CLI 帮助和 compileall 在每个 Python 版本的第 0 片执行。
+不在 24 个 host shard 重复运行。CLI 帮助和 compileall 在每个 Python 版本的第 0 片执行。
 每片分别上传 `host.json` 和实时保存的 `host.log`，失败时继续执行其他分片。
 七个任务族分别执行 CPU 接口测试，以随机小模型或明确导出的
 样例验证真实加载与推理；audio 和 multimodal 在同一作业共享一个 CPU 依赖环境，仍分别执行测试。
@@ -224,11 +224,11 @@ CSV/TUI/audit/report 统一原因、质量与能力独立、selected artifact �
 `test_metric_reference.py` 在关闭 UTF-8 mode、启用 `EncodingWarning` 错误的独立进程中
 验证指标文档生成与检查：生成固定使用 UTF-8（无 BOM）和 LF；检查接受 UTF-8 的 LF/CRLF
 工作区文件，对缺失、GBK 编码或内容过期返回非零并提示重新生成，不改写文档。
-本地可用 `--shard-index 0 --shard-count 8` 重现一个 CI 分片；省略参数执行完整测试集。
+本地可用 `--shard-index 0 --shard-count 12` 重现一个 CI 分片；省略参数执行完整测试集。
 pytest 的 session autouse fixture 为测量锁注入临时目录和独立 abstract socket 名称，覆盖
 setup/call/teardown；子进程测试显式传递该测试身份。生产入口固定使用同 UID 的 socket
 和 `/tmp` 文件锁，`TMPDIR`、`XDG_RUNTIME_DIR` 不能绕过；无生产环境变量覆盖入口。
-本地汇总可执行 `python scripts/aggregate_test_reports.py <下载目录> --shard-count 8 --report <新报告.json>`；
+本地汇总可执行 `python scripts/aggregate_test_reports.py <下载目录> --shard-count 12 --report <新报告.json>`；
 单版本验证用 `--python-versions 3.12`。缺分片、失败、计数／摘要不符或测试归属错误均使汇总失败。
 报告的 `shard` 记录编号、总片数、完整发现数、选中数和排序后 test ID 列表的 SHA256。
 `host-summary` job 自动下载两个 Python 版本的全部分片到各自目录；
@@ -240,9 +240,9 @@ setup/call/teardown；子进程测试显式传递该测试身份。生产入口�
 ### Host coverage baseline
 
 `test` 组声明 `coverage[toml]`，`uv.lock` 固定已验证版本，支持 Python 3.12+。
-CI 仅在 Python 3.12 的八个 host shard 使用 branch coverage；Python 3.13 使用相同 pytest wrapper。
+CI 仅在 Python 3.12 的十二个 host shard 使用 branch coverage；Python 3.13 使用相同 pytest wrapper。
 每片单独上传 `.coverage.*`，显式开启 hidden files；`host-summary` 先验收测试证据，
-再确认八个 coverage 目录齐全，执行 `coverage combine --keep`、`xml`、`json`、`html`，
+再确认十二个 coverage 目录齐全，执行 `coverage combine --keep`、`xml`、`json`、`html`，
 发布 `coverage-baseline-3.12` artifact。缺分片不能生成完整 baseline。
 
 仍不设全仓百分比 gate，也不排除错误与清理路径来提高数字。关键模块采用保守的逐文件 branch 覆盖门槛：result_csv 65%、result_layers 70%、result_metrics 50%、matrix_plan 60%、run_state 65%、energy_cpu 55%、result_cleanup 75%，host/client、host/window_execution、host/client_metrics 各 65%，Model Store store／preparation 分别为 75%／80%，multimodal／diffusion handler 各 65%。原始下限源于 2026-10-18 的定向 host 测试基线；新增 Model Store、指标登记和 handler 下限低于 2026-11-01 的定向实测，完整套件只可能增加覆盖合集。窗口生命周期和结果组装移出 client 后，原 65% 约束随职责分别检查，避免重构造成覆盖盲区。`scripts/check_critical_coverage.py` 对合并后的 coverage JSON 执行检查；缺失文件、无效计数或不足下限均会使 `host-summary` 失败。上传原始 coverage artifact 先于门禁执行，失败时仍保留报告用于排查。门槛不等于 Docker/硬件路径覆盖率。
@@ -254,13 +254,13 @@ CI 仅在 Python 3.12 的八个 host shard 使用 branch coverage；Python 3.13 
 ```bash
 # 先运行 uv sync --locked --python 3.12，每个 index 执行一次。
 uv run python -m coverage erase
-for shard in 0 1 2 3 4 5 6 7; do
+for shard in 0 1 2 3 4 5 6 7 8 9 10 11; do
   python -m coverage run --branch --parallel-mode scripts/run_tests.py \
-    --shard-index "$shard" --shard-count 8 \
+    --shard-index "$shard" --shard-count 12 \
     --report "internal-testing/shared/coverage/host-3.12-$shard/host.json" || exit 1
 done
 uv run python scripts/aggregate_test_reports.py internal-testing/shared/coverage \
-  --python-versions 3.12 --shard-count 8 --report internal-testing/shared/coverage/host-summary.json
+  --python-versions 3.12 --shard-count 12 --report internal-testing/shared/coverage/host-summary.json
 uv run python -m coverage combine --keep
 uv run python -m coverage xml
 uv run python -m coverage json
