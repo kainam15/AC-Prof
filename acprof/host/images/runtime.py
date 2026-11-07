@@ -15,6 +15,7 @@ from typing import Any
 
 from acprof.config import DOCKER_IMAGE_PREFIX
 from acprof.host.detect import TaskInfo
+from acprof.host.images.content import require_content
 from acprof.host.images.environment import (
     platform_fingerprint,
     prepare_environment_image,
@@ -24,6 +25,7 @@ from acprof.host.images.environment import (
     verify_manifest,
 )
 from acprof.host.images.identity import model_token
+from acprof.host.images.operations import run_docker
 from acprof.host.runtime_settings import runtime_build_overrides
 from acprof.hub.huggingface.auth import hf_token_for_url
 from acprof.installation import resource_root
@@ -164,6 +166,7 @@ def verified_image(task_info: Any, name: str, fingerprint: str, project_dir=PROJ
     identity = inspect_identity(name)
     if identity is None:
         return None
+    require_content(name, identity["image_id"], component="service")
     labels = identity.get("labels") or {}
     if labels.get(REQUEST_LABEL) != fingerprint:
         raise RuntimeError(f"镜像 {name} 的构建指纹不匹配；请重新构建")
@@ -318,9 +321,9 @@ def build_runtime_image(task_info: Any, project_dir: str):
             require_image_source(*parent)
             if request_fingerprint(task_info, root) != fingerprint:
                 raise RuntimeError("构建期间代码或依赖配置发生变化，尚未发布镜像标签")
-            result = host_command.run_command(command, check=False, capture_output=False)
-            if result.returncode:
-                raise RuntimeError(f"Docker 构建失败: {dockerfile} (exit={result.returncode})")
+            require_content(parent[0], parent[1], component="environment")
+            run_docker(command, component="model" if dockerfile == "runtime-model.Dockerfile" else "service",
+                       image=name, operation="build", step=dockerfile)
             require_image_source(*parent)
             if request_fingerprint(task_info, root) != fingerprint:
                 raise RuntimeError("构建期间代码或依赖配置发生变化，未发布镜像标签")
@@ -358,6 +361,7 @@ def build_runtime_image(task_info: Any, project_dir: str):
     if (model_identity.get("labels") or {}).get(MODEL_KEY_LABEL) != model_key:
         raise RuntimeError("模型文件层指纹不匹配；拒绝复用")
     model_id = model_identity["image_id"]
+    require_content(model_tag, model_id, component="model")
     model_source = "acprof-build-source:" + model_id.split(":", 1)[1]
     host_command.run_command(['docker', 'tag', model_id, model_source], check=True)
     final_id = build("runtime-final.Dockerfile", {

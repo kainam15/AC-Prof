@@ -36,6 +36,9 @@ def test_docker_inspection_supports_unlabeled_base_images():
 class TestPrepareImage:
     @pytest.fixture(autouse=True)
     def _setup(self, request, tmp_path, monkeypatch):
+        from acprof.host.images.content import ImageContent
+        monkeypatch.setattr("acprof.host.images.content.check_content",
+                            lambda image, image_id="": ImageContent("unverified", image, image_id, detail="fixture"))
         self._request = request
         self.project_dir = str(Path(__file__).resolve().parents[3])
         self.model_store_root = tmp_path / "model-store"

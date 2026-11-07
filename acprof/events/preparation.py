@@ -72,6 +72,12 @@ def parse_event(line: str) -> dict | None:
             raise ValueError("review requires unresolved fields")
     if "input_plan" in value:
         validate_input_plan(value["input_plan"])
+    if "image_progress" in value:
+        from acprof.events.image import ImageProgress
+        try:
+            ImageProgress(**value["image_progress"]).validate()
+        except TypeError as exc:
+            raise ValueError("invalid Docker preparation progress") from exc
     return value
 
 

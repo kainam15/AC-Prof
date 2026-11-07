@@ -78,12 +78,18 @@ class PreparationEvidence:
                 "type": redact_text(str(fields["exception_type"]), limit=128),
                 "message": redact_text(str(fields.get("exception_message", ""))),
             }
+            if fields.get("reason_code"):
+                self.data["last_failure"]["reason_code"] = redact_text(str(fields["reason_code"]), limit=128)
+            if fields.get("docker_error"):
+                self.data["last_failure"]["docker_error"] = fields["docker_error"]
         if self.log is not None:
             self.log.flush()
         self._publish()
 
     @contextmanager
     def capture(self, workflow: PreparationWorkflow) -> Iterator[None]:
+        from acprof.host.images.errors import DockerPreparationError, preparation_log_path
+        log_token = preparation_log_path.set("")
         original_stdout, original_stderr = sys.stdout, sys.stderr
         self._stderr = original_stderr
         previous = workflow.observer
@@ -108,15 +114,25 @@ class PreparationEvidence:
         workflow.observer = observe
         self._publish()
         if self.log is not None:
+            preparation_log_path.set(str(self.log_path))
             sys.stdout = cast(TextIO, PreparationTee(original_stdout, self.log, "stdout"))
             sys.stderr = cast(TextIO, PreparationTee(original_stderr, self.log, "stderr"))
         try:
             yield
         except BaseException as exc:
             self.data["status"] = "cancelled" if isinstance(exc, KeyboardInterrupt) else "failed"
+            cause: BaseException | None = exc
+            docker_reason = None
+            for _ in range(16):
+                if isinstance(cause, DockerPreparationError):
+                    docker_reason = cause.reason_code
+                    break
+                cause = cause.__cause__ if cause is not None else None
+                if cause is None:
+                    break
             self.data["reason_code"] = (
                 getattr(exc, "reason_code", "interrupted") if isinstance(exc, KeyboardInterrupt)
-                else "preparation_failed"
+                else docker_reason or "preparation_failed"
             )
             self.data["exception"] = {
                 "type": type(exc).__name__, "message": redact_text(str(exc)),
@@ -128,6 +144,7 @@ class PreparationEvidence:
             self.data["status"] = "complete"
             self.data["reason_code"] = "preparation_complete"
         finally:
+            preparation_log_path.reset(log_token)
             # No proxy, file, observer or periodic callback survives into run_matrix.
             sys.stdout, sys.stderr = original_stdout, original_stderr
             workflow.observer = previous

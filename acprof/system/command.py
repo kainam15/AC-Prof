@@ -7,7 +7,7 @@ import os
 import re
 import signal
 import subprocess
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from contextlib import ExitStack
 from dataclasses import asdict, dataclass
 from time import perf_counter
@@ -131,7 +131,8 @@ def run_command(
     command: Sequence[str], *, check: bool = False, capture_output: bool = True,
     timeout: float | None = None, cwd: str | os.PathLike[str] | None = None,
     env: Mapping[str, str] | None = None, env_overrides: Mapping[str, str] | None = None,
-    redact_values: Sequence[str] = (), kill_process_group: bool = False, **kwargs: Any,
+    redact_values: Sequence[str] = (), kill_process_group: bool = False,
+    output_line: Callable[[str], None] | None = None, **kwargs: Any,
 ) -> CommandResult:
     """Run literal argv with UTF-8 replacement and native subprocess exceptions.
 
@@ -141,6 +142,8 @@ def run_command(
     POSIX trees: TERM, then KILL after a 2-second grace and at most 5 seconds to
     reap the direct child. Cleanup attempts every step; secondary failures are
     attached as exception notes. Retries and artifact publication belong to callers.
+    ``output_line`` streams merged, bounded lines with stdin closed and no output
+    capture; the caller owns redaction and the enclosing collection process group.
     Exceptions retain raw stdout/stderr and gain command_metadata;
     only the latter is safe to publish. Never call from a sampling window.
     """
@@ -162,7 +165,11 @@ def run_command(
     result = None
     failure: BaseException | None = None
     try:
-        runner = _run_process_group if kill_process_group else subprocess.run
+        if output_line is not None and (kill_process_group or timeout is not None or capture_output):
+            raise ValueError("streamed commands require inherited process ownership and capture_output=False")
+        runner = _run_streamed if output_line is not None else _run_process_group if kill_process_group else subprocess.run
+        if output_line is not None:
+            kwargs["output_line"] = output_line
         result = runner(argv, check=check, capture_output=capture_output,
                                 timeout=timeout, cwd=cwd, env=command_env,
                                 text=True, encoding="utf-8", errors="replace", **kwargs)
@@ -178,3 +185,38 @@ def run_command(
             setattr(failure, "command_metadata", metadata)
         _LOG.debug("host command %s", metadata.as_dict())
     return CommandResult(result, metadata)
+
+
+def _run_streamed(argv: list[str], *, output_line: Callable[[str], None], check: bool,
+                  capture_output: bool, timeout: float | None, **kwargs: Any) -> subprocess.CompletedProcess[str]:
+    """Stream bounded lines in the collection's existing process group; reap on cancellation."""
+    process = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                               stderr=subprocess.STDOUT, **kwargs)
+    with cleanup_on_exit(lambda: _cleanup_streamed(process), description="host streamed command"):
+        assert process.stdout is not None
+        while line := process.stdout.readline(65537):
+            if len(line) > 65536:
+                while line and not line.endswith("\n"):
+                    line = process.stdout.readline(65537)
+                output_line("[Docker output line omitted: exceeds 64 KiB]\n")
+                continue
+            output_line(line)
+        code = process.wait()
+        if check and code:
+            raise subprocess.CalledProcessError(code, argv)
+        return subprocess.CompletedProcess(argv, code, None, None)
+
+
+def _cleanup_streamed(process: subprocess.Popen[str]) -> None:
+    with ExitStack() as cleanup:
+        if process.stdout is not None:
+            cleanup.enter_context(cleanup_on_exit(process.stdout.close, description="host streamed stdout"))
+        cleanup.enter_context(cleanup_on_exit(lambda: process.wait(timeout=5), description="host streamed reap"))
+        cleanup.enter_context(cleanup_on_exit(
+            lambda: process.kill() if process.poll() is None else None, description="host streamed kill"))
+        if process.poll() is None:
+            process.terminate()
+            try:
+                process.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                pass  # The exit stack escalates, reaps and closes every owned resource.

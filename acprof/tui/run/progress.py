@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import re
+import time
 from dataclasses import dataclass, replace
 from typing import Any
 
@@ -39,6 +40,11 @@ class ProgressSnapshot:
     runtime_status: str = "not_started"
     measurement_status: str = "not_started"
     failure: dict | None = None
+    preparation_started_at: float = 0.0
+    preparation_elapsed_s: float = 0.0
+    preparation_finished: bool = False
+    measurement_started_at: float = 0.0
+    measurement_elapsed_s: float = 0.0
 
 
 class RunProgressTracker:
@@ -75,6 +81,8 @@ class RunProgressTracker:
                       "environment": Stage.PREPARING_ENVIRONMENT, "model": Stage.PREPARING_MODEL,
                       "compute_profile": Stage.COMPUTE_PROFILING, "execution_profile": Stage.EXECUTION_PROFILING}
             preparation_updates = {"stage": labels[stage], "detail": preparation.get("request", {}).get("detail", "")}
+            if stage not in {"compute_profile", "execution_profile"} and not self.snapshot.preparation_started_at:
+                preparation_updates["preparation_started_at"] = time.monotonic()
             if status == "failed":
                 preparation_updates["errors"] = self.snapshot.errors + 1
             if stage in {"resolution", "interface"}:
@@ -102,6 +110,16 @@ class RunProgressTracker:
         case_id = event.get("case_id", "")
         state = self.snapshot
         updates: dict[str, Any] = {}
+        now = time.monotonic()
+        if not state.preparation_finished and name in {"matrix_planned", "case_started", "measurement_started", "run_finished"}:
+            updates.update(preparation_finished=True, preparation_elapsed_s=(
+                max(0.0, now - state.preparation_started_at) if state.preparation_started_at else 0.0))
+        if name == "measurement_started" and case_id == self._case_id and not state.measurement_started_at:
+            updates["measurement_started_at"] = now
+        elif state.measurement_started_at and (name == "run_finished" or
+                case_id == self._case_id and name in {"measurement_stopped", "case_finished"}):
+            updates.update(measurement_elapsed_s=state.measurement_elapsed_s + max(0.0, now - state.measurement_started_at),
+                           measurement_started_at=0.0)
         if name == "matrix_planned":
             updates.update(stage=Stage.PREPARING_MATRIX, detail=message_id('run.plan.resources_ready'),
                            total_cases=event["total_cases"])

@@ -30,6 +30,16 @@ def events(output):
             for line in output.getvalue().splitlines() if line.startswith("ACPROF_PREPARATION ")]
 
 
+def test_environment_failure_accepts_reprepare(monkeypatch):
+    from acprof.host.preparation.collection_workflow import RebuildEnvironment
+
+    workflow = PreparationWorkflow(interactive=True)
+    monkeypatch.setattr("sys.stdin", io.StringIO('{"id":1,"action":"rebuild"}\n'))
+    with pytest.raises(RebuildEnvironment):
+        workflow.ask("environment", "error", failed_stage="environment")
+    assert workflow.rebuild_environment
+
+
 def answer_with_parameter_defaults(*decisions):
     """Simulate a user accepting the optional per-profile preparation page."""
     queued = iter(decisions)

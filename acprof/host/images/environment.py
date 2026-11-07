@@ -9,6 +9,10 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
+from acprof.host.images.content import require_content
+from acprof.host.images.errors import DockerPreparationError, rebuild_target
+from acprof.host.images.operations import pull_image, run_docker
+from acprof.host.images.progress import emit_image_progress
 from acprof.installation import resource_root
 from acprof.runtime.dependency_locks import (
     content_digest,
@@ -48,12 +52,15 @@ def _pull_cached_image(name: str, label: str, fingerprint: str, expected: dict,
         return None
     reference = registry_reference(kind, fingerprint, registry)
     print(f"[runtime] 拉取预构建依赖：{reference}", flush=True)
-    result = host_command.run_command(['docker', 'pull', '--platform', 'linux/amd64', reference], check=False, capture_output=False)
-    if result.returncode:
+    try:
+        pull_image(reference, component=kind)
+    except DockerPreparationError as exc:
         if source == "pull":
-            raise RuntimeError(f"预构建镜像拉取失败：{reference}；可设置 ACPROF_RUNTIME_IMAGE_SOURCE=build 本机构建")
+            raise
+        if exc.reason_code in {"docker_auth_failed", "docker_content_incomplete"}:
+            raise  # Authentication and damaged content are not cache misses.
         if os.environ.get("ACPROF_MAX_DOWNLOAD", "").strip():
-            raise RuntimeError("预构建镜像拉取失败；预算模式禁止未预检的 local build fallback。请显式选择 build 后重新预检。")
+            raise RuntimeError("预构建镜像拉取失败；预算模式禁止未预检的 local build fallback。请显式选择 build 后重新预检。") from exc
         from urllib.parse import urlsplit
 
         from acprof.network_policy import require_source_transition
@@ -161,17 +168,25 @@ def checked_image(name: str, label: str, fingerprint: str, expected: dict, ident
     image = inspect_identity(name)
     if image is None:
         return None
+    if rebuild_target.get() == name:
+        return None
+    content = require_content(name, image["image_id"], component=kind)
     if (image.get("labels") or {}).get(label) != fingerprint:
         raise RuntimeError(f"依赖缓存标签内容不匹配：{name}")
     verify_labels(image, expected, kind)
+    emit_image_progress(kind, name, "verifying", content=content.to_dict())
     manifest = read_image_manifest(image["image_id"], f"/opt/acprof/{kind}-manifest.json")
     verify_manifest(manifest, expected, identity)
+    emit_image_progress(kind, name, "complete", content=content.to_dict())
     return image["image_id"], manifest
 
 
 def build_dependency(root: Path, recipe: str, name: str, arguments: dict, expected: dict,
                      identity: dict, current_fingerprint, original_fingerprint: str) -> None:
     from acprof.host.images.runtime import inspect_identity
+    parent = arguments.get("PLATFORM_IMAGE") or arguments.get("PYTHON_BASE_IMAGE")
+    if parent and (parent_identity := inspect_identity(parent)) is not None:
+        require_content(parent, parent_identity["image_id"], component="platform")
     with tempfile.TemporaryDirectory(prefix="acprof-dependency-build-") as directory:
         context = Path(directory)
         for relative in ("dockerfiles/" + recipe, *BUILD_HELPERS):
@@ -183,6 +198,8 @@ def build_dependency(root: Path, recipe: str, name: str, arguments: dict, expect
         iidfile = context / "image-id"
         command = ["docker", "build", "--platform", "linux/amd64", "--iidfile", str(iidfile),
                    "-f", str(context / recipe)]
+        if rebuild_target.get() == name:
+            command.append("--no-cache")
         # Network mode controls only dependency downloads, never the measured
         # inference container. Host networking is explicit opt-in because it
         # relaxes the build's normal network namespace isolation.
@@ -209,9 +226,8 @@ def build_dependency(root: Path, recipe: str, name: str, arguments: dict, expect
         command.append(str(context))
         if current_fingerprint() != original_fingerprint:
             raise RuntimeError("依赖构建输入发生变化，尚未构建镜像")
-        result = host_command.run_command(command, check=False, capture_output=False)
-        if result.returncode:
-            raise RuntimeError(f"Docker 构建失败: {recipe} (exit={result.returncode})")
+        run_docker(command, component="platform" if recipe == "platform.Dockerfile" else "environment",
+                   image=name, operation="build", step=recipe)
         image_id = iidfile.read_text().strip()
         image = inspect_identity(image_id)
         if image is None or image["image_id"] != image_id:
@@ -219,6 +235,7 @@ def build_dependency(root: Path, recipe: str, name: str, arguments: dict, expect
         if current_fingerprint() != original_fingerprint:
             raise RuntimeError("构建期间依赖或配方发生变化，未发布缓存标签")
         kind = "platform" if recipe == "platform.Dockerfile" else "environment"
+        require_content(image_id, image_id, component=kind)
         verify_labels(image, expected, kind)
         verify_manifest(read_image_manifest(image_id, f"/opt/acprof/{kind}-manifest.json"), expected, identity)
         host_command.run_command(['docker', 'tag', image_id, name], check=True)
@@ -251,7 +268,11 @@ def _prepare_platform(platform: PlatformSpec, root: Path, platform_data: dict,
                          {"PYTHON_BASE_IMAGE": platform.python_base_image, "PLATFORM_ID": platform.platform_id,
                           "PLATFORM_BUILD_FINGERPRINT": platform_key}, expected_platform, platform_data,
                          lambda: platform_fingerprint(platform, root), platform_key)
-        existing = checked_image(platform_name, PLATFORM_LABEL, platform_key, expected_platform, platform_data, "platform")
+        token = rebuild_target.set("")
+        try:
+            existing = checked_image(platform_name, PLATFORM_LABEL, platform_key, expected_platform, platform_data, "platform")
+        finally:
+            rebuild_target.reset(token)
     if existing is None:
         raise RuntimeError("平台构建后未找到缓存镜像")
     if platform_fingerprint(platform, root) != platform_key:
@@ -302,7 +323,11 @@ def prepare_environment_image(environment: DependencyEnvironment, project_dir=PR
                          {"PLATFORM_IMAGE": source, "ENVIRONMENT_ID": expected["environment_id"],
                           "ENVIRONMENT_BUILD_FINGERPRINT": environment_key}, expected, identity,
                          current_environment_fingerprint, spec_key)
-        existing = checked_image(name, ENVIRONMENT_LABEL, environment_key, expected, identity, "environment")
+        token = rebuild_target.set("")
+        try:
+            existing = checked_image(name, ENVIRONMENT_LABEL, environment_key, expected, identity, "environment")
+        finally:
+            rebuild_target.reset(token)
     if existing is None:
         raise RuntimeError("依赖环境构建后未找到缓存镜像")
     if runtime_fingerprint(environment, root) != spec_key:

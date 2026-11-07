@@ -13,6 +13,7 @@ import pytest
 
 from acprof.host.detect import TaskInfo
 from acprof.host.images import runtime as runtime_images
+from acprof.host.images.content import ImageContent
 from acprof.runtime.dependency_locks import (
     content_digest,
     package_versions,
@@ -70,6 +71,8 @@ class TestRuntimeImageBuild:
         for mocked in (
             patch.dict(os.environ, {"ACPROF_RUNTIME_IMAGE_SOURCE": "build"}, clear=True),
             patch("acprof.system.command.run_command", side_effect=self.fake_run),
+            patch("acprof.host.images.content.check_content", side_effect=lambda image, image_id="": ImageContent("unverified", image, image_id, detail="fixture has no content store")),
+            patch("acprof.host.images.operations._anonymous_socket", return_value=None),
             patch.object(runtime_images, "inspect_identity", side_effect=self.images.get),
             patch.object(runtime_images, "verified_image", side_effect=self.verified_image),
             patch("acprof.host.model_store.store.plan_model", return_value={}),
@@ -132,6 +135,34 @@ class TestRuntimeImageBuild:
 
     def build_commands(self):
         return [command for command in self.commands if command[:2] == ["docker", "build"]]
+
+    def test_dependency_failure_retains_docker_error(self):
+        self.failed_dockerfile = "runtime.Dockerfile"
+        with pytest.raises(RuntimeError, match="build failed") as caught:
+            runtime_images.build_runtime_image(self.task, str(PROJECT_ROOT))
+        assert caught.value.reason_code == "docker_build_failed"
+        assert caught.value.exit_code == 1
+        assert caught.value.stage == "environment"
+
+    def test_environment_reprepare_rebuilds_only_selected_dependency(self):
+        from acprof.host.images.environment import prepare_environment_image
+        from acprof.host.images.errors import rebuild_target
+        from acprof.runtime.profiles import ENVIRONMENTS
+
+        selected = ENVIRONMENTS["onnxruntime-cpu"]
+        first = prepare_environment_image(selected)
+        self.commands.clear()
+        token = rebuild_target.set(first.name)
+        try:
+            second = prepare_environment_image(selected)
+        finally:
+            rebuild_target.reset(token)
+        builds = self.build_commands()
+        assert len(builds) == 1
+        assert Path(builds[0][builds[0].index("-f") + 1]).name == "runtime.Dockerfile"
+        assert "--no-cache" in builds[0]
+        assert second.platform_image_id == first.platform_image_id
+        assert second.image_id != first.image_id
 
     def test_dependency_build_passes_proxy_names_without_exposing_proxy_values(self):
         proxy = "http://local-proxy.example:7897"

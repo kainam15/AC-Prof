@@ -67,6 +67,7 @@ class PreparationWorkflow:
         self.cache_dir = cache_dir
         self.request_id = 0
         self.rebuild_environment = False
+        self.rebuild_target = ""
         self.observer: Callable[[str, str, Mapping[str, object]], None] | None = None
         self.continue_on_task_failure = False
 
@@ -95,32 +96,61 @@ class PreparationWorkflow:
             raise ValueError("stale or invalid preparation reply")
         if reply.get("action") == "cancel":
             raise PreparationInterrupted("preparation cancelled", "cancelled_by_user")
-        if stage in {"image", "runtime"} and kind == "error" and reply.get("action") == "rebuild":
+        if stage in {"image", "environment", "runtime"} and kind == "error" and reply.get("action") == "rebuild":
             self.rebuild_environment = True
-            for invalidated in ("image", "input", "runtime"):
+            self.rebuild_target = fields.get("docker_error", {}).get("image", "")
+            for invalidated in ("environment", "image", "input", "runtime"):
                 self.emit(invalidated, "not_started")
             raise RebuildEnvironment()
         expected = ("confirm" if fields.get("resolved") else "answer") if kind == "review" else "retry"
+        if kind == "error" and reply.get("action") == "repair" and "repair" in fields.get("docker_error", {}).get("actions", []):
+            return reply
         if reply.get("action") != expected:
             raise ValueError("unexpected preparation action")
         return reply
 
     def run(self, stage: str, operation, *args, **kwargs):
+        from acprof.host.images.content import check_content, repair_content
+        from acprof.host.images.errors import DockerPreparationError, rebuild_target
+        repair = None
+        verification = None
         while True:
             self.emit(stage, "running")
             try:
-                value = operation(*args, **kwargs)
+                if repair is not None:
+                    pending, repair = repair, None
+                    repair_content(pending)
+                    verification = None
+                if verification is not None:
+                    checked = check_content(verification["image"], verification["image_id"])
+                    if checked.status != "complete":
+                        raise DockerPreparationError("docker_content_incomplete" if checked.status in {"incomplete", "unavailable"}
+                                                    else "docker_repair_unverified", checked.detail,
+                                                    image=checked.image, content=checked.to_dict())
+                    verification = None
+                token = rebuild_target.set(self.rebuild_target)
+                try:
+                    value = operation(*args, **kwargs)
+                finally:
+                    rebuild_target.reset(token)
             except (Exception, SystemExit) as exc:
                 if isinstance(exc, SystemExit) and exc.code in (0, None):
                     raise
                 if self.observer is not None:
                     self.observer(stage, "failed", {"exception_type": type(exc).__name__,
-                                                     "exception_message": str(exc)})
+                                                     "exception_message": str(exc),
+                                                     "reason_code": getattr(exc, "reason_code", None),
+                                                     **({"docker_error": exc.to_dict()} if isinstance(exc, DockerPreparationError) else {})})
                 detail = traceback.format_exc()[-24000:]
                 if (isinstance(exc, RuntimeCleanupError) or not self.interactive
                         or self.continue_on_task_failure and stage == "runtime"):
                     raise
                 fields: dict[str, Any] = {"model_error": exc.to_dict()} if isinstance(exc, ModelLookupError) else {}
+                if isinstance(exc, DockerPreparationError):
+                    fields["docker_error"] = exc.to_dict()
+                    detail = exc.detail
+                    if exc.content.get("status") in {"incomplete", "unavailable"}:
+                        verification = exc.content
                 from acprof.hub.huggingface.download import HfDownloadError, exception_chain
                 download_error = next((cause.to_dict() for cause in exception_chain(exc)
                                        if isinstance(cause, HfDownloadError)), None)
@@ -130,7 +160,9 @@ class PreparationWorkflow:
                 fields["failed_stage"] = getattr(failure, "stage", getattr(exc, "stage", stage))
                 if failure is not None:
                     fields["failure"] = failure.to_dict()
-                self.ask(stage, "error", detail=detail, **fields)
+                reply = self.ask(stage, "error", detail=detail, **fields)
+                if reply.get("action") == "repair":
+                    repair = fields["docker_error"]["content"]
             else:
                 self.emit(stage, "passed")
                 return value
