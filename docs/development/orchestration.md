@@ -80,6 +80,13 @@ Token 派生之前冻结。`load_reporting` 在此后补齐未提交请求、派
 清理阶段分工参考 [Locust Runner](https://github.com/locustio/locust/blob/42c4ac9554e6c74cbe52e67fc8f0cf2557c2dfa8/locust/runners.py)；
 仅借鉴生命周期设计，不引入 gevent、新依赖或额外后台任务。三个 load 模块共同纳入 C901 ≤ 12 门禁。
 
+`arrival-rate` 用公开的 `Future.add_done_callback` 将完成通知送入本次负载的线程安全队列，
+每次到达先消费通知，再判断 `max_pending`，避免反复扫描全部 pending Future；pending 集合仍由
+Scheduler 单独修改，结果检查继续传播原始失败。回调只弱引用队列，避免末批 Future 与队列循环持有。
+设计参考 [Dask as_completed 的完成队列](https://github.com/dask/distributed/blob/edf67787a4e0d5c93ed8803eaa298b2ddf0f67ad/distributed/client.py#L5687)
+（BSD-3-Clause），并核对 [CPython Future callback](https://github.com/python/cpython/blob/3.12/Lib/concurrent/futures/_base.py#L399)
+（PSF License）的已完成调用与对象持有语义；只借鉴设计，使用标准库，不复制源码或引入 Dask 依赖。
+
 请求集准备逐行完成模型、形态与凭据校验，只保留本阶段前缀的规范化副本；整个校验、编码及摘要
 仍在启动 worker 和计时前完成。设计参考 [Hugging Face Datasets 的逐条转换](https://github.com/huggingface/datasets/blob/a1269ca9dbb6e0858a9c375e8982329a3fcc84af/src/datasets/iterable_dataset.py#L1512)，
 沿用项目已有 adapter 与 CLI 的前缀保留方式，不复制源码或引入 Datasets 依赖。

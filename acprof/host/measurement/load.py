@@ -5,7 +5,9 @@ import hashlib
 import json
 import threading
 import time
+import weakref
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
+from queue import Empty, SimpleQueue
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -33,21 +35,39 @@ def _request_headers(headers: dict[str, str] | None) -> dict[str, str]:
     return extra_headers
 
 
+def _release_completed_requests(
+    pending: set[Future[None]], completed: SimpleQueue[Future[None]],
+) -> None:
+    while True:
+        try:
+            future = completed.get_nowait()
+        except Empty:
+            return
+        future.result()
+        pending.remove(future)
+
+
 def _submit_requests(
     transport: LoadTransport, pool: ThreadPoolExecutor, schedule: list[float] | None,
     pending: set[Future[None]],
 ) -> None:
     config = transport.config
+    completed: SimpleQueue[Future[None]] = SimpleQueue()
+    completed_ref = weakref.ref(completed)
+
+    def record_completion(future: Future[None]) -> None:
+        # Futures retain callbacks; a weak reference avoids a queue/Future cycle.
+        queue = completed_ref()
+        if queue is not None:
+            queue.put(future)
+
     for index in range(config.requests):
         if schedule is not None:
             planned = schedule[index]
             remaining = transport.epoch + planned - time.perf_counter()
             if remaining > 0:
                 time.sleep(remaining)
-            finished = {future for future in pending if future.done()}
-            for future in finished:
-                future.result()
-            pending.difference_update(finished)
+            _release_completed_requests(pending, completed)
             if len(pending) >= config.max_pending:
                 transport.records[index] = {
                     "request_id": f"{transport.token}:{index}", "planned_s": planned,
@@ -62,7 +82,10 @@ def _submit_requests(
                 for future in finished:
                     future.result()
             planned = time.perf_counter() - transport.epoch
-        pending.add(pool.submit(transport.execute, index, planned))
+        future = pool.submit(transport.execute, index, planned)
+        pending.add(future)
+        if schedule is not None:
+            future.add_done_callback(record_completion)
     for future in pending:
         future.result()
 
