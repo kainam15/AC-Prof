@@ -4,6 +4,7 @@ from dataclasses import replace
 
 import pytest
 from rich.color import Color
+from rich.text import Text
 from textual import events
 from textual.widgets import Button, Select, Static, TabbedContent
 
@@ -39,6 +40,40 @@ async def settle(app, pilot):
     await pilot.pause()
     await asyncio.wait_for(app.workers.wait_for_complete(), 10)
     await pilot.pause()
+
+
+@pytest.mark.parametrize("language", ["zh", "en"])
+async def test_environment_entry_ignores_header_whitespace_after_resize(app, language):
+    app, probe = app
+    app.configuration.preferences = replace(app.configuration.preferences, language=language)
+    async with app.run_test(size=(80, 24)) as pilot:
+        await settle(app, pilot)
+        entry = app.query_one("#current-environment", Static)
+        panel = app.preflight.panel
+        for width, height in ((80, 24), (120, 30), (150, 45)):
+            await pilot.resize_terminal(width, height)
+            await pilot.pause()
+            after_label = entry.content_region.x + Text(str(entry.content)).cell_len + 2
+            for x in (after_label, width - 1):
+                blank = (x, entry.region.y)
+                await pilot.hover(offset=blank)
+                assert not panel.display, "header whitespace must not open the environment panel"
+                await pilot.click(offset=blank)
+                assert not panel.display, "header whitespace must not pin the environment panel"
+
+            await pilot.hover(entry, offset=(2, 0))
+            assert panel.display
+            await pilot.hover(offset=blank)
+            await pilot.pause(0.25)
+            assert not panel.display, "leaving the entry for header whitespace must close the panel"
+
+            await pilot.click(entry, offset=(2, 0))
+            await pilot.hover(offset=blank)
+            await pilot.pause(0.25)
+            assert panel.display, "clicking the entry must still pin the panel"
+            await pilot.click(offset=blank)
+            assert not panel.display, "clicking header whitespace must dismiss the pinned panel"
+        probe.assert_called_once()
 
 
 async def test_hover_pin_and_dismiss_keep_page_layout_and_cached_probe(app):

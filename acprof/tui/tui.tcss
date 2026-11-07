@@ -16,12 +16,14 @@ Screen {
 VerticalScroll, TextArea, DataTable, #command-preview { scrollbar-size: 1 1; }
 
 /* Keep both header rows together when the log is maximized. */
-#app-header { dock: top; height: 2; }
+#app-header { dock: top; height: 2; background: $surface; }
 /* Keep the title bar one row tall, including Textual's click-expanded state. */
 Header, Header.-tall { height: 1; background: $surface; color: $text; }
 HeaderIcon, HeaderClockSpace { display: none; }
 HeaderTitle { content-align: left middle; padding: 0 2; }
 #current-environment {
+    width: auto;
+    max-width: 100%;
     height: 1;
     padding: 0 2;
     background: $surface;
