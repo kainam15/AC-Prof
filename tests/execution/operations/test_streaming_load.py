@@ -19,8 +19,10 @@ def event(value):
 
 
 @contextmanager
-def streaming_server(*, endpoint="/v1/chat/completions", fault=None, metadata=None, raw_body=None):
+def streaming_server(*, endpoint="/v1/chat/completions", fault=None, metadata=None, raw_body=None,
+                     raw_metadata: dict[str, bytes] | None = None):
     ports, paths, bodies = [], [], []
+    metadata_responses = {} if raw_metadata is None else raw_metadata
     first_sent = threading.Event()
     release = threading.Event()
 
@@ -35,6 +37,10 @@ def streaming_server(*, endpoint="/v1/chat/completions", fault=None, metadata=No
                 self.send_error(501, "Unsupported method ('GET')")
                 return
             paths.append(self.path)
+            if self.path in metadata_responses:
+                self.close_connection = True
+                self.wfile.write(metadata_responses[self.path])
+                return
             status, value = metadata.get(self.path, (404, {}))
             body = json.dumps(value).encode()
             self.send_response(status)

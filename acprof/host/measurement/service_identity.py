@@ -79,6 +79,8 @@ def _read_json(
         raw = received.read(MAX_PROBE_RESPONSE_BYTES + 1)
         if len(raw) > MAX_PROBE_RESPONSE_BYTES:
             raise ValueError(f"GET {path} exceeded the 1 MiB response limit")
+        if received.length not in (None, 0):
+            raise ValueError(f"GET {path} ended before Content-Length")
         payload = loads_finite_json(raw.decode("utf-8"))
         reject_isolated_surrogates(payload)
         if not isinstance(payload, dict):

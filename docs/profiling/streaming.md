@@ -326,6 +326,11 @@ Decode 阶段吞吐、`1 / TPOT` 或每秒峰值。
 声明的 backend、版本、模型、revision 与 SLO 进入 `identity_sha256`；运行中观测不进入该哈希。
 未观测或无法取得的字段保持 `null`，声明与观测冲突时双方保留并记录 mismatch，不互相覆盖。
 
+身份与配置端点会在有界读取后核对 `Content-Length` 是否读满；提前断开的正文即使仍能解析为
+合法 JSON，也按该端点失败处理，不用于版本、模型或配置观测。其他端点的有效证据继续保留；
+正常的定长、连接关闭和 chunked 响应均可读取。此检查参考 [urllib3 的长度完整性修复](https://github.com/urllib3/urllib3/pull/2514)，
+复用本项目 server metrics 的判断方式，保留标准库 HTTP transport，不增加依赖或自动重试。
+
 `--service-probe vllm` 在预热前请求 `/version` 和 `/v1/models`，复用现有 Authorization 且不落盘，
 连接关闭、响应限制为 1 MiB。模型列表仅保留 `id/root/max_model_len`，按请求模型 ID 精确且唯一匹配；
 未找到或重复匹配时选中模型为 `null`。`root` 不能解释为 checkpoint revision。只有取得有效
