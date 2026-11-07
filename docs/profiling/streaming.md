@@ -196,10 +196,12 @@ role-only、usage-only、心跳、空文本元数据、结束标记不产生虚�
 读到逻辑结束后仍完成 HTTP 响应读取，连接可复用性经过检查；
 后续错误、正文不完整或要求复用但服务端关闭连接仍会使该请求失败。
 
-正式 `duration_s` 在全部请求传输完成、worker 和连接收尾后固定。事件 Token 求和、全文拼接、
-ITL 列表复制、可选 tokenizer 计数和指标派生随后统一执行一次，不在 worker 内重复聚合。
+正式 `duration_s` 在已提交请求的 worker 全部退出后固定。最终连接关闭、事件 Token 求和、全文拼接、
+ITL 列表复制、可选 tokenizer 计数和指标派生随后执行，不在 worker 内重复聚合。
 窗口外发现的协议错误仍令请求失败；可选 tokenizer 错误只记录 `token_count_error`，保留已观测时延，
 不伪装成服务端失败。tokenizer 与模型 ID／revision 不匹配时明确拒绝，此计数不等同于服务端生成 Token 数。
+派生意外中断时停止后续派生，保留已完成 HTTP 请求及已有指标；原始负载错误和派生错误均保留诊断。
+已有取消继续传播；派生阶段的 `KeyboardInterrupt`／`SystemExit` 优先于此前普通错误，CLI 将 Ctrl+C 记录为取消。
 
 ### 运行级资源上限
 

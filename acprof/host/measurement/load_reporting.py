@@ -10,6 +10,7 @@ from acprof.host.measurement.streaming import (
     StreamProtocolError,
     StreamTokenCountError,
 )
+from acprof.system.cleanup import cleanup_on_exit
 
 if TYPE_CHECKING:
     from acprof.experiments.load import LoadConfig
@@ -29,10 +30,7 @@ def complete_records(
     return [record for record in records if record is not None]
 
 
-def finalize_streams(
-    records: list[dict[str, Any]], adapter: OpenAIStreamingAdapter,
-    primary_error: BaseException | None,
-) -> BaseException | None:
+def _finalize_streams(records: list[dict[str, Any]], adapter: OpenAIStreamingAdapter) -> None:
     """Derive token timings only after the load duration has been frozen."""
     for record in records:
         if record["status"] != "ok":
@@ -51,9 +49,22 @@ def finalize_streams(
             record.update(status="error", error=f"{type(error).__name__}: {error}",
                           error_code=error.code, stream_error_code=error.code)
             adapter.invalidate(record, error.code)
-        except BaseException as error:
-            return primary_error or error
-    return primary_error
+
+
+def finalize_streams(
+    records: list[dict[str, Any]], adapter: OpenAIStreamingAdapter,
+    primary_error: BaseException | None,
+) -> BaseException | None:
+    """Preserve cancellation and both failures when post-load derivation stops."""
+    try:
+        with cleanup_on_exit(
+            lambda: _finalize_streams(records, adapter), description="streaming result finalization",
+        ):
+            if primary_error is not None:
+                raise primary_error
+    except BaseException as error:
+        return error
+    return None
 
 
 def build_load_report(
