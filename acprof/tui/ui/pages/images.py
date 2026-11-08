@@ -15,9 +15,9 @@ if TYPE_CHECKING:
     from acprof.tui.app import AcprofTui
 
 def compose_images_tab(app: AcprofTui) -> ComposeResult:
+    from acprof.tui.images.names import IMAGE_PLATFORMS
     from acprof.tui.images.presentation import (
         IMAGE_HINT,
-        IMAGE_PLATFORMS,
         ImageDetailPanel,
         ImageDetailResizeHandle,
         ImageTable,

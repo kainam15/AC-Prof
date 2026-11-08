@@ -165,6 +165,28 @@ MESSAGES: dict[str, Entry] = {
     "images.metadata.tags_and_containers": Entry(zh="镜像信息 · 标签 {0} · 容器 {1}", en="Image information · Tags {0} · Containers {1}"),
     "images.metadata.title": Entry(zh="镜像信息", en="Image information"),
     "images.name.python_base": Entry(zh="Python {0} Slim（上游基础）", en="Python {0} Slim (upstream base)"),
+    "images.name.source_id": Entry(
+        zh="名称依据：没有可识别的名称引用，显示 image ID。",
+        en="Name source: no recognized name reference; showing the image ID.",
+    ),
+    "images.name.source_metadata": Entry(
+        zh="名称依据：AC-Prof 平台／环境元数据与已匹配的环境别名。\n平台：{0} · 环境：{1} · Profiles：{2}",
+        en="Name source: AC-Prof platform/environment metadata and matched profile aliases.\nPlatform: {0} · Environment: {1} · Profiles: {2}",
+    ),
+    "images.name.source_model": Entry(zh="名称依据：模型元数据。\nModel ID：{0}", en="Name source: model metadata.\nModel ID: {0}"),
+    "images.name.source_pinned": Entry(
+        zh="名称依据：仓库别名规范化后，RepoDigest 与固定基础镜像匹配。\n{0}\n固定引用：{1}",
+        en="Name source: RepoDigest matches the pinned base after repository alias normalization.\n{0}\nPinned reference: {1}",
+    ),
+    "images.name.source_repository": Entry(
+        zh="名称依据：RepoDigest 中的仓库名；版本未经核验。\n{0}",
+        en="Name source: repository from RepoDigest; version unverified.\n{0}",
+    ),
+    "images.name.source_tag": Entry(
+        zh="名称依据：原始 Tag，仅用于显示；内容未经核验。\n{0}",
+        en="Name source: original Tag for display only; content unverified.\n{0}",
+    ),
+    "images.name.untagged_repository": Entry(zh="{0}（无标签）", en="{0} (untagged)"),
     "images.operation.incomplete": Entry(zh="镜像操作未完成：{0}", en="Image operation incomplete: {0}"),
     "images.operation.quit_blocked": Entry(zh="镜像操作尚未完成，请稍候", en="Please wait for the image operation to finish"),
     "images.page.title": Entry(zh="镜像管理", en="Images"),

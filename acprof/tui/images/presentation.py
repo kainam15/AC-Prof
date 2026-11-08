@@ -27,8 +27,8 @@ from acprof.host.images.inventory import (
     ManagedImage,
 )
 from acprof.messages import join_messages, message
-from acprof.runtime.profiles import PYTHON_BASE_IMAGE
 from acprof.tui.i18n import message_id
+from acprof.tui.images.names import image_display_name, image_name_evidence, image_row_label
 from acprof.tui.ui.contracts import image_detail_app, translated_app
 from acprof.tui.ui.dialogs import ConfirmActionScreen
 from acprof.tui.ui.presentation import (
@@ -47,15 +47,6 @@ IMAGE_KINDS = {
     "model": "推理服务", "debug": "调试镜像", "other": "其它镜像", "untagged": "无标签",
 }
 IMAGE_HINT = "勾选含全部下层；◩ 保留本镜像；空格切换，←→ 折叠；清单自动刷新。"
-IMAGE_PLATFORMS = {
-    "python-cpu": "Python CPU", "cpu": "PyTorch CPU",
-    "cu124": "PyTorch CUDA 12.4", "cu128": "PyTorch CUDA 12.8",
-}
-# 已知环境别名对应的版本来自依赖锁；不猜测其它名称中的数字含义。
-IMAGE_RUNTIME_NAMES = {
-    "moss-transformers5104": "moss-transformers5.10.4",
-    "multimodal-transformers4576": "multimodal-transformers4.57.6",
-}
 
 
 class ImageTable(ResizableDataTable):
@@ -169,7 +160,16 @@ class ImageTree(Tree[ManagedImage]):
             for child in node.children:
                 item = child.data
                 label = self.name_labels[item.image_id].copy()
-                label.truncate(max(4, widths[0] - depth * self.guide_depth - 2), overflow="ellipsis", pad=True)
+                name_width = max(4, widths[0] - depth * self.guide_depth - 2)
+                suffix = " · " + item.image_id[7:19]
+                # Preserve identity when a narrow column ellipsizes a friendly name.
+                if (label.cell_len > name_width and label.plain.endswith(suffix)
+                        and name_width >= len(suffix) + 6):
+                    label = label[:-len(suffix)]
+                    label.truncate(name_width - len(suffix), overflow="ellipsis", pad=True)
+                    label.append(suffix)
+                else:
+                    label.truncate(name_width, overflow="ellipsis", pad=True)
                 for value, width in zip((format_bytes(item.size_bytes), format_bytes(item.added_bytes),
                                          str(len(item.containers))), widths[1:], strict=True):
                     cell = Text(translated_app(self.app).tr(value))
@@ -406,7 +406,7 @@ class ImageDetailPanel(VerticalScroll):
         self._show(None, "", text, {})
 
     def show_image(self, item: ManagedImage, inventory: ImageInventory) -> None:
-        self._show(("image", item.image_id), message_id('images.summary.title', message(IMAGE_KINDS[item.kind]), image_display_name(item)),
+        self._show(("image", item.image_id), message_id('images.summary.title', message(IMAGE_KINDS[item.kind]), image_row_label(item)),
                    image_summary(item, inventory), {
                        "image-dependencies": (dependency_title(item), dependency_detail(item)),
                        "image-metadata": (message_id('images.metadata.tags_and_containers', len(item.tags), len(item.containers)),
@@ -458,30 +458,6 @@ class ImageDeleteScreen(ConfirmActionScreen):
             with Horizontal(id="confirm-buttons"):
                 yield Button(tr("取消"), id="confirm-no")
                 yield Button(tr(self.confirm_label), id="confirm-yes", variant="error")
-
-
-def image_display_name(item: ManagedImage, parent: ManagedImage | None = None) -> str:
-    """Display verified upstream base images and known AC-Prof platform names."""
-    # Digest is a pinned manifest identity, unlike an image ID or an inferred
-    # layer prefix. Never label arbitrary untagged images as the Python base.
-    pinned_ref, separator, pinned_digest = PYTHON_BASE_IMAGE.partition("@")
-    repository, tag_separator, version = pinned_ref.rpartition(":")
-    if (not item.tags and not item.acprof and separator and tag_separator
-            and (match := re.fullmatch(r"(\d+\.\d+)(?:\.\d+)?-slim(?:-[a-z0-9]+)?", version))
-            and f"{repository}@{pinned_digest}" in item.repo_digests):
-        return message_id('images.name.python_base', match.group(1))
-    platform = IMAGE_PLATFORMS.get(item.platform_id, item.platform_id)
-    if item.kind == "base" and item.platform_id in IMAGE_PLATFORMS:
-        return platform
-    if item.kind == "runtime" and item.environment_id:
-        profiles = (profile.removesuffix("-" + item.platform_id) if item.platform_id else profile
-                    for profile in item.profiles)
-        label = " / ".join(IMAGE_RUNTIME_NAMES.get(profile, profile) for profile in profiles)
-        label = label or "env-" + item.environment_id[:12]
-        inherited = (parent is not None and parent.kind in {"base", "runtime"}
-                     and parent.platform_id == item.platform_id and item.platform_id in IMAGE_PLATFORMS)
-        return label + (" · " + platform if platform and not inherited else "")
-    return item.display_name
 
 
 def dependency_packages(item: ManagedImage) -> list[str]:
@@ -564,7 +540,7 @@ def filtered_images(inventory: ImageInventory, query: str, scope: str) -> tuple[
             continue
         if scope == "base" and item.kind != "base":
             continue
-        haystack = " ".join((*item.tags, item.image_id, item.model_id, item.display_name, image_display_name(item),
+        haystack = " ".join((*item.tags, *item.repo_digests, item.image_id, item.model_id, item.display_name, image_display_name(item),
                              item.environment_id, item.platform_id, *item.profiles, *dependency_packages(item),
                              *(f"{name}={version}" for name, version in item.system_dependencies))).casefold().replace("/", "--")
         if all(term in haystack for term in terms):
@@ -628,6 +604,7 @@ def image_diagnostics(item: ManagedImage, inventory: ImageInventory) -> str:
     if item.parent_id:
         identity.append(message_id('images.diagnostics.parent_id', item.parent_id))
     evidence = (
+        image_name_evidence(item),
         dependency_source_detail(item),
         message_id('images.diagnostics.parent_evidence', message(sources[item.parent_source]), len(item.descendant_ids)),
         message_id('images.diagnostics.size_source', message({"layers": "层链与已核验 history 字节数", "docker-df": "Docker df 近似值",
@@ -653,8 +630,10 @@ def reclaimable_text(inventory: ImageInventory, image_ids: tuple[str, ...]) -> s
 
 def layer_image_detail(layer: ImageLayer, inventory: ImageInventory) -> str:
     indexed = {item.image_id: item for item in inventory.images}
-    return message_id('images.layers.image_list', "\n\n".join(
-        f"{image_display_name(indexed[key])} · {key[7:19]}\n  {indexed[key].name}" for key in layer.image_ids))
+    return message_id('images.layers.image_list', join_messages("\n\n", (
+        message("{0}\n  {1}", image_row_label(indexed[key]),
+                "\n  ".join((*indexed[key].tags, *indexed[key].repo_digests)) or indexed[key].image_id)
+        for key in layer.image_ids)))
 
 
 def layer_diagnostics(layer: ImageLayer) -> str:
@@ -713,6 +692,8 @@ def render_image_tree(tree: ImageTree, inventory: ImageInventory | None, visible
                     else f" · {tr(UNKNOWN)}" if item.parent_source in {"ambiguous", "missing", "conflict"}
                     else "")
         name = f" {marker}  {tr(logical)}{evidence}"
+        if logical != item.image_id[7:19]:
+            name += " · " + item.image_id[7:19]
         label = Text(name, style="dim" if item.image_id not in matches else "")
         # 复选框及左右各一格留白可点击，不覆盖箭头、名称或数值。
         if not item.containers or item.descendant_ids:

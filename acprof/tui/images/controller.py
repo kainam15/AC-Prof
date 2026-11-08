@@ -31,6 +31,7 @@ from acprof.host.images.inventory import (
 )
 from acprof.messages import Message, join_messages
 from acprof.tui.i18n import message_id
+from acprof.tui.images.names import image_repository_and_tag, image_row_label
 from acprof.tui.images.presentation import (
     IMAGE_KINDS,
     ImageDeleteScreen,
@@ -149,8 +150,9 @@ class ImageController:
         sort_key, reverse = self.sort
         sorter = {"name": lambda item: (image_display_name(item).casefold(), item.name),
                "size": lambda item: item.size_bytes, "added": lambda item: item.added_bytes if item.added_bytes is not None else -1,
-               "containers": lambda item: len(item.containers), "repository": lambda item: item.name,
-               "tag": lambda item: item.name.rsplit(":", 1)[-1], "kind": lambda item: item.kind,
+               "containers": lambda item: len(item.containers),
+               "repository": lambda item: (image_repository_and_tag(item)[0], item.name),
+               "tag": lambda item: image_repository_and_tag(item)[1], "kind": lambda item: item.kind,
                "parent": lambda item: item.parent_id}[sort_key]
         self.visible_images = tuple(sorted(self.visible_images, key=sorter, reverse=reverse))
         table.clear(columns=True)
@@ -165,18 +167,18 @@ class ImageController:
             table.add_column(Text(self.app.localization.tr(title)), key=key, width=column_width)
         indexed = {item.image_id: item for item in self.inventory.images} if self.inventory else {}
         for item in self.visible_images:
-            repository, separator, tag = item.name.rpartition(":")
+            repository, tag = image_repository_and_tag(item)
             parent = indexed.get(item.parent_id)
             table.add_row(
                 Text(image_selection_marker(item, self.selected_ids)),
-                Text(self.app.localization.tr(join_messages(" · ", (image_display_name(item), item.image_id[7:13]))),
+                Text(self.app.localization.tr(image_row_label(item)),
                      overflow="ellipsis", no_wrap=True),
                 Text(self.app.localization.tr(format_bytes(item.size_bytes))), Text(self.app.localization.tr(format_bytes(item.added_bytes))),
                 Text(str(len(item.containers))), Text(self.app.localization.tr(image_display_name(parent)) if parent else self.app.localization.tr(UNKNOWN),
                      overflow="ellipsis", no_wrap=True),
                 Text(self.app.localization.tr(IMAGE_KINDS[item.kind])),
-                Text(repository if separator else item.name, overflow="ellipsis", no_wrap=True),
-                Text(tag if separator else "—", overflow="ellipsis", no_wrap=True),
+                Text(repository or "—", overflow="ellipsis", no_wrap=True),
+                Text(tag or "—", overflow="ellipsis", no_wrap=True),
                 key=item.image_id,
             )
         if current_id is None:

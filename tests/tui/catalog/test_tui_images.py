@@ -71,13 +71,14 @@ def test_pinned_python_upstream_is_named_only_with_matching_repository_digest():
         repo_digests=(PYTHON_BASE_IMAGE.replace(":3.12.15-slim-trixie@", "@"),),
     )
     name = image_display_name(upstream)
-    assert name == "Python 3.12 Slim（上游基础）"
-    assert translate(name, "en") == "Python 3.12 Slim (upstream base)"
+    assert name == "Python 3.12.15 Slim（上游基础）"
+    assert translate(name, "en") == "Python 3.12.15 Slim (upstream base)"
     for other in (replace(upstream, repo_digests=()),
-                  replace(upstream, repo_digests=("another.example/python@" + PYTHON_BASE_IMAGE.split("@")[1],)),
-                  replace(upstream, repo_digests=("docker.m.daocloud.io/library/python@sha256:" + "0" * 64,)),
                   replace(upstream, acprof=True)):
         assert image_display_name(other) == upstream.image_id[7:19]
+    for reference in ("another.example/python@" + PYTHON_BASE_IMAGE.split("@")[1],
+                      "docker.m.daocloud.io/library/python@sha256:" + "0" * 64):
+        assert "3.12.15" not in image_display_name(replace(upstream, repo_digests=(reference,)))
     assert image_display_name(replace(upstream, tags=("some-other-image:latest",))) == "some-other-image"
 
 
@@ -992,7 +993,9 @@ class TestTuiImages:
             platform = next(item for item in inventory.images if item.image_id == RUNTIME)
             assert platform.parent_id == upstream
             assert platform.parent_source == "layer-prefix"
-            assert "docker.io/library/python" in str(image_metadata(platform, inventory))
+            assert "Python 3.12.15 Slim (trixie)" in str(image_metadata(platform, inventory))
+            upstream_item = next(item for item in inventory.images if item.image_id == upstream)
+            assert "docker.io/library/python:3.12.15-slim-trixie" in image_metadata(upstream_item, inventory)
 
             before = len(self.docker.commands)
             app.query_one("#image-scope").value = "all"
@@ -1016,7 +1019,7 @@ class TestTuiImages:
         from acprof.tui.images.presentation import image_diagnostics
 
         upstream = "sha256:" + "e" * 64
-        digest = PYTHON_BASE_IMAGE.replace(":3.12.15-slim-trixie@", "@")
+        digest = "python@" + PYTHON_BASE_IMAGE.split("@", 1)[1]
         upstream_image = image(upstream, [], 20, ["os"])
         upstream_image["RepoDigests"] = [digest]
         self.docker.images[upstream] = upstream_image
@@ -1031,23 +1034,105 @@ class TestTuiImages:
             await pilot.pause()
             root = tree.root.children[0]
             assert root.data.image_id == upstream
-            assert "Python 3.12 Slim（上游基础）" in root.label.plain
+            assert "Python 3.12.15 Slim（上游基础）" in root.label.plain
             assert root.children[0].data.image_id == RUNTIME
             inventory = app.images.inventory
             assert digest in str(image_diagnostics(root.data, inventory))
             assert upstream in str(image_diagnostics(root.data, inventory))
-            assert "Python 3.12 Slim（上游基础）" in str(image_metadata(root.data, inventory))
+            assert "Python 3.12.15 Slim（上游基础）" in str(image_metadata(root.data, inventory))
 
             app.configuration.preferences = replace(app.configuration.preferences, language="en")
             app.configuration.apply_ui_preferences()
             await pilot.pause()
-            assert "Python 3.12 Slim (upstream base)" in tree.root.children[0].label.plain
+            assert "Python 3.12.15 Slim (upstream base)" in tree.root.children[0].label.plain
             await pilot.click("#image-view-list")
             await pilot.pause()
             table = app.query_one("#image-table", DataTable)
-            assert "Python 3.12 Slim (upstream base)" in table.get_cell(upstream, "name").plain
-            assert "Python 3.12 Slim (upstream base)" in table.get_cell(RUNTIME, "parent").plain
+            assert "Python 3.12.15 Slim (upstream base)" in table.get_cell(upstream, "name").plain
+            assert "Python 3.12.15 Slim (upstream base)" in table.get_cell(RUNTIME, "parent").plain
+            details = str(app.query_one("#image-diagnostic-detail", Static).content)
+            assert "Name source:" in details
+            assert upstream in details
+            assert digest in details
+            assert PYTHON_BASE_IMAGE in details
             assert len(self.docker.commands) == before, "命名及筛选不能额外调用 Docker"
+
+    async def test_same_named_upstreams_keep_ids_selection_and_raw_delete_references(self):
+        from acprof.runtime.profiles import PYTHON_BASE_IMAGE
+
+        first = "sha256:" + "123456111111" + "a" * 52
+        second = "sha256:" + "123456222222" + "b" * 52
+        digest = PYTHON_BASE_IMAGE.split("@", 1)[1]
+        self.docker.images = {
+            first: image(first, [], 20, ["first"]),
+            second: image(second, [], 20, ["second"]),
+        }
+        self.docker.images[first]["RepoDigests"] = ["python@" + digest]
+        self.docker.images[second]["RepoDigests"] = ["docker.io/library/python@" + digest]
+        app = self.make_app()
+        async with app.run_test(size=(150, 45)) as pilot:
+            await self.load_images(app, pilot, view="tree")
+            app.query_one("#image-scope", Select).value = "all"
+            await pilot.pause()
+            before = len(self.docker.commands)
+            tree = app.query_one("#image-tree", Tree)
+            for language, size in (("zh", (120, 30)), ("en", (80, 24))):
+                await pilot.resize_terminal(*size)
+                app.configuration.preferences = replace(app.configuration.preferences, language=language)
+                app.configuration.apply_ui_preferences()
+                await pilot.pause()
+                assert {node.data.image_id for node in tree.root.children} == {first, second}
+                for node in tree.root.children:
+                    # Even an ellipsized name must leave room for the distinct ID.
+                    assert node.data.image_id[7:19] in node.label.plain
+                table = app.query_one("#image-table", DataTable)
+                for key in (first, second):
+                    assert "Python 3.12.15 Slim" in table.get_cell(key, "name").plain
+                    assert key[7:19] in table.get_cell(key, "name").plain
+                    assert table.get_cell(key, "tag").plain == "—"
+                assert table.get_cell(first, "repository").plain == "python"
+                assert table.get_cell(second, "repository").plain == "docker.io/library/python"
+
+            tree.move_cursor(next(node for node in tree.root.children if node.data.image_id == first))
+            tree.focus()
+            await pilot.press("space")
+            await pilot.pause()
+            assert app.images.selected_ids == {first}
+            assert await pilot.click("#image-view-list")
+            await pilot.pause()
+            assert app.images.selected_ids == {first}
+            table.scroll_to(x=table.max_scroll_x, animate=False, immediate=True, force=True)
+            await pilot.pause()
+            header_text = table.render_line(0).text
+            assert "Repository" in header_text, header_text
+            repository_x = cell_len(header_text[:header_text.index("Repository")]) + 1
+            assert await pilot.click(table, offset=(repository_x, 0))
+            await pilot.pause()
+            assert [item.image_id for item in app.images.visible_images] == [second, first]
+            assert app.images.selected_ids == {first}
+            app.query_one("#image-search", Input).value = second[7:19]
+            await pilot.pause()
+            assert [item.image_id for item in app.images.visible_images] == [second]
+            assert app.images.selected_ids == {first}
+            assert len(self.docker.commands) == before, "命名、缩放、语言与筛选不查询 Docker"
+            assert await pilot.click("#image-delete")
+            await pilot.pause()
+            confirmation = str(app.screen.query_one("#image-confirm-text", Static).content)
+            assert first in confirmation
+            assert second not in confirmation
+            assert "python@" + digest in confirmation
+            assert "Python 3.12.15 Slim" not in confirmation
+            assert await pilot.click("#confirm-no")
+            await pilot.pause()
+            assert set(self.docker.images) == {first, second}
+            assert not self.docker.removals
+            assert await pilot.click("#image-delete")
+            await pilot.pause()
+            assert await pilot.click("#confirm-yes")
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+            assert set(self.docker.images) == {second}
+            assert all("Python" not in " ".join(command) for command in self.docker.removals)
 
 
     async def test_tree_search_keeps_ancestors_and_language_resize_keeps_collapse(self):
@@ -1098,11 +1183,12 @@ class TestTuiImages:
             await pilot.pause()
             tree = app.query_one("#image-tree", Tree)
             platform = tree.root.children[0]
-            assert (platform.label.plain.split("  ")[1]) == ("PyTorch CUDA 12.8")
-            # A narrow name column may ellipsize; dragging must reveal the full version.
+            assert RUNTIME[7:19] in platform.label.plain
+            # Allow space for both the full name and its new 12-character ID.
             header = app.query_one("#image-tree-header", DataTable)
-            if header.columns["name"].width < 40:
-                await drag(pilot, header, header_offset(header), 40 - header.columns["name"].width)
+            if header.columns["name"].width < 55:
+                await drag(pilot, header, header_offset(header), 55 - header.columns["name"].width)
+            assert "PyTorch CUDA 12.8 · " + RUNTIME[7:19] in platform.label.plain
             children = {node.data.image_id: node for node in platform.children}
             for image_id, expected in ((WEIGHTS, "moss-transformers5.10.4"),
                                        (FINAL, "multimodal-transformers4.57.6")):
