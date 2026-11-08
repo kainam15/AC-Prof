@@ -1,8 +1,8 @@
 """One UI journey through an interrupted CLI fixture and audited resumed results."""
-import asyncio
 import os
 import sys
 from dataclasses import replace
+from functools import partial
 from unittest.mock import patch
 
 import pytest
@@ -17,6 +17,7 @@ from acprof.tui.run.process import ProcessLifecycle
 from acprof.tui.run.stages import Stage
 from tests.support.platform_fixtures import native_policy
 from tests.support.tui_fixtures import AcprofTui
+from tests.support.tui_waits import wait_for_condition
 
 
 @pytest.mark.parametrize(("language", "size"), [("zh", (80, 24)), ("en", (120, 30))])
@@ -43,21 +44,18 @@ async def test_measurement_stop_resume_preserves_completed_case_and_displays_res
 
     with patch.object(ProcessLifecycle, "start", autospec=True, side_effect=launch):
         async with app.run_test(size=size) as pilot:
-            async def wait_until(predicate):
-                async def wait():
-                    while not predicate():
-                        await pilot.pause()
-                try:
-                    await asyncio.wait_for(wait(), timeout=15)
-                except TimeoutError:
-                    app.logs.flush()
-                    pytest.fail(f"Timed out in {app.execution.session.snapshot}:\n"
-                                f"{app.query_one('#run-log', SelectableLog).raw_text}")
-                await pilot.pause()
+            def diagnostics():
+                app.logs.flush()
+                return (f"{app.execution.session.snapshot}:\n"
+                        f"{app.query_one('#run-log', SelectableLog).raw_text}")
+
+            wait_until = partial(wait_for_condition, pilot, timeout=15, diagnostics=diagnostics)
 
             assert await pilot.click("#start-run")
             await wait_until(lambda: app.execution.session.snapshot.measurement_active
-                             and app.execution.session.snapshot.cpu == "2")
+                             and app.execution.session.snapshot.cpu == "2",
+                             description="measurement of the second resource case")
+            await pilot.pause()
             child = app.execution.lifecycle.process
             assert child is not None
             assert app.execution.session.snapshot.cpu == "2"
@@ -76,7 +74,8 @@ async def test_measurement_stop_resume_preserves_completed_case_and_displays_res
             assert await pilot.click("#stop-run")
             await pilot.pause()
             assert await pilot.click("#confirm-yes")
-            await wait_until(lambda: not app.is_busy())
+            await wait_until(lambda: not app.is_busy(), description="the stopped child to release ownership")
+            await pilot.pause()
             app.logs.flush()
             assert child.poll() == 130
             with pytest.raises(ProcessLookupError):
@@ -102,14 +101,18 @@ async def test_measurement_stop_resume_preserves_completed_case_and_displays_res
             app.activate_tab("run-tab")
             await pilot.pause()
             assert await pilot.click("#start-run")
-            await wait_until(lambda: bool(app.screen.query("#recovery-resume")))
+            await wait_until(lambda: bool(app.screen.query("#recovery-resume")),
+                             description="the recovery choice")
+            await pilot.pause()
             assert not app.screen.query_one("#recovery-resume", Button).disabled
             assert str(app.screen.query_one("#recovery-resume", Button).label) == (
                 "继续实验" if language == "zh" else "Resume")
             await pilot.resize_terminal(80, 24)
             await pilot.pause()
             assert await pilot.click("#recovery-resume")
-            await wait_until(lambda: len(launches) == 2 and not app.is_busy())
+            await wait_until(lambda: len(launches) == 2 and not app.is_busy(),
+                             description="the resumed child and result reads to finish")
+            await pilot.pause()
             assert "--resume" in launches[1]
             assert app.execution.session.snapshot.stage is Stage.COMPLETED
             assert not app.execution.session.snapshot.measurement_active

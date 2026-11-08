@@ -17,6 +17,7 @@ from acprof.tui.logging.widget import SelectableLog
 from acprof.tui.run.process import ProcessLifecycle
 from acprof.tui.run.progress import RunProgressTracker
 from tests.support.tui_fixtures import AcprofTui
+from tests.support.tui_waits import wait_for_condition
 
 
 @pytest.mark.parametrize("language", ["zh", "en"])
@@ -47,16 +48,16 @@ async def test_automatic_interface_selection_reviews_parameters_before_runtime(t
             app.query_one("#ui-language", Select).value = language
             await pilot.pause()
             assert await pilot.click("#start-run")
-            async def parameter_screen():
-                while not (screen := app.preflight.preparation_screen):
-                    await pilot.pause()
-                # The request reference is set before mounting and layout finish.
-                await pilot.pause()
-                assert screen.is_mounted
-                assert app.screen is screen
-                return screen
-
-            screen = await asyncio.wait_for(parameter_screen(), timeout=15)
+            await wait_for_condition(
+                pilot, lambda: app.preflight.preparation_screen is not None,
+                description="the workload parameter review", timeout=15,
+            )
+            # The request reference is set before mounting and layout finish.
+            await pilot.pause()
+            screen = app.preflight.preparation_screen
+            assert screen is not None
+            assert screen.is_mounted
+            assert app.screen is screen
             assert screen.event["request"]["purpose"] == "workload_parameters"
             assert await pilot.click("#preparation-defaults")
             await asyncio.wait_for(app.workers.wait_for_complete(), timeout=15)
@@ -96,10 +97,10 @@ async def test_confirmed_stop_reaps_child_releases_lock_and_removes_bundle(tmp_p
     with patch("acprof.tui.run.process.ProcessLifecycle.start", autospec=True, side_effect=launch_child):
         async with app.run_test(size=(80, 24)) as pilot:
             await pilot.click("#start-run")
-            async def ready():
-                while not (tmp_path / "bundle.json").exists():
-                    await pilot.pause()
-            await asyncio.wait_for(ready(), timeout=10)
+            await wait_for_condition(
+                pilot, lambda: (tmp_path / "bundle.json").exists(),
+                description="the child to create its source bundle", timeout=10,
+            )
             await pilot.pause()
             process = app.execution.lifecycle.process
             pid = process.pid
@@ -158,11 +159,12 @@ async def test_start_button_keeps_real_child_alive_through_answer_and_retry():
         with patch("acprof.tui.run.process.ProcessLifecycle.start", autospec=True, side_effect=launch_child) as launch:
             async with app.run_test(size=(80, 24)) as pilot:
                 async def wait_for_request(request_id):
-                    async def wait():
-                        while app.preflight.preparation_request is None or app.preflight.preparation_request[1] != request_id:
-                            await pilot.pause()
-                        await pilot.pause()
-                    await asyncio.wait_for(wait(), timeout=15)
+                    await wait_for_condition(
+                        pilot, lambda: app.preflight.preparation_request is not None
+                        and app.preflight.preparation_request[1] == request_id,
+                        description=f"preparation request {request_id}", timeout=15,
+                    )
+                    await pilot.pause()
 
                 assert (await pilot.click("#start-run"))
                 await pilot.pause()
