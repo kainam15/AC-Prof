@@ -32,6 +32,13 @@ acprof tui
 ```
 
 升级已安装的版本可运行 `uv tool upgrade acprof`。
+如要主动体验 **预览版**（Alpha/Beta/RC），执行
+`uv tool install acprof --prerelease allow`（已有安装时加 `--force`）。
+后续直接使用 `uv tool upgrade acprof`，uv 会保留预发布选项。
+要恢复仅选择正式版，执行 `uv tool install --force acprof --prerelease disallow`。
+预览版只运行轻量发行验证，不能替代正式硬件测量验收；
+详见[预览版安装说明](../getting_started/installation.md)。
+
 主机准备、GitHub Release 文件及第一个实验的操作详见
 [安装指南](../getting_started/installation.md)与[实验指南](../usage/experiments.md)。
 

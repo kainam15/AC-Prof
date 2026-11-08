@@ -78,6 +78,33 @@ acprof --version
 复现实验应将安装命令中的 `acprof` 改为 `acprof==<已发布版本>`，并保留实验产物中的
 runtime、模型 revision 和环境身份。发布版本与 Git Tag 的对应规则见[版本策略](../development/distribution.md#版本策略与失败恢复)。
 
+
+### 可选预览版（Alpha / Beta / RC）
+
+预览版与正式版使用同一个 [PyPI 项目](https://pypi.org/project/acprof/)；
+如 `0.4.0a1` 属于 Alpha，需用户主动允许预发布版本。首次安装：
+
+```bash
+uv tool install acprof --prerelease allow
+acprof --version
+```
+
+若之前已经安装了正式版，可执行 `uv tool install --force acprof --prerelease allow` 切换。
+之后只需运行 `uv tool upgrade acprof`，uv 会保留最初安装时的预发布选择；
+不要用 `acprof==0.4.0a1` 作为日常安装要求，否则版本固定会妨碍自动升级至下一个 Alpha。
+预览版允许在后续正式版本发布后升级到更新的稳定版，并不永久锁定 Alpha。
+
+退出预览版渠道、恢复优先选择正式版：
+
+```bash
+uv tool install --force acprof --prerelease disallow
+```
+
+GitHub 的 [Releases 页面](https://github.com/kainam15/AC-Prof/releases)
+也列出标为 Pre-release 的 Wheel 和 Linux x86_64 standalone。预览版只验证发行包、
+隔离安装与 CLI / standalone smoke；没有执行完整 CI、同提交硬件矩阵或完整发布依赖风险审计。
+不要将它用于要求正式测量验证的实验。Windows/macOS 原生采集仍不受支持。
+
 ## 快速开始
 
 ### 1. 检查主机环境

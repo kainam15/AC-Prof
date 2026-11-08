@@ -260,7 +260,7 @@ Release 的平台范围分发。wheel/standalone 的 smoke 验证不能替代真
 Release 的 PR 检查和 `workflow_dispatch` 仅构建、验证和保存 artifacts，不上传 PyPI 或创建 GitHub Release。
 
 `release.yml` 在构建前要求 Tag 精确等于 `v` + `acprof.__version__`，不一致直接失败。
-发布流程如下：
+正式版发布流程如下：
 
 ```mermaid
 flowchart TD
@@ -278,10 +278,42 @@ flowchart TD
     PyPI --> Smoke["安装与哈希回查"]
 ```
 
-GitHub Release 与 PyPI job 下载同一份 `python-dist`，发布前各自核对 SHA256，不重新构建。
+正式版 GitHub Release 与 PyPI job 下载同一份 `python-dist`，发布前各自核对 SHA256，不重新构建。
 PyPI 目录仅包含 wheel/sdist，standalone、校验和与 `verification.json` 只作为 GitHub Release 资产。
 PyPI 发布成功后，`pypi-smoke` 最多尝试 5 次（间隔 15 秒），核对 PyPI JSON 中的制品 SHA256，
 再执行 `uv tool install acprof==<version>`、版本及帮助检查。失败显示告警，不能触发重新发布。
+
+
+### 预览版发布渠道
+
+同一 `.github/workflows/release.yml` 根据 Git Tag 严格区分两个路径：
+
+- **正式版**：`v0.4.0` 这类 `v<major>.<minor>.<patch>` 标签保留完整复用 CI、
+  `hardware-gate`、`release-risk`，然后发布 GitHub Release、PyPI 和发布后 smoke。
+- **预览版**：`v0.4.0a1`、`v0.4.0b1`、`v0.4.0rc1` 使用发行 `build`、
+  `verify-dist` 与 `standalone` 检查，不调用完整复用 CI、同提交硬件矩阵或完整依赖风险审计；
+  构建失败/CLI 或 standalone 不可用时不发布。其他无效 `v*` 标签直接拒绝。
+  GitHub Release 标记为 `Pre-release`、`--latest=false`，并包含
+  `preview-verification.json` 明确记录未验证范围；PyPI 只上传同次已验证的 wheel / sdist。
+
+`runtime-images.yml` 的 Tag 触发仅允许 `v<major>.<minor>.<patch>` 正式版本；
+预览标签不会自动构建或推送 GHCR 运行时镜像，手动触发仍按该工作流既有规则执行。
+
+预览版与正式版使用同一个 PyPI `acprof` 项目和 `release.yml` Trusted Publisher，
+但在独立的 `preview-pypi` job 中仅取得必要的 OIDC 权限。先发布 GitHub Pre-release，
+再上传 PyPI；如果 PyPI 已接收文件但工作流失败，**不得重传同一版本**。
+`pypi` GitHub Environment 的部署来源规则必须允许对应预览标签。
+
+第一次发预览版前：将 `acprof/__init__.py` 改成未用过的预发布版本（如 `0.4.0a1`），
+运行 `uv lock` 更新项目版本身份，再提交、通过相应本地测试后创建并推送对应
+`v0.4.0a1` Tag。**只打 Tag 不会包含尚未提交的工作区改动。**
+不得在尚未准备好分发代码时提前打标或移动已发布标签。
+用于个人跨电脑测试时，可以从 GitHub Pre-release 下载 Wheel/standalone；若希望
+`uv tool upgrade acprof` 持续升级，则必须同时上传 PyPI 预发布版本。
+
+用户安装与频道切换命令见[安装指南](../getting_started/installation.md)。
+`uv tool install acprof --prerelease allow` 可选择预览版，后续
+`uv tool upgrade acprof` 继承该选项；固定 `acprof==0.4.0a1` 会锁死升级区间。
 
 ### 首次配置 Trusted Publishing
 
@@ -324,7 +356,7 @@ PyPI 项目描述来自同一制品的 README，metadata 的 Changelog 链接指
 实验 `static_meta.json` 中的 `platform_runtime.acprof_version` 保存执行包版本，源码开发态另外保留
 `git_commit`，模型/runtime 身份按原协议记录；历史缺失版本保持未知，见[环境身份与能力支持](../profiling/measurement.md#环境身份与能力支持)。
 
-Release 附带 `verification.json`，记录源码 SHA、CI run、依赖风险结论和已验证的硬件证据。
+正式版 Release 附带 `verification.json`，记录源码 SHA、CI run、依赖风险结论和已验证的硬件证据。
 `release-risk` 审计通过发行验证的 wheel／sdist 实际安装环境、standalone 构建环境及
 全部注册的 Python runtime wheel 锁。依赖快照绑定对应制品哈希，结论同时绑定 commit、
 `uv.lock`、`dockerfiles/locks/` 内容及豁免策略哈希；发布前重读快照和原始扫描报告，重新
@@ -345,13 +377,13 @@ checkpoint 明确列为未覆盖，不计作安全结论。OCI 镜像身份与 G
 [运行时安全基线](runtime-security.md#oci-与系统层)。
 `hardware-gate` 要求同一 SHA 在 main 上成功执行 `hardware.yml`，对应 `hardware` artifact
 仍可下载，且通过固定 CPU/GPU 矩阵、Native Linux 身份及正式测量指标核验；
-缺失、过期或不完整均阻止 GitHub Release 和 PyPI 发布。该门禁只证明对应 artifact
+缺失、过期或不完整均阻止正式版 GitHub Release 和 PyPI 发布。该门禁只证明对应 artifact
 记录的设备与测量范围，不代表所有设备或 profiler 均已验收。
 复用工作流遵循 [GitHub reusable workflows](https://docs.github.com/en/actions/reference/workflows-and-actions/reusing-workflow-configurations)，
 本地相对路径保证执行同一提交；普通 CI 处理分支 push，tag 的 CI 由 release 调用，避免重复运行。
 
 工作流文件存在不代表远端资产已发布。GitHub Release 需要 `contents: write`，PyPI 需要上述
-Trusted Publisher 配置。GHCR 使用独立的 `runtime-images.yml` 和 `packages: write`：版本 Tag 自动发布，
+Trusted Publisher 配置。GHCR 使用独立的 `runtime-images.yml` 和 `packages: write`：正式版 Tag 自动发布，
 手动运行该 GHCR workflow 也会发布镜像。[发布工作流](../../.github/workflows/runtime-images.yml)
 通过 `scripts/publish_runtime_images.py --matrix` 从当前 runtime 声明生成平台与环境矩阵，
 先构建/核验平台，再发布依赖环境；平台与环境清单以该命令的实际输出为准。

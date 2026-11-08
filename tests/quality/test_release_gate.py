@@ -95,6 +95,86 @@ def test_only_version_tag_push_can_publish():
         assert ("github.event_name == 'push'") in (condition)
         assert ("startsWith(github.ref, 'refs/tags/v')") in (condition)
 
+
+@pytest.mark.parametrize(('tag', 'kind'), [
+    ('', 'none'),
+    ('v0.4.0', 'stable'),
+    ('v0.4.0a1', 'preview'),
+    ('v0.4.0b2', 'preview'),
+    ('v0.4.0rc3', 'preview'),
+])
+def test_release_channel_classifier(tag, kind):
+    jobs = yaml.safe_load((ROOT / '.github/workflows/release.yml').read_text())['jobs']
+    step = next(item for item in jobs['channel']['steps'] if item.get('id') == 'detect')
+    code = step['run'].split("python3 - <<'PY'\n", 1)[1].split('\nPY', 1)[0]
+    with tempfile.TemporaryDirectory() as temporary:
+        output = Path(temporary) / 'channel.txt'
+        result = subprocess.run([sys.executable, '-c', code], cwd=ROOT,
+                                env={**os.environ, 'RELEASE_TAG': tag, 'GITHUB_OUTPUT': str(output)},
+                                text=True, capture_output=True)
+        assert result.returncode == 0, result.stderr
+        assert output.read_text().strip() == f'kind={kind}'
+
+
+@pytest.mark.parametrize('tag', ['v0.4.0dev1', 'v0.4.0a', 'v0.4.0-rc1', 'vbogus'])
+def test_release_channel_rejects_unknown_version_tags(tag):
+    jobs = yaml.safe_load((ROOT / '.github/workflows/release.yml').read_text())['jobs']
+    code = jobs['channel']['steps'][0]['run'].split("python3 - <<'PY'\n", 1)[1].split('\nPY', 1)[0]
+    with tempfile.TemporaryDirectory() as temporary:
+        output = Path(temporary) / 'channel.txt'
+        result = subprocess.run([sys.executable, '-c', code], cwd=ROOT,
+                                env={**os.environ, 'RELEASE_TAG': tag, 'GITHUB_OUTPUT': str(output)},
+                                text=True, capture_output=True)
+        assert result.returncode != 0
+        assert 'unsupported release tag' in result.stderr
+        assert not output.exists()
+
+
+def test_preview_tags_do_not_trigger_runtime_image_publication():
+    workflow = yaml.load((ROOT / '.github/workflows/runtime-images.yml').read_text(),
+                         Loader=yaml.BaseLoader)
+    assert workflow['on']['push']['tags'] == ['v[0-9]+.[0-9]+.[0-9]+']
+
+
+def test_preview_publishing_is_opt_in_and_keeps_stable_gates():
+    jobs = yaml.safe_load((ROOT / '.github/workflows/release.yml').read_text())['jobs']
+    assert jobs['build']['needs'] == 'channel'
+    for name in ('verify', 'hardware-gate', 'publish', 'pypi'):
+        assert "needs.channel.outputs.kind == 'stable'" in jobs[name]['if']
+        assert 'channel' in jobs[name]['needs']
+    assert "needs.channel.outputs.kind != 'preview'" in jobs['release-risk']['if']
+
+    for name in ('preview-github', 'preview-pypi'):
+        job = jobs[name]
+        assert "github.event_name == 'push'" in job['if']
+        assert "needs.channel.outputs.kind == 'preview'" in job['if']
+        assert {'channel', 'build', 'verify-dist', 'standalone'} <= set(job['needs'])
+        assert not {'verify', 'hardware-gate', 'release-risk'} & set(job['needs'])
+        downloads = [step.get('with', {}).get('name') for step in job['steps']
+                     if step.get('uses', '').startswith('actions/download-artifact@')]
+        assert 'python-dist' in downloads
+        assert any('sha256sum --check SHA256SUMS' in step.get('run', '')
+                   for step in job['steps'])
+    assert 'preview-github' in jobs['preview-pypi']['needs']
+    github_job = jobs['preview-github']
+    assert github_job['permissions'] == {'contents': 'write'}
+    assert any('--prerelease --latest=false' in step.get('run', '') for step in github_job['steps'])
+    assert any('-R "$GITHUB_REPOSITORY"' in step.get('run', '') for step in github_job['steps'])
+    evidence = next(step['run'] for step in github_job['steps']
+                    if 'preview-verification.json' in step.get('run', ''))
+    assert "'hardware': 'not_verified'" in evidence
+    assert "'full_ci': 'not_run'" in evidence
+    assert "'dependency_risk': 'not_audited'" in evidence
+    pypi = jobs['preview-pypi']
+    assert pypi['environment']['name'] == 'pypi'
+    assert pypi['permissions'] == {'id-token': 'write', 'contents': 'read'}
+    actions = [step for step in pypi['steps']
+               if step.get('uses', '').startswith('pypa/gh-action-pypi-publish@')]
+    assert len(actions) == 1
+    assert re.search(r'@[0-9a-f]{40}$', actions[0]['uses'])
+    assert not actions[0].get('with', {}).get('skip-existing', False)
+
+
 def test_pypi_uses_oidc_and_the_same_built_artifact_as_github():
     jobs = yaml.safe_load((ROOT / '.github/workflows/release.yml').read_text())['jobs']
     assert ('pypi') in (jobs)

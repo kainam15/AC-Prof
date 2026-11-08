@@ -46,6 +46,13 @@ For host preparation, verified release assets, and the first experiment, see the
   Concurrency/rate sweeps, ordered JSONL requests, and optional vLLM/SGLang service observations
   are described in the [streaming guide](docs/profiling/streaming.md).
 
+For opt-in **preview releases** (Alpha/Beta/RC), install with
+`uv tool install acprof --prerelease allow` (use `--force` if already installed).
+A subsequent `uv tool upgrade acprof` retains that preference. Return to stable releases with
+`uv tool install --force acprof --prerelease disallow`. Preview releases have reduced validation
+and are not a substitute for verified measurement releases; see the
+[installation guide](docs/getting_started/installation.md).
+
 ## Platform support
 
 Native Linux x86_64 with local Docker supports `basic` and, when hardware/permissions allow, `full`.
