@@ -14,24 +14,8 @@ from acprof.host.detect import TaskInfo
 from acprof.host.images.runtime import model_fingerprint, request_fingerprint
 from acprof.host.preparation.task_support import TaskSupportError, require_task_support
 from acprof.models.spec import validate_model_spec
+from tests.support.multimodal_fixtures import pipeline_spec
 from tests.workloads.multimodal.test_multimodal_handler import audio_payload
-
-
-def pipeline_spec():
-    return {
-        "schema_version": 1,
-        "format": "transformers-pipeline",
-        "task": "audio-text-to-text",
-        "pipeline_task": "listen-and-answer",
-        "multimodal": {
-            "inputs": {"waveform": "audio", "rate": "sampling_rate", "question": "text"},
-            "forward_kwargs": {"limit": "$max_new_tokens", "temperature": 0.0},
-        },
-        "dependencies": [{
-            "repo_id": "example/base", "revision": "b" * 40,
-            "allow_patterns": ["*.json", "*.safetensors"],
-        }],
-    }
 
 
 def custom_task(spec=None, *, model_id="unseen/speech-model", model_type="unseen_audio"):

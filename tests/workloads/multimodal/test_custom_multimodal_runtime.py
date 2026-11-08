@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 import pytest
 
-from tests.workloads.multimodal.test_custom_multimodal import pipeline_spec
+from tests.support.multimodal_fixtures import pipeline_spec
 from tests.workloads.multimodal.test_multimodal_handler import audio_payload, image_payload
 
 CUSTOM_MODEL = '''from transformers import BertConfig, BertForSequenceClassification

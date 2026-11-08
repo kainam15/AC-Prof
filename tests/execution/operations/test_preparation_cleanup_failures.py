@@ -132,4 +132,5 @@ def test_interactive_workflow_does_not_retry_cleanup_failure(stage, monkeypatch)
     ask.assert_not_called()
     observer.assert_any_call(stage, "failed", {
         "exception_type": "RuntimeCleanupError", "exception_message": str(failure),
+        "reason_code": None,
     })
