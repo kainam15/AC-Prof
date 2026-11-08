@@ -131,7 +131,8 @@ Tab { padding: 0 2; }
 }
 #page-navigation Button:hover { background: $boost; color: $text; }
 #page-navigation Button:focus { background: $boost; text-style: bold; }
-#navigation-divider { height: 1; border-top: solid $panel; margin: 1 0; }
+/* Fill spare sidebar space so Settings stays at the bottom. */
+#navigation-divider { height: 1fr; min-height: 1; border-bottom: solid $panel; margin: 1 0; }
 AcprofTui.compact-navigation #page-navigation { width: 17; padding: 1 0; }
 AcprofTui.compact-navigation #page-navigation Button { padding: 0; }
 AcprofTui.collapsed-navigation #page-navigation { width: 5; padding: 1 0; }
