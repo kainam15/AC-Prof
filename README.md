@@ -5,52 +5,25 @@
 
 **English** · [简体中文](docs/i18n/README_zh-CN.md)
 
-AC-Prof profiles AI model inference across CPU, memory, GPU, and input-size configurations. It prepares Docker or isolated Process runtimes, reuses pinned model weights, and produces reproducible measurements and analysis artifacts. Compatible models can be profiled without changing their code.
+AC-Prof profiles AI model inference across CPU, memory, GPU, and input-size configurations.
+It prepares Docker or isolated Process runtimes, reuses pinned model weights, and produces
+reproducible measurements without requiring changes to compatible model code.
 
-## What AC-Prof does
+## Capabilities
 
-| Capability                | Description                                                                            |
-| ------------------------- | -------------------------------------------------------------------------------------- |
-| Performance and resources | Application latency, throughput, CPU and memory usage; GPU metrics when available      |
-| Full profiling            | Energy, packet-level timing, CPU hardware counters, and optional independent profilers |
-| Reproducible experiments  | Input and environment metadata, layered CSV results, plots, and reports                |
+| Area | What you get |
+| --- | --- |
+| Performance and resources | Application latency, throughput, CPU/memory usage, and available GPU metrics |
+| Full profiling | Energy, packet-level timing, CPU hardware counters, and optional independent profilers |
+| Reproducible analysis | Input/environment metadata, layered CSV results, plots, and offline HTML reports |
 
-The [offline HTML report](docs/results/reports.md#交互式配置比较报告) is the unified analysis entry point. One `result_all.csv` supports descriptive CPU, memory and GPU comparisons and within-run window statistics. Explicit groups of independent runs use the existing strict identity and condition checks; each side needs at least three valid runs for a Bootstrap confidence interval. Multiple models can be viewed side by side with task/input comparability limits. Python defines the statistics, verifies eligible windows and computes initial results or reuses matching statistics JSON. The offline browser can recalculate those statistics with recorded parameters and provenance. Historical CSVs remain usable without fabricated run identities or new collection. Completed experiments (including `--resume`) also generate a new report under `plots/analysis/`.
-
-Open **Window statistics → Statistics parameters** to select metrics, confidence (90%, 95%, 99%) and Bootstrap resamples (1000, 5000, 10000); seed and window block size are advanced settings. Recalculate, cancel, reset defaults or restore initial results without returning to the TUI. **Add experiment** imports local CSV, AC-Prof HTML or analysis JSON. Charts and CSV / JSON exports use the current results and filters; saving HTML preserves the session. CSV-only imports retain unknown comparability and do not produce confidence intervals. Reports exceeding the 8 MiB embedded window-data budget provide a hash-checked JSON file for offline import; see [statistics parameters and offline recalculation](docs/results/reports.md#html-统计参数与离线重算).
-
-```bash
-acprof report result_all.csv --output resources.html
-acprof report model-a.csv model-b.csv --output models.html
-acprof compare --left run-a/ --right run-b/ --html-output comparison.html \
-  --output comparison.json --csv-output comparison.csv
-```
-
-Repeat `--left` and `--right` for independent replicates. A single run per side shows descriptive differences and ratios without a run-level interval. In the TUI, select an experiment directory to automatically load its metadata overview and Profiling status. **Results → Analysis** generates and opens HTML, with report provenance checked against the selected data. Profiling backfill remains an explicit, confirmed action. Statistics parameters, charts, comparisons and exports are in HTML. The CLI retains advanced statistics options; legacy TUI statistics, comparison, import/export and PNG controls remain hidden with their backends available.
-
-`acprof load --base-url` measures an existing OpenAI-compatible streaming service. Explicit concurrency and request-rate sweeps support `--dry-run` planning and separate reports for each point; see [streaming load sweeps](docs/profiling/streaming.md#多负载点编排). `acprof report <sweep.json>` generates [offline throughput and latency curves](docs/results/reports.md#多负载点流式容量报告), with condition groups, failed points and missing evidence preserved. Optional [vLLM/SGLang identity probes](docs/profiling/streaming.md#服务身份) preserve service observations separately from user declarations. Explicit `vllm-config` probes read selected engine settings from an already available development endpoint; SGLang also reports selected startup configuration.
-
-`acprof load --request-jsonl` runs an [ordered local request dataset](docs/profiling/streaming.md#本地请求集) with distinct prompts and generation settings. Dataset reports preserve input order and per-request mappings for offline analysis.
-
-AC-Prof supports text, vision, audio, time series, diffusion, multimodal, and structured-data workloads when the model meets the [supported task interfaces](docs/models/supported-tasks.md#任务支持范围). A task label alone does not guarantee that every checkpoint will run.
-
-Optional `--server-metrics vllm` captures [server phase histograms](docs/profiling/streaming.md#服务端阶段统计) before and after load. Reports show service-wide Prefill/Decode statistics and missing evidence; these are not per-client-request or GPU timings.
-
-## Collection environments and metrics
-
-| Environment                                                     | Supported collection modes | Collectable metrics                                                                                                                                                     | Main limitations                                                                                                      |
-| --------------------------------------------------------------- | :------------------------: | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| Native Linux x86_64 + local Docker                              |  `basic`,<br />`full`  | `basic`: latency, throughput, container CPU/memory and available GPU metrics;<br />`full`: additionally supports energy, PMU, packet timing, and optional profilers | `full` requires cgroup v2, RAPL, perf, and packet-capture permissions                                               |
-| Linux VM/cloud host + local Docker                              |         `basic`         | Latency, throughput, container CPU/memory and available GPU metrics                                                                                                     | Environment capability tier remains `PARTIAL`; no energy, PMU, or packet collection                                 |
-| Linux x86_64 + Process (including Docker-free cloud containers) |         `basic`         | Latency, throughput, process-tree CPU/RSS, and available device-wide GPU utilization/VRAM                                                                               | No energy, PMU, packet capture, or independent profilers; numeric resource quotas require delegated cgroup v2         |
-| WSL2 + Docker/Process                                           |         `basic`         | Latency, throughput, Linux guest CPU/memory, and limited GPU metrics                                                                                                    | `PARTIAL` tier; no native hardware energy/PMU; Docker collection requires an engine inside WSL2, not Docker Desktop |
-| Native Windows/macOS                                            |             —             | —                                                                                                                                                                      | —                                                                                                                    |
-
-`basic`/`full` are collection modes, not the environment capability tiers `FULL`/`PARTIAL`. Available metrics depend on hardware and permissions; independent profilers must be explicitly enabled, and GPU collection on cloud hosts or WSL2 requires instance-specific validation. See [Linux runtimes](docs/platforms/linux-runtimes.md), [WSL2](docs/platforms/wsl2.md), [metric coverage](docs/results/metrics.md), and [host requirements](docs/getting_started/installation.md#1-检查主机环境).
+Supported workloads include text, vision, audio, time series, diffusion, multimodal, and structured data.
+Model support depends on the [task interface requirements](docs/models/supported-tasks.md#任务支持范围);
+a task label alone does not guarantee that every checkpoint will run.
 
 ## Quick start
 
-Install the latest release from [PyPI](https://pypi.org/project/acprof/) with [uv](https://docs.astral.sh/uv/getting-started/installation/) and launch the interactive terminal interface:
+Install the [PyPI release](https://pypi.org/project/acprof/) with [uv](https://docs.astral.sh/uv/getting-started/installation/):
 
 ```bash
 uv tool install acprof
@@ -58,21 +31,36 @@ acprof --version
 acprof tui
 ```
 
-In **Monitor → Tools → Export**, log export defaults to the current level and keyword filters. The save dialog also offers **Export all retained logs** and previews the original line count for each scope. It saves the logs captured when the dialog opened, preserving original lines and order without visual wrapping. See [log viewing and export](docs/usage/tui-experiments.md#日志查看与复制).
+To upgrade an existing installation, run `uv tool upgrade acprof`.
+For host preparation, verified release assets, and the first experiment, see the
+[installation guide](docs/getting_started/installation.md) and [experiment guide](docs/usage/experiments.md).
 
-Upgrade an existing PyPI installation with:
+## Measurement and analysis
 
-```bash
-uv tool upgrade acprof
-```
+- **Experiments:** Run resource/input matrices from the [TUI](docs/usage/tui.md) or [CLI](docs/usage/cli.md).
+  Inspect the [metrics and result layout](docs/results/metrics.md) after collection.
+- **Offline reports:** Explore resource comparisons, window statistics, charts, and exports in
+  [HTML reports](docs/results/reports.md#交互式配置比较报告). Independent run comparisons and confidence
+  intervals have separate [eligibility rules](docs/results/comparisons.md#跨独立实验比较).
+- **Streaming services:** Measure an already-running OpenAI-compatible service with `acprof load`.
+  Concurrency/rate sweeps, ordered JSONL requests, and optional vLLM/SGLang service observations
+  are described in the [streaming guide](docs/profiling/streaming.md).
 
-The TUI checks PyPI once at startup and shows the current version, latest version, and upgrade command when an update is available. **App settings → Version updates** retains the result, including network failures; see [startup behavior](docs/usage/tui-pages.md#启动和页面).
+## Platform support
 
-For a GitHub Release wheel or Linux standalone binary, see the [latest release](https://github.com/kainam15/AC-Prof/releases/latest) and the [installation guide](docs/getting_started/installation.md#github-release-fallback) for checksum verification.
+Native Linux x86_64 with local Docker supports `basic` and, when hardware/permissions allow, `full`.
+Linux VM/cloud and Docker-free Process setups support a more limited `basic` collection path.
+WSL2 also has restricted `basic` support; native Windows/macOS collection is not supported.
+Actual metrics depend on environment capabilities and permissions—not on the mode name alone.
+See [platform support matrix](docs/platforms/linux-runtimes.md#支持环境与采集模式), [WSL2](docs/platforms/wsl2.md), and
+[host requirements](docs/getting_started/installation.md#1-检查主机环境).
 
-### Develop from source
+## Documentation and development
 
-To contribute or work on the latest source code, clone the repository and let uv prepare the editable project and development tools:
+Start at the [documentation index](docs/README.md) for installation, usage, models, measurement
+protocols, result analysis, platform limitations, and development references.
+
+To work from source:
 
 ```bash
 git clone https://github.com/kainam15/AC-Prof.git
@@ -81,16 +69,17 @@ uv sync
 uv run acprof tui
 ```
 
-For developer environment setup and testing, see [developer setup](docs/development/distribution.md#本地开发环境) and [testing](docs/development/testing.md).
-
-## Documentation
-
-For user guides, technical references, and development documentation, see the [documentation index](docs/README.md).
+See [developer setup](docs/development/distribution.md#本地开发环境) and
+[testing](docs/development/testing.md).
 
 ## Contributing and security
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for development and review practices, and [SECURITY.md](SECURITY.md) for confidential vulnerability reporting and the third-party model trust boundary.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution practices and
+[SECURITY.md](SECURITY.md) for vulnerability reporting and model-code trust boundaries.
 
 ## License and origins
 
-Project code is licensed under [Apache-2.0](LICENSE). Bundled LibriSpeech audio retains [CC-BY-4.0](licenses/CC-BY-4.0.txt); model code and weights have their own licenses. AC-Prof is part of the DOR project at JNU DISTINT. See [NOTICE](NOTICE) and [project origins](docs/development/history.md).
+Project code is [Apache-2.0](LICENSE); bundled LibriSpeech audio is
+[CC-BY-4.0](licenses/CC-BY-4.0.txt). Third-party models retain their own licenses.
+AC-Prof is part of the DOR project at JNU DISTINT; see [NOTICE](NOTICE) and
+[project origins](docs/development/history.md).

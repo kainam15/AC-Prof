@@ -5,6 +5,21 @@
 AC-Prof 根据实际可访问的接口选择执行与采集路径。云厂商名称不作为硬件权限或资源隔离的证据。
 Native Linux 的 Docker `full` 仍是完整测量基准；Process 当前提供 `basic`。
 
+## 支持环境与采集模式
+
+| 运行环境 | 模式 | 主要能力与限制 |
+| --- | --- | --- |
+| 原生 Linux x86_64 + 本机 Docker | `basic`、`full` | `basic` 采集延迟、吞吐、容器 CPU/内存及可用 GPU 指标；`full` 需 cgroup v2、RAPL、perf、抓包等主机能力，才可增加能耗、PMU、抓包和可选 Profiler |
+| Linux 虚拟机/云主机 + 本机 Docker | `basic` | CPU/内存与可用 GPU 指标；环境能力为 `PARTIAL`，不提供原生硬件能耗、PMU 或抓包 |
+| Linux x86_64 + Process（可无 Docker） | `basic` | 应用层性能、进程树 CPU/RSS 与可用的整卡 GPU 指标；不提供能耗、PMU、抓包或独立 Profiler，数值配额依赖 cgroup v2 委托 |
+| WSL2 + Docker/Process | `basic` | Linux 客体 CPU/内存与部分 GPU 指标；无原生硬件能耗/PMU，Docker 需在 WSL 内运行本机 Engine，不支持 Docker Desktop |
+| Windows/macOS 原生 | 不支持采集 | 可通过受支持的 Linux 环境运行；不提供原生测量 Runtime |
+
+`basic`/`full` 是采集模式，不等于环境能力等级 `FULL`/`PARTIAL`。
+具体指标由硬件和权限决定，云 GPU 与 WSL2 仍需对实例验证；
+独立 Profiler 也必须显式启用。详见 [WSL2 限制](wsl2.md)、
+[指标范围](../results/metrics.md)与[主机要求](../getting_started/installation.md#1-检查主机环境)。
+
 ## 选择与准备
 
 `--runtime auto|docker|process` 的默认值为 `auto`：
