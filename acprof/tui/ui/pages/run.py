@@ -14,11 +14,14 @@ from acprof.tui.run.form import PRESET_OPTIONS
 from acprof.tui.settings.field_validation import ConfigField
 from acprof.tui.ui.checkbox import StatusCheckbox
 from acprof.tui.ui.input import BarCursorInput as Input
-from acprof.tui.ui.presentation import format_input_number
+from acprof.tui.ui.presentation import (
+    CHEVRON_COLLAPSED_SYMBOL,
+    CHEVRON_EXPANDED_SYMBOL,
+    format_input_number,
+)
 
 if TYPE_CHECKING:
     from acprof.tui.app import AcprofTui
-from acprof.tui.ui.presentation import COLLAPSED_SYMBOL, EXPANDED_SYMBOL
 
 
 def compose_number_field(app: AcprofTui, label: str, widget_id: str, value: int | float | str,
@@ -100,8 +103,8 @@ def compose_run_tab(app: AcprofTui) -> ComposeResult:
                 with app.localization.localized_widget(Collapsible(
                     title="完整命令（自动更新）",
                     collapsed=True,
-                    collapsed_symbol=COLLAPSED_SYMBOL,
-                    expanded_symbol=EXPANDED_SYMBOL,
+                    collapsed_symbol=CHEVRON_COLLAPSED_SYMBOL,
+                    expanded_symbol=CHEVRON_EXPANDED_SYMBOL,
                     id="command-details",
                 )):
                     yield app.localization.localized_widget(Static("", id="command-preview", markup=False))

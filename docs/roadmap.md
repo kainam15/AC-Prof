@@ -35,6 +35,10 @@
 [Tree 图标属性](https://github.com/Textualize/textual/blob/v8.2.8/src/textual/widgets/_tree.py)配置，
 复用现有 MIT 依赖，不新增依赖或轮询。预览脚本读取实际当前箭头，保留 A～G 全部候选。
 箭头点击、勾选及中英文折叠的 4 项离线回归通过；未重录 SVG／PNG 或验证客户端字体。
+“完整命令（自动更新）”标题也使用同一组细角标，复用 Textual 的
+[Collapsible 图标参数](https://github.com/Textualize/textual/blob/v8.2.8/src/textual/widgets/_collapsible.py)。
+命令自动更新与镜像树点击的 2 项回归通过；中英文 80×24／120×30 headless 检查覆盖可见角标、鼠标、Enter 与缩放，
+命令内容保持一致；本次未重录 SVG／PNG 或验证客户端字体。
 清单的 40／80／120 列离线渲染、CLI 筛选与错误参数检查通过，Nerd Font 码位已核对上游；
 原交互预览的重置／选定 headless smoke 通过，客户端字体显示未验证。
 预览工具的 80×24、120×30 与运行中缩放离线 Pilot 交互检查通过。用户已选用第 6 号 `☰` 作为“实验配置”导航图案；真实客户端字体效果以用户终端为准。

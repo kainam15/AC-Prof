@@ -4,9 +4,12 @@ from collections.abc import Callable
 
 from acprof.tui.i18n import message_id
 
-# Symbols are shared by the experiment form and image tree controls.
+# Default symbols for image detail sections.
 COLLAPSED_SYMBOL = "▶ "
 EXPANDED_SYMBOL = "▼ "
+# Shared by the command preview and image dependency tree.
+CHEVRON_COLLAPSED_SYMBOL = "› "
+CHEVRON_EXPANDED_SYMBOL = "⌄ "
 
 NOT_APPLICABLE = "—"
 CALCULATING = "…"
