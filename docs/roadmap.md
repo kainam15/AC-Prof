@@ -118,8 +118,9 @@ Windows 原生终端与真实采集仍需另行验收。
 
 ## TUI 界面开发分支约定（2026-11）
 
-已将 TUI 界面改动可直接在 `main` 开发和提交的例外同步到根目录协作入口与
-[Git 协作规则](development/quality.md#git-worktree-与合并)，明确适用范围、现有修改保护和验证要求。
+已将直接在 `main` 开发和提交的例外收紧为简单的 TUI 界面改动，并同步到根目录协作入口与
+[Git 协作规则](development/quality.md#git-worktree-与合并)；复杂 TUI 改动及范围不明确的任务仍使用
+专属 worktree 与具名分支，继续保护现有修改并完成相称验证。
 
 ## TUI 运行监控缩放一致性（2026-11）
 

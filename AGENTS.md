@@ -11,7 +11,7 @@ AC-Prof 是 Hugging Face / ModelScope 模型推理工作负载的运行时画像
 
 ## 开发流程
 
-1. 核对当前代码、目标和影响范围；默认为独立任务创建专属 Git worktree 与具名分支，TUI 界面改动适用下述例外。
+1. 核对当前代码、目标和影响范围；默认为独立任务创建专属 Git worktree 与具名分支，仅简单的 TUI 界面改动适用下述例外。
 2. 实现请求行为及相关失败路径，维护受影响的代码、测试和权威文档。
 3. 按[验证策略](docs/development/validation-scope.md)做与改动相称的定向检查，审阅完整 diff、未跟踪文件和测试结果。
 4. 按[Git 协作与提交规则](docs/development/quality.md#git-worktree-与合并)拆分提交；使用 worktree 的任务验证后默认 fast-forward 合入本地 `main`，再清理本任务工作树与分支，保护其他并行任务。
@@ -30,7 +30,7 @@ AC-Prof 是 Hugging Face / ModelScope 模型推理工作负载的运行时画像
 
 ## Git、环境与文档
 
-- TUI 界面改动允许直接在 `main` 开发和提交，具体范围见[Git 协作规则](docs/development/quality.md#git-worktree-与合并)；其他任务仍遵守一任务一 worktree/分支，不直接在 `main` 开发或提交。禁止以 Detached HEAD 作为任务分支，所有改动均须保护已有未提交修改。
+- 只有简单的 TUI 界面改动允许直接在 `main` 开发和提交，具体范围见[Git 协作规则](docs/development/quality.md#git-worktree-与合并)；其他任务（包括复杂 TUI 改动）仍遵守一任务一 worktree/分支，不直接在 `main` 开发或提交。禁止以 Detached HEAD 作为任务分支，所有改动均须保护已有未提交修改。
 - Python 项目环境用 uv 管理；主机依赖、每工作树 `.venv`、`uv.lock` 与 Docker 锁的细节以[开发环境](docs/development/distribution.md#本地开发环境)为准。
 - 长期技术规则放入 `docs/` 的对应专题，临时证据放入 `internal-testing/`；遵守[文档维护约束](docs/AGENTS.md)。
 - 默认不自动修改根目录 `AGENTS.md`、`docs/AGENTS.md` 或 `docs/GOAL.md`；后者另有禁止 Agent 自动修改的约束。
