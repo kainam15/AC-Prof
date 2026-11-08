@@ -334,9 +334,13 @@ async def test_hover_reentry_and_modal_hide_transient_panel(app):
         assert not panel.display
         await pilot.press("escape")
         await pilot.hover("#quit-app")
+        # Returning from the modal can re-enter the indicator under the mouse.
+        # Wait for its defined hover-close delay before checking hidden focus.
+        await pilot.pause(panel.CLOSE_DELAY + 0.05)
+        assert not panel.display
         app.query_one("#quit-app").focus()
         await pilot.pause()
-        await pilot.press("tab")
+        await pilot.press("shift+tab", "shift+tab", "shift+tab")
         assert app.focused is app.query_one("#environment-error")
         await pilot.press("enter")
         assert panel.display

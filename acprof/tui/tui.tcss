@@ -53,7 +53,9 @@ EnvironmentIndicator:focus { text-style: bold; }
 #preflight-summary, #preflight-capabilities, #preflight-issues, #preflight-evidence,
 #preflight-action-reason { height: auto; }
 #preflight-summary { margin-bottom: 1; }
-#preflight-capabilities { grid-size: 2; grid-columns: 1fr 1fr; grid-rows: 1; grid-gutter: 0 1; }
+#preflight-capabilities { grid-size: 2; grid-columns: 1fr 1fr; grid-rows: auto; grid-gutter: 1 2; }
+.environment-section { height: auto; }
+.environment-section-title { height: 1; text-style: bold; color: $text-muted; }
 .environment-signal { height: 1; text-wrap: nowrap; text-overflow: ellipsis; }
 .environment-signal:hover, .environment-signal:focus { text-style: bold underline; }
 #preflight-inspection { height: 6; border-top: solid $accent; overflow-x: hidden; }

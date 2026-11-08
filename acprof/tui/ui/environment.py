@@ -39,6 +39,13 @@ REMEDIES = {
     "capture_interface": "interface", "gpu_device": "gpu", "gpu_memory": "gpu", "gpu_utilization": "gpu",
     "gpu_power": "gpu", "process_cpu": "process_metrics", "process_memory": "process_metrics",
 }
+CAPABILITY_SECTIONS = {
+    "runtime": ("environment", "docker", "cgroup", "uv", "process_runtime", "process_resources"),
+    "cpu_memory": ("process_cpu", "process_memory", "container_cpu", "container_memory", "cpu_energy", "cpu_instructions"),
+    "gpu": ("gpu_device", "gpu_memory", "gpu_utilization", "gpu_power"),
+    "network": ("tcpdump", "tshark", "capture_permissions", "capture_interface"),
+    "profilers": ("ncu", "nsys", "intel_advisor", "torch", "massif", "profiler"),
+}
 
 
 def item_status(row: PreflightCheck) -> str:
@@ -355,7 +362,17 @@ class EnvironmentPopover(Vertical):
         await summary.remove_children()
         priority = {"fail": 0, "error": 0, "warn": 1, "ok": 2, "declared": 3, "pending": 3, "not_requested": 4}
         ordered = sorted(enumerate(rows), key=lambda pair: priority[item_status(pair[1])])
-        await summary.mount(*(EnvironmentSignal(self, row, row.check_id or str(index)) for index, row in ordered))
+        sections: dict[str, list[EnvironmentSignal]] = {name: [] for name in (*CAPABILITY_SECTIONS, "other")}
+        for index, row in ordered:
+            section = next((name for name, identifiers in CAPABILITY_SECTIONS.items() if row.check_id in identifiers), "other")
+            sections[section].append(EnvironmentSignal(self, row, row.check_id or str(index)))
+        await summary.mount(*(
+            Vertical(
+                Static(self.tr("section." + name), classes="environment-section-title", markup=False),
+                *signals, id="preflight-section-" + name, classes="environment-section",
+            )
+            for name, signals in sections.items() if signals
+        ))
 
     @on(Button.Pressed, "#preflight-retry")
     def operate(self, event: Button.Pressed) -> None:

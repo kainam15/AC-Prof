@@ -164,8 +164,10 @@ async def test_runtime_self_check_details_are_accessible_without_selecting_profi
     app = AcprofTui(RunConfig.smoke(""), settings_path=tmp_path / "settings.json")
     app.configuration.preferences = replace(app.configuration.preferences, language=language)
     async with app.run_test(size=(80, 24)) as pilot:
+        await pilot.pause()
         await asyncio.wait_for(app.workers.wait_for_complete(), 10)
         await pilot.click("#environment-success")
+        await pilot.pause()
         for tool, reading in (("torch", "128"), ("massif", "131072")):
             signal = app.query_one("#preflight-signal-" + tool, EnvironmentSignal)
             signal.focus()
