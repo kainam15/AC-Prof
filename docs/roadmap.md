@@ -13,6 +13,17 @@
 已将 TUI 界面改动可直接在 `main` 开发和提交的例外同步到根目录协作入口与
 [Git 协作规则](development/quality.md#git-worktree-与合并)，明确适用范围、现有修改保护和验证要求。
 
+## TUI 运行监控缩放一致性（2026-11）
+
+修复运行监控在 100×38 附近跨越宽度断点时按钮边框消失的问题；窄窗仅收紧间距，
+保留统一圆角边框、完整中英文标签和三行点击区域，英文在 100～101 列时不再裁切工具按钮。
+参考 Textual 8.2.8 的 [Button](https://github.com/Textualize/textual/blob/v8.2.8/src/textual/widgets/_button.py)
+与 [Content 尺寸计算](https://github.com/Textualize/textual/blob/v8.2.8/src/textual/content.py)，
+复用已锁定的 MIT 依赖及公开 API；只调整日志工具栏留白，无新增依赖、轮询或采集行为变更。
+定向 Pilot 覆盖双语 98～101 列连续缩放、80×24／120×30／150×45、复制搜索、日志放大、侧栏切换和测量显示隔离；
+受影响 SVG 与测量场景 VHS PNG 经审阅更新。验证限离线 Fixture、headless 和 VHS/xterm.js；
+真实客户端终端、模型采集与远端 CI 未验证。
+
 ## TUI 左侧导航与页头环境入口（2026-11）
 
 新增独立[导航图案预览工具](development/ui-design-system.md#导航图案预览)：36 种候选可用键盘或鼠标比较展开、折叠、中英文标题和现有主题，选定后仅输出到终端。

@@ -102,6 +102,29 @@ class TestTuiPageChrome:
                 )
                 app.configuration.apply_ui_preferences()
 
+    @pytest.mark.parametrize("language", ["zh", "en"])
+    async def test_monitor_buttons_keep_borders_and_labels_across_resize_breakpoint(self, language):
+        app = self.app
+        app.configuration.preferences = replace(app.configuration.preferences, language=language)
+        async with app.run_test(size=(101, 38)) as pilot:
+            app.activate_tab("monitor-tab")
+            for size in ((101, 38), (100, 38), (99, 38), (98, 38), (100, 38),
+                         (80, 24), (120, 30), (150, 45)):
+                await pilot.resize_terminal(*size)
+                await pilot.pause()
+                strips = app.screen._compositor.render_strips()
+                for button in app.query_one("#log-toolbar").query(Button):
+                    if not button.display:
+                        continue
+                    self.assert_reachable(button)
+                    region = button.region
+                    top = strips[region.y].crop(region.x, region.right).text
+                    bottom = strips[region.bottom - 1].crop(region.x, region.right).text
+                    assert (top[:1], top[-1:]) == ("╭", "╮"), (size, button.id, top)
+                    assert (bottom[:1], bottom[-1:]) == ("╰", "╯"), (size, button.id, bottom)
+                    label = strips[int(region.center[1])].crop(region.x, region.right).text
+                    assert button.label.plain in label, (size, button.id, label)
+
     def assert_color_family(self, color, family):
         hue, saturation, _ = colorsys.rgb_to_hsv(*(channel / 255 for channel in color.rgb))
         if family == "gray":

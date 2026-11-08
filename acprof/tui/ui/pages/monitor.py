@@ -6,6 +6,8 @@ from typing import TYPE_CHECKING
 
 from textual.app import ComposeResult
 from textual.containers import Grid, Horizontal, Vertical
+from textual.content import Content
+from textual.geometry import Size
 from textual.widgets import Button, Static, TabPane
 
 from acprof.tui.i18n import message_id
@@ -16,6 +18,18 @@ from acprof.tui.ui.progress_widgets import DownloadProgressPanel, PhaseTimes, Pr
 if TYPE_CHECKING:
     from acprof.tui.app import AcprofTui
 from acprof.tui.logging.panel import LogPanel
+
+
+class LogToolbarButton(Button):
+    """Measure the label's styled padding instead of Button's fixed allowance."""
+
+    def on_mount(self) -> None:
+        # Textual 8.2.8 rejects zero line-pad in TCSS, but its Python style
+        # property supports it. Keep the border while reclaiming label padding.
+        self.styles.line_pad = 0
+
+    def get_content_width(self, container: Size, viewport: Size) -> int:
+        return Content.from_text(self.label).get_optimal_width(self.styles.get_rules(), container.width)
 
 
 def compose_monitor_tab(app: AcprofTui) -> ComposeResult:
@@ -57,14 +71,14 @@ def compose_monitor_tab(app: AcprofTui) -> ComposeResult:
                         id="view-log-export-path", classes="log-control", compact=True))
                 with Horizontal(id="log-toolbar", classes="action-bar"):
                     with Horizontal(classes="action-secondary"):
-                        yield app.localization.localized_widget(Button("复制全部", id="copy-log-all", classes="log-tool log-control"))
-                        yield app.localization.localized_widget(Button("回到底部", id="follow-log", classes="log-tool"))
-                        yield app.localization.localized_widget(Button("放大日志", id="expand-log", classes="log-tool"))
-                        yield app.localization.localized_widget(Button("返回监控", id="restore-log", classes="log-tool"))
-                        yield app.localization.localized_widget(Button("清空日志", id="clear-log", classes="log-tool"))
-                        yield app.localization.localized_widget(Button("工具", id="log-tools", classes="log-tool log-control", tooltip="筛选 / 搜索"))
+                        yield app.localization.localized_widget(LogToolbarButton("复制全部", id="copy-log-all", classes="log-tool log-control"))
+                        yield app.localization.localized_widget(LogToolbarButton("回到底部", id="follow-log", classes="log-tool"))
+                        yield app.localization.localized_widget(LogToolbarButton("放大日志", id="expand-log", classes="log-tool"))
+                        yield app.localization.localized_widget(LogToolbarButton("返回监控", id="restore-log", classes="log-tool"))
+                        yield app.localization.localized_widget(LogToolbarButton("清空日志", id="clear-log", classes="log-tool"))
+                        yield app.localization.localized_widget(LogToolbarButton("工具", id="log-tools", classes="log-tool log-control", tooltip="筛选 / 搜索"))
                     with Horizontal(classes="action-primary"):
-                        yield app.localization.localized_widget(Button(
+                        yield app.localization.localized_widget(LogToolbarButton(
                             "终止任务", id="stop-run", classes="log-tool",
                             variant="error", disabled=True,
                         ))

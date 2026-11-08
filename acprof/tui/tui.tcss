@@ -142,16 +142,12 @@ AcprofTui.collapsed-navigation #page-navigation Button {
     text-align: center;
 }
 AcprofTui.short #page-navigation Button { height: 2; }
-/* Preserve complete toolbar labels in the content width left by the sidebar. */
+/* Tighten spacing beside the compact sidebar while retaining button borders. */
 AcprofTui.compact-navigation #log-toolbar Button {
     min-width: 0;
-    padding: 0;
-    border: none;
     margin-left: 0;
 }
 AcprofTui.compact-navigation #log-toolbar .action-primary { margin-left: 0; }
-AcprofTui.compact-navigation #log-toolbar Button:focus,
-AcprofTui.compact-navigation #log-toolbar Button:hover { background: $boost; }
 Tab.-active { color: $accent; text-style: bold; }
 Tabs:focus Tab.-active { color: $background; background: $accent; }
 Underline { color: $accent; }
