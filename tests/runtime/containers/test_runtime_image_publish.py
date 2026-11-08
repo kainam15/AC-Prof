@@ -301,3 +301,40 @@ def test_matrix_does_not_probe_registry_or_run_docker(monkeypatch, capsys):
     assert publisher.main(["--matrix"]) == 0
     assert len(json.loads(capsys.readouterr().out)["platforms"]) == 4
     cli.assert_not_called()
+
+
+@pytest.mark.parametrize("present", [False, True])
+def test_verify_only_checks_exact_fingerprint_without_build_pull_or_push(monkeypatch, tmp_path, present):
+    remote = publisher.RemoteImage("sha256:" + "a" * 64, "sha256:" + "b" * 64, ("sha256:" + "c" * 64,))
+    inspection = Mock(return_value=remote if present else None)
+    monkeypatch.setattr(publisher, "inspect_remote_image", inspection)
+    mutations = Mock(side_effect=AssertionError("verify-only cannot build, pull or push"))
+    monkeypatch.setattr(publisher, "prepare_platform_image", mutations)
+    monkeypatch.setattr(publisher, "prepare_environment_image", mutations)
+    monkeypatch.setattr(publisher.subprocess, "run", mutations)
+    monkeypatch.setenv("GITHUB_SHA", "f" * 40)
+    report = tmp_path / "verify.json"
+    args = ["--platform", "cpu", "--verify-only", "--report", str(report)]
+    if present:
+        assert publisher.main(args) == 0
+        result = json.loads(report.read_text())
+        assert result["platform"] == "linux/amd64"
+        assert result["acprof_version"] == __import__("acprof").__version__
+        assert result["source_revision"] == "f" * 40
+        assert result["content_fingerprint"] == publisher._platform_labels(PLATFORMS["cpu"])["platform_build_fingerprint"]
+        assert result["manifest_digest"] == remote.manifest_digest
+    else:
+        with pytest.raises(RuntimeError, match="missing"):
+            publisher.main(args)
+        assert not report.exists()
+    mutations.assert_not_called()
+
+
+def test_release_tag_version_mismatch_stops_before_registry_access(monkeypatch, capsys):
+    remote = Mock(side_effect=AssertionError("tag mismatch must fail before registry lookup"))
+    monkeypatch.setattr(publisher, "inspect_remote_image", remote)
+    with pytest.raises(SystemExit) as caught:
+        publisher.main(["--matrix", "--release-tag", "v999.0.0"])
+    assert caught.value.code == 2
+    assert "tag and package version differ" in capsys.readouterr().err
+    remote.assert_not_called()

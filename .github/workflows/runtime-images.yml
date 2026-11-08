@@ -7,6 +7,9 @@ on:
 permissions:
   contents: read
 
+env:
+  RELEASE_TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+
 # 平台 tag 对应的 image ID 必须先固定，环境 job 再共享同一父层。
 concurrency:
   group: acprof-runtime-images
@@ -32,7 +35,10 @@ jobs:
         run: |
           uv run --locked --no-default-groups python - <<'PY'
           import json, os, subprocess, sys
-          matrix = json.loads(subprocess.check_output([sys.executable, 'scripts/publish_runtime_images.py', '--matrix']))
+          matrix = json.loads(subprocess.check_output([
+              sys.executable, 'scripts/publish_runtime_images.py', '--matrix',
+              '--release-tag', os.environ['RELEASE_TAG'],
+          ]))
           with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
               for name, values in matrix.items():
                   print(f'{name}={json.dumps(values)}', file=output)
@@ -66,7 +72,9 @@ jobs:
         env:
           PLATFORM: ${{ matrix.platform }}
           REGISTRY: ${{ needs.matrix.outputs.registry }}
-        run: uv run --locked --no-default-groups python scripts/publish_runtime_images.py --platform "$PLATFORM" --registry "$REGISTRY" --push --report evidence/platform.json
+        run: |
+          uv run --locked --no-default-groups python scripts/publish_runtime_images.py --platform "$PLATFORM" --registry "$REGISTRY" --release-tag "$RELEASE_TAG" --push --report evidence/platform.json
+          uv run --locked --no-default-groups python scripts/publish_runtime_images.py --platform "$PLATFORM" --registry "$REGISTRY" --release-tag "$RELEASE_TAG" --verify-only --report evidence/platform-remote.json
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
@@ -100,7 +108,9 @@ jobs:
         env:
           ENVIRONMENT: ${{ matrix.environment }}
           REGISTRY: ${{ needs.matrix.outputs.registry }}
-        run: uv run --locked --no-default-groups python scripts/publish_runtime_images.py --environment "$ENVIRONMENT" --pull-platform --registry "$REGISTRY" --push --report evidence/environment.json
+        run: |
+          uv run --locked --no-default-groups python scripts/publish_runtime_images.py --environment "$ENVIRONMENT" --pull-platform --registry "$REGISTRY" --release-tag "$RELEASE_TAG" --push --report evidence/environment.json
+          uv run --locked --no-default-groups python scripts/publish_runtime_images.py --environment "$ENVIRONMENT" --registry "$REGISTRY" --release-tag "$RELEASE_TAG" --verify-only --report evidence/environment-remote.json
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:

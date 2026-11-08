@@ -8,6 +8,19 @@
 | M5 · 科研结果           | 可解释、可复现、可比较       | 输入与推理参数、指标、CSV、统计和报告一致，缺失能力不误报                          | 进行中（统计、对比与审计已统一；`analysis/` 全模块纳入 `C901` 复杂度门禁；硬件矩阵聚合质量并独立控制优选；OpenAI 流式派生已移至窗口外一次执行，v2 报告重算并核对延迟与声明；OpenAI 流式测量 P0 与 Qwen/vLLM 对照完成；正式能耗质量证据保留，基线噪声控制与科研级重复性实验延后由用户主导） |
 | M6 · 交付使用           | 安装、文档与发布             | 干净环境能安装、运行示例、导出结果和排查常见问题                                   | 已完成（wheel／uv tool／standalone 验收；安装后 BERT basic CPU smoke、审计与离线报告通过） |
 
+## Runtime 镜像回退与发布核验（2026-11）
+
+`auto` 对缺少内容标签、缺少 AMD64 和网络失败进行分类回退；Docker 返回成功后仍检查实际 image config，
+避免执行 ARM64 镜像。认证、TLS、完整性、磁盘和下载预算边界保持显式失败。
+回退保留拉取原始诊断与构建异常链；TUI 用警告展示原因和本地构建进度，默认折叠原始错误。
+Runtime 发布增加版本/Tag 一致性与只读远端核验，证据关联源码 SHA、指纹、架构和 Manifest 摘要。
+保持预览版不自动触发镜像矩阵，恢复方式见[镜像文档](models/images.md#ghcr-不可用时恢复)。
+参考 [Docker Compose 拉取流程](https://github.com/docker/compose/blob/main/pkg/compose/pull.go) 与
+[Buildx Manifest 输出](https://github.com/docker/buildx/blob/master/util/imagetools/printers.go)；
+借鉴现有 Apache-2.0 实现思路，不增加运行依赖或正式测量开销。
+验证限离线 Docker/HTTP Fixture、定向 pytest、双语 headless TUI 和 GHCR 元数据只读审计；
+真实本地镜像构建、采集与远端同提交发布 CI 尚未执行。
+
 ## CI #234 结果页与启动时序回归修复（2026-11）
 
 结果页操作栏测试对齐已恢复的 PNG 按钮及窄窗留白，继续检查 HTML／PNG 可达性、滚动与缩放后的位置。

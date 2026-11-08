@@ -36,6 +36,11 @@ PR 对比目标分支，Push 对比本次推送前的分支状态。混合代码
 它会上传 GitHub Pre-release 与 PyPI，但必须标记尚未验证的硬件和安全审计范围。
 正式版 Tag 的全部原有发布门禁保持不变。参见[发布渠道](distribution.md#预览版发布渠道)。
 GHCR 的 `runtime-images.yml` 自动触发也仅保留正式版本标签，避免 Alpha 触发镜像矩阵。
+因此预览版或新开发指纹可能尚无对应预构建镜像；`auto` 必须能回退本地构建。
+Runtime 发布先核对 Tag/package version，再按 `linux/amd64` 构建并验证精确内容标签。
+每个发布 job 最后运行 `--verify-only`，读取远端 Manifest/config、架构、指纹、不可变 ID 和父层关系；
+证据同时记录版本、Tag、源码 SHA、指纹和摘要。该步骤不拉取文件系统层，不代表真实模型验收。
+手动发布与只读排查入口见[GHCR 恢复流程](../models/images.md#ghcr-不可用时恢复)。
 
 `codeql.yml` 在指向 `main` 的 PR、`main` 推送、每周及手动触发时独立执行 Python CodeQL 分析，启用 `security-and-quality` 查询套件覆盖安全、可靠性及维护性问题；不进入主机或容器测量路径。扫描结果需在 GitHub Security 中确认，工作流文件存在不等于已完成扫描；fork PR 的上传权限由 GitHub 平台策略控制。
 Dependabot 仍只更新固定 SHA 的 GitHub Actions，避免其直接修改不完整的 Python/Docker 锁文件集合。新增 `lock-refresh.yml` 每月 1 日 UTC 在 main 上运行，按需手动选择 `all/host/runtime`，按 `tool.uv.required-version` 固定 uv，使用 `uv lock --upgrade` 统一刷新项目及全部工具组，并独立更新 Docker runtime Python artifact 锁，检查依赖声明、哈希、平台与运行时关系、相关单元测试，仅在有变化时创建待审核 PR，随后显式 `workflow_dispatch` 该分支的完整 CI；**不自动合并、推送生产镜像或发布版本**。GitHub 仓库需要允许 Actions 创建 PR；如果权限受限，工作流会失败并留日志，不静默跳过。Docker 基础 OCI digest 与 apt system 锁仍须单独人工批准升级，不能把 Python runtime 锁刷新等同于完整 Docker 基础镜像更新。定期重锁可能下载大量 Python/CUDA wheel，运行在 GitHub-hosted runner，不在 dor-server 进行。

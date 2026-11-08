@@ -155,17 +155,45 @@ TUI 提供以下动作：
 
 | 值 | 行为 |
 | --- | --- |
-| `auto`（默认） | 优先本地缓存，再拉取；网络或缺失错误可在提示来源切换后本机构建；有限下载预算禁止未预检的构建回退 |
+| `auto`（默认） | 优先本地缓存，再拉取；缺标签、缺少 AMD64 或网络故障时警告并回退本地构建；有限下载预算禁止未预检的构建回退 |
 | `pull` | 优先本地缓存；拉取失败直接报错，不自动构建依赖 |
 | `build` | 优先本地缓存；缺失时本机构建，跳过预构建 Registry；仍可能下载前端、base 和依赖 |
 
 标签为 `platform-<完整平台构建指纹>` 或 `environment-<完整环境构建指纹>`，
-后者绑定实际平台 image ID。拉取后核对标签与内部系统/Python 依赖清单，
+后者绑定实际平台 image ID。拉取后先核对标签和 image config 的 `linux/amd64`，再读取内部系统/Python 依赖清单，
 通过后才写本地缓存标签；内容不符直接报错，不静默回退。
 鉴权、TLS 证书、digest 校验和已知内容缺失也不会触发 `auto` 构建回退。
 国内制品镜像设置不会隐式改变 `auto|pull|build` 或 GHCR 仓库。希望避免 GHCR 请求时明确选择
 `build`；已有可信预构建镜像时用 `ACPROF_RUNTIME_REGISTRY` 指定其完整 repository。
 正式构建与运行仍使用不可变 image ID。此策略不更改模型下载、文件选择、服务验证和采集协议。
+
+### GHCR 不可用时恢复
+
+缺少当前指纹的 Tag 与只有 ARM64 的 Manifest 是不同原因；TUI 分别显示“标签不存在”与
+“不支持 linux/amd64”。`auto` 在不设置下载预算时自动转入本地锁定构建，显示警告、原因和
+构建进度；只有本地构建也失败，环境准备才最终失败。原始拉取错误与后续构建错误都保留在
+准备日志中，失败对话框默认仅显示摘要，可展开详细信息。认证、TLS、内容校验失败、磁盘满
+或无法识别的 Docker 错误直接停止，不通过构建掩盖。
+
+恢复步骤：
+
+1. 在“设置 → 连接与权限 → Docker 下载源”检查 `auto|pull|build`。
+   `pull` 遇到缺标签或架构不匹配会停止，需要本机准备时选择 `auto` 或 `build`。
+2. 有下载预算时选择 `build`，重新预检并确认 base、BuildKit frontend 与锁定依赖的下载量；
+   不清除预算来绕过未知下载量。已经核验的本地缓存在三种模式下都优先复用。
+3. 按下表分别配置 Docker Hub、Debian、PyPI/PyTorch 来源，再重新准备 Runtime。
+   “回退到本地构建”是准备策略变化；`endpoint fallback` 只表示同一制品下载入口变化，
+   不表示 GHCR 镜像可以从 Debian 或 PyPI 下载。
+4. 维护者可在对应版本 checkout 执行只读核验：
+
+   ```bash
+   uv run --locked python scripts/publish_runtime_images.py --platform cpu --verify-only
+   uv run --locked python scripts/publish_runtime_images.py --environment onnxruntime-cpu --verify-only
+   ```
+
+   命令仅读取远端 Manifest/config；缺少当前指纹、架构或身份不符时非零退出，不拉取镜像层。
+   需要发布缺失镜像时，在目标版本上手动运行 **Runtime Images** workflow。
+   预览版不自动发布镜像矩阵，不能凭 Python 包已发布推断 GHCR 有对应 Tag。
 
 ### 下载来源分流（限额 VPN 场景）
 
@@ -263,9 +291,14 @@ OCI 预检复用发布脚本已采用的 Buildx `imagetools --raw`，只读取 i
 再次启动同一实验须使用新的空输出目录，不能把镜像构建中断误报为 Native profiling 已通过。
 
 发布 workflow 先发布平台，再发布环境。`scripts/publish_runtime_images.py --push` 使用 Docker Buildx 轻量读取 GHCR 的 OCI manifest 与镜像配置（不下载文件系统层），核对完整内容指纹标签、`linux/amd64`、manifest SHA256、不可变 config digest（Docker image ID）以及环境对平台层链的继承关系。**匹配时跳过构建和推送**，缺少精确指纹 Tag 时才调用现有锁定构建与完整包清单验证；新构建推送后再次确认远端 image ID。无权限、网络超时、元数据损坏或标签不匹配必须失败，不把这些情况当作缺失而重建/覆盖。环境只在缺失需要构建时拉取已发布的平台镜像并核对不可变 ID。
-这属于远端 OCI 身份核验，不是重新执行容器内安装包审计；首次发布时的完整依赖清单验证仍由既有本地构建实现。内容指纹不包含单纯的项目版本 Tag，依赖、平台、配方不变时后续版本可复用同一 GHCR 内容镜像，`evidence/*.json` 记录 `reused`、`pushed` 和 manifest digest。
+这属于远端 OCI 身份核验，不是重新执行容器内安装包审计；首次发布时的完整依赖清单验证仍由既有本地构建实现。内容指纹不包含单纯的项目版本 Tag，依赖、平台、配方不变时后续版本可复用同一 GHCR 内容镜像，`evidence/*.json` 记录 `reused`、`pushed`、manifest digest、`linux/amd64`、内容指纹、AC-Prof 版本、发布 Tag 和源码 SHA。
+CI 在生成矩阵前通过 `--release-tag` 拒绝 Tag/package version 不一致；发布后用 `--verify-only` 再独立读取远端精确内容标签。
 发布脚本复用现有构建和清单验证，不将“已发布依赖”视为 GPU/模型推理通过。
 远端轻量查询参考 [Docker Buildx imagetools inspect](https://docs.docker.com/reference/cli/docker/buildx/imagetools/inspect/) 的 `.Image` / `.Manifest` 接口，以及 [go-containerregistry/crane config](https://github.com/google/go-containerregistry/blob/main/cmd/crane/doc/crane_config.md) 的分层元数据读取思路；此处沿用已安装的 Docker Buildx，不增加新的发行依赖。
+回退状态借鉴 [Docker Compose 的拉取与构建警告](https://github.com/docker/compose/blob/main/pkg/compose/pull.go)，
+架构检查参考 [Moby 平台选择 Issue #48197](https://github.com/moby/moby/issues/48197) 及其关联 PR #43434。
+Compose 与 Buildx 均为持续维护的 Apache-2.0 项目；仅借鉴控制流程，沿用现有 Python/Docker API，
+不复制实现或增加依赖，所有检查位于正式测量窗口之前。
 发布权限、资产和验证方式见[发行包说明](../development/distribution.md#发布入口与范围)。
 
 ### 镜像分类与复用

@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
 import subprocess
 import sys
@@ -12,6 +13,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
+from acprof import __version__  # noqa: E402
 from acprof.host.images.environment import (  # noqa: E402 -- 源码发布脚本先设置仓库导入路径。
     DEFAULT_RUNTIME_REGISTRY,
     platform_fingerprint,
@@ -134,7 +136,10 @@ def _report(args, *, kind: str, image_id: str, reference: str,
             pushed: bool, reused: bool, verified: str,
             manifest_digest: str | None = None) -> None:
     data = {"kind": kind, "image_id": image_id, "reference": reference,
-            "verified": verified, "pushed": pushed, "reused": reused}
+            "verified": verified, "pushed": pushed, "reused": reused,
+            "platform": "linux/amd64", "acprof_version": __version__,
+            "release_tag": args.release_tag, "source_revision": os.environ.get("GITHUB_SHA", ""),
+            "content_fingerprint": reference.rsplit(":", 1)[1].removeprefix(kind + "-")}
     if manifest_digest is not None:
         data["manifest_digest"] = manifest_digest
     if args.report:
@@ -150,11 +155,17 @@ def main(argv=None) -> int:
     selection.add_argument("--platform", choices=tuple(PLATFORMS))
     selection.add_argument("--environment", choices=tuple(ENVIRONMENTS))
     parser.add_argument("--registry", default=DEFAULT_RUNTIME_REGISTRY)
-    parser.add_argument("--push", action="store_true")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--push", action="store_true")
+    mode.add_argument("--verify-only", action="store_true",
+                      help="只核验远端 Manifest、AMD64 与当前内容指纹；不构建、拉取层或推送")
+    parser.add_argument("--release-tag", default="", help="发布时必须与当前 package version 一致")
     parser.add_argument("--pull-platform", action="store_true",
                         help="环境发布必须复用已发布平台的不可变 ID，不在每个 job 重建父层")
     parser.add_argument("--report", type=Path)
     args = parser.parse_args(argv)
+    if args.release_tag and args.release_tag != "v" + __version__:
+        parser.error("tag and package version differ")
     if args.matrix:
         print(json.dumps({"platforms": list(PLATFORMS), "environments": list(ENVIRONMENTS)}))
         return 0
@@ -172,7 +183,7 @@ def main(argv=None) -> int:
         kind = "environment"
         environment = ENVIRONMENTS[args.environment]
         parent = None
-        if args.push:
+        if args.push or args.verify_only:
             parent_expected = _platform_labels(environment.platform)
             platform_reference = registry_reference(
                 "platform", parent_expected["platform_build_fingerprint"], args.registry,
@@ -183,7 +194,7 @@ def main(argv=None) -> int:
             expected = _environment_labels(environment, parent)
             reference = registry_reference(kind, expected["environment_build_fingerprint"], args.registry)
 
-    if args.push:
+    if args.push or args.verify_only:
         remote = inspect_remote_image(reference, expected, kind, parent=parent)
         if remote is not None:
             print(f"[release] Reusing verified GHCR {kind}: {reference}", flush=True)
@@ -191,6 +202,8 @@ def main(argv=None) -> int:
                     pushed=False, reused=True, verified="remote_oci_identity",
                     manifest_digest=remote.manifest_digest)
             return 0
+        if args.verify_only:
+            raise RuntimeError(f"Verified GHCR {kind} image is missing: {reference}")
 
     if args.platform:
         # The tag is known absent from GHCR: do not waste time pulling it again.
