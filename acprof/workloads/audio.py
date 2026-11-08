@@ -21,6 +21,11 @@ from typing import Any
 from acprof.artifacts import read_json_object
 from acprof.installation import resource_root
 from acprof.workloads import WorkloadGenerator, register_generator
+from acprof.workloads.spec import (
+    require_nonempty_list,
+    require_nonempty_string as _require_nonempty_string,
+    require_object,
+)
 
 PROJECT_ROOT = resource_root()
 SAMPLE_RATE = 16000
@@ -95,9 +100,7 @@ _BUILTIN_PROVENANCE_REQUIRED_KEYS = {
 
 
 def _require_object(value: Any, location: str) -> dict[str, Any]:
-    if not isinstance(value, dict):
-        raise ValueError(f"{location} must be a JSON object")
-    return value
+    return require_object(value, f"{location} must be a JSON object")
 
 
 def _require_exact_keys(
@@ -125,12 +128,6 @@ def _require_keys(
     missing = sorted(set(required) - set(value))
     if missing:
         raise ValueError(f"invalid {location} (missing keys: {', '.join(missing)})")
-
-
-def _require_nonempty_string(value: Any, location: str) -> str:
-    if not isinstance(value, str) or not value.strip():
-        raise ValueError(f"{location} must be a non-empty string")
-    return value
 
 
 def _require_int(value: Any, location: str) -> int:
@@ -299,9 +296,9 @@ def _load_workload_spec(path: Path) -> dict[str, Any]:
         raise ValueError("input_scale.type must be 'duration_s'")
     if input_scale["construction"] != "prefix":
         raise ValueError("input_scale.construction must be 'prefix'")
-    values = input_scale["values"]
-    if not isinstance(values, list) or not values:
-        raise ValueError("input_scale.values must be a non-empty array")
+    values = require_nonempty_list(
+        input_scale["values"], "input_scale.values must be a non-empty array",
+    )
     normalized_values = [
         _require_number(value, f"input_scale.values[{index}]")
         for index, value in enumerate(values)

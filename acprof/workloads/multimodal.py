@@ -20,6 +20,11 @@ from typing import TYPE_CHECKING, Any
 from acprof.image_inputs import load_image_groups
 from acprof.input_budget import InputBudget
 from acprof.workloads import WorkloadGenerator, register_generator
+from acprof.workloads.spec import (
+    reject_unknown_keys,
+    require_nonempty_list,
+    require_object,
+)
 
 if TYPE_CHECKING:
     from PIL import Image
@@ -105,24 +110,46 @@ class MultimodalWorkloadGenerator(WorkloadGenerator):
         self._assets: list[dict[str, Any]] = []
         self._spec: dict[str, Any] = {}
         self._base = Path.cwd()
-        self._manifest_sha256 = None
+        self._manifest_sha256: str | None = None
         if workload_spec_path:
-            path = Path(workload_spec_path).resolve()
-            content = path.read_bytes()
-            self._manifest_sha256 = hashlib.sha256(content).hexdigest()
-            self._base = path.parent
-            self._spec = json.loads(content)
-            if not isinstance(self._spec, dict):
-                raise ValueError("multimodal workload manifest must be an object")
-            unknown = set(self._spec) - SPEC_KEYS
-            if unknown:
-                raise ValueError(f"unknown multimodal workload keys: {', '.join(sorted(unknown))}")
-            if self._spec.get("schema_version") != 1:
-                raise ValueError("multimodal workload schema_version must be 1")
-            if self._spec.get("task", task_type) != task_type:
-                raise ValueError("multimodal workload task does not match detected task")
+            self._load_spec(Path(workload_spec_path).resolve())
         spec = self._spec
         self.input_budget = InputBudget.from_value(spec.get("input_budget"))
+        self._configure_modalities(spec)
+        self._configure_generation(spec, model_adapter)
+        self._fps = _positive_number(spec.get("fps", 2), "fps")
+        self._image_resolution = int(_positive_number(spec.get("image_resolution", 224), "image_resolution", integer=True))
+        self._audio_duration = _positive_number(spec.get("audio_duration_s", 2), "audio_duration_s")
+        self._video_count = int(_positive_number(spec.get("video_num_frames", 4), "video_num_frames", integer=True))
+        self._image: Image.Image | None = None
+        self._frames: list[Image.Image] | None = None
+        self._words: list[str] = []
+        self._boxes: list[list[float]] = []
+        self._load_visual_assets(spec)
+        self._prepare_image(spec)
+        self._prepare_audio(spec)
+        scales = require_nonempty_list(
+            spec.get("input_scales", DEFAULT_SCALES[self._scale_modality]),
+            "input_scales must be a nonempty list",
+        )
+        self._scales = sorted(set(self._scale(value) for value in scales))
+
+    def _load_spec(self, path: Path) -> None:
+        content = path.read_bytes()
+        self._manifest_sha256 = hashlib.sha256(content).hexdigest()
+        self._base = path.parent
+        self._spec = require_object(
+            json.loads(content), "multimodal workload manifest must be an object",
+        )
+        reject_unknown_keys(self._spec, SPEC_KEYS, "unknown multimodal workload keys: ")
+        # This manifest retains its existing equality-based version check.
+        if self._spec.get("schema_version") != 1:
+            raise ValueError("multimodal workload schema_version must be 1")
+        if self._spec.get("task", self.task_type) != self.task_type:
+            raise ValueError("multimodal workload task does not match detected task")
+
+    def _configure_modalities(self, spec: dict[str, Any]) -> None:
+        task_type = self.task_type
         self._modalities = spec.get("modalities", [TASK_MODALITY[task_type]])
         if (not isinstance(self._modalities, list) or not self._modalities
                 or any(item not in SCALE_TYPES for item in self._modalities)
@@ -153,10 +180,13 @@ class MultimodalWorkloadGenerator(WorkloadGenerator):
         if active_fixed_field in spec and not (self._scale_modality == "image" and "video" in self._modalities):
             raise ValueError(f"{active_fixed_field} is not fixed on the active scale axis; use input_scales")
         self.input_scale_type = SCALE_TYPES[self._scale_modality]
+
+    def _configure_generation(self, spec: dict[str, Any], model_adapter: str | None) -> None:
         from acprof.extensions import CATALOG
         from acprof.runtime.profiles import default_model_adapter
 
-        adapter = model_adapter or default_model_adapter(model_id)
+        task_type = self.task_type
+        adapter = model_adapter or default_model_adapter(self.model_id)
         matches = [e for e in CATALOG.extensions.values()
                    if e.adapter == adapter and task_type in e.tasks and e.workload_defaults]
         if len(matches) > 1:
@@ -170,54 +200,45 @@ class MultimodalWorkloadGenerator(WorkloadGenerator):
         defaults.update(declared_defaults.get("params", {}))
         if task_type == "any-to-any":
             defaults.update(return_audio=True, talker_max_new_tokens=256, speaker="Chelsie", seed=12345)
-        params = spec.get("params", {})
-        if not isinstance(params, dict):
-            raise ValueError("params must be an object")
+        params = require_object(spec.get("params", {}), "params must be an object")
         self._params = {**defaults, **params}
-        self._fps = _positive_number(spec.get("fps", 2), "fps")
-        self._image_resolution = int(_positive_number(spec.get("image_resolution", 224), "image_resolution", integer=True))
-        self._audio_duration = _positive_number(spec.get("audio_duration_s", 2), "audio_duration_s")
-        self._video_count = int(_positive_number(spec.get("video_num_frames", 4), "video_num_frames", integer=True))
-        self._image = None
-        self._frames: list[Image.Image] | None = None
-        self._words: list[str] = []
-        self._boxes: list[list[float]] = []
-        self._load_visual_assets(spec)
-        if "image" in self._modalities:
-            if "image_path" in spec:
-                if task_type == "document-question-answering" and not {"words", "boxes"} <= set(spec):
-                    raise ValueError("custom document images require precomputed words and boxes")
-            else:
-                self._image, self._words, self._boxes = _scene(document=task_type in {"document-question-answering", "visual-document-retrieval"})
-            self._words = spec.get("words", self._words)
-            self._boxes = spec.get("boxes", self._boxes)
-            if (not isinstance(self._words, list) or not isinstance(self._boxes, list)
-                    or len(self._words) != len(self._boxes)
-                    or any(not isinstance(word, str) or not word.strip() for word in self._words)):
-                raise ValueError("words and boxes must be lists of equal lengths with nonempty words")
-            for box in self._boxes:
-                if (not isinstance(box, list) or len(box) != 4
-                        or any(isinstance(v, bool) or not isinstance(v, int) or not 0 <= v <= 1000 for v in box)
-                        or box[0] > box[2] or box[1] > box[3]):
-                    raise ValueError("boxes must be ordered integer [x0,y0,x1,y1] coordinates in 0..1000")
-        if "audio" in self._modalities:
-            if "audio_path" in spec:
-                data = self._read_asset(spec["audio_path"], "audio")
-            else:
-                from acprof.workloads.audio import AudioWorkloadGenerator
-                # Reuse the existing asset/provenance validation, including SHA256.
-                audio_source = AudioWorkloadGenerator(model_id, "automatic-speech-recognition", 1)
-                data = self._read_asset(str(audio_source.asset_path), "audio")
-                self._assets[-1]["provenance"] = audio_source.plan_metadata()["provenance"]
-            with wave.open(io.BytesIO(data), "rb") as source:
-                if source.getnchannels() != 1 or source.getsampwidth() != 2 or source.getcomptype() != "NONE":
-                    raise ValueError("audio_path must be mono PCM16 WAV")
-                self._sample_rate = source.getframerate()
-                self._pcm = source.readframes(source.getnframes())
-        scales = spec.get("input_scales", DEFAULT_SCALES[self._scale_modality])
-        if not isinstance(scales, list) or not scales:
-            raise ValueError("input_scales must be a nonempty list")
-        self._scales = sorted(set(self._scale(value) for value in scales))
+
+    def _prepare_image(self, spec: dict[str, Any]) -> None:
+        if "image" not in self._modalities:
+            return
+        if "image_path" in spec:
+            if self.task_type == "document-question-answering" and not {"words", "boxes"} <= set(spec):
+                raise ValueError("custom document images require precomputed words and boxes")
+        else:
+            self._image, self._words, self._boxes = _scene(document=self.task_type in {"document-question-answering", "visual-document-retrieval"})
+        self._words = spec.get("words", self._words)
+        self._boxes = spec.get("boxes", self._boxes)
+        if (not isinstance(self._words, list) or not isinstance(self._boxes, list)
+                or len(self._words) != len(self._boxes)
+                or any(not isinstance(word, str) or not word.strip() for word in self._words)):
+            raise ValueError("words and boxes must be lists of equal lengths with nonempty words")
+        for box in self._boxes:
+            if (not isinstance(box, list) or len(box) != 4
+                    or any(isinstance(v, bool) or not isinstance(v, int) or not 0 <= v <= 1000 for v in box)
+                    or box[0] > box[2] or box[1] > box[3]):
+                raise ValueError("boxes must be ordered integer [x0,y0,x1,y1] coordinates in 0..1000")
+
+    def _prepare_audio(self, spec: dict[str, Any]) -> None:
+        if "audio" not in self._modalities:
+            return
+        if "audio_path" in spec:
+            data = self._read_asset(spec["audio_path"], "audio")
+        else:
+            from acprof.workloads.audio import AudioWorkloadGenerator
+            # Reuse the existing asset/provenance validation, including SHA256.
+            audio_source = AudioWorkloadGenerator(self.model_id, "automatic-speech-recognition", 1)
+            data = self._read_asset(str(audio_source.asset_path), "audio")
+            self._assets[-1]["provenance"] = audio_source.plan_metadata()["provenance"]
+        with wave.open(io.BytesIO(data), "rb") as source:
+            if source.getnchannels() != 1 or source.getsampwidth() != 2 or source.getcomptype() != "NONE":
+                raise ValueError("audio_path must be mono PCM16 WAV")
+            self._sample_rate = source.getframerate()
+            self._pcm = source.readframes(source.getnframes())
 
     def _read_asset(self, value: Any, modality: str) -> bytes:
         if not isinstance(value, str) or not value.strip() or "://" in value:

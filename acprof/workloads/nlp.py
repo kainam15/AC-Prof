@@ -11,6 +11,7 @@ from typing import Any
 
 from acprof.input_budget import InputBudget, check_nlp_input, positive_integer
 from acprof.workloads import WorkloadGenerator, register_generator
+from acprof.workloads.spec import require_object
 
 # Fixed corpus for deterministic text generation
 _CORPUS_WORDS = (
@@ -43,8 +44,8 @@ class NLPWorkloadGenerator(WorkloadGenerator):
         self._task_workload: dict = {}
         if workload_spec_path:
             raw = Path(workload_spec_path).read_bytes()
-            spec = json.loads(raw)
-            if not isinstance(spec, dict) or spec.get("schema_version") != 1:
+            spec = require_object(json.loads(raw), "NLP workload requires schema_version=1")
+            if spec.get("schema_version") != 1:
                 raise ValueError("NLP workload requires schema_version=1")
             unknown = set(spec) - {"schema_version", "task", "params", "input_budget", "task_workload"}
             if unknown or spec.get("task", task_type) != task_type:
@@ -65,7 +66,8 @@ class NLPWorkloadGenerator(WorkloadGenerator):
                        {"feature-extraction", "sentence-similarity"} else
                        GENERATION_KEYS if task_type in {"text-generation", "text2text-generation", "summarization",
                                                           "translation", "conversational"} else set())
-            if not isinstance(params, dict) or set(params) - allowed:
+            params = require_object(params, f"unsupported params for NLP workload task {task_type}")
+            if set(params) - allowed:
                 raise ValueError(f"unsupported params for NLP workload task {task_type}")
             if allowed == GENERATION_KEYS:
                 validate_generation(params)

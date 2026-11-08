@@ -13,6 +13,13 @@ from typing import Any
 
 from acprof.input_budget import InputBudget
 from acprof.workloads import WorkloadGenerator, register_generator
+from acprof.workloads.spec import (
+    reject_unknown_keys,
+    require_nonempty_list,
+    require_nonempty_string,
+    require_object,
+    require_schema_version,
+)
 
 DEFAULT_RESOLUTIONS = [128, 192, 256, 320, 384, 512]
 DEFAULT_NUM_INFERENCE_STEPS = 20
@@ -107,59 +114,72 @@ class DiffusionWorkloadGenerator(WorkloadGenerator):
 
     def _load_spec(self, path: Path) -> None:
         content = path.read_bytes()
-        spec = json.loads(content)
-        if not isinstance(spec, dict):
-            raise ValueError("diffusion workload spec must be an object")
+        spec = require_object(json.loads(content), "diffusion workload spec must be an object")
         allowed = {
             "schema_version", "workload_id", "image_path", "image_sha256",
             "prompt", "input_scales", "params",
             "video_frames", "frame_paths",
             "input_budget",
         }
-        unknown = sorted(set(spec) - allowed)
-        if unknown:
-            raise ValueError("unknown diffusion workload keys: " + ", ".join(unknown))
-        if spec.get("schema_version", 1) != 1 or isinstance(spec.get("schema_version"), bool):
-            raise ValueError("diffusion workload schema_version must be 1")
+        reject_unknown_keys(spec, allowed, "unknown diffusion workload keys: ")
+        require_schema_version(spec, "diffusion", default=1)
         self._budget = InputBudget.from_value(spec.get("input_budget"))
         self._budget.batch(self.batch_size)
         self._spec_sha256 = hashlib.sha256(content).hexdigest()
         if "workload_id" in spec:
-            if not isinstance(spec["workload_id"], str) or not spec["workload_id"].strip():
-                raise ValueError("workload_id must be a non-empty string")
-            self._workload_id = spec["workload_id"]
-        if "prompt" in spec:
-            if self._task not in PROMPT_TASKS:
-                raise ValueError(f"{self._task} does not consume prompt")
-            prompts = spec["prompt"]
-            if isinstance(prompts, str):
-                self._budget.text(len(prompts) * self.batch_size, batch_items=self.batch_size)
-                prompts = [prompts] * self.batch_size
-            if (
-                not isinstance(prompts, list) or len(prompts) != self.batch_size
-                or any(not isinstance(item, str) or not item.strip() for item in prompts)
-            ):
-                raise ValueError("prompt must contain one non-empty string per batch entry")
-            self._prompts = prompts
-            self._budget.text(sum(map(len, prompts)), batch_items=self.batch_size)
-            self._prompt_optional = False
+            self._workload_id = require_nonempty_string(spec["workload_id"], "workload_id")
+        self._load_prompt(spec)
         if "input_scales" in spec:
-            scales = spec["input_scales"]
-            if not isinstance(scales, list) or not scales:
-                raise ValueError("input_scales must be a non-empty resolution array")
+            scales = require_nonempty_list(
+                spec["input_scales"], "input_scales must be a non-empty resolution array",
+            )
             self._scales = [self._scale(value) for value in scales]
             if len(set(self._scales)) != len(self._scales):
                 raise ValueError("input_scales must not contain duplicates")
-        params = spec.get("params", {})
-        if not isinstance(params, dict):
-            raise ValueError("params must be an object")
+        params = require_object(spec.get("params", {}), "params must be an object")
+        self._load_params(params)
+        self._load_image(path, spec)
+        self._load_video(path, spec, params)
+
+    def _load_prompt(self, spec: dict[str, Any]) -> None:
+        if "prompt" not in spec:
+            return
+        if self._task not in PROMPT_TASKS:
+            raise ValueError(f"{self._task} does not consume prompt")
+        prompts = spec["prompt"]
+        if isinstance(prompts, str):
+            self._budget.text(len(prompts) * self.batch_size, batch_items=self.batch_size)
+            prompts = [prompts] * self.batch_size
+        if (
+            not isinstance(prompts, list) or len(prompts) != self.batch_size
+            or any(not isinstance(item, str) or not item.strip() for item in prompts)
+        ):
+            raise ValueError("prompt must contain one non-empty string per batch entry")
+        self._prompts = prompts
+        self._budget.text(sum(map(len, prompts)), batch_items=self.batch_size)
+        self._prompt_optional = False
+
+    def _load_params(self, params: dict[str, Any]) -> None:
         allowed_params = self._allowed_params()
         if self._task in STEP_TASKS and "num_inference_steps" in params:
             raise ValueError("use input_scales to set num_inference_steps for this task")
-        unknown = sorted(set(params) - allowed_params)
-        if unknown:
-            raise ValueError("unsupported diffusion params: " + ", ".join(unknown))
+        reject_unknown_keys(params, allowed_params, "unsupported diffusion params: ")
         self._params.update(params)
+        self._validate_numeric_params()
+        if "strength" in self._params and int(
+            self._params["strength"] * self._params["num_inference_steps"]
+        ) < 1:
+            raise ValueError("strength * num_inference_steps must provide at least one denoising step")
+        negative_prompt = self._params.get("negative_prompt")
+        if negative_prompt is not None and not isinstance(negative_prompt, str):
+            if (
+                not isinstance(negative_prompt, list)
+                or len(negative_prompt) != self.batch_size
+                or any(not isinstance(item, str) for item in negative_prompt)
+            ):
+                raise ValueError("negative_prompt must contain one string per batch entry")
+
+    def _validate_numeric_params(self) -> None:
         for name in ("num_inference_steps", "num_frames", "seed", "fps", "decode_chunk_size", "motion_bucket_id"):
             if name in self._params:
                 value = self._params[name]
@@ -179,60 +199,54 @@ class DiffusionWorkloadGenerator(WorkloadGenerator):
                     raise ValueError(f"{name} must be a finite non-negative number")
                 if name == "strength" and value > 1:
                     raise ValueError("strength must be between 0 and 1")
-        if "strength" in self._params and int(
-            self._params["strength"] * self._params["num_inference_steps"]
-        ) < 1:
-            raise ValueError("strength * num_inference_steps must provide at least one denoising step")
-        negative_prompt = self._params.get("negative_prompt")
-        if negative_prompt is not None and not isinstance(negative_prompt, str):
-            if (
-                not isinstance(negative_prompt, list)
-                or len(negative_prompt) != self.batch_size
-                or any(not isinstance(item, str) for item in negative_prompt)
-            ):
-                raise ValueError("negative_prompt must contain one string per batch entry")
+
+    def _load_image(self, path: Path, spec: dict[str, Any]) -> None:
         if "image_sha256" in spec and "image_path" not in spec:
             raise ValueError("image_sha256 requires image_path")
-        if "image_path" in spec:
-            if self._task not in IMAGE_TASKS:
-                raise ValueError(f"{self._task} does not accept image_path")
-            if not isinstance(spec["image_path"], str) or not spec["image_path"].strip():
-                raise ValueError("image_path must be a non-empty local path")
-            image_path = (path.parent / spec["image_path"]).resolve()
-            self._image_bytes = image_path.read_bytes()
-            digest = hashlib.sha256(self._image_bytes).hexdigest()
-            if "image_sha256" in spec and spec["image_sha256"] != digest:
-                raise ValueError("condition image SHA256 does not match image_sha256")
-            from PIL import Image
+        if "image_path" not in spec:
+            return
+        if self._task not in IMAGE_TASKS:
+            raise ValueError(f"{self._task} does not accept image_path")
+        if not isinstance(spec["image_path"], str) or not spec["image_path"].strip():
+            raise ValueError("image_path must be a non-empty local path")
+        image_path = (path.parent / spec["image_path"]).resolve()
+        self._image_bytes = image_path.read_bytes()
+        digest = hashlib.sha256(self._image_bytes).hexdigest()
+        if "image_sha256" in spec and spec["image_sha256"] != digest:
+            raise ValueError("condition image SHA256 does not match image_sha256")
+        from PIL import Image
 
-            with Image.open(io.BytesIO(self._image_bytes)) as image:
-                self._budget.pixels(*image.size)
-                image.load()
-            self._image_source = str(image_path)
+        with Image.open(io.BytesIO(self._image_bytes)) as image:
+            self._budget.pixels(*image.size)
+            image.load()
+        self._image_source = str(image_path)
+
+    def _load_video(self, path: Path, spec: dict[str, Any], params: dict[str, Any]) -> None:
         frame_paths = spec.get("video_frames", spec.get("frame_paths"))
         if "video_frames" in spec and "frame_paths" in spec:
             raise ValueError("use only video_frames or frame_paths")
-        if frame_paths is not None:
-            if self._task != "video-to-video":
-                raise ValueError(f"{self._task} does not accept video_frames")
-            if not isinstance(frame_paths, list) or not frame_paths or any(
-                not isinstance(item, str) or not item.strip() for item in frame_paths
-            ):
-                raise ValueError("video_frames must be an ordered non-empty list of image paths")
-            if "num_frames" in params and params["num_frames"] != len(frame_paths):
-                raise ValueError("num_frames must equal the number of video_frames")
-            self._params["num_frames"] = len(frame_paths)
-            self._budget.pixels(256, 256, frames=len(frame_paths))
-            from PIL import Image
+        if frame_paths is None:
+            return
+        if self._task != "video-to-video":
+            raise ValueError(f"{self._task} does not accept video_frames")
+        if not isinstance(frame_paths, list) or not frame_paths or any(
+            not isinstance(item, str) or not item.strip() for item in frame_paths
+        ):
+            raise ValueError("video_frames must be an ordered non-empty list of image paths")
+        if "num_frames" in params and params["num_frames"] != len(frame_paths):
+            raise ValueError("num_frames must equal the number of video_frames")
+        self._params["num_frames"] = len(frame_paths)
+        self._budget.pixels(256, 256, frames=len(frame_paths))
+        from PIL import Image
 
-            for item in frame_paths:
-                frame_path = (path.parent / item).resolve()
-                content = frame_path.read_bytes()
-                with Image.open(io.BytesIO(content)) as frame:
-                    self._budget.pixels(*frame.size)
-                    frame.load()
-                self._video_bytes.append(content)
-                self._video_sources.append(str(frame_path))
+        for item in frame_paths:
+            frame_path = (path.parent / item).resolve()
+            content = frame_path.read_bytes()
+            with Image.open(io.BytesIO(content)) as frame:
+                self._budget.pixels(*frame.size)
+                frame.load()
+            self._video_bytes.append(content)
+            self._video_sources.append(str(frame_path))
 
     def _allowed_params(self) -> set[str]:
         allowed = {"num_inference_steps", "seed"}

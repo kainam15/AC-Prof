@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from acprof.workloads import WorkloadGenerator, register_generator
+from acprof.workloads.spec import require_nonempty_list, require_object, require_schema_version
 
 TASK_FEATURE_DIMS = {
     "tabular-classification": 8, "tabular-regression": 8,
@@ -48,36 +49,39 @@ class StructuredWorkloadGenerator(WorkloadGenerator):
                             positive_integer(model_feature_dim, "model feature_dim", 65536))
         self.seed = 12345
         self._scales = [8.0, 32.0, 128.0, 512.0] if task_type == "graph-ml" else [1.0, 8.0, 32.0, 128.0]
-        self._spec_sha256 = None
+        self._spec_sha256: str | None = None
         self._provenance: dict[str, Any] = {"source": "synthetic", "generator": "python_random_uniform"}
         if workload_spec_path:
-            raw = Path(workload_spec_path).read_bytes()
-            spec = json.loads(raw)
-            if not isinstance(spec, dict) or set(spec) - SPEC_KEYS:
-                raise ValueError("structured workload spec must be an object with supported keys: " + ", ".join(sorted(SPEC_KEYS)))
-            if spec.get("schema_version") != 1 or isinstance(spec.get("schema_version"), bool):
-                raise ValueError("structured workload schema_version must be 1")
-            if spec.get("task", task_type) != task_type:
-                raise ValueError("structured workload task does not match selected task")
-            self.feature_dim = positive_integer(spec.get("feature_dim", self.feature_dim), "feature_dim", 65536)
-            if model_feature_dim is not None and self.feature_dim != model_feature_dim:
-                raise ValueError("workload feature_dim conflicts with model spec feature_dim")
-            seed = spec.get("seed", self.seed)
-            if isinstance(seed, bool) or not isinstance(seed, int) or seed < 0:
-                raise ValueError("seed must be a non-negative integer")
-            self.seed = seed
-            if "input_scales" in spec:
-                scales = spec["input_scales"]
-                if not isinstance(scales, list) or not scales:
-                    raise ValueError("input_scales must be a non-empty list")
-                self._scales = [float(positive_integer(value, "input_scales", self._max_scale)) for value in scales]
-                if self._scales != sorted(set(self._scales)):
-                    raise ValueError("input_scales must be strictly increasing")
-            provenance = spec.get("provenance", self._provenance)
-            if not isinstance(provenance, dict):
-                raise ValueError("provenance must be an object")
-            self._provenance = copy.deepcopy(provenance)
-            self._spec_sha256 = hashlib.sha256(raw).hexdigest()
+            self._load_spec(Path(workload_spec_path), model_feature_dim)
+
+    def _load_spec(self, path: Path, model_feature_dim: int | None) -> None:
+        raw = path.read_bytes()
+        shape_error = "structured workload spec must be an object with supported keys: " + ", ".join(sorted(SPEC_KEYS))
+        spec = require_object(json.loads(raw), shape_error)
+        if set(spec) - SPEC_KEYS:
+            raise ValueError(shape_error)
+        require_schema_version(spec, "structured")
+        if spec.get("task", self.task_type) != self.task_type:
+            raise ValueError("structured workload task does not match selected task")
+        self.feature_dim = positive_integer(spec.get("feature_dim", self.feature_dim), "feature_dim", 65536)
+        if model_feature_dim is not None and self.feature_dim != model_feature_dim:
+            raise ValueError("workload feature_dim conflicts with model spec feature_dim")
+        seed = spec.get("seed", self.seed)
+        if isinstance(seed, bool) or not isinstance(seed, int) or seed < 0:
+            raise ValueError("seed must be a non-negative integer")
+        self.seed = seed
+        if "input_scales" in spec:
+            scales = require_nonempty_list(
+                spec["input_scales"], "input_scales must be a non-empty list",
+            )
+            self._scales = [float(positive_integer(value, "input_scales", self._max_scale)) for value in scales]
+            if self._scales != sorted(set(self._scales)):
+                raise ValueError("input_scales must be strictly increasing")
+        provenance = require_object(
+            spec.get("provenance", self._provenance), "provenance must be an object",
+        )
+        self._provenance = copy.deepcopy(provenance)
+        self._spec_sha256 = hashlib.sha256(raw).hexdigest()
 
     def _rows(self, count: int, batch_index: int) -> list[list[float]]:
         rng = random.Random(self.seed + batch_index)

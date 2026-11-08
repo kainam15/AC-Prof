@@ -15,6 +15,13 @@ from typing import Any
 from acprof.image_inputs import load_image_groups
 from acprof.input_budget import InputBudget
 from acprof.workloads import WorkloadGenerator, register_generator
+from acprof.workloads.spec import (
+    reject_unknown_keys,
+    require_nonempty_list,
+    require_nonempty_string,
+    require_object,
+    require_schema_version,
+)
 
 BASE_SEED = 12345
 BASE_RESOLUTION = 224  # Default base resolution for most vision models
@@ -52,81 +59,67 @@ class CVWorkloadGenerator(WorkloadGenerator):
 
     def _load_spec(self, path: Path) -> None:
         content = path.read_bytes()
-        spec = json.loads(content)
-        if not isinstance(spec, dict):
-            raise ValueError("CV workload spec must be an object")
+        spec = require_object(json.loads(content), "CV workload spec must be an object")
         allowed = {"schema_version", "workload_id", "image_path", "image_sha256", "video_frames",
                    "num_frames", "candidate_labels", "boxes", "params", "input_scales", "input_budget"}
-        unknown = sorted(set(spec) - allowed)
-        if unknown:
-            raise ValueError("unknown CV workload keys: " + ", ".join(unknown))
-        if spec.get("schema_version", 1) != 1 or isinstance(spec.get("schema_version"), bool):
-            raise ValueError("CV workload schema_version must be 1")
+        reject_unknown_keys(spec, allowed, "unknown CV workload keys: ")
+        require_schema_version(spec, "CV", default=1)
         self.input_budget = InputBudget.from_value(spec.get("input_budget"))
         self._spec_sha256 = hashlib.sha256(content).hexdigest()
         if "workload_id" in spec:
-            if not isinstance(spec["workload_id"], str) or not spec["workload_id"].strip():
-                raise ValueError("workload_id must be a non-empty string")
-            self._workload_id = spec["workload_id"]
+            self._workload_id = require_nonempty_string(spec["workload_id"], "workload_id")
         if "input_scales" in spec:
-            scales = spec["input_scales"]
-            if not isinstance(scales, list) or not scales:
-                raise ValueError("input_scales must be a non-empty array")
+            scales = require_nonempty_list(
+                spec["input_scales"], "input_scales must be a non-empty array",
+            )
             for scale in scales:
                 self._resolution(scale)
             self._scales = [float(scale) for scale in scales]
             if len(set(self._scales)) != len(self._scales):
                 raise ValueError("input_scales must not contain duplicates")
-        params = spec.get("params", {})
-        if not isinstance(params, dict):
-            raise ValueError("params must be an object")
+        params = require_object(spec.get("params", {}), "params must be an object")
         reserved = set(params) & {"batch_size", "num_workers", "candidate_labels", "num_frames", "boxes"}
         if reserved:
             raise ValueError("unsupported CV params: " + ", ".join(sorted(reserved)))
         self._params = copy.deepcopy(params)
-        if "candidate_labels" in spec:
-            labels = spec["candidate_labels"]
-            if self.task_type not in ZERO_SHOT_TASKS:
-                raise ValueError("candidate_labels requires a zero-shot CV task")
-            if not isinstance(labels, list) or not labels or any(
-                not isinstance(label, str) or not label.strip() for label in labels
+        self._load_labels(spec)
+        self._load_boxes(spec)
+        self._load_images(path, spec)
+
+    def _load_labels(self, spec: dict[str, Any]) -> None:
+        if "candidate_labels" not in spec:
+            return
+        labels = spec["candidate_labels"]
+        if self.task_type not in ZERO_SHOT_TASKS:
+            raise ValueError("candidate_labels requires a zero-shot CV task")
+        if not isinstance(labels, list) or not labels or any(
+            not isinstance(label, str) or not label.strip() for label in labels
+        ):
+            raise ValueError("candidate_labels must be a non-empty list of non-empty strings")
+        self._labels = list(labels)
+
+    def _load_boxes(self, spec: dict[str, Any]) -> None:
+        if "boxes" not in spec:
+            return
+        if self.task_type != "keypoint-detection":
+            raise ValueError("boxes requires keypoint-detection")
+        boxes = require_nonempty_list(
+            spec["boxes"], "boxes must be a non-empty array of normalized xywh boxes",
+        )
+        for box in boxes:
+            if not isinstance(box, list) or len(box) != 4 or any(
+                isinstance(v, bool) or not isinstance(v, (int, float))
+                or not math.isfinite(v) for v in box
             ):
-                raise ValueError("candidate_labels must be a non-empty list of non-empty strings")
-            self._labels = list(labels)
-        if "boxes" in spec:
-            if self.task_type != "keypoint-detection":
-                raise ValueError("boxes requires keypoint-detection")
-            boxes = spec["boxes"]
-            if not isinstance(boxes, list) or not boxes:
-                raise ValueError("boxes must be a non-empty array of normalized xywh boxes")
-            for box in boxes:
-                if not isinstance(box, list) or len(box) != 4 or any(
-                    isinstance(v, bool) or not isinstance(v, (int, float))
-                    or not math.isfinite(v) for v in box
-                ):
-                    raise ValueError("boxes must contain normalized xywh boxes")
-                x, y, width, height = box
-                if min(x, y) < 0 or min(width, height) <= 0 or x + width > 1 or y + height > 1:
-                    raise ValueError("normalized boxes must fit within the image")
-            self._boxes = copy.deepcopy(boxes)
+                raise ValueError("boxes must contain normalized xywh boxes")
+            x, y, width, height = box
+            if min(x, y) < 0 or min(width, height) <= 0 or x + width > 1 or y + height > 1:
+                raise ValueError("normalized boxes must fit within the image")
+        self._boxes = copy.deepcopy(boxes)
+
+    def _load_images(self, path: Path, spec: dict[str, Any]) -> None:
         if self.task_type == "video-classification":
-            if "image_path" in spec or "image_sha256" in spec:
-                raise ValueError("video-classification accepts video_frames instead of image_path")
-            if "num_frames" in spec:
-                count = spec["num_frames"]
-                if isinstance(count, bool) or not isinstance(count, int) or count <= 0:
-                    raise ValueError("num_frames must be a positive integer")
-                self._num_frames = count
-            if "video_frames" in spec:
-                paths = spec["video_frames"]
-                if not isinstance(paths, list) or not paths:
-                    raise ValueError("video_frames must be a non-empty ordered array of local image paths")
-                if "num_frames" in spec and len(paths) != self._num_frames:
-                    raise ValueError("num_frames must match the number of video_frames")
-                self._num_frames = len(paths)
-                self.input_budget.batch(self._num_frames)
-                for item in paths:
-                    self._read_asset(path, item)
+            self._load_video_frames(path, spec)
         else:
             if "video_frames" in spec or "num_frames" in spec:
                 raise ValueError("video_frames and num_frames require video-classification")
@@ -141,6 +134,26 @@ class CVWorkloadGenerator(WorkloadGenerator):
             images = load_image_groups({"image_path": self._assets}, budget=self.input_budget)
             for image in images["image_path"]:
                 image.close()
+
+    def _load_video_frames(self, path: Path, spec: dict[str, Any]) -> None:
+        if "image_path" in spec or "image_sha256" in spec:
+            raise ValueError("video-classification accepts video_frames instead of image_path")
+        if "num_frames" in spec:
+            count = spec["num_frames"]
+            if isinstance(count, bool) or not isinstance(count, int) or count <= 0:
+                raise ValueError("num_frames must be a positive integer")
+            self._num_frames = count
+        if "video_frames" in spec:
+            paths = require_nonempty_list(
+                spec["video_frames"],
+                "video_frames must be a non-empty ordered array of local image paths",
+            )
+            if "num_frames" in spec and len(paths) != self._num_frames:
+                raise ValueError("num_frames must match the number of video_frames")
+            self._num_frames = len(paths)
+            self.input_budget.batch(self._num_frames)
+            for item in paths:
+                self._read_asset(path, item)
 
     def _read_asset(self, spec_path: Path, value: Any) -> None:
         if not isinstance(value, str) or not value.strip():
