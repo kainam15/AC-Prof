@@ -102,9 +102,9 @@ class AutomaticRun:
         self.data["stage"] = "resolution"
         if saved.get("runtime") or grouped:
             if grouped:
-                from acprof.application.task_runs import TaskCollection
                 from acprof.experiments.configuration import RunConfig
-                _, group = TaskCollection.read_manifest(RunConfig.from_namespace(args))
+                from acprof.results.task_collections import read_task_collection
+                _, group = read_task_collection(self.root, run_id=RunConfig.from_namespace(args).task_run_id)
                 task = TaskInfo(**group["task_snapshot"])
             else:
                 task = TaskInfo(**saved["runtime"]["task"])

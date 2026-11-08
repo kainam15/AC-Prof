@@ -73,18 +73,24 @@ def historical_task():
     }
 
 
+@pytest.mark.parametrize("grouped", [False, True])
 def test_automatic_resume_preserves_historical_decision_without_resolving(
-        tmp_path, monkeypatch, historical_task):
+        tmp_path, monkeypatch, historical_task, grouped):
     root = tmp_path / "example--model"
     root.mkdir()
     (root / "auto_report.json").write_text(json.dumps({
         "schema_version": 1, "requested_profiling_mode": "basic", "status": "failed",
     }))
-    state_path = root / "run_state.json"
-    state_path.write_text(json.dumps({
-        "schema_version": 1, "runtime": {"task": historical_task},
-        "options": {"profiling_mode": "basic"},
-    }))
+    if grouped:
+        state_path = root / "metadata" / "task_runs" / "frozen.json"
+        state_path.parent.mkdir(parents=True)
+        state_path.write_text(json.dumps({"schema_version": 1, "task_snapshot": historical_task}))
+    else:
+        state_path = root / "run_state.json"
+        state_path.write_text(json.dumps({
+            "schema_version": 1, "runtime": {"task": historical_task},
+            "options": {"profiling_mode": "basic"},
+        }))
     original = state_path.read_bytes()
     expected = copy.deepcopy(historical_task["model_resolution"]["provenance"])
     for target in (

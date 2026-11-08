@@ -116,8 +116,6 @@ jobs:
         run: uv run --locked python scripts/check_test_framework.py
       - name: 禁止新增跨模块 private dependency，并清除过期 baseline
         run: uv run --locked python scripts/check_private_api.py
-      - name: 禁止跨架构层反向导入
-        run: uv run --locked python scripts/check_import_boundaries.py
       - name: 审查 Python 模块规模（提示，不设行数硬门槛）
         run: uv run --locked python scripts/check_module_sizes.py --top 25
 

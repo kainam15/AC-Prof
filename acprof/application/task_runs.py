@@ -15,6 +15,7 @@ from acprof.host.detect import TaskInfo
 from acprof.host.preparation.task_selection import activate_task
 from acprof.host.runtimes.contracts import RuntimeCleanupError
 from acprof.models.evidence import content_digest
+from acprof.results.task_collections import read_task_collection
 from acprof.system.cleanup import cleanup_on_exit, format_exception_notes
 from acprof.tasks.workloads import merge_generation_parameters, task_fingerprint, workload_manifest
 
@@ -54,17 +55,7 @@ class TaskCollection:
 
     @classmethod
     def read_manifest(cls, config: RunConfig) -> tuple[Path, dict]:
-        paths = collection_root(config) / "metadata" / "task_runs"
-        if config.task_run_id:
-            candidates = [paths / f"{config.task_run_id}.json"]
-        else:
-            candidates = sorted(paths.glob("*.json"))
-        if len(candidates) != 1:
-            raise ValueError("select an existing task collection with --task-run-id; no unique collection to resume")
-        data = read_json_object(candidates[0], label="task collection")
-        if data.get("schema_version") != 1:
-            raise ValueError("unsupported task collection schema")
-        return candidates[0], data
+        return read_task_collection(collection_root(config), run_id=config.task_run_id)
 
     @classmethod
     def restore(cls, config: RunConfig):

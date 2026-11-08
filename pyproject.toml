@@ -54,16 +54,20 @@ dev = [
 ]
 test = [
     {include-group = "runtime-test"},
+    {include-group = "import-checks"},
     "pytest-cov>=7.0.0,<8",
     "coverage[toml]>=7.15.2,<8",
     "pyyaml>=6.0.3,<7",
 ]
 lint = [
+    {include-group = "import-checks"},
     # Keep the Ruff configuration and pre-commit hook on the same release.
     "ruff==0.16.8",
     "pre-commit>=4.6.2,<5",
     "markdown-it-py>=4.2.0,<5",
 ]
+# The same locked architecture tool is required by the hook and its fixture regressions.
+import-checks = ["import-linter>=2.16,<3"]
 typing = ["mypy>=2.3.1,<3"]
 browser = [
     {include-group = "runtime-test"},
@@ -132,6 +136,108 @@ max-complexity = 12
 [tool.ruff.lint.isort]
 combine-as-imports = true
 
+[tool.importlinter]
+root_package = "acprof"
+# Preserve the existing runtime-only policy; annotation imports remain type-checked.
+exclude_type_checking_imports = true
+
+# Existing package rules retain direct-import scope. Host and runtime additionally
+# reject complete dependency chains; no import exceptions or global layering claim.
+
+[[tool.importlinter.contracts]]
+id = "domain-contracts"
+name = "Domain contracts stay independent of orchestration"
+type = "forbidden"
+source_modules = ["acprof.events", "acprof.tasks", "acprof.results"]
+forbidden_modules = ["acprof.application", "acprof.host", "acprof.container", "acprof.monitors", "acprof.analysis", "acprof.plotting", "acprof.tui", "acprof.cli"]
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+id = "experiment-contracts"
+name = "Experiment configuration does not orchestrate execution"
+type = "forbidden"
+source_modules = ["acprof.experiments"]
+forbidden_modules = ["acprof.application", "acprof.host", "acprof.container", "acprof.analysis", "acprof.plotting", "acprof.tui", "acprof.cli"]
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+id = "runtime-orchestration"
+name = "Runtime declarations do not reach host orchestration"
+type = "forbidden"
+source_modules = ["acprof.runtime"]
+forbidden_modules = ["acprof.host", "acprof.application", "acprof.analysis", "acprof.plotting", "acprof.tui", "acprof.cli"]
+
+[[tool.importlinter.contracts]]
+id = "analysis-boundary"
+name = "Analysis remains independent of collection and plotting"
+type = "forbidden"
+source_modules = ["acprof.analysis"]
+forbidden_modules = ["acprof.host", "acprof.container", "acprof.monitors", "acprof.plotting", "acprof.tui", "acprof.cli"]
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+id = "plotting-boundary"
+name = "Plotting remains independent of collection and UI"
+type = "forbidden"
+source_modules = ["acprof.plotting"]
+forbidden_modules = ["acprof.host", "acprof.container", "acprof.monitors", "acprof.tui", "acprof.cli"]
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+id = "host-orchestration"
+name = "Host services do not reach application or UI"
+type = "forbidden"
+source_modules = ["acprof.host"]
+forbidden_modules = ["acprof.application", "acprof.cli", "acprof.tui"]
+
+[[tool.importlinter.contracts]]
+id = "container-boundary"
+name = "Container execution remains independent of host and UI"
+type = "forbidden"
+source_modules = ["acprof.container"]
+forbidden_modules = ["acprof.host", "acprof.cli", "acprof.tui", "acprof.plotting", "acprof.analysis"]
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+id = "monitor-boundary"
+name = "Monitors remain independent of orchestration"
+type = "forbidden"
+source_modules = ["acprof.monitors"]
+forbidden_modules = ["acprof.host", "acprof.cli", "acprof.tui", "acprof.plotting", "acprof.analysis", "acprof.container"]
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+id = "workload-boundary"
+name = "Workloads remain independent of host and UI"
+type = "forbidden"
+source_modules = ["acprof.workloads"]
+forbidden_modules = ["acprof.host", "acprof.cli", "acprof.tui"]
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+id = "packet-boundary"
+name = "Packet analysis remains independent of UI"
+type = "forbidden"
+source_modules = ["acprof.packet"]
+forbidden_modules = ["acprof.cli", "acprof.tui"]
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+id = "model-hub-boundary"
+name = "Model and Hub contracts remain independent of orchestration"
+type = "forbidden"
+source_modules = ["acprof.models", "acprof.hub"]
+forbidden_modules = ["acprof.host", "acprof.container", "acprof.monitors", "acprof.plotting", "acprof.tui", "acprof.cli", "acprof.analysis"]
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+id = "system-boundary"
+name = "System services remain independent of domain orchestration"
+type = "forbidden"
+source_modules = ["acprof.system"]
+forbidden_modules = ["acprof.host", "acprof.container", "acprof.monitors", "acprof.plotting", "acprof.tui", "acprof.cli", "acprof.analysis", "acprof.models", "acprof.hub"]
+allow_indirect_imports = true
+
 [tool.mypy]
 python_version = "3.12"
 packages = ["acprof"]
@@ -169,6 +275,8 @@ module = [
     "acprof.monitors.interfaces",
     "acprof.pixel_metrics",
     "acprof.results.metrics",
+    "acprof.results.task_collections",
+    "acprof.workloads.spec",
     "acprof.source_identity",
     "acprof.tui.commands",
     "acprof.tui.run.experiment_controller",

@@ -219,9 +219,13 @@ def test_remote_rmbg_missing_scikit_image_is_preflight_failure():
     task = model("image-segmentation", "cv", "birefnet",
                  repository_files=("config.json", "modeling_rmbg.py"))
     task.model_config["auto_map"] = {"AutoModelForImageSegmentation": "modeling_rmbg.RMBG"}
-    with patch("acprof.host.detect.read_model_source", return_value="from skimage import transform\n"):
-        with pytest.raises(TaskSupportError) as caught:
-            require_task_support(task)
+    source = "from skimage import transform\n"
+    with patch("acprof.host.detect.read_model_source", return_value=source) as read_source:
+        for _ in range(2):
+            with pytest.raises(TaskSupportError) as caught:
+                require_task_support(task)
+    read_source.assert_called_once_with(task.model_id, "modeling_rmbg.py", task.model_revision)
+    assert task.repository_sources["modeling_rmbg.py"] == source
     assert (caught.value.failure.reason_code) == ("runtime_dependency_missing")
     assert (caught.value.failure.evidence["dependencies"][0]["distribution"]) == ("scikit-image")
 

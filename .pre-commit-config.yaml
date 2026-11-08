@@ -20,6 +20,13 @@ repos:
         types: [python]
         files: '^(acprof/|scripts/check_tui_catalog\.py$|tests/tui/i18n/)'
         pass_filenames: false
+      - id: import-boundaries
+        name: Enforce declared package dependencies
+        entry: uv run --locked python scripts/check_import_boundaries.py
+        language: system
+        files: '^(acprof/.*\.py|pyproject\.toml|scripts/check_import_boundaries\.py|\.pre-commit-config\.yaml)$'
+        pass_filenames: false
+        require_serial: true
       - id: ruff-check
         name: Ruff from uv.lock
         entry: uv run --locked ruff check --force-exclude
@@ -40,7 +47,7 @@ repos:
         entry: uv run --locked ruff check --select C901 --force-exclude
         language: system
         types: [python]
-        files: '^acprof/(analysis/[^/]+|experiments/(load|streaming)|models/candidates|host/model_store/preparation|host/case_recovery|host/measurement/(metrics|collector_metrics|load|load_transport|load_reporting)|container/handlers/(multimodal|diffusion))\.py$'
+        files: '^acprof/(analysis/[^/]+|experiments/(load|streaming)|models/candidates|host/model_store/preparation|host/case_recovery|host/measurement/(metrics|collector_metrics|load|load_transport|load_reporting)|container/handlers/(multimodal|diffusion)|results/task_collections|workloads/(spec|cv|diffusion|multimodal|structured))\.py$'
         require_serial: true
 
   - repo: https://github.com/pre-commit/pre-commit-hooks

@@ -27,7 +27,7 @@ MAX_FILES = 64
 RUNTIME_REQUIREMENTS = {"requirements.txt", "requirements-inference.txt", "requirements-runtime.txt"}
 
 
-def dependency_preflight(task, profile, *, read_source=None) -> dict:
+def dependency_preflight(task, profile, *, read_source) -> dict:
     """Read only pinned source/config, without importing or installing anything."""
     from packaging.markers import default_environment
     from packaging.requirements import InvalidRequirement, Requirement
@@ -52,12 +52,6 @@ def dependency_preflight(task, profile, *, read_source=None) -> dict:
             records.append({"status": "unknown", "detail": "source dependencies require a pinned commit SHA"})
             pending.clear()
         else:
-            if read_source is None:
-                from acprof.host.detect import read_model_source
-                def read_source(name):
-                    if name not in task.repository_sources:
-                        task.repository_sources[name] = read_model_source(task.model_id, name, task.model_revision)
-                    return task.repository_sources[name]
             environment = {**default_environment(),
                            "python_version": ".".join(profile.environment.platform.python_version.split(".")[:2]),
                            "python_full_version": profile.environment.platform.python_version,

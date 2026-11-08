@@ -19,6 +19,16 @@ class TaskSupportError(RuntimeFailure):
                          Failure("preflight", "runtime_task_unsupported", failure))
 
 
+def _read_dependency_source(task_info: TaskInfo, name: str) -> str:
+    from acprof.host.detect import read_model_source
+
+    if name not in task_info.repository_sources:
+        task_info.repository_sources[name] = read_model_source(
+            task_info.model_id, name, task_info.model_revision,
+        )
+    return task_info.repository_sources[name]
+
+
 def require_task_support(task_info: TaskInfo, *, batch_size: int = 1, devices=()) -> None:
     """Reject known gaps and invalid task routing, without promising runtime compatibility."""
     task_info.model_resolution.update(model_id=task_info.model_id, model_revision=task_info.model_revision)
@@ -69,7 +79,9 @@ def require_task_support(task_info: TaskInfo, *, batch_size: int = 1, devices=()
             task_info.runtime_profile_id, task_info.model_adapter = profile.profile_id, profile.adapter
             task_info.model_resolution["runtime_profile"] = profile.profile_id
             from acprof.runtime.dependencies import dependency_preflight
-            dependency_preflight(task_info, profile)
+            dependency_preflight(
+                task_info, profile, read_source=lambda name: _read_dependency_source(task_info, name),
+            )
             from acprof.models.support import supports_transformers_task
             from acprof.precision import remote_code_allowed, resolve_precision
             from acprof.runtime.profiles import locked_transformers_version
