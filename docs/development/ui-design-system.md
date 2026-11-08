@@ -69,6 +69,19 @@ uv run --locked python scripts/preview_nav_icons.py --page settings
 `--page` 或 `--nerd-font` 单独使用也会进入列表模式。80 列及以上使用表格，窄终端使用逐项换行。
 清单按页面去重，编号与交互预览独立。
 
+镜像树的箭头和选择标记可在同一脚本中查看：
+
+```bash
+uv run --locked python scripts/preview_nav_icons.py --tree
+uv run --locked python scripts/preview_nav_icons.py --tree --arrow B --marker 2
+```
+
+`--tree` 列出 A～G 共 7 组折叠／展开箭头、1～4 共 4 组未选中／已选中／部分选中标记，
+并打印全部 28 种组合的固定镜像树示例。`--arrow`、`--marker` 可分别筛选，也可一起使用；
+单独指定它们会自动进入镜像树列表模式，不能与 `--page` 或 `--nerd-font` 同用。
+示例复用 [Rich Tree](https://github.com/Textualize/rich/blob/main/rich/tree.py)（MIT）的缩进与连接线，
+当前箭头读取项目已有定义；只展示候选，不写入 TUI 设置或读取 Docker 状态，无新增依赖或测量期开销。
+
 不加参数仍进入“实验配置”的交互预览，保留原有 36 个选项和编号，
 同时查看当前项与候选的展开、折叠效果。
 方向键或点击切换，`L` 切换中英文标题，`T` 切换现有主题，`R` 回到当前图案；

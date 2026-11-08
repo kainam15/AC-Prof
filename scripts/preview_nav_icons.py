@@ -2,6 +2,7 @@
 
 Run: uv run --locked python scripts/preview_nav_icons.py
 List all pages: uv run --locked python scripts/preview_nav_icons.py --list
+List image tree symbols: uv run --locked python scripts/preview_nav_icons.py --tree
 Reference: Textual's docs/examples/widgets/option_list_options.py (MIT).
 Optional glyph names: https://github.com/ryanoasis/nerd-fonts/blob/master/glyphnames.json
 """
@@ -15,6 +16,7 @@ from rich.cells import cell_len
 from rich.console import Console
 from rich.table import Table
 from rich.text import Text
+from rich.tree import Tree
 from textual import on
 from textual.app import App, ComposeResult
 from textual.binding import Binding
@@ -25,6 +27,7 @@ from textual.widgets import Button, Footer, OptionList, Static
 from textual.widgets.option_list import Option
 
 from acprof.tui.ui.navigation import PageNavigation
+from acprof.tui.ui.presentation import COLLAPSED_SYMBOL, EXPANDED_SYMBOL
 from acprof.tui.ui.rendering import CjkScreen
 from acprof.tui.ui.themes import THEME_CATALOG, UI_THEMES
 
@@ -188,6 +191,22 @@ NERD_FONT_CHOICES = {
                  ("\ueb51", "cod-settings_gear"), ("\ueb52", "cod-settings")),
 }
 
+TREE_ARROWS = {
+    "A": ("当前箭头", COLLAPSED_SYMBOL.strip(), EXPANDED_SYMBOL.strip()),
+    "B": ("小实心三角", "▸", "▾"),
+    "C": ("空心三角", "▷", "▽"),
+    "D": ("小空心三角", "▹", "▿"),
+    "E": ("细角标", "›", "⌄"),
+    "F": ("方框加减", "⊞", "⊟"),
+    "G": ("简单加减", "+", "−"),
+}
+TREE_MARKERS = {
+    "1": ("方框勾选", "□", "☑", "◩"),
+    "2": ("复选框", "☐", "☑", "⊟"),
+    "3": ("方块填充", "□", "■", "▣"),
+    "4": ("圆形填充", "○", "●", "◐"),
+}
+
 
 def heading(glyph: str, title: str) -> str:
     return f"{glyph}  {title}" if glyph else title
@@ -233,6 +252,36 @@ def list_choices(console: Console, page: str | None, nerd_font: bool) -> None:
                               style=style)
         if not compact:
             console.print(table)
+
+
+def list_tree_choices(console: Console, arrow: str | None, marker: str | None) -> None:
+    console.print("AC-Prof · 镜像树图案预览", style="bold cyan")
+    console.print("固定示例展示未选、已选和部分选中；请在使用 TUI 的终端中比较字形。")
+    console.print("箭头（折叠 / 展开）", style="bold")
+    for key, (name, closed, opened) in TREE_ARROWS.items():
+        console.print(Text(f"  {key} · {name}：{closed} / {opened}"))
+    console.print("选择标记（未选中 / 已选中 / 部分选中）", style="bold")
+    for key, (name, empty, checked, partial) in TREE_MARKERS.items():
+        console.print(Text(f"  {key} · {name}：{empty} / {checked} / {partial}"))
+    console.print("占用项的不可选标记保持为 —。")
+    console.print()
+    console.print("组合示例", style="bold")
+    for arrow_id, (arrow_name, closed, opened) in TREE_ARROWS.items():
+        if arrow is not None and arrow_id != arrow:
+            continue
+        for marker_id, (marker_name, empty, checked, partial) in TREE_MARKERS.items():
+            if marker is not None and marker_id != marker:
+                continue
+            console.print(Text(f"{arrow_id}{marker_id} · {arrow_name} + {marker_name}"),
+                          style="bold cyan")
+            tree = Tree("", hide_root=True, guide_style="dim")
+            tree.add(Text(f"{closed} {empty}  PyTorch CPU"))
+            tree.add(Text(f"{closed} {checked}  PyTorch CUDA 12.8"))
+            parent = tree.add(Text(f"{opened} {partial}  Python CPU"))
+            parent.add(Text(f"{closed} {empty}  onnxruntime-cpu"))
+            console.print(tree)
+            console.print()
+    console.print("只看某组合：--tree --arrow B --marker 2")
 
 
 class IconPreviewApp(App[IconChoice | None]):
@@ -345,12 +394,22 @@ class IconPreviewApp(App[IconChoice | None]):
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="列出六类导航图案；无参数时交互预览实验配置图案。")
+    parser = argparse.ArgumentParser(description="列出导航或镜像树图案；无参数时交互预览实验配置图案。")
     parser.add_argument("--list", action="store_true", help="按六类导航打印全部候选，不进入交互界面")
+    parser.add_argument("--tree", action="store_true", help="打印镜像树的 7 组箭头、4 组标记及组合")
+    parser.add_argument("--arrow", type=str.upper, choices=TREE_ARROWS,
+                        help="只预览指定箭头的组合（自动启用镜像树列表）")
+    parser.add_argument("--marker", choices=TREE_MARKERS,
+                        help="只预览指定选择标记的组合（自动启用镜像树列表）")
     parser.add_argument("--page", choices=PAGE_CHOICES, help="只列出指定页面的候选（自动启用列表）")
     parser.add_argument("--nerd-font", action="store_true", help="列表中加入需要 Nerd Font 的图案")
     parser.add_argument("--theme", choices=UI_THEMES, default="acprof-graphite", help="预览配色")
     args = parser.parse_args()
+    if args.tree or args.arrow is not None or args.marker is not None:
+        if args.page is not None or args.nerd_font:
+            parser.error("镜像树选项不能与 --page 或 --nerd-font 同用")
+        list_tree_choices(Console(), args.arrow, args.marker)
+        return
     if args.list or args.page is not None or args.nerd_font:
         list_choices(Console(), args.page, args.nerd_font)
         return
