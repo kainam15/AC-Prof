@@ -29,7 +29,7 @@ MESSAGES: dict[str, Entry] = {
         zh="已处理 {0} 个镜像，失败 {1} 个；操作详情见运行监控日志。",
         en="Processed {0} images, {1} failed. See the Monitor log for details.",
     ),
-    "images.delete.review_hint": Entry(zh="请核对待删除镜像及全部标签。", en="Review the images and all their tags before deleting."),
+    "images.delete.review_hint": Entry(zh="请核对待删除镜像、全部标签及仓库 digest。", en="Review the images, all tags and repository digests before deleting."),
     "images.delete.running": Entry(zh="正在复核并删除镜像……", en="Checking and deleting images…"),
     "images.delete.selected": Entry(zh="删除所选", en="Delete"),
     "images.delete.tag_removed_image_retained": Entry(
@@ -179,6 +179,7 @@ MESSAGES: dict[str, Entry] = {
         en="Container references keep those images and their ancestors; other descendants can still be selected.",
     ),
     "images.selection.empty": Entry(zh="尚未勾选镜像。", en="No images selected."),
+    "images.selection.identity_changed": Entry(zh="镜像或引用已改变，请刷新后重新选择", en="Images or references changed; refresh and select again"),
     "images.selection.references_changed": Entry(
         zh="所选镜像或引用已改变，请关闭弹窗并重新选择。",
         en="Selected images or references changed; close this dialog and select again.",
@@ -191,7 +192,6 @@ MESSAGES: dict[str, Entry] = {
         zh="环境 {0} · 显示 {1}/{2} · 已选 {3}（筛选外 {4}）· 大小含共享层",
         en="Docker {0} · {1}/{2} shown · {3} selected ({4} hidden) · Size includes shared layers",
     ),
-    "images.selection.tags_changed": Entry(zh="镜像或标签已改变，请刷新后重新选择", en="Images or tags changed; refresh and select again"),
     "images.selection.toggle": Entry(zh="勾选/取消", en="Toggle"),
     "images.size_source.docker_estimate": Entry(zh="Docker df 近似值", en="Approximate Docker df sizes"),
     "images.size_source.verified_layers": Entry(zh="层链与已核验 history 字节数", en="Layer chains and verified history bytes"),

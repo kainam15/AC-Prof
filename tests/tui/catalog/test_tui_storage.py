@@ -228,13 +228,16 @@ class TestTuiStorage:
             app.execution.session.snapshot = ProgressSnapshot()
             app.set_busy(False)
 
-    async def test_changed_selection_references_show_unknown_reclaim_without_deletion(self):
+    @pytest.mark.parametrize(("field", "reference"), [
+        ("RepoTags", "changed:tag"), ("RepoDigests", "changed@sha256:" + "d" * 64),
+    ])
+    async def test_changed_selection_references_show_unknown_reclaim_without_deletion(self, field, reference):
         app = self.make_app()
         async with app.run_test(size=(150, 45)) as pilot:
             await self.load_images(app, pilot)
             await pilot.click("#image-model")
             selected = set(app.images.selected_ids)
-            self.docker.images[FINAL]["RepoTags"].append("changed:tag")
+            self.docker.images[FINAL][field].append(reference)
             with patch("acprof.tui.images.controller.read_storage", return_value=self.snapshot(app)):
                 await self.open_storage(app, pilot)
                 selection = self.rendered(app.screen.query_one("#storage-selection", Static))

@@ -743,6 +743,8 @@ def deletion_message(inventory: ImageInventory, image_ids: tuple[str, ...], *, h
         parts.append(message_id('images.delete.image_detail',
                              "\n".join(item.tags) if item.tags else message_id('images.kind.untagged'),
                              item.image_id, format_bytes(item.size_bytes)))
+        if item.repo_digests:
+            parts.append(message_id('images.diagnostics.repository_digest', "\n".join(item.repo_digests)))
         if item.parent_source == "layer-prefix":
             parts.append(message_id('images.delete.inferred_parent', item.parent_id))
     return join_messages("\n\n", parts)

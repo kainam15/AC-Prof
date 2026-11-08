@@ -244,7 +244,7 @@ def list_images(connection: DockerConnection | None = None, *, include_space: bo
                     or not isinstance(raw_tags, list) or not isinstance(raw_digests, list)
                     or any(not isinstance(tag, str) or not tag or tag.startswith("-") or
                            any(char.isspace() for char in tag) for tag in raw_tags)
-                    or any(not isinstance(digest, str) or not digest or
+                    or any(not isinstance(digest, str) or not digest or digest.startswith("-") or
                            any(char.isspace() for char in digest) for digest in raw_digests)):
                 raise ValueError("invalid image identity, tags or size")
             tags = tuple(sorted(set(raw_tags)))
@@ -399,8 +399,39 @@ def _read_space(inventory: ImageInventory) -> ImageInventory:
     return replace(inventory, images=tuple(images), warnings=tuple(warnings))
 
 
+def _remove_image_references(connection: DockerConnection, item: ManagedImage) -> str:
+    references = item.tags or item.repo_digests[:1] or (item.image_id,)
+    expected = set(item.tags + item.repo_digests)
+    details = []
+    while True:
+        # 复核所有引用，避免批次执行期间移动标签或增加仓库引用后误删。
+        checked = _inspect(connection, "image", list(references))
+        if len(checked) != len(references) or any(
+            row.get("Id") != item.image_id
+            or set((row.get("RepoTags") or []) + (row.get("RepoDigests") or [])) != expected
+            for row in checked
+        ):
+            raise ImageManagementError("镜像或引用已改变，请刷新后重新选择", item.name)
+        details.append(run_docker_command((*connection.arguments, "image", "rm", "--no-prune", *references), timeout=60))
+        if item.image_id not in _image_ids(connection):
+            return "\n".join(details)
+        remaining = _inspect(connection, "image", [item.image_id])
+        if len(remaining) != 1 or remaining[0].get("Id") != item.image_id:
+            raise ImageManagementError("Docker 返回了无效的镜像信息")
+        tags = set(remaining[0].get("RepoTags") or [])
+        digests = set(remaining[0].get("RepoDigests") or [])
+        if not (tags | digests) <= expected:
+            raise ImageManagementError("镜像或引用已改变，请刷新后重新选择", item.name)
+        if tags or not digests or set(references) & (tags | digests):
+            raise ImageManagementError("镜像标签已处理，但镜像仍保留；已停止删除其上层", "\n".join(details))
+        # Docker 可能随标签自动移除同仓库 digest；只处理仍存在的已确认引用。
+        # 逐项刷新也兼容删除一个 digest 时自动解除其它引用的 image store。
+        expected = digests
+        references = (min(digests),)
+
+
 def delete_images(inventory: ImageInventory, image_ids: tuple[str, ...]) -> tuple[ImageRemoval, ...]:
-    """复核整个清单后删除全部选定标签；不强制、不 prune 未选择的父镜像。"""
+    """复核整个清单后删除选定镜像的标签与 digest；不强制、不 prune 未选父镜像。"""
     from acprof.host.images.graph import describe_inventory
 
     previous = {item.image_id: item for item in inventory.images}
@@ -413,8 +444,9 @@ def delete_images(inventory: ImageInventory, image_ids: tuple[str, ...]) -> tupl
     indexed = {item.image_id: item for item in current.images}
     for image_id in selected:
         item = indexed.get(image_id)
-        if item is None or item.tags != previous[image_id].tags:
-            raise ImageManagementError("镜像或标签已改变，请刷新后重新选择", previous[image_id].name)
+        if (item is None or item.tags != previous[image_id].tags
+                or item.repo_digests != previous[image_id].repo_digests):
+            raise ImageManagementError("镜像或引用已改变，请刷新后重新选择", previous[image_id].name)
         if item.containers:
             raise ImageManagementError("镜像仍被容器引用，请先单独处理容器", ", ".join(item.containers))
     outcomes = []
@@ -429,15 +461,7 @@ def delete_images(inventory: ImageInventory, image_ids: tuple[str, ...]) -> tupl
                 raise ImageManagementError("下层镜像未删除，已保留上层镜像", detail)
             if run_docker_command((*inventory.connection.arguments, "info", "--format", "{{.ID}}")) != inventory.daemon_id:
                 raise ImageManagementError("Docker 环境已改变，请刷新后重新选择")
-            # 批次执行期间也复核引用，防止另一个进程移动标签后删到其它镜像。
-            references = list(item.tags or (item.image_id,))
-            checked = _inspect(inventory.connection, "image", references)
-            if len(checked) != len(references) or any(row.get("Id") != item.image_id for row in checked):
-                raise ImageManagementError("镜像或标签已改变，请刷新后重新选择", item.name)
-            detail = run_docker_command((*inventory.connection.arguments, "image", "rm", "--no-prune", *references), timeout=60)
-            remaining_ids = _image_ids(inventory.connection)
-            if item.image_id in remaining_ids:
-                raise ImageManagementError("镜像标签已处理，但镜像仍保留；已停止删除其上层", detail)
+            detail = _remove_image_references(inventory.connection, item)
             removed.add(item.image_id)
             outcomes.append(ImageRemoval(item.image_id, True, detail))
         except ImageManagementError as exc:

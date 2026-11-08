@@ -16,6 +16,7 @@ from textual.widgets import (
     ContentSwitcher,
     DataTable,
     Input,
+    Select,
     Static,
     TabbedContent,
     TabPane,
@@ -711,7 +712,7 @@ class TestTuiImages:
             await pilot.pause()
             assert not app.images.selected_ids
 
-    @pytest.mark.parametrize("change", ["tag", "container", "new_child"])
+    @pytest.mark.parametrize("change", ["tag", "digest", "container", "new_child"])
     async def test_refresh_invalidates_ancestor_selection_without_selecting_new_images(self, change):
         app = self.make_app()
         async with app.run_test(size=(120, 30)) as pilot:
@@ -723,6 +724,8 @@ class TestTuiImages:
             assert app.images.selected_ids == {RUNTIME, WEIGHTS, FINAL}
             if change == "tag":
                 self.docker.images[FINAL]["RepoTags"].append("extra:tag")
+            elif change == "digest":
+                self.docker.images[FINAL]["RepoDigests"].append("extra@sha256:" + "d" * 64)
             elif change == "container":
                 self.docker.containers["used"] = dict(Image=FINAL, Name="/kept", State=dict(Status="exited"))
             else:
@@ -1354,6 +1357,41 @@ class TestTuiImages:
             await pilot.pause()
             assert ({item.image_id for item in app.images.visible_images}) == (expected)
 
+    @pytest.mark.parametrize(("size", "language"), [((80, 24), "zh"), ((120, 30), "en")])
+    async def test_digest_only_image_confirmation_and_deletion(self, size, language):
+        self.docker.images[FINAL]["RepoTags"] = []
+        digests = ["python@sha256:" + "d" * 64, "docker.m.daocloud.io/library/python@sha256:" + "d" * 64]
+        self.docker.images[FINAL]["RepoDigests"] = digests.copy()
+        app = self.make_app()
+        async with app.run_test(size=size) as pilot:
+            await self.load_images(app, pilot)
+            app.configuration.preferences = replace(app.configuration.preferences, language=language)
+            app.configuration.apply_ui_preferences()
+            app.query_one("#image-scope", Select).value = "all"
+            await pilot.pause()
+            table = app.query_one("#image-table", DataTable)
+            table.move_cursor(row=table.get_row_index(FINAL))
+            table.focus()
+            await pilot.press("space")
+            await pilot.pause()
+            assert app.images.selected_ids == {FINAL}
+            assert await pilot.click("#image-delete")
+            await pilot.pause()
+            confirmation = str(app.screen.query_one("#image-confirm-text", Static).content)
+            assert all(digest in confirmation for digest in digests)
+            for selector in ("#confirm-no", "#confirm-yes"):
+                button = app.screen.query_one(selector, Button)
+                assert button.region.height > 0
+                assert button.region.intersection(app.screen.region) == button.region
+            assert await pilot.click("#confirm-yes")
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+            assert FINAL not in self.docker.images
+            assert FINAL not in {item.image_id for item in app.images.inventory.images}
+            assert not app.images.selected_ids
+            expected = "已处理 1 个镜像，失败 0 个" if language == "zh" else "Processed 1 images, 0 failed"
+            assert expected in str(app.query_one("#image-status", Static).content)
+
     async def test_confirmation_cancel_and_delete_all_model_tags_with_buttons_visible(self):
         app = self.make_app()
         async with app.run_test(size=(80, 24)) as pilot:
@@ -1769,7 +1807,10 @@ class TestTuiImages:
             assert header.columns["name"].width == expanded_tree_width
             assert len(self.docker.commands) == commands
 
-    async def test_changed_tags_after_confirmation_are_reported_without_deleting(self):
+    @pytest.mark.parametrize(("field", "reference"), [
+        ("RepoTags", "new-owner:keep"), ("RepoDigests", "new-owner@sha256:" + "d" * 64),
+    ])
+    async def test_changed_references_after_confirmation_are_reported_without_deleting(self, field, reference):
         app = self.make_app()
         async with app.run_test(size=(80, 24)) as pilot:
             await self.load_images(app, pilot)
@@ -1777,13 +1818,13 @@ class TestTuiImages:
             await pilot.pause()
             await pilot.click("#image-delete")
             await pilot.pause()
-            self.docker.images[WEIGHTS]["RepoTags"].append("new-owner:keep")
+            self.docker.images[WEIGHTS][field].append(reference)
             app.screen.query_one("#confirm-no", Button).focus()
             await pilot.pause()
             await pilot.press("tab", "enter")
             await app.workers.wait_for_complete()
             await pilot.pause()
             assert not (self.docker.removals)
-            assert ("标签已改变") in (str(app.query_one("#image-status", Static).content))
+            assert ("引用已改变") in (str(app.query_one("#image-status", Static).content))
             assert not (app.images.selected_ids)
             assert not (app.is_busy())

@@ -18,7 +18,7 @@ FINAL = "sha256:" + "c" * 64
 
 
 def image(image_id, tags, size, layers, model="", labels=None):
-    return dict(Id=image_id, RepoTags=tags, Size=size, Created="2026-09-13T00:00:00Z",
+    return dict(Id=image_id, RepoTags=tags, RepoDigests=[], Size=size, Created="2026-09-13T00:00:00Z",
                 Config=dict(Env=[f"MODEL_ID={model}", "HF_TOKEN=must-not-be-displayed"],
                             Labels=labels or {}), RootFS=dict(Layers=layers))
 
@@ -61,7 +61,7 @@ class DockerFixture:
             rows = []
             for ref in args[2:]:
                 found = self.images.get(ref) or next(
-                    (data for data in self.images.values() if ref in data["RepoTags"]), None)
+                    (data for data in self.images.values() if ref in data["RepoTags"] + data["RepoDigests"]), None)
                 if found is None:
                     return subprocess.CompletedProcess(command, 1, "", "No such image")
                 rows.append(found)
@@ -88,12 +88,24 @@ class DockerFixture:
                 return subprocess.CompletedProcess(command, 1, "", "conflict: dependent image")
             for ref in refs:
                 for key, data in list(self.images.items()):
-                    if ref == key or ref in data["RepoTags"]:
+                    if ref == key or ref in data["RepoTags"] + data["RepoDigests"]:
+                        repositories = ({tag.rsplit(":", 1)[0] for tag in data["RepoTags"]}
+                                        | {digest.split("@", 1)[0] for digest in data["RepoDigests"]})
+                        if ref == key and (len(data["RepoTags"]) > 1 or len(repositories) > 1):
+                            return subprocess.CompletedProcess(command, 1, "", "conflict: image is referenced in multiple repositories")
                         if ref in data["RepoTags"]:
                             data["RepoTags"].remove(ref)
-                        if ref == key or not data["RepoTags"]:
+                            repository = ref.rsplit(":", 1)[0]
+                            if not any(tag.rsplit(":", 1)[0] == repository for tag in data["RepoTags"]):
+                                data["RepoDigests"] = [digest for digest in data["RepoDigests"]
+                                                       if digest.split("@", 1)[0] != repository]
+                        elif ref in data["RepoDigests"]:
+                            data["RepoDigests"].remove(ref)
+                        if ref == key or not (data["RepoTags"] or data["RepoDigests"]):
                             del self.images[key]
                         break
+                else:
+                    return subprocess.CompletedProcess(command, 1, "", "No such image")
             output = "Untagged: " + "\nUntagged: ".join(refs)
         else:
             raise AssertionError(command)
@@ -346,6 +358,98 @@ class TestImageManagement:
         with pytest.raises(ImageManagementError):
             delete_images(inventory, (FINAL, WEIGHTS))
         assert not (self.docker.removals)
+
+    def test_delete_digest_only_image_across_repositories(self):
+        self.docker.images[FINAL]["RepoTags"] = []
+        digests = ["python@sha256:" + "d" * 64, "mirror.example/python@sha256:" + "d" * 64]
+        self.docker.images[FINAL]["RepoDigests"] = digests.copy()
+        outcomes = delete_images(list_images(), (FINAL,))
+        assert [(item.image_id, item.success) for item in outcomes] == [(FINAL, True)]
+        assert set(self.docker.images) == {RUNTIME, WEIGHTS}
+        assert all(any(digest in command for command in self.docker.removals) for digest in digests)
+
+    @pytest.mark.parametrize("extra_repository", [False, True])
+    def test_delete_tags_handles_automatic_digest_cleanup_and_remaining_repositories(self, extra_repository):
+        digests = ["acprof-audio-demo--model@sha256:" + "d" * 64]
+        if extra_repository:
+            digests.append("mirror.example/model@sha256:" + "d" * 64)
+        self.docker.images[FINAL]["RepoDigests"] = digests
+        outcomes = delete_images(list_images(), (FINAL,))
+        assert [(item.image_id, item.success) for item in outcomes] == [(FINAL, True)]
+        assert set(self.docker.images) == {RUNTIME, WEIGHTS}
+
+    @pytest.mark.parametrize("change", ["added", "removed", "replaced"])
+    def test_changed_digests_abort_whole_batch_before_any_delete(self, change):
+        self.docker.images[WEIGHTS]["RepoDigests"] = ["model@sha256:" + "d" * 64]
+        inventory = list_images()
+        digests = self.docker.images[WEIGHTS]["RepoDigests"]
+        if change != "added":
+            digests.clear()
+        if change != "removed":
+            digests.append("mirror.example/model@sha256:" + "e" * 64)
+        with pytest.raises(ImageManagementError):
+            delete_images(inventory, (FINAL, WEIGHTS))
+        assert not self.docker.removals
+
+    def test_new_digest_during_batch_keeps_the_next_image(self):
+        inventory = list_images()
+        previous_tags = self.docker.images[WEIGHTS]["RepoTags"].copy()
+        original = self.docker.run
+
+        def add_reference(command, **kwargs):
+            result = original(command, **kwargs)
+            if "rm" in command and FINAL not in self.docker.images:
+                self.docker.images[WEIGHTS]["RepoDigests"] = ["retained@sha256:" + "d" * 64]
+            return result
+
+        with patch("acprof.host.images.inventory.run_command", side_effect=add_reference):
+            outcomes = delete_images(inventory, (FINAL, WEIGHTS))
+        assert [(item.image_id, item.success) for item in outcomes] == [(FINAL, True), (WEIGHTS, False)]
+        assert self.docker.images[WEIGHTS]["RepoTags"] == previous_tags
+        assert len(self.docker.removals) == 1
+
+    def test_failed_digest_removal_keeps_ancestors(self):
+        self.docker.images[FINAL]["RepoTags"] = []
+        digest = "retained@sha256:" + "d" * 64
+        self.docker.images[FINAL]["RepoDigests"] = [digest]
+        self.docker.fail_remove.add(digest)
+        outcomes = delete_images(list_images(), (FINAL, WEIGHTS))
+        assert not any(item.success for item in outcomes)
+        assert set(self.docker.images) == {RUNTIME, WEIGHTS, FINAL}
+        assert len(self.docker.removals) == 1
+
+    @pytest.mark.parametrize("effect", ["unchanged", "new_reference", "automatic_cleanup"])
+    def test_digest_removal_rechecks_state_before_another_delete(self, effect):
+        self.docker.images[FINAL]["RepoTags"] = []
+        self.docker.images[FINAL]["RepoDigests"] = [
+            "first@sha256:" + "d" * 64, "second@sha256:" + "d" * 64,
+        ]
+        inventory = list_images()
+        original = self.docker.run
+
+        def remove(command, **kwargs):
+            if "rm" not in command:
+                return original(command, **kwargs)
+            if effect == "unchanged":
+                self.docker.commands.append(command)
+                return subprocess.CompletedProcess(command, 0, "", "")
+            result = original(command, **kwargs)
+            if effect == "automatic_cleanup":
+                del self.docker.images[FINAL]
+            else:
+                self.docker.images[FINAL]["RepoDigests"].append("new-owner@sha256:" + "e" * 64)
+            return result
+
+        with patch("acprof.host.images.inventory.run_command", side_effect=remove):
+            outcomes = delete_images(inventory, (FINAL,))
+        assert outcomes[0].success == (effect == "automatic_cleanup")
+        assert (FINAL not in self.docker.images) == (effect == "automatic_cleanup")
+        assert len(self.docker.removals) == 1
+
+    def test_digest_cannot_be_a_command_option(self):
+        self.docker.images[FINAL]["RepoDigests"] = ["--force"]
+        with pytest.raises(ImageManagementError):
+            list_images()
 
     def test_new_container_reference_blocks_deletion_including_stopped_container(self):
         inventory = list_images()

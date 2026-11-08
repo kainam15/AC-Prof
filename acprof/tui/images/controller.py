@@ -389,6 +389,7 @@ class ImageController:
                     item.image_id for item in inventory.images
                     if not item.containers and item.image_id in old_images
                     and item.tags == old_images[item.image_id].tags
+                    and item.repo_digests == old_images[item.image_id].repo_digests
                 )
                 self.selected_ids = retain_complete_image_selection(inventory, self.selected_ids)
             else:
@@ -433,7 +434,8 @@ class ImageController:
                 current = list_images(storage.connection)
                 previous = {item.image_id: item for item in inventory.images}
                 available = {item.image_id for item in current.images if not item.containers
-                             and item.image_id in previous and item.tags == previous[item.image_id].tags}
+                             and item.image_id in previous and item.tags == previous[item.image_id].tags
+                             and item.repo_digests == previous[item.image_id].repo_digests}
                 if current.daemon_id == storage.daemon_id and set(ids) <= available:
                     estimate = reclaimable_image_bytes(current, ids)
                 else:
@@ -474,7 +476,7 @@ class ImageController:
             return
         inventory, ids = self.inventory, tuple(sorted(self.selected_ids))
         hidden = len(self.selected_ids - {item.image_id for item in self.visible_images})
-        self.begin_image_operation("confirm", "请核对待删除镜像及全部标签。")
+        self.begin_image_operation("confirm", "请核对待删除镜像、全部标签及仓库 digest。")
         self.app.push_screen(
             ImageDeleteScreen(inventory, ids, hidden_count=hidden),
             lambda confirmed: self.confirmed_image_delete(confirmed, inventory, ids),

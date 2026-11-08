@@ -8,6 +8,15 @@
 | M5 · 科研结果           | 可解释、可复现、可比较       | 输入与推理参数、指标、CSV、统计和报告一致，缺失能力不误报                          | 进行中（统计、对比与审计已统一；`analysis/` 全模块纳入 `C901` 复杂度门禁；硬件矩阵聚合质量并独立控制优选；OpenAI 流式派生已移至窗口外一次执行，v2 报告重算并核对延迟与声明；OpenAI 流式测量 P0 与 Qwen/vLLM 对照完成；正式能耗质量证据保留，基线噪声控制与科研级重复性实验延后由用户主导） |
 | M6 · 交付使用           | 安装、文档与发布             | 干净环境能安装、运行示例、导出结果和排查常见问题                                   | 已完成（wheel／uv tool／standalone 验收；安装后 BERT basic CPU smoke、审计与离线报告通过） |
 
+## 镜像仓库 digest 删除（2026-11）
+
+修复无标签镜像仍有跨仓库 `RepoDigests` 时反复删除失败的问题；确认框展示全部引用，
+刷新与执行时复核 digest，处理 Docker 自动解除的引用，并保持容器、下层镜像与未确认对象的保护。
+参考 Moby 的 [镜像删除实现](https://github.com/moby/moby/blob/master/daemon/images/image_delete.go)
+与 [containerd 删除修正](https://github.com/moby/moby/pull/46840)，借鉴持续维护的 Apache-2.0 上游语义，
+复用现有 Docker CLI，无新增依赖或正式测量开销。验证范围为离线 Docker Fixture 和双语 headless TUI；
+真实镜像删除、客户端终端与远端 CI 未验证。
+
 ## Runtime 镜像回退与发布核验（2026-11）
 
 `auto` 对缺少内容标签、缺少 AMD64 和网络失败进行分类回退；Docker 返回成功后仍检查实际 image config，
