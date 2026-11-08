@@ -13,6 +13,7 @@ from textual import events, on
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.message import Message
 from textual.reactive import var
 from textual.strip import Strip
 from textual.widgets import Button, Collapsible, DataTable, Static, Tree
@@ -224,10 +225,17 @@ class ImageWorkspace(Vertical):
     """在可用空间内分配列表和详情高度，保留本次会话的手动值。"""
 
     _detail_height: int | None = None
+    _layout_width: int = 0
 
-    def on_resize(self) -> None:
+    class WidthChanged(Message):
+        """The image page has a new width after terminal or sidebar layout."""
+
+    def on_resize(self, event: events.Resize) -> None:
         self.query_one(ImageDetailResizeHandle).finish_resize()
         self.call_after_refresh(self._apply_detail_height)
+        if self._layout_width != event.size.width:
+            self._layout_width = event.size.width
+            self.post_message(self.WidthChanged())
 
     def _clamp_detail_height(self, height: int) -> int:
         # 为列表保留三行、分隔条保留一行；短终端仍能独立滚动两侧。

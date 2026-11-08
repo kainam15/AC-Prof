@@ -8,6 +8,16 @@
 | M5 · 科研结果           | 可解释、可复现、可比较       | 输入与推理参数、指标、CSV、统计和报告一致，缺失能力不误报                          | 进行中（统计、对比与审计已统一；`analysis/` 全模块纳入 `C901` 复杂度门禁；硬件矩阵聚合质量并独立控制优选；OpenAI 流式派生已移至窗口外一次执行，v2 报告重算并核对延迟与声明；OpenAI 流式测量 P0 与 Qwen/vLLM 对照完成；正式能耗质量证据保留，基线噪声控制与科研级重复性实验延后由用户主导） |
 | M6 · 交付使用           | 安装、文档与发布             | 干净环境能安装、运行示例、导出结果和排查常见问题                                   | 已完成（wheel／uv tool／standalone 验收；安装后 BERT basic CPU smoke、审计与离线报告通过） |
 
+## CI #230 镜像页缩放回归修复（2026-11）
+
+镜像页根据内容区域实际收到的宽度变化重算默认列宽，覆盖终端缩放和侧栏折叠，
+避免 App resize 回调先读取上一帧布局。手动列宽继续在排序、筛选、刷新、语言切换和缩放后保留。
+拖动回归按实际初始宽度验证变化；窄窗名称通过拖宽列检查完整版本，滚动 Fixture 保留足够内容。
+参考 Textual 8.2.8 的 [Resize 分发](https://github.com/Textualize/textual/blob/v8.2.8/src/textual/app.py)
+和 [Widget 消息](https://github.com/Textualize/textual/blob/v8.2.8/docs/guide/widgets.md)，
+复用现有 MIT 依赖的事件机制，无新增依赖、轮询或正式测量逻辑变更。
+验证限离线 Fixture 与 headless 交互；远端同提交 CI 和真实客户端终端另行验收。
+
 ## CI #229 与 TUI PNG Visual #45 修复（2026-11）
 
 修复侧栏占用宽度后镜像工具栏、树表头和监控摘要的窄窗布局；英文导航保持单行，

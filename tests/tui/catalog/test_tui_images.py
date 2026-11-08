@@ -166,7 +166,7 @@ class TestTuiImages:
         ((80, 24), 'zh', 0), ((120, 30), 'en', 0), ((150, 45), 'zh', 5),
     ])
     async def test_detail_drag_preserves_browser_scroll_position(self, view, widget_id, size, language, scroll_y):
-        for number in range(30):
+        for number in range(40):
             key = f"sha256:{number:064x}"
             self.docker.images[key] = image(
                 key, [f"acprof-runtime-extra-{number:02}:env"], 200, [f"extra-{number}"])
@@ -1096,6 +1096,10 @@ class TestTuiImages:
             tree = app.query_one("#image-tree", Tree)
             platform = tree.root.children[0]
             assert (platform.label.plain.split("  ")[1]) == ("PyTorch CUDA 12.8")
+            # A narrow name column may ellipsize; dragging must reveal the full version.
+            header = app.query_one("#image-tree-header", DataTable)
+            if header.columns["name"].width < 40:
+                await drag(pilot, header, header_offset(header), 40 - header.columns["name"].width)
             children = {node.data.image_id: node for node in platform.children}
             for image_id, expected in ((WEIGHTS, "moss-transformers5.10.4"),
                                        (FINAL, "multimodal-transformers4.57.6")):
@@ -1170,21 +1174,23 @@ class TestTuiImages:
         async with app.run_test(size=(120, 30)) as pilot:
             await self.load_images(app, pilot)
             table = app.query_one("#image-table", DataTable)
+            initial_width = table.columns["name"].width
+            resized_width = initial_width - 12
             await drag(pilot, table, header_offset(table, 1), -12, dy=1, release_click=True)
-            assert (table.columns["name"].width) == (64)
+            assert table.columns["name"].width == resized_width
             assert not (app.images.selected_ids), "拖到数据行松手不能勾选镜像"
             table.focus()
             await pilot.press("space")
             await pilot.pause()
             assert (app.images.selected_ids) == ({FINAL})
-            assert (table.columns["name"].width) == (64)
+            assert table.columns["name"].width == resized_width
             await pilot.click(table, offset=(header_offset(table, 1)[0] + 3, 0))
             assert (app.images.sort[0]) == ("size")
-            assert (table.columns["name"].width) == (64)
+            assert table.columns["name"].width == resized_width
             app.query_one("#image-search", Input).value = "demo/model"
             await pilot.pause()
             assert (table.row_count) == (2)
-            assert (table.columns["name"].width) == (64)
+            assert table.columns["name"].width == resized_width
             app.query_one("#image-search", Input).value = ""
             await pilot.pause()
             await pilot.click("#image-view-layers")
@@ -1195,7 +1201,7 @@ class TestTuiImages:
             app.configuration.apply_ui_preferences()
             await pilot.resize_terminal(80, 24)
             await pilot.pause()
-            assert (table.columns["name"].width) == (64)
+            assert table.columns["name"].width == resized_width
             assert (layers.columns["diff"].width) == (18)
             await pilot.click("#image-view-tree")
             await pilot.click("#image-view-list")
@@ -1203,7 +1209,7 @@ class TestTuiImages:
             app.images.refresh_images()
             await app.workers.wait_for_complete()
             await pilot.pause()
-            assert (table.columns["name"].width) == (64)
+            assert table.columns["name"].width == resized_width
             assert (layers.columns["diff"].width) == (18)
             assert (len(table.columns)) == (9)
             assert (len(layers.columns)) == (4)
@@ -1211,7 +1217,7 @@ class TestTuiImages:
         restarted = self.make_app()
         async with restarted.run_test(size=(120, 30)) as pilot:
             await self.load_images(restarted, pilot)
-            assert (restarted.query_one("#image-table", DataTable).columns["name"].width) == (76)
+            assert restarted.query_one("#image-table", DataTable).columns["name"].width == initial_width
 
     @pytest.mark.parametrize(("view", "selector", "key", "index"), [('list', '#image-table', 'name', 1), ('layers', '#image-layer-table', 'diff', 0)])
     @pytest.mark.parametrize('language', ['zh', 'en'])
@@ -1252,6 +1258,7 @@ class TestTuiImages:
         async with app.run_test(size=(120, 30)) as pilot:
             await self.load_images(app, pilot)
             table = app.query_one("#image-table", DataTable)
+            initial_width = table.columns["name"].width
             start = header_offset(table, 1)
             await pilot.mouse_down(table, offset=start)
             assert (app.mouse_captured) is (table)
@@ -1262,13 +1269,13 @@ class TestTuiImages:
             assert (app.mouse_captured) is None
             await pilot.hover(table, offset=(start[0] - 6, 0))
             await pilot.mouse_up(table, offset=(start[0] - 6, 0))
-            assert (table.columns["name"].width) == (76)
+            assert table.columns["name"].width == initial_width
             app.execution.session.kind = ""
             app.execution.session.snapshot = ProgressSnapshot()
             app.set_busy(False)
             await pilot.pause()
             await drag(pilot, table, header_offset(table, 1), -6)
-            assert (table.columns["name"].width) == (70)
+            assert table.columns["name"].width == initial_width - 6
 
     @pytest.mark.parametrize('size', [(80, 24), (120, 30), (150, 45)])
     async def test_filter_selection_details_and_language_work_at_all_sizes(self, size):
@@ -1719,6 +1726,48 @@ class TestTuiImages:
             await pilot.pause()
             assert not (self.docker.removals)
             assert not (app.is_busy())
+
+    @pytest.mark.parametrize("language", ["zh", "en"])
+    @pytest.mark.parametrize("view", ["tree", "list"])
+    async def test_default_image_columns_follow_terminal_and_sidebar_width(self, language, view):
+        app = self.make_app()
+        app.configuration.preferences = replace(app.configuration.preferences, language=language)
+        async with app.run_test(size=(150, 45)) as pilot:
+            await self.load_images(app, pilot, view="tree", expand_tree=True)
+            table = app.query_one("#image-table", DataTable)
+            tree = app.query_one("#image-tree", Tree)
+            header = app.query_one("#image-tree-header", DataTable)
+            initial_width = table.columns["name"].width
+            initial_tree_width = header.columns["name"].width
+            commands = len(self.docker.commands)
+
+            await pilot.click("#image-view-" + view)
+            await pilot.resize_terminal(80, 24)
+            await pilot.click("#image-view-tree")
+            await pilot.pause()
+            narrow_width = table.columns["name"].width
+            narrow_tree_width = header.columns["name"].width
+            assert narrow_width < initial_width
+            assert narrow_tree_width < initial_tree_width
+            assert sum(column.get_render_width(header) for column in header.ordered_columns) <= tree.scrollable_content_region.width
+
+            # At 80 cells the list name column is already at its minimum width.
+            await pilot.resize_terminal(120, 30)
+            await pilot.pause()
+            expanded_width = table.columns["name"].width
+            expanded_tree_width = header.columns["name"].width
+            assert expanded_width > narrow_width
+            assert expanded_tree_width > narrow_tree_width
+            await pilot.click("#nav-images-tab")
+            await pilot.pause()
+            assert app.has_class("collapsed-navigation")
+            assert table.columns["name"].width > expanded_width
+            assert header.columns["name"].width > expanded_tree_width
+            await pilot.click("#nav-images-tab")
+            await pilot.pause()
+            assert table.columns["name"].width == expanded_width
+            assert header.columns["name"].width == expanded_tree_width
+            assert len(self.docker.commands) == commands
 
     async def test_changed_tags_after_confirmation_are_reported_without_deleting(self):
         app = self.make_app()

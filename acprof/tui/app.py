@@ -47,6 +47,7 @@ from acprof.tui.commands import (
 )
 from acprof.tui.experiments.controller import CatalogController
 from acprof.tui.images.controller import ImageController
+from acprof.tui.images.presentation import ImageWorkspace
 from acprof.tui.logging.controller import LogController
 from acprof.tui.logging.widget import SelectableLog
 from acprof.tui.models.controller import ModelController
@@ -242,8 +243,8 @@ class AcprofTui(BarCursorApp):
         self.update_responsive_layout(event.size)
         if self.form_ready:
             self.preflight.panel.fit(event.size)
-            self.call_after_refresh(self.refresh_resized_images)
 
+    @on(ImageWorkspace.WidthChanged)
     def refresh_resized_images(self) -> None:
         """Use the settled page width after the sidebar and terminal resize."""
         if (self.form_ready and self.images.inventory is not None and not self.images.images_unavailable(allow_refresh=True)
