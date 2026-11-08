@@ -45,6 +45,12 @@ def counts(app):
     return [str(entry.content) for entry in app.query(EnvironmentIndicator) if entry.display]
 
 
+def detail_text(app):
+    content = app.query_one("#preflight-explanation", Static).content
+    assert isinstance(content, str)
+    return content
+
+
 @pytest.mark.parametrize("language", ["zh", "en"])
 async def test_category_pins_are_independent_with_one_visible_detail(app, language):
     app, probe = app
@@ -495,6 +501,99 @@ async def test_status_dots_explain_cached_checks_on_hover_and_keyboard_focus(app
         await pilot.pause()
         assert app.preflight.display_state == "limited"
         assert str(app.query_one("#preflight-explanation", Static).content) == previous_detail
+        probe.assert_called_once()
+
+
+@pytest.mark.parametrize("language", ["zh", "en"])
+async def test_selected_check_details_return_after_hover_and_resize(app, language):
+    app, probe = app
+    app.configuration.preferences = replace(app.configuration.preferences, language=language)
+    probe.return_value = [
+        PreflightCheck("Environment", "ok", "selected environment evidence", check_id="environment"),
+        PreflightCheck("Docker", "ok", "hovered Docker evidence", check_id="docker"),
+        PreflightCheck("cgroup", "ok", "keyboard cgroup evidence", check_id="cgroup"),
+    ]
+    async with app.run_test(size=(80, 24)) as pilot:
+        await settle(app, pilot)
+        await pilot.click("#environment-success")
+        await pilot.pause()
+        selected = app.query_one("#preflight-signal-environment")
+        preview = app.query_one("#preflight-signal-docker")
+        keyboard = app.query_one("#preflight-signal-cgroup")
+        explanation = app.query_one("#preflight-explanation", Static)
+        for width, height in ((80, 24), (120, 35)):
+            await pilot.resize_terminal(width, height)
+            selected.scroll_visible(animate=False, top=True)
+            await pilot.pause()
+            assert await pilot.click(selected)
+            assert app.focused is selected
+            assert "selected environment evidence" in detail_text(app)
+            assert await pilot.hover(preview)
+            assert "hovered Docker evidence" in detail_text(app)
+            assert app.focused is selected, "hover must not change the selected check"
+            assert await pilot.hover(explanation)
+            assert "selected environment evidence" in detail_text(app)
+
+            # Reading details can move focus out of the list without losing selection.
+            app.query_one("#preflight-inspection").focus()
+            await pilot.pause()
+            assert await pilot.hover(preview)
+            assert "hovered Docker evidence" in detail_text(app)
+            assert await pilot.hover("#preflight-retry")
+            assert "selected environment evidence" in detail_text(app)
+
+            selected.focus()
+            await pilot.pause()
+            await pilot.press("tab")
+            assert app.focused is preview
+            assert "hovered Docker evidence" in detail_text(app)
+            assert await pilot.hover(selected)
+            assert "selected environment evidence" in detail_text(app)
+            await pilot.press("tab")
+            assert app.focused is keyboard
+            assert "selected environment evidence" in detail_text(app)
+            assert await pilot.hover("#preflight-title")
+            assert "keyboard cgroup evidence" in detail_text(app)
+        probe.assert_called_once()
+
+
+async def test_selected_check_clears_when_category_or_cached_checks_change(app):
+    app, probe = app
+    probe.return_value = [
+        PreflightCheck("Environment", "ok", "selected old evidence", check_id="environment"),
+        PreflightCheck("Docker", "ok", "hovered old evidence", check_id="docker"),
+        PreflightCheck("RAPL", "warn", "warning evidence", check_id="cpu_energy"),
+    ]
+    async with app.run_test(size=(80, 24)) as pilot:
+        await settle(app, pilot)
+        await pilot.click("#environment-success")
+        await pilot.pause()
+        assert await pilot.click("#preflight-signal-environment")
+        assert await pilot.hover("#preflight-signal-docker")
+        assert "hovered old evidence" in detail_text(app)
+        assert await pilot.hover("#environment-warning")
+        await pilot.pause()
+        assert await pilot.hover("#preflight-signal-cpu_energy")
+        assert await pilot.hover("#preflight-title")
+        assert "warning evidence" in detail_text(app)
+        assert "old evidence" not in detail_text(app)
+
+        assert await pilot.hover("#environment-success")
+        await pilot.pause()
+        assert "old evidence" not in detail_text(app)
+        assert await pilot.click("#preflight-signal-environment")
+        assert await pilot.hover("#preflight-signal-docker")
+        app.preflight.environment_checks = (
+            PreflightCheck("Docker", "ok", "refreshed Docker evidence", check_id="docker"),
+        )
+        app.preflight.refresh_preflight_state()
+        await pilot.pause()
+        assert not app.query("#preflight-signal-environment")
+        assert await pilot.hover("#preflight-title")
+        assert "old evidence" not in detail_text(app)
+        assert await pilot.hover("#preflight-signal-docker")
+        assert await pilot.hover("#preflight-explanation")
+        assert "refreshed Docker evidence" in detail_text(app)
         probe.assert_called_once()
 
 

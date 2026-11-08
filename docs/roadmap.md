@@ -104,6 +104,11 @@ RAPL、perf、抓包、所有可见 GPU 的显存／利用率／功耗，以及�
 Torch Profiler / Massif 自动在本地 Runtime 执行最小 CPU 自检，验证实际算子和堆报告；
 每项找到可用 Runtime 后停止，保留验证对象、失败原因与超时边界。模型／GPU／完整 Profiler 仍独立验收。
 继续支持悬停、固定、键盘、逐项脱敏说明与测量期间只读缓存。
+检查项详情区分选中与悬停：点击或键盘选中后保留详情，悬停其他项临时预览，移开后恢复选中项。
+切换类别或刷新清单时清除旧选择，避免旧检查证据残留。
+参考 Textual 8.2.8 [OptionList 的独立悬停状态](https://github.com/Textualize/textual/blob/v8.2.8/src/textual/widgets/_option_list.py)
+及其[条目移除时清理悬停状态的修复](https://github.com/Textualize/textual/pull/3274)，沿用现有事件和缓存，无新增依赖或轮询。
+选中项恢复已通过中英文 80×24／120×35 Pilot 交互、键盘选择与缓存更新回归，3 个环境面板 SVG 基线比较通过；真实客户端终端未验证。
 环境入口参照 Textual [Link 的内容宽度布局](https://github.com/Textualize/textual/blob/v8.2.8/src/textual/widgets/_link.py)
 收窄悬停与点击范围，右侧空白不再触发面板；保留页头底色、点击固定和键盘操作，无新增依赖。
 中英文三种尺寸及缩放的 Pilot 回归通过，表单与环境面板 SVG 保持一致；真实客户端终端与远端 CI 未重验。

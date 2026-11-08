@@ -179,10 +179,13 @@ class EnvironmentSignal(Static, can_focus=True):
         )
 
     def on_enter(self) -> None:
-        self.panel.explain(self.row)
+        self.panel.preview(self.row)
+
+    def on_leave(self) -> None:
+        self.panel.end_preview(self.row)
 
     def on_focus(self) -> None:
-        self.panel.explain(self.row)
+        self.panel.select(self.row)
 
 
 class EnvironmentPopover(Vertical):
@@ -196,6 +199,8 @@ class EnvironmentPopover(Vertical):
         self.close_timer: Timer | None = None
         self._rows: tuple[PreflightCheck, ...] = ()
         self._rows_language = ""
+        self._selected_row: PreflightCheck | None = None
+        self._hovered_row: PreflightCheck | None = None
 
     @property
     def pinned(self) -> bool:
@@ -246,6 +251,8 @@ class EnvironmentPopover(Vertical):
 
     def close(self, *, restore_focus: bool = True) -> None:
         self.cancel_close()
+        if self._hovered_row is not None:
+            self.end_preview(self._hovered_row)
         focused = self.app.focused
         inside = focused is not None and (focused is self or self in focused.ancestors)
         self.pinned_groups.discard(self.group)
@@ -302,6 +309,24 @@ class EnvironmentPopover(Vertical):
     def remedy(self, row: PreflightCheck) -> str:
         return self.tr("remedy." + REMEDIES.get(row.check_id, "generic"))
 
+    def select(self, row: PreflightCheck) -> None:
+        if not self.display or row not in self._rows:
+            return
+        self._selected_row = row
+        self.explain(self._hovered_row or row)
+
+    def preview(self, row: PreflightCheck) -> None:
+        if not self.display or row not in self._rows:
+            return
+        self._hovered_row = row
+        self.explain(row)
+
+    def end_preview(self, row: PreflightCheck) -> None:
+        if self._hovered_row is row:
+            self._hovered_row = None
+            if self._selected_row is not None:
+                self.explain(self._selected_row)
+
     def explain(self, row: PreflightCheck) -> None:
         if not self.display or row not in self._rows:
             return
@@ -347,6 +372,7 @@ class EnvironmentPopover(Vertical):
         language = controller.app.configuration.preferences.language
         if rows != self._rows or language != self._rows_language:
             self._rows, self._rows_language = rows, language
+            self._selected_row = self._hovered_row = None
             self.query_one("#preflight-explanation", Static).update(self.tr("inspect_hint" if rows else "empty_group"))
             self.query_one("#preflight-scroll").scroll_home(animate=False)
             self.query_one("#preflight-inspection").scroll_home(animate=False)
