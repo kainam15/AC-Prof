@@ -165,7 +165,7 @@ async def test_backfill_navigation_shares_selection_and_reports_read_failures(tm
         app.activate_tab("results-tab")
         await pilot.pause()
         assert not app.query_one("#results-tab").query("#open-result-profiling, #profile-status")
-        await pilot.press("right")
+        await pilot.press("down", "enter")
         await pilot.pause()
         assert tabs.active == "backfill-tab"
         assert tabs.get_tab("backfill-tab").label.plain == ("补采实验" if language == "zh" else "Backfill")
@@ -190,7 +190,7 @@ async def test_backfill_navigation_shares_selection_and_reports_read_failures(tm
         await app.workers.wait_for_complete()
         assert app.profiles.overview is None
         assert app.query_one("#backfill-source", Input).value == str(root / "missing.csv")
-        assert await pilot.click(tabs.get_tab("backfill-tab"))
+        assert await pilot.click("#nav-backfill-tab")
         with patch("acprof.tui.results.controller.inspect_experiment_data", side_effect=ValueError("fixture data check failed")):
             assert await pilot.click("#refresh-backfill-state")
             await asyncio.wait_for(app.workers.wait_for_complete(), timeout=3)

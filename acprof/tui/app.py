@@ -242,9 +242,13 @@ class AcprofTui(BarCursorApp):
         self.update_responsive_layout(event.size)
         if self.form_ready:
             self.preflight.panel.fit(event.size)
+            self.call_after_refresh(self.refresh_resized_images)
+
+    def refresh_resized_images(self) -> None:
+        """Use the settled page width after the sidebar and terminal resize."""
         if (self.form_ready and self.images.inventory is not None and not self.images.images_unavailable(allow_refresh=True)
                 and self.query_one("#main-tabs", TabbedContent).active == "images-tab"):
-            self.images.render_images(width=event.size.width)
+            self.images.render_images()
 
     def update_responsive_layout(self, size: Size | None = None) -> None:
         size = self.size if size is None else size

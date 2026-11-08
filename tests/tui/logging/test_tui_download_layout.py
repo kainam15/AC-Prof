@@ -17,7 +17,9 @@ def rendered(widget):
     if isinstance(widget, DownloadProgressPanel):
         widget = widget.query_one(DownloadProgressContent)
     console = Console(width=widget.content_size.width, color_system="truecolor")
-    segments = list(console.render(widget.render()))
+    # TERM=dumb may make Console.size ignore its width unless height is set.
+    # Match the widget's real viewport even in a non-interactive test process.
+    segments = list(console.render(widget.render(), console.options.update_width(widget.content_size.width)))
     return "".join(segment.text for segment in segments), segments
 
 

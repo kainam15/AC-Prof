@@ -476,6 +476,18 @@ Select:disabled > SelectCurrent { color: $ui-disabled; border: solid $ui-disable
 AcprofTui.narrow #image-actions Button { min-width: 7; padding: 0; }
 AcprofTui.narrow #image-scope { width: 19; }
 AcprofTui.narrow #image-filters Button { min-width: 9; padding: 0; }
+/* Wrap the controls inside the page width left by the activity sidebar. */
+AcprofTui.compact-navigation #image-filters {
+    layout: grid;
+    grid-size: 4 2;
+    grid-columns: 1fr 1fr 1fr 17;
+    grid-rows: 3 3;
+    grid-gutter: 0 1;
+    height: 6;
+}
+AcprofTui.compact-navigation #image-scope,
+AcprofTui.compact-navigation #image-search { column-span: 2; width: 1fr; margin: 0; }
+AcprofTui.compact-navigation #image-filters Button { width: 1fr; min-width: 0; margin: 0; }
 .stage-idle { color: $text-muted; }
 .stage-running { color: $accent; text-style: bold; }
 .stage-measuring { color: $accent; text-style: bold; }
@@ -495,7 +507,7 @@ AcprofTui.narrow #process-resource-help { column-span: 2; }
 AcprofTui.narrow .profiler-grid { grid-size: 1; grid-columns: 1fr; }
 AcprofTui.narrow .checkbox-row { layout: vertical; }
 AcprofTui.narrow .button-row { layout: grid; grid-size: 2; grid-gutter: 0 1; }
-AcprofTui.narrow #status-grid { grid-columns: 11 1fr 9 1fr; }
+AcprofTui.narrow #status-grid { grid-size: 2; grid-columns: 11 1fr; }
 AcprofTui.narrow Tab { padding: 0 1; }
 AcprofTui.short #bottom-panel { height: 3; }
 AcprofTui.short #slash-command-bar { height: 3; padding: 0 2; }

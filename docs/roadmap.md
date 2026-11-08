@@ -8,6 +8,17 @@
 | M5 · 科研结果           | 可解释、可复现、可比较       | 输入与推理参数、指标、CSV、统计和报告一致，缺失能力不误报                          | 进行中（统计、对比与审计已统一；`analysis/` 全模块纳入 `C901` 复杂度门禁；硬件矩阵聚合质量并独立控制优选；OpenAI 流式派生已移至窗口外一次执行，v2 报告重算并核对延迟与声明；OpenAI 流式测量 P0 与 Qwen/vLLM 对照完成；正式能耗质量证据保留，基线噪声控制与科研级重复性实验延后由用户主导） |
 | M6 · 交付使用           | 安装、文档与发布             | 干净环境能安装、运行示例、导出结果和排查常见问题                                   | 已完成（wheel／uv tool／standalone 验收；安装后 BERT basic CPU smoke、审计与离线报告通过） |
 
+## CI #229 与 TUI PNG Visual #45 修复（2026-11）
+
+修复侧栏占用宽度后镜像工具栏、树表头和监控摘要的窄窗布局；英文导航保持单行，
+下载指标按完整项换行。模型候选测试等待启动 worker 与焦点消息完成，结果页测试改用当前侧栏导航，
+清理失败断言对齐已有事件字段；多模态 runtime 测试共享纯数据 Fixture，避免导入主机依赖。
+视觉目录与受影响 SVG／PNG 基线同步当前图标及布局，像素阈值和失败门禁保持原值。
+参考 Textual 的 [Pilot](https://github.com/Textualize/textual/blob/main/src/textual/pilot.py)
+与 Rich 的 [Columns](https://github.com/Textualize/rich/blob/main/rich/columns.py)，复用持续维护的 MIT 依赖，
+无新增依赖、后台轮询或正式测量逻辑变更。
+验证限定向离线回归、headless SVG 和 VHS/xterm.js PNG；真实客户端终端、Docker/GPU runtime 与远端同提交 CI 仍待验证。
+
 ## TUI 界面开发分支约定（2026-11）
 
 已将 TUI 界面改动可直接在 `main` 开发和提交的例外同步到根目录协作入口与

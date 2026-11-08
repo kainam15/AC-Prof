@@ -165,8 +165,10 @@ async def test_cached_view_can_be_selected_at_80x24_without_source_index(prepare
     app = AcprofTui(config, settings_path=settings)
     with patch("acprof.tui.models.candidates.current_context", return_value={"warnings": []}):
         async with app.run_test(size=(80, 24)) as pilot:
+            await app.workers.wait_for_complete()
             await pilot.pause()
             app.query_one("#model", Input).focus()
+            await pilot.pause()
             await pilot.press("f4")
             await app.workers.wait_for_complete()
             await pilot.pause()

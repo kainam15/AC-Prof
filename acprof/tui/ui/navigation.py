@@ -29,6 +29,8 @@ class PageNavigation(VerticalScroll, can_focus=False):
     def sync(self, tabs: TabbedContent) -> None:
         collapsed = self.app.has_class("collapsed-navigation")
         for button in self.query(Button):
+            # Match the actual sidebar width without Button's implicit line pad.
+            button.styles.line_pad = 0
             pane_id = button.name
             assert pane_id is not None
             tab = tabs.get_tab(pane_id)

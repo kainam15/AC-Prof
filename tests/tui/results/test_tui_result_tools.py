@@ -27,7 +27,7 @@ class TestTuiResultTools:
             await pilot.pause()
             tabs = app.query_one("#main-tabs", TabbedContent)
             assert [tabs.get_tab(pane).label.plain for pane in app.query("#main-tabs > ContentSwitcher > TabPane")] == [
-                "实验配置", "运行监控", "实验结果", "补采实验", "镜像管理", "⚙"]
+                "实验配置", "运行监控", "实验结果", "补采实验", "镜像管理", "设置"]
             assert not app.query("#profile-tab, #result-dir")
             app.activate_tab("results-tab")
             app.query_one("#experiment-source", Input).value = str(self.csv_path)
@@ -37,7 +37,7 @@ class TestTuiResultTools:
             await pilot.pause()
             assert "有效正式窗口：1" in app.query_one("#result-data-status", Static).content
             assert not app.query("#results-tab #profile-status, #results-tab #open-result-profiling")
-            assert await pilot.click(tabs.get_tab("backfill-tab"))
+            assert await pilot.click("#nav-backfill-tab")
             await pilot.pause()
             assert tabs.active == "backfill-tab"
             assert app.query_one("#backfill-source", Input).value == str(self.csv_path)
@@ -45,7 +45,7 @@ class TestTuiResultTools:
             assert "独立 CSV" in str(app.query_one("#profile-status", Static).content)
             assert app.query_one("#open-result-profiling", Button).disabled
 
-            assert await pilot.click(tabs.get_tab("results-tab"))
+            assert await pilot.click("#nav-results-tab")
             await pilot.pause()
             with patch.object(app.process, "execute_command") as execute:
                 # PNG plotting uses the same selected experiment via its public command.

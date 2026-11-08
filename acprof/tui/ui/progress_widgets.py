@@ -1,6 +1,7 @@
 """Event-driven progress presentation with theme-aware colors and no animation."""
 from __future__ import annotations
 
+from rich.columns import Columns
 from rich.console import Group, RenderableType
 from rich.progress_bar import ProgressBar
 from rich.table import Table
@@ -178,10 +179,8 @@ class DownloadProgressContent(ProgressSummary):
             cells.append(self.metric(message_id('downloads.progress.rate'), speed, "active"))
         parts: list[RenderableType] = [heading, progress_row]
         if cells:
-            # Let Rich size the single row by content rather than equal-width columns.
-            metrics = Table.grid(expand=True, padding=(0, 2))
-            metrics.add_row(*cells)
-            parts.append(metrics)
+            # Wrap whole metrics when the sidebar leaves too little page width.
+            parts.append(Columns(cells, padding=(0, 2)))
         if progress.detail:
             detail = (message_id('downloads.progress.retry_baseline_pending') if progress.detail == 'retry_cache_baseline_unknown'
                       else message_id('downloads.progress.accounting_error', progress.detail))

@@ -135,7 +135,7 @@ class ImageController:
             len(self.selected_ids), hidden,
         ))
 
-    def render_images(self, *, width: int | None = None, current_id: str | None = None,
+    def render_images(self, *, current_id: str | None = None,
                        preserve_scroll: bool = False) -> None:
         table = self.app.query_one("#image-table", DataTable)
         offsets = [(widget, widget.scroll_offset) for widget in (
@@ -154,7 +154,7 @@ class ImageController:
                "parent": lambda item: item.parent_id}[sort_key]
         self.visible_images = tuple(sorted(self.visible_images, key=sorter, reverse=reverse))
         table.clear(columns=True)
-        reference_width = max(30, (self.app.size.width if width is None else width) - 44)
+        reference_width = max(30, self.app.query_one("#image-browser").size.width - 44)
         tag_width = max(12, min(28, reference_width * 2 // 5))
         repository_width = max(18, min(75, reference_width - tag_width))
         for title, key, column_width in (("☑", "selected", 1), ("环境 / 模型", "name", max(20, reference_width)),
@@ -183,8 +183,9 @@ class ImageController:
             current_id = current.image_id if current else self.focused_id
         row = next((i for i, item in enumerate(self.visible_images) if item.image_id == current_id), 0)
         table.move_cursor(row=row, column=0, animate=False, scroll=not preserve_scroll)
-        render_image_tree(self.app.query_one("#image-tree", ImageTree), self.inventory, self.visible_images,
-                          self.selected_ids, current_id, self.app.localization.tr, (width or self.app.size.width) - 6,
+        tree = self.app.query_one("#image-tree", ImageTree)
+        render_image_tree(tree, self.inventory, self.visible_images,
+                          self.selected_ids, current_id, self.app.localization.tr, tree.scrollable_content_region.width,
                           preserve_scroll=preserve_scroll, show_external_ancestors=self.app.configuration.select("image-scope") == "all")
         self.render_image_layers(preserve_scroll=preserve_scroll)
         self.image_selection_status()
