@@ -103,14 +103,16 @@ Full 必需能力仍会阻断，绝不自动降级。相关实验参数变化后
 
 ## 输入与确认
 
-`acprof tui` 在 VS Code 集成终端（`TERM_PROGRAM=vscode`）及 Windows Terminal
-（非空 `WT_SESSION`，包括 PowerShell 与 WSL Ubuntu 标签页）默认采用 Unicode 11 字宽，
-使 `☰` 与终端一致占 1 格，避免同一行右侧表单和边框错位。显式设置的 `UNICODE_VERSION` 优先，
-其他终端沿用 Rich 默认规则；SSH 环境未传递终端标识时可用 `UNICODE_VERSION=11.0.0 acprof tui`。
+`acprof tui` 在 VS Code 集成终端（`TERM_PROGRAM=vscode`）默认采用 Unicode 11 字宽，
+使 `☰` 与该终端的默认规则一致占 1 格。Windows Terminal（包括 PowerShell 与 WSL Ubuntu
+标签页）沿用 Rich 默认字宽：其 Unicode 16 字宽表将 `☰` 计为 2 格，强制降为 Unicode 11
+会使同一行右侧表单和边框向右错位。`WT_SESSION` 本身不能说明终端使用的 Unicode 版本。
+显式设置的 `UNICODE_VERSION` 优先；只有确认客户端采用旧字宽规则时，才使用
+`UNICODE_VERSION=11.0.0 acprof tui`，SSH 会话同样以客户端终端为准。
 此兼容处理在首次加载 Textual 前执行，复用 Rich 的
 [`UNICODE_VERSION` 支持](https://github.com/Textualize/rich/blob/v15.0.0/rich/_unicode_data/__init__.py)
-及 VS Code 的 [Unicode 11 默认配置](https://github.com/microsoft/vscode/blob/f38b6d8928a171c65a42174e8394270760203fac/src/vs/workbench/contrib/terminal/common/terminalConfiguration.ts)，
-Windows Terminal 识别依据其 [WT_SESSION 与 WSLENV 传递实现](https://github.com/microsoft/terminal/blob/cbc857bdf7749981890c5b561ee44ea31948bfb1/src/cascadia/TerminalConnection/ConptyConnection.cpp)。
+及 VS Code 的 [Unicode 11 默认配置](https://github.com/microsoft/vscode/blob/f38b6d8928a171c65a42174e8394270760203fac/src/vs/workbench/contrib/terminal/common/terminalConfiguration.ts)；
+Windows Terminal 的字宽依据其 [CodepointWidthDetector](https://github.com/microsoft/terminal/blob/3b8c5606ee1866e7bf5c4e84e962798492282097/src/types/CodepointWidthDetector.cpp)。
 无新增依赖、轮询或第三方库补丁。
 
 表单输入框、选择框及其展开菜单默认使用 `solid` 细线边框，普通、聚焦和禁用状态保持同一种线框。

@@ -76,9 +76,11 @@ def test_tui_start_does_not_hide_missing_runtime_dependencies(tmp_path):
 @pytest.mark.parametrize(("terminal_env", "version", "expected_version", "expected_width"), [
     ({"TERM_PROGRAM": "vscode"}, None, "11.0.0", 1),
     ({"TERM_PROGRAM": "vscode"}, "17.0.0", "17.0.0", 2),
-    ({"WT_SESSION": "fixture-session"}, None, "11.0.0", 1),
-    ({"WT_SESSION": "fixture-session", "WSL_DISTRO_NAME": "Ubuntu"}, None, "11.0.0", 1),
+    ({"WT_SESSION": "fixture-session"}, None, None, 2),
+    ({"WT_SESSION": "fixture-session", "WSL_DISTRO_NAME": "Ubuntu"}, None, None, 2),
+    ({"TERM_PROGRAM": "vscode", "WT_SESSION": "fixture-session"}, None, "11.0.0", 1),
     ({"WT_SESSION": "fixture-session"}, "17.0.0", "17.0.0", 2),
+    ({"WT_SESSION": "fixture-session"}, "11.0.0", "11.0.0", 1),
     ({"TERM_PROGRAM": "xterm"}, None, None, 2),
     ({"WT_SESSION": "", "WSL_DISTRO_NAME": "Ubuntu"}, None, None, 2),
 ])

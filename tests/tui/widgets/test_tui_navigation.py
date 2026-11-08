@@ -172,6 +172,41 @@ async def test_collapsed_sidebar_survives_language_resize_and_programmatic_navig
         assert app.focused is app.query_one("#nav-settings-tab")
 
 
+@pytest.mark.parametrize(("language", "size"), [("zh", (120, 30)), ("en", (80, 24))])
+async def test_sidebar_hover_and_hold_keep_content_aligned(tmp_path, monkeypatch, language, size):
+    app = AcprofTui(RunConfig.smoke("demo/model"), settings_path=tmp_path / "settings.json")
+    app.configuration.preferences = replace(app.configuration.preferences, language=language)
+    monkeypatch.setattr("acprof.tui.images.controller.ImageController.refresh_images", lambda self: None)
+    async with app.run_test(size=size) as pilot:
+        app.set_input_cursor_blink_enabled(False)
+        assert await pilot.click("#nav-run-tab")
+        await pilot.pause()
+        tabs = app.query_one("#main-tabs", TabbedContent)
+        navigation = app.query_one("#page-navigation")
+        model = app.query_one("#model", Input)
+        geometry = navigation.region, tabs.region, model.region
+        for page in ("monitor", "results", "backfill", "images"):
+            button = app.query_one(f"#nav-{page}-tab", Button)
+            assert await pilot.hover(button)
+            await pilot.pause()
+            assert (navigation.region, tabs.region, model.region) == geometry
+            assert await pilot.mouse_down(button)
+            await pilot.pause()
+            assert tabs.active == "run-tab"
+            assert (navigation.region, tabs.region, model.region) == geometry
+            # Check the composed terminal rows, including the experiment icon.
+            for strip in app.screen._compositor.render_strips():
+                assert cell_len(strip.text) == strip.cell_length == size[0]
+            assert await pilot.mouse_up(button)
+            assert await pilot.click(button)
+            await pilot.pause()
+            assert tabs.active == f"{page}-tab"
+            assert (navigation.region, tabs.region) == geometry[:2]
+            assert await pilot.click("#nav-run-tab")
+            await pilot.pause()
+            assert (navigation.region, tabs.region, model.region) == geometry
+
+
 async def test_environment_is_beside_quit_and_keeps_overlay_below_header(tmp_path):
     app = AcprofTui(RunConfig.smoke("demo/model"), settings_path=tmp_path / "settings.json")
     async with app.run_test(size=(80, 24)) as pilot:
