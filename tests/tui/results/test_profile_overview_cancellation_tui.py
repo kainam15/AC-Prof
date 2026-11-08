@@ -4,7 +4,7 @@ from threading import Event
 
 import pytest
 from textual import events
-from textual.widgets import Button, Input
+from textual.widgets import Button, Input, Static
 
 from acprof.tui.results import profile_status
 from acprof.tui.settings.preferences import TuiSettings, UiPreferences, save_settings
@@ -14,7 +14,7 @@ from tests.tui.results.test_profile_overview_snapshot import profile_store
 
 
 @pytest.mark.parametrize("language", ["zh", "en"])
-@pytest.mark.parametrize("action", ["change-source", "change-backfill-source", "cancel-backfill"])
+@pytest.mark.parametrize("action", ["change-source", "change-backfill-source", "cancel-backfill", "cancel-results"])
 async def test_selection_change_during_profiler_inspection_cancels_and_allows_retry(tmp_path, monkeypatch, language, action):
     first, second = tmp_path / "first", tmp_path / "second"
     profile_store(first, 3)
@@ -47,7 +47,19 @@ async def test_selection_change_during_profiler_inspection_cancels_and_allows_re
             assert await asyncio.to_thread(entered.wait, 2)
             assert app.read_jobs
             assert app.profiles.overview is None
-            if action == "cancel-backfill":
+            if action == "cancel-results":
+                buttons = [app.query_one(identifier, Button) for identifier in (
+                    "#refresh-experiment-state", "#results-cancel", "#report-calculate", "#plot-results")]
+                for control in buttons:
+                    assert control.region.area > 0
+                    assert app.query_one("#result-actions").content_region.contains_region(control.region)
+                    assert app.get_widget_at(control.region.right - 1, control.region.y + 1)[0] is control
+                assert all(not left.region.overlaps(right.region)
+                           for index, left in enumerate(buttons) for right in buttons[index + 1:])
+                assert await pilot.click("#results-cancel")
+                await pilot.pause()
+                assert app.tr("读取已取消；等待后台任务释放资源。") in str(app.query_one("#result-data-status", Static).content)
+            elif action == "cancel-backfill":
                 app.activate_tab("backfill-tab")
                 await pilot.pause()
                 button = app.query_one("#refresh-backfill-state", Button)
@@ -73,7 +85,7 @@ async def test_selection_change_during_profiler_inspection_cancels_and_allows_re
         assert processed
         assert not app.read_jobs
         assert not app.is_busy()
-        if action == "cancel-backfill":
+        if action in {"cancel-backfill", "cancel-results"}:
             assert app.profiles.overview is None
             app.results.select_result(str(second))
             await app.workers.wait_for_complete()

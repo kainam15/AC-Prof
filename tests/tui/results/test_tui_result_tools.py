@@ -2,6 +2,7 @@ from dataclasses import replace
 from unittest.mock import patch
 
 import pytest
+from rich.cells import cell_len
 from textual.widgets import Button, Input, Static, TabbedContent
 
 from acprof.experiments.configuration import RunConfig
@@ -21,7 +22,8 @@ class TestTuiResultTools:
         app.configuration.preferences = replace(app.configuration.preferences, show_command_bar=True)
         return app
 
-    async def test_results_page_keeps_plotting_and_optional_profiling_separate(self):
+    @pytest.mark.parametrize("plot_entry", ["button", "command"])
+    async def test_results_page_keeps_plotting_and_optional_profiling_separate(self, plot_entry):
         app = self.make_app()
         async with app.run_test(size=(80, 24)) as pilot:
             await pilot.pause()
@@ -47,12 +49,36 @@ class TestTuiResultTools:
 
             assert await pilot.click("#nav-results-tab")
             await pilot.pause()
+            if plot_entry == "button":
+                for language, label in (("zh", "生成 PNG 图表"), ("en", "Generate PNG")):
+                    app.configuration.preferences = replace(app.configuration.preferences, language=language)
+                    app.configuration.apply_ui_preferences()
+                    for size in ((80, 24), (120, 30), (150, 45), (80, 24)):
+                        await pilot.resize_terminal(*size)
+                        await pilot.pause()
+                        buttons = [app.query_one(selector, Button) for selector in (
+                            "#refresh-experiment-state", "#report-calculate", "#plot-results")]
+                        for button in buttons:
+                            assert button.region.area > 0
+                            assert button.content_region.width >= cell_len(str(button.label))
+                            assert app.query_one("#result-actions").content_region.contains_region(button.region)
+                            assert app.get_widget_at(*button.region.center)[0] is button
+                        assert all(left.region.right <= right.region.x for left, right in zip(buttons, buttons[1:], strict=False))
+                        assert str(buttons[-1].label) == label
+                        buttons[-2].focus()
+                        await pilot.press("tab")
+                        assert app.focused is buttons[-1]
+                        await pilot.press("shift+tab")
+                        assert app.focused is buttons[-2]
             with patch.object(app.process, "execute_command") as execute:
-                # PNG plotting uses the same selected experiment via its public command.
-                field = app.query_one("#slash-command", Input)
-                field.value = "/plot"
-                field.focus()
-                await pilot.press("enter")
+                # Both visible and command entries reuse the selected experiment.
+                if plot_entry == "button":
+                    assert await pilot.click("#plot-results")
+                else:
+                    field = app.query_one("#slash-command", Input)
+                    field.value = "/plot"
+                    field.focus()
+                    await pilot.press("enter")
                 await pilot.pause()
                 execute.assert_called_once()
                 command, kind = execute.call_args.args

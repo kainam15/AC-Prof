@@ -366,6 +366,7 @@ class ResultController:
             self.overview_request, self.data_request, self.app.profiles.validation_request))
         cancel_analysis.display = actions.cancel_analysis_visible or reading
         cancel_analysis.disabled = not (actions.cancel_analysis_enabled or reading)
+        self.app.query_one("#result-actions").set_class(cancel_analysis.display, "cancellable")
         cancel_backfill = self.app.query_one("#backfill-cancel", Button)
         cancel_backfill.display = reading
         cancel_backfill.disabled = not cancel_backfill.display

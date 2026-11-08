@@ -232,6 +232,15 @@ Select:focus > SelectCurrent, Select.-expanded > SelectCurrent, SelectOverlay:fo
     margin-left: 1;
     align-horizontal: right;
 }
+AcprofTui.compact-navigation #result-actions { padding: 0 1; }
+AcprofTui.narrow #result-actions.cancellable {
+    layout: vertical;
+    height: 7;
+}
+AcprofTui.narrow #result-actions.cancellable .action-primary {
+    width: 1fr;
+    margin-left: 0;
+}
 /* Transparent fill keeps the terminal cells outside rounded corners clear. */
 Button, .action-bar Checkbox {
     min-width: 14;
@@ -397,7 +406,7 @@ Select:disabled > SelectCurrent { color: $ui-disabled; border: solid $ui-disable
     padding: 1 0;
     border-top: solid $panel;
 }
-#html-legacy-controls, #plot-results { display: none; }
+#html-legacy-controls { display: none; }
 .html-section-title { height: 1; text-style: bold; }
 #html-source-row { margin-top: 1; }
 #html-current-source { width: 1fr; height: 3; content-align: left middle; color: $text-muted; }
