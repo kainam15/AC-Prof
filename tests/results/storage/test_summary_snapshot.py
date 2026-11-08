@@ -289,15 +289,15 @@ async def test_selection_change_releases_a_waiting_layer_reader_at_80x24(source,
 
     monkeypatch.setattr(fcntl, "flock", observe)
     async with app.run_test(size=(80, 24)) as pilot:
+        await app.workers.wait_for_complete()
         app.activate_tab("results-tab")
         selector = app.query_one("#experiment-source", Input)
-        selector.value = str(blocked)
-        await pilot.pause()
         button = app.query_one("#refresh-experiment-state", Button)
-        button.scroll_visible(animate=False, immediate=True)
-        await pilot.pause()
         with publication_lock(ArtifactLayout(blocked), exclusive=True):
-            assert await pilot.click(button)
+            # Select under the lock: a debounced automatic read can otherwise
+            # finish before the click or move the cancellable action bar.
+            attempted.clear()
+            app.results.select_result(str(blocked))
             assert await asyncio.to_thread(attempted.wait, 2)
             assert app.read_jobs
             selector.scroll_visible(animate=False, immediate=True)
@@ -305,19 +305,21 @@ async def test_selection_change_releases_a_waiting_layer_reader_at_80x24(source,
             assert await pilot.click(selector)
             await pilot.press("ctrl+a")
             selector.value = str(source)
-            await pilot.pause(0.25)
-            await asyncio.wait_for(app.workers.wait_for_complete(), timeout=2)
-            await pilot.pause()
+            ready = "有效正式窗口：2" if language == "zh" else "Valid formal windows: 2"
+            async with asyncio.timeout(2):
+                while ready not in str(app.query_one("#result-data-status", Static).content):
+                    await pilot.pause()
+                await app.workers.wait_for_complete()
             assert not app.read_jobs
             assert not app.is_busy()
             assert selector.value == str(source.parent)
             assert not button.disabled
             button.scroll_visible(animate=False, immediate=True)
             await pilot.pause()
-            assert await pilot.click(button)
+            assert await pilot.click(button, offset=(2, 1))
             await asyncio.wait_for(app.workers.wait_for_complete(), timeout=2)
             await pilot.pause()
-            assert ("有效正式窗口：2" if language == "zh" else "Valid formal windows: 2") in str(app.query_one("#result-data-status", Static).content)
+            assert ready in str(app.query_one("#result-data-status", Static).content)
             assert not app.is_busy()
     assert source_hashes(blocked) == before
 

@@ -193,7 +193,12 @@ async def test_all_machine_checks_run_once_and_ignore_experiment_edits(tmp_path,
     app = AcprofTui(RunConfig.smoke(""), settings_path=tmp_path / "settings.json")
     app.configuration.preferences = replace(app.configuration.preferences, language=language)
     async with app.run_test(size=(80, 24)) as pilot:
-        await asyncio.wait_for(app.workers.wait_for_complete(), 10)
+        # Preflight completion starts a new worker. Wait until it is registered
+        # before taking WorkerManager's snapshot of workers to await.
+        async with asyncio.timeout(10):
+            while not app.updates.started:
+                await pilot.pause()
+            await app.workers.wait_for_complete()
         await pilot.pause()
         assert not app.query_one("#start-run", Button).disabled, "an optional host tool cannot block a basic run"
         await pilot.click("#environment-success")

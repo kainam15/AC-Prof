@@ -42,7 +42,9 @@ class TestTuiPageChrome:
     def assert_actions_aligned(self, pane, secondary_ids, primary):
         secondary = [pane.query_one("#" + widget_id) for widget_id in secondary_ids]
         gap = 0 if pane.id == "monitor-tab" and self.app.has_class("compact-navigation") else 1
-        assert (secondary[0].region.x) == (pane.region.x + 2)
+        padding = 1 if pane.id == "results-tab" and self.app.has_class("compact-navigation") else 2
+        assert (secondary[0].region.x) == (pane.region.x + padding)
+        assert primary.region.right == pane.region.right - padding
         for left, right in zip(secondary, secondary[1:], strict=False):
             assert (right.region.x) == (left.region.right + gap), right.id
         for action in secondary:
@@ -62,7 +64,7 @@ class TestTuiPageChrome:
             pages = (
                 ('run-tab', 'start-run', ('open-run-settings', 'probe-largest')),
                 ('monitor-tab', 'stop-run', ('copy-log-all', 'follow-log', 'expand-log', 'clear-log')),
-                ('results-tab', 'report-calculate', ('refresh-experiment-state',)),
+                ('results-tab', 'plot-results', ('refresh-experiment-state',)),
                 ('backfill-tab', 'open-result-profiling', ('refresh-backfill-state',)),
                 ('images-tab', 'image-delete', ('image-toggle', 'image-model', 'image-clear')),
                 ('settings-tab', 'save-ui-settings', ('restore-ui-defaults',)),
@@ -74,7 +76,6 @@ class TestTuiPageChrome:
                 button = app.query_one("#" + primary, Button)
                 self.assert_reachable(button)
                 assert button.region.bottom == pane.region.bottom, page
-                assert button.region.right == pane.region.right - 2, page
                 self.assert_actions_aligned(pane, secondary, button)
                 top = pane.query_one(".page-header")
                 top_region, button_region = top.region, button.region

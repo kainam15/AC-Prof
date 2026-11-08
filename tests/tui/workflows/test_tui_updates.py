@@ -42,6 +42,7 @@ async def test_startup_shows_new_release_without_blocking_input(tmp_path, monkey
     async with app.run_test(size=(80, 24), notifications=True) as pilot:
         try:
             await pilot.pause()
+            await asyncio.wait_for(started.wait(), timeout=10)
             assert app.title == f"AC-Prof {__version__}"
             assert app.query_one("HeaderTitle", Static).render_line(0).text.strip() == app.title
             assert started.is_set(), "startup must request the latest PyPI version"
@@ -177,7 +178,7 @@ async def test_quit_cancels_http_and_releases_measurement_lock(tmp_path, monkeyp
     app = make_app(tmp_path)
     async with app.run_test(size=(80, 24)) as pilot:
         await pilot.pause()
-        assert started.is_set()
+        await asyncio.wait_for(started.wait(), timeout=10)
         await pilot.press("ctrl+q")
     assert cancelled.is_set()
     with MeasurementLock():
