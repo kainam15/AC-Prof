@@ -78,8 +78,19 @@ class PreflightController:
             # Content checks/fallback/terminal events carry no new byte evidence.
             progress = replace(progress, **{key: getattr(previous, key) for key in (
                 "operation_id", "transferred_bytes", "known_bytes", "unknown_items", "cached_bytes",
-                "cached_items", "reused_steps", "transfer_status",
+                "cached_items", "reused_steps", "transfer_status", "elapsed_seconds", "idle_seconds",
+                "stall_after_seconds", "uncovered_sources",
             )})
+            if progress.image == previous.image or progress.phase in {"fallback", "verifying", "complete", "failed", "cancelled"}:
+                retained = {key: getattr(progress, key) or getattr(previous, key) for key in (
+                    "source_image", "source_registry", "source_domain", "source_kind", "source_category",
+                    "network_owner", "detail",
+                )}
+                progress = replace(progress, activity=previous.activity, **retained)
+        if isinstance(progress, ImageProgress) and progress.phase in {"failed", "cancelled"}:
+            progress = replace(progress,
+                               transfer_status="partial" if progress.transferred_bytes is not None else "unavailable",
+                               uncovered_sources=tuple(dict.fromkeys((*progress.uncovered_sources, "incomplete_stream"))))
         self.latest_download = progress
         widget = self.app.query_one("#download-progress", DownloadProgressPanel)
         widget.display = monitor_phase(self.app.execution.session.snapshot) is MonitorPhase.PREPARATION

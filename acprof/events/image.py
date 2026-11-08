@@ -1,6 +1,7 @@
 """Preparation-only Docker progress; payload and resource sizes have distinct scopes."""
 from __future__ import annotations
 
+import math
 from dataclasses import asdict, dataclass
 
 
@@ -23,6 +24,16 @@ class ImageProgress:
     cached_items: int | None = None
     reused_steps: int = 0
     transfer_status: str = "unavailable"
+    source_image: str = ""
+    source_registry: str = ""
+    source_domain: str = ""
+    source_kind: str = ""
+    source_category: str = ""
+    network_owner: str = ""
+    elapsed_seconds: float = 0.0
+    idle_seconds: float = 0.0
+    stall_after_seconds: float = 30.0
+    uncovered_sources: tuple[str, ...] = ()
 
     def validate(self) -> None:
         if (self.component not in {"platform", "environment", "model", "service"}
@@ -44,10 +55,28 @@ class ImageProgress:
                 raise ValueError("invalid Docker accounting count")
         if type(self.reused_steps) is not int:
             raise ValueError("invalid Docker reused step count")
-        if (self.activity not in {"download", "extract", "content", "upload", "work"}
-                or self.transfer_status not in {"unavailable", "reported", "partial"}
+        if (self.activity not in {"download", "extract", "content", "upload", "work", "frontend", "metadata", "build"}
+                or self.transfer_status not in {"waiting", "unavailable", "reported", "partial", "cached"}
                 or not isinstance(self.operation_id, str) or len(self.operation_id) > 128):
             raise ValueError("invalid Docker accounting scope")
+        for value in (self.source_image, self.source_registry, self.source_domain):
+            if not isinstance(value, str) or len(value) > 512 or any(ord(c) < 32 for c in value):
+                raise ValueError("invalid Docker source")
+        if (self.source_kind not in {"", "official", "mirror", "unknown"}
+                or self.source_category not in {"", "docker_hub", "ghcr", "debian", "pypi", "pytorch", "model", "custom"}
+                or self.network_owner not in {"", "daemon", "buildkit", "host"}):
+            raise ValueError("invalid Docker source scope")
+        for seconds in (self.elapsed_seconds, self.idle_seconds, self.stall_after_seconds):
+            if type(seconds) not in (int, float) or not math.isfinite(seconds) or seconds < 0:
+                raise ValueError("invalid Docker progress timing")
+        if self.stall_after_seconds <= 0:
+            raise ValueError("invalid Docker progress threshold")
+        if (not isinstance(self.uncovered_sources, (tuple, list)) or len(self.uncovered_sources) > 7
+                or any(not isinstance(item, str) or item not in {"metadata", "protocol_overhead", "buildkit_layers", "unreported_build",
+                                    "cli_output", "incomplete_stream", "resume_baseline"} for item in self.uncovered_sources)):
+            raise ValueError("invalid Docker accounting coverage")
+        if self.transfer_status == "cached" and self.transferred_bytes != 0:
+            raise ValueError("invalid Docker cache evidence")
         if self.content is not None and (not isinstance(self.content, dict)
                 or self.content.get("status") not in {"complete", "incomplete", "unavailable", "unverified"}):
             raise ValueError("invalid Docker content status")

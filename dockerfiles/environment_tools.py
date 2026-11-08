@@ -100,8 +100,12 @@ def cached_artifact(entry, path, category):
     a finished artifact, and a resumed body is accepted only with a matching
     Content-Range. Final publication still requires the complete SHA256.
     """
+    locked_host = urlsplit(entry["url"]).hostname or ""
+    source_category = ("debian" if category == "debian" else "pytorch" if locked_host.endswith(".pytorch.org")
+                       else "pypi" if locked_host in {"pypi.org", "files.pythonhosted.org"} else "custom")
     progress = {"version": 1, "id": entry["sha256"], "transfer_id": uuid4().hex,
-                "name": entry["name"], "received": 0, "current": 0, "total": entry.get("size"), "cached": 0}
+                "name": entry["name"], "received": 0, "current": 0, "total": entry.get("size"), "cached": 0,
+                "source_category": source_category, "source_domain": "", "source_kind": "unknown"}
     last_progress = 0.0
 
     def publish(state, *, force=True):
@@ -129,6 +133,8 @@ def cached_artifact(entry, path, category):
     original_url = source_url
     fallback_url = debian_snapshot_fallback_url(source_url) if category == "debian" else None
     direct_mirror = is_direct_artifact_mirror(source_url)
+    progress.update(source_domain=urlsplit(source_url).hostname or "",
+                    source_kind="mirror" if direct_mirror else "official" if source_category != "custom" else "unknown")
     temporary = path.with_suffix(path.suffix + ".part")
     partial_meta = temporary.with_suffix(temporary.suffix + ".source.json")
 
@@ -171,6 +177,8 @@ def cached_artifact(entry, path, category):
             headers = {"User-Agent": DEPENDENCY_USER_AGENT}
             if offset:
                 headers["Range"] = f"bytes={offset}-"
+            progress["source_domain"] = urlsplit(source_url).hostname or ""
+            publish("downloading")
             request = urllib.request.Request(source_url, headers=headers)
             print(
                 f"[dependency-cache] {category} fetching name={entry['name']} "
@@ -183,6 +191,7 @@ def cached_artifact(entry, path, category):
                     actual_source = urlsplit(
                         getattr(source, "geturl", lambda: source_url)()
                     ).hostname
+                    progress["source_domain"] = actual_source or ""
                     if direct_mirror and actual_source != urlsplit(source_url).hostname:
                         raise ValueError("PyPI mirror response changed host; refusing external fallback")
                     status = getattr(source, "status", 200)

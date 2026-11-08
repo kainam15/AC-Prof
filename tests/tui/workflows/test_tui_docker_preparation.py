@@ -209,3 +209,134 @@ def test_pull_failure_summary_is_classified_and_raw_diagnostics_stay_collapsed(c
     assert (zh if language == "zh" else en) in summary
     assert "RAW_DOCKER_ERROR" not in summary
     assert "/tmp/preparation.log" in summary
+
+
+def _image_text(widget: ImageProgressContent, width: int = 76) -> str:
+    from io import StringIO
+
+    from rich.console import Console
+
+    stream = StringIO()
+    Console(file=stream, width=width).print(widget.render())
+    return stream.getvalue()
+
+
+@pytest.mark.parametrize("language", ["zh", "en"])
+async def test_docker_byte_states_keep_unknown_distinct_from_zero(tmp_path, language, monkeypatch):
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    app = AcprofTui(RunConfig.smoke("fixture/model"), settings_path=tmp_path / "settings.json")
+    app.configuration.preferences = replace(app.configuration.preferences, language=language)
+    states = [
+        ("waiting", None, "等待下载", "Waiting to download"),
+        ("unavailable", None, "下载量暂不可统计", "Download bytes not yet measurable"),
+        ("partial", 15, "已确认下载 15 B（部分统计）", "Confirmed download 15 B (partial)"),
+        ("reported", 15, "已报告下载 15 B", "Reported download 15 B"),
+        ("cached", 0, "0 B（缓存命中）", "0 B (cache hit)"),
+        ("partial", 0, "已确认下载 0 B（部分统计）", "Confirmed download 0 B (partial)"),
+    ]
+    async with app.run_test(size=(80, 24)):
+        widget = app.query_one(ImageProgressContent)
+        for state, amount, zh, en in states:
+            app.preflight.reset_download()
+            app.preflight.download_progress(ImageProgress(
+                "platform", "fixture:image", "pulling", operation_id="one",
+                transfer_status=state, transferred_bytes=amount,
+            ))
+            text = _image_text(widget)
+            assert (zh if language == "zh" else en) in text
+            if amount is None:
+                assert "0 B" not in text
+            assert "%" not in text
+
+        app.preflight.reset_download()
+        unknown = ImageProgress("platform", "fixture:image", "pulling", operation_id="unobserved")
+        app.preflight.download_progress(unknown)
+        confirmed = replace(unknown, operation_id="reported", transferred_bytes=25, transfer_status="reported")
+        app.preflight.download_progress(confirmed)
+        app.preflight.download_progress(confirmed)
+        text = _image_text(widget)
+        assert ("已确认下载 25 B（部分统计）" if language == "zh" else "Confirmed download 25 B (partial)") in text
+        assert "50 B" not in text
+
+        app.preflight.download_progress(ImageProgress("platform", "fixture:image", "failed", detail="fresh failure"))
+        assert app.preflight.latest_download.transferred_bytes == 25
+        assert app.preflight.latest_download.detail == "fresh failure"
+        assert "incomplete_stream" in app.preflight.latest_download.uncovered_sources
+        assert "25 B" in _image_text(widget)
+
+
+@pytest.mark.parametrize("language", ["zh", "en"])
+async def test_frontend_waiting_clock_updates_without_events_and_freezes_on_stop(tmp_path, language, monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import patch
+
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    clock = [100.0]
+    monkeypatch.setattr("acprof.tui.ui.progress_widgets.time", SimpleNamespace(monotonic=lambda: clock[0]))
+    monkeypatch.setattr("acprof.tui.run.presenter.time", SimpleNamespace(monotonic=lambda: clock[0]))
+    app = AcprofTui(RunConfig.smoke("fixture/model"), settings_path=tmp_path / "settings.json")
+    app.configuration.preferences = replace(app.configuration.preferences, language=language)
+    progress = ImageProgress(
+        "platform", "acprof-platform-cpu:fixture", "building",
+        "resolve image config for docker-image://docker.io/docker/dockerfile:1",
+        activity="frontend", operation_id="frontend", transfer_status="unavailable",
+        source_image="docker.io/docker/dockerfile:1", source_registry="docker.io",
+        source_domain="registry-1.docker.io", source_kind="official", source_category="docker_hub",
+        network_owner="buildkit", elapsed_seconds=2, stall_after_seconds=5,
+        uncovered_sources=("metadata", "protocol_overhead", "buildkit_layers"),
+    )
+    async with app.run_test(size=(80, 24)) as pilot:
+        app.activate_tab("monitor-tab")
+        tracker = RunProgressTracker()
+        snapshot = tracker.feed(encode_event("environment", "running", image_progress=progress.to_dict()))
+        app.execution.update_snapshot(snapshot)
+        app.render_snapshot(snapshot)
+        app.preflight.download_progress(progress)
+        app.execution.session.started_monotonic = 1
+        await pilot.pause()
+        widget = app.query_one(ImageProgressContent)
+        panel = app.query_one(DownloadProgressPanel)
+        with patch.object(app, "is_busy", return_value=True):
+            clock[0] = 106.0
+            app.tick_elapsed()
+            text = _image_text(widget)
+            assert "00:00:08" in text
+            assert "00:00:06" in text
+            assert ("长时间未收到进度" if language == "zh" else "No progress for a long time") in text
+            assert ("不代表网络失败" if language == "zh" else "does not prove a network failure") in text
+            assert ("下载量暂不可统计" if language == "zh" else "Download bytes not yet measurable") in text
+            assert "registry-1.docker.io" in text
+            assert "docker.io/docker/dockerfile:1" in text
+            assert ("引用域名" if language == "zh" else "Reference host") in text
+            assert "0 B" not in text
+            assert "%" not in text
+
+            for size in ((80, 24), (120, 30)):
+                await pilot.resize_terminal(*size)
+                await pilot.pause()
+                assert panel.region.right <= size[0]
+                assert panel.region.bottom <= size[1]
+                panel.focus()
+                await pilot.press("end")
+                await pilot.pause()
+                assert panel.scroll_y == panel.max_scroll_y
+                await pilot.press("home")
+                await pilot.pause()
+                if destination := os.environ.get("ACPROF_DOCKER_EVIDENCE"):
+                    app.save_screenshot(filename=f"docker-frontend-{language}-{size[0]}x{size[1]}.svg", path=destination)
+
+            app.execution.session.snapshot = replace(snapshot, measurement_active=True)
+            with patch.object(widget, "refresh") as refresh:
+                clock[0] = 107.0
+                app.tick_elapsed()
+                refresh.assert_not_called()
+            app.execution.session.snapshot = snapshot
+            app.preflight.finish_download(cancelled=True)
+            terminal = _image_text(widget)
+            clock[0] = 125.0
+            app.tick_elapsed()
+            assert _image_text(widget) == terminal
+            assert app.preflight.latest_download.phase == "cancelled"
+            assert app.preflight.latest_download.source_domain == "registry-1.docker.io"
+            assert "0 B" not in terminal
+        app.execution.session.started_monotonic = 0

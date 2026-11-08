@@ -161,8 +161,27 @@ TUI 提供以下动作：
 | 已识别资源／未知大小 | 当前 Docker 操作中已发现对象的体积和未知项；新对象、后续 total 会动态补充，不保证已枚举全部资源 |
 | 缓存字节／项、复用构建步骤 | 已确认复用的文件或层、独立的 BuildKit cached vertex 数；未知缓存大小不会伪造为已节省字节 |
 
-Engine `Downloading` 按对象和显式重试累计；Moby 续传的下一次计数表示本次新读 payload，分母可能
-缩为剩余大小。重复事件不重复相加；没有重试标记的计数回退保留原有证据并标为部分统计。
+下载状态保留“没有证据”和“确认没有下载”的区别：
+
+| 状态 | TUI 显示 | 证据要求 |
+| --- | --- | --- |
+| `waiting` | 等待下载 | Docker 操作尚未启动 |
+| `unavailable` | 下载量暂不可统计 | 已启动，但尚无有效 payload 字节；元数据、纯日志和内容就绪不能补成 0 |
+| `partial` | 已确认下载 X MB（部分统计） | 保留已观测字节，但操作仍进行中、部分来源不报告、事件不完整或操作失败／取消 |
+| `reported` | 已报告下载 X MB | 操作成功，已发现的下载对象均有完整字节证据；仍只覆盖所报告的 payload |
+| `cached` | 0 B（缓存命中） | 成功的 Engine pull 中，已发现的所有层均明确 `Already exists` 且没有下载；未知大小仍不推算缓存节省量 |
+
+单个层命中缓存、已有一个 `CACHED` 步骤或操作成功退出都不足以证明整个构建零下载。
+有前序未知／部分操作时，后续完整操作不能把本轮累计改称完整统计；失败、连接中断、取消和
+本地构建回退均保留各 operation ID 的已确认字节。累计值可为有证据的 0，但不会把未知操作补成 0。
+
+Engine 的计数先按同一 daemon 的只读 `/info` 确定存储语义。经典 image store 的 `Downloading`
+按对象和显式重试累计；Moby 续传的下一次计数表示本次新读 payload，分母可能缩为剩余大小。
+containerd image store 的 `Downloading` 来自 ingest offset，可能包含历史续传；首次样本只建立基线，
+之后仅累计观测到的增长并标为部分统计，当前 offset 单独显示为内容就绪量。无法确定 store 时也采用
+此保守模式。基线缺失不补零，计数回退或显式重试重新建立基线，不清空此前确认的增量。
+非字节 `Extracting`（例如 Docker 29 的秒数）保留解压活动，不渲染为字节，也不影响已确认下载。
+重复事件不重复相加；没有重试标记的经典计数回退保留原有证据并标为部分统计。
 BuildKit 无名称的 digest 状态表示内容存储可用量，可能来自已有缓存或并发复用，因此仅更新资源体积，
 不记作网络下载。解压、本地 context 上传和普通构建工作量也不计入下载。
 
@@ -171,8 +190,43 @@ BuildKit 无名称的 digest 状态表示内容存储可用量，可能来自已
 完成、缓存命中和失败会强制刷新。并行 vertex 的日志片段独立拼接。Docker EOF、异常和取消保留
 最后的有效计数；外层验证／失败事件不会清空这些证据，新一轮运行才重置累计值。
 
+#### 无字节进度、来源与等待提示
+
+`resolve image config for docker-image://...` 显示“正在解析 Dockerfile 构建前端”，
+并保留前端镜像引用、Registry、引用域名、来源策略和 BuildKit 网络归属；`load metadata for ...`
+显示元数据解析。镜像层下载、内容就绪、解压、上下文上传和普通构建各用自己的活动名称，
+元数据请求不计入下载 payload。依赖下载器同时报告 Debian、PyPI、PyTorch 或自定义来源及域名；
+模型仓库继续使用原模型下载面板。
+
+准备阶段复用已有的 1 秒 UI 计时刷新，即使没有新下载事件，也持续显示操作耗时与距上次进度的
+等待时长。默认静默 **30 秒**显示“长时间未收到进度”，阈值可在启动前设置：
+
+```bash
+ACPROF_DOCKER_PROGRESS_STALL_SECONDS=60 acprof tui
+```
+
+该值必须为有限正数。它只控制提示，不终止 Docker、不改变网络超时，也不把静默自动判定为
+网络失败。Engine 拉取事件流不因静默主动中断；连接和 `/info` 探测保留独立超时，用户仍可取消。
+取消、失败及阶段结束后冻结计时；正式测量窗口保持无新增刷新／轮询。
+
+| 网络归属 | 应检查的设置 | 无法由该设置证明的内容 |
+| --- | --- | --- |
+| Docker CLI／主机 | 当前 Docker context、凭据和客户端代理 | 主机请求成功不证明 daemon／BuildKit 能访问 Registry |
+| Docker daemon | daemon 的 DNS、代理与 Registry mirrors；Docker Desktop 使用其对应设置 | shell 的 HTTP_PROXY 不会自动成为 daemon 配置 |
+| BuildKit | 当前 builder 的网络、DNS、代理及 Registry mirror 配置 | 独立 builder 不保证继承 daemon 配置 |
+| 构建中的依赖程序 | 构建参数、依赖镜像源和 RUN 网络 | 不控制 Dockerfile frontend 与基础镜像解析 |
+
+AC-Prof 的 `ACPROF_DOCKER_HUB_MIRROR` 会通过现有 `docker_hub_image` 策略应用到固定摘要的
+基础镜像和 `BUILDKIT_SYNTAX` 前端引用；依赖包镜像源继续独立配置。Docker 事件通常只提供
+镜像引用，无法确认 daemon／BuildKit 最终使用的 mirror、CDN 或代理出口，因此 TUI 将它标为
+“引用域名”，明确实际连接主机未报告，不把官方引用或已配置镜像源宣称为已经走过的网络路径。
+
+rawjson 支持 SolveStatus 批次、兼容单记录、稀疏状态和有界的旧式多行 JSON；异常或截断事件保留
+已有数据并标记覆盖不完整。Engine JSON 流按到达的块逐行处理，不再等待累积 16 KiB 才显示小事件。
+非字节工作单位、解压、上下文上传和 BuildKit 内容存储 offset 均不得冒充网络下载。
+
 最终显示的是操作结束时已确认的计数，不是抓包流量：HTTP/TLS 头、认证／Manifest 元数据、
-未报告的 Docker 内部重试或续传基线、普通 `RUN` 程序和无字节事件的下载仍无法完整计量。
+未报告的 Docker 内部重试或续传基线、普通 `RUN`／HTTP `ADD` 和无字节事件的下载仍无法完整计量。
 缓存构建只报告 `CACHED` 时，仅确认步骤复用，不从步骤数推算下载量或百分比。
 模型下载继续使用现有 SDK payload／文件重建统计，不与 Docker 字节合成一个整体百分比。
 依赖 helper 与下载策略已经属于构建指纹，本次更新会改变依赖镜像身份；不会替换历史实验记录的 image ID。
@@ -182,6 +236,10 @@ BuildKit 无名称的 digest 状态表示内容存储可用量，可能来自已
 及 [BuildKit 内容存储进度](https://github.com/moby/buildkit/blob/cedaeca8850a2bb536bbd1db72419f3cf491bdb5/util/pull/pullprogress/progress.go)。
 沿用受维护的 Apache-2.0 上游协议思路与现有日志、HTTPX、Textual 能力，不复制源码或增加依赖；
 所有计数发生在准备阶段，正式测量窗口仍拒绝下载事件和 UI 刷新。
+事件兼容性同时参考 [BuildKit rawjson 单行化修复 #4770](https://github.com/moby/buildkit/pull/4770)，
+来源边界参考 [BuildKit Registry mirror 配置](https://docs.docker.com/build/buildkit/configure/)
+和 [Docker CLI 代理配置边界](https://docs.docker.com/engine/cli/proxy/)。
+Engine 新存储计数与解压单位参考 [Docker 29.4 containerd progress](https://github.com/moby/moby/blob/docker-v29.4.0/daemon/containerd/progress.go)。
 
 ## 镜像管理与清理
 

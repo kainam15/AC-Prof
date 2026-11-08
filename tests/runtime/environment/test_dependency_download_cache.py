@@ -47,6 +47,9 @@ class TestDependencyDownloadCache:
         assert complete["total"] == 10
         assert complete["current"] == 10
         assert complete["cached"] == 0
+        assert complete["source_category"] == "pypi"
+        assert complete["source_domain"] == "files.pythonhosted.org"
+        assert complete["source_kind"] == "official"
         assert events[-1]["state"] == "cached"
         assert events[-1]["received"] == 0
         assert events[-1]["cached"] == 10

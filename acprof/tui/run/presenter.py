@@ -18,6 +18,7 @@ from acprof.tui.run.process import StopResult
 from acprof.tui.run.progress import ProgressSnapshot
 from acprof.tui.run.stages import Stage
 from acprof.tui.ui.presentation import NOT_APPLICABLE, UNKNOWN
+from acprof.tui.ui.progress_widgets import DownloadProgressPanel
 
 if TYPE_CHECKING:
     from acprof.tui.app import AcprofTui
@@ -84,7 +85,7 @@ class RunPresenter:
         self.app.process.execute_command(list(pending.command), pending.kind, config=pending.config)
 
     def tick_elapsed(self) -> None:
-        """Update only the elapsed-time widget, even during measurement."""
+        """Refresh preparation timing; only the small clock changes during measurement."""
         # Textual stops the app before removing widgets, ahead of on_unmount.
         if not self.app.is_running or self.app.ui_closing:
             return
@@ -97,6 +98,7 @@ class RunPresenter:
             self.app.localization.set_text(widget, elapsed, layout=False)
         if not self.app.execution.session.snapshot.measurement_active:
             self.render_phase_times(self.app.execution.session.snapshot)
+            self.app.query_one(DownloadProgressPanel).refresh_timing()
 
     def render_phase_times(self, snapshot: ProgressSnapshot) -> None:
         widget = self.app.query_one("#status-phase-times", Static)

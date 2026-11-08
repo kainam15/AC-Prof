@@ -6,7 +6,7 @@ import asyncio
 from itertools import combinations
 
 import pytest
-from textual.widgets import Button
+from textual.widgets import Button, Static
 
 from tests.visual_png.fixture_app import VisualFixtureApp
 from tests.visual_png.scenarios import SCENARIOS
@@ -21,6 +21,10 @@ pytestmark = pytest.mark.visual_png
         ("error-modal", ("#preflight-inspection", "#preflight-retry")),
         ("statistics", ("#experiment-source", "#refresh-experiment-state", "#report-calculate")),
         ("statistics-en", ("#experiment-source", "#refresh-experiment-state", "#report-calculate")),
+        ("docker-frontend", ("#download-progress", "#stop-run")),
+        ("docker-frontend-small", ("#download-progress", "#stop-run")),
+        ("docker-frontend-en", ("#download-progress", "#stop-run")),
+        ("docker-frontend-en-small", ("#download-progress", "#stop-run")),
         (
             "task-selection",
             ("#preparation-cancel", "#preparation-select-all", "#preparation-apply"),
@@ -37,6 +41,11 @@ async def test_visible_controls_fit_without_overlap(
         await app.workers.wait_for_complete()
         await pilot.pause()
         controls = [app.screen.query_one(selector) for selector in selectors]
+        if scene.startswith("docker-frontend"):
+            stage = app.execution.session.snapshot.stage
+            assert str(app.query_one("#status-stage", Static).content) == app.localization.tr(stage.label)
+            assert not app.query_one("#stop-run", Button).disabled
+            assert not app.execution.session.snapshot.measurement_active
         state = {"main": app.query_one("#main-tabs").active,
                  "results": app.query_one("#result-views").active,
                  "focused": str(app.focused), "pane_display": app.query_one("#results-tab").display}

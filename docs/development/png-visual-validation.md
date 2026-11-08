@@ -45,8 +45,11 @@ uv run python scripts/render_tui_png_report.py
 ACPROF_PNG_VISUAL=1 uv run pytest tests/visual_png -v
 ```
 
-默认结果为 `internal-testing/shared/tui-png/` 下的 8 张 PNG；其中 `form-small`、`statistics` 和 `statistics-en` 使用 **80×24**，其他场景使用 **120×36**，目录已由 Git 忽略。
-所有场景使用固定字体、16 px 字体大小；`statistics-en` 使用英文，其余使用中文，
+默认结果为 `internal-testing/shared/tui-png/` 下的 12 张 PNG；其中 `form-small`、`statistics`、`statistics-en`、
+`docker-frontend-small` 和 `docker-frontend-en-small` 使用 **80×24**，其他场景使用 **120×36**，目录已由 Git 忽略。
+新增的 `docker-frontend`、`docker-frontend-small`、`docker-frontend-en`、`docker-frontend-en-small`
+模拟 Dockerfile 前端解析静默 58 秒，检查未知下载量、等待时长、来源、元数据说明和停滞提示；不会启动 Docker。
+所有场景使用固定字体、16 px 字体大小；`statistics-en`、`docker-frontend-en` 和 `docker-frontend-en-small` 使用英文，其余使用中文，
 Graphite 主题、UTC、固定测试数据与隔离的临时 HOME/缓存。
 测试夹具还将环境身份固定模拟为 `Native Linux / FULL`，避免 CI 虚拟机的实际身份引入 PNG 差异。
 该模拟仅在测试夹具进程中生效，不修改正式运行时的环境检测。
@@ -102,6 +105,9 @@ VHS 只操作该测试应用，没有向 AC-Prof CLI 添加截图选项。
 - `near-match`：BAAI/bge-m3 自定义配置
 - `measuring`：模拟测量阶段与日志布局
 - `task-selection`：多任务选择弹窗
+- `statistics`、`statistics-en`：中文／英文统计页（80×24）
+- `docker-frontend`、`docker-frontend-en`：中文／英文 Dockerfile 前端解析与静默提示（120×36）
+- `docker-frontend-small`、`docker-frontend-en-small`：相同解析状态在窄屏中的换行与滚动（80×24）
 
 比较器使用 Pillow 对每个 RGB 像素取最大通道差，差异小于 `32/255` 的像素视为渲染噪声，每张图**最多允许 120 个明显不同的像素**；尺寸不一致、缺失、无效图片或超过阈值均判失败。比较器只读基线，绝不会自动创建/修改它。失败时在 `internal-testing/shared/tui-png/diff/` 生成红色差异覆盖图和 `diff/expected/` 中的原基线副本，同时生成机器可读的 `report.json`。独立的 `scripts/render_tui_png_report.py` 只读取已有比较结论及 PNG 证据，输出忽略目录下的 `internal-testing/shared/tui-png/report.html`；HTML 内嵌旧图、新图与差异图，单文件可离线查看，支持按通过/失败筛选，不重新比较像素，也不更新基线。没有 `report.json` 时明确标注“比较未执行”，不误报通过；损坏的报告会导致生成命令报错。
 
@@ -109,7 +115,7 @@ VHS 只操作该测试应用，没有向 AC-Prof CLI 添加截图选项。
 
 ```bash
 uv run python scripts/capture_tui_png.py --all --output internal-testing/shared/tui-png/candidates
-# 仔细人工审查全部 8 张 PNG，不应包含中文重叠/边框缺口
+# 仔细人工审查全部 12 张 PNG，不应包含中文重叠/边框缺口
 cp internal-testing/shared/tui-png/candidates/*.png tests/visual_png/__snapshots__/
 ACPROF_PNG_VISUAL=1 uv run pytest tests/visual_png -v
 ```

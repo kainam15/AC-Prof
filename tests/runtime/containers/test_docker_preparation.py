@@ -346,6 +346,8 @@ def test_engine_pull_errors_keep_diagnostics_without_premature_failure(monkeypat
     monkeypatch.setenv("ACPROF_TUI", "1")
     monkeypatch.setattr(operations, "_anonymous_socket", lambda: "/fake/docker.sock")
     def respond(request):
+        if request.url.path == "/info":
+            return httpx.Response(200, json={"Driver": "overlay2", "DriverStatus": []})
         assert request.url.params["platform"] == "linux/amd64"
         body = {"errorDetail": {"message": message}, "error": message} if status == 200 else {"message": message}
         return httpx.Response(status, content=(json.dumps(body) + "\n").encode())

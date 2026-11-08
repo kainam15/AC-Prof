@@ -1,6 +1,8 @@
 """Event-driven progress presentation with theme-aware colors and no animation."""
 from __future__ import annotations
 
+import time
+
 from rich.columns import Columns
 from rich.console import Group, RenderableType
 from rich.progress_bar import ProgressBar
@@ -93,7 +95,7 @@ class DownloadProgressPanel(VerticalScroll):
         plan.display = bool(summary)
 
     def update_progress(self, progress: DownloadProgress | ImageProgress) -> None:
-        self.set_class(isinstance(progress, ImageProgress) and progress.known_bytes is not None, "image-accounting")
+        self.set_class(isinstance(progress, ImageProgress), "image-accounting")
         model = self.query_one(DownloadProgressContent)
         image = self.query_one(ImageProgressContent)
         image.display = isinstance(progress, ImageProgress)
@@ -103,6 +105,12 @@ class DownloadProgressPanel(VerticalScroll):
         else:
             model.update_progress(progress)
 
+    def refresh_timing(self) -> None:
+        if self.display:
+            image = self.query_one(ImageProgressContent)
+            if image.display:
+                image.refresh_timing()
+
 
 class ImageProgressContent(ProgressSummary):
     progress: ImageProgress | None = None
@@ -111,16 +119,54 @@ class ImageProgressContent(ProgressSummary):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.operation_payloads: dict[str, int] = {}
+        self.operation_statuses: dict[str, str] = {}
+        self.uncovered_sources: set[str] = set()
+        self._received_at = 0.0
+        self._elapsed_seconds = 0.0
+        self._idle_seconds = 0.0
+        self._clock: tuple[int, int, bool] = (0, 0, False)
 
     def reset_accounting(self) -> None:
         self.operation_payloads.clear()
+        self.operation_statuses.clear()
+        self.uncovered_sources.clear()
         self.progress = None
         self.fallback_reason = ""
+        self._clock = (0, 0, False)
+
+    def _timing(self, now: float) -> tuple[int, int, bool]:
+        progress = self.progress
+        active = progress is not None and progress.phase in {"pulling", "building"}
+        delta = max(0.0, now - self._received_at) if active else 0.0
+        elapsed = int(self._elapsed_seconds + delta)
+        idle = int(self._idle_seconds + delta)
+        return elapsed, idle, bool(active and progress is not None and idle >= progress.stall_after_seconds)
+
+    def refresh_timing(self) -> None:
+        """Use the run's preparation ticker; this widget owns no timer."""
+        if self.progress is None or not self.progress.operation_id:
+            return
+        clock = self._timing(time.monotonic())
+        if clock != self._clock:
+            layout = clock[2] != self._clock[2]
+            self._clock = clock
+            self.refresh(layout=layout)
 
     def update_progress(self, progress: ImageProgress) -> None:
-        if progress.operation_id and progress.transferred_bytes is not None:
-            self.operation_payloads[progress.operation_id] = max(
-                self.operation_payloads.get(progress.operation_id, 0), progress.transferred_bytes)
+        now = time.monotonic()
+        same_operation = (self.progress is not None and progress.operation_id
+                          and self.progress.operation_id == progress.operation_id)
+        previous_elapsed, previous_idle, _ = self._timing(now)
+        self._elapsed_seconds = max(progress.elapsed_seconds, previous_elapsed if same_operation else 0)
+        terminal = progress.phase not in {"pulling", "building"}
+        self._idle_seconds = max(progress.idle_seconds, previous_idle if same_operation and terminal else 0)
+        self._received_at = now
+        if progress.operation_id:
+            self.operation_statuses[progress.operation_id] = progress.transfer_status
+            if progress.transferred_bytes is not None:
+                self.operation_payloads[progress.operation_id] = max(
+                    self.operation_payloads.get(progress.operation_id, 0), progress.transferred_bytes)
+        self.uncovered_sources.update(progress.uncovered_sources)
         if (self.progress is None or self.progress.component != progress.component
                 or progress.phase == "pulling"
                 or progress.phase == "checking" and self.progress.phase in {"complete", "failed", "cancelled"}):
@@ -128,7 +174,69 @@ class ImageProgressContent(ProgressSummary):
         if progress.phase == "fallback":
             self.fallback_reason = progress.reason_code
         self.progress = progress
+        self._clock = self._timing(now)
         self.refresh(layout=True)
+
+    def _cumulative(self, progress: ImageProgress) -> tuple[str, int | None]:
+        statuses = tuple(self.operation_statuses.values()) or (progress.transfer_status,)
+        amount = sum(self.operation_payloads.values()) if self.operation_payloads else progress.transferred_bytes
+        if amount is None:
+            return ("waiting" if all(status == "waiting" for status in statuses) else "unavailable"), None
+        if amount == 0 and all(status == "cached" for status in statuses):
+            return "cached", 0
+        status = "reported" if all(item in {"reported", "cached"} for item in statuses) else "partial"
+        return status, amount
+
+    @staticmethod
+    def _duration(seconds: int) -> str:
+        hours, remainder = divmod(seconds, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+
+    def _source_parts(self, progress: ImageProgress) -> list[RenderableType]:
+        parts: list[RenderableType] = []
+        if progress.source_image:
+            parts.append(self.metric(message_id("run.docker.source_image"), progress.source_image))
+        cells = []
+        for label, value in (("registry", progress.source_registry), ("domain", progress.source_domain)):
+            if value:
+                cells.append(self.metric(message_id("run.docker.source_" + label), value))
+        if cells:
+            parts.append(Columns(cells, padding=(0, 2)))
+        source_labels = []
+        for prefix, value in (("category", progress.source_category), ("source_kind", progress.source_kind),
+                              ("network_owner", progress.network_owner)):
+            if value:
+                source_labels.append(self.text(message_id("run.docker." + prefix + "." + value), "label"))
+        if source_labels:
+            parts.append(Text(" · ").join(source_labels))
+        return parts
+
+    def _accounting_parts(self, progress: ImageProgress, status: str) -> list[RenderableType]:
+        parts: list[RenderableType] = []
+        cells = []
+        if progress.known_bytes or progress.unknown_items:
+            cells.append(self.metric(message_id("run.docker.identified"), format_bytes(progress.known_bytes)))
+        if progress.unknown_items is not None:
+            cells.append(self.metric(message_id("run.docker.unknown_items"), str(progress.unknown_items)))
+        if progress.cached_bytes:
+            cells.append(self.metric(message_id("run.docker.cached"), format_bytes(progress.cached_bytes)))
+        if progress.cached_items:
+            cells.append(self.metric(message_id("run.docker.cached_items"), str(progress.cached_items)))
+        if progress.reused_steps:
+            cells.append(self.metric(message_id("run.docker.reused_steps"), str(progress.reused_steps)))
+        if cells:
+            parts.append(Columns(cells, padding=(0, 2)))
+        if len(self.operation_statuses) > 1:
+            parts.append(self.metric(message_id("run.docker.operation_downloaded"),
+                                     message_id("run.docker.download_state." + progress.transfer_status,
+                                                format_bytes(progress.transferred_bytes))))
+        parts.append(self.text(message_id("run.docker.scope." + status), "label"))
+        if self.uncovered_sources:
+            names = [translated_app(self.app).tr(message_id("run.docker.uncovered." + name))
+                     for name in sorted(self.uncovered_sources)]
+            parts.append(self.text(message_id("run.docker.uncovered_sources", " · ".join(names)), "label"))
+        return parts
 
     def render(self) -> RenderableType:
         progress = self.progress
@@ -136,17 +244,38 @@ class ImageProgressContent(ProgressSummary):
             return Text()
         phase = ("pulling_prebuilt" if progress.phase == "pulling" and progress.component in {"platform", "environment"}
                  else progress.phase)
+        heading = ("run.docker.activity." + progress.activity
+                   if progress.phase in {"pulling", "building"} and progress.activity in {"frontend", "metadata", "build"}
+                   else "run.docker.phase." + phase)
         role = {"fallback": "warning", "failed": "error", "cancelled": "warning", "complete": "success"}.get(progress.phase, "active")
         parts: list[RenderableType] = [self.metric(message_id("run.docker.component." + progress.component),
-                                                 message_id("run.docker.phase." + phase), role)]
-        parts.append(Text(progress.image, overflow="fold"))
+                                                 message_id(heading), role)]
+        status, cumulative = self._cumulative(progress)
+        parts.append(self.metric(message_id("run.docker.downloaded"),
+                                 message_id("run.docker.download_state." + status, format_bytes(cumulative))))
+        if progress.operation_id:
+            elapsed, idle, stalled = self._clock
+            parts.append(self.text(message_id("run.docker.wait_time", self._duration(elapsed),
+                                               self._duration(idle)), "label"))
+            if stalled:
+                parts.append(self.text(message_id("run.docker.stalled"), "warning"))
+        parts.extend(self._source_parts(progress))
+        if progress.activity in {"frontend", "metadata"} and progress.transferred_bytes is None:
+            parts.append(self.text(message_id("run.docker.metadata_payload"), "label"))
+        if progress.source_registry:
+            parts.append(self.text(message_id("run.docker.source_reference"), "label"))
+        if progress.image != progress.source_image:
+            parts.append(self.metric(message_id("run.docker.target_image"), progress.image))
+        if self._clock[2]:
+            parts.append(self.text(message_id("run.docker.stalled_hint"), "warning"))
         if self.fallback_reason in {"docker_manifest_missing", "docker_platform_mismatch", "docker_network_failed"}:
             parts.append(self.text(message_id("run.docker.fallback",
                                              message_id("run.docker.fallback_reason." + self.fallback_reason)), "warning"))
         if progress.content:
             content = progress.content
-            status = content["status"]
-            label = self.text(message_id("run.docker.content." + status), "success" if status == "complete" else "warning")
+            content_status = content["status"]
+            label = self.text(message_id("run.docker.content." + content_status),
+                              "success" if content_status == "complete" else "warning")
             if content.get("present") is not None:
                 label.append(f" ({content['present']}/{content.get('required') or '?'})")
             parts.append(label)
@@ -158,22 +287,7 @@ class ImageProgressContent(ProgressSummary):
             parts.append(row)
         elif progress.current is not None:
             parts.append(self.metric(message_id("run.docker.activity." + progress.activity), format_bytes(progress.current)))
-        if progress.known_bytes is not None:
-            cumulative = sum(self.operation_payloads.values()) if self.operation_payloads else progress.transferred_bytes
-            cells = [self.metric(message_id("run.docker.downloaded"), format_bytes(cumulative)),
-                     self.metric(message_id("run.docker.identified"), format_bytes(progress.known_bytes)),
-                     self.metric(message_id("run.docker.unknown_items"), str(progress.unknown_items))]
-            if progress.cached_items or progress.cached_bytes:
-                cells.append(self.metric(message_id("run.docker.cached"),
-                                         f"{format_bytes(progress.cached_bytes)} / {progress.cached_items}"))
-            if progress.reused_steps:
-                cells.append(self.metric(message_id("run.docker.reused_steps"), str(progress.reused_steps)))
-            parts.append(Columns(cells, padding=(0, 2)))
-            if len(self.operation_payloads) > 1:
-                parts.append(self.metric(message_id("run.docker.operation_downloaded"), format_bytes(progress.transferred_bytes)))
-            parts.append(self.text(message_id("run.docker.scope." + progress.transfer_status), "label"))
-        elif progress.phase in {"pulling", "building"} and progress.current is None:
-            parts.append(self.text(message_id("run.docker.unknown_size"), "label"))
+        parts.extend(self._accounting_parts(progress, status))
         if progress.detail and progress.phase != "failed":
             parts.append(Text(progress.detail, overflow="fold"))
         return Group(*parts)

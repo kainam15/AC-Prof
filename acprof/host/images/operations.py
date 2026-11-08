@@ -21,7 +21,8 @@ from acprof.system import command as host_command
 def run_docker(command: list[str], *, component: str, image: str, operation: str, step: str = "",
                frontend: str = ""):
     output = DockerOutput(component, image, "building" if operation == "build" else "pulling")
-    output.transition(output.phase, detail=step)
+    output.start(detail=step, frontend=frontend, cli=operation == "pull")
+    succeeded = cancelled = False
     try:
         result = host_command.run_command(command, capture_output=False, output_line=output.feed,
                                          env_overrides={"BUILDKIT_PROGRESS": "rawjson"} if operation == "build" else {})
@@ -30,12 +31,18 @@ def run_docker(command: list[str], *, component: str, image: str, operation: str
             for line in ((result.stdout or "") + "\n" + (result.stderr or "")).splitlines():
                 if line:
                     output.feed(line)
+        succeeded = result.returncode == 0 and not output.error
+    except KeyboardInterrupt:
+        cancelled = True
+        raise
     except (OSError, subprocess.SubprocessError) as exc:
         if frontend_failed(str(exc), output.step, frontend):
             raise frontend_error(str(exc), frontend) from exc
         raise DockerPreparationError(reason_code(str(exc), operation), str(exc), image=image, step=step) from exc
     finally:
-        output.finish()
+        output.finish(succeeded=succeeded)
+        if cancelled:
+            output.transition("cancelled")
     if result.returncode or output.error:
         # The caller owns pull policy: a failed pull can still lead to a build.
         if operation != "pull":
@@ -63,6 +70,27 @@ def _anonymous_socket() -> str | None:
         return None
 
 
+def _engine_uses_offsets(client: httpx.Client) -> bool:
+    """Inspect this daemon once; unknown stores cannot prove a fresh byte counter."""
+    try:
+        response = client.get("http://docker/info", timeout=15.0)
+        response.raise_for_status()
+        info = response.json()
+    except (httpx.HTTPError, ValueError):
+        return True
+    if not isinstance(info, dict):
+        return True
+    status = info.get("DriverStatus")
+    if status is not None and (not isinstance(status, list) or any(not isinstance(row, list) for row in status)):
+        return True
+    if any("io.containerd.snapshotter.v1" in row for row in status or []):
+        return True
+    driver = info.get("Driver")
+    return not isinstance(driver, str) or driver not in {
+        "overlay2", "btrfs", "zfs", "aufs", "devicemapper", "vfs", "fuse-overlayfs", "windowsfilter",
+    }
+
+
 def pull_image(reference: str, *, component: str) -> None:
     socket = _anonymous_socket()
     if socket is None:
@@ -70,10 +98,12 @@ def pull_image(reference: str, *, component: str) -> None:
                    component=component, image=reference, operation="pull", step="docker pull")
         return
     output = DockerOutput(component, reference, "pulling")
-    output.transition("pulling")
+    output.start(detail="docker pull")
+    succeeded = cancelled = False
     try:
         with httpx.Client(transport=httpx.HTTPTransport(uds=socket),
-                          timeout=httpx.Timeout(120.0, connect=15.0)) as client:
+                          timeout=httpx.Timeout(120.0, connect=15.0, read=None)) as client:
+            output.accounting.engine_offsets = _engine_uses_offsets(client)
             with client.stream("POST", "http://docker/images/create", params={"fromImage": reference, "platform": "linux/amd64"}) as response:
                 if response.status_code >= 400:
                     detail = next(response.iter_bytes(chunk_size=12000), b"").decode("utf-8", errors="replace")
@@ -84,16 +114,23 @@ def pull_image(reference: str, *, component: str) -> None:
                     output.feed(line)
                 if output.error:
                     raise DockerPreparationError(reason_code(output.error, "pull"), output.detail, image=reference, step="docker pull")
+                succeeded = True
+    except KeyboardInterrupt:
+        cancelled = True
+        raise
     except httpx.HTTPError as exc:
         raise DockerPreparationError("docker_network_failed", str(exc), image=reference, step="docker pull") from exc
     finally:
-        output.finish()
+        output.finish(succeeded=succeeded)
+        if cancelled:
+            output.transition("cancelled")
     output.transition("verifying")
 
 
 def _response_lines(response):
     pending = b""
-    for chunk in response.iter_bytes(chunk_size=16384):
+    # Do not batch to 16 KiB: small daemon events must reach the UI immediately.
+    for chunk in response.iter_bytes():
         pending += chunk
         while b"\n" in pending:
             line, pending = pending.split(b"\n", 1)
