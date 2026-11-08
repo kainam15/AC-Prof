@@ -34,9 +34,15 @@ def failure_text(request, stage, tr):
         code = error["reason_code"]
         lines = [tr(message_id("run.docker.error." + code)) if code in {
             "docker_content_incomplete", "docker_auth_failed", "docker_network_failed", "docker_disk_full",
-            "docker_repair_unverified", "docker_repair_forbidden",
+            "docker_repair_unverified", "docker_repair_forbidden", "docker_frontend_failed",
+            "docker_integrity_failed", "docker_tls_failed",
         } else tr(message_id("run.docker.error.generic"))]
         lines.append(tr(message_id("run.docker.failed_step", error.get("step") or error.get("image", ""))))
+        if code == "docker_frontend_failed":
+            from acprof.tui.run.downloads import probe_reason
+            lines.append(tr(message_id("run.docker.frontend_source", error.get("registry") or "?",
+                                       probe_reason(error.get("network_reason")))))
+            lines.append(tr(message_id("run.docker.frontend_hint")))
         if content := error.get("content"):
             lines.append(tr(message_id("run.docker.content." + content["status"])) +
                          (f" ({content['present']}/{content.get('required') or '?'})" if content.get("present") is not None else ""))
@@ -45,7 +51,7 @@ def failure_text(request, stage, tr):
                 lines.append(tr(message_id("run.docker.upgrade", content["engine_version"])))
         if error.get("exit_code") is not None:
             lines.append(tr(message_id("run.docker.exit_code", error["exit_code"])))
-        if error.get("detail"):
+        if error.get("detail") and code != "docker_frontend_failed":
             lines.append(error["detail"][-1200:])
         if error.get("log_path"):
             lines.append(tr(message_id("run.docker.log_path", error["log_path"])))
@@ -234,12 +240,15 @@ class PreparationScreen(ModalScreen):
                         yield Button(tr("确认下载" if download else "确定"), id="preparation-continue",
                                      disabled=not ready, variant="primary" if ready else "default")
                 elif failed:
-                    yield Button(tr(message_id("run.environment.retry")) if docker_error else tr("重试"), id="preparation-continue", variant="primary",
+                    retry_label = ("run.docker.frontend_retry" if docker_error and docker_error.get("reason_code") == "docker_frontend_failed"
+                                   else "run.environment.retry")
+                    yield Button(tr(message_id(retry_label)) if docker_error else tr("重试"), id="preparation-continue", variant="primary",
                                  tooltip=tr(message_id("run.preparation.retry_hint")))
                     if docker_error and "repair" in docker_error.get("actions", []):
                         yield Button(tr(message_id("run.docker.repair")), id="preparation-repair",
                                      tooltip=tr(message_id("run.docker.repair_hint")))
-                    if self.event["stage"] in {"image", "environment", "runtime"}:
+                    if (self.event["stage"] in {"image", "environment", "runtime"}
+                            and (not docker_error or "rebuild" in docker_error.get("actions", ["rebuild"]))):
                         yield Button(tr("重新准备环境"), id="preparation-rebuild",
                                      tooltip=tr(message_id("run.preparation.rebuild_hint")))
                     if download_failure(request):

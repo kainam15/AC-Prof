@@ -56,7 +56,9 @@ ModelScope branch/tag 通过轻量 `git ls-remote` 固定为仓库 commit（需�
 
 ## TUI 本地设置
 
-`F2` → **应用设置** → **管理连接与权限**管理 Token、下载预算、Model Store 与企业微信 Webhook。Hub 入口高级配置仅通过 CLI/环境变量提供。
+`F2` → **应用设置** → **管理连接与权限**管理 Token、下载预算、Model Store、Docker 下载源与企业微信 Webhook。Hub 入口高级配置仅通过 CLI/环境变量提供。
+国内制品镜像、OCI 地址和 `auto|pull|build` 的语义统一见[镜像下载来源](../models/images.md#下载来源分流限额-vpn-场景)。
+保存后仅新启动的任务继承改动；正在等待重试的子进程需要返回配置并重新启动才能使用新的下载源。
 连接配置保存到工作目录的 `.env.local`，原文件备份为 `.env.local.bak`，两个文件权限均为 `0600`。
 保留其他键和注释；保存前发现文件已被外部修改时拒绝覆盖，符号链接也不会被写入。
 本地字段解析与冲突检查使用同一份 `.env.local` 快照；保存成功后，以本次写入的内容作为下次保存的基线，

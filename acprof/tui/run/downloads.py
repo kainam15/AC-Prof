@@ -21,15 +21,19 @@ def runtime_summary(runtime: dict) -> str:
         state = message_id('downloads.runtime.pull_image')
     else:
         state = UNKNOWN
-    ghcr = (message_id('downloads.runtime.ghcr_required') if runtime.get("will_attempt_ghcr_pull") else
-            message_id('downloads.runtime.ghcr_unneeded') if runtime.get("will_attempt_ghcr_pull") is False else UNKNOWN)
-    return message_id('downloads.runtime.summary', state, ghcr)
+    registry = runtime.get("download_policy", {}).get("runtime_registry") or "ghcr.io"
+    pull = (message_id('downloads.runtime.registry_required', urlsplit("https://" + registry).hostname or UNKNOWN)
+            if runtime.get("will_attempt_ghcr_pull") else
+            message_id('downloads.runtime.registry_unneeded') if runtime.get("will_attempt_ghcr_pull") is False else UNKNOWN)
+    return message_id('downloads.runtime.summary', state, pull)
 
 
 def probe_reason(reason: str | None) -> str:
     if reason and reason.startswith("http-"):
         return message_id('downloads.error.http_status', reason[5:])
     kinds = {"dns": 'downloads.error.dns', "tls": 'downloads.error.tls', "connect-timeout": 'downloads.error.connect_timeout',
+             "proxy": 'downloads.error.proxy', "not-found": 'downloads.error.not_found',
+             "auth": 'downloads.error.auth', "integrity": 'downloads.error.integrity',
              "read-timeout": 'downloads.error.read_timeout', "timeout": 'common.error.request_timeout', "transfer-interrupted": 'downloads.error.incomplete_transfer',
              "untrusted-host": 'downloads.error.redirect_policy', "redirect-loop": 'downloads.error.redirect_loop', "probe-budget": 'downloads.preflight.budget_skipped',
              "offline": 'downloads.preflight.offline', "unsupported-source": 'downloads.preflight.unsupported_source', "source-policy": 'downloads.error.source_policy',
@@ -51,6 +55,45 @@ def source_summary(report: dict, categories: tuple[str, ...]) -> list[str]:
     return lines
 
 
+def download_policy_summary(report: dict) -> list[str]:
+    runtime = report.get("runtime", {})
+    policy = runtime.get("download_policy")
+    if not policy:
+        return []
+    mirrors = policy.get("artifact_mirrors", {})
+    official = message_id('settings.sources.official')
+    lines: list[str] = [message_id('downloads.policy.artifacts',
+                        mirrors.get("ACPROF_PYPI_ARTIFACT_MIRROR") or official,
+                        mirrors.get("ACPROF_PYTORCH_ARTIFACT_MIRROR") or official,
+                        mirrors.get("ACPROF_DEBIAN_ARTIFACT_MIRROR") or official),
+             message_id('downloads.policy.oci', policy.get("docker_hub_mirror") or official,
+                        policy.get("runtime_registry") or UNKNOWN),
+             message_id('downloads.policy.cache',
+                        message_id('downloads.policy.hit' if runtime.get("platform_local") else 'downloads.policy.miss'),
+                        message_id('downloads.policy.hit' if runtime.get("environment_local") else 'downloads.policy.miss'))]
+    for source in report.get("sources", []):
+        if source.get("stage") == "buildkit-frontend":
+            lines.append(message_id('downloads.policy.frontend', urlsplit(source.get("url", "")).hostname or UNKNOWN,
+                                    message_id('downloads.policy.frontend_cache_unknown')))
+    routes = {item.get("route") for item in report.get("sources", [])}
+    for route, label in {"explicit-proxy": "downloads.policy.route.explicit_proxy",
+                         "direct-socket": "downloads.policy.route.direct_socket",
+                         "externally-managed": "downloads.policy.route.externally_managed"}.items():
+        if route in routes:
+            lines.append(message_id(label))
+    alternatives = runtime.get("alternatives", {})
+    if debian_fallback := alternatives.get("debian_fallback_hosts"):
+        lines.append(message_id('downloads.policy.debian_fallback', ", ".join(debian_fallback)))
+    if fallback := alternatives.get("local_build_sources"):
+        hosts = sorted({urlsplit(url).hostname or UNKNOWN for url in fallback})
+        lines.append(message_id('downloads.policy.fallback', ", ".join(hosts)))
+        if not alternatives.get("fallback_permitted", True):
+            lines.append(message_id('downloads.policy.fallback_budget'))
+    if not any(mirrors.values()):
+        lines.append(message_id('downloads.policy.configure_hint'))
+    return lines
+
+
 def network_summary(report: dict) -> list[str]:
     lines = [message_id('downloads.network.system_environment'), *source_summary(report, ("model",))]
     probes = report.get("network_probe", [])
@@ -60,6 +103,8 @@ def network_summary(report: dict) -> list[str]:
         lines.append(message_id('downloads.preflight.unverified_summary', message_id('downloads.preflight.cached_model') if cached else message_id('downloads.preflight.no_result')))
     for probe in probes:
         label = message_id(CATEGORIES.get(probe.get("category", "model"), 'common.field.model'))
+        if "docker/dockerfile" in probe.get("image", ""):
+            label = message_id('downloads.policy.frontend_label')
         state = message_id({"passed": 'common.state.passed', "failed": 'common.state.failed'}.get(probe.get("status"), 'common.state.unverified'))
         scope = message_id('downloads.preflight.bounded_get' if probe.get("method") == "HEAD+GET" else 'downloads.preflight.metadata_only')
         lines.append(message_id('downloads.preflight.endpoint_summary', label, state, scope,
@@ -98,6 +143,7 @@ def download_sections(report: dict) -> tuple[DownloadSection, ...]:
     runtime = (
         runtime_summary(report.get("runtime", {})),
         *source_summary(report, ("python", "debian", "oci")),
+        *download_policy_summary(report),
     )
     storage = [
         message_id('downloads.model_store.used_and_free', format_bytes(disk.get("total_bytes")),

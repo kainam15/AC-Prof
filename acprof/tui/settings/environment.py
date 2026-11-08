@@ -9,7 +9,16 @@ from textual import on, work
 from textual.app import SuspendNotSupported
 from textual.containers import Grid, Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
-from textual.widgets import Button, Checkbox, Collapsible, Label, Static, TabbedContent, TabPane
+from textual.widgets import (
+    Button,
+    Checkbox,
+    Collapsible,
+    Label,
+    Select,
+    Static,
+    TabbedContent,
+    TabPane,
+)
 
 from acprof.experiments.configuration import RunConfig
 from acprof.host.env_utils import ProjectEnvSnapshot
@@ -30,6 +39,18 @@ FIELDS = (
     ('ACPROF_MAX_DOWNLOAD', '下载预算', False, '5GB'),
     ('ACPROF_MODEL_STORE', 'Model Store 路径', False, '~/.cache/acprof/model-store'),
     ('ACPROF_MODEL_STORE_MAX', 'Model Store 容量上限', False, '100GB'),
+)
+
+DOWNLOAD_FIELDS = (
+    ('ACPROF_DOCKER_HUB_MIRROR', 'settings.sources.docker_hub', False, 'registry.example/docker.io'),
+    ('ACPROF_RUNTIME_REGISTRY', 'settings.sources.runtime_registry', False, 'ghcr.io/kainam15/ac-prof/runtime'),
+)
+DOWNLOAD_CHOICES = (
+    ('ACPROF_PYPI_ARTIFACT_MIRROR', 'PyPI', (('settings.sources.official', ''), ('Tencent Cloud', 'tencent'))),
+    ('ACPROF_PYTORCH_ARTIFACT_MIRROR', 'PyTorch', (('settings.sources.official', ''), ('Aliyun', 'aliyun'))),
+    ('ACPROF_DEBIAN_ARTIFACT_MIRROR', 'Debian', (('settings.sources.official', ''), ('Tencent Cloud', 'tencent'))),
+    ('ACPROF_RUNTIME_IMAGE_SOURCE', 'settings.sources.runtime_mode',
+     (('settings.sources.auto', 'auto'), ('settings.sources.pull', 'pull'), ('settings.sources.build', 'build'))),
 )
 
 
@@ -72,7 +93,7 @@ class EnvironmentSettingsScreen(ModalScreen[bool]):
         tr = translated_app(self.app).tr
         with Grid(classes='environment-fields'):
             for key, label, secret, placeholder in fields:
-                yield Label(tr(label))
+                yield Label(tr(message_id(label) if label.startswith('settings.sources.') else label))
                 yield Input(value=self.values[key], password=secret, placeholder=placeholder,
                             id=field_id(key), classes='environment-input')
 
@@ -90,6 +111,20 @@ class EnvironmentSettingsScreen(ModalScreen[bool]):
                                      classes='environment-hint', markup=False)
                         yield from self._fields(FIELDS[:1])
                         yield from self._fields(FIELDS[2:4])
+                        with Collapsible(title=tr(message_id('settings.sources.title')), collapsed=False):
+                            yield Static(tr(message_id('settings.sources.hint')), classes='environment-hint', markup=False)
+                            yield Button(tr(message_id('settings.sources.domestic')), id='use-domestic-sources')
+                            with Grid(classes='environment-fields'):
+                                for key, label, choices in DOWNLOAD_CHOICES:
+                                    yield Label(tr(message_id(label) if label.startswith('settings.sources.') else label))
+                                    value = self.values[key] or ('auto' if key == 'ACPROF_RUNTIME_IMAGE_SOURCE' else '')
+                                    # Keep invalid inherited values visible for correction; never silently reset them.
+                                    options = [(tr(message_id(title)) if title.startswith('settings.sources.') else title, item)
+                                               for title, item in choices]
+                                    if value not in {item for _, item in options}:
+                                        options.append((value, value))
+                                    yield Select(options, value=value, allow_blank=False, id=field_id(key))
+                            yield from self._fields(DOWNLOAD_FIELDS)
                         with Collapsible(title=tr('高级详情'), collapsed=True):
                             yield from self._fields(FIELDS[4:])
                         with Collapsible(title=tr('企业微信通知'), collapsed=True):
@@ -134,7 +169,8 @@ class EnvironmentSettingsScreen(ModalScreen[bool]):
     def save(self):
         if self._working:
             return
-        values = {key: self.query_one('#' + field_id(key), Input).value for key, *_ in FIELDS}
+        values = {key: self.query_one('#' + field_id(key), Input).value for key, *_ in (*FIELDS, *DOWNLOAD_FIELDS)}
+        values.update({key: str(self.query_one('#' + field_id(key), Select).value) for key, *_ in DOWNLOAD_CHOICES})
         try:
             self.environment_snapshot = self.environment_snapshot.save(values)
         except (OSError, ValueError) as exc:
@@ -143,9 +179,17 @@ class EnvironmentSettingsScreen(ModalScreen[bool]):
         self.saved = True
         self._status(message_id('settings.environment.saved', self.environment_snapshot.path))
 
+    @on(Button.Pressed, '#use-domestic-sources')
+    def use_domestic_sources(self):
+        for key, value in (('ACPROF_PYPI_ARTIFACT_MIRROR', 'tencent'),
+                           ('ACPROF_PYTORCH_ARTIFACT_MIRROR', 'aliyun'),
+                           ('ACPROF_DEBIAN_ARTIFACT_MIRROR', 'tencent')):
+            self.query_one('#' + field_id(key), Select).value = value
+        self._status(message_id('settings.sources.pending'))
+
     def _set_working(self, working):
         self._working = working
-        for widget in self.query('Button, Input, Checkbox'):
+        for widget in self.query('Button, Input, Checkbox, Select'):
             widget.disabled = working
 
     @on(Button.Pressed, '#check-environment-permissions')
