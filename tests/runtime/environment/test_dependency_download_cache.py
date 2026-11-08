@@ -22,6 +22,35 @@ from acprof.runtime import dependency_locks
 
 
 class TestDependencyDownloadCache:
+    @pytest.mark.parametrize("resume", [True, False])
+    def test_progress_counts_retry_payload_separately_from_file_size(self, tmp_path, capsys, resume):
+        helper = self.helper()
+        payload = b"abcdefghij"
+        entry = {"name": "example", "sha256": hashlib.sha256(payload).hexdigest(),
+                 "url": "https://files.pythonhosted.org/example.whl"}
+        first = BytesIO(payload[:4])
+        first.headers = {"Content-Length": "10"}
+        second = BytesIO(payload[4:] if resume else payload)
+        if resume:
+            second.status = 206
+            second.headers = {"Content-Range": "bytes 4-9/10"}
+        opener = SimpleNamespace(open=Mock(side_effect=[first, second]))
+        target = tmp_path / "example.whl"
+        with patch("urllib.request.build_opener", return_value=opener), patch.object(helper.time, "sleep"), \
+                patch.object(helper, "_record_transfer"):
+            helper.cached_artifact(entry, target, "python")
+            helper.cached_artifact(entry, target, "python")
+        events = [json.loads(line.split(" ", 1)[1]) for line in capsys.readouterr().out.splitlines()
+                  if line.startswith("ACPROF_DEPENDENCY_PROGRESS ")]
+        complete = next(event for event in events if event["state"] == "complete")
+        assert complete["received"] == (10 if resume else 14)
+        assert complete["total"] == 10
+        assert complete["current"] == 10
+        assert complete["cached"] == 0
+        assert events[-1]["state"] == "cached"
+        assert events[-1]["received"] == 0
+        assert events[-1]["cached"] == 10
+
     @contextmanager
     def artifact_server(self, payload, failures=()):
         requests = []

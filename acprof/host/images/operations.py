@@ -14,14 +14,14 @@ from acprof.host.images.errors import (
     frontend_failed,
     reason_code,
 )
-from acprof.host.images.progress import DockerOutput, emit_image_progress
+from acprof.host.images.progress import DockerOutput
 from acprof.system import command as host_command
 
 
 def run_docker(command: list[str], *, component: str, image: str, operation: str, step: str = "",
                frontend: str = ""):
     output = DockerOutput(component, image, "building" if operation == "build" else "pulling")
-    emit_image_progress(component, image, output.phase, detail=step)
+    output.transition(output.phase, detail=step)
     try:
         result = host_command.run_command(command, capture_output=False, output_line=output.feed,
                                          env_overrides={"BUILDKIT_PROGRESS": "rawjson"} if operation == "build" else {})
@@ -39,13 +39,13 @@ def run_docker(command: list[str], *, component: str, image: str, operation: str
     if result.returncode or output.error:
         # The caller owns pull policy: a failed pull can still lead to a build.
         if operation != "pull":
-            emit_image_progress(component, image, "failed", detail=output.detail[:2048])
+            output.transition("failed", detail=output.detail[:2048])
         if frontend_failed(output.detail, output.step, frontend):
             raise frontend_error(output.detail, frontend, exit_code=result.returncode)
         summary = ("Docker 构建失败: " if operation == "build" else "Docker 拉取失败: ") + output.detail
         raise DockerPreparationError(reason_code(output.detail, operation), summary,
                                     image=image, step=output.step or step, exit_code=result.returncode)
-    emit_image_progress(component, image, "verifying")
+    output.transition("verifying")
     return result
 
 
@@ -70,7 +70,7 @@ def pull_image(reference: str, *, component: str) -> None:
                    component=component, image=reference, operation="pull", step="docker pull")
         return
     output = DockerOutput(component, reference, "pulling")
-    emit_image_progress(component, reference, "pulling")
+    output.transition("pulling")
     try:
         with httpx.Client(transport=httpx.HTTPTransport(uds=socket),
                           timeout=httpx.Timeout(120.0, connect=15.0)) as client:
@@ -88,7 +88,7 @@ def pull_image(reference: str, *, component: str) -> None:
         raise DockerPreparationError("docker_network_failed", str(exc), image=reference, step="docker pull") from exc
     finally:
         output.finish()
-    emit_image_progress(component, reference, "verifying")
+    output.transition("verifying")
 
 
 def _response_lines(response):

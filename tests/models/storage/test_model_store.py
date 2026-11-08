@@ -105,6 +105,13 @@ class TestModelStore:
         assert (first) == (second)
         download.assert_not_called()
 
+    def test_unknown_model_file_keeps_known_file_estimates(self):
+        self.plan["files"].append({"path": "weights.bin", "size": None})
+        source = model_store.model_sources(self.plan, self.root)[0]
+        assert source.estimated_bytes is None
+        assert source.known_download_bytes == 2
+        assert source.unknown_items == 1
+
     def incomplete_entry(self):
         record = self.prepare()
         entry = self.root / 'entries' / record['entry_id']

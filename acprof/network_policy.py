@@ -234,6 +234,9 @@ class DownloadSource:
     stage: str = ""
     network_context: str = ""
     source_kind: str = ""
+    # Remaining payload, including partial knowledge within a repository/manifest.
+    known_download_bytes: int | None = None
+    unknown_items: int | None = None
 
     def to_dict(self) -> dict:
         return {**asdict(self), "host": urlsplit(self.url).hostname,
@@ -244,12 +247,22 @@ class DownloadSource:
 
 
 def summarize_downloads(sources: list[DownloadSource]) -> dict:
-    def total(items):
-        values = [item.estimated_bytes for item in items]
-        return sum(values) if all(type(value) is int and value >= 0 for value in values) else None
+    def totals(items):
+        known = sum(item.estimated_bytes if type(item.estimated_bytes) is int and item.estimated_bytes >= 0
+                    else item.known_download_bytes or 0 for item in items)
+        unknown = sum(max(item.unknown_items or 0,
+                          int(type(item.estimated_bytes) is not int or item.estimated_bytes < 0)) for item in items)
+        cached = sum(item.cached_bytes for item in items)
+        return {"expected_download_bytes": None if unknown else known,
+                "known_download_bytes": known, "known_resource_bytes": known + cached,
+                "unknown_items": unknown, "cached_bytes": cached,
+                "cache_hits": sum(item.cache_status == "hit" for item in items),
+                "cache_unknown_items": sum(item.cache_status == "unknown" for item in items)}
     return {
         "schema_version": 2,
-        "expected_download_bytes": total(sources),
+        **totals(sources),
+        "by_category": {category: totals([s for s in sources if s.category == category])
+                        for category in sorted({s.category for s in sources})},
         "sources": [s.to_dict() for s in sources],
         "network": "system-network",
         "public_egress": "externally-managed",

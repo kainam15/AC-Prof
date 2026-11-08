@@ -175,8 +175,46 @@ def test_route_totals_do_not_treat_unknown_as_zero():
     assert "proxy_download_bytes" not in report
     assert report["public_egress"] == "externally-managed"
     assert (report["expected_download_bytes"]) is None
+    assert report["known_download_bytes"] == 150
+    assert report["known_resource_bytes"] == 150
+    assert report["unknown_items"] == 1
+    assert report["by_category"]["python"]["unknown_items"] == 1
     with pytest.raises(DownloadPolicyError):
         enforce_download_budget(report, "5GB")
+
+
+def test_partial_resources_keep_known_sizes_and_cache_separate():
+    report = summarize_downloads([
+        DownloadSource("model", "https://hub.example", None, cached_bytes=20,
+                       cache_status="partial", known_download_bytes=80, unknown_items=2),
+        DownloadSource("oci", "https://registry.example/image", 100),
+        DownloadSource("python", "https://packages.example/a", 0, cached_bytes=30, cache_status="hit"),
+    ])
+    assert report["expected_download_bytes"] is None
+    assert report["known_download_bytes"] == 180
+    assert report["known_resource_bytes"] == 230
+    assert report["cached_bytes"] == 50
+    assert report["unknown_items"] == 2
+    assert report["cache_hits"] == 1
+    assert report["cache_unknown_items"] == 1
+
+
+def test_partial_metadata_cannot_make_unknown_budget_look_complete():
+    report = summarize_downloads([DownloadSource("oci", "https://registry.example", None,
+                                                  known_download_bytes=100, unknown_items=0)])
+    assert report["expected_download_bytes"] is None
+    with pytest.raises(DownloadPolicyError):
+        enforce_download_budget(report, 200)
+
+
+def test_manifest_keeps_known_descriptors_when_one_size_is_missing():
+    payload = {"layers": [{"size": 100}, {}], "config": {"size": 25, "digest": "sha256:" + "a" * 64}}
+    result = SimpleNamespace(returncode=0, stdout=json.dumps(payload), stderr="")
+    with patch("acprof.host.preparation.network_preflight.host_command.run_command", return_value=result):
+        manifest = registry_manifest("ghcr.io/example/runtime:tag")
+    assert manifest["bytes"] is None
+    assert manifest["known_download_bytes"] == 125
+    assert manifest["unknown_items"] == 1
 
 def test_endpoint_fallback_does_not_infer_or_gate_proxy_routes():
     require_source_transition("https://docker.m.daocloud.io/repo", "https://ghcr.io/repo")
@@ -332,7 +370,8 @@ def test_registry_manifest_reads_only_selected_platform_with_buildx_and_verifies
 
     evidence = []
     with patch("acprof.host.preparation.network_preflight.host_command.run_command", side_effect=inspect):
-        assert registry_manifest(reference, evidence=evidence) == {"bytes": 125, "image_id": "sha256:" + "a" * 64}
+        assert registry_manifest(reference, evidence=evidence) == {
+            "bytes": 125, "image_id": "sha256:" + "a" * 64, "known_download_bytes": 125, "unknown_items": 0}
     assert calls == [reference, "mirror.example/docker/dockerfile:1@" + digest]
     assert evidence[0]["status"] == "passed"
     assert evidence[0]["network_context"] == "host-docker-cli"

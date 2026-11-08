@@ -20,6 +20,7 @@ from http.client import IncompleteRead
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import unquote, urlsplit
+from uuid import uuid4
 
 from dependency_locks import (
     content_digest,
@@ -99,11 +100,28 @@ def cached_artifact(entry, path, category):
     a finished artifact, and a resumed body is accepted only with a matching
     Content-Range. Final publication still requires the complete SHA256.
     """
+    progress = {"version": 1, "id": entry["sha256"], "transfer_id": uuid4().hex,
+                "name": entry["name"], "received": 0, "current": 0, "total": entry.get("size"), "cached": 0}
+    last_progress = 0.0
+
+    def publish(state, *, force=True):
+        nonlocal last_progress
+        now = time.monotonic()
+        if force or now - last_progress >= 0.25:
+            print("ACPROF_DEPENDENCY_PROGRESS " + json.dumps({**progress, "state": state}), flush=True)
+            last_progress = now
+
+    def cache_hit():
+        size = path.stat().st_size
+        progress.update(current=size, total=size, cached=size)
+        publish("cached")
+
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.is_file() and _digest(path) == entry["sha256"]:
         sidecar = path.with_suffix(path.suffix + ".source.json")
         origin = json.loads(sidecar.read_text()).get("actual_source_host") if sidecar.is_file() else None
         _record_transfer(entry, category, 0, origin, "hit")
+        cache_hit()
         print(f"[dependency-cache] {category} hit name={entry['name']} saved_bytes={path.stat().st_size}", flush=True)
         return path
 
@@ -137,6 +155,7 @@ def cached_artifact(entry, path, category):
             json.dumps({"actual_source_host": origin}) + "\n"
         )
         _record_transfer(entry, category, 0, origin, "hit")
+        cache_hit()
         return path
 
     # A selected domestic mirror must not consume the configured HTTP(S) VPN proxy.
@@ -144,6 +163,8 @@ def cached_artifact(entry, path, category):
     handlers = [urllib.request.ProxyHandler({})] if direct_mirror else []
     opener = urllib.request.build_opener(*handlers, PolicyRedirectHandler())
     actual_source = None
+    initial_offset = temporary.stat().st_size if temporary.is_file() else 0
+    publish("downloading")
     try:
         for attempt in range(1, 4):
             offset = temporary.stat().st_size if temporary.is_file() else 0
@@ -178,6 +199,7 @@ def cached_artifact(entry, path, category):
                     elif status == 200:
                         mode = "wb"  # A server may ignore Range; never append a full response.
                         offset = 0
+                        initial_offset = 0
                     else:
                         raise ValueError(f"unexpected artifact HTTP status: {status}")
                     partial_meta.write_text(json.dumps({
@@ -187,6 +209,10 @@ def cached_artifact(entry, path, category):
                     metadata = json.loads(partial_meta.read_text())
                     expected = response_headers.get("Content-Length")
                     expected_bytes = int(expected) if expected and str(expected).isdigit() else None
+                    progress.update(current=offset, cached=min(offset, initial_offset),
+                                    total=int(match[3]) if match else
+                                    offset + expected_bytes if expected_bytes is not None else None)
+                    publish("downloading")
                     received = 0
                     next_progress = 16 * 1024 * 1024
                     with temporary.open(mode) as target:
@@ -194,8 +220,11 @@ def cached_artifact(entry, path, category):
                             block = source.read(1024 * 1024)
                             if not block:
                                 break
+                            progress["received"] += len(block)
                             target.write(block)
                             received += len(block)
+                            progress["current"] = offset + received
+                            publish("downloading", force=False)
                             if received >= next_progress:
                                 print(
                                     f"[dependency-cache] {category} progress name={entry['name']} "
@@ -208,6 +237,10 @@ def cached_artifact(entry, path, category):
                     if match is not None and temporary.stat().st_size != int(match[3]):
                         raise IncompleteRead(b"", int(match[3]) - temporary.stat().st_size)
             except (OSError, IncompleteRead) as exc:
+                if isinstance(exc, IncompleteRead):
+                    # read() may raise after receiving a fragment it did not return.
+                    progress["received"] += len(exc.partial)
+                publish("retrying")
                 if isinstance(exc, HTTPError):
                     exc.close()
                 missing_fallback = (source_url == fallback_url and isinstance(exc, HTTPError)
@@ -240,6 +273,8 @@ def cached_artifact(entry, path, category):
             json.dumps({"actual_source_host": actual_source}) + "\n"
         )
         _record_transfer(entry, category, path.stat().st_size, actual_source, "miss")
+        progress.update(current=path.stat().st_size, total=path.stat().st_size)
+        publish("complete")
         print(
             f"[dependency-cache] {category} miss name={entry['name']} "
             f"actual_bytes={path.stat().st_size} source={actual_source}",
@@ -248,6 +283,8 @@ def cached_artifact(entry, path, category):
         return path
     finally:
         error = sys.exc_info()[1]
+        if error is not None:
+            publish("failed")
         if (error is None or not _retryable_download_error(error)
                 or not temporary.is_file() or temporary.stat().st_size == 0):
             discard_partial()

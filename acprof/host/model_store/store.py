@@ -434,6 +434,8 @@ def model_sources(plan: dict, root: Path | None = None, *, entry_id: str | None 
         expected = sum(missing) if all(type(n) is int for n in missing) else None
         result.append(DownloadSource("model", repo["endpoint"], expected, cached,
             "hit" if not missing else "partial" if cached else "miss",
+            known_download_bytes=sum(n for n in missing if type(n) is int),
+            unknown_items=sum(n is None for n in missing),
             detail=f"{repo['model_id']}@{repo['model_revision']}; total_bytes={repo['selected_bytes']}"))
     return result
 

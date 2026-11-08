@@ -157,14 +157,18 @@ def registry_manifest(reference: str, *, evidence: list[dict] | None = None) -> 
         if not isinstance(layers, list) or not isinstance(config, dict):
             return None
         entries = [*layers, config]
-        if any(not isinstance(item, dict) or type(item.get("size")) is not int or item["size"] < 0
+        if any(not isinstance(item, dict) or (item.get("size") is not None
+               and (type(item["size"]) is not int or item["size"] < 0))
                for item in entries):
             return None
         image_id = config.get("digest")
         if not isinstance(image_id, str) or not re.fullmatch(r"sha256:[a-f0-9]{64}", image_id):
             return None
         report.update(status="passed", reason=None)
-        return {"bytes": sum(item["size"] for item in entries), "image_id": image_id}
+        known = sum(item["size"] for item in entries if item.get("size") is not None)
+        unknown = sum(item.get("size") is None for item in entries)
+        return {"bytes": None if unknown else known, "image_id": image_id,
+                "known_download_bytes": known, "unknown_items": unknown}
     except subprocess.TimeoutExpired:
         report["reason"] = "timeout"
         return None
@@ -203,6 +207,9 @@ def runtime_sources(profile, project_dir: Path, *, inspect=None, size_probe=arti
     if manifest_probe is None:
         def manifest_probe(reference):
             return registry_manifest(reference, evidence=evidence)
+    def manifest_counts(remote):
+        return {"known_download_bytes": remote.get("known_download_bytes"),
+                "unknown_items": remote.get("unknown_items")} if remote else {}
     identity = environment_identity(profile.environment, project_dir)
     oci_settings = configured_oci_sources()
     artifact_settings = configured_artifact_mirrors()
@@ -224,7 +231,8 @@ def runtime_sources(profile, project_dir: Path, *, inspect=None, size_probe=arti
         remote = manifest_probe(ref)
         summary["will_attempt_ghcr_pull"] |= ref.startswith("ghcr.io/")
         result.append(DownloadSource("oci", "https://" + ref, remote["bytes"] if remote else None,
-                                     cache_status="miss", detail="platform; full compressed size upper bound"))
+                                     cache_status="miss", detail="platform; full compressed size upper bound",
+                                     **manifest_counts(remote)))
         platform_id = remote["image_id"] if remote else None
     if platform_id:
         environment_key = content_digest({"definition": runtime_fingerprint(profile.environment, project_dir),
@@ -239,7 +247,8 @@ def runtime_sources(profile, project_dir: Path, *, inspect=None, size_probe=arti
             remote = manifest_probe(ref)
             summary["will_attempt_ghcr_pull"] |= ref.startswith("ghcr.io/")
             result.append(DownloadSource("oci", "https://" + ref, remote["bytes"] if remote else None,
-                                         cache_status="miss", detail="environment; full compressed size upper bound"))
+                                         cache_status="miss", detail="environment; full compressed size upper bound",
+                                         **manifest_counts(remote)))
             summary["alternatives"]["local_build"] = "exact locks; cache state unknown until BuildKit runs"
             summary["alternatives"]["domestic_registry"] = os.environ.get("ACPROF_RUNTIME_REGISTRY") or "not configured"
             return result, summary
@@ -259,7 +268,8 @@ def runtime_sources(profile, project_dir: Path, *, inspect=None, size_probe=arti
                                      remote_frontend["bytes"] if remote_frontend else None,
                                      cache_status="unknown", stage="buildkit-frontend", network_context="buildkit",
                                      source_kind="configured-mirror" if oci_settings["docker_hub_mirror"] else "official",
-                                     detail="Dockerfile frontend; BuildKit cache verified only during build"))
+                                     detail="Dockerfile frontend; BuildKit cache verified only during build",
+                                     **manifest_counts(remote_frontend)))
     if local:
         parent_names = {item["name"] for item in identity["platform"]["packages"]}
         packages = [item for item in packages if item["name"] not in parent_names]
@@ -270,6 +280,7 @@ def runtime_sources(profile, project_dir: Path, *, inspect=None, size_probe=arti
             result.append(DownloadSource("oci", oci_source_url(base),
                                          remote["bytes"] if remote else None, cache_status="miss", detail="Python base",
                                          stage="python-base", network_context="buildkit",
+                                         **manifest_counts(remote),
                                          source_kind="configured-mirror" if oci_settings["docker_hub_mirror"] else "official"))
     artifacts = [("python", item) for item in packages]
     if not local:
@@ -392,6 +403,8 @@ def preflight(task, profile, project_dir, model_plan: dict, *, root=None,
             "expected_download_bytes", "network", "public_egress", "network_probe", "runtime", "disk",
             "max_download_bytes", "model_max_download_bytes", "model_store_path", "docker_storage", "model",
             "sources", "probe_payload_bytes", "probe_byte_limit",
+            "known_download_bytes", "known_resource_bytes", "unknown_items", "cached_bytes",
+            "cache_hits", "cache_unknown_items", "by_category",
         )}
         workflow.ask("image", "review", resolved=True, questions=[], download_report=summary)
     return report
