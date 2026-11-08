@@ -54,10 +54,13 @@ async def test_windows_startup_and_permission_checks_without_unix_apis(
         platform_check = next(check for check in app.preflight.checks if check.check_id == "environment")
         assert platform_check.status == "fail"
         assert "Unsupported collection environment" in str(platform_check.detail)
-        assert "Unsupported collection environment" in str(app.query_one("#preflight-run-reason", Static).content)
+        run_reason = app.query_one("#preflight-run-reason", Static).content
+        assert isinstance(run_reason, str)
+        assert "Unsupported collection environment" in run_reason
         assert app.query_one("#start-run", Button).disabled
 
-        version_status = str(app.query_one("#version-status", Static).content)
+        version_status = app.query_one("#version-status", Static).content
+        assert isinstance(version_status, str)
         assert __version__ in version_status
         assert len(requests) == 1
         assert str(requests[0].url) == "https://pypi.org/pypi/acprof/json"
@@ -87,7 +90,8 @@ async def test_windows_startup_and_permission_checks_without_unix_apis(
         assert await pilot.click(check)
         await asyncio.wait_for(app.workers.wait_for_complete(), 10)
         await pilot.pause()
-        report = str(screen.query_one("#permission-report", Static).content)
+        report = screen.query_one("#permission-report", Static).content
+        assert isinstance(report, str)
         assert "Unsupported collection environment" in report
         assert "AttributeError" not in report
         assert not screen.query_one("#check-environment-permissions", Button).disabled
