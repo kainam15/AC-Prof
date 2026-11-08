@@ -16,7 +16,7 @@ def test_required_prepared_platform_does_not_pull_or_build(tmp_path: Path) -> No
     with (patch.dict("os.environ", {"ACPROF_REQUIRE_PREPARED_IMAGE": "1"}),
           patch.object(dependency_images, "platform_identity_fingerprint", return_value="a" * 64),
           patch.object(dependency_images, "checked_image", return_value=None),
-          patch.object(dependency_images, "_pull_cached_image") as pull,
+          patch.object(dependency_images, "pull_image") as pull,
           patch.object(dependency_images, "build_dependency") as build):
         with pytest.raises(RuntimeError, match="禁止隐式构建或下载.*预备平台镜像不存在"):
             dependency_images._prepare_platform(platform, tmp_path, {}, "auto", None)
@@ -36,7 +36,7 @@ def test_required_prepared_environment_does_not_pull_or_build(tmp_path: Path) ->
           patch.object(dependency_images, "_runtime_fingerprint", return_value="b" * 64),
           patch.object(dependency_images, "runtime_fingerprint", return_value="b" * 64),
           patch.object(dependency_images, "checked_image", return_value=None),
-          patch.object(dependency_images, "_pull_cached_image") as pull,
+          patch.object(dependency_images, "pull_image") as pull,
           patch.object(dependency_images, "build_dependency") as build):
         with pytest.raises(RuntimeError, match="禁止隐式构建或下载.*预备依赖环境镜像不存在"):
             dependency_images.prepare_environment_image(environment, tmp_path)

@@ -8,6 +8,17 @@
 | M5 · 科研结果           | 可解释、可复现、可比较       | 输入与推理参数、指标、CSV、统计和报告一致，缺失能力不误报                          | 进行中（统计、对比与审计已统一；`analysis/` 全模块纳入 `C901` 复杂度门禁；硬件矩阵聚合质量并独立控制优选；OpenAI 流式派生已移至窗口外一次执行，v2 报告重算并核对延迟与声明；OpenAI 流式测量 P0 与 Qwen/vLLM 对照完成；正式能耗质量证据保留，基线噪声控制与科研级重复性实验延后由用户主导） |
 | M6 · 交付使用           | 安装、文档与发布             | 干净环境能安装、运行示例、导出结果和排查常见问题                                   | 已完成（wheel／uv tool／standalone 验收；安装后 BERT basic CPU smoke、审计与离线报告通过） |
 
+## CI #235 预备镜像与结果读取回归修复（2026-11）
+
+预备镜像测试改为在实际调用的 `pull_image` 入口断言零拉取，继续核对缺失预备镜像时拒绝下载和构建。
+结果页切换测试等待新来源的读取完成回调，再检查界面状态，避免 Textual 整页消息／CPU 空闲等待耗尽取消预算；
+原有 2 秒约束、发布锁、双语窄窗、刷新可用性和源文件哈希断言保持。
+参考 [CPython 的 patch 位置规则](https://github.com/python/cpython/blob/3.12/Doc/library/unittest.mock.rst#where-to-patch)
+和 [Textual Pilot](https://github.com/Textualize/textual/blob/v8.2.8/src/textual/pilot.py)，
+借鉴 PSF／MIT 上游语义，复用已有依赖，无代码复制、新依赖或测量开销。
+改动限测试与文档；本地验证包含受控调度、Python 3.12 branch coverage 和 Python 3.13 离线回归，
+远端同提交 CI、真实客户端终端与 Docker/GPU 验收未执行。
+
 ## 镜像友好名称与身份展示（2026-11）
 
 规范化 Docker Hub 仓库写法与显式镜像源别名，修复 `python@digest` 无法匹配固定基础镜像的问题，

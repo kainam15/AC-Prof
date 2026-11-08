@@ -280,14 +280,22 @@ async def test_selection_change_releases_a_waiting_layer_reader_at_80x24(source,
     save_settings(settings, TuiSettings(ui=UiPreferences(language=language)), tmp_path)
     app = AcprofTui(settings_path=settings)
     attempted = Event()
+    selected_read_finished = asyncio.Event()
     original_flock = fcntl.flock
+    original_read_finished = app.results.experiment_read_finished
 
     def observe(descriptor, flags):
         if flags & fcntl.LOCK_SH:
             attempted.set()
         return original_flock(descriptor, flags)
 
+    def observe_read_finished(path, token, kind, result, error):
+        original_read_finished(path, token, kind, result, error)
+        if path == source.parent and kind == "data":
+            selected_read_finished.set()
+
     monkeypatch.setattr(fcntl, "flock", observe)
+    monkeypatch.setattr(app.results, "experiment_read_finished", observe_read_finished)
     async with app.run_test(size=(80, 24)) as pilot:
         await app.workers.wait_for_complete()
         app.activate_tab("results-tab")
@@ -306,18 +314,24 @@ async def test_selection_change_releases_a_waiting_layer_reader_at_80x24(source,
             await pilot.press("ctrl+a")
             selector.value = str(source)
             ready = "有效正式窗口：2" if language == "zh" else "Valid formal windows: 2"
+            # Bound actual cancellation/read completion, not Pilot's screen-wide
+            # message and CPU-idle waits under coverage or load.
             async with asyncio.timeout(2):
-                while ready not in str(app.query_one("#result-data-status", Static).content):
-                    await pilot.pause()
+                await selected_read_finished.wait()
                 await app.workers.wait_for_complete()
+            await pilot.pause()
+            assert ready in str(app.query_one("#result-data-status", Static).content)
             assert not app.read_jobs
             assert not app.is_busy()
             assert selector.value == str(source.parent)
             assert not button.disabled
             button.scroll_visible(animate=False, immediate=True)
             await pilot.pause()
+            selected_read_finished.clear()
             assert await pilot.click(button, offset=(2, 1))
-            await asyncio.wait_for(app.workers.wait_for_complete(), timeout=2)
+            async with asyncio.timeout(2):
+                await selected_read_finished.wait()
+                await app.workers.wait_for_complete()
             await pilot.pause()
             assert ready in str(app.query_one("#result-data-status", Static).content)
             assert not app.is_busy()
