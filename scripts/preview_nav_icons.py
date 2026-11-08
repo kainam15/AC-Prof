@@ -1,7 +1,9 @@
 """Preview navigation glyphs without loading or changing AC-Prof settings.
 
 Run: uv run --locked python scripts/preview_nav_icons.py
+List all pages: uv run --locked python scripts/preview_nav_icons.py --list
 Reference: Textual's docs/examples/widgets/option_list_options.py (MIT).
+Optional glyph names: https://github.com/ryanoasis/nerd-fonts/blob/master/glyphnames.json
 """
 
 from __future__ import annotations
@@ -76,9 +78,159 @@ CHOICES = (
     IconChoice("", "只显示文字", "无图案", "展开时只显示标题；折叠后只剩选中标记。"),
 )
 
+# Keep the existing interactive experiment choices and their numbers unchanged.
+PAGE_CHOICES = {
+    "run": ("实验配置", CHOICES),
+    "monitor": ("运行监控", (
+        IconChoice("◴", "时钟左上"),
+        IconChoice("◵", "时钟左下"),
+        IconChoice("◶", "时钟右下"),
+        IconChoice("◔", "四分之一圆"),
+        IconChoice("◕", "四分之三圆"),
+        IconChoice("◎", "同心圆"),
+        IconChoice("◉", "圆形中心"),
+        IconChoice("◌", "虚线圆"),
+        IconChoice("⌁", "波形"),
+        IconChoice("∿", "正弦波"),
+        IconChoice("≋", "多条波形"),
+        IconChoice("▶", "运行箭头"),
+        IconChoice("⏱", "秒表", "Emoji"),
+        IconChoice("📈", "上升曲线", "Emoji"),
+        IconChoice("📡", "信号监控", "Emoji"),
+        IconChoice(">", "ASCII 箭头", "ASCII"),
+    )),
+    "results": ("实验结果", (
+        IconChoice("▤", "横线面板"),
+        IconChoice("▦", "矩阵网格"),
+        IconChoice("▧", "斜线面板"),
+        IconChoice("▨", "反向斜线"),
+        IconChoice("▩", "交叉网格"),
+        IconChoice("▥", "竖线面板"),
+        IconChoice("⊞", "四格面板"),
+        IconChoice("≣", "四条横线"),
+        IconChoice("≡", "三条横线"),
+        IconChoice("∑", "汇总"),
+        IconChoice("✓", "完成勾号"),
+        IconChoice("📊", "柱状图", "Emoji"),
+        IconChoice("📈", "折线图", "Emoji"),
+        IconChoice("📋", "结果清单", "Emoji"),
+        IconChoice("#", "ASCII 网格", "ASCII"),
+    )),
+    "backfill": ("补采实验", (
+        IconChoice("↺", "逆向环箭头"),
+        IconChoice("⟳", "顺向大环"),
+        IconChoice("⟲", "逆向大环"),
+        IconChoice("⤾", "顺向弧箭头"),
+        IconChoice("⤿", "逆向弧箭头"),
+        IconChoice("⇄", "往返箭头"),
+        IconChoice("⇆", "交换箭头"),
+        IconChoice("⊕", "圆框加号"),
+        IconChoice("⊞", "方框加号"),
+        IconChoice("↶", "回转箭头"),
+        IconChoice("↷", "前向回转"),
+        IconChoice("🔄", "循环双箭头", "Emoji"),
+        IconChoice("🔁", "重复采集", "Emoji"),
+        IconChoice("+", "ASCII 补充", "ASCII"),
+    )),
+    "images": ("镜像管理", (
+        IconChoice("□", "空心方框"),
+        IconChoice("▢", "圆角方框"),
+        IconChoice("▣", "方框中心"),
+        IconChoice("▦", "多格面板"),
+        IconChoice("⬡", "空心六边形"),
+        IconChoice("⬢", "实心六边形"),
+        IconChoice("◇", "空心菱形"),
+        IconChoice("◈", "菱形中心"),
+        IconChoice("▱", "平面图层"),
+        IconChoice("▰", "实心图层"),
+        IconChoice("▧", "纹理面板"),
+        IconChoice("📦", "镜像包", "Emoji"),
+        IconChoice("🗃️", "存储盒", "Emoji"),
+        IconChoice("🐳", "鲸鱼", "Emoji"),
+        IconChoice("[]", "ASCII 方框", "ASCII"),
+    )),
+    "settings": ("设置", (
+        IconChoice("⚙︎", "齿轮文本样式"),
+        IconChoice("⚒", "交叉工具"),
+        IconChoice("⚒︎", "工具文本样式"),
+        IconChoice("⚐", "标记旗"),
+        IconChoice("☷", "参数清单"),
+        IconChoice("☰", "菜单横线"),
+        IconChoice("≡", "三条横线"),
+        IconChoice("⊙", "调节旋钮"),
+        IconChoice("⊛", "圆框星号"),
+        IconChoice("⌘", "控制符号"),
+        IconChoice("⋮", "更多选项"),
+        IconChoice("⋯", "横向选项"),
+        IconChoice("🎛️", "控制旋钮", "Emoji"),
+        IconChoice("🔧", "扳手", "Emoji"),
+        IconChoice("🛠️", "工具组", "Emoji"),
+        IconChoice("*", "ASCII 星号", "ASCII"),
+    )),
+}
+
+# Codicons names/codepoints checked against Nerd Fonts' glyphnames.json.
+# Font assets are not bundled; rendering requires a client-side Nerd Font.
+NERD_FONT_CHOICES = {
+    "run": (("\ueb52", "cod-settings"), ("\uea79", "cod-beaker"),
+            ("\ueb17", "cod-list_unordered"), ("\ueab3", "cod-checklist")),
+    "monitor": (("\ueacd", "cod-dashboard"), ("\ueb31", "cod-pulse"),
+                ("\ueb03", "cod-graph"), ("\uea70", "cod-eye")),
+    "results": (("\uebb7", "cod-table"), ("\uebe2", "cod-graph_line"),
+                ("\uebe3", "cod-graph_scatter"), ("\ueb9d", "cod-output")),
+    "backfill": (("\ueb37", "cod-refresh"), ("\uea82", "cod-history"),
+                 ("\uea77", "cod-sync"), ("\uead2", "cod-debug_restart")),
+    "images": (("\ueb29", "cod-package"), ("\ueb50", "cod-server"),
+               ("\ueace", "cod-database"), ("\uebd2", "cod-layers")),
+    "settings": (("\ueaf8", "cod-gear"), ("\ueb6d", "cod-tools"),
+                 ("\ueb51", "cod-settings_gear"), ("\ueb52", "cod-settings")),
+}
+
 
 def heading(glyph: str, title: str) -> str:
     return f"{glyph}  {title}" if glyph else title
+
+
+def list_choices(console: Console, page: str | None, nerd_font: bool) -> None:
+    console.print("AC-Prof · 六类导航图案候选", style="bold cyan")
+    console.print("按页面分组；码位可区分相似图案。编号仅用于本清单。")
+    console.print("普通 Unicode / Emoji 的字形、占宽取决于终端字体，请以实际显示为准。")
+    if nerd_font:
+        console.print("Nerd Font 项需要显示终端使用该字体；SSH 请配置客户端字体。")
+    else:
+        console.print("加 --nerd-font 可同时列出 Nerd Font / Codicons 候选。")
+    for key, (title, candidates) in PAGE_CHOICES.items():
+        if page is not None and key != page:
+            continue
+        current = PageNavigation.ICONS[f"{key}-tab"]
+        choices = [IconChoice(current, "当前图案"), *candidates, CHOICES[-1]]
+        if nerd_font:
+            choices.extend(IconChoice(glyph, name, "Nerd Font")
+                           for glyph, name in NERD_FONT_CHOICES[key])
+        unique: dict[str, IconChoice] = {}
+        for choice in choices:
+            unique.setdefault(choice.glyph, choice)
+        choices = list(unique.values())
+        caption = f"{key} · {title} · {len(choices)} 项"
+        compact = console.width < 80
+        table = Table("编号", "效果", "名称", "类型", "码位",
+                      title=caption, title_justify="left")
+        console.print()
+        if compact:
+            console.print(caption, style="bold")
+        for index, choice in enumerate(choices, 1):
+            kind = "Unicode" if choice.group == "线条与几何" else choice.group
+            codepoints = " ".join(f"U+{ord(char):04X}" for char in choice.glyph) or "—"
+            sample = heading(choice.glyph, title)
+            style = "cyan" if index == 1 else None
+            if compact:
+                console.print(Text(f"{index:02d}  {sample}\n    {choice.name}\n"
+                                   f"    {kind} · {codepoints}", overflow="fold"), style=style)
+            else:
+                table.add_row(str(index), Text(sample), Text(choice.name), kind, codepoints,
+                              style=style)
+        if not compact:
+            console.print(table)
 
 
 class IconPreviewApp(App[IconChoice | None]):
@@ -191,16 +343,14 @@ class IconPreviewApp(App[IconChoice | None]):
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="预览实验配置的导航图案；选择只输出到终端。")
-    parser.add_argument("--list", action="store_true", help="打印全部图案，不进入交互界面")
+    parser = argparse.ArgumentParser(description="列出六类导航图案；无参数时交互预览实验配置图案。")
+    parser.add_argument("--list", action="store_true", help="按六类导航打印全部候选，不进入交互界面")
+    parser.add_argument("--page", choices=PAGE_CHOICES, help="只列出指定页面的候选（自动启用列表）")
+    parser.add_argument("--nerd-font", action="store_true", help="列表中加入需要 Nerd Font 的图案")
     parser.add_argument("--theme", choices=UI_THEMES, default="acprof-graphite", help="预览配色")
     args = parser.parse_args()
-    if args.list:
-        table = Table("编号", "图案", "名称", "效果", title="实验配置 · 图案候选")
-        for index, choice in enumerate(CHOICES, 1):
-            table.add_row(str(index), Text(choice.glyph or "—"), choice.name,
-                          Text(heading(choice.glyph, "实验配置")))
-        Console().print(table)
+    if args.list or args.page is not None or args.nerd_font:
+        list_choices(Console(), args.page, args.nerd_font)
         return
     selected = IconPreviewApp(theme=args.theme).run()
     if selected is not None:

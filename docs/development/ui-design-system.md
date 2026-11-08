@@ -55,15 +55,33 @@
 
 ## 导航图案预览
 
-在源码目录运行 `uv run --locked python scripts/preview_nav_icons.py`，可比较 36 种 Unicode、
-Emoji、ASCII 与无图案候选，同时查看当前项与候选的展开、折叠效果。
+在源码目录运行以下命令，按侧栏六类导航列出筛选后的适用候选：
+
+```bash
+uv run --locked python scripts/preview_nav_icons.py --list
+uv run --locked python scripts/preview_nav_icons.py --list --nerd-font
+uv run --locked python scripts/preview_nav_icons.py --page settings
+```
+
+普通清单共 119 项（不同页面可以使用相同图案），包含 Unicode、Emoji、ASCII 和无图案；
+`--nerd-font` 额外显示 24 项 Codicons。每组当前图案排在第一项，并显示名称、码位、
+类别与实际标题。`--page` 接受 `run`、`monitor`、`results`、`backfill`、`images`、`settings`；
+`--page` 或 `--nerd-font` 单独使用也会进入列表模式。80 列及以上使用表格，窄终端使用逐项换行。
+清单按页面去重，编号与交互预览独立。
+
+不加参数仍进入“实验配置”的交互预览，保留原有 36 个选项和编号，
+同时查看当前项与候选的展开、折叠效果。
 方向键或点击切换，`L` 切换中英文标题，`T` 切换现有主题，`R` 回到当前图案；
-点击“选定并退出”或按 `Ctrl+S` 仅将选择输出到终端，`Esc` 取消。`--list` 可直接打印全部候选。
+点击“选定并退出”或按 `Ctrl+S` 仅将选择输出到终端，`Esc` 取消。
 
 工具参考 Textual 8.2.8 的 [OptionList 示例](https://github.com/Textualize/textual/blob/v8.2.8/docs/examples/widgets/option_list_options.py)，
 复用现有 MIT 依赖、主题与导航符号，无新增依赖、设置写入或正式采集逻辑。
-[Nerd Fonts](https://github.com/ryanoasis/nerd-fonts) 依赖客户端字体配置，本工具未引入其字体资产；
-Emoji 与宽字符仍需以实际终端显示为准，离线截图只能用于候选比较。
+列表复用 [Rich Table](https://github.com/Textualize/rich/blob/main/rich/table.py)（MIT），
+Nerd Font 名称和码位核对上游 [glyphnames.json](https://github.com/ryanoasis/nerd-fonts/blob/master/glyphnames.json)。
+这两个项目均有持续维护；只借鉴列表展示和码位命名，不复制渲染实现或引入新依赖。
+所选 [Codicons](https://github.com/ryanoasis/nerd-fonts/blob/master/src/glyphs/README.md) 字体资产采用 CC BY 4.0，
+本工具未引入字体资产，也不下载或安装字体。Nerd Font 需要显示终端配置相应字体（SSH 时为客户端）；
+Unicode、Emoji 与文本样式变体的支持、字宽仍需以实际终端显示为准，离线输出不能确认客户端字形。
 
 ## 设计审查与验收
 
