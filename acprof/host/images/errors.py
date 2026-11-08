@@ -19,12 +19,14 @@ def network_failure_kind(detail: str) -> str:
         return "auth"
     for words, kind in (
         (("digest mismatch", "checksum", "failed verification"), "integrity"),
+        (("unauthorized", "denied", "forbidden", "authentication required"), "auth"),
+        (("certificate", "x509"), "tls"),
         (("proxyconnect", "proxy connection", "407 proxy"), "proxy"),
         (("no such host", "lookup", "name resolution"), "dns"),
         (("timeout", "timed out", "deadline exceeded"), "timeout"),
-        (("unauthorized", "denied", "authentication required"), "auth"),
-        (("manifest unknown", "not found", "404", "no matching manifest"), "not-found"),
-        (("certificate", "tls", "x509"), "tls"),
+        (("no matching manifest", "does not match the specified platform", "does not provide the specified platform"), "platform"),
+        (("manifest unknown", "manifest_unknown", "name unknown", "not found", "404"), "not-found"),
+        (("tls",), "tls"),
     ):
         if any(word in text for word in words):
             return kind
@@ -72,10 +74,18 @@ def reason_code(detail: str, operation: str) -> str:
     if (any(word in text for word in ("blob", "content digest", "content sha256", "layer"))
             and any(word in text for word in ("not found", "does not exist", "missing", "no such file"))):
         return "docker_content_incomplete"
-    if any(word in text for word in ("timeout", "timed out", "no such host", "connection reset", "tls handshake", "connection refused")):
-        return "docker_network_failed"
     if "no space left" in text:
         return "docker_disk_full"
+    if operation == "pull":
+        if network_reason == "platform":
+            return "docker_platform_mismatch"
+        if network_reason == "not-found":
+            return "docker_manifest_missing"
+    if (network_reason in {"timeout", "dns", "proxy"}
+            or any(word in text for word in ("connection reset", "connection refused", "network is unreachable",
+                                             "registry unavailable", "service unavailable", "unexpected eof"))
+            or re.search(r"\b(?:429|50[0-9])\b", text)):
+        return "docker_network_failed"
     return f"docker_{operation}_failed"
 
 
@@ -94,6 +104,7 @@ class DockerPreparationError(RuntimeError):
         self.network_context = ""
         self.registry = ""
         self.network_reason = ""
+        self.fallback_error: dict | None = None
         self.actions = ["retry", "rebuild"]
         if (self.content.get("repair_reference") and self.content.get("status") in {"incomplete", "unavailable"}
                 and os.environ.get("ACPROF_REQUIRE_PREPARED_IMAGE") != "1"
@@ -106,4 +117,4 @@ class DockerPreparationError(RuntimeError):
                 "image": self.image, "exit_code": self.exit_code, "detail": self.detail,
                 "content": self.content, "log_path": self.log_path, "actions": self.actions,
                 "network_context": self.network_context, "registry": self.registry,
-                "network_reason": self.network_reason}
+                "network_reason": self.network_reason, "fallback_error": self.fallback_error}

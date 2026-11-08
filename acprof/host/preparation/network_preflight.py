@@ -144,6 +144,8 @@ def registry_manifest(reference: str, *, evidence: list[dict] | None = None) -> 
                        and entry["platform"].get("architecture") == "amd64"
                        and entry["platform"].get("os") == "linux"]
             if len(matches) != 1:
+                if not matches:
+                    report["reason"] = "platform"
                 return None
             digest = matches[0].get("digest")
             if not isinstance(digest, str) or not re.fullmatch(r"sha256:[a-f0-9]{64}", digest):

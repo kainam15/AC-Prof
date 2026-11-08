@@ -98,7 +98,7 @@ class TestRuntimeImageBuild:
             labels = {"org.acprof.model-files-key": arguments.get("MODEL_FILES_KEY", ""),
                       "org.acprof.platform-build-fingerprint": arguments.get("PLATFORM_BUILD_FINGERPRINT", ""),
                       "org.acprof.environment-build-fingerprint": arguments.get("ENVIRONMENT_BUILD_FINGERPRINT", "")}
-            self.images[identifier] = {"image_id": identifier, "labels": labels}
+            self.images[identifier] = {"image_id": identifier, "labels": labels, "os": "linux", "architecture": "amd64"}
             if recipe == "runtime-final.Dockerfile":
                 context = Path(command[-1])
                 self.service_context_files = {p.relative_to(context).as_posix()
@@ -364,17 +364,176 @@ class TestRuntimeImageBuild:
         assert run.call_args.args[0][-1].startswith("mirror.example/runtime:")
         assert self.build_commands() == []
 
-    def test_budgeted_auto_does_not_use_unreviewed_build_fallback(self):
+    @pytest.mark.parametrize("budget", ["0", "1GB"])
+    def test_budgeted_auto_does_not_use_unreviewed_build_fallback(self, budget):
         from acprof.host.images.environment import prepare_environment_image
         from acprof.runtime.profiles import ENVIRONMENTS
 
-        with patch.dict(os.environ, {"ACPROF_MAX_DOWNLOAD": "1GB"}), patch(
+        with patch.dict(os.environ, {"ACPROF_MAX_DOWNLOAD": budget}), patch(
             "acprof.system.command.run_command", return_value=subprocess.CompletedProcess([], 1, "", "manifest unknown"),
         ) as run:
             with pytest.raises(RuntimeError, match="预算模式"):
                 prepare_environment_image(ENVIRONMENTS["onnxruntime-cpu"], image_source="auto")
         run.assert_called_once()
         assert self.build_commands() == []
+
+    @pytest.mark.parametrize(("message", "reason"), [
+        ("manifest unknown", "docker_manifest_missing"),
+        ("no matching manifest for linux/amd64 in the manifest list entries", "docker_platform_mismatch"),
+        ("Get https://ghcr.io/v2/: context deadline exceeded", "docker_network_failed"),
+    ])
+    @pytest.mark.parametrize("source", ["auto", "pull", "build"])
+    def test_runtime_source_modes_preserve_failure_and_continue_after_fallback(self, message, reason, source, monkeypatch, capsys):
+        from acprof.events.preparation import parse_event
+        from acprof.host.images.environment import prepare_environment_image
+        from acprof.host.images.errors import DockerPreparationError
+        from acprof.host.preparation.collection_workflow import PreparationWorkflow
+        from acprof.runtime.profiles import ENVIRONMENTS
+
+        monkeypatch.setenv("ACPROF_TUI", "1")
+        pulls = []
+        def registry(command, **kwargs):
+            if command[:2] == ["docker", "pull"]:
+                pulls.append(command)
+                return subprocess.CompletedProcess(command, 1, "", message)
+            return self.fake_run(command, **kwargs)
+
+        workflow = PreparationWorkflow(interactive=False)
+        with patch("acprof.system.command.run_command", side_effect=registry):
+            if source == "pull":
+                with pytest.raises(DockerPreparationError) as caught:
+                    workflow.run("environment", prepare_environment_image, ENVIRONMENTS["onnxruntime-cpu"], image_source=source)
+                assert caught.value.reason_code == reason
+                assert message in caught.value.detail
+                assert not self.build_commands()
+            else:
+                prepared = workflow.run("environment", prepare_environment_image, ENVIRONMENTS["onnxruntime-cpu"], image_source=source)
+                assert prepared.image_id.startswith("sha256:")
+                assert len(self.build_commands()) == 2
+                assert workflow.run("input", lambda: "collection can proceed") == "collection can proceed"
+                # Verified local cache bypasses both GHCR and rebuilding in every mode.
+                count = len(self.commands)
+                prepare_environment_image(ENVIRONMENTS["onnxruntime-cpu"], image_source="pull")
+                assert not any(cmd[:2] in (["docker", "build"], ["docker", "pull"]) for cmd in self.commands[count:])
+        output = capsys.readouterr().out
+        events = [event for line in output.splitlines() if (event := parse_event(line))]
+        progress = [event["image_progress"] for event in events if "image_progress" in event]
+        if source == "auto":
+            assert len(pulls) == 2
+            assert not any(event["phase"] == "failed" for event in progress)
+            assert [event["reason_code"] for event in progress if event["phase"] == "fallback"] == [reason, reason]
+            assert "[runtime][WARN]" in output
+            assert message in output
+            assert "endpoint fallback" not in output
+        elif source == "build":
+            assert not pulls
+        else:
+            assert len(pulls) == 1
+
+    @pytest.mark.parametrize("recipe", ["platform.Dockerfile", "runtime.Dockerfile"])
+    def test_fallback_build_failure_retains_original_pull_error(self, recipe, capsys):
+        from acprof.host.images.environment import prepare_environment_image
+        from acprof.host.images.errors import DockerPreparationError
+        from acprof.runtime.profiles import ENVIRONMENTS
+
+        self.failed_dockerfile = recipe
+        def registry(command, **kwargs):
+            if command[:2] == ["docker", "pull"]:
+                return subprocess.CompletedProcess(command, 1, "", "manifest unknown: original registry error")
+            return self.fake_run(command, **kwargs)
+        with patch("acprof.system.command.run_command", side_effect=registry):
+            with pytest.raises(DockerPreparationError) as caught:
+                prepare_environment_image(ENVIRONMENTS["onnxruntime-cpu"], image_source="auto")
+        assert caught.value.reason_code == "docker_build_failed"
+        assert isinstance(caught.value.__cause__, DockerPreparationError)
+        assert "original registry error" in caught.value.__cause__.detail
+        assert caught.value.to_dict()["fallback_error"]["reason_code"] == "docker_manifest_missing"
+        assert "original registry error" in capsys.readouterr().out
+        assert len(self.build_commands()) == (1 if recipe == "platform.Dockerfile" else 2)
+
+    def test_fallback_keeps_build_transport_cause_and_pull_diagnostics(self):
+        from acprof.host.images.environment import prepare_platform_image
+        from acprof.host.images.errors import DockerPreparationError
+        from acprof.runtime.profiles import PLATFORMS
+        def registry(command, **kwargs):
+            if command[:2] == ["docker", "pull"]:
+                return subprocess.CompletedProcess(command, 1, "", "manifest unknown")
+            raise OSError("build daemon connection closed")
+        with patch("acprof.system.command.run_command", side_effect=registry):
+            with pytest.raises(DockerPreparationError) as caught:
+                prepare_platform_image(PLATFORMS["python-cpu"], image_source="auto")
+        assert isinstance(caught.value.__cause__, OSError)
+        assert "build daemon connection closed" in str(caught.value.__cause__)
+        assert caught.value.fallback_error["reason_code"] == "docker_manifest_missing"
+
+    @pytest.mark.parametrize("message", ["no space left on device", "unrecognized daemon response",
+        "unauthorized: token request timed out", "x509: certificate error after timeout",
+        "content digest sha256:abc not found"])
+    def test_auto_does_not_hide_nonrecoverable_pull_errors(self, message):
+        from acprof.host.images.environment import prepare_environment_image
+        from acprof.runtime.profiles import ENVIRONMENTS
+        with patch("acprof.system.command.run_command", return_value=subprocess.CompletedProcess([], 1, "", message)) as run:
+            with pytest.raises(RuntimeError, match=message):
+                prepare_environment_image(ENVIRONMENTS["onnxruntime-cpu"], image_source="auto")
+        run.assert_called_once()
+        assert not self.build_commands()
+
+    @pytest.mark.parametrize("mode", ["auto", "pull"])
+    @pytest.mark.parametrize("architecture", ["arm64", None])
+    def test_successful_pull_with_wrong_or_missing_platform_is_not_executed(self, mode, architecture):
+        from acprof.host.images.environment import prepare_platform_image
+        from acprof.host.images.errors import DockerPreparationError
+        from acprof.runtime.profiles import PLATFORMS
+        prepared = prepare_platform_image(PLATFORMS["python-cpu"], image_source="build")
+        remote = {**self.images[prepared.image_id], "image_id": "sha256:" + "f" * 64,
+                  "os": "linux", "architecture": architecture}
+        self.manifests[remote["image_id"]] = self.manifests[prepared.image_id]
+        for key in list(self.images):
+            if not key.startswith("sha256:"):
+                del self.images[key]
+        self.commands.clear()
+        def registry(command, **kwargs):
+            if command[:2] == ["docker", "pull"]:
+                self.images[command[-1]] = remote
+                return subprocess.CompletedProcess(command, 0, "", "")
+            return self.fake_run(command, **kwargs)
+        with patch("acprof.system.command.run_command", side_effect=registry):
+            if mode == "auto" and architecture == "arm64":
+                result = prepare_platform_image(PLATFORMS["python-cpu"], image_source=mode)
+                assert result.image_id != remote["image_id"]
+                assert len(self.build_commands()) == 1
+            else:
+                with pytest.raises(DockerPreparationError) as caught:
+                    prepare_platform_image(PLATFORMS["python-cpu"], image_source=mode)
+                assert caught.value.reason_code == ("docker_platform_mismatch" if architecture else "docker_integrity_failed")
+                assert not self.build_commands()
+        assert not any(cmd[:2] == ["docker", "run"] and cmd[-2] == remote["image_id"] for cmd in self.commands)
+
+    def test_auto_build_fallback_keeps_ghcr_and_domestic_sources_separate(self, monkeypatch, capsys):
+        from acprof.host.images.environment import prepare_environment_image
+        from acprof.runtime.profiles import ENVIRONMENTS
+        mirrors = {"ACPROF_DOCKER_HUB_MIRROR": "mirror.example/docker.io",
+                   "ACPROF_PYPI_ARTIFACT_MIRROR": "tencent", "ACPROF_DEBIAN_ARTIFACT_MIRROR": "tencent"}
+        for key, value in mirrors.items():
+            monkeypatch.setenv(key, value)
+        pulls = []
+        def registry(command, **kwargs):
+            if command[:2] == ["docker", "pull"]:
+                pulls.append(command[-1])
+                return subprocess.CompletedProcess(command, 1, "", "manifest unknown")
+            return self.fake_run(command, **kwargs)
+        with patch("acprof.system.command.run_command", side_effect=registry):
+            prepare_environment_image(ENVIRONMENTS["onnxruntime-cpu"], image_source="auto")
+        assert all(reference.startswith("ghcr.io/") for reference in pulls)
+        assert len(pulls) == 2
+        for command in self.build_commands():
+            assert "ACPROF_PYPI_ARTIFACT_MIRROR" in command
+            assert "ACPROF_DEBIAN_ARTIFACT_MIRROR" in command
+            assert any(arg.startswith("BUILDKIT_SYNTAX=mirror.example/docker.io/") for arg in command)
+        assert any(arg.startswith("PYTHON_BASE_IMAGE=mirror.example/docker.io/") for arg in self.build_commands()[0])
+        output = capsys.readouterr().out
+        assert "endpoint fallback" not in output
+        assert "mirrors.cloud.tencent.com" in output
 
     def test_frontend_timeout_stops_before_model_download_and_later_builds(self):
         def fail_frontend(command, **kwargs):

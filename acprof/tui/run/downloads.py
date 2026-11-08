@@ -33,6 +33,7 @@ def probe_reason(reason: str | None) -> str:
         return message_id('downloads.error.http_status', reason[5:])
     kinds = {"dns": 'downloads.error.dns', "tls": 'downloads.error.tls', "connect-timeout": 'downloads.error.connect_timeout',
              "proxy": 'downloads.error.proxy', "not-found": 'downloads.error.not_found',
+             "platform": 'downloads.error.platform',
              "auth": 'downloads.error.auth', "integrity": 'downloads.error.integrity',
              "read-timeout": 'downloads.error.read_timeout', "timeout": 'common.error.request_timeout', "transfer-interrupted": 'downloads.error.incomplete_transfer',
              "untrusted-host": 'downloads.error.redirect_policy', "redirect-loop": 'downloads.error.redirect_loop', "probe-budget": 'downloads.preflight.budget_skipped',

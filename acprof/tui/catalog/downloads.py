@@ -34,6 +34,7 @@ MESSAGES: dict[str, Entry] = {
     "downloads.error.integrity": Entry(zh="下载内容与锁定 digest 不一致", en="Downloaded content does not match the locked digest"),
     "downloads.error.manifest_unavailable": Entry(zh="无法读取 Docker manifest", en="Docker manifest unavailable"),
     "downloads.error.not_found": Entry(zh="镜像不存在或未同步所需 digest", en="Image missing or required digest not mirrored"),
+    "downloads.error.platform": Entry(zh="镜像 Manifest 未包含 linux/amd64", en="Image manifest has no linux/amd64 entry"),
     "downloads.error.proxy": Entry(zh="代理连接失败，请检查对应下载环节的代理", en="Proxy connection failed; check the proxy for this download stage"),
     "downloads.error.read_timeout": Entry(zh="读取模型数据超时", en="Model data read timed out"),
     "downloads.error.redirect_loop": Entry(zh="重定向循环或次数过多", en="Redirect loop or too many redirects"),

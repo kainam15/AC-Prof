@@ -13,12 +13,14 @@ class ImageProgress:
     current: int | None = None
     total: int | None = None
     content: dict | None = None
+    reason_code: str = ""
 
     def validate(self) -> None:
         if (self.component not in {"platform", "environment", "model", "service"}
-                or self.phase not in {"checking", "pulling", "building", "verifying", "complete", "failed"}
+                or self.phase not in {"checking", "pulling", "fallback", "building", "verifying", "complete", "failed"}
                 or not isinstance(self.image, str) or not 0 < len(self.image) <= 512
-                or not isinstance(self.detail, str) or len(self.detail) > 2048):
+                or not isinstance(self.detail, str) or len(self.detail) > 2048
+                or not isinstance(self.reason_code, str) or len(self.reason_code) > 128):
             raise ValueError("invalid Docker preparation progress")
         if (self.current is None) != (self.total is None):
             raise ValueError("partial Docker byte counts")

@@ -36,6 +36,7 @@ def failure_text(request, stage, tr):
             "docker_content_incomplete", "docker_auth_failed", "docker_network_failed", "docker_disk_full",
             "docker_repair_unverified", "docker_repair_forbidden", "docker_frontend_failed",
             "docker_integrity_failed", "docker_tls_failed",
+            "docker_manifest_missing", "docker_platform_mismatch", "docker_download_budget",
         } else tr(message_id("run.docker.error.generic"))]
         lines.append(tr(message_id("run.docker.failed_step", error.get("step") or error.get("image", ""))))
         if code == "docker_frontend_failed":
@@ -51,8 +52,8 @@ def failure_text(request, stage, tr):
                 lines.append(tr(message_id("run.docker.upgrade", content["engine_version"])))
         if error.get("exit_code") is not None:
             lines.append(tr(message_id("run.docker.exit_code", error["exit_code"])))
-        if error.get("detail") and code != "docker_frontend_failed":
-            lines.append(error["detail"][-1200:])
+        if fallback := error.get("fallback_error"):
+            lines.append(tr(message_id("run.docker.error." + fallback["reason_code"])))
         if error.get("log_path"):
             lines.append(tr(message_id("run.docker.log_path", error["log_path"])))
         lines.append(tr(message_id("run.docker.recovery_hint")))

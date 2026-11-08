@@ -97,8 +97,15 @@ class DownloadProgressPanel(VerticalScroll):
 
 class ImageProgressContent(ProgressSummary):
     progress: ImageProgress | None = None
+    fallback_reason: str = ""
 
     def update_progress(self, progress: ImageProgress) -> None:
+        if (self.progress is None or self.progress.component != progress.component
+                or progress.phase == "pulling"
+                or progress.phase == "checking" and self.progress.phase in {"complete", "failed"}):
+            self.fallback_reason = ""
+        if progress.phase == "fallback":
+            self.fallback_reason = progress.reason_code
         self.progress = progress
         self.refresh(layout=True)
 
@@ -106,9 +113,15 @@ class ImageProgressContent(ProgressSummary):
         progress = self.progress
         if progress is None:
             return Text()
+        phase = ("pulling_prebuilt" if progress.phase == "pulling" and progress.component in {"platform", "environment"}
+                 else progress.phase)
+        role = {"fallback": "warning", "failed": "error", "complete": "success"}.get(progress.phase, "active")
         parts: list[RenderableType] = [self.metric(message_id("run.docker.component." + progress.component),
-                                                 message_id("run.docker.phase." + progress.phase), "active")]
+                                                 message_id("run.docker.phase." + phase), role)]
         parts.append(Text(progress.image, overflow="fold"))
+        if self.fallback_reason in {"docker_manifest_missing", "docker_platform_mismatch", "docker_network_failed"}:
+            parts.append(self.text(message_id("run.docker.fallback",
+                                             message_id("run.docker.fallback_reason." + self.fallback_reason)), "warning"))
         if progress.content:
             content = progress.content
             status = content["status"]
@@ -123,7 +136,7 @@ class ImageProgressContent(ProgressSummary):
             parts.append(row)
         elif progress.phase in {"pulling", "building"}:
             parts.append(self.text(message_id("run.docker.unknown_size"), "label"))
-        if progress.detail:
+        if progress.detail and progress.phase != "failed":
             parts.append(Text(progress.detail, overflow="fold"))
         return Group(*parts)
 

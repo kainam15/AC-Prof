@@ -146,7 +146,8 @@ def model_fingerprint(task_info: Any, runtime_id: str, project_dir: str | Path =
 def inspect_identity(image: str) -> dict | None:
     result = host_command.run_command([
         "docker", "image", "inspect", image, "--format",
-        '{"image_id":{{json .Id}},"labels":{{json (index .Config "Labels")}}}',
+        '{"image_id":{{json .Id}},"labels":{{json (index .Config "Labels")}},'
+        '"os":{{json .Os}},"architecture":{{json .Architecture}}}',
     ], check=False, timeout=host_command.DOCKER_INSPECT_TIMEOUT_S)
     if result.returncode:
         detail = (result.stderr or result.stdout or "").strip()

@@ -333,3 +333,29 @@ def test_docker_failure_is_persisted_with_original_output_and_log_path(tmp_path,
     saved = json.loads(evidence.summary_path.read_text())
     assert saved["reason_code"] == "docker_content_incomplete"
     assert saved["last_failure"]["docker_error"]["exit_code"] == 1
+
+
+@pytest.mark.parametrize(("message", "code"), [
+    ("manifest unknown", "docker_manifest_missing"),
+    ("no matching manifest for linux/amd64 in the manifest list entries", "docker_platform_mismatch"),
+    ("context deadline exceeded", "docker_network_failed"),
+    ("denied: token request timeout", "docker_auth_failed"),
+])
+@pytest.mark.parametrize("status", [200, 500])
+def test_engine_pull_errors_keep_diagnostics_without_premature_failure(monkeypatch, capsys, message, code, status):
+    monkeypatch.setenv("ACPROF_TUI", "1")
+    monkeypatch.setattr(operations, "_anonymous_socket", lambda: "/fake/docker.sock")
+    def respond(request):
+        assert request.url.params["platform"] == "linux/amd64"
+        body = {"errorDetail": {"message": message}, "error": message} if status == 200 else {"message": message}
+        return httpx.Response(status, content=(json.dumps(body) + "\n").encode())
+    monkeypatch.setattr(operations.httpx, "HTTPTransport", lambda **kwargs: httpx.MockTransport(respond))
+    with pytest.raises(DockerPreparationError) as caught:
+        operations.pull_image(REFERENCE, component="platform")
+    assert caught.value.reason_code == code
+    assert message in caught.value.detail
+    output = capsys.readouterr().out
+    assert message in output
+    events = [event for line in output.splitlines() if (event := parse_event(line))]
+    assert all(event["image_progress"]["phase"] != "failed" for event in events)
+    assert all(message not in event["image_progress"]["detail"] for event in events)

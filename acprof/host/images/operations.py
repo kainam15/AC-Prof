@@ -37,7 +37,9 @@ def run_docker(command: list[str], *, component: str, image: str, operation: str
     finally:
         output.finish()
     if result.returncode or output.error:
-        emit_image_progress(component, image, "failed", detail=output.detail[:2048])
+        # The caller owns pull policy: a failed pull can still lead to a build.
+        if operation != "pull":
+            emit_image_progress(component, image, "failed", detail=output.detail[:2048])
         if frontend_failed(output.detail, output.step, frontend):
             raise frontend_error(output.detail, frontend, exit_code=result.returncode)
         summary = ("Docker 构建失败: " if operation == "build" else "Docker 拉取失败: ") + output.detail
@@ -75,6 +77,7 @@ def pull_image(reference: str, *, component: str) -> None:
             with client.stream("POST", "http://docker/images/create", params={"fromImage": reference, "platform": "linux/amd64"}) as response:
                 if response.status_code >= 400:
                     detail = next(response.iter_bytes(chunk_size=12000), b"").decode("utf-8", errors="replace")
+                    output.log(detail)
                     code = "docker_auth_failed" if response.status_code in {401, 403} else reason_code(detail, "pull")
                     raise DockerPreparationError(code, detail, image=reference, step="docker pull", exit_code=response.status_code)
                 for line in _response_lines(response):

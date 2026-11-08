@@ -52,9 +52,12 @@ class DockerOutput:
 
     def log(self, text: str) -> None:
         # Forward through PreparationTee so the existing bounded log owns persistence.
-        safe = redact_text(text, limit=4096)
+        safe = redact_text(text, limit=65536 - 64 if self.phase == "pulling" else 4096)
         self.tail.append(safe)
-        print(safe, flush=True)
+        # Retain pull diagnostics in the preparation log and optional TUI details.
+        # Only the policy owner can decide whether this is a terminal failure.
+        for line in safe.splitlines():
+            print(("[docker][DEBUG] " if self.phase == "pulling" else "") + line, flush=True)
 
     def feed(self, line: str) -> None:
         self.seen = True
@@ -78,7 +81,8 @@ class DockerOutput:
                 self.error = detail
             identifier = value.get("id", "")
             counts = value.get("progressDetail") or {}
-            self.report(f"{identifier} {detail}".strip(), counts.get("current"), counts.get("total"), force=bool(error))
+            if not error or self.phase != "pulling":
+                self.report(f"{identifier} {detail}".strip(), counts.get("current"), counts.get("total"), force=bool(error))
             self.log(f"{identifier} {detail}".strip())
             return
         if any(key in value for key in ("vertexes", "statuses", "logs", "warnings")):

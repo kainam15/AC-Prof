@@ -6,6 +6,7 @@ import json
 import os
 import re
 import tempfile
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -80,32 +81,64 @@ def local_build_sources(identity: dict, root: Path, *, platform: bool) -> list[s
     return sorted(sources)
 
 
-def _pull_cached_image(name: str, label: str, fingerprint: str, expected: dict,
-                       identity: dict, kind: str, source: str, registry: str | None, root: Path = PROJECT_ROOT):
-    if source == "build":
-        return None
-    reference = registry_reference(kind, fingerprint, registry)
-    print(f"[runtime] 拉取预构建依赖：{reference}", flush=True)
+def _acquire_cached_image(name: str, label: str, fingerprint: str, expected: dict,
+                         identity: dict, kind: str, source: str, registry: str | None,
+                         root: Path, build: Callable[[], None]):
+    pull_failure = None
+    if source != "build":
+        reference = registry_reference(kind, fingerprint, registry)
+        print(f"[runtime] 拉取预构建依赖：{reference}", flush=True)
+        try:
+            pull_image(reference, component=kind)
+            # Docker can warn about a single-platform image yet exit zero.
+            # Check its config before executing the dependency manifest reader.
+            verified = checked_image(reference, label, fingerprint, expected, identity, kind)
+            if verified is None:
+                raise RuntimeError(f"拉取后未找到预构建镜像：{reference}")
+        except DockerPreparationError as exc:
+            # HTTP error bodies and transport exceptions may not have streamed any
+            # output. Always retain the original redacted error before recovery.
+            for line in exc.detail.splitlines():
+                print(f"[runtime][DEBUG] {line}", flush=True)
+            reasons = {
+                "docker_manifest_missing": "镜像标签不存在",
+                "docker_platform_mismatch": "镜像不支持 linux/amd64",
+                "docker_network_failed": "镜像仓库网络连接失败",
+            }
+            if source == "pull" or exc.reason_code not in reasons:
+                emit_image_progress(kind, reference, "failed", reason_code=exc.reason_code)
+                raise
+            if os.environ.get("ACPROF_MAX_DOWNLOAD", "").strip():
+                raise DockerPreparationError(
+                    "docker_download_budget",
+                    "预构建镜像拉取失败；预算模式禁止未预检的 local build fallback。请显式选择 build 后重新预检。",
+                    image=reference, step="local build preflight",
+                ) from exc
+            pull_failure = exc
+            print(f"[runtime][WARN] {reasons[exc.reason_code]}；回退到本地构建，继续准备 Runtime。", flush=True)
+            emit_image_progress(kind, reference, "fallback", reason_code=exc.reason_code)
+            origins = local_build_sources(identity, root, platform=kind == "platform")
+            print("[runtime] 本地构建依赖来源（Docker Hub 前端/base、Debian、Python 制品）：" + ", ".join(origins), flush=True)
+        else:
+            host_command.run_command(['docker', 'tag', verified[0], name], check=True)
+            return verified
     try:
-        pull_image(reference, component=kind)
-    except DockerPreparationError as exc:
-        if source == "pull":
-            raise
-        if exc.reason_code in {"docker_auth_failed", "docker_content_incomplete", "docker_integrity_failed", "docker_tls_failed"}:
-            raise  # Authentication and damaged content are not cache misses.
-        if os.environ.get("ACPROF_MAX_DOWNLOAD", "").strip():
-            raise RuntimeError("预构建镜像拉取失败；预算模式禁止未预检的 local build fallback。请显式选择 build 后重新预检。") from exc
-        from acprof.network_policy import require_source_transition
-        for origin in local_build_sources(identity, root, platform=kind == "platform"):
-            require_source_transition("https://" + reference, origin)
-        print("[runtime] 预构建镜像不可用，回退到本机锁定依赖构建。", flush=True)
-        return None
-    # A successful pull with bad identity is never silently replaced by a local build.
-    verified = checked_image(reference, label, fingerprint, expected, identity, kind)
-    if verified is None:
-        raise RuntimeError(f"拉取后未找到预构建镜像：{reference}")
-    host_command.run_command(['docker', 'tag', verified[0], name], check=True)
-    return verified
+        print(f"[runtime] 本地构建：{name}", flush=True)
+        build()
+        token = rebuild_target.set("")
+        try:
+            return checked_image(name, label, fingerprint, expected, identity, kind)
+        finally:
+            rebuild_target.reset(token)
+    except Exception as exc:
+        if pull_failure is not None:
+            if isinstance(exc, DockerPreparationError):
+                exc.fallback_error = pull_failure.to_dict()
+            if exc.__cause__ is not None:
+                exc.add_note(f"Prebuilt image pull also failed: {pull_failure}")
+                raise
+            raise exc from pull_failure
+        raise
 
 
 @dataclass(frozen=True)
@@ -201,6 +234,13 @@ def checked_image(name: str, label: str, fingerprint: str, expected: dict, ident
     if (image.get("labels") or {}).get(label) != fingerprint:
         raise RuntimeError(f"依赖缓存标签内容不匹配：{name}")
     verify_labels(image, expected, kind)
+    if not image.get("os") or not image.get("architecture"):
+        raise DockerPreparationError("docker_integrity_failed", "Image config is missing OS/architecture",
+                                     image=name, step="image platform verification")
+    if image["os"] != "linux" or image["architecture"] != "amd64":
+        raise DockerPreparationError("docker_platform_mismatch",
+                                     f"Expected linux/amd64; image config is {image.get('os')}/{image.get('architecture')}",
+                                     image=name, step="image platform verification")
     emit_image_progress(kind, name, "verifying", content=content.to_dict())
     manifest = read_image_manifest(image["image_id"], f"/opt/acprof/{kind}-manifest.json")
     verify_manifest(manifest, expected, identity)
@@ -293,18 +333,13 @@ def _prepare_platform(platform: PlatformSpec, root: Path, platform_data: dict,
     if existing is None and os.environ.get("ACPROF_REQUIRE_PREPARED_IMAGE") == "1":
         raise RuntimeError(f"硬件验证禁止隐式构建或下载：预备平台镜像不存在：{platform_name}")
     if existing is None:
-        existing = _pull_cached_image(platform_name, PLATFORM_LABEL, platform_key, expected_platform,
-                                      platform_data, "platform", source_policy, registry, root)
-    if existing is None:
-        build_dependency(root, "platform.Dockerfile", platform_name,
-                         {"PYTHON_BASE_IMAGE": platform.python_base_image, "PLATFORM_ID": platform.platform_id,
-                          "PLATFORM_BUILD_FINGERPRINT": platform_key}, expected_platform, platform_data,
-                         lambda: platform_fingerprint(platform, root), platform_key)
-        token = rebuild_target.set("")
-        try:
-            existing = checked_image(platform_name, PLATFORM_LABEL, platform_key, expected_platform, platform_data, "platform")
-        finally:
-            rebuild_target.reset(token)
+        def build_platform():
+            build_dependency(root, "platform.Dockerfile", platform_name,
+                             {"PYTHON_BASE_IMAGE": platform.python_base_image, "PLATFORM_ID": platform.platform_id,
+                              "PLATFORM_BUILD_FINGERPRINT": platform_key}, expected_platform, platform_data,
+                             lambda: platform_fingerprint(platform, root), platform_key)
+        existing = _acquire_cached_image(platform_name, PLATFORM_LABEL, platform_key, expected_platform,
+                                         platform_data, "platform", source_policy, registry, root, build_platform)
     if existing is None:
         raise RuntimeError("平台构建后未找到缓存镜像")
     if platform_fingerprint(platform, root) != platform_key:
@@ -343,23 +378,18 @@ def prepare_environment_image(environment: DependencyEnvironment, project_dir=PR
     if existing is None and os.environ.get("ACPROF_REQUIRE_PREPARED_IMAGE") == "1":
         raise RuntimeError(f"硬件验证禁止隐式构建或下载：预备依赖环境镜像不存在：{name}")
     if existing is None:
-        existing = _pull_cached_image(name, ENVIRONMENT_LABEL, environment_key, expected, identity,
-                                      "environment", source_policy, registry, root)
-    if existing is None:
-        source = "acprof-build-source:" + platform_image_id.split(":", 1)[1]
-        host_command.run_command(['docker', 'tag', platform_image_id, source], check=True)
-        def current_environment_fingerprint():
-            require_image_source(source, platform_image_id)
-            return runtime_fingerprint(environment, root)
-        build_dependency(root, "runtime.Dockerfile", name,
-                         {"PLATFORM_IMAGE": source, "ENVIRONMENT_ID": expected["environment_id"],
-                          "ENVIRONMENT_BUILD_FINGERPRINT": environment_key}, expected, identity,
-                         current_environment_fingerprint, spec_key)
-        token = rebuild_target.set("")
-        try:
-            existing = checked_image(name, ENVIRONMENT_LABEL, environment_key, expected, identity, "environment")
-        finally:
-            rebuild_target.reset(token)
+        def build_environment():
+            source = "acprof-build-source:" + platform_image_id.split(":", 1)[1]
+            host_command.run_command(['docker', 'tag', platform_image_id, source], check=True)
+            def current_environment_fingerprint():
+                require_image_source(source, platform_image_id)
+                return runtime_fingerprint(environment, root)
+            build_dependency(root, "runtime.Dockerfile", name,
+                             {"PLATFORM_IMAGE": source, "ENVIRONMENT_ID": expected["environment_id"],
+                              "ENVIRONMENT_BUILD_FINGERPRINT": environment_key}, expected, identity,
+                             current_environment_fingerprint, spec_key)
+        existing = _acquire_cached_image(name, ENVIRONMENT_LABEL, environment_key, expected, identity,
+                                         "environment", source_policy, registry, root, build_environment)
     if existing is None:
         raise RuntimeError("依赖环境构建后未找到缓存镜像")
     if runtime_fingerprint(environment, root) != spec_key:

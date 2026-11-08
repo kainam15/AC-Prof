@@ -345,3 +345,16 @@ def test_registry_manifest_rejects_content_changed_by_mirror():
     with patch("acprof.host.preparation.network_preflight.host_command.run_command", return_value=response):
         assert registry_manifest("mirror.example/image@sha256:" + "b" * 64, evidence=evidence) is None
     assert evidence[0]["reason"] == "integrity"
+
+
+def test_registry_manifest_reports_arm_only_image_without_layer_download():
+    document = {"schemaVersion": 2, "manifests": [
+        {"digest": "sha256:" + "a" * 64, "platform": {"os": "linux", "architecture": "arm64"}},
+    ]}
+    evidence = []
+    with patch("acprof.system.command.run_command", return_value=SimpleNamespace(
+        returncode=0, stdout=json.dumps(document), stderr="",
+    )) as command:
+        assert registry_manifest("ghcr.io/example/runtime:tag", evidence=evidence) is None
+    command.assert_called_once()
+    assert evidence[0]["reason"] == "platform"
