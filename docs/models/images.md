@@ -134,7 +134,7 @@ TUI 提供以下动作：
 准备进度复用 TUI 下载面板：Platform、Environment、Model、Service 分别显示检查、下载、构建和验证状态，
 模型权重仍使用原来的 Hugging Face／ModelScope 进度协议。BuildKit 使用 `rawjson`，本机匿名 Unix socket pull
 使用 Engine JSON 流；配置了 Docker 凭据／credential helper、SSH／TLS context 时保留 Docker CLI 的连接和鉴权行为，
-只显示阶段及日志。只有明确的当前传输字节数才显示进度条，不将局部层进度当作镜像总下载量。
+只显示阶段及日志。百分比只描述有同一范围分母的当前下载、解压或内容就绪量，不代表整个镜像的下载百分比。
 准备计时与正式 `measurement_started`／`measurement_stopped` 窗口累计时间分开；测量期间该行仅在边界更新，
 不新增轮询或周期刷新。均为 UI 耗时，不能当作结果延迟指标。
 
@@ -142,6 +142,46 @@ TUI 提供以下动作：
 的 required／present／missing 语义，以及 [BuildKit SolveStatus](https://github.com/moby/buildkit/blob/master/client/graph.go)
 和 [Buildx rawjson](https://github.com/docker/buildx/blob/master/docs/reference/buildx_build.md#progress)。这些项目采用 Apache-2.0，
 本项目借鉴协议与检查边界，未复制其实现；复用已有 HTTPX 和 TUI 组件，没有增加 runtime 依赖。
+
+### 下载总量与传输统计
+
+预检合并当前选择路径的 OCI Manifest、Python／Debian 锁定制品和模型文件；预构建镜像与其
+条件性本地构建不重复相加。`expected_download_bytes` 仍是完整已知时的预计待下载量，任何未知项
+都会让它保持 `null`，有限预算仍拒绝继续。新增的 `known_download_bytes` 保留已知待下载部分，
+`known_resource_bytes` 加上已确认缓存，`unknown_items` 与 `by_category` 列出未知数量和来源类别。
+模型按缺失文件、可解析 Manifest 按缺失大小的 descriptor 统计；整个 Manifest 不可达时计一个未解析来源，
+不能将它解释为只缺一层。缓存未知与缓存命中独立报告。OCI 仍使用逐来源的完整压缩上界，
+不同镜像的共享层和未验证 BuildKit 缓存可能使预计量高于真正下载量。
+
+| 展示 | 统计范围 |
+| --- | --- |
+| 预计下载 | 预检估算；不完整时显示已知字节 + 未知项，不作为整体进度分母 |
+| 当前传输／解压／内容就绪量 | 最近一个有标识的对象及活动；大小未知只显示当前字节，不显示百分比 |
+| Docker 累计下载 | 本轮准备各 Docker 操作已报告的下载 payload，按 operation ID 去重；重试重新下载的字节仍计入 |
+| 已识别资源／未知大小 | 当前 Docker 操作中已发现对象的体积和未知项；新对象、后续 total 会动态补充，不保证已枚举全部资源 |
+| 缓存字节／项、复用构建步骤 | 已确认复用的文件或层、独立的 BuildKit cached vertex 数；未知缓存大小不会伪造为已节省字节 |
+
+Engine `Downloading` 按对象和显式重试累计；Moby 续传的下一次计数表示本次新读 payload，分母可能
+缩为剩余大小。重复事件不重复相加；没有重试标记的计数回退保留原有证据并标为部分统计。
+BuildKit 无名称的 digest 状态表示内容存储可用量，可能来自已有缓存或并发复用，因此仅更新资源体积，
+不记作网络下载。解压、本地 context 上传和普通构建工作量也不计入下载。
+
+构建依赖下载器通过现有 BuildKit 日志发送 `ACPROF_DEPENDENCY_PROGRESS`，按实际读取累计 payload，
+包括失败片段与重新下载；HTTP Range 的历史缓存不计入本次传输。事件最多每 250 ms 更新一次，
+完成、缓存命中和失败会强制刷新。并行 vertex 的日志片段独立拼接。Docker EOF、异常和取消保留
+最后的有效计数；外层验证／失败事件不会清空这些证据，新一轮运行才重置累计值。
+
+最终显示的是操作结束时已确认的计数，不是抓包流量：HTTP/TLS 头、认证／Manifest 元数据、
+未报告的 Docker 内部重试或续传基线、普通 `RUN` 程序和无字节事件的下载仍无法完整计量。
+缓存构建只报告 `CACHED` 时，仅确认步骤复用，不从步骤数推算下载量或百分比。
+模型下载继续使用现有 SDK payload／文件重建统计，不与 Docker 字节合成一个整体百分比。
+依赖 helper 与下载策略已经属于构建指纹，本次更新会改变依赖镜像身份；不会替换历史实验记录的 image ID。
+
+实现参考 [Moby 下载／重试](https://github.com/moby/moby/blob/402d0a16f131d93ee89f1b06cb5fc8c98e766dfc/daemon/internal/distribution/xfer/download.go)、
+[Moby Range 续传读数](https://github.com/moby/moby/blob/402d0a16f131d93ee89f1b06cb5fc8c98e766dfc/daemon/internal/distribution/pull_v2.go)
+及 [BuildKit 内容存储进度](https://github.com/moby/buildkit/blob/cedaeca8850a2bb536bbd1db72419f3cf491bdb5/util/pull/pullprogress/progress.go)。
+沿用受维护的 Apache-2.0 上游协议思路与现有日志、HTTPX、Textual 能力，不复制源码或增加依赖；
+所有计数发生在准备阶段，正式测量窗口仍拒绝下载事件和 UI 刷新。
 
 ## 镜像管理与清理
 

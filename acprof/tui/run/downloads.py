@@ -128,14 +128,27 @@ class DownloadSection:
     lines: tuple[str, ...]
 
 
+def download_estimate(report: dict) -> str:
+    if report.get("expected_download_bytes") is None and "known_download_bytes" in report:
+        return message_id('downloads.size.partial', format_bytes(report["known_download_bytes"]), report["unknown_items"])
+    return format_bytes(report.get("expected_download_bytes"))
+
+
 def download_sections(report: dict) -> tuple[DownloadSection, ...]:
     """Group the same report for the confirmation dialog and the settings summary."""
     model, disk = report.get("model", {}), report.get("disk", {})
     docker = report.get("docker_storage", {})
     budget = (UNKNOWN if "max_download_bytes" not in report else message_id('common.value.unlimited')
               if report["max_download_bytes"] is None else format_bytes(report["max_download_bytes"]))
+    accounting = []
+    if "known_resource_bytes" in report:
+        accounting.append(message_id('downloads.size.identified', format_bytes(report["known_resource_bytes"]),
+                                     format_bytes(report["cached_bytes"]), report["cache_unknown_items"]))
+        accounting.extend(message_id('downloads.size.unknown_category', message_id(CATEGORIES[category]), counts["unknown_items"])
+                          for category, counts in report.get("by_category", {}).items() if counts["unknown_items"])
     overview = (
-        message_id('downloads.size.expected_detail', format_bytes(report.get("expected_download_bytes"))),
+        message_id('downloads.size.expected_detail', download_estimate(report)),
+        *accounting,
         message_id('downloads.budget.effective', budget),
         message_id('downloads.size.total_and_cached', format_bytes(model.get("total_bytes")),
                 format_bytes(model.get("cached_bytes"))),

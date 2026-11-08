@@ -524,6 +524,7 @@ AcprofTui.short #bottom-panel.command-hidden { height: 0; }
 AcprofTui.short .section-title { margin: 0 0 1 0; }
 AcprofTui.short .page-header { margin-bottom: 0; }
 AcprofTui.short #download-progress { max-height: 5; }
+AcprofTui.short #download-progress.image-accounting { max-height: 8; }
 AcprofTui.short #report-detail { max-height: 3; margin-top: 0; }
 AcprofTui.short #confirm-dialog { padding: 0 2; }
 /* Keep the image detail groups visible alongside the fixed footer at 80x24. */

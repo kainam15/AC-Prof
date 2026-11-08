@@ -65,6 +65,19 @@ def test_download_summary_keeps_unknown_distinct_from_zero_and_unlimited():
     assert "Effective download budget: Unlimited" in download_summary(report, lambda value: translate(value, "en"))
 
 
+def test_partial_estimate_discloses_known_bytes_and_unknown_categories():
+    from acprof.network_policy import DownloadSource, summarize_downloads
+    from acprof.tui.run.downloads import download_summary
+
+    report = summarize_downloads([DownloadSource("model", "https://hub.example", 100),
+                                 DownloadSource("oci", "https://registry.example", None)])
+    text = download_summary(report, lambda value: translate(value, "en"))
+    assert "100 B known + 1 unknown" in text
+    assert "Docker images: 1 unknown" in text
+    assert "Identified resources: 100 B" in text
+    assert "%" not in text
+
+
 def test_unknown_download_origin_remains_translatable_alongside_known_hosts():
     from acprof.tui.run.downloads import download_summary
 

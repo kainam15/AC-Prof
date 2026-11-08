@@ -17,6 +17,66 @@ from tests.support.tui_fixtures import AcprofTui
 
 
 @pytest.mark.parametrize("language", ["zh", "en"])
+async def test_accounting_survives_terminal_events_without_false_percentage(tmp_path, language, monkeypatch):
+    from io import StringIO
+
+    from rich.console import Console
+
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    app = AcprofTui(RunConfig.smoke("fixture/model"), settings_path=tmp_path / "settings.json")
+    app.configuration.preferences = replace(app.configuration.preferences, language=language)
+    progress = ImageProgress("platform", "fixture:image", "pulling", "layer-a", current=50,
+                             operation_id="op", transferred_bytes=150, known_bytes=200, unknown_items=2,
+                             cached_bytes=20, cached_items=1, transfer_status="partial")
+    async with app.run_test(size=(80, 24)) as pilot:
+        app.activate_tab("monitor-tab")
+        tracker = RunProgressTracker()
+        snapshot = tracker.feed(encode_event("environment", "running", image_progress=progress.to_dict()))
+        app.execution.update_snapshot(snapshot)
+        app.render_snapshot(snapshot)
+        app.preflight.download_progress(progress)
+        await pilot.pause()
+        for size in ((80, 24), (120, 30)):
+            await pilot.resize_terminal(*size)
+            await pilot.pause()
+            stream = StringIO()
+            widget = app.query_one(ImageProgressContent)
+            Console(file=stream, width=76).print(widget.render())
+            rendered = stream.getvalue()
+            assert "150 B" in rendered
+            assert "200 B" in rendered
+            assert "20 B" in rendered
+            assert ("未知大小" if language == "zh" else "Unknown sizes") in rendered
+            assert "%" not in rendered
+            assert ("未知大小" if language == "zh" else "Unknown") in app.export_screenshot()
+            panel = app.query_one(DownloadProgressPanel)
+            panel.focus()
+            await pilot.press("end")
+            await pilot.pause()
+            assert panel.scroll_y == panel.max_scroll_y
+            await pilot.press("home")
+            await pilot.pause()
+            if destination := os.environ.get("ACPROF_DOCKER_EVIDENCE"):
+                app.save_screenshot(filename=f"download-accounting-{language}-{size[0]}x{size[1]}.svg", path=destination)
+        app.preflight.download_progress(ImageProgress("platform", "fixture:image", "verifying"))
+        assert app.preflight.latest_download.transferred_bytes == 150
+        app.preflight.finish_download(cancelled=True)
+        assert app.preflight.latest_download.phase == "cancelled"
+        assert app.preflight.latest_download.transferred_bytes == 150
+        next_attempt = replace(progress, operation_id="retry", transferred_bytes=30)
+        app.preflight.download_progress(next_attempt)
+        app.preflight.download_progress(next_attempt)
+        stream = StringIO()
+        Console(file=stream, width=76).print(widget.render())
+        assert "180 B" in stream.getvalue()
+        app.preflight.reset_download()
+        app.preflight.download_progress(next_attempt)
+        stream = StringIO()
+        Console(file=stream, width=76).print(widget.render())
+        assert "180 B" not in stream.getvalue()
+
+
+@pytest.mark.parametrize("language", ["zh", "en"])
 async def test_docker_failure_actions_and_collapsed_logs(tmp_path, language, monkeypatch):
     monkeypatch.delenv("NO_COLOR", raising=False)
     app = AcprofTui(RunConfig.smoke("fixture/model"), settings_path=tmp_path / "settings.json")
@@ -87,6 +147,8 @@ async def test_docker_progress_shares_panel_and_stops_at_measurement(tmp_path, l
         app.execution.session.snapshot = replace(app.execution.session.snapshot, measurement_active=True)
         with pytest.raises(RuntimeError, match="inside measurement"):
             app.preflight.preparation_event({"stage": "environment", "status": "running", "image_progress": progress.to_dict()})
+        with pytest.raises(RuntimeError, match="inside measurement"):
+            app.preflight.network_preflight_report('[network-preflight] {}')
 
 
 @pytest.mark.parametrize("language", ["zh", "en"])

@@ -63,20 +63,32 @@ class PreflightController:
 
     def reset_download(self) -> None:
         self.latest_download = None
+        from acprof.tui.ui.progress_widgets import DownloadProgressPanel, ImageProgressContent
+        self.app.query_one(ImageProgressContent).reset_accounting()
+        self.app.query_one(DownloadProgressPanel).update_plan("")
         self.app.query_one("#download-progress").display = False
 
     def download_progress(self, progress: DownloadProgress | ImageProgress) -> None:
         if self.app.execution.session.snapshot.measurement_active:
             raise RuntimeError("download progress inside measurement window")
         from acprof.tui.ui.progress_widgets import DownloadProgressPanel
+        previous = self.latest_download
+        if (isinstance(progress, ImageProgress) and isinstance(previous, ImageProgress)
+                and not progress.operation_id and previous.component == progress.component):
+            # Content checks/fallback/terminal events carry no new byte evidence.
+            progress = replace(progress, **{key: getattr(previous, key) for key in (
+                "operation_id", "transferred_bytes", "known_bytes", "unknown_items", "cached_bytes",
+                "cached_items", "reused_steps", "transfer_status",
+            )})
         self.latest_download = progress
         widget = self.app.query_one("#download-progress", DownloadProgressPanel)
         widget.display = monitor_phase(self.app.execution.session.snapshot) is MonitorPhase.PREPARATION
         widget.update_progress(progress)
 
     def finish_download(self, *, cancelled: bool) -> None:
-        if isinstance(self.latest_download, ImageProgress) and self.latest_download.phase not in {"complete", "failed"}:
-            self.download_progress(replace(self.latest_download, phase="failed"))
+        if isinstance(self.latest_download, ImageProgress) and self.latest_download.phase not in {"complete", "failed", "cancelled"}:
+            self.download_progress(replace(self.latest_download, phase="cancelled" if cancelled else "failed",
+                                           current=None, total=None))
         elif isinstance(self.latest_download, DownloadProgress) and self.latest_download.state in {"downloading", "verifying"}:
             self.download_progress(replace(self.latest_download, state="cancelled" if cancelled else "failed",
                                            rate_bytes_s=None))
@@ -106,11 +118,15 @@ class PreflightController:
         return "ready"
 
     def network_preflight_report(self, line: str) -> None:
+        if self.app.execution.session.snapshot.measurement_active:
+            raise RuntimeError("download preflight inside measurement window")
         report = json.loads(line.split(" ", 1)[1])
-        from acprof.tui.run.downloads import download_summary
+        from acprof.tui.run.downloads import download_estimate, download_summary
         self.app.query_one("#network-download-summary", Static).update(download_summary(report, self.app.localization.tr))
-        from acprof.tui.ui.presentation import format_bytes
-        self.app.query_one("#download-estimate", Static).update(format_bytes(report.get("expected_download_bytes")))
+        self.app.query_one("#download-estimate", Static).update(self.app.localization.tr(download_estimate(report)))
+        from acprof.tui.ui.progress_widgets import DownloadProgressPanel
+        self.app.query_one(DownloadProgressPanel).update_plan(self.app.localization.tr(
+            message_id('downloads.size.expected_detail', download_estimate(report))))
 
     def network_download_report(self, line: str) -> None:
 

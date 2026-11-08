@@ -81,10 +81,19 @@ class PhaseTimes(Static):
 
 class DownloadProgressPanel(VerticalScroll):
     def compose(self) -> ComposeResult:
+        plan = Static(id="download-plan-summary")
+        plan.display = False
+        yield plan
         yield DownloadProgressContent()
         yield ImageProgressContent()
 
+    def update_plan(self, summary: str) -> None:
+        plan = self.query_one("#download-plan-summary", Static)
+        plan.update(summary)
+        plan.display = bool(summary)
+
     def update_progress(self, progress: DownloadProgress | ImageProgress) -> None:
+        self.set_class(isinstance(progress, ImageProgress) and progress.known_bytes is not None, "image-accounting")
         model = self.query_one(DownloadProgressContent)
         image = self.query_one(ImageProgressContent)
         image.display = isinstance(progress, ImageProgress)
@@ -99,10 +108,22 @@ class ImageProgressContent(ProgressSummary):
     progress: ImageProgress | None = None
     fallback_reason: str = ""
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.operation_payloads: dict[str, int] = {}
+
+    def reset_accounting(self) -> None:
+        self.operation_payloads.clear()
+        self.progress = None
+        self.fallback_reason = ""
+
     def update_progress(self, progress: ImageProgress) -> None:
+        if progress.operation_id and progress.transferred_bytes is not None:
+            self.operation_payloads[progress.operation_id] = max(
+                self.operation_payloads.get(progress.operation_id, 0), progress.transferred_bytes)
         if (self.progress is None or self.progress.component != progress.component
                 or progress.phase == "pulling"
-                or progress.phase == "checking" and self.progress.phase in {"complete", "failed"}):
+                or progress.phase == "checking" and self.progress.phase in {"complete", "failed", "cancelled"}):
             self.fallback_reason = ""
         if progress.phase == "fallback":
             self.fallback_reason = progress.reason_code
@@ -115,7 +136,7 @@ class ImageProgressContent(ProgressSummary):
             return Text()
         phase = ("pulling_prebuilt" if progress.phase == "pulling" and progress.component in {"platform", "environment"}
                  else progress.phase)
-        role = {"fallback": "warning", "failed": "error", "complete": "success"}.get(progress.phase, "active")
+        role = {"fallback": "warning", "failed": "error", "cancelled": "warning", "complete": "success"}.get(progress.phase, "active")
         parts: list[RenderableType] = [self.metric(message_id("run.docker.component." + progress.component),
                                                  message_id("run.docker.phase." + phase), role)]
         parts.append(Text(progress.image, overflow="fold"))
@@ -131,10 +152,27 @@ class ImageProgressContent(ProgressSummary):
             parts.append(label)
         if progress.current is not None and progress.total is not None:
             row = Table.grid(padding=(0, 2))
-            row.add_row(self.byte_bar(progress.current, progress.total), self.text(message_id("run.docker.transfer",
-                        format_bytes(progress.current), format_bytes(progress.total), f"{progress.current / progress.total:.0%}")))
+            row.add_row(self.byte_bar(progress.current, progress.total), self.text(message_id("run.docker.activity_progress",
+                        message_id("run.docker.activity." + progress.activity), format_bytes(progress.current),
+                        format_bytes(progress.total), f"{progress.current / progress.total:.0%}")))
             parts.append(row)
-        elif progress.phase in {"pulling", "building"}:
+        elif progress.current is not None:
+            parts.append(self.metric(message_id("run.docker.activity." + progress.activity), format_bytes(progress.current)))
+        if progress.known_bytes is not None:
+            cumulative = sum(self.operation_payloads.values()) if self.operation_payloads else progress.transferred_bytes
+            cells = [self.metric(message_id("run.docker.downloaded"), format_bytes(cumulative)),
+                     self.metric(message_id("run.docker.identified"), format_bytes(progress.known_bytes)),
+                     self.metric(message_id("run.docker.unknown_items"), str(progress.unknown_items))]
+            if progress.cached_items or progress.cached_bytes:
+                cells.append(self.metric(message_id("run.docker.cached"),
+                                         f"{format_bytes(progress.cached_bytes)} / {progress.cached_items}"))
+            if progress.reused_steps:
+                cells.append(self.metric(message_id("run.docker.reused_steps"), str(progress.reused_steps)))
+            parts.append(Columns(cells, padding=(0, 2)))
+            if len(self.operation_payloads) > 1:
+                parts.append(self.metric(message_id("run.docker.operation_downloaded"), format_bytes(progress.transferred_bytes)))
+            parts.append(self.text(message_id("run.docker.scope." + progress.transfer_status), "label"))
+        elif progress.phase in {"pulling", "building"} and progress.current is None:
             parts.append(self.text(message_id("run.docker.unknown_size"), "label"))
         if progress.detail and progress.phase != "failed":
             parts.append(Text(progress.detail, overflow="fold"))
