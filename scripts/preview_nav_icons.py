@@ -26,8 +26,8 @@ from textual.theme import Theme
 from textual.widgets import Button, Footer, OptionList, Static
 from textual.widgets.option_list import Option
 
+from acprof.tui.images.presentation import ImageTree
 from acprof.tui.ui.navigation import PageNavigation
-from acprof.tui.ui.presentation import COLLAPSED_SYMBOL, EXPANDED_SYMBOL
 from acprof.tui.ui.rendering import CjkScreen
 from acprof.tui.ui.themes import THEME_CATALOG, UI_THEMES
 
@@ -192,7 +192,7 @@ NERD_FONT_CHOICES = {
 }
 
 TREE_ARROWS = {
-    "A": ("当前箭头", COLLAPSED_SYMBOL.strip(), EXPANDED_SYMBOL.strip()),
+    "A": ("实心三角", "▶", "▼"),
     "B": ("小实心三角", "▸", "▾"),
     "C": ("空心三角", "▷", "▽"),
     "D": ("小空心三角", "▹", "▿"),
@@ -257,6 +257,7 @@ def list_choices(console: Console, page: str | None, nerd_font: bool) -> None:
 def list_tree_choices(console: Console, arrow: str | None, marker: str | None) -> None:
     console.print("AC-Prof · 镜像树图案预览", style="bold cyan")
     console.print("固定示例展示未选、已选和部分选中；请在使用 TUI 的终端中比较字形。")
+    console.print(f"当前箭头：{ImageTree.ICON_NODE.strip()} / {ImageTree.ICON_NODE_EXPANDED.strip()}")
     console.print("箭头（折叠 / 展开）", style="bold")
     for key, (name, closed, opened) in TREE_ARROWS.items():
         console.print(Text(f"  {key} · {name}：{closed} / {opened}"))

@@ -907,10 +907,12 @@ class TestTuiImages:
         async with app.run_test(size=(120, 30)) as pilot:
             await self.load_images(app, pilot, view="tree", expand_tree=True)
             tree = app.query_one("#image-tree", Tree)
+            assert tree.render_line(0).text.startswith("⌄ ")
             for expanded in (False, True):
                 await pilot.click(tree, offset=(0, 0))
                 await pilot.pause()
                 assert (tree.root.children[0].is_expanded) == (expanded)
+                assert tree.render_line(0).text.startswith("⌄ " if expanded else "› ")
                 assert (app.images.selected_ids) == (set())
             for view in ("tree", "list"):
                 await pilot.click("#image-view-" + view)

@@ -111,6 +111,8 @@ class ImageTreeHeader(ResizableDataTable):
 
 
 class ImageTree(Tree[ManagedImage]):
+    ICON_NODE = "› "
+    ICON_NODE_EXPANDED = "⌄ "
     auto_expand = var(False)
     COMPONENT_CLASSES = Tree.COMPONENT_CLASSES | {"image-tree--path"}
     BINDINGS = [Binding("space", "select_cursor", show=False),
