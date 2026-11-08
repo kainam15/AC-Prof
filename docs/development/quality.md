@@ -145,7 +145,8 @@ Ruff 版本由 [`pyproject.toml`](../../pyproject.toml) 的 `required-version` �
 `core-complexity` hook 对 `analysis/*.py`、`experiments/{load,streaming}.py`、
 `models/candidates.py`、`host/model_store/preparation.py`、
 `host/case_recovery.py`、`host/measurement/{metrics,collector_metrics,load,load_transport,load_reporting}.py`
-及 `container/handlers/{multimodal,diffusion}.py` 启用 `C901`，使用
+以及 `container/handlers/{multimodal,diffusion}.py`、`results/task_collections.py`、
+`workloads/{spec,cv,diffusion,multimodal,structured}.py` 启用 `C901`，使用
 `tool.ruff.lint.mccabe.max-complexity = 12`；其它高复杂度存量先分阶段治理，不以全仓豁免换取门禁通过。
 公共导出用显式重导出或 `__all__` 表达；必须先设置路径、环境或验证缺失依赖的 import，
 只在对应行标注具体规则及原因，不统一忽略 `__init__.py`。

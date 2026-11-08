@@ -74,6 +74,18 @@ Model Store 覆盖完整命中零模型网络请求、默认 ref 与显式 revis
 锁检查同时拒绝平台或环境制品清单缺失、ABI 不兼容，以及版本、URL、SHA256、包集合与安装锁不一致。
 依赖、模型、Dockerfile 变更还需分别说明新构建、已有 runtime、小型 fixture、真实 checkpoint 的验证范围。
 
+### TUI 条件等待
+
+`tests/support/tui_waits.py` 的 `wait_for_condition()` 为异步测试提供带描述、超时和按需诊断的条件等待。
+条件必须对应本次操作的可观察状态，不能以全局 Worker 空闲、空集合或固定休眠代替操作完成。
+内部保留无参数 `pilot.pause()` 来处理消息与布局；需要等待明确 Worker 或回调时，仍使用其自身完成信号，
+并按断言需要等待最终界面状态。异常和外部取消保持传播，不通过吞掉失败继续轮询。
+
+共享条件等待用于下载流、参数确认和测量中断/恢复测试；下载流 Fixture 通过 stdin 完成握手，
+由测试确认收到进度后才允许子进程结束，避免依赖一秒存活窗口。各原有场景、预算和结果断言保持。
+参考 [Textual 官方测试指南](https://textual.textualize.io/guide/testing/#pausing-the-pilot)（MIT，当前锁定 8.2.8），
+只复用既有 pytest/Textual 能力，不新增运行时轮询或依赖；等待调用的数量本身不作为稳定性结论。
+
 ## Python 修改工作流
 
 修改 Python 代码时优先使用 PyCharm MCP，覆盖 `acprof/`、`packaging/`、`scripts/` 和 `tests/`。

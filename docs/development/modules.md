@@ -57,12 +57,13 @@
 | `acprof/host/profiling/` | 独立 compute/execution 计划、进度及工具支持；`tools/` 放置各 profiler 的执行和解析实现 |
 | `acprof/host/posthoc/` | 已有结果的 profiler 补采、回填、备份与回滚 |
 | `acprof/container/` | 容器内模型下载、HTTP server、推理处理器和 profiler runner |
-| `acprof/workloads/` | 各任务族的确定性输入与素材准备 |
+| `acprof/workloads/` | 各任务族的确定性输入与素材准备；`spec.py` 统一输入声明的基础校验，`contract.py` 保留窗口外实际请求事实摘要 |
 | `acprof/monitors/` | 能耗、资源与 PMU 的原始测量 |
 | `acprof/packet/` | 抓包解析及 packet latency 合并 |
 | `acprof/config.py` | 共享配置、任务尺度及 CSV/静态元数据字段协议 |
 | `acprof/experiments/options.py`、`acprof/experiments/arguments.py`、`acprof/experiments/configuration.py` | 共享字段 schema、CLI 注册与序列化、配置验证；run/probe 命令消费相同声明 |
 | `acprof/results/metrics.py` | 指标顺序、单位、来源、窗口、展示和内部行分组；分析与测量消费派生视图 |
+| `acprof/results/task_collections.py` | 纯读取冻结的任务集合清单，由应用恢复和主机自动流程共用；不反向导入采集编排 |
 | `acprof/artifacts.py`、`acprof/results/csv.py` | 原子产物发布、CSV 结构与测量唯一键校验；不初始化采集依赖 |
 | `acprof/cancellation.py` | 同步产物消费者的协作取消检查与迭代边界；不创建线程、定时任务或后台轮询 |
 | `acprof/result_store/`、`acprof/results/layers.py` | schema v3 分层追加、统一提交、来源重放、模块替换、读取与不可变快照；不启动采集器，所有写入位于测量窗口之外 |
@@ -95,6 +96,18 @@ Model Store 的路径遍历、目录描述符与相对删除集中在 `host/mode
 `host/model_store/views.py` 负责 loader 视图的目录布局、refs 与链接检查、暂存构建和发布恢复；
 复用目录描述符边界，接收已确定的仓库计划与源路径，不自行选择网络来源或取得 lease。
 
+## Workload 输入校验
+
+`workloads/spec.py` 只提供对象、允许字段、版本、非空字符串和非空列表的基础规则，
+由任务族显式传入字段名称和错误消息；没有新增运行依赖、通用 schema DSL 或自动类型转换。
+CV、Diffusion、Structured 共用既有版本校验并明确拒绝布尔值；NLP、Multimodal 保留原有版本语义。
+六个提供 spec 的任务族按实际规则复用基础函数；Timeseries 没有 spec 文件入口，Audio 的嵌套 manifest、来源和 WAV 校验仍由 Audio 负责。
+尺度排序、去重或拒绝重复、跨字段约束、素材及保留参数规则继续属于各任务族，不能因字段同名而统一其含义。
+
+这与 [scikit-learn 的参数校验迁移](https://github.com/scikit-learn/scikit-learn/issues/23462) 中区分简单字段规则与数据/跨参数约束的做法一致；
+仅借鉴设计思路，不复制 BSD-3-Clause 源码或引入 scikit-learn/Pydantic。
+`workloads/contract.py` 继续描述实际请求与输出事实，不承担输入 spec 解析，正式测量语义保持原样。
+
 ## 入口与依赖方向
 
 ```mermaid
@@ -114,9 +127,11 @@ flowchart TD
 
 实现层不导入 `acprof.cli`。数值分析层不依赖绘图库；命令和配置模块不通过包初始化
 提前加载 Textual。容器内推理与主机通过现有 HTTP、输入计划和产物协议交互。
-`scripts/check_import_boundaries.py` 在 CI 中用 AST 检查各关键包的运行时导入方向，
-不允许分析、容器与负载层倒向采集或 UI 层。`TYPE_CHECKING` 导入不形成运行时耦合；
-监测器与主机端共用 `system.command`，无需跨层的 host 命令导入例外。
+`scripts/check_import_boundaries.py` 在开发和 CI 中调用锁定的 Import Linter，
+契约统一放在 `pyproject.toml`，具体范围见[导入方向检查](static-checks.md#关键模块导入方向检查)。
+既有直接依赖规则保持；`host → application` 与 `runtime → host/application` 同时禁止间接路径。
+`TYPE_CHECKING` 导入不形成运行时耦合；监测器与主机端共用 `system.command`。
+包级互相引用是审查线索，不能仅凭计数判断 Python 模块导入循环，也不据此强设全仓线性分层。
 
 跨模块调用应引用职责所属模块的公共能力。`scripts/check_private_api.py` 用标准库 AST
 记录 `acprof/` 中的 `(source, target, symbol)`，CI 拒绝未登记的新 private dependency，

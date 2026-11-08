@@ -120,14 +120,27 @@ uv run python scripts/run_tests.py --pattern test_private_api_guard.py \
 （GPL-2.0）和 [Pyright 对测试目录的独立设置](https://github.com/microsoft/pyright/discussions/8193)
 （MIT）。Import Linter 面向模块图，Pylint 该规则主要针对外部 private import；本 gate 需要
 项目内 symbol tuple 和只减不增的历史基线，因此独立使用 Python 标准库 AST 实现，
-不复制这些项目的源码，也不引入额外 linter 或第二套类型工具。它仅在开发与 CI 中运行。
+不复制这些项目的源码；符号基线继续使用该专用检查，模块依赖图交给下节的 Import Linter。
+这些工具仅在开发与 CI 中运行，不进入正式测量窗口。
 
 ## 关键模块导入方向检查
-`scripts/check_import_boundaries.py` 使用标准库 AST 检查源码层的依赖方向，
-禁止 `analysis → host`、`host → cli/tui`、`container → host/tui` 等反向运行时导入。
-明确跳过 `if TYPE_CHECKING` 内的类型引用；监测器与主机端命令统一复用
-`system.command`，不再需要跨层导入例外。
-CI 与 `tests/quality/test_import_boundaries.py` 同时验证真实仓库与反例；动态 import 不在静态检测范围。
+`pyproject.toml` 的 `[tool.importlinter]` 与契约表是模块依赖策略的唯一来源。
+`scripts/check_import_boundaries.py` 保留原开发/CI 入口，转而调用锁定的 Import Linter，
+不再平行维护一套 AST 模块图。工具由 `import-checks` 开发组唯一声明，`lint` 与 `test` 共用，
+版本由 `uv.lock` 固定；不成为发行或模型 Runtime 依赖，单独安装测试组也能执行门禁回归。
+
+既有 `analysis → host`、`container → host/tui` 等规则保持直接导入检查，
+这些契约显式允许间接路径，以保留原门禁范围。Host 和 Runtime 的禁止集合则同时检查直接与间接依赖，
+其中新增 `host → application` 与 `runtime → host` 边界，原有 CLI/TUI 等禁向一并受传递检查，不设置 `ignore_imports`。
+前者把集合清单读取放入 `results/task_collections.py`，后者由主机显式注入源码读取回调，
+保留原缓存、下载和失败语义。尚未理清的其他包级耦合先审查，不用大量豁免伪造全仓分层。
+
+配置通过 `exclude_type_checking_imports` 排除 `if TYPE_CHECKING` 内的类型引用；
+监测器与主机命令继续复用 `system.command`。反例覆盖直接禁止、间接禁止、允许的类型引用及合法依赖，
+同时检查真实仓库；动态 `importlib` / 运行时反射不在静态检测范围。
+契约取舍依据官方 [Forbidden](https://import-linter.readthedocs.io/en/stable/contract_types/forbidden/)
+和[配置说明](https://import-linter.readthedocs.io/en/stable/get_started/configure/)（BSD-2-Clause，持续维护），
+使用现成工具，不复制其源码。
 
 ```bash
 uv run python scripts/check_import_boundaries.py
@@ -135,7 +148,8 @@ uv run pytest -q tests/quality/test_import_boundaries.py
 ```
 
 `analysis.latency_validation` 与共享硬件证据协议、纯 `measurement.metrics` 等已验证模块使用
-局部严格检查；后续继续逐模块收紧，而非一次改成全局严格模式。延迟报告和绘图使用公共数值 API，
+局部严格检查；新增的 `workloads.spec` 和 `results.task_collections` 也启用三项严格规则。
+后续继续逐模块收紧，而非一次改成全局严格模式。延迟报告和绘图使用公共数值 API，
 `latency_model` 的私有函数不进入跨模块 baseline。
 
 ## TUI 控制器拆分回归

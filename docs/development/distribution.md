@@ -91,6 +91,7 @@ CI 使用 `--locked`，声明漂移直接失败，不在运行测试时改写锁
 | `dev`（默认） | 包含 `test`、`lint`、`typing`、`runtime-tools` |
 | `test` / `runtime-test` | 主机测试、coverage / 临时容器 pytest 工具；不进入发行依赖 |
 | `lint` / `typing` | Ruff、pre-commit、文档解析 / mypy |
+| `import-checks` | Import Linter 模块依赖契约；`test` 与 `lint` 共同引用同一声明，`runtime-test` 保持不变 |
 | `browser` | Playwright、Plotly 与 pytest；使用独立 `UV_PROJECT_ENVIRONMENT` |
 | `runtime-tools` | 准备目标平台测试 wheel 的 pip 下载工具；环境由 uv 管理 |
 | `audit` | pip-audit；用 `--only-group audit` 与待审计环境隔离 |
