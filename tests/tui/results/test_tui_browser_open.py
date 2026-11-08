@@ -41,7 +41,7 @@ async def test_open_and_copy_are_visible_with_pending_and_requested_status(
         return subprocess.CompletedProcess(args[0], 0, "", "")
 
     run = Mock(side_effect=launch)
-    monkeypatch.setattr(browser.subprocess, "run", run)
+    monkeypatch.setattr(browser, "run_command", run)
     app = AcprofTui(settings_path=tmp_path / "settings.json")
     app.configuration.preferences = replace(app.configuration.preferences, language=language)
     clipboard = Mock()
@@ -102,7 +102,7 @@ async def test_open_and_copy_are_visible_with_pending_and_requested_status(
 async def test_failed_wsl_open_preserves_file_and_enables_copy(tmp_path, monkeypatch, wsl_bridge, language):
     report = tmp_path / "report.html"
     report.write_bytes(b"offline")
-    monkeypatch.setattr(browser.subprocess, "run", Mock(return_value=subprocess.CompletedProcess([], 7, "", "interop disabled")))
+    monkeypatch.setattr(browser, "run_command", Mock(return_value=subprocess.CompletedProcess([], 7, "", "interop disabled")))
     app = AcprofTui(settings_path=tmp_path / "settings.json")
     app.configuration.preferences = replace(app.configuration.preferences, language=language)
     async with app.run_test(size=(100, 32)) as pilot:

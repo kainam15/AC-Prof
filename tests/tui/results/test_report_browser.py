@@ -29,7 +29,7 @@ def dispatch(monkeypatch):
     tools = {name: "/tools/" + name for name in ("wslview", "wslpath", "powershell.exe")}
     monkeypatch.setattr(browser.shutil, "which", tools.get)
     run = Mock()
-    monkeypatch.setattr(browser.subprocess, "run", run)
+    monkeypatch.setattr(browser, "run_command", run)
     native = Mock(return_value=True)
     monkeypatch.setattr(browser.webbrowser, "open", native)
     return tools, run, native

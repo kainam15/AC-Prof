@@ -9,6 +9,7 @@ import webbrowser
 from pathlib import Path, PureWindowsPath
 
 from acprof import platform as host_platform
+from acprof.system.command import run_command
 from acprof.tui.i18n import message_id
 
 _OPEN_TIMEOUT = 5
@@ -16,7 +17,7 @@ _OPEN_TIMEOUT = 5
 
 def _run(arguments: list[str]) -> subprocess.CompletedProcess[str]:
     try:
-        return subprocess.run(
+        return run_command(
             arguments, stdin=subprocess.DEVNULL, capture_output=True,
             text=True, encoding="utf-8", errors="replace", timeout=_OPEN_TIMEOUT,
             shell=False,
