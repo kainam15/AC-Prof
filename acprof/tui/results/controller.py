@@ -31,10 +31,12 @@ from acprof.tui.experiments.catalog import ExperimentSourceDisplay
 from acprof.tui.i18n import error_message, message_id
 from acprof.tui.results.data_status import data_status_text, inspect_experiment_data
 from acprof.tui.results.html_controller import HtmlReportController
-from acprof.tui.results.overview import overview_text, read_experiment_overview, selection_path
+from acprof.tui.results.overview import overview_view, read_experiment_overview, selection_path
+from acprof.tui.results.overview_panel import ExperimentOverviewPanel
 from acprof.tui.results.report_actions import report_action_state
 from acprof.tui.results.reports import ReportView, read_report
 from acprof.tui.ui.input import BarCursorInput as Input
+from acprof.tui.ui.structured import StatusBanner
 
 if TYPE_CHECKING:
     from acprof.tui.app import AcprofTui
@@ -87,6 +89,8 @@ class ResultController:
         self.source_path: Path | None = None
         self.overview = None
         self.data_status = None
+        self.data_error = ""
+        self.data_cancelled = False
         self.selection_timer: Timer | None = None
         self.report_request: Event | None = None
         self.report_path: Path | None = None
@@ -120,7 +124,26 @@ class ResultController:
                 self.select_result(str(path))
                 return
         self.app.localization.set_text(self.app.query_one('#report-empty', Static), self.statistics_empty_hint())
-        self.app.localization.set_text(self.app.query_one('#result-summary', Static), self.source_summary_hint())
+        self.show_overview_hint(self.source_summary_hint())
+
+    def show_overview_hint(self, source: str, *, level: str = "neutral") -> None:
+        self.app.query_one(ExperimentOverviewPanel).show_hint(source, level=level)
+
+    def render_overview(self) -> None:
+        if self.overview is None or self.app.execution.session.snapshot.measurement_active:
+            return
+        self.app.query_one(ExperimentOverviewPanel).update_view(
+            overview_view(self.overview, self.data_status, data_error=self.data_error,
+                          data_cancelled=self.data_cancelled))
+
+    def overview_action(self, action_id: str) -> None:
+        if action_id == "overview-reason":
+            self.app.query_one(ExperimentOverviewPanel).show_reason()
+        elif action_id == "overview-statistics":
+            self.show_result_section("statistics-view")
+        elif action_id == "overview-resume" and self.overview is not None:
+            # Existing recovery re-reads evidence and retains launch/preflight gates.
+            self.app.catalog.resume_experiment(self.overview.record)
 
     def source_summary_hint(self):
         if self.unavailable_remembered_source:
@@ -159,7 +182,7 @@ class ResultController:
             return
         self.refresh_experiment(source, load=False)
         if source:
-            self.app.localization.set_text(self.app.query_one("#result-summary", Static), message_id("results.overview.loading"))
+            self.show_overview_hint(message_id("results.overview.loading"), level="info")
             self.app.profiles.reset_overview(message_id("results.overview.profiles_checking"))
             self.selection_timer = self.app.set_timer(0.2, self.start_experiment_reads)
 
@@ -187,13 +210,15 @@ class ResultController:
         self.invalidate_reads()
         self.source_path = resolve_result_path(source, self.app.project_dir) if source else None
         self.overview = self.data_status = self.source_display = None
+        self.data_error = ""
+        self.data_cancelled = False
         self.formal_ok_rows = None
         self.unavailable_remembered_source = ""
         self.app.profiles.reset_overview()
         self.report_source_changed()
         for selector in ("#result-data-status", "#result-html-status"):
             self.app.localization.set_text(self.app.query_one(selector, Static), "")
-        self.app.localization.set_text(self.app.query_one("#result-summary", Static), self.source_summary_hint())
+        self.show_overview_hint(self.source_summary_hint())
         if not source or not load:
             return
         self.start_experiment_reads()
@@ -204,16 +229,17 @@ class ResultController:
         if self.source_path is None or not self.app.is_running or self.app.ui_closing:
             return
         if not self.app.operation_state().allows("summary"):
-            self.app.localization.set_text(self.app.query_one("#result-summary", Static), "请等待当前任务完成")
+            self.show_overview_hint("请等待当前任务完成")
             return
         self.source_path = selection_path(self.source_path)
         with self.app.prevent(Input.Changed):
             self.app.query_one("#experiment-source", Input).value = str(self.source_path)
         self.refresh_source_display()
-        self.app.localization.set_text(self.app.query_one("#result-summary", Static), message_id("results.overview.loading"))
+        self.show_overview_hint(message_id("results.overview.loading"), level="info")
         self.app.localization.set_text(self.app.query_one("#result-data-status", Static), message_id("results.overview.checking"))
         self.app.profiles.reset_overview(message_id("results.overview.profiles_checking"))
         self.html.show_discovered(None, "checking")
+        self.data_cancelled = False
         self.overview_request, self.data_request = Event(), Event()
         for kind, token in (("overview", self.overview_request), ("data", self.data_request)):
             self.app.read_jobs.add(token)
@@ -231,6 +257,9 @@ class ResultController:
             self.data_request.set()
         token = self.data_request = Event()
         self.data_status = None
+        self.data_error = ""
+        self.data_cancelled = False
+        self.render_overview()
         self.app.profiles.reset_overview(message_id("results.overview.profiles_checking"))
         self.html.show_discovered(None, "checking")
         self.app.localization.set_text(self.app.query_one("#result-data-status", Static), message_id("results.overview.checking"))
@@ -267,17 +296,17 @@ class ResultController:
             self.overview = result
             if result is None:
                 self.source_display = ExperimentSourceDisplay("", None, "", "missing")
-                self.app.localization.set_text(self.app.query_one("#result-summary", Static), message_id("results.summary.read_failed", error))
+                self.show_overview_hint(message_id("results.summary.read_failed", error), level="error")
             else:
                 self.source_display = ExperimentSourceDisplay(result.record.model_id, result.record.run_id,
                     result.record.status, "selected" if result.data_state == "exists" else "no_data")
-                self.app.localization.set_text(self.app.query_one("#result-summary", Static), overview_text(result))
                 with self.app.prevent(Input.Changed):
                     self.app.query_one("#experiment-source", Input).value = str(path)
                 self.refresh_source_display()
                 self.app.configuration.remember_last_used(result_csv=str(path))
         else:
             self.data_status = result
+            self.data_error = error
             self.formal_ok_rows = result.formal_ok_rows if result else 0
             self.app.localization.set_text(self.app.query_one("#result-data-status", Static),
                 data_status_text(result) if result else message_id("results.summary.read_failed", error))
@@ -289,6 +318,7 @@ class ResultController:
                 self.html.show_discovered(None, "unverified")
             if result is not None and self.formal_ok_rows == 0:
                 self.app.localization.set_text(self.app.query_one("#report-empty", Static), message_id("results.statistics.no_successful_windows"))
+        self.render_overview()
         if self.source_display and not self.source_display.can_read:
             self.app.localization.set_text(self.app.query_one("#report-empty", Static), self.statistics_empty_hint())
         self.update_report_actions()
@@ -307,12 +337,15 @@ class ResultController:
         if self.app.recovery.recovery_request is not None:
             self.app.recovery.recovery_request.set()
         self.app.recovery.recovery_after_check = None
+        self.data_cancelled = self.data_status is None
         self.invalidate_reads()
         if self.report_request is not None:
             self.report_request.set()
         self.report_request = None
         if self.overview is None:
-            self.app.localization.set_text(self.app.query_one("#result-summary", Static), message_id("results.read.cancelling"))
+            self.show_overview_hint(message_id("results.read.cancelling"))
+        else:
+            self.render_overview()
         if self.html.freshness == "checking":
             self.html.show_discovered(None, "unverified")
         self.app.localization.set_text(self.app.query_one("#result-data-status", Static), "读取已取消；等待后台任务释放资源。")
@@ -361,6 +394,9 @@ class ResultController:
             execution_kind=self.app.execution.session.kind,
             browser_available=can_open_local_browser(),
         )
+        if not self.app.execution.session.snapshot.measurement_active:
+            self.app.query_one("#overview-banner", StatusBanner).set_action_disabled(
+                "overview-resume", not self.app.operation_state().allows("run"))
         cancel_analysis = self.app.query_one("#results-cancel", Button)
         reading = any(token in self.app.read_jobs for token in (
             self.overview_request, self.data_request, self.app.profiles.validation_request))

@@ -49,6 +49,31 @@ acprof/tui/
 4. CLI 进程仍是实际采集者；TUI 只是其外部协调器，不新增 TUI 到正式测量路径的工作。
 5. Textual Worker 归属仍由 App 宿主管理；不因页面切换失去进程所有权。
 
+## 结构化展示
+
+`ui/view_models.py` 提供不依赖 Textual 的 `StatusSummary`、`ViewSection`、`FactRow` 与动作/提示数据。
+状态码统一映射为文字、固定符号和语义等级；未知保持未知，零值不被当作缺失。原因码按权威类型映射，
+原始异常只进入详情，不靠分析异常文字猜测业务状态。时间按现有实验选择器语义转本地秒，无偏移历史时间不推断为 UTC。
+
+`ui/structured.py` 的 `StatusBanner`、`FactGrid`、`Callout` 只呈现传入数据并上抛稳定 action ID。
+复用 Textual 的焦点、Grid、Collapsible 和语义 TCSS；完整原值与按 cell 宽度截断的显示分开。
+普通字符串值不做翻译替换，结构化 Message 在显示时翻译；查看全文和复制有键盘入口，tooltip 只是补充。
+语言切换更新已挂载控件，不重建相同形状的分组、不丢弃焦点或折叠选择。
+
+首个迁移页面为 `results/overview.py::overview_view()` → `results/overview_panel.py`。
+纯函数只组合既有元数据 Worker 与数据 Worker 的结果，区分产物存在、有效正式窗口和未核验状态。
+展示层不重新读取 CSV，也不改变统计、恢复或采集门禁；恢复按钮仍调用 CatalogController / RecoveryController。
+其他页面按截图评审逐页迁移，不通过本次改动提前替换运行监控等页面。
+
+新组件没有轮询或周期定时器。case ProgressBar 只使用已知总数并关闭 ETA；未知总数隐藏条形，
+不进入 Textual 的不定进度自动刷新模式。`measurement_active` 时不会投影/刷新新的概览数据。
+这些约束须以事件/计时器测试验证，不能仅凭动画视觉上不可见判断。
+
+设计参考 [Posting 2.10.0 的统一键值复制交互](https://github.com/darrenburns/posting/releases/tag/2.10.0)、
+[Textual 的键盘焦点与 tooltip 边界](https://textual.textualize.io/guide/widgets/#tooltips)、
+[Collapsible](https://textual.textualize.io/widgets/collapsible/) 与
+[ProgressBar](https://textual.textualize.io/widgets/progress_bar/)；借鉴交互组织，不复制代码或增加依赖。
+
 ## 验收与设计来源
 
 - `uv run pytest tests/tui/workflows/test_tui_execution_coordinator.py tests/tui/workflows/test_tui_process_lifecycle.py tests/tui/workflows/test_tui_process_completion.py`：所有权、异常与完成证据。

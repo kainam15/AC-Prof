@@ -80,6 +80,7 @@ from acprof.tui.ui.pages.run import compose_run_tab
 from acprof.tui.ui.pages.settings import compose_settings_tab
 from acprof.tui.ui.rendering import CjkScreen
 from acprof.tui.ui.slash_controller import SlashController
+from acprof.tui.ui.structured import ActionRequested
 from acprof.tui.ui.table import ResizableDataTable
 from acprof.tui.ui.themes import THEME_CATALOG
 from acprof.tui.updates import UpdateController
@@ -674,6 +675,12 @@ class AcprofTui(BarCursorApp):
             with self.prevent(Input.Changed):
                 self.query_one('#experiment-source', Input).value = event.input.value
             self.results.result_source_changed()
+
+    @on(ActionRequested)
+    def on_structured_action(self, event: ActionRequested) -> None:
+        if event.action_id.startswith("overview-"):
+            event.stop()
+            self.results.overview_action(event.action_id)
 
     @on(Button.Pressed, '#refresh-experiment-state')
     def on_results_refresh_experiment(self) -> None:

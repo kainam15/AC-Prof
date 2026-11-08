@@ -51,8 +51,7 @@ class RunPresenter:
             self.app.configuration.remember_last_used(model=model)
             self.app.results.invalidate_reads()
             self.app.profiles.reset_overview()
-            self.app.localization.set_text(self.app.query_one("#result-summary", Static),
-                           "本次尚未产生结果；历史结果可通过原路径查看。")
+            self.app.results.show_overview_hint("本次尚未产生结果；历史结果可通过原路径查看。")
         else:
             self.app.configuration.remember_last_used(model=model, result_dir=pending.result_dir, result_csv=pending.result_csv)
         self.app.execution.begin(pending)
@@ -273,10 +272,7 @@ class RunPresenter:
                 result_dir=str(Path(completion.current_csv).parent),
             )
         elif completion.summary_text:
-            self.app.localization.set_text(
-                self.app.query_one("#result-summary", Static),
-                completion.summary_text,
-            )
+            self.app.results.show_overview_hint(completion.summary_text)
         if completion.run_notice is not None:
             self.app.notify(completion.run_notice.message, **completion.run_notice.kwargs())
 

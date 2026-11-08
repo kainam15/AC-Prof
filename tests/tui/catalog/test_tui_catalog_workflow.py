@@ -96,7 +96,9 @@ class TestCatalogWorkflow:
             assert (len(screen.filtered)) == (1)
             assert (await pilot.click('#picker-view'))
             await pilot.pause()
-            assert ('resource_limit') in (str(app.query_one('#result-summary', Static).content))
+            from acprof.tui.ui.structured import Callout
+            assert 'resource_limit' not in str(app.query_one('#result-summary', Static).content)
+            assert 'resource_limit' in app.query_one(Callout).content.detail
             record = scan_experiments([path]).records[0]
             app.catalog.experiment_selected('experiment-source', ('reuse', record))
             await pilot.pause()

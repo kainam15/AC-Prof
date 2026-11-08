@@ -53,7 +53,8 @@ async def test_metadata_is_visible_while_full_result_read_is_waiting(tmp_path):
             try:
                 await asyncio.wait_for(asyncio.to_thread(entered.wait, 2), 3)
                 await pilot.pause()
-                assert "fixture/fast-overview" in str(app.query_one("#result-summary", Static).content)
+                from acprof.tui.ui.structured import FactValue
+                assert any(value.row.value == "fixture/fast-overview" for value in app.query(FactValue))
                 assert "正在检查" in str(app.query_one("#profile-status", Static).content)
             finally:
                 release.set()
@@ -63,7 +64,7 @@ async def test_metadata_is_visible_while_full_result_read_is_waiting(tmp_path):
 def test_light_overview_uses_metadata_without_opening_csv(tmp_path, monkeypatch):
     from pathlib import Path
 
-    from acprof.tui.results.overview import overview_text, read_experiment_overview
+    from acprof.tui.results.overview import overview_view, read_experiment_overview
 
     root = tmp_path / "experiment"
     profile_store(root, 3)
@@ -77,7 +78,10 @@ def test_light_overview_uses_metadata_without_opening_csv(tmp_path, monkeypatch)
     overview = read_experiment_overview(root)
     assert overview.source == root
     assert overview.data_state == "exists"
-    assert "未记录" in overview_text(overview)
+    view = overview_view(overview)
+    assert view.total_cases is None
+    assert "case 进度未记录" in view.summary.headline
+    assert len(view.sections) == 4
 
 
 def test_background_check_parses_each_layer_once_without_statistics(tmp_path, monkeypatch):

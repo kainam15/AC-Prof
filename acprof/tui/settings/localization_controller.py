@@ -12,6 +12,7 @@ from textual.widgets import Button, Checkbox, Collapsible, Select, Static, Tab, 
 from acprof.tui.i18n import translate
 from acprof.tui.ui.input import BarCursorInput as Input
 from acprof.tui.ui.navigation import PageNavigation
+from acprof.tui.ui.structured import StructuredWidget
 
 if TYPE_CHECKING:
     from acprof.tui.app import AcprofTui
@@ -87,6 +88,9 @@ class LocalizationController:
         with self.app.prevent(Select.Changed), self.app.batch_update():
             for (widget, attribute), source in self.localized_text.items():
                 self.render_text(widget, attribute, source)
+            if not self.app.execution.session.snapshot.measurement_active:
+                for widget in self.app.query(StructuredWidget):
+                    widget.refresh_language()
             self.app.query_one(PageNavigation).sync(self.app.query_one("#main-tabs", TabbedContent))
             for widget, sources in self.localized_selects.items():
                 value = widget.value

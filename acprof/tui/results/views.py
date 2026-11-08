@@ -16,6 +16,7 @@ from textual.widgets import (
 )
 
 from acprof.tui.i18n import message_id
+from acprof.tui.results.overview_panel import ExperimentOverviewPanel
 from acprof.tui.ui.input import BarCursorInput as Input
 from acprof.tui.ui.table import ResizableDataTable
 
@@ -34,11 +35,7 @@ def compose_results_tab(app: AcprofTui) -> ComposeResult:
         with TabbedContent(initial="overview-view", id="result-views"):
             with TabPane(message_id("results.tabs.overview"), id="overview-view"):
                 with VerticalScroll(id="plot-body", classes="pane-scroll"):
-                    yield local(Static(message_id('results.summary.empty'), id='result-summary', markup=False))
-                    yield local(Static('', id='result-data-status', markup=False))
-                    yield local(Static('', id='result-profile-status', markup=False))
-                    yield local(Button(message_id('profiling.overview.open'), id='overview-profiling', disabled=True))
-                    yield local(Static('', id='result-html-status', markup=False))
+                    yield ExperimentOverviewPanel(id="experiment-overview")
             with TabPane(message_id("results.tabs.statistics"), id="statistics-view"):
                 yield from compose_statistics(app)
             with TabPane(message_id("results.tabs.compare"), id="comparison-view"):

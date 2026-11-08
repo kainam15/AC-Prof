@@ -190,7 +190,8 @@ class TestTuiReports:
             app.results.select_result(str(self.csv_path))
             await pilot.pause()
             assert app.query_one('#experiment-source', Input).value == str(self.csv_path)
-            assert '产物：结果数据 存在' in str(summary.content)
+            from acprof.tui.ui.structured import FactValue
+            assert any('已生成' in value.row.value for value in app.query(FactValue))
             assert not app.query_one('#report-calculate', Button).disabled
         assert app.configuration.saved_settings.last_result_csv == str(self.csv_path)
 
@@ -212,9 +213,12 @@ class TestTuiReports:
             app.results.select_result(str(root / 'result_layers.json'))
             await pilot.pause()
             summary = app.query_one('#result-summary', Static)
-            assert '结果数据 缺失' in str(summary.content)
-            assert 'demo/unmeasured' in str(summary.content)
-            assert run_id in str(summary.content)
+            from acprof.tui.ui.structured import FactValue
+            values = [value.row.value for value in app.query(FactValue)]
+            assert '尚未生成' in values
+            assert 'demo/unmeasured' in values
+            assert run_id in values
+            assert run_id not in str(summary.content)
             assert '测量数据' in str(app.query_one('#report-empty', Static).content)
             assert app.query_one('#plot-results', Button).disabled
             assert app.query_one('#report-calculate', Button).disabled
