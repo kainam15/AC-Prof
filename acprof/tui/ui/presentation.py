@@ -4,10 +4,7 @@ from collections.abc import Callable
 
 from acprof.tui.i18n import message_id
 
-# Default symbols for image detail sections.
-COLLAPSED_SYMBOL = "▶ "
-EXPANDED_SYMBOL = "▼ "
-# Shared by the command preview and image dependency tree.
+# Shared by the command preview, image dependency tree, and image detail sections.
 COMPACT_COLLAPSED_SYMBOL = "▸ "
 COMPACT_EXPANDED_SYMBOL = "▾ "
 

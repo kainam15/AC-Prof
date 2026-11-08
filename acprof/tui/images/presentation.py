@@ -31,10 +31,8 @@ from acprof.tui.i18n import message_id
 from acprof.tui.ui.contracts import image_detail_app, translated_app
 from acprof.tui.ui.dialogs import ConfirmActionScreen
 from acprof.tui.ui.presentation import (
-    COLLAPSED_SYMBOL,
     COMPACT_COLLAPSED_SYMBOL,
     COMPACT_EXPANDED_SYMBOL,
-    EXPANDED_SYMBOL,
     NOT_APPLICABLE,
     STATUS_LEGEND,
     UNKNOWN,
@@ -364,7 +362,7 @@ class ImageDetailPanel(VerticalScroll):
                                        ("diagnostics", "diagnostic", "诊断信息")):
             with app.localization.localized_widget(Collapsible(
                 title=title, collapsed=True, id="image-" + group,
-                collapsed_symbol=COLLAPSED_SYMBOL, expanded_symbol=EXPANDED_SYMBOL,
+                collapsed_symbol=COMPACT_COLLAPSED_SYMBOL, expanded_symbol=COMPACT_EXPANDED_SYMBOL,
             )):
                 yield app.localization.localized_widget(Static("", id=f"image-{content}-detail", markup=False))
 

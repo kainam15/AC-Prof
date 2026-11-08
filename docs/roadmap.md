@@ -34,10 +34,12 @@
 镜像依赖树已按用户选择使用 B 组小实心三角 `▸ / ▾`；通过 Textual 的
 [Tree 图标属性](https://github.com/Textualize/textual/blob/v8.2.8/src/textual/widgets/_tree.py)配置，
 复用现有 MIT 依赖，不新增依赖或轮询。预览脚本读取实际当前箭头，保留 A～G 全部候选。
-“完整命令（自动更新）”标题也使用同一组小实心三角，复用 Textual 的
+“完整命令（自动更新）”及镜像详情的“依赖清单”“镜像信息”“诊断信息”共用同一组小实心三角，复用 Textual 的
 [Collapsible 图标参数](https://github.com/Textualize/textual/blob/v8.2.8/src/textual/widgets/_collapsible.py)。
 命令自动更新与镜像树点击的 2 项回归通过；中英文 80×24／120×30 headless 检查覆盖可见箭头、鼠标、Enter 与缩放，
 命令内容保持一致；本次未重录 SVG／PNG 或验证客户端字体。
+镜像详情的 2 项离线回归覆盖折叠、语言切换、缩放与选择状态；中文 120×30／英文 80×24 的三组标题可见箭头、
+鼠标展开和 Enter 折叠检查通过，未新增 Docker 查询。
 清单的 40／80／120 列离线渲染、CLI 筛选与错误参数检查通过，Nerd Font 码位已核对上游；
 原交互预览的重置／选定 headless smoke 通过，客户端字体显示未验证。
 预览工具的 80×24、120×30 与运行中缩放离线 Pilot 交互检查通过。用户已选用第 6 号 `☰` 作为“实验配置”导航图案；真实客户端字体效果以用户终端为准。
