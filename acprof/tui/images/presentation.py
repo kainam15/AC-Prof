@@ -161,15 +161,7 @@ class ImageTree(Tree[ManagedImage]):
                 item = child.data
                 label = self.name_labels[item.image_id].copy()
                 name_width = max(4, widths[0] - depth * self.guide_depth - 2)
-                suffix = " · " + item.image_id[7:19]
-                # Preserve identity when a narrow column ellipsizes a friendly name.
-                if (label.cell_len > name_width and label.plain.endswith(suffix)
-                        and name_width >= len(suffix) + 6):
-                    label = label[:-len(suffix)]
-                    label.truncate(name_width - len(suffix), overflow="ellipsis", pad=True)
-                    label.append(suffix)
-                else:
-                    label.truncate(name_width, overflow="ellipsis", pad=True)
+                label.truncate(name_width, overflow="ellipsis", pad=True)
                 for value, width in zip((format_bytes(item.size_bytes), format_bytes(item.added_bytes),
                                          str(len(item.containers))), widths[1:], strict=True):
                     cell = Text(translated_app(self.app).tr(value))
@@ -692,8 +684,6 @@ def render_image_tree(tree: ImageTree, inventory: ImageInventory | None, visible
                     else f" · {tr(UNKNOWN)}" if item.parent_source in {"ambiguous", "missing", "conflict"}
                     else "")
         name = f" {marker}  {tr(logical)}{evidence}"
-        if logical != item.image_id[7:19]:
-            name += " · " + item.image_id[7:19]
         label = Text(name, style="dim" if item.image_id not in matches else "")
         # 复选框及左右各一格留白可点击，不覆盖箭头、名称或数值。
         if not item.containers or item.descendant_ids:

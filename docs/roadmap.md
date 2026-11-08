@@ -12,7 +12,7 @@
 
 规范化 Docker Hub 仓库写法与显式镜像源别名，修复 `python@digest` 无法匹配固定基础镜像的问题，
 名称保留完整 Python 补丁版本；其它无标签镜像只按已知仓库命名，不猜版本。
-镜像树与列表显示 12 位短 ID，详情保留原始 Tag、完整 ID、Digest 和名称依据，同名镜像按完整 ID 分别管理。
+镜像树名称后不附加 ID，列表保留 12 位短 ID；详情保留原始 Tag、完整 ID、Digest 和名称依据，同名镜像按完整 ID 分别管理。
 参考来源和识别边界见[镜像管理](models/images.md#镜像管理与清理)。验证采用名称单测、离线 Docker Fixture、
 双语窄窗及缩放交互；dor-server 仅只读核对截图镜像的 ID／RepoDigests，真实删除、客户端终端和远端 CI 未验证。
 

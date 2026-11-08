@@ -1035,6 +1035,7 @@ class TestTuiImages:
             root = tree.root.children[0]
             assert root.data.image_id == upstream
             assert "Python 3.12.15 Slim（上游基础）" in root.label.plain
+            assert upstream[7:19] not in root.label.plain
             assert root.children[0].data.image_id == RUNTIME
             inventory = app.images.inventory
             assert digest in str(image_diagnostics(root.data, inventory))
@@ -1083,8 +1084,7 @@ class TestTuiImages:
                 await pilot.pause()
                 assert {node.data.image_id for node in tree.root.children} == {first, second}
                 for node in tree.root.children:
-                    # Even an ellipsized name must leave room for the distinct ID.
-                    assert node.data.image_id[7:19] in node.label.plain
+                    assert node.data.image_id[7:19] not in node.label.plain
                 table = app.query_one("#image-table", DataTable)
                 for key in (first, second):
                     assert "Python 3.12.15 Slim" in table.get_cell(key, "name").plain
@@ -1183,12 +1183,12 @@ class TestTuiImages:
             await pilot.pause()
             tree = app.query_one("#image-tree", Tree)
             platform = tree.root.children[0]
-            assert RUNTIME[7:19] in platform.label.plain
-            # Allow space for both the full name and its new 12-character ID.
+            assert RUNTIME[7:19] not in platform.label.plain
+            # Drag narrow columns to expose the full dependency names.
             header = app.query_one("#image-tree-header", DataTable)
-            if header.columns["name"].width < 55:
-                await drag(pilot, header, header_offset(header), 55 - header.columns["name"].width)
-            assert "PyTorch CUDA 12.8 · " + RUNTIME[7:19] in platform.label.plain
+            if header.columns["name"].width < 40:
+                await drag(pilot, header, header_offset(header), 40 - header.columns["name"].width)
+            assert "PyTorch CUDA 12.8" in platform.label.plain
             children = {node.data.image_id: node for node in platform.children}
             for image_id, expected in ((WEIGHTS, "moss-transformers5.10.4"),
                                        (FINAL, "multimodal-transformers4.57.6")):
@@ -1196,6 +1196,7 @@ class TestTuiImages:
                 assert (expected) in (node.label.plain)
                 assert ("cu128") not in (node.label.plain)
                 assert ("CUDA") not in (node.label.plain)
+                assert image_id[7:19] not in node.label.plain
                 tree.move_cursor(node, animate=False)
                 await pilot.pause()
                 row = node.line - int(tree.scroll_y)
