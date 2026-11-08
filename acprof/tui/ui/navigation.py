@@ -11,8 +11,8 @@ class PageNavigation(VerticalScroll, can_focus=False):
 
     BINDINGS = [("up", "move(-1)", ""), ("down", "move(1)", "")]
     ICONS = {
-        "run-tab": "☰", "monitor-tab": "◷", "results-tab": "▥",
-        "backfill-tab": "↻", "images-tab": "▣", "settings-tab": "⚙",
+        "run-tab": "☰", "monitor-tab": "◉", "results-tab": "▥",
+        "backfill-tab": "↻", "images-tab": "⬢", "settings-tab": "⚙︎",
     }
 
     class Selected(Message):

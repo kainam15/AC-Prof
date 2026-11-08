@@ -8,6 +8,11 @@ from textual.widgets import Button, Input, TabbedContent
 from acprof.experiments.configuration import RunConfig
 from tests.support.tui_fixtures import AcprofTui
 
+EXPECTED_ICONS = {
+    "run-tab": "☰", "monitor-tab": "◉", "results-tab": "▥",
+    "backfill-tab": "↻", "images-tab": "⬢", "settings-tab": "⚙︎",
+}
+
 
 @pytest.mark.parametrize(("language", "size"), [("zh", (80, 24)), ("en", (80, 24)), ("en", (120, 30)), ("zh", (150, 45))])
 async def test_sidebar_clicks_keyboard_and_resize_preserve_form(tmp_path, monkeypatch, language, size):
@@ -21,6 +26,9 @@ async def test_sidebar_clicks_keyboard_and_resize_preserve_form(tmp_path, monkey
         await pilot.pause()
         for page in ("run", "monitor", "results", "backfill", "images", "settings"):
             button = app.query_one(f"#nav-{page}-tab", Button)
+            icon = EXPECTED_ICONS[f"{page}-tab"]
+            assert button.label.plain == (icon if app.has_class("collapsed-navigation") else
+                                          f"{icon}  {tabs.get_tab(f'{page}-tab').label.plain}")
             assert button.region.right <= tabs.region.x
             assert button.region.bottom <= app.query_one("#bottom-panel").region.y
             assert cell_len(button.label.plain) <= button.content_region.width
@@ -75,7 +83,7 @@ async def test_only_selected_activity_toggles_sidebar(tmp_path, language, size):
         assert model.value == "demo/edited-model"
         assert app.has_class("narrow") == (tabs.region.width < 110)
         for button in navigation.query(Button):
-            assert len(str(button.label)) == 1
+            assert str(button.label) == EXPECTED_ICONS[button.name]
             assert cell_len(str(button.label)) <= button.content_region.width
             tooltip, pane_id = button.tooltip, button.name
             assert isinstance(tooltip, str)
@@ -151,7 +159,7 @@ async def test_collapsed_sidebar_survives_language_resize_and_programmatic_navig
             assert navigation.region.width == collapsed_width
             assert app.has_class("narrow") == (tabs.region.width < 110)
             for button in navigation.query(Button):
-                assert len(str(button.label)) == 1
+                assert str(button.label) == EXPECTED_ICONS[button.name]
                 assert cell_len(str(button.label)) <= button.content_region.width
                 assert button.region.bottom <= app.query_one("#bottom-panel").region.y
                 assert app.get_widget_at(*button.region.center)[0] is button

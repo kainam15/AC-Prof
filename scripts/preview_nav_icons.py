@@ -50,7 +50,7 @@ CHOICES = (
     IconChoice("▦", "矩阵网格"),
     IconChoice("▥", "竖线面板", note="当前也用于“实验结果”，可比较同图案带来的辨识差异。"),
     IconChoice("▧", "斜线面板"),
-    IconChoice("▣", "方框中心", note="当前也用于“镜像管理”，可比较同图案带来的辨识差异。"),
+    IconChoice("▣", "方框中心"),
     IconChoice("□", "空心方框"),
     IconChoice("■", "实心方块"),
     IconChoice("◇", "空心菱形"),
@@ -82,6 +82,7 @@ CHOICES = (
 PAGE_CHOICES = {
     "run": ("实验配置", CHOICES),
     "monitor": ("运行监控", (
+        IconChoice("◷", "时钟右上"),
         IconChoice("◴", "时钟左上"),
         IconChoice("◵", "时钟左下"),
         IconChoice("◶", "时钟右下"),
@@ -150,6 +151,7 @@ PAGE_CHOICES = {
         IconChoice("[]", "ASCII 方框", "ASCII"),
     )),
     "settings": ("设置", (
+        IconChoice("⚙", "齿轮默认样式"),
         IconChoice("⚙︎", "齿轮文本样式"),
         IconChoice("⚒", "交叉工具"),
         IconChoice("⚒︎", "工具文本样式"),
