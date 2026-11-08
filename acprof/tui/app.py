@@ -681,6 +681,9 @@ class AcprofTui(BarCursorApp):
         if event.action_id.startswith("overview-"):
             event.stop()
             self.results.overview_action(event.action_id)
+        elif event.action_id.startswith("backfill-"):
+            event.stop()
+            self.profiles.backfill_action(event.action_id)
 
     @on(Button.Pressed, '#refresh-experiment-state')
     def on_results_refresh_experiment(self) -> None:

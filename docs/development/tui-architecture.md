@@ -63,10 +63,14 @@ acprof/tui/
 首个迁移页面为 `results/overview.py::overview_view()` → `results/overview_panel.py`。
 纯函数只组合既有元数据 Worker 与数据 Worker 的结果，区分产物存在、有效正式窗口和未核验状态。
 展示层不重新读取 CSV，也不改变统计、恢复或采集门禁；恢复按钮仍调用 CatalogController / RecoveryController。
-其他页面按截图评审逐页迁移，不通过本次改动提前替换运行监控等页面。
+第二个迁移页面为 `results/backfill_view.py::backfill_view()` → `results/backfill_panel.py`。
+纯模型使用既有 `ProfilerOverview`、读取阶段与 `OperationState`，不推断新的采集资格；工具总数和各工具的 CSV 记录数保留原口径。
+检查失败、取消或过期时以 Callout 给出恢复操作，完整路径和异常保留在详情；只有数据读取器已确认的独立 CSV 才显示对应限制，不从异常文本猜测来源。
+`ProfileController` 路由选择和重新检查动作，并在触发刷新前检查操作锁，避免过期事件清空已核验状态。相同视图数据不重复更新控件。
+其他页面继续按截图评审逐页迁移，不通过本次改动提前替换运行监控等页面。
 
 新组件没有轮询或周期定时器。case ProgressBar 只使用已知总数并关闭 ETA；未知总数隐藏条形，
-不进入 Textual 的不定进度自动刷新模式。`measurement_active` 时不会投影/刷新新的概览数据。
+不进入 Textual 的不定进度自动刷新模式。`measurement_active` 时不会投影/刷新新的概览或补采数据。
 这些约束须以事件/计时器测试验证，不能仅凭动画视觉上不可见判断。
 
 设计参考 [Posting 2.10.0 的统一键值复制交互](https://github.com/darrenburns/posting/releases/tag/2.10.0)、

@@ -6,7 +6,9 @@ import pytest
 from textual import events
 from textual.widgets import Button, Input, Static
 
+from acprof.tui.i18n import message_id
 from acprof.tui.results import profile_status
+from acprof.tui.results.backfill_panel import BackfillPanel
 from acprof.tui.settings.preferences import TuiSettings, UiPreferences, save_settings
 from tests.runtime.containers.test_layer_read_cancellation import source_hashes
 from tests.support.tui_fixtures import AcprofTui
@@ -65,7 +67,10 @@ async def test_selection_change_during_profiler_inspection_cancels_and_allows_re
                 button = app.query_one("#refresh-backfill-state", Button)
                 assert await pilot.click("#backfill-cancel")
                 await pilot.pause()
-                assert app.tr("读取已取消；等待后台任务释放资源。") in str(app.query_one("#profile-status").content)
+                view = app.query_one("#backfill-panel", BackfillPanel).view
+                assert view.summary.headline == message_id("profiling.view.cancelled")
+                assert view.callout is not None
+                assert view.callout.level == "warning"
             else:
                 if action == "change-backfill-source":
                     app.activate_tab("backfill-tab")

@@ -78,10 +78,13 @@ class ActionButtons(Horizontal):
             button.display = index < len(actions)
             if index < len(actions):
                 action = actions[index]
-                button.label = Text(tr(action.label))
+                label = tr(action.label)
+                if str(button.label) != label:
+                    button.label = Text(label)
+                    button.refresh(layout=True)
                 button.variant = "primary" if action.primary else "default"
                 button.disabled = action.disabled
-                button.tooltip = tr(action.label)
+                button.tooltip = label
 
     @on(Button.Pressed)
     def requested(self, event: Button.Pressed) -> None:

@@ -14,6 +14,7 @@ from acprof.tui.results.profile_screen import ProfilerChoiceScreen
 from acprof.tui.results.profile_status import ProfilerOverview, ProfilerStatus
 from acprof.tui.settings.preferences import TuiSettings, UiPreferences, save_settings
 from acprof.tui.ui.dialogs import ConfirmActionScreen
+from acprof.tui.ui.structured import Callout, FactGrid
 from tests.runtime.containers.test_layer_read_cancellation import source_hashes
 from tests.support.tui_fixtures import AcprofTui, checkbox_text
 from tests.tui.results.test_profile_overview_snapshot import profile_store
@@ -195,7 +196,9 @@ async def test_backfill_navigation_shares_selection_and_reports_read_failures(tm
             assert await pilot.click("#refresh-backfill-state")
             await asyncio.wait_for(app.workers.wait_for_complete(), timeout=3)
             await pilot.pause()
-        assert "fixture data check failed" in str(app.query_one("#profile-status", Static).content)
+        callout = app.query_one("#backfill-callout", Callout)
+        assert "fixture data check failed" in callout.content.detail
+        assert "fixture data check failed" not in str(app.query_one("#profile-status", Static).content)
         assert app.query_one("#open-result-profiling", Button).disabled
         assert not app.is_busy()
 
@@ -230,10 +233,8 @@ class TestTuiProfileTools:
         await app.workers.wait_for_complete()
         await pilot.pause()
         app.profiles.show_overview(self.overview())
-        text = str(app.query_one("#profile-status").content)
-        assert "torch" in text
-        assert "ncu" in text
-        assert "massif" in text
+        tools = app.query_one("#backfill-section-0", FactGrid)
+        assert tuple(row.label for row in tools.section.rows) == ("torch", "ncu", "nsys", "massif")
         button = app.query_one("#open-result-profiling", Button)
         app.query_one("#backfill-body", VerticalScroll).scroll_end(animate=False)
         await pilot.pause()

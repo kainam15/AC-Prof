@@ -6,6 +6,8 @@ from rich.cells import cell_len
 from textual.widgets import Button, Input, Static, TabbedContent
 
 from acprof.experiments.configuration import RunConfig
+from acprof.tui.i18n import message_id
+from acprof.tui.ui.structured import Callout
 from tests.support.tui_fixtures import AcprofTui
 
 
@@ -44,7 +46,9 @@ class TestTuiResultTools:
             assert tabs.active == "backfill-tab"
             assert app.query_one("#backfill-source", Input).value == str(self.csv_path)
             # A loose CSV is fine for plotting, but cannot carry immutable replay identity.
-            assert "独立 CSV" in str(app.query_one("#profile-status", Static).content)
+            callout = app.query_one("#backfill-callout", Callout)
+            assert callout.content.problem == message_id("profiling.view.csv_problem")
+            assert str(self.csv_path) in callout.content.detail
             assert app.query_one("#open-result-profiling", Button).disabled
 
             assert await pilot.click("#nav-results-tab")

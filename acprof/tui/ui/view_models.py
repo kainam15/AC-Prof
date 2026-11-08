@@ -76,6 +76,7 @@ _STATES = {
     "blocked": ("error", "run.environment.state.blocked"),
     "damaged": ("error", "results.overview.damaged"),
     "incomplete": ("warning", "structured.status.incomplete"),
+    "partial": ("warning", "structured.status.incomplete"),
     "limited": ("warning", "run.environment.item.warn"),
     "warning": ("warning", "common.state.warning"),
     "warn": ("warning", "common.state.warning"),
@@ -89,6 +90,7 @@ _STATES = {
     "unverified": ("neutral", "common.state.unverified"),
     "stale": ("neutral", "run.environment.state.stale"),
     "not_applicable": ("neutral", "common.value.not_applicable"),
+    "inapplicable": ("neutral", "common.value.not_applicable"),
     "exists": ("neutral", "structured.status.present"),
     "not_generated": ("neutral", "results.overview.not_generated"),
 }

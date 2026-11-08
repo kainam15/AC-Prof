@@ -5,9 +5,10 @@ from typing import TYPE_CHECKING
 
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll
-from textual.widgets import Button, Label, Static, TabPane
+from textual.widgets import Button, TabPane
 
 from acprof.tui.i18n import message_id
+from acprof.tui.results.backfill_panel import BackfillPanel
 from acprof.tui.ui.input import BarCursorInput as Input
 
 if TYPE_CHECKING:
@@ -23,9 +24,7 @@ def compose_backfill_tab(app: AcprofTui) -> ComposeResult:
                                   placeholder=message_id("results.input.source_hint")))
                 yield local(Button("选择实验", name="experiment-source", id="choose-backfill-result", classes="experiment-picker"))
         with VerticalScroll(id="backfill-body", classes="pane-scroll"):
-            yield local(Label(message_id("profiling.overview.title"), classes="section-title"))
-            yield local(Static(message_id("profiling.overview.select_experiment"), id="profile-status", markup=False))
-            yield local(Static(message_id("profiling.backfill.isolation_note"), classes="page-hint", markup=False))
+            yield BackfillPanel(id="backfill-panel")
         with Horizontal(classes="action-bar"):
             with Horizontal(classes="action-secondary"):
                 yield local(Button(message_id("results.overview.refresh"), id="refresh-backfill-state"))

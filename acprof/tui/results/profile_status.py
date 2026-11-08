@@ -20,6 +20,7 @@ from acprof.host.posthoc.context import (
     load_result_context,
 )
 from acprof.results.csv import ResultCsvSnapshot, csv_diagnostic_text
+from acprof.tui.i18n import message_id
 
 ToolState = Literal["complete", "partial", "failed", "missing", "inapplicable"]
 
@@ -59,6 +60,18 @@ class ProfilerOverview:
         # Recommend compute coverage only; costly execution timelines are opt-in.
         return tuple(status.tool for status in self.tools
                      if status.needs_collection and status.tool in {"torch", "ncu"})
+
+
+def tool_status_message(status: ProfilerStatus):
+    if status.state == "complete":
+        return message_id("profiling.status.complete_count", status.completed, status.total)
+    if status.state == "failed":
+        return message_id("profiling.status.failed_count", status.errors, status.completed, status.total)
+    if status.state == "partial":
+        return message_id("profiling.status.partial_count", status.completed, status.total)
+    if status.state == "missing":
+        return message_id("profiling.status.not_collected")
+    return message_id("common.value.not_applicable")
 
 
 def inspect_profile_result(source: Path, *, result_snapshot: ResultCsvSnapshot | None = None,

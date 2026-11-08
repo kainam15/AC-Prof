@@ -7,6 +7,8 @@ from unittest.mock import patch
 import pytest
 from textual.widgets import Button, Input, Static
 
+from acprof.tui.i18n import message_id
+from acprof.tui.results.backfill_panel import BackfillPanel
 from tests.support.tui_fixtures import AcprofTui
 from tests.tui.results.test_profile_overview_snapshot import profile_store
 
@@ -55,7 +57,8 @@ async def test_metadata_is_visible_while_full_result_read_is_waiting(tmp_path):
                 await pilot.pause()
                 from acprof.tui.ui.structured import FactValue
                 assert any(value.row.value == "fixture/fast-overview" for value in app.query(FactValue))
-                assert "正在检查" in str(app.query_one("#profile-status", Static).content)
+                view = app.query_one("#backfill-panel", BackfillPanel).view
+                assert view.summary.headline == message_id("profiling.view.checking")
             finally:
                 release.set()
             await app.workers.wait_for_complete()

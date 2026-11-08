@@ -183,7 +183,7 @@ class ResultController:
         self.refresh_experiment(source, load=False)
         if source:
             self.show_overview_hint(message_id("results.overview.loading"), level="info")
-            self.app.profiles.reset_overview(message_id("results.overview.profiles_checking"))
+            self.app.profiles.reset_overview(message_id("results.overview.profiles_checking"), phase="checking")
             self.selection_timer = self.app.set_timer(0.2, self.start_experiment_reads)
 
     def select_result(self, source: str, *, load: bool = True) -> None:
@@ -237,7 +237,7 @@ class ResultController:
         self.refresh_source_display()
         self.show_overview_hint(message_id("results.overview.loading"), level="info")
         self.app.localization.set_text(self.app.query_one("#result-data-status", Static), message_id("results.overview.checking"))
-        self.app.profiles.reset_overview(message_id("results.overview.profiles_checking"))
+        self.app.profiles.reset_overview(message_id("results.overview.profiles_checking"), phase="checking")
         self.html.show_discovered(None, "checking")
         self.data_cancelled = False
         self.overview_request, self.data_request = Event(), Event()
@@ -260,7 +260,7 @@ class ResultController:
         self.data_error = ""
         self.data_cancelled = False
         self.render_overview()
-        self.app.profiles.reset_overview(message_id("results.overview.profiles_checking"))
+        self.app.profiles.reset_overview(message_id("results.overview.profiles_checking"), phase="checking")
         self.html.show_discovered(None, "checking")
         self.app.localization.set_text(self.app.query_one("#result-data-status", Static), message_id("results.overview.checking"))
         self.app.read_jobs.add(token)
@@ -349,7 +349,7 @@ class ResultController:
         if self.html.freshness == "checking":
             self.html.show_discovered(None, "unverified")
         self.app.localization.set_text(self.app.query_one("#result-data-status", Static), "读取已取消；等待后台任务释放资源。")
-        self.app.profiles.reset_overview("读取已取消；等待后台任务释放资源。")
+        self.app.profiles.reset_overview("读取已取消；等待后台任务释放资源。", phase="cancelled")
         self.clear_report("读取已取消；等待后台任务释放资源。")
         self.app.set_busy(self.app.is_busy())
 

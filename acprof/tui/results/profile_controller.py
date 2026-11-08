@@ -9,9 +9,11 @@ from typing import TYPE_CHECKING
 from textual.widgets import Button, Static
 
 from acprof.experiments.configuration import RunConfigError
-from acprof.messages import Message, join_messages
+from acprof.messages import join_messages
 from acprof.tui.commands import PendingLaunch, format_command, prepare_profile, resolve_result_path
 from acprof.tui.i18n import error_message, message_id
+from acprof.tui.results.backfill_panel import BackfillPanel
+from acprof.tui.results.backfill_view import BackfillPhase, backfill_view
 from acprof.tui.results.data_status import ExperimentDataStatus, inspect_experiment_data
 from acprof.tui.results.profile_screen import ProfilerChoiceScreen
 from acprof.tui.results.profile_status import ProfilerOverview
@@ -27,6 +29,8 @@ class ProfileController:
     def __init__(self, app: AcprofTui) -> None:
         self.app = app
         self.overview: ProfilerOverview | None = None
+        self._phase: BackfillPhase = "empty"
+        self._detail = ""
         self.validation_request: Event | None = None
 
     def cancel_validation(self) -> None:
@@ -34,35 +38,33 @@ class ProfileController:
             self.validation_request.set()
             self.validation_request = None
 
-    def reset_overview(self, status: str = "") -> None:
+    def reset_overview(self, status: str = "", *, phase: BackfillPhase | None = None) -> None:
         self.cancel_validation()
         self.overview = None
-        self.app.localization.set_text(
-            self.app.query_one("#profile-status", Static), status or message_id("profiling.overview.select_experiment"))
+        self._phase = phase or ("error" if status else "empty")
+        self._detail = status
         self.app.localization.set_text(
             self.app.query_one("#result-profile-status", Static), status or message_id("profiling.overview.select_experiment"))
         self.update_action_availability()
 
     def show_overview(self, overview: ProfilerOverview | None, error: str = "") -> None:
         self.overview = overview
+        data = self.app.results.data_status
+        known_csv = (data is not None and bool(data.profiler_error)
+                     and data.path.suffix.lower() == ".csv")
+        # A reader failure does not prove that a layered source is ineligible.
+        self._phase = ("unavailable" if known_csv else "error") if error else "empty"
+        self._detail = error
         if overview is None:
-            status: Message = message_id("profiling.overview.unavailable", error) if error else message_id("profiling.overview.select_experiment")
+            status = message_id("profiling.overview.unavailable", error) if error else message_id("profiling.overview.select_experiment")
         else:
-            from acprof.tui.results.profile_screen import tool_status_message
-
-            summary = (
+            status = (
                 message_id("results.overview.no_tools") if not overview.applicable else
                 message_id("profiling.overview.complete_summary", overview.complete, overview.applicable)
                 if not overview.pending else
                 message_id("profiling.overview.available_summary", overview.complete, overview.applicable, overview.pending)
             )
-            status = join_messages("\n", (
-                summary,
-                *(message_id("profiling.overview.tool_status", item.tool, tool_status_message(item))
-                  for item in overview.tools),
-            ))
-        self.app.localization.set_text(self.app.query_one("#profile-status", Static), status)
-        self.app.localization.set_text(self.app.query_one("#result-profile-status", Static), summary if overview else status)
+        self.app.localization.set_text(self.app.query_one("#result-profile-status", Static), status)
         self.update_action_availability()
 
     def update_action_availability(self) -> None:
@@ -73,6 +75,32 @@ class ProfileController:
             )
             for selector in ("#open-result-profiling", "#overview-profiling"):
                 self.app.query_one(selector, Button).disabled = disabled
+            self.render_backfill()
+
+    def render_backfill(self) -> None:
+        if not self.app.is_running or self.app.ui_closing or self.app.execution.session.snapshot.measurement_active:
+            return
+        state = self.app.operation_state()
+        data = self.app.results.data_status
+        source = self.app.results.source_path
+        # The successful data reader already tried this exact source with the
+        # profiler reader. Do not classify arbitrary exception text.
+        standalone = (self._phase == "unavailable" and data is not None
+                      and bool(data.profiler_error) and data.path.suffix.lower() == ".csv")
+        self.app.query_one(BackfillPanel).update_view(backfill_view(
+            self.overview, phase=self._phase, detail=self._detail,
+            source=str(source) if source is not None else "",
+            standalone_csv=standalone,
+            profile_allowed=state.allows("profile"),
+            choose_allowed=state.allows("catalog"),
+            refresh_allowed=source is not None and state.allows("summary"),
+        ))
+
+    def backfill_action(self, action_id: str) -> None:
+        if action_id == "backfill-choose":
+            self.app.catalog.open_experiment_picker("experiment-source")
+        elif action_id == "backfill-refresh" and self.app.allow_operation("summary"):
+            self.app.results.refresh_experiment()
 
     def open_selection_dialog(self) -> None:
         overview = self.overview
@@ -174,7 +202,7 @@ class ProfileController:
         if not confirmed or not self.app.allow_operation("profile"):
             return
         if selection != self.app.configuration.input("experiment-source") or expected is not self.app.results.data_status:
-            self.reset_overview(message_id("results.overview.stale_profile"))
+            self.reset_overview(message_id("results.overview.stale_profile"), phase="stale")
             return
         self.validate_launch(pending)
 
@@ -218,7 +246,8 @@ class ProfileController:
             return
         self.validation_request = None
         if error or selection != self.app.configuration.input("experiment-source"):
-            self.reset_overview(error or message_id("results.overview.stale_profile"))
+            self.reset_overview(error or message_id("results.overview.stale_profile"),
+                                phase="error" if error else "stale")
             return
         if self.app.allow_operation("profile"):
             self.app.launch(pending)
