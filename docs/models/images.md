@@ -155,13 +155,16 @@ TUI 提供以下动作：
 
 | 值 | 行为 |
 | --- | --- |
-| `auto`（默认） | 优先本地缓存，再拉取；拉取失败时本机构建 |
+| `auto`（默认） | 优先本地缓存，再拉取；网络或缺失错误可在提示来源切换后本机构建；有限下载预算禁止未预检的构建回退 |
 | `pull` | 优先本地缓存；拉取失败直接报错，不自动构建依赖 |
-| `build` | 优先本地缓存；缺失时本机构建，不访问 GHCR |
+| `build` | 优先本地缓存；缺失时本机构建，跳过预构建 Registry；仍可能下载前端、base 和依赖 |
 
 标签为 `platform-<完整平台构建指纹>` 或 `environment-<完整环境构建指纹>`，
 后者绑定实际平台 image ID。拉取后核对标签与内部系统/Python 依赖清单，
 通过后才写本地缓存标签；内容不符直接报错，不静默回退。
+鉴权、TLS 证书、digest 校验和已知内容缺失也不会触发 `auto` 构建回退。
+国内制品镜像设置不会隐式改变 `auto|pull|build` 或 GHCR 仓库。希望避免 GHCR 请求时明确选择
+`build`；已有可信预构建镜像时用 `ACPROF_RUNTIME_REGISTRY` 指定其完整 repository。
 正式构建与运行仍使用不可变 image ID。此策略不更改模型下载、文件选择、服务验证和采集协议。
 
 ### 下载来源分流（限额 VPN 场景）
@@ -171,22 +174,77 @@ TUI 提供以下动作：
 | Python PyPI wheel（含 NVIDIA `nvidia-*` CUDA 库） | `files.pythonhosted.org` | `ACPROF_PYPI_ARTIFACT_MIRROR=tencent`；腾讯云镜像直连、保留官方 SHA256 |
 | PyTorch wheel | `download-r2.pytorch.org` | `ACPROF_PYTORCH_ARTIFACT_MIRROR=aliyun`；只改传输地址，不改 PyTorch 锁及 SHA256 |
 | Debian `.deb` | `snapshot.debian.org` | `ACPROF_DEBIAN_ARTIFACT_MIRROR=tencent`；固定包名版本由腾讯云 Debian 镜像提供，仍须原锁 SHA256 校验 |
-| OCI base / 预构建依赖镜像 | Docker Hub / GHCR | Docker 自行拉取；`ACPROF_RUNTIME_IMAGE_SOURCE=build` 可跳过 GHCR 尝试但仍依赖 base image |
+| BuildKit Dockerfile 前端 / Python base | Docker Hub | `ACPROF_DOCKER_HUB_MIRROR=<registry/path>` 显式映射，保留原 digest；留空沿用官方引用及 Docker 配置 |
+| 预构建依赖镜像 | GHCR | `ACPROF_RUNTIME_REGISTRY=<registry/repository>` 指定自有或可信同步仓库；按完整指纹和内部清单验证 |
 | 模型元数据与权重 | HF endpoint / Model Store、可选 ModelScope | 缓存优先；HF 镜像或 ModelScope 按各自来源规则处理 |
 | 安装 AC-Prof 的宿主机依赖（uv / pip） | 进程包管理器 | 可以单独配置 uv / pip 国内 index，不受 runtime 镜像配置控制 |
+| Process Runtime 环境 | uv 的原始锁定 URL、必要时解释器下载源 | 不受 Docker 制品镜像开关控制；缺少解释器时来源/大小可能未验证，有限预算会拒绝未知量 |
 
 ```bash
 # 在项目根目录执行，或写入本地 .env.local。
 export ACPROF_PYPI_ARTIFACT_MIRROR=tencent
 export ACPROF_PYTORCH_ARTIFACT_MIRROR=aliyun
 export ACPROF_DEBIAN_ARTIFACT_MIRROR=tencent
+# 可选示例；先确认此服务能提供所需 digest，也可以换成自有 OCI 镜像服务：
+export ACPROF_DOCKER_HUB_MIRROR=m.daocloud.io/docker.io
 # 需要本机构建且希望避免先拉取 GHCR 时：
 export ACPROF_RUNTIME_IMAGE_SOURCE=build
-# 仅在确认宿主机网络更快时：
-export ACPROF_DEPENDENCY_BUILD_NETWORK=host
 ```
 
-三个制品镜像开关均为**独立 opt-in**：PyPI 仅从 `files.pythonhosted.org/packages/` 替换为腾讯云，PyTorch 仅从 `download-r2.pytorch.org/whl/` 替换为阿里云 `pytorch-wheels/`，Debian 仅从固定 `snapshot.debian.org/archive/debian[-security]/<timestamp>/pool/` 替换为腾讯云 `debian/pool/`。默认均关闭，启用后的受控下载和 HEAD 预检强制绕过进程 HTTP(S) 代理；镜像故障不会自动回退到可能消耗 VPN 套餐的原地址。下载源仅是传输信息，不会改写锁中的 URL、版本与 SHA256。受限流量验证：PyTorch 11 个不同 wheel、Debian 59 个包的镜像 HEAD 与大小检查成功；少量小包完整 SHA256 通过；约 820 MB 的 torch **尚未整包验证**，仍须真正安装时完成哈希校验。国内镜像可能移除历史文件，届时明确失败。透明 VPN/上游 TUN 不能仅由应用层代理配置证明没有计费流量。Docker/GHCR 下载由 Docker 管理，不受三个开关控制；修改构建配方仍按现有规则改变镜像指纹。
+三个制品镜像开关均为**独立 opt-in**：PyPI 仅从 `files.pythonhosted.org/packages/` 替换为腾讯云，
+PyTorch 仅从 `download-r2.pytorch.org/whl/` 替换为阿里云 `pytorch-wheels/`，Debian 仅从固定
+`snapshot.debian.org/archive/debian[-security]/<timestamp>/pool/` 替换为腾讯云 `debian/pool/`。
+默认均关闭；启用后的制品下载和 HEAD 预检绕过进程 HTTP(S) 代理，只允许同 HTTPS 镜像 host 重定向。
+镜像故障、历史文件缺失或哈希不匹配会明确失败，不自动回退官方源。锁中的 URL、版本、SHA256
+及缓存键保持原值，最终必须校验完整制品。HEAD 成功不能证明完整 wheel 或系统包下载成功。
+未启用 Debian 镜像时，官方 snapshot 的既有瞬态失败备用地址为 `deb.debian.org` 同名 pool 文件，
+沿用三次总尝试、原 SHA256 和显式来源提示，预检会列出该条件性来源。
+
+TUI 在 **应用设置 → 管理连接与权限 → Docker 下载源**提供相同设置。
+“选用国内依赖镜像”只填写三个制品选项，保存后供新任务使用；OCI 地址和 Runtime 策略分别选择。
+可逐项改回“官方源”，清空 OCI 地址恢复官方引用。CLI 读取相同 `.env.local`，显式导出的环境变量
+优先；保存机制见[本地设置](../usage/configuration.md#tui-本地设置)。不按语言、时区或 IP 自动切源：
+这些信号无法证明镜像覆盖、网络出口或用户授权。国内镜像作为明确推荐，实际可用性由每次预检与传输确认。
+
+### BuildKit 前端、缓存与网络边界
+
+两个依赖 Dockerfile 的 `# syntax` 固定官方 `docker/dockerfile:1@sha256:...`，使用现有 Dockerfile v1
+语法与 cache/bind mount。主机通过官方 `--build-arg BUILDKIT_SYNTAX=...` 机制传入选定 OCI 路径。
+`ACPROF_DOCKER_HUB_MIRROR` 只接受无 scheme、凭据、tag 或 digest 的 registry/path；映射
+`docker/dockerfile` 与 `library/python` 时保留原 SHA256，不能用该设置执行任意替换前端。
+地址映射不会改变锁或构建身份；修改 Dockerfile 中的前端 digest 会随配方进入平台和环境构建指纹。
+本次从浮动前端固定到 digest 会产生新的构建指纹，已有实验仍按记录的不可变 image ID 恢复。
+
+| 网络环节 | 使用的配置与证据边界 |
+| --- | --- |
+| 主机 metadata / `docker buildx imagetools inspect --raw` | 主机网络、Buildx 认证与代理；不是 daemon 或 BuildKit 的传输证明 |
+| `docker pull` 预构建镜像 | Docker daemon 的网络、代理和认证；与 shell 的代理配置可能不同 |
+| BuildKit 前端与 `FROM` | builder 的 Registry resolver；`docker` driver 使用 Engine 配置，独立 `docker-container` / Kubernetes builder 使用自己的 BuildKit 配置 |
+| Dockerfile `RUN` 下载依赖 | 构建容器网络和传入的代理 ARG；`ACPROF_DEPENDENCY_BUILD_NETWORK=host` 只影响这一环节 |
+
+Engine 的 `registry-mirrors` 及独立 builder 的 `[registry."docker.io"].mirrors` 是可继续使用的兼容路径。
+BuildKit resolver 会将官方源放在 mirrors 之后，因此仅配置 mirror **不保证禁止官方直连**。
+显式 OCI 路径让 AC-Prof 直接请求选定 Registry；失败时不在应用中改回 Docker Hub。
+Registry 自身的认证服务、blob 重定向和管理员配置仍由 Docker 管理，应用不能承诺其公网出口或
+隐藏上游全部在国内。需要严格出口限制时，在相应 Docker/BuildKit 网络配置中控制。
+
+前端缓存属于 builder 的内容存储；`docker image ls` 中有前端镜像不等于当前 builder 命中缓存。
+OCI 预检复用发布脚本已采用的 Buildx `imagetools --raw`，只读取 index 与目标 linux/amd64 manifest，
+校验固定 digest，两个查询共享 20 秒总时限；不拉取层、不调用可能阻塞的旧 `docker manifest inspect` 备用路径。
+预检列出前端、base、依赖与 `auto` 的条件性构建来源；前端缓存标为未知，按完整压缩大小计入预算，
+两个配方使用同一 digest 时只计一次。镜像 metadata 或大小未知时保留 unknown，有限预算拒绝继续；
+不会把未知量当作零或为确认缓存而提前拉取层。实际 `CACHED`、解析目标和失败步骤由构建日志确认。
+完整平台及依赖环境命中时无需前端下载预检；原有内容、标签、清单核验仍在复用前执行。
+
+实现参考 [Docker 前端配置](https://docs.docker.com/build/buildkit/frontend/)、
+[BuildKit Registry 配置](https://docs.docker.com/build/buildkit/configure/)、
+[BuildKit resolver 源码](https://github.com/moby/buildkit/blob/master/util/resolver/resolver.go)
+和[上游前端解析延迟 Issue #4205](https://github.com/moby/buildkit/issues/4205)。
+国内 OCI 映射示例参考 [DaoCloud 的前缀与 digest 说明](https://github.com/DaoCloud/public-image-mirror)。
+复用已有 Docker/BuildKit（Apache-2.0）的受维护机制和标准 OCI digest 校验，不复制上游实现、
+不增加 Registry 客户端依赖、守护进程或正式测量开销。第三方镜像服务没有被设为不可替换的默认值。
+
+### 依赖缓存与代理
 
 本机构建的系统与 Python 依赖制品使用 BuildKit cache mount 按 SHA256 缓存，成功制品不随单次构建失败而删除。
 构建中断或网络超时后，若 `.part` 与来源侧车同时匹配锁定的 URL、SHA256，可通过 HTTP Range 继续下载；

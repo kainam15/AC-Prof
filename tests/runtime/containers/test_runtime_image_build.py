@@ -196,6 +196,33 @@ class TestRuntimeImageBuild:
             else:
                 assert "ACPROF_PYPI_ARTIFACT_MIRROR" not in command
 
+    def test_dependency_build_routes_frontend_and_base_with_original_digests(self):
+        from acprof.host.images.environment import platform_fingerprint
+        from acprof.runtime.profiles import PLATFORMS
+
+        fingerprint = platform_fingerprint(PLATFORMS["cpu"], PROJECT_ROOT)
+        with patch.dict(os.environ, {"ACPROF_DOCKER_HUB_MIRROR": "mirror.example/docker.io"}):
+            assert platform_fingerprint(PLATFORMS["cpu"], PROJECT_ROOT) == fingerprint
+            runtime_images.build_runtime_image(self.task, str(PROJECT_ROOT))
+        for command in self.build_commands():
+            recipe = Path(command[command.index("-f") + 1]).name
+            if recipe not in {"platform.Dockerfile", "runtime.Dockerfile"}:
+                continue
+            frontend = next((arg for arg in command if arg.startswith("BUILDKIT_SYNTAX=")), "")
+            assert frontend.startswith("BUILDKIT_SYNTAX=mirror.example/docker.io/docker/dockerfile:1@sha256:")
+            assert re.fullmatch(r"[0-9a-f]{64}", frontend.rsplit(":", 1)[1])
+            if recipe == "platform.Dockerfile":
+                base = next(arg for arg in command if arg.startswith("PYTHON_BASE_IMAGE="))
+                assert base.startswith("PYTHON_BASE_IMAGE=mirror.example/docker.io/library/python:")
+                assert base.rsplit("@", 1)[1] == PLATFORMS["cpu"].python_base_image.rsplit("@", 1)[1]
+
+    def test_invalid_oci_mirror_is_rejected_before_build(self):
+        with patch.dict(os.environ, {"ACPROF_DOCKER_HUB_MIRROR": "https://user:secret@mirror.example"}):
+            with pytest.raises(ValueError, match="ACPROF_DOCKER_HUB_MIRROR") as caught:
+                runtime_images.build_runtime_image(self.task, str(PROJECT_ROOT))
+        assert "secret" not in str(caught.value)
+        assert not self.build_commands()
+
     def test_dependency_build_rejects_unknown_mirror_without_docker(self):
         with patch.dict(os.environ, {"ACPROF_PYPI_ARTIFACT_MIRROR": "untrusted"}):
             with pytest.raises(ValueError, match="ACPROF_PYPI_ARTIFACT_MIRROR"):
@@ -323,6 +350,63 @@ class TestRuntimeImageBuild:
             image = prepare_environment_image(ENVIRONMENTS["onnxruntime-cpu"], image_source="auto")
         assert (image.image_id.startswith("sha256:"))
         assert (len(self.build_commands())) == (2)
+
+    @pytest.mark.parametrize("message", ["digest mismatch", "x509: certificate signed by unknown authority", "unauthorized",
+                                         "unexpected status 401", "unexpected status 403 Forbidden"])
+    def test_auto_never_masks_integrity_tls_or_auth_errors(self, message):
+        from acprof.host.images.environment import prepare_environment_image
+        from acprof.runtime.profiles import ENVIRONMENTS
+
+        with patch("acprof.system.command.run_command", return_value=subprocess.CompletedProcess([], 1, "", message)) as run:
+            with pytest.raises(RuntimeError, match=message):
+                prepare_environment_image(ENVIRONMENTS["onnxruntime-cpu"], image_source="auto", registry="mirror.example/runtime")
+        assert len(run.call_args_list) == 1
+        assert run.call_args.args[0][-1].startswith("mirror.example/runtime:")
+        assert self.build_commands() == []
+
+    def test_budgeted_auto_does_not_use_unreviewed_build_fallback(self):
+        from acprof.host.images.environment import prepare_environment_image
+        from acprof.runtime.profiles import ENVIRONMENTS
+
+        with patch.dict(os.environ, {"ACPROF_MAX_DOWNLOAD": "1GB"}), patch(
+            "acprof.system.command.run_command", return_value=subprocess.CompletedProcess([], 1, "", "manifest unknown"),
+        ) as run:
+            with pytest.raises(RuntimeError, match="预算模式"):
+                prepare_environment_image(ENVIRONMENTS["onnxruntime-cpu"], image_source="auto")
+        run.assert_called_once()
+        assert self.build_commands() == []
+
+    def test_frontend_timeout_stops_before_model_download_and_later_builds(self):
+        def fail_frontend(command, **kwargs):
+            if command[:2] == ["docker", "build"]:
+                self.commands.append(command)
+                frontend = next(arg.split("=", 1)[1] for arg in command if arg.startswith("BUILDKIT_SYNTAX="))
+                return subprocess.CompletedProcess(command, 1, "", "ERROR: resolve image config for docker-image://" + frontend + ": i/o timeout")
+            return self.fake_run(command, **kwargs)
+
+        with patch("acprof.system.command.run_command", side_effect=fail_frontend), patch(
+            "acprof.host.model_store.store.prepare_model",
+        ) as model_download:
+            with pytest.raises(RuntimeError, match="BuildKit frontend") as caught:
+                runtime_images.build_runtime_image(self.task, str(PROJECT_ROOT))
+        assert caught.value.reason_code == "docker_frontend_failed"
+        assert len(self.build_commands()) == 1
+        model_download.assert_not_called()
+
+    def test_mirror_does_not_skip_known_original_parent_content_failure(self):
+        from acprof.host.images.errors import DockerPreparationError
+        from acprof.runtime.profiles import PLATFORMS
+
+        base = PLATFORMS["cpu"].python_base_image
+        self.images[base] = {"image_id": "sha256:" + "f" * 64, "labels": {}}
+        with patch.dict(os.environ, {"ACPROF_DOCKER_HUB_MIRROR": "mirror.example"}), patch(
+            "acprof.host.images.environment.require_content",
+            side_effect=DockerPreparationError("docker_content_incomplete", "original parent is incomplete"),
+        ) as verify:
+            with pytest.raises(DockerPreparationError, match="original parent is incomplete"):
+                runtime_images.build_runtime_image(self.task, str(PROJECT_ROOT))
+        assert verify.call_args.args[0] == base
+        assert self.build_commands() == []
 
     def test_successful_pull_with_wrong_identity_does_not_fall_back_to_build(self):
         from acprof.host.images.environment import prepare_environment_image

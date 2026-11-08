@@ -22,6 +22,68 @@ _MIRROR_OPTIONS = {
     "ACPROF_DEBIAN_ARTIFACT_MIRROR": {"", "tencent"},
 }
 
+DEFAULT_RUNTIME_REGISTRY = "ghcr.io/kainam15/ac-prof/runtime"
+
+
+def oci_repository(value: str, setting: str) -> str:
+    """Accept an explicit HTTPS registry/path, never credentials or URL syntax."""
+    value = value.strip().rstrip("/")
+    host, _, path = value.partition("/")
+    label = r"[a-z0-9](?:[a-z0-9-]*[a-z0-9])?"
+    if (not re.fullmatch(rf"{label}(?:\.{label})*(?::[0-9]{{1,5}})?", host)
+            or not ("." in host or ":" in host or host == "localhost")
+            or path and any(not re.fullmatch(r"[a-z0-9]+(?:(?:[._]|__|-+)[a-z0-9]+)*", part)
+                            for part in path.split("/"))):
+        raise DownloadPolicyError(f"{setting} must be an OCI registry/path without scheme, credentials, tag or digest")
+    if ":" in host and not 1 <= int(host.rsplit(":", 1)[1]) <= 65535:
+        raise DownloadPolicyError(f"{setting} has an invalid registry port")
+    return value
+
+
+def runtime_image_source(value: str | None = None, environ: Mapping[str, str] | None = None) -> str:
+    env = os.environ if environ is None else environ
+    source = (value if value is not None else env.get("ACPROF_RUNTIME_IMAGE_SOURCE", "")) or "auto"
+    if source not in {"auto", "pull", "build"}:
+        raise DownloadPolicyError("ACPROF_RUNTIME_IMAGE_SOURCE must be auto/pull/build")
+    return source
+
+
+def configured_oci_sources(environ: Mapping[str, str] | None = None) -> dict[str, str]:
+    env = os.environ if environ is None else environ
+    mirror = env.get("ACPROF_DOCKER_HUB_MIRROR", "").strip()
+    registry = env.get("ACPROF_RUNTIME_REGISTRY", "").strip() or DEFAULT_RUNTIME_REGISTRY
+    return {
+        "docker_hub_mirror": oci_repository(mirror, "ACPROF_DOCKER_HUB_MIRROR") if mirror else "",
+        "runtime_registry": oci_repository(registry, "ACPROF_RUNTIME_REGISTRY"),
+        "source_mode": runtime_image_source(environ=env),
+    }
+
+
+def docker_hub_image(reference: str, environ: Mapping[str, str] | None = None) -> str:
+    """Remap a locked Docker Hub image; the original digest remains mandatory."""
+    mirror = configured_oci_sources(environ)["docker_hub_mirror"]
+    if not mirror:
+        return reference
+    if not re.fullmatch(r"[^@\s]+@sha256:[a-f0-9]{64}", reference):
+        raise DownloadPolicyError("OCI mirror requires the original locked SHA256 digest")
+    first, sep, rest = reference.partition("/")
+    if sep and ("." in first or ":" in first or first == "localhost"):
+        if first not in {"docker.io", "index.docker.io", "registry-1.docker.io"}:
+            return reference
+        repository = rest
+    else:
+        repository = reference
+    if "/" not in repository:
+        repository = "library/" + repository
+    return mirror + "/" + repository
+
+
+def oci_source_url(reference: str) -> str:
+    first, sep, _ = reference.partition("/")
+    if not sep or not ("." in first or ":" in first or first == "localhost"):
+        return "https://registry-1.docker.io/" + reference
+    return "https://" + reference
+
 
 def configured_artifact_mirrors(environ: Mapping[str, str] | None = None) -> dict[str, str]:
     """Validate all download options before starting an expensive build."""
@@ -169,6 +231,9 @@ class DownloadSource:
     cacheable: bool = True
     actual_bytes: int | None = None
     detail: str = ""
+    stage: str = ""
+    network_context: str = ""
+    source_kind: str = ""
 
     def to_dict(self) -> dict:
         return {**asdict(self), "host": urlsplit(self.url).hostname,

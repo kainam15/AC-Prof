@@ -8,12 +8,24 @@ import re
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from acprof.host.images.content import require_content
 from acprof.host.images.errors import DockerPreparationError, rebuild_target
 from acprof.host.images.operations import pull_image, run_docker
 from acprof.host.images.progress import emit_image_progress
 from acprof.installation import resource_root
+from acprof.network_policy import (
+    DEFAULT_RUNTIME_REGISTRY as DEFAULT_RUNTIME_REGISTRY,
+    configured_artifact_mirrors,
+    configured_oci_sources,
+    debian_snapshot_fallback_url,
+    dependency_artifact_url,
+    docker_hub_image,
+    oci_repository,
+    oci_source_url,
+    runtime_image_source,
+)
 from acprof.runtime.dependency_locks import (
     content_digest,
     package_versions,
@@ -33,21 +45,43 @@ PROJECT_ROOT = resource_root()
 PLATFORM_LABEL = "org.acprof.platform-build-fingerprint"
 ENVIRONMENT_LABEL = "org.acprof.environment-build-fingerprint"
 BUILD_HELPERS = ("dockerfiles/environment_tools.py", "acprof/runtime/dependency_locks.py", "acprof/network_policy.py")
-DEFAULT_RUNTIME_REGISTRY = "ghcr.io/kainam15/ac-prof/runtime"
 
 
 def registry_reference(kind: str, fingerprint: str, registry: str | None = None) -> str:
-    registry = (registry if registry is not None else
-                os.environ.get("ACPROF_RUNTIME_REGISTRY", DEFAULT_RUNTIME_REGISTRY)).rstrip("/")
-    if not re.fullmatch(r"[a-z0-9][a-z0-9._:/-]*", registry) or "://" in registry:
-        raise ValueError("ACPROF_RUNTIME_REGISTRY 必须是小写 OCI repository，不含 scheme 或凭据")
+    registry = oci_repository(registry, "ACPROF_RUNTIME_REGISTRY") if registry is not None else configured_oci_sources()["runtime_registry"]
     if kind not in {"platform", "environment"} or not re.fullmatch(r"[0-9a-f]{64}", fingerprint):
         raise ValueError("预构建镜像要求完整内容指纹")
     return f"{registry}:{kind}-{fingerprint}"
 
 
+def dockerfile_frontend(root: Path, recipe: str = "platform.Dockerfile") -> str:
+    declaration = (root / "dockerfiles" / recipe).read_text().splitlines()[0]
+    match = re.fullmatch(r"# syntax=(\S+@sha256:[a-f0-9]{64})", declaration)
+    if match is None:
+        raise ValueError(f"{recipe}: Dockerfile frontend must be pinned by SHA256")
+    return docker_hub_image(match[1])
+
+
+def local_build_sources(identity: dict, root: Path, *, platform: bool) -> list[str]:
+    """Disclose conditional auto fallback without probing or transferring payloads."""
+    base = identity.get("platform", identity)
+    sources = {oci_source_url(dockerfile_frontend(root, "runtime.Dockerfile"))}
+    artifacts = [("python", entry) for entry in identity["packages"]]
+    if platform:
+        sources.add(oci_source_url(dockerfile_frontend(root)))
+        sources.add(oci_source_url(docker_hub_image(base["python_base_image"])))
+        artifacts.extend(("debian", entry) for entry in base["system"]["artifacts"])
+    for category, entry in artifacts:
+        url = dependency_artifact_url(category, entry["url"])
+        parsed = urlsplit(url)
+        sources.add(f"{parsed.scheme}://{parsed.netloc}")
+        if category == "debian" and (fallback := debian_snapshot_fallback_url(url)):
+            sources.add("https://" + str(urlsplit(fallback).netloc))
+    return sorted(sources)
+
+
 def _pull_cached_image(name: str, label: str, fingerprint: str, expected: dict,
-                       identity: dict, kind: str, source: str, registry: str | None):
+                       identity: dict, kind: str, source: str, registry: str | None, root: Path = PROJECT_ROOT):
     if source == "build":
         return None
     reference = registry_reference(kind, fingerprint, registry)
@@ -57,19 +91,12 @@ def _pull_cached_image(name: str, label: str, fingerprint: str, expected: dict,
     except DockerPreparationError as exc:
         if source == "pull":
             raise
-        if exc.reason_code in {"docker_auth_failed", "docker_content_incomplete"}:
+        if exc.reason_code in {"docker_auth_failed", "docker_content_incomplete", "docker_integrity_failed", "docker_tls_failed"}:
             raise  # Authentication and damaged content are not cache misses.
         if os.environ.get("ACPROF_MAX_DOWNLOAD", "").strip():
             raise RuntimeError("预构建镜像拉取失败；预算模式禁止未预检的 local build fallback。请显式选择 build 后重新预检。") from exc
-        from urllib.parse import urlsplit
-
         from acprof.network_policy import require_source_transition
-        platform = identity.get("platform", identity)
-        artifacts = [*identity["packages"], *platform.get("system", {}).get("artifacts", [])]
-        origins = {f"{urlsplit(entry['url']).scheme}://{urlsplit(entry['url']).netloc}" for entry in artifacts}
-        if kind == "platform":
-            origins.add("https://registry-1.docker.io")
-        for origin in sorted(origins):
+        for origin in local_build_sources(identity, root, platform=kind == "platform"):
             require_source_transition("https://" + reference, origin)
         print("[runtime] 预构建镜像不可用，回退到本机锁定依赖构建。", flush=True)
         return None
@@ -184,9 +211,16 @@ def checked_image(name: str, label: str, fingerprint: str, expected: dict, ident
 def build_dependency(root: Path, recipe: str, name: str, arguments: dict, expected: dict,
                      identity: dict, current_fingerprint, original_fingerprint: str) -> None:
     from acprof.host.images.runtime import inspect_identity
+    frontend = dockerfile_frontend(root, recipe)
+    mirrors = configured_artifact_mirrors()
+    original_parent = arguments.get("PLATFORM_IMAGE") or arguments.get("PYTHON_BASE_IMAGE")
+    arguments = {**arguments, "BUILDKIT_SYNTAX": frontend}
+    if "PYTHON_BASE_IMAGE" in arguments:
+        arguments["PYTHON_BASE_IMAGE"] = docker_hub_image(arguments["PYTHON_BASE_IMAGE"])
     parent = arguments.get("PLATFORM_IMAGE") or arguments.get("PYTHON_BASE_IMAGE")
-    if parent and (parent_identity := inspect_identity(parent)) is not None:
-        require_content(parent, parent_identity["image_id"], component="platform")
+    for reference in dict.fromkeys((original_parent, parent)):
+        if reference and (parent_identity := inspect_identity(reference)) is not None:
+            require_content(reference, parent_identity["image_id"], component="platform")
     with tempfile.TemporaryDirectory(prefix="acprof-dependency-build-") as directory:
         context = Path(directory)
         for relative in ("dockerfiles/" + recipe, *BUILD_HELPERS):
@@ -219,15 +253,14 @@ def build_dependency(root: Path, recipe: str, name: str, arguments: dict, expect
                 command += ["--build-arg", proxy_name]
         # Optional transport routing never becomes part of the locked artifact
         # identity. Validate all settings and pass ARG names, never proxy values.
-        from acprof.network_policy import configured_artifact_mirrors
-        for mirror_name, selected in configured_artifact_mirrors().items():
+        for mirror_name, selected in mirrors.items():
             if selected:
                 command += ["--build-arg", mirror_name]
         command.append(str(context))
         if current_fingerprint() != original_fingerprint:
             raise RuntimeError("依赖构建输入发生变化，尚未构建镜像")
         run_docker(command, component="platform" if recipe == "platform.Dockerfile" else "environment",
-                   image=name, operation="build", step=recipe)
+                   image=name, operation="build", step=recipe, frontend=frontend)
         image_id = iidfile.read_text().strip()
         image = inspect_identity(image_id)
         if image is None or image["image_id"] != image_id:
@@ -242,10 +275,9 @@ def build_dependency(root: Path, recipe: str, name: str, arguments: dict, expect
 
 
 def _source_policy(image_source: str | None) -> str:
-    source_policy = image_source or os.environ.get("ACPROF_RUNTIME_IMAGE_SOURCE", "auto")
-    if source_policy not in {"auto", "build", "pull"}:
-        raise ValueError("ACPROF_RUNTIME_IMAGE_SOURCE 必须是 auto/build/pull")
-    return source_policy
+    configured_oci_sources()
+    configured_artifact_mirrors()
+    return runtime_image_source(image_source)
 
 
 def _prepare_platform(platform: PlatformSpec, root: Path, platform_data: dict,
@@ -262,7 +294,7 @@ def _prepare_platform(platform: PlatformSpec, root: Path, platform_data: dict,
         raise RuntimeError(f"硬件验证禁止隐式构建或下载：预备平台镜像不存在：{platform_name}")
     if existing is None:
         existing = _pull_cached_image(platform_name, PLATFORM_LABEL, platform_key, expected_platform,
-                                      platform_data, "platform", source_policy, registry)
+                                      platform_data, "platform", source_policy, registry, root)
     if existing is None:
         build_dependency(root, "platform.Dockerfile", platform_name,
                          {"PYTHON_BASE_IMAGE": platform.python_base_image, "PLATFORM_ID": platform.platform_id,
@@ -312,7 +344,7 @@ def prepare_environment_image(environment: DependencyEnvironment, project_dir=PR
         raise RuntimeError(f"硬件验证禁止隐式构建或下载：预备依赖环境镜像不存在：{name}")
     if existing is None:
         existing = _pull_cached_image(name, ENVIRONMENT_LABEL, environment_key, expected, identity,
-                                      "environment", source_policy, registry)
+                                      "environment", source_policy, registry, root)
     if existing is None:
         source = "acprof-build-source:" + platform_image_id.split(":", 1)[1]
         host_command.run_command(['docker', 'tag', platform_image_id, source], check=True)

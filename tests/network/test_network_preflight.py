@@ -1,3 +1,4 @@
+import hashlib
 import io
 import json
 from types import SimpleNamespace
@@ -207,10 +208,11 @@ def test_runtime_sources_uses_valid_recorded_artifact_sizes_without_network(tmp_
         sources, _ = runtime_sources(
             profile, tmp_path, inspect=lambda _: next(inspections),
             size_probe=lambda _: pytest.fail("recorded Python artifact size used network"),
-            manifest_probe=lambda _: pytest.fail("local platform/build-only path queried registry"),
+            manifest_probe=lambda ref: {"bytes": 64, "image_id": "sha256:" + "b" * 64}
+            if "docker/dockerfile:" in ref else pytest.fail("unexpected base/runtime registry access"),
         )
     assert sources
-    assert all(source.estimated_bytes == 123 for source in sources)
+    assert all(source.estimated_bytes == 123 for source in sources if source.category == "python")
 
 
 def test_runtime_sources_preserves_recorded_zero_size_without_network(tmp_path):
@@ -227,10 +229,11 @@ def test_runtime_sources_preserves_recorded_zero_size_without_network(tmp_path):
         sources, _ = runtime_sources(
             profile, tmp_path, inspect=lambda _: next(inspections),
             size_probe=lambda _: pytest.fail("recorded zero-byte artifact size used network"),
-            manifest_probe=lambda _: pytest.fail("local platform/build-only path queried registry"),
+            manifest_probe=lambda ref: {"bytes": 64, "image_id": "sha256:" + "b" * 64}
+            if "docker/dockerfile:" in ref else pytest.fail("unexpected base/runtime registry access"),
         )
     assert sources
-    assert all(source.estimated_bytes == 0 for source in sources)
+    assert all(source.estimated_bytes == 0 for source in sources if source.category == "python")
 
 
 def test_runtime_sources_rejects_nonfinite_artifact_metadata(tmp_path):
@@ -263,12 +266,7 @@ def test_runtime_sources_bounds_artifact_metadata_read(tmp_path):
     ],
 )
 def test_registry_manifest_rejects_invalid_budget_metadata(layer_size, config_digest):
-    payload = {
-        "SchemaV2Manifest": {
-            "layers": [{"size": layer_size}],
-            "config": {"size": 10, "digest": config_digest},
-        },
-    }
+    payload = {"layers": [{"size": layer_size}], "config": {"size": 10, "digest": config_digest}}
     result = SimpleNamespace(returncode=0, stdout=json.dumps(payload), stderr="")
     with patch("acprof.host.preparation.network_preflight.host_command.run_command", return_value=result):
         assert registry_manifest("ghcr.io/example/runtime:tag") is None
@@ -280,3 +278,70 @@ def test_local_miss_reports_ghcr_and_compressed_upper_bound():
             manifest_probe=lambda _: {"bytes": 100, "image_id": "sha256:" + "a" * 64})
     assert (state["will_attempt_ghcr_pull"])
     assert (summarize_downloads(sources)["expected_download_bytes"]) == (200)
+
+
+def test_local_build_preflights_frontend_and_base_from_selected_mirror():
+    references = []
+
+    def manifest(reference):
+        references.append(reference)
+        return {"bytes": 4096, "image_id": "sha256:" + "a" * 64}
+
+    with patch.dict("os.environ", {"ACPROF_RUNTIME_IMAGE_SOURCE": "build",
+                                   "ACPROF_DOCKER_HUB_MIRROR": "mirror.example/docker.io"}, clear=True):
+        sources, state = runtime_sources(PROFILES["nlp-cpu"], PROJECT_ROOT,
+                                         inspect=lambda _: None, manifest_probe=manifest)
+    frontend = [source for source in sources if source.stage == "buildkit-frontend"]
+    assert len(frontend) == 1
+    assert frontend[0].estimated_bytes == 4096
+    assert frontend[0].cache_status == "unknown"
+    assert all(ref.startswith("mirror.example/docker.io/") and "@sha256:" in ref for ref in references)
+    assert len(references) == 2
+    assert state["will_attempt_ghcr_pull"] is False
+
+
+def test_auto_preflight_discloses_conditional_build_sources():
+    with patch.dict("os.environ", {"ACPROF_RUNTIME_IMAGE_SOURCE": "auto",
+                                   "ACPROF_DOCKER_HUB_MIRROR": "mirror.example/docker.io",
+                                   "ACPROF_PYPI_ARTIFACT_MIRROR": "tencent"}, clear=True):
+        _, state = runtime_sources(PROFILES["nlp-cpu"], PROJECT_ROOT, inspect=lambda _: None,
+                                   manifest_probe=lambda _: None)
+    fallback = state["alternatives"]["local_build_sources"]
+    assert any("mirror.example/docker.io/docker/dockerfile" in entry for entry in fallback)
+    assert any("mirrors.cloud.tencent.com" in entry for entry in fallback)
+    assert not any("files.pythonhosted.org" in entry for entry in fallback)
+
+
+def test_registry_manifest_reads_only_selected_platform_with_buildx_and_verifies_digest():
+    manifest = json.dumps({"schemaVersion": 2, "layers": [{"size": 100}],
+                           "config": {"size": 25, "digest": "sha256:" + "a" * 64}})
+    digest = "sha256:" + hashlib.sha256(manifest.encode()).hexdigest()
+    index = json.dumps({"schemaVersion": 2, "manifests": [
+        {"digest": digest, "platform": {"os": "linux", "architecture": "amd64"}},
+        {"digest": "sha256:" + "b" * 64, "platform": {"os": "linux", "architecture": "arm64"}},
+    ]})
+    reference = "mirror.example/docker/dockerfile:1@sha256:" + hashlib.sha256(index.encode()).hexdigest()
+    calls = []
+
+    def inspect(command, **kwargs):
+        assert command[:4] == ["docker", "buildx", "imagetools", "inspect"]
+        assert command[-1] == "--raw"
+        assert 0 < kwargs["timeout"] <= 20
+        calls.append(command[4])
+        return SimpleNamespace(returncode=0, stdout=index if len(calls) == 1 else manifest, stderr="")
+
+    evidence = []
+    with patch("acprof.host.preparation.network_preflight.host_command.run_command", side_effect=inspect):
+        assert registry_manifest(reference, evidence=evidence) == {"bytes": 125, "image_id": "sha256:" + "a" * 64}
+    assert calls == [reference, "mirror.example/docker/dockerfile:1@" + digest]
+    assert evidence[0]["status"] == "passed"
+    assert evidence[0]["network_context"] == "host-docker-cli"
+
+
+def test_registry_manifest_rejects_content_changed_by_mirror():
+    response = SimpleNamespace(returncode=0, stdout=json.dumps({"layers": [],
+        "config": {"size": 1, "digest": "sha256:" + "a" * 64}}), stderr="")
+    evidence = []
+    with patch("acprof.host.preparation.network_preflight.host_command.run_command", return_value=response):
+        assert registry_manifest("mirror.example/image@sha256:" + "b" * 64, evidence=evidence) is None
+    assert evidence[0]["reason"] == "integrity"

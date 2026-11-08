@@ -1,6 +1,7 @@
 """Bound downloads before build/pull; unknown bytes never count as zero."""
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -17,18 +18,25 @@ from urllib.parse import urlsplit
 
 from acprof.artifacts import read_json_object
 from acprof.host.images.environment import (
-    DEFAULT_RUNTIME_REGISTRY,
+    dockerfile_frontend,
+    local_build_sources,
     platform_fingerprint,
     registry_reference,
     runtime_fingerprint,
 )
+from acprof.host.images.errors import network_failure_kind
 from acprof.host.preparation.download_probe import failure_reason, probe_allowance, probe_record
 from acprof.network_policy import (
     DEPENDENCY_USER_AGENT,
     DownloadSource,
+    configured_artifact_mirrors,
+    configured_oci_sources,
+    debian_snapshot_fallback_url,
     dependency_artifact_url,
+    docker_hub_image,
     enforce_download_budget,
     is_direct_artifact_mirror,
+    oci_source_url,
     require_direct_artifact_mirror_redirect,
     require_source_transition,
     summarize_downloads,
@@ -92,42 +100,58 @@ def probe_runtime_downloads(sources: list[DownloadSource], existing: list[dict] 
     return reports
 
 
+def _registry_document(reference: str, report: dict, deadline: float) -> dict | None:
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        report["reason"] = "timeout"
+        return None
+    result = host_command.run_command(
+        ["docker", "buildx", "imagetools", "inspect", reference, "--raw"],
+        timeout=remaining, check=False, kill_process_group=os.name == "posix",
+    )
+    if result.returncode:
+        stderr = result.stderr.lower()
+        status = re.search(r"\b(401|403|404|429|5\d\d)\b", stderr)
+        if status:
+            report.update(reason="http-" + status[1], http_status=int(status[1]))
+        else:
+            report["reason"] = network_failure_kind(stderr)
+        return None
+    raw = result.stdout.encode("utf-8")
+    if len(raw) > 4 * 1024 * 1024:
+        return None
+    if "@" in reference and "sha256:" + hashlib.sha256(raw).hexdigest() != reference.rsplit("@", 1)[1]:
+        report["reason"] = "integrity"
+        return None
+    data = json.loads(raw)
+    return data if isinstance(data, dict) else None
+
+
 def registry_manifest(reference: str, *, evidence: list[dict] | None = None) -> dict | None:
     """OCI metadata only; returns compressed upper bound and Docker config ID."""
-    entry = reference.split("/")[0]
-    host = entry if "/" in reference and ("." in entry or ":" in entry or entry == "localhost") else "registry-1.docker.io"
-    report = probe_record("oci", "https://" + host, "manifest")
+    report = probe_record("oci", oci_source_url(reference), "manifest")
     report.update(status="failed", reason="manifest-unavailable",
-                  scope="Docker manifest only; layer transfer and final storage host not verified")
+                  network_context="host-docker-cli", image=reference,
+                  scope="Host Buildx metadata only; daemon/BuildKit mirrors, proxy, cache and layer transfer not verified")
     started = time.monotonic()
     try:
-        result = host_command.run_command(['docker', 'manifest', 'inspect', '--verbose', reference], timeout=20, check=False)
-        if result.returncode:
-            stderr = result.stderr.lower()
-            status = re.search(r"\b(401|403|404|429|5\d\d)\b", stderr)
-            if status:
-                report.update(reason="http-" + status[1], http_status=int(status[1]))
-            elif "timeout" in stderr or "timed out" in stderr:
-                report["reason"] = "timeout"
-            elif "certificate" in stderr or "tls" in stderr:
-                report["reason"] = "tls"
-            elif "no such host" in stderr or "lookup" in stderr:
-                report["reason"] = "dns"
-            return None
-        data = json.loads(result.stdout)
-        if isinstance(data, list):
-            matches = [entry for entry in data if isinstance(entry, dict)
-                       and entry.get("Descriptor", {}).get("platform", {}).get("architecture") == "amd64"
-                       and entry.get("Descriptor", {}).get("platform", {}).get("os") == "linux"]
+        data = _registry_document(reference, report, started + 20)
+        if data is not None and "manifests" in data:
+            if not isinstance(data["manifests"], list):
+                return None
+            matches = [entry for entry in data["manifests"] if isinstance(entry, dict)
+                       and isinstance(entry.get("platform"), dict)
+                       and entry["platform"].get("architecture") == "amd64"
+                       and entry["platform"].get("os") == "linux"]
             if len(matches) != 1:
                 return None
-            data = matches[0]
-        if not isinstance(data, dict):
+            digest = matches[0].get("digest")
+            if not isinstance(digest, str) or not re.fullmatch(r"sha256:[a-f0-9]{64}", digest):
+                return None
+            data = _registry_document(reference.split("@", 1)[0] + "@" + digest, report, started + 20)
+        if data is None:
             return None
-        manifest = data.get("SchemaV2Manifest") or data.get("OCIManifest") or data
-        if not isinstance(manifest, dict):
-            return None
-        layers, config = manifest.get("layers"), manifest.get("config")
+        layers, config = data.get("layers"), data.get("config")
         if not isinstance(layers, list) or not isinstance(config, dict):
             return None
         entries = [*layers, config]
@@ -178,14 +202,20 @@ def runtime_sources(profile, project_dir: Path, *, inspect=None, size_probe=arti
         def manifest_probe(reference):
             return registry_manifest(reference, evidence=evidence)
     identity = environment_identity(profile.environment, project_dir)
-    policy = os.environ.get("ACPROF_RUNTIME_IMAGE_SOURCE", "auto")
-    if policy not in {"auto", "pull", "build"}:
-        raise ValueError("ACPROF_RUNTIME_IMAGE_SOURCE must be auto/pull/build")
+    oci_settings = configured_oci_sources()
+    artifact_settings = configured_artifact_mirrors()
+    policy = oci_settings["source_mode"]
     platform_key = platform_fingerprint(profile.environment.platform, project_dir)
     local = inspect(f"acprof-platform-{profile.environment.platform.platform_id}:{platform_key[:20]}")
     result = []
     summary: dict[str, Any] = {"source_mode": policy, "platform_local": local is not None, "environment_local": False,
-               "will_attempt_ghcr_pull": False, "alternatives": {}, "network_probe": evidence}
+               "will_attempt_ghcr_pull": False, "alternatives": {}, "network_probe": evidence,
+               "download_policy": {**oci_settings, "artifact_mirrors": artifact_settings},
+               "network_contexts": {"metadata": "host", "oci_pull": "docker-daemon",
+                                    "frontend_and_base": "buildkit", "artifacts": "build-container"}}
+    if policy == "auto":
+        summary["alternatives"]["local_build_sources"] = local_build_sources(identity, project_dir, platform=not local)
+        summary["alternatives"]["fallback_permitted"] = not bool(os.environ.get("ACPROF_MAX_DOWNLOAD", "").strip())
     platform_id = local["image_id"] if local else None
     if not local and policy != "build":
         ref = registry_reference("platform", platform_key)
@@ -200,6 +230,7 @@ def runtime_sources(profile, project_dir: Path, *, inspect=None, size_probe=arti
         local_env = inspect(f"acprof-runtime-env:{environment_key[:20]}")
         summary["environment_local"] = local_env is not None
         if local_env:
+            summary["alternatives"] = {}
             return result, summary
         if policy != "build":
             ref = registry_reference("environment", environment_key)
@@ -211,22 +242,39 @@ def runtime_sources(profile, project_dir: Path, *, inspect=None, size_probe=arti
             summary["alternatives"]["domestic_registry"] = os.environ.get("ACPROF_RUNTIME_REGISTRY") or "not configured"
             return result, summary
     elif policy != "build":
-        result.append(DownloadSource("oci", "https://" + os.environ.get("ACPROF_RUNTIME_REGISTRY", DEFAULT_RUNTIME_REGISTRY),
+        result.append(DownloadSource("oci", "https://" + oci_settings["runtime_registry"],
                                      None, detail="environment reference depends on unavailable platform config digest"))
         return result, summary
     packages = identity["packages"]
+    # Docker's image store is not evidence of a BuildKit frontend cache hit.
+    # Budget a full compressed frontend once, shared by both dependency builds.
+    frontends = {dockerfile_frontend(project_dir, "runtime.Dockerfile")}
+    if not local:
+        frontends.add(dockerfile_frontend(project_dir))
+    for frontend in sorted(frontends):
+        remote_frontend = manifest_probe(frontend)
+        result.append(DownloadSource("oci", oci_source_url(frontend),
+                                     remote_frontend["bytes"] if remote_frontend else None,
+                                     cache_status="unknown", stage="buildkit-frontend", network_context="buildkit",
+                                     source_kind="configured-mirror" if oci_settings["docker_hub_mirror"] else "official",
+                                     detail="Dockerfile frontend; BuildKit cache verified only during build"))
     if local:
         parent_names = {item["name"] for item in identity["platform"]["packages"]}
         packages = [item for item in packages if item["name"] not in parent_names]
     if not local:
-        base = profile.environment.platform.python_base_image
+        base = docker_hub_image(profile.environment.platform.python_base_image)
         if inspect(base) is None:
             remote = manifest_probe(base)
-            result.append(DownloadSource("oci", "https://registry-1.docker.io/" + base,
-                                         remote["bytes"] if remote else None, cache_status="miss", detail="Python base"))
+            result.append(DownloadSource("oci", oci_source_url(base),
+                                         remote["bytes"] if remote else None, cache_status="miss", detail="Python base",
+                                         stage="python-base", network_context="buildkit",
+                                         source_kind="configured-mirror" if oci_settings["docker_hub_mirror"] else "official"))
     artifacts = [("python", item) for item in packages]
     if not local:
         artifacts += [("debian", item) for item in identity["platform"]["system"]["artifacts"]]
+    summary["alternatives"]["debian_fallback_hosts"] = sorted({urlsplit(fallback).netloc
+        for kind, item in artifacts if kind == "debian"
+        if (fallback := debian_snapshot_fallback_url(dependency_artifact_url(kind, item["url"])))})
     recorded_sizes = {}
     for lock in (profile.environment.requirements_lock, profile.environment.platform.requirements_lock):
         metadata = (project_dir / lock).with_suffix(".artifacts.json")
@@ -243,6 +291,8 @@ def runtime_sources(profile, project_dir: Path, *, inspect=None, size_probe=arti
     with ThreadPoolExecutor(max_workers=8) as executor:
         sizes = list(executor.map(resolve_size, artifacts))
     result += [DownloadSource(kind, dependency_artifact_url(kind, item["url"]), size, cache_status="unknown",
+                  stage="dependencies", network_context="build-container",
+                  source_kind="domestic-mirror" if dependency_artifact_url(kind, item["url"]) != item["url"] else "official",
                   detail=f"{item['name']}; original lock URL unchanged; BuildKit cache verified during build")
                for (kind, item), size in zip(artifacts, sizes, strict=True)]
     summary["alternatives"]["local_build_bytes"] = summarize_downloads(result)["expected_download_bytes"]

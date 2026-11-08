@@ -25,6 +25,45 @@ IMAGE = "acprof-platform-cpu:fixture"
 REFERENCE = "registry.example/acprof@" + TARGET
 
 
+@pytest.mark.parametrize(("message", "reason"), [
+    ("dial tcp: i/o timeout", "timeout"), ("lookup mirror.example: no such host", "dns"),
+    ("proxyconnect tcp: connection refused http://user:secret@proxy.example", "proxy"),
+    ("manifest unknown", "not-found"), ("digest mismatch", "integrity"),
+])
+@pytest.mark.parametrize("format_kind", ["plain", "batch", "vertex"])
+def test_frontend_failure_is_specific_redacted_and_never_retried(monkeypatch, message, reason, format_kind):
+    frontend = "mirror.example/docker/dockerfile:1@" + TARGET
+    step = "resolve image config for docker-image://" + frontend
+    vertex = {"id": "frontend", "name": step, "error": message}
+    transcript = ("ERROR: " + step + ": " + message if format_kind == "plain" else
+                  json.dumps({"vertexes": [vertex]} if format_kind == "batch" else vertex))
+    run = Mock(return_value=subprocess.CompletedProcess([], 1, "", transcript))
+    monkeypatch.setattr(operations.host_command, "run_command", run)
+    with pytest.raises(DockerPreparationError, match="BuildKit frontend") as caught:
+        operations.run_docker(["docker", "build"], component="environment", image=IMAGE,
+                              operation="build", frontend=frontend)
+    error = caught.value.to_dict()
+    assert error["reason_code"] == "docker_frontend_failed"
+    assert error["registry"] == "mirror.example"
+    assert error["network_context"] == "buildkit"
+    assert error["network_reason"] == reason
+    assert error["actions"] == ["retry"]
+    assert "secret" not in json.dumps(error)
+    run.assert_called_once()
+
+
+def test_later_dependency_failure_does_not_become_frontend_failure(monkeypatch):
+    frontend = "mirror.example/docker/dockerfile:1@" + TARGET
+    transcript = ("#1 resolve image config for docker-image://" + frontend + "\n#1 DONE 0.1s\n"
+                  "ERROR: failed to solve: process python environment_tools.py exited with code 1")
+    monkeypatch.setattr(operations.host_command, "run_command",
+                        Mock(return_value=subprocess.CompletedProcess([], 1, "", transcript)))
+    with pytest.raises(DockerPreparationError, match="Docker 构建失败") as caught:
+        operations.run_docker(["docker", "build"], component="environment", image=IMAGE,
+                              operation="build", frontend=frontend)
+    assert caught.value.reason_code == "docker_build_failed"
+
+
 @pytest.fixture
 def store(monkeypatch):
     state = SimpleNamespace(status="complete", present=9, required="9", endpoint="unix:///var/run/docker.sock",

@@ -25,6 +25,8 @@ CONFIGURABLE_ENV_KEYS = (
     "ACPROF_MAX_DOWNLOAD", "ACPROF_MODEL_MAX_DOWNLOAD",
     "ACPROF_MODEL_STORE", "ACPROF_MODEL_STORE_MAX",
     "ACPROF_WECOM_WEBHOOK_URL",
+    "ACPROF_PYPI_ARTIFACT_MIRROR", "ACPROF_PYTORCH_ARTIFACT_MIRROR", "ACPROF_DEBIAN_ARTIFACT_MIRROR",
+    "ACPROF_DOCKER_HUB_MIRROR", "ACPROF_RUNTIME_REGISTRY", "ACPROF_RUNTIME_IMAGE_SOURCE",
 )
 _ENV_ALIASES = {
     "HF_TOKEN": "HUGGING_FACE_HUB_TOKEN", "HF_ENDPOINT": "HF_HUB_ENDPOINT",
@@ -156,7 +158,14 @@ def _save_project_env(
         updates[key] = value.strip()
     hf_endpoints({**os.environ, **updates})
     hf_auth_origins({**os.environ, **updates})
-    from acprof.network_policy import parse_bytes
+    from acprof.network_policy import (
+        configured_artifact_mirrors,
+        configured_oci_sources,
+        parse_bytes,
+    )
+    effective = {**(os.environ if environ is None else environ), **updates}
+    configured_artifact_mirrors(effective)
+    configured_oci_sources(effective)
     for key in ("ACPROF_MAX_DOWNLOAD", "ACPROF_MODEL_MAX_DOWNLOAD", "ACPROF_MODEL_STORE_MAX"):
         parse_bytes(updates.get(key))
     if updates.get("ACPROF_WECOM_WEBHOOK_URL"):

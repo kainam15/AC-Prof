@@ -8,12 +8,18 @@ from pathlib import Path
 
 import httpx
 
-from acprof.host.images.errors import DockerPreparationError, reason_code
+from acprof.host.images.errors import (
+    DockerPreparationError,
+    frontend_error,
+    frontend_failed,
+    reason_code,
+)
 from acprof.host.images.progress import DockerOutput, emit_image_progress
 from acprof.system import command as host_command
 
 
-def run_docker(command: list[str], *, component: str, image: str, operation: str, step: str = ""):
+def run_docker(command: list[str], *, component: str, image: str, operation: str, step: str = "",
+               frontend: str = ""):
     output = DockerOutput(component, image, "building" if operation == "build" else "pulling")
     emit_image_progress(component, image, output.phase, detail=step)
     try:
@@ -25,11 +31,15 @@ def run_docker(command: list[str], *, component: str, image: str, operation: str
                 if line:
                     output.feed(line)
     except (OSError, subprocess.SubprocessError) as exc:
+        if frontend_failed(str(exc), output.step, frontend):
+            raise frontend_error(str(exc), frontend) from exc
         raise DockerPreparationError(reason_code(str(exc), operation), str(exc), image=image, step=step) from exc
     finally:
         output.finish()
     if result.returncode or output.error:
         emit_image_progress(component, image, "failed", detail=output.detail[:2048])
+        if frontend_failed(output.detail, output.step, frontend):
+            raise frontend_error(output.detail, frontend, exit_code=result.returncode)
         summary = ("Docker 构建失败: " if operation == "build" else "Docker 拉取失败: ") + output.detail
         raise DockerPreparationError(reason_code(output.detail, operation), summary,
                                     image=image, step=output.step or step, exit_code=result.returncode)

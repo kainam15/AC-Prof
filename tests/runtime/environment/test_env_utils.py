@@ -13,6 +13,37 @@ from acprof.host import env_utils
 from acprof.hub.huggingface.endpoints import HF_DEFAULT_ENDPOINT, hf_endpoints
 
 
+def test_download_source_settings_are_saved_and_inherited_without_changing_explicit_values(tmp_path):
+    values = {"ACPROF_DOCKER_HUB_MIRROR": "mirror.example/docker.io",
+              "ACPROF_RUNTIME_IMAGE_SOURCE": "build", "ACPROF_RUNTIME_REGISTRY": "mirror.example/runtime",
+              "ACPROF_PYPI_ARTIFACT_MIRROR": "tencent", "ACPROF_PYTORCH_ARTIFACT_MIRROR": "aliyun",
+              "ACPROF_DEBIAN_ARTIFACT_MIRROR": "tencent"}
+    env = {}
+    env_utils.save_project_env(tmp_path, values, environ=env)
+    assert env == values
+    inherited = {"ACPROF_PYPI_ARTIFACT_MIRROR": ""}
+    env_utils.load_project_env(tmp_path, environ=inherited)
+    assert inherited == {**values, "ACPROF_PYPI_ARTIFACT_MIRROR": ""}
+    assert all(env_utils.configurable_env_values(tmp_path, environ={})[key] == value for key, value in values.items())
+
+
+@pytest.mark.parametrize("values", [
+    {"ACPROF_DOCKER_HUB_MIRROR": "https://user:secret@mirror.example"},
+    {"ACPROF_RUNTIME_REGISTRY": "mirror.example/../secret"},
+    {"ACPROF_RUNTIME_IMAGE_SOURCE": "secret"},
+    {"ACPROF_PYPI_ARTIFACT_MIRROR": "secret"},
+])
+def test_invalid_download_settings_do_not_change_file_or_environment(tmp_path, values):
+    path = tmp_path / ".env.local"
+    path.write_text("UNRELATED=keep\n")
+    env = {}
+    with pytest.raises(ValueError, match="ACPROF_") as caught:
+        env_utils.save_project_env(tmp_path, values, environ=env)
+    assert "secret" not in str(caught.value)
+    assert env == {}
+    assert path.read_text() == "UNRELATED=keep\n"
+
+
 def test_save_config_preserves_unrelated_lines_and_secures_backup():
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)

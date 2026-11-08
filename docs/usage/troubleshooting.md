@@ -194,6 +194,23 @@ cat /proc/sys/kernel/perf_event_paranoid
 指纹或清单不匹配时，可在 TUI 的高级参数中选择“镜像高级操作 → 重新构建镜像（仅本次）”，或为新实验加 `--rebuild-image`；核验通过但接口失败时，检查 `runtime_validation.json`、设备日志、
 任务路由与实际容器依赖，不能把所有错误都归因于镜像陈旧。行为见[运行兼容说明](../models/images.md#构建复用和验证)。
 
+### Docker 构建前端下载失败
+
+`docker_frontend_failed` 或 `resolve image config for docker-image://...` 表示构建工具获取失败，
+依赖安装尚未开始。先查看报告中的 Registry、`network_reason` 和脱敏准备日志：
+
+| 原因 | 下一步 |
+| --- | --- |
+| `dns` / `timeout` | 检查所选镜像域名和 Docker builder 的网络；主机浏览器可用不等于 Docker 可用 |
+| `proxy` | 检查实际下载环节的代理是否可达；shell 代理与 Docker/BuildKit 代理是不同配置 |
+| `not-found` | 确认镜像服务已同步所需 digest 和 linux/amd64 内容；不要删除 digest 规避错误 |
+| `auth` / `tls` | 修复 Docker 登录权限或 CA 证书；不要禁用认证或 TLS 校验 |
+| `integrity` | 停止使用不一致内容，检查同步源；保留原 digest 与失败证据 |
+
+网络修复后可“重新预检并重试”，继续保留已有缓存。若需换下载源，返回配置保存后重新启动任务。
+此错误不需要重新安装 Python 包或清空 BuildKit cache；修改 PyPI/`RUN --network` 无法改变前端获取路径。
+官方源、国内 OCI 地址、独立 builder 和预算限制的配置只在[镜像下载来源](../models/images.md#buildkit-前端缓存与网络边界)维护。
+
 ### `[task-support][ERROR]` / TUI 显示“任务不支持”
 
 退出阶段和产物边界见[任务预检退出](#任务尚未适配的预检退出)。根据用户目标处理：

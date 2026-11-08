@@ -66,6 +66,11 @@ class DockerOutput:
         if not isinstance(value, dict):
             self.log(line.rstrip())
             return
+        # buildx rawjson may emit a single vertex rather than a SolveStatus batch.
+        if "id" in value and "name" in value and (value.get("started") or value.get("error")):
+            if not self.error or value.get("error"):
+                self.step = str(value["name"])
+            self.log(str(value["name"]) + (" [cached]" if value.get("cached") else ""))
         if "status" in value or "errorDetail" in value or "error" in value:
             error = value.get("errorDetail", {}).get("message") or value.get("error")
             detail = str(error or value.get("status", ""))
@@ -78,7 +83,7 @@ class DockerOutput:
             return
         if any(key in value for key in ("vertexes", "statuses", "logs", "warnings")):
             for vertex in value.get("vertexes", []):
-                if vertex.get("started") and not vertex.get("completed") or vertex.get("error"):
+                if (vertex.get("started") and not vertex.get("completed") and not self.error) or vertex.get("error"):
                     self.step = str(vertex.get("name", ""))
                     self.report(self.step, force=bool(vertex.get("error")))
                 if vertex.get("name"):
