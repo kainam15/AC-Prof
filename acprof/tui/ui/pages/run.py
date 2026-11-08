@@ -15,8 +15,8 @@ from acprof.tui.settings.field_validation import ConfigField
 from acprof.tui.ui.checkbox import StatusCheckbox
 from acprof.tui.ui.input import BarCursorInput as Input
 from acprof.tui.ui.presentation import (
-    CHEVRON_COLLAPSED_SYMBOL,
-    CHEVRON_EXPANDED_SYMBOL,
+    COMPACT_COLLAPSED_SYMBOL,
+    COMPACT_EXPANDED_SYMBOL,
     format_input_number,
 )
 
@@ -103,8 +103,8 @@ def compose_run_tab(app: AcprofTui) -> ComposeResult:
                 with app.localization.localized_widget(Collapsible(
                     title="完整命令（自动更新）",
                     collapsed=True,
-                    collapsed_symbol=CHEVRON_COLLAPSED_SYMBOL,
-                    expanded_symbol=CHEVRON_EXPANDED_SYMBOL,
+                    collapsed_symbol=COMPACT_COLLAPSED_SYMBOL,
+                    expanded_symbol=COMPACT_EXPANDED_SYMBOL,
                     id="command-details",
                 )):
                     yield app.localization.localized_widget(Static("", id="command-preview", markup=False))

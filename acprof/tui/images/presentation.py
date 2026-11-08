@@ -31,9 +31,9 @@ from acprof.tui.i18n import message_id
 from acprof.tui.ui.contracts import image_detail_app, translated_app
 from acprof.tui.ui.dialogs import ConfirmActionScreen
 from acprof.tui.ui.presentation import (
-    CHEVRON_COLLAPSED_SYMBOL,
-    CHEVRON_EXPANDED_SYMBOL,
     COLLAPSED_SYMBOL,
+    COMPACT_COLLAPSED_SYMBOL,
+    COMPACT_EXPANDED_SYMBOL,
     EXPANDED_SYMBOL,
     NOT_APPLICABLE,
     STATUS_LEGEND,
@@ -113,8 +113,8 @@ class ImageTreeHeader(ResizableDataTable):
 
 
 class ImageTree(Tree[ManagedImage]):
-    ICON_NODE = CHEVRON_COLLAPSED_SYMBOL
-    ICON_NODE_EXPANDED = CHEVRON_EXPANDED_SYMBOL
+    ICON_NODE = COMPACT_COLLAPSED_SYMBOL
+    ICON_NODE_EXPANDED = COMPACT_EXPANDED_SYMBOL
     auto_expand = var(False)
     COMPONENT_CLASSES = Tree.COMPONENT_CLASSES | {"image-tree--path"}
     BINDINGS = [Binding("space", "select_cursor", show=False),

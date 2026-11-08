@@ -31,13 +31,12 @@
 展示实际标题、名称和码位，窄终端使用逐项换行；原有交互预览保持不变。
 `--tree` 新增镜像树图案清单：7 组箭头、4 组选择标记及 28 种组合，
 可用 `--arrow`／`--marker` 筛选固定树形示例；仅打印预览，不修改界面或查询 Docker。
-镜像依赖树已按用户选择使用 E 组细角标 `› / ⌄`；通过 Textual 的
+镜像依赖树已按用户选择使用 B 组小实心三角 `▸ / ▾`；通过 Textual 的
 [Tree 图标属性](https://github.com/Textualize/textual/blob/v8.2.8/src/textual/widgets/_tree.py)配置，
 复用现有 MIT 依赖，不新增依赖或轮询。预览脚本读取实际当前箭头，保留 A～G 全部候选。
-箭头点击、勾选及中英文折叠的 4 项离线回归通过；未重录 SVG／PNG 或验证客户端字体。
-“完整命令（自动更新）”标题也使用同一组细角标，复用 Textual 的
+“完整命令（自动更新）”标题也使用同一组小实心三角，复用 Textual 的
 [Collapsible 图标参数](https://github.com/Textualize/textual/blob/v8.2.8/src/textual/widgets/_collapsible.py)。
-命令自动更新与镜像树点击的 2 项回归通过；中英文 80×24／120×30 headless 检查覆盖可见角标、鼠标、Enter 与缩放，
+命令自动更新与镜像树点击的 2 项回归通过；中英文 80×24／120×30 headless 检查覆盖可见箭头、鼠标、Enter 与缩放，
 命令内容保持一致；本次未重录 SVG／PNG 或验证客户端字体。
 清单的 40／80／120 列离线渲染、CLI 筛选与错误参数检查通过，Nerd Font 码位已核对上游；
 原交互预览的重置／选定 headless smoke 通过，客户端字体显示未验证。

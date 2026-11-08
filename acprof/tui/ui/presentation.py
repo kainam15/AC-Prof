@@ -8,8 +8,8 @@ from acprof.tui.i18n import message_id
 COLLAPSED_SYMBOL = "▶ "
 EXPANDED_SYMBOL = "▼ "
 # Shared by the command preview and image dependency tree.
-CHEVRON_COLLAPSED_SYMBOL = "› "
-CHEVRON_EXPANDED_SYMBOL = "⌄ "
+COMPACT_COLLAPSED_SYMBOL = "▸ "
+COMPACT_EXPANDED_SYMBOL = "▾ "
 
 NOT_APPLICABLE = "—"
 CALCULATING = "…"
