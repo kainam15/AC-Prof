@@ -97,7 +97,11 @@ Windows 原生终端与真实采集仍需另行验收。
 导航定向回归 9 项通过；默认 Unicode 字宽下，英文 80×24 的原有 `☰ Experiment` 单行断言在改动前后均失败；
 按 VS Code 启动约定使用 `UNICODE_VERSION=11.0.0` 时该用例通过，未修改这一既有图案或布局。
 本次图案替换仅做导航定向检查；SVG / PNG 截图基线未重录，后续视觉比较会出现预期差异。
-已修正 `☰` 在 VS Code 中的字宽规则差异：TUI 启动时默认匹配 Unicode 11，保留显式环境配置及其他终端行为；启动字宽回归覆盖默认、显式覆盖和非 VS Code 场景。真实用户终端效果待重启确认。
+已修正 `☰` 在 VS Code 及 Windows Terminal（PowerShell、WSL Ubuntu）中的字宽规则差异：
+TUI 启动时按 `TERM_PROGRAM=vscode` 或非空 `WT_SESSION` 默认匹配 Unicode 11，保留显式环境配置及其他终端行为。
+启动字宽回归覆盖原生与 WSL 环境、显式覆盖和其他终端；识别方式沿用上游的
+[WT_SESSION 传递实现](https://github.com/microsoft/terminal/blob/cbc857bdf7749981890c5b561ee44ea31948bfb1/src/cascadia/TerminalConnection/ConptyConnection.cpp)，
+复用 Rich 的现有字宽表，无新增依赖或测量期工作。真实用户终端效果待重启确认。
 
 六个主页面改用左侧栏导航，设置以 `⚙︎ 设置` 放在侧栏底部的分隔线下；环境分类计数移至同一行退出按钮左侧，
 详情在入口下方展开。点击、方向键与 `Enter`、`F2` 和业务自动切页共用现有页面状态，保留草稿和后台页面。

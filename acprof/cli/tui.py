@@ -39,9 +39,10 @@ def _build_parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> None:
     parser = _build_parser()
     args = parser.parse_args(argv)
-    # Rich caches its first width table. Match VS Code's default before Textual
-    # imports it: Unicode 16+ makes ☰ wide, but VS Code's Unicode 11 keeps it narrow.
-    if os.environ.get("TERM_PROGRAM") == "vscode":
+    # Rich caches its first width table. Unicode 16+ makes ☰ wide, while VS Code
+    # and Windows Terminal render it narrow. WT_SESSION also reaches WSL shells.
+    # Select the compatible table before Textual imports Rich; keep explicit overrides.
+    if os.environ.get("TERM_PROGRAM") == "vscode" or os.environ.get("WT_SESSION"):
         os.environ.setdefault("UNICODE_VERSION", "11.0.0")
     # Help and argument errors must not initialize the TUI runtime.
     from acprof.experiments.configuration import RunConfigError

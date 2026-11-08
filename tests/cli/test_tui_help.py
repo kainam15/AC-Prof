@@ -73,17 +73,22 @@ def test_tui_start_does_not_hide_missing_runtime_dependencies(tmp_path):
     assert list(tmp_path.iterdir()) == []
 
 
-@pytest.mark.parametrize(("terminal", "version", "expected_version", "expected_width"), [
-    ("vscode", None, "11.0.0", 1),
-    ("vscode", "17.0.0", "17.0.0", 2),
-    ("xterm", None, None, 2),
+@pytest.mark.parametrize(("terminal_env", "version", "expected_version", "expected_width"), [
+    ({"TERM_PROGRAM": "vscode"}, None, "11.0.0", 1),
+    ({"TERM_PROGRAM": "vscode"}, "17.0.0", "17.0.0", 2),
+    ({"WT_SESSION": "fixture-session"}, None, "11.0.0", 1),
+    ({"WT_SESSION": "fixture-session", "WSL_DISTRO_NAME": "Ubuntu"}, None, "11.0.0", 1),
+    ({"WT_SESSION": "fixture-session"}, "17.0.0", "17.0.0", 2),
+    ({"TERM_PROGRAM": "xterm"}, None, None, 2),
+    ({"WT_SESSION": "", "WSL_DISTRO_NAME": "Ubuntu"}, None, None, 2),
 ])
 def test_tui_start_matches_terminal_unicode_before_rendering(
-    terminal, version, expected_version, expected_width,
+    terminal_env, version, expected_version, expected_width,
 ):
     # Rich caches its first auto-selected width table; each launch needs a fresh process.
-    env = {key: value for key, value in os.environ.items() if key != "UNICODE_VERSION"}
-    env["TERM_PROGRAM"] = terminal
+    env = {key: value for key, value in os.environ.items()
+           if key not in {"TERM_PROGRAM", "WT_SESSION", "WSL_DISTRO_NAME", "UNICODE_VERSION"}}
+    env.update(terminal_env)
     if version is not None:
         env["UNICODE_VERSION"] = version
     result = subprocess.run(
