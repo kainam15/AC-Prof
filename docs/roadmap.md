@@ -29,6 +29,16 @@
 无新增依赖、后台轮询或正式测量逻辑变更。
 验证限定向离线回归、headless SVG 和 VHS/xterm.js PNG；真实客户端终端、Docker/GPU runtime 与远端同提交 CI 仍待验证。
 
+## Windows TUI 启动兼容（2026-11）
+
+版本检查、启动预检和连接设置的环境检查复用 `offline_analysis_lock()`，
+避免 Windows 因缺少 `os.getuid()` 或 `fcntl` 而崩溃；Linux/WSL 仍使用原有测量锁，
+Windows 原生采集继续由平台策略拒绝。
+参考 [pytest 的平台 UID 判断](https://github.com/pytest-dev/pytest/blob/main/src/_pytest/compat.py)，
+借鉴按平台选择能力的思路，复用项目现有入口，无新增依赖或测量开销。
+回归在 Linux 上模拟缺少 Unix API，覆盖中英文 80×24 启动、PyPI 成功／503、配置输入及环境检查；
+Windows 原生终端与真实采集仍需另行验收。
+
 ## TUI 界面开发分支约定（2026-11）
 
 已将 TUI 界面改动可直接在 `main` 开发和提交的例外同步到根目录协作入口与

@@ -161,7 +161,7 @@ class TestTuiEnvironment:
             screen = app.screen
             screen.query_one('#environment-tabs', TabbedContent).active = 'permissions-tab'
             await pilot.pause()
-            with patch('acprof.tui.settings.environment.MeasurementLock') as lock, patch(
+            with patch('acprof.host.run_state.MeasurementLock') as lock, patch(
                 'acprof.tui.settings.environment.quick_preflight', return_value=[],
             ) as preflight:
                 assert await pilot.click('#check-environment-permissions')

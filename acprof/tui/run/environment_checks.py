@@ -1,6 +1,6 @@
 """Bounded machine inventory, independent of an experiment's RunConfig.
 
-The caller holds MeasurementLock. Runtime tools use bounded, model-free self
+Linux callers hold MeasurementLock. Runtime tools use bounded, model-free self
 checks in local images. Never download, build or load a model here.
 """
 from __future__ import annotations

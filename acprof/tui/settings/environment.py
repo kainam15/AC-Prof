@@ -14,7 +14,7 @@ from textual.widgets import Button, Checkbox, Collapsible, Label, Static, Tabbed
 from acprof.experiments.configuration import RunConfig
 from acprof.host.env_utils import ProjectEnvSnapshot
 from acprof.host.permissions import build_permission_plan, execute_permission_plan
-from acprof.host.run_state import MeasurementLock
+from acprof.host.run_state import offline_analysis_lock
 from acprof.system.cleanup import format_exception_notes
 from acprof.tui.i18n import message_id
 from acprof.tui.run.diagnostics import quick_preflight
@@ -159,7 +159,7 @@ class EnvironmentSettingsScreen(ModalScreen[bool]):
     @work(thread=True, exclusive=True, group='environment-check', exit_on_error=False)
     def _check_permissions(self):
         try:
-            with MeasurementLock():
+            with offline_analysis_lock():
                 checks = quick_preflight(RunConfig(profiling_mode='full', gpus='off', sniff_iface=self.sniff_iface),
                                          project_dir=self.project_dir)
             report = '\n\n'.join(f'[{item.status}] {translated_app(self.app).tr(item.label)}: {translated_app(self.app).tr(item.detail)}'

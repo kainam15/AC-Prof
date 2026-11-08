@@ -12,7 +12,7 @@ from packaging.version import Version
 from textual.widgets import Static
 
 from acprof import __version__
-from acprof.host.run_state import MeasurementLock, RunStateError
+from acprof.host.run_state import RunStateError, offline_analysis_lock
 from acprof.messages import join_messages
 from acprof.tui.i18n import message_id
 
@@ -81,8 +81,8 @@ class UpdateController:
     async def check(self) -> None:
         status: str = message_id("common.updates.checking", __version__)
         try:
-            # This also excludes an experiment owned by another AC-Prof process.
-            with MeasurementLock():
+            # Exclude Linux collection, while allowing non-Linux TUI sessions.
+            with offline_analysis_lock():
                 result = await check_pypi_version(__version__)
             versions = message_id("common.updates.versions", str(result.current), str(result.latest))
             if result.update_available:

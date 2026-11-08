@@ -21,7 +21,7 @@ from acprof.events.download import DownloadProgress
 from acprof.events.image import ImageProgress
 from acprof.experiments.configuration import RunConfig
 from acprof.host.preparation.preparation_log import redact_text
-from acprof.host.run_state import MeasurementLock
+from acprof.host.run_state import offline_analysis_lock
 from acprof.host.runtimes.contracts import RuntimeCleanupError
 from acprof.messages import join_messages, message
 from acprof.tui.i18n import message_id
@@ -302,8 +302,8 @@ class PreflightController:
         environment_error = ""
         try:
             # Perf probes and other diagnostics must never overlap a formal
-            # measurement, including one owned by another AC-Prof process.
-            with MeasurementLock():
+            # Linux measurement, including one owned by another AC-Prof process.
+            with offline_analysis_lock():
                 lock_acquired = True
                 try:
                     environment_checks = scan_environment(project_dir=self.app.project_dir)
