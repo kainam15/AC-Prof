@@ -10,6 +10,8 @@ from pathlib import Path
 import pytest
 from textual.app import App
 
+from tests.support.tui_fixtures import SNAPSHOT_TITLE
+
 
 def _normalize_svg(svg: str) -> str:
     # Rich generates a unique terminal identifier on every screenshot.
@@ -24,6 +26,9 @@ def snap_compare(request: pytest.FixtureRequest, tmp_path: Path, monkeypatch: py
     monkeypatch.delenv("NO_COLOR", raising=False)
 
     def compare(app: App, *, terminal_size: tuple[int, int], run_before=None) -> bool:
+        # Fix the display input before rendering; compare every output cell as usual.
+        monkeypatch.setattr(app, "title", SNAPSHOT_TITLE)
+
         async def capture(pilot) -> None:
             if run_before is not None:
                 outcome = run_before(pilot)

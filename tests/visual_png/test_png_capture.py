@@ -114,6 +114,19 @@ def test_fixture_keeps_color_independent_of_parent_environment(
     assert os.environ.get("NO_COLOR") == no_color
 
 
+@pytest.mark.parametrize("release_title", ["AC-Prof 9.0.0", "AC-Prof 9.0.0rc1"])
+def test_fixture_title_is_independent_of_release_without_changing_production(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, release_title: str
+) -> None:
+    from acprof.tui.app import AcprofTui
+    from tests.visual_png.fixture_app import VisualFixtureApp
+
+    monkeypatch.setattr(AcprofTui, "TITLE", release_title)
+    app = VisualFixtureApp("form", settings_path=tmp_path / "settings.json")
+    assert app.title == "AC-Prof 0.3.0"
+    assert AcprofTui(settings_path=tmp_path / "production.json").title == release_title
+
+
 @pytest.mark.skipif(
     os.environ.get("ACPROF_PNG_VISUAL") != "1", reason="opt-in VHS screenshot suite"
 )

@@ -18,6 +18,7 @@ from textual import events
 
 from acprof.platform import Environment
 from acprof.tui.app import AcprofTui
+from tests.support.tui_fixtures import SNAPSHOT_TITLE
 from tests.visual_png.scenarios import SCENARIOS
 
 
@@ -26,6 +27,8 @@ def forbidden_operation(*_args: object, **_kwargs: object) -> None:
 
 
 class VisualFixtureApp(AcprofTui):
+    TITLE = SNAPSHOT_TITLE
+
     def __init__(self, scenario: str, *, settings_path: Path):
         self.scenario = SCENARIOS[scenario]
         self.scene_ready = asyncio.Event()

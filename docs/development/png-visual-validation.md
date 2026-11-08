@@ -54,6 +54,11 @@ Graphite 主题、UTC、固定测试数据与隔离的临时 HOME/缓存。
 这与现有 SVG fixture 一致；[Textual 8.2.8](https://github.com/Textualize/textual/blob/v8.2.8/src/textual/app.py)
 只要发现该变量就启用灰度过滤，设置为空字符串也不能关闭。沿用现有 MIT 依赖和标准库，
 不复制上游代码或引入运行时依赖。
+SVG 与 PNG Golden Fixture 共用 `tests/support/tui_fixtures.py` 的 `SNAPSHOT_TITLE`，
+渲染前固定为已审阅的 `AC-Prof 0.3.0`，使发布版本变化不触发整套基线更新。
+该值仅用于视觉测试输入；正式 TUI 仍展示 `acprof.__version__`，由双语启动回归核对可见页头。
+沿用 Textual 的 `title` / `TITLE` 公开接口，不替换截图文本、不遮罩标题区域，也不放宽比较阈值；
+实际布局差异仍按 [Textual 上游的快照审阅流程](https://github.com/Textualize/pytest-textual-snapshot)检查。
 `--all` 逐场景启动，避免一个场景遗留 UI 状态或本地设置影响另一个。
 
 测试复用真实 `AcprofTui` 的页面与弹窗组件，但由

@@ -42,6 +42,8 @@ async def test_startup_shows_new_release_without_blocking_input(tmp_path, monkey
     async with app.run_test(size=(80, 24), notifications=True) as pilot:
         try:
             await pilot.pause()
+            assert app.title == f"AC-Prof {__version__}"
+            assert app.query_one("HeaderTitle", Static).render_line(0).text.strip() == app.title
             assert started.is_set(), "startup must request the latest PyPI version"
             await pilot.press("a", "b", "c")
             assert app.query_one("#model", Input).value == "abc"
@@ -221,24 +223,28 @@ async def test_starting_run_clears_update_notification(tmp_path, monkeypatch, re
         assert not app.query("Toast")
 
 
-@pytest.mark.parametrize(("latest", "yanked", "expected"), [
-    (__version__, False, "当前已是最新版本"),
-    ("0.0.1", False, "当前版本高于 PyPI 最新版本"),
-    ("9.0.0rc1", False, "预发布或已撤回"),
-    ("9.0.0", True, "预发布或已撤回"),
+@pytest.mark.parametrize(("current", "latest", "yanked", "expected"), [
+    ("0.3.0", "0.3.0", False, "当前已是最新版本"),
+    ("0.3.0", "0.0.1", False, "当前版本高于 PyPI 最新版本"),
+    ("0.3.0", "9.0.0rc1", False, "预发布或已撤回"),
+    ("0.3.0", "9.0.0", True, "预发布或已撤回"),
+    ("0.4.0a1", "0.4.0a1", False, "预发布或已撤回"),
 ])
-async def test_no_upgrade_keeps_status_without_notification(tmp_path, monkeypatch, ready_host, latest, yanked, expected):
+async def test_no_upgrade_keeps_status_without_notification(
+    tmp_path, monkeypatch, ready_host, current, latest, yanked, expected,
+):
     async def respond(_transport, request):
         return httpx.Response(200, json={"info": {"version": latest, "yanked": yanked}})
 
     monkeypatch.setattr(httpx.AsyncHTTPTransport, "handle_async_request", respond)
+    monkeypatch.setattr("acprof.tui.updates.__version__", current)
     app = make_app(tmp_path)
     async with app.run_test(size=(80, 24), notifications=True) as pilot:
         await pilot.pause()
         await app.workers.wait_for_complete()
         await pilot.pause()
         text = str(app.query_one("#version-status", Static).content)
-        assert f"当前版本：{__version__}" in text
+        assert f"当前版本：{current}" in text
         assert f"最新版本：{latest}" in text
         assert expected in text
         assert "uv tool upgrade" not in text

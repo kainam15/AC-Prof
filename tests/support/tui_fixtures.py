@@ -11,6 +11,9 @@ from textual.widgets import Checkbox
 
 from acprof.tui.app import AcprofTui as ProductionTui
 
+# Keep the reviewed Golden header stable across releases, only in visual fixtures.
+SNAPSHOT_TITLE = "AC-Prof 0.3.0"
+
 
 def checkbox_text(checkbox: Checkbox) -> str:
     """Read visible terminal cells, including the mark, without relying on color."""
