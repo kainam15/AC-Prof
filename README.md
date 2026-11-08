@@ -42,6 +42,10 @@ For host preparation, verified release assets, and the first experiment, see the
 - **Offline reports:** Explore resource comparisons, window statistics, charts, and exports in
   [HTML reports](docs/results/reports.md#交互式配置比较报告). Independent run comparisons and confidence
   intervals have separate [eligibility rules](docs/results/comparisons.md#跨独立实验比较).
+  The TUI offers **Open** and **Copy path**. Local WSL uses `wslview` or `wslpath` + Windows
+  PowerShell without requiring a Linux desktop; SSH sessions use file-transfer guidance.
+  Opening submits a request, not proof that the page is visible. No web server, extra package
+  installation, or browser configuration is performed; see [opening reports](docs/usage/tui.md#打开-html-报告).
 - **Streaming services:** Measure an already-running OpenAI-compatible service with `acprof load`.
   Concurrency/rate sweeps, ordered JSONL requests, and optional vLLM/SGLang service observations
   are described in the [streaming guide](docs/profiling/streaming.md).

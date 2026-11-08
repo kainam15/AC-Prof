@@ -11,6 +11,10 @@ CUDA 本身支持 Docker Desktop 不表示 AC-Prof 的这些主机观测条件�
 无本机 Docker 时可显式选择 Process basic，其内核前提、进程指标与资源限制规则见
 [Linux Runtime](linux-runtimes.md)；该路径仍保留 WSL2/PARTIAL 身份，尚需 WSL2 实机验收。
 
+本地 WSL 中的 HTML 报告可通过 Windows 浏览器桥接打开，不要求 Linux 图形桌面；
+工具发现、路径转换、失败提示和 SSH 边界见[打开 HTML 报告](../usage/tui.md#打开-html-报告)。
+这项桌面互操作不提升采集等级，也不表示 WSL1 获得 WSL2 的采集支持。
+
 ## 能力与缺失值
 
 | 能力 | WSL2 支持状态 | 结果解释 |

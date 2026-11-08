@@ -79,19 +79,39 @@ def is_linux() -> bool:
     return platform.system() == "Linux"
 
 
+def is_wsl(*, environ: Mapping[str, str] | None = None, system: str | None = None,
+           release: str | None = None, exists=None) -> bool:
+    """Recognize WSL for desktop dispatch, without claiming a collection tier.
+
+    Both WSL generations can use Windows interop. No processes, device probes or
+    CPU topology reads belong in this lightweight UI policy check.
+    """
+    env = os.environ if environ is None else environ
+    system = platform.system() if system is None else system
+    if system != "Linux":
+        return False
+    kernel = (platform.release() if release is None else release).lower()
+    exists = os.path.exists if exists is None else exists
+    return bool(env.get("WSL_DISTRO_NAME") or env.get("WSL_INTEROP")
+                or "microsoft" in kernel or "wsl2" in kernel
+                or exists("/run/WSL") or exists("/proc/sys/fs/binfmt_misc/WSLInterop"))
+
+
 def can_open_local_browser(*, environ: Mapping[str, str] | None = None,
                            system: str | None = None) -> bool:
-    """A local GUI is a prerequisite, not proof that browser startup will succeed.
+    """Permit a local opening attempt, not prove a browser is available.
 
-    SSH (including X forwarding) always uses file transfer guidance. Do not let
-    webbrowser fall back to a terminal browser on a headless collection server.
+    WSL uses Windows interop even without DISPLAY. SSH (including X forwarding)
+    always uses file transfer guidance; headless Linux must not launch a pager.
+    Bridge availability is checked in the file worker, never during UI refresh.
     """
     env = os.environ if environ is None else environ
     if any(env.get(key) for key in ("SSH_CONNECTION", "SSH_CLIENT", "SSH_TTY")):
         return False
     system = platform.system() if system is None else system
     return system in {"Windows", "Darwin"} or (
-        system == "Linux" and bool(env.get("DISPLAY") or env.get("WAYLAND_DISPLAY")))
+        system == "Linux" and (bool(env.get("DISPLAY") or env.get("WAYLAND_DISPLAY"))
+                               or is_wsl(environ=env, system=system)))
 
 
 def detect_environment(*, system=None, release=None, version=None, machine=None,
@@ -116,9 +136,7 @@ def detect_environment(*, system=None, release=None, version=None, machine=None,
         kernel_text = f"{release} {version} {proc_version}".lower()
         kernel_wsl2 = "microsoft-standard" in kernel_text or "wsl2" in kernel_text
         custom_wsl2 = exists("/run/WSL")
-        suspected_wsl = ("microsoft" in kernel_text or bool(environ.get("WSL_DISTRO_NAME"))
-                         or bool(environ.get("WSL_INTEROP"))
-                         or exists("/proc/sys/fs/binfmt_misc/WSLInterop"))
+        suspected_wsl = is_wsl(environ=environ, system=system, release=kernel_text, exists=exists)
         if kernel_wsl2:
             evidence.append("kernel:wsl2")
         if custom_wsl2:

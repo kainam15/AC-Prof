@@ -83,8 +83,20 @@ MESSAGES: dict[str, Entry] = {
         en="Additional paths separated by semicolons; quote paths containing semicolons",
     ),
     "results.html.additional_inputs_label": Entry(zh="更多 HTML 实验（可选）", en="Additional HTML experiments (optional)"),
-    "results.html.browser_requested": Entry(zh="已请求浏览器打开：{0}", en="Asked the browser to open: {0}"),
-    "results.html.browser_unavailable": Entry(zh="浏览器未能启动；可手动打开或下载 HTML。", en="Could not start a browser; open or download the HTML manually."),
+    "results.html.browser_failed": Entry(
+        zh="打开请求失败或状态未确认：{0}\n报告仍保留：{1}\n可复制路径手动查看；WSL 可通过 Windows 文件资源管理器的 Linux 入口访问。",
+        en="Open request failed or could not be confirmed: {0}\nReport preserved: {1}\nCopy the path to open manually; for WSL, use Linux in Windows File Explorer.",
+    ),
+    "results.html.browser_opening": Entry(zh="正在请求浏览器打开：{0}", en="Requesting browser launch: {0}"),
+    "results.html.browser_requested": Entry(
+        zh="已提交打开请求（{1}）：{0}\n无法确认浏览器是否已显示页面；若未打开，可复制路径手动查看。",
+        en="Open request submitted ({1}): {0}\nPage visibility cannot be confirmed; copy the path to open manually if needed.",
+    ),
+    "results.html.browser_timeout": Entry(
+        zh="{0} 调用超时，无法确认请求是否已提交；未自动重试，请先检查浏览器。",
+        en="{0} timed out; request submission is unknown. No automatic retry; check the browser first.",
+    ),
+    "results.html.browser_unavailable": Entry(zh="浏览器启动器未接受打开请求；请检查默认浏览器或手动打开 HTML。", en="The browser launcher did not accept the request; check your default browser or open the HTML manually."),
     "results.html.cancel": Entry(zh="取消生成", en="Cancel HTML"),
     "results.html.cancel_confirm_details": Entry(
         zh="将停止当前报告子进程并等待资源释放；原始实验数据和已有报告会保留。",
@@ -166,17 +178,21 @@ MESSAGES: dict[str, Entry] = {
         en="{0} configurations · valid windows {1} · excluded rows {2}\nquality: {3} · measurement: {4}\nAggregates existing formal windows; requests within a window are not independent experiment repeats.",
     ),
     "results.html.remote_download_hint": Entry(
-        zh="SSH：用 VS Code / SFTP 下载报告到本机打开；「另存为」只在服务器保存副本。",
-        en="SSH: download with VS Code / SFTP to open locally; Save as only copies on the server.",
+        zh="当前会话不能直接打开浏览器。可复制路径；SSH 请用 VS Code / SFTP 下载，纯命令行环境可在有桌面的会话中查看。",
+        en="This session cannot open a browser directly. Copy the path; over SSH download with VS Code / SFTP, or view it from a desktop session.",
     ),
     "results.html.remote_open_instructions": Entry(
-        zh="当前为 SSH 或无图形桌面环境。远端 HTML：{0}\n用 SFTP 或远程 IDE 下载此文件到本机，再用浏览器打开；无需 Web 服务。",
-        en="SSH or no local graphical desktop. Remote HTML: {0}\nDownload this file with SFTP or your remote IDE, then open it in a local browser. No web service is needed.",
+        zh="当前为 SSH 或无图形桌面会话，未启动浏览器。HTML：{0}\nSSH 请用 SFTP 或远程 IDE 下载到本机；本地纯命令行环境可在桌面会话中打开。无需 Web 服务。",
+        en="SSH or no local graphical desktop; no browser was started. HTML: {0}\nOver SSH, download with SFTP or your remote IDE; for a local headless session, open from a desktop. No web service is needed.",
     ),
     "results.html.save_as": Entry(zh="另存为", en="Save as"),
     "results.html.selected_report": Entry(zh="当前 HTML 报告", en="Selected HTML report"),
     "results.html.title": Entry(zh="交互式 HTML 报告", en="Interactive HTML report"),
     "results.html.use_existing": Entry(zh="指定已有 HTML 文件…", en="Select existing HTML file…"),
+    "results.html.wsl_browser_unavailable": Entry(
+        zh="WSL 浏览器桥接失败：{0}\n需要可用的 wslview，或 wslpath 与 powershell.exe。请检查 Windows 互操作及 PATH，或从文件资源管理器打开报告。",
+        en="WSL browser bridge failed: {0}\nUse an available wslview, or wslpath and powershell.exe. Check Windows interop and PATH, or open the report from File Explorer.",
+    ),
     "results.import.historical_notice": Entry(
         zh="已导入历史报告：{0}；不代表当前实验的最新统计。",
         en="Imported historical report: {0}; this is not a fresh analysis of the selected experiment.",

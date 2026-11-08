@@ -45,6 +45,36 @@ Windows 原生可打开 TUI 编辑配置、检查版本和查看环境诊断；�
 选择后独立验证加载、输入处理、推理和输出，验证通过才开始正式采集；失败不会自动换任务。
 中英文界面使用相同数据和稳定任务 ID，详见[任务发现与选择](../models/routing.md#任务发现与选择)。
 
+## 打开 HTML 报告
+
+“分析报告”中的“打开”请求系统打开**已有的本地 HTML 文件**，不会在 TUI 内嵌网页、
+重新生成报告或启动 HTTP 服务。完整路径自动换行；“复制路径”与“打开”并列，
+沿用终端剪贴板支持，不会把服务器文件自动下载到本机。
+
+| 运行会话 | 打开方式 |
+| --- | --- |
+| Windows 原生、macOS、Linux 桌面 | 保留 Python `webbrowser` 默认浏览器调用；Linux 需要桌面显示变量 |
+| 本地 WSL1 / WSL2 | 不要求 Linux 的 `DISPLAY`；先使用可用的 `wslview`，缺失或明确失败时尝试 `wslpath` + Windows `powershell.exe` |
+| SSH，包括 SSH 到 WSL、X11 转发 | 不启动远端浏览器；复制路径后用 VS Code / SFTP 获取文件，在客户端打开 |
+| 本地纯命令行 Linux | 不回退到终端浏览器；复制路径，在有桌面的会话中打开 |
+
+WSL 的 Windows 互操作必须可用，后备命令须在 `PATH` 中；AC-Prof 不安装 `wslu`、
+不修改 `BROWSER`、Shell 配置或系统默认应用。通过 `wslpath` 转换 Linux/挂载盘路径，
+不把 `file:///home/...` 直接交给 Windows。包含 Shell 特殊字符的路径跳过可能插值的
+`wslview` 路径，直接使用以数据传递文件名的 PowerShell 后备方式。
+桥接不可用时保留具体错误；可从 Windows 文件资源管理器的 **Linux → 对应发行版**
+进入报告目录手动打开，不必下载或架设服务。浏览器桥接不改变 WSL 的采集支持等级。
+
+状态依次为“正在请求浏览器打开”和“已提交打开请求（启动方式）”；后者只说明启动器
+接受了请求，**不能证明浏览器已显示页面**。明确失败会保留启动器名称、退出码和诊断；
+每次 WSL 子调用设 5 秒超时，超时时请求状态标为未知且不自动重试，避免重复打开。
+打开、失败及复制路径均不修改 HTML、统计结果和原始 CSV。
+
+实现参考 [open 的 WSL/SSH 分流与路径转换](https://github.com/sindresorhus/open/blob/main/index.js)、
+[Click 的 Windows 空格路径问题](https://github.com/pallets/click/issues/2994) 和
+[wslview 的桥接实现](https://github.com/wslutilities/wslu/blob/master/src/wslview.sh)。
+借鉴平台分流、进程参数与失败边界，不复制实现，也不新增运行依赖。
+
 [文档导航](../README.md)
 
 ## 专题索引

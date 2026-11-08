@@ -48,6 +48,9 @@ acprof tui
   采集后按[指标和结果目录](../results/metrics.md)查看产物。
 - **离线报告：**在 [HTML 报告](../results/reports.md#交互式配置比较报告)中查看配置比较、窗口统计、图表与导出；
   独立运行比较和置信区间另有[有效性条件](../results/comparisons.md#跨独立实验比较)。
+  TUI 提供“打开”和“复制路径”；本地 WSL 通过 `wslview` 或 `wslpath` + Windows PowerShell
+  打开，无需 Linux 桌面；SSH 会话提供文件传输指引。打开仅表示提交请求，不证明页面已显示。
+  不启动 Web 服务、不安装额外软件或修改浏览器配置，详见[打开报告](../usage/tui.md#打开-html-报告)。
 - **流式服务：**使用 `acprof load` 测量已经运行的 OpenAI-compatible 服务；
   并发/到达率扫描、按顺序运行 JSONL 请求集及可选 vLLM/SGLang 服务观测详见
   [流式测量指南](../profiling/streaming.md)。

@@ -122,6 +122,7 @@ def compose_html(app: AcprofTui) -> ComposeResult:
             yield Static("", id="html-report-location", markup=False)
             with Horizontal(classes="html-actions"):
                 yield local(Button(message_id("results.html.open"), id="html-report-open", classes="report-control"))
+                yield local(Button(message_id("results.html.copy_path"), id="html-report-copy", classes="report-control"))
         yield local(Static(message_id("results.html.remote_download_hint"), id="html-remote-hint", markup=False))
         # Retain paused import/export bindings; the visible workflow is select -> generate -> open.
         with Vertical(id="html-legacy-controls", disabled=True):
@@ -132,7 +133,6 @@ def compose_html(app: AcprofTui) -> ComposeResult:
                               placeholder=message_id("results.html.additional_inputs_hint")))
             yield local(Button(message_id("results.html.generate"), id="html-report-generate", classes="report-control"))
             yield local(Button(message_id("results.html.cancel"), id="html-report-cancel", disabled=True))
-            yield local(Button(message_id("results.html.copy_path"), id="html-report-copy", classes="report-control"))
             yield local(Button(message_id("results.html.save_as"), id="html-export-toggle", classes="report-control"))
             with Horizontal(id="html-export-fields", classes="path-picker-row"):
                 yield local(Input(id="html-export-path", classes="report-control",

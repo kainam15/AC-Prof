@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import errno
 import shutil
-import webbrowser
 from pathlib import Path
 from typing import BinaryIO
 
@@ -113,10 +112,15 @@ def require_html_file(path: Path) -> None:
         raise ValueError(message_id('results.html.file_missing', path))
 
 
-def open_html_file(path: Path) -> None:
+def open_html_file(path: Path) -> str:
+    from acprof.tui.results.browser import open_report_in_browser
+
     require_html_file(path)
-    if not webbrowser.open(path.resolve().as_uri(), new=2):
-        raise RuntimeError(message_id('results.html.browser_unavailable'))
+    path = path.resolve()
+    # Windows opens files by association: an .html symlink must not dispatch an
+    # executable or another file type after resolution.
+    require_html_file(path)
+    return open_report_in_browser(path)
 
 
 def export_html_file(source: Path, destination: Path) -> None:

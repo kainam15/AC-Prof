@@ -473,7 +473,7 @@ async def test_remote_or_headless_never_launches_browser(tmp_path, environment):
     app = AcprofTui(settings_path=tmp_path / "settings.json")
     async with app.run_test():
         app.query_one("#html-report-path", Input).value = str(report)
-        with patch.dict(os.environ, environment, clear=True), patch("acprof.platform.platform.system", return_value="Linux"), patch("webbrowser.open") as browser:
+        with patch.dict(os.environ, environment, clear=True), patch("acprof.platform.platform.system", return_value="Linux"), patch("acprof.platform.is_wsl", return_value=False), patch("webbrowser.open") as browser:
             app.results.html.open()
             browser.assert_not_called()
         status = str(app.query_one("#html-report-status", Static).content)
@@ -488,7 +488,7 @@ async def test_local_browser_action_does_not_change_report(tmp_path, outcome):
     app = AcprofTui(settings_path=tmp_path / "settings.json")
     async with app.run_test() as pilot:
         app.query_one("#html-report-path", Input).value = str(report)
-        with patch("acprof.platform.can_open_local_browser", return_value=True), patch("webbrowser.open", side_effect=outcome if isinstance(outcome, Exception) else None, return_value=outcome) as browser:
+        with patch("acprof.platform.can_open_local_browser", return_value=True), patch("acprof.platform.is_wsl", return_value=False), patch("webbrowser.open", side_effect=outcome if isinstance(outcome, Exception) else None, return_value=outcome) as browser:
             app.results.html.open()
             await app.workers.wait_for_complete()
             await pilot.pause()

@@ -389,6 +389,7 @@ class ResultController:
         ):
             self.app.query_one(selector, Button).disabled = not enabled
         self.app.query_one("#html-report-file").display = actions.html_file_visible
+        self.app.query_one("#html-report-panel").set_class(actions.html_file_visible, "has-report")
         self.app.query_one("#html-report-filename", Static).update(actions.html_filename)
         location = self.app.query_one("#html-report-location", Static)
         location.update(actions.html_location)

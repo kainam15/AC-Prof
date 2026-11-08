@@ -198,6 +198,7 @@ class HtmlReportController:
         if not can_open_local_browser():
             self.set_status(message_id("results.html.remote_open_instructions", path))
             return
+        self.set_status(message_id("results.html.browser_opening", path))
         self.run_file_action("open", path)
 
     def export(self) -> None:
@@ -230,10 +231,11 @@ class HtmlReportController:
                 export_html_file(source, destination)
                 status = message_id("results.html.exported", destination)
             else:
-                open_html_file(source)
-                status = message_id("results.html.browser_requested", source)
+                backend = open_html_file(source)
+                status = message_id("results.html.browser_requested", source, backend)
         except Exception as exc:
-            status = message_id("results.html.file_action_failed", error_message(exc), source)
+            key = "results.html.browser_failed" if action == "open" else "results.html.file_action_failed"
+            status = message_id(key, error_message(exc), source)
         self.app.process.safe_process_callback(self.file_finished, token, status)
 
     def file_finished(self, token: object, status: str) -> None:
