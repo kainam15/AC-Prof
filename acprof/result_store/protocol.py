@@ -127,34 +127,72 @@ def read_reference(layout: ArtifactLayout, ref: dict | None, *,
                             cancelled=cancelled, byte_budget=byte_budget)
 
 
+def _validate_layer_structure(layer: str, info: object) -> None:
+    """Reject malformed layer fields before comparisons or hash checks."""
+    prefix = f"invalid incremental {layer} layer: layers.{layer}"
+    if not isinstance(info, dict):
+        raise ResultValidationError(f"{prefix} must be an object")
+    for name in ("path", "sha256"):
+        if not isinstance(info.get(name), str):
+            raise ResultValidationError(f"{prefix}.{name} must be a string")
+    fields = info.get("fields")
+    if not isinstance(fields, list) or any(not isinstance(name, str) for name in fields):
+        raise ResultValidationError(f"{prefix}.fields must be a list of strings")
+    for name in ("row_count", "committed_bytes", "revision"):
+        if type(info.get(name)) is not int:
+            raise ResultValidationError(f"{prefix}.{name} must be an integer")
+
+
 def validate_manifest_fields(layout: ArtifactLayout, manifest: dict, *, committed: bool) -> dict[str, Path]:
-    """Validate one manifest shape without reading its commit or CSV projections."""
-    if (not isinstance(manifest, dict)
-            or type(manifest.get("schema_version")) is not int
-            or manifest["schema_version"] != SCHEMA_VERSION
-            or not isinstance(manifest.get("state"), str) or manifest["state"] not in STATES
-            or not isinstance(manifest.get("run_id"), str) or not manifest["run_id"]
-            or type(manifest.get("sequence")) is not int or manifest["sequence"] < 0
-            or type(manifest.get("row_count")) is not int or manifest["row_count"] < 0
-            or not isinstance(manifest.get("wide_fields"), list)):
-        raise ResultValidationError("invalid incremental result manifest")
-    assigned = layer_fields(manifest["wide_fields"])
-    if manifest.get("schema_sha256") != digest(json_bytes(assigned)):
-        raise ResultValidationError("incremental result field ownership changed")
+    """Validate types, nested structure and values without reading projections."""
+    prefix = "invalid incremental result manifest"
+    if not isinstance(manifest, dict):
+        raise ResultValidationError(f"{prefix}: expected an object")
+    for name in ("schema_version", "sequence", "row_count"):
+        if type(manifest.get(name)) is not int:
+            raise ResultValidationError(f"{prefix}: {name} must be an integer")
+    for name in ("state", "run_id", "schema_sha256"):
+        if not isinstance(manifest.get(name), str):
+            raise ResultValidationError(f"{prefix}: {name} must be a string")
+    wide_fields = manifest.get("wide_fields")
+    if not isinstance(wide_fields, list) or any(not isinstance(name, str) for name in wide_fields):
+        raise ResultValidationError(f"{prefix}: wide_fields must be a list of strings")
     layers = manifest.get("layers")
-    if not isinstance(layers, dict) or set(layers) != set(LAYER_FILES):
-        raise ResultValidationError("missing or unknown incremental result layer")
+    if not isinstance(layers, dict):
+        raise ResultValidationError("missing or unknown incremental result layer: layers must be an object")
+    if set(layers) != set(LAYER_FILES):
+        raise ResultValidationError("missing or unknown incremental result layer: layers must contain every result layer")
+    for layer, info in layers.items():
+        _validate_layer_structure(layer, info)
+    if manifest["schema_version"] != SCHEMA_VERSION:
+        raise ResultValidationError(f"{prefix}: schema_version must be {SCHEMA_VERSION}")
+    if manifest["state"] not in STATES:
+        raise ResultValidationError(f"{prefix}: state is not a supported result state")
+    if not manifest["run_id"]:
+        raise ResultValidationError(f"{prefix}: run_id must be non-empty")
+    for name in ("sequence", "row_count"):
+        if manifest[name] < 0:
+            raise ResultValidationError(f"{prefix}: {name} must be non-negative")
+    try:
+        assigned = layer_fields(wide_fields)
+    except ResultValidationError as error:
+        raise ResultValidationError(f"{prefix}: wide_fields: {error}") from error
+    if manifest["schema_sha256"] != digest(json_bytes(assigned)):
+        raise ResultValidationError("incremental result field ownership changed: schema_sha256 does not match wide_fields")
     paths = {}
     for layer, info in layers.items():
-        if (not isinstance(info, dict) or info.get("path") != LAYER_FILES[layer]
-                or info.get("fields") != assigned[layer]
-                or type(info.get("row_count")) is not int or info["row_count"] < 0
-                or type(info.get("committed_bytes")) is not int or info["committed_bytes"] < 1
-                or not isinstance(info.get("sha256"), str) or re.fullmatch(r"[a-f0-9]{64}", info["sha256"]) is None
-                or type(info.get("revision")) is not int or info["revision"] < 0):
-            raise ResultValidationError(f"invalid incremental {layer} layer")
+        layer_prefix = f"invalid incremental {layer} layer: layers.{layer}"
+        if info["path"] != LAYER_FILES[layer]:
+            raise ResultValidationError(f"{layer_prefix}.path must be {LAYER_FILES[layer]!r}")
+        if info["fields"] != assigned[layer]:
+            raise ResultValidationError(f"{layer_prefix}.fields disagree with wide_fields")
+        for name, minimum in (("row_count", 0), ("committed_bytes", 1), ("revision", 0)):
+            if info[name] < minimum:
+                raise ResultValidationError(f"{layer_prefix}.{name} must be at least {minimum}")
+        if re.fullmatch(r"[a-f0-9]{64}", info["sha256"]) is None:
+            raise ResultValidationError(f"{layer_prefix}.sha256 must be a lowercase SHA256")
         if layer in BASE_LAYERS and info["row_count"] != manifest["row_count"]:
-            raise ResultValidationError(f"incremental {layer} row count mismatch")
+            raise ResultValidationError(f"incremental {layer} row count mismatch: layers.{layer}.row_count")
         paths[layer] = layout.layer_csv(layer)
     if committed:
         if not reference_path(layout, manifest.get("commit")).is_relative_to(layout.result_store_path("commits")):

@@ -217,6 +217,16 @@ schema hash、状态，以及每个模块的 `committed_bytes/row_count/sha256/r
 每个窗口使用 `run_id + case_id + case_attempt_id + window_id` 去重；同一计划位置来自不同
 attempt 的重复测量也被拒绝。schema 从 `results/metrics.py` 和 `results/layers.py` 派生并冻结。
 
+清单与 pending 内嵌清单共用按“类型 → 嵌套结构 → 值”执行的校验。`state` 先确认字符串，
+`wide_fields` 先确认列表及每个元素均为字符串，再检查允许状态等值约束；
+`layers` 及每层记录先确认对象结构，随后校验字段归属、计数、路径和哈希。
+版本、序号、行数、字节数和 revision 仅接受真实整数，拒绝布尔值及浮点数；
+损坏输入以包含 `state`、`layers.summary.row_count` 等字段路径的 `ResultValidationError` 报告，
+审计返回 invalid，读取与拒绝过程不改写文件。已有 JSON 有限数、哈希核验和取消传播保持。
+严格区分布尔值与整数的做法参考
+[python-jsonschema 的类型检查](https://python-jsonschema.readthedocs.io/en/stable/_modules/jsonschema/_types/)；
+本协议继续拒绝 `1.0` 形式的浮点值，不采用 JSON Schema 的整数数值兼容规则或新增验证依赖。
+
 CPU RAPL、GPU NVML、PMU、资源监控全部停止并完成收尾后，client 持久化窗口证据，
 同步追加该窗口的模块行。所有文件 `fsync` 完成后，发布不可变 commit，再原子替换根清单并
 同步目录。下一窗口等待上述步骤完成；采样频率、窗口和能耗积分公式不变。
