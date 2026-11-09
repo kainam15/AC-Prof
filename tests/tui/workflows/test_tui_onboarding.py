@@ -12,6 +12,7 @@ from acprof.experiments.configuration import RunConfig, build_run_command
 from acprof.tui.i18n import message_id
 from acprof.tui.run.plan_panel import RunPlanPanel
 from acprof.tui.settings.preferences import TuiSettings, save_settings
+from acprof.tui.ui.structured import FactGrid
 from tests.support.tui_fixtures import AcprofTui
 from tests.support.tui_waits import wait_for_condition
 
@@ -34,8 +35,10 @@ async def test_start_waiting_state_is_translated_without_covering_monitor():
                 assert app.screen.id == "_default"
                 assert app.query_one("#main-tabs").active == "monitor-tab"
                 assert app.preflight.preparation_screen is None
-                assert app.query_one("#status-stage", Static).content == "Starting"
-                assert app.query_one("#status-detail", Static).content == "Creating subprocess"
+                assert str(app.query_one("#status-stage", Static).content) == "… Starting"
+                details = app.query_one("#monitor-details", FactGrid)
+                assert details.section.collapsed
+                assert any(app.tr(row.detail) == "Creating subprocess" for row in details.section.rows)
                 app.execution.session.kind = ""
 
 def test_first_launch_without_saved_configuration_is_a_small_smoke():

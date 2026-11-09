@@ -330,18 +330,31 @@ Select:disabled > SelectCurrent { color: $ui-disabled; border: solid $ui-disable
 #settings-status.stage-error { color: $error; }
 
 #status-grid {
-    grid-size: 4;
-    grid-columns: 12 1fr 12 1fr;
-    grid-gutter: 0 1;
     height: auto;
+    max-height: 12;
     padding: 0 2;
     margin: 0;
     background: transparent;
+    overflow-y: auto;
 }
-#status-grid .status-label { color: $text-muted; }
-#status-detail { height: 1; text-overflow: ellipsis; }
-#status-preparation { display: none; height: auto; padding: 0 2; }
-.case-status, .resource-status, .elapsed-status, .error-count { display: none; }
+#monitor-status-line { height: auto; min-height: 1; }
+#monitor-summary { width: 1fr; padding: 0; }
+#monitor-clock { width: 17; height: 1; margin-left: 2; }
+#monitor-clock-label { width: 9; height: 1; color: $text-muted; }
+#status-elapsed { width: 8; height: 1; }
+.elapsed-status { display: none; }
+#monitor-facts { height: auto; }
+#monitor-case-block, #monitor-resources { width: 1fr; height: auto; }
+#monitor-resources { margin-left: 2; }
+#status-grid FactGrid { margin: 0; }
+#monitor-cases .fact-grid { grid-columns: 13 1fr; }
+#monitor-resources .fact-grid { grid-columns: 8 1fr; }
+#status-preparation .fact-grid { grid-columns: 20 1fr; }
+#monitor-details .fact-grid { grid-columns: 10 1fr; }
+#case-progress { height: 1; margin-left: 1; }
+MonitorHeader.compact-facts #monitor-facts { layout: vertical; }
+MonitorHeader.compact-facts #monitor-case-block,
+MonitorHeader.compact-facts #monitor-resources { width: 100%; margin-left: 0; }
 #download-progress {
     display: none; height: auto; max-height: 8; padding: 0 1; margin: 0 1;
     border-left: solid $accent; overflow-y: auto;
@@ -580,9 +593,7 @@ AcprofTui.compact-navigation #image-filters {
 AcprofTui.compact-navigation #image-scope,
 AcprofTui.compact-navigation #image-search { column-span: 2; width: 1fr; margin: 0; }
 AcprofTui.compact-navigation #image-filters Button { width: 1fr; min-width: 0; margin: 0; }
-.stage-idle { color: $text-muted; }
 .stage-running { color: $accent; text-style: bold; }
-.stage-measuring { color: $accent; text-style: bold; }
 .stage-success { color: $success; text-style: bold; }
 .stage-error { color: $error; text-style: bold; }
 
@@ -599,7 +610,6 @@ AcprofTui.narrow #process-resource-help { column-span: 2; }
 AcprofTui.narrow .profiler-grid { grid-size: 1; grid-columns: 1fr; }
 AcprofTui.narrow .checkbox-row { layout: vertical; }
 AcprofTui.narrow .button-row { layout: grid; grid-size: 2; grid-gutter: 0 1; }
-AcprofTui.narrow #status-grid { grid-size: 2; grid-columns: 11 1fr; }
 AcprofTui.narrow Tab { padding: 0 1; }
 AcprofTui.short #bottom-panel { height: 3; }
 AcprofTui.short #slash-command-bar { height: 3; padding: 0 2; }

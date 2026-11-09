@@ -22,6 +22,7 @@ from acprof.tui.run.recovery import review_recovery
 from acprof.tui.run.results import RunResult
 from acprof.tui.run.stages import Stage
 from acprof.tui.ui.input import BarCursorInput as Input
+from acprof.tui.ui.structured import FactGrid
 from tests.support.tui_fixtures import AcprofTui
 
 
@@ -292,14 +293,17 @@ async def test_finished_run_keeps_compact_status_and_log_space(tmp_path, languag
         assert app.query_one("#stop-run", Button).disabled
         expected = (f"已完成 {completed}/4 个 case" if language == "zh"
                     else f"Completed {completed}/4 cases")
-        assert str(app.query_one("#status-detail", Static).content) == expected
-        assert str(app.query_one("#status-stage", Static).content) == app.tr(stage.label)
+        details = app.query_one("#monitor-details", FactGrid)
+        assert details.section.collapsed
+        assert any(app.tr(row.detail) == expected for row in details.section.rows)
+        assert str(app.query_one("#status-stage", Static).content).endswith(app.tr(stage.label))
         for resized in ((80, 24), (120, 30), size):
             await pilot.resize_terminal(*resized)
             await pilot.pause()
             screen_text = "\n".join("".join(segment.text for segment in strip)
                                     for strip in app.screen._compositor.render_strips())
-            assert expected in screen_text
+            assert f"{completed}/4" in screen_text
+            assert app.tr(stage.label) in screen_text
             assert log.content_region.height >= 3
             follow = app.query_one("#follow-log", Button)
             assert app.get_widget_at(*follow.region.center)[0] is follow

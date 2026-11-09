@@ -100,7 +100,7 @@ def test_fixed_scenes(snap_compare, tmp_path, monkeypatch, language, size, scene
             assert app.query_one("#main-tabs", TabbedContent).active == "monitor-tab"
             assert app.screen.id == "_default"
             assert app.preflight.preparation_screen is None
-            assert app.query_one("#status-stage", Static).content == app.tr("正在确认模型接口…")
+            assert str(app.query_one("#status-stage", Static).content) == f"… {app.tr('正在确认模型接口…')}"
             assert app.execution.session.snapshot.interface_status == "running"
             assert app.execution.session.snapshot.runtime_status == "not_started"
             assert not app.execution.session.snapshot.measurement_active
@@ -225,9 +225,9 @@ def test_fixed_scenes(snap_compare, tmp_path, monkeypatch, language, size, scene
             app.consume_process_line("", snapshot, True)
             if scene == "cleanup-incomplete":
                 app.process_cleanup_incomplete(StopResult(12345, None, "SIGTERM timeout"))
-                detail = app.query_one("#status-detail", Static).content
-                assert isinstance(detail, str)
-                assert "SIGTERM timeout" in detail
+                details = app.query_one("#monitor-details", FactGrid)
+                assert details.section.collapsed
+                assert any("SIGTERM timeout" in row.detail for row in details.section.rows)
                 assert "SIGTERM timeout" in app.query_one("#run-log", SelectableLog).raw_text
             assert app.query_one("#run-log", SelectableLog).suspended
             assert app.logs.timer is None

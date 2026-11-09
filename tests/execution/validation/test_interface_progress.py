@@ -173,10 +173,8 @@ def test_terminal_interface_events_cannot_arrive_inside_measurement():
 async def test_monitor_renders_real_interface_completion(interface_check, capsys, tmp_path, size, language):
     from dataclasses import replace
 
-    from rich.console import Console
-    from textual.widgets import Static
-
-    from tests.support.tui_fixtures import AcprofTui
+    from acprof.tui.ui.structured import FactGrid
+    from tests.support.tui_fixtures import AcprofTui, fact_rows
 
     interface_check.run()
     tracker = replay(capsys.readouterr().out)
@@ -187,8 +185,8 @@ async def test_monitor_renders_real_interface_completion(interface_check, capsys
         app.activate_tab("monitor-tab")
         app.consume_process_line("", snapshot, True)
         await pilot.pause()
-        widget = app.query_one("#status-preparation", Static)
-        text = "".join(segment.text for segment in Console(width=widget.content_size.width).render(widget.render()))
+        widget = app.query_one("#status-preparation", FactGrid)
+        text = "\n".join(" ".join(row) for row in fact_rows(widget))
         assert ("接口解析" if language == "zh" else "Interface") in text
         assert text.count("通过" if language == "zh" else "Passed") == 2
         assert ("进行中" if language == "zh" else "Running") not in text

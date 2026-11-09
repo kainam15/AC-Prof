@@ -62,7 +62,6 @@ from acprof.tui.run.process import StopResult
 from acprof.tui.run.process_controller import ProcessController
 from acprof.tui.run.progress import ProgressSnapshot
 from acprof.tui.run.recovery_controller import RecoveryController
-from acprof.tui.run.stages import Stage
 from acprof.tui.settings.controller import ConfigurationController
 from acprof.tui.settings.localization_controller import LocalizationController
 from acprof.tui.ui.dialogs import ConfirmActionScreen
@@ -364,28 +363,6 @@ class AcprofTui(BarCursorApp):
 
     def tick_elapsed(self) -> None:
         self.run_ui.tick_elapsed()
-
-    _STAGE_CSS_CLASS = {
-        Stage.WAITING: "stage-idle",
-        Stage.SERVER_READY: "stage-success",
-        Stage.COMPLETED: "stage-success",
-        Stage.PROBE_COMPLETED: "stage-success",
-        Stage.MEMORY_FOUND: "stage-success",
-        Stage.CASE_COMPLETED: "stage-success",
-        Stage.FAILED: "stage-error",
-        Stage.CLEANUP_INCOMPLETE: "stage-error",
-        Stage.PROBE_FAILED: "stage-error",
-        Stage.TASK_UNSUPPORTED: "stage-error",
-        Stage.TERMINATED: "stage-error",
-        Stage.STOPPED: "stage-error",
-        Stage.PARTIAL: "stage-running",
-        Stage.MEASURING: "stage-measuring",
-        Stage.MAX_SCALE_PROBE: "stage-measuring",
-    }
-    _STAGE_CLASSES = frozenset({
-        "stage-idle", "stage-running", "stage-measuring",
-        "stage-success", "stage-error",
-    })
 
     def process_cleanup_incomplete(self, result: StopResult) -> None:
         self.run_ui.process_cleanup_incomplete(result)

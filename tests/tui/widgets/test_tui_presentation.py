@@ -11,9 +11,11 @@ from acprof.host.images.inventory import DockerConnection, ImageInventory, Image
 from acprof.tui.i18n import translate
 from acprof.tui.images.presentation import ImageTree, image_metadata
 from acprof.tui.run.progress import ProgressSnapshot
+from acprof.tui.run.stages import Stage
 from acprof.tui.settings.preferences import load_settings
 from acprof.tui.ui.presentation import format_byte_fields, format_bytes
-from tests.support.tui_fixtures import AcprofTui
+from acprof.tui.ui.structured import FactGrid
+from tests.support.tui_fixtures import AcprofTui, fact_rows
 
 PROJECT_DIR = Path(__file__).resolve().parents[3]
 
@@ -110,14 +112,20 @@ class TestTuiPresentation:
         async with app.run_test() as pilot:
             app.render_snapshot(ProgressSnapshot())
             assert (str(app.query_one("#status-elapsed", Static).content)) == ("—")
-            assert (str(app.query_one("#status-resource", Static).content)) == ("CPU=—  MEM=—  GPU=—")
-            app.execution.session.snapshot = ProgressSnapshot(current_case=1, total_cases=2, cpu="2")
+            resources = app.query_one("#monitor-resources", FactGrid)
+            assert not resources.display
+            assert not app.query_one("#monitor-cases", FactGrid).display
+            app.execution.session.snapshot = ProgressSnapshot(
+                stage=Stage.MEASURING, current_case=1, total_cases=2, cpu="2",
+            )
             app.render_snapshot(app.execution.session.snapshot)
-            assert (str(app.query_one("#status-resource", Static).content)) == ("CPU=2  MEM=未知  GPU=未知")
+            await pilot.pause()
+            assert resources.display
+            assert fact_rows(resources) == (("CPU", "2"), ("内存", "未知"), ("GPU", "未知"))
             app.configuration.preferences = replace(app.configuration.preferences, language="en")
             app.configuration.apply_ui_preferences()
             await pilot.pause()
-            assert ("MEM=Unknown") in (str(app.query_one("#status-resource", Static).content))
+            assert fact_rows(resources) == (("CPU", "2"), ("Memory", "Unknown"), ("GPU", "Unknown"))
 
     async def test_loading_report_indicator_is_cleared_on_failure(self):
         app = self.app

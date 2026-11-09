@@ -21,6 +21,7 @@ from acprof.tui.run.recovery_controller import RecoveryScreen
 from acprof.tui.run.results import RunResult
 from acprof.tui.run.stages import Stage
 from acprof.tui.ui.progress_widgets import DownloadProgressPanel
+from acprof.tui.ui.structured import FactGrid
 from scripts.tui_pilot_font import use_cjk_svg_font
 from tests.support.tui_fixtures import AcprofTui
 
@@ -243,7 +244,7 @@ async def exercise_journey(
             await pilot.pause()
             assert not app.query_one("#download-progress", DownloadProgressPanel).display
             assert app.query_one("#run-log").suspended
-            assert app.query_one("#status-case", Static).display
+            assert app.query_one("#monitor-cases", FactGrid).display
             await record("measurement", "synthetic measurement boundary")
             assert await pilot.click("#nav-run-tab")
             await pilot.pause()

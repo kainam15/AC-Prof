@@ -12,10 +12,12 @@ from textual.widgets.text_area import Selection
 from acprof.experiments.configuration import RunConfig
 from acprof.tui.logging.panel import LogPanel
 from acprof.tui.logging.widget import SelectableLog
+from acprof.tui.run.monitor_panel import CaseProgress
 from acprof.tui.run.progress import ProgressSnapshot
 from acprof.tui.run.stages import Stage
 from acprof.tui.ui.scrollbar import SolidScrollBarRender
-from tests.support.tui_fixtures import AcprofTui
+from acprof.tui.ui.structured import FactGrid
+from tests.support.tui_fixtures import AcprofTui, fact_rows
 
 
 class TestTuiLogView:
@@ -41,7 +43,7 @@ class TestTuiLogView:
         assert (app.get_widget_at(region.x + 3, region.y)[0]) is (button)
 
     @pytest.mark.parametrize('size', [(80, 24), (120, 30), (150, 45)])
-    async def test_monitor_keeps_status_and_log_without_progress_or_matrix(self, size):
+    async def test_monitor_keeps_compact_case_progress_and_a_scrollable_log(self, size):
         app = self.make_app()
         async with app.run_test(size=size) as pilot:
             await pilot.pause()
@@ -52,12 +54,18 @@ class TestTuiLogView:
                 interface_status="passed", runtime_status="passed", measurement_status="running",
             ))
             await pilot.pause()
-            assert (len(app.query("#case-progress, #matrix-board, #matrix-table"))) == (0)
-            assert (app.query_one("#status-stage", Static).content) == ("正式测量")
-            assert (app.query_one("#status-case", Static).content) == ("当前 1 · 已完成 0/32")
+            assert not app.query("#matrix-board, #matrix-table")
+            assert str(app.query_one("#status-stage", Static).content) == "… 正式测量"
+            assert fact_rows(app.query_one("#monitor-cases", FactGrid)) == (
+                ("当前 case", "1"), ("已处理", "0/32"),
+            )
+            progress = app.query_one("#case-progress", CaseProgress)
+            assert progress.display
+            assert (progress.completed, progress.total) == (0, 32)
+            assert progress.auto_refresh is None
             log = app.query_one("#run-log", SelectableLog)
             assert (log.content_region.height) >= (5)
-            preparation = app.query_one("#status-preparation", Static)
+            preparation = app.query_one("#status-preparation", FactGrid)
             assert not preparation.display
             assert (log.region.y) == (app.query_one("#status-grid").region.bottom)
             if size[1] >= 30:

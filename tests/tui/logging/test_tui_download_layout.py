@@ -4,13 +4,14 @@ from dataclasses import replace
 import pytest
 from rich.console import Console
 from textual.strip import Strip
-from textual.widgets import Select, Static
+from textual.widgets import Select
 
 from acprof.events.download import DownloadProgress
 from acprof.tui.logging.widget import SelectableLog
 from acprof.tui.run.progress import ProgressSnapshot
 from acprof.tui.ui.progress_widgets import DownloadProgressContent, DownloadProgressPanel
-from tests.support.tui_fixtures import AcprofTui
+from acprof.tui.ui.structured import FactGrid
+from tests.support.tui_fixtures import AcprofTui, fact_rows
 
 
 def rendered(widget):
@@ -43,15 +44,15 @@ async def test_download_metrics_and_colored_states_fit_monitor(tmp_path, size, l
         app.preflight.download_progress(progress)
         await pilot.pause()
         panel = app.query_one("#download-progress", DownloadProgressPanel)
-        phases = app.query_one("#status-preparation", Static)
+        phases = app.query_one("#status-preparation", FactGrid)
         text, segments = rendered(panel)
         for value in ("BAAI/bge-m3", "238 MB", "4.59 GB", "5%", "28/30", "49.4 MB", "178 MB", "13.5 MB/s"):
             assert value in text
         assert ("剩余时间" if language == "zh" else "ETA") not in text
         assert len({segment.style.color for segment in segments if segment.style and segment.style.color}) >= 3
-        phase_text, phase_segments = rendered(phases)
+        phase_text = "\n".join(" ".join(row) for row in fact_rows(phases))
         assert ("接口解析" if language == "zh" else "Interface") in phase_text
-        assert len({segment.style.color for segment in phase_segments if segment.style and segment.style.color}) >= 2
+        assert len({widget.styles.color for widget in phases.query(".fact-label, .fact-value")}) >= 2
         assert phases.region.bottom <= panel.region.y
         assert panel.region.bottom <= app.query_one("#run-log", SelectableLog).region.y
         assert app.query_one("#run-log", SelectableLog).content_region.height >= 3
@@ -131,6 +132,6 @@ async def test_progress_refreshes_language_and_theme_without_translating_model(t
         assert "Downloading" in text
         assert "Attempt" not in text
         assert "100%" in text
-        assert "Interface:" in rendered(app.query_one("#status-preparation", Static))[0]
+        assert any("Interface" in label for label, _ in fact_rows(app.query_one("#status-preparation", FactGrid)))
         assert old_color != next(segment.style.color for segment in after if "Downloading" in segment.text)
         assert app.preflight.latest_download == progress

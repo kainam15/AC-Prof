@@ -14,6 +14,7 @@ from textual.widgets import Button, Static
 
 from acprof.tui.commands import PendingLaunch
 from acprof.tui.run.process import ProcessLifecycle, StopResult
+from acprof.tui.ui.structured import FactGrid
 from tests.support.tui_fixtures import AcprofTui
 
 
@@ -124,17 +125,21 @@ def test_missing_group_does_not_release_an_unreaped_process():
 async def test_cleanup_timeout_keeps_stop_enabled_and_start_disabled():
     with tempfile.TemporaryDirectory() as directory:
         app = AcprofTui(settings_path=Path(directory) / "settings.json")
-        async with app.run_test(size=(80, 24)) as pilot:
-            await pilot.pause()
-            process = Mock(pid=12345)
-            process.poll.return_value = None
-            app.execution.lifecycle.process = process
-            app.execution.session.kind = "run"
-            app.process_cleanup_incomplete(StopResult(12345, None, "SIGTERM timeout"))
-            assert (app.is_busy())
-            assert (app.query_one("#start-run", Button).disabled)
-            assert not (app.query_one("#stop-run", Button).disabled)
-            assert ("清理未完成") in (str(app.query_one("#status-stage", Static).render()))
-            assert ("12345") in (str(app.query_one("#status-detail", Static).render()))
-            process.poll.return_value = 0
-            app.execution.lifecycle.release(process)
+        # An assertion failure must never pass this fake PID to unmount cleanup.
+        with patch.object(app.execution.lifecycle, "stop", return_value=StopResult(None, 0)):
+            async with app.run_test(size=(80, 24)) as pilot:
+                await pilot.pause()
+                process = Mock(pid=12345)
+                process.poll.return_value = None
+                app.execution.lifecycle.process = process
+                app.execution.session.kind = "run"
+                app.process_cleanup_incomplete(StopResult(12345, None, "SIGTERM timeout"))
+                await pilot.pause()
+                assert (app.is_busy())
+                assert (app.query_one("#start-run", Button).disabled)
+                assert not (app.query_one("#stop-run", Button).disabled)
+                assert ("清理未完成") in (str(app.query_one("#status-stage", Static).render()))
+                details = app.query_one("#monitor-details", FactGrid)
+                assert any("12345" in row.detail for row in details.section.rows)
+                process.poll.return_value = 0
+                app.execution.lifecycle.release(process)

@@ -31,7 +31,8 @@ from acprof.tui.run.diagnostics import PreflightCheck
 from acprof.tui.run.progress import ProgressSnapshot, RunProgressTracker
 from acprof.tui.run.stages import Stage
 from acprof.tui.settings.preferences import TuiSettings, load_settings, save_settings
-from tests.support.tui_fixtures import AcprofTui
+from acprof.tui.ui.structured import FactGrid, StatusBanner
+from tests.support.tui_fixtures import AcprofTui, fact_rows
 
 
 def test_tui_catalog_literals_use_stable_message_ids():
@@ -233,18 +234,24 @@ class TestTuiLanguage:
             assert (app.query_one("#command-preview", Static).content) == (preview)
             assert (app.query_one("#experiment-pages", ContentSwitcher).current) == ("advanced-form")
             assert (str(app.query_one("#open-run-settings", Button).label)) == ("Basic settings")
-            assert (app.query_one("#status-stage", Static).content) == ("Case completed")
-            assert (app.query_one("#status-stage").has_class("stage-success"))
+            assert str(app.query_one("#status-stage", Static).content) == "✓ Case completed"
+            assert app.query_one("#status-grid StatusBanner", StatusBanner).has_class("status-success")
             assert (app.execution.session.snapshot) is (snapshot)
-            assert (app.query_one("#status-case", Static).content) == ("Current 1 · Done 1/2")
-            assert (app.query_one("#status-resource", Static).content) == ("CPU=1  MEM=4GB  GPU=on")
+            assert fact_rows(app.query_one("#monitor-cases", FactGrid)) == (
+                ("Current case", "1"), ("Processed", "1/2"),
+            )
+            assert fact_rows(app.query_one("#monitor-resources", FactGrid)) == (
+                ("CPU", "1"), ("Memory", "4GB"), ("GPU", "On"),
+            )
             assert ((log.text, log.selection, log.scroll_y)) == ((old_text, old_selection, old_scroll))
             assert not (log.following)
             assert (self.settings_path.read_bytes()) == (remembered)
             assert (app.query_one("#experiment-source", Input).value) == (str(csv_path))
             await self.switch(app, pilot, "zh")
             assert (str(app.query_one("#open-run-settings", Button).label)) == ("返回基本配置")
-            assert (app.query_one("#status-case", Static).content) == ("当前 1 · 已完成 1/2")
+            assert fact_rows(app.query_one("#monitor-cases", FactGrid)) == (
+                ("当前 case", "1"), ("已处理", "1/2"),
+            )
             assert ((log.text, log.selection, log.scroll_y)) == ((old_text, old_selection, old_scroll))
             assert (self.settings_path.read_bytes()) == (remembered)
 

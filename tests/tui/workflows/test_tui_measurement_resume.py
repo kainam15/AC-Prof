@@ -60,7 +60,7 @@ async def test_measurement_stop_resume_preserves_completed_case_and_displays_res
             assert child is not None
             assert app.execution.session.snapshot.cpu == "2"
             assert app.query_one("#start-run", Button).disabled
-            assert str(app.query_one("#status-stage", Static).content) == app.tr(Stage.MEASURING.label)
+            assert str(app.query_one("#status-stage", Static).content) == f"… {app.tr(Stage.MEASURING.label)}"
 
             # Declining the confirmation keeps this same running attempt alive.
             await pilot.press("ctrl+x")
@@ -136,7 +136,7 @@ async def test_measurement_stop_resume_preserves_completed_case_and_displays_res
             assert ('有效正式窗口：2' if language == 'zh' else 'Valid formal windows: 2') in str(
                 app.query_one('#result-data-status', Static).content)
             assert app.query_one("#experiment-source", Input).value == str(directory)
-            assert str(app.query_one("#status-stage", Static).content) == app.tr(Stage.COMPLETED.label)
+            assert str(app.query_one("#status-stage", Static).content) == f"✓ {app.tr(Stage.COMPLETED.label)}"
             assert not app.query_one("#start-run", Button).disabled
             assert app.query_one("#stop-run", Button).disabled
             app.activate_tab("results-tab")

@@ -5,15 +5,16 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from textual.app import ComposeResult
-from textual.containers import Grid, Horizontal, Vertical
+from textual.containers import Horizontal, Vertical
 from textual.content import Content
 from textual.geometry import Size
 from textual.widgets import Button, Static, TabPane
 
 from acprof.tui.i18n import message_id
 from acprof.tui.logging.widget import SelectableLog
+from acprof.tui.run.monitor_panel import MonitorHeader
 from acprof.tui.ui.input import BarCursorInput as Input
-from acprof.tui.ui.progress_widgets import DownloadProgressPanel, PhaseTimes, PreparationStatus
+from acprof.tui.ui.progress_widgets import DownloadProgressPanel, PhaseTimes
 
 if TYPE_CHECKING:
     from acprof.tui.app import AcprofTui
@@ -35,23 +36,7 @@ class LogToolbarButton(Button):
 def compose_monitor_tab(app: AcprofTui) -> ComposeResult:
     with TabPane("运行监控", id="monitor-tab"):
         with Vertical(id="monitor-panel"):
-            with Grid(id="status-grid", classes="page-header"):
-                yield app.localization.localized_widget(Static("阶段", classes="status-label"))
-                yield app.localization.localized_widget(Static("等待", id="status-stage", markup=False))
-                yield app.localization.localized_widget(Static("运行时间", classes="status-label elapsed-status"))
-                yield app.localization.localized_widget(Static("", id="status-elapsed", classes="elapsed-status", markup=False))
-
-                yield app.localization.localized_widget(Static("Case", classes="status-label case-status"))
-                yield app.localization.localized_widget(Static("", id="status-case", classes="case-status", markup=False))
-                yield app.localization.localized_widget(Static("资源", classes="status-label resource-status"))
-                yield app.localization.localized_widget(Static("", id="status-resource", classes="resource-status", markup=False))
-
-                yield app.localization.localized_widget(Static("警告 / 错误", classes="status-label error-count"))
-                yield app.localization.localized_widget(Static("", id="status-errors", classes="error-count", markup=False))
-                yield app.localization.localized_widget(Static("详情", classes="status-label detail-status"))
-                yield app.localization.localized_widget(Static("尚未启动", id="status-detail", classes="detail-status", markup=False))
-
-            yield PreparationStatus(id="status-preparation")
+            yield MonitorHeader(id="status-grid", classes="page-header")
             yield PhaseTimes("", id="status-phase-times", markup=False)
             yield DownloadProgressPanel(id="download-progress")
             with LogPanel(id="log-panel"):

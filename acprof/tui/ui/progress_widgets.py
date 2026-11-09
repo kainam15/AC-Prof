@@ -15,8 +15,6 @@ from textual.widgets import Static
 from acprof.events.download import DownloadProgress
 from acprof.events.image import ImageProgress
 from acprof.tui.i18n import message_id
-from acprof.tui.run.monitor import visible_statuses
-from acprof.tui.run.progress import ProgressSnapshot
 from acprof.tui.ui.contracts import translated_app
 from acprof.tui.ui.presentation import UNKNOWN, format_bytes
 
@@ -47,34 +45,6 @@ class ProgressSummary(Static):
                            complete_style=self.get_component_rich_style(f"progress--{role}"),
                            finished_style=self.get_component_rich_style(f"progress--{role}"),
                            style=self.get_component_rich_style("progress--label"))
-
-
-class PreparationStatus(ProgressSummary):
-    snapshot: ProgressSnapshot | None = None
-
-    def update_snapshot(self, snapshot: ProgressSnapshot) -> None:
-        self.snapshot = snapshot
-        self.display = bool(visible_statuses(snapshot))
-        self.refresh(layout=True)
-
-    def render(self) -> RenderableType:
-        if self.snapshot is None:
-            return Text()
-        states = {
-            "not_started": ("未开始", "label"), "running": ("进行中", "active"),
-            "waiting": ("待确认", "warning"), "passed": ("通过", "success"),
-            "failed": ("失败", "error"), "cancelled": ("已取消", "warning"),
-        }
-        snapshot = self.snapshot
-        table = Table.grid(padding=(0, 3))
-        cells = []
-        for label, status in visible_statuses(snapshot):
-            value, role = states[status]
-            cells.append(self.metric(message_id(label), value, role))
-        if not cells:
-            return Text()
-        table.add_row(*cells)
-        return table
 
 
 class PhaseTimes(Static):

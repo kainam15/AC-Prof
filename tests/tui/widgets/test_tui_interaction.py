@@ -9,8 +9,11 @@ from textual.widgets import Button, Input, Select, Static
 from acprof.experiments.configuration import RunConfig
 from acprof.installation import cli_command
 from acprof.tui.commands import format_command
+from acprof.tui.run.monitor_panel import CaseProgress, MonitorHeader
 from acprof.tui.run.progress import ProgressSnapshot
 from acprof.tui.run.stages import Stage
+from acprof.tui.ui.progress_widgets import DownloadProgressPanel
+from acprof.tui.ui.structured import FactGrid
 from tests.support.tui_fixtures import AcprofTui
 
 PROJECT_DIR = Path(__file__).resolve().parents[3]
@@ -143,10 +146,18 @@ class TestTuiInteraction:
                 )
                 assert app.logs.log.suspended
                 clock = app.query_one("#status-elapsed", Static)
+                header = app.query_one("#status-grid", MonitorHeader)
+                progress = app.query_one("#case-progress", CaseProgress)
+                downloads = app.query_one("#download-progress", DownloadProgressPanel)
                 with (
                     patch.object(app, "format_elapsed", side_effect=["00:00:05", "00:00:05", "00:00:06"]),
                     patch.object(clock, "update", wraps=clock.update) as update,
                     patch.object(app.logs, "flush") as flush,
+                    patch.object(header, "update_view") as header_update,
+                    patch.object(progress, "update_progress") as progress_update,
+                    patch.object(FactGrid, "update_section") as fact_update,
+                    patch.object(app.run_ui, "render_phase_times") as phase_update,
+                    patch.object(downloads, "refresh_timing") as download_update,
                 ):
                     app.tick_elapsed()
                     app.tick_elapsed()  # Same second must not trigger a repaint.
@@ -156,6 +167,11 @@ class TestTuiInteraction:
                     ]
                     assert all(entry.kwargs == {"layout": False} for entry in update.call_args_list)
                     flush.assert_not_called()
+                    header_update.assert_not_called()
+                    progress_update.assert_not_called()
+                    fact_update.assert_not_called()
+                    phase_update.assert_not_called()
+                    download_update.assert_not_called()
                 render.assert_not_called()
                 timer.pause.assert_not_called()
                 timer.resume.assert_not_called()

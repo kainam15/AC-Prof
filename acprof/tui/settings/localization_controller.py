@@ -26,6 +26,7 @@ class LocalizationController:
         self.localized_text: dict[tuple[Widget, str], str] = {}
         self.localized_selects: dict[Select, tuple] = {}
         self.applied_language: str | None = None
+        self._structured_language_pending = False
         self.source_bindings: dict[str, list[Binding]] = {}
 
     def tr(self, source: str) -> str:
@@ -88,9 +89,7 @@ class LocalizationController:
         with self.app.prevent(Select.Changed), self.app.batch_update():
             for (widget, attribute), source in self.localized_text.items():
                 self.render_text(widget, attribute, source)
-            if not self.app.execution.session.snapshot.measurement_active:
-                for widget in self.app.query(StructuredWidget):
-                    widget.refresh_language()
+            self._refresh_structured_language()
             self.app.query_one(PageNavigation).sync(self.app.query_one("#main-tabs", TabbedContent))
             for widget, sources in self.localized_selects.items():
                 value = widget.value
@@ -109,7 +108,6 @@ class LocalizationController:
             if self.app.form_ready:
                 self.app.preflight.refresh_preflight_state()
             self.app.logs.refresh_status()
-            self.app.query_one("#status-preparation").refresh(layout=True)
             if self.app.preflight.latest_download is not None and not self.app.execution.session.snapshot.measurement_active:
                 self.app.preflight.download_progress(self.app.preflight.latest_download)
             if self.app.results.report_view is not None:
@@ -117,3 +115,15 @@ class LocalizationController:
             self.app.images.render_images()
             if self.app.configuration.field_errors_visible:
                 self.app.configuration.update_field_errors(self.app.configuration.config_issues)
+
+    def _refresh_structured_language(self) -> None:
+        self._structured_language_pending = self.app.execution.session.snapshot.measurement_active
+        if self._structured_language_pending:
+            return
+        for widget in self.app.query(StructuredWidget):
+            widget.refresh_language()
+
+    def refresh_deferred_structured_language(self) -> None:
+        """Apply a requested language change once an existing event closes measurement."""
+        if self._structured_language_pending:
+            self._refresh_structured_language()

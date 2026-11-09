@@ -179,7 +179,9 @@ async def test_run_and_probe_keep_actionable_failure_visible_in_both_languages(l
                 app.process_finished(kind, 2, tracker.snapshot, "")
             await pilot.pause()
             assert (app.execution.session.snapshot.stage) == (Stage.TASK_UNSUPPORTED)
-            assert (app.query_one("#status-stage", Static).content) == ("任务不支持" if language == "zh" else "Unsupported task")
+            assert str(app.query_one("#status-stage", Static).content).startswith(
+                "× " + ("任务不支持" if language == "zh" else "Unsupported task")
+            )
             stage = app.query_one("#status-stage", Static)
             assert (stage.region.width) > (0)
             assert (stage.region.height) > (0)

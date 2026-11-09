@@ -6,10 +6,12 @@ import pytest
 
 from acprof.events.download import DownloadProgress
 from acprof.tui.logging.widget import SelectableLog
+from acprof.tui.run.monitor_panel import CaseProgress, MonitorHeader
 from acprof.tui.run.process import StopResult
 from acprof.tui.run.progress import ProgressSnapshot
 from acprof.tui.run.stages import Stage
-from tests.support.tui_fixtures import AcprofTui
+from acprof.tui.ui.structured import FactGrid, StatusBanner
+from tests.support.tui_fixtures import AcprofTui, fact_rows
 
 
 def screen_text(app):
@@ -32,8 +34,8 @@ async def test_monitor_shows_only_the_current_phase(tmp_path, size, language):
         await pilot.pause()
         text = screen_text(app)
         assert "50%" in text
-        assert "Case" not in text
-        assert "CPU=" not in text
+        assert not app.query_one("#monitor-cases", FactGrid).display
+        assert not app.query_one("#monitor-resources", FactGrid).display
         assert "0/0" not in text
         assert "未开始" not in text
         assert "Not started" not in text
@@ -47,8 +49,8 @@ async def test_monitor_shows_only_the_current_phase(tmp_path, size, language):
         await pilot.pause()
         text = screen_text(app)
         assert ("运行验证" if language == "zh" else "Runtime") in text
-        assert "Case" not in text
-        assert "CPU=" not in text
+        assert not app.query_one("#monitor-cases", FactGrid).display
+        assert not app.query_one("#monitor-resources", FactGrid).display
         assert not app.query_one("#download-progress").display
         assert "模型文件已校验" not in text
         assert "Model files verified" not in text
@@ -62,8 +64,12 @@ async def test_monitor_shows_only_the_current_phase(tmp_path, size, language):
         app.consume_process_line("", snapshot, True)
         await pilot.pause()
         text = screen_text(app)
-        for value in ("Case", "CPU=2", "MEM=4GB", "GPU=on"):
-            assert value in text
+        assert app.query_one("#monitor-cases", FactGrid).display
+        assert fact_rows(app.query_one("#monitor-resources", FactGrid)) == (
+            ("CPU", "2"), ("内存" if language == "zh" else "Memory", "4GB"),
+            ("GPU", "开启" if language == "zh" else "On"),
+        )
+        assert app.query_one("#monitor-resources", FactGrid).display
         assert "0/4" in text
         assert not app.query_one("#download-progress").display
         assert "运行验证：" not in text
@@ -77,8 +83,8 @@ async def test_monitor_shows_only_the_current_phase(tmp_path, size, language):
         # A following model must not inherit the previous model's case fields.
         app.consume_process_line("", replace(snapshot, stage=Stage.PREPARING_MODEL, measurement_active=False), True)
         await pilot.pause()
-        assert "Case" not in screen_text(app)
-        assert "CPU=" not in screen_text(app)
+        assert not app.query_one("#monitor-cases", FactGrid).display
+        assert not app.query_one("#monitor-resources", FactGrid).display
         assert not app.query_one("#download-progress").display
 
 
@@ -160,7 +166,10 @@ async def test_error_render_is_deferred_until_measurement_ends(tmp_path):
         app.consume_process_line("", ProgressSnapshot(stage=Stage.FAILED, detail="Workload failed"), True)
         app.logs.flush()
         await pilot.pause()
-        assert "Workload failed" in screen_text(app)
+        assert app.tr(Stage.FAILED.label) in screen_text(app)
+        details = app.query_one("#monitor-details", FactGrid)
+        assert details.section.collapsed
+        assert any(row.detail == "Workload failed" for row in details.section.rows)
         assert "deferred diagnostic" in app.query_one("#run-log", SelectableLog).text
         assert screen_text(app).count("deferred diagnostic") == 1
 
@@ -224,3 +233,98 @@ async def test_long_error_is_scrollable_and_keeps_log_actions_reachable(tmp_path
         await pilot.pause()
         assert log.region == normal_region
         assert "ROOT-CAUSE-END" in log.raw_text
+
+
+async def test_case_progress_uses_completed_counts_without_background_refresh(tmp_path):
+    app = AcprofTui(settings_path=tmp_path / "settings.json")
+    with (
+        patch.object(CaseProgress, "set_interval", side_effect=AssertionError("case progress interval")),
+        patch.object(CaseProgress, "set_timer", side_effect=AssertionError("case progress timer")),
+    ):
+        async with app.run_test(size=(80, 24)) as pilot:
+            app.activate_tab("monitor-tab")
+            progress = app.query_one("#case-progress", CaseProgress)
+            assert not progress.display
+            assert progress.auto_refresh is None
+            app.consume_process_line("", ProgressSnapshot(stage=Stage.PREPARING_MATRIX), True)
+            await pilot.pause()
+            assert not progress.display
+            assert "0/0" not in screen_text(app)
+
+            snapshot = ProgressSnapshot(
+                stage=Stage.MEASURING, current_case=2, completed_cases=1, total_cases=4,
+                cpu="2", mem="4", gpu="off", measurement_active=True,
+            )
+            app.consume_process_line("", snapshot, True)
+            await pilot.pause()
+            assert progress.display
+            assert (progress.completed, progress.total) == (1, 4)
+            assert progress.auto_refresh is None
+            assert app.logs.log.suspended
+            assert app.logs.timer is None
+            assert fact_rows(app.query_one("#monitor-cases", FactGrid)) == (
+                ("当前 case", "2"), ("已处理", "1/4"),
+            )
+
+            # A full progress bar still waits for the existing artifact audit.
+            app.consume_process_line("", replace(
+                snapshot, stage=Stage.VERIFYING_ARTIFACT,
+                completed_cases=4, measurement_active=False,
+            ), True)
+            await pilot.pause()
+            assert (progress.completed, progress.total) == (4, 4)
+            assert not app.query_one("#status-grid StatusBanner", StatusBanner).has_class("status-success")
+            app.consume_process_line("", replace(
+                snapshot, stage=Stage.FAILED, completed_cases=0, measurement_active=False,
+            ), True)
+            await pilot.pause()
+            assert (progress.completed, progress.total) == (0, 4)
+            assert app.query_one("#status-grid StatusBanner", StatusBanner).has_class("status-error")
+            assert progress.auto_refresh is None
+
+
+async def test_monitor_language_redraw_waits_until_measurement_boundary(tmp_path):
+    app = AcprofTui(settings_path=tmp_path / "settings.json")
+    async with app.run_test(size=(80, 24)) as pilot:
+        await app.workers.wait_for_complete()
+        app.activate_tab("monitor-tab")
+        snapshot = ProgressSnapshot(
+            stage=Stage.MEASURING, current_case=1, total_cases=4,
+            cpu="2", mem="4", gpu="off", measurement_active=True,
+        )
+        app.consume_process_line("", snapshot, True)
+        await pilot.pause()
+        header = app.query_one("#status-grid", MonitorHeader)
+        progress = app.query_one("#case-progress", CaseProgress)
+        def rendered_header():
+            region = header.region
+            return "\n".join(strip.crop(region.x, region.right).text for strip in
+                             app.screen._compositor.render_strips()[region.y:region.bottom])
+
+        before = rendered_header()
+        with (
+            patch.object(header, "update_view", side_effect=AssertionError("measurement header update")),
+            patch.object(progress, "update_progress", side_effect=AssertionError("measurement progress update")),
+            patch.object(FactGrid, "refresh_language", side_effect=AssertionError("measurement fact redraw")),
+            patch.object(StatusBanner, "refresh_language", side_effect=AssertionError("measurement banner redraw")),
+        ):
+            app.configuration.preferences = replace(app.configuration.preferences, language="en")
+            app.localization.apply_language()
+            await pilot.pause()
+        assert rendered_header() == before
+
+        resources = app.query_one("#monitor-resources", FactGrid)
+        with patch.object(resources, "refresh_language", wraps=resources.refresh_language) as refresh:
+            app.consume_process_line("", replace(
+                snapshot, stage=Stage.CASE_COMPLETED, completed_cases=1, measurement_active=False,
+            ), True)
+            await pilot.pause()
+            refresh.assert_called_once()
+            app.render_snapshot(app.execution.session.snapshot)
+            await pilot.pause()
+            refresh.assert_called_once()
+        assert str(app.query_one("#status-stage").content) == "✓ Case completed"
+        assert fact_rows(app.query_one("#monitor-resources", FactGrid)) == (
+            ("CPU", "2"), ("Memory", "4GB"), ("GPU", "Off"),
+        )
+        assert not app.logs.log.suspended

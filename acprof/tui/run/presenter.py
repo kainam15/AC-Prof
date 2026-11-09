@@ -9,15 +9,16 @@ from typing import TYPE_CHECKING
 
 from textual.widgets import Button, Checkbox, Static
 
-from acprof.messages import message
 from acprof.tui.commands import PendingLaunch, format_command
 from acprof.tui.i18n import message_id
 from acprof.tui.logging.widget import SelectableLog
 from acprof.tui.run.monitor import MonitorPhase, monitor_phase
+from acprof.tui.run.monitor_panel import MonitorHeader
+from acprof.tui.run.monitor_view import monitor_header_view
 from acprof.tui.run.process import StopResult
 from acprof.tui.run.progress import ProgressSnapshot
 from acprof.tui.run.stages import Stage
-from acprof.tui.ui.presentation import NOT_APPLICABLE, UNKNOWN
+from acprof.tui.ui.presentation import NOT_APPLICABLE
 from acprof.tui.ui.progress_widgets import DownloadProgressPanel
 
 if TYPE_CHECKING:
@@ -179,46 +180,19 @@ class RunPresenter:
     def render_snapshot(self, snapshot: ProgressSnapshot) -> None:
         self.render_phase_times(snapshot)
         self.app.logs.stage_changed(snapshot)
-        from acprof.tui.ui.progress_widgets import PreparationStatus
-        self.app.query_one("#status-preparation", PreparationStatus).update_snapshot(snapshot)
-        phase = monitor_phase(snapshot)
-        for selector, visible in (
-            (".case-status", phase is MonitorPhase.MEASUREMENT and snapshot.total_cases > 0),
-            (".resource-status", phase is MonitorPhase.MEASUREMENT and snapshot.current_case > 0),
-            (".elapsed-status", bool(self.app.execution.session.started_monotonic)),
-            (".error-count", bool(snapshot.errors or snapshot.warnings)),
-            (".detail-status", bool(snapshot.detail) and (
-                snapshot.stage is Stage.WAITING or snapshot.detail != message_id('run.monitor.not_started')
-            )),
-        ):
-            for widget in self.app.query(selector):
-                widget.display = visible
+        self.app.query_one(MonitorHeader).update_view(monitor_header_view(snapshot))
+        if not snapshot.measurement_active:
+            self.app.localization.refresh_deferred_structured_language()
+        self.app.query_one("#monitor-clock").display = bool(self.app.execution.session.started_monotonic)
         self.app.query_one("#download-progress").display = (
-            phase is MonitorPhase.PREPARATION and self.app.preflight.latest_download is not None
+            monitor_phase(snapshot) is MonitorPhase.PREPARATION and self.app.preflight.latest_download is not None
         )
         elapsed = (
             self.app.format_elapsed(time.monotonic() - self.app.execution.session.started_monotonic)
             if self.app.execution.session.started_monotonic
             else NOT_APPLICABLE
         )
-        # Stage text with visual category coloring.
-        stage_widget = self.app.query_one("#status-stage", Static)
-        self.app.localization.set_text(stage_widget, snapshot.stage.label)
-        stage_widget.set_classes(
-            self.app._STAGE_CSS_CLASS.get(snapshot.stage, "stage-running")
-        )
-        self.app.localization.set_text(self.app.query_one('#status-elapsed', Static), elapsed)
-        self.app.localization.set_text(self.app.query_one("#status-case", Static), message_id(
-            'run.monitor.case_progress', snapshot.current_case or NOT_APPLICABLE,
-            snapshot.completed_cases, snapshot.total_cases,
-        ))
-        missing = UNKNOWN if snapshot.current_case else NOT_APPLICABLE
-        cpu = message_id('run.resources.inherited_limits') if snapshot.cpu == "inherited" else snapshot.cpu if snapshot.cpu != "-" else missing
-        mem = message_id('run.resources.inherited_limits') if snapshot.mem == "inherited" else f"{snapshot.mem}GB" if snapshot.mem != "-" else missing
-        gpu = snapshot.gpu if snapshot.gpu != "-" else missing
-        self.app.localization.set_text(self.app.query_one("#status-resource", Static), message("CPU={0}  MEM={1}  GPU={2}", cpu, mem, gpu))
-        self.app.localization.set_text(self.app.query_one('#status-errors', Static), f'{snapshot.warnings} / {snapshot.errors}')
-        self.app.localization.set_text(self.app.query_one('#status-detail', Static), snapshot.detail)
+        self.app.localization.set_text(self.app.query_one("#status-elapsed", Static), elapsed)
 
     def process_finished(
         self,

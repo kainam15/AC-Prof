@@ -43,7 +43,7 @@ async def test_visible_controls_fit_without_overlap(
         controls = [app.screen.query_one(selector) for selector in selectors]
         if scene.startswith("docker-frontend"):
             stage = app.execution.session.snapshot.stage
-            assert str(app.query_one("#status-stage", Static).content) == app.localization.tr(stage.label)
+            assert str(app.query_one("#status-stage", Static).content) == f"… {app.localization.tr(stage.label)}"
             assert not app.query_one("#stop-run", Button).disabled
             assert not app.execution.session.snapshot.measurement_active
         state = {"main": app.query_one("#main-tabs").active,

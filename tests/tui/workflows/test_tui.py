@@ -23,11 +23,14 @@ from acprof.tui.commands import (
 )
 from acprof.tui.logging.widget import SelectableLog
 from acprof.tui.run.diagnostics import _readable_rapl_paths, summarize_result_csv
+from acprof.tui.run.monitor_panel import CaseProgress
 from acprof.tui.run.progress import RunProgressTracker
 from acprof.tui.run.stages import Stage
 from acprof.tui.ui.checkbox import StatusCheckbox
 from acprof.tui.ui.dialogs import ConfirmActionScreen
-from tests.support.tui_fixtures import AcprofTui
+from acprof.tui.ui.structured import FactGrid, StatusBanner
+from tests.support.tui_fixtures import AcprofTui, fact_rows
+from tests.support.tui_waits import wait_for_condition
 
 PROJECT_DIR = Path(__file__).resolve().parents[3]
 
@@ -616,13 +619,15 @@ class TestTuiApp:
             assert app.elapsed_timer is None
             assert not app.is_busy()
 
-    async def test_run_updates_status_and_log_without_monitor_charts(self):
-        """Removing monitor charts must preserve launch and completion updates."""
+    async def test_run_updates_progress_and_keeps_artifact_verification_authoritative(self):
+        """Completed protocol cases do not imply that valid artifacts exist."""
         config = RunConfig.smoke("demo/model")
         app = AcprofTui(config)
         async with app.run_test(size=(140, 48)) as pilot:
             await pilot.pause()
-            assert (len(app.query("#case-progress, #matrix-board, #matrix-table"))) == (0)
+            assert not app.query("#matrix-board, #matrix-table")
+            progress = app.query_one("#case-progress", CaseProgress)
+            assert not progress.display
             script = ("from acprof.events.progress import emit_event\n" + ("\n".join(
                 (
                     "emit_event('matrix_planned', total_cases=1)",
@@ -641,36 +646,41 @@ class TestTuiApp:
                     config,
                 )
             )
-            await pilot.pause(0.1)
-            for _ in range(40):
-                await pilot.pause(0.05)
-                if not app.is_busy():
-                    break
+            await wait_for_condition(
+                pilot, lambda: not app.is_busy(),
+                description="launched fixture run to finish artifact verification", timeout=5,
+            )
+            await pilot.pause()
             assert not (app.is_busy())
-            assert (app.query_one("#status-stage", Static).content) == ("失败")
-            assert (app.query_one("#status-case", Static).content) == ("当前 1 · 已完成 0/1")
+            assert str(app.query_one("#status-stage", Static).content) == "× 失败"
+            assert fact_rows(app.query_one("#monitor-cases", FactGrid)) == (
+                ("当前 case", "1"), ("已处理", "0/1"),
+            )
+            assert progress.display
+            assert (progress.completed, progress.total) == (0, 1)
             log = app.query_one("#run-log", SelectableLog).text
             assert "Profiling complete!" in log
             assert not any(line.startswith("ACPROF_EVENT ") for line in log.splitlines())
-            assert (len(app.query("#case-progress, #matrix-board, #matrix-table"))) == (0)
+            assert not app.query("#matrix-board, #matrix-table")
 
-    async def test_stage_gets_color_class(self):
-        """The status-stage widget should receive CSS classes for visual state."""
+    async def test_stage_banner_uses_semantic_symbols_and_color_classes(self):
         from acprof.tui.run.progress import ProgressSnapshot
         app = AcprofTui(RunConfig.smoke("demo/model"))
         async with app.run_test(size=(140, 48)) as pilot:
             await pilot.pause()
+            banner = app.query_one("#status-grid StatusBanner", StatusBanner)
             stage_widget = app.query_one("#status-stage", Static)
-            app.render_snapshot(ProgressSnapshot(stage=Stage.COMPLETED))
-            await pilot.pause()
-            assert (stage_widget.has_class("stage-success"))
-            app.render_snapshot(ProgressSnapshot(stage=Stage.FAILED))
-            await pilot.pause()
-            assert (stage_widget.has_class("stage-error"))
-            assert not (stage_widget.has_class("stage-success"))
-            app.render_snapshot(ProgressSnapshot(stage=Stage.MEASURING))
-            await pilot.pause()
-            assert (stage_widget.has_class("stage-measuring"))
+            for stage, level, symbol in (
+                (Stage.COMPLETED, "success", "✓"),
+                (Stage.FAILED, "error", "×"),
+                (Stage.MEASURING, "info", "…"),
+                (Stage.PARTIAL, "warning", "!"),
+                (Stage.OOM_PRUNED, "warning", "!"),
+            ):
+                app.render_snapshot(ProgressSnapshot(stage=stage))
+                await pilot.pause()
+                assert banner.has_class("status-" + level)
+                assert str(stage_widget.content) == f"{symbol} {app.tr(stage.label)}"
 
     @pytest.mark.parametrize('command', ['matrix', 'board'])
     async def test_removed_matrix_commands_are_rejected_and_absent_from_help(self, command):
