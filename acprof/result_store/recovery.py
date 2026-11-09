@@ -8,6 +8,7 @@ from pathlib import Path
 from acprof.artifacts import read_json_object, sync_directory
 from acprof.result_store.protocol import (
     csv_bytes,
+    read_pending,
     validate_manifest,
     validate_run_identity,
     write_bytes,
@@ -62,19 +63,12 @@ def clear_pending(layout):
     sync_directory(layout.result_store_path(""))
 
 
-def recover_pending(layout):
-    path = layout.result_store_path("pending.json")
-    if not path.exists():
-        return
-    pending = read_json_object(path, bounded=False)
-    current = read_json_object(layout.result_csv)
-    if current.get("commit") == pending["before"].get("commit"):
-        before = pending["before"]
-        validate_manifest(layout, before)
-    elif {k: v for k, v in current.items() if k != "commit"} != pending["after"]:
-        raise ResultValidationError("pending result transaction does not match current commit")
-    else:
-        validate_manifest(layout, current)
+def recover_pending(layout, manifest=None):
+    """Validate the same pending contract as readers before any repair writes."""
+    if manifest is None:
+        manifest = read_json_object(layout.result_csv)
+        validate_manifest(layout, manifest)
+    read_pending(layout, manifest)
 
 
 def _recover_layer(layout, manifest, layer, rows):
@@ -96,7 +90,7 @@ def recover_projection(layout, *, expected_run_id: str | None = None):
     validate_manifest(layout, manifest)
     if expected_run_id is not None:
         validate_run_identity(manifest, expected_run_id)
-    recover_pending(layout)
+    recover_pending(layout, manifest)
     rows, windows = replay(layout, manifest)
     hashes = {layer: _recover_layer(layout, manifest, layer, rows) for layer in manifest["layers"]}
     from acprof.result_store.metadata import recover_metadata

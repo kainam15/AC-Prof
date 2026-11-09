@@ -101,30 +101,38 @@ def check_pending_replacement(layout: ArtifactLayout, manifest: dict, *,
                               cancelled: Callable[[], bool] | None = None,
                               byte_budget: list[int] | None = None) -> None:
     """Under the publication lock, reject replacements whose commit is not visible."""
-    check_cancelled(cancelled)
-    pending = layout.result_store_path("pending.json")
-    if pending.exists():
-        transaction = read_json_object(pending, bounded=False, cancelled=cancelled, byte_budget=byte_budget)
-        if transaction.get("replacements") and manifest["commit"] == transaction["before"]["commit"]:
-            raise ResultValidationError("result module replacement requires recovery")
+    transaction = read_pending(layout, manifest, cancelled=cancelled, byte_budget=byte_budget)
+    if transaction is not None and transaction["replacements"] and manifest == transaction["before"]:
+        raise ResultValidationError("result module replacement requires recovery")
+
+
+def reference_path(layout: ArtifactLayout, ref: dict | None) -> Path:
+    """Check reference structure and containment without reading its target."""
+    if (not isinstance(ref, dict) or set(ref) != {"path", "sha256"}
+            or not isinstance(ref["path"], str) or not ref["path"]
+            or not isinstance(ref["sha256"], str)
+            or re.fullmatch(r"[a-f0-9]{64}", ref["sha256"]) is None):
+        raise ResultValidationError("invalid result transaction reference")
+    try:
+        return layout.contained(ref["path"])
+    except ValueError as error:
+        raise ResultValidationError(f"invalid result transaction reference: {error}") from error
 
 
 def read_reference(layout: ArtifactLayout, ref: dict | None, *,
                    cancelled: Callable[[], bool] | None = None, byte_budget: list[int] | None = None) -> dict:
-    if (not isinstance(ref, dict) or set(ref) != {"path", "sha256"}
-            or not isinstance(ref["path"], str) or not isinstance(ref["sha256"], str)
-            or re.fullmatch(r"[a-f0-9]{64}", ref["sha256"]) is None):
-        raise ResultValidationError("invalid result transaction reference")
-    return read_json_object(layout.contained(ref["path"]), expected_sha256=ref["sha256"], bounded=False,
+    path = reference_path(layout, ref)
+    assert ref is not None  # reference_path rejects absent references.
+    return read_json_object(path, expected_sha256=ref["sha256"], bounded=False,
                             cancelled=cancelled, byte_budget=byte_budget)
 
 
-def validate_manifest(layout: ArtifactLayout, manifest: dict, *,
-                      cancelled: Callable[[], bool] | None = None, byte_budget: list[int] | None = None) -> dict[str, Path]:
-    check_cancelled(cancelled)
-    if (manifest.get("schema_version") != SCHEMA_VERSION
+def validate_manifest_fields(layout: ArtifactLayout, manifest: dict, *, committed: bool) -> dict[str, Path]:
+    """Validate one manifest shape without reading its commit or CSV projections."""
+    if (not isinstance(manifest, dict)
             or type(manifest.get("schema_version")) is not int
-            or manifest.get("state") not in STATES
+            or manifest["schema_version"] != SCHEMA_VERSION
+            or not isinstance(manifest.get("state"), str) or manifest["state"] not in STATES
             or not isinstance(manifest.get("run_id"), str) or not manifest["run_id"]
             or type(manifest.get("sequence")) is not int or manifest["sequence"] < 0
             or type(manifest.get("row_count")) is not int or manifest["row_count"] < 0
@@ -148,13 +156,67 @@ def validate_manifest(layout: ArtifactLayout, manifest: dict, *,
         if layer in BASE_LAYERS and info["row_count"] != manifest["row_count"]:
             raise ResultValidationError(f"incremental {layer} row count mismatch")
         paths[layer] = layout.layer_csv(layer)
-    commit = read_reference(layout, manifest.get("commit"), cancelled=cancelled, byte_budget=byte_budget)
-    if not layout.contained(manifest["commit"]["path"]).is_relative_to(layout.result_store_path("commits")):
-        raise ResultValidationError("result commit path is outside its journal")
+    if committed:
+        if not reference_path(layout, manifest.get("commit")).is_relative_to(layout.result_store_path("commits")):
+            raise ResultValidationError("result commit path is outside its journal")
+    elif "commit" in manifest:
+        raise ResultValidationError("uncommitted result manifest must not contain commit")
+    if "snapshot" in manifest:
+        if not reference_path(layout, manifest["snapshot"]).is_relative_to(layout.result_store_path("snapshots")):
+            raise ResultValidationError("result snapshot path is outside its journal")
+    return paths
+
+
+def validate_manifest(layout: ArtifactLayout, manifest: dict, *,
+                      cancelled: Callable[[], bool] | None = None, byte_budget: list[int] | None = None) -> dict[str, Path]:
+    check_cancelled(cancelled)
+    paths = validate_manifest_fields(layout, manifest, committed=True)
+    commit = read_reference(layout, manifest["commit"], cancelled=cancelled, byte_budget=byte_budget)
     if commit.get("after") != {k: v for k, v in manifest.items() if k != "commit"}:
         raise ResultValidationError("result manifest disagrees with its committed transaction")
     return paths
 
+
+def validate_pending_transaction(layout: ArtifactLayout, transaction: dict, manifest: dict) -> None:
+    """One runtime contract for both readable prefixes and recoverable transactions."""
+    if not isinstance(transaction, dict) or not {"before", "after", "replacements"} <= transaction.keys():
+        raise ResultValidationError("pending transaction requires before, after and replacements")
+    before, after, replacements = transaction["before"], transaction["after"], transaction["replacements"]
+    validate_manifest_fields(layout, before, committed=True)
+    validate_manifest_fields(layout, after, committed=False)
+    if (not isinstance(replacements, list)
+            or any(not isinstance(layer, str) or layer not in LAYER_FILES for layer in replacements)
+            or len(replacements) != len(set(replacements))):
+        raise ResultValidationError("invalid pending replacement layers")
+    if (any(before[name] != after[name] for name in ("schema_version", "run_id", "schema_sha256", "wide_fields"))
+            or after["sequence"] != before["sequence"] + 1 or after["row_count"] < before["row_count"]):
+        raise ResultValidationError("pending result transaction changes identity or sequence")
+    for layer in LAYER_FILES:
+        old, new = before["layers"][layer], after["layers"][layer]
+        replaced = layer in replacements
+        if (new["revision"] != old["revision"] + int(replaced)
+                or (not replaced and (new["committed_bytes"] < old["committed_bytes"]
+                                      or new["row_count"] < old["row_count"]))):
+            raise ResultValidationError(f"pending {layer} transition disagrees with replacements")
+    if manifest != before and {k: v for k, v in manifest.items() if k != "commit"} != after:
+        raise ResultValidationError("pending result transaction does not match current commit")
+
+
+def read_pending(layout: ArtifactLayout, manifest: dict, *,
+                 cancelled: Callable[[], bool] | None = None,
+                 byte_budget: list[int] | None = None) -> dict | None:
+    """Read and validate pending metadata without repairing or consuming evidence."""
+    check_cancelled(cancelled)
+    path = layout.result_store_path("pending.json")
+    if not path.exists():
+        return None
+    try:
+        transaction = read_json_object(path, bounded=False, cancelled=cancelled, byte_budget=byte_budget)
+        validate_pending_transaction(layout, transaction, manifest)
+    except ValueError as error:
+        raise ResultValidationError(f"invalid pending result transaction: {error}") from error
+    check_cancelled(cancelled)
+    return transaction
 
 class _CommittedPrefixReader(io.RawIOBase):
     """Hash one raw prefix without prefetching bytes from an uncommitted tail."""

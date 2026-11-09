@@ -19,6 +19,7 @@ from acprof.results.layout import ArtifactLayout
 from tests.measurement.profiling.test_posthoc import TestPosthocProfile as _PosthocFixture
 from tests.results.storage.test_projection_recovery import committed_store
 from tests.results.storage.test_result_generations import _write_legacy_snapshot
+from tests.support.result_store_fixtures import leave_pending_replacement
 
 
 def backup_context(tmp_path, version):
@@ -157,12 +158,11 @@ def test_incremental_copy_holds_one_publication_lock(tmp_path, monkeypatch):
         pass
 
 
-def test_pending_module_replacement_requires_source_recovery_before_backup(tmp_path):
+def test_pending_module_replacement_requires_source_recovery_before_backup(tmp_path, monkeypatch):
     context = backup_context(tmp_path, "v3")
     layout = ArtifactLayout.discover(context.result_dir)
-    manifest = json.loads(context.result_csv.read_bytes())
+    leave_pending_replacement(layout, monkeypatch)
     pending = layout.result_store_path("pending.json")
-    pending.write_text(json.dumps({"before": manifest, "replacements": {"summary": "pending"}}))
     with pytest.raises(ValueError, match="requires recovery"):
         storage.create_backup(context)
     assert list(layout.path("posthoc_backups").iterdir()) == []

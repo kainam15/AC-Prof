@@ -12,23 +12,16 @@ from acprof.result_store.protocol import publication_lock
 from acprof.result_store.reader import committed_content_digest, read_snapshot
 from acprof.result_store.writer import ResultWriter
 from tests.results.storage.test_committed_digest import expected_digest, make_store
+from tests.results.storage.test_incremental_results import receipt
 from tests.results.storage.test_sequential_result_reads import artifact_hashes
+from tests.support.result_store_fixtures import leave_pending_append, leave_pending_replacement
 
 
 @pytest.fixture
 def interrupted_store(tmp_path, monkeypatch):
     layout = make_store(tmp_path)
     snapshot = read_result_csv_snapshot(layout.result_csv)
-    with ResultWriter(tmp_path) as writer:
-        def fail_replacement(*_args):
-            raise OSError("interrupted before module replacement")
-
-        with monkeypatch.context() as scoped:
-            scoped.setattr(writer_module, "write_bytes", fail_replacement)
-            with pytest.raises(OSError, match="before module replacement"):
-                writer.update_rows([{**row, "latency_app_s": "9"} for row in writer.rows.values()],
-                                   reason="fixture replacement")
-    assert layout.result_store_path("pending.json").exists()
+    leave_pending_replacement(layout, monkeypatch)
     return layout, snapshot
 
 
@@ -79,12 +72,11 @@ def test_committed_replacement_with_leftover_journal_is_readable(tmp_path, monke
     assert artifact_hashes(layout) == before
 
 
-def test_pending_append_remains_a_readable_committed_prefix(tmp_path):
+def test_pending_append_remains_a_readable_committed_prefix(tmp_path, monkeypatch):
     layout = make_store(tmp_path)
     snapshot = read_result_csv_snapshot(layout.result_csv)
-    manifest = json.loads(layout.result_csv.read_text())
+    leave_pending_append(layout, receipt(tmp_path, 1), monkeypatch)
     pending = layout.result_store_path("pending.json")
-    pending.write_text(json.dumps({"before": manifest, "after": {}, "replacements": []}))
     with layout.layer_csv("summary").open("ab") as stream:
         stream.write(b'\xff,"unfinished append')
     expected, consumed = expected_digest(layout)
@@ -126,9 +118,9 @@ def test_pending_read_can_be_cancelled_without_returning_verified_content(interr
 def test_duplicate_digest_pending_read_respects_the_shared_byte_budget(interrupted_store):
     layout, _snapshot = interrupted_store
     pending = layout.result_store_path("pending.json")
-    manifest = json.loads(layout.result_csv.read_text())
+    transaction = json.loads(pending.read_bytes())
     # Leave enough for all regular metadata but not the large pending document.
-    pending.write_text(json.dumps({"before": manifest, "replacements": [], "detail": "x" * (1024 * 1024)}))
+    pending.write_text(json.dumps({**transaction, "detail": "x" * (1024 * 1024)}))
     budget = [expected_digest(layout)[1] + 4096]
     with pytest.raises(ValueError, match="byte budget"):
         committed_content_digest(layout.root, cancelled=lambda: False, budget=budget)

@@ -281,10 +281,18 @@ publication lock 内核对同一身份，不启动 writer，也不修复或清�
 网络解析可能影响 performance、network、resources 和 profiler 派生速率；仅对实际变化的
 模块做原子替换。变更字段、原因和 checkpoint/profiler 来源保存在 `raw/result_updates/`，
 原始窗口行不改写。跨模块替换中断后，统一按最后提交及原始来源恢复。
-snapshot 读取、来源内容复核和实验目录去重共用 publication lock 内的 pending 检查：
+snapshot 读取、来源内容复核、实验目录去重、审计和 writer 恢复共用 publication lock 内的
+pending 运行时契约：`before` 必须是含 commit 引用的完整清单，`after` 必须是下一序号且不含
+commit 引用的完整清单，`replacements` 必须显式列出无重复的合法层名。两份清单的 run/schema
+身份和字段归属不变，层 revision 与替换声明一致，当前清单必须精确对应事务前或事务后。
+缺字段、错误类型、无效引用及不一致事务以 `ResultValidationError` 拒绝；审计返回 invalid，
+不会把缺少替换声明默认为安全追加，也不会先截尾或清除 pending。
 根清单仍指向替换前提交时，即使旧 CSV 字节未变，也须先恢复再读取。追加事务的已提交
 前缀仍可读；新清单已提交但 pending 尚未清除时，按新清单校验。检查失败不会改写产物，
-pending 读取继续遵守取消信号和调用方共享字节预算。
+pending 读取继续遵守取消信号和调用方共享字节预算，结构检查不额外读取历史 commit。
+共享解码与明确区分损坏日志、可恢复尾部的做法参考
+[etcd WAL repair](https://github.com/etcd-io/etcd/blob/main/server/storage/wal/repair.go)；
+这里只复用本地协议校验，不新增存储后端或验证框架。
 
 实现借鉴 [Delta transaction log](https://github.com/delta-io/delta/blob/master/PROTOCOL.md)
 的数据先持久化、再提交可见版本的顺序，以及

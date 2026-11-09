@@ -10,6 +10,7 @@ from acprof.results import csv as result_csv
 from acprof.results.layout import ArtifactLayout
 from tests.analysis.comparison.test_comparison_source_integrity import incremental_copy, legacy_snapshot
 from tests.support.comparison_fixtures import ComparisonFixture
+from tests.support.result_store_fixtures import leave_pending_replacement
 
 
 @pytest.fixture(params=[1, 2, 3])
@@ -71,8 +72,7 @@ def test_private_snapshot_rejects_source_changes_after_parsing(source, monkeypat
         elif damage == "manifest":
             source.write_bytes(source.read_bytes() + b"\n")
         elif manifest["schema_version"] == 3:
-            ArtifactLayout.discover(source.parent).result_store_path("pending.json").write_text(json.dumps({
-                "before": manifest, "after": {}, "replacements": ["summary"]}))
+            leave_pending_replacement(ArtifactLayout.discover(source.parent), monkeypatch)
         else:
             # A replaced generation is visible even when it names the same rows.
             source.write_bytes(source.read_bytes() + b" ")

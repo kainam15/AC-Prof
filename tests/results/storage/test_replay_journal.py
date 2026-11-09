@@ -10,7 +10,11 @@ import pytest
 from tests.support.result_store_fixtures import assert_writer_lease_available
 from tests.results.storage.test_incremental_results import receipt
 from tests.results.storage.test_projection_recovery import committed_store
+from tests.results.storage.test_sequential_result_reads import artifact_hashes
 
+from acprof.result_store.protocol import publication_lock
+
+from acprof.results.csv import ResultValidationError
 from acprof.results.layers import read_result_layers
 from acprof.result_store.writer import ResultWriter
 
@@ -114,17 +118,47 @@ def test_historical_checks_remain_required_with_valid_reference_hashes(tmp_path,
     assert layout.result_csv.read_bytes() == manifest
 
 
-@pytest.mark.parametrize("field", ["sources", "row_count"])
+@pytest.mark.parametrize("field", ["sources", "row_count", "previous"])
 def test_missing_historical_replay_inputs_are_not_defaulted(tmp_path, field):
     layout = state_history(tmp_path, checkpoints=3)
 
     def mutate(record):
-        (record if field == "sources" else record["after"]).pop(field)
+        (record if field in {"sources", "previous"} else record["after"]).pop(field)
 
     rewrite_history(layout, 2, mutate)
-    with pytest.raises(KeyError, match=field):
+    before = artifact_hashes(layout)
+    with pytest.raises(ResultValidationError, match=field):
         with ResultWriter(tmp_path):
             pytest.fail("missing historical replay input was accepted")
+    assert artifact_hashes(layout) == before
+    assert_writer_lease_available(layout)
+    with publication_lock(layout, exclusive=True, blocking=False):
+        pass
+
+
+@pytest.mark.parametrize(("field", "value", "error"), [
+    ("previous", {}, "reference"),
+    ("previous", [], "reference"),
+    ("sources", {}, "sources"),
+    ("sources", [None], "source"),
+    ("sources", [{}], "source"),
+    ("sources", [{"kind": ["window"]}], "source"),
+    ("sources", [{"kind": "window"}], "reference"),
+    ("sources", [{"kind": "window", "reference": {"path": 1, "sha256": "a" * 64}}], "reference"),
+])
+def test_historical_replay_structures_fail_before_projection_writes(tmp_path, field, value, error):
+    layout = state_history(tmp_path, checkpoints=3)
+    rewrite_history(layout, 2, lambda record: record.update({field: value}))
+    with layout.layer_csv("energy").open("ab") as stream:
+        stream.write(b"uncommitted tail")
+    before = artifact_hashes(layout)
+    with pytest.raises(ResultValidationError, match=error):
+        with ResultWriter(tmp_path):
+            pytest.fail("invalid historical replay structure was accepted")
+    assert artifact_hashes(layout) == before
+    assert_writer_lease_available(layout)
+    with publication_lock(layout, exclusive=True, blocking=False):
+        pass
 
 
 def test_replay_preserves_window_derivation_and_checkpoint_order(tmp_path):

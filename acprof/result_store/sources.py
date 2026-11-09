@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from acprof.artifacts import file_sha256
-from acprof.result_store.protocol import IDENTITY_FIELDS, read_reference
+from acprof.result_store.protocol import IDENTITY_FIELDS, read_reference, reference_path
 from acprof.results.csv import ResultValidationError, measurement_key
 from acprof.results.layout import ArtifactLayout
 from acprof.results.windows import read_window_record, verify_window_record_evidence
@@ -88,15 +88,27 @@ def replay(layout, manifest):
     ref = manifest["commit"]
     expected_sequence = manifest["sequence"]
     while ref is not None:
-        path = layout.contained(ref["path"])
+        path = reference_path(layout, ref)
         if not path.is_relative_to(layout.result_store_path("commits")):
             raise ResultValidationError("result commit path is outside its journal")
         commit = read_reference(layout, ref)
-        after = commit.get("after", {})
-        if (commit.get("schema_version") != 1 or after.get("sequence") != expected_sequence
+        after = commit.get("after")
+        if (type(commit.get("schema_version")) is not int or commit["schema_version"] != 1
+                or not isinstance(after, dict) or type(after.get("sequence")) is not int
+                or after["sequence"] != expected_sequence
                 or after.get("run_id") != manifest["run_id"]
                 or after.get("schema_sha256") != manifest["schema_sha256"]):
             raise ResultValidationError("broken result commit chain")
+        if type(after.get("row_count")) is not int or after["row_count"] < 0:
+            raise ResultValidationError("invalid result commit row_count")
+        if not isinstance(commit.get("sources"), list):
+            raise ResultValidationError("invalid result commit sources")
+        if "previous" not in commit:
+            raise ResultValidationError("missing result commit previous reference")
+        for source in commit["sources"]:
+            if not isinstance(source, dict) or source.get("kind") not in ("window", "derivation"):
+                raise ResultValidationError("invalid result commit source")
+            reference_path(layout, source.get("reference"))
         # Keep replay inputs without retaining every historical manifest.
         commits.append((after["row_count"], commit["sources"]))
         expected_sequence -= 1
