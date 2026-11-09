@@ -1,6 +1,7 @@
 """Join packet samples through HTTP request identity, never frame position."""
 import csv
 import json
+import math
 
 import pytest
 
@@ -12,6 +13,20 @@ def test_request_identity_excludes_tshark_header_line_ending(ending):
     # Real TShark field values append an escaped line ending to each header.
     headers = f"Host: fixture,X-Req-Id: window:0{ending},Connection: close"
     assert sniff_parse_pcap.extract_request_id(headers) == "window:0"
+
+
+@pytest.mark.parametrize("invalid", [None, "", "not-a-number", object()])
+def test_invalid_packet_numeric_value_is_unknown(invalid):
+    assert math.isnan(merge_packet_latency._to_float(invalid))
+
+
+def test_packet_numeric_converter_fault_is_not_silently_hidden():
+    class FaultyNumber:
+        def __float__(self):
+            raise RuntimeError("unexpected number converter failure")
+
+    with pytest.raises(RuntimeError, match="unexpected number converter failure"):
+        merge_packet_latency._to_float(FaultyNumber())
 
 
 def _write_inputs(tmp_path, payload):

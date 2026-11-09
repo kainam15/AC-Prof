@@ -32,7 +32,7 @@ NETWORK_RECORD_TO_CSV_FIELD = {
 def _to_float(value: object) -> float:
     try:
         return float(cast(str | SupportsFloat | SupportsIndex, value))
-    except Exception:
+    except (TypeError, ValueError, OverflowError):
         return float("nan")
 
 

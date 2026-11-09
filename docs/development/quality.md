@@ -148,6 +148,10 @@ Ruff 版本由 [`pyproject.toml`](../../pyproject.toml) 的 `required-version` �
 以及 `container/handlers/{multimodal,diffusion}.py`、`results/task_collections.py`、
 `workloads/{spec,cv,diffusion,multimodal,structured}.py` 启用 `C901`，使用
 `tool.ruff.lint.mccabe.max-complexity = 12`；其它高复杂度存量先分阶段治理，不以全仓豁免换取门禁通过。
+`packet-blind-except` hook 仅对 `acprof/packet/*.py` 启用 `BLE001`，防止网络包与延迟回填
+把非预期程序错误误报为数据缺失；输入类型或数值格式错误仍可按既有协议表示为 `NaN`。
+其它包先按错误传播和清理契约审计，再增量扩展门禁，不能仅为了规则通过而吞异常或伪造数值。
+
 公共导出用显式重导出或 `__all__` 表达；必须先设置路径、环境或验证缺失依赖的 import，
 只在对应行标注具体规则及原因，不统一忽略 `__init__.py`。
 
