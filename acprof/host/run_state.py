@@ -184,6 +184,26 @@ def _state_reference(layout: ArtifactLayout, value: object, field: str) -> None:
         raise RunStateError(f"run_state.json 字段 {field}.size 无效：需要非负整数")
 
 
+def _validate_cleanup_process(layout: ArtifactLayout, evidence: object, field: str) -> None:
+    if not isinstance(evidence, dict):
+        raise RunStateError(f"run_state.json 字段 {field} 无效：需要进程所有权对象")
+    if not evidence:
+        return  # Historical empty cleanup evidence is an absent optional record.
+    for name in ("owner", "workload"):
+        identity = evidence.get(name, {})
+        if not isinstance(identity, dict) or (name == "workload" and not identity):
+            raise RunStateError(f"run_state.json 字段 {field}.{name} 无效：需要进程身份对象")
+        if identity:
+            for key, minimum in (("pid", 1), ("start_ticks", 0)):
+                if type(identity.get(key)) is not int or identity[key] < minimum:
+                    raise RunStateError(f"run_state.json 字段 {field}.{name}.{key} 无效")
+    source = _state_text(evidence.get("status_file"), f"{field}.status_file")
+    path = Path(source).absolute()
+    if path.parent != layout.path("logs").absolute() or not path.name.endswith(".process.json"):
+        raise RunStateError(f"run_state.json 字段 {field}.status_file 无效：必须位于本实验 logs")
+    _state_path(layout, path.relative_to(layout.root).as_posix(), f"{field}.status_file")
+
+
 def _validate_case_state(layout: ArtifactLayout, record: object, field: str) -> None:
     if not isinstance(record, dict):
         raise RunStateError(f"原实验的 case 或产物记录无效。字段：{field}")
@@ -220,9 +240,45 @@ def _validate_case_state(layout: ArtifactLayout, record: object, field: str) -> 
         _state_reference(layout, record.get("measurement_checkpoint"), f"{field}.measurement_checkpoint")
     if "backup" in record:
         _state_path(layout, record["backup"], f"{field}.backup")
+    if "cleanup_process" in record:
+        _validate_cleanup_process(layout, record["cleanup_process"], f"{field}.cleanup_process")
     previous = record.get("previous_attempts", [])
     if not isinstance(previous, list):
         raise RunStateError(f"run_state.json 字段 {field}.previous_attempts 无效：需要列表")
+
+
+def _validate_selected_tasks(task: dict) -> None:
+    selected_tasks = task.get("selected_tasks", [])
+    if not isinstance(selected_tasks, list):
+        raise RunStateError("run_state.json 字段 runtime.task.selected_tasks 无效：需要列表")
+    for index, selected in enumerate(selected_tasks):
+        field = f"runtime.task.selected_tasks[{index}]"
+        if not isinstance(selected, dict):
+            raise RunStateError(f"run_state.json 字段 {field} 无效：需要任务对象")
+        profile = selected.get("execution_profile", {})
+        if not isinstance(profile, dict):
+            raise RunStateError(f"run_state.json 字段 {field}.execution_profile 无效")
+        signature = profile.get("signature", {})
+        if not isinstance(signature, dict):
+            raise RunStateError(f"run_state.json 字段 {field}.execution_profile.signature 无效")
+        if "execution" not in signature:
+            continue  # Match the existing legacy branch in validate_execution_identity.
+        for name in ("task_id", "interface", "kind", "fingerprint"):
+            _state_text(selected.get(name), f"{field}.{name}")
+        _state_text(signature.get("backend"), f"{field}.execution_profile.signature.backend", empty=True)
+        if not isinstance(signature["execution"], dict):
+            raise RunStateError(f"run_state.json 字段 {field}.execution_profile.signature.execution 无效")
+        config = selected.get("config")
+        if not isinstance(config, dict):
+            raise RunStateError(f"run_state.json 字段 {field}.config 无效")
+        generation = config.get("generation", {})
+        if not isinstance(generation, dict):
+            raise RunStateError(f"run_state.json 字段 {field}.config.generation 无效")
+        from acprof.tasks.groups import inference_signature
+        try:
+            inference_signature(selected, backend=signature["backend"])
+        except (ValueError, TypeError, OverflowError) as exc:
+            raise RunStateError(f"run_state.json 字段 {field}.config.generation 无效：{exc}") from exc
 
 
 def _validate_runtime_state(layout: ArtifactLayout, runtime: object, options: dict) -> None:
@@ -248,6 +304,24 @@ def _validate_runtime_state(layout: ArtifactLayout, runtime: object, options: di
     for name in ("model_id", "pipeline_tag", "task_family", "runtime_backend",
                  "library_name", "model_revision", "detection_method"):
         _state_text(runtime["task"].get(name), f"runtime.task.{name}", empty=True)
+    task = runtime["task"]
+    repository_files = task.get("repository_files", ())
+    if (not isinstance(repository_files, (list, tuple)) or
+            any(not isinstance(name, str) for name in repository_files)):
+        raise RunStateError("run_state.json 字段 runtime.task.repository_files 无效：需要字符串序列")
+    for name in ("model_config", "repository_metadata", "model_resolution", "model_spec"):
+        if not isinstance(task.get(name, {}), dict):
+            raise RunStateError(f"run_state.json 字段 runtime.task.{name} 无效：需要对象")
+    resolution = task.get("model_resolution", {})
+    for name in ("contract", "generated_spec"):
+        if name in resolution and not isinstance(resolution[name], dict):
+            raise RunStateError(f"run_state.json 字段 runtime.task.model_resolution.{name} 无效")
+    if not isinstance(task.get("repository_metadata", {}).get("acprof_model.json", {}), dict):
+        raise RunStateError("run_state.json 字段 runtime.task.repository_metadata.acprof_model.json 无效")
+    pipelines = task.get("model_config", {}).get("custom_pipelines")
+    if pipelines is not None and not isinstance(pipelines, dict):
+        raise RunStateError("run_state.json 字段 runtime.task.model_config.custom_pipelines 无效")
+    _validate_selected_tasks(runtime["task"])
     image_fields = ("python", "code_root", "model_path", "environment_id") if kind == "process" else ("tag",)
     for name in image_fields:
         _state_text(runtime["image"].get(name), f"runtime.image.{name}")
@@ -331,6 +405,11 @@ def _validate_run_state(layout: ArtifactLayout, data: object) -> None:
     for name, record in data["cases"].items():
         field = f"cases[{name!r}]"
         _state_path(layout, name, field)
+        if layout.layout_version == 2:
+            try:
+                layout.case_from_csv(layout.contained(name))
+            except ValueError as exc:
+                raise RunStateError(f"run_state.json 字段 {field} 无效：{exc}") from exc
         pending_cases.append((record, field))
     while pending_cases:
         record, field = pending_cases.pop()
@@ -419,6 +498,13 @@ def validate_resume(directory: str | Path, data: dict, *, project_dir: str | Pat
             issues.append(message("{0}已变化", message(labels.get(name, "主机身份（{0}）"), name)))
     if issues:
         raise RunStateError(message("无法续跑；请使用新实验保留原结果。\n{0}", join_messages("\n", issues)))
+    if "runtime" in data:
+        from acprof.host.detect import TaskInfo
+        from acprof.tasks.interfaces import validate_execution_identity
+        try:
+            validate_execution_identity(TaskInfo(**data["runtime"]["task"]))
+        except ValueError as exc:
+            raise RunStateError(f"run_state.json 字段 runtime.task.selected_tasks 无效：{exc}") from exc
     phase = recovery_phase(directory, data)
     complete = phase == "complete"
     if repair:

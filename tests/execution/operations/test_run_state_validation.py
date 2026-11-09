@@ -77,12 +77,36 @@ BAD_FIELDS = [
     pytest.param(("runtime", "image", "unknown"), {}, "runtime.image", id="image-unknown-field"),
     pytest.param(("runtime", "planned", "unknown"), {}, "runtime.planned", id="planned-unknown-field"),
     pytest.param(("runtime", "planned", "scales"), [10**400], "scales", id="scale-overflow"),
+    pytest.param(("runtime", "task", "selected_tasks"), {}, "selected_tasks", id="review-selected-container"),
+    pytest.param(("runtime", "task", "selected_tasks"), [None], "selected_tasks", id="review-selected-member"),
+    pytest.param(("runtime", "task", "selected_tasks"), [{"execution_profile": []}],
+                 "execution_profile", id="review-profile-container"),
+    pytest.param(("runtime", "task", "selected_tasks"), [{"execution_profile": {"signature": []}}],
+                 "signature", id="review-signature-container"),
+    pytest.param(("runtime", "task", "selected_tasks"),
+                 [{"execution_profile": {"signature": {"execution": {}}}}],
+                 "selected_tasks", id="review-execution-fields"),
+    pytest.param(("cases",), {"wrong.csv": {"status": "running"}}, "wrong.csv", id="review-case-route"),
+    pytest.param(("cases", ".acprof/work/cases/1c_4g_off/result.csv", "cleanup_process"),
+                 True, "cleanup_process", id="review-cleanup-boolean"),
+    pytest.param(("cases", ".acprof/work/cases/1c_4g_off/result.csv", "cleanup_process"),
+                 [{}], "cleanup_process", id="review-cleanup-list"),
+    pytest.param(("cases", ".acprof/work/cases/1c_4g_off/result.csv", "cleanup_process"),
+                 {"owner": [], "workload": {}, "status_file": "x"},
+                 "cleanup_process", id="review-cleanup-owner"),
+    pytest.param(("cases", ".acprof/work/cases/1c_4g_off/result.csv", "cleanup_process"),
+                 {"owner": {}, "workload": [1], "status_file": "x"},
+                 "cleanup_process", id="review-cleanup-workload"),
+    pytest.param(("cases", ".acprof/work/cases/1c_4g_off/result.csv", "cleanup_process"),
+                 {"owner": {}, "workload": {"pid": True, "start_ticks": 1}, "status_file": "x"},
+                 "cleanup_process", id="review-cleanup-pid"),
+    pytest.param(("cases", ".acprof/work/cases/1c_4g_off/result.csv", "cleanup_process"),
+                 {"owner": {}, "workload": {"pid": 1, "start_ticks": 1}, "status_file": []},
+                 "cleanup_process", id="review-cleanup-status-file"),
 ]
 
 
-@pytest.mark.parametrize(("keys", "bad", "diagnostic"), BAD_FIELDS)
-@pytest.mark.parametrize("entry", ["load", "preview", "repair", "constructor"])
-def test_malformed_state_is_rejected_without_recovery_side_effects(
+def assert_malformed_state_rejected(
         recovery_state, monkeypatch, keys, bad, diagnostic, entry):
     state = recovery_state
     data = copy.deepcopy(state.data)
@@ -114,6 +138,13 @@ def test_malformed_state_is_rejected_without_recovery_side_effects(
     assert tree_bytes(state.directory) == before
     with run_state.MeasurementLock(), run_state.ResultDirectoryLock(state.directory):
         pass
+
+
+@pytest.mark.parametrize(("keys", "bad", "diagnostic"), BAD_FIELDS)
+@pytest.mark.parametrize("entry", ["load", "preview", "repair", "constructor"])
+def test_malformed_state_is_rejected_without_recovery_side_effects(
+        recovery_state, monkeypatch, keys, bad, diagnostic, entry):
+    assert_malformed_state_rejected(recovery_state, monkeypatch, keys, bad, diagnostic, entry)
 
 
 @pytest.mark.parametrize("entry", ["load", "preview", "constructor"])
@@ -148,3 +179,92 @@ def test_valid_measurement_state_is_readable_and_resumable(recovery_state):
         assert len(resumed.data["attempts"]) == 2
     finally:
         resumed.close()
+
+
+@pytest.mark.parametrize("entry", ["preview", "repair", "constructor"])
+def test_execution_identity_is_checked_before_resume_recovery(recovery_state, monkeypatch, entry):
+    selected = {
+        "task_id": "fixture", "interface": "fill-mask", "kind": "fill-mask", "config": {},
+        "fingerprint": "0" * 64,
+        "execution_profile": {"signature": {"backend": "transformers_pipeline", "execution": {}}},
+    }
+    assert_malformed_state_rejected(
+        recovery_state, monkeypatch, ("runtime", "task", "selected_tasks"),
+        [selected], "selected_tasks", entry,
+    )
+
+
+@pytest.mark.parametrize("selection", [[], [{}], [{"execution_profile": {"signature": {}}}]])
+def test_legacy_task_selection_remains_readable(recovery_state, selection):
+    state = recovery_state
+    state.data["runtime"]["task"]["selected_tasks"] = selection
+    state.save()
+    before = tree_bytes(state.directory)
+    data = run_state.load_run_state(state.directory)
+    assert run_state.validate_resume(state.directory, data, project_dir=".") == "measurement"
+    assert tree_bytes(state.directory) == before
+
+
+def test_historical_minimal_process_cleanup_identity_remains_readable(recovery_state):
+    state = recovery_state
+    record = next(iter(state.data["cases"].values()))
+    record["cleanup_process"] = {
+        "owner": {"pid": 2147483647, "start_ticks": 1},
+        "workload": {"pid": 2147483646, "start_ticks": 1},
+        "status_file": str(state.layout.path("logs") / "owned.process.json"),
+    }
+    state.save()
+    before = tree_bytes(state.directory)
+    data = run_state.load_run_state(state.directory)
+    assert run_state.validate_resume(state.directory, data, project_dir=".") == "measurement"
+    assert tree_bytes(state.directory) == before
+
+
+def bind_current_execution_identity(state):
+    from acprof.tasks.groups import group_inference_tasks
+    from acprof.tasks.interfaces import execution_path
+    from acprof.tasks.workloads import parse_task, task_fingerprint
+
+    task = TaskInfo(**state.data["runtime"]["task"])
+    selected = parse_task("fill-mask", {}, encoder_decoder=False, source="fixture")
+    selected["execution_path"] = execution_path(task, "fill-mask", backend=task.runtime_backend)
+    selected["fingerprint"] = task_fingerprint(selected)
+    state.data["runtime"]["task"]["selected_tasks"] = group_inference_tasks(
+        [selected], backend=task.runtime_backend)
+
+
+@pytest.mark.parametrize("repository_files", [("config.json",), ["config.json"]])
+def test_current_execution_identity_remains_resumable(recovery_state, repository_files):
+    state = recovery_state
+    state.data["runtime"]["task"]["repository_files"] = repository_files
+    bind_current_execution_identity(state)
+    state.save()
+    before = tree_bytes(state.directory)
+    data = run_state.load_run_state(state.directory)
+    for snapshot in (data, state.data):
+        assert run_state.validate_resume(state.directory, snapshot, project_dir=".") == "measurement"
+    assert tree_bytes(state.directory) == before
+
+
+@pytest.mark.parametrize("bad", [True, None, [{}]])
+@pytest.mark.parametrize("entry", ["load", "preview", "repair", "constructor"])
+def test_repository_files_are_validated_before_execution_identity(
+        recovery_state, monkeypatch, bad, entry):
+    bind_current_execution_identity(recovery_state)
+    assert_malformed_state_rejected(
+        recovery_state, monkeypatch, ("runtime", "task", "repository_files"),
+        bad, "runtime.task.repository_files", entry,
+    )
+
+
+def test_flat_case_routes_keep_the_existing_compatibility_branch(recovery_state, tmp_path):
+    directory = tmp_path / "flat"
+    directory.mkdir()
+    data = copy.deepcopy(recovery_state.data)
+    data["layout_version"] = 1
+    data["cases"] = {"historical.csv": next(iter(data["cases"].values()))}
+    (directory / "run_state.json").write_text(json.dumps(data))
+    before = tree_bytes(directory)
+    loaded = run_state.load_run_state(directory)
+    assert run_state.validate_resume(directory, loaded, project_dir=".") == "measurement"
+    assert tree_bytes(directory) == before
