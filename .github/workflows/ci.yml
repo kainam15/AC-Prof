@@ -360,7 +360,8 @@ jobs:
           ACPROF_WECOM_WEBHOOK_URL: ''
         run: |
           mkdir -p evidence/browser
-          uv run --locked --only-group browser python scripts/run_tests.py --pattern test_report_browser.py \
+          uv run --locked --only-group browser python scripts/run_tests.py \
+            --directory tests/analysis/reporting --pattern test_report_browser.py \
             --report evidence/browser/tests.json --require-no-skips 2>&1 | tee evidence/browser/tests.log
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()

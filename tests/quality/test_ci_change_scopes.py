@@ -98,6 +98,13 @@ def test_host_summary_skips_when_host_is_not_requested(workflow):
     assert "needs.changes.result == 'success'" in summary["if"]
 
 
+def test_browser_job_excludes_same_named_tui_tests(workflow):
+    steps = workflow["jobs"]["report-browser"]["steps"]
+    test_step = next(step for step in steps if "scripts/run_tests.py" in step.get("run", ""))
+    assert "--directory tests/analysis/reporting" in test_step["run"]
+    assert "--pattern test_report_browser.py" in test_step["run"]
+
+
 def test_job_policy(workflow):
     jobs = workflow["jobs"]
     assert not jobs["docs-check"].get("needs")
