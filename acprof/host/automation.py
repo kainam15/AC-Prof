@@ -87,7 +87,8 @@ class AutomaticRun:
         if not args.resume:
             self.layout.initialize()
         grouped = args.resume and (self.root / "metadata" / "task_runs").is_dir()
-        saved = load_run_state(self.root) if args.resume and not grouped else {}
+        saved = load_run_state(self.root) if args.resume and not grouped else None
+        frozen_runtime = saved.get("runtime") if saved is not None else None
         previous = {}
         if args.resume:
             previous = read_json_object(self.path, label="auto_report.json")
@@ -100,14 +101,17 @@ class AutomaticRun:
         self.started = True
         self.save()
         self.data["stage"] = "resolution"
-        if saved.get("runtime") or grouped:
+        if frozen_runtime is not None or grouped:
             if grouped:
                 from acprof.experiments.configuration import RunConfig
                 from acprof.results.task_collections import read_task_collection
                 _, group = read_task_collection(self.root, run_id=RunConfig.from_namespace(args).task_run_id)
-                task = TaskInfo(**group["task_snapshot"])
+                task_snapshot: object = group["task_snapshot"]
             else:
-                task = TaskInfo(**saved["runtime"]["task"])
+                task_snapshot = frozen_runtime["task"] if frozen_runtime is not None else None
+            if not isinstance(task_snapshot, dict):
+                raise ValueError("frozen task snapshot must be an object")
+            task = TaskInfo(**task_snapshot)
             if args.revision and args.revision != task.model_revision:
                 raise ValueError("resume revision differs from the frozen snapshot")
             self.data["access"] = {"status": "not_requested", "reason": "resume reuses immutable local image"}
@@ -133,7 +137,7 @@ class AutomaticRun:
             require_task_support(task, batch_size=args.batch_size)
         if not pinned_revision(task.model_revision):
             raise ValueError("automatic collection requires a full model commit SHA")
-        if not saved.get("runtime") and not grouped:
+        if frozen_runtime is None and not grouped:
             for dependency in task_model_spec(task).get("dependencies", []):
                 self.data["access"]["repositories"].append(check_repository_access(dependency["repo_id"],
                     revision=dependency["revision"]))
@@ -157,7 +161,10 @@ class AutomaticRun:
             )]
         self.data["host_checks"] = [asdict(check) for check in checks]
         actual, reasons = select_profiling_mode(args.profiling_mode, checks)
-        frozen_mode = saved.get("options", {}).get("profiling_mode") or previous.get("profiling_mode")
+        saved_options = saved["options"] if saved is not None else {}
+        if not isinstance(saved_options, dict):
+            raise ValueError("frozen options must be an object")
+        frozen_mode = saved_options.get("profiling_mode") or previous.get("profiling_mode")
         if frozen_mode and frozen_mode != actual:
             raise ValueError("host capability change would alter the frozen profiling mode; use a new output directory")
         args.profiling_mode = actual

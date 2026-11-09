@@ -448,8 +448,8 @@ class _CaseExecution:
     ) -> None:
         try:
             from acprof.host.measurement.window_recovery import archived_captures
-            record = self.run_state.case_record(self.out_csv) if self.run_state is not None else {}
-            segments = archived_captures(self.case, record)
+            segments = (archived_captures(self.case, self.run_state.case_record(self.out_csv))
+                        if self.run_state is not None else [])
             _finalize_case(
                 capture_available, sniff_runtime, outcome.incomplete, outcome.completed_rows,
                 outcome.reason, str(self.case.pcap), str(self.case.latency), self.out_csv,

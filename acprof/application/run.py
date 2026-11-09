@@ -299,7 +299,8 @@ class RunApplication:
 
         from acprof.results.layout import ArtifactLayout
         has_run_state = ArtifactLayout.discover(terminal_output_dir).path("run_state.json").exists()
-        saved_run = load_run_state(terminal_output_dir) if args.resume and has_run_state else {}
+        saved_run = load_run_state(terminal_output_dir) if args.resume and has_run_state else None
+        frozen_runtime = saved_run.get("runtime") if saved_run is not None else None
         collection = None
         if args.resume and not saved_run and not task_child:
             from acprof.application.task_runs import TaskCollection
@@ -308,7 +309,7 @@ class RunApplication:
         from acprof.host.runtimes.selection import require_runtime_requests, select_runtime
         requested_runtime = args.runtime
         if args.resume and requested_runtime == "auto":
-            requested_runtime = saved_run.get("runtime", {}).get("kind", "docker")
+            requested_runtime = frozen_runtime.get("kind", "docker") if frozen_runtime is not None else "docker"
         selection = select_runtime(requested_runtime, profiling_mode=args.profiling_mode)
         args.runtime = selection.selected
         args.runtime_selection = selection.to_dict()
@@ -320,9 +321,12 @@ class RunApplication:
             print("[runtime] Startup OOM pruning is Docker-only; Process cases run independently")
             args.prune_startup_oom = False
         print(f"[runtime] {selection.selected}: {selection.reason}")
-        if saved_run.get("runtime"):
+        if frozen_runtime is not None:
             from acprof.host.detect import TaskInfo
-            initial_task = TaskInfo(**saved_run["runtime"]["task"])
+            task_snapshot = frozen_runtime["task"]
+            if not isinstance(task_snapshot, dict):
+                raise ValueError("frozen task snapshot must be an object")
+            initial_task = TaskInfo(**task_snapshot)
         else:
             initial_task = prepared_task
         task_info = workflow.resolve(args, initial=initial_task)

@@ -38,7 +38,7 @@ def _evidence(case: CaseArtifacts, path: Path) -> dict[str, Any]:
             "sha256": file_sha256(path), "size": path.stat().st_size}
 
 
-def _verify_file(case: CaseArtifacts, record: dict) -> Path:
+def _verify_file(case: CaseArtifacts, record: object) -> Path:
     if not isinstance(record, dict) or set(record) != {"path", "sha256", "size"}:
         raise ValueError("Invalid measurement evidence reference")
     path = case.layout.contained(record["path"])
@@ -240,7 +240,7 @@ def publish_measurement_checkpoint(case: CaseArtifacts, *, run_id: str, attempt_
     return _evidence(case, destination / "checkpoint.json")
 
 
-def read_measurement_checkpoint(case: CaseArtifacts, reference: dict, *, run_id: str,
+def read_measurement_checkpoint(case: CaseArtifacts, reference: object, *, run_id: str,
                                 attempt_id: str, expected) -> dict:
     """Reject changed evidence before any derived projection is overwritten."""
     path = _verify_file(case, reference)

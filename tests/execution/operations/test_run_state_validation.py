@@ -1,6 +1,8 @@
 """Reject malformed recovery state before restoring any disposable evidence."""
 import copy
 import json
+import subprocess
+import sys
 
 import pytest
 
@@ -268,3 +270,87 @@ def test_flat_case_routes_keep_the_existing_compatibility_branch(recovery_state,
     loaded = run_state.load_run_state(directory)
     assert run_state.validate_resume(directory, loaded, project_dir=".") == "measurement"
     assert tree_bytes(directory) == before
+
+def test_typed_state_preserves_open_metadata_and_case_history(recovery_state):
+    state = recovery_state
+    case_name, record = next(iter(state.data["cases"].items()))
+    state.data["created_at"] = {"legacy_timestamp": ["retained"]}
+    state.data["future_evidence"] = {"path": "raw/uninterpreted"}
+    record["started_at"] = {"legacy_timestamp": "retained"}
+    record["sha256"] = {"not_complete": "not_interpreted"}
+    record["vendor_evidence"] = {"opaque": [1, {"retained": True}]}
+    state.save()
+    loaded = run_state.load_run_state(state.directory)
+    assert loaded["created_at"] == state.data["created_at"]
+    assert loaded["future_evidence"] == state.data["future_evidence"]
+    assert loaded["cases"][case_name]["sha256"] == record["sha256"]
+
+    resumed = run_state.RunState(state.directory, state.data["options"], resume=True, project_dir=".")
+    try:
+        original = resumed.data["cases"][case_name]
+        vendor_evidence = original["vendor_evidence"]
+        resumed.prepare_case(case_name, 1, 4, "off")
+        current = resumed.data["cases"][case_name]
+        previous = current["previous_attempts"][-1]
+        assert previous["vendor_evidence"] is vendor_evidence
+        assert previous["started_at"] == record["started_at"]
+        assert "previous_attempts" not in previous
+        assert original["previous_attempts"] == []
+        detached = resumed.case_record(str(state.directory / case_name))
+        detached["status"] = "archived"
+        assert current["status"] == "running"
+    finally:
+        resumed.close()
+
+
+def test_state_validation_still_runs_with_python_optimization(recovery_state):
+    state = recovery_state
+    state.data["attempts"] = {}
+    state.save()
+    before = tree_bytes(state.directory)
+    source = (
+        "import sys\n"
+        "from acprof.host.run_state import RunStateError, load_run_state\n"
+        "try:\n"
+        "    load_run_state(sys.argv[1])\n"
+        "except RunStateError as error:\n"
+        "    if 'attempts' not in str(error):\n"
+        "        raise\n"
+        "    print('malformed attempts rejected')\n"
+        "else:\n"
+        "    raise SystemExit('validation was bypassed')\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-O", "-c", source, str(state.directory)],
+        check=False, capture_output=True, text=True,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stdout.strip() == "malformed attempts rejected"
+    assert tree_bytes(state.directory) == before
+
+@pytest.mark.parametrize("entry", ["preview", "repair"])
+@pytest.mark.parametrize(("keys", "diagnostic"), [
+    ((1,), "字段名"),
+    (("attempts", 0, 1), "attempts"),
+    (("cases", ".acprof/work/cases/1c_4g_off/result.csv", 1), "cases"),
+    (("cases", ".acprof/work/cases/1c_4g_off/result.csv", "previous_attempts", 0, 1), "previous_attempts"),
+    (("runtime", 1), "runtime"),
+    (("options", 1), "options"),
+])
+def test_typed_snapshot_field_names_are_validated(recovery_state, monkeypatch, keys, diagnostic, entry):
+    record = next(iter(recovery_state.data["cases"].values()))
+    previous = record.copy()
+    previous.pop("previous_attempts", None)
+    record["previous_attempts"] = [previous]
+    assert_malformed_state_rejected(
+        recovery_state, monkeypatch, keys, "non-string key", diagnostic, entry,
+    )
+
+
+def test_planned_guard_field_names_are_validated(recovery_state):
+    before = tree_bytes(recovery_state.directory)
+    with pytest.raises(run_state.RunStateError, match="runtime.planned"):
+        run_state._validate_planned_snapshot(
+            {"scales": [1.0], "source": "manual", 1: "non-string key"}, recovery_state.layout,
+        )
+    assert tree_bytes(recovery_state.directory) == before

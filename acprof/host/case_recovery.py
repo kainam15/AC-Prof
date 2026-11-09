@@ -9,6 +9,7 @@ from uuid import uuid4
 
 from acprof.artifacts import file_sha256, replace_file_durably, sync_directory_chain
 from acprof.host.run_state import RunStateError, utc_now
+from acprof.host.run_state_types import CaseState
 from acprof.results.csv import read_result_csv
 
 if TYPE_CHECKING:
@@ -17,7 +18,7 @@ if TYPE_CHECKING:
 
 
 def _validate_complete_case(
-    state: RunState, path: Path, record: dict[str, Any],
+    state: RunState, path: Path, record: CaseState,
     cpu: int | None, mem: int | None, gpu: str,
 ) -> None:
     if not path.is_file() or file_sha256(path) != record["sha256"]:
@@ -26,10 +27,10 @@ def _validate_complete_case(
 
 
 def _recover_measurement_checkpoint(
-    state: RunState, case: CaseArtifacts, record: dict[str, Any],
+    state: RunState, case: CaseArtifacts, record: CaseState | None,
     cpu: int | None, mem: int | None, gpu: str,
 ) -> None:
-    if not record.get("case_attempt_id") or record.get("measurement_status") == "complete":
+    if record is None or not record.get("case_attempt_id") or record.get("measurement_status") == "complete":
         return
     from acprof.host.measurement.checkpoint import discover_measurement_checkpoint
     try:
@@ -43,18 +44,18 @@ def _recover_measurement_checkpoint(
         raise RunStateError(f"已发布测量快照无法恢复：{exc}") from exc
     if reference is None:
         return
-    record.update(
-        status="measured",
-        measurement_status="complete",
-        processing_status="pending",
-        measurement_checkpoint=reference,
-        recovered_checkpoint_at=utc_now(),
-    )
+    record.update({
+        "status": "measured",
+        "measurement_status": "complete",
+        "processing_status": "pending",
+        "measurement_checkpoint": reference,
+        "recovered_checkpoint_at": utc_now(),
+    })
     state.save()
 
 
-def _recover_process_cleanup(state: RunState, record: dict[str, Any]) -> None:
-    if not record.get("cleanup_process") or record.get("cleanup_status") == "complete":
+def _recover_process_cleanup(state: RunState, record: CaseState | None) -> None:
+    if record is None or not record.get("cleanup_process") or record.get("cleanup_status") == "complete":
         return
     from acprof.host.runtimes.process_control import recover_process
     recover_process(record["cleanup_process"], directory=state.layout.path("logs"))
@@ -63,7 +64,7 @@ def _recover_process_cleanup(state: RunState, record: dict[str, Any]) -> None:
 
 
 def _archive_case_projection(
-    state: RunState, case: CaseArtifacts, filename: str, record: dict[str, Any],
+    state: RunState, case: CaseArtifacts, filename: str, record: CaseState | None,
 ) -> str | None:
     candidates = [*case.temporary_files(), case.retained_requests, case.idle]
     existing = list(dict.fromkeys(
@@ -71,10 +72,11 @@ def _archive_case_projection(
     ))
     if not existing:
         return None
-    archived = record.get("status") == "archived" and bool(record.get("backup"))
+    backup_name = record.get("backup") if record is not None and record["status"] == "archived" else None
+    archived = bool(backup_name)
     backup = (
-        state.layout.contained(record["backup"])
-        if archived
+        state.layout.contained(backup_name)
+        if backup_name
         else state.layout.path("interrupted_cases") / case.case_id / uuid4().hex
     )
     backup.mkdir(parents=True, exist_ok=bool(archived))
@@ -100,11 +102,9 @@ def _archive_case_projection(
     ):
         sync_directory_chain(directory, state.directory)
     backup_name = str(backup.relative_to(state.directory))
-    state.data["cases"][filename] = {
-        **record,
-        "status": "archived",
-        "backup": backup_name,
-    }
+    archived_record: CaseState = record.copy() if record is not None else {"status": "archived"}
+    archived_record.update({"status": "archived", "backup": backup_name})
+    state.data["cases"][filename] = archived_record
     state.save()
     for source in existing:
         source.unlink()
@@ -113,16 +113,17 @@ def _archive_case_projection(
 
 def _start_case_attempt(
     state: RunState, case: CaseArtifacts, path: Path, filename: str,
-    record: dict[str, Any], archived_backup: str | None,
+    record: CaseState | None, archived_backup: str | None,
     cpu: int | None, mem: int | None, gpu: str,
 ) -> None:
-    previous_attempts = list(record.get("previous_attempts", []))
-    previous = {name: value for name, value in record.items() if name != "previous_attempts"}
-    if previous:
+    previous_attempts = list(record.get("previous_attempts", [])) if record is not None else []
+    if record is not None:
+        previous = record.copy()
+        previous.pop("previous_attempts", None)
         if archived_backup is not None:
             previous["backup"] = archived_backup
         previous_attempts.append(previous)
-    state.data["cases"][filename] = {
+    started: CaseState = {
         "status": "running",
         "started_at": utc_now(),
         "case_attempt_id": uuid4().hex,
@@ -131,6 +132,7 @@ def _start_case_attempt(
         "resources": [cpu, mem, gpu],
         "previous_attempts": previous_attempts,
     }
+    state.data["cases"][filename] = started
     state.save()
     path.parent.mkdir(parents=True, exist_ok=True)
     from acprof.host.measurement.window_recovery import is_incremental, restore_case_windows
@@ -159,12 +161,12 @@ def prepare_case(
     )
     filename = str(path.relative_to(state.directory))
     case = state.layout.case_from_csv(path)
-    record = state.data["cases"].get(filename, {})
-    if record.get("status") == "complete":
+    record = state.data["cases"].get(filename)
+    if record is not None and record["status"] == "complete":
         _validate_complete_case(state, path, record, cpu, mem, gpu)
         return str(path)
     _recover_measurement_checkpoint(state, case, record, cpu, mem, gpu)
-    if record.get("measurement_status") == "complete":
+    if record is not None and record.get("measurement_status") == "complete":
         state.recover_processing_checkpoint(str(path), cpu, mem, gpu)
         return None
     _recover_process_cleanup(state, record)
@@ -205,6 +207,6 @@ def recover_processing_checkpoint(
         if target.exists():
             raise RunStateError(f"Cleanup evidence already exists: {target}")
         replace_file_durably(error, target)
-    record.update(cleanup_status="complete", cleanup_recovery=recovery)
+    record.update({"cleanup_status": "complete", "cleanup_recovery": recovery})
     state.save()
     return checkpoint

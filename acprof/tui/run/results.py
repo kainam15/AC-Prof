@@ -96,11 +96,11 @@ class RunArtifacts:
     def read(cls, directory: Path, *, capture_state_error: bool = False) -> RunArtifacts:
         layout = ArtifactLayout.discover(directory)
         path = layout.path("run_state.json")
-        state = {}
+        state: dict[str, object] = {}
         state_error = ""
         if path.is_file():
             try:
-                state = load_run_state(directory)
+                state = dict(load_run_state(directory))
             except RunStateError as exc:
                 if not capture_state_error:
                     raise

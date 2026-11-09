@@ -160,6 +160,8 @@ def main(argv=None):
         if state.get("status") != "complete":
             raise ValueError("load requires a completed source experiment")
         options = state["options"]
+        if not isinstance(options, dict):
+            raise ValueError("source options must be an object")
         conditions = ExecutionConditions.from_options(options, gpu=args.gpu)
         config = LoadConfig(scenario=args.scenario, connections=args.connections, concurrency=args.concurrency,
                             requests=args.requests, rate=args.rate, arrival=args.arrival, seed=args.seed,
@@ -174,8 +176,11 @@ def main(argv=None):
         plan_path = ArtifactLayout.discover(args.source).path("input_scale_plan.json")
         expected = state["artifacts"].get(str(plan_path.relative_to(args.source)))
         entry = _read_source_input_entry(plan_path, expected, args.input_scale)
-        task = TaskInfo(**snapshot["task"])
-        runtime_id = snapshot["image"]["environment_id" if runtime.kind == "process" else "tag"]
+        task_snapshot, image_snapshot = snapshot["task"], snapshot["image"]
+        if not isinstance(task_snapshot, dict) or not isinstance(image_snapshot, dict):
+            raise ValueError("source task and image snapshots must be objects")
+        task = TaskInfo(**task_snapshot)
+        runtime_id = image_snapshot["environment_id" if runtime.kind == "process" else "tag"]
         if not isinstance(runtime_id, str) or not runtime_id:
             raise ValueError("source runtime identity is missing")
         output = args.output_dir.resolve()
@@ -198,7 +203,7 @@ def main(argv=None):
               "host": host_identity(resource_root()), "scope": "HTTP load; no energy or profiler metrics; not formal experiment result layers"}
     with publish_load_report(output / "load.json", report):
         with MeasurementLock():
-            image = runtime.restore(snapshot["image"], output_dir=output)
+            image = runtime.restore(image_snapshot, output_dir=output)
             process_gpu = image.runtime_environment.get("gpu_device", {}) if runtime.kind == "process" else None
             with conditions.activate(process_gpu=process_gpu):
                 session = runtime.start(task_info=task, cpu=cpu, mem=mem, gpu=args.gpu, image_info=image,

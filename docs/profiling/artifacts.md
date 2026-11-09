@@ -406,6 +406,10 @@ case、产物引用和冻结运行环境，再进入投影恢复、准备归档�
 再修复投影。单纯加载存量状态不以当前适配代码重新判定历史执行身份。
 字段校验不修改原状态、CSV、pending 或原始证据；完成态的只读读取与审计继续保留补采约定。
 
+代码层的 `RunStateSnapshot`、`AttemptState` 和 `CaseState` 接在真实校验后的加载入口和实际写入端。
+阶段性字段使用可缺省键，准备状态无需补造 runtime，旧 flat 状态无需补造 layout_version。
+未完整核验的模型与历史元数据保持开放类型和原始内容；类型声明不替代运行时验证，也不删除未知证据键。
+
 同身份重试未完成准备时，在覆盖任何准备产物前复制原状态、元数据、日志和已有 profiler 原始文件，
 v2 备份位于 `.acprof/recovery/preparation_attempts/<attempt-id>/`；新 attempt 的
 `preparation_backup` 保存其相对路径。备份失败不追加 attempt，也不改写原记录。

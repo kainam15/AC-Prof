@@ -266,6 +266,7 @@ module = [
     "acprof.host.measurement.error_rows",
     "acprof.host.cases",
     "acprof.host.case_recovery",
+    "acprof.host.run_state_types",
     "acprof.host.metadata.machine",
     "acprof.host.input_plan.types",
     "acprof.host.input_plan.scales",

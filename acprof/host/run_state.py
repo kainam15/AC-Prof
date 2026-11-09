@@ -11,10 +11,12 @@ import re
 import shutil
 import socket
 import stat
+from collections.abc import Mapping
 from contextlib import AbstractContextManager, ExitStack, nullcontext
 from dataclasses import asdict, fields
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import TypeGuard
 from uuid import uuid4
 
 from acprof.artifacts import (
@@ -26,6 +28,13 @@ from acprof.artifacts import (
 from acprof.experiments.arguments import flatten_run_options
 from acprof.gpu_mode import normalize_gpu_mode
 from acprof.host.execution_conditions import measurement_environment
+from acprof.host.run_state_types import (
+    AttemptState,
+    CaseState,
+    MeasurementOptions,
+    PlannedSnapshot,
+    RunStateSnapshot,
+)
 from acprof.messages import Message, join_messages, message
 from acprof.platform import detect_environment, is_linux
 from acprof.results.csv import expected_measurements, read_result_csv
@@ -207,6 +216,8 @@ def _validate_cleanup_process(layout: ArtifactLayout, evidence: object, field: s
 def _validate_case_state(layout: ArtifactLayout, record: object, field: str) -> None:
     if not isinstance(record, dict):
         raise RunStateError(f"原实验的 case 或产物记录无效。字段：{field}")
+    if any(not isinstance(name, str) for name in record):
+        raise RunStateError(f"run_state.json 字段 {field} 无效：字段名必须为字符串")
     status = _state_text(record.get("status"), f"{field}.status")
     if status not in {"running", "measured", "complete", "archived"}:
         raise RunStateError(f"run_state.json 字段 {field}.status 无效")
@@ -281,7 +292,50 @@ def _validate_selected_tasks(task: dict) -> None:
             raise RunStateError(f"run_state.json 字段 {field}.config.generation 无效：{exc}") from exc
 
 
-def _validate_runtime_state(layout: ArtifactLayout, runtime: object, options: dict) -> None:
+def _validate_measurement_options(options: object) -> TypeGuard[MeasurementOptions]:
+    if not isinstance(options, dict):
+        raise RunStateError(message("原实验缺少完整的参数或主机身份，无法续跑。"))
+    if any(not isinstance(name, str) for name in options):
+        raise RunStateError("run_state.json 字段 options 无效：字段名必须为字符串")
+    for name in ("cpus", "mems", "gpus"):
+        value = _state_text(options.get(name), f"options.{name}")
+        if name != "gpus" and value != "auto":
+            try:
+                valid_resources = all(int(item) > 0 for item in value.split(","))
+            except ValueError:
+                valid_resources = False
+            if not valid_resources:
+                raise RunStateError(f"run_state.json 字段 options.{name} 无效")
+    for name in ("warmup", "repeat"):
+        if type(options.get(name)) is not int or options[name] < 0:
+            raise RunStateError(f"run_state.json 字段 options.{name} 无效：需要非负整数")
+    return True
+
+
+def _validate_planned_snapshot(plan: object, layout: ArtifactLayout) -> TypeGuard[PlannedSnapshot]:
+    if not isinstance(plan, dict):
+        raise RunStateError("run_state.json 字段 runtime.planned 无效：需要对象")
+    if any(not isinstance(name, str) for name in plan):
+        raise RunStateError("run_state.json 字段 runtime.planned 无效：字段名必须为字符串")
+    scales = plan.get("scales")
+    try:
+        valid_scales = (isinstance(scales, list) and bool(scales)
+                        and all(type(value) in (int, float) and math.isfinite(value) for value in scales))
+    except OverflowError:
+        valid_scales = False
+    if not valid_scales:
+        raise RunStateError("run_state.json 字段 runtime.planned.scales 无效：需要有限数值列表")
+    _state_text(plan.get("source"), "runtime.planned.source", empty=True)
+    if plan.get("plan_file") is not None:
+        _state_path(layout, plan["plan_file"], "runtime.planned.plan_file", empty=True)
+    if not isinstance(plan.get("workload", {}), dict):
+        raise RunStateError("run_state.json 字段 runtime.planned.workload 无效")
+    if "plan_sha256" in plan:
+        _state_text(plan["plan_sha256"], "runtime.planned.plan_sha256", empty=True)
+    return True
+
+
+def _validate_runtime_state(layout: ArtifactLayout, runtime: object, options: object) -> None:
     from acprof.host.detect import TaskInfo
     from acprof.host.images.runtime import ImageInfo
     from acprof.host.input_plan import PlannedInputScales
@@ -289,6 +343,8 @@ def _validate_runtime_state(layout: ArtifactLayout, runtime: object, options: di
 
     if not isinstance(runtime, dict):
         raise RunStateError("run_state.json 字段 runtime 无效：需要冻结运行环境对象")
+    if any(not isinstance(name, str) for name in runtime):
+        raise RunStateError("run_state.json 字段 runtime 无效：字段名必须为字符串")
     kind = _state_text(runtime.get("kind", "docker"), "runtime.kind")
     if kind not in {"docker", "process"}:
         raise RunStateError("run_state.json 字段 runtime.kind 无效")
@@ -327,44 +383,20 @@ def _validate_runtime_state(layout: ArtifactLayout, runtime: object, options: di
         _state_text(runtime["image"].get(name), f"runtime.image.{name}")
     if not isinstance(runtime["image"].get("runtime_environment", {}), dict):
         raise RunStateError("run_state.json 字段 runtime.image.runtime_environment 无效")
-    plan = runtime["planned"]
-    scales = plan.get("scales")
-    try:
-        valid_scales = (isinstance(scales, list) and bool(scales)
-                        and all(type(value) in (int, float) and math.isfinite(value) for value in scales))
-    except OverflowError:
-        valid_scales = False
-    if not valid_scales:
-        raise RunStateError("run_state.json 字段 runtime.planned.scales 无效：需要有限数值列表")
-    _state_text(plan.get("source"), "runtime.planned.source", empty=True)
-    if plan.get("plan_file") is not None:
-        _state_path(layout, plan["plan_file"], "runtime.planned.plan_file", empty=True)
-    if not isinstance(plan.get("workload", {}), dict):
-        raise RunStateError("run_state.json 字段 runtime.planned.workload 无效")
-    if "plan_sha256" in plan:
-        _state_text(plan["plan_sha256"], "runtime.planned.plan_sha256", empty=True)
+    _validate_planned_snapshot(runtime["planned"], layout)
     for name in ("compute_plan", "execution_plan"):
         _state_path(layout, runtime.get(name), f"runtime.{name}", empty=True)
-    for name in ("cpus", "mems", "gpus"):
-        value = _state_text(options.get(name), f"options.{name}")
-        if name != "gpus" and value != "auto":
-            try:
-                valid_resources = all(int(item) > 0 for item in value.split(","))
-            except ValueError:
-                valid_resources = False
-            if not valid_resources:
-                raise RunStateError(f"run_state.json 字段 options.{name} 无效")
-    for name in ("warmup", "repeat"):
-        if type(options.get(name)) is not int or options[name] < 0:
-            raise RunStateError(f"run_state.json 字段 options.{name} 无效：需要非负整数")
+    _validate_measurement_options(options)
 
 
-def _validate_run_state(layout: ArtifactLayout, data: object) -> None:
+def _validate_run_state(data: object, layout: ArtifactLayout) -> TypeGuard[RunStateSnapshot]:
     """Validate durable state before any archival, projection recovery or new attempt."""
     path = layout.path(RUN_STATE_NAME)
     if (not isinstance(data, dict) or type(data.get("schema_version")) is not int
             or data["schema_version"] != 1):
         raise RunStateError(message("不支持的主实验状态格式：{0}", path))
+    if any(not isinstance(name, str) for name in data):
+        raise RunStateError("run_state.json 状态字段名必须为字符串")
     version = data.get("layout_version", 1)
     if type(version) is not int or version != layout.layout_version:
         raise RunStateError(message("恢复状态与产物布局不一致：{0}", path))
@@ -384,6 +416,8 @@ def _validate_run_state(layout: ArtifactLayout, data: object) -> None:
         field = f"attempts[{index}]"
         if not isinstance(attempt, dict):
             raise RunStateError(f"run_state.json 字段 {field} 无效：需要对象")
+        if any(not isinstance(name, str) for name in attempt):
+            raise RunStateError(f"run_state.json 字段 {field} 无效：字段名必须为字符串")
         for name in ("attempt_id", "started_at"):
             _state_text(attempt.get(name), f"{field}.{name}")
         if type(attempt.get("pid")) is not int or attempt["pid"] < 1:
@@ -421,9 +455,10 @@ def _validate_run_state(layout: ArtifactLayout, data: object) -> None:
         _state_path(layout, name, field)
         if re.fullmatch(r"[a-f0-9]{64}", _state_text(checksum, field)) is None:
             raise RunStateError(f"run_state.json 字段 {field} 无效：需要 SHA256")
+    return True
 
 
-def load_run_state(directory: str | Path) -> dict:
+def load_run_state(directory: str | Path) -> RunStateSnapshot:
     try:
         layout = ArtifactLayout.discover(directory)
         path = layout.path(RUN_STATE_NAME)
@@ -432,7 +467,7 @@ def load_run_state(directory: str | Path) -> dict:
         if len(content) > MAX_RUN_STATE_BYTES:
             raise ValueError(message("run_state.json 超过 4 MiB 读取上限"))
         try:
-            payload = json.loads(content.decode("utf-8"), parse_float=_finite_json_number,
+            payload: object = json.loads(content.decode("utf-8"), parse_float=_finite_json_number,
                                  parse_constant=_finite_json_number)
         except json.JSONDecodeError as exc:
             raise ValueError(message("run_state.json 的 JSON 格式无效")) from exc
@@ -441,12 +476,15 @@ def load_run_state(directory: str | Path) -> dict:
         raise RunStateError(message(
             "无法读取恢复状态 {0}；历史实验请使用新输出目录：{1}", directory, reason,
         )) from exc
-    _validate_run_state(layout, payload)
-    return payload
+    if _validate_run_state(payload, layout):
+        return payload
+    raise RunStateError("run_state.json 状态校验失败")
 
 
-def _expected(data: dict, cpu=None, mem=None, gpu=None):
+def _expected(data: RunStateSnapshot, cpu=None, mem=None, gpu=None):
     options = data["options"]
+    if not _validate_measurement_options(options):
+        raise RunStateError("run_state.json 测量参数校验失败")
     return expected_measurements(
         [cpu] if cpu is not None else [None] if options["cpus"] == "auto" else [int(x) for x in options["cpus"].split(",")],
         [mem] if mem is not None else [None] if options["mems"] == "auto" else [int(x) for x in options["mems"].split(",")],
@@ -455,7 +493,7 @@ def _expected(data: dict, cpu=None, mem=None, gpu=None):
     )
 
 
-def recovery_phase(directory: str | Path, data: dict) -> str:
+def recovery_phase(directory: str | Path, data: Mapping[str, object]) -> str:
     layout = ArtifactLayout.discover(directory)
     if data.get("status") == "complete":
         return "complete"
@@ -473,7 +511,7 @@ def recovery_phase(directory: str | Path, data: dict) -> str:
     return "preparation"
 
 
-def validate_resume(directory: str | Path, data: dict, *, project_dir: str | Path,
+def validate_resume(directory: str | Path, data: object, *, project_dir: str | Path,
                     options: dict | None = None, repair: bool = False) -> str:
     """Read-only checks shared by recovery review and the locked writer.
 
@@ -481,16 +519,20 @@ def validate_resume(directory: str | Path, data: dict, *, project_dir: str | Pat
     Returning a phase never grants permission to mix changed measurement identities.
     """
     layout = ArtifactLayout.discover(directory)
-    _validate_run_state(layout, data)
+    if not _validate_run_state(data, layout):
+        raise RunStateError("run_state.json 状态校验失败")
+    previous_options, previous_host = data["options"], data["host"]
+    if not isinstance(previous_options, dict) or not isinstance(previous_host, dict):
+        raise RunStateError(message("原实验缺少完整的参数或主机身份，无法续跑。"))
     issues = []
     if options is not None:
-        previous = {"profiling_mode": "full", **flatten_run_options(data["options"])}
+        previous = {"profiling_mode": "full", **flatten_run_options(previous_options)}
         current = {"profiling_mode": "full", **flatten_run_options(options)}
         changed = sorted(name for name in previous.keys() | current.keys()
                          if (name in previous) != (name in current) or previous.get(name) != current.get(name))
         if changed:
             issues.append(message("实验参数已变化：{0}", ", ".join(changed)))
-    previous_host, current_host = data["host"], host_identity(project_dir)
+    current_host = host_identity(project_dir)
     labels = {"source_sha256": "AC-Prof 采集源码", "packages_sha256": "Python 依赖",
               "python": "Python 版本"}
     for name in sorted(previous_host.keys() | current_host.keys()):
@@ -501,8 +543,11 @@ def validate_resume(directory: str | Path, data: dict, *, project_dir: str | Pat
     if "runtime" in data:
         from acprof.host.detect import TaskInfo
         from acprof.tasks.interfaces import validate_execution_identity
+        task_snapshot = data["runtime"]["task"]
+        if not isinstance(task_snapshot, dict):
+            raise RunStateError("run_state.json 字段 runtime.task 无效：需要对象")
         try:
-            validate_execution_identity(TaskInfo(**data["runtime"]["task"]))
+            validate_execution_identity(TaskInfo(**task_snapshot))
         except ValueError as exc:
             raise RunStateError(f"run_state.json 字段 runtime.task.selected_tasks 无效：{exc}") from exc
     phase = recovery_phase(directory, data)
@@ -615,6 +660,8 @@ def offline_analysis_lock() -> AbstractContextManager:
 
 
 class RunState:
+    data: RunStateSnapshot
+
     def __init__(self, directory: str | Path, options: dict, *, resume: bool, project_dir: str,
                  preparation_artifacts: dict[str, str] | None = None):
         self.directory = Path(directory).resolve()
@@ -625,7 +672,8 @@ class RunState:
         with ExitStack() as locks:
             locks.enter_context(self.measurement_lock)
             locks.enter_context(self.lock)
-            attempt = {"attempt_id": uuid4().hex, "started_at": utc_now(), "pid": os.getpid(), "resume": resume}
+            attempt: AttemptState = {"attempt_id": uuid4().hex, "started_at": utc_now(),
+                                     "pid": os.getpid(), "resume": resume}
             if resume:
                 self.data = load_run_state(self.directory)
                 phase = validate_resume(self.directory, self.data, project_dir=project_dir, options=options, repair=True)
@@ -649,8 +697,9 @@ class RunState:
                     self.layout.initialize(allowed_files=prepared)
                 except ValueError as exc:
                     raise RunStateError(str(exc)) from exc
-                result_identity = read_json_object(self.layout.result_csv)["run_id"]
-                self.data = {"schema_version": 1, "layout_version": 2, "run_id": result_identity, "created_at": utc_now(),
+                result_identity: object = read_json_object(self.layout.result_csv)["run_id"]
+                self.data = {"schema_version": 1, "layout_version": 2,
+                             "run_id": _state_text(result_identity, "run_id"), "created_at": utc_now(),
                              "status": "preparing", "options": options, "host": host_identity(project_dir),
                              "cases": {}, "artifacts": {}, "attempts": []}
             self.data["attempts"].append(attempt)
@@ -676,9 +725,9 @@ class RunState:
     def case_paths(self) -> tuple[Path, ...]:
         return tuple(self.artifact_path(name) for name in self.data["cases"])
 
-    def case_record(self, path: str) -> dict:
+    def case_record(self, path: str) -> CaseState:
         key = str(Path(path).relative_to(self.directory))
-        return dict(self.data["cases"][key])
+        return self.data["cases"][key].copy()
 
     def save(self) -> None:
         self.data["updated_at"] = utc_now()
@@ -757,9 +806,11 @@ class RunState:
             path = self.artifact_path(name)
             if path.is_file():
                 self.data["artifacts"][name] = file_sha256(path)
-        plan = asdict(planned)
-        if plan["plan_file"]:
+        plan: object = asdict(planned)
+        if isinstance(plan, dict) and plan.get("plan_file"):
             plan["plan_file"] = str(Path(plan["plan_file"]).resolve().relative_to(self.directory))
+        if not _validate_planned_snapshot(plan, self.layout):
+            raise RunStateError("run_state.json 输入计划校验失败")
         from acprof.host.runtimes.contracts import runtime_kind
         self.data["runtime"] = {
             "kind": runtime_kind(image),
@@ -777,15 +828,28 @@ class RunState:
         from acprof.host.runtimes.service import execution_runtime
         from acprof.tasks.interfaces import validate_execution_identity
         snapshot = self.data["runtime"]
-        task = TaskInfo(**snapshot["task"])
+        task_snapshot, image_snapshot = snapshot["task"], snapshot["image"]
+        if not isinstance(task_snapshot, dict):
+            raise RunStateError("run_state.json 字段 runtime.task 无效：需要对象")
+        if not isinstance(image_snapshot, dict):
+            raise RunStateError("run_state.json 字段 runtime.image 无效：需要对象")
+        task = TaskInfo(**task_snapshot)
         validate_execution_identity(task)
         image = execution_runtime(snapshot.get("kind", "docker")).restore(
-            snapshot["image"], output_dir=self.directory,
+            image_snapshot, output_dir=self.directory,
         )
-        plan = dict(snapshot["planned"])
-        if plan.get("plan_file"):
-            plan["plan_file"] = str(self.artifact_path(plan["plan_file"]))
-        return (task, image, PlannedInputScales(**plan),
+        plan = snapshot["planned"]
+        plan_file = plan.get("plan_file")
+        if plan_file:
+            plan_file = str(self.artifact_path(plan_file))
+        workload = plan.get("workload", {})
+        if not isinstance(workload, dict):
+            raise RunStateError("run_state.json 字段 runtime.planned.workload 无效")
+        restored_plan = PlannedInputScales(
+            scales=plan["scales"], source=plan["source"], plan_file=plan_file,
+            workload=workload, plan_sha256=plan.get("plan_sha256", ""),
+        )
+        return (task, image, restored_plan,
                 str(self.artifact_path(snapshot["compute_plan"])) if snapshot["compute_plan"] else "",
                 str(self.artifact_path(snapshot["execution_plan"])) if snapshot["execution_plan"] else "")
 
@@ -805,12 +869,12 @@ class RunState:
         if not re.fullmatch(r"[a-f0-9]{64}", container_id):
             raise RunStateError("Case container must have an immutable Docker ID")
         record = self.data["cases"][str(Path(path).relative_to(self.directory))]
-        record.update(cleanup_container_id=container_id, cleanup_status="pending")
+        record.update({"cleanup_container_id": container_id, "cleanup_status": "pending"})
         self.save()
 
     def bind_case_process(self, path: str, evidence: dict) -> None:
         record = self.data["cases"][str(Path(path).relative_to(self.directory))]
-        record.update(cleanup_process=evidence, cleanup_status="pending")
+        record.update({"cleanup_process": evidence, "cleanup_status": "pending"})
         self.save()
 
     def checkpoint_measurement(self, path: str, cpu: int | None, mem: int | None, gpu: str, *, processing: dict,
@@ -826,15 +890,15 @@ class RunState:
             capture_segments=archived_captures(case, record),
             expected=self.expected(cpu, mem, gpu),
         )
-        record.update(status="measured", measurement_status="complete", measured_at=utc_now(),
-                      processing_status="pending", measurement_checkpoint=reference, cleanup_status="pending",
-                      cleanup_container_id=container_id)
+        record.update({"status": "measured", "measurement_status": "complete", "measured_at": utc_now(),
+                       "processing_status": "pending", "measurement_checkpoint": reference,
+                       "cleanup_status": "pending", "cleanup_container_id": container_id})
         self.save()
 
     def processing_checkpoint(self, path: str, cpu: int | None, mem: int | None, gpu: str) -> dict | None:
         from acprof.host.measurement.checkpoint import read_measurement_checkpoint
-        record = self.data["cases"].get(str(Path(path).relative_to(self.directory)), {})
-        if record.get("measurement_status") != "complete":
+        record = self.data["cases"].get(str(Path(path).relative_to(self.directory)))
+        if record is None or record.get("measurement_status") != "complete":
             return None
         try:
             checkpoint = read_measurement_checkpoint(
@@ -876,14 +940,19 @@ class RunState:
         case = self.layout.case_from_csv(path)
         case.retain_requests()
         key = str(Path(path).relative_to(self.directory))
-        record = self.data["cases"].get(key, {})
+        record = self.data["cases"].get(key)
+        if record is None:
+            record = {"status": "complete"}
         from acprof.host.measurement.window_recovery import is_incremental
         if is_incremental(self.layout):
             from acprof.result_store.protocol import reference, write_bytes
             from acprof.result_store.writer import ResultWriter
             evidence = []
-            if record.get("measurement_checkpoint"):
-                evidence.append({name: record["measurement_checkpoint"][name] for name in ("path", "sha256")})
+            checkpoint_reference = record.get("measurement_checkpoint")
+            if checkpoint_reference:
+                if not isinstance(checkpoint_reference, dict):
+                    raise RunStateError("run_state.json 字段 measurement_checkpoint 无效：需要产物引用")
+                evidence.append({name: checkpoint_reference[name] for name in ("path", "sha256")})
             with ResultWriter(self.directory) as writer:
                 writer.update_rows(rows, reason="case packet processing and diagnostics", evidence=evidence)
             completed = case.completed_result(file_sha256(path))
@@ -907,8 +976,8 @@ class RunState:
             from acprof.result_store.writer import ResultWriter
             with ResultWriter(self.directory) as writer:
                 writer.freeze()
-        self.data.update(status="complete", completed_at=utc_now(), result_sha256=file_sha256(final_csv),
-                         row_count=len(rows), outcome="partial" if any(row.get("status") == "error" for row in rows) else "ok")
+        self.data.update({"status": "complete", "completed_at": utc_now(), "result_sha256": file_sha256(final_csv),
+                          "row_count": len(rows), "outcome": "partial" if any(row.get("status") == "error" for row in rows) else "ok"})
         self.save()
 
     def close(self, outcome: str = "interrupted") -> None:
