@@ -65,7 +65,7 @@
     {
       "id": "download", "title": "下载确认与进度", "page": "monitor-tab", "group": "optional",
       "trigger": "准备阶段需要下载模型或镜像", "expected": "预算、来源、缓存、大小和下载状态按阶段展示",
-      "png": [], "svg": [],
+      "png": ["docker-frontend", "docker-frontend-small", "docker-frontend-en", "docker-frontend-en-small"], "svg": [],
       "tests": ["tests/tui/logging/test_tui_download_layout.py", "tests/tui/workflows/test_tui_auto_download.py", "tests/tui/workflows/test_tui_visual_journey.py"]
     },
     {
