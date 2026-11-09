@@ -89,6 +89,14 @@ def reference(layout: ArtifactLayout, path: Path) -> dict:
     return {"path": path.relative_to(layout.root).as_posix(), "sha256": file_sha256(path)}
 
 
+def validate_run_identity(manifest: dict, expected_run_id: str) -> None:
+    """Compare the caller's frozen identity while its publication lock is held."""
+    if not isinstance(expected_run_id, str) or not expected_run_id:
+        raise ResultValidationError("invalid expected result run identity")
+    if manifest.get("run_id") != expected_run_id:
+        raise ResultValidationError("result store belongs to another run")
+
+
 def check_pending_replacement(layout: ArtifactLayout, manifest: dict, *,
                               cancelled: Callable[[], bool] | None = None,
                               byte_budget: list[int] | None = None) -> None:

@@ -164,7 +164,7 @@ def test_writer_close_preserves_failures_and_cancellation(
     primary, secondary = primary_type("fixture operation failed"), close_type("fixture lease close failed")
     writer = ResultWriter(tmp_path)
 
-    def fail_recovery(_layout):
+    def fail_recovery(_layout, *, expected_run_id=None):
         raise primary
 
     with monkeypatch.context() as guard:

@@ -16,14 +16,22 @@ def is_incremental(layout) -> bool:
     return layout.result_csv.is_file() and read_json_object(layout.result_csv).get("schema_version") == 3
 
 
+def check_result_identity(layout, expected_run_id: str) -> None:
+    """Check the frozen identity without opening a writer or repairing projections."""
+    if not is_incremental(layout):
+        return
+    from acprof.result_store.protocol import publication_lock, validate_run_identity
+    with publication_lock(layout, exclusive=False):
+        validate_run_identity(read_json_object(layout.result_csv), expected_run_id)
+
+
 def repair_result_projections(layout, data):
     """Restore disposable files only after the runner validated its frozen identity."""
     if not is_incremental(layout):
         return
     from acprof.result_store.protocol import write_bytes
-    with ResultWriter(layout.root) as writer:
-        if writer.manifest["run_id"] != data["run_id"]:
-            raise ValueError("result store belongs to another run")
+    with ResultWriter(layout.root, expected_run_id=data["run_id"]):
+        pass
     if data.get("status") == "complete":
         return  # Completed runs have already cleaned their case work directories.
     for name, record in data.get("cases", {}).items():
@@ -75,7 +83,7 @@ def restore_case_windows(case, *, run_id, expected):
         return 0
     if not {measurement_key(record["row"]) for _, record in records} <= set(expected):
         raise ValueError("window receipts do not belong to the frozen measurement plan")
-    with ResultWriter(case.layout.root) as writer:
+    with ResultWriter(case.layout.root, expected_run_id=run_id) as writer:
         for path, _ in records:
             writer.append_window(path)
     def csv_projection(stream):

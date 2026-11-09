@@ -247,6 +247,9 @@ def validate_resume(directory: str | Path, data: dict, *, project_dir: str | Pat
         # This branch is used only by the locked runner, after run identity checks.
         from acprof.host.measurement.window_recovery import repair_result_projections
         repair_result_projections(layout, data)
+    else:
+        from acprof.host.measurement.window_recovery import check_result_identity
+        check_result_identity(layout, data["run_id"])
     # Completed CSVs may have documented posthoc changes; preserve that contract.
     if complete:
         read_result_csv(layout.result_csv, expected=_expected(data))

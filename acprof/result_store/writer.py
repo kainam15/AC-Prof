@@ -28,8 +28,9 @@ from acprof.system.cleanup import cleanup_on_exit
 
 
 class ResultWriter:
-    def __init__(self, root):
+    def __init__(self, root, *, expected_run_id: str | None = None):
         self.layout = ArtifactLayout.discover(root)
+        self.expected_run_id = expected_run_id
         self.failed = False
         self._resources: ExitStack | None = None
 
@@ -42,7 +43,8 @@ class ResultWriter:
                 lease.close, description=f"result writer lease {self.layout.root}"))
             fcntl.flock(lease.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
             with publication_lock(self.layout, exclusive=True):
-                self.manifest, self.rows, self.windows, self.hashes = recover_projection(self.layout)
+                self.manifest, self.rows, self.windows, self.hashes = recover_projection(
+                    self.layout, expected_run_id=self.expected_run_id)
             self.failed = False
             self._resources = resources.pop_all()
         return self

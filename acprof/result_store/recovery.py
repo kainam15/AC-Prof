@@ -6,7 +6,12 @@ import os
 from pathlib import Path
 
 from acprof.artifacts import read_json_object, sync_directory
-from acprof.result_store.protocol import csv_bytes, validate_manifest, write_bytes
+from acprof.result_store.protocol import (
+    csv_bytes,
+    validate_manifest,
+    validate_run_identity,
+    write_bytes,
+)
 from acprof.result_store.sources import replay
 from acprof.results.csv import ResultValidationError
 from acprof.results.layers import PROFILER_LAYERS, has_layer_evidence, layer_identity_fields
@@ -85,11 +90,13 @@ def _recover_layer(layout, manifest, layer, rows):
     return checksum
 
 
-def recover_projection(layout):
+def recover_projection(layout, *, expected_run_id: str | None = None):
     """Recover projections and hash states under the publication lock and writer lease."""
-    recover_pending(layout)
     manifest = read_json_object(layout.result_csv)
     validate_manifest(layout, manifest)
+    if expected_run_id is not None:
+        validate_run_identity(manifest, expected_run_id)
+    recover_pending(layout)
     rows, windows = replay(layout, manifest)
     hashes = {layer: _recover_layer(layout, manifest, layer, rows) for layer in manifest["layers"]}
     from acprof.result_store.metadata import recover_metadata
