@@ -13,6 +13,24 @@ from acprof.host.doctor import DoctorCheck
 from tests.execution.planning.test_resolution_decisions import candidate
 
 
+def frozen_run_layout(root, task):
+    from acprof.host.images.runtime import ImageInfo
+    from acprof.host.input_plan import PlannedInputScales
+    from acprof.host.run_state import RunState
+
+    options = {"profiling_mode": "basic", "cpus": "1", "mems": "4", "gpus": "off", "warmup": 0, "repeat": 1}
+    with patch("acprof.host.run_state.host_identity", return_value={}), patch(
+            "acprof.host.run_state.MEASUREMENT_LOCK_ROOT", root.parent):
+        state = RunState(root, options, resume=False, project_dir=".")
+        try:
+            state.bind_runtime(task, ImageInfo("sha256:" + "b" * 64),
+                               PlannedInputScales([1.0], "fixture"), "", "")
+        finally:
+            state.close("failed")
+    state.layout.path("auto_report.json").parent.mkdir(parents=True, exist_ok=True)
+    return state.layout
+
+
 class TestAuto:
     def test_failed_task_collection_preserves_other_results_when_capabilities_are_missing(self, tmp_path):
         from argparse import Namespace
@@ -163,16 +181,14 @@ class TestAuto:
 
     def test_resume_reuses_saved_revision_without_hub_queries(self):
         from argparse import Namespace
-        from dataclasses import asdict
 
         from acprof.host.automation import AutomaticRun
         task = candidate(tag="text-generation")
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory, "example--model")
             root.mkdir()
-            (root / "auto_report.json").write_text(json.dumps({"schema_version": 1, "requested_profiling_mode": "basic", "status": "failed"}))
-            (root / "run_state.json").write_text(json.dumps({"schema_version": 1, "runtime": {"task": asdict(task)},
-                                                            "options": {"profiling_mode": "basic"}}))
+            layout = frozen_run_layout(root, task)
+            layout.path("auto_report.json").write_text(json.dumps({"schema_version": 1, "requested_profiling_mode": "basic", "status": "failed"}))
             args = Namespace(model=task.model_id, output_dir=directory, resume=True, revision=None,
                              profiling_mode="basic", batch_size=1, gpus="off", sniff_iface="docker0", backend="", task="")
             with patch("acprof.host.detect.detect_task") as detect, patch("huggingface_hub.HfApi.auth_check") as access, patch(
@@ -185,7 +201,6 @@ class TestAuto:
 
     def test_resume_rejects_oversized_auto_report(self):
         from argparse import Namespace
-        from dataclasses import asdict
 
         from acprof.artifacts import MAX_JSON_ARTIFACT_BYTES
         from acprof.host.automation import AutomaticRun
@@ -193,22 +208,14 @@ class TestAuto:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory, "example--model")
             root.mkdir()
-            (root / "auto_report.json").write_text(
+            layout = frozen_run_layout(root, task)
+            layout.path("auto_report.json").write_text(
                 json.dumps(
                     {
                         "schema_version": 1,
                         "requested_profiling_mode": "basic",
                         "status": "failed",
                         "padding": "x" * MAX_JSON_ARTIFACT_BYTES,
-                    }
-                )
-            )
-            (root / "run_state.json").write_text(
-                json.dumps(
-                    {
-                        "schema_version": 1,
-                        "runtime": {"task": asdict(task)},
-                        "options": {"profiling_mode": "basic"},
                     }
                 )
             )
