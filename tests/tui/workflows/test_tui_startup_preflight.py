@@ -158,8 +158,8 @@ class TestStartupPreflight:
                 await pilot.pause()
                 assert await pilot.hover("#preflight-signal-0")
                 await pilot.pause()
-                assert "not supported [detail]" in str(app.query_one("#preflight-explanation", Static).content)
-                assert (await pilot.click("#preflight-retry"))
+                assert "not supported [detail]" in str(app.query_one("#preflight-callout").query_one(".callout-raw", Static).content)
+                assert (await pilot.click(app.preflight.panel.retry_button))
                 await self.finish_check(app, pilot)
                 assert (check.call_count) == (2)
                 assert (len(app.screen_stack)) == (1)
@@ -252,7 +252,7 @@ class TestStartupPreflight:
                         await pilot.pause()
                         entry = app.query_one("#environment-error", Static)
                         assert (entry.region.width) > (0)
-                        assert str(entry.content) == "⊘ 1"
+                        assert str(entry.content) == "× 1"
                         quit_button = app.query_one("#quit-app", Button)
                         assert quit_button.region.width > 0
                         assert quit_button.region.height == 1
@@ -262,7 +262,7 @@ class TestStartupPreflight:
                         assert app.get_widget_at(*quit_button.region.center)[0] is quit_button
                         assert (await pilot.click(entry))
                         await pilot.pause()
-                        retry = app.screen.query_one("#preflight-retry", Button)
+                        retry = app.preflight.panel.retry_button
                         assert (str(retry.label)) == ("重新检查" if language == "zh" else "Check again")
                         assert (retry.region.height) > (0)
                         assert (retry.region.right) <= (width)
@@ -355,7 +355,7 @@ class TestStartupPreflight:
                 app.preflight.quick_check()
                 assert (await pilot.click("#environment-warning"))
                 await pilot.pause()
-                assert (app.screen.query_one("#preflight-retry", Button).disabled)
+                assert (app.preflight.panel.retry_button.disabled)
                 check.assert_called_once()
                 await pilot.press("escape")
                 app.execution.session.snapshot = ProgressSnapshot()

@@ -10,6 +10,7 @@ from acprof import __version__
 from acprof.experiments.configuration import RunConfig
 from acprof.platform import Environment
 from acprof.tui.run.preparation import PreparationScreen
+from acprof.tui.ui.structured import FactGrid
 from tests.support.tui_fixtures import AcprofTui
 
 
@@ -24,9 +25,10 @@ async def test_partial_launch_keeps_monitor_visible_at_two_sizes():
             async with app.run_test(size=size) as pilot:
                 await pilot.pause()
                 environment = app.query_one("#current-environment")
-                assert [str(entry.content) for entry in environment.query(Static) if entry.display] == ["⊘ 0", "⚠ 0", "✔ 0"]
+                assert [str(entry.content) for entry in environment.query(Static) if entry.display] == ["× 0", "! 0", "✓ 0"]
                 await pilot.hover("#environment-error")
-                assert str(app.query_one("#preflight-summary", Static).content).splitlines()[0] == "WSL2"
+                context = app.query_one("#preflight-context", FactGrid).section
+                assert "WSL2" in [app.tr(row.value) for row in (*context.rows, *context.detail_rows)]
                 await pilot.press("escape")
                 assert environment.region.y == app.query_one(Header).region.y
                 assert app.title == f"AC-Prof {__version__}"

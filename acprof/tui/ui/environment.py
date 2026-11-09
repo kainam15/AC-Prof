@@ -12,48 +12,34 @@ from textual.timer import Timer
 from textual.widgets import Button, Static
 
 from acprof.host.preparation.preparation_log import redact_text
+from acprof.messages import Message as CatalogText
 from acprof.tui.i18n import message_id
 from acprof.tui.run.diagnostics import PreflightCheck
 from acprof.tui.run.environment_checks import ENVIRONMENT_CHECK_IDS
+from acprof.tui.run.environment_view import (
+    CAPABILITY_SECTIONS,
+    check_group,
+    check_label,
+    check_presentation,
+    check_priority,
+    check_view,
+    group_summary,
+    item_status,
+)
 from acprof.tui.ui.rendering import CjkScreen
+from acprof.tui.ui.structured import ActionButtons, ActionRequested, Callout, FactGrid, StatusBanner
+from acprof.tui.ui.view_models import (
+    CalloutContent,
+    FactRow,
+    StatusSummary,
+    ViewAction,
+    ViewSection,
+    format_local_timestamp,
+    status_symbol,
+)
 
 if TYPE_CHECKING:
     from acprof.tui.run.preflight_controller import PreflightController
-
-
-LABELS = {
-    "environment": "environment", "docker": "docker", "cgroup": "cgroup", "uv": "uv",
-    "process_resources": "process_resources", "latency": "latency", "throughput": "throughput",
-    "container_cpu": "cgroup_cpu", "container_memory": "cgroup_memory", "process_cpu": "process_cpu", "process_memory": "process_memory",
-    "process_runtime": "process_runtime", "ncu": "ncu", "nsys": "nsys", "intel_advisor": "advisor",
-    "torch": "torch", "massif": "massif",
-    "cpu_energy": "rapl", "cpu_instructions": "perf", "capture_interface": "capture",
-    "capture_permissions": "capture_permissions",
-    "gpu_device": "gpu", "gpu_memory": "gpu_memory", "gpu_utilization": "gpu_utilization", "gpu_power": "gpu_power",
-    "profiler": "profiler", "check_error": "check_error",
-}
-REMEDIES = {
-    "environment": "platform", "docker": "docker", "cgroup": "cgroup", "uv": "uv",
-    "process_resources": "resources", "cpu_energy": "rapl", "cpu_instructions": "permissions",
-    "tcpdump": "capture_tools", "tshark": "capture_tools", "capture_permissions": "permissions",
-    "capture_interface": "interface", "gpu_device": "gpu", "gpu_memory": "gpu", "gpu_utilization": "gpu",
-    "gpu_power": "gpu", "process_cpu": "process_metrics", "process_memory": "process_metrics",
-}
-CAPABILITY_SECTIONS = {
-    "runtime": ("environment", "docker", "cgroup", "uv", "process_runtime", "process_resources"),
-    "cpu_memory": ("process_cpu", "process_memory", "container_cpu", "container_memory", "cpu_energy", "cpu_instructions"),
-    "gpu": ("gpu_device", "gpu_memory", "gpu_utilization", "gpu_power"),
-    "network": ("tcpdump", "tshark", "capture_permissions", "capture_interface"),
-    "profilers": ("ncu", "nsys", "intel_advisor", "torch", "massif", "profiler"),
-}
-
-
-def item_status(row: PreflightCheck) -> str:
-    return "error" if row.capability_status == "error" and row.status != "not_requested" else row.status
-
-
-def check_group(row: PreflightCheck) -> str:
-    return {"ok": "success", "fail": "error", "error": "error", "warn": "warning"}.get(item_status(row), "pending")
 
 
 def display_checks(controller: PreflightController) -> tuple[PreflightCheck, ...]:
@@ -69,7 +55,9 @@ def display_checks(controller: PreflightController) -> tuple[PreflightCheck, ...
     return tuple(rows)
 
 
-GROUP_SYMBOLS = {"error": "⊘", "warning": "⚠", "success": "✔", "pending": "◌"}
+GROUP_SYMBOLS = {group: status_symbol(level) for group, level in (
+    ("error", "error"), ("warning", "warning"), ("success", "success"), ("pending", "neutral"),
+)}
 
 
 class EnvironmentIndicators(Horizontal):
@@ -91,18 +79,14 @@ class EnvironmentIndicators(Horizontal):
             entry.display = entry.group != "pending" or bool(counts[entry.group]) or self.controller.check_running
             count = "…" if entry.group == "pending" and self.controller.check_running else str(counts[entry.group])
             entry.update(GROUP_SYMBOLS[entry.group] + " " + count)
+            entry.tooltip = self.controller.app.tr(message_id(
+                "run.environment.group_count", message_id("run.environment.group." + entry.group), counts[entry.group]))
 
 
 class EnvironmentIndicator(Static, can_focus=True):
     """One status entry, with its own keyboard focus and pinned detail."""
 
     COMPONENT_CLASSES = {"environment--success", "environment--warning", "environment--error", "environment--pending"}
-    DEFAULT_CSS = """
-    EnvironmentIndicator .environment--success { color: $success; }
-    EnvironmentIndicator .environment--warning { color: $warning; }
-    EnvironmentIndicator .environment--error { color: $error; }
-    EnvironmentIndicator .environment--pending { color: $text-muted; }
-    """
     BINDINGS = [("enter,space", "toggle_environment", "Environment")]
 
     def __init__(self, controller: PreflightController, group: str) -> None:
@@ -149,15 +133,9 @@ class EnvironmentHostScreen(CjkScreen):
 
 
 class EnvironmentSignal(Static, can_focus=True):
-    """A cached check with a theme-aware dot and hover/keyboard explanation."""
+    """A cached check with shared status vocabulary and keyboard inspection."""
 
-    COMPONENT_CLASSES = {"environment--success", "environment--warning", "environment--error", "environment--muted"}
-    DEFAULT_CSS = """
-    EnvironmentSignal .environment--success { color: $success; }
-    EnvironmentSignal .environment--warning { color: $warning; }
-    EnvironmentSignal .environment--error { color: $error; }
-    EnvironmentSignal .environment--muted { color: $text-muted; }
-    """
+    COMPONENT_CLASSES = {"environment--success", "environment--warning", "environment--error", "environment--neutral"}
 
     def __init__(self, panel: EnvironmentPopover, row: PreflightCheck, identifier: str) -> None:
         super().__init__(id=f"preflight-signal-{identifier}", classes="environment-signal", markup=False)
@@ -166,15 +144,13 @@ class EnvironmentSignal(Static, can_focus=True):
 
     def render(self) -> Text:
         status = item_status(self.row)
-        role = {"ok": "success", "fail": "error", "error": "error", "not_requested": "muted"}.get(status, "warning")
-        dot = "○" if status == "not_requested" else "●"
-        suffix = "" if status in {"ok", "pending"} else " · " + self.panel.tr("signal." + status)
+        presentation = check_presentation(self.row)
+        suffix = "" if status in {"ok", "pending"} else " · " + self.panel.status(self.row)
         label = Text(self.panel.label(self.row))
         if self.size.width:
-            # Reserve space for the dot and any problem status.
             label.truncate(max(1, self.size.width - Text(suffix).cell_len - 2), overflow="ellipsis")
         return Text.assemble(
-            (dot, self.get_component_rich_style("environment--" + role)),
+            (presentation.symbol, self.get_component_rich_style("environment--" + presentation.level)),
             " ", label, suffix,
         )
 
@@ -201,10 +177,18 @@ class EnvironmentPopover(Vertical):
         self._rows_language = ""
         self._selected_row: PreflightCheck | None = None
         self._hovered_row: PreflightCheck | None = None
+        self._inspected_row: PreflightCheck | None = None
 
     @property
     def pinned(self) -> bool:
         return self.group in self.pinned_groups
+
+    @property
+    def retry_button(self) -> Button:
+        """The one visible recheck action, regardless of the selected check."""
+        callout = self.query_one("#preflight-callout", Callout)
+        actions = callout.query_one(ActionButtons) if callout.display else self.query_one("#preflight-recheck", ActionButtons)
+        return actions.query(Button).first()
 
     def update_entries(self) -> None:
         for entry in self.controller.app.query(EnvironmentIndicator):
@@ -215,16 +199,17 @@ class EnvironmentPopover(Vertical):
 
     def compose(self) -> ComposeResult:
         yield Static("", id="preflight-title", markup=False)
+        yield StatusBanner(StatusSummary("neutral", ""), id="preflight-summary")
         with VerticalScroll(id="preflight-scroll"):
-            yield Static("", id="preflight-summary", markup=False)
-            yield Static("", id="preflight-issues", markup=False)
             yield Grid(id="preflight-capabilities")
         with VerticalScroll(id="preflight-inspection"):
-            yield Static("", id="preflight-explanation", markup=False)
-            yield Static("", id="preflight-evidence", markup=False)
-        yield Static("", id="preflight-action-reason", markup=False)
-        with Horizontal(id="preflight-buttons"):
-            yield Button("", id="preflight-retry", compact=True)
+            yield Static("", id="preflight-empty", markup=False)
+            yield Callout(CalloutContent("neutral", "", "", ""), id="preflight-callout")
+            yield FactGrid(ViewSection("", ()), id="preflight-facts")
+            yield ActionButtons(id="preflight-recheck")
+            yield Static("", id="preflight-action-reason", markup=False)
+            yield FactGrid(ViewSection(message_id("run.environment.context.title"), (), collapsed=True),
+                           id="preflight-context")
 
     def cancel_close(self) -> None:
         if self.close_timer is not None:
@@ -294,20 +279,16 @@ class EnvironmentPopover(Vertical):
         size = self.app.size if size is None else size
         width = min(68, size.width)
         self.styles.offset = (max(0, size.width - width - 5), 1)
-        height = max(1, size.height - 1)
-        self.styles.max_height = height
-        reason_height = 2 if self.query_one("#preflight-action-reason").display else 0
-        self.query_one("#preflight-scroll").styles.max_height = max(1, height - 13 - reason_height)
+        self.styles.height = min(26, max(1, size.height - 1))
+        self.styles.max_height = max(1, size.height - 1)
+        self.query_one("#preflight-scroll").styles.max_height = max(1, min(5, size.height // 5))
         self.query_one("#preflight-capabilities").styles.grid_size_columns = 2 if size.width >= 60 else 1
 
     def label(self, row: PreflightCheck) -> str:
-        return self.tr("label." + LABELS[row.check_id]) if row.check_id in LABELS else self.controller.app.tr(row.label)
+        return self.controller.app.tr(check_label(row))
 
     def status(self, row: PreflightCheck) -> str:
-        return self.tr("item." + item_status(row))
-
-    def remedy(self, row: PreflightCheck) -> str:
-        return self.tr("remedy." + REMEDIES.get(row.check_id, "generic"))
+        return self.controller.app.tr(check_presentation(row).label)
 
     def select(self, row: PreflightCheck) -> None:
         if not self.display or row not in self._rows:
@@ -330,68 +311,112 @@ class EnvironmentPopover(Vertical):
     def explain(self, row: PreflightCheck) -> None:
         if not self.display or row not in self._rows:
             return
-        detail = redact_text(self.controller.app.tr(row.detail), limit=8192)
-        text = self.tr("capability_line", self.label(row), self.status(row)) + "\n"
-        text += self.tr("explanation", detail, self.remedy(row)) if item_status(row) in {"warn", "fail", "error"} else detail
-        text += "\n" + self.tr("source", row.source, row.capability_status or row.status)
-        self.query_one("#preflight-explanation", Static).update(redact_text(text, limit=None))
-        self.query_one("#preflight-inspection").scroll_home(animate=False)
+        detail = self.controller.app.tr(row.detail) if isinstance(row.detail, CatalogText) else row.detail
+        technical = redact_text("\n".join((
+            f"check_id: {row.check_id}", f"status: {row.status}",
+            f"capability_status: {row.capability_status}", f"source: {row.source}",
+            f"runtime_kind: {row.runtime_kind}", "", detail,
+        )), limit=None)
+        view = check_view(row, technical_detail=technical,
+                          check_allowed=self.controller.app.operation_state().allows("check"))
+        callout = self.query_one("#preflight-callout", Callout)
+        facts = self.query_one("#preflight-facts", FactGrid)
+        callout.display = view.callout is not None
+        facts.display = view.facts is not None
+        self.query_one("#preflight-empty").display = False
+        self.query_one("#preflight-recheck").display = view.callout is None
+        if view.callout is not None and view.callout != callout.content:
+            callout.update_content(view.callout)
+        if view.facts is not None and view.facts != facts.section:
+            facts.update_section(view.facts)
+        if row != self._inspected_row:
+            self.query_one("#preflight-inspection").scroll_home(animate=False)
+        self._inspected_row = row
 
     def update_cached(self) -> None:
         if not self.is_mounted or not self.display:
             return
-        self.fit()
         controller = self.controller
-        state = controller.display_state
         rows = tuple(row for row in display_checks(controller) if check_group(row) == self.group)
         heading = self.tr("group_count", self.tr("group." + self.group), len(rows))
-        completed = controller.completed_at.strftime("%Y-%m-%d %H:%M:%S %Z") if controller.completed_at else self.tr("no_check")
-        self.query_one("#preflight-title", Static).update(self.tr("title", heading,
-                                                           self.tr("pinned" if self.pinned else "hover")))
-        summary = controller.app.environment.label.split(" / ")[0] + "\n" + self.tr("summary", completed)
-        self.query_one("#preflight-summary", Static).update(summary)
-        lines = []
-        if state == "error":
-            lines.append(self.tr("check_error_hint"))
-        self.query_one("#preflight-issues", Static).update("\n".join(lines))
-        self.query_one("#preflight-issues").display = bool(lines)
-        evidence = self.tr("lock_cached" if controller.lock_acquired else "lock_unknown")
-        self.query_one("#preflight-evidence", Static).update(evidence)
+        self.query_one("#preflight-title", Static).update(
+            self.tr("title", heading, self.tr("pinned" if self.pinned else "hover")))
+        banner = self.query_one("#preflight-summary", StatusBanner)
+        summary = group_summary(rows, group=self.group, state=controller.display_state)
+        if summary != banner.summary:
+            banner.update_summary(summary)
         allowed = controller.app.operation_state().allows("check")
-        self.query_one("#preflight-retry", Button).disabled = not allowed
-        reason = "" if allowed else self.tr("measurement_cached" if controller.app.execution.session.snapshot.measurement_active else "operation_busy")
+        actions = (ViewAction("environment-retry", message_id("run.environment.retry"), primary=True, disabled=not allowed),)
+        self.query_one("#preflight-recheck", ActionButtons).update_actions(actions)
+        reason = "" if allowed else self.tr(
+            "measurement_cached" if controller.app.execution.session.snapshot.measurement_active else "operation_busy")
         self.query_one("#preflight-action-reason", Static).update(reason)
         self.query_one("#preflight-action-reason").display = bool(reason)
-        self.fit()
-        button = self.query_one("#preflight-retry", Button)
-        label = self.tr("retry")
-        if str(button.label) != label:
-            button.label = label
-            button.refresh(layout=True)
-        button.tooltip = reason if button.disabled else None
+        self.update_context()
         language = controller.app.configuration.preferences.language
         if rows != self._rows or language != self._rows_language:
+            previous = self._selected_row
+            rows_changed = rows != self._rows
             self._rows, self._rows_language = rows, language
-            self._selected_row = self._hovered_row = None
-            self.query_one("#preflight-explanation", Static).update(self.tr("inspect_hint" if rows else "empty_group"))
-            self.query_one("#preflight-scroll").scroll_home(animate=False)
-            self.query_one("#preflight-inspection").scroll_home(animate=False)
+            self._hovered_row = None
+            self._selected_row = next(
+                (row for row in rows if previous is not None and row.check_id and row.check_id == previous.check_id),
+                min(rows, key=check_priority, default=None),
+            )
+            if rows_changed:
+                self.query_one("#preflight-scroll").scroll_home(animate=False)
             self.call_later(self.render_rows, rows)
-        if not rows:
-            checking = self.group == "pending" and state == "checking"
-            self.query_one("#preflight-explanation", Static).update(self.tr("checking_all" if checking else "empty_group"))
+        if self._selected_row is not None:
+            self.explain(self._hovered_row or self._selected_row)
+        else:
+            self._inspected_row = None
+            self.query_one("#preflight-callout").display = False
+            self.query_one("#preflight-facts").display = False
+            empty = self.query_one("#preflight-empty", Static)
+            empty.display = True
+            empty.update(self.tr("checking_all" if self.group == "pending" and controller.display_state == "checking" else "empty_group"))
+        self.retry_button.tooltip = reason or self.tr("retry")
+        self.fit()
+
+    def update_context(self) -> None:
+        controller = self.controller
+        timestamp = controller.completed_at.isoformat() if controller.completed_at else ""
+        section = ViewSection(message_id("run.environment.context.title"), (
+            FactRow(message_id("run.environment.context.platform"), controller.app.environment.label.split(" / ")[0]),
+            FactRow(message_id("run.environment.context.checked_at"),
+                    format_local_timestamp(timestamp) if timestamp else message_id("run.environment.no_check"),
+                    detail=timestamp, copyable=bool(timestamp)),
+            FactRow(message_id("run.environment.context.scope"), message_id("run.environment.unverified")),
+            FactRow(message_id("run.environment.context.lock"),
+                    message_id("run.environment.lock_cached" if controller.lock_acquired else "run.environment.lock_unknown")),
+        ), collapsed=True)
+        grid = self.query_one("#preflight-context", FactGrid)
+        if section != grid.section:
+            grid.update_section(section)
 
     async def render_rows(self, rows: tuple[PreflightCheck, ...]) -> None:
         if rows != self._rows or not self.is_mounted:
             return
         summary = self.query_one("#preflight-capabilities")
-        await summary.remove_children()
-        priority = {"fail": 0, "error": 0, "warn": 1, "ok": 2, "declared": 3, "pending": 3, "not_requested": 4}
-        ordered = sorted(enumerate(rows), key=lambda pair: priority[item_status(pair[1])])
         sections: dict[str, list[EnvironmentSignal]] = {name: [] for name in (*CAPABILITY_SECTIONS, "other")}
-        for index, row in ordered:
+        for index, row in sorted(enumerate(rows), key=lambda pair: check_priority(pair[1])):
             section = next((name for name, identifiers in CAPABILITY_SECTIONS.items() if row.check_id in identifiers), "other")
-            sections[section].append(EnvironmentSignal(self, row, row.check_id or str(index)))
+            signal = EnvironmentSignal(self, row, row.check_id or str(index))
+            signal.tooltip = self.label(row) + " · " + self.status(row)
+            sections[section].append(signal)
+        incoming = [signal for signals in sections.values() for signal in signals]
+        current = list(summary.query(EnvironmentSignal))
+        if [signal.id for signal in current] == [signal.id for signal in incoming]:
+            for old, new in zip(current, incoming, strict=True):
+                old.row, old.tooltip = new.row, new.tooltip
+                old.refresh(layout=True)
+            for name in sections:
+                for title in summary.query(f"#preflight-section-{name} .environment-section-title").results(Static):
+                    title.update(self.tr("section." + name))
+            return
+        focused = self.app.focused
+        focus_id = focused.id if isinstance(focused, EnvironmentSignal) and summary in focused.ancestors else None
+        await summary.remove_children()
         await summary.mount(*(
             Vertical(
                 Static(self.tr("section." + name), classes="environment-section-title", markup=False),
@@ -399,8 +424,15 @@ class EnvironmentPopover(Vertical):
             )
             for name, signals in sections.items() if signals
         ))
+        if focus_id and self.app.screen is self.screen and self.app.focused is None:
+            target = next((signal for signal in self.query(EnvironmentSignal) if signal.id == focus_id), None)
+            if target is not None:
+                target.focus(scroll_visible=False)
+            else:
+                self.controller.app.query_one("#environment-" + self.group).focus(scroll_visible=False)
 
-    @on(Button.Pressed, "#preflight-retry")
-    def operate(self, event: Button.Pressed) -> None:
-        event.stop()
-        self.controller.quick_check()
+    @on(ActionRequested)
+    def operate(self, event: ActionRequested) -> None:
+        if event.action_id == "environment-retry":
+            event.stop()
+            self.controller.quick_check()

@@ -48,23 +48,25 @@ EnvironmentIndicator:focus { text-style: bold; }
     padding: 0 1;
     overflow: hidden;
 }
+EnvironmentIndicator .environment--success, EnvironmentSignal .environment--success { color: $success; }
+EnvironmentIndicator .environment--warning, EnvironmentSignal .environment--warning { color: $warning; }
+EnvironmentIndicator .environment--error, EnvironmentSignal .environment--error { color: $error; }
+EnvironmentIndicator .environment--pending, EnvironmentSignal .environment--neutral { color: $text-muted; }
 #preflight-title { height: 1; text-style: bold; }
+#preflight-summary { padding: 0; max-height: 2; }
 #preflight-scroll { height: auto; overflow-x: hidden; }
-#preflight-summary, #preflight-capabilities, #preflight-issues, #preflight-evidence,
-#preflight-action-reason { height: auto; }
-#preflight-summary { margin-bottom: 1; }
-#preflight-capabilities { grid-size: 2; grid-columns: 1fr 1fr; grid-rows: auto; grid-gutter: 1 2; }
+#preflight-capabilities { height: auto; grid-size: 2; grid-columns: 1fr 1fr; grid-rows: auto; grid-gutter: 1 2; }
 .environment-section { height: auto; }
 .environment-section-title { height: 1; text-style: bold; color: $text-muted; }
 .environment-signal { height: 1; text-wrap: nowrap; text-overflow: ellipsis; }
 .environment-signal:hover, .environment-signal:focus { text-style: bold underline; }
-#preflight-inspection { height: 6; border-top: solid $accent; overflow-x: hidden; }
-#preflight-explanation { height: auto; }
-#preflight-issues, #preflight-action-reason { color: $warning; }
-#preflight-action-reason { max-height: 2; }
-#preflight-evidence { color: $text-muted; }
-#preflight-buttons { height: 3; }
-#preflight-buttons Button { width: auto; min-width: 0; margin: 0 1 0 0; padding: 0; }
+#preflight-inspection { height: 1fr; min-height: 1; border-top: solid $accent; overflow-x: hidden; }
+#preflight-empty, #preflight-action-reason { height: auto; }
+#preflight-action-reason { color: $warning; margin-bottom: 1; }
+#preflight-callout, #preflight-facts { margin-bottom: 1; }
+#preflight-context { margin-bottom: 0; }
+#preflight-facts .fact-grid, #preflight-context .fact-grid { grid-columns: 16 1fr; }
+#preflight-recheck { margin-bottom: 1; }
 /* Dock the action row as a unit: separate right docks overlap each other. */
 #header-actions {
     dock: right;

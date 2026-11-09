@@ -71,6 +71,12 @@ acprof/tui/
 `PlanView` 以同一个 `ViewSection` 合并原先上下两段配置摘要；估算沿用资源矩阵与输入规模口径，详细参数、预算、耗时假设和路径进入可展开行。
 `ConfigurationController` 提供已选 runtime、预算和缓存路径；纯模型不读环境、文件或硬件，也不重复校验配置。
 `invalid_plan_view()` 清空有效计划事实，保留完整配置问题；controller 同时清除旧输入单位和规模提示，保留身份仍匹配时可复用的已解析计划。既有字段定位与采集门禁不变。准备期即使 busy 仍可更新输入计划，`measurement_active` 时不投影。
+第四个迁移页面为 `run/environment_view.py` → `ui/environment.py::EnvironmentPopover`。
+纯模型只把缓存的 `PreflightCheck` 投影成分组 `StatusSummary` 和 `EnvironmentCheckView`：异常使用 `Callout`，正常、待确认与未请求项使用 `FactGrid`，不读取宿主或可编辑实验配置，不重新判定启动门禁。
+`EnvironmentPopover` 保留分类独立固定、悬停预览、键盘选择和离开恢复；无选择时解释首个优先项，不主动夺取焦点。按稳定检查 ID 保留仍存在的选择，分类清单与详情各自可滚动。
+技术详情由展示层翻译结构化消息、拼入原始状态与来源后按既有规则脱敏，不截断异常或路径。检查背景默认折叠，使用共享本地秒级时间格式化，列出平台、测量锁证据和检查范围。
+重检使用稳定 action ID `environment-retry`，继续交给 `PreflightController.quick_check()` 和既有 `OperationState`；`retry_button` 提供当前唯一可见重检按钮，不依赖 Callout 内部控件 ID。正式测量时可交互查看缓存，但重检仍被拒绝。
+环境浮层沿用原有 180 ms 悬停关闭定时器；本次不新增探测、周期刷新、轮询或缓存过期 TTL，也不因时间经过推导新的已过期状态。
 其他页面继续按截图评审逐页迁移，不通过本次改动提前替换运行监控等页面。
 
 新组件没有轮询或周期定时器。case ProgressBar 只使用已知总数并关闭 ETA；未知总数隐藏条形，

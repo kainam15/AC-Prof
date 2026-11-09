@@ -5,7 +5,7 @@ from dataclasses import replace
 import pytest
 from rich.color import Color
 from textual import events
-from textual.widgets import Button, Select, Static, TabbedContent
+from textual.widgets import Button, Collapsible, Select, Static, TabbedContent
 
 from acprof.experiments.configuration import RunConfig
 from acprof.tui.app import AcprofTui
@@ -14,6 +14,7 @@ from acprof.tui.run.environment_checks import ENVIRONMENT_CHECK_IDS
 from acprof.tui.run.progress import ProgressSnapshot
 from acprof.tui.ui.dialogs import ConfirmActionScreen
 from acprof.tui.ui.environment import EnvironmentIndicator, display_checks
+from acprof.tui.ui.structured import Callout, FactGrid
 
 
 @pytest.fixture
@@ -45,10 +46,33 @@ def counts(app):
     return [str(entry.content) for entry in app.query(EnvironmentIndicator) if entry.display]
 
 
+def fact_text(app, identifier):
+    grid = app.query_one(identifier, FactGrid)
+    return "\n".join(
+        f"{app.tr(row.label)}: {app.tr(row.value)}\n{row.detail}"
+        for row in (*grid.section.rows, *grid.section.detail_rows)
+    )
+
+
 def detail_text(app):
-    content = app.query_one("#preflight-explanation", Static).content
-    assert isinstance(content, str)
-    return content
+    """Read the current projection; disclosure accessibility is checked separately."""
+    callout = app.query_one("#preflight-callout", Callout)
+    if callout.display:
+        return "\n".join(str(callout.query_one(".callout-" + kind, Static).content)
+                         for kind in ("problem", "impact", "next", "raw"))
+    if app.query_one("#preflight-facts", FactGrid).display:
+        return fact_text(app, "#preflight-facts")
+    return str(app.query_one("#preflight-empty", Static).content)
+
+
+def context_text(app):
+    return fact_text(app, "#preflight-context")
+
+
+def visible_buttons(panel):
+    return [button for button in panel.query(Button)
+            if button.display and all(getattr(parent, "display", True) for parent in button.ancestors)
+            and button.region.width and button.region.height]
 
 
 @pytest.mark.parametrize("language", ["zh", "en"])
@@ -120,7 +144,7 @@ async def test_environment_counts_filter_cached_checks_on_hover(app, language, m
     monkeypatch.setattr("acprof.tui.run.preflight_controller.scan_environment", scan)
     async with app.run_test(size=(80, 24)) as pilot:
         await settle(app, pilot)
-        assert counts(app) == ["⊘ 2", "⚠ 1", "✔ 2", "◌ 1"]
+        assert counts(app) == ["× 2", "! 1", "✓ 2", "- 1"]
         panel = app.preflight.panel
         assert not panel.display
         tabs = app.query_one("#main-tabs").region
@@ -136,7 +160,7 @@ async def test_environment_counts_filter_cached_checks_on_hover(app, language, m
             assert panel.display
             assert {signal.row.check_id for signal in panel.query(".environment-signal")} == identifiers
             assert label in str(panel.query_one("#preflight-title", Static).content)
-            assert app.environment.label.split(" / ")[0] in str(panel.query_one("#preflight-summary", Static).content)
+            assert app.environment.label.split(" / ")[0] in context_text(app)
             assert app.query_one("#main-tabs").region == tabs
             assert await pilot.hover(entry, offset=(2, 0)), "the count is part of the hover target"
             assert {signal.row.check_id for signal in panel.query(".environment-signal")} == identifiers
@@ -149,7 +173,7 @@ async def test_environment_counts_filter_cached_checks_on_hover(app, language, m
         assert panel.pinned
         app.query_one("#preflight-signal-torch").focus()
         await pilot.pause()
-        assert "self-check budget exhausted" in str(panel.query_one("#preflight-explanation", Static).content)
+        assert "self-check budget exhausted" in detail_text(app)
         await pilot.press("escape")
         assert app.focused is entry
         await pilot.press("enter")
@@ -166,11 +190,11 @@ async def test_environment_counts_keep_pending_errors_and_refresh_visible(app):
         app.preflight.environment_checks = ()
         app.preflight.check_completed = False
         app.preflight.refresh_preflight_state()
-        assert counts(app) == ["⊘ 0", "⚠ 0", "✔ 0", "◌ 24"]
+        assert counts(app) == ["× 0", "! 0", "✓ 0", "- 24"]
         app.preflight.check_completed = True
         app.preflight.environment_error = "fixture scanner failed"
         app.preflight.refresh_preflight_state()
-        assert counts(app) == ["⊘ 1", "⚠ 0", "✔ 0"]
+        assert counts(app) == ["× 1", "! 0", "✓ 0"]
         await pilot.hover("#environment-error")
         await pilot.pause()
         assert app.query("#preflight-signal-check_error")
@@ -178,18 +202,18 @@ async def test_environment_counts_keep_pending_errors_and_refresh_visible(app):
         app.preflight.environment_checks = (PreflightCheck("Docker", "ok", "daemon ready", check_id="docker"),)
         app.preflight.refresh_preflight_state()
         await pilot.pause()
-        assert counts(app) == ["⊘ 0", "⚠ 0", "✔ 1"]
+        assert counts(app) == ["× 0", "! 0", "✓ 1"]
         assert not app.query(".environment-signal"), "the hovered error group must discard stale checks"
-        assert "没有对应检查项" in str(app.query_one("#preflight-explanation", Static).content)
+        assert "没有对应检查项" in detail_text(app)
         app.preflight.check_running = True
         app.preflight.refresh_preflight_state()
-        assert counts(app) == ["⊘ 0", "⚠ 0", "✔ 1", "◌ …"], "rechecking cached results must remain visible"
+        assert counts(app) == ["× 0", "! 0", "✓ 1", "- …"], "rechecking cached results must remain visible"
         await pilot.pause()
         await pilot.hover("#environment-pending")
-        assert "正在检查全部机器能力" in str(app.query_one("#preflight-explanation", Static).content)
+        assert "正在检查全部机器能力" in detail_text(app)
         app.preflight.environment_checks = (PreflightCheck("Torch", "pending", "unverified", check_id="torch"),)
         app.preflight.refresh_preflight_state()
-        assert counts(app) == ["⊘ 0", "⚠ 0", "✔ 0", "◌ …"]
+        assert counts(app) == ["× 0", "! 0", "✓ 0", "- …"]
         app.preflight.check_running = False
         probe.assert_called_once()
 
@@ -241,15 +265,15 @@ async def test_hover_pin_and_dismiss_keep_page_layout_and_cached_probe(app):
         await pilot.hover("#environment-warning")
         await pilot.pause()
         assert panel.display
-        assert [button.id for button in panel.query(Button)] == ["preflight-retry"]
+        assert visible_buttons(panel) == [panel.retry_button]
         assert tabs.region == before
         assert tabs.active == "run-tab"
-        await pilot.hover("#preflight-retry")
+        await pilot.hover(app.preflight.panel.retry_button)
         await pilot.pause(0.25)
         assert panel.display, "crossing into the panel must cancel delayed closure"
         await pilot.hover("#preflight-signal-0")
         await pilot.pause()
-        assert "fixture diagnostic" in str(app.query_one("#preflight-explanation", Static).content)
+        assert "fixture diagnostic" in detail_text(app)
         await pilot.click("#environment-warning")
         await pilot.hover("#quit-app")
         await pilot.pause(0.25)
@@ -293,11 +317,11 @@ async def test_keyboard_overlay_and_left_aligned_title_survive_resize(app, langu
             assert panel.region.width <= 70
             assert panel.region.bottom <= height
             assert app.get_widget_at(*quit_button.region.center)[0] is quit_button
-            for button in panel.query(Button):
+            for button in visible_buttons(panel):
                 assert panel.region.contains_region(button.region)
                 assert app.get_widget_at(*button.region.center)[0] is button
             assert app.query_one("HeaderTitle").styles.content_align_horizontal == "left"
-            retry = app.query_one("#preflight-retry", Button)
+            retry = app.preflight.panel.retry_button
             retry.focus()
             await pilot.pause()
             region = retry.content_region
@@ -323,8 +347,8 @@ async def test_hover_reentry_and_modal_hide_transient_panel(app):
         await pilot.hover("#environment-warning")
         # Pilot.hover waits for CPU idle before and after each move, which can
         # exceed the close delay. Queue rapid movement without those pauses.
-        for selector in ("#quit-app", "#preflight-retry"):
-            x, y = app.query_one(selector).region.center
+        for widget in (app.query_one("#quit-app"), panel.retry_button):
+            x, y = widget.region.center
             app.post_message(events.MouseMove(
                 app.screen, x, y, delta_x=0, delta_y=0, button=0,
                 shift=False, meta=False, ctrl=False, screen_x=x, screen_y=y,
@@ -365,7 +389,7 @@ async def test_environment_overlay_remains_reachable_above_maximized_log(app):
         await pilot.pause()
         panel = app.preflight.panel
         assert panel.display
-        button = app.query_one("#preflight-retry", Button)
+        button = app.preflight.panel.retry_button
         assert app.get_widget_at(*button.region.center)[0] is button
         await pilot.press("escape")
         assert not panel.display
@@ -395,7 +419,7 @@ async def test_projection_always_displays_all_machine_capabilities(app, runtime,
         probe.assert_called_once()
 
 
-async def test_details_and_start_reason_are_redacted_and_scrollable(app):
+async def test_details_and_start_reason_are_redacted_and_scrollable(app, monkeypatch):
     app, probe = app
     app.configuration.initial_config = replace(RunConfig.smoke(""), profiling_mode="full")
     probe.return_value = [PreflightCheck(
@@ -413,14 +437,32 @@ async def test_details_and_start_reason_are_redacted_and_scrollable(app):
         await pilot.hover(row)
         await pilot.pause()
         inspection = app.query_one("#preflight-inspection")
+        callout = app.query_one("#preflight-callout", Callout)
+        disclosure = callout.query_one(".callout-details", Collapsible)
+        copy = callout.query_one(".callout-copy", Button)
+        assert disclosure.collapsed
+        assert copy not in app.screen.focus_chain
+        disclosure.query_one("CollapsibleTitle").focus()
+        await pilot.press("enter")
+        await pilot.pause()
+        assert not disclosure.collapsed
         assert inspection.max_scroll_y > 0
-        details = str(app.query_one("#preflight-explanation", Static).content)
+        details = detail_text(app)
         for secret in ("fixture-secret", "user:password", "key=hidden"):
             assert secret not in details
         assert "[REDACTED]" in details
         assert "perf_stat" in details
         assert "permission_denied" in details
         assert "\nEND OF CHECK OUTPUT" in details
+        copied = []
+        monkeypatch.setattr(app, "copy_to_clipboard", copied.append)
+        copy.scroll_visible(animate=False, immediate=True)
+        copy.focus()
+        await pilot.pause()
+        assert app.get_widget_at(*copy.region.center)[0] is copy
+        await pilot.press("enter")
+        assert copied == [str(callout.query_one(".callout-raw", Static).content)]
+        assert "fixture-secret" not in copied[0]
         inspection.focus()
         await pilot.press("end")
         assert inspection.scroll_y > 0
@@ -428,7 +470,7 @@ async def test_details_and_start_reason_are_redacted_and_scrollable(app):
 
 
 @pytest.mark.parametrize("language", ["zh", "en"])
-async def test_status_dots_explain_cached_checks_on_hover_and_keyboard_focus(app, language):
+async def test_status_symbols_explain_cached_checks_on_hover_and_keyboard_focus(app, language):
     app, probe = app
     app.configuration.preferences = replace(app.configuration.preferences, language=language)
     app.configuration.initial_config = replace(RunConfig.smoke(""), runtime="docker", profiling_mode="full")
@@ -452,7 +494,7 @@ async def test_status_dots_explain_cached_checks_on_hover_and_keyboard_focus(app
             assert await pilot.hover(signal)
             region = signal.content_region
             cell = app.screen._compositor.render_strips()[region.y].crop(region.x, region.x + 1)
-            assert cell.text == "●"
+            assert cell.text == {"success": "✓", "warning": "!", "error": "×"}[color]
             assert next(iter(cell)).style.color.get_truecolor() == Color.parse(app.theme_variables[color]).get_truecolor()
             if language == "en" and identifier in {"docker", "cpu_instructions", "gpu_memory"}:
                 visible = app.screen._compositor.render_strips()[region.y].crop(region.x, region.right).text
@@ -460,19 +502,21 @@ async def test_status_dots_explain_cached_checks_on_hover_and_keyboard_focus(app
                     assert "Unavailable" in visible
                 else:
                     assert " · " not in visible
-            explanation = str(app.query_one("#preflight-explanation", Static).content)
             problem = identifier in {"cpu_energy", "cpu_instructions", "check_error"}
-            assert (("原因：" if language == "zh" else "Reason:") in explanation) == problem
-            assert (("解决方法：" if language == "zh" else "Solution:") in explanation) == problem
+            callout = app.query_one("#preflight-callout", Callout)
+            assert callout.display == problem
+            assert app.query_one("#preflight-facts", FactGrid).display != problem
+            if problem:
+                for kind in ("problem", "impact", "next"):
+                    assert str(callout.query_one(".callout-" + kind, Static).content)
         for identifier in ("capture_interface", "gpu_device"):
             signal = app.query_one(f"#preflight-signal-{identifier}")
             signal.focus()
             await pilot.pause()
-            explanation = str(app.query_one("#preflight-explanation", Static).content)
-            assert ("原因：" if language == "zh" else "Reason:") not in explanation
-            assert ("解决方法：" if language == "zh" else "Solution:") not in explanation
+            assert app.query_one("#preflight-facts", FactGrid).display
+            assert not app.query_one("#preflight-callout", Callout).display
         device = app.query_one("#preflight-signal-gpu_device")
-        assert "●" in device.render().plain
+        assert "✓" in device.render().plain
         assert " · " not in device.render().plain
         await pilot.hover("#environment-error")
         await pilot.pause()
@@ -480,27 +524,29 @@ async def test_status_dots_explain_cached_checks_on_hover_and_keyboard_focus(app
         failure.scroll_visible(animate=False, top=True)
         await pilot.pause()
         await pilot.hover(failure)
-        explanation = str(app.query_one("#preflight-explanation", Static).content)
-        assert ("原因：" if language == "zh" else "Reason:") in explanation
-        assert ("解决方法：" if language == "zh" else "Solution:") in explanation
+        explanation = detail_text(app)
+        callout = app.query_one("#preflight-callout", Callout)
+        assert callout.display
+        for kind in ("problem", "impact", "next"):
+            assert str(callout.query_one(".callout-" + kind, Static).content)
         assert "Permission denied" in explanation
         assert "fixture-secret" not in explanation
-        assert ("采集权限" if language == "zh" else "Permissions") in explanation
+        assert ("权限" if language == "zh" else "permission") in explanation.lower()
         app.query_one("#preflight-signal-check_error").focus()
         await pilot.press("shift+tab")
         assert app.focused is failure
-        assert "Permission denied" in str(app.query_one("#preflight-explanation", Static).content)
+        assert "Permission denied" in detail_text(app)
         app.execution.session.snapshot = ProgressSnapshot(measurement_active=True)
         app.set_busy(True)
         await pilot.hover(failure)
         probe.assert_called_once()
         app.execution.session.snapshot = ProgressSnapshot()
         app.set_busy(False)
-        previous_detail = str(app.query_one("#preflight-explanation", Static).content)
+        previous_detail = detail_text(app)
         app.query_one("#gpus", Select).value = "on"
         await pilot.pause()
         assert app.preflight.display_state == "limited"
-        assert str(app.query_one("#preflight-explanation", Static).content) == previous_detail
+        assert detail_text(app) == previous_detail
         probe.assert_called_once()
 
 
@@ -520,7 +566,7 @@ async def test_selected_check_details_return_after_hover_and_resize(app, languag
         selected = app.query_one("#preflight-signal-environment")
         preview = app.query_one("#preflight-signal-docker")
         keyboard = app.query_one("#preflight-signal-cgroup")
-        explanation = app.query_one("#preflight-explanation", Static)
+        explanation = app.query_one("#preflight-inspection")
         for width, height in ((80, 24), (120, 35)):
             await pilot.resize_terminal(width, height)
             selected.scroll_visible(animate=False, top=True)
@@ -539,7 +585,7 @@ async def test_selected_check_details_return_after_hover_and_resize(app, languag
             await pilot.pause()
             assert await pilot.hover(preview)
             assert "hovered Docker evidence" in detail_text(app)
-            assert await pilot.hover("#preflight-retry")
+            assert await pilot.hover(app.preflight.panel.retry_button)
             assert "selected environment evidence" in detail_text(app)
 
             selected.focus()
@@ -580,7 +626,10 @@ async def test_selected_check_clears_when_category_or_cached_checks_change(app):
 
         assert await pilot.hover("#environment-success")
         await pilot.pause()
-        assert "old evidence" not in detail_text(app)
+        assert app.preflight.panel._selected_row.check_id == "environment"
+        assert "selected old evidence" in detail_text(app), "opening a group explains its current first check"
+        assert "hovered old evidence" not in detail_text(app)
+        assert "warning evidence" not in detail_text(app)
         assert await pilot.click("#preflight-signal-environment")
         assert await pilot.hover("#preflight-signal-docker")
         app.preflight.environment_checks = (
@@ -592,7 +641,7 @@ async def test_selected_check_clears_when_category_or_cached_checks_change(app):
         assert await pilot.hover("#preflight-title")
         assert "old evidence" not in detail_text(app)
         assert await pilot.hover("#preflight-signal-docker")
-        assert await pilot.hover("#preflight-explanation")
+        assert await pilot.hover("#preflight-inspection")
         assert "refreshed Docker evidence" in detail_text(app)
         probe.assert_called_once()
 
@@ -609,16 +658,16 @@ async def test_stale_auto_runtime_and_measurement_actions(app):
         assert app.preflight.display_state == "ready"
         assert app.query_one("#start-run", Button).disabled
         await pilot.click("#environment-warning")
-        assert "Runtime" not in str(app.query_one("#preflight-summary", Static).content)
-        assert str(app.query_one("#preflight-summary", Static).content).splitlines()[1].startswith("最近检查：")
+        assert "Process" not in context_text(app), "the old selected runtime is not machine evidence"
+        assert app.preflight.completed_at.strftime("%Y-%m-%d %H:%M:%S") in context_text(app)
         app.execution.session.snapshot = ProgressSnapshot(measurement_active=True)
         app.set_busy(True)
         await pilot.press("f6")
-        await pilot.click("#preflight-retry")
-        assert app.query_one("#preflight-retry", Button).disabled
+        await pilot.click(app.preflight.panel.retry_button)
+        assert app.preflight.panel.retry_button.disabled
         assert "测量中" in str(app.query_one("#preflight-action-reason", Static).content)
         await pilot.pause()
-        for button in app.preflight.panel.query(Button):
+        for button in visible_buttons(app.preflight.panel):
             assert button.region.bottom < app.preflight.panel.region.bottom
         probe.assert_called_once()
 
@@ -640,7 +689,7 @@ async def test_palette_and_long_panel_fit(app, theme, no_color, monkeypatch):
         assert panel.region.bottom <= 24
         assert "警告" in str(app.query_one("#preflight-title", Static).content)
         assert not any("未启用" in signal.render().plain for signal in app.query(".environment-signal"))
-        assert all(panel.region.contains_region(button.region) for button in panel.query(Button))
+        assert all(panel.region.contains_region(button.region) for button in visible_buttons(panel))
         assert app.theme == theme
         colors = {
             color.get_truecolor()
@@ -650,4 +699,61 @@ async def test_palette_and_long_panel_fit(app, theme, no_color, monkeypatch):
         }
         assert colors
         assert all(len(set(rgb)) == 1 for rgb in colors) == no_color
+        probe.assert_called_once()
+
+
+@pytest.mark.parametrize("language", ["zh", "en"])
+async def test_first_issue_is_explained_without_stealing_entry_focus(app, language):
+    app, probe = app
+    app.configuration.preferences = replace(app.configuration.preferences, language=language)
+    probe.return_value = [
+        PreflightCheck("RAPL", "warn", "first issue evidence", check_id="cpu_energy"),
+        PreflightCheck("GPU power", "warn", "second issue evidence", check_id="gpu_power"),
+    ]
+    async with app.run_test(size=(80, 24)) as pilot:
+        await settle(app, pilot)
+        entry = app.query_one("#environment-warning")
+        entry.focus()
+        await pilot.hover(entry)
+        await pilot.pause()
+        panel = app.preflight.panel
+        assert app.focused is entry
+        assert panel._selected_row.check_id == "cpu_energy"
+        assert "first issue evidence" in detail_text(app)
+        callout = app.query_one("#preflight-callout", Callout)
+        assert callout.display
+        for kind in ("problem", "impact", "next"):
+            value = callout.query_one(".callout-" + kind, Static)
+            assert str(value.content)
+            assert panel.region.contains_region(value.region)
+        assert callout.query_one(".callout-details", Collapsible).collapsed
+        retry = panel.retry_button
+        assert panel.region.contains_region(retry.region)
+        assert app.get_widget_at(*retry.region.center)[0] is retry
+        await pilot.hover("#preflight-signal-gpu_power")
+        assert "second issue evidence" in detail_text(app)
+        assert app.focused is entry
+        await pilot.hover("#preflight-inspection")
+        assert "first issue evidence" in detail_text(app)
+        assert app.focused is entry
+        probe.assert_called_once()
+
+
+async def test_unknown_cached_status_uses_neutral_facts_without_another_probe(app):
+    app, probe = app
+    probe.return_value = [
+        PreflightCheck("Torch", "future_status", "unrecognized cached evidence",
+                       "future_capability", check_id="torch"),
+    ]
+    async with app.run_test(size=(80, 24)) as pilot:
+        await settle(app, pilot)
+        await pilot.click("#environment-pending")
+        await pilot.pause()
+        signal = app.query_one("#preflight-signal-torch")
+        assert signal.render().plain.startswith("- ")
+        assert "future_status" not in signal.render().plain
+        assert not app.query_one("#preflight-callout", Callout).display
+        assert app.query_one("#preflight-facts", FactGrid).display
+        assert "unrecognized cached evidence" in detail_text(app)
+        assert app.get_widget_at(*app.preflight.panel.retry_button.region.center)[0] is app.preflight.panel.retry_button
         probe.assert_called_once()

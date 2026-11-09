@@ -268,7 +268,9 @@ App 的少量具名 callback 只是 Textual 和线程安全回调入口，没有
 App 的 `tr/notify` 是 Textual 与小部件使用的展示接口，不翻译原始日志、CLI 参数或实验事件。
 `settings.controller` 管理表单、字段校验、设置保存、最近路径和预览；
 `run.experiment_controller` 负责预设、采集及探测确认，实际 `launch` 仍由 App 执行。
-`run.preflight_controller` 管理启动检测与模型准备弹窗，`results.controller` 管理摘要/报告读取及请求身份，
+`run.preflight_controller` 管理启动检测与模型准备弹窗；机器环境清单和选定实验的启动预检保持独立。
+`run.environment_view` 纯投影缓存检查，`ui.environment.EnvironmentPopover` 复用共享 Banner、Callout、FactGrid 呈现结论、恢复动作与折叠技术详情；查看缓存不启动探测，重检继续由 controller 的既有准入控制。
+`results.controller` 管理摘要/报告读取及请求身份，
 `results.profile_controller` 管理补采决策和确认，`results.profile_status` 复用 posthoc 行级完成判定读取分层结果，
 `ui.pages.backfill` 组合与实验结果同级的补采页面，复用 `results.controller` 的实验选择和摘要读取；
 `results.profile_screen` 提供补采工具选择弹窗，`ui.slash_controller` 分发快捷命令。Profiler 仍通过独立 CLI 运行，不进入正式测量窗口。

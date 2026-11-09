@@ -9,7 +9,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
-from textual.widgets import Button, Select, Static
+from textual.widgets import Button, Select
 
 from acprof.capabilities import Capability
 from acprof.experiments.configuration import RunConfig
@@ -19,6 +19,15 @@ from acprof.platform import Environment
 from acprof.tui.run.diagnostics import PreflightCheck
 from acprof.tui.run.environment_checks import scan_environment
 from acprof.tui.ui.environment import EnvironmentSignal, display_checks
+from acprof.tui.ui.structured import FactGrid
+
+
+def projected_facts(app, identifier):
+    section = app.query_one(identifier, FactGrid).section
+    return "\n".join(
+        f"{app.tr(row.label)}: {app.tr(row.value)}\n{row.detail}"
+        for row in (*section.rows, *section.detail_rows)
+    )
 
 
 def test_machine_results_survive_unselected_gpu_and_changed_experiment():
@@ -172,9 +181,9 @@ async def test_runtime_self_check_details_are_accessible_without_selecting_profi
             signal = app.query_one("#preflight-signal-" + tool, EnvironmentSignal)
             signal.focus()
             await pilot.pause()
-            assert signal.render().plain == "● " + ("Torch Profiler" if tool == "torch" else "Valgrind Massif")
-            detail = app.query_one("#preflight-explanation", Static).content
-            assert isinstance(detail, str)
+            assert signal.render().plain == "✓ " + ("Torch Profiler" if tool == "torch" else "Valgrind Massif")
+            assert app.query_one("#preflight-facts", FactGrid).display
+            detail = projected_facts(app, "#preflight-facts")
             assert ("自动运行最小 CPU 自检" if language == "zh" else "Automatic minimal CPU self-check") in detail
             assert reading in detail
             assert "sha256:" in detail
@@ -203,18 +212,19 @@ async def test_all_machine_checks_run_once_and_ignore_experiment_edits(tmp_path,
         assert not app.query_one("#start-run", Button).disabled, "an optional host tool cannot block a basic run"
         await pilot.click("#environment-success")
         await pilot.pause()
-        initial = str(app.query_one("#preflight-summary", Static).content)
-        assert "Runtime" not in initial
+        initial = projected_facts(app, "#preflight-context")
+        context = app.query_one("#preflight-context", FactGrid).section
+        assert not {"auto", "docker", "process"} & {app.tr(row.value).lower() for row in (*context.rows, *context.detail_rows)}
         assert "GPU" not in initial
         assert tuple(machine) == display_checks(app.preflight)
         for field, value in (("gpus", "on"), ("profiling-mode", "full"), ("runtime", "process")):
             app.query_one(f"#{field}", Select).value = value
         await pilot.pause()
-        assert str(app.query_one("#preflight-summary", Static).content) == initial
+        assert projected_facts(app, "#preflight-context") == initial
         assert tuple(machine) == display_checks(app.preflight)
         assert app.preflight.display_state == "limited"
         scan.assert_called_once_with(project_dir=app.project_dir)
-        await pilot.click("#preflight-retry")
+        await pilot.click(app.preflight.panel.retry_button)
         await asyncio.wait_for(app.workers.wait_for_complete(), 10)
         await pilot.pause()
         assert scan.call_count == 2

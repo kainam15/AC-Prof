@@ -5,7 +5,8 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
-from textual.widgets import Button, Static, TabbedContent
+from textual.widgets import Button, Collapsible, Static, TabbedContent
+from textual.widgets._collapsible import CollapsibleTitle
 
 from acprof.events.preparation import encode_event
 from acprof.experiments.configuration import RunConfig
@@ -20,6 +21,7 @@ from acprof.tui.run.process import StopResult
 from acprof.tui.run.progress import ProgressSnapshot, RunProgressTracker
 from acprof.tui.run.stages import Stage
 from acprof.tui.ui.dialogs import ConfirmActionScreen
+from acprof.tui.ui.structured import FactGrid
 from acprof.tui.ui.table import ResizableDataTable
 
 pytestmark = pytest.mark.visual
@@ -139,10 +141,15 @@ def test_fixed_scenes(snap_compare, tmp_path, monkeypatch, language, size, scene
                 app.query_one("#preflight-signal-docker").focus()
                 await pilot.pause()
                 assert app.preflight.panel.display
-                details = str(app.query_one("#preflight-explanation", Static).content)
-                assert "Docker" in details
-                assert "Reason:" not in details
-                assert "Solution:" not in details
+                facts = app.query_one("#preflight-facts", FactGrid)
+                assert facts.display
+                assert app.tr(facts.section.title) == "Docker"
+                assert not app.query_one("#preflight-callout").display
+                details = facts.query_one(".fact-more", Collapsible)
+                details.query_one(CollapsibleTitle).focus()
+                await pilot.press("enter")
+                await pilot.pause()
+                assert not details.collapsed
         elif scene == "statistics":
             app.activate_tab("results-tab")
             app.results.show_result_section("statistics-view")
