@@ -16,7 +16,7 @@ def initial_config() -> RunConfig:
 
 
 def mount(app: AcprofTui) -> None:
-    process = Mock(pid=12345, returncode=None)
+    process = Mock(pid=None, returncode=None)
     process.poll.return_value = None
     app.execution.lifecycle.process = process
     app.execution.session.kind = "run"
@@ -36,6 +36,7 @@ def mount(app: AcprofTui) -> None:
     )
     app.activate_tab("monitor-tab")
     app.consume_process_line("正在执行固定测试任务：不启动真实推理。", snapshot, True)
+    app.set_busy(True)
     app.logs.flush()
     app.execution.session.started_monotonic = 0
     freeze_for_screenshot(app)

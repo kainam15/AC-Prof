@@ -145,7 +145,7 @@ def group_summary(rows: Sequence[PreflightCheck], *, group: str, state: str) -> 
         for status in ("fail", "error"):
             count = sum(item_status(row) == status for row in selected)
             if count:
-                label = message_id("run.environment.item.fail" if status == "fail" else "run.environment.item.error")
+                label: str = message_id("run.environment.item.fail" if status == "fail" else "run.environment.item.error")
                 parts.append(message_id("run.environment.group_count", label, count))
         headline = join_messages(" · ", parts)
     elif group == "pending" and selected:

@@ -258,7 +258,7 @@ class FactGrid(StructuredWidget):
 
     def update_section(self, section: ViewSection) -> None:
         self.section = section
-        if not self.is_mounted or self._recompose_pending:
+        if not self.is_mounted or not self.is_attached or self._pruning or self._recompose_pending:
             return
         shape = (len(section.rows), len(section.detail_rows))
         if shape != self._composed_shape:
@@ -297,6 +297,10 @@ class FactGrid(StructuredWidget):
         target.scroll_visible(animate=False, immediate=True)
 
     async def _recompose_section(self) -> None:
+        # Textual can abandon a queued recompose once exit or pruning starts.
+        if not self.is_attached or self._pruning:
+            self._recompose_pending = False
+            return
         if self._composed_shape != (0, 0):
             for selector in (".fact-section", ".fact-more"):
                 for group in self.query(selector).results(Collapsible):
@@ -309,6 +313,9 @@ class FactGrid(StructuredWidget):
             await self.recompose()
         finally:
             self._recompose_pending = False
+        # recompose() may return after removing children without remounting them.
+        if not self.is_attached or self._pruning:
+            return
         self.update_section(self.section)
         if focused is not None:
             self._restore_fact_focus(focused)

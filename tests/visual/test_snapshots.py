@@ -49,7 +49,7 @@ pytestmark = pytest.mark.visual
     ("en", (120, 30), "environment-details"),
     ("zh", (150, 45), "environment"),
 ])
-def test_fixed_scenes(snap_compare, tmp_path, monkeypatch, language, size, scene):
+def test_fixed_scenes(snap_compare, svg_operations, tmp_path, monkeypatch, language, size, scene):
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
     monkeypatch.delenv("NO_COLOR", raising=False)
     monkeypatch.setattr("acprof.tui.app.PROJECT_DIR", Path("/workspace"))
@@ -57,7 +57,6 @@ def test_fixed_scenes(snap_compare, tmp_path, monkeypatch, language, size, scene
     environment = Environment("wsl2" if scene in {"wsl-preparation", "wsl-review"} else "native_linux")
     monkeypatch.setattr("acprof.platform.detect_environment", lambda: environment)
     monkeypatch.setattr("acprof.tui.run.diagnostics.detect_environment", lambda: environment)
-    monkeypatch.setattr("acprof.tui.run.preflight_controller.quick_preflight", lambda *args, **kwargs: [])
     # Freeze stage-log durations without changing Textual's event-loop clock.
     monkeypatch.setattr("acprof.tui.logging.controller.time", SimpleNamespace(monotonic=lambda: 1.0))
     monkeypatch.setattr("acprof.tui.run.progress.time", SimpleNamespace(monotonic=lambda: 1.0))
@@ -65,7 +64,6 @@ def test_fixed_scenes(snap_compare, tmp_path, monkeypatch, language, size, scene
     from tests.visual_png.scenarios import error_modal
     config = error_modal.initial_config() if scene.startswith("environment") else RunConfig.smoke("fixture/model")
     app = AcprofTui(config, settings_path=tmp_path / "settings.json")
-    monkeypatch.setattr(app.process, "execute_command", lambda *args, **kwargs: None)
     # Keep these fixed scenes covering the explicitly enabled command bar.
     app.configuration.preferences = replace(
         app.configuration.preferences, theme="acprof-graphite", language=language, show_command_bar=True,
@@ -79,6 +77,7 @@ def test_fixed_scenes(snap_compare, tmp_path, monkeypatch, language, size, scene
         app.set_input_cursor_blink_enabled(False)
         if scene in {"wsl-preparation", "wsl-review"}:
             monkeypatch.setattr(app, "format_elapsed", lambda _seconds: "00:00:01")
+            svg_operations.expect_launch(app, kind="run")
             await pilot.press("f5")
             await app.workers.wait_for_complete()
             await pilot.pause()
@@ -86,8 +85,7 @@ def test_fixed_scenes(snap_compare, tmp_path, monkeypatch, language, size, scene
             assert app.execution.session.config.profiling_mode == "basic"
             process = Mock(pid=12345, returncode=None)
             process.poll.return_value = None
-            monkeypatch.setattr(app.execution.lifecycle, "process", process)
-            monkeypatch.setattr(app.execution.lifecycle, "stop", lambda **kwargs: StopResult(12345, 0))
+            svg_operations.own_process(app.execution.lifecycle, process)
             app.process_started(process.pid, "run")
             tracker = RunProgressTracker()
             snapshot = tracker.feed(encode_event("interface", "running"))
@@ -207,8 +205,7 @@ def test_fixed_scenes(snap_compare, tmp_path, monkeypatch, language, size, scene
         elif scene in {"measuring", "cleanup-incomplete"}:
             process = Mock(pid=12345, returncode=None)
             process.poll.return_value = None
-            monkeypatch.setattr(app.execution.lifecycle, "process", process)
-            monkeypatch.setattr(app.execution.lifecycle, "stop", lambda **kwargs: StopResult(12345, 0))
+            svg_operations.own_process(app.execution.lifecycle, process)
             app.execution.session.kind = "run"
             app.execution.session.command = ("acprof", "run")
             app.experiments.pending_launch = None

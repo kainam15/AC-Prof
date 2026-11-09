@@ -18,7 +18,7 @@ def initial_config() -> RunConfig:
 
 
 def mount(app: AcprofTui) -> None:
-    process = Mock(pid=12345, returncode=None)
+    process = Mock(pid=None, returncode=None)
     process.poll.return_value = None
     app.execution.lifecycle.process = process
     app.execution.session.kind = "run"
