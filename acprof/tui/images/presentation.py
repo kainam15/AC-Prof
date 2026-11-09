@@ -26,7 +26,7 @@ from acprof.host.images.inventory import (
     ImageManagementError,
     ManagedImage,
 )
-from acprof.messages import join_messages, message
+from acprof.messages import Message as SourceMessage, join_messages, message
 from acprof.tui.i18n import message_id
 from acprof.tui.images.names import image_display_name, image_name_evidence, image_row_label
 from acprof.tui.ui.contracts import image_detail_app, translated_app
@@ -498,13 +498,13 @@ def dependency_detail(item: ManagedImage) -> str:
     else:
         parts.append(message_id('images.dependencies.inherited_system'))
     if historical:
-        parts.append(message("{0}", dependency_source_detail(item)))
+        parts.append(dependency_source_detail(item))
     if item.dependency_note:
         parts.append(message(item.dependency_note))
     return join_messages("\n\n", parts)
 
 
-def dependency_source_detail(item: ManagedImage) -> str:
+def dependency_source_detail(item: ManagedImage) -> SourceMessage:
     if item.dependency_source == "unknown":
         return message_id('images.dependencies.layer_unverified')
     if item.dependency_source == "historical-manifest":

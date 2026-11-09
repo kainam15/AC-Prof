@@ -5,7 +5,9 @@ from __future__ import annotations
 from rich.color import Color
 from rich.segment import Segment, Segments
 from rich.style import Style
+from textual.dom import DOMNode
 from textual.scrollbar import ScrollBarRender
+from textual.widget import Widget
 
 
 class SolidScrollBarRender(ScrollBarRender):
@@ -63,3 +65,11 @@ class SolidScrollBarRender(ScrollBarRender):
         if vertical:
             return Segments(segments, new_lines=True)
         return Segments((segments + [Segment.line()]) * thickness, new_lines=False)
+
+
+def configure_solid_scrollbars(root: DOMNode) -> None:
+    """Apply the local renderer to current descendants, including recomposed widgets."""
+    for widget in root.query(Widget):
+        if widget.is_scrollable:
+            setattr(widget.vertical_scrollbar, "renderer", SolidScrollBarRender)
+            setattr(widget.horizontal_scrollbar, "renderer", SolidScrollBarRender)

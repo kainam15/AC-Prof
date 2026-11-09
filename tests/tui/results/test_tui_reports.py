@@ -25,6 +25,7 @@ from acprof.tui.run.progress import ProgressSnapshot
 from acprof.tui.run.results import RunResult
 from acprof.tui.settings.preferences import TuiSettings, save_settings
 from tests.support.tui_fixtures import AcprofTui
+from tests.support.tui_waits import wait_for_condition
 
 
 class TestTuiReports:
@@ -187,11 +188,14 @@ class TestTuiReports:
             await pilot.pause()
             assert app.query_one('#report-calculate', Button).disabled
             assert '失效' not in str(summary.content)
-            app.results.select_result(str(self.csv_path))
-            await pilot.pause()
-            assert app.query_one('#experiment-source', Input).value == str(self.csv_path)
             from acprof.tui.ui.structured import FactValue
-            assert any('已生成' in value.row.value for value in app.query(FactValue))
+            app.results.select_result(str(self.csv_path))
+            await wait_for_condition(
+                pilot, lambda: any('已生成' in value.row.value for value in app.query(FactValue))
+                and not app.query_one('#report-calculate', Button).disabled,
+                description="selected result summary and analysis action", timeout=8,
+            )
+            assert app.query_one('#experiment-source', Input).value == str(self.csv_path)
             assert not app.query_one('#report-calculate', Button).disabled
         assert app.configuration.saved_settings.last_result_csv == str(self.csv_path)
 
@@ -210,10 +214,13 @@ class TestTuiReports:
         app = self.make_app()
         async with app.run_test(size=(120, 30)) as pilot:
             app.results.show_result_section('statistics-view')
-            app.results.select_result(str(root / 'result_layers.json'))
-            await pilot.pause()
-            summary = app.query_one('#result-summary', Static)
             from acprof.tui.ui.structured import FactValue
+            app.results.select_result(str(root / 'result_layers.json'))
+            await wait_for_condition(
+                pilot, lambda: any(value.row.value == '尚未生成' for value in app.query(FactValue)),
+                description="unmeasured result availability", timeout=8,
+            )
+            summary = app.query_one('#result-summary', Static)
             values = [value.row.value for value in app.query(FactValue)]
             assert '尚未生成' in values
             assert 'demo/unmeasured' in values
@@ -223,12 +230,18 @@ class TestTuiReports:
             assert app.query_one('#plot-results', Button).disabled
             assert app.query_one('#report-calculate', Button).disabled
             app.results.select_result(str(self.directory / 'missing.csv'))
-            await pilot.pause()
+            await wait_for_condition(
+                pilot, lambda: '结果路径不存在' in str(summary.content),
+                description="missing result path warning", timeout=8,
+            )
             assert '结果路径不存在' in str(summary.content)
             assert app.query_one('#report-calculate', Button).disabled
             (self.directory / 'file.txt').write_text('unsupported source')
             app.results.select_result(str(self.directory / 'file.txt'))
-            await pilot.pause()
+            await wait_for_condition(
+                pilot, lambda: '输入的路径不是受支持的实验结果来源。' in str(summary.content),
+                description="unsupported result source warning", timeout=8,
+            )
             assert '输入的路径不是受支持的实验结果来源。' in str(summary.content)
 
     async def test_summary_provenance_controls_analysis_only_for_formal_success_windows(self):

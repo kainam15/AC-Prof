@@ -318,7 +318,6 @@ async def test_selection_change_releases_a_waiting_layer_reader_at_80x24(source,
             # message and CPU-idle waits under coverage or load.
             async with asyncio.timeout(2):
                 await selected_read_finished.wait()
-                await app.workers.wait_for_complete()
             await pilot.pause()
             assert ready in str(app.query_one("#result-data-status", Static).content)
             assert not app.read_jobs
@@ -331,7 +330,6 @@ async def test_selection_change_releases_a_waiting_layer_reader_at_80x24(source,
             assert await pilot.click(button, offset=(2, 1))
             async with asyncio.timeout(2):
                 await selected_read_finished.wait()
-                await app.workers.wait_for_complete()
             await pilot.pause()
             assert ready in str(app.query_one("#result-data-status", Static).content)
             assert not app.is_busy()

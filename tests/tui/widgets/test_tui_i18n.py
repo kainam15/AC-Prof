@@ -32,6 +32,7 @@ from acprof.tui.run.progress import ProgressSnapshot, RunProgressTracker
 from acprof.tui.run.stages import Stage
 from acprof.tui.settings.preferences import TuiSettings, load_settings, save_settings
 from acprof.tui.ui.structured import FactGrid, StatusBanner
+from acprof.tui.ui.view_models import status_symbol
 from tests.support.tui_fixtures import AcprofTui, fact_rows
 
 
@@ -154,7 +155,8 @@ class TestTuiLanguage:
         async with app.run_test(size=(80, 24)) as pilot:
             await pilot.pause()
             environment = app.query_one("#current-environment")
-            assert [str(entry.content) for entry in environment.query(Static) if entry.display] == ["⊘ 0", "⚠ 0", "✔ 0"]
+            expected_indicators = [f"{status_symbol(level)} 0" for level in ("error", "warning", "success")]
+            assert [str(entry.content) for entry in environment.query(Static) if entry.display] == expected_indicators
             app.query_one('#notify', Select).value = 'none'
             await pilot.press("f2")
             await pilot.pause()
@@ -165,7 +167,7 @@ class TestTuiLanguage:
             await pilot.press("end", "enter")
             await pilot.pause()
             assert (app.configuration.preferences.language) == ("en")
-            assert [str(entry.content) for entry in environment.query(Static) if entry.display] == ["⊘ 0", "⚠ 0", "✔ 0"]
+            assert [str(entry.content) for entry in environment.query(Static) if entry.display] == expected_indicators
             assert (app.query_one("#ui-language SelectCurrent #label", Static).content) == ("English")
             assert app.query_one('#notify SelectCurrent #label', Static).content == 'Off'
             assert app.query_one('#notify', Select).value == 'none'
@@ -174,7 +176,7 @@ class TestTuiLanguage:
             await pilot.press("home", "enter")
             await pilot.pause()
             assert (app.configuration.preferences.language) == ("zh")
-            assert [str(entry.content) for entry in environment.query(Static) if entry.display] == ["⊘ 0", "⚠ 0", "✔ 0"]
+            assert [str(entry.content) for entry in environment.query(Static) if entry.display] == expected_indicators
             assert (app.query_one("#ui-language SelectCurrent #label", Static).content) == ("简体中文")
             assert app.query_one('#notify SelectCurrent #label', Static).content == '关闭'
             assert app.query_one('#notify', Select).value == 'none'

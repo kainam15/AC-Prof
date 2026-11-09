@@ -14,8 +14,10 @@ from acprof.experiments.arguments import build_parser
 from acprof.experiments.configuration import RunConfig, RunConfigError, build_run_command
 from acprof.tui.experiments.catalog import scan_experiments
 from acprof.tui.experiments.picker import SearchPickerScreen
+from acprof.tui.run.recovery_controller import RecoveryScreen
 from acprof.tui.settings.preferences import TuiSettings, load_settings, save_settings
 from tests.support.tui_fixtures import AcprofTui
+from tests.support.tui_waits import wait_for_condition
 
 
 @pytest.mark.parametrize('extra', [{'model': 'other/model'}, {'output_dir': 'elsewhere'}, {'resume': True}, {'matrix_order': 'bad'}, {'latency_slo': 'not-list'}, {'matrix_seed': True}])
@@ -98,7 +100,7 @@ class TestCatalogWorkflow:
             await pilot.pause()
             from acprof.tui.ui.structured import Callout
             assert 'resource_limit' not in str(app.query_one('#result-summary', Static).content)
-            assert 'resource_limit' in app.query_one(Callout).content.detail
+            assert 'resource_limit' in app.query_one('#overview-callout', Callout).content.detail
             record = scan_experiments([path]).records[0]
             app.catalog.experiment_selected('experiment-source', ('reuse', record))
             await pilot.pause()
@@ -111,13 +113,17 @@ class TestCatalogWorkflow:
             assert ('--matrix-seed 71') in (str(app.query_one('#command-preview', Static).content))
             with patch.object(app, 'launch') as launch:
                 app.catalog.experiment_selected('experiment-source', ('resume', record))
-                await app.workers.wait_for_complete()
-                await pilot.pause()
+                await wait_for_condition(
+                    pilot, lambda: isinstance(app.screen, RecoveryScreen),
+                    description="experiment recovery review", timeout=8,
+                )
                 launch.assert_not_called()
-                assert ('--resume') in (app.screen.review.resume.command)
+                assert app.screen.review.resume is not None, str(app.screen.review.detail)
+                assert '--resume' in app.screen.review.resume.command
                 assert (await pilot.click('#recovery-resume'))
-                await app.workers.wait_for_complete()
-                await pilot.pause()
+                await wait_for_condition(
+                    pilot, lambda: launch.called, description="confirmed resume launch", timeout=8,
+                )
                 pending = launch.call_args.args[0]
                 parsed = build_parser().parse_args(pending.command[pending.command.index('--model'):])
                 assert (parsed.matrix_seed) == (71)

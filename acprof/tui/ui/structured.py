@@ -19,6 +19,7 @@ from acprof.tui.i18n import message_id
 from acprof.tui.ui.contracts import translated_app
 from acprof.tui.ui.presentation import COMPACT_COLLAPSED_SYMBOL, COMPACT_EXPANDED_SYMBOL
 from acprof.tui.ui.rendering import CjkCompositor
+from acprof.tui.ui.scrollbar import configure_solid_scrollbars
 from acprof.tui.ui.view_models import (
     CalloutContent,
     FactRow,
@@ -316,6 +317,7 @@ class FactGrid(StructuredWidget):
         # recompose() may return after removing children without remounting them.
         if not self.is_attached or self._pruning:
             return
+        configure_solid_scrollbars(self)
         self.update_section(self.section)
         if focused is not None:
             self._restore_fact_focus(focused)

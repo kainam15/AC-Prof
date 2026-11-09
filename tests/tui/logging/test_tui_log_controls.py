@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 import pytest
 from rich.console import Console
-from textual.widgets import Button, Select, Static
+from textual.widgets import Button, Select
 
 from acprof.events.download import DownloadProgress
 from acprof.experiments.configuration import RunConfig
@@ -12,7 +12,7 @@ from acprof.tui.logging.widget import SelectableLog
 from acprof.tui.run.progress import ProgressSnapshot
 from acprof.tui.run.stages import Stage
 from acprof.tui.ui.input import BarCursorInput as Input
-from acprof.tui.ui.progress_widgets import DownloadProgressPanel
+from acprof.tui.ui.progress_widgets import DownloadProgressContent, DownloadProgressPanel
 from tests.support.tui_fixtures import AcprofTui
 
 
@@ -151,12 +151,12 @@ async def test_download_panel_is_separate_and_failure_restores_logs(tmp_path):
         app.preflight.download_progress(progress)
         widget = app.query_one('#download-progress', DownloadProgressPanel)
         assert widget.display
-        rendered = "".join(segment.text for segment in Console(width=80).render(widget.query_one(Static).render()))
+        rendered = "".join(segment.text for segment in Console(width=80).render(widget.query_one(DownloadProgressContent).render()))
         assert '60%' in rendered
         assert '100 B' in rendered
         assert 'ACPROF_DOWNLOAD' not in app.query_one('#run-log', SelectableLog).text
         app.preflight.finish_download(cancelled=True)
-        assert '取消' in "".join(segment.text for segment in Console(width=80).render(widget.query_one(Static).render()))
+        assert '取消' in "".join(segment.text for segment in Console(width=80).render(widget.query_one(DownloadProgressContent).render()))
         await pilot.pause()
 
 

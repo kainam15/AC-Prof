@@ -35,7 +35,7 @@ from acprof.tui.settings.preferences import (
     save_settings,
 )
 from acprof.tui.ui.input import BarCursorInput as Input
-from acprof.tui.ui.scrollbar import SolidScrollBarRender
+from acprof.tui.ui.scrollbar import configure_solid_scrollbars
 
 if TYPE_CHECKING:
     from acprof.tui.app import AcprofTui
@@ -212,10 +212,7 @@ class ConfigurationController:
 
     def configure_scrollbars(self) -> None:
         # Instance-level renderers keep this behavior local to this TUI.
-        for widget in self.app.query(Widget):
-            if widget.is_scrollable:
-                setattr(widget.vertical_scrollbar, "renderer", SolidScrollBarRender)
-                setattr(widget.horizontal_scrollbar, "renderer", SolidScrollBarRender)
+        configure_solid_scrollbars(self.app)
 
     def follow_latest_log(self) -> None:
         self.app.query_one("#run-log", SelectableLog).follow_tail()
