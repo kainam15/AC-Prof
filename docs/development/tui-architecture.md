@@ -53,6 +53,9 @@ acprof/tui/
 
 ## 结构化展示
 
+结果概览、补采实验、采集计划、环境详情、任务选择和监控页头共用以下数据与组件契约。
+状态映射、值格式化和页面投影由纯函数测试验证；Pilot 覆盖焦点、键盘、折叠、语言切换和既有操作路由，测量期门控另以事件与计时器行为核验。
+
 `ui/view_models.py` 提供不依赖 Textual 的 `StatusSummary`、`ViewSection`、`FactRow` 与动作/提示数据。
 状态码统一映射为文字、固定符号和语义等级；未知保持未知，零值不被当作缺失。原因码按权威类型映射，
 原始异常只进入详情，不靠分析异常文字猜测业务状态。时间按现有实验选择器语义转本地秒，无偏移历史时间不推断为 UTC。
@@ -61,6 +64,7 @@ acprof/tui/
 复用 Textual 的焦点、Grid、Collapsible 和语义 TCSS；完整原值与按 cell 宽度截断的显示分开。
 普通字符串值不做翻译替换，结构化 Message 在显示时翻译；查看全文和复制有键盘入口，tooltip 只是补充。
 语言切换更新已挂载控件，不重建相同形状的分组。数据改变行数时保留折叠选择和仍可识别的行焦点；原行删除后回到对应分组标题，不抢占其他控件的焦点。
+分组异步重建前后均检查控件仍在 DOM 且未进入卸载；退出或移除控件时清除待重建标志，停止后续更新与焦点恢复。
 
 首个迁移页面为 `results/overview.py::overview_view()` → `results/overview_panel.py`。
 纯函数只组合既有元数据 Worker 与数据 Worker 的结果，区分产物存在、有效正式窗口和未核验状态。
@@ -104,8 +108,11 @@ Case 的“已处理”沿用 `completed_cases`，包含失败或跳过，不重
 ## 验收与设计来源
 
 - `uv run pytest tests/tui/workflows/test_tui_execution_coordinator.py tests/tui/workflows/test_tui_process_lifecycle.py tests/tui/workflows/test_tui_process_completion.py`：所有权、异常与完成证据。
-- `tests/tui/`：交互/导航/布局/日志/设置；`tests/visual/`：SVG；`tests/visual_png/`：真实终端 PNG 验证（可选）。
+- `tests/tui/`：交互/导航/布局/日志/设置；`tests/visual/`：headless SVG；`tests/visual_png/`：VHS/xterm.js PNG 呈现验证（可选）。
 - `uv run ruff check acprof/tui`、`uv run mypy acprof/tui`，以及 CLI 惰性导入与非 TUI 入口验证。
+
+SVG 与 VHS/xterm.js PNG 验证界面呈现，不代表真实客户端终端、浏览器或剪贴板验收。
+PNG 基线更新后复用同批捕获进行比较，只核对写入对应性；再次生成截图的独立回归证据单独记录。
 
 参考 [Textual 的 Screen/Widget 职责](https://github.com/Textualize/frogmouth/tree/main/frogmouth)、
 [Toolong 的进程/查看器分工](https://github.com/Textualize/toolong/tree/main/src/toolong) 和
