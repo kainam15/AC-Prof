@@ -384,6 +384,14 @@ posthoc 元数据在发布与恢复前先校验完整恢复计划，具体内容
 并核对冻结产物与已完成 case 的文件 hash。界面预检查不代替启动时的镜像和硬件核验；
 writer 取得测量锁与目录锁后仍重新检查，避免确认期间发生变化。
 
+状态文件读取和恢复预检复用同一份运行时结构契约，先检查版本、身份、状态、attempt 列表、
+case、产物引用和冻结运行环境，再进入投影恢复、准备归档或追加 attempt。schema/layout
+版本必须是真正的整数，拒绝布尔值或浮点数冒充版本；畸形字段以包含字段路径的
+`RunStateError` 拒绝，不等到列表追加或运行时启动后才失败。准备阶段允许尚无 runtime，
+测量阶段及完成态必须保留冻结环境；已存在的 runtime 不得用空对象或错误类型代替。
+旧 flat layout 省略 layout_version 时仍按版本 1 读取，不要求历史记录补造 created_at。
+字段校验不修改原状态、CSV、pending 或原始证据；完成态的只读读取与审计继续保留补采约定。
+
 同身份重试未完成准备时，在覆盖任何准备产物前复制原状态、元数据、日志和已有 profiler 原始文件，
 v2 备份位于 `.acprof/recovery/preparation_attempts/<attempt-id>/`；新 attempt 的
 `preparation_backup` 保存其相对路径。备份失败不追加 attempt，也不改写原记录。

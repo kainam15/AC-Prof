@@ -14,6 +14,7 @@ from acprof.host.container_lifecycle import ContainerCleanupError
 from acprof.host.detect import TaskInfo
 from acprof.host.docker_runtime import RunningContainer
 from acprof.host.images.runtime import ImageInfo
+from acprof.host.input_plan import PlannedInputScales
 from acprof.host.measurement.capture import PacketLatencyRuntime
 from acprof.host.measurement.publication import append_request_window, append_row
 from acprof.results.windows import WindowPublicationContext
@@ -26,7 +27,11 @@ def measured_case(tmp_path, monkeypatch):
     monkeypatch.setattr(run_state, "host_identity", lambda _: {"test_host": "fixed"})
     options = {"cpus": "1", "mems": "4", "gpus": "off", "warmup": 0, "repeat": 1}
     state = run_state.RunState(tmp_path / "experiment", options, resume=False, project_dir=".")
-    state.data["runtime"] = {"planned": {"scales": [64.0]}}
+    state.bind_runtime(
+        TaskInfo("org/model", "fill-mask", "nlp", "transformers_pipeline",
+                 "transformers", "a" * 40, "manual"),
+        ImageInfo("sha256:" + "b" * 64), PlannedInputScales([64.0], "manual"), "", "",
+    )
     state.prepare_case("unused.csv", 1, 4, "off")
     case = state.layout.case("org/model", 1, 4, "off")
     calls = {"client": 0, "container": 0, "cleanup": 0, "env": {}}

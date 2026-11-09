@@ -12,7 +12,7 @@ import shutil
 import socket
 import stat
 from contextlib import AbstractContextManager, ExitStack, nullcontext
-from dataclasses import asdict
+from dataclasses import asdict, fields
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
@@ -158,6 +158,192 @@ def run_options(args) -> dict:
     return options
 
 
+def _state_text(value: object, field: str, *, empty: bool = False) -> str:
+    if not isinstance(value, str) or (not empty and not value):
+        raise RunStateError(f"run_state.json 字段 {field} 无效：需要{'字符串' if empty else '非空字符串'}")
+    return value
+
+
+def _state_path(layout: ArtifactLayout, value: object, field: str, *, empty: bool = False) -> None:
+    path = _state_text(value, field, empty=empty)
+    if path:
+        try:
+            layout.contained(path)
+        except ValueError as exc:
+            raise RunStateError(f"run_state.json 字段 {field} 无效：{exc}") from exc
+
+
+def _state_reference(layout: ArtifactLayout, value: object, field: str) -> None:
+    if not isinstance(value, dict):
+        raise RunStateError(f"run_state.json 字段 {field} 无效：需要产物引用")
+    _state_path(layout, value.get("path"), f"{field}.path")
+    checksum = _state_text(value.get("sha256"), f"{field}.sha256")
+    if re.fullmatch(r"[a-f0-9]{64}", checksum) is None:
+        raise RunStateError(f"run_state.json 字段 {field}.sha256 无效")
+    if "size" in value and (type(value["size"]) is not int or value["size"] < 0):
+        raise RunStateError(f"run_state.json 字段 {field}.size 无效：需要非负整数")
+
+
+def _validate_case_state(layout: ArtifactLayout, record: object, field: str) -> None:
+    if not isinstance(record, dict):
+        raise RunStateError(f"原实验的 case 或产物记录无效。字段：{field}")
+    status = _state_text(record.get("status"), f"{field}.status")
+    if status not in {"running", "measured", "complete", "archived"}:
+        raise RunStateError(f"run_state.json 字段 {field}.status 无效")
+    for name, allowed in (
+        ("measurement_status", {"running", "complete", "not_measured"}),
+        ("processing_status", {"pending", "running", "failed", "complete"}),
+        ("cleanup_status", {"pending", "failed", "complete"}),
+    ):
+        if name in record and _state_text(record[name], f"{field}.{name}") not in allowed:
+            raise RunStateError(f"run_state.json 字段 {field}.{name} 无效")
+    if "case_attempt_id" in record or record.get("measurement_status") == "complete":
+        _state_text(record.get("case_attempt_id"), f"{field}.case_attempt_id")
+    if "resources" in record or record.get("measurement_status") == "complete":
+        resources = record.get("resources")
+        if (not isinstance(resources, list) or len(resources) != 3
+                or any(value is not None and (type(value) is not int or value <= 0)
+                       for value in resources[:2])
+                or not isinstance(resources[2], str) or resources[2] not in {"on", "off"}):
+            raise RunStateError(f"run_state.json 字段 {field}.resources 无效")
+    for name in ("row_count", "error_rows", "processing_attempts", "restored_windows"):
+        if name in record and (type(record[name]) is not int or record[name] < 0):
+            raise RunStateError(f"run_state.json 字段 {field}.{name} 无效：需要非负整数")
+    if status == "complete":
+        checksum = _state_text(record.get("sha256"), f"{field}.sha256")
+        if re.fullmatch(r"[a-f0-9]{64}", checksum) is None:
+            raise RunStateError(f"run_state.json 字段 {field}.sha256 无效")
+    for name in ("measurement_checkpoint", "case_result"):
+        if name in record:
+            _state_reference(layout, record[name], f"{field}.{name}")
+    if record.get("measurement_status") == "complete" and status != "complete":
+        _state_reference(layout, record.get("measurement_checkpoint"), f"{field}.measurement_checkpoint")
+    if "backup" in record:
+        _state_path(layout, record["backup"], f"{field}.backup")
+    previous = record.get("previous_attempts", [])
+    if not isinstance(previous, list):
+        raise RunStateError(f"run_state.json 字段 {field}.previous_attempts 无效：需要列表")
+
+
+def _validate_runtime_state(layout: ArtifactLayout, runtime: object, options: dict) -> None:
+    from acprof.host.detect import TaskInfo
+    from acprof.host.images.runtime import ImageInfo
+    from acprof.host.input_plan import PlannedInputScales
+    from acprof.host.runtimes.contracts import ProcessInfo
+
+    if not isinstance(runtime, dict):
+        raise RunStateError("run_state.json 字段 runtime 无效：需要冻结运行环境对象")
+    kind = _state_text(runtime.get("kind", "docker"), "runtime.kind")
+    if kind not in {"docker", "process"}:
+        raise RunStateError("run_state.json 字段 runtime.kind 无效")
+    for name in ("task", "image", "planned"):
+        if not isinstance(runtime.get(name), dict):
+            raise RunStateError(f"run_state.json 字段 runtime.{name} 无效：需要对象")
+    # Use the pure dataclass shapes; restoring an image/process may have side effects.
+    shapes = {"task": TaskInfo, "image": ProcessInfo if kind == "process" else ImageInfo,
+              "planned": PlannedInputScales}
+    for name, shape in shapes.items():
+        if set(runtime[name]) - {item.name for item in fields(shape)}:
+            raise RunStateError(f"run_state.json 字段 runtime.{name} 无效：包含未知构造字段")
+    for name in ("model_id", "pipeline_tag", "task_family", "runtime_backend",
+                 "library_name", "model_revision", "detection_method"):
+        _state_text(runtime["task"].get(name), f"runtime.task.{name}", empty=True)
+    image_fields = ("python", "code_root", "model_path", "environment_id") if kind == "process" else ("tag",)
+    for name in image_fields:
+        _state_text(runtime["image"].get(name), f"runtime.image.{name}")
+    if not isinstance(runtime["image"].get("runtime_environment", {}), dict):
+        raise RunStateError("run_state.json 字段 runtime.image.runtime_environment 无效")
+    plan = runtime["planned"]
+    scales = plan.get("scales")
+    try:
+        valid_scales = (isinstance(scales, list) and bool(scales)
+                        and all(type(value) in (int, float) and math.isfinite(value) for value in scales))
+    except OverflowError:
+        valid_scales = False
+    if not valid_scales:
+        raise RunStateError("run_state.json 字段 runtime.planned.scales 无效：需要有限数值列表")
+    _state_text(plan.get("source"), "runtime.planned.source", empty=True)
+    if plan.get("plan_file") is not None:
+        _state_path(layout, plan["plan_file"], "runtime.planned.plan_file", empty=True)
+    if not isinstance(plan.get("workload", {}), dict):
+        raise RunStateError("run_state.json 字段 runtime.planned.workload 无效")
+    if "plan_sha256" in plan:
+        _state_text(plan["plan_sha256"], "runtime.planned.plan_sha256", empty=True)
+    for name in ("compute_plan", "execution_plan"):
+        _state_path(layout, runtime.get(name), f"runtime.{name}", empty=True)
+    for name in ("cpus", "mems", "gpus"):
+        value = _state_text(options.get(name), f"options.{name}")
+        if name != "gpus" and value != "auto":
+            try:
+                valid_resources = all(int(item) > 0 for item in value.split(","))
+            except ValueError:
+                valid_resources = False
+            if not valid_resources:
+                raise RunStateError(f"run_state.json 字段 options.{name} 无效")
+    for name in ("warmup", "repeat"):
+        if type(options.get(name)) is not int or options[name] < 0:
+            raise RunStateError(f"run_state.json 字段 options.{name} 无效：需要非负整数")
+
+
+def _validate_run_state(layout: ArtifactLayout, data: object) -> None:
+    """Validate durable state before any archival, projection recovery or new attempt."""
+    path = layout.path(RUN_STATE_NAME)
+    if (not isinstance(data, dict) or type(data.get("schema_version")) is not int
+            or data["schema_version"] != 1):
+        raise RunStateError(message("不支持的主实验状态格式：{0}", path))
+    version = data.get("layout_version", 1)
+    if type(version) is not int or version != layout.layout_version:
+        raise RunStateError(message("恢复状态与产物布局不一致：{0}", path))
+    _state_text(data.get("run_id"), "run_id")
+    status = _state_text(data.get("status"), "status")
+    if status not in {"preparing", "running", "complete", "interrupted", "failed"}:
+        raise RunStateError("run_state.json 字段 status 无效")
+    if not isinstance(data.get("options"), dict) or not isinstance(data.get("host"), dict):
+        raise RunStateError(message("原实验缺少完整的参数或主机身份，无法续跑。"))
+    for name in ("cases", "artifacts"):
+        if not isinstance(data.get(name), dict):
+            raise RunStateError(f"原实验的 case 或产物记录无效。字段：{name}")
+    attempts = data.get("attempts")
+    if not isinstance(attempts, list):
+        raise RunStateError("run_state.json 字段 attempts 无效：需要列表")
+    for index, attempt in enumerate(attempts):
+        field = f"attempts[{index}]"
+        if not isinstance(attempt, dict):
+            raise RunStateError(f"run_state.json 字段 {field} 无效：需要对象")
+        for name in ("attempt_id", "started_at"):
+            _state_text(attempt.get(name), f"{field}.{name}")
+        if type(attempt.get("pid")) is not int or attempt["pid"] < 1:
+            raise RunStateError(f"run_state.json 字段 {field}.pid 无效：需要正整数")
+        if type(attempt.get("resume")) is not bool:
+            raise RunStateError(f"run_state.json 字段 {field}.resume 无效：需要布尔值")
+        for name in ("ended_at", "outcome"):
+            if name in attempt:
+                _state_text(attempt[name], f"{field}.{name}")
+        for name in ("preparation_backup", "preparation_evidence"):
+            if name in attempt:
+                _state_path(layout, attempt[name], f"{field}.{name}")
+    if "runtime" not in data:
+        if status in {"running", "complete"} or recovery_phase(layout.root, data) != "preparation":
+            raise RunStateError(message("已有测量证据但缺少冻结运行环境，不能按准备失败重试。"))
+    else:
+        _validate_runtime_state(layout, data["runtime"], data["options"])
+    pending_cases = []
+    for name, record in data["cases"].items():
+        field = f"cases[{name!r}]"
+        _state_path(layout, name, field)
+        pending_cases.append((record, field))
+    while pending_cases:
+        record, field = pending_cases.pop()
+        _validate_case_state(layout, record, field)
+        pending_cases.extend((item, f"{field}.previous_attempts[{index}]")
+                             for index, item in enumerate(record.get("previous_attempts", [])))
+    for name, checksum in data["artifacts"].items():
+        field = f"artifacts[{name!r}]"
+        _state_path(layout, name, field)
+        if re.fullmatch(r"[a-f0-9]{64}", _state_text(checksum, field)) is None:
+            raise RunStateError(f"run_state.json 字段 {field} 无效：需要 SHA256")
+
+
 def load_run_state(directory: str | Path) -> dict:
     try:
         layout = ArtifactLayout.discover(directory)
@@ -176,10 +362,7 @@ def load_run_state(directory: str | Path) -> dict:
         raise RunStateError(message(
             "无法读取恢复状态 {0}；历史实验请使用新输出目录：{1}", directory, reason,
         )) from exc
-    if not isinstance(payload, dict) or payload.get("schema_version") != 1:
-        raise RunStateError(message("不支持的主实验状态格式：{0}", path))
-    if payload.get("layout_version", 1) != layout.layout_version:
-        raise RunStateError(message("恢复状态与产物布局不一致：{0}", path))
+    _validate_run_state(layout, payload)
     return payload
 
 
@@ -219,9 +402,8 @@ def validate_resume(directory: str | Path, data: dict, *, project_dir: str | Pat
     Returning a phase never grants permission to mix changed measurement identities.
     """
     layout = ArtifactLayout.discover(directory)
+    _validate_run_state(layout, data)
     issues = []
-    if not isinstance(data.get("options"), dict) or not isinstance(data.get("host"), dict):
-        raise RunStateError(message("原实验缺少完整的参数或主机身份，无法续跑。"))
     if options is not None:
         previous = {"profiling_mode": "full", **flatten_run_options(data["options"])}
         current = {"profiling_mode": "full", **flatten_run_options(options)}
@@ -237,12 +419,8 @@ def validate_resume(directory: str | Path, data: dict, *, project_dir: str | Pat
             issues.append(message("{0}已变化", message(labels.get(name, "主机身份（{0}）"), name)))
     if issues:
         raise RunStateError(message("无法续跑；请使用新实验保留原结果。\n{0}", join_messages("\n", issues)))
-    if not isinstance(data.get("cases", {}), dict) or not isinstance(data.get("artifacts", {}), dict):
-        raise RunStateError(message("原实验的 case 或产物记录无效。"))
     phase = recovery_phase(directory, data)
     complete = phase == "complete"
-    if not data.get("runtime") and phase != "preparation":
-        raise RunStateError(message("已有测量证据但缺少冻结运行环境，不能按准备失败重试。"))
     if repair:
         # This branch is used only by the locked runner, after run identity checks.
         from acprof.host.measurement.window_recovery import repair_result_projections
@@ -261,8 +439,6 @@ def validate_resume(directory: str | Path, data: dict, *, project_dir: str | Pat
             raise RunStateError(message("恢复产物缺失或已改变：{0}；请恢复原文件或创建新实验。", path))
     if not complete:
         for name, record in data.get("cases", {}).items():
-            if not isinstance(record, dict):
-                raise RunStateError(message("原实验的 case 或产物记录无效。"))
             if record.get("status") == "complete":
                 path = layout.contained(name)
                 if not path.is_file() or file_sha256(path) != record.get("sha256"):
