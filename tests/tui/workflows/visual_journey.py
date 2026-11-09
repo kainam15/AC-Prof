@@ -78,7 +78,7 @@ async def exercise_journey(
                 ]
                 controls = {}
                 for target in (
-                    "#run-plan-summary",
+                    "#run-plan-panel",
                     "#status-grid",
                     "#download-progress",
                     "#run-log",

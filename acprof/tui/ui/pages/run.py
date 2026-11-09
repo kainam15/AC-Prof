@@ -11,6 +11,7 @@ from textual.widgets import Button, Collapsible, ContentSwitcher, Label, Static,
 from acprof.tui.i18n import message_id
 from acprof.tui.models.input import ModelInput
 from acprof.tui.run.form import PRESET_OPTIONS
+from acprof.tui.run.plan_panel import RunPlanPanel
 from acprof.tui.settings.field_validation import ConfigField
 from acprof.tui.ui.checkbox import StatusCheckbox
 from acprof.tui.ui.input import BarCursorInput as Input
@@ -36,7 +37,7 @@ def compose_number_field(app: AcprofTui, label: str, widget_id: str, value: int 
 def compose_run_tab(app: AcprofTui) -> ComposeResult:
     with TabPane("实验配置", id="run-tab"):
         with Vertical(classes="page-header"):
-            yield app.localization.localized_widget(Static("", id="config-summary", classes="page-summary", markup=False))
+            yield RunPlanPanel(id="run-plan-panel")
             yield Static("", id="preflight-run-reason", markup=False)
         with ContentSwitcher(initial="run-form", id="experiment-pages"):
             with VerticalScroll(id="run-form", classes="pane-scroll"):
@@ -296,7 +297,6 @@ def compose_run_tab(app: AcprofTui) -> ComposeResult:
                     ))
 
         with Vertical(id="run-footer"):
-            yield app.localization.localized_widget(Static("", id="run-plan-summary", markup=False))
             with Horizontal(id="run-actions", classes="action-bar"):
                 with Horizontal(classes="action-secondary"):
                     yield app.localization.localized_widget(Button("高级参数", id="open-run-settings"))

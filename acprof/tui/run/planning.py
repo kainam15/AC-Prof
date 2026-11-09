@@ -1,15 +1,15 @@
 """Preparation-only workload and cost summaries; no probes or model imports."""
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
-from pathlib import Path
 
 from acprof.config import SCALING_DIMENSIONS
-from acprof.experiments.configuration import RunConfig
+from acprof.experiments.configuration import ConfigIssue, RunConfig
 from acprof.extensions import CATALOG
-from acprof.messages import join_messages, message
+from acprof.gpu_mode import normalize_gpu_mode
+from acprof.messages import join_messages
 from acprof.tui.i18n import message_id
+from acprof.tui.ui.view_models import CalloutContent, FactRow, StatusSummary, ViewSection
 
 
 @dataclass(frozen=True)
@@ -19,6 +19,13 @@ class RunEstimate:
     warmup_windows: int | None
     formal_windows: int | None
     estimated_seconds: float | None
+
+
+@dataclass(frozen=True, slots=True)
+class PlanView:
+    summary: StatusSummary
+    section: ViewSection
+    callout: CalloutContent | None = None
 
 
 def input_identity(config: RunConfig) -> tuple:
@@ -62,38 +69,147 @@ def estimate_run(config: RunConfig, planned: dict | None = None) -> RunEstimate:
     return RunEstimate(cases, scales, warmup, formal, (warmup + formal) * (request_seconds + baseline))
 
 
-def plan_summary(config: RunConfig, planned: dict | None = None) -> str:
+def _duration_text(seconds: float | None) -> str:
+    if seconds is None:
+        return message_id("common.state.pending")
+    if seconds >= 3600:
+        return f"{seconds / 3600:.1f} h"
+    if seconds >= 60:
+        return f"{seconds / 60:.1f} min"
+    return f"{seconds:g} s"
+
+
+def _resource_value(value: str, runtime: str) -> str:
+    if value != "auto":
+        return value
+    return message_id("run.resources.inherited_limits" if runtime == "process"
+                      else "run.plan.automatic_resources")
+
+
+def _gpu_value(value: str) -> str:
+    modes = {normalize_gpu_mode(part) for part in value.split(",") if part.strip()}
+    if len(modes) > 1:
+        return "CPU + GPU"
+    return message_id("run.resources.cpu_only" if "off" in modes else "run.resources.gpu_only")
+
+
+def _plan_rows(config: RunConfig, planned: dict | None, estimate: RunEstimate) -> tuple[FactRow, ...]:
+    pending = message_id("common.state.pending")
+    runtime = {"docker": "Docker", "process": "Process",
+               "auto": message_id("run.runtime.automatic")}.get(config.runtime, config.runtime)
+    return (
+        FactRow(message_id("run.runtime.label"), runtime),
+        FactRow(message_id("run.plan.resources_label"), str(estimate.cases)),
+        FactRow(message_id("run.plan.scales_label"),
+                message_id("run.plan.scale_count_unit",
+                           estimate.scales if estimate.scales is not None else pending,
+                           input_unit(config, planned))),
+        FactRow(message_id("run.plan.windows_label"),
+                message_id("run.plan.window_totals",
+                           estimate.warmup_windows if estimate.warmup_windows is not None else pending,
+                           estimate.formal_windows if estimate.formal_windows is not None else pending)),
+        FactRow(message_id("run.plan.per_condition_label"),
+                message_id("run.plan.per_condition_value", config.repeat),
+                status="limited" if config.repeat < 3 else None),
+    )
+
+
+def _plan_details(
+    config: RunConfig, planned: dict | None, estimate: RunEstimate, *,
+    download_budget: str, model_store: str,
+) -> tuple[FactRow, ...]:
+    scales = (", ".join(f"{value:g}" for value in planned["scales"])
+              if planned and planned.get("scales") else config.input_scales)
+    assumption = (message_id("run.plan.assumed_request_duration") if config.repeat_in_window
+                  else message_id("run.plan.assumed_window_duration", config.repeat_window_seconds))
+    profilers = (message_id("profiling.options.off_summary")
+                 if config.compute_profile_tool == config.execution_profile_tool == "none"
+                 else message_id("profiling.options.selected_summary",
+                                 config.compute_profile_tool, config.execution_profile_tool))
+    cache = model_store or config.model_store
+    source = {"huggingface": "Hugging Face", "modelscope": "ModelScope"}.get(
+        config.model_source, config.model_source,
+    )
+    details: tuple[FactRow, ...] = (
+        FactRow(message_id("run.plan.evidence_label"),
+                message_id("run.plan.insufficient_windows" if config.repeat < 3
+                           else "run.plan.valid_counts_note")),
+        FactRow(message_id("run.plan.scale_values_label"),
+                scales or message_id("common.state.pending"), detail=scales, copyable=bool(scales)),
+        FactRow(message_id("run.resources.cpu_list"), _resource_value(config.cpus, config.runtime),
+                detail=config.cpus),
+        FactRow(message_id("run.resources.memory_gb"), _resource_value(config.mems, config.runtime),
+                detail=config.mems),
+        FactRow(message_id("run.resources.gpu_mode"), _gpu_value(config.gpus), detail=config.gpus),
+        FactRow(message_id("run.windows.request_timeout_seconds"), f"{config.request_timeout_seconds:g}"),
+        FactRow(message_id("run.plan.profilers_label"), profilers),
+        FactRow(message_id("run.plan.duration_label"),
+                join_messages("\n", (
+                    message_id("run.plan.duration_estimate", _duration_text(estimate.estimated_seconds), assumption),
+                    message_id("run.plan.duration_exclusions"),
+                ))),
+        FactRow(message_id("downloads.budget.label"),
+                download_budget or config.max_download or message_id("common.limit.unlimited")),
+        FactRow(message_id("downloads.size.expected"), message_id("downloads.plan.pending_estimate")),
+        FactRow(message_id("run.plan.strategy_label"), message_id("downloads.strategy.automatic_summary")),
+        FactRow(message_id("models.source.label"), source, detail=config.model_source),
+        FactRow(message_id("downloads.model_store.path_label"),
+                cache or message_id("common.state.pending"), detail=cache, copyable=bool(cache)),
+        FactRow(message_id("settings.experiment.output_directory"), config.output_dir,
+                detail=config.output_dir, copyable=True),
+    )
+    if not config.input_scales:
+        details += (FactRow(message_id("run.inputs.planning_mode"),
+                            message_id("run.inputs.smallest_scale" if config.input_scale_policy == "minimal"
+                                       else "run.inputs.automatic_range"),
+                            detail=config.input_scale_policy),)
+    if config.runtime == "process":
+        details += (FactRow(message_id("run.plan.resource_rules_label"),
+                            message_id("run.runtime.process_limits_note")),)
+    if config.resume:
+        details += (FactRow(message_id("run.plan.resume_label"),
+                            message_id("run.resume.original_parameters")),)
+    return details
+
+
+def run_plan_view(
+    config: RunConfig,
+    planned: dict | None = None,
+    *,
+    download_budget: str = "",
+    model_store: str = "",
+) -> PlanView:
+    """Project a validated configuration; callers resolve runtime and environment defaults."""
     estimate = estimate_run(config, planned)
-    unknown = message_id('common.state.pending')
-    counts = message_id('run.plan.matrix_summary',
-        estimate.cases, estimate.scales if estimate.scales is not None else unknown, input_unit(config, planned),
-        estimate.warmup_windows if estimate.warmup_windows is not None else unknown,
-        estimate.formal_windows if estimate.formal_windows is not None else unknown)
-    evidence = message("不足 3 个：仅验证流程，无置信区间" if config.repeat < 3 else "有效数以结果为准")
-    per_condition = message_id('run.plan.windows_per_condition', config.repeat, evidence)
-    duration: str
-    if estimate.estimated_seconds is None:
-        duration = unknown
-    elif estimate.estimated_seconds >= 3600:
-        duration = f"{estimate.estimated_seconds / 3600:.1f} h"
-    elif estimate.estimated_seconds >= 60:
-        duration = f"{estimate.estimated_seconds / 60:.1f} min"
+    if config.repeat < 3:
+        summary = StatusSummary("warning", message_id("run.plan.flow_check_limited"))
     else:
-        duration = f"{estimate.estimated_seconds:g} s"
-    assumption = message_id('run.plan.assumed_request_duration') if config.repeat_in_window else message_id('run.plan.assumed_window_duration', config.repeat_window_seconds)
-    budget = config.max_download or os.environ.get("ACPROF_MAX_DOWNLOAD", "") or message_id('common.limit.unlimited')
-    return join_messages("\n", (message_id('run.runtime.summary', config.runtime), counts, per_condition,
-                               message_id('run.plan.duration_estimate', duration, assumption),
-                               message_id('downloads.budget.summary', budget)))
+        summary = StatusSummary("neutral", message_id(
+            "run.plan.pending_inputs" if estimate.scales is None else "run.plan.calculated",
+        ))
+    return PlanView(
+        summary,
+        ViewSection(
+            message_id("run.plan.title"),
+            _plan_rows(config, planned, estimate),
+            detail_rows=_plan_details(config, planned, estimate,
+                                      download_budget=download_budget, model_store=model_store),
+        ),
+    )
 
 
-def preparation_details(config: RunConfig, planned: dict | None = None) -> str:
-    cache = config.model_store or os.environ.get("ACPROF_MODEL_STORE", "") or str(Path.home() / ".cache/acprof/model-store")
-    scales = ", ".join(f"{value:g}" for value in planned["scales"]) if planned else config.input_scales or message_id('common.state.pending')
-    return join_messages("\n", (plan_summary(config, planned),
-        message_id('run.inputs.scale_summary', scales, input_unit(config, planned)),
-        message_id('downloads.plan.pending_estimate'),
-        message_id('downloads.cache.model_source_summary', cache, config.model_source),
-        message_id('downloads.strategy.automatic_summary'),
-        message_id('run.plan.duration_exclusions'),
-        message_id('run.resume.original_parameters') if config.resume else ""))
+def invalid_plan_view(issues: tuple[ConfigIssue, ...]) -> PlanView:
+    """Replace stale facts with validation feedback without interpreting the raw reasons."""
+    detail = "\n".join(f"[{issue.field}] {issue.reason}" if issue.field else str(issue.reason)
+                       for issue in issues)
+    return PlanView(
+        StatusSummary("error", message_id("run.plan.invalid")),
+        ViewSection(message_id("run.plan.title"), ()),
+        CalloutContent(
+            "error",
+            issues[0].reason if issues else message_id("run.plan.invalid"),
+            message_id("run.plan.invalid_impact"),
+            message_id("run.plan.invalid_next"),
+            detail=detail,
+        ),
+    )

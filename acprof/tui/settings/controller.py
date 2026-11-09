@@ -5,6 +5,7 @@ widgets, lifecycle admission and its project/interpreter paths.
 """
 from __future__ import annotations
 
+import os
 from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -26,6 +27,7 @@ from acprof.tui.i18n import error_message, message_id
 from acprof.tui.logging.panel import LogPanel
 from acprof.tui.logging.widget import SelectableLog
 from acprof.tui.run import form as run_form, planning as run_planning
+from acprof.tui.run.plan_panel import RunPlanPanel
 from acprof.tui.settings.preferences import (
     UiPreferences,
     default_settings_path,
@@ -333,7 +335,6 @@ class ConfigurationController:
         config = None
         try:
             config = self.collect_config(allow_empty_model=True)
-            self.update_plan_summary(config)
             command = build_run_command(
                 config,
                 project_dir=self.app.project_dir,
@@ -342,10 +343,14 @@ class ConfigurationController:
         except RunConfigError as exc:
             if self.field_errors_visible:
                 self.update_field_errors(exc.issues)
-            self.app.localization.set_text(
-                self.app.query_one("#config-summary", Static),
-                message_id('run.command.incomplete_summary', join_messages("; ", (item.reason for item in exc.issues[:2]))),
-            )
+            if not self.app.execution.session.snapshot.measurement_active:
+                self.app.query_one(RunPlanPanel).show_plan(run_planning.invalid_plan_view(exc.issues))
+                self.app.localization.set_text(
+                    self.app.query_one("#input-scales-label", Label), message_id("run.inputs.scales"),
+                )
+                self.app.localization.set_text(
+                    self.app.query_one("#input-scales", Input), message_id("common.state.pending"), "placeholder",
+                )
             self.app.localization.set_text(
                 self.app.query_one("#command-preview", Static),
                 message_id('run.command.incomplete_detail', join_messages("; ", (item.reason for item in exc.issues))),
@@ -367,38 +372,26 @@ class ConfigurationController:
                         widget.value = selected_preset
         if self.field_errors_visible:
             self.update_field_errors(())
-        effective = replace(config, runtime=self.app.preflight.selected_runtime) if config.runtime == "auto" and self.app.preflight.selected_runtime else config
-        case_count = run_planning.estimate_run(effective).cases
-        scale_summary = (
-            message_id('run.inputs.scale_count', len(config.input_scales.split(',')))
-            if config.input_scales
-            else message("最小单一尺度" if config.input_scale_policy == "minimal" else "自动规划")
-        )
-        profiler_summary = (
-            message_id('profiling.options.off_summary')
-            if config.compute_profile_tool == "none"
-            and config.execution_profile_tool == "none"
-            else (
-                message_id('profiling.options.selected_summary', config.compute_profile_tool, config.execution_profile_tool)
-            )
-        )
-        self.app.localization.set_text(self.app.query_one("#config-summary", Static), message_id(
-            'run.command.resource_summary',
-            case_count, scale_summary, config.request_timeout_seconds,
-            profiler_summary, config.output_dir,
-        ))
+        self.update_plan_summary(config)
         self.app.localization.set_text(self.app.query_one('#command-preview', Static), format_command(command))
         if notify:
             self.app.notify("命令预览已更新", timeout=2)
         return True
 
     def update_plan_summary(self, config: RunConfig) -> None:
+        # Preparation can update resolved scales while busy; formal measurement cannot.
+        if self.app.execution.session.snapshot.measurement_active:
+            return
         if config.runtime == "auto" and self.app.preflight.selected_runtime:
             config = replace(config, runtime=self.app.preflight.selected_runtime)
         planned = self.planned_input if self.planned_input_identity == run_planning.input_identity(config) else None
-        summary = self.app.query_one("#run-plan-summary", Static)
-        self.app.localization.set_text(summary, run_planning.plan_summary(config, planned))
-        self.app.localization.set_text(summary, run_planning.preparation_details(config, planned), "tooltip")
+        view = run_planning.run_plan_view(
+            config, planned,
+            download_budget=config.max_download or os.environ.get("ACPROF_MAX_DOWNLOAD", ""),
+            model_store=config.model_store or os.environ.get("ACPROF_MODEL_STORE")
+            or str(Path.home() / ".cache" / "acprof" / "model-store"),
+        )
+        self.app.query_one(RunPlanPanel).show_plan(view)
         unit = run_planning.input_unit(config, planned)
         self.app.localization.set_text(self.app.query_one("#input-scales-label", Label), message_id('run.inputs.scales_with_unit', unit))
         if planned and planned.get("scales"):

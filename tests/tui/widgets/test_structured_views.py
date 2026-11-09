@@ -359,6 +359,109 @@ async def test_language_changes_preserve_focus_expansion_and_raw_values():
         await pilot.press("enter")
         assert app.clipboard == RAW_DETAIL
 
+
+@pytest.mark.parametrize("section_collapsed", [False, True])
+async def test_fact_shape_updates_preserve_expansion_and_title_focus(section_collapsed):
+    section = ViewSection("身份", (FactRow("模型", "demo/model"),),
+                          (FactRow("路径", RAW_PATH, copyable=True),))
+    grid = FactGrid(section)
+    app = StructuredHarness(grid)
+    async with app.run_test(size=(80, 24)) as pilot:
+        more = grid.query_one(".fact-more", Collapsible)
+        await focus_with_tab(app, pilot, more.query_one("CollapsibleTitle"))
+        await pilot.press("enter")
+        if section_collapsed:
+            title = grid.query_one(".fact-section", Collapsible).query_one("CollapsibleTitle")
+            await focus_with_tab(app, pilot, title)
+            await pilot.press("enter")
+
+        grid.update_section(replace(section, detail_rows=(
+            *section.detail_rows, FactRow("资源", "继承限制"),
+        )))
+        async with asyncio.timeout(2):
+            while len(grid.query(FactValue)) != 3:
+                await pilot.pause()
+        await pilot.pause()
+
+        assert grid.query_one(".fact-section", Collapsible).collapsed is section_collapsed
+        assert not grid.query_one(".fact-more", Collapsible).collapsed
+        selector = ".fact-section" if section_collapsed else ".fact-more"
+        assert app.focused is grid.query_one(selector, Collapsible).query_one("CollapsibleTitle")
+
+
+@pytest.mark.parametrize("details", [False, True])
+async def test_fact_shape_updates_restore_the_same_semantic_row_after_an_insertion(details):
+    section = ViewSection("身份", (FactRow("路径", "main-value", copyable=True),),
+                          (FactRow("路径", "detail-value", copyable=True),))
+    grid = FactGrid(section)
+    app = StructuredHarness(grid)
+    async with app.run_test(size=(80, 24)) as pilot:
+        more = grid.query_one(".fact-more", Collapsible)
+        await focus_with_tab(app, pilot, more.query_one("CollapsibleTitle"))
+        await pilot.press("enter")
+        original = list(grid.query(FactValue))[1 if details else 0]
+        await focus_with_tab(app, pilot, original)
+
+        replacement = (FactRow("新增", "inserted", copyable=True),
+                       FactRow("路径", "updated-value", copyable=True))
+        grid.update_section(replace(section, **{"detail_rows" if details else "rows": replacement}))
+        app.set_language("en")
+        async with asyncio.timeout(2):
+            while len(grid.query(FactValue)) != 3:
+                await pilot.pause()
+        await pilot.pause()
+
+        assert isinstance(app.focused, FactValue)
+        assert app.focused is not original
+        assert app.focused.row.label == "路径"
+        assert app.focused.row.value == "updated-value"
+        assert not grid.query_one(".fact-more", Collapsible).collapsed
+        await pilot.press("c")
+        assert app.clipboard == "updated-value"
+
+
+@pytest.mark.parametrize("remove_group", [False, True])
+async def test_removed_fact_focus_returns_to_its_title_instead_of_another_value(remove_group):
+    section = ViewSection("身份", (FactRow("路径", "main-value", copyable=True),), (
+        FactRow("路径", RAW_PATH, copyable=True),
+        FactRow("预算", "5GB", copyable=True),
+    ))
+    grid = FactGrid(section)
+    app = StructuredHarness(grid)
+    async with app.run_test(size=(80, 24)) as pilot:
+        more = grid.query_one(".fact-more", Collapsible)
+        await focus_with_tab(app, pilot, more.query_one("CollapsibleTitle"))
+        await pilot.press("enter")
+        await focus_with_tab(app, pilot, more.query_one(FactValue))
+
+        remaining = () if remove_group else (section.detail_rows[1],)
+        grid.update_section(replace(section, detail_rows=remaining))
+        async with asyncio.timeout(2):
+            while len(grid.query(FactValue)) != 1 + len(remaining):
+                await pilot.pause()
+        await pilot.pause()
+
+        selector = ".fact-section" if remove_group else ".fact-more"
+        assert app.focused is grid.query_one(selector, Collapsible).query_one("CollapsibleTitle")
+        app.copy_to_clipboard("unchanged")
+        await pilot.press("c")
+        assert app.clipboard == "unchanged"
+
+
+async def test_first_fact_load_keeps_the_sections_requested_initial_state():
+    grid = FactGrid(ViewSection("", ()))
+    app = StructuredHarness(grid)
+    async with app.run_test(size=(80, 24)) as pilot:
+        grid.update_section(ViewSection("身份", (FactRow("路径", RAW_PATH, copyable=True),),
+                                        collapsed=True))
+        async with asyncio.timeout(2):
+            while len(grid.query(FactValue)) != 1:
+                await pilot.pause()
+        await pilot.pause()
+
+        assert grid.query_one(".fact-section", Collapsible).collapsed
+
+
 async def test_pending_fact_updates_show_latest_values_without_stealing_focus():
     banner = StatusBanner(StatusSummary("info", "读取中", (
         ViewAction("inspect", message_id("structured.action.details"), primary=True),

@@ -13,8 +13,10 @@ from acprof.experiments.configuration import RunConfig
 from acprof.host.run_state import MeasurementLock
 from acprof.tui.app import AcprofTui
 from acprof.tui.commands import PendingLaunch
+from acprof.tui.i18n import message_id
 from acprof.tui.logging.widget import SelectableLog
 from acprof.tui.run.diagnostics import PreflightCheck
+from acprof.tui.run.plan_panel import RunPlanPanel
 from acprof.tui.run.progress import ProgressSnapshot
 
 
@@ -38,22 +40,29 @@ class TestStartupPreflight:
     @pytest.mark.parametrize("runtime", ["docker", "process"])
     async def test_completed_preflight_preserves_smoke_plan(self, language, runtime):
         app = self.make_app()
+        initial = RunConfig.smoke("fixture/model")
+        app.configuration.initial_config = initial
         app.configuration.preferences = replace(app.configuration.preferences, language=language)
         checks = [PreflightCheck("Runtime", "ok", "ready", runtime_kind=runtime)]
         with patch("acprof.tui.run.preflight_controller.quick_preflight", return_value=checks):
             async with app.run_test(size=(120, 30)) as pilot:
                 await self.finish_check(app, pilot)
-                summary = app.query_one("#run-plan-summary", Static).content
-                assert isinstance(summary, str)
-                runtime_label = "运行方式：" if language == "zh" else "Runtime: "
-                assert f"{runtime_label}{runtime}" in summary
-                assert ("预热 0 / 正式 1 窗口" if language == "zh" else
-                        "0 warmup / 1 measured windows") in summary
+                view = app.query_one("#run-plan-panel", RunPlanPanel).view
+                assert view is not None
+                facts = {row.label: row for row in view.section.rows}
+                assert facts[message_id("run.runtime.label")].value == runtime.title()
+                assert facts[message_id("run.plan.windows_label")].value == message_id(
+                    "run.plan.window_totals", 0, 1,
+                )
+                assert facts[message_id("run.plan.per_condition_label")].status == "limited"
                 assert ("最小单一尺度" if language == "zh" else "Smallest single scale") in (
                     app.query_one("#input-scales", Input).placeholder
                 )
                 config = app.configuration.collect_config(allow_empty_model=True)
-                assert (config.input_scale_policy, config.warmup, config.repeat) == ("minimal", 0, 1)
+                assert (config.runtime, config.input_scale_policy, config.warmup, config.repeat) == ("auto", "minimal", 0, 1)
+                assert (config.model, config.cpus, config.mems, config.gpus) == (
+                    initial.model, initial.cpus, initial.mems, initial.gpus,
+                )
 
     @pytest.mark.parametrize("repeat", [7, 0], ids=["edited-plan", "invalid-plan"])
     async def test_preflight_completion_uses_edits_made_while_checking(self, repeat):
@@ -76,17 +85,24 @@ class TestStartupPreflight:
                 finally:
                     release.set()
                 await self.finish_check(app, pilot)
-                summary = app.query_one("#run-plan-summary", Static).content
+                view = app.query_one("#run-plan-panel", RunPlanPanel).view
                 command = app.query_one("#command-preview", Static).content
-                assert isinstance(summary, str)
+                assert view is not None
                 assert isinstance(command, str)
                 if repeat:
-                    assert "输入 2 档" in summary
-                    assert "预热 6 / 正式 14 窗口" in summary
+                    facts = {row.label: row for row in view.section.rows}
+                    assert facts[message_id("run.plan.windows_label")].value == message_id(
+                        "run.plan.window_totals", 6, 14,
+                    )
+                    assert facts[message_id("run.plan.per_condition_label")].value == message_id(
+                        "run.plan.per_condition_value", 7,
+                    )
                     assert "--repeat 7" in command
                 else:
                     assert "配置尚未完成" in command
-                    assert "每条件计划 5 个正式窗口" not in summary
+                    assert view.summary.level == "error"
+                    assert view.section.rows == ()
+                    assert view.callout is not None
 
     async def test_startup_is_once_async_and_success_is_silent(self):
         release = threading.Event()

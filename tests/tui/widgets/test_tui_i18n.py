@@ -284,7 +284,9 @@ class TestTuiLanguage:
             app.query_one("#mems", Input).value = "oops"
             await pilot.pause()
             app.configuration.refresh_command_preview(notify=False)
-            assert ("Memory list must be comma-separated integers") in (app.query_one("#config-summary", Static).content)
+            assert "Memory list must be comma-separated integers" in str(
+                app.query_one("#run-plan-callout .callout-problem", Static).content
+            )
             app.experiments.request_run()
             await pilot.pause()
             assert (any(n.title == "Invalid configuration" and "Memory list" in n.message for n in app._notifications))

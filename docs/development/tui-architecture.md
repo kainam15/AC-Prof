@@ -58,7 +58,7 @@ acprof/tui/
 `ui/structured.py` 的 `StatusBanner`、`FactGrid`、`Callout` 只呈现传入数据并上抛稳定 action ID。
 复用 Textual 的焦点、Grid、Collapsible 和语义 TCSS；完整原值与按 cell 宽度截断的显示分开。
 普通字符串值不做翻译替换，结构化 Message 在显示时翻译；查看全文和复制有键盘入口，tooltip 只是补充。
-语言切换更新已挂载控件，不重建相同形状的分组、不丢弃焦点或折叠选择。
+语言切换更新已挂载控件，不重建相同形状的分组。数据改变行数时保留折叠选择和仍可识别的行焦点；原行删除后回到对应分组标题，不抢占其他控件的焦点。
 
 首个迁移页面为 `results/overview.py::overview_view()` → `results/overview_panel.py`。
 纯函数只组合既有元数据 Worker 与数据 Worker 的结果，区分产物存在、有效正式窗口和未核验状态。
@@ -67,10 +67,14 @@ acprof/tui/
 纯模型使用既有 `ProfilerOverview`、读取阶段与 `OperationState`，不推断新的采集资格；工具总数和各工具的 CSV 记录数保留原口径。
 检查失败、取消或过期时以 Callout 给出恢复操作，完整路径和异常保留在详情；只有数据读取器已确认的独立 CSV 才显示对应限制，不从异常文本猜测来源。
 `ProfileController` 路由选择和重新检查动作，并在触发刷新前检查操作锁，避免过期事件清空已核验状态。相同视图数据不重复更新控件。
+第三个迁移页面为 `run/planning.py::run_plan_view()` → `run/plan_panel.py::RunPlanPanel`。
+`PlanView` 以同一个 `ViewSection` 合并原先上下两段配置摘要；估算沿用资源矩阵与输入规模口径，详细参数、预算、耗时假设和路径进入可展开行。
+`ConfigurationController` 提供已选 runtime、预算和缓存路径；纯模型不读环境、文件或硬件，也不重复校验配置。
+`invalid_plan_view()` 清空有效计划事实，保留完整配置问题；controller 同时清除旧输入单位和规模提示，保留身份仍匹配时可复用的已解析计划。既有字段定位与采集门禁不变。准备期即使 busy 仍可更新输入计划，`measurement_active` 时不投影。
 其他页面继续按截图评审逐页迁移，不通过本次改动提前替换运行监控等页面。
 
 新组件没有轮询或周期定时器。case ProgressBar 只使用已知总数并关闭 ETA；未知总数隐藏条形，
-不进入 Textual 的不定进度自动刷新模式。`measurement_active` 时不会投影/刷新新的概览或补采数据。
+不进入 Textual 的不定进度自动刷新模式。`measurement_active` 时不会投影/刷新新的概览、补采数据或采集计划。
 这些约束须以事件/计时器测试验证，不能仅凭动画视觉上不可见判断。
 
 设计参考 [Posting 2.10.0 的统一键值复制交互](https://github.com/darrenburns/posting/releases/tag/2.10.0)、

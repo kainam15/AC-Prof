@@ -11,6 +11,7 @@ from textual.binding import Binding
 from textual.containers import Grid, Horizontal, Vertical, VerticalScroll
 from textual.message import Message
 from textual.screen import ModalScreen
+from textual.widget import Widget
 from textual.widgets import Button, Collapsible, Static
 
 from acprof.messages import Message as CatalogText
@@ -232,6 +233,7 @@ class FactGrid(StructuredWidget):
         self.section = section
         self._composed_shape: tuple[int, int] | None = None
         self._recompose_pending = False
+        self._collapsed_state: dict[str, bool] = {}
 
     def _rows(self, rows: tuple[FactRow, ...]) -> ComposeResult:
         for row in rows:
@@ -240,14 +242,16 @@ class FactGrid(StructuredWidget):
 
     def compose(self) -> ComposeResult:
         self._composed_shape = (len(self.section.rows), len(self.section.detail_rows))
-        with Collapsible(title=self.tr(self.section.title), collapsed=self.section.collapsed,
+        with Collapsible(title=self.tr(self.section.title),
+                         collapsed=self._collapsed_state.get(".fact-section", self.section.collapsed),
                          collapsed_symbol=COMPACT_COLLAPSED_SYMBOL,
                          expanded_symbol=COMPACT_EXPANDED_SYMBOL, classes="fact-section"):
             with Grid(classes="fact-grid"):
                 yield from self._rows(self.section.rows)
             if self.section.detail_rows:
                 with Collapsible(title=self.tr(message_id("structured.fact.details")),
-                                 collapsed=True, collapsed_symbol=COMPACT_COLLAPSED_SYMBOL,
+                                 collapsed=self._collapsed_state.get(".fact-more", True),
+                                 collapsed_symbol=COMPACT_COLLAPSED_SYMBOL,
                                  expanded_symbol=COMPACT_EXPANDED_SYMBOL, classes="fact-more"):
                     with Grid(classes="fact-grid"):
                         yield from self._rows(self.section.detail_rows)
@@ -265,12 +269,49 @@ class FactGrid(StructuredWidget):
         else:
             self.refresh_language()
 
+    def _focused_fact(self) -> tuple[str, str | None] | None:
+        focused = self.app.focused
+        for selector in (".fact-more", ".fact-section"):
+            for group in self.query(selector).results(Collapsible):
+                if focused is group.query_one("CollapsibleTitle", Widget):
+                    return selector, None
+                if isinstance(focused, FactValue) and group in focused.ancestors:
+                    return selector, focused.row.label
+        return None
+
+    def _restore_fact_focus(self, location: tuple[str, str | None]) -> None:
+        if self.app.focused is not None or self.app.screen is not self.screen:
+            return
+        selector, label = location
+        groups = list(self.query(selector).results(Collapsible))
+        group = groups[0] if groups else self.query_one(".fact-section", Collapsible)
+        target = group.query_one("CollapsibleTitle", Widget)
+        if groups and label is not None and not group.collapsed:
+            candidates = [value for value in group.query(FactValue)
+                          if value.row.label == label and value.can_focus
+                          and next((parent for parent in value.ancestors
+                                    if isinstance(parent, Collapsible)), None) is group]
+            if len(candidates) == 1:
+                target = candidates[0]
+        self.screen.set_focus(target, scroll_visible=False)
+        target.scroll_visible(animate=False, immediate=True)
+
     async def _recompose_section(self) -> None:
+        if self._composed_shape != (0, 0):
+            for selector in (".fact-section", ".fact-more"):
+                for group in self.query(selector).results(Collapsible):
+                    self._collapsed_state[selector] = group.collapsed
+        focused = self._focused_fact()
+        if focused is not None:
+            # Removing children otherwise moves focus to an unrelated surviving control.
+            self.screen.set_focus(None)
         try:
             await self.recompose()
         finally:
             self._recompose_pending = False
         self.update_section(self.section)
+        if focused is not None:
+            self._restore_fact_focus(focused)
 
     def refresh_language(self) -> None:
         if self._recompose_pending:

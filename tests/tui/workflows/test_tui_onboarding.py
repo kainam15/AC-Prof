@@ -9,8 +9,11 @@ from textual.widgets import Button, Input, Select, Static
 
 from acprof.cli.tui import main
 from acprof.experiments.configuration import RunConfig, build_run_command
+from acprof.tui.i18n import message_id
+from acprof.tui.run.plan_panel import RunPlanPanel
 from acprof.tui.settings.preferences import TuiSettings, save_settings
 from tests.support.tui_fixtures import AcprofTui
+from tests.support.tui_waits import wait_for_condition
 
 
 async def test_start_waiting_state_is_translated_without_covering_monitor():
@@ -122,8 +125,12 @@ async def test_prepared_scales_update_summary_outside_measurement_in_both_langua
                 "input_plan": {"scales": [1.0], "scale_type": "duration_s"}})
             await pilot.pause()
             assert ("1 s") in (app.query_one("#input-scales", Input).placeholder)
-            summary = app.query_one("#run-plan-summary", Static)
-            assert ("(s)") in (str(summary.render()))
+            summary = app.query_one("#run-plan-panel", RunPlanPanel)
+            assert summary.view is not None
+            facts = {row.label: row for row in summary.view.section.rows}
+            assert facts[message_id("run.plan.scales_label")].value == message_id(
+                "run.plan.scale_count_unit", 1, "s",
+            )
             button = app.query_one("#start-run", Button)
             assert (summary.region.bottom) <= (app.query_one("#run-actions").region.y)
             assert (app.get_widget_at(button.region.x + 3, button.region.y + 1)[0]) is (button)
@@ -142,34 +149,50 @@ async def test_revision_edit_invalidates_prepared_scales_but_repeat_edit_keeps_t
             app.preflight.preparation_event({"stage": "input", "status": "passed",
                 "input_plan": {"scales": [8.0, 16.0], "scale_type": "seq_length"}})
             await pilot.pause()
-            summary = app.query_one("#run-plan-summary", Static)
+            summary = app.query_one("#run-plan-panel", RunPlanPanel)
             scales = app.query_one("#input-scales", Input)
-            assert "输入 2 档 (tokens)" in str(summary.content)
-            assert "正式 6 窗口" in str(summary.content)
+
+            def facts():
+                assert summary.view is not None
+                return {row.label: row.value for row in summary.view.section.rows}
+
+            scale_label = message_id("run.plan.scales_label")
+            window_label = message_id("run.plan.windows_label")
+            assert facts()[scale_label] == message_id("run.plan.scale_count_unit", 2, "tokens")
+            assert facts()[window_label] == message_id("run.plan.window_totals", 0, 6)
             assert scales.placeholder == "8,16 tokens"
 
             await pilot.click("#open-run-settings")
             app.query_one("#repeat", Input).focus()
             await pilot.press("end", "ctrl+u", "4")
-            await pilot.pause()
+            await wait_for_condition(
+                pilot,
+                lambda: facts()[window_label] == message_id("run.plan.window_totals", 0, 8),
+                description="edited repeat count in the collection plan", timeout=3,
+            )
             assert app.configuration.collect_config().repeat == 4
-            assert "输入 2 档 (tokens)" in str(summary.content)
-            assert "正式 8 窗口" in str(summary.content)
+            assert facts()[scale_label] == message_id("run.plan.scale_count_unit", 2, "tokens")
             assert scales.placeholder == "8,16 tokens"
 
             app.query_one("#revision", Input).focus()
             await pilot.press("end", "ctrl+u", "v", "2")
-            await pilot.pause()
+            pending = message_id("common.state.pending")
+            await wait_for_condition(
+                pilot,
+                lambda: facts()[window_label] == message_id("run.plan.window_totals", pending, pending),
+                description="stale prepared scales removed after a revision edit", timeout=3,
+            )
             assert app.configuration.collect_config().revision == "v2"
-            assert "输入 待解析 档" in str(summary.content)
-            assert "正式 待解析 窗口" in str(summary.content)
+            assert facts()[scale_label] == message_id(
+                "run.plan.scale_count_unit", pending, message_id("run.inputs.unit_pending"),
+            )
             assert scales.placeholder == "留空：自动范围 · 单位待解析"
 
             app.execution.session.config = app.configuration.collect_config()
             app.preflight.preparation_event({"stage": "input", "status": "passed",
                 "input_plan": {"scales": [4.0, 12.0, 24.0], "scale_type": "seq_length"}})
             await pilot.pause()
-            assert "输入 3 档 (tokens)" in str(summary.content)
-            assert "正式 12 窗口" in str(summary.content)
+            assert facts()[scale_label] == message_id("run.plan.scale_count_unit", 3, "tokens")
+            assert facts()[window_label] == message_id("run.plan.window_totals", 0, 12)
             assert scales.placeholder == "4,12,24 tokens"
         execute.assert_not_called()

@@ -335,7 +335,7 @@ HTML 导出按 1 MiB 分块复制原始字节，通过 `artifacts.atomic_write_b
 `preparation` 显示“下载确认”并直接回传 confirm / cancel，不借用未决字段表单。
 `host.model_errors` 保留模型查找失败的类型、身份和诊断；`detect` 抛出业务异常，公共 CLI dispatcher
 将其转换为退出码。准备弹窗翻译结构化提示，原始诊断放入折叠详情。
-`run_planning` 只计算准备阶段的配置、窗口和假设耗时摘要；实际档位由既有 host 输入计划经有界准备消息传入，不轮询产物。
+`run/planning.py` 只计算准备阶段的结构化采集计划；`run/plan_panel.py` 使用共享 Banner、FactGrid 和 Callout 呈现状态、核心事实与折叠详情。实际档位由既有 host 输入计划经有界准备消息传入，controller 在正式测量期间停止投影，不轮询产物。
 `commands` 复用原来的命令构造函数，另持有 `PendingLaunch`、结果路径与 plot/stats/compare/profile 启动参数准备；
 `app` 继续持有控件、busy/measurement 状态和进程生命周期；controller 通过 App 的准入检查操作控件，并管理各自的请求 token。
 `commands.OperationState` 统一操作可用性；系统忙碌与存在可停止的子进程分别判断。
