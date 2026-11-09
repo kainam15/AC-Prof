@@ -23,6 +23,8 @@ acprof/tui/
 │   ├── process.py          # 进程/进程组启动、停止和回收
 │   ├── process_controller.py # 工作线程读取、事件、延迟回收
 │   ├── presenter.py        # 当前运行信息的 Textual 呈现，无执行所有权
+│   ├── monitor_view.py     # 进度快照的纯结构化页头投影
+│   ├── monitor_panel.py    # 共享组件组合与无计时器的 Case 进度
 │   └── results.py          # 只读归属检查与纯完成判定
 ├── settings/               # 表单配置、语言和本地首选项
 └── ui/
@@ -83,9 +85,14 @@ acprof/tui/
 `selection_summary()` 只对有效的稳定组 ID 去重计数，以中性状态说明待选择或已选；“已选”不代表加载、推理或输出已验证。
 `task_context_view()` 将任务选择请求中的模型信息放到列表后默认折叠的网格；普通 review 请求仍保留自己的字段展示，不改变其他准备弹窗。
 `TaskChoice` 的勾选入口与网格详情、值查看和复制分离；`review_answers()` 仍只回传选中的稳定采集组 ID。空选择、全选、取消、单次确认及原有准备门禁继续由既有流程负责，不增加轮询或测量窗口内工作。
-其他页面继续按截图评审逐页迁移，不通过本次改动提前替换运行监控等页面。
+第六个迁移页面为 `run/monitor_view.py::monitor_header_view()` → `run/monitor_panel.py::MonitorHeader` → `ui/pages/monitor.py` 的监控页头。
+`MonitorHeaderView` 只投影权威 `ProgressSnapshot`：顶部使用 `StatusSummary`，Case、资源及阶段适用的验证项使用 `ViewSection`，原始详情与非零警告/错误进入默认折叠网格。
+Case 的“已处理”沿用 `completed_cases`，包含失败或跳过，不重新计算有效窗口；只有总数已知且已处理数在范围内才绘制进度。CPU、内存、GPU 的展示词汇与原始资源值分开，全文仍保留在详情。
+监控进度使用静态 Rich 条形，由已有快照事件驱动；不引入 Textual 不定进度或周期动画。`RunPresenter` 继续拥有展示更新，既有 `status-elapsed` 时钟、阶段耗时、日志暂停与停止路径保持各自职责。
+`measurement_active` 时不新增定时器、轮询或下载/阶段耗时刷新；测量边界仍由执行快照控制。普通日志不触发新的结构化投影，结束或失败后恢复既有交互。
+测量期间推迟的页头语言更新，在既有的首个非测量进度事件中补刷一次；补刷使用当时的快照，不创建定时任务或第二份执行状态。
 
-新组件没有轮询或周期定时器。case ProgressBar 只使用已知总数并关闭 ETA；未知总数隐藏条形，
+新组件没有轮询或周期定时器。结果概览的 case ProgressBar 只使用已知总数并关闭 ETA；未知总数隐藏条形，
 不进入 Textual 的不定进度自动刷新模式。`measurement_active` 时不会投影/刷新新的概览、补采数据或采集计划。
 这些约束须以事件/计时器测试验证，不能仅凭动画视觉上不可见判断。
 

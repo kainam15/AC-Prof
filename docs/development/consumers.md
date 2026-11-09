@@ -256,6 +256,8 @@ App 级互斥、Worker Manager 与退出桥接，不把采集状态作为自身�
 跨线程派发事件并延迟回收尚未退出的进程；进程未退出不能结束会话。
 `run.results` 负责产物归属和纯完成判定，`run.presenter.RunPresenter` 负责
 运行期日志、通知、焦点、计时器和进度展示；它不缓存第二份执行状态。
+`run.monitor_view.monitor_header_view()` 纯投影已有 `ProgressSnapshot`，监控页头复用 `StatusBanner` 与 `FactGrid`，按阶段呈现 Case、资源和验证项；运行详情默认折叠，原始异常保留全文。
+Case 进度为已有事件驱动的静态 Rich 条形，已处理数保留原有语义；不增加动画、轮询或测量期间的计时刷新，既有运行时钟及日志门控继续由 presenter 管理。
 App 的少量具名 callback 只是 Textual 和线程安全回调入口，没有第二个状态所有者。
 其他 controller 各自拥有设置、镜像、模型、预检、结果等状态，仍共享一个 App Worker Manager。
 正式测量窗口内延迟重要日志、抑制普通输出与非必要刷新，保持既有语义。
