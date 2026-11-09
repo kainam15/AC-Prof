@@ -6,7 +6,7 @@ import ast
 import hashlib
 import sys
 from pathlib import PurePosixPath
-from typing import Any
+from typing import Any, Literal, TypedDict
 
 from acprof.failures import Failure, RuntimeFailure
 from acprof.installation import resource_root
@@ -23,11 +23,38 @@ IMPORT_DISTRIBUTIONS = {
     "detectron2": "detectron2", "flash_attn": "flash-attn", "timm": "timm",
     "einops": "einops", "sentencepiece": "sentencepiece", "unidic_lite": "unidic-lite",
 }
+
+
+class DependencyRecord(TypedDict, total=False):
+    """One dependency observation; source and resolution phases set different keys."""
+
+    module: str
+    source: str
+    conditional: bool
+    distribution: str | None
+    installed: str | None
+    required: str
+    status: Literal["unknown", "present", "missing", "incompatible", "stdlib"]
+    detail: str
+    python_version: str
+
+
+class DependencyPreflightReport(TypedDict):
+    """Stable persisted dependency-preflight protocol, including failure evidence."""
+
+    schema_version: int
+    revision: str
+    runtime_profile: str
+    lock: str
+    source_sha256: dict[str, str]
+    dependencies: list[DependencyRecord]
+
+
 MAX_FILES = 64
 RUNTIME_REQUIREMENTS = {"requirements.txt", "requirements-inference.txt", "requirements-runtime.txt"}
 
 
-def dependency_preflight(task, profile, *, read_source) -> dict:
+def dependency_preflight(task, profile, *, read_source) -> DependencyPreflightReport:
     """Read only pinned source/config, without importing or installing anything."""
     from packaging.markers import default_environment
     from packaging.requirements import InvalidRequirement, Requirement
@@ -39,7 +66,7 @@ def dependency_preflight(task, profile, *, read_source) -> dict:
     metadata = task.repository_metadata or {}
     configs = [task.model_config, *(value for value in metadata.values() if isinstance(value, dict))]
     pending = set().union(*(custom_code_files(config) for config in configs))
-    records: list[dict[str, Any]] = []
+    records: list[DependencyRecord] = []
     sources: dict[str, str] = {}
     requirements: list[Any] = []
     trees: dict[str, ast.AST] = {}
@@ -171,12 +198,16 @@ def dependency_preflight(task, profile, *, read_source) -> dict:
         if "status" in record:
             continue
         resolved_distribution = distributions.get(record["module"])
-        record.update(distribution=resolved_distribution, installed=(
-            installed.get(resolved_distribution) if resolved_distribution is not None else None))
+        record["distribution"] = resolved_distribution
+        record["installed"] = (
+            installed.get(resolved_distribution) if resolved_distribution is not None else None
+        )
         record["status"] = "present" if record["installed"] else (
             "unknown" if record["conditional"] or resolved_distribution is None else "missing")
-    report = {"schema_version": 1, "revision": task.model_revision, "runtime_profile": profile.profile_id,
-              "lock": profile.environment.requirements_lock, "source_sha256": sources, "dependencies": records}
+    report: DependencyPreflightReport = {
+        "schema_version": 1, "revision": task.model_revision, "runtime_profile": profile.profile_id,
+        "lock": profile.environment.requirements_lock, "source_sha256": sources, "dependencies": records,
+    }
     task.model_resolution["dependency_preflight"] = report
     for status, code in (("missing", "runtime_dependency_missing"), ("incompatible", "runtime_dependency_incompatible"),
                          ("unknown", "runtime_dependency_unknown")):

@@ -70,6 +70,27 @@ def test_dependency_versions_dynamic_imports_and_training_requirements(sources_c
         assert (dependency_preflight(task, PROFILES["cv-cpu"], read_source=sources.__getitem__)["dependencies"]) == ([])
 
 
+def test_dependency_preflight_report_preserves_versioned_protocol():
+    from acprof.runtime.dependencies import dependency_preflight
+    from acprof.runtime.profiles import PROFILES
+
+    task = model("image-classification", "cv", "vit", repository_files=("requirements-dev.txt",))
+    read_source = Mock(side_effect=AssertionError("development-only source must not be read"))
+
+    report = dependency_preflight(task, PROFILES["cv-cpu"], read_source=read_source)
+
+    assert report == {
+        "schema_version": 1,
+        "revision": task.model_revision,
+        "runtime_profile": "cv-cpu",
+        "lock": PROFILES["cv-cpu"].environment.requirements_lock,
+        "source_sha256": {},
+        "dependencies": [],
+    }
+    assert task.model_resolution["dependency_preflight"] is report
+    read_source.assert_not_called()
+
+
 @pytest.mark.parametrize("initializer", [
     "VALUE = 1\n",
     "from .constants import VALUE\n",
