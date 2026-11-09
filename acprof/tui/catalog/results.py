@@ -308,7 +308,6 @@ MESSAGES: dict[str, Entry] = {
     "results.overview.refresh": Entry(zh='刷新实验状态', en='Refresh status'),
     "results.overview.running": Entry(zh='进行中', en='Running'),
     "results.overview.stale_profile": Entry(zh='实验数据或选择已改变，请刷新状态后重新选择工具。', en='Experiment data or selection changed. Refresh status and select tools again.'),
-    "results.overview.unknown": Entry(zh='未记录', en='Not recorded'),
     "results.overview.verified": Entry(zh='已校验', en='Verified'),
     "results.overview.warnings": Entry(zh='主要原因或警告：{0}', en='Main reasons or warnings: {0}'),
     "results.picker.checking_roots": Entry(zh="正在检查搜索目录……", en="Checking search directories…"),

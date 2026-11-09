@@ -11,8 +11,6 @@ MESSAGES: dict[str, Entry] = {
     "downloads.budget.effective": Entry(zh="有效下载预算：{0}", en="Effective download budget: {0}"),
     "downloads.budget.label": Entry(zh="下载预算", en="Download budget"),
     "downloads.budget.placeholder": Entry(zh="5GB；留空不设上限", en="5GB; empty means unlimited"),
-    "downloads.budget.summary": Entry(zh="下载预算：{0}", en="Download budget: {0}"),
-    "downloads.cache.model_source_summary": Entry(zh="缓存：{0} · 模型来源：{1}", en="Cache: {0} · Model source: {1}"),
     "downloads.cache.source_summary": Entry(zh="缓存：{0} · 下载源：{1}", en="Cache: {0} · Source: {1}"),
     "downloads.confirmation.confirm": Entry(zh="确认下载", en="Confirm download"),
     "downloads.confirmation.offline_measurement_notice": Entry(

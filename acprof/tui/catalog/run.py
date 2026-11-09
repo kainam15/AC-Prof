@@ -249,8 +249,6 @@ MESSAGES: dict[str, Entry] = {
     "run.inputs.blank_plan": Entry(zh="留空：{0} · {1}", en="Blank: {0} · {1}"),
     "run.inputs.manifest_hint": Entry(zh="输入素材 manifest，可留空", en="Input manifest (optional)"),
     "run.inputs.planning_mode": Entry(zh="输入规划", en="Input planning"),
-    "run.inputs.scale_count": Entry(zh="{0} 档", en="{0}"),
-    "run.inputs.scale_summary": Entry(zh="输入：{0} {1}", en="Input: {0} {1}"),
     "run.inputs.scales": Entry(zh="输入规模", en="Input scales"),
     "run.inputs.scales_hint": Entry(zh="留空自动规划；如 64,128,256", en="Blank: automatic; e.g. 64,128,256"),
     "run.inputs.scales_with_unit": Entry(zh="输入规模 ({0})", en="Input scales ({0})"),
