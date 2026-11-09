@@ -615,6 +615,21 @@ AcprofTui.narrow.short #image-heading { layout: horizontal; height: 1; }
 AcprofTui.narrow.short #image-status { width: 1fr; max-height: 1; }
 AcprofTui.narrow.short #image-detail { margin-bottom: 0; }
 
+/* Selection headers toggle groups; fact controls only inspect their values. */
+TaskChoices, TaskChoice { height: auto; }
+TaskChoices .task-selection-summary { padding: 0; }
+TaskChoices .task-common { margin-bottom: 0; }
+TaskChoices .fact-grid, .task-selection .task-context .fact-grid { grid-columns: 24 1fr; }
+TaskChoice { margin: 0; }
+.task-choice-header { height: auto; min-height: 1; }
+.task-choice-header Checkbox { width: 5; height: 1; padding: 0; }
+.task-choice-description { width: 1fr; height: auto; }
+TaskChoice:focus-within .task-choice-header { background: $boost; }
+TaskChoice .task-differences { margin: 0 0 0 4; }
+TaskChoice .task-differences > .fact-section > CollapsibleTitle { display: none; }
+TaskChoice .task-differences .fact-more > CollapsibleTitle { color: $text-muted; }
+.task-selection .task-context { margin: 0; }
+
 .path-picker-row { height: 3; }
 .path-picker-row Input { width: 1fr; }
 .path-picker-row Button { min-width: 10; width: auto; margin-left: 1; }

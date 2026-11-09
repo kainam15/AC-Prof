@@ -11,11 +11,13 @@ from acprof.host.preparation.model_errors import ModelLookupError
 from acprof.tui.i18n import message_id
 from acprof.tui.logging.widget import SelectableLog
 from acprof.tui.models.review_inputs import review_answers, review_input
+from acprof.tui.models.task_choice_view import task_context_view
 from acprof.tui.models.task_choices import TaskChoices
 from acprof.tui.run.downloads import download_sections
 from acprof.tui.ui.contracts import translated_app
 from acprof.tui.ui.input import BarCursorInput as Input
 from acprof.tui.ui.rendering import CjkCompositor
+from acprof.tui.ui.structured import FactGrid
 
 STAGE_LABELS = {
     "resolution": "正在读取模型信息…", "dependencies": "正在读取模型信息…",
@@ -131,6 +133,11 @@ class PreparationScreen(ModalScreen):
         self.sending = False
         self._close_requested = False
 
+    def on_mount(self) -> None:
+        choices = list(self.query("TaskChoices Checkbox").results(Checkbox))
+        if choices:
+            choices[0].focus(scroll_visible=False)
+
     def close(self) -> None:
         """Close when active, preserving any screen currently covering us."""
         self._close_requested = True
@@ -180,7 +187,7 @@ class PreparationScreen(ModalScreen):
                             widget.border_title = tr(section.title)
                             yield widget
                         yield Static(tr("仅在准备阶段下载，正式测量离线。"), id="preparation-download-note", markup=False)
-                    else:
+                    elif not task_selection:
                         fields = "\n".join(
                             f"✓ {tr(name)}    {tr('未知') if value is None else value}" for name, value in values.items())
                         yield Static(fields, id="preparation-fields", markup=False)
@@ -193,6 +200,8 @@ class PreparationScreen(ModalScreen):
                                 yield Static(tr(question["reason"]), markup=False)
                         if not question.get("read_only"):
                             yield review_input(question, identifier=f"preparation-answer-{index}", translate=tr)
+                    if task_selection and values:
+                        yield FactGrid(task_context_view(values), id="preparation-fields", classes="task-context")
                     if parameter_review and request.get("parameter_advanced"):
                         with Collapsible(title=tr(message_id("models.parameters.more")), collapsed=True):
                             for index, question in enumerate(request["parameter_advanced"]):

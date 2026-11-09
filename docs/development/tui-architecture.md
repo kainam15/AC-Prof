@@ -77,6 +77,12 @@ acprof/tui/
 技术详情由展示层翻译结构化消息、拼入原始状态与来源后按既有规则脱敏，不截断异常或路径。检查背景默认折叠，使用共享本地秒级时间格式化，列出平台、测量锁证据和检查范围。
 重检使用稳定 action ID `environment-retry`，继续交给 `PreflightController.quick_check()` 和既有 `OperationState`；`retry_button` 提供当前唯一可见重检按钮，不依赖 Callout 内部控件 ID。正式测量时可交互查看缓存，但重检仍被拒绝。
 环境浮层沿用原有 180 ms 悬停关闭定时器；本次不新增探测、周期刷新、轮询或缓存过期 TTL，也不因时间经过推导新的已过期状态。
+第五个迁移页面为 `models/task_choice_view.py` → `models/task_choices.py::TaskChoices`。
+`task_selection_view()` 纯投影既有 `TaskSelection`：共同配置使用 `ViewSection`，各组只呈现已计算的差异，次要行及采集组 ID、代表输入和全部语义任务 ID 进入详情；不重新分组、推断参数或修改执行签名。
+原 JSON 路径、字段是否存在及带类型的值保留在详情中；缺失与 null、false、整数零和浮点零保持区别，未知路径和值不翻译或解释为 markup。
+`selection_summary()` 只对有效的稳定组 ID 去重计数，以中性状态说明待选择或已选；“已选”不代表加载、推理或输出已验证。
+`task_context_view()` 将任务选择请求中的模型信息放到列表后默认折叠的网格；普通 review 请求仍保留自己的字段展示，不改变其他准备弹窗。
+`TaskChoice` 的勾选入口与网格详情、值查看和复制分离；`review_answers()` 仍只回传选中的稳定采集组 ID。空选择、全选、取消、单次确认及原有准备门禁继续由既有流程负责，不增加轮询或测量窗口内工作。
 其他页面继续按截图评审逐页迁移，不通过本次改动提前替换运行监控等页面。
 
 新组件没有轮询或周期定时器。case ProgressBar 只使用已知总数并关闭 ETA；未知总数隐藏条形，

@@ -2,11 +2,13 @@
 from dataclasses import replace
 
 import pytest
-from textual.widgets import Button, Checkbox
+from textual.containers import VerticalScroll
+from textual.widgets import Button, Checkbox, Collapsible
 
 from acprof.experiments.configuration import RunConfig
 from acprof.tui.models.task_choices import TaskChoices
 from acprof.tui.run.preparation import PreparationScreen
+from acprof.tui.ui.structured import FactGrid, StatusBanner
 from tests.support.tui_fixtures import AcprofTui
 from tests.tui.catalog.test_tui_task_selection import long_profiles, task_event
 
@@ -28,7 +30,12 @@ def test_task_selection(snap_compare, tmp_path, language):
         await pilot.pause()
         choices = screen.query_one(TaskChoices)
         assert choices.selected == []
-        assert choices.region.height >= 4
+        summary = choices.query_one(".task-selection-summary", StatusBanner)
+        assert screen.query_one(VerticalScroll).region.contains_region(summary.region)
+        assert choices.query_one(".task-common .fact-more", Collapsible).collapsed
+        context = screen.query_one("#preparation-fields", FactGrid)
+        assert context.query_one(".fact-section", Collapsible).collapsed
+        assert app.focused is choices.query(Checkbox).first()
         for identifier in ("#preparation-apply", "#preparation-cancel"):
             button = screen.query_one(identifier, Button)
             assert button.region.bottom <= 24
@@ -69,6 +76,7 @@ def test_long_task_selection(snap_compare, tmp_path, language):
         await pilot.pause()
         choices = screen.query_one(TaskChoices)
         choices.select_all()
+        assert len(choices.selected) == 6
         list(choices.query(Checkbox))[-1].focus()
         await pilot.pause()
 

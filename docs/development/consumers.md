@@ -264,6 +264,9 @@ App 的少量具名 callback 只是 Textual 和线程安全回调入口，没有
 未选中时保留一个空白 cell，标签不会位移。沿用
 [Textual 的公开 value watcher](https://github.com/Textualize/textual/blob/v8.2.8/src/textual/widgets/_toggle_button.py)
 发送变更事件和维护选中样式，不以颜色隐藏勾号，也不增加刷新任务。
+`models.task_choice_view` 将既有任务比较结果投影为共同配置、组差异与中性选择摘要；
+`models.task_choices` 复用共享网格与 Banner，详情/复制操作独立于复选框选择。
+配置比较沿用 `tasks.presentation`；任务分组、执行签名与原始证据保留既有来源，回传继续使用稳定采集组 ID。
 `settings.localization_controller.LocalizationController` 拥有 UI 文案登记、翻译和语言切换状态；
 App 的 `tr/notify` 是 Textual 与小部件使用的展示接口，不翻译原始日志、CLI 参数或实验事件。
 `settings.controller` 管理表单、字段校验、设置保存、最近路径和预览；
