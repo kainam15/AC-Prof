@@ -19,6 +19,25 @@
 Textual 框架动态事件和 subclass 关键字的局部类型例外仍保留在对应实现旁，未启用
 全局 `ignore_errors`；未来逐模块收紧 `Any` 和未注解函数，不通过跳过函数体提高覆盖率。
 
+结果存储的稳定字典协议在 `result_store/types.py` 声明：引用、层清单、已提交清单、
+未提交清单主体、pending、commit、source 和初始化 receipt 分别使用实际字段类型。
+`PendingTransaction.after` 使用不含 `commit` 的清单主体；最终清单要求 `commit` 引用。
+初始化和 commit 生产者构造有类型的字面量，pending 读取与 writer 发布前复用已有运行时契约，
+验证成功后再通过 `TypeGuard` 窄化原对象，保留未知扩展证据键。泛用的引用读取仍返回其实际
+JSON 对象，不把 derivation、snapshot 或仅部分消费的历史 journal 声明成完整 `CommitRecord`。
+`result_store.types` 与 `result_store.initialization` 纳入上述三项增强门禁。
+
+`host/run_state_types.py` 的 `RunStateSnapshot`、`AttemptState` 和 `CaseState` 接入加载结果、
+`RunState.data` 及实际 attempt/case 生产者；类型模块加入增强门禁，既有 `host.case_recovery`
+门禁继续检查恢复消费者。准备态允许缺少 runtime，测量参数与冻结计划由原有运行时检查
+证明后再窄化；阶段性字段使用 `NotRequired`，未完整验证的时间、模型及历史 metadata 保持
+`object`。类型声明不要求 flat 历史状态补造字段，复制和恢复继续保留未知字符串证据键。
+
+`TypedDict` 在运行时仍是普通字典，`TypeGuard` 的声明也不会自动证明检查正确；
+输入边界必须先执行真实验证，不能依赖 `cast`、`Any`、忽略项或会在优化模式消失的
+`assert validator(...)` 来放行数据。语义见 [mypy TypedDict](https://mypy.readthedocs.io/en/stable/typed_dict.html)
+和 [TypeGuard](https://mypy.readthedocs.io/en/stable/type_narrowing.html#user-defined-type-guards)。
+
 TUI 的业务能力使用具体类型的 controller 组合；每个 controller 显式接收 `AcprofTui`，
 其拥有的状态在构造函数初始化。跨职责调用写明 `app.configuration`、`app.results`、
 `app.preflight` 等接收方，mypy 会检查实际方法名、参数与返回值。
