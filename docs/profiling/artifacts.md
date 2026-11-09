@@ -301,6 +301,8 @@ snapshot 读取、来源内容复核、实验目录去重、审计和 writer 恢
 pending 运行时契约：`before` 必须是含 commit 引用的完整清单，`after` 必须是下一序号且不含
 commit 引用的完整清单，`replacements` 必须显式列出无重复的合法层名。两份清单的 run/schema
 身份和字段归属不变，层 revision 与替换声明一致，当前清单必须精确对应事务前或事务后。
+当前清单已提交事务后状态时，额外读取并校验当前 commit，要求其 `previous` 与 `before.commit`
+完全一致；这次读取沿用取消与共享字节预算并按实际字节计费，不遍历历史链。
 缺字段、错误类型、无效引用及不一致事务以 `ResultValidationError` 拒绝；审计返回 invalid，
 不会把缺少替换声明默认为安全追加，也不会先截尾或清除 pending。
 根清单仍指向替换前提交时，即使旧 CSV 字节未变，也须先恢复再读取。追加事务的已提交

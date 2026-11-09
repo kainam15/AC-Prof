@@ -251,6 +251,10 @@ def read_pending(layout: ArtifactLayout, manifest: dict, *,
     try:
         transaction = read_json_object(path, bounded=False, cancelled=cancelled, byte_budget=byte_budget)
         validate_pending_transaction(layout, transaction, manifest)
+        if manifest != transaction["before"]:
+            commit = read_reference(layout, manifest.get("commit"), cancelled=cancelled, byte_budget=byte_budget)
+            if commit.get("previous") != transaction["before"]["commit"]:
+                raise ResultValidationError("pending transaction disagrees with committed previous reference")
     except ValueError as error:
         raise ResultValidationError(f"invalid pending result transaction: {error}") from error
     check_cancelled(cancelled)

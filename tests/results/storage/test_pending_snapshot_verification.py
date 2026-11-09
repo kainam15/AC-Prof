@@ -7,14 +7,17 @@ from threading import Event
 import pytest
 
 from acprof.results.csv import ResultValidationError, read_result_csv_snapshot, verify_result_source
-from acprof.result_store import writer as writer_module
 from acprof.result_store.protocol import publication_lock
 from acprof.result_store.reader import committed_content_digest, read_snapshot
 from acprof.result_store.writer import ResultWriter
 from tests.results.storage.test_committed_digest import expected_digest, make_store
 from tests.results.storage.test_incremental_results import receipt
 from tests.results.storage.test_sequential_result_reads import artifact_hashes
-from tests.support.result_store_fixtures import leave_pending_append, leave_pending_replacement
+from tests.support.result_store_fixtures import (
+    leave_committed_pending_replacement,
+    leave_pending_append,
+    leave_pending_replacement,
+)
 
 
 @pytest.fixture
@@ -48,18 +51,12 @@ def test_interrupted_replacement_requires_recovery_even_before_bytes_change(inte
 @pytest.mark.parametrize("operation", ["snapshot", "verify", "digest"])
 def test_committed_replacement_with_leftover_journal_is_readable(tmp_path, monkeypatch, operation):
     layout = make_store(tmp_path)
-    with ResultWriter(tmp_path) as writer:
-        def fail_cleanup(*_args):
-            raise OSError("journal cleanup interrupted")
-
-        with monkeypatch.context() as scoped:
-            scoped.setattr(writer_module, "clear_pending", fail_cleanup)
-            with pytest.raises(OSError, match="journal cleanup interrupted"):
-                writer.update_rows([{**row, "latency_app_s": "9"} for row in writer.rows.values()],
-                                   reason="fixture replacement")
+    leave_committed_pending_replacement(layout, monkeypatch)
     pending = layout.result_store_path("pending.json")
+    manifest = json.loads(layout.result_csv.read_bytes())
+    commit = layout.contained(manifest["commit"]["path"])
     expected, consumed = expected_digest(layout)
-    budget = [consumed + pending.stat().st_size]
+    budget = [consumed + pending.stat().st_size + commit.stat().st_size]
     snapshot = read_result_csv_snapshot(layout.result_csv)
     before = artifact_hashes(layout)
     if operation == "snapshot":

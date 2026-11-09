@@ -42,3 +42,17 @@ def leave_pending_replacement(layout, monkeypatch):
                 writer.update_rows([{**row, "latency_app_s": "9"} for row in writer.rows.values()],
                                    reason="fixture replacement")
     assert layout.result_store_path("pending.json").is_file()
+
+
+def leave_committed_pending_replacement(layout, monkeypatch):
+    """Fail cleanup after _commit has published the real replacement manifest."""
+    with ResultWriter(layout.root) as writer:
+        def fail_cleanup(*_args):
+            raise OSError("journal cleanup interrupted")
+
+        with monkeypatch.context() as guard:
+            guard.setattr(writer_module, "clear_pending", fail_cleanup)
+            with pytest.raises(OSError, match="journal cleanup interrupted"):
+                writer.update_rows([{**row, "latency_app_s": "9"} for row in writer.rows.values()],
+                                   reason="fixture replacement")
+    assert layout.result_store_path("pending.json").is_file()

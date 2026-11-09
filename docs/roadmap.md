@@ -21,7 +21,7 @@
 | --- | --- | --- |
 | P0 | 共享 Workload 输入校验、明确依赖方向 | 本轮已完成六族公共字段复用与两个反向依赖修复，保留任务差异和错误语义；Import Linter 契约纳入门禁。见[模块边界](development/static-checks.md)与[Workload 输入校验](development/modules.md#workload-输入校验)。 |
 | P1 | 按真实竞态改进 TUI 测试同步 | 本轮已合并三处条件等待，并以显式握手消除下载测试的一秒存活竞态；其余等待只在有具体问题时迁移。见[TUI 条件等待](development/validation-scope.md#tui-条件等待)。 |
-| P1 | 结果存储与恢复边界 | A1 身份核对已移到持锁后的恢复写入之前；A2 已统一 pending 的读取、审计与恢复契约，并以真实提交故障夹具覆盖损坏输入无副作用拒绝及合法事务恢复。A3–A5 manifest、receipt、run_state 输入边界及后续类型强化待完成。见[实验产物结构与恢复](profiling/artifacts.md)。 |
+| P1 | 结果存储与恢复边界 | A1 身份核对已移到持锁后的恢复写入之前；A2 已统一 pending 的读取、审计与恢复契约，包括已提交事务的前序引用关联，并以真实提交故障夹具覆盖损坏输入无副作用拒绝及合法事务恢复。A3–A5 manifest、receipt、run_state 输入边界及后续类型强化待完成。见[实验产物结构与恢复](profiling/artifacts.md)。 |
 | P1 | 核心数据契约增量强类型化 | 依赖预检报告先声明显式 `TypedDict`；后续依实际调用链为下载计划和事件协议补类型与边界验证，逐模块扩展 mypy，不对全部临时 `dict` 一刀切。 |
 | P1 | 宽泛异常与失败证据审计 | 网络包回填数值转换先收窄异常并增加 BLE001 门禁；后续逐模块核查 `monitors`、`host` 的失败、清理、unknown/NaN 语义，禁止把无法采集改成 0 或成功。 |
 | P2 | 高复杂度职责的行为保持重构 | 优先为 `RunConfig.validate` 冻结字段错误、报错顺序与归一化语义，再按校验领域抽取；`plan_download`、`dependency_preflight`、输出/运行时验证按调用链逐个评估，不一刀切启用全仓 C901。 |
