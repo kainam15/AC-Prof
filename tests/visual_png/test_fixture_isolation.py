@@ -156,4 +156,3 @@ def test_fixture_main_writes_the_requested_guard_journal(tmp_path, monkeypatch) 
     monkeypatch.setattr(fixture_app.VisualFixtureApp, "run", lambda _app: 0)
     assert fixture_app.main() == 0
     assert json.loads(report.read_text()) == {"state": "closed", "closed": True, "blocked_calls": []}
-
