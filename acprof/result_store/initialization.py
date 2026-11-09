@@ -1,6 +1,7 @@
 """Idempotent creation of zero-row experiment projections."""
 from __future__ import annotations
 
+from typing import TypeGuard
 from uuid import uuid4
 
 from acprof.artifacts import (
@@ -18,24 +19,44 @@ from acprof.result_store.protocol import (
     publication_lock,
     save_commit,
     validate_layer_files,
+    validate_manifest_structure,
     validate_run_identity,
     write_bytes,
+)
+from acprof.result_store.types import (
+    InitializationReceipt,
+    LayerManifest,
+    ResultManifest,
+    ResultManifestBody,
 )
 from acprof.results.csv import ResultValidationError
 from acprof.results.layers import LAYER_FILES, layer_fields
 from acprof.results.layout import ArtifactLayout
 
 
-def _read_initialization_receipt(layout: ArtifactLayout) -> dict | None:
+def _validate_initialization_receipt(schema: object) -> TypeGuard[InitializationReceipt]:
+    """Prove the stored identity and fields without discarding extension keys."""
+    if not isinstance(schema, dict):
+        raise ResultValidationError("invalid result initialization receipt: expected an object")
+    if any(not isinstance(name, str) for name in schema):
+        raise ResultValidationError("invalid result initialization receipt: field names must be strings")
+    fields = schema.get("fields")
+    if (not isinstance(fields, list) or any(not isinstance(name, str) for name in fields)
+            or fields != list(CSV_FIELDS)):
+        raise ResultValidationError("invalid result initialization receipt: fields changed")
+    if not isinstance(schema.get("run_id"), str) or not schema["run_id"]:
+        raise ResultValidationError("invalid result initialization receipt: run_id must be a non-empty string")
+    return True
+
+
+def _read_initialization_receipt(layout: ArtifactLayout) -> InitializationReceipt | None:
     """Validate a retained identity before any initialization publication."""
     intent = layout.result_store_path("initialization.json")
     if not intent.exists():
         return None
     schema = read_json_object(intent)
-    if schema.get("fields") != list(CSV_FIELDS):
-        raise ResultValidationError("invalid result initialization receipt: fields changed")
-    if not isinstance(schema.get("run_id"), str) or not schema["run_id"]:
-        raise ResultValidationError("invalid result initialization receipt: run_id must be a non-empty string")
+    if not _validate_initialization_receipt(schema):
+        raise ResultValidationError("invalid result initialization receipt")
     return schema
 
 
@@ -60,24 +81,26 @@ def initial_files(layout: ArtifactLayout) -> set[str]:
     return paths
 
 
-def initialize_results(layout: ArtifactLayout) -> dict:
+def initialize_results(layout: ArtifactLayout) -> ResultManifest:
     # Fail without even creating a publication lock for an invalid retained intent.
     _read_initialization_receipt(layout)
     with publication_lock(layout, exclusive=True):
         # Re-read under the lock; an earlier preflight is not publication authority.
         schema = _read_initialization_receipt(layout)
         if layout.result_csv.exists():
-            manifest = read_json_object(layout.result_csv)
-            validate_layer_files(layout, manifest, exact=True)
+            existing = read_json_object(layout.result_csv)
+            validate_layer_files(layout, existing, exact=True)
             if schema is not None:
-                validate_run_identity(manifest, schema["run_id"])
-            return manifest
+                validate_run_identity(existing, schema["run_id"])
+            if not validate_manifest_structure(existing, layout):
+                raise ResultValidationError("invalid incremental result manifest")
+            return existing
         intent = layout.result_store_path("initialization.json")
         if schema is None:
             schema = {"run_id": uuid4().hex, "fields": list(CSV_FIELDS)}
             atomic_write_json(intent, schema)
         assigned = layer_fields(schema["fields"])
-        records = {}
+        records: dict[str, LayerManifest] = {}
         for directory in ("metadata", "raw", "plots", "logs", "profiling", "debug"):
             create_durable_directory(layout.path(directory))
         for layer, fields in assigned.items():
@@ -88,7 +111,7 @@ def initialize_results(layout: ArtifactLayout) -> dict:
             write_bytes(path, raw)
             records[layer] = {"path": LAYER_FILES[layer], "fields": fields, "row_count": 0,
                               "committed_bytes": len(raw), "sha256": digest(raw), "revision": 0}
-        after = {"schema_version": SCHEMA_VERSION, "run_id": schema["run_id"],
+        after: ResultManifestBody = {"schema_version": SCHEMA_VERSION, "run_id": schema["run_id"],
                  "state": "initialized", "sequence": 0, "wide_fields": schema["fields"],
                  "schema_sha256": digest(json_bytes(assigned)), "row_count": 0, "layers": records}
         manifest = save_commit(layout, None, after, [], transaction="initial")

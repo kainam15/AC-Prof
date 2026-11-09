@@ -312,6 +312,15 @@ pending 读取继续遵守取消信号和调用方共享字节预算，结构检
 [etcd WAL repair](https://github.com/etcd-io/etcd/blob/main/server/storage/wal/repair.go)；
 这里只复用本地协议校验，不新增存储后端或验证框架。
 
+`result_store/types.py` 为引用、层清单、提交前后清单、pending、commit 与初始化 receipt 声明
+跨模块 `TypedDict`。这些类型仍对应普通字典；共享运行时结构检查成功后，`TypeGuard` 才窄化
+原对象，保留未知的字符串扩展键和证据，不把任意 JSON 引用宣称为已验证的 commit。
+writer 更新各层哈希、计数与 revision 后，在写入 pending 或 CSV 之前复用完整 pending 契约，
+再把窄化后的 `before/after` 传给提交函数。校验使用普通控制流，`python -O` 下仍然执行。
+类型与初始化模块进入增强 mypy 门禁；其余模块按实际边界增量接入，静态声明不替代运行时
+拒绝损坏输入。类型选择参考 [mypy 的 TypedDict 规则](https://mypy.readthedocs.io/en/stable/typed_dict.html)
+与 [TypeGuard 实现文档](https://github.com/python/mypy/blob/master/docs/source/type_narrowing.rst)。
+
 实现借鉴 [Delta transaction log](https://github.com/delta-io/delta/blob/master/PROTOCOL.md)
 的数据先持久化、再提交可见版本的顺序，以及
 [atomicwrites 的目录同步处理](https://github.com/untitaker/python-atomicwrites/pull/15)。

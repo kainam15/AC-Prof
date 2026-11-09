@@ -18,10 +18,12 @@ from acprof.result_store.protocol import (
     publication_lock,
     reference,
     save_commit,
+    validate_pending_transaction,
     write_bytes,
 )
 from acprof.result_store.recovery import clear_pending, projected_rows, recover_projection
 from acprof.result_store.sources import apply_source
+from acprof.result_store.types import ResultReference, ResultSource
 from acprof.results.csv import ResultValidationError, measurement_key
 from acprof.results.layout import ArtifactLayout
 from acprof.system.cleanup import cleanup_on_exit
@@ -68,7 +70,7 @@ class ResultWriter:
 
     def append_window(self, path):
         self._ready()
-        source: dict = {"kind": "window", "reference": reference(self.layout, path)}
+        source: ResultSource = {"kind": "window", "reference": reference(self.layout, path)}
         # Validate this source once, without copying or reserializing old rows.
         new_rows: dict[tuple[str, ...], dict[str, str]] = {}
         new_windows: dict[tuple[str, ...], str] = {}
@@ -122,7 +124,7 @@ class ResultWriter:
                   "evidence": list(evidence), "insert": inserts, "changes": changes}
         path = self.layout.result_update_path(uuid4().hex)
         atomic_write_json(path, update)
-        source = {"kind": "derivation", "reference": reference(self.layout, path)}
+        source: ResultSource = {"kind": "derivation", "reference": reference(self.layout, path)}
         new_rows = dict(self.rows)
         apply_source(self.layout, self.manifest, source, new_rows, dict(self.windows))
         payloads, counts = {}, {}
@@ -167,7 +169,8 @@ class ResultWriter:
                          snapshot=reference(self.layout, path))
         return snapshot
 
-    def _commit(self, payloads, counts, sources, *, replace, row_count, state, snapshot=None):
+    def _commit(self, payloads: dict[str, bytes], counts: dict[str, int], sources: list[ResultSource], *,
+                replace: bool, row_count: int, state: str, snapshot: ResultReference | None = None) -> None:
         after = copy.deepcopy({k: v for k, v in self.manifest.items() if k != "commit"})
         after.update(sequence=after["sequence"] + 1, state=state, row_count=row_count)
         if snapshot is not None:
@@ -188,15 +191,16 @@ class ResultWriter:
                 info.update(sha256=checksum.hexdigest(), row_count=counts[layer],
                             committed_bytes=len(raw) + (0 if replace else info["committed_bytes"]),
                             revision=info["revision"] + int(replace))
-            atomic_write_json(self.layout.result_store_path("pending.json"), {
-                "before": self.manifest, "after": after, "replacements": replacements,
-            })
+            pending = {"before": self.manifest, "after": after, "replacements": replacements}
+            if not validate_pending_transaction(pending, self.layout, self.manifest):
+                raise ResultValidationError("invalid pending result transaction")
+            atomic_write_json(self.layout.result_store_path("pending.json"), pending)
             for layer, raw in payloads.items():
                 if replace:
                     write_bytes(self.layout.layer_csv(layer), raw)
                 else:
                     self._append_bytes(layer, raw)
-            manifest = save_commit(self.layout, self.manifest, after, sources, transaction=transaction)
+            manifest = save_commit(self.layout, pending["before"], pending["after"], sources, transaction=transaction)
             atomic_write_json(self.layout.result_csv, manifest)
             clear_pending(self.layout)
             self.manifest, self.hashes = manifest, new_hashes

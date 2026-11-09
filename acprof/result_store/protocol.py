@@ -11,7 +11,7 @@ import time
 from collections.abc import Callable
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, TextIO
+from typing import Any, TextIO, TypeGuard
 
 from acprof.artifacts import (
     atomic_write,
@@ -22,6 +22,14 @@ from acprof.artifacts import (
     sync_directory,
 )
 from acprof.cancellation import cancellable, check_cancelled
+from acprof.result_store.types import (
+    CommitRecord,
+    PendingTransaction,
+    ResultManifest,
+    ResultManifestBody,
+    ResultReference,
+    ResultSource,
+)
 from acprof.results.csv import ResultValidationError, ValidatedResultRows, parse_result_stream
 from acprof.results.layers import BASE_LAYERS, LAYER_FILES, layer_fields
 from acprof.results.layout import ArtifactLayout
@@ -85,7 +93,7 @@ def publication_lock(layout: ArtifactLayout, *, exclusive: bool, blocking: bool 
             yield
 
 
-def reference(layout: ArtifactLayout, path: Path) -> dict:
+def reference(layout: ArtifactLayout, path: Path) -> ResultReference:
     return {"path": path.relative_to(layout.root).as_posix(), "sha256": file_sha256(path)}
 
 
@@ -106,9 +114,10 @@ def check_pending_replacement(layout: ArtifactLayout, manifest: dict, *,
         raise ResultValidationError("result module replacement requires recovery")
 
 
-def reference_path(layout: ArtifactLayout, ref: dict | None) -> Path:
+def reference_path(layout: ArtifactLayout, ref: ResultReference | None) -> Path:
     """Check reference structure and containment without reading its target."""
-    if (not isinstance(ref, dict) or set(ref) != {"path", "sha256"}
+    if (not isinstance(ref, dict) or any(not isinstance(name, str) for name in ref)
+            or set(ref) != {"path", "sha256"}
             or not isinstance(ref["path"], str) or not ref["path"]
             or not isinstance(ref["sha256"], str)
             or re.fullmatch(r"[a-f0-9]{64}", ref["sha256"]) is None):
@@ -119,7 +128,7 @@ def reference_path(layout: ArtifactLayout, ref: dict | None) -> Path:
         raise ResultValidationError(f"invalid result transaction reference: {error}") from error
 
 
-def read_reference(layout: ArtifactLayout, ref: dict | None, *,
+def read_reference(layout: ArtifactLayout, ref: ResultReference | None, *,
                    cancelled: Callable[[], bool] | None = None, byte_budget: list[int] | None = None) -> dict:
     path = reference_path(layout, ref)
     assert ref is not None  # reference_path rejects absent references.
@@ -132,6 +141,8 @@ def _validate_layer_structure(layer: str, info: object) -> None:
     prefix = f"invalid incremental {layer} layer: layers.{layer}"
     if not isinstance(info, dict):
         raise ResultValidationError(f"{prefix} must be an object")
+    if any(not isinstance(name, str) for name in info):
+        raise ResultValidationError(f"{prefix} field names must be strings")
     for name in ("path", "sha256"):
         if not isinstance(info.get(name), str):
             raise ResultValidationError(f"{prefix}.{name} must be a string")
@@ -143,11 +154,13 @@ def _validate_layer_structure(layer: str, info: object) -> None:
             raise ResultValidationError(f"{prefix}.{name} must be an integer")
 
 
-def validate_manifest_fields(layout: ArtifactLayout, manifest: dict, *, committed: bool) -> dict[str, Path]:
+def validate_manifest_fields(layout: ArtifactLayout, manifest: object, *, committed: bool) -> dict[str, Path]:
     """Validate types, nested structure and values without reading projections."""
     prefix = "invalid incremental result manifest"
     if not isinstance(manifest, dict):
         raise ResultValidationError(f"{prefix}: expected an object")
+    if any(not isinstance(name, str) for name in manifest):
+        raise ResultValidationError(f"{prefix}: field names must be strings")
     for name in ("schema_version", "sequence", "row_count"):
         if type(manifest.get(name)) is not int:
             raise ResultValidationError(f"{prefix}: {name} must be an integer")
@@ -205,6 +218,12 @@ def validate_manifest_fields(layout: ArtifactLayout, manifest: dict, *, committe
     return paths
 
 
+def validate_manifest_structure(manifest: object, layout: ArtifactLayout) -> TypeGuard[ResultManifest]:
+    """Narrow the original dictionary after the shared field contract succeeds."""
+    validate_manifest_fields(layout, manifest, committed=True)
+    return True
+
+
 def validate_manifest(layout: ArtifactLayout, manifest: dict, *,
                       cancelled: Callable[[], bool] | None = None, byte_budget: list[int] | None = None) -> dict[str, Path]:
     check_cancelled(cancelled)
@@ -215,10 +234,13 @@ def validate_manifest(layout: ArtifactLayout, manifest: dict, *,
     return paths
 
 
-def validate_pending_transaction(layout: ArtifactLayout, transaction: dict, manifest: dict) -> None:
+def validate_pending_transaction(transaction: object, layout: ArtifactLayout,
+                                 manifest: dict) -> TypeGuard[PendingTransaction]:
     """One runtime contract for both readable prefixes and recoverable transactions."""
     if not isinstance(transaction, dict) or not {"before", "after", "replacements"} <= transaction.keys():
         raise ResultValidationError("pending transaction requires before, after and replacements")
+    if any(not isinstance(name, str) for name in transaction):
+        raise ResultValidationError("pending transaction field names must be strings")
     before, after, replacements = transaction["before"], transaction["after"], transaction["replacements"]
     validate_manifest_fields(layout, before, committed=True)
     validate_manifest_fields(layout, after, committed=False)
@@ -238,11 +260,12 @@ def validate_pending_transaction(layout: ArtifactLayout, transaction: dict, mani
             raise ResultValidationError(f"pending {layer} transition disagrees with replacements")
     if manifest != before and {k: v for k, v in manifest.items() if k != "commit"} != after:
         raise ResultValidationError("pending result transaction does not match current commit")
+    return True
 
 
 def read_pending(layout: ArtifactLayout, manifest: dict, *,
                  cancelled: Callable[[], bool] | None = None,
-                 byte_budget: list[int] | None = None) -> dict | None:
+                 byte_budget: list[int] | None = None) -> PendingTransaction | None:
     """Read and validate pending metadata without repairing or consuming evidence."""
     check_cancelled(cancelled)
     path = layout.result_store_path("pending.json")
@@ -250,7 +273,8 @@ def read_pending(layout: ArtifactLayout, manifest: dict, *,
         return None
     try:
         transaction = read_json_object(path, bounded=False, cancelled=cancelled, byte_budget=byte_budget)
-        validate_pending_transaction(layout, transaction, manifest)
+        if not validate_pending_transaction(transaction, layout, manifest):
+            raise ResultValidationError("invalid pending result transaction")
         if manifest != transaction["before"]:
             commit = read_reference(layout, manifest.get("commit"), cancelled=cancelled, byte_budget=byte_budget)
             if commit.get("previous") != transaction["before"]["commit"]:
@@ -338,10 +362,11 @@ def read_layer_rows(path: Path, info: dict, *, cancelled: Callable[[], bool] | N
     return validated
 
 
-def save_commit(layout: ArtifactLayout, before: dict | None, after: dict, sources: list[dict], *, transaction: str) -> dict:
+def save_commit(layout: ArtifactLayout, before: ResultManifest | None, after: ResultManifestBody,
+                sources: list[ResultSource], *, transaction: str) -> ResultManifest:
     path = layout.result_store_path(f"commits/{after['sequence']:020d}-{transaction}.json")
-    payload = {"schema_version": 1, "previous": before.get("commit") if before else None,
-               "after": after, "sources": sources}
+    payload: CommitRecord = {"schema_version": 1, "previous": before["commit"] if before else None,
+                             "after": after, "sources": sources}
     if path.exists():
         if read_json_object(path, bounded=False) != payload:
             raise ResultValidationError("refusing to overwrite a result transaction")

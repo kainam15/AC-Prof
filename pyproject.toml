@@ -275,6 +275,8 @@ module = [
     "acprof.monitors.interfaces",
     "acprof.pixel_metrics",
     "acprof.results.metrics",
+    "acprof.result_store.types",
+    "acprof.result_store.initialization",
     "acprof.results.task_collections",
     "acprof.workloads.spec",
     "acprof.source_identity",
