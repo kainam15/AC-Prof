@@ -18,6 +18,7 @@ from acprof.result_store.protocol import (
     publication_lock,
     save_commit,
     validate_layer_files,
+    validate_run_identity,
     write_bytes,
 )
 from acprof.results.csv import ResultValidationError
@@ -25,16 +26,27 @@ from acprof.results.layers import LAYER_FILES, layer_fields
 from acprof.results.layout import ArtifactLayout
 
 
-def initial_files(layout: ArtifactLayout) -> set[str]:
-    """Only a verified empty store can be reused during preparation retries."""
+def _read_initialization_receipt(layout: ArtifactLayout) -> dict | None:
+    """Validate a retained identity before any initialization publication."""
     intent = layout.result_store_path("initialization.json")
     if not intent.exists():
-        return set()
+        return None
     schema = read_json_object(intent)
-    if schema.get("fields") != list(CSV_FIELDS) or not schema.get("run_id"):
-        raise ResultValidationError("invalid result initialization receipt")
+    if schema.get("fields") != list(CSV_FIELDS):
+        raise ResultValidationError("invalid result initialization receipt: fields changed")
+    if not isinstance(schema.get("run_id"), str) or not schema["run_id"]:
+        raise ResultValidationError("invalid result initialization receipt: run_id must be a non-empty string")
+    return schema
+
+
+def initial_files(layout: ArtifactLayout) -> set[str]:
+    """Only a verified empty store can be reused during preparation retries."""
+    schema = _read_initialization_receipt(layout)
+    if schema is None:
+        return set()
     if layout.result_csv.exists():
         manifest = read_json_object(layout.result_csv)
+        validate_run_identity(manifest, schema["run_id"])
         if manifest.get("sequence") != 0 or manifest.get("state") != "initialized":
             return set()
         validate_layer_files(layout, manifest, exact=True)
@@ -49,17 +61,19 @@ def initial_files(layout: ArtifactLayout) -> set[str]:
 
 
 def initialize_results(layout: ArtifactLayout) -> dict:
+    # Fail without even creating a publication lock for an invalid retained intent.
+    _read_initialization_receipt(layout)
     with publication_lock(layout, exclusive=True):
+        # Re-read under the lock; an earlier preflight is not publication authority.
+        schema = _read_initialization_receipt(layout)
         if layout.result_csv.exists():
             manifest = read_json_object(layout.result_csv)
             validate_layer_files(layout, manifest, exact=True)
+            if schema is not None:
+                validate_run_identity(manifest, schema["run_id"])
             return manifest
         intent = layout.result_store_path("initialization.json")
-        if intent.exists():
-            schema = read_json_object(intent)
-            if schema.get("fields") != list(CSV_FIELDS):
-                raise ResultValidationError("initial result schema changed")
-        else:
+        if schema is None:
             schema = {"run_id": uuid4().hex, "fields": list(CSV_FIELDS)}
             atomic_write_json(intent, schema)
         assigned = layer_fields(schema["fields"])

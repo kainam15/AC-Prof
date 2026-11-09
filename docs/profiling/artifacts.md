@@ -48,6 +48,12 @@ Seq2Seq 推理组，仅生成一套测量结果。若模型还有 Greedy/采样�
 的完整表头，以及 `profiling/metadata/raw/plots/logs/debug` 目录；没有测量时只有表头，
 不写示例行、零值或占位 `nan` 行。其他原始产物按实际采集创建。
 
+首次初始化与重试共用 `.acprof/result_store/initialization.json` 的 receipt 校验：`run_id`
+必须与 reader 一致，为非空字符串；布尔值、数字和容器均不能充当身份。校验在任何新的
+布局清单、commit journal 或 CSV 发布之前执行，存储初始化取得 publication lock 后再次
+核对。无效 intent 原样保留，不生成新身份或半成品；既有清单须与 receipt 属于同一 run。
+合法中断重试保留原 `run_id`，只补齐可验证的零行投影。
+
 `result_manifest.json` 与其他受限 JSON 产物共用读取器：只接受不超过 4 MiB 的 UTF-8
 JSON object，拒绝非有限数值和损坏内容。未知或不一致的 manifest 仍明确报错，不退回 flat layout。
 读取器按 64 KiB 分块累积实际内容，避免为小文件预先分配整个上限；最多读取上限加一个溢出
