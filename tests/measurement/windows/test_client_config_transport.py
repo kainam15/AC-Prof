@@ -101,6 +101,18 @@ def test_every_field_has_an_independent_transport_example():
     assert all(getattr(defaults, name) != value for name, (_, value, _) in CONTRACT.items())
 
 
+def test_transport_registry_covers_fields_and_declares_only_known_ambient_defaults():
+    from acprof.host.measurement.config import CLIENT_ENV_FIELDS
+
+    assert set(CLIENT_ENV_FIELDS) == {item.name for item in fields(ClientConfig)}
+    assert {name: spec.variable for name, spec in CLIENT_ENV_FIELDS.items()} == {
+        name: example[0] for name, example in CONTRACT.items()
+    }
+    assert {spec.variable for spec in CLIENT_ENV_FIELDS.values() if spec.inherit_default} == AMBIENT_DEFAULTS
+    with pytest.raises(TypeError):
+        CLIENT_ENV_FIELDS["undeclared"] = CLIENT_ENV_FIELDS["warmup"]
+
+
 @pytest.mark.parametrize("name", CONTRACT)
 def test_each_nondefault_field_crosses_a_real_process_boundary(name):
     wire, value, expected = CONTRACT[name]

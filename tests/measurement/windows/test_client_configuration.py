@@ -27,24 +27,6 @@ assert dict(os.environ) == before
     assert (result.stdout) == ("")
 
 
-def test_client_config_environment_codec_preserves_structured_values():
-    config = ClientConfig(
-        cpu_cores=2,
-        mem_cap_gb=4,
-        resource_plan={"method": "docker_cgroup", "verified": True},
-        input_scale_order=[1.0, 4.0],
-        idle_debug=True,
-        use_mips=True,
-    )
-
-    encoded = config.to_env()
-    restored = ClientConfig.from_env(encoded)
-
-    assert encoded["CPU_CORES"] == "2"
-    assert encoded["MEM_CAP_GB"] == "4"
-    assert restored == config
-
-
 @pytest.mark.parametrize("timeout", [
     300.0,
     123.5,
@@ -60,24 +42,6 @@ def test_client_config_environment_codec_preserves_request_timeout(timeout):
     restored = ClientConfig.from_env(config.to_env())
 
     assert restored.request_timeout_seconds == timeout
-
-
-def test_client_config_environment_codec_preserves_inherited_process_resources():
-    config = ClientConfig(
-        runtime_kind="process",
-        profiling_mode="basic",
-        process_pid=123,
-        process_start_ticks=456,
-        cpu_cores=None,
-        mem_cap_gb=None,
-        resource_plan={"method": "inherited"},
-    )
-
-    encoded = config.to_env()
-
-    assert encoded["CPU_CORES"] == "nan"
-    assert encoded["MEM_CAP_GB"] == "nan"
-    assert ClientConfig.from_env(encoded) == config
 
 
 def test_process_session_populates_typed_client_configuration():
