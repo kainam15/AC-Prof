@@ -56,6 +56,10 @@ fi
 if [[ -z "$uv_command" ]]; then
     # Match the development/Release toolchain and use the upstream installer.
     installer_url='https://astral.sh/uv/0.13.5/install.sh'
+    # Reviewed uv-installer.sh release asset; update the version and digest together.
+    # https://github.com/astral-sh/uv/releases/tag/0.13.5
+    installer_sha256='1c6e7f025499664633ac2dce43a210800510e9ef0625c52e034a8afdf8bf177a'
+    command -v sha256sum >/dev/null 2>&1 || fail "uv 安装需要 sha256sum 校验下载内容；请安装 coreutils 或自行安装 uv 后重试。"
     printf '[setup] 下载 uv 0.13.5 到 %s\n' "$uv_install_dir"
     if command -v curl >/dev/null 2>&1; then
         curl --fail --location --retry 2 --connect-timeout 15 --max-time 120 \
@@ -65,6 +69,8 @@ if [[ -z "$uv_command" ]]; then
     else
         fail "下载 uv 需要 curl 或 wget；也可先自行安装 uv 后重试。"
     fi
+    printf '%s  %s\n' "$installer_sha256" "$setup_temp_dir/install.sh" | sha256sum --check --status \
+        || fail "uv 安装脚本 SHA256 校验失败；未执行下载内容，请检查下载来源后重试。"
     UV_INSTALL_DIR="$uv_install_dir" UV_NO_MODIFY_PATH=1 sh "$setup_temp_dir/install.sh" || fail "uv 安装失败；检查下载与目录权限后重试。"
     uv_command="$uv_install_dir/uv"
 fi

@@ -1,7 +1,9 @@
 """Exercise the real bootstrap shell at its package manager and Docker boundaries."""
+import hashlib
 import json
 import os
 import pty
+import re
 import shutil
 import subprocess
 import sys
@@ -12,6 +14,7 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
+FIXTURE_INSTALLER = '#!/bin/sh\nmkdir -p "$UV_INSTALL_DIR"\ncp "$SETUP_TEST_UV" "$UV_INSTALL_DIR/uv"\n'
 FAKE_TOOL = r'''
 import json
 import os
@@ -27,11 +30,14 @@ if name == "uname":
     print({"-s": os.environ.get("SETUP_TEST_OS", "Linux"), "-m": "x86_64", "-r": "6.8.0"}[args[0]])
 elif name == "docker":
     sys.exit(int(os.environ.get("SETUP_TEST_DOCKER_EXIT", "0")))
-elif name == "curl":
+elif name in {"curl", "wget"}:
+    destination = Path(args[args.index("--output" if name == "curl" else "-O") + 1])
+    content = Path(os.environ["SETUP_TEST_INSTALLER"]).read_text()
+    if os.environ.get("SETUP_TEST_CORRUPT"):
+        content += "# altered download\n"
+    destination.write_text(content)
     if os.environ.get("SETUP_TEST_DOWNLOAD_FAIL"):
         sys.exit(22)
-    destination = Path(args[args.index("--output") + 1])
-    destination.write_text('#!/bin/sh\nmkdir -p "$UV_INSTALL_DIR"\ncp "$SETUP_TEST_UV" "$UV_INSTALL_DIR/uv"\n')
 elif name == "uv":
     if args[0] == "export":
         if os.environ.get("SETUP_TEST_EXPORT_FAIL"):
@@ -82,16 +88,19 @@ class TestSetup:
             "SETUP_TEST_LOG": str(self.log),
             "TERM": "xterm-256color",
         }
-        for name in ("bash", "sh", "cat", "dirname", "mkdir", "mktemp", "rm", "cp", "df", "date"):
+        for name in ("bash", "sh", "cat", "dirname", "mkdir", "mktemp", "rm", "cp", "df", "date", "sha256sum"):
             executable = shutil.which(name)
             if executable is None:
                 raise RuntimeError(f"Test host is missing {name}")
             (self.bin / name).symlink_to(executable)
-        for name in ("uv", "docker", "uname", "curl"):
+        for name in ("uv", "docker", "uname", "curl", "wget"):
             path = self.bin / name
             path.write_text(f"#!{sys.executable}\n" + FAKE_TOOL)
             path.chmod(0o755)
         self.environment["SETUP_TEST_UV"] = str(self.root / "uv")
+        installer = self.root / "fixture-installer.sh"
+        installer.write_text(FIXTURE_INSTALLER)
+        self.environment["SETUP_TEST_INSTALLER"] = str(installer)
         shutil.copyfile(self.bin / "uv", self.root / "uv")
         (self.root / "uv").chmod(0o755)
         shutil.copyfile(ROOT / "pyproject.toml", self.checkout / "pyproject.toml")
@@ -102,7 +111,12 @@ class TestSetup:
 
     def invoke(self, *arguments, terminal=False, **environment):
         assert ((ROOT / "setup.sh").is_file()), "clone 后应提供 setup.sh 安装入口"
-        shutil.copyfile(ROOT / "setup.sh", self.checkout / "setup.sh")
+        # Change the pin only in this disposable checkout, keeping real sha256sum.
+        # Production has no environment variable or option to bypass its pinned digest.
+        source = (ROOT / "setup.sh").read_text()
+        fixture_digest = hashlib.sha256(FIXTURE_INSTALLER.encode()).hexdigest()
+        source = re.sub(r"installer_sha256='[a-f0-9]{64}'", f"installer_sha256='{fixture_digest}'", source)
+        (self.checkout / "setup.sh").write_text(source)
         command = ["bash", str(self.checkout / "setup.sh"), *arguments]
         options = dict(cwd=self.root, env={**self.environment, **environment}, timeout=20)
         if not terminal:
@@ -195,13 +209,40 @@ class TestSetup:
         assert (result.returncode) != (0)
         assert (self.calls("acprof")) == ([])
 
-    def test_missing_uv_is_bootstrapped_without_shell_modifications(self):
+    @pytest.mark.parametrize("downloader", ["curl", "wget"])
+    def test_missing_uv_is_bootstrapped_without_shell_modifications(self, downloader):
         (self.bin / "uv").unlink()
+        if downloader == "wget":
+            (self.bin / "curl").unlink()
         result = self.invoke("--no-tui", "--no-modify-path")
         assert (result.returncode) == (0), result.stdout + result.stderr
         assert ((Path(self.environment["UV_INSTALL_DIR"]) / "uv").is_file())
-        assert (len(self.calls("curl"))) == (1)
+        assert len(self.calls(downloader)) == 1
         assert ([call["args"][0] for call in self.calls("acprof")]) == (["doctor"])
+
+    @pytest.mark.parametrize("downloader", ["curl", "wget"])
+    def test_altered_installer_is_rejected_before_execution(self, downloader):
+        (self.bin / "uv").unlink()
+        if downloader == "wget":
+            (self.bin / "curl").unlink()
+        result = self.invoke(SETUP_TEST_CORRUPT="1")
+        assert result.returncode == 1
+        assert "SHA256" in result.stderr
+        assert not self.calls("uv")
+        assert not (Path(self.environment["UV_INSTALL_DIR"]) / "uv").exists()
+        call = self.calls(downloader)[0]
+        flag = "--output" if downloader == "curl" else "-O"
+        assert not Path(call["args"][call["args"].index(flag) + 1]).exists()
+
+    def test_missing_checksum_tool_stops_before_download(self):
+        (self.bin / "uv").unlink()
+        (self.bin / "sha256sum").unlink()
+        result = self.invoke()
+        assert result.returncode == 1
+        assert "sha256sum" in result.stderr
+        assert not self.calls("curl")
+        assert not self.calls("wget")
+        assert not self.calls("uv")
 
     def test_failed_uv_download_does_not_execute_partial_installer(self):
         (self.bin / "uv").unlink()

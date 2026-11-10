@@ -138,6 +138,13 @@ cd AC-Prof
 重复执行会更新当前源码包、复用依赖缓存，保留项目 `.venv`、认证文件、TUI 设置和旧结果。
 脚本不自动安装系统包、修改 Docker 权限或 GPU 驱动；错误修复后重试原命令即可。
 
+仅在缺少 uv 时需要 `sha256sum`（coreutils）。下载的安装脚本必须匹配仓库固定的 SHA256，
+否则停止且不执行；预期哈希不能由环境变量覆盖，也不在安装时从网络获取。
+该哈希对应 [uv 0.13.5 的 `uv-installer.sh` 发行制品](https://github.com/astral-sh/uv/releases/tag/0.13.5)，
+已与 GitHub 资产 digest 及下载字节核对。固定脚本自身还内置 Linux x86_64 GNU/musl
+压缩包的 SHA256，由上游脚本在解压前核验；这不代表 AC-Prof 独立完成了实际二进制安装验收。
+升级 uv 时同步版本、脚本固定哈希与工具链声明；不得关闭校验来绕过下载内容变化。
+
 安装后使用现有 `doctor --profiling-mode basic --gpus off` 检查，并打印 GPU/full 的检查命令。
 只有 basic 前置检查通过才进入 TUI；检查通过不代表真实推理已成功。
 交互终端自动预填 BERT 和基础 CPU smoke，每次分配独立的
