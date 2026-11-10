@@ -1,6 +1,7 @@
 """Exercise host error publication together with packet result merging."""
 import csv
 import json
+import shutil
 from unittest.mock import patch
 
 import pytest
@@ -72,6 +73,33 @@ def test_partial_failure_preserves_packet_metrics(partial_case, error, orphan_ta
     before = sidecar.read_bytes()
     assert complete_error_case(csv_path, error) == (1, 0)
     assert sidecar.read_bytes() == before
+
+
+@pytest.mark.skipif(shutil.which("tshark") is None, reason="offline packet integration requires tshark")
+def test_real_packet_workers_preserve_partial_error_rows(partial_case, tmp_path):
+    from acprof.host.measurement.capture import packet_parser_command
+    from acprof.host.measurement.packet_processing import merge_packet_csv, parse_packet_output
+    from tests.support.pcap_fixture_builder import write_capture
+
+    csv_path, sidecar = partial_case
+    capture = tmp_path / "partial.pcap"
+    write_capture(capture, request_group="case_seq8_r0")
+    assert complete_error_case(csv_path, "client_request_timeout") == (1, 2)
+    groups_before = sidecar.read_bytes()
+    raw_before = capture.read_bytes()
+    payload = parse_packet_output(packet_parser_command(capture))
+    packet = tmp_path / "packet.json"
+    packet.write_text(json.dumps(payload))
+    merge_packet_csv(str(csv_path), str(packet))
+    with csv_path.open(newline="") as stream:
+        rows = list(csv.DictReader(stream))
+    assert [row["status"] for row in rows] == ["ok", "error", "error"]
+    assert [row["latency_s"] for row in rows] == ["0.002000", "nan", "nan"]
+    assert rows[0]["latency_app_s"] == "0.04"
+    assert [row["error"] for row in rows[1:]] == ["client_request_timeout", "client_request_timeout"]
+    assert sidecar.read_bytes() == groups_before
+    assert capture.read_bytes() == raw_before
+    assert not list(csv_path.parent.glob(".packet-merge-*"))
 
 
 def test_missing_committed_group_blocks_error_publication(partial_case):

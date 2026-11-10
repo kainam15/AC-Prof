@@ -17,7 +17,7 @@ def segment(request, size):
 def test_capture_local_streams_are_preserved_without_collision(monkeypatch):
     previous = segment("first:0", 111)
     current = segment("second:0", 222)
-    monkeypatch.setattr("acprof.host.measurement.packet_segments.run_packet_command",
+    monkeypatch.setattr("acprof.host.measurement.packet_processing.run_packet_command",
                         lambda *_args, **_kwargs: SimpleNamespace(returncode=0, stdout=json.dumps(previous)))
     result = merge_capture_segments(current, ["archived.pcap"], 8000)
     assert "streams" not in result
@@ -32,7 +32,7 @@ def test_capture_local_streams_are_preserved_without_collision(monkeypatch):
 
 def test_duplicate_request_identity_across_captures_is_rejected(monkeypatch):
     payload = segment("same:0", 111)
-    monkeypatch.setattr("acprof.host.measurement.packet_segments.run_packet_command",
+    monkeypatch.setattr("acprof.host.measurement.packet_processing.run_packet_command",
                         lambda *_args, **_kwargs: SimpleNamespace(returncode=0, stdout=json.dumps(payload)))
     with pytest.raises(PacketLatencyError, match="duplicate request"):
         merge_capture_segments(payload, ["archived.pcap"], 8000)

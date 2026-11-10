@@ -102,6 +102,11 @@ def require_packet_latency_prerequisites(sniff_iface: str) -> None:
         )
 
 
+def packet_parser_command(pcap_file: str | os.PathLike[str], server_port: int = SERVER_PORT) -> list[str]:
+    """Use the same trusted worker and literal argv for live and restored captures."""
+    return [*module_command("acprof.packet.sniff_parse_pcap"), os.fspath(pcap_file), str(server_port)]
+
+
 def resolve_packet_latency_runtime(
     project_dir: str,
     pcap_file: str,
@@ -129,11 +134,7 @@ def resolve_packet_latency_runtime(
                 "port",
                 str(SERVER_PORT),
             ],
-            parse_cmd=[
-                *module_command("acprof.packet.sniff_parse_pcap"),
-                pcap_file,
-                str(SERVER_PORT),
-            ],
+            parse_cmd=packet_parser_command(pcap_file),
         )
 
     return None

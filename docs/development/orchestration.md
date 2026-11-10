@@ -486,6 +486,30 @@ CPU 与资源监控共享 PID 查询和采样调度，NVML 保留自己的首采
 OOM、请求超时和 readiness 失败继续保留已完成行与原有错误证据；
 抓包停止失败仍执行容器回收，清理失败保留原始执行错误并发布原有 cleanup sidecar。
 
+**包级后处理子进程协议。** 正常执行、完成测量后的 resume 和历史 capture segments
+都由 `measurement.capture.packet_parser_command()` 构造可信的模块 argv；路径作为单独参数传递，
+checkpoint 只提供已验证的数据，不保存或重放可执行命令。
+
+| 边界 | 契约与失败行为 |
+| --- | --- |
+| parser → host | 退出码必须为 0，stdout 必须是一个有限数值的 JSON object；stderr 仅作诊断，不混入 JSON。空 stdout、畸形 JSON、原生 NaN/Infinity、错误 schema 和错误对象形态均拒绝。 |
+| schema v2 | `packet.protocol` 共用版本与结构校验；`requests` 是记录对象映射，`streams` 可省略但存在时必须是记录对象映射。没有无版本裸映射/list 的回退。空 requests 是合法 parser 输出，不代表取得有效时延。 |
+| 历史分段 | 使用相同解析入口及超时预算；合并后保留 capture_segment 和流级字节来源，重复请求身份仍拒绝。当前段为空但归档段有效时仍可派生，不重复计算共享流字节。 |
+| merge → host | 退出码 0 还必须在本次独立临时目录写出 CSV，然后才同文件系统原子替换。此前遗留的 `.merged` 不作为本次成功证据；失败不替换输入 CSV，原始 checkpoint 不变。 |
+
+`measurement.packet_processing` 负责有界 worker 调用和结果验收，仍使用已有进程组终止策略；
+`_finalize_case` 保留空/部分测量策略、CSV 完整性和能耗诊断。CSV 缺失报错，已完成行回填包指标，
+未执行或失败行继续保留错误与 `nan`。readiness 哨兵、客户端退出码及状态判定不在本轮重写。
+子进程、目录分配和解析均发生在正式测量窗口之外；没有新增指标、CSV 列或 checkpoint schema。
+
+真实 TShark 只读取可重建的小型合成 pcap，不启动 tcpdump 或网络请求。公开 `run_single_case`
+测试覆盖正常执行与新 RunState 的恢复、parser/merge 失败、损坏的派生 CSV、原始字节保留及
+容器/客户端只调用一次；另覆盖分段、部分错误行、缺 CSV、退出码 0 无新产物与非法 JSON。
+这些测试替代一项完全 patch `_finalize_case` 的重复恢复测试，包解析算法及独立故障注入继续保留。
+设计参考 [PyPA pyproject-hooks 的 _call_hook](https://github.com/pypa/pyproject-hooks/blob/main/src/pyproject_hooks/_impl.py)
+的调用私有临时目录，以及其[成功退出但缺少 output.json 的问题 #173](https://github.com/pypa/pyproject-hooks/issues/173)：
+退出码不能代替协议结果。仅借鉴边界思路，沿用标准库与现有 worker，不引入构建后端依赖。
+
 `collect_execution_profile_plan` 接收 `ExecutionProfileRequest`、
 `ExecutionProfileOptions` 和独立进度回调。两个工具各自使用 `ProfilerSampling` 描述
 采样策略、重复次数和参考资源；执行配置不包含与工具无关的项目目录字段。

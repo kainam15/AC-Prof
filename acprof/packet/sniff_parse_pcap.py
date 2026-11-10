@@ -8,6 +8,7 @@ from collections.abc import Sequence
 from contextlib import closing
 
 from acprof.host.measurement.packet_processing import postprocessing_timeout
+from acprof.packet.protocol import PACKET_SCHEMA_VERSION
 from acprof.packet.tshark import stream_tshark
 
 # 用法：
@@ -184,7 +185,7 @@ def parse_packets(lines, *, server_port: int):
             })
         requests[request_id] = record
 
-    return {"schema_version": 2, "requests": requests, "streams": stream_stats}
+    return {"schema_version": PACKET_SCHEMA_VERSION, "requests": requests, "streams": stream_stats}
 
 
 if __name__ == "__main__":

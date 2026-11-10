@@ -13,7 +13,7 @@ from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
-from acprof.artifacts import atomic_write, read_json_object, replace_file_durably
+from acprof.artifacts import atomic_write, read_json_object
 from acprof.capabilities import measurement_requested, require_profiling_mode
 from acprof.config import CLIENT_REQUEST_TIMEOUT_EXIT_CODE, SERVER_PORT
 from acprof.events.progress import emit_event, measurement_boundary
@@ -25,6 +25,7 @@ from acprof.host.input_plan import resolve_input_scales, serialize_input_scales
 from acprof.host.measurement.capture import (
     PacketLatencyRuntime,
     packet_latency_error,
+    packet_parser_command,
     resolve_packet_latency_runtime,
 )
 from acprof.host.measurement.config import ClientConfig
@@ -40,7 +41,11 @@ from acprof.host.measurement.error_rows import (
     write_case_error_csv,
     write_startup_oom_pruned_case_csv,
 )
-from acprof.host.measurement.packet_processing import postprocessing_timeout, run_packet_command
+from acprof.host.measurement.packet_processing import (
+    merge_packet_csv,
+    parse_packet_output,
+    postprocessing_timeout,
+)
 from acprof.host.runtimes.contracts import (
     RuntimeCleanupError,
     ServiceSession,
@@ -500,7 +505,7 @@ def _resume_case_processing(case, checkpoint: dict, run_state, case_name: str) -
         # Commands come from trusted code. The checkpoint supplies validated data only.
         runtime = PacketLatencyRuntime(
             mode="local", tcpdump_cmd=[],
-            parse_cmd=[*module_command("acprof.packet.sniff_parse_pcap"), pcap, str(context["server_port"])],
+            parse_cmd=packet_parser_command(pcap, context["server_port"]),
         ) if context["capture_available"] else None
         print(f"[resume] Retrying postprocessing from completed measurement: {case.case_id}")
         _finalize_case(context["capture_available"], runtime, context["case_incomplete"], context["completed_rows_before_failure"],
@@ -575,33 +580,13 @@ def _finalize_case(capture_available: bool, sniff_runtime, case_incomplete, comp
             print("[sniff] Parsing pcap -> packet latencies...")
             if sniff_runtime is None:
                 raise packet_latency_error("packet capture parser was not initialized")
-            parse_result = run_packet_command(sniff_runtime.parse_cmd, stage="pcap parsing")
-            parse_output = parse_result.stdout.strip()
-            if parse_result.returncode != 0:
-                raise packet_latency_error(
-                    "pcap parsing failed",
-                    (parse_result.stderr or parse_result.stdout or "").strip(),
-                )
-            if not parse_output:
-                raise packet_latency_error("pcap parser produced no output")
-            try:
-                latency_payload = json.loads(parse_output)
-            except json.JSONDecodeError as exc:
-                raise packet_latency_error(
-                    "pcap parser produced invalid JSON",
-                    repr(exc),
-                ) from exc
-            latency_records = (
-                latency_payload.get("requests")
-                if isinstance(latency_payload, dict)
-                and "requests" in latency_payload
-                else latency_payload
-            )
+            latency_payload = parse_packet_output(sniff_runtime.parse_cmd)
+            latency_records = latency_payload["requests"]
             if capture_segments:
                 from acprof.host.measurement.packet_segments import merge_capture_segments
                 latency_payload = merge_capture_segments(latency_payload, capture_segments, SERVER_PORT)
                 latency_records = latency_payload["requests"]
-            if not isinstance(latency_records, dict) or not latency_records:
+            if not latency_records:
                 raise packet_latency_error(
                     "pcap parser did not find matching request latency records"
                 )
@@ -611,28 +596,13 @@ def _finalize_case(capture_available: bool, sniff_runtime, case_incomplete, comp
                     latency_payload,
                     stream,
                     ensure_ascii=True,
+                    allow_nan=False,
                     indent=2,
                 ),
             )
 
-            if not os.path.exists(out_csv):
-                raise packet_latency_error(
-                    f"client did not produce result CSV: {out_csv}"
-                )
-
             print("[sniff] Merging packet latency into CSV...")
-            merged_csv = out_csv + ".merged"
-            merge_result = run_packet_command([*module_command('acprof.packet.merge_packet_latency'), out_csv, lat_json, merged_csv], stage="packet latency merge")
-            if merge_result.returncode != 0:
-                raise packet_latency_error(
-                    "packet latency merge failed",
-                    (merge_result.stderr or merge_result.stdout or "").strip(),
-                )
-            if not os.path.exists(merged_csv):
-                raise packet_latency_error(
-                    f"packet latency merge did not produce {merged_csv}"
-                )
-            replace_file_durably(merged_csv, out_csv)
+            merge_packet_csv(out_csv, lat_json)
             if require_packet_latency:
                 _assert_packet_latency_csv_complete(
                     out_csv,

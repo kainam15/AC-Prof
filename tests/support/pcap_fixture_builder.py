@@ -14,7 +14,7 @@ def _checksum(data):
 
 
 def write_capture(path: Path, *, segmented=False, retransmit=False, reuse=False,
-                  missing_response=False, ready=False, padding_frames=0):
+                  missing_response=False, ready=False, padding_frames=0, request_group="case"):
     frames = []
     client_ip, server_ip = map(socket.inet_aton, ("192.0.2.10", "198.51.100.20"))
     client_seq, server_seq = 1000, 2000
@@ -40,7 +40,7 @@ def write_capture(path: Path, *, segmented=False, retransmit=False, reuse=False,
         packet(False, client_seq, server_seq, 0x10)
     routes = (["/ready"] if ready else []) + ["/predict"] * (2 if reuse else 1)
     for index, route in enumerate(routes):
-        request = (f"POST {route} HTTP/1.1\r\nHost: fixture\r\nX-Req-Id: case:{index}\r\n"
+        request = (f"POST {route} HTTP/1.1\r\nHost: fixture\r\nX-Req-Id: {request_group}:{index}\r\n"
                    "Content-Length: 2\r\nConnection: keep-alive\r\n\r\n{}").encode()
         chunks = [request[:35], request[35:]] if segmented else [request]
         for chunk in chunks:

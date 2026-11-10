@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import csv
+import json
+import shutil
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -17,6 +19,7 @@ from acprof.host.images.runtime import ImageInfo
 from acprof.host.input_plan import PlannedInputScales
 from acprof.host.measurement.capture import PacketLatencyRuntime
 from acprof.host.measurement.publication import append_request_window, append_row
+from acprof.installation import module_command
 from acprof.results.windows import WindowPublicationContext
 from acprof.telemetry import window_evidence
 
@@ -35,6 +38,8 @@ def measured_case(tmp_path, monkeypatch):
     state.prepare_case("unused.csv", 1, 4, "off")
     case = state.layout.case("org/model", 1, 4, "off")
     calls = {"client": 0, "container": 0, "cleanup": 0, "env": {}}
+    real_command = orchestrator.host_command.run_command
+    real_popen = orchestrator.subprocess.Popen
 
     def start(**kwargs):
         calls["container"] += 1
@@ -57,7 +62,8 @@ def measured_case(tmp_path, monkeypatch):
             return 0
 
     def client(cmd, **kwargs):
-        assert cmd[-2:] == ["-m", "acprof.host.client"]
+        if cmd[-2:] != ["-m", "acprof.host.client"]:
+            return real_command(cmd, **kwargs)
         calls["client"] += 1
         env = kwargs["env"]
         calls["env"] = env
@@ -65,13 +71,13 @@ def measured_case(tmp_path, monkeypatch):
             env["ACPROF_RUN_ID"], env["ACPROF_CASE_ID"], env["ACPROF_CASE_ATTEMPT_ID"],
             env["ACPROF_WINDOW_RECORDS_DIR"], env["ACPROF_TELEMETRY_DIR"],
         )
-        group = "case-scale64-repeat0"
+        group = calls.get("group", "case-scale64-repeat0")
         evidence = window_evidence(identity=context.identity(group), context={"sampling_policy": "burst"},
                                    collectors={"resource": {"status": "unavailable", "reason": "fixture"}})
         row = dict.fromkeys(CSV_FIELDS, "nan")
         row.update(cpu_cores="1", mem_cap_gb="4", gpu_mode="off", input_scale="64", warmup="0",
                    repeat_idx="0", status="ok", error="", latency_app_s="0.100000",
-                   environment_class="native_linux")
+                   environment_class="native_linux", cpu_idle_power_w="1.0")
         with case.csv.open("w", newline="") as output, case.requests.open("w") as requests, case.sidecar(
                 "sniff_groups").open("w") as groups:
             request = append_request_window(requests, sniff_group_id=group, input_scale=64.0,
@@ -80,15 +86,17 @@ def measured_case(tmp_path, monkeypatch):
             writer.writeheader()
             append_row(writer, row, output, groups, group, publication=context,
                         telemetry_evidence=evidence, request_record=request)
-        case.pcap.write_bytes(b"fixture-captured-packets")
+        capture = calls.get("capture_path")
+        case.pcap.write_bytes(capture.read_bytes() if capture else b"fixture-captured-packets")
         return SimpleNamespace(returncode=0)
 
     monkeypatch.setattr(orchestrator, "start_service_session", start)
     monkeypatch.setattr(orchestrator, "stop_service_session", stop)
     monkeypatch.setattr(orchestrator, "record_case_conditions", lambda *a, **k: None)
     monkeypatch.setattr(orchestrator, "resolve_packet_latency_runtime", lambda **k: PacketLatencyRuntime(
-        mode="local", tcpdump_cmd=["fixture-capture"], parse_cmd=["fixture-parser"]))
-    monkeypatch.setattr(orchestrator.subprocess, "Popen", lambda *a, **k: Capture())
+        mode="local", tcpdump_cmd=["fixture-capture"], parse_cmd=calls.get("parse_cmd", ["fixture-parser"])))
+    monkeypatch.setattr(orchestrator.subprocess, "Popen", lambda command, **kwargs:
+                        Capture() if command == ["fixture-capture"] else real_popen(command, **kwargs))
     monkeypatch.setattr(orchestrator.time, "sleep", lambda *a: None)
     monkeypatch.setattr(orchestrator.host_command, "run_command", client)
     arguments = {
@@ -105,6 +113,149 @@ def measured_case(tmp_path, monkeypatch):
     }
     yield state, case, calls, arguments
     state.close()
+
+
+@pytest.mark.skipif(shutil.which("tshark") is None, reason="offline packet integration requires tshark")
+@pytest.mark.parametrize("failure_stage", [None, "parser", "merge"])
+def test_real_workers_produce_the_same_result_on_normal_and_resume_paths(measured_case, monkeypatch, failure_stage):
+    state, case, calls, arguments = measured_case
+    calls.update(group="case", capture_path=Path(__file__).parents[2] / "fixtures/packet/single.pcap",
+                 parse_cmd=[*module_command("acprof.packet.sniff_parse_pcap"), str(case.pcap), str(SERVER_PORT)])
+    run = orchestrator.host_command.run_command
+    fault = failure_stage
+    workers = []
+
+    def execute(command, **kwargs):
+        nonlocal fault
+        if "acprof.packet.sniff_parse_pcap" in command or "acprof.packet.merge_packet_latency" in command:
+            stage = "parser" if "acprof.packet.sniff_parse_pcap" in command else "merge"
+            workers.append(stage)
+            assert kwargs["kill_process_group"] is True
+            assert kwargs["timeout"] > 0
+            if stage == fault:
+                fault = None
+                return SimpleNamespace(returncode=7, stdout="", stderr="injected worker failure")
+        return run(command, **kwargs)
+
+    monkeypatch.setattr(orchestrator.host_command, "run_command", execute)
+    key = str(case.csv.relative_to(state.directory))
+    if failure_stage:
+        with pytest.raises(RuntimeError, match="injected worker failure"):
+            orchestrator.run_single_case(**arguments)
+        record = state.data["cases"][key]
+        assert record["measurement_status"] == "complete"
+        assert record["processing_status"] == "failed"
+        assert record["cleanup_status"] == "complete"
+    else:
+        assert orchestrator.run_single_case(**arguments) == str(case.csv)
+    attempt = state.case_attempt_id(str(case.csv))
+    raw = case.attempt_directory("measurements", attempt)
+    evidence = {path: path.read_bytes() for path in raw.rglob("*") if path.is_file()}
+    assert evidence
+    if failure_stage:
+        # Recovery must restore the verified snapshot even after a partial projection write.
+        case.csv.write_text("partially merged projection\n")
+        state.close()
+        resumed = run_state.RunState(state.directory, state.data["options"], resume=True, project_dir=".")
+        try:
+            assert resumed.prepare_case("unused.csv", 1, 4, "off") is None
+            assert orchestrator.run_single_case(**{**arguments, "run_state": resumed}) == str(case.csv)
+            resumed.finish_case(str(case.csv), 1, 4, "off")
+            assert resumed.case_attempt_id(str(case.csv)) == attempt
+            assert resumed.data["cases"][key]["processing_attempts"] == 2
+        finally:
+            resumed.close()
+    else:
+        state.finish_case(str(case.csv), 1, 4, "off")
+    assert {path: path.read_bytes() for path in evidence} == evidence
+    assert calls["client"] == calls["container"] == calls["cleanup"] == 1
+    assert workers[-2:] == ["parser", "merge"]
+    with case.csv.open(newline="") as stream:
+        rows = list(csv.DictReader(stream))
+    assert len(rows) == 1
+    assert rows[0]["latency_s"] == "0.002000"
+    assert rows[0]["latency_app_s"] == "0.100000"
+    assert rows[0]["packet_total_wire_bytes_per_request"] == "546.000000"
+    assert rows[0]["packet_status"] == "ok"
+    assert rows[0]["status"] == "ok"
+    payload = json.loads(case.latency.read_text())
+    assert payload["schema_version"] == 2
+    assert payload["requests"]["case:4"]["request_id"] == "case:0"
+    assert json.loads(case.retained_requests.read_text())["latency_packet_s"] == pytest.approx([0.002], abs=1e-6)
+    assert not list(state.layout.path("interrupted_cases").rglob("*.csv"))
+
+
+@pytest.mark.skipif(shutil.which("tshark") is None, reason="offline packet integration requires tshark")
+@pytest.mark.parametrize(("fixture", "message"), [
+    ("missing-response", "did not find matching"), ("invalid", "pcap parsing failed"),
+])
+def test_failed_or_empty_real_parser_keeps_measurements_for_recovery(measured_case, tmp_path, fixture, message):
+    from tests.support.pcap_fixture_builder import write_capture
+
+    state, case, calls, arguments = measured_case
+    capture = Path(__file__).parents[2] / f"fixtures/packet/{fixture}.pcap"
+    if fixture == "missing-response":
+        capture = tmp_path / "no-completed-requests.pcap"
+        write_capture(capture, missing_response=True)
+    calls.update(group="case", capture_path=capture,
+                 parse_cmd=[*module_command("acprof.packet.sniff_parse_pcap"), str(case.pcap), str(SERVER_PORT)])
+    with pytest.raises(RuntimeError, match=message):
+        orchestrator.run_single_case(**arguments)
+    record = state.data["cases"][str(case.csv.relative_to(state.directory))]
+    assert record["measurement_status"] == "complete"
+    assert record["processing_status"] == "failed"
+    assert record["cleanup_status"] == "complete"
+    assert not case.latency.exists()
+    assert not Path(str(case.csv) + ".merged").exists()
+    assert calls["client"] == calls["container"] == calls["cleanup"] == 1
+
+
+@pytest.mark.parametrize("payload", [
+    '{"case:4":0.002}', '{"schema_version":2,"requests":[]}',
+    '{"schema_version":2,"requests":{"case:4":{"latency_s":NaN}}}',
+])
+def test_malformed_parser_output_stops_before_derivative_writes(measured_case, monkeypatch, payload):
+    state, case, calls, arguments = measured_case
+    client = orchestrator.host_command.run_command
+    case.latency.write_text("previous derived evidence\n")
+
+    def execute(command, **kwargs):
+        if command == ["fixture-parser"]:
+            return SimpleNamespace(returncode=0, stdout=payload, stderr="")
+        assert "acprof.packet.merge_packet_latency" not in command
+        return client(command, **kwargs)
+
+    monkeypatch.setattr(orchestrator.host_command, "run_command", execute)
+    with pytest.raises(RuntimeError, match="invalid JSON or packet schema"):
+        orchestrator.run_single_case(**arguments)
+    assert case.latency.read_text() == "previous derived evidence\n"
+    snapshot = case.attempt_directory("measurements", state.case_attempt_id(str(case.csv))) / "measurement.csv"
+    assert case.csv.read_bytes() == snapshot.read_bytes()
+    assert calls["client"] == calls["container"] == calls["cleanup"] == 1
+
+
+def test_zero_exit_without_new_merge_output_never_reuses_a_stale_file(measured_case, monkeypatch):
+    state, case, _calls, arguments = measured_case
+    stale = Path(str(case.csv) + ".merged")
+    stale.write_bytes(b"stale result from an earlier attempt\n")
+    client = orchestrator.host_command.run_command
+
+    def execute(command, **kwargs):
+        if command == ["fixture-parser"]:
+            return SimpleNamespace(returncode=0, stderr="", stdout=json.dumps({
+                "schema_version": 2, "requests": {"case:4": {"latency_s": 0.002}},
+            }))
+        if "acprof.packet.merge_packet_latency" in command:
+            return SimpleNamespace(returncode=0, stderr="", stdout="")
+        return client(command, **kwargs)
+
+    monkeypatch.setattr(orchestrator.host_command, "run_command", execute)
+    with pytest.raises(RuntimeError, match="merge did not produce"):
+        orchestrator.run_single_case(**arguments)
+    snapshot = case.attempt_directory("measurements", state.case_attempt_id(str(case.csv))) / "measurement.csv"
+    assert case.csv.read_bytes() == snapshot.read_bytes()
+    assert stale.read_bytes() == b"stale result from an earlier attempt\n"
+    assert not list(case.csv.parent.glob(".packet-merge-*"))
 
 
 def fail_postprocessing(*args, **kwargs):
@@ -124,7 +275,7 @@ def test_packet_timeout_preserves_checkpoint_cleanup_and_resume(measured_case, m
             assert kwargs.get("timeout") == 30
             assert kwargs.get("kill_process_group") is True
             if stage != "parsing":
-                return SimpleNamespace(returncode=0, stdout='{"requests":{"request":{}}}')
+                return SimpleNamespace(returncode=0, stdout='{"schema_version":2,"requests":{"request":{}}}')
             raise subprocess.TimeoutExpired(command, 30)
         if "acprof.packet.merge_packet_latency" in command:
             assert kwargs.get("timeout") == 30
@@ -153,40 +304,6 @@ def test_packet_timeout_preserves_checkpoint_cleanup_and_resume(measured_case, m
     finally:
         resumed.close()
     assert calls["client"] == calls["container"] == calls["cleanup"] == 1
-
-
-def test_postprocessing_failure_resumes_without_client_or_container(measured_case, monkeypatch):
-    state, case, calls, arguments = measured_case
-    monkeypatch.setattr(orchestrator, "_finalize_case", fail_postprocessing)
-    with pytest.raises(RuntimeError, match="packet parser interrupted"):
-        orchestrator.run_single_case(**arguments)
-    record = state.data["cases"][str(case.csv.relative_to(state.directory))]
-    assert record["measurement_status"] == "complete"
-    assert record["processing_status"] == "failed"
-    assert record["cleanup_status"] == "complete"
-    attempt = record["case_attempt_id"]
-    snapshot = case.attempt_directory("measurements", attempt) / "measurement.csv"
-    original = snapshot.read_bytes()
-    assert case.csv.read_bytes() != original
-    observed = []
-
-    def derive(*args):
-        assert case.csv.read_bytes() == original
-        assert args[0] is True
-        assert args[1].parse_cmd[-1] == str(SERVER_PORT)
-        assert "fixture-parser" not in args[1].parse_cmd
-        observed.append("derived")
-
-    monkeypatch.setattr(orchestrator, "_finalize_case", derive)
-    assert state.prepare_case("unused.csv", 1, 4, "off") is None
-    assert orchestrator.run_single_case(**arguments) == str(case.csv)
-    state.finish_case(str(case.csv), 1, 4, "off")
-    assert observed == ["derived"]
-    assert calls["client"] == calls["container"] == calls["cleanup"] == 1
-    assert record["case_attempt_id"] == attempt
-    assert snapshot.read_bytes() == original
-    assert state.data["cases"][str(case.csv.relative_to(state.directory))]["processing_attempts"] == 2
-    assert not list(state.layout.path("interrupted_cases").rglob("*.csv"))
 
 
 def test_changed_measurement_is_rejected_before_projection_or_inference(measured_case, monkeypatch):

@@ -14,6 +14,7 @@ from acprof.artifacts import (
     read_static_metadata,
 )
 from acprof.latency_slo import latency_slo_threshold
+from acprof.packet.protocol import require_packet_metrics
 from acprof.packet.sniff_parse_pcap import normalize_request_id
 from acprof.pixel_metrics import per_megapixel
 from acprof.results.csv import allow_large_csv_fields
@@ -37,13 +38,7 @@ def _to_float(value: object) -> float:
 
 
 def _request_records(payload: object) -> dict[str, dict[str, float]]:
-    from acprof.artifacts import require_schema_version
-    require_schema_version(payload, 2, "packet metrics")
-    if not isinstance(payload, dict):
-        raise ValueError("packet schema v2 must be an object")
-    requests = payload.get("requests")
-    if not isinstance(requests, dict) or any(not isinstance(row, dict) for row in requests.values()):
-        raise ValueError("packet schema v2 requires a requests object containing record objects")
+    requests = require_packet_metrics(payload)["requests"]
     return {str(request_id): {key: _to_float(value) for key, value in record.items()}
             for request_id, record in requests.items()}
 
