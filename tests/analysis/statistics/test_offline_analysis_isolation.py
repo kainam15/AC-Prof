@@ -21,7 +21,7 @@ CASES = [
 ]
 
 
-def run_cli(tmp_path, arguments):
+def run_cli(tmp_path, arguments, *, block_analysis=False):
     code = '''
 import json
 import sys
@@ -29,12 +29,24 @@ from pathlib import Path
 from acprof.host import run_state
 run_state.MEASUREMENT_LOCK_ROOT = Path(sys.argv[1])
 run_state.MEASUREMENT_LOCK_NAMESPACE = bytes.fromhex(sys.argv[2])
+if sys.argv[4] == "block":
+    import builtins
+    original_import = builtins.__import__
+    forbidden = {"acprof.analysis.model", "acprof.analysis.resource_comparison",
+                 "acprof.analysis.audit", "acprof.plotting", "numpy", "pandas", "matplotlib", "plotly"}
+    assert not any(name in sys.modules for name in forbidden)
+    def guarded_import(name, *args, **kwargs):
+        if any(name == module or name.startswith(module + ".") for module in forbidden):
+            raise AssertionError("eager analysis import: " + name)
+        return original_import(name, *args, **kwargs)
+    builtins.__import__ = guarded_import
 from acprof.cli.main import main
 raise SystemExit(main(json.loads(sys.argv[3])))
 '''
     return subprocess.run(
         [sys.executable, "-c", code, str(run_state.MEASUREMENT_LOCK_ROOT),
-         run_state.MEASUREMENT_LOCK_NAMESPACE.hex(), json.dumps(arguments)],
+         run_state.MEASUREMENT_LOCK_NAMESPACE.hex(), json.dumps(arguments),
+         "block" if block_analysis else ""],
         cwd=tmp_path, capture_output=True, text=True, timeout=10,
     )
 
@@ -58,6 +70,20 @@ def test_help_remains_available_during_collection(tmp_path, command):
     assert result.returncode == 0, result.stderr
     assert "usage:" in result.stdout
     assert not result.stderr
+    assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize(("arguments", "code", "message"), [
+    (["report", "--help"], 0, "within-experiment"),
+    (["report", "missing.csv", "--comparison-purpose", "invalid"], 2, "invalid choice"),
+    (["report", "missing.csv"], 1, "测量锁"),
+])
+def test_report_preflight_paths_never_import_analysis_or_renderers(tmp_path, arguments, code, message):
+    with run_state.MeasurementLock():
+        result = run_cli(tmp_path, arguments, block_analysis=True)
+    assert result.returncode == code, result.stderr
+    assert message in result.stdout + result.stderr
+    assert "Traceback" not in result.stderr
     assert list(tmp_path.iterdir()) == []
 
 

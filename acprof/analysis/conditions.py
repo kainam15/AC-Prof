@@ -13,6 +13,7 @@ from collections.abc import Iterator
 from fractions import Fraction
 
 PURPOSES = ("same-hardware", "cross-hardware", "resource-scaling")
+REPORT_PURPOSES = ("within-experiment", *PURPOSES)
 ALLOWED_RESOURCE_DIMENSIONS = ["cpu", "memory"]
 _FIXED_OUTPUT_TASKS = {"tabular-regression", "tabular-classification", "time-series-forecasting"}
 _DYNAMIC_GENERATION = {f"generation.{name}" for name in (

@@ -12,7 +12,7 @@ from importlib.resources import files
 from pathlib import Path
 from typing import TextIO
 
-from acprof.analysis.conditions import ALLOWED_RESOURCE_DIMENSIONS, PURPOSES
+from acprof.analysis.conditions import ALLOWED_RESOURCE_DIMENSIONS, PURPOSES, REPORT_PURPOSES
 from acprof.analysis.model import (
     DEFAULT_MATRIX,
     SUMMARY_FIELDS,
@@ -24,7 +24,7 @@ from acprof.analysis.report_comparison import (
     verify_independent_report,
 )
 from acprof.analysis.report_statistics import build_report_statistics, write_window_inputs
-from acprof.analysis.resource_comparison import REPORT_PURPOSES, build_baseline_comparisons
+from acprof.analysis.resource_comparison import build_baseline_comparisons
 from acprof.artifacts import atomic_write
 from acprof.quality import QUALITY_FIELDS
 from acprof.results.metrics import ANALYSIS_METRICS, VIEW_METRICS

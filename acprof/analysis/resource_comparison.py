@@ -11,8 +11,6 @@ from acprof.analysis.conditions import (
 from acprof.analysis.model import AnalysisModel
 from acprof.results.metrics import ANALYSIS_METRICS
 
-REPORT_PURPOSES = ("within-experiment", *PURPOSES)
-
 
 def resource_qualification(left: dict, right: dict) -> dict:
     """Same-source descriptions tolerate absent legacy evidence, never known conflicts."""

@@ -6,7 +6,7 @@ import csv
 import json
 from pathlib import Path
 
-from acprof.analysis.resource_comparison import REPORT_PURPOSES
+from acprof.analysis.conditions import REPORT_PURPOSES
 from acprof.system.cleanup import format_exception_notes
 
 

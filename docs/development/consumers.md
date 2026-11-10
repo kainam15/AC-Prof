@@ -38,6 +38,9 @@ Token 覆盖及吞吐，不导入采集或渲染模块；`analysis.load_report` 
 在取得 `host.run_state.offline_analysis_lock()` 后才导入 pipeline。
 同一 guard 用于 report、stats、compare、结果 audit 与 results 校验/导出；Linux 复用
 非阻塞 `MeasurementLock`，其他系统保留离线执行。帮助与静态指标列表不进入该路径。
+report 的比较用途选项统一由轻量 `analysis.conditions.REPORT_PURPOSES` 声明，CLI 和
+报告渲染共用；不能为构建参数 choices 提前导入 `resource_comparison`、分析模型或渲染器。
+隔离子进程测试在帮助、非法选项和锁忙路径阻止这些模块及绘图库导入，避免模块缓存掩盖回归。
 直接调用业务 API 时，调用方负责与采集互斥。
 Linux 平台判断由 `platform.is_linux` 提供，不扫描设备或用当前环境重写历史身份。
 非阻塞失败与锁归属参考 [filelock 的 Unix 实现](https://github.com/tox-dev/filelock/blob/715a8deed5fd1158f1e08cf303d192307ddb9252/src/filelock/_unix.py)
