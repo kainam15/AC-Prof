@@ -13,10 +13,11 @@ from unittest.mock import patch
 import pytest
 
 from acprof.container.download_model import verify_download
-from acprof.container.model_files import PLAN_FILENAME, ModelFilesError, plan_download, seal_plan
 from acprof.host import detect
 from acprof.host.model_store import store as model_store
 from acprof.hub.repository import modelscope_snapshot
+from acprof.models.download_plan import PLAN_FILENAME, plan_download, seal_plan
+from acprof.models.files import ModelFilesError
 
 MODEL_ID = "fixture/model"
 REVISION = "a" * 40

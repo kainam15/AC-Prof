@@ -8,9 +8,10 @@ from unittest.mock import patch
 import pytest
 
 from acprof.container import download_model
-from acprof.container.model_files import ModelFilesError, plan_download, seal_plan, validate_plan
 from acprof.host.model_store import store as model_store
 from acprof.hub.huggingface.endpoints import hf_endpoints
+from acprof.models.download_plan import plan_download, seal_plan, validate_plan
+from acprof.models.files import ModelFilesError
 from acprof.network_policy import DownloadPolicyError
 
 

@@ -170,7 +170,7 @@ class TestDiffusionRuntime:
         )
         handler = DiffusionHandler()
         task = "unconditional-image-generation"
-        from acprof.container.model_files import plan_download
+        from acprof.models.download_plan import plan_download
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory, "source")
             snapshot = Path(directory, "selected")

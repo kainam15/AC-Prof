@@ -3,6 +3,16 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from pathlib import PurePosixPath
+from typing import Any, TypedDict
+
+
+class Checkpoint(TypedDict):
+    """Files selected for one checkpoint component, without loading weights."""
+
+    component: str
+    format: str
+    variant: str | None
+    files: list[str]
 
 
 class ModelFilesError(ValueError):
@@ -19,7 +29,9 @@ def safe_path(name: str) -> str:
     return name
 
 
-def resolve_checkpoint(names: set[str], read_json: Callable, prefix: str = "", *, diffusion: bool = False) -> dict | None:
+def resolve_checkpoint(
+    names: set[str], read_json: Callable[[str], Any], prefix: str = "", *, diffusion: bool = False,
+) -> Checkpoint | None:
     stems = [("diffusion_pytorch_model", "safetensors"), ("diffusion_pytorch_model", "bin")] if diffusion else [
         ("model", "safetensors"), ("pytorch_model", "bin"),
     ]

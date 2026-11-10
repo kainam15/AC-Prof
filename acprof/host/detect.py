@@ -172,8 +172,8 @@ def dependency_metadata(repo_id: str, revision: str) -> dict:
             info = try_hf_endpoints(repo_id, lambda endpoint: HfApi(endpoint=endpoint, token=hf_token_for_url(endpoint)).model_info(
                 repo_id, revision=revision, files_metadata=False))
         def read_json(name):
-            from acprof.container.model_files import safe_path
             from acprof.models.evidence import pinned_revision
+            from acprof.models.files import safe_path
             if not pinned_revision(info.sha):
                 raise ValueError("dependency metadata requires a fixed commit SHA")
             name = safe_path(name)

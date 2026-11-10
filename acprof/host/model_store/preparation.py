@@ -1,16 +1,17 @@
 """Acquire and verify repository payloads before publishing a Model Store view."""
 from __future__ import annotations
 
+from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit
 
-from acprof.container.model_files import seal_plan
 from acprof.host.model_store.views import snapshot_path
 from acprof.hub.huggingface.auth import hf_token_for_url
 from acprof.hub.huggingface.download import try_hf_endpoints
 from acprof.hub.huggingface.endpoints import hf_endpoints
 from acprof.hub.huggingface.transport import observed_hf_provenance, observed_hf_sources
+from acprof.models.download_plan import DownloadPlan, seal_plan
 from acprof.network_policy import DownloadSource
 
 if TYPE_CHECKING:
@@ -18,7 +19,7 @@ if TYPE_CHECKING:
 
 
 def _download_repository(
-    root: Path, repo: dict[str, Any], progress: DownloadReporter, offline: bool, endpoint: str
+    root: Path, repo: Mapping[str, Any], progress: DownloadReporter, offline: bool, endpoint: str
 ) -> tuple[str, str]:
     from huggingface_hub import snapshot_download
 
@@ -58,7 +59,7 @@ def _download_repository(
 def prepare_repository(
     root: Path,
     key: str,
-    repo: dict[str, Any],
+    repo: DownloadPlan | dict[str, Any],
     budget: DownloadSource,
     *,
     offline: bool,
@@ -68,8 +69,11 @@ def prepare_repository(
     from acprof.host.preparation.download_progress import DownloadReporter
 
     source = repo.get("source", "huggingface")
+    # Cached payloads can pass space checks while source metadata sizes remain unknown.
+    # Preserve that pre-verification raw contract for the progress reporter.
+    report_plan: Mapping[str, Any] = repo
     progress = DownloadReporter(
-        repo["model_id"], source, repo["selected_bytes"], budget.cached_bytes, len(repo["files"])
+        repo["model_id"], source, report_plan["selected_bytes"], budget.cached_bytes, len(repo["files"])
     )
     try:
         if not needs_publish:
@@ -94,7 +98,7 @@ def prepare_repository(
     return Path(target), endpoint
 
 
-def record_download_provenance(repo: dict[str, Any], *, endpoint: str, offline: bool) -> None:
+def record_download_provenance(repo: DownloadPlan | dict[str, Any], *, endpoint: str, offline: bool) -> None:
     source = repo.get("source", "huggingface")
     repo["source"] = source
     repo["endpoint"] = endpoint

@@ -8,9 +8,10 @@ from unittest.mock import patch
 import pytest
 from huggingface_hub import try_to_load_from_cache
 
-from acprof.container.model_files import ModelFilesError, plan_download, seal_plan, validate_plan
 from acprof.host.detect import TaskInfo
 from acprof.host.model_store import store as model_store
+from acprof.models.download_plan import plan_download, seal_plan, validate_plan
+from acprof.models.files import ModelFilesError
 
 
 def _repository(repo_id, revision, source="huggingface"):

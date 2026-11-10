@@ -6,13 +6,13 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from acprof.container.model_files import ModelFilesError
 from acprof.hub.repository import (
     MetadataFile,
     modelscope_info,
     modelscope_metadata,
     modelscope_revision,
 )
+from acprof.models.files import ModelFilesError
 
 
 def test_modelscope_pins_repository_ref_not_per_file_revision(monkeypatch):
@@ -130,9 +130,9 @@ def test_frozen_source_preserves_historical_hf_options_and_records_modelscope(mo
 
 
 def test_modelscope_preparation_uses_separate_cache_and_verifies_artifact(tmp_path, monkeypatch):
-    from acprof.container.model_files import PLAN_FILENAME, plan_download, seal_plan
     from acprof.host.model_store import store as model_store
     from acprof.hub.repository import modelscope_snapshot
+    from acprof.models.download_plan import PLAN_FILENAME, plan_download, seal_plan
     content = b"{}"
     digest = hashlib.sha256(content).hexdigest()
     task = SimpleNamespace(model_id="demo/model", model_revision="a" * 40, model_source="modelscope",
@@ -248,8 +248,8 @@ def test_filtered_cache_preserves_original_hub_evidence(tmp_path, monkeypatch):
 @pytest.mark.parametrize(("source", "default_ref"), [("huggingface", "main"), ("modelscope", "master")])
 def test_recorded_default_ref_is_distinct_from_pinned_release(source, default_ref, tmp_path, monkeypatch):
     from acprof.container.download_model import verify_download
-    from acprof.container.model_files import plan_download, seal_plan
     from acprof.host.model_store import store as model_store
+    from acprof.models.download_plan import plan_download, seal_plan
 
     monkeypatch.setenv("ACPROF_MODEL_STORE", str(tmp_path))
     entry = tmp_path / "entries" / ("b" * 64)

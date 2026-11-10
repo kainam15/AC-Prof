@@ -42,7 +42,12 @@ from acprof.runtime.profiles import (
     environment_identity,
     select_runtime_profile,
 )
-from acprof.source_identity import service_context_files, source_fingerprint, stage_service_context
+from acprof.source_identity import (
+    DOWNLOAD_PLAN_SOURCES,
+    service_context_files,
+    source_fingerprint,
+    stage_service_context,
+)
 from acprof.system import command as host_command
 
 PROJECT_ROOT = resource_root()
@@ -138,7 +143,8 @@ def model_fingerprint(task_info: Any, runtime_id: str, project_dir: str | Path =
         "adapter": select_runtime_profile(task_info).adapter, "policy": download_policy(task_info),
         "dependencies": task_model_spec(task_info).get("dependencies", []),
     }, sort_keys=True).encode())
-    for relative in ("acprof/container/download_model.py", "acprof/container/model_files.py", "acprof/models/spec.py", "acprof/hub/huggingface/endpoints.py", "dockerfiles/runtime-model.Dockerfile"):
+    for relative in ("acprof/container/download_model.py", *DOWNLOAD_PLAN_SOURCES,
+                     "acprof/hub/huggingface/endpoints.py", "dockerfiles/runtime-model.Dockerfile"):
         digest.update((root / relative).read_bytes())
     return digest.hexdigest()
 
@@ -221,7 +227,8 @@ def verified_image(task_info: Any, name: str, fingerprint: str, project_dir=PROJ
     verify_manifest(manifest, expected, environment)
     if manifest.get("model_snapshot_revision") != task_info.model_revision:
         raise RuntimeError("镜像内实际 snapshot revision 与本次任务不匹配")
-    from acprof.container.model_files import ModelFilesError, validate_plan, validate_plan_request
+    from acprof.models.download_plan import validate_plan, validate_plan_request
+    from acprof.models.files import ModelFilesError
 
     plan = manifest.get("model_download")
     if not isinstance(plan, dict):

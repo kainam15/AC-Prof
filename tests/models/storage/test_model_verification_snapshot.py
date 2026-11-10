@@ -11,7 +11,8 @@ from pathlib import Path
 import pytest
 
 from acprof.container.download_model import verify_download
-from acprof.container.model_files import ModelFilesError, plan_download, validate_plan
+from acprof.models.download_plan import plan_download, validate_plan
+from acprof.models.files import ModelFilesError
 
 CONTENT = b"trusted model payload"
 SHA256 = hashlib.sha256(CONTENT).hexdigest()
@@ -206,7 +207,8 @@ def test_fifo_payload_is_rejected_without_waiting_for_a_writer(tmp_path):
     code = '''
 import sys
 from acprof.container.download_model import verify_download
-from acprof.container.model_files import ModelFilesError, plan_download
+from acprof.models.download_plan import plan_download
+from acprof.models.files import ModelFilesError
 plan = plan_download(model_id="example/fifo", revision="a" * 40, family="nlp",
     backend="transformers_pipeline", policy="full",
     files={"model.bin": {"size": 0}}, read_json=lambda _: {})

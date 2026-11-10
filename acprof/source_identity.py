@@ -6,6 +6,13 @@ import shutil
 from collections.abc import Iterable
 from pathlib import Path
 
+# Shared by the Model Store planner key and the model image fingerprint.
+DOWNLOAD_PLAN_SOURCES = (
+    "acprof/models/download_plan.py",
+    "acprof/models/files.py",
+    "acprof/models/spec.py",
+)
+
 _SERVICE_DIRECTORIES = {"container", "extensions", "workloads", "models", "hub", "system"}
 # Inference also uses these shared contracts from otherwise host-facing packages.
 # Keep package initializers alongside the modules in every staged service tree.

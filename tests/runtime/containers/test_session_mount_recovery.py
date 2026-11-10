@@ -12,10 +12,10 @@ from unittest.mock import Mock
 
 import pytest
 
-from acprof.container.model_files import PLAN_FILENAME
 from acprof.host import docker_runtime
 from acprof.host.container_lifecycle import ContainerCleanupError
 from acprof.host.model_store import store as model_store
+from acprof.models.download_plan import PLAN_FILENAME
 from tests.support.model_store_fixtures import ModelStoreFixture
 
 

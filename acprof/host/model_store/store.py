@@ -15,19 +15,14 @@ import shutil
 import stat
 import time
 from collections import Counter
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from threading import Event, RLock
+from typing import Any, cast
 
 import acprof.artifacts as artifact_io
-from acprof.container.model_files import (
-    PLAN_FILENAME,
-    seal_plan,
-    validate_plan,
-    validate_plan_request,
-)
 from acprof.host.model_store.consumers import (
     DockerConsumer,
     DockerConsumerInspector,
@@ -46,6 +41,14 @@ from acprof.hub.huggingface.download import try_hf_endpoints
 from acprof.hub.huggingface.endpoints import hf_endpoints
 from acprof.hub.huggingface.transport import configure_hf_transport
 from acprof.hub.repository import MetadataFile, read_metadata_file
+from acprof.models.download_plan import (
+    PLAN_FILENAME,
+    DependencyPlan,
+    DownloadPlan,
+    seal_plan,
+    validate_plan,
+    validate_plan_request,
+)
 from acprof.models.spec import model_download_request, validate_dependencies
 from acprof.network_policy import (
     DownloadPolicyError,
@@ -54,6 +57,7 @@ from acprof.network_policy import (
     parse_bytes,
 )
 from acprof.runtime.dependency_locks import content_digest
+from acprof.source_identity import DOWNLOAD_PLAN_SOURCES, source_fingerprint
 from acprof.system.cleanup import cleanup_on_exit
 
 ENTRY_METADATA_MAX_BYTES = 4 * 1024 * 1024
@@ -162,7 +166,7 @@ def _recorded_root(record: dict, explicit: Path | None) -> Path:
     return Path(record["host_path"]).expanduser().resolve() if record.get("host_path") else store_root()
 
 
-def repository_plans(plan: dict):
+def repository_plans(plan: DownloadPlan | dict[str, Any]) -> list[DownloadPlan | dict[str, Any]]:
     return [plan, *(entry["download"] for entry in plan.get("dependencies", []))]
 
 
@@ -174,7 +178,8 @@ def entry_key(task) -> str:
     request = model_download_request(task)
     source = request["source"]
     return content_digest({"schema": 1, **({"source": source} if source != "huggingface" else {}),
-        "planner": hashlib.sha256((resource_root() / "acprof/container/model_files.py").read_bytes()).hexdigest(),
+        "planner": source_fingerprint(resource_root(),
+            (resource_root() / name for name in DOWNLOAD_PLAN_SOURCES), scope="download-plan-v1"),
         "model_types": hashlib.sha256((resource_root() / "acprof/container/compat/transformers_model_types.json").read_bytes()).hexdigest(),
         "model": request["model_id"], "revision": request["model_revision"],
         "policy": request["requested_policy"], "family": request["task_family"], "backend": request["backend"],
@@ -209,7 +214,7 @@ def store_lock(root: Path, *, cancel: Event | None = None, on_wait: Callable[[],
         yield
 
 
-def read_entry(key: str, root: Path | None = None) -> dict | None:
+def read_entry(key: str, root: Path | None = None) -> dict[str, Any] | None:
     root = root or store_root()
     if not _ENTRY_ID.fullmatch(key):
         raise ValueError("invalid Model Store entry ID")
@@ -299,7 +304,7 @@ def _cached_repositories(model_id: str, revision: str | None, source: str):
 
 def cached_metadata(model_id: str, name: str, revision: str | None, *, source: str,
                     max_bytes: int = ENTRY_METADATA_MAX_BYTES) -> MetadataFile | None:
-    from acprof.container.model_files import ModelFilesError, safe_path
+    from acprof.models.files import ModelFilesError, safe_path
     name = safe_path(name)
     for plan, snapshot in _cached_repositories(model_id, revision, source):
         record = next((item for item in plan["files"] if item["path"] == name), None)
@@ -320,7 +325,7 @@ def cached_metadata(model_id: str, name: str, revision: str | None, *, source: s
 def cached_model_info(model_id: str, revision: str | None, *, source: str):
     from types import SimpleNamespace
 
-    from acprof.container.model_files import ModelFilesError, safe_path
+    from acprof.models.files import ModelFilesError, safe_path
     for plan, _ in _cached_repositories(model_id, revision, source):
         metadata = plan.get("repository_context", {})
         # Historical entries remain valid runtime snapshots, but their selected
@@ -343,7 +348,7 @@ def cached_model_info(model_id: str, revision: str | None, *, source: str):
     return None
 
 
-def plan_model(task, root: Path | None = None) -> dict:
+def plan_model(task, root: Path | None = None) -> DownloadPlan | dict[str, Any]:
     request = model_download_request(task)
     dependencies = validate_dependencies(request["dependencies"],
                                          primary_model_id=task.model_id)
@@ -386,9 +391,10 @@ def plan_model(task, root: Path | None = None) -> dict:
                             cache_dir=str(root / "hf"), task=task, native_types=native_types, library_versions=versions)
                     dependency = (try_hf_endpoints(item["repo_id"], prepare_dependency)
                                   if source == "modelscope" else prepare_dependency(endpoint))
-                    plan["dependencies"].append({**item, "download": dependency})
+                    # Declarations were checked by validate_dependencies; the child is planner-authored.
+                    plan["dependencies"].append(cast(DependencyPlan, {**item, "download": dependency}))
                 sizes = [p["selected_bytes"] for p in repository_plans(plan)]
-                plan["total_selected_bytes"] = sum(sizes) if all(type(n) is int for n in sizes) else None
+                plan["total_selected_bytes"] = sum(cast(list[int], sizes)) if all(type(n) is int for n in sizes) else None
             plan["requested_revision"] = getattr(task, "requested_revision", None)
             seal_plan(plan)
             validate_plan(plan)
@@ -397,7 +403,7 @@ def plan_model(task, root: Path | None = None) -> dict:
         return prepare(MODELSCOPE_ENDPOINT) if source == "modelscope" else try_hf_endpoints(task.model_id, prepare, endpoints=endpoints)
 
 
-def cached_file(root: Path, plan: dict, record: dict) -> CachedFileObservation | None:
+def cached_file(root: Path, plan: Mapping[str, Any], record: Mapping[str, Any]) -> CachedFileObservation | None:
     if plan.get("source", "huggingface") == "modelscope":
         from acprof.hub.repository import modelscope_snapshot
         path = modelscope_snapshot(root, plan["model_id"], plan["model_revision"]) / record["path"]
@@ -410,7 +416,7 @@ def cached_file(root: Path, plan: dict, record: dict) -> CachedFileObservation |
     return _cached_file_observation(Path(result), record.get("size"), allow_unknown_size=True)
 
 
-def _complete_entry(plan: dict, root: Path, entry_id: str | None) -> bool:
+def _complete_entry(plan: Mapping[str, Any], root: Path, entry_id: str | None) -> bool:
     if entry_id is None:
         return False
     stored = read_entry(entry_id, root)
@@ -418,12 +424,13 @@ def _complete_entry(plan: dict, root: Path, entry_id: str | None) -> bool:
             and view_complete(root, entry_id, repository_plans(stored)))
 
 
-def model_sources(plan: dict, root: Path | None = None, *, entry_id: str | None = None) -> list[DownloadSource]:
+def model_sources(plan: DownloadPlan | dict[str, Any], root: Path | None = None, *, entry_id: str | None = None) -> list[DownloadSource]:
     root = root or store_root()
     complete = _complete_entry(plan, root, entry_id)
     result = []
     for repo in repository_plans(plan):
-        cached = repo["selected_bytes"] if complete else 0
+        # Complete entries passed read_entry validation with SHA256 verification and known sizes.
+        cached = cast(int, repo["selected_bytes"]) if complete else 0
         missing = []
         for record in [] if complete else repo["files"]:
             observed = cached_file(root, repo, record)
@@ -431,7 +438,7 @@ def model_sources(plan: dict, root: Path | None = None, *, entry_id: str | None 
                 cached += observed.size
             else:
                 missing.append(record.get("size"))
-        expected = sum(missing) if all(type(n) is int for n in missing) else None
+        expected = sum(cast(list[int], missing)) if all(type(n) is int for n in missing) else None
         result.append(DownloadSource("model", repo["endpoint"], expected, cached,
             "hit" if not missing else "partial" if cached else "miss",
             known_download_bytes=sum(n for n in missing if type(n) is int),
@@ -440,7 +447,7 @@ def model_sources(plan: dict, root: Path | None = None, *, entry_id: str | None 
     return result
 
 
-def probe_model_download(plan: dict, root: Path | None = None, *, entry_id: str | None = None, max_bytes: int | None = None,
+def probe_model_download(plan: DownloadPlan | dict[str, Any], root: Path | None = None, *, entry_id: str | None = None, max_bytes: int | None = None,
                          timeout: float = 8) -> list[dict]:
     """HEAD and bounded GET of missing artifacts; never populate the cache."""
     from urllib.parse import quote
@@ -459,7 +466,7 @@ def probe_model_download(plan: dict, root: Path | None = None, *, entry_id: str 
     missing_repositories = [(repo, [item for item in repo["files"] if cached_file(root, repo, item) is None])
                             for repo in repository_plans(plan)]
     sizes = [item.get("size") for _, missing in missing_repositories for item in missing]
-    expected = sum(sizes) if all(type(size) is int for size in sizes) else None
+    expected = sum(cast(list[int], sizes)) if all(type(size) is int for size in sizes) else None
     allowance = probe_allowance(expected, expected)
     budget = ProbeBudget(allowance if max_bytes is None else min(allowance, max(0, max_bytes)))
     reports = []
@@ -587,7 +594,7 @@ def enforce_model_download_budgets(plan: dict) -> None:
         raise DownloadPolicyError(f"ACPROF_MODEL_MAX_DOWNLOAD: {exc}") from exc
 
 
-def prepare_model(task, plan: dict, root: Path | None = None, *, planned_download_bytes: int | None = None) -> dict:
+def prepare_model(task, plan: DownloadPlan | dict[str, Any], root: Path | None = None, *, planned_download_bytes: int | None = None) -> dict:
     """Prepare an independent verified receipt, preserving the caller's retry input."""
     from acprof.host.model_store.preparation import prepare_repository, record_download_provenance
 
@@ -632,13 +639,14 @@ def prepare_model(task, plan: dict, root: Path | None = None, *, planned_downloa
                 record_download_provenance(repo, endpoint=endpoint, offline=offline)
             targets.append(target)
         if plan.get("dependencies"):
-            plan["total_selected_bytes"] = sum(repo["selected_bytes"] for repo in repository_plans(plan))
+            # prepare_repository has verified every payload and filled previously unknown sizes.
+            plan["total_selected_bytes"] = sum(cast(int, repo["selected_bytes"]) for repo in repository_plans(plan))
         seal_plan(plan)
         if needs_publish:
             publish_view(root, key, plan, repository_plans(plan), targets)
         (root / "entries" / key / "last-used").touch()
     print("[network-download] " + json.dumps({"category": "model",
-        "verified_new_payload_bytes": sum(source.estimated_bytes for source in sources),
+        "verified_new_payload_bytes": sum(cast(int, source.estimated_bytes) for source in sources),
         "cache_savings_bytes": sum(source.cached_bytes for source in sources),
         "wire_bytes": None, "endpoint": plan["endpoint"]}), flush=True)
     return {"schema_version": 1, "entry_id": key, "plan_sha256": plan["plan_sha256"],

@@ -7,9 +7,10 @@ from unittest.mock import patch
 
 import pytest
 
-from acprof.container.model_files import ModelFilesError, plan_download, seal_plan
 from acprof.host.detect import TaskInfo
 from acprof.host.model_store import store as model_store
+from acprof.models.download_plan import plan_download, seal_plan
+from acprof.models.files import ModelFilesError
 
 DIFFERENCES = {
     "source": "modelscope", "model_id": "example/other", "model_revision": "b" * 40,

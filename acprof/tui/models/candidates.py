@@ -117,8 +117,8 @@ def candidate_from_record(record: ExperimentRecord, current: dict) -> ModelCandi
 def cached_candidates(root: Path, *, cancelled: Callable[[], bool] = lambda: False,
                       max_entries: int = 2048) -> tuple[tuple[ModelCandidate, ...], tuple[str, ...]]:
     """Read verified entry plans and file presence; do not lock, hash weights or download."""
-    from acprof.container.model_files import PLAN_FILENAME
     from acprof.host.model_store.store import model_sources, read_entry
+    from acprof.models.download_plan import PLAN_FILENAME
     values, warnings, identities = [], [], set()
     entries = root / 'entries'
     if not entries.is_dir():

@@ -39,7 +39,7 @@
 | `acprof/tui/` | Textual 页面、事件、命令构造、进度、设置和日志控件 |
 | `acprof/analysis/` | 延迟模型的数值计算、验证与报告文件 |
 | `acprof/plotting/` | 当前 CSV 校验、图表配置、颜色与渲染 |
-| `acprof/models/` | 模型契约、静态候选、任务支持与检查点文件规则；inspection/ 只解析受限源码与依赖证据 |
+| `acprof/models/` | 模型契约、静态候选、任务支持、下载计划与检查点文件规则；inspection/ 只解析受限源码与依赖证据 |
 | `acprof/hub/` | 来源身份、HF/ModelScope 仓库访问与受约束的下载传输 |
 | `acprof/system/` | 共享的同步命令执行与资源清理异常处理，不依赖 host 编排 |
 | `acprof/events/` | 下载、准备、运行进度的轻量事件协议；不初始化 UI 或后台采集 |
@@ -56,7 +56,7 @@
 | `acprof/host/measurement/` | `config` 提供类型化 Client 配置及环境变量 codec，`collector_metrics` 纯投影 collector 结果，`numbers` 提供共享数值转换，`metrics` 归约窗口并组装行；请求窗口、监测器编排、检查点与发布保持独立，`host.client` 保留进程入口 |
 | `acprof/host/profiling/` | 独立 compute/execution 计划、进度及工具支持；`tools/` 放置各 profiler 的执行和解析实现 |
 | `acprof/host/posthoc/` | 已有结果的 profiler 补采、回填、备份与回滚 |
-| `acprof/container/` | 容器内模型下载、HTTP server、推理处理器和 profiler runner |
+| `acprof/container/` | HTTP server、推理处理器和 profiler runner；`download_model.py` 保留供主机准备阶段调用的仓库读取与文件校验，不提供容器下载入口 |
 | `acprof/workloads/` | 各任务族的确定性输入与素材准备；`spec.py` 统一输入声明的基础校验，`contract.py` 保留窗口外实际请求事实摘要 |
 | `acprof/monitors/` | 能耗、资源与 PMU 的原始测量 |
 | `acprof/packet/` | 抓包解析及 packet latency 合并 |
@@ -70,6 +70,7 @@
 | `acprof/results/layout.py` | 结果清单、v2/flat 布局识别、受限相对路径及 case sidecar 路由；采集、恢复、补采和分析共用 |
 | `acprof/pixel_metrics.py` | 像素计数和能耗/延迟归一化的纯计算，由 client、packet 和 plotting 共用 |
 | `acprof/runtime/profiles.py` | 平台、依赖环境、逻辑 profile 与锁身份；从扩展声明读取路由 |
+| `acprof/models/download_plan.py`、`acprof/models/files.py` | 下载计划与检查点的类型契约、纯文件选择、哈希和请求身份校验；按 Transformers、Diffusers、Structured 布局选择，未知结构保留完整快照；不导入 Hub SDK、host 编排或推理框架 |
 | `acprof/models/support.py` | 精确版本的 Transformers 注册与能力目录，判断 Auto 类和 Pipeline 任务支持；只读静态数据，不导入模型 |
 | `acprof/models/candidates.py` | 唯一静态接口发现入口，同时生成候选、作用域证据和 `task_discovery`；查询不修改 `TaskInfo`，编排显式应用决策；不加载权重 |
 | `acprof/tasks/interfaces.py` | 从 Extension 解析 loader、四阶段调用、模块链、组件及 IO，记录执行身份并在恢复前核验；不导入模型代码 |

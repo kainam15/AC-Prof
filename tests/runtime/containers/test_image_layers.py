@@ -29,7 +29,14 @@ def test_host_and_ui_changes_preserve_service_identity():
         (root / "acprof/container/server.py").write_text("changed = 2\n")
         assert (original) != (request_fingerprint(task, root))
 
-@pytest.mark.parametrize(("relative", "content"), [('acprof/container/model_files.py', 'selector = 2\n'), ('acprof/models/spec.py', 'spec = 2\n')])
+@pytest.mark.parametrize(
+    ("relative", "content"),
+    [
+        ("acprof/models/download_plan.py", "selector = 2\n"),
+        ("acprof/models/files.py", "files = 2\n"),
+        ("acprof/models/spec.py", "spec = 2\n"),
+    ],
+)
 def test_code_changes_reuse_runtime_and_model_but_refresh_final_image(relative, content):
     task = TaskInfo(model_id="example/bert", model_revision="a" * 40, pipeline_tag="fill-mask",
                     task_family="nlp", runtime_backend="transformers_pipeline", library_name="transformers",
@@ -40,7 +47,8 @@ def test_code_changes_reuse_runtime_and_model_but_refresh_final_image(relative, 
         (root / "acprof/container").mkdir()
         for fixture_path, fixture_content in {
             "acprof/container/download_model.py": "downloader = 1\n",
-            "acprof/container/model_files.py": "selector = 1\n",
+            "acprof/models/download_plan.py": "selector = 1\n",
+            "acprof/models/files.py": "files = 1\n",
             "acprof/models/spec.py": "spec = 1\n",
             "acprof/handler.py": "handler = 1\n",
             "dockerfiles/runtime-model.Dockerfile": "FROM runtime\nCOPY downloader /opt\n",

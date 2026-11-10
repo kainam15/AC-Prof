@@ -11,8 +11,8 @@ from unittest.mock import patch
 
 import pytest
 
-from acprof.container.model_files import PLAN_FILENAME, plan_download, seal_plan
 from acprof.host.model_store import store as model_store
+from acprof.models.download_plan import PLAN_FILENAME, plan_download, seal_plan
 from acprof.network_policy import DownloadPolicyError
 
 
@@ -320,7 +320,7 @@ class TestModelStore:
             from pathlib import Path
             from types import SimpleNamespace
             from unittest.mock import patch
-            from acprof.container.model_files import PLAN_FILENAME
+            from acprof.models.download_plan import PLAN_FILENAME
             from acprof.host.model_store import store as model_store
 
             root = Path(sys.argv[1])
@@ -438,7 +438,7 @@ class TestModelStore:
                                               source="huggingface").content == self.content
 
     def test_cached_metadata_rechecks_hash_and_enforces_read_limit(self):
-        from acprof.container.model_files import ModelFilesError
+        from acprof.models.files import ModelFilesError
         record = self.prepare()
         with patch("acprof.host.model_store.store.store_root", return_value=self.root):
             with pytest.raises(ModelFilesError, match="exceeds"):

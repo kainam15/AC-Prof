@@ -7,7 +7,7 @@ import sys
 from contextlib import contextmanager
 from pathlib import Path
 
-from acprof.container.model_files import PLAN_FILENAME, plan_download, seal_plan
+from acprof.models.download_plan import PLAN_FILENAME, plan_download, seal_plan
 
 
 class ModelStoreFixture:

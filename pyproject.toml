@@ -273,6 +273,8 @@ module = [
     "acprof.system.command",
     "acprof.host.images.identity",
     "acprof.host.model_store.preparation",
+    "acprof.models.download_plan",
+    "acprof.models.files",
     "acprof.monitors.interfaces",
     "acprof.pixel_metrics",
     "acprof.results.metrics",

@@ -6,14 +6,16 @@ import os
 import shutil
 import stat
 import tempfile
+from collections.abc import Mapping, Sequence
 from pathlib import Path
+from typing import Any
 
 import acprof.artifacts as artifact_io
-from acprof.container.model_files import PLAN_FILENAME
 from acprof.host.model_store.paths import StorePaths, store_paths
+from acprof.models.download_plan import PLAN_FILENAME
 
 
-def snapshot_path(root: Path, key: str, repo: dict) -> Path:
+def snapshot_path(root: Path, key: str, repo: Mapping[str, Any]) -> Path:
     return root / 'entries' / key / 'hf' / ('models--' + repo['model_id'].replace('/', '--')) / 'snapshots' / repo['model_revision']
 
 
@@ -29,7 +31,7 @@ def _ref_matches(paths: StorePaths, relative: Path, revision: str) -> bool:
             return stream.read(len(revision) + 1) == revision.encode('ascii')
 
 
-def view_complete(root: Path, key: str, repositories: list[dict]) -> bool:
+def view_complete(root: Path, key: str, repositories: Sequence[Mapping[str, Any]]) -> bool:
     """Inspect layout and refs only; the caller separately verifies payload hashes."""
     try:
         with store_paths(root, lambda: None) as paths:
@@ -104,7 +106,8 @@ def _publish_entry(temporary: Path, destination: Path) -> None:
         shutil.rmtree(previous)
 
 
-def publish_view(root: Path, key: str, plan: dict, repositories: list[dict], targets: list[Path]) -> None:
+def publish_view(root: Path, key: str, plan: Mapping[str, Any],
+                 repositories: Sequence[Mapping[str, Any]], targets: Sequence[Path]) -> None:
     """Caller owns the store lock and exclusive entry lease until publication completes."""
     root = root.resolve()
     entries = root / 'entries'

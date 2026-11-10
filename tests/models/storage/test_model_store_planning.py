@@ -8,9 +8,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from acprof.container.model_files import ModelFilesError
 from acprof.host.detect import TaskInfo
 from acprof.host.model_store import store as model_store
+from acprof.models.files import ModelFilesError
 
 _MAIN_ID = "example/model"
 _DEPENDENCY_ID = "example/dependency"

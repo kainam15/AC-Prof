@@ -84,8 +84,8 @@ class TestModelDependency:
 
 
 def test_custom_index_shards_match_primary_checkpoint_selection():
-    from acprof.container.model_files import plan_download
     from acprof.models.dependencies import dependency_files
+    from acprof.models.download_plan import plan_download
     index = 'model.safetensors.index.json'
     names = ['config.json', index, 'weights/encoder.safetensors', 'weights/decoder.safetensors', 'pytorch_model.bin']
     metadata = {'config.json': {'model_type': 'bert'}, index: {

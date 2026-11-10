@@ -58,7 +58,7 @@ def collect_manifest() -> dict:
     snapshot_revision = source.resolve().name if source.is_symlink() else ""
     if snapshot_revision != os.environ.get("MODEL_REVISION"):
         raise RuntimeError("baked model snapshot differs from declared model revision")
-    from acprof.container.model_files import PLAN_FILENAME, validate_plan
+    from acprof.models.download_plan import PLAN_FILENAME, validate_plan
 
     download = json.loads((source.parent / PLAN_FILENAME).read_text())
     validate_plan(download)
@@ -114,7 +114,7 @@ def collect_manifest() -> dict:
 
 
 def _mounted_manifest(dependency: dict, packages: dict, lock_hash: str, store: dict) -> dict:
-    from acprof.container.model_files import validate_plan
+    from acprof.models.download_plan import validate_plan
     from acprof.models.spec import load_model_dependencies
     plan = store["model_download"]
     validate_plan(plan)

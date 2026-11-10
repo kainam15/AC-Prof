@@ -13,9 +13,9 @@ from rich.cells import cell_len
 from textual.containers import VerticalScroll
 from textual.widgets import Button, Input, Select, Static
 
-from acprof.container.model_files import PLAN_FILENAME
 from acprof.experiments.configuration import RunConfig
 from acprof.host.model_store import store as model_store
+from acprof.models.download_plan import PLAN_FILENAME
 from acprof.tui.i18n import translate
 from acprof.tui.models.store import ModelStoreScreen
 from acprof.tui.models.store_summary import model_store_summary

@@ -22,9 +22,9 @@
 | P0 | 共享 Workload 输入校验、明确依赖方向 | 本轮已完成六族公共字段复用与两个反向依赖修复，保留任务差异和错误语义；Import Linter 契约纳入门禁。见[模块边界](development/static-checks.md)与[Workload 输入校验](development/modules.md#workload-输入校验)。 |
 | P1 | 按真实竞态改进 TUI 测试同步 | 本轮已合并三处条件等待，并以显式握手消除下载测试的一秒存活竞态；其余等待只在有具体问题时迁移。见[TUI 条件等待](development/validation-scope.md#tui-条件等待)。 |
 | P1 | 结果存储与恢复边界 | A1–A5 已完成：持锁后先核对实验身份；pending 的读取、审计与恢复共用完整事务契约；manifest、初始化 receipt 与阶段化 run_state 在恢复副作用前验证。真实提交故障和合成畸形输入回归覆盖拒绝时证据不变、锁释放及合法恢复，保留 flat layout 与补采语义。真实测量中断验收仍按下表独立推进。见[实验产物结构与恢复](profiling/artifacts.md)。 |
-| P1 | 核心数据契约增量强类型化 | 结果引用、层清单、pending/commit 与阶段化 run_state、attempt、case 已接入实际读写边界；运行时验证后再窄化类型，相关模块扩展增强 mypy 门禁，开放 metadata 与阶段可选字段保持真实语义。后续依实际调用链推进依赖预检报告、下载计划和事件协议，不对全部临时 `dict` 一刀切。见[类型与边界检查](development/static-checks.md)。 |
+| P1 | 核心数据契约增量强类型化 | 结果引用、层清单、pending/commit 与阶段化 run_state、attempt、case 已接入实际读写边界；运行时验证后再窄化类型，相关模块扩展增强 mypy 门禁，开放 metadata 与阶段可选字段保持真实语义。下载计划和检查点的受控生产者也已类型化并纳入增强门禁，缓存 JSON 保留真实验证边界；后续依实际调用链推进依赖预检报告和事件协议，不对全部临时 `dict` 一刀切。见[类型与边界检查](development/static-checks.md)。 |
 | P1 | 宽泛异常与失败证据审计 | 网络包回填数值转换先收窄异常并增加 BLE001 门禁；后续逐模块核查 `monitors`、`host` 的失败、清理、unknown/NaN 语义，禁止把无法采集改成 0 或成功。 |
-| P2 | 高复杂度职责的行为保持重构 | 优先为 `RunConfig.validate` 冻结字段错误、报错顺序与归一化语义，再按校验领域抽取；`plan_download`、`dependency_preflight`、输出/运行时验证按调用链逐个评估，不一刀切启用全仓 C901。 |
+| P2 | 高复杂度职责的行为保持重构 | `plan_download` 已迁入 models 领域层并按真实布局拆分，冻结 JSON/哈希、未知大小、回退与原地校验语义，并补齐缓存/镜像源码指纹。下一步为 `RunConfig.validate` 冻结字段错误、报错顺序与归一化语义，再按校验领域抽取；`dependency_preflight`、输出/运行时验证按调用链逐个评估，不一刀切启用全仓 C901。 |
 | P2 | 导入、格式和测试结构治理 | 只对可证明存在循环依赖的局部导入、审阅困难的超长行、真实竞态等待和过大测试场景定向处理；避免大规模 reformat 或机械拆分。 |
 | P3 | Worktree 与实验产物安全收尾 | 先分别核对分支合并状态、未提交修改、并行任务、科研 evidence 与缓存可再生性；仅列候选，不自动删除历史工作树、结果或证据。 |
 

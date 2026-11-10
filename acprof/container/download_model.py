@@ -8,17 +8,20 @@ import importlib.util
 import json
 import os
 import stat
+from collections.abc import Mapping
 from pathlib import Path
+from typing import Any, cast
 
-from acprof.container.model_files import (
-    ModelFilesError,
+from acprof.hub.huggingface.auth import hf_token_for_url
+from acprof.hub.huggingface.transport import configure_hf_transport
+from acprof.models.download_plan import (
+    DownloadPlan,
+    RepositoryFile,
     plan_download,
-    resolve_checkpoint,
     seal_plan,
     validate_plan,
 )
-from acprof.hub.huggingface.auth import hf_token_for_url
-from acprof.hub.huggingface.transport import configure_hf_transport
+from acprof.models.files import ModelFilesError, resolve_checkpoint
 
 CACHE_DIR = None
 
@@ -42,7 +45,7 @@ def _library_versions() -> dict[str, str]:
 
 def prepare_repository_plan(endpoint: str, model_id: str, revision: str, *, dependency: dict | None = None,
                              cache_dir: str | None = None, task=None, native_types=None, library_versions=None,
-                             source: str = "huggingface") -> dict:
+                             source: str = "huggingface") -> DownloadPlan:
     from huggingface_hub import HfApi, hf_hub_download
 
     from acprof.hub.repository import (
@@ -60,7 +63,7 @@ def prepare_repository_plan(endpoint: str, model_id: str, revision: str, *, depe
         info = HfApi(endpoint=endpoint, token=hf_token_for_url(endpoint)).model_info(model_id, revision=revision, files_metadata=True)
     if len(revision) == 40 and info.sha != revision:
         raise ModelFilesError("Hub response does not match the requested model commit")
-    files = {}
+    files: dict[str, RepositoryFile] = {}
     for item in info.siblings:
         lfs = getattr(item, "lfs", None)
         lfs_sha = lfs.get("sha256") if isinstance(lfs, dict) else getattr(lfs, "sha256", None)
@@ -114,7 +117,8 @@ def prepare_repository_plan(endpoint: str, model_id: str, revision: str, *, depe
         library_versions=_library_versions() if library_versions is None else library_versions,
     )
     if dependency is not None:
-        plan.update(reason="declared_dependency", excluded_files=excluded)
+        plan["reason"] = "declared_dependency"
+        plan["excluded_files"] = excluded
     plan["endpoint"] = endpoint
     plan["source"] = source
     plan["repository_context"] = repository_context(info)
@@ -147,7 +151,7 @@ def _require_file_identity(path: Path, expected: _FileIdentity) -> None:
         raise ModelFilesError(f"model file changed during verification: {path.name}") from exc
 
 
-def _hash_model_file(path: Path, item: dict,
+def _hash_model_file(path: Path, item: Mapping[str, Any],
                      hashes: dict[_FileIdentity, tuple[str, str]]) -> tuple[_FileIdentity, str, str]:
     # Inspect the same opened target whose bytes supply the hashes.
     try:
@@ -182,9 +186,11 @@ def _hash_model_file(path: Path, item: dict,
     return identity, *digests
 
 
-def verify_download(target: str | Path, plan: dict) -> dict:
+def verify_download[T: DownloadPlan | dict[str, Any]](target: str | Path, plan: T) -> T:
     """Record hashes only after every file verifies; failures leave the plan intact."""
     validate_plan(plan)
+    # Typed plans and validated cached JSON share a mutable dictionary at runtime.
+    raw_plan = cast(dict[str, Any], plan)
     root = Path(target)
     hashes: dict[_FileIdentity, tuple[str, str]] = {}
     observations = []
@@ -205,12 +211,12 @@ def verify_download(target: str | Path, plan: dict) -> dict:
     # Recheck metadata only; stable hardlinks/symlinks still share one hash pass.
     for path, identity in observations:
         _require_file_identity(path, identity)
-    verified = {**plan, "files": verified_files,
+    verified: dict[str, Any] = {**plan, "files": verified_files,
                 "selected_bytes": sum(item["size"] for item in verified_files), "verification": "sha256"}
     if "dependencies" in plan or "total_selected_bytes" in plan:
         verified["total_selected_bytes"] = verified["selected_bytes"] + sum(
-            item["download"]["selected_bytes"] for item in plan.get("dependencies", []))
-    plan.update(seal_plan(verified))
+            item["download"]["selected_bytes"] for item in raw_plan.get("dependencies", []))
+    raw_plan.update(seal_plan(verified))
     return plan
 
 

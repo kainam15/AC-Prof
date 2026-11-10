@@ -335,8 +335,8 @@ def test_failed_release_sync_keeps_the_lock_until_a_durable_retry(cached_model, 
 
 def test_missing_plan_cannot_be_rebuilt_while_a_crashed_clients_container_remains(
         cached_model, docker_inventory, monkeypatch):
-    from acprof.container.model_files import PLAN_FILENAME
     from acprof.host.detect import TaskInfo
+    from acprof.models.download_plan import PLAN_FILENAME
 
     model = cached_model
     plan = store.read_entry(model.key, model.root)

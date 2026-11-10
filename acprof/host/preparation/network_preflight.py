@@ -26,6 +26,7 @@ from acprof.host.images.environment import (
 )
 from acprof.host.images.errors import network_failure_kind
 from acprof.host.preparation.download_probe import failure_reason, probe_allowance, probe_record
+from acprof.models.download_plan import DownloadPlan
 from acprof.network_policy import (
     DEPENDENCY_USER_AGENT,
     DownloadSource,
@@ -342,7 +343,7 @@ def process_sources(task, project_dir: Path) -> tuple[list[DownloadSource], dict
     return sources, summary
 
 
-def preflight(task, profile, project_dir, model_plan: dict, *, root=None,
+def preflight(task, profile, project_dir, model_plan: DownloadPlan | dict[str, Any], *, root=None,
               runtime_plan: tuple[list[DownloadSource], dict] | None = None) -> dict:
     from acprof.host.model_store.store import (
         enforce_model_download_budgets,

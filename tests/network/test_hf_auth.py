@@ -234,11 +234,11 @@ def test_download_callers_disable_sdk_lookup_and_apply_origin_policy(
     import huggingface_hub as hub
     from huggingface_hub import constants
 
-    from acprof.container.model_files import plan_download, seal_plan
     from acprof.host.detect import _download_metadata
     from acprof.host.model_store import store as model_store
     from acprof.host.preparation.download_probe import ProbeBudget, probe_hf_file
     from acprof.hub.huggingface.transport import configure_hf_transport
+    from acprof.models.download_plan import plan_download, seal_plan
 
     monkeypatch.setenv("HF_TOKEN", TOKEN)
     monkeypatch.setenv("HF_ENDPOINT", endpoint)

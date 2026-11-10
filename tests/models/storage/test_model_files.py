@@ -6,7 +6,8 @@ from pathlib import Path
 import pytest
 
 from acprof.container.download_model import verify_download
-from acprof.container.model_files import ModelFilesError, plan_download, seal_plan, validate_plan
+from acprof.models.download_plan import plan_download, seal_plan, validate_plan
+from acprof.models.files import ModelFilesError
 
 
 class TestModelFilePlan:

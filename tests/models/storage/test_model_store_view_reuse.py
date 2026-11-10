@@ -12,10 +12,10 @@ import pytest
 from textual.widgets import Input
 
 from acprof.container.download_model import verify_download
-from acprof.container.model_files import PLAN_FILENAME, plan_download, seal_plan
 from acprof.experiments.configuration import RunConfig
 from acprof.host.model_store import store as model_store
 from acprof.host.preparation.network_preflight import preflight
+from acprof.models.download_plan import PLAN_FILENAME, plan_download, seal_plan
 from acprof.network_policy import DownloadPolicyError
 from acprof.tui.experiments.picker import SearchPickerScreen
 from acprof.tui.models.candidates import cached_candidates

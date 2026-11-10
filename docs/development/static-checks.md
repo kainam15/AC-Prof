@@ -33,6 +33,14 @@ JSON 对象，不把 derivation、snapshot 或仅部分消费的历史 journal �
 证明后再窄化；阶段性字段使用 `NotRequired`，未完整验证的时间、模型及历史 metadata 保持
 `object`。类型声明不要求 flat 历史状态补造字段，复制和恢复继续保留未知字符串证据键。
 
+下载计划的受控生产者使用 `models/download_plan.py` 中的 `RepositoryFile`、`DownloadFile`、
+`DependencyPlan` 和 `DownloadPlan`，检查点规则使用 `models/files.py` 的 `Checkpoint`；
+这两个模块纳入增强 mypy 门禁。可选字段以 `NotRequired` 表达，文件大小缺键、`None` 与已知整数
+保持区别；普通计划与声明依赖的 `excluded_files` 分别保留文件记录列表和路径列表。
+`validate_plan()` 继续返回 `None`，只验证既有运行时契约；缓存 JSON 保留 `dict[str, Any]`，
+不据此声称完整 `DownloadPlan` 已被验证。规划规则、检查点规则和模型 spec 共用源码指纹清单，
+同时影响 Model Store key 与模型镜像身份；计划 JSON 格式及 `plan_sha256` 算法不变。
+
 `TypedDict` 在运行时仍是普通字典，`TypeGuard` 的声明也不会自动证明检查正确；
 输入边界必须先执行真实验证，不能依赖 `cast`、`Any`、忽略项或会在优化模式消失的
 `assert validator(...)` 来放行数据。语义见 [mypy TypedDict](https://mypy.readthedocs.io/en/stable/typed_dict.html)

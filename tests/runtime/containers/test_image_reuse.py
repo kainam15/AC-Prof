@@ -8,7 +8,6 @@ from unittest.mock import patch
 
 import pytest
 
-from acprof.container.model_files import seal_plan
 from acprof.host.detect import TaskInfo
 from acprof.host.images import runtime as runtime_images
 from acprof.host.images.runtime import (
@@ -17,6 +16,7 @@ from acprof.host.images.runtime import (
     build_fingerprint,
     request_fingerprint,
 )
+from acprof.models.download_plan import seal_plan
 
 
 def test_docker_inspection_supports_unlabeled_base_images():
