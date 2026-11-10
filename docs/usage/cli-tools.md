@@ -64,7 +64,9 @@ Windows/macOS 的离线命令不申请 Linux 专用锁；这不改变采集平�
 重复 `--left` / `--right` 可直接指定独立实验组，多个位置参数则分别作为单次来源，不自动合并独立样本。
 不递归扫描输入目录中的备份，源 CSV 保持不变。详细语义见[交互式配置比较报告](../results/reports.md#交互式配置比较报告)。
 
-`acprof plot` 接收结果 CSV 路径，`acprof tui` 可用 `--model` 预填模型、用 `--preset` 选择预设。
+`acprof plot` 接收实验目录、`result_layers.json` 或结果 CSV。缺少输入文件时返回 1，
+只输出含路径及检查建议的单行错误；测量锁冲突仍优先报告，未知解析/绘图异常和中断不被隐藏。
+`acprof tui` 可用 `--model` 预填模型、用 `--preset` 选择预设。
 `acprof audit <目录或 CSV>` 只读校验结果；`--json` 输出报告，`--require-complete --require-ok`
 用于验收新实验。`acprof stats <目录或 CSV>` 按测量窗口计算置信区间，支持重复 `--metric`、
 `--confidence`、`--resamples`、`--seed`、`--block-size`。可选 `--precision-target 0.05`

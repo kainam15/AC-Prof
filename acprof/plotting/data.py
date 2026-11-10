@@ -1,7 +1,6 @@
 """结果 CSV 整理、分组和基础聚合。"""
 
 import math
-import os
 from collections.abc import Sequence
 
 import numpy as np
@@ -18,6 +17,10 @@ from acprof.pixel_metrics import (
 from acprof.platform import recorded_identity
 from acprof.plotting.config import BYTES_PER_GIB, COMPUTE_NUMERIC_COLUMNS, PLOT_OUTPUT_DIRS
 from acprof.results.metrics import NUMERIC_FIELDS
+
+
+class PlotInputNotFound(FileNotFoundError):
+    """A missing result input, distinct from a renderer's internal resources."""
 
 
 def _make_config_label(row) -> str:
@@ -180,11 +183,14 @@ def prepare_df(
     only_ok: bool = True,
     exclude_warmup: bool = True,
 ) -> pd.DataFrame:
-    if not os.path.exists(csv_path):
-        raise FileNotFoundError(f"Cannot find {csv_path}")
-
     from acprof.results.csv import open_result_text
-    with open_result_text(csv_path) as stream:
+
+    try:
+        stream = open_result_text(csv_path)
+    except FileNotFoundError as exc:
+        # Translate only the input-open boundary; parser/renderer bugs propagate.
+        raise PlotInputNotFound(exc.errno, exc.strerror, exc.filename or csv_path) from exc
+    with stream:
         df = pd.read_csv(stream, skipinitialspace=True, float_precision="round_trip")
     df.columns = [str(col).strip() for col in df.columns]
     from acprof.results.csv import require_current_fields

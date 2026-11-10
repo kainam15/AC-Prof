@@ -47,6 +47,41 @@ def test_busy_plot_fails_before_importing_renderers_or_reading_input(tmp_path):
     assert not missing.parent.exists()
 
 
+@pytest.mark.parametrize("kind", ["missing", "empty-directory", "broken-symlink", "default"])
+def test_missing_plot_input_is_a_single_actionable_error(tmp_path, kind):
+    source = tmp_path / "missing-input"
+    if kind == "empty-directory":
+        source.mkdir()
+    elif kind == "broken-symlink":
+        source.symlink_to(tmp_path / "missing-target")
+    invocation = ["plot"] if kind == "default" else ["plot", str(source)]
+    result = _run_cli(tmp_path, invocation)
+    assert result.returncode == 1, result.stderr
+    assert "找不到输入" in result.stderr
+    assert "检查" in result.stderr
+    assert "Traceback" not in result.stderr
+    assert len(result.stderr.splitlines()) == 1
+    assert not list(tmp_path.rglob("*.png"))
+    with run_state.MeasurementLock():
+        pass
+
+
+@pytest.mark.parametrize("error", [ValueError("internal bug"), FileNotFoundError("renderer resource"), KeyboardInterrupt()])
+def test_unexpected_plot_errors_are_not_translated(tmp_path, monkeypatch, error):
+    from acprof.cli import plot
+    from acprof.plotting import pipeline
+
+    def fail(_source):
+        raise error
+
+    monkeypatch.setattr(pipeline, "plot_results", fail)
+    with pytest.raises(type(error)) as caught:
+        plot.main([str(tmp_path / "input.csv")])
+    assert caught.value is error
+    with run_state.MeasurementLock():
+        pass
+
+
 def test_help_works_during_measurement_without_loading_renderers(tmp_path):
     with run_state.MeasurementLock():
         result = _run_cli(tmp_path, ["plot", "--help"], check_imports=True)

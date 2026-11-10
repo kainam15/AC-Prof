@@ -26,9 +26,14 @@ def main(argv=None) -> int:
         except RunStateError as error:
             print(f"绘图失败：{error}", file=sys.stderr)
             return 1
+        from acprof.plotting.data import PlotInputNotFound
         from acprof.plotting.pipeline import plot_results
 
-        plot_results(args[0] if args else CSV_PATH)
+        try:
+            plot_results(args[0] if args else CSV_PATH)
+        except PlotInputNotFound as error:
+            print(f"绘图失败：找不到输入 {error.filename!r}；请检查结果路径或实验是否已生成结果。", file=sys.stderr)
+            return 1
     return 0
 
 
