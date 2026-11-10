@@ -317,6 +317,9 @@ class RunApplication:
         if args.runtime == "docker":
             args.cpus = "1,2,4,8" if args.cpus == "auto" else args.cpus
             args.mems = "2,4,8,16" if args.mems == "auto" else args.mems
+            # Auto selection/default resources must be checked before task resolution,
+            # downloads, run-state creation or readiness probes can have side effects.
+            replace(config, runtime="docker", cpus=args.cpus, mems=args.mems).validate()
         elif args.prune_startup_oom:
             print("[runtime] Startup OOM pruning is Docker-only; Process cases run independently")
             args.prune_startup_oom = False

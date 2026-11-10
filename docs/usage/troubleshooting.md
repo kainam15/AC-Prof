@@ -124,6 +124,13 @@ docker info
 
 ### 中断后残留容器或端口占用
 
+Docker 服务沿用 `8002 + cpu * 100 + mem` 的宿主端口映射，必须在 `1..65535` 内。
+明确的 Docker 资源在配置校验时拒绝越界；`runtime=auto` 或自动资源在选择 Docker 后、
+任务解析和准备之前再次校验，错误同时指向 `cpus` / `mems`。矩阵按 case 顺序执行，
+不同组合可以顺序复用同一端口，不要求整个矩阵的端口唯一；Process 的动态端口不受此限制。
+Docker 报告地址占用时，诊断保留原始错误，并附上具体映射及 `ss -ltnp` / `docker ps`
+检查建议；不会自动停止其他监听进程。端口是否可用仍以 Docker 实际绑定结果为准。
+
 `acprof run` 的 SIGTERM 按取消处理，展开当前 case 和实验状态的清理；清理完成后恢复原信号处理器。
 SIGKILL 无法执行 Python 清理。服务容器带有 `org.acprof.container.lifecycle=1` 及主机、用户、boot ID、
 PID、进程启动时间标签；下一次启动服务前会回收同机同用户且能确认主人进程已退出的容器。

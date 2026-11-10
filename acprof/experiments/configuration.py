@@ -229,6 +229,15 @@ class RunConfig(RunOptions):
             errors.extend(exc.issues)
             mems = []
 
+        if self.runtime == "docker" and cpus and mems:
+            from acprof.runtime.ports import service_port
+            try:
+                # Positive resources make the mapping monotonic; checking the largest
+                # pair covers the full matrix without forbidding sequential port reuse.
+                service_port(max(cpus), max(mems))
+            except ValueError as exc:
+                errors.extend(ConfigIssue(field, str(exc)) for field in ("cpus", "mems"))
+
         gpus = csv_values(self.gpus)
         if self.runtime not in {"auto", "docker", "process"}:
             errors.append(ConfigIssue("runtime", message("执行运行时必须是 auto、docker 或 process")))

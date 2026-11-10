@@ -35,6 +35,7 @@ from acprof.host.detect import TaskInfo
 from acprof.host.env_utils import hf_offline_docker_env_args
 from acprof.host.gpu_device import gpu_docker_args, resolve_gpu_device
 from acprof.host.images.runtime import ImageInfo
+from acprof.runtime.ports import service_port as service_port
 from acprof.runtime.settings import runtime_docker_env_args
 from acprof.system import command as host_command
 from acprof.system.command import DOCKER_RUN_TIMEOUT_S
@@ -125,10 +126,6 @@ def _cold_start_breakdown(
     }
 
 
-def service_port(cpu: int, mem: int) -> int:
-    return SERVER_PORT + cpu * 100 + mem
-
-
 def _launch_container(command: list[str], *, cidfile: Path | None = None) -> str:
     """Track ownership even if Docker creates a container but fails to start it."""
     if cidfile is None:
@@ -140,7 +137,18 @@ def _launch_container(command: list[str], *, cidfile: Path | None = None) -> str
             check=False, timeout=DOCKER_RUN_TIMEOUT_S,
         )
         if result.returncode != 0:
-            raise RuntimeError(f"docker run failed: {result.stderr.strip()}")
+            detail = result.stderr.strip()
+            error = RuntimeError(f"docker run failed: {detail}")
+            if '-p' in command and any(marker in detail.lower() for marker in (
+                'address already in use', 'port is already allocated',
+            )):
+                mapping = command[command.index('-p') + 1]
+                error.add_note(
+                    f"Host port conflict while publishing {mapping}; inspect host listeners "
+                    "with ss -ltnp and other containers with docker ps. "
+                    "Release the conflicting listener before retrying; AC-Prof will not stop it."
+                )
+            raise error
         identifier = result.stdout.strip()
         if not re.fullmatch(r"[0-9a-f]{64}", identifier):
             raise RuntimeError("docker run did not return an immutable container ID")
