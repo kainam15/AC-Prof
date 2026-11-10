@@ -39,26 +39,35 @@ assert "torch" not in sys.modules
 '''], text=True, capture_output=True)
     assert (result.returncode) == (0), result.stderr
 
-def test_selected_cpu_runtime_validation_needs_no_torch():
+def test_selected_cpu_runtime_validation_keeps_captured_adapter_without_torch():
     result = subprocess.run([sys.executable, '-c', '''
-import sys, types
-from contextlib import nullcontext
+import os, sys
 from unittest.mock import patch
 from acprof.container.runtime_validate import validate
-from acprof.container.handlers import BaseHandler
+from acprof.container.handlers import BaseHandler, HandlerRegistry
+from acprof.container.model_session import ModelLoadConfig
 class Handler(BaseHandler):
-    def load(self, *args): return {"task_type": "tabular-regression"}
+    def load(self, *args, adapter):
+        assert adapter == "family-default"
+        return {"task_type": "tabular-regression"}
     def preprocess(self, ctx, payload): return {"_effective_input_scale": 1}
     def predict(self, *args): return [[3.]]
     def postprocess(self, *args):
         return {"task": "tabular-regression", "output_type": "regression", "output_shape": [1,1], "n_results": 1}
-with patch("acprof.container.handlers.HandlerRegistry.get", return_value=Handler()):
+HandlerRegistry.register("structured", "onnxruntime", Handler, override=True)
+from_environment = ModelLoadConfig.from_environment
+def capture(**kwargs):
+    config = from_environment(**kwargs)
+    os.environ["ACPROF_MODEL_ADAPTER"] = "unselected-adapter"
+    return config
+with patch.object(ModelLoadConfig, "from_environment", side_effect=capture):
     result = validate({"input_scale": 1, "features": [[1., 2.]]})
 assert result["status"] == "ok"
 assert result["validation"]["protocol"]["status"] == "verified"
 assert "torch" not in sys.modules
 '''], env={**os.environ, 'TASK_FAMILY': 'structured', 'TASK_TYPE': 'tabular-regression',
       'RUNTIME_BACKEND': 'onnxruntime', 'MODEL_ID': 'local/fixture', 'MODEL_REVISION': 'fixture',
-      'USE_GPU': '0', 'ACPROF_MODEL_ADAPTER': 'family-default'},
-      text=True, capture_output=True)
+      'MODEL_LOCAL_PATH': '', 'USE_GPU': '0', 'ACPROF_MODEL_ADAPTER': 'family-default',
+      'ACPROF_RUNTIME_PROFILE': '', 'ACPROF_RUNTIME_THREADS': '1'},
+      text=True, capture_output=True, timeout=15)
     assert (result.returncode) == (0), result.stderr

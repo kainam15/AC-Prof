@@ -30,7 +30,7 @@ class TestONNXServerCompletion:
         events, entered = [], Event()
 
         class AsyncHandler(BaseHandler):
-            def load(self, *args):
+            def load(self, *args, adapter="family-default"):
                 return {'task_type': 'tabular-regression', 'device': 'cpu'}
 
             def preprocess(self, context, payload):

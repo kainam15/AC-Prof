@@ -21,7 +21,8 @@ from acprof.input_budget import positive_integer
 
 class ONNXRuntimeHandler(BaseHandler):
     def load(self, model_source: str, task_type: str, backend: str, device: str,
-             model_revision: str = 'main', load_options: dict | None = None) -> dict:
+             model_revision: str = 'main', load_options: dict | None = None,
+             *, adapter: str = 'family-default') -> dict:
         if backend != 'onnxruntime' or task_type not in {'tabular-regression', 'tabular-classification'}:
             raise ValueError('unsupported: ONNX Runtime extension accepts dense tabular tasks')
         context = load_session(model_source, task_type, backend, device, model_revision,

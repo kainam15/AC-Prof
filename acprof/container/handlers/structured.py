@@ -60,10 +60,11 @@ def dense_matrix(value: Any, feature_dim: int, name: str) -> np.ndarray:
 
 class StructuredHandler(BaseHandler):
     def load(self, model_source: str, task_type: str, backend: str, device: str,
-             model_revision: str = "main", load_options: dict[str, Any] | None = None) -> dict[str, Any]:
+             model_revision: str = "main", load_options: dict[str, Any] | None = None,
+             *, adapter: str = "family-default") -> dict[str, Any]:
         if task_type not in TASK_OUTPUT_TYPES:
             raise ValueError(f"unsupported structured task: {task_type!r}")
-        declaration = handler_declaration(task_type, backend)
+        declaration = handler_declaration(task_type, backend, adapter=adapter)
         options = declaration.handler_options
         tensor_inputs = options.get("tensor_inputs", False)
         if load_options:

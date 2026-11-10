@@ -55,18 +55,19 @@ class NLPHandler(BaseHandler):
         device: str,
         model_revision: str = "main",
         load_options: dict[str, Any] | None = None,
+        *, adapter: str = "family-default",
     ) -> dict[str, Any]:
-        encoder = handler_declaration(task_type, backend).handler_options.get("encoder", "")
+        encoder = handler_declaration(task_type, backend, adapter=adapter).handler_options.get("encoder", "")
         if encoder:
             from acprof.container.handlers.sentence_encoders import SentenceEncoderHandler
             delegate = SentenceEncoderHandler(encoder)
             context = delegate.load(model_source, task_type, backend, device, model_revision,
-                                    load_options=load_options)
+                                    load_options=load_options, adapter=adapter)
             context["_encoder_handler"] = delegate
             return context
 
         device_map = device if device == "cpu" else "auto"
-        policy = load_policy(model_source, task_type, backend, device, load_options)
+        policy = load_policy(model_source, task_type, backend, device, load_options, adapter=adapter)
         torch_dtype = policy["dtype"]
         pipeline_options = transformers_pipeline_load_kwargs(load_options)
         if backend == "transformers_model" and task_type in {"text2text-generation", "summarization", "translation"}:

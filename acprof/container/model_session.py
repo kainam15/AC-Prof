@@ -55,24 +55,15 @@ class ModelSession:
     device: str
 
 
-def _require_adapter(config: ModelLoadConfig) -> None:
-    # Handlers still read their adapter-specific declarations from the isolated
-    # process environment. Reject a stale selection instead of mixing identities.
-    if config.adapter != os.getenv("ACPROF_MODEL_ADAPTER", "family-default"):
-        raise ValueError("model adapter changed after configuration; reload the model configuration")
-
-
 def select_handler(config: ModelLoadConfig) -> BaseHandler:
     from acprof.container.handlers import HandlerRegistry
 
-    _require_adapter(config)
-    return HandlerRegistry.get(config.task_family, config.backend)
+    return HandlerRegistry.get(config.task_family, config.backend, adapter=config.adapter)
 
 
 def prepare_execution(config: ModelLoadConfig):
     from acprof.container.execution import configured_execution
 
-    _require_adapter(config)
     return configured_execution(
         config.task_family, config.backend, use_gpu=config.use_gpu,
         threads=config.threads, adapter=config.adapter,
@@ -87,12 +78,11 @@ def load_model_session(
     """Load once without initializing devices, inferring, validating or profiling."""
     from acprof.container.handlers import load_handler
 
-    _require_adapter(config)
     selected = handler if handler is not None else select_handler(config)
     source = config.resolve_source() if model_source is None else model_source
     options = {"load_options": load_options} if load_options is not None else {}
     context = load_handler(
         selected, source, config.task_type, config.backend, device,
-        config.model_revision, **options,
+        config.model_revision, adapter=config.adapter, **options,
     )
     return ModelSession(config, selected, context, execution, device)

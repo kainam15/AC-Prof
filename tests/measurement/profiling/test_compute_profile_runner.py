@@ -265,6 +265,43 @@ class TestComputeProfileRunnerITT:
         assert (result["status"]) == ("ok")
         assert (result["repeat"]) == (2)
 
+    @pytest.mark.parametrize("mode", ["cpu", "torch_eager_cpu"])
+    def test_profiler_keeps_captured_adapter_after_execution_changes_environment(self, mode):
+        from acprof.container.model_session import select_handler
+
+        handlers = importlib.import_module("acprof.container.handlers")
+        load_handler = handlers.load_handler
+        events, loaded = [], []
+        with self._main_context(mode, events) as (runner, stdout):
+            fixture_handler = runner.select_handler()
+            execution, device = runner.prepare_execution.return_value
+
+            class AdapterHandler(type(fixture_handler)):
+                def load(self, *args, adapter, **kwargs):
+                    context = super().load(*args, **kwargs)
+                    loaded.append(adapter)
+                    return context
+
+            def prepare(config):
+                runner.os.environ["ACPROF_MODEL_ADAPTER"] = "unregistered-later-adapter"
+                return execution, device
+
+            with patch.dict(handlers.HandlerRegistry._handlers), patch.object(
+                runner, "select_handler", select_handler,
+            ), patch.object(handlers, "load_handler", load_handler):
+                handlers.HandlerRegistry.register(
+                    "nlp", "transformers_pipeline", AdapterHandler, override=True,
+                )
+                runner.prepare_execution.side_effect = prepare
+                runner.main()
+
+        assert loaded == ["family-default"]
+        assert json.loads(stdout.getvalue())["status"] == "ok"
+        assert events == [
+            "load", "preprocess", "predict", "postprocess",
+            "capture_start", "predict", "predict", "capture_end",
+        ]
+
     @pytest.mark.parametrize('mode', ['cpu', 'gpu', 'torch_eager_cpu', 'torch_eager_gpu'])
     def test_completed_outputs_are_released_before_the_next_profiled_request(self, mode):
         class Output:

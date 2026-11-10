@@ -23,7 +23,7 @@ class TestRequestCompletion:
 
     def setup_backend(self, future, events, entered):
         class AsyncHandler(BaseHandler):
-            def load(self, *args):
+            def load(self, *args, adapter="family-default"):
                 return {'task_type': 'tabular-regression', 'device': 'cpu'}
 
             def preprocess(self, context, payload):

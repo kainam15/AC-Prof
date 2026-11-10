@@ -165,27 +165,29 @@ def test_model_revision_changes_image_identity():
     other = dataclasses.replace(task, model_revision="a" * 40)
     assert (runtime_images._model_image_tag(task)) != (runtime_images._model_image_tag(other))
 
-def test_explicit_adapter_is_used_by_all_container_entrypoints():
-    with patch.dict(os.environ, {"ACPROF_MODEL_ADAPTER": "moss-transcribe-diarize"}):
-        handler = HandlerRegistry.get("multimodal", "transformers_model")
+def test_explicit_adapter_selects_its_registered_handler_despite_environment():
+    with patch.dict(os.environ, {"ACPROF_MODEL_ADAPTER": "unselected-adapter"}):
+        handler = HandlerRegistry.get(
+            "multimodal", "transformers_model", adapter="moss-transcribe-diarize",
+        )
     assert (type(handler).__name__) == ("MossTranscribeDiarizeHandler")
 
 def test_unknown_explicit_adapter_cannot_fall_back():
-    with patch.dict(os.environ, {"ACPROF_MODEL_ADAPTER": "unknown-adapter"}):
-        with pytest.raises(ValueError, match="adapter"):
-            HandlerRegistry.get("multimodal", "transformers_model")
+    with patch.dict(os.environ, {"ACPROF_MODEL_ADAPTER": "family-default"}):
+        with pytest.raises(ValueError, match="unknown-adapter"):
+            HandlerRegistry.get("multimodal", "transformers_model", adapter="unknown-adapter")
 
 def test_new_adapter_registers_without_changing_family_routing():
     class ExampleAdapter:
         pass
 
-    with patch.dict(HandlerRegistry._adapters, clear=True), patch.dict(
-        os.environ, {"ACPROF_MODEL_ADAPTER": "example"},
-    ):
+    with patch.dict(HandlerRegistry._adapters, clear=True):
         HandlerRegistry.register_adapter("example", "multimodal", "transformers_model", ExampleAdapter)
-        assert isinstance(HandlerRegistry.get("multimodal", "transformers_model"), ExampleAdapter)
+        assert isinstance(
+            HandlerRegistry.get("multimodal", "transformers_model", adapter="example"), ExampleAdapter,
+        )
         with pytest.raises(ValueError, match="adapter"):
-            HandlerRegistry.get("nlp", "transformers_model")
+            HandlerRegistry.get("nlp", "transformers_model", adapter="example")
 
 def test_moss_default_workload_requests_timestamped_transcription():
     generator = get_generator(

@@ -12,25 +12,35 @@ RESULT_PREFIX = "ACPROF_INTERFACE_VALIDATION="
 
 
 def validate_interface(payload: dict) -> dict:
-    from acprof.container.handlers import HandlerRegistry, resolve_model_source
     from acprof.container.local_pipeline import load_local_pipeline_class
+    from acprof.container.model_session import ModelLoadConfig, select_handler
     from acprof.models.inspection.source import SOURCE_METADATA_FILES
     from acprof.models.spec import load_model_spec, pipeline_task
 
-    source = resolve_model_source(os.environ["MODEL_ID"])
-    task = os.environ["TASK_TYPE"]
-    config = json.loads((Path(source) / "config.json").read_text())
+    environment_keys = frozenset(os.environ)
+
+    def require_environment(*names):
+        for name in names:
+            if name not in environment_keys:
+                raise KeyError(name)
+
+    require_environment("MODEL_ID", "TASK_TYPE")
+    config = ModelLoadConfig.from_environment()
+    source = config.resolve_source()
+    task = config.task_type
+    metadata = json.loads((Path(source) / "config.json").read_text())
     auto_maps = [json.loads(path.read_text()).get("auto_map", {}) for name in SOURCE_METADATA_FILES
                 if (path := Path(source) / name).is_file()]
     checks: list[tuple[Any, tuple[Any, ...], dict[str, Any]]] = []
-    if config.get("custom_pipelines") or any(auto_maps):
+    if metadata.get("custom_pipelines") or any(auto_maps):
         from acprof.container.load_policy import registered_policy
         from acprof.failures import Failure, RuntimeFailure
-        profile, _, trust = registered_policy(task, os.environ["RUNTIME_BACKEND"], "cpu")
+        require_environment("RUNTIME_BACKEND")
+        profile, _, trust = registered_policy(task, config.backend, "cpu", adapter=config.adapter)
         if not trust:
             raise RuntimeFailure(Failure("import", "remote_code_disallowed", "Interface inspection requires a registered remote-code policy",
                                          "cpu", profile.profile_id))
-    if config.get("custom_pipelines"):
+    if metadata.get("custom_pipelines"):
         spec = load_model_spec(source, task, expected_format="transformers-pipeline")
         pipeline_class = load_local_pipeline_class(source, pipeline_task(source, task))
         params = {"max_new_tokens": 1, "do_sample": False, **payload.get("params", {})}
@@ -42,9 +52,11 @@ def validate_interface(payload: dict) -> dict:
                                             ("postprocess", (None, {}), {})):
             checks.append((getattr(pipeline_class, method), arguments, keywords))
     else:
-        handler = HandlerRegistry.get(os.environ["TASK_FAMILY"], os.environ["RUNTIME_BACKEND"])
+        require_environment("TASK_FAMILY", "RUNTIME_BACKEND", "MODEL_REVISION")
+        handler = select_handler(config)
+        checks.append((handler.load, (source, task, config.backend, "cpu", config.model_revision),
+                       {"adapter": config.adapter}))
         checks.extend((getattr(handler, method), arguments, {}) for method, arguments in (
-            ("load", (source, task, os.environ["RUNTIME_BACKEND"], "cpu", os.environ["MODEL_REVISION"])),
             ("preprocess", ({}, {})), ("predict", ({}, {})), ("postprocess", ({}, {})),
             ("validate_output", ({}, {}, {}, {}, {})),
         ))

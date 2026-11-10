@@ -28,13 +28,14 @@ class CVHandler(BaseHandler):
         device: str,
         model_revision: str = "main",
         load_options: dict[str, Any] | None = None,
+        *, adapter: str = "family-default",
     ) -> dict[str, Any]:
         from transformers import pipeline as hf_pipeline
 
         device_map = device if device == "cpu" else "auto"
-        policy = load_policy(model_source, task_type, backend, device, load_options)
+        policy = load_policy(model_source, task_type, backend, device, load_options, adapter=adapter)
         if task_type in {"video-classification", "keypoint-detection"}:
-            return self._load_direct(model_source, task_type, device, model_revision, load_options)
+            return self._load_direct(model_source, task_type, device, model_revision, load_options, adapter=adapter)
 
         pipe = hf_pipeline(
             task=pipeline_task(model_source, task_type),
@@ -54,10 +55,11 @@ class CVHandler(BaseHandler):
         }
 
     def _load_direct(self, model_source: str, task_type: str, device: str,
-                     model_revision: str, load_options: dict[str, Any] | None) -> dict[str, Any]:
+                     model_revision: str, load_options: dict[str, Any] | None,
+                     *, adapter: str = "family-default") -> dict[str, Any]:
         from transformers import AutoConfig, AutoImageProcessor, AutoModelForVideoClassification
 
-        policy = load_policy(model_source, task_type, "transformers_model", device, load_options)
+        policy = load_policy(model_source, task_type, "transformers_model", device, load_options, adapter=adapter)
         revision = model_revision_kwargs(model_source, model_revision)
         options = transformers_pipeline_load_kwargs(load_options).get("model_kwargs", {})
         config = AutoConfig.from_pretrained(model_source, **revision, trust_remote_code=policy["trust_remote_code"])

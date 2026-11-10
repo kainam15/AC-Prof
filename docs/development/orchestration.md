@@ -428,9 +428,40 @@ profile 选择按任务／架构匹配已锁定环境，平台切换保留版本
 `runtime_validate` 继续拥有各阶段事件、必填配置检查和输出质量门禁；
 `compute_profile_runner` 继续拥有 profiler 支持检查、专用 `load_options`、warmup 与采集窗口。
 三个入口只共享加载组装，正式 HTTP 请求仍按 preprocess → predict → completion → postprocess
-执行。Handler 内部仍按隔离进程环境读取 adapter 声明，因此组装时拒绝配置与当前环境中的
-adapter 不一致；该边界不提供单进程任意切换 adapter 的能力。应用会话可独立注入，
-请求完成超时等进程级设置仍由现有 runtime settings 管理。
+执行。应用会话可独立注入，请求完成超时等进程级设置仍由现有 runtime settings 管理。
+
+**模型适配器身份。** `ModelLoadConfig.from_environment()` 是服务、独立 runtime validation、
+compute profiler 和 model probe 的环境配置入口；未指定 adapter 时采用 `family-default`。
+直接构造 `ModelLoadConfig(adapter=...)` 使用显式值，构造时省略 adapter 也采用该默认值。
+配置形成后，`select_handler`、`HandlerRegistry.get`、`prepare_execution`、`load_model_session`、
+`load_handler`、`handler_declaration` 和 `registered_policy/load_policy` 都使用同一显式 adapter。
+之后仅改变 `ACPROF_MODEL_ADAPTER` 不会重新路由、替换缓存项或令已捕获配置失效；
+未知 adapter 明确失败，不回退默认 handler。直接调用下游 API 时同样省略即默认，不再隐式读取环境。
+
+`BaseHandler.load` 及各任务族 loader 以 keyword-only `adapter` 接收身份；NLP 到句向量
+委托、CV direct loader、Audio codec 等辅助路径也显式传递。这个参数由 AC-Prof 自身消费，
+不放入 `load_options`，也不透传 Transformers、Torch、Diffusers、ONNX Runtime 等第三方接口。
+interface probe 只核验导入和签名，包括 handler 的 adapter keyword，不执行模型加载或推理。
+
+注册表保留原有默认键 `family:backend` 和专用键 `(adapter, family, backend)`；
+同键复用无会话状态的 handler，不同 adapter 隔离。重复注册默认拒绝，`override=True`
+替换包括已缓存实例在内的旧注册项。惰性导入和构造成功后才缓存实例，失败保留原异常链，
+可在依赖修复后重试；模型、设备、权重及一次加载的上下文由各自 `ModelSession.context`
+持有，不写入共享 handler 实例。
+
+显式 adapter 不代表实际运行制品已经匹配。`load_handler` 在调用模型 loader 前执行
+`registered_policy`，包括无需 Torch 的 handler；仍校验 runtime profile 的 family、adapter
+及远程代码权限，Torch loader 继续检查已安装依赖版本。环境中的
+`ACPROF_RUNTIME_PROFILE` 代表独立准备的运行配置，不被显式 adapter 覆盖。
+构建入口 `runtime_manifest` 保留环境读取及下载计划、Model Store 和依赖身份校验；
+主机镜像准备继续核对 manifest、标签、下载计划和不可变制品身份。三者分别属于构建、
+服务配置捕获与模型加载边界，不重扫启动时权重，也不更改 manifest schema、指纹或恢复身份。
+
+此设计借鉴 [Transformers Auto 工厂的显式配置与惰性映射](https://github.com/huggingface/transformers/blob/863d2620210d72fc0a9a03fdfe200bc9699154f6/src/transformers/models/auto/auto_factory.py)
+（Apache-2.0）与 [pluggy 的重复注册检查及验证后发布](https://github.com/pytest-dev/pluggy/blob/9d5cfafe1a476be5376449e653970733955533f2/src/pluggy/_manager.py)
+（MIT），沿用现有 registry 和四阶段协议，不引入新框架。离线 fixture 与真实 Python
+子进程覆盖配置后环境漂移、交错会话、缓存覆盖、失败重试及四类入口；这些证据不代替
+真实 checkpoint、Docker/GPU 或硬件性能验收，正式测量窗口不增加检查。
 应用构造方式参考 [Flask application factories](https://flask.palletsprojects.com/en/stable/patterns/appfactories/)，
 沿用现有 Flask 和四阶段 Handler，不增加依赖或新的适配器框架。
 

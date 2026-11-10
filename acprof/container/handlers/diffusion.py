@@ -640,6 +640,7 @@ class DiffusionHandler(BaseHandler):
         device: str,
         model_revision: str = "main",
         load_options: dict[str, Any] | None = None,
+        *, adapter: str = "family-default",
     ) -> dict[str, Any]:
         task = _canonical_task(task_type)
         if task not in {"text-to-image", "image-text-to-image", "image-text-to-video", *NATIVE_TASKS}:
@@ -651,7 +652,7 @@ class DiffusionHandler(BaseHandler):
 
         from diffusers import DiffusionPipeline
 
-        policy = load_policy(model_source, task_type, backend, device, load_options)
+        policy = load_policy(model_source, task_type, backend, device, load_options, adapter=adapter)
         torch_dtype = policy["dtype"]
         pipe = DiffusionPipeline.from_pretrained(
             model_source,

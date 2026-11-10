@@ -22,6 +22,7 @@ class ChronosHandler(BaseHandler):
         device: str,
         model_revision: str = "main",
         load_options: dict[str, Any] | None = None,
+        *, adapter: str = "family-default",
     ) -> dict[str, Any]:
         from acprof.container.load_policy import load_policy
 
@@ -44,7 +45,7 @@ class ChronosHandler(BaseHandler):
 
         from chronos import BaseChronosPipeline
 
-        policy = load_policy(model_source, task_type, backend, device, load_options)
+        policy = load_policy(model_source, task_type, backend, device, load_options, adapter=adapter)
         pipeline = BaseChronosPipeline.from_pretrained(
             model_source,
             **model_revision_kwargs(model_source, model_revision),
@@ -162,6 +163,7 @@ class TimeseriesTransformersHandler(BaseHandler):
         device: str,
         model_revision: str = "main",
         load_options: dict[str, Any] | None = None,
+        *, adapter: str = "family-default",
     ) -> dict[str, Any]:
         raise ValueError(
             "time-series-forecasting currently supports Chronos/ChronosBolt with backend='chronos'; "

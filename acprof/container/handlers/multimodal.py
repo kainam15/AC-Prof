@@ -128,12 +128,13 @@ class MultimodalHandler(BaseHandler):
         device: str,
         model_revision: str = "main",
         load_options: dict[str, Any] | None = None,
+        *, adapter: str = "family-default",
     ) -> dict[str, Any]:
         import transformers
 
         if task_type not in _TASKS:
             raise ValueError(f"unsupported multimodal task: {task_type}")
-        declaration = handler_declaration(task_type, backend)
+        declaration = handler_declaration(task_type, backend, adapter=adapter)
         attention_options = transformers_pipeline_load_kwargs(load_options)
         if task_type == "any-to-any" and attention_options:
             raise RuntimeError(
@@ -141,7 +142,7 @@ class MultimodalHandler(BaseHandler):
                 "token2wav requires SDPA and cannot verify all-eager attention; "
                 "normal inference and vendor profilers remain available"
             )
-        policy = load_policy(model_source, task_type, backend, device, load_options)
+        policy = load_policy(model_source, task_type, backend, device, load_options, adapter=adapter)
         source_kwargs = {
             **model_revision_kwargs(model_source, model_revision),
             "trust_remote_code": policy["trust_remote_code"],

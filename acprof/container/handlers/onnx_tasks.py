@@ -79,7 +79,8 @@ class _ClassificationHandler(BaseHandler):
 
 class ONNXImageClassificationHandler(_ClassificationHandler):
     def load(self, model_source: str, task_type: str, backend: str, device: str,
-             model_revision: str = 'main', load_options: dict | None = None) -> dict:
+             model_revision: str = 'main', load_options: dict | None = None,
+             *, adapter: str = 'family-default') -> dict:
         if task_type != 'image-classification':
             raise ValueError('unsupported: ONNX image adapter supports image-classification')
         context = self._load(model_source, task_type, backend, device, model_revision, load_options)
@@ -159,7 +160,8 @@ class ONNXTextClassificationHandler(_ClassificationHandler):
     output_type = 'label'
 
     def load(self, model_source: str, task_type: str, backend: str, device: str,
-             model_revision: str = 'main', load_options: dict | None = None) -> dict:
+             model_revision: str = 'main', load_options: dict | None = None,
+             *, adapter: str = 'family-default') -> dict:
         from tokenizers import Tokenizer
 
         if task_type != 'text-classification':

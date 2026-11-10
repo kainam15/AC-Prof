@@ -19,6 +19,7 @@ class MossTranscribeDiarizeHandler(MultimodalHandler):
     def load(
         self, model_source: str, task_type: str, backend: str, device: str,
         model_revision: str = "main", load_options: dict[str, Any] | None = None,
+        *, adapter: str = "family-default",
     ) -> dict[str, Any]:
         from transformers import AutoModelForCausalLM, AutoProcessor
 
@@ -30,7 +31,7 @@ class MossTranscribeDiarizeHandler(MultimodalHandler):
         config = json.loads((source / "config.json").read_text())
         if config.get("model_type") != "moss_transcribe_diarize":
             raise ValueError("MOSS adapter received an incompatible model_type")
-        policy = load_policy(model_source, task_type, backend, device, load_options)
+        policy = load_policy(model_source, task_type, backend, device, load_options, adapter=adapter)
         attention = transformers_pipeline_load_kwargs(load_options).get("model_kwargs", {})
         attention.setdefault("attn_implementation", "sdpa")
         dtype = policy["dtype"]

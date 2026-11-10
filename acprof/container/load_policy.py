@@ -15,14 +15,16 @@ from acprof.runtime.profiles import DEFAULT_PROFILES, PROFILES, locked_transform
 CONTAINER_REQUIREMENTS_LOCK = Path("/opt/acprof/requirements.lock")
 
 
-def registered_policy(task, backend, device, load_options=None):
+def registered_policy(task, backend, device, load_options=None, *, adapter: str = "family-default"):
     family = CATALOG.task_families[task]
-    adapter = os.getenv("ACPROF_MODEL_ADAPTER", "family-default")
     extension = CATALOG.get_extension(family, backend, adapter, task)
     profile_id = os.getenv("ACPROF_RUNTIME_PROFILE") or extension.profile or DEFAULT_PROFILES[(family, "cpu" if device == "cpu" else "cu128")]
     profile = PROFILES[profile_id]
     if profile.family != family or profile.adapter != adapter:
-        raise ValueError(f"runtime profile {profile_id} does not match {family}/{adapter}")
+        raise ValueError(
+            f"runtime profile {profile_id} does not match {family}/{adapter}; "
+            f"profile declares {profile.family}/{profile.adapter}; use a matching runtime profile/artifact"
+        )
     options = dict(load_options or {})
     trust = remote_code_allowed(profile, extension)
     requested_trust = options.get("trust_remote_code", trust)
@@ -32,10 +34,10 @@ def registered_policy(task, backend, device, load_options=None):
     return profile, extension, requested_trust
 
 
-def load_policy(model_source, task, backend, device, load_options=None):
-    import torch
+def load_policy(model_source, task, backend, device, load_options=None, *, adapter: str = "family-default"):
+    profile, extension, trust = registered_policy(task, backend, device, load_options, adapter=adapter)
 
-    profile, extension, trust = registered_policy(task, backend, device, load_options)
+    import torch
     config_file = Path(model_source) / "config.json"
     config = json.loads(config_file.read_text()) if config_file.is_file() else {}
     options = dict(load_options or {})

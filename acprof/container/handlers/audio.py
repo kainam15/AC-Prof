@@ -62,16 +62,17 @@ class AudioHandler(BaseHandler):
         device: str,
         model_revision: str = "main",
         load_options: dict[str, Any] | None = None,
+        *, adapter: str = "family-default",
     ) -> dict[str, Any]:
         if task_type == "voice-activity-detection":
             return self._load_vad(model_source, device, model_revision, load_options)
         if task_type == "audio-to-audio":
-            return self._load_codec(model_source, device, model_revision, load_options)
+            return self._load_codec(model_source, device, model_revision, load_options, adapter=adapter)
         if task_type not in _ASR_TASK_TYPES | _TEXT_AUDIO_TASK_TYPES | {"audio-classification"}:
             raise ValueError(f"unsupported audio task: {task_type}")
         from transformers import pipeline as hf_pipeline
 
-        policy = load_policy(model_source, task_type, backend, device, load_options)
+        policy = load_policy(model_source, task_type, backend, device, load_options, adapter=adapter)
         if task_type in _TEXT_AUDIO_TASK_TYPES:
             from transformers import AutoConfig
 
@@ -141,11 +142,12 @@ class AudioHandler(BaseHandler):
     def _load_codec(
         model_source: str, device: str, model_revision: str,
         load_options: dict[str, Any] | None,
+        *, adapter: str = "family-default",
     ) -> dict[str, Any]:
         import transformers
 
         revision = model_revision_kwargs(model_source, model_revision)
-        policy = load_policy(model_source, "audio-to-audio", "transformers_model", device, load_options)
+        policy = load_policy(model_source, "audio-to-audio", "transformers_model", device, load_options, adapter=adapter)
         config = transformers.AutoConfig.from_pretrained(model_source, **revision, trust_remote_code=policy["trust_remote_code"])
         model_class = _CODEC_MODEL_TYPES.get(config.model_type)
         if model_class is None:

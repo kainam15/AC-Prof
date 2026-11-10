@@ -79,8 +79,9 @@ class BaseHandler(ABC):
         device: str,
         model_revision: str = "main",
         load_options: dict[str, Any] | None = None,
+        *, adapter: str = "family-default",
     ) -> dict[str, Any]:
-        """Load model, return model_ctx dict containing model, tokenizer, processor, device, etc."""
+        """Load with an explicit adapter; keep per-session state in the returned context."""
 
     @abstractmethod
     def preprocess(self, model_ctx: dict[str, Any], raw_input: dict[str, Any]) -> Any:
@@ -135,22 +136,30 @@ class HandlerInitializationError(HandlerRegistrationError):
     pass
 
 
-def handler_declaration(task_type: str, backend: str):
+def handler_declaration(task_type: str, backend: str, *, adapter: str = "family-default"):
     from acprof.extensions import CATALOG
     return CATALOG.get_extension(
         CATALOG.task_families.get(task_type, ""), backend,
-        os.getenv("ACPROF_MODEL_ADAPTER", "family-default"), task_type,
+        adapter, task_type,
     )
 
 
 def load_handler(handler: BaseHandler, model_source: str, task_type: str, backend: str,
-                 device: str, model_revision: str = "main", **load_kwargs: Any) -> dict[str, Any]:
+                 device: str, model_revision: str = "main", *, adapter: str = "family-default",
+                 **load_kwargs: Any) -> dict[str, Any]:
     """Keep dependency failures during model loading as explicit as lazy import failures."""
     module_name = type(handler).__module__
     try:
+        from acprof.container.load_policy import registered_policy
         from acprof.container.loading_quality import capture_loading_quality
+
+        # Validate the runtime identity even for handlers without a Torch load policy.
+        registered_policy(task_type, backend, device, load_kwargs.get("load_options"), adapter=adapter)
         with capture_loading_quality(backend) as checks:
-            context = handler.load(model_source, task_type, backend, device, model_revision, **load_kwargs)
+            context = handler.load(
+                model_source, task_type, backend, device, model_revision,
+                adapter=adapter, **load_kwargs,
+            )
     except HandlerRegistrationError:
         raise
     except ModuleNotFoundError as exc:
@@ -175,7 +184,7 @@ def load_handler(handler: BaseHandler, model_source: str, task_type: str, backen
     if not isinstance(context, dict):
         raise HandlerInitializationError(f"backend: {backend}; module: {module_name}; handler.load must return a dict")
     context["quality_checks"] = [*context.get("quality_checks", []), *checks]
-    declaration = handler_declaration(task_type, backend)
+    declaration = handler_declaration(task_type, backend, adapter=adapter)
     model_spec_format = declaration.handler_options.get("model_spec_format")
     if model_spec_format:
         from acprof.models.spec import load_model_spec
@@ -234,8 +243,7 @@ class HandlerRegistry:
         cls._register(key, _LazyHandler(entrypoint), adapter=adapter != "family-default", override=override)
 
     @classmethod
-    def get(cls, task_family: str, backend: str) -> BaseHandler:
-        adapter = os.getenv("ACPROF_MODEL_ADAPTER", "family-default")
+    def get(cls, task_family: str, backend: str, *, adapter: str = "family-default") -> BaseHandler:
         target = cls._handlers if adapter == "family-default" else cls._adapters
         with cls._lock:
             selected = (cls._handlers.get(f"{task_family}:{backend}")

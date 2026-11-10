@@ -231,6 +231,26 @@ class TestPrepareImage:
             runtime_images.prepare_image(self.task, self.project_dir)
         build.assert_not_called()
 
+    @pytest.mark.parametrize("boundary", ["manifest_adapter", "manifest_profile", "label", "download_plan"])
+    def test_adapter_identity_mismatch_is_rejected_before_reuse(self, boundary):
+        if boundary == "manifest_adapter":
+            self.manifest["adapter"] = "different-adapter"
+        elif boundary == "manifest_profile":
+            self.manifest["profile_id"] = "different-profile"
+        elif boundary == "label":
+            self.labels["org.acprof.model-adapter"] = "different-adapter"
+        else:
+            self.manifest["model_download"]["adapter"] = "different-adapter"
+            seal_plan(self.manifest["model_download"])
+
+        with patch("acprof.system.command.run_command", side_effect=self.existing_image), patch(
+            "acprof.host.images.runtime.build_runtime_image",
+            side_effect=AssertionError("an identity mismatch must not trigger a build"),
+        ) as build, pytest.raises(RuntimeError, match="适配器|profile|adapter"):
+            runtime_images.prepare_image(self.task, self.project_dir)
+
+        build.assert_not_called()
+
     def test_python310_manifest_cannot_reuse_python312_identity(self):
         self.manifest["python_version"] = "3.10.21"
         with patch("acprof.system.command.run_command", side_effect=self.existing_image), patch(

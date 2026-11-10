@@ -32,8 +32,9 @@ class SentenceEncoderHandler(BaseHandler):
     def load(
         self, model_source: str, task_type: str, backend: str, device: str,
         model_revision: str = "main", load_options: dict[str, Any] | None = None,
+        *, adapter: str = "family-default",
     ) -> dict[str, Any]:
-        policy = load_policy(model_source, task_type, backend, device, load_options)
+        policy = load_policy(model_source, task_type, backend, device, load_options, adapter=adapter)
         options = transformers_pipeline_load_kwargs(load_options)
         if self._encoder == "sentence":
             from sentence_transformers import SentenceTransformer as Encoder
