@@ -11,7 +11,10 @@ from acprof.host.automation import AutomaticRun
 from acprof.host.detect import TaskInfo
 from acprof.host.doctor import DoctorCheck
 from acprof.host.images.runtime import ImageInfo
+from acprof.host.input_plan import PlannedInputScales
 from acprof.host.matrix_plan import freeze_matrix_plan, matrix_identity
+from acprof.host.run_state import RunState, RunStateError, load_run_state
+from acprof.results.layout import ArtifactLayout
 
 REVISION = "a" * 40
 IMAGE_ID = "sha256:" + "b" * 64
@@ -73,24 +76,41 @@ def historical_task():
     }
 
 
+def frozen_historical_layout(root, task, monkeypatch):
+    """Build valid state through the public writer, retaining literal old TaskInfo."""
+    monkeypatch.setattr("acprof.host.run_state.host_identity", lambda _: {})
+    options = {"profiling_mode": "basic", "cpus": "1", "mems": "4", "gpus": "off", "warmup": 0, "repeat": 1}
+    state = RunState(root, options, resume=False, project_dir=".")
+    try:
+        state.bind_runtime(TaskInfo(**task), ImageInfo(IMAGE_ID),
+                           PlannedInputScales([1.0], "fixture"), "", "")
+    finally:
+        state.close("failed")
+    path = state.layout.path("run_state.json")
+    snapshot = json.loads(path.read_text())
+    # Do not let current dataclass defaults rewrite the historical source evidence.
+    snapshot["runtime"]["task"] = copy.deepcopy(task)
+    path.write_text(json.dumps(snapshot))
+    assert load_run_state(root)["runtime"]["task"] == task
+    return state.layout
+
+
 @pytest.mark.parametrize("grouped", [False, True])
 def test_automatic_resume_preserves_historical_decision_without_resolving(
         tmp_path, monkeypatch, historical_task, grouped):
     root = tmp_path / "example--model"
     root.mkdir()
-    (root / "auto_report.json").write_text(json.dumps({
-        "schema_version": 1, "requested_profiling_mode": "basic", "status": "failed",
-    }))
     if grouped:
         state_path = root / "metadata" / "task_runs" / "frozen.json"
         state_path.parent.mkdir(parents=True)
         state_path.write_text(json.dumps({"schema_version": 1, "task_snapshot": historical_task}))
     else:
-        state_path = root / "run_state.json"
-        state_path.write_text(json.dumps({
-            "schema_version": 1, "runtime": {"task": historical_task},
-            "options": {"profiling_mode": "basic"},
-        }))
+        layout = frozen_historical_layout(root, historical_task, monkeypatch)
+        state_path = layout.path("run_state.json")
+    layout = ArtifactLayout.discover(root)
+    layout.path("auto_report.json").write_text(json.dumps({
+        "schema_version": 1, "requested_profiling_mode": "basic", "status": "failed",
+    }))
     original = state_path.read_bytes()
     expected = copy.deepcopy(historical_task["model_resolution"]["provenance"])
     for target in (
@@ -109,9 +129,32 @@ def test_automatic_resume_preserves_historical_decision_without_resolving(
     assert restored.model_source == "huggingface"
     assert restored.model_resolution["provenance"] == expected
     assert args.resolution_identity == expected["identity_sha256"]
-    saved = json.loads((root / "model_resolution.json").read_text())
+    saved = json.loads(layout.path("model_resolution.json").read_text())
     assert saved["provenance"] == expected
     assert state_path.read_bytes() == original
+
+
+def test_automatic_resume_rejects_missing_identity_before_writes(tmp_path, monkeypatch, historical_task):
+    root = tmp_path / "example--model"
+    layout = frozen_historical_layout(root, historical_task, monkeypatch)
+    state_path = layout.path("run_state.json")
+    snapshot = json.loads(state_path.read_text())
+    del snapshot["run_id"]
+    state_path.write_text(json.dumps(snapshot))
+    layout.path("auto_report.json").write_text(json.dumps({
+        "schema_version": 1, "requested_profiling_mode": "basic", "status": "failed",
+    }))
+    before = {path.relative_to(root): path.read_bytes() for path in root.rglob("*") if path.is_file()}
+    access = Mock(side_effect=AssertionError("invalid resume must not query the repository"))
+    monkeypatch.setattr("acprof.host.automation.check_repository_access", access)
+    args = Namespace(model="example/model", output_dir=str(tmp_path), resume=True, revision=None,
+                     profiling_mode="basic", batch_size=1, gpus="off", sniff_iface="docker0")
+    run = AutomaticRun(args)
+    with pytest.raises(RunStateError, match="run_id"):
+        run.prepare()
+    access.assert_not_called()
+    assert not run.started
+    assert {path.relative_to(root): path.read_bytes() for path in root.rglob("*") if path.is_file()} == before
 
 
 @pytest.mark.parametrize("payload", [
