@@ -12,7 +12,7 @@ from acprof.application.notifications import RunNotifications
 from acprof.application.outcome import RunOutcome
 from acprof.application.preparation import prepare_runtime
 from acprof.application.publication import publish_matrix_results, publish_run_reports
-from acprof.application.resources import resource_matrix
+from acprof.application.resources import resolve_runtime_options, resource_matrix
 from acprof.application.terminal_log import (
     format_run_command,
     start_terminal_log,
@@ -281,7 +281,7 @@ class RunApplication:
     def _execute(self, config: RunConfig, *, prepared_task=None,
                  preparation_artifacts=None, command: str, task_child: bool = False) -> RunOutcome:
         start_time = time.perf_counter()
-        args, latency_slo_rules, dram_enabled = self._validate_execution_options(config)
+        requested_args, latency_slo_rules, dram_enabled = self._validate_execution_options(config)
         run_command = command
         terminal_output_dir = str(config.result_dir(Path.cwd()))
 
@@ -294,36 +294,25 @@ class RunApplication:
             PreparationWorkflow,
             RebuildEnvironment,
         )
-        workflow = self.workflow_factory(args.output_dir) if self.workflow_factory else PreparationWorkflow.from_environment(args.output_dir)
+        workflow = self.workflow_factory(requested_args.output_dir) if self.workflow_factory else PreparationWorkflow.from_environment(requested_args.output_dir)
         workflow.continue_on_task_failure = task_child
 
         from acprof.results.layout import ArtifactLayout
         has_run_state = ArtifactLayout.discover(terminal_output_dir).path("run_state.json").exists()
-        saved_run = load_run_state(terminal_output_dir) if args.resume and has_run_state else None
+        saved_run = load_run_state(terminal_output_dir) if requested_args.resume and has_run_state else None
         frozen_runtime = saved_run.get("runtime") if saved_run is not None else None
         collection = None
-        if args.resume and not saved_run and not task_child:
+        if requested_args.resume and not saved_run and not task_child:
             from acprof.application.task_runs import TaskCollection
             collection = TaskCollection.restore(config)
             prepared_task = collection.task
-        from acprof.host.runtimes.selection import require_runtime_requests, select_runtime
-        requested_runtime = args.runtime
-        if args.resume and requested_runtime == "auto":
-            requested_runtime = frozen_runtime.get("kind", "docker") if frozen_runtime is not None else "docker"
-        selection = select_runtime(requested_runtime, profiling_mode=args.profiling_mode)
-        args.runtime = selection.selected
-        args.runtime_selection = selection.to_dict()
-        require_runtime_requests(args)
-        if args.runtime == "docker":
-            args.cpus = "1,2,4,8" if args.cpus == "auto" else args.cpus
-            args.mems = "2,4,8,16" if args.mems == "auto" else args.mems
-            # Auto selection/default resources must be checked before task resolution,
-            # downloads, run-state creation or readiness probes can have side effects.
-            replace(config, runtime="docker", cpus=args.cpus, mems=args.mems).validate()
-        elif args.prune_startup_oom:
+        args = resolve_runtime_options(
+            config, requested_args,
+            recorded_runtime=frozen_runtime.get("kind", "docker") if frozen_runtime is not None else "docker",
+        )
+        if requested_args.prune_startup_oom and not args.prune_startup_oom:
             print("[runtime] Startup OOM pruning is Docker-only; Process cases run independently")
-            args.prune_startup_oom = False
-        print(f"[runtime] {selection.selected}: {selection.reason}")
+        print(f"[runtime] {args.runtime}: {args.runtime_selection['reason']}")
         if frozen_runtime is not None:
             from acprof.host.detect import TaskInfo
             task_snapshot = frozen_runtime["task"]

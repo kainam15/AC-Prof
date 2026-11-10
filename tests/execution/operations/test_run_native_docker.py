@@ -102,24 +102,6 @@ def test_terminal_log_finalization_syncs_file_and_directory() -> None:
         assert not os.path.exists(partial_path)
         assert fsync.call_count >= 2
 
-def test_application_finalizes_tmux_log_when_profiling_raises() -> None:
-    from acprof.experiments.configuration import RunConfig
-    terminal_log = ("%3", "/tmp/tmux_all.log.part", "/tmp/tmux_all.log")
-    stop_log = Mock(return_value=True)
-    application = run.RunApplication(terminal_stop=stop_log)
-
-    def fail_after_starting_log(*args, **kwargs):
-        application.terminal_log = terminal_log
-        raise RuntimeError("profiling failed")
-
-    with patch.object(application, "_execute", side_effect=fail_after_starting_log):
-        with pytest.raises(RuntimeError, match="profiling failed"):
-            application.run(RunConfig.smoke("fixture/model"))
-
-    stop_log.assert_called_once_with(terminal_log)
-    assert application.terminal_log is None
-
-
 class TestNativeDockerGuard:
     @pytest.fixture(autouse=True)
     def _setup(self, request, tmp_path, monkeypatch):

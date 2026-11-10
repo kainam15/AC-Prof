@@ -279,6 +279,29 @@ Docker 实现保持既有镜像准备和不可变镜像身份校验。
 `_execute()` 只串联执行选项校验、任务集合分派、主机预检、准备、矩阵执行和结果发布；
 `_collect_matrix()` 消费单一 `MatrixRequest`，`application.publication.publish_matrix_results()` 负责
 capability 校验、CSV 合并、RunState 完成、清理及自动统计 JSON 发布，task child 继续使用同一 `_finalize()` 所有权和异常优先级。
+
+**运行阶段边界。** `application.resources.resolve_runtime_options()` 接收经校验、环境配置后的
+请求 Namespace 和已记录的 runtime kind，返回新的执行 Namespace；不原位改写请求的
+`runtime/cpus/mems/prune_startup_oom`。这是顶层标量选项的阶段拷贝，不是任意嵌套对象的深冻结。
+Docker 默认资源轴在同模块声明一次；Process 保持 auto/inherited 语义。恢复 auto 继续使用
+冻结 runtime，显式选择和错误优先级不变。未知字段和环境配置附加信息原样转交后续阶段。
+
+| 路径 | 可观察阶段与所有权 |
+| --- | --- |
+| 正常执行 | 校验/环境配置 → runtime 解析 → 任务解析 → 主机预检 → 获取 RunState → 日志 → 准备 → 矩阵 → 提交 → 报告 → 收尾 |
+| 已完成恢复 | 校验/解析/预检和状态核验保留；直接重试报告，不重新开始日志、准备或矩阵 |
+| 准备失败 / 重建 | 失败不进入矩阵；明确的 RebuildEnvironment 仅重复准备，不重做已完成的解析和预检 |
+| 采集失败 / 中断 | 不发布成功结果；仍按既有规则保存失败证据、关闭日志和状态锁，再交付通知与最终事件 |
+| 报告失败 | 已提交结果保持 complete；报告可通过 resume 重试，不重新测量 |
+| 多任务 | 每个子任务完成日志/锁/通知收尾之后才进入下一项；普通失败记录后继续，未知清理失败保持既有阻断规则 |
+
+`test_run_phase_contract.py` 从公开 `RunApplication.run()` 驱动真实 RunState、矩阵计划、结果
+合并和 TaskCollection，只替换硬件/模型执行、报告渲染和通知/终端边界。阶段与锁断言替换了
+原先仅 patch `_execute` 验证日志关闭的一项测试，其余故障组合测试继续保留。
+参考 [pytest 的 wrap_session / _main](https://github.com/pytest-dev/pytest/blob/main/src/_pytest/main.py)
+将阶段执行与统一收尾分离的思路，以及 [CPython ExitStack](https://docs.python.org/3.12/library/contextlib.html#contextlib.ExitStack)
+的清理规则；仅借鉴结构，沿用项目的 cleanup_on_exit，不引入调度器或新依赖。
+
 `publish_run_statistics()` 在结果提交后复用 `analysis.statistics_report`，已完成实验的 Resume
 也经过同一入口；整个计算与发布期间继续持有 RunState 的测量锁和目录锁，不重复申请离线锁。
 报告直接放在实验根目录的 `analysis/`，既有 Layout v2 路由清单及 HTML 报告路径保持兼容。
