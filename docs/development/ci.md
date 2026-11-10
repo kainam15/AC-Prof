@@ -35,8 +35,10 @@ PR 对比目标分支，Push 对比本次推送前的分支状态。混合代码
 不启动完整的 `workflow_call` CI、`hardware-gate` 或 `release-risk`。
 它会上传 GitHub Pre-release 与 PyPI，但必须标记尚未验证的硬件和安全审计范围。
 正式版 Tag 的全部原有发布门禁保持不变。参见[发布渠道](distribution.md#预览版发布渠道)。
-GHCR 的 `runtime-images.yml` 自动触发也仅保留正式版本标签，避免 Alpha 触发镜像矩阵。
-因此预览版或新开发指纹可能尚无对应预构建镜像；`auto` 必须能回退本地构建。
+GHCR 的 `runtime-images.yml` 仅允许正式版本标签的 `push`，以及 `main` 上的手动
+`workflow_dispatch`；工作分支和任何标签的手动触发都会明确失败。来源校验是只读
+`matrix` job 的第一步，早于 checkout 和依赖安装；失败通过 `needs` 阻止后续镜像
+登录、构建和推送。预览版或新开发指纹可能尚无对应预构建镜像，`auto` 必须能回退本地构建。
 Runtime 发布先核对 Tag/package version，再按 `linux/amd64` 构建并验证精确内容标签。
 每个发布 job 最后运行 `--verify-only`，读取远端 Manifest/config、架构、指纹、不可变 ID 和父层关系；
 证据同时记录版本、Tag、源码 SHA、指纹和摘要。该步骤不拉取文件系统层，不代表真实模型验收。

@@ -136,6 +136,66 @@ def test_preview_tags_do_not_trigger_runtime_image_publication():
     assert workflow['on']['push']['tags'] == ['v[0-9]+.[0-9]+.[0-9]+']
 
 
+@pytest.mark.parametrize(("event", "ref", "allowed"), [
+    ("push", "refs/tags/v0.4.0", True),
+    ("push", "refs/tags/v12.34.567", True),
+    ("workflow_dispatch", "refs/heads/main", True),
+    ("workflow_dispatch", "refs/heads/feature/runtime", False),
+    ("workflow_dispatch", "refs/heads/main-other", False),
+    ("workflow_dispatch", "refs/heads/MAIN", False),
+    ("workflow_dispatch", "refs/tags/v0.4.0", False),
+    ("workflow_dispatch", "refs/tags/v0.4.0a1", False),
+    ("push", "refs/tags/v0.4.0a1", False),
+    ("push", "refs/tags/v0.4.0b1", False),
+    ("push", "refs/tags/v0.4.0rc1", False),
+    ("push", "refs/tags/v0.4.0.1", False),
+    ("push", "refs/tags/v0.4.0-extra", False),
+    ("push", "refs/tags/vbogus", False),
+    ("push", "refs/heads/main", False),
+    ("pull_request", "refs/heads/main", False),
+    ("pull_request", "refs/tags/v0.4.0", False),
+    ("schedule", "refs/heads/main", False),
+    ("workflow_dispatch", "", False),
+    ("", "refs/heads/main", False),
+])
+def test_runtime_image_publication_ref_policy(event, ref, allowed, tmp_path):
+    workflow = yaml.safe_load((ROOT / ".github/workflows/runtime-images.yml").read_text())
+    gate = workflow["jobs"]["matrix"]["steps"][0]
+    assert gate["id"] == "publication-ref"
+    code = gate["run"].split("python3 - <<'PY'\n", 1)[1].split("\nPY", 1)[0]
+    result = subprocess.run(
+        [sys.executable, "-c", code], cwd=tmp_path,
+        env={**os.environ, "GITHUB_EVENT_NAME": event, "GITHUB_REF": ref},
+        text=True, capture_output=True, timeout=10,
+    )
+    if allowed:
+        assert result.returncode == 0, result.stderr
+    else:
+        assert result.returncode != 0
+        assert "stable tag push or workflow_dispatch on main" in result.stderr
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_runtime_image_ref_gate_blocks_all_publishing_jobs():
+    workflow = yaml.safe_load((ROOT / ".github/workflows/runtime-images.yml").read_text())
+    matrix = workflow["jobs"]["matrix"]
+    gate = matrix["steps"][0]
+    assert gate["id"] == "publication-ref", "reject refs before checkout or dependency setup"
+    assert "if" not in gate
+    assert not gate.get("continue-on-error", False)
+    assert not matrix.get("continue-on-error", False)
+    assert matrix.get("permissions", workflow["permissions"]) == {"contents": "read"}
+    publishers = {
+        name: job for name, job in workflow["jobs"].items()
+        if job.get("permissions", {}).get("packages") == "write"
+    }
+    assert set(publishers) == {"platform", "environment"}
+    for job in publishers.values():
+        needs = job["needs"]
+        assert "matrix" in ([needs] if isinstance(needs, str) else needs)
+        assert job.get("if", "success()") == "success()"
+
+
 def test_preview_publishing_is_opt_in_and_keeps_stable_gates():
     jobs = yaml.safe_load((ROOT / '.github/workflows/release.yml').read_text())['jobs']
     assert jobs['build']['needs'] == 'channel'

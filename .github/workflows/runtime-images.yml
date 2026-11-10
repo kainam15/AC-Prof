@@ -23,6 +23,26 @@ jobs:
       environments: ${{ steps.matrix.outputs.environments }}
       registry: ${{ steps.matrix.outputs.registry }}
     steps:
+      - name: 核对运行时镜像发布来源
+        id: publication-ref
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import os
+          import re
+
+          event = os.environ["GITHUB_EVENT_NAME"]
+          ref = os.environ["GITHUB_REF"]
+          allowed = (
+              event == "workflow_dispatch" and ref == "refs/heads/main"
+          ) or (
+              event == "push" and re.fullmatch(r"refs/tags/v[0-9]+\.[0-9]+\.[0-9]+", ref)
+          )
+          if not allowed:
+              raise SystemExit(
+                  "Runtime image publication requires a stable tag push or workflow_dispatch on main"
+              )
+          PY
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
         with:
