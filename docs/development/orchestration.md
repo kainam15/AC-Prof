@@ -319,6 +319,43 @@ CSV 格式化、像素指标和 profiler 关联集中于 `WindowMetrics.build_ro
 复用 `MonitorGroup` 保持采样顺序，`ClientRunner.main` 负责窗口调度与结果发布。
 `orchestrator._finalize_case` 负责采集后的抓包合并和结果校验，清理故障仍会执行容器回收。
 
+**ClientConfig 的进程边界契约**
+
+字段来源按下表区分，不能把运行时派生值重新变成用户配置，也不能把所有层合成一个配置对象。
+每个字段的环境变量名、非默认实例和精确编码由 `test_client_config_transport.py` 独立列出；
+新增字段若缺少声明示例，覆盖检查失败。配置经真实 Python 子进程解析，而不是仅在父进程内往返。
+
+| 来源 | ClientConfig 字段 |
+| --- | --- |
+| 执行 runtime / 已验证会话 | `runtime_kind`, `process_pid`, `process_start_ticks`, `resource_plan`, `process_startup_s` |
+| TaskInfo / 运行制品 | `model_revision`, `task_family`, `pipeline_tag`, `runtime_backend`, `image_tag` |
+| 资源 case / 设备选择 | `cpu_cores`, `mem_cap_gb`, `gpu_mode`, `device_index`, `gpu_device_uuid` |
+| 服务会话 / HTTP 配置 | `base_url`, `endpoint`, `request_timeout_seconds` |
+| CaseWorkload / 条件性环境覆盖 | `batch_size`, `warmup`, `repeat`, `repeat_in_window`, `repeat_window_seconds`, `auto_warmup_requests` |
+| 会话冷启动证据，缺失保留 nan | `cold_start_s`, `cold_start_started_at`, `cold_start_ready_at`, `cold_start_container_launch_s`, `cold_start_server_setup_s`, `cold_start_cuda_init_s`, `cold_start_model_load_s`, `cold_start_ready_wait_s` |
+| 实验、case、attempt 与产物布局 | `out_csv`, `case_name`, `container_name`, `run_id`, `case_id`, `case_attempt_id`, `window_records_dir`, `telemetry_dir`, `result_root` |
+| 诊断与中间产物控制 | `sniff_groups_path`, `idle_debug`, `idle_diag_path`, `client_error_path`, `idle_debug_trace_interval_s` |
+| CaseMeasurement / 采集能力选择 | `use_mips`, `profiling_mode`, `dram_energy`, `sample_hz`, `sampling_policy`, `raw_sample_limit`, `idle_seconds`, `idle_cooldown_seconds` |
+| 已冻结的输入 / profiler 计划 | `input_scales_str`, `input_scale_plan_file`, `compute_profile_plan_file`, `execution_profile_plan_file`, `input_scale_order` |
+
+大多数字段由类型化配置完整覆盖同名宿主环境变量，包括空字符串、False 与未知资源。
+仅三个历史入口保留条件性继承：`AUTO_WARMUP_REQUESTS` 在值为 5 时、
+`IDLE_DEBUG_TRACE_INTERVAL_S` 在值为 0.1 时、`SNIFF_GROUPS_PATH` 在空字符串时不发出键，
+于是子进程可继承宿主值；非默认值始终显式覆盖。显式传入恰好等于默认值也遵循这一规则，
+不能在保持行为的重构中悄悄改为“默认值总是覆盖环境”。未识别环境键不成为配置字段。
+
+自动预热和诊断间隔由 `measurement_environment` 记录，参与既有运行条件、恢复与比较；
+重放恢复来源环境后再建立子进程，退出恢复调用方环境。`SNIFF_GROUPS_PATH` 是遗留的中间
+产物路径覆盖，目前不属于该身份快照；本轮仅固定此边界，不改变结果目录和恢复协议。
+结构化资源计划使用 JSON object，输入顺序使用 JSON list；未知资源保持 None/nan，
+布尔、路径空白、URL 尾斜线和浮点编码保留既有归一化，非法值在 client 初始化时拒绝。
+
+orchestrator 保留代理、设备等宿主环境，显式去掉通知 webhook；这不是通用的凭据隔离沙箱。
+独立 case 测试经过真实子进程确认 webhook 不下传、代理可用且受控参数不被同名环境污染。
+纯 codec 测试不读取模型、容器、计划文件或硬件，也不替代真实测量验收。
+优先级显式化参考 [Pydantic Settings 的来源规则](https://github.com/pydantic/pydantic-settings/blob/main/docs/index.md#field-value-priority)，
+仅借鉴契约和测试思路，不引入依赖或改变 AC-Prof 现有优先级。
+
 `source_identity` 统一续跑身份与服务构建的文件选择。续跑包括执行声明和输入资源；服务构建
 只打包共享模块与 `container/workloads/extensions`，同一文件集合同时用于上下文复制和指纹。
 范围细节见[镜像分类与复用](../models/images.md#镜像分类与复用)。

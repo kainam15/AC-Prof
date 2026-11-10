@@ -1,6 +1,8 @@
 import csv
 import json
 import os
+import subprocess
+import sys
 import tempfile
 from contextlib import redirect_stderr
 from functools import partial
@@ -257,16 +259,32 @@ class TestOrchestratorCases:
             detection_method="hub_api",
         )
         captured_env = {}
+        child_config = {}
 
         def fake_run(cmd, check=True, capture=True, **kwargs):
             if cmd and cmd[-2:] == ["-m", "acprof.host.client"]:
                 captured_env.update(kwargs.get("env", {}))
+                reader = '''
+import json, os
+from dataclasses import asdict
+from acprof.host.measurement.config import ClientConfig
+assert "ACPROF_WECOM_WEBHOOK_URL" not in os.environ
+assert os.environ["HTTP_PROXY"] == "http://fixture.invalid:8080"
+print(json.dumps(asdict(ClientConfig.from_env())))
+'''
+                child = subprocess.run([sys.executable, "-c", reader], env=captured_env,
+                                       capture_output=True, text=True, timeout=15)
+                assert child.returncode == 0, child.stderr
+                child_config.update(json.loads(child.stdout))
                 _write_cpu_case_csv(captured_env["OUT_CSV"], [5.0])
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
         with patch.dict(
             "acprof.host.orchestrator.os.environ",
-            {"ACPROF_WECOM_WEBHOOK_URL": "https://example.invalid/secret"},
+            {"ACPROF_WECOM_WEBHOOK_URL": "https://example.invalid/secret",
+             "HTTP_PROXY": "http://fixture.invalid:8080", "AUTO_WARMUP_REQUESTS": "17",
+             "IDLE_DEBUG_TRACE_INTERVAL_S": "0.375", "SNIFF_GROUPS_PATH": "fixture-groups.json",
+             "WARMUP": "99"},
         ), patch(
             "acprof.host.orchestrator.start_service_session",
             return_value=docker_runtime.RunningContainer(
@@ -315,6 +333,11 @@ class TestOrchestratorCases:
         assert (captured_env["COLD_START_MODEL_LOAD_S"]) == ("0.6")
         assert (captured_env["COLD_START_READY_WAIT_S"]) == ("0.1")
         assert ("ACPROF_WECOM_WEBHOOK_URL") not in (captured_env)
+        assert child_config["container_name"] == captured_env["CONTAINER_NAME"]
+        assert child_config["auto_warmup_requests"] == 17
+        assert child_config["idle_debug_trace_interval_s"] == 0.375
+        assert child_config["sniff_groups_path"] == "fixture-groups.json"
+        assert child_config["warmup"] == 0
 
     def test_run_single_case_passes_compute_profile_plan_to_client(self) -> None:
         task_info = TaskInfo(
