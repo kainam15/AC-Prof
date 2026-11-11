@@ -53,6 +53,7 @@ class TestONNXWordPiecePlanning:
             'TASK_FAMILY': 'nlp', 'TASK_TYPE': 'text-classification', 'RUNTIME_BACKEND': 'onnxruntime',
             'MODEL_ID': 'local/wordpiece-fixture', 'MODEL_REVISION': 'fixture', 'MODEL_LOCAL_PATH': str(model),
             'USE_GPU': '0', 'ACPROF_MODEL_ADAPTER': 'family-default',
+            'ACPROF_RUNTIME_PROFILE': 'onnxruntime-nlp-cpu',
         }))
         app = create_runtime_app()
         server = make_server('127.0.0.1', 0, app, threaded=True)

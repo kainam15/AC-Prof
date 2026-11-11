@@ -108,11 +108,21 @@ class TestRunAttribution:
         self.before = RunArtifacts.read(self.root)
         self.layout = ArtifactLayout.for_new_run(self.root)
         self.layout.initialize()
+        case_path = str(self.layout.case("demo/model", 1, 4, "off").csv.relative_to(self.root))
         self.state: dict = dict(schema_version=1, layout_version=2, run_id="run-1", status="complete", outcome="ok",
-            attempts=[dict(pid=123, started_at="2026-10-02T01:00:00Z", ended_at="2026-10-02T01:01:00Z")],
+            host={}, artifacts={},
+            attempts=[dict(attempt_id="attempt-123", pid=123, resume=False,
+                           started_at="2026-10-02T01:00:00Z", ended_at="2026-10-02T01:01:00Z")],
             options=dict(cpus="1", mems="4", gpus="off", warmup=0, repeat=1),
-            runtime=dict(planned=dict(scales=[64, 128])),
-            cases={"case.csv": dict(status="complete", completed_at="2026-10-02T01:01:00Z")})
+            runtime=dict(task=dict(model_id="demo/model", pipeline_tag="text-classification",
+                                   task_family="nlp", runtime_backend="transformers_pipeline",
+                                   library_name="transformers", model_revision="a" * 40,
+                                   detection_method="fixture"),
+                         image=dict(tag="sha256:" + "a" * 64),
+                         planned=dict(scales=[64, 128], source="manual"),
+                         compute_plan="", execution_plan=""),
+            cases={case_path: dict(status="complete", sha256="0" * 64,
+                                   completed_at="2026-10-02T01:01:00Z")})
         self.save_state()
         from acprof.results.layers import publish_result_rows
         fields = ["cpu_cores", "mem_cap_gb", "gpu_mode", "input_scale", "warmup",
@@ -178,7 +188,8 @@ class TestRunAttribution:
     def test_preflight_failure_and_unchanged_resume_never_promote_history(self):
         before = RunArtifacts.read(self.root)
         assert not (inspect_run_result(before, 123).belongs_to_attempt)
-        self.state["attempts"].append(dict(pid=124, started_at="new", ended_at="end"))
+        self.state["attempts"].append(dict(attempt_id="attempt-124", pid=124, resume=True,
+                                           started_at="new", ended_at="end"))
         self.save_state()
         result = inspect_run_result(before, 124)
         assert (result.belongs_to_attempt)
@@ -196,7 +207,8 @@ class TestRunAttribution:
         shutil.move(self.root, child)
         self.layout = ArtifactLayout.discover(child)
         before = RunArtifacts.read(group)
-        self.state['attempts'].append(dict(pid=124, started_at='new', ended_at='end'))
+        self.state['attempts'].append(dict(attempt_id='attempt-124', pid=124, resume=True,
+                                           started_at='new', ended_at='end'))
         self.save_state()
         atomic_write_json(group / 'metadata/task_runs/collection.json', {
             'schema_version': 1, 'run_id': 'collection', 'status': 'ok', 'pid': 124,
@@ -445,10 +457,20 @@ from pathlib import Path
 from acprof.results.layout import ArtifactLayout
 layout = ArtifactLayout.for_new_run(Path({str(directory)!r}))
 layout.initialize()
+case_path = str(layout.case("demo/model", 1, 4, "off").csv.relative_to(layout.root))
 state = dict(schema_version=1, layout_version=2, run_id="child-run", status="complete", outcome="ok",
-             attempts=[dict(pid=os.getpid(), started_at="start", ended_at="end")],
+             host={{}}, artifacts={{}},
+             attempts=[dict(attempt_id="child-attempt", pid=os.getpid(), resume=False,
+                            started_at="start", ended_at="end")],
              options=dict(cpus="1", mems="4", gpus="off", warmup=0, repeat=1),
-             runtime=dict(planned=dict(scales=[64])), cases={{"case.csv": dict(status="complete")}})
+             runtime=dict(task=dict(model_id="demo/model", pipeline_tag="text-classification",
+                                    task_family="nlp", runtime_backend="transformers_pipeline",
+                                    library_name="transformers", model_revision="a" * 40,
+                                    detection_method="fixture"),
+                          image=dict(tag="sha256:" + "a" * 64),
+                          planned=dict(scales=[64], source="manual"),
+                          compute_plan="", execution_plan=""),
+             cases={{case_path: dict(status="complete", sha256="0" * 64)}})
 layout.path("run_state.json").parent.mkdir(parents=True, exist_ok=True)
 layout.path("run_state.json").write_text(json.dumps(state))
 layout.path("capability_report.json").write_text(json.dumps({{"requested_measurements_complete": True}}))

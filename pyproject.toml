@@ -55,6 +55,7 @@ dev = [
 test = [
     {include-group = "runtime-test"},
     {include-group = "import-checks"},
+    {include-group = "typing"},  # Contract tests invoke mypy from the test interpreter.
     "pytest-cov>=7.0.0,<8",
     "coverage[toml]>=7.15.2,<8",
     "pyyaml>=6.0.3,<7",

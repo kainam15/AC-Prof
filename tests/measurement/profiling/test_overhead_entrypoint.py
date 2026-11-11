@@ -30,13 +30,17 @@ class TestOverheadEntrypoint:
             ]}))
             options = {"gpus": "on", "cpus": "1,2", "mems": "2,4", "gpu_device": "GPU-recorded",
                        "cpuset_cpus": "1-2", "request_timeout_seconds": 17, "idle_seconds": 0,
-                       "idle_cooldown_seconds": 0, "measurement_environment": {"ACPROF_RUNTIME_THREADS": "2"}}
+                       "warmup": 0, "repeat": 1, "idle_cooldown_seconds": 0,
+                       "measurement_environment": {"ACPROF_RUNTIME_THREADS": "2"}}
             task = {"model_id": "fixture/model", "pipeline_tag": "tabular-regression", "task_family": "structured",
                     "runtime_backend": "onnxruntime", "library_name": "onnxruntime", "model_revision": "pinned",
                     "detection_method": "manual"}
             (source / "run_state.json").write_text(json.dumps({
                 "schema_version": 1, "status": "complete", "run_id": "source-id", "options": options,
-                "runtime": {"task": task, "image": {"tag": "sha256:fixture"}},
+                "host": {}, "attempts": [], "cases": {},
+                "runtime": {"task": task, "image": {"tag": "sha256:fixture"},
+                            "planned": {"scales": [2, 8], "source": "manual"},
+                            "compute_plan": "", "execution_plan": ""},
                 "artifacts": {plan.name: hashlib.sha256(plan.read_bytes()).hexdigest()}}))
             stack.enter_context(patch.dict(os.environ, {"ACPROF_GPU_DEVICE": "GPU-caller", "DEVICE_INDEX": "1"}))
             stack.enter_context(patch("os.sched_getaffinity", return_value={1, 2, 3}))

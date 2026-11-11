@@ -24,9 +24,19 @@ class CatalogFixture:
             setattr(args, key, value)
         options = run_options(args)
         state = {'schema_version': 1, 'run_id': run_id, 'status': status, 'created_at': '2026-10-01T12:00:00Z',
-            'host': host_identity(Path.cwd()),
-            'options': options, 'artifacts': {}, 'runtime': {'task': {'model_id': model, 'model_revision': revision,
-                'runtime_profile_id': 'transformers-cpu'}, 'image': {'runtime_environment': {'environment_id': 'env-a'}}}}
+            'host': host_identity(Path.cwd()), 'options': options, 'cases': {}, 'artifacts': {},
+            'attempts': [dict(attempt_id='catalog-fixture', pid=1, resume=False,
+                              started_at='2026-10-01T12:00:00Z', ended_at='2026-10-01T12:01:00Z')],
+            'runtime': {
+                'task': {'model_id': model, 'model_revision': revision, 'pipeline_tag': 'text-classification',
+                         'task_family': 'nlp', 'runtime_backend': 'transformers_pipeline',
+                         'library_name': 'transformers', 'detection_method': 'fixture',
+                         'runtime_profile_id': 'transformers-cpu'},
+                'image': {'tag': 'sha256:' + 'a' * 64,
+                          'runtime_environment': {'environment_id': 'env-a'}},
+                'planned': {'scales': [2], 'source': 'manual'},
+                'compute_plan': '', 'execution_plan': '',
+            }}
         (path / 'run_state.json').write_text(json.dumps(state))
         (path / 'static_meta.json').write_text(json.dumps({'model_name': model, 'model_revision': revision, 'cpu_model': 'Fixture CPU'}))
         # A recorded experiment publishes independently hashed result layers.

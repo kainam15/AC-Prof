@@ -828,13 +828,15 @@ class RunState:
         from acprof.host.runtimes.service import execution_runtime
         from acprof.tasks.interfaces import validate_execution_identity
         snapshot = self.data["runtime"]
-        task_snapshot, image_snapshot = snapshot["task"], snapshot["image"]
+        task_snapshot = snapshot["task"]
         if not isinstance(task_snapshot, dict):
             raise RunStateError("run_state.json 字段 runtime.task 无效：需要对象")
+        task = TaskInfo(**task_snapshot)
+        # Reject changed interface identity before touching the saved runtime artifact.
+        validate_execution_identity(task)
+        image_snapshot = snapshot["image"]
         if not isinstance(image_snapshot, dict):
             raise RunStateError("run_state.json 字段 runtime.image 无效：需要对象")
-        task = TaskInfo(**task_snapshot)
-        validate_execution_identity(task)
         image = execution_runtime(snapshot.get("kind", "docker")).restore(
             image_snapshot, output_dir=self.directory,
         )

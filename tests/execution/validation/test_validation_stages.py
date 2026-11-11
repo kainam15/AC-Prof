@@ -33,7 +33,7 @@ class TestValidationStage:
                                                    "RUNTIME_BACKEND": "transformers_pipeline", "MODEL_ID": "fixture",
                                                    "MODEL_REVISION": "a" * 40, "USE_GPU": "0"}))
         stack.enter_context(patch.object(handlers.HandlerRegistry, "get", return_value=handler))
-        stack.enter_context(patch.object(handlers, "load_handler", side_effect=lambda *args: handler.load()))
+        stack.enter_context(patch.object(handlers, "load_handler", side_effect=lambda *args, **kwargs: handler.load()))
         stack.enter_context(patch.object(execution_module, "configured_execution", return_value=(execution, "cpu")))
         stack.enter_context(patch.object(execution_module, "complete_prediction", side_effect=lambda e, c, output: output))
         return handler

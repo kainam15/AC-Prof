@@ -57,7 +57,8 @@ def test_minimal_plan_freeze_and_resume_keep_source_scales_hash_and_static_metad
         run_state, "host_identity", return_value={"test": "isolated"}
     ), patch("acprof.host.images.runtime.require_image_identity"):
         directory = Path(temporary) / "result"
-        options = {"input_scale_policy": "minimal"}
+        options = {"input_scale_policy": "minimal", "cpus": "1", "mems": "4", "gpus": "off",
+                   "warmup": 0, "repeat": 1}
         state = run_state.RunState(directory, options, resume=False, project_dir=str(Path.cwd()))
         try:
             plan = input_plan.plan_input_scales(info, image, [1], [4], ["off"], 1, str(directory), input_scale_policy="minimal")
