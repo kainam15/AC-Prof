@@ -398,12 +398,12 @@ class _CandidateDiscovery:
                                         selected_task=resolution["selection"]["task"])
         resolution["provenance"]["raw_evidence"] = copy.deepcopy({
             "hub": self.hub_metadata, "config": self.config, "metadata": self.metadata})
-        from acprof.models.evidence import content_digest
-        resolution["provenance"]["resolver_version"] = "model-interfaces-v1"
+        from acprof.models.evidence import INTERFACE_RESOLVER_VERSION, content_digest
+        resolution["provenance"]["resolver_version"] = INTERFACE_RESOLVER_VERSION
         resolution["provenance"]["identity_sha256"] = content_digest({
             "sources": resolution["provenance"]["sources"], "raw": resolution["provenance"]["raw_evidence"],
             "evidence": resolution["evidence"], "discovery": discovery,
-            "selection": resolution["selection"], "resolver_version": "model-interfaces-v1"})
+            "selection": resolution["selection"], "resolver_version": INTERFACE_RESOLVER_VERSION})
 
     def run(self) -> dict:
         self._read_declarations()

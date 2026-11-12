@@ -22,16 +22,43 @@ def explain_resolution(task_info, *, explain: bool = False) -> str:
     resolution = task_info.model_resolution
     contract = resolution.get("contract", {})
     interface_status = contract.get("status", resolution.get("status", "unknown"))
-    if interface_status == "candidate":
-        interface_status = "resolved"
     validation = resolution.get("runtime_validation", contract.get("runtime_validation"))
     runtime_status = validation.get("status", "not_run") if isinstance(validation, dict) else "not_run"
     runtime_status = {"error": "failed", "resource_limit": "failed", "not_run": "not_started"}.get(runtime_status, runtime_status)
+    scope = "Representative " if len(resolution.get("task_resolutions", {})) > 1 else ""
     lines = [f"Model: {task_info.model_id}", f"Revision: {task_info.model_revision}",
-             f"Task: {task_info.pipeline_tag}", f"Backend: {task_info.runtime_backend}",
-             f"Adapter: {task_info.model_adapter}", f"Runtime profile: {task_info.runtime_profile_id or 'not_selected'}",
+             f"{scope}Task: {task_info.pipeline_tag}", f"{scope}Backend: {task_info.runtime_backend}",
+             f"{scope}Adapter: {task_info.model_adapter}", f"{scope}Runtime profile: {task_info.runtime_profile_id or 'not_selected'}",
+             f"Static Resolution: {resolution.get('status', 'unknown')}",
              f"Interface Resolution: {interface_status}", f"Runtime Validation: {runtime_status}",
              "Measurement: not_started (inspect/probe does not collect measurements)"]
+    compatibility = resolution.get("compatibility")
+    if compatibility:
+        lines.append(f"Static compatibility: {compatibility['status']} (static evidence only)")
+        if compatibility.get("detail"):
+            lines.append(compatibility["detail"])
+        if compatibility.get("next_action"):
+            lines.append(f"Next action: {compatibility['next_action']}")
+    layout = resolution.get("artifact_layout")
+    if layout:
+        lines.append(f"Artifact layout: {layout.get('status', 'unknown')}")
+    failure = resolution.get("failure")
+    if failure:
+        lines.extend((f"Reason: {failure['reason_code']}", failure["detail"]))
+        action = failure.get("evidence", {}).get("next_action")
+        if action:
+            lines.append(f"Next action: {action}")
+    elif runtime_status == "not_started":
+        lines.append("Evidence: static only; checkpoint loading and inference still require runtime validation.")
+    for profile_id, item in resolution.get("task_resolutions", {}).items():
+        state = item.get("compatibility", {}).get("status", "unknown")
+        lines.append(f"Task profile {profile_id}: {item.get('status', 'unknown')}; "
+                     f"static compatibility={state}; runtime={item.get('runtime_profile', 'not_selected')}")
+        if item.get("failure"):
+            lines.append(f"  Reason: {item['failure']['reason_code']}; {item['failure']['detail']}")
+            action = item["failure"].get("evidence", {}).get("next_action")
+            if action:
+                lines.append(f"  Next action: {action}")
     if resolution.get("semantics"):
         lines.append(f"Semantics: {resolution['semantics']['status']} ({resolution.get('benchmark_kind', 'unknown')})")
     if task_info.task_discovery:

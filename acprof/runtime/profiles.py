@@ -206,24 +206,34 @@ def environment_id(environment: DependencyEnvironment, project_dir) -> str:
 
 
 def select_runtime_profile(task_info: Any) -> RuntimeProfile:
+    from acprof.failures import Failure, RuntimeFailure
+
+    def unavailable(detail: str) -> RuntimeFailure:
+        return RuntimeFailure(Failure(
+            "preflight", "runtime_unavailable", detail,
+            runtime_profile=getattr(task_info, "runtime_profile_id", ""),
+            retryability="after_configuration",
+            evidence={"task": task_info.pipeline_tag, "backend": task_info.runtime_backend},
+        ))
+
     extension = select_extension(task_info)
     if extension.profile:
         profile = PROFILES.get(extension.profile)
         if profile is None:
-            raise ValueError(f"No registered runtime for extension {extension.extension_id!r}: {extension.profile}")
+            raise unavailable(f"No registered runtime for extension {extension.extension_id!r}: {extension.profile}")
         if (
             task_info.task_family != profile.family
             or (profile.task_types and task_info.pipeline_tag not in profile.task_types)
             or task_info.runtime_backend not in profile.backends
             or extension.adapter != profile.adapter
         ):
-            raise ValueError(
+            raise unavailable(
                 f"Runtime {profile.profile_id!r} does not support "
                 f"{task_info.task_family}/{task_info.pipeline_tag}/{task_info.runtime_backend}"
             )
         explicit = getattr(task_info, "runtime_profile_id", "")
         if explicit and explicit != profile.profile_id:
-            raise ValueError(f"Runtime {explicit!r} does not match extension {extension.extension_id!r}")
+            raise unavailable(f"Runtime {explicit!r} does not match extension {extension.extension_id!r}")
         return profile
     family = task_info.task_family
     default = DEFAULT_PROFILES.get((family, "cu128"), "")
@@ -234,18 +244,18 @@ def select_runtime_profile(task_info: Any) -> RuntimeProfile:
     selected = getattr(task_info, "runtime_profile_id", "") or default
     profile = PROFILES.get(selected)
     if profile is None or profile.family != family or profile.adapter != "family-default":
-        raise ValueError(f"No registered runtime for {family}/{selected}")
+        raise unavailable(f"No registered runtime for {family}/{selected}")
     if custom_pipeline and profile.runtime_line != "custom-multimodal":
-        raise ValueError("Declared multimodal pipelines require a locked custom-multimodal runtime")
+        raise unavailable("Declared multimodal pipelines require a locked custom-multimodal runtime")
     if _native_compatible(task_info, profile) is False:
         if getattr(task_info, "runtime_profile_id", ""):
-            raise ValueError(f"Runtime {selected} does not register {task_info.pipeline_tag}/{task_info.model_config.get('model_type')}")
+            raise unavailable(f"Runtime {selected} does not register {task_info.pipeline_tag}/{task_info.model_config.get('model_type')}")
         candidates = [item for item in PROFILES.values() if item.family == family
                       and item.runtime_line != "default" and item.adapter == "family-default"
                       and item.environment.platform.platform_id == profile.environment.platform.platform_id
                       and _native_compatible(task_info, item) is True]
         if not candidates:
-            raise ValueError(f"No registered Transformers runtime for {task_info.pipeline_tag}/{task_info.model_config.get('model_type')}")
+            raise unavailable(f"No registered Transformers runtime for {task_info.pipeline_tag}/{task_info.model_config.get('model_type')}")
         profile = candidates[0]
     return profile
 

@@ -104,9 +104,31 @@ ONNX 文件本身只能证明格式，不能凭输入 shape 猜分类、回归�
 只有编排入口显式调用 `apply_model_candidate` 才更新 `TaskInfo.pipeline_tag/task_family/runtime_backend/task_discovery`；
 两者不使用模型 ID 猜任务，也不在静态解析阶段导入推理框架。
 持久化的 `model_resolution` 记录候选、证据、冲突、缺失项、选择结果以及格式、loader、operation、
-`model_type`、元数据文件名与所选 profile。`status=candidate` 只表示通过静态检查，成功加载、
-输入 dtype/shape 和真实输出仍由独立 `runtime_validation` 判断。元数据读取失败单独报告，
-不能归因为任务不支持。
+`model_type`、元数据文件名与所选 profile。`status=candidate` 表示已有候选推理路径，
+不保证所有静态证据已知，也不保证 checkpoint 能加载。综合静态支持另看 `compatibility.status`；
+成功加载、输入 dtype/shape 和真实输出仍由独立 `runtime_validation` 判断。
+
+| 静态状态 | 含义与后续操作 |
+| --- | --- |
+| `candidate` | 保留已选候选；继续核对制品、运行环境与独立运行验证，不改称执行成功 |
+| `selection_required` | 已发现多个推理路径，使用 `--tasks` 选择组或语义任务；`--task` 只选择接口 |
+| `needs_configuration` | 缺少接口／输入等声明，按诊断补充 `--model-spec` 或工作负载配置 |
+| `ambiguous` | 证据冲突，明确选择并保留原始冲突来源 |
+| `blocked` | 已知失败阻断准备；查看稳定 `reason_code`、原始证据和 `next_action` |
+
+`compatibility.status` 区分 supported、unsupported 与 unknown，均为静态范围。
+`interface_status` 保留架构／登记接口能力；必要的制品布局未知时，综合支持不能据此提升为 supported。
+`checkpoint_verified=false` 明确表示没有本次真实推理证据；缺少字段也不能补成已验证。
+元数据错误、未登记后端、制品不完整／格式不支持、运行时不可用分别保留原因，不统一改称任务不支持。
+
+coverage 行保留原有统计字段，并增加 `inspection_status`、`compatibility` 和 `next_action`。
+只有明确的候选／已解析状态且没有静态失败才计入 `resolved`；blocked 和未选择项不计入，
+`supported` 还要求综合静态支持为 supported。未知支持仍为 false，并通过 compatibility 区分未知与已拒绝。
+准备阶段阻断时，运行验证保持 `not_run`；没有请求运行验证时保持 `not_requested`。
+实际 runtime 成功只计入运行成功率，不把静态 unknown 改写为 supported。
+恢复 full 验证时，已解析、无失败且清理完成的 runtime 成功项不因静态 unknown 重跑；
+静态批次重试仍依据静态 supported。分母、历史 attempt 和 schema 保持原有语义。
+
 模型 ID 先经过本地格式校验；`model` 和 `namespace/model` 均合法，存在性由 Hub 元数据查询确认。
 主仓库查找失败通过 `ModelLookupError` 保留模型 ID、revision、错误类别、诊断及原始异常链，业务层不退出进程。
 仓库未找到与私有仓库不可访问可能返回相同错误，因此提示“未找到或无权访问”；明确的 gated/权限拒绝、
@@ -145,6 +167,10 @@ Auto 中存在类不保证 processor、pipeline、dtype 或所有 profiler 兼�
 | `execution` | backend、Adapter、loader/operation、handler 四阶段、输入输出、组件及配置摘要；与组签名共同绑定实际执行身份 |
 | `adapter_origin` | 内置 handler 为 `builtin`，声明的 repository Pipeline 为 `repository`；生成声明不等于生成 adapter |
 | `runtime_validation` | 初始为 `not_run`，之后记录实际 mode、镜像、payload hash、设备及验证结果；与静态语义分开 |
+| `compatibility` | 综合静态支持、接口能力、证据层级及所选 profile／依赖版本；未知制品证据不能提升为 supported |
+| `artifact_layout` | 所选 loader 的制品布局识别状态、所需权重及来源；没有文件证据时明确 unknown |
+| `failure` | 稳定 reason code、失败阶段、原始 detail／evidence 和 next action；静态失败不会写成 runtime 成功 |
+| `task_resolutions` | 多组选定后的各组独立静态结果；一个成功组不能掩盖另一个被阻断的组 |
 
 解析器读取 Hub `transformers_info` 的任务、Auto class 与 processor 提示。Hub 字段共享同一
 source，Hub 与仓库配置保留共同 snapshot 的派生关系，不按字段数量投票，也不输出未经校准的

@@ -212,7 +212,7 @@ def _plan_transformers(
                 break
             if module["type"] == "sentence_transformers.models.Transformer":
                 path = module.get("path", "")
-                prefixes.append(safe_path(path) + "/" if path else "")
+                prefixes.append(safe_path(path) + "/" if path not in ("", ".") else "")
         else:
             candidates = [_transformer_checkpoint(names, read_json, prefix, native_model_types) for prefix in prefixes]
             if candidates and all(item[0] for item in candidates):

@@ -147,6 +147,34 @@ class TestCoverageResume:
                 self.run_batch(resume=True)
         detect.assert_not_called()
 
+    def test_runtime_success_with_unknown_static_support_is_not_retried(self):
+        with patch("acprof.host.preparation.model_inspection.validate_model_runtime", return_value={"status": "ok"}):
+            report = self.run_batch(probe="full")
+        assert all(row["resolved"] is True and row["supported"] is False for row in report["rows"])
+        assert all(row["compatibility"]["status"] == "unknown" for row in report["rows"])
+        assert all(row["runtime_status"] == "ok" for row in report["rows"])
+        original = (self.root / "attempts/attempt-000001/attempt.json").read_bytes()
+
+        with patch("acprof.host.detect.detect_task") as detect:
+            with pytest.raises(ValueError, match="no matching failed models"):
+                run_sample(self.sample, self.root, probe="full", resume=True, retry_failed=True)
+        detect.assert_not_called()
+        assert (self.root / "attempts/attempt-000001/attempt.json").read_bytes() == original
+        assert len(list((self.root / "attempts").iterdir())) == 1
+
+    def test_unknown_static_support_remains_eligible_for_static_retry(self):
+        before = self.run_batch()
+        assert all(row["supported"] is False for row in before["rows"])
+        assert all(row["runtime_status"] == "not_requested" for row in before["rows"])
+        original = (self.root / "attempts/attempt-000001/attempt.json").read_bytes()
+
+        with patch("acprof.host.detect.detect_task", side_effect=self.task) as detect:
+            after = run_sample(self.sample, self.root, resume=True, retry_failed=True)
+        assert detect.call_count == 3
+        assert len(after["attempts"]) == 2
+        assert (self.root / "attempts/attempt-000001/attempt.json").read_bytes() == original
+        assert all(row["supported"] is False for row in after["rows"])
+
     def test_retry_requires_resume_and_unknown_selectors_do_not_create_attempts(self):
         with pytest.raises(ValueError, match="resume"):
             self.run_batch(retry_failed=True)

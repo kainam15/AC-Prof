@@ -1,4 +1,5 @@
-"""Invalid fallback snapshots report lookup failures without entering inference."""
+"""Invalid fallback snapshots stop task inference with actionable diagnostics."""
+import hashlib
 import json
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -66,15 +67,36 @@ def test_nonobject_config_is_an_actionable_lookup_error(snapshot, tmp_path, caps
 
 @pytest.mark.parametrize(("payload", "reason"), [
     (b"", "JSONDecodeError"), (b"{", "JSONDecodeError"), (b"\xff", "UnicodeDecodeError"),
+    (b"9" * 5000, "ValueError"),
 ])
-def test_unreadable_config_stops_before_task_inference(snapshot, payload, reason):
+@pytest.mark.parametrize("override_tag", [None, "fill-mask"], ids=["auto-task", "explicit-task"])
+def test_unreadable_config_stops_before_task_inference(snapshot, monkeypatch, payload, reason, override_tag):
     snapshot.path.write_bytes(payload)
+    infer = Mock(side_effect=AssertionError("invalid metadata reached architecture inference"))
+    discover = Mock(side_effect=AssertionError("invalid metadata reached candidate discovery"))
+    monkeypatch.setattr("acprof.host.detect.CATALOG", SimpleNamespace(resolve=infer))
+    monkeypatch.setattr("acprof.models.candidates.discover_model_candidates", discover)
 
-    with pytest.raises(ModelLookupError) as caught:
-        detect_task(MODEL, revision=SHA)
+    task = detect_task(MODEL, revision=SHA, override_tag=override_tag)
 
-    assert f"config_json: {reason}:" in caught.value.detail
-    assert "architecture_infer" not in caught.value.detail
+    assert task.model_resolution["status"] == "blocked"
+    assert task.model_resolution["candidates"] == []
+    assert task.model_resolution["runtime_validation"] == "not_run"
+    failure = task.model_resolution["failure"]
+    assert failure["reason_code"] == "metadata_invalid"
+    assert failure["evidence"]["diagnostics"] == list(task.metadata_diagnostics)
+    diagnostic = task.metadata_diagnostics[0]
+    assert diagnostic["exception_type"] == reason
+    assert diagnostic["file"] == "config.json"
+    assert diagnostic["json_pointer"] == ""
+    assert diagnostic["raw_sha256"] == hashlib.sha256(payload).hexdigest()
+    assert diagnostic["detail"]
+    assert task.metadata_sources["config.json"]["sha256"] == diagnostic["raw_sha256"]
+    assert task.metadata_sources["config.json"]["revision"] == SHA
+    assert "config.json" not in task.repository_metadata
+    assert snapshot.path.read_bytes() == payload
+    infer.assert_not_called()
+    discover.assert_not_called()
     snapshot.host_check.assert_not_called()
 
 

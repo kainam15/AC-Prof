@@ -6,6 +6,8 @@ This check uses local metadata only and does not load models or runtime librarie
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from acprof.extensions import CATALOG, select_extension
 from acprof.failures import Failure, RuntimeFailure
 from acprof.host.detect import TaskInfo
@@ -30,16 +32,41 @@ def _read_dependency_source(task_info: TaskInfo, name: str) -> str:
 
 
 def require_task_support(task_info: TaskInfo, *, batch_size: int = 1, devices=()) -> None:
-    """Reject known gaps and invalid task routing, without promising runtime compatibility."""
+    """Record one actionable static decision without claiming inference success."""
+    from acprof.models.inspection.decision import (
+        clear_preflight_failure,
+        record_resolution_failure,
+    )
+
+    clear_preflight_failure(task_info)
+    upstream_failure = task_info.model_resolution.get("failure")
+    input_status = task_info.model_resolution.get("status")
+    if not upstream_failure:
+        task_info.model_resolution.pop("compatibility", None)
+        task_info.model_resolution.pop("precision", None)
+    try:
+        _require_task_support(task_info, batch_size=batch_size, devices=devices)
+    except RuntimeFailure as exc:
+        failure = exc.failure
+        if not upstream_failure:
+            failure = replace(failure, evidence={**failure.evidence, "preflight_input_status": input_status})
+        failure = record_resolution_failure(task_info, failure)
+        raise TaskSupportError(failure) from exc
+
+
+def _require_task_support(task_info: TaskInfo, *, batch_size: int, devices) -> None:
+    """Reject known gaps and invalid task routing, without loading a checkpoint."""
     task_info.model_resolution.update(model_id=task_info.model_id, model_revision=task_info.model_revision)
+    if task_info.model_resolution.get("failure"):
+        raise TaskSupportError(Failure(**task_info.model_resolution["failure"]))
     if task_info.metadata_errors:
-        raise TaskSupportError("\n".join([
+        raise TaskSupportError(Failure("resolution", "metadata_invalid", "\n".join([
             f"[model-metadata][ERROR] Cannot resolve model metadata: {task_info.model_id}",
             "  元数据读取失败，尚不能判断模型接口是否兼容。",
             "  原因：" + "; ".join(task_info.metadata_errors),
             "  请检查 HF_ENDPOINT、网络、仓库访问权限及 JSON 内容后重试。",
             "  本次未进入镜像准备、资源矩阵或推理测量。",
-        ]))
+        ]), retryability="after_configuration", evidence={"metadata_errors": list(task_info.metadata_errors)}))
     from acprof.models.resolution import require_resolved_candidate
     from acprof.models.spec import custom_code_files
     try:
@@ -48,7 +75,17 @@ def require_task_support(task_info: TaskInfo, *, batch_size: int = 1, devices=()
     except RuntimeFailure as exc:
         raise TaskSupportError(exc.failure) from exc
     except ValueError as exc:
-        raise TaskSupportError(f"[model-resolution][ERROR] {exc}\n  未进入镜像准备或正式测量。") from exc
+        status = task_info.model_resolution.get("status")
+        reason_code = {
+            "selection_required": "task_selection_required",
+            "ambiguous": "evidence_conflict",
+        }.get(status, "model_contract_required")
+        if task_info.model_resolution.get("semantics", {}).get("status") == "conflict":
+            reason_code = "evidence_conflict"
+        raise TaskSupportError(Failure(
+            "resolution", reason_code, f"[model-resolution][ERROR] {exc}\n  未进入镜像准备或正式测量。",
+            retryability="after_configuration", evidence={"task": task_info.pipeline_tag},
+        )) from exc
     task = task_info.pipeline_tag
     expected_family = CATALOG.task_families.get(task)
     reason = None
@@ -97,6 +134,34 @@ def require_task_support(task_info: TaskInfo, *, batch_size: int = 1, devices=()
                     evidence={"trust_remote_code": False, "code_files": task_info.model_resolution.get("code_files", [])}))
             task_info.model_resolution["trust_remote_code"] = remote_code_allowed(profile, extension)
             task_info.model_resolution["requested_devices"] = list(devices)
+            native_backend = task_info.runtime_backend in {"transformers_model", "transformers_pipeline"}
+            custom = bool(config.get("auto_map") or config.get("custom_pipelines"))
+            support = (supports_transformers_task(version, task, config.get("model_type", ""), config)
+                       if native_backend and version and not custom else None)
+            declared = not native_backend or extension.adapter != "family-default"
+            interface_status = "supported" if declared or support is True else "unsupported" if support is False else "unknown"
+            layout_status = task_info.model_resolution.get("artifact_layout", {}).get("status", "unknown")
+            overall_status = interface_status
+            if interface_status == "supported" and layout_status == "unknown":
+                overall_status = "unknown"
+            task_info.model_resolution["compatibility"] = {
+                "status": overall_status,
+                "interface_status": interface_status,
+                "artifact_status": layout_status,
+                "evidence_level": "static",
+                "source": "registered_extension" if declared else "locked_transformers_mapping",
+                "runtime_profile": profile.profile_id,
+                "transformers_version": version or None,
+                "checkpoint_verified": False,
+            }
+            if overall_status == "unknown":
+                layout = task_info.model_resolution.get("artifact_layout", {})
+                task_info.model_resolution["compatibility"].update(
+                    detail=layout.get("detail") if layout_status == "unknown" else
+                    "Architecture support is not established by the registered runtime metadata.",
+                    next_action="Review the pinned artifacts and registered backend capability; "
+                    "static evidence does not replace a separately authorized interface probe.",
+                )
             task_info.model_resolution["precision"] = {
                 device: resolve_precision(profile, extension, device=device, task=task,
                     model_type=config.get("model_type", ""), version=version)

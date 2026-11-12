@@ -447,7 +447,16 @@ def evaluate_process_completion(
     current_csv = ""
     summary_text = ""
     run_notice: NotificationSpec | None = None
-    if unsupported_task and snapshot is not None:
+    before_measurement_failure = (
+        kind in {"run", "probe"} and snapshot is not None and snapshot.failure is not None
+        and returncode != 0 and not stop_requested and not launch_error
+        and snapshot.measurement_status == "not_started" and not snapshot.measurement_active
+        and not any((snapshot.total_cases, snapshot.current_case, snapshot.completed_cases,
+                     run_result.total_cases, run_result.completed_cases, run_result.new_cases, run_result.result_csv))
+    )
+    if before_measurement_failure:
+        final_snapshot = replace(snapshot, measurement_active=False)
+    elif unsupported_task and snapshot is not None:
         final_snapshot = replace(snapshot, measurement_active=False, measurement_status="failed")
     elif kind == "run":
         final_snapshot, current_csv, summary_text, run_notice = _evaluate_run_outcome(

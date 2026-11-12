@@ -98,7 +98,15 @@ _STATES = {
 # Exact typed reason codes, never a classifier over exception text.
 _REASONS = {
     "unsupported_run_state": ("error", "state_format"),
-    "artifact_layout_unsupported": ("error", "artifact_format"),
+    "artifact_layout_unsupported": ("error", "model_artifact_format"),
+    "artifact_incomplete": ("error", "artifact_incomplete"),
+    "artifact_layout_unknown": ("warning", "artifact_unknown"),
+    "task_selection_required": ("warning", "task_selection"),
+    "model_contract_required": ("warning", "model_configuration"),
+    "evidence_conflict": ("error", "model_conflict"),
+    "metadata_invalid": ("error", "model_metadata"),
+    "runtime_unavailable": ("error", "runtime_unavailable"),
+    "backend_unsupported": ("error", "backend_unsupported"),
     "recorded_evidence_invalid": ("error", "evidence"),
     "resource_limit": ("warning", "resources"),
     "input_budget_exceeded": ("warning", "input_budget"),

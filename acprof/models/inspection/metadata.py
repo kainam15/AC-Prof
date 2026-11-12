@@ -24,10 +24,16 @@ def collect_structured_evidence(task_info, evidence: ModelEvidence) -> dict:
     evidence.add("task", task, "derived" if source == "config.architectures" else "declared", source)
     evidence.add("library", task_info.library_name, "declared", "hub.library_name")
     for filename, value in sorted(metadata.items()):
-        # Values are already parsed by detection; explicitly distinguish this
-        # canonical hash from hashes of the original source-file bytes.
-        evidence.source(filename, json.dumps(value, sort_keys=True, allow_nan=False, separators=(",", ":")).encode())
-        evidence.sources[filename]["encoding"] = "canonical-json"
+        # Preserve original-byte identity when detection observed it. A derived
+        # canonical hash is separately named and never substitutes for that source.
+        canonical = json.dumps(value, sort_keys=True, allow_nan=False, separators=(",", ":")).encode()
+        evidence.source(filename, canonical)
+        original = (getattr(task_info, "metadata_sources", {}) or {}).get(filename)
+        if original:
+            canonical_sha256 = evidence.sources[filename]["sha256"]
+            evidence.sources[filename] = {**original, "canonical_sha256": canonical_sha256}
+        else:
+            evidence.sources[filename]["encoding"] = "canonical-json"
         if filename != "config.json":
             evidence.add(f"metadata.{filename}", value, "declared", filename)
     for key in ("model_type", "architectures", "auto_map", "custom_pipelines", "_name_or_path",

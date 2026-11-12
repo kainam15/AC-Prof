@@ -199,13 +199,21 @@ class PreparationWorkflow:
         values = {"Model": task.model_id, "Revision": task.model_revision,
                   "Task": task.pipeline_tag, "Backend": task.runtime_backend,
                   "Adapter / Interface": task.model_adapter}
-        unresolved = task.model_resolution.get("status") in {"ambiguous", "needs_configuration", "selection_required"}
+        failure = task.model_resolution.get("failure")
+        unresolved = bool(failure) or task.model_resolution.get("status") in {
+            "ambiguous", "needs_configuration", "selection_required", "blocked",
+        }
         if unresolved:
             for name in ("Task", "Backend", "Adapter / Interface"):
                 values.pop(name)
         fields = {key: value for key, value in values.items() if value and value != "unknown" and key.lower() not in pending}
-        summary = ("推理接口信息不足或相互矛盾，需要补充配置。" if questions else
-                   "推理接口已确定，接下来将验证模型加载、推理与输出。")
+        if failure:
+            summary = "\n".join(value for value in (
+                failure["detail"], failure.get("evidence", {}).get("next_action", ""),
+            ) if value)
+        else:
+            summary = ("推理接口信息不足或相互矛盾，需要补充配置。" if unresolved or questions else
+                       "推理接口已确定，接下来将验证模型加载、推理与输出。")
         return {"fields": fields, "summary": summary}
 
     @staticmethod

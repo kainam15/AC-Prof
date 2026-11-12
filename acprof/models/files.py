@@ -29,14 +29,27 @@ def safe_path(name: str) -> str:
     return name
 
 
-def resolve_checkpoint(
-    names: set[str], read_json: Callable[[str], Any], prefix: str = "", *, diffusion: bool = False,
-) -> Checkpoint | None:
+def _checkpoint_choices(prefix: str, *, diffusion: bool):
     stems = [("diffusion_pytorch_model", "safetensors"), ("diffusion_pytorch_model", "bin")] if diffusion else [
         ("model", "safetensors"), ("pytorch_model", "bin"),
     ]
-    for stem, extension in stems:
-        base = prefix + stem + "." + extension
+    return [(prefix + stem + "." + extension, extension) for stem, extension in stems]
+
+
+def checkpoint_index(names: set[str], prefix: str = "", *, diffusion: bool = False) -> str | None:
+    """Return only the index selected by the same priority as the weight loader."""
+    for base, _ in _checkpoint_choices(prefix, diffusion=diffusion):
+        if base in names:
+            return None
+        if base + ".index.json" in names:
+            return base + ".index.json"
+    return None
+
+
+def resolve_checkpoint(
+    names: set[str], read_json: Callable[[str], Any], prefix: str = "", *, diffusion: bool = False,
+) -> Checkpoint | None:
+    for base, extension in _checkpoint_choices(prefix, diffusion=diffusion):
         if base in names:
             return {"component": prefix.rstrip("/") or ".", "format": extension, "variant": None, "files": [base]}
         index = base + ".index.json"

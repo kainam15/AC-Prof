@@ -7,7 +7,7 @@ loaded on the host; runtime compatibility is verified separately in containers.
 
 from __future__ import annotations
 
-import json
+import hashlib
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -17,6 +17,11 @@ from acprof.host.preparation.model_errors import ModelLookupError, model_lookup_
 from acprof.hub.huggingface.auth import hf_token_for_url
 from acprof.hub.huggingface.download import hf_endpoint_scope
 from acprof.hub.repository import MetadataFile, read_metadata_file
+from acprof.models.metadata_validation import (
+    MetadataValidationError,
+    finite_metadata_diagnostics,
+    parse_metadata_json,
+)
 
 
 @dataclass
@@ -46,6 +51,8 @@ class TaskInfo:
     repository_files: tuple[str, ...] = ()
     repository_metadata: dict[str, Any] = field(default_factory=dict)
     metadata_errors: tuple[str, ...] = ()
+    metadata_diagnostics: tuple[dict[str, Any], ...] = ()
+    metadata_sources: dict[str, dict[str, Any]] = field(default_factory=dict)
     model_resolution: dict[str, Any] = field(default_factory=dict)
     model_spec: dict[str, Any] = field(default_factory=dict)
     hub_metadata: dict[str, Any] = field(default_factory=dict)
@@ -108,54 +115,76 @@ def _download_metadata(
     return try_hf_endpoints(model_id, download)
 
 
-def _read_json_metadata(metadata: MetadataFile, *, max_bytes: int = METADATA_MAX_BYTES) -> Any:
+def _read_json_metadata(
+    metadata: MetadataFile, *, max_bytes: int = METADATA_MAX_BYTES, filename: str | None = None,
+) -> Any:
     if len(metadata.content) > max_bytes:
         raise ValueError(f"{metadata.path.name} exceeds {max_bytes} bytes")
-    return json.loads(metadata.content.decode("utf-8"))
+    return parse_metadata_json(metadata.content, filename or metadata.path.name)
 
 
 def _repository_metadata(model_id: str, revision: str, info: Any) -> dict[str, Any]:
     """Read small, non-executable metadata at the same commit as the weights."""
+    from acprof.models.artifact_layout import checkpoint_metadata_indexes
+    from acprof.models.evidence import pinned_revision
+
     files = tuple(sorted({str(getattr(item, "rfilename", "")) for item in
                           (getattr(info, "siblings", None) or []) if getattr(item, "rfilename", "")}))
-    metadata, errors = {}, []
-    from acprof.models.evidence import pinned_revision
+    metadata, errors, diagnostics, sources = {}, [], [], {}
     if files and not pinned_revision(revision):
         return {"repository_files": files, "repository_metadata": {},
-                "metadata_errors": ("model revision must be a full commit SHA before metadata reads",)}
+                "metadata_errors": ("model revision must be a full commit SHA before metadata reads",),
+                "metadata_diagnostics": (), "metadata_sources": {}}
+    names = ["config.json", "model_index.json", "modules.json", "adapter_config.json",
+             "acprof_model.json", "tokenizer_config.json", "processor_config.json", "preprocessor_config.json",
+             "generation_config.json", "config_sentence_transformers.json", "sentence_bert_config.json"]
+
+    def read_name(name: str) -> None:
+        if name not in files:
+            return
+        try:
+            downloaded = _download_metadata(model_id, name, revision)
+            sources[name] = {"sha256": hashlib.sha256(downloaded.content).hexdigest(),
+                             "bytes": len(downloaded.content), "revision": revision, "encoding": "raw"}
+            value = _read_json_metadata(downloaded, filename=name)
+            expected = list if name == "modules.json" else dict
+            if not isinstance(value, expected):
+                raise ValueError(f"{name} must contain {expected.__name__}")
+            if name == "modules.json":
+                from pathlib import PurePosixPath
+                if len(value) > 64:
+                    raise ValueError("modules.json exceeds 64 modules")
+                for module in value:
+                    directory = module.get("path") if isinstance(module, dict) else None
+                    if (not isinstance(directory, str) or "\\" in directory
+                            or PurePosixPath(directory).is_absolute() or ".." in directory.split("/")):
+                        raise ValueError("module path must stay inside the model snapshot")
+                # Validate the entire declaration before expanding reads.
+                for module in value:
+                    for filename in ("config.json", "sentence_bert_config.json"):
+                        filename = str(PurePosixPath(module["path"]) / filename)
+                        if filename not in names:
+                            names.append(filename)
+            metadata[name] = value
+        except MetadataValidationError as exc:
+            diagnostics.extend(exc.diagnostics)
+            errors.append(f"{name}: {_format_failure(exc)}")
+        except Exception as exc:
+            errors.append(f"{name}: {_format_failure(exc)}")
+
     if files:
-        names = ["config.json", "model_index.json", "modules.json", "adapter_config.json",
-                     "acprof_model.json", "tokenizer_config.json", "processor_config.json", "preprocessor_config.json",
-                     "generation_config.json", "config_sentence_transformers.json", "sentence_bert_config.json"]
         for name in names:
-            if name not in files:
-                continue
-            try:
-                downloaded = _download_metadata(model_id, name, revision)
-                value = _read_json_metadata(downloaded)
-                expected = list if name == "modules.json" else dict
-                if not isinstance(value, expected):
-                    raise ValueError(f"{name} must contain {expected.__name__}")
-                if name == "modules.json":
-                    from pathlib import PurePosixPath
-                    modules = value
-                    if len(modules) > 64:
-                        raise ValueError("modules.json exceeds 64 modules")
-                    for module in modules:
-                        directory = module.get("path") if isinstance(module, dict) else None
-                        if (not isinstance(directory, str) or "\\" in directory
-                                or PurePosixPath(directory).is_absolute() or ".." in directory.split("/")):
-                            raise ValueError("module path must stay inside the model snapshot")
-                    # Validate the entire declaration before expanding reads.
-                    for module in modules:
-                        for filename in ("config.json", "sentence_bert_config.json"):
-                            filename = str(PurePosixPath(module["path"]) / filename)
-                            if filename not in names:
-                                names.append(filename)
-                metadata[name] = value
-            except Exception as exc:
-                errors.append(f"{name}: {_format_failure(exc)}")
-    return {"repository_files": files, "repository_metadata": metadata, "metadata_errors": tuple(errors)}
+            read_name(name)
+        try:
+            indexes = checkpoint_metadata_indexes(set(files), metadata)
+        except ValueError as exc:
+            errors.append(f"checkpoint layout: {_format_failure(exc)}")
+        else:
+            for name in indexes:
+                if name not in metadata:
+                    read_name(name)
+    return {"repository_files": files, "repository_metadata": metadata, "metadata_errors": tuple(errors),
+            "metadata_diagnostics": tuple(diagnostics), "metadata_sources": sources}
 
 
 def dependency_metadata(repo_id: str, revision: str) -> dict:
@@ -178,7 +207,7 @@ def dependency_metadata(repo_id: str, revision: str) -> dict:
                 raise ValueError("dependency metadata requires a fixed commit SHA")
             name = safe_path(name)
             metadata = _download_metadata(repo_id, name, info.sha, max_bytes=4 * 1024 * 1024, source="huggingface")
-            return _read_json_metadata(metadata, max_bytes=4 * 1024 * 1024)
+            return _read_json_metadata(metadata, max_bytes=4 * 1024 * 1024, filename=name)
         return {"revision": info.sha, "files": [item.rfilename for item in info.siblings or []],
                 "read_json": read_json}
     except Exception as exc:
@@ -328,7 +357,7 @@ def _hub_model_metadata(info: object) -> dict[str, Any]:
         for raw_dtype, raw_count in raw_dtype_counts.items():
             try:
                 count = int(raw_count)
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 continue
             dtype = _normalize_dtype_name(raw_dtype)
             if dtype:
@@ -341,7 +370,7 @@ def _hub_model_metadata(info: object) -> dict[str, Any]:
             if not isinstance(raw_parameter_count, (int, str, float)):
                 raise ValueError("invalid model parameter count")
             parameter_count = int(raw_parameter_count)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         pass
 
     config = _json_mapping(getattr(info, "config", None))
@@ -500,7 +529,12 @@ def _detect_from_hub(
                              key: value for key, value in transformers_info.items()
                              if key in {"auto_model", "pipeline_tag", "processor", "custom_class"} and isinstance(value, str)}
     repository = _repository_metadata(model_id, sha, info)
-    model_config = _architecture_metadata(getattr(info, "config", None))
+    hub_config = _architecture_metadata(getattr(info, "config", None))
+    hub_diagnostics = finite_metadata_diagnostics(hub_config, "hub.config")
+    if hub_diagnostics:
+        repository["metadata_diagnostics"] += tuple(hub_diagnostics)
+        repository["metadata_errors"] += (str(MetadataValidationError(hub_diagnostics)),)
+    model_config = {} if hub_diagnostics else hub_config
     model_config.update(_architecture_metadata(repository["repository_metadata"].get("config.json")))
     if not pipeline_tag and library_name == "diffusers" and not repository["metadata_errors"]:
         pipeline_tag = _diffusers_task_from_index(model_id, sha, diagnostics)
@@ -531,6 +565,12 @@ def _detect_from_hub(
             f"metadata returned no pipeline_tag (library_name={library_name or 'unknown'})",
         )
 
+    model_metadata = _hub_model_metadata(info)
+    if hub_diagnostics:
+        # The raw Hub configuration is retained as invalid evidence, not passed
+        # into executable configuration or a non-standard JSON report.
+        model_metadata["quantization_config"] = {}
+
     return TaskInfo(
         model_id=model_id,
         pipeline_tag=pipeline_tag or "unknown",
@@ -548,7 +588,7 @@ def _detect_from_hub(
                       "task_hint": pipeline_tag if pipeline_tag != hub_pipeline_tag else None,
                       "task_hint_source": task_hint_source},
         **repository,
-        **_hub_model_metadata(info),
+        **model_metadata,
     )
 
 
@@ -573,6 +613,18 @@ def _detect_from_config(
         architectures = config_data.get("architectures") or []
         if not architectures:
             _record_failure(diagnostics, "config_json", "config.json has no architectures field")
+    except MetadataValidationError as exc:
+        _record_failure(diagnostics, "config_json", _format_failure(exc))
+        return TaskInfo(
+            model_id=model_id, pipeline_tag="unknown", task_family="unknown",
+            runtime_backend="unknown", library_name="transformers", model_revision=revision,
+            detection_method="config_infer", metadata_errors=(str(exc),),
+            metadata_diagnostics=tuple(exc.diagnostics),
+            metadata_sources={"config.json": {
+                "sha256": hashlib.sha256(metadata.content).hexdigest(), "bytes": len(metadata.content),
+                "revision": revision, "encoding": "raw",
+            }},
+        )
     except Exception as exc:
         _record_failure(diagnostics, "config_json", _format_failure(exc))
         if failures is not None:
@@ -596,6 +648,10 @@ def _detect_from_config(
         detection_method="config_infer",
         model_config=_architecture_metadata(config_data),
         repository_metadata={"config.json": config_data},
+        metadata_sources={"config.json": {
+            "sha256": hashlib.sha256(metadata.content).hexdigest(), "bytes": len(metadata.content),
+            "revision": revision, "encoding": "raw",
+        }},
     )
 
 
@@ -658,6 +714,19 @@ def detect_task(
     info.requested_revision = revision
     if info.model_source == "modelscope":
         info.model_metadata_source = "modelscope_hub"
+    if info.metadata_diagnostics:
+        from acprof.failures import Failure
+        from acprof.models.inspection.decision import record_resolution_failure
+
+        info.model_resolution.update(
+            schema_version=1, model_id=model_id, model_revision=info.model_revision,
+            candidates=[], runtime_validation="not_run",
+        )
+        record_resolution_failure(info, Failure(
+            "preflight", "metadata_invalid", "; ".join(info.metadata_errors),
+            evidence={"diagnostics": list(info.metadata_diagnostics), "sources": info.metadata_sources},
+        ))
+        return info
     from acprof.models.candidates import apply_model_candidate, discover_model_candidates
     info.model_resolution = apply_model_candidate(info, discover_model_candidates(
         info, override_tag=override_tag, override_backend=override_backend))

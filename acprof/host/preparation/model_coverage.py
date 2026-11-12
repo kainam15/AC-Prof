@@ -127,6 +127,28 @@ def _read_runtime_validation_recovery(path: Path) -> dict:
     return validation
 
 
+def _record_static_inspection(row: dict, task: Any) -> None:
+    """Project the final static decision without manufacturing runtime evidence."""
+    resolution = task.model_resolution
+    status = resolution.get("status", "unknown")
+    compatibility = dict(resolution.get("compatibility") or {})
+    compatibility.setdefault("status", "unknown")
+    compatibility.setdefault("evidence_level", "static")
+    compatibility.setdefault("checkpoint_verified", False)
+    row["inspection_status"] = status
+    row["compatibility"] = compatibility
+    row["resolved"] = status in {"candidate", "resolved"} and not resolution.get("failure")
+    row["resolution_status"] = ("resolved" if row["resolved"] else
+                                "abstained" if status in {"ambiguous", "needs_configuration", "selection_required"} else
+                                "blocked" if status == "blocked" or resolution.get("failure") else "unknown")
+    row["supported"] = row["resolved"] and compatibility["status"] == "supported"
+    row["next_action"] = (
+        "Run separately authorized runtime validation to verify checkpoint loading and inference."
+        if row["supported"] else
+        "Review the recorded static decision and unknown evidence before claiming model support."
+    )
+
+
 def _evaluate_model(item: dict, output: Path, *, probe, cpus, memory_gb, gpu,
                     timeout_seconds, max_parameters, max_download_bytes) -> dict:
     from acprof.host.detect import detect_task
@@ -137,25 +159,28 @@ def _evaluate_model(item: dict, output: Path, *, probe, cpus, memory_gb, gpu,
     row = {"source": item.get("source", "huggingface"),
            "model_id": item["model_id"], "revision": item["revision"], "weight": item["weight"],
            "resolved": False, "supported": False, "resolution_status": "error",
+           "inspection_status": "unknown",
+           "compatibility": {"status": "unknown", "evidence_level": "static", "checkpoint_verified": False},
            "runtime_status": "not_requested" if probe == "none" else "not_run", "semantic_correct": None}
     stage = "resolution"
     task = None
+    identity_verified = False
     validation: Mapping[str, Any] | None = None
     try:
         task = detect_task(item["model_id"], revision=item["revision"])
         if task.model_revision != item["revision"] or task.model_source != row["source"]:
             raise ValueError("resolver returned a different source or snapshot")
+        identity_verified = True
         write_model_resolution(task, output)
         row["selected_task"] = task.pipeline_tag
-        row["resolved"] = task.model_resolution.get("status") not in {"ambiguous", "needs_configuration"}
-        row["resolution_status"] = "resolved" if row["resolved"] else "abstained"
+        _record_static_inspection(row, task)
         if row["resolved"] and item.get("semantic_reference"):
             row["semantic_correct"] = task.pipeline_tag == item["semantic_reference"]["task"]
         stage = "support"
         require_task_support(task, devices=("gpu" if gpu else "cpu",) if probe == "full" else ())
         row["runtime_profile"] = task.runtime_profile_id
         write_model_resolution(task, output)
-        row["supported"] = True
+        _record_static_inspection(row, task)
         if max_parameters is not None or max_download_bytes is not None:
             from acprof.resource_budget import assess_resource_budget
             plan = None
@@ -186,11 +211,16 @@ def _evaluate_model(item: dict, output: Path, *, probe, cpus, memory_gb, gpu,
                 row["failure"] = failures[0]
     except (Exception, SystemExit) as exc:
         from acprof.failures import Failure, compatibility_status, failure_from_exception
+        if identity_verified:
+            _record_static_inspection(row, task)
         failure = failure_from_exception(exc, stage=getattr(exc, "stage", stage), device="gpu" if gpu else "cpu",
                                          runtime_profile=row.get("runtime_profile", ""))
         row["failure"] = failure.to_dict()
         row["reason_code"] = failure.reason_code
-        if probe == "full":
+        row["next_action"] = failure.evidence.get("next_action") or (
+            "Review the recorded failure and resolve it before repeating inspection."
+        )
+        if probe == "full" and stage == "runtime":
             row["runtime_status"] = compatibility_status(failure)
         row.update(failed_stage=failure.stage, error_type=type(exc).__name__)
         if stage == "access":
@@ -234,6 +264,13 @@ def _evaluate_model(item: dict, output: Path, *, probe, cpus, memory_gb, gpu,
                         row["reason_code"] = structured[0]["reason_code"]
                         row["runtime_status"] = compatibility_status(structured[0])
                     row["failed_stage"] = ",".join(failed_stages) or stage
+    if row.get("failure"):
+        row["reason_code"] = row["failure"]["reason_code"]
+        row["next_action"] = row["failure"].get("evidence", {}).get("next_action") or (
+            "Review the recorded failure and resolve it before repeating inspection."
+        )
+    elif row["runtime_status"] == "ok":
+        row["next_action"] = ""
     if validation is not None and validation.get("cleanup_status") == "incomplete":
         row["cleanup_status"] = "incomplete"
         row["cleanup_errors"] = [value for value in [validation.get("cleanup_error"), *(

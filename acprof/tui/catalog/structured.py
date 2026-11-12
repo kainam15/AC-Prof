@@ -35,6 +35,39 @@ MESSAGES: dict[str, Entry] = {
     "structured.reason.artifact_format.problem": Entry(
         zh="实验产物格式不受支持。", en="The experiment artifact format is unsupported.",
     ),
+    "structured.reason.artifact_incomplete.impact": Entry(
+        zh="当前快照缺少加载所需的权重、分片或组件。",
+        en="The snapshot is missing weights, shards or components required for loading.",
+    ),
+    "structured.reason.artifact_incomplete.next": Entry(
+        zh="根据技术详情补齐缺失文件，或选择完整的固定 revision。",
+        en="Use the technical details to supply the missing files or select a complete pinned revision.",
+    ),
+    "structured.reason.artifact_incomplete.problem": Entry(
+        zh="模型制品不完整。", en="The model artifacts are incomplete.",
+    ),
+    "structured.reason.artifact_unknown.impact": Entry(
+        zh="现有文件证据不足以确认加载兼容性。",
+        en="The available file evidence does not establish loader compatibility.",
+    ),
+    "structured.reason.artifact_unknown.next": Entry(
+        zh="取得固定 revision 的文件清单，再检查所选加载器。",
+        en="Obtain the pinned revision's file list, then check the selected loader.",
+    ),
+    "structured.reason.artifact_unknown.problem": Entry(
+        zh="模型制品布局尚未确认。", en="The model artifact layout is unverified.",
+    ),
+    "structured.reason.backend_unsupported.impact": Entry(
+        zh="当前登记的实现不能执行这个后端选项。",
+        en="The registered implementations cannot execute this backend choice.",
+    ),
+    "structured.reason.backend_unsupported.next": Entry(
+        zh="选择已实现且兼容模型制品的后端，或登记经过验证的适配。",
+        en="Select an implemented backend compatible with the artifacts, or register a validated adapter.",
+    ),
+    "structured.reason.backend_unsupported.problem": Entry(
+        zh="所选推理后端尚未受支持。", en="The selected inference backend is unsupported.",
+    ),
     "structured.reason.dependency_incompatible.impact": Entry(
         zh="当前依赖组合无法可靠执行该任务。",
         en="The current dependency combination cannot reliably run this task.",
@@ -99,6 +132,51 @@ MESSAGES: dict[str, Entry] = {
     "structured.reason.input_budget.problem": Entry(
         zh="输入超过当前预算限制。", en="The input exceeds the current budget.",
     ),
+    "structured.reason.model_artifact_format.impact": Entry(
+        zh="模型标签或配置文件不能代替兼容的权重制品。",
+        en="Model tags and configuration files cannot replace compatible weight artifacts.",
+    ),
+    "structured.reason.model_artifact_format.next": Entry(
+        zh="选择与制品格式匹配的已登记后端或模型版本。",
+        en="Select a registered backend or model revision matching the artifact format.",
+    ),
+    "structured.reason.model_artifact_format.problem": Entry(
+        zh="模型制品格式不受所选加载器支持。",
+        en="The selected loader does not support this model artifact format.",
+    ),
+    "structured.reason.model_configuration.impact": Entry(
+        zh="所需输入或执行方式尚未确定，不能开始正式采集。",
+        en="Required inputs or execution semantics are unresolved, so measurement cannot begin.",
+    ),
+    "structured.reason.model_configuration.next": Entry(
+        zh="补充界面要求的配置，或通过 --model-spec 提供模型声明。",
+        en="Supply the requested configuration or provide a model declaration with --model-spec.",
+    ),
+    "structured.reason.model_configuration.problem": Entry(
+        zh="模型接口配置尚不完整。", en="The model interface configuration is incomplete.",
+    ),
+    "structured.reason.model_conflict.impact": Entry(
+        zh="当前任务、后端或模型声明不能共同构成一致的执行配置。",
+        en="The current task, backend and model declarations do not form a consistent execution configuration.",
+    ),
+    "structured.reason.model_conflict.next": Entry(
+        zh="核对冲突来源，再选择兼容的任务、后端或模型声明。",
+        en="Review the conflicting sources and select a compatible task, backend or model declaration.",
+    ),
+    "structured.reason.model_conflict.problem": Entry(
+        zh="模型识别证据存在冲突。", en="The model identification evidence contains conflicts.",
+    ),
+    "structured.reason.model_metadata.impact": Entry(
+        zh="接口解析已停止，尚未进入模型加载或正式采集。",
+        en="Interface resolution stopped before model loading or measurement.",
+    ),
+    "structured.reason.model_metadata.next": Entry(
+        zh="根据技术详情中的文件和字段路径修正元数据，或选择有效 revision。",
+        en="Review the file and field paths in the technical details, then correct the metadata or select a valid revision.",
+    ),
+    "structured.reason.model_metadata.problem": Entry(
+        zh="模型元数据无效。", en="The model metadata is invalid.",
+    ),
     "structured.reason.resources.impact": Entry(
         zh="受影响的任务未能在当前资源限制内完成。",
         en="The affected task did not complete within the current resource limits.",
@@ -109,6 +187,17 @@ MESSAGES: dict[str, Entry] = {
     ),
     "structured.reason.resources.problem": Entry(
         zh="可用资源不足。", en="Available resources are insufficient.",
+    ),
+    "structured.reason.runtime_unavailable.impact": Entry(
+        zh="任务虽已识别，当前运行环境仍无法执行它。",
+        en="The task was identified, but the available runtimes cannot execute it.",
+    ),
+    "structured.reason.runtime_unavailable.next": Entry(
+        zh="选择兼容的已登记后端或运行环境，或补齐适配后验证。",
+        en="Select a compatible registered backend or runtime, or add and validate its adapter.",
+    ),
+    "structured.reason.runtime_unavailable.problem": Entry(
+        zh="没有兼容的已登记运行环境。", en="No compatible registered runtime is available.",
     ),
     "structured.reason.state_format.impact": Entry(
         zh="无法可靠判断运行状态或续跑条件。",
@@ -132,6 +221,17 @@ MESSAGES: dict[str, Entry] = {
     "structured.reason.task.problem": Entry(
         zh="当前运行环境不支持所选任务。",
         en="The current runtime does not support the selected task.",
+    ),
+    "structured.reason.task_selection.impact": Entry(
+        zh="已发现可选推理路径，但采集范围尚未确定。",
+        en="Candidate inference paths were found, but the collection scope is unresolved.",
+    ),
+    "structured.reason.task_selection.next": Entry(
+        zh="选择一个或多个推理配置组；CLI 使用 --tasks，--task 只指定接口。",
+        en="Select one or more inference profiles with --tasks; --task specifies the interface.",
+    ),
+    "structured.reason.task_selection.problem": Entry(
+        zh="尚未选择有效的推理配置组。", en="A valid inference profile has not been selected.",
     ),
     "structured.reason.timeout.impact": Entry(
         zh="该请求未取得完整结果。", en="A complete result was not obtained for this request.",

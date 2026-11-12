@@ -7,6 +7,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import pytest
+
 from acprof.cli.main import main
 from tests.execution.planning.test_resolution_decisions import candidate
 
@@ -108,6 +110,89 @@ def test_static_coverage_keeps_unmeasured_separate_and_requires_reference():
         assert (report["summary"]["weighted_access_denied_rate"]) is None
         assert (report["summary"]["semantic_accuracy_on_reviewed_selections"]) == (1.0)
         assert (report["rows"][1]["runtime_status"]) == ("not_requested")
+
+@pytest.mark.parametrize(("status", "reason_code"), [
+    ("blocked", "runtime_unavailable"),
+    ("selection_required", "task_selection_required"),
+])
+def test_static_blockers_are_not_counted_as_resolved_or_runtime_failures(tmp_path, status, reason_code):
+    from acprof.failures import Failure
+    from acprof.host.preparation.model_coverage import run_sample
+
+    task = candidate(tag="text-generation")
+    task.model_resolution.update(status=status, failure=Failure(
+        "resolution", reason_code, "fixture requires a new selection",
+        retryability="after_configuration", evidence={"next_action": "Select a compatible registered path."},
+    ).to_dict())
+    manifest = {"schema_version": 1, "sampling": "fixed", "weight_basis": "uniform",
+                "models": [{"model_id": task.model_id, "revision": task.model_revision, "weight": 1}]}
+    with patch("acprof.host.detect.detect_task", return_value=task), patch(
+        "acprof.host.preparation.model_inspection.validate_model_runtime",
+    ) as runtime:
+        report = run_sample(manifest, tmp_path / "report", probe="full")
+
+    row = report["rows"][0]
+    assert row["inspection_status"] == status
+    assert row["resolved"] is False
+    assert row["supported"] is False
+    assert row["runtime_status"] == "not_run"
+    assert row["reason_code"] == reason_code
+    assert row["next_action"] == "Select a compatible registered path."
+    assert report["summary"]["weighted_resolution_rate"] == 0
+    assert report["summary"]["weighted_support_rate"] == 0
+    assert report["summary"]["weighted_runtime_success_rate"] == 0
+    runtime.assert_not_called()
+
+
+@pytest.mark.parametrize(("files", "compatibility", "supported"), [
+    ((), "unknown", False),
+    (("config.json", "model.safetensors"), "supported", True),
+])
+def test_static_coverage_requires_positive_compatibility_evidence(tmp_path, files, compatibility, supported):
+    from acprof.host.preparation.model_coverage import run_sample
+
+    task = candidate(tag="fill-mask", config={"model_type": "bert", "architectures": ["BertForMaskedLM"]})
+    task.repository_files = files
+    manifest = {"schema_version": 1, "sampling": "fixed", "weight_basis": "uniform",
+                "models": [{"model_id": task.model_id, "revision": task.model_revision, "weight": 1}]}
+    with patch("acprof.host.detect.detect_task", return_value=task), patch(
+        "acprof.host.preparation.model_inspection.validate_model_runtime",
+    ) as runtime:
+        report = run_sample(manifest, tmp_path / "report")
+
+    row = report["rows"][0]
+    assert row["inspection_status"] == "candidate"
+    assert row["resolved"] is True
+    assert row["compatibility"]["status"] == compatibility
+    assert row["compatibility"]["checkpoint_verified"] is False
+    assert row["supported"] is supported
+    assert row["runtime_status"] == "not_requested"
+    assert row["next_action"]
+    assert report["summary"]["weighted_support_rate"] == (1 if supported else 0)
+    assert report["summary"]["weighted_runtime_success_rate"] is None
+    runtime.assert_not_called()
+
+
+def test_support_failure_updates_the_final_static_decision(tmp_path):
+    from acprof.host.preparation.model_coverage import run_sample
+
+    task = candidate(tag="fill-mask", config={"model_type": "bert", "architectures": ["BertForMaskedLM"]})
+    task.repository_files = ("config.json", "model.safetensors")
+    task.runtime_profile_id = "missing-runtime"
+    manifest = {"schema_version": 1, "sampling": "fixed", "weight_basis": "uniform",
+                "models": [{"model_id": task.model_id, "revision": task.model_revision, "weight": 1}]}
+    with patch("acprof.host.detect.detect_task", return_value=task):
+        report = run_sample(manifest, tmp_path / "report")
+
+    row = report["rows"][0]
+    assert row["inspection_status"] == "blocked"
+    assert row["resolution_status"] == "blocked"
+    assert row["resolved"] is False
+    assert row["supported"] is False
+    assert row["reason_code"] == "runtime_unavailable"
+    assert row["runtime_status"] == "not_requested"
+    assert report["summary"]["weighted_resolution_rate"] == 0
+
 
 def test_snapshot_freezes_sha_and_weights_without_creating_semantic_oracles():
     model = SimpleNamespace(id="example/model", sha="a" * 40, downloads=7, pipeline_tag="text-generation",

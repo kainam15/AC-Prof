@@ -67,7 +67,7 @@ class RunProgressTracker:
                       if failure.reason_code == "runtime_task_unsupported" and "task" in failure.evidence
                       else f"{failure.reason_code}: {failure.detail}")
             self.snapshot = replace(self.snapshot,
-                stage=Stage.TASK_UNSUPPORTED if failure.stage in {"preflight", "dependency_preflight", "precision_preflight"} else Stage.RUNTIME_VALIDATION,
+                stage=Stage.TASK_UNSUPPORTED if failure.reason_code == "runtime_task_unsupported" else Stage.FAILED,
                 detail=detail, measurement_active=False,
                 errors=max(1, self.snapshot.errors), failure=failure.to_dict())
             return self.snapshot

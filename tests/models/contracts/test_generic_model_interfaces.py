@@ -257,8 +257,19 @@ class TestModelResolution:
 
     def test_complete_pipeline_reports_metadata_evidence_without_claiming_execution(self):
         task = self.task(pipeline_tag="text-to-image", task_family="diffusion", runtime_backend="diffusers",
-                         library_name="diffusers", model_config={}, repository_files=("model_index.json",),
-                         repository_metadata={"model_index.json": {"_class_name": "StableDiffusionPipeline"}})
+                         library_name="diffusers", model_config={}, repository_files=(
+                             "model_index.json", "unet/config.json", "unet/diffusion_pytorch_model.safetensors",
+                             "vae/config.json", "vae/diffusion_pytorch_model.safetensors",
+                             "text_encoder/config.json", "text_encoder/model.safetensors",
+                             "tokenizer/tokenizer_config.json", "scheduler/scheduler_config.json",
+                         ), repository_metadata={"model_index.json": {
+                             "_class_name": "StableDiffusionPipeline",
+                             "unet": ["diffusers", "UNet2DConditionModel"],
+                             "vae": ["diffusers", "AutoencoderKL"],
+                             "text_encoder": ["transformers", "CLIPTextModel"],
+                             "tokenizer": ["transformers", "CLIPTokenizer"],
+                             "scheduler": ["diffusers", "PNDMScheduler"],
+                         }})
         require_task_support(task)
         assert (task.model_resolution["artifact_format"]) == ("diffusers_pipeline")
         assert (task.model_resolution["status"]) == ("candidate")

@@ -15,7 +15,8 @@ def main(argv=None) -> int:
     parser.add_argument("--model-spec", help="Explicit local model declaration")
     parser.add_argument("--revision", help="Model branch, tag or full commit SHA")
     parser.add_argument("--expected-revision", help="Refuse a model commit that changed since review")
-    parser.add_argument("--task", help="Explicit task selection")
+    parser.add_argument("--task", help="Explicit model execution interface")
+    parser.add_argument("--tasks", default="", help="Inference profile or semantic task IDs, comma-separated, or all")
     parser.add_argument("--backend", help="Explicit backend selection")
     parser.add_argument("--explain", action="store_true", help="Show field values and evidence sources")
     parser.add_argument("--output-dir", type=Path, help="Export model_resolution.json and probe evidence")
@@ -28,12 +29,20 @@ def main(argv=None) -> int:
     from acprof.host.detect import detect_task
     from acprof.host.env_utils import bootstrap_project_env
     from acprof.host.preparation.interface_probe import probe_interface
+    from acprof.host.preparation.model_errors import ModelLookupError
     from acprof.host.preparation.model_inspection import explain_resolution
     from acprof.models.contract import write_model_resolution
     apply_download_arguments(args)
     bootstrap_project_env(Path.cwd())
-    task = detect_task(args.model, model_spec_path=args.model_spec, override_tag=args.task, override_backend=args.backend,
-                       **({"revision": args.revision} if args.revision else {}))
+    try:
+        task = detect_task(args.model, model_spec_path=args.model_spec, override_tag=args.task, override_backend=args.backend,
+                           **({"revision": args.revision} if args.revision else {}))
+    except ModelLookupError as exc:
+        print(f"[model-lookup][ERROR] {exc}", file=sys.stderr)
+        return 1
+    except (ValueError, RuntimeError, OSError) as exc:
+        print(f"[interface][ERROR] {exc}", file=sys.stderr)
+        return 2
     if args.expected_revision and task.model_revision != args.expected_revision:
         print("[interface][ERROR] Model revision changed; resolve and review it again", file=sys.stderr)
         return 2
@@ -62,20 +71,15 @@ def main(argv=None) -> int:
                     task.model_resolution["contract"] = contract
             except (OSError, ValueError, TypeError, KeyError, AttributeError):
                 pass
-    preflight_error = None
-    if task.model_resolution.get("status") not in {"ambiguous", "needs_configuration"}:
-        from acprof.host.preparation.task_support import TaskSupportError, require_task_support
-        try:
-            require_task_support(task, devices=("cpu",))
-        except TaskSupportError as exc:
-            preflight_error = exc
+    from acprof.host.preparation.task_inspection import inspect_selected_tasks
+    task, preflight_error = inspect_selected_tasks(task, args)
     if output is not None:
         write_model_resolution(task, output)
     print(explain_resolution(task, explain=args.explain), flush=True)
     if preflight_error is not None:
         print(str(preflight_error), file=sys.stderr)
         return 2
-    if task.model_resolution.get("status") in {"ambiguous", "needs_configuration"}:
+    if task.model_resolution.get("status") in {"ambiguous", "needs_configuration", "selection_required", "blocked"}:
         return 2
     if args.probe_interface:
         try:

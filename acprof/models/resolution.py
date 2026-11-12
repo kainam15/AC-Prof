@@ -14,8 +14,9 @@ from acprof.models.support import supports_pipeline_task, supports_transformers_
 
 def require_resolved_candidate(task_info: Any) -> None:
     resolution = getattr(task_info, "model_resolution", {}) or {}
-    if resolution.get("failure", {}).get("reason_code") == "model_contract_required":
-        from acprof.failures import Failure, RuntimeFailure
+    from acprof.failures import REASON_CODES, Failure, RuntimeFailure
+
+    if resolution.get("failure", {}).get("reason_code") in REASON_CODES:
         raise RuntimeFailure(Failure(**resolution["failure"]))
     if (resolution.get("status") in {"ambiguous", "needs_configuration", "selection_required"}
             or resolution.get("semantics", {}).get("status") in {"conflict", "unresolved"}):
@@ -74,6 +75,11 @@ def resolve_model_interface(task_info: Any) -> dict:
     profile = select_runtime_profile(task_info)
     task_info.runtime_profile_id, task_info.model_adapter = profile.profile_id, profile.adapter
     version = locked_transformers_version(profile.environment)
+    layout = {"status": "not_applicable", "weights": []}
+    if backend in {"transformers_model", "transformers_pipeline", "sentence_transformers", "cross_encoder", "chronos", "diffusers"}:
+        from acprof.models.artifact_layout import inspect_artifact_layout
+
+        layout = inspect_artifact_layout(task_info, adapter=extension.adapter)
     if (extension.handler_options.get("uses_pipeline") and backend not in {"sentence_transformers", "cross_encoder"}
             and pipeline_name not in (config.get("custom_pipelines") or {})
             and version and not supports_pipeline_task(version, pipeline_name)):
@@ -86,13 +92,11 @@ def resolve_model_interface(task_info: Any) -> dict:
         # accept actual native metadata, never an unrelated task tag alone.
         native = version and supports_transformers_task(version, task_info.pipeline_tag, str(config.get("model_type", "")), config)
         if library not in {"", "unknown", "transformers", "sentence-transformers", "timm"} and not native and extension.adapter == "family-default":
-            raise ValueError(f"library {library!r} has no shared {backend} interface; select a registered backend")
-        if files and "config.json" not in files and "modules.json" not in files:
-            suffix = "GGUF" if any(name.lower().endswith(".gguf") for name in files) else "missing config.json/modules.json"
-            raise RuntimeFailure(Failure("preflight", "artifact_layout_unsupported", f"{backend} cannot load this artifact layout ({suffix})", runtime_profile=profile.profile_id, evidence={"files": sorted(files)}))
-        if "adapter_config.json" in files:
-            base = (metadata.get("adapter_config.json") or {}).get("base_model_name_or_path")
-            raise ValueError(f"adapter requires an offline base model dependency ({base or 'unknown'}); a standalone snapshot is incomplete")
+            raise RuntimeFailure(Failure(
+                "preflight", "backend_unsupported",
+                f"library {library!r} has no shared {backend} interface; select a registered backend",
+                runtime_profile=profile.profile_id, evidence={"library": library, "backend": backend},
+            ))
         format_name = "sentence_transformers" if backend == "sentence_transformers" else "transformers"
         if backend == "sentence_transformers":
             loader, operation = "SentenceTransformer", "encode"
@@ -103,9 +107,6 @@ def resolve_model_interface(task_info: Any) -> dict:
     elif backend == "chronos":
         format_name, loader = "chronos", "BaseChronosPipeline"
     elif backend == "diffusers":
-        if files and "model_index.json" not in files:
-            format_name = "GGUF" if any(name.lower().endswith(".gguf") for name in files) else "single-file/components"
-            raise RuntimeFailure(Failure("preflight", "artifact_layout_unsupported", f"DiffusionPipeline requires model_index.json; {format_name} needs a compatible artifact loader", runtime_profile=profile.profile_id, evidence={"files": sorted(files)}))
         format_name, loader, operation = "diffusers_pipeline", "DiffusionPipeline", "__call__"
     elif backend == "onnxruntime":
         format_name, loader, operation = "onnx", "InferenceSession", "run"
@@ -116,9 +117,12 @@ def resolve_model_interface(task_info: Any) -> dict:
             raise RuntimeFailure(Failure("preflight", "model_contract_required", "ONNX image/text preprocessing requires --model-spec (acprof_model.json)", runtime_profile=profile.profile_id))
     elif backend in {"torchscript", "skops"}:
         format_name = backend
+    if layout["status"] == "unknown":
+        format_name = "unknown"
     return {**getattr(task_info, "model_resolution", {}),
             "schema_version": 1, "status": "candidate", "task": task_info.pipeline_tag,
             "backend": backend, "library": library, "artifact_format": format_name,
+            "artifact_layout": layout,
             "loader": loader, "operation": operation, "model_revision": task_info.model_revision,
             "metadata_files": sorted(metadata), "model_type": config.get("model_type"),
             "interface_kind": "custom_pipeline" if pipeline_name in (config.get("custom_pipelines") or {}) else

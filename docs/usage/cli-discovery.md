@@ -40,12 +40,18 @@ Process 可选指标缺失不会使必要检查失败，JSON 中的 `required` �
 ### `acprof inspect`
 
 `acprof inspect MODEL` 只进行静态解析；`--explain` 显示固定 revision、字段来源和未决项。
-`--output-dir DIR` 导出 `model_resolution.json`。静态缺口退出 2，保留 draft；模型访问或网络错误退出 1，
-分类见[共享接口解析](../models/routing.md#共享接口解析)。
+`--output-dir DIR` 导出 `model_resolution.json`。任务选择、配置、元数据、制品或运行环境的静态阻断退出 2，
+保留可用的解析证据；模型访问或网络错误退出 1。分类见[共享接口解析](../models/routing.md#共享接口解析)。
+
+`Static Resolution: candidate` 表示尚未发现已知静态阻断，不代表权重已加载或真实推理已通过。
+`Static compatibility: unknown` 或 `Artifact layout: unknown` 表示对应证据仍不足；未知不会转换成已验证支持。
+接口检查、真实推理和正式采集分别保留证据，静态检查成功不能代替后两者。
 
 | 参数 | 默认 | 说明 |
 | --- | --- | --- |
-| `--model-spec`、`--task`、`--backend` | 自动解析 | 声明或选择覆盖，仍检查冲突 |
+| `--model-spec`、`--backend` | 自动解析 | 声明或后端覆盖，仍检查冲突 |
+| `--task` | 自动解析 | 选择模型执行接口，例如 `text-generation`；不会自动选择多个不同的推理配置组 |
+| `--tasks` | 唯一组自动选择 | 选择输出中列出的配置组 ID 或语义任务 ID；逗号分隔多个 ID，`all` 检查全部组 |
 | `--expected-revision` | 空 | 要求模型 SHA 与已审阅 SHA 相同 |
 | `--revision` | Hub 默认分支 | 解析 branch、tag 或完整 SHA，文件固定到解析后的 SHA |
 | `--probe-interface` | 关闭 | 使用纯源码 bundle，在依赖镜像内检查 import 和 method signature |
@@ -54,8 +60,17 @@ Process 可选指标缺失不会使必要检查失败，JSON 中的 `required` �
 
 ```bash
 acprof inspect MODEL --explain
-acprof inspect MODEL --probe-interface --output-dir results/inspection/model-interface
+acprof inspect MODEL --task text-generation --tasks PROFILE_ID --explain
+acprof inspect MODEL --tasks all --output-dir results/inspection/model-static
+acprof inspect MODEL --tasks PROFILE_ID --probe-interface --output-dir results/inspection/model-interface
 ```
+
+`PROFILE_ID` 使用上一步列出的实际 ID。`--task` 指定接口后，如果仍有 Beam、Sampling 等不同的执行配置组，
+状态保持 `selection_required` 并给出 `--tasks` 选择提示。多个语义用途若共享同一执行配置，不重复调度。
+`--tasks all` 或多组选项逐组进行静态检查；导出文件保留完整 `selected_tasks` 及逐组 `task_resolutions`，
+任何一组阻断都会使整体失败。顶部兼容结论汇总全部组，具体运行环境与版本保留在各组证据中。
+
+`--probe-interface` 每次只检查一个配置组；选择多个组会在启动探测前拒绝，并提示逐个指定 `--tasks`。
 
 接口检查不调用 `prepare_image()`、`prepare_model()` 或 Model Store，不下载模型权重、不执行推理。
 首次可能准备依赖基础镜像。未指定输出目录时使用独立 `results/inspection/` 子目录，已有接口报告的

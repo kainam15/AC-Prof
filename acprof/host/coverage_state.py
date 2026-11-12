@@ -81,9 +81,11 @@ def configuration_changes(before: dict, after: dict, prefix="") -> dict:
 
 
 def verified(row: dict, probe: str) -> bool:
-    return (row.get("cleanup_status") != "incomplete" and not row.get("failure")
-            and row.get("resolved") is True and row.get("supported") is True
-            and (probe == "none" or row.get("runtime_status") == "ok"))
+    if row.get("cleanup_status") == "incomplete" or row.get("failure") or row.get("resolved") is not True:
+        return False
+    # Runtime success settles the requested runtime check, without upgrading
+    # unknown static compatibility or repeating an already verified attempt.
+    return row.get("runtime_status") == "ok" if probe == "full" else row.get("supported") is True
 
 
 class CoverageState:
