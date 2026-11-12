@@ -2,6 +2,9 @@
 
 [← 返回专题目录](runtime.md)
 
+统一参数、用户请求、Auto、冻结配置与运行观察的后续设计见
+[统一推理配置契约（设计，待实现）](inference-configuration.md)。该设计不改变下文现行模型契约和验证协议。
+
 ## 自动生成模型契约（M1～M6）
 未提供本地或作者 `acprof_model.json` 时，`detect_task` 对声明了唯一 `custom_pipelines` 的
 音频／图像／视频转文字任务收集证据，再生成兼容现有 schema v1 的 draft。

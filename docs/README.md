@@ -12,7 +12,7 @@
 
 ## 技术专题
 
-- **模型**：[任务接口与适用范围](models/supported-tasks.md) · [运行兼容与适配](models/runtime.md)
+- **模型**：[任务接口与适用范围](models/supported-tasks.md) · [运行兼容与适配](models/runtime.md) · [统一推理配置契约（设计，待实现）](models/inference-configuration.md)
 - **采集**：[采集协议](profiling/protocol.md) · [流式测量](profiling/streaming.md) · [能耗测量](profiling/energy.md) · [独立 Profiler](profiling/profilers.md)
 - **结果与分析**：[指标与结果目录](results/metrics.md) · [离线 HTML 报告](results/reports.md) · [独立运行比较](results/comparisons.md) · [字段登记表](results/metric_reference.md)
 - **平台**：[环境支持矩阵与 Linux Runtime](platforms/linux-runtimes.md#支持环境与采集模式) · [WSL2](platforms/wsl2.md)
