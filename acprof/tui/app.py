@@ -255,9 +255,13 @@ class AcprofTui(BarCursorApp):
         size = self.size if size is None else size
         # Reserve sidebar cells before choosing the form's column layout.
         navigation_width = 5 if self.has_class("collapsed-navigation") else (17 if size.width < 100 else 22)
-        self.set_class(size.width - navigation_width < 110, "narrow")
-        self.set_class(size.width < 100, "compact-navigation")
-        self.set_class(size.height < 35, "short")
+        # Textual updates the entire stylesheet after each class change.
+        # Make the responsive switch atomic to avoid two redundant restyles.
+        self.update_classes({
+            "narrow": size.width - navigation_width < 110,
+            "compact-navigation": size.width < 100,
+            "short": size.height < 35,
+        })
 
 
     def is_busy(self) -> bool:
