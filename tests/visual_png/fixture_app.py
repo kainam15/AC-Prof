@@ -147,16 +147,29 @@ class VisualFixtureApp(AcprofTui):
             stop_fixture_process, self.execution.lifecycle,
         )
 
-    def on_descendant_focus(self, event: events.DescendantFocus) -> None:
-        # AcprofTui initially focuses #model. Wait for that event to bubble
-        # before switching scenes, so a stale TabPane.Focused cannot reopen Run.
-        if event.widget.id != "model" or self.scene_started:
+    def _schedule_scene(self) -> None:
+        if self.scene_started:
             return
         self.scene_started = True
+
         def prepare_scene() -> None:
             self.scenario.mount(self)
             self.call_after_refresh(self.scene_ready.set)
+
         self.call_after_refresh(prepare_scene)
+
+    def on_mount(self) -> None:
+        super().on_mount()
+        # VHS uses a real terminal: focus events are not guaranteed to reach
+        # DescendantFocus before its capture frame. Schedule a fallback from
+        # mounting, after the initial form focus and layout have settled.
+        self.call_after_refresh(self._schedule_scene)
+
+    def on_descendant_focus(self, event: events.DescendantFocus) -> None:
+        # Preserve the original focus-based order where that event is delivered.
+        # _schedule_scene makes the mount fallback and focus path idempotent.
+        if event.widget.id == "model":
+            self._schedule_scene()
 
 
 def main() -> int:

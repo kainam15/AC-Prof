@@ -314,9 +314,9 @@ async def test_selection_change_releases_a_waiting_layer_reader_at_80x24(source,
             await pilot.press("ctrl+a")
             selector.value = str(source)
             ready = "有效正式窗口：2" if language == "zh" else "Valid formal windows: 2"
-            # Bound actual cancellation/read completion, not Pilot's screen-wide
-            # message and CPU-idle waits under coverage or load.
-            async with asyncio.timeout(2):
+            # Wait for the exact read-completion callback rather than UI idle;
+            # coverage on a contended two-core runner can exceed two seconds.
+            async with asyncio.timeout(8):
                 await selected_read_finished.wait()
             await pilot.pause()
             assert ready in str(app.query_one("#result-data-status", Static).content)
@@ -328,7 +328,7 @@ async def test_selection_change_releases_a_waiting_layer_reader_at_80x24(source,
             await pilot.pause()
             selected_read_finished.clear()
             assert await pilot.click(button, offset=(2, 1))
-            async with asyncio.timeout(2):
+            async with asyncio.timeout(8):
                 await selected_read_finished.wait()
             await pilot.pause()
             assert ready in str(app.query_one("#result-data-status", Static).content)

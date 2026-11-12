@@ -160,7 +160,9 @@ jobs:
     needs: changes
     if: needs.changes.outputs.full == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    # Python 3.12 branch coverage on the slowest host shards exceeds 20m.
+    # Bound the existing complete matrix without hiding timed-out shard evidence.
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:

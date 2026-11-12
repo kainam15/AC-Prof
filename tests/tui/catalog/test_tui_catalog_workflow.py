@@ -113,9 +113,15 @@ class TestCatalogWorkflow:
             assert ('--matrix-seed 71') in (str(app.query_one('#command-preview', Static).content))
             with patch.object(app, 'launch') as launch:
                 app.catalog.experiment_selected('experiment-source', ('resume', record))
+                # push_screen makes the screen current before its buttons have
+                # necessarily been composed and laid out.
                 await wait_for_condition(
-                    pilot, lambda: isinstance(app.screen, RecoveryScreen),
-                    description="experiment recovery review", timeout=8,
+                    pilot,
+                    lambda: isinstance(app.screen, RecoveryScreen) and any(
+                        button.region.area > 0 and not button.disabled
+                        for button in app.screen.query("#recovery-resume")
+                    ),
+                    description="mounted recovery review action", timeout=8,
                 )
                 launch.assert_not_called()
                 assert app.screen.review.resume is not None, str(app.screen.review.detail)

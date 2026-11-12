@@ -9,6 +9,7 @@ from acprof.experiments.configuration import RunConfig
 from acprof.tui.i18n import message_id
 from acprof.tui.ui.structured import Callout
 from tests.support.tui_fixtures import AcprofTui
+from tests.support.tui_waits import wait_for_condition
 
 
 class TestTuiResultTools:
@@ -35,8 +36,15 @@ class TestTuiResultTools:
             assert not app.query("#profile-tab, #result-dir")
             app.activate_tab("results-tab")
             app.query_one("#experiment-source", Input).value = str(self.csv_path)
-            await pilot.pause()
-            assert await pilot.click("#refresh-experiment-state", offset=(2, 1))
+            refresh = app.query_one("#refresh-experiment-state", Button)
+            refresh.scroll_visible(animate=False, immediate=True)
+            await wait_for_condition(
+                pilot,
+                lambda: not refresh.disabled and refresh.region.area > 0
+                and app.get_widget_at(*refresh.region.center)[0] is refresh,
+                description="visible enabled result refresh", timeout=8,
+            )
+            assert await pilot.click(refresh, offset=(2, 1))
             await app.workers.wait_for_complete()
             await pilot.pause()
             assert "有效正式窗口：1" in app.query_one("#result-data-status", Static).content
