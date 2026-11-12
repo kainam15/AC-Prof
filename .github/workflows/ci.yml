@@ -470,3 +470,17 @@ jobs:
         with:
           name: runtime-${{ strategy.job-index }}
           path: evidence/
+
+  # Stable required check: skipped path-specific jobs are accepted only when
+  # changes explicitly classifies the corresponding work as out of scope.
+  ci-gate:
+    if: always()
+    needs: [changes, docs-check, metric-docs, lint, types, contracts, host-summary, wheel, report-browser, tui-snapshots, onnx-cpu, runtime]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check every required CI result for this change scope
+        env:
+          CI_NEEDS_JSON: ${{ toJSON(needs) }}
+        run: python scripts/check_ci_gate.py

@@ -28,6 +28,20 @@ PR 对比目标分支，Push 对比本次推送前的分支状态。混合代码
 章节锚点、Markdown 格式、Skill frontmatter 与 YAML。主机测试不执行时，
 `host-summary` 同步跳过，不尝试读取不存在的分片和 coverage 产物。
 完整 CI 原有 pytest evidence、Python 版本矩阵、报告汇总和容器验证保持不变。
+`ci-gate` 使用 `always()` 汇总本次变更必须成功的作业：普通文档仅要求
+`changes` 和 `docs-check`；仅 README 或指标文档再分别要求 `wheel` /
+`metric-docs`；代码变更要求全部类型、静态契约、host evidence 汇总、wheel、
+TUI、浏览器与 runtime 作业成功。缺失、失败、取消或本应执行却跳过的作业都拒绝通过，
+避免将路径过滤的正常 skip 当作失败，也不允许把真实失败视为成功。
+
+GitHub 上启用 `main` 的分支保护或 Ruleset 时，应将稳定的
+`CI / ci-gate` 设为必需状态检查，防止绕过失败 CI 直接合并；
+PNG Visual 和 CodeQL 等独立工作流需确认每类 PR 均实际产生对应状态后再设为必需检查。
+平台规则尚未配置时，本地 Git 钩子和此作业都**不能**替代 GitHub 分支保护。
+每次推送或 PR 更新后都要核对**该 SHA** 的 CI 完整作业结果；
+前一提交仍失败、超时或尚未定位时，不直接合入无关新任务
+（针对当前 CI 失败的修复除外），不使用历史绿灯代替同提交验收。
+
 `hardware.yml` 目前只在 main 手动触发，定期周检暂停；fork PR 和其他工作分支不允许在专用主机运行。默认 `pinned-matrix` 使用随机小模型验证确定性采集链路，`real-matrix` 使用 `examples/hardware-validation-real.json` 中固定 revision 的真实预训练 checkpoint 验证六类 CPU/GPU 任务，并以 `examples/hardware-validation-real-cpu.json` 单独验证 Structured ONNX CPU 路径；两者都不证明模型准确率。日常功能开发不需要主动运行该真实硬件矩阵；用户主导实验安排。正式版本发布（GitHub Release 与 PyPI）必须先通过 `hardware-gate`：从成功的同提交主分支硬件工作流下载留存证据，验收 Native Linux 身份、固定模型 revision、两种 GPU 模式和 RAPL/perf/NVML 正式测量指标。缺失、过期、跳过或不完整均阻止发布，而不是标记为 `not_verified` 后继续发布。该门禁验证执行兼容与必需采集完整性，不要求能耗科研质量必须为 `passed`；矩阵的 `auto_selection_eligible` 独立控制质量优选。硬件工作流按 run ID／attempt 使用独立 checkout 和 `runner.temp` 下的新虚拟环境，不信任持久 `.venv` 中的可执行忽略文件。发布前需先在 main 上完成硬件验收，再为同一提交打 tag。
 
 预览版 Tag（如 `v0.4.0a1`、`v0.4.0b1`、`v0.4.0rc1`）走 `release.yml`
