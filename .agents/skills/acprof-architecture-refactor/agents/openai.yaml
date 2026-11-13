@@ -1,0 +1,4 @@
+interface:
+  display_name: "AC-Prof 架构重构"
+  short_description: "拆分高复杂度模块、治理依赖边界与类型门禁，并保持可观察行为不变"
+  default_prompt: "请使用 $acprof-architecture-refactor 评估并实施这次架构重构，先冻结语义基线，再核对依赖方向、类型门禁与回归范围。"
