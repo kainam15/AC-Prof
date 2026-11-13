@@ -109,6 +109,315 @@
       "handler_options": {
         "uses_pipeline": true
       },
+      "parameters": [
+        {
+          "name": "max_new_tokens",
+          "kind": "integer",
+          "label": "输出 Token 上限",
+          "minimum": 1,
+          "unit": "tokens",
+          "conflicts": [
+            {
+              "parameter": "max_length",
+              "reason": "输出 Token 上限与最大序列 Token 数不能同时明确选择"
+            }
+          ],
+          "scope": "inference",
+          "consumers": [
+            {
+              "stage": "predict",
+              "argument": "params.max_new_tokens"
+            }
+          ],
+          "tasks": [
+            "text-generation",
+            "text2text-generation",
+            "summarization",
+            "translation",
+            "conversational"
+          ],
+          "backends": [
+            "transformers_model",
+            "transformers_pipeline"
+          ],
+          "variation": [
+            "task",
+            "request"
+          ],
+          "source_bindings": [
+            {
+              "filename": "generation_config.json",
+              "pointer": "/max_new_tokens"
+            },
+            {
+              "filename": "config.json",
+              "pointer": "/max_new_tokens"
+            },
+            {
+              "filename": "config.json",
+              "pointer": "/max_new_tokens",
+              "task_scoped": true
+            }
+          ]
+        },
+        {
+          "name": "max_length",
+          "kind": "integer",
+          "label": "最大序列 Token 数",
+          "minimum": 1,
+          "unit": "tokens",
+          "conflicts": [
+            {
+              "parameter": "max_new_tokens",
+              "reason": "输出 Token 上限与最大序列 Token 数不能同时明确选择"
+            }
+          ],
+          "scope": "inference",
+          "consumers": [
+            {
+              "stage": "predict",
+              "argument": "params.max_length"
+            }
+          ],
+          "tasks": [
+            "text-generation",
+            "text2text-generation",
+            "summarization",
+            "translation",
+            "conversational"
+          ],
+          "backends": [
+            "transformers_model",
+            "transformers_pipeline"
+          ],
+          "variation": [
+            "task",
+            "request"
+          ],
+          "source_bindings": [
+            {
+              "filename": "generation_config.json",
+              "pointer": "/max_length"
+            },
+            {
+              "filename": "config.json",
+              "pointer": "/max_length"
+            },
+            {
+              "filename": "config.json",
+              "pointer": "/max_length",
+              "task_scoped": true
+            }
+          ]
+        },
+        {
+          "name": "do_sample",
+          "kind": "boolean",
+          "label": "随机采样",
+          "default": {
+            "value": false
+          },
+          "scope": "inference",
+          "consumers": [
+            {
+              "stage": "predict",
+              "argument": "params.do_sample"
+            }
+          ],
+          "tasks": [
+            "text-generation",
+            "text2text-generation",
+            "summarization",
+            "translation",
+            "conversational"
+          ],
+          "backends": [
+            "transformers_model",
+            "transformers_pipeline"
+          ],
+          "variation": [
+            "task",
+            "request"
+          ],
+          "source_bindings": [
+            {
+              "filename": "generation_config.json",
+              "pointer": "/do_sample"
+            },
+            {
+              "filename": "config.json",
+              "pointer": "/do_sample"
+            },
+            {
+              "filename": "config.json",
+              "pointer": "/do_sample",
+              "task_scoped": true
+            }
+          ]
+        },
+        {
+          "name": "temperature",
+          "kind": "float",
+          "label": "Temperature",
+          "default": {
+            "value": 1.0
+          },
+          "minimum": 0,
+          "exclusive_minimum": true,
+          "advanced": true,
+          "requires": [
+            {
+              "parameter": "do_sample",
+              "values": [
+                true
+              ],
+              "reason": "开启随机采样后才能调整 Temperature 或 Top-p"
+            }
+          ],
+          "scope": "inference",
+          "consumers": [
+            {
+              "stage": "predict",
+              "argument": "params.temperature"
+            }
+          ],
+          "tasks": [
+            "text-generation",
+            "text2text-generation",
+            "summarization",
+            "translation",
+            "conversational"
+          ],
+          "backends": [
+            "transformers_model",
+            "transformers_pipeline"
+          ],
+          "variation": [
+            "task",
+            "request"
+          ],
+          "source_bindings": [
+            {
+              "filename": "generation_config.json",
+              "pointer": "/temperature"
+            },
+            {
+              "filename": "config.json",
+              "pointer": "/temperature"
+            },
+            {
+              "filename": "config.json",
+              "pointer": "/temperature",
+              "task_scoped": true
+            }
+          ]
+        },
+        {
+          "name": "top_p",
+          "kind": "float",
+          "label": "Top-p",
+          "default": {
+            "value": 1.0
+          },
+          "minimum": 0,
+          "exclusive_minimum": true,
+          "maximum": 1,
+          "advanced": true,
+          "requires": [
+            {
+              "parameter": "do_sample",
+              "values": [
+                true
+              ],
+              "reason": "开启随机采样后才能调整 Temperature 或 Top-p"
+            }
+          ],
+          "scope": "inference",
+          "consumers": [
+            {
+              "stage": "predict",
+              "argument": "params.top_p"
+            }
+          ],
+          "tasks": [
+            "text-generation",
+            "text2text-generation",
+            "summarization",
+            "translation",
+            "conversational"
+          ],
+          "backends": [
+            "transformers_model",
+            "transformers_pipeline"
+          ],
+          "variation": [
+            "task",
+            "request"
+          ],
+          "source_bindings": [
+            {
+              "filename": "generation_config.json",
+              "pointer": "/top_p"
+            },
+            {
+              "filename": "config.json",
+              "pointer": "/top_p"
+            },
+            {
+              "filename": "config.json",
+              "pointer": "/top_p",
+              "task_scoped": true
+            }
+          ]
+        },
+        {
+          "name": "num_beams",
+          "kind": "integer",
+          "label": "Beam 数量",
+          "default": {
+            "value": 1
+          },
+          "minimum": 1,
+          "advanced": true,
+          "scope": "inference",
+          "consumers": [
+            {
+              "stage": "predict",
+              "argument": "params.num_beams"
+            }
+          ],
+          "tasks": [
+            "text-generation",
+            "text2text-generation",
+            "summarization",
+            "translation",
+            "conversational"
+          ],
+          "backends": [
+            "transformers_model",
+            "transformers_pipeline"
+          ],
+          "variation": [
+            "task",
+            "request"
+          ],
+          "source_bindings": [
+            {
+              "filename": "generation_config.json",
+              "pointer": "/num_beams"
+            },
+            {
+              "filename": "config.json",
+              "pointer": "/num_beams"
+            },
+            {
+              "filename": "config.json",
+              "pointer": "/num_beams",
+              "task_scoped": true
+            }
+          ]
+        }
+      ],
       "inference": {
         "loader": "acprof.container.handlers.nlp:NLPHandler.load",
         "operation": "predict",

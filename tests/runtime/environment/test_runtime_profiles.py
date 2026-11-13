@@ -76,7 +76,8 @@ def test_architecture_profile_selection_uses_backend_not_lossy_compatibility_vie
     profiles = {}
     for backend in ("first", "second"):
         declaration = dataclasses.replace(CATALOG.get_extension("nlp", "transformers_model"),
-            extension_id=backend, backends=(backend,), backend_tasks={}, adapter=backend, model_types=("shared_arch",),
+            extension_id=backend, backends=(backend,), backend_tasks={}, parameters=(), adapter=backend,
+            model_types=("shared_arch",),
             profile=backend + "-runtime")
         catalog.add(declaration)
         profiles[declaration.profile] = RuntimeProfile(declaration.profile, "nlp",

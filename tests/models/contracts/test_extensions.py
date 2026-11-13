@@ -160,7 +160,7 @@ def test_same_architecture_selects_declared_backend_and_rejects_unknown_route():
     catalog = ExtensionCatalog()
     template = CATALOG.get_extension("nlp", "transformers_model")
     for backend in ("first", "second"):
-        catalog.add(replace(template, extension_id=backend, backends=(backend,), backend_tasks={},
+        catalog.add(replace(template, extension_id=backend, backends=(backend,), backend_tasks={}, parameters=(),
                             adapter=backend, model_types=("shared_architecture",),
                             model_ids=("owner/shared",), profile=backend + "-profile"))
     task = TaskInfo("owner/shared", "text-generation", "nlp", "second", "custom", "fixed", "manual",

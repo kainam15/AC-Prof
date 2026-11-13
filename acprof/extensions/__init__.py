@@ -9,6 +9,7 @@ from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Any
 
+from acprof.extensions.parameters import merge_parameter_specs
 from acprof.extensions.schema import (
     BackendRule,
     ExtensionDeclaration,
@@ -49,6 +50,7 @@ class ExtensionCatalog:
         self.workload_sources: dict[str, str] = {}
 
     def add(self, declaration: ExtensionDeclaration) -> None:
+        declaration.validate_parameter_routes()
         if declaration.extension_id in self.extensions:
             if self.extensions[declaration.extension_id] == declaration:
                 return
@@ -106,6 +108,9 @@ class ExtensionCatalog:
             inference=merge_template(
                 merge_template(declaration.inference, declaration.task_inference.get(task or "", {})),
                 declaration.backend_inference.get(backend, {})),
+            parameters=merge_parameter_specs(
+                declaration.parameters, declaration.backend_parameters.get(backend, ()),
+                declaration.task_parameters.get(task or "", ()), task=task, backend=backend),
         )
 
     def select_extension(self, task_info: Any) -> ExtensionDeclaration:

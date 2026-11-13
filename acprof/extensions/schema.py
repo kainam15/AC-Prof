@@ -7,6 +7,8 @@ from copy import deepcopy
 from dataclasses import dataclass, field, fields, is_dataclass
 from typing import Any, Union, get_args, get_origin, get_type_hints
 
+from acprof.extensions.parameters import ParameterSpec, merge_parameter_specs
+
 
 def validate_entrypoint(entrypoint: str, *, kind: str) -> None:
     if not isinstance(entrypoint, str):
@@ -39,8 +41,13 @@ def _decode(value: Any, expected: Any, path: str) -> Any:
         if not isinstance(value, (list, tuple)):
             raise ValueError(f"{path} must be an array")
         return tuple(_decode(item, args[0], path) for item in value)
-    if expected is float and type(value) in (float, int) and math.isfinite(value):
-        return float(value)
+    if expected is float:
+        try:
+            if type(value) in (float, int) and math.isfinite(value):
+                return float(value)
+        except OverflowError:
+            pass
+        raise ValueError(f"{path} must be a finite number")
     if type(value) is not expected:
         raise ValueError(f"{path} must be {expected.__name__}")
     return value
@@ -189,6 +196,9 @@ class ExtensionDeclaration:
     inference: dict[str, Any] = field(default_factory=dict)
     backend_inference: dict[str, dict[str, Any]] = field(default_factory=dict)
     task_inference: dict[str, dict[str, Any]] = field(default_factory=dict)
+    parameters: tuple[ParameterSpec, ...] = ()
+    backend_parameters: dict[str, tuple[ParameterSpec, ...]] = field(default_factory=dict)
+    task_parameters: dict[str, tuple[ParameterSpec, ...]] = field(default_factory=dict)
 
     def __post_init__(self):
         if not self.extension_id or not self.family or not self.runtime or not self.backends or not self.dtypes:
@@ -212,6 +222,20 @@ class ExtensionDeclaration:
         for key, value in self.profile_options.items():
             _decode(value, dict[str, Any] if key == "precision_policy" else
                     bool if key == "trust_remote_code" else str, f"profile_options.{key}")
+
+    def validate_parameter_routes(self) -> None:
+        """Check complete routed declarations without importing their consumers."""
+        for name, allowed in (("backend_parameters", self.backends), ("task_parameters", self.tasks)):
+            if set(getattr(self, name)) - set(allowed):
+                raise ValueError(f"{name} references undeclared routes")
+        for group in (self.parameters, *self.backend_parameters.values(), *self.task_parameters.values()):
+            for spec in group:
+                if not set(spec.tasks) <= set(self.tasks) or not set(spec.backends) <= set(self.backends):
+                    raise ValueError(f"parameter {spec.name} references undeclared task/backend")
+        for backend in self.backends:
+            for task in self.backend_tasks.get(backend, self.tasks):
+                merge_parameter_specs(self.parameters, self.backend_parameters.get(backend, ()),
+                                      self.task_parameters.get(task, ()), task=task, backend=backend)
 
     def validate_templates(self) -> None:
         """Validate once during manifest load, outside request execution."""
