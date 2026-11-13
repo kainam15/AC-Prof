@@ -1,19 +1,50 @@
-# 统一推理配置契约（设计，待实现）
+# 统一推理配置契约
 
 [← 返回模型契约](contracts.md) · [文档导航](../README.md)
 
 ## 状态与范围
 
-本页定义 P1 统一推理配置的设计边界，**不表示通用动态表单、配置冻结或逐字段运行时核验已经实现**。
-设计基线为 `3e4bde93`。当前已有任务参数审阅、部分生成参数传递、精度策略、任务指纹与运行验证；
-本设计复用这些入口，不另建插件注册器、执行流程或 coverage runner。不新增或宣称已经可用的 CLI 参数。
+本页区分已经落地的统一声明／静态发现基础与后续执行契约。设计基线为 `3e4bde93`，
+参数协议实现从 `40db4f3a` 继续推进，复用 Extension Manifest、现有任务审阅、精度策略及运行验证。
+**通用动态表单、Auto 解析、配置确认冻结和逐字段运行核验仍待贯通**；声明存在不代表这些步骤已完成。
 
 现行模型解析和接口验证以[模型契约](contracts.md)为准，现行产物字段和 schema 以
-[静态元数据](../profiling/metadata.md)为准。本页中的对象与字段是待实施的数据契约；
-实施时须同步其生产者、消费者及对应权威文档，不能仅凭本页向现有 v7 元数据写入新字段。
+[静态元数据](../profiling/metadata.md)为准。静态发现结果写入 inspect 的
+`model_resolution.json.configuration_options`，不写作最终执行的 `inference_configuration`，
+不改变现有 v7 静态元数据或历史实验身份。
 
 第一条完整链路应同时交付：声明、请求意图、解析、确认冻结、参数消费、运行观察、元数据与恢复检查。
 表单覆盖和更多模型随后扩展，不能先把未经 Handler 支持的参数显示成可执行选项。
+
+## 当前已实现：声明与静态发现
+
+- `extensions.parameters.ParameterSpec` 描述类型、作用域、默认值、范围、单位、消费者、来源绑定与有限依赖／冲突；
+  `ParameterRequest` 保留 explicit、auto、unset，显式 null 与未提供值不同。此对象尚不执行 Auto。
+- Manifest 的 `parameters`、`backend_parameters`、`task_parameters` 在既有 Catalog 内合并；
+  当前六个文本生成控制（两种长度、do_sample、temperature、top_p、num_beams）由此声明。
+  现有任务表单读取同一声明和值校验器，原来的默认值确认及覆盖行为保持，不冒充完整请求冻结协议。
+- `models.configuration_sources` 从已取得的 Hub／JSON 元数据发现只读事实和逐参数默认候选。
+  文件、JSON pointer、固定 revision、原始字节摘要与 canonical 摘要分别保留；不会联网补齐、
+  应用默认值或从模型卡代码执行任意调用。未登记 processor 字段只作为事实，不开放为调参项。
+- `models.backend_candidates` 枚举既有扩展路由，复用模型解析、RuntimeProfile、静态兼容性与已缓存源码的依赖检查。
+  `selectable` 只表示当前静态证据允许继续准备；unknown、未登记实现或已知阻断不能成为可用选项，
+  所有候选仍标记 `runtime_validation.status=not_run`。缺少已核验的作者推荐证据时保留 unknown。
+- `inspect --explain` 展示候选、参数类型／作用域、消费者、默认候选与来源诊断；导出结果保留完整来源身份。
+  架构事实不加入可调参数，多个语义任务的默认值不被压成一个全局默认。
+
+声明使用标准库，不导入 Transformers、Diffusers、Torch 或 Textual。没有声明消费者的字段不能开放，
+Pipeline 的任意 Python 签名或 `**kwargs` 也不会自动变成支持列表。更多任务、加载选项、版本／设备
+条件及作者推荐规则需按实际 Handler 继续登记和验证；本轮不声称覆盖所有 Pipeline 参数。
+
+元数据和请求 JSON 的支持深度为 256 层（根深度为 0）。超过上限时保留来源与字段路径并拒绝，
+不截断原数据，也不让后续对象复制抛出未处理递归异常。已选任务组只沿同一 backend 保持身份；
+换 backend 后须重新绑定任务组，不能把旧组的执行指纹当作新实现的证明。
+
+候选沿用当前 profile 选择语义。历史通用 profile 的 `backends` 列表尚未完整表达
+Sentence Transformers／Diffusers 等共享环境的实际路由；本轮用已有扩展路由、选中环境与锁内能力检查
+描述候选，没有把该历史列表追加成错误的过滤器。通用 profile 的完整字段约束须在严格执行链中补齐。
+
+以下确认、执行、运行观察、元数据和恢复章节继续作为后续实施契约。
 
 ## 复用边界与参数分类
 
@@ -37,8 +68,9 @@ Host 侧声明与静态解析保持轻量，不导入推理实现或执行任意
 
 ## 参数声明：ParameterSpec
 
-在现有 Extension Manifest／任务声明中增加统一参数描述，并由 TUI、CLI、配置解析和 Handler 共用。
-不在 TUI 维护第二份模型规则。第一版只支持有限、可校验的依赖关系，不引入可执行表达式或任意 DSL。
+统一参数描述已加入现有 Extension Manifest，并接入 inspect 和现有文本任务参数审阅。
+后续通用 CLI／TUI 配置及 Handler 严格执行继续使用此声明，不在 TUI 维护第二份模型规则。
+当前依赖规则只支持字段存在或严格 JSON 标量匹配，不引入可执行表达式或任意 DSL。
 
 | 信息 | 必需语义 |
 | --- | --- |

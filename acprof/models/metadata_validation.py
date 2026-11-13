@@ -6,6 +6,8 @@ import json
 import math
 from typing import Any
 
+MAX_METADATA_DEPTH = 256
+
 
 class MetadataValidationError(ValueError):
     """A metadata value is invalid; diagnostics preserve its source and location."""
@@ -21,10 +23,16 @@ class MetadataValidationError(ValueError):
 def finite_metadata_diagnostics(
     value: Any, filename: str, *, raw_sha256: str | None = None,
 ) -> list[dict[str, Any]]:
-    """Find non-finite values with RFC 6901 pointers, including float overflow."""
+    """Reject non-finite or over-deep metadata with RFC 6901 field pointers."""
     diagnostics: list[dict[str, Any]] = []
 
-    def visit(item: Any, pointer: str) -> None:
+    def visit(item: Any, pointer: str, depth: int) -> None:
+        if depth > MAX_METADATA_DEPTH:
+            diagnostics.append({
+                "reason_code": "metadata_invalid", "file": filename, "json_pointer": pointer,
+                "raw_sha256": raw_sha256, "detail": f"metadata nesting exceeds maximum depth {MAX_METADATA_DEPTH}",
+            })
+            return
         if isinstance(item, float) and not math.isfinite(item):
             literal = "NaN" if math.isnan(item) else "Infinity" if item > 0 else "-Infinity"
             diagnostics.append({
@@ -35,13 +43,13 @@ def finite_metadata_diagnostics(
         elif isinstance(item, dict):
             for key, nested in item.items():
                 token = str(key).replace("~", "~0").replace("/", "~1")
-                visit(nested, f"{pointer}/{token}")
+                visit(nested, f"{pointer}/{token}", depth + 1)
         elif isinstance(item, list):
             for index, nested in enumerate(item):
-                visit(nested, f"{pointer}/{index}")
+                visit(nested, f"{pointer}/{index}", depth + 1)
 
     try:
-        visit(value, "")
+        visit(value, "", 0)
     except RecursionError:
         diagnostics.append({
             "reason_code": "metadata_invalid", "file": filename, "json_pointer": "",

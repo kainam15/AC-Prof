@@ -53,6 +53,27 @@ def test_excessive_metadata_nesting_is_a_structured_failure():
     assert diagnostic["reason_code"] == "metadata_invalid"
 
 
+@pytest.mark.parametrize("depth", [257, 600])
+def test_valid_json_beyond_metadata_depth_limit_has_bounded_path_diagnostic(depth):
+    raw = b'{"nested":' * depth + b"1" + b"}" * depth
+    json.loads(raw)  # Valid JSON can still exceed the safe metadata processing depth.
+    with pytest.raises(MetadataValidationError, match="maximum depth 256") as caught:
+        _read_json_metadata(_file(raw))
+    diagnostic = caught.value.diagnostics[0]
+    assert diagnostic["json_pointer"] == "/nested" * 257
+    assert diagnostic["raw_sha256"] == hashlib.sha256(raw).hexdigest()
+    assert diagnostic["file"] == "config.json"
+    assert diagnostic["reason_code"] == "metadata_invalid"
+
+
+def test_metadata_depth_limit_boundary_preserves_the_complete_value():
+    raw = b'{"nested":' * 256 + b"1" + b"}" * 256
+    value = _read_json_metadata(_file(raw))
+    for _ in range(256):
+        value = value["nested"]
+    assert value == 1
+
+
 def test_detect_task_returns_blocked_metadata_result_without_fallback():
     raw = b'{"model_type":"bert","architectures":["BertForMaskedLM"],"training":{"limit":Infinity}}'
     hub = SimpleNamespace(

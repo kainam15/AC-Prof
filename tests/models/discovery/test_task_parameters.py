@@ -98,13 +98,13 @@ def test_user_changes_one_task_without_affecting_the_other_or_defaults():
 
 
 @pytest.mark.parametrize(("path", "value", "message"), [
-    ("task_0.max_new_tokens", 0, "positive integer"),
-    ("task_0.max_new_tokens", True, "positive integer"),
+    ("task_0.max_new_tokens", 0, "max_new_tokens must be at least 1"),
+    ("task_0.max_new_tokens", True, "max_new_tokens must be integer"),
     ("task_0.do_sample", "true", "boolean"),
-    ("task_0.temperature", -1, "positive"),
+    ("task_0.temperature", -1, "temperature must be greater than 0"),
     ("task_0.temperature", float("nan"), "finite"),
     ("task_0.top_p", 1.1, "top_p"),
-    ("task_0.num_beams", 0, "positive integer"),
+    ("task_0.num_beams", 0, "num_beams must be at least 1"),
 ])
 def test_invalid_parameter_values_are_rejected(path, value, message):
     info = model()

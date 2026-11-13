@@ -18,6 +18,44 @@ class ProbePreparationError(RuntimeError):
     stage = "environment"
 
 
+def _configuration_lines(options: dict, *, explain: bool) -> list[str]:
+    lines = ["Configuration options: static discovery; not frozen; runtime validation not_run"]
+    for candidate in options.get("backend_candidates", []):
+        compatibility = candidate.get("compatibility", {})
+        lines.append(
+            f"  Backend candidate {candidate.get('task', 'unknown')}/{candidate['backend']}: "
+            f"{compatibility.get('status', 'unknown')}; selectable={candidate.get('selectable', False)}; "
+            f"runtime={candidate.get('runtime_profile') or 'not_selected'}"
+        )
+        if explain and compatibility.get("detail"):
+            lines.append("    " + compatibility["detail"])
+    if not explain:
+        return lines
+    for item in options.get("task_options", []):
+        lines.append(f"  Parameters for {item['task_id'] or item['task']}/{item['backend']}:")
+        if not item["parameters"]:
+            lines.append("    No editable parameter declarations for this route.")
+        discovery = item["source_discovery"]
+        for spec in item["parameters"]:
+            consumers = ", ".join(f"{binding['stage']}:{binding['argument']}"
+                                  for binding in spec["consumers"])
+            lines.append(f"    {spec['name']}: {spec['kind']}; scope={spec['scope']}; consumer={consumers}")
+            for default in discovery.get("parameters", {}).get(spec["name"], {}).get("default_candidates", []):
+                source = default["source"]
+                origin = source.get("file") or source["source_id"]
+                value = json.dumps(default["value"], ensure_ascii=False, allow_nan=False)
+                lines.append(f"      Default candidate: {value} <- {origin}:{source['json_pointer']}; "
+                             f"value validation={default['validation']} (static)")
+        for diagnostic in discovery.get("diagnostics", []):
+            lines.append(f"    Source diagnostic: {diagnostic.get('file') or 'metadata'}:"
+                         f"{diagnostic.get('json_pointer', '')}: {diagnostic['detail']}")
+        lines.append(f"    Read-only model facts: {len(discovery.get('attributes', []))}; "
+                     f"source diagnostics: {len(discovery.get('diagnostics', []))}")
+    for diagnostic in options.get("diagnostics", []):
+        lines.append(f"  Configuration diagnostic: {diagnostic['detail']}")
+    return lines
+
+
 def explain_resolution(task_info, *, explain: bool = False) -> str:
     resolution = task_info.model_resolution
     contract = resolution.get("contract", {})
@@ -70,6 +108,8 @@ def explain_resolution(task_info, *, explain: bool = False) -> str:
                      f"推理路径：{states.get(state, state)}")
         lines.extend(f"  {item['task_id']}: {task_label(item)} ({item['interface']})"
                      for item in task_info.task_discovery['tasks'])
+    if resolution.get("configuration_options"):
+        lines.extend(_configuration_lines(resolution["configuration_options"], explain=explain))
     if explain and resolution.get("provenance"):
         provenance = resolution["provenance"]
         lines.append(f"Decision: {provenance['decision']} / {provenance['identity_sha256']}")

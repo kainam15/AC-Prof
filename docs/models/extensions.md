@@ -25,6 +25,15 @@ Handler 和 validator 的 `module:callable` 入口。可选 `execution_entrypoin
 类型化字段与校验位于 [`extensions/schema.py`](../../acprof/extensions/schema.py)。
 `acprof_model.json`、workload 清单和结果文件各自的 schema 版本保持独立。
 
+统一参数声明位于 [`extensions/parameters.py`](../../acprof/extensions/parameters.py)，保持 manifest v2。
+`parameters` → `backend_parameters[backend]` → `task_parameters[task]` 按字段名整条覆盖；
+`{"name": "field", "enabled": false}` 明确移除继承字段，不用 `null` 同时表示默认空值与删除。
+`default: {"value": null}` 仅在 nullable 字段中合法；没有 default wrapper 表示未声明默认。
+字段区分 model/loading/inference/workload/measurement，非只读字段必须声明消费者 stage/argument。
+来源绑定只读取已获取元数据中的文件和 RFC 6901 JSON pointer，task_scoped 仅选择
+`config.json.task_specific_params` 的对应语义任务。完整语义与当前覆盖见[统一推理配置契约](inference-configuration.md)。
+
+
 `ExtensionCatalog.resolve(task, family, library, config)` 是 backend/family 的共同解析入口，
 返回选中的声明、设备精度和 IO 格式；`describe(task_info)` 用于已经选定 backend 的消费端。
 显式 backend 优先，并校验 task/family/backend 路由；未知 library 不再默认进入 Transformers。

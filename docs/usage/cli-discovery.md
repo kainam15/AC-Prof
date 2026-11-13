@@ -47,6 +47,15 @@ Process 可选指标缺失不会使必要检查失败，JSON 中的 `required` �
 `Static compatibility: unknown` 或 `Artifact layout: unknown` 表示对应证据仍不足；未知不会转换成已验证支持。
 接口检查、真实推理和正式采集分别保留证据，静态检查成功不能代替后两者。
 
+inspect 同时生成 `configuration_options` 静态描述，列出已登记后端候选、可继续准备与阻断的原因，
+以及选中任务的参数声明。候选 `selectable=true` 仍未证明 checkpoint 已成功推理；
+缺少制品、运行时或依赖证据时保持不可选或 unknown。没有作者推荐证据时不标为推荐实现。
+`--explain` 显示参数类型、作用域、消费者、默认候选及来源诊断；
+完整来源身份、JSON pointer、revision 和摘要在导出的 `model_resolution.json.configuration_options` 中。
+这些值尚未被 Auto 选择或用户确认冻结，不是实验的最终执行配置。
+详见[统一推理配置契约](../models/inference-configuration.md#当前已实现声明与静态发现)。
+
+
 | 参数 | 默认 | 说明 |
 | --- | --- | --- |
 | `--model-spec`、`--backend` | 自动解析 | 声明或后端覆盖，仍检查冲突 |

@@ -26,6 +26,37 @@ def require_resolved_candidate(task_info: Any) -> None:
                          "use --task / --backend / --model-spec to complete the interface")
 
 
+def describe_static_compatibility(task_info: Any, profile: Any, extension: Any) -> dict[str, Any]:
+    """Describe registered interface and artifact evidence without runtime claims."""
+    from acprof.runtime.profiles import locked_transformers_version
+
+    version = locked_transformers_version(profile.environment) or ""
+    config = task_info.model_config or {}
+    native_backend = task_info.runtime_backend in {"transformers_model", "transformers_pipeline"}
+    custom = bool(config.get("auto_map") or config.get("custom_pipelines"))
+    support = (supports_transformers_task(version, task_info.pipeline_tag, config.get("model_type", ""), config)
+               if native_backend and version and not custom else None)
+    declared = not native_backend or extension.adapter != "family-default"
+    interface_status = "supported" if declared or support is True else "unsupported" if support is False else "unknown"
+    layout = task_info.model_resolution.get("artifact_layout", {})
+    layout_status = layout.get("status", "unknown")
+    overall_status = "unknown" if interface_status == "supported" and layout_status == "unknown" else interface_status
+    compatibility = {
+        "status": overall_status, "interface_status": interface_status, "artifact_status": layout_status,
+        "evidence_level": "static", "source": "registered_extension" if declared else "locked_transformers_mapping",
+        "runtime_profile": profile.profile_id, "transformers_version": version or None,
+        "checkpoint_verified": False,
+    }
+    if overall_status == "unknown":
+        compatibility.update(
+            detail=layout.get("detail") if layout_status == "unknown" else
+            "Architecture support is not established by the registered runtime metadata.",
+            next_action="Review the pinned artifacts and registered backend capability; "
+            "static evidence does not replace a separately authorized interface probe.",
+        )
+    return compatibility
+
+
 def resolve_model_interface(task_info: Any) -> dict:
     """Reject known incompatible layouts; a successful resolution is only a candidate."""
     from acprof.extensions import select_extension

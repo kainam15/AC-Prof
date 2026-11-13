@@ -10,23 +10,20 @@ import copy
 import math
 from typing import Any
 
+from acprof.extensions.parameters import (
+    ParameterSpec,
+    parameter_spec_to_dict,
+    validate_parameter_value,
+    validate_parameter_values,
+)
+from acprof.extensions.schema import declaration_from_dict
+from acprof.models.configuration import parameter_declaration
 from acprof.tasks.workloads import (
-    GENERATIVE_INTERFACES,
     merge_generation_parameters,
     task_fingerprint,
     task_label,
     validate_generation,
 )
-
-# The native Transformers generation adapters support this *small* editable set.
-# Backend implementation is still validated with an actual request before collection.
-_EDITABLE = (
-    ("do_sample", "boolean", False, "随机采样"),
-    ("temperature", "float", 1.0, "Temperature"),
-    ("top_p", "float", 1.0, "Top-p"),
-    ("num_beams", "integer", 1, "Beam 数量"),
-)
-_SUPPORTED_BACKENDS = frozenset({"transformers_model", "transformers_pipeline"})
 
 
 def describe_task_parameters(model: Any, selected: dict) -> list[dict]:
@@ -35,8 +32,16 @@ def describe_task_parameters(model: Any, selected: dict) -> list[dict]:
     'interface_candidate' intentionally does not mean checkpoint-verified.
     Input scales and batch size already belong to the independent experiment plan.
     """
-    backend = selected.get("execution_profile", {}).get("signature", {}).get("backend", model.runtime_backend)
-    if selected["interface"] not in GENERATIVE_INTERFACES or backend not in _SUPPORTED_BACKENDS:
+    from acprof.extensions import UnsupportedExtensionError
+
+    try:
+        declaration = parameter_declaration(model, selected)
+    except UnsupportedExtensionError:
+        return []
+    specs = tuple(spec for spec in declaration.parameters
+                  if spec.scope == "inference" and not spec.read_only
+                  and any(consumer.stage == "predict" for consumer in spec.consumers))
+    if not specs:
         return []
     generation = selected["config"].get("generation")
     if not isinstance(generation, dict):
@@ -62,17 +67,19 @@ def describe_task_parameters(model: Any, selected: dict) -> list[dict]:
 
     label = task_label(selected)
     length_key = "max_new_tokens" if "max_new_tokens" in generation else "max_length"
-    length_name = "输出 Token 上限" if length_key == "max_new_tokens" else "最大序列 Token 数"
-    fields = [{
-        "name": length_key, "task_name": label, "caption": length_name,
-        "kind": "integer", "value": generation[length_key], "source": source(length_key),
-        "support": "interface_candidate", "advanced": False,
-    }]
-    for name, kind, default, caption in _EDITABLE:
+    fields = []
+    for spec in specs:
+        if spec.name in {"max_new_tokens", "max_length"} and spec.name != length_key:
+            continue
+        if spec.name not in generation and spec.default is None:
+            continue
+        value = generation[spec.name] if spec.name in generation else copy.deepcopy(spec.default.value)
         fields.append({
-            "name": name, "task_name": label, "caption": caption, "kind": kind,
-            "value": generation.get(name, default), "source": source(name) if name in generation else "接口默认值",
-            "support": "interface_candidate", "advanced": name not in {"do_sample"},
+            "name": spec.name, "task_name": label, "caption": spec.label or spec.name,
+            "kind": spec.kind, "value": value,
+            "source": source(spec.name) if spec.name in generation else "接口默认值",
+            "support": "interface_candidate", "advanced": spec.advanced,
+            "parameter_spec": parameter_spec_to_dict(spec),
         })
     return fields
 
@@ -95,6 +102,7 @@ def parameter_review(model: Any, selected_tasks: list[dict], *,
                 "kind": field["kind"],
                 "value": field["value"],
                 "reason": field["source"],
+                "parameter_spec": field["parameter_spec"],
             }
             if field["kind"] == "boolean":
                 question["options"] = [False, True]
@@ -119,19 +127,12 @@ def parameter_review(model: Any, selected_tasks: list[dict], *,
 def _validated_value(field: dict, value: Any) -> Any:
     name = field["path"].split(".", 1)[1]
     kind = field["kind"]
-    if kind == "boolean":
-        if type(value) is not bool:
-            raise ValueError(f"{name} must be a boolean")
-    elif kind == "integer":
+    if "parameter_spec" in field:
+        spec = declaration_from_dict(ParameterSpec, field["parameter_spec"], field["path"])
+        return validate_parameter_value(spec, value, path=field["path"])
+    if kind == "integer":
         if type(value) is not int or value < 1:
             raise ValueError(f"{name} must be a positive integer")
-    elif kind == "float":
-        if type(value) not in (int, float) or not math.isfinite(value):
-            raise ValueError(f"{name} must be a finite number")
-        if name == "temperature" and value <= 0:
-            raise ValueError("temperature must be positive")
-        if name == "top_p" and not (0 < value <= 1):
-            raise ValueError("top_p must be in (0, 1]")
     elif kind == "scales":
         if not isinstance(value, str):
             raise ValueError("input_scales must be text")
@@ -232,10 +233,12 @@ def apply_parameter_review(model: Any, selected_tasks: list[dict], answers: dict
         if generation_choices:
             generation = task["config"]["generation"]
             merged = merge_generation_parameters(generation, generation_choices)
-            if not merged.get("do_sample", False) and any(
-                name in generation_choices for name in ("temperature", "top_p")
-            ):
-                raise ValueError("开启随机采样后才能调整 Temperature 或 Top-p")
+            specs = parameter_declaration(model, task).parameters
+            declared_names = {spec.name for spec in specs}
+            validate_parameter_values(
+                specs, {name: value for name, value in merged.items() if name in declared_names},
+                explicit_names=set(generation_choices),
+            )
             beams = merged.get("num_beams", 1)
             sequences = merged.get("num_return_sequences", 1)
             if type(beams) is int and type(sequences) is int and (

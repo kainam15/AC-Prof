@@ -73,6 +73,8 @@ def main(argv=None) -> int:
                 pass
     from acprof.host.preparation.task_inspection import inspect_selected_tasks
     task, preflight_error = inspect_selected_tasks(task, args)
+    from acprof.models.configuration import describe_configuration_options
+    task.model_resolution["configuration_options"] = describe_configuration_options(task)
     if output is not None:
         write_model_resolution(task, output)
     print(explain_resolution(task, explain=args.explain), flush=True)

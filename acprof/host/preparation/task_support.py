@@ -107,7 +107,10 @@ def _require_task_support(task_info: TaskInfo, *, batch_size: int, devices) -> N
         except ValueError as exc:
             reason = str(exc)
     if reason is None:
-        from acprof.models.resolution import resolve_model_interface
+        from acprof.models.resolution import (
+            describe_static_compatibility,
+            resolve_model_interface,
+        )
         from acprof.runtime.profiles import select_runtime_profile
 
         try:
@@ -134,34 +137,7 @@ def _require_task_support(task_info: TaskInfo, *, batch_size: int, devices) -> N
                     evidence={"trust_remote_code": False, "code_files": task_info.model_resolution.get("code_files", [])}))
             task_info.model_resolution["trust_remote_code"] = remote_code_allowed(profile, extension)
             task_info.model_resolution["requested_devices"] = list(devices)
-            native_backend = task_info.runtime_backend in {"transformers_model", "transformers_pipeline"}
-            custom = bool(config.get("auto_map") or config.get("custom_pipelines"))
-            support = (supports_transformers_task(version, task, config.get("model_type", ""), config)
-                       if native_backend and version and not custom else None)
-            declared = not native_backend or extension.adapter != "family-default"
-            interface_status = "supported" if declared or support is True else "unsupported" if support is False else "unknown"
-            layout_status = task_info.model_resolution.get("artifact_layout", {}).get("status", "unknown")
-            overall_status = interface_status
-            if interface_status == "supported" and layout_status == "unknown":
-                overall_status = "unknown"
-            task_info.model_resolution["compatibility"] = {
-                "status": overall_status,
-                "interface_status": interface_status,
-                "artifact_status": layout_status,
-                "evidence_level": "static",
-                "source": "registered_extension" if declared else "locked_transformers_mapping",
-                "runtime_profile": profile.profile_id,
-                "transformers_version": version or None,
-                "checkpoint_verified": False,
-            }
-            if overall_status == "unknown":
-                layout = task_info.model_resolution.get("artifact_layout", {})
-                task_info.model_resolution["compatibility"].update(
-                    detail=layout.get("detail") if layout_status == "unknown" else
-                    "Architecture support is not established by the registered runtime metadata.",
-                    next_action="Review the pinned artifacts and registered backend capability; "
-                    "static evidence does not replace a separately authorized interface probe.",
-                )
+            task_info.model_resolution["compatibility"] = describe_static_compatibility(task_info, profile, extension)
             task_info.model_resolution["precision"] = {
                 device: resolve_precision(profile, extension, device=device, task=task,
                     model_type=config.get("model_type", ""), version=version)
