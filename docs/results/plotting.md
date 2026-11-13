@@ -27,7 +27,7 @@ acprof plot \
 
 图表按环境写入绘图根目录下的 `<environment_class>/cpu/`、`<environment_class>/gpu/` 和 `<environment_class>/gpu+cpu/`，延迟模型仍写入 `latency_model/`；没有适用数据的分组会自动跳过。除原有指标总览外，还会按可用字段生成资源失败边界、P50/P90/P95 尾延迟、延迟–能耗 Pareto 前沿和冷启动阶段分解图。历史 CSV 缺少新字段时只跳过对应图，不影响其余图表。
 
-`acprof plot` 读取实验根目录的 `static_meta.json`，用其中的 `input_scale_type` 作为横轴语义名；静态元数据要求 schema v7，旧 `static_meta.csv` 会直接报错。新实验的图片会写入结果目录的 `plots/`；没有清单的旧目录仍直接写到根部。绘图根目录下包含：
+`acprof plot` 读取实验根目录的 `static_meta.json`，用其中的 `input_scale_type` 作为横轴语义名；静态元数据接受当前 schema v8 和已知历史 v7，旧 `static_meta.csv` 会直接报错。新实验的图片会写入结果目录的 `plots/`；没有清单的旧目录仍直接写到根部。绘图根目录下包含：
 
 - `<environment_class>/cpu/`：只使用该环境下 `gpu_mode=off` 的 CPU 数据
 - `<environment_class>/gpu/`：只使用该环境下 `gpu_mode=on` 的 GPU 数据

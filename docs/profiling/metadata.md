@@ -7,7 +7,7 @@
 
 | 字段 | 含义 |
 | --- | --- |
-| `schema_version` | `static_meta.json` schema 版本；新增运行环境绑定与验证记录后的当前版本为 `7`。 |
+| `schema_version` | `static_meta.json` schema 版本；新增冻结推理配置后的当前版本为 `8`；已知历史 v7 仍可读取，缺少的证据保持未知。 |
 | `model_name` | 所选来源的 model ID，例如 `google-bert/bert-base-uncased`。 |
 | `model_source` | `huggingface` 或 `modelscope`；历史缺字段沿用 HF 语义。补采恢复使用原记录，不受当前来源环境变量影响；显式无效值会被拒绝。相同模型名不代表相同来源或 artifact。 |
 | `model_revision` | 实际解析到的 model revision / commit hash。 |
@@ -15,7 +15,7 @@
 | `parameter_bytes` | 根据 `parameter_dtype_counts` 的各 dtype 元素数量与字节宽度精确求和得到的逻辑 tensor payload 大小，不含序列化 header；没有 dtype 统计或存在未知 dtype 时为 `null`。 |
 | `precision_dtype` | SafeTensors 参数中数量占主导的权重精度，例如 `FP32`、`FP16`、`BF16`、`INT8`；无法确认时为 `null`。 |
 | `parameter_dtype_counts` | 按 dtype 统计的参数/张量元素数量，保留混合精度与少量整型 buffer 信息。 |
-| `inference_precision_by_device` | 当前 handler 明确请求的 CPU/GPU 推理精度。通常 Transformers NLP/CV/audio 为 CPU FP32、GPU FP16；MOSS adapter 为 CPU FP32、GPU BF16；Encodec/DAC 两者均 FP32。TorchScript 保留导出权重精度、输入 FP32；skops 保留 estimator 内部精度、输入 FP32。Silero 和 skops 仅声明 CPU。 |
+| `inference_precision_by_device` | 已冻结实验中按 CPU/GPU 投影的最终请求精度，未声明 dtype 为 `unknown`；真实生效值见 `runtime_validation`。历史无冻结对象时沿用 handler 精度策略：通常 Transformers NLP/CV/audio 为 CPU FP32、GPU FP16；MOSS adapter 为 CPU FP32、GPU BF16；Encodec/DAC 两者均 FP32。TorchScript 保留导出权重精度、输入 FP32；skops 保留 estimator 内部精度、输入 FP32。Silero 和 skops 仅声明 CPU。 |
 | `static_flops` | Torch eager profiler 得到的逻辑 shape FLOPs，按 `input_scale` 保存 `flops_per_request`；未采集成功时为 `null`。 |
 | `static_macs` | 静态 MACs。当前不做不可靠的 FLOPs/2 推断，因此未单独采集时为 `null`。 |
 | `input_format` | 实际 `/predict` HTTP JSON 输入协议及其 JSON Schema。 |
@@ -26,6 +26,7 @@
 | `model_license` | Hugging Face model card 许可证，例如 `apache-2.0`、`mit`；无法确认时为 `null`。 |
 | `model_metadata_source` | 参数量、参数 payload、精度、量化和许可证的元数据来源，当前在线 Hub 检测成功时为 `huggingface_hub`。 |
 | `model_resolution` | 可选的接口解析 object（内部 schema v1）：任务、backend、library、制品格式、loader、operation、model type、固定 revision、元数据文件和 runtime profile。包含 `candidates/evidence`、`conflicts/missing`、`selection`、`interface_kind`、`pipeline_task`、`code_files/code_revision`、有效 `model_spec`；自动解析追加独立 `contract` provenance 和仅在无缺口时生成的 `generated_spec`。依赖固定、用户审阅、接口检查和真实运行的观察分别记录；`contract.runtime_validation` 从 `not_run` 变为包含 mode、image ID、payload／报告 hash 与设备结果的 object，详见[契约生成](../models/contracts.md#自动生成模型契约m1m6)。`candidate` 不是执行成功；`selection_required/ambiguous/needs_configuration/blocked` 保留不同原因，在条件满足前不得进入正式采集。新增 `compatibility` 区分接口能力和制品证据，整体 unknown 不视为静态支持；`artifact_layout` 保留选中加载器的文件布局判断，`failure.evidence.next_action` 给出后续操作。多组检查按 `task_resolutions` 保存独立结果；静态检查不会写入真实推理成功。历史 v7 缺失字段按未知处理，不推算。无数值单位或测量窗口，不增加 CSV 列。 |
+| `inference_configuration` | 用户按内容摘要确认后冻结的推理配置（内部 schema v1）：模型来源及固定 revision、后端/adapter/runtime profile、按设备加载参数、按任务生成参数、请求与 Auto 决策、规则版本及实验身份 SHA256。运行观察不写回该对象。历史缺字段或空对象表示未记录此协议，不能推算为已确认。 |
 | `task_family` | 任务族：`nlp`、`cv`、`audio`、`timeseries`、`diffusion`、`multimodal`、`structured`。 |
 | `pipeline_tag` | Hugging Face pipeline tag，例如 `fill-mask`、`image-classification`。 |
 | `runtime_backend` | 容器内使用的 runtime backend，例如 `transformers_pipeline`、`chronos`、`diffusers`。 |
@@ -103,11 +104,38 @@
 | `execution_profiles_retained` | raw Massif / Nsight Systems artifacts 是否保留。 |
 | `execution_profile_provenance` | execution profile 的来源；默认关闭时为 `disabled`。 |
 
-`static_meta.json` 只接受 schema v7；旧版本或缺失版本直接报错。读取端最多接收 4 MiB 的
+`static_meta.json` 接受当前 schema v8 和已知历史 v7；其他版本或缺失版本直接报错，不自动迁移历史文件。非空 `inference_configuration` 必须通过冻结状态、内容摘要和结构校验。读取端最多接收 4 MiB 的
 UTF-8 JSON object，并拒绝 `NaN`、`Infinity` 及溢出为无穷大的数字。可选读取只在文件不存在时
 返回空对象；文件存在但超限、损坏或类型错误时仍严格报错且不改写原件。当前完整 cache artifacts
 大小字段为 `model_cache_bytes`，不读取旧 `model_weight_bytes`。采集/修复记录独立写入
 `collection_history.json`，不从旧静态元数据补造 swap、cgroup 或运行环境信息。
+
+### 冻结推理配置、验证与恢复
+
+`inference_configuration.identity_sha256` 覆盖最终值、用户请求、参数来源、Auto 选择理由和规则版本。
+用户只确认该摘要对应的配置；从 `resolved` 转为 `frozen` 不改变身份。正式运行与恢复都直接使用已冻结值，
+不能重新运行 Auto、替换 runtime profile 或修改 dtype/attention。生成参数属于实验身份；
+只改变生成参数不会进入镜像构建的 `request_fingerprint`，已有相同代码和依赖镜像可以复用。
+
+| 证据 | 含义与位置 |
+| --- | --- |
+| 权重存储精度 | `precision_dtype`、`parameter_dtype_counts` 和量化信息，来源于制品元数据；未知保持未知。 |
+| 请求与 Auto | `inference_configuration.requests/decisions` 保留明确选择或自动决策的原始意图、最终值、来源与规则。 |
+| 最终加载参数 | `loading.off/on` 对应 CPU/GPU；`dtype` 与 `attention_implementation` 只有已声明且完成静态解析的约束。 |
+| 任务配置 | `tasks[task_id]` 绑定接口、任务指纹和生成参数，区分多个任务及工作负载；资源 case 的实际设备由 off/on 选择。 |
+| 实际加载观察 | 独立 `runtime_validation.json` 及静态元数据内的同一报告保存 `inference_configuration_sha256` 和 `configuration_validation`。 |
+| 实际参数消费 | 已登记 native NLP 生成路线的 `consumer_receipt` 必须为 `verified`，含真实 generate 边界的调用记录、配置 SHA 和任务 ID；其他路线为 `not_applicable`，不能据此声称生成参数已验证。 |
+
+冻结对象的 `validation` 始终保留 `static=validated,runtime=not_run`，运行成功写入独立报告。
+`configuration_validation.status=verified` 表示已声明的约束经过核验；`loading={}` 时单项 dtype/attention
+应为 `not_applicable`，不代表观察到了精度或注意力实现。正式服务的 readiness 也核对配置 SHA 与加载观察，
+独立验证成功不能替代每次正式服务加载后的检查。
+
+`input_scale_plan.json` 保存同一配置 SHA；`run_state.json.runtime` 同时保存冻结对象和 SHA。
+续跑在修复测量投影或恢复运行环境之前核对配置内容与任务绑定、输入计划原字节 SHA、静态元数据、
+独立验证的设备覆盖和参数消费状态。配置改变或证据缺失会拒绝恢复，保留原结果。已知历史无冻结对象的
+记录继续按原恢复契约读取，不补造确认、Auto 或执行证明。比较报告展示配置 SHA、加载值和任务生成值的
+身份差异；这项身份记录不等同于模型质量可比较性。
 
 ### GPU 探测状态与设备归属
 
@@ -143,7 +171,7 @@ Adapter、loader、四阶段调用、组件、IO、配置摘要和有效生成�
 静态识别、运行验证和正式测量证据分别记录，详见[解析证据](../models/routing.md#解析证据与自动裁决)。
 
 `runtime_environment` 继续使用 schema v1。新服务镜像构建时增加以下身份字段，保持原有包版本、
-模型快照及 `build_fingerprint` 的语义；`static_meta.json` 仍为 v7，CSV 没有新增列。
+模型快照及 `build_fingerprint` 的语义；这些环境字段兼容静态 v7/v8，CSV 没有新增列。
 
 | 字段 | 含义 |
 | --- | --- |

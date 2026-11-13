@@ -49,8 +49,9 @@
 | P0 · 制品与元数据 | 依据实际文件清单、被选中的索引及组件声明校验加载布局；无证据保留 unknown。非有限数值、非法 JSON 与过深嵌套转为带文件、字段路径和原始 SHA256 的诊断。 |
 | P0 · 证据级别 | 静态 candidate、兼容性、接口验证和正式测量分别展示；未知架构或制品不计为静态支持。失败后修正配置可以重新预检，上游非法元数据证据继续阻断。 |
 | P0-00 / P2-05 · 固定回归 | 已有固定 revision 的 T5 原始元数据与定向合成 Fixture。用户提供的 Top 100 汇总为 41 / 25 / 25 / 4 / 4 / 1；原始 100 项附件及逐项 revision 尚未取得，不能宣称完成整集冻结、重放或通过率比较。 |
-| P1-01～05 · 声明与静态发现基础 | [统一参数协议](models/inference-configuration.md)已接入 ExtensionCatalog、现有六个生成参数审阅及 inspect；类型、nullable、依赖冲突、消费者和来源绑定统一声明。默认候选保留文件／指针／revision／摘要，模型属性只读；后端候选复用 P0 静态判据，unknown 不冒充可用。更多任务、加载选项及推荐实现仍需登记。 |
-| P1-06～21 · 表单与严格执行 | 通用动态表单、Auto 解析、确认冻结、严格参数消费、运行观察、最终 `inference_configuration` 和恢复身份仍按[契约](models/inference-configuration.md)继续贯通；当前静态发现不代替成功执行证据。 |
+| P1-01～05 · 声明与静态发现基础 | [统一参数协议](models/inference-configuration.md)已接入 ExtensionCatalog、inspect 和配置解析；类型、nullable、依赖冲突、消费者和来源绑定统一声明。原生 NLP 生成路线登记六个生成控制及 dtype／attention 加载控制；通用 Runtime Profile 的后端约束已补齐。默认候选保留文件／指针／revision／摘要，模型属性只读，unknown 不冒充可用。更多任务、加载选项及作者推荐实现仍需登记。 |
+| P1-06～15 · 表单与严格执行 | 通用类型化 TUI、逐字段 Auto、CLI／TUI 最终审阅与 SHA 确认冻结已贯通。原生 NLP 生成路线核对加载后的浮点参数 dtype／attention 配置，并在独立验证中观察实际 generate 参数消费；不一致或不可核验时阻止采集。其他路线的未声明选项保留 not_applicable；作者／Benchmark 预设、更多任务参数和真实 checkpoint 验收仍待完成。 |
+| P1-16～21 · 元数据与实验身份 | v8 `static_meta.json.inference_configuration` 保存冻结值、请求／Auto 决策、固定模型与依赖／代码身份，按设备和任务分离；输入计划、恢复及比较绑定同一 SHA。Torch eager Profiler 使用独立派生身份，运行观察不改写冻结配置。已知历史 v7 保持原证据；跨设备真实执行和完整可复现性验收仍待用户选择实验。 |
 | P2 / P3 · 覆盖与扩展 | 继续按标准模型、任务专属能力、独立官方库的顺序推进；未知官方代码只作为候选，不直接执行或声称兼容。 |
 
 本轮验证限于离线 Fixture、Mock 与定向检查；没有新增真实模型推理、GPU、完整 Profiler 或用户终端验收证据。Top 100 的冻结集须保留原始 metadata、模型 revision、解析规则版本、原始判定和新的原因，不以放宽检查提高通过率。

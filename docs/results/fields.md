@@ -117,7 +117,7 @@ mean/median 聚合，默认仅纳入 `status=ok` 且 `warmup=0` 的行。
 因此它的上升不能用于判断每像素能效变差。
 
 像素归一化使用 2 个像素计数和 6 个比值字段；partial case 缺少这些
-可选列时仍可保留原测量行并补写失败记录，新列填 `nan`。静态 schema 保持 v7，
+可选列时仍可保留原测量行并补写失败记录，新列填 `nan`。像素字段兼容静态 schema v7/v8，
 输入计划要求 v2，多模态视频计划另行记录 `video_frame_width / video_frame_height`。
 实时采集在 monitor 停止后从物化计划计算像素数；若服务返回的有效尺度与计划不一致，
 像素计数保持 `nan`。packet 回填只更新 packet 像素延迟，不改变 application 延迟或能耗。

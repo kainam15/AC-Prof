@@ -22,6 +22,49 @@ acprof run --model google-t5/t5-small --tasks translation_en_to_de,summarization
 每组默认统一最大输出 64 Token（实际输出依模型 EOS 而定），可由用户 workload 覆盖。
 参见[推理分组](../models/routing.md#任务发现与选择)与[结果恢复](../profiling/artifacts.md#按任务保存与恢复)。
 
+### 推理配置：先审阅再冻结
+
+新实验的非交互 CLI 必须确认具体的推理配置。第一次执行上面的命令时，系统解析模型、
+所选任务、后端、Runtime Profile、各设备的加载参数与生成参数，在模型下载和运行前停止，
+打印候选配置文件、请求文件和 `Configuration SHA-256`。文件位于
+`<output-dir>/.inference-configurations/`，候选文件的 `state` 为 `resolved`；
+这一步没有授权正式采集。
+
+打开候选 JSON，检查最终值、参数来源、Auto 决策和验证范围，再保留原命令的全部参数，
+添加打印出的请求文件和 SHA：
+
+```bash
+acprof run --model google-t5/t5-small --tasks translation_en_to_de,summarization \
+  --profiling-mode basic --cpus 1 --mems 4 --gpus off --input-scales 64 \
+  --warmup 0 --repeat 1 --repeat-in-window 1 --notify none --output-dir results/t5-tasks \
+  --inference-config '<printed-requests-file>' --confirm-inference '<printed-sha256>'
+```
+
+确认摘要必须与这次重新解析的完整配置完全一致。模型 revision、后端、请求、参数来源或
+影响执行的配置改变时，需要重新审阅新的候选；旧 SHA 不会授权新配置。确认通过后才冻结配置、
+进入模型准备和运行时验证；实际加载值不满足冻结值时终止，不自动替换用户选择。
+
+`--inference-config` 接受有 `schema_version: 1` 的 JSON 请求。参数请求保留三种模式：
+
+| 请求 | 含义 |
+| --- | --- |
+| `{"mode":"explicit","value":...}` | 必须使用明确值，即使它恰好等于默认值；可空参数的 `null` 也必须显式给出。 |
+| `{"mode":"auto"}` | 授权该字段使用已登记的选择规则；最终选择、依据和规则身份仍须审阅。 |
+| `{"mode":"unset"}` | 未设置，不授权自动选择。活动字段没有可执行值时要求补充；因依赖而不活动的字段保留该状态。 |
+
+`backend`、`runtime_profile` 为独立请求；加载参数位于 `loading.off`（CPU）和
+`loading.on`（GPU）；任务参数位于 `tasks.<初始所选任务 ID>`。请从生成的请求文件开始修改，
+保留完整任务 ID，包括其中的点；改变 Beam 或后端导致最终任务重新分组时，系统保存原选择到
+最终任务的映射。不要把模型架构字段写入可调参数，也不要把候选配置 JSON 当成请求文件。
+
+加载与生成参数完整消费核验目前覆盖已登记的 native NLP 生成实现。其他任务的静态元数据、
+可发现选项和参数声明仍按各自证据展示，不能据此认定具有同级运行时验证能力。
+协议、来源和支持边界见[推理配置契约](../models/inference-configuration.md)。
+
+恢复时沿用已冻结配置，Auto 不重新运行。可省略新的请求文件；若仍提供
+`--inference-config`，每个明确给出的请求必须与冻结记录的模式、值和 JSON 类型一致，
+未知字段、不同预设或不同确认摘要都会拒绝恢复。文件路径与确认凭据本身不构成实验内容身份。
+
 ### 模型与资源矩阵
 
 GPU mode 在配置、runtime、profiling 和分析入口共用 `acprof.gpu_mode.normalize_gpu_mode`：
@@ -40,6 +83,8 @@ GPU mode 在配置、runtime、profiling 和分析入口共用 `acprof.gpu_mode.
 | `--task-family` | auto | 覆盖任务族：`nlp`、`cv`、`audio`、`timeseries`、`diffusion`、`multimodal`、`structured`。 |
 | `--backend` | auto | 覆盖声明清单中的 runtime backend，例如 `transformers_pipeline`、`chronos`、`diffusers`、`onnxruntime`。 |
 | `--model-spec` | 无 | 本地 `acprof_model.json` 格式的模型接口声明，优先于仓库声明，固化到服务镜像并参与恢复身份。用于缺少任务元数据、制品选择、custom pipeline 输入映射与固定离线依赖；TUI 对应“高级参数 → 识别覆盖 → 模型接口声明”，见[模型声明](../models/pipelines.md#本地模型声明与自定义-pipeline)。 |
+| `--inference-config` | 无 | 推理请求 JSON；未提供时先生成可审阅的具体候选。与 `--workload-spec` 的输入素材职责分开。 |
+| `--confirm-inference` | 无 | 已审阅候选的完整小写 SHA-256；新实验没有匹配确认时在模型准备前停止。 |
 | `--runtime` | `auto` | 优先选择可用的本机 Docker；Linux basic 在 Docker 不可用时选择 Process。可显式覆盖，完整规则见 [Linux Runtime](../platforms/linux-runtimes.md#选择与准备)。 |
 | `--profiling-mode` | `full` | `full` 保留 Native Linux Docker 的 RAPL、perf 和 packet latency 必需条件；`basic` 采集 application latency、吞吐及对应 Runtime 的资源指标，跳过能耗、PMU、抓包。Process 当前只提供 basic；显式 full 不自动降级。 |
 | `--cpus` | `auto` | Docker 展开为原有 `1,2,4,8`；Process 继承当前限制，数值列表需要可验证的 cgroup 配额。 |

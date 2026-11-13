@@ -4,25 +4,32 @@
 
 ## 状态与范围
 
-本页区分已经落地的统一声明／静态发现基础与后续执行契约。设计基线为 `3e4bde93`，
-参数协议实现从 `40db4f3a` 继续推进，复用 Extension Manifest、现有任务审阅、精度策略及运行验证。
-**通用动态表单、Auto 解析、配置确认冻结和逐字段运行核验仍待贯通**；声明存在不代表这些步骤已完成。
+本页描述统一声明、静态发现及首条严格执行链。实现复用 Extension Manifest、现有任务审阅、
+精度策略、Textual 和运行验证，没有新增独立插件系统。
+
+**通用请求表单、Auto 解析、内容确认冻结、传输、静态元数据与恢复检查已经贯通。**
+当前完整的 dtype／attention／生成参数消费核验范围是已登记的原生 NLP 生成路线：
+`transformers_model`、`transformers_pipeline` 对应的 `NLPHandler`。
+其他任务仍可确认已登记后端和工作负载，尚未声明的加载／生成控制不开放，也不标为已核验。
+这不表示完整 P1／P2 或任何真实 checkpoint 验收已经完成。
 
 现行模型解析和接口验证以[模型契约](contracts.md)为准，现行产物字段和 schema 以
 [静态元数据](../profiling/metadata.md)为准。静态发现结果写入 inspect 的
-`model_resolution.json.configuration_options`，不写作最终执行的 `inference_configuration`，
-不改变现有 v7 静态元数据或历史实验身份。
+`model_resolution.json.configuration_options`，继续与最终执行的 `inference_configuration` 分离。
+新实验使用 v8 静态元数据；v7 历史数据保持原状，缺失的冻结配置保留未知，不补造证据。
 
-第一条完整链路应同时交付：声明、请求意图、解析、确认冻结、参数消费、运行观察、元数据与恢复检查。
-表单覆盖和更多模型随后扩展，不能先把未经 Handler 支持的参数显示成可执行选项。
+新实验依次完成声明／请求意图、解析、最终审阅、确认冻结、准备、独立验证、正式运行和记录。
+CLI 首次返回 `review_required`，TUI 使用独立最终确认页；未确认不得创建正式任务集合或开始下载／采集。
+模型和任务扩展仍须同时登记消费者与验证方法。
 
 ## 当前已实现：声明与静态发现
 
 - `extensions.parameters.ParameterSpec` 描述类型、作用域、默认值、范围、单位、消费者、来源绑定与有限依赖／冲突；
-  `ParameterRequest` 保留 explicit、auto、unset，显式 null 与未提供值不同。此对象尚不执行 Auto。
+  `ParameterRequest` 保留 explicit、auto、unset，显式 null 与未提供值不同；解析由共享 resolver 执行。
 - Manifest 的 `parameters`、`backend_parameters`、`task_parameters` 在既有 Catalog 内合并；
-  当前六个文本生成控制（两种长度、do_sample、temperature、top_p、num_beams）由此声明。
-  现有任务表单读取同一声明和值校验器，原来的默认值确认及覆盖行为保持，不冒充完整请求冻结协议。
+  当前六个文本生成控制（两种长度、do_sample、temperature、top_p、num_beams）及
+  dtype、attention_implementation 加载控制由此声明。CLI／TUI 与任务应用使用同一声明和值校验器。
+  所有最终有效默认值也会物化到任务配置，不能只记录与默认值不同的 override。
 - `models.configuration_sources` 从已取得的 Hub／JSON 元数据发现只读事实和逐参数默认候选。
   文件、JSON pointer、固定 revision、原始字节摘要与 canonical 摘要分别保留；不会联网补齐、
   应用默认值或从模型卡代码执行任意调用。未登记 processor 字段只作为事实，不开放为调参项。
@@ -40,11 +47,13 @@ Pipeline 的任意 Python 签名或 `**kwargs` 也不会自动变成支持列表
 不截断原数据，也不让后续对象复制抛出未处理递归异常。已选任务组只沿同一 backend 保持身份；
 换 backend 后须重新绑定任务组，不能把旧组的执行指纹当作新实现的证明。
 
-候选沿用当前 profile 选择语义。历史通用 profile 的 `backends` 列表尚未完整表达
-Sentence Transformers／Diffusers 等共享环境的实际路由；本轮用已有扩展路由、选中环境与锁内能力检查
-描述候选，没有把该历史列表追加成错误的过滤器。通用 profile 的完整字段约束须在严格执行链中补齐。
+通用 Runtime Profile 的 backend 清单已按实际 NLP、Audio、Diffusion、Structured、
+Time Series 路由补齐。显式、默认和平台变体统一校验 family、task、backend、adapter 与已知 model type。
+静态后端选项仍须通过既有制品、依赖及接口检查；冻结后禁止按平台静默替换 profile。
 
-以下确认、执行、运行观察、元数据和恢复章节继续作为后续实施契约。
+加载 dtype 按现有精度策略和设备过滤；attention 仅开放 Handler 已消费的 eager／sdpa。
+这说明接口允许传入该选项，checkpoint 是否接受、加载后是否一致仍须运行验证；不存在未经核验的
+Flash Attention、量化或任意 Python kwargs 选项。
 
 ## 复用边界与参数分类
 
@@ -68,8 +77,8 @@ Host 侧声明与静态解析保持轻量，不导入推理实现或执行任意
 
 ## 参数声明：ParameterSpec
 
-统一参数描述已加入现有 Extension Manifest，并接入 inspect 和现有文本任务参数审阅。
-后续通用 CLI／TUI 配置及 Handler 严格执行继续使用此声明，不在 TUI 维护第二份模型规则。
+统一参数描述接入 inspect、通用 CLI／TUI 配置和 Handler 严格执行，不在 TUI 维护第二份模型规则。
+通用控件支持布尔、整数、有限浮点、枚举、字符串、列表与 nullable；实际显示的字段由选中声明决定。
 当前依赖规则只支持字段存在或严格 JSON 标量匹配，不引入可执行表达式或任意 DSL。
 
 | 信息 | 必需语义 |
@@ -100,9 +109,14 @@ Host 侧声明与静态解析保持轻量，不导入推理实现或执行任意
 选择预设是一次可追溯的用户操作；“作者推荐”必须有固定来源，否则只能称为模型默认或 AC-Prof 默认。
 确认采用显示的固定默认值也须保存其来源，不把它改称为自动决策。
 
-对于同一可调参数，建议采用以下来源顺序：显式字段覆盖 → 用户选定预设中的值 → 固定 revision
-中的模型／任务默认 → 已登记后端默认 → AC-Prof 基准默认。后几层只能在已授权的 Auto 或已确认默认策略内参与；
-`unset` 本身不授权这一选择链。记录覆盖过程，不能仅存最后一个值。
+当前规则 `acprof-inference-v1` 对生成参数使用已经选定的固定任务快照；快照没有该字段时，
+使用统一声明默认值。加载精度使用现有登记策略，attention 默认 eager，后端／profile 默认采用
+已经通过静态检查的平台路由。Auto 并不进行性能搜索或失败重试。
+每个决策保存原请求、最终值、来源／候选、选择原因、规则版本及静态／运行验证状态。
+
+初始表单显示具体默认值，模式为 explicit；只有用户选择 Auto 或明确应用 Auto 预设才授权解析。
+当前提供 Custom 与 Auto，尚未登记“作者推荐”或独立“标准 Benchmark”预设。
+`unset` 不授权默认选择；已禁用的依赖字段记录 inactive，不作为有效生成参数透传。
 模型只读事实不参与这套覆盖；backend、设备、依赖版本的能力限制是验证条件，也不能被高优先级值覆盖。
 
 Auto 解析必须限定到已登记、可解释的规则。候选缺少证据、存在冲突或无可行值时返回明确诊断，
@@ -124,8 +138,21 @@ backend、revision、任务、设备、参数、预设、输入计划或解析�
 重新选择或重新解析应生成新的确认对象。
 
 冻结前的静态检查只证明声明与约束可满足；不能在确认页提前标成真实推理通过。
-非交互式 CLI 应使用同一声明和解析器，具备可审阅的解析结果及明确的确认策略；
-具体 CLI 语法留待实施，不能通过跳过 TUI 绕过冻结和验证。
+非交互式 CLI 使用 `--inference-config FILE` 读取有限 JSON 请求，使用
+`--confirm-inference SHA` 确认同一候选。首次或旧摘要不匹配时，将完整候选和请求分别保存到
+输出目录的 `.inference-configurations/<SHA>.json` 与 `<SHA>.requests.json`，正常返回等待确认。
+用户审阅后以相同命令、生成的请求文件和摘要重试；路径本身不属于实验身份。
+具体操作见 [CLI run](../usage/cli-run.md) 和 [TUI](../usage/tui.md)。
+
+请求按 `loading.off/on` 和 `tasks.<原选择任务 ID>` 保存。改变 Beam／后端可能重新生成最终任务组 ID；
+最终 `tasks` 中保留 `source_task_ids` 与完整 snapshot。确认摘要涵盖模型、后端、加载、任务、
+请求模式、来源、规则和 workload 定义，仅排除自身摘要及 resolved／frozen 生命周期字段。
+每个配置 JSON 最多 65,536 字节，拒绝超限或非有限数值。
+当前一个任务集合共用按设备的加载合同。所选任务的加载声明不一致时，在确认前拒绝并提示分开集合；
+不能根据第一个任务漏掉后续生成任务的加载约束，也不隐式取空交集。
+
+工作负载定义与其后物化的输入计划分别留痕：最终 payload、实际输入规模和 case 使用既有
+`input_scale_plan.json`，绑定冻结配置 SHA 并进入原有 plan hash／恢复检查；不把未物化的自动规模说成已验证值。
 
 ## 参数消费与运行时验证
 
@@ -143,19 +170,26 @@ backend、revision、任务、设备、参数、预设、输入计划或解析�
 | 加载后观察 | 可观测的 dtype、attention、backend 等与冻结值一致 | 所有输入形状与 kernel 都使用同一路径 |
 | 请求验证 | 指定任务、设备和输入下的接口／输出契约通过 | 未验证 case、任务质量或完整 Profiler 支持 |
 
-状态至少区分 verified、mismatch、not_observable 和 not_run，并记录可验证的字段范围。
+状态区分 verified、mismatch、unverified、not_applicable 和 not_run，并记录可验证的字段范围。
+原生 NLP 独立验证临时观察实际 `model.generate` 边界的 kwargs／GenerationConfig；
+没有调用记录、吞掉不匹配后重试或只回显请求，都不能生成通过的 consumer receipt。
+未登记消费者的 receipt 为 not_applicable／consumer_not_declared，不能标为 verified。
 关键显式约束没有可用验证方法时，应明确阻断，不能标为 verified；非关键观察缺口按参数声明保留未知。
 未消费的显式参数和不一致的关键参数都阻止正式采集。上游 API 若对未知参数仅警告或忽略，适配层须补充检查。
 
 最小输入验证不是整个资源矩阵的通用证明。不同 backend、加载配置、设备或重新启动的实例须绑定
 自己的配置身份与必要检查；按输入条件才激活的选项，记录已验证条件。
-检查位于准备或规定的验证阶段，不向正式计时窗口追加配置探测，也不改变现有测量口径。
+加载核验位于加载计时结束之后、ready 之前；正式 HTTP 请求只做轻量冻结值一致性检查，
+不会扫描模型参数或包装 generate。独立消费观察只在 runtime_validate 中执行。
+Profiler 的核验位于 warmup／显式测量窗口之前；whole-process 工具仍可能观察到这部分准备开销，
+不能把它描述为完全没有开销。
 
 ## 精度、作用域与 Profiler 变体
 
 精度至少区分权重存储精度、用户请求、Auto 解析值、加载后观察到的参数 dtype。
 量化方式与量化配置独立记录；参数 dtype 不等同于运算、中间值或累加精度。
-现有 `actual_dtype()` 观察浮点参数类型，混合类型按实际集合记录，不能将其包装成完整计算精度证明。
+严格加载核验扫描所有浮点 parameter 的 dtype，混合类型按实际集合记录；
+attention 读取模型配置中的实际实现声明。两者都不是计算精度或实际 kernel 执行的完整证明。
 不可观测的计算细节保持 unknown。
 
 一个实验可能同时包含 CPU 与 GPU，也可能有多任务、输入规模和资源 case。
@@ -169,9 +203,14 @@ Profiler 的权威测量语义仍见[独立 Profiler](../profiling/profilers.md)
 
 ## 元数据、指纹与恢复
 
-拟在 `static_meta.json.inference_configuration` 保存冻结的执行配置及来源，运行观察沿用独立
-runtime validation 证据并关联该配置。具体产物 schema 变更须按[元数据规范](../profiling/metadata.md)
-实施，不在本轮提前改变当前 schema 或写入已有实验。
+v8 `static_meta.json.inference_configuration` 保存冻结配置原对象。
+运行观察沿用独立 runtime validation 证据并以 `inference_configuration_sha256` 关联，
+不得把 observed 值写回 frozen。完整字段定义见[元数据规范](../profiling/metadata.md)。
+
+后端身份包含锁定依赖版本、environment 身份、AC-Prof 版本及既有源码身份：
+measurement-source-v2、Docker service-source-v2、process-service-v1 分别保留范围与摘要。
+模型保存 revision、配置和仓库文件清单摘要、已知 base_model、许可证、量化与存储精度；
+下载后的实际制品文件／字节沿用 Model Store receipt 与 runtime manifest，不能在确认前伪装成已下载验证。
 
 模型身份需能回答使用了哪个来源／模型／固定 revision、实际制品仓库及选中文件，
 以及能够确认的 base model、权重格式、量化和许可证。tokenizer、processor、chat template、
@@ -229,6 +268,13 @@ source、model ID、完整 revision、固定 weight、sampling 与 weight basis�
   借鉴模型实现选择与生成配置来源的显式表达；不因此将 vLLM 宣称为当前已支持后端。
 - [Diffusers 制品格式与加载](https://github.com/huggingface/diffusers/blob/main/docs/source/en/using-diffusers/other-formats.md)：
   借鉴文件布局、序列化格式与 loader 能力分离，不因相同权重后缀推断通用兼容。
+
+- [Transformers v4.57.1 dtype 实现](https://github.com/huggingface/transformers/blob/v4.57.1/src/transformers/modeling_utils.py)
+  的便捷属性只返回首个浮点 dtype；本系统因此单独核对全部浮点参数集合。
+- [Transformers v4.57.1 Attention Interface](https://huggingface.co/docs/transformers/v4.57.1/attention_interface)
+  说明 attention 可改变且可按 backbone 不同；请求值与加载后的配置观察须分开。
+- [vLLM v0.18.1 backend selection](https://docs.vllm.ai/en/v0.18.1/design/attention_backends/)
+  借鉴显式选择不兼容就失败、自动选择必须校验的边界；没有将 vLLM 新增为可执行选项。
 
 上述资料用于设计对照，不复制上游实现、不引入新依赖，也不要求本轮升级推理库。
 实施时以项目所选 runtime profile 的固定版本核验能力。

@@ -19,7 +19,15 @@ FLOP profiling 和主 latency / energy workload 相互独立：
 | `ncu` | GPU 实际执行的 Tensor / Scalar FLOP | 单独诊断 NVIDIA GPU |
 | `both` | Torch eager；GPU 行再运行 NCU | 显式启用完整采集 |
 
-Torch probe 会强制并验证 eager attention，正式请求仍使用正常运行时的 attention 实现。
+Torch probe 会强制并验证 eager attention。对于已冻结推理配置，host 会生成仅覆盖当前设备
+`attention_implementation=eager` 的派生配置，并分配新的配置 SHA256；正式请求继续使用用户确认的原配置。
+Torch entry 保存 `inference_configuration_sha256`、`inference_configuration_derivation`
+（parent SHA、工具、原因和加载覆盖值）及独立的 `configuration_validation`，不能用派生验证证明正式配置。
+
+首轮严格配置只为已登记的 native NLP 生成路线暴露并验证这些加载参数。其他路线若冻结
+`loading={}`，eager profiler 会明确报告尚无已声明、可验证的 attention 配置；不会新增未声明选项、
+删除冻结配置或改用默认值继续。NCU、Massif、Nsys 和 Advisor 沿用正式冻结配置，仍按各自工具检查结果记录状态。
+历史无冻结配置的实验保留既有 profiler 路径；这不补造已确认的配置证据。
 NCU 需要主机上的 `ncu` 和可用的 GPU 性能计数器，可用 `--ncu-root` 指定工具位置。
 
 独立 profiler 容器使用宿主调用者的 UID/GID，关闭网络、清空 capabilities，并启用
