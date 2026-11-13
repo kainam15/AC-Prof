@@ -252,6 +252,18 @@ def compose_run_tab(app: AcprofTui) -> ComposeResult:
                         id="workload-spec",
                         classes="config-control",
                     )), field_id="workload-spec")
+                    yield app.localization.localized_widget(Label(message_id("models.inference.request_file")))
+                    yield ConfigField(app.localization.localized_widget(Input(
+                        value=app.configuration.initial_config.inference_config,
+                        placeholder=message_id("models.inference.request_file_hint"),
+                        id="inference-config", classes="config-control",
+                    )), field_id="inference-config")
+                    yield app.localization.localized_widget(Label(message_id("models.inference.confirmation_sha")))
+                    yield ConfigField(app.localization.localized_widget(Input(
+                        value=app.configuration.initial_config.confirm_inference,
+                        placeholder=message_id("models.inference.confirmation_sha_hint"),
+                        id="confirm-inference", classes="config-control",
+                    )), field_id="confirm-inference")
 
                 with Collapsible(title=app.tr(message_id('downloads.settings.title')), collapsed=True):
                     with Grid(classes="form-grid"):

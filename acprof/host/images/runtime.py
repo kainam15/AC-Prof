@@ -14,6 +14,8 @@ from pathlib import Path
 from typing import Any
 
 from acprof.config import DOCKER_IMAGE_PREFIX
+from acprof.failures import Failure, RuntimeFailure
+from acprof.host.configuration_transport import bound_inference_configuration
 from acprof.host.detect import TaskInfo
 from acprof.host.images.content import require_content
 from acprof.host.images.environment import (
@@ -71,6 +73,7 @@ def configure_runtime_profile(task_info: Any, *, torch_index_url: str | None = N
     """只在主机构建预检选择驱动分支；静态路由模块不探测硬件。"""
     from acprof.runtime.profiles import PLATFORMS, profile_for_platform
 
+    frozen = bound_inference_configuration(task_info)
     profile = select_runtime_profile(task_info)
     if profile.environment is None:
         raise RuntimeError("runtime profile does not declare a dependency environment")
@@ -85,6 +88,15 @@ def configure_runtime_profile(task_info: Any, *, torch_index_url: str | None = N
         if override and override not in {f"torch=={version}", f"torch=={version}+{variant}"}:
             raise ValueError(f"Torch 版本与依赖锁不符；{variant} 要求 torch=={version}+{variant}")
         profile = profile_for_platform(profile, variant)
+    if frozen and (profile.profile_id != frozen["backend"]["runtime_profile"]
+                   or profile.adapter != frozen["backend"]["adapter"]):
+        raise RuntimeFailure(Failure(
+            "preflight", "inference_configuration_mismatch",
+            "Runtime platform selection would replace the frozen inference configuration",
+            runtime_profile=profile.profile_id,
+            evidence={"frozen_profile": frozen["backend"]["runtime_profile"],
+                      "selected_profile": profile.profile_id},
+        ))
     task_info.runtime_profile_id, task_info.model_adapter = profile.profile_id, profile.adapter
     if getattr(task_info, "model_resolution", None):
         task_info.model_resolution["runtime_profile"] = profile.profile_id

@@ -68,6 +68,7 @@ class RuntimeSnapshot(TypedDict):
     compute_plan: str
     execution_plan: str
     kind: NotRequired[str]
+    inference_configuration_sha256: NotRequired[str]
 
 
 class RunStateSnapshot(TypedDict):

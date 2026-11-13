@@ -124,6 +124,7 @@ class NLPHandler(BaseHandler):
             "device": device,
             "model_revision": model_revision or "main",
             "load_options": dict(load_options or {}),
+            "runtime_profile": policy["runtime_profile"],
         }
         self._observe_generation(context)
         return context
@@ -347,6 +348,9 @@ class NLPHandler(BaseHandler):
         pipe = model_ctx["pipeline"]
         task_type = model_ctx["task_type"]
         params = processed_input.get("params", {})
+        from acprof.container.inference_configuration import validate_generation_parameters
+
+        validate_generation_parameters(model_ctx, params)
         batch_size = processed_input.get("batch_size", 1)
         check_nlp_input(processed_input, task_type)
 
@@ -389,9 +393,10 @@ class NLPHandler(BaseHandler):
                         multi_label=bool(params.get("multi_label", False)), **batch_kwargs)
         if task_type in _GENERATIVE_TASKS:
             generation_params = dict(params)
-            if not generation_params.keys() & {"max_length", "max_new_tokens"}:
-                generation_params["max_new_tokens"] = 64
-            generation_params.setdefault("do_sample", False)
+            if "_frozen_generation" not in model_ctx:
+                if not generation_params.keys() & {"max_length", "max_new_tokens"}:
+                    generation_params["max_new_tokens"] = 64
+                generation_params.setdefault("do_sample", False)
             state = model_ctx.get("_generation_observation")
             if state is not None:
                 state.update(inputs=[], outputs=[], params=generation_params, batch_size=batch_size)

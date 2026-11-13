@@ -60,6 +60,7 @@ class TaskInfo:
     repository_sources: dict[str, str] = field(default_factory=dict, repr=False)
     task_discovery: dict[str, Any] = field(default_factory=dict)
     selected_tasks: list[dict[str, Any]] = field(default_factory=list)
+    inference_configuration: dict[str, Any] = field(default_factory=dict)
 
 
 def _architecture_metadata(config: Any) -> dict[str, Any]:

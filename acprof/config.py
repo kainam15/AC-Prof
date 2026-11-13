@@ -85,6 +85,7 @@ STATIC_META_FIELDS = [
     "model_license",
     "model_metadata_source",
     "model_resolution",
+    "inference_configuration",
     "task_family",
     "pipeline_tag",
     "runtime_backend",
@@ -170,7 +171,7 @@ STATIC_META_FIELDS = [
     "execution_profiles_retained",
     "execution_profile_provenance",
 ]
-STATIC_META_SCHEMA_VERSION = 7
+STATIC_META_SCHEMA_VERSION = 8
 
 # ─────────────────────────────────────────────
 # Docker 镜像命名

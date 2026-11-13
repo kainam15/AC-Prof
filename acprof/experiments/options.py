@@ -95,6 +95,12 @@ class RunOptions:
     model_spec: str = option(
         '', help='Local acprof_model.json interface declaration; baked into the immutable service image', probe=True, cli_default=None,
     )
+    inference_config: str = option(
+        '', help='Inference request JSON; explicit, Auto and unset remain distinct',
+    )
+    confirm_inference: str = option(
+        '', help='Exact SHA-256 of the reviewed inference configuration; required for non-interactive collection',
+    )
     download_mode: str = option(
         'auto', help='Advanced/compatibility HF Hub entry policy (default auto); TUI always uses auto', probe=True, group="download", choices=HF_DOWNLOAD_MODES, cli_default=None,
     )

@@ -11,6 +11,10 @@ from typing import Any
 from acprof.artifacts import atomic_write_json, read_input_scale_plan
 from acprof.events.preparation import preparation_stage
 from acprof.failures import Failure, failure_from_exception
+from acprof.host.configuration_transport import (
+    verify_plan_configuration,
+    verify_runtime_configuration,
+)
 from acprof.host.runtime_validation import RuntimeValidationError
 from acprof.host.runtimes.contracts import ProcessInfo, RuntimeCleanupError
 from acprof.host.runtimes.process import service_environment
@@ -120,11 +124,15 @@ def validate_process(*, task_info, image_info, planned, cpu_list, mem_list, gpu_
     from acprof.models.contract import record_runtime_validation, write_model_resolution
     from acprof.platform import detect_environment
     plan = read_input_scale_plan(planned.plan_file)
+    frozen = verify_plan_configuration(task_info, plan)
     entry = min(plan["entries"], key=lambda item: float(item["input_scale"]))
     report: dict[str, Any] = {**detect_environment().metadata(), "schema_version": 1, "runtime_kind": "process",
         "runtime_id": image_info.environment_id, "status": "running", "devices": {}, "mode": "full",
         "input_scale": entry["input_scale"], "payload_sha256": hashlib.sha256(json.dumps(entry["payload"]).encode()).hexdigest(),
         "scope": "isolated_minimum_scale_predict_and_postprocess_before_measurement"}
+    if frozen:
+        report["inference_configuration_sha256"] = frozen["identity_sha256"]
+
     def persist_report() -> None:
         atomic_write_json(ArtifactLayout.discover(output_dir).path("runtime_validation.json"), report)
         record_runtime_validation(task_info, report)
@@ -143,6 +151,7 @@ def validate_process(*, task_info, image_info, planned, cpu_list, mem_list, gpu_
                     if not required <= stages or any(observed.get("validation", {}).get(layer, {}).get("status") != "verified"
                                                     for layer in ("protocol", "task")):
                         raise ProcessValidationError("Process runtime validation is incomplete", observed)
+                    verify_runtime_configuration(task_info, observed, expected_device=gpu, require_consumers=True)
                 except RuntimeCleanupError as exc:
                     report["devices"][gpu] = {
                         "status": "error", "error": str(exc), "cleanup_error": exc.to_dict(),
@@ -169,7 +178,7 @@ def validate_process(*, task_info, image_info, planned, cpu_list, mem_list, gpu_
                     failure_record = device_result.get("failure")
                     if not isinstance(failure_record, dict):
                         failure_record = failure_from_exception(
-                            RuntimeError(device_result["error"]),
+                            exc,
                             stage=device_result.get("failed_stage", "runtime_validation"),
                             device=gpu,
                             runtime_profile=getattr(task_info, "runtime_profile_id", ""),

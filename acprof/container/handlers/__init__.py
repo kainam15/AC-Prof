@@ -33,7 +33,7 @@ def model_revision_kwargs(model_source: str, model_revision: str) -> dict[str, s
 def transformers_pipeline_load_kwargs(
     load_options: dict[str, Any] | None,
 ) -> dict[str, Any]:
-    """Translate isolated profiler load options to Transformers pipeline args."""
+    """Translate declared loading options to Transformers pipeline arguments."""
     options = dict(load_options or {})
     options.pop("dtype", None)
     options.pop("trust_remote_code", None)
@@ -43,15 +43,9 @@ def transformers_pipeline_load_kwargs(
         raise ValueError(f"unsupported handler load options: {unsupported}")
     if attention_implementation is None:
         return {}
-    if str(attention_implementation) != "eager":
-        raise ValueError(
-            "attention_implementation must be 'eager' for compute profiling"
-        )
-    return {
-        "model_kwargs": {
-            "attn_implementation": "eager",
-        },
-    }
+    if type(attention_implementation) is not str or attention_implementation not in {"eager", "sdpa"}:
+        raise ValueError("attention_implementation must be 'eager' or 'sdpa'")
+    return {"model_kwargs": {"attn_implementation": attention_implementation}}
 
 
 class InputLimitError(ValueError):

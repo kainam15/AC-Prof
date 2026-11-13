@@ -20,6 +20,8 @@ INPUT_FIELDS = {
     "input-scales": "input_scales",
     "workload-spec": "workload_spec",
     "model-spec": "model_spec",
+    "inference-config": "inference_config",
+    "confirm-inference": "confirm_inference",
     "max-download": "max_download",
     "model-store": "model_store",
     "model-store-max": "model_store_max",

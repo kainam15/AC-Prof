@@ -212,7 +212,8 @@ def test_task_cancellation_keeps_interrupted_state_and_stops_collection(tmp_path
     with patch("acprof.application.run.require_collection_host"), patch(
         "acprof.host.runtimes.selection.select_runtime",
         return_value=RuntimeSelection("auto", "docker", "fixture"),
-    ), patch.object(TaskCollection, "run", run_collection), pytest.raises(KeyboardInterrupt):
+    ), patch.object(application, "_prepare_inference_configuration", side_effect=lambda task, *args, **kwargs: task), \
+            patch.object(TaskCollection, "run", run_collection), pytest.raises(KeyboardInterrupt):
         application.run(config)
 
     state.close.assert_called_once_with("interrupted")

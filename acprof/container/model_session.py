@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -20,12 +20,15 @@ class ModelLoadConfig:
     adapter: str = "family-default"
     use_gpu: bool = False
     threads: int = 0
+    inference_configuration: dict[str, Any] = field(default_factory=dict)
+    inference_task_id: str = ""
 
     @classmethod
     def from_environment(
         cls, *, default_threads: int = 0,
         task_type_default: str = "text-generation", use_gpu: bool | None = None,
     ) -> ModelLoadConfig:
+        from acprof.models.inference_configuration import decode_inference_configuration
         from acprof.runtime.settings import runtime_threads
 
         return cls(
@@ -36,6 +39,8 @@ class ModelLoadConfig:
             adapter=os.getenv("ACPROF_MODEL_ADAPTER", "family-default"),
             use_gpu=bool(int(os.getenv("USE_GPU", "0"))) if use_gpu is None else use_gpu,
             threads=runtime_threads(default=default_threads),
+            inference_configuration=decode_inference_configuration(os.getenv("ACPROF_INFERENCE_CONFIGURATION", "")),
+            inference_task_id=os.getenv("ACPROF_INFERENCE_TASK_ID", ""),
         )
 
     def resolve_source(self) -> str:
@@ -75,8 +80,14 @@ def load_model_session(
     handler: BaseHandler | None = None, model_source: str | None = None,
     load_options: dict[str, Any] | None = None,
 ) -> ModelSession:
-    """Load once without initializing devices, inferring, validating or profiling."""
+    """Bind confirmed options and load once; callers own observation and timing."""
     from acprof.container.handlers import load_handler
+    from acprof.container.inference_configuration import (
+        attach_configuration_context,
+        bound_load_options,
+    )
+
+    load_options = bound_load_options(config, device, load_options)
 
     selected = handler if handler is not None else select_handler(config)
     source = config.resolve_source() if model_source is None else model_source
@@ -85,4 +96,5 @@ def load_model_session(
         selected, source, config.task_type, config.backend, device,
         config.model_revision, adapter=config.adapter, **options,
     )
+    attach_configuration_context(config, device, context)
     return ModelSession(config, selected, context, execution, device)

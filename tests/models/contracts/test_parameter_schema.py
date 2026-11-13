@@ -220,11 +220,15 @@ def test_json_round_trip_preserves_null_defaults_and_rejects_unknown_fields():
 
 def test_catalog_exposes_only_parameters_for_the_selected_consumer():
     text = CATALOG.get_extension("nlp", "transformers_model", task="text-generation")
-    assert [spec.name for spec in text.parameters] == [
+    loading = [spec for spec in text.parameters if spec.scope == "loading"]
+    inference = [spec for spec in text.parameters if spec.scope == "inference"]
+    assert [spec.name for spec in loading] == ["dtype", "attention_implementation"]
+    assert all(spec.consumers[0].stage == "load" and spec.variation == ("device",) for spec in loading)
+    assert [spec.name for spec in inference] == [
         "max_new_tokens", "max_length", "do_sample", "temperature", "top_p", "num_beams",
     ]
-    assert all(spec.scope == "inference" and spec.consumers[0].stage == "predict" for spec in text.parameters)
-    assert all(spec.source_bindings[-1].task_scoped for spec in text.parameters)
+    assert all(spec.consumers[0].stage == "predict" for spec in inference)
+    assert all(spec.source_bindings[-1].task_scoped for spec in inference)
     for backend, task in [
         ("transformers_pipeline", "fill-mask"),
         ("sentence_transformers", "feature-extraction"),

@@ -129,6 +129,8 @@ def merge_generation_parameters(defaults: dict, overrides: dict) -> dict:
     """A higher-priority length spelling replaces the inherited alternate spelling."""
     merged = copy.deepcopy(defaults)
     for total, new in (("max_length", "max_new_tokens"), ("min_length", "min_new_tokens")):
+        if total in overrides and new in overrides:
+            raise ValueError(f"{total} conflicts with {new} in the same explicit configuration")
         if total in overrides or new in overrides:
             merged.pop(total, None)
             merged.pop(new, None)

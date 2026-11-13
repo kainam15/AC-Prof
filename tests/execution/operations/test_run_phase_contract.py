@@ -166,6 +166,10 @@ def phases(tmp_path, monkeypatch, request):
         runtime_preparer=prepare, matrix_runner=collect, environment_setup=configure,
         terminal_start=start_log, terminal_stop=stop_log,
     )
+    # This fixture exercises post-confirmation lifecycle; the confirmation gate
+    # has separate public-entry tests with its actual side-effect boundary.
+    monkeypatch.setattr(fixture.application, "_prepare_inference_configuration",
+                        lambda task, *args, **kwargs: task)
     return fixture
 
 

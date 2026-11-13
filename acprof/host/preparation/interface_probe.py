@@ -14,6 +14,7 @@ from pathlib import Path
 from acprof.artifacts import atomic_write_json, loads_finite_json
 from acprof.container.model_probe import RESULT_PREFIX
 from acprof.events.preparation import preparation_stage
+from acprof.host.configuration_transport import inference_environment
 from acprof.host.container_lifecycle import (
     ContainerCleanupError,
     container_owner_labels,
@@ -45,6 +46,7 @@ def probe_interface(task_info, output_dir: str | Path, *, cpus: int = 2,
     if (type(cpus) is not int or cpus <= 0 or type(memory_gb) is not int or memory_gb <= 0
             or not math.isfinite(timeout_seconds) or timeout_seconds <= 0):
         raise ValueError("interface probe requires positive resource and timeout limits")
+    configuration_env = inference_environment(task_info)
     profile = select_runtime_profile(task_info)
     project = resource_root()
     layout = ArtifactLayout.discover(output_dir)
@@ -97,6 +99,7 @@ def probe_interface(task_info, output_dir: str | Path, *, cpus: int = 2,
                 "TASK_FAMILY": task_info.task_family, "RUNTIME_BACKEND": task_info.runtime_backend,
                 "ACPROF_MODEL_ADAPTER": profile.adapter, "ACPROF_RUNTIME_PROFILE": profile.profile_id,
                 "ACPROF_MODEL_SPEC_B64": encode_model_spec(task_model_spec(task_info)),
+                **configuration_env,
             }
             for key, value in environment.items():
                 command += ["-e", f"{key}={value}"]

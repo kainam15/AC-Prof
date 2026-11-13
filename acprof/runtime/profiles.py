@@ -205,6 +205,22 @@ def environment_id(environment: DependencyEnvironment, project_dir) -> str:
     return content_digest(environment_identity(environment, project_dir))
 
 
+def profile_route_error(profile: RuntimeProfile, *, family: str, task: str, backend: str,
+                        adapter: str, model_type: str | None = None) -> str | None:
+    """Check declared routing without importing a framework or assuming model support."""
+    if family != profile.family:
+        return f"Runtime {profile.profile_id!r} does not support family {family!r}"
+    if profile.task_types and task not in profile.task_types:
+        return f"Runtime {profile.profile_id!r} does not support task {task!r}"
+    if backend not in profile.backends:
+        return f"Runtime {profile.profile_id!r} does not support backend {backend!r}"
+    if adapter != profile.adapter:
+        return f"Runtime {profile.profile_id!r} does not support adapter {adapter!r}"
+    if model_type is not None and profile.model_types and model_type not in profile.model_types:
+        return f"Runtime {profile.profile_id!r} does not support model type {model_type!r}"
+    return None
+
+
 def select_runtime_profile(task_info: Any) -> RuntimeProfile:
     from acprof.failures import Failure, RuntimeFailure
 
@@ -217,20 +233,21 @@ def select_runtime_profile(task_info: Any) -> RuntimeProfile:
         ))
 
     extension = select_extension(task_info)
+    config = getattr(task_info, "model_config", {}) or {}
+    model_type = config.get("model_type") or None
+
+    def route_error(profile: RuntimeProfile) -> str | None:
+        return profile_route_error(
+            profile, family=task_info.task_family, task=task_info.pipeline_tag,
+            backend=task_info.runtime_backend, adapter=extension.adapter, model_type=model_type,
+        )
+
     if extension.profile:
         profile = PROFILES.get(extension.profile)
         if profile is None:
             raise unavailable(f"No registered runtime for extension {extension.extension_id!r}: {extension.profile}")
-        if (
-            task_info.task_family != profile.family
-            or (profile.task_types and task_info.pipeline_tag not in profile.task_types)
-            or task_info.runtime_backend not in profile.backends
-            or extension.adapter != profile.adapter
-        ):
-            raise unavailable(
-                f"Runtime {profile.profile_id!r} does not support "
-                f"{task_info.task_family}/{task_info.pipeline_tag}/{task_info.runtime_backend}"
-            )
+        if detail := route_error(profile):
+            raise unavailable(detail)
         explicit = getattr(task_info, "runtime_profile_id", "")
         if explicit and explicit != profile.profile_id:
             raise unavailable(f"Runtime {explicit!r} does not match extension {extension.extension_id!r}")
@@ -243,8 +260,10 @@ def select_runtime_profile(task_info: Any) -> RuntimeProfile:
         default = "custom-multimodal-cu128"
     selected = getattr(task_info, "runtime_profile_id", "") or default
     profile = PROFILES.get(selected)
-    if profile is None or profile.family != family or profile.adapter != "family-default":
+    if profile is None:
         raise unavailable(f"No registered runtime for {family}/{selected}")
+    if detail := route_error(profile):
+        raise unavailable(detail)
     if custom_pipeline and profile.runtime_line != "custom-multimodal":
         raise unavailable("Declared multimodal pipelines require a locked custom-multimodal runtime")
     if _native_compatible(task_info, profile) is False:
@@ -253,6 +272,7 @@ def select_runtime_profile(task_info: Any) -> RuntimeProfile:
         candidates = [item for item in PROFILES.values() if item.family == family
                       and item.runtime_line != "default" and item.adapter == "family-default"
                       and item.environment.platform.platform_id == profile.environment.platform.platform_id
+                      and route_error(item) is None
                       and _native_compatible(task_info, item) is True]
         if not candidates:
             raise unavailable(f"No registered Transformers runtime for {task_info.pipeline_tag}/{task_info.model_config.get('model_type')}")

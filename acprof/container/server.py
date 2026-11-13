@@ -35,12 +35,17 @@ def create_app(
 
     from acprof.container.execution import complete_prediction
     from acprof.container.handlers import InputLimitError
+    from acprof.container.inference_configuration import (
+        configuration_metadata,
+        validate_inference_payload,
+    )
     from acprof.workloads.contract import workload_contract
 
     app = Flask(__name__) if app is None else app
     app.config["MAX_CONTENT_LENGTH"] = MAX_REQUEST_BODY_BYTES
     config, handler, model_ctx = session.config, session.handler, session.context
     execution, device = session.execution, session.device
+    configuration_report = configuration_metadata(session)
     timing = dict(startup_timing or {})
     load_time = timing.get("model_load_s")
     load_time_s = round(load_time, 3) if load_time is not None else None
@@ -77,6 +82,7 @@ def create_app(
             "status": "ok", "service_token": service_token,
             "model_id": config.model_id, "model_revision": config.model_revision,
             "device": device, "load_time_s": load_time_s, "startup_timing": timing,
+            **configuration_report,
         })
 
     @app.route("/predict", methods=["POST"])
@@ -84,6 +90,7 @@ def create_app(
         data = request_json_body()
         stage = "preprocess"
         try:
+            validate_inference_payload(session, data)
             processed = handler.preprocess(model_ctx, data)
             stage = "predict"
             with execution.inference_context():
@@ -128,6 +135,7 @@ def create_app(
             "task_family": config.task_family, "task_type": config.task_type,
             "runtime_backend": config.backend,
             "runtime_parameters": model_ctx.get("runtime_parameters", runtime_metadata.get("runtime_parameters", {})),
+            **configuration_report,
             "device": device, "load_time_s": load_time_s, "startup_timing": timing,
         })
 
@@ -143,14 +151,13 @@ def create_runtime_app() -> Flask:
 
     # Import execution support before its separately timed device initialization.
     from acprof.container.execution import complete_prediction  # noqa: F401
+    from acprof.container.inference_configuration import verify_model_session_configuration
     from acprof.container.model_session import (
         ModelLoadConfig,
         load_model_session,
         prepare_execution,
         select_handler,
     )
-
-    # Keep HTTP contract imports in setup, before the model-load timing span.
     from acprof.workloads.contract import workload_contract  # noqa: F401
 
     # Construct Flask before the load timer, as in the original startup path.
@@ -179,6 +186,7 @@ def create_runtime_app() -> Flask:
     model_load_completed_at = time.time()
     load_time_s = t_load_end - t_load_start
     print(f"[server] Model loaded in {load_time_s:.2f}s")
+    verify_model_session_configuration(session)
 
     return create_app(session, app=app, service_token=os.getenv("ACPROF_SERVICE_TOKEN", ""),
         runtime_profile=os.getenv("ACPROF_RUNTIME_PROFILE", ""), startup_timing={

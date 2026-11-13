@@ -1,6 +1,7 @@
 """Result inputs and types for post-hoc profiling."""
 from __future__ import annotations
 
+import copy
 import math
 import os
 import re
@@ -15,6 +16,7 @@ from acprof.artifacts import read_json_object
 from acprof.cancellation import cancellable, check_cancelled
 from acprof.gpu_mode import normalize_gpu_mode
 from acprof.host.collection_history import COLLECTION_HISTORY_NAME, normalize_collection_history
+from acprof.host.configuration_transport import verify_plan_configuration
 from acprof.host.detect import TaskInfo
 from acprof.host.profiling.compute_plan import (
     NCU_ERROR_FIELD,
@@ -347,6 +349,16 @@ def load_result_context(result_dir: str | os.PathLike[str], *, result_snapshot: 
     if not isinstance(recorded_source, str) or recorded_source not in MODEL_SOURCES:
         raise PosthocError(f"invalid model_source in static_meta.json: {recorded_source!r}")
 
+    frozen = static_meta.get("inference_configuration", {})
+    selected_tasks = []
+    if frozen:
+        if not re.fullmatch(r"[0-9a-f]{64}", expected_plan_hash):
+            raise PosthocError("frozen inference configuration requires the recorded input plan SHA256")
+        selected = input_plan.get("task_workload")
+        if not isinstance(selected, dict) or not selected:
+            raise PosthocError("frozen inference configuration requires its active task snapshot in the input plan")
+        selected_tasks = [copy.deepcopy(selected)]
+
     task_info = TaskInfo(
         model_id=model_id,
         model_source=recorded_source,
@@ -359,6 +371,8 @@ def load_result_context(result_dir: str | os.PathLike[str], *, result_snapshot: 
         runtime_profile_id=(static_meta.get("runtime_environment") or {}).get("profile_id", ""),
         model_adapter=(static_meta.get("runtime_environment") or {}).get("adapter", "family-default"),
         model_store=(static_meta.get("runtime_environment") or {}).get("model_store", {}),
+        selected_tasks=selected_tasks,
+        inference_configuration=copy.deepcopy(frozen),
     )
     if not all(
         (task_info.pipeline_tag, task_info.task_family, task_info.runtime_backend)
@@ -366,6 +380,11 @@ def load_result_context(result_dir: str | os.PathLike[str], *, result_snapshot: 
         raise PosthocError(
             "static_meta.json is missing pipeline_tag/task_family/runtime_backend"
         )
+
+    try:
+        verify_plan_configuration(task_info, input_plan)
+    except (ValueError, TypeError, KeyError) as exc:
+        raise PosthocError(f"frozen inference configuration does not match post-hoc inputs: {exc}") from exc
 
     check_cancelled(cancelled)
     return ResultContext(

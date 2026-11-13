@@ -17,6 +17,11 @@ from typing import TYPE_CHECKING, Any, TypedDict
 from acprof.artifacts import loads_finite_json
 from acprof.container.runtime_validate import RESULT_PREFIX, STAGE_PREFIX
 from acprof.failures import Failure, RuntimeFailure, failure_from_exception
+from acprof.host.configuration_transport import (
+    inference_docker_env_args,
+    verify_plan_configuration,
+    verify_runtime_configuration,
+)
 from acprof.host.container_lifecycle import (
     ContainerCleanupError,
     container_owner_labels,
@@ -44,6 +49,7 @@ class RuntimeValidationReport(TypedDict, total=False):
     environment_class: str
     image_id: str
     build_fingerprint: str
+    inference_configuration_sha256: str
     input_scale: float
     payload_sha256: str
     scope: str
@@ -81,6 +87,8 @@ def validate_runtime(
     if planned.plan_file is None:
         raise ValueError("runtime validation requires an input plan file")
     plan = read_input_scale_plan(planned.plan_file)
+    frozen = verify_plan_configuration(task_info, plan)
+    configuration_env = inference_docker_env_args(task_info)
     entry = min(plan["entries"], key=lambda item: float(item["input_scale"]))
     encoded = json.dumps(entry["payload"], ensure_ascii=False).encode()
     from acprof.platform import detect_environment
@@ -94,6 +102,8 @@ def validate_runtime(
         "mode": "full",  # Existing report protocol; execution has no mode switch.
         "profiler_validation": "separate_profiler_plans; inference_success_does_not_prove_profiler_support",
     }
+    if frozen:
+        report["inference_configuration_sha256"] = frozen["identity_sha256"]
     root = Path(output_dir)
     root.mkdir(parents=True, exist_ok=True)
     from acprof.results.layout import ArtifactLayout
@@ -135,6 +145,7 @@ def validate_runtime(
                     "-e", f"TORCH_NUM_THREADS={max(cpu_list)}",
                     "-e", f"ACPROF_REQUEST_TIMEOUT_S={timeout_seconds}",
                     *runtime_docker_env_args(),
+                    *configuration_env,
                     *hf_offline_docker_env_args(),
                     *model_store_mount.args,
                     "-e", "HF_MODULES_CACHE=/tmp/hf-modules", "-e", "XDG_CACHE_HOME=/tmp/cache",
@@ -178,6 +189,7 @@ def validate_runtime(
                             for layer in ("protocol", "task")
                         ):
                             raise ValueError("incomplete runtime validation response")
+                        verify_runtime_configuration(task_info, device_result, expected_device=device_mode, require_consumers=True)
                 else:
                     device_result = {"status": "error", "error": log.tail() or f"container exit {result.returncode}"}
                 from acprof.quality import cli_exit_quality
@@ -227,6 +239,12 @@ def validate_runtime(
                         "model_loaded": True if any(s.get("stage") == "load" and s.get("status") == "verified" for s in stages) else None,
                         "service_alive": state.get("Running"), "timeout_scope": "compatibility_budget", "stages": stages})
                 device_result = {"status": "inconclusive", "error": detail, "failure": value.to_dict()}
+            except RuntimeFailure as exc:
+                run_error = exc
+                device_result = {"status": "error", "error": str(exc),
+                                 "failure": failure_from_exception(
+                                     exc, stage="runtime_validation", device=device_mode,
+                                     runtime_profile=task_info.runtime_profile_id).to_dict()}
             except (ValueError, OSError, TypeError, AttributeError) as exc:
                 run_error = exc
                 _LOG.debug("runtime validation failed: mode=%s error_type=%s", device_mode, type(exc).__name__)

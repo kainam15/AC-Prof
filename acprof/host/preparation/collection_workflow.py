@@ -105,6 +105,9 @@ class PreparationWorkflow:
         expected = ("confirm" if fields.get("resolved") else "answer") if kind == "review" else "retry"
         if kind == "error" and reply.get("action") == "repair" and "repair" in fields.get("docker_error", {}).get("actions", []):
             return reply
+        if (stage == "resolution" and kind == "review"
+                and fields.get("purpose") == "inference_confirmation" and reply.get("action") == "edit"):
+            return reply
         if reply.get("action") != expected:
             raise ValueError("unexpected preparation action")
         return reply
@@ -254,16 +257,11 @@ class PreparationWorkflow:
                 **({"revision": args.revision} if args.revision else {}),
             )
             self._explicit(task, args)
-            from acprof.host.preparation.task_selection import (
-                review_selected_task_parameters,
-                select_tasks,
-            )
+            from acprof.host.preparation.task_selection import select_tasks
             task = select_tasks(task, args, self)
             self._explicit(task, args)
             if len(task.selected_tasks) > 1:
-                # The entire collection is ready; only now ask for workload
-                # parameters (once), not during repeated interface resolution.
-                return review_selected_task_parameters(task, args, self)
+                return task  # Unified inference review follows final platform selection.
             identity = {"model": task.model_id, "revision": task.model_revision,
                         "source": getattr(task, "model_source", "huggingface"),
                         "contract": task.model_resolution.get("contract", {}).get("cache_key"),
@@ -318,6 +316,6 @@ class PreparationWorkflow:
             require_task_support(task, batch_size=args.batch_size, devices=args.gpus.split(","))
             if cache and decisions:
                 atomic_write_json(cache, {"schema_version": 1, "identity": identity, "decisions": decisions})
-            return review_selected_task_parameters(task, args, self)
+            return task
 
         return self.run("resolution", resolve_once)

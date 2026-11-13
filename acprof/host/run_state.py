@@ -112,7 +112,8 @@ def host_identity(project_dir: str | Path) -> dict:
 
 def run_options(args) -> dict:
     from acprof.host.gpu_device import selected_gpu_device
-    ignored = {"resume", "rebuild_image", "output_dir", "notify", "runtime_selection", "process_gpu"}
+    ignored = {"resume", "rebuild_image", "output_dir", "notify", "runtime_selection", "process_gpu",
+               "inference_config", "confirm_inference"}
     options = {name: value for name, value in flatten_run_options(vars(args)).items() if name not in ignored}
     # Freeze even default policies: they affect both timing and retained evidence.
     options.setdefault("sampling_policy", "burst")
@@ -335,6 +336,66 @@ def _validate_planned_snapshot(plan: object, layout: ArtifactLayout) -> TypeGuar
     return True
 
 
+def _frozen_runtime_task(runtime: dict):
+    """Validate persisted values before any runtime restoration or recovery writes."""
+    from acprof.host.configuration_transport import bound_inference_configuration
+    from acprof.host.detect import TaskInfo
+
+    try:
+        task = TaskInfo(**runtime["task"])
+        frozen = bound_inference_configuration(task)
+        recorded = runtime.get("inference_configuration_sha256")
+        if frozen:
+            if recorded != frozen["identity_sha256"]:
+                raise ValueError("runtime inference_configuration_sha256 differs from the frozen configuration")
+            return task
+        if recorded is not None:
+            raise ValueError("runtime configuration identity has no frozen configuration")
+    except (ValueError, TypeError, KeyError) as exc:
+        raise RunStateError(f"run_state.json inference_configuration 无效：{exc}") from exc
+    return None
+
+
+def _validate_frozen_runtime_evidence(layout: ArtifactLayout, runtime: dict) -> None:
+    """Frozen configuration, plan and independent observations form one experiment."""
+    from acprof.artifacts import read_input_scale_plan
+    from acprof.host.configuration_transport import (
+        verify_plan_configuration,
+        verify_runtime_configuration,
+    )
+
+    task = _frozen_runtime_task(runtime)
+    if task is None:  # Historical experiments never acquire invented configuration evidence.
+        return
+    frozen = task.inference_configuration
+    try:
+        metadata = read_json_object(layout.path("static_meta.json"), label="static metadata")
+        if metadata.get("inference_configuration") != frozen:
+            raise ValueError("static_meta.json does not contain the frozen inference configuration")
+        plan_name = runtime["planned"].get("plan_file")
+        if not plan_name:
+            raise ValueError("frozen inference configuration requires its saved input plan")
+        plan_path = layout.contained(plan_name)
+        if file_sha256(plan_path) != runtime["planned"].get("plan_sha256"):
+            raise ValueError("frozen input plan contents have changed")
+        verify_plan_configuration(task, read_input_scale_plan(plan_path))
+        validation = read_json_object(layout.path("runtime_validation.json"), label="runtime validation")
+        if (validation.get("status") != "ok"
+                or validation.get("inference_configuration_sha256") != frozen["identity_sha256"]):
+            raise ValueError("independent runtime validation does not match the frozen configuration")
+        devices = validation.get("devices")
+        if not isinstance(devices, dict) or set(devices) != set(frozen["loading"]):
+            raise ValueError("independent runtime validation does not cover the frozen devices")
+        for device, report in devices.items():
+            if not isinstance(report, dict) or report.get("status") != "ok":
+                raise ValueError("frozen configuration has an unsuccessful runtime validation")
+            verify_runtime_configuration(task, report, expected_device=device, require_consumers=True)
+        if metadata.get("runtime_validation") != validation:
+            raise ValueError("static_meta.json runtime validation differs from its independent report")
+    except (OSError, ValueError, TypeError, KeyError) as exc:
+        raise RunStateError(f"冻结推理配置证据不可恢复：{exc}") from exc
+
+
 def _validate_runtime_state(layout: ArtifactLayout, runtime: object, options: object) -> None:
     from acprof.host.detect import TaskInfo
     from acprof.host.images.runtime import ImageInfo
@@ -365,7 +426,7 @@ def _validate_runtime_state(layout: ArtifactLayout, runtime: object, options: ob
     if (not isinstance(repository_files, (list, tuple)) or
             any(not isinstance(name, str) for name in repository_files)):
         raise RunStateError("run_state.json 字段 runtime.task.repository_files 无效：需要字符串序列")
-    for name in ("model_config", "repository_metadata", "model_resolution", "model_spec"):
+    for name in ("model_config", "repository_metadata", "model_resolution", "model_spec", "inference_configuration"):
         if not isinstance(task.get(name, {}), dict):
             raise RunStateError(f"run_state.json 字段 runtime.task.{name} 无效：需要对象")
     resolution = task.get("model_resolution", {})
@@ -378,6 +439,7 @@ def _validate_runtime_state(layout: ArtifactLayout, runtime: object, options: ob
     if pipelines is not None and not isinstance(pipelines, dict):
         raise RunStateError("run_state.json 字段 runtime.task.model_config.custom_pipelines 无效")
     _validate_selected_tasks(runtime["task"])
+    _frozen_runtime_task(runtime)
     image_fields = ("python", "code_root", "model_path", "environment_id") if kind == "process" else ("tag",)
     for name in image_fields:
         _state_text(runtime["image"].get(name), f"runtime.image.{name}")
@@ -550,6 +612,7 @@ def validate_resume(directory: str | Path, data: object, *, project_dir: str | P
             validate_execution_identity(TaskInfo(**task_snapshot))
         except ValueError as exc:
             raise RunStateError(f"run_state.json 字段 runtime.task.selected_tasks 无效：{exc}") from exc
+        _validate_frozen_runtime_evidence(layout, data["runtime"])
     phase = recovery_phase(directory, data)
     complete = phase == "complete"
     if repair:
@@ -797,6 +860,9 @@ class RunState:
         self.save()
 
     def bind_runtime(self, task, image, planned, compute_plan: str, execution_plan: str) -> None:
+        from acprof.host.configuration_transport import bound_inference_configuration
+
+        frozen = bound_inference_configuration(task)
         paths = [str(self.layout.path(name).relative_to(self.directory))
                  for name in ("static_meta.json", "collection_history.json", "input_scale_plan.json")]
         for value in (compute_plan, execution_plan):
@@ -812,13 +878,17 @@ class RunState:
         if not _validate_planned_snapshot(plan, self.layout):
             raise RunStateError("run_state.json 输入计划校验失败")
         from acprof.host.runtimes.contracts import runtime_kind
-        self.data["runtime"] = {
+        snapshot = {
             "kind": runtime_kind(image),
             "task": {key: value for key, value in asdict(task).items() if key != "repository_sources"},
             "image": asdict(image), "planned": plan,
             "compute_plan": str(Path(compute_plan).resolve().relative_to(self.directory)) if compute_plan else "",
             "execution_plan": str(Path(execution_plan).resolve().relative_to(self.directory)) if execution_plan else "",
         }
+        if frozen:
+            snapshot["inference_configuration_sha256"] = frozen["identity_sha256"]
+        _validate_frozen_runtime_evidence(self.layout, snapshot)
+        self.data["runtime"] = snapshot
         self.data["status"] = "running"
         self.save()
 
@@ -834,6 +904,7 @@ class RunState:
         task = TaskInfo(**task_snapshot)
         # Reject changed interface identity before touching the saved runtime artifact.
         validate_execution_identity(task)
+        _validate_frozen_runtime_evidence(self.layout, snapshot)
         image_snapshot = snapshot["image"]
         if not isinstance(image_snapshot, dict):
             raise RunStateError("run_state.json 字段 runtime.image 无效：需要对象")

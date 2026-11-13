@@ -13,7 +13,7 @@ DOWNLOAD_PLAN_SOURCES = (
     "acprof/models/spec.py",
 )
 
-_SERVICE_DIRECTORIES = {"container", "extensions", "workloads", "models", "hub", "system"}
+_SERVICE_DIRECTORIES = {"container", "extensions", "workloads", "models", "tasks", "hub", "system"}
 # Inference also uses these shared contracts from otherwise host-facing packages.
 # Keep package initializers alongside the modules in every staged service tree.
 _SERVICE_SHARED_FILES = {

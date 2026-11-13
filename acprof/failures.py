@@ -19,6 +19,7 @@ REASON_CODES = frozenset({
     "compatibility_budget_exhausted", "recorded_evidence_invalid", "inference_failed",
     "input_budget_exceeded", "task_selection_required", "evidence_conflict", "runtime_unavailable",
     "backend_unsupported", "metadata_invalid", "artifact_incomplete", "artifact_layout_unknown",
+    "inference_configuration_mismatch", "inference_configuration_unverified",
 })
 FAILURE_PREFIX = "ACPROF_FAILURE="
 

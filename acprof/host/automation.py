@@ -89,6 +89,23 @@ class AutomaticRun:
         grouped = args.resume and (self.root / "metadata" / "task_runs").is_dir()
         saved = load_run_state(self.root) if args.resume and not grouped else None
         frozen_runtime = saved.get("runtime") if saved is not None else None
+        if args.resume:
+            if grouped:
+                from acprof.experiments.configuration import RunConfig
+                from acprof.results.task_collections import read_task_collection
+
+                _path, manifest = read_task_collection(self.root, run_id=RunConfig.from_namespace(args).task_run_id)
+                recorded_task = TaskInfo(**manifest["task_snapshot"])
+            else:
+                recorded_task = TaskInfo(**frozen_runtime["task"]) if frozen_runtime is not None else None
+            if recorded_task is not None and recorded_task.inference_configuration:
+                from acprof.host.preparation.inference_configuration import (
+                    validate_resume_inference_requests,
+                )
+                from acprof.models.inference_configuration import validate_configuration_binding
+
+                validate_resume_inference_requests(recorded_task.inference_configuration, args)
+                validate_configuration_binding(recorded_task.inference_configuration, recorded_task, allow_task_subset=True)
         previous = {}
         if args.resume:
             previous = read_json_object(self.path, label="auto_report.json")
@@ -125,13 +142,9 @@ class AutomaticRun:
                                override_backend=args.backend, model_spec_path=args.model_spec,
                                **({"revision": args.revision} if args.revision else {}))
         from acprof.host.preparation.collection_workflow import PreparationWorkflow
-        from acprof.host.preparation.task_selection import (
-            review_selected_task_parameters,
-            select_tasks,
-        )
+        from acprof.host.preparation.task_selection import select_tasks
         workflow = PreparationWorkflow.from_environment(args.output_dir)
         task = select_tasks(task, args, workflow)
-        task = review_selected_task_parameters(task, args, workflow)
         write_model_resolution(task, self.root)
         if len(task.selected_tasks) <= 1:
             require_task_support(task, batch_size=args.batch_size)
@@ -178,6 +191,9 @@ class AutomaticRun:
     def finish(self, error: str | None = None) -> int:
         if not self.started:
             return 2
+        if self.data.get("status") == "review_required" and error is None:
+            self.save()
+            return 0
         if self.collection_path:
             from acprof.analysis.audit import audit_result
             from acprof.results.layout import ArtifactLayout

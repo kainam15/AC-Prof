@@ -26,11 +26,14 @@ def collection_root(config: RunConfig) -> Path:
 
 def configuration_identity(config: RunConfig, task: TaskInfo) -> dict:
     values = asdict(config)
-    for name in ("resume", "output_dir", "notify", "task_run_id", "tasks", "revision"):
+    for name in ("resume", "output_dir", "notify", "task_run_id", "tasks", "revision",
+                 "inference_config", "confirm_inference"):
         values.pop(name)
     for name in ("workload_spec", "model_spec"):
         if values.get(name):
             values[name] = content_digest(read_json_object(Path(values[name]).expanduser(), label=name))
+    if task.inference_configuration:
+        values["inference_configuration_sha256"] = task.inference_configuration["identity_sha256"]
     return values
 
 
@@ -61,6 +64,16 @@ class TaskCollection:
     def restore(cls, config: RunConfig):
         path, data = cls.read_manifest(config)
         task = TaskInfo(**data["task_snapshot"])
+        if task.inference_configuration:
+            from acprof.host.preparation.inference_configuration import (
+                validate_resume_inference_requests,
+            )
+            from acprof.models.inference_configuration import validate_configuration_binding
+
+            validate_resume_inference_requests(task.inference_configuration, config.to_namespace())
+            validate_configuration_binding(task.inference_configuration, task)
+        elif config.inference_config or config.confirm_inference:
+            raise ValueError("historical task collections cannot accept new inference requests during resume")
         if data["model_id"] != task.model_id or data["model_revision"] != task.model_revision:
             raise ValueError("task collection model identity changed")
         if config.revision and config.revision not in {task.model_revision, task.requested_revision}:
@@ -117,9 +130,17 @@ class TaskCollection:
                     raise ValueError("invalid task workload specification")
                 if supplied.get("task", selected["interface"]) != selected["interface"]:
                     raise ValueError("workload specification conflicts with task interface")
-                if supplied.get("task_workload", {}).get("task_id", selected["task_id"]) != selected["task_id"]:
+                accepted_task_ids = {selected["task_id"]}
+                frozen = self.task.inference_configuration
+                if frozen:
+                    expected = frozen["workload"].get("specification_sha256")
+                    if content_digest(supplied) != expected:
+                        raise ValueError("workload specification changed after inference confirmation")
+                    accepted_task_ids.update(frozen["tasks"][selected["task_id"]].get("source_task_ids", []))
+                if supplied.get("task_workload", {}).get("task_id", selected["task_id"]) not in accepted_task_ids:
                     raise ValueError("workload specification conflicts with task identity")
-                manifest["params"] = merge_generation_parameters(manifest["params"], supplied.get("params", {}))
+                if not frozen:
+                    manifest["params"] = merge_generation_parameters(manifest["params"], supplied.get("params", {}))
                 if "input_budget" in supplied:
                     manifest["input_budget"] = supplied["input_budget"]
             path = self.root / "metadata" / "task_workloads" / (content_digest(manifest) + ".json")

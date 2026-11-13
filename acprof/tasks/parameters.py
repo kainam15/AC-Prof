@@ -205,7 +205,9 @@ def _coalesce_matching_profiles(tasks: list[dict]) -> list[dict]:
 
 
 def apply_parameter_review(model: Any, selected_tasks: list[dict], answers: dict, *,
-                           batch_size: int = 1, input_scales: str = "") -> list[dict]:
+                           batch_size: int = 1, input_scales: str = "",
+                           materialize_defaults: bool = False,
+                           inactive_parameters: frozenset[str] | set[str] = frozenset()) -> list[dict]:
     """Validate all answers before changing any task or its frozen fingerprint.
 
     The resource knobs and generation kwargs have separate consumers; keeping
@@ -215,11 +217,16 @@ def apply_parameter_review(model: Any, selected_tasks: list[dict], answers: dict
     fields = review["questions"] + review["parameter_advanced"]
     if not isinstance(answers, dict) or set(answers) != {field["path"] for field in fields}:
         raise ValueError("parameter review answers must cover exactly the displayed fields")
+    if not inactive_parameters <= {field["path"] for field in fields
+                                   if field["path"].split(".", 1)[1] not in {"batch_size", "input_scales"}}:
+        raise ValueError("inactive parameters must name displayed generation fields")
     generation_updates: list[dict] = [{} for _ in selected_tasks]
     experiment_updates: list[dict] = [{} for _ in selected_tasks]
     for field in fields:
+        if field["path"] in inactive_parameters:
+            continue
         value = _validated_value(field, answers[field["path"]])
-        if value != _validated_value(field, field["value"]):
+        if materialize_defaults or value != _validated_value(field, field["value"]):
             task_index = int(field["path"].split(".", 1)[0].removeprefix("task_"))
             name = field["path"].split(".", 1)[1]
             target = experiment_updates if name in {"batch_size", "input_scales"} else generation_updates
@@ -228,11 +235,14 @@ def apply_parameter_review(model: Any, selected_tasks: list[dict], answers: dict
     for index, (task, generation_choices, experiment_choices) in enumerate(zip(
         changed, generation_updates, experiment_updates, strict=True,
     )):
-        if not generation_choices and not experiment_choices:
+        inactive = {path.split(".", 1)[1] for path in inactive_parameters if path.startswith(f"task_{index}.")}
+        if not generation_choices and not experiment_choices and not inactive:
             continue
-        if generation_choices:
+        if generation_choices or inactive:
             generation = task["config"]["generation"]
             merged = merge_generation_parameters(generation, generation_choices)
+            for name in inactive:
+                merged.pop(name, None)
             specs = parameter_declaration(model, task).parameters
             declared_names = {spec.name for spec in specs}
             validate_parameter_values(

@@ -173,7 +173,16 @@ def read_static_metadata(result_dir: str | Path, *, required: bool = False) -> d
             raise FileNotFoundError(path)
         return {}
     payload = read_json_object(path, label="static metadata")
-    require_schema_version(payload, STATIC_META_SCHEMA_VERSION, str(path))
+    version = payload.get("schema_version")
+    if type(version) is not int or version not in {7, STATIC_META_SCHEMA_VERSION}:
+        require_schema_version(payload, STATIC_META_SCHEMA_VERSION, str(path))
+    configuration = payload.get("inference_configuration", {})
+    if type(configuration) is not dict:
+        raise ValueError(f"{path}: inference_configuration must be an object")
+    if configuration:
+        from acprof.models.inference_configuration import validate_frozen_configuration
+
+        validate_frozen_configuration(configuration)
     history = [key for key in payload if key.endswith(("_history", "_last_run"))]
     if history:
         raise ValueError(f"{path}: collection history must be in collection_history.json: {history}")

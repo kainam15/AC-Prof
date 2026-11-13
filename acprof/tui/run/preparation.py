@@ -4,12 +4,13 @@ from __future__ import annotations
 from textual import on
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
-from textual.widgets import Button, Checkbox, Collapsible, Label, Static
+from textual.widgets import Button, Checkbox, Collapsible, Label, Select, Static
 
 from acprof.events.preparation import encode_reply
 from acprof.host.preparation.model_errors import ModelLookupError
 from acprof.tui.i18n import message_id
 from acprof.tui.logging.widget import SelectableLog
+from acprof.tui.models.inference_inputs import ParameterRequestInput, update_parameter_dependencies
 from acprof.tui.models.review_inputs import review_answers, review_input
 from acprof.tui.models.task_choice_view import task_context_view
 from acprof.tui.models.task_choices import TaskChoices
@@ -96,9 +97,9 @@ class PreparationScreen(ModalScreen):
     #preparation-dialog { width: 90%; max-width: 100; height: auto; max-height: 90%;
         border: round $accent; background: $surface; padding: 0 1; }
     #preparation-dialog.download-confirmation, #preparation-dialog.preparation-failure,
-    #preparation-dialog.task-selection { height: 90%; }
+    #preparation-dialog.task-selection, #preparation-dialog.inference-configuration { height: 90%; }
     .download-confirmation #preparation-scroll, .preparation-failure #preparation-scroll,
-    .task-selection #preparation-scroll { max-height: 100%; }
+    .task-selection #preparation-scroll, .inference-configuration #preparation-scroll { max-height: 100%; }
     #preparation-title { height: auto; text-style: bold; }
     #preparation-scroll { height: 1fr; max-height: 24; }
     #preparation-scroll Static, #preparation-scroll Label { height: auto; }
@@ -117,8 +118,12 @@ class PreparationScreen(ModalScreen):
     #preparation-traceback:focus { border: round $accent; }
     #preparation-traceback .text-area--selection { background: $accent; color: $background; }
     #preparation-actions { height: 3; }
+    #inference-preset-row { height: 3; }
+    #inference-preset { width: 1fr; }
+    #preparation-preset { width: auto; }
     #preparation-actions Button { min-width: 10; width: 1fr; }
-    .task-selection #preparation-actions Button { min-width: 0; padding: 0; }
+    .task-selection #preparation-actions Button,
+    .inference-configuration #preparation-actions Button { min-width: 0; padding: 0; }
     .preparation-failure #preparation-actions Button { width: auto; }
     .preparation-failure #preparation-actions #preparation-continue { width: 1fr; }
     #preparation-actions.extra-action { height: 6; layout: grid; grid-size: 2; grid-rows: 3; }
@@ -137,6 +142,7 @@ class PreparationScreen(ModalScreen):
         choices = list(self.query("TaskChoices Checkbox").results(Checkbox))
         if choices:
             choices[0].focus(scroll_visible=False)
+        self.call_after_refresh(self.refresh_inference_dependencies)
 
     def close(self) -> None:
         """Close when active, preserving any screen currently covering us."""
@@ -169,11 +175,16 @@ class PreparationScreen(ModalScreen):
         download = review and report is not None
         task_selection = any(item.get("kind") == "multi" for item in request.get("questions", []))
         parameter_review = request.get("purpose") == "workload_parameters"
-        title = (message_id("models.parameters.title") if parameter_review else
+        inference_review = request.get("purpose") == "inference_configuration"
+        inference_confirmation = request.get("purpose") == "inference_confirmation"
+        title = (message_id("models.inference.title") if inference_review else
+                 message_id("models.inference.confirmation_title") if inference_confirmation else
+                 message_id("models.parameters.title") if parameter_review else
                  "模型确认" if review else "模型无法正常运行" if failed else "正在检测模型")
         if failed and (docker_error or request.get("failed_stage", self.event["stage"]) in {"image", "environment", "preflight"}):
             title = message_id("run.docker.preparation_failed")
         with Vertical(id="preparation-dialog", classes=(
+            "inference-configuration" if inference_review or inference_confirmation else
             "task-selection" if task_selection else "download-confirmation" if download else "preparation-failure" if failed else ""
         )):
             yield Label(tr("选择采集任务" if task_selection else "下载确认" if download else title), id="preparation-title")
@@ -189,17 +200,39 @@ class PreparationScreen(ModalScreen):
                         yield Static(tr("仅在准备阶段下载，正式测量离线。"), id="preparation-download-note", markup=False)
                     elif not task_selection:
                         fields = "\n".join(
-                            f"✓ {tr(name)}    {tr('未知') if value is None else value}" for name, value in values.items())
+                            f"{'' if inference_review or inference_confirmation else '✓ '}{tr(name)}    "
+                            f"{tr('未知') if value is None else value}" for name, value in values.items())
                         yield Static(fields, id="preparation-fields", markup=False)
-                    for index, question in enumerate(request.get("questions", [])):
-                        if question.get("kind") != "multi":
-                            name = (f"{tr(question['task_name'])} · {tr(question['caption'])}"
-                                    if parameter_review else tr(question["path"]))
-                            yield Label(name)
-                            if question.get("reason"):
-                                yield Static(tr(question["reason"]), markup=False)
-                        if not question.get("read_only"):
-                            yield review_input(question, identifier=f"preparation-answer-{index}", translate=tr)
+                    if inference_review:
+                        yield Static(tr(message_id("models.inference.auto_hint")), markup=False)
+                        if presets := request.get("presets"):
+                            labels = {
+                                "auto": message_id("models.inference.preset_auto"),
+                                "benchmark": message_id("models.inference.preset_benchmark"),
+                                "custom": message_id("models.inference.preset_custom"),
+                            }
+                            selected = request.get("selected_preset", "custom")
+                            if selected not in {item["id"] for item in presets}:
+                                selected = presets[0]["id"]
+                            yield Label(tr(message_id("models.inference.preset")))
+                            with Horizontal(id="inference-preset-row"):
+                                yield Select([(tr(labels.get(item["id"], item["label"])), item["id"])
+                                              for item in presets], value=selected, allow_blank=False,
+                                             id="inference-preset")
+                                yield Button(tr(message_id("models.inference.preset_apply")),
+                                             id="preparation-preset")
+                        yield from self.inference_questions(request.get("questions", []),
+                                                            prefix="preparation-answer", translate=tr)
+                    else:
+                        for index, question in enumerate(request.get("questions", [])):
+                            if question.get("kind") != "multi":
+                                name = (f"{tr(question['task_name'])} · {tr(question['caption'])}"
+                                        if parameter_review else tr(question["path"]))
+                                yield Label(name)
+                                if question.get("reason"):
+                                    yield Static(tr(question["reason"]), markup=False)
+                            if not question.get("read_only"):
+                                yield review_input(question, identifier=f"preparation-answer-{index}", translate=tr)
                     if task_selection and values:
                         yield FactGrid(task_context_view(values), id="preparation-fields", classes="task-context")
                     if parameter_review and request.get("parameter_advanced"):
@@ -210,6 +243,12 @@ class PreparationScreen(ModalScreen):
                                 if question.get("reason"):
                                     yield Static(tr(question["reason"]), markup=False)
                                 yield review_input(question, identifier=f"preparation-parameter-{index}", translate=tr)
+                    if inference_review and request.get("parameter_advanced"):
+                        with Collapsible(title=tr(message_id("models.inference.more")), collapsed=True):
+                            yield from self.inference_questions(request["parameter_advanced"],
+                                                                prefix="preparation-parameter", translate=tr)
+                    if inference_confirmation:
+                        yield Static(tr(message_id("models.inference.confirmation_hint")), markup=False)
                     if request.get("detail"):
                         yield Static(request["detail"], id="preparation-detail", markup=False)
                     summary = None if download else request.get("summary")
@@ -234,7 +273,8 @@ class PreparationScreen(ModalScreen):
                 and self.event["stage"] in {"image", "environment", "runtime"} else ""
             )):
                 cancel_label = (tr(message_id("common.action.cancel")) if task_selection else
-                                tr("返回配置" if failed or parameter_review else "终止任务"))
+                                tr("返回配置" if failed or parameter_review or inference_review
+                                   or inference_confirmation else "终止任务"))
                 yield Button(cancel_label, id="preparation-cancel",
                              tooltip=tr(message_id("run.preparation.stop_hint")) if failed else None)
                 if task_selection:
@@ -243,11 +283,15 @@ class PreparationScreen(ModalScreen):
                     if not ready:
                         if parameter_review:
                             yield Button(tr(message_id("models.parameters.use_recommended")), id="preparation-defaults")
-                        yield Button(tr(message_id("models.parameters.apply") if parameter_review else
+                        yield Button(tr(message_id("models.inference.apply") if inference_review else
+                                        message_id("models.parameters.apply") if parameter_review else
                                         message_id("models.tasks.run_selected") if task_selection else "应用字段"),
                                      id="preparation-apply", variant="primary")
-                    if not task_selection and not parameter_review:
-                        yield Button(tr("确认下载" if download else "确定"), id="preparation-continue",
+                    if inference_confirmation:
+                        yield Button(tr(message_id("models.inference.edit")), id="preparation-edit")
+                    if not task_selection and not parameter_review and not inference_review:
+                        yield Button(tr(message_id("models.inference.confirm") if inference_confirmation else
+                                        "确认下载" if download else "确定"), id="preparation-continue",
                                      disabled=not ready, variant="primary" if ready else "default")
                 elif failed:
                     retry_label = ("run.docker.frontend_retry" if docker_error and docker_error.get("reason_code") == "docker_frontend_failed"
@@ -264,6 +308,63 @@ class PreparationScreen(ModalScreen):
                     if download_failure(request):
                         yield Button(tr("改用 ModelScope"), id="preparation-modelscope",
                                      tooltip=tr(message_id("models.source.switch_modelscope_hint")))
+
+    def inference_questions(self, questions: list[dict], *, prefix: str, translate):
+        import json
+
+        previous_group = None
+        for index, question in enumerate(questions):
+            scope = question.get("scope", question.get("parameter_spec", {}).get("scope", "inference"))
+            group = (scope, question.get("device"), question.get("task_id"))
+            if group != previous_group:
+                title = translate({
+                    "backend": message_id("models.inference.scope_backend"),
+                    "inference": message_id("models.inference.scope_inference"),
+                    "loading": message_id("models.inference.scope_loading"),
+                    "measurement": message_id("models.inference.scope_measurement"),
+                    "model": message_id("models.inference.scope_model"),
+                    "workload": message_id("models.inference.scope_workload"),
+                }.get(scope, message_id("models.inference.scope_inference")))
+                suffix = question.get("device") or question.get("task_id")
+                yield Label(f"{title} · {suffix}" if suffix else title, classes="section-title")
+                previous_group = group
+            spec = question.get("parameter_spec", {})
+            yield Label(translate(question.get("caption") or spec.get("label") or question["path"]))
+            for key in ("reason", "source", "auto_reason", "validation"):
+                if key == "auto_reason" and question.get("request", {}).get("mode") != "auto":
+                    continue
+                value = question.get(key)
+                if value:
+                    yield Static(translate(value) if isinstance(value, str) else
+                                 json.dumps(value, ensure_ascii=False, sort_keys=True), markup=False)
+            if question.get("read_only") or spec.get("read_only"):
+                yield Static(json.dumps(question.get("resolved_value", question.get("value")),
+                                        ensure_ascii=False, sort_keys=True), markup=False)
+            else:
+                yield review_input(question, identifier=f"{prefix}-{index}", translate=translate)
+
+    @on(Select.Changed)
+    @on(Input.Changed)
+    def inference_value_changed(self) -> None:
+        self.refresh_inference_dependencies()
+
+    def refresh_inference_dependencies(self) -> None:
+        if self.is_mounted and self.event.get("request", {}).get("purpose") == "inference_configuration":
+            update_parameter_dependencies(list(self.query(ParameterRequestInput)))
+
+    @on(Button.Pressed, "#preparation-preset")
+    def apply_inference_preset(self) -> None:
+        request = self.event.get("request", {})
+        if request.get("purpose") != "inference_configuration":
+            return
+        selected = self.query_one("#inference-preset", Select).value
+        if selected in {item["id"] for item in request.get("presets", [])}:
+            self.send({"action": "answer", "answers": {"$preset": selected}})
+
+    @on(Button.Pressed, "#preparation-edit")
+    def edit_configuration(self) -> None:
+        if self.event.get("request", {}).get("purpose") == "inference_confirmation":
+            self.send({"action": "edit"})
 
     @on(SelectableLog.Updated)
     def details_updated(self, event: SelectableLog.Updated) -> None:
@@ -294,7 +395,11 @@ class PreparationScreen(ModalScreen):
         request = self.event.get("request", {})
         if request.get("kind") == "review" and not request.get("resolved"):
             return
-        self.send({"action": "confirm" if request.get("kind") == "review" else "retry"})
+        reply = {"action": "confirm" if request.get("kind") == "review" else "retry"}
+        if request.get("purpose") == "inference_confirmation":
+            reply["confirmation_digest"] = request["confirmation_digest"]
+            encode_reply(request["id"], **reply)
+        self.send(reply)
 
     @on(Button.Pressed, "#preparation-defaults")
     def use_default_parameters(self):
@@ -311,7 +416,7 @@ class PreparationScreen(ModalScreen):
         try:
             request = self.event["request"]
             answers = review_answers(self, request.get("questions", []), prefix="preparation-answer")
-            if request.get("purpose") == "workload_parameters":
+            if request.get("purpose") in {"workload_parameters", "inference_configuration"}:
                 answers.update(review_answers(
                     self, request.get("parameter_advanced", []), prefix="preparation-parameter",
                 ))
@@ -326,7 +431,7 @@ class PreparationScreen(ModalScreen):
     @on(Button.Pressed, "#preparation-cancel")
     def action_cancel(self):
         request = self.event.get("request", {})
-        if (request.get("purpose") == "workload_parameters"
+        if (request.get("purpose") in {"workload_parameters", "inference_configuration", "inference_confirmation"}
                 or any(item.get("kind") == "multi" for item in request.get("questions", []))):
             self.send({"action": "cancel"})
             return

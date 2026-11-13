@@ -9,7 +9,12 @@ from pathlib import Path
 from acprof.extensions import CATALOG
 from acprof.failures import Failure, RuntimeFailure
 from acprof.precision import remote_code_allowed, resolve_precision
-from acprof.runtime.profiles import DEFAULT_PROFILES, PROFILES, locked_transformers_version
+from acprof.runtime.profiles import (
+    DEFAULT_PROFILES,
+    PROFILES,
+    locked_transformers_version,
+    profile_route_error,
+)
 
 # The environment image installs this exact lock; it does not ship project dockerfiles/.
 CONTAINER_REQUIREMENTS_LOCK = Path("/opt/acprof/requirements.lock")
@@ -20,11 +25,9 @@ def registered_policy(task, backend, device, load_options=None, *, adapter: str 
     extension = CATALOG.get_extension(family, backend, adapter, task)
     profile_id = os.getenv("ACPROF_RUNTIME_PROFILE") or extension.profile or DEFAULT_PROFILES[(family, "cpu" if device == "cpu" else "cu128")]
     profile = PROFILES[profile_id]
-    if profile.family != family or profile.adapter != adapter:
-        raise ValueError(
-            f"runtime profile {profile_id} does not match {family}/{adapter}; "
-            f"profile declares {profile.family}/{profile.adapter}; use a matching runtime profile/artifact"
-        )
+    route_error = profile_route_error(profile, family=family, task=task, backend=backend, adapter=adapter)
+    if route_error:
+        raise RuntimeFailure(Failure("load", "runtime_task_unsupported", route_error, device, profile_id, "after_configuration"))
     options = dict(load_options or {})
     trust = remote_code_allowed(profile, extension)
     requested_trust = options.get("trust_remote_code", trust)
@@ -40,6 +43,13 @@ def load_policy(model_source, task, backend, device, load_options=None, *, adapt
     import torch
     config_file = Path(model_source) / "config.json"
     config = json.loads(config_file.read_text()) if config_file.is_file() else {}
+    route_error = profile_route_error(
+        profile, family=extension.family, task=task, backend=backend, adapter=adapter,
+        model_type=config.get("model_type"),
+    )
+    if route_error:
+        raise RuntimeFailure(Failure("load", "runtime_task_unsupported", route_error,
+                                     device, profile.profile_id, "after_configuration"))
     options = dict(load_options or {})
     version = ""
     if backend in {"transformers_model", "transformers_pipeline", "sentence_transformers", "cross_encoder"}:

@@ -23,7 +23,12 @@ def activate_task(task, selected: dict, *, backend: str = ""):
 
     result = copy.deepcopy(task)
     result.selected_tasks = [copy.deepcopy(selected)]
-    result.runtime_profile_id = ""
+    frozen = getattr(result, "inference_configuration", {})
+    if frozen:
+        if backend and backend != frozen["backend"]["id"]:
+            raise ValueError("task backend conflicts with the frozen inference configuration")
+    else:
+        result.runtime_profile_id = ""
     if result.pipeline_tag != selected["interface"] or backend and backend != result.runtime_backend:
         result.model_resolution = apply_model_candidate(result, discover_model_candidates(
             result, override_tag=selected["interface"], override_backend=backend or None))
@@ -41,6 +46,11 @@ def activate_task(task, selected: dict, *, backend: str = ""):
         result.model_resolution["execution"] = copy.deepcopy(selected["execution_path"])
     result.model_resolution["selected_task"] = copy.deepcopy(selected)
     result.model_resolution["task_discovery"] = copy.deepcopy(task.task_discovery)
+    if frozen:
+        from acprof.models.inference_configuration import validate_configuration_binding
+
+        result.runtime_profile_id = frozen["backend"]["runtime_profile"]
+        validate_configuration_binding(frozen, result, allow_task_subset=True)
     return result
 
 

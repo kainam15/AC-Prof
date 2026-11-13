@@ -11,6 +11,7 @@ from typing import Any
 
 from acprof.config import DEFAULT_REQUEST_TIMEOUT_SECONDS, READY_TIMEOUT_S
 from acprof.gpu_mode import normalize_gpu_mode
+from acprof.host.configuration_transport import inference_environment, verify_runtime_configuration
 from acprof.host.runtimes.contracts import ProcessInfo, RuntimeCleanupError
 from acprof.host.runtimes.process_control import ManagedProcess
 from acprof.system.cleanup import cleanup_on_exit, format_exception_notes
@@ -19,6 +20,7 @@ from acprof.system.exceptions import exception_chain
 
 def service_environment(task, info: ProcessInfo, *, gpu="off", timeout=300) -> dict[str, str]:
     gpu = normalize_gpu_mode(gpu)
+    configuration_env = inference_environment(task)
     from acprof.models.spec import encode_model_spec, task_model_spec
     from acprof.runtime.settings import runtime_environment
     # Transport credentials and unrelated host Python paths are not inherited.
@@ -38,7 +40,7 @@ def service_environment(task, info: ProcessInfo, *, gpu="off", timeout=300) -> d
         "USE_GPU": "1" if gpu == "on" else "0", "ACPROF_MODEL_ADAPTER": task.model_adapter,
         "ACPROF_RUNTIME_PROFILE": task.runtime_profile_id,
         "ACPROF_MODEL_SPEC_B64": encode_model_spec(task_model_spec(task)),
-        "ACPROF_REQUEST_TIMEOUT_S": str(timeout), **runtime_environment()})
+        "ACPROF_REQUEST_TIMEOUT_S": str(timeout), **runtime_environment(), **configuration_env})
     if gpu == "off":
         env["CUDA_VISIBLE_DEVICES"] = ""
     elif info.runtime_environment.get('gpu_device', {}).get('cuda_visible_devices') is not None:
@@ -141,6 +143,7 @@ class ProcessRuntime:
                         except (requests.RequestException, ValueError):
                             body = {}
                         if body.get("service_token") == token and body.get("status") == "ok":
+                            verify_runtime_configuration(task_info, body, expected_device=gpu)
                             session.startup = {"process_startup_s": time.monotonic() - started,
                                                "server": body.get("startup_timing", {})}
                             limits.verify(process.pid)

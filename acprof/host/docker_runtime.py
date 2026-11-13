@@ -21,6 +21,10 @@ from acprof.config import (
 )
 from acprof.gpu_mode import normalize_gpu_mode
 from acprof.host import container_state
+from acprof.host.configuration_transport import (
+    inference_docker_env_args,
+    verify_runtime_configuration,
+)
 from acprof.host.container_lifecycle import (
     ContainerCleanupError,
     container_owner_labels,
@@ -178,6 +182,7 @@ def start_container_session(
     import requests
 
     gpu = normalize_gpu_mode(gpu)
+    configuration_env = inference_docker_env_args(task_info)
     if request_timeout_seconds is not None:
         request_timeout_seconds = float(request_timeout_seconds)
         if not math.isfinite(request_timeout_seconds) or request_timeout_seconds <= 0:
@@ -224,6 +229,7 @@ def start_container_session(
             *model_store_mount.args,
             "-e", f"ACPROF_REQUEST_TIMEOUT_S={completion_timeout}",
             *runtime_docker_env_args(),
+            *configuration_env,
             "-p", f"127.0.0.1:{host_port}:{SERVER_PORT}",
             image_info.tag,
         ]
@@ -281,6 +287,7 @@ def start_container_session(
                     body = None
 
                 if isinstance(body, dict) and body.get("status") == "ok":
+                    verify_runtime_configuration(task_info, body, expected_device=gpu)
                     cold_start_s = time.perf_counter() - t0
                     breakdown = _cold_start_breakdown(
                         body,
@@ -304,6 +311,7 @@ def start_container_session(
                     )
 
                 if response.text.strip() == "ok":
+                    verify_runtime_configuration(task_info, {}, expected_device=gpu)
                     cold_start_s = time.perf_counter() - t0
                     breakdown = _cold_start_breakdown(
                         None,

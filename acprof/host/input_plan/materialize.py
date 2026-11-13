@@ -8,6 +8,7 @@ from typing import Any, TextIO
 
 from acprof.artifacts import MAX_JSON_ARTIFACT_BYTES, atomic_write
 from acprof.extensions import CATALOG
+from acprof.host.configuration_transport import bound_inference_configuration
 from acprof.host.detect import TaskInfo
 from acprof.host.input_plan.scales import format_scale_value
 from acprof.host.input_plan.types import PlannedInputScales
@@ -27,6 +28,7 @@ def write_scale_plan_file(
     workload: dict[str, Any] | None = None,
     model_constraints: dict[str, Any] | None = None,
 ) -> str:
+    frozen = bound_inference_configuration(task_info)
     payload = {
         "schema_version": 2,
         "model_id": task_info.model_id,
@@ -39,6 +41,8 @@ def write_scale_plan_file(
         "scenario": {"type": "serial"},
         "entries": entries,
     }
+    if frozen:
+        payload["inference_configuration_sha256"] = frozen["identity_sha256"]
     digest = hashlib.sha256()
 
     def write(stream: TextIO) -> None:

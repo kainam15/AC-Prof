@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import re
 from collections.abc import Iterator
 from contextlib import contextmanager
 
@@ -70,6 +71,12 @@ def parse_event(line: str) -> dict | None:
         if request["kind"] == "review" and (not isinstance(request.get("questions"), list)
                                             or not request["questions"] and request.get("resolved") is not True):
             raise ValueError("review requires unresolved fields")
+        if request.get("purpose") == "inference_confirmation" and (
+            request.get("kind") != "review" or request.get("questions") != []
+            or request.get("resolved") is not True
+            or not _confirmation_digest(request.get("confirmation_digest"))
+        ):
+            raise ValueError("inference confirmation requires an exact configuration digest")
     if "input_plan" in value:
         validate_input_plan(value["input_plan"])
     if "image_progress" in value:
@@ -89,10 +96,19 @@ def validate_input_plan(value: dict) -> None:
         raise ValueError("invalid preparation input plan")
 
 
-def encode_reply(request_id: int, action: str, *, answers: dict | None = None) -> str:
+def _confirmation_digest(value: object) -> bool:
+    return isinstance(value, str) and re.fullmatch(r"[0-9a-f]{64}", value) is not None
+
+
+def encode_reply(request_id: int, action: str, *, answers: dict | None = None,
+                 confirmation_digest: str | None = None) -> str:
     value: dict[str, object] = {"id": request_id, "action": action}
     if answers is not None:
         value["answers"] = answers
+    if confirmation_digest is not None:
+        if action != "confirm" or not _confirmation_digest(confirmation_digest):
+            raise ValueError("invalid inference confirmation digest")
+        value["confirmation_digest"] = confirmation_digest
     line = json.dumps(value, ensure_ascii=True, allow_nan=False) + "\n"
     if len(line) > MAX_MESSAGE:
         raise ValueError("preparation reply exceeds size limit")

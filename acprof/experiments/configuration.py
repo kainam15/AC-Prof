@@ -110,7 +110,8 @@ class RunConfig(RunOptions):
     def experiment_parameters(self) -> tuple[tuple[str, object], ...]:
         """Preset identity excludes transport, storage and execution controls."""
         execution = {"model", "output_dir", "download_mode", "max_download", "model_store",
-                     "model_store_max", "notify", "rebuild_image", "resume", "idle_debug", "sniff_iface"}
+                     "model_store_max", "notify", "rebuild_image", "resume", "idle_debug", "sniff_iface",
+                     "inference_config", "confirm_inference"}
         return tuple((item.name, getattr(self, item.name)) for item in fields(self)
                      if item.name not in execution)
 
@@ -344,6 +345,21 @@ class RunConfig(RunOptions):
             except (OSError, ValueError) as exc:
                 errors.append(ConfigIssue("model_spec", message('模型接口声明无效：{0}；{1}', model_spec, str(exc))))
 
+        inference_config = self.inference_config.strip()
+        if inference_config and project_dir is not None:
+            inference_path = Path(inference_config).expanduser()
+            if not inference_path.is_absolute():
+                inference_path = project_dir / inference_path
+            if not inference_path.is_file():
+                errors.append(ConfigIssue("inference_config", message(
+                    "推理请求 JSON 不存在：{0}", inference_config,
+                )))
+        confirm_inference = self.confirm_inference.strip()
+        if confirm_inference and re.fullmatch(r"[0-9a-f]{64}", confirm_inference) is None:
+            errors.append(ConfigIssue("confirm_inference", message(
+                "推理确认必须为审阅时显示的完整小写 SHA-256",
+            )))
+
         if errors:
             raise RunConfigError(errors)
 
@@ -361,6 +377,8 @@ class RunConfig(RunOptions):
             input_scales=",".join(csv_values(self.input_scales)),
             workload_spec=workload_spec,
             model_spec=model_spec,
+            inference_config=inference_config,
+            confirm_inference=confirm_inference,
             output_dir=self.output_dir.strip(),
             batch_size=int(numbers["batch_size"]),
             warmup=int(numbers["warmup"]),

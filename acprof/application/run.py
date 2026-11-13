@@ -1,6 +1,7 @@
 """Collect one experiment using instance-owned lifecycle and injected boundaries."""
 from __future__ import annotations
 
+import copy
 import os
 import sys
 import time
@@ -54,6 +55,61 @@ def configure_environment(options) -> None:
     from acprof.application.download import apply_download_arguments
     apply_download_arguments(options)
     bootstrap_project_env(Path.cwd())
+
+
+
+def inference_workload(args, cpu_list, mem_list, gpu_list) -> dict:
+    """Describe requested workload and measurement axes before collection."""
+    from acprof.artifacts import read_json_object
+    from acprof.models.evidence import content_digest
+
+    specification = getattr(args, "workload_spec", "")
+    return {
+        "batch_size": args.batch_size, "input_scales": args.input_scales,
+        "input_scale_policy": args.input_scale_policy,
+        "specification_sha256": content_digest(read_json_object(
+            Path(specification).expanduser(), label="workload specification",
+        )) if specification else None,
+        "resources": {
+            "cpus": list(cpu_list), "mems": list(mem_list), "gpus": list(gpu_list),
+            "runtime": args.runtime, "cpuset_cpus": args.cpuset_cpus, "gpu_device": args.gpu_device,
+        },
+        "measurement": {name: getattr(args, name, None) for name in (
+            "profiling_mode", "warmup", "repeat", "repeat_in_window", "repeat_window_seconds",
+            "request_timeout_seconds", "sample_hz", "sampling_policy", "raw_sample_limit",
+            "idle_seconds", "idle_cooldown_seconds", "compute_profile_tool", "execution_profile_tool",
+            "matrix_order", "matrix_seed", "sniff_iface", "dram_energy",
+        )},
+    }
+
+
+def _validate_frozen_execution(task, args, workload: dict, *, task_child: bool) -> None:
+    from acprof.host.preparation.inference_configuration import validate_resume_inference_requests
+    from acprof.models.inference_configuration import validate_configuration_binding
+
+    frozen = task.inference_configuration
+    validate_resume_inference_requests(frozen, args)
+    validate_configuration_binding(frozen, task, allow_task_subset=True)
+    if set(frozen["loading"]) != set(workload["resources"]["gpus"]):
+        raise ValueError("requested devices differ from the frozen inference configuration")
+    expected = copy.deepcopy(frozen["workload"])
+    actual = copy.deepcopy(workload)
+    if task_child:
+        if len(task.selected_tasks) != 1:
+            raise ValueError("frozen task execution must select exactly one task")
+        overrides = task.selected_tasks[0]["config"].get("user_experiment_overrides", {})
+        for name in ("batch_size", "input_scales"):
+            if name in overrides:
+                expected[name] = overrides[name]
+        if task.task_family == "nlp":
+            # TaskCollection derives this manifest after checking its source.
+            actual["specification_sha256"] = expected.get("specification_sha256")
+    if actual != expected:
+        raise ValueError("workload, resource or measurement options differ from the frozen configuration")
+    for name, actual_value in (("backend", task.runtime_backend), ("runtime_profile", task.runtime_profile_id)):
+        requested = getattr(args, name, "")
+        if requested and requested != actual_value:
+            raise ValueError(f"frozen configuration conflicts with explicit --{name.replace('_', '-')}")
 
 
 class RunApplication:
@@ -124,6 +180,9 @@ class RunApplication:
         terminal_log, self.terminal_log = self.terminal_log, None
         state, self.run_state = self.run_state, None
         finalized_log_path = None
+        if status == "review_required" and state is None and terminal_log is None:
+            self.notifications.reset()
+            return
 
         def close_state() -> None:
             if state is not None:
@@ -277,6 +336,52 @@ class RunApplication:
                                 execution_tool=args.execution_profile_tool, dram_energy=args.dram_energy)
         return args, latency_slo_rules, dram_enabled
 
+    def _prepare_inference_configuration(self, task, args, workflow, *, axes, task_child=False,
+                                         historical_resume=False):
+        from acprof.host.images.runtime import configure_runtime_profile
+        from acprof.host.preparation.inference_configuration import (
+            prepare_inference_configuration,
+            read_inference_requests,
+        )
+
+        workload = inference_workload(args, *axes)
+        if task.inference_configuration:
+            _validate_frozen_execution(task, args, workload, task_child=task_child)
+            return task
+        if historical_resume:
+            if getattr(args, "inference_config", "") or getattr(args, "confirm_inference", ""):
+                raise ValueError("historical experiments without frozen inference configuration cannot accept new inference requests")
+            return task
+        if getattr(args, "inference_config", ""):
+            from acprof.extensions.parameters import ParameterRequest
+
+            supplied = read_inference_requests(args.inference_config)
+            for name in ("backend", "runtime_profile"):
+                if name not in supplied:
+                    continue
+                try:
+                    value = ParameterRequest.from_dict(supplied[name])
+                except ValueError as exc:
+                    raise ValueError(f"inference_config.{name}: {exc}") from exc
+                requested = getattr(args, name, "")
+                if requested and value.mode == "explicit" and value.value != requested:
+                    raise ValueError(f"inference request conflicts with explicit --{name.replace('_', '-')}")
+        task.model_resolution["requested_devices"] = list(axes[2])
+        explicit_profile = getattr(args, "runtime_profile", "")
+        if explicit_profile:
+            task.runtime_profile_id = explicit_profile
+        profile = configure_runtime_profile(task)
+        if explicit_profile and profile.profile_id != explicit_profile:
+            raise ValueError("runtime platform conflicts with explicit --runtime-profile")
+        if getattr(args, "backend", "") and task.runtime_backend != args.backend:
+            raise ValueError("resolved backend conflicts with explicit --backend")
+        updated = prepare_inference_configuration(
+            task, args, workflow, devices=list(axes[2]), workload=workload,
+        )
+        _validate_frozen_execution(updated, args, workload, task_child=False)
+        configure_runtime_profile(updated)  # The confirmed route must keep its platform.
+        return updated
+
     @gpu_device_scope()
     def _execute(self, config: RunConfig, *, prepared_task=None,
                  preparation_artifacts=None, command: str, task_child: bool = False) -> RunOutcome:
@@ -304,6 +409,17 @@ class RunApplication:
         collection = None
         if requested_args.resume and not saved_run and not task_child:
             from acprof.application.task_runs import TaskCollection
+            from acprof.host.detect import TaskInfo
+            from acprof.host.preparation.inference_configuration import (
+                validate_resume_inference_requests,
+            )
+            from acprof.models.inference_configuration import validate_configuration_binding
+
+            _path, manifest = TaskCollection.read_manifest(config)
+            restored_task = TaskInfo(**manifest["task_snapshot"])
+            if restored_task.inference_configuration:
+                validate_resume_inference_requests(restored_task.inference_configuration, requested_args)
+                validate_configuration_binding(restored_task.inference_configuration, restored_task)
             collection = TaskCollection.restore(config)
             prepared_task = collection.task
         args = resolve_runtime_options(
@@ -319,9 +435,34 @@ class RunApplication:
             if not isinstance(task_snapshot, dict):
                 raise ValueError("frozen task snapshot must be an object")
             initial_task = TaskInfo(**task_snapshot)
+            if initial_task.inference_configuration:
+                from acprof.host.preparation.inference_configuration import (
+                    validate_resume_inference_requests,
+                )
+                from acprof.models.inference_configuration import validate_configuration_binding
+
+                validate_resume_inference_requests(initial_task.inference_configuration, requested_args)
+                validate_configuration_binding(initial_task.inference_configuration, initial_task, allow_task_subset=True)
         else:
             initial_task = prepared_task
         task_info = workflow.resolve(args, initial=initial_task)
+
+        cpu_list, mem_list, gpu_list = resource_matrix(args)
+        from acprof.host.preparation.inference_configuration import (
+            InferenceConfigurationReviewRequired,
+        )
+
+        try:
+            task_info = self._prepare_inference_configuration(
+                task_info, args, workflow, axes=(cpu_list, mem_list, gpu_list),
+                task_child=task_child or bool(saved_run and args.task_run_id),
+                historical_resume=bool(saved_run or collection),
+            )
+        except InferenceConfigurationReviewRequired as review:
+            return RunOutcome("review_required", inference_configuration_review={
+                "identity_sha256": review.identity_sha256,
+                "candidate_path": str(review.candidate_path), "requests_path": str(review.requests_path),
+            })
 
         if task_info.selected_tasks and not task_child and not (saved_run and args.task_run_id):
             from acprof.application.task_runs import TaskCollection
@@ -390,7 +531,6 @@ class RunApplication:
 
         from acprof.host.input_plan import serialize_input_scales
 
-        cpu_list, mem_list, gpu_list = resource_matrix(args)
         prepared = None
         with run_state.preparation_evidence().capture(workflow):
             while prepared is None:

@@ -14,6 +14,10 @@ from acprof.artifacts import atomic_write, read_input_scale_plan
 
 if TYPE_CHECKING:
     from acprof.host.detect import TaskInfo
+from acprof.host.configuration_transport import (
+    bound_inference_configuration,
+    inference_docker_env_args,
+)
 from acprof.host.env_utils import hf_offline_docker_env_args
 from acprof.host.gpu_device import gpu_docker_args
 from acprof.host.runtimes.contracts import RuntimeCleanupError
@@ -120,6 +124,26 @@ def _profiler_mount_scope(mount: Any) -> Iterator[None]:
             raise
 
 
+def profiler_inference_configuration(task_info: TaskInfo, *, use_gpu: bool, profile_mode: str = "") -> dict:
+    """Identify intentional profiler loading differences independently of collection."""
+    from acprof.models.inference_configuration import derive_inference_configuration
+
+    frozen = bound_inference_configuration(task_info)
+    if frozen and profile_mode in {"torch_cpu", "torch_gpu", "torch_eager_cpu", "torch_eager_gpu"}:
+        device = "on" if use_gpu else "off"
+        if "attention_implementation" not in frozen["loading"].get(device, {}):
+            raise ValueError(
+                f"{profile_mode} requires a declared attention_implementation in frozen loading.{device}; "
+                f"backend {task_info.runtime_backend!r} has no verified eager profiler configuration"
+            )
+        return derive_inference_configuration(
+            frozen, loading_overrides={device: {"attention_implementation": "eager"}},
+            reason="Eager attention exposes logical operator FLOPs to the independent Torch profiler",
+            tool="torch_profiler_eager",
+        )
+    return frozen
+
+
 @contextmanager
 def profiler_container_command(
     *,
@@ -132,12 +156,15 @@ def profiler_container_command(
     profile_root: str,
     tool_mount_roots: Sequence[str],
     requires_gpu_counters: bool = False,
+    profile_mode: str = "",
 ) -> Iterator[list[str]]:
     from acprof.host.model_store.store import acquire_mount
     from acprof.installation import resource_root
 
     if requires_gpu_counters and not use_gpu:
         raise ValueError("GPU counter access requires a GPU profiler")
+    configuration = profiler_inference_configuration(task_info, use_gpu=use_gpu, profile_mode=profile_mode)
+    configuration_env = inference_docker_env_args(task_info, configuration=configuration)
     uid, gid = os.getuid(), os.getgid()
     if requires_gpu_counters:
         directory = os.stat(profile_root)
@@ -179,6 +206,7 @@ def profiler_container_command(
         # Profiler slowdown had no request deadline; an explicit setting may override it.
         "-e", "ACPROF_REQUEST_TIMEOUT_S=none",
         *runtime_docker_env_args(),
+        *configuration_env,
     ]
     if not task_info.runtime_profile_id and os.path.isdir(package_root):
         cmd.extend(["-v", f"{package_root}:/app/acprof:ro"])

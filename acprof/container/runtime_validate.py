@@ -16,6 +16,13 @@ STAGE_PREFIX = "ACPROF_RUNTIME_STAGE="
 
 def validate(payload: dict, *, stages: list[dict] | None = None) -> dict:
     from acprof.container.execution import complete_prediction
+    from acprof.container.inference_configuration import (
+        capture_generation_consumption,
+        configuration_metadata,
+        validate_inference_payload,
+        verify_generation_consumption,
+        verify_model_session_configuration,
+    )
     from acprof.container.model_session import (
         ModelLoadConfig,
         load_model_session,
@@ -66,10 +73,21 @@ def validate(payload: dict, *, stages: list[dict] | None = None) -> dict:
 
     session = check("load", load)
     handler, context = session.handler, session.context
+    strict = bool(getattr(config, "inference_configuration", {}))
+    if strict:
+        check("configuration", lambda: verify_model_session_configuration(session))
+        check("configuration_input", lambda: validate_inference_payload(session, payload))
     processed = check("preprocess", lambda: handler.preprocess(context, payload))
+
+    def predict():
+        with capture_generation_consumption(session) as receipt:
+            output = handler.predict(context, processed)
+        return output, receipt
+
     with execution.inference_context():
-        output = check("predict", lambda: handler.predict(context, processed))
+        output, receipt = check("predict", predict)
         output = check("completion", lambda: complete_prediction(execution, context, output))
+    consumer_receipt = check("configuration_consumption", lambda: verify_generation_consumption(session, receipt)) if strict else {}
     response = check("postprocess", lambda: handler.postprocess(context, output))
 
     def validate_output():
@@ -84,6 +102,8 @@ def validate(payload: dict, *, stages: list[dict] | None = None) -> dict:
     from acprof.container.load_policy import actual_dtype
     return {
         "status": "ok", "mode": "full", "device": device, "stages": stages,
+        **configuration_metadata(session),
+        **({"consumer_receipt": consumer_receipt} if strict else {}),
         "dtype": actual_dtype(context),
         "quality_checks": context.get("quality_checks", []),
         "attention_implementation": context.get("attention_implementation", "model_default"),

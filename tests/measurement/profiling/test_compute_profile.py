@@ -65,15 +65,14 @@ class TestComputeProfile:
         selection.start()
         self._request.addfinalizer(partial(selection.stop))
 
-    def test_transformers_handler_forces_eager_only_when_requested(self) -> None:
-        assert (transformers_pipeline_load_kwargs(None)) == ({})
-        assert (transformers_pipeline_load_kwargs({
-                "attention_implementation": "eager",
-            })) == ({"model_kwargs": {"attn_implementation": "eager"}})
-        with pytest.raises(ValueError, match="must be 'eager'"):
-            transformers_pipeline_load_kwargs({
-                "attention_implementation": "sdpa",
-            })
+    def test_transformers_handler_passes_registered_attention_without_replacement(self) -> None:
+        assert transformers_pipeline_load_kwargs(None) == {}
+        for attention in ("eager", "sdpa"):
+            assert transformers_pipeline_load_kwargs({
+                "attention_implementation": attention,
+            }) == {"model_kwargs": {"attn_implementation": attention}}
+        with pytest.raises(ValueError, match="must be 'eager' or 'sdpa'"):
+            transformers_pipeline_load_kwargs({"attention_implementation": "flash_attention_2"})
 
     def test_input_scale_plan_is_required(self) -> None:
         with pytest.raises(ValueError, match="input_scale_plan_file is required"):

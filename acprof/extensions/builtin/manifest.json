@@ -111,6 +111,69 @@
       },
       "parameters": [
         {
+          "name": "dtype",
+          "kind": "enum",
+          "scope": "loading",
+          "label": "Dtype",
+          "choices": [
+            "FP32",
+            "FP16"
+          ],
+          "consumers": [
+            {
+              "stage": "load",
+              "argument": "options.dtype"
+            }
+          ],
+          "tasks": [
+            "text-generation",
+            "text2text-generation",
+            "summarization",
+            "translation",
+            "conversational"
+          ],
+          "backends": [
+            "transformers_model",
+            "transformers_pipeline"
+          ],
+          "variation": [
+            "device"
+          ]
+        },
+        {
+          "name": "attention_implementation",
+          "kind": "enum",
+          "scope": "loading",
+          "label": "Attention",
+          "choices": [
+            "eager",
+            "sdpa"
+          ],
+          "consumers": [
+            {
+              "stage": "load",
+              "argument": "options.attention_implementation"
+            }
+          ],
+          "tasks": [
+            "text-generation",
+            "text2text-generation",
+            "summarization",
+            "translation",
+            "conversational"
+          ],
+          "backends": [
+            "transformers_model",
+            "transformers_pipeline"
+          ],
+          "variation": [
+            "device"
+          ],
+          "default": {
+            "value": "eager"
+          }
+        },
+        {
           "name": "max_new_tokens",
           "kind": "integer",
           "label": "输出 Token 上限",
@@ -3635,7 +3698,9 @@
       "model_types": [],
       "backends": [
         "transformers_model",
-        "transformers_pipeline"
+        "transformers_pipeline",
+        "sentence_transformers",
+        "cross_encoder"
       ],
       "runtime_line": "default"
     },
@@ -3649,7 +3714,9 @@
       "model_types": [],
       "backends": [
         "transformers_model",
-        "transformers_pipeline"
+        "transformers_pipeline",
+        "sentence_transformers",
+        "cross_encoder"
       ],
       "runtime_line": "default"
     },
@@ -3663,7 +3730,9 @@
       "model_types": [],
       "backends": [
         "transformers_model",
-        "transformers_pipeline"
+        "transformers_pipeline",
+        "sentence_transformers",
+        "cross_encoder"
       ],
       "runtime_line": "default"
     },
@@ -3719,7 +3788,8 @@
       "model_types": [],
       "backends": [
         "transformers_model",
-        "transformers_pipeline"
+        "transformers_pipeline",
+        "torchscript"
       ],
       "runtime_line": "default"
     },
@@ -3733,7 +3803,8 @@
       "model_types": [],
       "backends": [
         "transformers_model",
-        "transformers_pipeline"
+        "transformers_pipeline",
+        "torchscript"
       ],
       "runtime_line": "default"
     },
@@ -3747,7 +3818,8 @@
       "model_types": [],
       "backends": [
         "transformers_model",
-        "transformers_pipeline"
+        "transformers_pipeline",
+        "torchscript"
       ],
       "runtime_line": "default"
     },
@@ -3760,8 +3832,7 @@
       "task_types": [],
       "model_types": [],
       "backends": [
-        "transformers_model",
-        "transformers_pipeline"
+        "diffusers"
       ],
       "runtime_line": "default"
     },
@@ -3774,8 +3845,7 @@
       "task_types": [],
       "model_types": [],
       "backends": [
-        "transformers_model",
-        "transformers_pipeline"
+        "diffusers"
       ],
       "runtime_line": "default"
     },
@@ -3788,8 +3858,7 @@
       "task_types": [],
       "model_types": [],
       "backends": [
-        "transformers_model",
-        "transformers_pipeline"
+        "diffusers"
       ],
       "runtime_line": "default"
     },
@@ -3802,8 +3871,8 @@
       "task_types": [],
       "model_types": [],
       "backends": [
-        "transformers_model",
-        "transformers_pipeline"
+        "torchscript",
+        "skops"
       ],
       "runtime_line": "default"
     },
@@ -3816,8 +3885,8 @@
       "task_types": [],
       "model_types": [],
       "backends": [
-        "transformers_model",
-        "transformers_pipeline"
+        "torchscript",
+        "skops"
       ],
       "runtime_line": "default"
     },
@@ -3830,8 +3899,8 @@
       "task_types": [],
       "model_types": [],
       "backends": [
-        "transformers_model",
-        "transformers_pipeline"
+        "torchscript",
+        "skops"
       ],
       "runtime_line": "default"
     },
@@ -3844,7 +3913,7 @@
       "task_types": [],
       "model_types": [],
       "backends": [
-        "transformers_model",
+        "chronos",
         "transformers_pipeline"
       ],
       "runtime_line": "default"
@@ -3858,7 +3927,7 @@
       "task_types": [],
       "model_types": [],
       "backends": [
-        "transformers_model",
+        "chronos",
         "transformers_pipeline"
       ],
       "runtime_line": "default"
@@ -3872,7 +3941,7 @@
       "task_types": [],
       "model_types": [],
       "backends": [
-        "transformers_model",
+        "chronos",
         "transformers_pipeline"
       ],
       "runtime_line": "default"

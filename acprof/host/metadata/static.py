@@ -1,6 +1,7 @@
 """主机、模型与 profiler 计划的静态元数据。"""
 from __future__ import annotations
 
+import copy
 import math
 import os
 from dataclasses import dataclass, field, replace
@@ -102,6 +103,7 @@ class StaticMeta:
     model_metadata_source: str | None = None
     model_source: str = "huggingface"
     model_resolution: dict[str, Any] = field(default_factory=dict)
+    inference_configuration: dict[str, Any] = field(default_factory=dict)
     compute_profile_tools: list[str] = field(default_factory=list)
     torch_profiler_eager_flop_semantics: str = ""
     torch_profiler_eager_attention_implementation: str = ""
@@ -160,6 +162,9 @@ def collect_static_meta(
     gpu_device: dict[str, Any] | None = None,
 ) -> StaticMeta:
     """Collect static metadata for the current model/image pair."""
+    from acprof.host.configuration_transport import bound_inference_configuration
+
+    configuration = bound_inference_configuration(task_info)
     from acprof.capabilities import measurement_requested
     from acprof.host.metadata.platform import collect_platform_metadata
     from acprof.host.runtimes.contracts import runtime_identity, runtime_kind
@@ -195,7 +200,10 @@ def collect_static_meta(
         parameter_bytes=task_info.parameter_bytes,
         precision_dtype=task_info.precision_dtype,
         parameter_dtype_counts=dict(task_info.parameter_dtype_counts),
-        inference_precision_by_device=inference_precision_by_device(task_info),
+        inference_precision_by_device=({
+            "cpu" if device == "off" else "gpu": values.get("dtype", "unknown")
+            for device, values in configuration["loading"].items()
+        } if configuration else inference_precision_by_device(task_info)),
         input_format=input_format,
         output_format=output_format,
         quantized=task_info.quantized,
@@ -205,6 +213,7 @@ def collect_static_meta(
         model_metadata_source=task_info.model_metadata_source,
         model_source=getattr(task_info, "model_source", "huggingface"),
         model_resolution=dict(task_info.model_resolution),
+        inference_configuration=copy.deepcopy(configuration),
         task_family=task_info.task_family,
         pipeline_tag=task_info.pipeline_tag,
         runtime_backend=task_info.runtime_backend,
@@ -316,6 +325,16 @@ def enrich_static_meta(
         if isinstance(value, tuple):
             value = list(value)
         updates[field_name] = value
+    configuration = updates.get("inference_configuration", static_meta.inference_configuration)
+    if type(configuration) is not dict:
+        raise ValueError("inference_configuration must be an object")
+    if static_meta.inference_configuration and configuration != static_meta.inference_configuration:
+        raise ValueError("static metadata cannot replace the frozen inference configuration")
+    if configuration:
+        from acprof.models.inference_configuration import validate_frozen_configuration
+
+        validate_frozen_configuration(configuration)
+        updates["inference_configuration"] = copy.deepcopy(configuration)
     return replace(static_meta, **updates) if updates else static_meta
 
 
@@ -448,6 +467,12 @@ def enrich_static_meta_from_execution_plan(
 
 def write_static_meta_json(static_meta: StaticMeta, output_path: str) -> None:
     """Atomically write static metadata as one JSON object."""
+    if type(static_meta.inference_configuration) is not dict:
+        raise ValueError("inference_configuration must be an object")
+    if static_meta.inference_configuration:
+        from acprof.models.inference_configuration import validate_frozen_configuration
+
+        validate_frozen_configuration(static_meta.inference_configuration)
     payload = {
         field: getattr(static_meta, field)
         for field in STATIC_META_FIELDS

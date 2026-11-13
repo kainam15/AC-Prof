@@ -7,6 +7,7 @@ import json
 from collections import Counter
 from fractions import Fraction
 from pathlib import Path
+from types import SimpleNamespace
 
 from acprof.analysis.audit import audit_result, number
 from acprof.analysis.conditions import (
@@ -303,6 +304,27 @@ def load_comparison_snapshot(source: str | Path, *, result_snapshot: ResultCsvSn
     state = _read_snapshot_json(metadata_snapshot, "run_state.json", issues)
     metadata = _read_snapshot_json(metadata_snapshot, "static_meta.json", issues)
     plan = _read_snapshot_json(metadata_snapshot, "input_scale_plan.json", issues)
+    configuration = _object_field(metadata, "inference_configuration", issues)
+    if configuration:
+        from acprof.models.inference_configuration import validate_configuration_binding
+
+        execution_environment = _object_field(metadata, "runtime_environment", issues)
+        selected_task = plan.get("task_workload")
+        recorded_task = SimpleNamespace(
+            model_source=metadata.get("model_source", "huggingface"), model_id=metadata.get("model_name"),
+            model_revision=metadata.get("model_revision"), runtime_backend=metadata.get("runtime_backend"),
+            model_adapter=execution_environment.get("adapter"),
+            runtime_profile_id=execution_environment.get("profile_id"),
+            selected_tasks=[selected_task] if isinstance(selected_task, dict) else [],
+        )
+        try:
+            validate_configuration_binding(configuration, recorded_task, allow_task_subset=True)
+        except (ValueError, TypeError, KeyError) as exc:
+            issues.append(f"inference_configuration: {exc}")
+            configuration = {}
+        else:
+            if plan.get("inference_configuration_sha256") != configuration["identity_sha256"]:
+                issues.append("input_scale_plan.json: inference configuration identity differs from static metadata")
     hardware_payload = _read_snapshot_json(
         metadata_snapshot, str(conditions_path(layout).relative_to(layout.root)), issues,
     )
@@ -326,6 +348,8 @@ def load_comparison_snapshot(source: str | Path, *, result_snapshot: ResultCsvSn
     measured_rows = [row for row in rows if result_row_status(row) == "ok" and measurement_key(row)[4] == "0"]
     return {
         **recorded_identity(metadata),
+        "inference_configuration_validation": _object_field(metadata, "runtime_validation", issues)
+            if configuration else None,
         "metric_availability": _metric_availability(measured_rows),
         "run_id": state.get("run_id"), "result_csv": audit["result_csv"],
         "run_status": audit["run_status"], "measurement_status": audit["measurement_status"],
@@ -362,6 +386,11 @@ def load_comparison_snapshot(source: str | Path, *, result_snapshot: ResultCsvSn
         "identity": {**{key: metadata.get(key) for key in (
             "model_name", "model_revision", "runtime_backend", "image_id", "runtime_environment", "runtime_kind", "runtime_id")},
             "model_source": metadata.get("model_source", "huggingface"),
+            "inference_configuration_sha256": configuration.get("identity_sha256"),
+            "inference_loading": configuration.get("loading"),
+            "inference_generation": {
+                task_id: item["generation"] for task_id, item in configuration.get("tasks", {}).items()
+            } if configuration else None,
             "runtime_requested_environment": runtime_environment,
             **{key: host.get(key) for key in ("source_sha256", "packages_sha256")}},
     }

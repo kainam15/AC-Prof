@@ -57,6 +57,9 @@ def main(argv=None) -> int:
                 print(f"[auto] {task.model_id}@{task.model_revision}; profiling_mode={args.profiling_mode}", flush=True)
                 from acprof.cli import run
                 outcome = run.main(args=args, prepared_task=task, preparation_artifacts=automatic.preparation_artifacts)
+                if getattr(outcome, "status", None) == "review_required":
+                    automatic.data.update(status="review_required", stage="inference_configuration",
+                                          inference_configuration_review=outcome.inference_configuration_review)
                 automatic.collection_path = getattr(outcome, "task_collection_path", None)
             except BaseException as exc:
                 failure = exc

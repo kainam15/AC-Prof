@@ -17,6 +17,11 @@ os.environ["TRANSFORMERS_OFFLINE"] = "1"
 
 from acprof.artifacts import read_input_scale_plan
 from acprof.container.execution import complete_prediction
+from acprof.container.inference_configuration import (
+    configuration_metadata,
+    validate_inference_payload,
+    verify_model_session_configuration,
+)
 from acprof.container.model_session import (
     ModelLoadConfig,
     load_model_session,
@@ -314,12 +319,19 @@ def main() -> None:
         load_options=load_options,
     )
     model_ctx = session.context
+    strict_configuration = bool(getattr(config, "inference_configuration", {}))
+    configuration_report = {}
+    if strict_configuration:
+        verify_model_session_configuration(session)
+        configuration_report = configuration_metadata(session)
     attention_implementation = (
         _verify_eager_attention(model_ctx)
         if torch_eager_mode
         else ""
     )
     payload = _find_payload(args.payload_file, args.input_scale)
+    if strict_configuration:
+        validate_inference_payload(session, payload)
     processed = handler.preprocess(model_ctx, payload)
 
     with execution.inference_context():
@@ -339,6 +351,7 @@ def main() -> None:
             elapsed_s = time.perf_counter() - t_load
             print(json.dumps({
                 "status": "ok",
+                **configuration_report,
                 "model_id": model_id,
                 "model_revision": model_revision,
                 "device": device,
@@ -396,6 +409,7 @@ def main() -> None:
     elapsed_s = time.perf_counter() - t_load
     print(json.dumps({
         "status": "ok",
+        **configuration_report,
         "model_id": model_id,
         "model_revision": model_revision,
         "device": device,

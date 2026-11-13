@@ -159,6 +159,7 @@ def adapter_runtime(monkeypatch):
         profile_id = f"fixture-{adapter}"
         profiles[profile_id] = replace(
             base_profile, profile_id=profile_id, family="fixture", adapter=adapter,
+            task_types=("fixture-task",), backends=("fixture-runtime",), model_types=(),
             trust_remote_code=False,
             precision_policy={"supported_dtypes": ["FP32"], "preferred_dtype": "FP32"},
         )
@@ -329,7 +330,7 @@ def test_runtime_profile_conflict_is_rejected_before_handler_loading(adapter_run
         )
     monkeypatch.setenv("ACPROF_MODEL_ADAPTER", "adapter-b")
 
-    with pytest.raises(HandlerInitializationError, match="runtime profile .* does not match fixture/adapter-a") as caught:
+    with pytest.raises(HandlerInitializationError, match=f"does not support {conflict}") as caught:
         load_model_session(config, object(), "cpu")
 
     assert isinstance(caught.value.__cause__, ValueError)

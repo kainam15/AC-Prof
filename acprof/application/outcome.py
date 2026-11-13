@@ -8,3 +8,4 @@ class RunOutcome:
     final_csv: str | None = None
     completed_cases: int = 0
     task_collection_path: str | None = None
+    inference_configuration_review: dict[str, str] | None = None

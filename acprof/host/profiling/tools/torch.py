@@ -3,12 +3,14 @@ from __future__ import annotations
 
 from typing import Any
 
+from acprof.host.configuration_transport import verify_runtime_configuration
 from acprof.host.detect import TaskInfo
 from acprof.host.profiling.commands import run_profiler_command
 from acprof.host.profiling.support import (
     parse_last_json_line,
     profile_runner_args,
     profiler_container_command,
+    profiler_inference_configuration,
 )
 from acprof.host.profiling.tools.compute_parsers import (
     to_float,
@@ -55,6 +57,7 @@ def _run_torch_profiler_for_entry(
         payload_file=payload_file,
         profile_root=profile_root,
         tool_mount_roots=(),
+        profile_mode=runner_mode,
     ) as base_cmd:
         result = run_profiler_command(
             [*base_cmd, *profile_runner_args(entry, repeat, runner_mode)],
@@ -68,6 +71,15 @@ def _run_torch_profiler_for_entry(
         )[0]
 
     payload = parse_last_json_line(result.stdout)
+    configuration = profiler_inference_configuration(task_info, use_gpu=use_gpu, profile_mode=runner_mode)
+    verify_runtime_configuration(
+        task_info, payload, configuration=configuration, expected_device="on" if use_gpu else "off",
+    )
+    configuration_metadata = ({
+        "inference_configuration_sha256": configuration["identity_sha256"],
+        "inference_configuration_derivation": configuration.get("derivation", {}),
+        "configuration_validation": payload["configuration_validation"],
+    } if configuration else {})
     gpu_metadata = {key: payload.get(key) for key in (
         "gpu_compute_capability", "gpu_sm_count", "gpu_compute_metadata",
     )}
@@ -99,6 +111,7 @@ def _run_torch_profiler_for_entry(
         "model_logical_mflop_per_request_torch_profiler_eager": mflop,
         "error": "",
         "total_flops": total_flops if total_flops == total_flops else None,
+        **configuration_metadata,
         "attention_implementation": attention_implementation,
         "attention_implementation_verified": attention_verified,
         "torch_version": str(payload.get("torch_version") or "unknown"),

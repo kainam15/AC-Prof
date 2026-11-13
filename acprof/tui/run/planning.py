@@ -31,7 +31,7 @@ class PlanView:
 def input_identity(config: RunConfig) -> tuple:
     return tuple(getattr(config, name) for name in (
         "model", "model_source", "revision", "task", "tasks", "task_run_id", "task_family", "backend", "model_spec", "workload_spec", "batch_size",
-        "input_scales", "input_scale_policy",
+        "input_scales", "input_scale_policy", "inference_config", "confirm_inference",
     ))
 
 
