@@ -176,6 +176,9 @@ class ParameterSpec:
     conflicts: tuple[ParameterCondition, ...] = ()
     tasks: tuple[str, ...] = ()
     backends: tuple[str, ...] = ()
+    model_types: tuple[str, ...] = ()
+    pipeline_classes: tuple[str, ...] = ()
+    validation_method: str = ""
     variation: tuple[str, ...] = ()
     source_bindings: tuple[ParameterSource, ...] = ()
 
@@ -198,8 +201,13 @@ def _validate_spec(spec: ParameterSpec) -> None:
         values = getattr(spec, name)
         if type(values) is not tuple or any(not isinstance(value, cls) for value in values):
             raise ValueError(f"{path}.{name} has invalid declarations")
-    for name in ("tasks", "backends", "variation"):
+    for name in ("tasks", "backends", "model_types", "pipeline_classes", "variation"):
         _strings(getattr(spec, name), f"{path}.{name}")
+    _text(spec.validation_method, f"{path}.validation_method", empty=True)
+    if spec.validation_method not in {
+        "", "generate.kwargs", "pipeline.predict.kwargs", "pipeline.call.kwargs", "scheduler.class",
+    }:
+        raise ValueError(f"{path}.validation_method is unknown")
     if not set(spec.variation) <= VARIATIONS:
         raise ValueError(f"{path}.variation contains an unknown axis")
     if spec.scope not in SCOPES:

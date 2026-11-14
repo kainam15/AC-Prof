@@ -209,6 +209,7 @@ class PreparationScreen(ModalScreen):
                             labels = {
                                 "auto": message_id("models.inference.preset_auto"),
                                 "benchmark": message_id("models.inference.preset_benchmark"),
+                                "author": message_id("models.inference.preset_author"),
                                 "custom": message_id("models.inference.preset_custom"),
                             }
                             selected = request.get("selected_preset", "custom")

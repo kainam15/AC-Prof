@@ -20,10 +20,12 @@ from acprof.extensions.parameters import (
 )
 from acprof.failures import RuntimeFailure
 from acprof.models.configuration import parameter_declaration
+from acprof.models.configuration_presets import additional_presets, apply_preset
 from acprof.models.configuration_sources import discover_configuration_sources
 from acprof.models.evidence import content_digest, pinned_revision
 from acprof.models.inference_configuration import (
     CONFIGURATION_RULE_VERSION,
+    TASK_CONFIGURATION_RULE_VERSION,
     configuration_device,
     configuration_identity,
 )
@@ -65,7 +67,7 @@ def _validate_requests(requests: dict | None) -> dict:
         raise ValueError(f"unknown inference request fields: {sorted(set(requests) - _REQUEST_KEYS)}")
     if type(requests.get("schema_version")) is not int or requests["schema_version"] != 1:
         raise ValueError("inference requests require schema_version 1")
-    if type(requests.get("preset", "custom")) is not str or requests.get("preset", "custom") not in {"custom", "auto"}:
+    if type(requests.get("preset", "custom")) is not str or requests.get("preset", "custom") not in {"custom", "auto", "author", "benchmark"}:
         raise ValueError("unknown inference configuration preset")
     for section in ("backend", "runtime_profile"):
         if section in requests:
@@ -216,6 +218,12 @@ def _fields(initial, view, profile, devices, workload) -> list[dict]:
                 source = {"kind": "registered_precision_policy", "policy": policy}
             else:
                 default = spec.default.value if spec.default is not None else None
+                discovery = discover_configuration_sources(view, (spec,), initial.selected_tasks[0])
+                candidates = [item for item in discovery["parameters"].get(spec.name, {}).get("default_candidates", [])
+                              if item["validation"] == "valid" and item["source"].get("file") is not None]
+                if spec.name == "scheduler" and candidates:
+                    default, source = candidates[0]["value"], candidates[0]["source"]
+                    source = {"kind": "checkpoint_scheduler", "evidence": source}
             fields.append(_field(f"loading.{device}.{spec.name}", spec, default, source, device=device))
     for original, selected in zip(initial.selected_tasks, view.selected_tasks, strict=True):
         task_id = original["task_id"]
@@ -225,8 +233,8 @@ def _fields(initial, view, profile, devices, workload) -> list[dict]:
         if invalid:
             raise ValueError("invalid configuration source: " + "; ".join(
                 f"{item.get('file')}{item.get('json_pointer', '')}: {item['detail']}" for item in invalid))
-        generation = selected["config"].get("generation", {})
-        length_name = "max_new_tokens" if "max_new_tokens" in generation else "max_length"
+        generation = selected["config"].get("generation", selected["config"].get("inference", {}))
+        length_name = "max_length" if "max_length" in generation and "max_new_tokens" not in generation else "max_new_tokens"
         for spec in declaration.parameters:
             if spec.scope != "inference" or spec.read_only:
                 continue
@@ -236,10 +244,15 @@ def _fields(initial, view, profile, devices, workload) -> list[dict]:
                 continue
             default = generation[spec.name] if spec.name in generation else spec.default.value
             source = ({"kind": "task_snapshot", "task_id": task_id, "fingerprint": original["fingerprint"],
-                       "json_pointer": "/config/generation/" + spec.name,
+                       "json_pointer": "/config/" + ("generation" if "generation" in selected["config"] else "inference") + "/" + spec.name,
                        "output_length_policy": original.get("execution_profile", {}).get("output_length_policy")}
                       if spec.name in generation else
                       {"kind": "parameter_declaration", "extension_id": declaration.extension_id})
+            supplied_defaults = workload.get("parameter_defaults", {})
+            if "generation" not in selected["config"] and spec.name in supplied_defaults:
+                default = supplied_defaults[spec.name]
+                source = {"kind": "workload_specification", "sha256": workload.get("specification_sha256"),
+                          "parameter": spec.name}
             fields.append(_field(f"tasks.{task_id}.{spec.name}", spec, default, source,
                 task_id=task_id, task_name=task_label(selected),
                 candidates=discovery["parameters"].get(spec.name, {}).get("default_candidates", [])))
@@ -290,6 +303,7 @@ def _prepare(task_info, *, devices, requests=None, workload=None):
     if "on" in devices and profile.environment.platform.platform_id in {"cpu", "python-cpu"}:
         raise ValueError("the requested GPU device requires a GPU-capable runtime profile")
     fields = _fields(task_info, view, profile, devices, workload)
+    apply_preset(fields, requests.get("preset", "custom"))
     allowed = {field["path"] for field in fields}
     supplied = {"loading." + device + "." + key for device, values in requests.get("loading", {}).items() for key in values}
     supplied.update("tasks." + task_id + "." + key for task_id, values in requests.get("tasks", {}).items() for key in values)
@@ -354,7 +368,7 @@ def build_configuration_draft(task_info, *, devices: list[str], requests: dict |
             "presets": [{"id": "custom", "label": "Custom", "description": "Keep the displayed requests.",
                          "requests": normalized},
                         {"id": "auto", "label": "Auto", "description": "Authorize the registered rule for each available field.",
-                         "requests": auto}],
+                         "requests": auto}, *additional_presets(fields)],
             "summary": "Review explicit values or choose Auto. Runtime validation has not run."}
 
 
@@ -452,6 +466,7 @@ def resolve_inference_configuration(task_info, requests: dict, *, devices: list[
             original.get("execution_profile", {}).get("semantic_task_ids", [original["task_id"]]))]
         tasks[selected["task_id"]] = {"interface": selected["interface"], "fingerprint": selected["fingerprint"],
             "generation": copy.deepcopy(selected["config"].get("generation", {})),
+            **({"inference": copy.deepcopy(selected["config"]["inference"])} if "inference" in selected["config"] else {}),
             "source_task_ids": sources, "snapshot": copy.deepcopy(selected)}
     root = resource_root()
     extension = select_extension(view)
@@ -482,5 +497,11 @@ def resolve_inference_configuration(task_info, requests: dict, *, devices: list[
         "tasks": tasks, "requests": normalized, "decisions": decisions, "workload": workload,
         "validation": {"static": "validated", "runtime": "not_run"},
     }
+    if (any(task.get("inference") for task in tasks.values())
+            or any("scheduler" in values for values in candidate["loading"].values())
+            or normalized["preset"] in {"author", "benchmark"}):
+        candidate["rule_version"] = TASK_CONFIGURATION_RULE_VERSION
+        for decision in decisions:
+            decision["rule_version"] = TASK_CONFIGURATION_RULE_VERSION
     candidate["identity_sha256"] = configuration_identity(candidate)
     return view, candidate

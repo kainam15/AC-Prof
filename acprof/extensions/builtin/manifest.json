@@ -825,7 +825,73 @@
           "loader": "transformers.pipeline",
           "operation": "__call__"
         }
-      }
+      },
+      "parameters": [
+        {
+          "name": "language",
+          "kind": "string",
+          "scope": "inference",
+          "default": {
+            "value": "en"
+          },
+          "consumers": [
+            {
+              "stage": "predict",
+              "argument": "generate.language"
+            }
+          ],
+          "validation_method": "generate.kwargs",
+          "variation": [
+            "task",
+            "request"
+          ],
+          "label": "Whisper language",
+          "min_length": 1,
+          "tasks": [
+            "automatic-speech-recognition"
+          ],
+          "backends": [
+            "transformers_pipeline",
+            "transformers_model"
+          ],
+          "model_types": [
+            "whisper"
+          ]
+        },
+        {
+          "name": "asr_task",
+          "kind": "enum",
+          "scope": "inference",
+          "default": {
+            "value": "transcribe"
+          },
+          "consumers": [
+            {
+              "stage": "predict",
+              "argument": "generate.task"
+            }
+          ],
+          "validation_method": "generate.kwargs",
+          "variation": [
+            "task",
+            "request"
+          ],
+          "label": "Whisper task",
+          "choices": [
+            "transcribe"
+          ],
+          "tasks": [
+            "automatic-speech-recognition"
+          ],
+          "backends": [
+            "transformers_pipeline",
+            "transformers_model"
+          ],
+          "model_types": [
+            "whisper"
+          ]
+        }
+      ]
     },
     {
       "extension_id": "torch-timeseries",
@@ -867,7 +933,40 @@
         "loader": "chronos.BaseChronosPipeline",
         "operation": "predict",
         "structure": "single"
-      }
+      },
+      "parameters": [
+        {
+          "name": "prediction_length",
+          "kind": "integer",
+          "scope": "inference",
+          "default": {
+            "value": 64
+          },
+          "consumers": [
+            {
+              "stage": "predict",
+              "argument": "predict.prediction_length"
+            }
+          ],
+          "validation_method": "pipeline.predict.kwargs",
+          "variation": [
+            "task",
+            "request"
+          ],
+          "label": "Prediction length",
+          "minimum": 1,
+          "source_bindings": [
+            {
+              "filename": "config.json",
+              "pointer": "/chronos_config/prediction_length"
+            },
+            {
+              "filename": "config.json",
+              "pointer": "/prediction_length"
+            }
+          ]
+        }
+      ]
     },
     {
       "extension_id": "torch-timeseries-legacy",
@@ -990,7 +1089,99 @@
         "loader": "diffusers.DiffusionPipeline",
         "operation": "__call__",
         "structure": "components"
-      }
+      },
+      "parameters": [
+        {
+          "name": "num_inference_steps",
+          "kind": "integer",
+          "scope": "inference",
+          "default": {
+            "value": 20
+          },
+          "consumers": [
+            {
+              "stage": "predict",
+              "argument": "call.num_inference_steps"
+            }
+          ],
+          "validation_method": "pipeline.call.kwargs",
+          "variation": [
+            "task",
+            "request"
+          ],
+          "label": "Denoising steps",
+          "minimum": 1,
+          "tasks": [
+            "text-to-image"
+          ],
+          "pipeline_classes": [
+            "StableDiffusionXLPipeline"
+          ]
+        },
+        {
+          "name": "guidance_scale",
+          "kind": "float",
+          "scope": "inference",
+          "default": {
+            "value": 7.5
+          },
+          "consumers": [
+            {
+              "stage": "predict",
+              "argument": "call.guidance_scale"
+            }
+          ],
+          "validation_method": "pipeline.call.kwargs",
+          "variation": [
+            "task",
+            "request"
+          ],
+          "label": "Guidance scale",
+          "minimum": 0,
+          "tasks": [
+            "text-to-image"
+          ],
+          "pipeline_classes": [
+            "StableDiffusionXLPipeline"
+          ]
+        },
+        {
+          "name": "scheduler",
+          "kind": "enum",
+          "scope": "loading",
+          "label": "Scheduler",
+          "default": {
+            "value": "EulerDiscreteScheduler"
+          },
+          "choices": [
+            "EulerDiscreteScheduler",
+            "DDIMScheduler",
+            "DPMSolverMultistepScheduler"
+          ],
+          "consumers": [
+            {
+              "stage": "load",
+              "argument": "scheduler"
+            }
+          ],
+          "validation_method": "scheduler.class",
+          "variation": [
+            "device"
+          ],
+          "source_bindings": [
+            {
+              "filename": "model_index.json",
+              "pointer": "/scheduler/1"
+            }
+          ],
+          "tasks": [
+            "text-to-image"
+          ],
+          "pipeline_classes": [
+            "StableDiffusionXLPipeline"
+          ]
+        }
+      ]
     },
     {
       "extension_id": "torch-multimodal",
@@ -1071,7 +1262,69 @@
           "loader": "transformers.pipeline",
           "operation": "__call__"
         }
-      }
+      },
+      "parameters": [
+        {
+          "name": "max_new_tokens",
+          "kind": "integer",
+          "scope": "inference",
+          "default": {
+            "value": 64
+          },
+          "consumers": [
+            {
+              "stage": "predict",
+              "argument": "generate.max_new_tokens"
+            }
+          ],
+          "validation_method": "generate.kwargs",
+          "variation": [
+            "task",
+            "request"
+          ],
+          "label": "Output tokens",
+          "minimum": 1,
+          "source_bindings": [
+            {
+              "filename": "generation_config.json",
+              "pointer": "/max_new_tokens"
+            }
+          ],
+          "tasks": [
+            "image-text-to-text",
+            "video-text-to-text",
+            "audio-text-to-text"
+          ]
+        },
+        {
+          "name": "do_sample",
+          "kind": "enum",
+          "scope": "inference",
+          "default": {
+            "value": false
+          },
+          "consumers": [
+            {
+              "stage": "predict",
+              "argument": "generate.do_sample"
+            }
+          ],
+          "validation_method": "generate.kwargs",
+          "variation": [
+            "task",
+            "request"
+          ],
+          "label": "Sampling",
+          "choices": [
+            false
+          ],
+          "tasks": [
+            "image-text-to-text",
+            "video-text-to-text",
+            "audio-text-to-text"
+          ]
+        }
+      ]
     },
     {
       "extension_id": "torch-moss",

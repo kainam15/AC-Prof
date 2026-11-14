@@ -391,6 +391,9 @@ def load_comparison_snapshot(source: str | Path, *, result_snapshot: ResultCsvSn
             "inference_generation": {
                 task_id: item["generation"] for task_id, item in configuration.get("tasks", {}).items()
             } if configuration else None,
+            "inference_parameters": {
+                task_id: item.get("inference", {}) for task_id, item in configuration.get("tasks", {}).items()
+            } if configuration else None,
             "runtime_requested_environment": runtime_environment,
             **{key: host.get(key) for key in ("source_sha256", "packages_sha256")}},
     }

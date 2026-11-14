@@ -2,7 +2,7 @@
 
 Loading observations describe floating parameters and model configuration. They
 do not establish storage precision, compute precision or executed attention kernels.
-Generate receipts are collected only by the independent validation entrypoint.
+Consumer receipts are collected only by the independent validation entrypoint.
 """
 from __future__ import annotations
 
@@ -102,6 +102,12 @@ def attach_configuration_context(config, device: str, context: dict) -> None:
         context["_frozen_generation"] = configuration_task(frozen, config.inference_task_id)["generation"]
     context["_inference_task_id"] = config.inference_task_id
     context["_configuration_device"] = device
+    inference = configuration_task(frozen, config.inference_task_id).get("inference", {})
+    if inference:
+        from acprof.models.task_configuration import task_consumer_specs
+        task_consumer_specs(family=config.task_family, backend=config.backend, adapter=config.adapter,
+                            task=config.task_type, values=inference)
+        context["_frozen_inference"] = inference
 
 
 def _model(context: dict):
@@ -153,6 +159,11 @@ def verify_model_session_configuration(session) -> dict:
         "dtype": (_parameter_dtypes, "floating_parameter_dtypes", "model_parameters"),
         "attention_implementation": (_attention_implementations, "model_config", "configured_attention"),
     }
+    if "scheduler" in expected:
+        observations["scheduler"] = (
+            lambda _: [type(context["pipeline"].scheduler).__name__],
+            "scheduler.class", "pipeline_scheduler",
+        )
     for field, (observe, method, scope) in observations.items():
         if field not in expected:
             loading[field] = {"status": "not_applicable", "reason": "not_declared"}
@@ -226,6 +237,14 @@ def validate_generation_parameters(context: dict, params: Any) -> None:
 def validate_inference_payload(session, payload: dict) -> None:
     if _frozen(session.config):
         validate_generation_parameters(session.context, payload.get("params", {}))
+        expected = session.context.get("_frozen_inference")
+        if expected is not None:
+            actual = payload if session.config.task_family == "timeseries" else payload.get("params", {})
+            if not isinstance(actual, dict) or any(
+                name not in actual or not _same_value(value, actual[name]) for name, value in expected.items()
+            ):
+                raise _failure(session.config, session.device, "request parameters differ from the frozen task",
+                               stage="configuration_input")
 
 
 def _observed_generation_value(model, kwargs: dict, name: str):
@@ -240,15 +259,49 @@ def _observed_generation_value(model, kwargs: dict, name: str):
     return _MISSING, "unobserved"
 
 
+def _task_consumer(session, expected):
+    from acprof.models.task_configuration import task_consumer_specs
+    config = session.config
+    specs = task_consumer_specs(family=config.task_family, backend=config.backend, adapter=config.adapter,
+                                task=config.task_type, values=expected)
+    model = _model(session.context)
+    pipeline = session.context.get("pipeline")
+    for spec in specs.values():
+        if spec.model_types and getattr(getattr(model, "config", None), "model_type", None) not in spec.model_types:
+            raise _failure(config, session.device, "loaded model does not support the declared task parameters")
+        if spec.pipeline_classes and type(pipeline).__name__ not in spec.pipeline_classes:
+            raise _failure(config, session.device, "loaded pipeline does not support the declared task parameters")
+    method = next(iter(specs.values())).validation_method
+    target, operation = {
+        "generate.kwargs": (model, "generate"),
+        "pipeline.predict.kwargs": (pipeline, "predict"),
+        "pipeline.call.kwargs": (pipeline, "__call__"),
+    }[method]
+    mapping = {name: spec.consumers[0].argument.rsplit(".", 1)[-1] for name, spec in specs.items()}
+    return target, operation, mapping, method
+
+
+class _ObservedPipeline:
+    """Intercept only this session's call; Python resolves __call__ on the type."""
+    def __init__(self, pipeline, call):
+        self._pipeline, self._call = pipeline, call
+
+    def __getattr__(self, name):
+        return getattr(self._pipeline, name)
+
+    def __call__(self, *args, **kwargs):
+        return self._call(*args, **kwargs)
+
+
 @contextmanager
 def capture_generation_consumption(session):
-    """Temporarily observe the real generate boundary in independent validation."""
+    """Temporarily observe the declared consumer in independent validation."""
     frozen = _frozen(session.config)
     receipt = {}
     if not frozen:
         yield receipt
         return
-    expected = session.context.get("_frozen_generation")
+    expected = session.context.get("_frozen_inference", session.context.get("_frozen_generation"))
     receipt.update({
         "status": "pending", "inference_configuration_sha256": frozen["identity_sha256"],
         "task_id": session.config.inference_task_id, "calls": [],
@@ -257,17 +310,23 @@ def capture_generation_consumption(session):
         receipt.update(status="not_applicable", generation={"status": "not_applicable", "reason": "consumer_not_declared"})
         yield receipt
         return
-    model = _model(session.context)
-    generate = getattr(model, "generate", None)
+    model, operation, mapping, method = (
+        _task_consumer(session, expected) if "_frozen_inference" in session.context else
+        (_model(session.context), "generate", {name: name for name in expected}, "generate.kwargs")
+    )
+    generate = getattr(model, operation, None)
+    consumer = "model.generate" if operation == "generate" else method.removesuffix(".kwargs")
     if not callable(generate):
-        raise _failure(session.config, session.device, "no observable model.generate consumer",
+        raise _failure(session.config, session.device, f"no observable {consumer} consumer",
                        unverified=True, stage="configuration_consumption")
-    previous = getattr(model, "__dict__", {}).get("generate", _MISSING)
+    previous = getattr(model, "__dict__", {}).get(operation, _MISSING)
 
     def observed_generate(*args, **kwargs):
         parameters = {}
         for name, value in expected.items():
-            actual, source = _observed_generation_value(model, kwargs, name)
+            argument = mapping[name]
+            actual, source = (_observed_generation_value(model, kwargs, argument) if operation == "generate"
+                              else (kwargs.get(argument, _MISSING), method))
             status = "unverified" if actual is _MISSING else "verified" if _same_value(value, actual) else "mismatch"
             observation = {"status": status, "expected": copy.deepcopy(value), "source": source}
             if actual is not _MISSING:
@@ -281,33 +340,40 @@ def capture_generation_consumption(session):
         failed = [value for value in parameters.values() if value["status"] != "verified"]
         if failed:
             raise _failure(
-                session.config, session.device, "model.generate parameters do not match the frozen task",
+                session.config, session.device, f"{consumer} parameters do not match the frozen task",
                 unverified=all(value["status"] == "unverified" for value in failed),
                 stage="configuration_consumption", evidence={"consumer_receipt": copy.deepcopy(receipt)},
             )
         return generate(*args, **kwargs)
 
     try:
-        setattr(model, "generate", observed_generate)
+        if operation == "__call__":
+            session.context["pipeline"] = _ObservedPipeline(model, observed_generate)
+        else:
+            setattr(model, operation, observed_generate)
     except (AttributeError, TypeError) as exc:
-        raise _failure(session.config, session.device, "model.generate cannot be observed",
+        raise _failure(session.config, session.device, f"{consumer} cannot be observed",
                        unverified=True, stage="configuration_consumption") from exc
     try:
         yield receipt
     finally:
-        if previous is _MISSING:
-            delattr(model, "generate")
+        if operation == "__call__":
+            session.context["pipeline"] = model
+        elif previous is _MISSING:
+            delattr(model, operation)
         else:
-            setattr(model, "generate", previous)
+            setattr(model, operation, previous)
 
 
 def verify_generation_consumption(session, receipt: dict) -> dict:
     if not _frozen(session.config):
         return {}
-    if receipt.get("status") == "not_applicable" and "_frozen_generation" not in session.context:
+    if (receipt.get("status") == "not_applicable" and "_frozen_generation" not in session.context
+            and "_frozen_inference" not in session.context):
         return copy.deepcopy(receipt)
     if not receipt.get("calls"):
-        raise _failure(session.config, session.device, "inference did not reach model.generate",
+        consumer = "declared task consumer" if "_frozen_inference" in session.context else "model.generate"
+        raise _failure(session.config, session.device, f"inference did not reach {consumer}",
                        unverified=True, stage="configuration_consumption")
     if any(observation["status"] != "verified" for call in receipt["calls"]
            for observation in call["parameters"].values()):

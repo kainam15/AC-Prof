@@ -163,6 +163,15 @@ def get_task_generator(task_info: TaskInfo, batch_size: int, **kwargs: Any):
     if task_info.model_adapter != "family-default":
         kwargs["model_adapter"] = task_info.model_adapter
     spec = task_model_spec(task_info)
+    if task_info.selected_tasks:
+        parameters = task_info.selected_tasks[0]["config"].get("inference", {})
+        if parameters:
+            bound_inference_configuration(task_info)
+            from acprof.extensions.parameters import validate_parameter_values
+            from acprof.models.configuration import parameter_declaration
+            declaration = parameter_declaration(task_info, task_info.selected_tasks[0])
+            validate_parameter_values(declaration.parameters, parameters)
+            kwargs["inference_parameters"] = parameters
     if CATALOG.describe(task_info).declaration.input_plan.model_feature_dim and spec.get("feature_dim") is not None:
         kwargs["model_feature_dim"] = spec["feature_dim"]
     return get_generator(task_info.task_family, task_info.model_id, task_info.pipeline_tag, batch_size, **kwargs)

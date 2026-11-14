@@ -18,6 +18,7 @@ from acprof.models.evidence import content_digest, pinned_revision
 
 CONFIGURATION_SCHEMA_VERSION = 1
 CONFIGURATION_RULE_VERSION = "acprof-inference-v1"
+TASK_CONFIGURATION_RULE_VERSION = "acprof-inference-v2"
 MAX_CONFIGURATION_BYTES = 65536
 _CONFIGURATION_FIELDS = {
     "schema_version", "state", "identity_sha256", "rule_version", "model", "backend",
@@ -72,7 +73,8 @@ def _validate_configuration(configuration: dict, *, states: set[str]) -> None:
         raise ValueError("unsupported inference_configuration.schema_version")
     if type(configuration["state"]) is not str or configuration["state"] not in states:
         raise ValueError(f"inference_configuration.state must be one of {sorted(states)}")
-    if configuration["rule_version"] != CONFIGURATION_RULE_VERSION:
+    if (type(configuration["rule_version"]) is not str
+            or configuration["rule_version"] not in {CONFIGURATION_RULE_VERSION, TASK_CONFIGURATION_RULE_VERSION}):
         raise ValueError("unsupported inference_configuration.rule_version")
     model = _object(configuration["model"], "model")
     for key in ("source", "model_id"):
@@ -87,14 +89,27 @@ def _validate_configuration(configuration: dict, *, states: set[str]) -> None:
         raise ValueError("loading must name the selected off/on devices")
     for device, values in loading.items():
         _object(values, f"loading.{device}")
-        if set(values) - {"dtype", "attention_implementation"}:
+        if set(values) - {"dtype", "attention_implementation", "scheduler"}:
             raise ValueError(f"loading.{device} contains undeclared loading options")
         if "dtype" in values and (type(values["dtype"]) is not str or values["dtype"] not in {"FP32", "FP16", "BF16", "FP64"}):
             raise ValueError(f"loading.{device}.dtype is not a registered precision")
         if "attention_implementation" in values and (type(values["attention_implementation"]) is not str
                 or values["attention_implementation"] not in {"eager", "sdpa"}):
             raise ValueError(f"loading.{device}.attention_implementation must be a concrete registered implementation")
+        if "scheduler" in values:
+            from acprof.extensions import get_extension
+            declared = get_extension("diffusion", "diffusers", task="text-to-image")
+            spec = next(item for item in declared.parameters if item.name == "scheduler")
+            from acprof.extensions.parameters import validate_parameter_value
+            validate_parameter_value(spec, values["scheduler"], path=f"loading.{device}.scheduler")
     tasks = _object(configuration["tasks"], "tasks")
+    if configuration["rule_version"] == CONFIGURATION_RULE_VERSION and (
+        any(values.get("scheduler") for values in loading.values())
+        or any(isinstance(task, dict) and task.get("inference") for task in tasks.values())
+        or (isinstance(configuration.get("requests"), dict)
+            and configuration["requests"].get("preset") in ("author", "benchmark"))
+    ):
+        raise ValueError("task-specific parameters and presets require inference rule v2")
     if not tasks:
         raise ValueError("inference_configuration.tasks must not be empty")
     for task_id, task in tasks.items():
@@ -103,6 +118,7 @@ def _validate_configuration(configuration: dict, *, states: set[str]) -> None:
         _text(task.get("interface"), f"tasks.{task_id}.interface")
         _digest(task.get("fingerprint"), f"tasks.{task_id}.fingerprint")
         _object(task.get("generation"), f"tasks.{task_id}.generation")
+        _object(task.get("inference", {}), f"tasks.{task_id}.inference")
         if "snapshot" in task:
             from acprof.tasks.workloads import task_fingerprint
             snapshot = _object(task["snapshot"], f"tasks.{task_id}.snapshot")
@@ -110,7 +126,8 @@ def _validate_configuration(configuration: dict, *, states: set[str]) -> None:
                 raise ValueError(f"tasks.{task_id}.snapshot is incomplete")
             if (snapshot.get("task_id") != task_id or snapshot.get("interface") != task["interface"]
                     or task_fingerprint(snapshot) != task["fingerprint"]
-                    or snapshot.get("config", {}).get("generation", {}) != task["generation"]):
+                    or snapshot.get("config", {}).get("generation", {}) != task["generation"]
+                    or snapshot.get("config", {}).get("inference", {}) != task.get("inference", {})):
                 raise ValueError(f"tasks.{task_id} does not match its frozen task snapshot")
     _object(configuration["requests"], "requests")
     _object(configuration["workload"], "workload")
@@ -169,7 +186,8 @@ def validate_configuration_binding(configuration: dict, task_info: Any, *,
         if (task.get("fingerprint") != expected["fingerprint"]
                 or task_fingerprint(task) != expected["fingerprint"]
                 or task["interface"] != expected["interface"]
-                or task["config"].get("generation", {}) != expected["generation"]):
+                or task["config"].get("generation", {}) != expected["generation"]
+                or task["config"].get("inference", {}) != expected.get("inference", {})):
             raise ValueError(f"inference_configuration.tasks.{task['task_id']} differs from the active task")
 
 

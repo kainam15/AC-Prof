@@ -1,4 +1,5 @@
 """Declared inference controls retain intent and confirm exact resolved content."""
+import pytest
 from textual.widgets import Button, Collapsible, Select, Static
 
 from acprof.experiments.configuration import RunConfig
@@ -145,26 +146,35 @@ async def test_final_confirmation_is_bound_to_digest_and_has_a_separate_edit_act
         assert len(replies) == 2
 
 
-async def test_auto_preset_requires_an_explicit_apply_action(tmp_path):
+@pytest.mark.parametrize("preset", ["auto", "benchmark", "author"])
+@pytest.mark.parametrize("language", ["en", "zh"])
+async def test_preset_requires_an_explicit_apply_action(tmp_path, preset, language):
     app = AcprofTui(RunConfig.smoke("fixture/model"), settings_path=tmp_path / "settings.json")
     replies = []
     event = draft_event()
     event["request"]["presets"] = [
         {"id": "custom", "label": "Custom"}, {"id": "auto", "label": "Auto"},
+        {"id": "benchmark", "label": "AC-Prof Benchmark v1"}, {"id": "author", "label": "Author task preset"},
     ]
     event["request"]["selected_preset"] = "custom"
     async with app.run_test(size=(80, 24)) as pilot:
+        app.query_one("#ui-language", Select).value = language
         screen = PreparationScreen(event, respond=replies.append)
         await app.push_screen(screen)
         await pilot.pause()
-        screen.query_one("#inference-preset", Select).value = "auto"
+        screen.query_one("#inference-preset", Select).value = preset
         await pilot.pause()
         assert replies == []
         assert screen.query_one("#preparation-answer-0", ParameterRequestInput).answer() == {
             "mode": "explicit", "value": False,
         }
         button = screen.query_one("#preparation-preset", Button)
-        button.scroll_visible(animate=False, immediate=True)
-        await pilot.pause()
+        for size in ((120, 30), (80, 24)):
+            await pilot.resize_terminal(*size)
+            button.scroll_visible(animate=False, immediate=True)
+            await pilot.pause()
+            assert screen.region.contains_region(button.region)
+            assert app.get_widget_at(*button.region.center)[0] is button
         assert await pilot.click("#preparation-preset")
-        assert replies == [{"action": "answer", "answers": {"$preset": "auto"}}]
+        await pilot.pause()
+        assert replies == [{"action": "answer", "answers": {"$preset": preset}}]

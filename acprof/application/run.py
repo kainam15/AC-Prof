@@ -64,12 +64,15 @@ def inference_workload(args, cpu_list, mem_list, gpu_list) -> dict:
     from acprof.models.evidence import content_digest
 
     specification = getattr(args, "workload_spec", "")
+    document = read_json_object(Path(specification).expanduser(), label="workload specification") if specification else {}
+    defaults = document.get("inference", document.get("params", {}))
+    if not isinstance(defaults, dict):
+        raise ValueError("workload specification inference parameters must be an object")
     return {
         "batch_size": args.batch_size, "input_scales": args.input_scales,
         "input_scale_policy": args.input_scale_policy,
-        "specification_sha256": content_digest(read_json_object(
-            Path(specification).expanduser(), label="workload specification",
-        )) if specification else None,
+        "specification_sha256": content_digest(document) if specification else None,
+        **({"parameter_defaults": defaults} if specification else {}),
         "resources": {
             "cpus": list(cpu_list), "mems": list(mem_list), "gpus": list(gpu_list),
             "runtime": args.runtime, "cpuset_cpus": args.cpuset_cpus, "gpu_device": args.gpu_device,
@@ -104,6 +107,11 @@ def _validate_frozen_execution(task, args, workload: dict, *, task_child: bool) 
         if task.task_family == "nlp":
             # TaskCollection derives this manifest after checking its source.
             actual["specification_sha256"] = expected.get("specification_sha256")
+            # Its params are the frozen task's effective values, whereas the
+            # parent records defaults from the original, digest-checked source.
+            actual.pop("parameter_defaults", None)
+            if "parameter_defaults" in expected:
+                actual["parameter_defaults"] = copy.deepcopy(expected["parameter_defaults"])
     if actual != expected:
         raise ValueError("workload, resource or measurement options differ from the frozen configuration")
     for name, actual_value in (("backend", task.runtime_backend), ("runtime_profile", task.runtime_profile_id)):

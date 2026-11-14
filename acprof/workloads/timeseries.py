@@ -19,8 +19,11 @@ class TimeseriesWorkloadGenerator(WorkloadGenerator):
     small batch-specific perturbation.
     """
 
-    def __init__(self, model_id: str, task_type: str, batch_size: int):
+    def __init__(self, model_id: str, task_type: str, batch_size: int, *, inference_parameters: dict | None = None):
         super().__init__(model_id, task_type, batch_size)
+        from acprof.input_budget import positive_integer
+        self._prediction_length = positive_integer((inference_parameters or {}).get("prediction_length", 64),
+                                                   "prediction_length", allow_integral_float=False)
         # Pre-generate a long base sequence for slicing
         rng = random.Random(BASE_SEED)
         self._max_len = MAX_CONTEXT_LENGTH
@@ -41,7 +44,7 @@ class TimeseriesWorkloadGenerator(WorkloadGenerator):
 
         return {
             "context": context_batch,
-            "prediction_length": 64,
+            "prediction_length": self._prediction_length,
         }
 
     def scale_label(self, scale_value: float) -> str:
@@ -64,6 +67,9 @@ class TimeseriesWorkloadGenerator(WorkloadGenerator):
 
     def max_input_scale(self) -> float:
         return float(self._max_len)
+
+    def plan_metadata(self) -> dict[str, Any]:
+        return {"inference_parameters": {"prediction_length": self._prediction_length}}
 
 
 register_generator("timeseries", TimeseriesWorkloadGenerator)

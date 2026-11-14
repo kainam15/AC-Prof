@@ -4,10 +4,15 @@ from __future__ import annotations
 import copy
 
 from acprof.analysis.comparison import load_comparison_snapshot
-from acprof.models.inference_configuration import configuration_identity
+from acprof.models.configuration_resolution import resolve_inference_configuration
+from acprof.models.inference_configuration import (
+    configuration_identity,
+    freeze_inference_configuration,
+)
 from acprof.tasks.workloads import parse_task
 from tests.support.comparison_fixtures import ComparisonFixture
 from tests.support.inference_configuration_fixture import frozen_task
+from tests.support.task_configuration_fixture import routable_task
 
 
 def configured_fixture(tmp_path):
@@ -57,3 +62,25 @@ def test_comparison_rejects_conflicting_static_identity(tmp_path):
     assert not snapshot["valid"]
     assert any("model.model_id differs" in issue for issue in snapshot["issues"])
     assert snapshot["identity"]["inference_configuration_sha256"] is None
+
+
+def test_comparison_exposes_task_specific_parameters_after_static_metadata_roundtrip(tmp_path):
+    fixture = ComparisonFixture()
+    fixture.build(tmp_path)
+    task, candidate = resolve_inference_configuration(
+        routable_task("timeseries"), {"schema_version": 1, "preset": "benchmark"}, devices=["off"],
+    )
+    frozen = freeze_inference_configuration(candidate, candidate["identity_sha256"])
+    selected = task.selected_tasks[0]
+    fixture.change_json(fixture.left, "input_scale_plan.json", lambda plan: plan.update(
+        task_family=task.task_family, pipeline_tag=task.pipeline_tag, task_workload=selected,
+        inference_configuration_sha256=frozen["identity_sha256"]))
+    fixture.change_json(fixture.left, "static_meta.json", lambda metadata: metadata.update(
+        schema_version=8, model_name=task.model_id, model_revision=task.model_revision,
+        runtime_backend=task.runtime_backend, task_family=task.task_family, pipeline_tag=task.pipeline_tag,
+        runtime_environment={"adapter": task.model_adapter, "profile_id": task.runtime_profile_id},
+        inference_configuration=frozen))
+    snapshot = load_comparison_snapshot(fixture.left)
+    assert not any("inference_configuration:" in issue for issue in snapshot["issues"])
+    assert snapshot["identity"]["inference_parameters"] == {selected["task_id"]: {"prediction_length": 64}}
+    assert load_comparison_snapshot(fixture.right)["identity"]["inference_parameters"] is None

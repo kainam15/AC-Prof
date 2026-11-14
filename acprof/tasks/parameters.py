@@ -43,9 +43,7 @@ def describe_task_parameters(model: Any, selected: dict) -> list[dict]:
                   and any(consumer.stage == "predict" for consumer in spec.consumers))
     if not specs:
         return []
-    generation = selected["config"].get("generation")
-    if not isinstance(generation, dict):
-        return []
+    generation = selected["config"].get("generation", selected["config"].get("inference", {}))
     source_defaults = model.repository_metadata.get("generation_config.json") or {}
     declarations = model.model_config.get("task_specific_params") or {}
     representative_id = selected.get("execution_profile", {}).get("representative_task_id", selected["task_id"])
@@ -66,7 +64,7 @@ def describe_task_parameters(model: Any, selected: dict) -> list[dict]:
         return "AC-Prof 默认值"
 
     label = task_label(selected)
-    length_key = "max_new_tokens" if "max_new_tokens" in generation else "max_length"
+    length_key = "max_length" if "max_length" in generation and "max_new_tokens" not in generation else "max_new_tokens"
     fields = []
     for spec in specs:
         if spec.name in {"max_new_tokens", "max_length"} and spec.name != length_key:
@@ -239,7 +237,8 @@ def apply_parameter_review(model: Any, selected_tasks: list[dict], answers: dict
         if not generation_choices and not experiment_choices and not inactive:
             continue
         if generation_choices or inactive:
-            generation = task["config"]["generation"]
+            section = "generation" if "generation" in task["config"] else "inference"
+            generation = task["config"].get(section, {})
             merged = merge_generation_parameters(generation, generation_choices)
             for name in inactive:
                 merged.pop(name, None)
@@ -256,9 +255,10 @@ def apply_parameter_review(model: Any, selected_tasks: list[dict], answers: dict
                 beams == 1 and sequences > 1 and merged.get("do_sample", False) is False
             ):
                 raise ValueError("生成序列数与 Beam 数量、随机采样设置不兼容")
-            validate_generation(merged)
-            task["config"]["generation"] = merged
-            task["config"]["user_generation_overrides"] = dict(generation_choices)
+            if section == "generation":
+                validate_generation(merged)
+                task["config"]["user_generation_overrides"] = dict(generation_choices)
+            task["config"][section] = merged
         if experiment_choices:
             task["config"]["user_experiment_overrides"] = dict(experiment_choices)
         if "execution_profile" in task:

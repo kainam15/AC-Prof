@@ -101,7 +101,8 @@ class MultimodalWorkloadGenerator(WorkloadGenerator):
                    model_adapter=model_adapter, **options)
 
     def __init__(self, model_id: str, task_type: str, batch_size: int,
-                 workload_spec_path: str | None = None, model_adapter: str | None = None):
+                 workload_spec_path: str | None = None, model_adapter: str | None = None,
+                 inference_parameters: dict[str, Any] | None = None):
         super().__init__(model_id, task_type, batch_size)
         if task_type not in TASK_MODALITY:
             raise ValueError(f"unsupported multimodal task: {task_type}")
@@ -114,6 +115,8 @@ class MultimodalWorkloadGenerator(WorkloadGenerator):
         if workload_spec_path:
             self._load_spec(Path(workload_spec_path).resolve())
         spec = self._spec
+        if inference_parameters:
+            spec = {**spec, "params": {**spec.get("params", {}), **inference_parameters}}
         self.input_budget = InputBudget.from_value(spec.get("input_budget"))
         self._configure_modalities(spec)
         self._configure_generation(spec, model_adapter)

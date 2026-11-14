@@ -102,6 +102,7 @@ def _load_eager_attention(pipe: Any, load_options: dict[str, Any] | None) -> Any
     options = dict(load_options or {})
     options.pop("dtype", None)
     options.pop("trust_remote_code", None)
+    options.pop("scheduler", None)  # Independently checked by _configure_scheduler.
     attention_implementation = options.pop("attention_implementation", None)
     if options:
         unsupported = ", ".join(sorted(options))
@@ -129,6 +130,33 @@ def _load_eager_attention(pipe: Any, load_options: dict[str, Any] | None) -> Any
         # model context before accepting logical FLOP results.
         setattr(config, "_attn_implementation", "eager")
     return denoiser
+
+
+def _configure_scheduler(pipe: Any, name: str | None) -> None:
+    if name is None:
+        return
+    from acprof.extensions import get_extension
+    from acprof.extensions.parameters import validate_parameter_value
+
+    declaration = get_extension("diffusion", "diffusers", task="text-to-image")
+    spec = next(item for item in declaration.parameters if item.name == "scheduler")
+    validate_parameter_value(spec, name, path="loading.scheduler")
+    if type(pipe).__name__ not in spec.pipeline_classes:
+        raise ValueError("scheduler selection requires a registered SDXL pipeline")
+    scheduler = getattr(pipe, "scheduler", None)
+    if scheduler is None:
+        raise ValueError("loaded pipeline has no observable scheduler")
+    if type(scheduler).__name__ == name:
+        return
+    import diffusers
+
+    implementation = getattr(diffusers, name)
+    if implementation not in scheduler.compatibles:
+        raise ValueError(f"scheduler {name} is not compatible with the loaded checkpoint scheduler")
+    # from_config does not access the Hub or load another checkpoint.
+    pipe.scheduler = implementation.from_config(dict(scheduler.config))
+    if type(pipe.scheduler).__name__ != name:
+        raise ValueError("scheduler implementation did not match the requested class")
 
 
 def _native_pipeline_parameters(pipe: Any, task: str) -> dict[str, inspect.Parameter]:
@@ -661,6 +689,7 @@ class DiffusionHandler(BaseHandler):
             local_files_only=True,
         )
         pipe = _pipeline_for_task(pipe, task)
+        _configure_scheduler(pipe, (load_options or {}).get("scheduler"))
         if task in NATIVE_TASKS:
             _native_pipeline_parameters(pipe, task)
         elif task != "text-to-image":

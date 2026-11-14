@@ -386,6 +386,7 @@ class AudioWorkloadGenerator(WorkloadGenerator):
         task_type: str,
         batch_size: int,
         workload_spec_path: str | None = None,
+        inference_parameters: dict[str, Any] | None = None,
     ):
         super().__init__(model_id, task_type, batch_size)
         if batch_size != 1:
@@ -409,6 +410,8 @@ class AudioWorkloadGenerator(WorkloadGenerator):
             spec_path = Path(workload_spec_path).expanduser()
         self.workload_spec_path = spec_path.resolve()
         self._spec = _load_workload_spec(self.workload_spec_path)
+        if inference_parameters:
+            self._spec["inference"].update(copy.deepcopy(inference_parameters))
         if workload_spec_path is None and task_type != ASR_TASK_TYPE:
             self._spec["pipeline_tag"] = task_type
             self._spec["workload_id"] = f"librispeech-clean-test-en-{task_type}-short-v1"

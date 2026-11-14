@@ -6,6 +6,7 @@ Auto, freeze an execution configuration, or authorize a runtime implementation.
 from __future__ import annotations
 
 import copy
+from dataclasses import replace
 from typing import Any
 
 from acprof.extensions import CATALOG, select_extension
@@ -21,7 +22,14 @@ def parameter_declaration(task_info: Any, selected_task: dict | None = None):
     view.runtime_backend = selected.get("execution_profile", {}).get(
         "signature", {},
     ).get("backend", task_info.runtime_backend)
-    return select_extension(view)
+    declaration = select_extension(view)
+    config = view.model_config
+    pipeline_class = config.get("_class_name") or view.repository_metadata.get("model_index.json", {}).get("_class_name")
+    return replace(declaration, parameters=tuple(
+        spec for spec in declaration.parameters
+        if (not spec.model_types or config.get("model_type") in spec.model_types)
+        and (not spec.pipeline_classes or pipeline_class in spec.pipeline_classes)
+    ))
 
 
 def describe_configuration_options(

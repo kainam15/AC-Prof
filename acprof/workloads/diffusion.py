@@ -47,6 +47,7 @@ class DiffusionWorkloadGenerator(WorkloadGenerator):
         task_type: str,
         batch_size: int,
         workload_spec_path: str | None = None,
+        inference_parameters: dict[str, Any] | None = None,
     ):
         super().__init__(model_id, task_type, batch_size)
         self._task = {
@@ -82,6 +83,7 @@ class DiffusionWorkloadGenerator(WorkloadGenerator):
         self._image_source = "deterministic synthetic geometric RGB image"
         if workload_spec_path is not None:
             self._load_spec(Path(workload_spec_path).expanduser().resolve())
+        self._params.update(inference_parameters or {})
         self._budget.batch(batch_size)
         if not self._prompts:
             self._prompts = [PROMPTS[index % len(PROMPTS)] for index in range(batch_size)]

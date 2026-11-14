@@ -105,7 +105,8 @@ def verify_runtime_configuration(task_info: Any, report: dict, *, expected_devic
             evidence={"identity_sha256": expected, "report_field": field, "observed": actual},
         ))
 
-    def verify_parameter(field: str, observation: Any, value: Any, *, loading: bool = False) -> None:
+    def verify_parameter(field: str, observation: Any, value: Any, *, loading: bool = False,
+                         sources: set[str] | None = None) -> None:
         if (not isinstance(observation, dict) or observation.get("status") != "verified"
                 or "expected" not in observation or "observed" not in observation):
             raise unverified(field, observation)
@@ -116,7 +117,7 @@ def verify_runtime_configuration(task_info: Any, report: dict, *, expected_devic
             raise mismatch(f"{field}.observed", observation["observed"], required)
         if not loading:
             source = observation.get("source")
-            if not isinstance(source, str) or source not in _GENERATION_OBSERVATION_SOURCES:
+            if not isinstance(source, str) or source not in (sources or _GENERATION_OBSERVATION_SOURCES):
                 raise unverified(f"{field}.source", source)
 
     def verify_device(field: str, actual: Any) -> None:
@@ -141,11 +142,20 @@ def verify_runtime_configuration(task_info: Any, report: dict, *, expected_devic
         verify_device("device", report["device"])
     requirements = {"configuration_validation": "verified"}
     consumer_declared = False
+    inference = frozen["tasks"][active_task_id].get("inference", {})
+    consumer_specs = {}
+    if inference:
+        from acprof.models.task_configuration import task_consumer_specs
+        consumer_specs = task_consumer_specs(
+            family=task_info.task_family, backend=task_info.runtime_backend,
+            adapter=task_info.model_adapter, task=task_info.pipeline_tag, values=inference,
+        )
     if require_consumers:
         consumer_declared = declared_generation_consumer(
             family=task_info.task_family, backend=task_info.runtime_backend,
             adapter=task_info.model_adapter, task=task_info.pipeline_tag,
         )
+        consumer_declared = consumer_declared or bool(consumer_specs)
         requirements["consumer_receipt"] = "verified" if consumer_declared else "not_applicable"
     for field, status in requirements.items():
         evidence = report.get(field)
@@ -173,14 +183,15 @@ def verify_runtime_configuration(task_info: Any, report: dict, *, expected_devic
                 calls = evidence.get("calls")
                 valid = isinstance(calls, list) and bool(calls)
                 if valid:
-                    generation = frozen["tasks"][active_task_id]["generation"]
+                    generation = inference or frozen["tasks"][active_task_id]["generation"]
                     for index, call in enumerate(calls):
                         path = f"{field}.calls[{index}].parameters"
                         parameters = call.get("parameters") if isinstance(call, dict) else None
                         if not isinstance(parameters, dict):
                             raise unverified(path, parameters)
                         for name, value in generation.items():
-                            verify_parameter(f"{path}.{name}", parameters.get(name), value)
+                            verify_parameter(f"{path}.{name}", parameters.get(name), value,
+                                sources={consumer_specs[name].validation_method} if consumer_specs else None)
             elif valid:
                 generation = evidence.get("generation")
                 valid = (isinstance(generation, dict) and generation.get("status") == "not_applicable"
