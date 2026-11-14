@@ -30,6 +30,9 @@ Handler 和 validator 的 `module:callable` 入口。可选 `execution_entrypoin
 `{"name": "field", "enabled": false}` 明确移除继承字段，不用 `null` 同时表示默认空值与删除。
 `default: {"value": null}` 仅在 nullable 字段中合法；没有 default wrapper 表示未声明默认。
 字段区分 model/loading/inference/workload/measurement，非只读字段必须声明消费者 stage/argument。
+`model_types`、`pipeline_classes` 限制字段的模型类型和原生 Pipeline 类；缺少匹配证据时不开放。
+任务专属消费者通过 `validation_method` 登记 `generate.kwargs`、`pipeline.predict.kwargs`、
+`pipeline.call.kwargs` 或 `scheduler.class`，静态声明不等于实际执行证据。
 来源绑定只读取已获取元数据中的文件和 RFC 6901 JSON pointer，task_scoped 仅选择
 `config.json.task_specific_params` 的对应语义任务。完整语义与当前覆盖见[统一推理配置契约](inference-configuration.md)。
 

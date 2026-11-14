@@ -57,8 +57,14 @@ acprof run --model google-t5/t5-small --tasks translation_en_to_de,summarization
 保留完整任务 ID，包括其中的点；改变 Beam 或后端导致最终任务重新分组时，系统保存原选择到
 最终任务的映射。不要把模型架构字段写入可调参数，也不要把候选配置 JSON 当成请求文件。
 
-加载与生成参数完整消费核验目前覆盖已登记的 native NLP 生成实现。其他任务的静态元数据、
-可发现选项和参数声明仍按各自证据展示，不能据此认定具有同级运行时验证能力。
+请求也支持 `preset: custom/auto/author/benchmark`。例如新请求
+`{"schema_version":1,"preset":"benchmark"}` 采用 AC-Prof Benchmark v1 的固定任务参数。
+仅修改已有文件的 preset 名称会保留其显式字段覆盖；要应用全部基线值，应从上述最小请求开始，
+再添加需要保留的 backend、加载和 workload 请求。作者预设只应用有固定来源的、当前已开放的
+`task_specific_params`；缺证据或冲突时拒绝。新预设仍需审阅完整候选和确认摘要。
+
+消费核验除 native NLP 外，还登记了 Whisper、Chronos、多模态生成和 SDXL 的指定参数。
+新增路线的开发验收仅有离线 Fixture／Mock；静态声明不能证明真实 checkpoint 已执行。
 协议、来源和支持边界见[推理配置契约](../models/inference-configuration.md)。
 
 恢复时沿用已冻结配置，Auto 不重新运行。可省略新的请求文件；若仍提供

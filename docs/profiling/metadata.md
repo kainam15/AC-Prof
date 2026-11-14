@@ -121,10 +121,14 @@ UTF-8 JSON object，并拒绝 `NaN`、`Infinity` 及溢出为无穷大的数字�
 | --- | --- |
 | 权重存储精度 | `precision_dtype`、`parameter_dtype_counts` 和量化信息，来源于制品元数据；未知保持未知。 |
 | 请求与 Auto | `inference_configuration.requests/decisions` 保留明确选择或自动决策的原始意图、最终值、来源与规则。 |
-| 最终加载参数 | `loading.off/on` 对应 CPU/GPU；`dtype` 与 `attention_implementation` 只有已声明且完成静态解析的约束。 |
-| 任务配置 | `tasks[task_id]` 绑定接口、任务指纹和生成参数，区分多个任务及工作负载；资源 case 的实际设备由 off/on 选择。 |
+| 最终加载参数 | `loading.off/on` 对应 CPU/GPU；`dtype`、`attention_implementation`、SDXL `scheduler` 仅保存已声明且完成静态解析的约束。 |
+| 任务配置 | `tasks[task_id]` 绑定接口、任务指纹和 NLP `generation` 或任务专属 `inference` 参数，区分多个任务及工作负载；资源 case 的实际设备由 off/on 选择。 |
 | 实际加载观察 | 独立 `runtime_validation.json` 及静态元数据内的同一报告保存 `inference_configuration_sha256` 和 `configuration_validation`。 |
-| 实际参数消费 | 已登记 native NLP 生成路线的 `consumer_receipt` 必须为 `verified`，含真实 generate 边界的调用记录、配置 SHA 和任务 ID；其他路线为 `not_applicable`，不能据此声称生成参数已验证。 |
+| 实际参数消费 | 已登记 NLP、Whisper、Chronos、多模态生成及 SDXL 参数的 `consumer_receipt` 必须为 `verified`，含声明消费者的调用记录、配置 SHA 和任务 ID；未登记路线为 `not_applicable`。Mock 回执只证明离线测试的参数传递。 |
+
+任务专属 `inference`、Scheduler 和作者／Benchmark 预设要求规则 `acprof-inference-v2`；内部 schema
+仍为 1。旧 `acprof-inference-v1` 对象继续原样读取，但不能混入这些新功能；旧运行时拒绝 v2，
+不忽略未知控制。预设来源和版本保存在 decisions，显式覆盖仍逐字段记录。
 
 冻结对象的 `validation` 始终保留 `static=validated,runtime=not_run`，运行成功写入独立报告。
 `configuration_validation.status=verified` 表示已声明的约束经过核验；`loading={}` 时单项 dtype/attention
@@ -135,7 +139,8 @@ UTF-8 JSON object，并拒绝 `NaN`、`Infinity` 及溢出为无穷大的数字�
 续跑在修复测量投影或恢复运行环境之前核对配置内容与任务绑定、输入计划原字节 SHA、静态元数据、
 独立验证的设备覆盖和参数消费状态。配置改变或证据缺失会拒绝恢复，保留原结果。已知历史无冻结对象的
 记录继续按原恢复契约读取，不补造确认、Auto 或执行证明。比较报告展示配置 SHA、加载值和任务生成值的
-身份差异；这项身份记录不等同于模型质量可比较性。
+身份差异；任务专属参数另投影为比较身份中的 `inference_parameters`，未记录冻结配置时为 null。
+这项身份记录不等同于模型质量可比较性。
 
 ### GPU 探测状态与设备归属
 

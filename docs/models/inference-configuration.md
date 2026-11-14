@@ -4,14 +4,15 @@
 
 ## 状态与范围
 
-本页描述统一声明、静态发现及首条严格执行链。实现复用 Extension Manifest、现有任务审阅、
+本页描述统一声明、静态发现及已登记的严格执行链。实现复用 Extension Manifest、现有任务审阅、
 精度策略、Textual 和运行验证，没有新增独立插件系统。
 
 **通用请求表单、Auto 解析、内容确认冻结、传输、静态元数据与恢复检查已经贯通。**
 当前完整的 dtype／attention／生成参数消费核验范围是已登记的原生 NLP 生成路线：
 `transformers_model`、`transformers_pipeline` 对应的 `NLPHandler`。
-其他任务仍可确认已登记后端和工作负载，尚未声明的加载／生成控制不开放，也不标为已核验。
-这不表示完整 P1／P2 或任何真实 checkpoint 验收已经完成。
+另外已接入 Whisper 语言、Chronos 预测长度、多模态生成长度、SDXL 步数／引导系数及 Scheduler，
+字段与独立观察方法见下表。新增路线的开发证据限于离线 Fixture／Mock，尚未取得真实 checkpoint
+执行证据；没有声明的加载／生成控制不开放，也不标为已核验。
 
 现行模型解析和接口验证以[模型契约](contracts.md)为准，现行产物字段和 schema 以
 [静态元数据](../profiling/metadata.md)为准。静态发现结果写入 inspect 的
@@ -28,7 +29,7 @@ CLI 首次返回 `review_required`，TUI 使用独立最终确认页；未确认
   `ParameterRequest` 保留 explicit、auto、unset，显式 null 与未提供值不同；解析由共享 resolver 执行。
 - Manifest 的 `parameters`、`backend_parameters`、`task_parameters` 在既有 Catalog 内合并；
   当前六个文本生成控制（两种长度、do_sample、temperature、top_p、num_beams）及
-  dtype、attention_implementation 加载控制由此声明。CLI／TUI 与任务应用使用同一声明和值校验器。
+  dtype、attention_implementation，以及下表的任务专属控制由此声明。CLI／TUI 与任务应用使用同一声明和值校验器。
   所有最终有效默认值也会物化到任务配置，不能只记录与默认值不同的 override。
 - `models.configuration_sources` 从已取得的 Hub／JSON 元数据发现只读事实和逐参数默认候选。
   文件、JSON pointer、固定 revision、原始字节摘要与 canonical 摘要分别保留；不会联网补齐、
@@ -54,6 +55,22 @@ Time Series 路由补齐。显式、默认和平台变体统一校验 family、t
 加载 dtype 按现有精度策略和设备过滤；attention 仅开放 Handler 已消费的 eager／sdpa。
 这说明接口允许传入该选项，checkpoint 是否接受、加载后是否一致仍须运行验证；不存在未经核验的
 Flash Attention、量化或任意 Python kwargs 选项。
+
+### 任务专属参数与观察边界
+
+| 静态适用范围 | 参数 | 独立验证的消费／观察位置 |
+| --- | --- | --- |
+| Whisper，`automatic-speech-recognition`，原生 Transformers 路线 | `language`、`asr_task=transcribe` | Pipeline 后的 `model.generate(language=…, task=…)`；不开放翻译任务 |
+| Chronos，`time-series-forecasting` | `prediction_length`，正整数 | `pipeline.predict(..., prediction_length=…)` |
+| 原生多模态 `image-text-to-text`、`video-text-to-text`、`audio-text-to-text` | `max_new_tokens`、`do_sample=false` | `model.generate`；仍只支持确定性生成，不扩展 `any-to-any` |
+| `StableDiffusionXLPipeline`，`text-to-image` | `num_inference_steps`、`guidance_scale` | Pipeline 的实际 `__call__` kwargs |
+| 同一 SDXL 路线的加载配置 | `scheduler`：EulerDiscreteScheduler、DDIMScheduler、DPMSolverMultistepScheduler | 加载后的 Scheduler 类名；切换先核对 `scheduler.compatibles`，再用当前 config 构造 |
+
+Whisper 的 `model_type` 和 SDXL 的 Pipeline 类约束同时用于静态表单与运行观察。
+Scheduler 切换使用 `from_config`，不触发第二次 checkpoint 加载；不匹配或无法观察即失败。
+这些控制通过任务指纹、冻结对象、输入计划和实际 Handler 传递。自定义 workload 中已登记的
+参数先显示为来源默认值，用户显式修改或应用预设后才覆盖；源文件摘要与最终有效值分别记录。
+SDXL 的 Custom 默认仍为 20 步，Benchmark v1 为 25 步。
 
 ## 复用边界与参数分类
 
@@ -109,18 +126,42 @@ Host 侧声明与静态解析保持轻量，不导入推理实现或执行任意
 选择预设是一次可追溯的用户操作；“作者推荐”必须有固定来源，否则只能称为模型默认或 AC-Prof 默认。
 确认采用显示的固定默认值也须保存其来源，不把它改称为自动决策。
 
-当前规则 `acprof-inference-v1` 对生成参数使用已经选定的固定任务快照；快照没有该字段时，
+基础规则 `acprof-inference-v1` 对生成参数使用已经选定的固定任务快照；快照没有该字段时，
 使用统一声明默认值。加载精度使用现有登记策略，attention 默认 eager，后端／profile 默认采用
 已经通过静态检查的平台路由。Auto 并不进行性能搜索或失败重试。
 每个决策保存原请求、最终值、来源／候选、选择原因、规则版本及静态／运行验证状态。
 
 初始表单显示具体默认值，模式为 explicit；只有用户选择 Auto 或明确应用 Auto 预设才授权解析。
-当前提供 Custom 与 Auto，尚未登记“作者推荐”或独立“标准 Benchmark”预设。
+提供 Custom、Auto，以及能力适用时的作者任务预设和 AC-Prof Benchmark v1。
 `unset` 不授权默认选择；已禁用的依赖字段记录 inactive，不作为有效生成参数透传。
 模型只读事实不参与这套覆盖；backend、设备、依赖版本的能力限制是验证条件，也不能被高优先级值覆盖。
 
 Auto 解析必须限定到已登记、可解释的规则。候选缺少证据、存在冲突或无可行值时返回明确诊断，
 不尝试未登记实现、不改换模型来源、不降精度重试。用户修改约束后才能生成新的配置。
+
+### 作者任务预设与 AC-Prof Benchmark v1
+
+作者任务预设只采用固定 revision 下、带原始字节 SHA256 的 `config.json.task_specific_params`，
+而且只能应用当前声明已开放的字段。普通 `generation_config.json` 默认值、AC-Prof 默认值或
+无来源的模型卡建议不算作者推荐。候选冲突时不展示该预设，显式请求 `preset: author` 则报错；
+没有对应作者值的字段保留当前选择。来源保留文件、JSON pointer、revision、raw SHA256 和
+`author-task-v1` 版本。它不是对整个模型或后端的作者背书。
+
+`preset: benchmark` 使用 `acprof-benchmark-v1`，仅固定当前声明支持的任务参数：
+
+| 任务 | 固定值 |
+| --- | --- |
+| 文本生成 | 当前长度字段为 64；`do_sample=false`、`num_beams=1`；sampling 关闭时 temperature/top_p 不参与执行 |
+| Whisper ASR | `language=en`、`asr_task=transcribe` |
+| Chronos | `prediction_length=64` |
+| 多模态生成 | `max_new_tokens=64`、`do_sample=false` |
+| SDXL | `num_inference_steps=25`、`guidance_scale=7.5` |
+
+这是项目的任务参数基线，不宣称符合 MLPerf 或其他外部 Benchmark 标准，也不是质量评分。
+应用预设保留已审阅的 backend、Runtime Profile、加载参数（含 Scheduler）、batch 和输入规模；
+资源、输入内容、seed 和测量设置继续使用当前 workload。比较实验仍须核对这些条件。
+随后编辑的显式请求可以覆盖预设值，记录同时保留预设版本和最终请求，因此仅看预设名称不能判断配置相同。
+选择预设本身不提交修改，须点击应用并重新审阅、确认完整 SHA。
 
 ## 解析、确认与冻结
 
@@ -207,6 +248,11 @@ v8 `static_meta.json.inference_configuration` 保存冻结配置原对象。
 运行观察沿用独立 runtime validation 证据并以 `inference_configuration_sha256` 关联，
 不得把 observed 值写回 frozen。完整字段定义见[元数据规范](../profiling/metadata.md)。
 
+内部 schema 仍为 1；新增任务的有效参数保存在 `tasks[id].inference`，NLP 继续使用
+`tasks[id].generation`。包含这些任务参数、Scheduler 或新预设的配置使用规则
+`acprof-inference-v2`，对应决策也记录该版本。旧 v1 配置原样可读；禁止将新字段写入 v1，
+旧运行时也会拒绝未知规则，避免忽略参数继续执行。历史文件不自动补字段或重算身份。
+
 后端身份包含锁定依赖版本、environment 身份、AC-Prof 版本及既有源码身份：
 measurement-source-v2、Docker service-source-v2、process-service-v1 分别保留范围与摘要。
 模型保存 revision、配置和仓库文件清单摘要、已知 base_model、许可证、量化与存储精度；
@@ -238,6 +284,17 @@ source、model ID、完整 revision、固定 weight、sampling 与 weight basis�
 - 原始观察结果与独立审阅的预期结果分别保存；预期至少含状态、reason code、证据层级和下一步。
 - 合成 fixture 与真实固定快照明确标识；解析失败样本保留原始内容，不能先替换非法数值再声称复现。
 - 重放验证原始字节 hash，再调用既有解析与汇总入口；禁止联网补齐缺文件或执行任意模型代码。
+
+本轮开发验证使用离线环境变量、阻止 Python Internet socket 的验证入口、合成 metadata 与 Mock
+消费者；没有下载权重、加载真实 checkpoint、执行 GPU 推理或完整 Profiler。未取得原始 Top 100
+逐项模型／revision 清单时，不能用合成案例代替固定整集回归。
+
+实现参考 [Transformers Whisper generation](https://github.com/huggingface/transformers/blob/v4.57.1/src/transformers/models/whisper/generation_whisper.py)、
+[Diffusers Scheduler 切换](https://github.com/huggingface/diffusers/blob/v0.35.1/docs/source/en/using-diffusers/schedulers.md)
+和 [Chronos predict](https://github.com/amazon-science/chronos-forecasting/blob/main/src/chronos/chronos.py)
+的实际调用边界，沿用本项目锁定的运行环境；只借鉴接口与配置复用方式，没有引入新依赖或复制其实现。
+[Transformers 离线测试](https://github.com/huggingface/transformers/blob/main/tests/utils/test_offline.py)
+提供了在导入前设置离线变量并阻断 socket 的参考；本轮没有执行其下载预热步骤。
 - 比较保留历史结果，不以刷新 snapshot、缩小分母或放宽检查提高通过数量。
 
 可复用 `tests/fixtures/t5_small_metadata/source.json` 及已有 raw-bytes hash 校验方式。
