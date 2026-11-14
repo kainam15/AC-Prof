@@ -262,7 +262,7 @@ class ImageDetailResizeHandle(Static, can_focus=True):
     ]
 
     def __init__(self, **kwargs) -> None:
-        super().__init__("↕ 拖动调整详情高度", markup=False, **kwargs)
+        super().__init__(markup=False, **kwargs)
         self.tooltip = "上下拖动调整详情高度；聚焦后 ↑/↓ 微调，Home 恢复默认。本次会话保留。"
         self._drag_origin: tuple[int, int] | None = None
 
@@ -274,7 +274,7 @@ class ImageDetailResizeHandle(Static, can_focus=True):
         return parent
 
     def render(self) -> Rule:
-        return Rule(str(self.content), style="")
+        return Rule(style="")
 
     def on_mouse_down(self, event: events.MouseDown) -> None:
         if self.disabled or event.button != 1 or event.screen_offset not in self.region:

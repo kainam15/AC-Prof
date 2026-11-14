@@ -101,7 +101,6 @@ MESSAGES: dict[str, Entry] = {
         zh="上下拖动调整详情高度；聚焦后 ↑/↓ 微调，Home 恢复默认。本次会话保留。",
         en="Drag vertically to resize details; when focused, use ↑/↓ to adjust or Home to reset. Kept for this session.",
     ),
-    "images.details.resize_label": Entry(zh="↕ 拖动调整详情高度", en="↕ Drag to resize details"),
     "images.diagnostics.full_size": Entry(zh="完整大小：{0}", en="Full size: {0}"),
     "images.diagnostics.image_id": Entry(zh="镜像 ID：{0}", en="Image ID: {0}"),
     "images.diagnostics.parent_evidence": Entry(zh="父镜像依据：{0} · 后代：{1}", en="Parent evidence: {0} · Descendants: {1}"),
