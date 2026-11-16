@@ -651,6 +651,8 @@ class AcprofTui(BarCursorApp):
 
     @on(Input.Changed, '#backfill-source')
     def on_backfill_result_source_changed(self, event: TextualInput.Changed) -> None:
+        if not self.is_running or not self.form_ready or self.ui_closing:
+            return
         # Read the current value: queued startup events may predate restoration.
         if event.input.value != self.query_one('#experiment-source', Input).value:
             with self.prevent(Input.Changed):

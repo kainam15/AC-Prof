@@ -121,4 +121,9 @@ PNG 基线更新后复用同批捕获进行比较，只核对写入对应性；�
 
 实验选择保留目录，命令准备统一使用 `results.layout.resolve_result_file` 的单实验解析；多任务目录需显式选择。`results/overview.py` 只读取目录元数据，`results/data_status.py` 在后台让质量审计与 `inspect_profile_result` 借用一次结果快照，不调用统计聚合。两个 Worker 复用 App 的管理器、取消令牌和共享只读测量锁，返回时检查当前选择身份。HTML 来源校验只在后台进行，旧报告没有来源证据时保留 unverified；补采在用户确认后再次检查来源及互斥状态。
 
+Results 与 Backfill 的路径变更消息在访问控件前检查 `is_running`、`form_ready` 和 `ui_closing`；
+退出后不再同步选择或调度读取。[Textual 8.2.8 的退出流程](https://github.com/Textualize/textual/blob/v8.2.8/src/textual/app.py)
+先停止应用、卸载控件，最后才分发 App 的 `Unmount`，因此只在 `on_unmount` 清除 `form_ready` 不足以保护排队消息。
+回归在请求退出后及控件部分卸载时重放真实 `Input.Changed`，复用现有生命周期状态，不增加等待或吞掉 `NoMatches`。
+
 线程取消与 UI 回调核验参考 [Textual Workers 指南及示例](https://github.com/Textualize/textual/blob/main/docs/guide/workers.md)。复用已锁定的 Textual，不增加依赖；同一取消令牌传递给现有结果解析器，避免仅取消 Worker 而遗留正在执行的读取。

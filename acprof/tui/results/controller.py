@@ -174,7 +174,8 @@ class ResultController:
         return message_id('results.statistics.empty_hint')
 
     def result_source_changed(self, *, force: bool = False) -> None:
-        if not self.app.form_ready:
+        # Textual stops the app before pruning widgets and calling on_unmount.
+        if not self.app.is_running or not self.app.form_ready or self.app.ui_closing:
             return
         source = self.app.configuration.input("experiment-source").strip()
         path = resolve_result_path(source, self.app.project_dir) if source else None
