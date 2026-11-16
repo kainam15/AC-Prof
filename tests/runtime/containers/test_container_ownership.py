@@ -18,6 +18,7 @@ from acprof.host.images import runtime as runtime_images
 class TestContainerOwnership:
     @pytest.fixture(autouse=True)
     def _setup(self, request, tmp_path, monkeypatch):
+        monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
         self._request = request
         self.task = TaskInfo("fixture/model", "fill-mask", "nlp", "transformers_pipeline",
                              "transformers", "a" * 40, "fixture")
@@ -152,6 +153,50 @@ class TestContainerOwnership:
         ), redirect_stdout(io.StringIO()), pytest.raises(container_state.ContainerStartupError):
             self.start()
         assert ([args[-1] for args in self.commands if args[:2] == ["docker", "rm"]]) == ([self.identifier])
+
+    def test_full_startup_log_and_typed_cause_survive_container_cleanup(self, tmp_path, monkeypatch):
+        from acprof.failures import FAILURE_PREFIX, Failure
+        monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
+        failure = Failure("load", "runtime_dependency_missing", "Missing kokoro package", exception_type="ModuleNotFoundError")
+        diagnostic = "first-root-cause\n" + "x" * 30000 + "\n" + FAILURE_PREFIX + json.dumps(failure.to_dict()) + "\nlast-line\n"
+
+        def command(args, **kwargs):
+            if args[:2] == ["docker", "logs"]:
+                assert "--tail" not in args
+                if kwargs.get("stdout") is not None:
+                    kwargs["stdout"].write(diagnostic)
+                    return SimpleNamespace(returncode=0, stdout=None, stderr=None)
+                return SimpleNamespace(returncode=0, stdout=diagnostic, stderr="")
+            if args[:2] == ["docker", "rm"]:
+                assert diagnostic in next(tmp_path.rglob("*.log")).read_text()
+            return self.command(args, **kwargs)
+
+        with patch("acprof.system.command.run_command", side_effect=command), patch(
+            "acprof.host.container_state.inspect_container_state", return_value={"Running": False, "Status": "exited", "ExitCode": 1}
+        ), patch("requests.get", side_effect=ConnectionError("not ready")), pytest.raises(container_state.ContainerStartupError) as caught:
+            self.start()
+        assert diagnostic in Path(caught.value.log_path).read_text()
+        assert caught.value.failure.reason_code == "runtime_dependency_missing"
+        assert caught.value.failure.stage == "load"
+        assert len(str(caught.value)) < 1000
+
+    def test_ready_configuration_failure_saves_logs_before_cleanup_and_preserves_cause(self, tmp_path):
+        original = ValueError("ready configuration mismatch")
+        response = SimpleNamespace(status_code=200, text="", json=lambda: {"status": "ok"})
+
+        def command(args, **kwargs):
+            if args[:2] == ["docker", "logs"]:
+                kwargs["stderr"].write("full ready service diagnostic")
+            if args[:2] == ["docker", "rm"]:
+                assert "full ready service diagnostic" in next(tmp_path.rglob("*.log")).read_text()
+            return self.command(args, **kwargs)
+
+        with patch("acprof.system.command.run_command", side_effect=command), patch("requests.get", return_value=response), patch(
+            "acprof.host.docker_runtime.verify_runtime_configuration", side_effect=original,
+        ), pytest.raises(ValueError, match="ready configuration mismatch") as caught:
+            self.start()
+        assert caught.value is original
+        assert Path(caught.value.failure.evidence["log_path"]).is_file()
 
     def test_failed_docker_start_cleans_its_cidfile_id(self):
         def failed(args, **kwargs):

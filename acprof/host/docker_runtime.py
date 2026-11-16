@@ -4,8 +4,6 @@ from __future__ import annotations
 import datetime
 import math
 import re
-import subprocess
-import sys
 import tempfile
 import time
 import uuid
@@ -256,17 +254,15 @@ def start_container_session(
     deadline = time.perf_counter() + READY_TIMEOUT_S
 
     def fail_startup(reason: str, *, timed_out: bool = False) -> NoReturn:
+        from acprof.host.startup_diagnostics import capture_startup_diagnostics
         state = container_state.inspect_container_state(container_id)
-        try:
-            logs = host_command.run_command(['docker', 'logs', container_id, '--tail', '200'], check=False, timeout=15)
-            diagnostic = ((logs.stdout or "") + "\n" + (logs.stderr or "")).strip()
-        except (OSError, subprocess.TimeoutExpired) as exc:
-            diagnostic = f"container log unavailable: {type(exc).__name__}"
-        if diagnostic:
-            print(diagnostic[-8000:], file=sys.stderr)
+        path, failure = capture_startup_diagnostics(container_id, reason, state=state, timed_out=timed_out)
+        summary = f"{failure.stage}: {failure.reason_code} ({failure.exception_type}); {(failure.detail.splitlines() or [reason])[0][:300]}"
+        if error := failure.evidence.get("log_capture_error"):
+            summary += f"; log_capture_error={error}"
         raise ContainerStartupError(
-            reason + ("; container_log_tail=" + diagnostic[-4000:] if diagnostic else ""),
-            state=state, timed_out=timed_out, container_name=container_name, container_id=container_id)
+            summary + f"; diagnostic_log={path}", state=state, timed_out=timed_out,
+            container_name=container_name, container_id=container_id, log_path=path, failure=failure)
 
     try:
         while time.perf_counter() < deadline:
@@ -344,7 +340,17 @@ def start_container_session(
             or f"server not ready after {READY_TIMEOUT_S}s for container {container_name}",
             timed_out=True,
         )
-    except BaseException:
+    except BaseException as exc:
+        if isinstance(exc, Exception) and not isinstance(exc, ContainerStartupError):
+            from dataclasses import replace
+
+            from acprof.failures import failure_from_exception
+            from acprof.host.startup_diagnostics import capture_startup_diagnostics
+
+            path, diagnostics = capture_startup_diagnostics(container_id, str(exc))
+            failure = failure_from_exception(exc, stage="load")
+            setattr(exc, "failure", replace(failure, evidence={**failure.evidence, **diagnostics.evidence}))
+            exc.add_note(f"diagnostic_log={path}")
         try:
             remove_owned_container(container_id, host_command.run_command)
         except BaseException:

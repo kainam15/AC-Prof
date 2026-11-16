@@ -82,9 +82,29 @@ def failure_text(request, stage, tr):
         "load": ("模型未能完成加载。", "请检查模型文件、访问权限和可用内存。"),
     }
     reason, hint = reasons.get(failed, ("此阶段未能完成，尚未开始正式采集。", "请查看详细信息，修复配置或环境后重试。"))
-    code = request.get("failure", {}).get("reason_code")
-    if code == "resource_limit":
-        reason, hint = "可用资源不足，模型检测未通过。", "请增加内存或选择更小的模型后重试。"
+    failure = request.get("failure", {})
+    code = failure.get("reason_code")
+    categories = {
+        "backend_unsupported": "architecture", "runtime_task_unsupported": "architecture",
+        "runtime_dependency_missing": "dependency", "runtime_dependency_incompatible": "dependency",
+        "artifact_incomplete": "artifact", "artifact_layout_unsupported": "artifact",
+        "runtime_initialization_failed": "load", "resource_limit": "resource",
+        "inference_failed": "inference",
+    }
+    if code in categories:
+        category = categories[code]
+        lines = [f"{tr('失败阶段')}：{tr(names.get(failed, '模型运行'))}",
+                 tr(message_id("run.failure.type", failure.get("exception_type") or code)),
+                 tr(message_id("run.failure." + category))]
+        detail = str(failure.get("detail") or "").splitlines()
+        if detail:
+            lines.append(detail[0][:240] + ("…" if len(detail[0]) > 240 else ""))
+        lines.append(tr(message_id("run.failure.hint." + category)))
+        if path := failure.get("evidence", {}).get("log_path"):
+            lines.append(tr(message_id("run.docker.log_path", path)))
+        if error := failure.get("evidence", {}).get("log_capture_error"):
+            lines.append(tr(message_id("run.failure.log_incomplete", error)))
+        return "\n".join(lines)
     return f"{tr('失败阶段')}：{tr(names.get(failed, '模型运行'))}\n{tr(reason)}\n{tr(hint)}"
 
 
@@ -257,7 +277,7 @@ class PreparationScreen(ModalScreen):
                         yield Static(tr(summary), id="preparation-summary", markup=False)
                 elif failed:
                     yield Static(failure_text(request, self.event["stage"], tr), id="preparation-detail", markup=False)
-                    with Collapsible(title=tr("详细信息"), id="preparation-diagnostics", collapsed=bool(docker_error)):
+                    with Collapsible(title=tr("详细信息"), id="preparation-diagnostics", collapsed=bool(docker_error or request.get("failure"))):
                         detail = request.get("detail", "")
                         if failure := download_failure(request):
                             import json

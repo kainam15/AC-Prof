@@ -68,6 +68,20 @@ def test_apps_keep_loaded_sessions_and_service_identity_separate():
     assert second_app.test_client().get("/ready").get_json()["load_time_s"] is None
 
 
+def test_entrypoint_reports_typed_startup_failure_and_keeps_original_exception(monkeypatch, capsys):
+    import json
+
+    from acprof.failures import FAILURE_PREFIX
+
+    original = ModuleNotFoundError("Missing kokoro", name="kokoro")
+    monkeypatch.setattr(server, "create_runtime_app", Mock(side_effect=original))
+    with pytest.raises(ModuleNotFoundError, match="kokoro") as caught:
+        server.main()
+    assert caught.value is original
+    record = json.loads(capsys.readouterr().err.split(FAILURE_PREFIX, 1)[1])
+    assert record["reason_code"] == "runtime_dependency_missing"
+    assert record["stage"] == "load"
+
 def test_probe_keeps_empty_reason_when_preprocessing_has_no_diagnostic():
     session = loaded_session("probe")
     session.handler.preprocess = lambda context, payload: {}

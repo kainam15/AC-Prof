@@ -11,6 +11,31 @@ from acprof.tui.run.preparation import PreparationScreen
 from tests.support.tui_fixtures import AcprofTui
 
 
+@pytest.mark.parametrize("language", ["zh", "en"])
+async def test_typed_runtime_failure_has_concise_actionable_summary(tmp_path, language):
+    from acprof.failures import Failure
+    app = AcprofTui(RunConfig.smoke("hexgrad/Kokoro-82M"), settings_path=tmp_path / "settings.json")
+    detail = "ModuleNotFoundError: Missing en_core_web_sm\n" + "Supported architectures: " + "VeryLongModel, " * 1500
+    failure = Failure("load", "runtime_dependency_missing", detail, exception_type="ModuleNotFoundError",
+                      evidence={"log_path": "/tmp/fixture-startup.log"})
+    async with app.run_test(size=(80, 24)) as pilot:
+        app.query_one("#ui-language", Select).value = language
+        await pilot.pause()
+        screen = PreparationScreen({"stage": "runtime", "request": {
+            "id": 1, "kind": "error", "detail": detail, "failure": failure.to_dict(), "failed_stage": "load",
+        }}, respond=lambda _: None)
+        await app.push_screen(screen)
+        await pilot.pause()
+        summary = str(screen.query_one("#preparation-detail").content)
+        assert "ModuleNotFoundError" in summary
+        assert ("依赖" if language == "zh" else "dependency") in summary
+        assert "en_core_web_sm" in summary
+        assert "VeryLongModel" not in summary
+        assert screen.query_one("#preparation-diagnostics", Collapsible).collapsed
+        assert screen.query_one("#preparation-traceback", SelectableLog).text == detail
+        assert screen.region.contains_region(screen.query_one("#preparation-cancel", Button).region)
+
+
 @pytest.mark.parametrize(("size", "language"), [
     ((80, 24), "zh"), ((80, 24), "en"), ((120, 30), "en"), ((150, 45), "zh"),
 ])

@@ -15,11 +15,14 @@ _LOG = logging.getLogger(__name__)
 class ContainerStartupError(RuntimeError):
     """Typed evidence captured before removing a container that never reached /ready."""
 
-    def __init__(self, message: str, *, state=None, timed_out=False, container_name="", container_id=""):
+    def __init__(self, message: str, *, state=None, timed_out=False, container_name="", container_id="",
+                 log_path="", failure=None):
         super().__init__(message)
         self.state = state
         self.container_name = container_name
         self.container_id = container_id
+        self.log_path = log_path
+        self.failure = failure
         confirmed = (isinstance(state, dict) and state.get("OOMKilled") is True
                      and state.get("Running") is False and state.get("Restarting") is not True)
         # A timeout boundary is ambiguous even if a later inspect observes OOM.

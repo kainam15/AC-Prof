@@ -58,8 +58,8 @@ def failure_from_exception(exc: BaseException, *, stage: str, device: str = "unk
                            runtime_profile: str = "", evidence: dict | None = None) -> Failure:
     """Keep typed causes and implicit context; never classify natural-language messages."""
     for cause in exception_chain(exc):
-        if isinstance(cause, RuntimeFailure):
-            value = cause.failure
+        value = getattr(cause, "failure", None)
+        if isinstance(value, Failure):
             return replace(value, device=device if value.device == "unknown" else value.device,
                            runtime_profile=value.runtime_profile or runtime_profile,
                            evidence={**value.evidence, **(evidence or {})})

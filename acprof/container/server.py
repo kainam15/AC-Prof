@@ -199,7 +199,17 @@ def create_runtime_app() -> Flask:
 
 
 def main() -> None:
-    app = create_runtime_app()
+    try:
+        app = create_runtime_app()
+    except Exception as exc:
+        import json
+        import sys
+
+        from acprof.failures import FAILURE_PREFIX, failure_from_exception
+
+        failure = failure_from_exception(exc, stage="load", runtime_profile=os.getenv("ACPROF_RUNTIME_PROFILE", ""))
+        print(FAILURE_PREFIX + json.dumps(failure.to_dict(), ensure_ascii=False), file=sys.stderr, flush=True)
+        raise
     if os.getenv("ACPROF_SERVER_FD"):
         from werkzeug.serving import make_server
 
