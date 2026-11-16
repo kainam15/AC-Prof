@@ -399,7 +399,7 @@ class PreparationScreen(ModalScreen):
         reply = {"action": "confirm" if request.get("kind") == "review" else "retry"}
         if request.get("purpose") == "inference_confirmation":
             reply["confirmation_digest"] = request["confirmation_digest"]
-            encode_reply(request["id"], **reply)
+            encode_reply(request["id"], reply["action"], confirmation_digest=reply["confirmation_digest"])
         self.send(reply)
 
     @on(Button.Pressed, "#preparation-defaults")

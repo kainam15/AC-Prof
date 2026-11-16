@@ -90,14 +90,18 @@ class AutomaticRun:
         saved = load_run_state(self.root) if args.resume and not grouped else None
         frozen_runtime = saved.get("runtime") if saved is not None else None
         if args.resume:
+            recorded_task: TaskInfo | None = None
             if grouped:
                 from acprof.experiments.configuration import RunConfig
                 from acprof.results.task_collections import read_task_collection
 
                 _path, manifest = read_task_collection(self.root, run_id=RunConfig.from_namespace(args).task_run_id)
                 recorded_task = TaskInfo(**manifest["task_snapshot"])
-            else:
-                recorded_task = TaskInfo(**frozen_runtime["task"]) if frozen_runtime is not None else None
+            elif frozen_runtime is not None:
+                recorded_snapshot = frozen_runtime["task"]
+                if not isinstance(recorded_snapshot, dict):
+                    raise ValueError("frozen task snapshot must be an object")
+                recorded_task = TaskInfo(**recorded_snapshot)
             if recorded_task is not None and recorded_task.inference_configuration:
                 from acprof.host.preparation.inference_configuration import (
                     validate_resume_inference_requests,

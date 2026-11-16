@@ -63,7 +63,7 @@ def apply_preset(fields: list[dict], preset: str) -> None:
 def additional_presets(fields: list[dict]) -> list[dict]:
     if not any(field["spec"].scope == "inference" for field in fields):
         return []
-    presets = [{
+    presets: list[dict] = [{
         "id": "benchmark", "label": "AC-Prof Benchmark v1",
         "description": "Fixed AC-Prof task parameters; retain the reviewed workload and loading policy.",
         "requests": {"schema_version": 1, "preset": "benchmark"},

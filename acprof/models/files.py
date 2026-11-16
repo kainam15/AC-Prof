@@ -29,7 +29,7 @@ def safe_path(name: str) -> str:
     return name
 
 
-def _checkpoint_choices(prefix: str, *, diffusion: bool):
+def _checkpoint_choices(prefix: str, *, diffusion: bool) -> list[tuple[str, str]]:
     stems = [("diffusion_pytorch_model", "safetensors"), ("diffusion_pytorch_model", "bin")] if diffusion else [
         ("model", "safetensors"), ("pytorch_model", "bin"),
     ]

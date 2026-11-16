@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import copy
 import json
+from collections.abc import Callable
 from contextlib import contextmanager
 from typing import Any
 
@@ -153,9 +154,9 @@ def verify_model_session_configuration(session) -> dict:
         raise _failure(config, device, str(exc)) from exc
     if context.get("_inference_configuration_sha256") != frozen["identity_sha256"]:
         raise _failure(config, device, "loaded session is not bound to this frozen configuration")
-    loading = {}
+    loading: dict[str, dict[str, Any]] = {}
     model = _model(context)
-    observations = {
+    observations: dict[str, tuple[Callable[[Any], list[str]], str, str]] = {
         "dtype": (_parameter_dtypes, "floating_parameter_dtypes", "model_parameters"),
         "attention_implementation": (_attention_implementations, "model_config", "configured_attention"),
     }
@@ -297,7 +298,7 @@ class _ObservedPipeline:
 def capture_generation_consumption(session):
     """Temporarily observe the declared consumer in independent validation."""
     frozen = _frozen(session.config)
-    receipt = {}
+    receipt: dict[str, Any] = {}
     if not frozen:
         yield receipt
         return

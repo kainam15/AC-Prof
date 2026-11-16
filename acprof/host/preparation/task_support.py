@@ -75,7 +75,7 @@ def _require_task_support(task_info: TaskInfo, *, batch_size: int, devices) -> N
     except RuntimeFailure as exc:
         raise TaskSupportError(exc.failure) from exc
     except ValueError as exc:
-        status = task_info.model_resolution.get("status")
+        status = task_info.model_resolution.get("status", "")
         reason_code = {
             "selection_required": "task_selection_required",
             "ambiguous": "evidence_conflict",

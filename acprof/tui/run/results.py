@@ -454,7 +454,7 @@ def evaluate_process_completion(
         and not any((snapshot.total_cases, snapshot.current_case, snapshot.completed_cases,
                      run_result.total_cases, run_result.completed_cases, run_result.new_cases, run_result.result_csv))
     )
-    if before_measurement_failure:
+    if before_measurement_failure and snapshot is not None:
         final_snapshot = replace(snapshot, measurement_active=False)
     elif unsupported_task and snapshot is not None:
         final_snapshot = replace(snapshot, measurement_active=False, measurement_status="failed")

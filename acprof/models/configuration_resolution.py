@@ -334,7 +334,8 @@ def build_configuration_draft(task_info, *, devices: list[str], requests: dict |
                               workload: dict | None = None) -> dict:
     view, profile, fields, normalized, devices, workload = _prepare(
         task_info, devices=devices, requests=requests, workload=workload)
-    questions, advanced = [], []
+    questions: list[dict] = []
+    advanced: list[dict] = []
     for field in fields:
         spec = field["spec"]
         dependencies = {condition.parameter: next((item["path"] for item in fields

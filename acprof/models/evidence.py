@@ -12,7 +12,7 @@ INTERFACE_RESOLVER_VERSION = "model-interfaces-v2"
 FIELD_STATES = {"declared", "derived", "verified", "ambiguous", "unresolved"}
 
 
-def pinned_revision(revision: str) -> bool:
+def pinned_revision(revision: object) -> bool:
     return isinstance(revision, str) and re.fullmatch(r"[0-9a-f]{40}", revision) is not None
 
 

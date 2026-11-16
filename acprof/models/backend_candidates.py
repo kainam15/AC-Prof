@@ -193,6 +193,8 @@ def describe_backend_candidates(task_info: Any, *, task: str | None = None) -> l
             _restore_workload_selection(context)
             context.model_resolution = resolve_model_interface(context)
             profile = select_runtime_profile(context)
+            if profile.environment is None:
+                raise ValueError(f"Runtime profile {profile.profile_id!r} has no dependency environment")
             candidate.update(
                 runtime_profile=profile.profile_id, environment=profile.environment.environment_key,
                 loader=context.model_resolution["loader"], operation=context.model_resolution["operation"],

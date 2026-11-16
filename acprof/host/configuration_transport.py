@@ -159,8 +159,10 @@ def verify_runtime_configuration(task_info: Any, report: dict, *, expected_devic
         requirements["consumer_receipt"] = "verified" if consumer_declared else "not_applicable"
     for field, status in requirements.items():
         evidence = report.get(field)
-        valid = isinstance(evidence, dict) and evidence.get("status") == status
-        if valid and field == "configuration_validation":
+        if not isinstance(evidence, dict) or evidence.get("status") != status:
+            raise unverified(field, evidence, status=status)
+        valid = True
+        if field == "configuration_validation":
             for key, required in (("inference_configuration_sha256", expected), ("task_id", active_task_id)):
                 if evidence.get(key) != required:
                     raise mismatch(f"{field}.{key}", evidence.get(key), required)
@@ -176,13 +178,13 @@ def verify_runtime_configuration(task_info: Any, report: dict, *, expected_devic
                 if (not isinstance(observation, dict) or observation.get("status") != "not_applicable"
                         or observation.get("reason") != "not_declared"):
                     raise unverified(f"{field}.loading.{name}", observation, status="not_applicable")
-        if valid and field == "consumer_receipt":
+        if field == "consumer_receipt":
             valid = (evidence.get("inference_configuration_sha256") == expected
                      and evidence.get("task_id") == active_task_id)
             if valid and consumer_declared:
                 calls = evidence.get("calls")
                 valid = isinstance(calls, list) and bool(calls)
-                if valid:
+                if isinstance(calls, list) and calls:
                     generation = inference or frozen["tasks"][active_task_id]["generation"]
                     for index, call in enumerate(calls):
                         path = f"{field}.calls[{index}].parameters"

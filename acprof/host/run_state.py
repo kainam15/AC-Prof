@@ -34,6 +34,7 @@ from acprof.host.run_state_types import (
     MeasurementOptions,
     PlannedSnapshot,
     RunStateSnapshot,
+    RuntimeSnapshot,
 )
 from acprof.messages import Message, join_messages, message
 from acprof.platform import detect_environment, is_linux
@@ -336,13 +337,16 @@ def _validate_planned_snapshot(plan: object, layout: ArtifactLayout) -> TypeGuar
     return True
 
 
-def _frozen_runtime_task(runtime: dict):
+def _frozen_runtime_task(runtime: Mapping[str, object]):
     """Validate persisted values before any runtime restoration or recovery writes."""
     from acprof.host.configuration_transport import bound_inference_configuration
     from acprof.host.detect import TaskInfo
 
     try:
-        task = TaskInfo(**runtime["task"])
+        task_snapshot = runtime["task"]
+        if not isinstance(task_snapshot, dict):
+            raise ValueError("runtime.task must be an object")
+        task = TaskInfo(**task_snapshot)
         frozen = bound_inference_configuration(task)
         recorded = runtime.get("inference_configuration_sha256")
         if frozen:
@@ -356,7 +360,7 @@ def _frozen_runtime_task(runtime: dict):
     return None
 
 
-def _validate_frozen_runtime_evidence(layout: ArtifactLayout, runtime: dict) -> None:
+def _validate_frozen_runtime_evidence(layout: ArtifactLayout, runtime: RuntimeSnapshot) -> None:
     """Frozen configuration, plan and independent observations form one experiment."""
     from acprof.artifacts import read_input_scale_plan
     from acprof.host.configuration_transport import (
@@ -878,7 +882,7 @@ class RunState:
         if not _validate_planned_snapshot(plan, self.layout):
             raise RunStateError("run_state.json 输入计划校验失败")
         from acprof.host.runtimes.contracts import runtime_kind
-        snapshot = {
+        snapshot: RuntimeSnapshot = {
             "kind": runtime_kind(image),
             "task": {key: value for key, value in asdict(task).items() if key != "repository_sources"},
             "image": asdict(image), "planned": plan,

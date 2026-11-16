@@ -10,7 +10,7 @@ from dataclasses import replace
 from typing import Any
 
 from acprof.extensions import CATALOG, select_extension
-from acprof.extensions.parameters import parameter_spec_to_dict
+from acprof.extensions.parameters import ParameterSpec, parameter_spec_to_dict
 
 
 def parameter_declaration(task_info: Any, selected_task: dict | None = None):
@@ -67,6 +67,7 @@ def describe_configuration_options(
             "signature", {},
         ).get("backend", task_info.runtime_backend)
         task_id = selected["task_id"] if selected else None
+        specs: tuple[ParameterSpec, ...]
         try:
             declaration = parameter_declaration(task_info, selected)
         except (ValueError, RuntimeFailure) as exc:
