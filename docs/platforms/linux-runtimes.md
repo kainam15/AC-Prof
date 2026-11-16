@@ -53,7 +53,8 @@ acprof doctor --runtime process --profiling-mode basic --gpus off
 acprof tui
 ```
 
-在 TUI 选择 Smoke/basic，再到高级参数选择 Process，点击“使用继承限制（CPU / 内存 → auto）”。
+在 TUI 选择 Smoke/basic，在基本配置选择 Process，再到高级参数按需点击
+“使用继承限制（CPU / 内存 → auto）”。
 环境检查展示可用采集器及缺失状态；最小内存探测仍为 Docker 工具，Process 使用输入规模扫描。
 Process 的结构化 `case_selected` 进度携带 `runtime_kind=process`，允许 CPU/内存为 null，界面显示“继承限制”；
 Docker 与最小内存 probe 的进度仍要求正数资源轴。
