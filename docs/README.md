@@ -7,6 +7,7 @@
 - [安装与主机准备](getting_started/installation.md)：安装、升级、权限与运行前检查。
 - [实验指南](usage/experiments.md)：首次 Smoke、资源矩阵、恢复和结果验收。
 - [TUI 用户指南](usage/tui.md)：实验配置、运行监控与结果查看。
+- [版本管理与恢复](usage/version-management.md)：更新渠道、安装验证、重启与故障恢复。
 - [CLI 参考](usage/cli.md)：命令、参数与配置入口。
 - [运行排障](usage/troubleshooting.md)：常见错误与处理方法。
 

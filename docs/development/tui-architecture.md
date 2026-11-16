@@ -42,6 +42,10 @@ acprof/tui/
 - `ResultController` 组合 `HtmlReportController`，后者持有 HTML 生成回执和完成状态，并通过 App 调度文件 Worker；二者都不持有执行会话或进程。`report_actions.py` 只根据 `OperationState`、结果可用性和执行种类计算控件规则，测量互斥仍由 App 的同一个 `OperationState` 提供。
 - `AcprofTui` 仅是 Textual 宿主：事件路由、组合页面、全局互斥、Worker/Timer 和卸载回收桥接。少量公共 callback 方法委派给 `RunPresenter`，供 Textual 和线程安全回调使用；这些委派不是独立状态副本。
 - `commands.py`、`i18n.py` 和 `acprof.tui` 包导入不能提前加载 Textual。重依赖仍在使用时才导入。
+- `updates.py` 持有版本管理的页面状态与 App Worker；`acprof/updates/` 负责候选、安装身份与事务。
+  安装是独立的维护进程，不属于采集执行会话。它及安装器继承 `MeasurementLock` 的两种内核保护，
+  页面关闭不释放锁；`OperationState` 在更新期间及等待重启时阻止采集。恢复脚本在替换前复制，
+  仅使用标准库与环境外解释器；用户配置与更新渠道状态分开保存。
 
 ## 行为不变量
 
