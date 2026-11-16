@@ -14,6 +14,7 @@ from .images import MESSAGES as IMAGES
 from .logs import MESSAGES as LOGS
 from .models import MESSAGES as MODELS
 from .profiling import MESSAGES as PROFILING
+from .resources import MESSAGES as RESOURCES
 from .results import MESSAGES as RESULTS
 from .run import MESSAGES as RUN
 from .settings import MESSAGES as SETTINGS
@@ -46,7 +47,7 @@ def source_indexes(messages: Mapping[str, Entry]) -> tuple[dict[str, str], dict[
 
 
 MESSAGES = merge_messages(
-    COMMON, DOWNLOADS, IMAGES, LOGS, MODELS, PROFILING, RESULTS, RUN, SETTINGS, STRUCTURED, VALIDATION,
+    COMMON, DOWNLOADS, IMAGES, LOGS, MODELS, PROFILING, RESOURCES, RESULTS, RUN, SETTINGS, STRUCTURED, VALIDATION,
 )
 SOURCE_BY_ID = {key: entry.zh for key, entry in MESSAGES.items()}
 ENGLISH_BY_ID = {key: entry.en for key, entry in MESSAGES.items()}
