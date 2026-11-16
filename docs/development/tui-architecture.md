@@ -82,7 +82,17 @@ acprof/tui/
 `ConfigurationController` 提供已选 runtime、预算和缓存路径；纯模型不读环境、文件或硬件，也不重复校验配置。
 `invalid_plan_view()` 清空有效计划事实，保留完整配置问题；controller 同时清除旧输入单位和规模提示，保留身份仍匹配时可复用的已解析计划。既有字段定位与采集门禁不变。准备期即使 busy 仍可更新输入计划，`measurement_active` 时不投影。
 第四个迁移页面为 `run/environment_view.py` → `ui/environment.py::EnvironmentPopover`。
-纯模型只把缓存的 `PreflightCheck` 投影成分组 `StatusSummary` 和 `EnvironmentCheckView`：异常使用 `Callout`，正常、待确认与未请求项使用 `FactGrid`，不读取宿主或可编辑实验配置，不重新判定启动门禁。
+`run/global_status.py::build_status()` 以当前配置校验及 `PreflightController` 缓存为输入，生成不可变 `GlobalStatus`。
+稳定根因 ID 去重，当前实验预检覆盖同 ID 的整机证据；失效、检查中、未请求分别分类。
+配置错误使用 `config_<field>`，Process 配置校验失败不能冒充 `process_resources` 权限失败。
+顶栏、问题列表和 `preflight_run_reason()` 都消费同一模型；未验证的必需检查也会阻止启动。
+整机独有失败仅是警告，未选分析器和采集能力是未请求；清理失败持续阻断直到显式重检确认。
+模型不读宿主、不启动探测、不保存第二份可变状态，正式执行仍保留原有权限与安全校验。
+`environment_view.py` 将条目投影为 `EnvironmentCheckView`，问题用 `Callout`，正常、待确认和未请求用 `FactGrid`。
+问题提供名称、原因、当前影响和下一步，通过 `status-open` 定位现有配置控件或权限诊断。
+参考 [VS Code MarkerService](https://github.com/microsoft/vscode/blob/main/src/vs/platform/markers/common/markerService.ts)
+的统一诊断统计与 [Carbon 状态指示](https://www.carbondesignsystem.com/building-blocks/core/patterns/status-indicators)
+的符号、文字及颜色语义；仅复用设计思路，无新依赖。
 `EnvironmentPopover` 保留分类独立固定、悬停预览、键盘选择和离开恢复；无选择时解释首个优先项，不主动夺取焦点。按稳定检查 ID 保留仍存在的选择，分类清单与详情各自可滚动。
 技术详情由展示层翻译结构化消息、拼入原始状态与来源后按既有规则脱敏，不截断异常或路径。检查背景默认折叠，使用共享本地秒级时间格式化，列出平台、测量锁证据和检查范围。
 重检使用稳定 action ID `environment-retry`，继续交给 `PreflightController.quick_check()` 和既有 `OperationState`；`retry_button` 提供当前唯一可见重检按钮，不依赖 Callout 内部控件 ID。正式测量时可交互查看缓存，但重检仍被拒绝。
