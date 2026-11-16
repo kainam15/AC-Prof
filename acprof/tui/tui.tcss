@@ -368,6 +368,9 @@ MonitorHeader.compact-facts #monitor-resources { width: 100%; margin-left: 0; }
 #log-level { width: 14; }
 #log-search { width: 1fr; min-width: 10; }
 #log-controls Button { min-width: 3; width: auto; height: 3; padding: 0 1; border: none; }
+/* Underlining this borderless button also draws lines across its empty rows. */
+#export-log:hover, #export-log:focus, #export-log.-active { text-style: bold; }
+#export-log:disabled { text-style: none; }
 #log-status { display: none; height: 1; padding: 0 2; color: $text-muted; text-overflow: ellipsis; }
 #log-export-result { display: none; height: 1; padding: 0 2; }
 #log-export-result Static { width: auto; margin-right: 2; color: $success; }
