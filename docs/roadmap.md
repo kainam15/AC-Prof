@@ -75,6 +75,11 @@ Docker 启动失败保留完整日志，TUI 展示分类原因与建议。静态
 
 ## Process 资源权限与修复引导
 
+运行方式已迁入首页基本配置，复用原有配置字段、预检失效和命令／计划刷新；Auto、Docker、Process
+显示简短状态，详细权限诊断、显式继承限制、固定 CPU 集合及画像模式保留在高级参数。
+选择、页面往返和保存后重启由离线 Pilot 覆盖，中英文及窄终端布局通过 headless 快照检查；
+用户实际终端仍待验收，未改变 Runtime 策略或采集语义。见[TUI 操作](usage/tui.md)。
+
 已复用 Process 资源管理、PreflightController、ConfigField 和 Carbon Callout，实现 cgroup
 版本/控制器/委派/父级配额诊断、已有权限内的修复、配额回读与短生命周期迁移验证。
 TUI 提供详细原因、手动管理员指引、重新检测及显式继承限制；数值配额未验证则阻断对应实验，

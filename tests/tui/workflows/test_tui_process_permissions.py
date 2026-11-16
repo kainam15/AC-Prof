@@ -71,6 +71,10 @@ async def test_details_keyboard_inherit_and_resize(tmp_path, size, language):
         await pilot.pause()
         assert details.region.bottom <= app.query_one('#advanced-form').content_region.bottom
         inherit = app.query_one('#process-inherited-resources', Button)
+        assert any(
+            ('不再承诺数值配额' if language == 'zh' else 'without a numeric quota') in str(hint.content)
+            for hint in app.query_one('#advanced-form').query('.page-hint')
+        )
         inherit.scroll_visible(immediate=True, force=True)
         await pilot.pause()
         inherit.focus()

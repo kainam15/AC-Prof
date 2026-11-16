@@ -397,8 +397,9 @@ class PreflightController:
         self.app.localization.set_text(detail, reason or summary)
         detail.set_classes('preflight-' + state)
         process_runtime = self.selected_runtime == "process" or self.app.configuration.select("runtime") == "process"
-        from acprof.tui.run import resource_view
+        from acprof.tui.run import resource_view, runtime_view
         if not self.app.execution.session.snapshot.measurement_active:
+            runtime_view.refresh(self)
             resource_view.refresh(self, visible=process_runtime)
             self.app.configuration.update_field_errors(self.app.configuration.config_issues)
         probe = self.app.query_one("#probe-largest", Button)

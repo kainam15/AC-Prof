@@ -182,6 +182,9 @@ Underline { color: $accent; }
     content-align: left middle;
     color: $text-muted;
 }
+#runtime-field { height: auto; }
+#runtime-status { padding: 0 0 1 1; }
+#runtime-status .status-headline { text-style: none; }
 #process-resource-help {
     display: none;
     column-span: 4;

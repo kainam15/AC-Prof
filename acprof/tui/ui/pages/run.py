@@ -21,7 +21,8 @@ from acprof.tui.ui.presentation import (
     COMPACT_EXPANDED_SYMBOL,
     format_input_number,
 )
-from acprof.tui.ui.view_models import CalloutContent
+from acprof.tui.ui.structured import StatusBanner
+from acprof.tui.ui.view_models import CalloutContent, StatusSummary
 
 if TYPE_CHECKING:
     from acprof.tui.app import AcprofTui
@@ -58,12 +59,15 @@ def compose_run_tab(app: AcprofTui) -> ComposeResult:
                     yield ConfigField(app.localization.localized_select((("Hugging Face", "huggingface"),
                         ("ModelScope", "modelscope")), value=app.configuration.initial_config.model_source, allow_blank=False,
                         id="model-source", classes="config-control"), field_id="model-source")
-                    yield app.localization.localized_widget(Label("输出目录"))
-                    yield ConfigField(app.localization.localized_widget(Input(
-                        value=app.configuration.initial_config.output_dir,
-                        id="output-dir",
-                        classes="config-control",
-                    )), field_id="output-dir")
+
+                    yield app.localization.localized_widget(Label("运行方式"))
+                    with Vertical(id="runtime-field"):
+                        yield ConfigField(app.localization.localized_select(
+                            (("自动选择 Runtime", "auto"), ("Docker", "docker"), ("Process（无需 Docker）", "process")),
+                            value=app.configuration.initial_config.runtime, allow_blank=False,
+                            id="runtime", classes="config-control",
+                        ), field_id="runtime")
+                        yield StatusBanner(StatusSummary("info", ""), id="runtime-status")
 
                     yield app.localization.localized_widget(Label("运行预设"))
                     yield app.localization.localized_select(
@@ -72,6 +76,13 @@ def compose_run_tab(app: AcprofTui) -> ComposeResult:
                         allow_blank=False,
                         id="run-preset",
                     )
+
+                    yield app.localization.localized_widget(Label("输出目录"))
+                    yield ConfigField(app.localization.localized_widget(Input(
+                        value=app.configuration.initial_config.output_dir,
+                        id="output-dir",
+                        classes="config-control",
+                    )), field_id="output-dir")
 
                     yield app.localization.localized_widget(Label("CPU 列表"))
                     yield ConfigField(app.localization.localized_widget(Input(
@@ -138,16 +149,13 @@ def compose_run_tab(app: AcprofTui) -> ComposeResult:
                         value=app.configuration.initial_config.input_scale_policy, allow_blank=False,
                         id="input-scale-policy", classes="config-control",
                     ), field_id="input-scale-policy")
-                    yield app.localization.localized_widget(Label("运行方式"))
-                    yield ConfigField(app.localization.localized_select(
-                        (("自动选择 Runtime", "auto"), ("Docker", "docker"), ("Process（无需 Docker）", "process")),
-                        value=app.configuration.initial_config.runtime, allow_blank=False,
-                        id="runtime", classes="config-control",
-                    ), field_id="runtime")
                     with Vertical(id="process-resource-help"):
                         yield ProcessResourceCallout(CalloutContent("info", "", "", ""), id="process-resource-callout")
                         yield app.localization.localized_widget(Button(
                             message_id("run.resources.inherit"), id="process-inherited-resources",
+                        ))
+                        yield app.localization.localized_widget(Static(
+                            message_id("run.resources.guide.auto"), classes="page-hint", markup=False,
                         ))
                     yield app.localization.localized_widget(Label("画像模式"))
                     yield ConfigField(app.localization.localized_select(

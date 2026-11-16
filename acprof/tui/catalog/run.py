@@ -531,7 +531,25 @@ MESSAGES: dict[str, Entry] = {
     "run.review.retry_guidance": Entry(zh="修复下列问题后重试；已完成的阶段保留。", en="Fix the problem below, then retry. Completed stages are retained."),
     "run.review.retry_stage": Entry(zh="重试此阶段", en="Retry this stage"),
     "run.review.retry_validation": Entry(zh="重新验证", en="Retry validation"),
+    "run.runtime.auto_pending": Entry(
+        zh="Auto 的最终 Runtime 由预检确定。",
+        en="Preflight determines the final runtime for Auto.",
+    ),
+    "run.runtime.auto_resolved": Entry(
+        zh="Auto 通过预检选择 Runtime；当前为 {0}。",
+        en="Preflight selects the runtime for Auto; currently {0}.",
+    ),
     "run.runtime.automatic": Entry(zh="自动选择 Runtime", en="Select runtime automatically"),
+    "run.runtime.docker_checking": Entry(zh="正在检查 Docker 环境…", en="Checking the Docker environment…"),
+    "run.runtime.docker_ready": Entry(zh="Docker 环境可用。", en="Docker environment is available."),
+    "run.runtime.docker_recheck": Entry(
+        zh="Docker 待预检；从顶栏环境状态重新检查。",
+        en="Docker needs preflight; recheck via the environment status in the header.",
+    ),
+    "run.runtime.docker_unavailable": Entry(
+        zh="Docker 预检未通过；从顶栏环境状态查看原因并重检。",
+        en="Docker preflight failed; view details and recheck via the environment status in the header.",
+    ),
     "run.runtime.inherit_limits_action": Entry(zh="使用 Process 继承限制", en="Use Process with inherited limits"),
     "run.runtime.label": Entry(zh="运行方式", en="Execution runtime"),
     "run.runtime.process": Entry(zh="Process（无需 Docker）", en="Process (without Docker)"),
