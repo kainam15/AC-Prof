@@ -11,6 +11,7 @@ from textual.widgets import Checkbox
 
 from acprof.tui.app import AcprofTui as ProductionTui
 from acprof.tui.ui.structured import FactGrid, FactValue
+from tests.support.tui_waits import wait_for_condition
 
 # Keep the reviewed Golden header stable across releases, only in visual fixtures.
 SNAPSHOT_TITLE = "AC-Prof 0.3.0"
@@ -45,5 +46,10 @@ class AcprofTui(ProductionTui):
             side_effect=lambda config, token: self.preflight.show_quick_check([], "", token),
         ):
             async with super().run_test(*args, **kwargs) as pilot:
+                await wait_for_condition(
+                    pilot,
+                    lambda: self.preflight.check_completed and self.updates.started and not self.updates.checking,
+                    description="fixture startup preflight and version check", timeout=10,
+                )
                 await pilot.pause()
                 yield pilot

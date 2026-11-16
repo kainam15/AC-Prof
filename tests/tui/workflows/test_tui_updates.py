@@ -21,8 +21,8 @@ def ready_host(monkeypatch):
     monkeypatch.setattr("acprof.tui.run.preflight_controller.quick_preflight", lambda *a, **k: [])
 
 
-def make_app(tmp_path):
-    return AcprofTui(RunConfig.smoke(""), settings_path=tmp_path / "settings.json")
+def make_app(tmp_path, *, model=""):
+    return AcprofTui(RunConfig.smoke(model), settings_path=tmp_path / "settings.json")
 
 
 @pytest.mark.parametrize("language", ["zh", "en"])
@@ -147,7 +147,7 @@ async def test_failed_check_is_visible_and_releases_collection(tmp_path, monkeyp
         monkeypatch.setattr("acprof.tui.updates.CHECK_TIMEOUT", 0.1)
     if failure == "oversized":
         monkeypatch.setattr("acprof.tui.updates.MAX_RESPONSE_BYTES", 64)
-    app = make_app(tmp_path)
+    app = make_app(tmp_path, model="fixture/model")
     async with app.run_test(size=(80, 24), notifications=True) as pilot:
         await pilot.pause()
         await app.workers.wait_for_complete()
@@ -213,7 +213,7 @@ async def test_starting_run_clears_update_notification(tmp_path, monkeypatch, re
         return httpx.Response(200, json={"releases": {"9.0.0": [{"yanked": False}]}})
 
     monkeypatch.setattr(httpx.AsyncHTTPTransport, "handle_async_request", respond)
-    app = make_app(tmp_path)
+    app = make_app(tmp_path, model="fixture/model")
     launches = []
     monkeypatch.setattr(app.process, "execute_command", lambda *a, **k: launches.append(a))
     async with app.run_test(size=(80, 24), notifications=True) as pilot:

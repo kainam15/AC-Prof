@@ -45,7 +45,7 @@ sys.addaudithook(protect_production_lock)
                 "    refreshed = asyncio.Event()\n"
                 "    app.call_after_refresh(refreshed.set)\n"
                 "    await refreshed.wait()\n"
-                f"    return httpx.Response({version_status}, json={{'info': {{'version': __version__, 'yanked': False}}}})\n"
+                f"    return httpx.Response({version_status}, json={{'releases': {{__version__: [{{'yanked': False}}]}}}})\n"
                 "with (\n"
                 "    patch('acprof.tui.run.preflight_controller.quick_preflight', return_value=[]),\n"
                 "    patch('acprof.tui.run.preflight_controller.scan_environment', return_value=[]),\n"

@@ -22,6 +22,7 @@ async def test_windows_startup_and_permission_checks_without_unix_apis(
     tmp_path, monkeypatch, language, http_status,
 ):
     monkeypatch.setattr("acprof.platform.platform.system", lambda: "Windows")
+    monkeypatch.setattr(sys, "platform", "win32")
     monkeypatch.delattr(os, "getuid", raising=False)
     monkeypatch.setitem(sys.modules, "fcntl", None)
     monkeypatch.setattr("acprof.tui.app.PROJECT_DIR", tmp_path)
@@ -37,7 +38,7 @@ async def test_windows_startup_and_permission_checks_without_unix_apis(
 
     async def respond(_transport, request):
         requests.append(request)
-        return httpx.Response(http_status, json={"info": {"version": "9.0.0", "yanked": False}})
+        return httpx.Response(http_status, json={"releases": {"9.0.0": [{"yanked": False}]}})
 
     monkeypatch.setattr(httpx.AsyncHTTPTransport, "handle_async_request", respond)
     config = replace(RunConfig.smoke(""), runtime="docker")
@@ -65,8 +66,10 @@ async def test_windows_startup_and_permission_checks_without_unix_apis(
         assert len(requests) == 1
         assert str(requests[0].url) == "https://pypi.org/pypi/acprof/json"
         if http_status == 200:
-            assert ("最新版本：9.0.0" if language == "zh" else "Latest version: 9.0.0") in version_status
-            assert "uv tool upgrade acprof" in version_status
+            assert ("最新正式版：9.0.0" if language == "zh" else "Latest Stable: 9.0.0") in version_status
+            installation_status = str(app.query_one("#version-installation", Static).content)
+            assert "uv tool install acprof" in installation_status
+            assert not app.query_one("#version-manual", Button).disabled
         else:
             assert "HTTPStatusError" in version_status
             assert "503" in version_status

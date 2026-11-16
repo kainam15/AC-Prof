@@ -298,7 +298,10 @@ class TestTuiLanguage:
             )
             app.experiments.request_run()
             await pilot.pause()
-            assert (any(n.title == "Invalid configuration" and "Memory list" in n.message for n in app._notifications))
+            assert app.query_one("#start-run", Button).disabled
+            assert "Memory list must be comma-separated integers" in str(
+                app.query_one("#preflight-run-reason", Static).content
+            )
             app.query_one("#mems", Input).value = "4"
             await pilot.pause()
             app.experiments.request_probe()

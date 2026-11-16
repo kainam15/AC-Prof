@@ -1,6 +1,7 @@
 import asyncio
 import sys
 
+from acprof.experiments.configuration import RunConfig
 from acprof.tui.commands import PendingLaunch
 from acprof.tui.logging.widget import SelectableLog
 from acprof.tui.run.process import ProcessLifecycle
@@ -62,7 +63,7 @@ progress = DownloadProgress('example/test', 'huggingface', 'downloading', 100, 0
 print(encode_event(progress), flush=True)
 time.sleep(10)
 '''
-    app = AcprofTui(settings_path=tmp_path / 'settings.json')
+    app = AcprofTui(RunConfig.smoke("fixture/model"), settings_path=tmp_path / 'settings.json')
     async with app.run_test(size=(120, 30)) as pilot:
         app.launch(PendingLaunch((sys.executable, '-u', '-c', script), 'run'))
         await asyncio.wait_for(asyncio.shield(app.workers.wait_for_complete()), timeout=45)

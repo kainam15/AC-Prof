@@ -123,9 +123,13 @@
       "svg": [
         "tests/visual/__snapshots__/test_snapshots/test_fixed_scenes[zh-size17-environment].svg",
         "tests/visual/__snapshots__/test_snapshots/test_fixed_scenes[en-size18-environment-details].svg",
-        "tests/visual/__snapshots__/test_snapshots/test_fixed_scenes[zh-size19-environment].svg"
+        "tests/visual/__snapshots__/test_snapshots/test_fixed_scenes[zh-size19-environment].svg",
+        "tests/visual/__snapshots__/test_global_status/test_global_status[zh-size0-blocked].svg",
+        "tests/visual/__snapshots__/test_global_status/test_global_status[en-size1-blocked].svg",
+        "tests/visual/__snapshots__/test_global_status/test_global_status[zh-size2-checking].svg",
+        "tests/visual/__snapshots__/test_global_status/test_global_status[zh-size3-inherited].svg"
       ],
-      "tests": ["tests/tui/workflows/test_tui_preflight.py", "tests/tui/workflows/test_tui_environment_popover.py", "tests/tui/catalog/test_environment_tui.py"]
+      "tests": ["tests/tui/workflows/test_tui_preflight.py", "tests/tui/workflows/test_tui_environment_popover.py", "tests/tui/workflows/test_tui_global_status.py", "tests/tui/catalog/test_environment_tui.py"]
     },
     {
       "id": "stop-confirm", "title": "停止任务确认", "page": "monitor-tab", "group": "exception",
@@ -161,6 +165,17 @@
       "trigger": "切换到应用设置页", "expected": "语言、主题、日志、权限配置及保存行为明确",
       "png": [], "svg": [],
       "tests": ["tests/tui/widgets/test_tui_settings.py", "tests/tui/widgets/test_tui_layout_settings.py"]
+    },
+    {
+      "id": "version-management", "title": "版本管理与降级确认", "page": "settings-tab", "group": "support",
+      "trigger": "查看版本管理或选择稳定渠道", "expected": "显示安装来源、渠道与更新状态；降级前明确确认目标版本",
+      "png": [],
+      "svg": [
+        "tests/visual/__snapshots__/test_version_management/test_version_manager_snapshot[zh-size0-versions].svg",
+        "tests/visual/__snapshots__/test_version_management/test_version_manager_snapshot[en-size1-versions].svg",
+        "tests/visual/__snapshots__/test_version_management/test_version_manager_snapshot[zh-size2-downgrade].svg"
+      ],
+      "tests": ["tests/tui/workflows/test_tui_version_management.py", "tests/tui/workflows/test_tui_updates.py"]
     }
   ]
 }

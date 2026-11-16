@@ -6,6 +6,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
+from acprof.experiments.configuration import RunConfig
 from acprof.tui.commands import PendingLaunch
 from acprof.tui.logging.diagnostic_buffer import BoundedLogBuffer
 from acprof.tui.logging.widget import SelectableLog
@@ -87,7 +88,7 @@ async def test_abrupt_child_failure_releases_suspension_and_shows_omission_notic
         "    print(line, flush=True)\n"
         "raise SystemExit(1)\n"
     )
-    app = AcprofTui(settings_path=tmp_path / "settings.json")
+    app = AcprofTui(RunConfig.smoke("fixture/model"), settings_path=tmp_path / "settings.json")
     async with app.run_test(size=(80, 24)) as pilot:
         with patch("acprof.tui.run.process_controller.BoundedLogBuffer",
                    side_effect=lambda: BoundedLogBuffer(max_entries=4, max_bytes=512, max_entry_bytes=64)):

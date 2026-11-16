@@ -35,6 +35,7 @@ from acprof.tui.settings.preferences import (
     save_settings,
 )
 from tests.support.tui_fixtures import AcprofTui
+from tests.support.tui_waits import wait_for_condition
 
 PROJECT_DIR = Path(__file__).resolve().parents[3]
 
@@ -383,7 +384,11 @@ class TestTuiModelMemory:
             app.query_one("#model", Input).value = f"  {model}  "
             app.query_one("#cpus", Input).value = "2"
             app.query_one("#ui-theme", Select).value = "acprof-dark"
-            await pilot.pause(0.12)
+            await wait_for_condition(
+                pilot, lambda: app.preflight.config_matches() and not app.query_one("#start-run", Button).disabled,
+                description="edited configuration admitted after automatic preflight", timeout=5,
+                diagnostics=app.preflight.preflight_run_reason,
+            )
             def check_persisted_before_launch(command, launched_kind, *, config):
                 assert (launched_kind) == (kind)
                 assert (load_settings(self.settings_path, PROJECT_DIR)) == ((expected, ""))
