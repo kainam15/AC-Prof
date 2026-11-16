@@ -108,3 +108,22 @@ async def test_required_collector_opens_permissions_tab(tmp_path, monkeypatch):
                                  timeout=3, description='permission recovery screen')
         assert app.screen.query_one('#environment-tabs', TabbedContent).active == 'permissions-tab'
         assert app.screen.query_one('#permission-perf').region.width > 0
+
+
+async def test_process_full_blocker_navigates_to_basic_runtime_control(tmp_path):
+    app = AcprofTui(replace(RunConfig.smoke('fixture/model'), runtime='process', profiling_mode='full'),
+                    settings_path=tmp_path / 'settings.json')
+    async with app.run_test(size=(80, 24)) as pilot:
+        assert app.query_one('#environment-error', EnvironmentIndicator).content == '× 1'
+        assert app.query_one('#start-run', Button).disabled
+        assert app.query_one('#runtime-error', Static).display
+        app.query_one('#environment-error').focus()
+        await pilot.press('enter')
+        await wait_for_condition(pilot, lambda: bool(app.query('#preflight-signal-config_runtime')),
+                                 timeout=3, description='unsupported Process mode issue')
+        app.query_one('#preflight-signal-config_runtime').focus()
+        await pilot.press('enter')
+        await wait_for_condition(pilot, lambda: app.focused is app.query_one('#runtime'),
+                                 timeout=3, description='basic runtime control')
+        assert app.query_one('#experiment-pages', ContentSwitcher).current == 'run-form'
+        assert app.query_one('#runtime').is_on_screen
