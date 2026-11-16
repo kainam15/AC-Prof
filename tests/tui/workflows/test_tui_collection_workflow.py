@@ -25,17 +25,21 @@ async def test_automatic_interface_selection_reviews_parameters_before_runtime(t
     script = textwrap.dedent('''
         from types import SimpleNamespace
         from acprof.host.preparation.collection_workflow import PreparationWorkflow
+        from acprof.host.preparation.inference_configuration import prepare_inference_configuration
         from acprof.host.detect import TaskInfo
         from acprof.models.candidates import apply_model_candidate, discover_model_candidates
         task = TaskInfo("fixture/model", "unknown", "unknown", "unknown", "transformers",
                         "a" * 40, "config_infer", model_config={"model_type": "bert",
-                        "architectures": ["BertForMaskedLM"]})
+                        "architectures": ["BertForMaskedLM"]},
+                        repository_files=("config.json", "model.safetensors"))
         task.model_resolution = apply_model_candidate(task, discover_model_candidates(task))
         args = SimpleNamespace(task="", tasks="", backend="", task_family="", model_spec="",
                                revision="", batch_size=1, gpus="off")
         workflow = PreparationWorkflow(interactive=True)
         selected = workflow.resolve(args, initial=task)
         assert len(selected.selected_tasks) == 1
+        selected = prepare_inference_configuration(selected, args, workflow, devices=["off"])
+        assert selected.inference_configuration["state"] == "frozen"
         workflow.emit("runtime", "running")
         print("AUTO_INTERFACE_SELECTED", flush=True)
     ''')
@@ -50,7 +54,7 @@ async def test_automatic_interface_selection_reviews_parameters_before_runtime(t
             assert await pilot.click("#start-run")
             await wait_for_condition(
                 pilot, lambda: app.preflight.preparation_screen is not None,
-                description="the workload parameter review", timeout=15,
+                description="the inference configuration review", timeout=15,
             )
             # The request reference is set before mounting and layout finish.
             await pilot.pause()
@@ -58,9 +62,25 @@ async def test_automatic_interface_selection_reviews_parameters_before_runtime(t
             assert screen is not None
             assert screen.is_mounted
             assert app.screen is screen
-            assert screen.event["request"]["purpose"] == "workload_parameters"
-            assert await pilot.click("#preparation-defaults")
-            await asyncio.wait_for(app.workers.wait_for_complete(), timeout=15)
+            assert screen.event["request"]["purpose"] == "inference_configuration"
+            assert await pilot.click("#preparation-apply")
+            await wait_for_condition(
+                pilot, lambda: (app.preflight.preparation_screen is not None
+                                and app.preflight.preparation_screen.event["request"].get("purpose")
+                                == "inference_confirmation"),
+                description="the final inference confirmation", timeout=15,
+            )
+            await pilot.pause()
+            confirmation = app.preflight.preparation_screen
+            assert confirmation is not None
+            assert len(confirmation.event["request"]["confirmation_digest"]) == 64
+            app.logs.flush()
+            assert "AUTO_INTERFACE_SELECTED" not in app.query_one("#run-log", SelectableLog).text
+            assert await pilot.click("#preparation-continue")
+            await wait_for_condition(
+                pilot, lambda: app.execution.lifecycle.process is None,
+                description="the confirmed fixture process to finish", timeout=15,
+            )
             await pilot.pause()
             app.logs.flush()
             assert "AUTO_INTERFACE_SELECTED" in app.query_one("#run-log", SelectableLog).text

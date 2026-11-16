@@ -103,7 +103,7 @@ def test_resolver_source_mismatch_is_not_counted_as_success(tmp_path, monkeypatc
     row = report["rows"][0]
     assert not row["resolved"]
     assert not row["supported"]
-    assert row["runtime_status"] == "failed"
+    assert row["runtime_status"] == "not_run"
     assert row["failed_stage"] == "resolution"
     assert row["source"] == "huggingface"
     isolated[1].assert_not_called()

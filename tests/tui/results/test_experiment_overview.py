@@ -10,6 +10,7 @@ from textual.widgets import Button, Input, Static
 from acprof.tui.i18n import message_id
 from acprof.tui.results.backfill_panel import BackfillPanel
 from tests.support.tui_fixtures import AcprofTui
+from tests.support.tui_waits import wait_for_condition
 from tests.tui.results.test_profile_overview_snapshot import profile_store
 
 
@@ -53,10 +54,13 @@ async def test_metadata_is_visible_while_full_result_read_is_waiting(tmp_path):
         with patch("acprof.results.csv.read_result_csv_snapshot", side_effect=slow_read):
             app.results.select_result(str(root))
             try:
-                await asyncio.wait_for(asyncio.to_thread(entered.wait, 2), 3)
-                await pilot.pause()
+                assert await asyncio.wait_for(asyncio.to_thread(entered.wait, 2), 3)
                 from acprof.tui.ui.structured import FactValue
-                assert any(value.row.value == "fixture/fast-overview" for value in app.query(FactValue))
+                await wait_for_condition(
+                    pilot, lambda: any(value.row.value == "fixture/fast-overview" for value in app.query(FactValue)),
+                    description="metadata to render while the independent data reader is blocked", timeout=2,
+                )
+                assert app.results.data_status is None
                 view = app.query_one("#backfill-panel", BackfillPanel).view
                 assert view.summary.headline == message_id("profiling.view.checking")
             finally:

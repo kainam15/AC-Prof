@@ -60,6 +60,9 @@ def prepared_application(tmp_path, monkeypatch):
         workflow_factory=lambda _output: workflow, matrix_runner=matrix,
         environment_setup=Mock(), terminal_start=Mock(return_value=None), terminal_stop=Mock(),
     )
+    # The fixture starts after confirmation and injects failures in runtime preparation.
+    monkeypatch.setattr(application, "_prepare_inference_configuration",
+                        lambda task, *args, **kwargs: task)
     monkeypatch.setattr(application, "_run_host_preflight", Mock(return_value=("v2", {}, {})))
     return SimpleNamespace(application=application, config=config, workflow=workflow, ask=ask,
                            stages=stages, matrix=matrix, matrix_reached=matrix_reached,

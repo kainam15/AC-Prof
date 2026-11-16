@@ -52,7 +52,7 @@ class TestClientMetrics:
         assert (CSV_FIELDS[gpu_idle_index + 2]) == ("gpu_idle_rel_range_so_far")
 
     def test_schema_v6_includes_cgroup_swap_and_request_shape_metrics(self) -> None:
-        assert (STATIC_META_SCHEMA_VERSION) == (7)
+        assert (STATIC_META_SCHEMA_VERSION) == (8)
         assert ("parameter_bytes") in (STATIC_META_FIELDS)
         assert ("model_cache_bytes") in (STATIC_META_FIELDS)
         assert ("model_weight_bytes") not in (STATIC_META_FIELDS)

@@ -7,6 +7,7 @@ import pytest
 
 from acprof.host.detect import TaskInfo
 from acprof.host.images.runtime import ImageInfo
+from acprof.host.input_plan import PlannedInputScales
 from acprof.host.run_state import RunState
 from acprof.host.runtimes import environment, service
 from acprof.host.runtimes.contracts import ProcessInfo, runtime_identity, runtime_kind
@@ -73,18 +74,14 @@ def test_restore_identity_failure_propagates_before_log_rebinding(tmp_path, monk
     assert snapshot == original
 
 
-def test_run_state_supplies_current_directory_to_runtime_restore(tmp_path, monkeypatch):
+def test_run_state_supplies_current_directory_to_runtime_restore(tmp_path, monkeypatch, request):
     from acprof.tasks import interfaces
 
-    state = object.__new__(RunState)
-    state.directory = tmp_path / "resumed"
+    state = RunState(tmp_path / "resumed", {}, resume=False, project_dir=str(tmp_path))
+    request.addfinalizer(state.close)
     task = TaskInfo("fixture/model", "fill-mask", "nlp", "transformers_pipeline",
                     "transformers", "a" * 40, "fixture")
-    state.data = {"runtime": {
-        "task": asdict(task), "image": asdict(process_artifact()), "kind": "process",
-        "planned": {"scales": [1.0], "source": "fixture"},
-        "compute_plan": "", "execution_plan": "",
-    }}
+    state.bind_runtime(task, process_artifact(), PlannedInputScales([1.0], "fixture", None), "", "")
     original = deepcopy(state.data)
     runtime = ProcessRuntime()
     monkeypatch.setattr(service, "execution_runtime", Mock(return_value=runtime))

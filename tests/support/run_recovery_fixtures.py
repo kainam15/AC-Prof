@@ -68,6 +68,10 @@ class RunRecoveryFixture:
             cpu_governor="performance", cpu_boost="off", cgroup_version="v2",
         )
         with ExitStack() as stack:
+            # Exercise post-confirmation collection/recovery. The actual gate
+            # is covered by test_inference_configuration_public.py.
+            stack.enter_context(patch.object(run.RunApplication, "_prepare_inference_configuration",
+                                             lambda _app, task, *args, **kwargs: task))
             stack.enter_context(patch.object(sys, "argv", [
                 "acprof run", "--model", "org/model", "--cpus", "1,2", "--mems", "4",
                 "--gpus", "off", "--input-scales", "64", "--warmup", "0", "--repeat", "1",

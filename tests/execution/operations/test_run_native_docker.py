@@ -105,6 +105,9 @@ def test_terminal_log_finalization_syncs_file_and_directory() -> None:
 class TestNativeDockerGuard:
     @pytest.fixture(autouse=True)
     def _setup(self, request, tmp_path, monkeypatch):
+        # Host/profiler boundaries below are exercised after configuration review.
+        monkeypatch.setattr(run.RunApplication, "_prepare_inference_configuration",
+                            lambda _app, task, *args, **kwargs: task)
         monkeypatch.setattr("acprof.host.preparation.interface_probe.probe_interface", Mock(return_value={"status": "ok"}))
         self._request = request
         from tests.support.platform_fixtures import native_policy

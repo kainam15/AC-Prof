@@ -293,14 +293,14 @@ class TestCollectionWorkflow:
                 {"action": "answer", "answers": answer}, {"action": "confirm"}),
         ) as ask, patch("sys.stdout", io.StringIO()):
             reviewed = workflow.resolve(self.args())
-            assert ask.call_count == 3
+            assert ask.call_count == 2
+            assert [item.kwargs.get("purpose") for item in ask.call_args_list] == [None, None]
         assert (task_model_spec(reviewed)["multimodal"]["inputs"]["turns"]) == (answer["multimodal.inputs.turns"])
         with patch("acprof.host.detect.detect_task", return_value=task), patch.object(
             workflow, "ask", side_effect=answer_with_parameter_defaults(),
         ) as ask, patch("sys.stdout", io.StringIO()):
             cached = workflow.resolve(self.args())
-            assert ask.call_count == 1
-            assert ask.call_args.kwargs["purpose"] == "workload_parameters"
+            ask.assert_not_called()
         assert (task_model_spec(cached)) == (task_model_spec(reviewed))
         changed = copy.deepcopy(task)
         changed.model_revision = "b" * 40

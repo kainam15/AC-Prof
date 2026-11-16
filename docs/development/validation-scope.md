@@ -51,6 +51,12 @@ Native Linux 无需此平台筛选，具体测试范围按下表选择。仅显�
 原样保留的历史 TaskInfo/provenance；不能用缺少 run_id、attempt 或冻结运行时字段的字典
 冒充合法旧实验。畸形身份拒绝测试独立构造错误，并断言自动恢复在网络访问和写入前停止。
 
+采集、恢复、通知及报告等确认后阶段的 Fixture 可在应用的配置准备边界隔离交互确认，
+仍保留实际状态写入、结果提交和目标失败路径。严格配置确认由
+`test_inference_configuration_public.py`、`test_inference_configuration_review.py` 和
+`test_inference_configuration_resume.py` 覆盖；TUI 子进程流程需实际经过参数提交与摘要确认，
+不能用旧的任务解析成功事件代替配置已经冻结。
+
 局部模块搬迁先验证受影响的入口、调用者和消费者。改动涉及公共包初始化链、公共命令分发、
 测试基础设施或多个任务族共用的执行路径，或定向验证后仍无法界定影响范围时，应评估扩大测试范围的必要性；
 本地仍先做有界定向回归，超过成本预算的完整 pytest 交给 CI 或由用户明确授权执行。

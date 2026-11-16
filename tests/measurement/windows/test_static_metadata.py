@@ -312,7 +312,7 @@ class TestStaticMetadata:
         assert (meta.execution_profile_provenance) == ("disabled")
 
     def test_static_meta_compute_profile_fields_follow_host_metadata(self) -> None:
-        assert (STATIC_META_SCHEMA_VERSION) == (7)
+        assert (STATIC_META_SCHEMA_VERSION) == (8)
         assert ("parameter_bytes") in (STATIC_META_FIELDS)
         assert ("model_cache_bytes") in (STATIC_META_FIELDS)
         assert ("model_weight_bytes") not in (STATIC_META_FIELDS)

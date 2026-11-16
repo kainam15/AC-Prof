@@ -137,8 +137,10 @@ def test_custom_pipeline_probe_rejects_actual_profile_mismatch(probe_environment
     custom_pipeline_metadata(probe_environment, monkeypatch)
     monkeypatch.setenv("ACPROF_RUNTIME_PROFILE", "nlp-cpu")
 
-    with pytest.raises(ValueError, match="runtime profile .* does not match"):
+    with pytest.raises(RuntimeFailure, match="does not support family") as caught:
         validate_interface({})
+    assert caught.value.failure.reason_code == "runtime_task_unsupported"
+    assert caught.value.failure.runtime_profile == "nlp-cpu"
 
 
 def test_probe_preserves_remote_code_permission(probe_environment):

@@ -505,13 +505,27 @@ def test_cli_delegates_planning_and_probe_with_requested_matrix(
     expected_task.runtime_profile_id = "nlp-cu128"
     expected_task.model_resolution = {
         "schema_version": 1, "status": "candidate", "task": "fill-mask",
-        "backend": "transformers_pipeline", "library": "transformers", "artifact_format": "transformers",
+        "backend": "transformers_pipeline", "library": "transformers", "artifact_format": "unknown",
+        "artifact_layout": {
+            "status": "unknown", "reason_code": "artifact_layout_unknown",
+            "detail": "Repository file evidence is unavailable; the artifact layout has not been verified.",
+            "weights": [],
+        },
         "loader": "Transformers Auto/pipeline", "operation": "predict", "model_revision": "1" * 40,
         "metadata_files": [], "model_type": None, "runtime_profile": "nlp-cu128",
         "interface_kind": "standard", "pipeline_task": "fill-mask",
         "code_revision": None, "code_files": [], "model_spec": {},
         "model_id": "demo/model", "transformers_version": "4.57.6", "trust_remote_code": False,
         "requested_devices": ["off", "on"],
+        "compatibility": {
+            "status": "unknown", "interface_status": "unknown", "artifact_status": "unknown",
+            "evidence_level": "static", "checkpoint_verified": False,
+            "detail": "Repository file evidence is unavailable; the artifact layout has not been verified.",
+            "next_action": "Review the pinned artifacts and registered backend capability; static "
+                           "evidence does not replace a separately authorized interface probe.",
+            "runtime_profile": "nlp-cu128", "source": "locked_transformers_mapping",
+            "transformers_version": "4.57.6",
+        },
         "dependency_preflight": {
             "schema_version": 1, "revision": "1" * 40, "runtime_profile": "nlp-cu128",
             "lock": "dockerfiles/locks/nlp-cu128.txt", "source_sha256": {}, "dependencies": [],

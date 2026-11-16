@@ -24,6 +24,9 @@ from acprof.notifications import NotificationConfigError, NotificationEvent
 class TestRunNotificationLifecycle:
     @pytest.fixture(autouse=True)
     def _setup(self, request, tmp_path, monkeypatch):
+        # Keep notification/profiler tests at their post-confirmation boundary.
+        monkeypatch.setattr(run.RunApplication, "_prepare_inference_configuration",
+                            lambda _app, task, *args, **kwargs: task)
         self._request = request
         selection = patch('acprof.host.gpu_device.resolve_gpu_device', return_value={
             'uuid': 'GPU-fixture', 'index': 1, 'name': 'Fixture', 'memory_total_bytes': 8 * 1024 ** 3,

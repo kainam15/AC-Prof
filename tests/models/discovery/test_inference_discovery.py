@@ -175,7 +175,8 @@ def test_supplemented_configuration_automatically_selects_the_resolved_path(monk
     monkeypatch.setattr(workflow, "ask", ask)
     args = options(model=unknown.model_id, revision="", batch_size=1, gpus="off")
     result = workflow.resolve(args)
-    assert ask.call_count == 3
+    assert ask.call_count == 2
+    assert [item.kwargs.get("purpose") for item in ask.call_args_list] == [None, None]
     assert len(result.selected_tasks) == 1
     assert result.selected_tasks[0]["execution_path"]["operation"] == "__call__"
 
