@@ -17,6 +17,10 @@
 
 ## 工程维护优先序
 
+开发辅助能力已按项目与个人范围拆分：新增 HTML 报告回归、Hub 静态调研、服务指标与 Actions 维护入口，
+通用 Python、定向审查和 UI 检索放在个人 skills；来源与边界见[开发 Skills](development/agent-skills.md)。
+这些入口不改变下表的硬件、真实模型及客户端验收缺口。
+
 | 优先级 | 工作 | 状态与完成条件 |
 | --- | --- | --- |
 | P0 | 共享 Workload 输入校验、明确依赖方向 | 本轮已完成六族公共字段复用与两个反向依赖修复，保留任务差异和错误语义；Import Linter 契约纳入门禁。见[模块边界](development/static-checks.md)与[Workload 输入校验](development/modules.md#workload-输入校验)。 |

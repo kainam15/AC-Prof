@@ -2,6 +2,11 @@
 
 [← 返回专题目录](testing.md)
 
+## 开发 Skills
+
+项目和个人通用 skills 的分配、适用范围与上游版本见[开发 Skills](agent-skills.md)。
+按任务加载，沿用已有测量与验证边界；安装 skill 不代表连接了新的 MCP 或授权真实实验。
+
 ## 辅助开发工具
 `pyproject.toml` 的 `test` / `runtime-test` 组声明 pytest、pytest-asyncio、pytest-cov，
 `uv.lock` 固定完整闭包，默认 `dev` 包含这些工具。测试工具不进入发行依赖或推理镜像。
