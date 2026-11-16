@@ -185,12 +185,6 @@ Underline { color: $accent; }
 #runtime-field { height: auto; }
 #runtime-status { padding: 0 0 1 1; }
 #runtime-status .status-headline { text-style: none; }
-#process-resource-help {
-    display: none;
-    column-span: 4;
-    height: auto;
-    margin: 1 0;
-}
 .form-grid.tool-form-grid { grid-size: 2; grid-columns: 18 1fr; }
 .profiler-grid { grid-size: 2; grid-columns: 1fr 1fr; grid-gutter: 0 1; height: auto; }
 .profiler-checkbox { width: 1fr; height: 3; margin-right: 0; }
@@ -619,7 +613,6 @@ AcprofTui.compact-navigation #image-filters Button { width: 1fr; min-width: 0; m
 
 /* Terminal cells, not pixels: stack fields when labels would squeeze inputs. */
 AcprofTui.narrow .form-grid { grid-size: 2; grid-columns: 18 1fr; }
-AcprofTui.narrow #process-resource-help { column-span: 2; }
 AcprofTui.narrow .profiler-grid { grid-size: 1; grid-columns: 1fr; }
 AcprofTui.narrow .checkbox-row { layout: vertical; }
 AcprofTui.narrow .button-row { layout: grid; grid-size: 2; grid-gutter: 0 1; }
@@ -660,10 +653,10 @@ TaskChoice .task-differences .fact-more > CollapsibleTitle { color: $text-muted;
 .model-picker-row { height: auto; }
 .model-picker-row Button { min-width: 10; width: auto; margin-left: 1; }
 
-#process-resource-open {
-    display: none;
+#status-return {
     height: 1;
     min-height: 1;
+    min-width: 8;
     width: auto;
     max-width: 100%;
     border: none;
@@ -671,5 +664,4 @@ TaskChoice .task-differences .fact-more > CollapsibleTitle { color: $text-muted;
     color: $accent;
     text-align: left;
 }
-#process-resource-open:focus { text-style: bold underline; }
-#process-resource-callout { height: auto; }
+#status-return:focus { text-style: bold underline; }

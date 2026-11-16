@@ -18,8 +18,11 @@ GROUPS = ('error', 'warning', 'success', 'pending', 'not_requested')
 _GROUP = {'fail': 'error', 'error': 'error', 'warn': 'warning', 'ok': 'success',
           'not_requested': 'not_requested'}
 _TARGETS = {
-    'process_resources': 'resources', 'cpu_energy': 'permissions',
-    'cpu_instructions': 'permissions', 'capture_permissions': 'permissions',
+    'process_resources': 'resources', 'cpu_energy': 'diagnostic:rapl',
+    'cpu_instructions': 'permissions:perf', 'capture_permissions': 'permissions:tcpdump',
+    'docker': 'diagnostic:docker', 'cgroup': 'diagnostic:cgroup',
+    'tcpdump': 'diagnostic:capture_tools', 'tshark': 'diagnostic:capture_tools',
+    'environment': 'diagnostic:platform', 'uv': 'diagnostic:uv',
     'capture_interface': 'field:sniff_iface', 'runtime': 'field:runtime',
     'runtime_auto': 'field:runtime', 'process_runtime': 'field:runtime',
     'ncu': 'field:compute_profile_tool', 'torch': 'field:compute_profile_tool',
@@ -33,7 +36,7 @@ _TARGETS = {
 class StatusItem:
     check: PreflightCheck
     required: bool = False
-    target: str = 'environment'
+    target: str = ''
 
     @property
     def group(self) -> str:
@@ -120,7 +123,7 @@ def build_status(
             identifier = next((key for key, item in rows.items() if item.check.label == row.label),
                               f'check_{len(rows)}')
             row = replace(row, check_id=identifier)
-        rows[identifier] = StatusItem(row, required, target or _TARGETS.get(identifier, 'environment'))
+        rows[identifier] = StatusItem(row, required, target or _TARGETS.get(identifier, ''))
 
     for row in inventory:
         if row.check_id == 'capture_permissions' and row.source == 'tcpdump' and row.status == 'fail':
@@ -142,7 +145,7 @@ def build_status(
         # the worker validated an older configuration.
         if row.check_id.startswith('config_'):
             continue
-        if not current and not _requested(row.check_id, config, runtime):
+        if (runtime or not current) and not _requested(row.check_id, config, runtime):
             status = 'not_requested'
         elif running:
             status = 'checking'
@@ -170,7 +173,7 @@ def build_status(
             put(PreflightCheck(message_id('run.status.config_field', field or 'configuration'), 'fail',
                                join_messages('；', tuple(dict.fromkeys(reasons))),
                                check_id='config_' + (field or 'other'), source='configuration'),
-                required=True, target='field:' + (field or 'model'))
+                required=True, target='field:' + field if field else '')
     else:
         put(PreflightCheck(message_id('run.status.configuration'), 'ok',
                            message_id('run.status.configuration_passed'), check_id='configuration'),
@@ -180,10 +183,12 @@ def build_status(
                                check_id='quality_' + (warning.field or 'other'), source='configuration'),
                 target='field:' + (warning.field or 'model'))
 
-    if running or not completed or not current:
+    if running or not completed or not current or (not checks and not error):
         status = 'checking' if running else 'pending'
         put(PreflightCheck(message_id('run.status.preflight'), status,
-                           message_id('run.preflight.checking_notice' if running else 'run.preflight.configuration_changed'),
+                           message_id('run.preflight.checking_notice' if running else
+                                      'run.status.no_evidence' if not checks and current and completed else
+                                      'run.preflight.configuration_changed'),
                            check_id='preflight'), required=True)
     elif error:
         put(PreflightCheck(message_id('run.environment.label.check_error'), 'fail', error,

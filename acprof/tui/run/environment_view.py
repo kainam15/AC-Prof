@@ -134,7 +134,8 @@ def global_check_view(item: StatusItem, *, technical_detail: str, cause: str,
                     else message_id('run.plan.insufficient_windows') if row.check_id == 'quality_repeat'
                     else view.callout.impact),
             actions=(ViewAction('environment-retry', message_id('run.environment.retry'), disabled=not check_allowed),
-                     ViewAction('status-open', message_id('run.status.open'), primary=True, disabled=not navigate_allowed)),
+                     *((ViewAction('status-open', message_id('run.status.open'), primary=True, disabled=not navigate_allowed),)
+                       if item.target else ())),
         ))
     if view.facts is not None:
         note = (message_id('run.status.not_requested') if row.status == 'not_requested'

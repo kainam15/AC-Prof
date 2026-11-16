@@ -142,13 +142,13 @@ async def test_runtime_edit_rejects_late_auto_resolution(tmp_path, monkeypatch):
         assert app.query_one('#start-run', Button).disabled
         assert app.query_one(RunPlanPanel).view.section.rows[0].value == 'Process'
         assert '--runtime process' in str(app.query_one('#command-preview', Static).content)
-        assert app.query_one('#process-resource-open', Button).display
+        assert not app.query('#process-resource-open')
         complete_check(app, [PreflightCheck('Runtime', 'ok', 'Process', runtime_kind='process')])
         assert not app.query_one('#start-run', Button).disabled
         await choose_runtime(app, pilot, 'auto')
         assert app.preflight.selected_runtime == ''
         assert 'Auto' in app.tr(app.query_one('#runtime-status', StatusBanner).summary.headline)
         complete_check(app, [PreflightCheck('Runtime', 'ok', 'Process', runtime_kind='process')])
-        assert 'Process' in app.tr(app.query_one('#runtime-status', StatusBanner).summary.headline)
+        assert not app.query_one('#runtime-status', StatusBanner).display
         assert app.query_one(RunPlanPanel).view.section.rows[0].value == 'Process'
         assert '--runtime auto' in str(app.query_one('#command-preview', Static).content)

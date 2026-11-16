@@ -16,6 +16,10 @@ MESSAGES = {
     'run.resources.guide.v2': Entry(zh='请管理员检查内核和 cgroup v2 挂载；cgroup v1 不支持本程序的精确配额。系统级切换可能需要重启主机。', en='Ask an administrator to check the kernel and cgroup v2 mount; exact quotas are unsupported on v1. A system-wide change may require a host reboot.'),
     'run.resources.impact': Entry(zh='依赖数值 CPU / 内存配额的实验暂不能开始；原配置保留。', en='Experiments requiring numeric CPU / memory quotas are blocked; settings are retained.'),
     'run.resources.inherit': Entry(zh='使用继承限制（CPU / 内存 → auto）', en='Use inherited limits (CPU / memory → auto)'),
+    'run.resources.inherit_apply': Entry(zh='确认使用继承限制', en='Confirm inherited limits'),
+    'run.resources.inherit_confirm': Entry(
+        zh='将 Runtime 设为 Process，CPU 从 {0} 改为 auto，内存从 {1} 改为 auto，并关闭启动 OOM 剪枝。\n\n继承上级限制不保证数值配额，也不保证资源独占。确认后重新检查；取消保留原配置。',
+        en='Set Runtime to Process, change CPU from {0} to auto and memory from {1} to auto, and disable startup OOM pruning.\n\nInherited limits guarantee neither numeric quotas nor exclusive resources. Confirmation triggers a recheck; cancellation preserves the configuration.'),
     'run.resources.inherited': Entry(zh='CPU / 内存继承上级限制，不承诺数值配额或资源独占。', en='CPU / memory inherit ancestor limits, without a numeric quota or exclusive allocation guarantee.'),
     'run.resources.next': Entry(zh='查看原因并配置委派后重新检查；仅在接受继承限制时选择 auto。', en='Inspect the cause, configure delegation and recheck; choose auto only to accept inherited limits.'),
     'run.resources.open': Entry(zh='Process 配额：{0} · 权限诊断', en='Process quotas: {0} · Permissions'),

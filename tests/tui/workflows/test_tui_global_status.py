@@ -6,9 +6,17 @@ from textual.widgets import Button, ContentSwitcher, Input, Static
 
 from acprof.experiments.configuration import RunConfig
 from acprof.tui.ui.environment import EnvironmentIndicator
+from acprof.tui.ui.structured import ActionButtons
 from tests.support.tui_fixtures import AcprofTui
 from tests.support.tui_waits import wait_for_condition
 from tests.tui.workflows.test_tui_process_permissions import denied_check
+
+
+async def locate_selected(app, pilot):
+    button = list(app.query_one('#preflight-callout').query_one(ActionButtons).query(Button))[1]
+    button.scroll_visible(immediate=True, force=True)
+    button.focus()
+    await pilot.press('enter')
 
 
 @pytest.mark.parametrize(('size', 'language'), [((80, 24), 'zh'), ((120, 30), 'en'), ((150, 45), 'zh')])
@@ -33,6 +41,7 @@ async def test_global_blockers_navigate_with_mouse_and_keyboard(tmp_path, size, 
         row.scroll_visible(immediate=True, force=True)
         await pilot.pause()
         assert await pilot.click(row)
+        await locate_selected(app, pilot)
         await wait_for_condition(pilot, lambda: app.focused is app.query_one('#model'),
                                  timeout=3, description='jump to invalid model')
         assert not app.preflight.panel.display
@@ -41,9 +50,10 @@ async def test_global_blockers_navigate_with_mouse_and_keyboard(tmp_path, size, 
         await pilot.pause()
         app.query_one('#preflight-signal-process_resources').focus()
         await pilot.press('enter')
-        await wait_for_condition(pilot, lambda: app.query_one('#experiment-pages', ContentSwitcher).current == 'advanced-form',
-                                 timeout=3, description='jump to permission recovery')
-        assert app.query_one('#process-resource-help').display
+        await locate_selected(app, pilot)
+        await wait_for_condition(pilot, lambda: app.screen.id == 'process-resource-screen',
+                                 timeout=3, description='dedicated permission recovery')
+        assert not app.query('#process-resource-help')
         await pilot.resize_terminal(80, 24)
         await pilot.pause()
         assert app.focused is not None
@@ -81,7 +91,8 @@ async def test_plan_quality_warning_refreshes_without_environment_probe(tmp_path
         assert app.query_one('#environment-warning', EnvironmentIndicator).content == '! 1'
         assert not app.query_one('#start-run', Button).disabled
         app.query_one('#repeat', Input).value = '3'
-        await wait_for_condition(pilot, lambda: app.query_one('#environment-warning', EnvironmentIndicator).content == '! 0',
+        await wait_for_condition(pilot, lambda: not app.configuration.validation_pending
+                                 and app.query_one('#environment-warning', EnvironmentIndicator).content == '! 0',
                                  timeout=3, description='resolved sample-count warning')
         assert not app.query_one('#start-run', Button).disabled
         check.assert_not_called()
@@ -104,6 +115,7 @@ async def test_required_collector_opens_permissions_tab(tmp_path, monkeypatch):
                                  timeout=3, description='required perf issue')
         app.query_one('#preflight-signal-cpu_instructions').focus()
         await pilot.press('enter')
+        await locate_selected(app, pilot)
         await wait_for_condition(pilot, lambda: isinstance(app.screen, EnvironmentSettingsScreen),
                                  timeout=3, description='permission recovery screen')
         assert app.screen.query_one('#environment-tabs', TabbedContent).active == 'permissions-tab'
@@ -123,6 +135,7 @@ async def test_process_full_blocker_navigates_to_basic_runtime_control(tmp_path)
                                  timeout=3, description='unsupported Process mode issue')
         app.query_one('#preflight-signal-config_runtime').focus()
         await pilot.press('enter')
+        await locate_selected(app, pilot)
         await wait_for_condition(pilot, lambda: app.focused is app.query_one('#runtime'),
                                  timeout=3, description='basic runtime control')
         assert app.query_one('#experiment-pages', ContentSwitcher).current == 'run-form'

@@ -68,6 +68,7 @@ MESSAGES: dict[str, Entry] = {
         zh="为当前用户授权所选工具，限制普通用户执行范围；不修改 perf_event_paranoid。\n会保存原权限，并通过系统终端请求 sudo 授权。\n\n{0}",
         en="Grant the current user access to selected tools and restrict execution. perf_event_paranoid is unchanged.\nOriginal permissions will be saved; sudo will request authorization in the system terminal.\n\n{0}",
     ),
+    "settings.permissions.check_failed": Entry(zh="采集权限检查未完成", en="Collection permission check incomplete"),
     "settings.permissions.check_hint": Entry(zh="点击检查查看当前权限与主机条件。", en="Check to see current permissions and host requirements."),
     "settings.permissions.configure": Entry(zh="配置所选权限", en="Configure access"),
     "settings.permissions.configure_failed": Entry(zh="无法配置权限：{0}", en="Cannot configure permissions: {0}"),
@@ -80,6 +81,9 @@ MESSAGES: dict[str, Entry] = {
         zh="当前终端不支持系统授权，请在原生终端启动 TUI。",
         en="System authorization is unavailable here. Start the TUI in a native terminal.",
     ),
+    "settings.permissions.selection_hint": Entry(
+        zh="勾选仅选择配置目标；实际权限以检查结果为准。",
+        en="Select targets to configure. Only a check verifies actual permissions."),
     "settings.permissions.setup_completed": Entry(
         zh="权限配置已执行，原权限保存在 {0}；正在复查。",
         en="Permission commands completed; original permissions saved to {0}. Checking access again.",

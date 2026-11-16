@@ -102,6 +102,7 @@ class AcprofTui(BarCursorApp):
         Binding("f6", "quick_check", "环境检查", priority=True),
         ("f8", "toggle_log_view", "放大日志"),
         ("f2", "show_settings", "应用设置"),
+        ("alt+left", "return_from_issue", "返回原页"),
         Binding("ctrl+x", "request_stop", "终止任务", priority=True),
         ("ctrl+l", "clear_log", "清空日志"),
         ("ctrl+q", "request_quit", "退出"),
@@ -174,6 +175,12 @@ class AcprofTui(BarCursorApp):
         with Vertical(id="app-header"):
             with Header(show_clock=False):
                 with Horizontal(id="header-actions"):
+                    back = self.localization.localized_widget(Button(
+                        message_id('run.status.return'), id='status-return', compact=True,
+                        tooltip=message_id('run.status.return_hint'),
+                    ))
+                    back.display = False
+                    yield back
                     yield EnvironmentIndicators(self.preflight)
                     yield self.localization.localized_widget(Button(
                         "×", id="quit-app", name="退出", tooltip="退出（Ctrl+Q）", compact=True,
@@ -808,10 +815,9 @@ class AcprofTui(BarCursorApp):
     def on_experiments_start_run_button(self) -> None:
         self.experiments.start_run_button()
 
-    @on(Button.Pressed, '#process-resource-open')
-    def on_process_resource_open(self) -> None:
-        from acprof.tui.run.resource_view import open_panel
-        open_panel(self.preflight)
+    @on(Button.Pressed, '#status-return')
+    def action_return_from_issue(self) -> None:
+        self.preflight.panel.return_to_origin()
 
     @on(Button.Pressed, '#process-inherited-resources')
     def on_process_inherited_resources(self) -> None:

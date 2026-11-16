@@ -11,7 +11,7 @@ from acprof.tui.run.preflight_controller import PreflightController
 from acprof.tui.ui.environment import display_checks
 
 
-def controller(*, checks=(), inventory=(), issues=(), current=None, checked=None):
+def controller(*, checks=None, inventory=(), issues=(), current=None, checked=None):
     config = current or replace(RunConfig.smoke('fixture/model'), runtime='process')
     app = SimpleNamespace(
         is_running=True, form_ready=True, ui_closing=False, tr=str,
@@ -21,7 +21,7 @@ def controller(*, checks=(), inventory=(), issues=(), current=None, checked=None
     result.preflight_config = lambda: config
     result.check_completed = True
     result.checked_config = checked or config
-    result.checks = tuple(checks)
+    result.checks = (check('environment', 'ok'),) if checks is None else tuple(checks)
     result.environment_checks = tuple(inventory)
     return result
 
@@ -182,3 +182,74 @@ def test_missing_tcpdump_and_its_uncheckable_permissions_are_one_root():
     ])
     assert value.status.counts['error'] == 1
     assert value.status.counts['warning'] == 0
+
+
+@pytest.mark.parametrize(('identifier', 'target'), [
+    ('cpu_instructions', 'permissions:perf'), ('capture_permissions', 'permissions:tcpdump'),
+    ('cpu_energy', 'diagnostic:rapl'), ('docker', 'diagnostic:docker'),
+    ('process_resources', 'resources'), ('unknown_check', ''),
+])
+def test_issue_navigation_has_specific_targets_and_no_permission_fallback(identifier, target):
+    value = controller(checks=[check(identifier, 'fail')])
+    item = next(item for item in value.status.items if item.check.check_id == identifier)
+    assert item.target == target
+
+
+def test_empty_preflight_cannot_prove_required_capabilities():
+    value = controller(checks=[])
+    assert not value.status.can_start
+    assert value.status.counts['pending'] > 0
+
+
+def permission_controller():
+    value = controller(current=replace(RunConfig.smoke('fixture/model'), runtime='docker', profiling_mode='full'),
+                       checks=[check('docker', 'ok'), check('cpu_instructions', 'ok')])
+    value.app.execution = SimpleNamespace(session=SimpleNamespace(snapshot=SimpleNamespace(measurement_active=False)))
+    value.refresh_preflight_state = lambda *args: None
+    return value
+
+
+def test_permission_recheck_without_evidence_keeps_required_capability_pending():
+    value = permission_controller()
+    token = value.begin_permission_check()
+    assert token is not None
+    value.finish_permission_check([], 'probe failed', token)
+    assert not value.status.can_start
+    assert next(row for row in value.checks if row.check_id == 'cpu_instructions').status == 'pending'
+    assert next(row for row in value.checks if row.check_id == 'docker').status == 'ok'
+    assert any(row.check.detail == 'probe failed' for row in value.status.items)
+
+
+def test_late_permission_result_cannot_replace_new_request_or_config():
+    value = permission_controller()
+    token = value.begin_permission_check()
+    value.finish_permission_check([check('cpu_instructions', 'ok')], '', object())
+    assert value.check_running
+    assert next(row for row in value.checks if row.check_id == 'cpu_instructions').status == 'pending'
+    current = replace(value.preflight_config(), sniff_iface='fixture-new-interface')
+    value.preflight_config = lambda: current
+    value.finish_permission_check([check('cpu_instructions', 'ok')], '', token)
+    assert not value.check_running
+    assert not value.status.can_start
+    assert next(row for row in value.checks if row.check_id == 'cpu_instructions').status == 'pending'
+    assert next(row for row in value.environment_checks if row.check_id == 'cpu_instructions').status == 'ok'
+
+
+def test_missing_tool_replaces_dependent_permission_failure():
+    value = permission_controller()
+    value.checks = (check('capture_permissions', 'fail'),)
+    token = value.begin_permission_check()
+    value.finish_permission_check([check('tcpdump', 'fail')], '', token)
+    assert errors(value) == {'tcpdump'}
+    assert value.status.counts['error'] == 1
+
+
+def test_permission_actions_do_not_invalidate_or_start_during_measurement():
+    value = permission_controller()
+    value.app.execution.session.snapshot.measurement_active = True
+    before = value.checks
+    assert value.begin_permission_check() is None
+    value.invalidate_permission_checks()
+    assert value.checks is before
+    assert value.check_request is None
+    assert not value.check_running

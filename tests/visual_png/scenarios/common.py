@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from acprof.tui.app import AcprofTui
+from acprof.tui.run.diagnostics import PreflightCheck
 
 
 def freeze_for_screenshot(app: AcprofTui) -> None:
@@ -12,7 +13,7 @@ def freeze_for_screenshot(app: AcprofTui) -> None:
 
 def apply_fixture_preflight(app: AcprofTui) -> None:
     """Mark a synthetic host check as passed without probing a real host."""
-    app.preflight.checks = ()
+    app.preflight.checks = (PreflightCheck('Environment', 'ok', 'fixture', check_id='environment'),)
     app.preflight.error = ""
     app.preflight.environment_checks = ()
     app.preflight.environment_error = ""

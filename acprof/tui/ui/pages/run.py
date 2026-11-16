@@ -12,7 +12,6 @@ from acprof.tui.i18n import message_id
 from acprof.tui.models.input import ModelInput
 from acprof.tui.run.form import PRESET_OPTIONS
 from acprof.tui.run.plan_panel import RunPlanPanel
-from acprof.tui.run.resource_view import ProcessResourceCallout
 from acprof.tui.settings.field_validation import ConfigField
 from acprof.tui.ui.checkbox import StatusCheckbox
 from acprof.tui.ui.input import BarCursorInput as Input
@@ -22,7 +21,7 @@ from acprof.tui.ui.presentation import (
     format_input_number,
 )
 from acprof.tui.ui.structured import StatusBanner
-from acprof.tui.ui.view_models import CalloutContent, StatusSummary
+from acprof.tui.ui.view_models import StatusSummary
 
 if TYPE_CHECKING:
     from acprof.tui.app import AcprofTui
@@ -42,7 +41,6 @@ def compose_run_tab(app: AcprofTui) -> ComposeResult:
         with Vertical(classes="page-header"):
             yield RunPlanPanel(id="run-plan-panel")
             yield Static("", id="preflight-run-reason", markup=False)
-            yield Button("", id="process-resource-open")
         with ContentSwitcher(initial="run-form", id="experiment-pages"):
             with VerticalScroll(id="run-form", classes="pane-scroll"):
                 with Grid(classes="form-grid"):
@@ -149,14 +147,6 @@ def compose_run_tab(app: AcprofTui) -> ComposeResult:
                         value=app.configuration.initial_config.input_scale_policy, allow_blank=False,
                         id="input-scale-policy", classes="config-control",
                     ), field_id="input-scale-policy")
-                    with Vertical(id="process-resource-help"):
-                        yield ProcessResourceCallout(CalloutContent("info", "", "", ""), id="process-resource-callout")
-                        yield app.localization.localized_widget(Button(
-                            message_id("run.resources.inherit"), id="process-inherited-resources",
-                        ))
-                        yield app.localization.localized_widget(Static(
-                            message_id("run.resources.guide.auto"), classes="page-hint", markup=False,
-                        ))
                     yield app.localization.localized_widget(Label("画像模式"))
                     yield ConfigField(app.localization.localized_select(
                         (("完整（RAPL / perf / 抓包）", "full"), ("基础（延迟 / CPU / 内存）", "basic")),

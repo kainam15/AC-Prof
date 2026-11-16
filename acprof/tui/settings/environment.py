@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import shlex
 from pathlib import Path
+from typing import TYPE_CHECKING
 from uuid import uuid4
 
 from textual import on, work
@@ -24,6 +25,8 @@ from acprof.experiments.configuration import RunConfig
 from acprof.host.env_utils import ProjectEnvSnapshot
 from acprof.host.permissions import build_permission_plan, execute_permission_plan
 from acprof.host.run_state import offline_analysis_lock
+from acprof.host.runtimes.contracts import RuntimeCleanupError
+from acprof.messages import join_messages
 from acprof.system.cleanup import format_exception_notes
 from acprof.tui.i18n import message_id
 from acprof.tui.run.diagnostics import quick_preflight
@@ -32,6 +35,9 @@ from acprof.tui.ui.contracts import translated_app
 from acprof.tui.ui.dialogs import ScrollConfirmActionScreen
 from acprof.tui.ui.input import BarCursorInput as Input
 from acprof.tui.ui.rendering import CjkCompositor
+
+if TYPE_CHECKING:
+    from acprof.tui.run.preflight_controller import PreflightController
 
 FIELDS = (
     ('HF_TOKEN', 'Hugging Face Token', True, 'hf_…'),
@@ -79,17 +85,22 @@ class EnvironmentSettingsScreen(ModalScreen[bool]):
     """
 
     def __init__(self, project_dir: Path, backup_dir: Path, *, sniff_iface: str = 'docker0',
-                 initial_tab: str = 'connections-tab'):
+                 initial_tab: str = 'connections-tab', permission_target: str = '',
+                 preflight: PreflightController | None = None):
         super().__init__()
         self._compositor = CjkCompositor()
         self.project_dir = project_dir
         self.backup_dir = backup_dir
         self.sniff_iface = sniff_iface
         self.initial_tab = initial_tab
+        self.permission_target = permission_target
+        self.preflight = preflight
         self.environment_snapshot = ProjectEnvSnapshot.read(project_dir)
         self.values = self.environment_snapshot.configurable_values()
         self._working = False
         self.saved = False
+        self._permission_token: object | None = None
+        self._setup_error = ''
 
     def _fields(self, fields):
         tr = translated_app(self.app).tr
@@ -137,16 +148,17 @@ class EnvironmentSettingsScreen(ModalScreen[bool]):
                                      classes='environment-hint', markup=False)
                 with TabPane(tr('采集权限'), id='permissions-tab'):
                     with VerticalScroll(classes='environment-scroll'):
-                        yield Static(tr('full 采集需要 perf 与 tcpdump 权限。检查包括跨用户 PID 附加；实际容器仍在采集前单独验证。'),
-                                     classes='environment-hint', markup=False)
-                        yield StatusCheckbox('perf · CAP_PERFMON', value=True, id='permission-perf',
+                        yield Static(tr(message_id('settings.permissions.selection_hint')), classes='environment-hint', markup=False)
+                        yield StatusCheckbox('perf · CAP_PERFMON', value=self.permission_target in {'', 'perf'}, id='permission-perf',
                                              classes='option-checkbox')
-                        yield StatusCheckbox('tcpdump · CAP_NET_RAW', value=True, id='permission-tcpdump',
+                        yield StatusCheckbox('tcpdump · CAP_NET_RAW', value=self.permission_target in {'', 'tcpdump'}, id='permission-tcpdump',
                                              classes='option-checkbox')
                         with Horizontal(classes='permission-buttons'):
                             yield Button(tr('检查环境'), id='check-environment-permissions')
                             yield Button(tr('配置所选权限'), id='configure-environment-permissions', variant='primary')
                         yield Static(tr('点击检查查看当前权限与主机条件。'), id='permission-report', markup=False)
+                        yield Static(tr('full 采集需要 perf 与 tcpdump 权限。检查包括跨用户 PID 附加；实际容器仍在采集前单独验证。'),
+                                     classes='environment-hint', markup=False)
                         yield Static(tr('配置时先展示变更，再由系统 sudo 提示输入管理员密码；完成后自动返回。密码不会进入配置文件。'),
                                      classes='environment-hint', markup=False)
             with Horizontal(id='environment-actions', classes='action-bar'):
@@ -155,6 +167,15 @@ class EnvironmentSettingsScreen(ModalScreen[bool]):
                     yield StatusCheckbox(tr('显示敏感字段'), id='show-environment-secrets', classes='option-checkbox')
                 with Horizontal(classes='action-primary'):
                     yield Button(tr('保存配置'), id='save-environment-settings', variant='primary')
+
+    def on_mount(self) -> None:
+        if self.permission_target in {'perf', 'tcpdump'}:
+            self.call_after_refresh(self.focus_permission)
+
+    def focus_permission(self) -> None:
+        control = self.query_one('#permission-' + self.permission_target)
+        control.focus(scroll_visible=False)
+        control.scroll_visible(animate=False, immediate=True)
 
     @on(Checkbox.Changed, '#show-environment-secrets')
     def show_secrets(self, event: Checkbox.Changed):
@@ -198,29 +219,49 @@ class EnvironmentSettingsScreen(ModalScreen[bool]):
     def check_permissions(self):
         if self._working:
             return
+        if self.preflight is not None:
+            self._permission_token = self.preflight.begin_permission_check()
+            if self._permission_token is None:
+                return
         self._set_working(True)
         self.query_one('#permission-report', Static).update(translated_app(self.app).tr(message_id('settings.environment.checking')))
         self._check_permissions()
 
     @work(thread=True, exclusive=True, group='environment-check', exit_on_error=False)
     def _check_permissions(self):
+        checks = []
+        error = ''
+        cleanup_error = False
         try:
             with offline_analysis_lock():
                 checks = quick_preflight(RunConfig(profiling_mode='full', gpus='off', sniff_iface=self.sniff_iface),
                                          project_dir=self.project_dir)
-            report = '\n\n'.join(f'[{item.status}] {translated_app(self.app).tr(item.label)}: {translated_app(self.app).tr(item.detail)}'
-                                 for item in checks)
-            failures = sum(item.status == 'fail' for item in checks)
+            if not checks:
+                error = message_id('run.status.no_evidence')
         except Exception as exc:
-            report = f'{type(exc).__name__}: environment check failed'
-            failures = 1
-        self.app.call_from_thread(self._checked_permissions, report, failures)
+            error = f'{type(exc).__name__}: {format_exception_notes(exc)}'
+            cleanup_error = isinstance(exc, RuntimeCleanupError)
+        self.app.call_from_thread(self._checked_permissions, checks, error, cleanup_error)
 
-    def _checked_permissions(self, report, failures):
+    def _checked_permissions(self, checks, error, cleanup_error=False):
+        if self.preflight is not None and self._permission_token is not None:
+            self.preflight.finish_permission_check(checks, error, self._permission_token, cleanup_error=cleanup_error)
+            self._permission_token = None
+        self._working = False
         if not self.is_mounted or self is not self.app.screen:
             return
+        tr = translated_app(self.app).tr
+        from acprof.host.preparation.preparation_log import redact_text
+        report = '\n\n'.join(f'[{item.status}] {tr(item.label)}: {tr(item.detail)}' for item in checks)
+        if error:
+            report = '\n\n'.join(part for part in (report, tr(error)) if part)
+        report = redact_text(report, limit=None)
+        failures = sum(item.status not in {'ok', 'warn', 'not_requested'} for item in checks) + bool(error)
         self.query_one('#permission-report', Static).update(report)
-        self._status(message_id('settings.environment.check_summary', failures), error=bool(failures))
+        summary: str = message_id('settings.environment.check_summary', failures)
+        if self._setup_error:
+            summary = join_messages('\n', (message_id('settings.permissions.setup_incomplete', self._setup_error), summary))
+        self._status(summary, error=bool(failures or self._setup_error))
         self._set_working(False)
 
     @on(Button.Pressed, '#configure-environment-permissions')
@@ -244,6 +285,10 @@ class EnvironmentSettingsScreen(ModalScreen[bool]):
     def _confirmed_permissions(self, confirmed, plan):
         if not confirmed or self._working:
             return
+        if self.preflight is not None:
+            if self.preflight.check_running or self.preflight.app.execution.session.snapshot.measurement_active:
+                return
+            self.preflight.invalidate_permission_checks()
         self._set_working(True)
         self.call_after_refresh(self._install_permissions, plan)
 
@@ -260,11 +305,14 @@ class EnvironmentSettingsScreen(ModalScreen[bool]):
         except SuspendNotSupported:
             error = translated_app(self.app).tr(message_id('settings.permissions.native_terminal_required'))
         self._set_working(False)
+        self._setup_error = error
         if error:
             self._status(message_id('settings.permissions.setup_incomplete', error), error=True)
         else:
             self._status(message_id('settings.permissions.setup_completed', backup))
-            self.check_permissions()
+        # A failed command may have partially changed capabilities. Verify the
+        # actual state after both success and failure; selection is not proof.
+        self.check_permissions()
 
     @on(Button.Pressed, '#close-environment-settings')
     def action_close(self):

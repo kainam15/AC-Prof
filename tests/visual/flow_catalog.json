@@ -127,7 +127,13 @@
         "tests/visual/__snapshots__/test_global_status/test_global_status[zh-size0-blocked].svg",
         "tests/visual/__snapshots__/test_global_status/test_global_status[en-size1-blocked].svg",
         "tests/visual/__snapshots__/test_global_status/test_global_status[zh-size2-checking].svg",
-        "tests/visual/__snapshots__/test_global_status/test_global_status[zh-size3-inherited].svg"
+        "tests/visual/__snapshots__/test_global_status/test_global_status[zh-size3-inherited].svg",
+        "tests/visual/__snapshots__/test_global_status/test_global_status[en-size5-process-diagnostic].svg",
+        "tests/visual/__snapshots__/test_global_status/test_global_status[en-size7-permissions-tcpdump].svg",
+        "tests/visual/__snapshots__/test_global_status/test_global_status[en-size9-auto-ready].svg",
+        "tests/visual/__snapshots__/test_global_status/test_global_status[zh-size4-process-diagnostic].svg",
+        "tests/visual/__snapshots__/test_global_status/test_global_status[zh-size6-permissions-perf].svg",
+        "tests/visual/__snapshots__/test_global_status/test_global_status[zh-size8-auto-ready].svg"
       ],
       "tests": ["tests/tui/workflows/test_tui_preflight.py", "tests/tui/workflows/test_tui_environment_popover.py", "tests/tui/workflows/test_tui_global_status.py", "tests/tui/catalog/test_environment_tui.py"]
     },

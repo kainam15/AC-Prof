@@ -153,7 +153,7 @@ class TestStartupPreflight:
         with patch("acprof.tui.run.preflight_controller.scan_environment", side_effect=[
             [PreflightCheck("optional collector", "warn", "not supported [detail]")],
             [PreflightCheck("Docker", "ok", "ready")],
-        ]) as check, patch("acprof.tui.run.preflight_controller.quick_preflight", return_value=[]):
+        ]) as check, patch("acprof.tui.run.preflight_controller.quick_preflight", return_value=[PreflightCheck("Environment", "ok", "fixture", check_id="environment")]):
             async with app.run_test(size=(80, 24)) as pilot:
                 await self.finish_check(app, pilot)
                 assert not (app.query_one("#start-run", Button).disabled)
@@ -173,7 +173,7 @@ class TestStartupPreflight:
     async def test_success_does_not_reapply_initial_preset_or_notify(self):
         app = self.make_app()
         app.configuration.initial_config = replace(app.configuration.initial_config, output_dir="results/custom-startup")
-        with patch("acprof.tui.run.preflight_controller.quick_preflight", return_value=[]), patch.object(app, 'notify') as notify:
+        with patch("acprof.tui.run.preflight_controller.quick_preflight", return_value=[PreflightCheck("Environment", "ok", "fixture", check_id="environment")]), patch.object(app, 'notify') as notify:
             async with app.run_test(size=(80, 24)) as pilot:
                 await self.finish_check(app, pilot)
                 notify.assert_not_called()
@@ -308,7 +308,7 @@ class TestStartupPreflight:
         def slow_check(*_args, **_kwargs):
             if not release.wait(10):
                 raise TimeoutError("test did not release diagnostics")
-            return []
+            return [PreflightCheck("Environment", "ok", "fixture", check_id="environment")]
 
         app = self.make_app()
         with patch("acprof.tui.run.preflight_controller.quick_preflight", side_effect=slow_check) as check:
@@ -336,7 +336,7 @@ class TestStartupPreflight:
     async def test_external_measurement_lock_prevents_probes_and_can_retry(self):
         app = self.make_app()
         with patch("acprof.host.run_state.MEASUREMENT_LOCK_ROOT", self.directory), patch(
-            "acprof.tui.run.preflight_controller.quick_preflight", return_value=[],
+            "acprof.tui.run.preflight_controller.quick_preflight", return_value=[PreflightCheck("Environment", "ok", "fixture", check_id="environment")],
         ) as check, ExitStack() as owner:
             owner.enter_context(MeasurementLock())
             async with app.run_test(size=(120, 30)) as pilot:

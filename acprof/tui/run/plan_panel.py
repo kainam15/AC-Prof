@@ -31,6 +31,8 @@ class RunPlanPanel(StructuredWidget):
         facts.update_section(view.section)
         facts.display = bool(view.section.rows or view.section.detail_rows)
         callout = self.query_one(Callout)
-        callout.display = view.callout is not None
+        # Invalid configuration is explained in the global center and fields.
+        # Keep statistical-quality warnings beside the valid collection plan.
+        callout.display = view.callout is not None and view.summary.level != 'error'
         if view.callout is not None:
             callout.update_content(view.callout)

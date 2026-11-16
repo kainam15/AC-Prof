@@ -17,7 +17,6 @@ from acprof.tui.i18n import message_id
 from acprof.tui.run.diagnostics import PreflightCheck
 from acprof.tui.run.environment_view import (
     CAPABILITY_SECTIONS,
-    check_group,
     check_label,
     check_presentation,
     check_priority,
@@ -25,7 +24,8 @@ from acprof.tui.run.environment_view import (
     global_presentation,
     item_status,
 )
-from acprof.tui.run.global_status import StatusItem
+from acprof.tui.run.global_status import GlobalStatus, StatusItem
+from acprof.tui.ui.navigation import NavigationContext
 from acprof.tui.ui.rendering import CjkScreen
 from acprof.tui.ui.structured import ActionButtons, ActionRequested, Callout, FactGrid, StatusBanner
 from acprof.tui.ui.view_models import (
@@ -64,8 +64,8 @@ class EnvironmentIndicators(Horizontal):
         for group in GROUP_SYMBOLS:
             yield EnvironmentIndicator(self.controller, group)
 
-    def update_cached(self) -> None:
-        snapshot = self.controller.status
+    def update_cached(self, snapshot: GlobalStatus | None = None) -> None:
+        snapshot = self.controller.status if snapshot is None else snapshot
         counts = snapshot.counts
         for entry in self.query(EnvironmentIndicator):
             entry.display = entry.group in {"error", "warning", "success"} or bool(counts[entry.group])
@@ -128,7 +128,7 @@ class EnvironmentSignal(Static, can_focus=True):
 
     COMPONENT_CLASSES = {"environment--success", "environment--warning", "environment--error", "environment--neutral", "environment--info"}
 
-    BINDINGS = [("enter,space", "open_issue", "Go to issue")]
+    BINDINGS = [("enter,space", "inspect_issue", "Inspect issue")]
 
     def __init__(self, panel: EnvironmentPopover, row: PreflightCheck, identifier: str) -> None:
         super().__init__(id=f"preflight-signal-{identifier}", classes="environment-signal", markup=False)
@@ -156,15 +156,12 @@ class EnvironmentSignal(Static, can_focus=True):
     def on_focus(self) -> None:
         self.panel.select(self.row)
 
-    def action_open_issue(self) -> None:
-        self.panel.open_issue(self.row)
+    def action_inspect_issue(self) -> None:
+        self.panel.select(self.row)
 
     def on_click(self, event: events.Click) -> None:
         event.stop()
-        if check_group(self.row) in {"error", "warning"}:
-            self.action_open_issue()
-        else:
-            self.panel.select(self.row)
+        self.panel.select(self.row)
 
 
 class EnvironmentPopover(Vertical):
@@ -182,6 +179,8 @@ class EnvironmentPopover(Vertical):
         self._selected_row: PreflightCheck | None = None
         self._hovered_row: PreflightCheck | None = None
         self._inspected_row: PreflightCheck | None = None
+        self._origin: NavigationContext | None = None
+        self._return_context: NavigationContext | None = None
 
     @property
     def pinned(self) -> bool:
@@ -224,6 +223,8 @@ class EnvironmentPopover(Vertical):
         if self.app.screen is not self.screen or not self.controller.app.form_ready:
             return
         self.cancel_close()
+        if not self.display:
+            self._origin = self._return_context or NavigationContext.capture(self.controller.app)
         self.group = group
         if pin:
             self.pinned_groups.add(group)
@@ -304,16 +305,32 @@ class EnvironmentPopover(Vertical):
             return
         # A removed or refreshed row must not navigate using stale evidence.
         item = next((item for item in self.controller.status.items if item.check == row), None)
-        if item is None:
+        if item is None or not item.target:
             return
+        origin = self._origin or NavigationContext.capture(app)
         self.close(restore_focus=False)
         if item.target == 'resources':
-            from acprof.tui.run.resource_view import open_panel
-            open_panel(self.controller)
+            from acprof.tui.run.issue_view import IssueDiagnosticScreen
+            app.push_screen(IssueDiagnosticScreen(self.controller, row.check_id), lambda _: origin.restore(app))
         elif item.target.startswith('field:'):
+            self._return_context = origin
+            app.query_one('#status-return').display = True
             app.configuration.open_config_field(item.target.removeprefix('field:'))
-        else:
-            app.configuration.open_environment_settings(permissions=True)
+        elif item.target.startswith('permissions:'):
+            app.configuration.open_environment_settings(permissions=True,
+                permission_target=item.target.removeprefix('permissions:'), on_closed=lambda: origin.restore(app))
+        elif item.target.startswith('diagnostic:'):
+            from acprof.tui.run.issue_view import IssueDiagnosticScreen
+            app.push_screen(IssueDiagnosticScreen(self.controller, row.check_id), lambda _: origin.restore(app))
+
+    def return_to_origin(self) -> None:
+        app = self.controller.app
+        if self._return_context is None or app.execution.session.snapshot.measurement_active:
+            return
+        origin, self._return_context = self._return_context, None
+        self.close(restore_focus=False)
+        app.query_one('#status-return').display = False
+        origin.restore(app)
 
     def select(self, row: PreflightCheck) -> None:
         if not self.display or row not in self._rows:
@@ -362,11 +379,11 @@ class EnvironmentPopover(Vertical):
             self.query_one("#preflight-inspection").scroll_home(animate=False)
         self._inspected_row = row
 
-    def update_cached(self) -> None:
+    def update_cached(self, snapshot: GlobalStatus | None = None) -> None:
         if not self.is_mounted or not self.display:
             return
         controller = self.controller
-        snapshot = controller.status
+        snapshot = controller.status if snapshot is None else snapshot
         self._items = {item.check.check_id: item for item in snapshot.items}
         rows = tuple(item.check for item in snapshot.items if item.group == self.group)
         heading = self.tr("group_count", self.tr("group." + self.group), len(rows))

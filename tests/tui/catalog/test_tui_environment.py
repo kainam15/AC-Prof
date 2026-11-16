@@ -16,6 +16,7 @@ from acprof.host.env_utils import ProjectEnvSnapshot, load_project_env
 from acprof.tui.ui.dialogs import ConfirmActionScreen
 from tests.support.environment_fixtures import isolated_environment
 from tests.support.tui_fixtures import AcprofTui, checkbox_text
+from tests.support.tui_waits import wait_for_condition
 
 
 class TestTuiEnvironment:
@@ -113,7 +114,9 @@ class TestTuiEnvironment:
             await pilot.pause()
             with patch('acprof.tui.settings.environment.build_permission_plan') as build, patch(
                 'acprof.tui.settings.environment.execute_permission_plan', side_effect=RuntimeError('sudo cancelled'),
-            ) as install, patch('textual.app.App.suspend', return_value=nullcontext()):
+            ) as install, patch('textual.app.App.suspend', return_value=nullcontext()), patch(
+                'acprof.tui.settings.environment.quick_preflight', return_value=[],
+            ):
                 # The real plan contains ten commands, including long Ubuntu ELF paths.
                 build.return_value.commands = (
                     ('/usr/sbin/setcap', 'cap_perfmon=ep',
@@ -144,6 +147,8 @@ class TestTuiEnvironment:
                 await pilot.pause()
                 install.assert_called_once()
                 assert (app.screen) is (screen)
+                await wait_for_condition(pilot, lambda: not screen._working, timeout=3,
+                                         description='post-sudo permission recheck')
                 status = screen.query_one('#environment-save-status', Static).content
                 assert isinstance(status, str)
                 assert ('sudo cancelled') in (status)
@@ -176,7 +181,7 @@ class TestTuiEnvironment:
             await screen.dismiss(False)
             await pilot.pause()
             assert app.screen is not screen
-            screen._checked_permissions('late', 0)
+            screen._checked_permissions([], 'late')
 
 
     @pytest.mark.parametrize('language', ['zh', 'en'])

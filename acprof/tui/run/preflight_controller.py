@@ -45,6 +45,7 @@ class PreflightController:
     """Own preflight state and operations; the App owns lifecycle and scheduling."""
 
     AUTO_CHECK_DELAY = 0.5
+    PERMISSION_CHECK_IDS = frozenset({'cpu_instructions', 'cpu_energy', 'tcpdump', 'capture_permissions'})
 
     def __init__(self, app: AcprofTui) -> None:
         self.app = app
@@ -268,10 +269,10 @@ class PreflightController:
             execution_profile_tool=execution_tool,
         )
 
-    def preflight_run_reason(self) -> str:
+    def preflight_run_reason(self, status: GlobalStatus | None = None) -> str:
         if not self.app.is_running or not self.app.form_ready or self.app.ui_closing:
             return message_id('run.preflight.checking_notice')
-        status = self.status
+        status = self.status if status is None else status
         if status.can_start:
             return ""
         failures = [message("{0}: {1}", redact_text(self.app.tr(item.check.label)),
@@ -359,46 +360,42 @@ class PreflightController:
         return self.status.state
 
     def allow_collection(self) -> bool:
-        reason = self.preflight_run_reason()
+        status = self.status
+        reason = self.preflight_run_reason(status)
         if reason:
-            self.refresh_preflight_state()
-            from acprof.tui.run.resource_view import open_panel, resource_check
-            check = resource_check(self)
-            if check and check.status == "fail" and self.config_matches():
-                open_panel(self)
-            else:
-                self.app.notify(reason, title="环境状态", severity="warning", timeout=8)
+            self.refresh_preflight_state(status)
             return False
         return True
 
-    def refresh_preflight_state(self) -> None:
+    def refresh_preflight_state(self, status: GlobalStatus | None = None) -> None:
         if not self.app.is_running or not self.app.form_ready or self.app.ui_closing:
             return
-        reason = self.preflight_run_reason()
+        status = self.status if status is None else status
+        reason = self.preflight_run_reason(status)
         entry = self.app.query_one(EnvironmentIndicators)
-        entry.update_cached()
-        self.panel.update_cached()
+        entry.update_cached(status)
+        self.panel.update_cached(status)
         detail = self.app.query_one("#preflight-run-reason", Static)
-        state = self.collection_state
-        resource_only = (state == "failed" and self.config_matches() and not self.error and not self.check_running
-                         and any(check.check_id == "process_resources" and check.status == "fail" for check in self.checks)
-                         and all(check.check_id == "process_resources" for check in self.checks if check.status == "fail"))
-        detail.display = not resource_only
+        state = status.state
+        detail.display = False  # The global center and Start tooltip own admission feedback.
         summary = message_id('run.preflight.state.limited') if state == 'limited' else message_id('run.preflight.state.ready')
         self.app.localization.set_text(detail, reason or summary)
         detail.set_classes('preflight-' + state)
         process_runtime = self.selected_runtime == "process" or self.app.configuration.select("runtime") == "process"
-        from acprof.tui.run import resource_view, runtime_view
+        from acprof.tui.run import runtime_view
         if not self.app.execution.session.snapshot.measurement_active:
             runtime_view.refresh(self)
-            resource_view.refresh(self, visible=process_runtime)
+            from acprof.tui.run.issue_view import IssueDiagnosticScreen
+            for screen in self.app.screen_stack:
+                if isinstance(screen, IssueDiagnosticScreen) and screen.is_mounted:
+                    screen.update_cached(status)
             self.app.configuration.update_field_errors(self.app.configuration.config_issues)
         probe = self.app.query_one("#probe-largest", Button)
         if process_runtime:
             probe.disabled = True
             self.app.localization.set_text(probe, "Process 请使用输入规模扫描；最小内存探测需要 Docker。", "tooltip")
         start = self.app.query_one("#start-run", Button)
-        start.disabled = bool(reason) or not self.app.operation_state().allows("run")
+        start.disabled = not status.can_start or not self.app.operation_state().allows("run")
         self.app.localization.set_text(start, reason or "开始采集", "tooltip")
         self.app.refresh_bindings()
 
@@ -486,6 +483,56 @@ class PreflightController:
         if token is self.check_request and self.check_running and not self.app.execution.session.snapshot.measurement_active:
             self.resource_phase = "repairing"
             self.refresh_preflight_state()
+
+    def invalidate_permission_checks(self) -> None:
+        """System changes invalidate their evidence before any repair is attempted."""
+        if self.app.execution.session.snapshot.measurement_active:
+            return
+        def invalidate(rows: tuple[PreflightCheck, ...]) -> tuple[PreflightCheck, ...]:
+            return tuple(replace(row, status='pending') if row.check_id in self.PERMISSION_CHECK_IDS else row
+                         for row in rows)
+        self.checks = invalidate(self.checks)
+        self.environment_checks = invalidate(self.environment_checks)
+        self.refresh_preflight_state()
+
+    def begin_permission_check(self) -> object | None:
+        if self.check_running or self.app.execution.session.snapshot.measurement_active or self.app.ui_closing:
+            return None
+        self.cancel_auto_check()
+        self.check_config = self.preflight_config()
+        self.check_request = object()
+        self.check_running = True
+        self.check_inventory = False
+        self.invalidate_permission_checks()
+        return self.check_request
+
+    def finish_permission_check(self, checks: Sequence[PreflightCheck], error: str, token: object,
+                                *, cleanup_error: bool = False) -> None:
+        """Merge only measured permission capabilities, never approve a whole run."""
+        if token is not self.check_request or self.app.ui_closing:
+            return
+        current = self.config_matches() and self.same_requirements(self.preflight_config(), self.check_config, self.checks)
+        updates = {row.check_id: row for row in checks if row.check_id in self.PERMISSION_CHECK_IDS}
+        missing_tcpdump = 'tcpdump' in updates and updates['tcpdump'].status == 'fail'
+
+        def merged(rows: tuple[PreflightCheck, ...], *, inventory: bool) -> tuple[PreflightCheck, ...]:
+            existing = {row.check_id for row in rows}
+            kept = tuple(row for row in rows if row.check_id not in updates and row.check_id != 'permission_check'
+                         and not (missing_tcpdump and row.check_id == 'capture_permissions'))
+            return kept + tuple(row for key, row in updates.items() if inventory or key in existing
+                                or (key == 'tcpdump' and missing_tcpdump and 'capture_permissions' in existing))
+
+        self.environment_checks = merged(self.environment_checks, inventory=True)
+        if current:
+            self.checks = merged(self.checks, inventory=False)
+        if error:
+            self.environment_checks += (PreflightCheck(message_id('settings.permissions.check_failed'), 'warn', error,
+                                                       check_id='permission_check', source='permission_check'),)
+        if cleanup_error:
+            self.cleanup_error = error
+        self.check_running = False
+        self.check_request = None
+        self.refresh_preflight_state()
 
     def show_quick_check(
         self,

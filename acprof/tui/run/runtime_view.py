@@ -33,4 +33,6 @@ def refresh(controller: PreflightController) -> None:
             level, text = "success", message_id("run.runtime.docker_ready")
         else:
             text = message_id("run.runtime.docker_recheck")
-    app.query_one("#runtime-status", StatusBanner).update_summary(StatusSummary(level, text))
+    banner = app.query_one("#runtime-status", StatusBanner)
+    banner.display = not ((runtime == 'auto' and resolved) or level == 'success')
+    banner.update_summary(StatusSummary(level, text))

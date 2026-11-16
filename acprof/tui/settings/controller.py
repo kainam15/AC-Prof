@@ -6,6 +6,7 @@ widgets, lifecycle admission and its project/interpreter paths.
 from __future__ import annotations
 
 import os
+from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -68,6 +69,19 @@ class ConfigurationController:
 
     def use_process_inherited_resources(self) -> None:
         if self.app.is_busy() or self.app.preflight.check_running or self.app.execution.session.snapshot.measurement_active:
+            return
+        from acprof.tui.ui.dialogs import ScrollConfirmActionScreen
+        current = (self.select('runtime'), self.input('cpus'), self.input('mems'), self.checked('prune-startup-oom'))
+        self.app.push_screen(ScrollConfirmActionScreen(
+            message_id('run.resources.inherit'),
+            message_id('run.resources.inherit_confirm', current[1], current[2]),
+            message_id('run.resources.inherit_apply'),
+        ), lambda confirmed: self._apply_inherited_resources(confirmed, current))
+
+    def _apply_inherited_resources(self, confirmed: bool | None, expected: tuple[str, str, str, bool]) -> None:
+        if (not confirmed or self.app.is_busy() or self.app.preflight.check_running
+                or self.app.execution.session.snapshot.measurement_active
+                or expected != (self.select('runtime'), self.input('cpus'), self.input('mems'), self.checked('prune-startup-oom'))):
             return
         self.app.query_one("#runtime", Select).value = "process"
         self.app.query_one("#cpus", Input).value = "auto"
@@ -154,21 +168,28 @@ class ConfigurationController:
     def show_settings(self) -> None:
         self.app.activate_tab("settings-tab")
 
-    def open_environment_settings(self, *, permissions: bool = False) -> None:
-        if self.app.is_busy() or self.app.preflight.check_running:
+    def open_environment_settings(self, *, permissions: bool = False, permission_target: str = '',
+                                  on_closed: Callable[[], None] | None = None) -> None:
+        if self.app.is_busy() or self.app.preflight.check_running or self.app.execution.session.snapshot.measurement_active:
             return
         from acprof.tui.settings.environment import EnvironmentSettingsScreen
         try:
             screen = EnvironmentSettingsScreen(
                 self.app.project_dir, self.settings_path.parent, sniff_iface=self.input("sniff-iface"),
                 initial_tab='permissions-tab' if permissions else 'connections-tab',
+                permission_target=permission_target, preflight=self.app.preflight,
             )
         except (OSError, ValueError) as read_error:
             self.app.notify(message_id('settings.environment.read_failed', type(read_error).__name__), severity="error")
             return
         self.environment_open = True
         self.app.set_busy(True)
-        self.app.push_screen(screen, self.environment_closed)
+        def closed(saved: bool | None) -> None:
+            self.environment_closed(saved)
+            if on_closed is not None:
+                on_closed()
+
+        self.app.push_screen(screen, closed)
 
     def environment_closed(self, _saved: bool | None) -> None:
         self.environment_open = False
@@ -339,7 +360,9 @@ class ConfigurationController:
         controls = {value: key for key, value in
                     {**run_form.INPUT_FIELDS, **run_form.SELECT_FIELDS, **run_form.CHECKED_FIELDS}.items()}
         controls.update(compute_profile_tool='torch-profiler', execution_profile_tool='massif-profiler')
-        control = self.app.query_one('#' + controls.get(field, 'model'))
+        if field not in controls:
+            return
+        control = self.app.query_one('#' + controls[field])
         ancestors = list(control.ancestors)
         page = next((item.id for item in ancestors if item.id in {'run-form', 'advanced-form'}), 'run-form')
         self.app.activate_tab('run-tab')

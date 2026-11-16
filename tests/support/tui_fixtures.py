@@ -10,6 +10,7 @@ from unittest.mock import patch
 from textual.widgets import Checkbox
 
 from acprof.tui.app import AcprofTui as ProductionTui
+from acprof.tui.run.diagnostics import PreflightCheck
 from acprof.tui.ui.structured import FactGrid, FactValue
 from tests.support.tui_waits import wait_for_condition
 
@@ -43,7 +44,8 @@ class AcprofTui(ProductionTui):
     async def run_test(self, *args, **kwargs):
         with patch.object(
             self.preflight, "execute_quick_check",
-            side_effect=lambda config, token: self.preflight.show_quick_check([], "", token),
+            side_effect=lambda config, token: self.preflight.show_quick_check(
+                [PreflightCheck('Fixture environment', 'ok', 'Fixture requirements verified', check_id='environment')], "", token),
         ):
             async with super().run_test(*args, **kwargs) as pilot:
                 await wait_for_condition(

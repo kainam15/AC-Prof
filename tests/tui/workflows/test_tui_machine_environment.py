@@ -235,7 +235,7 @@ async def test_runtime_cleanup_failure_blocks_launch_and_remaining_preflight(tmp
 
     failure = ContainerCleanupError("a" * 64, [], final_state="present")
     scan = Mock(side_effect=failure)
-    preflight = Mock(return_value=[])
+    preflight = Mock(return_value=[PreflightCheck("Environment", "ok", "fixture", check_id="environment")])
     monkeypatch.setattr("acprof.tui.run.preflight_controller.scan_environment", scan)
     monkeypatch.setattr("acprof.tui.run.preflight_controller.quick_preflight", preflight)
     app = AcprofTui(RunConfig.smoke("fixture/model"), settings_path=tmp_path / "settings.json")

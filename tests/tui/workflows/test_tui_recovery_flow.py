@@ -17,6 +17,7 @@ from acprof.host import run_state
 from acprof.tui.commands import PendingLaunch
 from acprof.tui.experiments.catalog import scan_experiments
 from acprof.tui.logging.widget import SelectableLog
+from acprof.tui.run.diagnostics import PreflightCheck
 from acprof.tui.run.progress import ProgressSnapshot
 from acprof.tui.run.recovery import review_recovery
 from acprof.tui.run.results import RunResult
@@ -160,7 +161,8 @@ async def test_recovery_launch_requires_successful_preflight_and_unchanged_form(
                     app.query_one("#repeat", Input).value = str(config.repeat + 1)
                     await pilot.pause()
                 token = check.call_args.args[1]
-                app.preflight.show_quick_check([], "preflight failed" if outcome == "failed" else "", token)
+                app.preflight.show_quick_check([PreflightCheck("Environment", "ok", "fixture", check_id="environment")],
+                                               "preflight failed" if outcome == "failed" else "", token)
                 await app.workers.wait_for_complete()
                 await pilot.pause()
                 if outcome == "success":

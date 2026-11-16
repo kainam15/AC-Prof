@@ -12,6 +12,7 @@ from acprof.tui.i18n import message_id
 from acprof.tui.run.plan_panel import RunPlanPanel
 from acprof.tui.ui.structured import Callout, FactGrid, FactValue
 from tests.support.tui_fixtures import AcprofTui
+from tests.support.tui_waits import wait_for_condition
 
 
 @pytest.mark.parametrize("language", ["zh", "en"])
@@ -109,7 +110,11 @@ async def test_invalid_draft_clears_previous_plan_facts_and_recovers(tmp_path, f
         grid = panel.query_one("#run-plan-facts", FactGrid)
         assert not grid.display
         callout = panel.query_one("#run-plan-callout", Callout)
-        assert callout.display
+        assert not callout.display
+        await wait_for_condition(pilot, lambda: not app.configuration.validation_pending,
+                                 description='current invalid draft validated', timeout=3)
+        assert app.preflight.status.counts['error'] > 0
+        assert app.query_one('#start-run', Button).disabled
         assert callout.content == panel.view.callout
         assert callout.content.problem == invalid.value.issues[0].reason
         for issue in invalid.value.issues:

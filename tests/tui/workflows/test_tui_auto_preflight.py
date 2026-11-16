@@ -364,7 +364,7 @@ async def test_external_measurement_blocks_auto_probe_without_discarding_invento
 
 
 @pytest.mark.parametrize(("language", "size"), [("zh", (80, 24)), ("en", (120, 30))])
-async def test_inline_status_distinguishes_invalid_pending_checking_limited_and_failed(tmp_path, diagnostics, language, size):
+async def test_global_status_distinguishes_invalid_pending_checking_limited_and_failed(tmp_path, diagnostics, language, size):
     check, _scan = diagnostics
     started, release = threading.Event(), threading.Event()
 
@@ -374,19 +374,20 @@ async def test_inline_status_distinguishes_invalid_pending_checking_limited_and_
             raise TimeoutError("test did not release diagnostic")
         return [PreflightCheck("optional", "warn", "fixture unavailable")]
 
-    app = make_app(tmp_path)
+    app = make_app(tmp_path, repeat=3)
     app.configuration.preferences = replace(app.configuration.preferences, language=language)
     try:
         async with app.run_test(size=size) as pilot:
             await ready(app, pilot)
             status = app.query_one("#preflight-run-reason", Static)
             assert ("已就绪" if language == "zh" else "Ready") in str(status.content)
-            assert status.display
-            assert status.region.height > 0
+            assert not status.display
+            assert not app.query_one("#start-run", Button).disabled
             app.query_one("#model", Input).value = ""
             await wait_for_condition(pilot, lambda: app.preflight.collection_state == "incomplete",
                                      description="incomplete form status", timeout=2)
-            assert ("配置待完善" if language == "zh" else "Configuration incomplete") in str(status.content)
+            assert app.preflight.status.counts["error"] == 1
+            assert app.query_one("#start-run", Button).disabled
             check.side_effect = limited
             app.configuration.apply_config(replace(app.configuration.initial_config, gpus="on"))
             assert app.preflight.collection_state == "pending"

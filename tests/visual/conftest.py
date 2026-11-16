@@ -103,7 +103,8 @@ def svg_operations(request, monkeypatch, offline_machine_environment, offline_tu
             PreflightCheck(name, "ok", "fixture machine check", check_id=name, source="fixture")
             for name in ENVIRONMENT_CHECK_IDS
         )
-        controller.show_quick_check([], "", token, True, checks, "")
+        controller.show_quick_check([PreflightCheck('Environment', 'ok', 'fixture', check_id='environment')],
+                                    "", token, True, checks, "")
 
     def skip_version_lookup(controller):
         # Version networking is not a scene input. Retain the explicit startup
@@ -184,9 +185,7 @@ def snap_compare(request: pytest.FixtureRequest, tmp_path: Path, monkeypatch: py
         node = request.node
         baseline = (Path(str(node.path)).parent / "__snapshots__" /
                     Path(node.path).stem / f"{node.name}.svg")
-        if not baseline.is_file():
-            pytest.fail(f"No reviewed SVG baseline: {baseline}")
-        expected = baseline.read_text(encoding="utf-8")
+        expected = baseline.read_text(encoding="utf-8") if baseline.is_file() else ''
         output = os.environ.get("ACPROF_SNAPSHOT_OUTPUT_DIR")
         folder = Path(output) if output else tmp_path
         actual_path = folder / (f"{node.name}.svg" if output else "actual.svg")
@@ -195,6 +194,8 @@ def snap_compare(request: pytest.FixtureRequest, tmp_path: Path, monkeypatch: py
         if output or actual != expected:
             folder.mkdir(parents=True, exist_ok=True)
             actual_path.write_text(actual, encoding="utf-8")
+        if not baseline.is_file():
+            pytest.fail(f"No reviewed SVG baseline: {baseline}; review capture: {actual_path}")
         if actual != expected:
             diff = "".join(difflib.unified_diff(expected.splitlines(keepends=True),
                                                 actual.splitlines(keepends=True),

@@ -1,9 +1,54 @@
 """Sidebar presentation for the existing mounted page stack."""
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
 from textual import on
 from textual.app import ComposeResult
 from textual.containers import VerticalScroll
+from textual.geometry import Offset
 from textual.message import Message
-from textual.widgets import Button, Static, TabbedContent
+from textual.widget import Widget
+from textual.widgets import Button, ContentSwitcher, Static, TabbedContent
+
+if TYPE_CHECKING:
+    from acprof.tui.app import AcprofTui
+
+
+@dataclass(frozen=True)
+class NavigationContext:
+    """One return location for explicit issue navigation, without owning page state."""
+
+    tab: str
+    form: str | None
+    focus: Widget | None
+    scrolls: tuple[tuple[Widget, Offset], ...]
+    maximized: Widget | None
+
+    @classmethod
+    def capture(cls, app: AcprofTui) -> NavigationContext:
+        return cls(app.query_one('#main-tabs', TabbedContent).active,
+                   app.query_one('#experiment-pages', ContentSwitcher).current,
+                   app.focused,
+                   tuple((widget, widget.scroll_offset) for widget in app.screen.query(Widget)
+                         if widget.is_scrollable), app.screen.maximized)
+
+    def restore(self, app: AcprofTui) -> None:
+        app.activate_tab(self.tab)
+        if self.form is not None:
+            app.configuration.show_run_form(self.form)
+
+        def finish() -> None:
+            if self.maximized is not None and self.maximized.is_mounted:
+                app.screen.maximize(self.maximized, container=False)
+            if self.focus is not None and self.focus.is_mounted and self.focus.is_on_screen and not self.focus.is_disabled:
+                app.screen.set_focus(self.focus, scroll_visible=False)
+            for widget, position in self.scrolls:
+                if widget.is_mounted:
+                    widget.scroll_to(position.x, position.y, animate=False, immediate=True, force=True)
+
+        app.call_after_refresh(finish)
 
 
 class PageNavigation(VerticalScroll, can_focus=False):
