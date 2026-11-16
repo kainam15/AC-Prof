@@ -55,7 +55,7 @@ repos:
         entry: uv run --locked ruff check --select C901 --force-exclude
         language: system
         types: [python]
-        files: '^acprof/(analysis/[^/]+|experiments/(load|streaming)|models/candidates|host/model_store/preparation|host/case_recovery|host/measurement/(metrics|collector_metrics|load|load_transport|load_reporting)|container/handlers/(multimodal|diffusion)|results/task_collections|workloads/(spec|cv|diffusion|multimodal|structured))\.py$'
+        files: '^acprof/(analysis/[^/]+|experiments/(configuration|load|streaming)|models/candidates|host/model_store/preparation|host/case_recovery|host/measurement/(metrics|collector_metrics|load|load_transport|load_reporting)|container/handlers/(multimodal|diffusion)|results/task_collections|workloads/(spec|cv|diffusion|multimodal|structured))\.py$'
         require_serial: true
 
   - repo: https://github.com/pre-commit/pre-commit-hooks

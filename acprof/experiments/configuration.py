@@ -195,6 +195,60 @@ class RunConfig(RunOptions):
         if self.resume and self.rebuild_image:
             errors.append(ConfigIssue("rebuild_image", message("恢复实验必须使用原镜像；如需重建，请创建新实验。")))
         extra_options = _normalize_extra_options(self.extra_options, {item.name for item in fields(self)}, errors)
+        self._validate_source(errors)
+        from acprof.cpu_affinity import normalize_cpu_set
+        try:
+            cpuset_cpus = normalize_cpu_set(self.cpuset_cpus)
+        except ValueError:
+            cpuset_cpus = ""
+            errors.append(ConfigIssue("cpuset_cpus", message("CPU 集合格式无效；示例：0-3,8")))
+        model = self.model.strip()
+        if not model:
+            errors.append(ConfigIssue("model", message('模型 ID 不能为空')))
+
+        # Keep issue collection in presentation order; only publish normalized
+        # values after every domain has been checked without errors.
+        cpus, mems = self._validate_resource_limits(errors)
+        gpus = self._validate_runtime(errors, cpus, mems, extra_options, pending_profiling)
+        self._validate_input_scales(errors)
+        numbers = self._normalize_numbers(errors)
+        task_family = self._validate_modes(errors, pending_profiling)
+        self._validate_policies(errors, extra_options)
+        workload_spec, model_spec, inference_config, confirm_inference = self._validate_paths(errors, project_dir)
+        if errors:
+            raise RunConfigError(errors)
+
+        return replace(
+            self,
+            model=model,
+            extra_options=extra_options,
+            task=self.task.strip(),
+            task_family=task_family,
+            backend=self.backend.strip(),
+            cpus="auto" if self.cpus == "auto" else ",".join(str(value) for value in cpus),
+            cpuset_cpus=cpuset_cpus,
+            mems="auto" if self.mems == "auto" else ",".join(str(value) for value in mems),
+            gpus=",".join(gpus),
+            input_scales=",".join(csv_values(self.input_scales)),
+            workload_spec=workload_spec,
+            model_spec=model_spec,
+            inference_config=inference_config,
+            confirm_inference=confirm_inference,
+            output_dir=self.output_dir.strip(),
+            batch_size=int(numbers["batch_size"]),
+            warmup=int(numbers["warmup"]),
+            repeat=int(numbers["repeat"]),
+            repeat_in_window=int(numbers["repeat_in_window"]),
+            repeat_window_seconds=float(numbers["repeat_window_seconds"]),
+            request_timeout_seconds=float(numbers["request_timeout_seconds"]),
+            sample_hz=float(numbers["sample_hz"]),
+            raw_sample_limit=int(numbers["raw_sample_limit"]),
+            idle_seconds=float(numbers["idle_seconds"]),
+            idle_cooldown_seconds=float(numbers["idle_cooldown_seconds"]),
+            sniff_iface=self.sniff_iface.strip(),
+        )
+
+    def _validate_source(self, errors: list[ConfigIssue]) -> None:
         if not isinstance(self.revision, str) or any(character.isspace() for character in self.revision):
             errors.append(ConfigIssue("revision", message("模型 revision 必须是无空白的 branch、tag 或 commit SHA")))
         from acprof.hub.huggingface.endpoints import HF_DOWNLOAD_MODES
@@ -209,16 +263,8 @@ class RunConfig(RunOptions):
                 parse_bytes(getattr(self, field))
             except ValueError as exc:
                 errors.append(ConfigIssue(field, str(exc)))
-        from acprof.cpu_affinity import normalize_cpu_set
-        try:
-            cpuset_cpus = normalize_cpu_set(self.cpuset_cpus)
-        except ValueError:
-            cpuset_cpus = ""
-            errors.append(ConfigIssue("cpuset_cpus", message("CPU 集合格式无效；示例：0-3,8")))
-        model = self.model.strip()
-        if not model:
-            errors.append(ConfigIssue("model", message('模型 ID 不能为空')))
 
+    def _validate_resource_limits(self, errors: list[ConfigIssue]) -> tuple[list[int], list[int]]:
         try:
             cpus = [] if self.cpus == "auto" else _positive_int_csv(self.cpus, message('CPU 列表'), "cpus")
         except RunConfigError as exc:
@@ -238,7 +284,12 @@ class RunConfig(RunOptions):
                 service_port(max(cpus), max(mems))
             except ValueError as exc:
                 errors.extend(ConfigIssue(field, str(exc)) for field in ("cpus", "mems"))
+        return cpus, mems
 
+    def _validate_runtime(
+        self, errors: list[ConfigIssue], cpus: list[int], mems: list[int],
+        extra_options: dict, pending_profiling: bool,
+    ) -> list[str]:
         gpus = csv_values(self.gpus)
         if self.runtime not in {"auto", "docker", "process"}:
             errors.append(ConfigIssue("runtime", message("执行运行时必须是 auto、docker 或 process")))
@@ -261,7 +312,9 @@ class RunConfig(RunOptions):
                 errors.append(ConfigIssue("mems", message('启用启动 OOM 剪枝时内存列表不能重复')))
             if len(gpus) != len(set(gpus)):
                 errors.append(ConfigIssue("gpus", message('启用启动 OOM 剪枝时 GPU 模式不能重复')))
+        return gpus
 
+    def _validate_input_scales(self, errors: list[ConfigIssue]) -> None:
         try:
             _positive_float_csv(self.input_scales, message('输入规模'), "input_scales")
         except RunConfigError as exc:
@@ -269,6 +322,7 @@ class RunConfig(RunOptions):
         if self.input_scale_policy not in {"auto", "minimal"}:
             errors.append(ConfigIssue("input_scale_policy", message("输入规划必须是 auto 或 minimal")))
 
+    def _normalize_numbers(self, errors: list[ConfigIssue]) -> dict[str, int | float]:
         numbers: dict[str, int | float] = {}
         numeric_fields = (
             ("batch_size", "Batch size", "Batch size 必须大于 0"),
@@ -294,7 +348,9 @@ class RunConfig(RunOptions):
                 else:
                     detail = message("{0}必须是{1}", message(label), message("整数" if rule.whole else "数字"))
                 errors.append(ConfigIssue(field, detail))
+        return numbers
 
+    def _validate_modes(self, errors: list[ConfigIssue], pending_profiling: bool) -> str:
         task_family = self.task_family.strip().lower()
         if task_family and task_family not in TASK_FAMILIES:
             errors.append(ConfigIssue("task_family", message('任务族必须是 nlp/cv/audio/timeseries/diffusion/multimodal/structured')))
@@ -312,7 +368,9 @@ class RunConfig(RunOptions):
             errors.append(ConfigIssue("output_dir", message('输出目录不能为空')))
         if not self.sniff_iface.strip():
             errors.append(ConfigIssue("sniff_iface", message('抓包网卡不能为空')))
+        return task_family
 
+    def _validate_policies(self, errors: list[ConfigIssue], extra_options: dict) -> None:
         from acprof.latency_slo import parse_latency_slo_rules
         from acprof.monitors.rapl_topology import dram_policy
 
@@ -326,6 +384,9 @@ class RunConfig(RunOptions):
             except ValueError:
                 errors.append(ConfigIssue("dram_energy", message("DRAM 能耗策略与画像模式不兼容")))
 
+    def _validate_paths(
+        self, errors: list[ConfigIssue], project_dir: Path | None,
+    ) -> tuple[str, str, str, str]:
         workload_spec = self.workload_spec.strip()
         if workload_spec and project_dir is not None:
             workload_path = Path(workload_spec).expanduser()
@@ -359,39 +420,7 @@ class RunConfig(RunOptions):
             errors.append(ConfigIssue("confirm_inference", message(
                 "推理确认必须为审阅时显示的完整小写 SHA-256",
             )))
-
-        if errors:
-            raise RunConfigError(errors)
-
-        return replace(
-            self,
-            model=model,
-            extra_options=extra_options,
-            task=self.task.strip(),
-            task_family=task_family,
-            backend=self.backend.strip(),
-            cpus="auto" if self.cpus == "auto" else ",".join(str(value) for value in cpus),
-            cpuset_cpus=cpuset_cpus,
-            mems="auto" if self.mems == "auto" else ",".join(str(value) for value in mems),
-            gpus=",".join(gpus),
-            input_scales=",".join(csv_values(self.input_scales)),
-            workload_spec=workload_spec,
-            model_spec=model_spec,
-            inference_config=inference_config,
-            confirm_inference=confirm_inference,
-            output_dir=self.output_dir.strip(),
-            batch_size=int(numbers["batch_size"]),
-            warmup=int(numbers["warmup"]),
-            repeat=int(numbers["repeat"]),
-            repeat_in_window=int(numbers["repeat_in_window"]),
-            repeat_window_seconds=float(numbers["repeat_window_seconds"]),
-            request_timeout_seconds=float(numbers["request_timeout_seconds"]),
-            sample_hz=float(numbers["sample_hz"]),
-            raw_sample_limit=int(numbers["raw_sample_limit"]),
-            idle_seconds=float(numbers["idle_seconds"]),
-            idle_cooldown_seconds=float(numbers["idle_cooldown_seconds"]),
-            sniff_iface=self.sniff_iface.strip(),
-        )
+        return workload_spec, model_spec, inference_config, confirm_inference
 
     def result_dir(self, project_dir: Path) -> Path:
         output_root = Path(self.output_dir).expanduser()

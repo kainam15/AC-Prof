@@ -274,7 +274,11 @@ machine events 继续由 `RunProgressTracker` 解析。
 由 Process 实现在身份校验后复制环境字典、重绑定日志目录，保留已记录的 GPU 和模型身份。
 应用准备层不再直接修改 Process 制品，恢复操作也不会改写保存的快照；
 Docker 实现保持既有镜像准备和不可变镜像身份校验。
-`RunConfig.validate()` 汇总纯参数约束与逐字段 `ConfigIssue`，并规范化 profiler 重复次数和参考资源。`experiments.constraints` 提供 CLI、表单、冻结参数及 `ClientConfig` 共用的无损数值解析，拒绝布尔值、非有限值和小数截断；主机 CPU 亲和可用性、环境 SLO 与硬件能力仍在 preflight 检查。用户实验的 `repeat` 至少为 1，直接测量入口允许准备／清理用的 0 窗口；这一区别显式保留在共享规则中。底层测量还验证进程身份和证据目录等运行不变量。
+`RunConfig.validate()` 汇总静态输入约束与逐字段 `ConfigIssue`，并规范化 profiler 重复次数和参考资源。`experiments.constraints` 提供 CLI、表单、冻结参数及 `ClientConfig` 共用的无损数值解析，拒绝布尔值、非有限值和小数截断；主机 CPU 亲和可用性、环境 SLO 与硬件能力仍在 preflight 检查。用户实验的 `repeat` 至少为 1，直接测量入口允许准备／清理用的 0 窗口；这一区别显式保留在共享规则中。底层测量还验证进程身份和证据目录等运行不变量。
+校验在同一模块内按来源、资源、Runtime、输入规模、数值、模式、策略和本地声明路径拆分，
+由公开入口保持错误收集顺序，所有领域检查结束后统一报错或返回新配置，原请求不被改写。
+公开入口回归固定跨字段错误、消息模板、资源顺序、归一化类型、路径检查及异常传播；
+配置模块参加局部 C901 门禁，仍复用既有字段声明与数值规则。
 `auto` 在环境设置、锁和模型访问之前复用该校验；只有自动准备入口允许保留尚未选择的
 `profiling_mode=auto`，不提前决定 basic/full，也不放宽 Process 的显式 Profiler 或 DRAM 限制。
 校验返回值通过既有 `RunConfig.to_namespace()` 转交准备与采集入口，保持路径、任务与资源值一致；
@@ -282,6 +286,8 @@ Docker 实现保持既有镜像准备和不可变镜像身份校验。
 参考 [Click 的参数转换、来源与命令调用分离](https://github.com/pallets/click/blob/main/src/click/core.py)
 及 [CPython argparse 的参数错误处理](https://github.com/python/cpython/blob/3.12/Lib/argparse.py)，
 仅借鉴设计，沿用项目共享约束与标准库，不复制代码或引入新的 CLI 依赖。
+校验重构也参考 [Transformers 的静态配置校验](https://github.com/huggingface/transformers/blob/main/src/transformers/generation/configuration_utils.py)
+及[校验变更影响加载行为的案例](https://github.com/huggingface/transformers/issues/25388)，先固定可观察行为再拆分职责。
 `_execute()` 只串联执行选项校验、任务集合分派、主机预检、准备、矩阵执行和结果发布；
 `_collect_matrix()` 消费单一 `MatrixRequest`，`application.publication.publish_matrix_results()` 负责
 capability 校验、CSV 合并、RunState 完成、清理及自动统计 JSON 发布，task child 继续使用同一 `_finalize()` 所有权和异常优先级。
