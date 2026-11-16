@@ -40,12 +40,14 @@ def complete_check(app, checks):
 @pytest.mark.parametrize(('language', 'size', 'saved_runtime'), [
     ('zh', (80, 24), 'auto'), ('en', (120, 30), 'docker'), ('zh', (150, 45), 'process'),
 ])
-async def test_basic_runtime_selection_navigation_and_restart(tmp_path, language, size, saved_runtime):
+async def test_basic_runtime_selection_navigation_and_restart(tmp_path, monkeypatch, language, size, saved_runtime):
     path = tmp_path / 'settings.json'
     config = replace(RunConfig.smoke('fixture/model'), cpus='1,2', mems='2,4', gpus='off,on', cpuset_cpus='0-3')
     app = AcprofTui(config, settings_path=path)
     app.configuration.preferences = replace(app.configuration.preferences, language=language)
     async with app.run_test(size=size) as pilot:
+        check = Mock()
+        monkeypatch.setattr(app.preflight, 'execute_quick_check', check)
         control = app.query_one('#run-form #runtime', Select)
         assert control.value == 'auto'
         assert len(app.query('#runtime')) == 1
@@ -61,9 +63,8 @@ async def test_basic_runtime_selection_navigation_and_restart(tmp_path, language
                 message_id('run.runtime.automatic') if runtime == 'auto' else runtime.title()
             )
             assert app.configuration.collect_config() == replace(config, runtime=runtime)
-            if runtime != 'auto':
-                assert app.query_one('#start-run', Button).disabled
-                assert not app.preflight.config_matches()
+            assert app.query_one('#start-run', Button).disabled
+            assert not app.preflight.config_matches()
             hint = app.query_one('#runtime-status .status-headline', Static).visual.plain
             assert ('cgroup' if runtime == 'process' else 'Docker' if runtime == 'docker' else 'Auto') in hint
             toggle = app.query_one('#open-run-settings', Button)
@@ -75,6 +76,19 @@ async def test_basic_runtime_selection_navigation_and_restart(tmp_path, language
             await pilot.pause()
             assert app.query_one('#experiment-pages', ContentSwitcher).current == 'run-form'
             assert app.query_one('#runtime', Select).value == runtime
+            await wait_for_condition(
+                pilot, lambda: app.preflight.check_running,
+                description=f'automatic {runtime} preflight', timeout=3,
+            )
+            checked, token = check.call_args.args
+            assert checked.runtime == runtime
+            assert not app.preflight.check_inventory
+            resolved = 'process' if runtime == 'process' else 'docker'
+            app.preflight.show_quick_check(
+                [PreflightCheck('Runtime', 'ok', resolved, runtime_kind=resolved)], '', token,
+            )
+            assert app.preflight.config_matches()
+            assert not app.query_one('#start-run', Button).disabled
         await choose_runtime(app, pilot, saved_runtime)
         await pilot.resize_terminal(80, 24)
         await choose_runtime(app, pilot, saved_runtime)
@@ -92,7 +106,7 @@ async def test_basic_runtime_selection_navigation_and_restart(tmp_path, language
 
 
 @pytest.mark.parametrize('status', ['ok', 'fail'])
-async def test_docker_status_uses_current_preflight_and_becomes_stale(tmp_path, status):
+async def test_docker_status_uses_current_preflight_and_becomes_stale(tmp_path, monkeypatch, status):
     config = replace(RunConfig.smoke('fixture/model'), runtime='docker')
     app = AcprofTui(config, settings_path=tmp_path / 'settings.json')
     async with app.run_test(size=(120, 30)) as pilot:
@@ -101,10 +115,13 @@ async def test_docker_status_uses_current_preflight_and_becomes_stale(tmp_path, 
         assert banner.summary.level == ('success' if status == 'ok' else 'error')
         assert 'Docker' in app.tr(banner.summary.headline)
         assert app.query_one('#start-run', Button).disabled == (status == 'fail')
+        monkeypatch.setattr(app.preflight, 'execute_quick_check', Mock())
         await choose_runtime(app, pilot, 'process')
+        await wait_for_condition(pilot, lambda: app.preflight.check_running,
+                                 description='automatic Process preflight', timeout=3)
         assert not app.preflight.config_matches()
         assert app.preflight.selected_runtime == ''
-        assert resource_state(app.preflight) == 'stale'
+        assert resource_state(app.preflight) == 'checking'
         assert app.query_one('#start-run', Button).disabled
 
 

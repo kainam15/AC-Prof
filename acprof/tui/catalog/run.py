@@ -543,8 +543,8 @@ MESSAGES: dict[str, Entry] = {
     "run.runtime.docker_checking": Entry(zh="正在检查 Docker 环境…", en="Checking the Docker environment…"),
     "run.runtime.docker_ready": Entry(zh="Docker 环境可用。", en="Docker environment is available."),
     "run.runtime.docker_recheck": Entry(
-        zh="Docker 待预检；从顶栏环境状态重新检查。",
-        en="Docker needs preflight; recheck via the environment status in the header.",
+        zh="Docker 待自动预检；详细诊断见顶栏环境状态。",
+        en="Automatic Docker preflight pending; diagnostics are in the header.",
     ),
     "run.runtime.docker_unavailable": Entry(
         zh="Docker 预检未通过；从顶栏环境状态查看原因并重检。",
