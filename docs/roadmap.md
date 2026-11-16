@@ -56,6 +56,15 @@
 
 本轮验证限于离线 Fixture、Mock 与定向检查；没有新增真实模型推理、GPU、完整 Profiler 或用户终端验收证据。Top 100 的冻结集须保留原始 metadata、模型 revision、解析规则版本、原始判定和新的原因，不以放宽检查提高通过率。
 
+## Process 资源权限与修复引导
+
+已复用 Process 资源管理、PreflightController、ConfigField 和 Carbon Callout，实现 cgroup
+版本/控制器/委派/父级配额诊断、已有权限内的修复、配额回读与短生命周期迁移验证。
+TUI 提供详细原因、手动管理员指引、重新检测及显式继承限制；数值配额未验证则阻断对应实验，
+无关 Docker/可选工具缺项作为警告，未改变测量字段或结果格式。
+定向 Fixture 与 Pilot 覆盖中英文、三种终端尺寸和恢复交互；真实模型、管理员授权后的 cgroup
+强制配额、SSH 客户端与 systemd 用户服务的现场验收仍未执行。见[Linux Runtime](platforms/linux-runtimes.md#资源与指标口径)。
+
 ## 待验收与后续实验
 
 | 范围 | 尚缺证据 | 执行与完成要求 |

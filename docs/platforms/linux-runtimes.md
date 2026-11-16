@@ -53,7 +53,7 @@ acprof doctor --runtime process --profiling-mode basic --gpus off
 acprof tui
 ```
 
-在 TUI 选择 Smoke/basic，再到高级参数选择 Process，点击“使用 Process 继承限制”。
+在 TUI 选择 Smoke/basic，再到高级参数选择 Process，点击“使用继承限制（CPU / 内存 → auto）”。
 环境检查展示可用采集器及缺失状态；最小内存探测仍为 Docker 工具，Process 使用输入规模扫描。
 Process 的结构化 `case_selected` 进度携带 `runtime_kind=process`，允许 CPU/内存为 null，界面显示“继承限制”；
 Docker 与最小内存 probe 的进度仍要求正数资源轴。
@@ -99,8 +99,22 @@ acprof load results/process-smoke --gpu off --requests 5 --warmup 1 \
 `gpu_device_uuid` 仍表示选定设备的身份：Docker 使用现有 device request 选择，Process 使用 CUDA 可见序号解析，
 具体来源保存在 `gpu_device` 元数据中；共享字段的登记来源为 `selected_device_identity`，数值与归属范围没有替换。
 
-数值矩阵使用当前 cgroup 下的委托，或显式 `ACPROF_CGROUP_ROOT` 指向的 cgroup v2 委托。
-AC-Prof 不自动修改上级 controller 或主机服务权限。只有输入规模扫描不需要额外资源控制权限。
+数值矩阵优先使用当前 unit 内已有的可写 cgroup v2 委派子树，或启动前显式设置的
+`ACPROF_CGROUP_ROOT`。预检区分 v1/v2、所需控制器缺失、委派/写权限不足、可见父级配额不足
+和回读/进程归属验证失败。只请求 CPU 时不要求 Memory 控制器，反之亦然。
+
+安全修复只使用当前用户已有权限：在空的委派根启用本次需要的 controller，创建唯一实验子组，
+写入并回读配额，再用短生命周期 Python helper 验证迁移权限与归属。若已委派的 systemd unit
+仅包含 AC-Prof 自身，可将自身移入本次 controller 子组后启用控制器；不迁移其他进程，
+不越过当前 unit 边界进入 systemd 用户管理器的子树。controller 子组由所属 unit 在退出后回收。
+实验子组在预检结束或失败后清理；启用的已委派 controller 不擅自关闭。
+AC-Prof 不运行 sudo/chown、不修改系统权限或 systemd 配置，也不改写父级配额。
+
+资源预检与自动修复持有现有测量互斥锁，均在准备/正式测量前执行，无额外采集期轮询。
+正式 workload 启动后仍须验证 PID 归属、CPU/内存回读和可见父级限制，成功前
+`resource_plan.verified` 保持 false；预检 helper 的成功不能充当 workload 生效证据。
+数值配额失败不会静默改为 auto；只有用户明确选择继承限制才改变资源语义。
+配置和管理员操作指引见[Process 权限诊断](../usage/troubleshooting.md#process-资源权限)。
 可见的 CPU affinity、各级 quota 和 memory 上限保存在分配证据中；隐藏的祖先限制及资源共享仍可能未知。
 短命子进程可能落在采样间隔之间；已观察到子进程退出且缺少终值时，CPU 总量保留缺失证据。
 
@@ -165,6 +179,8 @@ Docker full 的多尺度及资源扩展口径见[扩展验收](../development/ci
 
 - [psutil 进程实现](https://github.com/giampaolo/psutil/blob/master/psutil/__init__.py)（BSD-3-Clause）：复用进程身份、CPU/RSS 和子树接口；采样限定为目标树，不扫描全机所有进程。
 - [OpenTelemetry process scraper](https://github.com/open-telemetry/opentelemetry-collector-contrib/blob/main/receiver/hostmetricsreceiver/internal/scraper/processscraper/process_scraper.go)及[权限问题讨论](https://github.com/open-telemetry/opentelemetry-collector-contrib/issues/34557)（Apache-2.0）：借鉴逐项失败与部分证据，未引入 Collector 服务或依赖。
+- [systemd 委派说明](https://github.com/systemd/systemd/blob/main/docs/CGROUP_DELEGATION.md)、[控制器未委派的问题 #9641](https://github.com/systemd/systemd/issues/9641) 和 [内部节点进程修复 PR #41304](https://github.com/systemd/systemd/pull/41304)：遵循单一管理者和内部节点不得包含进程的约束，以文件回读与实际归属验证权限，不把 `Delegate=yes` 当作成功证据。
+- [OpenContainers cgroup v2 创建实现](https://github.com/opencontainers/cgroups/blob/main/fs2/create.go)（Apache-2.0）与 [Linux cgroup v2 协议](https://www.kernel.org/doc/html/latest/admin-guide/cgroup-v2.html)：借鉴控制器逐层可用性、失败清理和父级限制检查；不复制其从系统根逐级配置的做法，不新增依赖。
 - [uv 环境管理](https://github.com/astral-sh/uv/blob/main/docs/pip/environments.md)：复用现有 uv 与依赖锁，环境准备全部在测量前完成。
 - [vLLM serving benchmark](https://github.com/vllm-project/vllm/blob/main/vllm/benchmarks/serve.py)（Apache-2.0）：保留客户端端到端延迟与服务端推理阶段的区别，未引入 vLLM 依赖。
 

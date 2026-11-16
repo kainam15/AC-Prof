@@ -160,6 +160,39 @@ ip link show docker0
 
 AC-Prof 要求 RAPL energy counter 可读。按错误信息检查 `/sys/class/powercap/*/energy_uj` 的存在性和权限；不要用 TDP 或 CPU utilization 伪造缺失功耗。
 
+### Process 资源权限
+
+Process 的数值 CPU/内存配额要求 cgroup v2 委派；`auto` 只继承既有限制。TUI 的
+“实验配置 → Process 配额 → 查看详细原因”显示当前 cgroup、目标委派根、可用/已启用
+控制器、写权限、systemd 检查结果与原始技术原因。概览不直接显示 `Errno 13`。
+
+| 诊断 | 影响与处理 |
+| --- | --- |
+| 权限不足 / 未委派 | 保留数值配置并阻断该实验；按详情配置委派后重新检查 |
+| CPU / Memory 控制器缺失 | 请管理员核查内核、挂载和上级 controller；只检查本次实际请求的控制器 |
+| 父级配额不足 | 降低请求或请管理员调整父级；子组不能突破父级限制 |
+| cgroup v1 / 不支持 | 数值配额不能执行；接受继承语义时可显式改为 auto，系统切换 v2 可能需要主机重启 |
+| 写入回读 / PID 归属不符 | 不报告配额已生效，不开始依赖配额的正式窗口；查看详情后修复 |
+
+systemd 中必须检查 **AC-Prof 当前所属 unit** 的 `Delegate=yes` 与实际委派控制器。
+`user@<uid>.service` 有委派不代表 SSH 登录的 `session-*.scope` 也有委派。
+用户服务可按详情尝试显式的 `systemctl --user set-property --runtime <unit> Delegate=yes`；
+持久配置通过 `systemctl --user edit <unit>` 维护，`DelegateSubgroup=controller` 需要 systemd ≥254，
+且持久改动通常要在下一次服务启动才生效。已有空委派根或只含本应用的已委派 unit 可由安全修复继续配置。
+
+需要管理员时，详情生成针对当前 PID 的临时 systemd scope 命令，供管理员在另一终端审阅执行。
+命令通过系统 D-Bus 创建 `Delegate=yes` 的 scope，将当前 AC-Prof 移入 controller 子组，
+开启 CPU/Memory 并仅授予所需目录/委派文件权限；不迁移整个 SSH 会话。
+应用只展示命令，不自动提权。仅在没有活动实验时配置；完成后点击“重新检查权限”。
+不支持 systemd 的服务器需要管理员提供等价的 cgroup v2 子树；图形界面不是必要条件。
+无用户 D-Bus 的 SSH 会话不能假定 `systemctl --user` 可用，详情保留失败原因并提供系统管理器路径。
+若启动时显式设置了 `ACPROF_CGROUP_ROOT`，重检始终使用该路径；需要修复该路径及迁移权限，
+新 scope 不会覆盖该设置。在运行中的 TUI 之外执行 `export` 也不会改变已有进程的环境。
+
+所有授权后操作仍以实际回读、迁移 helper 和 workload 验证为准，不能仅凭管理员命令退出码宣布就绪。
+这些诊断不改变 CSV、测量字段和恢复身份；无法读取的指标仍保留缺失状态。
+本次开发覆盖 Fixture、headless Pilot 与本机只读权限检查；真实 SSH 客户端及管理员授权后的内核限额验收需另行验证。
+
 ### `[cgroup][ERROR]`
 
 正式实验要求统一 cgroup v2。检查 `test -f /sys/fs/cgroup/cgroup.controllers` 和
