@@ -9,6 +9,7 @@ from textual.widgets import Collapsible, ContentSwitcher, Select, Static
 from acprof.experiments.configuration import RunConfig
 from acprof.tui.ui.input import BarCursorInput as Input
 from tests.support.tui_fixtures import AcprofTui
+from tests.support.tui_waits import wait_for_condition
 
 
 @pytest.mark.parametrize(('size', 'language'), [((80, 24), 'zh'), ((120, 30), 'en')])
@@ -38,8 +39,12 @@ async def test_submit_reveals_and_focuses_each_error_then_clears_its_reason(size
             assert (error.display)
             assert (str(error.render()))
             control.value = valid
-            # Form edits intentionally coalesce on a 50 ms timer.
-            await pilot.pause(0.1)
+            # Wait for the debounced validation result, including its UI update.
+            await wait_for_condition(
+                pilot, lambda: not error.display,
+                description=f"{field} error cleared after a valid edit", timeout=5.0,
+                diagnostics=lambda: str(error.render()),
+            )
             assert not (error.display)
 
 async def test_model_review_requires_an_explicit_select_choice():

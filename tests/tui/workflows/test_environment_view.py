@@ -38,14 +38,17 @@ def test_statuses_describe_machine_evidence_without_exposing_enums(status, group
     assert "Blocked" not in translate(presentation.label, "en")
 
 
-@pytest.mark.parametrize(("status", "expected"), [
-    ("ok", "error"), ("warn", "error"), ("future_state", "error"), ("not_requested", "not_requested"),
+@pytest.mark.parametrize(("status", "expected", "group"), [
+    ("ok", "error", "error"),
+    ("warn", "warn", "warning"),
+    ("future_state", "error", "error"),
+    ("not_requested", "not_requested", "pending"),
 ])
-def test_capability_check_error_keeps_the_existing_not_requested_exception(status, expected):
+def test_capability_check_error_preserves_warning_and_not_requested_severity(status, expected, group):
     row = PreflightCheck("GPU", status, "", capability_status="error", check_id="gpu_device")
 
     assert item_status(row) == expected
-    assert check_group(row) == ("pending" if status == "not_requested" else "error")
+    assert check_group(row) == group
 
 
 def test_unknown_status_sorting_preserves_stable_order_and_does_not_mutate_rows():
