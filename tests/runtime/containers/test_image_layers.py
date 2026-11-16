@@ -33,6 +33,7 @@ def test_host_and_ui_changes_preserve_service_identity():
     ("relative", "content"),
     [
         ("acprof/models/download_plan.py", "selector = 2\n"),
+        ("acprof/models/diffusion_pipelines.py", "pipelines = 2\n"),
         ("acprof/models/files.py", "files = 2\n"),
         ("acprof/models/spec.py", "spec = 2\n"),
     ],
@@ -48,6 +49,7 @@ def test_code_changes_reuse_runtime_and_model_but_refresh_final_image(relative, 
         for fixture_path, fixture_content in {
             "acprof/container/download_model.py": "downloader = 1\n",
             "acprof/models/download_plan.py": "selector = 1\n",
+            "acprof/models/diffusion_pipelines.py": "pipelines = 1\n",
             "acprof/models/files.py": "files = 1\n",
             "acprof/models/spec.py": "spec = 1\n",
             "acprof/handler.py": "handler = 1\n",

@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import Any, NoReturn
 
 from acprof.failures import Failure, RuntimeFailure
+from acprof.models.diffusion_pipelines import diffusers_pipeline
 from acprof.models.files import ModelFilesError, checkpoint_index, resolve_checkpoint, safe_path
 from acprof.models.metadata_validation import (
     MetadataValidationError,
@@ -18,13 +19,14 @@ def _checkpoint_components(files: set[str], metadata: dict[str, Any]) -> list[tu
     modules = metadata.get("modules.json")
     if isinstance(pipeline, dict):
         validate_diffusers_declarations(pipeline)
+        capability = diffusers_pipeline(pipeline.get("_class_name"))
         for component, declaration in pipeline.items():
             if (component.startswith("_") or not isinstance(declaration, list)
                     or len(declaration) != 2 or declaration[0] not in {"diffusers", "transformers", "stable_diffusion"}):
                 continue
             prefix = safe_path(component) + "/"
             if not any(name.startswith(prefix) for name in files):
-                if pipeline.get("_class_name") in {"DDPMPipeline", "DDIMPipeline"} and component == "unet":
+                if capability is not None and capability.root_layout and component == "unet":
                     prefix = ""
                 else:
                     continue

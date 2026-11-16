@@ -14,6 +14,7 @@ from collections.abc import Callable, Mapping
 from pathlib import PurePosixPath
 from typing import Any, NotRequired, TypedDict, cast
 
+from acprof.models.diffusion_pipelines import diffusers_pipeline
 from acprof.models.files import Checkpoint, ModelFilesError, resolve_checkpoint, safe_path
 from acprof.models.spec import validate_dependencies, validate_repository_identity
 
@@ -72,12 +73,6 @@ class DownloadPlan(TypedDict):
 
 PLAN_VERSION = 1
 PLAN_FILENAME = "model_download_plan.json"
-DIFFUSION_PIPELINES = {
-    "StableDiffusionPipeline", "StableDiffusionImg2ImgPipeline",
-    "StableDiffusionInpaintPipeline", "StableDiffusionXLPipeline",
-    "StableDiffusionXLImg2ImgPipeline", "StableDiffusionXLInpaintPipeline",
-    "DDPMPipeline", "DDIMPipeline",
-}
 _WEIGHTS = re.compile(
     r"(?:model|pytorch_model|diffusion_pytorch_model)"
     r"(?:\.(?:fp16|fp32|bf16|non_ema))?(?:-\d+-of-\d+)?"
@@ -241,7 +236,8 @@ def _plan_diffusers(
     if not isinstance(config, dict):
         raise ModelFilesError("invalid model_index.json")
     pipeline = config.get("_class_name")
-    if isinstance(pipeline, str) and pipeline in DIFFUSION_PIPELINES:
+    capability = diffusers_pipeline(pipeline)
+    if capability is not None and capability.component_layout:
         reason = "native_diffusers_components"
         for component, spec in config.items():
             if component.startswith("_") or not isinstance(spec, (list, dict)):
@@ -262,7 +258,7 @@ def _plan_diffusers(
                 # Diffusers loads from the root when the component directory
                 # is absent. Limit selection to reviewed DDPM/DDIM layouts;
                 # unrelated root files cannot satisfy a missing component.
-                root_component = (pipeline in {"DDPMPipeline", "DDIMPipeline"} and library == "diffusers")
+                root_component = capability.root_layout and library == "diffusers"
                 if root_component and component == "scheduler" and class_name in {"DDPMScheduler", "DDIMScheduler"}:
                     if "scheduler_config.json" not in names:
                         raise ModelFilesError(f"missing pipeline component: {component}")
@@ -295,7 +291,8 @@ def _plan_diffusers(
                 selected -= {name for name in names if "/" not in name and name.endswith((".ckpt", ".safetensors"))} - chosen_weights
                 return selected, weights, reason
     else:
-        reason = "unregistered_diffusers_pipeline"
+        reason = ("unverified_diffusers_pipeline_layout" if capability is not None
+                  else "unregistered_diffusers_pipeline")
     return set(names), [], reason
 
 

@@ -15,6 +15,13 @@ DDPM/DDIM 还支持原生根目录布局：组件目录不存在时，`UNet2DMod
 
 自定义 adapter、`auto_map`、量化配置、未知模型类型或未覆盖的 pipeline 使用完整快照，并打印回退原因。GPU 推理 dtype 不用于选择文件名中的 FP16／FP32 variant；不会自动转换、量化权重或切换 EMA checkpoint。需要完整仓库时，`acprof run` 和 `acprof probe` 均可传入 `--model-download-policy full`。TUI 使用默认 `auto`；两种策略具有不同的镜像指纹。
 
+Diffusers 的任务提示、已审查组件布局和根目录布局能力统一声明在
+[`models/diffusion_pipelines.py`](../../acprof/models/diffusion_pipelines.py)，发现、文件规划和索引读取共同消费。
+任务名称可识别不代表制品或真实推理已验证；例如 PNDM、ShapE、CogVideoX 和 Wan
+目前保留完整快照，原因是 `unverified_diffusers_pipeline_layout`，静态布局仍为 unknown。
+完全未登记的类保留 `unregistered_diffusers_pipeline`。Inpaint 的文件选择能力也不自动赋予任务路由。
+能力声明参与 Model Store 规划及模型镜像指纹；扩展能力须补齐对应布局 Fixture 和独立运行时验证。
+
 共享环境层不包含 AC-Prof 业务代码或模型。默认构建使用带完整依赖锁的 runtime 镜像，
 再构建不含权重的模型清单和最终代码层。模型清单层不再包含权重，指纹绑定真实环境 image ID、模型 commit、backend、adapter、
 下载策略、筛选器及已验证计划 SHA256；最终层复制 AC-Prof 代码。修改界面或 handler 可以复用依赖与模型层，

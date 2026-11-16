@@ -9,6 +9,7 @@ from pathlib import Path
 # Shared by the Model Store planner key and the model image fingerprint.
 DOWNLOAD_PLAN_SOURCES = (
     "acprof/models/download_plan.py",
+    "acprof/models/diffusion_pipelines.py",
     "acprof/models/files.py",
     "acprof/models/spec.py",
 )

@@ -17,6 +17,7 @@ from acprof.host.preparation.model_errors import ModelLookupError, model_lookup_
 from acprof.hub.huggingface.auth import hf_token_for_url
 from acprof.hub.huggingface.download import hf_endpoint_scope
 from acprof.hub.repository import MetadataFile, read_metadata_file
+from acprof.models.diffusion_pipelines import diffusers_pipeline
 from acprof.models.metadata_validation import (
     MetadataValidationError,
     finite_metadata_diagnostics,
@@ -449,30 +450,6 @@ def _record_failure(diagnostics: list[str] | None, stage: str, reason: str) -> N
         diagnostics.append(f"{stage}: {reason}")
 
 
-_DIFFUSERS_PIPELINE_TASKS = {
-    "DDPMPipeline": "unconditional-image-generation",
-    "DDIMPipeline": "unconditional-image-generation",
-    "PNDMPipeline": "unconditional-image-generation",
-    "ShapEPipeline": "text-to-3d",
-    "ShapEImg2ImgPipeline": "image-to-3d",
-    "StableDiffusionPipeline": "text-to-image",
-    "StableDiffusionXLPipeline": "text-to-image",
-    "StableDiffusionImg2ImgPipeline": "image-to-image",
-    "StableDiffusionXLImg2ImgPipeline": "image-to-image",
-    "StableDiffusionInstructPix2PixPipeline": "image-text-to-image",
-    "StableDiffusionUpscalePipeline": "image-to-image",
-    "StableVideoDiffusionPipeline": "image-to-video",
-    "CogVideoXPipeline": "text-to-video",
-    "CogVideoXImageToVideoPipeline": "image-to-video",
-    "CogVideoXVideoToVideoPipeline": "video-to-video",
-    "WanPipeline": "text-to-video",
-    "WanImageToVideoPipeline": "image-to-video",
-    "WanVideoToVideoPipeline": "video-to-video",
-    "TextToVideoSDPipeline": "text-to-video",
-    "VideoToVideoSDPipeline": "video-to-video",
-}
-
-
 def _diffusers_task_from_index(
     model_id: str, revision: str, diagnostics: list[str] | None,
 ) -> str | None:
@@ -480,7 +457,8 @@ def _diffusers_task_from_index(
     try:
         metadata = _download_metadata(model_id, "model_index.json", revision)
         class_name = _read_json_metadata(metadata).get("_class_name")
-        task = _DIFFUSERS_PIPELINE_TASKS.get(class_name) if isinstance(class_name, str) else None
+        capability = diffusers_pipeline(class_name)
+        task = capability.task if capability is not None else None
         if task is None:
             _record_failure(diagnostics, "model_index", f"unsupported pipeline class: {class_name!r}")
         return task
