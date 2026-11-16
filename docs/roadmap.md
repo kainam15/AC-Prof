@@ -75,6 +75,15 @@ Docker 启动失败保留完整日志，TUI 展示分类原因与建议。静态
 第一阶段不开放 CUDA／其它 dtype／Profiler，独立实测由用户明确授权后开展。
 完整边界见[Kokoro 原生适配](models/adaptation.md#kokoro-原生适配)。
 
+## TUI 优化分支整合
+
+旧 `feat/tui-optimization` 的事件路由、繁忙控件缓存、结果分析与只读锁职责拆分，
+以及选择器排序／列宽、快捷键说明、日志匹配索引和结构化弹窗，已按当前架构选择性整合。
+全局状态与诊断仍由现行入口管理；运行方式自动预检、推理参数确认、版本渠道／安装／重启保留。
+旧分支的第二套配置摘要废弃，继续使用 `RunPlanPanel`；存储分项失败、历史读数与 unknown 语义保持。
+模块与验证边界见 [TUI 架构](development/tui-architecture.md)；本轮不新增真实模型、Profiler、
+客户端终端或远端 CI 验收，视觉基准由最终界面重新生成并单独比较。
+
 ## Process 资源权限与修复引导
 
 运行方式已迁入首页基本配置，复用原有配置字段、预检失效和命令／计划刷新；Auto、Docker、Process

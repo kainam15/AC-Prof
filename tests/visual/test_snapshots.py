@@ -21,7 +21,7 @@ from acprof.tui.run.process import StopResult
 from acprof.tui.run.progress import ProgressSnapshot, RunProgressTracker
 from acprof.tui.run.stages import Stage
 from acprof.tui.ui.dialogs import ConfirmActionScreen
-from acprof.tui.ui.structured import FactGrid
+from acprof.tui.ui.structured import FactGrid, FactValue
 from acprof.tui.ui.table import ResizableDataTable
 
 pytestmark = pytest.mark.visual
@@ -121,7 +121,8 @@ def test_fixed_scenes(snap_compare, svg_operations, tmp_path, monkeypatch, langu
                 assert app.preflight.preparation_request == (process, 1)
                 assert app.execution.session.snapshot.interface_status == "waiting"
                 assert not app.execution.session.snapshot.measurement_active
-                assert "fixture/model" in app.screen.query_one("#preparation-fields", Static).content
+                fields = app.screen.query_one("#preparation-fields", FactGrid)
+                assert any("fixture/model" in str(node.render()) for node in fields.query(Static))
                 confirm = app.screen.query_one("#preparation-continue", Button)
                 assert str(confirm.label) == ("确定" if language == "zh" else "Confirm")
                 for identifier in ("preparation-cancel", "preparation-continue"):
@@ -130,6 +131,8 @@ def test_fixed_scenes(snap_compare, svg_operations, tmp_path, monkeypatch, langu
                     assert button.region.width > 0
                     assert button.region.height > 0
                     assert app.get_widget_at(button.region.x + 1, button.region.y + 1)[0] is button
+                await pilot.press("tab")
+                assert isinstance(app.focused, FactValue)
                 await pilot.press("tab")
                 assert app.focused.id in {"preparation-cancel", "preparation-continue"}
         elif scene.startswith("environment"):

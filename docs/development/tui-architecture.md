@@ -6,17 +6,24 @@ AC-Prof 的 TUI 使用 **Textual 应用外壳 + 页面组合 + 执行协调器 +
 
 ```text
 acprof/tui/
-├── app.py                  # Textual 应用外壳、导航、事件、互斥和 worker 宿主
+├── app.py                  # Textual 应用外壳、导航、互斥和 worker 宿主
+├── event_routes.py         # 当前 App 的声明式事件转发，无独立状态或 Worker
+├── busy_state.py           # 默认页面控件引用缓存及 OperationState 投影
 ├── commands.py             # 无 Textual 的命令/操作策略
 ├── i18n.py                 # 翻译目录，导入时不加载 Textual
 ├── catalog/                # 翻译文案的静态词典
 ├── experiments/            # 实验历史与选择器
 ├── images/                 # 镜像列表、操作与存储
+│   ├── presentation.py     # 树、表格、工作区及局部行刷新
+│   ├── detail_panel.py     # 单份镜像摘要、详情及高度调整
+│   └── formatting.py       # 镜像文案纯函数
 ├── logging/                # 日志保留、显示、导出
 ├── models/                 # 模型候选和 Store 确认
 ├── results/                # 历史结果、统计、报告与 profiler
 │   ├── controller.py       # 实验选择、独立元数据/数据 Worker 与操作控件副作用
+│   ├── analysis_controller.py # JSON 统计、比较及导出状态的唯一拥有者
 │   ├── html_controller.py  # HTML 生成回执、完成状态及打开/导出操作
+│   ├── offline_reads.py    # 重叠只读任务共用的测量排斥租约
 │   └── report_actions.py   # 不依赖 Textual 的按钮可用性/显示纯计算
 ├── run/                    # 执行、预检、恢复、进度与命令呈现
 │   ├── execution.py        # 唯一执行会话/身份和进程所有者
@@ -28,7 +35,8 @@ acprof/tui/
 │   └── results.py          # 只读归属检查与纯完成判定
 ├── settings/               # 表单配置、语言和本地首选项
 └── ui/
-    ├── dialogs.py          # 对话框
+    ├── dialogs.py          # 对话框及操作栏方向键导航
+    ├── shortcuts.py        # F1 / ? 快捷键说明，无宿主 I/O
     ├── pages/              # Run / Monitor / Results(在 results/) / Backfill / Images / Settings
     └── ...                 # 公共控件、布局及主题
 ```
@@ -39,8 +47,9 @@ acprof/tui/
 - `ProcessLifecycle` 只能在目标进程确认退出后释放。清理超时保留进程占用状态，禁止新实验开始；停止必须携带期望的进程对象，防止迟到的 SIGINT 误伤替换进程。
 - `run/process_controller.py` 使用唯一 App Worker Manager 调度日志读取和失败后的回收。Textual 窗口卸载不等于采集进程结束；UI 回调必须在 App 存活且 Token 匹配时投递。
 - `RunPresenter` 仅修改现有控件、焦点、通知和计时器。它通过 App 的明确接口读取 `ExecutionCoordinator`，不缓存执行身份，不创建第二个 Worker Manager，也不修改测量协议。
-- `ResultController` 组合 `HtmlReportController`，后者持有 HTML 生成回执和完成状态，并通过 App 调度文件 Worker；二者都不持有执行会话或进程。`report_actions.py` 只根据 `OperationState`、结果可用性和执行种类计算控件规则，测量互斥仍由 App 的同一个 `OperationState` 提供。
+- `ResultController` 组合 `AnalysisReportController` 与 `HtmlReportController`，分别持有统计/比较和 HTML 回执状态，通过同一个 App 调度文件 Worker；属性和公共回调只转发，不保存第二份报告状态。`offline_reads.py` 使重叠读取共用测量排斥租约，直到最后一个读取结束才释放；取消旧读取不阻塞新选择。`report_actions.py` 只根据 `OperationState`、结果可用性和执行种类计算控件规则。
 - `AcprofTui` 仅是 Textual 宿主：事件路由、组合页面、全局互斥、Worker/Timer 和卸载回收桥接。少量公共 callback 方法委派给 `RunPresenter`，供 Textual 和线程安全回调使用；这些委派不是独立状态副本。
+- `AppEventRoutes` 只转发当前事件，包括版本渠道、安装/重启与诊断定位。`BusyControlCache` 只缓存默认页面控件引用，在卸载时清除；忙闲仍即时读取 `OperationState`，并保留更新控制、自动预检暂停/恢复及待完成的表单校验。测量窗口继续禁止镜像刷新和表格缩放。
 - `commands.py`、`i18n.py` 和 `acprof.tui` 包导入不能提前加载 Textual。重依赖仍在使用时才导入。
 - `updates.py` 持有版本管理的页面状态与 App Worker；`acprof/updates/` 负责候选、安装身份与事务。
   安装是独立的维护进程，不属于采集执行会话。它及安装器继承 `MeasurementLock` 的两种内核保护，
@@ -69,6 +78,12 @@ acprof/tui/
 普通字符串值不做翻译替换，结构化 Message 在显示时翻译；查看全文和复制有键盘入口，tooltip 只是补充。
 语言切换更新已挂载控件，不重建相同形状的分组。数据改变行数时保留折叠选择和仍可识别的行焦点；原行删除后回到对应分组标题，不抢占其他控件的焦点。
 分组异步重建前后均检查控件仍在 DOM 且未进入卸载；退出或移除控件时清除待重建标志，停止后续更新与焦点恢复。
+简短弹窗可使用不折叠的 `FactGrid`，无动作的 Banner/Callout 不挂载空操作栏。搜索选择器复用
+`ResizableDataTable`，表头排序保留所选对象与手动列宽；关闭后丢弃排队的过滤、详情与读取回调。
+局部设置保存、Model Store、准备失败、恢复与 HTML 报告只展示各自操作结果，不能改变全局诊断或启动资格。
+准备失败沿用当前类型化原因、异常类型及日志证据；推理参数确认保留现有控件，不把待确认参数标为已验证。
+存储空间保留当前环境身份、分项错误与历史读数，不将旧读数和新释放估算混算；镜像详情不重复显示同一组事实。
+实验配置继续只有 `RunPlanPanel` 一份摘要，快捷键帮助不额外维护一套配置差异状态。
 
 首个迁移页面为 `results/overview.py::overview_view()` → `results/overview_panel.py`。
 纯函数只组合既有元数据 Worker 与数据 Worker 的结果，区分产物存在、有效正式窗口和未核验状态。
@@ -144,5 +159,13 @@ Results 与 Backfill 的路径变更消息在访问控件前检查 `is_running`�
 退出后不再同步选择或调度读取。[Textual 8.2.8 的退出流程](https://github.com/Textualize/textual/blob/v8.2.8/src/textual/app.py)
 先停止应用、卸载控件，最后才分发 App 的 `Unmount`，因此只在 `on_unmount` 清除 `form_ready` 不足以保护排队消息。
 回归在请求退出后及控件部分卸载时重放真实 `Input.Changed`，复用现有生命周期状态，不增加等待或吞掉 `NoMatches`。
+统计导出和 HTML 文件操作结束时先释放读取 token，再检查 App 是否存活；搜索弹窗检查附着、卸载与取消状态后才访问子控件。
+Model Store 的容量、完成、清理及确认回调在卸载后停止，不能再访问已删除的事实表或启动新的清理。
+
+快捷键说明参考 [Posting 的 HelpScreen](https://github.com/darrenburns/posting/blob/main/src/posting/help_screen.py)，
+沿用 Textual 的模态焦点与关闭方式，不引入额外框架。
+[Textual Screen 回调设计](https://github.com/Textualize/textual/pull/2321)及
+[延迟关闭回调问题](https://github.com/Textualize/textual/pull/6637)用于审查生命周期风险；
+项目仍使用锁定版本，以本地关闭/退出回归验证行为，不假定未安装的上游修复已经生效。
 
 线程取消与 UI 回调核验参考 [Textual Workers 指南及示例](https://github.com/Textualize/textual/blob/main/docs/guide/workers.md)。复用已锁定的 Textual，不增加依赖；同一取消令牌传递给现有结果解析器，避免仅取消 Worker 而遗留正在执行的读取。
