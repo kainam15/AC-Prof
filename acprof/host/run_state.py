@@ -698,6 +698,14 @@ class MeasurementLock(ResultDirectoryLock):
     def __init__(self):
         self.path = MEASUREMENT_LOCK_ROOT / f"acprof-measurement-{os.getuid()}.lock"
         self._resources = None
+        self._descriptors: tuple[int, ...] = ()
+
+    @property
+    def inherited_descriptors(self) -> tuple[int, ...]:
+        """Transfer both guards to an independent child via Popen(pass_fds=...)."""
+        if self._resources is None:
+            raise RunStateError("Measurement lock must be held before descriptor transfer")
+        return self._descriptors
 
     def __enter__(self):
         if self._resources is not None:
@@ -712,6 +720,7 @@ class MeasurementLock(ResultDirectoryLock):
                 named = self.path.stat(follow_symlinks=False)
                 if (opened.st_dev, opened.st_ino) != (named.st_dev, named.st_ino):
                     raise OSError("measurement lock pathname changed during acquisition")
+                self._descriptors = (guard.fileno(), descriptor)
                 self._resources = resources.pop_all()
         except OSError as error:
             raise RunStateError(
