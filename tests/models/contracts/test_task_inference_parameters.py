@@ -4,10 +4,12 @@ import copy
 import pytest
 
 from acprof.models.configuration import parameter_declaration
+from acprof.tasks.groups import group_inference_tasks
 from acprof.tasks.parameters import apply_parameter_review, parameter_review
 from tests.support.task_configuration_fixture import task_model
 
 
+@pytest.mark.parametrize("grouped", [False, True])
 @pytest.mark.parametrize(("family", "interface", "backend", "config", "values"), [
     ("audio", "automatic-speech-recognition", "transformers_pipeline",
      {"model_type": "whisper"}, {"language": "zh", "asr_task": "transcribe"}),
@@ -19,8 +21,10 @@ from tests.support.task_configuration_fixture import task_model
      {"_class_name": "StableDiffusionXLPipeline"},
      {"num_inference_steps": 12, "guidance_scale": 4.5}),
 ])
-def test_task_controls_are_validated_materialized_and_fingerprinted(family, interface, backend, config, values):
+def test_task_controls_are_validated_materialized_and_fingerprinted(family, interface, backend, config, values, grouped):
     model = task_model(family, interface, backend, config)
+    if grouped:
+        model.selected_tasks = group_inference_tasks(model.selected_tasks, backend=backend)
     before = copy.deepcopy(model.selected_tasks)
     review = parameter_review(model, model.selected_tasks)
     answers = {field["path"]: field["value"] for field in review["questions"] + review["parameter_advanced"]}
@@ -30,6 +34,9 @@ def test_task_controls_are_validated_materialized_and_fingerprinted(family, inte
     assert selected["config"]["inference"] == values
     assert selected["fingerprint"] != before[0]["fingerprint"]
     assert model.selected_tasks == before
+    if grouped and family == "multimodal":
+        assert selected["execution_profile"]["output_length_policy"] == "user_max_new_tokens_32"
+        assert selected["semantic_tasks"] == before[0]["semantic_tasks"]
 
 
 def test_whisper_controls_are_not_offered_to_ctc_or_custom_audio_handlers():

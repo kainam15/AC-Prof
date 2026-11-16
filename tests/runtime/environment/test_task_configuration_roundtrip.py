@@ -26,13 +26,19 @@ from acprof.models.inference_configuration import (
     freeze_inference_configuration,
     validate_frozen_configuration,
 )
+from acprof.tasks.groups import group_inference_tasks
 from tests.support.task_configuration_fixture import routable_task
 
 
+@pytest.mark.parametrize("preset", ["custom", "auto", "benchmark"])
+@pytest.mark.parametrize("grouped", [False, True])
 @pytest.mark.parametrize("family", ["audio", "timeseries", "multimodal", "diffusion"])
-def test_resolved_parameters_survive_freezing_payload_and_runtime_receipt(monkeypatch, family):
+def test_resolved_parameters_survive_freezing_payload_and_runtime_receipt(monkeypatch, family, grouped, preset):
+    original = routable_task(family)
+    if grouped:
+        original.selected_tasks = group_inference_tasks(original.selected_tasks, backend=original.runtime_backend)
     task, candidate = resolve_inference_configuration(
-        routable_task(family), {"schema_version": 1, "preset": "benchmark"}, devices=["off"],
+        original, {"schema_version": 1, "preset": preset}, devices=["off"],
     )
     task.inference_configuration = freeze_inference_configuration(candidate, candidate["identity_sha256"])
     assert decode_inference_configuration(encode_inference_configuration(task.inference_configuration)) == task.inference_configuration

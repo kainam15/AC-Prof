@@ -268,7 +268,7 @@ def apply_parameter_review(model: Any, selected_tasks: list[dict], answers: dict
                 length_name = next(name for name in ("max_new_tokens", "max_length")
                                    if name in generation_choices)
                 task["execution_profile"]["output_length_policy"] = (
-                    f"user_{length_name}_{task['config']['generation'][length_name]}")
+                    f"user_{length_name}_{generation_choices[length_name]}")
             task = reidentify_inference_profile(task)
         task["fingerprint"] = task_fingerprint(task)
         changed[index] = task
