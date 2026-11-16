@@ -80,16 +80,21 @@ acprof/tui/
 第三个迁移页面为 `run/planning.py::run_plan_view()` → `run/plan_panel.py::RunPlanPanel`。
 `PlanView` 以同一个 `ViewSection` 合并原先上下两段配置摘要；估算沿用资源矩阵与输入规模口径，详细参数、预算、耗时假设和路径进入可展开行。
 `ConfigurationController` 提供已选 runtime、预算和缓存路径；纯模型不读环境、文件或硬件，也不重复校验配置。
-`invalid_plan_view()` 清空有效计划事实，保留完整配置问题；controller 同时清除旧输入单位和规模提示，保留身份仍匹配时可复用的已解析计划。既有字段定位与采集门禁不变。准备期即使 busy 仍可更新输入计划，`measurement_active` 时不投影。
+`invalid_plan_view()` 清空有效计划事实，配置问题交给状态中心和字段标识，计划区隐藏重复错误段落；controller 同时清除旧输入单位和规模提示，保留身份仍匹配时可复用的已解析计划。既有字段定位与采集门禁不变。准备期即使 busy 仍可更新输入计划，`measurement_active` 时不投影。
 第四个迁移页面为 `run/environment_view.py` → `ui/environment.py::EnvironmentPopover`。
 `run/global_status.py::build_status()` 以当前配置校验及 `PreflightController` 缓存为输入，生成不可变 `GlobalStatus`。
 稳定根因 ID 去重，当前实验预检覆盖同 ID 的整机证据；失效、检查中、未请求分别分类。
 配置错误使用 `config_<field>`，Process 配置校验失败不能冒充 `process_resources` 权限失败。
-顶栏、问题列表和 `preflight_run_reason()` 都消费同一模型；未验证的必需检查也会阻止启动。
+顶栏、问题列表、`preflight_run_reason()` 与“开始采集”消费同一份展示快照；未验证的必需检查、空检查结果也会阻止启动。
+`allow_collection()` 只更新阻断状态，不主动导航。稳定检查 ID 映射字段、Process / Docker / RAPL 诊断或 perf / tcpdump 权限选项；无映射时不提供跳转。
 整机独有失败仅是警告，未选分析器和采集能力是未请求；清理失败持续阻断直到显式重检确认。
 模型不读宿主、不启动探测、不保存第二份可变状态，正式执行仍保留原有权限与安全校验。
 `environment_view.py` 将条目投影为 `EnvironmentCheckView`，问题用 `Callout`，正常、待确认和未请求用 `FactGrid`。
-问题提供名称、原因、当前影响和下一步，通过 `status-open` 定位现有配置控件或权限诊断。
+问题提供名称、原因、当前影响和下一步，点击或键盘选择只解释，通过显式 `status-open` 定位现有配置控件或权限诊断。
+`NavigationContext` 只保存返回页面、焦点、滚动和最大化控件，不保存业务状态；专用 `IssueDiagnosticScreen` 从同一个快照读取诊断。
+权限配置继续使用原有预览、确认、sudo 与测量锁。`PreflightController` 先使权限证据失效，再按稳定 ID 合并实际复检结果；
+不以勾选或命令退出码判定权限通过，不覆盖过期配置的必需检查，保留清理失败的阻断语义。
+Process 继承限制须确认且配置未被修改后才应用，绝不自动替换数值配额。
 参考 [VS Code MarkerService](https://github.com/microsoft/vscode/blob/main/src/vs/platform/markers/common/markerService.ts)
 的统一诊断统计与 [Carbon 状态指示](https://www.carbondesignsystem.com/building-blocks/core/patterns/status-indicators)
 的符号、文字及颜色语义；仅复用设计思路，无新依赖。
