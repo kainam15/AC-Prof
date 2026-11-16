@@ -131,6 +131,8 @@ class ExtensionCatalog:
             raise UnsupportedExtensionError(f"ambiguous model extension: {[e.extension_id for e in matches]}")
         adapter = matches[0].adapter if matches else getattr(task_info, "model_adapter", "family-default")
         declaration = self.get_extension(task_info.task_family, task_info.runtime_backend, adapter, task_info.pipeline_tag)
+        if declaration.model_ids and not matches:
+            raise UnsupportedExtensionError("Model identity does not match its registered runtime/adapter")
         if matches and declaration.extension_id != matches[0].extension_id:
             raise UnsupportedExtensionError("Model metadata does not match its registered runtime architecture")
         if declaration.model_types and model_type and model_type not in declaration.model_types:
@@ -167,11 +169,7 @@ class ExtensionCatalog:
                                       and not any(name.endswith((".safetensors", ".bin")) for name in files))
         config["sentence_embedding_artifact"] = "modules.json" in (metadata or {})
         if not task or task == "unknown":
-            inferred = {rule.inferred_task for rule in self.backend_rules if rule.inferred_task
-                        and rule.matches("", rule.family, library, config)}
-            if len(inferred) > 1:
-                raise UnsupportedExtensionError(f"ambiguous inferred tasks: {sorted(inferred)}")
-            task = next(iter(inferred), None) or self.infer_task(
+            task = self.infer_rule_task(library, config, model_id) or self.infer_task(
                 config.get("architectures") or (), str(config.get("model_type") or ""))
         expected_family = self.task_families.get(task or "")
         if not expected_family or not task:
@@ -180,9 +178,9 @@ class ExtensionCatalog:
             raise UnsupportedExtensionError(f"task {task!r} belongs to {expected_family}, not {family}")
         family = expected_family
         if not backend:
-            matches = [rule for rule in self.backend_rules if rule.matches(task, family, library, config)]
+            matches = [rule for rule in self.backend_rules if rule.matches(task, family, library, config, model_id)]
             if library not in ("", "unknown") and library not in self.library_backends and not any(
-                    library in rule.libraries for rule in matches):
+                    library in rule.libraries or rule.model_ids for rule in matches):
                 raise UnsupportedExtensionError(f"未声明 library {library!r}；请设置 --backend 或补齐 extension 声明")
             if matches:
                 rank = max(rule.rank for rule in matches)
@@ -195,13 +193,17 @@ class ExtensionCatalog:
             if not backend:
                 raise UnsupportedExtensionError(f"未声明 {task}/{family}/{library} 的 backend；请设置 --backend")
         model_type = str(config.get("model_type") or "")
-        models = [e for e in self.extensions.values() if
-                  (model_type and model_type in e.model_types or model_id.lower() in {m.lower() for m in e.model_ids})
-                  and e.family == family and backend in e.backends
+        identities = [e for e in self.extensions.values() if
+                      model_type and model_type in e.model_types or model_id.lower() in {m.lower() for m in e.model_ids}]
+        models = [e for e in identities if e.family == family and backend in e.backends
                   and task in e.backend_tasks.get(backend, e.tasks)]
+        if identities and not models:
+            raise UnsupportedExtensionError("Model identity/architecture conflicts with the selected task or backend")
         if len(models) > 1:
             raise UnsupportedExtensionError(f"ambiguous model extension: {[e.extension_id for e in models]}")
         declaration = self.get_extension(family, backend, models[0].adapter if models else adapter, task)
+        if declaration.model_ids and not models:
+            raise UnsupportedExtensionError("Model identity does not match its registered runtime/adapter")
         precision = dict(declaration.precision)
         if not precision and precision_dtype:
             precision = {"cpu": precision_dtype, "gpu": precision_dtype}
@@ -242,6 +244,13 @@ class ExtensionCatalog:
                 if architecture.endswith(suffix):
                     return task
         return None
+
+    def infer_rule_task(self, library: str, config: dict, model_id: str) -> str | None:
+        inferred = {rule.inferred_task for rule in self.backend_rules if rule.inferred_task
+                    and rule.matches("", rule.family, library, config, model_id)}
+        if len(inferred) > 1:
+            raise UnsupportedExtensionError(f"ambiguous inferred tasks: {sorted(inferred)}")
+        return next(iter(inferred), None)
 
 
 def load_catalog(paths: Iterable[Path] | None = None) -> ExtensionCatalog:

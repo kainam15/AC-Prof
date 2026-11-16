@@ -107,7 +107,7 @@ def resolve_model_interface(task_info: Any) -> dict:
     task_info.runtime_profile_id, task_info.model_adapter = profile.profile_id, profile.adapter
     version = locked_transformers_version(profile.environment)
     layout = {"status": "not_applicable", "weights": []}
-    if backend in {"transformers_model", "transformers_pipeline", "sentence_transformers", "cross_encoder", "chronos", "diffusers"}:
+    if backend in {"transformers_model", "transformers_pipeline", "sentence_transformers", "cross_encoder", "chronos", "diffusers", "kokoro"}:
         from acprof.models.artifact_layout import inspect_artifact_layout
 
         layout = inspect_artifact_layout(task_info, adapter=extension.adapter)
@@ -137,6 +137,8 @@ def resolve_model_interface(task_info: Any) -> dict:
             loader = "Transformers Auto/pipeline"
     elif backend == "chronos":
         format_name, loader = "chronos", "BaseChronosPipeline"
+    elif backend == "kokoro":
+        format_name, loader, operation = "kokoro", "kokoro.KModel + kokoro.KPipeline", "generate_from_tokens"
     elif backend == "diffusers":
         format_name, loader, operation = "diffusers_pipeline", "DiffusionPipeline", "__call__"
     elif backend == "onnxruntime":

@@ -48,7 +48,7 @@ client 追加到字段集合相同的已有文件时沿用原表头，避免数�
 | `gpu_mode` | `on` 或 `off`。`on` 表示容器仅暴露 `--gpu-device` 选定的物理 GPU。 |
 | `gpu_device_uuid` | 主容器和主机 NVML 采集器共用的物理 UUID；CPU 行为 `nan`。设备名称、PCI bus ID 与主机 index 见 `static_meta.json/gpu_device`。 |
 | `input_scale` | 本行实际执行的主输入尺度。语义见 `static_meta.json/input_scale_type`。 |
-| `input_units_per_request` | `effective input_scale × batch_size`。保留历史尺度语义：NLP/时序通常是 token/context step，Audio 是秒，CV 是缩放倍率，分辨率型 Diffusion/多模态是边长。这些图像尺度都不是像素总数。 |
+| `input_units_per_request` | `effective input_scale × batch_size`。保留历史尺度语义：NLP/时序通常是 token/context step；Audio 波形为秒、Transformers TTS 为 token、Kokoro 为音素 ID；CV 是缩放倍率，分辨率型 Diffusion/多模态是边长。这些图像尺度都不是像素总数。 |
 | `input_num_samples` | 音频 payload 的实际采样点数；其他任务或旧计划无法推导时为 `nan`。它是诊断字段，音频主尺度仍为 `duration_s`。 |
 | `input_pixels_per_request` | CV/多模态每请求输入像素总数，单位 pixel/request。由物化计划中的宽高计算；相同尺寸视频为 `batch_size × width × height × frame_count`，多模态中同时存在的图像与视频像素相加。不乘颜色通道数，指 processor 处理前的素材尺寸。 |
 | `output_pixels_per_request` | Diffusion 每请求输出像素总数，单位 pixel/request。单张方形图像为 `batch_size × resolution_px²`；视频为 `batch_size × output_pixel_count_per_video`，帧数只计一次。来自输入计划中受 handler 尺寸协议约束的输出几何，不新增采样。不适用或不能确认几何时为 `nan`。 |
@@ -76,6 +76,18 @@ pcap 后处理通过一次 `tshark` 扫描逐行消费 HTTP 关联字段和 TCP 
 
 进程管理参考 [PyShark 的流式读取与 stderr 消费](https://github.com/KimiNewt/pyshark/blob/91441d3eee47e50e552ac2436df2ec89abad07b0/src/pyshark/capture/capture.py)
 （MIT），本项目用标准库实现，不新增依赖。
+
+Kokoro 不增加 CSV 列；`static_meta.input_scale_type=phoneme_ids` 指明现有 `input_scale` 的单位。
+响应与独立验证的 `workload_contract.input.text` 保存 `characters`（原文 Unicode 字符数）、
+`words`（原文按空白切分计数）、`phoneme_characters`（G2P 后各段字符串长度之和）、
+`phoneme_ids`（逐字符映射到 KModel 词表的 ID 数）、`segments`（非空段数）和
+`model_input_ids_including_boundaries`（音素 ID 数加每段两个边界 ID）。未知字符会被拒绝，
+故已接受请求的音素字符数与 ID 数相等；它们包含词表中的空格、标点等，不等同于语言学音素数。
+原生音素输入没有原文字数证据，`characters/words=null`；`tokens=null`、
+`token_scope=not_applicable` 明确不生成 tokenizer Token 统计。
+输出 `audio_num_samples` 为全部 mono 段的 PCM 样本数之和，`audio_sample_rate=24000` Hz，
+`audio_duration_s=audio_num_samples/24000` 秒；`output_length` 沿用音频样本数语义，
+`output_token_count=null`。分段之间不额外补静音。
 
 ### 延迟与吞吐
 

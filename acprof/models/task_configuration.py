@@ -6,7 +6,7 @@ from acprof.extensions.parameters import validate_parameter_values
 def task_consumer_specs(*, family: str, backend: str, adapter: str, task: str, values: dict) -> dict:
     declaration = get_extension(family, backend, adapter=adapter, task=task)
     specs = {spec.name: spec for spec in declaration.parameters if spec.scope == "inference"
-             and spec.validation_method in {"generate.kwargs", "pipeline.predict.kwargs", "pipeline.call.kwargs"}}
+             and spec.validation_method in {"generate.kwargs", "pipeline.predict.kwargs", "pipeline.call.kwargs", "handler.synthesize.kwargs"}}
     if not values or values.keys() - specs.keys():
         raise ValueError("task inference parameters have no registered observable consumer")
     validate_parameter_values(tuple(specs.values()), values, explicit_names=set(values))

@@ -32,20 +32,25 @@ Handler 和 validator 的 `module:callable` 入口。可选 `execution_entrypoin
 字段区分 model/loading/inference/workload/measurement，非只读字段必须声明消费者 stage/argument。
 `model_types`、`pipeline_classes` 限制字段的模型类型和原生 Pipeline 类；缺少匹配证据时不开放。
 任务专属消费者通过 `validation_method` 登记 `generate.kwargs`、`pipeline.predict.kwargs`、
-`pipeline.call.kwargs` 或 `scheduler.class`，静态声明不等于实际执行证据。
+`pipeline.call.kwargs`、`handler.synthesize.kwargs` 或 `scheduler.class`，静态声明不等于实际执行证据。
+Kokoro 的 `handler.synthesize.kwargs` 在同一消费回执机制中观察语言、voice 和 speed；
+未调用消费者或与冻结值不符时阻止采集，不另建参数执行框架。
 来源绑定只读取已获取元数据中的文件和 RFC 6901 JSON pointer，task_scoped 仅选择
 `config.json.task_specific_params` 的对应语义任务。完整语义与当前覆盖见[统一推理配置契约](inference-configuration.md)。
 
 
-`ExtensionCatalog.resolve(task, family, library, config)` 是 backend/family 的共同解析入口，
+`ExtensionCatalog.resolve(task, family, library, config, model_id=...)` 是 backend/family 的共同解析入口，
 返回选中的声明、设备精度和 IO 格式；`describe(task_info)` 用于已经选定 backend 的消费端。
 显式 backend 优先，并校验 task/family/backend 路由；未知 library 不再默认进入 Transformers。
 检测阶段保留未决元数据供 CLI 覆盖或契约审阅，候选解析将错误记录为 `needs_configuration`，
 预检在构建或采集前拒绝未解决的组合。
 
-`backend_rules` 的选择顺序为：制品布局证据（`artifact: true`）→ task 规则 →
+`backend_rules` 的选择顺序为：精确仓库身份（`model_ids`）→ 制品布局证据（`artifact: true`）→ task 规则 →
 library/config 规则 → family 规则，随后才可使用已声明的 `library_backends` 映射。
 每个层级内按整数 `priority` 从高到低选择；同优先级命中不同 backend 时报歧义，文件顺序不决定结果。
+`model_ids` 使用完整仓库 ID 的不区分大小写相等比较，不做子串或模糊名称匹配。
+精确身份规则可为缺少 Hub task 的仓库提供 `inferred_task`；身份已登记但显式 task/backend
+不兼容时仍拒绝。身份路由只选择待检查的声明，配置、文件布局与真实运行继续分别验证。
 `when_config` 的 `true` 表示字段存在且非空，其他值要求相等。Chronos 的配置标记及缺失 task
 的推断由 `inferred_task` 声明；没有 task 时才使用 model type 和 architecture 推断，
 不会用通用架构后缀覆盖显式任务。单用途 `model_type_tasks` 优先于后缀匹配，

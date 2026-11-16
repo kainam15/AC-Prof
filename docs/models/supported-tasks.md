@@ -51,7 +51,7 @@ acprof run --model Salesforce/blip-image-captioning-base \
 | `replaced-token-detection` | Transformers `ElectraForPreTraining` 判别头，直接模型推理，输出逐 Token 二分类 **logits** 的 `[batch, sequence]` 形状摘要（不是掩码填充/文本分类，也不是训练损失） | 输入 token 数 |
 | `sentence-similarity` | SentenceTransformer 编码并计算相似度；后端 `sentence_transformers` | 候选文本 token 数的最大值，query 和候选数量固定 |
 | `text-ranking` | CrossEncoder 成对评分；后端 `cross_encoder` | 候选文本 token 数的最大值，query 和候选数量固定 |
-| `text-to-speech` | Transformers TextToAudioPipeline 的自包含波形模型，如 VITS／Bark | 输入文本 token 数 |
+| `text-to-speech` | Transformers TextToAudioPipeline 的自包含波形模型，如 VITS／Bark；另有固定 `hexgrad/Kokoro-82M` 的原生 CPU FP32 声明 | Transformers 为输入文本 token 数；Kokoro 为实际 G2P 后的音素 ID 数 |
 | `text-to-audio` | 同一官方 pipeline 的自包含文本条件模型，如 MusicGen | 输入文本 token 数 |
 | `automatic-speech-recognition` | Transformers ASR pipeline | 输入音频秒数 |
 | `audio-to-audio` | Transformers Encodec／DAC 音频编码后重建 | 输入音频秒数 |
@@ -103,6 +103,10 @@ acprof run --model google/tapas-base-finetuned-wtq \
 实现复用 [Transformers 4.57.6 pipeline](https://github.com/huggingface/transformers/blob/v4.57.6/src/transformers/pipelines/__init__.py)、[Sentence Transformers 5.6.0](https://github.com/huggingface/sentence-transformers/tree/v5.6.0)、[PyTorch 模型加载](https://github.com/pytorch/pytorch/blob/v2.5.1/torch/jit/_serialization.py) 和 [skops](https://github.com/skops-dev/skops)。Transformers／Sentence Transformers 为 Apache-2.0，PyTorch 为 BSD 风格许可，skops 为 MIT；模型权重另按其许可。NLP 镜像补齐 pandas 与编码器依赖，结构化镜像隔离安装 sklearn／skops，主机不安装推理框架。LeRobot 的运行时依赖与本项目 Python 3.12 镜像不同，旧 Graphormer 位于 Transformers 的 deprecated 目录，因此策略／图任务采用显式导出接口；没有引入模拟器或旧框架。素材生成、哈希与输入规划在正式测量窗口之外执行。
 
 运行接口验证可使用 [NLP 十二任务示例](../../examples/nlp/smoke.py)、[音频原生模型测试](../../tests/workloads/audio/test_audio_runtime_optional.py) 和 [Chronos 小模型示例](../../examples/structured/chronos_smoke.py)。这些脚本需要对应容器的依赖，使用随机小模型／确定性导出样例验证输入和推理接口，不提供真实模型准确率或性能结论。文本到音频目前使用内置文本，不能传 WAV 清单作为 `--workload-spec`。
+
+Kokoro 仅通过静态检查与离线替身回归；真实 CPU/GPU 推理、正式采集和 Profiler 均未验证。
+候选可选不等于已实测支持，revision、语言和依赖限制见[Kokoro 原生适配](adaptation.md#kokoro-原生适配)。
+现有 Transformers TTS 仍使用原来的 `AudioHandler`。
 
 ### 视觉任务
 

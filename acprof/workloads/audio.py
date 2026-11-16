@@ -380,6 +380,10 @@ def _encode_pcm16_wav(pcm_bytes: bytes, sample_rate: int = SAMPLE_RATE) -> bytes
 class AudioWorkloadGenerator(WorkloadGenerator):
     """Generate deterministic real-speech audio prefixes from a workload spec."""
 
+    @classmethod
+    def from_config(cls, model_id, task_type, batch_size, *, model_adapter=None, **options):
+        return cls(model_id, task_type, batch_size, model_adapter=model_adapter, **options)
+
     def __init__(
         self,
         model_id: str,
@@ -387,6 +391,7 @@ class AudioWorkloadGenerator(WorkloadGenerator):
         batch_size: int,
         workload_spec_path: str | None = None,
         inference_parameters: dict[str, Any] | None = None,
+        model_adapter: str | None = None,
     ):
         super().__init__(model_id, task_type, batch_size)
         if batch_size != 1:
@@ -395,12 +400,21 @@ class AudioWorkloadGenerator(WorkloadGenerator):
                 "would not represent a larger real input"
             )
         self._text_generator = None
+        self._kokoro = model_adapter == "kokoro"
+        self._inference_parameters = copy.deepcopy(inference_parameters or {})
         if task_type in TEXT_AUDIO_TASK_TYPES:
             if workload_spec_path is not None:
                 raise ValueError("text-to-audio/speech uses text input, not a WAV workload spec")
             from acprof.workloads.nlp import NLPWorkloadGenerator
 
             self._text_generator = NLPWorkloadGenerator(model_id, task_type, batch_size)
+            if self._kokoro:
+                from acprof.extensions import CATALOG
+                from acprof.extensions.parameters import validate_parameter_values
+                specs = CATALOG.get_extension("audio", "kokoro", "kokoro", task_type).parameters
+                defaults = {spec.name: spec.default.value for spec in specs if spec.default is not None}
+                self._inference_parameters = defaults | self._inference_parameters
+                validate_parameter_values(specs, self._inference_parameters)
             return
         if task_type not in WAVEFORM_TASK_TYPES:
             raise ValueError(f"unsupported audio workload task: {task_type}")
@@ -529,10 +543,12 @@ class AudioWorkloadGenerator(WorkloadGenerator):
         if self._text_generator is None:
             raise ValueError("word counts only apply to text-to-audio/speech")
         payload = self._text_generator.generate_for_word_count(word_count)
-        payload["params"] = {"pipeline_kwargs": {}}
+        payload["params"] = copy.deepcopy(self._inference_parameters) if self._kokoro else {"pipeline_kwargs": {}}
         return payload
 
     def scale_label(self, scale_value: float) -> str:
+        if self._kokoro:
+            return f"phon{float(scale_value):g}"
         if self._text_generator is not None:
             return self._text_generator.scale_label(scale_value)
         return f"dur{float(scale_value):g}s"
@@ -543,7 +559,7 @@ class AudioWorkloadGenerator(WorkloadGenerator):
         payload: dict[str, Any] | None = None,
     ) -> float | None:
         if self._text_generator is not None:
-            # The container tokenizer supplies the measured effective token count.
+            # The selected handler supplies observed tokens or Kokoro phoneme IDs.
             return None
         metadata = self.input_metadata(scale_value, payload)
         return float(metadata["duration_s"])
@@ -562,6 +578,12 @@ class AudioWorkloadGenerator(WorkloadGenerator):
 
     def plan_metadata(self) -> dict[str, Any]:
         if self._text_generator is not None:
+            if self._kokoro:
+                return {"workload_id": "deterministic-kokoro-text-v1", "task_family": "audio",
+                        "pipeline_tag": self.task_type, "input_scale_type": "phoneme_ids",
+                        "input_scale": {"type": "phoneme_ids", "construction": "fixed_corpus_word_prefix",
+                                        "measurement": "KModel vocabulary IDs after G2P, excluding segment boundaries"},
+                        "inference": copy.deepcopy(self._inference_parameters)}
             return {
                 "workload_id": "deterministic-text-audio-v1",
                 "task_family": "audio",

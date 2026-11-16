@@ -13,7 +13,7 @@ DDPM/DDIM 还支持原生根目录布局：组件目录不存在时，`UNet2DMod
 [Diffusers 的组件加载](https://github.com/huggingface/diffusers/blob/v0.39.0/src/diffusers/pipelines/pipeline_loading_utils.py)，
 不为未知 pipeline 猜测组件。离线随机 DDPM 已验证筛选后的根目录及子目录快照可加载并生成图像。
 
-自定义 adapter、`auto_map`、量化配置、未知模型类型或未覆盖的 pipeline 使用完整快照，并打印回退原因。GPU 推理 dtype 不用于选择文件名中的 FP16／FP32 variant；不会自动转换、量化权重或切换 EMA checkpoint。需要完整仓库时，`acprof run` 和 `acprof probe` 均可传入 `--model-download-policy full`。TUI 使用默认 `auto`；两种策略具有不同的镜像指纹。
+未单独登记制品规则的自定义 adapter、`auto_map`、量化配置、未知模型类型或未覆盖的 pipeline 使用完整快照，并打印回退原因。Kokoro 使用下述固定 snapshot 规则。GPU 推理 dtype 不用于选择文件名中的 FP16／FP32 variant；不会自动转换、量化权重或切换 EMA checkpoint。需要完整仓库时，`acprof run` 和 `acprof probe` 均可传入 `--model-download-policy full`。TUI 使用默认 `auto`；两种策略具有不同的镜像指纹。
 
 Diffusers 的任务提示、已审查组件布局和根目录布局能力统一声明在
 [`models/diffusion_pipelines.py`](../../acprof/models/diffusion_pipelines.py)，发现、文件规划和索引读取共同消费。
@@ -71,6 +71,46 @@ Token 序列；输出是形状 `[batch, sequence]` 的逐 Token 原始 logits，
 同一 architecture 的多个 backend 不再依靠全局单键覆盖决定。
 
 当前 loader 的设备、模态和 profiler 边界在下方任务章节维护；新的行为须同时满足[采集协议](../profiling/measurement.md#协议不变量)。
+
+## Kokoro 原生适配
+
+`hexgrad/Kokoro-82M` 精确匹配 [`kokoro/manifest.json`](../../acprof/extensions/kokoro/manifest.json)
+中的 `kokoro` Backend / Adapter，使用 `kokoro-cpu` 环境。仅接受固定 revision
+`f3ff3571791e39611d31c381e3a41a3af07b4987`；其它 revision、相似名称或未登记架构不会沿用此声明。
+静态检查还核对原生 `config.json` 的已登记 KModel 结构和制品清单；不补造 `model_type`，
+也不调用 Transformers AutoConfig。显式 backend 与精确身份冲突时拒绝继续。
+
+`auto` 下载计划保留 `config.json`、`kokoro-v1_0.pth`、支持语言的 `voices/*.pt` 和说明／许可文件，
+默认 voice 为 `af_heart`。缺少配置、权重或默认 voice 时提前失败；所选 voice 必须存在且与语言一致。
+文件仍由 Model Store 固定 commit、核对大小和 SHA256、挂载本地 snapshot；支持 blob 符号链接。
+不增加下载器或模型缓存。官方 `KModel` 显式接收本地配置和权重路径，`KPipeline` 接收已加载模型，
+所有 voice 在 `load()` 中从本地预加载；后续请求只使用 tensor，不向 Hub 请求 voice。
+
+第一阶段声明 CPU FP32、`text-to-speech`、batch=1、非流式；不开放 CUDA、其它 dtype 或 Profiler。
+语言代码为 `a/b`（美／英式英语）、`e/f/h/i/p`（西班牙语／法语／印地语／意大利语／巴西葡萄牙语）。
+日语、中文、voice 混合与其它 checkpoint 尚无本适配声明。`language`、`voice`、`speed` 使用既有
+推理配置审阅、冻结和消费回执，speed 范围为 0.25–4，默认 1。请求接受 `text` 或原生 `phonemes`
+字符串／分段列表，二者互斥；尺度与分段边界见[输入规模](../usage/cli-run.md#输入规模与音频清单)。
+
+依赖锁固定 `kokoro==0.9.4`、`misaki[en]==0.9.4`、`transformers==4.57.6`、`spacy==3.8.7`、
+`en-core-web-sm==3.8.0` 和 `espeakng-loader==0.2.4`，继承 CPU 平台的 `torch==2.14.1+cpu`。
+英语 G2P 必须预装 spaCy 语言包，否则 Misaki 会尝试下载；加载前显式检查并报错。
+Misaki 使用 `espeakng-loader` 提供的 espeak-ng 共享库及数据，供英语 fallback 和其它已声明语言使用；
+不依赖额外的 `espeak-ng` CLI，但其 native 库必须可加载。官方英语 Pipeline 会吞掉 fallback
+初始化异常，因此本适配先检查同一 backend，保留缺依赖错误。依赖在环境准备期安装，正式窗口不下载。
+
+完整 Python 锁和 `.artifacts.json` 复用既有 Docker 平台／环境层及 SHA256 验证。spaCy 语言模型
+wheel 没有在本次开发中下载；其发布 URL／大小来自官方 Release，SHA256 参考
+[Google Colab 的依赖锁](https://github.com/googlecolab/backend-info/blob/main/pip-freeze.tpu.txt)，
+实际安装仍须通过锁内哈希核验。静态锁一致性检查不代表环境已构建或 `pip check` 已实测。
+
+实现参考官方 [Kokoro](https://github.com/hexgrad/kokoro) 的 KModel/KPipeline、
+[0.9.4 发布源码](https://pypi.org/project/kokoro/0.9.4/)、
+[Misaki 0.9.4](https://pypi.org/project/misaki/0.9.4/) 和
+[离线使用 Issue #279](https://github.com/hexgrad/kokoro/issues/279)。借鉴原生加载和分段接口，
+复用 AC-Prof Registry、四阶段 Handler 与独立输出验证，不复制模型实现。
+当前证据仅覆盖静态声明、锁结构及 Fixture/Mock 回归；真实 checkpoint CPU/GPU 推理、
+Docker 环境、正式采集、音质和性能均为**未验证**，不会因静态候选可选而显示实际推理成功。
 
 ## 参考实现与取舍
 

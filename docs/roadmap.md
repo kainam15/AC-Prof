@@ -61,6 +61,16 @@
 
 本轮验证限于离线 Fixture、Mock 与定向检查；没有新增真实模型推理、GPU、完整 Profiler 或用户终端验收证据。Top 100 的冻结集须保留原始 metadata、模型 revision、解析规则版本、原始判定和新的原因，不以放宽检查提高通过率。
 
+## Kokoro 原生适配
+
+固定 `hexgrad/Kokoro-82M` revision 的精确路由、专用 Handler、CPU FP32 依赖锁、Model Store
+文件计划和音素尺度已接入现有扩展契约；语言／voice／speed 使用既有冻结与消费验证。
+Docker 启动失败保留完整日志，TUI 展示分类原因与建议。静态检查和 Fixture/Mock 回归覆盖路由、
+分段完成、音频协议、输入规划及错误路径，现有 Transformers TTS 保持独立。
+真实 checkpoint CPU/GPU 推理、Docker 构建、音质、正式采集和 Profiler 均未验证；
+第一阶段不开放 CUDA／其它 dtype／Profiler，独立实测由用户明确授权后开展。
+完整边界见[Kokoro 原生适配](models/adaptation.md#kokoro-原生适配)。
+
 ## Process 资源权限与修复引导
 
 已复用 Process 资源管理、PreflightController、ConfigField 和 Carbon Callout，实现 cgroup

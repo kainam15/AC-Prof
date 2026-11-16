@@ -336,7 +336,16 @@ def plan_download(
     selected = set(names)
     weights: list[Checkpoint] = []
     reason = "explicit_full" if policy == "full" else "unsupported_layout"
-    if policy == "auto" and adapter != "family-default":
+    if backend == "kokoro":
+        from acprof.models.kokoro import snapshot_contract, validate_snapshot
+        voices = validate_snapshot(model_id, revision, read_json("config.json"), names)
+        weight = snapshot_contract()["weights"]
+        weights = [{"component": ".", "format": "pth", "variant": None, "files": [weight]}]
+        if policy == "auto":
+            selected = {"config.json", weight, *voices} | {
+                name for name in names if PurePosixPath(name).name.upper().startswith(("LICENSE", "NOTICE", "README"))}
+            reason = "registered_kokoro_snapshot"
+    elif policy == "auto" and adapter != "family-default":
         reason = "custom_adapter"
     elif policy == "auto" and backend in {
         "transformers_pipeline", "transformers_model", "sentence_transformers", "chronos",

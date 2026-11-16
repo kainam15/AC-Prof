@@ -205,7 +205,7 @@ def _validate_spec(spec: ParameterSpec) -> None:
         _strings(getattr(spec, name), f"{path}.{name}")
     _text(spec.validation_method, f"{path}.validation_method", empty=True)
     if spec.validation_method not in {
-        "", "generate.kwargs", "pipeline.predict.kwargs", "pipeline.call.kwargs", "scheduler.class",
+        "", "generate.kwargs", "pipeline.predict.kwargs", "pipeline.call.kwargs", "scheduler.class", "handler.synthesize.kwargs",
     }:
         raise ValueError(f"{path}.validation_method is unknown")
     if not set(spec.variation) <= VARIATIONS:

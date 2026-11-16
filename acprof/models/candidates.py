@@ -246,7 +246,16 @@ class _CandidateDiscovery:
             self._add(_AUTO_TASKS.get(self.transformers_info["auto_model"]),
                       "hub.transformers_info.auto_model")
 
+    def _collect_rule_candidates(self) -> None:
+        try:
+            inferred = self.catalog.infer_rule_task(self.task_info.library_name, self.config, self.task_info.model_id)
+        except ValueError as exc:
+            self.conflicts.append(str(exc))
+        else:
+            self._add(inferred, "extension_catalog.backend_rules")
+
     def _collect_config_candidates(self) -> None:
+        self._collect_rule_candidates()
         for architecture in self.config.get("architectures") or []:
             if isinstance(architecture, str):
                 inferred = self.catalog.infer_task([architecture], str(self.config.get("model_type") or ""))

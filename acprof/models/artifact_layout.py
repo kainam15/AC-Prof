@@ -99,6 +99,12 @@ def inspect_artifact_layout(task_info: Any, *, adapter: str = "family-default") 
         return {**unknown, "detail": detail}
 
     try:
+        if backend == "kokoro":
+            from acprof.models.kokoro import snapshot_contract, validate_snapshot
+            validate_snapshot(task_info.model_id, task_info.model_revision,
+                              read_json("config.json"), files)
+            return {"status": "identified", "source": "registered_kokoro_snapshot", "weights": [
+                {"component": ".", "format": "pth", "variant": None, "files": [snapshot_contract()["weights"]]}]}
         if backend in {"transformers_model", "transformers_pipeline", "sentence_transformers", "cross_encoder", "chronos"}:
             uses_modules = backend == "sentence_transformers" and "modules.json" in files
             if not uses_modules and "config.json" not in files:

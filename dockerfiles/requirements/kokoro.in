@@ -1,0 +1,9 @@
+-r service.in
+kokoro==0.9.4
+misaki[en]==0.9.4
+transformers==4.57.6
+spacy==3.8.7
+espeakng-loader==0.2.4
+# Locked English G2P package; installed before KPipeline can request it.
+# SHA256 source: https://github.com/googlecolab/backend-info/blob/main/pip-freeze.tpu.txt
+en-core-web-sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl#sha256=1932429db727d4bff3deed6b34cfc05df17794f4a52eeb26cf8928f7c1a0fb85

@@ -1,0 +1,218 @@
+{
+  "schema_version": 2,
+  "extensions": [
+    {
+      "extension_id": "kokoro-cpu",
+      "family": "audio",
+      "runtime": "torch",
+      "backends": [
+        "kokoro"
+      ],
+      "tasks": [
+        "text-to-speech"
+      ],
+      "adapter": "kokoro",
+      "model_ids": [
+        "hexgrad/Kokoro-82M"
+      ],
+      "handler_entrypoint": "acprof.container.handlers.kokoro:KokoroHandler",
+      "validation_entrypoint": "acprof.container.handlers.kokoro:validate_output",
+      "execution_entrypoint": "acprof.container.torch_execution",
+      "workload_entrypoint": "acprof.workloads.audio:AudioWorkloadGenerator",
+      "environment": "kokoro-cpu",
+      "profile": "kokoro-cpu",
+      "environments": {
+        "cpu": "kokoro-cpu"
+      },
+      "execution": {
+        "cpu": "available",
+        "cuda": "unsupported",
+        "batch": "unsupported",
+        "streaming": "unsupported"
+      },
+      "measurement": {
+        "latency": "available",
+        "torch_profiler_eager": "unsupported",
+        "gpu_power": "unsupported",
+        "gpu_flops": "unsupported",
+        "ncu": "unsupported",
+        "nsys": "unsupported"
+      },
+      "dtypes": [
+        "FP32"
+      ],
+      "input_modalities": [
+        "text"
+      ],
+      "precision": {
+        "cpu": "FP32"
+      },
+      "precision_policy": {
+        "supported_dtypes": [
+          "FP32"
+        ],
+        "preferred_dtype": "FP32"
+      },
+      "trust_remote_code": false,
+      "profile_options": {
+        "runtime_line": "kokoro",
+        "precision_policy": {
+          "supported_dtypes": [
+            "FP32"
+          ],
+          "preferred_dtype": "FP32"
+        }
+      },
+      "dependency_environment": {
+        "platform": "cpu",
+        "requirements_lock": "dockerfiles/locks/kokoro-cpu.txt",
+        "requirements_inputs": [
+          "dockerfiles/requirements/kokoro.in"
+        ]
+      },
+      "inference": {
+        "loader": "kokoro.KModel + kokoro.KPipeline",
+        "operation": "generate_from_tokens",
+        "structure": "single"
+      },
+      "parameters": [
+        {
+          "name": "language",
+          "kind": "enum",
+          "scope": "inference",
+          "default": {
+            "value": "a"
+          },
+          "consumers": [
+            {
+              "stage": "predict",
+              "argument": "synthesize.language"
+            }
+          ],
+          "variation": [
+            "task",
+            "request"
+          ],
+          "label": "Language",
+          "choices": [
+            "a",
+            "b",
+            "e",
+            "f",
+            "h",
+            "i",
+            "p"
+          ],
+          "validation_method": "handler.synthesize.kwargs"
+        },
+        {
+          "name": "voice",
+          "kind": "string",
+          "scope": "inference",
+          "default": {
+            "value": "af_heart"
+          },
+          "consumers": [
+            {
+              "stage": "predict",
+              "argument": "synthesize.voice"
+            }
+          ],
+          "variation": [
+            "task",
+            "request"
+          ],
+          "label": "Voice",
+          "min_length": 1,
+          "validation_method": "handler.synthesize.kwargs"
+        },
+        {
+          "name": "speed",
+          "kind": "float",
+          "scope": "inference",
+          "default": {
+            "value": 1.0
+          },
+          "consumers": [
+            {
+              "stage": "predict",
+              "argument": "synthesize.speed"
+            }
+          ],
+          "variation": [
+            "task",
+            "request"
+          ],
+          "label": "Speed",
+          "minimum": 0.25,
+          "maximum": 4.0,
+          "validation_method": "handler.synthesize.kwargs"
+        }
+      ],
+      "task_input_plan": {
+        "text-to-speech": {
+          "text_payload": true,
+          "audio_payload": false,
+          "text_requires_workload_spec": false
+        }
+      },
+      "task_io_format": {
+        "text-to-speech": {
+          "input": {
+            "json_schema": {
+              "required": [],
+              "oneOf": [
+                {"required": ["text"]},
+                {"required": ["phonemes"]}
+              ],
+              "properties": {
+                "phonemes": {
+                  "oneOf": [
+                    {"type": "string", "minLength": 1},
+                    {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}
+                  ],
+                  "description": "Native Kokoro phonemes, with explicit segments of at most 510 vocabulary IDs."
+                }
+              }
+            }
+          }
+        }
+      },
+      "handler_options": {
+        "snapshot": {
+          "model_id": "hexgrad/Kokoro-82M",
+          "revision": "f3ff3571791e39611d31c381e3a41a3af07b4987",
+          "weights": "kokoro-v1_0.pth",
+          "default_voice": "af_heart",
+          "languages": [
+            "a",
+            "b",
+            "e",
+            "f",
+            "h",
+            "i",
+            "p"
+          ],
+          "sample_rate": 24000,
+          "config_values": {
+            "n_token": 178,
+            "style_dim": 128,
+            "hidden_dim": 512,
+            "n_layer": 3,
+            "n_mels": 80
+          }
+        }
+      }
+    }
+  ],
+  "backend_rules": [
+    {
+      "backend": "kokoro",
+      "priority": 1000,
+      "model_ids": [
+        "hexgrad/Kokoro-82M"
+      ],
+      "inferred_task": "text-to-speech"
+    }
+  ]
+}

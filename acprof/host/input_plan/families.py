@@ -79,7 +79,8 @@ def plan_manual_nlp_scales(
             details = ", ".join(
                 f"{format_scale_value(scale)} ({reason})" for scale, reason in invalid.items()
             )
-            raise RuntimeError(f"manual NLP input scales exceed the usable tokenizer limit: {details}")
+            kind = "Kokoro phoneme" if workload_gen.plan_metadata().get("input_scale_type") == "phoneme_ids" else "NLP"
+            raise RuntimeError(f"manual {kind} input scales exceed the usable handler limit: {details}")
     finally:
         if session is not None:
             stop_service_session(session, log_prefix="[probe]")
@@ -215,7 +216,7 @@ def plan_nlp_auto_scales(
         )
 
         print(
-            "[scale] Auto-planned NLP scales from tokenizer limit "
+            f"[scale] Auto-planned text scales from {scale_meta.get('input_scale_type', 'seq_length')} planning limit "
             f"{max_effective}: {serialize_input_scales(actual_scales)}"
         )
         logging.getLogger(__name__).debug("scale metadata: %s", scale_meta["reason"])

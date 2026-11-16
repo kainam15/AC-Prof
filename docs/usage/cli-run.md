@@ -191,7 +191,8 @@ TUI Smoke 使用 `minimal`；显式 `--input-scales` 优先且严格校验，不
 | `nlp` 表格问答 | `table_rows` | 每张表的行数；query 和列结构固定。 |
 | `cv` | `resolution_scale` | 图像／视频帧基础边长 224 像素的缩放倍率；视频帧数固定。 |
 | `audio` 读取音频 | `duration_s` | 输入音频时长，单位秒。 |
-| `audio` 文本到语音／音频 | `seq_length` | tokenizer 实测输入 token 数；不是生成音频的秒数。 |
+| `audio` Transformers 文本到语音／音频 | `seq_length` | tokenizer 实测输入 token 数；不是生成音频的秒数。 |
+| `audio` Kokoro 原生文本到语音 | `phoneme_ids` | 全部已处理段的 KModel 音素 ID 总数，不含每段两个边界 ID；不是单词数或 tokenizer Token 数。 |
 | `timeseries` | `context_length` | 时间序列 context length。 |
 | `diffusion` | `resolution_px` 或 `denoising_steps` | 图像／视频生成是方形输出边长（像素），帧数固定；无条件图像与 Shap-E 3D 为去噪步数，分辨率／网格解码设置固定。以输入计划为准。 |
 | `multimodal` 图像理解／问答／文档检索 | `resolution_px` | 输入图像边长，单位像素；模型 processor 可能重新缩放、切块或固定尺寸。 |
@@ -212,6 +213,15 @@ TUI Smoke 使用 `minimal`；显式 `--input-scales` 优先且严格校验，不
 - 同一次 run 的所有资源配置共用同一组 scale。
 - 所有任务族都会把已确定尺度的 payload 写入唯一的 `input_scale_plan.json`；主采集与 compute profiler 共同读取该文件，保证实际执行 payload、FLOP profiling 和 CSV 中记录的 `input_scale` 一致。
 - 手动传入 `--input-scales` 时以手动值为准；workload 会在 sweep 前验证合法性（图像／视频生成分辨率至少为 64 且必须是 8 的倍数；去噪步数是正整数；CV 倍率为有限正数）。
+
+Kokoro 继续复用文本尺度规划器和 `AudioWorkloadGenerator`：手动 `--input-scales` 表示用于构造
+固定语料前缀的请求单词数，经过实际 G2P／词表检查后，计划和结果中的 `input_scale` 改记音素 ID 数。
+自动规划以 510 音素 ID 为目标上限，通过 `/probe` 的实际预处理结果搜索；这不是整个请求的最大容量。
+英语使用官方 `en_tokenize` 分段，其它已声明语言按非空换行段处理；每段最多 510 个可映射字符，
+连同两个边界 ID 不超过模型 context。多段总量可超过 510，超长单段或未知词表字符明确拒绝，
+不静默截断。原生 `phonemes` 列表保留用户给出的分段；当前 CLI 自动 workload 生成文本。
+`predict()` 在返回前完整消费全部官方生成器；任何一段失败都使请求失败。
+文本字符数、单词数、音素 ID 数和分段数分别记录，字段来源见[结果字段](../results/fields.md#资源配置输入与网络)。
 
 ### NLP workload 参数
 NLP 清单使用 `schema_version=1`、与检测结果一致的 `task`、`params` 和可选 `input_budget`，不接受其他字段。

@@ -73,6 +73,15 @@ def test_registered_routes_and_library_hints_do_not_prove_checkpoint_support():
     assert not any(item["backend"] == "kokoro" for item in candidates)
 
 
+def test_registered_kokoro_backend_does_not_admit_unknown_speech_architectures():
+    config = {"model_type": "unregistered_voice_model", "architectures": ["UnknownVoiceModel"]}
+    context = _task(model_config=config, repository_metadata={"config.json": config}, library_name="kokoro",
+                    pipeline_tag="text-to-speech", task_family="audio", runtime_backend="unknown")
+    candidates = describe_backend_candidates(context)
+    assert any(item["backend"] == "kokoro" for item in candidates)
+    assert not any(item["selectable"] for item in candidates)
+
+
 def test_unknown_artifact_listing_is_not_an_available_offer():
     candidates = describe_backend_candidates(_task(repository_files=()), task="fill-mask")
 

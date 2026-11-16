@@ -267,9 +267,12 @@ class BackendRule:
     when_config: dict[str, Any] = field(default_factory=dict)
     inferred_task: str = ""
     artifact: bool = False
+    model_ids: tuple[str, ...] = ()
 
-    def matches(self, task: str, family: str, library: str, config: dict) -> bool:
+    def matches(self, task: str, family: str, library: str, config: dict, model_id: str = "") -> bool:
         if self.task and self.task != task or self.family and self.family != family:
+            return False
+        if self.model_ids and model_id.lower() not in {item.lower() for item in self.model_ids}:
             return False
         if self.libraries and library not in self.libraries:
             return False
@@ -281,4 +284,4 @@ class BackendRule:
 
     @property
     def rank(self) -> tuple[int, int]:
-        return (4 if self.artifact else 3 if self.task else 2 if self.libraries or self.when_config else 1, self.priority)
+        return (5 if self.model_ids else 4 if self.artifact else 3 if self.task else 2 if self.libraries or self.when_config else 1, self.priority)

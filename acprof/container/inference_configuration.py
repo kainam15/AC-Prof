@@ -273,12 +273,14 @@ def _task_consumer(session, expected):
         if spec.pipeline_classes and type(pipeline).__name__ not in spec.pipeline_classes:
             raise _failure(config, session.device, "loaded pipeline does not support the declared task parameters")
     method = next(iter(specs.values())).validation_method
+    mapping = {name: spec.consumers[0].argument.rsplit(".", 1)[-1] for name, spec in specs.items()}
+    if method == "handler.synthesize.kwargs":
+        return session.handler, "synthesize", mapping, method
     target, operation = {
         "generate.kwargs": (model, "generate"),
         "pipeline.predict.kwargs": (pipeline, "predict"),
         "pipeline.call.kwargs": (pipeline, "__call__"),
     }[method]
-    mapping = {name: spec.consumers[0].argument.rsplit(".", 1)[-1] for name, spec in specs.items()}
     return target, operation, mapping, method
 
 

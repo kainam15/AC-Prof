@@ -226,6 +226,11 @@ startup pruning schema v1、损坏或被改写的计划均明确拒绝恢复，�
 
 输入计划是 planned，原请求上限是 requested，Handler 观测的张量尺寸、token 数与输出数量是
 actual；三者不互相替代。新增任务通过现有 `_workload` 补充事实，保持列与 contract schema 不变。
+Kokoro 的配置、权重和 voice 在 `load` 加载，G2P 与逐段词表检查属于 `preprocess`，
+`predict` 完整消费官方分段生成器，`postprocess` 只汇总音频 shape／样本数；
+数值有限性和音频协议的完整扫描仍在独立验证执行。全部段完成后才结束本次推理，
+不将生成器创建视为完成，也不在后处理或下一请求继续生成。冷启动与正式窗口的既有边界保持。
+音素 ID、文本单词数和 tokenizer Token 分开记录，详见[结果字段](../results/fields.md#资源配置输入与网络)。
 ONNX 独立验证记录实际 Provider、线程数及制品 SHA256；制品校验在准备／验证阶段完成，
 正式服务加载时不增加一次完整权重扫描。协议/任务 sanity 验证与固定参考结果检查分别报告，
 通过结构检查不表示模型准确率通过。
