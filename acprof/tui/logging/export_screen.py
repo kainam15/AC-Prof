@@ -7,7 +7,7 @@ from socket import gethostname
 from threading import Event
 
 from rich.text import Text
-from textual import on
+from textual import events, on
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
@@ -21,6 +21,7 @@ from acprof.tui.logging.export import (
     log_export_path,
 )
 from acprof.tui.ui.contracts import translated_app
+from acprof.tui.ui.dialogs import focus_horizontal_action
 from acprof.tui.ui.input import BarCursorInput as Input
 from acprof.tui.ui.rendering import CjkCompositor
 
@@ -132,6 +133,11 @@ class LogExportScreen(ModalScreen[LogExportRequest | None]):
     @on(Button.Pressed, '#log-export-cancel')
     def action_cancel(self) -> None:
         self.dismiss(None)
+
+    def on_key(self, event: events.Key) -> None:
+        if focus_horizontal_action(self, '#log-export-actions', event.key):
+            event.prevent_default()
+            event.stop()
 
 
 class ExportDirectoryScreen(ModalScreen[Path | None]):
@@ -246,3 +252,10 @@ class ExportDirectoryScreen(ModalScreen[Path | None]):
     def action_cancel(self) -> None:
         self.cancelled.set()
         self.dismiss(None)
+
+    def on_key(self, event: events.Key) -> None:
+        if focus_horizontal_action(self, '#export-directory-actions', event.key) or focus_horizontal_action(
+            self, '#export-directory-nav', event.key
+        ):
+            event.prevent_default()
+            event.stop()

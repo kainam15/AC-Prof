@@ -35,6 +35,7 @@ class RecoveryReview:
     resume: PendingLaunch | None = None
     restart: PendingLaunch | None = None
     record: ExperimentRecord | None = None
+    issues: tuple[str, ...] = ()
 
 
 def _check_writer(layout: ArtifactLayout) -> None:
@@ -115,4 +116,4 @@ def review_recovery(pending: PendingLaunch, *, project_dir: Path, python_executa
         details.append(message_id('run.recovery.original_options_notice'))
     if restart is not None:
         details.append(message_id('run.recovery.new_directory_notice', fresh.output_dir))
-    return RecoveryReview(directory, phase, join_messages("\n\n", details), resume, restart, record)
+    return RecoveryReview(directory, phase, join_messages("\n\n", details), resume, restart, record, issues=tuple(issues))

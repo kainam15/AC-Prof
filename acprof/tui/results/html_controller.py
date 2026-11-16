@@ -19,9 +19,26 @@ from acprof.tui.commands import (
     resolve_result_path,
 )
 from acprof.tui.i18n import error_message, message_id
+from acprof.tui.ui.structured import FactGrid, StatusBanner
+from acprof.tui.ui.view_models import FactRow, StatusSummary, ViewSection
 
 if TYPE_CHECKING:
     from acprof.tui.app import AcprofTui
+    from acprof.tui.results.report_actions import ReportActionState
+
+
+_DISCOVERED_LEVELS = {
+    "current": "success",
+    "stale": "warning",
+    "damaged": "error",
+    "checking": "info",
+}
+_FRESHNESS_FACTS = {
+    "current": (message_id("results.overview.verified"), "ok"),
+    "stale": (message_id("results.html.fact.stale"), "warning"),
+    "damaged": (message_id("results.overview.damaged"), "error"),
+    "checking": (message_id("results.overview.checking"), "checking"),
+}
 
 
 class HtmlReportController:
@@ -39,11 +56,46 @@ class HtmlReportController:
         self.app.query_one("#html-report-path", Input).value = str(path) if path else ""
         status = message_id("results.overview.html_" + state)
         self.app.localization.set_text(self.app.query_one("#result-html-status", Static), status)
-        self.set_status(status)
+        self.set_status(status, level=_DISCOVERED_LEVELS.get(state, "neutral"))
 
-    def set_status(self, text: str) -> None:
-        self.app.localization.set_text(self.app.query_one("#html-report-status", Static), text)
+    def set_status(self, text: str, *, level: str = "info") -> None:
+        self.app.query_one("#html-report-banner", StatusBanner).update_summary(StatusSummary(level, text))
         self.app.results.update_report_actions()
+
+    def apply_action_state(self, actions: ReportActionState) -> None:
+        for selector, enabled in (
+            ("#html-report-generate", actions.html_generate_enabled),
+            ("#html-report-copy", actions.html_copy_enabled),
+            ("#html-export-toggle", actions.html_export_toggle_enabled),
+            ("#html-report-export", actions.html_export_enabled),
+        ):
+            self.app.query_one(selector, Button).disabled = not enabled
+        self.app.query_one("#html-report-file").display = actions.html_file_visible
+        self.app.query_one("#html-report-panel").set_class(actions.html_file_visible, "has-report")
+        self.app.query_one("#html-report-filename", Static).update(actions.html_filename)
+        location = self.app.query_one("#html-report-location", Static)
+        location.update(actions.html_location)
+        location.tooltip = actions.html_location or None
+        fresh_label, fresh_status = _FRESHNESS_FACTS.get(
+            self.freshness, (message_id("results.html.fact.unverified"), "neutral"),
+        )
+        open_row = (
+            FactRow(message_id("results.html.fact.open_mode"), message_id("results.html.fact.remote_session"), status="warning")
+            if actions.html_remote_hint_visible else
+            FactRow(message_id("results.html.fact.open_mode"), message_id("results.html.fact.local_browser"), status="neutral")
+        )
+        facts = ViewSection("", (FactRow(message_id("results.html.fact.freshness"), fresh_label, status=fresh_status), open_row))
+        self.app.query_one("#html-report-facts", FactGrid).update_section(facts if actions.html_file_visible else ViewSection("", ()))
+        if actions.hide_html_export_fields:
+            self.app.query_one("#html-export-fields").display = False
+        self.app.query_one("#html-remote-hint").display = actions.html_remote_hint_visible
+        open_html = self.app.query_one("#html-report-open", Button)
+        open_html.display = actions.html_open_visible
+        open_html.disabled = not actions.html_open_enabled or self.freshness in {"stale", "damaged"}
+        self.app.query_one("#html-report-generate", Button).display = actions.html_generate_visible
+        cancel = self.app.query_one("#html-report-cancel", Button)
+        cancel.display = actions.html_cancel_visible
+        cancel.disabled = not actions.html_cancel_enabled
 
     def update_extra_button(self) -> None:
         has_extra = bool(self.app.configuration.input("html-extra-sources").strip())
@@ -77,7 +129,7 @@ class HtmlReportController:
         if source:
             path = resolve_result_path(source, self.app.project_dir).resolve()
             self.app.copy_to_clipboard(str(path))
-            self.set_status(message_id("results.html.path_copied", path))
+            self.set_status(message_id("results.html.path_copied", path), level="success")
 
     def source(self, *, include_extra: bool = False) -> str:
         # The unified selector is ONE literal path; extra HTML sources are explicit.
@@ -104,11 +156,14 @@ class HtmlReportController:
             paths = html_report_inputs(self.source(), project_dir=self.app.project_dir)
             existing = existing_html_report(paths)
         except (OSError, ValueError) as exc:
-            self.set_status(error_message(exc))
+            self.set_status(error_message(exc), level="error")
             self.app.query_one("#html-report-path", Input).value = ""
             return
         self.app.query_one("#html-report-path", Input).value = str(existing) if existing else ""
-        self.set_status(message_id("results.html.existing_report") if existing else message_id("results.html.generation_note"))
+        self.set_status(
+            message_id("results.html.existing_report") if existing else message_id("results.html.generation_note"),
+            level="success" if existing else "neutral",
+        )
 
     def launch(self) -> None:
         if not self.app.allow_operation("html-report"):
@@ -122,7 +177,7 @@ class HtmlReportController:
                 analysis_args=("--confidence", "0.95", "--resamples", "5000", "--seed", "0", "--block-size", "1"),
             )
         except (OSError, ValueError, csv.Error) as exc:
-            self.set_status(error_message(exc))
+            self.set_status(error_message(exc), level="error")
             return
         self.app.launch(pending)
 
@@ -164,14 +219,14 @@ class HtmlReportController:
     def finished(self, *, error: str, cancelled: bool) -> None:
         output, self.output = self.output, None
         if cancelled:
-            self.set_status(message_id("results.html.cancelled"))
+            self.set_status(message_id("results.html.cancelled"), level="warning")
         elif error:
-            self.set_status(message_id("results.html.generation_failed", error))
+            self.set_status(message_id("results.html.generation_failed", error), level="error")
         elif output is not None:
             self.app.query_one("#html-report-path", Input).value = str(output)
             self.app.configuration.remember_last_used(html_report=str(output))
             self.freshness = "current"
-            self.set_status(join_messages("\n", (message_id("results.html.generated_short"), self.summary)))
+            self.set_status(join_messages("\n", (message_id("results.html.generated_short"), self.summary)), level="success")
             self.app.localization.set_text(self.app.query_one("#result-html-status", Static), message_id("results.overview.html_current"))
         self.log.clear()
         self.summary = ""
@@ -184,19 +239,19 @@ class HtmlReportController:
             return
         source = self.app.configuration.input("html-report-path")
         if not source:
-            self.set_status(message_id("results.html.open_requires_report"))
+            self.set_status(message_id("results.html.open_requires_report"), level="warning")
             return
         path = resolve_result_path(source, self.app.project_dir).resolve()
         if self.freshness == "stale":
-            self.set_status(message_id("results.overview.html_stale"))
+            self.set_status(message_id("results.overview.html_stale"), level="warning")
             return
         try:
             require_html_file(path)
         except (OSError, ValueError) as exc:
-            self.set_status(error_message(exc))
+            self.set_status(error_message(exc), level="error")
             return
         if not can_open_local_browser():
-            self.set_status(message_id("results.html.remote_open_instructions", path))
+            self.set_status(message_id("results.html.remote_open_instructions", path), level="warning")
             return
         self.set_status(message_id("results.html.browser_opening", path))
         self.run_file_action("open", path)
@@ -207,7 +262,7 @@ class HtmlReportController:
         source = self.app.configuration.input("html-report-path")
         destination = self.app.configuration.input("html-export-path")
         if not source or not destination:
-            self.set_status(message_id("results.html.export_requires_paths"))
+            self.set_status(message_id("results.html.export_requires_paths"), level="warning")
             return
         self.run_file_action(
             "export", resolve_result_path(source, self.app.project_dir),
@@ -229,16 +284,18 @@ class HtmlReportController:
         try:
             if action == "export" and destination is not None:
                 export_html_file(source, destination)
-                status = message_id("results.html.exported", destination)
+                status, level = message_id("results.html.exported", destination), "success"
             else:
                 backend = open_html_file(source)
-                status = message_id("results.html.browser_requested", source, backend)
+                status, level = message_id("results.html.browser_requested", source, backend), "info"
         except Exception as exc:
             key = "results.html.browser_failed" if action == "open" else "results.html.file_action_failed"
-            status = message_id(key, error_message(exc), source)
-        self.app.process.safe_process_callback(self.file_finished, token, status)
+            status, level = message_id(key, error_message(exc), source), "error"
+        self.app.process.safe_process_callback(self.file_finished, token, status, level)
 
-    def file_finished(self, token: object, status: str) -> None:
+    def file_finished(self, token: object, status: str, level: str = "info") -> None:
         self.app.read_jobs.discard(token)
+        if not self.app.is_running or not self.app.form_ready or self.app.ui_closing:
+            return
         self.app.set_busy(self.app.is_busy())
-        self.set_status(status)
+        self.set_status(status, level=level)

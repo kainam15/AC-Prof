@@ -5,32 +5,23 @@ lifecycle; read-only work is never initiated from a measurement window.
 """
 from __future__ import annotations
 
-from collections.abc import Iterator
-from contextlib import AbstractContextManager, contextmanager
-from dataclasses import replace
 from functools import partial
 from pathlib import Path
-from threading import Event, Lock
+from threading import Event
 from typing import TYPE_CHECKING
 
-from rich.text import Text
 from textual.timer import Timer
-from textual.widgets import Button, Collapsible, ContentSwitcher, DataTable, Static, TabbedContent
+from textual.widgets import Button, Static, TabbedContent
 from textual.worker import Worker
 
 from acprof.experiments.configuration import RunConfigError
-from acprof.messages import join_messages
-from acprof.tui.commands import (
-    PendingLaunch,
-    prepare_comparison,
-    prepare_plot,
-    prepare_stats,
-    resolve_result_path,
-)
+from acprof.tui.commands import PendingLaunch, prepare_plot, resolve_result_path
 from acprof.tui.experiments.catalog import ExperimentSourceDisplay
 from acprof.tui.i18n import error_message, message_id
+from acprof.tui.results.analysis_controller import AnalysisReportController
 from acprof.tui.results.data_status import data_status_text, inspect_experiment_data
 from acprof.tui.results.html_controller import HtmlReportController
+from acprof.tui.results.offline_reads import OverlappingOfflineReads
 from acprof.tui.results.overview import overview_view, read_experiment_overview, selection_path
 from acprof.tui.results.overview_panel import ExperimentOverviewPanel
 from acprof.tui.results.report_actions import report_action_state
@@ -42,48 +33,13 @@ if TYPE_CHECKING:
     from acprof.tui.app import AcprofTui
 
 
-class _OverlappingOfflineReads:
-    """Share one measurement exclusion lease across concurrent read-only jobs.
-
-    Slow, cancelled readers must not block newer selections. Holding the lease
-    until the last reader exits still excludes the collector, including when
-    the latest reader finishes before an obsolete one.
-    """
-
-    def __init__(self) -> None:
-        self._guard = Lock()
-        self._readers = 0
-        self._lease: AbstractContextManager[object] | None = None
-
-    @contextmanager
-    def read(self) -> Iterator[None]:
-        from acprof.host.run_state import offline_analysis_lock
-
-        with self._guard:
-            if self._readers == 0:
-                lease = offline_analysis_lock()
-                lease.__enter__()
-                self._lease = lease
-            self._readers += 1
-        try:
-            yield
-        finally:
-            with self._guard:
-                self._readers -= 1
-                if self._readers == 0:
-                    held_lease = self._lease
-                    self._lease = None
-                    assert held_lease is not None
-                    held_lease.__exit__(None, None, None)
-
-
 class ResultController:
     """Own results state and operations; the App owns lifecycle and scheduling."""
 
     def __init__(self, app: AcprofTui) -> None:
         self.app = app
         self.html = HtmlReportController(app)
-        self.offline_reads = _OverlappingOfflineReads()
+        self.offline_reads = OverlappingOfflineReads()
         self.overview_request: Event | None = None
         self.data_request: Event | None = None
         self.source_path: Path | None = None
@@ -92,17 +48,38 @@ class ResultController:
         self.data_error = ""
         self.data_cancelled = False
         self.selection_timer: Timer | None = None
-        self.report_request: Event | None = None
-        self.report_path: Path | None = None
-        self.report_view: ReportView | None = None
-        self.analysis_view: ReportView | None = None
-        self.analysis_source = app.project_dir
-        self.analysis_selection: tuple[str, ...] = ()
-        self.analysis_kind = "stats"
-        self.analysis_html_path = ""
+        self.analysis = AnalysisReportController(self)
         self.source_display: ExperimentSourceDisplay | None = None
         self.unavailable_remembered_source = ""
         self.formal_ok_rows: int | None = None
+
+    @property
+    def report_request(self) -> Event | None:
+        return self.analysis.report_request
+
+    @report_request.setter
+    def report_request(self, value: Event | None) -> None:
+        self.analysis.report_request = value
+
+    @property
+    def report_view(self) -> ReportView | None:
+        return self.analysis.report_view
+
+    @report_view.setter
+    def report_view(self, value: ReportView | None) -> None:
+        self.analysis.report_view = value
+
+    @property
+    def analysis_view(self) -> ReportView | None:
+        return self.analysis.analysis_view
+
+    @property
+    def analysis_source(self) -> Path:
+        return self.analysis.analysis_source
+
+    @property
+    def analysis_html_path(self) -> str:
+        return self.analysis.analysis_html_path
 
     def clear_log_button(self) -> None:
         self.clear_log()
@@ -407,125 +384,39 @@ class ResultController:
         cancel_backfill = self.app.query_one("#backfill-cancel", Button)
         cancel_backfill.display = reading
         cancel_backfill.disabled = not cancel_backfill.display
-        for format, enabled in (
-            ("csv", actions.analysis_export_csv_enabled),
-            ("json", actions.analysis_export_json_enabled),
-        ):
-            self.app.query_one("#analysis-export-" + format, Button).disabled = not enabled
         for selector, enabled in (
+            ("#analysis-export-csv", actions.analysis_export_csv_enabled),
+            ("#analysis-export-json", actions.analysis_export_json_enabled),
             ("#refresh-experiment-state", bool(self.source_path) and self.app.operation_state().allows("summary")),
             ("#refresh-backfill-state", bool(self.source_path) and self.app.operation_state().allows("summary")),
             ("#plot-results", actions.plot_enabled),
             ("#report-calculate", actions.html_generate_enabled),
             ("#report-window-stats", actions.calculate_enabled),
-            ("#html-report-generate", actions.html_generate_enabled),
             ("#report-open", actions.report_open_enabled),
-            ("#html-report-copy", actions.html_copy_enabled),
-            ("#html-export-toggle", actions.html_export_toggle_enabled),
-            ("#html-report-export", actions.html_export_enabled),
         ):
             self.app.query_one(selector, Button).disabled = not enabled
-        self.app.query_one("#html-report-file").display = actions.html_file_visible
-        self.app.query_one("#html-report-panel").set_class(actions.html_file_visible, "has-report")
-        self.app.query_one("#html-report-filename", Static).update(actions.html_filename)
-        location = self.app.query_one("#html-report-location", Static)
-        location.update(actions.html_location)
-        location.tooltip = actions.html_location or None
-        if actions.hide_html_export_fields:
-            self.app.query_one("#html-export-fields").display = False
-        self.app.query_one("#html-remote-hint").display = actions.html_remote_hint_visible
-        open_html = self.app.query_one("#html-report-open", Button)
-        open_html.display = actions.html_open_visible
-        open_html.disabled = not actions.html_open_enabled or self.html.freshness in {"stale", "damaged"}
-        generate_html = self.app.query_one("#html-report-generate", Button)
-        generate_html.display = actions.html_generate_visible
-        cancel = self.app.query_one("#html-report-cancel", Button)
-        cancel.display = actions.html_cancel_visible
-        cancel.disabled = not actions.html_cancel_enabled
+        self.html.apply_action_state(actions)
 
-    def clear_report(self, status: str, *, phase: str = 'empty', empty_hint=None) -> None:
-        self.report_view = None
-        self.analysis_view = None
-        self.app.query_one("#report-table", DataTable).clear(columns=True)
-        self.app.localization.set_text(self.app.query_one("#report-status", Static), status)
-        self.app.localization.set_text(
-            self.app.query_one("#report-detail", Static),
-            "表格可滚动；选择一行查看口径与数据来源。",
-        )
-        target = {"empty": "report-empty", "loading": "report-loading", "error": "report-error"}[phase]
-        if phase != "empty":
-            self.app.localization.set_text(self.app.query_one("#" + target, Static), status)
-        else:
-            self.app.localization.set_text(self.app.query_one('#report-empty', Static), empty_hint or message_id('results.statistics.empty_hint'))
-        self.app.query_one("#report-content", ContentSwitcher).current = target
-        self.update_report_actions()
+    def clear_report(self, status: str, *, phase: str = "empty", empty_hint=None) -> None:
+        self.analysis.clear_report(status, phase=phase, empty_hint=empty_hint)
 
     def report_source_changed(self) -> None:
-        if not self.app.form_ready:
-            return
-        self.refresh_source_display()
-        if self.report_request is not None:
-            self.report_request.set()
-        self.report_request = None
-        with self.app.prevent(Input.Changed):
-            self.app.query_one("#report-json-path", Input).value = ""
-            self.app.query_one("#html-report-path", Input).value = ""
-        self.app.localization.set_text(self.app.query_one("#analysis-export-status", Static), "")
-        self.clear_report(message_id('results.statistics.source_hint') if self.source_display and self.source_display.can_read
-                          else '', empty_hint=self.statistics_empty_hint())
-        self.update_report_actions()
+        self.analysis.report_source_changed()
 
     def report_json_changed(self) -> None:
-        if not self.app.form_ready:
-            return
-        source = self.app.configuration.input("report-json-path").strip()
-        if (self.report_request is not None and
-                resolve_result_path(source, self.app.project_dir) == self.report_path):
-            return
-        if self.report_request is not None:
-            self.report_request.set()
-        self.report_request = None
-        self.clear_report(message_id("results.import.path_changed") if source else message_id("results.statistics.source_hint"))
-        self.update_report_actions()
+        self.analysis.report_json_changed()
 
     def open_report_button(self) -> None:
         self.open_report()
 
     def open_report(self, path: str | None = None) -> None:
-        if not self.app.allow_operation("report"):
-            return
-        self.show_result_section("statistics-view")
-        self.app.query_one("#analysis-details", Collapsible).collapsed = False
-        self.app.query_one("#report-panel").scroll_visible(animate=False)
-        source = path if path is not None else self.app.configuration.input("report-json-path")
-        if not source.strip():
-            self.clear_report(message_id("results.import.json_required"), phase="error")
-            self.show_result_section("exports-view")
-            self.app.query_one("#report-file-options", Collapsible).collapsed = False
-            return
-        report_path = resolve_result_path(source, self.app.project_dir)
-        if report_path.suffix.lower() != ".json":
-            self.clear_report("请选择 JSON 报告；实验目录或 CSV 请点击“计算统计”。", phase="error")
-            self.show_result_section("exports-view")
-            self.app.query_one("#report-file-options", Collapsible).collapsed = False
-            return
-        with self.app.prevent(Input.Changed):
-            self.app.query_one("#report-json-path", Input).value = str(report_path)
-        self.update_report_actions()
-        self.clear_report(message_id("results.import.reading"), phase="loading")
-        if self.report_request is not None:
-            self.report_request.set()
-        token = self.report_request = Event()
-        self.report_path = report_path
-        self.app.read_jobs.add(token)
-        self.app.set_busy(True)
-        self.execute_report_read(report_path, token)
+        self.analysis.open_report(path)
 
     def execute_report_read(self, path: Path, token: Event) -> Worker[None]:
         """Schedule this operation on the owning App worker manager."""
         return self.app.run_worker(
             partial(self._execute_report_read_worker, path, token),
-            name="execute_report_read", thread=True, group='report', exit_on_error=False,
+            name="execute_report_read", thread=True, group="report", exit_on_error=False,
         )
 
     def _execute_report_read_worker(self, path: Path, token: Event) -> None:
@@ -537,166 +428,40 @@ class ResultController:
         self.app.process.safe_process_callback(self.show_report, view, error, token)
 
     def show_report(self, view: ReportView | None, error: str, token: object) -> None:
-        self.app.read_jobs.discard(token)
-        if not self.app.is_running or self.app.ui_closing:
-            return
-        if (token is not self.report_request or
-                resolve_result_path(self.app.configuration.input("report-json-path"), self.app.project_dir) != self.report_path):
-            self.app.set_busy(self.app.is_busy())
-            return
-        self.app.set_busy(self.app.is_busy())
-        if view is None:
-            self.clear_report(message_id('results.import.read_failed', error), phase="error")
-            return
-        self.report_view = replace(view, note=join_messages("\n", (
-            message_id("results.import.historical_notice", view.source), view.note)))
-        self.render_report_view()
-        self.update_report_actions()
+        self.analysis.show_report(view, error, token)
 
     def render_report_view(self) -> None:
-        view = self.report_view
-        if view is None:
-            return
-        self.app.query_one("#analysis-details", Collapsible).collapsed = False
-        table = self.app.query_one("#report-table", DataTable)
-        cursor, scroll = table.cursor_coordinate, table.scroll_offset
-        table.clear(columns=True)
-        if not view.rows:
-            self.app.localization.set_text(self.app.query_one("#report-status", Static), view.title)
-            self.app.localization.set_text(
-                self.app.query_one("#report-empty", Static), view.note or message_id("results.statistics.no_rows"),
-            )
-            self.app.query_one("#report-content", ContentSwitcher).current = "report-empty"
-            return
-        for column in view.columns:
-            table.add_column(Text(self.app.localization.tr(column)), key=str(column))
-        for index, row in enumerate(view.rows):
-            table.add_row(*(Text(self.app.localization.tr(cell)) for cell in row.cells), key=str(index))
-        table.move_cursor(row=min(cursor.row, max(0, len(view.rows) - 1)), column=cursor.column, scroll=False)
-        table.scroll_to(scroll.x, scroll.y, animate=False, force=True)
-        self.app.localization.set_text(self.app.query_one("#report-status", Static), view.title)
-        self.app.query_one("#report-content", ContentSwitcher).current = "report-results"
-        self.show_report_row(table.cursor_row)
+        self.analysis.render_report_view()
 
-    def report_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
+    def report_row_highlighted(self, event) -> None:
         self.show_report_row(event.cursor_row)
 
     def show_report_row(self, index: int) -> None:
-        view = self.report_view
-        if view is None:
-            return
-        detail = view.rows[index].detail if 0 <= index < len(view.rows) else message_id('results.statistics.no_successful_windows')
-        self.app.localization.set_text(self.app.query_one("#report-detail", Static), join_messages("\n", (detail, view.note)))
+        self.analysis.show_report_row(index)
 
     def calculate_report_button(self) -> None:
         self.html.launch()
 
     def compare_experiments_button(self) -> None:
-        if not self.app.allow_operation("compare"):
-            return
-        try:
-            pending = prepare_comparison(self.app.configuration.input("comparison-left"), self.app.configuration.input("comparison-right"),
-                baseline=self.app.configuration.select("comparison-baseline"), purpose=self.app.configuration.select("comparison-purpose"),
-                project_dir=self.app.project_dir, python_executable=self.app.python_executable,
-                html_report=True)
-        except (RunConfigError, ValueError, OSError) as exc:
-            self.app.localization.set_text(self.app.query_one("#comparison-status", Static), error_message(exc))
-            self.app.notify(error_message(exc), severity="error")
-            return
-        self.app.launch(pending)
+        self.analysis.compare_experiments_button()
 
     def launch_stats(self, path: str | None = None) -> None:
-        if not self.app.allow_operation("stats"):
-            return
-        self.show_result_section("statistics-view")
-        self.app.query_one("#analysis-details", Collapsible).collapsed = False
-        self.app.query_one("#report-panel").scroll_visible(animate=False)
-        source = path if path is not None else self.app.configuration.input("experiment-source")
-        if not source.strip():
-            self.clear_report(message_id("results.statistics.input_required"), phase="error")
-            return
-        try:
-            pending = prepare_stats(source, project_dir=self.app.project_dir, python_executable=self.app.python_executable,
-                                    analysis_args=())
-        except (OSError, ValueError) as exc:
-            self.clear_report(error_message(exc), phase="error")
-            return
-        if pending.result_csv != self.app.configuration.input("experiment-source"):
-            self.select_result(pending.result_csv, load=False)
-        self.app.launch(pending)
+        self.analysis.launch_stats(path)
 
     def selection_identity(self) -> tuple[str, ...]:
-        return tuple(self.app.configuration.input(name) for name in
-                     ("experiment-source", "comparison-left", "comparison-right")) + (
-                         self.app.configuration.select("comparison-baseline"),
-                         self.app.configuration.select("comparison-purpose"),
-                     )
+        return self.analysis.selection_identity()
 
     def begin_analysis(self, pending: PendingLaunch) -> None:
-        self.analysis_kind = pending.kind
-        self.analysis_html_path = pending.report_path
-        self.clear_report(message_id("results.statistics.calculating"), phase="loading")
-        if pending.kind == "compare":
-            self.app.localization.set_text(self.app.query_one("#comparison-status", Static), message_id("results.analysis.comparing"))
-        self.analysis_selection = self.selection_identity()
-        source = pending.result_csv if pending.kind == "stats" else pending.command[pending.command.index("--left") + 1]
-        self.analysis_source = Path(source)
-        with self.app.prevent(Input.Changed):
-            self.app.query_one("#report-json-path", Input).value = ""
+        self.analysis.begin_analysis(pending)
 
     def accept_analysis(self, view: ReportView) -> None:
-        if self.selection_identity() == self.analysis_selection:
-            self.analysis_view = view
+        self.analysis.accept_analysis(view)
 
     def finish_analysis(self, *, error: str, cancelled: bool) -> None:
-        view, self.analysis_view = self.analysis_view, None
-        if cancelled or error or view is None:
-            status = error or message_id("results.statistics.cancelled" if cancelled else "results.statistics.invalid_analysis_output")
-            self.clear_report(status, phase="error")
-            section = "comparison-view" if self.analysis_kind == "compare" else "statistics-view"
-            self.show_result_section(section)
-            if self.analysis_kind == "compare":
-                self.app.localization.set_text(self.app.query_one("#comparison-status", Static), status)
-        else:
-            self.show_result_section("statistics-view")
-            self.report_view = view
-            self.render_report_view()
-            html_path = view.payload.get("html_report_path")
-            if html_path and html_path == self.analysis_html_path:
-                self.app.query_one("#html-report-path", Input).value = html_path
-                self.app.configuration.remember_last_used(html_report=html_path)
-                self.html.set_status(message_id("results.comparison.created_notice"))
-                self.app.query_one("#analysis-details", Collapsible).collapsed = True
-                self.app.query_one("#html-report-panel").scroll_visible(animate=False)
-        self.update_report_actions()
+        self.analysis.finish_analysis(error=error, cancelled=cancelled)
 
     def export_analysis(self, format: str) -> None:
-        if not self.app.allow_operation("analysis-export"):
-            return
-        view = self.report_view
-        destination = self.app.configuration.input("analysis-export-path").strip()
-        if view is None or not view.payload or not destination:
-            self.app.notify(message_id("results.export.statistics_required"), severity="warning")
-            return
-        path = resolve_result_path(destination, self.app.project_dir)
-        token = object()
-        self.app.read_jobs.add(token)
-        self.app.set_busy(True)
-        self.app.run_worker(partial(self._export_analysis_worker, token, view.payload, path, format),
-                            name="export_analysis", thread=True, group="analysis-export", exit_on_error=False)
-
-    def _export_analysis_worker(self, token: object, payload: dict, path: Path, format: str) -> None:
-        from acprof.analysis.export import export_analysis
-        from acprof.host.run_state import offline_analysis_lock
-        try:
-            with offline_analysis_lock():
-                export_analysis(payload, path, format=format)
-            status = message_id("results.export.completed", path)
-        except Exception as exc:
-            status = message_id("results.export.failed", error_message(exc))
-        self.app.process.safe_process_callback(self.analysis_export_finished, token, status)
+        self.analysis.export_analysis(format)
 
     def analysis_export_finished(self, token: object, status: str) -> None:
-        self.app.read_jobs.discard(token)
-        self.app.set_busy(self.app.is_busy())
-        self.app.localization.set_text(self.app.query_one("#analysis-export-status", Static), status)
+        self.analysis.analysis_export_finished(token, status)

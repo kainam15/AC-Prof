@@ -17,19 +17,15 @@ try:
     from textual.binding import Binding
     from textual.containers import Horizontal, Vertical
     from textual.geometry import Size
+    from textual.screen import ModalScreen
     from textual.theme import Theme
     from textual.timer import Timer
     from textual.widgets import (
         Button,
-        Checkbox,
-        Collapsible,
-        DataTable,
         Header,
-        Input as TextualInput,
-        Select,
         Static,
         TabbedContent,
-        Tree,
+        TextArea,
     )
 except ModuleNotFoundError as exc:  # pragma: no cover - exercised before tests install deps
     if exc.name == "textual":
@@ -41,15 +37,16 @@ except ModuleNotFoundError as exc:  # pragma: no cover - exercised before tests 
     raise
 
 from acprof.experiments.configuration import RunConfig
+from acprof.tui.busy_state import BusyControlCache, apply_busy_state
 from acprof.tui.commands import (
     OperationState,
     PendingLaunch,
 )
+from acprof.tui.event_routes import AppEventRoutes
 from acprof.tui.experiments.controller import CatalogController
 from acprof.tui.images.controller import ImageController
 from acprof.tui.images.presentation import ImageWorkspace
 from acprof.tui.logging.controller import LogController
-from acprof.tui.logging.widget import SelectableLog
 from acprof.tui.models.controller import ModelController
 from acprof.tui.results.controller import ResultController
 from acprof.tui.results.profile_controller import ProfileController
@@ -70,7 +67,7 @@ from acprof.tui.ui.environment import (
     EnvironmentIndicators,
     EnvironmentPopover,
 )
-from acprof.tui.ui.input import BarCursorApp, BarCursorInput as Input
+from acprof.tui.ui.input import BarCursorInput as Input
 from acprof.tui.ui.navigation import PageNavigation
 from acprof.tui.ui.pages.backfill import compose_backfill_tab
 from acprof.tui.ui.pages.images import compose_images_tab
@@ -78,9 +75,8 @@ from acprof.tui.ui.pages.monitor import compose_monitor_tab
 from acprof.tui.ui.pages.run import compose_run_tab
 from acprof.tui.ui.pages.settings import compose_settings_tab
 from acprof.tui.ui.rendering import CjkScreen
+from acprof.tui.ui.shortcuts import ShortcutsScreen
 from acprof.tui.ui.slash_controller import SlashController
-from acprof.tui.ui.structured import ActionRequested
-from acprof.tui.ui.table import ResizableDataTable
 from acprof.tui.ui.themes import THEME_CATALOG
 from acprof.tui.updates import UpdateController
 
@@ -90,7 +86,7 @@ PROJECT_DIR = Path.cwd()
 PYTHON_EXECUTABLE = Path(sys.executable).absolute()
 
 
-class AcprofTui(BarCursorApp):
+class AcprofTui(AppEventRoutes):
     """Full-screen controller for AC-Prof collection and diagnostics."""
 
     TITLE = f"AC-Prof {__version__}"
@@ -103,6 +99,9 @@ class AcprofTui(BarCursorApp):
         ("f8", "toggle_log_view", "放大日志"),
         ("f2", "show_settings", "应用设置"),
         ("alt+left", "return_from_issue", "返回原页"),
+        Binding("f1", "show_shortcuts", "快捷键", priority=True),
+        Binding("question_mark", "show_shortcuts_key", "快捷键", show=False),
+        Binding("f3", "toggle_run_settings", "基本/高级配置", show=False),
         Binding("ctrl+x", "request_stop", "终止任务", priority=True),
         ("ctrl+l", "clear_log", "清空日志"),
         ("ctrl+q", "request_quit", "退出"),
@@ -163,6 +162,7 @@ class AcprofTui(BarCursorApp):
         self.process = ProcessController(self)
         self.logs = LogController(self)
         self.slash = SlashController(self)
+        self._busy_controls = BusyControlCache()
         for palette in THEME_CATALOG:
             self.register_theme(Theme(**palette.theme_kwargs()))
         self.theme = self.configuration.preferences.theme
@@ -221,6 +221,7 @@ class AcprofTui(BarCursorApp):
         self.localization.set_text(self.query_one('#settings-location', Static), message_id('settings.load.file_path', self.configuration.settings_path))
         self.update_responsive_layout()
         self.configuration.selected_preset = self.configuration.select("run-preset")
+        self._busy_controls.capture(self)
         self.form_ready = True
         self.results.restore_recent_result()
         self.results.update_report_actions()
@@ -302,58 +303,7 @@ class AcprofTui(BarCursorApp):
     def set_busy(self, busy: bool) -> None:
         if not self.is_running or not self.form_ready or self.ui_closing:
             return
-        state = self.operation_state()
-        self.updates.refresh_controls()
-        busy = busy or state.busy
-        # Configuration changes during a run can queue preview redraws and
-        # make the visible settings differ from the running subprocess.
-        if busy:
-            self.configuration.cancel_preview_timer()
-            self.preflight.pause_auto_check()
-        for table in self.query(ResizableDataTable):
-            refreshing_image = self.images.operation == "refresh" and table.has_class("image-control")
-            table.resize_enabled = not ((busy and not refreshing_image) or self.execution.session.snapshot.measurement_active)
-        for widget in self.query(
-            ".config-control, .experiment-picker, #model-candidates, #run-preset, .ui-preference, .profile-tool, .report-control, "
-            "#save-run-default, #restore-ui-defaults, #save-ui-settings, #open-environment-settings"
-        ):
-            if widget.id in {"experiment-source", "report-open"} and state.allows("report"):
-                widget.disabled = False
-                continue
-            if busy and widget.has_focus:
-                active = self.query_one("#main-tabs", TabbedContent).active
-                self.screen.set_focus(self.query_one(f"#nav-{active}"), scroll_visible=False)
-            widget.disabled = busy or (state.checking and widget.id in {
-                "open-environment-settings", "open-model-store",
-            })
-        for widget in self.query(".image-control"):
-            widget.disabled = (busy and self.images.operation != "refresh") or self.execution.session.snapshot.measurement_active
-        for selector, operation in {
-            "#start-run": "run", "#probe-largest": "probe",
-            "#refresh-experiment-state": "summary", "#plot-results": "plot",
-            "#refresh-backfill-state": "summary",
-            "#report-open": "report",
-            "#report-calculate": "html-report", "#report-window-stats": "stats", "#stop-run": "stop",
-            "#html-report-generate": "html-report", "#html-report-open": "html-open",
-            "#html-report-export": "html-export",
-        }.items():
-            self.query_one(selector, Button).disabled = not state.allows(operation)
-        self.query_one("#html-report-cancel", Button).disabled = not (
-            self.execution.session.kind == "html-report" and state.allows("stop"))
-        for selector in ("#experiment-source", "#backfill-source"):
-            self.query_one(selector, Input).disabled = not state.allows("summary")
-        self.refresh_bindings()
-        if not busy:
-            self.set_input_cursor_blink_enabled(True)
-        self.images.update_image_controls()
-        self.images.sync_image_refresh_timer()
-        self.preflight.refresh_preflight_state()
-        self.profiles.update_action_availability()
-        self.results.update_report_actions()
-        if not busy:
-            if self.configuration.validation_pending and self.configuration.preview_timer is None:
-                self.configuration.configuration_changed()
-            self.preflight.resume_auto_check()
+        apply_busy_state(self, self._busy_controls, busy)
 
     def activate_tab(self, tab_id: str) -> None:
         if self.screen.maximized is not None:
@@ -471,6 +421,7 @@ class AcprofTui(BarCursorApp):
         """Use the same bounded cleanup policy even after widgets are gone."""
         self.form_ready = False
         self.ui_closing = True
+        self._busy_controls.clear()
         if self.recovery.recovery_request is not None:
             self.recovery.recovery_request.set()
         self.recovery.recovery_after_check = None
@@ -517,312 +468,26 @@ class AcprofTui(BarCursorApp):
     def action_clear_log(self) -> None:
         self.results.clear_log()
 
-    @on(Button.Pressed, '#model-candidates')
-    def on_models_open_model_candidates(self) -> None:
-        self.models.open_model_candidates()
-
-    @on(Input.Changed, '#model')
-    @on(Select.Changed, '#model-source')
-    def on_models_candidate_identity_changed(self, event: TextualInput.Changed | Select.Changed) -> None:
-        self.models.candidate_identity_changed(event)
-
-    @on(Button.Pressed, '.experiment-picker')
-    def on_catalog_select_experiment(self, event: Button.Pressed) -> None:
-        self.catalog.select_experiment(event)
-
-    @on(TabbedContent.TabActivated, '#main-tabs')
-    def on_images_image_tab_activated(self, event: TabbedContent.TabActivated) -> None:
-        self.query_one(PageNavigation).sync(event.tabbed_content)
-        self.images.image_tab_activated(event)
-
-    @on(Button.Pressed, '#image-view-tree, #image-view-list, #image-view-layers')
-    def on_images_image_view_changed(self, event: Button.Pressed) -> None:
-        self.images.image_view_changed(event)
-
-    @on(DataTable.HeaderSelected, '#image-table')
-    def on_images_sort_image_table(self, event: DataTable.HeaderSelected) -> None:
-        self.images.sort_image_table(event)
-
-    @on(Input.Changed, '#image-search')
-    @on(Select.Changed, '#image-scope')
-    def on_images_image_filter_changed(self) -> None:
-        self.images.image_filter_changed()
-
-    @on(DataTable.RowHighlighted, '#image-table')
-    @on(DataTable.RowHighlighted, '#image-layer-table')
-    @on(Tree.NodeHighlighted, '#image-tree')
-    def on_images_show_image_detail(self) -> None:
-        self.images.show_image_detail()
-
-    @on(Collapsible.Expanded, '#image-dependencies')
-    def on_images_expand_image_dependencies(self) -> None:
-        self.images.expand_image_dependencies()
-
-    @on(DataTable.RowSelected, '#image-table')
-    @on(Tree.NodeSelected, '#image-tree')
-    @on(Button.Pressed, '#image-toggle')
-    def on_images_toggle_image_selection(self) -> None:
-        self.images.toggle_image_selection()
-
-    @on(Button.Pressed, '#image-clear')
-    def on_images_clear_image_selection(self) -> None:
-        self.images.clear_image_selection()
-
-    @on(Button.Pressed, '#image-model')
-    def on_images_select_model_images(self) -> None:
-        self.images.select_model_images()
-
-    @on(Button.Pressed, '#image-storage')
-    def on_images_open_storage(self) -> None:
-        self.images.open_storage()
-
-    @on(Button.Pressed, '#image-delete')
-    def on_images_request_delete_images(self) -> None:
-        self.images.request_delete_images()
-
-    @on(Select.Changed, '.ui-preference')
-    @on(Checkbox.Changed, '.ui-preference')
-    def on_configuration_ui_preference_changed(self) -> None:
-        self.configuration.ui_preference_changed()
-
-    @on(Button.Pressed, '#restore-ui-defaults')
-    def on_configuration_restore_ui_defaults(self) -> None:
-        self.configuration.restore_ui_defaults()
-
-    @on(Select.Changed, '#update-channel')
-    def on_version_channel(self, event: Select.Changed) -> None:
-        self.updates.select_channel(str(event.value))
-
-    @on(Button.Pressed, '#version-check, #version-apply, #version-log, #version-restart, #version-manual')
-    def on_version_action(self, event: Button.Pressed) -> None:
-        if event.button.id == "version-check":
-            self.updates.start_check(manual=True)
-        elif event.button.id == "version-apply":
-            self.updates.request_install()
-        elif event.button.id == "version-log":
-            self.updates.show_log()
-        elif event.button.id == "version-manual":
-            self.updates.copy_manual()
-        else:
-            self.updates.restart()
-
-    @on(Button.Pressed, '#save-ui-settings')
-    def on_configuration_save_ui_settings(self) -> None:
-        self.configuration.save_ui_settings()
-
-    @on(Button.Pressed, '#save-run-default')
-    def on_configuration_save_run_default(self) -> None:
-        self.configuration.save_run_default()
-
-    @on(Button.Pressed, '#open-environment-settings')
-    def on_configuration_open_environment_settings(self) -> None:
-        self.configuration.open_environment_settings()
-
-    @on(Button.Pressed, '#open-run-settings')
-    def on_configuration_open_run_settings(self) -> None:
-        self.configuration.open_run_settings()
-
-    @on(SelectableLog.Updated)
-    def on_log_updated(self) -> None:
-        self.logs.refresh_status()
-
-    @on(Input.Changed, '#log-search')
-    @on(Select.Changed, '#log-level')
-    def on_log_view_changed(self) -> None:
-        self.logs.view_changed()
-
-    @on(Input.Submitted, '#log-search')
-    def on_log_next(self) -> None:
-        self.logs.find()
-
-    @on(Button.Pressed, '#copy-log-all')
-    def on_log_copy_all(self) -> None:
-        self.logs.copy_all()
-
-    @on(Button.Pressed, '#log-tools')
-    def on_log_tools(self) -> None:
-        self.logs.toggle_tools()
-
-    @on(Button.Pressed, '#export-log')
-    def on_log_export(self) -> None:
-        self.logs.export()
-
-    @on(Button.Pressed, '#copy-log-export-path')
-    def on_log_export_copy_path(self) -> None:
-        self.logs.copy_export_path()
-
-    @on(Button.Pressed, '#view-log-export-path')
-    def on_log_export_view_path(self) -> None:
-        self.logs.view_export_path()
-
-    @on(Button.Pressed, '#follow-log')
-    def on_configuration_follow_latest_log(self) -> None:
-        self.configuration.follow_latest_log()
-
-    @on(Button.Pressed, '#expand-log')
-    @on(Button.Pressed, '#restore-log')
-    def on_configuration_toggle_log_view_button(self) -> None:
-        self.configuration.toggle_log_view_button()
-
-    @on(Input.Changed, '.config-control')
-    @on(Select.Changed, '.config-control')
-    @on(Checkbox.Changed, '.config-control')
-    def on_configuration_configuration_changed(self) -> None:
-        self.configuration.configuration_changed()
-
-    @on(Select.Changed, '#run-preset')
-    def on_configuration_run_preset_changed(self, event: Select.Changed) -> None:
-        self.configuration.run_preset_changed(event)
-
-    @on(Button.Pressed, '#clear-log')
-    def on_results_clear_log_button(self) -> None:
-        self.results.clear_log_button()
-
-    @on(Input.Changed, '#experiment-source')
-    def on_results_result_source_changed(self) -> None:
-        self.results.result_source_changed()
-
-    @on(Input.Changed, '#backfill-source')
-    def on_backfill_result_source_changed(self, event: TextualInput.Changed) -> None:
-        if not self.is_running or not self.form_ready or self.ui_closing:
+    def action_show_shortcuts(self) -> None:
+        if self.ui_closing:
             return
-        # Read the current value: queued startup events may predate restoration.
-        if event.input.value != self.query_one('#experiment-source', Input).value:
-            with self.prevent(Input.Changed):
-                self.query_one('#experiment-source', Input).value = event.input.value
-            self.results.result_source_changed()
+        if isinstance(self.screen, ShortcutsScreen):
+            self.screen.dismiss()
+            return
+        if isinstance(self.screen, ModalScreen):
+            return
+        self.push_screen(ShortcutsScreen())
 
-    @on(ActionRequested)
-    def on_structured_action(self, event: ActionRequested) -> None:
-        if event.action_id.startswith("overview-"):
-            event.stop()
-            self.results.overview_action(event.action_id)
-        elif event.action_id.startswith("process-resource-"):
-            event.stop()
-            if event.action_id == "process-resource-retry":
-                self.preflight.quick_check()
-            elif event.action_id == "process-resource-details":
-                from acprof.tui.run.resource_view import show_details
-                show_details(self.preflight)
-        elif event.action_id.startswith("backfill-"):
-            event.stop()
-            self.profiles.backfill_action(event.action_id)
+    def action_show_shortcuts_key(self) -> None:
+        if self.ui_closing:
+            return
+        if isinstance(self.screen, ShortcutsScreen):
+            self.screen.dismiss()
+            return
+        if isinstance(self.screen, ModalScreen) or isinstance(self.focused, (Input, TextArea)):
+            return
+        self.push_screen(ShortcutsScreen())
 
-    @on(Button.Pressed, '#refresh-experiment-state')
-    def on_results_refresh_experiment(self) -> None:
-        self.results.refresh_experiment()
-
-    @on(Button.Pressed, '#refresh-backfill-state')
-    def on_backfill_refresh_experiment(self) -> None:
-        self.results.refresh_experiment()
-
-    @on(Button.Pressed, '#overview-profiling')
-    def on_overview_profiling(self) -> None:
-        self.profiles.open_selection_dialog()
-
-    @on(Button.Pressed, '#backfill-cancel')
-    @on(Button.Pressed, '#results-cancel')
-    def on_backfill_cancel_read(self) -> None:
-        if self.execution.session.kind in {"stats", "compare"}:
-            self.action_request_stop()
-        else:
-            self.results.cancel_result_reads()
-
-    @on(Button.Pressed, '#plot-results')
-    def on_results_plot_results_button(self) -> None:
-        self.results.plot_results_button()
-
-    @on(Input.Changed, '#report-json-path')
-    def on_results_report_json_changed(self) -> None:
-        self.results.report_json_changed()
-
-    @on(Input.Changed, '#html-report-path')
-    def on_results_html_path_changed(self) -> None:
-        self.results.update_report_actions()
-    @on(Input.Changed, '#html-extra-sources')
-    def on_results_html_extra_changed(self) -> None:
-        self.results.html.update_extra_button()
-
-    @on(Button.Pressed, '#analysis-export-csv, #analysis-export-json')
-    def on_analysis_export(self, event: Button.Pressed) -> None:
-        self.results.export_analysis(event.button.name or "csv")
-
-    @on(Button.Pressed, '#report-open')
-    def on_results_open_report_button(self) -> None:
-        self.results.open_report_button()
-
-    @on(DataTable.RowHighlighted, '#report-table')
-    def on_results_report_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
-        self.results.report_row_highlighted(event)
-
-    @on(Button.Pressed, '#report-calculate')
-    def on_results_calculate_report_button(self) -> None:
-        self.results.calculate_report_button()
-
-    @on(Button.Pressed, "#report-window-stats")
-    def on_results_window_statistics(self) -> None:
-        self.results.launch_stats()
-
-    @on(Button.Pressed, '#report-compare')
-    def on_results_compare_experiments_button(self) -> None:
-        self.results.compare_experiments_button()
-
-    @on(Button.Pressed, '#html-report-generate')
-    def on_results_generate_html(self) -> None:
-        self.results.html.launch()
-
-    @on(Button.Pressed, '#html-report-open')
-    def on_results_open_html(self) -> None:
-        self.results.html.open()
-
-    @on(Button.Pressed, '#html-report-export')
-    def on_results_export_html(self) -> None:
-        self.results.html.export()
-    @on(Button.Pressed, '#html-extra-toggle')
-    def on_results_toggle_html_extra(self) -> None:
-        self.results.html.toggle_extra_sources()
-
-    @on(Button.Pressed, '#html-export-toggle')
-    def on_results_toggle_html_export(self) -> None:
-        self.results.html.toggle_export_fields()
-
-    @on(Button.Pressed, '#html-existing-toggle')
-    def on_results_toggle_html_existing(self) -> None:
-        self.results.html.toggle_existing_path()
-
-    @on(Button.Pressed, '#html-report-copy')
-    def on_results_copy_html_path(self) -> None:
-        self.results.html.copy_path()
-
-    @on(Button.Pressed, '#html-report-cancel')
-    def on_results_cancel_html(self) -> None:
-        if self.execution.session.kind == "html-report":
-            self.action_request_stop()
-
-    @on(Button.Pressed, '#open-model-store')
-    def on_preflight_open_model_store(self) -> None:
-        self.preflight.open_model_store()
-
-    @on(Button.Pressed, '#open-result-profiling')
-    def on_profiles_open_selection(self) -> None:
-        self.profiles.open_selection_dialog()
-
-    @on(Input.Submitted, '#slash-command')
-    def on_slash_slash_command_submitted(self, event: TextualInput.Submitted) -> None:
-        self.slash.slash_command_submitted(event)
-
-    @on(Button.Pressed, '#start-run')
-    def on_experiments_start_run_button(self) -> None:
-        self.experiments.start_run_button()
-
-    @on(Button.Pressed, '#status-return')
-    def action_return_from_issue(self) -> None:
-        self.preflight.panel.return_to_origin()
-
-    @on(Button.Pressed, '#process-inherited-resources')
-    def on_process_inherited_resources(self) -> None:
-        self.configuration.use_process_inherited_resources()
-
-    @on(Button.Pressed, '#probe-largest')
-    def on_experiments_probe_largest_button(self) -> None:
-        self.experiments.probe_largest_button()
+    def action_toggle_run_settings(self) -> None:
+        if not self.ui_closing and not isinstance(self.screen, ModalScreen):
+            self.configuration.open_run_settings()

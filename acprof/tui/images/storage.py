@@ -8,7 +8,7 @@ from rich import box
 from rich.progress_bar import ProgressBar
 from rich.table import Table
 from rich.text import Text
-from textual import on
+from textual import events, on
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
@@ -18,6 +18,7 @@ from acprof.host.images.inventory import STORAGE_KINDS, DockerStorage, ImageMana
 from acprof.messages import join_messages, message
 from acprof.tui.i18n import message_id
 from acprof.tui.ui.contracts import translated_app
+from acprof.tui.ui.dialogs import focus_horizontal_action
 from acprof.tui.ui.presentation import UNKNOWN, format_bytes
 from acprof.tui.ui.rendering import CjkCompositor
 from acprof.tui.ui.structured import StatusBanner
@@ -270,3 +271,8 @@ class StorageSpaceScreen(ModalScreen[None]):
 
     def action_close(self) -> None:
         self.dismiss(None)
+
+    def on_key(self, event: events.Key) -> None:
+        if focus_horizontal_action(self, "#storage-buttons", event.key):
+            event.prevent_default()
+            event.stop()

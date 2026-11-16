@@ -27,7 +27,10 @@ from acprof.tui.commands import format_command
 from acprof.tui.i18n import error_message, message_id
 from acprof.tui.logging.panel import LogPanel
 from acprof.tui.logging.widget import SelectableLog
-from acprof.tui.run import form as run_form, planning as run_planning
+from acprof.tui.run import (
+    form as run_form,
+    planning as run_planning,
+)
 from acprof.tui.run.plan_panel import RunPlanPanel
 from acprof.tui.settings.preferences import (
     UiPreferences,
@@ -37,6 +40,8 @@ from acprof.tui.settings.preferences import (
 )
 from acprof.tui.ui.input import BarCursorInput as Input
 from acprof.tui.ui.scrollbar import configure_solid_scrollbars
+from acprof.tui.ui.structured import StatusBanner
+from acprof.tui.ui.view_models import StatusSummary
 
 if TYPE_CHECKING:
     from acprof.tui.app import AcprofTui
@@ -100,7 +105,7 @@ class ConfigurationController:
         )
 
     def ui_preference_changed(self) -> None:
-        if not self.app.form_ready or self.app.is_busy():
+        if not self.app.is_running or self.app.ui_closing or not self.app.form_ready or self.app.is_busy():
             return
         preferences = UiPreferences(
             language=self.select("ui-language"),
@@ -113,8 +118,9 @@ class ConfigurationController:
             return
         self.preferences = preferences
         self.apply_ui_preferences()
-        self.app.localization.set_text(self.app.query_one('#settings-status', Static), '已应用 · 点击保存设置可在下次启动时沿用')
-        self.app.query_one('#settings-status').set_classes('page-summary stage-running')
+        self.app.query_one("#settings-banner", StatusBanner).update_summary(
+            StatusSummary("neutral", "已应用 · 点击保存设置可在下次启动时沿用"),
+        )
 
     def restore_ui_defaults(self) -> None:
         if self.app.is_busy():
@@ -128,8 +134,9 @@ class ConfigurationController:
             self.app.query_one("#ui-command-bar", Checkbox).value = defaults.show_command_bar
         self.preferences = defaults
         self.apply_ui_preferences()
-        self.app.localization.set_text(self.app.query_one('#settings-status', Static), '界面已恢复默认 · 点击保存设置可保留')
-        self.app.query_one('#settings-status').set_classes('page-summary stage-running')
+        self.app.query_one("#settings-banner", StatusBanner).update_summary(
+            StatusSummary("neutral", "界面已恢复默认 · 点击保存设置可保留"),
+        )
 
     def save_settings(self, *, remember_run: bool) -> None:
         if self.app.is_busy():
@@ -148,15 +155,17 @@ class ConfigurationController:
             save_settings(self.settings_path, settings, self.app.project_dir)
         except (OSError, ValueError, RunConfigError) as exc:
             self.app.notify(error_message(exc), title="设置未保存", severity="error")
-            self.app.localization.set_text(self.app.query_one('#settings-status', Static), '保存失败 · 请检查配置或文件权限')
-            self.app.query_one('#settings-status').set_classes('page-summary stage-error')
+            self.app.query_one("#settings-banner", StatusBanner).update_summary(
+                StatusSummary("error", "保存失败 · 请检查配置或文件权限"),
+            )
             return
         self.saved_settings = settings
         self.settings_warning = ""
         message = "已记住当前实验配置" if remember_run else "界面设置已保存"
         if not remember_run:
-            self.app.localization.set_text(self.app.query_one('#settings-status', Static), message)
-            self.app.query_one('#settings-status').set_classes('page-summary stage-success')
+            self.app.query_one("#settings-banner", StatusBanner).update_summary(
+                StatusSummary("success", message),
+            )
         self.app.notify(message, timeout=3)
 
     def save_ui_settings(self) -> None:
@@ -278,7 +287,8 @@ class ConfigurationController:
         self.refresh_command_preview(notify=False, sync_preset=True)
 
     def run_preset_changed(self, event: Select.Changed) -> None:
-        if not self.app.form_ready or self.applying_config or self.app.is_busy():
+        if (not self.app.is_running or self.app.ui_closing or not self.app.form_ready
+                or self.applying_config or self.app.is_busy()):
             return
         preset = str(event.value)
         if self.selected_preset == preset:

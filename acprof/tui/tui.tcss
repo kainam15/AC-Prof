@@ -330,9 +330,7 @@ Select:disabled > SelectCurrent { color: $ui-disabled; border: solid $ui-disable
 #version-status, #version-installation { height: auto; }
 #version-restart { display: none; }
 #version-manual { display: none; }
-#settings-status.stage-running { color: $accent; }
-#settings-status.stage-success { color: $success; }
-#settings-status.stage-error { color: $error; }
+#settings-banner { padding: 0; max-height: 2; }
 
 #status-grid {
     height: auto;
@@ -541,6 +539,8 @@ FactDetailScreen { align: center middle; }
 #report-results { height: 1fr; min-height: 4; }
 .html-actions { height: 3; }
 .html-actions Button { min-width: 10; width: auto; margin-right: 1; }
+#html-report-banner { padding: 0; }
+#html-report-facts { margin: 1 0 0 0; }
 #html-report-status { height: auto; max-height: 6; overflow-y: auto; }
 #comparison-options { height: 1fr; margin: 0; padding: 0 2; border: none; }
 #report-table {
@@ -578,6 +578,8 @@ FactDetailScreen { align: center middle; }
 #image-detail-scroll { height: 9; min-height: 3; }
 #image-detail-scroll Static { height: auto; }
 #image-detail-heading { height: 1; width: 1fr; layout: horizontal; }
+#image-detail-banner { width: 1fr; min-width: 0; height: 1; padding: 0; margin: 0; }
+#image-detail-banner .status-banner-line { height: 1; }
 #image-detail-title { color: $accent; text-style: bold; width: 1fr; min-width: 0; height: 1; text-overflow: ellipsis; }
 #image-detail-created { color: $text-muted; width: auto; max-width: 65%; height: 1; text-overflow: ellipsis; content-align: right middle; }
 #image-detail { color: $text; margin-bottom: 1; }
@@ -620,7 +622,11 @@ AcprofTui.narrow Tab { padding: 0 1; }
 AcprofTui.short #bottom-panel { height: 3; }
 AcprofTui.short #slash-command-bar { height: 3; padding: 0 2; }
 AcprofTui.short #bottom-panel.command-hidden { height: 0; }
-AcprofTui.short .section-title { margin: 0 0 1 0; }
+AcprofTui.short .section-title { margin: 0; }
+AcprofTui.short .page-hint { margin-bottom: 0; }
+AcprofTui.short #command-details { margin-bottom: 0; }
+AcprofTui.short #science-note { margin-top: 0; }
+AcprofTui.short #process-resource-help { margin: 0; }
 AcprofTui.short .page-header { margin-bottom: 0; }
 AcprofTui.short #download-progress { max-height: 5; }
 AcprofTui.short #download-progress.image-accounting { max-height: 8; }
@@ -665,3 +671,19 @@ TaskChoice .task-differences .fact-more > CollapsibleTitle { color: $text-muted;
     text-align: left;
 }
 #status-return:focus { text-style: bold underline; }
+ShortcutsScreen { align: center middle; }
+#shortcuts-dialog {
+    width: 92%;
+    max-width: 92;
+    height: auto;
+    max-height: 88%;
+    border: round $accent;
+    background: $surface;
+    padding: 0 1;
+}
+#shortcuts-title { height: 1; text-style: bold; margin: 1 0; }
+#shortcuts-scroll { height: auto; max-height: 60vh; }
+#shortcuts-banner { padding: 0 0 1 0; }
+#shortcuts-global, #shortcuts-controls { margin-bottom: 1; }
+#shortcuts-dialog .fact-grid { grid-columns: 20 1fr; }
+#shortcuts-actions { dock: none; height: 3; padding: 0; border-top: solid $panel; }

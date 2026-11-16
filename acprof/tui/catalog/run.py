@@ -248,6 +248,7 @@ MESSAGES: dict[str, Entry] = {
     "run.failure.type": Entry(zh="错误类型：{0}", en="Error type: {0}"),
     "run.form.advanced": Entry(zh="高级参数", en="Advanced"),
     "run.form.basic": Entry(zh="返回基本配置", en="Basic settings"),
+    "run.form.toggle_tooltip": Entry(zh="切换基本配置与高级参数（F3）", en="Toggle basic and advanced settings (F3)"),
     "run.identity.changed": Entry(zh="{0}已变化", en="{0} changed"),
     "run.identity.host": Entry(zh="主机身份（{0}）", en="Host identity ({0})"),
     "run.identity.measurement_sources": Entry(zh="AC-Prof 采集源码", en="AC-Prof measurement sources"),
@@ -392,6 +393,14 @@ MESSAGES: dict[str, Entry] = {
     "run.preflight.status_title": Entry(zh="环境状态", en="Environment status"),
     "run.preflight.validation_pending": Entry(zh="待检查 · 正在校验配置。", en="Pending · Validating configuration."),
     "run.preflight.warning_title": Entry(zh="环境警告", en="Environment warning"),
+    "run.preparation.model_error_impact": Entry(
+        zh="模型信息或验证未完成，尚未进入正式采集。",
+        en="Model lookup or validation failed; formal collection has not started.",
+    ),
+    "run.preparation.not_measuring_impact": Entry(
+        zh="尚未进入正式采集，不会写入性能数据。",
+        en="No measurement data was written.",
+    ),
     "run.preparation.rebuild_hint": Entry(
         zh="重新准备运行环境和输入，再验证模型；Docker 镜像会重新构建，可使用构建缓存。",
         en="Prepare the runtime environment and inputs again, then validate the model. Docker images are rebuilt; build cache may be reused.",
@@ -399,6 +408,14 @@ MESSAGES: dict[str, Entry] = {
     "run.preparation.retry_hint": Entry(
         zh="使用当前配置重试失败阶段，按现有规则复用已准备的环境和输入。",
         en="Retry the failed stage with the current configuration, reusing prepared environments and inputs where valid.",
+    ),
+    "run.preparation.stage_failed_next": Entry(
+        zh="展开详细信息排查原因，修复后再重试。",
+        en="Inspect details below, resolve the issue, and retry.",
+    ),
+    "run.preparation.stage_failed_problem": Entry(
+        zh="该阶段未完成，正式采集尚未启动。",
+        en="Preparation stage failed before collection started.",
     ),
     "run.preparation.stop_hint": Entry(
         zh="打开终止确认；确认后停止当前任务并清理资源，保留已写入的结果。",
@@ -479,29 +496,49 @@ MESSAGES: dict[str, Entry] = {
         zh="已有测量证据但缺少冻结运行环境，不能按准备失败重试。",
         en="Measurement evidence exists without a frozen runtime; it cannot be retried as preparation.",
     ),
+    "run.recovery.new_directory_label": Entry(zh="新实验目录", en="New experiment dir"),
     "run.recovery.new_directory_notice": Entry(
         zh="新实验使用当前配置，原目录与历史记录保留。\n新输出目录：{0}",
         en="The new experiment uses the current configuration and preserves the original directory and history.\nNew output directory: {0}",
     ),
     "run.recovery.new_experiment_command": Entry(zh="新实验命令", en="New experiment command"),
+    "run.recovery.next_adjust_directory": Entry(
+        zh="请选择取消，或调整输出目录后重试。",
+        en="Cancel or choose a different output directory before trying again.",
+    ),
     "run.recovery.no_restorable_state": Entry(
         zh="没有可还原的实验状态；原目录保留，重新运行会创建新实验。",
         en="No restorable experiment state was found. The original directory will be preserved and a retry will create a new experiment.",
     ),
     "run.recovery.options_changed": Entry(zh="实验参数已变化：{0}", en="Experiment options changed: {0}"),
+    "run.recovery.original_directory": Entry(zh="原目录", en="Original directory"),
     "run.recovery.original_options_notice": Entry(
         zh="恢复使用原实验的完整参数；启动时仍会核对镜像与实际运行条件。",
         en="Recovery uses all original experiment options; the image and live execution conditions will still be checked at startup.",
     ),
+    "run.recovery.phase.measurement": Entry(zh="已有测量记录", en="Measurement evidence present"),
+    "run.recovery.phase.preparation": Entry(zh="准备阶段中断", en="Interrupted during preparation"),
+    "run.recovery.phase.unknown": Entry(zh="恢复状态未确认", en="Unknown recovery state"),
+    "run.recovery.phase_label": Entry(zh="当前状态", en="Current state"),
     "run.recovery.preparation_incomplete": Entry(
         zh="上次准备未完成，尚未进入正式采集。",
         en="The previous preparation did not finish; formal collection has not started.",
+    ),
+    "run.recovery.ready_to_resume": Entry(
+        zh="原目录和冻结配置完整，可继续未完成的阶段。",
+        en="Original directory and frozen configuration are intact for resuming.",
     ),
     "run.recovery.record_changed": Entry(
         zh="实验记录已变化，请重新选择后检查恢复条件。",
         en="The experiment record changed. Select it again to check recovery conditions.",
     ),
+    "run.recovery.resume_available": Entry(zh="可按原配置续跑", en="Resumable with frozen settings"),
     "run.recovery.resume_command": Entry(zh="恢复命令", en="Recovery command"),
+    "run.recovery.resume_status": Entry(zh="续跑状态", en="Resume status"),
+    "run.recovery.resume_unavailable_impact": Entry(
+        zh="无法在原目录续跑；原实验目录与结果保持不变。",
+        en="Cannot resume in the original directory; existing artifacts stay unchanged.",
+    ),
     "run.recovery.resume_unfinished": Entry(zh="继续未完成实验", en="Resume run"),
     "run.recovery.retry_preparation": Entry(zh="重试准备", en="Retry preparation"),
     "run.recovery.state_read_failed": Entry(

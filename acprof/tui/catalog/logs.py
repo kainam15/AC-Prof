@@ -77,7 +77,9 @@ MESSAGES: dict[str, Entry] = {
         en="[WARN] Diagnostic buffering omitted {0} log records, including {1} oversized records; retained output is incomplete.",
     ),
     "logs.retention.summary": Entry(zh="保留 {0} 行 · 显示 {1} 行 · 匹配 {2} 处 · 超限丢弃 {3} 行", en="Retained {0} · Shown {1} · Matches {2} · Evicted {3}"),
+    "logs.retention.summary_with_index": Entry(zh="保留 {0} 行 · 显示 {1} 行 · 匹配 {2}/{3} · 超限丢弃 {4} 行", en="Retained {0} · Shown {1} · Match {2}/{3} · Evicted {4}"),
     "logs.search.placeholder": Entry(zh="搜索保留日志", en="Search retained logs"),
+    "logs.search.tooltip": Entry(zh="Enter 下一处 · Shift+Enter 上一处", en="Enter: next match · Shift+Enter: previous match"),
     "logs.stage.transition": Entry(zh="[phase][{0}] {1}（上一阶段 {2}s）", en="[phase][{0}] {1} (previous phase {2}s)"),
     "logs.tools.label": Entry(zh="工具", en="Tools"),
 }

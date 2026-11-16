@@ -40,9 +40,9 @@ def write_csv(path, latencies=(0.01, 0.2)):
 
 
 def test_overlapping_offline_reads_keep_measurement_excluded_until_last_reader():
-    from acprof.tui.results.controller import _OverlappingOfflineReads
+    from acprof.tui.results.offline_reads import OverlappingOfflineReads
 
-    gate = _OverlappingOfflineReads()
+    gate = OverlappingOfflineReads()
     started, release = threading.Event(), threading.Event()
     events = []
 

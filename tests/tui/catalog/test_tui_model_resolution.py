@@ -10,7 +10,12 @@ from acprof.experiments.configuration import RunConfig
 from acprof.tui.commands import PendingLaunch
 from acprof.tui.run.preparation import PreparationScreen
 from acprof.tui.ui.input import BarCursorInput as Input
+from acprof.tui.ui.structured import FactGrid
 from tests.support.tui_fixtures import AcprofTui
+
+
+def _grid_text(grid: FactGrid) -> str:
+    return "\n".join(str(node.render()) for node in grid.query(Static))
 
 
 def _start_fixture_run(app: AcprofTui, process: Mock) -> object:
@@ -85,28 +90,32 @@ async def test_download_review_is_direct_and_confirmation_remains_reachable(tmp_
             ["下载概览", "运行环境与来源", "存储空间", "网络预检"] if language == "zh"
             else ["Download overview", "Runtime and sources", "Storage space", "Network preflight"]
         )
-        fields = screen.query_one("#download-overview", Static)
-        assert ("预计下载" if language == "zh" else "Expected download") in fields.content
-        assert ("Unknown" if download_size is None else "890 MB") in fields.content
+        fields = _grid_text(screen.query_one("#download-overview", FactGrid))
+        assert ("预计下载" if language == "zh" else "Expected download") in fields
+        assert ("Unknown" if download_size is None else "890 MB") in fields
         assert not list(screen.query("#preparation-detail"))
         assert not list(screen.query(Collapsible))
-        network = screen.query_one("#download-network", Static)
-        assert "403" in network.content
-        assert "cdn.hf.co" in network.content
-        assert "VPN" not in network.content
-        storage = screen.query_one("#download-storage", Static)
-        assert report["model_store_path"] in storage.content
-        assert "source_mode" not in screen.query_one("#download-runtime", Static).content
+        network = _grid_text(screen.query_one("#download-network", FactGrid))
+        assert "403" in network
+        assert "cdn.hf.co" in network
+        assert "VPN" not in network
+        storage = screen.query_one("#download-storage", FactGrid)
+        assert any(row.value == report["model_store_path"] for row in storage.section.rows)
+        assert "source_mode" not in _grid_text(screen.query_one("#download-runtime", FactGrid))
         scroll = screen.query_one("#preparation-scroll", VerticalScroll)
-        scroll.scroll_end(animate=False, immediate=True)
-        await pilot.pause()
-        assert scroll.scroll_y > 0
+        if scroll.max_scroll_y > 0:
+            scroll.scroll_end(animate=False, immediate=True)
+            await pilot.pause()
+            assert scroll.scroll_y > 0
         for button in actions:
             assert button.region.width > 0
             assert button.region.height > 0
             assert app.get_widget_at(*button.region.center)[0] is button
         await pilot.resize_terminal(80, 24)
         await pilot.pause()
+        scroll.scroll_end(animate=False, immediate=True)
+        await pilot.pause()
+        assert scroll.scroll_y > 0
         scroll.scroll_home(animate=False, immediate=True)
         await pilot.pause()
         assert await pilot.click("#preparation-continue")
@@ -245,7 +254,9 @@ async def test_review_is_readonly_for_resolved_fields_and_confirm_waits_for_reso
             await pilot.pause()
             first_screen = app.screen
             assert first_screen.query_one("#preparation-continue", Button).disabled
-            assert first_screen.query_one("#preparation-fields", Static).content.startswith("✓ Model")
+            fields_text = _grid_text(first_screen.query_one("#preparation-fields", FactGrid))
+            assert "Model" in fields_text
+            assert "✓ demo/model" in fields_text
             assert not list(first_screen.query("#resolution-basic, #resolution-full"))
             choice = first_screen.query_one("#preparation-answer-0", Select)
             choice.value = "fill-mask"
@@ -291,7 +302,7 @@ async def test_runtime_running_stays_in_monitor_and_error_opens_decision_dialog(
             screen = app.screen
             assert isinstance(screen, PreparationScreen)
             assert screen.query_one("#preparation-title", Static).content == "模型无法正常运行"
-            assert "输出处理" in screen.query_one("#preparation-detail", Static).content
+            assert "输出处理" in str(screen.query_one("#preparation-banner .status-headline", Static).content)
             assert not screen.query_one("#preparation-diagnostics", Collapsible).collapsed
             assert await pilot.click("#preparation-continue")
             await pilot.pause()

@@ -36,7 +36,8 @@ async def test_failure_actions_show_details_and_require_source_confirmation(tmp_
         log = screen.query_one("#preparation-traceback", SelectableLog)
         assert "Traceback: diagnostic-only" in log.text
         assert '"host": "us.aws.cdn.hf.co"' in log.text
-        body = str(screen.query_one("#preparation-detail", Static).content)
+        callout = screen.query_one("#preparation-callout")
+        body = "\n".join(str(node.content) for node in callout.query(Static))
         assert "Traceback" not in body
         assert "storage / TLS" in body
         assert "us.aws.cdn.hf.co" in body

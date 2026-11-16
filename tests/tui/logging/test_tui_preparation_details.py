@@ -8,6 +8,7 @@ from textual.widgets import Button, Collapsible, Select, Tooltip
 from acprof.experiments.configuration import RunConfig
 from acprof.tui.logging.widget import SelectableLog
 from acprof.tui.run.preparation import PreparationScreen
+from acprof.tui.ui.structured import Callout
 from tests.support.tui_fixtures import AcprofTui
 
 
@@ -26,7 +27,10 @@ async def test_typed_runtime_failure_has_concise_actionable_summary(tmp_path, la
         }}, respond=lambda _: None)
         await app.push_screen(screen)
         await pilot.pause()
-        summary = str(screen.query_one("#preparation-detail").content)
+        callout = screen.query_one("#preparation-callout", Callout)
+        summary = "\n".join(app.tr(value) for value in (
+            callout.content.problem, callout.content.impact, callout.content.next_step,
+        ))
         assert "ModuleNotFoundError" in summary
         assert ("依赖" if language == "zh" else "dependency") in summary
         assert "en_core_web_sm" in summary

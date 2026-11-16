@@ -1,7 +1,7 @@
 """On-demand posthoc profiler selection for a completed experiment."""
 from __future__ import annotations
 
-from textual import on
+from textual import events, on
 from textual.app import ComposeResult
 from textual.containers import Grid, Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
@@ -11,6 +11,7 @@ from acprof.tui.i18n import message_id
 from acprof.tui.results.profile_status import ProfilerOverview, tool_status_message
 from acprof.tui.ui.checkbox import StatusCheckbox
 from acprof.tui.ui.contracts import translated_app
+from acprof.tui.ui.dialogs import focus_horizontal_action
 from acprof.tui.ui.rendering import CjkCompositor
 
 TOOL_LABELS = {
@@ -98,3 +99,8 @@ class ProfilerChoiceScreen(ModalScreen[tuple[str, tuple[str, ...]] | None]):
     def execute(self) -> None:
         if self.selected_tools():
             self.dismiss(("run", self.selected_tools()))
+
+    def on_key(self, event: events.Key) -> None:
+        if focus_horizontal_action(self, "#profiler-choice-actions", event.key):
+            event.prevent_default()
+            event.stop()

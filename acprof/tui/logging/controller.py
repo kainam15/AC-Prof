@@ -109,7 +109,8 @@ class LogController:
         self.log.clear_log()
 
     def view_changed(self) -> None:
-        if not self.app.form_ready or self.app.execution.session.snapshot.measurement_active:
+        if (not self.app.is_running or self.app.ui_closing or not self.app.form_ready
+                or self.app.execution.session.snapshot.measurement_active):
             return
         self.flush()
         self.log.set_view(level=str(self.app.query_one("#log-level", Select).value),
@@ -124,21 +125,31 @@ class LogController:
         if self.tools_open:
             self.app.query_one("#log-search", Input).focus()
 
-    def find(self) -> None:
+    def find(self, *, previous: bool = False) -> None:
         if not self.app.execution.session.snapshot.measurement_active:
-            self.log.find_match()
+            self.log.find_match(previous=previous)
+            self.refresh_status()
 
     def refresh_status(self) -> None:
         if (not self.app.is_running or self.app.ui_closing or not self.app.form_ready
                 or self.app.execution.session.snapshot.measurement_active):
             return
         log = self.log
-        self.app.query_one("#log-status", Static).display = self.tools_open or log.discarded_lines > 0
-        self.app.localization.set_text(self.app.query_one("#log-status", Static), message_id(
-            'logs.retention.summary',
-            len(log.records.records), log.document.line_count if log.text else 0,
-            log.match_count, log.discarded_lines,
-        ))
+        status = self.app.query_one("#log-status", Static)
+        status.display = self.tools_open or log.discarded_lines > 0 or bool(log.search_query)
+        retained = len(log.records.records)
+        shown = log.document.line_count if log.text else 0
+        if log.match_count > 0 and log.current_match > 0:
+            summary = message_id(
+                "logs.retention.summary_with_index",
+                retained, shown, log.current_match, log.match_count, log.discarded_lines,
+            )
+        else:
+            summary = message_id(
+                "logs.retention.summary",
+                retained, shown, log.match_count, log.discarded_lines,
+            )
+        self.app.localization.set_text(status, summary)
 
     def copy_all(self) -> None:
         if self.app.execution.session.snapshot.measurement_active:

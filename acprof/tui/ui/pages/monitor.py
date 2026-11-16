@@ -45,7 +45,12 @@ def compose_monitor_tab(app: AcprofTui) -> ComposeResult:
                         [("ALL", "ALL"), ("INFO", "INFO"), ("WARN", "WARN"), ("ERROR", "ERROR"), ("DEBUG", "DEBUG")],
                         value="ALL", allow_blank=False, id="log-level", classes="log-control",
                     )
-                    yield app.localization.localized_widget(Input(placeholder="搜索保留日志", id="log-search", classes="log-control"))
+                    yield app.localization.localized_widget(Input(
+                        placeholder="搜索保留日志",
+                        id="log-search",
+                        classes="log-control",
+                        tooltip="Enter 下一处 · Shift+Enter 上一处",
+                    ))
                     yield app.localization.localized_widget(Button("导出", id="export-log", classes="log-control", compact=True))
                 yield Static("", id="log-status", markup=False)
                 with Horizontal(id="log-export-result"):

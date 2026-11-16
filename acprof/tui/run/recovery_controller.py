@@ -12,16 +12,57 @@ from textual.screen import ModalScreen
 from textual.widgets import Button, Collapsible, Static
 from textual.worker import Worker
 
-from acprof.messages import message
+from acprof.messages import join_messages, message
 from acprof.tui.commands import PendingLaunch, format_command
 from acprof.tui.experiments.catalog import ExperimentRecord
-from acprof.tui.i18n import error_message
+from acprof.tui.i18n import error_message, message_id
 from acprof.tui.run.recovery import RecoveryReview, review_recovery
 from acprof.tui.ui.contracts import translated_app
+from acprof.tui.ui.dialogs import focus_horizontal_action
 from acprof.tui.ui.rendering import CjkCompositor
+from acprof.tui.ui.structured import Callout, FactGrid, StatusBanner
+from acprof.tui.ui.view_models import CalloutContent, FactRow, StatusSummary, ViewSection
 
 if TYPE_CHECKING:
     from acprof.tui.app import AcprofTui
+
+
+_PHASE_VIEWS = {
+    "preparation": (message_id("run.recovery.preparation_incomplete"), message_id("run.recovery.phase.preparation")),
+    "measurement": (message_id("run.recovery.existing_evidence"), message_id("run.recovery.phase.measurement")),
+    "complete": (message_id("run.recovery.completed_state"), message_id("run.stage.completed")),
+    "unknown": (message_id("run.recovery.unknown_state"), message_id("run.recovery.phase.unknown")),
+}
+
+
+def recovery_views(review: RecoveryReview) -> tuple[StatusSummary, CalloutContent, ViewSection]:
+    headline, phase_label = _PHASE_VIEWS.get(review.phase, _PHASE_VIEWS["unknown"])
+    if review.phase == "complete":
+        level = "success"
+    elif review.resume is not None:
+        level = "neutral" if review.phase == "measurement" else "warning"
+    else:
+        level = "warning" if review.restart is not None else "error"
+    summary = StatusSummary(level=level, headline=headline)
+    problem: str = (join_messages("\n", list(review.issues)) if review.issues
+                    else message_id("run.recovery.ready_to_resume") if review.resume is not None else review.detail)
+    impact = (message_id("run.recovery.original_options_notice") if review.resume is not None
+              else message_id("run.recovery.resume_unavailable_impact"))
+    next_step = (message_id("run.recovery.new_directory_notice", review.restart.config.output_dir)
+                 if review.restart is not None and review.restart.config is not None
+                 else message_id("run.recovery.next_adjust_directory"))
+    callout = CalloutContent(level=level, problem=problem, impact=impact, next_step=next_step)
+    rows = [
+        FactRow(message_id("run.recovery.original_directory"), str(review.directory), copyable=True),
+        FactRow(message_id("run.recovery.phase_label"), phase_label,
+                status="ok" if review.phase == "complete" else "exists" if review.phase == "measurement" else "warning"),
+        FactRow(message_id("run.recovery.resume_status"),
+                message_id("run.recovery.resume_available") if review.resume is not None else message_id("run.environment.item.fail"),
+                status="ok" if review.resume is not None else "warning"),
+    ]
+    if review.restart is not None and review.restart.config is not None:
+        rows.append(FactRow(message_id("run.recovery.new_directory_label"), review.restart.config.output_dir, copyable=True))
+    return summary, callout, ViewSection(title="", rows=tuple(rows))
 
 
 class RecoveryScreen(ModalScreen[str | None]):
@@ -32,6 +73,7 @@ class RecoveryScreen(ModalScreen[str | None]):
     #recovery-dialog { width: 94%; max-width: 110; height: 85%; border: round $accent; padding: 1; background: $surface; }
     #recovery-title { height: auto; text-style: bold; margin-bottom: 1; }
     #recovery-body { height: 1fr; }
+    #recovery-callout, #recovery-facts { margin-top: 1; }
     #recovery-actions { height: auto; margin-top: 1; }
     #recovery-actions Button { width: 1fr; min-width: 8; margin-right: 1; }
     """
@@ -43,10 +85,14 @@ class RecoveryScreen(ModalScreen[str | None]):
 
     def compose(self):
         tr = translated_app(self.app).tr
+        summary, callout, facts = recovery_views(self.review)
         with Vertical(id="recovery-dialog"):
             yield Static(tr("恢复 / 重试"), id="recovery-title")
             with VerticalScroll(id="recovery-body"):
-                yield Static(tr(self.review.detail), id="recovery-detail", markup=False)
+                yield StatusBanner(summary, id="recovery-banner", include_actions=False)
+                if callout is not None:
+                    yield Callout(callout, id="recovery-callout", include_details=False, include_actions=False)
+                yield FactGrid(facts, id="recovery-facts", collapsible=False)
                 with Collapsible(title=tr("命令详情"), collapsed=True):
                     for label, pending in (("恢复命令", self.review.resume), ("新实验命令", self.review.restart)):
                         if pending:
@@ -58,6 +104,11 @@ class RecoveryScreen(ModalScreen[str | None]):
                              variant="primary" if self.review.resume else "default")
                 yield Button(tr("新建实验"), id="recovery-new", disabled=self.review.restart is None,
                              variant="default" if self.review.resume else "primary")
+
+    def on_key(self, event) -> None:
+        if focus_horizontal_action(self, "#recovery-actions", event.key):
+            event.prevent_default()
+            event.stop()
 
     @on(Button.Pressed)
     def choose(self, event: Button.Pressed) -> None:

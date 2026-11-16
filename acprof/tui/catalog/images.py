@@ -315,6 +315,7 @@ MESSAGES: dict[str, Entry] = {
     ),
     "images.storage.size_label": Entry(zh="占用", en="Size"),
     "images.storage.statistics_failed": Entry(zh="Docker 空间统计读取失败，请刷新重试。", en="Docker storage statistics failed; refresh to retry."),
+    "images.storage.status_ok": Entry(zh="存储空间统计已更新。", en="Storage space statistics updated."),
     "images.storage.still_loading": Entry(zh="存储统计仍在读取，请稍候……", en="Storage statistics are still loading; please wait..."),
     "images.storage.title": Entry(zh="存储空间", en="Storage space"),
     "images.storage.total_capacity": Entry(zh="总容量", en="Total capacity"),

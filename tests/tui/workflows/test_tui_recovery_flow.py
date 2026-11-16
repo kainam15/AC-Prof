@@ -90,7 +90,7 @@ async def test_changed_source_offers_new_experiment_and_keeps_original(saved_pre
             await pilot.pause()
             launch.assert_not_called()
             assert app.screen.query_one("#recovery-resume", Button).disabled
-            assert "源码" in str(app.screen.query_one("#recovery-detail", Static).content)
+            assert "源码" in str(app.screen.query_one("#recovery-callout .callout-problem", Static).content)
             assert await pilot.click("#recovery-new")
             await app.workers.wait_for_complete()
             await pilot.pause()

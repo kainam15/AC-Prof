@@ -5,7 +5,7 @@ from dataclasses import replace
 from unittest.mock import patch
 
 import pytest
-from textual.widgets import Button, Input, Select, Static
+from textual.widgets import Button, Input, Select
 
 from acprof.experiments.configuration import RunConfig
 from acprof.host.env_utils import load_project_env
@@ -86,7 +86,10 @@ async def test_frontend_failure_offers_preflight_retry_without_rebuild(tmp_path,
         }}, respond=replies.append)
         await app.push_screen(screen)
         await pilot.pause()
-        detail = str(screen.query_one("#preparation-detail", Static).content)
+        detail = "\n".join(
+            str(node.content)
+            for node in screen.query("#preparation-banner Static, #preparation-callout Static")
+        )
         assert "mirror.example" in detail
         assert ("尚未开始安装依赖" if language == "zh" else "before dependency installation") in detail
         assert "ACPROF_DOCKER_HUB_MIRROR" not in detail

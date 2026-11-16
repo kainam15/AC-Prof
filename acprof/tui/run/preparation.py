@@ -8,17 +8,20 @@ from textual.widgets import Button, Checkbox, Collapsible, Label, Select, Static
 
 from acprof.events.preparation import encode_reply
 from acprof.host.preparation.model_errors import ModelLookupError
+from acprof.messages import join_messages, message
 from acprof.tui.i18n import message_id
 from acprof.tui.logging.widget import SelectableLog
 from acprof.tui.models.inference_inputs import ParameterRequestInput, update_parameter_dependencies
 from acprof.tui.models.review_inputs import review_answers, review_input
 from acprof.tui.models.task_choice_view import task_context_view
 from acprof.tui.models.task_choices import TaskChoices
-from acprof.tui.run.downloads import download_sections
+from acprof.tui.run.downloads import download_fact_sections
 from acprof.tui.ui.contracts import translated_app
+from acprof.tui.ui.dialogs import focus_horizontal_action
 from acprof.tui.ui.input import BarCursorInput as Input
 from acprof.tui.ui.rendering import CjkCompositor
-from acprof.tui.ui.structured import FactGrid
+from acprof.tui.ui.structured import Callout, FactGrid, StatusBanner
+from acprof.tui.ui.view_models import CalloutContent, FactRow, StatusSummary, ViewSection
 
 STAGE_LABELS = {
     "resolution": "正在读取模型信息…", "dependencies": "正在读取模型信息…",
@@ -32,80 +35,139 @@ def download_failure(request):
     return request.get("download_error") or request.get("model_error", {}).get("download_error")
 
 
-def failure_text(request, stage, tr):
-    if error := request.get("docker_error"):
-        code = error["reason_code"]
-        lines = [tr(message_id("run.docker.error." + code)) if code in {
-            "docker_content_incomplete", "docker_auth_failed", "docker_network_failed", "docker_disk_full",
-            "docker_repair_unverified", "docker_repair_forbidden", "docker_frontend_failed",
-            "docker_integrity_failed", "docker_tls_failed",
-            "docker_manifest_missing", "docker_platform_mismatch", "docker_download_budget",
-        } else tr(message_id("run.docker.error.generic"))]
-        lines.append(tr(message_id("run.docker.failed_step", error.get("step") or error.get("image", ""))))
-        if code == "docker_frontend_failed":
-            from acprof.tui.run.downloads import probe_reason
-            lines.append(tr(message_id("run.docker.frontend_source", error.get("registry") or "?",
-                                       probe_reason(error.get("network_reason")))))
-            lines.append(tr(message_id("run.docker.frontend_hint")))
-        if content := error.get("content"):
-            lines.append(tr(message_id("run.docker.content." + content["status"])) +
-                         (f" ({content['present']}/{content.get('required') or '?'})" if content.get("present") is not None else ""))
-            from acprof.host.images.content import version_needs_upgrade
-            if version_needs_upgrade(content.get("engine_version", "")):
-                lines.append(tr(message_id("run.docker.upgrade", content["engine_version"])))
-        if error.get("exit_code") is not None:
-            lines.append(tr(message_id("run.docker.exit_code", error["exit_code"])))
-        if fallback := error.get("fallback_error"):
-            lines.append(tr(message_id("run.docker.error." + fallback["reason_code"])))
-        if error.get("log_path"):
-            lines.append(tr(message_id("run.docker.log_path", error["log_path"])))
-        lines.append(tr(message_id("run.docker.recovery_hint")))
-        return "\n".join(lines)
-    if failure := download_failure(request):
-        last = failure["attempts"][-1]
-        return "\n".join((tr("无法获取 Hugging Face 模型"),
-            tr(message_id('downloads.failure.stage_detail', last["stage"], last["reason"])),
-            tr(message_id('downloads.failure.host', last["host"])),
-            tr("请配置自己的系统 VPN/代理后重试，或显式选择 ModelScope 模型。")))
-    if request.get("model_error"):
-        failure = ModelLookupError(**request["model_error"])
-        return f"{tr(failure.summary)}\n{tr(failure.hint)}"
-    failed = request.get("failed_stage", stage)
-    names = {"load": "模型加载", "preprocess": "输入处理", "predict": "模型推理", "completion": "模型推理",
-             "postprocess": "输出处理", "validate_output": "输出验证", "interface": "模型接口",
-             "resolution": "模型信息", "runtime": "模型运行", "image": "运行环境", "environment": "运行环境",
-             "model": "模型准备", "input": "验证输入", "preflight": "运行环境"}
-    reasons = {
-        "postprocess": ("模型已完成推理，但输出处理失败。", "请检查任务选择或模型声明中的输出处理配置。"),
-        "validate_output": ("模型输出与任务要求不匹配。", "请检查任务选择或模型声明中的输出处理配置。"),
-        "interface": ("模型接口无法在当前环境中使用。", "请检查模型声明、源码文件和运行依赖。"),
-        "load": ("模型未能完成加载。", "请检查模型文件、访问权限和可用内存。"),
-    }
-    reason, hint = reasons.get(failed, ("此阶段未能完成，尚未开始正式采集。", "请查看详细信息，修复配置或环境后重试。"))
-    failure = request.get("failure", {})
-    code = failure.get("reason_code")
-    categories = {
+_DOCKER_ERROR_CODES = {
+    "docker_content_incomplete", "docker_auth_failed", "docker_network_failed", "docker_disk_full",
+    "docker_repair_unverified", "docker_repair_forbidden", "docker_frontend_failed",
+    "docker_integrity_failed", "docker_tls_failed",
+    "docker_manifest_missing", "docker_platform_mismatch", "docker_download_budget",
+}
+_FAILURE_STAGE_NAMES = {
+    "load": "模型加载", "preprocess": "输入处理", "predict": "模型推理", "completion": "模型推理",
+    "postprocess": "输出处理", "validate_output": "输出验证", "interface": "模型接口",
+    "resolution": "模型信息", "runtime": "模型运行", "image": "运行环境", "environment": "运行环境",
+    "model": "模型准备", "input": "验证输入", "preflight": "运行环境",
+}
+_FAILURE_STAGE_REASONS = {
+    "postprocess": ("模型已完成推理，但输出处理失败。", "请检查任务选择或模型声明中的输出处理配置。"),
+    "validate_output": ("模型输出与任务要求不匹配。", "请检查任务选择或模型声明中的输出处理配置。"),
+    "interface": ("模型接口无法在当前环境中使用。", "请检查模型声明、源码文件和运行依赖。"),
+    "load": ("模型未能完成加载。", "请检查模型文件、访问权限和可用内存。"),
+}
+
+
+_FAILURE_CATEGORIES = {
         "backend_unsupported": "architecture", "runtime_task_unsupported": "architecture",
         "runtime_dependency_missing": "dependency", "runtime_dependency_incompatible": "dependency",
         "artifact_incomplete": "artifact", "artifact_layout_unsupported": "artifact",
         "runtime_initialization_failed": "load", "resource_limit": "resource",
         "inference_failed": "inference",
     }
-    if code in categories:
-        category = categories[code]
-        lines = [f"{tr('失败阶段')}：{tr(names.get(failed, '模型运行'))}",
-                 tr(message_id("run.failure.type", failure.get("exception_type") or code)),
-                 tr(message_id("run.failure." + category))]
+
+
+def review_fields_section(values: dict[str, object], *, verified: bool = True) -> ViewSection:
+    rows = tuple(
+        FactRow(
+            str(name),
+            message_id("common.value.unknown") if value is None else str(value),
+            status=("ok" if verified else None) if value is not None else "unknown",
+            copyable=isinstance(value, str) and len(value) > 24,
+        )
+        for name, value in values.items()
+    )
+    return ViewSection("", rows)
+
+
+def failure_text(request, stage, tr):
+    """Plain-text projection of the same typed failure view used by the dialog."""
+    summary, callout = failure_views(request, stage)
+    return "\n".join(tr(value) for value in (
+        summary.headline, callout.problem, callout.impact, callout.next_step,
+    ) if value)
+
+
+def _docker_failure_views(error: dict) -> tuple[StatusSummary, CalloutContent]:
+    code = error["reason_code"]
+    headline = message_id("run.docker.error." + code) if code in _DOCKER_ERROR_CODES else message_id("run.docker.error.generic")
+    problems: list[str] = [message_id("run.docker.failed_step", error.get("step") or error.get("image", ""))]
+    content = error.get("content")
+    if content:
+        status_text: str = message_id("run.docker.content." + content["status"])
+        if content.get("present") is not None:
+            status_text = message("{0} ({1}/{2})", status_text, content["present"], content.get("required") or "?")
+        problems.append(status_text)
+    if error.get("exit_code") is not None:
+        problems.append(message_id("run.docker.exit_code", error["exit_code"]))
+
+    impacts: list[str] = []
+    if code == "docker_frontend_failed":
+        from acprof.tui.run.downloads import probe_reason
+        impacts.append(message_id("run.docker.frontend_source", error.get("registry") or "?",
+                                  probe_reason(error.get("network_reason"))))
+    if content:
+        from acprof.host.images.content import version_needs_upgrade
+        if version_needs_upgrade(content.get("engine_version", "")):
+            impacts.append(message_id("run.docker.upgrade", content["engine_version"]))
+    if fallback := error.get("fallback_error"):
+        impacts.append(message_id("run.docker.error." + fallback["reason_code"]))
+    if not impacts:
+        impacts.append(message_id("run.docker.preparation_failed"))
+
+    next_steps = [message_id("run.docker.frontend_hint" if code == "docker_frontend_failed" else "run.docker.recovery_hint")]
+    if error.get("log_path"):
+        next_steps.append(message_id("run.docker.log_path", error["log_path"]))
+    return StatusSummary(level="error", headline=headline), CalloutContent(
+        level="error",
+        problem=join_messages(" · ", problems),
+        impact=join_messages("\n", impacts),
+        next_step=join_messages("\n", next_steps),
+    )
+
+
+def failure_views(request: dict, stage: str) -> tuple[StatusSummary, CalloutContent]:
+    """Return structured banner summary and problem/impact/next callout for a failed preparation event."""
+    if error := request.get("docker_error"):
+        return _docker_failure_views(error)
+    if failure := download_failure(request):
+        last = failure["attempts"][-1]
+        return StatusSummary(level="error", headline="无法获取 Hugging Face 模型"), CalloutContent(
+            level="error",
+            problem=message_id("downloads.failure.stage_detail", last["stage"], last["reason"]),
+            impact=message_id("downloads.failure.host", last["host"]),
+            next_step="请配置自己的系统 VPN/代理后重试，或显式选择 ModelScope 模型。",
+        )
+    if request.get("model_error"):
+        failure = ModelLookupError(**request["model_error"])
+        return StatusSummary(level="error", headline=failure.summary), CalloutContent(
+            level="error",
+            problem=failure.summary,
+            impact=message_id("run.preparation.model_error_impact"),
+            next_step=failure.hint,
+        )
+    failed = request.get("failed_stage", stage)
+    reason, hint = _FAILURE_STAGE_REASONS.get(
+        failed, (message_id("run.preparation.stage_failed_problem"), message_id("run.preparation.stage_failed_next")),
+    )
+    failure = request.get("failure", {})
+    code = failure.get("reason_code")
+    if code in _FAILURE_CATEGORIES:
+        category = _FAILURE_CATEGORIES[code]
+        problem: list[str] = [message_id("run.failure.type", failure.get("exception_type") or code),
+                   message_id("run.failure." + category)]
         detail = str(failure.get("detail") or "").splitlines()
         if detail:
-            lines.append(detail[0][:240] + ("…" if len(detail[0]) > 240 else ""))
-        lines.append(tr(message_id("run.failure.hint." + category)))
+            problem.append(message(detail[0][:240] + ("…" if len(detail[0]) > 240 else "")))
+        hints = [message_id("run.failure.hint." + category)]
         if path := failure.get("evidence", {}).get("log_path"):
-            lines.append(tr(message_id("run.docker.log_path", path)))
+            hints.append(message_id("run.docker.log_path", path))
         if error := failure.get("evidence", {}).get("log_capture_error"):
-            lines.append(tr(message_id("run.failure.log_incomplete", error)))
-        return "\n".join(lines)
-    return f"{tr('失败阶段')}：{tr(names.get(failed, '模型运行'))}\n{tr(reason)}\n{tr(hint)}"
+            hints.append(message_id("run.failure.log_incomplete", error))
+        reason, hint = join_messages("\n", problem), join_messages("\n", hints)
+    return StatusSummary(level="error", headline=message("{0}：{1}", "失败阶段", _FAILURE_STAGE_NAMES.get(failed, "模型运行"))), CalloutContent(
+        level="error",
+        problem=reason,
+        impact=message_id("run.preparation.not_measuring_impact"),
+        next_step=hint,
+    )
 
 
 class PreparationScreen(ModalScreen):
@@ -123,17 +185,21 @@ class PreparationScreen(ModalScreen):
     #preparation-title { height: auto; text-style: bold; }
     #preparation-scroll { height: 1fr; max-height: 24; }
     #preparation-scroll Static, #preparation-scroll Label { height: auto; }
+    #preparation-scroll .download-section, #preparation-fields { height: auto; }
     #preparation-scroll .download-section {
         border-top: solid $panel; border-title-color: $accent; border-title-style: bold;
         padding: 0 1; margin: 1 0 0 0;
     }
+    #preparation-scroll .download-section .fact-grid, #preparation-fields .fact-grid { grid-columns: 20 1fr; }
     #preparation-download-note { color: $text-muted; margin-top: 1; }
-    #preparation-detail, #preparation-error { color: $error; }
+    #preparation-banner { margin: 0; padding: 0 1; }
+    #preparation-callout { margin: 0; padding: 0 1; }
+    #preparation-error { color: $error; }
     #preparation-error { height: auto; display: none; }
     #preparation-diagnostics { height: 1fr; padding: 0; }
     #preparation-diagnostics.-collapsed { height: auto; }
     #preparation-diagnostics > Contents { height: 1fr; padding: 0; }
-    #preparation-traceback { height: 1fr; min-height: 3; border: round $panel;
+    #preparation-traceback { height: 1fr; min-height: 5; border: round $panel;
         padding: 0 1; background: transparent; background-tint: transparent; }
     #preparation-traceback:focus { border: round $accent; }
     #preparation-traceback .text-area--selection { background: $accent; color: $background; }
@@ -212,17 +278,21 @@ class PreparationScreen(ModalScreen):
                 if review:
                     values = request.get("fields", {})
                     if download:
-                        for section in download_sections(report):
-                            widget = Static("\n".join(tr(line) for line in section.lines),
-                                            id=f"download-{section.key}", classes="download-section", markup=False)
-                            widget.border_title = tr(section.title)
+                        for section in download_fact_sections(report):
+                            widget = FactGrid(
+                                section.section,
+                                collapsible=False,
+                                id=f"download-{section.key}",
+                                classes="download-section",
+                            )
+                            widget.border_title = tr(section.section.title)
                             yield widget
                         yield Static(tr("仅在准备阶段下载，正式测量离线。"), id="preparation-download-note", markup=False)
                     elif not task_selection:
-                        fields = "\n".join(
-                            f"{'' if inference_review or inference_confirmation else '✓ '}{tr(name)}    "
-                            f"{tr('未知') if value is None else value}" for name, value in values.items())
-                        yield Static(fields, id="preparation-fields", markup=False)
+                        yield FactGrid(
+                            review_fields_section(values, verified=not (inference_review or inference_confirmation)),
+                            id="preparation-fields", collapsible=False,
+                        )
                     if inference_review:
                         yield Static(tr(message_id("models.inference.auto_hint")), markup=False)
                         if presets := request.get("presets"):
@@ -276,7 +346,9 @@ class PreparationScreen(ModalScreen):
                     if summary and summary.strip():
                         yield Static(tr(summary), id="preparation-summary", markup=False)
                 elif failed:
-                    yield Static(failure_text(request, self.event["stage"], tr), id="preparation-detail", markup=False)
+                    banner, callout = failure_views(request, self.event["stage"])
+                    yield StatusBanner(banner, id="preparation-banner", include_actions=False)
+                    yield Callout(callout, id="preparation-callout", include_details=False, include_actions=False)
                     with Collapsible(title=tr("详细信息"), id="preparation-diagnostics", collapsed=bool(docker_error or request.get("failure"))):
                         detail = request.get("detail", "")
                         if failure := download_failure(request):
@@ -477,6 +549,11 @@ class PreparationScreen(ModalScreen):
     def switch_modelscope(self):
         self.app.push_screen(ModelSourceScreen(), lambda result: self.send(result) if result else None)
 
+    def on_key(self, event) -> None:
+        if focus_horizontal_action(self, "#preparation-actions", event.key):
+            event.prevent_default()
+            event.stop()
+
 
 class ModelSourceScreen(ModalScreen):
     """A source change requires a new, user-supplied identity and confirmation."""
@@ -518,3 +595,8 @@ class ModelSourceScreen(ModalScreen):
     @on(Button.Pressed, "#source-cancel")
     def action_cancel(self):
         self.dismiss(None)
+
+    def on_key(self, event) -> None:
+        if focus_horizontal_action(self, "#source-actions", event.key):
+            event.prevent_default()
+            event.stop()

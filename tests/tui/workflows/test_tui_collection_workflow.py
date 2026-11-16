@@ -5,11 +5,10 @@ import sys
 import tempfile
 import textwrap
 from pathlib import Path
-from typing import cast
 from unittest.mock import Mock, patch
 
 import pytest
-from textual.widgets import Button, Select, Static
+from textual.widgets import Button, Select
 
 from acprof.events.preparation import encode_event
 from acprof.experiments.configuration import RunConfig
@@ -262,7 +261,10 @@ async def test_model_lookup_error_is_translated_in_preparation_dialog():
             await pilot.pause()
             await app.push_screen(PreparationScreen(event))
             await pilot.pause()
-            detail = cast(str, app.screen.query_one("#preparation-detail", Static).content)
+            detail = "\n".join(
+                str(node.content)
+                for node in app.screen.query("#preparation-banner Static, #preparation-callout Static")
+            )
             assert ("not found") in (detail)
             assert ("asdf") in (detail)
             assert ("未找到") not in (detail)

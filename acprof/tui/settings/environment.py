@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
-from textual import on, work
+from textual import events, on, work
 from textual.app import SuspendNotSupported
 from textual.containers import Grid, Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
@@ -30,11 +30,13 @@ from acprof.messages import join_messages
 from acprof.system.cleanup import format_exception_notes
 from acprof.tui.i18n import message_id
 from acprof.tui.run.diagnostics import quick_preflight
+from acprof.tui.run.environment_view import check_label, check_presentation
 from acprof.tui.ui.checkbox import StatusCheckbox
 from acprof.tui.ui.contracts import translated_app
-from acprof.tui.ui.dialogs import ScrollConfirmActionScreen
+from acprof.tui.ui.dialogs import ScrollConfirmActionScreen, focus_horizontal_action
 from acprof.tui.ui.input import BarCursorInput as Input
 from acprof.tui.ui.rendering import CjkCompositor
+from acprof.tui.ui.view_models import status_symbol
 
 if TYPE_CHECKING:
     from acprof.tui.run.preflight_controller import PreflightController
@@ -183,10 +185,11 @@ class EnvironmentSettingsScreen(ModalScreen[bool]):
             if secret:
                 self.query_one('#' + field_id(key), Input).password = not event.value
 
-    def _status(self, text, *, error=False):
+    def _status(self, text, *, error=False, level: str | None = None):
         widget = self.query_one('#environment-save-status', Static)
         widget.update(translated_app(self.app).tr(text))
         widget.set_class(error, 'stage-error')
+        widget.set_class(not error and (level or 'success') == 'success', 'status-success')
 
     @on(Button.Pressed, '#save-environment-settings')
     def save(self):
@@ -208,7 +211,7 @@ class EnvironmentSettingsScreen(ModalScreen[bool]):
                            ('ACPROF_PYTORCH_ARTIFACT_MIRROR', 'aliyun'),
                            ('ACPROF_DEBIAN_ARTIFACT_MIRROR', 'tencent')):
             self.query_one('#' + field_id(key), Select).value = value
-        self._status(message_id('settings.sources.pending'))
+        self._status(message_id('settings.sources.pending'), level='info')
 
     def _set_working(self, working):
         self._working = working
@@ -224,7 +227,9 @@ class EnvironmentSettingsScreen(ModalScreen[bool]):
             if self._permission_token is None:
                 return
         self._set_working(True)
-        self.query_one('#permission-report', Static).update(translated_app(self.app).tr(message_id('settings.environment.checking')))
+        self.query_one('#permission-report', Static).update(
+            f"{status_symbol('info')} {translated_app(self.app).tr(message_id('settings.environment.checking'))}"
+        )
         self._check_permissions()
 
     @work(thread=True, exclusive=True, group='environment-check', exit_on_error=False)
@@ -252,7 +257,11 @@ class EnvironmentSettingsScreen(ModalScreen[bool]):
             return
         tr = translated_app(self.app).tr
         from acprof.host.preparation.preparation_log import redact_text
-        report = '\n\n'.join(f'[{item.status}] {tr(item.label)}: {tr(item.detail)}' for item in checks)
+        lines = []
+        for item in checks:
+            presentation = check_presentation(item)
+            lines.append(f'{presentation.symbol} {tr(check_label(item))} [{tr(presentation.label)}]: {tr(item.detail)}')
+        report = '\n\n'.join(lines)
         if error:
             report = '\n\n'.join(part for part in (report, tr(error)) if part)
         report = redact_text(report, limit=None)
@@ -318,3 +327,10 @@ class EnvironmentSettingsScreen(ModalScreen[bool]):
     def action_close(self):
         if not self._working:
             self.dismiss(self.saved)
+
+    def on_key(self, event: events.Key) -> None:
+        if focus_horizontal_action(self, '.permission-buttons', event.key) or focus_horizontal_action(
+            self, '#environment-actions', event.key
+        ):
+            event.prevent_default()
+            event.stop()

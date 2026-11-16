@@ -11,7 +11,9 @@ from textual.widgets import Button, Label, Static, TabPane
 from acprof import __version__
 from acprof.tui.i18n import LANGUAGE_OPTIONS, message_id
 from acprof.tui.ui.checkbox import StatusCheckbox
+from acprof.tui.ui.structured import StatusBanner
 from acprof.tui.ui.themes import THEME_OPTIONS
+from acprof.tui.ui.view_models import StatusSummary
 
 if TYPE_CHECKING:
     from acprof.tui.app import AcprofTui
@@ -20,10 +22,11 @@ def compose_settings_tab(app: AcprofTui) -> ComposeResult:
     with TabPane(message_id("settings.app.tooltip"), id="settings-tab"):
         with Vertical(classes="page-header"):
             yield app.localization.localized_widget(Static("应用设置", classes="page-title"))
-            yield app.localization.localized_widget(Static(
-                message_id("updates.ui.settings_hint"),
-                id="settings-status", classes="page-summary", markup=False,
-            ))
+            yield StatusBanner(
+                StatusSummary("neutral", message_id("updates.ui.settings_hint")),
+                id="settings-banner", headline_id="settings-status", include_actions=False,
+                classes="page-summary",
+            )
         with VerticalScroll(id="settings-body", classes="pane-scroll"):
             with Vertical(id="settings-interface", classes="settings-section") as section:
                 app.localization.set_text(section, "界面与交互", "border_title")

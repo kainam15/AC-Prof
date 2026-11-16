@@ -18,7 +18,9 @@ from textual.widgets import (
 from acprof.tui.i18n import message_id
 from acprof.tui.results.overview_panel import ExperimentOverviewPanel
 from acprof.tui.ui.input import BarCursorInput as Input
+from acprof.tui.ui.structured import FactGrid, StatusBanner
 from acprof.tui.ui.table import ResizableDataTable
+from acprof.tui.ui.view_models import StatusSummary, ViewSection
 
 if TYPE_CHECKING:
     from acprof.tui.app import AcprofTui
@@ -112,11 +114,17 @@ def compose_html(app: AcprofTui) -> ComposeResult:
     local = app.localization.localized_widget
     with Vertical(id="html-report-panel"):
         yield local(Label(message_id("results.html.title"), classes="html-section-title"))
-        yield local(Static(message_id("results.html.generation_note"), id="html-report-status", markup=False))
+        yield StatusBanner(
+            StatusSummary("neutral", message_id("results.html.generation_note")),
+            id="html-report-banner",
+            headline_id="html-report-status",
+            include_actions=False,
+        )
         with Vertical(id="html-report-file"):
             yield local(Static(message_id("results.html.selected_report"), classes="html-file-heading"))
             yield Static("", id="html-report-filename", markup=False)
             yield Static("", id="html-report-location", markup=False)
+            yield FactGrid(ViewSection("", ()), id="html-report-facts", collapsible=False)
             with Horizontal(classes="html-actions"):
                 yield local(Button(message_id("results.html.open"), id="html-report-open", classes="report-control"))
                 yield local(Button(message_id("results.html.copy_path"), id="html-report-copy", classes="report-control"))

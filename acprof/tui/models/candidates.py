@@ -264,6 +264,65 @@ def current_conditions(record: ExperimentRecord, config, context: dict, project_
 MODEL_STATUS_LABELS = {'verified_current': '当前条件有成功验证记录', 'cached_unverified': '已缓存、待验证',
     'access_required': '需要授权', 'resource_limited': '上次资源不足', 'previous_failure': '保留历史失败',
     'revalidate': '需要重新验证'}
+_CANDIDATE_LEVELS = {
+    'verified_current': 'success', 'cached_unverified': 'neutral', 'revalidate': 'warning',
+    'access_required': 'error', 'resource_limited': 'error', 'previous_failure': 'error',
+}
+_CANDIDATE_FACT_STATUS = {
+    'verified_current': 'ok', 'cached_unverified': 'unverified', 'revalidate': 'warning',
+    'access_required': 'error', 'resource_limited': 'warning', 'previous_failure': 'error',
+}
+
+
+def _candidate_views(candidate: ModelCandidate, status_message: Any) -> tuple[Any, Any, Any]:
+    from acprof.messages import join_messages
+    from acprof.tui.i18n import message_id
+    from acprof.tui.ui.view_models import (
+        CalloutContent,
+        FactRow,
+        StatusSummary,
+        ViewSection,
+        reason_presentation,
+    )
+
+    summary = StatusSummary(
+        _CANDIDATE_LEVELS.get(candidate.status, 'neutral'),
+        join_messages(' · ', (candidate.model_id, status_message)),
+    )
+    callout: CalloutContent | None = None
+    reason_key = candidate.history_status or candidate.status
+    if reason_key in {'access_required', 'resource_limited', 'previous_failure'}:
+        code = {'access_required': 'access_denied', 'resource_limited': 'resource_limit'}.get(reason_key, 'unknown')
+        if reason_key == 'previous_failure' and candidate.record and candidate.record.failures:
+            code = str(candidate.record.failures[0].get('reason_code') or 'unknown')
+        callout = reason_presentation(code, candidate.reason + '\n' + candidate.detail)
+    rows = (
+        FactRow(message_id('models.source.label'), candidate.model_source),
+        FactRow(message_id('models.revision.label'), candidate.revision, copyable=True),
+        FactRow(
+            message_id('models.candidates.validation_status'),
+            status_message,
+            status=_CANDIDATE_FACT_STATUS.get(candidate.status, 'unknown'),
+            detail=candidate.reason,
+        ),
+        FactRow(
+            message_id('common.field.device'),
+            str(candidate.conditions.get('device') or message_id('common.value.unknown')),
+            detail=candidate.reason,
+        ),
+    )
+    evidence_path = candidate.experiment or candidate.report
+    detail_rows = [
+        FactRow(message_id('models.candidates.reason_label'), candidate.reason, copyable=True),
+        *(
+            (FactRow(message_id('models.candidates.evidence_path'), str(evidence_path), copyable=True),)
+            if evidence_path is not None else ()
+        ),
+        FactRow(message_id('models.candidates.raw_evidence'), 'JSON', detail=candidate.detail, copyable=True),
+    ]
+    section = ViewSection(message_id('models.candidates.details_title'), rows, tuple(detail_rows))
+    return summary, callout, section
+
 
 def model_choice(candidate: ModelCandidate):
     from acprof.messages import join_messages, message
@@ -272,8 +331,10 @@ def model_choice(candidate: ModelCandidate):
     if candidate.experiment or candidate.report:
         actions.add('view')
     status = MODEL_STATUS_LABELS[candidate.status]
+    status_value: Any = message(status)
     if candidate.history_status and candidate.history_status != candidate.status:
-        status = join_messages(' · ', (message(status), message(MODEL_STATUS_LABELS[candidate.history_status])))
-    return PickerChoice(candidate, (f'{candidate.model_id} ({candidate.model_source})', candidate.revision[:12], status,
+        status_value = join_messages(' · ', (message(status), message(MODEL_STATUS_LABELS[candidate.history_status])))
+    summary, callout, section = _candidate_views(candidate, status_value)
+    return PickerChoice(candidate, (f'{candidate.model_id} ({candidate.model_source})', candidate.revision[:12], status_value,
         str(candidate.conditions.get('device') or 'unknown')), candidate.reason + '\n' + candidate.detail, candidate.search_text,
-        frozenset(actions))
+        frozenset(actions), summary=summary, callout=callout, section=section)

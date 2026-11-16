@@ -5,30 +5,18 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from urllib.parse import urlsplit
 
-from acprof.messages import join_messages
+from acprof.messages import Message, join_messages, message
 from acprof.tui.i18n import message_id
 from acprof.tui.ui.presentation import UNKNOWN, format_bytes
+from acprof.tui.ui.view_models import FactRow, ViewSection
 
 
 def runtime_summary(runtime: dict) -> str:
-    if runtime.get("environment_local"):
-        state = message_id('downloads.runtime.reuse_environment')
-    elif runtime.get("kind") == "process":
-        state = message_id('downloads.runtime.prepare_process')
-    elif runtime.get("source_mode") == "build":
-        state = message_id('downloads.runtime.build_locally')
-    elif runtime.get("source_mode") in {"auto", "pull"}:
-        state = message_id('downloads.runtime.pull_image')
-    else:
-        state = UNKNOWN
-    registry = runtime.get("download_policy", {}).get("runtime_registry") or "ghcr.io"
-    pull = (message_id('downloads.runtime.registry_required', urlsplit("https://" + registry).hostname or UNKNOWN)
-            if runtime.get("will_attempt_ghcr_pull") else
-            message_id('downloads.runtime.registry_unneeded') if runtime.get("will_attempt_ghcr_pull") is False else UNKNOWN)
+    state, pull = _runtime_fact_value(runtime)
     return message_id('downloads.runtime.summary', state, pull)
 
 
-def probe_reason(reason: str | None) -> str:
+def probe_reason(reason: str | None) -> Message:
     if reason and reason.startswith("http-"):
         return message_id('downloads.error.http_status', reason[5:])
     kinds = {"dns": 'downloads.error.dns', "tls": 'downloads.error.tls', "connect-timeout": 'downloads.error.connect_timeout',
@@ -46,14 +34,8 @@ CATEGORIES = {"model": 'common.field.model', "python": 'run.identity.python_depe
 
 
 def source_summary(report: dict, categories: tuple[str, ...]) -> list[str]:
-    lines: list[str] = []
-    for category in categories:
-        sources = [item for item in report.get("sources", []) if item.get("category") == category]
-        hosts = {urlsplit(item.get("url", "")).hostname for item in sources}
-        origins = [*sorted(host for host in hosts if host), *([UNKNOWN] if None in hosts else [])]
-        source = join_messages(", ", origins) if origins else message_id('downloads.plan.no_downloads') if "sources" in report else UNKNOWN
-        lines.append(message_id('downloads.sources.summary', message_id(CATEGORIES[category]), source))
-    return lines
+    return [message_id('downloads.sources.summary', row.label, row.value)
+            for row in (_source_fact_row(report, category) for category in categories)]
 
 
 def download_policy_summary(report: dict) -> list[str]:
@@ -128,6 +110,12 @@ class DownloadSection:
     lines: tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class DownloadFactSection:
+    key: str
+    section: ViewSection
+
+
 def download_estimate(report: dict) -> str:
     if report.get("expected_download_bytes") is None and "known_download_bytes" in report:
         return message_id('downloads.size.partial', format_bytes(report["known_download_bytes"]), report["unknown_items"])
@@ -188,3 +176,209 @@ def download_result_summary(report: dict) -> str:
     return message_id('downloads.result.transfer_summary', report["category"],
                    format_bytes(report["verified_new_payload_bytes"]), format_bytes(report["cache_savings_bytes"]),
                    format_bytes(report.get("wire_bytes")))
+
+
+def _runtime_fact_value(runtime: dict) -> tuple[str, str]:
+    if runtime.get("environment_local"):
+        state = message_id('downloads.runtime.reuse_environment')
+    elif runtime.get("kind") == "process":
+        state = message_id('downloads.runtime.prepare_process')
+    elif runtime.get("source_mode") == "build":
+        state = message_id('downloads.runtime.build_locally')
+    elif runtime.get("source_mode") in {"auto", "pull"}:
+        state = message_id('downloads.runtime.pull_image')
+    else:
+        state = UNKNOWN
+    registry = runtime.get("download_policy", {}).get("runtime_registry") or "ghcr.io"
+    pull = (message_id('downloads.runtime.registry_required', urlsplit("https://" + registry).hostname or UNKNOWN)
+            if runtime.get("will_attempt_ghcr_pull") else
+            message_id('downloads.runtime.registry_unneeded') if runtime.get("will_attempt_ghcr_pull") is False else UNKNOWN)
+    return state, pull
+
+
+def _source_fact_row(report: dict, category: str) -> FactRow:
+    sources = [item for item in report.get("sources", []) if item.get("category") == category]
+    hosts = {urlsplit(item.get("url", "")).hostname for item in sources}
+    origins = [*sorted(host for host in hosts if host), *([UNKNOWN] if None in hosts else [])]
+    source = join_messages(", ", origins) if origins else message_id('downloads.plan.no_downloads') if "sources" in report else UNKNOWN
+    return FactRow(message_id(CATEGORIES[category]), source, copyable=len(origins) > 1 or any(len(item) > 28 for item in origins))
+
+
+def _runtime_fact_rows(report: dict) -> tuple[FactRow, ...]:
+    runtime = report.get("runtime", {})
+    state, pull = _runtime_fact_value(runtime)
+    rows: list[FactRow] = [
+        FactRow(message_id('run.runtime.label'), message("{0} · {1}", state, pull)),
+        *(_source_fact_row(report, category) for category in ("python", "debian", "oci")),
+    ]
+    policy = runtime.get("download_policy")
+    if not policy:
+        return tuple(rows)
+    mirrors = policy.get("artifact_mirrors", {})
+    official = message_id('settings.sources.official')
+    rows.extend((
+        FactRow(
+            message_id('downloads.fact.build_mirrors'),
+            message(
+                "PyPI {0} · PyTorch {1} · Debian {2}",
+                mirrors.get("ACPROF_PYPI_ARTIFACT_MIRROR") or official,
+                mirrors.get("ACPROF_PYTORCH_ARTIFACT_MIRROR") or official,
+                mirrors.get("ACPROF_DEBIAN_ARTIFACT_MIRROR") or official,
+            ),
+        ),
+        FactRow(
+            message_id('downloads.fact.oci_mirrors'),
+            message("Docker Hub {0} · Runtime {1}", policy.get("docker_hub_mirror") or official, policy.get("runtime_registry") or UNKNOWN),
+            copyable=bool(policy.get("docker_hub_mirror") or policy.get("runtime_registry")),
+        ),
+        FactRow(
+            message_id('downloads.fact.local_image_cache'),
+            message_id(
+                'downloads.fact.local_image_cache_value',
+                message_id('downloads.policy.hit' if runtime.get("platform_local") else 'downloads.policy.miss'),
+                message_id('downloads.policy.hit' if runtime.get("environment_local") else 'downloads.policy.miss'),
+            ),
+        ),
+    ))
+    for source in report.get("sources", []):
+        if source.get("stage") == "buildkit-frontend":
+            rows.append(FactRow(
+                message_id('downloads.policy.frontend_label'),
+                message(
+                    "{0} · {1}",
+                    urlsplit(source.get("url", "")).hostname or UNKNOWN,
+                    message_id('downloads.policy.frontend_cache_unknown'),
+                ),
+            ))
+    routes = {item.get("route") for item in report.get("sources", [])}
+    route_notes = [
+        message_id(label)
+        for route, label in {
+            "explicit-proxy": "downloads.policy.route.explicit_proxy",
+            "direct-socket": "downloads.policy.route.direct_socket",
+            "externally-managed": "downloads.policy.route.externally_managed",
+        }.items()
+        if route in routes
+    ]
+    if route_notes:
+        rows.append(FactRow(message_id('downloads.fact.transfer_route'), join_messages("\n", route_notes)))
+    alternatives = runtime.get("alternatives", {})
+    hints: list[str] = []
+    if debian_fallback := alternatives.get("debian_fallback_hosts"):
+        hints.append(message_id('downloads.policy.debian_fallback', ", ".join(debian_fallback)))
+    if fallback := alternatives.get("local_build_sources"):
+        hosts = sorted({urlsplit(url).hostname or UNKNOWN for url in fallback})
+        hints.append(message_id('downloads.policy.fallback', ", ".join(hosts)))
+        if not alternatives.get("fallback_permitted", True):
+            hints.append(message_id('downloads.policy.fallback_budget'))
+    if not any(mirrors.values()):
+        hints.append(message_id('downloads.policy.configure_hint'))
+    if hints:
+        rows.append(FactRow(message_id('downloads.fact.alternatives'), join_messages("\n", hints)))
+    return tuple(rows)
+
+
+def _network_fact_rows(report: dict) -> tuple[FactRow, ...]:
+    rows: list[FactRow] = [
+        FactRow(message_id('downloads.fact.network_env'), message_id('downloads.network.system_environment')),
+        _source_fact_row(report, "model"),
+    ]
+    probes = report.get("network_probe", [])
+    if not probes:
+        cached = (report.get("model", {}).get("total_bytes") is not None and
+                  report.get("model", {}).get("cached_bytes") == report["model"]["total_bytes"])
+        rows.append(FactRow(
+            message_id('downloads.preflight.title'),
+            message_id('downloads.preflight.cached_model') if cached else message_id('downloads.preflight.no_result'),
+            status="unverified",
+        ))
+    for probe in probes:
+        label = message_id(CATEGORIES.get(probe.get("category", "model"), 'common.field.model'))
+        if "docker/dockerfile" in probe.get("image", ""):
+            label = message_id('downloads.policy.frontend_label')
+        probe_status = {"passed": "passed", "failed": "failed"}.get(probe.get("status"), "unverified")
+        scope = message_id('downloads.preflight.bounded_get' if probe.get("method") == "HEAD+GET" else 'downloads.preflight.metadata_only')
+        entry_host = urlsplit(probe.get("endpoint") or probe.get("source", "")).hostname or UNKNOWN
+        final_host = probe.get("final_host") or UNKNOWN
+        parts = [scope, message("{0} → {1}", entry_host, final_host)]
+        if probe.get("method") == "HEAD+GET":
+            parts.append(message(
+                "HTTP {0} · {1} · {2} s",
+                probe.get("http_status") or UNKNOWN,
+                format_bytes(probe.get("received_bytes")),
+                probe.get("elapsed_seconds", UNKNOWN),
+            ))
+        if probe.get("reason"):
+            parts.append(probe_reason(probe["reason"]))
+        rows.append(FactRow(label, join_messages(" · ", parts), status=probe_status, detail=join_messages("\n", parts)))
+    rows.append(FactRow(
+        message_id('downloads.fact.probe_budget'),
+        message_id('downloads.preflight.budget_usage', format_bytes(report.get("probe_payload_bytes")),
+                   format_bytes(report.get("probe_byte_limit"))),
+        detail=message_id('downloads.preflight.scope_note'),
+    ))
+    return tuple(rows)
+
+
+def download_fact_sections(report: dict) -> tuple[DownloadFactSection, ...]:
+    """Structured FactGrid view sections mirroring download_sections()."""
+    model, disk = report.get("model", {}), report.get("disk", {})
+    docker = report.get("docker_storage", {})
+    budget = (UNKNOWN if "max_download_bytes" not in report else message_id('common.value.unlimited')
+              if report["max_download_bytes"] is None else format_bytes(report["max_download_bytes"]))
+    overview_rows: list[FactRow] = [FactRow(message_id('downloads.size.expected'), download_estimate(report))]
+    if "known_resource_bytes" in report:
+        overview_rows.append(FactRow(
+            message_id('downloads.fact.identified'),
+            message_id(
+                'downloads.fact.identified_value',
+                format_bytes(report["known_resource_bytes"]),
+                format_bytes(report["cached_bytes"]),
+                report["cache_unknown_items"],
+            ),
+        ))
+        for category, counts in report.get("by_category", {}).items():
+            if counts["unknown_items"]:
+                overview_rows.append(FactRow(
+                    message_id(CATEGORIES[category]),
+                    message_id('downloads.fact.unknown_count', counts["unknown_items"]),
+                ))
+    overview_rows.extend((
+        FactRow(message_id('downloads.budget.label'), budget),
+        FactRow(
+            message_id('downloads.fact.model_total'),
+            message_id('downloads.fact.model_total_value', format_bytes(model.get("total_bytes")), format_bytes(model.get("cached_bytes"))),
+        ),
+        FactRow(message_id('downloads.endpoint.label'), model.get("endpoint", UNKNOWN), copyable=bool(model.get("endpoint"))),
+    ))
+    storage_rows: list[FactRow] = [
+        FactRow(
+            message_id('downloads.fact.store_disk'),
+            message_id('downloads.fact.used_free', format_bytes(disk.get("total_bytes")), format_bytes(disk.get("free_bytes"))),
+        ),
+        FactRow(
+            message_id('downloads.fact.reclaimable_remaining'),
+            message("{0} / {1}", format_bytes(disk.get("reclaimable_bytes")), format_bytes(disk.get("remaining_bytes"))),
+        ),
+        FactRow(
+            message_id('images.storage.docker_space'),
+            message_id('downloads.fact.used_free', format_bytes(docker.get("docker_storage_total_bytes")),
+                       format_bytes(docker.get("docker_storage_available_bytes_at_start"))),
+        ),
+    ]
+    if docker.get("docker_storage_filesystem") or docker.get("docker_storage_device"):
+        storage_rows.append(FactRow(
+            message_id('downloads.fact.docker_fs'),
+            message("{0} · {1}", docker.get("docker_storage_filesystem") or UNKNOWN, docker.get("docker_storage_device") or UNKNOWN),
+        ))
+    storage_rows.append(FactRow(
+        message_id('downloads.model_store.path_label'),
+        report.get("model_store_path", UNKNOWN),
+        copyable=bool(report.get("model_store_path")),
+    ))
+    return (
+        DownloadFactSection("overview", ViewSection(message_id('downloads.overview.title'), tuple(overview_rows))),
+        DownloadFactSection("runtime", ViewSection(message_id('downloads.sources.section'), _runtime_fact_rows(report))),
+        DownloadFactSection("storage", ViewSection(message_id('images.storage.title'), tuple(storage_rows))),
+        DownloadFactSection("network", ViewSection(message_id('downloads.preflight.title'), _network_fact_rows(report))),
+    )

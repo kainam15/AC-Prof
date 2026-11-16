@@ -5,7 +5,7 @@ from dataclasses import replace
 
 from rich.cells import cell_len
 from rich.text import Text
-from textual import on
+from textual import events, on
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Grid, Horizontal, Vertical, VerticalScroll
@@ -17,6 +17,7 @@ from textual.widgets import Button, Collapsible, Static
 from acprof.messages import Message as CatalogText
 from acprof.tui.i18n import message_id
 from acprof.tui.ui.contracts import translated_app
+from acprof.tui.ui.dialogs import focus_horizontal_action
 from acprof.tui.ui.presentation import COMPACT_COLLAPSED_SYMBOL, COMPACT_EXPANDED_SYMBOL
 from acprof.tui.ui.rendering import CjkCompositor
 from acprof.tui.ui.scrollbar import configure_solid_scrollbars
@@ -97,15 +98,24 @@ class ActionButtons(Horizontal):
 
 
 class StatusBanner(StructuredWidget):
-    def __init__(self, summary: StatusSummary, *, headline_id: str | None = None, **kwargs) -> None:
+    def __init__(
+        self,
+        summary: StatusSummary,
+        *,
+        headline_id: str | None = None,
+        include_actions: bool = True,
+        **kwargs,
+    ) -> None:
         super().__init__(**kwargs)
         self.summary = summary
         self.headline_id = headline_id
+        self._include_actions = include_actions
 
     def compose(self) -> ComposeResult:
         with Horizontal(classes="status-banner-line"):
             yield Static("", id=self.headline_id, classes="status-headline", markup=False)
-            yield ActionButtons(self.summary.actions, classes="status-actions")
+            if self._include_actions:
+                yield ActionButtons(self.summary.actions, classes="status-actions")
 
     def on_mount(self) -> None:
         self.refresh_language()
@@ -122,9 +132,10 @@ class StatusBanner(StructuredWidget):
         for level in ("success", "warning", "error", "info", "neutral"):
             self.set_class(self.summary.level == level, "status-" + level)
         self.query_one(".status-headline", Static).update(
-            Text(f"{status_symbol(self.summary.level)} {self.tr(self.summary.headline)}")
+            f"{status_symbol(self.summary.level)} {self.tr(self.summary.headline)}"
         )
-        self.query_one(ActionButtons).update_actions(self.summary.actions)
+        if self._include_actions:
+            self.query_one(ActionButtons).update_actions(self.summary.actions)
 
     def set_action_disabled(self, action_id: str, disabled: bool) -> None:
         actions = tuple(replace(action, disabled=disabled) if action.id == action_id else action
@@ -167,6 +178,11 @@ class FactDetailScreen(ModalScreen[None]):
 
     def action_close(self) -> None:
         self.dismiss(None)
+
+    def on_key(self, event: events.Key) -> None:
+        if focus_horizontal_action(self, ".fact-detail-actions", event.key):
+            event.prevent_default()
+            event.stop()
 
 
 class FactValue(Static, can_focus=True):
@@ -229,9 +245,10 @@ class FactValue(Static, can_focus=True):
 
 
 class FactGrid(StructuredWidget):
-    def __init__(self, section: ViewSection, **kwargs) -> None:
+    def __init__(self, section: ViewSection, *, collapsible: bool = True, **kwargs) -> None:
         super().__init__(**kwargs)
         self.section = section
+        self._collapsible = collapsible
         self._composed_shape: tuple[int, int] | None = None
         self._recompose_pending = False
         self._collapsed_state: dict[str, bool] = {}
@@ -243,6 +260,10 @@ class FactGrid(StructuredWidget):
 
     def compose(self) -> ComposeResult:
         self._composed_shape = (len(self.section.rows), len(self.section.detail_rows))
+        if not self._collapsible:
+            with Grid(classes="fact-grid"):
+                yield from self._rows((*self.section.rows, *self.section.detail_rows))
+            return
         with Collapsible(title=self.tr(self.section.title),
                          collapsed=self._collapsed_state.get(".fact-section", self.section.collapsed),
                          collapsed_symbol=COMPACT_COLLAPSED_SYMBOL,
@@ -272,6 +293,10 @@ class FactGrid(StructuredWidget):
 
     def _focused_fact(self) -> tuple[str, str | None] | None:
         focused = self.app.focused
+        if not self._collapsible:
+            if isinstance(focused, FactValue) and self in focused.ancestors:
+                return "", focused.row.label
+            return None
         for selector in (".fact-more", ".fact-section"):
             for group in self.query(selector).results(Collapsible):
                 if focused is group.query_one("CollapsibleTitle", Widget):
@@ -284,6 +309,13 @@ class FactGrid(StructuredWidget):
         if self.app.focused is not None or self.app.screen is not self.screen:
             return
         selector, label = location
+        if not self._collapsible:
+            candidates = [value for value in self.query(FactValue)
+                          if value.row.label == label and value.can_focus]
+            if len(candidates) == 1:
+                self.screen.set_focus(candidates[0], scroll_visible=False)
+                candidates[0].scroll_visible(animate=False, immediate=True)
+            return
         groups = list(self.query(selector).results(Collapsible))
         group = groups[0] if groups else self.query_one(".fact-section", Collapsible)
         target = group.query_one("CollapsibleTitle", Widget)
@@ -302,7 +334,7 @@ class FactGrid(StructuredWidget):
         if not self.is_attached or self._pruning:
             self._recompose_pending = False
             return
-        if self._composed_shape != (0, 0):
+        if self._collapsible and self._composed_shape != (0, 0):
             for selector in (".fact-section", ".fact-more"):
                 for group in self.query(selector).results(Collapsible):
                     self._collapsed_state[selector] = group.collapsed
@@ -325,9 +357,10 @@ class FactGrid(StructuredWidget):
     def refresh_language(self) -> None:
         if self._recompose_pending:
             return
-        self.query_one(".fact-section", Collapsible).title = self.tr(self.section.title)
-        for details in self.query(".fact-more").results(Collapsible):
-            details.title = self.tr(message_id("structured.fact.details"))
+        if self._collapsible:
+            self.query_one(".fact-section", Collapsible).title = self.tr(self.section.title)
+            for details in self.query(".fact-more").results(Collapsible):
+                details.title = self.tr(message_id("structured.fact.details"))
         rows = (*self.section.rows, *self.section.detail_rows)
         for label, value, row in zip(self.query(".fact-label").results(Static), self.query(FactValue), rows, strict=True):
             label.update(Text(self.tr(row.label)))
@@ -335,20 +368,31 @@ class FactGrid(StructuredWidget):
 
 
 class Callout(StructuredWidget):
-    def __init__(self, content: CalloutContent, **kwargs) -> None:
+    def __init__(
+        self,
+        content: CalloutContent,
+        *,
+        include_details: bool = True,
+        include_actions: bool = True,
+        **kwargs,
+    ) -> None:
         super().__init__(**kwargs)
         self.content = content
+        self._include_details = include_details
+        self._include_actions = include_actions
 
     def compose(self) -> ComposeResult:
         with Grid(classes="callout-grid"):
             for kind in ("problem", "impact", "next"):
                 yield Static("", classes="callout-label callout-label-" + kind, markup=False)
                 yield Static("", classes="callout-value callout-" + kind, markup=False)
-        yield ActionButtons(self.content.actions, classes="callout-actions")
-        with Collapsible(title="", collapsed=True, collapsed_symbol=COMPACT_COLLAPSED_SYMBOL,
-                         expanded_symbol=COMPACT_EXPANDED_SYMBOL, classes="callout-details"):
-            yield Static("", classes="callout-raw", markup=False)
-            yield Button("", classes="callout-copy")
+        if self._include_actions:
+            yield ActionButtons(self.content.actions, classes="callout-actions")
+        if self._include_details:
+            with Collapsible(title="", collapsed=True, collapsed_symbol=COMPACT_COLLAPSED_SYMBOL,
+                             expanded_symbol=COMPACT_EXPANDED_SYMBOL, classes="callout-details"):
+                yield Static("", classes="callout-raw", markup=False)
+                yield Button("", classes="callout-copy")
 
     def on_mount(self) -> None:
         self.refresh_language()
@@ -366,14 +410,18 @@ class Callout(StructuredWidget):
             self.query_one(".callout-label-" + kind, Static).update(
                 Text(self.tr(message_id("structured.callout." + kind))))
             self.query_one(".callout-" + kind, Static).update(Text(self.tr(value)))
-        details = self.query_one(".callout-details", Collapsible)
-        details.title = self.tr(message_id("structured.detail.title"))
-        details.display = bool(self.content.detail)
-        self.query_one(".callout-raw", Static).update(Text(self.content.detail))
-        self.query_one(".callout-copy", Button).label = Text(self.tr(message_id("structured.action.copy")))
-        self.query_one(ActionButtons).update_actions(self.content.actions)
+        if self._include_details:
+            details = self.query_one(".callout-details", Collapsible)
+            details.title = self.tr(message_id("structured.detail.title"))
+            details.display = bool(self.content.detail)
+            self.query_one(".callout-raw", Static).update(Text(self.content.detail))
+            self.query_one(".callout-copy", Button).label = Text(self.tr(message_id("structured.action.copy")))
+        if self._include_actions:
+            self.query_one(ActionButtons).update_actions(self.content.actions)
 
     def show_details(self) -> None:
+        if not self._include_details:
+            return
         details = self.query_one(".callout-details", Collapsible)
         if details.display:
             details.collapsed = False

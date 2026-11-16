@@ -309,7 +309,7 @@ def compose_run_tab(app: AcprofTui) -> ComposeResult:
         with Vertical(id="run-footer"):
             with Horizontal(id="run-actions", classes="action-bar"):
                 with Horizontal(classes="action-secondary"):
-                    yield app.localization.localized_widget(Button("高级参数", id="open-run-settings"))
+                    yield app.localization.localized_widget(Button("高级参数", id="open-run-settings", tooltip="切换基本配置与高级参数（F3）"))
                     yield app.localization.localized_widget(Button("探测最大输入", id="probe-largest"))
                 with Horizontal(classes="action-primary"):
                     yield app.localization.localized_widget(Button("开始采集", id="start-run", variant="primary"))

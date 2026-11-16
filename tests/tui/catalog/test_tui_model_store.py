@@ -18,10 +18,31 @@ from acprof.host.model_store import store as model_store
 from acprof.models.download_plan import PLAN_FILENAME
 from acprof.tui.i18n import translate
 from acprof.tui.models.store import ModelStoreScreen
-from acprof.tui.models.store_summary import model_store_summary
+from acprof.tui.models.store_summary import model_store_facts, model_store_rows
 from acprof.tui.ui.dialogs import ConfirmActionScreen
+from acprof.tui.ui.structured import FactGrid
+from acprof.tui.ui.table import ResizableDataTable
 from tests.support.model_store_fixtures import ModelStoreFixture, locked_store
 from tests.support.tui_fixtures import AcprofTui
+
+
+def _store_visible_text(screen: ModelStoreScreen) -> str:
+    facts = screen.query_one('#store-facts', FactGrid)
+    fact_lines = [
+        f"{node.render()}"
+        for node in facts.query(Static)
+    ]
+    fact_lines.extend(
+        f"{screen.app.tr(row.label)}: {screen.app.tr(row.value)}"
+        for row in facts.section.rows
+    )
+    table = screen.query_one('#store-table', ResizableDataTable)
+    table_lines = [
+        " | ".join(str(cell) for cell in table.get_row(key))
+        for key in table.rows
+    ]
+    note = str(screen.query_one('#store-note', Static).content)
+    return "\n".join((*fact_lines, *table_lines, note))
 
 
 @pytest.mark.parametrize('language', ['zh', 'en'])
@@ -51,8 +72,8 @@ async def test_locked_preview_shows_capacity_then_closes_before_unlock(language,
                     assert expected_close in ''.join(
                         line.crop(region.x, region.right).text for line in lines[region.y:region.bottom]
                     )
-                    content = str(screen.query_one('#store-report', Static).content)
-                    assert ('缓存占用：' if language == 'zh' else 'Cache used:') in content
+                    content = _store_visible_text(screen)
+                    assert ('缓存占用' if language == 'zh' else 'Cache used') in content
                     assert 'total_bytes' not in content
                     assert (app.tr('缓存正在由另一任务处理；可以关闭窗口取消等待。')) in (str(screen.query_one('#store-status', Static).content))
                     assert not (screen.query_one('#store-close', Button).disabled)
@@ -150,11 +171,11 @@ async def test_readable_preview_and_scrollable_confirmation_preserve_approved_en
     ) as prune:
         async with app.run_test(size=(80, 24)) as pilot:
             screen = await open_store(app, pilot, tmp_path, language)
-            content = str(screen.query_one('#store-report', Static).content)
-            assert ('缓存占用：6.00 MB' if language == 'zh' else 'Cache used: 6.00 MB') in content
-            assert ('磁盘可用：未知' if language == 'zh' else 'Disk free: Unknown') in content
-            assert ('容量上限：2.00 GB' if language == 'zh' else 'Capacity limit: 2.00 GB') in content
-            assert ('预计可回收：1.25 MB' if language == 'zh' else 'Estimated reclaimable: 1.25 MB') in content
+            content = _store_visible_text(screen)
+            assert ('缓存占用: 6.00 MB' if language == 'zh' else 'Cache used: 6.00 MB') in content
+            assert ('磁盘可用: 未知' if language == 'zh' else 'Disk free: Unknown') in content
+            assert ('容量上限: 2.00 GB' if language == 'zh' else 'Capacity limit: 2.00 GB') in content
+            assert ('预计可回收: 1.25 MB' if language == 'zh' else 'Estimated reclaimable: 1.25 MB') in content
             assert 'org/[draft]-模型' in content
             assert models[0]['model_revision'] in content
             assert '2000-' in content
@@ -221,8 +242,7 @@ async def test_readable_preview_and_scrollable_confirmation_preserve_approved_en
             assert applied[0].kwargs['approved_entries'] == set(selected)
             assert report == untouched
             assert screen.query_one('#store-prune', Button).disabled
-            assert ('没有可清理的缓存。' if language == 'zh' else 'No cache can be pruned.') in str(
-                screen.query_one('#store-report', Static).content)
+            assert ('没有可清理的缓存。' if language == 'zh' else 'No cache can be pruned.') in _store_visible_text(screen)
             assert await pilot.click('#store-close')
             await pilot.pause()
             assert not app.is_busy()
@@ -237,9 +257,9 @@ async def test_empty_model_list_keeps_cache_usage_and_orphan_preview_visible(lan
     ):
         async with app.run_test(size=(80, 24)) as pilot:
             screen = await open_store(app, pilot, tmp_path, language)
-            content = str(screen.query_one('#store-report', Static).content)
-            assert ('已登记模型：0' if language == 'zh' else 'Registered models: 0') in content
-            assert ('容量上限：不限' if language == 'zh' else 'Capacity limit: Unlimited') in content
+            content = _store_visible_text(screen)
+            assert ('已登记模型: 0' if language == 'zh' else 'Registered models: 0') in content
+            assert ('容量上限: 不限' if language == 'zh' else 'Capacity limit: Unlimited') in content
             assert '6.00 MB' in content
             assert ('没有已登记模型；缓存仍可能包含未完成下载或未引用文件。' if language == 'zh'
                     else 'No registered models; unfinished downloads or unreferenced files may still occupy space.') in content
@@ -269,7 +289,7 @@ async def test_failed_refresh_removes_stale_cleanup_preview_and_allows_retry(tmp
             await app.workers.wait_for_complete()
             await pilot.pause()
             assert 'cannot scan [cache]' in str(screen.query_one('#store-status', Static).content)
-            assert '37 B' not in str(screen.query_one('#store-report', Static).content)
+            assert '37 B' not in _store_visible_text(screen)
             assert screen.query_one('#store-prune', Button).disabled
             assert not screen.query_one('#store-refresh', Button).disabled
             assert await pilot.click('#store-refresh')
@@ -294,18 +314,13 @@ def test_summary_distinguishes_unknown_zero_and_unlimited_without_mutating_repor
     else:
         report['capacity_bytes'] = capacity
     original = deepcopy(report)
-    text = model_store_summary(report, None, lambda value: translate(value, language))
-    if language == 'zh':
-        assert f'容量上限：{zh}' in text
-        assert '缓存占用：未知' in text
-        assert '模型文件：未知' in text
-        assert '最近使用（本机时间）：未知' in text
-    else:
-        assert f'Capacity limit: {en}' in text
-        assert 'Cache used: Unknown' in text
-        assert 'Model files: Unknown' in text
-        assert 'Last used (host time): Unknown' in text
-    assert 'org/[literal]-模型' in text
+    def tr(value):
+        return translate(value, language)
+    facts = {tr(row.label): tr(row.value) for row in model_store_facts(report, None).rows}
+    assert facts['容量上限' if language == 'zh' else 'Capacity limit'] == (zh if language == 'zh' else en)
+    assert facts['缓存占用' if language == 'zh' else 'Cache used'] == ('未知' if language == 'zh' else 'Unknown')
+    rows = model_store_rows(report, None, tr)
+    assert rows == [('org/[literal]-模型', 'revision', tr('未知'), tr('未知'), tr('未知'))]
     assert report == original
 
 

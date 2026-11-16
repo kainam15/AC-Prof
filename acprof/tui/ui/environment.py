@@ -283,10 +283,18 @@ class EnvironmentPopover(Vertical):
             return
         size = self.app.size if size is None else size
         width = min(68, size.width)
+        bottom_panels = self.app.query("#bottom-panel")
+        if bottom_panels and "command-hidden" not in bottom_panels.first().classes:
+            bottom_reserve = 3 if size.height < 35 else 5
+        else:
+            bottom_reserve = 0
+        available_height = max(1, size.height - 1 - bottom_reserve)
+        popover_height = min(32, available_height)
         self.styles.offset = (max(0, size.width - width - 5), 1)
-        self.styles.height = min(26, max(1, size.height - 1))
-        self.styles.max_height = max(1, size.height - 1)
-        self.query_one("#preflight-scroll").styles.max_height = max(1, min(5, size.height // 5))
+        self.styles.height = popover_height
+        self.styles.max_height = available_height
+        scroll_budget = max(1, min(10, popover_height // 3, max(1, popover_height - 8)))
+        self.query_one("#preflight-scroll").styles.max_height = scroll_budget
         self.query_one("#preflight-capabilities").styles.grid_size_columns = 2 if size.width >= 60 else 1
 
     def label(self, row: PreflightCheck) -> str:

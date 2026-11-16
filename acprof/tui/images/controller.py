@@ -239,7 +239,8 @@ class ImageController:
         self.render_images()
 
     def image_filter_changed(self) -> None:
-        if self.app.form_ready and not self.images_unavailable(allow_refresh=True):
+        if (self.app.is_running and not self.app.ui_closing and self.app.form_ready
+                and not self.images_unavailable(allow_refresh=True)):
             self.render_images()
 
     def show_image_detail(self) -> None:

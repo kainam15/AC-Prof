@@ -143,6 +143,10 @@ class SelectableLog(TextArea):
     def match_count(self) -> int:
         return len(self._matches)
 
+    @property
+    def current_match(self) -> int:
+        return self._match_index + 1 if 0 <= self._match_index < len(self._matches) else 0
+
     def set_view(self, *, level: str | None = None, details: bool | None = None, query: str | None = None) -> None:
         if self.suspended:
             return

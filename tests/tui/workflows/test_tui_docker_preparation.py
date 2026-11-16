@@ -95,7 +95,7 @@ async def test_docker_failure_actions_and_collapsed_logs(tmp_path, language, mon
         await pilot.pause()
         assert str(screen.query_one("#preparation-title").content) == (
             "运行环境准备失败" if language == "zh" else "Runtime preparation failed")
-        assert "8/9" in str(screen.query_one("#preparation-detail", Static).content)
+        assert "8/9" in str(screen.query_one("#preparation-callout .callout-problem", Static).content)
         diagnostics = screen.query_one(Collapsible)
         assert diagnostics.collapsed
         for size in ((80, 24), (120, 30)):

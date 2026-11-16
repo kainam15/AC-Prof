@@ -20,11 +20,15 @@ MESSAGES: dict[str, Entry] = {
     "models.action.use_model": Entry(zh="使用模型", en="Use model"),
     "models.candidates.access_required": Entry(zh="需要授权", en="Access required"),
     "models.candidates.cached_unvalidated": Entry(zh="已缓存、待验证", en="Cached; validation pending"),
+    "models.candidates.details_title": Entry(zh="候选详情", en="Candidate details"),
     "models.candidates.empty": Entry(
         zh="尚无本地模型记录，可直接输入 Hugging Face 模型 ID。",
         en="No local model records yet. Enter a Hugging Face model ID directly.",
     ),
+    "models.candidates.evidence_path": Entry(zh="证据路径", en="Evidence path"),
     "models.candidates.previous_failure": Entry(zh="保留历史失败", en="Previous failure retained"),
+    "models.candidates.raw_evidence": Entry(zh="原始证据", en="Raw evidence"),
+    "models.candidates.reason_label": Entry(zh="判定原因", en="Reason"),
     "models.candidates.resource_limited": Entry(zh="上次资源不足", en="Previously resource limited"),
     "models.candidates.revalidation_required": Entry(zh="需要重新验证", en="Revalidation required"),
     "models.candidates.search_hint": Entry(

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from textual import on
+from typing import Any
+
+from textual import events, on
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
@@ -12,6 +14,26 @@ from textual.widgets.button import ButtonVariant
 from acprof.tui.i18n import message_id
 from acprof.tui.ui.contracts import translated_app
 from acprof.tui.ui.rendering import CjkCompositor
+
+
+def focus_horizontal_action(screen: ModalScreen[Any], selector: str, key: str) -> bool:
+    """Move focus across enabled buttons in a horizontal dialog action bar."""
+    if key not in {"left", "right"}:
+        return False
+    focused = screen.app.focused
+    if not isinstance(focused, Button):
+        return False
+    buttons = [
+        button
+        for node in screen.query(selector)
+        for button in ((node,) if isinstance(node, Button) else node.query(Button))
+        if button.display and not button.disabled and button.can_focus
+    ]
+    if focused not in buttons or len(buttons) < 2:
+        return False
+    step = -1 if key == "left" else 1
+    buttons[(buttons.index(focused) + step) % len(buttons)].focus()
+    return True
 
 
 class ConfirmActionScreen(ModalScreen[bool]):
@@ -97,6 +119,11 @@ class ConfirmActionScreen(ModalScreen[bool]):
 
     def action_cancel(self) -> None:
         self.dismiss(False)
+
+    def on_key(self, event: events.Key) -> None:
+        if focus_horizontal_action(self, "#confirm-buttons", event.key):
+            event.prevent_default()
+            event.stop()
 
 class ScrollConfirmActionScreen(ConfirmActionScreen):
     """Keep approval actions reachable while the complete action plan scrolls."""
