@@ -13,12 +13,15 @@ from acprof.experiments.configuration import RunConfig
 from acprof.host.run_state import MeasurementLock, RunStateError
 from acprof.tui.app import AcprofTui
 from acprof.tui.commands import PendingLaunch
+from acprof.tui.run.diagnostics import PreflightCheck
 from acprof.tui.updates import check_pypi_version
 
 
 @pytest.fixture
 def ready_host(monkeypatch):
-    monkeypatch.setattr("acprof.tui.run.preflight_controller.quick_preflight", lambda *a, **k: [])
+    monkeypatch.setattr("acprof.tui.run.preflight_controller.quick_preflight", lambda *a, **k: [
+        PreflightCheck("Runtime", "ok", "fixture", runtime_kind="docker", check_id="runtime"),
+    ])
 
 
 def make_app(tmp_path, *, model=""):

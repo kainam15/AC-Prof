@@ -212,8 +212,9 @@ class TestStartupPreflight:
 
     async def test_blocking_result_retries_manually_and_configuration_changes_recheck_automatically(self):
         app = self.make_app()
+        ready = [PreflightCheck("Runtime", "ok", "ready", runtime_kind="docker", check_id="runtime")]
         with patch("acprof.tui.run.preflight_controller.quick_preflight", side_effect=[
-            [PreflightCheck("Docker", "fail", "daemon unavailable")], [], [],
+            [PreflightCheck("Docker", "fail", "daemon unavailable")], ready, ready,
         ]) as check:
             async with app.run_test(size=(120, 30)) as pilot:
                 await self.finish_check(app, pilot)

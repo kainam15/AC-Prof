@@ -18,8 +18,10 @@ from acprof.host.run_state import MeasurementLock
 from acprof.platform import Environment
 from acprof.tui.run.diagnostics import PreflightCheck
 from acprof.tui.run.environment_checks import scan_environment
+from acprof.tui.run.global_status import build_status
 from acprof.tui.ui.environment import EnvironmentSignal, display_checks
 from acprof.tui.ui.structured import FactGrid
+from tests.support.tui_waits import wait_for_condition
 
 
 def projected_facts(app, identifier):
@@ -35,12 +37,23 @@ def test_machine_results_survive_unselected_gpu_and_changed_experiment():
         PreflightCheck("GPU power", "ok", "NVML read succeeded", check_id="gpu_power"),
         PreflightCheck("NCU", "fail", "not installed", check_id="ncu"),
     )
-    controller = SimpleNamespace(
-        environment_checks=machine, environment_error="", check_completed=True,
-        checks=(), error="", selected_runtime="", config_matches=lambda: False,
-        preflight_config=lambda: RunConfig.smoke(""), app=SimpleNamespace(environment=Environment("native_linux")),
-    )
-    assert display_checks(controller) == machine
+    initial = replace(RunConfig.smoke("fixture/model"), runtime="docker")
+    for config, expected in (
+        (initial, {"gpu_power": "not_requested", "ncu": "not_requested"}),
+        (replace(initial, gpus="on", profiling_mode="full", compute_profile_tool="ncu"),
+         {"gpu_power": "ok", "ncu": "warn"}),
+    ):
+        snapshot = build_status(
+            config, issues=(), validation_pending=False, checks=(), inventory=machine,
+            completed=True, current=False, running=False, inventory_running=False,
+        )
+        controller = SimpleNamespace(status=snapshot)
+        rows = {row.check_id: row for row in display_checks(controller)}
+        assert {name: rows[name].status for name in expected} == expected
+        assert rows["gpu_power"].detail == "NVML read succeeded"
+        assert rows["ncu"].detail == "not installed"
+    assert machine[0].status == "ok"
+    assert machine[1].status == "fail"
 
 
 @pytest.fixture
@@ -175,14 +188,17 @@ async def test_runtime_self_check_details_are_accessible_without_selecting_profi
     async with app.run_test(size=(80, 24)) as pilot:
         await pilot.pause()
         await asyncio.wait_for(app.workers.wait_for_complete(), 10)
-        await pilot.click("#environment-success")
+        await pilot.click("#environment-not_requested")
         await pilot.pause()
         for tool, reading in (("torch", "128"), ("massif", "131072")):
             signal = app.query_one("#preflight-signal-" + tool, EnvironmentSignal)
             signal.focus()
             await pilot.pause()
-            assert signal.render().plain == "✓ " + ("Torch Profiler" if tool == "torch" else "Valgrind Massif")
-            assert app.query_one("#preflight-facts", FactGrid).display
+            assert signal.row.status == "not_requested"
+            assert signal.render().plain.startswith("- ")
+            facts = app.query_one("#preflight-facts", FactGrid)
+            assert facts.display
+            assert app.tr(facts.section.title) == ("Torch Profiler" if tool == "torch" else "Valgrind Massif")
             detail = projected_facts(app, "#preflight-facts")
             assert ("自动运行最小 CPU 自检" if language == "zh" else "Automatic minimal CPU self-check") in detail
             assert reading in detail
@@ -198,7 +214,10 @@ async def test_all_machine_checks_run_once_and_ignore_experiment_edits(tmp_path,
                PreflightCheck("GPU power", "ok", "NVML read succeeded", check_id="gpu_power")]
     scan = Mock(return_value=machine)
     monkeypatch.setattr("acprof.tui.run.preflight_controller.scan_environment", scan)
-    monkeypatch.setattr("acprof.tui.run.preflight_controller.quick_preflight", lambda *args, **kwargs: [])
+    monkeypatch.setattr("acprof.tui.run.preflight_controller.quick_preflight", lambda config, **kwargs: [
+        PreflightCheck("Runtime", "ok", "fixture", runtime_kind="process" if config.runtime == "process" else "docker",
+                       check_id="runtime"),
+    ])
     app = AcprofTui(RunConfig.smoke("fixture/model"), settings_path=tmp_path / "settings.json")
     app.configuration.preferences = replace(app.configuration.preferences, language=language)
     async with app.run_test(size=(80, 24)) as pilot:
@@ -216,13 +235,19 @@ async def test_all_machine_checks_run_once_and_ignore_experiment_edits(tmp_path,
         context = app.query_one("#preflight-context", FactGrid).section
         assert not {"auto", "docker", "process"} & {app.tr(row.value).lower() for row in (*context.rows, *context.detail_rows)}
         assert "GPU" not in initial
-        assert (replace(machine[0], status="warn"), machine[1]) == display_checks(app.preflight)
+        expected = {row.check_id: replace(row, status="not_requested") for row in machine}
+        assert {row.check_id: row for row in display_checks(app.preflight) if row.check_id in expected} == expected
+        assert app.preflight.environment_checks == tuple(machine)
         for field, value in (("gpus", "on"), ("profiling-mode", "full"), ("runtime", "process")):
             app.query_one(f"#{field}", Select).value = value
-        await pilot.pause()
+        await wait_for_condition(pilot, lambda: not app.configuration.validation_pending
+                                 and app.query_one("#runtime-error").display,
+                                 timeout=3, description="Process full configuration rejected")
         assert projected_facts(app, "#preflight-context") == initial
-        assert (replace(machine[0], status="warn"), machine[1]) == display_checks(app.preflight)
-        assert app.preflight.display_state == "limited"
+        assert {row.check_id: row for row in display_checks(app.preflight) if row.check_id in expected} == expected
+        assert app.preflight.environment_checks == tuple(machine)
+        assert app.preflight.display_state == "incomplete"
+        assert app.query_one("#start-run", Button).disabled
         scan.assert_called_once_with(project_dir=app.project_dir)
         await pilot.click(app.preflight.panel.retry_button)
         await asyncio.wait_for(app.workers.wait_for_complete(), 10)

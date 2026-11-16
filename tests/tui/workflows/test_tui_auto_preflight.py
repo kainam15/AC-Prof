@@ -236,7 +236,7 @@ async def test_failed_auto_check_stays_failed_until_manual_retry(tmp_path, diagn
         await debounce_elapsed(app)
         assert check.call_count == 2
         check.side_effect = None
-        check.return_value = []
+        check.return_value = [PreflightCheck("Runtime", "ok", "fixture", runtime_kind="docker", check_id="runtime")]
         app.preflight.quick_check()
         await ready(app, pilot)
         assert check.call_count == 3
