@@ -646,3 +646,17 @@ TaskChoice .task-differences .fact-more > CollapsibleTitle { color: $text-muted;
 
 .model-picker-row { height: auto; }
 .model-picker-row Button { min-width: 10; width: auto; margin-left: 1; }
+
+#process-resource-open {
+    display: none;
+    height: 1;
+    min-height: 1;
+    width: auto;
+    max-width: 100%;
+    border: none;
+    padding: 0;
+    color: $accent;
+    text-align: left;
+}
+#process-resource-open:focus { text-style: bold underline; }
+#process-resource-callout { height: auto; }

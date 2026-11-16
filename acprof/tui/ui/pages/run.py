@@ -12,6 +12,7 @@ from acprof.tui.i18n import message_id
 from acprof.tui.models.input import ModelInput
 from acprof.tui.run.form import PRESET_OPTIONS
 from acprof.tui.run.plan_panel import RunPlanPanel
+from acprof.tui.run.resource_view import ProcessResourceCallout
 from acprof.tui.settings.field_validation import ConfigField
 from acprof.tui.ui.checkbox import StatusCheckbox
 from acprof.tui.ui.input import BarCursorInput as Input
@@ -20,6 +21,7 @@ from acprof.tui.ui.presentation import (
     COMPACT_EXPANDED_SYMBOL,
     format_input_number,
 )
+from acprof.tui.ui.view_models import CalloutContent
 
 if TYPE_CHECKING:
     from acprof.tui.app import AcprofTui
@@ -39,6 +41,7 @@ def compose_run_tab(app: AcprofTui) -> ComposeResult:
         with Vertical(classes="page-header"):
             yield RunPlanPanel(id="run-plan-panel")
             yield Static("", id="preflight-run-reason", markup=False)
+            yield Button("", id="process-resource-open")
         with ContentSwitcher(initial="run-form", id="experiment-pages"):
             with VerticalScroll(id="run-form", classes="pane-scroll"):
                 with Grid(classes="form-grid"):
@@ -142,12 +145,9 @@ def compose_run_tab(app: AcprofTui) -> ComposeResult:
                         id="runtime", classes="config-control",
                     ), field_id="runtime")
                     with Vertical(id="process-resource-help"):
-                        yield app.localization.localized_widget(Static(
-                            "Process 的 CPU / 内存填 auto 表示继承限制；数值配额需要可写的 cgroup。",
-                            classes="page-hint", markup=False,
-                        ))
+                        yield ProcessResourceCallout(CalloutContent("info", "", "", ""), id="process-resource-callout")
                         yield app.localization.localized_widget(Button(
-                            "使用 Process 继承限制", id="process-inherited-resources",
+                            message_id("run.resources.inherit"), id="process-inherited-resources",
                         ))
                     yield app.localization.localized_widget(Label("画像模式"))
                     yield ConfigField(app.localization.localized_select(

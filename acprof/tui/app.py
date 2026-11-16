@@ -664,6 +664,13 @@ class AcprofTui(BarCursorApp):
         if event.action_id.startswith("overview-"):
             event.stop()
             self.results.overview_action(event.action_id)
+        elif event.action_id.startswith("process-resource-"):
+            event.stop()
+            if event.action_id == "process-resource-retry":
+                self.preflight.quick_check()
+            elif event.action_id == "process-resource-details":
+                from acprof.tui.run.resource_view import show_details
+                show_details(self.preflight)
         elif event.action_id.startswith("backfill-"):
             event.stop()
             self.profiles.backfill_action(event.action_id)
@@ -774,6 +781,11 @@ class AcprofTui(BarCursorApp):
     @on(Button.Pressed, '#start-run')
     def on_experiments_start_run_button(self) -> None:
         self.experiments.start_run_button()
+
+    @on(Button.Pressed, '#process-resource-open')
+    def on_process_resource_open(self) -> None:
+        from acprof.tui.run.resource_view import open_panel
+        open_panel(self.preflight)
 
     @on(Button.Pressed, '#process-inherited-resources')
     def on_process_inherited_resources(self) -> None:

@@ -65,7 +65,7 @@ class ConfigurationController:
         self.initial_preset: str = run_form.infer_preset(self.initial_config)
 
     def use_process_inherited_resources(self) -> None:
-        if self.app.is_busy():
+        if self.app.is_busy() or self.app.preflight.check_running or self.app.execution.session.snapshot.measurement_active:
             return
         self.app.query_one("#runtime", Select).value = "process"
         self.app.query_one("#cpus", Input).value = "auto"
@@ -315,9 +315,10 @@ class ConfigurationController:
         self.app.call_after_refresh(self.focus_config_field, control)
 
     def update_field_errors(self, issues):
+        from acprof.tui.run.resource_view import field_issues
         from acprof.tui.settings.field_validation import render_field_issues
         self.config_issues = tuple(issues)
-        return render_field_issues(self.app, self.config_issues, self.app.localization.tr)
+        return render_field_issues(self.app, (*self.config_issues, *field_issues(self.app.preflight)), self.app.localization.tr)
 
     def focus_config_field(self, control: Widget) -> None:
         if (control.is_mounted and not control.is_disabled and not self.app.is_busy()

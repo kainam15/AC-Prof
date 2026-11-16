@@ -144,13 +144,13 @@ async def test_environment_counts_filter_cached_checks_on_hover(app, language, m
     monkeypatch.setattr("acprof.tui.run.preflight_controller.scan_environment", scan)
     async with app.run_test(size=(80, 24)) as pilot:
         await settle(app, pilot)
-        assert counts(app) == ["× 2", "! 1", "✓ 2", "- 1"]
+        assert counts(app) == ["× 0", "! 3", "✓ 2", "- 1"]
         panel = app.preflight.panel
         assert not panel.display
         tabs = app.query_one("#main-tabs").region
         for group, identifiers, label in (
-            ("error", {"cpu_instructions", "gpu_power"}, "异常" if language == "zh" else "Error"),
-            ("warning", {"cpu_energy"}, "警告" if language == "zh" else "Warning"),
+            ("error", set(), "异常" if language == "zh" else "Error"),
+            ("warning", {"cpu_energy", "cpu_instructions", "gpu_power"}, "警告" if language == "zh" else "Warning"),
             ("success", {"docker", "uv"}, "通过" if language == "zh" else "Passed"),
             ("pending", {"torch"}, "待验证" if language == "zh" else "Unverified"),
         ):

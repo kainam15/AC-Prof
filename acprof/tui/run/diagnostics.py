@@ -31,6 +31,7 @@ from acprof.tui.commands import csv_values
 from acprof.tui.i18n import error_message, message_id
 
 if TYPE_CHECKING:
+    from acprof.host.runtimes.cgroups import ResourceDiagnostic
     from acprof.tui.results.profile_status import ProfilerOverview
 
 
@@ -48,6 +49,7 @@ class PreflightCheck:
     runtime_kind: str = ""
     check_id: str = ""
     source: str = "quick_preflight"
+    resource_diagnostic: ResourceDiagnostic | None = None
 
 
 def collection_preview(config: RunConfig):
@@ -98,7 +100,7 @@ def quick_preflight(
     project_dir: str | os.PathLike[str] | None = None,
     command_runner: Callable[..., subprocess.CompletedProcess[str]] = completed_command,
 ) -> list[PreflightCheck]:
-    """Run read-only host checks; acprof run remains the authoritative preflight."""
+    """Check prerequisites; Process may configure only an existing delegated subtree."""
     checks: list[PreflightCheck] = []
     environment = detect_environment()
     policy_error = collection_policy_error(environment, profiling_mode=config.profiling_mode,
@@ -276,6 +278,7 @@ def _process_checks(config):
     from dataclasses import replace
 
     from acprof.application.resources import resource_matrix
+    from acprof.host.runtimes.cgroups import ProcessResourceError, with_guidance
     from acprof.host.runtimes.process_control import require_process_supervision
     from acprof.host.runtimes.resources import preflight_resources
     checks = [PreflightCheck("Runtime", "ok", "Process: managed subprocess; basic collection", runtime_kind="process", check_id="runtime")]
@@ -283,12 +286,18 @@ def _process_checks(config):
         replace(config, runtime="process").validate()
         require_process_supervision()
         cpus, mems, _ = resource_matrix(replace(config, runtime="process").to_namespace())
-        preflight_resources(cpus, mems, config.cpuset_cpus)
+        diagnostic = preflight_resources(cpus, mems, config.cpuset_cpus)
+    except ProcessResourceError as exc:
+        diagnostic = with_guidance(replace(exc.diagnostic, detail="\n".join(
+            part for part in (exc.diagnostic.detail, *getattr(exc, "__notes__", ())) if part)))
+        checks.append(PreflightCheck("Process resources", "fail", diagnostic.summary,
+                                    diagnostic.code, check_id="process_resources", resource_diagnostic=diagnostic))
     except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired) as exc:
         checks.append(PreflightCheck("Process resources", "fail", str(exc), check_id="process_resources"))
     else:
         checks.append(PreflightCheck("Process resources", "ok",
-                                    f"CPU={config.cpus}, memory={config.mems}; auto=inherited, sharing=unknown", check_id="process_resources"))
+                                    f"CPU={config.cpus}, memory={config.mems}; auto=inherited, sharing=unknown", check_id="process_resources",
+                                    resource_diagnostic=diagnostic))
     from acprof.host.runtimes.capabilities import probe_collection_plan
     from acprof.host.runtimes.gpu import process_gpu_device
     gpu = process_gpu_device(config.to_namespace().gpu_device) if "on" in config.gpus.split(",") else {}

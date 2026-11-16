@@ -216,12 +216,12 @@ async def test_all_machine_checks_run_once_and_ignore_experiment_edits(tmp_path,
         context = app.query_one("#preflight-context", FactGrid).section
         assert not {"auto", "docker", "process"} & {app.tr(row.value).lower() for row in (*context.rows, *context.detail_rows)}
         assert "GPU" not in initial
-        assert tuple(machine) == display_checks(app.preflight)
+        assert (replace(machine[0], status="warn"), machine[1]) == display_checks(app.preflight)
         for field, value in (("gpus", "on"), ("profiling-mode", "full"), ("runtime", "process")):
             app.query_one(f"#{field}", Select).value = value
         await pilot.pause()
         assert projected_facts(app, "#preflight-context") == initial
-        assert tuple(machine) == display_checks(app.preflight)
+        assert (replace(machine[0], status="warn"), machine[1]) == display_checks(app.preflight)
         assert app.preflight.display_state == "limited"
         scan.assert_called_once_with(project_dir=app.project_dir)
         await pilot.click(app.preflight.panel.retry_button)

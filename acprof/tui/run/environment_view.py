@@ -74,7 +74,7 @@ class EnvironmentCheckView:
 
 
 def item_status(row: PreflightCheck) -> str:
-    return "error" if row.capability_status == "error" and row.status != "not_requested" else row.status
+    return "error" if row.capability_status == "error" and row.status not in {"not_requested", "warn"} else row.status
 
 
 def check_group(row: PreflightCheck) -> str:

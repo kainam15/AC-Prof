@@ -45,6 +45,7 @@ class PreflightController:
     def __init__(self, app: AcprofTui) -> None:
         self.app = app
         self.check_running = False
+        self.resource_phase = "checking"
         self.check_request: object | None = None
         self.check_completed = False
         self.check_config: RunConfig | None = None
@@ -277,7 +278,12 @@ class PreflightController:
         reason = self.preflight_run_reason()
         if reason:
             self.refresh_preflight_state()
-            self.app.notify(reason, title="环境状态", severity="warning", timeout=8)
+            from acprof.tui.run.resource_view import open_panel, resource_check
+            check = resource_check(self)
+            if check and check.status == "fail" and self.config_matches():
+                open_panel(self)
+            else:
+                self.app.notify(reason, title="环境状态", severity="warning", timeout=8)
             return False
         return True
 
@@ -289,10 +295,16 @@ class PreflightController:
         entry.update_cached()
         self.panel.update_cached()
         detail = self.app.query_one("#preflight-run-reason", Static)
-        detail.display = bool(reason)
+        resource_only = (self.config_matches() and not self.error and not self.check_running
+                         and any(check.check_id == "process_resources" and check.status == "fail" for check in self.checks)
+                         and all(check.check_id == "process_resources" for check in self.checks if check.status == "fail"))
+        detail.display = bool(reason) and not resource_only
         self.app.localization.set_text(detail, reason)
         process_runtime = self.selected_runtime == "process" or self.app.configuration.select("runtime") == "process"
-        self.app.query_one("#process-resource-help").display = process_runtime
+        from acprof.tui.run import resource_view
+        if not self.app.execution.session.snapshot.measurement_active:
+            resource_view.refresh(self, visible=process_runtime)
+            self.app.configuration.update_field_errors(self.app.configuration.config_issues)
         probe = self.app.query_one("#probe-largest", Button)
         if process_runtime:
             probe.disabled = True
@@ -311,6 +323,7 @@ class PreflightController:
             return
         self.check_config = self.preflight_config()
         self.check_running = True
+        self.resource_phase = "checking"
         self.check_request = object()
         # Keep the current page and editable form. Only conflicting work waits.
         self.app.set_busy(False)
@@ -338,6 +351,8 @@ class PreflightController:
                     raise
                 except Exception as exc:
                     environment_error = f"{type(exc).__name__}: {exc}"
+                if config.runtime in {"process", "auto"} and (config.cpus != "auto" or config.mems != "auto"):
+                    self.app.process.safe_process_callback(self.show_resource_repair, token)
                 checks = quick_preflight(config, project_dir=self.app.project_dir)
             error = ""
         except Exception as exc:
@@ -348,6 +363,11 @@ class PreflightController:
         self.app.process.safe_process_callback(
             self.show_quick_check, checks, error, token, lock_acquired, environment_checks, environment_error,
         )
+
+    def show_resource_repair(self, token: object) -> None:
+        if token is self.check_request and self.check_running and not self.app.execution.session.snapshot.measurement_active:
+            self.resource_phase = "repairing"
+            self.refresh_preflight_state()
 
     def show_quick_check(
         self,
@@ -366,7 +386,10 @@ class PreflightController:
         self.checked_config = self.check_config
         self.checks = tuple(checks)
         self.error = error
-        self.environment_checks = tuple(environment_checks)
+        # Inventory is informational; only requirements of this configuration block.
+        failed = {check.check_id for check in checks if check.status == "fail"}
+        self.environment_checks = tuple(replace(check, status="warn")
+            if check.status == "fail" and check.check_id and check.check_id not in failed else check for check in environment_checks)
         self.environment_error = environment_error
         self.completed_at = datetime.now().astimezone()
         self.lock_acquired = lock_acquired
