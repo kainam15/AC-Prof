@@ -14,12 +14,13 @@ from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from textual.timer import Timer
 from textual.widgets import Button, Static
-from textual.worker import Worker
+from textual.worker import Worker, get_current_worker
 
 from acprof.events.download import DownloadProgress
 from acprof.events.image import ImageProgress
-from acprof.experiments.configuration import RunConfig
+from acprof.experiments.configuration import RunConfig, RunConfigError
 from acprof.host.preparation.preparation_log import redact_text
 from acprof.host.run_state import offline_analysis_lock
 from acprof.host.runtimes.contracts import RuntimeCleanupError
@@ -42,6 +43,8 @@ if TYPE_CHECKING:
 class PreflightController:
     """Own preflight state and operations; the App owns lifecycle and scheduling."""
 
+    AUTO_CHECK_DELAY = 0.5
+
     def __init__(self, app: AcprofTui) -> None:
         self.app = app
         self.check_running = False
@@ -49,11 +52,16 @@ class PreflightController:
         self.check_request: object | None = None
         self.check_completed = False
         self.check_config: RunConfig | None = None
+        self.check_inventory = True
         self.checked_config: RunConfig | None = None
+        self.auto_check_config: RunConfig | None = None
+        self.auto_check_timer: Timer | None = None
+        self.auto_check_due = False
         self.checks: tuple[PreflightCheck, ...] = ()
         self.error = ""
         self.environment_checks: tuple[PreflightCheck, ...] = ()
         self.environment_error = ""
+        self.cleanup_error = ""
         self.completed_at: datetime | None = None
         self.lock_acquired = False
         self.preparation_screen: PreparationScreen | None = None
@@ -120,8 +128,12 @@ class PreflightController:
         return self.app.query_one(EnvironmentPopover)
 
     @property
+    def inventory_running(self) -> bool:
+        return self.check_running and self.check_inventory
+
+    @property
     def display_state(self) -> str:
-        if self.check_running or not self.check_completed:
+        if self.inventory_running or not self.check_completed:
             return "checking"
         if self.environment_error:
             return "error"
@@ -252,9 +264,17 @@ class PreflightController:
     def preflight_run_reason(self) -> str:
         if not self.app.is_running or not self.app.form_ready or self.app.ui_closing:
             return message_id('run.preflight.checking_notice')
-        if self.check_running or not self.check_completed:
+        if self.app.configuration.config_issues:
+            return message_id('run.preflight.configuration_incomplete', join_messages(
+                '；', (issue.reason for issue in self.app.configuration.config_issues),
+            ))
+        if self.app.configuration.validation_pending:
+            return message_id('run.preflight.validation_pending')
+        if self.check_running:
             return message_id('run.preflight.checking_notice')
-        if not self.config_matches():
+        if self.cleanup_error:
+            return message_id('run.preflight.check_failed', redact_text(self.cleanup_error))
+        if not self.check_completed or not self.config_matches():
             return message_id('run.preflight.configuration_changed')
         if self.error:
             return message_id('run.preflight.check_failed', redact_text(self.error))
@@ -263,16 +283,89 @@ class PreflightController:
         return message_id('run.preflight.collection_blocked', join_messages("；", failures)) if failures else ""
 
     def config_matches(self) -> bool:
-        current, checked = self.preflight_config(), self.checked_config
+        return self.same_requirements(self.preflight_config(), self.checked_config, self.checks)
+
+    @staticmethod
+    def same_requirements(current: RunConfig, checked: RunConfig | None,
+                          checks: Sequence[PreflightCheck] = ()) -> bool:
         if checked is None:
             return False
-        cached_runtime = next((check.runtime_kind for check in self.checks if check.runtime_kind), "")
-        if current.runtime != "process" and cached_runtime != "process":
+        cached_runtime = next((check.runtime_kind for check in checks if check.runtime_kind), "")
+        if current.runtime == "docker" or (current.runtime == "auto" and cached_runtime == "docker"):
             # Docker preflight does not validate numeric matrix enforcement;
             # form validation and the runner retain that responsibility.
-            current = replace(current, cpus="auto", mems="auto", cpuset_cpus="")
-            checked = replace(checked, cpus="auto", mems="auto", cpuset_cpus="")
+            current = replace(current, cpus="auto", mems="auto")
+            checked = replace(checked, cpus="auto", mems="auto")
         return current == checked
+
+    def cancel_auto_check(self) -> None:
+        self.pause_auto_check()
+        self.auto_check_config = None
+        self.auto_check_due = False
+
+    def pause_auto_check(self) -> None:
+        if self.auto_check_timer is not None:
+            self.auto_check_timer.stop()
+            self.auto_check_timer = None
+
+    def schedule_auto_check(self) -> None:
+        """Coalesce valid edits; inventory and manual retries remain explicit."""
+        if not self.app.is_running or not self.app.form_ready or self.app.ui_closing:
+            return
+        if not self.check_completed and not self.check_running:
+            # Mount/result restoration owns the initial inventory request.
+            return
+        if self.app.configuration.config_issues or self.app.configuration.validation_pending or self.cleanup_error:
+            self.cancel_auto_check()
+            return
+        config = self.preflight_config()
+        if ((not self.check_running and self.check_completed and self.config_matches())
+                or (self.check_running and self.same_requirements(config, self.check_config))):
+            self.cancel_auto_check()
+            return
+        if not self.same_requirements(config, self.auto_check_config):
+            self.cancel_auto_check()
+            self.auto_check_config = config
+        # Debounce can elapse while a worker is running, but never during a
+        # measurement or preparation. Completion resumes only the latest edit.
+        if not self.app.is_busy() and self.auto_check_timer is None and not self.auto_check_due:
+            self.auto_check_timer = self.app.set_timer(self.AUTO_CHECK_DELAY, self.auto_check_elapsed)
+        self.resume_auto_check()
+
+    def auto_check_elapsed(self) -> None:
+        self.auto_check_timer = None
+        if self.auto_check_config is None or self.app.ui_closing or not self.app.form_ready:
+            return
+        self.auto_check_due = True
+        self.resume_auto_check()
+
+    def resume_auto_check(self) -> None:
+        if (self.auto_check_config is None or not self.app.is_running or not self.app.form_ready
+                or self.app.ui_closing or self.app.configuration.validation_pending
+                or self.app.configuration.config_issues or not self.app.operation_state().allows("check")):
+            return
+        if self.auto_check_due:
+            self.quick_check(automatic=True)
+        elif self.auto_check_timer is None:
+            self.auto_check_timer = self.app.set_timer(self.AUTO_CHECK_DELAY, self.auto_check_elapsed)
+
+    @property
+    def collection_state(self) -> str:
+        if self.app.configuration.config_issues:
+            return "incomplete"
+        if self.app.configuration.validation_pending:
+            return "pending"
+        if self.check_running:
+            return "checking"
+        if self.cleanup_error:
+            return "failed"
+        if not self.check_completed or not self.config_matches():
+            return "pending"
+        if self.error or any(check.status == "fail" for check in self.checks):
+            return "failed"
+        if any(check.status == "warn" for check in self.checks):
+            return "limited"
+        return "ready"
 
     def allow_collection(self) -> bool:
         reason = self.preflight_run_reason()
@@ -295,11 +388,14 @@ class PreflightController:
         entry.update_cached()
         self.panel.update_cached()
         detail = self.app.query_one("#preflight-run-reason", Static)
-        resource_only = (self.config_matches() and not self.error and not self.check_running
+        state = self.collection_state
+        resource_only = (state == "failed" and self.config_matches() and not self.error and not self.check_running
                          and any(check.check_id == "process_resources" and check.status == "fail" for check in self.checks)
                          and all(check.check_id == "process_resources" for check in self.checks if check.status == "fail"))
-        detail.display = bool(reason) and not resource_only
-        self.app.localization.set_text(detail, reason)
+        detail.display = not resource_only
+        summary = message_id('run.preflight.state.limited') if state == 'limited' else message_id('run.preflight.state.ready')
+        self.app.localization.set_text(detail, reason or summary)
+        detail.set_classes('preflight-' + state)
         process_runtime = self.selected_runtime == "process" or self.app.configuration.select("runtime") == "process"
         from acprof.tui.run import resource_view
         if not self.app.execution.session.snapshot.measurement_active:
@@ -314,14 +410,32 @@ class PreflightController:
         self.app.localization.set_text(start, reason or "开始采集", "tooltip")
         self.app.refresh_bindings()
 
-    def quick_check(self) -> None:
+    def quick_check(self, *, automatic: bool = False) -> None:
         if not self.app.is_running or not self.app.form_ready or self.app.ui_closing:
             return
         if self.check_running:
             return
-        if not self.app.allow_operation("check"):
+        if automatic and (self.app.configuration.validation_pending or self.app.configuration.config_issues or self.cleanup_error
+                          or (self.check_completed and self.config_matches())):
+            self.cancel_auto_check()
             return
+        if not self.app.operation_state().allows("check"):
+            if not automatic:
+                self.app.allow_operation("check")
+            return
+        if automatic:
+            # Changed messages can still be queued behind this timer. Validate
+            # the actual form before admitting probes for its current snapshot.
+            try:
+                self.app.configuration.collect_config()
+            except RunConfigError as exc:
+                self.cancel_auto_check()
+                self.app.configuration.update_field_errors(exc.issues)
+                self.refresh_preflight_state()
+                return
+        self.cancel_auto_check()
         self.check_config = self.preflight_config()
+        self.check_inventory = not automatic
         self.check_running = True
         self.resource_phase = "checking"
         self.check_request = object()
@@ -332,25 +446,33 @@ class PreflightController:
     def execute_quick_check(self, config: RunConfig, token: object) -> Worker[None]:
         """Schedule this operation on the owning App worker manager."""
         return self.app.run_worker(
-            partial(self._execute_quick_check_worker, config, token),
+            partial(self._execute_quick_check_worker, config, token, refresh_environment=self.check_inventory),
             name="execute_quick_check", thread=True, group='preflight', exclusive=True, exit_on_error=False,
         )
 
-    def _execute_quick_check_worker(self, config: RunConfig, token: object) -> None:
+    def _execute_quick_check_worker(self, config: RunConfig, token: object, *, refresh_environment: bool = True) -> None:
+        worker = get_current_worker()
         lock_acquired = False
-        environment_checks: Sequence[PreflightCheck] = ()
+        environment_checks: Sequence[PreflightCheck] | None = None
         environment_error = ""
+        cleanup_error = "" if refresh_environment else None
         try:
             # Perf probes and other diagnostics must never overlap a formal
             # Linux measurement, including one owned by another AC-Prof process.
             with offline_analysis_lock():
                 lock_acquired = True
-                try:
-                    environment_checks = scan_environment(project_dir=self.app.project_dir)
-                except RuntimeCleanupError:
-                    raise
-                except Exception as exc:
-                    environment_error = f"{type(exc).__name__}: {exc}"
+                if worker.is_cancelled:
+                    return
+                if refresh_environment:
+                    environment_checks = ()
+                    try:
+                        environment_checks = scan_environment(project_dir=self.app.project_dir)
+                    except RuntimeCleanupError:
+                        raise
+                    except Exception as exc:
+                        environment_error = f"{type(exc).__name__}: {exc}"
+                if worker.is_cancelled:
+                    return
                 if config.runtime in {"process", "auto"} and (config.cpus != "auto" or config.mems != "auto"):
                     self.app.process.safe_process_callback(self.show_resource_repair, token)
                 checks = quick_preflight(config, project_dir=self.app.project_dir)
@@ -358,10 +480,14 @@ class PreflightController:
         except Exception as exc:
             checks = []
             error = f"{type(exc).__name__}: {exc}"
-            if not lock_acquired or isinstance(exc, RuntimeCleanupError):
+            if refresh_environment and (not lock_acquired or isinstance(exc, RuntimeCleanupError)):
                 environment_error = error
+            if isinstance(exc, RuntimeCleanupError):
+                cleanup_error = error
+        if worker.is_cancelled:
+            return
         self.app.process.safe_process_callback(
-            self.show_quick_check, checks, error, token, lock_acquired, environment_checks, environment_error,
+            self.show_quick_check, checks, error, token, lock_acquired, environment_checks, environment_error, cleanup_error,
         )
 
     def show_resource_repair(self, token: object) -> None:
@@ -375,8 +501,9 @@ class PreflightController:
         error: str,
         token: object,
         lock_acquired: bool = False,
-        environment_checks: Sequence[PreflightCheck] = (),
+        environment_checks: Sequence[PreflightCheck] | None = None,
         environment_error: str = "",
+        cleanup_error: str | None = None,
     ) -> None:
         if not self.app.is_running or not self.app.form_ready or self.app.ui_closing or token is not self.check_request:
             return
@@ -386,13 +513,17 @@ class PreflightController:
         self.checked_config = self.check_config
         self.checks = tuple(checks)
         self.error = error
+        if cleanup_error is not None:
+            self.cleanup_error = cleanup_error
         # Inventory is informational; only requirements of this configuration block.
-        failed = {check.check_id for check in checks if check.status == "fail"}
-        self.environment_checks = tuple(replace(check, status="warn")
-            if check.status == "fail" and check.check_id and check.check_id not in failed else check for check in environment_checks)
-        self.environment_error = environment_error
-        self.completed_at = datetime.now().astimezone()
-        self.lock_acquired = lock_acquired
+        if environment_checks is not None or environment_error:
+            failed = {check.check_id for check in checks if check.status == "fail"}
+            self.environment_checks = tuple(replace(check, status="warn")
+                if check.status == "fail" and check.check_id and check.check_id not in failed
+                else check for check in (environment_checks or ()))
+            self.environment_error = environment_error
+            self.completed_at = datetime.now().astimezone()
+            self.lock_acquired = lock_acquired
         self.app.updates.start_check()
         self.app.set_busy(False)
         # Preflight only retains diagnostic fields, not the user's workload or

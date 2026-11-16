@@ -302,6 +302,7 @@ class AcprofTui(BarCursorApp):
         # make the visible settings differ from the running subprocess.
         if busy:
             self.configuration.cancel_preview_timer()
+            self.preflight.pause_auto_check()
         for table in self.query(ResizableDataTable):
             refreshing_image = self.images.operation == "refresh" and table.has_class("image-control")
             table.resize_enabled = not ((busy and not refreshing_image) or self.execution.session.snapshot.measurement_active)
@@ -342,6 +343,10 @@ class AcprofTui(BarCursorApp):
         self.preflight.refresh_preflight_state()
         self.profiles.update_action_availability()
         self.results.update_report_actions()
+        if not busy:
+            if self.configuration.validation_pending and self.configuration.preview_timer is None:
+                self.configuration.configuration_changed()
+            self.preflight.resume_auto_check()
 
     def activate_tab(self, tab_id: str) -> None:
         if self.screen.maximized is not None:
@@ -467,6 +472,8 @@ class AcprofTui(BarCursorApp):
             self.results.report_request.set()
         self.results.report_request = self.preflight.check_request = None
         self.configuration.cancel_preview_timer()
+        self.preflight.cancel_auto_check()
+        self.preflight.check_running = False
         if self.elapsed_timer is not None:
             self.elapsed_timer.stop()
             self.elapsed_timer = None

@@ -199,7 +199,7 @@ async def test_all_machine_checks_run_once_and_ignore_experiment_edits(tmp_path,
     scan = Mock(return_value=machine)
     monkeypatch.setattr("acprof.tui.run.preflight_controller.scan_environment", scan)
     monkeypatch.setattr("acprof.tui.run.preflight_controller.quick_preflight", lambda *args, **kwargs: [])
-    app = AcprofTui(RunConfig.smoke(""), settings_path=tmp_path / "settings.json")
+    app = AcprofTui(RunConfig.smoke("fixture/model"), settings_path=tmp_path / "settings.json")
     app.configuration.preferences = replace(app.configuration.preferences, language=language)
     async with app.run_test(size=(80, 24)) as pilot:
         # Preflight completion starts a new worker. Wait until it is registered
@@ -238,7 +238,7 @@ async def test_runtime_cleanup_failure_blocks_launch_and_remaining_preflight(tmp
     preflight = Mock(return_value=[])
     monkeypatch.setattr("acprof.tui.run.preflight_controller.scan_environment", scan)
     monkeypatch.setattr("acprof.tui.run.preflight_controller.quick_preflight", preflight)
-    app = AcprofTui(RunConfig.smoke(""), settings_path=tmp_path / "settings.json")
+    app = AcprofTui(RunConfig.smoke("fixture/model"), settings_path=tmp_path / "settings.json")
     async with app.run_test(size=(80, 24)) as pilot:
         await asyncio.wait_for(app.workers.wait_for_complete(), 10)
         await pilot.pause()

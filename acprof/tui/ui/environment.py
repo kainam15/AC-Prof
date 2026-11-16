@@ -76,8 +76,8 @@ class EnvironmentIndicators(Horizontal):
         for row in display_checks(self.controller):
             counts[check_group(row)] += 1
         for entry in self.query(EnvironmentIndicator):
-            entry.display = entry.group != "pending" or bool(counts[entry.group]) or self.controller.check_running
-            count = "…" if entry.group == "pending" and self.controller.check_running else str(counts[entry.group])
+            entry.display = entry.group != "pending" or bool(counts[entry.group]) or self.controller.inventory_running
+            count = "…" if entry.group == "pending" and self.controller.inventory_running else str(counts[entry.group])
             entry.update(GROUP_SYMBOLS[entry.group] + " " + count)
             entry.tooltip = self.controller.app.tr(message_id(
                 "run.environment.group_count", message_id("run.environment.group." + entry.group), counts[entry.group]))

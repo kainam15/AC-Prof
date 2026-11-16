@@ -58,6 +58,7 @@ class ConfigurationController:
         self.planned_input_identity: tuple[object, ...] | None = None
         self.environment_open: bool = False
         self.config_issues: tuple[ConfigIssue, ...] = ()
+        self.validation_pending = True
         self.field_errors_visible = False
         self.applying_config = False
         self.preview_timer: Timer | None = None
@@ -240,6 +241,7 @@ class ConfigurationController:
         if not self.app.is_running or not self.app.form_ready or self.applying_config or self.app.is_busy():
             return
         self.cancel_preview_timer()
+        self.validation_pending = True
         self.app.preflight.refresh_preflight_state()
         # Coalesce typing and preset field updates into one validation/render.
         self.preview_timer = self.app.set_timer(0.05, self.sync_form_state)
@@ -329,18 +331,19 @@ class ConfigurationController:
     def refresh_command_preview(
         self, *, notify: bool = True, sync_preset: bool = False
     ) -> bool:
-        self.app.preflight.refresh_preflight_state()
+        self.cancel_preview_timer()
+        self.validation_pending = False
         config = None
         try:
-            config = self.collect_config(allow_empty_model=True)
+            config = self.collect_config()
             command = build_run_command(
                 config,
                 project_dir=self.app.project_dir,
                 python_executable=self.app.python_executable,
             )
+            self.update_field_errors(())
         except RunConfigError as exc:
-            if self.field_errors_visible:
-                self.update_field_errors(exc.issues)
+            self.update_field_errors(exc.issues)
             if not self.app.execution.session.snapshot.measurement_active:
                 self.app.query_one(RunPlanPanel).show_plan(run_planning.invalid_plan_view(exc.issues))
                 self.app.localization.set_text(
@@ -368,8 +371,8 @@ class ConfigurationController:
                     with self.app.prevent(Select.Changed):
                         widget.set_options((self.app.localization.tr(label), key) for label, key in options)
                         widget.value = selected_preset
-        if self.field_errors_visible:
-            self.update_field_errors(())
+            self.app.preflight.schedule_auto_check()
+            self.app.preflight.refresh_preflight_state()
         self.update_plan_summary(config)
         self.app.localization.set_text(self.app.query_one('#command-preview', Static), format_command(command))
         if notify:

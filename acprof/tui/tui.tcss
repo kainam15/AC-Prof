@@ -96,6 +96,9 @@ EnvironmentIndicator .environment--pending, EnvironmentSignal .environment--neut
     color: $warning;
     overflow-y: auto;
 }
+#preflight-run-reason.preflight-ready { color: $success; }
+#preflight-run-reason.preflight-checking, #preflight-run-reason.preflight-pending { color: $text-muted; }
+#preflight-run-reason.preflight-incomplete, #preflight-run-reason.preflight-failed { color: $error; }
 TabbedContent { height: 1fr; }
 #experiment-pages { height: 1fr; }
 TabPane { padding: 0; }

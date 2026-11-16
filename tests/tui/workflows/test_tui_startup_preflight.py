@@ -18,6 +18,7 @@ from acprof.tui.logging.widget import SelectableLog
 from acprof.tui.run.diagnostics import PreflightCheck
 from acprof.tui.run.plan_panel import RunPlanPanel
 from acprof.tui.run.progress import ProgressSnapshot
+from tests.support.tui_waits import wait_for_condition
 
 
 class TestStartupPreflight:
@@ -28,7 +29,7 @@ class TestStartupPreflight:
         self.directory = Path(str(temporary))
 
     def make_app(self):
-        return AcprofTui(RunConfig.smoke(""), settings_path=self.directory / "settings.json")
+        return AcprofTui(RunConfig.smoke("fixture/model"), settings_path=self.directory / "settings.json")
 
     @staticmethod
     async def finish_check(app, pilot):
@@ -113,6 +114,7 @@ class TestStartupPreflight:
             return [PreflightCheck("Docker", "ok", "ready")]
 
         app = self.make_app()
+        app.configuration.initial_config = RunConfig.smoke("")
         with patch("acprof.tui.run.preflight_controller.quick_preflight", side_effect=slow_check) as check:
             async with app.run_test(size=(80, 24), notifications=True) as pilot:
                 try:
@@ -207,7 +209,7 @@ class TestStartupPreflight:
                 await self.finish_check(app, pilot)
                 assert not (app.query_one("#start-run", Button).disabled)
 
-    async def test_blocking_result_and_relevant_configuration_changes_require_recheck(self):
+    async def test_blocking_result_retries_manually_and_configuration_changes_recheck_automatically(self):
         app = self.make_app()
         with patch("acprof.tui.run.preflight_controller.quick_preflight", side_effect=[
             [PreflightCheck("Docker", "fail", "daemon unavailable")], [], [],
@@ -219,7 +221,9 @@ class TestStartupPreflight:
                 app.preflight.quick_check()
                 await self.finish_check(app, pilot)
                 app.query_one("#model", Input).value = "changed/model"
-                await pilot.pause()
+                await wait_for_condition(pilot, lambda: "changed/model" in str(app.query_one("#command-preview", Static).content)
+                                         and not app.query_one("#start-run", Button).disabled,
+                                         description="local validation after model edit", timeout=3)
                 assert not (app.query_one("#start-run", Button).disabled)
                 app.query_one("#gpus", Select).value = "on"
                 # Form changes debounce their preview. An idle event loop does
@@ -231,9 +235,8 @@ class TestStartupPreflight:
                 await asyncio.wait_for(configuration_invalidated(), timeout=3)
                 assert (app.query_one("#start-run", Button).disabled)
                 assert (app.query_one("#current-environment").display)
-                assert (check.call_count) == (2), "form edits do not start more probes"
-                app.preflight.quick_check()
-                await self.finish_check(app, pilot)
+                await wait_for_condition(pilot, lambda: check.call_count == 3 and not app.preflight.check_running,
+                                         description="automatic GPU recheck", timeout=3)
                 assert (check.call_args.args[0].gpus) == ("on")
                 assert not (app.query_one("#start-run", Button).disabled)
 
@@ -318,10 +321,13 @@ class TestStartupPreflight:
                 finally:
                     release.set()
                 await self.finish_check(app, pilot)
-                assert (app.query_one("#start-run", Button).disabled)
+                await wait_for_condition(pilot, lambda: check.call_count == 2 and not app.preflight.check_running,
+                                         description="check of latest form after stale completion", timeout=3)
+                assert not app.query_one("#start-run", Button).disabled
+                assert app.preflight.checked_config.gpus == "on"
                 assert (app.query_one("#current-environment").display)
                 assert ("obsolete error") not in (app.preflight.preflight_run_reason())
-                check.assert_called_once()
+                assert check.call_count == 2
                 with patch.object(app, 'set_busy') as update:
                     app.preflight.show_quick_check([], "duplicate error", token)
                     update.assert_not_called()
