@@ -66,6 +66,14 @@ def main(argv: Sequence[str] | None = None) -> None:
     app.configuration.initial_config = config
     app.configuration.initial_preset = infer_preset(config)
     app.run()
+    if app.updates.restart_command:
+        # Textual has restored the terminal before replacing this process.
+        command = [*app.updates.restart_command, *(argv or ())]
+        try:
+            os.execv(command[0], command)
+        except OSError as exc:
+            import shlex
+            print(f"Restart failed: {exc}\nRun: {shlex.join(command)}")
 
 
 if __name__ == "__main__":

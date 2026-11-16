@@ -325,6 +325,11 @@ Select:disabled > SelectCurrent { color: $ui-disabled; border: solid $ui-disable
     margin-bottom: 1;
 }
 .settings-section .form-grid { grid-size: 2; grid-columns: 18 1fr; max-width: 76; }
+.version-actions { height: auto; }
+.version-actions Button { width: 1fr; min-width: 8; margin-right: 1; }
+#version-status, #version-installation { height: auto; }
+#version-restart { display: none; }
+#version-manual { display: none; }
 #settings-status.stage-running { color: $accent; }
 #settings-status.stage-success { color: $success; }
 #settings-status.stage-error { color: $error; }

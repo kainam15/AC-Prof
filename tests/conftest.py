@@ -32,7 +32,7 @@ def offline_tui_version_check(request, monkeypatch):
 
     async def respond(transport, request):
         if str(request.url) == "https://pypi.org/pypi/acprof/json":
-            return httpx.Response(200, json={"info": {"version": __version__, "yanked": False}})
+            return httpx.Response(200, json={"releases": {__version__: [{"yanked": False}]}})
         return await original(transport, request)
 
     monkeypatch.setattr(httpx.AsyncHTTPTransport, "handle_async_request", respond)

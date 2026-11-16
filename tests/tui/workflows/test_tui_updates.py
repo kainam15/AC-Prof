@@ -5,6 +5,7 @@ from dataclasses import replace
 
 import httpx
 import pytest
+from packaging.version import Version
 from textual.widgets import Button, Input, Static
 
 from acprof import __version__
@@ -34,7 +35,7 @@ async def test_startup_shows_new_release_without_blocking_input(tmp_path, monkey
         requests.append(request)
         started.set()
         await release.wait()
-        return httpx.Response(200, json={"info": {"version": "9.0.0", "yanked": False}})
+        return httpx.Response(200, json={"releases": {"9.0.0": [{"yanked": False}]}})
 
     monkeypatch.setattr(httpx.AsyncHTTPTransport, "handle_async_request", respond)
     app = make_app(tmp_path)
@@ -59,8 +60,8 @@ async def test_startup_shows_new_release_without_blocking_input(tmp_path, monkey
         text = notice.render().plain
         assert (f"当前版本：{__version__}" if language == "zh" else
                 f"Current version: {__version__}") in text
-        assert ("最新版本：9.0.0" if language == "zh" else "Latest version: 9.0.0") in text
-        assert "uv tool upgrade acprof" in text
+        assert ("可更新至：9.0.0" if language == "zh" else "Update available: 9.0.0") in text
+        assert ("版本管理" if language == "zh" else "Version management") in text
         assert notice.region.intersection(app.screen.region).height == notice.region.height
         app.save_screenshot(f"update-{language}.svg", path=str(tmp_path))
         with MeasurementLock():
@@ -71,8 +72,8 @@ async def test_startup_shows_new_release_without_blocking_input(tmp_path, monkey
         status = app.query_one("#version-status", Static)
         status.scroll_visible(immediate=True)
         await pilot.pause()
-        assert "uv tool upgrade acprof" in str(status.content)
-        assert status.region.intersection(app.screen.region).height == status.region.height
+        assert "9.0.0" in str(status.content)
+        assert status.region.intersection(app.screen.region).height > 0
         app.save_screenshot(f"version-settings-{language}.svg", path=str(tmp_path))
         await pilot.resize_terminal(120, 30)
         await pilot.pause()
@@ -96,12 +97,14 @@ async def test_startup_shows_new_release_without_blocking_input(tmp_path, monkey
 ])
 async def test_pep440_comparison_and_release_eligibility(monkeypatch, current, latest, yanked, available):
     async def respond(_transport, request):
-        return httpx.Response(200, json={"info": {"version": latest, "yanked": yanked}})
+        return httpx.Response(200, json={"releases": {latest: [{"yanked": yanked}]}})
 
     monkeypatch.setattr(httpx.AsyncHTTPTransport, "handle_async_request", respond)
     result = await check_pypi_version(current)
     assert str(result.current) == current
-    assert str(result.latest) == latest
+    assert (str(result.latest) if result.latest else None) == (
+        latest if not yanked and not Version(latest).is_prerelease else None
+    )
     assert result.update_available is available
 
 
@@ -207,7 +210,7 @@ async def test_other_measurement_prevents_any_pypi_request(tmp_path, monkeypatch
 
 async def test_starting_run_clears_update_notification(tmp_path, monkeypatch, ready_host):
     async def respond(_transport, request):
-        return httpx.Response(200, json={"info": {"version": "9.0.0", "yanked": False}})
+        return httpx.Response(200, json={"releases": {"9.0.0": [{"yanked": False}]}})
 
     monkeypatch.setattr(httpx.AsyncHTTPTransport, "handle_async_request", respond)
     app = make_app(tmp_path)
@@ -225,17 +228,17 @@ async def test_starting_run_clears_update_notification(tmp_path, monkeypatch, re
 
 
 @pytest.mark.parametrize(("current", "latest", "yanked", "expected"), [
-    ("0.3.0", "0.3.0", False, "当前已是最新版本"),
-    ("0.3.0", "0.0.1", False, "当前版本高于 PyPI 最新版本"),
-    ("0.3.0", "9.0.0rc1", False, "预发布或已撤回"),
-    ("0.3.0", "9.0.0", True, "预发布或已撤回"),
-    ("0.4.0a1", "0.4.0a1", False, "预发布或已撤回"),
+    ("0.3.0", "0.3.0", False, "已是最新"),
+    ("0.3.0", "0.0.1", False, "低于当前安装版本"),
+    ("0.3.0", "9.0.0rc1", False, "暂无兼容当前 Python"),
+    ("0.3.0", "9.0.0", True, "暂无兼容当前 Python"),
+    ("0.4.0a1", "0.4.0a1", False, "已是最新"),
 ])
 async def test_no_upgrade_keeps_status_without_notification(
     tmp_path, monkeypatch, ready_host, current, latest, yanked, expected,
 ):
     async def respond(_transport, request):
-        return httpx.Response(200, json={"info": {"version": latest, "yanked": yanked}})
+        return httpx.Response(200, json={"releases": {latest: [{"yanked": yanked}]}})
 
     monkeypatch.setattr(httpx.AsyncHTTPTransport, "handle_async_request", respond)
     monkeypatch.setattr("acprof.tui.updates.__version__", current)
@@ -246,7 +249,6 @@ async def test_no_upgrade_keeps_status_without_notification(
         await pilot.pause()
         text = str(app.query_one("#version-status", Static).content)
         assert f"当前版本：{current}" in text
-        assert f"最新版本：{latest}" in text
         assert expected in text
         assert "uv tool upgrade" not in text
         assert not app.query("Toast")

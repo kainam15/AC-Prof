@@ -71,7 +71,7 @@ MESSAGES: dict[str, Entry] = {
         zh="当前版本：{0}\n无法检查 PyPI 最新版本：{1}\n仍可正常使用 AC-Prof。",
         en="Current version: {0}\nCould not check the latest version on PyPI: {1}\nYou can continue using AC-Prof.",
     ),
-    "common.updates.title": Entry(zh="版本更新", en="Version updates"),
+    "common.updates.title": Entry(zh="版本管理", en="Version management"),
     "common.updates.unstable": Entry(
         zh="PyPI 最新版本为预发布或已撤回，暂不建议更新。",
         en="The latest PyPI release is a prerelease or yanked; no update is recommended.",

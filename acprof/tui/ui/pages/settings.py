@@ -21,7 +21,7 @@ def compose_settings_tab(app: AcprofTui) -> ComposeResult:
         with Vertical(classes="page-header"):
             yield app.localization.localized_widget(Static("应用设置", classes="page-title"))
             yield app.localization.localized_widget(Static(
-                "修改立即生效，点击保存后下次启动沿用。",
+                message_id("updates.ui.settings_hint"),
                 id="settings-status", classes="page-summary", markup=False,
             ))
         with VerticalScroll(id="settings-body", classes="pane-scroll"):
@@ -71,6 +71,20 @@ def compose_settings_tab(app: AcprofTui) -> ComposeResult:
                     message_id("common.updates.checking", __version__),
                     id="version-status", markup=False,
                 ))
+                with Grid(classes="form-grid"):
+                    yield app.localization.localized_widget(Label(message_id("updates.ui.channel")))
+                    yield app.localization.localized_select(
+                        ((message_id("updates.ui.stable"), "stable"), (message_id("updates.ui.preview"), "preview")),
+                        value=app.updates.channel, allow_blank=False, id="update-channel",
+                    )
+                with Horizontal(classes="version-actions"):
+                    yield app.localization.localized_widget(Button(message_id("updates.ui.check"), id="version-check"))
+                    yield app.localization.localized_widget(Button(message_id("updates.ui.apply"), id="version-apply", variant="primary", disabled=True))
+                with Horizontal(classes="version-actions"):
+                    yield app.localization.localized_widget(Button(message_id("updates.ui.logs"), id="version-log", disabled=True))
+                    yield app.localization.localized_widget(Button(message_id("updates.ui.restart"), id="version-restart"))
+                yield app.localization.localized_widget(Static("", id="version-installation", markup=False, classes="page-hint"))
+                yield app.localization.localized_widget(Button(message_id("updates.ui.manual_copy"), id="version-manual"))
             yield app.localization.localized_widget(Static("", id="settings-location", classes="page-hint", markup=False))
         with Horizontal(id="settings-actions", classes="action-bar"):
             with Horizontal(classes="action-secondary"):

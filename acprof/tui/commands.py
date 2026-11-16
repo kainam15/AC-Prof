@@ -28,11 +28,12 @@ class OperationState:
     configuring: bool = False
     measuring: bool = False
     closing: bool = False
+    restarting: bool = False
 
     @property
     def busy(self) -> bool:
         return any((self.process, self.reading, self.maintenance,
-                    self.configuring, self.measuring, self.closing))
+                    self.configuring, self.measuring, self.closing, self.restarting))
 
     def allows(self, operation: str) -> bool:
         if self.closing:
@@ -41,6 +42,8 @@ class OperationState:
             return self.stoppable
         if operation == "quit":
             return not (self.process or self.maintenance)
+        if self.restarting:
+            return False
         if operation == "configure":
             return not self.busy
         if operation in {"summary", "report"}:

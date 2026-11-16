@@ -152,7 +152,7 @@ class AcprofTui(BarCursorApp):
         self.localization = LocalizationController(self)
         self.experiments = ExperimentController(self)
         self.preflight = PreflightController(self)
-        self.updates = UpdateController(self)
+        self.updates = UpdateController(self, state_root=settings_path.parent / "versions" if settings_path else None)
         self.results = ResultController(self)
         self.profiles = ProfileController(self)
         self.recovery = RecoveryController(self)
@@ -273,7 +273,8 @@ class AcprofTui(BarCursorApp):
             process=process is not None or bool(self.execution.session.kind),
             stoppable=self.execution.session.launch_pending or (process is not None and process.poll() is None),
             checking=self.preflight.check_running or self.updates.checking, reading=bool(self.read_jobs),
-            maintenance=bool(self.images.operation) or self.images.storage_loading,
+            maintenance=bool(self.images.operation) or self.images.storage_loading or self.updates.installing,
+            restarting=self.updates.needs_restart,
             configuring=self.configuration.environment_open or self.catalog.picker_open,
             measuring=self.execution.session.snapshot.measurement_active, closing=self.ui_closing,
         )
@@ -295,6 +296,7 @@ class AcprofTui(BarCursorApp):
         if not self.is_running or not self.form_ready or self.ui_closing:
             return
         state = self.operation_state()
+        self.updates.refresh_controls()
         busy = busy or state.busy
         # Configuration changes during a run can queue preview redraws and
         # make the visible settings differ from the running subprocess.
@@ -572,6 +574,23 @@ class AcprofTui(BarCursorApp):
     @on(Button.Pressed, '#restore-ui-defaults')
     def on_configuration_restore_ui_defaults(self) -> None:
         self.configuration.restore_ui_defaults()
+
+    @on(Select.Changed, '#update-channel')
+    def on_version_channel(self, event: Select.Changed) -> None:
+        self.updates.select_channel(str(event.value))
+
+    @on(Button.Pressed, '#version-check, #version-apply, #version-log, #version-restart, #version-manual')
+    def on_version_action(self, event: Button.Pressed) -> None:
+        if event.button.id == "version-check":
+            self.updates.start_check(manual=True)
+        elif event.button.id == "version-apply":
+            self.updates.request_install()
+        elif event.button.id == "version-log":
+            self.updates.show_log()
+        elif event.button.id == "version-manual":
+            self.updates.copy_manual()
+        else:
+            self.updates.restart()
 
     @on(Button.Pressed, '#save-ui-settings')
     def on_configuration_save_ui_settings(self) -> None:
