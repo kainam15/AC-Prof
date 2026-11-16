@@ -29,6 +29,7 @@ from acprof.tui.i18n import message_id
 from acprof.tui.run import form as run_form, planning as run_planning
 from acprof.tui.run.diagnostics import PreflightCheck, quick_preflight
 from acprof.tui.run.environment_checks import scan_environment
+from acprof.tui.run.global_status import GlobalStatus, build_status
 from acprof.tui.run.monitor import MonitorPhase, monitor_phase
 from acprof.tui.ui.environment import EnvironmentIndicators, EnvironmentPopover
 
@@ -132,14 +133,20 @@ class PreflightController:
         return self.check_running and self.check_inventory
 
     @property
+    def status(self) -> GlobalStatus:
+        return build_status(
+            self.preflight_config(), issues=self.app.configuration.config_issues,
+            warnings=self.app.configuration.config_warnings,
+            validation_pending=self.app.configuration.validation_pending,
+            checks=self.checks, inventory=self.environment_checks,
+            completed=self.check_completed, current=self.config_matches(),
+            running=self.check_running, inventory_running=self.inventory_running,
+            error=self.error, inventory_error=self.environment_error, cleanup_error=self.cleanup_error,
+        )
+
+    @property
     def display_state(self) -> str:
-        if self.inventory_running or not self.check_completed:
-            return "checking"
-        if self.environment_error:
-            return "error"
-        if any(check.status != "ok" for check in self.environment_checks):
-            return "limited"
-        return "ready"
+        return self.status.state
 
     def network_preflight_report(self, line: str) -> None:
         if self.app.execution.session.snapshot.measurement_active:
@@ -264,23 +271,21 @@ class PreflightController:
     def preflight_run_reason(self) -> str:
         if not self.app.is_running or not self.app.form_ready or self.app.ui_closing:
             return message_id('run.preflight.checking_notice')
-        if self.app.configuration.config_issues:
-            return message_id('run.preflight.configuration_incomplete', join_messages(
-                '；', (issue.reason for issue in self.app.configuration.config_issues),
-            ))
+        status = self.status
+        if status.can_start:
+            return ""
+        failures = [message("{0}: {1}", redact_text(self.app.tr(item.check.label)),
+                            redact_text(self.app.tr(item.check.detail))) for item in status.blockers
+                    if item.group == "error"]
+        if failures:
+            key = ('run.preflight.configuration_incomplete' if status.state == 'incomplete'
+                   else 'run.preflight.collection_blocked')
+            return message_id(key, join_messages("；", failures))
+        if status.state == 'checking':
+            return message_id('run.preflight.checking_notice')
         if self.app.configuration.validation_pending:
             return message_id('run.preflight.validation_pending')
-        if self.check_running:
-            return message_id('run.preflight.checking_notice')
-        if self.cleanup_error:
-            return message_id('run.preflight.check_failed', redact_text(self.cleanup_error))
-        if not self.check_completed or not self.config_matches():
-            return message_id('run.preflight.configuration_changed')
-        if self.error:
-            return message_id('run.preflight.check_failed', redact_text(self.error))
-        failures = [message("{0}: {1}", redact_text(self.app.tr(check.label)), redact_text(self.app.tr(check.detail)))
-                    for check in self.checks if check.status == "fail"]
-        return message_id('run.preflight.collection_blocked', join_messages("；", failures)) if failures else ""
+        return message_id('run.preflight.configuration_changed')
 
     def config_matches(self) -> bool:
         return self.same_requirements(self.preflight_config(), self.checked_config, self.checks)
@@ -351,21 +356,7 @@ class PreflightController:
 
     @property
     def collection_state(self) -> str:
-        if self.app.configuration.config_issues:
-            return "incomplete"
-        if self.app.configuration.validation_pending:
-            return "pending"
-        if self.check_running:
-            return "checking"
-        if self.cleanup_error:
-            return "failed"
-        if not self.check_completed or not self.config_matches():
-            return "pending"
-        if self.error or any(check.status == "fail" for check in self.checks):
-            return "failed"
-        if any(check.status == "warn" for check in self.checks):
-            return "limited"
-        return "ready"
+        return self.status.state
 
     def allow_collection(self) -> bool:
         reason = self.preflight_run_reason()
@@ -518,10 +509,7 @@ class PreflightController:
             self.cleanup_error = cleanup_error
         # Inventory is informational; only requirements of this configuration block.
         if environment_checks is not None or environment_error:
-            failed = {check.check_id for check in checks if check.status == "fail"}
-            self.environment_checks = tuple(replace(check, status="warn")
-                if check.status == "fail" and check.check_id and check.check_id not in failed
-                else check for check in (environment_checks or ()))
+            self.environment_checks = tuple(environment_checks or ())
             self.environment_error = environment_error
             self.completed_at = datetime.now().astimezone()
             self.lock_acquired = lock_acquired

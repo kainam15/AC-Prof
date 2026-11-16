@@ -28,7 +28,7 @@ MESSAGES = {
     'run.resources.reason.unsupported': Entry(zh='当前系统不支持 Process 精确配额所需的 cgroup v2。', en='The system lacks the cgroup v2 support required for exact Process quotas.'),
     'run.resources.reason.verification': Entry(zh='资源配额或进程归属验证失败，不能按该配额采集。', en='Quota or process membership verification failed; collection with these quotas is blocked.'),
     'run.resources.retry': Entry(zh='重新检查权限', en='Recheck permissions'),
-    'run.resources.state.authorization': Entry(zh='! 待授权', en='! Authorization needed'),
+    'run.resources.state.authorization': Entry(zh='× 待授权', en='× Authorization needed'),
     'run.resources.state.blocked': Entry(zh='× 阻断', en='× Blocked'),
     'run.resources.state.checking': Entry(zh='… 检查中', en='… Checking'),
     'run.resources.state.ready': Entry(zh='✓ 就绪', en='✓ Ready'),

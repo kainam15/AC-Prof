@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 
 from acprof.analysis.uncertainty import summarize_windows
 from acprof.capabilities import Capability, CapabilityStatus, measurement_requested
-from acprof.experiments.configuration import RunConfig
+from acprof.experiments.configuration import RunConfig, RunConfigError
 from acprof.gpu_mode import normalize_gpu_mode
 from acprof.host.env_utils import load_project_env
 from acprof.host.measurement.capture import tcpdump_capability_available
@@ -282,18 +282,25 @@ def _process_checks(config):
     from acprof.host.runtimes.process_control import require_process_supervision
     from acprof.host.runtimes.resources import preflight_resources
     checks = [PreflightCheck("Runtime", "ok", "Process: managed subprocess; basic collection", runtime_kind="process", check_id="runtime")]
+    requirement = 'process_runtime'
     try:
         replace(config, runtime="process").validate()
         require_process_supervision()
+        requirement = 'process_resources'
         cpus, mems, _ = resource_matrix(replace(config, runtime="process").to_namespace())
         diagnostic = preflight_resources(cpus, mems, config.cpuset_cpus)
+    except RunConfigError as exc:
+        checks.extend(PreflightCheck('Configuration', 'fail', issue.reason,
+                                    check_id='config_' + (issue.field or 'other'), source='configuration')
+                      for issue in exc.issues)
     except ProcessResourceError as exc:
         diagnostic = with_guidance(replace(exc.diagnostic, detail="\n".join(
             part for part in (exc.diagnostic.detail, *getattr(exc, "__notes__", ())) if part)))
         checks.append(PreflightCheck("Process resources", "fail", diagnostic.summary,
                                     diagnostic.code, check_id="process_resources", resource_diagnostic=diagnostic))
     except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired) as exc:
-        checks.append(PreflightCheck("Process resources", "fail", str(exc), check_id="process_resources"))
+        checks.append(PreflightCheck("Process resources" if requirement == 'process_resources' else "Process supervision",
+                                    "fail", str(exc), check_id=requirement))
     else:
         checks.append(PreflightCheck("Process resources", "ok",
                                     f"CPU={config.cpus}, memory={config.mems}; auto=inherited, sharing=unknown", check_id="process_resources",

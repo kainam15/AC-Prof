@@ -51,7 +51,7 @@ EnvironmentIndicator:focus { text-style: bold; }
 EnvironmentIndicator .environment--success, EnvironmentSignal .environment--success { color: $success; }
 EnvironmentIndicator .environment--warning, EnvironmentSignal .environment--warning { color: $warning; }
 EnvironmentIndicator .environment--error, EnvironmentSignal .environment--error { color: $error; }
-EnvironmentIndicator .environment--pending, EnvironmentSignal .environment--neutral { color: $text-muted; }
+EnvironmentIndicator .environment--pending, EnvironmentIndicator .environment--not_requested, EnvironmentSignal .environment--neutral, EnvironmentSignal .environment--info { color: $text-muted; }
 #preflight-title { height: 1; text-style: bold; }
 #preflight-summary { padding: 0; max-height: 2; }
 #preflight-scroll { height: auto; overflow-x: hidden; }

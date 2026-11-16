@@ -24,7 +24,7 @@ from acprof.tui.run.environment_view import (
     ("error", "error", "error", "×", "Check error"),
     ("pending", "pending", "neutral", "-", "Execution unverified"),
     ("declared", "pending", "neutral", "-", "Platform declaration"),
-    ("not_requested", "pending", "neutral", "-", "Not enabled"),
+    ("not_requested", "not_requested", "neutral", "-", "Not enabled"),
     ("future_state", "pending", "neutral", "-", "Unknown"),
 ])
 def test_statuses_describe_machine_evidence_without_exposing_enums(status, group, level, symbol, english):
@@ -41,8 +41,8 @@ def test_statuses_describe_machine_evidence_without_exposing_enums(status, group
 @pytest.mark.parametrize(("status", "expected", "group"), [
     ("ok", "error", "error"),
     ("warn", "warn", "warning"),
-    ("future_state", "error", "error"),
-    ("not_requested", "not_requested", "pending"),
+    ("future_state", "future_state", "pending"),
+    ("not_requested", "not_requested", "not_requested"),
 ])
 def test_capability_check_error_preserves_warning_and_not_requested_severity(status, expected, group):
     row = PreflightCheck("GPU", status, "", capability_status="error", check_id="gpu_device")
@@ -243,7 +243,6 @@ def test_group_state_is_explicit_without_deriving_freshness_from_details(state, 
 
 
 @pytest.mark.parametrize(("status", "headline"), [
-    ("not_requested", "Not enabled (1)"),
     ("declared", "Platform declaration (1)"),
     ("future_state", "Unverified (1)"),
 ])

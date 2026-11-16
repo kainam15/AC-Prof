@@ -22,7 +22,7 @@ def app(tmp_path, monkeypatch):
     from unittest.mock import Mock
 
     monkeypatch.delenv("NO_COLOR", raising=False)
-    probe = Mock(return_value=[PreflightCheck("Docker", "warn", "fixture diagnostic")])
+    probe = Mock(return_value=[PreflightCheck("Docker", "warn", "fixture diagnostic", check_id="docker", runtime_kind="docker")])
     monkeypatch.setattr("acprof.tui.run.preflight_controller.quick_preflight", probe)
 
     def machine_checks(**kwargs):
@@ -32,7 +32,9 @@ def app(tmp_path, monkeypatch):
                        for name in ENVIRONMENT_CHECK_IDS if name not in known]
 
     monkeypatch.setattr("acprof.tui.run.preflight_controller.scan_environment", machine_checks)
-    instance = AcprofTui(RunConfig.smoke(""), settings_path=tmp_path / "settings.json")
+    instance = AcprofTui(replace(RunConfig.smoke("fixture/model"), runtime="docker", profiling_mode="full",
+                                 gpus="on", compute_profile_tool="both", execution_profile_tool="both", repeat=3),
+                         settings_path=tmp_path / "settings.json")
     return instance, probe
 
 
@@ -133,6 +135,7 @@ async def test_environment_counts_filter_cached_checks_on_hover(app, language, m
 
     app, probe = app
     app.configuration.preferences = replace(app.configuration.preferences, language=language)
+    probe.return_value = []
     scan = Mock(return_value=[
         PreflightCheck("Docker", "ok", "daemon ready", check_id="docker"),
         PreflightCheck("uv", "ok", "uv ready", check_id="uv"),
@@ -144,14 +147,14 @@ async def test_environment_counts_filter_cached_checks_on_hover(app, language, m
     monkeypatch.setattr("acprof.tui.run.preflight_controller.scan_environment", scan)
     async with app.run_test(size=(80, 24)) as pilot:
         await settle(app, pilot)
-        assert counts(app) == ["× 0", "! 3", "✓ 2", "- 1"]
+        assert counts(app) == ["× 0", "! 3", "✓ 2", "… 1", "- 1"]
         panel = app.preflight.panel
         assert not panel.display
         tabs = app.query_one("#main-tabs").region
         for group, identifiers, label in (
-            ("error", set(), "异常" if language == "zh" else "Error"),
+            ("error", set(), "错误" if language == "zh" else "Error"),
             ("warning", {"cpu_energy", "cpu_instructions", "gpu_power"}, "警告" if language == "zh" else "Warning"),
-            ("success", {"docker", "uv"}, "通过" if language == "zh" else "Passed"),
+            ("success", {"docker", "configuration"}, "通过" if language == "zh" else "Passed"),
             ("pending", {"torch"}, "待验证" if language == "zh" else "Unverified"),
         ):
             entry = app.query_one("#environment-" + group)
@@ -188,32 +191,34 @@ async def test_environment_counts_keep_pending_errors_and_refresh_visible(app):
     async with app.run_test(size=(80, 24)) as pilot:
         await settle(app, pilot)
         app.preflight.environment_checks = ()
+        app.preflight.checks = ()
         app.preflight.check_completed = False
         app.preflight.refresh_preflight_state()
-        assert counts(app) == ["× 0", "! 0", "✓ 0", "- 24"]
+        assert counts(app) == ["× 0", "! 0", "✓ 1", "… 1"]
         app.preflight.check_completed = True
         app.preflight.environment_error = "fixture scanner failed"
         app.preflight.refresh_preflight_state()
-        assert counts(app) == ["× 1", "! 0", "✓ 0"]
-        await pilot.hover("#environment-error")
+        assert counts(app) == ["× 0", "! 1", "✓ 1"]
+        await pilot.hover("#environment-warning")
         await pilot.pause()
-        assert app.query("#preflight-signal-check_error")
+        assert app.query("#preflight-signal-inventory_error")
         app.preflight.environment_error = ""
         app.preflight.environment_checks = (PreflightCheck("Docker", "ok", "daemon ready", check_id="docker"),)
         app.preflight.refresh_preflight_state()
         await pilot.pause()
-        assert counts(app) == ["× 0", "! 0", "✓ 1"]
-        assert not app.query(".environment-signal"), "the hovered error group must discard stale checks"
+        assert counts(app) == ["× 0", "! 0", "✓ 2"]
+        assert not app.query(".environment-signal"), "the hovered warning group must discard resolved issues"
         assert "没有对应检查项" in detail_text(app)
         app.preflight.check_running = True
         app.preflight.refresh_preflight_state()
-        assert counts(app) == ["× 0", "! 0", "✓ 1", "- …"], "rechecking cached results must remain visible"
+        assert counts(app) == ["× 0", "! 0", "✓ 1", "… 2"], "old success becomes checking"
         await pilot.pause()
         await pilot.hover("#environment-pending")
-        assert "正在检查全部机器能力" in detail_text(app)
+        await pilot.pause()
+        assert "正在检查" in detail_text(app)
         app.preflight.environment_checks = (PreflightCheck("Torch", "pending", "unverified", check_id="torch"),)
         app.preflight.refresh_preflight_state()
-        assert counts(app) == ["× 0", "! 0", "✓ 0", "- …"]
+        assert counts(app) == ["× 0", "! 0", "✓ 1", "… 2"]
         app.preflight.check_running = False
         probe.assert_called_once()
 
@@ -265,13 +270,14 @@ async def test_hover_pin_and_dismiss_keep_page_layout_and_cached_probe(app):
         await pilot.hover("#environment-warning")
         await pilot.pause()
         assert panel.display
-        assert visible_buttons(panel) == [panel.retry_button]
+        assert visible_buttons(panel)[0] is panel.retry_button
+        assert len(visible_buttons(panel)) == 2
         assert tabs.region == before
         assert tabs.active == "run-tab"
         await pilot.hover(app.preflight.panel.retry_button)
         await pilot.pause(0.25)
         assert panel.display, "crossing into the panel must cancel delayed closure"
-        await pilot.hover("#preflight-signal-0")
+        await pilot.hover("#preflight-signal-docker")
         await pilot.pause()
         assert "fixture diagnostic" in detail_text(app)
         await pilot.click("#environment-warning")
@@ -292,6 +298,8 @@ async def test_keyboard_overlay_and_left_aligned_title_survive_resize(app, langu
         entry = app.query_one("#environment-warning", Static)
         assert entry.can_focus, "Tab must reach each environment entry"
         app.query_one("#quit-app").focus()
+        await pilot.press("shift+tab")
+        assert app.focused is app.query_one("#environment-not_requested")
         await pilot.press("shift+tab")
         assert app.focused is app.query_one("#environment-success")
         app.query_one("#environment-error").focus()
@@ -370,7 +378,7 @@ async def test_hover_reentry_and_modal_hide_transient_panel(app):
         assert not panel.display
         app.query_one("#quit-app").focus()
         await pilot.pause()
-        await pilot.press("shift+tab", "shift+tab", "shift+tab")
+        await pilot.press("shift+tab", "shift+tab", "shift+tab", "shift+tab")
         assert app.focused is app.query_one("#environment-error")
         await pilot.press("enter")
         assert panel.display
@@ -404,7 +412,7 @@ async def test_environment_overlay_remains_reachable_above_maximized_log(app):
 ])
 async def test_projection_always_displays_all_machine_capabilities(app, runtime, mode, gpu):
     app, probe = app
-    app.configuration.initial_config = replace(RunConfig.smoke(""), runtime=runtime, profiling_mode=mode, gpus=gpu)
+    app.configuration.initial_config = replace(RunConfig.smoke("fixture/model"), runtime=runtime, profiling_mode=mode, gpus=gpu)
     probe.return_value = [PreflightCheck("Runtime", "ok", runtime, runtime_kind=runtime, check_id="runtime")]
     if runtime == "process":
         probe.return_value.append(PreflightCheck("process_cpu", "ok", "psutil", "available", check_id="process_cpu"))
@@ -412,7 +420,13 @@ async def test_projection_always_displays_all_machine_capabilities(app, runtime,
         await settle(app, pilot)
         rows = {row.check_id: row for row in display_checks(app.preflight)}
         for name in ("cpu_energy", "gpu_power", "gpu_memory", "process_cpu", "container_cpu", "ncu", "nsys", "torch", "massif"):
-            assert rows[name].status == "ok"
+            expected = (
+                name in {'cpu_energy', 'gpu_power'} and runtime == 'docker' and mode == 'full' and (name != 'gpu_power' or gpu == 'on')
+                or name == 'gpu_memory' and gpu == 'on'
+                or name == 'process_cpu' and runtime == 'process'
+                or name == 'container_cpu' and runtime == 'docker'
+            )
+            assert rows[name].status == ('ok' if expected else 'not_requested')
         assert "docker" in rows
         assert "latency" not in rows
         assert "throughput" not in rows
@@ -421,7 +435,7 @@ async def test_projection_always_displays_all_machine_capabilities(app, runtime,
 
 async def test_details_and_start_reason_are_redacted_and_scrollable(app, monkeypatch):
     app, probe = app
-    app.configuration.initial_config = replace(RunConfig.smoke(""), profiling_mode="full")
+    app.configuration.initial_config = replace(RunConfig.smoke("fixture/model"), runtime="docker", profiling_mode="full", gpus="on")
     probe.return_value = [PreflightCheck(
         "perf instructions", "fail", 'token=fixture-secret\nhttps://user:password@example.org/check?key=hidden\n' +
         "very long diagnostic " * 250 + "\nEND OF CHECK OUTPUT", "permission_denied", check_id="cpu_instructions", source="perf_stat",
@@ -473,7 +487,7 @@ async def test_details_and_start_reason_are_redacted_and_scrollable(app, monkeyp
 async def test_status_symbols_explain_cached_checks_on_hover_and_keyboard_focus(app, language):
     app, probe = app
     app.configuration.preferences = replace(app.configuration.preferences, language=language)
-    app.configuration.initial_config = replace(RunConfig.smoke(""), runtime="docker", profiling_mode="full")
+    app.configuration.initial_config = replace(RunConfig.smoke("fixture/model"), runtime="docker", profiling_mode="full", gpus="on")
     probe.return_value = [
         PreflightCheck("Docker", "ok", "daemon ready", check_id="docker"),
         PreflightCheck("RAPL", "warn", "RAPL fixture limitation", "unsupported", check_id="cpu_energy"),
@@ -499,7 +513,7 @@ async def test_status_symbols_explain_cached_checks_on_hover_and_keyboard_focus(
             if language == "en" and identifier in {"docker", "cpu_instructions", "gpu_memory"}:
                 visible = app.screen._compositor.render_strips()[region.y].crop(region.x, region.right).text
                 if identifier == "cpu_instructions":
-                    assert "Unavailable" in visible
+                    assert "Blocked" in visible
                 else:
                     assert " · " not in visible
             problem = identifier in {"cpu_energy", "cpu_instructions", "check_error"}
@@ -545,7 +559,7 @@ async def test_status_symbols_explain_cached_checks_on_hover_and_keyboard_focus(
         previous_detail = detail_text(app)
         app.query_one("#gpus", Select).value = "on"
         await pilot.pause()
-        assert app.preflight.display_state == "limited"
+        assert app.preflight.display_state == "failed"
         assert detail_text(app) == previous_detail
         probe.assert_called_once()
 
@@ -632,7 +646,7 @@ async def test_selected_check_clears_when_category_or_cached_checks_change(app):
         assert "warning evidence" not in detail_text(app)
         assert await pilot.click("#preflight-signal-environment")
         assert await pilot.hover("#preflight-signal-docker")
-        app.preflight.environment_checks = (
+        app.preflight.checks = app.preflight.environment_checks = (
             PreflightCheck("Docker", "ok", "refreshed Docker evidence", check_id="docker"),
         )
         app.preflight.refresh_preflight_state()
@@ -648,6 +662,8 @@ async def test_selected_check_clears_when_category_or_cached_checks_change(app):
 
 async def test_stale_auto_runtime_and_measurement_actions(app):
     app, probe = app
+    app.configuration.initial_config = RunConfig.smoke("fixture/model")
+    app.preflight.AUTO_CHECK_DELAY = 60
     probe.return_value = [PreflightCheck("Runtime", "ok", "Process", runtime_kind="process", check_id="runtime")]
     async with app.run_test(size=(80, 24)) as pilot:
         await settle(app, pilot)
@@ -655,7 +671,7 @@ async def test_stale_auto_runtime_and_measurement_actions(app):
         app.query_one("#runtime", Select).value = "docker"
         await pilot.pause()
         assert app.preflight.selected_runtime == ""
-        assert app.preflight.display_state == "ready"
+        assert app.preflight.display_state == "pending"
         assert app.query_one("#start-run", Button).disabled
         await pilot.click("#environment-warning")
         assert "Process" not in context_text(app), "the old selected runtime is not machine evidence"

@@ -149,6 +149,7 @@ class TestStartupPreflight:
 
     async def test_warning_entry_opens_details_and_retry_clears_it(self):
         app = self.make_app()
+        app.configuration.initial_config = replace(app.configuration.initial_config, repeat=3)
         with patch("acprof.tui.run.preflight_controller.scan_environment", side_effect=[
             [PreflightCheck("optional collector", "warn", "not supported [detail]")],
             [PreflightCheck("Docker", "ok", "ready")],
@@ -158,7 +159,7 @@ class TestStartupPreflight:
                 assert not (app.query_one("#start-run", Button).disabled)
                 assert (await pilot.click("#environment-warning"))
                 await pilot.pause()
-                assert await pilot.hover("#preflight-signal-0")
+                assert await pilot.hover("#preflight-signal-check_0")
                 await pilot.pause()
                 assert "not supported [detail]" in str(app.query_one("#preflight-callout").query_one(".callout-raw", Static).content)
                 assert (await pilot.click(app.preflight.panel.retry_button))
@@ -244,7 +245,7 @@ class TestStartupPreflight:
         app = self.make_app()
         with patch("acprof.tui.run.preflight_controller.scan_environment", return_value=[
             PreflightCheck("Docker", "fail", "daemon unavailable\n" + "details\n" * 50),
-        ]), patch("acprof.tui.run.preflight_controller.quick_preflight", return_value=[]):
+        ]), patch("acprof.tui.run.preflight_controller.quick_preflight", return_value=[PreflightCheck("Docker", "fail", "daemon unavailable", check_id="docker")]):
             async with app.run_test(size=(80, 24)) as pilot:
                 await self.finish_check(app, pilot)
                 for language in ("zh", "en"):

@@ -58,6 +58,7 @@ class ConfigurationController:
         self.planned_input_identity: tuple[object, ...] | None = None
         self.environment_open: bool = False
         self.config_issues: tuple[ConfigIssue, ...] = ()
+        self.config_warnings: tuple[ConfigIssue, ...] = ()
         self.validation_pending = True
         self.field_errors_visible = False
         self.applying_config = False
@@ -153,13 +154,14 @@ class ConfigurationController:
     def show_settings(self) -> None:
         self.app.activate_tab("settings-tab")
 
-    def open_environment_settings(self) -> None:
+    def open_environment_settings(self, *, permissions: bool = False) -> None:
         if self.app.is_busy() or self.app.preflight.check_running:
             return
         from acprof.tui.settings.environment import EnvironmentSettingsScreen
         try:
             screen = EnvironmentSettingsScreen(
                 self.app.project_dir, self.settings_path.parent, sniff_iface=self.input("sniff-iface"),
+                initial_tab='permissions-tab' if permissions else 'connections-tab',
             )
         except (OSError, ValueError) as read_error:
             self.app.notify(message_id('settings.environment.read_failed', type(read_error).__name__), severity="error")
@@ -304,6 +306,8 @@ class ConfigurationController:
             return
         self.field_errors_visible = True
         control = self.update_field_errors(exc.issues)
+        self.validation_pending = False
+        self.app.preflight.refresh_preflight_state()
         if control is None:
             return
         ancestors = list(control.ancestors)
@@ -320,6 +324,8 @@ class ConfigurationController:
         from acprof.tui.run.resource_view import field_issues
         from acprof.tui.settings.field_validation import render_field_issues
         self.config_issues = tuple(issues)
+        if self.config_issues:
+            self.config_warnings = ()
         return render_field_issues(self.app, (*self.config_issues, *field_issues(self.app.preflight)), self.app.localization.tr)
 
     def focus_config_field(self, control: Widget) -> None:
@@ -327,6 +333,21 @@ class ConfigurationController:
                 and not self.app.execution.session.snapshot.measurement_active):
             control.focus(scroll_visible=False)
             control.scroll_visible(animate=False, immediate=True)
+
+    def open_config_field(self, field: str) -> None:
+        """Reveal the existing control, preserving its local validation feedback."""
+        controls = {value: key for key, value in
+                    {**run_form.INPUT_FIELDS, **run_form.SELECT_FIELDS, **run_form.CHECKED_FIELDS}.items()}
+        controls.update(compute_profile_tool='torch-profiler', execution_profile_tool='massif-profiler')
+        control = self.app.query_one('#' + controls.get(field, 'model'))
+        ancestors = list(control.ancestors)
+        page = next((item.id for item in ancestors if item.id in {'run-form', 'advanced-form'}), 'run-form')
+        self.app.activate_tab('run-tab')
+        self.show_run_form(page)
+        for ancestor in ancestors:
+            if isinstance(ancestor, Collapsible):
+                ancestor.collapsed = False
+        self.app.call_after_refresh(self.focus_config_field, control)
 
     def refresh_command_preview(
         self, *, notify: bool = True, sync_preset: bool = False
@@ -336,6 +357,7 @@ class ConfigurationController:
         config = None
         try:
             config = self.collect_config()
+            self.config_warnings = run_planning.configuration_warnings(config)
             command = build_run_command(
                 config,
                 project_dir=self.app.project_dir,

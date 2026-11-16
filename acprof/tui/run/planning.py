@@ -28,6 +28,12 @@ class PlanView:
     callout: CalloutContent | None = None
 
 
+def configuration_warnings(config: RunConfig) -> tuple[ConfigIssue, ...]:
+    """Keep plan feedback and global data-quality warnings on the same rule."""
+    return ((ConfigIssue('repeat', message_id('run.plan.insufficient_windows')),)
+            if config.repeat < 3 else ())
+
+
 def input_identity(config: RunConfig) -> tuple:
     return tuple(getattr(config, name) for name in (
         "model", "model_source", "revision", "task", "tasks", "task_run_id", "task_family", "backend", "model_spec", "workload_spec", "batch_size",
@@ -110,7 +116,7 @@ def _plan_rows(config: RunConfig, planned: dict | None, estimate: RunEstimate) -
                            estimate.formal_windows if estimate.formal_windows is not None else pending)),
         FactRow(message_id("run.plan.per_condition_label"),
                 message_id("run.plan.per_condition_value", config.repeat),
-                status="limited" if config.repeat < 3 else None),
+                status="limited" if configuration_warnings(config) else None),
     )
 
 
@@ -132,7 +138,7 @@ def _plan_details(
     )
     details: tuple[FactRow, ...] = (
         FactRow(message_id("run.plan.evidence_label"),
-                message_id("run.plan.insufficient_windows" if config.repeat < 3
+                message_id("run.plan.insufficient_windows" if configuration_warnings(config)
                            else "run.plan.valid_counts_note")),
         FactRow(message_id("run.plan.scale_values_label"),
                 scales or message_id("common.state.pending"), detail=scales, copyable=bool(scales)),
@@ -181,7 +187,7 @@ def run_plan_view(
 ) -> PlanView:
     """Project a validated configuration; callers resolve runtime and environment defaults."""
     estimate = estimate_run(config, planned)
-    if config.repeat < 3:
+    if configuration_warnings(config):
         summary = StatusSummary("warning", message_id("run.plan.flow_check_limited"))
     else:
         summary = StatusSummary("neutral", message_id(

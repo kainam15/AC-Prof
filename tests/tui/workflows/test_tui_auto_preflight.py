@@ -181,8 +181,9 @@ async def test_edits_during_worker_check_only_latest_snapshot_and_never_enable_s
             assert app.query_one("#start-run", Button).disabled
             assert app.preflight.selected_runtime == ""
             assert app.preflight.collection_state == "checking"
-            assert app.preflight.display_state == "ready", "cached inventory is not being rescanned"
-            assert not app.query_one("#environment-pending").display
+            assert app.preflight.display_state == "checking"
+            assert not app.preflight.inventory_running, "cached inventory is not being rescanned"
+            assert app.query_one("#environment-pending").display
             app.preflight.show_quick_check([], "late duplicate", original_token)
             assert app.preflight.check_running
             assert "late duplicate" not in app.preflight.error

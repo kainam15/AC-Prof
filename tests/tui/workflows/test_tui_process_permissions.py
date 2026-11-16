@@ -128,8 +128,8 @@ async def test_real_worker_retry_rechecks_and_keeps_numeric_quotas(tmp_path, mon
         assert not app.preflight.preflight_run_reason()
 
 
-async def test_unselected_inventory_failures_are_warnings_and_do_not_block_process(tmp_path):
-    from acprof.tui.run.environment_view import item_status
+async def test_unselected_inventory_failures_are_not_requested_and_do_not_block_process(tmp_path):
+    from acprof.tui.ui.environment import display_checks
     app = AcprofTui(replace(RunConfig.smoke('fixture/model'), runtime='process', cpus='auto', mems='auto'),
                     settings_path=tmp_path / 'settings.json')
     async with app.run_test(size=(80, 24)) as pilot:
@@ -140,7 +140,9 @@ async def test_unselected_inventory_failures_are_warnings_and_do_not_block_proce
                      for name in ('docker', 'ncu', 'nsys', 'massif', 'torch')]
         app.preflight.show_quick_check([], '', token, environment_checks=inventory)
         await pilot.pause()
-        assert all(item_status(row) == 'warn' for row in app.preflight.environment_checks)
+        assert all(row.status == 'fail' for row in app.preflight.environment_checks)
+        assert all(row.status == 'not_requested' for row in display_checks(app.preflight)
+                   if row.check_id in {'docker', 'ncu', 'nsys', 'massif', 'torch'})
         assert not app.preflight.preflight_run_reason()
         assert not app.query_one('#start-run', Button).disabled
 

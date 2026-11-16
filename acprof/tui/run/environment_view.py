@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 
 from acprof.messages import join_messages
@@ -19,6 +19,7 @@ from acprof.tui.ui.view_models import (
 
 if TYPE_CHECKING:
     from acprof.tui.run.diagnostics import PreflightCheck
+    from acprof.tui.run.global_status import StatusItem
 
 
 LABELS = {
@@ -58,12 +59,16 @@ _DISPLAY_STATES = {
     "pending": ("pending", "run.environment.item.pending"),
     "declared": ("unverified", "run.environment.item.declared"),
     "not_requested": ("unknown", "run.environment.item.not_requested"),
+    "checking": ("checking", "structured.status.checking"),
+    "stale": ("stale", "run.environment.state.stale"),
 }
 _NOTES = {
     "ok": "run.environment.unverified",
     "declared": "run.environment.note.declared",
     "pending": "run.environment.note.pending",
     "not_requested": "run.environment.note.not_requested",
+    "checking": "run.preflight.checking_notice",
+    "stale": "run.status.stale",
 }
 
 
@@ -74,11 +79,12 @@ class EnvironmentCheckView:
 
 
 def item_status(row: PreflightCheck) -> str:
-    return "error" if row.capability_status == "error" and row.status not in {"not_requested", "warn"} else row.status
+    return "error" if row.capability_status == "error" and row.status in {"ok", "fail", "error"} else row.status
 
 
 def check_group(row: PreflightCheck) -> str:
-    return {"ok": "success", "fail": "error", "error": "error", "warn": "warning"}.get(item_status(row), "pending")
+    return {"ok": "success", "fail": "error", "error": "error", "warn": "warning",
+            "not_requested": "not_requested"}.get(item_status(row), "pending")
 
 
 def check_priority(row: PreflightCheck) -> int:
@@ -96,6 +102,51 @@ def check_presentation(row: PreflightCheck) -> StatusPresentation:
     alias, label = _DISPLAY_STATES.get(item_status(row), ("unknown", "common.value.unknown"))
     presentation = status_presentation(alias)
     return StatusPresentation(presentation.level, presentation.symbol, message_id(label))
+
+
+def global_presentation(item: StatusItem) -> StatusPresentation:
+    if item.group == 'error':
+        return StatusPresentation('error', '×', message_id('run.status.blocked'))
+    if item.check.status == 'ok':
+        return status_presentation('passed')
+    if item.check.status == 'pending':
+        return status_presentation('pending')
+    if item.check.status == 'not_requested':
+        return StatusPresentation('neutral', '-', message_id('run.environment.group.not_requested'))
+    return check_presentation(item.check)
+
+
+def global_check_view(item: StatusItem, *, technical_detail: str, cause: str,
+                      check_allowed: bool, navigate_allowed: bool) -> EnvironmentCheckView:
+    """Describe current impact separately from cached diagnostic provenance."""
+    row = item.check
+    view = check_view(row, technical_detail=technical_detail, check_allowed=check_allowed)
+    if view.callout is not None:
+        presentation = global_presentation(item)
+        problem = join_messages(' · ', (check_label(row), presentation.label, cause))
+        next_step = (message_id('run.plan.invalid_next') if row.check_id.startswith('config_')
+                     else message_id('run.status.repeat_next') if row.check_id == 'quality_repeat'
+                     else message_id('run.resources.next') if item.target == 'resources'
+                     else view.callout.next_step)
+        return EnvironmentCheckView(callout=replace(
+            view.callout, problem=problem, next_step=next_step,
+            impact=(message_id('run.status.blocked_impact') if item.blocks
+                    else message_id('run.plan.insufficient_windows') if row.check_id == 'quality_repeat'
+                    else view.callout.impact),
+            actions=(ViewAction('environment-retry', message_id('run.environment.retry'), disabled=not check_allowed),
+                     ViewAction('status-open', message_id('run.status.open'), primary=True, disabled=not navigate_allowed)),
+        ))
+    if view.facts is not None:
+        note = (message_id('run.status.not_requested') if row.status == 'not_requested'
+                else message_id('run.status.stale') if row.status == 'stale'
+                else message_id('run.preflight.checking_notice') if row.status == 'checking'
+                else message_id('run.preflight.configuration_changed') if row.status == 'pending'
+                else message_id('run.resources.inherited') if row.resource_diagnostic and row.resource_diagnostic.code == 'inherited'
+                else cause or view.facts.rows[1].value)
+        return EnvironmentCheckView(facts=replace(view.facts, rows=(
+            replace(view.facts.rows[0], value=global_presentation(item).label), replace(view.facts.rows[1], value=note),
+        )))
+    return view
 
 
 def check_view(row: PreflightCheck, *, technical_detail: str, check_allowed: bool) -> EnvironmentCheckView:

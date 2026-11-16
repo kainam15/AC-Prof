@@ -15,17 +15,17 @@ from acprof.host.preparation.preparation_log import redact_text
 from acprof.messages import Message as CatalogText
 from acprof.tui.i18n import message_id
 from acprof.tui.run.diagnostics import PreflightCheck
-from acprof.tui.run.environment_checks import ENVIRONMENT_CHECK_IDS
 from acprof.tui.run.environment_view import (
     CAPABILITY_SECTIONS,
     check_group,
     check_label,
     check_presentation,
     check_priority,
-    check_view,
-    group_summary,
+    global_check_view,
+    global_presentation,
     item_status,
 )
+from acprof.tui.run.global_status import StatusItem
 from acprof.tui.ui.rendering import CjkScreen
 from acprof.tui.ui.structured import ActionButtons, ActionRequested, Callout, FactGrid, StatusBanner
 from acprof.tui.ui.view_models import (
@@ -43,20 +43,13 @@ if TYPE_CHECKING:
 
 
 def display_checks(controller: PreflightController) -> tuple[PreflightCheck, ...]:
-    """Present machine evidence without consulting the editable experiment."""
-    rows = list(controller.environment_checks)
-    if controller.environment_error:
-        rows.append(PreflightCheck(message_id("run.environment.label.check_error"), "error", controller.environment_error,
-                                   check_id="check_error"))
-    if not controller.check_completed:
-        rows.extend(PreflightCheck(name, "pending", message_id("run.environment.checking_all"),
-                                   check_id=name, source="not_checked") for name in ENVIRONMENT_CHECK_IDS
-                    if name not in {row.check_id for row in rows})
-    return tuple(rows)
+    """Compatibility projection of the same snapshot used by launch admission."""
+    return tuple(item.check for item in controller.status.items)
 
 
 GROUP_SYMBOLS = {group: status_symbol(level) for group, level in (
-    ("error", "error"), ("warning", "warning"), ("success", "success"), ("pending", "neutral"),
+    ("error", "error"), ("warning", "warning"), ("success", "success"), ("pending", "info"),
+    ("not_requested", "neutral"),
 )}
 
 
@@ -72,21 +65,19 @@ class EnvironmentIndicators(Horizontal):
             yield EnvironmentIndicator(self.controller, group)
 
     def update_cached(self) -> None:
-        counts = dict.fromkeys(GROUP_SYMBOLS, 0)
-        for row in display_checks(self.controller):
-            counts[check_group(row)] += 1
+        snapshot = self.controller.status
+        counts = snapshot.counts
         for entry in self.query(EnvironmentIndicator):
-            entry.display = entry.group != "pending" or bool(counts[entry.group]) or self.controller.inventory_running
-            count = "…" if entry.group == "pending" and self.controller.inventory_running else str(counts[entry.group])
-            entry.update(GROUP_SYMBOLS[entry.group] + " " + count)
-            entry.tooltip = self.controller.app.tr(message_id(
-                "run.environment.group_count", message_id("run.environment.group." + entry.group), counts[entry.group]))
+            entry.display = entry.group in {"error", "warning", "success"} or bool(counts[entry.group])
+            entry.update(GROUP_SYMBOLS[entry.group] + " " + str(counts[entry.group]))
+            label = message_id("run.environment.group." + entry.group)
+            entry.tooltip = self.controller.app.tr(message_id("run.environment.group_count", label, counts[entry.group]))
 
 
 class EnvironmentIndicator(Static, can_focus=True):
     """One status entry, with its own keyboard focus and pinned detail."""
 
-    COMPONENT_CLASSES = {"environment--success", "environment--warning", "environment--error", "environment--pending"}
+    COMPONENT_CLASSES = {"environment--success", "environment--warning", "environment--error", "environment--pending", "environment--not_requested"}
     BINDINGS = [("enter,space", "toggle_environment", "Environment")]
 
     def __init__(self, controller: PreflightController, group: str) -> None:
@@ -135,7 +126,9 @@ class EnvironmentHostScreen(CjkScreen):
 class EnvironmentSignal(Static, can_focus=True):
     """A cached check with shared status vocabulary and keyboard inspection."""
 
-    COMPONENT_CLASSES = {"environment--success", "environment--warning", "environment--error", "environment--neutral"}
+    COMPONENT_CLASSES = {"environment--success", "environment--warning", "environment--error", "environment--neutral", "environment--info"}
+
+    BINDINGS = [("enter,space", "open_issue", "Go to issue")]
 
     def __init__(self, panel: EnvironmentPopover, row: PreflightCheck, identifier: str) -> None:
         super().__init__(id=f"preflight-signal-{identifier}", classes="environment-signal", markup=False)
@@ -144,7 +137,7 @@ class EnvironmentSignal(Static, can_focus=True):
 
     def render(self) -> Text:
         status = item_status(self.row)
-        presentation = check_presentation(self.row)
+        presentation = self.panel.presentation(self.row)
         suffix = "" if status in {"ok", "pending"} else " · " + self.panel.status(self.row)
         label = Text(self.panel.label(self.row))
         if self.size.width:
@@ -163,6 +156,16 @@ class EnvironmentSignal(Static, can_focus=True):
     def on_focus(self) -> None:
         self.panel.select(self.row)
 
+    def action_open_issue(self) -> None:
+        self.panel.open_issue(self.row)
+
+    def on_click(self, event: events.Click) -> None:
+        event.stop()
+        if check_group(self.row) in {"error", "warning"}:
+            self.action_open_issue()
+        else:
+            self.panel.select(self.row)
+
 
 class EnvironmentPopover(Vertical):
     CLOSE_DELAY = 0.18
@@ -174,6 +177,7 @@ class EnvironmentPopover(Vertical):
         self.group = "error"
         self.close_timer: Timer | None = None
         self._rows: tuple[PreflightCheck, ...] = ()
+        self._items: dict[str, StatusItem] = {}
         self._rows_language = ""
         self._selected_row: PreflightCheck | None = None
         self._hovered_row: PreflightCheck | None = None
@@ -288,7 +292,28 @@ class EnvironmentPopover(Vertical):
         return self.controller.app.tr(check_label(row))
 
     def status(self, row: PreflightCheck) -> str:
-        return self.controller.app.tr(check_presentation(row).label)
+        return self.controller.app.tr(self.presentation(row).label)
+
+    def presentation(self, row: PreflightCheck):
+        item = self._items.get(row.check_id)
+        return global_presentation(item) if item is not None else check_presentation(row)
+
+    def open_issue(self, row: PreflightCheck) -> None:
+        app = self.controller.app
+        if app.is_busy() or self.controller.check_running or app.execution.session.snapshot.measurement_active:
+            return
+        # A removed or refreshed row must not navigate using stale evidence.
+        item = next((item for item in self.controller.status.items if item.check == row), None)
+        if item is None:
+            return
+        self.close(restore_focus=False)
+        if item.target == 'resources':
+            from acprof.tui.run.resource_view import open_panel
+            open_panel(self.controller)
+        elif item.target.startswith('field:'):
+            app.configuration.open_config_field(item.target.removeprefix('field:'))
+        else:
+            app.configuration.open_environment_settings(permissions=True)
 
     def select(self, row: PreflightCheck) -> None:
         if not self.display or row not in self._rows:
@@ -317,8 +342,12 @@ class EnvironmentPopover(Vertical):
             f"capability_status: {row.capability_status}", f"source: {row.source}",
             f"runtime_kind: {row.runtime_kind}", "", detail,
         )), limit=None)
-        view = check_view(row, technical_detail=technical,
-                          check_allowed=self.controller.app.operation_state().allows("check"))
+        view = global_check_view(
+            self._items[row.check_id], technical_detail=technical, cause=redact_text(next((line for line in detail.splitlines() if line.strip()), ""), limit=180),
+            check_allowed=self.controller.app.operation_state().allows("check"),
+            navigate_allowed=not (self.controller.app.is_busy() or self.controller.check_running
+                                  or self.controller.app.execution.session.snapshot.measurement_active),
+        )
         callout = self.query_one("#preflight-callout", Callout)
         facts = self.query_one("#preflight-facts", FactGrid)
         callout.display = view.callout is not None
@@ -337,12 +366,17 @@ class EnvironmentPopover(Vertical):
         if not self.is_mounted or not self.display:
             return
         controller = self.controller
-        rows = tuple(row for row in display_checks(controller) if check_group(row) == self.group)
+        snapshot = controller.status
+        self._items = {item.check.check_id: item for item in snapshot.items}
+        rows = tuple(item.check for item in snapshot.items if item.group == self.group)
         heading = self.tr("group_count", self.tr("group." + self.group), len(rows))
         self.query_one("#preflight-title", Static).update(
             self.tr("title", heading, self.tr("pinned" if self.pinned else "hover")))
         banner = self.query_one("#preflight-summary", StatusBanner)
-        summary = group_summary(rows, group=self.group, state=controller.display_state)
+        summary = StatusSummary(
+            {"error": "error", "warning": "warning", "success": "success", "pending": "info"}.get(self.group, "neutral")
+            if rows else "neutral", heading,
+        )
         if summary != banner.summary:
             banner.update_summary(summary)
         allowed = controller.app.operation_state().allows("check")
@@ -436,3 +470,6 @@ class EnvironmentPopover(Vertical):
         if event.action_id == "environment-retry":
             event.stop()
             self.controller.quick_check()
+        elif event.action_id == "status-open" and self._inspected_row is not None:
+            event.stop()
+            self.open_issue(self._inspected_row)

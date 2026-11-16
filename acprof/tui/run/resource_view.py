@@ -44,12 +44,13 @@ def resource_state(controller: PreflightController) -> str:
     if check and check.status == 'fail':
         diagnostic = check.resource_diagnostic
         return 'authorization' if diagnostic and diagnostic.code in {'permission_denied', 'delegation_missing'} else 'blocked'
-    return 'blocked' if controller.error else 'ready'
+    return 'blocked' if controller.error else 'ready' if check and check.status == 'ok' else 'stale'
 
 
 def field_issues(controller: PreflightController) -> tuple[ConfigIssue, ...]:
     check = resource_check(controller)
-    if not check or not check.resource_diagnostic or not controller.config_matches() or check.status != 'fail':
+    if (not controller.check_completed or controller.check_running or not check or not check.resource_diagnostic
+            or not controller.config_matches() or check.status != 'fail'):
         return ()
     field = 'cpus' if 'cpu' in check.resource_diagnostic.required else 'mems'
     return (ConfigIssue(field, message_id('run.resources.field_error')),)
@@ -75,7 +76,7 @@ def refresh(controller: PreflightController, *, visible: bool) -> None:
                             else 'run.resources.verified')
     actions_disabled = app.is_busy() or controller.check_running or app.execution.session.snapshot.measurement_active
     app.query_one('#process-resource-callout', Callout).update_content(CalloutContent(
-        'warning' if state == 'authorization' else 'error' if state == 'blocked' else
+        'error' if state in {'authorization', 'blocked'} else
         'success' if state == 'ready' else 'info',
         problem, impact, message_id('run.resources.next'),
         actions=(ViewAction('process-resource-retry', message_id('run.resources.retry'), True, actions_disabled),
