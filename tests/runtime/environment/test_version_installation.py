@@ -26,6 +26,21 @@ from acprof.updates.worker import (
 from tests.support.update_wheels import write_wheel
 
 
+def test_unsupported_platform_does_not_import_linux_lock(tmp_path, monkeypatch):
+    import builtins
+
+    original = builtins.__import__
+
+    def platform_import(name, *args, **kwargs):
+        if name == "fcntl":
+            raise ModuleNotFoundError("No module named 'fcntl'")
+        return original(name, *args, **kwargs)
+
+    monkeypatch.setattr("acprof.updates.service.sys.platform", "win32")
+    monkeypatch.setattr(builtins, "__import__", platform_import)
+    assert not update_active(tmp_path)
+
+
 @pytest.fixture
 def installed_tool(tmp_path, monkeypatch):
     uv = shutil.which("uv")

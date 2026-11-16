@@ -1,7 +1,7 @@
 """Version manager actions use real widgets and controlled installer completion."""
 from __future__ import annotations
 
-from dataclasses import replace
+from dataclasses import asdict, replace
 from pathlib import Path
 from unittest.mock import Mock
 
@@ -245,3 +245,31 @@ async def test_interrupted_state_blocks_actions_and_retains_log(version_manager)
         assert "/fixture/backup" in str(app.query_one("#version-status", Static).content)
         assert not app.query_one("#version-log", Button).disabled
         assert not launches
+
+
+async def test_reopened_tui_observes_worker_before_initial_state_is_published(version_manager, monkeypatch):
+    app, _, active = version_manager
+    async with app.run_test(size=(80, 24)) as pilot:
+        await wait_for_condition(pilot, lambda: app.updates.release is not None, timeout=10, description="checked")
+        installation = app.updates.installation
+        app.updates = UpdateController(app, state_root=app.updates.directory.parent)
+        active.append(True)
+        app.updates.start_check()
+        await wait_for_condition(pilot, lambda: app.updates.installing, timeout=10, description="adopt live updater")
+        assert app.query_one("#start-run", Button).disabled
+        job = app.updates.directory / "jobs/surviving"
+        job.mkdir(parents=True)
+        plan = UpdatePlan(str(installation.prefix), str(installation.entrypoint), str(installation.manager),
+                          "/usr/bin/python3", "1.0.0", "1.1.0a1", "preview", str(app.updates.directory), str(job))
+        atomic_json(job / "plan.json", asdict(plan))
+        atomic_json(app.updates.directory / "status.json", {
+            "status": "running", "phase": "install", "job_dir": str(job),
+        })
+        await wait_for_condition(pilot, lambda: app.updates.installation is not None, timeout=10, description="load updater identity")
+        assert app.updates.installation.entrypoint == installation.entrypoint
+        atomic_json(app.updates.directory / "channel.json", {"channel": "preview"})
+        atomic_json(app.updates.directory / "status.json", {"status": "success", "target": "1.1.0a1"})
+        active.clear()
+        await wait_for_condition(pilot, lambda: not app.updates.installing, timeout=10, description="observed completion")
+        assert app.updates.needs_restart
+        assert app.updates.channel == app.updates.effective_channel == "preview"

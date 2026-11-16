@@ -35,6 +35,9 @@ def read_state(directory: Path, name: str = "status.json") -> dict:
 
 
 def update_active(directory: Path) -> bool:
+    # Automatic installation is Linux-only; read-only checks work elsewhere.
+    if sys.platform != "linux":
+        return False
     import fcntl
 
     try:

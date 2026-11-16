@@ -96,11 +96,7 @@ class UpdateController:
         try:
             # A surviving worker owns the locks and gets observed without HTTP.
             if service.update_active(self.directory):
-                self.install_state = service.read_state(self.directory)
-                attached = service.read_state(Path(self.install_state["job_dir"]), "plan.json")
-                self.installation = Installation("uv tool", Path(attached["prefix"]),
-                    Path(attached["prefix"]) / "bin/python", Path(attached["entrypoint"]), Path(attached["manager"]))
-                self.channel = "preview" if attached["channel"] == "preview" else "stable"
+                self.installation = None
                 self.installing = True
                 self.app.set_busy(True)
                 self.app.run_worker(self.observe_install(), group="installation")
@@ -213,6 +209,14 @@ class UpdateController:
             while True:
                 self.install_state = service.read_state(self.directory)
                 active = service.update_active(self.directory)
+                # The launcher acquires the lock before publishing its plan.
+                # Observe that interval without assuming status.json exists yet.
+                if self.installation is None and self.install_state.get("job_dir"):
+                    attached = UpdatePlan(**service.read_state(Path(self.install_state["job_dir"]), "plan.json"))
+                    self.installation = Installation("uv tool", Path(attached.prefix),
+                        Path(attached.prefix) / "bin/python", Path(attached.entrypoint), Path(attached.manager))
+                    self.channel = "preview" if attached.channel == "preview" else "stable"
+                    self.effective_channel = service.saved_channel(self.directory, self.effective_channel)
                 if self.process is not None:
                     self.process.poll()  # Reap our child; never terminate it on UI cancellation.
                 state = self.install_state.get("status")
@@ -233,7 +237,7 @@ class UpdateController:
                         ))
                     break
                 await asyncio.sleep(0.25)  # Only while the installer owns the measurement lock.
-        except (OSError, ValueError) as exc:
+        except (OSError, ValueError, TypeError) as exc:
             self.status, self.detail = "failed", str(exc)
             # Unknown ownership remains blocked; do not start a measurement.
             self.needs_restart = True
