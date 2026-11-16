@@ -164,9 +164,10 @@ AC-Prof 的内部目录含恢复依据，不沿用 pytest 的可丢弃缓存语�
 
 ## 只保留当前协议
 
-已有明确替代实现的兼容代码直接删除；旧参数、旧 schema 或未登记的运行环境在入口报错。
-当前设置文件要求 version 4，输入计划要求 schema v2，静态元数据要求 schema v7，
+已有明确替代实现的冗余兼容代码直接删除；未登记的旧参数、schema 或运行环境在入口报错。
+当前设置文件要求 version 4，输入计划要求 schema v2，
 抓包记录要求 schema v2 的 `requests` 对象，历史记录单独保存在 schema v1 的 `collection_history.json`。
+静态元数据的当前写入版本与明确支持的历史读取范围统一见[静态元数据协议](../profiling/metadata.md)。
 不读取 `static_meta.csv`，不迁移嵌入静态元数据的 history/last-run，不转换旧 GPU/通用 FLOP 列。
 
 采集只支持 cgroup v2 和锁定依赖的镜像；CPU/GPU 使用匹配 monitor 的对照窗口作为能耗基线。
