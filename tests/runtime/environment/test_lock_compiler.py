@@ -66,8 +66,12 @@ def test_check_is_read_only_and_does_not_use_docker_or_resolver():
             "urllib.request.urlopen", side_effect=AssertionError("check accessed network"),
         ):
             result = check_catalog(root)
-        assert (result["profiles"]) == (40)
-        assert (len(result["environments"])) == (27)
+        assert (result["profiles"]) == (41)
+        assert (len(result["environments"])) == (28)
+        kokoro = next(environment for environment in result["environments"].values()
+                      if environment["environment_key"] == "kokoro-cpu")
+        assert kokoro["platform_id"] == "cpu"
+        assert kokoro["profiles"] == ["kokoro-cpu"]
         onnx_environments = [environment for environment in result["environments"].values()
                              if environment["environment_key"] == "onnxruntime-cpu"]
         assert (len(onnx_environments)) == (1)

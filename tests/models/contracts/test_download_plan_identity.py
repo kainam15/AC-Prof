@@ -16,6 +16,9 @@ def download_plan_context(tmp_path, monkeypatch):
     # Keep these fixture inputs explicit so omitting a production source stays detectable.
     files = {
         "acprof/models/download_plan.py": b"PLANNER_VERSION = 1\n",
+        "acprof/models/diffusion_pipelines.py": b"DIFFUSION_LAYOUT_VERSION = 1\n",
+        "acprof/models/kokoro.py": b"KOKORO_LAYOUT_VERSION = 1\n",
+        "acprof/extensions/kokoro/manifest.json": b"{}\n",
         "acprof/models/files.py": b"CHECKPOINT_VERSION = 1\n",
         "acprof/models/spec.py": b"SPEC_VERSION = 1\n",
         "acprof/container/download_model.py": b"DOWNLOADER_VERSION = 1\n",
@@ -40,7 +43,10 @@ def download_plan_context(tmp_path, monkeypatch):
     "acprof/models/download_plan.py",
     "acprof/models/files.py",
     "acprof/models/spec.py",
-], ids=["planner", "checkpoint-files", "model-spec"])
+    "acprof/models/diffusion_pipelines.py",
+    "acprof/models/kokoro.py",
+    "acprof/extensions/kokoro/manifest.json",
+], ids=["planner", "checkpoint-files", "model-spec", "diffusion-layout", "kokoro-layout", "kokoro-declaration"])
 def test_download_plan_sources_invalidate_store_and_model_identity(download_plan_context, relative):
     root, task = download_plan_context
     runtime_id = "sha256:" + "b" * 64

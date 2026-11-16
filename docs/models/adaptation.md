@@ -83,6 +83,7 @@ Token 序列；输出是形状 `[batch, sequence]` 的逐 Token 原始 logits，
 `auto` 下载计划保留 `config.json`、`kokoro-v1_0.pth`、支持语言的 `voices/*.pt` 和说明／许可文件，
 默认 voice 为 `af_heart`。缺少配置、权重或默认 voice 时提前失败；所选 voice 必须存在且与语言一致。
 文件仍由 Model Store 固定 commit、核对大小和 SHA256、挂载本地 snapshot；支持 blob 符号链接。
+Kokoro 布局校验源码和 manifest 纳入现有下载计划／模型镜像指纹，规则变化不会误用旧计划缓存。
 不增加下载器或模型缓存。官方 `KModel` 显式接收本地配置和权重路径，`KPipeline` 接收已加载模型，
 所有 voice 在 `load()` 中从本地预加载；后续请求只使用 tensor，不向 Hub 请求 voice。
 
