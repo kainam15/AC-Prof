@@ -49,4 +49,4 @@ def test_artifact_order_is_not_part_of_lock_identity(tmp_path):
     data = json.loads(path.read_text())
     data["artifacts"].reverse()
     path.write_text(json.dumps(data))
-    assert len(check_catalog(tmp_path)["environments"]) == 27
+    assert len(check_catalog(tmp_path)["environments"]) == 28

@@ -108,6 +108,18 @@ def test_short_host_commands_use_the_registered_runner():
         if relative.startswith("acprof/container/") or relative == "acprof/system/command.py":
             continue
         tree = ast.parse(path.read_text(encoding="utf-8"))
+        if relative == "acprof/updates/worker.py":
+            # Copied and run with base Python -I while the installed package is
+            # replaced. It cannot import the host runner from that installation.
+            imports = set()
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    imports.update(alias.name.split(".")[0] for alias in node.names)
+                elif isinstance(node, ast.ImportFrom):
+                    assert node.level == 0
+                    imports.add((node.module or "").split(".")[0])
+            assert imports <= sys.stdlib_module_names
+            continue
         aliases = {}
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):

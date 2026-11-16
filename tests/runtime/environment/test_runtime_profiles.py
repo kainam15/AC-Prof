@@ -146,20 +146,29 @@ def test_historical_image_identity_does_not_require_new_environment_fields():
     assert ("environment_id") not in (original)
     assert ("platform_id") not in (original)
 
-def test_startup_error_keeps_python_stderr():
+def test_startup_error_keeps_python_stderr(tmp_path, monkeypatch):
     import subprocess
 
+    from acprof.host.container_state import ContainerStartupError
+
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
+
     def fake_run(command, **kwargs):
-        stderr = "ValueError: custom code is required" if command[:2] == ["docker", "logs"] else ""
-        return subprocess.CompletedProcess(command, 0, stdout="b" * 64 if command[:2] == ["docker", "run"] else "", stderr=stderr)
+        if command[:2] == ["docker", "logs"]:
+            kwargs["stderr"].write("ValueError: custom code is required\n")
+            return subprocess.CompletedProcess(command, 0)
+        return subprocess.CompletedProcess(command, 0, stdout="b" * 64 if command[:2] == ["docker", "run"] else "", stderr="")
 
     with patch("acprof.system.command.run_command", side_effect=fake_run), patch("acprof.host.container_state.inspect_container_state", return_value={
             "Status": "exited", "Running": False, "ExitCode": 1,
         },
-    ), patch("requests.get", side_effect=ConnectionError), pytest.raises(RuntimeError, match="custom code is required"):
+    ), patch("requests.get", side_effect=ConnectionError), pytest.raises(ContainerStartupError) as caught:
         docker_runtime.start_container_session(
             moss_task(), 1, 2, "off", runtime_images.ImageInfo(tag="unit-image"), "unit-startup", "[test]",
         )
+    assert "custom code is required" in Path(caught.value.log_path).read_text()
+    assert caught.value.failure.evidence["log_capture_complete"] is True
+    assert caught.value.failure.reason_code == "runtime_initialization_failed"
 
 def test_model_revision_changes_image_identity():
     task = moss_task()

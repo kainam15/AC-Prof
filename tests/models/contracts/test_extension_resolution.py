@@ -19,7 +19,7 @@ def test_existing_io_and_precision_contracts(row):
     json.loads((Path(__file__).parents[2] / "fixtures").joinpath("extension_contracts_v1.json").read_text())
     if row["extension"] == "torch-timeseries-legacy":
         return  # Rejected execution route, covered separately below.
-    task = TaskInfo("fixture/model", row["task"], row["family"], row["backend"], "", "fixed", "manual",
+    task = TaskInfo(row.get("model_id", "fixture/model"), row["task"], row["family"], row["backend"], "", "fixed", "manual",
                     model_adapter=row["adapter"])
     assert (inference_precision_by_device(task)) == (row["precision"])
     digest = hashlib.sha256(json.dumps(model_io_formats(task), sort_keys=True).encode()).hexdigest()

@@ -17,7 +17,7 @@ def test_export_matches_all_registered_target_locks_without_artifact_downloads(t
         for spec in (*PLATFORMS.values(), *ENVIRONMENTS.values())
     }
     assert set(counts) == registered
-    assert len(counts) == 31
+    assert len(counts) == 32
     assert all(count > 0 for count in counts.values())
     for name, count in counts.items():
         lines = (target / name).read_text().splitlines()

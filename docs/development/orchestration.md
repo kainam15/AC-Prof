@@ -196,6 +196,10 @@ host 的短生命周期同步命令直接复用 `system.command.run_command`，�
 preflight、perf probe、profiler、TUI diagnostics 和 packet 后处理。镜像、状态、容器与调用方
 直接使用 runner；需要非零退出抛错或直通输出的调用显式设置
 `check=True` / `capture_output=False`。container-side subprocess 与开发 scripts 不在此执行边界中。
+版本安装来源查询也使用同一 runner。唯一的安装事务例外是 `updates/worker.py`：该文件被复制后
+由独立基础 Python 以 `-I` 执行，在原安装包替换期间只能依赖标准库，因此自身安装验证保留
+有界 `subprocess.run`。架构检查核对它的标准库导入约束；隔离 uv tool 的失败回退测试验证
+复制后的 worker 仍可运行，不将这一边界扩展到版本管理的其他模块。
 
 runner 接收 literal argv，禁止隐式 shell；stdout/stderr 使用 UTF-8 和 `errors="replace"`。
 返回值保留 `CompletedProcess` 的 args、returncode、stdout/stderr，并增加 `duration_s` 和 metadata。

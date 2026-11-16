@@ -10,6 +10,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+from acprof.system.command import run_command
 from acprof.updates.releases import Channel
 from acprof.updates.worker import read_receipt, validate_uv_layout
 
@@ -82,8 +83,7 @@ def detect_installation() -> Installation:
                 raise ValueError("uv executable not found")
             # An environment override must not redirect the running tool's update.
             for args, expected in (([], prefix.parent), (["--bin"], entry.parent)):
-                result = subprocess.run([uv, "tool", "dir", *args], check=True,
-                                        capture_output=True, text=True, timeout=5)
+                result = run_command([uv, "tool", "dir", *args], check=True, timeout=5)
                 if Path(result.stdout.strip()).resolve() != expected.resolve():
                     raise ValueError("uv tool dir does not match the running installation")
             if direct:
