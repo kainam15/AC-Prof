@@ -1,5 +1,6 @@
 """Cleanup failures remain visible without replacing the original run outcome."""
 
+import io
 import subprocess
 from unittest.mock import Mock
 
@@ -9,40 +10,61 @@ from acprof.monitors import energy_nvml, perf_mips, resource_readers, resource_u
 
 
 @pytest.mark.parametrize("kind", ["energy", "resource"])
-def test_nvml_shutdown_failure_is_reported_once_and_close_remains_idempotent(
-    monkeypatch, caplog, kind,
-):
+def test_nvml_shutdown_failure_propagates_until_close_succeeds(monkeypatch, kind):
     module = energy_nvml if kind == "energy" else resource_usage
-    monitor_type = module.GPUEnergyMonitor if kind == "energy" else module.ResourceUsageMonitor
-    monitor = object.__new__(monitor_type)
-    monitor._closed = False
-    monitor._thread = None
+    nvml = Mock()
+    nvml.nvmlDeviceGetName.return_value = "fixture GPU"
+    monkeypatch.setattr(module, "pynvml", nvml)
     if kind == "resource":
-        monitor._gpu_initialized = True
-    shutdown = Mock(side_effect=RuntimeError("driver shutdown denied"))
-    monkeypatch.setattr(module.pynvml, "nvmlShutdown", shutdown)
+        monkeypatch.setattr(resource_readers, "resolve_container_metric_readers",
+                            Mock(side_effect=RuntimeError("no fixture cgroup")))
+        monkeypatch.setattr(resource_readers, "prepare_cpu_frequency_reader",
+                            lambda *_args: lambda: (None, None))
+        monitor = resource_usage.ResourceUsageMonitor(use_gpu=True)
+    else:
+        monitor = energy_nvml.GPUEnergyMonitor()
+    failure = RuntimeError("driver shutdown denied")
+    nvml.nvmlShutdown.side_effect = failure
 
+    with pytest.raises(RuntimeError, match="driver shutdown denied") as caught:
+        monitor.close()
+
+    assert caught.value is failure
+    assert monitor._closed is False
+    assert monitor._gpu_initialized is True
+    nvml.nvmlShutdown.assert_called_once_with()
+
+    nvml.nvmlShutdown.side_effect = None
     monitor.close()
     monitor.close()
 
     assert monitor._closed is True
-    shutdown.assert_called_once_with()
-    assert "driver shutdown denied" in caplog.text
-    assert "RuntimeError" in caplog.text
+    assert monitor._gpu_initialized is False
+    assert nvml.nvmlShutdown.call_count == 2
 
 
-def test_perf_timeout_after_kill_is_reported(caplog):
+def test_perf_timeout_after_kill_propagates_and_releases_output_streams():
     monitor = perf_mips.PerfMIPSMonitor("test-container")
-    process = Mock()
+    process = Mock(stdout=io.StringIO(), stderr=io.StringIO())
     process.poll.return_value = None
-    process.communicate.side_effect = subprocess.TimeoutExpired("perf", 5)
+    failure = subprocess.TimeoutExpired("perf", 5)
+    process.communicate.side_effect = failure
     monitor._proc = process
 
-    monitor.close()
+    with pytest.raises(subprocess.TimeoutExpired) as caught:
+        monitor.close()
 
+    assert caught.value is failure
+    assert "Cleanup failed for perf process" in caught.value.__notes__
     process.kill.assert_called_once_with()
-    assert "Perf cleanup failed after kill" in caplog.text
-    assert "TimeoutExpired" in caplog.text
+    process.communicate.assert_called_once_with(timeout=5.0)
+    assert process.stdout.closed
+    assert process.stderr.closed
+
+    process.poll.return_value = 0
+    monitor.close()
+    monitor.close()
+    process.kill.assert_called_once_with()
 
 
 def test_cpu_directory_fallback_explains_invalid_online_map(tmp_path, caplog):
