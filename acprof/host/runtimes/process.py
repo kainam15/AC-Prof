@@ -5,6 +5,7 @@ import os
 import socket
 import time
 import uuid
+from contextlib import ExitStack
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
@@ -168,14 +169,15 @@ class ProcessRuntime:
                     if lease is not None:
                         retain_mount_for_cleanup_debt(lease)
                     raise
-            if lease is not None:
-                lease.close()
-            limits.close()
-            if oom and isinstance(exc, Exception):
-                raise RuntimeError(
-                    f"runtime_oom: owned cgroup memory.events oom_kill increased; {format_exception_notes(exc)}"
-                ) from exc
-            raise
+            with ExitStack() as release:
+                release.enter_context(cleanup_on_exit(limits.close, description="Process resource scope"))
+                if lease is not None:
+                    release.enter_context(cleanup_on_exit(lease.close, description="Process model lease"))
+                if oom and isinstance(exc, Exception):
+                    raise RuntimeError(
+                        f"runtime_oom: owned cgroup memory.events oom_kill increased; {format_exception_notes(exc)}"
+                    ) from exc
+                raise
 
     def stop(self, session, *, log_prefix=None):
         try:
@@ -184,8 +186,8 @@ class ProcessRuntime:
             from acprof.host.model_store.store import retain_mount_for_cleanup_debt
             retain_mount_for_cleanup_debt(session.lease)
             raise
-        session.lease.close()
-        session.limits.close()
+        with cleanup_on_exit(session.limits.close, description="Process resource scope"):
+            session.lease.close()
 
     def failure(self, session, memory, returncode):
         if session.limits.oom_killed():

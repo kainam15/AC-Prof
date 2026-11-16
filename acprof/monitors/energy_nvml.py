@@ -1,4 +1,3 @@
-import logging
 import math
 import threading
 import time
@@ -7,6 +6,7 @@ from typing import Any
 import pynvml
 
 from acprof.config import DEFAULT_IDLE_SECONDS
+from acprof.monitors.common import stop_sampling_thread
 from acprof.monitors.gpu_metrics import (
     EnergyResult,
     apply_gpu_energy_counter,
@@ -22,8 +22,6 @@ from acprof.monitors.sampling import (
     SamplingPolicy,
     next_deadline,
 )
-
-_LOG = logging.getLogger(__name__)
 
 SAMPLER_STOP_TIMEOUT_S = 1.0
 COUNTER_SAMPLE_POWER_TOLERANCE = 0.25
@@ -68,6 +66,7 @@ class GPUEnergyMonitor:
         self._init_error = ""
         self._runtime_error = ""
         self._closed = False
+        self._gpu_initialized = False
         self._energy_start_mj: int | None = None
         self._energy_error = ""
         self.idle_energy_source = "unavailable"
@@ -75,6 +74,7 @@ class GPUEnergyMonitor:
 
         try:
             pynvml.nvmlInit()
+            self._gpu_initialized = True
             self.handle = (
                 pynvml.nvmlDeviceGetHandleByUUID(self.device_uuid)
                 if self.device_uuid
@@ -350,12 +350,12 @@ class GPUEnergyMonitor:
     def close(self) -> None:
         if self._closed:
             return
-        if self._thread is not None and self._thread.is_alive():
-            self.stop()
-        try:
+        stop_sampling_thread(self._thread, self._stop_event, description="GPU energy",
+                             timeout=SAMPLER_STOP_TIMEOUT_S)
+        self._thread = None
+        if self._gpu_initialized:
             pynvml.nvmlShutdown()
-        except Exception as exc:
-            _LOG.warning("NVML energy monitor shutdown failed: %s: %s", type(exc).__name__, exc)
+            self._gpu_initialized = False
         self._closed = True
 
     def _sample_loop(self) -> None:

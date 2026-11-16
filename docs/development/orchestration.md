@@ -120,6 +120,12 @@ Process 启动失败时先尝试读取 OOM 证据，再执行既有的进程终�
 进程清理未确认时仍保留 Model Store 租约与资源范围，传播 `RuntimeCleanupError` 阻止后续执行，
 其 `run_error` 保留原始启动异常。轻量真实服务加故障注入可验证所有权与传播；真实 cgroup OOM 仍需硬件验收。
 
+确认子进程退出后，模型 lease 和资源范围分别释放：lease 关闭失败也继续清理资源范围，
+原始启动／验证错误或取消保持身份，次要清理故障写入异常备注。
+未确认退出时两者继续保留，不执行这些释放回调。实现复用 `cleanup_on_exit` 与
+[CPython ExitStack](https://github.com/python/cpython/blob/7c59816cb4d3db8387c454ce33d6b56c7d93fa6e/Lib/contextlib.py)，
+不新增后台清理任务。
+
 `ManagedProcess` 构造期间即持有控制管道，父端关闭或所有权握手失败也必须尝试回收 supervisor。
 构造尚未返回时发生的未确认清理统一传播 `ProcessCleanupError`，由服务与验证入口保留租约和资源范围。
 确认回收后补写实际启动账本：已启动的 supervisor 保留 `started` 与 owner PID，只有未创建进程才标记
@@ -501,6 +507,12 @@ hook，等待计入既有窗口，窗口外验证仍在独立进程。`runtime_s
 或 Ryuk 常驻容器；具体退出、恢复与旧容器处理见[排障](../usage/troubleshooting.md#中断后残留容器或端口占用)。
 CPU 与资源监控共享 PID 查询和采样调度，NVML 保留自己的首采样时机；各自的 `_nan_result`、
 `_result_from_samples` 保留能量积分、窗口计数和缺失值语义，不按同名强行合并。
+
+资源、GPU 能耗和 Process 采样器的 `close()` 只停止线程并释放资源，不重新执行可能失败的
+边界读取或指标汇总；停止等待最多 1 秒，未确认停止时保留 NVML 引用并报告失败。
+NVML 只释放本实例成功初始化的引用，关闭失败可再次收尾；Process 拒绝覆盖仍运行的采样线程。
+perf 在进程已退出或控制管道关闭失败时也回收 stdout/stderr，保留主错误和其他清理故障。
+这些路径由模拟 NVML／采样线程与文件管道故障覆盖，不能替代真实硬件验收。
 
 ### 单 case 请求与独立 profiler 编排
 

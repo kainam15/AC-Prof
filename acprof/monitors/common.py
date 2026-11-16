@@ -61,3 +61,13 @@ def sample_periodically(stop: threading.Event, started_at: float | None, interva
         next_t, skipped = next_deadline(next_t, finished, interval, policy)
         if diagnostics is not None:
             diagnostics.skipped_deadlines += skipped
+
+
+def stop_sampling_thread(thread: threading.Thread | None, stop: threading.Event, *,
+                         description: str, timeout: float = 1.0) -> None:
+    """Confirm quiescence before callers release resources used by the sampler."""
+    stop.set()
+    if thread is not None:
+        thread.join(timeout=timeout)
+        if thread.is_alive():
+            raise RuntimeError(f"{description} sampling thread did not stop within {timeout:.1f}s")

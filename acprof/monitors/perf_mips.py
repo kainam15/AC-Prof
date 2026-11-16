@@ -1,7 +1,6 @@
 """Linux perf based retired-instruction and memory-behavior monitoring."""
 from __future__ import annotations
 
-import logging
 import math
 import os
 import re
@@ -12,13 +11,14 @@ import subprocess
 import sys
 import time
 from collections.abc import Mapping
+from contextlib import ExitStack
 from dataclasses import dataclass
+from functools import partial
 from typing import Any
 
 from acprof.monitors import common
+from acprof.system.cleanup import cleanup_on_exit
 from acprof.system.command import run_command
-
-_LOG = logging.getLogger(__name__)
 
 MIPS_EXIT_CODE = 8
 PERF_EVENT = "instructions"
@@ -416,11 +416,13 @@ class PerfMIPSMonitor:
         self._t_end: float | None = None
 
     def _close_control_pipes(self) -> None:
-        for name in ("_control_write", "_ack_read"):
-            fd = getattr(self, name)
-            setattr(self, name, None)
-            if fd is not None:
-                os.close(fd)
+        with ExitStack() as release:
+            for name in ("_ack_read", "_control_write"):
+                fd = getattr(self, name)
+                setattr(self, name, None)
+                if fd is not None:
+                    release.enter_context(cleanup_on_exit(
+                        partial(os.close, fd), description=f"perf {name} pipe"))
 
     def _control(self, instruction: str) -> None:
         """Synchronize an explicitly disabled/enabled perf counter with its ACK."""
@@ -494,13 +496,10 @@ class PerfMIPSMonitor:
         finally:
             os.close(control_read)
             os.close(ack_write)
-        try:
+        with cleanup_on_exit(self.close, description="perf preparation", on_error_only=True):
             # Preparation is outside the measurement window. Confirm that perf
             # attached to the container PID before enabling event counters.
             self._control("ping")
-        except BaseException:
-            self.close()
-            raise
 
     def start(self) -> None:
         if self._command is None or self._proc is None:
@@ -611,10 +610,18 @@ class PerfMIPSMonitor:
 
     def close(self) -> None:
         self._command = None
-        self._close_control_pipes()
-        if self._proc is not None and self._proc.poll() is None:
-            self._proc.kill()
-            try:
+        with cleanup_on_exit(self._close_process, description="perf process"):
+            self._close_control_pipes()
+
+    def _close_process(self) -> None:
+        if self._proc is None:
+            return
+        with ExitStack() as release:
+            for name in ("stdout", "stderr"):
+                stream = getattr(self._proc, name, None)
+                if stream is not None:
+                    release.enter_context(cleanup_on_exit(stream.close, description=f"perf {name}"))
+            if self._proc.poll() is None:
+                self._proc.kill()
                 self._proc.communicate(timeout=PERF_STOP_TIMEOUT_S)
-            except (OSError, subprocess.SubprocessError) as exc:
-                _LOG.warning("Perf cleanup failed after kill: %s: %s", type(exc).__name__, exc)
+        self._proc = None

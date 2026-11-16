@@ -10,6 +10,39 @@ import pytest
 from acprof.monitors import perf_mips
 
 
+@pytest.mark.parametrize('running', [False, True])
+def test_close_releases_perf_output_streams_even_after_process_exit(running):
+    monitor = perf_mips.PerfMIPSMonitor('fixture')
+    process = SimpleNamespace(poll=lambda: None if running else 0, kill=Mock(),
+                              communicate=Mock(side_effect=OSError('pipe read failed')),
+                              stdin=None, stdout=io.StringIO(), stderr=io.StringIO())
+    monitor._proc = process
+    if running:
+        with pytest.raises(OSError, match='pipe read failed'):
+            monitor.close()
+    else:
+        monitor.close()
+    assert process.stdout.closed
+    assert process.stderr.closed
+    assert process.kill.call_count == int(running)
+
+
+def test_control_pipe_failure_does_not_skip_other_pipes_or_process_cleanup(monkeypatch):
+    monitor = perf_mips.PerfMIPSMonitor('fixture')
+    monitor._control_write, monitor._ack_read = 10, 11
+    process = SimpleNamespace(poll=lambda: None, kill=Mock(), communicate=Mock(),
+                              stdin=None, stdout=io.StringIO(), stderr=io.StringIO())
+    monitor._proc = process
+    close = Mock(side_effect=[OSError('control close failed'), None])
+    monkeypatch.setattr(perf_mips.os, 'close', close)
+    with pytest.raises(OSError, match='control close failed'):
+        monitor.close()
+    assert {call.args[0] for call in close.call_args_list} == {10, 11}
+    process.kill.assert_called_once_with()
+    assert process.stdout.closed
+    assert process.stderr.closed
+
+
 class TestPerfMIPS:
     @pytest.fixture(autouse=True)
     def _setup(self, request, tmp_path, monkeypatch):

@@ -6,6 +6,7 @@ import json
 import subprocess
 import sys
 import uuid
+from contextlib import ExitStack
 from typing import Any
 
 from acprof.artifacts import atomic_write_json, read_input_scale_plan
@@ -46,41 +47,48 @@ def run_validation(task, info, module, prefix, output_dir, *, gpu="off", payload
     limits = ProcessLimits(cpu, memory)
     lease = None
     process = None
-    try:
-        lease = acquire_mount(info.runtime_environment, runtime="process")
-        process = ManagedProcess(command, python=info.python, env=service_environment(task, info, gpu=gpu),
-                                 directory=directory, name=name, pass_fds=lease.pass_fds, cgroup=limits.path)
-        code = process.wait(timeout)
-        with process.log_path.open(encoding="utf-8", errors="replace") as stream:
-            record = last_prefixed_record(stream, prefix)
-        observed = json.loads(record) if record is not None else {}
-        if code or observed.get("status") != "ok":
-            error = observed.get("error") or process.log_tail().replace("\r\n", "\n").replace("\r", "\n")[-4000:]
-            raise ProcessValidationError(
-                error or f"Process validation exit {code}",
-                observed if isinstance(observed, dict) else {},
-            )
-        return observed
-    finally:
-        run_error = sys.exception()
-        if process is None and isinstance(run_error, RuntimeCleanupError):
-            from acprof.host.model_store.store import retain_mount_for_cleanup_debt
-            if lease is not None:
-                retain_mount_for_cleanup_debt(lease)
-        else:
-            if process is not None:
-                try:
-                    process.close()
-                except BaseException as cleanup_error:
-                    if isinstance(cleanup_error, RuntimeCleanupError) and run_error is not cleanup_error:
-                        cleanup_error.run_error = run_error or cleanup_error.run_error
-                    from acprof.host.model_store.store import retain_mount_for_cleanup_debt
-                    if lease is not None:
-                        retain_mount_for_cleanup_debt(lease)
-                    raise
-            if lease is not None:
-                lease.close()
-            limits.close()
+    release_allowed = True
+    with ExitStack() as release:
+        release.enter_context(cleanup_on_exit(
+            lambda: limits.close() if release_allowed else None,
+            description="Process validation resource scope"))
+        try:
+            lease = acquire_mount(info.runtime_environment, runtime="process")
+            release.enter_context(cleanup_on_exit(
+                lambda: lease.close() if release_allowed else None,
+                description="Process validation model lease"))
+            process = ManagedProcess(command, python=info.python, env=service_environment(task, info, gpu=gpu),
+                                     directory=directory, name=name, pass_fds=lease.pass_fds, cgroup=limits.path)
+            code = process.wait(timeout)
+            with process.log_path.open(encoding="utf-8", errors="replace") as stream:
+                record = last_prefixed_record(stream, prefix)
+            observed = json.loads(record) if record is not None else {}
+            if code or observed.get("status") != "ok":
+                error = observed.get("error") or process.log_tail().replace("\r\n", "\n").replace("\r", "\n")[-4000:]
+                raise ProcessValidationError(
+                    error or f"Process validation exit {code}",
+                    observed if isinstance(observed, dict) else {},
+                )
+            return observed
+        finally:
+            run_error = sys.exception()
+            if process is None and isinstance(run_error, RuntimeCleanupError):
+                release_allowed = False
+                from acprof.host.model_store.store import retain_mount_for_cleanup_debt
+                if lease is not None:
+                    retain_mount_for_cleanup_debt(lease)
+            else:
+                if process is not None:
+                    try:
+                        process.close()
+                    except BaseException as cleanup_error:
+                        release_allowed = False
+                        if isinstance(cleanup_error, RuntimeCleanupError) and run_error is not cleanup_error:
+                            cleanup_error.run_error = run_error or cleanup_error.run_error
+                        from acprof.host.model_store.store import retain_mount_for_cleanup_debt
+                        if lease is not None:
+                            retain_mount_for_cleanup_debt(lease)
+                        raise
 
 
 @preparation_stage("interface")

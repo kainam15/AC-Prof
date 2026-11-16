@@ -9,7 +9,7 @@ from typing import Any
 
 import psutil
 
-from acprof.monitors.common import sample_periodically
+from acprof.monitors.common import sample_periodically, stop_sampling_thread
 from acprof.monitors.interfaces import ResourceStopResult
 from acprof.monitors.resource_metrics import ResourceUsageResult, empty_resource_result
 from acprof.monitors.sampling import SamplingDiagnostics
@@ -151,6 +151,8 @@ class ProcessUsageMonitor:
         self.samples.append(sample)
 
     def start(self):
+        if self._thread is not None and self._thread.is_alive():
+            raise RuntimeError("Process usage monitor is already running")
         self.samples = []
         self._stop.clear()
         self._sample(time.perf_counter())
@@ -160,9 +162,8 @@ class ProcessUsageMonitor:
         self._thread.start()
 
     def stop(self):
-        self._stop.set()
-        if self._thread is not None:
-            self._thread.join()
+        stop_sampling_thread(self._thread, self._stop, description="process")
+        self._thread = None
         self._sample(time.perf_counter())
         values = reduce_process_samples(self.samples)
         result_status = self.status
@@ -191,9 +192,8 @@ class ProcessUsageMonitor:
                 "sampling": self.diagnostics.snapshot()}
 
     def close(self):
-        self._stop.set()
-        if self._thread is not None:
-            self._thread.join()
+        stop_sampling_thread(self._thread, self._stop, description="process")
+        self._thread = None
         if self.nvml is not None:
             self.nvml.nvmlShutdown()
             self.nvml = None
