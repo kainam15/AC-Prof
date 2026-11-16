@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import subprocess
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
+from datetime import UTC, datetime
 
 from acprof.system.command import run_command
 
@@ -14,8 +16,9 @@ from acprof.system.command import run_command
 class ImageManagementError(RuntimeError):
     """Docker 不可访问或待删除清单已经变化。"""
 
-    def __init__(self, reason: str, detail: str = ""):
+    def __init__(self, reason: str, detail: str = "", *, code: str = ""):
         self.reason, self.detail = reason, detail
+        self.code = code
         super().__init__(f"{reason}: {detail}" if detail else reason)
 
 
@@ -130,6 +133,10 @@ class DockerStorage:
     disk: DiskSpace | None
     usage: tuple[StorageUsage, ...]
     warnings: tuple[str, ...] = ()
+    disk_error: ImageManagementError | None = None
+    usage_error: ImageManagementError | None = None
+    observed_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    endpoint: str = ""
 
     @property
     def total_bytes(self) -> int | None:
@@ -294,24 +301,32 @@ def _size_bytes(value: object) -> int | None:
     match = re.fullmatch(r"([0-9]+(?:\.[0-9]+)?)\s*(B|kB|MB|GB|TB)", str(value))
     if not match:
         return None
-    return round(float(match[1]) * {"B": 1, "kB": 1000, "MB": 10**6, "GB": 10**9, "TB": 10**12}[match[2]])
+    size = float(match[1]) * {"B": 1, "kB": 1000, "MB": 10**6, "GB": 10**9, "TB": 10**12}[match[2]]
+    return round(size) if math.isfinite(size) else None
 
 
 def read_storage(connection: DockerConnection | None = None, *, daemon_id: str = "") -> DockerStorage:
     """按需读取 Docker 汇总及数据目录所在文件系统；不扫描目录或执行清理。"""
-    connection = connection or _connection()
+    from acprof.host.images.storage_errors import storage_query_error
+
+    active_context = connection is None
     template = ('{"ID":{{json .ID}},"DockerRootDir":{{json .DockerRootDir}},'
                 '"Name":{{json .Name}},"OperatingSystem":{{json .OperatingSystem}}}')
     try:
+        connection = connection or _connection()
         info = json.loads(run_docker_command((*connection.arguments, "info", "--format", template)))
-        if not isinstance(info, dict) or not info.get("ID") or not isinstance(info.get("DockerRootDir"), str):
+        if (not isinstance(info, dict) or not isinstance(info.get("ID"), str)
+                or not info["ID"].strip()):
             raise ValueError("invalid Docker info")
-    except (ValueError, TypeError) as exc:
-        raise ImageManagementError("Docker 返回了无效的存储信息") from exc
+    except (ImageManagementError, OSError, ValueError, TypeError) as exc:
+        raise storage_query_error(exc) from exc
     if daemon_id and info["ID"] != daemon_id:
-        raise ImageManagementError("Docker 环境已改变，请刷新后重新选择")
-    root_dir = info["DockerRootDir"]
+        raise ImageManagementError("Docker 环境已改变，请刷新后重新选择", code="identity")
+    root_dir = info.get("DockerRootDir")
+    root_dir = root_dir if isinstance(root_dir, str) else ""
     disk = None
+    disk_error = usage_error = None
+    endpoint = ""
     warnings = []
     try:
         if connection.arguments[:1] == ("--host",):
@@ -319,26 +334,41 @@ def read_storage(connection: DockerConnection | None = None, *, daemon_id: str =
         else:
             endpoint = run_docker_command((*connection.arguments, "context", "inspect", connection.name,
                              "--format", "{{.Endpoints.docker.Host}}"))
+        if not endpoint or "://" not in endpoint or not os.path.isabs(root_dir):
+            raise ValueError("invalid Docker root directory or endpoint")
         local = (endpoint.startswith("unix://") and info.get("Name") == os.uname().nodename
                  and "docker desktop" not in str(info.get("OperatingSystem", "")).lower())
         if local and os.path.isabs(root_dir):
             stat = os.statvfs(root_dir)
+            if (stat.f_frsize <= 0 or stat.f_blocks < 0
+                    or not 0 <= stat.f_bavail <= stat.f_bfree <= stat.f_blocks):
+                raise ValueError("invalid filesystem capacity")
             disk = DiskSpace(stat.f_blocks * stat.f_frsize, (stat.f_blocks - stat.f_bfree) * stat.f_frsize,
                              stat.f_bavail * stat.f_frsize)
             if stat.f_bfree > stat.f_bavail:
                 warnings.append("可用空间不含文件系统预留块。")
         else:
             warnings.append("远程或虚拟机 Docker 的磁盘空间无法在本机核验。")
-    except (OSError, ImageManagementError):
-        warnings.append("无法读取 Docker 数据目录所在磁盘的空间。")
+    except (OSError, ImageManagementError, ValueError) as exc:
+        disk_error = storage_query_error(exc, filesystem=isinstance(exc, OSError))
+        warnings.append(disk_error.reason)
 
     usage = tuple(StorageUsage(kind) for kind in STORAGE_KINDS)
     try:
         # Docker CLI 的汇总已经处理镜像共享层；不能累加每个镜像的虚拟大小。
         output = run_docker_command((*connection.arguments, "system", "df", "--format", "{{json .}}"), timeout=60)
-        rows = [json.loads(line) for line in output.splitlines() if line.strip()]
-        if any(not isinstance(row, dict) for row in rows):
-            raise ValueError("invalid disk usage")
+        rows = []
+        invalid_rows = False
+        for line in output.splitlines():
+            if not line.strip():
+                continue
+            try:
+                row = json.loads(line)
+                if not isinstance(row, dict):
+                    raise ValueError("invalid disk usage row")
+                rows.append(row)
+            except ValueError:
+                invalid_rows = True
         categories = []
         for kind in STORAGE_KINDS:
             matches = [row for row in rows if row.get("Type") == kind]
@@ -348,9 +378,30 @@ def read_storage(connection: DockerConnection | None = None, *, daemon_id: str =
         usage = tuple(categories)
         if any(item.size_bytes is None or item.reclaimable_bytes is None for item in usage):
             warnings.append("部分 Docker 空间统计不可用，缺失值显示未知。")
-    except (ImageManagementError, ValueError, TypeError):
-        warnings.append("Docker 空间统计读取失败，请刷新重试。")
-    return DockerStorage(connection, info["ID"], root_dir, disk, usage, tuple(warnings))
+            usage_error = ImageManagementError("部分 Docker 空间统计不可用，缺失值显示未知。", code="incomplete")
+        if invalid_rows:
+            usage_error = storage_query_error(ValueError("invalid Docker disk usage row"))
+            warnings.append(usage_error.reason)
+    except (ImageManagementError, OSError, ValueError, TypeError) as exc:
+        usage_error = storage_query_error(exc)
+        warnings.append(usage_error.reason)
+    storage = DockerStorage(connection, info["ID"], root_dir, disk, usage, tuple(warnings),
+                            disk_error=disk_error, usage_error=usage_error, endpoint=endpoint)
+    verify_storage_identity(storage, active_context=active_context)
+    return storage
+
+
+def verify_storage_identity(storage: DockerStorage, *, active_context: bool = True) -> None:
+    """Optional queries may outlive a daemon restart or a Context switch."""
+    from acprof.host.images.storage_errors import storage_query_error
+
+    try:
+        current_id = run_docker_command((*storage.connection.arguments, "info", "--format", "{{.ID}}"))
+        context_changed = active_context and _connection() != storage.connection
+    except ImageManagementError as exc:
+        raise storage_query_error(exc) from exc
+    if current_id != storage.daemon_id or context_changed:
+        raise ImageManagementError("Docker 环境已改变，请刷新后重新选择", code="identity")
 
 
 def _read_space(inventory: ImageInventory) -> ImageInventory:

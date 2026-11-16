@@ -23,12 +23,15 @@ from acprof.host.images.inventory import (
     DockerStorage,
     ImageInventory,
     ImageLayer,
+    ImageManagementError,
     ImageRemoval,
     ManagedImage,
     delete_images,
     list_images,
     read_storage,
+    verify_storage_identity,
 )
+from acprof.host.images.storage_errors import storage_query_error
 from acprof.messages import Message, join_messages
 from acprof.tui.i18n import message_id
 from acprof.tui.images.names import image_repository_and_tag, image_row_label
@@ -405,6 +408,7 @@ class ImageController:
 
     def open_storage(self) -> None:
         if self.images_unavailable() or len(self.app.screen_stack) != 1:
+            self.app.notify(self.storage_refresh_blocked() or message_id("images.storage.blocked_operation"), severity="warning")
             return
         self.begin_image_operation("storage", "正在读取存储空间……")
         self.storage_screen = StorageSpaceScreen(self.refresh_storage, len(self.selected_ids))
@@ -412,12 +416,32 @@ class ImageController:
 
     def refresh_storage(self) -> None:
         screen = self.storage_screen
-        if (screen is None or self.storage_loading or self.operation != "storage"
-                or self.app.execution.session.snapshot.measurement_active or self.app.preflight.check_running):
+        if screen is None:
+            return
+        if self.storage_loading:
+            # Do not reset partial results or enable a second query.
+            return
+        reason = self.storage_refresh_blocked()
+        if reason:
+            screen.show_blocked(reason)
             return
         self.storage_loading = True
         screen.show_loading()
-        self.execute_storage_refresh(self.inventory, tuple(sorted(self.selected_ids)))
+        try:
+            self.execute_storage_refresh(self.inventory, tuple(sorted(self.selected_ids)))
+        except Exception as exc:
+            self.show_storage(None, None, storage_query_error(exc))
+
+    def storage_refresh_blocked(self) -> str:
+        state = self.app.operation_state()
+        if state.measuring:
+            return message_id("images.storage.blocked_measurement")
+        if self.app.preflight.check_running:
+            return message_id("images.storage.blocked_preflight")
+        if (self.operation != "storage" or not replace(state, maintenance=False).allows("cleanup")
+                or self.app.experiments.pending_launch is not None):
+            return message_id("images.storage.blocked_operation")
+        return ""
 
     def execute_storage_refresh(self, inventory: ImageInventory | None, ids: tuple[str, ...]) -> Worker[None]:
         """Schedule this operation on the owning App worker manager."""
@@ -427,37 +451,79 @@ class ImageController:
         )
 
     def _execute_storage_refresh_worker(self, inventory: ImageInventory | None, ids: tuple[str, ...]) -> None:
-        storage, estimate, error = None, None, ""
+        storage, estimate, error = None, None, None
         try:
-            storage = read_storage(inventory.connection if inventory else None,
-                                   daemon_id=inventory.daemon_id if inventory else "")
+            # A queued worker must recheck exclusion before starting Docker I/O.
+            blocked = self.app.call_from_thread(self.storage_refresh_blocked)
+            if blocked:
+                self.app.call_from_thread(self.storage_refresh_stopped, blocked)
+                return
+            # Resolve the active Context on every manual refresh. An old image
+            # inventory must not silently pin this popup to a previous Context.
+            storage = read_storage(daemon_id=inventory.daemon_id if inventory else "")
+        except Exception as exc:
+            error = storage_query_error(exc)
+        try:
+            if storage is not None and ids:
+                self.app.call_from_thread(self.show_storage, storage, None, None, finished=False)
             if ids and inventory:
+                if storage is None:
+                    self.app.call_from_thread(self.show_storage, storage, estimate, error)
+                    return
+                blocked = self.app.call_from_thread(self.storage_refresh_blocked)
+                if blocked:
+                    self.app.call_from_thread(self.storage_refresh_stopped, blocked)
+                    return
+                if inventory.connection != storage.connection:
+                    raise ImageManagementError("Docker 环境已改变，请刷新后重新选择", code="identity")
                 # 手动刷新时重新核验层和引用；弹窗期间不会覆盖页面勾选或滚动位置。
                 current = list_images(storage.connection)
                 previous = {item.image_id: item for item in inventory.images}
                 available = {item.image_id for item in current.images if not item.containers
                              and item.image_id in previous and item.tags == previous[item.image_id].tags
                              and item.repo_digests == previous[item.image_id].repo_digests}
-                if current.daemon_id == storage.daemon_id and set(ids) <= available:
+                if current.daemon_id != storage.daemon_id or current.connection != storage.connection:
+                    storage = None
+                    raise ImageManagementError("Docker 环境已改变，请刷新后重新选择", code="identity")
+                try:
+                    verify_storage_identity(storage)
+                except ImageManagementError:
+                    storage = None
+                    raise
+                if set(ids) <= available:
                     estimate = reclaimable_image_bytes(current, ids)
                 else:
-                    error = message_id('images.selection.references_changed')
-            else:
-                estimate = 0
+                    error = ImageManagementError(message_id('images.selection.references_changed'), code="selection")
+            elif ids and storage is not None:
+                error = ImageManagementError(message_id('images.selection.references_changed'), code="selection")
         except Exception as exc:
-            error = image_error(exc)
+            error = storage_query_error(exc)
         try:
             self.app.call_from_thread(self.show_storage, storage, estimate, error)
         except RuntimeError:
-            pass  # App may have exited while the bounded Docker query was finishing.
+            # No UI remains. The bounded subprocess has finished, so ownership
+            # can be released even when call_from_thread is no longer available.
+            self.storage_loading = False
+            if self.operation == "storage":
+                self.operation = ""
 
-    def show_storage(self, storage: DockerStorage | None, estimate: int | None, error: str) -> None:
-        if not self.app.is_running or not self.app.form_ready:
-            return
+    def storage_refresh_stopped(self, reason: str) -> None:
         self.storage_loading = False
         if self.storage_screen is not None and self.storage_screen.is_mounted:
-            self.storage_screen.show_storage(storage, estimate, error)
+            self.storage_screen.show_blocked(reason)
         else:
+            self.storage_closed()
+
+    def show_storage(self, storage: DockerStorage | None, estimate: int | None,
+                     error: ImageManagementError | None, *, finished: bool = True) -> None:
+        self.storage_loading = not finished
+        if not self.app.is_running or not self.app.form_ready:
+            if finished and self.operation == "storage":
+                self.operation = ""
+            return
+        if self.storage_screen is not None and self.storage_screen.is_mounted:
+            self.storage_screen.show_storage(storage, estimate, error, finished=finished)
+        elif finished:
             self.storage_closed()
 
     def storage_closed(self, _result: None = None) -> None:
@@ -468,7 +534,8 @@ class ImageController:
             # 关闭弹窗不会终止正在执行的 subprocess；结束前继续阻止正式采集。
             self.app.localization.set_text(self.app.query_one("#image-status", Static), "存储统计仍在读取，请稍候……")
             return
-        self.operation = ""
+        if self.operation == "storage":
+            self.operation = ""
         self.image_selection_status()
         self.app.set_busy(self.app.is_busy())
 

@@ -218,24 +218,85 @@ MESSAGES: dict[str, Entry] = {
     "images.size_source.verified_layers": Entry(zh="层链与已核验 history 字节数", en="Layer chains and verified history bytes"),
     "images.storage.available": Entry(zh="可用", en="Available"),
     "images.storage.available_after_deletion": Entry(zh="删除后可用", en="Available after deletion"),
+    "images.storage.blocked_measurement": Entry(
+        zh="正式测量期间无法刷新存储空间；请等待测量结束后手动刷新。",
+        en="Storage refresh is blocked during measurement; refresh manually when measurement finishes.",
+    ),
+    "images.storage.blocked_operation": Entry(
+        zh="其他操作正在占用资源，无法刷新存储空间；请等待操作结束后重试。",
+        en="Another operation is using resources; retry storage refresh when it finishes.",
+    ),
+    "images.storage.blocked_preflight": Entry(
+        zh="预检正在进行，无法刷新存储空间；请等待预检结束后手动刷新。",
+        en="Preflight is running; refresh storage manually when it finishes.",
+    ),
+    "images.storage.complete": Entry(zh="存储空间读取完成。", en="Storage query complete."),
     "images.storage.containers_label": Entry(zh="Docker 容器", en="Containers"),
+    "images.storage.current_read": Entry(zh="本次读取 {0}", en="Current reading {0}"),
     "images.storage.data_directory": Entry(zh="Docker 数据目录", en="Docker data directory"),
     "images.storage.disk_query_failed": Entry(zh="无法读取 Docker 数据目录所在磁盘的空间。", en="Cannot read disk space for the Docker data directory."),
     "images.storage.disk_space": Entry(zh="磁盘空间", en="Disk space"),
     "images.storage.docker_space": Entry(zh="Docker 空间", en="Docker space"),
     "images.storage.docker_total": Entry(zh="Docker 合计", en="Docker total"),
+    "images.storage.environment": Entry(zh="Docker 环境", en="Docker environment"),
+    "images.storage.environment_changed": Entry(
+        zh="Docker 环境已改变；请关闭弹窗，等待镜像列表刷新后重新选择。",
+        en="Docker environment changed; close this dialog, wait for the image list to refresh, then select again.",
+    ),
+    "images.storage.error_context": Entry(
+        zh="Docker Context 不可访问；请检查 docker context ls 和目标端点。",
+        en="Docker Context is inaccessible; check docker context ls and the target endpoint.",
+    ),
+    "images.storage.error_daemon": Entry(
+        zh="无法连接 Docker daemon；请检查 Docker 服务是否已启动。",
+        en="Cannot connect to Docker daemon; check that the Docker service is running.",
+    ),
+    "images.storage.error_disk": Entry(
+        zh="磁盘查询失败；请检查 Docker 数据目录及挂载状态。",
+        en="Disk query failed; check the Docker data directory and its mount.",
+    ),
+    "images.storage.error_disk_permission": Entry(
+        zh="磁盘查询权限不足；请检查 Docker 数据目录的访问权限。",
+        en="Disk query permission denied; check access permissions for the Docker data directory.",
+    ),
+    "images.storage.error_executable": Entry(
+        zh="无法执行 Docker CLI；请检查 Docker 安装及 PATH。",
+        en="Cannot execute Docker CLI; check the Docker installation and PATH.",
+    ),
+    "images.storage.error_invalid": Entry(
+        zh="返回数据无效；请检查 docker info 和 docker system df 的输出。",
+        en="Invalid response; check the output of docker info and docker system df.",
+    ),
+    "images.storage.error_permission": Entry(
+        zh="Docker Socket 权限不足；请检查 Socket 权限和当前用户的 Docker 访问权限。",
+        en="Docker Socket permission denied; check Socket permissions and the current user's Docker access.",
+    ),
+    "images.storage.error_query": Entry(
+        zh="存储查询失败；请检查错误详情后手动刷新。",
+        en="Storage query failed; review the error details and refresh manually.",
+    ),
+    "images.storage.error_timeout": Entry(
+        zh="存储查询超时；请检查 Docker 响应，稍后手动刷新。",
+        en="Storage query timed out; check Docker responsiveness and refresh manually later.",
+    ),
     "images.storage.estimated_reclaim": Entry(zh="预计释放", en="Estimated reclaim"),
+    "images.storage.failed": Entry(zh="查询失败 · 未知", en="Query failed · Unknown"),
     "images.storage.full_size_notice": Entry(
         zh="完整大小包含共享层，不等于删除后释放的空间。",
         en="Full size includes shared layers; it is not the space deletion will reclaim.",
     ),
     "images.storage.images_label": Entry(zh="镜像", en="Images"),
     "images.storage.invalid_response": Entry(zh="Docker 返回了无效的存储信息", en="Docker returned invalid storage information"),
+    "images.storage.item_loading": Entry(zh="正在读取", en="Reading"),
+    "images.storage.last_read": Entry(zh="查询失败 · 上次读取 {0}", en="Query failed · Last read {0}"),
     "images.storage.layer_fallback": Entry(
         zh="Docker 空间统计不可用；共享大小由可核验的层计算。",
         en="Docker disk usage unavailable; shared sizes use verifiable layers.",
     ),
     "images.storage.loading": Entry(zh="正在读取存储空间……", en="Reading storage space..."),
+    "images.storage.more_errors": Entry(zh="另有 {0} 项查询失败，详见各项状态。", en="{0} more queries failed; see section status."),
+    "images.storage.not_applicable": Entry(zh="不适用", en="Not applicable"),
+    "images.storage.partial_read": Entry(zh="本次部分读取 {0} · 缺失值未知", en="Partial reading {0} · Missing values unknown"),
     "images.storage.partial_statistics": Entry(
         zh="部分 Docker 空间统计不可用，缺失值显示未知。",
         en="Some Docker statistics are unavailable; missing values are unknown.",
@@ -257,6 +318,7 @@ MESSAGES: dict[str, Entry] = {
     "images.storage.still_loading": Entry(zh="存储统计仍在读取，请稍候……", en="Storage statistics are still loading; please wait..."),
     "images.storage.title": Entry(zh="存储空间", en="Storage space"),
     "images.storage.total_capacity": Entry(zh="总容量", en="Total capacity"),
+    "images.storage.unverifiable": Entry(zh="不可核验 · 未知", en="Unverifiable · Unknown"),
     "images.storage.unverified_layer_sizes": Entry(
         zh="部分层大小无法核验，显示未知；不会把缺失值当作零。",
         en="Some layer sizes are unverified and shown as unknown, not zero.",

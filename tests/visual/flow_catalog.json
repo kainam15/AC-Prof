@@ -144,7 +144,16 @@
     {
       "id": "images", "title": "镜像管理", "page": "images-tab", "group": "support",
       "trigger": "切换到镜像管理页", "expected": "搜索、筛选、树或表格、空间与删除操作一致",
-      "png": [], "svg": [],
+      "png": [], "svg": [
+        "tests/visual/__snapshots__/test_storage/test_storage_feedback[error-en].svg",
+        "tests/visual/__snapshots__/test_storage/test_storage_feedback[error-zh].svg",
+        "tests/visual/__snapshots__/test_storage/test_storage_feedback[loading-en].svg",
+        "tests/visual/__snapshots__/test_storage/test_storage_feedback[loading-zh].svg",
+        "tests/visual/__snapshots__/test_storage/test_storage_feedback[partial-en].svg",
+        "tests/visual/__snapshots__/test_storage/test_storage_feedback[partial-zh].svg",
+        "tests/visual/__snapshots__/test_storage/test_storage_feedback[success-en].svg",
+        "tests/visual/__snapshots__/test_storage/test_storage_feedback[success-zh].svg"
+      ],
       "tests": ["tests/tui/catalog/test_tui_images.py", "tests/tui/catalog/test_tui_storage.py"]
     },
     {

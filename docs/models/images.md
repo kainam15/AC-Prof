@@ -444,13 +444,30 @@ Python/JSON 文件、`container/`、`workloads/`、`extensions/`，以及 final 
 ### 查询与删除
 
 镜像页右上角“存储空间”弹窗按需执行 `docker info` 与 `docker system df --format '{{json .}}'`，
-沿用当前清单的 Docker 连接并核对 daemon ID；弹窗打开期间暂停镜像自动扫描。
+每次手动刷新重新解析当前 Docker Context，并在查询前后核对 daemon ID；弹窗打开期间暂停镜像自动扫描。
 磁盘统计只对能核验为本机 Unix socket、主机名一致且非 Docker Desktop 的 daemon 读取 `DockerRootDir` 的 `statvfs`；
 读取失败或远程环境显示未知，不回退到客户端根目录。使用率为已用／总容量，可用量采用非特权用户可用块数，不包含预留块。
-Docker 各分类使用 CLI 汇总并将十进制单位换算为 IEC 单位，缺失项不会当作零或计入不完整合计。
+Docker 各分类使用 CLI 汇总，按十进制单位解析并沿用界面字节格式展示，缺失项不会当作零或计入不完整合计。
 “Docker 合计”是分类统计之和，镜像与 Build Cache 可能共享数据，不等于文件系统中 Docker 目录的物理独占占用。
 所选镜像非空时刷新其清单、标签及容器引用，复用现有层去重算法估算释放上限；身份或引用变化后估算显示未知。
 “删除后可用”是当前可用空间加上该估算，实际释放量取决于共享层、缓存和存储驱动。弹窗只有刷新与关闭，不执行 prune。
+
+环境身份、磁盘、Docker 分类统计和所选镜像估算分别反馈状态；磁盘或统计失败不清空另一项，
+估算失败也保留已经读取的磁盘和统计。首次打开显示“正在读取”；未选镜像的估算为“不适用”，
+无法在本机验证的远程磁盘为“不可核验 · 未知”，查询错误为“查询失败 · 未知”，不会补成 `0 B`。
+顶部固定状态区区分正常、警告与错误，并提示 Docker 服务、Socket 权限、Context、超时或无效返回的处理方向；
+原始错误详情保留在滚动内容中。
+
+仅在本次核验了相同 Context、daemon 和端点后，失败分项才可展示“上次读取”及原时间；
+磁盘还须保持相同数据目录。可解析的部分分类展示本次数据，缺失分类仍为未知。
+身份无法核验、发生切换或刷新受阻时清除旧显示；历史磁盘不参与“删除后可用”的计算，旧释放估算也不复用。
+环境改变时关闭弹窗，等待镜像列表刷新后重新选择。
+正式测量、预检及其他互斥操作会阻止刷新并说明原因；读取期间禁用刷新，失败后可手动重试，无自动重试。
+关闭弹窗不强行终止正在执行的有界查询，查询返回后才释放互斥，避免与正式采集重叠。
+
+统计口径沿用 [Docker CLI `system df`](https://github.com/docker/cli/blob/master/cli/command/system/df.go)，
+后台线程及关闭语义参考 [Textual Worker 文档](https://github.com/Textualize/textual/blob/main/docs/guide/workers.md#thread-workers)
+和 [Discussion #4510](https://github.com/Textualize/textual/discussions/4510)；复用既有 CLI、Worker Manager 和 Carbon 状态组件，无新增运行依赖。
 
 TUI“镜像管理”页（`/images`）打开时自动读取当前 Docker 环境，按实际 image ID 合并全部标签。
 页面空闲时，每轮读取完成后 5 秒再次更新；后台查询不重叠，清单未变化时不重建视图。

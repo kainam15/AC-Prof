@@ -2,6 +2,7 @@
 import asyncio
 import os
 from dataclasses import replace
+from datetime import UTC, datetime
 from functools import partial
 from io import StringIO
 from pathlib import Path
@@ -16,14 +17,19 @@ from textual.widgets import Button, DataTable, Static
 from acprof.experiments.configuration import RunConfig
 from acprof.host.images.inventory import (
     DiskSpace,
+    DockerConnection,
     DockerStorage,
     ImageManagementError,
     StorageUsage,
+    list_images,
 )
+from acprof.host.images.storage_errors import storage_query_error
 from acprof.tui.run.progress import ProgressSnapshot
+from acprof.tui.ui.structured import StatusBanner
 from tests.runtime.containers.test_image_management import FINAL, DockerFixture
 from tests.support.environment_fixtures import isolated_environment
 from tests.support.tui_fixtures import AcprofTui
+from tests.support.tui_waits import wait_for_condition
 
 
 class TestTuiStorage:
@@ -64,6 +70,7 @@ class TestTuiStorage:
             tuple(StorageUsage(kind, used * 1024**3, reclaim * 1024**3) for kind, used, reclaim in (
                 ("Images", 46, 18), ("Containers", 3, 1), ("Local Volumes", 12, 2), ("Build Cache", 9, 9),
             )),
+            observed_at=datetime(2026, 11, 16, 4, 5, 6, tzinfo=UTC),
         )
 
     @staticmethod
@@ -74,8 +81,20 @@ class TestTuiStorage:
 
     async def open_storage(self, app, pilot):
         assert (await pilot.click("#image-storage"))
+        await wait_for_condition(pilot, lambda: (
+            app.images.storage_screen is not None and app.images.storage_screen.is_mounted
+            and app.screen.query_one(StatusBanner).summary.level != "info" and not app.images.storage_loading
+        ), description="storage popup result", timeout=5)
         await pilot.pause()
-        await app.workers.wait_for_complete()
+
+    async def refresh_storage(self, app, pilot):
+        refresh = app.screen.query_one("#storage-refresh", Button)
+        await wait_for_condition(pilot, lambda: not refresh.has_class("-active"),
+                                 description="refresh button release", timeout=3)
+        assert await pilot.click("#storage-refresh")
+        await wait_for_condition(pilot, lambda: (
+            not app.images.storage_loading and app.screen.query_one(StatusBanner).summary.level != "info"
+        ), description="storage refresh result", timeout=5)
         await pilot.pause()
 
     async def test_storage_values_refresh_and_failure_recovery(self):
@@ -116,7 +135,8 @@ class TestTuiStorage:
                     await pilot.pause()
                     status = self.rendered(app.screen.query_one("#storage-status", Static))
                     if expected:
-                        assert (expected) in (status)
+                        assert "Socket 权限" in status
+                        assert expected in self.rendered(app.screen.query_one("#storage-details", Static))
                         assert ("75.2 GB") not in (self.rendered(app.screen.query_one("#storage-totals", Static)))
                     else:
                         assert ("permission denied") not in (status)
@@ -196,6 +216,9 @@ class TestTuiStorage:
                     await pilot.pause()
                     assert (await asyncio.to_thread(entered.wait, 2))
                     assert (app.screen.query_one("#storage-refresh", Button).disabled)
+                    visible = "\n".join(strip.text for strip in app.screen._compositor.render_strips())
+                    assert "正在读取" in visible
+                    assert "未知" not in visible
                     app.images.refresh_storage()
                     assert (read.call_count) == (1)
                     await pilot.press("escape")
@@ -227,6 +250,160 @@ class TestTuiStorage:
                 read.assert_not_called()
             app.execution.session.snapshot = ProgressSnapshot()
             app.set_busy(False)
+
+    @pytest.mark.parametrize(("blocker", "reason"), [
+        ("measurement", "正式测量"), ("preflight", "预检"), ("operation", "其他操作"),
+    ])
+    async def test_refresh_blocked_explains_reason_in_open_modal(self, blocker, reason):
+        app = self.make_app()
+        async with app.run_test(size=(80, 24)) as pilot:
+            await self.load_images(app, pilot)
+            with patch("acprof.tui.images.controller.read_storage", return_value=self.snapshot(app)) as read:
+                await self.open_storage(app, pilot)
+                if blocker == "measurement":
+                    app.execution.session.snapshot = ProgressSnapshot(measurement_active=True)
+                elif blocker == "preflight":
+                    app.preflight.check_running = True
+                else:
+                    app.images.operation = "delete"
+                app.images.refresh_storage()
+                await pilot.pause()
+                visible = "\n".join(strip.text for strip in app.screen._compositor.render_strips())
+                assert reason in visible
+                read.assert_called_once()
+                assert not app.screen.query_one("#storage-refresh", Button).disabled
+                app.execution.session.snapshot = ProgressSnapshot()
+                app.preflight.check_running = False
+                app.images.operation = "storage"
+                await self.refresh_storage(app, pilot)
+                assert read.call_count == 2
+
+    @pytest.mark.parametrize("language", ["zh", "en"])
+    async def test_initial_permission_error_is_visible_without_scrolling(self, language):
+        app = self.make_app()
+        async with app.run_test(size=(80, 24)) as pilot:
+            await self.load_images(app, pilot)
+            app.configuration.preferences = replace(app.configuration.preferences, language=language)
+            app.configuration.apply_ui_preferences()
+            with patch("acprof.tui.images.controller.read_storage", side_effect=
+                       ImageManagementError("Docker 操作失败", "permission denied")):
+                await self.open_storage(app, pilot)
+                visible = "\n".join(strip.text for strip in app.screen._compositor.render_strips())
+                assert ("Socket 权限" if language == "zh" else "Socket permission denied") in visible
+                assert ("检查" if language == "zh" else "check") in visible
+                assert not app.screen.query_one("#storage-refresh", Button).disabled
+                content = app.screen.query_one("#storage-content")
+                content.focus()
+                await pilot.press("end")
+                await pilot.pause()
+                visible = "\n".join(strip.text for strip in app.screen._compositor.render_strips())
+                assert ("Socket 权限" if language == "zh" else "Socket permission denied") in visible
+
+    @pytest.mark.parametrize("part", ["disk", "usage"])
+    async def test_partial_failure_keeps_timestamped_last_read_and_other_fresh_data(self, part):
+        app = self.make_app()
+        async with app.run_test(size=(120, 30)) as pilot:
+            await self.load_images(app, pilot)
+            await pilot.click("#image-model")
+            snapshot = self.snapshot(app)
+            error = storage_query_error(PermissionError("permission denied"), filesystem=part == "disk")
+            updated = replace(snapshot, observed_at=datetime(2026, 11, 16, 4, 10, 0, tzinfo=UTC))
+            updated = (replace(updated, disk=None, disk_error=error) if part == "disk" else
+                       replace(updated, usage=tuple(StorageUsage(row.kind) for row in snapshot.usage), usage_error=error))
+            with patch("acprof.tui.images.controller.read_storage", side_effect=[snapshot, updated]):
+                await self.open_storage(app, pilot)
+                old_state = str(app.screen.query_one(f"#storage-{part}-state", Static).content)
+                await self.refresh_storage(app, pilot)
+                stale_state = str(app.screen.query_one(f"#storage-{part}-state", Static).content)
+                assert "上次读取" in stale_state
+                assert old_state.removeprefix("本次读取 ") in stale_state
+                other = "usage" if part == "disk" else "disk"
+                assert "本次读取" in str(app.screen.query_one(f"#storage-{other}-state", Static).content)
+                assert "75.2 GB" in self.rendered(app.screen.query_one("#storage-totals", Static))
+                assert app.screen.query_one("#storage-disk-percent", Static).content == "75.0%"
+                if part == "disk":
+                    assert "未知" in self.rendered(app.screen.query_one("#storage-selection", Static))
+                assert not self.docker.removals
+
+    async def test_estimate_failure_preserves_other_sections_and_allows_retry(self):
+        app = self.make_app()
+        entered, release = Event(), Event()
+        async with app.run_test(size=(120, 30)) as pilot:
+            await self.load_images(app, pilot)
+            await pilot.click("#image-model")
+            selected = set(app.images.selected_ids)
+
+            def fail_estimate(*args, **kwargs):
+                entered.set()
+                if not release.wait(timeout=10):
+                    raise TimeoutError("test estimate was not released")
+                raise ImageManagementError("Docker 操作失败", "permission denied")
+
+            with patch("acprof.tui.images.controller.read_storage", return_value=self.snapshot(app)):
+                with patch("acprof.tui.images.controller.list_images", side_effect=fail_estimate):
+                    try:
+                        assert await pilot.click("#image-storage")
+                        assert await asyncio.to_thread(entered.wait, 3)
+                        await pilot.pause()
+                        assert app.screen.query_one("#storage-disk-percent", Static).content == "75.0%"
+                        assert "75.2 GB" in self.rendered(app.screen.query_one("#storage-totals", Static))
+                        assert "正在读取" in self.rendered(app.screen.query_one("#storage-selection", Static))
+                        assert app.screen.query_one("#storage-refresh", Button).disabled
+                    finally:
+                        release.set()
+                    await wait_for_condition(pilot, lambda: not app.images.storage_loading,
+                                             description="estimate failure", timeout=5)
+                    assert "Socket 权限" in self.rendered(app.screen.query_one("#storage-status", Static))
+                    assert "未知" in self.rendered(app.screen.query_one("#storage-selection", Static))
+                await self.refresh_storage(app, pilot)
+                assert "≈310 B" in self.rendered(app.screen.query_one("#storage-selection", Static))
+                assert app.images.selected_ids == selected
+                assert not self.docker.removals
+
+    @pytest.mark.parametrize("identity", ["daemon", "context", "during_layers"])
+    async def test_identity_change_drops_previous_storage_and_estimate(self, identity):
+        app = self.make_app()
+        async with app.run_test(size=(120, 30)) as pilot:
+            await self.load_images(app, pilot)
+            await pilot.click("#image-model")
+            snapshot = self.snapshot(app)
+            with patch("acprof.tui.images.controller.read_storage", return_value=snapshot):
+                await self.open_storage(app, pilot)
+                if identity == "daemon":
+                    self.docker.daemon_id = "daemon-switched"
+                    await self.refresh_storage(app, pilot)
+                elif identity == "during_layers":
+                    def switch_after_read(*args, **kwargs):
+                        current = list_images(*args, **kwargs)
+                        self.docker.daemon_id = "daemon-switched-during-layers"
+                        return current
+
+                    with patch("acprof.tui.images.controller.list_images", side_effect=switch_after_read):
+                        await self.refresh_storage(app, pilot)
+                else:
+                    error = storage_query_error(PermissionError("permission denied"))
+                    changed = replace(snapshot, connection=DockerConnection(("--context", "other"), "other"),
+                                      disk=None, disk_error=error,
+                                      usage=tuple(StorageUsage(row.kind) for row in snapshot.usage), usage_error=error)
+                    with patch("acprof.tui.images.controller.read_storage", return_value=changed):
+                        await self.refresh_storage(app, pilot)
+                assert "75.2 GB" not in self.rendered(app.screen.query_one("#storage-totals", Static))
+                assert "310 B" not in self.rendered(app.screen.query_one("#storage-selection", Static))
+                assert "上次读取" not in str(app.screen.query_one("#storage-disk-state", Static).content)
+                assert "环境已改变" in self.rendered(app.screen.query_one("#storage-status", Static))
+
+    async def test_worker_schedule_failure_restores_refresh(self):
+        app = self.make_app()
+        async with app.run_test(size=(80, 24)) as pilot:
+            await self.load_images(app, pilot)
+            with patch.object(app.images, "execute_storage_refresh", side_effect=RuntimeError("worker unavailable")):
+                await self.open_storage(app, pilot)
+                assert not app.images.storage_loading
+                assert not app.screen.query_one("#storage-refresh", Button).disabled
+                assert "worker unavailable" in self.rendered(app.screen.query_one("#storage-details", Static))
+            await pilot.press("escape")
+            await pilot.pause()
+            assert not app.is_busy()
 
     @pytest.mark.parametrize(("field", "reference"), [
         ("RepoTags", "changed:tag"), ("RepoDigests", "changed@sha256:" + "d" * 64),
