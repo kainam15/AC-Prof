@@ -345,6 +345,13 @@ HTML、脚本、图表库和已完成结果仍可单文件离线查看；超预�
 显式 `--metric`、`--confidence`、`--resamples`、`--seed`、`--block-size` 不匹配则重新计算。不同 run、concurrency、输入或环境不混合，
 旧 JSON 的分组无法唯一对应 HTML 配置时重新计算。
 
+缓存启用 `--precision-target` 时，HTML 保留顶层 `precision`、各组状态、相对区间半宽及不可评估原因，
+并在窗口统计与 JSON/CSV 导出中呈现。复用前以当前窗口、排除项和已核验区间重新检查诊断；
+失败／推断正式窗口仍计入精度排除条件，不能只筛出成功窗口后宣称达标。
+诊断被篡改或契约不匹配时拒绝该缓存并保留原因，不重新运行 Bootstrap 来验证缓存。
+浏览器修改参数后的重算目前只计算既有统计量，清除原精度诊断；恢复初始统计时恢复原诊断。
+精度目标只描述本实验内区间宽度，不证明实验完整性、跨实验重复性或可停止采集。
+
 缺失、过期、损坏或不兼容的 JSON 在报告中保留原因，并继续寻找可用候选；没有命中时，
 从本次已读取的原始测量窗口调用既有 `summarize_windows`，默认计算 `latency_app_s`、`latency_s`、
 `container_attributed_energy_eff_j`，confidence=0.95、resamples=5000、seed=0、block_size=1。

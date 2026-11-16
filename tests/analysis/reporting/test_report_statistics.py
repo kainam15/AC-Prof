@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from acprof.analysis.model import load_analysis
+from acprof.analysis.report_statistics import build_report_statistics
 from acprof.analysis.statistics_report import build_statistics_report, save_unique_statistics_report
 from acprof.plotting.report import report_payload, write_report
 from acprof.results.layout import ArtifactLayout
@@ -69,6 +70,84 @@ def test_fresh_json_reuses_intervals_and_records_actual_bootstrap_options(source
     assert result["parameters"]["seed"] == 19
     assert result["groups"][0]["ci_low"] == expected["groups"][0]["ci_low"]
     assert result["groups"][0]["config_id"] == load_analysis([source]).configs[0]["config_id"]
+
+
+@pytest.mark.parametrize(('values', 'extra', 'expected_status', 'expected_reason'), [
+    ([2, 2, 2], {}, 'met', ''),
+    ([1, 2, 3], {}, 'not_met', ''),
+    ([0, 0, 0], {}, 'not_assessable', 'nonpositive_mean'),
+    ([-1, 2, 3], {}, 'not_assessable', 'negative_values'),
+    ([1, 2, 3, 'nan'], {}, 'not_assessable', 'missing_windows'),
+    ([1, 2, 3, 4], {'status': 'error', 'error': 'fixture failure'}, 'not_assessable', 'excluded_windows'),
+    ([1, 2, 3, 4], {'result_origin': 'inferred_not_measured'}, 'not_assessable', 'excluded_windows'),
+    ([1, 2, 3, 4], {'repeat_idx': '5'}, 'not_assessable', 'nonconsecutive_windows'),
+])
+def test_cached_precision_is_preserved_and_validated_without_bootstrap(
+    source, monkeypatch, values, extra, expected_status, expected_reason,
+):
+    rows = [row(index, value) for index, value in enumerate(values)]
+    rows[-1].update(extra)
+    write_rows(source, rows)
+    cached = save_cache(source, metrics=['latency_app_s'], precision_target=.05, resamples=137)
+    original = cached.read_bytes()
+    expected = json.loads(original)
+    monkeypatch.setattr('acprof.analysis.uncertainty.bootstrap_mean_interval',
+                        lambda *_args, **_kwargs: pytest.fail('validated precision must reuse its interval'))
+
+    result = statistics(source)
+
+    assert result['origin'] == 'cached'
+    assert result['precision'] == expected['precision']
+    group = result['groups'][0]
+    assert group['precision_status'] == expected_status
+    assert group['precision_reason'] == expected_reason
+    for name in ('relative_ci_half_width', 'precision_excluded_windows'):
+        assert group[name] == expected['groups'][0][name]
+    assert cached.read_bytes() == original
+
+
+@pytest.mark.parametrize('cached', [False, True])
+def test_precision_does_not_discard_failed_only_configurations(source, cached):
+    write_rows(source, [row(0, 'nan', status='error', error='fixture failure')])
+    if cached:
+        save_cache(source, metrics=['latency_app_s'], precision_target=.05)
+        result = statistics(source)
+    else:
+        result = build_report_statistics(load_analysis([source]), metrics=['latency_app_s'], precision_target=.05)[0]
+    assert result['precision']['target_relative_half_width'] == .05
+    group = result['groups'][0]
+    assert group['precision_status'] == 'not_assessable'
+    assert group['precision_reason'] == 'insufficient_windows'
+    assert group['precision_excluded_windows'] == 1
+
+
+@pytest.mark.parametrize('mutation', [
+    lambda data: data['precision'].update(target_relative_half_width=True),
+    lambda data: data['precision'].update(scope='independent_runs'),
+    lambda data: data['groups'][0].update(precision_status='met'),
+    lambda data: data['groups'][0].update(precision_reason='missing_windows'),
+    lambda data: data['groups'][0].update(relative_ci_half_width=0),
+    lambda data: data['groups'][0].pop('precision_excluded_windows'),
+], ids=['target', 'scope', 'status', 'reason', 'ratio', 'missing-count'])
+def test_corrupt_precision_is_rejected_with_a_visible_reason(source, mutation):
+    cached = save_cache(source, metrics=['latency_app_s'], precision_target=.05)
+    payload = json.loads(cached.read_text())
+    mutation(payload)
+    cached.write_text(json.dumps(payload))
+    result = statistics(source)
+    assert result['origin'] == 'computed'
+    assert result['cache_diagnostics']
+
+
+def test_cached_degenerate_interval_cannot_claim_precision(source):
+    cached = save_cache(source, metrics=['latency_app_s'], precision_target=.05)
+    payload = json.loads(cached.read_text())
+    payload['groups'][0].update(ci_low=2, ci_high=2, precision_status='not_assessable',
+                                precision_reason='degenerate_interval', relative_ci_half_width=None)
+    cached.write_text(json.dumps(payload))
+    result = statistics(source)
+    assert result['origin'] == 'cached'
+    assert result['groups'][0]['precision_reason'] == 'degenerate_interval'
 
 
 def test_equal_size_and_mtime_csv_change_invalidates_json(source):

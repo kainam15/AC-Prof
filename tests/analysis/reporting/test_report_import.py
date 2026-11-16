@@ -79,6 +79,43 @@ def download_json(page):
     return json.loads(Path(result.value.path()).read_text())
 
 
+@pytest.mark.parametrize('width', [390, 1280])
+def test_cached_precision_survives_export_and_is_not_reused_after_browser_recalculation(page, source, tmp_path, width):
+    from acprof.analysis.statistics_report import (
+        build_statistics_report,
+        save_unique_statistics_report,
+    )
+    source.write_text(
+        'cpu_cores,mem_cap_gb,gpu_mode,input_scale,repeat_idx,warmup,status,latency_app_s\n'
+        '2,4,off,32,0,0,ok,1\n2,4,off,32,1,0,ok,2\n2,4,off,32,2,0,ok,3\n')
+    saved = build_statistics_report(source, metrics=['latency_app_s'], precision_target=.05, resamples=100)
+    save_unique_statistics_report(tmp_path / 'analysis', saved)
+    report = write_report(load_analysis([source]), tmp_path / 'precision.html')
+    page.goto(report.as_uri())
+    page.set_viewport_size({'width': width, 'height': 900})
+    settled(page)
+    page.click('[data-view=statistics]')
+    settled(page)
+    original = download_json(page)
+    assert original['precision'] == saved['precision']
+    assert original['groups'][0]['precision_status'] == 'not_met'
+    assert 'not_met' in page.locator('#statistics tbody').inner_text()
+    assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth')
+
+    page.locator('#statistics-parameters').evaluate('(element) => element.open = true')
+    page.locator('#statistics-resamples').select_option('1000')
+    page.click('#statistics-recalculate')
+    page.wait_for_function("() => document.body.dataset.calculating === 'false'")
+    settled(page)
+    recalculated = download_json(page)
+    assert recalculated['engine'] == 'browser'
+    assert 'precision' not in recalculated
+    assert 'precision_status' not in recalculated['groups'][0]
+    page.click('#statistics-restore')
+    settled(page)
+    assert download_json(page)['precision'] == original['precision']
+
+
 @pytest.mark.parametrize(("field", "value"), [
     ("input_scale", "64"), ("batch_size", "2"),
     ("input_units_per_request", "64"), ("task_param", "other"),

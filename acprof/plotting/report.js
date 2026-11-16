@@ -358,6 +358,10 @@
         const reasons = element("td", reasonText(group.reason) || "已估计");
         reasons.append(element("small", reasonCounts(group.missing_reasons) || "无指标缺失"),
           element("small", `排除：${reasonCounts(group.excluded_windows) || "无"}`));
+        if (report.precision && group.precision_status) reasons.append(element("small",
+          `区间宽度目标 / Interval-width target: ${group.precision_status} · ` +
+          `${fmt(group.relative_ci_half_width)} / ${fmt(report.precision.target_relative_half_width)}` +
+          (group.precision_reason ? ` · ${group.precision_reason}` : "")));
         if (group.detail) reasons.append(element("small", group.detail));
         row.append(identity, name, element("td", fmt(group.mean)), element("td", fmt(group.std)),
           element("td", interval), element("td", `${group.n_windows} / ${group.missing_windows}`), reasons);

@@ -4,6 +4,7 @@ window.ACProfExport = ({data, $, V, state, filtered, experiments, workspace}) =>
   function selectedStatistics(configs) {
     const visible = new Set(configs.map(config => config.config_id));
     return (data.window_statistics || []).map(report => ({schema_version:1, ...report.parameters, ...report.audit,
+      ...(report.precision ? {precision:report.precision} : {}),
       engine:report.engine || "python", origin:report.origin, rng:report.rng || "python_random_mt19937",
       result_csv:report.source, result_sha256:report.result_sha256,
       groups:report.groups.filter(group => visible.has(group.config_id) &&

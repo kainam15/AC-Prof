@@ -9,6 +9,7 @@ from pathlib import Path
 
 from acprof.analysis.audit import MissingReasons, number
 from acprof.analysis.model import AnalysisModel, verify_analysis_sources
+from acprof.analysis.precision import assess_mean_precision, validate_precision_target
 from acprof.analysis.statistics_report import DEFAULT_STATISTICS_METRICS
 from acprof.analysis.uncertainty import WINDOW_FILTER, summarize_windows, validate_window_options
 from acprof.artifacts import read_json_object
@@ -21,6 +22,7 @@ _PARAMETERS = ("confidence", "resamples", "seed", "block_size", "method", "resam
 _IDENTITY = ("cpu_cores", "mem_cap_gb", "gpu_mode", "input_scale", "environment_class",
              "runtime_kind", "runtime_id", "resource_scope")
 _SUMMARY = (*_IDENTITY, "metric", "unit", "n_windows", "missing_windows", "mean", "std", "reason")
+_PRECISION = ("precision_status", "precision_reason", "relative_ci_half_width", "precision_excluded_windows")
 _AUDIT = (*QUALITY_FIELDS, "run_status", "measurement_status")
 _MAX_CACHE_BYTES = 32 * 1024 * 1024
 MAX_EMBEDDED_WINDOW_BYTES = 8 * 1024 * 1024
@@ -103,14 +105,17 @@ def _unavailable_groups(metrics, reason, detail="") -> list[dict]:
 def _config_summary(entries, source, metrics, options, *, include_intervals, include_inputs=False):
     rows = [{key: value.strip() for key, value in entry["row"].items()}
             for entry in entries if entry["eligible"]]
+    # Precision needs failed/inferred formal windows to remain visible as exclusions.
+    summary_rows = ([{key: value.strip() for key, value in entry["row"].items()} for entry in entries]
+                    if options.get("precision_target") is not None else rows)
     try:
-        for row in rows:
+        for row in summary_rows:
             measurement_key(row)
     except ResultValidationError as error:
         # Historical chart inputs may lack window identity; never invent one.
         groups = _unavailable_groups(metrics, "invalid_window_identity", str(error))
     else:
-        report = summarize_windows(rows, metrics, **options, include_intervals=include_intervals)
+        report = summarize_windows(summary_rows, metrics, **options, include_intervals=include_intervals)
         groups = report["groups"] or _unavailable_groups(metrics, "no_successful_windows")
     excluded = _excluded(entries)
     resolver = MissingReasons(source["metadata"], environment_class=entries[0]["environment_class"])
@@ -215,6 +220,15 @@ def _cache_settings(report: dict, *, confidence=.95):
     if any(not isinstance(metric, str) for metric in metrics):
         raise ValueError("invalid_statistics_metrics")
     options = {key: report.get(key) for key in ("confidence", "resamples", "seed", "block_size")}
+    if "precision" in report:
+        if not isinstance(report["precision"], dict):
+            raise ValueError("invalid_precision_contract")
+        target = report["precision"].get("target_relative_half_width")
+        if not isinstance(target, (int, float)):
+            raise ValueError("invalid_precision_target")
+        options["precision_target"] = validate_precision_target(target)
+    elif any(set(group) & set(_PRECISION) for group in groups):
+        raise ValueError("missing_precision_contract")
     if any(type(options[key]) is not int for key in ("resamples", "seed", "block_size")):
         raise ValueError("invalid_bootstrap_parameters")
     validate_window_options(metrics, **{key: options[key] for key in ("confidence", "resamples", "block_size")})
@@ -260,6 +274,8 @@ def _reuse(report, source, configs, requested_metrics, requested_options):
             or any(options.get(key) != value for key, value in requested_options.items())):
         raise ValueError("statistics_parameters_changed")
     expected = _summaries(configs, source, metrics, options, include_intervals=False)
+    if report.get("precision") != expected.get("precision"):
+        raise ValueError("precision_contract_changed")
     expected_groups = expected["groups"]
     keys = [_group_key(group) for group in expected_groups]
     cached = {_group_key(group): group for group in report["groups"]}
@@ -272,7 +288,25 @@ def _reuse(report, source, configs, requested_metrics, requested_options):
             raise ValueError("statistics_summary_changed")
         _validate_interval(saved, group, bounds.get(_group_key(group)))
         group.update(ci_low=saved["ci_low"], ci_high=saved["ci_high"])
+        if "precision_target" in options:
+            _reuse_precision(group, saved, bounds.get(_group_key(group)), target=options["precision_target"])
     return expected
+
+
+def _reuse_precision(group, saved, bounds, *, target):
+    reason = group["precision_reason"]
+    if reason == "interval_unavailable":
+        # Source-derived validity is already checked; now assess the validated interval.
+        reason = ("degenerate_interval" if group["ci_low"] == group["ci_high"]
+                  and bounds is not None and bounds[0] != bounds[1] else "")
+    group.update(assess_mean_precision(group["mean"], group["ci_low"], group["ci_high"],
+                                      target=target, unavailable_reason=reason))
+    if (not set(_PRECISION).issubset(saved)
+            or type(saved["precision_excluded_windows"]) is not int
+            or saved["relative_ci_half_width"] is not None
+            and type(saved["relative_ci_half_width"]) not in (int, float)
+            or any(saved[key] != group[key] for key in _PRECISION)):
+        raise ValueError("precision_summary_changed")
 
 
 def _source_statistics(source, configs, metrics, options, budget, input_metrics):
@@ -296,6 +330,7 @@ def _source_statistics(source, configs, metrics, options, budget, input_metrics)
             "recalculation": _window_inputs(configs, source, [*input_metrics, *(g["metric"] for g in report["groups"])], budget),
             "cache_diagnostics": diagnostics,
             "parameters": {key: report[key] for key in _PARAMETERS}, "groups": report["groups"],
+            **({"precision": report["precision"]} if "precision" in report else {}),
             "audit": {**source.get("audit", {}), **{key: source[key] for key in _AUDIT}}}
 
 

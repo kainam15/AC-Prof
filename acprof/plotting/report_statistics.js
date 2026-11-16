@@ -93,6 +93,7 @@ window.ACProfStatisticsControls = ({workspace, $, option, refresh, schedule}) =>
           if (done % 8 === 0) await new Promise(resolve => setTimeout(resolve, 0));
         }
         windows.push({...current, groups, origin:"browser", engine:engine.engine, rng:engine.rng, report_path:null,
+          precision:null,
           parameters:{...current.parameters, confidence:options.confidence, resamples:options.resamples,
             seed:options.seed, block_size:options.block_size}});
       }
