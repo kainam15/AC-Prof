@@ -3,28 +3,36 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
-from textual.widgets import Button, ContentSwitcher, Select, TabbedContent
+from textual.widgets import Button, Select, Static
 
 from acprof.experiments.configuration import RunConfig, build_run_command
 from acprof.tui.run.diagnostics import quick_preflight
 from tests.support.tui_fixtures import AcprofTui
+from tests.support.tui_waits import wait_for_condition
+from tests.tui.workflows.test_tui_process_permissions import denied_check, open_resource_issue
 
 
 @pytest.mark.parametrize('size', [(80, 24), (120, 40)])
 async def test_process_inherited_button_builds_runnable_basic_command(tmp_path, size):
-    config = replace(RunConfig.smoke('fixture/model'), runtime='process')
+    config = replace(RunConfig.smoke('fixture/model'), runtime='process', cpus='1', mems='1')
     app = AcprofTui(config, settings_path=tmp_path / 'settings.json')
     async with app.run_test(size=size) as pilot:
-        app.query_one('#main-tabs', TabbedContent).active = 'run-tab'
-        app.query_one('#experiment-pages', ContentSwitcher).current = 'advanced-form'
-        await pilot.pause()
-        button = app.query_one('#process-inherited-resources', Button)
+        app.preflight.checks = (denied_check(),)
+        app.preflight.refresh_preflight_state()
+        await open_resource_issue(app, pilot)
+        button = app.screen.query_one('#process-inherited-resources', Button)
         button.scroll_visible(immediate=True, force=True)
         await pilot.pause()
         assert button.display
         assert button.region.height > 0
         assert await pilot.click(button)
         await pilot.pause()
+        assert app.configuration.collect_config().cpus == '1'
+        assert await pilot.click('#confirm-yes')
+        await wait_for_condition(
+            pilot, lambda: not app.query_one('#cpus-error', Static).display,
+            description='confirmed inherited limits update the configuration', timeout=3,
+        )
         actual = app.configuration.collect_config()
         assert actual.runtime == 'process'
         assert actual.profiling_mode == 'basic'

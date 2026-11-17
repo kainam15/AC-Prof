@@ -4,13 +4,17 @@ from unittest.mock import Mock
 
 import pytest
 from textual.widgets import Button, ContentSwitcher, Select, Static
+from textual.widgets._select import SelectOverlay
 
+from acprof.application.resources import resolve_runtime_options
+from acprof.capabilities import Capability
 from acprof.experiments.configuration import RunConfig
+from acprof.platform import Environment
 from acprof.tui.i18n import message_id
 from acprof.tui.run.diagnostics import PreflightCheck
 from acprof.tui.run.plan_panel import RunPlanPanel
+from acprof.tui.run.progress import ProgressSnapshot
 from acprof.tui.run.resource_view import resource_state
-from acprof.tui.ui.structured import StatusBanner
 from tests.support.tui_fixtures import AcprofTui
 from tests.support.tui_waits import wait_for_condition
 
@@ -22,7 +26,7 @@ async def choose_runtime(app, pilot, runtime):
     await pilot.pause()
     assert control.region.width > 0
     assert control.region.bottom <= app.query_one('#run-form').content_region.bottom
-    await pilot.press('enter', 'home', *(['down'] * ('auto', 'docker', 'process').index(runtime)), 'enter')
+    await pilot.press('enter', 'home', *(['down'] * ('docker', 'process').index(runtime)), 'enter')
     await wait_for_condition(
         pilot, lambda: f'--runtime {runtime}' in str(app.query_one('#command-preview', Static).content),
         description=f'{runtime} command preview', timeout=3,
@@ -49,13 +53,20 @@ async def test_basic_runtime_selection_navigation_and_restart(tmp_path, monkeypa
         check = Mock()
         monkeypatch.setattr(app.preflight, 'execute_quick_check', check)
         control = app.query_one('#run-form #runtime', Select)
-        assert control.value == 'auto'
+        assert app.configuration.collect_config().runtime == 'auto'
+        assert control.query_one(SelectOverlay).option_count == 2
+        assert not app.query('#runtime-status')
+        reset = app.query_one('#reset-runtime', Button)
+        assert reset.content_size.width >= reset.label.cell_length + 2 * reset.styles.line_pad
+        complete_check(app, [PreflightCheck('Runtime', 'ok', 'Docker', runtime_kind='docker')])
+        assert control.value == 'docker'
+        assert app.configuration.collect_config().runtime == 'auto'
         assert len(app.query('#runtime')) == 1
         assert not app.query('#advanced-form #runtime')
         controls = list(app.query('#run-form Select'))
         assert controls.index(app.query_one('#model-source')) < controls.index(control)
         assert controls.index(control) < controls.index(app.query_one('#profiling-mode'))
-        for runtime in ('docker', 'process', 'auto'):
+        for runtime in ('docker', 'process'):
             await choose_runtime(app, pilot, runtime)
             view = app.query_one(RunPlanPanel).view
             assert view is not None
@@ -65,8 +76,6 @@ async def test_basic_runtime_selection_navigation_and_restart(tmp_path, monkeypa
             assert app.configuration.collect_config() == replace(config, runtime=runtime)
             assert app.query_one('#start-run', Button).disabled
             assert not app.preflight.config_matches()
-            hint = app.query_one('#runtime-status .status-headline', Static).visual.plain
-            assert ('cgroup' if runtime == 'process' else 'Docker' if runtime == 'docker' else 'Auto') in hint
             toggle = app.query_one('#open-run-settings', Button)
             assert await pilot.click(toggle)
             await pilot.pause()
@@ -89,9 +98,25 @@ async def test_basic_runtime_selection_navigation_and_restart(tmp_path, monkeypa
             )
             assert app.preflight.config_matches()
             assert not app.query_one('#start-run', Button).disabled
-        await choose_runtime(app, pilot, saved_runtime)
+        if saved_runtime == 'auto':
+            reset = app.query_one('#reset-runtime', Button)
+            reset.scroll_visible(animate=False, immediate=True)
+            await pilot.pause()
+            assert await pilot.click(reset)
+            await wait_for_condition(
+                pilot, lambda: app.configuration.collect_config().runtime == 'auto',
+                description='reset runtime to automatic selection', timeout=3,
+            )
+            complete_check(app, [PreflightCheck('Runtime', 'ok', 'Process', runtime_kind='process')])
+            assert control.value == 'process'
+        else:
+            await choose_runtime(app, pilot, saved_runtime)
         await pilot.resize_terminal(80, 24)
-        await choose_runtime(app, pilot, saved_runtime)
+        assert app.configuration.collect_config().runtime == saved_runtime
+        app.configuration.preferences = replace(app.configuration.preferences, language='en' if language == 'zh' else 'zh')
+        app.configuration.apply_ui_preferences()
+        await pilot.pause()
+        assert app.configuration.collect_config().runtime == saved_runtime
         await pilot.click('#open-run-settings')
         save = app.query_one('#save-run-default', Button)
         save.scroll_visible(animate=False, immediate=True)
@@ -101,7 +126,8 @@ async def test_basic_runtime_selection_navigation_and_restart(tmp_path, monkeypa
 
     restored = AcprofTui(settings_path=path)
     async with restored.run_test(size=(80, 24)):
-        assert restored.query_one('#run-form #runtime', Select).value == saved_runtime
+        if saved_runtime != 'auto':
+            assert restored.query_one('#run-form #runtime', Select).value == saved_runtime
         assert restored.configuration.collect_config() == replace(config, runtime=saved_runtime)
 
 
@@ -111,9 +137,9 @@ async def test_docker_status_uses_current_preflight_and_becomes_stale(tmp_path, 
     app = AcprofTui(config, settings_path=tmp_path / 'settings.json')
     async with app.run_test(size=(120, 30)) as pilot:
         complete_check(app, [PreflightCheck('Docker', status, 'fixture daemon', check_id='docker')])
-        banner = app.query_one('#runtime-status', StatusBanner)
-        assert banner.summary.level == ('success' if status == 'ok' else 'error')
-        assert 'Docker' in app.tr(banner.summary.headline)
+        assert not app.query('#runtime-status')
+        item = next(item for item in app.preflight.status.items if item.check.check_id == 'docker')
+        assert item.group == ('success' if status == 'ok' else 'error')
         assert app.query_one('#start-run', Button).disabled == (status == 'fail')
         monkeypatch.setattr(app.preflight, 'execute_quick_check', Mock())
         await choose_runtime(app, pilot, 'process')
@@ -145,10 +171,81 @@ async def test_runtime_edit_rejects_late_auto_resolution(tmp_path, monkeypatch):
         assert not app.query('#process-resource-open')
         complete_check(app, [PreflightCheck('Runtime', 'ok', 'Process', runtime_kind='process')])
         assert not app.query_one('#start-run', Button).disabled
-        await choose_runtime(app, pilot, 'auto')
+        reset = app.query_one('#reset-runtime', Button)
+        reset.scroll_visible(animate=False, immediate=True)
+        await pilot.pause()
+        assert await pilot.click(reset)
+        await wait_for_condition(pilot, lambda: app.configuration.collect_config().runtime == 'auto',
+                                 description='restore automatic runtime', timeout=3)
         assert app.preflight.selected_runtime == ''
-        assert 'Auto' in app.tr(app.query_one('#runtime-status', StatusBanner).summary.headline)
         complete_check(app, [PreflightCheck('Runtime', 'ok', 'Process', runtime_kind='process')])
-        assert not app.query_one('#runtime-status', StatusBanner).display
+        assert not app.query('#runtime-status')
+        assert app.query_one('#runtime', Select).value == 'process'
         assert app.query_one(RunPlanPanel).view.section.rows[0].value == 'Process'
         assert '--runtime auto' in str(app.query_one('#command-preview', Static).content)
+
+
+async def test_auto_resolution_and_same_option_commit_have_separate_intent(tmp_path, monkeypatch):
+    monkeypatch.setattr('acprof.host.runtimes.selection.detect_environment', lambda: Environment('native_linux', 'Linux'))
+    app = AcprofTui(RunConfig.smoke('fixture/model'), settings_path=tmp_path / 'settings.json')
+    async with app.run_test(size=(120, 30)) as pilot:
+        monkeypatch.setattr(app.preflight, 'execute_quick_check', Mock())
+        control = app.query_one('#runtime', Select)
+        assert control.query_one(SelectOverlay).option_count == 2
+        for selected in ('docker', 'process', 'docker'):
+            monkeypatch.setattr('acprof.host.runtimes.selection.probe_docker', lambda: Capability(
+                'available' if selected == 'docker' else 'unavailable', 'fixture Docker probe',
+            ))
+            complete_check(app, [PreflightCheck('Runtime', 'ok', selected, runtime_kind=selected)])
+            await pilot.pause()
+            assert control.value == selected
+            assert app.configuration.collect_config().runtime == 'auto'
+            assert '--runtime auto' in str(app.query_one('#command-preview', Static).content)
+            config = app.configuration.collect_config()
+            resolved = resolve_runtime_options(config, config.to_namespace())
+            assert resolved.runtime_selection['requested'] == 'auto'
+            assert resolved.runtime_selection['selected'] == selected
+        control.scroll_visible(animate=False, immediate=True)
+        control.focus()
+        await pilot.pause()
+        await pilot.press('enter', 'escape')
+        assert app.configuration.collect_config().runtime == 'auto'
+        # Selecting the already displayed Docker still pins an explicit request.
+        await choose_runtime(app, pilot, 'docker')
+        assert app.configuration.collect_config().runtime == 'docker'
+        complete_check(app, [PreflightCheck('Docker', 'fail', 'unavailable', check_id='docker')])
+        assert control.value == 'docker'
+        assert app.configuration.collect_config().runtime == 'docker'
+        assert app.query_one('#start-run', Button).disabled
+        app.execution.session.snapshot = ProgressSnapshot(measurement_active=True)
+        app.set_busy(True)
+        assert control.disabled
+        assert app.query_one('#reset-runtime', Button).disabled
+        app.configuration.reset_runtime()
+        assert app.configuration.collect_config().runtime == 'docker'
+        app.execution.session.snapshot = ProgressSnapshot()
+        app.set_busy(False)
+        assert not app.query_one('#reset-runtime', Button).disabled
+
+
+async def test_pending_auto_does_not_guess_a_runtime_or_retarget_an_open_menu(tmp_path, monkeypatch):
+    app = AcprofTui(RunConfig.smoke('fixture/model'), settings_path=tmp_path / 'settings.json')
+    async with app.run_test(size=(80, 24)) as pilot:
+        monkeypatch.setattr(app.preflight, 'execute_quick_check', Mock())
+        app.preflight.checked_config = None
+        app.preflight.refresh_preflight_state()
+        control = app.query_one('#runtime', Select)
+        assert control.value is Select.NULL
+        control.scroll_visible(animate=False, immediate=True)
+        control.focus()
+        await pilot.pause()
+        await pilot.press('enter', 'home')
+        overlay = control.query_one(SelectOverlay)
+        assert overlay.highlighted == 0
+        complete_check(app, [PreflightCheck('Runtime', 'ok', 'Process', runtime_kind='process')])
+        await pilot.pause()
+        assert overlay.highlighted == 0
+        await pilot.press('enter')
+        await wait_for_condition(pilot, lambda: app.configuration.collect_config().runtime == 'docker',
+                                 description='commit the option the user highlighted', timeout=3)
+        assert control.value == 'docker'

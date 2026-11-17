@@ -183,8 +183,8 @@ Underline { color: $accent; }
     color: $text-muted;
 }
 #runtime-field { height: auto; }
-#runtime-status { padding: 0 0 1 1; }
-#runtime-status .status-headline { text-style: none; }
+#runtime-field > ConfigField { width: 1fr; }
+#reset-runtime { width: 12; min-width: 12; padding: 0 1; margin-left: 1; }
 .form-grid.tool-form-grid { grid-size: 2; grid-columns: 18 1fr; }
 .profiler-grid { grid-size: 2; grid-columns: 1fr 1fr; grid-gutter: 0 1; height: auto; }
 .profiler-checkbox { width: 1fr; height: 3; margin-right: 0; }

@@ -39,6 +39,7 @@ from acprof.tui.settings.preferences import (
     save_settings,
 )
 from acprof.tui.ui.input import BarCursorInput as Input
+from acprof.tui.ui.runtime_select import RuntimeSelect
 from acprof.tui.ui.scrollbar import configure_solid_scrollbars
 from acprof.tui.ui.structured import StatusBanner
 from acprof.tui.ui.view_models import StatusSummary
@@ -86,10 +87,11 @@ class ConfigurationController:
                 or self.app.execution.session.snapshot.measurement_active
                 or expected != (self.select('runtime'), self.input('cpus'), self.input('mems'), self.checked('prune-startup-oom'))):
             return
-        self.app.query_one("#runtime", Select).value = "process"
+        self.app.query_one("#runtime", RuntimeSelect).set_requested("process")
         self.app.query_one("#cpus", Input).value = "auto"
         self.app.query_one("#mems", Input).value = "auto"
         self.app.query_one("#prune-startup-oom", Checkbox).value = False
+        self.configuration_changed()
         self.app.call_after_refresh(self.app.preflight.quick_check)
 
     def apply_ui_preferences(self) -> None:
@@ -226,8 +228,17 @@ class ConfigurationController:
         return self.app.query_one(f"#{widget_id}", Input).value.strip()
 
     def select(self, widget_id: str) -> str:
-        value = self.app.query_one(f"#{widget_id}", Select).value
+        control = self.app.query_one(f"#{widget_id}", Select)
+        if isinstance(control, RuntimeSelect):
+            return control.requested
+        value = control.value
         return "" if value is Select.NULL else str(value)
+
+    def reset_runtime(self) -> None:
+        if self.app.is_busy() or self.app.execution.session.snapshot.measurement_active:
+            return
+        self.app.query_one("#runtime", RuntimeSelect).set_requested("auto")
+        self.configuration_changed()
 
     def checked(self, widget_id: str) -> bool:
         return bool(self.app.query_one(f"#{widget_id}", Checkbox).value)
@@ -305,7 +316,11 @@ class ConfigurationController:
                     for widget_id, value in values.items():
                         self.app.query_one(f"#{widget_id}", Input).value = value
                     for widget_id, value in selects.items():
-                        self.app.query_one(f"#{widget_id}", Select).value = value
+                        control = self.app.query_one(f"#{widget_id}", Select)
+                        if isinstance(control, RuntimeSelect):
+                            control.set_requested(value)
+                        else:
+                            control.value = value
                     for widget_id, checked_value in checks.items():
                         self.app.query_one(f"#{widget_id}", Checkbox).value = checked_value
         finally:

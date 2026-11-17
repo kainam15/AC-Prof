@@ -138,7 +138,7 @@ async def test_resolved_auto_runtime_has_no_duplicate_banner(tmp_path):
     async with app.run_test(size=(80, 24)):
         app.preflight.checks = (PreflightCheck('Runtime', 'ok', 'Docker', runtime_kind='docker', check_id='runtime'),)
         app.preflight.refresh_preflight_state()
-        assert not app.query_one('#runtime-status').display
+        assert not app.query('#runtime-status')
         assert not app.query_one('#preflight-run-reason').display
 
 

@@ -48,7 +48,7 @@ def test_global_status(snap_compare, svg_operations, tmp_path, monkeypatch, lang
             app.preflight.environment_checks = (PreflightCheck('Docker', 'ok', 'fixture', check_id='docker'),)
             app.configuration.refresh_command_preview(notify=False)
             app.preflight.refresh_preflight_state()
-            assert not app.query_one('#runtime-status').display
+            assert not app.query('#runtime-status')
             app.clear_notifications()
             return
         if scene == 'process-diagnostic' or scene.startswith('permissions'):

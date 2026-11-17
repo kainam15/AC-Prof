@@ -47,6 +47,8 @@ class LocalizationController:
             self.localized_text[widget, "placeholder"] = widget.placeholder
         elif isinstance(widget, Collapsible):
             self.localized_text[widget, "title"] = widget.title
+        elif isinstance(widget, Select):
+            self.localized_text[widget, "prompt"] = widget.prompt
         if isinstance(widget.tooltip, str):
             self.localized_text[widget, "tooltip"] = widget.tooltip
         return widget

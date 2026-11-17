@@ -19,8 +19,7 @@ from acprof.tui.ui.presentation import (
     COMPACT_EXPANDED_SYMBOL,
     format_input_number,
 )
-from acprof.tui.ui.structured import StatusBanner
-from acprof.tui.ui.view_models import StatusSummary
+from acprof.tui.ui.runtime_select import RuntimeSelect
 
 if TYPE_CHECKING:
     from acprof.tui.app import AcprofTui
@@ -58,13 +57,15 @@ def compose_run_tab(app: AcprofTui) -> ComposeResult:
                         id="model-source", classes="config-control"), field_id="model-source")
 
                     yield app.localization.localized_widget(Label("运行方式"))
-                    with Vertical(id="runtime-field"):
-                        yield ConfigField(app.localization.localized_select(
-                            (("自动选择 Runtime", "auto"), ("Docker", "docker"), ("Process（无需 Docker）", "process")),
-                            value=app.configuration.initial_config.runtime, allow_blank=False,
+                    with Horizontal(id="runtime-field"):
+                        yield ConfigField(app.localization.localized_widget(RuntimeSelect(
+                            app.configuration.initial_config.runtime,
                             id="runtime", classes="config-control",
-                        ), field_id="runtime")
-                        yield StatusBanner(StatusSummary("info", ""), id="runtime-status")
+                        )), field_id="runtime")
+                        yield app.localization.localized_widget(Button(
+                            message_id("run.runtime.reset"), id="reset-runtime", classes="config-control",
+                            tooltip=message_id("run.runtime.reset_help"),
+                        ))
 
                     yield app.localization.localized_widget(Label("画像模式"))
                     yield ConfigField(app.localization.localized_select(
