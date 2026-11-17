@@ -98,6 +98,16 @@ Model Store 覆盖完整命中零模型网络请求、默认 ref 与显式 revis
 参考 [Textual 官方测试指南](https://textual.textualize.io/guide/testing/#pausing-the-pilot)（MIT，当前锁定 8.2.8），
 只复用既有 pytest/Textual 能力，不新增运行时轮询或依赖；等待调用的数量本身不作为稳定性结论。
 
+`tests/support/tui_actions.py` 为结果／补采工作流提供共享操作：`open_page()` 通过导航按钮切页，
+等待目标 pane 激活且有可见布局；当前页不重复点击，避免触发侧栏折叠。
+`fill_form()` 按映射顺序点击 `Input`，通过键盘选择、清空和粘贴替换文本，保留焦点与输入事件；
+调用者先展开所属页面／区域。禁用、点击未命中或输入未送达会明确失败，不能直接赋值绕过交互。
+这两个辅助函数只等待页面或输入本身，业务校验、Worker 和防抖读取仍由调用者指定完成条件。
+来源切换等待旧请求取消、当前来源与新概览匹配；失败读取同时核对当前来源、错误与读取收尾，
+不以尚未注册 Worker 时的空集合证明读取结束。导航、焦点及快捷键自身的测试继续保留具体步骤。
+同步机制沿用上述 Textual 官方接口；上游 [PR #6131](https://github.com/Textualize/textual/pull/6131)
+也展示了增加暂停后仍需检查实际鼠标事件的情况，本项目不复制其特定事件替换。
+
 ## Python 修改工作流
 
 修改 Python 代码时优先使用 PyCharm MCP，覆盖 `acprof/`、`packaging/`、`scripts/` 和 `tests/`。

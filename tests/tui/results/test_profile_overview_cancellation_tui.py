@@ -3,7 +3,6 @@ import asyncio
 from threading import Event
 
 import pytest
-from textual import events
 from textual.widgets import Button, Input, Static
 
 from acprof.tui.i18n import message_id
@@ -11,7 +10,9 @@ from acprof.tui.results import profile_status
 from acprof.tui.results.backfill_panel import BackfillPanel
 from acprof.tui.settings.preferences import TuiSettings, UiPreferences, save_settings
 from tests.runtime.containers.test_layer_read_cancellation import source_hashes
+from tests.support.tui_actions import fill_form, open_page
 from tests.support.tui_fixtures import AcprofTui
+from tests.support.tui_waits import wait_for_condition
 from tests.tui.results.test_profile_overview_snapshot import profile_store
 
 
@@ -38,9 +39,11 @@ async def test_selection_change_during_profiler_inspection_cancels_and_allows_re
 
     monkeypatch.setattr(profile_status, "row_tool_complete", hold_first_row)
     async with app.run_test(size=(80, 24)) as pilot:
-        app.activate_tab("results-tab")
+        await open_page(pilot, "results-tab")
         selector = app.query_one("#experiment-source", Input)
         app.results.select_result(str(first))
+        first_request = app.results.data_request
+        assert first_request is not None
         await pilot.pause()
         button = app.query_one("#refresh-experiment-state", Button)
         button.scroll_visible(animate=False, immediate=True)
@@ -62,8 +65,7 @@ async def test_selection_change_during_profiler_inspection_cancels_and_allows_re
                 await pilot.pause()
                 assert app.tr("读取已取消；等待后台任务释放资源。") in str(app.query_one("#result-data-status", Static).content)
             elif action == "cancel-backfill":
-                app.activate_tab("backfill-tab")
-                await pilot.pause()
+                await open_page(pilot, "backfill-tab")
                 button = app.query_one("#refresh-backfill-state", Button)
                 assert await pilot.click("#backfill-cancel")
                 await pilot.pause()
@@ -73,28 +75,35 @@ async def test_selection_change_during_profiler_inspection_cancels_and_allows_re
                 assert view.callout.level == "warning"
             else:
                 if action == "change-backfill-source":
-                    app.activate_tab("backfill-tab")
+                    await open_page(pilot, "backfill-tab")
                     selector = app.query_one("#backfill-source", Input)
                     button = app.query_one("#refresh-backfill-state", Button)
-                    await pilot.pause()
-                selector.scroll_visible(animate=False, immediate=True)
-                await pilot.pause()
-                assert await pilot.click(selector)
-                await pilot.press("ctrl+a")
-                app.post_message(events.Paste(str(second)))
-                await pilot.pause(0.25)
+                await fill_form(pilot, {f"#{selector.id}": str(second)})
+                await wait_for_condition(
+                    pilot, lambda: first_request.is_set() and app.results.source_path == second,
+                    description="the edited source to cancel the first reader", timeout=3,
+                    diagnostics=lambda: f"source={app.results.source_path}; cancelled={first_request.is_set()}",
+                )
         finally:
             release.set()
         await asyncio.wait_for(app.workers.wait_for_complete(), timeout=3)
         await pilot.pause()
         assert processed
-        assert not app.read_jobs
-        assert not app.is_busy()
         if action in {"cancel-backfill", "cancel-results"}:
+            assert not app.read_jobs
+            assert not app.is_busy()
             assert app.profiles.overview is None
             app.results.select_result(str(second))
-            await app.workers.wait_for_complete()
-            await pilot.pause()
+        await wait_for_condition(
+            pilot,
+            lambda: app.profiles.overview is not None and app.profiles.overview.result_dir == second
+            and not app.read_jobs,
+            description="the second experiment overview after cancellation", timeout=3,
+            diagnostics=lambda: str(app.query_one("#result-data-status", Static).content),
+        )
+        await pilot.pause()
+        assert not app.read_jobs
+        assert not app.is_busy()
         assert app.profiles.overview.result_dir == second
         assert selector.value == str(second)
         assert app.query_one("#experiment-source", Input).value == str(second)

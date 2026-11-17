@@ -1,11 +1,11 @@
 import asyncio
 from dataclasses import replace
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
 from rich.cells import cell_len
-from textual import events
 from textual.containers import VerticalScroll
 from textual.widgets import Button, Checkbox, Input, Select, Static, TabbedContent
 
@@ -16,7 +16,9 @@ from acprof.tui.settings.preferences import TuiSettings, UiPreferences, save_set
 from acprof.tui.ui.dialogs import ConfirmActionScreen
 from acprof.tui.ui.structured import Callout, FactGrid
 from tests.runtime.containers.test_layer_read_cancellation import source_hashes
+from tests.support.tui_actions import fill_form, open_page
 from tests.support.tui_fixtures import AcprofTui, checkbox_text
+from tests.support.tui_waits import wait_for_condition
 from tests.tui.results.test_profile_overview_snapshot import profile_store
 
 
@@ -28,13 +30,10 @@ async def test_experiment_source_editing_is_shared_across_pages(tmp_path, langua
     save_settings(settings, TuiSettings(ui=UiPreferences(language=language)), tmp_path)
     app = AcprofTui(settings_path=settings)
     async with app.run_test(size=(120, 30)) as pilot:
-        app.activate_tab("backfill-tab")
-        await pilot.pause()
+        await open_page(pilot, "backfill-tab")
         source = app.query_one("#backfill-source")
-        assert await pilot.click(source)
+        await fill_form(pilot, {"#backfill-source": str(root)})
         assert app.focused is source
-        app.post_message(events.Paste(str(root)))
-        await pilot.pause()
         result_source = app.query_one("#experiment-source", Input)
         assert result_source.value == str(root)
         assert await pilot.click("#refresh-backfill-state")
@@ -43,17 +42,19 @@ async def test_experiment_source_editing_is_shared_across_pages(tmp_path, langua
         assert app.profiles.overview.result_dir == root
         assert source.value == result_source.value == str(root)
 
-        # A manual edit invalidates both pages, without starting a new reader.
-        assert await pilot.click(source)
-        await pilot.press("ctrl+a")
+        # Editing invalidates both pages before the debounced read completes.
         long_path = "/" + "模型 [draft]/" * 18 + "result_all.csv"
-        app.post_message(events.Paste(long_path))
-        await pilot.pause()
+        await fill_form(pilot, {"#backfill-source": long_path})
         assert source.value == result_source.value == long_path
         assert app.profiles.overview is None
         assert app.query_one("#open-result-profiling", Button).disabled
-        await pilot.pause(0.25)
-        await app.workers.wait_for_complete()
+        await wait_for_condition(
+            pilot,
+            lambda: app.results.source_path == Path(long_path) and bool(app.results.data_error)
+            and not app.read_jobs,
+            description="the edited missing source read to finish", timeout=3,
+            diagnostics=lambda: str(app.query_one("#result-data-status", Static).content),
+        )
         assert not app.read_jobs
 
         for size in ((120, 30), (80, 24), (150, 45)):
@@ -63,8 +64,7 @@ async def test_experiment_source_editing_is_shared_across_pages(tmp_path, langua
                 ("results-tab", result_source, "choose-experiment-source"),
                 ("backfill-tab", source, "choose-backfill-result"),
             ):
-                app.activate_tab(tab)
-                await pilot.pause()
+                await open_page(pilot, tab)
                 assert await pilot.click(field)
                 await pilot.press("end")
                 assert field.cursor_position == len(long_path)
@@ -87,8 +87,7 @@ async def test_experiment_source_editing_is_shared_across_pages(tmp_path, langua
             assert regions[0] == regions[1]
 
         # Clearing the backfill input also clears the result page selection.
-        assert await pilot.click(source)
-        await pilot.press("ctrl+a", "backspace")
+        await fill_form(pilot, {"#backfill-source": ""})
         assert source.value == result_source.value == ""
         assert source.placeholder == result_source.placeholder
         assert app.query_one("#refresh-backfill-state", Button).disabled
@@ -106,8 +105,7 @@ async def test_real_summary_missing_profiler_records_show_uncollected_choices(tm
     async with app.run_test(size=(80, 24)) as pilot:
         await pilot.pause()
         app.results.select_result(str(root))
-        app.activate_tab("backfill-tab")
-        await pilot.pause()
+        await open_page(pilot, "backfill-tab")
         summarize = app.query_one("#refresh-backfill-state", Button)
         summarize.scroll_visible(animate=False, immediate=True)
         await pilot.pause()
@@ -163,8 +161,7 @@ async def test_backfill_navigation_shares_selection_and_reports_read_failures(tm
     app = AcprofTui(settings_path=settings)
     async with app.run_test(size=(80, 24)) as pilot:
         tabs = app.query_one("#main-tabs", TabbedContent)
-        app.activate_tab("results-tab")
-        await pilot.pause()
+        await open_page(pilot, "results-tab")
         assert not app.query_one("#results-tab").query("#open-result-profiling, #profile-status")
         await pilot.press("down", "enter")
         await pilot.pause()
@@ -182,13 +179,17 @@ async def test_backfill_navigation_shares_selection_and_reports_read_failures(tm
         assert app.profiles.overview.result_dir == root
         assert not app.query_one("#open-result-profiling", Button).disabled
 
-        app.activate_tab("results-tab")
-        await pilot.pause()
+        await open_page(pilot, "results-tab")
         source = app.query_one("#experiment-source", Input)
         assert source.value == str(root)
-        source.value = str(root / "missing.csv")
-        await pilot.pause(0.25)
-        await app.workers.wait_for_complete()
+        await fill_form(pilot, {"#experiment-source": str(root / "missing.csv")})
+        await wait_for_condition(
+            pilot,
+            lambda: app.results.source_path == root / "missing.csv" and bool(app.results.data_error)
+            and not app.read_jobs,
+            description="the missing CSV read to finish", timeout=3,
+            diagnostics=lambda: str(app.query_one("#result-data-status", Static).content),
+        )
         assert app.profiles.overview is None
         assert app.query_one("#backfill-source", Input).value == str(root / "missing.csv")
         assert await pilot.click("#nav-backfill-tab")
@@ -224,11 +225,7 @@ class TestTuiProfileTools:
         ))
 
     async def open_dialog(self, app, pilot):
-        # Complete initial TabbedContent activation before changing pages.
-        # Otherwise its queued run-tab event may override the test navigation.
-        await pilot.pause()
-        app.activate_tab("backfill-tab")
-        await pilot.pause()
+        await open_page(pilot, "backfill-tab")
         app.results.select_result(str(self.result_dir))
         await app.workers.wait_for_complete()
         await pilot.pause()
