@@ -67,6 +67,7 @@
 | `cpu_power_source` | CPU package 功耗来源。`rapl` 表示使用 Linux RAPL powercap 真实计数器；`unavailable` 表示当前环境没有可用 RAPL。 |
 | `rapl_topology` | static schema v7 可选对象。记录全部发现的 powercap 域、父域、真实路径、sysfs aliases、计数器范围、enabled、可读状态、选中来源及 DRAM 覆盖缺口。子域与 MSR/MMIO 重复接口保留元数据，只有明确选中的 package/DRAM 分别计量。历史缺失表示未知。 |
 | `vcpu_power_method` | estimated vCPU 功耗计算方法。`rapl_cgroup_cpu_share` 表示对 RAPL package energy 逐采样区间按 container cgroup CPU share 归因；`unavailable` 表示无法估算。 |
+| `cpu_topology` | 可选的准备阶段 `visible_sysfs` 快照：可见逻辑/物理核心数、online CPU 列表、按共享 CPU 去重的缓存（字节）和 NUMA 节点。未知数量为 `null`，失败原因保留在 `errors`。它不是服务的有效配额或 affinity；不重复保存已有 CPU 型号、GPU 驱动与资源限制。历史缺字段保持未知。 |
 | `cpu_governor` | Host CPU frequency governor 汇总值，例如 `performance`、`powersave`、`schedutil`；如果各 CPU policy 不一致，会写成 `mixed:<governor>=<count>,...`；无法读取时为 `unavailable`。 |
 | `cpu_boost` | Host CPU boost / turbo 状态。`on` 表示 boost 可用，`off` 表示关闭；无法读取时为 `unavailable`。 |
 | `compute_profile_tools` | 本次启用/实际记录的 profiler 列表，例如 `["torch_profiler_eager","ncu"]`。 |

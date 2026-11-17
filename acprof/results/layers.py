@@ -70,7 +70,7 @@ def field_layer(name: str) -> str:
     if "energy" in name or "power" in name or metric.source.startswith("rapl"):
         return "energy"
     if metric.source in {"cgroup", "perf_stat", "host_cpufreq", "nvml_selected_device",
-                         "psutil", "psutil_observed_process_tree"}:
+                         "psutil", "psutil_observed_process_tree", "procfs_observed_process_tree", "resource_quality", "service_cgroup"}:
         return "resources"
     if (name.startswith(("latency", "throughput", "cold_start"))
             or name == "process_startup_s" or metric.source in {"pcap", "docker_and_server"}):

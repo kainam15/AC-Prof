@@ -17,6 +17,13 @@ def test_historical_field_order_is_unchanged():
                       'gpu_utilization_status', 'gpu_memory_status', 'process_startup_s',
                       'process_cpu_time_s', 'process_cpu_util_avg_pct', 'process_rss_avg_bytes', 'process_rss_peak_bytes'})
     additions.update({'run_id', 'case_id', 'case_attempt_id', 'window_id', 'packet_status'})
+    additions.update({'process_cpu_user_time_s', 'process_cpu_system_time_s',
+                      'process_io_read_bytes', 'process_io_write_bytes', 'process_io_read_ops', 'process_io_write_ops',
+                      'process_leader_voluntary_ctx_switches', 'process_leader_involuntary_ctx_switches',
+                      'process_minor_faults', 'process_major_faults', 'process_swap_bytes_end', 'process_count_end',
+                      'process_threads_end', 'process_fds_end', 'process_rss_growth_bytes', 'resource_metric_quality'})
+    additions.update({'service_cgroup_cpu_time_s', 'service_cgroup_mem_usage_avg_bytes',
+                      'service_cgroup_mem_usage_peak_bytes', 'service_cgroup_io_read_bytes', 'service_cgroup_io_write_bytes'})
     historical_fields = [name for name in CSV_FIELDS if name not in additions and not name.startswith('dram_')]
     assert (hashlib.sha256(json.dumps(historical_fields).encode()).hexdigest()) == ("1422b14ebaa48586573923cea2d33f615e6dc180d099cdf773678f453e3268f3")
 

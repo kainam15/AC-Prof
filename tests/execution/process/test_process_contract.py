@@ -71,7 +71,8 @@ def test_optional_process_permission_failure_retains_application_metrics():
     observed = WindowObservations(resource_result=ProcessUsageResult(**asdict(empty_resource_result()), process_resource_status='permission_denied'), resource_error='permission denied')
     values = WindowMetrics(config, {'input_scale': 1}, use_energy=False)
     values.reduce(WindowRequestProgress(count=2, latencies=[.1, .3]), observed)
-    assert values.status == 'ok'
+    assert values.status == 'warn'
+    assert 'permission denied' in values.error
     assert values.latency_app_s == .2
     assert values.throughput == 5
     assert all(math.isnan(value) for value in values.process.values())

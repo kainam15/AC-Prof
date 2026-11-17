@@ -26,6 +26,27 @@
 | `process_cpu_util_avg_pct` | `% one logical CPU` | `psutil_observed_process_tree` | `request_window` | `all` | `number` |
 | `process_rss_avg_bytes` | `byte` | `psutil_observed_process_tree` | `request_window` | `all` | `number` |
 | `process_rss_peak_bytes` | `byte` | `psutil_observed_process_tree` | `request_window` | `all` | `number` |
+| `process_cpu_user_time_s` | `s/window` | `psutil_observed_process_tree` | `request_window` | `all` | `number` |
+| `process_cpu_system_time_s` | `s/window` | `psutil_observed_process_tree` | `request_window` | `all` | `number` |
+| `process_io_read_bytes` | `byte/window` | `psutil_observed_process_tree` | `request_window` | `all` | `number` |
+| `process_io_write_bytes` | `byte/window` | `psutil_observed_process_tree` | `request_window` | `all` | `number` |
+| `process_io_read_ops` | `count/window` | `psutil_observed_process_tree` | `request_window` | `all` | `number` |
+| `process_io_write_ops` | `count/window` | `psutil_observed_process_tree` | `request_window` | `all` | `number` |
+| `process_leader_voluntary_ctx_switches` | `count/window` | `psutil_observed_process_tree` | `request_window` | `all` | `number` |
+| `process_leader_involuntary_ctx_switches` | `count/window` | `psutil_observed_process_tree` | `request_window` | `all` | `number` |
+| `process_minor_faults` | `count/window` | `procfs_observed_process_tree` | `request_window` | `all` | `number` |
+| `process_major_faults` | `count/window` | `procfs_observed_process_tree` | `request_window` | `all` | `number` |
+| `process_swap_bytes_end` | `byte` | `procfs_observed_process_tree` | `request_window_end` | `all` | `number` |
+| `process_count_end` | `count` | `psutil_observed_process_tree` | `request_window_end` | `all` | `number` |
+| `process_threads_end` | `count` | `psutil_observed_process_tree` | `request_window_end` | `all` | `number` |
+| `process_fds_end` | `count` | `psutil_observed_process_tree` | `request_window_end` | `all` | `number` |
+| `process_rss_growth_bytes` | `byte/window` | `psutil_observed_process_tree` | `request_window` | `all` | `number` |
+| `resource_metric_quality` | `JSON` | `resource_quality` | `request_window` | `all` | `text` |
+| `service_cgroup_cpu_time_s` | `s/window` | `service_cgroup` | `request_window` | `all` | `number` |
+| `service_cgroup_mem_usage_avg_bytes` | `byte` | `service_cgroup` | `request_window` | `all` | `number` |
+| `service_cgroup_mem_usage_peak_bytes` | `byte` | `service_cgroup` | `request_window` | `all` | `number` |
+| `service_cgroup_io_read_bytes` | `byte/window` | `service_cgroup` | `request_window` | `all` | `number` |
+| `service_cgroup_io_write_bytes` | `byte/window` | `service_cgroup` | `request_window` | `all` | `number` |
 | `run_id` | `text` | `protocol` | `run` | `all` | `text` |
 | `case_id` | `text` | `protocol` | `case` | `all` | `text` |
 | `case_attempt_id` | `text` | `protocol` | `case_attempt` | `all` | `text` |

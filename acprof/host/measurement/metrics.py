@@ -303,7 +303,7 @@ class WindowMetrics:
         self.cpu = _nan_metrics(CPU_METRIC_FIELDS)
         self.efficiency = _nan_metrics(EFFICIENCY_METRIC_FIELDS)
         self.resource = _nan_metrics(RESOURCE_USAGE_METRIC_FIELDS)
-        self.process = _nan_metrics(row_group_fields("process_usage"))
+        self.process = _nan_metrics(row_group_fields("process_usage") + row_group_fields("service_cgroup"))
         self.gpu_runtime: dict[str, Any] = {
             **_nan_metrics(GPU_RUNTIME_STATE_FIELDS), "gpu_pstate": "nan",
         }
@@ -333,8 +333,10 @@ class WindowMetrics:
             raise EnergyAbort("required DRAM RAPL measurement unavailable or incomplete")
         if observations.resource_result is not None:
             if self.config.profiling_mode == "basic" and self.config.runtime_kind == "docker":
-                if observations.resource_error:
-                    raise RuntimeError(f"required CPU/memory measurement failed: {observations.resource_error}")
+                required_error = getattr(observations.resource_result, 'required_error', None)
+                required_error = observations.resource_error if required_error is None else required_error
+                if required_error:
+                    raise RuntimeError(f"required CPU/memory measurement failed: {required_error}")
                 if not all(math.isfinite(value) for value in (
                     observations.resource_result.container_cpu_util_avg_pct,
                     observations.resource_result.container_mem_usage_avg_bytes,
@@ -345,6 +347,10 @@ class WindowMetrics:
             self.resource = resource_usage_metrics_from_result(
                 observations.resource_result, progress.count,
             )
+            if self.config.runtime_kind == 'process':
+                # Legacy resource_usage_iters is the Docker cgroup sampler count.
+                # Process sample counts remain in its own telemetry retention.
+                self.resource['resource_usage_iters'] = float('nan')
         self.resolved_input_scale = (
             progress.effective_input_scale
             if progress.effective_input_scale is not None
@@ -366,7 +372,8 @@ class WindowMetrics:
         if observations.mips_result is not None:
             self.mips = mips_metrics_from_result(observations.mips_result)
         warnings = window_monitor_warnings(
-            resource_error=observations.resource_error if self.config.runtime_kind == "docker" else "",
+            resource_error="; ".join(filter(None, (observations.resource_error,
+                getattr(observations.resource_result, 'optional_error', '')))),
             gpu_error=observations.gpu_error,
             cpu_error=observations.cpu_error,
             dram_energy=self.config.dram_energy,
@@ -430,7 +437,9 @@ class WindowMetrics:
         def gpu_status(name: str, fields: tuple[str, ...]) -> str:
             if not self.use_energy:
                 return "not_requested"
-            if all(math.isfinite(to_float_or_nan(getattr(observations.resource_result, field, None))) for field in fields):
+            quality = getattr(observations.resource_result, 'metric_evidence', {})
+            if all(math.isfinite(to_float_or_nan(getattr(observations.resource_result, field, None)))
+                   and quality.get(field, {}).get('quality', 'complete') == 'complete' for field in fields):
                 return "verified"
             status = str(gpu_evidence.get(name + "_status", gpu_evidence.get("status", "unavailable")))
             return "unavailable" if status in {"available", "verified"} else status
@@ -440,8 +449,13 @@ class WindowMetrics:
             "resource_scope": "observed_process_tree" if self.config.runtime_kind == "process" else "container_cgroup",
             "environment_sharing": "unknown", "gpu_metric_scope": "device" if self.use_energy else "not_requested",
             "process_startup_s": self.config.process_startup_s,
-            "process_resource_error": observations.resource_error if self.config.runtime_kind == "process" else "",
+            "process_resource_error": (observations.resource_error if self.config.runtime_kind == "process" else
+                                       getattr(observations.resource_result, 'optional_error', '')),
             "process_resource_status": getattr(observations.resource_result, "process_resource_status", "not_requested"),
+            "resource_metric_quality": json.dumps({name: {key: value for key, value in evidence.items()
+                if key in {'quality', 'reason'}} for name, evidence in
+                getattr(observations.resource_result, 'metric_evidence', {}).items()},
+                ensure_ascii=False, separators=(',', ':')),
             "gpu_utilization_status": gpu_status("utilization", ("gpu_util_avg_pct", "gpu_util_peak_pct")),
             "gpu_memory_status": gpu_status("memory", ("gpu_mem_used_avg_bytes", "gpu_mem_used_peak_bytes")),
             "cpu_cores": resource_text(self.config.cpu_cores),

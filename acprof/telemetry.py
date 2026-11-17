@@ -107,6 +107,15 @@ def read_window_evidence(path: str | Path, *, expected_sha256: str | None = None
     return evidence
 
 
+def _recorded_series(item: dict[str, Any]):
+    """Include embedded process/cgroup buffers in the exact-replay contract."""
+    yield item
+    for name in ('process', 'cgroup'):
+        child = item.get(name)
+        if isinstance(child, dict) and child.get('status') == 'recorded':
+            yield from _recorded_series(child)
+
+
 def raw_capability(evidence: dict[str, Any] | None) -> dict[str, Any]:
     if evidence is None:
         return {"status": "unavailable", "reason": "legacy_or_missing_raw_evidence", "can_recompute": False}
@@ -115,8 +124,8 @@ def raw_capability(evidence: dict[str, Any] | None) -> dict[str, Any]:
     collectors = evidence.get("collectors", {})
     available = {name: item for name, item in collectors.items()
                  if isinstance(item, dict) and item.get("status") == "recorded"}
-    complete = bool(available) and all(item.get("retention", {}).get("complete") is True
-                                       for item in available.values())
+    complete = bool(available) and all(series.get("retention", {}).get("complete") is True
+                                       for item in available.values() for series in _recorded_series(item))
     return {"status": "complete" if complete else "incomplete" if available else "unavailable",
             "can_recompute": complete, "collectors": sorted(available),
             "scope": "recorded_workload_metrics_using_recorded_control_baseline",
@@ -144,7 +153,7 @@ is the recorded, versioned choice, not a fresh hardware capability decision.
         if not isinstance(item, dict) or item.get("status") != "recorded":
             output[name] = {"status": "unavailable"}
             continue
-        if item.get("retention", {}).get("complete") is not True:
+        if any(series.get("retention", {}).get("complete") is not True for series in _recorded_series(item)):
             raise ValueError(f"cannot exactly recompute truncated {name} evidence")
         if name == "cpu":
             output[name] = _recompute_cpu(item)
@@ -204,10 +213,18 @@ def _recompute_gpu(item: dict[str, Any]) -> dict[str, Any]:
 
 def _recompute_resource(item: dict[str, Any]) -> dict[str, Any]:
     if item.get("source") == "psutil":
+        from acprof.monitors.process_cgroup import reduce_cgroup_samples
+        from acprof.monitors.process_metrics import BOUNDARY_COUNTERS
         from acprof.monitors.process_usage import reduce_process_samples
-        values = reduce_process_samples(item["samples"])
+        version = item.get('process_reduction_version', 1)
+        if type(version) is not int or version not in {1, 2}:
+            raise ValueError('unsupported process reduction version')
+        values = reduce_process_samples(item["samples"], legacy=version == 1)
         if item.get("lost_members"):
-            values.update(process_cpu_time_s=None, process_cpu_util_avg_pct=None)
+            values.update(dict.fromkeys(('process_cpu_time_s', 'process_cpu_util_avg_pct',
+                'process_cpu_user_time_s', 'process_cpu_system_time_s', *BOUNDARY_COUNTERS)))
+        if item.get('cgroup'):
+            values.update(reduce_cgroup_samples(item['cgroup']))
         return values
     from acprof.monitors import resource_metrics
     context = item["context"]
@@ -231,4 +248,8 @@ def _recompute_resource(item: dict[str, Any]) -> dict[str, Any]:
     resource_metrics.apply_window_counter_metrics(result, counters(context["counters_start"]),
                                                    counters(context["counters_end"]),
                                                    context["window_duration_s"])
-    return asdict(result)
+    values = asdict(result)
+    if item.get('process') and item['process'].get('status') == 'recorded':
+        values.update({name: value for name, value in _recompute_resource(item['process']).items()
+                       if name.startswith(('process_', 'service_cgroup_'))})
+    return values

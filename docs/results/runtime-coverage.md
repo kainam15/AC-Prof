@@ -3,7 +3,7 @@
 由 `scripts/render_runtime_coverage.py` 从 [指标登记表](../../acprof/results/metrics.py) 和
 [采集来源契约](../../acprof/results/coverage.py) 生成。语义与实施边界见 [统一画像](runtime-profile.md)。
 
-共 229 个登记字段，包含身份、诊断和数值，不能把字段数当作可采集指标数。
+共 250 个登记字段，包含身份、诊断和数值，不能把字段数当作可采集指标数。
 `conditional` 仅表示存在实现路径；实际可采集性由权限、设备和当前运行证据决定。
 `unsupported` 表示该 Runtime 未接入。所有条目的硬件验收均为 `not_verified`；
 本表不凭代码、Mock 或历史不同版本实验宣称已通过硬件验证。
@@ -11,6 +11,7 @@
 | 来源 | 范围 | 成本级别 | 条件 / 权限 | 生产者 |
 | --- | --- | --- | --- | --- |
 | `allocation_evidence` | `protocol_identity` | none | valid run identity | [metrics.py](../../acprof/host/measurement/metrics.py) |
+| `cgroup` | `container_cgroup` | medium | local Docker; cgroup v2; readable metric files | [resource_usage.py](../../acprof/monitors/resource_usage.py) |
 | `cgroup` | `container_cgroup` | low | local Docker; cgroup v2; readable metric files | [resource_usage.py](../../acprof/monitors/resource_usage.py) |
 | `client_http` | `client_http_requests` | none | successful requests; tokenizer/geometry when applicable | [metrics.py](../../acprof/host/measurement/metrics.py) |
 | `collector_contract` | `protocol_identity` | none | valid run identity | [metrics.py](../../acprof/host/measurement/metrics.py) |
@@ -20,7 +21,7 @@
 | `docker_and_server` | `container_service_lifetime` | none | Docker readiness timestamps | [metrics.py](../../acprof/host/measurement/metrics.py) |
 | `execution_runtime` | `protocol_identity` | none | valid run identity | [metrics.py](../../acprof/host/measurement/metrics.py) |
 | `handler` | `actual_request` | none | handler response contract | [metrics.py](../../acprof/host/measurement/metrics.py) |
-| `host_cpufreq` | `host_visible_cpus` | low | readable cpufreq or cpuinfo; unavailable on WSL2 | [resource_usage.py](../../acprof/monitors/resource_usage.py) |
+| `host_cpufreq` | `host_visible_cpus` | medium | readable cpufreq or cpuinfo; unavailable on WSL2 | [resource_usage.py](../../acprof/monitors/resource_usage.py) |
 | `immutable_runtime_artifact` | `protocol_identity` | none | valid run identity | [metrics.py](../../acprof/host/measurement/metrics.py) |
 | `input_plan` | `materialized_request` | none | frozen input plan | [__init__.py](../../acprof/host/input_plan/__init__.py) |
 | `managed_process_to_ready` | `managed_service_lifetime` | none | Process readiness | [metrics.py](../../acprof/host/measurement/metrics.py) |
@@ -29,17 +30,22 @@
 | `nsys` | `independent_cuda_timeline` | high | explicit profiler; NVIDIA GPU; Nsys | [execution_plan.py](../../acprof/host/profiling/execution_plan.py) |
 | `nvml_selected_device` | `selected_gpu_device` | medium | Full; NVML counter or power integration; matched control | [energy_nvml.py](../../acprof/monitors/energy_nvml.py) |
 | `nvml_selected_device` | `selected_gpu_device` | medium | GPU UUID; NVML query support and permission | [resource_usage.py](../../acprof/monitors/resource_usage.py) |
-| `nvml_selected_device` | `selected_gpu_device` | medium | GPU UUID; NVML query support and permission | [resource_usage.py](../../acprof/monitors/resource_usage.py) |
 | `pcap` | `correlated_http_connection_frames` | high | Full; capture permission; complete request matching | [merge_packet_latency.py](../../acprof/packet/merge_packet_latency.py) |
 | `perf_stat` | `container_cgroup_pmu` | medium | Full; perf; PMU permission; valid running ratio | [perf_mips.py](../../acprof/monitors/perf_mips.py) |
 | `platform_identity` | `protocol_identity` | none | valid run identity | [metrics.py](../../acprof/host/measurement/metrics.py) |
+| `procfs_observed_process_tree` | `observed_process_tree` | low | Linux procfs; stable process membership | [process_usage.py](../../acprof/monitors/process_usage.py) |
 | `protocol` | `protocol_identity` | none | valid run identity | [metrics.py](../../acprof/host/measurement/metrics.py) |
 | `psutil` | `observed_process_tree` | low | target procfs access | [process_usage.py](../../acprof/monitors/process_usage.py) |
+| `psutil_observed_process_tree` | `observed_process_tree` | medium | procfs access; stable PID + start time | [process_usage.py](../../acprof/monitors/process_usage.py) |
 | `psutil_observed_process_tree` | `observed_process_tree` | low | procfs access; stable PID + start time | [process_usage.py](../../acprof/monitors/process_usage.py) |
+| `psutil_observed_process_tree` | `observed_process_tree_leaders` | low | procfs access; stable PID + start time | [process_usage.py](../../acprof/monitors/process_usage.py) |
 | `rapl_cgroup_attribution` | `cgroup_cpu_time_share_of_host_packages` | medium | Full; RAPL + cgroup + host CPU counters | [energy_cpu.py](../../acprof/monitors/energy_cpu.py) |
 | `rapl_dram` | `host_dram_domains` | medium | Full; DRAM requested; complete readable domains | [energy_cpu.py](../../acprof/monitors/energy_cpu.py) |
 | `rapl_package` | `host_cpu_packages` | medium | Full; readable RAPL package domains | [energy_cpu.py](../../acprof/monitors/energy_cpu.py) |
+| `resource_quality` | `per_metric` | none | finalized collector evidence | [metrics.py](../../acprof/host/measurement/metrics.py) |
 | `selected_device_identity` | `protocol_identity` | none | valid run identity | [metrics.py](../../acprof/host/measurement/metrics.py) |
+| `service_cgroup` | `owned_service_cgroup` | low | verified owned cgroup; membership; readable metric files | [process_cgroup.py](../../acprof/monitors/process_cgroup.py) |
+| `service_cgroup` | `owned_service_cgroup` | medium | verified owned cgroup; membership; readable metric files | [process_cgroup.py](../../acprof/monitors/process_cgroup.py) |
 | `torch` | `independent_model_forward` | high | explicit profiler; supported backend | [compute_plan.py](../../acprof/host/profiling/compute_plan.py) |
 | `verified_runtime_limits` | `protocol_identity` | none | valid run identity | [metrics.py](../../acprof/host/measurement/metrics.py) |
 
@@ -52,15 +58,36 @@
 | `resource_scope` | `conditional` | `conditional` | `text` | `collector_contract` | `case` | `recorded` |
 | `environment_sharing` | `conditional` | `conditional` | `text` | `allocation_evidence` | `case` | `recorded` |
 | `gpu_metric_scope` | `conditional` | `conditional` | `text` | `collector_contract` | `case` | `recorded` |
-| `process_resource_error` | `unsupported` | `conditional` | `text` | `psutil` | `request_window` | `diagnostic` |
-| `process_resource_status` | `unsupported` | `conditional` | `text` | `psutil` | `request_window` | `diagnostic` |
+| `process_resource_error` | `conditional` | `conditional` | `text` | `psutil` | `request_window` | `recorded` |
+| `process_resource_status` | `conditional` | `conditional` | `text` | `psutil` | `request_window` | `recorded` |
 | `gpu_utilization_status` | `conditional` | `conditional` | `text` | `nvml_selected_device` | `request_window` | `observed` |
 | `gpu_memory_status` | `conditional` | `conditional` | `text` | `nvml_selected_device` | `request_window` | `observed` |
 | `process_startup_s` | `unsupported` | `conditional` | `s` | `managed_process_to_ready` | `case_startup` | `observed` |
-| `process_cpu_time_s` | `unsupported` | `conditional` | `s/window` | `psutil_observed_process_tree` | `request_window` | `observed` |
-| `process_cpu_util_avg_pct` | `unsupported` | `conditional` | `% one logical CPU` | `psutil_observed_process_tree` | `request_window` | `observed` |
-| `process_rss_avg_bytes` | `unsupported` | `conditional` | `byte` | `psutil_observed_process_tree` | `request_window` | `observed` |
-| `process_rss_peak_bytes` | `unsupported` | `conditional` | `byte` | `psutil_observed_process_tree` | `request_window` | `observed` |
+| `process_cpu_time_s` | `conditional` | `conditional` | `s/window` | `psutil_observed_process_tree` | `request_window` | `observed` |
+| `process_cpu_util_avg_pct` | `conditional` | `conditional` | `% one logical CPU` | `psutil_observed_process_tree` | `request_window` | `observed` |
+| `process_rss_avg_bytes` | `conditional` | `conditional` | `byte` | `psutil_observed_process_tree` | `request_window` | `observed` |
+| `process_rss_peak_bytes` | `conditional` | `conditional` | `byte` | `psutil_observed_process_tree` | `request_window` | `observed` |
+| `process_cpu_user_time_s` | `conditional` | `conditional` | `s/window` | `psutil_observed_process_tree` | `request_window` | `observed` |
+| `process_cpu_system_time_s` | `conditional` | `conditional` | `s/window` | `psutil_observed_process_tree` | `request_window` | `observed` |
+| `process_io_read_bytes` | `conditional` | `conditional` | `byte/window` | `psutil_observed_process_tree` | `request_window` | `observed` |
+| `process_io_write_bytes` | `conditional` | `conditional` | `byte/window` | `psutil_observed_process_tree` | `request_window` | `observed` |
+| `process_io_read_ops` | `conditional` | `conditional` | `count/window` | `psutil_observed_process_tree` | `request_window` | `observed` |
+| `process_io_write_ops` | `conditional` | `conditional` | `count/window` | `psutil_observed_process_tree` | `request_window` | `observed` |
+| `process_leader_voluntary_ctx_switches` | `conditional` | `conditional` | `count/window` | `psutil_observed_process_tree` | `request_window` | `observed` |
+| `process_leader_involuntary_ctx_switches` | `conditional` | `conditional` | `count/window` | `psutil_observed_process_tree` | `request_window` | `observed` |
+| `process_minor_faults` | `conditional` | `conditional` | `count/window` | `procfs_observed_process_tree` | `request_window` | `observed` |
+| `process_major_faults` | `conditional` | `conditional` | `count/window` | `procfs_observed_process_tree` | `request_window` | `observed` |
+| `process_swap_bytes_end` | `conditional` | `conditional` | `byte` | `procfs_observed_process_tree` | `request_window_end` | `observed` |
+| `process_count_end` | `conditional` | `conditional` | `count` | `psutil_observed_process_tree` | `request_window_end` | `observed` |
+| `process_threads_end` | `conditional` | `conditional` | `count` | `psutil_observed_process_tree` | `request_window_end` | `observed` |
+| `process_fds_end` | `conditional` | `conditional` | `count` | `psutil_observed_process_tree` | `request_window_end` | `observed` |
+| `process_rss_growth_bytes` | `conditional` | `conditional` | `byte/window` | `psutil_observed_process_tree` | `request_window` | `observed` |
+| `resource_metric_quality` | `conditional` | `conditional` | `JSON` | `resource_quality` | `request_window` | `recorded` |
+| `service_cgroup_cpu_time_s` | `unsupported` | `conditional` | `s/window` | `service_cgroup` | `request_window` | `observed` |
+| `service_cgroup_mem_usage_avg_bytes` | `unsupported` | `conditional` | `byte` | `service_cgroup` | `request_window` | `observed` |
+| `service_cgroup_mem_usage_peak_bytes` | `unsupported` | `conditional` | `byte` | `service_cgroup` | `request_window` | `observed` |
+| `service_cgroup_io_read_bytes` | `unsupported` | `conditional` | `byte/window` | `service_cgroup` | `request_window` | `observed` |
+| `service_cgroup_io_write_bytes` | `unsupported` | `conditional` | `byte/window` | `service_cgroup` | `request_window` | `observed` |
 | `run_id` | `conditional` | `conditional` | `text` | `protocol` | `run` | `recorded` |
 | `case_id` | `conditional` | `conditional` | `text` | `protocol` | `case` | `recorded` |
 | `case_attempt_id` | `conditional` | `conditional` | `text` | `protocol` | `case_attempt` | `recorded` |
@@ -251,16 +278,16 @@
 | `container_pids_current_end` | `conditional` | `unsupported` | `count` | `cgroup` | `request_window_end` | `observed` |
 | `container_pids_peak_cgroup` | `conditional` | `unsupported` | `count` | `cgroup` | `cgroup_lifetime` | `observed` |
 | `container_pids_max_events_delta` | `conditional` | `unsupported` | `count/window` | `cgroup` | `request_window` | `observed` |
-| `gpu_sm_clock_mhz` | `conditional` | `unsupported` | `MHz` | `nvml_selected_device` | `request_window` | `observed` |
-| `gpu_memory_clock_mhz` | `conditional` | `unsupported` | `MHz` | `nvml_selected_device` | `request_window` | `observed` |
-| `gpu_pstate` | `conditional` | `unsupported` | `text` | `nvml_selected_device` | `request_window` | `observed` |
-| `gpu_temp_c` | `conditional` | `unsupported` | `degC` | `nvml_selected_device` | `request_window` | `observed` |
+| `gpu_sm_clock_mhz` | `conditional` | `conditional` | `MHz` | `nvml_selected_device` | `request_window` | `observed` |
+| `gpu_memory_clock_mhz` | `conditional` | `conditional` | `MHz` | `nvml_selected_device` | `request_window` | `observed` |
+| `gpu_pstate` | `conditional` | `conditional` | `text` | `nvml_selected_device` | `request_window` | `observed` |
+| `gpu_temp_c` | `conditional` | `conditional` | `degC` | `nvml_selected_device` | `request_window` | `observed` |
 | `gpu_util_avg_pct` | `conditional` | `conditional` | `%` | `nvml_selected_device` | `request_window` | `observed` |
 | `gpu_util_peak_pct` | `conditional` | `conditional` | `%` | `nvml_selected_device` | `request_window` | `observed` |
 | `gpu_mem_used_avg_bytes` | `conditional` | `conditional` | `byte` | `nvml_selected_device` | `request_window` | `observed` |
 | `gpu_mem_used_peak_bytes` | `conditional` | `conditional` | `byte` | `nvml_selected_device` | `request_window` | `observed` |
-| `gpu_mem_util_avg_pct` | `conditional` | `unsupported` | `%` | `nvml_selected_device` | `request_window` | `observed` |
-| `gpu_mem_util_peak_pct` | `conditional` | `unsupported` | `%` | `nvml_selected_device` | `request_window` | `observed` |
+| `gpu_mem_util_avg_pct` | `conditional` | `conditional` | `%` | `nvml_selected_device` | `request_window` | `observed` |
+| `gpu_mem_util_peak_pct` | `conditional` | `conditional` | `%` | `nvml_selected_device` | `request_window` | `observed` |
 | `cold_start_started_at` | `conditional` | `unsupported` | `ISO-8601` | `docker_and_server` | `container_startup` | `observed` |
 | `cold_start_ready_at` | `conditional` | `unsupported` | `ISO-8601` | `docker_and_server` | `container_startup` | `observed` |
 | `cold_start_container_launch_s` | `conditional` | `unsupported` | `s` | `docker_and_server` | `container_startup` | `observed` |

@@ -357,7 +357,7 @@ class ClientRunner:
 
             from acprof.monitors.process_usage import ProcessUsageMonitor
             resource_factory = partial(ProcessUsageMonitor, pid=self.config.process_pid,
-                                       start_ticks=self.config.process_start_ticks)
+                                       start_ticks=self.config.process_start_ticks, resource_plan=self.config.resource_plan)
         windows = WindowExecutor(
             self.config,
             MonitorDependencies(

@@ -59,6 +59,7 @@ from acprof.results.metrics import (  # noqa: E402
 )
 
 STATIC_META_FIELDS = [
+    "cpu_topology",
     "profiling_mode",
     "capability_report",
     "platform",

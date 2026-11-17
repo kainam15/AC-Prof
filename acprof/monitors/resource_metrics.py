@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import math
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, field as dataclass_field
 
 BYTES_PER_GIB = 1024 ** 3
 
@@ -78,6 +78,9 @@ class ResourceUsageResult:
     container_pids_current_end: float = float("nan")
     container_pids_peak_cgroup: float = float("nan")
     container_pids_max_events_delta: float = float("nan")
+    optional_error: str = ""
+    required_error: str | None = None
+    metric_evidence: dict = dataclass_field(default_factory=dict)
 
 
 @dataclass

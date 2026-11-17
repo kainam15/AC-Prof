@@ -23,6 +23,32 @@ Docker 已有 cgroup CPU/memory/Swap/I/O/PSI、RAPL、perf 和完整 NVML；Proc
 
 ## 共同概念与统计范围
 
+P1 已接入共同进程树采集。Docker 将观察嵌入既有 resource 线程，复用已解析的容器 PID；
+Process 使用原有线程。CPU user/system 与 RSS 同时读取，I/O、缺页、Swap、线程/FD 数只在首尾读取。
+累计边界指标要求全窗口观察到的成员身份稳定；变化或回退时保留缺失及原因。PID 完全替换且
+没有同身份计数对的新窗口不再写 CPU 零值。`process_reduction_version=2` 标识新证据，旧 raw 的 v1 计算保持。
+`process_leader_*_ctx_switches` 为各进程主线程之和；不是所有线程总和。`process_swap_bytes_end`
+读取 Linux `VmSwap`，不包含 swapped shmem。`process_rss_growth_bytes` 允许负数，不截零。
+
+Process 独立、已验证 cgroup 的 CPU 时间、内存平均/采样峰值、块 I/O 由 `service_cgroup_*` 输出；
+复用 Docker 的 cgroup readers，不写任何限制或委派文件。路径 inode 和根 PID 成员身份在边界复核。
+继承父级限制时状态为 unsupported。Docker `container_*` 原义与字段顺序保持。
+
+NVML 查询与聚合已经复用。Process 增加显存比例、SM/显存频率、P-state、温度；
+利用率/显存沿用请求的 sample rate，Process 状态指标最多每秒读取一次，Docker 保留原采样频率。
+缺查询支持不抹掉其它有效读数；有缺口的已知值标 partial，不能声称完整验证。
+不同状态采样频率不能直接当作等口径比较。
+
+`resource_metric_quality` 保存逐指标质量/原因，完整 `source/scope/window/quality/derivation`
+在原始 telemetry 中；它和新增数值字段进入 resources 层。缺字段的历史行保持 unknown。
+嵌套 process/cgroup 的 raw 保留数量参与精确重算检查，截断不宣称可精确重算。
+Process 样本数在自己的 raw retention 中，新的 Process 行不再借用来源为 cgroup 的 `resource_usage_iters`。
+
+准备阶段新增 `static_meta.json.cpu_topology`，记录可见逻辑 CPU、物理核心、online CPU、
+去重共享 cache 和 NUMA CPU 列表，字段缺失为 null 并保留错误；它不是服务独占资源证明。
+CPU 型号、GPU 型号/驱动/PCI bus ID、内存和每 case 的限制复用已有 metadata / hardware_conditions，
+不在采样线程重复探测。USS/PSS 仍未默认读取。
+
 | 概念 | 共同值 / 语义 | 必须独立保留 |
 | --- | --- | --- |
 | 延迟、吞吐 | `latency_app_*`、成功请求与既有输入规模分母 | `latency_s` 始终为 PCAP；窗口分位数均值不是总体分位数 |

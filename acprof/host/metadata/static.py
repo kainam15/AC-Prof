@@ -64,6 +64,7 @@ class StaticMeta:
     )
     gpu_device: dict[str, Any] = field(default_factory=dict)
     gpu_metadata: dict[str, Any] = field(default_factory=dict)
+    cpu_topology: dict[str, Any] = field(default_factory=dict)
     profiling_mode: str = "full"
     capability_report: dict[str, Any] = field(default_factory=dict)
     platform: dict[str, Any] = field(default_factory=dict)
@@ -229,6 +230,7 @@ def collect_static_meta(
                             else _build_model_download_url(task_info.model_id)),
         gpu_device=dict(gpu_device or {}),
         gpu_metadata=dict(gpu_probe),
+        cpu_topology=machine_metadata.cpu_topology_metadata(),
         gpu=str(gpu_probe["fields"]["name"]["value"] or "unknown"),
         gpu_mem_total_bytes=gpu_memory if isinstance(gpu_memory, int) else None,
         host_mem_total_bytes=machine_metadata.host_mem_total_bytes(),

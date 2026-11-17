@@ -7,7 +7,8 @@
 
 Docker / Process 统一画像：已建立 [逐字段覆盖矩阵](results/runtime-coverage.md) 与
 [统一语义契约](results/runtime-profile.md)，区分登记、实现、运行条件及硬件证据。
-低开销共同采集、开销验收、高级 Process 能力和跨 Runtime 比较分阶段推进；
+共同进程树 CPU/RSS/边界计数、Process 独立 cgroup 与 GPU 遥测、准备期 CPU 拓扑已接入；
+开销验收、高级 Process 能力和跨 Runtime 比较分阶段推进；
 真实硬件、模型和采集开销未在本轮执行。
 
 | 阶段 | 目标 | 状态与下一步 |

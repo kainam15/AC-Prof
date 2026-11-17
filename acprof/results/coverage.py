@@ -26,9 +26,12 @@ SOURCE_CONTRACTS = {
                     "immutable_runtime_artifact", "verified_runtime_limits",
                     "collector_contract", "allocation_evidence", "selected_device_identity"), _PROTOCOL),
     "psutil": CollectorContract("observed_process_tree", "low", "target procfs access", _PROCESS,
-                                ("process",), "diagnostic"),
+                                derivation="recorded"),
     "psutil_observed_process_tree": CollectorContract(
-        "observed_process_tree", "low", "procfs access; stable PID + start time", _PROCESS, ("process",)),
+        "observed_process_tree", "low", "procfs access; stable PID + start time", _PROCESS),
+    "procfs_observed_process_tree": CollectorContract("observed_process_tree", "low", "Linux procfs; stable process membership", _PROCESS),
+    "resource_quality": CollectorContract("per_metric", "none", "finalized collector evidence", _ROW, derivation="recorded"),
+    "service_cgroup": CollectorContract("owned_service_cgroup", "low", "verified owned cgroup; membership; readable metric files", "acprof/monitors/process_cgroup.py", ("process",)),
     "managed_process_to_ready": CollectorContract("managed_service_lifetime", "none", "Process readiness", _ROW, ("process",)),
     "nvml_selected_device": CollectorContract("selected_gpu_device", "medium", "GPU UUID; NVML query support and permission", _RESOURCE),
     "pcap": CollectorContract("correlated_http_connection_frames", "high", "Full; capture permission; complete request matching", "acprof/packet/merge_packet_latency.py", ("docker",)),
@@ -53,15 +56,17 @@ SOURCE_CONTRACTS = {
 def collector_contract(metric: Metric) -> CollectorContract:
     """Resolve explicit exceptions; a new source must supply its own contract."""
     contract = SOURCE_CONTRACTS[metric.source]
+    if metric.name.startswith("process_leader_"):
+        return replace(contract, scope="observed_process_tree_leaders")
+    if metric.source in {'cgroup', 'service_cgroup', 'psutil_observed_process_tree', 'host_cpufreq'} and (
+            '_avg_' in metric.name or '_peak_' in metric.name or metric.name.startswith('process_cpu_')):
+        return replace(contract, cost='medium')
     if metric.source == "nvml_selected_device":
         if metric.row_group == "gpu_energy" or metric.name.startswith("gpu_idle_") or metric.name in {
             "gpu_energy_source", "gpu_energy_fallback_reason",
         }:
             return replace(contract, producer="acprof/monitors/energy_nvml.py", runtimes=("docker",),
                            prerequisites="Full; NVML counter or power integration; matched control")
-        if metric.name not in {"gpu_utilization_status", "gpu_memory_status", "gpu_util_avg_pct",
-                               "gpu_util_peak_pct", "gpu_mem_used_avg_bytes", "gpu_mem_used_peak_bytes"}:
-            return replace(contract, runtimes=("docker",))
     if metric.source == "derived":
         if metric.name.startswith("container_attributed_"):
             return replace(contract, scope="cgroup_cpu_share_plus_selected_gpu", runtimes=("docker",), derivation="estimated")

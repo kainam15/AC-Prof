@@ -4,13 +4,19 @@ from __future__ import annotations
 import threading
 import time
 from collections.abc import Callable
+from dataclasses import asdict
+from typing import TYPE_CHECKING
 
 from acprof.monitors import resource_metrics, resource_readers
 from acprof.monitors.common import sample_periodically, stop_sampling_thread
+from acprof.monitors.gpu_telemetry import gpu_metric_evidence, read_gpu_sample
 from acprof.monitors.interfaces import ResourceStopResult
 from acprof.monitors.sampling import DEFAULT_RAW_SAMPLE_LIMIT, SamplingDiagnostics, SamplingPolicy
 
 SAMPLER_STOP_TIMEOUT_S = 1.0
+
+if TYPE_CHECKING:
+    from acprof.monitors.process_usage import ProcessUsageMonitor
 
 try:
     import pynvml
@@ -77,6 +83,7 @@ class ResourceUsageMonitor:
         self._window_counters_end = resource_metrics.WindowCounterSnapshots()
         self._gpu_handle = None
         self._gpu_initialized = False
+        self._gpu_initialization_error = ""
         self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
         self._t_start: float | None = None
@@ -84,7 +91,11 @@ class ResourceUsageMonitor:
         self._init_error = ""
         self._runtime_error = ""
         self._runtime_errors: list[str] = []
+        self._required_errors: set[str] = set()
         self._closed = False
+        self._process_pid = 0
+        self._process_monitor: ProcessUsageMonitor | None = None
+        self._process_prepared = False
 
         try:
             readers = resource_readers.resolve_container_metric_readers(
@@ -92,6 +103,7 @@ class ResourceUsageMonitor:
                 cgroup_root=cgroup_root,
                 proc_root=proc_root,
             )
+            self._process_pid = getattr(readers, 'pid', 0)
             self._cpu_reader = readers.cpu
             self._mem_reader = readers.memory
             self._swap_reader = readers.swap
@@ -111,6 +123,7 @@ class ResourceUsageMonitor:
 
         if self.use_gpu:
             if pynvml is None:
+                self._gpu_initialization_error = "pynvml unavailable"
                 self._record_runtime_error("pynvml unavailable")
             else:
                 try:
@@ -122,8 +135,25 @@ class ResourceUsageMonitor:
                         else pynvml.nvmlDeviceGetHandleByIndex(self.device_index)
                     )
                 except Exception as exc:
+                    self._gpu_initialization_error = str(exc)
                     self._record_runtime_error(str(exc))
                     self._gpu_handle = None
+
+    def prepare(self) -> None:
+        if self._process_prepared or not self._process_pid:
+            return
+        from acprof.monitors.process_usage import ProcessUsageMonitor
+        from acprof.process_identity import process_identity
+        monitor = ProcessUsageMonitor(pid=self._process_pid, start_ticks=0, sample_hz=self.sample_hz,
+                                      sampling_policy=self.sampling_policy, raw_sample_limit=self.raw_sample_limit)
+        self._process_monitor = monitor
+        self._process_prepared = True
+        try:
+            monitor.start_ticks = process_identity(self._process_pid)['start_ticks']
+            monitor.prepare()
+        except (OSError, RuntimeError) as exc:
+            monitor.status = 'permission_denied' if isinstance(exc, PermissionError) else 'error'
+            monitor.error = f'{type(exc).__name__}: {exc}'
 
     @property
     def available(self) -> bool:
@@ -146,12 +176,15 @@ class ResourceUsageMonitor:
         )
 
     def start(self) -> None:
+        self.prepare()
         if not self.available:
             return
         if self._thread is not None and self._thread.is_alive():
             raise RuntimeError("Resource usage monitor is already running")
 
         self.samples = []
+        if self._process_monitor is not None:
+            self._process_monitor.samples = []
         self.sampling_diagnostics = SamplingDiagnostics(self.sampling_policy, self.dt)
         self._stop_event = threading.Event()
         self._swap_limit_bytes = None
@@ -171,7 +204,7 @@ class ResourceUsageMonitor:
         self._window_counters_start = self._read_window_counter_snapshots()
         self._t_start = time.perf_counter()
         self._t_end = None
-        self._append_sample(self._t_start)
+        self._append_sample(self._t_start, boundary=True)
         self._thread = threading.Thread(
             target=sample_periodically,
             args=(self._stop_event, self._t_start, self.dt, self._append_sample),
@@ -200,7 +233,7 @@ class ResourceUsageMonitor:
                 )
             self._thread = None
 
-        self._append_sample(self._t_end)
+        self._append_sample(self._t_end, boundary=True)
         if self._io_reader is not None:
             try:
                 self._io_end = self._io_reader()
@@ -238,6 +271,16 @@ class ResourceUsageMonitor:
             window_counters_end,
             max(0.0, self._t_end - self._t_start),
         )
+        result.metric_evidence = gpu_metric_evidence(asdict(result), self.gpu_query_errors,
+            requested=self.use_gpu, initialization_error=self._gpu_initialization_error)
+        result.required_error = '; '.join(filter(None, (self._init_error, *sorted(self._required_errors))))
+        if self._process_monitor is not None:
+            from acprof.monitors.process_usage import ProcessUsageResult
+            self._process_monitor.samples = sorted((sample for sample in self._process_monitor.samples
+                if self._t_start <= sample['timestamp'] <= self._t_end), key=lambda sample: sample['timestamp'])
+            process_result, process_error, _ = self._process_monitor.finish_samples()
+            result = ProcessUsageResult(**{**asdict(process_result), **asdict(result), 'optional_error': process_error,
+                'metric_evidence': {**process_result.metric_evidence, **result.metric_evidence}})
         return ResourceStopResult(
             result,
             self._error_message(),
@@ -245,12 +288,13 @@ class ResourceUsageMonitor:
         )
 
     def telemetry_snapshot(self) -> dict:
-        from dataclasses import asdict
-
         from acprof.telemetry import capture_samples, finite_json
         return finite_json({
             "status": "recorded" if self._t_start is not None and self.samples else "unavailable",
             "error": self._error_message(),
+            "process": self._process_monitor.telemetry_snapshot() if self._process_monitor is not None else None,
+            "gpu": {"scope": "device", "uuid": self.device_uuid, "query_errors": self.gpu_query_errors,
+                    "error": self._gpu_initialization_error},
             **capture_samples(self.samples, self.raw_sample_limit),
             "units": {"timestamp": "s_monotonic", "container_cpu_s": "cpu_seconds",
                       "*_bytes": "bytes", "*_pct": "percent", "*_hz": "hertz",
@@ -294,6 +338,8 @@ class ResourceUsageMonitor:
         stop_sampling_thread(self._thread, self._stop_event, description="resource",
                              timeout=SAMPLER_STOP_TIMEOUT_S)
         self._thread = None
+        if self._process_monitor is not None:
+            self._process_monitor.close()
         if self._gpu_initialized and pynvml is not None:
             pynvml.nvmlShutdown()
             self._gpu_initialized = False
@@ -358,12 +404,14 @@ class ResourceUsageMonitor:
             try:
                 container_cpu_s = self._cpu_reader()
             except Exception as exc:
+                self._required_errors.add(f'cpu: {exc}')
                 self._record_runtime_error(str(exc))
 
         if self._mem_reader is not None:
             try:
                 container_mem_usage_bytes = self._mem_reader()
             except Exception as exc:
+                self._required_errors.add(f'memory: {exc}')
                 self._record_runtime_error(str(exc))
 
         if self._swap_reader is not None:
@@ -378,50 +426,14 @@ class ResourceUsageMonitor:
             self._record_runtime_error(str(exc))
 
         if self._gpu_handle is not None and pynvml is not None:
-            try:
-                util = pynvml.nvmlDeviceGetUtilizationRates(self._gpu_handle)
-                gpu_util_pct = float(util.gpu)
-            except Exception as exc:
-                self._gpu_query_error("utilization", exc)
-            try:
-                mem = pynvml.nvmlDeviceGetMemoryInfo(self._gpu_handle)
-                gpu_mem_used_bytes = int(mem.used)
-                gpu_mem_total_bytes = int(mem.total)
-            except Exception as exc:
-                self._gpu_query_error("memory", exc)
-            try:
-                gpu_sm_clock_mhz = float(
-                    pynvml.nvmlDeviceGetClockInfo(
-                        self._gpu_handle,
-                        pynvml.NVML_CLOCK_SM,
-                    )
-                )
-            except Exception as exc:
-                self._gpu_query_error("sm_clock", exc)
-            try:
-                gpu_memory_clock_mhz = float(
-                    pynvml.nvmlDeviceGetClockInfo(
-                        self._gpu_handle,
-                        pynvml.NVML_CLOCK_MEM,
-                    )
-                )
-            except Exception as exc:
-                self._gpu_query_error("memory_clock", exc)
-            try:
-                gpu_pstate = resource_metrics.normalize_pstate(
-                    pynvml.nvmlDeviceGetPerformanceState(self._gpu_handle)
-                )
-            except Exception as exc:
-                self._gpu_query_error("pstate", exc)
-            try:
-                gpu_temp_c = float(
-                    pynvml.nvmlDeviceGetTemperature(
-                        self._gpu_handle,
-                        pynvml.NVML_TEMPERATURE_GPU,
-                    )
-                )
-            except Exception as exc:
-                self._gpu_query_error("temperature", exc)
+            gpu = read_gpu_sample(pynvml, self._gpu_handle, self._gpu_query_error)
+            gpu_util_pct = gpu.get('gpu_util_pct')
+            gpu_mem_used_bytes = gpu.get('gpu_mem_used_bytes')
+            gpu_mem_total_bytes = gpu.get('gpu_mem_total_bytes')
+            gpu_sm_clock_mhz = gpu.get('gpu_sm_clock_mhz')
+            gpu_memory_clock_mhz = gpu.get('gpu_memory_clock_mhz')
+            gpu_pstate = gpu.get('gpu_pstate')
+            gpu_temp_c = gpu.get('gpu_temp_c')
 
         return resource_metrics.ResourceUsageSample(
             timestamp,
@@ -439,8 +451,10 @@ class ResourceUsageMonitor:
             container_swap_usage_bytes,
         )
 
-    def _append_sample(self, timestamp: float) -> None:
+    def _append_sample(self, timestamp: float, *, boundary: bool = False) -> None:
         self.samples.append(self._read_sample(timestamp))
+        if self._process_monitor is not None:
+            self._process_monitor.sample_at(timestamp, boundary=boundary)
 
     def _gpu_query_error(self, query: str, error: Exception) -> None:
         if (self._partial_platform and pynvml is not None

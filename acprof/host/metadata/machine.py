@@ -6,11 +6,72 @@ import json
 import os
 import re
 import shutil
+from pathlib import Path
 from typing import Any
 
 from acprof.system import command as host_command
 
 CPU_SYSFS_ROOT = "/sys/devices/system/cpu"
+
+
+def cpu_topology_metadata(*, cpu_root: str | Path = CPU_SYSFS_ROOT,
+                          node_root: str | Path = '/sys/devices/system/node') -> dict[str, Any]:
+    """One preparation snapshot; missing topology remains unknown, never zero."""
+    from acprof.cpu_affinity import parse_cpu_set
+    cpu_root, node_root = Path(cpu_root), Path(node_root)
+    errors: list[str] = []
+    def record(error: BaseException) -> None:
+        if len(errors) < 32:
+            errors.append(str(error))
+    def directories(root: Path, pattern: str) -> list[Path]:
+        try:
+            if not root.is_dir():
+                raise FileNotFoundError(str(root))
+            return sorted(root.glob(pattern))
+        except OSError as exc:
+            record(exc)
+            return []
+    cpus = [path for path in directories(cpu_root, 'cpu[0-9]*') if re.fullmatch(r'cpu\d+', path.name)]
+    cores, caches, nodes = set(), {}, []
+    topology_complete = bool(cpus)
+    for cpu in cpus:
+        try:
+            topology = tuple(int((cpu / 'topology' / name).read_text()) for name in ('physical_package_id', 'core_id'))
+            if any(value < 0 for value in topology):
+                raise ValueError(f'unknown CPU topology: {cpu.name}')
+            cores.add(topology)
+        except (OSError, ValueError) as exc:
+            topology_complete = False
+            record(exc)
+        for cache in directories(cpu / 'cache', 'index[0-9]*'):
+            try:
+                level = int((cache / 'level').read_text())
+                kind = (cache / 'type').read_text().strip()
+                shared = sorted(parse_cpu_set((cache / 'shared_cpu_list').read_text().strip()))
+                size = (cache / 'size').read_text().strip()
+                match = re.fullmatch(r'(\d+)([KMG]?)', size)
+                if match is None or not kind or not shared:
+                    raise ValueError(f'invalid cache metadata: {cache}')
+                size_bytes = int(match[1]) * {'': 1, 'K': 1024, 'M': 1024**2, 'G': 1024**3}[match[2]]
+                caches[(level, kind, tuple(shared))] = {'level': level, 'type': kind,
+                    'size_bytes': size_bytes, 'shared_cpus': shared}
+            except (OSError, ValueError) as exc:
+                record(exc)
+    for node in directories(node_root, 'node[0-9]*'):
+        try:
+            nodes.append({'node': int(node.name[4:]),
+                          'cpus': sorted(parse_cpu_set((node / 'cpulist').read_text().strip()))})
+        except (OSError, ValueError) as exc:
+            record(exc)
+    try:
+        online = sorted(parse_cpu_set((cpu_root / 'online').read_text().strip())) or None
+    except (OSError, ValueError) as exc:
+        record(exc)
+        online = None
+    return {'source': 'linux_sysfs', 'scope': 'host_visible_sysfs', 'window': 'preparation',
+            'logical_cpu_count': len(cpus) if cpus else None,
+            'physical_core_count': len(cores) if topology_complete else None,
+            'online_cpus': online, 'caches': list(caches.values()), 'numa_nodes': nodes, 'errors': errors}
 
 
 def host_mem_total_bytes() -> int | None:

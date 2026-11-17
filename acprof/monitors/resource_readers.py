@@ -13,6 +13,7 @@ _LOG = logging.getLogger(__name__)
 
 @dataclass
 class _ContainerReaders:
+    pid: int = 0
     cpu: Callable[[], float] | None = None
     memory: Callable[[], int] | None = None
     swap: Callable[[], int] | None = None
@@ -303,136 +304,142 @@ def resolve_container_metric_readers(
     with open(cgroup_file, encoding="utf-8") as f:
         lines = [line.strip() for line in f if line.strip()]
 
-    readers = _ContainerReaders()
+    readers = _ContainerReaders(pid=pid)
 
     for line in lines:
         parts = line.split(":", 2)
         if len(parts) == 3 and parts[0] == "0":
-            cpu_path = _join_cgroup_path(cgroup_root, parts[2], "cpu.stat")
-            mem_path = _join_cgroup_path(cgroup_root, parts[2], "memory.current")
-            swap_path = _join_cgroup_path(
-                cgroup_root,
-                parts[2],
-                "memory.swap.current",
-            )
-            swap_limit_path = _join_cgroup_path(
-                cgroup_root,
-                parts[2],
-                "memory.swap.max",
-            )
-            io_path = _join_cgroup_path(cgroup_root, parts[2], "io.stat")
-            memory_peak_path = _join_cgroup_path(
-                cgroup_root,
-                parts[2],
-                "memory.peak",
-            )
-            memory_stat_path = _join_cgroup_path(
-                cgroup_root,
-                parts[2],
-                "memory.stat",
-            )
-            memory_events_path = _join_cgroup_path(
-                cgroup_root,
-                parts[2],
-                "memory.events",
-            )
-            cpu_pressure_path = _join_cgroup_path(
-                cgroup_root,
-                parts[2],
-                "cpu.pressure",
-            )
-            memory_pressure_path = _join_cgroup_path(
-                cgroup_root,
-                parts[2],
-                "memory.pressure",
-            )
-            io_pressure_path = _join_cgroup_path(
-                cgroup_root,
-                parts[2],
-                "io.pressure",
-            )
-            pids_current_path = _join_cgroup_path(
-                cgroup_root,
-                parts[2],
-                "pids.current",
-            )
-            pids_peak_path = _join_cgroup_path(
-                cgroup_root,
-                parts[2],
-                "pids.peak",
-            )
-            pids_events_path = _join_cgroup_path(
-                cgroup_root,
-                parts[2],
-                "pids.events",
-            )
-            if os.path.exists(cpu_path):
-                readers.cpu = lambda path=cpu_path: _read_cpu_stat_usage_s(path)
-                readers.cpu_throttle = (
-                    lambda path=cpu_path: _read_cgroup_v2_cpu_throttle(path)
-                )
-            if os.path.exists(mem_path):
-                readers.memory = lambda path=mem_path: _read_int(path)
-            if os.path.exists(swap_path):
-                readers.swap = lambda path=swap_path: _read_int(path)
-            if os.path.exists(swap_limit_path):
-                readers.swap_limit = (
-                    lambda path=swap_limit_path: _read_cgroup_limit(path)
-                )
-            if os.path.exists(io_path):
-                readers.io = lambda path=io_path: _read_cgroup_v2_io_stat(path)
-                readers.io_operations = (
-                    lambda path=io_path: _read_cgroup_v2_io_operations(path)
-                )
-            if os.path.exists(memory_peak_path):
-                readers.memory_peak = (
-                    lambda path=memory_peak_path: _read_cgroup_memory_peak(path)
-                )
-            if os.path.exists(memory_stat_path):
-                readers.memory_stat = (
-                    lambda path=memory_stat_path: _read_cgroup_memory_stat(path)
-                )
-            if os.path.exists(memory_events_path):
-                readers.memory_events = (
-                    lambda path=memory_events_path: _read_cgroup_memory_events(path)
-                )
-            if os.path.exists(cpu_pressure_path):
-                readers.cpu_pressure = (
-                    lambda path=cpu_pressure_path: _read_pressure_totals(path)
-                )
-            if os.path.exists(memory_pressure_path):
-                readers.memory_pressure = (
-                    lambda path=memory_pressure_path: _read_pressure_totals(path)
-                )
-            if os.path.exists(io_pressure_path):
-                readers.io_pressure = (
-                    lambda path=io_pressure_path: _read_pressure_totals(path)
-                )
-            existing_pids_paths = [
-                path
-                for path in (
-                    pids_current_path,
-                    pids_peak_path,
-                    pids_events_path,
-                )
-                if os.path.exists(path)
-            ]
-            if existing_pids_paths:
-                readers.pids = (
-                    lambda current=(
-                        pids_current_path
-                        if os.path.exists(pids_current_path)
-                        else None
-                    ), peak=(
-                        pids_peak_path
-                        if os.path.exists(pids_peak_path)
-                        else None
-                    ), events=(
-                        pids_events_path
-                        if os.path.exists(pids_events_path)
-                        else None
-                    ): _read_cgroup_pids(current, peak, events)
-                )
-            return readers
+            return resolve_cgroup_metric_readers(cgroup_root, parts[2], pid=pid)
 
+    return readers
+
+
+def resolve_cgroup_metric_readers(cgroup_root: str, relative_path: str = "", *, pid: int = 0) -> _ContainerReaders:
+    """Reuse the same readers for an explicitly owned service cgroup."""
+    readers = _ContainerReaders(pid=pid)
+    cpu_path = _join_cgroup_path(cgroup_root, relative_path, "cpu.stat")
+    mem_path = _join_cgroup_path(cgroup_root, relative_path, "memory.current")
+    swap_path = _join_cgroup_path(
+        cgroup_root,
+        relative_path,
+        "memory.swap.current",
+    )
+    swap_limit_path = _join_cgroup_path(
+        cgroup_root,
+        relative_path,
+        "memory.swap.max",
+    )
+    io_path = _join_cgroup_path(cgroup_root, relative_path, "io.stat")
+    memory_peak_path = _join_cgroup_path(
+        cgroup_root,
+        relative_path,
+        "memory.peak",
+    )
+    memory_stat_path = _join_cgroup_path(
+        cgroup_root,
+        relative_path,
+        "memory.stat",
+    )
+    memory_events_path = _join_cgroup_path(
+        cgroup_root,
+        relative_path,
+        "memory.events",
+    )
+    cpu_pressure_path = _join_cgroup_path(
+        cgroup_root,
+        relative_path,
+        "cpu.pressure",
+    )
+    memory_pressure_path = _join_cgroup_path(
+        cgroup_root,
+        relative_path,
+        "memory.pressure",
+    )
+    io_pressure_path = _join_cgroup_path(
+        cgroup_root,
+        relative_path,
+        "io.pressure",
+    )
+    pids_current_path = _join_cgroup_path(
+        cgroup_root,
+        relative_path,
+        "pids.current",
+    )
+    pids_peak_path = _join_cgroup_path(
+        cgroup_root,
+        relative_path,
+        "pids.peak",
+    )
+    pids_events_path = _join_cgroup_path(
+        cgroup_root,
+        relative_path,
+        "pids.events",
+    )
+    if os.path.exists(cpu_path):
+        readers.cpu = lambda path=cpu_path: _read_cpu_stat_usage_s(path)
+        readers.cpu_throttle = (
+            lambda path=cpu_path: _read_cgroup_v2_cpu_throttle(path)
+        )
+    if os.path.exists(mem_path):
+        readers.memory = lambda path=mem_path: _read_int(path)
+    if os.path.exists(swap_path):
+        readers.swap = lambda path=swap_path: _read_int(path)
+    if os.path.exists(swap_limit_path):
+        readers.swap_limit = (
+            lambda path=swap_limit_path: _read_cgroup_limit(path)
+        )
+    if os.path.exists(io_path):
+        readers.io = lambda path=io_path: _read_cgroup_v2_io_stat(path)
+        readers.io_operations = (
+            lambda path=io_path: _read_cgroup_v2_io_operations(path)
+        )
+    if os.path.exists(memory_peak_path):
+        readers.memory_peak = (
+            lambda path=memory_peak_path: _read_cgroup_memory_peak(path)
+        )
+    if os.path.exists(memory_stat_path):
+        readers.memory_stat = (
+            lambda path=memory_stat_path: _read_cgroup_memory_stat(path)
+        )
+    if os.path.exists(memory_events_path):
+        readers.memory_events = (
+            lambda path=memory_events_path: _read_cgroup_memory_events(path)
+        )
+    if os.path.exists(cpu_pressure_path):
+        readers.cpu_pressure = (
+            lambda path=cpu_pressure_path: _read_pressure_totals(path)
+        )
+    if os.path.exists(memory_pressure_path):
+        readers.memory_pressure = (
+            lambda path=memory_pressure_path: _read_pressure_totals(path)
+        )
+    if os.path.exists(io_pressure_path):
+        readers.io_pressure = (
+            lambda path=io_pressure_path: _read_pressure_totals(path)
+        )
+    existing_pids_paths = [
+        path
+        for path in (
+            pids_current_path,
+            pids_peak_path,
+            pids_events_path,
+        )
+        if os.path.exists(path)
+    ]
+    if existing_pids_paths:
+        readers.pids = (
+            lambda current=(
+                pids_current_path
+                if os.path.exists(pids_current_path)
+                else None
+            ), peak=(
+                pids_peak_path
+                if os.path.exists(pids_peak_path)
+                else None
+            ), events=(
+                pids_events_path
+                if os.path.exists(pids_events_path)
+                else None
+            ): _read_cgroup_pids(current, peak, events)
+        )
     return readers
