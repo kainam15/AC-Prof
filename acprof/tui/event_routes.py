@@ -211,10 +211,6 @@ class AppEventRoutes(BarCursorApp):
     def on_configuration_configuration_changed(self) -> None:
         self.configuration.configuration_changed()
 
-    @on(Button.Pressed, '#reset-runtime')
-    def on_configuration_reset_runtime(self) -> None:
-        self.configuration.reset_runtime()
-
     @on(Button.Pressed, '#clear-log')
     def on_results_clear_log_button(self) -> None:
         self.results.clear_log_button()

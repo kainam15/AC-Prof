@@ -57,15 +57,10 @@ def compose_run_tab(app: AcprofTui) -> ComposeResult:
                         id="model-source", classes="config-control"), field_id="model-source")
 
                     yield app.localization.localized_widget(Label("运行方式"))
-                    with Horizontal(id="runtime-field"):
-                        yield ConfigField(app.localization.localized_widget(RuntimeSelect(
-                            app.configuration.initial_config.runtime,
-                            id="runtime", classes="config-control",
-                        )), field_id="runtime")
-                        yield app.localization.localized_widget(Button(
-                            message_id("run.runtime.reset"), id="reset-runtime", classes="config-control",
-                            tooltip=message_id("run.runtime.reset_help"),
-                        ))
+                    yield ConfigField(app.localization.localized_widget(RuntimeSelect(
+                        app.configuration.initial_config.runtime,
+                        id="runtime", classes="config-control",
+                    )), field_id="runtime")
 
                     yield app.localization.localized_widget(Label("画像模式"))
                     yield ConfigField(app.localization.localized_select(

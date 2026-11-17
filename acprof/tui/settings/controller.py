@@ -234,12 +234,6 @@ class ConfigurationController:
         value = control.value
         return "" if value is Select.NULL else str(value)
 
-    def reset_runtime(self) -> None:
-        if self.app.is_busy() or self.app.execution.session.snapshot.measurement_active:
-            return
-        self.app.query_one("#runtime", RuntimeSelect).set_requested("auto")
-        self.configuration_changed()
-
     def checked(self, widget_id: str) -> bool:
         return bool(self.app.query_one(f"#{widget_id}", Checkbox).value)
 

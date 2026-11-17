@@ -596,11 +596,9 @@ MESSAGES: dict[str, Entry] = {
         zh="Process 的 CPU / 内存填 auto 表示继承限制；数值配额需要可写的 cgroup。",
         en="For Process, auto CPU / memory inherits limits; numeric quotas require a delegated cgroup.",
     ),
-    "run.runtime.reset": Entry(zh="重置", en="Reset"),
-    "run.runtime.reset_help": Entry(zh="恢复默认的自动选择 Runtime", en="Restore automatic runtime selection"),
     "run.runtime.selection_help": Entry(
-        zh="默认由预检自动选择；手动选择后固定使用该 Runtime。点击重置可恢复自动选择。",
-        en="Preflight selects the runtime by default. Choosing an option pins it; Reset restores automatic selection.",
+        zh="默认由预检自动选择；手动选择后固定使用该 Runtime。",
+        en="Preflight selects the runtime by default. Choosing an option pins that runtime.",
     ),
     "run.sampling.rate": Entry(zh="采样频率", en="Sample rate"),
     "run.stage.building_image": Entry(zh="构建镜像", en="Building image"),

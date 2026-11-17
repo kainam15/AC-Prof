@@ -3,7 +3,6 @@ from dataclasses import replace
 from unittest.mock import Mock
 
 import pytest
-from textual.content import Content
 from textual.widgets import Button, ContentSwitcher, Select, Static
 from textual.widgets._select import SelectOverlay
 
@@ -57,8 +56,7 @@ async def test_basic_runtime_selection_navigation_and_restart(tmp_path, monkeypa
         assert app.configuration.collect_config().runtime == 'auto'
         assert control.query_one(SelectOverlay).option_count == 2
         assert not app.query('#runtime-status')
-        reset = app.query_one('#reset-runtime', Button)
-        assert reset.content_size.width >= Content.from_text(reset.label).cell_length + 2 * reset.styles.line_pad
+        assert not app.query('#reset-runtime')
         complete_check(app, [PreflightCheck('Runtime', 'ok', 'Docker', runtime_kind='docker')])
         assert control.value == 'docker'
         assert app.configuration.collect_config().runtime == 'auto'
@@ -100,14 +98,8 @@ async def test_basic_runtime_selection_navigation_and_restart(tmp_path, monkeypa
             assert app.preflight.config_matches()
             assert not app.query_one('#start-run', Button).disabled
         if saved_runtime == 'auto':
-            reset = app.query_one('#reset-runtime', Button)
-            reset.scroll_visible(animate=False, immediate=True)
-            await pilot.pause()
-            assert await pilot.click(reset)
-            await wait_for_condition(
-                pilot, lambda: app.configuration.collect_config().runtime == 'auto',
-                description='reset runtime to automatic selection', timeout=3,
-            )
+            app.configuration.apply_config(config)
+            assert app.configuration.collect_config().runtime == 'auto'
             complete_check(app, [PreflightCheck('Runtime', 'ok', 'Process', runtime_kind='process')])
             assert control.value == 'process'
         else:
@@ -172,12 +164,8 @@ async def test_runtime_edit_rejects_late_auto_resolution(tmp_path, monkeypatch):
         assert not app.query('#process-resource-open')
         complete_check(app, [PreflightCheck('Runtime', 'ok', 'Process', runtime_kind='process')])
         assert not app.query_one('#start-run', Button).disabled
-        reset = app.query_one('#reset-runtime', Button)
-        reset.scroll_visible(animate=False, immediate=True)
-        await pilot.pause()
-        assert await pilot.click(reset)
-        await wait_for_condition(pilot, lambda: app.configuration.collect_config().runtime == 'auto',
-                                 description='restore automatic runtime', timeout=3)
+        app.configuration.apply_config(replace(app.configuration.collect_config(), runtime='auto'))
+        assert app.configuration.collect_config().runtime == 'auto'
         assert app.preflight.selected_runtime == ''
         complete_check(app, [PreflightCheck('Runtime', 'ok', 'Process', runtime_kind='process')])
         assert not app.query('#runtime-status')
@@ -221,12 +209,10 @@ async def test_auto_resolution_and_same_option_commit_have_separate_intent(tmp_p
         app.execution.session.snapshot = ProgressSnapshot(measurement_active=True)
         app.set_busy(True)
         assert control.disabled
-        assert app.query_one('#reset-runtime', Button).disabled
-        app.configuration.reset_runtime()
         assert app.configuration.collect_config().runtime == 'docker'
         app.execution.session.snapshot = ProgressSnapshot()
         app.set_busy(False)
-        assert not app.query_one('#reset-runtime', Button).disabled
+        assert not control.disabled
 
 
 async def test_pending_auto_does_not_guess_a_runtime_or_retarget_an_open_menu(tmp_path, monkeypatch):
