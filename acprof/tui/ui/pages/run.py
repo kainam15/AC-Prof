@@ -67,6 +67,13 @@ def compose_run_tab(app: AcprofTui) -> ComposeResult:
                         ), field_id="runtime")
                         yield StatusBanner(StatusSummary("info", ""), id="runtime-status")
 
+                    yield app.localization.localized_widget(Label("画像模式"))
+                    yield ConfigField(app.localization.localized_select(
+                        (("完整（RAPL / perf / 抓包）", "full"), ("基础（延迟 / CPU / 内存）", "basic")),
+                        value=app.configuration.initial_config.profiling_mode,
+                        allow_blank=False, id="profiling-mode", classes="config-control",
+                    ), field_id="profiling-mode")
+
                     yield app.localization.localized_widget(Label("运行预设"))
                     yield app.localization.localized_select(
                         PRESET_OPTIONS,
@@ -147,12 +154,6 @@ def compose_run_tab(app: AcprofTui) -> ComposeResult:
                         value=app.configuration.initial_config.input_scale_policy, allow_blank=False,
                         id="input-scale-policy", classes="config-control",
                     ), field_id="input-scale-policy")
-                    yield app.localization.localized_widget(Label("画像模式"))
-                    yield ConfigField(app.localization.localized_select(
-                        (("完整（RAPL / perf / 抓包）", "full"), ("基础（延迟 / CPU / 内存）", "basic")),
-                        value=app.configuration.initial_config.profiling_mode,
-                        allow_blank=False, id="profiling-mode", classes="config-control",
-                    ), field_id="profiling-mode")
                     yield app.localization.localized_widget(Label("固定 CPU 集合"))
                     yield ConfigField(app.localization.localized_widget(Input(
                         value=app.configuration.initial_config.cpuset_cpus, id="cpuset-cpus",
