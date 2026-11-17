@@ -48,6 +48,7 @@ MESSAGES: dict[str, Entry] = {
     "settings.logs.line_limit": Entry(zh="保留日志行数", en="Log line limit"),
     "settings.logs.section": Entry(zh="日志", en="Logs"),
     "settings.logs.wrap_lines": Entry(zh="日志自动换行", en="Wrap log lines"),
+    "settings.measurement.parameters": Entry(zh="测量参数", en="Measurement parameters"),
     "settings.memory.not_saved": Entry(zh="自动记忆未保存", en="Recent inputs not saved"),
     "settings.memory.unreadable_file": Entry(
         zh="本地设置无法读取，已保留原文件。可在设置页主动保存后恢复自动记忆。",

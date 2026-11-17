@@ -120,6 +120,26 @@ def compose_run_tab(app: AcprofTui) -> ComposeResult:
                         )), field_id="input-scales")
 
                 with app.localization.localized_widget(Collapsible(
+                    title=message_id("settings.measurement.parameters"),
+                    collapsed=True,
+                    collapsed_symbol=COMPACT_COLLAPSED_SYMBOL,
+                    expanded_symbol=COMPACT_EXPANDED_SYMBOL,
+                    id="measurement-parameters",
+                )):
+                    with Grid(classes="form-grid"):
+                        for label, field, unit in (
+                            ("Warmup", "warmup", "次"), ("Repeat", "repeat", "次"),
+                            ("采样频率", "sample_hz", "Hz"), ("Idle 基线", "idle_seconds", "s"),
+                            ("冷却时间", "idle_cooldown_seconds", "s"), ("连接/读取超时", "request_timeout_seconds", "s"),
+                            ("Batch size", "batch_size", ""), ("窗口请求数", "repeat_in_window", "次"),
+                            ("自动窗口", "repeat_window_seconds", "s"),
+                        ):
+                            yield from compose_number_field(
+                                app, label, field.replace("_", "-"), getattr(app.configuration.initial_config, field), unit,
+                                placeholder="0 表示自动校准" if field == "repeat_in_window" else "",
+                            )
+
+                with app.localization.localized_widget(Collapsible(
                     title="完整命令（自动更新）",
                     collapsed=True,
                     collapsed_symbol=COMPACT_COLLAPSED_SYMBOL,
@@ -134,18 +154,6 @@ def compose_run_tab(app: AcprofTui) -> ComposeResult:
                     ))
 
             with VerticalScroll(id="advanced-form", classes="pane-scroll"):
-                with Grid(classes="form-grid"):
-                    for label, field, unit in (
-                        ("Warmup", "warmup", "次"), ("Repeat", "repeat", "次"),
-                        ("采样频率", "sample_hz", "Hz"), ("Idle 基线", "idle_seconds", "s"),
-                        ("冷却时间", "idle_cooldown_seconds", "s"), ("连接/读取超时", "request_timeout_seconds", "s"),
-                        ("Batch size", "batch_size", ""), ("窗口请求数", "repeat_in_window", "次"),
-                        ("自动窗口", "repeat_window_seconds", "s"),
-                    ):
-                        yield from compose_number_field(
-                            app, label, field.replace("_", "-"), getattr(app.configuration.initial_config, field), unit,
-                            placeholder="0 表示自动校准" if field == "repeat_in_window" else "",
-                        )
                 with Grid(classes="form-grid"):
                     yield app.localization.localized_widget(Label("输入规划"))
                     yield ConfigField(app.localization.localized_select(

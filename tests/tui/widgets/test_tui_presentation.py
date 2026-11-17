@@ -4,7 +4,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-from textual.widgets import DataTable, Input, Label, Static
+from textual.widgets import Collapsible, ContentSwitcher, DataTable, Input, Label, Static
+from textual.widgets._collapsible import CollapsibleTitle
 
 from acprof.experiments.configuration import RunConfig, RunConfigError, build_run_command
 from acprof.host.images.inventory import DockerConnection, ImageInventory, ImageLayer, ManagedImage
@@ -16,6 +17,7 @@ from acprof.tui.settings.preferences import load_settings
 from acprof.tui.ui.presentation import format_byte_fields, format_bytes
 from acprof.tui.ui.structured import FactGrid
 from tests.support.tui_fixtures import AcprofTui, fact_rows
+from tests.support.tui_waits import wait_for_condition
 
 PROJECT_DIR = Path(__file__).resolve().parents[3]
 
@@ -31,17 +33,27 @@ class TestTuiPresentation:
     async def test_independent_numbers_reach_command_and_saved_defaults(self):
         app = self.app
         async with app.run_test(size=(120, 30)) as pilot:
-            await pilot.click("#open-run-settings")
+            section = app.query_one("#run-form #measurement-parameters", Collapsible)
+            assert section.collapsed
+            title = section.query_one(CollapsibleTitle)
+            title.scroll_visible(animate=False, immediate=True)
             await pilot.pause()
+            assert await pilot.click(title)
+            await pilot.pause()
+            assert not section.collapsed
             assert (len(app.query("#warmup"))) == (1), "Warmup 应有独立的输入框"
             warmup, repeat = app.query_one("#warmup", Input), app.query_one("#repeat", Input)
             assert ((warmup.value, repeat.value)) == (("2", "5"))
             assert (app.query_one("#sample-hz", Input).value) == ("20")
             assert (app.query_one("#request-timeout-seconds", Input).value) == ("300")
+            warmup.scroll_visible(animate=False, immediate=True)
+            await pilot.pause()
             assert (await pilot.click(warmup))
             await pilot.press("ctrl+a", "3", "tab", "ctrl+a", "7")
             assert (app.focused) is (repeat)
             sample = app.query_one("#sample-hz", Input)
+            sample.scroll_visible(animate=False, immediate=True)
+            await pilot.pause()
             assert (await pilot.click(sample))
             await pilot.press("ctrl+a", *"20.1256789")
             config = app.configuration.collect_config()
@@ -50,13 +62,27 @@ class TestTuiPresentation:
             for flag, value in (("--warmup", "3"), ("--repeat", "7"), ("--sample-hz", "20.1256789")):
                 assert (command[command.index(flag) + 1]) == (value)
             warmup.value = "-1"
-            with pytest.raises(RunConfigError, match="Warmup"):
+            with pytest.raises(RunConfigError, match="Warmup") as invalid_warmup:
                 app.configuration.collect_config()
+            section.collapsed = True
+            assert await pilot.click("#open-run-settings")
+            await pilot.pause()
+            assert app.query_one("#experiment-pages", ContentSwitcher).current == "advanced-form"
+            app.configuration.show_config_error(invalid_warmup.value)
+            await wait_for_condition(
+                pilot, lambda: app.focused is warmup and warmup.is_on_screen,
+                description="measurement error returns to the basic form and reveals Warmup",
+                timeout=3,
+            )
+            assert app.query_one("#experiment-pages", ContentSwitcher).current == "run-form"
+            assert not section.collapsed
+            assert app.query_one("#warmup-error", Static).display
             warmup.value = "3"
             repeat.value = "0"
             with pytest.raises(RunConfigError, match="Repeat"):
                 app.configuration.collect_config()
             repeat.value = "7"
+            assert await pilot.click("#open-run-settings")
             app.query_one("#advanced-form").scroll_end(animate=False, immediate=True)
             await pilot.pause()
             assert (await pilot.click("#save-run-default"))
@@ -76,12 +102,19 @@ class TestTuiPresentation:
         # One app per language/size; every field still receives the same checks.
         app = self.app
         async with app.run_test(size=(150, 45)) as pilot:
-            await pilot.click("#open-run-settings")
-            await pilot.pause()
+            section = app.query_one("#run-form #measurement-parameters", Collapsible)
+            assert section.collapsed
             assert len(app.query("#repeat")) == 1, "Repeat 应有独立的输入框"
             await pilot.resize_terminal(*size)
             app.configuration.preferences = replace(app.configuration.preferences, language=language)
             app.configuration.apply_ui_preferences()
+            assert section.title == ("测量参数" if language == "zh" else "Measurement parameters")
+            title = section.query_one(CollapsibleTitle)
+            title.scroll_visible(animate=False, immediate=True)
+            title.focus()
+            await pilot.press("enter")
+            await pilot.pause()
+            assert not section.collapsed
             for name, unit in (
                 ('warmup', '次' if language == 'zh' else 'runs'),
                 ('repeat', '次' if language == 'zh' else 'runs'),
@@ -89,8 +122,11 @@ class TestTuiPresentation:
                 ('idle-seconds', 's'),
                 ('idle-cooldown-seconds', 's'),
                 ('request-timeout-seconds', 's'),
+                ('batch-size', ''),
+                ('repeat-in-window', '次' if language == 'zh' else 'runs'),
+                ('repeat-window-seconds', 's'),
             ):
-                field = app.query_one("#" + name, Input)
+                field = section.query_one("#" + name, Input)
                 field.scroll_visible(animate=False, immediate=True)
                 await pilot.pause()
                 assert field.parent is not None, name
@@ -100,7 +136,8 @@ class TestTuiPresentation:
                 assert label.region.right <= app.size.width - 2, name
                 assert await pilot.click(field), name
                 assert app.focused is field, name
-                assert unit not in field.value, name
+                if unit:
+                    assert unit not in field.value, name
                 app.set_busy(True)
                 assert app.query_one("#warmup", Input).disabled, name
                 assert app.query_one("#repeat", Input).disabled, name
