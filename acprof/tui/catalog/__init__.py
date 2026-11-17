@@ -8,6 +8,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from .common import MESSAGES as COMMON
+from .docker import MESSAGES as DOCKER
 from .downloads import MESSAGES as DOWNLOADS
 from .entry import Entry as Entry
 from .images import MESSAGES as IMAGES
@@ -48,7 +49,7 @@ def source_indexes(messages: Mapping[str, Entry]) -> tuple[dict[str, str], dict[
 
 
 MESSAGES = merge_messages(
-    COMMON, DOWNLOADS, IMAGES, LOGS, MODELS, PROFILING, RESOURCES, RESULTS, RUN, SETTINGS, STRUCTURED, VALIDATION, UPDATES,
+    COMMON, DOCKER, DOWNLOADS, IMAGES, LOGS, MODELS, PROFILING, RESOURCES, RESULTS, RUN, SETTINGS, STRUCTURED, VALIDATION, UPDATES,
 )
 SOURCE_BY_ID = {key: entry.zh for key, entry in MESSAGES.items()}
 ENGLISH_BY_ID = {key: entry.en for key, entry in MESSAGES.items()}

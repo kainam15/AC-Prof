@@ -158,10 +158,12 @@ class EnvironmentSignal(Static, can_focus=True):
 
     def action_inspect_issue(self) -> None:
         self.panel.select(self.row)
+        if self.row.check_id == 'docker' and self.row.status in {'fail', 'error', 'warn'}:
+            self.panel.open_issue(self.row)
 
     def on_click(self, event: events.Click) -> None:
         event.stop()
-        self.panel.select(self.row)
+        self.action_inspect_issue()
 
 
 class EnvironmentPopover(Vertical):
@@ -317,7 +319,10 @@ class EnvironmentPopover(Vertical):
             return
         origin = self._origin or NavigationContext.capture(app)
         self.close(restore_focus=False)
-        if item.target == 'resources':
+        if row.check_id == 'docker':
+            from acprof.tui.run.docker_repair import DockerRepairScreen
+            app.push_screen(DockerRepairScreen(self.controller), lambda _: origin.restore(app))
+        elif item.target == 'resources':
             from acprof.tui.run.issue_view import IssueDiagnosticScreen
             app.push_screen(IssueDiagnosticScreen(self.controller, row.check_id), lambda _: origin.restore(app))
         elif item.target.startswith('field:'):

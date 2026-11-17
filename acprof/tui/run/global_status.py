@@ -146,7 +146,10 @@ def build_status(
         requested = row.status != 'not_requested' and not (
             (runtime or not current) and not _requested(row.check_id, config, runtime)
         )
-        if not requested:
+        # Auto fallback carries fresh Docker evidence, not a skipped collector.
+        # It must replace older inventory without becoming a Process requirement.
+        docker_advisory = current and row.check_id == 'docker' and row.docker_diagnostic is not None
+        if not requested and not docker_advisory:
             # Skipping a collector is not evidence about machine availability.
             # Keep its independent scan, including pending/failed self-checks.
             if row.check_id in rows:
@@ -158,6 +161,8 @@ def build_status(
             status = 'pending'
         elif not current:
             status = 'stale'
+        elif not requested and row.check_id == 'docker' and row.status in {'fail', 'error'}:
+            status = 'warn'
         elif row.capability_status == 'error' and row.status != 'warn':
             status = 'fail'
         else:

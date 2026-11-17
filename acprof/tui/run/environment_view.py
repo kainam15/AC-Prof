@@ -127,14 +127,17 @@ def global_check_view(item: StatusItem, *, technical_detail: str, cause: str,
         next_step = (message_id('run.plan.invalid_next') if row.check_id.startswith('config_')
                      else message_id('run.status.repeat_next') if row.check_id == 'quality_repeat'
                      else message_id('run.resources.next') if item.target == 'resources'
+                     else row.docker_diagnostic.next_step if row.docker_diagnostic else
+                     message_id('run.docker_repair.next') if row.check_id == 'docker'
                      else view.callout.next_step)
         return EnvironmentCheckView(callout=replace(
             view.callout, problem=problem, next_step=next_step,
             impact=(message_id('run.status.blocked_impact') if item.blocks
+                    else message_id('run.docker_repair.impact.optional') if row.check_id == 'docker'
                     else message_id('run.plan.insufficient_windows') if row.check_id == 'quality_repeat'
                     else view.callout.impact),
             actions=(ViewAction('environment-retry', message_id('run.environment.retry'), disabled=not check_allowed),
-                     *((ViewAction('status-open', message_id('run.status.open'), primary=True, disabled=not navigate_allowed),)
+                     *((ViewAction('status-open', message_id('run.docker_repair.open' if row.check_id == 'docker' else 'run.status.open'), primary=True, disabled=not navigate_allowed),)
                        if item.target else ())),
         ))
     if view.facts is not None:

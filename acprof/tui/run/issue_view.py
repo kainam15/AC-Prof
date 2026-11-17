@@ -23,6 +23,7 @@ if TYPE_CHECKING:
 
 class IssueDiagnosticScreen(ModalScreen[None]):
     BINDINGS = [('escape', 'close', 'Close')]
+    FOCUS_SELECTOR = '#issue-close'
     DEFAULT_CSS = """
     IssueDiagnosticScreen { align: center middle; }
     #issue-dialog { width: 92%; max-width: 100; height: 85%; border: round $accent; background: $surface; }
@@ -34,7 +35,7 @@ class IssueDiagnosticScreen(ModalScreen[None]):
     """
 
     def __init__(self, controller: PreflightController, check_id: str) -> None:
-        super().__init__(id='process-resource-screen' if check_id == 'process_resources' else 'issue-diagnostic-screen')
+        super().__init__(id={'process_resources': 'process-resource-screen', 'docker': 'docker-repair-screen'}.get(check_id, 'issue-diagnostic-screen'))
         self._compositor = CjkCompositor()
         self.controller = controller
         self.check_id = check_id
@@ -56,7 +57,7 @@ class IssueDiagnosticScreen(ModalScreen[None]):
 
     def on_mount(self) -> None:
         self.update_cached(self.controller.status)
-        self.call_after_refresh(self.query_one('#issue-close').focus)
+        self.call_after_refresh(self.query_one(self.FOCUS_SELECTOR).focus)
 
     def on_screen_resume(self) -> None:
         if self.is_mounted:

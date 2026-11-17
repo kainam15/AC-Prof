@@ -7,7 +7,7 @@ import shutil
 import subprocess
 from collections.abc import Callable, Sequence
 from concurrent.futures import CancelledError
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -29,6 +29,7 @@ from acprof.results.csv import (
 from acprof.system.command import run_command
 from acprof.tui.commands import csv_values
 from acprof.tui.i18n import error_message, message_id
+from acprof.tui.run.docker_diagnostics import DockerDiagnostic, inspect_docker
 
 if TYPE_CHECKING:
     from acprof.host.runtimes.cgroups import ResourceDiagnostic
@@ -50,6 +51,7 @@ class PreflightCheck:
     check_id: str = ""
     source: str = "quick_preflight"
     resource_diagnostic: ResourceDiagnostic | None = None
+    docker_diagnostic: DockerDiagnostic | None = None
 
 
 def collection_preview(config: RunConfig):
@@ -128,58 +130,15 @@ def quick_preflight(
         )
     )
 
-    docker_cli = shutil.which("docker")
-    if not docker_cli:
-        checks.append(PreflightCheck("Docker", "fail", message_id('run.preflight.docker_cli_missing'), check_id="docker"))
-    else:
-        endpoint = "unknown"
-        try:
-            context = command_runner((docker_cli, "context", "show"), timeout=10.0)
-            context_name = context.stdout.strip() if context.returncode == 0 else "default"
-            inspected = command_runner(
-                (
-                    docker_cli,
-                    "context",
-                    "inspect",
-                    context_name,
-                    "--format",
-                    '{{(index .Endpoints "docker").Host}}',
-                ),
-                timeout=10.0,
-            )
-            if inspected.returncode == 0:
-                endpoint = inspected.stdout.strip()
-            docker_host_override = ("" if os.environ.get("DOCKER_CONTEXT", "").strip() else
-                                    os.environ.get("DOCKER_HOST", "").strip())
-            if docker_host_override:
-                endpoint = docker_host_override
-            info = command_runner(
-                (docker_cli, "info", "--format", "{{.Name}}|{{.OperatingSystem}}"),
-                timeout=15.0,
-            )
-            native = endpoint in {
-                "unix:///var/run/docker.sock",
-                "unix:/var/run/docker.sock",
-            }
-            is_desktop = "docker desktop" in info.stdout.lower()
-            status = (
-                "ok"
-                if info.returncode == 0 and native and not is_desktop
-                else "fail"
-            )
-            detail = (
-                f"{endpoint} · {info.stdout.strip()}"
-                if info.returncode == 0
-                else ((info.stderr or info.stdout).strip() or message_id('run.preflight.docker_info_failed'))
-            )
-        except (OSError, subprocess.TimeoutExpired) as exc:
-            status = "fail"
-            detail = message_id('run.preflight.docker_check_failed', exc)
-        checks.append(PreflightCheck(message_id('run.preflight.local_docker'), status, detail, check_id="docker"))
+    docker = inspect_docker(command_runner, environment)
+    checks.append(PreflightCheck(message_id('run.preflight.local_docker'),
+                                 'ok' if docker.code == 'ready' else 'fail', docker.summary,
+                                 check_id='docker', docker_diagnostic=docker))
 
     if config.runtime == "auto" and config.profiling_mode == "basic" and any(check.status == "fail" for check in checks[1:]):
         reasons = "; ".join(str(check.detail) for check in checks[1:] if check.status == "fail")
-        checks = checks[:1] + [PreflightCheck("Runtime auto → Process", "ok", reasons, check_id="runtime_auto")]
+        checks = checks[:1] + [replace(checks[-1], status='warn' if docker.code != 'ready' else 'ok'),
+                              PreflightCheck("Runtime auto → Process", "ok", reasons, check_id="runtime_auto")]
         return checks + _process_checks(config)
     checks.append(PreflightCheck("Runtime", "ok", "Docker", runtime_kind="docker", check_id="runtime"))
 
