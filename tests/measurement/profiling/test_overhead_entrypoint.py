@@ -18,7 +18,7 @@ from scripts import measure_overhead
 class TestOverheadEntrypoint:
     def run_case(self, fail=False, *, extra_args=(), expected_cpu=2, expected_mem=4,
                  expected_scale=2, invalid=False, window_failure=False, publication_failure=False,
-                 rate_comparison=False, process_runtime=False):
+                 rate_comparison=False, process_runtime=False, process_inherited=False):
         with tempfile.TemporaryDirectory() as temporary, ExitStack() as stack:
             root = Path(temporary)
             source, output = root / "source", root / "output"
@@ -50,6 +50,8 @@ class TestOverheadEntrypoint:
                 state = json.loads(state_path.read_text())
                 state['runtime']['kind'] = 'process'
                 state['options'].update(gpus='off')
+                if process_inherited:
+                    state['options'].update(cpus='auto', mems='auto')
                 info = ProcessInfo('/fixture/python', '/fixture/code', '/fixture/model', 'env-fixture')
                 state['runtime']['image'] = asdict(info)
                 state_path.write_text(json.dumps(state))
@@ -142,6 +144,9 @@ class TestOverheadEntrypoint:
                 assert not list(output.glob("*.boundaries.json"))
                 return
             report = json.loads((output / "overhead.json").read_text())
+            if process_inherited:
+                hardware = json.loads((output / 'hardware_conditions.json').read_text())
+                assert set(hardware['cases']) == {'inheritedc_inheritedg_off'}
             assert (report["successful"]) == (not (fail or window_failure))
             assert (report["cpuset_cpus"]) == ("1-2")
             assert (report["gpu_device_uuid"]) == ('' if process_runtime else "GPU-recorded")
@@ -181,6 +186,9 @@ class TestOverheadEntrypoint:
 
     def test_process_request_failure_preserves_cleanup(self):
         self.run_case(process_runtime=True, window_failure=True)
+
+    def test_process_inherited_limits_keep_canonical_hardware_case_identity(self):
+        self.run_case(process_runtime=True, process_inherited=True, expected_cpu=None, expected_mem=None)
 
     def test_entrypoint_request_failure_cleans_container_and_saves_failure(self):
         self.run_case(fail=True)

@@ -445,7 +445,7 @@ def main(argv=None):
         image = ImageInfo(**snapshot['image'])
     else:
         parser.error(f'不支持的 Runtime: {runtime_kind}')
-    from acprof.results.layout import ArtifactLayout
+    from acprof.results.layout import ArtifactLayout, resource_case_id
     plan_path = ArtifactLayout.discover(source).path("input_scale_plan.json")
     expected_hash = state["artifacts"].get(str(plan_path.relative_to(source)))
     if not expected_hash or file_sha256(plan_path) != expected_hash:
@@ -503,7 +503,7 @@ def main(argv=None):
             name = session.name
             try:
                 from acprof.host.hardware_conditions import record_case_conditions
-                record_case_conditions(output, f"{cpu}c_{mem}g_{args.gpu}", session,
+                record_case_conditions(output, resource_case_id(cpu, mem, args.gpu), session,
                                        cpuset_cpus=conditions.cpuset_cpus)
                 measure_window(session.base_url, entry["payload"], count=5, monitors=MonitorGroup(), token="warmup",
                                timeout=conditions.request_timeout_seconds)
