@@ -138,6 +138,22 @@
       "tests": ["tests/tui/workflows/test_tui_preflight.py", "tests/tui/workflows/test_tui_environment_popover.py", "tests/tui/workflows/test_tui_global_status.py", "tests/tui/catalog/test_environment_tui.py"]
     },
     {
+      "id": "docker-repair", "title": "Docker 安装与修复", "page": "run-tab", "group": "exception",
+      "trigger": "从全局状态打开 Docker 警告或阻断项", "expected": "显示对应系统的修复步骤、复制命令、风险与重检状态；Process 不被可选 Docker 故障阻断",
+      "png": [],
+      "svg": [
+        "tests/visual/__snapshots__/test_docker_repair/test_docker_repair[zh-size0-install].svg",
+        "tests/visual/__snapshots__/test_docker_repair/test_docker_repair[en-size1-install].svg",
+        "tests/visual/__snapshots__/test_docker_repair/test_docker_repair[en-size2-permission].svg",
+        "tests/visual/__snapshots__/test_docker_repair/test_docker_repair[zh-size3-permission].svg",
+        "tests/visual/__snapshots__/test_docker_repair/test_docker_repair[zh-size4-wsl].svg",
+        "tests/visual/__snapshots__/test_docker_repair/test_docker_repair[en-size5-desktop].svg",
+        "tests/visual/__snapshots__/test_docker_repair/test_docker_repair[zh-size6-checking].svg",
+        "tests/visual/__snapshots__/test_docker_repair/test_docker_repair[en-size7-ready].svg"
+      ],
+      "tests": ["tests/tui/workflows/test_docker_diagnostics.py", "tests/tui/workflows/test_tui_docker_repair.py"]
+    },
+    {
       "id": "stop-confirm", "title": "停止任务确认", "page": "monitor-tab", "group": "exception",
       "trigger": "点击终止任务或选择取消准备", "expected": "避免误终止，明确保留已写入数据的语义",
       "png": [],

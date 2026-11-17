@@ -82,7 +82,7 @@ Remote-SSH 也由发起连接的客户端处理快捷键。在 VS Code 工作区
 每个状态面板内按用途分为「运行环境」「CPU 与内存」「GPU 监测」「网络抓包」「Profiler 工具」；
 只展示当前状态有条目的分组，其余诊断归入「其他检查」。分组标题下逐项列出能力，
 宽终端按组排成两列，少于 60 列时按组排成单列，长列表可滚动并通过键盘逐项查看。
-打开类别后默认显示首个优先项的解释，不抢占当前键盘焦点。键盘聚焦、点击检查项或按 `Enter` / `Space` 只查看解释。通过 Tab 到达“定位问题”再按 Enter，或直接点击该按钮，
+打开类别后默认显示首个优先项的解释，不抢占当前键盘焦点。键盘聚焦查看解释；Docker 异常项点击或按 `Enter` / `Space` 直接打开安装与修复引导。其他检查项通过 Tab 到达“定位问题”再按 Enter，或直接点击该按钮，
 才跳转对应配置字段、Process 专用诊断或权限弹窗。字段定位支持顶栏“返回”与 `Alt+Left`，关闭弹窗也恢复原页面、焦点与滚动位置；
 没有明确目标的错误不提供无关跳转。查看成功项时点击只改变选择；
 异常项按「问题 / 影响 / 下一步」说明限制及恢复方式，正常或待确认项以键值网格说明状态和验证范围。
@@ -104,6 +104,43 @@ Remote-SSH 也由发起连接的客户端处理快捷键。在 VS Code 工作区
 perf / tcpdump 问题打开“连接与权限 → 采集权限”并聚焦具体选项；勾选配置目标与实际权限证据分别展示。
 变更保留预览、确认和 sudo 流程；无论命令成功或部分失败，都重新检查实际能力并更新状态中心。
 Docker、RAPL 进入各自诊断与修复指引。技术详情与页面导航只读取缓存，不执行宿主探测。
+
+### Docker 安装与修复引导
+
+从右上角全局状态点击 Docker 警告或阻断项，或点击说明中的“安装引导”。
+引导默认显示原因、当前影响和推荐操作，按 Ubuntu、Debian、其他 Linux 或 WSL2 提供步骤；
+底部“重新检查”始终可达。每组命令可复制，官方文档链接可打开或复制，底层诊断默认折叠。
+
+| 检测结果 | 对应操作 |
+| --- | --- |
+| 未找到 Docker CLI | Ubuntu / Debian 提供官方 APT 源与 Engine 安装命令；其他发行版链接官方安装列表 |
+| CLI 已安装但不在 PATH | 展示已发现的 CLI 路径，提供接入当前 PATH 的非覆盖软链接命令 |
+| daemon 无法连接 | 按 systemd 或 Ubuntu / Debian 的 service 启动方式检查服务 |
+| Socket 权限不足 | 先检查 Socket 所有者与用户组，再按需授权 docker 组 |
+| Context 不存在或无法读取 | 保留失败原因，检查有效 Context、配置访问权限及环境变量 |
+| Desktop、远程或 Rootless 端点 | 说明本机采集限制，核对 `default` 与 `desktop-linux`，由用户手动选择本机 Engine |
+| 检查通过 | 自动更新全局状态；其他必要能力仍需分别通过 |
+
+Docker 不可用但 Process 可用时只显示警告，不阻断 Process；明确选择 Docker 时故障阻断采集。
+原生 Linux 推荐 Docker Engine。WSL2 仅支持 PARTIAL，Docker Desktop 的 WSL 集成不替代当前发行版内的本机 daemon；
+Windows、macOS 和未确认的 WSL1 环境明确显示不支持。
+
+引导中的 `sudo` 命令需要管理员权限，**只复制，不执行**。加入 docker 组意味着接近 root 的权限；
+授权后需重新登录并启动 AC-Prof，`newgrp` 不能改变已运行进程的用户组。
+不自动删除安装、覆盖 Docker 软件源、切换 Context 或改变用户配置。
+软件源命令遇到已有源或密钥时停止，由用户按官方文档核对；不使用远程安装脚本或强制卸载。
+
+安装完成或服务修复后，点击“重新检查”即可在当前 AC-Prof 中更新结果；不需要重启。
+检测遵守 `DOCKER_CONTEXT` 优先于 `DOCKER_HOST` 的选择，不探测不符合本机要求的远程端点。
+若修复涉及改变启动环境变量，父 shell 的后续变更不会传入已运行的 AC-Prof：需从修正后的 shell 重新启动。
+PATH 中没有标准系统目录可供链接时，也会明确给出重新启动说明。
+检查中保留上次诊断并标注其时效；失败保留具体原因及下一步，正式测量期间禁止重新检查。
+
+安装来源：[Ubuntu](https://docs.docker.com/engine/install/ubuntu/)、
+[Debian](https://docs.docker.com/engine/install/debian/)、[其他 Linux](https://docs.docker.com/engine/install/)、
+[Socket 与用户组](https://docs.docker.com/engine/install/linux-postinstall/)。
+
+### 环境检查的证据范围
 
 检查通过仅说明所列环境检查通过，不代表实际模型推理或完整 Profiler 运行已经通过。
 例如 cgroup 读数来自当前进程所在的本机 cgroup；Profiler `--version` 只证明工具可执行。

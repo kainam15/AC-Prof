@@ -102,10 +102,10 @@ acprof/tui/
 配置错误使用 `config_<field>`，Process 配置校验失败不能冒充 `process_resources` 权限失败。
 顶栏、问题列表、`preflight_run_reason()` 与“开始采集”消费同一份展示快照；未验证的必需检查、空检查结果也会阻止启动。
 `allow_collection()` 只更新阻断状态，不主动导航。稳定检查 ID 映射字段、Process / Docker / RAPL 诊断或 perf / tcpdump 权限选项；无映射时不提供跳转。
-整机独有失败仅是警告，未选分析器和采集能力是未请求；清理失败持续阻断直到显式重检确认。
+整机清单保留已检查能力的可用性，失败仅是警告；未请求的预检占位项不覆盖该证据。清理失败持续阻断直到显式重检确认。
 模型不读宿主、不启动探测、不保存第二份可变状态，正式执行仍保留原有权限与安全校验。
 `environment_view.py` 将条目投影为 `EnvironmentCheckView`，问题用 `Callout`，正常、待确认和未请求用 `FactGrid`。
-问题提供名称、原因、当前影响和下一步，点击或键盘选择只解释，通过显式 `status-open` 定位现有配置控件或权限诊断。
+问题提供名称、原因、当前影响和下一步，通过显式 `status-open` 定位现有配置控件或权限诊断；Docker 异常项点击或按 Enter / Space 直接进入修复引导，悬停与聚焦仍只解释。
 `NavigationContext` 只保存返回页面、焦点、滚动和最大化控件，不保存业务状态；专用 `IssueDiagnosticScreen` 从同一个快照读取诊断。
 权限配置继续使用原有预览、确认、sudo 与测量锁。`PreflightController` 先使权限证据失效，再按稳定 ID 合并实际复检结果；
 不以勾选或命令退出码判定权限通过，不覆盖过期配置的必需检查，保留清理失败的阻断语义。
@@ -117,6 +117,14 @@ Process 继承限制须确认且配置未被修改后才应用，绝不自动替
 技术详情由展示层翻译结构化消息、拼入原始状态与来源后按既有规则脱敏，不截断异常或路径。检查背景默认折叠，使用共享本地秒级时间格式化，列出平台、测量锁证据和检查范围。
 重检使用稳定 action ID `environment-retry`，继续交给 `PreflightController.quick_check()` 和既有 `OperationState`；`retry_button` 提供当前唯一可见重检按钮，不依赖 Callout 内部控件 ID。正式测量时可交互查看缓存，但重检仍被拒绝。
 环境浮层沿用原有 180 ms 悬停关闭定时器；本次不新增探测、周期刷新、轮询或缓存过期 TTL，也不因时间经过推导新的已过期状态。
+Docker 诊断由 `run/diagnostics.py` 调用 `run/docker_diagnostics.py`，将 OS、CLI、有效 Context、端点、
+产品类型及分类错误保存在同一个 `PreflightCheck.docker_diagnostic` 中；复用 host preflight 的本机 Socket / Desktop 判定。
+Auto 回退到 Process 时保留该证据作为警告；显式 Docker 的失败继续阻断。Process 不依赖 Docker，但整机 Docker 故障仍提供可操作的警告。
+`run/docker_guide.py` 纯投影安装与修复步骤，`run/docker_repair.py::DockerRepairScreen` 复用诊断弹窗生命周期和主题，
+不新增设置页面、宿主探测、管理员执行器或状态所有者。重检仍调用 `PreflightController.quick_check()`，复用 Worker、操作门禁与 `offline_analysis_lock()`。
+参考 [docker/cli Context 解析](https://github.com/docker/cli/blob/master/cli/command/cli.go)、
+[Context 文档 PR](https://github.com/docker/cli/pull/7415) 与 [Docker 官方安装说明](https://docs.docker.com/engine/install/)；
+采用环境变量优先级、失败不回退及官方软件源思路，不复制上游执行器，不引入新依赖。
 第五个迁移页面为 `models/task_choice_view.py` → `models/task_choices.py::TaskChoices`。
 `task_selection_view()` 纯投影既有 `TaskSelection`：共同配置使用 `ViewSection`，各组只呈现已计算的差异，次要行及采集组 ID、代表输入和全部语义任务 ID 进入详情；不重新分组、推断参数或修改执行签名。
 原 JSON 路径、字段是否存在及带类型的值保留在详情中；缺失与 null、false、整数零和浮点零保持区别，未知路径和值不翻译或解释为 markup。
