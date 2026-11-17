@@ -69,8 +69,6 @@ class ConfigurationController:
         self.field_errors_visible = False
         self.applying_config = False
         self.preview_timer: Timer | None = None
-        self.selected_preset: str | None = None
-        self.initial_preset: str = run_form.infer_preset(self.initial_config)
 
     def use_process_inherited_resources(self) -> None:
         if self.app.is_busy() or self.app.preflight.check_running or self.app.execution.session.snapshot.measurement_active:
@@ -284,20 +282,7 @@ class ConfigurationController:
         # form has been removed; do not query widgets during that phase.
         if not self.app.is_running or not self.app.form_ready or self.app.is_busy() or self.applying_config:
             return
-        self.refresh_command_preview(notify=False, sync_preset=True)
-
-    def run_preset_changed(self, event: Select.Changed) -> None:
-        if (not self.app.is_running or self.app.ui_closing or not self.app.form_ready
-                or self.applying_config or self.app.is_busy()):
-            return
-        preset = str(event.value)
-        if self.selected_preset == preset:
-            return
-        self.selected_preset = preset
-        if preset == "smoke":
-            self.app.experiments.preset_smoke()
-        elif preset == "main":
-            self.app.experiments.preset_main()
+        self.refresh_command_preview(notify=False)
 
     def collect_config(self, *, allow_empty_model: bool = False) -> RunConfig:
         return run_form.collect_config(
@@ -307,7 +292,7 @@ class ConfigurationController:
             project_dir=self.app.project_dir, allow_empty_model=allow_empty_model, extra_options=self.extra_options,
         )
 
-    def apply_config(self, config: RunConfig, *, preset: str = "custom") -> None:
+    def apply_config(self, config: RunConfig) -> None:
         self.cancel_preview_timer()
         self.applying_config = True
         self.extra_options = dict(config.extra_options)
@@ -323,12 +308,10 @@ class ConfigurationController:
                         self.app.query_one(f"#{widget_id}", Select).value = value
                     for widget_id, checked_value in checks.items():
                         self.app.query_one(f"#{widget_id}", Checkbox).value = checked_value
-                    self.app.query_one("#run-preset", Select).value = preset
-                    self.selected_preset = preset
         finally:
             self.applying_config = False
         if self.app.form_ready:
-            self.refresh_command_preview(notify=False, sync_preset=True)
+            self.refresh_command_preview(notify=False)
 
     def show_config_error(self, exc: RunConfigError) -> None:
         text = join_messages("\n", (message("• {0}", issue.reason) for issue in exc.issues))
@@ -382,9 +365,7 @@ class ConfigurationController:
                 ancestor.collapsed = False
         self.app.call_after_refresh(self.focus_config_field, control)
 
-    def refresh_command_preview(
-        self, *, notify: bool = True, sync_preset: bool = False
-    ) -> bool:
+    def refresh_command_preview(self, *, notify: bool = True) -> bool:
         self.cancel_preview_timer()
         self.validation_pending = False
         config = None
@@ -415,17 +396,6 @@ class ConfigurationController:
                 self.show_config_error(exc)
             return False
         finally:
-            if sync_preset and config is not None:
-                selected_preset = self.select("run-preset")
-                if selected_preset != "custom":
-                    adjusted = not run_form.matches_preset(config, selected_preset)
-                    options = tuple((message_id('settings.preset.adjusted', message(label)) if key == selected_preset and adjusted else label, key)
-                        for label, key in run_form.PRESET_OPTIONS)
-                    widget = self.app.query_one("#run-preset", Select)
-                    self.app.localization.localized_selects[widget] = options
-                    with self.app.prevent(Select.Changed):
-                        widget.set_options((self.app.localization.tr(label), key) for label, key in options)
-                        widget.value = selected_preset
             self.app.preflight.schedule_auto_check()
             self.app.preflight.refresh_preflight_state()
         self.update_plan_summary(config)

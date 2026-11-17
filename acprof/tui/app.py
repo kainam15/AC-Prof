@@ -220,7 +220,6 @@ class AcprofTui(AppEventRoutes):
             result_views.hide_tab(pane)
         self.localization.set_text(self.query_one('#settings-location', Static), message_id('settings.load.file_path', self.configuration.settings_path))
         self.update_responsive_layout()
-        self.configuration.selected_preset = self.configuration.select("run-preset")
         self._busy_controls.capture(self)
         self.form_ready = True
         self.results.restore_recent_result()

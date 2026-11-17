@@ -1,4 +1,4 @@
-"""RunConfig form conversion and preset matching, independent of Textual widgets."""
+"""RunConfig form conversion, independent of Textual widgets."""
 from __future__ import annotations
 
 from collections.abc import Mapping
@@ -6,7 +6,7 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
-from acprof.experiments.configuration import PRESET_FIELDS, RunConfig
+from acprof.experiments.configuration import RunConfig
 from acprof.tui.ui.presentation import format_input_number
 
 INPUT_FIELDS = {
@@ -102,27 +102,3 @@ def config_values(config: RunConfig) -> tuple[dict[str, str], dict[str, str], di
         "nsys-profiler": config.execution_profile_tool in {"nsys", "both"},
     })
     return inputs, selects, checks
-
-
-PRESET_OPTIONS = (("自定义", "custom"), ("基础 CPU Smoke", "smoke"),
-                  ("主矩阵（分析器关闭）", "main"))
-
-
-def infer_preset(config: RunConfig) -> str:
-    if matches_preset(config, "smoke"):
-        return "smoke"
-    if matches_preset(config, "main"):
-        return "main"
-    return "custom"
-
-
-def matches_preset(config: RunConfig, preset: str) -> bool:
-    if config.extra_options:
-        return False
-    if preset == "smoke":
-        template = RunConfig.smoke(config.model)
-    elif preset == "main":
-        template = RunConfig.main_matrix(config.model)
-    else:
-        return preset == "custom"
-    return all(getattr(config, name) == getattr(template, name) for name in PRESET_FIELDS)

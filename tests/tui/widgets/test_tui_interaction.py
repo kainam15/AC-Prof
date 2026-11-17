@@ -4,7 +4,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 import pytest
-from textual.widgets import Button, Input, Select, Static
+from textual.widgets import Button, Input, Static
 
 from acprof.experiments.configuration import RunConfig
 from acprof.installation import cli_command
@@ -96,7 +96,7 @@ class TestTuiInteraction:
             assert (shlex.split(str(app.query_one("#command-preview", Static).content))[:2]) == (["acprof", "run"])
             assert ("--cpus 1,3") in (preview)
             assert ("--model demo/latest") in (preview)
-            assert (app.query_one("#run-preset", Select).value) == ("smoke")
+            assert not app.query("#run-preset")
 
     async def test_applying_preset_does_not_queue_redundant_preview_updates(self):
         app = AcprofTui(RunConfig.smoke("demo/model"), settings_path=self.settings_path)
@@ -105,11 +105,11 @@ class TestTuiInteraction:
             with patch.object(
                 app.configuration, 'refresh_command_preview', wraps=app.configuration.refresh_command_preview
             ) as refresh:
-                app.configuration.apply_config(RunConfig.main_matrix("demo/model"), preset="main")
+                app.configuration.apply_config(RunConfig.main_matrix("demo/model"))
                 await pilot.pause(0.12)
                 assert (refresh.call_count) == (1)
             assert (app.configuration.preview_timer) is None
-            assert (app.query_one("#run-preset", Select).value) == ("main")
+            assert app.configuration.collect_config() == RunConfig.main_matrix("demo/model")
             assert (app.query_one("#cpus", Input).value) == ("auto")
 
     async def test_starting_run_cancels_preview_and_locks_configuration(self):
@@ -124,7 +124,7 @@ class TestTuiInteraction:
                 await pilot.pause(0.12)
                 refresh.assert_not_called()
             controls = list(app.query(
-                ".config-control, #run-preset, .ui-preference, "
+                ".config-control, .ui-preference, "
                 "#save-run-default, #restore-ui-defaults, #save-ui-settings"
             ))
             assert (controls)

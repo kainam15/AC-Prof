@@ -7,7 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-from textual.widgets import Button, Input, Select, Static, TabbedContent
+from textual.widgets import Button, Input, Static, TabbedContent
 
 import tests.support.catalog_fixtures as catalog_fixture
 from acprof.experiments.arguments import build_parser
@@ -38,8 +38,6 @@ def test_extra_options_are_typed_cannot_override_fields_and_survive_settings(ext
         from acprof.tui.commands import build_probe_command
         probe = build_probe_command(config, project_dir=root)
         assert (probe[probe.index('--revision') + 1]) == (config.revision)
-        from acprof.tui.run.form import matches_preset
-        assert not (matches_preset(config, 'smoke'))
         assert (config.with_preset('main').revision) == ('a' * 40)
         with pytest.raises(RunConfigError):
             replace(config, extra_options=extra).validate(project_dir=root)
@@ -109,7 +107,7 @@ class TestCatalogWorkflow:
             assert (reused.extra_options['matrix_seed']) == (71)
             assert (reused.revision) == ('a' * 40)
             assert (reused.output_dir) != (str(path.parent))
-            assert (app.query_one('#run-preset', Select).value) == ('custom')
+            assert not app.query('#run-preset')
             assert ('--matrix-seed 71') in (str(app.query_one('#command-preview', Static).content))
             with patch.object(app, 'launch') as launch:
                 app.catalog.experiment_selected('experiment-source', ('resume', record))

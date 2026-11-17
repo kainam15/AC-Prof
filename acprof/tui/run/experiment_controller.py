@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from textual.widgets import Select, Static
+from textual.widgets import Static
 
 from acprof import platform
 from acprof.experiments.configuration import RunConfigError, build_run_command
@@ -41,10 +41,8 @@ class ExperimentController:
             config = current.with_preset(preset)
         except RunConfigError as exc:
             self.app.configuration.show_config_error(exc)
-            with self.app.prevent(Select.Changed):
-                self.app.query_one("#run-preset", Select).value = "custom"
             return
-        self.app.configuration.apply_config(config, preset=preset)
+        self.app.configuration.apply_config(config)
         self.app.notify("已应用基础 CPU Smoke 预设" if preset == "smoke" else "已应用主矩阵预设（分析器关闭）", timeout=3)
 
     def start_run_button(self) -> None:

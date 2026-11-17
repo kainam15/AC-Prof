@@ -13,7 +13,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 import pytest
-from textual.widgets import Button, Input, Select, Static, TabbedContent
+from textual.widgets import Button, Input, Static, TabbedContent
 
 from acprof.experiments.configuration import RunConfig
 from acprof.results.layout import ArtifactLayout
@@ -21,7 +21,6 @@ from acprof.tui.commands import PendingLaunch
 from acprof.tui.i18n import translate
 from acprof.tui.results.data_status import inspect_experiment_data
 from acprof.tui.run.diagnostics import quick_preflight, summarize_result_csv
-from acprof.tui.run.form import infer_preset, matches_preset
 from acprof.tui.run.progress import ProgressSnapshot
 from acprof.tui.run.results import RunArtifacts, inspect_run_result
 from acprof.tui.run.stages import Stage
@@ -74,12 +73,13 @@ def test_overlapping_offline_reads_keep_measurement_excluded_until_last_reader()
     assert events == ["acquire", "release"]
 
 
-def test_execution_settings_do_not_change_preset():
+def test_preset_switch_preserves_execution_settings():
     config = replace(RunConfig.smoke("demo/model"), output_dir="elsewhere", model_store="cache",
                      download_mode="direct", notify="auto", resume=False, rebuild_image=True)
-    assert (infer_preset(config)) == ("smoke")
-    assert (matches_preset(config, "smoke"))
-    assert not (matches_preset(replace(config, cpus="2"), "smoke"))
+    changed = config.with_preset("main")
+    for field in ("output_dir", "model_store", "download_mode", "notify", "resume", "rebuild_image"):
+        assert getattr(changed, field) == getattr(config, field)
+    assert changed.profiling_mode == "full"
 
 def test_summary_keeps_input_scales_separate_and_single_windows_insufficient():
     with tempfile.TemporaryDirectory() as directory:
@@ -554,7 +554,7 @@ print("Profiling complete!", flush=True)
             assert "10 ms" not in str(app.query_one("#result-summary", Static).content)
             assert not (app.is_busy())
 
-    async def test_preset_labels_and_quiet_unselected_checks_in_both_languages_and_sizes(self):
+    async def test_form_edits_and_quiet_unselected_checks_in_both_languages_and_sizes(self):
         from acprof.tui.logging.widget import SelectableLog
         from acprof.tui.run.diagnostics import PreflightCheck
         app = self.make_app()
@@ -565,16 +565,15 @@ print("Profiling complete!", flush=True)
                 app.configuration.apply_ui_preferences()
                 for width, height in ((80, 24), (120, 30), (150, 45)):
                     await pilot.resize_terminal(width, height)
-                    app.configuration.apply_config(RunConfig.smoke("demo/model"), preset="smoke")
+                    app.configuration.apply_config(RunConfig.smoke("demo/model"))
                     app.query_one("#output-dir", Input).value = "results/changed"
-                    app.configuration.refresh_command_preview(notify=False, sync_preset=True)
-                    label = app.query_one("#run-preset SelectCurrent #label", Static)
-                    assert ("adjusted") not in (str(label.content))
-                    assert ("已调整") not in (str(label.content))
+                    app.configuration.refresh_command_preview(notify=False)
+                    assert not app.query("#run-preset")
+                    assert app.configuration.collect_config().output_dir == "results/changed"
                     app.query_one("#cpus", Input).value = "2"
-                    app.configuration.refresh_command_preview(notify=False, sync_preset=True)
-                    assert (app.query_one("#run-preset", Select).value) == ("smoke")
-                    assert ("已调整" if language == "zh" else "adjusted") in (str(label.content))
+                    app.configuration.refresh_command_preview(notify=False)
+                    assert app.configuration.collect_config().cpus == "2"
+                    assert "--cpus 2" in str(app.query_one("#command-preview", Static).content)
                     with patch.object(app.preflight, 'execute_quick_check'):
                         app.preflight.quick_check()
                         app.preflight.show_quick_check([PreflightCheck("Docker", "ok", "ready"),

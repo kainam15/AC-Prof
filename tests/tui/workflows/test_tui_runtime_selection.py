@@ -54,7 +54,7 @@ async def test_basic_runtime_selection_navigation_and_restart(tmp_path, monkeypa
         assert not app.query('#advanced-form #runtime')
         controls = list(app.query('#run-form Select'))
         assert controls.index(app.query_one('#model-source')) < controls.index(control)
-        assert controls.index(control) < controls.index(app.query_one('#run-preset'))
+        assert controls.index(control) < controls.index(app.query_one('#profiling-mode'))
         for runtime in ('docker', 'process', 'auto'):
             await choose_runtime(app, pilot, runtime)
             view = app.query_one(RunPlanPanel).view

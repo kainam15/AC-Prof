@@ -708,6 +708,4 @@ class TestTuiMainSettings:
         app = run.call_args.args[0]
         assert (app.configuration.initial_config) == (expected)
         assert (app.configuration.preferences.theme) == ("acprof-light")
-        from acprof.tui.run.form import infer_preset
-        assert (app.configuration.initial_preset) == (infer_preset(expected))
         assert (self.settings_path.read_bytes()) == (original)

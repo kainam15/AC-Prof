@@ -56,7 +56,7 @@ async def test_changing_presets_preserves_effective_download_constraints(legacy_
         async with app.run_test(size=(80, 24)) as pilot:
             await pilot.pause()
             for preset in ("main", "smoke"):
-                app.query_one("#run-preset", Select).value = preset
+                app.experiments.apply_preset(preset)
                 await pilot.pause()
                 effective = app.configuration.collect_config()
                 assert (effective.max_download) == ("5GB")
@@ -72,21 +72,39 @@ async def test_changing_presets_preserves_effective_download_constraints(legacy_
                                       ("--model-store", config.model_store), ("--output-dir", config.output_dir)):
                     assert command[command.index(option) + 1] == value
 
-async def test_selecting_smoke_builds_basic_cpu_command_and_preserves_notifications():
+@pytest.mark.parametrize(("language", "size"), [("zh", (80, 24)), ("en", (120, 30)), ("zh", (150, 45))])
+async def test_smoke_command_without_preset_selector_preserves_notifications(language, size):
     with tempfile.TemporaryDirectory() as temporary:
         app = AcprofTui(RunConfig(model="google-bert/bert-base-uncased", notify="wecom"),
                         settings_path=Path(temporary) / "settings.json")
-        async with app.run_test(size=(120, 30)) as pilot:
+        app.configuration.preferences = replace(app.configuration.preferences, language=language, show_command_bar=True)
+        async with app.run_test(size=size) as pilot:
             await pilot.pause()
-            preset = app.query_one("#run-preset", Select)
-            preset.focus()
-            await pilot.press("enter", "home", "down", "enter")
+            assert not app.query("#run-preset")
+            command_input = app.query_one("#slash-command", Input)
+            command_input.value = "/smoke"
+            command_input.focus()
+            await pilot.press("enter")
             await pilot.pause()
-            assert (preset.value) == ("smoke")
             command = build_run_command(app.configuration.collect_config(), project_dir=Path.cwd())
             for option, value in (("--profiling-mode", "basic"), ("--gpus", "off"),
                                   ("--notify", "wecom"), ("--repeat-in-window", "1")):
                 assert (command[command.index(option) + 1]) == (value)
+
+
+async def test_preset_command_reports_invalid_form_without_replacing_fields(tmp_path):
+    app = AcprofTui(RunConfig.smoke("demo/model"), settings_path=tmp_path / "settings.json")
+    app.configuration.preferences = replace(app.configuration.preferences, show_command_bar=True)
+    async with app.run_test(size=(80, 24)) as pilot:
+        app.query_one("#cpus", Input).value = "invalid-cpus"
+        command_input = app.query_one("#slash-command", Input)
+        command_input.value = "/main"
+        command_input.focus()
+        await pilot.press("enter")
+        await pilot.pause()
+        assert app.query_one("#cpus", Input).value == "invalid-cpus"
+        assert app.query_one("#profiling-mode", Select).value == "basic"
+        assert app.query_one("#cpus-error", Static).display
 
 def test_cli_first_run_overrides_saved_full_matrix_without_rewriting_settings():
     with tempfile.TemporaryDirectory() as temporary:

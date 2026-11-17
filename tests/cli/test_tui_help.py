@@ -110,7 +110,6 @@ class WidthProbe:
         raise SystemExit(0)
 
 sys.modules['acprof.tui.app'] = SimpleNamespace(AcprofTui=WidthProbe)
-sys.modules['acprof.tui.run.form'] = SimpleNamespace(infer_preset=None)
 from acprof.cli.main import main
 main(['tui'])
 """],

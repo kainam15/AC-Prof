@@ -10,7 +10,6 @@ from textual.widgets import Button, Collapsible, ContentSwitcher, Label, Static,
 
 from acprof.tui.i18n import message_id
 from acprof.tui.models.input import ModelInput
-from acprof.tui.run.form import PRESET_OPTIONS
 from acprof.tui.run.plan_panel import RunPlanPanel
 from acprof.tui.settings.field_validation import ConfigField
 from acprof.tui.ui.checkbox import StatusCheckbox
@@ -73,14 +72,6 @@ def compose_run_tab(app: AcprofTui) -> ComposeResult:
                         value=app.configuration.initial_config.profiling_mode,
                         allow_blank=False, id="profiling-mode", classes="config-control",
                     ), field_id="profiling-mode")
-
-                    yield app.localization.localized_widget(Label("运行预设"))
-                    yield app.localization.localized_select(
-                        PRESET_OPTIONS,
-                        value=app.configuration.initial_preset,
-                        allow_blank=False,
-                        id="run-preset",
-                    )
 
                     yield app.localization.localized_widget(Label("输出目录"))
                     yield ConfigField(app.localization.localized_widget(Input(

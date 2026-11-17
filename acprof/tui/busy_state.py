@@ -13,7 +13,7 @@ if TYPE_CHECKING:
     from acprof.tui.app import AcprofTui
 
 GENERAL_BUSY_SELECTOR = (
-    ".config-control, .experiment-picker, #model-candidates, #run-preset, "
+    ".config-control, .experiment-picker, #model-candidates, "
     ".ui-preference, .profile-tool, .report-control, "
     "#save-run-default, #restore-ui-defaults, #save-ui-settings, #open-environment-settings"
 )

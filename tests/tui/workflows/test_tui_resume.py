@@ -2,7 +2,7 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
-from textual.widgets import Checkbox, ContentSwitcher, Select
+from textual.widgets import Checkbox, ContentSwitcher
 
 from acprof.experiments.configuration import RunConfig, build_run_command
 from acprof.tui.ui.input import BarCursorInput as Input
@@ -17,7 +17,7 @@ async def test_restored_run_can_configure_a_new_experiment_without_a_resume_togg
     async with app.run_test(size=size) as pilot:
         assert app.configuration.collect_config() == replace(restored, resume=False)
         app.configuration.apply_config(restored)
-        app.query_one("#run-preset", Select).value = "main"
+        app.experiments.preset_main()
         await pilot.pause()
         assert app.configuration.collect_config().profiling_mode == "full"
         app.query_one("#experiment-pages", ContentSwitcher).current = "advanced-form"

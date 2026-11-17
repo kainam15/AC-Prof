@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 import pytest
 from textual.css.query import NoMatches
-from textual.widgets import Input, Select, Static
+from textual.widgets import Input, Static
 
 from acprof.events.progress import encode_event
 from acprof.experiments.configuration import RunConfig, RunConfigError, build_run_command
@@ -430,9 +430,9 @@ class TestTuiApp:
             await pilot.pause(0.1)
             auto_preview = str(app.query_one("#command-preview", Static).render())
             assert ("--cpus 1,3") in (auto_preview)
-            assert (app.query_one("#run-preset").value) == ("smoke")
+            assert not app.query("#run-preset")
 
-            app.query_one("#run-preset", Select).value = "main"
+            app.experiments.preset_main()
             await pilot.pause(0.1)
             preset_preview = str(app.query_one("#command-preview", Static).render())
             assert (app.query_one("#cpus", Input).value) == ("auto")

@@ -178,8 +178,8 @@ class TestStartupPreflight:
                 await self.finish_check(app, pilot)
                 notify.assert_not_called()
                 assert (app.query_one("#output-dir", Input).value) == ("results/custom-startup")
-                # User selection still applies presets after initial events settle.
-                app.query_one("#run-preset", Select).value = "main"
+                # Explicit preset actions still work after initial events settle.
+                app.experiments.preset_main()
                 await pilot.pause()
                 assert (app.query_one("#cpus", Input).value) == ("auto")
                 notify.assert_called_once()

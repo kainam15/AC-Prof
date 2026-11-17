@@ -65,7 +65,7 @@ class TestTuiPresentation:
             assert (warning) == ("")
             assert (saved.run_defaults) == (config)
             assert saved.run_defaults is not None
-            app.configuration.apply_config(RunConfig.smoke("demo/model"), preset="smoke")
+            app.configuration.apply_config(RunConfig.smoke("demo/model"))
             assert ((warmup.value, repeat.value)) == (("0", "1"))
             app.configuration.apply_config(saved.run_defaults)
             assert (sample.value) == ("20.1256789"), "显示不能丢失已保存的小数精度"

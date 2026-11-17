@@ -47,7 +47,6 @@ def main(argv: Sequence[str] | None = None) -> None:
     # Help and argument errors must not initialize the TUI runtime.
     from acprof.experiments.configuration import RunConfigError
     from acprof.tui.app import AcprofTui
-    from acprof.tui.run.form import infer_preset
 
     try:
         app = AcprofTui(color_system=args.color_system)
@@ -64,7 +63,6 @@ def main(argv: Sequence[str] | None = None) -> None:
     if args.output_dir is not None:
         config = replace(config, output_dir=args.output_dir)
     app.configuration.initial_config = config
-    app.configuration.initial_preset = infer_preset(config)
     app.run()
     if app.updates.restart_command:
         # Textual has restored the terminal before replacing this process.

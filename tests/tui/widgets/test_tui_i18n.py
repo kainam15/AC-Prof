@@ -155,7 +155,9 @@ class TestTuiLanguage:
         async with app.run_test(size=(80, 24)) as pilot:
             await pilot.pause()
             environment = app.query_one("#current-environment")
-            expected_indicators = [f"{status_symbol(level)} 0" for level in ("error", "warning", "success")]
+            # The fixture and valid configuration pass; Smoke warns about sample count.
+            expected_indicators = [f"{status_symbol(level)} {count}" for level, count in
+                                   (("error", 0), ("warning", 1), ("success", 2))]
             assert [str(entry.content) for entry in environment.query(Static) if entry.display] == expected_indicators
             app.query_one('#notify', Select).value = 'none'
             await pilot.press("f2")
@@ -180,10 +182,10 @@ class TestTuiLanguage:
             assert (app.query_one("#ui-language SelectCurrent #label", Static).content) == ("简体中文")
             assert app.query_one('#notify SelectCurrent #label', Static).content == '关闭'
             assert app.query_one('#notify', Select).value == 'none'
-            assert (app.query_one("#run-preset", Select).value) == ("smoke")
+            assert not app.query("#run-preset")
             assert not (self.settings_path.exists())
 
-    async def test_switch_keeps_drafts_presets_log_selection_status_and_loaded_results(self):
+    async def test_switch_keeps_drafts_configuration_log_selection_status_and_loaded_results(self):
         config = replace(RunConfig.smoke("demo/model"), gpus="on,off")
         app = self.make_app(config)
         async with app.run_test(size=(120, 30)) as pilot:
@@ -196,10 +198,10 @@ class TestTuiLanguage:
             # This test preserves an already rendered preview; debounce timing
             # is covered by the form interaction tests.
             app.configuration.cancel_preview_timer()
-            app.configuration.refresh_command_preview(notify=False, sync_preset=True)
+            app.configuration.refresh_command_preview(notify=False)
             command = build_run_command(app.configuration.collect_config(), project_dir=PROJECT_DIR)
             preview = app.query_one("#command-preview", Static).content
-            preset = app.query_one("#run-preset", Select).value
+            configuration = app.configuration.collect_config()
             app.activate_tab("monitor-tab")
             log = app.query_one("#run-log", SelectableLog)
             log.write("\n".join(f"等待 原始日志 {index}" for index in range(100)))
@@ -229,7 +231,7 @@ class TestTuiLanguage:
                 assert "Valid formal windows: 1" in app.query_one("#result-data-status", Static).content
             assert (model.value) == ("等待/{模型}")
             assert (model.cursor_position) == (2)
-            assert (app.query_one("#run-preset", Select).value) == (preset)
+            assert app.configuration.collect_config() == configuration
             assert (app.query_one("#gpus", Select).value) == ("on,off")
             assert (app.query_one("#ui-theme SelectCurrent #label", Static).content) == ("Graphite · Dark (Default)")
             assert (build_run_command(app.configuration.collect_config(), project_dir=PROJECT_DIR)) == (command)
