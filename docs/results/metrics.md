@@ -12,6 +12,9 @@
 
 ## 采集能力概览
 
+逐字段实现、范围、权限与成本见 [Docker / Process 覆盖矩阵](runtime-coverage.md)，
+共同指标及缺失/回退规则见 [统一画像契约](runtime-profile.md)。实现登记不等于硬件验收。
+
 Process basic 使用独立的 `process_cpu_*` / `process_rss_*` 字段；`auto` 资源上限保留为空。
 Runtime 身份、实际限制来源、GPU 整卡范围及缺失状态见 [Runtime 指标口径](../platforms/linux-runtimes.md#资源与指标口径)。
 这些字段不能替换 Docker 的 cgroup 指标，也不改变其历史定义。

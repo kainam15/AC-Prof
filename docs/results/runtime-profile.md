@@ -1,0 +1,81 @@
+# Docker / Process 统一画像契约
+
+[← 指标与分析](metrics.md) · [逐字段覆盖矩阵](runtime-coverage.md)
+
+## 审计基线与数据流
+
+`results/metrics.py` 是字段、单位、窗口、聚合及层归属的唯一登记依据。
+`results/coverage.py` 补充来源的实现路径、范围、条件和成本，不另存字段表。
+`scripts/render_runtime_coverage.py --check` 检查矩阵漂移。229 字段审计基线为
+`ecefdcaf`（2026-11-17）；后续矩阵反映当前代码，登记数量不能等同于硬件能力。
+
+两个 Runtime 都经 `host/client.py` → `measurement/execution.py` → `measurement/metrics.py`
+生成窗口行；`measurement/publication.py` 写请求 journal、telemetry 与 receipt，
+`results/` 写分层 CSV。PCAP 在窗口之外解析回填；独立 Profiler 经其 plan 和补采流程写出。
+原始证据和 receipt 为恢复依据，CSV 保持投影语义。静态元数据在准备阶段采集。
+
+基线发现：应用延迟、P50/P90/P95、请求数、吞吐、输入单位和像素归一化已经共用实现。
+Docker 已有 cgroup CPU/memory/Swap/I/O/PSI、RAPL、perf 和完整 NVML；Process basic
+已有进程树 CPU/RSS、NVML 利用率/显存。Process 未接入 cgroup 指标、完整 GPU 状态、
+能耗、PMU、PCAP 或深度 Profiler。未接入 Runtime 的字段保持缺失，不能算实际覆盖。
+两条 NVML 资源查询路径、Docker 资源和能耗各自解析 cgroup 身份属于重复读取候选；
+能耗与资源窗口独立，不能仅为去重合并样本或改变启动/停止顺序。
+
+## 共同概念与统计范围
+
+| 概念 | 共同值 / 语义 | 必须独立保留 |
+| --- | --- | --- |
+| 延迟、吞吐 | `latency_app_*`、成功请求与既有输入规模分母 | `latency_s` 始终为 PCAP；窗口分位数均值不是总体分位数 |
+| CPU | 观察进程树的 CPU 秒数；一个逻辑核为 100% | cgroup 占用率按配额核心归一化；host frequency 不是进程实际 cycles |
+| 内存 | 进程树 RSS 之和、时间加权平均、采样峰值 | cgroup memory 包含缓存/内核；RSS 可能重复计共享页；生命周期峰值不是窗口峰值 |
+| I/O | 进程读写字节与 syscall 次数首尾差分 | cgroup 块设备 I/O 与 syscall 次数不同；`read_chars` 不替代磁盘字节 |
+| GPU | 选定 UUID 的整卡 NVML 指标 | 不能标记为模型独占；MIG/驱动不支持逐项缺失 |
+| 网络 | HTTP 请求/响应应用正文大小 | TCP payload、抓包 frame bytes、物理线上字节各自保留 |
+| 能耗 | 包/DRAM/整卡来源一致时同名展示 | 总能量、matched-control 残差、CPU 时间归因估算不得混用 |
+| Profiler | 独立工具、来源、版本与窗口 | 独立 forward / 生命周期数据不能写成正式请求窗口实测 |
+
+## 缺失、质量与回退
+
+每项证据携带 `source`、`scope`、`window`、`quality`、`derivation`，保留原始采样引用。
+静态契约说明默认口径，运行证据说明实际读数。零只来自有效零计数或合法差值；
+CSV 未知为 `nan`，JSON 未知为 `null`，不填充历史未采字段。
+
+`quality` 区分 `complete`、`partial`、`unsupported`、`permission_denied`、
+`not_requested`、`error`、`unavailable`；`complete` 只表示声明范围的窗口证据完整，
+不宣称硬件准确度验收。`derivation` 区分 `observed`、`recorded`、`derived`、`estimated`。
+进程身份使用 PID + start time；成员退出、计数器下降、权限缺失、瞬时子进程遗漏
+须保留限制。无法证明完整的累计计数不能写零；独立成立的 RSS 或 GPU 数据继续保留。
+
+回退只允许相同语义，例如同一 GPU 累计能量与功率积分，并保留选择与原因；
+RSS ↔ cgroup memory、HTTP bytes ↔ PCAP、设备能量 ↔ 模型归因均不构成回退。
+不为得到数值改权限、重跑模型或开启额外 Profiler。必需指标失败继续阻断，
+可选运行错误保留诊断，不能标为无诊断成功。历史缺少新证据时保持 unknown。
+
+## 开销与高级接入边界
+
+无额外采样：请求结果派生、准备阶段静态信息。低开销候选：首尾计数器、轻量
+procfs/psutil 读取；周期 CPU/GPU 遥测按中等开销管理；PCAP 与深度 Profiler 按高开销管理。
+这是设计分级，**不是实测结论**。保留 Basic / Full，不新增预设。
+USS/PSS 遍历映射且权限更严格，不默认高频读取；FD、Swap、缺页和 I/O 优先窗口边界。
+温度、频率、P-state 不要求跟随高频利用率查询。
+
+Process cgroup 只能使用经验证的独立服务 cgroup，共享父级不能归因到服务。
+读取权限与限制权限分别判断，不把可读目录误认为可写委派。Process Full 的能耗、
+PID/thread perf、PCAP 及 Torch/NCU/Nsys/Massif 必须处理准入、身份、清理及补采来源，
+不能只移除 basic 限制。PMU 保留线程继承、退出子进程、multiplex running ratio 和实际窗口；
+CPU 时间能耗归因必须标记为估算。
+
+开销验收复用 `scripts/measure_overhead.py`：同硬件、model revision、输入和资源条件，
+按 round 配对 none / enabled，记录延迟、采集进程 CPU/RSS、采样丢失/迟到、窗口偏移及存储成本。
+未经明确授权不执行真实配对实验；Mock 只验证计算和边界。跨 Runtime 比较须逐指标检查
+来源、scope、window、derivation、质量及已有 workload/hardware/输入身份，不能仅因同名放开。
+
+## 参考与复用决定
+
+- [psutil 7.2.2](https://github.com/giampaolo/psutil/blob/release-7.2.2/docs/index.rst)：沿用已锁定依赖、`oneshot()` 和已有查询 API，不升级 master 或引入服务。
+- [process-exporter](https://github.com/ncabatoff/process-exporter/blob/e52ab0a1c03d6baf8ed60154c254ecc0008549f3/proc/read.go)：借鉴 PID/starttime、逐项失败、累计计数分离，不复制 exporter 架构。
+- [cAdvisor](https://github.com/google/cadvisor/blob/98929c4f2a2e7ba06f72fd6838bf77731dd2c288/docs/storage/prometheus.md)：保留 cgroup、进程与设备范围。
+- [OpenTelemetry process metrics](https://github.com/open-telemetry/semantic-conventions/blob/main/docs/system/process-metrics.md)：参考 CPU、I/O、线程与上下文切换分类；开发中的规范不作为重命名历史字段的理由。
+- [psutil Issue #1210](https://github.com/giampaolo/psutil/issues/1210)：计数器可能回退，须记录异常，不能把负增量截成合法零值。
+
+以上只借鉴思想并复用项目已有依赖。硬件支持、真实开销、能耗精度及 Docker Full 验收须另附同版本证据。
