@@ -23,7 +23,7 @@ a task label alone does not guarantee that every checkpoint will run.
 
 ## Quick start
 
-Install the [PyPI release](https://pypi.org/project/acprof/) with [uv](https://docs.astral.sh/uv/getting-started/installation/):
+Install the [stable PyPI release](https://pypi.org/project/acprof/) with [uv](https://docs.astral.sh/uv/getting-started/installation/):
 
 ```bash
 uv tool install acprof
@@ -32,6 +32,14 @@ acprof tui
 ```
 
 To upgrade an existing installation, run `uv tool upgrade acprof`.
+
+For opt-in **preview releases** (Alpha/Beta/RC), install with
+`uv tool install acprof --prerelease allow` (use `--force` if already installed).
+A subsequent `uv tool upgrade acprof` retains that preference. Return to stable releases with
+`uv tool install --force acprof --prerelease disallow`. Preview releases receive only lightweight
+release validation, which does not replace full hardware measurement validation; see the
+[preview installation guide](docs/getting_started/installation.md#可选预览版alpha--beta--rc).
+
 For host preparation, verified release assets, and the first experiment, see the
 [installation guide](docs/getting_started/installation.md) and [experiment guide](docs/usage/experiments.md).
 
@@ -49,13 +57,6 @@ For host preparation, verified release assets, and the first experiment, see the
 - **Streaming services:** Measure an already-running OpenAI-compatible service with `acprof load`.
   Concurrency/rate sweeps, ordered JSONL requests, and optional vLLM/SGLang service observations
   are described in the [streaming guide](docs/profiling/streaming.md).
-
-For opt-in **preview releases** (Alpha/Beta/RC), install with
-`uv tool install acprof --prerelease allow` (use `--force` if already installed).
-A subsequent `uv tool upgrade acprof` retains that preference. Return to stable releases with
-`uv tool install --force acprof --prerelease disallow`. Preview releases have reduced validation
-and are not a substitute for verified measurement releases; see the
-[installation guide](docs/getting_started/installation.md).
 
 ## Platform support
 
