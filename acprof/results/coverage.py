@@ -31,7 +31,7 @@ SOURCE_CONTRACTS = {
         "observed_process_tree", "low", "procfs access; stable PID + start time", _PROCESS, ("process",)),
     "managed_process_to_ready": CollectorContract("managed_service_lifetime", "none", "Process readiness", _ROW, ("process",)),
     "nvml_selected_device": CollectorContract("selected_gpu_device", "medium", "GPU UUID; NVML query support and permission", _RESOURCE),
-    "pcap": CollectorContract("correlated_http_connection_frames", "high", "Full; capture permission; complete request matching", "acprof/packet/merge.py", ("docker",)),
+    "pcap": CollectorContract("correlated_http_connection_frames", "high", "Full; capture permission; complete request matching", "acprof/packet/merge_packet_latency.py", ("docker",)),
     "input_plan": CollectorContract("materialized_request", "none", "frozen input plan", "acprof/host/input_plan/__init__.py", derivation="recorded"),
     "client_http": CollectorContract("client_http_requests", "none", "successful requests; tokenizer/geometry when applicable", _ROW),
     "derived": CollectorContract("source_dependent", "none", "finite source fields and positive denominator", "acprof/host/measurement/collector_metrics.py", derivation="derived"),
