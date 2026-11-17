@@ -1,6 +1,7 @@
 """Render the complete Docker/Process audit from the sole metric registry."""
 import argparse
 import sys
+from dataclasses import astuple
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -20,7 +21,7 @@ def render() -> str:
              "| 来源 | 范围 | 成本级别 | 条件 / 权限 | 生产者 |",
              "| --- | --- | --- | --- | --- |"]
     contracts = {(metric.source, collector_contract(metric)) for metric in METRICS.values()}
-    for source, contract in sorted(contracts, key=lambda item: (item[0], item[1].scope, item[1].producer)):
+    for source, contract in sorted(contracts, key=lambda item: (item[0], *astuple(item[1]))):
         lines.append(f"| `{source}` | `{contract.scope}` | {contract.cost} | {contract.prerequisites} | [{Path(contract.producer).name}](../../{contract.producer}) |")
     lines.extend(["", "| 指标 | Docker | Process | 单位 | 来源 | 窗口 | 推导 |",
                   "| --- | --- | --- | --- | --- | --- | --- |"])

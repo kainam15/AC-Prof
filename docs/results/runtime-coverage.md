@@ -11,8 +11,8 @@
 | 来源 | 范围 | 成本级别 | 条件 / 权限 | 生产者 |
 | --- | --- | --- | --- | --- |
 | `allocation_evidence` | `protocol_identity` | none | valid run identity | [metrics.py](../../acprof/host/measurement/metrics.py) |
-| `cgroup` | `container_cgroup` | medium | local Docker; cgroup v2; readable metric files | [resource_usage.py](../../acprof/monitors/resource_usage.py) |
 | `cgroup` | `container_cgroup` | low | local Docker; cgroup v2; readable metric files | [resource_usage.py](../../acprof/monitors/resource_usage.py) |
+| `cgroup` | `container_cgroup` | medium | local Docker; cgroup v2; readable metric files | [resource_usage.py](../../acprof/monitors/resource_usage.py) |
 | `client_http` | `client_http_requests` | none | successful requests; tokenizer/geometry when applicable | [metrics.py](../../acprof/host/measurement/metrics.py) |
 | `collector_contract` | `protocol_identity` | none | valid run identity | [metrics.py](../../acprof/host/measurement/metrics.py) |
 | `derived` | `cgroup_cpu_share_plus_selected_gpu` | none | finite source fields and positive denominator | [collector_metrics.py](../../acprof/host/measurement/collector_metrics.py) |
@@ -36,8 +36,8 @@
 | `procfs_observed_process_tree` | `observed_process_tree` | low | Linux procfs; stable process membership | [process_usage.py](../../acprof/monitors/process_usage.py) |
 | `protocol` | `protocol_identity` | none | valid run identity | [metrics.py](../../acprof/host/measurement/metrics.py) |
 | `psutil` | `observed_process_tree` | low | target procfs access | [process_usage.py](../../acprof/monitors/process_usage.py) |
-| `psutil_observed_process_tree` | `observed_process_tree` | medium | procfs access; stable PID + start time | [process_usage.py](../../acprof/monitors/process_usage.py) |
 | `psutil_observed_process_tree` | `observed_process_tree` | low | procfs access; stable PID + start time | [process_usage.py](../../acprof/monitors/process_usage.py) |
+| `psutil_observed_process_tree` | `observed_process_tree` | medium | procfs access; stable PID + start time | [process_usage.py](../../acprof/monitors/process_usage.py) |
 | `psutil_observed_process_tree` | `observed_process_tree_leaders` | low | procfs access; stable PID + start time | [process_usage.py](../../acprof/monitors/process_usage.py) |
 | `rapl_cgroup_attribution` | `cgroup_cpu_time_share_of_host_packages` | medium | Full; RAPL + cgroup + host CPU counters | [energy_cpu.py](../../acprof/monitors/energy_cpu.py) |
 | `rapl_dram` | `host_dram_domains` | medium | Full; DRAM requested; complete readable domains | [energy_cpu.py](../../acprof/monitors/energy_cpu.py) |
