@@ -218,3 +218,42 @@ attempt 恢复已完成模型，进行中的模型使用新目录重新验证。
 恢复语义参考 [Ray Tune 的 `Tuner.restore`](https://github.com/ray-project/ray/blob/f8a314bf077c9772fee2a8a1073368ca2ef9360b/python/ray/tune/tuner.py)
 对已完成、未完成和失败任务的区分（Apache-2.0，维护中的实现）。AC-Prof 沿用已有 JSON 原子写入和目录锁，
 只借鉴选择与证据保留原则，不引入 Ray、训练 checkpoint 或 pickle 依赖；记录发生在独立验证之外，不进入正式测量窗口。
+
+### 离线元数据回归
+
+开发工具 `scripts/replay_model_corpus.py` 在真实 coverage／模型识别链路上回放冻结的本地元数据，
+用来发现解析、任务选择、制品与运行时路由的行为变化。它只替换 Hub 读取边界，屏蔽个人 Model Store
+缓存，并阻止网络连接、额外元数据读取、推理框架加载与运行验证。此工具使用进程级 guard，须单独串行执行。
+
+```bash
+# 先分配带 manifest 的证据目录；下面的路径替换为命令输出
+uv run --locked python scripts/internal_testing.py new --task model-corpus --keep
+uv run --locked python scripts/replay_model_corpus.py tests/fixtures/model_corpus.json \
+  --output-dir internal-testing/runs/YYYY-MM/<run-id>/baseline
+# 修改代码后，使用相同冻结输入比较；每次输出目录必须不存在
+uv run --locked python scripts/replay_model_corpus.py tests/fixtures/model_corpus.json \
+  --baseline internal-testing/runs/YYYY-MM/<run-id>/baseline/corpus.json \
+  --output-dir internal-testing/runs/YYYY-MM/<run-id>/comparison
+uv run --locked python scripts/internal_testing.py finish internal-testing/runs/YYYY-MM/<run-id> --status success
+```
+
+新增的 `corpus.json`、`corpus.csv` 与 `CORPUS.md` 保存预期差异、旧报告与当前判定的逐字段变化，
+并按阶段／原因计数降序排列待处理场景；同时保留 coverage 的原始 attempt、失败证据和下一步建议。
+未知兼容性且无失败码的场景仅在汇总中归入 `compatibility_unknown`，原始 `reason_code` 保持 null。
+退出码 0 表示全部符合已审阅预期，1 表示存在预期差异，2 表示输入／基线／离线边界或工具执行出错；
+已预期的不支持、缺配置与未知仍然列入待处理原因，不能据此宣称模型运行成功。
+
+Manifest 在 coverage schema v1 上添加 `corpus_version: 1`、稳定 `case_id`、
+`fixture_kind`、描述、冻结的 `hub`／`repository_files`，以及带相对路径、原始 SHA256 和来源的 `metadata`。
+`expected` 至少审阅 `inspection_status`、`compatibility_status`、`reason_code`，也可约束任务与 RuntimeProfile。
+报告分别保存输入与预期的摘要、源码／测试／锁文件摘要及解析规则版本；比较要求输入摘要和逐项身份完全相同，
+允许源码和已审阅预期变化，避免把修改预期误记为识别能力变化。元数据文件须在 manifest 所在目录内，单文件最多 1 MiB。
+
+当前[种子集](../../tests/fixtures/model_corpus/README.md)有 17 个合成场景，覆盖 NLP、CV、音频、
+多模态、Diffusers、结构化 ONNX、ModelScope 来源和常见阻断。T5 场景复用固定 revision 的作者原始文件，
+Hub 属性和文件清单仍为合成。它不是 Top 100 冻结集，不能作为真实 checkpoint、任务精度、GPU 或全 Hub 兼容率证据；
+`runtime_status` 始终为 `not_requested`，运行成功率仍为 null。
+
+设计参考 [vLLM Registry 参数化回归](https://github.com/vllm-project/vllm/blob/ca04fba3211d9a86d589a59b490eff3a8344aaa5/tests/models/test_registry.py)
+的显式模型预期和 [vLLM #63500](https://github.com/vllm-project/vllm/pull/63500) 的导入副作用回归。
+AC-Prof 复用现有解析器、coverage 及标准库 Mock，仅借鉴验证思路，不复制 Registry 或新增运行依赖。

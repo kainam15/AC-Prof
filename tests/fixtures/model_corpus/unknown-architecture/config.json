@@ -1,0 +1,6 @@
+{
+  "model_type": "unregistered_future_arch",
+  "architectures": [
+    "UnregisteredForMaskedLM"
+  ]
+}

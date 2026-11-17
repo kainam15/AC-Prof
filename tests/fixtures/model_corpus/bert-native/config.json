@@ -1,0 +1,6 @@
+{
+  "model_type": "bert",
+  "architectures": [
+    "BertForMaskedLM"
+  ]
+}

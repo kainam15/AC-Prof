@@ -173,6 +173,11 @@ TUI 预览及日志中的 `acprof <command>` 展示，并保留含空格或 shel
 恢复测试继续保护协议。滚动模型检查使用 [coverage 命令](../usage/cli-discovery.md#acprof-coverage)，
 其静态、接口检查、容器运行验证与正式测量证据分别验收；4 GiB 或超时限制不等同于模型语义错误。
 
+`tests/quality/test_model_corpus.py` 验证[离线元数据回归](../usage/cli-discovery.md#离线元数据回归)：
+固定样本身份与原始 SHA、两种 Hub 来源隔离、预期差异、原因排序、可比基线和网络／运行边界。
+新增识别路线时可扩充 `tests/fixtures/model_corpus.json`，手工审阅预期，不从运行结果自动生成正确答案。
+场景匹配数只表示回归预期符合程度，不是模型实际推理通过率；真实 coverage API 继续由 `test_model_coverage.py` 保护。
+
 采集准备与重试使用 `test_collection_workflow.py`、`test_run_native_docker.py`、
 `test_run_notifications.py` 和 `test_tui_collection_workflow.py`。当前顺序为采集平台策略检查、
 开始通知、模型解析、主机预检、运行环境准备和验证、正式测量；预检失败必须阻止后续准备。

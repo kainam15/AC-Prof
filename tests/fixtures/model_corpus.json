@@ -1,0 +1,560 @@
+{
+  "schema_version": 1,
+  "corpus_version": 1,
+  "sampling": "fixed reviewed synthetic scenarios, including captured T5 author metadata; not Top 100 or Hub coverage",
+  "weight_basis": "uniform scenario weights; not model popularity",
+  "models": [
+    {
+      "case_id": "bert-native",
+      "source": "huggingface",
+      "model_id": "fixture/bert-native",
+      "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "weight": 1,
+      "fixture_kind": "synthetic",
+      "description": "bert native",
+      "hub": {
+        "pipeline_tag": "fill-mask",
+        "library_name": "transformers",
+        "config": {}
+      },
+      "repository_files": [
+        "config.json",
+        "model.safetensors"
+      ],
+      "metadata": {
+        "config.json": {
+          "path": "model_corpus/bert-native/config.json",
+          "sha256": "e5a383cef8a889aef4fd9e2b8ea589ca9b89f012424ecb2d07555090467d231e",
+          "origin": "synthetic"
+        }
+      },
+      "expected": {
+        "inspection_status": "candidate",
+        "compatibility_status": "supported",
+        "reason_code": null,
+        "selected_task": "fill-mask",
+        "runtime_profile": "nlp-cu128"
+      }
+    },
+    {
+      "case_id": "bert-modelscope",
+      "source": "modelscope",
+      "model_id": "fixture/bert-modelscope",
+      "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "weight": 1,
+      "fixture_kind": "synthetic",
+      "description": "bert modelscope",
+      "hub": {
+        "pipeline_tag": "fill-mask",
+        "library_name": "transformers",
+        "config": {}
+      },
+      "repository_files": [
+        "config.json",
+        "model.safetensors"
+      ],
+      "metadata": {
+        "config.json": {
+          "path": "model_corpus/bert-modelscope/config.json",
+          "sha256": "e5a383cef8a889aef4fd9e2b8ea589ca9b89f012424ecb2d07555090467d231e",
+          "origin": "synthetic"
+        }
+      },
+      "expected": {
+        "inspection_status": "candidate",
+        "compatibility_status": "supported",
+        "reason_code": null,
+        "selected_task": "fill-mask",
+        "runtime_profile": "nlp-cu128"
+      }
+    },
+    {
+      "case_id": "gpt2-architecture",
+      "source": "huggingface",
+      "model_id": "fixture/gpt2-architecture",
+      "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "weight": 1,
+      "fixture_kind": "synthetic",
+      "description": "gpt2 architecture",
+      "hub": {
+        "pipeline_tag": null,
+        "library_name": "transformers",
+        "config": {}
+      },
+      "repository_files": [
+        "config.json",
+        "model.safetensors"
+      ],
+      "metadata": {
+        "config.json": {
+          "path": "model_corpus/gpt2-architecture/config.json",
+          "sha256": "9f7b29bcf1c8414af72fbbcfdb689939607457f87dfede5d27a7113af3adbfba",
+          "origin": "synthetic"
+        }
+      },
+      "expected": {
+        "inspection_status": "candidate",
+        "compatibility_status": "supported",
+        "reason_code": null,
+        "selected_task": "text-generation",
+        "runtime_profile": "nlp-cu128"
+      }
+    },
+    {
+      "case_id": "vision-timm",
+      "source": "huggingface",
+      "model_id": "fixture/vision-timm",
+      "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "weight": 1,
+      "fixture_kind": "synthetic",
+      "description": "vision timm",
+      "hub": {
+        "pipeline_tag": "image-classification",
+        "library_name": "timm",
+        "config": {}
+      },
+      "repository_files": [
+        "config.json",
+        "model.safetensors"
+      ],
+      "metadata": {
+        "config.json": {
+          "path": "model_corpus/vision-timm/config.json",
+          "sha256": "c371c3d6af779ad72812bc554862ae55065f152227ac9c2f1aaba78b4fa8dfde",
+          "origin": "synthetic"
+        }
+      },
+      "expected": {
+        "inspection_status": "candidate",
+        "compatibility_status": "supported",
+        "reason_code": null,
+        "selected_task": "image-classification",
+        "runtime_profile": "cv-cu128"
+      }
+    },
+    {
+      "case_id": "whisper-asr",
+      "source": "huggingface",
+      "model_id": "fixture/whisper-asr",
+      "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "weight": 1,
+      "fixture_kind": "synthetic",
+      "description": "whisper asr",
+      "hub": {
+        "pipeline_tag": "automatic-speech-recognition",
+        "library_name": "transformers",
+        "config": {}
+      },
+      "repository_files": [
+        "config.json",
+        "model.safetensors"
+      ],
+      "metadata": {
+        "config.json": {
+          "path": "model_corpus/whisper-asr/config.json",
+          "sha256": "c49f264b6722612acbcfe63aae730bb2587cb714a95ac38cb38d52c9aa3e5aa4",
+          "origin": "synthetic"
+        }
+      },
+      "expected": {
+        "inspection_status": "candidate",
+        "compatibility_status": "supported",
+        "reason_code": null,
+        "selected_task": "automatic-speech-recognition",
+        "runtime_profile": "audio-cu128"
+      }
+    },
+    {
+      "case_id": "multimodal-qwen",
+      "source": "huggingface",
+      "model_id": "fixture/multimodal-qwen",
+      "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "weight": 1,
+      "fixture_kind": "synthetic",
+      "description": "multimodal qwen",
+      "hub": {
+        "pipeline_tag": "image-text-to-text",
+        "library_name": "transformers",
+        "config": {}
+      },
+      "repository_files": [
+        "config.json",
+        "model.safetensors"
+      ],
+      "metadata": {
+        "config.json": {
+          "path": "model_corpus/multimodal-qwen/config.json",
+          "sha256": "5322b3f02986e823173e26752773e1bfafff70b5edd238c40c2bfb65a2084a9c",
+          "origin": "synthetic"
+        }
+      },
+      "expected": {
+        "inspection_status": "candidate",
+        "compatibility_status": "supported",
+        "reason_code": null,
+        "selected_task": "image-text-to-text",
+        "runtime_profile": "multimodal-transformers4576"
+      }
+    },
+    {
+      "case_id": "diffusion-ddpm",
+      "source": "huggingface",
+      "model_id": "fixture/diffusion-ddpm",
+      "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "weight": 1,
+      "fixture_kind": "synthetic",
+      "description": "diffusion ddpm",
+      "hub": {
+        "pipeline_tag": "unconditional-image-generation",
+        "library_name": "diffusers",
+        "config": {}
+      },
+      "repository_files": [
+        "config.json",
+        "diffusion_pytorch_model.safetensors",
+        "model_index.json",
+        "scheduler_config.json"
+      ],
+      "metadata": {
+        "model_index.json": {
+          "path": "model_corpus/diffusion-ddpm/model_index.json",
+          "sha256": "178beb3778a4fdb7571b2bb0b3d13b4b70e2a76567c78c50187189c9dc8ab317",
+          "origin": "synthetic"
+        },
+        "config.json": {
+          "path": "model_corpus/diffusion-ddpm/config.json",
+          "sha256": "0383cc5d01ef6768351eae9c6d2fd016d3fb6e1505244bcc415a11b1ac2b8f57",
+          "origin": "synthetic"
+        },
+        "scheduler_config.json": {
+          "path": "model_corpus/diffusion-ddpm/scheduler_config.json",
+          "sha256": "8ff388cf806a89547af2baba98a29722ed57b92272826b7e69b441b5200eb8a6",
+          "origin": "synthetic"
+        }
+      },
+      "expected": {
+        "inspection_status": "candidate",
+        "compatibility_status": "supported",
+        "reason_code": null,
+        "selected_task": "unconditional-image-generation",
+        "runtime_profile": "diffusion-cu128"
+      }
+    },
+    {
+      "case_id": "structured-onnx",
+      "source": "huggingface",
+      "model_id": "fixture/structured-onnx",
+      "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "weight": 1,
+      "fixture_kind": "synthetic",
+      "description": "structured onnx",
+      "hub": {
+        "pipeline_tag": null,
+        "library_name": "onnx",
+        "config": {}
+      },
+      "repository_files": [
+        "acprof_model.json",
+        "iris.onnx"
+      ],
+      "metadata": {
+        "acprof_model.json": {
+          "path": "model_corpus/structured-onnx/acprof_model.json",
+          "sha256": "9328390e0dc5770b18f333c54495fed0d71498cd1a7847480b590e08270c05ea",
+          "origin": "synthetic"
+        }
+      },
+      "expected": {
+        "inspection_status": "candidate",
+        "compatibility_status": "supported",
+        "reason_code": null,
+        "selected_task": "tabular-classification",
+        "runtime_profile": "onnxruntime-cpu"
+      }
+    },
+    {
+      "case_id": "gguf-incompatible",
+      "source": "huggingface",
+      "model_id": "fixture/gguf-incompatible",
+      "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "weight": 1,
+      "fixture_kind": "synthetic",
+      "description": "gguf incompatible",
+      "hub": {
+        "pipeline_tag": "fill-mask",
+        "library_name": "transformers",
+        "config": {}
+      },
+      "repository_files": [
+        "config.json",
+        "model.gguf"
+      ],
+      "metadata": {
+        "config.json": {
+          "path": "model_corpus/gguf-incompatible/config.json",
+          "sha256": "e5a383cef8a889aef4fd9e2b8ea589ca9b89f012424ecb2d07555090467d231e",
+          "origin": "synthetic"
+        }
+      },
+      "expected": {
+        "inspection_status": "blocked",
+        "compatibility_status": "unknown",
+        "reason_code": "artifact_layout_unsupported"
+      }
+    },
+    {
+      "case_id": "unknown-artifacts",
+      "source": "huggingface",
+      "model_id": "fixture/unknown-artifacts",
+      "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "weight": 1,
+      "fixture_kind": "synthetic",
+      "description": "unknown artifacts",
+      "hub": {
+        "pipeline_tag": "fill-mask",
+        "library_name": "transformers",
+        "config": {
+          "model_type": "bert",
+          "architectures": [
+            "BertForMaskedLM"
+          ]
+        }
+      },
+      "repository_files": [],
+      "metadata": {},
+      "expected": {
+        "inspection_status": "candidate",
+        "compatibility_status": "unknown",
+        "reason_code": null,
+        "selected_task": "fill-mask"
+      }
+    },
+    {
+      "case_id": "unknown-architecture",
+      "source": "huggingface",
+      "model_id": "fixture/unknown-architecture",
+      "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "weight": 1,
+      "fixture_kind": "synthetic",
+      "description": "unknown architecture",
+      "hub": {
+        "pipeline_tag": "fill-mask",
+        "library_name": "transformers",
+        "config": {}
+      },
+      "repository_files": [
+        "config.json",
+        "model.safetensors"
+      ],
+      "metadata": {
+        "config.json": {
+          "path": "model_corpus/unknown-architecture/config.json",
+          "sha256": "12acc073e1e944cc299d5f0c5f9817eb53ef74624e54e830d8f9899b293f17ad",
+          "origin": "synthetic"
+        }
+      },
+      "expected": {
+        "inspection_status": "blocked",
+        "compatibility_status": "unknown",
+        "reason_code": "runtime_unavailable"
+      }
+    },
+    {
+      "case_id": "conflicting-hub",
+      "source": "huggingface",
+      "model_id": "fixture/conflicting-hub",
+      "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "weight": 1,
+      "fixture_kind": "synthetic",
+      "description": "conflicting hub",
+      "hub": {
+        "pipeline_tag": "fill-mask",
+        "library_name": "transformers",
+        "config": {},
+        "transformers_info": {
+          "pipeline_tag": "text-generation"
+        }
+      },
+      "repository_files": [
+        "config.json",
+        "model.safetensors"
+      ],
+      "metadata": {
+        "config.json": {
+          "path": "model_corpus/conflicting-hub/config.json",
+          "sha256": "e5a383cef8a889aef4fd9e2b8ea589ca9b89f012424ecb2d07555090467d231e",
+          "origin": "synthetic"
+        }
+      },
+      "expected": {
+        "inspection_status": "ambiguous",
+        "compatibility_status": "unknown",
+        "reason_code": "evidence_conflict"
+      }
+    },
+    {
+      "case_id": "bare-onnx",
+      "source": "huggingface",
+      "model_id": "fixture/bare-onnx",
+      "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "weight": 1,
+      "fixture_kind": "synthetic",
+      "description": "bare onnx",
+      "hub": {
+        "pipeline_tag": null,
+        "library_name": null,
+        "config": {}
+      },
+      "repository_files": [
+        "iris.onnx"
+      ],
+      "metadata": {},
+      "expected": {
+        "inspection_status": "needs_configuration",
+        "compatibility_status": "unknown",
+        "reason_code": "model_contract_required"
+      }
+    },
+    {
+      "case_id": "missing-shard",
+      "source": "huggingface",
+      "model_id": "fixture/missing-shard",
+      "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "weight": 1,
+      "fixture_kind": "synthetic",
+      "description": "missing shard",
+      "hub": {
+        "pipeline_tag": "fill-mask",
+        "library_name": "transformers",
+        "config": {}
+      },
+      "repository_files": [
+        "config.json",
+        "model-00001-of-00002.safetensors",
+        "model.safetensors.index.json"
+      ],
+      "metadata": {
+        "config.json": {
+          "path": "model_corpus/missing-shard/config.json",
+          "sha256": "e5a383cef8a889aef4fd9e2b8ea589ca9b89f012424ecb2d07555090467d231e",
+          "origin": "synthetic"
+        },
+        "model.safetensors.index.json": {
+          "path": "model_corpus/missing-shard/model.safetensors.index.json",
+          "sha256": "1281186bf983775dcb6110f0f1be7be5e779348f2e36b7e90d9b225e9bc1b27c",
+          "origin": "synthetic"
+        }
+      },
+      "expected": {
+        "inspection_status": "blocked",
+        "compatibility_status": "unknown",
+        "reason_code": "artifact_incomplete"
+      }
+    },
+    {
+      "case_id": "invalid-metadata",
+      "source": "huggingface",
+      "model_id": "fixture/invalid-metadata",
+      "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "weight": 1,
+      "fixture_kind": "synthetic",
+      "description": "invalid metadata",
+      "hub": {
+        "pipeline_tag": "fill-mask",
+        "library_name": "transformers",
+        "config": {}
+      },
+      "repository_files": [
+        "config.json",
+        "model.safetensors"
+      ],
+      "metadata": {
+        "config.json": {
+          "path": "model_corpus/invalid-metadata/config.json.txt",
+          "sha256": "a38feec908a081e10ab3aa9ce02969f4405646cd3f8c39fdbfdc58fdc39dd468",
+          "origin": "synthetic"
+        }
+      },
+      "expected": {
+        "inspection_status": "blocked",
+        "compatibility_status": "unknown",
+        "reason_code": "metadata_invalid"
+      }
+    },
+    {
+      "case_id": "missing-dependency",
+      "source": "huggingface",
+      "model_id": "fixture/missing-dependency",
+      "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "weight": 1,
+      "fixture_kind": "synthetic",
+      "description": "missing dependency",
+      "hub": {
+        "pipeline_tag": "fill-mask",
+        "library_name": "transformers",
+        "config": {}
+      },
+      "repository_files": [
+        "config.json",
+        "model.safetensors",
+        "tokenizer_config.json"
+      ],
+      "metadata": {
+        "config.json": {
+          "path": "model_corpus/missing-dependency/config.json",
+          "sha256": "e5a383cef8a889aef4fd9e2b8ea589ca9b89f012424ecb2d07555090467d231e",
+          "origin": "synthetic"
+        },
+        "tokenizer_config.json": {
+          "path": "model_corpus/missing-dependency/tokenizer_config.json",
+          "sha256": "8dc6dc1f368106a03f844bed3d1db2c436b94771495d98423dd235d78cacaccc",
+          "origin": "synthetic"
+        }
+      },
+      "expected": {
+        "inspection_status": "blocked",
+        "compatibility_status": "unknown",
+        "reason_code": "runtime_dependency_missing"
+      }
+    },
+    {
+      "case_id": "t5-author-config",
+      "source": "huggingface",
+      "model_id": "google-t5/t5-small",
+      "revision": "df1b051c49625cf57a3d0d8d3863ed4d13564fe4",
+      "weight": 1,
+      "fixture_kind": "synthetic",
+      "description": "Captured T5 author files in a synthetic Hub/file-list context; not a complete captured repository. Author summarization and translation form two groups and require selection.",
+      "hub": {
+        "pipeline_tag": "text2text-generation",
+        "library_name": "transformers",
+        "config": {}
+      },
+      "repository_files": [
+        "config.json",
+        "generation_config.json",
+        "model.safetensors"
+      ],
+      "metadata": {
+        "config.json": {
+          "path": "t5_small_metadata/config.json",
+          "sha256": "530e25060e3a8d5f7b0fcf53bfea9f3601165161f3b1914676e98d97cf07bcf1",
+          "origin": "captured",
+          "url": "https://huggingface.co/google-t5/t5-small/resolve/df1b051c49625cf57a3d0d8d3863ed4d13564fe4/config.json"
+        },
+        "generation_config.json": {
+          "path": "t5_small_metadata/generation_config.json",
+          "sha256": "f5a1c7e2be8092018d8835128987edf0111637dd98e90599cc80310fef75d95a",
+          "origin": "captured",
+          "url": "https://huggingface.co/google-t5/t5-small/resolve/df1b051c49625cf57a3d0d8d3863ed4d13564fe4/generation_config.json"
+        }
+      },
+      "expected": {
+        "inspection_status": "selection_required",
+        "compatibility_status": "unknown",
+        "reason_code": "task_selection_required",
+        "selected_task": "text2text-generation"
+      }
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "_class_name": "DDPMPipeline",
+  "unet": [
+    "diffusers",
+    "UNet2DModel"
+  ],
+  "scheduler": [
+    "diffusers",
+    "DDPMScheduler"
+  ]
+}

@@ -1,0 +1,6 @@
+{
+  "model_type": "whisper",
+  "architectures": [
+    "WhisperForConditionalGeneration"
+  ]
+}

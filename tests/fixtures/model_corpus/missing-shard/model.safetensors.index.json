@@ -1,0 +1,6 @@
+{
+  "weight_map": {
+    "first": "model-00001-of-00002.safetensors",
+    "second": "model-00002-of-00002.safetensors"
+  }
+}
