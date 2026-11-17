@@ -60,7 +60,7 @@ async def test_global_blockers_navigate_with_mouse_and_keyboard(tmp_path, size, 
         assert app.focused.region.bottom <= app.screen.size.height
 
 
-async def test_header_pending_then_success_and_unrequested_are_separate(tmp_path):
+async def test_header_separates_pending_requirements_and_optional_warnings(tmp_path):
     from acprof.tui.run.diagnostics import PreflightCheck
     app = AcprofTui(replace(RunConfig.smoke('fixture/model'), runtime='process', cpus='auto', mems='auto'),
                     settings_path=tmp_path / 'settings.json')
@@ -70,7 +70,8 @@ async def test_header_pending_then_success_and_unrequested_are_separate(tmp_path
                                        resource_diagnostic=replace(denied_check().resource_diagnostic, code='inherited')),)
         app.preflight.refresh_preflight_state()
         assert app.query_one('#environment-error', EnvironmentIndicator).content == '× 0'
-        assert app.query_one('#environment-not_requested', EnvironmentIndicator).content == '- 1'
+        assert app.query_one('#environment-warning', EnvironmentIndicator).content == '! 2'
+        assert not app.query_one('#environment-not_requested').display
         assert not app.query_one('#start-run', Button).disabled
         assert 'auto' in app.preflight.status.items[0].check.detail or any(
             'auto' in item.check.detail for item in app.preflight.status.items)

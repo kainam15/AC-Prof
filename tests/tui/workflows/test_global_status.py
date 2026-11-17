@@ -76,15 +76,71 @@ def test_unrequested_capability_cannot_block_process_basic(identifier):
     value = controller(inventory=[check(identifier, 'fail')])
     assert not errors(value)
     row = next(row for row in display_checks(value) if row.check_id == identifier)
-    assert row.status == 'not_requested'
+    assert row.status == 'warn'
+    assert row.detail == 'fixture'
     assert not value.preflight_run_reason()
 
 
 def test_combined_profilers_do_not_request_posthoc_advisor():
     config = replace(RunConfig.smoke('fixture/model'), runtime='docker', execution_profile_tool='both')
     value = controller(current=config, inventory=[check('intel_advisor', 'fail')])
-    assert next(row for row in display_checks(value) if row.check_id == 'intel_advisor').status == 'not_requested'
-    assert value.status.counts['warning'] == 0
+    assert next(row for row in display_checks(value) if row.check_id == 'intel_advisor').status == 'warn'
+    assert value.status.counts['warning'] == 1
+    assert value.status.can_start
+
+
+@pytest.mark.parametrize('identifier', [
+    'uv', 'process_runtime', 'process_cpu', 'process_memory',
+    'ncu', 'nsys', 'intel_advisor', 'torch', 'massif',
+])
+@pytest.mark.parametrize('status', ['ok', 'pending'])
+def test_unselected_inventory_retains_availability_and_unverified_results(identifier, status):
+    config = replace(RunConfig.smoke('fixture/model'), runtime='docker')
+    evidence = replace(check(identifier, status, 'host evidence'), source='inventory fixture')
+    value = controller(current=config, inventory=[evidence])
+    item = next(item for item in value.status.items if item.check.check_id == identifier)
+    assert item.check == evidence
+    assert not item.required
+    assert value.status.counts['not_requested'] == 0
+    assert value.status.counts['pending'] == (1 if status == 'pending' else 0)
+    assert value.status.can_start
+
+
+@pytest.mark.parametrize('status', ['ok', 'fail', 'pending'])
+def test_unrequested_preflight_placeholder_does_not_replace_machine_evidence(status):
+    evidence = replace(check('cpu_energy', status, 'host RAPL evidence'), source='rapl_probe')
+    value = controller(checks=[check('environment', 'ok'),
+                               check('cpu_energy', 'not_requested', 'Process basic')],
+                       inventory=[evidence])
+    item = next(item for item in value.status.items if item.check.check_id == 'cpu_energy')
+    assert item.check == replace(evidence, status='warn' if status == 'fail' else status)
+    assert not item.required
+    assert value.status.can_start
+    assert sum(row.check_id == 'cpu_energy' for row in display_checks(value)) == 1
+
+
+def test_deselected_requirement_uses_inventory_during_config_recheck():
+    previous = replace(RunConfig.smoke('fixture/model'), runtime='docker', compute_profile_tool='ncu')
+    value = controller(current=replace(previous, compute_profile_tool='none'), checked=previous,
+                       checks=[check('ncu', 'fail', 'previous request failed')],
+                       inventory=[check('ncu', 'ok', 'host version verified')])
+    value.check_running = True
+    value.check_inventory = False
+    item = next(item for item in value.status.items if item.check.check_id == 'ncu')
+    assert item.check.status == 'ok'
+    assert item.check.detail == 'host version verified'
+    assert not item.required
+    assert not value.status.can_start  # The changed experiment still needs preflight.
+
+
+def test_inventory_refresh_keeps_unselected_checks_pending_until_complete():
+    value = controller(inventory=[check('ncu', 'ok')])
+    value.check_running = True
+    value.check_inventory = True
+    item = next(item for item in value.status.items if item.check.check_id == 'ncu')
+    assert item.check.status == 'checking'
+    assert item.group == 'pending'
+    assert not item.required
 
 
 def test_running_recheck_does_not_count_old_success_or_failure():

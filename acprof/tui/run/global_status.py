@@ -106,9 +106,9 @@ def build_status(
 ) -> GlobalStatus:
     """Replace by root ID, then classify for the current request, never by text.
 
-    Current preflight owns required capability results. Inventory-only failures
-    are advisory; unrequested tools are neutral. Old preflight results become
-    pending, and cannot overwrite current form errors or fresh inventory evidence.
+    Current preflight owns required capability results. Inventory always retains
+    availability evidence, with failures advisory. Unrequested preflight rows
+    cannot replace inventory; outdated required results remain pending.
     """
     rows: dict[str, StatusItem] = {}
     runtime = config.runtime
@@ -130,9 +130,7 @@ def build_status(
             # scan_environment emits this typed dependency when the tool is
             # absent, not when an installed executable lacks capabilities.
             row = replace(row, check_id='tcpdump')
-        if not _requested(row.check_id, config, runtime):
-            status = 'not_requested'
-        elif inventory_running:
+        if inventory_running:
             status = 'checking'
         elif row.status in {'fail', 'error'} or row.capability_status == 'error':
             status = 'warn'
@@ -145,7 +143,14 @@ def build_status(
         # the worker validated an older configuration.
         if row.check_id.startswith('config_'):
             continue
-        if (runtime or not current) and not _requested(row.check_id, config, runtime):
+        requested = row.status != 'not_requested' and not (
+            (runtime or not current) and not _requested(row.check_id, config, runtime)
+        )
+        if not requested:
+            # Skipping a collector is not evidence about machine availability.
+            # Keep its independent scan, including pending/failed self-checks.
+            if row.check_id in rows:
+                continue
             status = 'not_requested'
         elif running:
             status = 'checking'
@@ -153,13 +158,11 @@ def build_status(
             status = 'pending'
         elif not current:
             status = 'stale'
-        elif row.status == 'not_requested':
-            status = 'not_requested'
         elif row.capability_status == 'error' and row.status != 'warn':
             status = 'fail'
         else:
             status = row.status
-        put(replace(row, status=status), required=status != 'not_requested')
+        put(replace(row, status=status), required=requested)
 
     if validation_pending:
         put(PreflightCheck(message_id('run.status.configuration'), 'pending',

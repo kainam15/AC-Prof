@@ -38,10 +38,10 @@ def test_machine_results_survive_unselected_gpu_and_changed_experiment():
         PreflightCheck("NCU", "fail", "not installed", check_id="ncu"),
     )
     initial = replace(RunConfig.smoke("fixture/model"), runtime="docker")
-    for config, expected in (
-        (initial, {"gpu_power": "not_requested", "ncu": "not_requested"}),
-        (replace(initial, gpus="on", profiling_mode="full", compute_profile_tool="ncu"),
-         {"gpu_power": "ok", "ncu": "warn"}),
+    expected = {"gpu_power": "ok", "ncu": "warn"}
+    for config in (
+        initial,
+        replace(initial, gpus="on", profiling_mode="full", compute_profile_tool="ncu"),
     ):
         snapshot = build_status(
             config, issues=(), validation_pending=False, checks=(), inventory=machine,
@@ -175,8 +175,8 @@ def test_runtime_cleanup_error_is_not_downgraded_to_an_optional_tool_failure(hos
         scan_environment(command_runner=host.runner)
 
 
-@pytest.mark.parametrize("language", ["zh", "en"])
-async def test_runtime_self_check_details_are_accessible_without_selecting_profilers(host, tmp_path, monkeypatch, language):
+@pytest.mark.parametrize(('size', 'language'), [((80, 24), 'zh'), ((120, 30), 'en')])
+async def test_runtime_self_check_details_are_accessible_without_selecting_profilers(host, tmp_path, monkeypatch, size, language):
     from acprof.tui.app import AcprofTui
 
     rows = scan_environment(command_runner=host.runner)
@@ -185,17 +185,29 @@ async def test_runtime_self_check_details_are_accessible_without_selecting_profi
     monkeypatch.setattr("acprof.tui.run.preflight_controller.quick_preflight", lambda *args, **kwargs: [])
     app = AcprofTui(RunConfig.smoke(""), settings_path=tmp_path / "settings.json")
     app.configuration.preferences = replace(app.configuration.preferences, language=language)
-    async with app.run_test(size=(80, 24)) as pilot:
+    async with app.run_test(size=size) as pilot:
         await pilot.pause()
         await asyncio.wait_for(app.workers.wait_for_complete(), 10)
-        await pilot.click("#environment-not_requested")
+        assert not app.query_one("#environment-not_requested").display
+        assert await pilot.click("#environment-success")
         await pilot.pause()
+        for identifier in ('uv', 'process_runtime', 'process_cpu', 'process_memory',
+                           'ncu', 'nsys', 'intel_advisor', 'torch', 'massif'):
+            signal = app.query_one("#preflight-signal-" + identifier, EnvironmentSignal)
+            signal.focus()
+            await pilot.press('enter')
+            await pilot.pause()
+            assert signal.row.status == 'ok'
+            assert signal.render().plain.startswith('✓ ')
+            assert signal.region.width > 0
+            assert signal.region.height > 0
+            assert 0 <= signal.region.y < signal.region.bottom <= size[1]
         for tool, reading in (("torch", "128"), ("massif", "131072")):
             signal = app.query_one("#preflight-signal-" + tool, EnvironmentSignal)
             signal.focus()
             await pilot.pause()
-            assert signal.row.status == "not_requested"
-            assert signal.render().plain.startswith("- ")
+            assert signal.row.status == "ok"
+            assert signal.render().plain.startswith("✓ ")
             facts = app.query_one("#preflight-facts", FactGrid)
             assert facts.display
             assert app.tr(facts.section.title) == ("Torch Profiler" if tool == "torch" else "Valgrind Massif")
@@ -235,7 +247,7 @@ async def test_all_machine_checks_run_once_and_ignore_experiment_edits(tmp_path,
         context = app.query_one("#preflight-context", FactGrid).section
         assert not {"auto", "docker", "process"} & {app.tr(row.value).lower() for row in (*context.rows, *context.detail_rows)}
         assert "GPU" not in initial
-        expected = {row.check_id: replace(row, status="not_requested") for row in machine}
+        expected = {"ncu": replace(machine[0], status="warn"), "gpu_power": machine[1]}
         assert {row.check_id: row for row in display_checks(app.preflight) if row.check_id in expected} == expected
         assert app.preflight.environment_checks == tuple(machine)
         for field, value in (("gpus", "on"), ("profiling-mode", "full"), ("runtime", "process")):

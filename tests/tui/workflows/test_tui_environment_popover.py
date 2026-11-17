@@ -147,15 +147,15 @@ async def test_environment_counts_filter_cached_checks_on_hover(app, language, m
     monkeypatch.setattr("acprof.tui.run.preflight_controller.scan_environment", scan)
     async with app.run_test(size=(80, 24)) as pilot:
         await settle(app, pilot)
-        assert counts(app) == ["× 0", "! 3", "✓ 2", "… 1", "- 1"]
+        assert counts(app) == ["× 0", "! 3", "✓ 3", "… 2"]
         panel = app.preflight.panel
         assert not panel.display
         tabs = app.query_one("#main-tabs").region
         for group, identifiers, label in (
             ("error", set(), "错误" if language == "zh" else "Error"),
             ("warning", {"cpu_energy", "cpu_instructions", "gpu_power"}, "警告" if language == "zh" else "Warning"),
-            ("success", {"docker", "configuration"}, "通过" if language == "zh" else "Passed"),
-            ("pending", {"torch"}, "待验证" if language == "zh" else "Unverified"),
+            ("success", {"docker", "uv", "configuration"}, "通过" if language == "zh" else "Passed"),
+            ("pending", {"torch", "preflight"}, "待验证" if language == "zh" else "Unverified"),
         ):
             entry = app.query_one("#environment-" + group)
             assert await pilot.hover(entry)
@@ -181,7 +181,7 @@ async def test_environment_counts_filter_cached_checks_on_hover(app, language, m
         assert app.focused is entry
         await pilot.press("enter")
         await pilot.pause()
-        assert {signal.row.check_id for signal in panel.query(".environment-signal")} == {"torch"}
+        assert {signal.row.check_id for signal in panel.query(".environment-signal")} == {"torch", "preflight"}
         probe.assert_called_once()
         scan.assert_called_once()
 
@@ -198,7 +198,8 @@ async def test_environment_counts_keep_pending_errors_and_refresh_visible(app):
         app.preflight.check_completed = True
         app.preflight.environment_error = "fixture scanner failed"
         app.preflight.refresh_preflight_state()
-        assert counts(app) == ["× 0", "! 1", "✓ 1"]
+        assert counts(app) == ["× 0", "! 1", "✓ 1", "… 1"]
+        assert app.query_one('#start-run', Button).disabled
         await pilot.hover("#environment-warning")
         await pilot.pause()
         assert app.query("#preflight-signal-inventory_error")
@@ -206,7 +207,8 @@ async def test_environment_counts_keep_pending_errors_and_refresh_visible(app):
         app.preflight.environment_checks = (PreflightCheck("Docker", "ok", "daemon ready", check_id="docker"),)
         app.preflight.refresh_preflight_state()
         await pilot.pause()
-        assert counts(app) == ["× 0", "! 0", "✓ 2"]
+        assert counts(app) == ["× 0", "! 0", "✓ 2", "… 1"]
+        assert app.query_one('#start-run', Button).disabled
         assert not app.query(".environment-signal"), "the hovered warning group must discard resolved issues"
         assert "没有对应检查项" in detail_text(app)
         app.preflight.check_running = True
@@ -299,9 +301,8 @@ async def test_keyboard_overlay_and_left_aligned_title_survive_resize(app, langu
         assert entry.can_focus, "Tab must reach each environment entry"
         app.query_one("#quit-app").focus()
         await pilot.press("shift+tab")
-        assert app.focused is app.query_one("#environment-not_requested")
-        await pilot.press("shift+tab")
         assert app.focused is app.query_one("#environment-success")
+        assert not app.query_one("#environment-not_requested").display
         app.query_one("#environment-error").focus()
         for group in ("warning", "success"):
             await pilot.press("tab")
@@ -378,7 +379,7 @@ async def test_hover_reentry_and_modal_hide_transient_panel(app):
         assert not panel.display
         app.query_one("#quit-app").focus()
         await pilot.pause()
-        await pilot.press("shift+tab", "shift+tab", "shift+tab", "shift+tab")
+        await pilot.press("shift+tab", "shift+tab", "shift+tab")
         assert app.focused is app.query_one("#environment-error")
         await pilot.press("enter")
         assert panel.display
@@ -420,13 +421,7 @@ async def test_projection_always_displays_all_machine_capabilities(app, runtime,
         await settle(app, pilot)
         rows = {row.check_id: row for row in display_checks(app.preflight)}
         for name in ("cpu_energy", "gpu_power", "gpu_memory", "process_cpu", "container_cpu", "ncu", "nsys", "torch", "massif"):
-            expected = (
-                name in {'cpu_energy', 'gpu_power'} and runtime == 'docker' and mode == 'full' and (name != 'gpu_power' or gpu == 'on')
-                or name == 'gpu_memory' and gpu == 'on'
-                or name == 'process_cpu' and runtime == 'process'
-                or name == 'container_cpu' and runtime == 'docker'
-            )
-            assert rows[name].status == ('ok' if expected else 'not_requested')
+            assert rows[name].status == 'ok'
         assert "docker" in rows
         assert "latency" not in rows
         assert "throughput" not in rows
