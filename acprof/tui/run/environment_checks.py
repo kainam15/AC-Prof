@@ -112,7 +112,7 @@ def _gpu_checks() -> list[PreflightCheck]:
                 except Exception as exc:
                     failures[name].append(f"GPU {index}: {type(exc).__name__}: {exc}")
     except Exception as exc:
-        return [_failure(name, exc, "NVML") for name in GPU_METRICS]
+        return [replace(_failure(name, exc, "NVML"), root_cause="nvml_initialization") for name in GPU_METRICS]
     finally:
         if nvml is not None:
             try:
@@ -130,7 +130,7 @@ def _gpu_checks() -> list[PreflightCheck]:
 def _tool_check(identifier: str, path: str | None, command_runner) -> PreflightCheck:
     if not path:
         return PreflightCheck(identifier, "fail", message_id("common.state.not_installed"),
-                              "unavailable", check_id=identifier, source="host executable")
+                              "unavailable", check_id=identifier, source="host executable", reason_code="not_installed")
     try:
         result = command_runner((path, "--version"), timeout=5.0)
         output = (result.stdout or result.stderr).strip()
@@ -155,7 +155,10 @@ def _runtime_profiler_checks(command_runner, docker_available: bool) -> list[Pre
     except RuntimeCleanupError:
         raise
     except Exception as exc:
-        return [_failure(name, exc, "runtime self-check") for name in ("torch", "massif")]
+        return [replace(_failure(name, exc, "runtime self-check"),
+                        root_cause='profiler_docker_unavailable' if not docker_available else '',
+                        reason_code='dependency_unavailable' if not docker_available else '')
+                for name in ("torch", "massif")]
 
 
 def scan_environment(*, project_dir: str | Path | None = None, command_runner=completed_command) -> list[PreflightCheck]:
@@ -179,7 +182,7 @@ def scan_environment(*, project_dir: str | Path | None = None, command_runner=co
     ))
     if not any(row.check_id == "capture_permissions" for row in rows):
         rows.append(PreflightCheck("capture_permissions", "fail", message_id("common.state.not_installed"),
-                                   "unavailable", check_id="capture_permissions", source="tcpdump"))
+                                   "unavailable", check_id="capture_permissions", source="tcpdump", reason_code="dependency_unavailable"))
     rows.extend(_gpu_checks())
     for name, discover in (
         ("ncu", lambda: find_executable(None, ("ncu", "nv-nsight-cu-cli"))),

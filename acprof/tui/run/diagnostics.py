@@ -52,6 +52,8 @@ class PreflightCheck:
     source: str = "quick_preflight"
     resource_diagnostic: ResourceDiagnostic | None = None
     docker_diagnostic: DockerDiagnostic | None = None
+    root_cause: str = ''
+    reason_code: str = ''
 
 
 def collection_preview(config: RunConfig):
@@ -145,7 +147,8 @@ def quick_preflight(
     for tool in (("tcpdump", "tshark") if measurement_requested(config.profiling_mode, "packet_latency") else ()):
         path = shutil.which(tool)
         checks.append(
-            PreflightCheck(tool, "ok" if path else "fail", path or message_id('common.state.not_installed'), check_id=tool)
+            PreflightCheck(tool, "ok" if path else "fail", path or message_id('common.state.not_installed'), check_id=tool,
+                           reason_code='' if path else 'not_installed')
         )
         if tool == 'tcpdump' and path:
             allowed = os.geteuid() == 0
@@ -274,7 +277,7 @@ def _process_checks(config):
                   "ok" if item["status"] == "available" else "warn")
         checks.append(PreflightCheck(name, status, f"{item['status']}: {item['detail']}", item['status'], check_id=name, source=item.get("source", "probe_collection_plan")))
     uv = shutil.which("uv")
-    checks.append(PreflightCheck("uv", "ok" if uv else "fail", uv or "Process environment preparation requires uv", check_id="uv"))
+    checks.append(PreflightCheck("uv", "ok" if uv else "fail", uv or "Process environment preparation requires uv", check_id="uv", reason_code="" if uv else "not_installed"))
     return checks
 
 

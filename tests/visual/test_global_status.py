@@ -8,6 +8,7 @@ from textual.widgets import Input
 from acprof.experiments.configuration import RunConfig
 from acprof.tui.app import AcprofTui
 from acprof.tui.run.diagnostics import PreflightCheck
+from tests.support.tui_fixtures import expand_check_source
 from tests.support.tui_waits import wait_for_condition
 from tests.tui.workflows.test_tui_process_permissions import denied_check
 
@@ -75,6 +76,7 @@ def test_global_status(snap_compare, svg_operations, tmp_path, monkeypatch, lang
         app.preflight.panel.show(pin=True, group='error' if scene == 'blocked' else 'pending' if scene == 'checking' else 'success')
         await pilot.pause()
         if scene == 'inherited':
+            await expand_check_source(app, pilot, 'process_resources')
             app.query_one('#preflight-signal-process_resources').focus()
         app.clear_notifications()
     assert snap_compare(app, terminal_size=size, run_before=prepare)

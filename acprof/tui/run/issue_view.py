@@ -77,7 +77,7 @@ class IssueDiagnosticScreen(ModalScreen[None]):
             detail = redact_text(self.controller.app.tr(row.detail), limit=None)
             cause = redact_text(detail.splitlines()[0], limit=180) if detail else ''
             view = global_check_view(item, technical_detail=detail, cause=cause,
-                                     check_allowed=allowed, navigate_allowed=False)
+                                     check_allowed=allowed, navigate_allowed=False, environment=self.controller.app.environment)
             if view.callout is not None:
                 callout.display = True
                 if row.resource_diagnostic is not None:

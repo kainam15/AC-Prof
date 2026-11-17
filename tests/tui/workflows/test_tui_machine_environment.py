@@ -21,6 +21,7 @@ from acprof.tui.run.environment_checks import scan_environment
 from acprof.tui.run.global_status import build_status
 from acprof.tui.ui.environment import EnvironmentSignal, display_checks
 from acprof.tui.ui.structured import FactGrid
+from tests.support.tui_fixtures import expand_check_source
 from tests.support.tui_waits import wait_for_condition
 
 
@@ -166,6 +167,10 @@ def test_no_gpu_reports_unavailable_for_every_gpu_metric(host, tmp_path):
         assert rows[name].status == "fail"
         assert "no NVIDIA GPU" in rows[name].detail
     host.nvml.nvmlShutdown.assert_called_once()
+    from acprof.tui.run.global_status import GlobalStatus, StatusItem
+    gpu = tuple(StatusItem(row) for name, row in rows.items() if name.startswith('gpu_'))
+    assert GlobalStatus(gpu).counts['error'] == 1
+    assert len(gpu) == 4
 
 
 def test_runtime_cleanup_error_is_not_downgraded_to_an_optional_tool_failure(host, monkeypatch):
@@ -193,6 +198,7 @@ async def test_runtime_self_check_details_are_accessible_without_selecting_profi
         await pilot.pause()
         for identifier in ('uv', 'process_runtime', 'process_cpu', 'process_memory',
                            'ncu', 'nsys', 'intel_advisor', 'torch', 'massif'):
+            await expand_check_source(app, pilot, identifier)
             signal = app.query_one("#preflight-signal-" + identifier, EnvironmentSignal)
             signal.focus()
             await pilot.press('enter')

@@ -55,9 +55,11 @@ EnvironmentIndicator .environment--pending, EnvironmentIndicator .environment--n
 #preflight-title { height: 1; text-style: bold; }
 #preflight-summary { padding: 0; max-height: 2; }
 #preflight-scroll { height: auto; overflow-x: hidden; }
-#preflight-capabilities { height: auto; grid-size: 2; grid-columns: 1fr 1fr; grid-rows: auto; grid-gutter: 1 2; }
-.environment-section { height: auto; }
-.environment-section-title { height: 1; text-style: bold; color: $text-muted; }
+#preflight-capabilities { height: auto; }
+.environment-section { height: auto; border: none; padding: 0; margin: 0 0 1 0; }
+.environment-section > CollapsibleTitle { height: 1; text-style: bold; text-wrap: nowrap; text-overflow: ellipsis; }
+.environment-section > Contents { padding: 0 0 0 2; }
+#preflight-source-summary { height: auto; color: $text-muted; margin-bottom: 1; }
 .environment-signal { height: 1; text-wrap: nowrap; text-overflow: ellipsis; }
 .environment-signal:hover, .environment-signal:focus { text-style: bold underline; }
 #preflight-inspection { height: 1fr; min-height: 1; border-top: solid $accent; overflow-x: hidden; }

@@ -1,0 +1,79 @@
+"""Source disclosure, partial failures and request scope in the real overlay."""
+from dataclasses import replace
+from unittest.mock import Mock
+
+import pytest
+from textual.widgets import Collapsible, Static
+
+from acprof.experiments.configuration import RunConfig
+from acprof.tui.run.diagnostics import PreflightCheck
+from acprof.tui.run.progress import ProgressSnapshot
+from tests.support.tui_fixtures import AcprofTui
+
+
+@pytest.mark.parametrize(('language', 'size'), [('zh', (80, 24)), ('en', (120, 30))])
+async def test_source_disclosure_preserves_choices_and_partial_evidence(tmp_path, monkeypatch, language, size):
+    app = AcprofTui(replace(RunConfig.smoke('fixture/model'), runtime='process', repeat=3),
+                    settings_path=tmp_path / 'settings.json')
+    app.configuration.preferences = replace(app.configuration.preferences, language=language)
+    async with app.run_test(size=size) as pilot:
+        probe = Mock(side_effect=AssertionError('viewing a source must not probe'))
+        monkeypatch.setattr(app.preflight, 'execute_quick_check', probe)
+        app.preflight.environment_checks = (
+            PreflightCheck('CPU', 'ok', 'cpu read', check_id='process_cpu'),
+            PreflightCheck('Memory', 'ok', 'memory read', check_id='process_memory'),
+            PreflightCheck('GPU memory', 'ok', 'memory read', check_id='gpu_memory'),
+            PreflightCheck('GPU power', 'fail', 'unsupported power read', 'unsupported', check_id='gpu_power'),
+        )
+        app.preflight.refresh_preflight_state()
+        panel = app.preflight.panel
+        panel.show(pin=True, group='success')
+        await pilot.pause()
+        process = panel.query_one('#preflight-section-process', Collapsible)
+        nvml = panel.query_one('#preflight-section-nvml', Collapsible)
+        assert process.collapsed
+        assert not nvml.collapsed
+        assert 'NVIDIA NVML' in nvml.title
+        assert ('警告' if language == 'zh' else 'Warning') in nvml.title
+        assert panel.query_one('#preflight-signal-gpu_memory').row.status == 'ok'
+        assert panel.query_one('#preflight-signal-gpu_power').row.status == 'warn'
+        title = process.query_one('CollapsibleTitle')
+        title.scroll_visible(immediate=True, force=True)
+        await pilot.pause()
+        assert await pilot.click(title)
+        assert not process.collapsed
+        assert 'Process' not in panel.query_one('#preflight-signal-process_cpu').render().plain
+        title = nvml.query_one('CollapsibleTitle')
+        title.scroll_visible(immediate=True, force=True)
+        title.focus()
+        await pilot.press('enter')
+        assert nvml.collapsed
+        app.preflight.environment_checks = tuple(replace(row, detail='updated') for row in app.preflight.environment_checks)
+        app.preflight.refresh_preflight_state()
+        await pilot.pause()
+        assert not panel.query_one('#preflight-section-process', Collapsible).collapsed
+        assert panel.query_one('#preflight-section-nvml', Collapsible).collapsed
+        panel.show(pin=True, group='warning')
+        await pilot.pause()
+        assert panel.query_one('#preflight-section-nvml', Collapsible).collapsed
+        title = panel.query_one('#preflight-section-nvml CollapsibleTitle')
+        title.focus()
+        await pilot.press('enter')
+        assert 'gpu_power' not in str(panel.query_one('#preflight-source-summary', Static).content)
+        for width, height in ((150, 45), (52, 24)):
+            await pilot.resize_terminal(width, height)
+            await pilot.pause()
+            assert panel.region.right <= width
+            assert panel.region.bottom <= height
+            assert panel.query_one('#preflight-section-nvml').region.width > 0
+        panel.show(pin=True, group='success')
+        await pilot.pause()
+        panel.select(panel.query_one('#preflight-signal-gpu_memory').row)
+        panel.show(pin=True, group='warning')
+        await pilot.pause()
+        assert panel._selected_row.check_id == 'gpu_power'
+        app.execution.session.snapshot = ProgressSnapshot(measurement_active=True)
+        panel.update_cached()
+        await pilot.pause()
+        assert panel.retry_button.disabled
+        probe.assert_not_called()

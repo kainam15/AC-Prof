@@ -6,26 +6,31 @@ from typing import TYPE_CHECKING
 from rich.text import Text
 from textual import events, on
 from textual.app import ComposeResult
-from textual.containers import Grid, Horizontal, Vertical, VerticalScroll
+from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.geometry import Offset, Size
 from textual.timer import Timer
-from textual.widgets import Button, Static
+from textual.widgets import Button, Collapsible, Static
+from textual.widgets._collapsible import CollapsibleTitle
 
 from acprof.host.preparation.preparation_log import redact_text
 from acprof.messages import Message as CatalogText
 from acprof.tui.i18n import message_id
 from acprof.tui.run.diagnostics import PreflightCheck
 from acprof.tui.run.environment_view import (
-    CAPABILITY_SECTIONS,
     check_label,
     check_presentation,
     check_priority,
+    compact_check_label,
     global_check_view,
     global_presentation,
     item_status,
+    source_overview,
+    source_title,
 )
 from acprof.tui.run.global_status import GlobalStatus, StatusItem
+from acprof.tui.run.source_groups import SourceSummary, source_group, source_summaries
 from acprof.tui.ui.navigation import NavigationContext
+from acprof.tui.ui.presentation import COMPACT_COLLAPSED_SYMBOL, COMPACT_EXPANDED_SYMBOL
 from acprof.tui.ui.rendering import CjkScreen
 from acprof.tui.ui.structured import ActionButtons, ActionRequested, Callout, FactGrid, StatusBanner
 from acprof.tui.ui.view_models import (
@@ -139,7 +144,7 @@ class EnvironmentSignal(Static, can_focus=True):
         status = item_status(self.row)
         presentation = self.panel.presentation(self.row)
         suffix = "" if status in {"ok", "pending"} else " · " + self.panel.status(self.row)
-        label = Text(self.panel.label(self.row))
+        label = Text(self.panel.controller.app.tr(compact_check_label(self.row)))
         if self.size.width:
             label.truncate(max(1, self.size.width - Text(suffix).cell_len - 2), overflow="ellipsis")
         return Text.assemble(
@@ -166,6 +171,30 @@ class EnvironmentSignal(Static, can_focus=True):
         self.action_inspect_issue()
 
 
+class EnvironmentSource(Collapsible):
+    """Native disclosure with explicit user choices, separate from status evidence."""
+
+    def __init__(self, panel: EnvironmentPopover, source: SourceSummary, *signals: EnvironmentSignal) -> None:
+        self.panel = panel
+        self.source = source
+        super().__init__(*signals, title=panel.controller.app.tr(source_title(source)),
+                         collapsed=panel._source_choices.get(source.group_id, source.collapsed),
+                         collapsed_symbol=COMPACT_COLLAPSED_SYMBOL, expanded_symbol=COMPACT_EXPANDED_SYMBOL,
+                         id='preflight-section-' + source.group_id, classes='environment-section')
+
+    def _on_collapsible_title_toggle(self, event: CollapsibleTitle.Toggle) -> None:
+        event.prevent_default()
+        event.stop()
+        self.collapsed = not self.collapsed
+        self.panel._source_choices[self.source.group_id] = self.collapsed
+        self.panel.select_source(self.source.group_id)
+
+    def update_source(self, source: SourceSummary) -> None:
+        self.source = source
+        self.title = self.panel.controller.app.tr(source_title(source))
+        self.collapsed = self.panel._source_choices.get(source.group_id, source.collapsed)
+
+
 class EnvironmentPopover(Vertical):
     CLOSE_DELAY = 0.18
 
@@ -178,6 +207,9 @@ class EnvironmentPopover(Vertical):
         self._rows: tuple[PreflightCheck, ...] = ()
         self._items: dict[str, StatusItem] = {}
         self._rows_language = ""
+        self._rows_group = ""
+        self._source_choices: dict[str, bool] = {}
+        self._sources: tuple[SourceSummary, ...] = ()
         self._selected_row: PreflightCheck | None = None
         self._hovered_row: PreflightCheck | None = None
         self._inspected_row: PreflightCheck | None = None
@@ -206,13 +238,14 @@ class EnvironmentPopover(Vertical):
         yield Static("", id="preflight-title", markup=False)
         yield StatusBanner(StatusSummary("neutral", ""), id="preflight-summary")
         with VerticalScroll(id="preflight-scroll"):
-            yield Grid(id="preflight-capabilities")
+            yield Vertical(id="preflight-capabilities")
         with VerticalScroll(id="preflight-inspection"):
             yield Static("", id="preflight-empty", markup=False)
             yield Callout(CalloutContent("neutral", "", "", ""), id="preflight-callout")
             yield FactGrid(ViewSection("", ()), id="preflight-facts")
             yield ActionButtons(id="preflight-recheck")
             yield Static("", id="preflight-action-reason", markup=False)
+            yield Static("", id="preflight-source-summary", markup=False)
             yield FactGrid(ViewSection(message_id("run.environment.context.title"), (), collapsed=True),
                            id="preflight-context")
 
@@ -297,7 +330,6 @@ class EnvironmentPopover(Vertical):
         self.styles.max_height = available_height
         scroll_budget = max(1, min(10, popover_height // 3, max(1, popover_height - 8)))
         self.query_one("#preflight-scroll").styles.max_height = scroll_budget
-        self.query_one("#preflight-capabilities").styles.grid_size_columns = 2 if size.width >= 60 else 1
 
     def label(self, row: PreflightCheck) -> str:
         return self.controller.app.tr(check_label(row))
@@ -351,6 +383,14 @@ class EnvironmentPopover(Vertical):
         self._selected_row = row
         self.explain(self._hovered_row or row)
 
+    def select_source(self, group_id: str) -> None:
+        source = next((source for source in self._sources if source.group_id == group_id), None)
+        if source is None:
+            return
+        self._hovered_row = None
+        self._selected_row = min(source.items, key=lambda item: check_priority(item.check)).check
+        self.explain(self._selected_row)
+
     def preview(self, row: PreflightCheck) -> None:
         if not self.display or row not in self._rows:
             return
@@ -366,6 +406,12 @@ class EnvironmentPopover(Vertical):
     def explain(self, row: PreflightCheck) -> None:
         if not self.display or row not in self._rows:
             return
+        source = next((source for source in self._sources
+                       if source.group_id == source_group(row.check_id)), None)
+        overview = self.query_one('#preflight-source-summary', Static)
+        overview.display = source is not None
+        if source is not None:
+            overview.update(self.controller.app.tr(source_overview(source)))
         detail = self.controller.app.tr(row.detail) if isinstance(row.detail, CatalogText) else row.detail
         technical = redact_text("\n".join((
             f"check_id: {row.check_id}", f"status: {row.status}",
@@ -375,6 +421,7 @@ class EnvironmentPopover(Vertical):
         view = global_check_view(
             self._items[row.check_id], technical_detail=technical, cause=redact_text(next((line for line in detail.splitlines() if line.strip()), ""), limit=180),
             check_allowed=self.controller.app.operation_state().allows("check"),
+            environment=self.controller.app.environment,
             navigate_allowed=not (self.controller.app.is_busy() or self.controller.check_running
                                   or self.controller.app.execution.session.snapshot.measurement_active),
         )
@@ -398,8 +445,9 @@ class EnvironmentPopover(Vertical):
         controller = self.controller
         snapshot = controller.status if snapshot is None else snapshot
         self._items = {item.check.check_id: item for item in snapshot.items}
-        rows = tuple(item.check for item in snapshot.items if item.group == self.group)
-        heading = self.tr("group_count", self.tr("group." + self.group), len(rows))
+        self._sources = source_summaries(snapshot, group=self.group)
+        rows = tuple(item.check for source in self._sources for item in source.items)
+        heading = self.tr("group_count", self.tr("group." + self.group), snapshot.counts[self.group])
         self.query_one("#preflight-title", Static).update(
             self.tr("title", heading, self.tr("pinned" if self.pinned else "hover")))
         banner = self.query_one("#preflight-summary", StatusBanner)
@@ -418,22 +466,21 @@ class EnvironmentPopover(Vertical):
         self.query_one("#preflight-action-reason").display = bool(reason)
         self.update_context()
         language = controller.app.configuration.preferences.language
-        if rows != self._rows or language != self._rows_language:
-            previous = self._selected_row
-            rows_changed = rows != self._rows
+        if rows != self._rows or language != self._rows_language or self.group != self._rows_group:
+            previous = self._selected_row if self.group == self._rows_group else None
+            self._rows_group = self.group
             self._rows, self._rows_language = rows, language
             self._hovered_row = None
             self._selected_row = next(
                 (row for row in rows if previous is not None and row.check_id and row.check_id == previous.check_id),
-                min(rows, key=check_priority, default=None),
+                min((item.check for item in snapshot.items if item.group == self.group), key=check_priority, default=None),
             )
-            if rows_changed:
-                self.query_one("#preflight-scroll").scroll_home(animate=False)
             self.call_later(self.render_rows, rows)
         if self._selected_row is not None:
             self.explain(self._hovered_row or self._selected_row)
         else:
             self._inspected_row = None
+            self.query_one("#preflight-source-summary").display = False
             self.query_one("#preflight-callout").display = False
             self.query_one("#preflight-facts").display = False
             empty = self.query_one("#preflight-empty", Static)
@@ -462,36 +509,41 @@ class EnvironmentPopover(Vertical):
         if rows != self._rows or not self.is_mounted:
             return
         summary = self.query_one("#preflight-capabilities")
-        sections: dict[str, list[EnvironmentSignal]] = {name: [] for name in (*CAPABILITY_SECTIONS, "other")}
-        for index, row in sorted(enumerate(rows), key=lambda pair: check_priority(pair[1])):
-            section = next((name for name, identifiers in CAPABILITY_SECTIONS.items() if row.check_id in identifiers), "other")
-            signal = EnvironmentSignal(self, row, row.check_id or str(index))
-            signal.tooltip = self.label(row) + " · " + self.status(row)
-            sections[section].append(signal)
+        sources = self._sources
+        sections = {
+            source.group_id: [EnvironmentSignal(self, item.check, item.check.check_id)
+                              for item in source.items]
+            for source in sources
+        }
         incoming = [signal for signals in sections.values() for signal in signals]
+        for signal in incoming:
+            signal.tooltip = self.label(signal.row) + " · " + self.status(signal.row)
         current = list(summary.query(EnvironmentSignal))
         if [signal.id for signal in current] == [signal.id for signal in incoming]:
             for old, new in zip(current, incoming, strict=True):
                 old.row, old.tooltip = new.row, new.tooltip
                 old.refresh(layout=True)
-            for name in sections:
-                for title in summary.query(f"#preflight-section-{name} .environment-section-title").results(Static):
-                    title.update(self.tr("section." + name))
+            for source in sources:
+                summary.query_one('#preflight-section-' + source.group_id, EnvironmentSource).update_source(source)
             return
         focused = self.app.focused
-        focus_id = focused.id if isinstance(focused, EnvironmentSignal) and summary in focused.ancestors else None
+        focus_id = focused.id if focused is not None and summary in focused.ancestors else None
+        focused_source = next((source.source.group_id for source in summary.query(EnvironmentSource)
+                               if focused is not None and source in focused.ancestors), None)
+        scroll_y = self.query_one('#preflight-scroll').scroll_y
         await summary.remove_children()
-        await summary.mount(*(
-            Vertical(
-                Static(self.tr("section." + name), classes="environment-section-title", markup=False),
-                *signals, id="preflight-section-" + name, classes="environment-section",
-            )
-            for name, signals in sections.items() if signals
-        ))
-        if focus_id and self.app.screen is self.screen and self.app.focused is None:
+        await summary.mount(*(EnvironmentSource(self, source, *sections[source.group_id]) for source in sources))
+        self.query_one('#preflight-scroll').scroll_to(y=scroll_y, animate=False, immediate=True)
+        if (focus_id or focused_source) and self.app.screen is self.screen and self.app.focused is None:
             target = next((signal for signal in self.query(EnvironmentSignal) if signal.id == focus_id), None)
             if target is not None:
+                parent = next((node for node in target.ancestors if isinstance(node, EnvironmentSource)), None)
+                if parent is not None and parent.collapsed:
+                    target = None
+            if target is not None:
                 target.focus(scroll_visible=False)
+            elif focused_source and self.query('#preflight-section-' + focused_source):
+                self.query_one('#preflight-section-' + focused_source + ' CollapsibleTitle').focus(scroll_visible=False)
             else:
                 self.controller.app.query_one("#environment-" + self.group).focus(scroll_visible=False)
 

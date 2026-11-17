@@ -13,6 +13,7 @@ from acprof.experiments.configuration import ConfigIssue, RunConfig
 from acprof.messages import join_messages
 from acprof.tui.i18n import message_id
 from acprof.tui.run.diagnostics import PreflightCheck
+from acprof.tui.run.source_groups import source_group
 
 GROUPS = ('error', 'warning', 'success', 'pending', 'not_requested')
 _GROUP = {'fail': 'error', 'error': 'error', 'warn': 'warning', 'ok': 'success',
@@ -37,6 +38,7 @@ class StatusItem:
     check: PreflightCheck
     required: bool = False
     target: str = ''
+    requested: bool | None = None
 
     @property
     def group(self) -> str:
@@ -48,12 +50,46 @@ class StatusItem:
 
 
 @dataclass(frozen=True, slots=True)
+class StatusIssue:
+    """One counted cause, with all original evidence available for inspection."""
+
+    items: tuple[StatusItem, ...]
+
+    @property
+    def primary(self) -> StatusItem:
+        return min(self.items, key=lambda item: GROUPS.index(item.group))
+
+    @property
+    def group(self) -> str:
+        return self.primary.group
+
+
+@dataclass(frozen=True, slots=True)
 class GlobalStatus:
     items: tuple[StatusItem, ...]
 
     @property
+    def issues(self) -> tuple[StatusIssue, ...]:
+        groups: dict[tuple[str, str], list[StatusItem]] = {}
+        failed_tcpdump = any(item.check.check_id == 'tcpdump' and item.group in {'error', 'warning'}
+                             for item in self.items)
+        for item in self.items:
+            row = item.check
+            cause = row.check_id
+            if item.group in {'error', 'warning'}:
+                if row.root_cause:
+                    cause = 'cause:' + row.root_cause
+                elif (failed_tcpdump and row.check_id == 'capture_permissions'
+                      and row.source == 'tcpdump' and row.capability_status != 'permission_denied'):
+                    # Inventory explicitly records a missing dependency here.
+                    cause = 'tcpdump'
+            groups.setdefault((source_group(row.check_id), cause), []).append(item)
+        return tuple(StatusIssue(tuple(items)) for items in groups.values())
+
+    @property
     def counts(self) -> dict[str, int]:
-        return {group: sum(item.group == group for item in self.items) for group in GROUPS}
+        issues = self.issues
+        return {group: sum(issue.group == group for issue in issues) for group in GROUPS}
 
     @property
     def blockers(self) -> tuple[StatusItem, ...]:
@@ -123,13 +159,13 @@ def build_status(
             identifier = next((key for key, item in rows.items() if item.check.label == row.label),
                               f'check_{len(rows)}')
             row = replace(row, check_id=identifier)
-        rows[identifier] = StatusItem(row, required, target or _TARGETS.get(identifier, ''))
+        requested = (_requested(identifier, config, runtime) if runtime
+                     or source_group(identifier) in {'base', 'configuration', 'other'} else None)
+        if row.status == 'not_requested':
+            requested = False
+        rows[identifier] = StatusItem(row, required, target or _TARGETS.get(identifier, ''), requested)
 
     for row in inventory:
-        if row.check_id == 'capture_permissions' and row.source == 'tcpdump' and row.status == 'fail':
-            # scan_environment emits this typed dependency when the tool is
-            # absent, not when an installed executable lacks capabilities.
-            row = replace(row, check_id='tcpdump')
         if inventory_running:
             status = 'checking'
         elif row.status in {'fail', 'error'} or row.capability_status == 'error':

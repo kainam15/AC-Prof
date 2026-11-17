@@ -55,3 +55,19 @@ class AcprofTui(ProductionTui):
                 )
                 await pilot.pause()
                 yield pilot
+
+
+async def expand_check_source(app, pilot, identifier: str) -> None:
+    """Open a source through its real title before interacting with its checks."""
+    from textual.widgets import Collapsible
+
+    from acprof.tui.run.source_groups import source_group
+
+    source = app.query_one('#preflight-section-' + source_group(identifier), Collapsible)
+    if source.collapsed:
+        title = source.query_one('CollapsibleTitle')
+        title.scroll_visible(immediate=True, force=True)
+        title.focus()
+        await pilot.press('enter')
+        await pilot.pause()
+    assert not source.collapsed

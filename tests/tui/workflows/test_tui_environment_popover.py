@@ -15,6 +15,7 @@ from acprof.tui.run.progress import ProgressSnapshot
 from acprof.tui.ui.dialogs import ConfirmActionScreen
 from acprof.tui.ui.environment import EnvironmentIndicator, display_checks
 from acprof.tui.ui.structured import Callout, FactGrid
+from tests.support.tui_fixtures import expand_check_source
 
 
 @pytest.fixture
@@ -497,6 +498,7 @@ async def test_status_symbols_explain_cached_checks_on_hover_and_keyboard_focus(
                                   ("cpu_instructions", "error"), ("check_error", "error"), ("gpu_memory", "success")):
             await pilot.hover("#environment-" + color)
             await pilot.pause()
+            await expand_check_source(app, pilot, identifier)
             signal = app.query_one(f"#preflight-signal-{identifier}")
             signal.scroll_visible(animate=False, top=True)
             await pilot.pause()
@@ -519,6 +521,7 @@ async def test_status_symbols_explain_cached_checks_on_hover_and_keyboard_focus(
                 for kind in ("problem", "impact", "next"):
                     assert str(callout.query_one(".callout-" + kind, Static).content)
         for identifier in ("capture_interface", "gpu_device"):
+            await expand_check_source(app, pilot, identifier)
             signal = app.query_one(f"#preflight-signal-{identifier}")
             signal.focus()
             await pilot.pause()
@@ -542,7 +545,7 @@ async def test_status_symbols_explain_cached_checks_on_hover_and_keyboard_focus(
         assert "fixture-secret" not in explanation
         assert ("权限" if language == "zh" else "permission") in explanation.lower()
         app.query_one("#preflight-signal-check_error").focus()
-        await pilot.press("shift+tab")
+        await pilot.press("shift+tab", "shift+tab")
         assert app.focused is failure
         assert "Permission denied" in detail_text(app)
         app.execution.session.snapshot = ProgressSnapshot(measurement_active=True)
@@ -572,6 +575,8 @@ async def test_selected_check_details_return_after_hover_and_resize(app, languag
         await settle(app, pilot)
         await pilot.click("#environment-success")
         await pilot.pause()
+        await expand_check_source(app, pilot, "environment")
+        await expand_check_source(app, pilot, "docker")
         selected = app.query_one("#preflight-signal-environment")
         preview = app.query_one("#preflight-signal-docker")
         keyboard = app.query_one("#preflight-signal-cgroup")
@@ -583,6 +588,8 @@ async def test_selected_check_details_return_after_hover_and_resize(app, languag
             assert await pilot.click(selected)
             assert app.focused is selected
             assert "selected environment evidence" in detail_text(app)
+            preview.scroll_visible(immediate=True, force=True)
+            await pilot.pause()
             assert await pilot.hover(preview)
             assert "hovered Docker evidence" in detail_text(app)
             assert app.focused is selected, "hover must not change the selected check"
@@ -592,6 +599,8 @@ async def test_selected_check_details_return_after_hover_and_resize(app, languag
             # Reading details can move focus out of the list without losing selection.
             app.query_one("#preflight-inspection").focus()
             await pilot.pause()
+            preview.scroll_visible(immediate=True, force=True)
+            await pilot.pause()
             assert await pilot.hover(preview)
             assert "hovered Docker evidence" in detail_text(app)
             assert await pilot.hover(app.preflight.panel.retry_button)
@@ -599,9 +608,11 @@ async def test_selected_check_details_return_after_hover_and_resize(app, languag
 
             selected.focus()
             await pilot.pause()
-            await pilot.press("tab")
+            await pilot.press("tab", "tab")
             assert app.focused is preview
             assert "hovered Docker evidence" in detail_text(app)
+            selected.scroll_visible(immediate=True, force=True)
+            await pilot.pause()
             assert await pilot.hover(selected)
             assert "selected environment evidence" in detail_text(app)
             await pilot.press("tab")
@@ -623,7 +634,13 @@ async def test_selected_check_clears_when_category_or_cached_checks_change(app):
         await settle(app, pilot)
         await pilot.click("#environment-success")
         await pilot.pause()
+        await expand_check_source(app, pilot, "environment")
+        await expand_check_source(app, pilot, "docker")
+        app.query_one("#preflight-signal-environment").scroll_visible(immediate=True, force=True)
+        await pilot.pause()
         assert await pilot.click("#preflight-signal-environment")
+        app.query_one("#preflight-signal-docker").scroll_visible(immediate=True, force=True)
+        await pilot.pause()
         assert await pilot.hover("#preflight-signal-docker")
         assert "hovered old evidence" in detail_text(app)
         assert await pilot.hover("#environment-warning")
@@ -639,7 +656,13 @@ async def test_selected_check_clears_when_category_or_cached_checks_change(app):
         assert "selected old evidence" in detail_text(app), "opening a group explains its current first check"
         assert "hovered old evidence" not in detail_text(app)
         assert "warning evidence" not in detail_text(app)
+        await expand_check_source(app, pilot, "environment")
+        await expand_check_source(app, pilot, "docker")
+        app.query_one("#preflight-signal-environment").scroll_visible(immediate=True, force=True)
+        await pilot.pause()
         assert await pilot.click("#preflight-signal-environment")
+        app.query_one("#preflight-signal-docker").scroll_visible(immediate=True, force=True)
+        await pilot.pause()
         assert await pilot.hover("#preflight-signal-docker")
         app.preflight.checks = app.preflight.environment_checks = (
             PreflightCheck("Docker", "ok", "refreshed Docker evidence", check_id="docker"),
@@ -649,6 +672,8 @@ async def test_selected_check_clears_when_category_or_cached_checks_change(app):
         assert not app.query("#preflight-signal-environment")
         assert await pilot.hover("#preflight-title")
         assert "old evidence" not in detail_text(app)
+        app.query_one("#preflight-signal-docker").scroll_visible(immediate=True, force=True)
+        await pilot.pause()
         assert await pilot.hover("#preflight-signal-docker")
         assert await pilot.hover("#preflight-inspection")
         assert "refreshed Docker evidence" in detail_text(app)
@@ -741,6 +766,8 @@ async def test_first_issue_is_explained_without_stealing_entry_focus(app, langua
         retry = panel.retry_button
         assert panel.region.contains_region(retry.region)
         assert app.get_widget_at(*retry.region.center)[0] is retry
+        app.query_one("#preflight-signal-gpu_power").scroll_visible(immediate=True, force=True)
+        await pilot.pause()
         await pilot.hover("#preflight-signal-gpu_power")
         assert "second issue evidence" in detail_text(app)
         assert app.focused is entry

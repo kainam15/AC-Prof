@@ -5,8 +5,10 @@ from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 
+from acprof.capabilities import PROFILER_PRIMARY_FIELDS, REQUIRED_MEASUREMENT_FIELDS
 from acprof.messages import join_messages
 from acprof.tui.i18n import message_id
+from acprof.tui.run.source_groups import SourceSummary, source_group
 from acprof.tui.ui.view_models import (
     CalloutContent,
     FactRow,
@@ -18,6 +20,7 @@ from acprof.tui.ui.view_models import (
 )
 
 if TYPE_CHECKING:
+    from acprof.platform import Environment
     from acprof.tui.run.diagnostics import PreflightCheck
     from acprof.tui.run.global_status import StatusItem
 
@@ -42,13 +45,28 @@ REMEDIES = {
     "ncu": "profiler", "nsys": "profiler", "intel_advisor": "profiler", "torch": "profiler",
     "massif": "profiler", "profiler": "profiler",
 }
-CAPABILITY_SECTIONS = {
-    "runtime": ("environment", "docker", "cgroup", "uv", "process_runtime", "process_resources"),
-    "cpu_memory": ("process_cpu", "process_memory", "container_cpu", "container_memory", "cpu_energy", "cpu_instructions"),
-    "gpu": ("gpu_device", "gpu_memory", "gpu_utilization", "gpu_power"),
-    "network": ("tcpdump", "tshark", "capture_permissions", "capture_interface"),
-    "profilers": ("ncu", "nsys", "intel_advisor", "torch", "massif", "profiler"),
+SOURCE_IMPACTS = {
+    'base': 'runtime', 'docker': 'runtime', 'process': 'runtime', 'nvml': 'gpu',
+    'rapl': 'cpu_memory', 'perf': 'cpu_memory', 'network': 'network', 'profilers': 'profilers',
 }
+COMPACT_LABELS = {
+    'uv': 'uv', 'process_runtime': 'supervision', 'process_resources': 'resources',
+    'process_cpu': 'cpu', 'process_memory': 'memory', 'container_cpu': 'cpu', 'container_memory': 'memory',
+    'gpu_device': 'device', 'gpu_memory': 'memory', 'gpu_utilization': 'utilization', 'gpu_power': 'power',
+    'cpu_energy': 'energy', 'cpu_instructions': 'instructions',
+}
+# Reuse post-run primary requirements; Advisor is post-hoc only and its
+# legacy primary field is not part of the current CSV protocol.
+CHECK_FIELDS = {
+    **REQUIRED_MEASUREMENT_FIELDS,
+    'gpu_memory': ('gpu_mem_used_avg_bytes', 'gpu_mem_used_peak_bytes'),
+    'gpu_utilization': ('gpu_util_avg_pct',),
+    **{('torch' if tool == 'torch_profiler_eager' else tool): (field,)
+       for tool, field in PROFILER_PRIMARY_FIELDS.items() if tool != 'intel_advisor'},
+    **dict.fromkeys(('tcpdump', 'tshark', 'capture_permissions', 'capture_interface'),
+                    REQUIRED_MEASUREMENT_FIELDS['packet_latency']),
+}
+
 
 # Normalize only presentation aliases; recorded statuses still decide grouping.
 _DISPLAY_STATES = {
@@ -117,22 +135,26 @@ def global_presentation(item: StatusItem) -> StatusPresentation:
 
 
 def global_check_view(item: StatusItem, *, technical_detail: str, cause: str,
-                      check_allowed: bool, navigate_allowed: bool) -> EnvironmentCheckView:
+                      check_allowed: bool, navigate_allowed: bool, environment: Environment | None = None) -> EnvironmentCheckView:
     """Describe current impact separately from cached diagnostic provenance."""
     row = item.check
     view = check_view(row, technical_detail=technical_detail, check_allowed=check_allowed)
     if view.callout is not None:
         presentation = global_presentation(item)
-        problem = join_messages(' · ', (check_label(row), presentation.label, cause))
+        reason = row.reason_code or row.capability_status
+        reason_label = (message_id('run.environment.reason.' + reason)
+                        if reason in {'permission_denied', 'unsupported', 'not_installed', 'dependency_unavailable', 'error'} else '')
+        problem = join_messages(' · ', tuple(part for part in (check_label(row), presentation.label, reason_label, cause) if part))
         next_step = (message_id('run.plan.invalid_next') if row.check_id.startswith('config_')
                      else message_id('run.status.repeat_next') if row.check_id == 'quality_repeat'
                      else message_id('run.resources.next') if item.target == 'resources'
                      else row.docker_diagnostic.next_step if row.docker_diagnostic else
                      message_id('run.docker_repair.next') if row.check_id == 'docker'
-                     else view.callout.next_step)
+                     else repair_guidance(row, environment=environment))
         return EnvironmentCheckView(callout=replace(
             view.callout, problem=problem, next_step=next_step,
             impact=(message_id('run.status.blocked_impact') if item.blocks
+                    else message_id('run.source.unrequested_impact') if item.requested is False
                     else message_id('run.docker_repair.impact.optional') if row.check_id == 'docker'
                     else message_id('run.plan.insufficient_windows') if row.check_id == 'quality_repeat'
                     else view.callout.impact),
@@ -149,6 +171,7 @@ def global_check_view(item: StatusItem, *, technical_detail: str, cause: str,
                 else cause or view.facts.rows[1].value)
         return EnvironmentCheckView(facts=replace(view.facts, rows=(
             replace(view.facts.rows[0], value=global_presentation(item).label), replace(view.facts.rows[1], value=note),
+            FactRow(message_id("run.source.requested"), request_label(item.requested)),
         )))
     return view
 
@@ -162,12 +185,12 @@ def check_view(row: PreflightCheck, *, technical_detail: str, check_allowed: boo
             presentation.symbol,
             message_id("run.environment.capability_line", check_label(row), presentation.label),
         ))
-        if row.capability_status in {"permission_denied", "unsupported"}:
+        reason = row.reason_code or row.capability_status
+        if reason in {"permission_denied", "unsupported", "not_installed", "dependency_unavailable"}:
             problem = join_messages(" · ", (
-                problem, message_id("run.environment.reason." + row.capability_status),
+                problem, message_id("run.environment.reason." + reason),
             ))
-        section = next((name for name, identifiers in CAPABILITY_SECTIONS.items()
-                        if row.check_id in identifiers), "other")
+        section = SOURCE_IMPACTS.get(source_group(row.check_id), "other")
         impact = "check_error" if status == "error" else section
         return EnvironmentCheckView(callout=CalloutContent(
             presentation.level,
@@ -221,3 +244,54 @@ def group_summary(rows: Sequence[PreflightCheck], *, group: str, state: str) -> 
     if not selected:
         return StatusSummary("neutral", headline)
     return StatusSummary({"error": "error", "warning": "warning", "success": "success"}.get(group, "neutral"), headline)
+
+
+def compact_check_label(row: PreflightCheck) -> str:
+    key = COMPACT_LABELS.get(row.check_id)
+    return message_id('run.source.check.' + key) if key else check_label(row)
+
+
+def request_label(requested: bool | None) -> str:
+    return message_id('run.source.request.' + ('yes' if requested else 'no' if requested is False else 'unknown'))
+
+
+def source_title(source: SourceSummary) -> str:
+    label = message_id('structured.status.checking' if source.state == 'checking'
+                       else 'run.environment.group.' + source.state)
+    symbol = {'error': '×', 'warning': '!', 'success': '✓', 'pending': '…', 'checking': '…', 'not_requested': '-'}[source.state]
+    title = join_messages(' · ', (message_id('run.source.' + source.group_id), join_messages(' ', (symbol, label))))
+    if source.issue_count:
+        title = join_messages(' · ', (title, message_id('run.source.issue_count', source.issue_count)))
+    return title
+
+
+def source_overview(source: SourceSummary) -> str:
+    lines = [message_id('run.source.scope', len(source.items), sum(item.requested is True for item in source.items),
+                        sum(item.requested is None for item in source.items))]
+    for issue in source.issues:
+        if issue.group not in {'error', 'warning'}:
+            continue
+        affected = join_messages(' / ', tuple(compact_check_label(item.check) for item in issue.items))
+        lines.append(message_id('run.source.issue', message_id('run.environment.group.' + issue.group), affected))
+    risks = tuple(dict.fromkeys(field for item in source.items
+                               if item.requested is True and item.group in {'error', 'warning'}
+                               for field in CHECK_FIELDS.get(item.check.check_id, ())))
+    if risks:
+        lines.append(message_id('run.source.risk_fields', ', '.join(risks)))
+    lines.append(message_id('run.source.actual'))
+    return join_messages('\n', lines)
+
+
+def repair_guidance(row: PreflightCheck, *, environment: Environment | None = None) -> str:
+    """Platform-specific instructions only; never install, probe or change a gate."""
+    base = message_id('run.environment.remedy.' + REMEDIES.get(row.check_id, 'generic'))
+    if row.reason_code != 'not_installed':
+        return base
+    tool = row.check_id
+    key = ('capture' if tool in {'tcpdump', 'tshark'} else tool)
+    if key not in {'capture', 'uv', 'ncu', 'nsys', 'intel_advisor', 'torch', 'massif'}:
+        return base
+    scope = 'wsl' if environment is not None and environment.environment == 'wsl2' else 'linux'
+    if environment is not None and environment.system and environment.system != 'Linux':
+        scope = 'unsupported'
+    return join_messages('\n', (base, message_id('run.source.install.' + scope), message_id('run.source.install.' + key)))

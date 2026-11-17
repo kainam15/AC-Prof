@@ -104,6 +104,20 @@ acprof/tui/
 `allow_collection()` 只更新阻断状态，不主动导航。稳定检查 ID 映射字段、Process / Docker / RAPL 诊断或 perf / tcpdump 权限选项；无映射时不提供跳转。
 整机清单保留已检查能力的可用性，失败仅是警告；未请求的预检占位项不覆盖该证据。清理失败持续阻断直到显式重检确认。
 模型不读宿主、不启动探测、不保存第二份可变状态，正式执行仍保留原有权限与安全校验。
+`source_groups.py::SOURCE_CHECKS` 集中声明稳定 `check_id → source_group`，不使用 `PreflightCheck.source`
+作为分组依据。增加来源时登记来源与检查 ID、双语标题，并扩充覆盖检查；`config_*` / `quality_*`
+归配置检查，未知 ID 保留在其他检查，不能静默丢弃。`source_summaries()` 仅投影同一个快照，
+筛选选出来源后仍保留所有子项；汇总包含待验证和过期检查，不从部分成功推导整体通过。
+`GlobalStatus.items` 保留所有原始 ID；`issues` 只对异常按明确根因聚合，`counts` 统计这些问题及独立正常/待验证项。
+`PreflightCheck.root_cause` / `reason_code` 仅记录已知诊断原因，不改检查状态或探测行为；
+没有共同根因证据时独立计数，特别是 NVML 各指标的独立读取失败。
+`StatusItem.requested` 是当前配置的展示投影，不能替代决定准入的 `required` / `blocks`。
+来源详情区分环境可用、本次请求与尚未经实际产物验证的采集结果；字段风险复用能力验证的主要字段并对照指标登记表，
+仅对本次请求的异常能力显示，不创建第二个结果审计器，也不改产物或测量语义。
+来源折叠使用 Textual `Collapsible`，仅保存用户手动展开选择；缓存刷新不覆盖选择，查看不发起探测。
+参考 [Alertmanager grouping](https://github.com/prometheus/alertmanager/blob/main/docs/alertmanager.md)
+区分问题分组与独立证据，复用 [Textual Collapsible](https://github.com/Textualize/textual/blob/v8.2.8/src/textual/widgets/_collapsible.py)
+及其[展开后焦点修复](https://github.com/Textualize/textual/pull/6143)所覆盖的键盘语义；不引入依赖或通知系统。
 `environment_view.py` 将条目投影为 `EnvironmentCheckView`，问题用 `Callout`，正常、待确认和未请求用 `FactGrid`。
 问题提供名称、原因、当前影响和下一步，通过显式 `status-open` 定位现有配置控件或权限诊断；Docker 异常项点击或按 Enter / Space 直接进入修复引导，悬停与聚焦仍只解释。
 `NavigationContext` 只保存返回页面、焦点、滚动和最大化控件，不保存业务状态；专用 `IssueDiagnosticScreen` 从同一个快照读取诊断。
