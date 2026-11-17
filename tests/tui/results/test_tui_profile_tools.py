@@ -53,7 +53,7 @@ async def test_experiment_source_editing_is_shared_across_pages(tmp_path, langua
             lambda: app.results.source_path == Path(long_path) and bool(app.results.data_error)
             and not app.read_jobs,
             description="the edited missing source read to finish", timeout=3,
-            diagnostics=lambda: str(app.query_one("#result-data-status", Static).content),
+            diagnostics=lambda: f"source={app.results.source_path}; error={app.results.data_error}; readers={len(app.read_jobs)}",
         )
         assert not app.read_jobs
 
@@ -188,7 +188,7 @@ async def test_backfill_navigation_shares_selection_and_reports_read_failures(tm
             lambda: app.results.source_path == root / "missing.csv" and bool(app.results.data_error)
             and not app.read_jobs,
             description="the missing CSV read to finish", timeout=3,
-            diagnostics=lambda: str(app.query_one("#result-data-status", Static).content),
+            diagnostics=lambda: f"source={app.results.source_path}; error={app.results.data_error}; readers={len(app.read_jobs)}",
         )
         assert app.profiles.overview is None
         assert app.query_one("#backfill-source", Input).value == str(root / "missing.csv")

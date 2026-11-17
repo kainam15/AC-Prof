@@ -44,6 +44,7 @@ async def test_selection_change_during_profiler_inspection_cancels_and_allows_re
         app.results.select_result(str(first))
         first_request = app.results.data_request
         assert first_request is not None
+        first_cancelled = first_request.is_set
         await pilot.pause()
         button = app.query_one("#refresh-experiment-state", Button)
         button.scroll_visible(animate=False, immediate=True)
@@ -80,9 +81,9 @@ async def test_selection_change_during_profiler_inspection_cancels_and_allows_re
                     button = app.query_one("#refresh-backfill-state", Button)
                 await fill_form(pilot, {f"#{selector.id}": str(second)})
                 await wait_for_condition(
-                    pilot, lambda: first_request.is_set() and app.results.source_path == second,
+                    pilot, lambda: first_cancelled() and app.results.source_path == second,
                     description="the edited source to cancel the first reader", timeout=3,
-                    diagnostics=lambda: f"source={app.results.source_path}; cancelled={first_request.is_set()}",
+                    diagnostics=lambda: f"source={app.results.source_path}; cancelled={first_cancelled()}",
                 )
         finally:
             release.set()
@@ -99,7 +100,7 @@ async def test_selection_change_during_profiler_inspection_cancels_and_allows_re
             lambda: app.profiles.overview is not None and app.profiles.overview.result_dir == second
             and not app.read_jobs,
             description="the second experiment overview after cancellation", timeout=3,
-            diagnostics=lambda: str(app.query_one("#result-data-status", Static).content),
+            diagnostics=lambda: f"source={app.results.source_path}; error={app.results.data_error}; readers={len(app.read_jobs)}",
         )
         await pilot.pause()
         assert not app.read_jobs

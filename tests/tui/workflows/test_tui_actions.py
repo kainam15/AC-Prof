@@ -25,16 +25,18 @@ class ActionsApp(App):
                 yield Input("retained", id="other")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        self.navigation.append(event.button.name)
+        page_id = event.button.name
+        assert page_id is not None
+        self.navigation.append(page_id)
         if self.navigate:
-            self.query_one("#main-tabs", TabbedContent).active = event.button.name
+            self.query_one("#main-tabs", TabbedContent).active = page_id
 
     def on_input_changed(self, event: Input.Changed) -> None:
         self.edits.append((event.input.id, event.value))
 
 
 @pytest.mark.parametrize("size", [(80, 24), (120, 30)])
-async def test_open_page_uses_navigation_and_keeps_an_already_selected_page(size):
+async def test_open_page_uses_navigation_and_keeps_an_already_selected_page(size: tuple[int, int]):
     app = ActionsApp()
     async with app.run_test(size=size) as pilot:
         app.query_one("#nav-other-tab", Button).active_effect_duration = 0
@@ -53,7 +55,7 @@ async def test_open_page_reports_the_page_that_never_became_active():
 
 
 @pytest.mark.parametrize("size", [(80, 24), (120, 30)])
-async def test_fill_form_replaces_unicode_and_clears_through_focused_inputs(size):
+async def test_fill_form_replaces_unicode_and_clears_through_focused_inputs(size: tuple[int, int]):
     app = ActionsApp()
     async with app.run_test(size=size) as pilot:
         await fill_form(pilot, {"#first": "模型 [draft]/结果", "#second": "new value"})

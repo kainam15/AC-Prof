@@ -56,6 +56,6 @@ async def fill_form(
         await wait_for_condition(
             pilot, lambda: field.value == value,
             description=f"input {selector} to contain {value!r}", timeout=timeout,
-            diagnostics=lambda: f"value={field.value!r}; focused={pilot.app.focused!r}",
+            diagnostics=lambda: f"value={field.value!r}; focused={field.has_focus}",
         )
         await pilot.pause()
