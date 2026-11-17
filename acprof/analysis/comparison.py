@@ -31,6 +31,7 @@ from acprof.results.csv import (
 from acprof.results.layout import resolve_single_result_source
 from acprof.results.metadata import ResultMetadataSnapshot
 from acprof.results.metrics import METRICS
+from acprof.results.profile import metric_observation, metric_usable, observation_signature
 from acprof.runtime.settings import RUNTIME_ENV_NAMES
 
 MEASUREMENT_OPTIONS = (
@@ -169,8 +170,21 @@ def _metric_availability(rows: list[dict[str, str]]) -> dict[str, bool]:
     """Recognize existing missing tokens before parsing numeric observations."""
     return {name: any((value := row.get(name)) is not None
                      and (type(value) is not str or value not in MISSING_CSV_TEXT)
-                     and number(value) is not None for row in rows)
+                     and number(value) is not None and metric_usable(row, name) for row in rows)
             for name, metric in METRICS.items() if metric.kind == "number"}
+
+
+def _metric_contracts(rows: list[dict]) -> dict:
+    contracts = {}
+    for name, metric in METRICS.items():
+        if metric.kind != 'number':
+            continue
+        observed = [metric_observation(row, name) for row in rows if number(row.get(name)) is not None]
+        signatures = {observation_signature(item) for item in observed}
+        contracts[name] = {'quality': 'incomplete' if any(item['quality'] not in {'complete', 'unknown'} for item in observed)
+                          else 'complete' if observed and all(item['quality'] == 'complete' for item in observed) else 'unknown',
+                           'signature': next(iter(signatures)) if len(signatures) == 1 else None}
+    return contracts
 
 
 def _read_snapshot_json(metadata_snapshot: ResultMetadataSnapshot, name: str, issues: list[str]) -> dict:
@@ -351,6 +365,7 @@ def load_comparison_snapshot(source: str | Path, *, result_snapshot: ResultCsvSn
         "inference_configuration_validation": _object_field(metadata, "runtime_validation", issues)
             if configuration else None,
         "metric_availability": _metric_availability(measured_rows),
+        "metric_contracts": _metric_contracts(measured_rows),
         "run_id": state.get("run_id"), "result_csv": audit["result_csv"],
         "run_status": audit["run_status"], "measurement_status": audit["measurement_status"],
         "missing_metrics": audit["missing_metrics"],
@@ -431,9 +446,18 @@ def _metric_comparability_map(
     metric_comparability = {}
     for name in lhs["metric_availability"]:
         available = lhs["metric_availability"][name] and rhs["metric_availability"][name]
+        contracts = [snapshot.get('metric_contracts', {}).get(name) for snapshot in (lhs, rhs)]
+        contract_reason = ''
+        if all(contracts):
+            if any(item['quality'] == 'incomplete' for item in contracts):
+                contract_reason = 'incomplete_metric_quality'
+            elif any(item['signature'] is None for item in contracts):
+                contract_reason = 'mixed_or_missing_metric_contract'
+            elif contracts[0]['signature'] != contracts[1]['signature']:
+                contract_reason = 'different_source_scope_window_or_sampling'
         metric_comparability[name] = {
-            "status": "comparable" if status == "compatible" and available else "not comparable",
-            "reason": ("missing_measurement" if not available else
+            "status": "comparable" if status == "compatible" and available and not contract_reason else "not comparable",
+            "reason": (contract_reason or "missing_measurement" if not available or contract_reason else
                        "environment_" + environment_status
                        if environment_status != "compatible" else
                        "conditions_" + status if status != "compatible" else ""),

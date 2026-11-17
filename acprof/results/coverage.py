@@ -47,7 +47,7 @@ SOURCE_CONTRACTS = {
     "rapl_cgroup_attribution": CollectorContract("cgroup_cpu_time_share_of_host_packages", "medium", "Full; RAPL + cgroup + host CPU counters", "acprof/monitors/energy_cpu.py", ("docker",), "estimated"),
     "cgroup": CollectorContract("container_cgroup", "low", "local Docker; cgroup v2; readable metric files", _RESOURCE, ("docker",)),
     "host_cpufreq": CollectorContract("host_visible_cpus", "low", "readable cpufreq or cpuinfo; unavailable on WSL2", _RESOURCE, ("docker",)),
-    "perf_stat": CollectorContract("container_cgroup_pmu", "medium", "Full; perf; PMU permission; valid running ratio", "acprof/monitors/perf_mips.py", ("docker",)),
+    "perf_stat": CollectorContract("container_root_pid_pmu_with_inheritance", "medium", "Full; perf; PID permission; thread coverage; valid running ratio", "acprof/monitors/perf_mips.py", ("docker",)),
     "docker_and_server": CollectorContract("container_service_lifetime", "none", "Docker readiness timestamps", _ROW, ("docker",)),
     "handler": CollectorContract("actual_request", "none", "handler response contract", _ROW, derivation="recorded"),
 }

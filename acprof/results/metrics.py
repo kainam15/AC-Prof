@@ -279,10 +279,10 @@ _DECLARATIONS = (
     Metric('container_pids_peak_cgroup', 'count', 'cgroup', 'cgroup_lifetime', row_group='resource_usage', row_order=38),
     Metric('container_pids_max_events_delta', 'count/window', 'cgroup', 'request_window', row_group='resource_usage', row_order=39),
     # GPU 资源与运行状态。
-    Metric('gpu_sm_clock_mhz', 'MHz', 'nvml_selected_device', 'request_window', applicability='gpu', row_group='gpu_runtime_state', row_order=0),
-    Metric('gpu_memory_clock_mhz', 'MHz', 'nvml_selected_device', 'request_window', applicability='gpu', row_group='gpu_runtime_state', row_order=1),
+    Metric('gpu_sm_clock_mhz', 'MHz', 'nvml_selected_device', 'request_window', applicability='gpu', row_group='gpu_runtime_state', row_order=0, label='GPU SM 频率', group='GPU'),
+    Metric('gpu_memory_clock_mhz', 'MHz', 'nvml_selected_device', 'request_window', applicability='gpu', row_group='gpu_runtime_state', row_order=1, label='GPU 显存频率', group='GPU'),
     Metric('gpu_pstate', 'text', 'nvml_selected_device', 'request_window', applicability='gpu', kind='text', row_group='gpu_runtime_state', row_order=2),
-    Metric('gpu_temp_c', 'degC', 'nvml_selected_device', 'request_window', applicability='gpu', row_group='gpu_runtime_state', row_order=3),
+    Metric('gpu_temp_c', 'degC', 'nvml_selected_device', 'request_window', applicability='gpu', row_group='gpu_runtime_state', row_order=3, label='GPU 温度', group='GPU'),
     Metric('gpu_util_avg_pct', '%', 'nvml_selected_device', 'request_window', applicability='gpu', label='GPU 平均占用', group='GPU', direction='neutral', summary=False, aggregation='mean', row_group='resource_usage', row_order=40),
     Metric('gpu_util_peak_pct', '%', 'nvml_selected_device', 'request_window', applicability='gpu', label='GPU 峰值占用', group='GPU', direction='neutral', summary=True, aggregation='max', row_group='resource_usage', row_order=41),
     Metric('gpu_mem_used_avg_bytes', 'byte', 'nvml_selected_device', 'request_window', applicability='gpu', label='VRAM 平均用量', group='GPU', direction='lower', summary=False, aggregation='mean', row_group='resource_usage', row_order=42),

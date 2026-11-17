@@ -9,8 +9,34 @@ window.ACProfImport = (() => {
   const fail = message => { throw new Error(message); };
   const checkCancelled = signal => { if (signal?.aborted) throw new DOMException("已取消 / Cancelled", "AbortError"); };
   const clone = value => JSON.parse(JSON.stringify(value));
+  const observationSignature = item => JSON.stringify([item.source, item.scope, item.window, item.derivation,
+    item.sampling ? Object.keys(item.sampling).sort().map(key => [key, item.sampling[key]]) : null]);
   function accumulator(registry) {
     return Object.fromEntries(Object.keys(registry).map(name => [name, {n:0, sum:0, correction:0, max:null, weight:0, weighted:0, badWeight:false, startups:new Map(), conflict:false}]));
+  }
+  function metricObservations(raw, registry) {
+    let evidence = {}, invalid = false;
+    const text = (raw.resource_metric_quality || "").trim();
+    if (text && !["nan", "null", "none"].includes(text.toLowerCase())) {
+      try {
+        evidence = JSON.parse(text);
+        if (!evidence || typeof evidence !== "object" || Array.isArray(evidence)) throw new Error();
+        if (Object.hasOwn(evidence, "schema_version")) {
+          if (evidence.schema_version !== 1) throw new Error();
+          evidence = evidence.metrics;
+        }
+        if (!evidence || typeof evidence !== "object" || Array.isArray(evidence) ||
+            Object.values(evidence).some(item => !item || typeof item !== "object" || Array.isArray(item))) throw new Error();
+      } catch { invalid = true; evidence = {}; }
+    }
+    return Object.fromEntries(Object.entries(registry).filter(([name]) => Object.hasOwn(raw, name)).map(([name, metric]) => {
+      const contract = metric.observation_contract || {}, item = evidence[name];
+      const resource = ["psutil_observed_process_tree", "procfs_observed_process_tree", "service_cgroup", "nvml_selected_device"].includes(metric.source);
+      const bad = resource && (invalid || item && (!["complete", "partial", "unsupported", "permission_denied", "not_requested", "error", "unavailable", "unknown"].includes(item.quality) ||
+        ["source", "scope", "window", "derivation"].some(key => Object.hasOwn(item, key) && item[key] !== contract[key])));
+      return [name, bad ? {...contract, quality:"error", reason:"invalid_metric_quality_evidence"} :
+        {...contract, quality:"unknown", ...(resource && item ? {reason:"", ...item} : {})}];
+    }));
   }
   async function readCsv(file, registry, {signal, onProgress = () => {}, chunkSize = 256 * 1024} = {}) {
     const groups = new Map(), seen = new Set(), hash = sha256.create(), decoder = new TextDecoder("utf-8", {fatal:true});
@@ -46,8 +72,13 @@ window.ACProfImport = (() => {
         runtime_id:text(raw.runtime_id), resource_scope:text(raw.resource_scope)};
       const stable = {...identity}; delete stable.experiment_batch;
       const key = JSON.stringify(stable);
-      if (!groups.has(key)) groups.set(key, {identity, idKey:key, index:groups.size, input_scale:nums.input_scale, total:0, formal:0, valid:0, inferred:false, metrics:accumulator(registry)});
+      if (!groups.has(key)) groups.set(key, {identity, idKey:key, index:groups.size, input_scale:nums.input_scale, total:0, formal:0, valid:0, inferred:false, metrics:accumulator(registry), observations:{}});
       const group = groups.get(key);
+      const observations = metricObservations(raw, registry);
+      if (nums.warmup === 0) for (const [name, observation] of Object.entries(observations)) {
+        group.observations[name] ||= new Map();
+        group.observations[name].set(JSON.stringify(observation), observation);
+      }
       const measurement = JSON.stringify([identity.run_id === "unknown" ? group.index : identity.run_id,
         nums.cpu_cores, nums.mem_cap_gb, device, nums.input_scale, nums.warmup, nums.repeat_idx]);
       if (seen.has(measurement)) fail(`CSV 重复或冲突的测量窗口 / Duplicate or conflicting window: ${rowNumber}`);
@@ -61,6 +92,7 @@ window.ACProfImport = (() => {
       const energy = cpu !== null && cpu >= 0 && (device === "CPU" || gpu !== null && gpu >= 0) ? cpu + (device === "GPU" ? gpu : 0) : null;
       const derived = {observed_energy_per_request_j:energy, observed_energy_j:energy !== null && weight > 0 ? energy * weight : null};
       for (const [name, metric] of Object.entries(registry)) {
+        if (observations[name] && !["complete", "unknown"].includes(observations[name].quality)) continue;
         const value = Object.hasOwn(derived, name) ? derived[name] : number(raw[name]);
         if (!finite(value)) continue;
         const acc = group.metrics[name];
@@ -119,12 +151,15 @@ window.ACProfImport = (() => {
           else if (aggregation === "request_weighted") value = !missing && !acc.badWeight ? acc.weighted / acc.weight : null;
           else value = (acc.sum + acc.correction) / n;
         }
-        return [name, {value:finite(value) ? value : null, n, missing:acc.conflict ? 0 : missing, aggregation}];
+        const contracts = new Set([...(group.observations[name]?.values() || [])]
+          .filter(item => ["complete", "unknown"].includes(item.quality)).map(observationSignature));
+        return [name, {value:finite(value) && contracts.size <= 1 ? value : null, n, missing:acc.conflict ? 0 : missing, aggregation}];
       }));
       return {...group.identity, ...quality, source:path, config_id:`csv-${digest.slice(0,16)}:${sha256(group.idKey).slice(0,16)}`,
         input_scale:group.input_scale, valid_windows:group.valid, excluded_rows:group.total - group.valid,
         status:group.valid ? (group.valid === group.formal ? "ok" : "partial") : group.inferred ? "inferred_not_measured" : group.formal ? "failed" : "no_formal_windows",
-        comparison_profiles:{}, comparability:"unknown", missing_metrics:[], metrics, statistics_status:"not_computed"};
+        comparison_profiles:{}, comparability:"unknown", missing_metrics:[], metrics, statistics_status:"not_computed",
+        metric_observations:Object.fromEntries(Object.entries(group.observations).map(([name, items]) => [name, [...items.values()]]))};
     });
     const runs = [...new Set(configs.map(config => config.run_id))];
     return {kind:"acprof_analysis_bundle", schema_version:1, analysis_contract:{version:1, statistics_engine:"not_computed"},

@@ -304,9 +304,11 @@ class ProcessUsageMonitor:
         values.update(cgroup_values)
         self.metric_evidence.update(cgroup_evidence)
         self.metric_evidence.update(gpu_metric_evidence(values, self.gpu_query_errors,
-            requested=self.use_gpu, initialization_error=self.gpu_error))
+            requested=self.use_gpu, initialization_error=self.gpu_error,
+            sampling={'interval_s': self.dt, 'policy': self.policy, 'state_interval_s': max(self.dt, STATE_INTERVAL_S)}))
         result = ProcessUsageResult(**{**asdict(empty_resource_result(len(self.samples))), **values,
-                                    'process_resource_status': result_status, 'metric_evidence': self.metric_evidence})
+                                    'process_resource_status': result_status, 'metric_evidence': self.metric_evidence,
+                                    'required_error': ''})
         diagnostics = [self.error] if self.error else []
         diagnostics.extend(f'{name}: {evidence["reason"]}' for name, evidence in self.metric_evidence.items()
                            if evidence['quality'] in {'error', 'permission_denied', 'partial'} and evidence['reason'])
@@ -339,7 +341,8 @@ class ProcessUsageMonitor:
             elif quality != 'complete' and self.status not in {'available', 'verified'}:
                 quality, reason = self.status, self.error
             result[name] = {'source': metric.source, 'scope': 'observed_process_tree_leaders' if 'leader_' in name else 'observed_process_tree',
-                            'window': metric.window, 'quality': quality, 'derivation': 'observed', 'reason': reason}
+                            'window': metric.window, 'quality': quality, 'derivation': 'observed', 'reason': reason,
+                            'sampling': {'interval_s': self.dt, 'policy': self.policy, 'reduction_version': 2}}
         return result
 
     def telemetry_snapshot(self):

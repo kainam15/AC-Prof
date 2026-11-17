@@ -61,9 +61,9 @@ acprof stats results/<model>/ --metric latency_app_s --metric latency_s \
 独立 run 数量足够或论文证据充分。CSV 无法推断所有尚未写入的计划首尾缺口，完整性仍由
 `audit` 验收；此诊断不提供自动补采、自动停止或按结果反复加样直至通过的流程。
 
-采集开销验证使用两个独立入口：
+采集开销验证使用两个独立入口（运行会启动模型，须由用户明确安排）：
 
-- `scripts/measure_overhead.py <完成的实验目录> --gpu off --output-dir <新目录>`：复用原 image ID、
+- `scripts/measure_overhead.py <完成的实验目录> --gpu off --output-dir <新目录>`：复用原 Docker image ID 或 Process 冻结环境身份、
   输入计划和资源，随机化每轮未启用 monitors 与 5/20/100 Hz 监测线程的顺序，按同轮请求均值计算相对变化。
   默认取源实验最大的 CPU/内存配额与输入计划第一项；`--cpu`、`--mem`（GiB）和
   `--input-scale` 可选择源实验已记录的其他坐标，输入尺度必须唯一匹配。使用原始 payload，
@@ -79,6 +79,11 @@ acprof stats results/<model>/ --metric latency_app_s --metric latency_s \
   不包含容器启动、离线合并、profiler 或 TUI 成本。full 对照要求已有抓包权限，不修改系统权限。
   full 在请求计时结束后沿用生产采集的抓包等待落盘步骤，保存 PCAP 和解析结果；请求覆盖不足时
   诊断失败，该轮不能进入开销汇总。
+  Process 源实验恢复已有 Python/代码/模型快照，独立启动与清理服务，不调用 Docker。
+  Process 的默认 rate 对照及 `--modes none,basic` 使用进程树、已验证服务 cgroup 和可用 NVML
+  资源观察；本轮拒绝 Process `full` 对照。继承限制继续记录为未知数值，不补零或读取共享父 cgroup。
+  报告增加 `runtime_kind/runtime_id`，禁止把不同 Runtime 的行混入同轮 none 基线。
+  可选采集失败保留诊断请求与其他读数，`collector_coverage_complete=false`；必需失败仍阻断。
 - `scripts/compare_ui.py <check_hardware 的 command.json> --output-dir <新目录>`：单 case 下随机化
   CLI/TUI 的配对顺序，每次运行完整正式协议并通过审计，镜像/revision/输入 hash 必须一致。
   默认 `--ui headless` 只测试 TUI 调度与日志路径；`--ui terminal` 用于实际终端绘制对照。
@@ -88,6 +93,9 @@ acprof stats results/<model>/ --metric latency_app_s --metric latency_s \
 只形成一个窗口均值，不能把请求数当成独立重复次数。每轮 `host_process_memory` 另记录
 collector start 前和 stop/close 后的整进程 RSS、差值及实际内存缓冲样本数；RSS 包含非采集器
 分配，不能据此归因单个 collector，也不能把 `raw_sample_limit` 解释为进程内存上限。
+报告同时保存各采集器/嵌套 buffer 的 retention、周期迟到/跳过/回调错误、逐指标质量，
+以及窗口结束后序列化的未压缩 `telemetry_json_bytes` 估算和序列化耗时。未知存储大小不当成零；
+CPU 秒、CPU 百分比、RSS 差值和已知 JSON 字节数给出同轮配对均值差，不用它们声称单采集器独占开销。
 负值表示该次对照中更快，不能直接解释成监测器提升了推理性能；区间跨零时没有检测到稳定方向。
 所有报告均在窗口结束后写出，新目录保护失败和中断证据。正式采集的 monitor 生命周期保持原协议。
 

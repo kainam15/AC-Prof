@@ -39,8 +39,9 @@ NVML 查询与聚合已经复用。Process 增加显存比例、SM/显存频率�
 缺查询支持不抹掉其它有效读数；有缺口的已知值标 partial，不能声称完整验证。
 不同状态采样频率不能直接当作等口径比较。
 
-`resource_metric_quality` 保存逐指标质量/原因，完整 `source/scope/window/quality/derivation`
-在原始 telemetry 中；它和新增数值字段进入 resources 层。缺字段的历史行保持 unknown。
+`resource_metric_quality` 使用 `{"schema_version":1,"metrics":{...}}` 保存逐指标
+`source/scope/window/quality/derivation/reason` 及采样口径；原始 telemetry 保留独立证据。
+它和新增数值字段进入 resources 层，读取端兼容早期无 wrapper 的映射。缺字段的历史行保持 unknown。
 嵌套 process/cgroup 的 raw 保留数量参与精确重算检查，截断不宣称可精确重算。
 Process 样本数在自己的 raw retention 中，新的 Process 行不再借用来源为 cgroup 的 `resource_usage_iters`。
 
@@ -81,20 +82,26 @@ RSS ↔ cgroup memory、HTTP bytes ↔ PCAP、设备能量 ↔ 模型归因均�
 
 无额外采样：请求结果派生、准备阶段静态信息。低开销候选：首尾计数器、轻量
 procfs/psutil 读取；周期 CPU/GPU 遥测按中等开销管理；PCAP 与深度 Profiler 按高开销管理。
-这是设计分级，**不是实测结论**。保留 Basic / Full，不新增预设。
+这是设计分级，**不是实测结论**。本轮保留 Basic / Full 兼容，不新增运行预设。
+后续取消模式，按采集器能力独立启用，详见 [P2 调研与接入设计](../profiling/collector-capabilities.md)。
 USS/PSS 遍历映射且权限更严格，不默认高频读取；FD、Swap、缺页和 I/O 优先窗口边界。
 温度、频率、P-state 不要求跟随高频利用率查询。
 
 Process cgroup 只能使用经验证的独立服务 cgroup，共享父级不能归因到服务。
-读取权限与限制权限分别判断，不把可读目录误认为可写委派。Process Full 的能耗、
+读取权限与限制权限分别判断，不把可读目录误认为可写委派。Process 能力驱动的能耗、
 PID/thread perf、PCAP 及 Torch/NCU/Nsys/Massif 必须处理准入、身份、清理及补采来源，
 不能只移除 basic 限制。PMU 保留线程继承、退出子进程、multiplex running ratio 和实际窗口；
 CPU 时间能耗归因必须标记为估算。
+当前 Docker perf 使用容器根 PID 与任务继承，不是 cgroup PMU；覆盖矩阵按实际命令标记。
 
 开销验收复用 `scripts/measure_overhead.py`：同硬件、model revision、输入和资源条件，
 按 round 配对 none / enabled，记录延迟、采集进程 CPU/RSS、采样丢失/迟到、窗口偏移及存储成本。
 未经明确授权不执行真实配对实验；Mock 只验证计算和边界。跨 Runtime 比较须逐指标检查
 来源、scope、window、derivation、质量及已有 workload/hardware/输入身份，不能仅因同名放开。
+报告的 CPU、Memory、I/O、GPU 分组展示共同字段，表头/数值提示与“所选配置的质量证据”
+展示范围、窗口、采样和逐项质量。已知不完整读数保留原始值，不进入汇总、统计区间或差值；
+历史没有质量证据时沿用原统计筛选，同时明确 unknown。独立实验比较增加指标口径校验，
+Runtime、模型、输入和硬件的既有条件检查仍然生效；本轮不自动放开跨 Runtime 受控比较。
 
 ## 参考与复用决定
 

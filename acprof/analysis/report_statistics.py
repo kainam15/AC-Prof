@@ -17,6 +17,7 @@ from acprof.quality import QUALITY_FIELDS
 from acprof.results.csv import ResultValidationError, measurement_key
 from acprof.results.layout import ArtifactLayout
 from acprof.results.metrics import METRICS
+from acprof.results.profile import metric_observation, metric_usable, observation_signature
 
 _PARAMETERS = ("confidence", "resamples", "seed", "block_size", "method", "resampling_unit", "filter", "assumption")
 _IDENTITY = ("cpu_cores", "mem_cap_gb", "gpu_mode", "input_scale", "environment_class",
@@ -128,15 +129,19 @@ def _config_summary(entries, source, metrics, options, *, include_intervals, inc
         metric = group["metric"]
         identity = tuple(group.get(key) for key in _IDENTITY)
         matching = indexed.get(identity, [])
+        mixed = len({observation_signature(metric_observation(row, metric)) for row in matching
+                     if number(row.get(metric)) is not None and metric_usable(row, metric)}) > 1
         for row in matching:
-            if number(row.get(metric)) is None:
+            if mixed:
+                reasons['mixed_metric_contract'] += 1
+            elif number(row.get(metric)) is None or not metric_usable(row, metric):
                 reasons[resolver.for_row(row)(metric)] += 1
         group.update(config_id=entries[0]["config_id"], missing_reasons=dict(reasons), excluded_windows=excluded)
         if include_inputs:
             if identity not in ordered_by_identity:
                 ordered_by_identity[identity] = sorted(matching, key=lambda sample: float(sample["repeat_idx"]))
             ordered = ordered_by_identity[identity]
-            group.update(values=[number(row.get(metric)) for row in ordered],
+            group.update(values=[number(row.get(metric)) if not mixed and metric_usable(row, metric) else None for row in ordered],
                          repeat_indices=[float(row["repeat_idx"]) for row in ordered])
         yield group
 

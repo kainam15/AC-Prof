@@ -10,6 +10,7 @@ from acprof.analysis.conditions import (
 )
 from acprof.analysis.model import AnalysisModel
 from acprof.results.metrics import ANALYSIS_METRICS
+from acprof.results.profile import observations_comparable
 
 
 def resource_qualification(left: dict, right: dict) -> dict:
@@ -71,7 +72,8 @@ def build_baseline_comparisons(model: AnalysisModel) -> dict:
             if comparable:
                 for name, metric in config["metrics"].items():
                     reference = baseline["metrics"][name]["value"]
-                    if reference is not None and metric["value"] is not None:
+                    if reference is not None and metric["value"] is not None and observations_comparable(
+                        baseline.get('metric_observations', {}).get(name, []), config.get('metric_observations', {}).get(name, [])):
                         metrics[name] = metric_change(reference, metric["value"], direction=ANALYSIS_METRICS[name].direction)
             pairs[config["config_id"]] = {"resource": intern(resource),
                                          "policies": {name: intern(check) for name, check in policies.items()},

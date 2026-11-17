@@ -272,7 +272,8 @@ class ResourceUsageMonitor:
             max(0.0, self._t_end - self._t_start),
         )
         result.metric_evidence = gpu_metric_evidence(asdict(result), self.gpu_query_errors,
-            requested=self.use_gpu, initialization_error=self._gpu_initialization_error)
+            requested=self.use_gpu, initialization_error=self._gpu_initialization_error,
+            sampling={'interval_s': self.dt, 'policy': self.sampling_policy, 'state_interval_s': self.dt})
         result.required_error = '; '.join(filter(None, (self._init_error, *sorted(self._required_errors))))
         if self._process_monitor is not None:
             from acprof.monitors.process_usage import ProcessUsageResult
@@ -280,7 +281,8 @@ class ResourceUsageMonitor:
                 if self._t_start <= sample['timestamp'] <= self._t_end), key=lambda sample: sample['timestamp'])
             process_result, process_error, _ = self._process_monitor.finish_samples()
             result = ProcessUsageResult(**{**asdict(process_result), **asdict(result), 'optional_error': process_error,
-                'metric_evidence': {**process_result.metric_evidence, **result.metric_evidence}})
+                'metric_evidence': {**{name: item for name, item in process_result.metric_evidence.items()
+                    if not name.startswith('service_cgroup_')}, **result.metric_evidence}})
         return ResourceStopResult(
             result,
             self._error_message(),

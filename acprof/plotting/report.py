@@ -27,7 +27,8 @@ from acprof.analysis.report_statistics import build_report_statistics, write_win
 from acprof.analysis.resource_comparison import build_baseline_comparisons
 from acprof.artifacts import atomic_write
 from acprof.quality import QUALITY_FIELDS
-from acprof.results.metrics import ANALYSIS_METRICS, VIEW_METRICS
+from acprof.results.metrics import ANALYSIS_METRICS, METRICS, VIEW_METRICS
+from acprof.results.profile import metric_observation
 from acprof.system.cleanup import cleanup_on_exit
 
 
@@ -55,7 +56,9 @@ def report_payload(model: AnalysisModel, baseline: str | None = None, *, compari
             "comparison_purpose": comparison_purpose,
             "comparison_policies": {purpose: {"allowed_resource_dimensions":
                 ALLOWED_RESOURCE_DIMENSIONS if purpose == "resource-scaling" else []} for purpose in PURPOSES},
-            "registry": {name: ANALYSIS_METRICS[name].to_dict() for name in VIEW_METRICS},
+            "registry": {name: {**ANALYSIS_METRICS[name].to_dict(),
+                **({'observation_contract': metric_observation({}, name)}
+                   if name in METRICS else {})} for name in VIEW_METRICS},
             "default_matrix": DEFAULT_MATRIX, "summary_fields": SUMMARY_FIELDS,
             "overview": [{"source": source["path"], "identity": {
                 key: source["metadata"].get(key, "unknown") for key in (

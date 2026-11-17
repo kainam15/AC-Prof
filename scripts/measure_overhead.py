@@ -1,4 +1,4 @@
-"""以原实验的固定镜像和输入，诊断 RAPL/NVML/cgroup 监测线程对请求的影响。"""
+"""复用已完成 Docker / Process 实验的固定制品和输入，诊断采集开销。"""
 from __future__ import annotations
 
 import argparse
@@ -50,6 +50,8 @@ if TYPE_CHECKING:
 
 
 def summarize_overhead(rows, *, seed=0):
+    if len({row.get('runtime_kind', 'docker') for row in rows}) > 1:
+        raise ValueError('不同 Runtime 的窗口不能作为同一组配对实验')
     groups: defaultdict[str, dict[int, float]] = defaultdict(dict)
     for row in rows:
         round_index, scenario = row["round"], row["scenario"]
@@ -78,7 +80,45 @@ def summarize_overhead(rows, *, seed=0):
                        "latency_mean_s": statistics.fmean(values.values()),
                        "latency_stdev_s": statistics.stdev(values.values()) if len(values) > 1 else None,
                        "ci_low_pct": low, "ci_high_pct": high})
+        paired = {item['round']: item for item in rows if item['scenario'] == scenario}
+        reference = {item['round']: item for item in rows if item['scenario'] == 'none'}
+        for field in ('host_process_cpu_s', 'host_process_cpu_pct', 'telemetry_json_bytes'):
+            if all(isinstance(item.get(field), (int, float)) and math.isfinite(item[field])
+                   for item in [*paired.values(), *reference.values()]):
+                result[-1][f'paired_mean_delta_{field}'] = statistics.fmean(
+                    paired[index][field] - reference[index][field] for index in paired)
+        memory = [item.get('host_process_memory', {}).get('rss_delta_bytes') for item in [*paired.values(), *reference.values()]]
+        if all(isinstance(value, (int, float)) and math.isfinite(value) for value in memory):
+            result[-1]['paired_mean_delta_rss_bytes'] = statistics.fmean(
+                paired[index]['host_process_memory']['rss_delta_bytes'] - reference[index]['host_process_memory']['rss_delta_bytes']
+                for index in paired)
     return result
+
+
+def _collector_observation(name, monitor, value) -> dict:
+    """Inspect retained evidence after shutdown; no extra hardware reads."""
+    from acprof.telemetry import finite_json
+    sampling = getattr(monitor, 'sampling_diagnostics', None)
+    samples = getattr(monitor, 'samples', None)
+    result = value.metrics
+    quality = getattr(result, 'metric_evidence', {})
+    snapshot = getattr(monitor, 'telemetry_snapshot', None)
+    started = time.perf_counter()
+    raw = snapshot() if callable(snapshot) else None
+    encoded = json.dumps(finite_json(raw), ensure_ascii=False, allow_nan=False).encode() if isinstance(raw, dict) else None
+    required_error = getattr(result, 'required_error', None)
+    def buffers(item):
+        return {'retention': item.get('retention'), **{key: buffers(child) for key in ('process', 'cgroup')
+            if isinstance(child := item.get(key), dict)}}
+    return {'collector': name, 'monitor': type(monitor).__name__,
+            'samples': len(samples) if isinstance(samples, list) else len(value.samples),
+            'error': value.error, 'required_error': value.error if required_error is None else required_error,
+            'metric_quality': quality if isinstance(quality, dict) else {},
+            'sampling': sampling.snapshot() if isinstance(sampling, SamplingDiagnostics) else None,
+            'retention': raw.get('retention') if isinstance(raw, dict) else None,
+            'buffers': buffers(raw) if isinstance(raw, dict) else None,
+            'telemetry_json_bytes': len(encoded) if encoded is not None else None,
+            'telemetry_serialization_s': time.perf_counter() - started}
 
 
 def _write_window_boundaries(monitors: MonitorGroup, path: Path | None, *, token: str,
@@ -157,13 +197,8 @@ def measure_window(url, payload, *, count, monitors: MonitorGroup, token,
         if not isinstance(value, (CPUStopResult, GPUStopResult, ResourceStopResult)):
             raise TypeError(f"{name} returned an invalid typed collector result")
         monitor = monitors.monitors[name]
-        sampling = getattr(monitor, "sampling_diagnostics", None)
-        stopped.append({
-            "collector": name, "monitor": type(monitor).__name__,
-            "samples": len(value.samples), "error": value.error,
-            "sampling": sampling.snapshot() if isinstance(sampling, SamplingDiagnostics) else None,
-        })
-    if any(item["error"] or item["samples"] < 2 for item in stopped):
+        stopped.append(_collector_observation(name, monitor, value))
+    if any(item['required_error'] or item["samples"] < 2 for item in stopped):
         raise RuntimeError(f"监测器未取得有效窗口：{stopped}")
     perf = cast("MIPSResult | None", monitors.results.get("mips"))
     perf_result = asdict(perf) if perf is not None else None
@@ -180,6 +215,12 @@ def measure_window(url, payload, *, count, monitors: MonitorGroup, token,
                           "includes non-collector allocations and retained buffers; delta is not collector-exclusive"),
             },
             "lifecycle_wall_s": time.perf_counter() - lifecycle, "monitors": stopped,
+            'collector_coverage_complete': all(not item['error'] and all(
+                evidence.get('quality') in {'complete', 'not_requested'} for evidence in item['metric_quality'].values())
+                for item in stopped),
+            'telemetry_json_bytes': sum(item['telemetry_json_bytes'] for item in stopped)
+                if all(item['telemetry_json_bytes'] is not None for item in stopped) else None,
+            'telemetry_storage_scope': 'uncompressed JSON estimate of retained raw evidence, serialized after request timing',
             "perf": perf_result, "workload_contracts": [
                 {"count": n, "contract": json.loads(contract)} for contract, n in contracts.items()]}
     if boundary_output is not None and diagnostics is not None:
@@ -224,7 +265,12 @@ def measure_profile_window(session, entry, *, scenario, rate, count, name, cpu, 
     from acprof.monitors.energy_cpu import CPUEnergyMonitor
     from acprof.monitors.energy_nvml import GPUEnergyMonitor
     from acprof.monitors.perf_mips import PerfMIPSMonitor
+    from acprof.monitors.process_usage import ProcessUsageMonitor
     from acprof.monitors.resource_usage import ResourceUsageMonitor
+
+    process_runtime = getattr(session, 'runtime_kind', 'docker') == 'process'
+    if process_runtime and scenario == 'full':
+        raise ValueError('Process 高级采集尚未接入本轮开销对照')
 
     idle = float(options["idle_seconds"])
     device = session.gpu_device
@@ -261,10 +307,18 @@ def measure_profile_window(session, entry, *, scenario, rate, count, name, cpu, 
                              sampling_policy=sampling_policy))
                 monitors.add("mips", PerfMIPSMonitor(name))
             if scenario in {"basic", "full"}:
-                monitors.add("resource", ResourceUsageMonitor(sample_hz=rate, container_name=name,
+                resource: ProcessUsageMonitor | ResourceUsageMonitor
+                if process_runtime:
+                    resource = ProcessUsageMonitor(pid=session.process.pid,
+                        start_ticks=session.process.identity['start_ticks'], resource_plan=session.resource_plan,
+                        sample_hz=rate, use_gpu=gpu == 'on', device_uuid=device.get('uuid', ''),
+                        sampling_policy=sampling_policy)
+                else:
+                    resource = ResourceUsageMonitor(sample_hz=rate, container_name=name,
                              cpu_cores=cpu, mem_cap_gb=mem, use_gpu=gpu == "on",
                              device_index=device.get("index", 0), device_uuid=device.get("uuid", ""),
-                             sampling_policy=sampling_policy))
+                             sampling_policy=sampling_policy)
+                monitors.add('resource', resource)
             time.sleep(float(options["idle_cooldown_seconds"]))
             if scenario == "full":
                 def control():
@@ -301,15 +355,15 @@ def measure_profile_window(session, entry, *, scenario, rate, count, name, cpu, 
 
 
 def select_source_case(options: dict, plan: dict, *, cpu: int | None = None,
-                       mem: int | None = None, input_scale: float | None = None) -> tuple[dict, int, int]:
+                       mem: int | None = None, input_scale: float | None = None) -> tuple[dict, int | None, int | None]:
     """Select only coordinates and the unchanged payload from the frozen source run."""
-    cpus = tuple(map(int, options["cpus"].split(",")))
-    mems = tuple(map(int, options["mems"].split(",")))
-    cpu = max(cpus) if cpu is None else cpu
-    mem = max(mems) if mem is None else mem
-    if cpu <= 0 or cpu not in cpus:
+    cpus = (None,) if options['cpus'] == 'auto' else tuple(map(int, options["cpus"].split(",")))
+    mems = (None,) if options['mems'] == 'auto' else tuple(map(int, options["mems"].split(",")))
+    cpu = max((value for value in cpus if value is not None), default=None) if cpu is None else cpu
+    mem = max((value for value in mems if value is not None), default=None) if mem is None else mem
+    if cpu not in cpus or cpu is not None and cpu <= 0:
         raise ValueError(f"--cpu 必须选择源实验中的 CPU 配额：{cpus}")
-    if mem <= 0 or mem not in mems:
+    if mem not in mems or mem is not None and mem <= 0:
         raise ValueError(f"--mem 必须选择源实验中的内存配额：{mems}")
     entries = plan.get("entries", [])
     if not entries:
@@ -361,9 +415,7 @@ def main(argv=None):
     if any(output.iterdir()):
         parser.error("诊断输出目录必须为空")
     from acprof.host.detect import TaskInfo
-    from acprof.host.docker_runtime import start_container_session, stop_container_session
     from acprof.host.env_utils import bootstrap_project_env
-    from acprof.host.images.runtime import ImageInfo, require_image_identity
     from acprof.host.run_state import MeasurementLock, file_sha256, host_identity, load_run_state
     from acprof.monitors.energy_cpu import CPUEnergyMonitor
     from acprof.monitors.energy_nvml import GPUEnergyMonitor
@@ -372,11 +424,27 @@ def main(argv=None):
     bootstrap_project_env(ROOT)
 
     source = args.source.resolve()
-    state = load_run_state(source)
+    state = cast(dict[str, Any], load_run_state(source))
     if state.get("status") != "complete" or args.gpu not in state["options"]["gpus"].split(","):
         parser.error("需要已完成且包含所选设备的新实验")
     snapshot = state["runtime"]
-    task, image = TaskInfo(**snapshot["task"]), ImageInfo(**snapshot["image"])
+    runtime_kind = snapshot.get('kind', 'docker')
+    from acprof.host.runtimes.contracts import ProcessInfo, RuntimeArtifact, runtime_identity
+    task = TaskInfo(**snapshot['task'])
+    image: RuntimeArtifact
+    process_runtime = None
+    if runtime_kind == 'process':
+        from acprof.host.runtimes.process import ProcessRuntime
+        if modes and 'full' in modes:
+            parser.error('Process 本轮仅支持现有低开销采集器对照；高级采集后续按能力接入')
+        process_runtime = ProcessRuntime()
+        image = process_runtime.restore(snapshot['image'], output_dir=output)
+    elif runtime_kind == 'docker':
+        from acprof.host.docker_runtime import start_container_session, stop_container_session
+        from acprof.host.images.runtime import ImageInfo, require_image_identity
+        image = ImageInfo(**snapshot['image'])
+    else:
+        parser.error(f'不支持的 Runtime: {runtime_kind}')
     from acprof.results.layout import ArtifactLayout
     plan_path = ArtifactLayout.discover(source).path("input_scale_plan.json")
     expected_hash = state["artifacts"].get(str(plan_path.relative_to(source)))
@@ -392,7 +460,9 @@ def main(argv=None):
     conditions = ExecutionConditions.from_options(state["options"], gpu=args.gpu)
     recorded_environment = conditions.environment
     report: dict[str, Any] = {"schema_version": 2, "kind": "collection_overhead_diagnostic" if modes else "monitor_overhead_diagnostic", "successful": False,
-              "source_run_id": state["run_id"], "image_id": image.tag, "model_revision": task.model_revision,
+              "source_run_id": state["run_id"], "image_id": runtime_identity(image) if runtime_kind == 'docker' else None,
+              'runtime_kind': runtime_kind, 'runtime_id': runtime_identity(image),
+              "model_revision": task.model_revision,
               "gpu_mode": args.gpu, "cpu_cores": cpu, "mem_cap_gb": mem, "input_scale": entry["input_scale"],
               "input_scale_plan_sha256": expected_hash, "seed": args.seed, "rounds": [],
               "payload_sha256": hashlib.sha256(json.dumps(entry["payload"], sort_keys=True).encode()).hexdigest(),
@@ -412,12 +482,24 @@ def main(argv=None):
             "scope": "request windows only; existing logical timestamps, exact counter-read instants unknown",
             "adds_diagnostic_overhead": True,
         }
+    if process_runtime:
+        report['scope'] = '同一常驻 Process 服务、固定输入和线程；仅现有低开销进程/cgroup/NVML 资源采集器与 none 配对，不包含能耗、PMU、PCAP 或 Profiler'
+        report['host_process_cpu_scope'] = 'time.process_time during request loop; observer Python process only; excludes model service and collector start/stop; one core is 100%'
     try:
-        with MeasurementLock(), conditions.activate() as device:
+        with MeasurementLock(), conditions.activate(process_gpu=image.runtime_environment.get('gpu_device', {})
+                                                    if process_runtime else None) as device:
             report["gpu_device"] = device
-            require_image_identity(image.tag, image.runtime_environment)
-            session = start_container_session(task, cpu, mem, args.gpu, image, name, "[overhead]",
-                                               **conditions.container_options)
+            if process_runtime:
+                assert isinstance(image, ProcessInfo)
+                session = process_runtime.start(task, cpu, mem, args.gpu, image, name, '[overhead]',
+                                                **conditions.container_options)
+            else:
+                assert isinstance(image, ImageInfo)
+                if cpu is None or mem is None:
+                    raise ValueError('Docker source requires recorded CPU and memory limits')
+                require_image_identity(image.tag, image.runtime_environment)
+                session = start_container_session(task, cpu, mem, args.gpu, image, name, "[overhead]",
+                                                   **conditions.container_options)
             name = session.name
             try:
                 from acprof.host.hardware_conditions import record_case_conditions
@@ -436,20 +518,24 @@ def main(argv=None):
                     )
                     rng.shuffle(scenarios)
                     for scenario, rate, policy in scenarios:
-                        if modes:
+                        if modes or process_runtime:
                             result = measure_profile_window(
-                                session, entry, scenario=scenario, rate=rate, count=args.requests,
+                                session, entry, scenario=('basic' if policy is not None else 'none')
+                                if process_runtime and not modes else scenario, rate=rate, count=args.requests,
                                 name=name, cpu=cpu, mem=mem, gpu=args.gpu,
                                 token=f"overhead-{round_index}-{scenario}", output=output,
                                 options=state["options"], window_boundaries=args.window_boundaries,
                                 sampling_policy=policy or policies[0])
                             report["rounds"].append({"round": round_index, "scenario": scenario,
+                                                     'runtime_kind': runtime_kind,
                                                      "sampling_policy": policy,
                                                      "sample_hz": rate if policy else None, **result})
                             atomic_write_json(output / "overhead.json", report)
                             print(f"[overhead] round={round_index + 1} {scenario}: {result['latency_app_s']:.6f}s/request", flush=True)
                             continue
                         # 监测器初始化与文件输出均不计入请求计时。
+                        assert cpu is not None
+                        assert mem is not None
                         monitors = MonitorGroup(diagnostics=WindowBoundaryDiagnostics() if args.window_boundaries else None)
                         token = f"overhead-{round_index}-{scenario}"
                         boundary_output = output / f"{token}.boundaries.json" if args.window_boundaries else None
@@ -481,14 +567,20 @@ def main(argv=None):
                                                 monitors=monitors, token=token, boundary_output=boundary_output,
                                                 timeout=conditions.request_timeout_seconds)
                         report["rounds"].append({"round": round_index, "scenario": scenario,
+                                                 'runtime_kind': runtime_kind,
                                                  "sampling_policy": policy,
                                                  "sample_hz": rate if policy else None, **result})
                         atomic_write_json(output / "overhead.json", report)
                         print(f"[overhead] round={round_index + 1} {scenario}: {result['latency_app_s']:.6f}s/request", flush=True)
                 report["comparisons"] = summarize_overhead(report["rounds"], seed=args.seed)
                 report["successful"] = True
+                report['collector_coverage_complete'] = all(row.get('collector_coverage_complete', False)
+                                                            for row in report['rounds'])
             finally:
-                stop_container_session(session, "[overhead]")
+                if process_runtime:
+                    process_runtime.stop(session, log_prefix='[overhead]')
+                else:
+                    stop_container_session(session, "[overhead]")
     except BaseException as error:
         report["successful"] = False
         report["error"] = str(error)

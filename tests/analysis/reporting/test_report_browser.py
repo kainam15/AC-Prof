@@ -119,6 +119,48 @@ class TestReportBrowser:
         assert (self.remote_requests) == ([])
         assert (self.page.locator("#error").is_hidden())
 
+    def test_imported_process_quality_and_scope_survive_display(self):
+        import io
+        fields = ['cpu_cores', 'mem_cap_gb', 'gpu_mode', 'input_scale', 'repeat_idx', 'warmup',
+                  'status', 'runtime_kind', 'process_rss_avg_bytes', 'process_io_read_bytes', 'resource_metric_quality']
+        stream = io.StringIO()
+        writer = csv.DictWriter(stream, fields)
+        writer.writeheader()
+        writer.writerow(dict(zip(fields, [1, 4, 'off', 1, 0, 0, 'ok', 'process', 100, 512,
+            json.dumps({'schema_version': 1, 'metrics': {
+                'process_rss_avg_bytes': {'quality': 'complete'},
+                'process_io_read_bytes': {'quality': 'partial', 'reason': 'permission_denied'}}})], strict=True)))
+        result = self.page.evaluate('''async csv => {
+            const data = JSON.parse(document.getElementById('report-data').textContent);
+            return await ACProfImport.readCsv(new File([csv], 'process.csv'), data.registry);
+        }''', stream.getvalue())
+        config = result['configs'][0]
+        assert config['metrics']['process_rss_avg_bytes']['value'] == 100
+        assert config['metrics']['process_io_read_bytes']['value'] is None
+        assert config['metric_observations']['process_io_read_bytes'][0]['quality'] == 'partial'
+        assert config['metric_observations']['process_rss_avg_bytes'][0]['scope'] == 'observed_process_tree'
+        assert self.page.evaluate('''() => JSON.parse(document.getElementById('report-data').textContent)
+            .registry.container_mem_usage_peak_bytes.observation_contract.scope''') == 'container_cgroup'
+        from tests.analysis.reporting.test_report_import import import_file
+        import_file(self.page, 'process.csv', stream.getvalue())
+        self.page.click('[data-view=matrix]')
+        self.page.select_option('#preset', 'Memory')
+        self.settled()
+        target = self.page.locator('#matrix tbody tr').filter(has_text='process.csv')
+        target.click()
+        self.settled()
+        self.page.locator('#quality-evidence summary').click()
+        evidence = json.loads(self.page.locator('#quality-detail').inner_text())
+        assert evidence['metric_observations']['process_io_read_bytes'][0]['quality'] == 'partial'
+        assert target.locator('td[title*="process_rss_avg_bytes"]').get_attribute('title').find('observed_process_tree') >= 0
+        if self.artifacts:
+            self.page.screenshot(path=str(self.artifacts / 'runtime-quality.png'), full_page=True)
+            (self.artifacts / 'runtime-quality-dom.html').write_text(self.page.content())
+            (self.artifacts / 'runtime-quality.json').write_text(json.dumps({
+                'evidence': evidence, 'page_errors': self.errors, 'remote_requests': self.remote_requests,
+                'console': self.console}, ensure_ascii=False, indent=2))
+        self.settled()
+
     def test_browser_bootstrap_matches_python_with_fixed_inputs_and_seeds(self):
         from acprof.analysis.uncertainty import summarize_windows
         from tests.analysis.reporting.test_report_statistics import row

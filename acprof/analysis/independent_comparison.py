@@ -15,7 +15,7 @@ from acprof.analysis.audit import number
 from acprof.analysis.changes import metric_change
 from acprof.analysis.comparison import compare_snapshots, load_comparison_snapshot
 from acprof.analysis.conditions import ALLOWED_RESOURCE_DIMENSIONS
-from acprof.analysis.uncertainty import validate_window_options
+from acprof.analysis.uncertainty import _finite_metric_values, validate_window_options
 from acprof.artifacts import file_sha256
 from acprof.hardware_conditions import conditions_path
 from acprof.quality import QUALITY_FIELDS, combine_quality
@@ -127,7 +127,7 @@ def _collect_run_case_groups(
         failed_count = sum(result_row_status(row) != "ok" for row in windows)
         inferred_count = sum(row.get("result_origin", "").strip() == "inferred_not_measured" for row in windows)
         for metric in metrics:
-            window_values = [value for row in measured if (value := number(row.get(metric))) is not None]
+            window_values = _finite_metric_values(measured, metric)
             groups[(*comparison_case, metric)] = {
                 "run_id": run_id,
                 "mean": statistics.fmean(window_values) if window_values and complete else None,

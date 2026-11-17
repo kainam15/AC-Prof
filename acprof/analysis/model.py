@@ -26,7 +26,8 @@ from acprof.results.csv import (
 )
 from acprof.results.layout import expand_result_sources
 from acprof.results.metadata import ResultMetadataSnapshot
-from acprof.results.metrics import ANALYSIS_METRICS, VIEW_METRICS
+from acprof.results.metrics import ANALYSIS_METRICS, METRICS, VIEW_METRICS
+from acprof.results.profile import metric_observation, metric_usable, observation_signature
 
 DIMENSIONS = ("run_id", "model", "runtime", "device", "cpu", "memory", "gpu", "concurrency",
               "environment_class", "task", "input_case", "experiment_batch",
@@ -124,7 +125,7 @@ def _summarize(entries, name):
     valid: list[tuple[dict, float]] = []
     for entry in entries:
         numeric = number(entry["values"].get(name))
-        if entry["eligible"] and numeric is not None:
+        if entry["eligible"] and numeric is not None and metric_usable(entry['row'], name):
             valid.append((entry, numeric))
     n_windows = len(valid)
     if metric.aggregation == "lifecycle":
@@ -140,7 +141,8 @@ def _summarize(entries, name):
         values = [value for _, value in valid]
     value: float | None = None
     missing = sum(entry["eligible"] for entry in entries) - n_windows
-    if values:
+    signatures = {observation_signature(metric_observation(entry['row'], name)) for entry, _ in valid} if name in METRICS else set()
+    if values and len(signatures) <= 1:
         if metric.aggregation == "sum":
             # A partial sum would masquerade as the energy of all successful windows.
             value = sum(values) if not missing else None
@@ -172,6 +174,7 @@ class AnalysisModel:
         return [{**{key: entry[key] for key in DIMENSIONS}, "config_id": entry["config_id"],
                  "metric": name, "value": value, "unit": ANALYSIS_METRICS[name].unit,
                  "evidence": _evidence(name, entry["row"]), "eligible": entry["eligible"],
+                 "observation": metric_observation(entry['row'], name) if name in METRICS else None,
                  "source": entry["source"], "source_row": entry["source_row"],
                  **{key: entry[key] for key in QUALITY_FIELDS}}
                 for entry in self.raw_rows for name, value in entry["values"].items()]
@@ -226,6 +229,10 @@ def _build_analysis_configs(
         config["comparison_profiles"] = {purpose: comparisons[rows[0]["source"]].profile(
             purpose=purpose, case=case) for purpose in PURPOSES}
         config["comparability"] = config["comparison_profiles"]["same-hardware"]["status"]
+        config['metric_observations'] = {name: list({
+            _canonical(metric_observation(entry['row'], name)): metric_observation(entry['row'], name)
+            for entry in formal}.values()) for name in VIEW_METRICS if name in METRICS
+            and any(name in entry['row'] for entry in formal)}
         config.update(config_id=config_id, status=status, valid_windows=valid,
                       input_scale=number(rows[0]["row"].get("input_scale")),
                       excluded_rows=len(rows) - valid, source=rows[0]["source"],

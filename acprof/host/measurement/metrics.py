@@ -452,9 +452,8 @@ class WindowMetrics:
             "process_resource_error": (observations.resource_error if self.config.runtime_kind == "process" else
                                        getattr(observations.resource_result, 'optional_error', '')),
             "process_resource_status": getattr(observations.resource_result, "process_resource_status", "not_requested"),
-            "resource_metric_quality": json.dumps({name: {key: value for key, value in evidence.items()
-                if key in {'quality', 'reason'}} for name, evidence in
-                getattr(observations.resource_result, 'metric_evidence', {}).items()},
+            "resource_metric_quality": json.dumps({'schema_version': 1, 'metrics':
+                getattr(observations.resource_result, 'metric_evidence', {})},
                 ensure_ascii=False, separators=(',', ':')),
             "gpu_utilization_status": gpu_status("utilization", ("gpu_util_avg_pct", "gpu_util_peak_pct")),
             "gpu_memory_status": gpu_status("memory", ("gpu_mem_used_avg_bytes", "gpu_mem_used_peak_bytes")),

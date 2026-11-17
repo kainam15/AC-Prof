@@ -160,7 +160,8 @@
     header.append(element("th", "配置 / 状态"));
     for (const name of metrics) {
       const cell = element("th"), button = element("button", registry[name].label + " " + direction(name));
-      button.title = `排序 · ${name}`;
+      const contract = registry[name].observation_contract;
+      button.title = `排序 · ${name}` + (contract ? ` · ${contract.source} · ${contract.scope} · ${contract.window}` : "");
       cell.setAttribute("aria-sort", state.sort === name ? (state.descending ? "descending" : "ascending") : "none");
       button.onclick = () => { state.descending = state.sort === name ? !state.descending : false; state.sort = name; schedule(); };
       cell.append(button, element("small", registry[name].unit)); header.append(cell);
@@ -195,6 +196,7 @@
         if (score != null) cell.style.backgroundColor = `hsl(${12 + 140 * score} 43% 91%)`;
         const stats = config.metrics[name];
         cell.title = `${name} · ${registry[name].unit} · ${stats.aggregation} · n=${stats.n} · missing=${stats.missing}`;
+        cell.title += ` · ${JSON.stringify(config.metric_observations?.[name] || registry[name].observation_contract || {})}`;
         if (baseline) {
           const change = comparison.delta(config, name);
           const content = change.delta == null ? (change.reasons ? `${change.reason}: ${change.reasons.join(", ")}` : "— vs baseline") :
@@ -465,7 +467,8 @@
       measurement_status: selected.measurement_status, comparison: comparison.qualification(selected),
       comparison_profile: selected.comparison_profiles[purpose],
       quality_status: selected.quality_status, auto_selection_eligible: selected.auto_selection_eligible,
-      quality_reasons: selected.quality_reasons, quality_checks: selected.quality_checks}, null, 2) : "选择配置后查看状态、原因和原始证据。";
+      quality_reasons: selected.quality_reasons, quality_checks: selected.quality_checks,
+      metric_observations: selected.metric_observations || "历史结果未记录逐指标质量 / No recorded metric quality"}, null, 2) : "选择配置后查看状态、原因和原始证据。";
     $("selection").textContent = selected ? `已选：${fullLabel(selected)}${configs.includes(selected) ? "" : "（当前筛选隐藏）"}` :
       "点击表格行或图中数据点，可在各视图中定位同一配置。";
     for (const view of ["overview", "matrix", "pareto", "scaling", "statistics", "experiments", "quality"]) $(view + "-panel").hidden = state.view !== view;

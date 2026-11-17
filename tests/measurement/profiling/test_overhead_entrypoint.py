@@ -18,7 +18,7 @@ from scripts import measure_overhead
 class TestOverheadEntrypoint:
     def run_case(self, fail=False, *, extra_args=(), expected_cpu=2, expected_mem=4,
                  expected_scale=2, invalid=False, window_failure=False, publication_failure=False,
-                 rate_comparison=False):
+                 rate_comparison=False, process_runtime=False):
         with tempfile.TemporaryDirectory() as temporary, ExitStack() as stack:
             root = Path(temporary)
             source, output = root / "source", root / "output"
@@ -42,6 +42,18 @@ class TestOverheadEntrypoint:
                             "planned": {"scales": [2, 8], "source": "manual"},
                             "compute_plan": "", "execution_plan": ""},
                 "artifacts": {plan.name: hashlib.sha256(plan.read_bytes()).hexdigest()}}))
+            if process_runtime:
+                from dataclasses import asdict
+
+                from acprof.host.runtimes.contracts import ProcessInfo
+                state_path = source / 'run_state.json'
+                state = json.loads(state_path.read_text())
+                state['runtime']['kind'] = 'process'
+                state['options'].update(gpus='off')
+                info = ProcessInfo('/fixture/python', '/fixture/code', '/fixture/model', 'env-fixture')
+                state['runtime']['image'] = asdict(info)
+                state_path.write_text(json.dumps(state))
+                restore = stack.enter_context(patch('acprof.host.runtimes.process.ProcessRuntime.restore', return_value=info))
             stack.enter_context(patch.dict(os.environ, {"ACPROF_GPU_DEVICE": "GPU-caller", "DEVICE_INDEX": "1"}))
             stack.enter_context(patch("os.sched_getaffinity", return_value={1, 2, 3}))
             query = stack.enter_context(patch("acprof.host.gpu_device.resolve_gpu_device",
@@ -59,6 +71,14 @@ class TestOverheadEntrypoint:
                 return session
             start = stack.enter_context(patch("acprof.host.docker_runtime.start_container_session", side_effect=launch))
             stop = stack.enter_context(patch("acprof.host.docker_runtime.stop_container_session"))
+            docker_start, docker_stop = start, stop
+            if process_runtime:
+                session.runtime_kind = 'process'
+                session.process = SimpleNamespace(pid=123, identity={'start_ticks': 456})
+                session.resource_plan = {'method': 'inherited', 'verified': True}
+                session.gpu_device = {}
+                start = stack.enter_context(patch('acprof.host.runtimes.process.ProcessRuntime.start', return_value=session))
+                stop = stack.enter_context(patch('acprof.host.runtimes.process.ProcessRuntime.stop'))
             stack.enter_context(patch("acprof.host.hardware_conditions.observe_conditions",
                                       return_value={"cpu_affinity": ["1-2"], "errors": []}))
             def collector(result_type):
@@ -77,6 +97,8 @@ class TestOverheadEntrypoint:
                 ("resource_usage", "ResourceUsageMonitor", ResourceStopResult),
             ):
                 stack.enter_context(patch(f"acprof.monitors.{module}.{kind}", side_effect=collector(result_type)))
+            if process_runtime:
+                stack.enter_context(patch('acprof.monitors.process_usage.ProcessUsageMonitor', side_effect=collector(ResourceStopResult)))
             response = Mock(status_code=200)
             response.json.return_value = {}
             failures = [*[response] * 5, RuntimeError("fixture request failure")] if window_failure else (
@@ -85,7 +107,7 @@ class TestOverheadEntrypoint:
             if publication_failure:
                 stack.enter_context(patch("scripts.measure_overhead.atomic_write_json",
                                           side_effect=OSError("fixture disk full")))
-            arguments = [str(source), "--gpu", "on", "--rounds", "3", "--requests", "2",
+            arguments = [str(source), "--gpu", 'off' if process_runtime else "on", "--rounds", "3", "--requests", "2",
                          *([] if rate_comparison else ["--modes", "none,basic"]),
                          "--sample-hz", "20", "--output-dir", str(output), *extra_args]
             if invalid:
@@ -103,8 +125,16 @@ class TestOverheadEntrypoint:
             else:
                 assert (measure_overhead.main(arguments)) == (0)
             start.assert_called_once()
-            stop.assert_called_once_with(session, "[overhead]")
-            query.assert_called_once_with("GPU-recorded")
+            if process_runtime:
+                stop.assert_called_once_with(session, log_prefix='[overhead]')
+                restore.assert_called_once()
+                docker_start.assert_not_called()
+                docker_stop.assert_not_called()
+                query.assert_not_called()
+                assert post.call_count == (6 if window_failure else 1 if fail else 17)
+            else:
+                stop.assert_called_once_with(session, "[overhead]")
+                query.assert_called_once_with("GPU-recorded")
             assert (post.call_args.kwargs["timeout"]) == (17)
             assert (os.environ["ACPROF_GPU_DEVICE"]) == ("GPU-caller")
             if publication_failure:
@@ -114,7 +144,7 @@ class TestOverheadEntrypoint:
             report = json.loads((output / "overhead.json").read_text())
             assert (report["successful"]) == (not (fail or window_failure))
             assert (report["cpuset_cpus"]) == ("1-2")
-            assert (report["gpu_device_uuid"]) == ("GPU-recorded")
+            assert (report["gpu_device_uuid"]) == ('' if process_runtime else "GPU-recorded")
             assert (report["cpu_cores"], report["mem_cap_gb"], report["input_scale"]) == (
                 expected_cpu, expected_mem, expected_scale)
             assert post.call_args.kwargs["json"] == {"scale": expected_scale}
@@ -142,6 +172,15 @@ class TestOverheadEntrypoint:
 
     def test_entrypoint_restores_constraints_and_saves_successful_report(self):
         self.run_case()
+
+    def test_process_entrypoint_restores_artifact_without_docker(self):
+        report = self.run_case(process_runtime=True)
+        assert report['runtime_kind'] == 'process'
+        assert report['runtime_id'] == 'env-fixture'
+        assert report['image_id'] is None
+
+    def test_process_request_failure_preserves_cleanup(self):
+        self.run_case(process_runtime=True, window_failure=True)
 
     def test_entrypoint_request_failure_cleans_container_and_saves_failure(self):
         self.run_case(fail=True)

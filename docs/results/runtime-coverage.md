@@ -31,7 +31,7 @@
 | `nvml_selected_device` | `selected_gpu_device` | medium | Full; NVML counter or power integration; matched control | [energy_nvml.py](../../acprof/monitors/energy_nvml.py) |
 | `nvml_selected_device` | `selected_gpu_device` | medium | GPU UUID; NVML query support and permission | [resource_usage.py](../../acprof/monitors/resource_usage.py) |
 | `pcap` | `correlated_http_connection_frames` | high | Full; capture permission; complete request matching | [merge_packet_latency.py](../../acprof/packet/merge_packet_latency.py) |
-| `perf_stat` | `container_cgroup_pmu` | medium | Full; perf; PMU permission; valid running ratio | [perf_mips.py](../../acprof/monitors/perf_mips.py) |
+| `perf_stat` | `container_root_pid_pmu_with_inheritance` | medium | Full; perf; PID permission; thread coverage; valid running ratio | [perf_mips.py](../../acprof/monitors/perf_mips.py) |
 | `platform_identity` | `protocol_identity` | none | valid run identity | [metrics.py](../../acprof/host/measurement/metrics.py) |
 | `procfs_observed_process_tree` | `observed_process_tree` | low | Linux procfs; stable process membership | [process_usage.py](../../acprof/monitors/process_usage.py) |
 | `protocol` | `protocol_identity` | none | valid run identity | [metrics.py](../../acprof/host/measurement/metrics.py) |

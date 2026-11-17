@@ -10,6 +10,7 @@ from concurrent.futures import CancelledError
 from acprof.analysis.precision import assess_mean_precision, validate_precision_target
 from acprof.results.csv import is_measured_success, measurement_key
 from acprof.results.metrics import METRICS
+from acprof.results.profile import metric_observation, metric_usable, observation_signature
 
 WINDOW_FILTER = "status=ok and warmup=0 and result_origin!=inferred_not_measured"
 
@@ -59,14 +60,16 @@ def _collect_window_cases(rows, *, cancelled, precision_target):
 
 def _finite_metric_values(ordered, name: str) -> list[float]:
     values = []
+    signatures = set()
     for row in ordered:
         try:
             value = float(row.get(name, "nan"))
         except (ValueError, TypeError):
             value = float("nan")
-        if math.isfinite(value):
+        if math.isfinite(value) and metric_usable(row, name):
             values.append(value)
-    return values
+            signatures.add(observation_signature(metric_observation(row, name)))
+    return values if len(signatures) <= 1 else []
 
 
 def _precision_unavailable_reason(

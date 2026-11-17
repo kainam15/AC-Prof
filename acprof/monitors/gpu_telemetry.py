@@ -49,7 +49,7 @@ def read_gpu_sample(nvml: Any, handle: Any, on_error: Callable[[str, Exception],
 
 
 def gpu_metric_evidence(values: dict, errors: dict, *, requested: bool,
-                        initialization_error: str = '') -> dict:
+                        initialization_error: str = '', sampling: dict | None = None) -> dict:
     result = {}
     for query, names in GPU_QUERIES.items():
         for name in names:
@@ -64,4 +64,7 @@ def gpu_metric_evidence(values: dict, errors: dict, *, requested: bool,
             result[name] = {'source': 'nvml_selected_device', 'scope': 'selected_gpu_device',
                             'window': 'request_window', 'quality': quality,
                             'derivation': 'observed', 'reason': reason}
+            if sampling is not None:
+                result[name]['sampling'] = {key: value for key, value in sampling.items()
+                    if query not in {'utilization', 'memory'} or key != 'state_interval_s'}
     return result

@@ -72,8 +72,6 @@ class MissingReasons:
             return str(row.get("gpu_utilization_status", "unavailable"))
         if field in {"gpu_mem_used_avg_bytes", "gpu_mem_used_peak_bytes"}:
             return str(row.get("gpu_memory_status", "unavailable"))
-        if field in {"gpu_mem_util_avg_pct", "gpu_mem_util_peak_pct"}:
-            return "not_requested"
         return None
 
     def _tool_reason(self, tool: str, row: dict, reasons: dict[str, str | None]) -> str | None:
@@ -96,6 +94,10 @@ class MissingReasons:
             if field not in row:
                 return "not_recorded"
             metric = METRICS[field]
+            from acprof.results.profile import metric_observation
+            quality = metric_observation(row, field)['quality']
+            if quality not in {'complete', 'unknown'}:
+                return quality
             if process and (process_reason := self._process_reason(row, field)) is not None:
                 return process_reason
             if self._wsl and native_only_metric(metric):
@@ -109,7 +111,7 @@ class MissingReasons:
             if metric.tool and (tool_reason := self._tool_reason(metric.tool, row, tool_reasons)) is not None:
                 return tool_reason
             if row_process:
-                return "not_requested" if metric.row_group in {"cpu_energy", "gpu_energy", "mips", "gpu_runtime_state"} else "unavailable"
+                return "not_requested" if metric.row_group in {"cpu_energy", "gpu_energy", "mips"} else "unavailable"
             return "unavailable_unspecified"
 
         return reason
@@ -363,6 +365,9 @@ def _audit_process_row(report, runtime, metadata, hardware, index, row, status, 
             issue("resource_enforcement", f"{field} 与实际实施的限制不符", row=index, field=field)
     if row.get("resource_limit_source") != plan.get("method"):
         issue("resource_enforcement", "资源限制来源与执行证据不符", row=index)
+    if any(number(value) is not None for field, value in row.items() if field.startswith('service_cgroup_')):
+        if plan.get('method') != 'cgroup_v2' or not plan.get('cgroup'):
+            issue('service_cgroup_scope', '服务 cgroup 指标缺少独立 cgroup 归属证据', row=index)
 
 
 def _audit_numeric_row(report, runtime, missing_reasons, missing, index, row, formal, issue):
