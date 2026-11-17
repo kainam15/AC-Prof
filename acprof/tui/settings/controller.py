@@ -368,7 +368,6 @@ class ConfigurationController:
     def refresh_command_preview(self, *, notify: bool = True) -> bool:
         self.cancel_preview_timer()
         self.validation_pending = False
-        config = None
         try:
             config = self.collect_config()
             self.config_warnings = run_planning.configuration_warnings(config)

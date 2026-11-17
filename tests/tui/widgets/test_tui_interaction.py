@@ -15,6 +15,7 @@ from acprof.tui.run.stages import Stage
 from acprof.tui.ui.progress_widgets import DownloadProgressPanel
 from acprof.tui.ui.structured import FactGrid
 from tests.support.tui_fixtures import AcprofTui
+from tests.support.tui_waits import wait_for_condition
 
 PROJECT_DIR = Path(__file__).resolve().parents[3]
 
@@ -90,7 +91,12 @@ class TestTuiInteraction:
                 app.query_one("#cpus", Input).value = "1,2"
                 app.query_one("#cpus", Input).value = "1,3"
                 app.query_one("#model", Input).value = "demo/latest"
-                await pilot.pause(0.12)
+                await wait_for_condition(
+                    pilot,
+                    lambda: all(value in str(app.query_one("#command-preview", Static).content)
+                                for value in ("--cpus 1,3", "--model demo/latest")),
+                    description="latest form edits rendered in the command preview", timeout=3,
+                )
                 assert (collect.call_count) == (1)
             preview = str(app.query_one("#command-preview", Static).render())
             assert (shlex.split(str(app.query_one("#command-preview", Static).content))[:2]) == (["acprof", "run"])
