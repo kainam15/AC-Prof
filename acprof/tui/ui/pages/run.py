@@ -80,36 +80,44 @@ def compose_run_tab(app: AcprofTui) -> ComposeResult:
                         classes="config-control",
                     )), field_id="output-dir")
 
-                    yield app.localization.localized_widget(Label("CPU 列表"))
-                    yield ConfigField(app.localization.localized_widget(Input(
-                        value=app.configuration.initial_config.cpus,
-                        placeholder="1,2,4,8",
-                        id="cpus",
-                        classes="config-control",
-                    )), field_id="cpus")
-                    yield app.localization.localized_widget(Label("内存 GB"))
-                    yield ConfigField(app.localization.localized_widget(Input(
-                        value=app.configuration.initial_config.mems,
-                        placeholder="2,4,8,16",
-                        id="mems",
-                        classes="config-control",
-                    )), field_id="mems")
+                with app.localization.localized_widget(Collapsible(
+                    title=message_id("settings.resources.matrix"),
+                    collapsed=True,
+                    collapsed_symbol=COMPACT_COLLAPSED_SYMBOL,
+                    expanded_symbol=COMPACT_EXPANDED_SYMBOL,
+                    id="resource-matrix",
+                )):
+                    with Grid(classes="form-grid"):
+                        yield app.localization.localized_widget(Label("CPU 列表"))
+                        yield ConfigField(app.localization.localized_widget(Input(
+                            value=app.configuration.initial_config.cpus,
+                            placeholder="1,2,4,8",
+                            id="cpus",
+                            classes="config-control",
+                        )), field_id="cpus")
+                        yield app.localization.localized_widget(Label("内存 GB"))
+                        yield ConfigField(app.localization.localized_widget(Input(
+                            value=app.configuration.initial_config.mems,
+                            placeholder="2,4,8,16",
+                            id="mems",
+                            classes="config-control",
+                        )), field_id="mems")
 
-                    yield app.localization.localized_widget(Label("GPU 模式"))
-                    yield ConfigField(app.localization.localized_select(
-                        app.configuration.gpu_options(),
-                        value=app.configuration.initial_config.gpus,
-                        allow_blank=False,
-                        id="gpus",
-                        classes="config-control",
-                    ), field_id="gpus")
-                    yield app.localization.localized_widget(Label("输入规模", id="input-scales-label"))
-                    yield ConfigField(app.localization.localized_widget(Input(
-                        value=app.configuration.initial_config.input_scales,
-                        placeholder="留空自动规划；如 64,128,256",
-                        id="input-scales",
-                        classes="config-control",
-                    )), field_id="input-scales")
+                        yield app.localization.localized_widget(Label("GPU 模式"))
+                        yield ConfigField(app.localization.localized_select(
+                            app.configuration.gpu_options(),
+                            value=app.configuration.initial_config.gpus,
+                            allow_blank=False,
+                            id="gpus",
+                            classes="config-control",
+                        ), field_id="gpus")
+                        yield app.localization.localized_widget(Label("输入规模", id="input-scales-label"))
+                        yield ConfigField(app.localization.localized_widget(Input(
+                            value=app.configuration.initial_config.input_scales,
+                            placeholder="留空自动规划；如 64,128,256",
+                            id="input-scales",
+                            classes="config-control",
+                        )), field_id="input-scales")
 
                 with app.localization.localized_widget(Collapsible(
                     title="完整命令（自动更新）",

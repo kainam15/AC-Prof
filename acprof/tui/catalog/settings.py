@@ -100,6 +100,7 @@ MESSAGES: dict[str, Entry] = {
     "settings.requests.timeout_label": Entry(zh="连接/读取超时", en="Connect/read timeout"),
     "settings.resources.cpu_set": Entry(zh="固定 CPU 集合", en="Fixed CPU set"),
     "settings.resources.cpu_set_placeholder": Entry(zh="可选；如 0-3,8；用于正式采集", en="Optional; e.g. 0-3,8; for formal collection"),
+    "settings.resources.matrix": Entry(zh="资源矩阵", en="Resource matrix"),
     "settings.reuse.frozen_configuration": Entry(
         zh="已复用冻结配置；开始采集会创建新实验身份。",
         en="Frozen configuration reused; starting creates a new run identity.",

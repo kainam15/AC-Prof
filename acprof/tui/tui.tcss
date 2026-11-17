@@ -216,7 +216,7 @@ Select:focus > SelectCurrent, Select.-expanded > SelectCurrent, SelectOverlay:fo
 AcprofTui.short #run-plan-body { max-height: 8; }
 #run-footer { dock: bottom; height: auto; background: $surface; }
 #run-footer .action-bar { dock: none; }
-#command-details { height: auto; margin-bottom: 1; border: none; background: $surface; padding: 0; }
+#resource-matrix, #command-details { height: auto; margin-bottom: 1; border: none; background: $surface; padding: 0; }
 #command-preview { height: auto; max-height: 8; overflow-y: auto; padding: 0 1; }
 #science-note { height: auto; color: $text-muted; margin-top: 1; }
 
