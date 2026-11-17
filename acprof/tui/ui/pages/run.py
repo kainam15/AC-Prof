@@ -140,6 +140,33 @@ def compose_run_tab(app: AcprofTui) -> ComposeResult:
                             )
 
                 with app.localization.localized_widget(Collapsible(
+                    title=message_id("profiling.options.title"),
+                    collapsed=True,
+                    collapsed_symbol=COMPACT_COLLAPSED_SYMBOL,
+                    expanded_symbol=COMPACT_EXPANDED_SYMBOL,
+                    id="profiling-options",
+                )):
+                    yield app.localization.localized_widget(Static(
+                        "按需选择；分析器分别运行，可能增加准备时间。首次采集建议关闭。",
+                        classes="page-hint", markup=False,
+                    ))
+                    with Grid(classes="profiler-grid"):
+                        for widget_id, label, enabled in (
+                            ("torch-profiler", "PyTorch Profiler — 算子与框架计算分析",
+                             app.configuration.initial_config.compute_profile_tool in {"torch", "both"}),
+                            ("ncu-profiler", "NVIDIA NCU — GPU 内核性能分析",
+                             app.configuration.initial_config.compute_profile_tool in {"ncu", "both"}),
+                            ("massif-profiler", "Valgrind Massif — CPU 内存分析",
+                             app.configuration.initial_config.execution_profile_tool in {"massif", "both"}),
+                            ("nsys-profiler", "NVIDIA Nsys — CPU/GPU 执行时序分析",
+                             app.configuration.initial_config.execution_profile_tool in {"nsys", "both"}),
+                        ):
+                            yield app.localization.localized_widget(StatusCheckbox(
+                                label, value=enabled, id=widget_id,
+                                classes="config-control option-checkbox profiler-checkbox",
+                            ))
+
+                with app.localization.localized_widget(Collapsible(
                     title="完整命令（自动更新）",
                     collapsed=True,
                     collapsed_symbol=COMPACT_COLLAPSED_SYMBOL,
@@ -184,27 +211,6 @@ def compose_run_tab(app: AcprofTui) -> ComposeResult:
                         id="notify",
                         classes="config-control",
                     ), field_id="notify")
-
-                yield app.localization.localized_widget(Static("深度性能分析", classes="section-title"))
-                yield app.localization.localized_widget(Static(
-                    "按需选择；分析器分别运行，可能增加准备时间。首次采集建议关闭。",
-                    classes="page-hint", markup=False,
-                ))
-                with Grid(classes="profiler-grid"):
-                    for widget_id, label, enabled in (
-                        ("torch-profiler", "PyTorch Profiler — 算子与框架计算分析",
-                         app.configuration.initial_config.compute_profile_tool in {"torch", "both"}),
-                        ("ncu-profiler", "NVIDIA NCU — GPU 内核性能分析",
-                         app.configuration.initial_config.compute_profile_tool in {"ncu", "both"}),
-                        ("massif-profiler", "Valgrind Massif — CPU 内存分析",
-                         app.configuration.initial_config.execution_profile_tool in {"massif", "both"}),
-                        ("nsys-profiler", "NVIDIA Nsys — CPU/GPU 执行时序分析",
-                         app.configuration.initial_config.execution_profile_tool in {"nsys", "both"}),
-                    ):
-                        yield app.localization.localized_widget(StatusCheckbox(
-                            label, value=enabled, id=widget_id,
-                            classes="config-control option-checkbox profiler-checkbox",
-                        ))
 
                 yield app.localization.localized_widget(Static("识别覆盖（通常留空）", classes="section-title"))
                 with Grid(classes="form-grid"):
