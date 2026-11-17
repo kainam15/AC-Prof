@@ -145,6 +145,29 @@ def render(self, user_input):
     assert not check_catalog(tmp_path).errors
 
 
+def test_registered_neutral_template_requires_its_message_id(tmp_path):
+    catalog(tmp_path, '"run.environment.line": Entry(zh="{0} · {1}", en="{0} · {1}"),')
+    write(tmp_path, "acprof/tui/panel.py", '''
+from acprof.messages import message
+message("{0} · {1}", "ready", "cached")
+''')
+    assert "literal-ui-message" in codes(check_catalog(tmp_path))
+
+
+@pytest.mark.parametrize("registered", [False, True])
+def test_localized_static_copy_must_have_a_translation(tmp_path, registered):
+    source = "连接与权限提示"
+    catalog(tmp_path, '"settings.connections.hint": Entry(zh="连接与权限提示", en="Connections hint"),'
+            if registered else '"common.action.cancel": Entry(zh="取消", en="Cancel"),')
+    write(tmp_path, "acprof/tui/panel.py", f'''
+from textual.widgets import Static
+def compose(app):
+    local = app.localization.localized_widget
+    yield local(Static("{source}", markup=False))
+''')
+    assert ("untranslated-ui-message" in codes(check_catalog(tmp_path))) is not registered
+
+
 def test_unresolved_dynamic_keys_are_visible_and_never_auto_deleted(tmp_path, capsys):
     catalog(tmp_path, '"run.stage.done": Entry(zh="完成", en="Done"),')
     write(tmp_path, "acprof/tui/panel.py", '''

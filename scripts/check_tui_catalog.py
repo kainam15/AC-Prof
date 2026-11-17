@@ -327,6 +327,7 @@ def _source_strings(tree: ast.Module) -> set[str]:
 
 def _read_references(root: Path, report: Report) -> None:
     literal_ids, source_literals, resolved_ids = set(), set(), set()
+    translated_sources = {entry.zh for entry in report.entries.values()}
     catalog_path = root / "acprof" / "tui" / "catalog"
     for path in sorted((root / "acprof").rglob("*.py")):
         if path.is_relative_to(catalog_path):
@@ -384,9 +385,25 @@ def _read_references(root: Path, report: Report) -> None:
                 is_translate = isinstance(node.func, ast.Attribute) and node.func.attr == "tr"
                 first = _argument(node, "template" if is_message else "source")
                 if (strict_tui and (is_message or is_translate) and isinstance(first, ast.Constant)
-                        and isinstance(first.value, str) and _CJK.search(first.value)):
+                        and isinstance(first.value, str)
+                        and (_CJK.search(first.value) or first.value in translated_sources)):
                     report.errors.append(Issue(relative, node.lineno, "literal-ui-message",
                                                "register application copy and use message_id"))
+                # Localized Static/Label copy also needs a catalog entry.
+                # Resolve the usual local = app.localization.localized_widget
+                # alias without treating raw logs or user values as UI copy.
+                target = _resolve(node.func, self.bindings, frozenset())
+                if (strict_tui and isinstance(target, ast.Attribute)
+                        and target.attr == "localized_widget" and node.args
+                        and isinstance(node.args[0], ast.Call)):
+                    widget = node.args[0]
+                    constructor = _call_name(widget.func, self.bindings)
+                    if constructor in {"textual.widgets.Static", "textual.widgets.Label"}:
+                        content = _argument(widget, "content")
+                        if (isinstance(content, ast.Constant) and isinstance(content.value, str)
+                                and _CJK.search(content.value) and content.value not in translated_sources):
+                            report.errors.append(Issue(relative, widget.lineno, "untranslated-ui-message",
+                                                       "register localized widget copy and use message_id"))
                 self.generic_visit(node)
 
         References().visit(tree)
