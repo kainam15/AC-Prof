@@ -208,7 +208,7 @@ def _runtime_fact_rows(report: dict) -> tuple[FactRow, ...]:
     runtime = report.get("runtime", {})
     state, pull = _runtime_fact_value(runtime)
     rows: list[FactRow] = [
-        FactRow(message_id('run.runtime.label'), message("{0} · {1}", state, pull)),
+        FactRow(message_id('run.runtime.label'), join_messages(" · ", (state, pull))),
         *(_source_fact_row(report, category) for category in ("python", "debian", "oci")),
     ]
     policy = runtime.get("download_policy")
@@ -244,11 +244,10 @@ def _runtime_fact_rows(report: dict) -> tuple[FactRow, ...]:
         if source.get("stage") == "buildkit-frontend":
             rows.append(FactRow(
                 message_id('downloads.policy.frontend_label'),
-                message(
-                    "{0} · {1}",
+                join_messages(" · ", (
                     urlsplit(source.get("url", "")).hostname or UNKNOWN,
                     message_id('downloads.policy.frontend_cache_unknown'),
-                ),
+                )),
             ))
     routes = {item.get("route") for item in report.get("sources", [])}
     route_notes = [
@@ -369,7 +368,8 @@ def download_fact_sections(report: dict) -> tuple[DownloadFactSection, ...]:
     if docker.get("docker_storage_filesystem") or docker.get("docker_storage_device"):
         storage_rows.append(FactRow(
             message_id('downloads.fact.docker_fs'),
-            message("{0} · {1}", docker.get("docker_storage_filesystem") or UNKNOWN, docker.get("docker_storage_device") or UNKNOWN),
+            join_messages(" · ", (docker.get("docker_storage_filesystem") or UNKNOWN,
+                                 docker.get("docker_storage_device") or UNKNOWN)),
         ))
     storage_rows.append(FactRow(
         message_id('downloads.model_store.path_label'),

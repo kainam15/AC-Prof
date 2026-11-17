@@ -13,7 +13,7 @@ from tests.support.tui_waits import wait_for_condition
 
 
 @pytest.mark.parametrize(('size', 'language'), [((80, 24), 'zh'), ((120, 30), 'en')])
-@pytest.mark.parametrize(('field', 'invalid', 'valid', 'page'), [('cpus', 'zero', '1', 'run-form'), ('repeat', '0', '1', 'advanced-form'), ('workload-spec', 'missing-coverage-input.json', '', 'advanced-form'), ('max-download', 'bad', '5GB', 'advanced-form')])
+@pytest.mark.parametrize(('field', 'invalid', 'valid', 'page'), [('cpus', 'zero', '1', 'run-form'), ('repeat', '0', '1', 'run-form'), ('workload-spec', 'missing-coverage-input.json', '', 'advanced-form'), ('max-download', 'bad', '5GB', 'advanced-form')])
 async def test_invalid_edits_preserve_focus_and_clear_errors_after_repair(size, language, field, invalid, valid, page):
     with tempfile.TemporaryDirectory() as directory:
         app = AcprofTui(RunConfig.smoke("fixture/model"), settings_path=Path(directory) / "settings.json")

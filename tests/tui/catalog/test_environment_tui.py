@@ -25,7 +25,9 @@ async def test_partial_launch_keeps_monitor_visible_at_two_sizes():
             async with app.run_test(size=size) as pilot:
                 await pilot.pause()
                 environment = app.query_one("#current-environment")
-                assert [str(entry.content) for entry in environment.query(Static) if entry.display] == ["× 0", "! 0", "✓ 0"]
+                # WSL remains a visible limitation; the valid configuration and
+                # completed fixture preflight are counted as passed.
+                assert [str(entry.content) for entry in environment.query(Static) if entry.display] == ["× 0", "! 1", "✓ 2"]
                 await pilot.hover("#environment-error")
                 context = app.query_one("#preflight-context", FactGrid).section
                 assert "WSL2" in [app.tr(row.value) for row in (*context.rows, *context.detail_rows)]

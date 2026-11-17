@@ -91,7 +91,6 @@ class LocalizationController:
         with self.app.prevent(Select.Changed), self.app.batch_update():
             for (widget, attribute), source in self.localized_text.items():
                 self.render_text(widget, attribute, source)
-            self._refresh_structured_language()
             self.app.query_one(PageNavigation).sync(self.app.query_one("#main-tabs", TabbedContent))
             for widget, sources in self.localized_selects.items():
                 value = widget.value
@@ -112,9 +111,7 @@ class LocalizationController:
             self.app.logs.refresh_status()
             if self.app.preflight.latest_download is not None and not self.app.execution.session.snapshot.measurement_active:
                 self.app.preflight.download_progress(self.app.preflight.latest_download)
-            if self.app.results.report_view is not None:
-                self.app.results.render_report_view()
-            self.app.images.render_images()
+            self._refresh_structured_language()
             if self.app.configuration.field_errors_visible:
                 self.app.configuration.update_field_errors(self.app.configuration.config_issues)
 
@@ -124,6 +121,11 @@ class LocalizationController:
             return
         for widget in self.app.query(StructuredWidget):
             widget.refresh_language()
+        # These renderers also update structured widgets. Keep them behind the
+        # same measurement guard and replay them at the existing end boundary.
+        if self.app.results.report_view is not None:
+            self.app.results.render_report_view()
+        self.app.images.render_images()
 
     def refresh_deferred_structured_language(self) -> None:
         """Apply a requested language change once an existing event closes measurement."""

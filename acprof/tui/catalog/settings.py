@@ -27,8 +27,8 @@ MESSAGES: dict[str, Entry] = {
     "settings.environment.check_summary": Entry(zh="环境检查完成：{0} 项失败；详细结果见下方。", en="Environment check finished: {0} failures. See details below."),
     "settings.environment.checking": Entry(zh="正在检查环境……", en="Checking environment..."),
     "settings.environment.description": Entry(
-        zh="配置 Hugging Face、企业微信通知和采集权限。",
-        en="Configure Hugging Face, WeCom notifications and profiling permissions.",
+        zh="配置 Hugging Face、代理、企业微信通知和采集权限。",
+        en="Configure Hugging Face, proxies, WeCom notifications and profiling permissions.",
     ),
     "settings.environment.manage": Entry(zh="管理连接与权限", en="Manage connections and permissions"),
     "settings.environment.read_failed": Entry(zh="无法读取连接配置：{0}", en="Could not read connection settings: {0}"),

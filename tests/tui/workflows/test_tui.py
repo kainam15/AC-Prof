@@ -427,13 +427,19 @@ class TestTuiApp:
             assert not (reuse.has_class("-on"))
 
             app.query_one("#cpus", Input).value = "1,3"
-            await pilot.pause(0.1)
+            await wait_for_condition(
+                pilot, lambda: "--cpus 1,3" in str(app.query_one("#command-preview", Static).render()),
+                description="edited CPU list reaches the command preview", timeout=3,
+            )
             auto_preview = str(app.query_one("#command-preview", Static).render())
             assert ("--cpus 1,3") in (auto_preview)
             assert not app.query("#run-preset")
 
             app.experiments.preset_main()
-            await pilot.pause(0.1)
+            await wait_for_condition(
+                pilot, lambda: "--cpus auto" in str(app.query_one("#command-preview", Static).render()),
+                description="preset CPU list reaches the command preview", timeout=3,
+            )
             preset_preview = str(app.query_one("#command-preview", Static).render())
             assert (app.query_one("#cpus", Input).value) == ("auto")
             assert ("--cpus auto") in (preset_preview)

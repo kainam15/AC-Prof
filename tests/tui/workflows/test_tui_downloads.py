@@ -14,6 +14,7 @@ from acprof.tui.i18n import translate
 from acprof.tui.models.store import ModelStoreScreen
 from acprof.tui.settings.preferences import TuiSettings, load_settings, save_settings
 from acprof.tui.ui.dialogs import ConfirmActionScreen
+from tests.support.tui_actions import fill_form
 from tests.support.tui_fixtures import AcprofTui
 
 
@@ -131,10 +132,7 @@ async def test_budget_settings_and_prune_confirmation_in_both_languages(size, la
                     if isinstance(ancestor, Collapsible):
                         ancestor.collapsed = False
                 await pilot.pause()
-                budget.focus()
-                await pilot.pause()
-                assert (await pilot.click(budget))
-                await pilot.press(*"5GB")
+                await fill_form(pilot, {"#max-download": "5GB"})
                 app.query_one("#model-store", Input).value = str(root)
                 app.query_one("#model-store-max", Input).value = "100GB"
                 config = app.configuration.collect_config()
@@ -148,7 +146,7 @@ async def test_budget_settings_and_prune_confirmation_in_both_languages(size, la
                 assert (restored.run_defaults.max_download) == ("5GB")
                 assert (restored.run_defaults.download_mode) == ("auto")
                 button = app.query_one("#open-model-store", Button)
-                button.focus()
+                button.scroll_visible(animate=False, immediate=True)
                 await pilot.pause()
                 assert (await pilot.click(button))
                 await app.workers.wait_for_complete()

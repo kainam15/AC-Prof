@@ -9,6 +9,7 @@ from acprof.experiments.configuration import RunConfig
 from acprof.tui.i18n import message_id
 from acprof.tui.ui.structured import Callout
 from tests.support.tui_fixtures import AcprofTui
+from tests.support.tui_actions import open_page
 from tests.support.tui_waits import wait_for_condition
 
 
@@ -34,8 +35,14 @@ class TestTuiResultTools:
             assert [tabs.get_tab(pane).label.plain for pane in app.query("#main-tabs > ContentSwitcher > TabPane")] == [
                 "实验配置", "运行监控", "实验结果", "补采实验", "镜像管理", "设置"]
             assert not app.query("#profile-tab, #result-dir")
-            app.activate_tab("results-tab")
+            await open_page(pilot, "results-tab")
             app.query_one("#experiment-source", Input).value = str(self.csv_path)
+            await wait_for_condition(
+                pilot,
+                lambda: "有效正式窗口：1" in app.query_one("#result-data-status", Static).content
+                and not app.read_jobs,
+                description="selected CSV read before manual refresh", timeout=8,
+            )
             refresh = app.query_one("#refresh-experiment-state", Button)
             refresh.scroll_visible(animate=False, immediate=True)
             await wait_for_condition(
@@ -44,9 +51,13 @@ class TestTuiResultTools:
                 and app.get_widget_at(*refresh.region.center)[0] is refresh,
                 description="visible enabled result refresh", timeout=8,
             )
+            previous = app.results.data_status
             assert await pilot.click(refresh, offset=(2, 1))
-            await app.workers.wait_for_complete()
-            await pilot.pause()
+            await wait_for_condition(
+                pilot, lambda: app.results.data_status is not previous
+                and not app.read_jobs and not refresh.disabled,
+                description="manual result refresh completed", timeout=8,
+            )
             assert "有效正式窗口：1" in app.query_one("#result-data-status", Static).content
             assert not app.query("#results-tab #profile-status, #results-tab #open-result-profiling")
             assert await pilot.click("#nav-backfill-tab")

@@ -64,7 +64,7 @@ def compose_settings_tab(app: AcprofTui) -> ComposeResult:
             with Vertical(id="settings-connections", classes="settings-section") as section:
                 app.localization.set_text(section, "连接与权限", "border_title")
                 yield app.localization.localized_widget(Static(
-                    "配置 Hugging Face、代理、企业微信通知和采集权限。",
+                    message_id("settings.environment.description"),
                     classes="page-hint", markup=False,
                 ))
                 yield app.localization.localized_widget(Button("管理连接与权限", id="open-environment-settings"))

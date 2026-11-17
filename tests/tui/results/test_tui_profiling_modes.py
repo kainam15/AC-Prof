@@ -3,7 +3,8 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 import pytest
-from textual.widgets import ContentSwitcher, Select, TabbedContent
+from textual.widgets import Collapsible, Select, TabbedContent
+from tests.support.tui_actions import open_page
 from tests.support.tui_fixtures import AcprofTui
 
 from acprof.experiments.configuration import RunConfig, build_run_command
@@ -29,16 +30,21 @@ async def test_late_refresh_timer_update_pauses_after_tabs_are_unmounted():
 @pytest.mark.parametrize('language', ['zh', 'en'])
 async def test_mode_selector_updates_command_in_both_languages_and_sizes(size, language):
     with tempfile.TemporaryDirectory() as root:
-        app = AcprofTui(RunConfig(model="test/model"), settings_path=Path(root) / "settings.json")
+        app = AcprofTui(RunConfig(model="test/model", profiling_mode="full"), settings_path=Path(root) / "settings.json")
         async with app.run_test(size=size) as pilot:
             app.query_one("#ui-language", Select).value = language
             await pilot.pause()
             control = app.query_one("#profiling-mode", Select)
-            app.query_one("#main-tabs", TabbedContent).active = "run-tab"
-            app.query_one("#experiment-pages", ContentSwitcher).current = "advanced-form"
+            await open_page(pilot, "run-tab")
+            for container in control.ancestors:
+                if isinstance(container, Collapsible):
+                    container.collapsed = False
             await pilot.pause()
-            control.scroll_visible(immediate=True, force=True)
-            control.focus()
+            control.scroll_visible(animate=False, immediate=True, force=True)
+            await pilot.pause()
+            assert control.value == "full"
+            assert control.region.area > 0
+            control.focus(scroll_visible=False)
             await pilot.press("enter", "down", "enter")
             await pilot.pause()
             assert (control.value) == ("basic")
