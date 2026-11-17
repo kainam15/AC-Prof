@@ -3,6 +3,7 @@ from dataclasses import replace
 from unittest.mock import Mock
 
 import pytest
+from textual.content import Content
 from textual.widgets import Button, ContentSwitcher, Select, Static
 from textual.widgets._select import SelectOverlay
 
@@ -57,7 +58,7 @@ async def test_basic_runtime_selection_navigation_and_restart(tmp_path, monkeypa
         assert control.query_one(SelectOverlay).option_count == 2
         assert not app.query('#runtime-status')
         reset = app.query_one('#reset-runtime', Button)
-        assert reset.content_size.width >= reset.label.cell_length + 2 * reset.styles.line_pad
+        assert reset.content_size.width >= Content.from_text(reset.label).cell_length + 2 * reset.styles.line_pad
         complete_check(app, [PreflightCheck('Runtime', 'ok', 'Docker', runtime_kind='docker')])
         assert control.value == 'docker'
         assert app.configuration.collect_config().runtime == 'auto'
