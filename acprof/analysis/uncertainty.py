@@ -7,10 +7,11 @@ import statistics
 from collections import defaultdict
 from concurrent.futures import CancelledError
 
+from acprof.analysis.audit import number
 from acprof.analysis.precision import assess_mean_precision, validate_precision_target
 from acprof.results.csv import is_measured_success, measurement_key
 from acprof.results.metrics import METRICS
-from acprof.results.profile import metric_observation, metric_usable, observation_signature
+from acprof.results.profile import USABLE_QUALITIES, metric_observation, observation_signature
 
 WINDOW_FILTER = "status=ok and warmup=0 and result_origin!=inferred_not_measured"
 
@@ -58,17 +59,18 @@ def _collect_window_cases(rows, *, cancelled, precision_target):
     return cases, excluded
 
 
-def _finite_metric_values(ordered, name: str) -> list[float]:
+def finite_metric_values(ordered, name: str) -> list[float]:
+    """Collect usable readings for a registered metric with one observation contract."""
     values = []
     signatures = set()
     for row in ordered:
-        try:
-            value = float(row.get(name, "nan"))
-        except (ValueError, TypeError):
-            value = float("nan")
-        if math.isfinite(value) and metric_usable(row, name):
+        value = number(row.get(name))
+        if value is None:
+            continue
+        observation = metric_observation(row, name)
+        if observation['quality'] in USABLE_QUALITIES:
             values.append(value)
-            signatures.add(observation_signature(metric_observation(row, name)))
+            signatures.add(observation_signature(observation))
     return values if len(signatures) <= 1 else []
 
 
@@ -115,7 +117,7 @@ def _summarize_case_metric(
     include_intervals: bool,
     precision_target: float | None,
 ) -> dict:
-    values = _finite_metric_values(ordered, name)
+    values = finite_metric_values(ordered, name)
     count = len(values)
     mean_val: float | None = statistics.fmean(values) if values else None
     ci_low: float | None = None

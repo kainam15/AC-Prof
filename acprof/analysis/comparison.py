@@ -5,6 +5,7 @@ import csv
 import hashlib
 import json
 from collections import Counter
+from collections.abc import Iterator
 from fractions import Fraction
 from pathlib import Path
 from types import SimpleNamespace
@@ -31,7 +32,7 @@ from acprof.results.csv import (
 from acprof.results.layout import resolve_single_result_source
 from acprof.results.metadata import ResultMetadataSnapshot
 from acprof.results.metrics import METRICS
-from acprof.results.profile import metric_observation, metric_usable, observation_signature
+from acprof.results.profile import USABLE_QUALITIES, metric_observation, observation_signature
 from acprof.runtime.settings import RUNTIME_ENV_NAMES
 
 MEASUREMENT_OPTIONS = (
@@ -166,11 +167,17 @@ def _workload_condition(left, right):
                        "actual_workload_evidence_incomplete" if incomplete else "output_distribution_equivalence_unverified")}
 
 
+def _metric_observations(rows: list[dict], name: str) -> Iterator[dict]:
+    for row in rows:
+        value = row.get(name)
+        if value is None or (type(value) is str and value in MISSING_CSV_TEXT):
+            continue
+        if number(value) is not None:
+            yield metric_observation(row, name)
+
+
 def _metric_availability(rows: list[dict[str, str]]) -> dict[str, bool]:
-    """Recognize existing missing tokens before parsing numeric observations."""
-    return {name: any((value := row.get(name)) is not None
-                     and (type(value) is not str or value not in MISSING_CSV_TEXT)
-                     and number(value) is not None and metric_usable(row, name) for row in rows)
+    return {name: any(item['quality'] in USABLE_QUALITIES for item in _metric_observations(rows, name))
             for name, metric in METRICS.items() if metric.kind == "number"}
 
 
@@ -179,9 +186,9 @@ def _metric_contracts(rows: list[dict]) -> dict:
     for name, metric in METRICS.items():
         if metric.kind != 'number':
             continue
-        observed = [metric_observation(row, name) for row in rows if number(row.get(name)) is not None]
+        observed = list(_metric_observations(rows, name))
         signatures = {observation_signature(item) for item in observed}
-        contracts[name] = {'quality': 'incomplete' if any(item['quality'] not in {'complete', 'unknown'} for item in observed)
+        contracts[name] = {'quality': 'incomplete' if any(item['quality'] not in USABLE_QUALITIES for item in observed)
                           else 'complete' if observed and all(item['quality'] == 'complete' for item in observed) else 'unknown',
                            'signature': next(iter(signatures)) if len(signatures) == 1 else None}
     return contracts

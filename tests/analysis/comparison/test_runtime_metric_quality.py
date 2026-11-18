@@ -52,8 +52,8 @@ def test_comparison_rejects_different_gpu_state_cadence():
 
 
 def test_window_statistics_excludes_known_partial_readings():
-    from acprof.analysis.uncertainty import _finite_metric_values
-    assert _finite_metric_values([row('partial'), row('complete')], 'process_io_read_bytes') == [512]
+    from acprof.analysis.uncertainty import finite_metric_values
+    assert finite_metric_values([row('partial'), row('complete')], 'process_io_read_bytes') == [512]
 
 
 def test_summary_does_not_blend_sampling_contracts():

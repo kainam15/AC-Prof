@@ -5,7 +5,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from acprof.analysis import independent_comparison as comparison
+from acprof.analysis import independent_comparison as comparison, uncertainty
 from tests.support.independent_comparison_fixtures import IndependentComparisonFixture
 
 METRICS = (
@@ -22,19 +22,20 @@ def comparison_runs(request, tmp_path):
 
 
 @pytest.mark.parametrize("metric_count", [1, 4, 8])
-def test_additional_metrics_do_not_reclassify_windows_or_reparse_cells(runs, metric_count):
+def test_additional_metrics_do_not_reclassify_windows_or_reparse_cells(runs, metric_count, monkeypatch):
     left = runs.replicate("left", 0, [2.5] * 12)
     right = runs.replicate("right", 0, [3.5] * 12)
     classify = Mock(wraps=comparison.is_measured_success)
     status = Mock(wraps=comparison.result_row_status)
-    parse = comparison.number
+    parse = uncertainty.number
     parsed = Counter()
 
     def count_parse(value):
         parsed[value] += 1
         return parse(value)
 
-    with patch.multiple(comparison, is_measured_success=classify, result_row_status=status, number=count_parse):
+    monkeypatch.setattr(uncertainty, 'number', count_parse)
+    with patch.multiple(comparison, is_measured_success=classify, result_row_status=status):
         report = comparison.compare_experiments([left], [right], metrics=list(METRICS[:metric_count]), resamples=20)
 
     groups = {group["metric"]: group for group in report["groups"]}

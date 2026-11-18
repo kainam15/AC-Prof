@@ -8,6 +8,7 @@ from acprof.results.coverage import collector_contract
 from acprof.results.metrics import METRICS
 
 QUALITIES = {'complete', 'partial', 'unsupported', 'permission_denied', 'not_requested', 'error', 'unavailable', 'unknown'}
+USABLE_QUALITIES = frozenset({'complete', 'unknown'})
 RESOURCE_SOURCES = {'psutil_observed_process_tree', 'procfs_observed_process_tree', 'service_cgroup', 'nvml_selected_device'}
 
 
@@ -17,7 +18,7 @@ def observation_signature(observation: dict) -> str:
 
 
 def observations_comparable(left: list[dict], right: list[dict]) -> bool:
-    return (all(item.get('quality') in {'complete', 'unknown'} for item in [*left, *right])
+    return (all(item.get('quality') in USABLE_QUALITIES for item in [*left, *right])
             and len({observation_signature(item) for item in [*left, *right]}) <= 1
             and bool(left) == bool(right))
 
@@ -63,4 +64,4 @@ def metric_observation(row: dict, name: str) -> dict:
 
 def metric_usable(row: dict, name: str) -> bool:
     """Preserve legacy analysis; explicit incomplete evidence never becomes a valid value."""
-    return name not in METRICS or metric_observation(row, name)['quality'] in {'complete', 'unknown'}
+    return name not in METRICS or metric_observation(row, name)['quality'] in USABLE_QUALITIES
