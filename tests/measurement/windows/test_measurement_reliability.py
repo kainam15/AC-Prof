@@ -18,7 +18,7 @@ from acprof.results.layout import case_sidecar
 
 def test_io_counter_reset_is_not_reported_as_zero():
     counters = {"read": 100, "write": 200}
-    readers = resource_readers._ContainerReaders(
+    readers = resource_readers.ResourceMetricReaders(
         io=lambda: (counters["read"], counters["write"])
     )
     with patch.object(resource_readers, "resolve_container_metric_readers", return_value=readers), patch.object(
@@ -39,7 +39,7 @@ def test_io_counter_reset_is_not_reported_as_zero():
 
 def test_resource_errors_keep_distinct_gpu_queries_and_other_causes():
     with patch.object(resource_readers, "resolve_container_metric_readers",
-                      return_value=resource_readers._ContainerReaders()):
+                      return_value=resource_readers.ResourceMetricReaders()):
         monitor = resource_usage.ResourceUsageMonitor()
     monitor._partial_platform = False
     monitor._record_runtime_error("cgroup io error")

@@ -7,7 +7,7 @@ from pathlib import Path
 
 from acprof.capabilities import capability_from_error
 from acprof.monitors.resource_metrics import counter_delta
-from acprof.monitors.resource_readers import _ContainerReaders, resolve_cgroup_metric_readers
+from acprof.monitors.resource_readers import ResourceMetricReaders, resolve_cgroup_metric_readers
 
 FIELDS = ('service_cgroup_cpu_time_s', 'service_cgroup_mem_usage_avg_bytes',
           'service_cgroup_mem_usage_peak_bytes', 'service_cgroup_io_read_bytes', 'service_cgroup_io_write_bytes')
@@ -48,7 +48,7 @@ class ProcessCgroupObserver:
                      and plan.get('verified') is True and plan.get('cgroup') else None)
         self.quality = 'unavailable' if self.path else 'unsupported'
         self.error = '' if self.path else 'no_owned_service_cgroup'
-        self.readers: _ContainerReaders | None = None
+        self.readers: ResourceMetricReaders | None = None
         self.samples: list[dict] = []
         self.errors: dict[str, str] = {}
         self.identity: tuple[int, int] | None = None

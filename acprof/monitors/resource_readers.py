@@ -12,7 +12,7 @@ _LOG = logging.getLogger(__name__)
 
 
 @dataclass
-class _ContainerReaders:
+class ResourceMetricReaders:
     pid: int = 0
     cpu: Callable[[], float] | None = None
     memory: Callable[[], int] | None = None
@@ -295,16 +295,16 @@ def resolve_container_metric_readers(
     container_name: str,
     cgroup_root: str = "/sys/fs/cgroup",
     proc_root: str = "/proc",
-) -> _ContainerReaders:
+) -> ResourceMetricReaders:
     if not container_name:
-        return _ContainerReaders()
+        return ResourceMetricReaders()
 
     pid = docker_container_pid(container_name)
     cgroup_file = os.path.join(proc_root, str(pid), "cgroup")
     with open(cgroup_file, encoding="utf-8") as f:
         lines = [line.strip() for line in f if line.strip()]
 
-    readers = _ContainerReaders(pid=pid)
+    readers = ResourceMetricReaders(pid=pid)
 
     for line in lines:
         parts = line.split(":", 2)
@@ -314,9 +314,9 @@ def resolve_container_metric_readers(
     return readers
 
 
-def resolve_cgroup_metric_readers(cgroup_root: str, relative_path: str = "", *, pid: int = 0) -> _ContainerReaders:
+def resolve_cgroup_metric_readers(cgroup_root: str, relative_path: str = "", *, pid: int = 0) -> ResourceMetricReaders:
     """Reuse the same readers for an explicitly owned service cgroup."""
-    readers = _ContainerReaders(pid=pid)
+    readers = ResourceMetricReaders(pid=pid)
     cpu_path = _join_cgroup_path(cgroup_root, relative_path, "cpu.stat")
     mem_path = _join_cgroup_path(cgroup_root, relative_path, "memory.current")
     swap_path = _join_cgroup_path(

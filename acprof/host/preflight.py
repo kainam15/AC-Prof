@@ -14,12 +14,12 @@ from acprof.system.command import run_command
 NATIVE_DOCKER_SOCKET = "/var/run/docker.sock"
 
 
-def _docker_info_is_docker_desktop(info: str) -> bool:
+def docker_info_is_docker_desktop(info: str) -> bool:
     normalized = (info or "").lower()
     return "docker desktop" in normalized or "name=docker-desktop" in normalized
 
 
-def _docker_context_is_docker_desktop(context_name: str) -> bool:
+def docker_context_is_docker_desktop(context_name: str) -> bool:
     normalized = (context_name or "").strip().lower()
     return normalized in {"desktop-linux", "docker-desktop"} or normalized.startswith("desktop-")
 
@@ -172,7 +172,7 @@ def require_result_cgroup_compatibility(
     sys.exit(1)
 
 
-def _docker_host_is_native_socket(docker_host: str) -> bool:
+def docker_host_is_native_socket(docker_host: str) -> bool:
     normalized = (docker_host or "").strip()
     if not normalized:
         return False
@@ -231,7 +231,7 @@ def require_native_docker() -> None:
         )
         if (
             context_result.returncode == 0
-            and _docker_context_is_docker_desktop(context_result.stdout)
+            and docker_context_is_docker_desktop(context_result.stdout)
         ):
             _exit_docker_desktop()
 
@@ -258,7 +258,7 @@ def require_native_docker() -> None:
             if endpoint_result.returncode == 0:
                 docker_host = endpoint_result.stdout.strip()
 
-        if not _docker_host_is_native_socket(docker_host):
+        if not docker_host_is_native_socket(docker_host):
             _exit_nonlocal_docker(docker_host)
 
         result = run_command(
@@ -300,7 +300,7 @@ def require_native_docker() -> None:
         )
         sys.exit(1)
 
-    if _docker_info_is_docker_desktop(result.stdout):
+    if docker_info_is_docker_desktop(result.stdout):
         _exit_docker_desktop()
 
 

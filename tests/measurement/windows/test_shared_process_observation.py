@@ -4,12 +4,12 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from acprof.monitors.process_usage import ProcessUsageMonitor
-from acprof.monitors.resource_readers import _ContainerReaders
+from acprof.monitors.resource_readers import ResourceMetricReaders
 from acprof.monitors.resource_usage import ResourceUsageMonitor
 
 
 def test_docker_retains_cgroup_and_collects_the_same_process_fields(monkeypatch):
-    readers = _ContainerReaders(cpu=lambda: 1, memory=lambda: 1000)
+    readers = ResourceMetricReaders(cpu=lambda: 1, memory=lambda: 1000)
     readers.pid = 42
     monkeypatch.setattr('acprof.monitors.resource_readers.resolve_container_metric_readers', lambda *a, **kw: readers)
     monkeypatch.setattr('acprof.process_identity.process_identity', lambda pid: {'pid': pid, 'start_ticks': 10, 'state': 'R'})
@@ -39,7 +39,7 @@ def test_docker_retains_cgroup_and_collects_the_same_process_fields(monkeypatch)
 
 
 def test_optional_process_failure_does_not_erase_required_cgroup_values(monkeypatch):
-    readers = _ContainerReaders(cpu=lambda: 1, memory=lambda: 1000)
+    readers = ResourceMetricReaders(cpu=lambda: 1, memory=lambda: 1000)
     readers.pid = 42
     monkeypatch.setattr('acprof.monitors.resource_readers.resolve_container_metric_readers', lambda *a, **kw: readers)
     def denied(pid):

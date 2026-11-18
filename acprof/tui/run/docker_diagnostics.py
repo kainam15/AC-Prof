@@ -10,9 +10,9 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 
 from acprof.host.preflight import (
-    _docker_context_is_docker_desktop,
-    _docker_host_is_native_socket,
-    _docker_info_is_docker_desktop,
+    docker_context_is_docker_desktop,
+    docker_host_is_native_socket,
+    docker_info_is_docker_desktop,
 )
 from acprof.platform import Environment
 from acprof.tui.i18n import message_id
@@ -114,9 +114,9 @@ def inspect_docker(command_runner: Callable[..., subprocess.CompletedProcess[str
             if inspected.returncode != 0 or not inspected.stdout.strip():
                 return replace(evidence, code='context_unavailable', detail=(inspected.stderr or inspected.stdout).strip())
             evidence = replace(evidence, endpoint=inspected.stdout.strip())
-        if _docker_context_is_docker_desktop(evidence.context):
+        if docker_context_is_docker_desktop(evidence.context):
             return replace(evidence, code='desktop_unsupported', product='Docker Desktop')
-        if not _docker_host_is_native_socket(evidence.endpoint):
+        if not docker_host_is_native_socket(evidence.endpoint):
             return replace(evidence, code='context_unsupported')
         stage = 'daemon'
         info = command_runner((cli, 'info', '--format', '{{.Name}}|{{.OperatingSystem}}'), timeout=10.0)
@@ -129,7 +129,7 @@ def inspect_docker(command_runner: Callable[..., subprocess.CompletedProcess[str
                         'timed out', 'timeout', 'no such file', 'connection reset', 'eof'))
                     else 'check_failed')
             return replace(evidence, code=code)
-        if _docker_info_is_docker_desktop('Name=' + info.stdout):
+        if docker_info_is_docker_desktop('Name=' + info.stdout):
             return replace(evidence, code='desktop_unsupported', product='Docker Desktop')
         return replace(evidence, code='ready', product='Docker Engine')
     except (OSError, subprocess.TimeoutExpired) as exc:

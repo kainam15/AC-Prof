@@ -17,7 +17,7 @@ class TestResourceUsageMonitor:
         native_policy(self._request)
 
     def test_sampling_does_not_rediscover_cpu_topology(self):
-        with patch.object(resource_readers, "resolve_container_metric_readers", return_value=resource_readers._ContainerReaders()), patch.object(
+        with patch.object(resource_readers, "resolve_container_metric_readers", return_value=resource_readers.ResourceMetricReaders()), patch.object(
             resource_readers, "_discover_cpu_ids", return_value=[],
         ):
             monitor = resource_usage.ResourceUsageMonitor(container_name="case")
@@ -530,7 +530,7 @@ class TestResourceUsageMonitor:
             "read": 100,
             "write": 200,
         }
-        readers = resource_readers._ContainerReaders(
+        readers = resource_readers.ResourceMetricReaders(
             swap=lambda: state["swap"],
             swap_limit=lambda: 4096,
             io=lambda: (state["read"], state["write"]),
@@ -602,7 +602,7 @@ class TestResourceUsageMonitor:
         assert (resource_metrics._dominant_pstate(["invalid"])) == ("nan")
 
     def test_stop_rejects_sampling_thread_that_did_not_quiesce(self) -> None:
-        readers = resource_readers._ContainerReaders(cpu=lambda: 0.0)
+        readers = resource_readers.ResourceMetricReaders(cpu=lambda: 0.0)
         with patch.object(
             resource_readers,
             "resolve_container_metric_readers",
