@@ -207,6 +207,7 @@ def test_workflow_uses_same_run_evidence_before_html_and_retains_private_pr_repo
     ):
         assert key in by_id
     assert by_id["svg_regression"][0] < by_id["tooling"][0]
+    assert 0 < int(by_id["tooling"][1]["timeout-minutes"]) < int(job["timeout-minutes"])
     assert by_id["png_regression"][0] < by_id["pilot_regression"][0]
     assert "tests/visual" in by_id["svg_regression"][1]["run"]
     assert "svg-tests.xml" in by_id["svg_regression"][1]["run"]

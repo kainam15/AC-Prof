@@ -28,6 +28,10 @@ uv sync --locked --no-default-groups --group test
 无需 X11、Wayland、远程桌面、Windows、dor-jump、Docker、GPU 或真实模型；
 Chrome 仅用于无头启动预检与 VHS 截图。系统安装的工具不会加入 `pyproject.toml` 正式依赖或任何推理镜像。
 
+GitHub 的 Ubuntu 24.04 runner 仅用 Ubuntu 软件源安装系统依赖，VHS 和 Chrome 单独按固定版本下载。APT 和 curl 都限制网络等待与重试，
+安装步骤最多运行 4 分钟，在 15 分钟作业预算内为已完成的 SVG 和失败报告留出时间。
+工作流记录执行到的命令，便于区分包索引、VHS 和 Chrome 下载故障。参见 [runner-images 的 APT 镜像修复](https://github.com/actions/runner-images/pull/14643)。
+
 ## 运行与结果
 
 ```bash
@@ -101,7 +105,7 @@ VHS 只操作该测试应用，没有向 AC-Prof CLI 添加截图选项。
 
 - `form`：中文普通表单（120×36）
 - `form-small`：小终端、截断与滚动（80×24）
-- `error-modal`：左上角环境阻断悬浮面板（沿用原场景标识），含状态圆点、悬停详情及重检操作
+- `error-modal` 展示全局状态中的 Linux perf 权限阻断、受影响的指标和重新检查入口。
 - `near-match`：BAAI/bge-m3 自定义配置
 - `measuring`：模拟测量阶段与日志布局
 - `task-selection`：多任务选择弹窗

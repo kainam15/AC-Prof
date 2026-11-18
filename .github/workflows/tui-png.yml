@@ -102,16 +102,24 @@ jobs:
       - name: Install optional headless terminal tooling
         id: tooling
         if: ${{ always() && steps.install_deps.outcome == 'success' }}
+        timeout-minutes: 4
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends ttyd ffmpeg fonts-noto-cjk unzip apparmor
-          curl --fail --location --silent --show-error --retry 3 \
+          set -x
+          # These packages only need the Ubuntu archive on the 24.04 runner.
+          apt_options=(-o Dir::Etc::sourcelist=/etc/apt/sources.list.d/ubuntu.sources
+                       -o Dir::Etc::sourceparts=- -o Acquire::Retries=1
+                       -o Acquire::http::Timeout=10 -o Acquire::https::Timeout=10)
+          sudo apt-get "${apt_options[@]}" --error-on=any update
+          sudo apt-get "${apt_options[@]}" install -y --no-install-recommends ttyd ffmpeg fonts-noto-cjk unzip apparmor
+          curl_options=(--fail --location --silent --show-error --connect-timeout 10
+                        --max-time 90 --retry 2 --retry-max-time 90)
+          curl "${curl_options[@]}" \
             -o /tmp/vhs_0.12.1_amd64.deb \
             https://github.com/charmbracelet/vhs/releases/download/v0.12.1/vhs_0.12.1_amd64.deb
           echo '30a9b2746f19522387eace24f427208b5dc4ce2413d334147a0b89a2304cfbe4  /tmp/vhs_0.12.1_amd64.deb' | sha256sum --check
-          sudo apt-get install -y /tmp/vhs_0.12.1_amd64.deb
+          sudo apt-get "${apt_options[@]}" install -y /tmp/vhs_0.12.1_amd64.deb
           # Freeze browser & font renderer to match the reviewed Ubuntu 24.04 goldens.
-          curl --fail --location --silent --show-error --retry 3 \
+          curl "${curl_options[@]}" \
             -o "$RUNNER_TEMP/chrome-linux64.zip" \
             https://storage.googleapis.com/chrome-for-testing-public/147.0.7727.116/linux64/chrome-linux64.zip
           unzip -q "$RUNNER_TEMP/chrome-linux64.zip" -d "$RUNNER_TEMP/chrome-for-testing"
@@ -122,7 +130,7 @@ jobs:
           chmod +x "$RUNNER_TEMP/chrome-shim/google-chrome"
           # Use the dedicated headless shell for offline Rich SVG previews.
           # Full Chrome can stall its screenshot CLI even after its startup smoke passes.
-          curl --fail --location --silent --show-error --retry 3 \
+          curl "${curl_options[@]}" \
             -o "$RUNNER_TEMP/chrome-headless-shell-linux64.zip" \
             https://storage.googleapis.com/chrome-for-testing-public/147.0.7727.116/linux64/chrome-headless-shell-linux64.zip
           echo "8b3584f747a3a7155e1f99dc712dfd0576eedafe3da331819ccd52e17bee61a6  $RUNNER_TEMP/chrome-headless-shell-linux64.zip" | sha256sum --check
