@@ -205,8 +205,11 @@ async def test_field_navigation_returns_to_original_page_focus_and_scroll(tmp_pa
         assert not app.query_one('#status-return').display
 
 
-@pytest.mark.parametrize('identifier', ['docker', 'cpu_energy'])
-async def test_diagnostics_show_specific_guidance_without_permission_setup(tmp_path, identifier):
+@pytest.mark.parametrize(('identifier', 'screen_id', 'callout', 'details'), [
+    ('docker', 'docker-repair-screen', '#docker-summary', '#docker-technical'),
+    ('cpu_energy', 'issue-diagnostic-screen', '#issue-callout', '#issue-callout .callout-details'),
+], ids=['docker', 'cpu_energy'])
+async def test_diagnostics_show_specific_guidance_without_permission_setup(tmp_path, identifier, screen_id, callout, details):
     from textual.widgets import Collapsible
 
     app = AcprofTui(replace(RunConfig.smoke('fixture/model'), runtime='docker', profiling_mode='full'),
@@ -215,12 +218,11 @@ async def test_diagnostics_show_specific_guidance_without_permission_setup(tmp_p
         row = PreflightCheck(identifier, 'fail', 'fixture diagnostic', check_id=identifier)
         app.preflight.checks = (row,)
         app.preflight.panel.open_issue(row)
-        await wait_for_condition(pilot, lambda: bool(app.screen.query('#issue-callout')),
+        await wait_for_condition(pilot, lambda: app.screen.id == screen_id and bool(app.screen.query(callout)),
                                  timeout=3, description='specific diagnostic mounted')
-        assert app.screen.id == 'issue-diagnostic-screen'
         assert not app.screen.query('#permission-perf')
-        assert app.screen.query_one('#issue-callout .callout-details', Collapsible).collapsed
-        assert app.screen.query_one('#issue-callout .callout-next').content
+        assert app.screen.query_one(details, Collapsible).collapsed
+        assert app.screen.query_one(callout + ' .callout-next').content
 
 
 async def test_permission_check_exception_keeps_required_capability_unverified(tmp_path, monkeypatch):

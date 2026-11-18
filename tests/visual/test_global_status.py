@@ -36,6 +36,8 @@ def test_global_status(snap_compare, svg_operations, tmp_path, monkeypatch, lang
                                             theme='acprof-light' if language == 'en' else 'acprof-graphite')
 
     async def prepare(pilot):
+        await wait_for_condition(pilot, lambda: app.preflight.check_completed,
+                                 description='initial fixture preflight completed', timeout=3)
         await pilot.pause()
         app.set_input_cursor_blink_enabled(False)
         app.preflight.environment_checks = (
@@ -58,7 +60,8 @@ def test_global_status(snap_compare, svg_operations, tmp_path, monkeypatch, lang
                 app.preflight.checks = (PreflightCheck(identifier, 'fail', 'Permission denied', check_id=identifier),)
             app.preflight.refresh_preflight_state()
             app.preflight.panel.open_issue(app.preflight.checks[0])
-            await wait_for_condition(pilot, lambda: len(app.screen_stack) == 2 and app.screen.is_mounted,
+            target = '#issue-callout' if scene == 'process-diagnostic' else '#permission-' + scene.removeprefix('permissions-')
+            await wait_for_condition(pilot, lambda: app.screen.is_mounted and bool(app.screen.query(target)),
                                      description='specific diagnostic mounted', timeout=3)
             await pilot.pause()
             app.clear_notifications()

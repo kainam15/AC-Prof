@@ -52,7 +52,7 @@ class TestTuiResultTools:
                 description="visible enabled result refresh", timeout=8,
             )
             previous = app.results.data_status
-            assert await pilot.click(refresh, offset=(2, 1))
+            assert await pilot.click(refresh, offset=(refresh.region.width // 2, refresh.region.height // 2))
             await wait_for_condition(
                 pilot, lambda: app.results.data_status is not previous
                 and not app.read_jobs and not refresh.disabled,

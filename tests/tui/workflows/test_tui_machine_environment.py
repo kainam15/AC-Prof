@@ -283,8 +283,9 @@ async def test_runtime_cleanup_failure_blocks_launch_and_remaining_preflight(tmp
     monkeypatch.setattr("acprof.tui.run.preflight_controller.quick_preflight", preflight)
     app = AcprofTui(RunConfig.smoke("fixture/model"), settings_path=tmp_path / "settings.json")
     async with app.run_test(size=(80, 24)) as pilot:
-        await asyncio.wait_for(app.workers.wait_for_complete(), 10)
-        await pilot.pause()
+        await wait_for_condition(pilot, lambda: bool(app.preflight.cleanup_error)
+                                 and app.updates.started and not app.updates.checking,
+                                 timeout=10, description="startup cleanup failure and version check finished")
         assert app.query_one("#start-run", Button).disabled
         assert "ContainerCleanupError" in app.preflight.environment_error
         assert "ContainerCleanupError" in app.preflight.error
@@ -292,8 +293,9 @@ async def test_runtime_cleanup_failure_blocks_launch_and_remaining_preflight(tmp
         scan.side_effect = None
         scan.return_value = []
         app.preflight.quick_check()
-        await asyncio.wait_for(app.workers.wait_for_complete(), 10)
-        await pilot.pause()
+        await wait_for_condition(pilot, lambda: preflight.called and not app.preflight.check_running
+                                 and not app.preflight.cleanup_error,
+                                 timeout=10, description="manual preflight cleared the cleanup failure")
         assert not app.query_one("#start-run", Button).disabled
         preflight.assert_called_once()
 

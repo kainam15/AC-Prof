@@ -367,12 +367,16 @@ async def test_environment_popover_fit_and_short_run_plan_heights(tmp_path) -> N
         scroll = app.query_one("#preflight-scroll")
         caps = app.query_one("#preflight-capabilities")
 
-        for width, height, expected_cols in ((60, 14, 2), (55, 16, 1), (80, 24, 2), (120, 30, 2), (120, 36, 2), (150, 45, 2)):
+        for width, height in ((60, 14), (55, 16), (80, 24), (120, 30), (120, 36), (150, 45)):
             await pilot.resize_terminal(width, height)
             await pilot.pause()
             assert popover.display
             assert popover.region.bottom <= height
-            assert caps.styles.grid_size_columns == expected_cols
+            sections = [section.region for section in caps.query(".environment-section")]
+            assert len(sections) >= 2
+            assert all(region.width > 0 and popover.region.x <= region.x < region.right <= popover.region.right
+                       for region in sections)
+            assert all(first.bottom <= second.y for first, second in zip(sections, sections[1:], strict=False))
             assert 1 <= int(scroll.styles.max_height.value) <= 10
 
         app.configuration.preferences = replace(app.configuration.preferences, show_command_bar=True)

@@ -133,9 +133,12 @@
         "tests/visual/__snapshots__/test_global_status/test_global_status[en-size9-auto-ready].svg",
         "tests/visual/__snapshots__/test_global_status/test_global_status[zh-size4-process-diagnostic].svg",
         "tests/visual/__snapshots__/test_global_status/test_global_status[zh-size6-permissions-perf].svg",
-        "tests/visual/__snapshots__/test_global_status/test_global_status[zh-size8-auto-ready].svg"
+        "tests/visual/__snapshots__/test_global_status/test_global_status[zh-size8-auto-ready].svg",
+        "tests/visual/__snapshots__/test_source_groups/test_source_groups[zh-size0].svg",
+        "tests/visual/__snapshots__/test_source_groups/test_source_groups[en-size1].svg",
+        "tests/visual/__snapshots__/test_source_groups/test_source_groups[zh-size2].svg"
       ],
-      "tests": ["tests/tui/workflows/test_tui_preflight.py", "tests/tui/workflows/test_tui_environment_popover.py", "tests/tui/workflows/test_tui_global_status.py", "tests/tui/catalog/test_environment_tui.py"]
+      "tests": ["tests/tui/workflows/test_tui_preflight.py", "tests/tui/workflows/test_tui_environment_popover.py", "tests/tui/workflows/test_tui_global_status.py", "tests/tui/workflows/test_tui_source_groups.py", "tests/tui/catalog/test_environment_tui.py"]
     },
     {
       "id": "docker-repair", "title": "Docker 安装与修复", "page": "run-tab", "group": "exception",

@@ -6,6 +6,7 @@ from textual.widgets import Collapsible
 
 from acprof.experiments.configuration import RunConfig
 from acprof.tui.app import AcprofTui
+from acprof.tui.ui.structured import Callout
 from tests.support.tui_waits import wait_for_condition
 from tests.tui.workflows.test_tui_docker_repair import docker_check
 
@@ -26,6 +27,8 @@ def test_docker_repair(snap_compare, tmp_path, language, size, scene):
                                             theme='acprof-light' if language == 'en' else 'acprof-graphite')
 
     async def prepare(pilot):
+        await wait_for_condition(pilot, lambda: app.preflight.check_completed,
+                                 description='initial fixture preflight completed', timeout=3)
         await pilot.pause()
         app.set_input_cursor_blink_enabled(False)
         code = {'permission': 'socket_permission', 'wsl': 'daemon_unreachable',
@@ -51,6 +54,7 @@ def test_docker_repair(snap_compare, tmp_path, language, size, scene):
             app.preflight.check_running = True
             app.preflight.refresh_preflight_state()
         await pilot.pause()
+        assert app.screen.query_one('#docker-summary', Callout).content.problem == diagnostic.summary
         assert app.screen.query_one('#docker-technical', Collapsible).collapsed
         if scene == 'permission':
             app.screen.query_one('#docker-note-group').scroll_visible(immediate=True, force=True, top=True)
