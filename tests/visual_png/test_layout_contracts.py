@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from itertools import combinations
 
 import pytest
@@ -42,6 +43,8 @@ async def test_visible_controls_fit_without_overlap(
             await asyncio.wait_for(app.scene_ready.wait(), timeout=5)
             await app.workers.wait_for_complete()
             await pilot.pause()
+            visible_text = "\n".join(strip.text for strip in app.screen._compositor.render_strips())
+            assert re.search(spec.ready_pattern, visible_text), f"{scene}: missing VHS marker {spec.ready_pattern!r}"
             controls = [app.screen.query_one(selector) for selector in selectors]
             if scene.startswith("docker-frontend"):
                 stage = app.execution.session.snapshot.stage

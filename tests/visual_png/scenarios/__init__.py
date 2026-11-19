@@ -40,7 +40,7 @@ _STATISTICS = Scene(
 SCENARIOS: dict[str, Scene] = {
     "form": _FORM,
     "form-small": replace(_FORM, columns=80, rows=24),
-    "error-modal": Scene(error_modal.initial_config, error_modal.mount, "CPU 指令计数与权限"),
+    "error-modal": Scene(error_modal.initial_config, error_modal.mount, "Required DRAM energy · 阻断"),
     "near-match": Scene(near_match.initial_config, near_match.mount, "3 个正式窗口"),
     "measuring": Scene(measuring.initial_config, measuring.mount, r"当前 case\s+2", page="monitor-tab"),
     "docker-frontend": _DOCKER_FRONTEND,

@@ -109,7 +109,7 @@ VHS 只操作该测试应用，没有向 AC-Prof CLI 添加截图选项。
 
 - `form`：中文普通表单（120×36）
 - `form-small`：小终端、截断与滚动（80×24）
-- `error-modal` 展示全局状态中的 Linux perf 权限阻断、受影响的指标和重新检查入口。
+- `error-modal` 展示全局状态中的 Linux RAPL 诊断。用户要求采集 DRAM 能耗时，读取计数器的权限不足会阻断运行，弹窗显示原因和重新检查入口。
 - `near-match`：BAAI/bge-m3 自定义配置
 - `measuring`：模拟测量阶段与日志布局
 - `task-selection`：多任务选择弹窗
