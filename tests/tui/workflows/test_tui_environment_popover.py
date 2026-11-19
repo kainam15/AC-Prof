@@ -675,12 +675,11 @@ async def test_selected_check_clears_when_category_or_cached_checks_change(app):
         assert await pilot.click("#preflight-signal-docker")
         assert "refreshed Docker evidence" in detail_text(app)
         probe.assert_called_once()
-        probe.assert_called_once()
 
 
-async def test_stale_auto_runtime_and_measurement_actions(app):
+async def test_stale_explicit_runtime_and_measurement_actions(app):
     app, probe = app
-    app.configuration.initial_config = RunConfig.smoke("fixture/model")
+    app.configuration.initial_config = replace(RunConfig.smoke("fixture/model"), runtime="process")
     app.preflight.AUTO_CHECK_DELAY = 60
     probe.return_value = [PreflightCheck("Runtime", "ok", "Process", runtime_kind="process", check_id="runtime")]
     async with app.run_test(size=(80, 24)) as pilot:
