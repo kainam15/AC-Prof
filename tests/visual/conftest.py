@@ -1,6 +1,7 @@
 """Deterministic SVG snapshot fixtures without pinned third-party pytest internals."""
 from __future__ import annotations
 
+import asyncio
 import difflib
 import inspect
 import json
@@ -27,6 +28,7 @@ class SvgOperations:
 
     def __init__(self) -> None:
         self.events: list[dict[str, object]] = []
+        self.preflight_completed = asyncio.Event()
         self.expected_blocks: list[str] = []
         self.expected_launches: dict[object, str] = {}
         self.owned_processes: dict[object, Mock] = {}
@@ -38,6 +40,13 @@ class SvgOperations:
     def expect_blocked(self, operation: str) -> None:
         """Declare an intentional negative test without erasing its evidence."""
         self.expected_blocks.append(operation)
+
+    async def wait_for_preflight(self) -> None:
+        """Wait for the fixture callback without waiting for every widget to go idle."""
+        try:
+            await asyncio.wait_for(self.preflight_completed.wait(), timeout=8)
+        except TimeoutError as exc:
+            raise AssertionError(f"Fixture preflight did not complete: {self.events}") from exc
 
     def expect_launch(self, app, *, kind: str) -> None:
         assert app.process not in self.expected_launches
@@ -105,6 +114,9 @@ def svg_operations(request, monkeypatch, offline_machine_environment, offline_tu
         )
         controller.show_quick_check([PreflightCheck('Environment', 'ok', 'fixture', check_id='environment')],
                                     "", token, True, checks, "")
+        assert controller.check_completed
+        assert not controller.check_running
+        guard.preflight_completed.set()
 
     def skip_version_lookup(controller):
         # Version networking is not a scene input. Retain the explicit startup

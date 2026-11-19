@@ -12,7 +12,6 @@ import pytest
 from acprof.experiments.configuration import RunConfig
 from acprof.tui.app import AcprofTui
 from acprof.tui.run.process import ProcessLifecycle
-from tests.support.tui_waits import wait_for_condition
 
 pytestmark = pytest.mark.visual
 
@@ -23,12 +22,10 @@ def test_app_run_startup_and_unmount_are_isolated(svg_operations, tmp_path):
     async def finish(pilot):
         # Startup schedules preflight after the first refresh; an empty worker
         # manager does not imply that the deferred check has started yet.
-        await wait_for_condition(
-            pilot,
-            lambda: app.preflight.check_completed and app.preflight.lock_acquired
-            and bool(app.preflight.environment_checks),
-            description="fixture startup preflight", timeout=8,
-        )
+        await svg_operations.wait_for_preflight()
+        assert app.preflight.check_completed
+        assert app.preflight.lock_acquired
+        assert app.preflight.environment_checks
         await app.workers.wait_for_complete()
         process = Mock(pid=12345, returncode=None)
         process.poll.return_value = None

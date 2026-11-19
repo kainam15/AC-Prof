@@ -19,7 +19,7 @@ pytestmark = pytest.mark.visual
     ('zh', (120, 30), 'wsl'), ('en', (120, 30), 'desktop'),
     ('zh', (150, 45), 'checking'), ('en', (80, 24), 'ready'),
 ])
-def test_docker_repair(snap_compare, tmp_path, language, size, scene):
+def test_docker_repair(snap_compare, svg_operations, tmp_path, language, size, scene):
     config = replace(RunConfig.smoke('fixture/model'), runtime='docker' if scene == 'desktop' else 'process',
                      cpus='auto', mems='auto')
     app = AcprofTui(config, settings_path=tmp_path / 'settings.json')
@@ -27,8 +27,7 @@ def test_docker_repair(snap_compare, tmp_path, language, size, scene):
                                             theme='acprof-light' if language == 'en' else 'acprof-graphite')
 
     async def prepare(pilot):
-        await wait_for_condition(pilot, lambda: app.preflight.check_completed,
-                                 description='initial fixture preflight completed', timeout=3)
+        await svg_operations.wait_for_preflight()
         await pilot.pause()
         app.set_input_cursor_blink_enabled(False)
         code = {'permission': 'socket_permission', 'wsl': 'daemon_unreachable',
