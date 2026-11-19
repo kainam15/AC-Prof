@@ -171,7 +171,7 @@ def compose_run_tab(app: AcprofTui) -> ComposeResult:
                             ))
 
                 with app.localization.localized_widget(Collapsible(
-                    title="完整命令（自动更新）",
+                    title="完整命令",
                     collapsed=True,
                     collapsed_symbol=COMPACT_COLLAPSED_SYMBOL,
                     expanded_symbol=COMPACT_EXPANDED_SYMBOL,

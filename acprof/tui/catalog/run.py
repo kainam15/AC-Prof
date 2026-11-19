@@ -13,7 +13,7 @@ MESSAGES: dict[str, Entry] = {
     "run.auxiliary.user_stopped": Entry(zh="用户终止了 {0} 任务", en="User stopped the {0} task"),
     "run.command.await_model": Entry(zh="请输入模型 ID 后生成完整命令。", en="Enter a model ID to generate the full command."),
     "run.command.incomplete_detail": Entry(zh="配置尚未完成：{0}", en="Configuration incomplete: {0}"),
-    "run.command.preview_title": Entry(zh="完整命令（自动更新）", en="Full command (auto-updated)"),
+    "run.command.preview_title": Entry(zh="完整命令", en="Full command"),
     "run.command.preview_updated": Entry(zh="命令预览已更新", en="Command preview updated"),
     "run.completion.collection_exit_code": Entry(zh="采集进程退出码 {0}", en="Collection process exit code {0}"),
     "run.completion.collection_merged": Entry(zh="采集与合并已完成", en="Collection and merge completed"),
