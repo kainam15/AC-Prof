@@ -276,7 +276,28 @@ async def test_page_shortcuts_header_help_command_palette_and_update_badge(tmp_p
         assert "/status" not in app.query_one("#run-log", SelectableLog).text
         await pilot.press("escape")
 
-        # Update indicator badge appears on Settings navigation item.
+        # Update indicator badge appears on Settings navigation item with theme warning amber.
         app.query_one(PageNavigation).set_update_available(True)
         await pilot.pause()
-        assert "•" in str(app.query_one("#nav-settings-tab", Button).label)
+        settings_button = app.query_one("#nav-settings-tab", Button)
+        assert "•" in settings_button.label.plain
+        dot_spans = [
+            span for span in settings_button.label.spans
+            if settings_button.label.plain[span.start:span.end] == "•"
+        ]
+        assert len(dot_spans) == 1
+        assert dot_spans[0].style == "bold $warning"
+        for theme in ("acprof-graphite", "acprof-light"):
+            app.theme = theme
+            await pilot.pause()
+            region = settings_button.content_region
+            strips = app.screen._compositor.render_strips()[region.y:region.bottom]
+            dot_segments = [
+                segment for strip in strips for segment in strip.crop(region.x, region.right)
+                if "•" in segment.text
+            ]
+            assert dot_segments
+            assert dot_segments[0].style is not None
+            assert dot_segments[0].style.bold is True
+            assert dot_segments[0].style.color is not None
+            assert dot_segments[0].style.color.name == app.get_css_variables()["warning"].lower()

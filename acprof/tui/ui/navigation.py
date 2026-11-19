@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 from textual import on
 from textual.app import ComposeResult
 from textual.containers import VerticalScroll
+from textual.content import Content
 from textual.geometry import Offset
 from textual.message import Message
 from textual.widget import Widget
@@ -99,9 +100,12 @@ class PageNavigation(VerticalScroll, can_focus=False):
             assert pane_id is not None
             tab = tabs.get_tab(pane_id)
             icon = self.ICONS[pane_id]
-            badge = " •" if pane_id == "settings-tab" and self.update_available else ""
-            compact_badge = "•" if pane_id == "settings-tab" and self.update_available else ""
-            button.label = (f"{icon}{compact_badge}" if collapsed else f"{icon}  {tab.label.plain}{badge}")
+            base = icon if collapsed else f"{icon}  {tab.label.plain}"
+            if pane_id == "settings-tab" and self.update_available:
+                prefix = base if collapsed else f"{base} "
+                button.label = Content.assemble(prefix, ("•", "bold $warning"))
+            else:
+                button.label = base
             tooltip = tab.tooltip or tab.label.plain
             if pane_id == "settings-tab" and self.update_available:
                 tooltip = f"{tooltip} · {tr(message_id('common.navigation.update_available'))}"
