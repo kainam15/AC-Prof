@@ -202,7 +202,7 @@
           const content = change.delta == null ? (change.reasons ? `${change.reason}: ${change.reasons.join(", ")}` : "— vs baseline") :
             `Δ ${signed(change.delta)} ${registry[name].unit} · ${change.percent == null ? "% —" : signed(change.percent) + "%"}` +
             ` · 比值 ${fmt(change.ratio)} · 性能比 ${fmt(change.performance_ratio)}`;
-          cell.append(element("small", content));
+          cell.append(element("small", change.scope === "matched_cross_runtime_metric" ? "跨 Runtime 描述性差值 · " + content : content));
         }
         row.append(cell);
       }

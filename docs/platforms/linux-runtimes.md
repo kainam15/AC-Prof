@@ -3,21 +3,19 @@
 [文档导航](../README.md) · [CLI 参数](../usage/cli-run.md) · [TUI](../usage/tui.md)
 
 AC-Prof 根据实际可访问的接口选择执行与采集路径。云厂商名称不作为硬件权限或资源隔离的证据。
-Native Linux 的 Docker `full` 仍是完整测量基准；Process 当前提供 `basic`。
+新实验自动按 Runtime、设备、权限和工具制定采集计划。
 
 ## 支持环境与采集模式
 
-| 运行环境 | 模式 | 主要能力与限制 |
-| --- | --- | --- |
-| 原生 Linux x86_64 + 本机 Docker | `basic`、`full` | `basic` 采集延迟、吞吐、容器 CPU/内存及可用 GPU 指标；`full` 需 cgroup v2、RAPL、perf、抓包等主机能力，才可增加能耗、PMU、抓包和可选 Profiler |
-| Linux 虚拟机/云主机 + 本机 Docker | `basic` | CPU/内存与可用 GPU 指标；环境能力为 `PARTIAL`，不提供原生硬件能耗、PMU 或抓包 |
-| Linux x86_64 + Process（可无 Docker） | `basic` | 应用层性能、进程树 CPU/RSS/I/O/边界计数、已验证服务 cgroup 与可用整卡 GPU 状态；尚未接入能耗、PMU、抓包或独立 Profiler，数值配额依赖 cgroup v2 委托 |
-| WSL2 + Docker/Process | `basic` | Linux 客体 CPU/内存与部分 GPU 指标；无原生硬件能耗/PMU，Docker 需在 WSL 内运行本机 Engine，不支持 Docker Desktop |
-| Windows/macOS 原生 | 不支持采集 | 可通过受支持的 Linux 环境运行；不提供原生测量 Runtime |
+| 运行环境 | 主要能力与限制 |
+| --- | --- |
+| Native Linux + 本机 Docker | 应用延迟、进程树、容器 cgroup 与设备遥测。RAPL、PMU 和 bridge 抓包各自检查可用性。 |
+| Linux 虚拟机 / 云主机 + Docker | 采集可见的 CPU、内存和 GPU 遥测，保留客体身份。 |
+| Linux x86_64 + Process | 共同应用指标、进程树、已验证服务 cgroup 和设备 GPU 遥测。在 Native Linux 上按条件采集包/DRAM/整卡能量、PID PMU 和 loopback 抓包。 |
+| WSL2 + Docker / Process | 保留 WSL2/PARTIAL 范围。Docker 需发行版内本机 Engine。 |
+| Windows/macOS 原生 | 通过受支持的 Linux 环境采集。 |
 
-`basic`/`full` 是采集模式，不等于环境能力等级 `FULL`/`PARTIAL`。
-共同资源指标与范围见[统一画像契约](../results/runtime-profile.md)。后续计划取消两种模式，
-按采集器能力独立启用，见[P2 接入设计](../profiling/collector-capabilities.md)；本轮保持模式兼容。
+各来源的条件、成本与证据见[统一画像契约](../results/runtime-profile.md)和[采集器契约](../profiling/collector-capabilities.md)。
 具体指标由硬件和权限决定，云 GPU 与 WSL2 仍需对实例验证；
 独立 Profiler 也必须显式启用。详见 [WSL2 限制](wsl2.md)、
 [指标范围](../results/metrics.md)与[主机要求](../getting_started/installation.md#1-检查主机环境)。
@@ -27,8 +25,8 @@ Native Linux 的 Docker `full` 仍是完整测量基准；Process 当前提供 `
 `--runtime auto|docker|process` 的默认值为 `auto`：
 
 1. Docker CLI、本机 daemon 访问和统一 cgroup v2 检查通过时选择 Docker，保留原有矩阵和测量协议。
-2. Docker 不可用、系统为 Linux 且请求 `basic` 时选择 Process，输出选择原因。
-3. 显式 Docker 或 `full` 的前提缺失即失败。开始模型准备后不切换 Runtime；推理失败也不触发自动重试或降级。
+2. Docker 不可用且系统为 Linux 时选择 Process，输出选择原因。
+3. 显式 Docker 的前提缺失即失败。开始模型准备后不切换 Runtime；推理失败也不触发自动重试或降级。
 
 Process 要求 Linux x86_64、可用的 `uv`、procfs，以及允许 pidfd 和 child-subreaper 的内核接口
 （pidfd 通常需要 Linux 5.3+；seccomp 策略也可能禁止）。无需 Docker CLI、socket、root 或 systemd。
@@ -51,11 +49,11 @@ Process 环境缓存 schema 3 还记录依赖锁的相对路径与 SHA-256：准
 测量期间使用已准备的环境和 snapshot，不安装包或下载模型。HF offline 设置不等于网络隔离；Python 环境也不是安全沙箱。
 
 ```bash
-acprof doctor --runtime process --profiling-mode basic --gpus off
+acprof doctor --runtime process --gpus off
 acprof tui
 ```
 
-在 TUI 选择 Smoke/basic，在基本配置选择 Process，再到高级参数按需点击
+在 TUI 选择 Smoke，在基本配置选择 Process，再到高级参数按需点击
 “使用继承限制（CPU / 内存 → auto）”。
 环境检查展示可用采集器及缺失状态；最小内存探测仍为 Docker 工具，Process 使用输入规模扫描。
 Process 的结构化 `case_selected` 进度携带 `runtime_kind=process`，允许 CPU/内存为 null，界面显示“继承限制”；
@@ -63,7 +61,7 @@ Docker 与最小内存 probe 的进度仍要求正数资源轴。
 CLI 的小型 ONNX 示例（从仓库根目录运行）：
 
 ```bash
-uv run acprof run --runtime process --profiling-mode basic \
+uv run acprof run --runtime process \
   --model Ritual-Net/iris-classification \
   --revision 273d867c65e8e5fa5c64c23dcf19738282452beb \
   --task tabular-classification --backend onnxruntime \
@@ -86,7 +84,7 @@ acprof load results/process-smoke --gpu off --requests 5 --warmup 1 \
 
 沿用冻结环境、输入计划和资源选择，将日志写入新目录，不重新安装依赖或下载模型。
 调度、连接复用和抓包条件见[独立非流式负载](../profiling/lifecycle.md#独立非流式负载)。
-该入口仅测 HTTP 负载，不增加 Process full、能耗或独立 Profiler 能力。
+该入口仅测 HTTP 负载，正式画像另走实验采集协议。
 
 | 项目 | Process 行为 |
 | --- | --- |
@@ -123,7 +121,7 @@ AC-Prof 不运行 sudo/chown、不修改系统权限或 systemd 配置，也不�
 
 能力状态区分 `unsupported`、`permission_denied`、`unavailable`、`not_requested` 和 `error`。
 可选资源指标缺失不取消有效的请求延迟/吞吐；缺失数值保持 NaN/null，原因保存在字段状态、采集计划与原始证据中。
-Process 不运行 RAPL、PMU、抓包或独立 profiler；显式请求这些完整测量不会静默变成 basic。
+Process 的 RAPL、PMU 和抓包依照正式实验计划执行。当前独立 Profiler 的执行入口使用 Docker。
 现有 `probe`、post-hoc profiler 和负载重放命令仍要求 Docker。
 
 ## 生命周期与恢复
@@ -158,10 +156,10 @@ Docker adapter 调用原有生命周期；Process 通过独立 supervisor 和控
 
 | 环境 | 实现路径 | 验证边界 |
 | --- | --- | --- |
-| Native Linux | Docker basic/full；Process basic | 小型 ONNX 已完成隔离 Docker 入口的 Process CPU Smoke；BERT CPU/GPU basic、Iris basic 及代表模型 Docker full 扩展已有本地实测，质量边界见下文 |
-| 普通 Linux VM / 云 VM | 本机 Docker basic 或 Process basic | 无 RAPL/PMU 不阻止 basic；AWS/阿里云/腾讯云尚需实例实测 |
-| AutoDL 类无 Docker GPU 容器 | Process basic，GPU 遥测按权限 | 尚未取得对应云容器与 GPU 的端到端验收证据 |
-| WSL2 | basic/PARTIAL | 保持独立环境身份，不能进入 Native 完整画像基准 |
+| Native Linux | Docker / Process 自动计划 | 小型 ONNX 已完成隔离 Docker 入口的 Process CPU Smoke；BERT CPU/GPU basic、Iris basic 及代表模型 Docker full 扩展已有本地实测，质量边界见下文 |
+| 普通 Linux VM / 云 VM | 本机 Docker 或 Process | 无 RAPL/PMU 时保留其他采集；AWS/阿里云/腾讯云尚需实例实测 |
+| AutoDL 类无 Docker GPU 容器 | Process，GPU 遥测按权限 | 尚未取得对应云容器与 GPU 的端到端验收证据 |
+| WSL2 | 自动 / PARTIAL | 保持独立环境身份，不能进入 Native 完整画像基准 |
 | Kubernetes / 已有远程 Endpoint | 无专用 Runtime | 后续阶段；不以当前 Process 支持宣称已验证集群兼容 |
 
 上述 Process Smoke 的主机仍安装 Docker；验收命令通过限制 PATH 和配置不可用 socket 隔离该入口，

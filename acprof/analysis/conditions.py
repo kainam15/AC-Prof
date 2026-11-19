@@ -25,6 +25,21 @@ def canonical(value):
     return json.dumps(value, sort_keys=True, ensure_ascii=False, allow_nan=False, separators=(",", ":"))
 
 
+def _verified_limits(allocation, key, runtime):
+    from acprof.results.layout import resource_case_id
+
+    method = "docker_cgroup_v2" if runtime == "docker" else "cgroup_v2"
+    if not isinstance(allocation, dict) or allocation.get("method") != method or allocation.get("verified") is not True:
+        return False
+    values = allocation.get("observed" if runtime == "docker" else "requested", {})
+    try:
+        cpu, memory = float(values["cpu_quota"]), float(values["memory_gib"])
+        return (cpu.is_integer() and memory.is_integer() and cpu > 0 and memory > 0 and
+                resource_case_id(cpu, memory, key.rsplit("_", 1)[-1]) == key)
+    except (KeyError, ValueError, TypeError, OverflowError):
+        return False
+
+
 def digest(value):
     return hashlib.sha256(canonical(value).encode()).hexdigest()
 
@@ -233,6 +248,27 @@ class PreparedComparison:
         checks: dict[str, dict[str, object]] = {}
         self._populate_condition_checks(checks, conditions, hardware, purpose)
         profile = {"purpose": purpose, "valid": snapshot["valid"], "checks": checks, "workload": workload_profiles}
+        if purpose == "same-hardware":
+            from acprof.hub.repository import model_source
+            from acprof.models.evidence import pinned_revision
+            from acprof.results.layout import resource_case_id
+            identity = snapshot.get("identity", {})
+            runtime = conditions.get("execution_runtime", {}).get("kind")
+            limits = snapshot.get("verified_limits", {})
+            ids = [resource_case_id(*case[:3])] if case is not None else list(hardware.get("host_id") or {})
+            bound = bool(ids) and all(_verified_limits(limits.get(key, {}), key, runtime) for key in ids)
+            protocol = snapshot.get("collector_protocol", {})
+            if (runtime in {"docker", "process"} and bound
+                    and all(identity.get(name) for name in ("model_name", "model_revision", "runtime_backend"))
+                    and pinned_revision(identity["model_revision"]) and snapshot.get("model_profile")
+                    and (snapshot.get("inference_configuration_validation") or {}).get("status") == "ok"
+                    and snapshot.get("all_formal_measured")
+                    and all(identity.get(key) for key in ("source_sha256", "packages_sha256"))
+                    and set(protocol) == {"cpu_energy", "cpu_instructions", "packet_latency", "gpu_power"}):
+                profile["runtime_metric_identity"] = digest([model_source(identity.get("model_source")), identity["model_name"],
+                    identity["model_revision"], identity["runtime_backend"], snapshot["model_profile"], protocol,
+                    identity["source_sha256"], identity["packages_sha256"], identity.get("runtime_requested_environment")])
+                profile["runtime_kind"] = runtime
         verdict = compare_profiles(profile, profile)
         profile["status"] = verdict["status"]
         profile["reasons"] = verdict["reasons"]
@@ -265,5 +301,10 @@ def compare_profiles(left, right):
         statuses["invalid_artifacts"] = "incompatible"
     status = ("incompatible" if "incompatible" in statuses.values() else
               "unknown" if "unknown" in statuses.values() else "compatible")
-    return {"status": status, "reasons": sorted({name.split(".")[0] for name, value in statuses.items()
+    runtime_match = (left["purpose"] == "same-hardware" and {left.get("runtime_kind"), right.get("runtime_kind")} == {"docker", "process"}
+        and bool(left.get("runtime_metric_identity")) and left["runtime_metric_identity"] == right.get("runtime_metric_identity")
+        and any(name.startswith("hardware_host_id") for name in statuses) and left["workload"] and right["workload"]
+        and all(value == "compatible" for name, value in statuses.items() if not name.startswith("execution_runtime.")
+                and name not in {"resources.cgroup_version", "resources.cgroup_collection_mode"}))
+    return {**({"matched_cross_runtime": True} if runtime_match else {}), "status": status, "reasons": sorted({name.split(".")[0] for name, value in statuses.items()
                                                  if value in {"incompatible", "unknown"}}), "checks": statuses}

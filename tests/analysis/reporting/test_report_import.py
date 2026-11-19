@@ -733,3 +733,17 @@ def test_experiment_selectors_share_one_visible_comparison(page, source):
     rows = download_json(page)["groups"]
     assert rows
     assert {row["run_id"] for row in rows} == {"second"}
+
+
+
+def test_cross_runtime_report_only_exposes_qualified_metric_deltas(page):
+    result = page.evaluate("""() => {
+        const baseline={config_id:"docker",experiment_id:"a"}, target={config_id:"process",experiment_id:"b"};
+        const pairs={pairs:{docker:{process:{policies:{"same-hardware":0},cross_runtime:true,
+          metrics:{latency_app_s:{delta:0.1}}}}},qualifications:[{status:"incompatible",matched_cross_runtime:true}]};
+        const context=ACProfViews.comparisonContext(baseline,"same-hardware",pairs);
+        return [context.delta(target,"latency_app_s"), context.delta(target,"latency_s"), context.automaticQualification(target)];
+    }""")
+    assert result[0] == {"delta": 0.1, "scope": "matched_cross_runtime_metric", "statistics_status": "not_computed"}
+    assert result[1]["delta"] is None
+    assert result[2]["status"] == "incompatible"

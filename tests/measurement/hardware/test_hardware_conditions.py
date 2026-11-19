@@ -213,3 +213,19 @@ class TestHardwareConditions:
 
         assert observed["cpu_affinity"] == ["2-3"]
         assert not [error for error in observed["errors"] if error.startswith("CPU affinity")]
+
+
+@pytest.mark.parametrize(("ancestor_cpu", "expected"), [(2, True), (1, False)])
+def test_docker_limit_evidence_requires_effective_cgroup_bounds(monkeypatch, ancestor_cpu, expected):
+    from acprof.host.hardware_conditions import _docker_limit_observation
+
+    uid = "a" * 64
+    monkeypatch.setattr("acprof.host.runtimes.resources.inherited_resources", lambda *, pid: {
+        "cgroup": f"/sys/fs/cgroup/docker-{uid}.scope", "cpu_max": "200000 100000",
+        "memory_max": str(4 * 1024**3), "effective_cpu_upper_bound": ancestor_cpu,
+        "effective_memory_upper_bound": 4 * 1024**3, "visible_ancestor_limits": [
+            {"cpu.max": {"status": "available"}, "memory.max": {"status": "available"}}, {}]})
+    evidence = _docker_limit_observation(uid, 37)
+    assert evidence["verified"] is expected
+    assert evidence["observed"] == {"cpu_quota": 2, "memory_gib": 4}
+    assert not _docker_limit_observation("b" * 64, 37)["verified"]

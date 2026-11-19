@@ -14,7 +14,7 @@ AC-Prof 用于分析 AI 模型在不同 CPU、内存、GPU 配置和输入规模
 | 领域 | 可获得的结果 |
 | --- | --- |
 | 性能与资源 | 应用层延迟、吞吐量、CPU/内存占用及可用的 GPU 指标 |
-| 完整画像 | 能耗、抓包计时、CPU 硬件计数器和按需启用的独立 Profiler |
+| 条件采集 | 能耗、抓包计时、CPU 硬件计数器和按需启用的独立 Profiler |
 | 可复现分析 | 输入与环境元数据、分层 CSV、图表和离线 HTML 报告 |
 
 支持文本、视觉、音频、时间序列、Diffusion、多模态与结构化数据任务。
@@ -58,9 +58,9 @@ acprof tui
 
 ## 运行环境
 
-原生 Linux x86_64 配合本机 Docker 可使用 `basic`，硬件与权限满足要求时可使用 `full`。
-Linux 虚拟机/云环境和无 Docker 的 Process 环境支持受限的 `basic` 采集；
-WSL2 也仅提供有限的 `basic` 支持，Windows/macOS 原生环境暂不支持采集。
+原生 Linux x86_64 上的 Docker 和 Process 按采集器自动规划。
+Linux 虚拟机/云环境和无 Docker 的 Process 环境按服务可用的能力采集指标；
+WSL2 也仅提供部分指标支持，Windows/macOS 原生环境暂不支持采集。
 实际可用指标取决于运行环境与权限，不能只依据模式名称判断。
 详见 [环境支持矩阵](../platforms/linux-runtimes.md#支持环境与采集模式)、[WSL2](../platforms/wsl2.md)及
 [主机要求](../getting_started/installation.md#1-检查主机环境)。

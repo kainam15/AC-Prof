@@ -120,10 +120,10 @@ GitHub 的 [Releases 页面](https://github.com/kainam15/AC-Prof/releases)
 
 ### 1. 检查主机环境
 
-AC-Prof 的 FULL 采集要求 Native Linux、本机 Docker Engine 和统一 cgroup v2。
-无 Docker 的 Linux VM 或 GPU 容器可选择 `--runtime process --profiling-mode basic`，
+AC-Prof 按当前平台与权限自动选择采集器。Docker 路径使用本机 Engine 和统一 cgroup v2。
+无 Docker 的 Linux VM 或 GPU 容器可选择 `--runtime process`，
 使用 uv 管理的隔离 Python 环境和进程级指标；前提、TUI 操作及验证边界见 [Linux Runtime](../platforms/linux-runtimes.md)。
-WSL2 支持开发及 basic/PARTIAL 采集；Docker 路径需发行版内的 Docker Engine 和 cgroup v2，详见 [WSL2](../platforms/wsl2.md)。
+WSL2 支持开发及 PARTIAL 采集；Docker 路径需发行版内的 Docker Engine 和 cgroup v2，详见 [WSL2](../platforms/wsl2.md)。
 Docker Desktop 与远程 Docker daemon 不能用于 Docker 采集；Windows 和 macOS 不能作为采集主机。
 当前推荐并验证的是 Ubuntu 24.04。
 
@@ -133,17 +133,17 @@ Docker 路径必需条件：
 - 当前用户可以直接访问 `unix:///var/run/docker.sock`，无需使用 `sudo docker`。
 - Host 使用统一 cgroup v2；`/sys/fs/cgroup/cgroup.controllers` 必须存在。
 - Hugging Face Hub 可访问；私有或 gated 模型还需要 `HF_TOKEN`。
-- `full` 模式要求 Linux RAPL powercap 可读。
-- `full` 模式要求 Linux `perf` 可以访问硬件 `instructions` 事件。
-- `full` 模式要求 `tcpdump`、`tshark` 和本机 Docker bridge 可用。
+- 采集包/DRAM 能耗需要 Linux RAPL powercap 可读。
+- 采集 PMU 需要 Linux `perf` 可以访问硬件 `instructions` 事件。
+- 抓包需要 `tcpdump`、`tshark` 和本机 Docker bridge 可用。
 - 运行 `--gpus on` 时，还需要 NVIDIA driver 和 NVIDIA Container Toolkit。
 
 安装 AC-Prof 后可先运行只读检查，查看当前缺项及处理建议：
 
 ```bash
-acprof doctor --profiling-mode basic
-acprof doctor --runtime process --profiling-mode basic
-acprof doctor --profiling-mode full --gpus on
+acprof doctor
+acprof doctor --runtime process
+acprof doctor --gpus on
 ```
 
 standalone 不要求目标机安装 Python。`doctor` 不自动安装软件、更改权限或启动容器；
@@ -161,7 +161,7 @@ test -f /sys/fs/cgroup/cgroup.controllers
 cat /proc/self/cgroup
 ```
 
-`docker context inspect` 应输出 `unix:///var/run/docker.sock`。`full` 模式还需检查采集工具：
+`docker context inspect` 应输出 `unix:///var/run/docker.sock`。可选硬件计量和抓包需要相应工具：
 
 ```bash
 command -v perf tcpdump tshark
@@ -184,7 +184,7 @@ TUI 把工具限制到 `acprof-perf` / `acprof-capture` 组，并给当前用户
 `permissions-before-*.json`，失败时保留备份并停止后续步骤。内核升级后需重新配置新版本 perf。
 
 以下是 Ubuntu 管理员的 CLI 安装方案。`setup.sh`、`doctor`、环境检查和采集进程
-均不自动执行 sudo 或授予 capability；只有上述显式配置入口会请求授权。basic 模式无需 perf/tcpdump 权限。
+均不自动执行 sudo 或授予 capability；只有上述显式配置入口会请求授权。缺少 perf/tcpdump 权限时仍可完成其他指标。
 已退役的 `ACPROF_SUDO_PASSWORD` 应从 shell、`.env` 和 `.env.local` 删除；发现该键时明确报错。
 无需降低整台机器的 `perf_event_paranoid`，也无需 sudoers 免密规则。
 
@@ -221,7 +221,7 @@ AC-Prof 使用 `tcpdump -p` 关闭 promiscuous mode，不要求 `CAP_NET_ADMIN`�
 实际容器 PID 仍需在采集前探测；LSM、capability bounding set 或 `nosuid` 挂载可能继续限制访问。
 
 重新登录以取得组权限，然后用普通用户执行 `perf stat -e instructions -- sleep 0.01` 和
-`acprof doctor --profiling-mode full --gpus off`。抓包检查只证明工具、网卡及文件 capability 存在，
+`acprof doctor --gpus off`。预检会打开指定接口并验证工具支持的解析字段，
 不代替真实抓包。内核或工具包升级后需重新检查真实文件路径和 capability。
 撤销时由管理员对这两个真实文件执行 `setcap -r`，移除用户的采集组成员身份，并按保存的原值恢复 owner/group/mode。
 
@@ -235,7 +235,7 @@ AC-Prof 使用 `tcpdump -p` 关闭 promiscuous mode，不要求 `CAP_NET_ADMIN`�
 
 ```bash
 acprof --version
-acprof doctor --profiling-mode basic --gpus off
+acprof doctor --gpus off
 acprof tui
 ```
 

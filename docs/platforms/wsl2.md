@@ -1,14 +1,11 @@
 # WSL2 开发与部分采集
 
 WSL2 是 AC-Prof 的一等开发平台，也是 `PARTIAL` 采集平台。Native Linux 的环境等级为
-`FULL`。环境等级与 `--profiling-mode full/basic` 是两个独立维度：Native 的 basic 结果仍属于
-native_linux，但不会因此成为完整 full 画像；WSL2 结果始终属于 wsl2。
-
-第一阶段只开放已有 basic collector 和功能验证路径，不开放全部硬件或独立 profiler。
+`FULL`。新实验逐项自动规划。WSL2 结果使用 wsl2 身份，原生能耗、PMU、PCAP 按平台策略标为不可用。
 Docker 路径需要 WSL 发行版内的本机 Docker Engine、Linux x86_64 和统一 cgroup v2。Docker Desktop
 及远程 daemon 仍会被拒绝：当前采集器必须看到同一 daemon 的容器 PID、cgroup 与挂载路径。
 CUDA 本身支持 Docker Desktop 不表示 AC-Prof 的这些主机观测条件已经成立。
-无本机 Docker 时可显式选择 Process basic，其内核前提、进程指标与资源限制规则见
+无本机 Docker 时可显式选择 Process，其内核前提、进程指标与资源限制规则见
 [Linux Runtime](linux-runtimes.md)；该路径仍保留 WSL2/PARTIAL 身份，尚需 WSL2 实机验收。
 
 本地 WSL 中的 HTML 报告可通过 Windows 浏览器桥接打开，不要求 Linux 图形桌面；
@@ -40,11 +37,11 @@ GPU utilization 不支持时，GPU memory 可以独立成功；真实数值 `0` 
 
 在 WSL 的 Linux 文件系统中维护独立 `.venv`，不要复用 Windows 的 `.venv/Scripts/python.exe`。
 使用项目已有 Python 3.12+ 安装与依赖流程，参见[安装说明](../getting_started/installation.md)。
-第一阶段使用如下明确选择，不自动将用户请求的 full 改为 basic：
+可先查看预检，再运行所需实验。
 
 ```bash
-acprof doctor --profiling-mode basic --gpus off
-acprof run --model <model-id> --profiling-mode basic \
+acprof doctor --gpus off
+acprof run --model <model-id> \
   --compute-profile-tool none --execution-profile-tool none --dram-energy off
 ```
 

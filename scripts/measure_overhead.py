@@ -111,6 +111,8 @@ def _collector_observation(name, monitor, value) -> dict:
         return {'retention': item.get('retention'), **{key: buffers(child) for key in ('process', 'cgroup')
             if isinstance(child := item.get(key), dict)}}
     return {'collector': name, 'monitor': type(monitor).__name__,
+            'energy_counter_valid': (isinstance(value, GPUStopResult) and getattr(result, 'energy_source', None) == 'nvml_total_energy'
+                                     and math.isfinite(result.energy_total_j) and result.energy_total_j >= 0),
             'samples': len(samples) if isinstance(samples, list) else len(value.samples),
             'error': value.error, 'required_error': value.error if required_error is None else required_error,
             'metric_quality': quality if isinstance(quality, dict) else {},
@@ -198,7 +200,7 @@ def measure_window(url, payload, *, count, monitors: MonitorGroup, token,
             raise TypeError(f"{name} returned an invalid typed collector result")
         monitor = monitors.monitors[name]
         stopped.append(_collector_observation(name, monitor, value))
-    if any(item['required_error'] or item["samples"] < 2 for item in stopped):
+    if any(item['required_error'] or item["samples"] < 2 and not item["energy_counter_valid"] for item in stopped):
         raise RuntimeError(f"监测器未取得有效窗口：{stopped}")
     perf = cast("MIPSResult | None", monitors.results.get("mips"))
     perf_result = asdict(perf) if perf is not None else None
@@ -251,7 +253,9 @@ def validate_capture(command, pcap, *, token, count):
         raise RuntimeError(f"packet parser failed: {parsed.stderr}")
     data = json.loads(parsed.stdout)
     requests = data.get("requests", {})
-    if len(requests) != count or any(not key.startswith(token + ":") for key in requests):
+    from acprof.packet.sniff_parse_pcap import normalize_request_id
+    ids = {normalize_request_id(item.get("request_id", "")) for item in requests.values()}
+    if len(requests) != count or ids != {f"{token}:{index}" for index in range(count)}:
         raise RuntimeError(f"packet coverage mismatch: expected={count}, actual={len(requests)}")
     atomic_write_json(pcap.with_suffix(".packets.json"), data)
     return len(requests)
@@ -269,9 +273,15 @@ def measure_profile_window(session, entry, *, scenario, rate, count, name, cpu, 
     from acprof.monitors.resource_usage import ResourceUsageMonitor
 
     process_runtime = getattr(session, 'runtime_kind', 'docker') == 'process'
-    if process_runtime and scenario == 'full':
-        raise ValueError('Process 高级采集尚未接入本轮开销对照')
 
+    plan = options.get("collection_plan") if scenario == "best_effort" else None
+    if scenario == "best_effort" and not plan:
+        raise ValueError("best_effort overhead comparison requires a prepared collection plan")
+    def enabled(name):
+        return plan["probes"][name]["status"] == "available" if plan is not None else scenario == "full"
+    from acprof.monitors.gpu_telemetry import planned_gpu_queries
+    resource_options: dict[str, Any] = {"enabled_gpu_queries": planned_gpu_queries(plan)} if plan else {}
+    packet_enabled = enabled("packet_latency")
     idle = float(options["idle_seconds"])
     device = session.gpu_device
     monitors = MonitorGroup(diagnostics=WindowBoundaryDiagnostics() if window_boundaries else None)
@@ -281,15 +291,10 @@ def measure_profile_window(session, entry, *, scenario, rate, count, name, cpu, 
     primary_error = None
     try:
         with ExitStack() as resources:
-            if scenario == "full":
-                import shutil
-
-                from acprof.host.measurement.capture import tcpdump_can_capture_without_sudo
-                tcpdump = shutil.which("tcpdump")
-                if not tcpdump or not tcpdump_can_capture_without_sudo(tcpdump):
-                    raise RuntimeError("full 对照缺少现有 tcpdump capability；不会修改系统权限")
+            if packet_enabled:
                 pcap = output / f"{token}.pcap"
-                runtime = resolve_packet_latency_runtime(str(ROOT), str(pcap), options["sniff_iface"])
+                runtime = resolve_packet_latency_runtime(str(ROOT), str(pcap), options["sniff_iface"], preflight_checked=plan is not None,
+                            **({"process_port": session.host_port} if process_runtime else {}))
                 if runtime is None:
                     raise RuntimeError("full 对照缺少 tcpdump/tshark")
                 capture_log = resources.enter_context((output / f"{token}-tcpdump.log").open("w"))
@@ -298,29 +303,33 @@ def measure_profile_window(session, entry, *, scenario, rate, count, name, cpu, 
                 time.sleep(0.2)
                 if capture.poll() is not None:
                     raise RuntimeError("tcpdump 在请求前退出")
-                if gpu == "on":
-                    monitors.add("gpu", GPUEnergyMonitor(sample_hz=rate, idle_seconds=idle,
-                                 device_index=device["index"], device_uuid=device["uuid"],
-                                 sampling_policy=sampling_policy))
+            if enabled("gpu_power") and gpu == "on":
+                monitors.add("gpu", GPUEnergyMonitor(sample_hz=rate, idle_seconds=idle,
+                             device_index=device["index"], device_uuid=device["uuid"], sampling_policy=sampling_policy))
+            if enabled("cpu_energy"):
                 monitors.add("cpu", CPUEnergyMonitor(sample_hz=rate, idle_seconds=idle,
-                             container_name=name, dram_energy=options.get("dram_energy", "auto"),
-                             sampling_policy=sampling_policy))
-                monitors.add("mips", PerfMIPSMonitor(name))
-            if scenario in {"basic", "full"}:
+                             container_name="" if process_runtime else name, dram_energy=options.get("dram_energy", "auto"),
+                             sampling_policy=sampling_policy, **({"topology": plan["rapl_topology"]} if plan else {})))
+            if enabled("cpu_instructions"):
+                perf = plan["probes"]["cpu_instructions"]["evidence"] if plan else {}
+                monitors.add("mips", PerfMIPSMonitor(name, **({"process_identity": session.process.identity} if process_runtime else {}),
+                             **({"command_prefix": perf["prefix"], "events": tuple(perf["events"])} if perf else {})))
+            if scenario in {"basic", "full", "best_effort"}:
                 resource: ProcessUsageMonitor | ResourceUsageMonitor
                 if process_runtime:
                     resource = ProcessUsageMonitor(pid=session.process.pid,
                         start_ticks=session.process.identity['start_ticks'], resource_plan=session.resource_plan,
                         sample_hz=rate, use_gpu=gpu == 'on', device_uuid=device.get('uuid', ''),
-                        sampling_policy=sampling_policy)
+                        sampling_policy=sampling_policy, **resource_options)
                 else:
                     resource = ResourceUsageMonitor(sample_hz=rate, container_name=name,
                              cpu_cores=cpu, mem_cap_gb=mem, use_gpu=gpu == "on",
                              device_index=device.get("index", 0), device_uuid=device.get("uuid", ""),
-                             sampling_policy=sampling_policy)
+                             sampling_policy=sampling_policy, **resource_options)
                 monitors.add('resource', resource)
-            time.sleep(float(options["idle_cooldown_seconds"]))
-            if scenario == "full":
+            if idle > 0 or scenario == "full":
+                time.sleep(float(options["idle_cooldown_seconds"]))
+            if scenario == "full" or plan and idle > 0 and ("cpu" in monitors.monitors or "gpu" in monitors.monitors):
                 def control():
                     run_matched_control_window(monitors, idle_seconds=idle)
             else:
@@ -345,12 +354,24 @@ def measure_profile_window(session, entry, *, scenario, rate, count, name, cpu, 
                 if not window_entered:
                     _write_window_boundaries(monitors, boundary_output, token=token,
                                              active_error=sys.exc_info()[1])
-    if scenario == "full":
+    if packet_enabled:
         if capture.returncode != 0 or pcap.stat().st_size <= 24:
             raise RuntimeError("full 对照未取得有效 PCAP")
         result["pcap"] = str(pcap)
         assert runtime is not None
         result["packet_request_count"] = validate_capture(runtime.parse_cmd, pcap, token=token, count=count)
+    if plan:
+        excluded = {"available", "not_applicable", "not_requested"}
+        gaps = {name: {"status": probe["status"], "reason": probe.get("detail", "")}
+                for name, probe in plan["probes"].items() if probe["status"] not in excluded}
+        result["unavailable_collectors"] = gaps
+        result["field_probe_gaps"] = plan.get("field_probes", {})
+        complete = not gaps and not result["field_probe_gaps"]
+        if enabled("cpu_instructions"):
+            perf_reading = result.get("perf") or {}
+            running = perf_reading.get("running_pct")
+            complete = complete and isinstance(running, (float, int)) and 0 < running <= 100
+        result["collector_coverage_complete"] = bool(result["collector_coverage_complete"] and complete)
     return result
 
 
@@ -393,7 +414,7 @@ def main(argv=None):
     parser.add_argument("--sample-hz", default="5,20,100")
     parser.add_argument("--sampling-policies", default="burst",
                         help="逗号分隔的 burst,skip；每轮随机比较 policy × rate 与同轮 none 基线")
-    parser.add_argument("--modes", help="内部对照场景，如 none,basic,full；此时 --sample-hz 必须为单值")
+    parser.add_argument("--modes", help="内部对照场景，如 none,best_effort 或 none,basic,full；此时 --sample-hz 必须为单值")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--output-dir", type=Path, required=True)
     args = parser.parse_args(argv)
@@ -406,8 +427,8 @@ def main(argv=None):
         parser.error("--sampling-policies 不允许重复")
     modes: list[str] | None = args.modes.split(",") if args.modes else None
     if modes is not None and ("none" not in modes or len(modes) < 2 or len(set(modes)) != len(modes)
-                              or set(modes) - {"none", "basic", "full"} or len(rates) != 1 or len(policies) != 1):
-        parser.error("--modes 要求 none 与 basic/full，不允许重复；采样频率与调度策略须为单值")
+                              or set(modes) - {"none", "basic", "full", "best_effort"} or len(rates) != 1 or len(policies) != 1):
+        parser.error("--modes 要求 none 与 best_effort/basic/full，不允许重复；采样频率与调度策略须为单值")
     if args.rounds < 3 or args.requests < 1 or len(set(rates)) != len(rates) or not rates or any(not math.isfinite(rate) or rate <= 0 for rate in rates):
         parser.error("要求至少 3 轮、正请求数及不重复的正采样频率")
     output = args.output_dir.resolve()
@@ -435,8 +456,9 @@ def main(argv=None):
     process_runtime = None
     if runtime_kind == 'process':
         from acprof.host.runtimes.process import ProcessRuntime
-        if modes and 'full' in modes:
-            parser.error('Process 本轮仅支持现有低开销采集器对照；高级采集后续按能力接入')
+        if modes and "full" in modes:
+            from acprof.host.preflight import require_collection_host
+            require_collection_host(profiling_mode="full")
         process_runtime = ProcessRuntime()
         image = process_runtime.restore(snapshot['image'], output_dir=output)
     elif runtime_kind == 'docker':
@@ -483,7 +505,8 @@ def main(argv=None):
             "adds_diagnostic_overhead": True,
         }
     if process_runtime:
-        report['scope'] = '同一常驻 Process 服务、固定输入和线程；仅现有低开销进程/cgroup/NVML 资源采集器与 none 配对，不包含能耗、PMU、PCAP 或 Profiler'
+        report['scope'] = ('同一常驻 Process 服务、固定输入和线程；与 none 配对，'
+                           'basic 使用资源遥测，显式 full 增加设备能耗、PID PMU 和 loopback PCAP')
         report['host_process_cpu_scope'] = 'time.process_time during request loop; observer Python process only; excludes model service and collector start/stop; one core is 100%'
     try:
         with MeasurementLock(), conditions.activate(process_gpu=image.runtime_environment.get('gpu_device', {})
@@ -507,6 +530,13 @@ def main(argv=None):
                                        cpuset_cpus=conditions.cpuset_cpus)
                 measure_window(session.base_url, entry["payload"], count=5, monitors=MonitorGroup(), token="warmup",
                                timeout=conditions.request_timeout_seconds)
+                options = dict(state["options"])
+                if modes and "best_effort" in modes:
+                    from acprof.host.runtimes.capabilities import probe_collection_plan
+                    options["collection_plan"] = probe_collection_plan(runtime_kind,
+                        gpu=device if args.gpu == "on" else None, sniff_iface=options["sniff_iface"],
+                        dram_energy=options.get("dram_energy", "auto"), service_cgroup=cpu is not None or mem is not None)
+                    report["collection_plan"] = options["collection_plan"]
                 rng = random.Random(args.seed)
                 for round_index in range(args.rounds):
                     scenarios: list[tuple[str, float, SamplingPolicy | None]] = (
@@ -524,7 +554,7 @@ def main(argv=None):
                                 if process_runtime and not modes else scenario, rate=rate, count=args.requests,
                                 name=name, cpu=cpu, mem=mem, gpu=args.gpu,
                                 token=f"overhead-{round_index}-{scenario}", output=output,
-                                options=state["options"], window_boundaries=args.window_boundaries,
+                                options=options, window_boundaries=args.window_boundaries,
                                 sampling_policy=policy or policies[0])
                             report["rounds"].append({"round": round_index, "scenario": scenario,
                                                      'runtime_kind': runtime_kind,

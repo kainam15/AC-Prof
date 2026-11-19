@@ -93,7 +93,9 @@ CPU 时间能耗归因必须标记为估算。
 开销验收复用 `scripts/measure_overhead.py`：同硬件、model revision、输入和资源条件，
 按 round 配对 none / enabled，记录延迟、采集进程 CPU/RSS、采样丢失/迟到、窗口偏移及存储成本。
 未经明确授权不执行真实配对实验；Mock 只验证计算和边界。跨 Runtime 比较须逐指标检查
-来源、scope、window、derivation、质量及已有 workload/hardware/输入身份，不能仅因同名放开。
+来源、scope、window、derivation、质量及已有 workload/hardware/输入身份。跨 Runtime
+描述性差值还要求 Docker 容器 cgroup 的实读配额与可见父级上限吻合，并且 Process 已核实服务自身配额。
+历史数据缺少任一侧配额证据时保留各自的原始数值。
 报告的 CPU、Memory、I/O、GPU 分组展示共同字段，表头/数值提示与“所选配置的质量证据”
 展示范围、窗口、采样和逐项质量。已知不完整读数保留原始值，不进入汇总、统计区间或差值；
 历史没有质量证据时沿用原统计筛选，同时明确 unknown。独立实验比较增加指标口径校验，

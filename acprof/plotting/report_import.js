@@ -15,7 +15,7 @@ window.ACProfImport = (() => {
     return Object.fromEntries(Object.keys(registry).map(name => [name, {n:0, sum:0, correction:0, max:null, weight:0, weighted:0, badWeight:false, startups:new Map(), conflict:false}]));
   }
   function metricObservations(raw, registry) {
-    let evidence = {}, invalid = false;
+    let evidence = {}, collectors = {}, invalid = false;
     const text = (raw.resource_metric_quality || "").trim();
     if (text && !["nan", "null", "none"].includes(text.toLowerCase())) {
       try {
@@ -23,6 +23,8 @@ window.ACProfImport = (() => {
         if (!evidence || typeof evidence !== "object" || Array.isArray(evidence)) throw new Error();
         if (Object.hasOwn(evidence, "schema_version")) {
           if (evidence.schema_version !== 1) throw new Error();
+          collectors = evidence.collectors || {};
+          if (typeof collectors !== "object" || Array.isArray(collectors)) throw new Error();
           evidence = evidence.metrics;
         }
         if (!evidence || typeof evidence !== "object" || Array.isArray(evidence) ||
@@ -30,12 +32,71 @@ window.ACProfImport = (() => {
       } catch { invalid = true; evidence = {}; }
     }
     return Object.fromEntries(Object.entries(registry).filter(([name]) => Object.hasOwn(raw, name)).map(([name, metric]) => {
-      const contract = metric.observation_contract || {}, item = evidence[name];
-      const resource = ["psutil_observed_process_tree", "procfs_observed_process_tree", "service_cgroup", "nvml_selected_device"].includes(metric.source);
-      const bad = resource && (invalid || item && (!["complete", "partial", "unsupported", "permission_denied", "not_requested", "error", "unavailable", "unknown"].includes(item.quality) ||
-        ["source", "scope", "window", "derivation"].some(key => Object.hasOwn(item, key) && item[key] !== contract[key])));
+      const runtime = raw.runtime_kind === "process" ? "process" : "docker";
+      const contract = (runtime === "process" && metric.process_contract) || metric.observation_contract || {};
+      let item = evidence[name];
+      const group = metric.collectors?.[runtime], state = collectors[group];
+      if (state?.status === "not_applicable") item = {quality:"not_applicable", reason:state.reason || ""};
+      if (Object.keys(collectors).length && metric.runtimes && !metric.runtimes.includes(runtime))
+        item = {quality:"not_applicable", reason:"runtime_not_implemented"};
+      if (!item && state) {
+        let quality = state.status, reason = state.reason || "";
+        if (group === "packet_latency" && quality === "available" && raw.packet_status !== "ok") {
+          quality = raw.packet_status === "partial" ? "partial" : "unavailable";
+          reason = "incomplete_packet_request_correlation";
+        }
+        if (quality === "available") {
+          const direction = name.includes("output_megapixel") || name.startsWith("output_pixels") ? "output" : "input";
+          const needsBaseline = ["gpu_power", "cpu_energy", "dram_energy"].includes(group) &&
+            (metric.window === "control_window" || ["_eff_", "_effective_", "_idle_"].some(part => name.includes(part)));
+          if (needsBaseline && state.sampling?.idle_seconds === 0) {
+            quality = "not_requested"; reason = "idle_window_disabled";
+          } else if (needsBaseline && state.control_error) {
+            quality = "error"; reason = state.control_error;
+          } else if ((["gpu", "gpu_idle_debug"].includes(metric.applicability) && raw.gpu_mode === "off") ||
+                     (metric.applicability === "cpu" && raw.gpu_mode === "on")) {
+            quality = "not_applicable"; reason = "device_not_selected";
+          } else if (["cpu_cores", "mem_cap_gb"].includes(name) && raw.resource_limit_source === "inherited") {
+            quality = "not_applicable"; reason = "inherited_limit_not_controlled";
+          } else if (metric.applicability === "audio" && !["audio", "multimodal"].includes(state.task_family) && number(raw[name]) == null) {
+            quality = "not_applicable"; reason = "no_audio_samples";
+          } else if (metric.applicability === "pixel_geometry" && number(raw[direction + "_pixels_per_request"]) == null) {
+            quality = "not_applicable"; reason = "no_pixel_geometry";
+          } else if (name.endsWith("_slow_ratio") && !state.latency_slo) {
+            quality = "not_requested"; reason = "no_latency_slo";
+          } else if (name.endsWith("_per_cpu_core") && number(raw.cpu_cores) == null) {
+            quality = "not_applicable"; reason = "no_controlled_cpu_quota";
+          } else if (["idle_debug", "gpu_idle_debug"].includes(metric.applicability) && !state.idle_debug) {
+            quality = "not_requested"; reason = "idle_debug_disabled";
+          }
+        }
+        if (quality === "available") {
+          quality = number(raw[name]) == null ? "unavailable" : "complete";
+          const failedReader = state.reader_errors?.[name];
+          if (failedReader) {
+            quality = quality === "complete" ? "partial" : failedReader.status;
+            reason = failedReader.detail;
+          } else if (quality === "unavailable") {
+            const hint = state.preflight_missing?.[name];
+            quality = hint?.status || quality;
+            reason = hint?.detail || reason || "missing_window_value";
+          }
+          if (quality === "complete" && group === "cpu_instructions" && !(number(raw.cpu_perf_running_pct) > 0 && number(raw.cpu_perf_running_pct) <= 100)) {
+            quality = "partial"; reason = "unknown_pmu_running_fraction";
+          }
+        }
+        item = {quality, reason};
+        if (name.startsWith("throughput_samples_per_s") && ["complete", "unavailable"].includes(quality)) {
+          item.sampling = {latency_denominator:["ok", "partial"].includes(raw.packet_status) ? "packet" : "application"};
+          if (raw.packet_status === "partial") Object.assign(item, {quality:"partial", reason:"incomplete_packet_request_correlation"});
+        }
+        if (state.status === "available" && (state.sampling || group === "cpu_instructions")) item.sampling = {...state.sampling};
+        if (group === "gpu_power" && item.sampling) item.sampling.energy_method = raw.gpu_energy_source;
+      }
+      const bad = invalid || item && (!["complete", "partial", "unsupported", "permission_denied", "not_requested", "not_applicable", "tool_missing", "error", "unavailable", "unknown"].includes(item.quality) ||
+        ["source", "scope", "window", "derivation"].some(key => Object.hasOwn(item, key) && item[key] !== contract[key]));
       return [name, bad ? {...contract, quality:"error", reason:"invalid_metric_quality_evidence"} :
-        {...contract, quality:"unknown", ...(resource && item ? {reason:"", ...item} : {})}];
+        {...contract, quality:"unknown", ...(item ? {reason:"", ...item} : {})}];
     }));
   }
   async function readCsv(file, registry, {signal, onProgress = () => {}, chunkSize = 256 * 1024} = {}) {

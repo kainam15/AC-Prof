@@ -73,7 +73,11 @@ def mounts() -> tuple[tuple[Path, Path], ...]:
 
 
 def current_cgroup() -> Path | None:
-    for line in PROC_CGROUP.read_text().splitlines():
+    return process_cgroup(PROC_CGROUP)
+
+
+def process_cgroup(membership: Path) -> Path | None:
+    for line in membership.read_text().splitlines():
         if not line.startswith('0::'):
             continue
         relative = Path(line[3:])

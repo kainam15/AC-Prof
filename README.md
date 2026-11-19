@@ -14,7 +14,7 @@ reproducible measurements without requiring changes to compatible model code.
 | Area | What you get |
 | --- | --- |
 | Performance and resources | Application latency, throughput, CPU/memory usage, and available GPU metrics |
-| Full profiling | Energy, packet-level timing, CPU hardware counters, and optional independent profilers |
+| Conditional profiling | Energy, packet-level timing, CPU hardware counters, and optional independent profilers |
 | Reproducible analysis | Input/environment metadata, layered CSV results, plots, and offline HTML reports |
 
 Supported workloads include text, vision, audio, time series, diffusion, multimodal, and structured data.
@@ -60,9 +60,9 @@ For host preparation, verified release assets, and the first experiment, see the
 
 ## Platform support
 
-Native Linux x86_64 with local Docker supports `basic` and, when hardware/permissions allow, `full`.
-Linux VM/cloud and Docker-free Process setups support a more limited `basic` collection path.
-WSL2 also has restricted `basic` support; native Windows/macOS collection is not supported.
+Native Linux x86_64 uses a per-collector plan for Docker and Process.
+Linux VM/cloud and Docker-free Process environments collect the metrics available to the service.
+WSL2 also has restricted collection support; native Windows/macOS collection is not supported.
 Actual metrics depend on environment capabilities and permissions—not on the mode name alone.
 See [platform support matrix](docs/platforms/linux-runtimes.md#支持环境与采集模式), [WSL2](docs/platforms/wsl2.md), and
 [host requirements](docs/getting_started/installation.md#1-检查主机环境).

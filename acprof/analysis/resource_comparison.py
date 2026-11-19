@@ -10,7 +10,7 @@ from acprof.analysis.conditions import (
 )
 from acprof.analysis.model import AnalysisModel
 from acprof.results.metrics import ANALYSIS_METRICS
-from acprof.results.profile import observations_comparable
+from acprof.results.profile import common_runtime_metric, observations_comparable
 
 
 def resource_qualification(left: dict, right: dict) -> dict:
@@ -61,22 +61,30 @@ def build_baseline_comparisons(model: AnalysisModel) -> dict:
             policies = {}
             for purpose in PURPOSES:
                 left, right = (item["comparison_profiles"][purpose] for item in (baseline, config))
-                key = (purpose, left["cohort"], right["cohort"])
+                key = (purpose, left["cohort"], right["cohort"], left.get("runtime_metric_identity"), right.get("runtime_metric_identity"))
                 if key not in qualifications:
                     check = compare_profiles(left, right)
-                    qualifications[key] = {name: check[name] for name in ("status", "reasons")}
+                    qualifications[key] = {key: check[key] for key in ("status", "reasons", "matched_cross_runtime") if key in check}
                 policies[purpose] = qualifications[key]
             comparable = resource["status"] == "descriptive" or any(
                 check["status"] == "compatible" for check in policies.values())
             metrics = {}
-            if comparable:
+            cross = policies["same-hardware"].get("matched_cross_runtime", False)
+            if comparable or cross:
                 for name, metric in config["metrics"].items():
                     reference = baseline["metrics"][name]["value"]
+                    observations = [*baseline.get("metric_observations", {}).get(name, []),
+                                    *config.get("metric_observations", {}).get(name, [])]
+                    if cross and (not common_runtime_metric(name) or
+                                  any(not item.get("metric_observations", {}).get(name) or item.get("status") != "ok"
+                                      or item["metrics"][name].get("missing") != 0 for item in (baseline, config)) or
+                                  any(item["quality"] != "complete" for item in observations)):
+                        continue
                     if reference is not None and metric["value"] is not None and observations_comparable(
                         baseline.get('metric_observations', {}).get(name, []), config.get('metric_observations', {}).get(name, [])):
                         metrics[name] = metric_change(reference, metric["value"], direction=ANALYSIS_METRICS[name].direction)
             pairs[config["config_id"]] = {"resource": intern(resource),
                                          "policies": {name: intern(check) for name, check in policies.items()},
-                                         "metrics": metrics}
+                                         **({"cross_runtime": True} if cross else {}), "metrics": metrics}
         result[baseline["config_id"]] = pairs
     return {"pairs": result, "qualifications": verdicts}

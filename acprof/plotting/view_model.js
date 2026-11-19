@@ -112,9 +112,15 @@ window.ACProfViews = (() => {
       const comparison = qualification(config);
       if (config.experiment_id && baseline.experiment_id && !pair(config)) {
         if (comparison.status === "incompatible") return {delta:null, percent:null, ratio:null, performance_ratio:null, reason:"incompatible", reasons:comparison.reasons};
+        const items = [baseline, config].map(c => c.metric_observations?.[metric] || []);
+        const signatures = new Set(items.flat().map(item => key([item.source, item.scope, item.window, item.derivation, item.sampling])));
+        if (signatures.size > 1 || items.flat().some(item => !["complete", "unknown"].includes(item.quality)))
+          return {delta:null, percent:null, reason:"different_or_incomplete_metric_contract"};
         return {...descriptiveChange(value(baseline, metric), value(config, metric), registry[metric]?.direction),
           scope:"browser_descriptive", statistics_status:"not_computed"};
       }
+      if (purpose === "same-hardware" && comparison.matched_cross_runtime && pair(config)?.cross_runtime && pair(config).metrics[metric])
+        return {...pair(config).metrics[metric], scope:"matched_cross_runtime_metric", statistics_status:"not_computed"};
       if (!["compatible", "descriptive"].includes(comparison.status)) return {delta: null, percent: null, reason: comparison.status, reasons: comparison.reasons};
       return pair(config)?.metrics[metric] || {delta:null, percent:null, ratio:null, performance_ratio:null, reason:"missing"};
     }

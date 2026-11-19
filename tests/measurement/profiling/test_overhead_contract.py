@@ -67,7 +67,7 @@ class TestOverheadContract:
             stack.enter_context(patch("acprof.host.measurement.capture.tcpdump_can_capture_without_sudo", return_value=True))
             stack.enter_context(patch("shutil.which", return_value="/fixture/tcpdump"))
             stack.enter_context(patch("subprocess.Popen", return_value=capture))
-            parsed = {"requests": {"full:0": {"latency_s": 0.1}}}
+            parsed = {"requests": {"7": {"request_id": "full:0", "latency_s": 0.1}}}
             stack.enter_context(patch("subprocess.run", return_value=SimpleNamespace(
                 returncode=0, stdout=json.dumps(parsed), stderr="")))
             stack.enter_context(patch("time.sleep"))
@@ -131,3 +131,37 @@ class TestOverheadContract:
         for monitor in (cpu, resource):
             monitor.stop.assert_called_once()
             monitor.close.assert_called_once()
+
+
+
+def test_paired_best_effort_skips_unavailable_tools_and_records_coverage(monkeypatch, tmp_path):
+    from acprof.monitors import energy_cpu, energy_nvml, perf_mips, resource_usage
+    response = Mock(status_code=200)
+    response.json.return_value = {"workload_contract": {"input": {"actual_scale": 4}}}
+    requests = Mock(return_value=response)
+    monkeypatch.setattr("requests.post", requests)
+    never = Mock(side_effect=AssertionError("unplanned collector"))
+    for module, name in ((energy_cpu, "CPUEnergyMonitor"), (energy_nvml, "GPUEnergyMonitor"),
+                         (perf_mips, "PerfMIPSMonitor")):
+        monkeypatch.setattr(module, name, never)
+    monkeypatch.setattr("subprocess.Popen", never)
+    monkeypatch.setattr("time.sleep", lambda duration: None)
+    monitor = Mock()
+    monitor.stop.return_value = ResourceStopResult(object(), "", [1, 2])
+    factory = Mock(return_value=monitor)
+    monkeypatch.setattr(resource_usage, "ResourceUsageMonitor", factory)
+    plan = {"probes": {name: {"status": status, "detail": status} for name, status in (
+        ("packet_latency", "tool_missing"), ("gpu_power", "not_applicable"),
+        ("cpu_instructions", "permission_denied"), ("cpu_energy", "unsupported"))}}
+    options = {"collection_plan": plan, "idle_seconds": 0, "idle_cooldown_seconds": 0, "request_timeout_seconds": 10}
+    def run(mode):
+        return overhead.measure_profile_window(SimpleNamespace(base_url="http://fixture.invalid", gpu_device={}),
+            {"payload": {"input": "fixture"}}, scenario=mode, rate=20, count=1, name="container",
+            cpu=1, mem=4, gpu="off", token=mode, output=tmp_path, options=options, sampling_policy="skip")
+    previous, current = run("none"), run("best_effort")
+    assert previous["request_count"] == current["request_count"] == 1
+    assert requests.call_count == 2
+    assert current["collector_coverage_complete"] is False
+    assert set(current["unavailable_collectors"]) == {"cpu_energy", "cpu_instructions", "packet_latency"}
+    assert factory.call_count == monitor.start.call_count == monitor.stop.call_count == 1
+    never.assert_not_called()

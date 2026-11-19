@@ -11,14 +11,14 @@ from acprof.host.runtimes.cgroups import ProcessResourceError, ResourceDiagnosti
 from acprof.system.cleanup import cleanup_on_exit
 
 
-def inherited_resources() -> dict:
+def inherited_resources(*, pid: int | None = None) -> dict:
     cgroup_error = ""
     try:
-        root = current_cgroup()
+        root = current_cgroup() if pid is None else cgroups.process_cgroup(Path(f"/proc/{pid}/cgroup"))
     except OSError as exc:
         root = None
         cgroup_error = f"{type(exc).__name__}: {exc}"
-    result: dict[str, Any] = {"affinity": sorted(os.sched_getaffinity(0)), "cgroup": str(root) if root else None,
+    result: dict[str, Any] = {"affinity": sorted(os.sched_getaffinity(pid or 0)), "cgroup": str(root) if root else None,
               "cpu_max": None, "memory_max": None, "allocation_source": "visible_process_namespace",
               "exclusive": "unknown", "hidden_ancestor_limits": "unknown"}
     result['cgroup_error'] = cgroup_error

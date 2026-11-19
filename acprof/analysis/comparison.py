@@ -190,6 +190,7 @@ def _metric_contracts(rows: list[dict]) -> dict:
         signatures = {observation_signature(item) for item in observed}
         contracts[name] = {'quality': 'incomplete' if any(item['quality'] not in USABLE_QUALITIES for item in observed)
                           else 'complete' if observed and all(item['quality'] == 'complete' for item in observed) else 'unknown',
+                           'all_windows': bool(rows) and len(observed) == len(rows),
                            'signature': next(iter(signatures)) if len(signatures) == 1 else None}
     return contracts
 
@@ -210,6 +211,36 @@ def _object_field(parent: dict, name: str, issues: list[str]) -> dict:
         issues.append(f"{name}: 应为 JSON 对象")
         return {}
     return value
+
+
+def _collector_protocol(metadata: dict, issues: list[str]) -> dict:
+    """Keep the measurement-affecting operations, without runtime-specific paths or PIDs."""
+    plan = _object_field(metadata, "collection_plan", issues)
+    probes = _object_field(plan, "probes", issues)
+    protocol = {}
+    for name in ("cpu_energy", "cpu_instructions", "packet_latency", "gpu_power"):
+        if name not in probes:
+            continue
+        item = _object_field(probes, name, issues)
+        if not isinstance(item.get("status"), str):
+            continue
+        selection: dict = {"enabled": item["status"] == "available"}
+        if selection["enabled"] and name in {"cpu_instructions", "gpu_power"}:
+            evidence = _object_field(item, "evidence", issues)
+            if name == "cpu_instructions":
+                events = evidence.get("events")
+                if not isinstance(events, list) or not events or not all(isinstance(event, str) for event in events):
+                    continue
+                selection["events"] = sorted(events)
+            else:
+                counter = _object_field(evidence, "counter", issues)
+                power = _object_field(evidence, "power", issues)
+                if not counter.get("status") or not power.get("status"):
+                    continue
+                selection["methods"] = [key for key, probe in (("counter", counter), ("power", power))
+                                        if probe["status"] == "available"]
+        protocol[name] = selection
+    return protocol
 
 
 def _normalize_hardware_cases(hardware_payload: dict, issues: list[str]) -> dict[str, dict]:
@@ -366,6 +397,7 @@ def load_comparison_snapshot(source: str | Path, *, result_snapshot: ResultCsvSn
     # Only the input payload and semantic conditions are compared. Model/export,
     # packages and backend hashes continue to belong to the existing run identity.
     host = _object_field(state, "host", issues)
+    collector_protocol = _collector_protocol(metadata, issues)
     measured_rows = [row for row in rows if result_row_status(row) == "ok" and measurement_key(row)[4] == "0"]
     return {
         **recorded_identity(metadata),
@@ -380,6 +412,13 @@ def load_comparison_snapshot(source: str | Path, *, result_snapshot: ResultCsvSn
         **{key: audit[key] for key in QUALITY_FIELDS},
         "valid": audit["valid"] and not issues, "issues": issues,
         "planned_input_entries": planned_entries,
+        "all_formal_measured": bool(measured_rows) and len(measured_rows) == sum(row.get("warmup") == "0" for row in rows),
+        "verified_limits": {key: record.get("resource_plan", {}) for key, record in hardware_cases.items()},
+        "collector_protocol": collector_protocol,
+        "model_profile": (_digest({**{key: configuration[key] for key in ("model", "backend", "loading", "tasks")},
+                                   "packages": metadata["runtime_environment"]["packages"]})
+                          if configuration and isinstance(metadata.get("runtime_environment"), dict)
+                          and metadata["runtime_environment"].get("packages") else None),
         "conditions": {
             "execution_runtime": {"kind": metadata.get("runtime_kind", "docker"),
                                   "resource_scope": "observed_process_tree" if metadata.get("runtime_kind") == "process" else "container_cgroup",
@@ -449,6 +488,7 @@ def _metric_comparability_map(
     rhs: dict,
     status: str,
     environment_status: str,
+    *, cross_runtime: bool = False,
 ) -> dict[str, dict[str, str]]:
     metric_comparability = {}
     for name in lhs["metric_availability"]:
@@ -462,6 +502,11 @@ def _metric_comparability_map(
                 contract_reason = 'mixed_or_missing_metric_contract'
             elif contracts[0]['signature'] != contracts[1]['signature']:
                 contract_reason = 'different_source_scope_window_or_sampling'
+        if cross_runtime and not contract_reason and available:
+            from acprof.results.profile import common_runtime_metric
+            if common_runtime_metric(name) and all(item and item["quality"] == "complete" and item.get("all_windows") for item in contracts):
+                metric_comparability[name] = {"status": "descriptive", "reason": "matched_cross_runtime_metric"}
+                continue
         metric_comparability[name] = {
             "status": "comparable" if status == "compatible" and available and not contract_reason else "not comparable",
             "reason": (contract_reason or "missing_measurement" if not available or contract_reason else
@@ -516,7 +561,7 @@ def compare_snapshots(left: dict, right: dict, *, purpose: str = "same-hardware"
                         f"{rhs['comparability_class']}. WSL measurements must not be treated as "
                         "native Linux measurements; unknown provenance cannot enter a Native baseline.")
     metric_comparability = _metric_comparability_map(
-        lhs, rhs, status, environment_condition["status"],
+        lhs, rhs, status, environment_condition["status"], cross_runtime=qualification.get("matched_cross_runtime", False),
     )
     return {"schema_version": 2, "purpose": purpose, "status": status, "valid": valid,
             "allowed_resource_dimensions": ALLOWED_RESOURCE_DIMENSIONS if purpose == "resource-scaling" else [],

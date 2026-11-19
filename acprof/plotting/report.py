@@ -27,6 +27,7 @@ from acprof.analysis.report_statistics import build_report_statistics, write_win
 from acprof.analysis.resource_comparison import build_baseline_comparisons
 from acprof.artifacts import atomic_write
 from acprof.quality import QUALITY_FIELDS
+from acprof.results.coverage import collector_contract, field_collectors
 from acprof.results.metrics import ANALYSIS_METRICS, METRICS, VIEW_METRICS
 from acprof.results.profile import metric_observation
 from acprof.system.cleanup import cleanup_on_exit
@@ -57,7 +58,10 @@ def report_payload(model: AnalysisModel, baseline: str | None = None, *, compari
             "comparison_policies": {purpose: {"allowed_resource_dimensions":
                 ALLOWED_RESOURCE_DIMENSIONS if purpose == "resource-scaling" else []} for purpose in PURPOSES},
             "registry": {name: {**ANALYSIS_METRICS[name].to_dict(),
-                **({'observation_contract': metric_observation({}, name)}
+                **({'observation_contract': metric_observation({}, name),
+                    'process_contract': metric_observation({'runtime_kind': 'process'}, name),
+                    'runtimes': collector_contract(METRICS[name]).runtimes,
+                    'collectors': {runtime: field_collectors(runtime).get(name) for runtime in ('docker', 'process')}}
                    if name in METRICS else {})} for name in VIEW_METRICS},
             "default_matrix": DEFAULT_MATRIX, "summary_fields": SUMMARY_FIELDS,
             "overview": [{"source": source["path"], "identity": {

@@ -30,6 +30,30 @@ def _run(command) -> str | None:
         return None
 
 
+def _docker_limit_observation(container_id: str, pid: int) -> dict:
+    from acprof.host.runtimes.resources import inherited_resources
+
+    try:
+        allocation = inherited_resources(pid=pid)
+        leaf = Path(allocation["cgroup"] or "").name
+        if leaf not in {container_id, f"docker-{container_id}.scope"}:
+            raise ValueError("The observed cgroup could not be bound to the container ID")
+        # The cgroup v2 root has no cpu.max or memory.max. Every visible
+        # non-root ancestor must be readable to establish the effective bounds.
+        for ancestor in allocation["visible_ancestor_limits"][:-1]:
+            if any(ancestor[name]["status"] != "available" for name in ("cpu.max", "memory.max")):
+                raise ValueError(f"Unreadable ancestor limits at {ancestor['path']}")
+        quota, period = allocation["cpu_max"].split()
+        cpu, memory = int(quota) / int(period), int(allocation["memory_max"])
+        matches = (cpu == allocation["effective_cpu_upper_bound"] and memory == allocation["effective_memory_upper_bound"])
+        return {"method": "docker_cgroup_v2", "verified": matches, "cgroup": allocation["cgroup"],
+                "observed": {"cpu_quota": cpu, "memory_gib": memory / 1024**3},
+                "effective_cpu_upper_bound": allocation["effective_cpu_upper_bound"],
+                "effective_memory_upper_bound": allocation["effective_memory_upper_bound"]}
+    except (OSError, ValueError, TypeError, ArithmeticError, AttributeError) as exc:
+        return {"method": "docker_cgroup_v2", "verified": False, "reason": f"{type(exc).__name__}: {exc}"}
+
+
 def observe_conditions(session) -> dict:
     record = dict.fromkeys(HARDWARE_FIELDS)
     errors = []
@@ -53,6 +77,8 @@ def observe_conditions(session) -> dict:
             return {**record, "errors": ["container identity unavailable"]}
         raw = _run(["docker", "top", session.container_id, "-eo", "pid"])
         pids = [int(value.strip()) for value in (raw or "").splitlines()[1:]]
+        if pids:
+            record["resource_plan"] = _docker_limit_observation(session.container_id, pids[0])
     try:
         masks = set()
         allowed = set()
