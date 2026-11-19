@@ -23,6 +23,9 @@ class SlashController:
     def slash_command_submitted(self, event: TextualInput.Submitted) -> None:
         value = event.value
         event.input.value = ""
+        self.execute_command(value, from_palette=False)
+
+    def execute_command(self, value: str, *, from_palette: bool = False) -> None:
         try:
             command, args = parse_slash_command(value)
         except RunConfigError as exc:
@@ -86,10 +89,13 @@ class SlashController:
         elif command == "settings":
             self.app.configuration.show_settings()
         elif command == "help":
-            self.app.query_one("#run-log", SelectableLog).write(
-                self.app.localization.tr(message_id('common.commands.help'))
-            )
-            self.app.activate_tab("monitor-tab")
+            if from_palette:
+                self.app.action_show_shortcuts()
+            else:
+                self.app.query_one("#run-log", SelectableLog).write(
+                    self.app.localization.tr(message_id('common.commands.help'))
+                )
+                self.app.activate_tab("monitor-tab")
         elif command in {"quit", "exit"}:
             self.app.action_request_quit()
         else:

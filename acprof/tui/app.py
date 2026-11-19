@@ -61,6 +61,7 @@ from acprof.tui.run.progress import ProgressSnapshot
 from acprof.tui.run.recovery_controller import RecoveryController
 from acprof.tui.settings.controller import ConfigurationController
 from acprof.tui.settings.localization_controller import LocalizationController
+from acprof.tui.ui.command_palette import CommandPaletteScreen
 from acprof.tui.ui.dialogs import ConfirmActionScreen
 from acprof.tui.ui.environment import (
     EnvironmentHostScreen,
@@ -99,6 +100,15 @@ class AcprofTui(AppEventRoutes):
         ("f8", "toggle_log_view", "放大日志"),
         ("f2", "show_settings", "应用设置"),
         ("alt+left", "return_from_issue", "返回原页"),
+        Binding("alt+1", "select_page('run-tab')", "实验配置", show=False),
+        Binding("alt+2", "select_page('monitor-tab')", "运行监控", show=False),
+        Binding("alt+3", "select_page('results-tab')", "实验结果", show=False),
+        Binding("alt+4", "select_page('backfill-tab')", "补采实验", show=False),
+        Binding("alt+5", "select_page('images-tab')", "镜像管理", show=False),
+        Binding("alt+6", "select_page('settings-tab')", "应用设置", show=False),
+        Binding("alt+e", "toggle_status_center", "环境状态", show=False),
+        Binding("ctrl+k", "open_command_palette", "快捷命令", priority=True, show=False),
+        Binding("slash", "open_command_palette_key", "快捷命令", show=False),
         Binding("f1", "show_shortcuts", "快捷键", priority=True),
         Binding("question_mark", "show_shortcuts_key", "快捷键", show=False),
         Binding("f3", "toggle_run_settings", "基本/高级配置", show=False),
@@ -164,6 +174,7 @@ class AcprofTui(AppEventRoutes):
         self.logs = LogController(self)
         self.slash = SlashController(self)
         self._busy_controls = BusyControlCache()
+        self._manual_navigation_collapsed: bool | None = None
         for palette in THEME_CATALOG:
             self.register_theme(Theme(**palette.theme_kwargs()))
         self.theme = self.configuration.preferences.theme
@@ -183,6 +194,10 @@ class AcprofTui(AppEventRoutes):
                     back.display = False
                     yield back
                     yield EnvironmentIndicators(self.preflight)
+                    yield self.localization.localized_widget(Button(
+                        "?", id="show-shortcuts", name="快捷键",
+                        tooltip=message_id("common.shortcuts.header_tooltip"), compact=True,
+                    ))
                     yield self.localization.localized_widget(Button(
                         "×", id="quit-app", name="退出", tooltip="退出（Ctrl+Q）", compact=True,
                     ))
@@ -267,15 +282,24 @@ class AcprofTui(AppEventRoutes):
 
     def update_responsive_layout(self, size: Size | None = None) -> None:
         size = self.size if size is None else size
+        collapsed = (
+            self._manual_navigation_collapsed
+            if self._manual_navigation_collapsed is not None
+            else size.width < 92
+        )
         # Reserve sidebar cells before choosing the form's column layout.
-        navigation_width = 5 if self.has_class("collapsed-navigation") else (17 if size.width < 100 else 22)
+        navigation_width = 5 if collapsed else (17 if size.width < 100 else 22)
         # Textual updates the entire stylesheet after each class change.
         # Make the responsive switch atomic to avoid two redundant restyles.
+        changed_collapse = self.has_class("collapsed-navigation") != collapsed
         self.update_classes({
+            "collapsed-navigation": collapsed,
             "narrow": size.width - navigation_width < 110,
             "compact-navigation": size.width < 100,
             "short": size.height < 35,
         })
+        if changed_collapse and self.is_mounted:
+            self.query_one(PageNavigation).sync(self.query_one("#main-tabs", TabbedContent))
 
 
     def is_busy(self) -> bool:
@@ -326,10 +350,22 @@ class AcprofTui(AppEventRoutes):
         # Only reactivating the selected item toggles sidebar visibility.
         # Switching pages preserves the current presentation preference.
         if tabs.active == event.pane_id:
-            self.toggle_class("collapsed-navigation")
-            self.update_responsive_layout()
+            self._toggle_navigation_collapsed()
         self.activate_tab(event.pane_id)
         self.query_one(PageNavigation).sync(tabs)
+
+    @on(PageNavigation.CollapseToggled)
+    def on_page_collapse_toggled(self) -> None:
+        self._toggle_navigation_collapsed()
+
+    def _toggle_navigation_collapsed(self) -> None:
+        self._manual_navigation_collapsed = not self.has_class("collapsed-navigation")
+        self.update_responsive_layout()
+        self.query_one(PageNavigation).sync(self.query_one("#main-tabs", TabbedContent))
+
+    @on(Button.Pressed, "#show-shortcuts")
+    def on_show_shortcuts_button(self) -> None:
+        self.action_show_shortcuts()
 
 
     def launch(self, pending: PendingLaunch) -> None:
@@ -497,3 +533,40 @@ class AcprofTui(AppEventRoutes):
     def action_toggle_run_settings(self) -> None:
         if not self.ui_closing and not isinstance(self.screen, ModalScreen):
             self.configuration.open_run_settings()
+
+    def action_select_page(self, pane_id: str) -> None:
+        if not self.ui_closing and not isinstance(self.screen, ModalScreen):
+            self.activate_tab(pane_id)
+            self.query_one(PageNavigation).sync(self.query_one("#main-tabs", TabbedContent))
+
+    def action_toggle_status_center(self) -> None:
+        if self.ui_closing or isinstance(self.screen, ModalScreen) or not self.form_ready:
+            return
+        panel = self.preflight.panel
+        if panel.display:
+            panel.close()
+            return
+        counts = self.preflight.status.counts
+        group = next(
+            (name for name in ("error", "warning", "pending", "success") if counts.get(name)),
+            "success",
+        )
+        panel.toggle(group=group)
+
+    def action_open_command_palette(self) -> None:
+        if self.ui_closing or not self.form_ready:
+            return
+        if isinstance(self.screen, CommandPaletteScreen):
+            self.screen.dismiss(None)
+            return
+        if isinstance(self.screen, ModalScreen):
+            return
+        self.push_screen(
+            CommandPaletteScreen(),
+            lambda command: self.slash.execute_command(command, from_palette=True) if command else None,
+        )
+
+    def action_open_command_palette_key(self) -> None:
+        if self.ui_closing or isinstance(self.screen, ModalScreen) or isinstance(self.focused, (Input, TextArea)):
+            return
+        self.action_open_command_palette()

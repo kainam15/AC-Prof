@@ -85,14 +85,15 @@ class EnvironmentIndicators(Horizontal):
             entry.display = entry.group in {"error", "warning", "success"} or bool(counts[entry.group])
             entry.update(GROUP_SYMBOLS[entry.group] + " " + str(counts[entry.group]))
             label = message_id("run.environment.group." + entry.group)
-            tooltip = tr(message_id("run.environment.group_count", label, counts[entry.group]))
+            summary = message_id("run.environment.group_count", label, counts[entry.group])
+            tooltip = tr(message_id("run.environment.click_hint", summary))
             entry.tooltip = tooltip + "\n" + self._issue[1] if self._issue and self._issue[0] == entry.group else tooltip
         self.fit_issue(self.controller.app.size.width)
 
     def fit_issue(self, width: int) -> None:
         entries = self.query(EnvironmentIndicator)
-        # Reserve the title, count margins, horizontal padding, Return and Quit.
-        budget = width - cell_len(self.controller.app.title) - 20
+        # Reserve the title, count margins, horizontal padding, Return, Help, and Quit.
+        budget = width - cell_len(self.controller.app.title) - 24
         budget -= sum(cell_len(str(entry.content)) + 2 for entry in entries if entry.display)
         for entry in entries:
             caption = ""
@@ -105,7 +106,7 @@ class EnvironmentIndicators(Horizontal):
 
 
 class EnvironmentIndicator(Static, can_focus=True):
-    """One status entry, with its own keyboard focus and pinned detail."""
+    """One status entry, opened explicitly by click or keyboard without hover popups."""
 
     COMPONENT_CLASSES = {"environment--success", "environment--warning", "environment--error", "environment--pending", "environment--not_requested"}
     BINDINGS = [("enter,space", "toggle_environment", "Environment")]
@@ -131,12 +132,6 @@ class EnvironmentIndicator(Static, can_focus=True):
     def on_click(self, event: events.Click) -> None:
         event.stop()
         self.action_toggle_environment()
-
-    def on_enter(self) -> None:
-        self.controller.panel.show(group=self.group)
-
-    def on_leave(self) -> None:
-        self.controller.panel.schedule_close()
 
 
 class EnvironmentHostScreen(CjkScreen):
@@ -296,10 +291,10 @@ class EnvironmentPopover(Vertical):
         self.update_cached()
 
     def toggle(self, *, group: str = "error") -> None:
-        if group in self.pinned_groups:
-            self.group = group
+        if self.display and self.group == group:
             self.close()
         else:
+            self.pinned_groups.clear()
             self.show(pin=True, group=group)
 
     def close(self, *, restore_focus: bool = True) -> None:
@@ -475,8 +470,9 @@ class EnvironmentPopover(Vertical):
         rows = tuple(item.check for source in self._sources for item in source.items)
         heading = self.tr("group_count", self.tr("group." + self.group), snapshot.counts[self.group])
         self.query_one("#preflight-title", Static).update(
-            self.tr("title", heading, self.tr("pinned" if self.pinned else "hover")))
+            self.tr("header_title", heading))
         banner = self.query_one("#preflight-summary", StatusBanner)
+        banner.display = False
         summary = StatusSummary(
             {"error": "error", "warning": "warning", "success": "success", "pending": "info"}.get(self.group, "neutral")
             if rows else "neutral", heading,

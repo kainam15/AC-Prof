@@ -26,14 +26,15 @@ HeaderTitle { content-align: left middle; padding: 0 2; }
     max-width: 100%;
     height: 1;
     padding: 0 1;
-    background: $surface;
+    margin-right: 1;
+    background: $boost;
     color: $text;
     text-wrap: nowrap;
     text-overflow: ellipsis;
 }
-EnvironmentIndicator { width: auto; height: 1; margin-right: 2; }
-EnvironmentIndicator:hover, EnvironmentIndicator.pinned { text-style: bold; background: $boost; }
-EnvironmentIndicator:focus { text-style: bold; }
+EnvironmentIndicator { width: auto; height: 1; padding: 0 1; }
+EnvironmentIndicator:hover, EnvironmentIndicator.pinned { text-style: bold; background: $panel; }
+EnvironmentIndicator:focus { text-style: bold; background: $panel; }
 #environment-popover {
     display: none;
     overlay: screen;
@@ -52,28 +53,65 @@ EnvironmentIndicator .environment--success, EnvironmentSignal .environment--succ
 EnvironmentIndicator .environment--warning, EnvironmentSignal .environment--warning { color: $warning; }
 EnvironmentIndicator .environment--error, EnvironmentSignal .environment--error { color: $error; }
 EnvironmentIndicator .environment--pending, EnvironmentIndicator .environment--not_requested, EnvironmentSignal .environment--neutral, EnvironmentSignal .environment--info { color: $text-muted; }
-#preflight-title { height: 1; text-style: bold; }
-#preflight-summary { padding: 0; max-height: 2; }
+#preflight-title { height: 1; text-style: bold; margin-bottom: 0; }
+#preflight-summary { display: none; padding: 0; max-height: 2; }
 #preflight-scroll { height: auto; overflow-x: hidden; }
 #preflight-capabilities { height: auto; }
 .environment-section { height: auto; border: none; padding: 0; margin: 0 0 1 0; }
 .environment-section > CollapsibleTitle { height: 1; text-style: bold; text-wrap: nowrap; text-overflow: ellipsis; }
 .environment-section > Contents { padding: 0 0 0 2; }
-#preflight-source-summary { height: auto; color: $text-muted; margin-bottom: 1; }
-.environment-signal { height: 1; text-wrap: nowrap; text-overflow: ellipsis; }
-.environment-signal:hover, .environment-signal:focus { text-style: bold underline; }
-#preflight-inspection { height: 1fr; min-height: 1; border-top: solid $accent; overflow-x: hidden; }
+#preflight-source-summary { width: 100%; height: auto; color: $text-muted; margin-bottom: 1; }
+.environment-signal { height: 1; text-wrap: nowrap; text-overflow: ellipsis; padding: 0 1; }
+.environment-signal:hover, .environment-signal:focus { background: $boost; text-style: bold; }
+#preflight-inspection { height: 1fr; min-height: 1; border-top: solid $accent; overflow-x: hidden; padding-top: 1; }
 #preflight-empty, #preflight-action-reason { height: auto; }
 #preflight-action-reason { color: $warning; margin-bottom: 1; }
 #preflight-callout, #preflight-facts { margin-bottom: 1; }
 #preflight-context { margin-bottom: 0; }
 #preflight-facts .fact-grid, #preflight-context .fact-grid { grid-columns: 16 1fr; }
 #preflight-recheck { margin-bottom: 1; }
+#environment-popover ActionButtons Button {
+    background: $boost;
+    color: $foreground;
+    padding: 0 2;
+}
+#environment-popover ActionButtons Button.-primary {
+    background: $accent;
+    color: $background;
+    text-style: bold;
+}
+#environment-popover ActionButtons Button:hover,
+#environment-popover ActionButtons Button:focus {
+    background: $panel;
+    text-style: bold underline;
+}
+#environment-popover ActionButtons Button.-primary:hover,
+#environment-popover ActionButtons Button.-primary:focus {
+    background: $accent;
+    color: $background;
+    text-style: bold underline;
+}
 /* Dock the action row as a unit: separate right docks overlap each other. */
 #header-actions {
     dock: right;
     width: auto;
     height: 1;
+}
+#show-shortcuts {
+    width: 3;
+    min-width: 3;
+    height: 1;
+    min-height: 1;
+    padding: 0;
+    border: none;
+    background: $surface;
+    color: $text-muted;
+    content-align: center middle;
+}
+#show-shortcuts:hover, #show-shortcuts:focus {
+    background: $boost;
+    color: $accent;
+    text-style: bold;
 }
 #quit-app {
     width: 5;
@@ -152,6 +190,16 @@ Tab { padding: 0 2; }
 }
 #page-navigation Button:hover { background: $boost; color: $text; }
 #page-navigation Button:focus { background: $boost; text-style: bold; }
+#page-navigation Button.nav-toggle {
+    height: 1;
+    color: $text-muted;
+    margin-top: 1;
+}
+#page-navigation Button.nav-toggle:hover, #page-navigation Button.nav-toggle:focus {
+    background: $boost;
+    color: $accent;
+    text-style: bold;
+}
 /* Fill spare sidebar space so Settings stays at the bottom. */
 #navigation-divider { height: 1fr; min-height: 1; margin: 1 0; }
 AcprofTui.compact-navigation #page-navigation { width: 17; padding: 1 0; }
@@ -162,7 +210,8 @@ AcprofTui.collapsed-navigation #page-navigation Button {
     content-align: center middle;
     text-align: center;
 }
-AcprofTui.short #page-navigation Button { height: 2; }
+AcprofTui.short #page-navigation Button.nav-page { height: 2; }
+AcprofTui.short #page-navigation Button.nav-toggle { height: 1; margin-top: 0; }
 /* Tighten spacing beside the compact sidebar while retaining button borders. */
 AcprofTui.compact-navigation #log-toolbar Button {
     min-width: 0;

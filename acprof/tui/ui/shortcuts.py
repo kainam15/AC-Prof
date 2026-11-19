@@ -30,6 +30,9 @@ class ShortcutsScreen(ModalScreen[None]):
             message_id("common.shortcuts.app_title"),
             (
                 FactRow("F1 / ?", message_id("common.shortcuts.binding_help")),
+                FactRow("Ctrl+K / /", message_id("common.shortcuts.binding_palette")),
+                FactRow("Alt+1..6", message_id("common.shortcuts.binding_pages")),
+                FactRow("Alt+E", message_id("common.shortcuts.binding_status")),
                 FactRow("F2", message_id("common.shortcuts.binding_settings")),
                 FactRow("F3", message_id("common.shortcuts.binding_form_toggle")),
                 FactRow("F4", message_id("common.shortcuts.binding_model_candidates")),

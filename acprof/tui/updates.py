@@ -22,6 +22,7 @@ from acprof.host.run_state import RunStateError, offline_analysis_lock
 from acprof.messages import join_messages
 from acprof.tui.i18n import message_id
 from acprof.tui.ui.dialogs import ScrollConfirmActionScreen
+from acprof.tui.ui.navigation import PageNavigation
 from acprof.updates import service
 from acprof.updates.installation import Installation, detect_installation
 from acprof.updates.releases import Channel, ReleaseVersion, select_releases, version_type
@@ -319,6 +320,9 @@ class UpdateController:
             self.app.localization.set_text(self.app.query_one("#version-installation", Static), info)
         with self.app.prevent(Select.Changed):
             self.app.query_one("#update-channel", Select).value = self.channel
+        self.app.query_one(PageNavigation).set_update_available(
+            self.status == "available" or self.needs_restart,
+        )
         self.refresh_controls()
 
     def refresh_controls(self) -> None:

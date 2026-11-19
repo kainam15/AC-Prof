@@ -59,7 +59,7 @@ async def test_sidebar_clicks_keyboard_and_resize_preserve_form(tmp_path, monkey
         assert model.value == "demo/edited-model"
 
 
-@pytest.mark.parametrize(("language", "size"), [("zh", (80, 24)), ("en", (80, 24)), ("en", (120, 30)), ("zh", (150, 45))])
+@pytest.mark.parametrize(("language", "size"), [("en", (120, 30)), ("zh", (150, 45))])
 async def test_only_selected_activity_toggles_sidebar(tmp_path, language, size):
     app = AcprofTui(RunConfig.smoke("demo/model"), settings_path=tmp_path / "settings.json")
     app.configuration.preferences = replace(app.configuration.preferences, language=language)
@@ -71,7 +71,7 @@ async def test_only_selected_activity_toggles_sidebar(tmp_path, language, size):
         await pilot.pause()
         expanded_width = navigation.region.width
         content_width = tabs.region.width
-        labels = {button.id: str(button.label) for button in navigation.query(Button)}
+        labels = {button.id: str(button.label) for button in navigation.query(".nav-page").results(Button)}
 
         assert await pilot.click("#nav-run-tab")
         await pilot.pause()
@@ -82,7 +82,7 @@ async def test_only_selected_activity_toggles_sidebar(tmp_path, language, size):
         assert app.query_one("#model") is model
         assert model.value == "demo/edited-model"
         assert app.has_class("narrow") == (tabs.region.width < 110)
-        for button in navigation.query(Button):
+        for button in navigation.query(".nav-page").results(Button):
             assert str(button.label) == EXPECTED_ICONS[button.name]
             assert cell_len(str(button.label)) <= button.content_region.width
             tooltip, pane_id = button.tooltip, button.name
@@ -93,13 +93,14 @@ async def test_only_selected_activity_toggles_sidebar(tmp_path, language, size):
             assert app.get_widget_at(*button.region.center)[0] is button
         assert list(navigation.query(".selected-page")) == [app.query_one("#nav-run-tab")]
 
-        assert await pilot.click("#nav-run-tab")
+        assert await pilot.click("#nav-toggle")
         await pilot.pause()
         assert navigation.region.width == expanded_width
         assert tabs.region.width == content_width
-        assert {button.id: str(button.label) for button in navigation.query(Button)} == labels
+        assert {button.id: str(button.label) for button in navigation.query(".nav-page").results(Button)} == labels
 
         # Enter toggles the focused current activity, just like a mouse click.
+        app.query_one("#nav-run-tab", Button).focus()
         await pilot.press("enter")
         await pilot.pause()
         assert navigation.region.width < expanded_width
@@ -135,7 +136,7 @@ async def test_collapsed_sidebar_survives_language_resize_and_programmatic_navig
     async with app.run_test(size=(120, 30)) as pilot:
         tabs = app.query_one("#main-tabs", TabbedContent)
         navigation = app.query_one("#page-navigation")
-        assert await pilot.click("#nav-run-tab")
+        assert await pilot.click("#nav-toggle")
         await pilot.pause()
         collapsed_width = navigation.region.width
         assert str(app.query_one("#nav-run-tab", Button).label) == "☰"
@@ -158,7 +159,7 @@ async def test_collapsed_sidebar_survives_language_resize_and_programmatic_navig
             await pilot.pause()
             assert navigation.region.width == collapsed_width
             assert app.has_class("narrow") == (tabs.region.width < 110)
-            for button in navigation.query(Button):
+            for button in navigation.query(".nav-page").results(Button):
                 assert str(button.label) == EXPECTED_ICONS[button.name]
                 assert cell_len(str(button.label)) <= button.content_region.width
                 assert button.region.bottom <= app.query_one("#bottom-panel").region.y
@@ -179,8 +180,9 @@ async def test_sidebar_hover_and_hold_keep_content_aligned(tmp_path, monkeypatch
     monkeypatch.setattr("acprof.tui.images.controller.ImageController.refresh_images", lambda self: None)
     async with app.run_test(size=size) as pilot:
         app.set_input_cursor_blink_enabled(False)
-        assert await pilot.click("#nav-run-tab")
-        await pilot.pause()
+        if not app.has_class("collapsed-navigation"):
+            assert await pilot.click("#nav-toggle")
+            await pilot.pause()
         tabs = app.query_one("#main-tabs", TabbedContent)
         navigation = app.query_one("#page-navigation")
         model = app.query_one("#model", Input)
@@ -210,10 +212,13 @@ async def test_sidebar_hover_and_hold_keep_content_aligned(tmp_path, monkeypatch
 async def test_environment_is_beside_quit_and_keeps_overlay_below_header(tmp_path):
     app = AcprofTui(RunConfig.smoke("demo/model"), settings_path=tmp_path / "settings.json")
     async with app.run_test(size=(80, 24)) as pilot:
+        assert app.has_class("collapsed-navigation"), "narrow terminals auto-collapse sidebar to icons"
         environment = app.query_one("#current-environment")
+        shortcuts = app.query_one("#show-shortcuts")
         quit_button = app.query_one("#quit-app")
-        assert environment.region.y == quit_button.region.y == 0
-        assert environment.region.right == quit_button.region.x
+        assert environment.region.y == shortcuts.region.y == quit_button.region.y == 0
+        assert environment.region.right <= shortcuts.region.x
+        assert shortcuts.region.right == quit_button.region.x
         assert app.get_widget_at(*quit_button.region.center)[0] is quit_button
         assert await pilot.click("#environment-error")
         panel = app.preflight.panel
@@ -226,3 +231,52 @@ async def test_environment_is_beside_quit_and_keeps_overlay_below_header(tmp_pat
         assert panel.region.right == quit_button.region.x
         await pilot.press("escape")
         assert not panel.display
+
+
+async def test_page_shortcuts_header_help_command_palette_and_update_badge(tmp_path):
+    from acprof.tui.logging.widget import SelectableLog
+    from acprof.tui.ui.command_palette import CommandPaletteScreen
+    from acprof.tui.ui.navigation import PageNavigation
+    from acprof.tui.ui.shortcuts import ShortcutsScreen
+
+    app = AcprofTui(RunConfig.smoke("demo/model"), settings_path=tmp_path / "settings.json")
+    async with app.run_test(size=(120, 30)) as pilot:
+        tabs = app.query_one("#main-tabs", TabbedContent)
+        await pilot.press("alt+2")
+        assert tabs.active == "monitor-tab"
+        await pilot.press("alt+3")
+        assert tabs.active == "results-tab"
+        await pilot.press("alt+6")
+        assert tabs.active == "settings-tab"
+        await pilot.press("alt+1")
+        assert tabs.active == "run-tab"
+
+        # Alt+E toggles the status center cleanly.
+        await pilot.press("alt+e")
+        assert app.preflight.panel.display
+        await pilot.press("alt+e")
+        assert not app.preflight.panel.display
+
+        # Header '?' button opens shortcut reference.
+        assert await pilot.click("#show-shortcuts")
+        await pilot.pause()
+        assert isinstance(app.screen, ShortcutsScreen)
+        await pilot.press("escape")
+        await pilot.pause()
+
+        # Ctrl+K opens floating command palette and runs /help without polluting log.
+        await pilot.press("ctrl+k")
+        await pilot.pause()
+        assert isinstance(app.screen, CommandPaletteScreen)
+        app.screen.query_one("#palette-search", Input).value = "/help"
+        await pilot.pause()
+        await pilot.press("enter")
+        await pilot.pause()
+        assert isinstance(app.screen, ShortcutsScreen)
+        assert "/status" not in app.query_one("#run-log", SelectableLog).text
+        await pilot.press("escape")
+
+        # Update indicator badge appears on Settings navigation item.
+        app.query_one(PageNavigation).set_update_available(True)
+        await pilot.pause()
+        assert "•" in str(app.query_one("#nav-settings-tab", Button).label)
