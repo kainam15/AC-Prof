@@ -9,6 +9,5 @@ def initial_config() -> RunConfig:
 
 
 def mount(app: AcprofTui) -> None:
-    app.activate_tab("results-tab")
     app.results.show_result_section("statistics-view")
     freeze_for_screenshot(app)

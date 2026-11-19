@@ -37,7 +37,6 @@ def mount(app: AcprofTui) -> None:
         network_owner="buildkit", elapsed_seconds=58, idle_seconds=58,
         uncovered_sources=("metadata", "protocol_overhead", "buildkit_layers", "unreported_build"),
     )
-    app.activate_tab("monitor-tab")
     app.consume_process_line("", snapshot, True)
     app.set_busy(True)
     app.preflight.download_progress(progress)

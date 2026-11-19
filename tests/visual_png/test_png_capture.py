@@ -34,7 +34,7 @@ def test_tapes_fix_terminal_cells_font_and_fixture_boundary(tmp_path: Path) -> N
         assert f"Set Rows {SCENARIOS[name].rows}\n" in tape
         assert f'Set FontFamily "{FONT_FAMILY}"' in tape
         assert "HF_HUB_OFFLINE" in tape
-        assert "Sleep 4s" in tape
+        assert f"Enter\nWait+Screen /{SCENARIOS[name].ready_pattern}/\nShow\n" in tape
         assert "Output " in tape
         assert "Set Framerate 1" in tape
         assert "frames/" in tape

@@ -20,12 +20,14 @@ from pathlib import Path
 from typing import NoReturn
 from unittest.mock import Mock, patch
 
-from textual import events
+from textual.pilot import Pilot
+from textual.widgets import Button, TabbedContent, TabPane
 
 from acprof.platform import Environment
 from acprof.tui.app import AcprofTui
 from acprof.tui.run.process import ProcessLifecycle, StopResult
 from tests.support.tui_fixtures import SNAPSHOT_TITLE
+from tests.support.tui_waits import wait_for_condition
 from tests.visual_png.scenarios import SCENARIOS
 
 GUARDED_OPERATIONS = (
@@ -124,7 +126,6 @@ class VisualFixtureApp(AcprofTui):
     def __init__(self, scenario: str, *, settings_path: Path):
         self.scenario = SCENARIOS[scenario]
         self.scene_ready = asyncio.Event()
-        self.scene_started = False
         super().__init__(self.scenario.config(), settings_path=settings_path)
         self.configuration.preferences = replace(
             self.configuration.preferences,
@@ -147,29 +148,27 @@ class VisualFixtureApp(AcprofTui):
             stop_fixture_process, self.execution.lifecycle,
         )
 
-    def _schedule_scene(self) -> None:
-        if self.scene_started:
-            return
-        self.scene_started = True
-
-        def prepare_scene() -> None:
-            self.scenario.mount(self)
-            self.call_after_refresh(self.scene_ready.set)
-
-        self.call_after_refresh(prepare_scene)
-
     def on_mount(self) -> None:
-        super().on_mount()
-        # VHS uses a real terminal: focus events are not guaranteed to reach
-        # DescendantFocus before its capture frame. Schedule a fallback from
-        # mounting, after the initial form focus and layout have settled.
-        self.call_after_refresh(self._schedule_scene)
+        # Textual dispatches the production mount handler separately. A worker
+        # can await the resulting focus and navigation messages off the UI pump.
+        self.run_worker(self.prepare_scene(), name="prepare PNG scene")
 
-    def on_descendant_focus(self, event: events.DescendantFocus) -> None:
-        # Preserve the original focus-based order where that event is delivered.
-        # _schedule_scene makes the mount fallback and focus path idempotent.
-        if event.widget.id == "model":
-            self._schedule_scene()
+    async def prepare_scene(self) -> None:
+        pilot = Pilot(self)
+        await pilot.pause()
+        tabs = self.query_one("#main-tabs", TabbedContent)
+        page = self.scenario.page
+        if tabs.active != page:
+            self.activate_tab(page)
+        pane = tabs.query_one(f"#{page}", TabPane)
+        button = self.query_one(f"#nav-{page}", Button)
+        await wait_for_condition(
+            pilot,
+            lambda: tabs.active == page and pane.display and pane.region.area > 0 and button.has_class("selected-page"),
+            description=f"PNG scene page {page} visible and selected", timeout=8,
+        )
+        self.scenario.mount(self)
+        self.call_after_refresh(self.scene_ready.set)
 
 
 def main() -> int:

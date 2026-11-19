@@ -75,11 +75,10 @@ def build_tape(scenario: str, screenshot: Path, fixture_home: Path, *, python: P
         "Hide",
         f"Type {_quoted(command)}",
         "Enter",
+        f"Wait+Screen /{scene.ready_pattern}/",
         "Show",
-        # Screen-regex waits can race Textual's full-frame redraw (especially
-        # CJK); fixed settle plus golden comparison fails safely on blank UI.
-        "Sleep 4s",
-        "Sleep 600ms",
+        # Record complete text frames at 1 fps after xterm displays the scene.
+        "Sleep 2s",
         "",
     ]
     return "\n".join(lines)

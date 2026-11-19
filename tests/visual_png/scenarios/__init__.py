@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from acprof.experiments.configuration import RunConfig
 from acprof.tui.app import AcprofTui
@@ -22,23 +22,32 @@ from tests.visual_png.scenarios import (
 class Scene:
     config: Callable[[], RunConfig]
     mount: Callable[[AcprofTui], None]
+    ready_pattern: str
     columns: int = 120
     rows: int = 36
     language: str = "zh"
+    page: str = "run-tab"
 
 
 # Regexes must match actual visible terminal cells, not a background sentinel.
+_FORM = Scene(form.initial_config, form.mount, "1 个正式窗口")
+_DOCKER_FRONTEND = Scene(
+    docker_frontend.initial_config, docker_frontend.mount, r"registry-1\.docker\.io", page="monitor-tab",
+)
+_STATISTICS = Scene(
+    statistics.initial_config, statistics.mount, "交互式 HTML 报告", columns=80, rows=24, page="results-tab",
+)
 SCENARIOS: dict[str, Scene] = {
-    "form": Scene(form.initial_config, form.mount),
-    "form-small": Scene(form.initial_config, form.mount, columns=80, rows=24),
-    "error-modal": Scene(error_modal.initial_config, error_modal.mount),
-    "near-match": Scene(near_match.initial_config, near_match.mount),
-    "measuring": Scene(measuring.initial_config, measuring.mount),
-    "docker-frontend": Scene(docker_frontend.initial_config, docker_frontend.mount),
-    "docker-frontend-small": Scene(docker_frontend.initial_config, docker_frontend.mount, columns=80, rows=24),
-    "docker-frontend-en": Scene(docker_frontend.initial_config, docker_frontend.mount, language="en"),
-    "docker-frontend-en-small": Scene(docker_frontend.initial_config, docker_frontend.mount, columns=80, rows=24, language="en"),
-    "task-selection": Scene(task_selection.initial_config, task_selection.mount),
-    "statistics": Scene(statistics.initial_config, statistics.mount, columns=80, rows=24),
-    "statistics-en": Scene(statistics.initial_config, statistics.mount, columns=80, rows=24, language="en"),
+    "form": _FORM,
+    "form-small": replace(_FORM, columns=80, rows=24),
+    "error-modal": Scene(error_modal.initial_config, error_modal.mount, "CPU 指令计数与权限"),
+    "near-match": Scene(near_match.initial_config, near_match.mount, "3 个正式窗口"),
+    "measuring": Scene(measuring.initial_config, measuring.mount, r"当前 case\s+2", page="monitor-tab"),
+    "docker-frontend": _DOCKER_FRONTEND,
+    "docker-frontend-small": replace(_DOCKER_FRONTEND, columns=80, rows=24),
+    "docker-frontend-en": replace(_DOCKER_FRONTEND, language="en"),
+    "docker-frontend-en-small": replace(_DOCKER_FRONTEND, columns=80, rows=24, language="en"),
+    "task-selection": Scene(task_selection.initial_config, task_selection.mount, "开始所选任务"),
+    "statistics": _STATISTICS,
+    "statistics-en": replace(_STATISTICS, ready_pattern="Interactive HTML report", language="en"),
 }

@@ -34,7 +34,6 @@ def mount(app: AcprofTui) -> None:
         runtime_status="passed",
         measurement_status="running",
     )
-    app.activate_tab("monitor-tab")
     app.consume_process_line("正在执行固定测试任务：不启动真实推理。", snapshot, True)
     app.set_busy(True)
     app.logs.flush()
