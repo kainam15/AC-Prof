@@ -33,11 +33,10 @@ from acprof.tui.run.source_groups import SourceSummary, source_group, source_sum
 from acprof.tui.ui.navigation import NavigationContext
 from acprof.tui.ui.presentation import COMPACT_COLLAPSED_SYMBOL, COMPACT_EXPANDED_SYMBOL
 from acprof.tui.ui.rendering import CjkScreen
-from acprof.tui.ui.structured import ActionButtons, ActionRequested, Callout, FactGrid, StatusBanner
+from acprof.tui.ui.structured import ActionButtons, ActionRequested, Callout, FactGrid
 from acprof.tui.ui.view_models import (
     CalloutContent,
     FactRow,
-    StatusSummary,
     ViewAction,
     ViewSection,
     format_local_timestamp,
@@ -259,8 +258,6 @@ class EnvironmentPopover(Vertical):
         return self.controller.app.tr(message_id(f"run.environment.{key}", *values))
 
     def compose(self) -> ComposeResult:
-        yield Static("", id="preflight-title", markup=False)
-        yield StatusBanner(StatusSummary("neutral", ""), id="preflight-summary")
         with VerticalScroll(id="preflight-scroll"):
             yield Vertical(id="preflight-capabilities")
         with VerticalScroll(id="preflight-inspection"):
@@ -441,17 +438,6 @@ class EnvironmentPopover(Vertical):
         sources_changed = sources != self._sources
         self._sources = sources
         rows = tuple(item.check for source in self._sources for item in source.items)
-        heading = self.tr("group_count", self.tr("group." + self.group), snapshot.counts[self.group])
-        self.query_one("#preflight-title", Static).update(
-            self.tr("header_title", heading))
-        banner = self.query_one("#preflight-summary", StatusBanner)
-        banner.display = False
-        summary = StatusSummary(
-            {"error": "error", "warning": "warning", "success": "success", "pending": "info"}.get(self.group, "neutral")
-            if rows else "neutral", heading,
-        )
-        if summary != banner.summary:
-            banner.update_summary(summary)
         allowed = controller.app.operation_state().allows("check")
         actions = (ViewAction("environment-retry", message_id("run.environment.retry"), primary=True, disabled=not allowed),)
         self.query_one("#preflight-recheck", ActionButtons).update_actions(actions)

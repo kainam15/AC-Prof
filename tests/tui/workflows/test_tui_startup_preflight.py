@@ -170,7 +170,8 @@ class TestStartupPreflight:
                 assert (len(app.screen_stack)) == (1)
                 assert app.query_one("#current-environment").display
                 assert app.preflight.panel.display
-                assert "警告（0）" in str(app.query_one("#preflight-title", Static).content)
+                assert not app.query("#preflight-title")
+                assert str(app.query_one("#environment-warning").content) == "! 0"
 
     async def test_success_does_not_reapply_initial_preset_or_notify(self):
         app = self.make_app()

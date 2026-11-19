@@ -143,7 +143,6 @@ MESSAGES: dict[str, Entry] = {
     "run.environment.group.success": Entry(zh="通过", en="Passed"),
     "run.environment.group.warning": Entry(zh="警告", en="Warning"),
     "run.environment.group_count": Entry(zh="{0}（{1}）", en="{0} ({1})"),
-    "run.environment.header_title": Entry(zh="全局状态 · {0}", en="Global status · {0}"),
     "run.environment.hover": Entry(zh="点击入口可固定", en="Click entry to pin"),
     "run.environment.impact.check_error": Entry(zh="本项检查未完成，能力状态尚不能确认。", en="This check did not complete; capability availability is unconfirmed."),
     "run.environment.impact.cpu_memory": Entry(zh="相关 CPU / 内存指标可能缺失；以实际采集检查为准。", en="Related CPU or memory metrics may be missing; collection checks remain authoritative."),

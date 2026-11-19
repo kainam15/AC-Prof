@@ -152,8 +152,9 @@ async def test_environment_counts_filter_cached_checks_on_click(app, language, m
             await pilot.pause()
             assert panel.display
             assert {signal.row.check_id for signal in panel.query(".environment-signal")} == identifiers
-            assert label in str(panel.query_one("#preflight-title", Static).content)
-            assert not panel.query_one("#preflight-summary").display
+            assert label in str(entry.tooltip)
+            assert not panel.query("#preflight-title")
+            assert not panel.query("#preflight-summary")
             assert app.environment.label.split(" / ")[0] in context_text(app)
             assert app.query_one("#main-tabs").region == tabs
 
@@ -563,6 +564,7 @@ async def test_selected_check_details_ignore_hover_focus_and_resize(app, languag
         await pilot.pause()
         await expand_check_source(app, pilot, "environment")
         await expand_check_source(app, pilot, "docker")
+        await expand_check_source(app, pilot, "cgroup")
         selected = app.query_one("#preflight-signal-environment")
         preview = app.query_one("#preflight-signal-docker")
         keyboard = app.query_one("#preflight-signal-cgroup")
@@ -602,12 +604,12 @@ async def test_selected_check_details_ignore_hover_focus_and_resize(app, languag
             await pilot.pause()
             assert await pilot.hover(selected)
             assert "hovered Docker evidence" in detail_text(app)
-            await pilot.press("tab")
+            await pilot.press("tab", "tab")  # cgroup title precedes its check
             assert app.focused is keyboard
             assert "hovered Docker evidence" in detail_text(app)
             await pilot.press("space")
             assert "keyboard cgroup evidence" in detail_text(app)
-            assert await pilot.hover("#preflight-title")
+            assert await pilot.hover(explanation)
             assert "keyboard cgroup evidence" in detail_text(app)
         probe.assert_called_once()
 
@@ -720,7 +722,7 @@ async def test_palette_and_long_panel_fit(app, theme, no_color, monkeypatch):
         await pilot.pause()
         panel = app.preflight.panel
         assert panel.region.bottom <= 24
-        assert "警告" in str(app.query_one("#preflight-title", Static).content)
+        assert not panel.query("#preflight-title")
         assert not any("未启用" in signal.render().plain for signal in app.query(".environment-signal"))
         assert all(panel.region.contains_region(button.region) for button in visible_buttons(panel))
         assert app.theme == theme
