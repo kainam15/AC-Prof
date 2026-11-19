@@ -32,6 +32,7 @@ from acprof.result_store.types import (
 from acprof.results.csv import ResultValidationError
 from acprof.results.layers import LAYER_FILES, layer_fields
 from acprof.results.layout import ArtifactLayout
+from acprof.results.metrics import supported_csv_header
 
 
 def _validate_initialization_receipt(schema: object) -> TypeGuard[InitializationReceipt]:
@@ -42,7 +43,7 @@ def _validate_initialization_receipt(schema: object) -> TypeGuard[Initialization
         raise ResultValidationError("invalid result initialization receipt: field names must be strings")
     fields = schema.get("fields")
     if (not isinstance(fields, list) or any(not isinstance(name, str) for name in fields)
-            or fields != list(CSV_FIELDS)):
+            or not supported_csv_header(fields)):
         raise ResultValidationError("invalid result initialization receipt: fields changed")
     if not isinstance(schema.get("run_id"), str) or not schema["run_id"]:
         raise ResultValidationError("invalid result initialization receipt: run_id must be a non-empty string")
@@ -68,11 +69,13 @@ def initial_files(layout: ArtifactLayout) -> set[str]:
     if layout.result_csv.exists():
         manifest = read_json_object(layout.result_csv)
         validate_run_identity(manifest, schema["run_id"])
+        if manifest.get("wide_fields") != schema["fields"]:
+            raise ResultValidationError("initialization receipt fields disagree with manifest")
         if manifest.get("sequence") != 0 or manifest.get("state") != "initialized":
             return set()
         validate_layer_files(layout, manifest, exact=True)
     else:
-        for layer, fields in layer_fields(CSV_FIELDS).items():
+        for layer, fields in layer_fields(schema["fields"]).items():
             path = layout.layer_csv(layer)
             if path.exists() and path.read_bytes() != csv_bytes(fields, header=True):
                 raise ResultValidationError("nonempty result encountered during initialization")
@@ -92,6 +95,8 @@ def initialize_results(layout: ArtifactLayout) -> ResultManifest:
             validate_layer_files(layout, existing, exact=True)
             if schema is not None:
                 validate_run_identity(existing, schema["run_id"])
+                if existing.get("wide_fields") != schema["fields"]:
+                    raise ResultValidationError("initialization receipt fields disagree with manifest")
             if not validate_manifest_structure(existing, layout):
                 raise ResultValidationError("invalid incremental result manifest")
             return existing

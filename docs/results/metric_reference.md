@@ -62,6 +62,7 @@
 | `input_pixels_per_request` | `pixel/request` | `input_plan` | `materialized_request` | `pixel_geometry` | `number` |
 | `output_pixels_per_request` | `pixel/request` | `input_plan` | `materialized_request` | `pixel_geometry` | `number` |
 | `request_payload_bytes` | `byte/request` | `client_http` | `request_window` | `all` | `number` |
+| `response_payload_bytes` | `byte/request` | `client_http` | `request_window` | `all` | `number` |
 | `packet_request_wire_bytes_per_request` | `byte/request` | `pcap` | `request_window` | `all` | `number` |
 | `packet_response_wire_bytes_per_request` | `byte/request` | `pcap` | `request_window` | `all` | `number` |
 | `packet_total_wire_bytes_per_request` | `byte/request` | `pcap` | `request_window` | `all` | `number` |

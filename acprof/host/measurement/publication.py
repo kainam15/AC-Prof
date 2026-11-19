@@ -10,9 +10,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from acprof.artifacts import atomic_write, loads_finite_json
-from acprof.config import (
-    CSV_FIELDS,
-)
+from acprof.config import CSV_FIELDS
 from acprof.results.csv import allow_large_csv_fields
 from acprof.results.windows import (
     WindowPublicationContext,
@@ -99,7 +97,7 @@ def _append_idle_diag(diag_f, record: dict[str, Any]) -> None:
 
 
 def append_request_window(stream, *, sniff_group_id, input_scale, warmup, repeat_idx,
-                           latencies, error="", failed_request_id="") -> dict[str, Any]:
+                           latencies, error="", failed_request_id="", request_sizes=None, response_sizes=None) -> dict[str, Any]:
     """Persist buffered successful requests after every monitor has stopped.
 
     Array position is the request index in ``<sniff_group_id>:<index>``.
@@ -113,6 +111,11 @@ def append_request_window(stream, *, sniff_group_id, input_scale, warmup, repeat
     }
     if error:
         record["error"] = error
+    for name, sizes in (("request_payload_bytes", request_sizes), ("response_payload_bytes", response_sizes)):
+        if sizes is not None:
+            if len(sizes) != len(latencies):
+                raise ValueError(f"{name} and completed request count disagree")
+            record[name] = sizes
     if failed_request_id:
         record["failed_request_id"] = failed_request_id
     payload = json.dumps(_json_safe(record), separators=(",", ":"), allow_nan=False) + "\n"
@@ -141,7 +144,7 @@ def append_row(
     request_record: dict[str, Any] | None = None,
     result_writer: ResultWriter | None = None,
 ) -> None:
-    out = {k: row.get(k, "") for k in CSV_FIELDS}
+    out = {k: row.get(k, "") for k in getattr(writer, "fieldnames", CSV_FIELDS)}
     if str(out.get("status") or "").strip().lower() == "error" and not str(
         out.get("error") or ""
     ).strip():

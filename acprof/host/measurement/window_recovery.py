@@ -6,7 +6,6 @@ import json
 import time
 
 from acprof.artifacts import atomic_write, atomic_write_json, file_sha256, read_json_object
-from acprof.config import CSV_FIELDS
 from acprof.result_store.writer import ResultWriter
 from acprof.results.csv import measurement_key
 from acprof.results.windows import read_window_record
@@ -84,10 +83,11 @@ def restore_case_windows(case, *, run_id, expected):
     if not {measurement_key(record["row"]) for _, record in records} <= set(expected):
         raise ValueError("window receipts do not belong to the frozen measurement plan")
     with ResultWriter(case.layout.root, expected_run_id=run_id) as writer:
+        fields = writer.manifest["wide_fields"]
         for path, _ in records:
             writer.append_window(path)
     def csv_projection(stream):
-        writer = csv.DictWriter(stream, fieldnames=CSV_FIELDS)
+        writer = csv.DictWriter(stream, fieldnames=fields)
         writer.writeheader()
         writer.writerows(record["row"] for _, record in records)
     atomic_write(case.csv, csv_projection)

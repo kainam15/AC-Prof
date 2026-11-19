@@ -242,7 +242,7 @@ class WindowExecutor:
                 requests_stream, sniff_group_id=group_id,
                 input_scale=progress.effective_input_scale if progress.effective_input_scale is not None else spec.scale,
                 warmup=spec.warmup, repeat_idx=spec.repeat_idx,
-                latencies=progress.latencies,
+                latencies=progress.latencies, request_sizes=progress.payload_sizes, response_sizes=progress.response_sizes,
                 error="; ".join(part for part in (window_error, monitors.error) if part),
                 failed_request_id=progress.pending_request_id,
             )

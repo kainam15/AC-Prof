@@ -65,7 +65,7 @@ def field_layer(name: str) -> str:
         return "summary"  # Keep unknown historical extension fields without loss.
     if metric.tool:
         return metric.tool
-    if name.startswith("packet_"):
+    if name.startswith("packet_") or name == "response_payload_bytes":
         return "network"
     if "energy" in name or "power" in name or metric.source.startswith("rapl"):
         return "energy"

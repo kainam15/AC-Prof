@@ -15,7 +15,7 @@ P3 的代码与离线验证，保持现有 Basic / Full 的配置、恢复与结
 | CPU / DRAM 能耗 | 复用 `energy_cpu.py` 的 RAPL topology、去重、wrap、domain 完整性与控制窗口；将容器 CPU reader 的发现从 RAPL 读取中解耦 | package/DRAM 总量可独立存在；没有服务 CPU 计数只缺归因项。DRAM 不是所有 CPU 都有；无权限不能写零或自动 chmod |
 | 进程能耗归因 | 后续向归因计算注入同窗 `process CPU / host CPU`；已验证独立 cgroup 可保留另一种归因来源 | 仅为 estimated CPU 时间份额，不是实测进程能耗；进程成员缺口、调度迁移、共享设备与负残差必须保留。不得写入旧 cgroup 归因字段 |
 | PMU | `perf_mips.py` 当前已经用 `perf stat -p <container-root-pid>`，并非 cgroup PMU；将 PID 发现改为 Runtime 提供身份，复用输出解析、事件支持、running ratio 和 `--control=fd` ACK 生命周期 | 首先按 PID/TID 验证权限、已有线程枚举、后续继承和退出子进程。attach 根 PID 不能直接声明整个进程树完整；instructions/cycles 的窗口及事件组须相同才计算 IPC |
-| HTTP 字节 | 共享请求执行器记录实际发送的 PreparedRequest body 和实际响应正文；流式路径复用既有 chunk 字节累计 | 区分 UTF-8 正文、HTTP 头、压缩前后；不能用再次 JSON 序列化的大小冒充实际发送量。无需额外请求；本轮只设计，不新增字段 |
+| HTTP 字节 | 共享请求执行器记录实际发送的 PreparedRequest body 和实际响应正文；流式路径复用既有 chunk 字节累计 | 区分 UTF-8 正文、HTTP 头、压缩前后；不能用再次 JSON 序列化的大小冒充实际发送量。复用已完成请求，原值进入请求 journal；`response_payload_bytes` 按解码后字节计数 |
 | PCAP | 复用 `measurement/capture.py`、request ID journal、packet 解析和回填；Process 用已绑定 loopback 地址/端口过滤，清理绑定本次抓包进程 | 需 tcpdump/tshark 与当前接口权限。保留 link type、丢包、重传、截断和请求覆盖；`any`/loopback 可能重复观察。PCAP frame bytes 不宣称物理链路全部开销，不用 HTTP 字节回填缺失 PCAP |
 
 RAPL/NVML 设备计量与进程归因分开提供能力状态。同语义的 NVML 累计能量与功率积分

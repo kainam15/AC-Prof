@@ -9,6 +9,7 @@ Docker / Process 统一画像：已建立 [逐字段覆盖矩阵](results/runtim
 [统一语义契约](results/runtime-profile.md)，区分登记、实现、运行条件及硬件证据。
 共同进程树 CPU/RSS/边界计数、Process 独立 cgroup 与 GPU 遥测、准备期 CPU 拓扑已接入；
 逐指标质量已贯通审计、统计、比较与离线 HTML，开销脚本支持两种 Runtime 的配对诊断。
+两种 Runtime 已从同一次 HTTP 请求记录请求及解码后的响应正文大小，历史字段集按实验冻结。
 [P2 接入设计](profiling/collector-capabilities.md) 已完成：后续取消 Basic / Full，按采集器能力独立启用；
 高级 Process 采集、真实硬件、模型和开销对照尚未执行，不以离线回归代替验收。
 

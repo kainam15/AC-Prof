@@ -1,7 +1,8 @@
 """CSV 指标的唯一登记表；标准库声明，不初始化任何采集器。"""
 from __future__ import annotations
 
-from collections.abc import Iterable
+import hashlib
+from collections.abc import Iterable, Sequence
 from dataclasses import asdict, dataclass
 from types import MappingProxyType
 from typing import Any
@@ -96,7 +97,8 @@ _DECLARATIONS = (
     Metric('input_num_samples', 'sample/request', 'input_plan', 'materialized_request', applicability='audio'),
     Metric('input_pixels_per_request', 'pixel/request', 'input_plan', 'materialized_request', applicability='pixel_geometry'),
     Metric('output_pixels_per_request', 'pixel/request', 'input_plan', 'materialized_request', applicability='pixel_geometry'),
-    Metric('request_payload_bytes', 'byte/request', 'client_http', 'request_window'),
+    Metric('request_payload_bytes', 'byte/request', 'client_http', 'request_window', label='HTTP 请求正文', group='Network'),
+    Metric('response_payload_bytes', 'byte/request', 'client_http', 'request_window', label='HTTP 解码后响应正文', group='Network'),
     Metric('packet_request_wire_bytes_per_request', 'byte/request', 'pcap', 'request_window'),
     Metric('packet_response_wire_bytes_per_request', 'byte/request', 'pcap', 'request_window'),
     Metric('packet_total_wire_bytes_per_request', 'byte/request', 'pcap', 'request_window'),
@@ -315,6 +317,19 @@ if len(METRICS) != len(_DECLARATIONS):
     raise ValueError("指标登记表包含重复字段")
 CSV_FIELDS = list(METRICS)
 NUMERIC_FIELDS = tuple(name for name, metric in METRICS.items() if metric.kind == "number")
+
+
+def supported_csv_header(fields: Sequence[str]) -> bool:
+    """Only exact registered header generations can be used to continue a run."""
+    if list(fields) == CSV_FIELDS:
+        return True
+    if not all(name in METRICS for name in fields):
+        return False
+    fingerprint = hashlib.sha256("\n".join(fields).encode()).hexdigest()
+    return fingerprint in {
+        "a24b5ad5c2a7f3b2bfb2fca08abf701a5c83a1b9b83e145fd61c119ebd790fdf",  # before shared resource metrics
+        "ef95b18bb66cd7aea6e20b22d5304fc534c32c6175df2ffc96e022bd274fd0b8",  # before HTTP response bytes
+    }
 
 
 def row_group_fields(group: str) -> list[str]:

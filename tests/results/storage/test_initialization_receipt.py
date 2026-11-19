@@ -97,3 +97,18 @@ def test_interrupted_initialization_reuses_valid_receipt_and_zero_row_projection
     before = artifact_hashes(layout)
     layout.initialize()
     assert artifact_hashes(layout) == before
+
+
+def test_frozen_header_is_reused_and_cannot_replace_a_different_manifest(tmp_path):
+    layout = ArtifactLayout.for_new_run(tmp_path)
+    intent = layout.result_store_path("initialization.json")
+    intent.parent.mkdir(parents=True, exist_ok=True)
+    fields = [field for field in CSV_FIELDS if field != "response_payload_bytes"]
+    intent.write_text(json.dumps({"run_id": "historical", "fields": fields}))
+    layout.initialize()
+    assert read_result_layers(tmp_path) == (fields, [])
+    intent.write_text(json.dumps({"run_id": "historical", "fields": CSV_FIELDS}))
+    before = artifact_hashes(layout)
+    with pytest.raises(ResultValidationError, match="fields disagree"):
+        initialization.initialize_results(layout)
+    assert artifact_hashes(layout) == before

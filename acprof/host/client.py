@@ -30,7 +30,11 @@ from acprof.host.measurement.errors import EnergyAbort, MIPSAbort, RequestTimeou
 from acprof.host.measurement.execution import WindowExecutor
 from acprof.host.measurement.monitors import MonitorCleanupError
 from acprof.host.measurement.numbers import format_float, resource_text, to_float_or_nan
-from acprof.host.measurement.requests import canonical_task_param, prepared_body_size_bytes
+from acprof.host.measurement.requests import (
+    canonical_task_param,
+    decoded_body_size_bytes,
+    prepared_body_size_bytes,
+)
 from acprof.host.measurement.types import MonitorDependencies, WindowSpec
 from acprof.host.profiling.compute_plan import (
     load_compute_profile_plan as _load_compute_profile_plan,
@@ -263,6 +267,7 @@ class ClientRunner:
             "resp": resp,
             "effective_input_scale": _parse_effective_input_scale(resp),
             "request_payload_bytes": prepared_body_size_bytes(r),
+            "response_payload_bytes": decoded_body_size_bytes(r),
             "output_length": to_float_or_nan(resp.get("output_length")),
             "output_token_count": to_float_or_nan(resp.get("output_token_count")),
             "task_param": canonical_task_param(payload),
@@ -385,7 +390,8 @@ class ClientRunner:
         if not need_header:
             with open(self.config.out_csv, newline="", encoding="utf-8-sig") as existing:
                 fieldnames = next(csv.reader(existing))
-            if len(fieldnames) != len(CSV_FIELDS) or set(fieldnames) != set(CSV_FIELDS):
+            from acprof.results.metrics import supported_csv_header
+            if not supported_csv_header(fieldnames) and (len(fieldnames) != len(CSV_FIELDS) or set(fieldnames) != set(CSV_FIELDS)):
                 raise RuntimeError(f"existing CSV columns do not match current fields: {self.config.out_csv}; use a new output file")
         sniff_groups_path = self._sniff_groups_path(self.config.out_csv)
         if not need_header:
@@ -410,6 +416,12 @@ class ClientRunner:
         ) as sidecar_f, open(
             case_sidecar(self.config.out_csv, "requests"), sidecar_mode, encoding="utf-8"
         ) as requests_f, diag_context as diag_f:
+            if result_writer is not None:
+                frozen_fields = result_writer.manifest["wide_fields"]
+                if not need_header and set(fieldnames) != set(frozen_fields):
+                    raise RuntimeError("case CSV fields disagree with the frozen result manifest")
+                if need_header:
+                    fieldnames = frozen_fields
             writer = csv.DictWriter(
                 f,
                 fieldnames=fieldnames,

@@ -3,7 +3,7 @@
 由 `scripts/render_runtime_coverage.py` 从 [指标登记表](../../acprof/results/metrics.py) 和
 [采集来源契约](../../acprof/results/coverage.py) 生成。语义与实施边界见 [统一画像](runtime-profile.md)。
 
-共 250 个登记字段，包含身份、诊断和数值，不能把字段数当作可采集指标数。
+共 251 个登记字段，包含身份、诊断和数值，不能把字段数当作可采集指标数。
 `conditional` 仅表示存在实现路径；实际可采集性由权限、设备和当前运行证据决定。
 `unsupported` 表示该 Runtime 未接入。所有条目的硬件验收均为 `not_verified`；
 本表不凭代码、Mock 或历史不同版本实验宣称已通过硬件验证。
@@ -14,6 +14,8 @@
 | `cgroup` | `container_cgroup` | low | local Docker; cgroup v2; readable metric files | [resource_usage.py](../../acprof/monitors/resource_usage.py) |
 | `cgroup` | `container_cgroup` | medium | local Docker; cgroup v2; readable metric files | [resource_usage.py](../../acprof/monitors/resource_usage.py) |
 | `client_http` | `client_http_requests` | none | successful requests; tokenizer/geometry when applicable | [metrics.py](../../acprof/host/measurement/metrics.py) |
+| `client_http` | `decoded_http_response_body` | none | successful requests; tokenizer/geometry when applicable | [requests.py](../../acprof/host/measurement/requests.py) |
+| `client_http` | `prepared_http_request_body` | none | successful requests; tokenizer/geometry when applicable | [requests.py](../../acprof/host/measurement/requests.py) |
 | `collector_contract` | `protocol_identity` | none | valid run identity | [metrics.py](../../acprof/host/measurement/metrics.py) |
 | `derived` | `cgroup_cpu_share_plus_selected_gpu` | none | finite source fields and positive denominator | [collector_metrics.py](../../acprof/host/measurement/collector_metrics.py) |
 | `derived` | `cgroup_cpu_time_times_host_frequency` | none | finite source fields and positive denominator | [collector_metrics.py](../../acprof/host/measurement/collector_metrics.py) |
@@ -103,6 +105,7 @@
 | `input_pixels_per_request` | `conditional` | `conditional` | `pixel/request` | `input_plan` | `materialized_request` | `recorded` |
 | `output_pixels_per_request` | `conditional` | `conditional` | `pixel/request` | `input_plan` | `materialized_request` | `recorded` |
 | `request_payload_bytes` | `conditional` | `conditional` | `byte/request` | `client_http` | `request_window` | `observed` |
+| `response_payload_bytes` | `conditional` | `conditional` | `byte/request` | `client_http` | `request_window` | `observed` |
 | `packet_request_wire_bytes_per_request` | `conditional` | `unsupported` | `byte/request` | `pcap` | `request_window` | `observed` |
 | `packet_response_wire_bytes_per_request` | `conditional` | `unsupported` | `byte/request` | `pcap` | `request_window` | `observed` |
 | `packet_total_wire_bytes_per_request` | `conditional` | `unsupported` | `byte/request` | `pcap` | `request_window` | `observed` |

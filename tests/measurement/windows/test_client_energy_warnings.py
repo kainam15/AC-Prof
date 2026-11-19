@@ -272,6 +272,8 @@ class TestClientWindowEnergy:
                 "output_token_count": 5,
             })
             reason = "OK"
+            content = text.encode("utf-8")
+            headers = {"Content-Length": "1", "Content-Encoding": "gzip"}
             request = SimpleNamespace(body='{"text":"\u2713"}')
 
             @staticmethod
@@ -291,6 +293,7 @@ class TestClientWindowEnergy:
             result = self.runner._one_request(3.0, "req", payload_override=payload)
             first_predict_app_s = self.runner.first_predict_app_s
 
+        assert result["response_payload_bytes"] == len(FakeResponse.content)
         assert (result["request_payload_bytes"]) == (14.0)
         assert (result["output_length"]) == (12.0)
         assert (result["output_token_count"]) == (5.0)
@@ -328,6 +331,7 @@ class TestClientWindowEnergy:
                 "latency_app_s": 0.1,
                 "effective_input_scale": 1.0,
                 "request_payload_bytes": 100,
+                "response_payload_bytes": 20,
                 "output_length": 10,
                 "output_token_count": 3,
             },
@@ -335,6 +339,7 @@ class TestClientWindowEnergy:
                 "latency_app_s": 0.2,
                 "effective_input_scale": 1.0,
                 "request_payload_bytes": 104,
+                "response_payload_bytes": 0,
                 "output_length": 14,
                 "output_token_count": 5,
             },
@@ -375,6 +380,7 @@ class TestClientWindowEnergy:
 
         assert (row["input_units_per_request"]) == ("2.000000")
         assert (row["input_num_samples"]) == ("16000.000000")
+        assert row["response_payload_bytes"] == "10.000000"
         assert (row["request_payload_bytes"]) == ("102.000000")
         assert (row["output_length_avg"]) == ("12.000000")
         assert (row["output_token_count_avg"]) == ("4.000000")

@@ -57,7 +57,7 @@ CPU 型号、GPU 型号/驱动/PCI bus ID、内存和每 case 的限制复用已
 | 内存 | 进程树 RSS 之和、时间加权平均、采样峰值 | cgroup memory 包含缓存/内核；RSS 可能重复计共享页；生命周期峰值不是窗口峰值 |
 | I/O | 进程读写字节与 syscall 次数首尾差分 | cgroup 块设备 I/O 与 syscall 次数不同；`read_chars` 不替代磁盘字节 |
 | GPU | 选定 UUID 的整卡 NVML 指标 | 不能标记为模型独占；MIG/驱动不支持逐项缺失 |
-| 网络 | HTTP 请求/响应应用正文大小 | TCP payload、抓包 frame bytes、物理线上字节各自保留 |
+| 网络 | PreparedRequest 请求正文和解码后的 Response 正文，各按窗口取均值 | TCP payload、抓包 frame bytes、物理线上字节各自保留 |
 | 能耗 | 包/DRAM/整卡来源一致时同名展示 | 总能量、matched-control 残差、CPU 时间归因估算不得混用 |
 | Profiler | 独立工具、来源、版本与窗口 | 独立 forward / 生命周期数据不能写成正式请求窗口实测 |
 

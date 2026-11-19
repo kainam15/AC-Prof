@@ -293,6 +293,7 @@ class WindowMetrics:
         self.latency_app_s = float("nan")
         self.latency_app_s_per_input_unit = float("nan")
         self.request_payload_bytes = float("nan")
+        self.response_payload_bytes = float("nan")
         self.output_length_avg = float("nan")
         self.output_token_count_avg = float("nan")
         self.throughput = float("nan")
@@ -317,6 +318,7 @@ class WindowMetrics:
         """Consume finalized samples, preserving partial results on failure."""
         self.latency_app_s = _mean(progress.latencies)
         self.request_payload_bytes = _mean_finite(progress.payload_sizes)
+        self.response_payload_bytes = _mean_finite(progress.response_sizes)
         self.output_length_avg = _mean_finite(progress.output_lengths)
         self.output_token_count_avg = _mean_finite(progress.output_token_counts)
         self.app_distribution = _latency_distribution_metrics(
@@ -443,6 +445,14 @@ class WindowMetrics:
                 return "verified"
             status = str(gpu_evidence.get(name + "_status", gpu_evidence.get("status", "unavailable")))
             return "unavailable" if status in {"available", "verified"} else status
+        quality = dict(getattr(observations.resource_result, "metric_evidence", {}))
+        for field, sizes in (("request_payload_bytes", progress.payload_sizes),
+                             ("response_payload_bytes", progress.response_sizes)):
+            observed = sum(math.isfinite(size) for size in sizes)
+            quality[field] = {"quality": "complete" if observed and observed == progress.count else
+                                         "partial" if observed else "unavailable",
+                              "reason": "" if observed and observed == progress.count else "missing_http_body_length",
+                              "observed_requests": observed, "completed_requests": progress.count}
         row: dict[str, Any] = {
             "runtime_kind": self.config.runtime_kind, "runtime_id": self.config.image_tag,
             "resource_limit_source": plan.get("method", "docker_cgroup"),
@@ -452,8 +462,7 @@ class WindowMetrics:
             "process_resource_error": (observations.resource_error if self.config.runtime_kind == "process" else
                                        getattr(observations.resource_result, 'optional_error', '')),
             "process_resource_status": getattr(observations.resource_result, "process_resource_status", "not_requested"),
-            "resource_metric_quality": json.dumps({'schema_version': 1, 'metrics':
-                getattr(observations.resource_result, 'metric_evidence', {})},
+            "resource_metric_quality": json.dumps({'schema_version': 1, 'metrics': quality},
                 ensure_ascii=False, separators=(',', ':')),
             "gpu_utilization_status": gpu_status("utilization", ("gpu_util_avg_pct", "gpu_util_peak_pct")),
             "gpu_memory_status": gpu_status("memory", ("gpu_mem_used_avg_bytes", "gpu_mem_used_peak_bytes")),
@@ -477,6 +486,7 @@ class WindowMetrics:
             "input_units_per_request": format_float(self.input_units_per_request),
             "input_num_samples": format_float(self.input_num_samples),
             "request_payload_bytes": format_float(self.request_payload_bytes),
+            "response_payload_bytes": format_float(self.response_payload_bytes),
             "task_param": (
                 progress.executed_task_param
                 if progress.executed_task_param is not None

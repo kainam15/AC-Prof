@@ -56,6 +56,9 @@ SOURCE_CONTRACTS = {
 def collector_contract(metric: Metric) -> CollectorContract:
     """Resolve explicit exceptions; a new source must supply its own contract."""
     contract = SOURCE_CONTRACTS[metric.source]
+    if metric.name in {"response_payload_bytes", "request_payload_bytes"}:
+        scope = "decoded_http_response_body" if metric.name == "response_payload_bytes" else "prepared_http_request_body"
+        return replace(contract, scope=scope, producer="acprof/host/measurement/requests.py")
     if metric.name.startswith("process_leader_"):
         return replace(contract, scope="observed_process_tree_leaders")
     if metric.source in {'cgroup', 'service_cgroup', 'psutil_observed_process_tree', 'host_cpufreq'} and (

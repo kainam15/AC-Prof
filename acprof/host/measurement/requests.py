@@ -24,6 +24,12 @@ def prepared_body_size_bytes(response: Any) -> float:
     return float("nan")
 
 
+def decoded_body_size_bytes(response: Any) -> float:
+    """Requests buffers decoded body bytes before returning from a non-streaming POST."""
+    body = getattr(response, "content", None)
+    return float(len(body)) if isinstance(body, bytes) else float("nan")
+
+
 def canonical_task_param(payload: dict[str, Any] | None) -> str:
     """Serialize the parameters that the server actually receives."""
     params: Any = {}
@@ -66,6 +72,7 @@ class WindowRequestProgress:
     elapsed_s: float = 0.0
     latencies: list[float] = field(default_factory=list)
     payload_sizes: list[float] = field(default_factory=list)
+    response_sizes: list[float] = field(default_factory=list)
     output_lengths: list[float] = field(default_factory=list)
     output_token_counts: list[float] = field(default_factory=list)
     workload_contracts: list[dict | None] = field(default_factory=list)
@@ -95,6 +102,7 @@ def execute_requests(
         progress.elapsed_s += latency
         progress.latencies.append(latency)
         progress.payload_sizes.append(to_float_or_nan(response.get("request_payload_bytes")))
+        progress.response_sizes.append(to_float_or_nan(response.get("response_payload_bytes")))
         progress.output_lengths.append(to_float_or_nan(response.get("output_length")))
         progress.output_token_counts.append(to_float_or_nan(response.get("output_token_count")))
         progress.workload_contracts.append(response.get("workload_contract"))

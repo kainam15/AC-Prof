@@ -260,13 +260,22 @@ def write_case_error_csv(
         runtime_id=runtime_id,
         environment_class=detect_environment().environment,
     )
+    fields = CSV_FIELDS
+    layout = ArtifactLayout.from_csv(out_csv)
+    if layout.layout_version == 2 and layout.result_csv.is_file():
+        manifest = read_json_object(layout.result_csv)
+        if manifest.get("schema_version") == 3:
+            fields = manifest["wide_fields"]
     existing_rows: list[dict[str, Any]] = []
     if preserve_existing and os.path.exists(out_csv) and os.path.getsize(out_csv) > 0:
         with open(out_csv, encoding="utf-8", newline="") as stream:
             allow_large_csv_fields()
             reader = csv.DictReader(stream)
             optional_pixel_fields = {*PIXEL_COUNT_FIELDS, *PIXEL_RATE_SOURCES}
-            missing_fields = set(CSV_FIELDS) - set(reader.fieldnames or []) - optional_pixel_fields
+            from acprof.results.metrics import supported_csv_header
+            if layout.layout_version == 1 and supported_csv_header(reader.fieldnames or []):
+                fields = list(reader.fieldnames or [])
+            missing_fields = set(fields) - set(reader.fieldnames or []) - optional_pixel_fields
             if missing_fields:
                 raise RuntimeError(
                     "partial case CSV is missing required fields: "
@@ -286,7 +295,7 @@ def write_case_error_csv(
     missing_rows = reconciled.missing_rows
 
     def write_error_rows(stream: TextIO) -> None:
-        writer = csv.DictWriter(stream, fieldnames=CSV_FIELDS, extrasaction="ignore")
+        writer = csv.DictWriter(stream, fieldnames=fields, extrasaction="ignore")
         writer.writeheader()
         writer.writerows(rows)
 

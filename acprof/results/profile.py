@@ -44,7 +44,7 @@ def metric_observation(row: dict, name: str) -> dict:
     contract = collector_contract(metric)
     result = {'source': metric.source, 'scope': contract.scope, 'window': metric.window,
               'derivation': contract.derivation, 'quality': 'unknown', 'reason': 'no_metric_quality_evidence'}
-    if metric.source not in RESOURCE_SOURCES:
+    if metric.source not in RESOURCE_SOURCES and name not in {"request_payload_bytes", "response_payload_bytes"}:
         return result
     try:
         item = _decode(str(row.get('resource_metric_quality', ''))).get(name)
