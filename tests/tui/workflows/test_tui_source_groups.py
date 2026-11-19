@@ -13,7 +13,7 @@ from tests.support.tui_fixtures import AcprofTui
 
 @pytest.mark.parametrize(('language', 'size'), [('zh', (80, 24)), ('en', (120, 30))])
 async def test_source_disclosure_preserves_choices_and_partial_evidence(tmp_path, monkeypatch, language, size):
-    app = AcprofTui(replace(RunConfig.smoke('fixture/model'), runtime='process', repeat=3),
+    app = AcprofTui(replace(RunConfig.smoke('fixture/model'), runtime='docker', profiling_mode='full', gpus='on', repeat=3),
                     settings_path=tmp_path / 'settings.json')
     app.configuration.preferences = replace(app.configuration.preferences, language=language)
     async with app.run_test(size=size) as pilot:

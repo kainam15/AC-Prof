@@ -365,6 +365,7 @@ class ConfigurationController:
         controls = {value: key for key, value in
                     {**run_form.INPUT_FIELDS, **run_form.SELECT_FIELDS, **run_form.CHECKED_FIELDS}.items()}
         controls.update(compute_profile_tool='torch-profiler', execution_profile_tool='massif-profiler')
+        controls.update((key, key) for key in run_form.PROFILER_CHECKBOXES)
         if field not in controls:
             return
         control = self.app.query_one('#' + controls[field])

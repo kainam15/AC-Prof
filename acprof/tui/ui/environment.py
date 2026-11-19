@@ -22,7 +22,6 @@ from acprof.tui.run.environment_view import (
     check_priority,
     compact_check_label,
     global_check_view,
-    global_presentation,
     item_status,
     source_overview,
     source_title,
@@ -142,8 +141,8 @@ class EnvironmentSignal(Static, can_focus=True):
 
     def render(self) -> Text:
         status = item_status(self.row)
-        presentation = self.panel.presentation(self.row)
-        suffix = "" if status in {"ok", "pending"} else " · " + self.panel.status(self.row)
+        presentation = check_presentation(self.row)
+        suffix = "" if status == "ok" else " · " + self.panel.controller.app.tr(presentation.label)
         label = Text(self.panel.controller.app.tr(compact_check_label(self.row)))
         if self.size.width:
             label.truncate(max(1, self.size.width - Text(suffix).cell_len - 2), overflow="ellipsis")
@@ -335,11 +334,7 @@ class EnvironmentPopover(Vertical):
         return self.controller.app.tr(check_label(row))
 
     def status(self, row: PreflightCheck) -> str:
-        return self.controller.app.tr(self.presentation(row).label)
-
-    def presentation(self, row: PreflightCheck):
-        item = self._items.get(row.check_id)
-        return global_presentation(item) if item is not None else check_presentation(row)
+        return self.controller.app.tr(check_presentation(row).label)
 
     def open_issue(self, row: PreflightCheck) -> None:
         app = self.controller.app
@@ -415,11 +410,11 @@ class EnvironmentPopover(Vertical):
         detail = self.controller.app.tr(row.detail) if isinstance(row.detail, CatalogText) else row.detail
         technical = redact_text("\n".join((
             f"check_id: {row.check_id}", f"status: {row.status}",
-            f"capability_status: {row.capability_status}", f"source: {row.source}",
+            f"capability_status: {row.capability_status}", f"reason_code: {row.reason_code}", f"source: {row.source}",
             f"runtime_kind: {row.runtime_kind}", "", detail,
         )), limit=None)
         view = global_check_view(
-            self._items[row.check_id], technical_detail=technical, cause=redact_text(next((line for line in detail.splitlines() if line.strip()), ""), limit=180),
+            self._items[row.check_id], technical_detail=technical, tr=self.controller.app.tr,
             check_allowed=self.controller.app.operation_state().allows("check"),
             environment=self.controller.app.environment,
             navigate_allowed=not (self.controller.app.is_busy() or self.controller.check_running
@@ -445,7 +440,9 @@ class EnvironmentPopover(Vertical):
         controller = self.controller
         snapshot = controller.status if snapshot is None else snapshot
         self._items = {item.check.check_id: item for item in snapshot.items}
-        self._sources = source_summaries(snapshot, group=self.group)
+        sources = source_summaries(snapshot, group=self.group)
+        sources_changed = sources != self._sources
+        self._sources = sources
         rows = tuple(item.check for source in self._sources for item in source.items)
         heading = self.tr("group_count", self.tr("group." + self.group), snapshot.counts[self.group])
         self.query_one("#preflight-title", Static).update(
@@ -466,14 +463,15 @@ class EnvironmentPopover(Vertical):
         self.query_one("#preflight-action-reason").display = bool(reason)
         self.update_context()
         language = controller.app.configuration.preferences.language
-        if rows != self._rows or language != self._rows_language or self.group != self._rows_group:
+        if sources_changed or language != self._rows_language or self.group != self._rows_group:
             previous = self._selected_row if self.group == self._rows_group else None
             self._rows_group = self.group
             self._rows, self._rows_language = rows, language
             self._hovered_row = None
             self._selected_row = next(
                 (row for row in rows if previous is not None and row.check_id and row.check_id == previous.check_id),
-                min((item.check for item in snapshot.items if item.group == self.group), key=check_priority, default=None),
+                min((issue.primary.check for issue in snapshot.issues if issue.group == self.group),
+                    key=check_priority, default=None),
             )
             self.call_later(self.render_rows, rows)
         if self._selected_row is not None:

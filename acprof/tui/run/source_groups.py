@@ -63,10 +63,12 @@ class SourceSummary:
 def source_summaries(snapshot: GlobalStatus, *, group: str | None = None) -> tuple[SourceSummary, ...]:
     """Filter sources by issue severity, retaining every independent child."""
     issues = snapshot.issues
+    visible = {source_group(item.check.check_id) for issue in issues if group is None or issue.group == group
+               for item in issue.items}
     result = []
     for name in SOURCE_CHECKS:
         children = tuple(item for item in snapshot.items if source_group(item.check.check_id) == name)
         entries = tuple(issue for issue in issues if source_group(issue.primary.check.check_id) == name)
-        if children and (group is None or any(issue.group == group for issue in entries)):
+        if name in visible:
             result.append(SourceSummary(name, children, entries))
     return tuple(result)

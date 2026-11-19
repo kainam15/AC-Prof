@@ -36,7 +36,7 @@ def projected_facts(app, identifier):
 def test_machine_results_survive_unselected_gpu_and_changed_experiment():
     machine = (
         PreflightCheck("GPU power", "ok", "NVML read succeeded", check_id="gpu_power"),
-        PreflightCheck("NCU", "fail", "not installed", check_id="ncu"),
+        PreflightCheck("NCU", "fail", "not installed", check_id="ncu", reason_code="not_installed"),
     )
     initial = replace(RunConfig.smoke("fixture/model"), runtime="docker")
     for config in (
@@ -49,8 +49,10 @@ def test_machine_results_survive_unselected_gpu_and_changed_experiment():
         )
         controller = SimpleNamespace(status=snapshot)
         rows = {row.check_id: row for row in display_checks(controller)}
-        expected = {"gpu_power": "ok", "ncu": "warn" if config.compute_profile_tool == "ncu" else "not_requested"}
-        assert {name: rows[name].status for name in expected} == expected
+        assert (rows["gpu_power"].status, rows["ncu"].status) == ("ok", "warn")
+        ncu = next(item for item in snapshot.items if item.check.check_id == "ncu")
+        assert ncu.group == ("warning" if config.compute_profile_tool == "ncu" else "not_requested")
+        assert ncu.check.reason_code == "not_installed"
         assert rows["gpu_power"].detail == "NVML read succeeded"
         assert rows["ncu"].detail == "not installed"
     assert machine[0].status == "ok"
@@ -253,8 +255,9 @@ async def test_all_machine_checks_run_once_and_ignore_experiment_edits(tmp_path,
         context = app.query_one("#preflight-context", FactGrid).section
         assert not {"auto", "docker", "process"} & {app.tr(row.value).lower() for row in (*context.rows, *context.detail_rows)}
         assert "GPU" not in initial
-        expected = {"ncu": replace(machine[0], status="not_requested"), "gpu_power": machine[1]}
+        expected = {"ncu": replace(machine[0], status="warn"), "gpu_power": machine[1]}
         assert {row.check_id: row for row in display_checks(app.preflight) if row.check_id in expected} == expected
+        assert any(item.check.check_id == "ncu" and item.group == "not_requested" for item in app.preflight.status.items)
         assert app.preflight.environment_checks == tuple(machine)
         app.query_one("#torch-profiler").value = True
         for field, value in (("gpus", "on"), ("runtime", "process")):

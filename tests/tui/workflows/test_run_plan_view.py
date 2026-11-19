@@ -36,7 +36,7 @@ def test_plan_distinguishes_total_and_per_condition_windows(repeat, language):
     headline = translate(view.summary.headline, language)
     if repeat < 3:
         assert ("无置信区间" if language == "zh" else "no CI") in evidence
-        assert ("受限" if language == "zh" else "Limited") in headline
+        assert headline == ("仅验证流程" if language == "zh" else "Flow check only")
     else:
         assert evidence == ("有效数以结果为准" if language == "zh" else "Valid counts come from results")
         assert headline == ("采集计划已计算" if language == "zh" else "Collection plan calculated")

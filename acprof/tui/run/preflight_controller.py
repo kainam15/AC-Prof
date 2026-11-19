@@ -79,7 +79,7 @@ class PreflightController:
         identifier = "cgroup_metrics" if name == "cgroup" else name
         detail = event["detail"] + " · " + ", ".join(event["fields"])
         self.observed_checks[identifier] = PreflightCheck(name, "warn", detail, check_id=identifier,
-                                                         source="result_layers.json")
+                                                         source="result_layers.json", affected_fields=tuple(event["fields"]))
         self.refresh_preflight_state()
 
     def reset_download(self) -> None:
@@ -557,7 +557,7 @@ class PreflightController:
             self.checks = merged(self.checks, inventory=False)
         if error:
             self.environment_checks += (PreflightCheck(message_id('settings.permissions.check_failed'), 'warn', error,
-                                                       check_id='permission_check', source='permission_check'),)
+                                                       check_id='permission_check', source='permission_check', reason_code='error'),)
         if cleanup_error:
             self.cleanup_error = error
         self.check_running = False

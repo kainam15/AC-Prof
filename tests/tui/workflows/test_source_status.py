@@ -60,6 +60,23 @@ def test_same_text_does_not_merge_independent_gpu_failures():
     assert snapshot.counts['error'] == 2
 
 
+def test_profiler_self_checks_share_a_confirmed_docker_failure():
+    from acprof.tui.run.source_groups import source_summaries
+
+    config = replace(RunConfig.smoke('fixture/model'), runtime='docker', compute_profile_tool='both',
+                     execution_profile_tool='massif')
+    dependent = [replace(check(tool, 'fail'), root_cause='profiler_docker_unavailable',
+                         reason_code='dependency_unavailable') for tool in ('torch', 'massif')]
+    ncu = replace(check('ncu', 'fail'), reason_code='not_installed')
+    value = controller(current=config, checks=[check('docker', 'fail')], inventory=[*dependent, ncu])
+    assert value.status.counts['error'] == value.status.counts['warning'] == 1
+    assert not value.status.can_start
+    blocker, = (issue for issue in value.status.issues if issue.group == 'error')
+    assert blocker.primary.check.check_id == 'docker'
+    assert {item.check.check_id for item in blocker.items} == {'docker', 'torch', 'massif'}
+    assert {source.group_id for source in source_summaries(value.status, group='error')} == {'docker', 'profilers'}
+
+
 def test_filter_keeps_successful_siblings_and_full_source_severity():
     from acprof.tui.run.source_groups import source_summaries
 
@@ -91,6 +108,22 @@ def test_permission_denial_is_not_the_missing_tool_dependency():
     assert GlobalStatus(tuple(StatusItem(row) for row in rows)).counts['error'] == 2
 
 
+@pytest.mark.parametrize('missing', [('tcpdump',), ('tshark',), ('tcpdump', 'tshark')])
+def test_packet_collector_and_missing_executables_share_the_confirmed_cause(tmp_path, monkeypatch, missing):
+    from acprof.tui.run.diagnostics import _automatic_checks
+
+    plan = {'probes': {'packet_latency': {'status': 'tool_missing', 'detail': ', '.join(missing), 'source': 'pcap'}}}
+    monkeypatch.setattr('acprof.host.runtimes.capabilities.probe_collection_plan', lambda *a, **kw: plan)
+    config = replace(RunConfig.smoke('fixture/model'), runtime='process')
+    checks = _automatic_checks(config, 'process', None, project_dir=tmp_path)
+    inventory = [replace(check(tool, 'fail'), reason_code='not_installed') for tool in missing]
+    if 'tcpdump' in missing:
+        inventory.append(replace(check('capture_permissions', 'fail'), source='tcpdump', reason_code='dependency_unavailable'))
+    result = controller(current=config, checks=checks, inventory=inventory).status
+    assert result.counts['warning'] == len(missing)
+    assert result.can_start
+
+
 @pytest.mark.parametrize(('runtime', 'gpu', 'expected'), [('docker', 'on', True), ('process', 'on', False),
                                                         ('docker', 'off', False), ('auto', 'on', None)])
 def test_requested_scope_is_separate_from_inventory_availability(runtime, gpu, expected):
@@ -117,9 +150,9 @@ def test_missing_tool_repair_uses_platform_and_keeps_failure_reason(environment,
     from acprof.tui.run.environment_view import global_check_view
 
     row = replace(check('tcpdump', 'fail'), reason_code='not_installed')
-    view = global_check_view(StatusItem(row, required=True), technical_detail='raw', cause='missing',
+    view = global_check_view(StatusItem(row, required=True), technical_detail='raw', tr=lambda value: translate(value, 'en'),
                              check_allowed=True, navigate_allowed=True, environment=Environment(environment, system='Linux'))
-    assert 'Tool not installed' in translate(view.callout.problem, 'en')
+    assert translate(view.callout.problem, 'en') == '× tcpdump · Not installed\nfixture'
     assert fragment in translate(view.callout.next_step, 'en')
     assert 'sudo apt install tcpdump tshark' in translate(view.callout.next_step, 'en')
 
@@ -129,3 +162,25 @@ def test_affected_fields_are_registered_protocol_fields():
     from acprof.tui.run.environment_view import CHECK_FIELDS
 
     assert {field for fields in CHECK_FIELDS.values() for field in fields} <= METRICS.keys()
+
+
+@pytest.mark.parametrize(('identifier', 'source', 'root', 'dependency'), [
+    ('torch', 'runtime self-check', 'profiler_docker_unavailable', 'Docker Engine'),
+    ('massif', 'runtime self-check', 'profiler_docker_unavailable', 'Docker Engine'),
+    ('capture_permissions', 'tcpdump', '', 'tcpdump'),
+    ('capture_permissions', 'getcap', '', 'getcap'),
+    ('capture_interface', 'ip', '', 'iproute2'),
+    ('gpu_device', 'nvidia-smi', '', 'nvidia-smi'),
+])
+def test_missing_dependency_identifies_what_to_restore_on_the_host(identifier, source, root, dependency):
+    from acprof.tui.i18n import translate
+    from acprof.tui.run.environment_view import check_view
+
+    row = replace(check(identifier, 'warn'), reason_code='dependency_unavailable', root_cause=root, source=source)
+    view = check_view(row, technical_detail=row.detail, check_allowed=True)
+    for language, host in [('en', 'host'), ('zh', '主机')]:
+        remedy = translate(view.callout.next_step, language)
+        assert dependency in remedy
+        assert host in remedy
+        if root:
+            assert ('image' if language == 'en' else '镜像') in remedy

@@ -67,7 +67,7 @@ class TestTuiPreflight:
     def run_check(self, responses):
         with patch("acprof.monitors.perf_mips.run_command", side_effect=responses) as run:
             checks = quick_preflight(
-                RunConfig(model="", gpus="on"), project_dir=self.project_dir,
+                RunConfig(model="", gpus="on", profiling_mode="full"), project_dir=self.project_dir,
                 command_runner=self.host_command,
             )
         # A perf failure must leave the remaining independent checks usable.
@@ -94,7 +94,7 @@ class TestTuiPreflight:
         with patch('acprof.monitors.perf_mips.run_command', return_value=self.result()), patch(
             'acprof.tui.run.diagnostics.os.geteuid', return_value=1000,
         ):
-            checks = quick_preflight(RunConfig(gpus='off'), project_dir=self.project_dir,
+            checks = quick_preflight(RunConfig(gpus='off', profiling_mode='full'), project_dir=self.project_dir,
                                      command_runner=command_runner)
         access = next((check for check in checks if check.label == 'tcpdump permissions'), None)
         assert (access) is not None, 'Finding tcpdump must not imply capture access'
@@ -105,6 +105,20 @@ class TestTuiPreflight:
         assert (check.status) == ('fail')
         assert (run.call_count) == (1)
         assert ('Permission denied') in (check.detail)
+
+    @pytest.mark.parametrize(('exit_code', 'reason'), [(None, 'dependency_unavailable'), (1, 'error')])
+    def test_unreadable_file_capabilities_keep_the_blocker_and_explain_why(self, exit_code, reason):
+        self.which.side_effect = lambda tool, **kw: None if tool == 'getcap' and exit_code is None else '/usr/bin/' + tool
+        def command(argv, **kw):
+            if Path(argv[0]).name == 'getcap':
+                return subprocess.CompletedProcess(argv, exit_code, '', '')
+            return self.host_command(argv, **kw)
+        with patch('acprof.monitors.perf_mips.run_command', return_value=self.result()), patch(
+                'acprof.tui.run.diagnostics.os.geteuid', return_value=1000):
+            rows = quick_preflight(RunConfig(gpus='off', profiling_mode='full'), project_dir=self.project_dir,
+                                   command_runner=command)
+        row = next(row for row in rows if row.check_id == 'capture_permissions')
+        assert (row.status, row.reason_code, row.source) == ('fail', reason, 'getcap')
 
     def test_local_password_configuration_has_a_migration_error(self):
         (self.project_dir / '.env.local').write_text('ACPROF_SUDO_PASSWORD=test-file-secret\n')

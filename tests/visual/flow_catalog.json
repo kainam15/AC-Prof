@@ -136,7 +136,9 @@
         "tests/visual/__snapshots__/test_global_status/test_global_status[zh-size8-auto-ready].svg",
         "tests/visual/__snapshots__/test_source_groups/test_source_groups[zh-size0].svg",
         "tests/visual/__snapshots__/test_source_groups/test_source_groups[en-size1].svg",
-        "tests/visual/__snapshots__/test_source_groups/test_source_groups[zh-size2].svg"
+        "tests/visual/__snapshots__/test_source_groups/test_source_groups[zh-size2].svg",
+        "tests/visual/__snapshots__/test_source_groups/test_capability_reason[zh-size0-ncu].svg",
+        "tests/visual/__snapshots__/test_source_groups/test_capability_reason[en-size1-cpu_energy].svg"
       ],
       "tests": ["tests/tui/workflows/test_tui_preflight.py", "tests/tui/workflows/test_tui_environment_popover.py", "tests/tui/workflows/test_tui_global_status.py", "tests/tui/workflows/test_tui_source_groups.py", "tests/tui/catalog/test_environment_tui.py"]
     },

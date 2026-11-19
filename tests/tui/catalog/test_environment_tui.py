@@ -54,7 +54,7 @@ async def test_unsupported_collector_never_reaches_preparation():
     with tempfile.TemporaryDirectory() as directory, patch(
         "acprof.platform.detect_environment", return_value=Environment("wsl2"),
     ):
-        config = replace(RunConfig.smoke("example/model"), profiling_mode="full")
+        config = replace(RunConfig.smoke("example/model"), runtime="docker", gpus="on", compute_profile_tool="ncu")
         app = AcprofTui(config, settings_path=Path(directory) / "settings.json")
         async with app.run_test(size=(120, 40)) as pilot:
             with patch.object(app, "launch") as launch:

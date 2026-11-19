@@ -397,7 +397,7 @@ async def test_global_status_distinguishes_invalid_pending_checking_limited_and_
             release.set()
             await ready(app, pilot)
             assert app.preflight.collection_state == "limited"
-            assert ("受限" if language == "zh" else "Limited") in str(status.content)
+            assert ("必要预检已通过" if language == "zh" else "Required checks passed") in str(status.content)
             check.side_effect = OSError("fixture failure")
             app.preflight.quick_check()
             await wait_for_condition(pilot, lambda: app.preflight.collection_state == "failed",

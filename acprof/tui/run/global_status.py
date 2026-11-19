@@ -27,8 +27,9 @@ _TARGETS = {
     'environment': 'diagnostic:platform', 'uv': 'diagnostic:uv',
     'capture_interface': 'field:sniff_iface', 'runtime': 'field:runtime',
     'runtime_auto': 'field:runtime', 'process_runtime': 'field:runtime',
-    'ncu': 'field:compute_profile_tool', 'torch': 'field:compute_profile_tool',
-    'massif': 'field:execution_profile_tool', 'nsys': 'field:execution_profile_tool',
+    'ncu': 'field:ncu-profiler', 'torch': 'field:torch-profiler',
+    'massif': 'field:massif-profiler', 'nsys': 'field:nsys-profiler',
+    'intel_advisor': 'diagnostic:profiler',
     'gpu_device': 'field:gpus', 'gpu_memory': 'field:gpus',
     'gpu_utilization': 'field:gpus', 'gpu_power': 'field:gpus',
 }
@@ -40,9 +41,12 @@ class StatusItem:
     required: bool = False
     target: str = ''
     requested: bool | None = None
+    runtime_advisory: bool = False
 
     @property
     def group(self) -> str:
+        if self.check.status == 'warn' and self.requested is False and not self.runtime_advisory:
+            return 'not_requested'
         return _GROUP.get(self.check.status, 'pending')
 
     @property
@@ -58,7 +62,7 @@ class StatusIssue:
 
     @property
     def primary(self) -> StatusItem:
-        return min(self.items, key=lambda item: GROUPS.index(item.group))
+        return min(self.items, key=lambda item: (GROUPS.index(item.group), bool(item.check.root_cause)))
 
     @property
     def group(self) -> str:
@@ -72,19 +76,27 @@ class GlobalStatus:
     @property
     def issues(self) -> tuple[StatusIssue, ...]:
         groups: dict[tuple[str, str], list[StatusItem]] = {}
-        failed_tcpdump = any(item.check.check_id == 'tcpdump' and item.group in {'error', 'warning'}
-                             for item in self.items)
+        failed = {item.check.check_id for item in self.items if item.check.status in {'fail', 'error', 'warn'}}
+        missing_tools = {item.check.check_id for item in self.items if item.check.reason_code == 'not_installed'
+                         and item.check.check_id in failed}
         for item in self.items:
             row = item.check
+            source = source_group(row.check_id)
             cause = row.check_id
-            if item.group in {'error', 'warning'}:
-                if row.root_cause:
+            if row.status in {'fail', 'error', 'warn'}:
+                if (row.root_cause == 'profiler_docker_unavailable' and 'docker' in failed
+                        and item.group != 'not_requested'):
+                    source = cause = 'docker'
+                elif row.check_id == 'packet_latency' and row.root_cause in missing_tools:
+                    cause = row.root_cause
+                elif row.root_cause:
                     cause = 'cause:' + row.root_cause
-                elif (failed_tcpdump and row.check_id == 'capture_permissions'
-                      and row.source == 'tcpdump' and row.capability_status != 'permission_denied'):
+                elif ('tcpdump' in failed and row.check_id == 'capture_permissions'
+                      and row.source == 'tcpdump' and row.reason_code in {'', 'dependency_unavailable'}
+                      and row.capability_status != 'permission_denied'):
                     # Inventory explicitly records a missing dependency here.
                     cause = 'tcpdump'
-            groups.setdefault((source_group(row.check_id), cause), []).append(item)
+            groups.setdefault((source, cause), []).append(item)
         return tuple(StatusIssue(tuple(items)) for items in groups.values())
 
     @property
@@ -158,7 +170,7 @@ def build_status(
     if runtime == 'auto':
         runtime = next((row.runtime_kind for row in checks if row.runtime_kind), '') if current else ''
 
-    def put(row: PreflightCheck, *, required: bool = False, target: str = '') -> None:
+    def put(row: PreflightCheck, *, required: bool = False, target: str = '', runtime_advisory: bool = False) -> None:
         identifier = row.check_id
         if not identifier:
             # Legacy producers without IDs can only be deduplicated by their
@@ -166,11 +178,12 @@ def build_status(
             identifier = next((key for key, item in rows.items() if item.check.label == row.label),
                               f'check_{len(rows)}')
             row = replace(row, check_id=identifier)
-        requested = (_requested(identifier, config, runtime) if runtime
-                     or source_group(identifier) in {'base', 'configuration', 'other'} else None)
+        requested: bool | None = _requested(identifier, config, runtime or 'process')
+        if not runtime and requested != _requested(identifier, config, 'docker'):
+            requested = None
         if row.status == 'not_requested':
             requested = False
-        rows[identifier] = StatusItem(row, required, target or _TARGETS.get(identifier, ''), requested)
+        rows[identifier] = StatusItem(row, required, target or _TARGETS.get(identifier, ''), requested, runtime_advisory)
 
     for row in inventory:
         if inventory_running:
@@ -179,10 +192,8 @@ def build_status(
             status = 'warn'
         else:
             status = row.status
-        if (config.profiling_mode == "best_effort" and status == "warn" and not inventory_running
-                and not _requested(row.check_id, config, runtime)):
-            status = "not_requested"
-        put(replace(row, status=status))
+        put(replace(row, status=status, reason_code=row.reason_code or ('error' if row.status == 'error' else '')),
+            runtime_advisory=row.check_id == 'docker' and config.profiling_mode != 'best_effort')
 
     for row in checks:
         # Form validation below is the authority for config errors, even when
@@ -217,7 +228,7 @@ def build_status(
                 row.check_id in {'tcpdump', 'tshark', 'capture_permissions', 'capture_interface', 'packet_latency',
                                  'cpu_energy', 'cpu_instructions'}):
             status = "warn"
-        put(replace(row, status=status), required=requested)
+        put(replace(row, status=status), required=requested, runtime_advisory=docker_advisory)
 
     if validation_pending:
         put(PreflightCheck(message_id('run.status.configuration'), 'pending',
@@ -250,10 +261,10 @@ def build_status(
                            check_id='preflight'), required=True)
     elif error:
         put(PreflightCheck(message_id('run.environment.label.check_error'), 'fail', error,
-                           check_id='check_error'), required=True)
+                           check_id='check_error', reason_code='error'), required=True)
     if inventory_error:
         put(PreflightCheck(message_id('run.status.inventory_error'), 'checking' if inventory_running else 'warn', inventory_error,
-                           check_id='inventory_error', source='scan_environment'))
+                           check_id='inventory_error', source='scan_environment', reason_code='error'))
     if cleanup_error:
         # This survives configuration changes until an explicit successful
         # cleanup/recheck. It is never downgraded to a stale informational row.

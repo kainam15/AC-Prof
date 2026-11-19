@@ -72,6 +72,7 @@ async def test_header_separates_pending_requirements_and_optional_warnings(tmp_p
         assert app.query_one('#environment-error', EnvironmentIndicator).content == '× 0'
         assert app.query_one('#environment-warning', EnvironmentIndicator).content == '! 1'
         assert any(item.check.check_id == 'ncu' and item.group == 'not_requested' for item in app.preflight.status.items)
+        assert app.query_one('#environment-not_requested', EnvironmentIndicator).content == '- 1'
         assert not app.query_one('#start-run', Button).disabled
         assert 'auto' in app.preflight.status.items[0].check.detail or any(
             'auto' in item.check.detail for item in app.preflight.status.items)
@@ -97,6 +98,64 @@ async def test_plan_quality_warning_refreshes_without_environment_probe(tmp_path
                                  timeout=3, description='resolved sample-count warning')
         assert not app.query_one('#start-run', Button).disabled
         check.assert_not_called()
+
+
+@pytest.mark.parametrize(('language', 'size', 'label'), [
+    ('zh', (80, 24), 'Nsight Compute · 未安装'), ('en', (120, 30), 'Nsight Compute · Not installed'),
+])
+async def test_optional_profiler_inspect_enable_and_recheck(tmp_path, monkeypatch, language, size, label):
+    from unittest.mock import Mock
+
+    from acprof.tui.app import AcprofTui as ProductionTui
+    from acprof.tui.i18n import message_id
+    from acprof.tui.run.diagnostics import PreflightCheck
+    from tests.support.tui_fixtures import expand_check_source
+
+    missing = PreflightCheck('ncu', 'fail', message_id('common.state.not_installed'),
+                             'unavailable', check_id='ncu', reason_code='not_installed')
+    repaired = PreflightCheck('ncu', 'ok', 'fixture version', 'available', check_id='ncu')
+    scan = Mock(side_effect=[(missing,), (repaired,)])
+    monkeypatch.setattr('acprof.tui.run.preflight_controller.scan_environment', scan)
+    monkeypatch.setattr('acprof.tui.run.preflight_controller.quick_preflight', Mock(return_value=[
+        PreflightCheck('Runtime', 'ok', 'Docker', runtime_kind='docker', check_id='runtime'),
+    ]))
+    config = replace(RunConfig.smoke('fixture/model'), runtime='docker', gpus='on', repeat=3)
+    app = ProductionTui(config, settings_path=tmp_path / 'settings.json')
+    app.configuration.preferences = replace(app.configuration.preferences, language=language)
+    async with app.run_test(size=size) as pilot:
+        await wait_for_condition(pilot, lambda: app.preflight.check_completed, description='startup scan', timeout=5)
+        assert app.query_one('#environment-warning').content == '! 0'
+        assert await pilot.click('#environment-not_requested')
+        await expand_check_source(app, pilot, 'ncu')
+        signal = app.query_one('#preflight-signal-ncu')
+        signal.scroll_visible(immediate=True, force=True)
+        await pilot.pause()
+        assert await pilot.click(signal)
+        assert signal.render().plain == '! ' + label
+        callout = app.query_one('#preflight-callout')
+        assert app.tr(callout.content.problem) == '! ' + label
+        assert 'gpu_executed_mflop_per_request_ncu' in app.tr(callout.content.impact)
+        assert 'ncu --version' in app.tr(callout.content.next_step)
+        await locate_selected(app, pilot)
+        await wait_for_condition(pilot, lambda: app.focused is app.query_one('#ncu-profiler'),
+                                 description='Nsight Compute checkbox focused', timeout=3)
+        await pilot.press('space')
+        await wait_for_condition(pilot, lambda: app.preflight.config_matches()
+                                 and app.query_one('#environment-warning').content == '! 1',
+                                 description='selected profiler counted from cached inventory', timeout=5)
+        assert scan.call_count == 1
+        assert not app.query_one('#start-run', Button).disabled
+        assert await pilot.click('#environment-warning')
+        await pilot.pause()
+        retry = app.preflight.panel.retry_button
+        retry.scroll_visible(immediate=True, force=True)
+        await pilot.pause()
+        assert await pilot.click(retry)
+        await wait_for_condition(pilot, lambda: app.preflight.environment_checks == (repaired,)
+                                 and app.query_one('#environment-warning').content == '! 0',
+                                 description='repaired profiler removed from warnings', timeout=5)
+        assert scan.call_count == 2
+        assert not app.query_one('#start-run', Button).disabled
 
 
 async def test_optional_collector_opens_permissions_tab(tmp_path, monkeypatch):

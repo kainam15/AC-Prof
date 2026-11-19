@@ -14,6 +14,7 @@ from tests.tui.workflows.test_global_status import controller
 
 @pytest.fixture
 def docker_probe(monkeypatch):
+    monkeypatch.setattr('acprof.host.runtimes.capabilities.probe_collection_plan', lambda *a, **kw: {'probes': {}})
     monkeypatch.setattr('acprof.tui.run.diagnostics.detect_environment', lambda: Environment('native_linux', system='Linux'))
     monkeypatch.setattr('shutil.which', lambda name: '/usr/bin/' + name)
     monkeypatch.delenv('DOCKER_CONTEXT', raising=False)
@@ -58,10 +59,13 @@ def test_context_failure_does_not_fall_through_to_an_unrelated_daemon(docker_pro
     assert not any(args[1] == 'info' for args in calls)
 
 
-def test_process_keeps_missing_docker_as_nonblocking_warning():
-    value = controller(inventory=[PreflightCheck('Docker', 'fail', 'CLI missing', check_id='docker')])
+@pytest.mark.parametrize(('mode', 'group'), [('best_effort', 'not_requested'), ('basic', 'warning')])
+def test_process_keeps_missing_docker_available_for_inspection(mode, group):
+    value = controller(current=replace(RunConfig.smoke('fixture/model'), runtime='process', profiling_mode=mode),
+                       inventory=[PreflightCheck('Docker', 'fail', 'CLI missing', check_id='docker', reason_code='not_installed')])
     item = next(item for item in value.status.items if item.check.check_id == 'docker')
-    assert item.group == 'warning'
+    assert item.group == group
+    assert item.check.reason_code == 'not_installed'
     assert value.status.can_start
 
 
@@ -100,6 +104,7 @@ def test_explicit_context_overrides_host_without_mutating_environment(docker_pro
 
 
 def test_missing_cli_does_not_execute_commands(monkeypatch):
+    monkeypatch.setattr('acprof.host.runtimes.capabilities.probe_collection_plan', lambda *a, **kw: {'probes': {}})
     monkeypatch.setattr('shutil.which', lambda _: None)
     monkeypatch.setattr('acprof.tui.run.docker_diagnostics._cli_outside_path', lambda: '')
     command = Mock(side_effect=AssertionError('CLI is unavailable'))

@@ -431,17 +431,18 @@ async def test_projection_always_displays_all_machine_capabilities(app, runtime,
 
 async def test_details_and_start_reason_are_redacted_and_scrollable(app, monkeypatch):
     app, probe = app
-    app.configuration.initial_config = replace(RunConfig.smoke("fixture/model"), runtime="docker", profiling_mode="full", gpus="on")
+    app.configuration.initial_config = replace(RunConfig.smoke("fixture/model"), runtime="docker", extra_options={"dram_energy": "required"})
     probe.return_value = [PreflightCheck(
-        "perf instructions", "fail", 'token=fixture-secret\nhttps://user:password@example.org/check?key=hidden\n' +
-        "very long diagnostic " * 250 + "\nEND OF CHECK OUTPUT", "permission_denied", check_id="cpu_instructions", source="perf_stat",
+        "RAPL DRAM", "fail", 'token=fixture-secret\nhttps://user:password@example.org/check?key=hidden\n' +
+        "very long diagnostic " * 250 + "\nEND OF CHECK OUTPUT", "permission_denied", check_id="dram_energy", source="rapl_topology",
     )]
     async with app.run_test(size=(80, 24)) as pilot:
         await settle(app, pilot)
+        assert app.query_one("#start-run", Button).disabled
         assert "fixture-secret" not in str(app.query_one("#preflight-run-reason", Static).content)
         await pilot.click("#environment-error")
         await pilot.pause()
-        row = app.query_one("#preflight-signal-cpu_instructions")
+        row = app.query_one("#preflight-signal-dram_energy")
         row.scroll_visible(animate=False, top=True)
         await pilot.pause()
         await pilot.hover(row)
@@ -461,7 +462,7 @@ async def test_details_and_start_reason_are_redacted_and_scrollable(app, monkeyp
         for secret in ("fixture-secret", "user:password", "key=hidden"):
             assert secret not in details
         assert "[REDACTED]" in details
-        assert "perf_stat" in details
+        assert "rapl_topology" in details
         assert "permission_denied" in details
         assert "\nEND OF CHECK OUTPUT" in details
         copied = []
@@ -486,7 +487,7 @@ async def test_status_symbols_explain_cached_checks_on_hover_and_keyboard_focus(
     app.configuration.initial_config = replace(RunConfig.smoke("fixture/model"), runtime="docker", profiling_mode="full", gpus="on")
     probe.return_value = [
         PreflightCheck("Docker", "ok", "daemon ready", check_id="docker"),
-        PreflightCheck("RAPL", "warn", "RAPL fixture limitation", "unsupported", check_id="cpu_energy"),
+        PreflightCheck("RAPL", "warn", "cannot read energy_uj", "permission_denied", check_id="cpu_energy"),
         PreflightCheck("perf", "fail", "Permission denied; token=fixture-secret", "permission_denied", check_id="cpu_instructions"),
         PreflightCheck("check exception", "error", "fixture check error", check_id="check_error"),
     ]
@@ -495,7 +496,7 @@ async def test_status_symbols_explain_cached_checks_on_hover_and_keyboard_focus(
         await pilot.click("#environment-warning")
         await pilot.pause()
         for identifier, color in (("docker", "success"), ("cpu_energy", "warning"),
-                                  ("cpu_instructions", "error"), ("check_error", "error"), ("gpu_memory", "success")):
+                                  ("cpu_instructions", "warning"), ("check_error", "error"), ("gpu_memory", "success")):
             await pilot.hover("#environment-" + color)
             await pilot.pause()
             await expand_check_source(app, pilot, identifier)
@@ -510,7 +511,7 @@ async def test_status_symbols_explain_cached_checks_on_hover_and_keyboard_focus(
             if language == "en" and identifier in {"docker", "cpu_instructions", "gpu_memory"}:
                 visible = app.screen._compositor.render_strips()[region.y].crop(region.x, region.right).text
                 if identifier == "cpu_instructions":
-                    assert "Blocked" in visible
+                    assert "Permission denied" in visible
                 else:
                     assert " · " not in visible
             problem = identifier in {"cpu_energy", "cpu_instructions", "check_error"}
@@ -520,6 +521,12 @@ async def test_status_symbols_explain_cached_checks_on_hover_and_keyboard_focus(
             if problem:
                 for kind in ("problem", "impact", "next"):
                     assert str(callout.query_one(".callout-" + kind, Static).content)
+            if identifier == "cpu_energy":
+                label = "RAPL CPU 能耗 · 无权限" if language == "zh" else "RAPL CPU energy · Permission denied"
+                assert signal.render().plain == "! " + label
+                assert label in app.tr(callout.content.problem)
+                assert "cpu_energy_total_j" in app.tr(callout.content.impact)
+                assert "energy_uj" in app.tr(callout.content.next_step)
         for identifier in ("capture_interface", "gpu_device"):
             await expand_check_source(app, pilot, identifier)
             signal = app.query_one(f"#preflight-signal-{identifier}")
@@ -530,7 +537,7 @@ async def test_status_symbols_explain_cached_checks_on_hover_and_keyboard_focus(
         device = app.query_one("#preflight-signal-gpu_device")
         assert "✓" in device.render().plain
         assert " · " not in device.render().plain
-        await pilot.hover("#environment-error")
+        await pilot.hover("#environment-warning")
         await pilot.pause()
         failure = app.query_one("#preflight-signal-cpu_instructions")
         failure.scroll_visible(animate=False, top=True)
@@ -544,8 +551,8 @@ async def test_status_symbols_explain_cached_checks_on_hover_and_keyboard_focus(
         assert "Permission denied" in explanation
         assert "fixture-secret" not in explanation
         assert ("权限" if language == "zh" else "permission") in explanation.lower()
-        app.query_one("#preflight-signal-check_error").focus()
-        await pilot.press("shift+tab", "shift+tab")
+        failure.focus()
+        await pilot.press("tab", "shift+tab")
         assert app.focused is failure
         assert "Permission denied" in detail_text(app)
         app.execution.session.snapshot = ProgressSnapshot(measurement_active=True)

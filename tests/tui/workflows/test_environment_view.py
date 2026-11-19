@@ -18,13 +18,13 @@ from acprof.tui.run.environment_view import (
 
 
 @pytest.mark.parametrize(("status", "group", "level", "symbol", "english"), [
-    ("ok", "success", "success", "✓", "Available (environment checked)"),
-    ("warn", "warning", "warning", "!", "Limited"),
+    ("ok", "success", "success", "✓", "Passed"),
+    ("warn", "warning", "warning", "!", "Unavailable"),
     ("fail", "error", "error", "×", "Unavailable"),
-    ("error", "error", "error", "×", "Check error"),
-    ("pending", "pending", "neutral", "-", "Execution unverified"),
+    ("error", "error", "error", "×", "Check failed"),
+    ("pending", "pending", "neutral", "-", "Pending check"),
     ("declared", "pending", "neutral", "-", "Platform declaration"),
-    ("not_requested", "not_requested", "neutral", "-", "Not enabled"),
+    ("not_requested", "not_requested", "neutral", "-", "Not requested"),
     ("future_state", "pending", "neutral", "-", "Unknown"),
 ])
 def test_statuses_describe_machine_evidence_without_exposing_enums(status, group, level, symbol, english):
@@ -79,8 +79,8 @@ def test_known_labels_are_typed_and_future_labels_keep_the_original_value():
 
 
 @pytest.mark.parametrize(("language", "expected"), [
-    ("zh", "× RAPL CPU 能耗 · 不可用 · 权限不足"),
-    ("en", "× RAPL CPU energy · Unavailable · Permission denied"),
+    ("zh", "× RAPL CPU 能耗 · 无权限"),
+    ("en", "× RAPL CPU energy · Permission denied"),
 ])
 def test_failure_is_actionable_and_preserves_the_caller_owned_details(language, expected):
     raw = " \nPermissionError: /sys/class/powercap/[raw]\nsource=probe\tstatus=permission_denied\n "
@@ -127,13 +127,30 @@ def test_exception_words_do_not_classify_capability_reasons():
     typed = check_view(replace(row, capability_status="unsupported"),
                        technical_detail=row.detail, check_allowed=True).callout
     assert typed is not None
-    assert "Unsupported in this environment" in translate(typed.problem, "en")
+    assert translate(typed.problem, "en") == "× Docker · Unsupported"
+
+
+@pytest.mark.parametrize(("status", "reason", "capability", "zh", "en"), [
+    ("warn", "not_installed", "unavailable", "未安装", "Not installed"),
+    ("fail", "permission_denied", "", "无权限", "Permission denied"),
+    ("warn", "dependency_unavailable", "error", "缺少依赖", "Missing dependency"),
+    ("fail", "", "unsupported", "不支持", "Unsupported"),
+    ("warn", "", "tool_missing", "缺少工具", "Missing tool"),
+    ("warn", "", "error", "检查失败", "Check failed"),
+    ("pending", "not_installed", "unavailable", "待检查", "Pending check"),
+    ("warn", "future_code", "unavailable", "不可用", "Unavailable"),
+    ("fail", "", "", "不可用", "Unavailable"),
+])
+def test_check_labels_use_structured_evidence_only(status, reason, capability, zh, en):
+    row = PreflightCheck("tool", status, "not installed", capability, check_id="ncu", reason_code=reason)
+    presentation = check_presentation(row)
+    assert [translate(presentation.label, language) for language in ("zh", "en")] == [zh, en]
 
 
 @pytest.mark.parametrize(("identifier", "fragment"), [
-    ("docker", "runtime capability"),
+    ("docker", "selected runtime"),
     ("cpu_energy", "CPU or memory metrics"),
-    ("gpu_power", "GPU capabilities or metrics"),
+    ("gpu_power", "GPU metrics"),
     ("capture_interface", "Packet capture"),
     ("torch", "profiler analysis"),
     ("future_device", "launch checks"),
@@ -154,7 +171,7 @@ def test_check_execution_error_does_not_claim_unavailability():
     view = check_view(row, technical_detail="RuntimeError: probe failed", check_allowed=True)
 
     assert view.callout is not None
-    assert translate(view.callout.problem, "en") == "× Docker · Check error"
+    assert translate(view.callout.problem, "en") == "× Docker · Check failed"
     assert translate(view.callout.impact, "en") == (
         "This check did not complete; capability availability is unconfirmed."
     )
@@ -206,7 +223,7 @@ def test_group_summary_counts_unavailable_and_check_errors_separately():
     summary = group_summary(rows, group="error", state="limited")
 
     assert summary.level == "error"
-    assert translate(summary.headline, "en") == "Unavailable (1) · Check error (1)"
+    assert translate(summary.headline, "en") == "Unavailable (1) · Check failed (1)"
     assert "Blocked" not in translate(summary.headline, "en")
 
 
@@ -265,3 +282,32 @@ def test_projection_does_not_read_files_or_change_the_cache(monkeypatch):
     assert check_view(rows[0], technical_detail="raw", check_allowed=False).callout is not None
     assert group_summary(rows, group="warning", state="limited").level == "warning"
     assert tuple(asdict(row) for row in rows) == before
+
+
+@pytest.mark.parametrize("runtime", ["docker", "process"])
+def test_automatic_checks_report_only_the_affected_fields(tmp_path, monkeypatch, runtime):
+    from acprof.experiments.configuration import RunConfig
+    from acprof.tui.run.diagnostics import _automatic_checks
+    from acprof.tui.run.environment_view import global_check_view
+    from acprof.tui.run.global_status import StatusItem
+
+    plan = {
+        "probes": {"cpu_instructions": {"status": "available", "detail": "instructions readable"},
+                   "cpu_energy": {"status": "permission_denied", "detail": "cannot read energy_uj"}},
+        "fields": {"cpu_instructions": ["instructions", "cycles"], "cpu_energy": ["cpu_energy_total_j"]},
+        "field_probes": {"cycles": {"status": "unavailable", "detail": "cycles counter unavailable"}},
+    }
+    monkeypatch.setattr("acprof.host.runtimes.capabilities.probe_collection_plan", lambda *a, **kw: plan)
+    perf, rapl = _automatic_checks(RunConfig.smoke("fixture/model"), runtime, None, project_dir=tmp_path)
+    def tr(value):
+        return translate(value, "en")
+
+    for row, label, fields in [(perf, "Partly available", ("cycles",)), (rapl, "Permission denied", ("cpu_energy_total_j",))]:
+        assert row.status == "warn"
+        assert row.affected_fields == fields
+        view = global_check_view(StatusItem(row), technical_detail=row.detail, tr=tr, check_allowed=True,
+                                 navigate_allowed=True)
+        assert tr(check_presentation(row).label) == label
+        assert tr(view.callout.impact).endswith(fields[0])
+        assert row.capability_status + " · " not in tr(view.callout.problem)
+    assert "instructions" not in perf.affected_fields

@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from acprof.experiments.configuration import ConfigIssue, RunConfig
+from acprof.experiments.configuration import ConfigIssue, RunConfig, RunConfigError
 from acprof.tui.run.diagnostics import PreflightCheck
 from acprof.tui.run.environment_view import check_group
 from acprof.tui.run.preflight_controller import PreflightController
@@ -85,9 +85,29 @@ def test_unrequested_capability_cannot_block_process_basic(identifier):
 def test_combined_profilers_do_not_request_posthoc_advisor():
     config = replace(RunConfig.smoke('fixture/model'), runtime='docker', execution_profile_tool='both')
     value = controller(current=config, inventory=[check('intel_advisor', 'fail')])
-    assert next(row for row in display_checks(value) if row.check_id == 'intel_advisor').status == 'not_requested'
+    assert next(row for row in display_checks(value) if row.check_id == 'intel_advisor').status == 'warn'
     assert value.status.counts['warning'] == 0
     assert value.status.can_start
+
+
+@pytest.mark.parametrize('runtime', ['docker', 'process', 'auto'])
+def test_profiler_warnings_follow_selection_without_losing_inventory(runtime):
+    config = replace(RunConfig.smoke('fixture/model'), runtime=runtime, gpus='on')
+    ncu = replace(check('ncu', 'fail'), reason_code='not_installed')
+    for selection, group in [('none', 'not_requested'), ('ncu', 'warning'), ('both', 'warning')]:
+        selected = replace(config, compute_profile_tool=selection)
+        issues = ()
+        if runtime == 'process' and selection != 'none':
+            with pytest.raises(RunConfigError) as invalid:
+                selected.validate()
+            issues = invalid.value.issues
+        value = controller(current=selected, inventory=[ncu], issues=issues)
+        item = next(item for item in value.status.items if item.check.check_id == 'ncu')
+        assert item.group == group
+        assert value.status.counts['warning'] == int(group == 'warning')
+        assert item.check.status == 'warn'
+        assert item.check.reason_code == 'not_installed'
+        assert value.status.can_start == (not issues)
 
 
 @pytest.mark.parametrize('identifier', [

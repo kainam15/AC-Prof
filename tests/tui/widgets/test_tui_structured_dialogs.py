@@ -527,10 +527,10 @@ async def test_environment_settings_permissions_uses_canonical_preflight_present
             await app.workers.wait_for_complete()
             await pilot.pause()
             report = str(env_modal.query_one("#permission-report", Static).content)
-            assert "✓ Docker [可用（环境检查通过）]: daemon ready" in report
+            assert "✓ Docker [通过]: daemon ready" in report
             assert "× perf 指令计数 [不可用]: permission denied" in report
-            assert "! RAPL CPU 能耗 [受限]: partial access" in report
-            assert "- Torch Profiler [待运行验证]: not probed yet" in report
+            assert "! RAPL CPU 能耗 [不可用]: partial access" in report
+            assert "- Torch Profiler [待检查]: not probed yet" in report
             assert "[未知]" not in report
 
 

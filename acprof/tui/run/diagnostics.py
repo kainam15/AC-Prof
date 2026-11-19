@@ -54,6 +54,7 @@ class PreflightCheck:
     docker_diagnostic: DockerDiagnostic | None = None
     root_cause: str = ''
     reason_code: str = ''
+    affected_fields: tuple[str, ...] = ()
 
 
 def permission_signature(project_dir: Path) -> tuple:
@@ -139,6 +140,7 @@ def quick_preflight(
             "fail" if policy_error else "ok",
             policy_error or environment.label,
             check_id="environment",
+            reason_code="unsupported" if policy_error else "",
         )
     )
 
@@ -179,18 +181,27 @@ def quick_preflight(
         if tool == 'tcpdump' and path:
             allowed = os.geteuid() == 0
             detail = 'CAP_NET_RAW'
+            reason_code = ''
             try:
                 if not allowed:
                     getcap = shutil.which('getcap')
                     if getcap:
                         result = command_runner((getcap, str(Path(path).resolve())), timeout=5.0)
                         allowed = result.returncode == 0 and tcpdump_capability_available(result.stdout)
+                        if result.returncode:
+                            reason_code = 'error'
+                    else:
+                        reason_code = 'dependency_unavailable'
                 if not allowed:
-                    detail = message_id('run.preflight.capture_permission_missing')
+                    detail = message_id('run.preflight.getcap_missing' if reason_code == 'dependency_unavailable' else
+                                        'run.preflight.capture_permission_unknown' if reason_code == 'error' else
+                                        'run.preflight.capture_permission_missing')
             except (OSError, subprocess.TimeoutExpired):
                 detail = message_id('run.preflight.capture_permission_unknown')
+                reason_code = 'error'
             checks.append(PreflightCheck('tcpdump permissions', 'ok' if allowed else 'fail', detail,
-                                         'available' if allowed else 'permission_denied', check_id="capture_permissions"))
+                                         'available' if allowed else 'permission_denied', check_id="capture_permissions",
+                                         reason_code=reason_code, source='getcap' if reason_code else 'quick_preflight'))
 
     ip_cli = shutil.which("ip") if measurement_requested(config.profiling_mode, "packet_latency") else None
     if ip_cli:
@@ -208,9 +219,10 @@ def quick_preflight(
                 )
             )
         except (OSError, subprocess.TimeoutExpired) as exc:
-            checks.append(PreflightCheck(message_id('run.network.capture_interface'), "fail", str(exc), check_id="capture_interface"))
+            checks.append(PreflightCheck(message_id('run.network.capture_interface'), "fail", str(exc), check_id="capture_interface", reason_code="error"))
     elif measurement_requested(config.profiling_mode, "packet_latency"):
-        checks.append(PreflightCheck(message_id('run.network.capture_interface'), "fail", message_id('run.preflight.ip_missing'), check_id="capture_interface"))
+        checks.append(PreflightCheck(message_id('run.network.capture_interface'), "fail", message_id('run.preflight.ip_missing'),
+                                     check_id="capture_interface", source="ip", reason_code="dependency_unavailable"))
     else:
         checks.append(PreflightCheck(message_id('run.network.capture_interface'), "not_requested", message_id('run.preflight.not_collected'), "not_requested", check_id="capture_interface"))
 
@@ -245,6 +257,7 @@ def quick_preflight(
 
     if "on" in [normalize_gpu_mode(value) for value in csv_values(config.gpus)]:
         nvidia_smi = shutil.which("nvidia-smi")
+        reason_code = ''
         if nvidia_smi:
             try:
                 gpu = command_runner(
@@ -254,10 +267,10 @@ def quick_preflight(
                 detail = gpu.stdout.strip() or gpu.stderr.strip() or message_id('run.preflight.gpu_query_failed')
                 status = "ok" if gpu.returncode == 0 else "fail"
             except (OSError, subprocess.TimeoutExpired) as exc:
-                status, detail = "fail", str(exc)
+                status, detail, reason_code = "fail", str(exc), "error"
         else:
-            status, detail = "fail", message_id('run.preflight.nvidia_smi_missing')
-        checks.append(PreflightCheck("NVIDIA GPU", status, detail, check_id="gpu_device"))
+            status, detail, reason_code = "fail", message_id('run.preflight.nvidia_smi_missing'), "dependency_unavailable"
+        checks.append(PreflightCheck("NVIDIA GPU", status, detail, check_id="gpu_device", reason_code=reason_code, source="nvidia-smi"))
 
     return checks
 
@@ -298,7 +311,8 @@ def _process_checks(config):
     if config.profiling_mode == "best_effort":
         checks.extend(_automatic_checks(config, "process", process_gpu_device))
         uv = shutil.which("uv")
-        checks.append(PreflightCheck("uv", "ok" if uv else "fail", uv or "Process environment preparation requires uv", check_id="uv"))
+        checks.append(PreflightCheck("uv", "ok" if uv else "fail", uv or "Process environment preparation requires uv",
+                                     check_id="uv", reason_code="" if uv else "not_installed"))
         return checks
     gpu = process_gpu_device(config.to_namespace().gpu_device) if "on" in config.gpus.split(",") else {}
     plan = probe_collection_plan("process", gpu=gpu, profiling_mode=config.profiling_mode)
@@ -341,13 +355,20 @@ def _automatic_checks(config, runtime, resolve_device, *, project_dir=None):
         unavailable_events = item.get("evidence", {}).get("unavailable_events", [])
         group_fields = plan.get("fields", {}).get(name, ())
         affected = {key: probe for key, probe in plan.get("field_probes", {}).items() if key in group_fields}
-        if status == "ok" and (affected or unavailable_events):
+        partial = status == "ok" and bool(affected or unavailable_events)
+        if partial:
             status = "warn"
-        fields = ", ".join(affected or group_fields)
+        fields = tuple(affected or group_fields)
         details = ", ".join(dict.fromkeys(probe["detail"] for probe in affected.values()))
-        checks.append(PreflightCheck(name, status, " · ".join(filter(None, (item["status"], item["detail"], details, fields))),
+        detail = " · ".join(filter(None, (item["status"], item["detail"], details, ", ".join(fields))))
+        # The pcap tool_missing payload lists missing executable IDs in probe order.
+        root = ""
+        if name == "packet_latency" and item["status"] == "tool_missing" and item.get("source") == "pcap":
+            root = {"tcpdump": "tcpdump", "tshark": "tshark", "tcpdump, tshark": "tcpdump"}.get(item["detail"], "")
+        checks.append(PreflightCheck(name, status, detail,
                                     item["status"], check_id="cgroup_metrics" if name == "cgroup" else name,
-                                    source=item.get("source", "probe_collection_plan")))
+                                    source=item.get("source", "probe_collection_plan"), reason_code="partial" if partial else "",
+                                    affected_fields=fields, root_cause=root))
     return checks
 
 

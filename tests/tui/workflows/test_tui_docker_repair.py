@@ -8,7 +8,7 @@ from textual.widgets import Button, Collapsible
 from acprof.experiments.configuration import RunConfig
 from acprof.tui.run.diagnostics import PreflightCheck
 from acprof.tui.run.docker_diagnostics import DockerDiagnostic, DockerHost
-from tests.support.tui_fixtures import AcprofTui
+from tests.support.tui_fixtures import AcprofTui, expand_check_source
 from tests.support.tui_waits import wait_for_condition
 
 
@@ -23,10 +23,11 @@ def docker_check(code='cli_missing'):
 async def open_docker(app, pilot, *, keyboard=False):
     app.preflight.environment_checks = (docker_check(),)
     app.preflight.refresh_preflight_state()
-    app.query_one('#environment-warning').focus()
+    app.query_one('#environment-not_requested').focus()
     await pilot.press('enter')
-    await wait_for_condition(pilot, lambda: bool(app.query('#preflight-signal-docker')),
-                             description='Docker warning visible', timeout=3)
+    await wait_for_condition(pilot, lambda: bool(app.query('#preflight-section-docker')),
+                             description='unrequested Docker source visible', timeout=3)
+    await expand_check_source(app, pilot, 'docker')
     signal = app.query_one('#preflight-signal-docker')
     signal.scroll_visible(immediate=True, force=True)
     await pilot.pause()

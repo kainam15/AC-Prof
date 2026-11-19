@@ -10,7 +10,7 @@ from acprof.host.preparation.preparation_log import redact_text
 from acprof.tui.i18n import message_id
 from acprof.tui.run.docker_diagnostics import DockerDiagnostic, DockerHost
 from acprof.tui.run.docker_guide import DockerStep, repair_steps
-from acprof.tui.run.environment_view import global_presentation
+from acprof.tui.run.environment_view import check_presentation
 from acprof.tui.run.global_status import GlobalStatus
 from acprof.tui.run.issue_view import IssueDiagnosticScreen
 from acprof.tui.ui.contracts import translated_app
@@ -109,7 +109,7 @@ class DockerRepairScreen(IssueDiagnosticScreen):
         diagnostic = diagnostic or DockerDiagnostic('unknown', DockerHost(), detail=tr(item.check.detail) if item else error)
         busy = self.controller.check_running
         stale = item is None or item.check.status in {'stale', 'pending'}
-        presentation = global_presentation(item) if item else None
+        presentation = check_presentation(item.check) if item else None
         status = (tr(message_id('run.docker_repair.checking')) if busy else tr(message_id('run.docker_repair.stale')) if stale
                   else f'{presentation.symbol} {tr(presentation.label)}' if presentation else '')
         status_widget = self.query_one('#docker-status', Static)

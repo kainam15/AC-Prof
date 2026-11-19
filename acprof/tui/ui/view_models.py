@@ -77,7 +77,7 @@ _STATES = {
     "damaged": ("error", "results.overview.damaged"),
     "incomplete": ("warning", "structured.status.incomplete"),
     "partial": ("warning", "structured.status.incomplete"),
-    "limited": ("warning", "run.environment.item.warn"),
+    "limited": ("warning", "common.state.warning"),
     "warning": ("warning", "common.state.warning"),
     "warn": ("warning", "common.state.warning"),
     "missing": ("warning", "results.overview.missing"),
