@@ -38,6 +38,7 @@ def test_ci_selective_png_gate_remains_enabled() -> None:
     for trigger in ("push", "pull_request"):
         patterns = set(triggers[trigger]["paths"])
         assert "acprof/tui/**" in patterns
+        assert "acprof/experiments/options.py" in patterns, trigger
         assert "tests/visual_png/**" in patterns
         assert ".github/workflows/tui-png.yml" in patterns
     job = workflow["jobs"]["png-visual"]
