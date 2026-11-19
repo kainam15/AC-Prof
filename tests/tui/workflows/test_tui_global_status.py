@@ -153,11 +153,12 @@ async def test_optional_profiler_inspect_enable_and_recheck(tmp_path, monkeypatc
         await pilot.pause()
         region = indicator.content_region
         strip = app.screen._compositor.render_strips()[region.y].crop(region.x, region.right)
-        assert label in strip.text
+        assert strip.text.strip() == '! 1', 'header must show only status count'
+        assert label not in strip.text
         await pilot.resize_terminal(52, 24)
         await pilot.pause()
         assert app.query_one('#quit-app').region.right <= 52
-        assert label in str(indicator.tooltip)
+        assert label not in str(indicator.tooltip)
         await pilot.resize_terminal(*size)
         await pilot.pause()
         assert scan.call_count == 1

@@ -269,7 +269,6 @@ class AcprofTui(AppEventRoutes):
         # dispatched. Use the event's new dimensions for responsive classes.
         self.update_responsive_layout(event.size)
         if self.form_ready:
-            self.query_one(EnvironmentIndicators).fit_issue(event.size.width)
             self.preflight.panel.fit(event.size)
 
     @on(ImageWorkspace.WidthChanged)

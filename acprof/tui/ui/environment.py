@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from rich.cells import cell_len
 from rich.text import Text
 from textual import events, on
 from textual.app import ComposeResult
@@ -21,7 +20,6 @@ from acprof.tui.run.diagnostics import PreflightCheck
 from acprof.tui.run.environment_view import (
     check_label,
     check_presentation,
-    check_title,
     compact_check_label,
     global_check_view,
     item_status,
@@ -29,7 +27,7 @@ from acprof.tui.run.environment_view import (
     source_title,
 )
 from acprof.tui.run.global_status import GlobalStatus, StatusItem
-from acprof.tui.run.source_groups import SourceSummary, source_group, source_summaries
+from acprof.tui.run.source_groups import SourceSummary, source_summaries
 from acprof.tui.ui.navigation import NavigationContext
 from acprof.tui.ui.presentation import COMPACT_COLLAPSED_SYMBOL, COMPACT_EXPANDED_SYMBOL
 from acprof.tui.ui.rendering import CjkScreen
@@ -64,7 +62,6 @@ class EnvironmentIndicators(Horizontal):
     def __init__(self, controller: PreflightController) -> None:
         super().__init__(id="current-environment")
         self.controller = controller
-        self._issue: tuple[str, str, str] | None = None
 
     def compose(self) -> ComposeResult:
         for group in GROUP_SYMBOLS:
@@ -74,34 +71,12 @@ class EnvironmentIndicators(Horizontal):
         snapshot = self.controller.status if snapshot is None else snapshot
         counts = snapshot.counts
         tr = self.controller.app.tr
-        primary = next((issue.primary for issue in snapshot.issues if issue.group in {"error", "warning"}
-                        and source_group(issue.primary.check.check_id) != "configuration"), None)
-        self._issue = None
-        if primary is not None:
-            presentation = check_presentation(primary.check)
-            self._issue = (primary.group, tr(check_title(primary.check, presentation)), tr(presentation.label))
         for entry in self.query(EnvironmentIndicator):
             entry.display = entry.group in {"error", "warning", "success"} or bool(counts[entry.group])
             entry.update(GROUP_SYMBOLS[entry.group] + " " + str(counts[entry.group]))
             label = message_id("run.environment.group." + entry.group)
             summary = message_id("run.environment.group_count", label, counts[entry.group])
-            tooltip = tr(message_id("run.environment.click_hint", summary))
-            entry.tooltip = tooltip + "\n" + self._issue[1] if self._issue and self._issue[0] == entry.group else tooltip
-        self.fit_issue(self.controller.app.size.width)
-
-    def fit_issue(self, width: int) -> None:
-        entries = self.query(EnvironmentIndicator)
-        # Reserve the title, count margins, horizontal padding, Return, Help, and Quit.
-        budget = width - cell_len(self.controller.app.title) - 24
-        budget -= sum(cell_len(str(entry.content)) + 2 for entry in entries if entry.display)
-        for entry in entries:
-            caption = ""
-            if self._issue and self._issue[0] == entry.group:
-                _, title, reason = self._issue
-                caption = next((value for value in (title, reason) if cell_len(value) <= budget), "")
-            if entry.caption != caption:
-                entry.caption = caption
-                entry.refresh(layout=True)
+            entry.tooltip = tr(message_id("run.environment.click_hint", summary))
 
 
 class EnvironmentIndicator(Static, can_focus=True):
@@ -114,15 +89,12 @@ class EnvironmentIndicator(Static, can_focus=True):
         super().__init__("", id="environment-" + group, markup=False)
         self.controller = controller
         self.group = group
-        self.caption = ""
 
     def render(self) -> Text:
         content = self.content
         assert isinstance(content, str)
         label = Text(content)
         label.stylize(self.get_component_rich_style("environment--" + self.group), 0, 1)
-        if self.caption:
-            label.append(" " + self.caption)
         return label
 
     def action_toggle_environment(self) -> None:

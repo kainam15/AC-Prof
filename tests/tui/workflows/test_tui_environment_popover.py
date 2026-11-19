@@ -138,6 +138,17 @@ async def test_environment_counts_filter_cached_checks_on_click(app, language, m
     async with app.run_test(size=(80, 24)) as pilot:
         await settle(app, pilot)
         assert counts(app) == ["× 0", "! 3", "✓ 3", "… 2"]
+        for width in (80, 120, 52, 80):
+            await pilot.resize_terminal(width, 24)
+            await pilot.pause()
+            for indicator in app.query(EnvironmentIndicator):
+                if indicator.display:
+                    assert indicator.render().plain == str(indicator.content)
+            warning = app.query_one("#environment-warning")
+            region = warning.content_region
+            strip = app.screen._compositor.render_strips()[region.y].crop(region.x, region.right)
+            assert strip.text.strip() == "! 3"
+            assert "perf" not in str(warning.tooltip)
         panel = app.preflight.panel
         assert not panel.display
         tabs = app.query_one("#main-tabs").region
