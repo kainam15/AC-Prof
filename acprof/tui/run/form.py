@@ -9,6 +9,12 @@ from typing import Any
 from acprof.experiments.configuration import RunConfig
 from acprof.tui.ui.presentation import format_input_number
 
+
+def runtime_form_config(config: RunConfig) -> RunConfig:
+    """The TUI only offers explicit runtimes; CLI auto remains supported."""
+    return replace(config, runtime="docker") if config.runtime == "auto" else config
+
+
 INPUT_FIELDS = {
     "model": "model",
     "revision": "revision",

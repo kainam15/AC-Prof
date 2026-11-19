@@ -19,7 +19,6 @@ from acprof.tui.ui.presentation import (
     COMPACT_EXPANDED_SYMBOL,
     format_input_number,
 )
-from acprof.tui.ui.runtime_select import RuntimeSelect
 
 if TYPE_CHECKING:
     from acprof.tui.app import AcprofTui
@@ -71,10 +70,12 @@ def compose_run_tab(app: AcprofTui) -> ComposeResult:
                         id="model-source", classes="config-control"), field_id="model-source")
 
                     yield app.localization.localized_widget(Label("运行方式"))
-                    yield ConfigField(app.localization.localized_widget(RuntimeSelect(
-                        app.configuration.initial_config.runtime,
+                    yield ConfigField(app.localization.localized_select(
+                        (("Docker", "docker"), ("Process", "process")),
+                        value=app.configuration.initial_config.runtime, allow_blank=False,
+                        tooltip=message_id("run.runtime.selection_help"),
                         id="runtime", classes="config-control",
-                    )), field_id="runtime")
+                    ), field_id="runtime")
 
                     yield app.localization.localized_widget(Label("输出目录"))
                     yield ConfigField(app.localization.localized_widget(Input(

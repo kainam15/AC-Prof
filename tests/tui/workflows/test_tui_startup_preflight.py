@@ -41,7 +41,7 @@ class TestStartupPreflight:
     @pytest.mark.parametrize("runtime", ["docker", "process"])
     async def test_completed_preflight_preserves_smoke_plan(self, language, runtime):
         app = self.make_app()
-        initial = RunConfig.smoke("fixture/model")
+        initial = replace(RunConfig.smoke("fixture/model"), runtime=runtime)
         app.configuration.initial_config = initial
         app.configuration.preferences = replace(app.configuration.preferences, language=language)
         checks = [PreflightCheck("Runtime", "ok", "ready", runtime_kind=runtime)]
@@ -60,7 +60,7 @@ class TestStartupPreflight:
                     app.query_one("#input-scales", Input).placeholder
                 )
                 config = app.configuration.collect_config(allow_empty_model=True)
-                assert (config.runtime, config.input_scale_policy, config.warmup, config.repeat) == ("auto", "minimal", 0, 1)
+                assert (config.runtime, config.input_scale_policy, config.warmup, config.repeat) == (runtime, "minimal", 0, 1)
                 assert (config.model, config.cpus, config.mems, config.gpus) == (
                     initial.model, initial.cpus, initial.mems, initial.gpus,
                 )
@@ -116,7 +116,7 @@ class TestStartupPreflight:
             return [PreflightCheck("Docker", "ok", "ready")]
 
         app = self.make_app()
-        app.configuration.initial_config = RunConfig.smoke("")
+        app.configuration.initial_config = replace(RunConfig.smoke(""), runtime="docker")
         with patch("acprof.tui.run.preflight_controller.quick_preflight", side_effect=slow_check) as check:
             async with app.run_test(size=(80, 24), notifications=True) as pilot:
                 try:
@@ -189,7 +189,7 @@ class TestStartupPreflight:
     async def test_error_blocks_all_launch_paths_until_retry_succeeds(self):
         app = self.make_app()
         app.configuration.preferences = replace(app.configuration.preferences, show_command_bar=True)
-        app.configuration.initial_config = RunConfig.smoke("demo/model")
+        app.configuration.initial_config = replace(RunConfig.smoke("demo/model"), runtime="docker")
         with patch("acprof.tui.run.preflight_controller.quick_preflight", side_effect=[
             OSError("diagnostic failed"), [PreflightCheck("Docker", "ok", "ready")],
         ]):

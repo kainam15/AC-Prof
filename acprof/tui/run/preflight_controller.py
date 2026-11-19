@@ -413,9 +413,7 @@ class PreflightController:
         detail.set_classes('preflight-' + state)
         detail.disabled = measuring
         process_runtime = self.selected_runtime == "process" or self.app.configuration.select("runtime") == "process"
-        from acprof.tui.run import runtime_view
         if not measuring:
-            runtime_view.refresh(self)
             from acprof.tui.run.issue_view import IssueDiagnosticScreen
             for screen in self.app.screen_stack:
                 if isinstance(screen, IssueDiagnosticScreen) and screen.is_mounted:

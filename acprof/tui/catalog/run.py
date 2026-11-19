@@ -638,8 +638,6 @@ MESSAGES: dict[str, Entry] = {
     ),
     "run.runtime.inherit_limits_action": Entry(zh="使用 Process 继承限制", en="Use Process with inherited limits"),
     "run.runtime.label": Entry(zh="运行方式", en="Execution runtime"),
-    "run.runtime.option_auto_pending": Entry(zh="自动选择（待检查）", en="Auto (pending check)"),
-    "run.runtime.option_auto_resolved": Entry(zh="自动选择（当前：{0}）", en="Auto (current: {0})"),
     "run.runtime.pending_selection": Entry(zh="待检查", en="Pending check"),
     "run.runtime.process": Entry(zh="Process（无需 Docker）", en="Process (without Docker)"),
     "run.runtime.process_limits_note": Entry(
@@ -647,8 +645,8 @@ MESSAGES: dict[str, Entry] = {
         en="For Process, auto CPU / memory inherits limits; numeric quotas require a delegated cgroup.",
     ),
     "run.runtime.selection_help": Entry(
-        zh="默认由预检自动选择；手动选择后固定使用该 Runtime。",
-        en="Preflight selects the runtime by default. Choosing an option pins that runtime.",
+        zh="选择 Docker 或 Process；预检验证所选运行环境。",
+        en="Choose Docker or Process; preflight validates the selected runtime.",
     ),
     "run.sampling.rate": Entry(zh="采样频率", en="Sample rate"),
     'run.source.actual': Entry(zh='预检不代表采集成功；实验结束后在结果概览核对实际字段与缺失原因。', en='Preflight does not prove collection success. Review actual fields and missing-data reasons in Results after the run.'),

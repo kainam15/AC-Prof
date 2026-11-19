@@ -39,7 +39,6 @@ from acprof.tui.settings.preferences import (
     save_settings,
 )
 from acprof.tui.ui.input import BarCursorInput as Input
-from acprof.tui.ui.runtime_select import RuntimeSelect
 from acprof.tui.ui.scrollbar import configure_solid_scrollbars
 from acprof.tui.ui.structured import StatusBanner
 from acprof.tui.ui.view_models import StatusSummary
@@ -59,7 +58,7 @@ class ConfigurationController:
         if self.saved_settings.last_model:
             config = replace(config, model=self.saved_settings.last_model,
                              revision=config.revision if config.model == self.saved_settings.last_model else "")
-        self.initial_config = initial_config if initial_config is not None else config
+        self.initial_config = run_form.runtime_form_config(initial_config if initial_config is not None else config)
         self.recovery_policy = self.initial_config.profiling_mode if self.initial_config.resume else "best_effort"
         self.extra_options = dict(self.initial_config.extra_options)
         self.planned_input: dict | None = None
@@ -88,7 +87,7 @@ class ConfigurationController:
                 or self.app.execution.session.snapshot.measurement_active
                 or expected != (self.select('runtime'), self.input('cpus'), self.input('mems'), self.checked('prune-startup-oom'))):
             return
-        self.app.query_one("#runtime", RuntimeSelect).set_requested("process")
+        self.app.query_one("#runtime", Select).value = "process"
         self.app.query_one("#cpus", Input).value = "auto"
         self.app.query_one("#mems", Input).value = "auto"
         self.app.query_one("#prune-startup-oom", Checkbox).value = False
@@ -364,10 +363,7 @@ class ConfigurationController:
         return self.app.query_one(f"#{widget_id}", Input).value.strip()
 
     def select(self, widget_id: str) -> str:
-        control = self.app.query_one(f"#{widget_id}", Select)
-        if isinstance(control, RuntimeSelect):
-            return control.requested
-        value = control.value
+        value = self.app.query_one(f"#{widget_id}", Select).value
         return "" if value is Select.NULL else str(value)
 
     def checked(self, widget_id: str) -> bool:
@@ -435,6 +431,7 @@ class ConfigurationController:
         )
 
     def apply_config(self, config: RunConfig) -> None:
+        config = run_form.runtime_form_config(config)
         self.cancel_preview_timer()
         self.applying_config = True
         self.recovery_policy = config.profiling_mode if config.resume else "best_effort"
@@ -448,11 +445,7 @@ class ConfigurationController:
                     for widget_id, value in values.items():
                         self.app.query_one(f"#{widget_id}", Input).value = value
                     for widget_id, value in selects.items():
-                        control = self.app.query_one(f"#{widget_id}", Select)
-                        if isinstance(control, RuntimeSelect):
-                            control.set_requested(value)
-                        else:
-                            control.value = value
+                        self.app.query_one(f"#{widget_id}", Select).value = value
                     for widget_id, checked_value in checks.items():
                         self.app.query_one(f"#{widget_id}", Checkbox).value = checked_value
         finally:
