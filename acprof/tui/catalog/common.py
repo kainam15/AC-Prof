@@ -38,7 +38,7 @@ MESSAGES: dict[str, Entry] = {
     "common.input.value_prompt": Entry(zh="请输入", en="Enter a value"),
     "common.label.status": Entry(zh="状态", en="Status"),
     "common.limit.unlimited": Entry(zh="不设上限", en="unlimited"),
-    "common.navigation.collapse": Entry(zh="« 收起", en="« Collapse"),
+    "common.navigation.collapse": Entry(zh="«  收起", en="«  Collapse"),
     "common.navigation.collapse_hint": Entry(zh="收起或展开侧边栏", en="Collapse or expand sidebar"),
     "common.navigation.update_available": Entry(zh="有可用更新", en="Update available"),
     "common.option.auto": Entry(zh="自动", en="Auto"),

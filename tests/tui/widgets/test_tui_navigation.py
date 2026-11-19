@@ -14,6 +14,29 @@ EXPECTED_ICONS = {
 }
 
 
+@pytest.mark.parametrize(("language", "size"), [
+    ("zh", (120, 30)), ("en", (120, 30)), ("zh", (80, 24)),
+])
+async def test_sidebar_toggle_text_aligns_with_settings(tmp_path, language, size):
+    app = AcprofTui(RunConfig.smoke("demo/model"), settings_path=tmp_path / "settings.json")
+    app.configuration.preferences = replace(app.configuration.preferences, language=language)
+    async with app.run_test(size=size) as pilot:
+        if app.has_class("collapsed-navigation"):
+            assert await pilot.click("#nav-toggle")
+            await pilot.pause()
+        settings = app.query_one("#nav-settings-tab", Button)
+        toggle = app.query_one("#nav-toggle", Button)
+        settings_prefix = f"{EXPECTED_ICONS['settings-tab']}  "
+        toggle_prefix = "«  "
+        assert settings.label.plain.startswith(settings_prefix)
+        assert toggle.label.plain == toggle_prefix + ("收起" if language == "zh" else "Collapse")
+        assert settings.content_region.x == toggle.content_region.x
+        assert cell_len(settings_prefix) == cell_len(toggle_prefix)
+        assert await pilot.click(toggle)
+        await pilot.pause()
+        assert toggle.label.plain == "»"
+
+
 @pytest.mark.parametrize(("language", "size"), [("zh", (80, 24)), ("en", (80, 24)), ("en", (120, 30)), ("zh", (150, 45))])
 async def test_sidebar_clicks_keyboard_and_resize_preserve_form(tmp_path, monkeypatch, language, size):
     app = AcprofTui(RunConfig.smoke("demo/model"), settings_path=tmp_path / "settings.json")
