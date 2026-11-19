@@ -306,9 +306,11 @@ class TestStartupPreflight:
                 assert not app.is_running
 
     async def test_form_changes_during_check_do_not_accept_old_results(self):
+        started = threading.Event()
         release = threading.Event()
 
         def slow_check(*_args, **_kwargs):
+            started.set()
             if not release.wait(10):
                 raise TimeoutError("test did not release diagnostics")
             return [PreflightCheck("Environment", "ok", "fixture", check_id="environment")]
@@ -317,11 +319,13 @@ class TestStartupPreflight:
         with patch("acprof.tui.run.preflight_controller.quick_preflight", side_effect=slow_check) as check:
             async with app.run_test(size=(120, 30)) as pilot:
                 try:
-                    await pilot.pause()
+                    await wait_for_condition(pilot, started.is_set, description="startup diagnostic in progress", timeout=5)
                     token = app.preflight.check_request
+                    assert token is not None
                     app.query_one("#gpus", Select).value = "on"
                     app.preflight.show_quick_check([], "obsolete error", object())
-                    assert (app.preflight.check_running)
+                    assert app.preflight.check_running
+                    assert app.preflight.check_request is token
                 finally:
                     release.set()
                 await self.finish_check(app, pilot)

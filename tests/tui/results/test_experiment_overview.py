@@ -334,7 +334,11 @@ async def test_backfill_validation_can_be_cancelled_without_launching(tmp_path):
             try:
                 assert await asyncio.to_thread(entered.wait, 2)
                 await pilot.pause()
-                assert await pilot.click("#backfill-cancel")
+                token = app.profiles.validation_request
+                assert token is not None
+                assert not token.is_set()
+                assert await pilot.click("#results-cancel")
+                assert token.is_set()
             finally:
                 release.set()
             await app.workers.wait_for_complete()

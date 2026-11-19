@@ -45,9 +45,12 @@ class TestTuiResultTools:
             )
             refresh = app.query_one("#refresh-experiment-state", Button)
             refresh.scroll_visible(animate=False, immediate=True)
+            # The completed readers remove the narrow two-row action bar on the next layout.
+            await pilot.pause()
             await wait_for_condition(
                 pilot,
-                lambda: not refresh.disabled and refresh.region.area > 0
+                lambda: not app.query_one("#results-cancel", Button).region.area
+                and not refresh.disabled and refresh.region.area > 0
                 and app.get_widget_at(*refresh.region.center)[0] is refresh,
                 description="visible enabled result refresh", timeout=8,
             )

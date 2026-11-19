@@ -9,7 +9,7 @@ from textual.widgets._collapsible import CollapsibleTitle
 
 from acprof.experiments.configuration import RunConfig, RunConfigError, build_run_command
 from acprof.host.images.inventory import DockerConnection, ImageInventory, ImageLayer, ManagedImage
-from acprof.tui.i18n import translate
+from acprof.tui.i18n import message_id, translate
 from acprof.tui.images.presentation import ImageTree, image_metadata
 from acprof.tui.run.progress import ProgressSnapshot
 from acprof.tui.run.stages import Stage
@@ -108,7 +108,11 @@ class TestTuiPresentation:
             await pilot.resize_terminal(*size)
             app.configuration.preferences = replace(app.configuration.preferences, language=language)
             app.configuration.apply_ui_preferences()
-            assert section.title == ("测量参数" if language == "zh" else "Measurement parameters")
+            config = app.configuration.initial_config
+            assert section.title == translate(message_id(
+                "run.form.measurement_summary", config.warmup, config.repeat,
+                config.batch_size, message_id("run.windows.auto_duration"),
+            ), language)
             title = section.query_one(CollapsibleTitle)
             title.scroll_visible(animate=False, immediate=True)
             title.focus()

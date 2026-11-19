@@ -297,7 +297,7 @@ class AcprofTui(AppEventRoutes):
             "compact-navigation": size.width < 100,
             "short": size.height < 35,
         })
-        if changed_collapse and self.query("#page-navigation"):
+        if changed_collapse and self.screen_stack and self.query("#page-navigation"):
             self.query_one(PageNavigation).sync(self.query_one("#main-tabs", TabbedContent))
 
 
