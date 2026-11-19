@@ -410,11 +410,12 @@ Button:disabled, Button:disabled:hover, Button:disabled:focus, Button:disabled.-
 
 .checkbox-row { height: auto; margin: 1 0; }
 .option-checkbox { margin-right: 1; background: transparent; border: tall transparent; }
-.option-checkbox > .toggle--button { color: $text-muted; background: $panel; }
-.option-checkbox.-on > .toggle--button { color: $background; background: $accent; }
+.option-checkbox > .toggle--button { color: $text-muted; background: transparent; }
+.option-checkbox.-on > .toggle--button { color: $accent; background: transparent; }
 .option-checkbox:focus { border: tall $accent; }
 .option-checkbox:disabled { color: $ui-disabled; }
-.option-checkbox:disabled > .toggle--button { color: $ui-disabled; background: $panel; }
+.option-checkbox:disabled > .toggle--button { color: $ui-disabled; background: transparent; }
+.action-bar Checkbox > .toggle--button { text-style: not bold not underline; }
 .action-bar Checkbox > .toggle--label {
     color: $foreground;
     background: transparent;
