@@ -143,6 +143,17 @@ async def test_optional_profiler_inspect_enable_and_recheck(tmp_path, monkeypatc
         await wait_for_condition(pilot, lambda: app.preflight.config_matches()
                                  and app.query_one('#environment-warning').content == '! 1',
                                  description='selected profiler counted from cached inventory', timeout=5)
+        indicator = app.query_one('#environment-warning')
+        await pilot.pause()
+        region = indicator.content_region
+        strip = app.screen._compositor.render_strips()[region.y].crop(region.x, region.right)
+        assert label in strip.text
+        await pilot.resize_terminal(52, 24)
+        await pilot.pause()
+        assert app.query_one('#quit-app').region.right <= 52
+        assert label in str(indicator.tooltip)
+        await pilot.resize_terminal(*size)
+        await pilot.pause()
         assert scan.call_count == 1
         assert not app.query_one('#start-run', Button).disabled
         assert await pilot.click('#environment-warning')
@@ -156,6 +167,7 @@ async def test_optional_profiler_inspect_enable_and_recheck(tmp_path, monkeypatc
                                  description='repaired profiler removed from warnings', timeout=5)
         assert scan.call_count == 2
         assert not app.query_one('#start-run', Button).disabled
+        assert indicator.render().plain == '! 0'
 
 
 async def test_optional_collector_opens_permissions_tab(tmp_path, monkeypatch):

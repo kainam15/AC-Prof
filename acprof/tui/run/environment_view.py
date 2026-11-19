@@ -159,6 +159,10 @@ def check_presentation(row: PreflightCheck) -> StatusPresentation:
     return replace(status_presentation(alias), label=message_id(label))
 
 
+def check_title(row: PreflightCheck, presentation: StatusPresentation) -> str:
+    return message_id("run.environment.capability_line", check_label(row), presentation.label)
+
+
 def global_check_view(item: StatusItem, *, technical_detail: str, tr: Callable[[str], str],
                       check_allowed: bool, navigate_allowed: bool, environment: Environment | None = None) -> EnvironmentCheckView:
     """Describe current impact separately from cached diagnostic provenance."""
@@ -214,10 +218,7 @@ def check_view(row: PreflightCheck, *, technical_detail: str, check_allowed: boo
     status = item_status(row)
     presentation = check_presentation(row)
     if status in {"warn", "fail", "error"}:
-        problem = join_messages(" ", (
-            presentation.symbol,
-            message_id("run.environment.capability_line", check_label(row), presentation.label),
-        ))
+        problem = join_messages(" ", (presentation.symbol, check_title(row, presentation)))
         section = SOURCE_IMPACTS.get(source_group(row.check_id), "other")
         impact = "check_error" if status == "error" or _reason(row) == "error" else section
         return EnvironmentCheckView(callout=CalloutContent(

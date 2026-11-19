@@ -9,7 +9,6 @@ from acprof.tui.app import AcprofTui
 from acprof.tui.i18n import message_id
 from acprof.tui.run.diagnostics import PreflightCheck
 from tests.support.tui_fixtures import expand_check_source
-from tests.support.tui_waits import wait_for_condition
 
 pytestmark = pytest.mark.visual
 
@@ -22,7 +21,7 @@ def test_source_groups(snap_compare, svg_operations, tmp_path, monkeypatch, lang
     app.configuration.preferences = replace(app.configuration.preferences, language=language)
 
     async def prepare(pilot):
-        await pilot.pause()
+        await svg_operations.wait_for_preflight()
         app.set_input_cursor_blink_enabled(False)
         app.preflight.environment_checks = (
             PreflightCheck('GPU', 'ok', 'fixture device', check_id='gpu_device'),
@@ -45,7 +44,7 @@ def test_source_groups(snap_compare, svg_operations, tmp_path, monkeypatch, lang
 @pytest.mark.parametrize(('language', 'size', 'identifier'), [
     ('zh', (80, 24), 'ncu'), ('en', (120, 30), 'cpu_energy'),
 ])
-def test_capability_reason(snap_compare, tmp_path, monkeypatch, language, size, identifier):
+def test_capability_reason(snap_compare, svg_operations, tmp_path, monkeypatch, language, size, identifier):
     monkeypatch.setattr('acprof.tui.app.PROJECT_DIR', Path('/workspace'))
     config = replace(RunConfig.smoke('fixture/model'), runtime='process', repeat=3)
     if identifier == 'cpu_energy':
@@ -54,7 +53,7 @@ def test_capability_reason(snap_compare, tmp_path, monkeypatch, language, size, 
     app.configuration.preferences = replace(app.configuration.preferences, language=language)
 
     async def prepare(pilot):
-        await wait_for_condition(pilot, lambda: app.preflight.check_completed, description='fixture preflight', timeout=3)
+        await svg_operations.wait_for_preflight()
         app.set_input_cursor_blink_enabled(False)
         app.preflight.environment_checks = (PreflightCheck('ncu', 'fail', message_id('common.state.not_installed'),
                                                            check_id='ncu', reason_code='not_installed'),)
