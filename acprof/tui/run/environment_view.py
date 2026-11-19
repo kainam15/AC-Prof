@@ -148,7 +148,9 @@ def check_presentation(row: PreflightCheck) -> StatusPresentation:
     """The evidence names the problem; the recorded status supplies its severity."""
     status = item_status(row)
     alias, label = _DISPLAY_STATES.get(status, ("unknown", "common.value.unknown"))
-    if status in {"warn", "fail", "error"}:
+    if row.reason_code == "runtime_pending":
+        alias, label = "unverified", "run.environment.cgroup_runtime_status"
+    elif status in {"warn", "fail", "error"}:
         reason = _reason(row)
         if row.check_id.startswith('config_'):
             label = 'run.plan.invalid'
@@ -246,11 +248,13 @@ def check_view(row: PreflightCheck, *, technical_detail: str, check_allowed: boo
                                 primary=True, disabled=not check_allowed),),
         ))
     alias = _DISPLAY_STATES.get(status, ("unknown", "common.value.unknown"))[0]
+    note = (message_id("run.environment.cgroup_runtime_pending") if row.reason_code == "runtime_pending"
+            else message_id(_NOTES.get(status, "run.environment.note.unknown")))
     return EnvironmentCheckView(facts=ViewSection(
         check_label(row),
         (
             FactRow(message_id("common.label.status"), presentation.label, status=alias),
-            FactRow(message_id("common.field.note"), message_id(_NOTES.get(status, "run.environment.note.unknown"))),
+            FactRow(message_id("common.field.note"), note),
         ),
         detail_rows=(FactRow(message_id("structured.detail.title"), technical_detail,
                              detail=technical_detail, copyable=True),),

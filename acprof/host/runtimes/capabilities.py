@@ -72,27 +72,6 @@ def _gpu_probes(gpu, *, hardware_energy):
 
 
 
-def _cgroup_field_probes(cgroup_path, fields):
-    """Query the visible namespace once. The workload's own cgroup is checked on attach."""
-    from acprof.monitors.resource_readers import CGROUP_READER_FIELDS, resolve_cgroup_metric_readers
-
-    readers = resolve_cgroup_metric_readers(cgroup_path)
-    missing = {}
-    for method, patterns in CGROUP_READER_FIELDS.items():
-        affected = [field for field in fields if any(pattern in field for pattern in patterns)]
-        if not affected:
-            continue
-        read = getattr(readers, method)
-        if read is None:
-            outcome = Capability("unsupported", f"cgroup reader unavailable: {method}", "cgroup_v2")
-        else:
-            outcome = _probe(lambda: {"readable": read() is not None}, "cgroup_v2")
-        if outcome.status != "available":
-            for field in affected:
-                missing[field] = {"status": outcome.to_dict()["status"], "detail": outcome.detail,
-                                  "scope": "preflight_namespace"}
-    return missing
-
 
 def probe_collection_plan(runtime_kind, *, gpu=None, profiling_mode="best_effort", sniff_iface="docker0",
                           dram_energy="auto", environment=None, env=None, service_cgroup=None) -> dict:
@@ -175,9 +154,10 @@ def probe_collection_plan(runtime_kind, *, gpu=None, profiling_mode="best_effort
         probes.update({name: Capability("not_requested", source="nvml") for name in ("gpu_memory", "gpu_utilization")})
     fields = planned_fields(runtime_kind)
     perf_probe = probes["cpu_instructions"]
-    cgroup_probe = probes["cgroup"]
-    field_probes = (_cgroup_field_probes(cgroup_probe.evidence["cgroup"], fields.get("cgroup", []))
-                    if cgroup_probe.status == "available" else {})
+    # This process' cgroup is not the future container/owned service cgroup.
+    # Target readers are resolved after attachment, and only those readings
+    # can establish per-field availability for a formal window.
+    field_probes = {}
     if unavailable := set(perf_probe.evidence.get("unavailable_events", ())):
         from acprof.results.coverage import PMU_EVENT_FIELDS
         for event in sorted(unavailable):

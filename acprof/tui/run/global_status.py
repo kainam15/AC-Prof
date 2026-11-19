@@ -231,7 +231,9 @@ def build_status(
                 row.check_id in {'tcpdump', 'tshark', 'capture_permissions', 'capture_interface', 'packet_latency',
                                  'cpu_energy', 'cpu_instructions'}):
             status = "warn"
-        put(replace(row, status=status), required=requested, runtime_advisory=docker_advisory)
+        # Target-only readers remain neutral until a workload cgroup exists.
+        put(replace(row, status=status), required=requested and row.reason_code != 'runtime_pending',
+            runtime_advisory=docker_advisory)
 
     if validation_pending:
         put(PreflightCheck(message_id('run.status.configuration'), 'pending',

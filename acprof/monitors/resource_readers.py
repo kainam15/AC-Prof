@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 import os
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from acprof.monitors.common import docker_container_pid
 from acprof.results.coverage import CGROUP_READER_FIELDS as CGROUP_READER_FIELDS
@@ -30,6 +30,7 @@ class ResourceMetricReaders:
     io_operations: Callable[[], dict[str, float]] | None = None
     pids: Callable[[], dict[str, float]] | None = None
     cgroup_error: str = ""
+    reader_errors: dict[str, str] = field(default_factory=dict)
 
 
 def _read_int(path: str) -> int:
@@ -46,37 +47,32 @@ def _read_cgroup_limit(path: str) -> int:
     return int(raw)
 
 
-def _read_cgroup_v2_io_stat(path: str) -> tuple[int, int]:
-    read_bytes = 0
-    write_bytes = 0
-    with open(path, encoding="utf-8") as f:
-        for line in f:
+def _read_cgroup_v2_io_pair(path: str, read_key: str, write_key: str) -> tuple[int, int]:
+    """Count only observed device counters; a missing value is not a measured zero."""
+    counts = {read_key: 0, write_key: 0}
+    observed = set()
+    with open(path, encoding="utf-8") as stream:
+        for line in stream:
             parts = line.split()
             for token in parts[1:]:
-                key, separator, raw_value = token.partition("=")
-                if not separator:
-                    continue
-                if key == "rbytes":
-                    read_bytes += int(raw_value)
-                elif key == "wbytes":
-                    write_bytes += int(raw_value)
-    return read_bytes, write_bytes
+                key, separator, raw = token.partition("=")
+                if separator and key in counts:
+                    value = int(raw)
+                    if value < 0:
+                        raise ValueError(f"negative {key} counter in {path}")
+                    counts[key] += value
+                    observed.add(key)
+    if observed != set(counts):
+        raise ValueError(f"io.stat missing counters {', '.join(sorted(set(counts) - observed))}: {path}")
+    return counts[read_key], counts[write_key]
+
+
+def _read_cgroup_v2_io_stat(path: str) -> tuple[int, int]:
+    return _read_cgroup_v2_io_pair(path, "rbytes", "wbytes")
 
 
 def _read_cgroup_v2_io_operations(path: str) -> dict[str, float]:
-    read_ops = 0
-    write_ops = 0
-    with open(path, encoding="utf-8") as f:
-        for line in f:
-            parts = line.split()
-            for token in parts[1:]:
-                key, separator, raw_value = token.partition("=")
-                if not separator:
-                    continue
-                if key == "rios":
-                    read_ops += int(raw_value)
-                elif key == "wios":
-                    write_ops += int(raw_value)
+    read_ops, write_ops = _read_cgroup_v2_io_pair(path, "rios", "wios")
     return {"read_ops": float(read_ops), "write_ops": float(write_ops)}
 
 
@@ -393,11 +389,15 @@ def resolve_cgroup_metric_readers(cgroup_root: str, relative_path: str = "", *, 
         readers.swap_limit = (
             lambda path=swap_limit_path: _read_cgroup_limit(path)
         )
-    if os.path.exists(io_path):
+    try:
+        os.stat(io_path)
+    except OSError as exc:
+        # Target-namespace evidence, not the host process' cgroup inventory.
+        reason = f"target cgroup io.stat: {type(exc).__name__}: {exc}"
+        readers.reader_errors.update(io=reason, io_operations=reason)
+    else:
         readers.io = lambda path=io_path: _read_cgroup_v2_io_stat(path)
-        readers.io_operations = (
-            lambda path=io_path: _read_cgroup_v2_io_operations(path)
-        )
+        readers.io_operations = lambda path=io_path: _read_cgroup_v2_io_operations(path)
     if os.path.exists(memory_peak_path):
         readers.memory_peak = (
             lambda path=memory_peak_path: _read_cgroup_memory_peak(path)

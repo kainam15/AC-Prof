@@ -101,7 +101,9 @@ def window_quality(config, progress, observations, *, use_gpu, status, error, la
                 states[owner].setdefault("reader_errors", {})[name] = failure
     for field, probe in config.collection_plan.get("field_probes", {}).items():
         if probe.get("scope") == "preflight_namespace":
-            states["cgroup"].setdefault("preflight_missing", {})[field] = probe
+            # Legacy plans may describe the host cgroup, not the workload's.
+            # Retain the diagnostic without grading missing target measurements.
+            states["cgroup"].setdefault("preflight_advisories", {})[field] = probe
         else:
             quality.setdefault(field, {"quality": probe["status"], "reason": probe["detail"]})
     evidence["collectors"] = states

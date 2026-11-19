@@ -355,19 +355,28 @@ def _automatic_checks(config, runtime, resolve_device, *, project_dir=None):
         unavailable_events = item.get("evidence", {}).get("unavailable_events", [])
         group_fields = plan.get("fields", {}).get(name, ())
         affected = {key: probe for key, probe in plan.get("field_probes", {}).items() if key in group_fields}
+        runtime_pending = name == "cgroup" and status == "ok" and bool(group_fields)
         partial = status == "ok" and bool(affected or unavailable_events)
         if partial:
             status = "warn"
         fields = tuple(affected or group_fields)
         details = ", ".join(dict.fromkeys(probe["detail"] for probe in affected.values()))
         detail = " · ".join(filter(None, (item["status"], item["detail"], details, ", ".join(fields))))
+        reason_code = "partial" if partial else ""
+        if runtime_pending and not partial:
+            # The target cgroup does not exist until the container/service is attached.
+            status = "declared"
+            reason_code = "runtime_pending"
+            fields = tuple(field for field in group_fields if field.startswith((
+                "container_io_read_", "container_io_write_", "service_cgroup_io_")))
+            detail = message_id("run.environment.cgroup_runtime_pending")
         # The pcap tool_missing payload lists missing executable IDs in probe order.
         root = ""
         if name == "packet_latency" and item["status"] == "tool_missing" and item.get("source") == "pcap":
             root = {"tcpdump": "tcpdump", "tshark": "tshark", "tcpdump, tshark": "tcpdump"}.get(item["detail"], "")
         checks.append(PreflightCheck(name, status, detail,
                                     item["status"], check_id="cgroup_metrics" if name == "cgroup" else name,
-                                    source=item.get("source", "probe_collection_plan"), reason_code="partial" if partial else "",
+                                    source=item.get("source", "probe_collection_plan"), reason_code=reason_code,
                                     affected_fields=fields, root_cause=root))
     return checks
 

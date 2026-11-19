@@ -128,6 +128,8 @@ MESSAGES: dict[str, Entry] = {
     "run.environment.cannot_start": Entry(zh="当前不能开始采集；请查看状态或任务占用。", en="Cannot start now; check status or active operations."),
     "run.environment.capability_line": Entry(zh="{0} · {1}", en="{0} · {1}"),
     "run.environment.cgroup_read": Entry(zh="已读取本机 cgroup 接口：{0}\n{1}\n具体容器权限在启动时检查。", en="Read host cgroup interface: {0}\n{1}\nContainer-specific access is checked at launch."),
+    "run.environment.cgroup_runtime_pending": Entry(zh="主机 cgroup v2 已可见；目标容器或独立服务 cgroup 尚未建立。I/O 指标将在目标就绪后读取，最终以实际采集结果为准。", en="Host cgroup v2 is visible; the target container or owned service cgroup does not exist yet. I/O readers are checked on attachment; final coverage uses measured results."),
+    "run.environment.cgroup_runtime_status": Entry(zh="待 Runtime 验证", en="Awaiting runtime verification"),
     "run.environment.checking_all": Entry(zh="正在检查全部机器能力。", en="Checking all machine capabilities."),
     "run.environment.click_hint": Entry(zh="{0} · 点击查看详情", en="{0} · Click for details"),
     "run.environment.context.checked_at": Entry(zh="最近检查", en="Last checked"),

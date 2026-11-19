@@ -27,6 +27,8 @@ Process 深度 Profiler 和 CPU 时间份额能耗归因见[接入边界](profil
 
 Process 配额 TUI 的故障修复引导已调整为优先查看 cgroup 委派授权与保留数值配置，按根因区别上级配额、控制器与系统支持；继承限制作为折叠的显式备用方案。真实管理员授权后内核限额及用户 SSH 终端验收仍待执行。
 
+P1 · cgroup I/O 预检：已将宿主进程 cgroup 能力与目标 Docker / Process 服务 cgroup 的 I/O 字段分离；目标创建前显示中性待 Runtime 验证，不阻断采集，最终依据目标 `io.stat` 和窗口 `reader_errors` 判定质量。离线模拟覆盖目标存在／缺失／拒绝访问、空计数器及旧预检提示不得覆盖实测；真实 Docker 与 Native SSH 验收仍待用户执行。见[环境检查](usage/tui-interaction.md#环境检查)与[字段说明](results/fields.md#容器内存swapio-与-pid)。
+
 ## 工程维护优先序
 
 开发辅助能力已按项目与个人范围拆分：新增 HTML 报告回归、Hub 静态调研、服务指标与 Actions 维护入口，

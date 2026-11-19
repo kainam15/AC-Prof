@@ -206,6 +206,8 @@ cycles / ref-cycles 为可选 PMU 事件，不改变 instructions 的必需性�
 | `container_pids_peak_cgroup` | workload 窗口结束时读取 cgroup v2 `pids.peak`；与 `memory.peak` 一样是新建 container cgroup 生命周期峰值。旧内核未提供该文件时为 `nan`。 |
 | `container_pids_max_events_delta` | cgroup v2 `pids.events/max` 在 workload 窗口内的增量，表示因 PID hard limit 拒绝创建 task 的次数。 |
 
+I/O 字段以实际容器 PID 所属 cgroup 的 `io.stat` 为来源，不能用启动预检进程的 cgroup 推断目标是否支持。目标文件不存在、权限不足、空文件、缺少所需计数器或窗口计数器异常时保留缺失值和读数原因；只有实际存在且有效的零计数才记录为 `0`。历史预检 `preflight_namespace` 提示仅供诊断，不覆盖本次正式窗口的真实质量结论。
+
 ### GPU 资源与运行状态
 
 | 字段 | 含义 |

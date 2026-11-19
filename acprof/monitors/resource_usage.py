@@ -123,6 +123,7 @@ class ResourceUsageMonitor:
             self._memory_stat_reader = readers.memory_stat
             self._io_operations_reader = readers.io_operations
             self._pids_reader = readers.pids
+            self._reader_errors.update(getattr(readers, 'reader_errors', {}))
         except Exception as exc:
             self._init_error = str(exc)
 
