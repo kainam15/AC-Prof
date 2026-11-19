@@ -48,15 +48,6 @@ def compose_run_tab(app: AcprofTui) -> ComposeResult:
                         message_id("run.form.advanced"), id="run-mode-advanced",
                         classes="mode-tab", compact=True,
                     ))
-                with Horizontal(id="run-quick-fill"):
-                    yield app.localization.localized_widget(Button(
-                        message_id("run.quick_fill.smoke"), id="quick-fill-smoke",
-                        classes="quick-fill-button config-control", compact=True,
-                    ))
-                    yield app.localization.localized_widget(Button(
-                        message_id("run.quick_fill.main"), id="quick-fill-main",
-                        classes="quick-fill-button config-control", compact=True,
-                    ))
         with ContentSwitcher(initial="run-form", id="experiment-pages"):
             with VerticalScroll(id="run-form", classes="pane-scroll"):
                 overrides_banner = app.localization.localized_widget(Button(

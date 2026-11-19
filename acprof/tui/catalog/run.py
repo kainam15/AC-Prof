@@ -503,8 +503,6 @@ MESSAGES: dict[str, Entry] = {
     "run.probe.user_stopped": Entry(zh="用户终止了最大尺度探测", en="Largest-input probe stopped by user"),
     "run.probe.viable_memory": Entry(zh="可运行，已找到最低内存", en="Viable; minimum memory found"),
     "run.process.cleanup_incomplete": Entry(zh="PID {0} 仍未确认退出：{1}；可再次停止。", en="PID {0} has not exited: {1}; stop can be retried."),
-    "run.quick_fill.main": Entry(zh="填入标准矩阵", en="Fill Main Matrix"),
-    "run.quick_fill.smoke": Entry(zh="填入 Smoke", en="Fill Smoke"),
     "run.quit.active_task": Entry(zh="任务仍在运行，请先使用 /stop 安全终止", en="A task is running; use /stop to stop it safely first"),
     "run.recovery.active_writer": Entry(
         zh="原实验仍有进程写入，请等待其退出后再恢复。",

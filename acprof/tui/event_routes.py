@@ -176,14 +176,6 @@ class AppEventRoutes(BarCursorApp):
     def on_configuration_show_advanced_form(self) -> None:
         self.configuration.show_run_form("advanced-form")
 
-    @on(Button.Pressed, '#quick-fill-smoke')
-    def on_experiments_quick_fill_smoke(self) -> None:
-        self.experiments.preset_smoke()
-
-    @on(Button.Pressed, '#quick-fill-main')
-    def on_experiments_quick_fill_main(self) -> None:
-        self.experiments.preset_main()
-
     @on(Button.Pressed, '#preflight-run-reason')
     def on_preflight_open_blocking_reason(self) -> None:
         self.preflight.open_blocking_reason()

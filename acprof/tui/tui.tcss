@@ -281,8 +281,7 @@ AcprofTui.short #run-plan-body { max-height: 8; }
 }
 AcprofTui.short #run-mode-bar { margin-top: 0; }
 #run-mode-tabs { width: 1fr; height: 1; align-horizontal: left; }
-#run-quick-fill { width: auto; height: 1; align-horizontal: right; }
-.mode-tab, .quick-fill-button {
+.mode-tab {
     height: 1;
     min-height: 1;
     min-width: 0;
@@ -294,7 +293,7 @@ AcprofTui.short #run-mode-bar { margin-top: 0; }
     color: $text-muted;
     text-style: none;
 }
-.mode-tab:hover, .mode-tab:focus, .quick-fill-button:hover, .quick-fill-button:focus {
+.mode-tab:hover, .mode-tab:focus {
     border: none;
     background: $boost;
     color: $foreground;
@@ -306,8 +305,6 @@ AcprofTui.short #run-mode-bar { margin-top: 0; }
     background: $boost;
     text-style: bold;
 }
-.quick-fill-button { margin: 0 0 0 1; color: $accent; }
-.quick-fill-button:disabled { border: none; color: $ui-disabled; }
 #advanced-overrides-banner {
     width: 100%;
     height: 1;

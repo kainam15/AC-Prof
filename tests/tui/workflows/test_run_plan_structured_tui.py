@@ -90,11 +90,15 @@ async def test_collection_plan_and_original_actions_fit_short_terminal(tmp_path,
         assert_actions_visible()
 
 
-async def test_run_ux_quick_fill_set_repeat_inline_reason_and_overrides(tmp_path):
+async def test_run_ux_set_repeat_inline_reason_and_overrides(tmp_path):
     config = replace(RunConfig.smoke("fixture/model"), revision="a1b2c3d4")
     app = AcprofTui(config, settings_path=tmp_path / "settings.json")
     async with app.run_test(size=(120, 30)) as pilot:
         await pilot.pause()
+        # Top mode bar keeps Basic/Advanced tabs without quick-fill buttons.
+        assert not app.query("#run-quick-fill")
+        assert not app.query("#quick-fill-smoke")
+        assert not app.query("#quick-fill-main")
         # Active advanced override is visible in the basic view and mode badge.
         assert app.query_one("#advanced-overrides-banner", Button).display
         assert "1" in str(app.query_one("#run-mode-advanced", Button).label)
@@ -110,11 +114,11 @@ async def test_run_ux_quick_fill_set_repeat_inline_reason_and_overrides(tmp_path
             description="repeat updated to 3", timeout=3,
         )
         assert app.query_one("#run-plan-panel", RunPlanPanel).view.summary.level == "neutral"
-        # Quick-fill Smoke restores repeat=1 cleanly.
-        assert await pilot.click("#quick-fill-smoke")
+        # Slash command /smoke still restores repeat=1 cleanly.
+        app.slash.execute_command("/smoke")
         await wait_for_condition(
             pilot, lambda: app.configuration.collect_config().repeat == 1,
-            description="smoke quick-fill applied", timeout=3,
+            description="smoke slash preset applied", timeout=3,
         )
         # Clearing model shows inline clickable blocking reason above Run actions.
         app.query_one("#model", Input).value = ""
