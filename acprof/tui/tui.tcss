@@ -736,13 +736,13 @@ AcprofTui.narrow #image-filters Button { min-width: 9; padding: 0; }
 /* Wrap the controls inside the page width left by the activity sidebar. */
 AcprofTui.compact-navigation #image-filters {
     layout: grid;
-    grid-size: 3 2;
-    grid-columns: 1fr 1fr 1fr;
+    grid-size: 4 2;
+    grid-columns: 1fr 1fr 1fr 1fr;
     grid-rows: 3 3;
     grid-gutter: 0 1;
     height: 6;
 }
-AcprofTui.compact-navigation #image-scope { column-span: 1; width: 1fr; margin: 0; }
+AcprofTui.compact-navigation #image-scope { column-span: 2; width: 1fr; margin: 0; }
 AcprofTui.compact-navigation #image-search { column-span: 2; width: 1fr; margin: 0; }
 AcprofTui.compact-navigation #image-filters Button { width: 1fr; min-width: 0; margin: 0; }
 .stage-running { color: $accent; text-style: bold; }
@@ -778,22 +778,6 @@ AcprofTui.short #confirm-dialog { padding: 0 2; }
 /* Keep the image detail groups visible alongside the fixed footer at 80x24. */
 AcprofTui.narrow.short #image-heading { layout: horizontal; height: 1; }
 AcprofTui.narrow.short #image-status { width: 1fr; max-height: 1; }
-AcprofTui.narrow.short #image-storage {
-    height: 1;
-    min-height: 1;
-    min-width: 0;
-    border: none;
-    padding: 0 1;
-    background: $boost;
-    color: $foreground;
-}
-AcprofTui.narrow.short #image-storage:hover,
-AcprofTui.narrow.short #image-storage:focus {
-    border: none;
-    background: $accent;
-    color: $background;
-    text-style: bold;
-}
 AcprofTui.narrow.short #image-detail { margin-bottom: 0; }
 
 /* Selection headers toggle groups; fact controls only inspect their values. */

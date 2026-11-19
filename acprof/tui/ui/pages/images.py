@@ -31,7 +31,6 @@ def compose_images_tab(app: AcprofTui) -> ComposeResult:
         with Horizontal(id="image-header", classes="page-header"):
             with Vertical(id="image-heading"):
                 yield app.localization.localized_widget(Static(IMAGE_HINT, id="image-status", classes="page-summary", markup=False))
-            yield app.localization.localized_widget(Button("存储空间", id="image-storage", classes="image-control"))
         with Vertical(id="image-panel"):
             with Horizontal(id="image-filters"):
                 yield app.localization.localized_select(
@@ -49,6 +48,9 @@ def compose_images_tab(app: AcprofTui) -> ComposeResult:
                         label, id="image-view-" + view, classes="image-control image-view-button",
                         variant="primary" if view == "tree" else "default",
                     ))
+                yield app.localization.localized_widget(Button(
+                    "存储空间", id="image-storage", classes="image-control",
+                ))
             with ImageWorkspace(id="image-workspace"):
                 with ContentSwitcher(initial="image-tree-view", id="image-browser"):
                     with Vertical(id="image-tree-view"):
