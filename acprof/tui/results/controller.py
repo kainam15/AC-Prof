@@ -179,6 +179,15 @@ class ResultController:
         views = self.app.query_one("#result-views", TabbedContent)
         if views.get_tab(section).display:
             views.active = section
+        self.sync_result_actions_for_view(views.active)
+
+    def sync_result_actions_for_view(self, section: str) -> None:
+        if not self.app.is_running or self.app.ui_closing:
+            return
+        backfill = section == "backfill-view"
+        self.app.query_one("#open-result-profiling", Button).display = backfill
+        self.app.query_one("#report-calculate", Button).display = not backfill
+        self.app.query_one("#plot-results", Button).display = not backfill
 
     def refresh_experiment(self, source: str | None = None, *, load: bool = True) -> None:
         source = self.app.configuration.input("experiment-source").strip() if source is None else source
@@ -353,8 +362,6 @@ class ResultController:
         value = self.app.query_one('#experiment-source', Input).value
         source = value.strip()
         self.app.query_one("#experiment-source", Input).tooltip = source or None
-        with self.app.prevent(Input.Changed):
-            self.app.query_one("#backfill-source", Input).value = value
 
     def update_report_actions(self) -> None:
         """Apply pure action rules to the existing widgets and operation lock."""
@@ -381,14 +388,10 @@ class ResultController:
         cancel_analysis.display = actions.cancel_analysis_visible or reading
         cancel_analysis.disabled = not (actions.cancel_analysis_enabled or reading)
         self.app.query_one("#result-actions").set_class(cancel_analysis.display, "cancellable")
-        cancel_backfill = self.app.query_one("#backfill-cancel", Button)
-        cancel_backfill.display = reading
-        cancel_backfill.disabled = not cancel_backfill.display
         for selector, enabled in (
             ("#analysis-export-csv", actions.analysis_export_csv_enabled),
             ("#analysis-export-json", actions.analysis_export_json_enabled),
             ("#refresh-experiment-state", bool(self.source_path) and self.app.operation_state().allows("summary")),
-            ("#refresh-backfill-state", bool(self.source_path) and self.app.operation_state().allows("summary")),
             ("#plot-results", actions.plot_enabled),
             ("#report-calculate", actions.html_generate_enabled),
             ("#report-window-stats", actions.calculate_enabled),

@@ -178,3 +178,60 @@ async def test_export_copies_retained_raw_text_and_holds_operation_gate(tmp_path
         exported, = (tmp_path / 'exports').glob('*.log')
         assert exported.read_text() == '[INFO] original\n[WARN] warning'
         assert not app.read_jobs
+
+
+async def test_monitor_pause_banner_unread_indicator_and_post_run_actions(tmp_path):
+    from textual.widgets import TabbedContent
+
+    from acprof.tui.ui.structured import ActionButtons
+
+    app = AcprofTui(RunConfig.smoke('example/test'), settings_path=tmp_path / 'settings.json')
+    async with app.run_test(size=(120, 30)) as pilot:
+        app.activate_tab('monitor-tab')
+        await pilot.pause()
+        banner = app.query_one('#measurement-pause-banner')
+        assert not banner.display
+        assert str(app.query_one('#log-tools', Button).label) == '筛选与导出'
+
+        # Measurement pause banner appears on boundary and hides when measurement ends.
+        app.consume_process_line('', ProgressSnapshot(stage=Stage.MEASURING, measurement_active=True), True)
+        await pilot.pause()
+        assert banner.display
+        app.consume_process_line('', ProgressSnapshot(stage=Stage.CLEANING_CASE, measurement_active=False), True)
+        await pilot.pause()
+        assert not banner.display
+
+        # Unread indicator marks Follow button when output arrives while scrolled up.
+        log = app.query_one('#run-log', SelectableLog)
+        log.write('\n'.join(f'[INFO] line {i}' for i in range(40)))
+        await pilot.pause()
+        log.action_cursor_line_start()
+        await pilot.pause()
+        assert not log.following
+        log.write('[INFO] fresh tail line')
+        await pilot.pause()
+        follow = app.query_one('#follow-log', Button)
+        assert follow.has_class('-unread')
+        assert '•' in str(follow.label)
+        assert await pilot.click(follow)
+        await pilot.pause()
+        assert not follow.has_class('-unread')
+        assert '•' not in str(follow.label)
+
+        # Terminal stages expose contextual next-step actions right on MonitorHeader.
+        app.consume_process_line('', ProgressSnapshot(stage=Stage.COMPLETED), True)
+        await pilot.pause()
+        summary_actions = app.query_one('#monitor-summary ActionButtons', ActionButtons)
+        assert summary_actions.display
+        assert summary_actions.actions[0].id == 'monitor-open-results'
+        assert await pilot.click(summary_actions.query(Button).first())
+        await pilot.pause()
+        assert app.query_one('#main-tabs', TabbedContent).active == 'results-tab'
+
+        app.activate_tab('monitor-tab')
+        app.consume_process_line('', ProgressSnapshot(stage=Stage.FAILED), True)
+        await pilot.pause()
+        assert summary_actions.actions[0].id == 'monitor-back-config'
+        assert await pilot.click(summary_actions.query(Button).first())
+        await pilot.pause()
+        assert app.query_one('#main-tabs', TabbedContent).active == 'run-tab'

@@ -231,3 +231,17 @@ async def test_backfill_measurement_freezes_projection_and_preserves_operation_g
         await pilot.pause()
         assert isinstance(app.screen, ProfilerChoiceScreen)
         await pilot.press("escape")
+        await pilot.pause()
+
+        # Unified Results workbench switches bottom primary actions with active sub-tab
+        # and surfaces an inline HTML generate CTA when no report exists yet.
+        app.results.show_result_section("statistics-view")
+        await pilot.pause()
+        assert not app.query_one("#open-result-profiling", Button).display
+        assert app.query_one("#report-calculate", Button).display
+        assert app.query_one("#html-report-empty").display
+        assert app.query_one("#html-empty-generate", Button).display
+        app.results.show_result_section("backfill-view")
+        await pilot.pause()
+        assert app.query_one("#open-result-profiling", Button).display
+        assert not app.query_one("#report-calculate", Button).display

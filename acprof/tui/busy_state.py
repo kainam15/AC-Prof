@@ -23,9 +23,9 @@ ACTION_BUTTON_OPERATIONS: tuple[tuple[str, str], ...] = (
     ("#probe-largest", "probe"),
     ("#refresh-experiment-state", "summary"),
     ("#plot-results", "plot"),
-    ("#refresh-backfill-state", "summary"),
     ("#report-open", "report"),
     ("#report-calculate", "html-report"),
+    ("#html-empty-generate", "html-report"),
     ("#report-window-stats", "stats"),
     ("#stop-run", "stop"),
     ("#html-report-generate", "html-report"),
@@ -73,10 +73,7 @@ class BusyControlCache:
             for selector, operation in ACTION_BUTTON_OPERATIONS
         )
         self.cancel_html_button = app.query_one("#html-report-cancel", Button)
-        self.source_inputs = tuple(
-            app.query_one(selector, TextualInput)
-            for selector in ("#experiment-source", "#backfill-source")
-        )
+        self.source_inputs = (app.query_one("#experiment-source", TextualInput),)
         self.main_tabs = app.query_one("#main-tabs", TabbedContent)
         self.nav_targets = {}
         self.captured = True

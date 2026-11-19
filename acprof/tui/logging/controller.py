@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from textual.timer import Timer
-from textual.widgets import Select, Static
+from textual.widgets import Button, Select, Static
 
 from acprof.tui.i18n import message_id
 from acprof.tui.logging.diagnostic_buffer import BoundedLogBuffer
@@ -94,6 +94,9 @@ class LogController:
             self.timer.stop()
             self.timer = None
         self.log.set_suspended(measuring)
+        banner = self.app.query("#measurement-pause-banner")
+        if banner:
+            banner.first().display = measuring
         for widget in self.app.query(".log-control"):
             widget.disabled = measuring
         if not measuring:
@@ -107,6 +110,17 @@ class LogController:
             self.timer = None
         self.pending.clear()
         self.log.clear_log()
+        self.sync_follow_button()
+
+    def sync_follow_button(self) -> None:
+        if (not self.app.is_running or self.app.ui_closing or not self.app.form_ready
+                or self.app.execution.session.snapshot.measurement_active):
+            return
+        unread = self.log.has_unread
+        button = self.app.query_one("#follow-log", Button)
+        label = message_id("logs.navigation.follow_tail_unread") if unread else message_id("logs.navigation.follow_tail")
+        self.app.localization.set_text(button, label, "label")
+        button.set_class(unread, "-unread")
 
     def view_changed(self) -> None:
         if (not self.app.is_running or self.app.ui_closing or not self.app.form_ready
@@ -150,6 +164,7 @@ class LogController:
                 retained, shown, log.match_count, log.discarded_lines,
             )
         self.app.localization.set_text(status, summary)
+        self.sync_follow_button()
 
     def copy_all(self) -> None:
         if self.app.execution.session.snapshot.measurement_active:

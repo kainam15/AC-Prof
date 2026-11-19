@@ -44,7 +44,15 @@ def test_stage_feedback_comes_from_the_stage_not_warning_or_error_counters(stage
     assert view.summary.level == level
     assert translate(view.summary.headline, "zh") == f"{translate(stage.label, 'zh')} · 3 警告 / 2 错误"
     assert translate(view.summary.headline, "en") == f"{translate(stage.label, 'en')} · Warn 3 / Err 2"
-    assert view.summary.actions == ()
+    if stage in {Stage.COMPLETED, Stage.PARTIAL}:
+        assert tuple(action.id for action in view.summary.actions) == ("monitor-open-results",)
+    elif stage in {
+        Stage.FAILED, Stage.STOPPED, Stage.TERMINATED, Stage.PROBE_FAILED,
+        Stage.PROBE_COMPLETED, Stage.TASK_UNSUPPORTED, Stage.CLEANUP_INCOMPLETE,
+    }:
+        assert tuple(action.id for action in view.summary.actions) == ("monitor-back-config",)
+    else:
+        assert view.summary.actions == ()
 
 
 def test_current_case_does_not_advance_processed_progress_or_mutate_snapshot():

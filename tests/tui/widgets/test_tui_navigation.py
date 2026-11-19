@@ -10,7 +10,7 @@ from tests.support.tui_fixtures import AcprofTui
 
 EXPECTED_ICONS = {
     "run-tab": "☰", "monitor-tab": "◉", "results-tab": "▥",
-    "backfill-tab": "↻", "images-tab": "⬢", "settings-tab": "⚙︎",
+    "images-tab": "⬢", "settings-tab": "⚙︎",
 }
 
 
@@ -24,7 +24,7 @@ async def test_sidebar_clicks_keyboard_and_resize_preserve_form(tmp_path, monkey
         model = app.query_one("#model", Input)
         model.value = "demo/edited-model"
         await pilot.pause()
-        for page in ("run", "monitor", "results", "backfill", "images", "settings"):
+        for page in ("run", "monitor", "results", "images", "settings"):
             button = app.query_one(f"#nav-{page}-tab", Button)
             icon = EXPECTED_ICONS[f"{page}-tab"]
             assert button.label.plain == (icon if app.has_class("collapsed-navigation") else
@@ -187,7 +187,7 @@ async def test_sidebar_hover_and_hold_keep_content_aligned(tmp_path, monkeypatch
         navigation = app.query_one("#page-navigation")
         model = app.query_one("#model", Input)
         geometry = navigation.region, tabs.region, model.region
-        for page in ("monitor", "results", "backfill", "images"):
+        for page in ("monitor", "results", "images"):
             button = app.query_one(f"#nav-{page}-tab", Button)
             assert await pilot.hover(button)
             await pilot.pause()
@@ -246,7 +246,7 @@ async def test_page_shortcuts_header_help_command_palette_and_update_badge(tmp_p
         assert tabs.active == "monitor-tab"
         await pilot.press("alt+3")
         assert tabs.active == "results-tab"
-        await pilot.press("alt+6")
+        await pilot.press("alt+5")
         assert tabs.active == "settings-tab"
         await pilot.press("alt+1")
         assert tabs.active == "run-tab"

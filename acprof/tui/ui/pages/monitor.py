@@ -66,12 +66,19 @@ def compose_monitor_tab(app: AcprofTui) -> ComposeResult:
                         yield app.localization.localized_widget(LogToolbarButton("放大日志", id="expand-log", classes="log-tool"))
                         yield app.localization.localized_widget(LogToolbarButton("返回监控", id="restore-log", classes="log-tool"))
                         yield app.localization.localized_widget(LogToolbarButton("清空日志", id="clear-log", classes="log-tool"))
-                        yield app.localization.localized_widget(LogToolbarButton("工具", id="log-tools", classes="log-tool log-control", tooltip="筛选 / 搜索"))
+                        yield app.localization.localized_widget(LogToolbarButton(
+                            message_id("logs.tools.label"), id="log-tools", classes="log-tool log-control", tooltip="筛选 / 搜索",
+                        ))
                     with Horizontal(classes="action-primary"):
                         yield app.localization.localized_widget(LogToolbarButton(
                             "终止任务", id="stop-run", classes="log-tool",
                             variant="error", disabled=True,
                         ))
+                yield app.localization.localized_widget(Static(
+                    message_id("logs.measurement.paused_banner"),
+                    id="measurement-pause-banner",
+                    markup=False,
+                ))
                 yield SelectableLog(
                     id="run-log",
                     max_lines=app.configuration.preferences.log_max_lines,

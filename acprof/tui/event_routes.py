@@ -55,6 +55,7 @@ class AppEventRoutes(BarCursorApp):
         updates: UpdateController
 
         def action_request_stop(self) -> None: ...
+        def activate_tab(self, tab_id: str) -> None: ...
 
     @on(Button.Pressed, '#model-candidates')
     def on_models_open_model_candidates(self) -> None:
@@ -187,6 +188,10 @@ class AppEventRoutes(BarCursorApp):
     def on_log_updated(self) -> None:
         self.logs.refresh_status()
 
+    @on(SelectableLog.FollowChanged)
+    def on_log_follow_changed(self) -> None:
+        self.logs.sync_follow_button()
+
     @on(Input.Changed, '#log-search')
     @on(Select.Changed, '#log-level')
     def on_log_view_changed(self) -> None:
@@ -239,15 +244,11 @@ class AppEventRoutes(BarCursorApp):
     def on_results_result_source_changed(self) -> None:
         self.results.result_source_changed()
 
-    @on(Input.Changed, '#backfill-source')
-    def on_backfill_result_source_changed(self, event: TextualInput.Changed) -> None:
+    @on(TabbedContent.TabActivated, '#result-views')
+    def on_results_subtab_activated(self, event: TabbedContent.TabActivated) -> None:
         if not self.is_running or not self.form_ready or self.ui_closing:
             return
-        # Read the current value: queued startup events may predate restoration.
-        if event.input.value != self.query_one('#experiment-source', Input).value:
-            with self.prevent(Input.Changed):
-                self.query_one('#experiment-source', Input).value = event.input.value
-            self.results.result_source_changed()
+        self.results.sync_result_actions_for_view(event.pane.id or "overview-view")
 
     @on(ActionRequested)
     def on_structured_action(self, event: ActionRequested) -> None:
@@ -264,6 +265,12 @@ class AppEventRoutes(BarCursorApp):
         elif event.action_id == "plan-set-repeat-3":
             event.stop()
             self.configuration.set_minimum_repeats()
+        elif event.action_id == "monitor-open-results":
+            event.stop()
+            self.results.show_result_section("overview-view")
+        elif event.action_id == "monitor-back-config":
+            event.stop()
+            self.activate_tab("run-tab")
         elif event.action_id.startswith("backfill-"):
             event.stop()
             self.profiles.backfill_action(event.action_id)
@@ -272,15 +279,10 @@ class AppEventRoutes(BarCursorApp):
     def on_results_refresh_experiment(self) -> None:
         self.results.refresh_experiment()
 
-    @on(Button.Pressed, '#refresh-backfill-state')
-    def on_backfill_refresh_experiment(self) -> None:
-        self.results.refresh_experiment()
-
     @on(Button.Pressed, '#overview-profiling')
     def on_overview_profiling(self) -> None:
         self.profiles.open_selection_dialog()
 
-    @on(Button.Pressed, '#backfill-cancel')
     @on(Button.Pressed, '#results-cancel')
     def on_backfill_cancel_read(self) -> None:
         if self.execution.session.kind in {"stats", "compare"}:
@@ -316,6 +318,7 @@ class AppEventRoutes(BarCursorApp):
         self.results.report_row_highlighted(event)
 
     @on(Button.Pressed, '#report-calculate')
+    @on(Button.Pressed, '#html-empty-generate')
     def on_results_calculate_report_button(self) -> None:
         self.results.calculate_report_button()
 

@@ -70,7 +70,6 @@ from acprof.tui.ui.environment import (
 )
 from acprof.tui.ui.input import BarCursorInput as Input
 from acprof.tui.ui.navigation import PageNavigation
-from acprof.tui.ui.pages.backfill import compose_backfill_tab
 from acprof.tui.ui.pages.images import compose_images_tab
 from acprof.tui.ui.pages.monitor import compose_monitor_tab
 from acprof.tui.ui.pages.run import compose_run_tab
@@ -103,9 +102,8 @@ class AcprofTui(AppEventRoutes):
         Binding("alt+1", "select_page('run-tab')", "实验配置", show=False),
         Binding("alt+2", "select_page('monitor-tab')", "运行监控", show=False),
         Binding("alt+3", "select_page('results-tab')", "实验结果", show=False),
-        Binding("alt+4", "select_page('backfill-tab')", "补采实验", show=False),
-        Binding("alt+5", "select_page('images-tab')", "镜像管理", show=False),
-        Binding("alt+6", "select_page('settings-tab')", "应用设置", show=False),
+        Binding("alt+4", "select_page('images-tab')", "镜像管理", show=False),
+        Binding("alt+5", "select_page('settings-tab')", "应用设置", show=False),
         Binding("alt+e", "toggle_status_center", "环境状态", show=False),
         Binding("ctrl+k", "open_command_palette", "快捷命令", priority=True, show=False),
         Binding("slash", "open_command_palette_key", "快捷命令", show=False),
@@ -208,7 +206,6 @@ class AcprofTui(AppEventRoutes):
                 yield from compose_run_tab(self)
                 yield from compose_monitor_tab(self)
                 yield from compose_results_tab(self)
-                yield from compose_backfill_tab(self)
                 yield from compose_images_tab(self)
                 yield from compose_settings_tab(self)
 
@@ -240,6 +237,7 @@ class AcprofTui(AppEventRoutes):
         self.form_ready = True
         self.results.restore_recent_result()
         self.results.update_report_actions()
+        self.results.sync_result_actions_for_view(result_views.active)
         self.configuration.refresh_command_preview(notify=False)
         if not self.read_jobs:
             self.call_after_refresh(self.preflight.quick_check)
@@ -336,6 +334,9 @@ class AcprofTui(AppEventRoutes):
         apply_busy_state(self, self._busy_controls, busy)
 
     def activate_tab(self, tab_id: str) -> None:
+        if tab_id == "backfill-tab":
+            self.results.show_result_section("backfill-view")
+            return
         if self.screen.maximized is not None:
             self.screen.minimize()
         tabs = self.query_one("#main-tabs", TabbedContent)

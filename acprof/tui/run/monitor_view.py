@@ -7,7 +7,13 @@ from acprof.tui.i18n import message_id
 from acprof.tui.run.monitor import MonitorPhase, monitor_phase, visible_statuses
 from acprof.tui.run.progress import ProgressSnapshot
 from acprof.tui.run.stages import Stage
-from acprof.tui.ui.view_models import FactRow, StatusSummary, ViewSection, status_presentation
+from acprof.tui.ui.view_models import (
+    FactRow,
+    StatusSummary,
+    ViewAction,
+    ViewSection,
+    status_presentation,
+)
 
 # Display vocabulary only; execution and result validation remain the owners of Stage.
 _STAGE_STATES = {
@@ -44,7 +50,21 @@ def _summary(snapshot: ProgressSnapshot) -> StatusSummary:
     headline = snapshot.stage.label
     if snapshot.warnings or snapshot.errors:
         headline = message_id("run.monitor.stage_with_counts", headline, snapshot.warnings, snapshot.errors)
-    return StatusSummary(state.level, headline)
+    actions: tuple[ViewAction, ...] = ()
+    if not snapshot.measurement_active:
+        if snapshot.stage in {Stage.COMPLETED, Stage.PARTIAL}:
+            actions = (ViewAction("monitor-open-results", message_id("run.monitor.view_results"), primary=True),)
+        elif snapshot.stage in {
+            Stage.FAILED,
+            Stage.STOPPED,
+            Stage.TERMINATED,
+            Stage.PROBE_FAILED,
+            Stage.PROBE_COMPLETED,
+            Stage.TASK_UNSUPPORTED,
+            Stage.CLEANUP_INCOMPLETE,
+        }:
+            actions = (ViewAction("monitor-back-config", message_id("run.monitor.back_to_config"), primary=True),)
+    return StatusSummary(state.level, headline, actions=actions)
 
 
 def _resource_value(raw: str, *, memory: bool = False, gpu: bool = False) -> str:

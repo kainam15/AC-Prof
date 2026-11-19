@@ -111,6 +111,10 @@ MESSAGES: dict[str, Entry] = {
     "results.html.current_source": Entry(zh="数据来源：当前选中的实验", en="Source: selected experiment"),
     "results.html.duplicate_input": Entry(zh="实验输入重复：{0}", en="Duplicate experiment input: {0}"),
     "results.html.edit_inputs": Entry(zh="编辑对比实验（已添加）", en="Edit added experiments"),
+    "results.html.empty_hint": Entry(
+        zh="当前实验尚未生成 HTML 分析报告，可直接点击下方按钮生成并在浏览器查看。",
+        en="No HTML report exists for this experiment yet. Generate one below to explore charts and window statistics.",
+    ),
     "results.html.existing_report": Entry(
         zh="已发现之前的 HTML 报告，可直接打开或生成新版本。",
         en="An existing HTML report is available. Open it or generate a new version.",

@@ -16,6 +16,7 @@ from textual.widgets import (
 )
 
 from acprof.tui.i18n import message_id
+from acprof.tui.results.backfill_panel import BackfillPanel
 from acprof.tui.results.overview_panel import ExperimentOverviewPanel
 from acprof.tui.ui.input import BarCursorInput as Input
 from acprof.tui.ui.structured import FactGrid, StatusBanner
@@ -40,6 +41,9 @@ def compose_results_tab(app: AcprofTui) -> ComposeResult:
                     yield ExperimentOverviewPanel(id="experiment-overview")
             with TabPane(message_id("results.tabs.statistics"), id="statistics-view"):
                 yield from compose_statistics(app)
+            with TabPane(message_id("profiling.backfill.title"), id="backfill-view"):
+                with VerticalScroll(id="backfill-body", classes="pane-scroll"):
+                    yield BackfillPanel(id="backfill-panel")
             with TabPane(message_id("results.tabs.compare"), id="comparison-view"):
                 yield from compose_comparison(app)
             with TabPane(message_id("results.tabs.import_export"), id="exports-view"):
@@ -51,6 +55,7 @@ def compose_results_tab(app: AcprofTui) -> ComposeResult:
             with Horizontal(classes="action-primary"):
                 yield local(Button(message_id("results.analysis.generate"), id="report-calculate", classes="report-control", variant="primary"))
                 yield local(Button("生成 PNG 图表", id="plot-results"))
+                yield local(Button(message_id("profiling.overview.open"), id="open-result-profiling", disabled=True, variant="primary"))
 
 
 def compose_statistics(app: AcprofTui) -> ComposeResult:
@@ -120,6 +125,11 @@ def compose_html(app: AcprofTui) -> ComposeResult:
             headline_id="html-report-status",
             include_actions=False,
         )
+        with Vertical(id="html-report-empty"):
+            yield local(Static(message_id("results.html.empty_hint"), id="html-empty-hint", markup=False))
+            with Horizontal(classes="html-actions"):
+                yield local(Button(message_id("results.analysis.generate"), id="html-empty-generate",
+                                   classes="report-control", variant="primary", disabled=True))
         with Vertical(id="html-report-file"):
             yield local(Static(message_id("results.html.selected_report"), classes="html-file-heading"))
             yield Static("", id="html-report-filename", markup=False)

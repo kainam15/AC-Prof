@@ -65,7 +65,6 @@ class TestTuiPageChrome:
                 ('run-tab', 'start-run', ('open-run-settings', 'probe-largest')),
                 ('monitor-tab', 'stop-run', ('copy-log-all', 'follow-log', 'expand-log', 'clear-log')),
                 ('results-tab', 'plot-results', ('refresh-experiment-state',)),
-                ('backfill-tab', 'open-result-profiling', ('refresh-backfill-state',)),
                 ('images-tab', 'image-delete', ('image-toggle', 'image-model', 'image-clear')),
                 ('settings-tab', 'save-ui-settings', ('restore-ui-defaults',)),
             )

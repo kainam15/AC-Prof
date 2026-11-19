@@ -214,6 +214,7 @@ class FactValue(Static, can_focus=True):
         level = status_presentation(self.row.status).level if self.row.status else None
         for candidate in ("success", "warning", "error", "info", "neutral"):
             self.set_class(level == candidate, "status-" + candidate)
+        self.set_class(self.row.copyable, "copyable")
         self.tooltip = Text(_value_text(self.row.value, self.app) + ("\n" + self.row.detail
                            if self.row.detail and self.row.detail != self.row.value else ""))
         self.refresh(layout=True)
@@ -237,6 +238,15 @@ class FactValue(Static, can_focus=True):
         if self.row.copyable:
             self.app.copy_to_clipboard(_value_text(self.row.value, self.app))
             self.app.notify(translated_app(self.app).tr(message_id("structured.action.copied")))
+
+    def on_click(self, event: events.Click) -> None:
+        if event.button != 1:
+            return
+        if event.chain == 2 and self.can_focus:
+            self.action_details()
+            event.stop()
+        elif event.chain == 1 and self.row.copyable:
+            self.action_copy_value()
 
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
         if action == "copy_value":

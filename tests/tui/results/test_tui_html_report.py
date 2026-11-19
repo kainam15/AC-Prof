@@ -333,10 +333,11 @@ async def test_comparison_exports_and_report_panels_stay_hidden_during_navigatio
             assert views.get_tab(hidden).region.area == 0
             assert views.get_pane(hidden).region.area == 0
         assert [views.get_tab(name).display for name in (
-            "overview-view", "statistics-view",
-        )] == [True, True]
+            "overview-view", "statistics-view", "backfill-view",
+        )] == [True, True, True]
         views.query_one(Tabs).focus()
-        for key, expected in (("right", "statistics-view"), ("right", "overview-view"),
+        for key, expected in (("right", "statistics-view"), ("right", "backfill-view"),
+                              ("right", "overview-view"), ("left", "backfill-view"),
                               ("left", "statistics-view"), ("left", "overview-view")):
             await pilot.press(key)
             assert views.active == expected

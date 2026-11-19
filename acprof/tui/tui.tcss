@@ -429,7 +429,7 @@ Button:disabled, Button:disabled:hover, Button:disabled:focus, Button:disabled.-
 }
 Input:disabled { color: $ui-disabled; border: solid $ui-disabled; }
 Select:disabled > SelectCurrent { color: $ui-disabled; border: solid $ui-disabled; }
-#open-result-profiling { width: auto; }
+#open-result-profiling { display: none; width: auto; }
 .settings-section {
     height: auto;
     border: solid $panel;
@@ -491,6 +491,33 @@ MonitorHeader.compact-facts #monitor-resources { width: 100%; margin-left: 0; }
 #log-toolbar Button {
     min-width: 8;
     padding: 0;
+}
+#follow-log.-unread {
+    border: round $accent;
+    color: $accent;
+    text-style: bold;
+}
+#measurement-pause-banner {
+    display: none;
+    height: auto;
+    padding: 0 2;
+    margin: 0 2;
+    border-left: solid $accent;
+    background: $surface;
+    color: $accent;
+    text-style: bold;
+}
+#monitor-summary ActionButtons Button.-primary {
+    background: $accent;
+    color: $background;
+    text-style: bold;
+    padding: 0 2;
+}
+#monitor-summary ActionButtons Button.-primary:hover,
+#monitor-summary ActionButtons Button.-primary:focus {
+    background: $accent;
+    color: $background;
+    text-style: bold underline;
 }
 #restore-log { display: none; }
 #log-panel.-maximized { padding: 0; }
@@ -560,6 +587,7 @@ FactGrid { margin-bottom: 1; }
 .fact-value.status-error { color: $error; }
 .fact-value.status-info { color: $accent; }
 .fact-value.status-neutral { color: $text-muted; }
+.fact-value.copyable:hover { background: $boost; text-style: underline; }
 .fact-value:focus { text-style: bold underline; background: $boost; }
 .fact-more { margin-top: 0; }
 Callout { padding: 0 1; margin-bottom: 1; border-left: solid $warning; }
@@ -632,6 +660,8 @@ FactDetailScreen { align: center middle; }
 #html-extra-sources, #html-report-path { width: 100%; margin-bottom: 1; }
 /* Avoid nested top padding: Textual's focus-scroll region omits that offset. */
 #html-report-file { height: auto; margin-top: 1; border-top: solid $panel; }
+#html-report-empty { height: auto; margin-top: 1; padding: 1; border: round $panel; background: $surface; }
+#html-empty-hint { height: auto; color: $text-muted; margin-bottom: 1; }
 .html-file-heading { height: 1; color: $text-muted; }
 #html-report-filename { height: 1; text-style: bold; text-overflow: ellipsis; }
 #html-report-location {

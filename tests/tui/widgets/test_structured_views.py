@@ -524,3 +524,23 @@ async def test_fact_status_uses_semantic_color_and_keeps_it_during_keyboard_focu
         assert rendered_widget_text(app, value).startswith(symbol + " 状态值")
         assert translate(message_id("structured.fact.hint"), "zh") in rendered_widget_text(app, value)
         assert (value.styles.color, value.styles.auto_color) == (expected.color, expected.auto_color)
+
+
+async def test_fact_click_copies_directly_and_double_click_opens_details():
+    grid = FactGrid(ViewSection("身份", (
+        FactRow("路径", RAW_PATH, detail=RAW_DETAIL, copyable=True),
+        FactRow("状态", "只读"),
+    )))
+    app = StructuredHarness(grid)
+    async with app.run_test(size=(80, 24)) as pilot:
+        copyable, readonly = list(grid.query(FactValue))
+        assert copyable.has_class("copyable")
+        assert not readonly.has_class("copyable")
+        assert await pilot.click(copyable)
+        await pilot.pause()
+        assert app.clipboard == RAW_PATH
+        assert not isinstance(app.screen, FactDetailScreen)
+        await pilot.click(copyable, times=2)
+        await pilot.pause()
+        assert isinstance(app.screen, FactDetailScreen)
+        await pilot.press("escape")

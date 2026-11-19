@@ -13,8 +13,8 @@ MESSAGES: dict[str, Entry] = {
     "structured.callout.problem": Entry(zh="问题", en="Problem"),
     "structured.detail.title": Entry(zh="技术详情", en="Technical details"),
     "structured.fact.details": Entry(zh="更多信息", en="More details"),
-    "structured.fact.details_hint": Entry(zh="Enter 查看全文", en="Enter details"),
-    "structured.fact.hint": Entry(zh="Enter 查看全文 · C 复制", en="Enter details · C copy"),
+    "structured.fact.details_hint": Entry(zh="Enter / 双击 查看全文", en="Enter / double-click: details"),
+    "structured.fact.hint": Entry(zh="单击 / C 复制 · Enter / 双击 查看全文", en="Click / C: copy · Enter / double-click: details"),
     "structured.reason.access.impact": Entry(
         zh="当前操作无法读取所需资源。", en="The current operation cannot read the required resource.",
     ),

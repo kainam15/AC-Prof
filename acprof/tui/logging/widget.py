@@ -68,6 +68,7 @@ class SelectableLog(TextArea):
         self._mutating_log = True
         self._has_entries = False
         self._following = True
+        self._unread_output = False
         self._max_lines = self._validate_max_lines(max_lines)
         self.records = LogRecords(self._max_lines, self._validate_max_lines(max_bytes))
         self._rows: list[LogRow] = []
@@ -203,7 +204,13 @@ class SelectableLog(TextArea):
     def following(self) -> bool:
         return self._following
 
+    @property
+    def has_unread(self) -> bool:
+        return self._unread_output
+
     def _set_following(self, following: bool) -> None:
+        if following:
+            self._unread_output = False
         if self._following != following:
             self._following = following
             self.post_message(self.FollowChanged(self, following))
@@ -381,6 +388,8 @@ class SelectableLog(TextArea):
 
     def write(self, content: str) -> SelectableLog:
         """Retain original text and update the projection without stealing selection."""
+        if content and not self._following:
+            self._unread_output = True
         self.records.append(content)
         self._sync_view()
         return self
@@ -391,6 +400,7 @@ class SelectableLog(TextArea):
         try:
             result = super().clear()
             self._has_entries = False
+            self._unread_output = False
             self.records = LogRecords(self.max_lines, self.records.max_bytes)
             self._rows = []
             self._matches = []

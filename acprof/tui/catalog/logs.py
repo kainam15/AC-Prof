@@ -59,11 +59,16 @@ MESSAGES: dict[str, Entry] = {
         zh="[TUI] 测量窗口结束，显示期间延迟刷新的重要消息：",
         en="[TUI] Measurement window ended; showing deferred important messages:",
     ),
+    "logs.measurement.paused_banner": Entry(
+        zh="● 正式测量进行中 — 日志已暂停滚动以消除终端绘制干扰，结束后自动恢复",
+        en="● Measurement active — log streaming paused to avoid terminal noise; resumes automatically",
+    ),
     "logs.measurement.suppressed_count": Entry(
         zh="[TUI] 为降低测量干扰，本窗口隐藏了 {0} 行常规输出。",
         en="[TUI] Hid {0} routine output lines in this window to reduce measurement interference.",
     ),
     "logs.navigation.follow_tail": Entry(zh="回到底部", en="Follow"),
+    "logs.navigation.follow_tail_unread": Entry(zh="回到底部 •", en="Follow •"),
     "logs.navigation.restore_monitor": Entry(zh="返回监控", en="Restore"),
     "logs.process.command_failed": Entry(zh="[TUI][ERROR] 无法运行命令：{0}", en="[TUI][ERROR] Cannot run command: {0}"),
     "logs.process.completed": Entry(zh="[TUI] {0} 任务完成，退出码 0", en="[TUI] {0} task completed, exit code 0"),
@@ -81,5 +86,5 @@ MESSAGES: dict[str, Entry] = {
     "logs.search.placeholder": Entry(zh="搜索保留日志", en="Search retained logs"),
     "logs.search.tooltip": Entry(zh="Enter 下一处 · Shift+Enter 上一处", en="Enter: next match · Shift+Enter: previous match"),
     "logs.stage.transition": Entry(zh="[phase][{0}] {1}（上一阶段 {2}s）", en="[phase][{0}] {1} (previous phase {2}s)"),
-    "logs.tools.label": Entry(zh="工具", en="Tools"),
+    "logs.tools.label": Entry(zh="筛选与导出", en="Filter/Export"),
 }
