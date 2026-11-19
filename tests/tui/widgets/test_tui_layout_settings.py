@@ -1,3 +1,4 @@
+import asyncio
 import os
 import stat
 import tempfile
@@ -35,7 +36,6 @@ from acprof.tui.settings.preferences import (
     save_settings,
 )
 from tests.support.tui_fixtures import AcprofTui
-from tests.support.tui_waits import wait_for_condition
 
 PROJECT_DIR = Path(__file__).resolve().parents[3]
 
@@ -374,21 +374,31 @@ class TestTuiModelMemory:
             yield
 
     @pytest.mark.parametrize('kind', ['run', 'probe'])
-    async def test_confirmed_run_and_probe_restore_model_without_saving_other_edits(self, kind):
+    async def test_confirmed_run_and_probe_restore_model_without_saving_other_edits(self, kind, monkeypatch):
         save_settings(self.settings_path, self.saved, PROJECT_DIR)
         original = self.settings_path.read_bytes()
         app = AcprofTui(settings_path=self.settings_path)
         model = f"demo/latest-{kind}"
         expected = replace(self.saved, last_model=model)
         async with app.run_test(size=(120, 30)) as pilot:
+            checked = asyncio.Event()
+            show_result = app.preflight.show_quick_check
+
+            def record_check(*args, **kwargs):
+                show_result(*args, **kwargs)
+                if app.preflight.checked_config and app.preflight.checked_config.cpus == "2":
+                    checked.set()
+
+            monkeypatch.setattr(app.preflight, "show_quick_check", record_check)
             app.query_one("#model", Input).value = f"  {model}  "
             app.query_one("#cpus", Input).value = "2"
             app.query_one("#ui-theme", Select).value = "acprof-dark"
-            await wait_for_condition(
-                pilot, lambda: app.preflight.config_matches() and not app.query_one("#start-run", Button).disabled,
-                description="edited configuration admitted after automatic preflight", timeout=5,
-                diagnostics=app.preflight.preflight_run_reason,
-            )
+            await asyncio.wait_for(checked.wait(), timeout=5)
+            await pilot.pause()
+            assert app.preflight.config_matches()
+            button = "#start-run" if kind == "run" else "#probe-largest"
+            assert not app.query_one(button, Button).disabled
+
             def check_persisted_before_launch(command, launched_kind, *, config):
                 assert (launched_kind) == (kind)
                 assert (load_settings(self.settings_path, PROJECT_DIR)) == ((expected, ""))

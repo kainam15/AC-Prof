@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from acprof.experiments.configuration import RunConfig
+from acprof.host import run_state
 
 ROOT = Path(__file__).resolve().parents[3]
 
@@ -27,10 +28,12 @@ class TestTuiValidationRunner:
             command = output / "command.json"
             command.write_text(json.dumps({"config": asdict(config), "command": child}))
             runner = runner or "import runpy, sys; sys.argv = sys.argv[1:]; runpy.run_path(sys.argv[0], run_name='__main__')"
-            guard = """import os, sys
+            guard = r"""import os, sys
 def protect_production_lock(event, args):
     if event == "open" and args[0] == f"/tmp/acprof-measurement-{os.getuid()}.lock":
         raise AssertionError("offline child accessed the production measurement lock")
+    if event == "socket.bind" and args[1] == b"\0acprof.measurement." + str(os.getuid()).encode():
+        raise AssertionError("offline child accessed the production measurement socket")
 sys.addaudithook(protect_production_lock)
 """
             runner = (
@@ -52,6 +55,7 @@ sys.addaudithook(protect_production_lock)
                 "    patch('acprof.tui.run.preflight_controller.scan_environment', return_value=[]),\n"
                 "    patch('httpx.AsyncHTTPTransport.handle_async_request', version_response),\n"
                 f"    patch('acprof.host.run_state.MEASUREMENT_LOCK_ROOT', Path({str(self.measurement_root)!r})),\n"
+                f"    patch('acprof.host.run_state.MEASUREMENT_LOCK_NAMESPACE', {run_state.MEASUREMENT_LOCK_NAMESPACE!r}),\n"
                 "):\n"
                 f"    exec({runner!r})\n"
             )

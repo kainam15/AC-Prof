@@ -3,9 +3,9 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 import pytest
-from textual.widgets import Collapsible, Select, TabbedContent
-from tests.support.tui_actions import open_page
+from textual.widgets import Checkbox, Collapsible, Select, Static, TabbedContent
 from tests.support.tui_fixtures import AcprofTui
+from tests.support.tui_waits import wait_for_condition
 
 from acprof.experiments.configuration import RunConfig, build_run_command
 from acprof.tui.run.diagnostics import quick_preflight
@@ -28,31 +28,33 @@ async def test_late_refresh_timer_update_pauses_after_tabs_are_unmounted():
 
 @pytest.mark.parametrize('size', [(80, 24), (120, 30), (150, 45)])
 @pytest.mark.parametrize('language', ['zh', 'en'])
-async def test_mode_selector_updates_command_in_both_languages_and_sizes(size, language):
-    with tempfile.TemporaryDirectory() as root:
-        app = AcprofTui(RunConfig(model="test/model", profiling_mode="full"), settings_path=Path(root) / "settings.json")
-        async with app.run_test(size=size) as pilot:
-            app.query_one("#ui-language", Select).value = language
-            await pilot.pause()
-            control = app.query_one("#profiling-mode", Select)
-            await open_page(pilot, "run-tab")
-            for container in control.ancestors:
-                if isinstance(container, Collapsible):
-                    container.collapsed = False
-            await pilot.pause()
-            control.scroll_visible(animate=False, immediate=True, force=True)
-            await pilot.pause()
-            assert control.value == "full"
-            assert control.region.area > 0
-            control.focus(scroll_visible=False)
-            await pilot.press("enter", "down", "enter")
-            await pilot.pause()
-            assert (control.value) == ("basic")
-            assert (control.region.height) > (0)
-            config = app.configuration.collect_config()
-            assert (config.profiling_mode) == ("basic")
-            command = build_run_command(config, project_dir=Path.cwd())
-            assert (command[command.index("--profiling-mode") + 1]) == ("basic")
+async def test_optional_profiler_updates_command_in_both_languages_and_sizes(size, language, tmp_path):
+    app = AcprofTui(RunConfig(model="test/model", profiling_mode="full"), settings_path=tmp_path / "settings.json")
+    async with app.run_test(size=size) as pilot:
+        app.query_one("#ui-language", Select).value = language
+        await pilot.pause()
+        assert not app.query("#profiling-mode")
+        options = app.query_one("#profiling-options", Collapsible)
+        title = options.query_one("CollapsibleTitle")
+        title.scroll_visible(animate=False, immediate=True, force=True)
+        title.focus()
+        await pilot.press("enter")
+        assert not options.collapsed
+        profiler = options.query_one("#torch-profiler", Checkbox)
+        profiler.scroll_visible(animate=False, immediate=True, force=True)
+        profiler.focus()
+        await pilot.pause()
+        assert profiler.region.area > 0 and not profiler.value
+        await pilot.press("space")
+        preview = app.query_one("#command-preview", Static)
+        await wait_for_condition(pilot, lambda: "--compute-profile-tool torch" in str(preview.content),
+                                 description="selected profiler in command preview", timeout=3)
+        config = app.configuration.collect_config()
+        assert profiler.value and config.compute_profile_tool == "torch"
+        assert config.profiling_mode == "best_effort"
+        command = build_run_command(config, project_dir=Path.cwd())
+        assert command[command.index("--compute-profile-tool") + 1] == "torch"
+        assert "--profiling-mode" not in command
 
 def test_basic_diagnostics_do_not_probe_unrequested_energy_or_perf():
     with tempfile.TemporaryDirectory() as root, patch("acprof.tui.run.diagnostics.probe_cpu_energy", side_effect=AssertionError("RAPL not requested")), patch(

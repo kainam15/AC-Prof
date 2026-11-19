@@ -67,9 +67,11 @@ class TestStartupPreflight:
 
     @pytest.mark.parametrize("repeat", [7, 0], ids=["edited-plan", "invalid-plan"])
     async def test_preflight_completion_uses_edits_made_while_checking(self, repeat):
+        started = threading.Event()
         release = threading.Event()
 
         def slow_check(*_args, **_kwargs):
+            started.set()
             if not release.wait(10):
                 raise TimeoutError("test did not release diagnostics")
             return [PreflightCheck("Runtime", "ok", "ready", runtime_kind="docker")]
@@ -78,7 +80,7 @@ class TestStartupPreflight:
         with patch("acprof.tui.run.preflight_controller.quick_preflight", side_effect=slow_check):
             async with app.run_test(size=(120, 30)) as pilot:
                 try:
-                    await pilot.pause()
+                    assert await asyncio.to_thread(started.wait, 5), "startup preflight did not enter the probe"
                     assert app.preflight.check_running
                     app.configuration.apply_config(replace(
                         RunConfig.smoke("fixture/model"), input_scales="16,32", warmup=3, repeat=repeat,
