@@ -31,7 +31,7 @@ class Scene:
 
 
 # Regexes must match actual visible terminal cells, not a background sentinel.
-_FORM = Scene(form.initial_config, form.mount, "1 个正式窗口")
+_FORM = Scene(form.initial_config, form.mount, r"预热 0.*正式 1")
 _DOCKER_FRONTEND = Scene(
     docker_frontend.initial_config, docker_frontend.mount, r"registry-1\.docker\.io", page="monitor-tab",
     visible_controls=("#download-progress", "#stop-run"),
@@ -47,7 +47,7 @@ SCENARIOS: dict[str, Scene] = {
         error_modal.initial_config, error_modal.mount, "× RAPL DRAM 能耗 · 无权限",
         visible_controls=("#preflight-inspection", "#preflight-callout .structured-action"),
     ),
-    "near-match": Scene(near_match.initial_config, near_match.mount, "3 个正式窗口"),
+    "near-match": Scene(near_match.initial_config, near_match.mount, r"预热 27.*正式 81"),
     "measuring": Scene(measuring.initial_config, measuring.mount, r"当前 case\s+2", page="monitor-tab"),
     "docker-frontend": _DOCKER_FRONTEND,
     "docker-frontend-small": replace(_DOCKER_FRONTEND, columns=80, rows=24),

@@ -65,7 +65,7 @@ async def test_pilot_evidence_uses_noto_svg_and_keeps_ansi_for_png(tmp_path):
     assert "Fira Code" not in svg
     assert "cdnjs.cloudflare.com" not in svg
     assert b"\x1b[?25l" in ansi
-    assert "实验配置".encode() in ansi
+    assert "基本配置".encode() in ansi
 
 
 async def test_standalone_synthetic_capture_uses_its_own_measurement_lock(tmp_path, monkeypatch):

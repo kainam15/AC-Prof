@@ -384,10 +384,10 @@ class TestTuiModelMemory:
     @pytest.mark.parametrize('kind', ['run', 'probe'])
     async def test_confirmed_run_and_probe_restore_model_without_saving_other_edits(self, kind, monkeypatch):
         save_settings(self.settings_path, self.saved, PROJECT_DIR)
-        original = self.settings_path.read_bytes()
         app = AcprofTui(settings_path=self.settings_path)
         model = f"demo/latest-{kind}"
-        expected = replace(self.saved, last_model=model)
+        before_launch = replace(self.saved, ui=replace(self.saved.ui, theme="acprof-dark"))
+        expected = replace(before_launch, last_model=model)
         async with app.run_test(size=(120, 30)) as pilot:
             checked = asyncio.Event()
             show_result = app.preflight.show_quick_check
@@ -417,7 +417,7 @@ class TestTuiModelMemory:
                 getattr(app, f"action_request_{kind}")()
                 await pilot.pause()
                 if kind == "probe":
-                    assert self.settings_path.read_bytes() == original
+                    assert load_settings(self.settings_path, PROJECT_DIR) == (before_launch, "")
                     assert await pilot.click("#confirm-yes")
                     await pilot.pause()
                 execute.assert_called_once()
@@ -426,7 +426,7 @@ class TestTuiModelMemory:
             await pilot.pause(0.12)
             assert (restarted.query_one("#model", Input).value) == (model)
             assert (restarted.query_one("#cpus", Input).value) == ("1,3")
-            assert (restarted.theme) == ("acprof-light")
+            assert (restarted.theme) == ("acprof-dark")
             assert (restarted.configuration.saved_settings.last_result_dir) == (expected.last_result_dir)
             assert (restarted.query_one("#experiment-source", Input).value) == ("")
             assert (restarted.configuration.saved_settings.last_result_csv) == (expected.last_result_csv)

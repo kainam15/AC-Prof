@@ -67,8 +67,8 @@ async def test_selection_change_during_profiler_inspection_cancels_and_allows_re
                 assert app.tr("读取已取消；等待后台任务释放资源。") in str(app.query_one("#result-data-status", Static).content)
             elif action == "cancel-backfill":
                 await open_page(pilot, "backfill-tab")
-                button = app.query_one("#refresh-backfill-state", Button)
-                assert await pilot.click("#backfill-cancel")
+                button = app.query_one("#refresh-experiment-state", Button)
+                assert await pilot.click("#results-cancel")
                 await pilot.pause()
                 view = app.query_one("#backfill-panel", BackfillPanel).view
                 assert view.summary.headline == message_id("profiling.view.cancelled")
@@ -77,8 +77,8 @@ async def test_selection_change_during_profiler_inspection_cancels_and_allows_re
             else:
                 if action == "change-backfill-source":
                     await open_page(pilot, "backfill-tab")
-                    selector = app.query_one("#backfill-source", Input)
-                    button = app.query_one("#refresh-backfill-state", Button)
+                    selector = app.query_one("#experiment-source", Input)
+                    button = app.query_one("#refresh-experiment-state", Button)
                 await fill_form(pilot, {f"#{selector.id}": str(second)})
                 await wait_for_condition(
                     pilot, lambda: first_cancelled() and app.results.source_path == second,

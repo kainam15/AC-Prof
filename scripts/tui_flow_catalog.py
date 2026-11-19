@@ -77,7 +77,7 @@ def load_catalog(*, source: Path = CATALOG, root: Path = ROOT) -> dict:
             _string(page["tab_label"], "page tab label")
     _require(
         page_ids == {
-            "run-tab", "monitor-tab", "results-tab", "backfill-tab", "images-tab", "settings-tab"
+            "run-tab", "monitor-tab", "results-tab", "images-tab", "settings-tab"
         },
         "page catalog must match actual TUI tabs",
     )

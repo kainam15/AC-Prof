@@ -229,7 +229,7 @@ async def test_failed_auto_check_stays_failed_until_manual_retry(tmp_path, diagn
         await wait_for_condition(pilot, lambda: check.call_count == 2 and not app.preflight.check_running,
                                  description="automatic diagnostic failure", timeout=3)
         assert app.preflight.collection_state == "failed"
-        assert type(failure).__name__ in str(app.query_one("#preflight-run-reason", Static).content)
+        assert type(failure).__name__ in str(app.query_one("#preflight-run-reason", Button).label)
         assert app.query_one("#start-run", Button).disabled
         app.query_one("#repeat", Input).value = "3"
         await debounce_elapsed(app)
@@ -378,8 +378,8 @@ async def test_global_status_distinguishes_invalid_pending_checking_limited_and_
     try:
         async with app.run_test(size=size) as pilot:
             await ready(app, pilot)
-            status = app.query_one("#preflight-run-reason", Static)
-            assert ("已就绪" if language == "zh" else "Ready") in str(status.content)
+            status = app.query_one("#preflight-run-reason", Button)
+            assert ("已就绪" if language == "zh" else "Ready") in str(status.label)
             assert not status.display
             assert not app.query_one("#start-run", Button).disabled
             app.query_one("#model", Input).value = ""
@@ -390,19 +390,19 @@ async def test_global_status_distinguishes_invalid_pending_checking_limited_and_
             check.side_effect = limited
             app.configuration.apply_config(replace(app.configuration.initial_config, gpus="on"))
             assert app.preflight.collection_state == "pending"
-            assert ("待检查" if language == "zh" else "Pending") in str(status.content)
+            assert ("待检查" if language == "zh" else "Pending") in str(status.label)
             await wait_for_condition(pilot, started.is_set, description="checking status", timeout=3)
             assert app.preflight.collection_state == "checking"
-            assert ("正在检查环境" if language == "zh" else "Checking the environment") in str(status.content)
+            assert ("正在检查环境" if language == "zh" else "Checking the environment") in str(status.label)
             release.set()
             await ready(app, pilot)
             assert app.preflight.collection_state == "limited"
-            assert ("必要预检已通过" if language == "zh" else "Required checks passed") in str(status.content)
+            assert ("必要预检已通过" if language == "zh" else "Required checks passed") in str(status.label)
             check.side_effect = OSError("fixture failure")
             app.preflight.quick_check()
             await wait_for_condition(pilot, lambda: app.preflight.collection_state == "failed",
                                      description="failed diagnostic status", timeout=3)
-            assert "fixture failure" in str(status.content)
+            assert "fixture failure" in str(status.label)
             assert app.query_one("#start-run", Button).disabled
             assert len(app.screen_stack) == 1
     finally:

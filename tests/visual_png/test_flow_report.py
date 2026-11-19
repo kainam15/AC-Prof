@@ -17,11 +17,11 @@ from tests.support.tui_fixtures import AcprofTui
 async def test_flow_catalog_matches_visible_tui_pages(tmp_path: Path) -> None:
     catalog = load_catalog()
     app = AcprofTui(settings_path=tmp_path / "settings.json")
-    async with app.run_test(size=(80, 24)) as pilot:
+    async with app.run_test(size=(120, 30)) as pilot:
         await pilot.pause()
         visible_pages = [
             (button.name, button.label.plain)
-            for button in app.query("#page-navigation Button").results(Button)
+            for button in app.query("#page-navigation .nav-page").results(Button)
             if button.display
         ]
         assert [(page["id"], page.get("tab_label", page["title"])) for page in catalog["pages"]] == visible_pages

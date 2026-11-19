@@ -33,7 +33,7 @@ class TestTuiResultTools:
             await pilot.pause()
             tabs = app.query_one("#main-tabs", TabbedContent)
             assert [tabs.get_tab(pane).label.plain for pane in app.query("#main-tabs > ContentSwitcher > TabPane")] == [
-                "实验配置", "运行监控", "实验结果", "补采实验", "镜像管理", "设置"]
+                "实验配置", "运行监控", "实验结果", "镜像管理", "设置"]
             assert not app.query("#profile-tab, #result-dir")
             await open_page(pilot, "results-tab")
             app.query_one("#experiment-source", Input).value = str(self.csv_path)
@@ -59,18 +59,19 @@ class TestTuiResultTools:
                 description="manual result refresh completed", timeout=8,
             )
             assert "有效正式窗口：1" in app.query_one("#result-data-status", Static).content
-            assert not app.query("#results-tab #profile-status, #results-tab #open-result-profiling")
-            assert await pilot.click("#nav-backfill-tab")
+            result_views = app.query_one("#result-views", TabbedContent)
+            result_views.active = "backfill-view"
             await pilot.pause()
-            assert tabs.active == "backfill-tab"
-            assert app.query_one("#backfill-source", Input).value == str(self.csv_path)
+            assert tabs.active == "results-tab"
+            assert result_views.active == "backfill-view"
+            assert app.query_one("#experiment-source", Input).value == str(self.csv_path)
             # A loose CSV is fine for plotting, but cannot carry immutable replay identity.
             callout = app.query_one("#backfill-callout", Callout)
             assert callout.content.problem == message_id("profiling.view.csv_problem")
             assert str(self.csv_path) in callout.content.detail
             assert app.query_one("#open-result-profiling", Button).disabled
 
-            assert await pilot.click("#nav-results-tab")
+            result_views.active = "overview-view"
             await pilot.pause()
             if plot_entry == "button":
                 for language, label in (("zh", "生成 PNG 图表"), ("en", "Generate PNG")):

@@ -188,7 +188,8 @@ async def test_environment_counts_keep_pending_errors_and_refresh_visible(app):
         app.preflight.refresh_preflight_state()
         assert counts(app) == ["× 0", "! 1", "✓ 1", "… 1"]
         assert app.query_one('#start-run', Button).disabled
-        await pilot.click("#environment-warning")
+        await pilot.pause()
+        assert await pilot.click("#environment-warning")
         await pilot.pause()
         assert app.query("#preflight-signal-inventory_error")
         app.preflight.environment_error = ""

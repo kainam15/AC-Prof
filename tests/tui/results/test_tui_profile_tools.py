@@ -31,21 +31,19 @@ async def test_experiment_source_editing_is_shared_across_pages(tmp_path, langua
     app = AcprofTui(settings_path=settings)
     async with app.run_test(size=(120, 30)) as pilot:
         await open_page(pilot, "backfill-tab")
-        source = app.query_one("#backfill-source")
-        await fill_form(pilot, {"#backfill-source": str(root)})
+        source = app.query_one("#experiment-source", Input)
+        await fill_form(pilot, {"#experiment-source": str(root)})
         assert app.focused is source
-        result_source = app.query_one("#experiment-source", Input)
-        assert result_source.value == str(root)
-        assert await pilot.click("#refresh-backfill-state")
+        assert await pilot.click("#refresh-experiment-state")
         await app.workers.wait_for_complete()
         await pilot.pause()
         assert app.profiles.overview.result_dir == root
-        assert source.value == result_source.value == str(root)
+        assert source.value == str(root)
 
-        # Editing invalidates both pages before the debounced read completes.
+        # Editing invalidates both views before the debounced read completes.
         long_path = "/" + "模型 [draft]/" * 18 + "result_all.csv"
-        await fill_form(pilot, {"#backfill-source": long_path})
-        assert source.value == result_source.value == long_path
+        await fill_form(pilot, {"#experiment-source": long_path})
+        assert source.value == long_path
         assert app.profiles.overview is None
         assert app.query_one("#open-result-profiling", Button).disabled
         await wait_for_condition(
@@ -60,25 +58,22 @@ async def test_experiment_source_editing_is_shared_across_pages(tmp_path, langua
         for size in ((120, 30), (80, 24), (150, 45)):
             await pilot.resize_terminal(*size)
             regions = []
-            for tab, field, picker_id in (
-                ("results-tab", result_source, "choose-experiment-source"),
-                ("backfill-tab", source, "choose-backfill-result"),
-            ):
+            for tab in ("results-tab", "backfill-tab"):
                 await open_page(pilot, tab)
-                assert await pilot.click(field)
+                assert await pilot.click(source)
                 await pilot.press("end")
-                assert field.cursor_position == len(long_path)
-                assert field.scroll_x > 0
-                assert "result_all.csv" in field.render_line(0).text
+                assert source.cursor_position == len(long_path)
+                assert source.scroll_x > 0
+                assert "result_all.csv" in source.render_line(0).text
                 await pilot.press("home")
-                assert field.cursor_position == 0
-                assert field.scroll_x == 0
-                assert "模型 [draft]" in field.render_line(0).text
-                picker = app.query_one("#" + picker_id, Button)
-                assert field.region.height == picker.region.height == 3
-                assert field.region.right < picker.region.x
+                assert source.cursor_position == 0
+                assert source.scroll_x == 0
+                assert "模型 [draft]" in source.render_line(0).text
+                picker = app.query_one("#choose-experiment-source", Button)
+                assert source.region.height == picker.region.height == 3
+                assert source.region.right < picker.region.x
                 assert picker.region.right <= size[0]
-                regions.append((field.region, picker.region))
+                regions.append((source.region, picker.region))
                 await pilot.press("tab")
                 assert app.focused is picker
                 with patch.object(app.catalog, "open_experiment_picker") as open_picker:
@@ -86,11 +81,10 @@ async def test_experiment_source_editing_is_shared_across_pages(tmp_path, langua
                     open_picker.assert_called_once_with("experiment-source")
             assert regions[0] == regions[1]
 
-        # Clearing the backfill input also clears the result page selection.
-        await fill_form(pilot, {"#backfill-source": ""})
-        assert source.value == result_source.value == ""
-        assert source.placeholder == result_source.placeholder
-        assert app.query_one("#refresh-backfill-state", Button).disabled
+        # Clearing the shared input disables both refresh and report actions.
+        await fill_form(pilot, {"#experiment-source": ""})
+        assert source.value == ""
+        assert app.query_one("#refresh-experiment-state", Button).disabled
         assert app.query_one("#report-calculate", Button).disabled
 
 
@@ -106,7 +100,7 @@ async def test_real_summary_missing_profiler_records_show_uncollected_choices(tm
         await pilot.pause()
         app.results.select_result(str(root))
         await open_page(pilot, "backfill-tab")
-        summarize = app.query_one("#refresh-backfill-state", Button)
+        summarize = app.query_one("#refresh-experiment-state", Button)
         summarize.scroll_visible(animate=False, immediate=True)
         await pilot.pause()
         assert await pilot.click(summarize)
@@ -114,8 +108,9 @@ async def test_real_summary_missing_profiler_records_show_uncollected_choices(tm
         await pilot.pause()
         assert not app.read_jobs
         assert app.profiles.overview is not None
-        assert app.query_one("#main-tabs", TabbedContent).active == "backfill-tab"
-        assert app.query_one("#backfill-source", Input).value == str(root)
+        assert app.query_one("#main-tabs", TabbedContent).active == "results-tab"
+        assert app.query_one("#result-views", TabbedContent).active == "backfill-view"
+        assert app.query_one("#experiment-source", Input).value == str(root)
 
         choice = app.query_one("#open-result-profiling", Button)
         choice.scroll_visible(animate=False, immediate=True)
@@ -161,25 +156,30 @@ async def test_backfill_navigation_shares_selection_and_reports_read_failures(tm
     app = AcprofTui(settings_path=settings)
     async with app.run_test(size=(80, 24)) as pilot:
         tabs = app.query_one("#main-tabs", TabbedContent)
+        result_views = app.query_one("#result-views", TabbedContent)
         await open_page(pilot, "results-tab")
-        assert not app.query_one("#results-tab").query("#open-result-profiling, #profile-status")
-        await pilot.press("down", "enter")
+        assert not app.query_one("#open-result-profiling", Button).display
+        result_views.active = "backfill-view"
         await pilot.pause()
-        assert tabs.active == "backfill-tab"
-        assert tabs.get_tab("backfill-tab").label.plain == ("补采实验" if language == "zh" else "Backfill")
+        assert tabs.active == "results-tab"
+        assert result_views.active == "backfill-view"
+        assert result_views.get_tab("backfill-view").label.plain == ("补采实验" if language == "zh" else "Backfill")
+        assert app.query_one("#open-result-profiling", Button).display
         assert app.query_one("#open-result-profiling", Button).disabled
-        assert app.query_one("#refresh-backfill-state", Button).disabled
+        assert app.query_one("#refresh-experiment-state", Button).disabled
         with patch.object(app.catalog, "open_experiment_picker") as picker:
-            assert await pilot.click("#choose-backfill-result")
+            assert await pilot.click("#choose-experiment-source")
             picker.assert_called_once_with("experiment-source")
         app.catalog.experiment_selected("experiment-source", ("select", SimpleNamespace(directory=root)))
         await asyncio.wait_for(app.workers.wait_for_complete(), timeout=3)
         await pilot.pause()
-        assert tabs.active == "backfill-tab"
+        assert tabs.active == "results-tab"
+        assert result_views.active == "backfill-view"
         assert app.profiles.overview.result_dir == root
         assert not app.query_one("#open-result-profiling", Button).disabled
 
-        await open_page(pilot, "results-tab")
+        result_views.active = "overview-view"
+        await pilot.pause()
         source = app.query_one("#experiment-source", Input)
         assert source.value == str(root)
         await fill_form(pilot, {"#experiment-source": str(root / "missing.csv")})
@@ -191,10 +191,10 @@ async def test_backfill_navigation_shares_selection_and_reports_read_failures(tm
             diagnostics=lambda: f"source={app.results.source_path}; error={app.results.data_error}; readers={len(app.read_jobs)}",
         )
         assert app.profiles.overview is None
-        assert app.query_one("#backfill-source", Input).value == str(root / "missing.csv")
-        assert await pilot.click("#nav-backfill-tab")
+        result_views.active = "backfill-view"
+        await pilot.pause()
         with patch("acprof.tui.results.controller.inspect_experiment_data", side_effect=ValueError("fixture data check failed")):
-            assert await pilot.click("#refresh-backfill-state")
+            assert await pilot.click("#refresh-experiment-state")
             await asyncio.wait_for(app.workers.wait_for_complete(), timeout=3)
             await pilot.pause()
         callout = app.query_one("#backfill-callout", Callout)

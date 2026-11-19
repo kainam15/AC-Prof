@@ -23,15 +23,27 @@ async def open_page(pilot: Pilot[Any], page_id: str, *, timeout: float = 3) -> N
     # Finish queued startup activation before requesting another page.
     await pilot.pause()
     tabs = pilot.app.query_one("#main-tabs", TabbedContent)
-    pane = tabs.query_one(f"#{page_id}", TabPane)
-    if tabs.active != page_id:
-        assert await pilot.click(f"#nav-{page_id}"), f"Navigation to {page_id} was not hit"
+    target_page = "results-tab" if page_id == "backfill-tab" else page_id
+    pane = tabs.query_one(f"#{target_page}", TabPane)
+    if tabs.active != target_page:
+        assert await pilot.click(f"#nav-{target_page}"), f"Navigation to {target_page} was not hit"
     await wait_for_condition(
         pilot,
-        lambda: tabs.active == page_id and pane.display and pane.region.area > 0,
-        description=f"page {page_id} to become visible", timeout=timeout,
+        lambda: tabs.active == target_page and pane.display and pane.region.area > 0,
+        description=f"page {target_page} to become visible", timeout=timeout,
         diagnostics=lambda: f"active={tabs.active}; display={pane.display}; region={pane.region}",
     )
+    if page_id == "backfill-tab":
+        result_views = pilot.app.query_one("#result-views", TabbedContent)
+        subpane = result_views.query_one("#backfill-view", TabPane)
+        if result_views.active != "backfill-view":
+            result_views.active = "backfill-view"
+        await wait_for_condition(
+            pilot,
+            lambda: result_views.active == "backfill-view" and subpane.display and subpane.region.area > 0,
+            description="backfill sub-tab to become visible", timeout=timeout,
+            diagnostics=lambda: f"active={result_views.active}; display={subpane.display}; region={subpane.region}",
+        )
     await pilot.pause()
 
 

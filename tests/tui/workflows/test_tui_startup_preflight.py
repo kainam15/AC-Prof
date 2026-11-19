@@ -196,7 +196,7 @@ class TestStartupPreflight:
             async with app.run_test(size=(120, 30)) as pilot:
                 await self.finish_check(app, pilot)
                 assert (app.query_one("#start-run", Button).disabled)
-                assert ("diagnostic failed") in (str(app.query_one("#preflight-run-reason", Static).content))
+                assert ("diagnostic failed") in (str(app.query_one("#preflight-run-reason", Button).label))
                 with patch.object(app.process, 'execute_command') as launch:
                     await pilot.click("#start-run")
                     await pilot.press("f5")
@@ -221,7 +221,7 @@ class TestStartupPreflight:
             async with app.run_test(size=(120, 30)) as pilot:
                 await self.finish_check(app, pilot)
                 assert (app.query_one("#start-run", Button).disabled)
-                assert ("daemon unavailable") in (str(app.query_one("#preflight-run-reason", Static).content))
+                assert ("daemon unavailable") in (str(app.query_one("#preflight-run-reason", Button).label))
                 app.preflight.quick_check()
                 await self.finish_check(app, pilot)
                 app.query_one("#model", Input).value = "changed/model"
@@ -277,9 +277,9 @@ class TestStartupPreflight:
                         await pilot.press("escape")
                         await pilot.pause()
                         quit_button.focus()
-                        await pilot.press("shift+tab", "shift+tab", "shift+tab")
+                        await pilot.press("shift+tab", "shift+tab", "shift+tab", "shift+tab")
                         assert app.focused is entry
-                        await pilot.press("tab", "tab", "tab")
+                        await pilot.press("tab", "tab", "tab", "tab")
                         assert app.focused is quit_button
 
     @pytest.mark.parametrize("language", ["zh", "en"])

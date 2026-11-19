@@ -30,7 +30,7 @@ from acprof.tui.logging.widget import SelectableLog
 from acprof.tui.run.diagnostics import PreflightCheck
 from acprof.tui.run.progress import ProgressSnapshot, RunProgressTracker
 from acprof.tui.run.stages import Stage
-from acprof.tui.settings.preferences import TuiSettings, load_settings, save_settings
+from acprof.tui.settings.preferences import TuiSettings, UiPreferences, load_settings, save_settings
 from acprof.tui.ui.structured import FactGrid, StatusBanner
 from acprof.tui.ui.view_models import status_symbol
 from tests.support.tui_fixtures import AcprofTui, fact_rows
@@ -183,7 +183,7 @@ class TestTuiLanguage:
             assert app.query_one('#notify SelectCurrent #label', Static).content == '关闭'
             assert app.query_one('#notify', Select).value == 'none'
             assert not app.query("#run-preset")
-            assert not (self.settings_path.exists())
+            assert load_settings(self.settings_path, PROJECT_DIR)[0].ui.language == "zh"
 
     async def test_switch_keeps_drafts_configuration_log_selection_status_and_loaded_results(self):
         config = replace(RunConfig.smoke("demo/model"), gpus="on,off")
@@ -249,7 +249,9 @@ class TestTuiLanguage:
             )
             assert ((log.text, log.selection, log.scroll_y)) == ((old_text, old_selection, old_scroll))
             assert not (log.following)
-            assert (self.settings_path.read_bytes()) == (remembered)
+            assert load_settings(self.settings_path, PROJECT_DIR) == (
+                TuiSettings(ui=UiPreferences(language="en"), last_result_csv=str(csv_path)), "",
+            )
             assert (app.query_one("#experiment-source", Input).value) == (str(csv_path))
             await self.switch(app, pilot, "zh")
             assert (str(app.query_one("#open-run-settings", Button).label)) == ("返回基本配置")
@@ -269,7 +271,7 @@ class TestTuiLanguage:
             app.configuration.remember_last_used(model="demo/latest")
             saved, warning = load_settings(self.settings_path, PROJECT_DIR)
             assert not (warning)
-            assert (saved.ui.language) == ("zh")
+            assert (saved.ui.language) == ("en")
             assert (app.query_one("#settings-location", Static).content) == (f"Settings file: {self.settings_path}")
             assert (await pilot.click("#save-ui-settings"))
             await pilot.pause()
@@ -285,7 +287,7 @@ class TestTuiLanguage:
             await pilot.pause()
             assert (restarted.configuration.preferences.language) == ("zh")
             assert (restarted.query_one("#ui-language", Select).value) == ("zh")
-            assert (load_settings(self.settings_path, PROJECT_DIR)[0].ui.language) == ("en")
+            assert (load_settings(self.settings_path, PROJECT_DIR)[0].ui.language) == ("zh")
 
     async def test_english_validation_dialog_notifications_and_raw_output(self):
         app = self.make_app(RunConfig.smoke("demo/model"))
@@ -302,7 +304,7 @@ class TestTuiLanguage:
             await pilot.pause()
             assert app.query_one("#start-run", Button).disabled
             assert "Memory list must be comma-separated integers" in str(
-                app.query_one("#preflight-run-reason", Static).content
+                app.query_one("#preflight-run-reason", Button).label
             )
             app.query_one("#mems", Input).value = "4"
             await pilot.pause()

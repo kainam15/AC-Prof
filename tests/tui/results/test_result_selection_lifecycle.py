@@ -6,7 +6,7 @@ from textual.widgets import Input
 from tests.support.tui_fixtures import AcprofTui
 
 
-@pytest.mark.parametrize("source_id", ["experiment-source", "backfill-source"])
+@pytest.mark.parametrize("source_id", ["experiment-source"])
 async def test_result_selection_message_is_safe_during_partial_unmount(tmp_path, source_id):
     class ClosingSelectionApp(AcprofTui):
         CSS_PATH = AcprofTui.CSS_PATH
@@ -34,7 +34,7 @@ async def test_result_selection_message_is_safe_during_partial_unmount(tmp_path,
         assert app.form_ready
 
 
-@pytest.mark.parametrize("source_id", ["experiment-source", "backfill-source"])
+@pytest.mark.parametrize("source_id", ["experiment-source"])
 async def test_result_selection_message_does_not_restart_reads_after_quit(tmp_path, source_id):
     app = AcprofTui(settings_path=tmp_path / "settings.json")
     async with app.run_test(size=(80, 24)):

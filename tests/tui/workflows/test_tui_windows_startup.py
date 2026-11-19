@@ -55,8 +55,7 @@ async def test_windows_startup_and_permission_checks_without_unix_apis(
         platform_check = next(check for check in app.preflight.checks if check.check_id == "environment")
         assert platform_check.status == "fail"
         assert "Unsupported collection environment" in str(platform_check.detail)
-        run_reason = app.query_one("#preflight-run-reason", Static).content
-        assert isinstance(run_reason, str)
+        run_reason = str(app.query_one("#preflight-run-reason", Button).label)
         assert "Unsupported collection environment" in run_reason
         assert app.query_one("#start-run", Button).disabled
 

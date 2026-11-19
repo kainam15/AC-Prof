@@ -36,7 +36,7 @@ async def test_process_permissions_use_global_entry_without_inline_panel(tmp_pat
         assert app.query_one('#experiment-pages', ContentSwitcher).current == 'run-form'
         assert app.query_one('#start-run', Button).disabled
         assert app.query_one('#cpus', Input).value == '1'
-        assert not app.query_one('#preflight-run-reason', Static).display
+        assert app.query_one('#preflight-run-reason', Button).display
 
 
 def denied_check():
