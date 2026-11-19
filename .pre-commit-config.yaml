@@ -57,6 +57,13 @@ repos:
         types: [python]
         files: '^acprof/(analysis/[^/]+|experiments/(configuration|load|streaming)|models/candidates|host/model_store/preparation|host/case_recovery|host/measurement/(metrics|collector_metrics|load|load_transport|load_reporting)|container/handlers/(multimodal|diffusion)|results/task_collections|workloads/(spec|cv|diffusion|multimodal|structured))\.py$'
         require_serial: true
+      - id: markdownlint-cli2
+        name: Check Markdown/GFM with markdownlint-cli2 v0.24.1
+        entry: npx --yes markdownlint-cli2@0.24.1
+        language: system
+        files: '^(docs/.*\.md|README\.md)$'
+        types: [markdown]
+        require_serial: true
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: 3e8a8703264a2f4a69428a0aa4dcb512790b2c8c # v6.0.0

@@ -38,7 +38,6 @@ Kokoro 的 `handler.synthesize.kwargs` 在同一消费回执机制中观察语�
 来源绑定只读取已获取元数据中的文件和 RFC 6901 JSON pointer，task_scoped 仅选择
 `config.json.task_specific_params` 的对应语义任务。完整语义与当前覆盖见[统一推理配置契约](inference-configuration.md)。
 
-
 `ExtensionCatalog.resolve(task, family, library, config, model_id=...)` 是 backend/family 的共同解析入口，
 返回选中的声明、设备精度和 IO 格式；`describe(task_info)` 用于已经选定 backend 的消费端。
 显式 backend 优先，并校验 task/family/backend 路由；未知 library 不再默认进入 Transformers。

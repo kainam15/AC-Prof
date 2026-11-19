@@ -123,6 +123,7 @@ TUI 的“实验结果 → 分析报告”默认生成统一 HTML；“统计数
 操作步骤见 [TUI 使用说明](../usage/tui-pages.md#统计报告)。
 
 ## 跨独立实验比较
+
 ```bash
 acprof compare --left results/a1/model --left results/a2/model --left results/a3/model \
   --right results/b1/model --right results/b2/model --right results/b3/model \
@@ -192,6 +193,7 @@ blocked/unknown 暂停默认自动优选，但数值观测和描述统计仍保�
 该入口读取正式实验；独立的 `load.json` 不可作为 `result_all.csv` 输入混入统计。
 
 ## 非流式负载报告
+
 `acprof load` 输出 `load.json`（`nonstream_load_experiment`，schema v1），内嵌
 `nonstream_load_result`。协议与命令见[独立负载协议](../profiling/lifecycle.md#独立非流式负载)。
 

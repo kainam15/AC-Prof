@@ -24,9 +24,10 @@ PR 对比目标分支，Push 对比本次推送前的分支状态。混合代码
 未知文件或无法归入文档集合的修改也执行完整 CI。新增 Skill 执行脚本属于代码改动，
 不因为位于 `.agents/skills/` 而被豁免。路径识别失败时不得静默跳过重型测试。
 
-`docs-check` 使用[文档检查入口](documentation-checks.md#文档与-skill-检查)验证本地链接、
-章节锚点、Markdown 格式、Skill frontmatter 与 YAML。主机测试不执行时，
-`host-summary` 同步跳过，不尝试读取不存在的分片和 coverage 产物。
+`docs-check` 同时运行[文档检查入口](documentation-checks.md#文档与-skill-检查)和
+固定版本 markdownlint-cli2，验证本地链接、章节锚点、GFM 排版、
+中文强调标记的实际渲染、双语 README 结构与代码/链接一致性，以及 Skill frontmatter/YAML。
+主机测试不执行时，`host-summary` 同步跳过，不尝试读取不存在的分片和 coverage 产物。
 完整 CI 原有 pytest evidence、Python 版本矩阵、报告汇总和容器验证保持不变。
 `ci-gate` 使用 `always()` 汇总本次变更必须成功的作业：普通文档仅要求
 `changes` 和 `docs-check`；仅 README 或指标文档再分别要求 `wheel` /

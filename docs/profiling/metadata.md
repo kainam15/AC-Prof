@@ -3,6 +3,7 @@
 [← 返回专题目录](protocol.md)
 
 ## `static_meta.json` 字段
+
 `static_meta.json` 是一个 model/image/run-level JSON object，只保存描述实验对象、环境和最终 profiling 配置/口径的相对稳定信息。补采、重试、回填与备份过程记录放在独立的 `collection_history.json`。数组、布尔值、数字和 `null` 均保留 JSON 原生类型，不再编码成 CSV 字符串。
 
 | 字段 | 含义 |
@@ -235,6 +236,7 @@ ModelScope SDK 未暴露的存储链、未观察到的本地缓存原始地址�
 这些字段在 profiling 后原子补写，原始 `run_command` 保持不变。`static_flops` 只保存不依赖硬件计数器的 Torch 逻辑 shape FLOPs，并按 input scale 展开；NCU 实际执行 FLOPs、吞吐率以及 execution 数值分别保存在各自的 `profiling/*.csv`，execution 字段是否来自代表资源由上述 sampling metadata 和 plan entry provenance 说明。
 
 ## 质量与失败产物
+
 `quality_checks.json` 为 `{"schema_version": 1, "checks": [...]}`。每个 check 包含
 `code`、`severity`、`observed`、`threshold`、`detail`、`evidence`，与 Capability 分开：
 
@@ -282,6 +284,7 @@ timeout evidence 包含 `timeout_seconds`（秒）、`request_phase`、`request_
 新运行会直接产生可消费的结构化原因。
 
 ## `collection_history.json` 字段
+
 | 字段 | 含义 |
 | --- | --- |
 | `schema_version` | `collection_history.json` schema 版本，当前为 `1`。 |
@@ -297,6 +300,7 @@ timeout evidence 包含 `timeout_seconds`（秒）、`request_phase`、`request_
 `PosthocError` 严格失败；可选复用计划损坏时只视为不可复用，不改写历史文件，也不把损坏证据用于补采。
 
 ## 最大输入探测结果
+
 `acprof probe` 每次生成独立的 `input_scale_plan.json` 和 `largest_scale_probe.json`。
 后者当前为 schema v3，主要字段如下：
 

@@ -3,6 +3,7 @@
 [← 返回专题目录](testing.md)
 
 ## 渐进类型检查与边界回归
+
 `uv.lock` 固定 `typing` 组的 mypy；类型检查唯一配置在 `pyproject.toml`。
 `packages = ["acprof"]` 覆盖整个 Python 源码包；新增模块自动进入类型检查，无需手工
 维护数百个路径白名单。CI、开发机和发行包继续使用同一份 `pyproject.toml` 配置。
@@ -116,6 +117,7 @@ Ruff 的 `combine-as-imports` 保留显式重导出分组；脚本先设置路�
 `test_git_ignore.py` 在临时 Git 仓库验证根层及嵌套 fixture/example 可跟踪、结果与实验 CSV 仍被忽略。
 
 ## 跨模块 private API 检查
+
 `scripts/check_private_api.py` 不导入业务代码，只解析 `acprof/` 的 Python 源码。
 识别 `from x import _foo`、`import x; x._foo`、`from pkg import mod; mod._foo`，
 以及 import alias、相对 import、函数局部作用域、lambda 与 comprehension 参数遮蔽。
@@ -151,6 +153,7 @@ uv run python scripts/run_tests.py --pattern test_private_api_guard.py \
 这些工具仅在开发与 CI 中运行，不进入正式测量窗口。
 
 ## 关键模块导入方向检查
+
 `pyproject.toml` 的 `[tool.importlinter]` 与契约表是模块依赖策略的唯一来源。
 `scripts/check_import_boundaries.py` 保留原开发/CI 入口，转而调用锁定的 Import Linter，
 不再平行维护一套 AST 模块图。工具由 `import-checks` 开发组唯一声明，`lint` 与 `test` 共用，
@@ -180,6 +183,7 @@ uv run pytest -q tests/quality/test_import_boundaries.py
 `latency_model` 的私有函数不进入跨模块 baseline。
 
 ## TUI 控制器拆分回归
+
 `tests/tui/widgets/test_tui_action_ownership.py` 约束各 Textual handler 所属模块、App 的进程生命周期与代码体量。
 交互与线程语义以 `tests/test_tui*.py`、`tests/tui/catalog/test_environment_tui.py` 和既有 visual snapshots
 作为行为证据；只通过源码级 ownership 检查不能替代真实的 event-loop/worker 回归。

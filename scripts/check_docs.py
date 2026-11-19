@@ -6,7 +6,7 @@ import re
 import subprocess
 import sys
 import unicodedata
-from collections import defaultdict
+from collections import Counter, defaultdict
 from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
@@ -15,8 +15,7 @@ import yaml
 from markdown_it import MarkdownIt
 
 ROOT = Path(__file__).resolve().parents[1]
-MARKDOWN = MarkdownIt("commonmark")
-
+MARKDOWN = MarkdownIt("commonmark").enable(["table", "strikethrough"])
 
 class HtmlLinks(HTMLParser):
     def __init__(self) -> None:
@@ -75,6 +74,91 @@ def document_links(content: str) -> tuple[set[str], list[str]]:
     return anchors, links
 
 
+
+# CommonMark can leave emphasis markers literal when punctuation is followed by CJK text.
+_CJK_EMPHASIS = re.compile(
+    r"(?<![*_\\])(?P<mark>\*\*|__|\*|_)(?P<body>[^*_\n]{1,100}?)(?P=mark)(?=[\u3400-\u9fff])"
+)
+
+
+def invalid_cjk_emphasis(content: str) -> list[tuple[int, str]]:
+    """Only inspect rendered prose: ignore code spans, fences, and escaped markers."""
+    lines = content.splitlines()
+    problems: set[tuple[int, str]] = set()
+    for token in MARKDOWN.parse(content):
+        if token.type != "inline" or token.map is None:
+            continue
+        start, end = token.map
+        for child in token.children or []:
+            if child.type != "text":
+                continue
+            for match in _CJK_EMPHASIS.finditer(child.content):
+                snippet = match.group(0)
+                for index in range(start, min(end, len(lines))):
+                    source = lines[index]
+                    pos = source.find(snippet)
+                    if pos >= 0 and (pos == 0 or source[pos - 1] != "\\"):
+                        problems.add((index + 1, snippet))
+                        break
+    return sorted(problems)
+
+
+_README_SECTION_LABELS = {
+    "功能概览": "Capabilities",
+    "快速开始": "Quick start",
+    "采集与分析": "Measurement and analysis",
+    "运行环境": "Platform support",
+    "文档与开发": "Documentation and development",
+    "贡献与安全": "Contributing and security",
+    "许可与来源": "License and origins",
+}
+
+
+def readme_signature(path: Path, root: Path) -> tuple[list[tuple[str, str]], list[tuple[str, str]], Counter[str], Counter[str]]:
+    """Language-neutral document structure; does not claim semantic translation."""
+    content = path.read_text(encoding="utf-8")
+    tokens = MARKDOWN.parse(content)
+    headings = []
+    for index, token in enumerate(tokens):
+        if token.type == "heading_open":
+            heading = "".join(child.content for child in (tokens[index + 1].children or [])
+                              if child.type in {"text", "code_inline"})
+            headings.append((token.tag, _README_SECTION_LABELS.get(heading, heading)))
+    fences = [(token.info.strip(), token.content) for token in tokens if token.type == "fence"]
+    spans = Counter(child.content for token in tokens for child in (token.children or [])
+                    if child.type == "code_inline")
+    _, links = document_links(content)
+    targets: Counter[str] = Counter()
+    for link in links:
+        parts = urlsplit(link)
+        if parts.scheme or parts.netloc or link.startswith("//"):
+            target = link
+        else:
+            resolved = (path.parent / unquote(parts.path)).resolve()
+            try:
+                relative = resolved.relative_to(root.resolve()).as_posix()
+            except ValueError:
+                continue  # Already covered by link path validation.
+            if relative in {"README.md", "docs/i18n/README_zh-CN.md"}:
+                continue  # Reciprocal language links point to different READMEs.
+            target = f"{relative}?{parts.query}#{unquote(parts.fragment)}"
+        targets[target] += 1
+    return headings, fences, spans, targets
+
+
+def check_readme_parity(root: Path) -> list[str]:
+    """Detect divergent heading structure, command examples, and link targets."""
+    english = root / "README.md"
+    chinese = root / "docs/i18n/README_zh-CN.md"
+    if not english.is_file() or not chinese.is_file():
+        return []
+    left, right = readme_signature(english, root), readme_signature(chinese, root)
+    labels = ("heading structure", "fenced examples", "inline code", "link targets")
+    return [f"README bilingual parity: {name} differs between README.md and "
+            "docs/i18n/README_zh-CN.md"
+            for name, a, b in zip(labels, left, right, strict=True) if a != b]
+
+
 def tracked_docs(root: Path) -> list[Path]:
     paths = subprocess.check_output(
         ["git", "-C", str(root), "ls-files", "-z"], stderr=subprocess.DEVNULL
@@ -120,6 +204,10 @@ def validate(paths: list[Path], root: Path) -> list[str]:
                 errors.append(f"{relative}:{lineno}: trailing whitespace")
             if line.endswith("\t"):
                 errors.append(f"{relative}:{lineno}: trailing tab")
+        for lineno, snippet in invalid_cjk_emphasis(content):
+            errors.append(
+                f"{relative}:{lineno}: emphasis is rendered literally before CJK text: {snippet}"
+            )
         if relative.startswith(".agents/skills/") and path.name == "SKILL.md":
             try:
                 _, front, _ = content.split("---", 2)
@@ -161,6 +249,10 @@ def validate(paths: list[Path], root: Path) -> list[str]:
                         errors.append(f"{relative}: missing anchor in {display}: {link}")
                 except (UnicodeError, OSError) as exc:
                     errors.append(f"{relative}: link target unreadable: {exc}")
+    english = root / "README.md"
+    chinese = root / "docs/i18n/README_zh-CN.md"
+    if english in metadata and chinese in metadata:
+        errors.extend(check_readme_parity(root))
     return errors
 
 
@@ -171,7 +263,7 @@ def main() -> int:
     if errors:
         print(f"Documentation check failed: {len(errors)} errors", file=sys.stderr)
         return 1
-    print("Documentation links, anchors, Markdown formatting and Skill YAML: OK")
+    print("Documentation links, GFM text rendering, README parity and Skill YAML: OK")
     return 0
 
 

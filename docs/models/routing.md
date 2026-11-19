@@ -87,6 +87,7 @@ Transformers 4.x / 5.x，不依赖 v5 已移除的翻译、摘要和 Text2Text P
 评测框架依赖；发现与选择均位于测量窗口外。
 
 ## 共享接口解析
+
 主机在同一个模型 commit 读取文件列表及 `config.json`、`model_index.json`、`modules.json`、
 `adapter_config.json`、`acprof_model.json`、`generation_config.json`、tokenizer/processor 配置及模块自己的配置，不执行仓库 Python。
 即使 Hub 没有 `pipeline_tag`，仍保留 revision、文件与元数据，并从 architecture、`auto_map`、
@@ -154,6 +155,7 @@ Sentence Transformers/CrossEncoder 继续使用其既有 4.57.6 环境；自定�
 Auto 中存在类不保证 processor、pipeline、dtype 或所有 profiler 兼容。
 
 ## 解析证据与自动裁决
+
 所有模型的 `model_resolution` schema v1 增加以下可选字段；历史报告缺字段表示未知，
 不能补写为已验证。可执行 `acprof_model.json` 的 schema 和职责保持独立。
 
@@ -264,6 +266,7 @@ uv run python scripts/export_transformers_support.py \
 Hub task 标签当作 Transformers 模型加载。
 
 ## Runtime 预检与失败证据
+
 预检先确定逻辑 `runtime_profile`，再使用该 profile 的精确 Transformers lock 检查 Auto 和
 pipeline registry。硬件选择 CPU/CUDA 平台后，会对最终 lock 再检查一次；一个版本支持不能
 替另一个版本提供支持证据。GLM-OCR 的 `image-to-text` 在所选 5.10.4 registry 中不存在，

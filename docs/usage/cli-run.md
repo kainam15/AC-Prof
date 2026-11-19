@@ -79,6 +79,7 @@ GPU mode 在配置、runtime、profiling 和分析入口共用 `acprof.gpu_mode.
 持久化的新实验身份统一为 `on/off`。历史分析表仅在缺少 mode 时保留已有 `device` 标签。
 解析方式参考 [CPython ConfigParser 的显式值表和错误处理](https://github.com/python/cpython/blob/main/Lib/configparser.py)
 （PSF），扩展本项目已有别名，不添加依赖或兼容 shim。
+
 | 参数 | 默认值 | 说明 |
 | --- | --- | --- |
 | `--model` | required | Hugging Face model ID，例如 `google-bert/bert-base-uncased`。 |
@@ -109,6 +110,7 @@ Process 自动关闭 Docker startup OOM pruning 并逐格执行；`--rebuild-ima
 `probe` 最小内存诊断和已有服务负载重放仍要求 Docker。
 
 ### 请求窗口与采样
+
 | 参数 | 默认值 | 说明 |
 | --- | --- | --- |
 | `--batch-size` | `1` | 每个 request 的 batch size。 |
@@ -123,12 +125,14 @@ Process 自动关闭 Docker startup OOM pruning 并逐格执行；`--rebuild-ima
 | `--idle-debug` | false | 开启 baseline 调试输出。主 CSV 会填充 GPU 的 `gpu_idle_measured_at` / `gpu_idle_rel_range_so_far` 和 CPU 的 `cpu_idle_measured_at` / `cpu_idle_rel_range_so_far`，并写出 `debug/idle/<case-id>.jsonl`。诊断文件记录 matched control window 的 GPU NVML trace、CPU RAPL 子窗口、host/container CPU delta，以及 control 结束后的 `nvidia-smi`、loadavg、top CPU processes、Docker 容器和 `docker stats` 快照。为避免诊断本身污染 baseline，逐进程 `/proc` 快照移到 control window 外，不再归入 RAPL control 能量。 |
 
 ### 输入
+
 | 参数 | 默认值 | 说明 |
 | --- | --- | --- |
 | `--input-scales` | auto | 手动覆盖 input scale 列表；未提供时通常自动规划 6 档，自定义音频清单按声明档数。 |
 | `--workload-spec` | task default | NLP、cv、audio、multimodal、diffusion 或 structured 的 workload 清单 JSON。NLP 可声明 embedding／生成参数；读取音频的任务默认复用内置 LibriSpeech 语音；结构化清单声明输入宽度、尺度与种子。各任务须使用对应的清单格式。 |
 
 ### 计算分析器
+
 | 参数 | 默认值 | 说明 |
 | --- | --- | --- |
 | `--compute-profile-tool` | `none` | 默认跳过全部 compute probe；`both` 独立采集 `torch_profiler_eager` 逻辑 FLOP，并在 `gpu_mode=on` 时采集 NCU GPU 实际执行 FLOP。`torch`、`ncu` 用于单工具诊断，`vendor` 用于 CPU Advisor 与 GPU NCU；`auto` 不再接受。 |
@@ -143,6 +147,7 @@ Process 自动关闭 Docker startup OOM pruning 并逐格执行；`--rebuild-ima
 | `--discard-compute-profiles` | false | 汇总完成后删除 raw profiler artifacts。 |
 
 ### 执行分析器
+
 | 参数 | 默认值 | 说明 |
 | --- | --- | --- |
 | `--execution-profile-tool` | `none` | 显式启用高开销 execution profiler：`massif` 用于 CPU-only、`nsys` 用于 GPU，`both` 同时选择两者；默认 `none` 不运行。 |
@@ -157,6 +162,7 @@ Process 自动关闭 Docker startup OOM pruning 并逐格执行；`--rebuild-ima
 | `--discard-execution-profiles` | false | 汇总成功后删除 raw execution-profiler artifacts，保留 plan、CSV 数值与错误诊断。 |
 
 ### 输出与运行环境
+
 | 参数 | 默认值 | 说明 |
 | --- | --- | --- |
 | `--sniff-iface` | `docker0` | 本机 Docker 默认 bridge 对应的 `tcpdump` 抓包网卡。只有 daemon 改过 bridge 名时才覆盖。 |
@@ -178,6 +184,7 @@ Process 自动关闭 Docker startup OOM pruning 并逐格执行；`--rebuild-ima
 结果目录存在异常中断留下的 `result_case_*.csv` 时，`acprof run` 会先读取同目录 `static_meta.json/cgroup_version`。只有版本与当前 host 一致才允许续写；版本不同、缺失或元数据不可读时会退出，避免把 v1/v2 窗口合并到同一结果文件。
 
 ## 输入规模与音频清单
+
 `--input-scale-policy auto` 是普通 run 的默认范围规划；`minimal` 在任务解析后从对应 workload 的默认尺度
 （或同一任务族既有范围）选取最小单一尺度，仍复用原有 tokenizer、音频采样率和模型上限校验。
 TUI Smoke 使用 `minimal`；显式 `--input-scales` 优先且严格校验，不被该策略改小。
@@ -224,6 +231,7 @@ Kokoro 继续复用文本尺度规划器和 `AudioWorkloadGenerator`：手动 `-
 文本字符数、单词数、音素 ID 数和分段数分别记录，字段来源见[结果字段](../results/fields.md#资源配置输入与网络)。
 
 ### NLP workload 参数
+
 NLP 清单使用 `schema_version=1`、与检测结果一致的 `task`、`params` 和可选 `input_budget`，不接受其他字段。
 
 NLP、CV、Multimodal 与 Diffusion 共用输入构造预算：默认 `max_batch_items=4096`、
@@ -256,6 +264,7 @@ prompt 和 special tokens，预处理还验证拼接后的实际长度，防止�
 写入输入计划，主采集与 profiler 重放同一参数。本接口不加载用户执行代码，也未增加任意 chat 模板或非对称检索任务。
 
 ### 真实音频 workload
+
 `automatic-speech-recognition` 默认使用 `assets/audio/librispeech-clean-test-en-30s/source.json`。该清单引用 LibriSpeech `clean/test` 中同一说话人、同一章节的三条连续语音，按固定顺序拼接后截取前 30 秒；素材是单声道 16 kHz PCM16 WAV，许可证为 CC BY 4.0。每一档输入都从同一个 30 秒基准音频取前缀，不做逐档归一化、补全或循环。
 
 音频分类、Encodec／DAC 音频重建和 Silero VAD 默认复用相同语音前缀。codec 按模型需要在预处理阶段重采样，输入规模仍按源音频时长记录。生成／重建响应的 `audio_num_samples`、`audio_sample_rate`、`audio_duration_s` 描述输出波形，不能写入文字 token 计数；VAD 的 `segments` 是秒为单位的连续阈值帧区间，阈值与分帧策略随响应记录，不是识别文本。Silero 每个请求重置状态，profiler 重复调用也不会延续上一请求的隐藏状态。

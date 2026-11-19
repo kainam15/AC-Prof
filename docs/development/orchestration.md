@@ -344,7 +344,7 @@ Docker 默认资源轴在同模块声明一次；Process 保持 auto/inherited �
 及采集调用结束后生成，保留传入的 exception notes，并沿用现有 collection path 定位规则。
 普通报告失败通过 CLI 错误输出和退出码 `2` 显式报告；取消继续传播，即使报告自身写入失败。
 成功的 `SystemExit` 仍须完成最终报告，不能因报告保存失败返回成功。
-此处借鉴 [Django Atomic.__exit__](https://github.com/django/django/blob/main/django/db/transaction.py)
+此处借鉴 [Django Atomic.`__exit__`](https://github.com/django/django/blob/main/django/db/transaction.py)
 保留原始事务异常的原则，并核对异常处理器再次失败的问题
 [PR #21974](https://github.com/django/django/pull/21974)。仅参考设计，未复制 BSD-3-Clause 源码，
 不增加依赖、字段或正式测量窗口内的工作。

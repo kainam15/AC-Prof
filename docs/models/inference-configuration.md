@@ -295,6 +295,7 @@ source、model ID、完整 revision、固定 weight、sampling 与 weight basis�
 的实际调用边界，沿用本项目锁定的运行环境；只借鉴接口与配置复用方式，没有引入新依赖或复制其实现。
 [Transformers 离线测试](https://github.com/huggingface/transformers/blob/main/tests/utils/test_offline.py)
 提供了在导入前设置离线变量并阻断 socket 的参考；本轮没有执行其下载预热步骤。
+
 - 比较保留历史结果，不以刷新 snapshot、缩小分母或放宽检查提高通过数量。
 
 可复用 `tests/fixtures/t5_small_metadata/source.json` 及已有 raw-bytes hash 校验方式。

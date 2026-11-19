@@ -20,6 +20,7 @@ Pandas、Matplotlib，读取结果并生成图表与模型报告。采集、补�
 普通 CSV 的 `gpu_mode` 接受 `on/off` 以及既有 `1/0`、`true/false`、`yes/no`、
 `gpu/cpu`、`1.0/0.0` 别名（忽略大小写与首尾空格，遵循[统一契约](../usage/cli-run.md#模型与资源矩阵)）；缺失或未知值会在状态过滤和分组之前报错，
 不会静默丢掉对应行。正式分层结果仍要求规范的 `on/off` 身份。
+
 ```bash
 acprof plot \
   results/smoke/google-bert--bert-base-uncased/result_all.csv

@@ -8,6 +8,7 @@
 按任务加载，沿用已有测量与验证边界；安装 skill 不代表连接了新的 MCP 或授权真实实验。
 
 ## 辅助开发工具
+
 `pyproject.toml` 的 `test` / `runtime-test` 组声明 pytest、pytest-asyncio、pytest-cov，
 `uv.lock` 固定完整闭包，默认 `dev` 包含这些工具。测试工具不进入发行依赖或推理镜像。
 `runtime-tools` 组提供 pip 下载工具；`check_runtime.py` 从 `uv.lock` 导出哈希清单，
@@ -94,6 +95,7 @@ uv run pytest tests/visual
 不向推理环境或正式采集进程加入开发工具。
 
 ## PyCharm MCP 的验证边界
+
 使用项目的 `.venv` 解释器；符号搜索按需限定 `paths=["acprof/**", "tests/**"]`，
 避免将临时虚拟环境中的第三方代码视为项目实现。调用分析无法解析已找到的 Python 符号时，
 结合符号文档和源码核对调用者；空结果不能证明没有依赖。

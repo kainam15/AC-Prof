@@ -70,6 +70,9 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '24'
       - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
         with:
           version-file: pyproject.toml
@@ -79,6 +82,8 @@ jobs:
       - run: uv sync --locked --only-group lint
       - name: 检查 Markdown 链接、锚点、格式和 Skill YAML
         run: uv run --locked --only-group lint python scripts/check_docs.py
+      - name: 严格检查 Markdown/GFM 排版
+        run: uv run --locked --only-group lint python -m pre_commit run markdownlint-cli2 --all-files
 
   # 生成字段表被手工改动时仅检查同步；源码变更则由 contracts 作业检查。
   metric-docs:
@@ -103,6 +108,9 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '24'
       - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
         with:
           version-file: pyproject.toml

@@ -8,6 +8,7 @@
 ## 前置环境
 
 需要在执行截图的 Linux 开发机或临时 CI runner 安装：
+
 - VHS（固定 v0.12.1，支持 `Set Columns` / `Set Rows` 与 `Screenshot`；v0.12.0 存在 [退出码为零却不生成文件的上游缺陷](https://github.com/charmbracelet/vhs/issues/787)）
 - `ttyd`、`ffmpeg`、Chrome/Chromium（支持 headless）、`fontconfig`
 - 字体 `Noto Sans Mono CJK SC`（Ubuntu: `fonts-noto-cjk`）

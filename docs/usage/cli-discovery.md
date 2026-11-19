@@ -55,7 +55,6 @@ inspect 同时生成 `configuration_options` 静态描述，列出已登记后�
 这些值尚未被 Auto 选择或用户确认冻结，不是实验的最终执行配置。
 详见[统一推理配置契约](../models/inference-configuration.md#当前已实现声明与静态发现)。
 
-
 | 参数 | 默认 | 说明 |
 | --- | --- | --- |
 | `--model-spec`、`--backend` | 自动解析 | 声明或后端覆盖，仍检查冲突 |

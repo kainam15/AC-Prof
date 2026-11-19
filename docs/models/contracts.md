@@ -6,6 +6,7 @@
 [统一推理配置契约](inference-configuration.md)。静态配置发现不改变下文现行模型契约和验证协议。
 
 ## 自动生成模型契约（M1～M6）
+
 未提供本地或作者 `acprof_model.json` 时，`detect_task` 对声明了唯一 `custom_pipelines` 的
 音频／图像／视频转文字任务收集证据，再生成兼容现有 schema v1 的 draft。
 任务取自 Hub 或显式覆盖，Pipeline 取自 config；README 中 Python 示例的字典键仅作为补充证据。

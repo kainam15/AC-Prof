@@ -178,6 +178,7 @@ uv run --locked --no-default-groups --group test python scripts/check_hardware.p
 ```
 
 真实预训练模型的六类 CPU/GPU 任务与 Structured CPU 任务分别使用独立目录：
+
 ```bash
 uv run --locked --no-default-groups --group test python scripts/prepare_hardware.py \
   --matrix examples/hardware-validation-real.json --gpus off,on \

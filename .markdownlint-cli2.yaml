@@ -1,0 +1,12 @@
+# GFM style checks for docs/ and bilingual README files.
+# MD013: CJK paragraphs, tables, and long links are not fixed-width prose.
+# MD026/MD036: Chinese punctuation and bold callouts are intentional.
+# MD041: logo-first README and navigation-first docs are intentional.
+config:
+  default: true
+  MD013: false
+  MD026: false
+  MD036: false
+  MD041: false
+  MD033:
+    allowed_elements: [p, img]

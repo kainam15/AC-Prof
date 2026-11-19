@@ -84,7 +84,7 @@ TUI 的 `ProcessLifecycle` 统一普通停止、回调异常和卸载清理：�
 `清理未完成` 仍是忙碌状态。若终端已关闭，PID 和清理错误写入 stderr；强行结束 TUI
 进程不能保证清理完成，后续仍须核查容器与测量锁。
 
-正式矩阵向 TUI 输出 `ACPROF_EVENT ` 前缀的 JSON 控制记录，`version=1`，
+正式矩阵向 TUI 输出以 `ACPROF_EVENT` 加一个空格为前缀的 JSON 控制记录，`version=1`，
 `event` 为 `case_started`、`measurement_started`、`measurement_stopped` 或 `case_finished`，
 携带 `case_id`；结束事件另含 `status=ok|error|cancelled`。未知版本或损坏控制记录明确报错。
 收到结构化事件后，普通日志不再控制 `measurement_active`；其他 case 的迟到事件不改变当前窗口。

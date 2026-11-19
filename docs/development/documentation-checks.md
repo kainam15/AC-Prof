@@ -87,15 +87,21 @@ TUI 回归核对重复计算时打开已有文件、显示中英文提示及控�
 
 ## 文档与 Skill 检查
 
-修改文档后，可在仓库根目录执行 `uv run python scripts/check_docs.py`。
-检查所需的 `markdown-it-py` 由 `lint` 组直接声明，并与 PyYAML 一起锁定在 `uv.lock`；
-默认 `uv sync` 或独立 `uv sync --locked --only-group lint` 均能准备文档检查环境。
-该检查扫描 Git 跟踪的 `docs/`、根 README、`AGENTS.md` 和 Skill 文档/YAML，
-核对本地相对链接、Markdown 标题锚点、图片路径、UTF-8、行尾和 YAML/frontmatter；
-不访问外部链接，也不声称远程链接依然可用。GitHub CI 的 `docs-check` 始终运行此检查。
+修改文档后，在仓库根目录运行
+`uv run --locked --only-group lint python scripts/check_docs.py` 和
+`uv run --locked --only-group lint pre-commit run markdownlint-cli2 --all-files`。
+前者使用 `markdown-it-py` 和 PyYAML（由 `lint` 组及 `uv.lock` 固定），扫描 Git 跟踪的
+`docs/`、根 README、`AGENTS.md` 和 Skill 文档/YAML，检查本地链接/章节锚点、
+UTF-8、行尾及 YAML/frontmatter，额外检查 Markdown 强调标记是否真实渲染、
+中英文 README 的标题层级、代码示例、行内命令及链接目标是否一致。
+后者使用固定 npm 版本的 markdownlint-cli2 与项目级
+[规则配置](../../.markdownlint-cli2.yaml)严格检查 GFM 标题、列表、缩进、空行、围栏、
+表格和加粗风格；只保留 CJK 长行与特定文档设计所需的规则配置。
+本地 pre-commit 会在提交前执行 markdownlint，CI 的 `docs-check` 两者都执行。
+markdownlint 需系统 Node.js 22 或更高版本；CI 的文档与代码 lint 作业固定使用 Node.js 24。
+不访问外部链接，也不声称翻译语义能通过机械检查完全证明。
 
-
-检查新增文件也包括被 Git 忽略的文件；`git diff --check` 只覆盖已跟踪差异，不能替代完整文件清单。
+新增 Markdown 文件需先通过 `git add` 纳入版本控制再检查；被 Git 忽略的临时文件不属于检查范围。`git diff --check` 只检查差异，不能替代文档全量验证。
 迁移章节时核对原有锚点、相对链接、代码中的文档引用及字段表是否有遗漏；代码示例中的路径以注明的执行目录为准。
 技能格式可用已安装 `skill-creator` 的 `scripts/quick_validate.py <skill-dir>` 检查；该工具是开发辅助，不是项目运行依赖。
 

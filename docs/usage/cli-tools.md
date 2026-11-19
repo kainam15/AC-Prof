@@ -3,6 +3,7 @@
 [← 返回专题目录](cli.md)
 
 ## `acprof probe`
+
 `--revision` 接受 branch、tag 或完整 commit SHA；TUI 的模型候选、采集前自动解析和最大输入探测共用当前填写的 revision。
 
 复用 `--model`、`--task`、`--task-family`、`--backend`、`--model-spec`、`--batch-size`、`--workload-spec`、
@@ -21,6 +22,7 @@
 详细用法见[先探测最大输入](experiments.md#先探测最大输入)。
 
 ## `acprof profile`
+
 位置参数 `result_dir` 是已完成的模型结果目录。操作和恢复规则见
 [补采说明](../profiling/profilers.md#补采已有结果)。
 
@@ -101,6 +103,7 @@ acprof tui --help
 ```
 
 ## 独立比较与负载
+
 `acprof compare --left <实验> --right <实验>` 支持重复指定两侧独立实验，输出差值、比值和跨实验区间；
 参数与统计假设见[跨独立实验比较](../results/comparisons.md#跨独立实验比较)。
 `--purpose` 支持 `same-hardware`、`cross-hardware`、`resource-scaling`；组内重复始终按相同硬件核验。

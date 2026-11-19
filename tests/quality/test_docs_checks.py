@@ -67,3 +67,54 @@ def test_linked_target_outside_selected_documents(tmp_path):
     one.write_text("[outside](../extra/two.md#heading)\n", encoding="utf-8")
     two.write_text("# Heading\n", encoding="utf-8")
     assert validate([one], tmp_path) == []
+def test_cjk_emphasis_is_checked_from_rendered_text_only(tmp_path):
+    from scripts.check_docs import invalid_cjk_emphasis
+
+    source = (
+        "# Title\n\n"
+        "- **实验采集：**通过 TUI\n"
+        "- *注意：*继续\n"
+        "- **正确：** 通过 TUI\n"
+        "- **正确**：继续\n"
+        "- `**literal：**继续`\n"
+        "- \\*\\*escaped：\\*\\*继续\n\n"
+        "```md\n**fenced：**继续\n```\n"
+    )
+    problems = invalid_cjk_emphasis(source)
+    assert (3, "**实验采集：**") in problems
+    assert (4, "*注意：*") in problems
+    assert len(problems) == 2
+
+
+def test_readme_structure_and_links_remain_in_sync(tmp_path):
+    from scripts.check_docs import check_readme_parity
+
+    translated = tmp_path / "docs/i18n/README_zh-CN.md"
+    translated.parent.mkdir(parents=True)
+    english = tmp_path / "README.md"
+    topic = tmp_path / "docs/topic.md"
+    topic.write_text("# Topic\n", encoding="utf-8")
+    english.write_text(
+        "## Capabilities\n\n[Topic](docs/topic.md) `acprof tui`\n\n"
+        "```bash\nacprof tui\n```\n", encoding="utf-8"
+    )
+    translated.write_text(
+        "## 功能概览\n\n[专题](../topic.md) `acprof tui`\n\n"
+        "```bash\nacprof tui\n```\n", encoding="utf-8"
+    )
+    assert check_readme_parity(tmp_path) == []
+    translated.write_text(
+        "## 功能概览\n\n[专题](../topic.md) `acprof run`\n\n"
+        "```bash\nacprof tui\n```\n", encoding="utf-8"
+    )
+    assert any("inline code" in issue for issue in check_readme_parity(tmp_path))
+    translated.write_text(
+        "## 功能概览\n\n`acprof tui`\n\n"
+        "```bash\nacprof tui\n```\n", encoding="utf-8"
+    )
+    assert any("link targets" in issue for issue in check_readme_parity(tmp_path))
+    translated.write_text(
+        "## 错误章节\n\n[专题](../topic.md) `acprof tui`\n\n"
+        "```bash\nacprof tui\n```\n", encoding="utf-8"
+    )
+    assert any("heading structure" in issue for issue in check_readme_parity(tmp_path))

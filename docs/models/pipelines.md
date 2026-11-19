@@ -3,6 +3,7 @@
 [← 返回专题目录](runtime.md)
 
 ## Transformers dynamic-module 兼容生命周期
+
 [`extensions/transformers`](../../acprof/extensions/transformers) 的每个精确版本维护两个 capability：
 
 | 字段 | 原生 loader 必须满足的能力 |
@@ -61,6 +62,7 @@ shim 只有同时满足以下条件才能删除：
 （Apache-2.0）。复用已维护的原生接口，不复制整套 loader，也不新增生产依赖；正式支持版本和锁不会因候选回归而升级。
 
 ## 本地模型声明与自定义 pipeline
+
 `acprof run` 和 `acprof probe` 接受 `--model-spec /path/to/model.json`，覆盖 snapshot 中的
 `acprof_model.json`。JSON 必须声明 `schema_version=1`、`format`、标准任务 `task`，最大 64 KiB。
 制品接口使用 `format=onnxruntime/torchscript/skops` 和相对 snapshot 的 `model_file`；
@@ -109,6 +111,7 @@ snapshot；本地文件路径与 SHA256 进入恢复身份，内容改变不能�
 NLP/CV/Audio 自定义 pipeline 沿用各自 handler 的计时口径。
 
 ### 声明多模态输入与推理参数
+
 `audio-text-to-text`、`image-text-to-text`、`video-text-to-text` 可通过 `multimodal` 声明
 复用 `family-default` handler，无需按模型名称新增分支。以下是音频接口示例：
 
@@ -151,6 +154,7 @@ token 证据时，相关生成速率／逐 token 工作量保持不可用，不�
 只在容器中执行。其他依赖组合仍需登记独立完整环境锁。
 
 ### 外部模型与 processor 的离线依赖
+
 可选 `dependencies` 数组声明上游代码在加载时还会读取的 Hub 仓库，每项包含 `repo_id`、
 固定 40 位 commit `revision`，以及可选的相对文件 `allow_patterns`。依赖固定为 HF 来源，最多 16 个不同仓库，
 不能覆盖主模型；同名依赖即使 source 或 commit 不同也会被拒绝，同一 commit 下的重复声明同样需要移除。

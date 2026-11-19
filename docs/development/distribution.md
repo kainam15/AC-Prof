@@ -291,7 +291,6 @@ PyPI 目录仅包含 wheel/sdist，standalone、校验和与 `verification.json`
 PyPI 发布成功后，`pypi-smoke` 最多尝试 5 次（间隔 15 秒），核对 PyPI JSON 中的制品 SHA256，
 再执行 `uv tool install acprof==<version>`、版本及帮助检查。失败显示告警，不能触发重新发布。
 
-
 ### 预览版发布渠道
 
 同一 `.github/workflows/release.yml` 根据 Git Tag 严格区分两个路径：
