@@ -66,7 +66,7 @@ class ImageDetailResizeHandle(Static, can_focus=True):
         return cast("ImageWorkspace", parent)
 
     def render(self) -> Rule:
-        return Rule("⋯", style="")
+        return Rule(style="")
 
     def on_mouse_down(self, event: events.MouseDown) -> None:
         if self.disabled or event.button != 1 or event.screen_offset not in self.region:

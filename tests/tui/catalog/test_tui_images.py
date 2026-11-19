@@ -365,14 +365,16 @@ class TestTuiImages:
             assert (app.images.selected_ids) == (selected)
             assert not (self.docker.removals)
 
-    async def test_select_untagged_images_and_resize_handle_grip(self):
+    async def test_select_untagged_images_and_plain_resize_separator(self):
         untagged_id = "sha256:" + "d" * 64
         self.docker.images[untagged_id] = image(untagged_id, [], 150, ["dangling-layer"])
         app = self.make_app()
         async with app.run_test(size=(120, 30)) as pilot:
             await self.load_images(app, pilot)
             handle = app.query_one("#image-detail-resize")
-            assert handle.render().title == "⋯"
+            separator = handle.render()
+            assert separator.title == ""
+            assert separator.characters == "─"
             untagged_btn = app.query_one("#image-untagged", Button)
             assert not untagged_btn.disabled
             assert await pilot.click(untagged_btn)
