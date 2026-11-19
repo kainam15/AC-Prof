@@ -62,14 +62,17 @@ class SourceSummary:
 
 
 def source_summaries(snapshot: GlobalStatus, *, group: str | None = None) -> tuple[SourceSummary, ...]:
-    """Filter sources by issue severity, retaining every independent child."""
+    """Project each status category separately while preserving full cached evidence."""
     issues = snapshot.issues
-    visible = {source_group(item.check.check_id) for issue in issues if group is None or issue.group == group
-               for item in issue.items}
     result = []
     for name in SOURCE_CHECKS:
-        children = tuple(item for item in snapshot.items if source_group(item.check.check_id) == name)
-        entries = tuple(issue for issue in issues if source_group(issue.primary.check.check_id) == name)
-        if name in visible:
+        children = tuple(item for item in snapshot.items
+                         if source_group(item.check.check_id) == name and (group is None or item.group == group))
+        entries = tuple(issue for issue in issues
+                        if source_group(issue.primary.check.check_id) == name
+                        and (group is None or issue.group == group))
+        # A source is visible only when it has checks in the selected category.
+        # GlobalStatus.counts still deduplicates issues; these titles count checks.
+        if children:
             result.append(SourceSummary(name, children, entries))
     return tuple(result)

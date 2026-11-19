@@ -48,7 +48,15 @@ def test_docker_and_cgroup_have_independent_statuses_and_impacts():
     assert [item.check.check_id for item in cgroup.items] == [identifier for identifier, _ in rows[1:]]
     assert (docker.state, docker.issue_count, docker.collapsed) == ('success', 0, True)
     assert (cgroup.state, cgroup.issue_count, cgroup.collapsed) == ('warning', 1, False)
-    assert source_summaries(snapshot, group='warning') == (cgroup,)
+    warning_cgroup, = source_summaries(snapshot, group='warning')
+    assert [item.check.check_id for item in warning_cgroup.items] == ['cgroup_metrics']
+    assert (warning_cgroup.state, warning_cgroup.collapsed) == ('warning', False)
+    assert translate(source_title(warning_cgroup), 'zh') == 'cgroup v2 · ! 1'
+    success_docker, success_cgroup = source_summaries(snapshot, group='success')
+    assert [source.group_id for source in (success_docker, success_cgroup)] == ['docker', 'cgroup']
+    assert [item.check.check_id for item in success_cgroup.items] == ['cgroup', 'container_cpu', 'container_memory']
+    assert (success_cgroup.state, success_cgroup.collapsed) == ('success', True)
+    assert translate(source_title(success_cgroup), 'zh') == 'cgroup v2 · ✓ 3'
     assert snapshot.counts['warning'] == 1
     assert translate(source_title(docker), 'zh') == 'Docker · ✓ 1'
     assert translate(source_title(cgroup), 'zh') == 'cgroup v2 · ! 1 · ✓ 3'
@@ -119,17 +127,47 @@ def test_profiler_self_checks_share_a_confirmed_docker_failure():
     blocker, = (issue for issue in value.status.issues if issue.group == 'error')
     assert blocker.primary.check.check_id == 'docker'
     assert {item.check.check_id for item in blocker.items} == {'docker', 'torch', 'massif'}
-    assert {source.group_id for source in source_summaries(value.status, group='error')} == {'docker', 'profilers'}
+    assert {source.group_id for source in source_summaries(value.status, group='error')} == {'docker'}
+    warning, = source_summaries(value.status, group='warning')
+    assert warning.group_id == 'profilers'
+    assert {item.check.check_id for item in warning.items} == {'torch', 'massif', 'ncu'}
 
 
-def test_filter_keeps_successful_siblings_and_full_source_severity():
+def test_category_filter_separates_success_and_warning_without_losing_source_evidence():
+    from acprof.tui.i18n import translate
+    from acprof.tui.run.environment_view import source_title
     from acprof.tui.run.source_groups import source_summaries
 
     snapshot = GlobalStatus((StatusItem(check('gpu_memory', 'ok')), StatusItem(check('gpu_power', 'warn'))))
-    source, = source_summaries(snapshot, group='success')
-    assert source.state == 'warning'
-    assert [item.check.check_id for item in source.items] == ['gpu_memory', 'gpu_power']
-    assert source.issue_count == 1
+    full, = source_summaries(snapshot)
+    passed, = source_summaries(snapshot, group='success')
+    warning, = source_summaries(snapshot, group='warning')
+    assert full.items == snapshot.items
+    assert full.state == 'warning'
+    assert [item.check.check_id for item in passed.items] == ['gpu_memory']
+    assert (passed.state, passed.issue_count, passed.collapsed) == ('success', 0, True)
+    assert translate(source_title(passed), 'zh') == 'NVIDIA NVML · ✓ 1'
+    assert [item.check.check_id for item in warning.items] == ['gpu_power']
+    assert (warning.state, warning.issue_count, warning.collapsed) == ('warning', 1, False)
+    assert translate(source_title(warning), 'zh') == 'NVIDIA NVML · ! 1'
+    assert snapshot.counts['warning'] == snapshot.counts['success'] == 1
+
+
+def test_each_category_displays_only_matching_checks():
+    from acprof.tui.run.source_groups import source_summaries
+
+    pairs = (('gpu_device', 'fail'), ('gpu_memory', 'warn'), ('gpu_utilization', 'ok'),
+             ('gpu_power', 'checking'), ('gpu_temperature', 'not_requested'))
+    snapshot = GlobalStatus(tuple(StatusItem(check(identifier, state)) for identifier, state in pairs))
+    expected = {'error': 'gpu_device', 'warning': 'gpu_memory', 'success': 'gpu_utilization',
+                'pending': 'gpu_power', 'not_requested': 'gpu_temperature'}
+    for category, identifier in expected.items():
+        source, = source_summaries(snapshot, group=category)
+        assert source.group_id == 'nvml'
+        assert [item.check.check_id for item in source.items] == [identifier]
+        assert {item.group for item in source.items} == {category}
+    assert set(snapshot.counts.values()) == {1}
+    assert {item.check.check_id for item in snapshot.items} == set(expected.values())
 
 
 def test_declared_dependency_merges_issues_without_merging_admission_or_results():

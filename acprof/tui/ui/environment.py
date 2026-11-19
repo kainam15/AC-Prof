@@ -201,7 +201,7 @@ class EnvironmentSource(Collapsible):
         self.panel = panel
         self.source = source
         super().__init__(*signals, title=panel.controller.app.tr(source_title(source)),
-                         collapsed=panel._source_choices.get(source.group_id, source.collapsed),
+                         collapsed=panel._source_choices.get((panel.group, source.group_id), source.collapsed),
                          collapsed_symbol=COMPACT_COLLAPSED_SYMBOL, expanded_symbol=COMPACT_EXPANDED_SYMBOL,
                          id='preflight-section-' + source.group_id, classes='environment-section')
         self._title.label = self._styled_title(source)
@@ -210,13 +210,13 @@ class EnvironmentSource(Collapsible):
         event.prevent_default()
         event.stop()
         self.collapsed = not self.collapsed
-        self.panel._source_choices[self.source.group_id] = self.collapsed
+        self.panel._source_choices[(self.panel.group, self.source.group_id)] = self.collapsed
 
     def update_source(self, source: SourceSummary) -> None:
         self.source = source
         self.title = self.panel.controller.app.tr(source_title(source))
         self._title.label = self._styled_title(source)
-        self.collapsed = self.panel._source_choices.get(source.group_id, source.collapsed)
+        self.collapsed = self.panel._source_choices.get((self.panel.group, source.group_id), source.collapsed)
 
 
 class EnvironmentPopover(Vertical):
@@ -232,7 +232,7 @@ class EnvironmentPopover(Vertical):
         self._items: dict[str, StatusItem] = {}
         self._rows_language = ""
         self._rows_group = ""
-        self._source_choices: dict[str, bool] = {}
+        self._source_choices: dict[tuple[str, str], bool] = {}
         self._sources: tuple[SourceSummary, ...] = ()
         self._selected_row: PreflightCheck | None = None
         self._inspected_row: PreflightCheck | None = None

@@ -32,16 +32,16 @@ async def test_source_disclosure_preserves_choices_and_partial_evidence(tmp_path
         process = panel.query_one('#preflight-section-process', Collapsible)
         nvml = panel.query_one('#preflight-section-nvml', Collapsible)
         assert process.collapsed
-        assert not nvml.collapsed
-        assert nvml.title == 'NVIDIA NVML · ! 1 · ✓ 1'
+        assert nvml.collapsed
+        assert nvml.title == 'NVIDIA NVML · ✓ 1'
         assert process.title == 'Process Runtime · ✓ 2'
         label = nvml.query_one('CollapsibleTitle').label
         assert label.plain == nvml.title
         assert {span.style: label.plain[span.start:span.end] for span in label.spans} == {
-            '$warning': '! 1', '$success': '✓ 1',
+            '$success': '✓ 1',
         }
         assert panel.query_one('#preflight-signal-gpu_memory').row.status == 'ok'
-        assert panel.query_one('#preflight-signal-gpu_power').row.status == 'warn'
+        assert not panel.query('#preflight-signal-gpu_power')
         title = process.query_one('CollapsibleTitle')
         title.scroll_visible(immediate=True, force=True)
         await pilot.pause()
@@ -52,6 +52,8 @@ async def test_source_disclosure_preserves_choices_and_partial_evidence(tmp_path
         title.scroll_visible(immediate=True, force=True)
         title.focus()
         await pilot.press('enter')
+        assert not nvml.collapsed
+        await pilot.press('enter')
         assert nvml.collapsed
         app.preflight.environment_checks = tuple(replace(row, detail='updated') for row in app.preflight.environment_checks)
         app.preflight.refresh_preflight_state()
@@ -60,10 +62,11 @@ async def test_source_disclosure_preserves_choices_and_partial_evidence(tmp_path
         assert panel.query_one('#preflight-section-nvml', Collapsible).collapsed
         panel.show(pin=True, group='warning')
         await pilot.pause()
-        assert panel.query_one('#preflight-section-nvml', Collapsible).collapsed
-        title = panel.query_one('#preflight-section-nvml CollapsibleTitle')
-        title.focus()
-        await pilot.press('enter')
+        warning_nvml = panel.query_one('#preflight-section-nvml', Collapsible)
+        assert not warning_nvml.collapsed
+        assert warning_nvml.title == 'NVIDIA NVML · ! 1'
+        assert panel.query_one('#preflight-signal-gpu_power').row.status == 'warn'
+        assert not panel.query('#preflight-signal-gpu_memory')
         assert not panel.query('#preflight-actual-note')
         for width, height in ((150, 45), (52, 24)):
             await pilot.resize_terminal(width, height)
@@ -74,6 +77,7 @@ async def test_source_disclosure_preserves_choices_and_partial_evidence(tmp_path
         panel.show(pin=True, group='success')
         await pilot.pause()
         panel.select(panel.query_one('#preflight-signal-gpu_memory').row)
+        assert panel.query_one('#preflight-section-nvml', Collapsible).collapsed
         panel.show(pin=True, group='warning')
         await pilot.pause()
         assert panel._selected_row is None
@@ -112,16 +116,19 @@ async def test_docker_and_cgroup_are_separate_collapsible_sources(tmp_path, monk
         await pilot.pause()
         docker = panel.query_one('#preflight-section-docker', Collapsible)
         cgroup = panel.query_one('#preflight-section-cgroup', Collapsible)
-        assert docker.collapsed
-        assert not cgroup.collapsed
+        assert cgroup.collapsed
         assert docker.title == 'Docker · ✓ 1'
-        assert cgroup.title == 'cgroup v2 · ! 1 · ✓ 3'
+        assert cgroup.title == 'cgroup v2 · ✓ 3'
         assert docker.query_one('#preflight-signal-docker')
         assert cgroup.query_one('#preflight-signal-container_cpu')
-        assert cgroup.query_one('#preflight-signal-cgroup_metrics')
+        assert cgroup.query_one('#preflight-signal-container_memory')
+        assert not cgroup.query('#preflight-signal-cgroup_metrics')
         assert not docker.query('#preflight-signal-container_cpu')
         panel.show(pin=True, group='warning')
         await pilot.pause()
         assert not panel.query('#preflight-section-docker')
-        assert panel.query_one('#preflight-section-cgroup', Collapsible)
-        probe.assert_not_called()
+        warning_cgroup = panel.query_one('#preflight-section-cgroup', Collapsible)
+        assert not warning_cgroup.collapsed
+        assert warning_cgroup.title == 'cgroup v2 · ! 1'
+        assert warning_cgroup.query_one('#preflight-signal-cgroup_metrics')
+        assert not warning_cgroup.query('#preflight-signal-container_cpu')
