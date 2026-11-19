@@ -74,8 +74,8 @@ class DockerRepairScreen(IssueDiagnosticScreen):
     .docker-step-title { text-style: bold; }
     .docker-step Button { width: auto; min-width: 12; height: 3; }
     .docker-command { color: $text; background: $panel; padding: 0 1; }
-    #docker-footer { height: auto; padding: 0 1; }
-    #docker-footer Button { width: auto; min-width: 10; margin-right: 1; }
+    #docker-footer { height: auto; padding: 0 1; align-horizontal: right; }
+    #docker-footer Button { width: auto; min-width: 10; margin-left: 1; }
     """
 
     def __init__(self, controller) -> None:
@@ -98,8 +98,8 @@ class DockerRepairScreen(IssueDiagnosticScreen):
                                  id='docker-technical'):
                     yield Static('', id='docker-raw', markup=False)
             with Horizontal(id='docker-footer'):
-                yield Button(tr(message_id('run.environment.retry')), id='docker-recheck', variant='primary')
                 yield Button(tr(message_id('common.action.close_dialog')), id='docker-close')
+                yield Button(tr(message_id('run.environment.retry')), id='docker-recheck', variant='primary')
 
     def update_cached(self, snapshot: GlobalStatus) -> None:
         tr = self.controller.app.tr

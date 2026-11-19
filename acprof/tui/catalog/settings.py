@@ -9,6 +9,8 @@ MESSAGES: dict[str, Entry] = {
     "settings.action.save_configuration": Entry(zh="保存配置", en="Save configuration"),
     "settings.app.title": Entry(zh="应用设置", en="App settings"),
     "settings.app.tooltip": Entry(zh="设置", en="Settings"),
+    "settings.connections.badge_configured": Entry(zh="✓ 已配置", en="✓ Configured"),
+    "settings.connections.badge_unset": Entry(zh="- 未配置", en="- Not set"),
     "settings.connections.endpoint_hint": Entry(
         zh="Token 留空可使用 hf login；镜像源留空使用官方 Hub。备用地址用逗号分隔。",
         en="Leave the token blank to use hf login, and the endpoint blank for the official Hub. Separate fallback URLs with commas.",
@@ -16,6 +18,10 @@ MESSAGES: dict[str, Entry] = {
     "settings.connections.fallback_endpoints": Entry(zh="备用镜像源", en="Fallback endpoints"),
     "settings.connections.huggingface_endpoint": Entry(zh="Hugging Face 镜像源", en="Hugging Face endpoint"),
     "settings.connections.show_sensitive": Entry(zh="显示敏感字段", en="Show sensitive fields"),
+    "settings.connections.status_summary": Entry(
+        zh="Hugging Face Token：{0}  ·  企业微信 Webhook：{1}",
+        en="Hugging Face Token: {0}  ·  WeCom Webhook: {1}",
+    ),
     "settings.connections.storage_notice": Entry(
         zh="保存时备份原文件并设置为仅当前用户可读写。重新启动时，显式导出的环境变量仍优先于文件。",
         en="Saving backs up the original and restricts access to the current user. Explicitly exported environment variables take priority on restart.",
@@ -92,6 +98,15 @@ MESSAGES: dict[str, Entry] = {
     "settings.permissions.setup_incomplete": Entry(zh="权限配置未完成：{0}", en="Permission setup incomplete: {0}"),
     "settings.permissions.title": Entry(zh="采集权限", en="Profiling permissions"),
     "settings.preferences.applied": Entry(zh="已应用 · 点击保存设置可在下次启动时沿用", en="Applied · Save settings to keep for next launch"),
+    "settings.preferences.autosave_skipped_warning": Entry(
+        zh="已应用 · 原设置文件无法读取，点击保存设置可覆盖恢复",
+        en="Applied · Original settings file is unreadable; save explicitly to overwrite",
+    ),
+    "settings.preferences.autosaved": Entry(zh="✓ 界面设置已自动保存", en="✓ UI settings saved automatically"),
+    "settings.preferences.defaults_autosaved": Entry(
+        zh="✓ 界面已恢复默认并自动保存",
+        en="✓ UI defaults restored and saved",
+    ),
     "settings.preferences.defaults_restored": Entry(zh="界面已恢复默认 · 点击保存设置可保留", en="UI defaults restored · Save settings to keep"),
     "settings.preferences.persistence_hint": Entry(zh="修改立即生效，点击保存后下次启动沿用。", en="Changes apply immediately. Save to keep them for next launch."),
     "settings.preferences.reset": Entry(zh="恢复界面默认", en="Reset UI"),

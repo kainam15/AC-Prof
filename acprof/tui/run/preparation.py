@@ -1,6 +1,7 @@
 """Decision modal for model review/errors; passive preparation stays in Monitor."""
 from __future__ import annotations
 
+from rich.text import Text
 from textual import on
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
@@ -183,6 +184,7 @@ class PreparationScreen(ModalScreen):
     .download-confirmation #preparation-scroll, .preparation-failure #preparation-scroll,
     .task-selection #preparation-scroll, .inference-configuration #preparation-scroll { max-height: 100%; }
     #preparation-title { height: auto; text-style: bold; }
+    #preparation-steps { height: 1; color: $text-muted; }
     #preparation-scroll { height: 1fr; max-height: 24; }
     #preparation-scroll Static, #preparation-scroll Label { height: auto; }
     #preparation-scroll .download-section, #preparation-fields { height: auto; }
@@ -204,6 +206,16 @@ class PreparationScreen(ModalScreen):
     #preparation-traceback:focus { border: round $accent; }
     #preparation-traceback .text-area--selection { background: $accent; color: $background; }
     #preparation-actions { height: 3; }
+    #inference-preset-pills { height: auto; margin-bottom: 1; }
+    #inference-preset-pills Button {
+        height: 1; min-height: 1; min-width: 0; width: auto;
+        border: none; padding: 0 1; margin-right: 1;
+        background: $boost; color: $foreground;
+    }
+    #inference-preset-pills Button.-active { background: $accent; color: $background; text-style: bold; }
+    #inference-preset-pills Button:hover, #inference-preset-pills Button:focus {
+        background: $accent; color: $background; text-style: bold underline;
+    }
     #inference-preset-row { height: 3; }
     #inference-preset { width: 1fr; }
     #preparation-preset { width: auto; }
@@ -274,6 +286,17 @@ class PreparationScreen(ModalScreen):
             "task-selection" if task_selection else "download-confirmation" if download else "preparation-failure" if failed else ""
         )):
             yield Label(tr("选择采集任务" if task_selection else "下载确认" if download else title), id="preparation-title")
+            yield Static(
+                self._step_indicator(
+                    tr,
+                    download=download,
+                    task_selection=task_selection,
+                    inference_step=inference_review or inference_confirmation or parameter_review,
+                    failed=failed,
+                ),
+                id="preparation-steps",
+                markup=False,
+            )
             with VerticalScroll(id="preparation-scroll"):
                 if review:
                     values = request.get("fields", {})
@@ -306,6 +329,18 @@ class PreparationScreen(ModalScreen):
                             if selected not in {item["id"] for item in presets}:
                                 selected = presets[0]["id"]
                             yield Label(tr(message_id("models.inference.preset")))
+                            quick_presets = [item for item in presets if item["id"] != "custom"]
+                            if quick_presets:
+                                with Horizontal(id="inference-preset-pills"):
+                                    for item in quick_presets:
+                                        pill_id = item["id"]
+                                        yield Button(
+                                            tr(labels.get(pill_id, item["label"])),
+                                            id=f"preparation-quick-preset-{pill_id}",
+                                            name=pill_id,
+                                            classes="preset-pill" + (" -active" if pill_id == selected else ""),
+                                            compact=True,
+                                        )
                             with Horizontal(id="inference-preset-row"):
                                 yield Select([(tr(labels.get(item["id"], item["label"])), item["id"])
                                               for item in presets], value=selected, allow_blank=False,
@@ -445,6 +480,27 @@ class PreparationScreen(ModalScreen):
         if self.is_mounted and self.event.get("request", {}).get("purpose") == "inference_configuration":
             update_parameter_dependencies(list(self.query(ParameterRequestInput)))
 
+    @staticmethod
+    def _step_indicator(tr, *, download: bool, task_selection: bool, inference_step: bool, failed: bool) -> Text:
+        steps = (
+            tr(message_id("models.preparation.step_detect")),
+            tr(message_id("models.preparation.step_tasks")),
+            tr(message_id("models.preparation.step_inference")),
+            tr(message_id("models.preparation.step_download")),
+        )
+        current = 3 if download else 2 if inference_step else 1 if task_selection else 0
+        line = Text()
+        for index, label in enumerate(steps):
+            if index:
+                line.append("  →  ", style="dim")
+            if index < current:
+                line.append(f"✓ {label}", style="dim")
+            elif index == current:
+                line.append(label, style="bold red" if failed else "bold")
+            else:
+                line.append(label, style="dim")
+        return line
+
     @on(Button.Pressed, "#preparation-preset")
     def apply_inference_preset(self) -> None:
         request = self.event.get("request", {})
@@ -453,6 +509,15 @@ class PreparationScreen(ModalScreen):
         selected = self.query_one("#inference-preset", Select).value
         if selected in {item["id"] for item in request.get("presets", [])}:
             self.send({"action": "answer", "answers": {"$preset": selected}})
+
+    @on(Button.Pressed, ".preset-pill")
+    def apply_quick_preset(self, event: Button.Pressed) -> None:
+        request = self.event.get("request", {})
+        if request.get("purpose") != "inference_configuration":
+            return
+        preset_id = event.button.name
+        if preset_id in {item["id"] for item in request.get("presets", [])}:
+            self.send({"action": "answer", "answers": {"$preset": preset_id}})
 
     @on(Button.Pressed, "#preparation-edit")
     def edit_configuration(self) -> None:
@@ -563,7 +628,8 @@ class ModelSourceScreen(ModalScreen):
     #source-dialog { width: 90%; max-width: 90; height: auto; max-height: 90%;
         border: round $accent; background: $surface; padding: 1; }
     #source-dialog Static, #source-dialog Label { height: auto; }
-    #source-actions { height: 3; }
+    #source-actions { height: 3; align-horizontal: right; }
+    #source-actions Button { margin-left: 1; }
     """
 
     def compose(self):

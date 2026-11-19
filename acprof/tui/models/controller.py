@@ -78,9 +78,17 @@ class ModelController:
             return tuple(model_choice(candidate) for candidate in candidates), tuple(warnings)
         self.app.catalog.picker_open = True
         self.app.set_busy(True)
+        quick_filters = (
+            ('all', message_id('results.picker.filter_all'), lambda _choice: True),
+            ('validated', message_id('models.candidates.filter_validated'), lambda choice: getattr(choice.value, 'status', '') == 'verified_current'),
+            ('cached', message_id('models.candidates.filter_cached'), lambda choice: getattr(choice.value, 'status', '') == 'cached_unverified'),
+            ('revalidate', message_id('models.candidates.filter_revalidate'),
+             lambda choice: getattr(choice.value, 'status', '') not in {'verified_current', 'cached_unverified'}),
+        )
         self.app.push_screen(SearchPickerScreen('模型候选', ('模型', 'Revision', '验证状态', '设备'), loader,
             query=self.app.configuration.input('model'), actions=('use', 'view'), scope=(*roots, cache_root), project_dir=self.app.project_dir,
             empty_message='尚无本地模型记录，可直接输入 Hugging Face 模型 ID。',
+            quick_filters=quick_filters,
             loading_changed=lambda busy: self.app.catalog.picker_loading(token, busy)),
             lambda choice: self.model_candidate_selected(choice, models))
 

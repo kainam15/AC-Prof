@@ -232,6 +232,7 @@ class AcprofTui(AppEventRoutes):
             result_views.disable_tab(pane)
             result_views.hide_tab(pane)
         self.localization.set_text(self.query_one('#settings-location', Static), message_id('settings.load.file_path', self.configuration.settings_path))
+        self.configuration.refresh_connection_badges()
         self.update_responsive_layout()
         self._busy_controls.capture(self)
         self.form_ready = True
@@ -296,7 +297,7 @@ class AcprofTui(AppEventRoutes):
             "compact-navigation": size.width < 100,
             "short": size.height < 35,
         })
-        if changed_collapse and self.is_mounted:
+        if changed_collapse and self.query("#page-navigation"):
             self.query_one(PageNavigation).sync(self.query_one("#main-tabs", TabbedContent))
 
 

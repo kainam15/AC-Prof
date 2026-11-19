@@ -114,6 +114,10 @@ class AppEventRoutes(BarCursorApp):
     def on_images_select_model_images(self) -> None:
         self.images.select_model_images()
 
+    @on(Button.Pressed, '#image-untagged')
+    def on_images_select_untagged_images(self) -> None:
+        self.images.select_untagged_images()
+
     @on(Button.Pressed, '#image-storage')
     def on_images_open_storage(self) -> None:
         self.images.open_storage()

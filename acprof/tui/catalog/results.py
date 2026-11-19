@@ -324,6 +324,8 @@ MESSAGES: dict[str, Entry] = {
     "results.picker.checking_roots": Entry(zh="正在检查搜索目录……", en="Checking search directories…"),
     "results.picker.details_title": Entry(zh="实验详情", en="Experiment details"),
     "results.picker.empty": Entry(zh="尚无本地实验记录，请检查搜索目录。", en="No local experiment records yet. Check the search directories."),
+    "results.picker.filter_all": Entry(zh="全部", en="All"),
+    "results.picker.filter_resumable": Entry(zh="可续跑", en="Resumable"),
     "results.picker.inspection_failed": Entry(zh="无法检查目录 {0}：{1}", en="Cannot inspect directory {0}: {1}"),
     "results.picker.invalid_directory": Entry(zh="目录不存在或不是目录：{0}", en="Directory missing or not a directory: {0}"),
     "results.picker.loading": Entry(zh="正在读取已知目录内的实验……", en="Reading known experiment roots…"),

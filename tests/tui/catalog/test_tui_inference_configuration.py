@@ -178,3 +178,41 @@ async def test_preset_requires_an_explicit_apply_action(tmp_path, preset, langua
         assert await pilot.click("#preparation-preset")
         await pilot.pause()
         assert replies == [{"action": "answer", "answers": {"$preset": preset}}]
+
+
+async def test_preparation_step_bar_auto_direct_edit_and_quick_preset_pills(tmp_path):
+    app = AcprofTui(RunConfig.smoke("fixture/model"), settings_path=tmp_path / "settings.json")
+    replies = []
+    event = draft_event()
+    auto_temp = question("temperature", "float", {"mode": "auto"}, minimum=0)
+    auto_temp["resolved_value"] = 0.7
+    event["request"]["questions"] = [auto_temp]
+    event["request"]["parameter_advanced"] = []
+    event["request"]["presets"] = [
+        {"id": "custom", "label": "Custom"},
+        {"id": "auto", "label": "Auto"},
+        {"id": "benchmark", "label": "AC-Prof Benchmark v1"},
+    ]
+    event["request"]["selected_preset"] = "auto"
+    async with app.run_test(size=(120, 30)) as pilot:
+        screen = PreparationScreen(event, respond=replies.append)
+        await app.push_screen(screen)
+        await pilot.pause()
+
+        # Step indicator renders clearly across the 4-stage wizard.
+        steps = str(screen.query_one("#preparation-steps", Static).render())
+        assert "③ 推理配置" in steps
+
+        # Auto-mode field stays directly editable and promotes mode to explicit upon edit.
+        mode = screen.query_one("#preparation-answer-0-mode", Select)
+        value = screen.query_one("#preparation-answer-0-value-0", Input)
+        assert mode.value == "auto"
+        assert not value.disabled
+        value.value = "0.9"
+        await pilot.pause()
+        assert mode.value == "explicit"
+
+        # One-click quick preset pill sends preset selection directly.
+        assert await pilot.click("#preparation-quick-preset-benchmark")
+        await pilot.pause()
+        assert replies == [{"action": "answer", "answers": {"$preset": "benchmark"}}]

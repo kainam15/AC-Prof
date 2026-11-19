@@ -293,10 +293,16 @@ class TestTuiLayoutSettings:
             assert (app.query_one("#run-log", SelectableLog).max_lines) == (1000)
             assert app.query_one("#slash-command-bar").display
             assert app.query_one("#bottom-panel").region.height > 0
-            assert not (self.settings_path.exists())
+            # UI preference changes auto-save immediately without requiring an extra Save click.
+            assert (self.settings_path.is_file())
+            assert "自动保存" in str(app.query_one("#settings-status", Static).content)
             assert (await pilot.click("#save-ui-settings", offset=(3, 1)))
             await pilot.pause()
             assert (self.settings_path.is_file())
+            # Connection status badges render safely without exposing secret values.
+            badges = str(app.query_one("#settings-connection-status", Static).content)
+            assert "Hugging Face Token" in badges
+            assert "Webhook" in badges
         restarted = AcprofTui(settings_path=self.settings_path)
         async with restarted.run_test(size=(150, 45)) as pilot:
             await pilot.pause()
@@ -312,6 +318,9 @@ class TestTuiLayoutSettings:
             assert not restarted.query_one("#ui-command-bar", Checkbox).value
             assert not restarted.query_one("#slash-command-bar").display
             assert restarted.query_one("#bottom-panel").region.height == 0
+            restored, warning = load_settings(self.settings_path, PROJECT_DIR)
+            assert warning == ""
+            assert restored.ui == UiPreferences()
 
     async def test_saving_ui_preserves_remembered_experiment_and_saving_experiment_preserves_ui(self):
         config = RunConfig.smoke("demo/remembered")
@@ -322,15 +331,14 @@ class TestTuiLayoutSettings:
             await pilot.pause()
             assert (await pilot.click("#save-ui-settings", offset=(3, 1)))
             await pilot.pause()
-            # Remembering the experiment must preserve the saved theme,
-            # even when a different theme is currently previewed in memory.
+            # UI changes auto-save, and remembering the experiment preserves the saved UI theme.
             app.query_one("#ui-theme", Select).value = "acprof-dark"
             await pilot.pause()
             await self.remember_experiment(app, pilot)
             saved, warning = load_settings(self.settings_path, PROJECT_DIR)
             assert (warning) == ("")
             assert (saved.run_defaults) == (config)
-            assert (saved.ui.theme) == ("acprof-light")
+            assert (saved.ui.theme) == ("acprof-dark")
             assert (app.configuration.preferences.theme) == ("acprof-dark")
 
             # Unsaved form edits must not replace the explicitly remembered run
@@ -500,7 +508,7 @@ class TestTuiModelMemory:
         assert (saved.last_result_dir) == (self.saved.last_result_dir)
         assert (saved.last_result_csv) == (self.saved.last_result_csv)
         assert (saved.run_defaults) == (config if remember_run else self.saved.run_defaults)
-        assert (saved.ui.theme) == ("acprof-light" if remember_run else "acprof-dark")
+        assert (saved.ui.theme) == ("acprof-dark")
 
     def write_result(self):
         path = Path(str(self.temporary)) / "模型 结果" / "custom.csv"

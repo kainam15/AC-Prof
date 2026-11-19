@@ -8,6 +8,7 @@ from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.widgets import Button, ContentSwitcher, Static, TabPane
 
+from acprof.tui.i18n import message_id
 from acprof.tui.ui.input import BarCursorInput as Input
 from acprof.tui.ui.table import ResizableDataTable
 
@@ -30,6 +31,7 @@ def compose_images_tab(app: AcprofTui) -> ComposeResult:
         with Horizontal(id="image-header", classes="page-header"):
             with Vertical(id="image-heading"):
                 yield app.localization.localized_widget(Static(IMAGE_HINT, id="image-status", classes="page-summary", markup=False))
+            yield app.localization.localized_widget(Button("存储空间", id="image-storage", classes="image-control"))
         with Vertical(id="image-panel"):
             with Horizontal(id="image-filters"):
                 yield app.localization.localized_select(
@@ -47,7 +49,6 @@ def compose_images_tab(app: AcprofTui) -> ComposeResult:
                         label, id="image-view-" + view, classes="image-control image-view-button",
                         variant="primary" if view == "tree" else "default",
                     ))
-                yield app.localization.localized_widget(Button("存储空间", id="image-storage", classes="image-control"))
             with ImageWorkspace(id="image-workspace"):
                 with ContentSwitcher(initial="image-tree-view", id="image-browser"):
                     with Vertical(id="image-tree-view"):
@@ -64,8 +65,12 @@ def compose_images_tab(app: AcprofTui) -> ComposeResult:
                 yield ImageDetailPanel(id="image-detail-scroll")
         with Horizontal(id="image-actions", classes="action-bar"):
             with Horizontal(classes="action-secondary"):
-                for label, widget_id in (("勾选/取消", "image-toggle"),
-                                         ("选择同模型", "image-model"), ("清空选择", "image-clear")):
+                for label, widget_id in (
+                    ("勾选/取消", "image-toggle"),
+                    ("选择同模型", "image-model"),
+                    (message_id("images.selection.untagged"), "image-untagged"),
+                    ("清空选择", "image-clear"),
+                ):
                     yield app.localization.localized_widget(Button(label, id=widget_id, classes="image-control", disabled=True))
             with Horizontal(classes="action-primary"):
                 yield app.localization.localized_widget(Button(

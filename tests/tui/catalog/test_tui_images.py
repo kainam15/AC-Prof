@@ -349,12 +349,12 @@ class TestTuiImages:
             await pilot.click("#image-toggle")
             selected = set(app.images.selected_ids)
             buttons = app.query("#image-storage")
-            assert (buttons), "镜像视图切换按钮旁应提供存储空间入口"
+            assert (buttons), "镜像页顶栏应提供存储空间入口"
             button = buttons.first(Button)
             assert (str(button.label)) == ("存储空间")
-            layers = app.query_one("#image-view-layers", Button)
-            assert (button.region.x) > (layers.region.right)
-            assert (button.region.y, button.region.height) == (layers.region.y, layers.region.height)
+            heading = app.query_one("#image-heading")
+            assert (button.region.x) >= (heading.region.right)
+            assert (button.region.y) == (heading.region.y)
             assert (await pilot.click("#image-storage"))
             await pilot.pause()
             assert (app.screen.query_one("#storage-dialog").border_title) == ("存储空间")
@@ -364,6 +364,21 @@ class TestTuiImages:
             assert (len(app.screen_stack)) == (1)
             assert (app.images.selected_ids) == (selected)
             assert not (self.docker.removals)
+
+    async def test_select_untagged_images_and_resize_handle_grip(self):
+        untagged_id = "sha256:" + "d" * 64
+        self.docker.images[untagged_id] = image(untagged_id, [], 150, ["dangling-layer"])
+        app = self.make_app()
+        async with app.run_test(size=(120, 30)) as pilot:
+            await self.load_images(app, pilot)
+            handle = app.query_one("#image-detail-resize")
+            assert handle.render().title == "⋯"
+            untagged_btn = app.query_one("#image-untagged", Button)
+            assert not untagged_btn.disabled
+            assert await pilot.click(untagged_btn)
+            await pilot.pause()
+            assert app.images.selected_ids == {untagged_id}
+            assert app.query_one("#image-scope", Select).value == "untagged"
 
     @pytest.mark.parametrize("language", ["zh", "en"])
     @pytest.mark.parametrize("size", [(80, 24), (120, 30), (150, 45)])

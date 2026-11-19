@@ -5,7 +5,7 @@ from typing import Any
 
 from textual import on
 from textual.containers import Horizontal, Vertical
-from textual.widgets import Select, Static
+from textual.widgets import Input as TextualInput, Select, Static
 
 from acprof.extensions.parameters import ParameterRequest, ParameterSpec, validate_parameter_request
 from acprof.extensions.schema import declaration_from_dict
@@ -29,6 +29,7 @@ class ParameterRequestInput(Vertical):
         self.translate = translate
         self.initial_request = question.get("request", {"mode": "unset"})
         self.effective_enabled = question.get("enabled", True)
+        self._baseline_value: object = None
         self.spec = declaration_from_dict(
             ParameterSpec, question["parameter_spec"], question["path"],
         ) if "parameter_spec" in question else None
@@ -72,21 +73,43 @@ class ParameterRequestInput(Vertical):
         return question
 
     def on_mount(self) -> None:
+        self._baseline_value = self._current_control_value()
         self.set_dependency_state(
             self.effective_enabled, self.question.get("disabled_reason", ""),
         )
 
+    def _current_control_value(self) -> object:
+        control = self.query_one(f"#{self.id}-value-0")
+        return getattr(control, "value", None)
+
     @on(Select.Changed)
-    def mode_changed(self, event: Select.Changed) -> None:
+    def mode_or_value_select_changed(self, event: Select.Changed) -> None:
         if event.select.id == f"{self.id}-mode":
+            if event.value == "auto":
+                self._baseline_value = self._current_control_value()
             self._sync_value_control()
+        elif event.select.id == f"{self.id}-value-0" and event.value != self._baseline_value:
+            self._promote_auto_to_explicit()
+
+    @on(TextualInput.Changed)
+    def value_input_changed(self, event: TextualInput.Changed) -> None:
+        if event.input.id == f"{self.id}-value-0" and event.value != self._baseline_value:
+            self._promote_auto_to_explicit()
+
+    def _promote_auto_to_explicit(self) -> None:
+        if not self.is_mounted:
+            return
+        mode_select = self.query_one(f"#{self.id}-mode", Select)
+        if mode_select.value == "auto":
+            with self.prevent(Select.Changed):
+                mode_select.value = "explicit"
 
     def _sync_value_control(self) -> None:
         if not self.is_mounted:
             return
         mode = self.query_one(f"#{self.id}-mode", Select).value
         self.query_one(f"#{self.id}-value-0").disabled = (
-            mode != "explicit" or not self.effective_enabled
+            mode not in {"explicit", "auto"} or not self.effective_enabled
         )
 
     def set_dependency_state(self, enabled: bool, reason: str) -> None:

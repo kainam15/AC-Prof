@@ -119,6 +119,10 @@ class ImageController:
             busy or current is None or bool(current.containers and not current.descendant_ids)
         )
         self.app.query_one("#image-model", Button).disabled = busy or current is None or not current.model_key or not current.acprof
+        has_deletable_untagged = self.inventory is not None and any(
+            item.kind == "untagged" and not item.containers for item in self.inventory.images
+        )
+        self.app.query_one("#image-untagged", Button).disabled = busy or not has_deletable_untagged
         self.app.query_one("#image-clear", Button).disabled = busy or not self.selected_ids
         self.app.query_one("#image-delete", Button).disabled = (
             self.images_unavailable() or bool(self.refresh_error) or not self.selected_ids
@@ -343,6 +347,23 @@ class ImageController:
         with self.app.prevent(Input.Changed, Select.Changed):
             self.app.query_one("#image-search", Input).value = item.model_id
             self.app.query_one("#image-scope", Select).value = "models"
+        self.render_images()
+
+    def select_untagged_images(self) -> None:
+        if self.images_unavailable(allow_refresh=True) or self.inventory is None:
+            return
+        candidates = {
+            candidate.image_id for candidate in self.inventory.images
+            if candidate.kind == "untagged" and not candidate.containers
+        }
+        selected = retain_complete_image_selection(self.inventory, candidates)
+        if not selected:
+            self.app.notify(message_id("images.selection.no_untagged"))
+            return
+        self.selected_ids = selected
+        with self.app.prevent(Input.Changed, Select.Changed):
+            self.app.query_one("#image-search", Input).value = ""
+            self.app.query_one("#image-scope", Select).value = "untagged"
         self.render_images()
 
     def begin_image_operation(self, operation: str, status: str) -> None:

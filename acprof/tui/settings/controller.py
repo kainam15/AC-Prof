@@ -105,6 +105,48 @@ class ConfigurationController:
             not self.preferences.show_command_bar, "command-hidden",
         )
 
+    def _autosave_ui_preferences(self, *, restored_defaults: bool = False) -> None:
+        if self.settings_warning:
+            self.app.query_one("#settings-banner", StatusBanner).update_summary(
+                StatusSummary("warning", message_id("settings.preferences.autosave_skipped_warning")),
+            )
+            return
+        try:
+            settings = replace(self.saved_settings, ui=self.preferences)
+            save_settings(self.settings_path, settings, self.app.project_dir)
+        except (OSError, ValueError, RunConfigError):
+            self.app.query_one("#settings-banner", StatusBanner).update_summary(
+                StatusSummary("error", "保存失败 · 请检查配置或文件权限"),
+            )
+            return
+        self.saved_settings = settings
+        key = "settings.preferences.defaults_autosaved" if restored_defaults else "settings.preferences.autosaved"
+        self.app.query_one("#settings-banner", StatusBanner).update_summary(
+            StatusSummary("success", message_id(key)),
+        )
+
+    def refresh_connection_badges(self) -> None:
+        if not self.app.is_running or self.app.ui_closing:
+            return
+        from acprof.host.env_utils import ProjectEnvSnapshot
+
+        try:
+            values = ProjectEnvSnapshot.read(self.app.project_dir).configurable_values()
+        except (OSError, ValueError):
+            values = {}
+        hf_badge = message_id(
+            "settings.connections.badge_configured" if values.get("HF_TOKEN", "").strip()
+            else "settings.connections.badge_unset",
+        )
+        wecom_badge = message_id(
+            "settings.connections.badge_configured" if values.get("ACPROF_WECOM_WEBHOOK_URL", "").strip()
+            else "settings.connections.badge_unset",
+        )
+        self.app.localization.set_text(
+            self.app.query_one("#settings-connection-status", Static),
+            message_id("settings.connections.status_summary", hf_badge, wecom_badge),
+        )
+
     def ui_preference_changed(self) -> None:
         if not self.app.is_running or self.app.ui_closing or not self.app.form_ready or self.app.is_busy():
             return
@@ -119,9 +161,7 @@ class ConfigurationController:
             return
         self.preferences = preferences
         self.apply_ui_preferences()
-        self.app.query_one("#settings-banner", StatusBanner).update_summary(
-            StatusSummary("neutral", "已应用 · 点击保存设置可在下次启动时沿用"),
-        )
+        self._autosave_ui_preferences(restored_defaults=False)
 
     def restore_ui_defaults(self) -> None:
         if self.app.is_busy():
@@ -135,9 +175,7 @@ class ConfigurationController:
             self.app.query_one("#ui-command-bar", Checkbox).value = defaults.show_command_bar
         self.preferences = defaults
         self.apply_ui_preferences()
-        self.app.query_one("#settings-banner", StatusBanner).update_summary(
-            StatusSummary("neutral", "界面已恢复默认 · 点击保存设置可保留"),
-        )
+        self._autosave_ui_preferences(restored_defaults=True)
 
     def save_settings(self, *, remember_run: bool) -> None:
         if self.app.is_busy():
@@ -203,6 +241,7 @@ class ConfigurationController:
 
     def environment_closed(self, _saved: bool | None) -> None:
         self.environment_open = False
+        self.refresh_connection_badges()
         self.app.set_busy(False)
 
     def open_run_settings(self) -> None:

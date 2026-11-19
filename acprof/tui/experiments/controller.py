@@ -15,6 +15,7 @@ from acprof.tui.experiments.catalog import (
     scan_experiments,
 )
 from acprof.tui.experiments.picker import SearchPickerScreen, experiment_choice
+from acprof.tui.i18n import message_id
 from acprof.tui.ui.input import BarCursorInput as Input
 
 if TYPE_CHECKING:
@@ -59,8 +60,15 @@ class CatalogController:
             return tuple(experiment_choice(record) for record in catalog.records), catalog.warnings
         self.picker_open = True
         self.app.set_busy(True)
+        quick_filters = (
+            ('all', message_id('results.picker.filter_all'), lambda _choice: True),
+            ('complete', message_id('run.stage.completed'), lambda choice: getattr(choice.value, 'status', '') == 'complete'),
+            ('failed', message_id('common.state.failed'), lambda choice: getattr(choice.value, 'status', '') in {'failed', 'interrupted'}),
+            ('resumable', message_id('results.picker.filter_resumable'), lambda choice: 'resume' in choice.actions),
+        )
         self.app.push_screen(SearchPickerScreen('选择实验', ('模型', '日期', '设备', '状态', 'Run ID'), loader,
             actions=('select', 'view', 'reuse', 'resume'), scope=roots, project_dir=self.app.project_dir,
+            quick_filters=quick_filters,
             loading_changed=lambda busy: self.picker_loading(token, busy)),
             lambda choice: self.experiment_selected(target, choice))
 

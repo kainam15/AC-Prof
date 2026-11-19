@@ -67,6 +67,9 @@ def compose_settings_tab(app: AcprofTui) -> ComposeResult:
                     message_id("settings.environment.description"),
                     classes="page-hint", markup=False,
                 ))
+                yield app.localization.localized_widget(Static(
+                    "", id="settings-connection-status", classes="connection-badges", markup=False,
+                ))
                 yield app.localization.localized_widget(Button("管理连接与权限", id="open-environment-settings"))
             with Vertical(id="settings-version", classes="settings-section") as section:
                 app.localization.set_text(section, message_id("common.updates.title"), "border_title")

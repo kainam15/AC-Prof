@@ -246,3 +246,36 @@ async def test_scope_inspection_runs_in_worker_and_keeps_path_errors_in_tooltip(
                 assert (f'Cannot inspect directory {denied}: fixture permission denied') in (cast(Text, scope.tooltip).plain)
                 assert (len(inspection_threads)) == (1)
                 assert (inspection_threads[0]) != (threading.get_ident())
+
+
+async def test_picker_wide_split_layout_and_quick_status_filters():
+    choices = (
+        PickerChoice('ok-1', ('demo/ok', 'complete'), 'ok detail', 'demo/ok complete', frozenset({'view'})),
+        PickerChoice('fail-1', ('demo/fail', 'failed'), 'fail detail', 'demo/fail failed', frozenset({'view', 'resume'})),
+    )
+    quick_filters = (
+        ('all', '全部', lambda _choice: True),
+        ('resumable', '可续跑', lambda choice: 'resume' in choice.actions),
+    )
+    app = PickerHarness('zh')
+    screen = SearchPickerScreen(
+        '选择实验', ('模型', '状态'), lambda _cancelled: (choices, ()),
+        actions=('view', 'resume'), quick_filters=quick_filters,
+    )
+    async with app.run_test(size=(130, 32)) as pilot:
+        await app.push_screen(screen)
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        dialog = screen.query_one('#picker-dialog')
+        assert dialog.has_class('wide-picker')
+        assert screen.query_one('#picker-table').region.right <= screen.query_one('#picker-detail-scroll').region.x
+        assert screen.query_one('#picker-view', Button).variant == 'primary'
+        assert len(screen.filtered) == 2
+
+        assert await pilot.click('#picker-filter-resumable')
+        await pilot.pause()
+        assert [choice.value for choice in screen.filtered] == ['fail-1']
+
+        await pilot.resize_terminal(80, 24)
+        await pilot.pause()
+        assert not dialog.has_class('wide-picker')

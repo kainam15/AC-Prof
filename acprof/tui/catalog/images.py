@@ -201,6 +201,7 @@ MESSAGES: dict[str, Entry] = {
     ),
     "images.selection.empty": Entry(zh="尚未勾选镜像。", en="No images selected."),
     "images.selection.identity_changed": Entry(zh="镜像或引用已改变，请刷新后重新选择", en="Images or references changed; refresh and select again"),
+    "images.selection.no_untagged": Entry(zh="当前没有可删除的无标签镜像。", en="No deletable untagged images found."),
     "images.selection.references_changed": Entry(
         zh="所选镜像或引用已改变，请关闭弹窗并重新选择。",
         en="Selected images or references changed; close this dialog and select again.",
@@ -214,6 +215,7 @@ MESSAGES: dict[str, Entry] = {
         en="Docker {0} · {1}/{2} shown · {3} selected ({4} hidden) · Size includes shared layers",
     ),
     "images.selection.toggle": Entry(zh="勾选/取消", en="Toggle"),
+    "images.selection.untagged": Entry(zh="选无标签", en="Untagged"),
     "images.size_source.docker_estimate": Entry(zh="Docker df 近似值", en="Approximate Docker df sizes"),
     "images.size_source.verified_layers": Entry(zh="层链与已核验 history 字节数", en="Layer chains and verified history bytes"),
     "images.storage.available": Entry(zh="可用", en="Available"),

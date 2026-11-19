@@ -129,8 +129,27 @@ class SearchPickerScreen(ModalScreen[tuple[str, object] | None]):
     #picker-scope-note { display: none; height: 1; color: $text-muted; }
     #picker-status { height: auto; max-height: 2; color: $text-muted; }
     #picker-search { height: 3; }
+    #picker-filters { height: 1; margin-bottom: 1; }
+    .picker-filter-pill {
+        height: 1; min-height: 1; min-width: 0; width: auto;
+        border: none; padding: 0 1; margin-right: 1;
+        background: transparent; color: $text-muted;
+    }
+    .picker-filter-pill:hover, .picker-filter-pill:focus {
+        border: none; background: $boost; color: $foreground; text-style: bold;
+    }
+    .picker-filter-pill.-active, .picker-filter-pill.-active:hover, .picker-filter-pill.-active:focus {
+        border: none; background: $accent; color: $background; text-style: bold;
+    }
+    #picker-main { layout: vertical; height: 1fr; }
     #picker-table { height: 1fr; min-height: 5; }
     #picker-detail-scroll { height: auto; min-height: 3; max-height: 6; overflow-y: auto; }
+    #picker-dialog.wide-picker #picker-main { layout: horizontal; }
+    #picker-dialog.wide-picker #picker-table { width: 3fr; height: 1fr; }
+    #picker-dialog.wide-picker #picker-detail-scroll {
+        width: 2fr; height: 1fr; max-height: 100%;
+        border-left: solid $panel; padding-left: 1; margin-left: 1;
+    }
     #picker-detail-banner, #picker-detail-callout, #picker-detail-facts { display: none; }
     #picker-detail-banner { padding: 0 1; }
     #picker-detail { height: auto; color: $text-muted; }
@@ -141,7 +160,8 @@ class SearchPickerScreen(ModalScreen[tuple[str, object] | None]):
     def __init__(self, title: str, columns: tuple[str, ...], loader: Callable,
                  *, query: str = '', actions: tuple[str, ...] = ('view', 'reuse', 'resume'),
                  loading_changed: Callable[[bool], None] = lambda busy: None, scope: tuple = (),
-                 project_dir: Path | None = None, empty_message: str = '尚无本地实验记录，请检查搜索目录。'):
+                 project_dir: Path | None = None, empty_message: str = '尚无本地实验记录，请检查搜索目录。',
+                 quick_filters: tuple[tuple[str, str, Callable[[PickerChoice], bool]], ...] = ()):
         super().__init__()
         self._compositor = CjkCompositor()
         self.title_text, self.columns, self.loader = title, columns, loader
@@ -151,6 +171,8 @@ class SearchPickerScreen(ModalScreen[tuple[str, object] | None]):
         self.filtered: tuple[PickerChoice, ...] = ()
         self.warnings: tuple[str, ...] = ()
         self.empty_message = empty_message
+        self.quick_filters = quick_filters
+        self._active_filter = quick_filters[0][0] if quick_filters else ''
         self._choices_loading = True
         self._owner: App[object] | None = None
         self.scope = scope
@@ -164,16 +186,33 @@ class SearchPickerScreen(ModalScreen[tuple[str, object] | None]):
             yield Static(tr('正在检查搜索目录……'), id='picker-scope', markup=False)
             yield Static('', id='picker-scope-note', markup=False)
             yield Input(self.initial_query, placeholder=tr('搜索模型、日期、设备或状态'), id='picker-search')
+            if self.quick_filters:
+                with Horizontal(id='picker-filters'):
+                    for filter_id, label, _ in self.quick_filters:
+                        yield Button(
+                            tr(label),
+                            id=f'picker-filter-{filter_id}',
+                            name=filter_id,
+                            classes='picker-filter-pill' + (' -active' if filter_id == self._active_filter else ''),
+                            compact=True,
+                        )
             yield Static(tr('正在读取已知目录内的实验……'), id='picker-status', markup=False)
-            yield PickerTable(id='picker-table', cursor_type='row', fixed_columns=1)
-            with VerticalScroll(id='picker-detail-scroll'):
-                yield StatusBanner(StatusSummary('neutral', ''), id='picker-detail-banner')
-                yield Callout(CalloutContent('neutral', '', '', ''), id='picker-detail-callout')
-                yield FactGrid(ViewSection('', ()), id='picker-detail-facts', collapsible=False)
-                yield Static('', id='picker-detail', markup=False)
+            with Vertical(id='picker-main'):
+                yield PickerTable(id='picker-table', cursor_type='row', fixed_columns=1)
+                with VerticalScroll(id='picker-detail-scroll'):
+                    yield StatusBanner(StatusSummary('neutral', ''), id='picker-detail-banner')
+                    yield Callout(CalloutContent('neutral', '', '', ''), id='picker-detail-callout')
+                    yield FactGrid(ViewSection('', ()), id='picker-detail-facts', collapsible=False)
+                    yield Static('', id='picker-detail', markup=False)
             with Horizontal(id='picker-actions'):
-                for action in self.actions:
-                    yield Button(tr(ACTION_LABELS[action]), id='picker-' + action, classes='picker-action', disabled=True)
+                for index, action in enumerate(self.actions):
+                    yield Button(
+                        tr(ACTION_LABELS[action]),
+                        id='picker-' + action,
+                        classes='picker-action',
+                        variant='primary' if index == 0 else 'default',
+                        disabled=True,
+                    )
                 yield Button(tr('关闭弹窗'), id='picker-close')
 
     def on_mount(self):
@@ -191,8 +230,15 @@ class SearchPickerScreen(ModalScreen[tuple[str, object] | None]):
         self._fit_detail_height()
 
     def _fit_detail_height(self) -> None:
-        if self.is_attached and not self._pruning and not self.cancelled.is_set():
-            self.query_one('#picker-detail-scroll').styles.max_height = max(5, min(11, self.app.size.height // 3 - 2))
+        if not self.is_attached or self._pruning or self.cancelled.is_set():
+            return
+        wide = self.app.size.width >= 105
+        self.query_one('#picker-dialog').set_class(wide, 'wide-picker')
+        detail = self.query_one('#picker-detail-scroll')
+        if wide:
+            detail.styles.max_height = None
+        else:
+            detail.styles.max_height = max(5, min(11, self.app.size.height // 3 - 2))
 
     @work(thread=True, exclusive=True, exit_on_error=False)
     def load_choices(self):
@@ -270,6 +316,16 @@ class SearchPickerScreen(ModalScreen[tuple[str, object] | None]):
     def search_changed(self):
         self.filter_choices()
 
+    @on(Button.Pressed, '.picker-filter-pill')
+    def quick_filter_selected(self, event: Button.Pressed) -> None:
+        selected_id = event.button.name or ''
+        if selected_id == self._active_filter:
+            return
+        self._active_filter = selected_id
+        for pill in self.query('.picker-filter-pill').results(Button):
+            pill.set_class(pill.name == selected_id, '-active')
+        self.filter_choices()
+
     def _update_column_headers(self) -> None:
         tr = translated_app(self.app).tr
         table = self.query_one('#picker-table', PickerTable)
@@ -319,7 +375,9 @@ class SearchPickerScreen(ModalScreen[tuple[str, object] | None]):
         current = self.selected()
         current_value = current.value if current is not None else None
         terms = self.query_one('#picker-search', Input).value.casefold().split()
-        matched = [choice for choice in self.choices if all(
+        predicate = next((fn for fid, _, fn in self.quick_filters if fid == self._active_filter), None)
+        pool = [choice for choice in self.choices if predicate(choice)] if predicate is not None else list(self.choices)
+        matched = [choice for choice in pool if all(
             term in (choice.search_text + ' ' + ' '.join(tr(cell) for cell in choice.cells)).casefold()
             for term in terms)]
         if self.sort_state is not None:

@@ -52,7 +52,7 @@ MESSAGES: dict[str, Entry] = {
     "updates.ui.restart_manual": Entry(zh="当前终端无法安全自动重启。退出后执行：{0}", en="Automatic restart is unavailable in this terminal. Exit, then run: {0}"),
     "updates.ui.restart_needed": Entry(zh="请重新启动 TUI 后再开始其他任务。", en="Restart the TUI before starting other tasks."),
     "updates.ui.runtime_identity": Entry(zh="当前运行：{0} · {1}\n生效渠道：{2}", en="Running version: {0} · {1}\nActive channel: {2}"),
-    "updates.ui.settings_hint": Entry(zh="界面设置可保存；版本渠道在安装验证成功后生效。", en="Save interface preferences here; version channels take effect after a verified installation."),
+    "updates.ui.settings_hint": Entry(zh="界面设置修改后自动保存；版本渠道在安装验证成功后生效。", en="Interface preferences save automatically; version channels apply after a verified installation."),
     "updates.ui.stable": Entry(zh="正式版 Stable", en="Stable"),
     "updates.ui.unknown": Entry(zh="尚无记录", en="Not checked"),
     "updates.unsupported.pipx": Entry(zh="已识别 pipx 工具环境；当前仅提供手动升级指引。切换至较低正式版需确认版本并重新安装。", en="pipx environment detected; manual upgrade guidance is available. Returning to an older stable release requires an explicit reinstall."),
