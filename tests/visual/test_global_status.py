@@ -50,6 +50,7 @@ def test_global_status(snap_compare, svg_operations, tmp_path, monkeypatch, lang
             app.preflight.environment_checks = (PreflightCheck('Docker', 'ok', 'fixture', check_id='docker'),)
             app.configuration.refresh_command_preview(notify=False)
             app.preflight.refresh_preflight_state()
+            assert app.configuration.select('runtime') == 'docker'
             assert not app.query('#runtime-status')
             app.clear_notifications()
             return
@@ -77,8 +78,13 @@ def test_global_status(snap_compare, svg_operations, tmp_path, monkeypatch, lang
         app.preflight.refresh_preflight_state()
         app.preflight.panel.show(pin=True, group='error' if scene == 'blocked' else 'pending' if scene == 'checking' else 'success')
         await pilot.pause()
-        if scene == 'inherited':
+        if scene == 'blocked':
+            assert app.preflight.status.counts['error'] == 1
+            assert app.preflight.status.state == 'failed'
+        if scene in {'inherited', 'blocked'}:
             await expand_check_source(app, pilot, 'process_resources')
             app.query_one('#preflight-signal-process_resources').focus()
+            await pilot.press('enter')
+            assert not app.query_one('#preflight-empty').display
         app.clear_notifications()
     assert snap_compare(app, terminal_size=size, run_before=prepare)

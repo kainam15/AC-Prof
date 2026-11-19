@@ -8,6 +8,7 @@ from acprof.experiments.configuration import RunConfig
 from acprof.tui.app import AcprofTui
 from acprof.tui.run.diagnostics import PreflightCheck
 from acprof.tui.run.environment_checks import ENVIRONMENT_CHECK_IDS
+from acprof.tui.ui.environment import EnvironmentSignal
 from tests.visual_png.scenarios.common import apply_fixture_preflight, freeze_for_screenshot
 
 
@@ -15,7 +16,7 @@ def initial_config() -> RunConfig:
     return replace(RunConfig.smoke("fixture/model"), runtime="docker", idle_seconds=1, extra_options={"dram_energy": "required"})
 
 
-def mount(app: AcprofTui, *, group: str = "error") -> None:
+def mount(app: AcprofTui, *, group: str = "error", inspect: bool = False) -> None:
     freeze_for_screenshot(app)
     apply_fixture_preflight(app)
     app.preflight.checks = (
@@ -34,6 +35,11 @@ def mount(app: AcprofTui, *, group: str = "error") -> None:
     app.preflight.refresh_preflight_state()
     app.preflight.panel.show(pin=True, group=group)
     identifier = "docker" if group == "success" else "dram_energy"
-    app.preflight.panel.call_later(
-        lambda: app.query_one("#preflight-signal-" + identifier).focus(scroll_visible=False)
-    )
+
+    def focus_signal() -> None:
+        signal = app.query_one("#preflight-signal-" + identifier, EnvironmentSignal)
+        signal.focus(scroll_visible=False)
+        if inspect:
+            signal.action_inspect_issue()
+
+    app.preflight.panel.call_later(focus_signal)

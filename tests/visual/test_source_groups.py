@@ -37,6 +37,9 @@ def test_source_groups(snap_compare, svg_operations, tmp_path, monkeypatch, lang
         await pilot.pause()
         assert app.preflight.status.counts['warning'] == 2
         assert not app.preflight.panel.query_one('#preflight-section-nvml').collapsed
+        app.query_one('#preflight-signal-gpu_power').focus()
+        await pilot.press('enter')
+        assert app.query_one('#preflight-callout').display
         app.clear_notifications()
     assert snap_compare(app, terminal_size=size, run_before=prepare)
 
@@ -65,5 +68,7 @@ def test_capability_reason(snap_compare, svg_operations, tmp_path, monkeypatch, 
         await pilot.pause()
         await expand_check_source(app, pilot, identifier)
         app.query_one('#preflight-signal-' + identifier).focus()
+        await pilot.press('enter')
+        assert not app.query_one('#preflight-empty').display
         app.clear_notifications()
     assert snap_compare(app, terminal_size=size, run_before=prepare)
