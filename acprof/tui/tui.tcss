@@ -270,7 +270,6 @@ Select:focus > SelectCurrent, Select.-expanded > SelectCurrent, SelectOverlay:fo
 }
 
 #run-plan-panel { height: auto; }
-#run-plan-status { padding: 0; }
 #run-plan-body { height: auto; max-height: 11; }
 #run-plan-facts { margin-bottom: 0; }
 #run-plan-facts .fact-grid { grid-columns: 18 1fr; }

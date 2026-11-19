@@ -195,11 +195,18 @@ def global_check_view(item: StatusItem, *, technical_detail: str, tr: Callable[[
         fields = row.affected_fields or CHECK_FIELDS.get(row.check_id)
         if fields:
             impact = join_messages('\n', (impact, message_id('run.source.related_fields', ', '.join(fields))))
+        if row.check_id == 'quality_repeat' and item.target:
+            actions = (
+                ViewAction('plan-set-repeat-3', message_id('run.plan.set_repeat_3'),
+                           primary=True, disabled=not navigate_allowed),
+                ViewAction('status-open', message_id('run.status.open'), disabled=not navigate_allowed),
+            )
+        else:
+            actions = (ViewAction('environment-retry', message_id('run.environment.retry'), disabled=not check_allowed),
+                       *((ViewAction('status-open', message_id('run.docker_repair.open' if row.check_id == 'docker' else 'run.status.open'), primary=True, disabled=not navigate_allowed),)
+                         if item.target else ()))
         return EnvironmentCheckView(callout=replace(
-            view.callout, problem=problem, next_step=next_step, impact=impact,
-            actions=(ViewAction('environment-retry', message_id('run.environment.retry'), disabled=not check_allowed),
-                     *((ViewAction('status-open', message_id('run.docker_repair.open' if row.check_id == 'docker' else 'run.status.open'), primary=True, disabled=not navigate_allowed),)
-                       if item.target else ())),
+            view.callout, problem=problem, next_step=next_step, impact=impact, actions=actions,
         ))
     if view.facts is not None:
         note = (message_id('run.status.not_requested') if row.status == 'not_requested'

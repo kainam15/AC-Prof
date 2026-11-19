@@ -10,8 +10,8 @@ from textual.widgets import Button, Collapsible, ContentSwitcher, Input, Static
 from acprof.experiments.configuration import RunConfig, RunConfigError
 from acprof.tui.i18n import message_id
 from acprof.tui.run.plan_panel import RunPlanPanel
-from acprof.tui.ui.structured import Callout, FactGrid, FactValue
-from tests.support.tui_fixtures import AcprofTui
+from acprof.tui.ui.structured import ActionButtons, FactGrid, FactValue
+from tests.support.tui_fixtures import AcprofTui, expand_check_source
 from tests.support.tui_waits import wait_for_condition
 
 
@@ -60,9 +60,9 @@ async def test_collection_plan_and_original_actions_fit_short_terminal(tmp_path,
         assert await pilot.click(section_title)
         await pilot.pause()
         assert section.collapsed
-        headline = panel.query_one(".status-headline", Static)
-        assert app.tr(panel.view.summary.headline) in str(headline.content)
-        assert str(headline.content).startswith("! ")
+        assert not panel.query('#run-plan-status')
+        assert any(item.check.check_id == 'quality_repeat' and item.group == 'warning'
+                   for item in app.preflight.status.items)
         for label, row in zip(grid.query(".fact-label"), (
             *panel.view.section.rows, *panel.view.section.detail_rows,
         ), strict=True):
@@ -90,6 +90,22 @@ async def test_collection_plan_and_original_actions_fit_short_terminal(tmp_path,
         assert_actions_visible()
 
 
+@pytest.mark.parametrize('language', ['zh', 'en'])
+async def test_pending_scales_are_plan_facts_without_a_standalone_status(tmp_path, language):
+    config = replace(RunConfig.smoke('fixture/model'), input_scales='', input_scale_policy='auto', repeat=3)
+    app = AcprofTui(config, settings_path=tmp_path / 'settings.json')
+    app.configuration.preferences = replace(app.configuration.preferences, language=language)
+    async with app.run_test(size=(100, 30)):
+        panel = app.query_one('#run-plan-panel', RunPlanPanel)
+        assert panel.view is not None
+        assert panel.view.summary.headline == message_id('run.plan.pending_inputs')
+        assert not panel.query('#run-plan-status')
+        assert not panel.query('.status-headline')
+        grid = panel.query_one('#run-plan-facts', FactGrid)
+        scales = next(row for row in grid.section.rows if row.label == message_id('run.plan.scales_label'))
+        assert app.tr(message_id('common.state.pending')) in app.tr(scales.value)
+
+
 async def test_run_ux_set_repeat_inline_reason_and_overrides(tmp_path):
     config = replace(RunConfig.smoke("fixture/model"), revision="a1b2c3d4")
     app = AcprofTui(config, settings_path=tmp_path / "settings.json")
@@ -105,15 +121,26 @@ async def test_run_ux_set_repeat_inline_reason_and_overrides(tmp_path):
         # Collapsed section summaries surface key values without expanding.
         assert "Warmup 0" in app.query_one("#measurement-parameters", Collapsible).title
         assert "已关闭" in app.query_one("#profiling-options", Collapsible).title
-        # Clicking 'Set 3 repeats' in the limited plan banner raises repeat to 3.
-        plan_action = app.query_one("#run-plan-status .structured-action", Button)
-        assert plan_action.display
+        # The only repeat warning action lives in the global status center.
+        assert not app.query('#run-plan-status')
+        assert await pilot.click('#environment-warning')
+        await expand_check_source(app, pilot, 'quality_repeat')
+        warning = app.query_one('#preflight-signal-quality_repeat')
+        warning.scroll_visible(immediate=True, force=True)
+        await pilot.pause()
+        assert await pilot.click(warning)
+        callout = app.query_one('#preflight-callout')
+        assert callout.display
+        assert tuple(action.id for action in callout.content.actions) == ('plan-set-repeat-3', 'status-open')
+        plan_action = callout.query_one(ActionButtons).query(Button).first()
+        plan_action.scroll_visible(immediate=True, force=True)
+        await pilot.pause()
         assert await pilot.click(plan_action)
         await wait_for_condition(
             pilot, lambda: app.configuration.collect_config().repeat == 3,
-            description="repeat updated to 3", timeout=3,
+            description='repeat updated to 3', timeout=3,
         )
-        assert app.query_one("#run-plan-panel", RunPlanPanel).view.summary.level == "neutral"
+        assert not any(item.check.check_id == 'quality_repeat' for item in app.preflight.status.items)
         # Slash command /smoke still restores repeat=1 cleanly.
         app.slash.execute_command("/smoke")
         await wait_for_condition(
@@ -160,22 +187,27 @@ async def test_invalid_draft_clears_previous_plan_facts_and_recovers(tmp_path, f
         assert not app.configuration.refresh_command_preview(notify=False)
         await pilot.pause()
         assert panel.view is not None
-        assert panel.view.summary.level == "error"
+        assert not panel.query('#run-plan-status')
         assert panel.view.section.rows == ()
         assert panel.view.section.detail_rows == ()
         grid = panel.query_one("#run-plan-facts", FactGrid)
         assert not grid.display
-        callout = panel.query_one("#run-plan-callout", Callout)
-        assert not callout.display
+        assert not panel.query('#run-plan-callout')
         await wait_for_condition(pilot, lambda: not app.configuration.validation_pending,
                                  description='current invalid draft validated', timeout=3)
-        assert app.preflight.status.counts['error'] > 0
         assert app.query_one('#start-run', Button).disabled
-        assert callout.content == panel.view.callout
-        assert callout.content.problem == invalid.value.issues[0].reason
-        for issue in invalid.value.issues:
-            assert str(issue.reason) in callout.content.detail
-        assert callout.query_one(".callout-details", Collapsible).collapsed
+        if field_id == 'model':
+            assert app.preflight.status.state == 'unconfigured'
+            assert any(item.check.check_id == 'config_model' and item.group == 'pending'
+                       for item in app.preflight.status.items)
+        else:
+            assert app.preflight.status.counts['error'] > 0
+            assert any(item.check.check_id.startswith('config_') and item.group == 'error'
+                       for item in app.preflight.status.items)
+            for issue in invalid.value.issues:
+                assert any(app.tr(issue.reason) in app.tr(item.check.detail)
+                           for item in app.preflight.status.items
+                           if item.check.check_id.startswith('config_'))
         assert str(scale_label.content) == app.tr(message_id("run.inputs.scales"))
         assert scales.placeholder == app.tr(message_id("common.state.pending"))
 
@@ -186,7 +218,7 @@ async def test_invalid_draft_clears_previous_plan_facts_and_recovers(tmp_path, f
         assert panel.view.section.rows
         assert panel.view.callout is None
         assert grid.display
-        assert not callout.display
+        assert not panel.query('#run-plan-callout')
         assert str(scale_label.content) == prepared_label
         assert scales.placeholder == "8,16 tokens"
 

@@ -476,7 +476,9 @@ class EnvironmentPopover(Vertical):
                 "checking_all" if not rows and self.group == "pending" and controller.display_state == "checking"
                 else "empty_group" if not rows else "select_hint"
             ))
-        self.retry_button.tooltip = reason or self.tr("retry")
+        callout = self.query_one('#preflight-callout', Callout)
+        first_action = callout.content.actions[0] if callout.display and callout.content.actions else None
+        self.retry_button.tooltip = reason or (controller.app.tr(first_action.label) if first_action else self.tr('retry'))
         self.fit()
 
     def update_context(self) -> None:

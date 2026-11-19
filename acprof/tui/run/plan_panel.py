@@ -5,8 +5,8 @@ from textual.app import ComposeResult
 from textual.containers import VerticalScroll
 
 from acprof.tui.run.planning import PlanView
-from acprof.tui.ui.structured import Callout, FactGrid, StatusBanner, StructuredWidget
-from acprof.tui.ui.view_models import CalloutContent, StatusSummary, ViewSection
+from acprof.tui.ui.structured import FactGrid, StructuredWidget
+from acprof.tui.ui.view_models import ViewSection
 
 
 class RunPlanPanel(StructuredWidget):
@@ -15,24 +15,13 @@ class RunPlanPanel(StructuredWidget):
         self.view: PlanView | None = None
 
     def compose(self) -> ComposeResult:
-        yield StatusBanner(StatusSummary("neutral", ""), id="run-plan-status")
         with VerticalScroll(id="run-plan-body"):
             yield FactGrid(ViewSection("", ()), id="run-plan-facts")
-            callout = Callout(CalloutContent("neutral", "", "", ""), id="run-plan-callout")
-            callout.display = False
-            yield callout
 
     def show_plan(self, view: PlanView) -> None:
         if view == self.view:
             return
         self.view = view
-        self.query_one(StatusBanner).update_summary(view.summary)
         facts = self.query_one(FactGrid)
         facts.update_section(view.section)
         facts.display = bool(view.section.rows or view.section.detail_rows)
-        callout = self.query_one(Callout)
-        # Invalid configuration is explained in the global center and fields.
-        # Keep statistical-quality warnings beside the valid collection plan.
-        callout.display = view.callout is not None and view.summary.level != 'error'
-        if view.callout is not None:
-            callout.update_content(view.callout)

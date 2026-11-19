@@ -13,7 +13,6 @@ from acprof.tui.ui.view_models import (
     CalloutContent,
     FactRow,
     StatusSummary,
-    ViewAction,
     ViewSection,
 )
 
@@ -199,11 +198,7 @@ def run_plan_view(
                "auto": message_id("run.runtime.automatic")}.get(config.runtime, config.runtime)
     compact_title = message_id("run.plan.compact_title", runtime, estimate.cases)
     if configuration_warnings(config):
-        summary = StatusSummary(
-            "warning",
-            message_id("run.plan.flow_check_limited"),
-            actions=(ViewAction("plan-set-repeat-3", message_id("run.plan.set_repeat_3")),),
-        )
+        summary = StatusSummary("warning", message_id("run.plan.flow_check_limited"))
     else:
         summary = StatusSummary("neutral", message_id(
             "run.plan.pending_inputs" if estimate.scales is None else "run.plan.calculated",
