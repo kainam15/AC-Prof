@@ -33,8 +33,13 @@ async def test_source_disclosure_preserves_choices_and_partial_evidence(tmp_path
         nvml = panel.query_one('#preflight-section-nvml', Collapsible)
         assert process.collapsed
         assert not nvml.collapsed
-        assert 'NVIDIA NVML' in nvml.title
-        assert ('警告' if language == 'zh' else 'Warning') in nvml.title
+        assert nvml.title == 'NVIDIA NVML · ! 1 · ✓ 1'
+        assert process.title == 'Process Runtime · ✓ 2'
+        label = nvml.query_one('CollapsibleTitle').label
+        assert label.plain == nvml.title
+        assert {span.style: label.plain[span.start:span.end] for span in label.spans} == {
+            '$warning': '! 1', '$success': '✓ 1',
+        }
         assert panel.query_one('#preflight-signal-gpu_memory').row.status == 'ok'
         assert panel.query_one('#preflight-signal-gpu_power').row.status == 'warn'
         title = process.query_one('CollapsibleTitle')

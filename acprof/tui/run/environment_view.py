@@ -19,6 +19,7 @@ from acprof.tui.ui.view_models import (
     ViewAction,
     ViewSection,
     status_presentation,
+    status_symbol,
 )
 
 if TYPE_CHECKING:
@@ -293,14 +294,20 @@ def request_label(requested: bool | None) -> str:
     return message_id('run.source.request.' + ('yes' if requested else 'no' if requested is False else 'unknown'))
 
 
+def source_status_segments(source: SourceSummary) -> tuple[tuple[str, str], ...]:
+    """Count visible checks by status; global issue deduplication stays separate."""
+    counts: dict[str, int] = {}
+    for item in source.items:
+        counts[item.group] = counts.get(item.group, 0) + 1
+    levels = {'error': 'error', 'warning': 'warning', 'success': 'success',
+              'pending': 'info', 'not_requested': 'neutral'}
+    return tuple((group, f'{status_symbol(level)} {counts[group]}')
+                 for group, level in levels.items() if counts.get(group))
+
+
 def source_title(source: SourceSummary) -> str:
-    label = message_id('structured.status.checking' if source.state == 'checking'
-                       else 'run.environment.group.' + source.state)
-    symbol = {'error': '×', 'warning': '!', 'success': '✓', 'pending': '…', 'checking': '…', 'not_requested': '-'}[source.state]
-    title = join_messages(' · ', (message_id('run.source.' + source.group_id), join_messages(' ', (symbol, label))))
-    if source.issue_count:
-        title = join_messages(' · ', (title, message_id('run.source.issue_count', source.issue_count)))
-    return title
+    return join_messages(' · ', (message_id('run.source.' + source.group_id),
+                                  *(label for _, label in source_status_segments(source))))
 
 
 def source_overview(source: SourceSummary) -> str:

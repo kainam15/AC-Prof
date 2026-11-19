@@ -8,6 +8,7 @@ from rich.text import Text
 from textual import events, on
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.content import Content
 from textual.geometry import Offset, Size
 from textual.timer import Timer
 from textual.widgets import Button, Collapsible, Static
@@ -25,6 +26,7 @@ from acprof.tui.run.environment_view import (
     global_check_view,
     item_status,
     source_overview,
+    source_status_segments,
     source_title,
 )
 from acprof.tui.run.global_status import GlobalStatus, StatusItem
@@ -185,6 +187,18 @@ class EnvironmentSignal(Static, can_focus=True):
 class EnvironmentSource(Collapsible):
     """Native disclosure with explicit user choices, separate from status evidence."""
 
+    def _styled_title(self, source: SourceSummary) -> Content:
+        tr = self.panel.controller.app.tr
+        parts: list[str | Content] = [tr(message_id('run.source.' + source.group_id))]
+        for group, label in source_status_segments(source):
+            color = group if group in {'error', 'warning', 'success'} else 'text-muted'
+            parts.extend((' · ', Content.from_markup(f'[${color}]{label}[/]')))
+        return Content.assemble(*parts)
+
+    def _watch_title(self, title: str) -> None:
+        super()._watch_title(title)
+        self._title.label = self._styled_title(self.source)
+
     def __init__(self, panel: EnvironmentPopover, source: SourceSummary, *signals: EnvironmentSignal) -> None:
         self.panel = panel
         self.source = source
@@ -192,6 +206,7 @@ class EnvironmentSource(Collapsible):
                          collapsed=panel._source_choices.get(source.group_id, source.collapsed),
                          collapsed_symbol=COMPACT_COLLAPSED_SYMBOL, expanded_symbol=COMPACT_EXPANDED_SYMBOL,
                          id='preflight-section-' + source.group_id, classes='environment-section')
+        self._title.label = self._styled_title(source)
 
     def _on_collapsible_title_toggle(self, event: CollapsibleTitle.Toggle) -> None:
         event.prevent_default()
@@ -202,6 +217,7 @@ class EnvironmentSource(Collapsible):
     def update_source(self, source: SourceSummary) -> None:
         self.source = source
         self.title = self.panel.controller.app.tr(source_title(source))
+        self._title.label = self._styled_title(source)
         self.collapsed = self.panel._source_choices.get(source.group_id, source.collapsed)
 
 

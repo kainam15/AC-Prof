@@ -54,6 +54,25 @@ def test_source_summary_uses_all_children(states, expected):
     assert source.collapsed == (expected not in {'error', 'warning'})
 
 
+@pytest.mark.parametrize(('states', 'suffix'), [
+    (('warn', 'ok', 'ok', 'ok', 'ok'), '! 1 · ✓ 4'),
+    (('fail', 'warn', 'ok', 'pending', 'not_requested'), '× 1 · ! 1 · ✓ 1 · … 1 · - 1'),
+    (('ok', 'ok'), '✓ 2'),
+])
+def test_source_title_counts_visible_checks(states, suffix):
+    from acprof.tui.i18n import translate
+    from acprof.tui.run.environment_view import source_status_segments, source_title
+    from acprof.tui.run.source_groups import SourceSummary
+
+    identifiers = ('docker', 'cgroup', 'container_cpu', 'container_memory', 'cgroup_metrics')
+    snapshot = GlobalStatus(tuple(StatusItem(check(identifier, state))
+                                  for identifier, state in zip(identifiers, states, strict=False)))
+    source = SourceSummary('docker', snapshot.items, snapshot.issues)
+    assert sum(int(label.split()[-1]) for _, label in source_status_segments(source)) == len(states)
+    for language in ('zh', 'en'):
+        assert translate(source_title(source), language) == f'Docker / cgroup · {suffix}'
+
+
 def test_same_text_does_not_merge_independent_gpu_failures():
     snapshot = GlobalStatus(tuple(StatusItem(check(identifier, 'fail', 'unavailable'))
                                   for identifier in ('gpu_memory', 'gpu_power')))

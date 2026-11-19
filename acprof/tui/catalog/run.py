@@ -678,7 +678,6 @@ MESSAGES: dict[str, Entry] = {
     'run.source.install.uv': Entry(zh='按官方安装说明选择当前系统，安装后确认 uv --version。https://docs.astral.sh/uv/getting-started/installation/', en='Follow the official installer for your system, then verify uv --version. https://docs.astral.sh/uv/getting-started/installation/'),
     'run.source.install.wsl': Entry(zh='在运行 AC-Prof 的 WSL Linux 发行版内安装工具；支持范围仍以平台检查为准。', en='Install tools inside the WSL Linux distribution running AC-Prof; platform checks still determine support.'),
     'run.source.issue': Entry(zh='{0} · 受影响能力：{1}', en='{0} · Affected: {1}'),
-    'run.source.issue_count': Entry(zh='{0} 个问题', en='issues: {0}'),
     'run.source.network': Entry(zh='网络抓包', en='Packet capture'),
     'run.source.nvml': Entry(zh='NVIDIA NVML', en='NVIDIA NVML'),
     'run.source.other': Entry(zh='其他检查', en='Other checks'),
