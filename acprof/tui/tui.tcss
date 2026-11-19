@@ -60,7 +60,7 @@ EnvironmentIndicator .environment--pending, EnvironmentIndicator .environment--n
 .environment-section { height: auto; border: none; padding: 0; margin: 0 0 1 0; }
 .environment-section > CollapsibleTitle { height: 1; text-style: bold; text-wrap: nowrap; text-overflow: ellipsis; }
 .environment-section > Contents { padding: 0 0 0 2; }
-#preflight-source-summary { width: 100%; height: auto; color: $text-muted; margin-bottom: 1; }
+#preflight-actual-note { width: 100%; height: auto; color: $text-muted; margin-bottom: 1; }
 .environment-signal { height: 1; text-wrap: nowrap; text-overflow: ellipsis; padding: 0 1; }
 .environment-signal:hover, .environment-signal:focus { background: $boost; text-style: bold; }
 #preflight-inspection { height: 1fr; min-height: 1; border-top: solid $accent; overflow-x: hidden; padding-top: 1; }

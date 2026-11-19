@@ -64,7 +64,7 @@ async def test_source_disclosure_preserves_choices_and_partial_evidence(tmp_path
         title = panel.query_one('#preflight-section-nvml CollapsibleTitle')
         title.focus()
         await pilot.press('enter')
-        assert 'gpu_power' not in str(panel.query_one('#preflight-source-summary', Static).content)
+        assert not panel.query_one('#preflight-actual-note', Static).display
         for width, height in ((150, 45), (52, 24)):
             await pilot.resize_terminal(width, height)
             await pilot.pause()
@@ -82,6 +82,10 @@ async def test_source_disclosure_preserves_choices_and_partial_evidence(tmp_path
         await pilot.pause()
         assert await pilot.click(signal)
         assert panel._selected_row.check_id == 'gpu_power'
+        note = panel.query_one('#preflight-actual-note', Static)
+        assert note.display
+        assert ('预检仅说明环境能力' if language == 'zh' else 'Preflight shows environment capabilities') in str(note.content)
+        assert 'gpu_energy_total_j' not in str(note.content)
         app.execution.session.snapshot = ProgressSnapshot(measurement_active=True)
         panel.update_cached()
         await pilot.pause()

@@ -173,8 +173,7 @@ def test_packet_collector_and_missing_executables_share_the_confirmed_cause(tmp_
                                                         ('docker', 'off', False), ('auto', 'on', None)])
 def test_requested_scope_is_separate_from_inventory_availability(runtime, gpu, expected):
     from acprof.tui.i18n import translate
-    from acprof.tui.run.environment_view import source_overview
-    from acprof.tui.run.source_groups import source_summaries
+    from acprof.tui.run.environment_view import global_check_view
 
     config = replace(RunConfig.smoke('fixture/model'), runtime=runtime, gpus=gpu, profiling_mode='full')
     value = controller(current=config, inventory=[check('gpu_power', 'fail')])
@@ -182,10 +181,26 @@ def test_requested_scope_is_separate_from_inventory_availability(runtime, gpu, e
     assert item.requested is expected
     assert item.check.status == 'warn'
     assert not item.blocks
-    source = next(source for source in source_summaries(value.status) if source.group_id == 'nvml')
-    explanation = translate(source_overview(source), 'en')
-    assert ('gpu_energy_total_j' in explanation) == (expected is True)
-    assert 'does not prove collection success' in explanation
+    view = global_check_view(item, technical_detail='raw', tr=lambda text: translate(text, 'en'),
+                             check_allowed=True, navigate_allowed=True)
+    assert ('not requested' in translate(view.callout.impact, 'en').lower()) == (expected is False)
+    assert 'gpu_energy_total_j' not in translate(view.callout.impact, 'en')
+    assert 'gpu_energy_total_j' in view.callout.detail
+
+
+def test_affected_fields_are_not_duplicated_in_technical_details():
+    from acprof.tui.i18n import translate
+    from acprof.tui.run.environment_view import global_check_view
+
+    row = replace(check('gpu_power', 'warn'), affected_fields=('gpu_energy_total_j',))
+    item = StatusItem(row, requested=True)
+    for technical_detail in ('raw diagnostic', 'raw diagnostic: gpu_energy_total_j'):
+        view = global_check_view(item, technical_detail=technical_detail,
+                                 tr=lambda text: translate(text, 'zh'),
+                                 check_allowed=True, navigate_allowed=True)
+        assert 'gpu_energy_total_j' not in translate(view.callout.impact, 'zh')
+        assert view.callout.detail.count('gpu_energy_total_j') == 1
+
 
 
 @pytest.mark.parametrize(('environment', 'fragment'), [('native_linux', 'Linux host'), ('wsl2', 'WSL Linux')])

@@ -194,8 +194,12 @@ def global_check_view(item: StatusItem, *, technical_detail: str, tr: Callable[[
                   else message_id('run.plan.insufficient_windows') if row.check_id == 'quality_repeat'
                   else view.callout.impact)
         fields = row.affected_fields or CHECK_FIELDS.get(row.check_id)
-        if fields:
-            impact = join_messages('\n', (impact, message_id('run.source.related_fields', ', '.join(fields))))
+        detail = view.callout.detail
+        if fields and not all(field in technical_detail for field in fields):
+            detail = "\n\n".join((
+                technical_detail,
+                tr(message_id('run.source.related_fields', ', '.join(fields))),
+            ))
         if row.check_id == 'quality_repeat' and item.target:
             actions = (
                 ViewAction('plan-set-repeat-3', message_id('run.plan.set_repeat_3'),
@@ -207,7 +211,7 @@ def global_check_view(item: StatusItem, *, technical_detail: str, tr: Callable[[
                        *((ViewAction('status-open', message_id('run.docker_repair.open' if row.check_id == 'docker' else 'run.status.open'), primary=True, disabled=not navigate_allowed),)
                          if item.target else ()))
         return EnvironmentCheckView(callout=replace(
-            view.callout, problem=problem, next_step=next_step, impact=impact, actions=actions,
+            view.callout, problem=problem, next_step=next_step, impact=impact, detail=detail, actions=actions,
         ))
     if view.facts is not None:
         note = (message_id('run.status.not_requested') if row.status == 'not_requested'
@@ -309,22 +313,6 @@ def source_title(source: SourceSummary) -> str:
     return join_messages(' · ', (message_id('run.source.' + source.group_id),
                                   *(label for _, label in source_status_segments(source))))
 
-
-def source_overview(source: SourceSummary) -> str:
-    lines = [message_id('run.source.scope', len(source.items), sum(item.requested is True for item in source.items),
-                        sum(item.requested is None for item in source.items))]
-    for issue in source.issues:
-        if issue.group not in {'error', 'warning'}:
-            continue
-        affected = join_messages(' / ', tuple(compact_check_label(item.check) for item in issue.items))
-        lines.append(message_id('run.source.issue', check_presentation(issue.primary.check).label, affected))
-    risks = tuple(dict.fromkeys(field for item in source.items
-                               if item.requested is True and item.group in {'error', 'warning'}
-                               for field in item.check.affected_fields or CHECK_FIELDS.get(item.check.check_id, ())))
-    if risks:
-        lines.append(message_id('run.source.risk_fields', ', '.join(risks)))
-    lines.append(message_id('run.source.actual'))
-    return join_messages('\n', lines)
 
 
 def repair_guidance(row: PreflightCheck, *, environment: Environment | None = None) -> str:

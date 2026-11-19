@@ -25,7 +25,6 @@ from acprof.tui.run.environment_view import (
     compact_check_label,
     global_check_view,
     item_status,
-    source_overview,
     source_status_segments,
     source_title,
 )
@@ -270,7 +269,7 @@ class EnvironmentPopover(Vertical):
             yield FactGrid(ViewSection("", ()), id="preflight-facts")
             yield ActionButtons(id="preflight-recheck")
             yield Static("", id="preflight-action-reason", markup=False)
-            yield Static("", id="preflight-source-summary", markup=False)
+            yield Static("", id="preflight-actual-note", markup=False)
             yield FactGrid(ViewSection(message_id("run.environment.context.title"), (), collapsed=True),
                            id="preflight-context")
 
@@ -406,12 +405,9 @@ class EnvironmentPopover(Vertical):
     def explain(self, row: PreflightCheck) -> None:
         if not self.display or row not in self._rows:
             return
-        source = next((source for source in self._sources
-                       if source.group_id == source_group(row.check_id)), None)
-        overview = self.query_one('#preflight-source-summary', Static)
-        overview.display = source is not None
-        if source is not None:
-            overview.update(self.controller.app.tr(source_overview(source)))
+        note = self.query_one('#preflight-actual-note', Static)
+        note.display = True
+        note.update(self.controller.app.tr(message_id('run.source.actual')))
         detail = self.controller.app.tr(row.detail) if isinstance(row.detail, CatalogText) else row.detail
         technical = redact_text("\n".join((
             f"check_id: {row.check_id}", f"status: {row.status}",
@@ -482,7 +478,7 @@ class EnvironmentPopover(Vertical):
             self.explain(self._selected_row)
         else:
             self._inspected_row = None
-            self.query_one("#preflight-source-summary").display = False
+            self.query_one("#preflight-actual-note").display = False
             self.query_one("#preflight-callout").display = False
             self.query_one("#preflight-facts").display = False
             self.query_one("#preflight-recheck").display = True
