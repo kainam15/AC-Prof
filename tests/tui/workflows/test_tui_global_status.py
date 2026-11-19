@@ -27,15 +27,21 @@ async def test_global_blockers_navigate_with_mouse_and_keyboard(tmp_path, size, 
     async with app.run_test(size=size) as pilot:
         app.preflight.checks = (denied_check(),)
         app.query_one('#model', Input).value = ''
+        await wait_for_condition(pilot, lambda: app.preflight.status.counts['error'] == 1,
+                                 timeout=3, description='quota blocker with pending model')
+        assert not app.query_one('#model-error', Static).display
+        app.experiments.request_run()  # An explicit start request must still validate strictly.
         await wait_for_condition(pilot, lambda: app.preflight.status.counts['error'] == 2,
                                  timeout=3, description='configuration and quota blockers')
         assert app.query_one('#environment-error', EnvironmentIndicator).content == '× 2'
         assert app.query_one('#start-run', Button).disabled
         assert app.query_one('#model-error', Static).display
         assert app.query_one('#cpus-error', Static).display
+        await pilot.pause()  # Complete the strict-error field focus before opening diagnostics.
         app.query_one('#environment-error').focus()
         await pilot.press('enter')
         await wait_for_condition(pilot, lambda: bool(app.query('#preflight-signal-config_model')),
+                                 diagnostics=lambda: f"state={app.preflight.status.state}; rows={[(x.check.check_id, x.group) for x in app.preflight.status.items]}; panel={app.preflight.panel.display}",
                                  timeout=3, description='global error rows')
         row = app.query_one('#preflight-signal-config_model')
         row.scroll_visible(immediate=True, force=True)

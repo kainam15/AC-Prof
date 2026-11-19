@@ -11,6 +11,7 @@ MESSAGES: dict[str, Entry] = {
     "run.auxiliary.completed": Entry(zh="{0} 任务已完成", en="{0} task completed"),
     "run.auxiliary.exit_code": Entry(zh="{0} 进程退出码 {1}", en="{0} process exit code {1}"),
     "run.auxiliary.user_stopped": Entry(zh="用户终止了 {0} 任务", en="User stopped the {0} task"),
+    "run.command.await_model": Entry(zh="请输入模型 ID 后生成完整命令。", en="Enter a model ID to generate the full command."),
     "run.command.incomplete_detail": Entry(zh="配置尚未完成：{0}", en="Configuration incomplete: {0}"),
     "run.command.preview_title": Entry(zh="完整命令（自动更新）", en="Full command (auto-updated)"),
     "run.command.preview_updated": Entry(zh="命令预览已更新", en="Command preview updated"),
@@ -343,6 +344,7 @@ MESSAGES: dict[str, Entry] = {
     "run.plan.assumed_request_duration": Entry(zh="假设每请求 1s", en="assuming 1s/request"),
     "run.plan.assumed_window_duration": Entry(zh="按自动窗口 {0:g}s 估算", en="assuming {0:g}s/automatic window"),
     "run.plan.automatic_resources": Entry(zh="运行方式默认值", en="Runtime defaults"),
+    "run.plan.await_model": Entry(zh="待配置 · 请输入模型 ID", en="Not configured · Enter a model ID"),
     "run.plan.calculated": Entry(zh="采集计划已计算", en="Collection plan calculated"),
     "run.plan.compact_title": Entry(
         zh="采集计划 · {0} · {1} case · {2} 档 · 预热 {3} / 正式 {4}",
@@ -421,6 +423,7 @@ MESSAGES: dict[str, Entry] = {
     "run.preflight.gpu_query_failed": Entry(zh="GPU 查询失败", en="GPU query failed"),
     "run.preflight.ip_missing": Entry(zh="未找到 ip 命令", en="ip command not found"),
     "run.preflight.local_docker": Entry(zh="本机 Docker", en="Local Docker"),
+    "run.preflight.model_pending": Entry(zh="待配置 · 请输入模型 ID。", en="Not configured · Enter a model ID."),
     "run.preflight.not_collected": Entry(zh="本次不采集", en="Not collected in this run"),
     "run.preflight.nvidia_smi_missing": Entry(zh="未找到 nvidia-smi", en="nvidia-smi not found"),
     "run.preflight.optional_diagnostics_notice": Entry(
@@ -741,6 +744,8 @@ MESSAGES: dict[str, Entry] = {
     "run.status.configuration": Entry(zh="当前实验配置", en="Current experiment configuration"),
     "run.status.configuration_passed": Entry(zh="当前配置校验通过；采集能力由预检分别确认。", en="The current configuration is valid; collection capabilities are checked separately."),
     "run.status.inventory_error": Entry(zh="系统环境检查", en="System inventory check"),
+    "run.status.model_pending": Entry(zh="尚未填写模型 ID。填写后可继续检查采集条件。", en="No model ID yet. Enter one to continue checking collection requirements."),
+    "run.status.model_pending_label": Entry(zh="模型 ID", en="Model ID"),
     "run.status.needs_confirmation": Entry(zh="待确认", en="Needs confirmation"),
     "run.status.no_evidence": Entry(zh="预检未返回能力证据，请重新检查。", en="Preflight returned no capability evidence; check again."),
     "run.status.not_requested": Entry(zh="当前实验未请求本项能力，不影响开始采集。", en="This experiment does not request this capability; it does not affect collection admission."),

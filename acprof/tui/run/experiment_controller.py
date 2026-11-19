@@ -101,10 +101,16 @@ class ExperimentController:
         )
 
     def request_run(self) -> None:
-        if not self.app.preflight.allow_collection() or not self.app.allow_operation("run"):
+        if not self.app.allow_operation("run"):
             return
         try:
             config = self.app.configuration.collect_config()
+        except RunConfigError as exc:
+            self.app.configuration.show_config_error(exc)
+            return
+        if not self.app.preflight.allow_collection():
+            return
+        try:
             environment = platform.detect_environment()
             error = collection_policy_error(environment, profiling_mode=config.profiling_mode,
                                             compute_tool=config.compute_profile_tool,

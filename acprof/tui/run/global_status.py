@@ -118,6 +118,8 @@ class GlobalStatus:
             return 'incomplete'
         if any(item.group == 'error' for item in self.blockers):
             return 'failed'
+        if any(item.check.check_id == 'config_model' and item.group == 'pending' for item in self.items):
+            return 'unconfigured'
         if any(item.check.status == 'checking' for item in self.blockers):
             return 'checking'
         if self.blockers:
@@ -158,6 +160,7 @@ def build_status(
     completed: bool, current: bool, running: bool, inventory_running: bool,
     error: str = '', inventory_error: str = '', cleanup_error: str = '',
     warnings: Sequence[ConfigIssue] = (),
+    model_pending: bool = False,
 ) -> GlobalStatus:
     """Replace by root ID, then classify for the current request, never by text.
 
@@ -243,7 +246,12 @@ def build_status(
                                join_messages('；', tuple(dict.fromkeys(reasons))),
                                check_id='config_' + (field or 'other'), source='configuration'),
                 required=True, target='field:' + field if field else '')
-    else:
+
+    if model_pending and not validation_pending:
+        put(PreflightCheck(message_id('run.status.model_pending_label'), 'pending',
+                           message_id('run.status.model_pending'), check_id='config_model',
+                           source='configuration'), required=True, target='field:model')
+    elif not validation_pending and not issues:
         put(PreflightCheck(message_id('run.status.configuration'), 'ok',
                            message_id('run.status.configuration_passed'), check_id='configuration'),
             target='field:model')

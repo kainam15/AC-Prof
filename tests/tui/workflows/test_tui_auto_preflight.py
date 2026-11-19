@@ -66,9 +66,15 @@ async def test_invalid_form_blocks_collection_and_shows_field_error_without_scan
     async with app.run_test(size=(80, 24)) as pilot:
         await ready(app, pilot)
         app.query_one("#model", Input).value = ""
-        await wait_for_condition(pilot, lambda: app.query_one("#model-error", Static).display,
-                                 description="inline missing-model error", timeout=2)
+        await wait_for_condition(pilot, lambda: app.preflight.status.state == "unconfigured"
+                                 and app.query_one("#start-run", Button).disabled,
+                                 description="blank model stays pending and blocks start", timeout=2)
+        assert not app.query_one("#model-error", Static).display
         assert app.query_one("#start-run", Button).disabled
+        assert app.preflight.status.counts["error"] == 0
+        app.experiments.request_run()
+        await wait_for_condition(pilot, lambda: app.query_one("#model-error", Static).display,
+                                 description="explicit attempt reports missing model", timeout=2)
         assert "模型 ID" in str(app.query_one("#model-error", Static).content)
         app.query_one("#gpus", Select).value = "on"
         await pilot.pause()
@@ -383,6 +389,10 @@ async def test_global_status_distinguishes_invalid_pending_checking_limited_and_
             assert not status.display
             assert not app.query_one("#start-run", Button).disabled
             app.query_one("#model", Input).value = ""
+            await wait_for_condition(pilot, lambda: app.preflight.collection_state == "unconfigured",
+                                     description="normal blank draft", timeout=2)
+            assert app.preflight.status.counts["error"] == 0
+            app.experiments.request_run()
             await wait_for_condition(pilot, lambda: app.preflight.collection_state == "incomplete",
                                      description="incomplete form status", timeout=2)
             assert app.preflight.status.counts["error"] == 1

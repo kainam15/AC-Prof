@@ -228,6 +228,14 @@ def run_plan_view(
     )
 
 
+def awaiting_model_plan_view() -> PlanView:
+    """A blank draft has no runnable plan and is not an error."""
+    return PlanView(
+        StatusSummary("neutral", message_id("run.plan.await_model")),
+        ViewSection(message_id("run.plan.title"), ()),
+    )
+
+
 def invalid_plan_view(issues: tuple[ConfigIssue, ...]) -> PlanView:
     """Replace stale facts with validation feedback without interpreting the raw reasons."""
     detail = "\n".join(f"[{issue.field}] {issue.reason}" if issue.field else str(issue.reason)

@@ -68,6 +68,7 @@ class ConfigurationController:
         self.config_warnings: tuple[ConfigIssue, ...] = ()
         self.validation_pending = True
         self.field_errors_visible = False
+        self._explicit_error_signature: tuple[object, ...] | None = None
         self.applying_config = False
         self.preview_timer: Timer | None = None
 
@@ -409,6 +410,11 @@ class ConfigurationController:
             return
         self.cancel_preview_timer()
         self.validation_pending = True
+        # Input.Changed may be queued before an explicit Start attempt. Do not
+        # clear that attempt's errors unless the actual form has since changed.
+        if self.field_errors_visible and self._explicit_error_signature != self._form_signature():
+            self.field_errors_visible = False
+            self._explicit_error_signature = None
         self.app.preflight.refresh_preflight_state()
         # Coalesce typing and preset field updates into one validation/render.
         self.preview_timer = self.app.set_timer(0.05, self.sync_form_state)
@@ -428,6 +434,16 @@ class ConfigurationController:
             {key: self.checked(key) for key in (*run_form.CHECKED_FIELDS, *run_form.PROFILER_CHECKBOXES)},
             project_dir=self.app.project_dir, allow_empty_model=allow_empty_model, extra_options=self.extra_options,
             profiling_mode=self.recovery_policy,
+        )
+
+    def _form_signature(self) -> tuple[object, ...]:
+        """Snapshot user inputs to distinguish actual edits from queued Changed messages."""
+        return (
+            *(self.input(key) for key in run_form.INPUT_FIELDS),
+            *(self.select(key) for key in run_form.SELECT_FIELDS),
+            *(self.checked(key) for key in (*run_form.CHECKED_FIELDS, *run_form.PROFILER_CHECKBOXES)),
+            tuple(sorted(self.extra_options.items())),
+            self.recovery_policy,
         )
 
     def apply_config(self, config: RunConfig) -> None:
@@ -459,6 +475,7 @@ class ConfigurationController:
         if not any(issue.field for issue in exc.issues):
             return
         self.field_errors_visible = True
+        self._explicit_error_signature = self._form_signature()
         control = self.update_field_errors(exc.issues)
         self.validation_pending = False
         self.app.preflight.refresh_preflight_state()
@@ -518,10 +535,19 @@ class ConfigurationController:
                 python_executable=self.app.python_executable,
             )
             self.update_field_errors(())
+            self.field_errors_visible = False
+            self._explicit_error_signature = None
         except RunConfigError as exc:
-            self.update_field_errors(exc.issues)
+            # Strict validation remains authoritative. Only an untouched empty
+            # model is a normal draft state, not a user-facing error.
+            awaiting_model = not self.input("model") and not self.field_errors_visible and not notify
+            shown_issues = tuple(issue for issue in exc.issues
+                                 if not (awaiting_model and issue.field == "model"))
+            self.update_field_errors(shown_issues)
             if not self.app.execution.session.snapshot.measurement_active:
-                self.app.query_one(RunPlanPanel).show_plan(run_planning.invalid_plan_view(exc.issues))
+                view = (run_planning.invalid_plan_view(shown_issues) if shown_issues
+                        else run_planning.awaiting_model_plan_view())
+                self.app.query_one(RunPlanPanel).show_plan(view)
                 self.app.localization.set_text(
                     self.app.query_one("#input-scales-label", Label), message_id("run.inputs.scales"),
                 )
@@ -530,7 +556,8 @@ class ConfigurationController:
                 )
             self.app.localization.set_text(
                 self.app.query_one("#command-preview", Static),
-                message_id('run.command.incomplete_detail', join_messages("; ", (item.reason for item in exc.issues))),
+                message_id('run.command.incomplete_detail', join_messages("; ", (item.reason for item in shown_issues)))
+                if shown_issues else message_id('run.command.await_model'),
             )
             if notify:
                 self.show_config_error(exc)

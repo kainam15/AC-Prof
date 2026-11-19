@@ -15,7 +15,8 @@ def controller(*, checks=None, inventory=(), issues=(), current=None, checked=No
     config = current or replace(RunConfig.smoke('fixture/model'), runtime='process')
     app = SimpleNamespace(
         is_running=True, form_ready=True, ui_closing=False, tr=str,
-        configuration=SimpleNamespace(config_issues=issues, config_warnings=(), validation_pending=False),
+        configuration=SimpleNamespace(config_issues=issues, config_warnings=(), validation_pending=False,
+                                      field_errors_visible=False, input=lambda _field: config.model),
     )
     result = PreflightController(app)
     result.preflight_config = lambda: config
@@ -44,6 +45,24 @@ def test_two_independent_blockers_are_visible_globally():
 def test_configuration_incomplete_is_a_global_error():
     value = controller(issues=(ConfigIssue('model', 'model is required'),))
     assert errors(value) == {'config_model'}
+
+
+def test_blank_model_is_pending_not_an_error_or_a_valid_configuration():
+    value = controller(current=RunConfig.smoke(''))
+    assert value.status.state == 'unconfigured'
+    assert value.status.counts['error'] == value.status.counts['warning'] == 0
+    assert not value.status.can_start
+    model = next(item for item in value.status.items if item.check.check_id == 'config_model')
+    assert model.check.status == 'pending'
+    assert model.target == 'field:model'
+
+
+def test_blank_model_does_not_hide_real_host_failure():
+    value = controller(current=RunConfig.smoke(''), checks=[check('process_resources', 'fail')])
+    assert value.status.state == 'failed'
+    assert errors(value) == {'process_resources'}
+    assert value.status.counts['pending'] >= 1
+    assert not value.status.can_start
 
 
 def test_same_root_in_inventory_and_preflight_counts_once():

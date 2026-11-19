@@ -12,6 +12,7 @@ from acprof.experiments.configuration import RunConfig, build_run_command
 from acprof.tui.i18n import message_id
 from acprof.tui.run.plan_panel import RunPlanPanel
 from acprof.tui.settings.preferences import TuiSettings, save_settings
+from acprof.tui.ui.environment import EnvironmentIndicator
 from acprof.tui.ui.structured import FactGrid
 from tests.support.tui_fixtures import AcprofTui
 from tests.support.tui_waits import wait_for_condition
@@ -45,6 +46,51 @@ def test_first_launch_without_saved_configuration_is_a_small_smoke():
     with tempfile.TemporaryDirectory() as temporary:
         app = AcprofTui(settings_path=Path(temporary) / "settings.json")
         assert (app.configuration.initial_config) == (RunConfig.smoke())
+
+@pytest.mark.parametrize(('language', 'size'), [('zh', (80, 24)), ('en', (120, 30))])
+async def test_first_open_blank_model_is_neutral_and_locatable(tmp_path, language, size):
+    app = AcprofTui(settings_path=tmp_path / 'fresh-settings.json')
+    app.configuration.preferences = replace(app.configuration.preferences, language=language)
+    async with app.run_test(size=size) as pilot:
+        await wait_for_condition(pilot, lambda: app.preflight.status.state == 'unconfigured',
+                                 description='initial model draft', timeout=3)
+        assert app.preflight.status.counts['error'] == 0
+        assert app.preflight.status.counts['warning'] == 0
+        assert app.query_one('#environment-error', EnvironmentIndicator).content == '× 0'
+        assert not app.query_one('#model-error', Static).display
+        assert app.query_one('#start-run', Button).disabled
+        plan = app.query_one(RunPlanPanel).view
+        assert plan.summary.level == 'neutral'
+        assert app.tr(plan.summary.headline) == (
+            '待配置 · 请输入模型 ID' if language == 'zh'
+            else 'Not configured · Enter a model ID'
+        )
+        assert not plan.callout
+        app.query_one('#model-candidates', Button).focus()
+        assert await pilot.click('#preflight-run-reason')
+        await wait_for_condition(pilot, lambda: app.focused is app.query_one('#model'),
+                                 description='pending reason locates model', timeout=3)
+
+
+async def test_edited_empty_model_does_not_suppress_other_form_errors(tmp_path):
+    app = AcprofTui(RunConfig.smoke('fixture/model'), settings_path=tmp_path / 'settings.json')
+    async with app.run_test(size=(120, 30)) as pilot:
+        app.query_one('#model', Input).value = ''
+        await wait_for_condition(pilot, lambda: app.preflight.status.state == 'unconfigured',
+                                 description='editing cleared model', timeout=3)
+        app.query_one('#cpus', Input).value = 'invalid-cpu'
+        await wait_for_condition(pilot, lambda: app.preflight.status.state == 'incomplete',
+                                 description='unrelated form error', timeout=3)
+        assert not app.query_one('#model-error', Static).display
+        assert app.query_one('#cpus-error', Static).display
+        assert app.preflight.status.counts['error'] >= 1
+        assert not app.preflight.status.can_start
+        app.query_one('#cpus', Input).value = '1'
+        await wait_for_condition(pilot, lambda: app.preflight.status.state == 'unconfigured',
+                                 description='resolved other error', timeout=3)
+        assert app.preflight.status.counts['error'] == 0
+        assert not app.query_one('#cpus-error', Static).display
+
 
 @pytest.mark.parametrize("legacy_mode", ["mirror-only", "mirror-preferred", "official"])
 async def test_changing_presets_preserves_effective_download_constraints(legacy_mode):

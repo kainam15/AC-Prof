@@ -149,6 +149,8 @@ class PreflightController:
             self.preflight_config(), issues=self.app.configuration.config_issues,
             warnings=self.app.configuration.config_warnings,
             validation_pending=self.app.configuration.validation_pending,
+            model_pending=not self.app.configuration.input('model')
+                          and not self.app.configuration.field_errors_visible,
             checks=(*self.checks, *self.observed_checks.values()) if self.config_matches() else self.checks, inventory=self.environment_checks,
             completed=self.check_completed, current=self.config_matches(),
             running=self.check_running, inventory_running=self.inventory_running,
@@ -294,6 +296,8 @@ class PreflightController:
             key = ('run.preflight.configuration_incomplete' if status.state == 'incomplete'
                    else 'run.preflight.collection_blocked')
             return message_id(key, join_messages("；", failures))
+        if status.state == 'unconfigured':
+            return message_id('run.preflight.model_pending')
         if status.state == 'checking':
             return message_id('run.preflight.checking_notice')
         if self.app.configuration.validation_pending:
@@ -334,6 +338,9 @@ class PreflightController:
             # Mount/result restoration owns the initial inventory request.
             return
         if self.app.configuration.config_issues or self.app.configuration.validation_pending or self.cleanup_error:
+            self.cancel_auto_check()
+            return
+        if not self.app.configuration.input('model'):
             self.cancel_auto_check()
             return
         config = self.preflight_config()
@@ -407,7 +414,7 @@ class PreflightController:
         measuring = self.app.execution.session.snapshot.measurement_active
         start_blocked = not status.can_start or not self.app.operation_state().allows("run")
         detail.display = bool(reason) and start_blocked and not measuring
-        prefix = "× " if state in {"incomplete", "failed"} else "… " if state in {"checking", "pending"} else "! "
+        prefix = "× " if state in {"incomplete", "failed"} else "… " if state in {"checking", "pending", "unconfigured"} else "! "
         summary = message_id('run.preflight.state.limited') if state == 'limited' else message_id('run.preflight.state.ready')
         self.app.localization.set_text(detail, message("{0}{1}", prefix, reason or summary), "label")
         detail.set_classes('preflight-' + state)
@@ -433,6 +440,9 @@ class PreflightController:
             return
         status = self.status
         blocking = next((item for item in status.items if item.group == "error"), None)
+        if status.state == 'unconfigured':
+            self.app.configuration.open_config_field('model')
+            return
         if blocking is not None and blocking.target:
             self.panel.open_issue(blocking.check)
             return
@@ -445,6 +455,7 @@ class PreflightController:
         if self.check_running:
             return
         if automatic and (self.app.configuration.validation_pending or self.app.configuration.config_issues or self.cleanup_error
+                          or not self.app.configuration.input('model')
                           or (self.check_completed and self.config_matches())):
             self.cancel_auto_check()
             return

@@ -171,8 +171,14 @@ async def test_field_navigation_returns_to_original_page_focus_and_scroll(tmp_pa
     app = process_app(tmp_path)
     async with app.run_test(size=(80, 24)) as pilot:
         app.query_one('#model', Input).value = ''
+        await wait_for_condition(pilot, lambda: app.preflight.status.state == 'unconfigured',
+                                 timeout=3, description='blank model draft')
+        app.experiments.request_run()
         await wait_for_condition(pilot, lambda: app.preflight.status.counts['error'] == 1,
                                  timeout=3, description='invalid model')
+        await wait_for_condition(pilot, lambda: app.focused is app.query_one('#model'),
+                                 timeout=3, description='strict error focus settled')
+        await pilot.pause()
         app.configuration.show_run_form('advanced-form')
         app.activate_tab('settings-tab')
         body = app.query_one('#settings-body')
@@ -197,6 +203,7 @@ async def test_field_navigation_returns_to_original_page_focus_and_scroll(tmp_pa
         else:
             assert await pilot.click('#status-return')
         await wait_for_condition(pilot, lambda: app.focused is origin,
+                                 diagnostics=lambda: f"focused={getattr(app.focused, 'id', None)} tab={app.query_one('#main-tabs', TabbedContent).active} return={app.query_one('#status-return').display}",
                                  timeout=3, description='origin focus restored')
         assert app.query_one('#main-tabs', TabbedContent).active == 'settings-tab'
         assert app.query_one('#experiment-pages', ContentSwitcher).current == 'advanced-form'

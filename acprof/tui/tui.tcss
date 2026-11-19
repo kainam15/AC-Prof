@@ -150,6 +150,7 @@ EnvironmentIndicator .environment--pending, EnvironmentIndicator .environment--n
 }
 #preflight-run-reason.preflight-ready { color: $success; }
 #preflight-run-reason.preflight-checking, #preflight-run-reason.preflight-pending { color: $text-muted; }
+#preflight-run-reason.preflight-unconfigured { color: $text-muted; }
 #preflight-run-reason.preflight-incomplete, #preflight-run-reason.preflight-failed { color: $error; }
 TabbedContent { height: 1fr; }
 #experiment-pages { height: 1fr; }
