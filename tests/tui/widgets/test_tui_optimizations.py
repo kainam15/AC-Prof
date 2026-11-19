@@ -200,6 +200,59 @@ async def test_shortcuts_modal_and_run_tab_f3_preserve_single_plan_summary(tmp_p
         assert not app.query("#run-config-summary")
 
 
+@pytest.mark.parametrize("language", ["zh", "en"])
+async def test_shortcuts_modal_close_button_renders_complete_border_across_sizes(tmp_path, language) -> None:
+    app = AcprofTui(RunConfig.smoke("demo/model"), settings_path=tmp_path / "settings.json")
+    app.configuration.preferences = replace(app.configuration.preferences, language=language)
+    expected_close = "关闭弹窗" if language == "zh" else "Close"
+    async with app.run_test(size=(80, 24)) as pilot:
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+
+        await pilot.press("f1")
+        await pilot.pause()
+        assert isinstance(app.screen, ShortcutsScreen)
+
+        for width, height in ((80, 24), (120, 30), (120, 36), (150, 45)):
+            await pilot.resize_terminal(width, height)
+            await pilot.pause()
+            dialog = app.screen.query_one("#shortcuts-dialog")
+            scroll = app.screen.query_one("#shortcuts-scroll")
+            actions = app.screen.query_one("#shortcuts-actions")
+            close = app.screen.query_one("#shortcuts-close", Button)
+
+            assert dialog.region.y >= 0
+            assert dialog.region.bottom <= height
+            assert scroll.region.bottom <= actions.region.y
+            assert actions.region.y >= dialog.content_region.y
+            assert actions.region.bottom <= dialog.content_region.bottom
+            assert close.region.height == 3
+            assert close.region.y >= actions.content_region.y
+            assert close.region.bottom <= actions.content_region.bottom
+
+            strips = app.screen._compositor.render_strips()
+            top = strips[close.region.y].crop(close.region.x, close.region.right).text
+            middle = strips[close.region.y + 1].crop(close.region.x, close.region.right).text
+            bottom = strips[close.region.y + 2].crop(close.region.x, close.region.right).text
+            assert top.startswith("╭")
+            assert top.endswith("╮")
+            assert expected_close in middle
+            assert bottom.startswith("╰")
+            assert bottom.endswith("╯")
+
+        await pilot.resize_terminal(80, 24)
+        await pilot.pause()
+        scroll = app.screen.query_one("#shortcuts-scroll")
+        assert scroll.max_scroll_y > 0
+        scroll.scroll_end(animate=False, immediate=True)
+        await pilot.pause()
+        assert scroll.scroll_y == scroll.max_scroll_y
+
+        assert await pilot.click("#shortcuts-close")
+        await pilot.pause()
+        assert not isinstance(app.screen, ShortcutsScreen)
+
+
 async def test_monitor_log_search_match_index_and_shift_enter_reverse_jump(tmp_path) -> None:
     app = AcprofTui(RunConfig.smoke("demo/model"), settings_path=tmp_path / "settings.json")
     async with app.run_test(size=(120, 30)) as pilot:

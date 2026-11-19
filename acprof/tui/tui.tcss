@@ -837,15 +837,15 @@ ShortcutsScreen { align: center middle; }
 #shortcuts-dialog {
     width: 92%;
     max-width: 92;
-    height: auto;
+    height: 30;
     max-height: 88%;
     border: round $accent;
     background: $surface;
     padding: 0 1;
 }
 #shortcuts-title { height: 1; text-style: bold; margin: 1 0; }
-#shortcuts-scroll { height: auto; max-height: 60vh; }
+#shortcuts-scroll { height: 1fr; }
 #shortcuts-banner { padding: 0 0 1 0; }
 #shortcuts-global, #shortcuts-controls { margin-bottom: 1; }
 #shortcuts-dialog .fact-grid { grid-columns: 20 1fr; }
-#shortcuts-actions { dock: none; height: 3; padding: 0; border-top: solid $panel; }
+#shortcuts-actions { dock: none; height: 4; padding: 0; border-top: solid $panel; }
