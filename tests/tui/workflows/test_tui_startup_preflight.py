@@ -161,7 +161,7 @@ class TestStartupPreflight:
                 assert not (app.query_one("#start-run", Button).disabled)
                 assert (await pilot.click("#environment-warning"))
                 await pilot.pause()
-                assert await pilot.hover("#preflight-signal-check_0")
+                assert (await pilot.click("#preflight-signal-check_0"))
                 await pilot.pause()
                 assert "not supported [detail]" in str(app.query_one("#preflight-callout").query_one(".callout-raw", Static).content)
                 assert (await pilot.click(app.preflight.panel.retry_button))

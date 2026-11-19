@@ -36,8 +36,16 @@ async def open_docker(app, pilot, *, keyboard=False):
         await pilot.press('enter')
     else:
         assert await pilot.click(signal)
+    assert app.preflight.panel._selected_row is not None
+    assert app.preflight.panel.display
+    from acprof.tui.ui.structured import ActionButtons, Callout
+    callout = app.query_one('#preflight-callout', Callout)
+    action = list(callout.query_one(ActionButtons).query(Button))[1]
+    action.scroll_visible(immediate=True, force=True)
+    await pilot.pause()
+    assert await pilot.click(action)
     await wait_for_condition(pilot, lambda: app.screen.id == 'docker-repair-screen',
-                             description='Docker repair guide opened by warning', timeout=3)
+                             description='Docker repair guide opened by explicit action', timeout=3)
     await pilot.pause()
 
 

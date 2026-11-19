@@ -20,7 +20,6 @@ from acprof.tui.run.diagnostics import PreflightCheck
 from acprof.tui.run.environment_view import (
     check_label,
     check_presentation,
-    check_priority,
     check_title,
     compact_check_label,
     global_check_view,
@@ -175,19 +174,8 @@ class EnvironmentSignal(Static, can_focus=True):
             " ", label, suffix,
         )
 
-    def on_enter(self) -> None:
-        self.panel.preview(self.row)
-
-    def on_leave(self) -> None:
-        self.panel.end_preview(self.row)
-
-    def on_focus(self) -> None:
-        self.panel.select(self.row)
-
     def action_inspect_issue(self) -> None:
         self.panel.select(self.row)
-        if self.row.check_id == 'docker' and self.row.status in {'fail', 'error', 'warn'}:
-            self.panel.open_issue(self.row)
 
     def on_click(self, event: events.Click) -> None:
         event.stop()
@@ -210,7 +198,6 @@ class EnvironmentSource(Collapsible):
         event.stop()
         self.collapsed = not self.collapsed
         self.panel._source_choices[self.source.group_id] = self.collapsed
-        self.panel.select_source(self.source.group_id)
 
     def update_source(self, source: SourceSummary) -> None:
         self.source = source
@@ -234,7 +221,6 @@ class EnvironmentPopover(Vertical):
         self._source_choices: dict[str, bool] = {}
         self._sources: tuple[SourceSummary, ...] = ()
         self._selected_row: PreflightCheck | None = None
-        self._hovered_row: PreflightCheck | None = None
         self._inspected_row: PreflightCheck | None = None
         self._origin: NavigationContext | None = None
         self._return_context: NavigationContext | None = None
@@ -299,8 +285,6 @@ class EnvironmentPopover(Vertical):
 
     def close(self, *, restore_focus: bool = True) -> None:
         self.cancel_close()
-        if self._hovered_row is not None:
-            self.end_preview(self._hovered_row)
         focused = self.app.focused
         inside = focused is not None and (focused is self or self in focused.ancestors)
         self.pinned_groups.discard(self.group)
@@ -400,27 +384,8 @@ class EnvironmentPopover(Vertical):
         if not self.display or row not in self._rows:
             return
         self._selected_row = row
-        self.explain(self._hovered_row or row)
-
-    def select_source(self, group_id: str) -> None:
-        source = next((source for source in self._sources if source.group_id == group_id), None)
-        if source is None:
-            return
-        self._hovered_row = None
-        self._selected_row = min(source.items, key=lambda item: check_priority(item.check)).check
-        self.explain(self._selected_row)
-
-    def preview(self, row: PreflightCheck) -> None:
-        if not self.display or row not in self._rows:
-            return
-        self._hovered_row = row
         self.explain(row)
 
-    def end_preview(self, row: PreflightCheck) -> None:
-        if self._hovered_row is row:
-            self._hovered_row = None
-            if self._selected_row is not None:
-                self.explain(self._selected_row)
 
     def explain(self, row: PreflightCheck) -> None:
         if not self.display or row not in self._rows:
@@ -492,23 +457,25 @@ class EnvironmentPopover(Vertical):
             previous = self._selected_row if self.group == self._rows_group else None
             self._rows_group = self.group
             self._rows, self._rows_language = rows, language
-            self._hovered_row = None
             self._selected_row = next(
                 (row for row in rows if previous is not None and row.check_id and row.check_id == previous.check_id),
-                min((issue.primary.check for issue in snapshot.issues if issue.group == self.group),
-                    key=check_priority, default=None),
+                None,
             )
             self.call_later(self.render_rows, rows)
         if self._selected_row is not None:
-            self.explain(self._hovered_row or self._selected_row)
+            self.explain(self._selected_row)
         else:
             self._inspected_row = None
             self.query_one("#preflight-source-summary").display = False
             self.query_one("#preflight-callout").display = False
             self.query_one("#preflight-facts").display = False
+            self.query_one("#preflight-recheck").display = True
             empty = self.query_one("#preflight-empty", Static)
             empty.display = True
-            empty.update(self.tr("checking_all" if self.group == "pending" and controller.display_state == "checking" else "empty_group"))
+            empty.update(self.tr(
+                "checking_all" if not rows and self.group == "pending" and controller.display_state == "checking"
+                else "empty_group" if not rows else "select_hint"
+            ))
         self.retry_button.tooltip = reason or self.tr("retry")
         self.fit()
 

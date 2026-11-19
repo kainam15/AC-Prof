@@ -142,6 +142,7 @@ def test_fixed_scenes(snap_compare, svg_operations, tmp_path, monkeypatch, langu
                 from tests.support.tui_fixtures import expand_check_source
                 await expand_check_source(app, pilot, "docker")
                 app.query_one("#preflight-signal-docker").focus()
+                await pilot.press("enter")
                 await pilot.pause()
                 assert app.preflight.panel.display
                 facts = app.query_one("#preflight-facts", FactGrid)

@@ -239,6 +239,7 @@ MESSAGES: dict[str, Entry] = {
     "run.environment.section.other": Entry(zh="其他检查", en="Other checks"),
     "run.environment.section.profilers": Entry(zh="Profiler 工具", en="Profilers"),
     "run.environment.section.runtime": Entry(zh="运行环境", en="Runtime environment"),
+    "run.environment.select_hint": Entry(zh="点击检查项或按 Enter / Space 查看详情。", en="Click a check or press Enter / Space to view details."),
     "run.environment.stale_notice": Entry(zh="配置已变化：旧结果仅供诊断，重新检查后才能开始。", en="Configuration changed: cached results are diagnostic only. Check again before starting."),
     "run.environment.state.blocked": Entry(zh="阻断", en="Blocked"),
     "run.environment.state.checking": Entry(zh="检查中", en="Checking"),

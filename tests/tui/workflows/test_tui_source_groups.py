@@ -71,6 +71,11 @@ async def test_source_disclosure_preserves_choices_and_partial_evidence(tmp_path
         panel.select(panel.query_one('#preflight-signal-gpu_memory').row)
         panel.show(pin=True, group='warning')
         await pilot.pause()
+        assert panel._selected_row is None
+        signal = panel.query_one('#preflight-signal-gpu_power')
+        signal.scroll_visible(immediate=True, force=True)
+        await pilot.pause()
+        assert await pilot.click(signal)
         assert panel._selected_row.check_id == 'gpu_power'
         app.execution.session.snapshot = ProgressSnapshot(measurement_active=True)
         panel.update_cached()
