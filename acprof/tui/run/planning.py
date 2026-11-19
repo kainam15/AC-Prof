@@ -71,6 +71,8 @@ def estimate_run(config: RunConfig, planned: dict | None = None) -> RunEstimate:
     warmup, formal = cases * scales * config.warmup, cases * scales * config.repeat
     # This is a labelled scenario estimate, not a timing measurement or deadline.
     request_seconds = config.repeat_window_seconds if config.repeat_in_window == 0 else config.repeat_in_window
+    if config.profiling_mode == "best_effort" and config.idle_seconds > 0:
+        return RunEstimate(cases, scales, warmup, formal, None)
     baseline = config.idle_seconds + config.idle_cooldown_seconds if config.profiling_mode == "full" else 0
     return RunEstimate(cases, scales, warmup, formal, (warmup + formal) * (request_seconds + baseline))
 

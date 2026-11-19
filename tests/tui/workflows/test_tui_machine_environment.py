@@ -39,7 +39,6 @@ def test_machine_results_survive_unselected_gpu_and_changed_experiment():
         PreflightCheck("NCU", "fail", "not installed", check_id="ncu"),
     )
     initial = replace(RunConfig.smoke("fixture/model"), runtime="docker")
-    expected = {"gpu_power": "ok", "ncu": "warn"}
     for config in (
         initial,
         replace(initial, gpus="on", profiling_mode="full", compute_profile_tool="ncu"),
@@ -50,6 +49,7 @@ def test_machine_results_survive_unselected_gpu_and_changed_experiment():
         )
         controller = SimpleNamespace(status=snapshot)
         rows = {row.check_id: row for row in display_checks(controller)}
+        expected = {"gpu_power": "ok", "ncu": "warn" if config.compute_profile_tool == "ncu" else "not_requested"}
         assert {name: rows[name].status for name in expected} == expected
         assert rows["gpu_power"].detail == "NVML read succeeded"
         assert rows["ncu"].detail == "not installed"
@@ -253,14 +253,15 @@ async def test_all_machine_checks_run_once_and_ignore_experiment_edits(tmp_path,
         context = app.query_one("#preflight-context", FactGrid).section
         assert not {"auto", "docker", "process"} & {app.tr(row.value).lower() for row in (*context.rows, *context.detail_rows)}
         assert "GPU" not in initial
-        expected = {"ncu": replace(machine[0], status="warn"), "gpu_power": machine[1]}
+        expected = {"ncu": replace(machine[0], status="not_requested"), "gpu_power": machine[1]}
         assert {row.check_id: row for row in display_checks(app.preflight) if row.check_id in expected} == expected
         assert app.preflight.environment_checks == tuple(machine)
-        for field, value in (("gpus", "on"), ("profiling-mode", "full"), ("runtime", "process")):
+        app.query_one("#torch-profiler").value = True
+        for field, value in (("gpus", "on"), ("runtime", "process")):
             app.query_one(f"#{field}", Select).value = value
         await wait_for_condition(pilot, lambda: not app.configuration.validation_pending
                                  and app.query_one("#runtime-error").display,
-                                 timeout=3, description="Process full configuration rejected")
+                                 timeout=3, description="Process independent profiler rejected")
         assert projected_facts(app, "#preflight-context") == initial
         assert {row.check_id: row for row in display_checks(app.preflight) if row.check_id in expected} == expected
         assert app.preflight.environment_checks == tuple(machine)

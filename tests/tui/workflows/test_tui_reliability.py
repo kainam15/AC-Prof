@@ -79,7 +79,7 @@ def test_preset_switch_preserves_execution_settings():
     changed = config.with_preset("main")
     for field in ("output_dir", "model_store", "download_mode", "notify", "resume", "rebuild_image"):
         assert getattr(changed, field) == getattr(config, field)
-    assert changed.profiling_mode == "full"
+    assert changed.profiling_mode == "best_effort"
 
 def test_summary_keeps_input_scales_separate_and_single_windows_insufficient():
     with tempfile.TemporaryDirectory() as directory:
@@ -94,7 +94,7 @@ def test_summary_keeps_input_scales_separate_and_single_windows_insufficient():
 
 def test_unrequested_rapl_is_not_a_pass():
     with patch("acprof.tui.run.diagnostics.shutil.which", return_value=None):
-        checks = quick_preflight(replace(RunConfig.smoke("demo/model"), runtime="docker"))
+        checks = quick_preflight(replace(RunConfig.smoke("demo/model"), runtime="docker", profiling_mode="basic"))
     rapl = next(check for check in checks if check.label == "CPU RAPL")
     assert (rapl.status) == ("not_requested")
 

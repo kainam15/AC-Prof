@@ -43,7 +43,6 @@ SELECT_FIELDS = {
     "model-source": "model_source",
     "task-family": "task_family",
     "gpus": "gpus",
-    "profiling-mode": "profiling_mode",
     "notify": "notify",
 }
 CHECKED_FIELDS = {
@@ -75,7 +74,8 @@ def profiler_tools_from_checks(checks: Mapping[str, bool]) -> tuple[str, str]:
 
 def collect_config(inputs: Mapping[str, str], selects: Mapping[str, str],
                    checks: Mapping[str, bool], *, project_dir: Path,
-                   allow_empty_model: bool = False, extra_options: dict | None = None) -> RunConfig:
+                   allow_empty_model: bool = False, extra_options: dict | None = None,
+                   profiling_mode: str = "best_effort") -> RunConfig:
     compute_tool, execution_tool = profiler_tools_from_checks(checks)
     values: dict[str, Any] = {**{field: inputs[key] for key, field in INPUT_FIELDS.items()},
               **{field: selects[key] for key, field in SELECT_FIELDS.items()},
@@ -83,7 +83,7 @@ def collect_config(inputs: Mapping[str, str], selects: Mapping[str, str],
               "compute_profile_tool": compute_tool,
               "execution_profile_tool": execution_tool}
     # Recovery selects resume for a specific launch; it is not an editable default.
-    config = RunConfig(**values, extra_options=dict(extra_options or {}))
+    config = RunConfig(**values, profiling_mode=profiling_mode, extra_options=dict(extra_options or {}))
     if allow_empty_model and not config.model:
         validated = replace(config, model="settings/default-model").validate(project_dir=project_dir)
         return replace(validated, model="")

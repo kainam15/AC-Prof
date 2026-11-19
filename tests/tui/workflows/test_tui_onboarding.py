@@ -5,7 +5,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-from textual.widgets import Button, Input, Select, Static
+from textual.widgets import Button, Input, Static
 
 from acprof.cli.tui import main
 from acprof.experiments.configuration import RunConfig, build_run_command
@@ -87,7 +87,8 @@ async def test_smoke_command_without_preset_selector_preserves_notifications(lan
             await pilot.press("enter")
             await pilot.pause()
             command = build_run_command(app.configuration.collect_config(), project_dir=Path.cwd())
-            for option, value in (("--profiling-mode", "basic"), ("--gpus", "off"),
+            assert "--profiling-mode" not in command
+            for option, value in (("--gpus", "off"),
                                   ("--notify", "wecom"), ("--repeat-in-window", "1")):
                 assert (command[command.index(option) + 1]) == (value)
 
@@ -103,7 +104,7 @@ async def test_preset_command_reports_invalid_form_without_replacing_fields(tmp_
         await pilot.press("enter")
         await pilot.pause()
         assert app.query_one("#cpus", Input).value == "invalid-cpus"
-        assert app.query_one("#profiling-mode", Select).value == "basic"
+        assert not app.query("#profiling-mode")
         assert app.query_one("#cpus-error", Static).display
 
 def test_cli_first_run_overrides_saved_full_matrix_without_rewriting_settings():
@@ -118,7 +119,7 @@ def test_cli_first_run_overrides_saved_full_matrix_without_rewriting_settings():
                   "--output-dir", "results/first run"])
         app = run.call_args.args[0]
         command = build_run_command(app.configuration.initial_config, project_dir=Path.cwd())
-        assert (command[command.index("--profiling-mode") + 1]) == ("basic")
+        assert "--profiling-mode" not in command
         assert (command[command.index("--output-dir") + 1]) == ("results/first run")
         assert (path.read_bytes()) == (original)
 

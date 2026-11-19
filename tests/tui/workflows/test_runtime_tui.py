@@ -13,7 +13,7 @@ from tests.tui.workflows.test_tui_process_permissions import denied_check, open_
 
 
 @pytest.mark.parametrize('size', [(80, 24), (120, 40)])
-async def test_process_inherited_button_builds_runnable_basic_command(tmp_path, size):
+async def test_process_inherited_button_builds_runnable_auto_collection_command(tmp_path, size):
     config = replace(RunConfig.smoke('fixture/model'), runtime='process', cpus='1', mems='1')
     app = AcprofTui(config, settings_path=tmp_path / 'settings.json')
     async with app.run_test(size=size) as pilot:
@@ -35,7 +35,7 @@ async def test_process_inherited_button_builds_runnable_basic_command(tmp_path, 
         )
         actual = app.configuration.collect_config()
         assert actual.runtime == 'process'
-        assert actual.profiling_mode == 'basic'
+        assert actual.profiling_mode == 'best_effort'
         assert actual.cpus == actual.mems == 'auto'
         assert not actual.prune_startup_oom
         assert app.query_one('#runtime', Select).value == 'process'

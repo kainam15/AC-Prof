@@ -82,7 +82,7 @@ def test_fixed_scenes(snap_compare, svg_operations, tmp_path, monkeypatch, langu
             await app.workers.wait_for_complete()
             await pilot.pause()
             assert app.execution.session.kind == "run"
-            assert app.execution.session.config.profiling_mode == "basic"
+            assert app.execution.session.config.profiling_mode == "best_effort"
             process = Mock(pid=12345, returncode=None)
             process.poll.return_value = None
             svg_operations.own_process(app.execution.lifecycle, process)

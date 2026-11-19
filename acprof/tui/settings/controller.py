@@ -60,6 +60,7 @@ class ConfigurationController:
             config = replace(config, model=self.saved_settings.last_model,
                              revision=config.revision if config.model == self.saved_settings.last_model else "")
         self.initial_config = initial_config if initial_config is not None else config
+        self.recovery_policy = self.initial_config.profiling_mode if self.initial_config.resume else "best_effort"
         self.extra_options = dict(self.initial_config.extra_options)
         self.planned_input: dict | None = None
         self.planned_input_identity: tuple[object, ...] | None = None
@@ -295,11 +296,13 @@ class ConfigurationController:
             {key: self.select(key) for key in run_form.SELECT_FIELDS},
             {key: self.checked(key) for key in (*run_form.CHECKED_FIELDS, *run_form.PROFILER_CHECKBOXES)},
             project_dir=self.app.project_dir, allow_empty_model=allow_empty_model, extra_options=self.extra_options,
+            profiling_mode=self.recovery_policy,
         )
 
     def apply_config(self, config: RunConfig) -> None:
         self.cancel_preview_timer()
         self.applying_config = True
+        self.recovery_policy = config.profiling_mode if config.resume else "best_effort"
         self.extra_options = dict(config.extra_options)
         values, selects, checks = run_form.config_values(config)
         # Value watchers post Changed messages asynchronously. Suppressing

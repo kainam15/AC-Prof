@@ -109,6 +109,7 @@ class AcprofTui(AppEventRoutes):
 
     CSS_PATH = Path(__file__).with_name("tui.tcss")
     IMAGE_REFRESH_INTERVAL = 5.0
+    PERMISSION_REFRESH_INTERVAL = 30.0
 
     @property
     def project_dir(self) -> Path:
@@ -227,6 +228,7 @@ class AcprofTui(AppEventRoutes):
         self.configuration.refresh_command_preview(notify=False)
         if not self.read_jobs:
             self.call_after_refresh(self.preflight.quick_check)
+        self.set_interval(self.PERMISSION_REFRESH_INTERVAL, self.preflight.check_permission_changes)
         self.query_one("#model", Input).focus()
         self.images.refresh_timer = self.set_interval(
             self.IMAGE_REFRESH_INTERVAL, self.images.refresh_images, pause=True,
@@ -243,6 +245,10 @@ class AcprofTui(AppEventRoutes):
                 panel.close()
                 return
         await super().on_event(event)
+
+    def on_app_focus(self, _event: events.AppFocus) -> None:
+        if self.form_ready:
+            self.preflight.check_permission_changes()
 
     def on_resize(self, event: events.Resize) -> None:
         # App.size can still refer to the previous frame while Resize is

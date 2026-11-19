@@ -22,12 +22,12 @@ from acprof.events.download import DownloadProgress
 from acprof.events.image import ImageProgress
 from acprof.experiments.configuration import RunConfig, RunConfigError
 from acprof.host.preparation.preparation_log import redact_text
-from acprof.host.run_state import offline_analysis_lock
+from acprof.host.run_state import RunStateError, offline_analysis_lock
 from acprof.host.runtimes.contracts import RuntimeCleanupError
 from acprof.messages import join_messages, message
 from acprof.tui.i18n import message_id
 from acprof.tui.run import form as run_form, planning as run_planning
-from acprof.tui.run.diagnostics import PreflightCheck, quick_preflight
+from acprof.tui.run.diagnostics import PreflightCheck, permission_signature, quick_preflight
 from acprof.tui.run.environment_checks import scan_environment
 from acprof.tui.run.global_status import GlobalStatus, build_status
 from acprof.tui.run.monitor import MonitorPhase, monitor_phase
@@ -53,6 +53,7 @@ class PreflightController:
         self.resource_phase = "checking"
         self.check_request: object | None = None
         self.check_completed = False
+        self.checked_permissions: tuple | None = None
         self.check_config: RunConfig | None = None
         self.check_inventory = True
         self.checked_config: RunConfig | None = None
@@ -61,6 +62,7 @@ class PreflightController:
         self.auto_check_due = False
         self.checks: tuple[PreflightCheck, ...] = ()
         self.error = ""
+        self.observed_checks: dict[str, PreflightCheck] = {}
         self.environment_checks: tuple[PreflightCheck, ...] = ()
         self.environment_error = ""
         self.cleanup_error = ""
@@ -71,6 +73,14 @@ class PreflightController:
         self.pending_source_change: dict[str, str] | None = None
         self.preparation_request: tuple[subprocess.Popen[str], int] | None = None
         self.latest_download: DownloadProgress | ImageProgress | None = None
+
+    def collection_issue(self, event: dict) -> None:
+        name = event["collector"]
+        identifier = "cgroup_metrics" if name == "cgroup" else name
+        detail = event["detail"] + " · " + ", ".join(event["fields"])
+        self.observed_checks[identifier] = PreflightCheck(name, "warn", detail, check_id=identifier,
+                                                         source="result_layers.json")
+        self.refresh_preflight_state()
 
     def reset_download(self) -> None:
         self.latest_download = None
@@ -139,7 +149,7 @@ class PreflightController:
             self.preflight_config(), issues=self.app.configuration.config_issues,
             warnings=self.app.configuration.config_warnings,
             validation_pending=self.app.configuration.validation_pending,
-            checks=self.checks, inventory=self.environment_checks,
+            checks=(*self.checks, *self.observed_checks.values()) if self.config_matches() else self.checks, inventory=self.environment_checks,
             completed=self.check_completed, current=self.config_matches(),
             running=self.check_running, inventory_running=self.inventory_running,
             error=self.error, inventory_error=self.environment_error, cleanup_error=self.cleanup_error,
@@ -262,7 +272,9 @@ class PreflightController:
             runtime=self.app.configuration.select("runtime"),
             cpus=self.app.configuration.input("cpus"), mems=self.app.configuration.input("mems"),
             cpuset_cpus=self.app.configuration.input("cpuset-cpus"),
-            profiling_mode=self.app.configuration.select("profiling-mode"),
+            profiling_mode=self.app.configuration.recovery_policy,
+            extra_options={key: value for key, value in self.app.configuration.extra_options.items()
+                           if key in {"gpu_device", "dram_energy"}},
             gpus=self.app.configuration.select("gpus"),
             sniff_iface=self.app.configuration.input("sniff-iface"),
             compute_profile_tool=compute_tool,
@@ -297,7 +309,7 @@ class PreflightController:
         if checked is None:
             return False
         cached_runtime = next((check.runtime_kind for check in checks if check.runtime_kind), "")
-        if current.runtime == "docker" or (current.runtime == "auto" and cached_runtime == "docker"):
+        if current.profiling_mode != "best_effort" and (current.runtime == "docker" or (current.runtime == "auto" and cached_runtime == "docker")):
             # Docker preflight does not validate numeric matrix enforcement;
             # form validation and the runner retain that responsibility.
             current = replace(current, cpus="auto", mems="auto")
@@ -359,7 +371,22 @@ class PreflightController:
     def collection_state(self) -> str:
         return self.status.state
 
+    def check_permission_changes(self) -> None:
+        if self.checked_permissions is None or self.app.is_busy() or self.app.ui_closing:
+            return
+        try:
+            with offline_analysis_lock():
+                current = permission_signature(self.app.project_dir)
+        except RunStateError:
+            current = None
+        if current != self.checked_permissions:
+            self.checked_permissions = None
+            self.checked_config = None
+            self.schedule_auto_check()
+            self.refresh_preflight_state()
+
     def allow_collection(self) -> bool:
+        self.check_permission_changes()
         status = self.status
         reason = self.preflight_run_reason(status)
         if reason:
@@ -445,6 +472,7 @@ class PreflightController:
         environment_checks: Sequence[PreflightCheck] | None = None
         environment_error = ""
         cleanup_error = "" if refresh_environment else None
+        permissions = None
         try:
             # Perf probes and other diagnostics must never overlap a formal
             # Linux measurement, including one owned by another AC-Prof process.
@@ -465,6 +493,8 @@ class PreflightController:
                 if config.runtime in {"process", "auto"} and (config.cpus != "auto" or config.mems != "auto"):
                     self.app.process.safe_process_callback(self.show_resource_repair, token)
                 checks = quick_preflight(config, project_dir=self.app.project_dir)
+                if config.profiling_mode == "best_effort":
+                    permissions = permission_signature(self.app.project_dir)
             error = ""
         except Exception as exc:
             checks = []
@@ -476,7 +506,7 @@ class PreflightController:
         if worker.is_cancelled:
             return
         self.app.process.safe_process_callback(
-            self.show_quick_check, checks, error, token, lock_acquired, environment_checks, environment_error, cleanup_error,
+            self.show_quick_check, checks, error, token, lock_acquired, environment_checks, environment_error, cleanup_error, permissions,
         )
 
     def show_resource_repair(self, token: object) -> None:
@@ -532,6 +562,9 @@ class PreflightController:
             self.cleanup_error = error
         self.check_running = False
         self.check_request = None
+        if self.check_config and self.check_config.profiling_mode == "best_effort":
+            self.checked_config = None
+            self.schedule_auto_check()
         self.refresh_preflight_state()
 
     def show_quick_check(
@@ -543,13 +576,16 @@ class PreflightController:
         environment_checks: Sequence[PreflightCheck] | None = None,
         environment_error: str = "",
         cleanup_error: str | None = None,
+        permissions: tuple | None = None,
     ) -> None:
         if not self.app.is_running or not self.app.form_ready or self.app.ui_closing or token is not self.check_request:
             return
         self.check_running = False
         self.check_request = None
         self.check_completed = True
+        self.observed_checks.clear()
         self.checked_config = self.check_config
+        self.checked_permissions = permissions
         self.checks = tuple(checks)
         self.error = error
         if cleanup_error is not None:

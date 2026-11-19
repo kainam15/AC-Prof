@@ -28,7 +28,7 @@ def test_global_status(snap_compare, svg_operations, tmp_path, monkeypatch, lang
     if scene == 'inherited':
         config = replace(config, cpus='auto', mems='auto')
     elif scene.startswith('permissions'):
-        config = replace(config, runtime='docker', profiling_mode='full')
+        config = replace(config, runtime='docker')
     elif scene == 'auto-ready':
         config = replace(config, runtime='auto')
     app = AcprofTui(config, settings_path=tmp_path / 'settings.json')
@@ -57,7 +57,7 @@ def test_global_status(snap_compare, svg_operations, tmp_path, monkeypatch, lang
         if scene == 'process-diagnostic' or scene.startswith('permissions'):
             if scene.startswith('permissions'):
                 identifier = 'cpu_instructions' if scene.endswith('perf') else 'capture_permissions'
-                app.preflight.checks = (PreflightCheck(identifier, 'fail', 'Permission denied', check_id=identifier),)
+                app.preflight.checks = (PreflightCheck(identifier, 'warn', 'Permission denied', check_id=identifier),)
             app.preflight.refresh_preflight_state()
             app.preflight.panel.open_issue(app.preflight.checks[0])
             target = '#issue-callout' if scene == 'process-diagnostic' else '#permission-' + scene.removeprefix('permissions-')

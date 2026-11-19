@@ -47,6 +47,7 @@ class RunPresenter:
         # Intended output is not evidence of a result. Keep the selected/history
         # paths until a matching run attempt has actually published artifacts.
         if pending.kind == "run":
+            self.app.preflight.observed_checks.clear()
             self.app.configuration.planned_input = None
             self.app.configuration.planned_input_identity = None
             self.app.configuration.remember_last_used(model=model)

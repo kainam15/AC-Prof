@@ -14,7 +14,7 @@ pytestmark = pytest.mark.visual
 @pytest.mark.parametrize(('language', 'size'), [('zh', (80, 24)), ('en', (120, 30)), ('zh', (52, 24))])
 def test_source_groups(snap_compare, svg_operations, tmp_path, monkeypatch, language, size):
     monkeypatch.setattr('acprof.tui.app.PROJECT_DIR', Path('/workspace'))
-    app = AcprofTui(replace(RunConfig.smoke('fixture/model'), runtime='docker', profiling_mode='full', gpus='on', repeat=3),
+    app = AcprofTui(replace(RunConfig.smoke('fixture/model'), runtime='docker', gpus='on', repeat=3),
                     settings_path=tmp_path / 'settings.json')
     app.configuration.preferences = replace(app.configuration.preferences, language=language)
 

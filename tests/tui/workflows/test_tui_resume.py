@@ -19,7 +19,7 @@ async def test_restored_run_can_configure_a_new_experiment_without_a_resume_togg
         app.configuration.apply_config(restored)
         app.experiments.preset_main()
         await pilot.pause()
-        assert app.configuration.collect_config().profiling_mode == "full"
+        assert app.configuration.collect_config().profiling_mode == "best_effort"
         app.query_one("#experiment-pages", ContentSwitcher).current = "advanced-form"
         await pilot.pause()
         assert not app.query("#resume-run")

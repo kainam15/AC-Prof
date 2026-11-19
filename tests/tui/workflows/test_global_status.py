@@ -73,7 +73,8 @@ def test_quota_edit_discards_old_denial_until_rechecked():
 
 @pytest.mark.parametrize('identifier', ['ncu', 'nsys', 'torch', 'massif', 'cpu_energy', 'docker'])
 def test_unrequested_capability_cannot_block_process_basic(identifier):
-    value = controller(inventory=[check(identifier, 'fail')])
+    value = controller(current=replace(RunConfig.smoke('fixture/model'), runtime='process', profiling_mode='basic'),
+                       inventory=[check(identifier, 'fail')])
     assert not errors(value)
     row = next(row for row in display_checks(value) if row.check_id == identifier)
     assert row.status == 'warn'
@@ -84,8 +85,8 @@ def test_unrequested_capability_cannot_block_process_basic(identifier):
 def test_combined_profilers_do_not_request_posthoc_advisor():
     config = replace(RunConfig.smoke('fixture/model'), runtime='docker', execution_profile_tool='both')
     value = controller(current=config, inventory=[check('intel_advisor', 'fail')])
-    assert next(row for row in display_checks(value) if row.check_id == 'intel_advisor').status == 'warn'
-    assert value.status.counts['warning'] == 1
+    assert next(row for row in display_checks(value) if row.check_id == 'intel_advisor').status == 'not_requested'
+    assert value.status.counts['warning'] == 0
     assert value.status.can_start
 
 
@@ -209,7 +210,7 @@ def test_auto_runtime_change_discards_old_process_denial():
 def test_process_validation_failure_has_configuration_identity(monkeypatch):
     from acprof.tui.run.diagnostics import _process_checks
     monkeypatch.setattr('acprof.host.runtimes.capabilities.probe_collection_plan', lambda *a, **kw: {'probes': {}})
-    config = replace(RunConfig.smoke('fixture/model'), runtime='process', profiling_mode='full')
+    config = replace(RunConfig.smoke('fixture/model'), runtime='process', profiling_mode='full', compute_profile_tool='torch')
     rows = _process_checks(config)
     assert any(row.check_id == 'config_runtime' and row.status == 'fail' for row in rows)
     assert not any(row.check_id == 'process_resources' for row in rows)

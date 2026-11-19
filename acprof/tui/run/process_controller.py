@@ -91,6 +91,14 @@ class ProcessController:
                         raise ValueError("download progress inside measurement window")
                     deliver(self.app.preflight.download_progress, download)
                     continue
+                if kind == "run" and line.startswith("ACPROF_EVENT ") and '"collector_issue"' in line:
+                    from acprof.events.progress import parse_event
+                    event = parse_event(line)
+                    if event and event["event"] == "collector_issue":
+                        if tracker is None or tracker.snapshot.measurement_active:
+                            raise ValueError("collector issue inside measurement window")
+                        deliver(self.app.preflight.collection_issue, event)
+                        continue
                 before = tracker.snapshot if tracker is not None else None
                 snapshot = tracker.feed(line) if tracker is not None else None
                 state_changed = snapshot != before if snapshot is not None else False

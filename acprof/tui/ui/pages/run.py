@@ -62,13 +62,6 @@ def compose_run_tab(app: AcprofTui) -> ComposeResult:
                         id="runtime", classes="config-control",
                     )), field_id="runtime")
 
-                    yield app.localization.localized_widget(Label("画像模式"))
-                    yield ConfigField(app.localization.localized_select(
-                        (("完整（RAPL / perf / 抓包）", "full"), ("基础（延迟 / CPU / 内存）", "basic")),
-                        value=app.configuration.initial_config.profiling_mode,
-                        allow_blank=False, id="profiling-mode", classes="config-control",
-                    ), field_id="profiling-mode")
-
                     yield app.localization.localized_widget(Label("输出目录"))
                     yield ConfigField(app.localization.localized_widget(Input(
                         value=app.configuration.initial_config.output_dir,

@@ -66,7 +66,7 @@ async def test_permission_issue_focuses_exact_target(tmp_path, monkeypatch, iden
     monkeypatch.setattr('acprof.tui.app.PROJECT_DIR', tmp_path)
     app = AcprofTui(RunConfig.smoke('fixture/model'), settings_path=tmp_path / 'settings.json')
     async with app.run_test(size=(80, 24)) as pilot:
-        row = PreflightCheck(tool, 'fail', 'permission denied', check_id=identifier)
+        row = PreflightCheck(tool, 'warn', 'permission denied', check_id=identifier)
         app.preflight.checks = (row,)
         app.preflight.refresh_preflight_state()
         app.preflight.panel.open_issue(row)
@@ -76,7 +76,7 @@ async def test_permission_issue_focuses_exact_target(tmp_path, monkeypatch, iden
                                  and app.focused is app.screen.query_one('#permission-' + tool),
                                  timeout=3, description='specific permission focus')
         assert app.screen.query_one('#environment-tabs', TabbedContent).active == 'permissions-tab'
-        assert app.preflight.status.counts['error'] == 1
+        assert app.preflight.status.can_start
 
 
 async def test_unmapped_error_does_not_open_unrelated_permissions(tmp_path, monkeypatch):
@@ -148,7 +148,7 @@ async def test_permission_recheck_updates_global_evidence(tmp_path, monkeypatch,
     row = PreflightCheck('perf', 'fail', 'permission denied', check_id='cpu_instructions')
     result = replace(row, status=result_status, detail='rechecked: ' + result_status)
     monkeypatch.setattr('acprof.tui.settings.environment.quick_preflight', lambda *a, **kw: [result])
-    app = AcprofTui(replace(RunConfig.smoke('fixture/model'), runtime='docker', profiling_mode='full'),
+    app = AcprofTui(replace(RunConfig.smoke('fixture/model'), runtime='docker', profiling_mode='full', resume=True),
                     settings_path=tmp_path / 'settings.json')
     async with app.run_test(size=(80, 24)) as pilot:
         app.preflight.checks = (row,)
@@ -212,7 +212,7 @@ async def test_field_navigation_returns_to_original_page_focus_and_scroll(tmp_pa
 async def test_diagnostics_show_specific_guidance_without_permission_setup(tmp_path, identifier, screen_id, callout, details):
     from textual.widgets import Collapsible
 
-    app = AcprofTui(replace(RunConfig.smoke('fixture/model'), runtime='docker', profiling_mode='full'),
+    app = AcprofTui(replace(RunConfig.smoke('fixture/model'), runtime='docker', profiling_mode='full', resume=True),
                     settings_path=tmp_path / 'settings.json')
     async with app.run_test(size=(80, 24)) as pilot:
         row = PreflightCheck(identifier, 'fail', 'fixture diagnostic', check_id=identifier)
@@ -230,7 +230,7 @@ async def test_permission_check_exception_keeps_required_capability_unverified(t
     def failed(*args, **kwargs):
         raise OSError('fixture permission probe failed')
     monkeypatch.setattr('acprof.tui.settings.environment.quick_preflight', failed)
-    app = AcprofTui(replace(RunConfig.smoke('fixture/model'), runtime='docker', profiling_mode='full'),
+    app = AcprofTui(replace(RunConfig.smoke('fixture/model'), runtime='docker', profiling_mode='full', resume=True),
                     settings_path=tmp_path / 'settings.json')
     async with app.run_test(size=(80, 24)) as pilot:
         app.preflight.checks = (PreflightCheck('perf', 'ok', 'old evidence', check_id='cpu_instructions'),)

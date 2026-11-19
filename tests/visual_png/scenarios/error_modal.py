@@ -12,7 +12,7 @@ from tests.visual_png.scenarios.common import apply_fixture_preflight, freeze_fo
 
 
 def initial_config() -> RunConfig:
-    return replace(RunConfig.smoke("fixture/model"), runtime="docker", profiling_mode="full")
+    return replace(RunConfig.smoke("fixture/model"), runtime="docker", idle_seconds=1, extra_options={"dram_energy": "required"})
 
 
 def mount(app: AcprofTui, *, group: str = "error") -> None:
@@ -20,20 +20,20 @@ def mount(app: AcprofTui, *, group: str = "error") -> None:
     apply_fixture_preflight(app)
     app.preflight.checks = (
         PreflightCheck("Docker", "ok", "Docker daemon accessible", runtime_kind="docker", check_id="docker"),
-        PreflightCheck("perf instructions", "fail", "Permission denied: cross-user process access is unavailable.",
-                       "permission_denied", check_id="cpu_instructions", source="perf_stat"),
+        PreflightCheck("Required DRAM energy", "fail", "Permission denied reading the requested DRAM counter.",
+                       "permission_denied", check_id="dram_energy", source="rapl_topology"),
     )
     app.preflight.environment_checks = (
         *app.preflight.checks,
         *(PreflightCheck(name, "pending" if name in {"torch", "massif"} else "ok",
                         "Runtime execution unverified" if name in {"torch", "massif"} else "Environment interface readable",
-                        check_id=name, source="fixture") for name in ENVIRONMENT_CHECK_IDS if name not in {"docker", "cpu_instructions"}),
+                        check_id=name, source="fixture") for name in ENVIRONMENT_CHECK_IDS if name not in {"docker", "dram_energy"}),
     )
     app.preflight.completed_at = datetime(2026, 11, 7, 8, 0, tzinfo=UTC)
     app.preflight.lock_acquired = True
     app.preflight.refresh_preflight_state()
     app.preflight.panel.show(pin=True, group=group)
-    identifier = "docker" if group == "success" else "cpu_instructions"
+    identifier = "docker" if group == "success" else "dram_energy"
     app.preflight.panel.call_later(
         lambda: app.query_one("#preflight-signal-" + identifier).focus(scroll_visible=False)
     )

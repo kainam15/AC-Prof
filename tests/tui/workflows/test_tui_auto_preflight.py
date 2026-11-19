@@ -44,7 +44,7 @@ async def ready(app, pilot):
 
 @pytest.mark.parametrize(("field", "value", "attribute"), [
     ("gpus", "on", "gpus"), ("cpuset-cpus", "0-1", "cpuset_cpus"),
-    ("runtime", "process", "runtime"), ("profiling-mode", "full", "profiling_mode"),
+    ("runtime", "process", "runtime"), ("cpus", "1,2", "cpus"),
     ("sniff-iface", "lo", "sniff_iface"), ("torch-profiler", True, "compute_profile_tool"),
 ])
 async def test_relevant_edit_automatically_checks_without_repeating_inventory(tmp_path, diagnostics, field, value, attribute):
@@ -117,13 +117,12 @@ async def test_burst_edits_merge_and_preserve_page_focus_input_and_silence(tmp_p
         scan.assert_called_once()
 
 
-async def test_workload_edits_and_docker_quotas_only_refresh_the_plan(tmp_path, diagnostics):
+async def test_workload_edits_only_refresh_the_plan(tmp_path, diagnostics):
     check, scan = diagnostics
     app = make_app(tmp_path)
     async with app.run_test(size=(120, 30)) as pilot:
         await ready(app, pilot)
-        for name, value in (("warmup", "2"), ("repeat", "3"), ("repeat-in-window", "4"),
-                            ("cpus", "1,2"), ("mems", "2,4")):
+        for name, value in (("warmup", "2"), ("repeat", "3"), ("repeat-in-window", "4")):
             app.query_one(f"#{name}", Input).value = value
         await wait_for_condition(pilot, lambda: "--repeat 3" in str(app.query_one("#command-preview", Static).content),
                                  description="updated workload command", timeout=2)
@@ -408,3 +407,36 @@ async def test_global_status_distinguishes_invalid_pending_checking_limited_and_
             assert len(app.screen_stack) == 1
     finally:
         release.set()
+
+
+
+async def test_external_permission_change_invalidates_launch_and_debounces_recheck(tmp_path, diagnostics, monkeypatch):
+    signature = Mock(return_value=("before",))
+    monkeypatch.setattr("acprof.tui.run.preflight_controller.permission_signature", signature)
+    check, scan = diagnostics
+    app = make_app(tmp_path)
+    async with app.run_test(size=(80, 24)) as pilot:
+        await ready(app, pilot)
+        signature.return_value = ("changed",)
+        assert not app.preflight.allow_collection()
+        app.preflight.check_permission_changes()
+        await wait_for_condition(pilot, lambda: check.call_count == 2 and not app.preflight.check_running,
+                                 description="permission change rechecked", timeout=4)
+        assert app.preflight.allow_collection()
+        scan.assert_called_once()
+
+
+async def test_idle_permission_change_rechecks_without_user_action(tmp_path, diagnostics, monkeypatch):
+    signature = Mock(return_value=("before",))
+    monkeypatch.setattr("acprof.tui.run.preflight_controller.permission_signature", signature)
+    _check, scan = diagnostics
+    app = make_app(tmp_path)
+    app.PERMISSION_REFRESH_INTERVAL = 0.1
+    async with app.run_test(size=(80, 24)) as pilot:
+        await ready(app, pilot)
+        signature.return_value = ("changed",)
+        await wait_for_condition(pilot, lambda: app.preflight.checked_permissions == ("changed",) and not app.preflight.check_running,
+                                 description="idle permission change rechecked", timeout=4)
+        await ready(app, pilot)
+        assert app.preflight.allow_collection()
+        scan.assert_called_once()

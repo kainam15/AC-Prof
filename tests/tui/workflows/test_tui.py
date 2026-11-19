@@ -62,7 +62,7 @@ def test_smoke_command_delegates_to_existing_run_entrypoint():
     assert (command[command.index("--mems") + 1]) == ("4")
     assert ("--input-scales") not in (command)
     assert (command[command.index("--input-scale-policy") + 1]) == ("minimal")
-    assert (command[command.index("--profiling-mode") + 1]) == ("basic")
+    assert "--profiling-mode" not in command
     assert (command[command.index("--gpus") + 1]) == ("off")
     assert (command[command.index("--notify") + 1]) == ("none")
     assert (command[command.index("--compute-profile-tool") + 1]) == ("none")

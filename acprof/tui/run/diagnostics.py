@@ -56,6 +56,29 @@ class PreflightCheck:
     reason_code: str = ''
 
 
+def permission_signature(project_dir: Path) -> tuple:
+    """Cheap permission/installation identity for refocus and launch; never read measurement counters."""
+    paths = {str(project_dir / ".env"), str(project_dir / ".env.local"), "/var/run/docker.sock",
+             "/dev/nvidiactl", "/sys/fs/cgroup"}
+    paths.update(filter(None, (shutil.which(tool) for tool in ("perf", "tcpdump", "tshark", "uv", "nvidia-smi"))))
+    powercap = Path("/sys/class/powercap")
+    for pattern in ("*:*/energy_uj", "*:*/*:*/energy_uj"):
+        paths.update(str(path) for path in powercap.glob(pattern))
+    paths.update(str(path) for path in Path("/dev").glob("nvidia[0-9]*"))
+    entries: list[tuple[object, ...]] = []
+    for name in sorted(paths):
+        try:
+            stat = os.stat(name)
+            entries.append((name, stat.st_dev, stat.st_ino, stat.st_mode, stat.st_uid, stat.st_gid, stat.st_ctime_ns))
+        except OSError as exc:
+            entries.append((name, exc.errno))
+    try:
+        paranoid = Path("/proc/sys/kernel/perf_event_paranoid").read_text().strip()
+    except OSError as exc:
+        paranoid = str(exc.errno)
+    return (os.environ.get("CUDA_VISIBLE_DEVICES"), os.environ.get("ACPROF_GPU_DEVICE"), paranoid, tuple(entries))
+
+
 def collection_preview(config: RunConfig):
     environment = detect_environment()
     matrix = capability_matrix(environment)
@@ -137,13 +160,16 @@ def quick_preflight(
                                  'ok' if docker.code == 'ready' else 'fail', docker.summary,
                                  check_id='docker', docker_diagnostic=docker))
 
-    if config.runtime == "auto" and config.profiling_mode == "basic" and any(check.status == "fail" for check in checks[1:]):
+    if config.runtime == "auto" and config.profiling_mode in {"best_effort", "basic"} and any(check.status == "fail" for check in checks[1:]):
         reasons = "; ".join(str(check.detail) for check in checks[1:] if check.status == "fail")
         checks = checks[:1] + [replace(checks[-1], status='warn' if docker.code != 'ready' else 'ok'),
                               PreflightCheck("Runtime auto → Process", "ok", reasons, check_id="runtime_auto")]
         return checks + _process_checks(config)
     checks.append(PreflightCheck("Runtime", "ok", "Docker", runtime_kind="docker", check_id="runtime"))
 
+    if config.profiling_mode == "best_effort":
+        from acprof.host.gpu_device import resolve_gpu_device
+        return checks + _automatic_checks(config, "docker", resolve_gpu_device, project_dir=project_dir)
     for tool in (("tcpdump", "tshark") if measurement_requested(config.profiling_mode, "packet_latency") else ()):
         path = shutil.which(tool)
         checks.append(
@@ -243,7 +269,7 @@ def _process_checks(config):
     from acprof.host.runtimes.cgroups import ProcessResourceError, with_guidance
     from acprof.host.runtimes.process_control import require_process_supervision
     from acprof.host.runtimes.resources import preflight_resources
-    checks = [PreflightCheck("Runtime", "ok", "Process: managed subprocess; basic collection", runtime_kind="process", check_id="runtime")]
+    checks = [PreflightCheck("Runtime", "ok", f"Process: managed subprocess; {config.profiling_mode} collection", runtime_kind="process", check_id="runtime")]
     requirement = 'process_runtime'
     try:
         replace(config, runtime="process").validate()
@@ -269,15 +295,59 @@ def _process_checks(config):
                                     resource_diagnostic=diagnostic))
     from acprof.host.runtimes.capabilities import probe_collection_plan
     from acprof.host.runtimes.gpu import process_gpu_device
+    if config.profiling_mode == "best_effort":
+        checks.extend(_automatic_checks(config, "process", process_gpu_device))
+        uv = shutil.which("uv")
+        checks.append(PreflightCheck("uv", "ok" if uv else "fail", uv or "Process environment preparation requires uv", check_id="uv"))
+        return checks
     gpu = process_gpu_device(config.to_namespace().gpu_device) if "on" in config.gpus.split(",") else {}
-    plan = probe_collection_plan("process", gpu=gpu)
+    plan = probe_collection_plan("process", gpu=gpu, profiling_mode=config.profiling_mode)
     for name, item in plan["probes"].items():
-        requested = name in {"process_cpu", "process_memory", "gpu_memory", "gpu_utilization"}
+        required = config.profiling_mode == "full" and name in {
+            "cpu_energy", "cpu_instructions", "packet_latency", "process_cpu", "process_memory"}
+        requested = required or name in {"process_cpu", "process_memory", "gpu_memory", "gpu_utilization"}
         status = ("not_requested" if not requested or item["status"] == "not_requested" else
-                  "ok" if item["status"] == "available" else "warn")
+                  "ok" if item["status"] == "available" else "fail" if required else "warn")
         checks.append(PreflightCheck(name, status, f"{item['status']}: {item['detail']}", item['status'], check_id=name, source=item.get("source", "probe_collection_plan")))
     uv = shutil.which("uv")
     checks.append(PreflightCheck("uv", "ok" if uv else "fail", uv or "Process environment preparation requires uv", check_id="uv", reason_code="" if uv else "not_installed"))
+    return checks
+
+
+def _automatic_checks(config, runtime, resolve_device, *, project_dir=None):
+    from acprof.host.runtimes.capabilities import probe_collection_plan
+
+    checks = []
+    gpu = {}
+    if "on" in config.gpus.split(","):
+        try:
+            gpu = resolve_device(config.extra_options.get("gpu_device"))
+            if not gpu.get("uuid"):
+                raise RuntimeError(gpu.get("error") or "CUDA device identity unavailable")
+        except (OSError, RuntimeError, ValueError, subprocess.TimeoutExpired) as exc:
+            gpu = {"error": str(exc)}
+            checks.append(PreflightCheck("GPU device", "fail", str(exc), check_id="gpu_device"))
+        else:
+            checks.append(PreflightCheck("GPU device", "ok", gpu["uuid"], check_id="gpu_device"))
+    probe_env = os.environ.copy()
+    load_project_env(project_dir or Path.cwd(), environ=probe_env)
+    dram = config.extra_options.get("dram_energy", "auto")
+    plan = probe_collection_plan(runtime, gpu=gpu, sniff_iface=config.sniff_iface, dram_energy=dram, env=probe_env,
+                                 service_cgroup=config.cpus != "auto" or config.mems != "auto")
+    for name, item in plan["probes"].items():
+        skipped = item["status"] in {"not_applicable", "not_requested"}
+        required = name == "dram_energy" and dram == "required"
+        status = "not_requested" if skipped else "ok" if item["status"] == "available" else "fail" if required else "warn"
+        unavailable_events = item.get("evidence", {}).get("unavailable_events", [])
+        group_fields = plan.get("fields", {}).get(name, ())
+        affected = {key: probe for key, probe in plan.get("field_probes", {}).items() if key in group_fields}
+        if status == "ok" and (affected or unavailable_events):
+            status = "warn"
+        fields = ", ".join(affected or group_fields)
+        details = ", ".join(dict.fromkeys(probe["detail"] for probe in affected.values()))
+        checks.append(PreflightCheck(name, status, " · ".join(filter(None, (item["status"], item["detail"], details, fields))),
+                                    item["status"], check_id="cgroup_metrics" if name == "cgroup" else name,
+                                    source=item.get("source", "probe_collection_plan")))
     return checks
 
 

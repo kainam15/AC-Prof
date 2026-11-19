@@ -4,7 +4,7 @@
 
 ## 启动和页面
 
-首次 clone 可以运行 `./setup.sh`，完成安装和 basic 环境检查后自动进入入门配置。
+首次 clone 可以运行 `./setup.sh`，完成安装和 CPU 环境检查后自动进入入门配置。
 通过此脚本或其他[发行包方式](../development/distribution.md)安装后，统一使用 `acprof tui` 启动全屏 TUI：
 
 ```bash
@@ -20,7 +20,7 @@ acprof tui
 acprof tui --model google-bert/bert-base-uncased --preset smoke
 ```
 
-首次打开且没有保存实验配置时使用 Smoke：`basic`、CPU、1 核、4 GB、无 warmup、单次请求，
+首次打开且没有保存实验配置时使用 Smoke：CPU、1 核、4 GB、无 warmup、单次请求，
 Idle 与 cooldown 为 0，关闭独立 profiler，初始通知为 `none`。保存过的配置和主动选择的主矩阵继续生效。
 高级参数中的“深度性能分析”提供 PyTorch Profiler、NVIDIA NCU、Valgrind Massif、
 NVIDIA Nsys 四个独立勾选项；可单选或任意组合，默认均关闭。配置保存和命令预览继续使用
@@ -30,9 +30,9 @@ NVIDIA Nsys 四个独立勾选项；可单选或任意组合，默认均关闭�
 Smoke 的 `--input-scale-policy minimal` 在任务解析后从现有 workload 选择最小单一尺度：例如普通文本
 64 tokens、语音 1 s、图像边长倍率 0.1。随后仍执行原有模型约束检查，不保证任意模型都能在 4 GB 内运行。
 用户主动填写 `--input-scales` 时严格验证该值，不用 Smoke 默认值覆盖或截短。输入框在解析前标明单位待解析，
-输入计划完成后显示实际单位和尺度。需要完整采集时在“基本配置 → 画像模式”中改为 `full`；主矩阵预设为 `full`。
+输入计划完成后显示实际单位和尺度。Smoke 与主矩阵都使用自动采集计划。
 表单直接编辑实验参数；可通过 CLI 的 `--preset smoke/main` 或快捷命令 `/smoke`、`/main` 应用预设。
-两种模式的主机条件和指标范围见[采集协议](../profiling/measurement.md#profiling-mode-与能力证据)。
+自动预检的主机条件和指标范围见[采集协议](../profiling/measurement.md#profiling-mode-与能力证据)。
 
 切换预设只修改实验参数，保留下载预算、下载源、Model Store 路径与容量、输出目录、模型声明和通知选择。
 恢复检查页使用原实验参数；若要调整参数，编辑表单后选择“新建实验”。后端仍核对完整恢复身份，不混用旧计划。

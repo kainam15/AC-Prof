@@ -19,6 +19,7 @@ GROUPS = ('error', 'warning', 'success', 'pending', 'not_requested')
 _GROUP = {'fail': 'error', 'error': 'error', 'warn': 'warning', 'ok': 'success',
           'not_requested': 'not_requested'}
 _TARGETS = {
+    'packet_latency': 'permissions:tcpdump', 'dram_energy': 'diagnostic:rapl', 'cgroup_metrics': 'diagnostic:cgroup',
     'process_resources': 'resources', 'cpu_energy': 'diagnostic:rapl',
     'cpu_instructions': 'permissions:perf', 'capture_permissions': 'permissions:tcpdump',
     'docker': 'diagnostic:docker', 'cgroup': 'diagnostic:cgroup',
@@ -122,6 +123,12 @@ def _requested(identifier: str, config: RunConfig, runtime: str) -> bool:
         return config.execution_profile_tool in {identifier, 'both'}
     if identifier in {'docker', 'cgroup', 'container_cpu', 'container_memory'}:
         return runtime == 'docker'
+    if config.profiling_mode == "best_effort":
+        if identifier.startswith("gpu_"):
+            return gpu
+        if identifier in {"process_cpu", "process_memory", "cpu_energy", "cpu_instructions",
+                          "packet_latency", "tcpdump", "tshark", "capture_permissions", "capture_interface"}:
+            return True
     if identifier in {'uv', 'process_runtime', 'process_resources', 'process_cpu', 'process_memory'}:
         return runtime == 'process'
     if identifier in {'tcpdump', 'tshark', 'capture_permissions', 'capture_interface'}:
@@ -172,6 +179,9 @@ def build_status(
             status = 'warn'
         else:
             status = row.status
+        if (config.profiling_mode == "best_effort" and status == "warn" and not inventory_running
+                and not _requested(row.check_id, config, runtime)):
+            status = "not_requested"
         put(replace(row, status=status))
 
     for row in checks:
@@ -203,6 +213,10 @@ def build_status(
             status = 'fail'
         else:
             status = row.status
+        if (config.profiling_mode == "best_effort" and status == "fail" and
+                row.check_id in {'tcpdump', 'tshark', 'capture_permissions', 'capture_interface', 'packet_latency',
+                                 'cpu_energy', 'cpu_instructions'}):
+            status = "warn"
         put(replace(row, status=status), required=requested)
 
     if validation_pending:

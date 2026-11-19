@@ -70,8 +70,8 @@ async def test_header_separates_pending_requirements_and_optional_warnings(tmp_p
                                        resource_diagnostic=replace(denied_check().resource_diagnostic, code='inherited')),)
         app.preflight.refresh_preflight_state()
         assert app.query_one('#environment-error', EnvironmentIndicator).content == '× 0'
-        assert app.query_one('#environment-warning', EnvironmentIndicator).content == '! 2'
-        assert not app.query_one('#environment-not_requested').display
+        assert app.query_one('#environment-warning', EnvironmentIndicator).content == '! 1'
+        assert any(item.check.check_id == 'ncu' and item.group == 'not_requested' for item in app.preflight.status.items)
         assert not app.query_one('#start-run', Button).disabled
         assert 'auto' in app.preflight.status.items[0].check.detail or any(
             'auto' in item.check.detail for item in app.preflight.status.items)
@@ -99,7 +99,7 @@ async def test_plan_quality_warning_refreshes_without_environment_probe(tmp_path
         check.assert_not_called()
 
 
-async def test_required_collector_opens_permissions_tab(tmp_path, monkeypatch):
+async def test_optional_collector_opens_permissions_tab(tmp_path, monkeypatch):
     from textual.widgets import TabbedContent
 
     from acprof.tui.run.diagnostics import PreflightCheck
@@ -110,10 +110,11 @@ async def test_required_collector_opens_permissions_tab(tmp_path, monkeypatch):
     async with app.run_test(size=(80, 24)) as pilot:
         app.preflight.checks = (PreflightCheck('perf', 'fail', 'permission denied', check_id='cpu_instructions'),)
         app.preflight.refresh_preflight_state()
-        app.query_one('#environment-error').focus()
+        assert not app.query_one('#start-run', Button).disabled
+        app.query_one('#environment-warning').focus()
         await pilot.press('enter')
         await wait_for_condition(pilot, lambda: bool(app.query('#preflight-signal-cpu_instructions')),
-                                 timeout=3, description='required perf issue')
+                                 timeout=3, description='optional perf permission warning')
         app.query_one('#preflight-signal-cpu_instructions').focus()
         await pilot.press('enter')
         await locate_selected(app, pilot)
@@ -123,8 +124,8 @@ async def test_required_collector_opens_permissions_tab(tmp_path, monkeypatch):
         assert app.screen.query_one('#permission-perf').region.width > 0
 
 
-async def test_process_full_blocker_navigates_to_basic_runtime_control(tmp_path):
-    app = AcprofTui(replace(RunConfig.smoke('fixture/model'), runtime='process', profiling_mode='full'),
+async def test_process_profiler_blocker_navigates_to_basic_runtime_control(tmp_path):
+    app = AcprofTui(replace(RunConfig.smoke('fixture/model'), runtime='process', profiling_mode='full', compute_profile_tool='torch'),
                     settings_path=tmp_path / 'settings.json')
     async with app.run_test(size=(80, 24)) as pilot:
         assert app.query_one('#environment-error', EnvironmentIndicator).content == '× 1'
@@ -133,7 +134,7 @@ async def test_process_full_blocker_navigates_to_basic_runtime_control(tmp_path)
         app.query_one('#environment-error').focus()
         await pilot.press('enter')
         await wait_for_condition(pilot, lambda: bool(app.query('#preflight-signal-config_runtime')),
-                                 timeout=3, description='unsupported Process mode issue')
+                                 timeout=3, description='unsupported Process profiler issue')
         app.query_one('#preflight-signal-config_runtime').focus()
         await pilot.press('enter')
         await locate_selected(app, pilot)
@@ -141,3 +142,20 @@ async def test_process_full_blocker_navigates_to_basic_runtime_control(tmp_path)
                                  timeout=3, description='basic runtime control')
         assert app.query_one('#experiment-pages', ContentSwitcher).current == 'run-form'
         assert app.query_one('#runtime').is_on_screen
+
+
+
+async def test_collector_issue_updates_cached_status_after_preflight(tmp_path):
+    from acprof.events.progress import encode_event, parse_event
+    app = AcprofTui(RunConfig.smoke("fixture/model"), settings_path=tmp_path / "settings.json")
+    async with app.run_test(size=(80, 24)) as pilot:
+        await wait_for_condition(pilot, lambda: app.preflight.check_completed, timeout=3, description="fixture preflight")
+        event = parse_event(encode_event("collector_issue", collector="cpu_instructions", detail="perf attach denied",
+                                         fields=["cpu_instructions_total"]))
+        app.preflight.collection_issue(event)
+        issue = next(item for item in app.preflight.status.items if item.check.check_id == "cpu_instructions")
+        assert issue.group == "warning"
+        assert issue.target == "permissions:perf"
+        assert "perf attach denied" in issue.check.detail
+        assert "cpu_instructions_total" in issue.check.detail
+        assert not app.query_one("#start-run", Button).disabled

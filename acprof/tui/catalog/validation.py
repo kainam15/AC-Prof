@@ -12,6 +12,7 @@ MESSAGES: dict[str, Entry] = {
         zh="下载源模式必须是 auto、mirror-only、mirror-preferred 或 official",
         en="Download mode must be auto, mirror-only, mirror-preferred or official",
     ),
+    "validation.energy.dram_idle": Entry(zh="必需 DRAM 有效能耗需要正的 Idle 窗口", en="Required DRAM effective energy needs a positive idle window"),
     "validation.energy.dram_mode_conflict": Entry(zh="DRAM 能耗策略与画像模式不兼容", en="DRAM energy policy is incompatible with the profiling mode"),
     "validation.file.not_found": Entry(zh="文件不存在", en="File does not exist"),
     "validation.inputs.manifest_missing": Entry(zh="Workload manifest 不存在：{0}", en="Workload manifest does not exist: {0}"),
@@ -64,8 +65,8 @@ MESSAGES: dict[str, Entry] = {
     ),
     "validation.runtime.invalid": Entry(zh="执行运行时必须是 auto、docker 或 process", en="Execution runtime must be auto, docker or process"),
     "validation.runtime.process_mode": Entry(
-        zh="Process Runtime 目前仅支持 basic 采集，且不能启用独立分析器",
-        en="Process Runtime currently supports basic collection without independent profilers",
+        zh="Process 不支持所选的独立分析器或旧采集策略",
+        en="Process independent profilers are unavailable; required DRAM energy needs explicit full mode",
     ),
     "validation.sampling.invalid_policy": Entry(zh="采样策略必须是 burst 或 skip", en="Sampling policy must be burst or skip"),
     "validation.sampling.positive_rate": Entry(zh="采样频率必须大于 0", en="Sample rate must be greater than 0"),
