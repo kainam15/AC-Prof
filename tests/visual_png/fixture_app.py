@@ -127,6 +127,8 @@ class VisualFixtureApp(AcprofTui):
         self.scenario = SCENARIOS[scenario]
         self.scene_ready = asyncio.Event()
         super().__init__(self.scenario.config(), settings_path=settings_path)
+        # Snapshot identity remains stable across host platforms.
+        self.title = self.TITLE
         self.configuration.preferences = replace(
             self.configuration.preferences,
             language=self.scenario.language,

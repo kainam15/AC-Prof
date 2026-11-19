@@ -47,7 +47,7 @@ async def test_startup_shows_new_release_without_blocking_input(tmp_path, monkey
         try:
             await pilot.pause()
             await asyncio.wait_for(started.wait(), timeout=10)
-            assert app.title == f"AC-Prof {__version__}"
+            assert app.title == f"AC-Prof {__version__} · {app.environment.label.split(' / ')[0]}"
             assert app.query_one("HeaderTitle", Static).render_line(0).text.strip() == app.title
             assert started.is_set(), "startup must request the latest PyPI version"
             await pilot.press("a", "b", "c")

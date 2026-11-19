@@ -134,7 +134,6 @@ MESSAGES: dict[str, Entry] = {
     "run.environment.click_hint": Entry(zh="{0} · 点击查看详情", en="{0} · Click for details"),
     "run.environment.context.checked_at": Entry(zh="最近检查", en="Last checked"),
     "run.environment.context.lock": Entry(zh="测量锁", en="Measurement lock"),
-    "run.environment.context.platform": Entry(zh="平台", en="Platform"),
     "run.environment.context.scope": Entry(zh="检查范围", en="Scope"),
     "run.environment.context.title": Entry(zh="本次检查", en="About this check"),
     "run.environment.empty_group": Entry(zh="没有对应检查项。", en="No checks in this category."),

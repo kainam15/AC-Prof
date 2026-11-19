@@ -450,7 +450,6 @@ class EnvironmentPopover(Vertical):
         controller = self.controller
         timestamp = controller.completed_at.isoformat() if controller.completed_at else ""
         section = ViewSection(message_id("run.environment.context.title"), (
-            FactRow(message_id("run.environment.context.platform"), controller.app.environment.label.split(" / ")[0]),
             FactRow(message_id("run.environment.context.checked_at"),
                     format_local_timestamp(timestamp) if timestamp else message_id("run.environment.no_check"),
                     detail=timestamp, copyable=bool(timestamp)),

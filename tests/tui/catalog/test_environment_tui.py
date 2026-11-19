@@ -31,10 +31,10 @@ async def test_partial_launch_keeps_monitor_visible_at_two_sizes():
                 assert await pilot.click("#environment-error")
                 await pilot.pause()
                 context = app.query_one("#preflight-context", FactGrid).section
-                assert "WSL2" in [app.tr(row.value) for row in (*context.rows, *context.detail_rows)]
+                assert "WSL2" not in [app.tr(row.value) for row in (*context.rows, *context.detail_rows)]
                 await pilot.press("escape")
                 assert environment.region.y == app.query_one(Header).region.y
-                assert app.title == f"AC-Prof {__version__}"
+                assert app.title == f"AC-Prof {__version__} · WSL2"
                 assert app.sub_title == ""
                 with patch.object(app.process, "execute_command") as launch:
                     await pilot.press("f5")

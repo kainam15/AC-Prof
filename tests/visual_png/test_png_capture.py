@@ -125,7 +125,8 @@ def test_fixture_title_is_independent_of_release_without_changing_production(
     monkeypatch.setattr(AcprofTui, "TITLE", release_title)
     app = VisualFixtureApp("form", settings_path=tmp_path / "settings.json")
     assert app.title == "AC-Prof 0.3.0"
-    assert AcprofTui(settings_path=tmp_path / "production.json").title == release_title
+    production = AcprofTui(settings_path=tmp_path / "production.json")
+    assert production.title == f"{release_title} · {production.environment.label.split(' / ')[0]}"
 
 
 @pytest.mark.skipif(

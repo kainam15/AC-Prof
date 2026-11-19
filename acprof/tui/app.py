@@ -156,6 +156,7 @@ class AcprofTui(AppEventRoutes):
         self.read_jobs: set[object] = set()
         self.form_ready: bool = False
         self.environment = platform.detect_environment()
+        self.title = f"{self.TITLE} · {self.environment.label.split(' / ')[0]}"
         self.elapsed_timer: Timer | None = None
         self.configuration = ConfigurationController(self, initial_config, settings_path=settings_path)
         self.localization = LocalizationController(self)

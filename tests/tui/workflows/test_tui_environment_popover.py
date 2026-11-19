@@ -166,7 +166,8 @@ async def test_environment_counts_filter_cached_checks_on_click(app, language, m
             assert label in str(entry.tooltip)
             assert not panel.query("#preflight-title")
             assert not panel.query("#preflight-summary")
-            assert app.environment.label.split(" / ")[0] in context_text(app)
+            assert app.title.endswith(f" · {app.environment.label.split(' / ')[0]}")
+            assert ("平台:" if language == "zh" else "Platform:") not in context_text(app)
             assert app.query_one("#main-tabs").region == tabs
 
         # Clicking the active category keeps it open until explicitly dismissed.
