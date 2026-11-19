@@ -5,6 +5,18 @@ from unittest.mock import patch
 from acprof.platform import Environment
 
 
+def docker_collection_plan(runtime_kind, **_kwargs):
+    """Return a fresh Docker preflight result without accessing host collectors."""
+    assert runtime_kind == "docker"
+    return {
+        "schema_version": 2, "runtime_kind": runtime_kind, "rapl_topology": {},
+        "probes": {
+            name: {"status": "unavailable", "detail": "fixture", "source": "fixture"}
+            for name in ("cpu_energy", "cpu_instructions", "gpu_power", "packet_latency", "dram_energy")
+        },
+    }
+
+
 def native_policy(request):
     for target in ("acprof.platform.detect_environment", "acprof.capabilities.detect_environment",
                    "acprof.host.preflight.detect_environment", "acprof.host.metadata.static.detect_environment",

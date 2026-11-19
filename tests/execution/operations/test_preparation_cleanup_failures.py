@@ -15,6 +15,7 @@ from acprof.host.preparation.collection_workflow import PreparationWorkflow
 from acprof.host.run_state import ResultDirectoryLock, load_run_state
 from acprof.host.runtimes.contracts import RuntimeCleanupError
 from acprof.host.runtimes.selection import RuntimeSelection
+from tests.support.platform_fixtures import docker_collection_plan
 
 
 @pytest.fixture
@@ -63,7 +64,8 @@ def prepared_application(tmp_path, monkeypatch):
     # The fixture starts after confirmation and injects failures in runtime preparation.
     monkeypatch.setattr(application, "_prepare_inference_configuration",
                         lambda task, *args, **kwargs: task)
-    monkeypatch.setattr(application, "_run_host_preflight", Mock(return_value=("v2", {}, {})))
+    monkeypatch.setattr(run, "require_cgroup_prerequisites", lambda: "v2")
+    monkeypatch.setattr("acprof.host.runtimes.capabilities.probe_collection_plan", docker_collection_plan)
     return SimpleNamespace(application=application, config=config, workflow=workflow, ask=ask,
                            stages=stages, matrix=matrix, matrix_reached=matrix_reached,
                            directory=config.result_dir(tmp_path))

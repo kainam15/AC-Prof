@@ -16,6 +16,7 @@ from acprof.cli import run as run_cli
 from acprof.host import input_plan, orchestrator, preflight
 from acprof.host.detect import TaskInfo
 from acprof.host.images import runtime as runtime_images
+from tests.support.platform_fixtures import docker_collection_plan, native_policy
 
 
 def test_terminal_log_is_not_started_outside_tmux() -> None:
@@ -109,12 +110,8 @@ class TestNativeDockerGuard:
         monkeypatch.setattr(run.RunApplication, "_prepare_inference_configuration",
                             lambda _app, task, *args, **kwargs: task)
         monkeypatch.setattr("acprof.host.preparation.interface_probe.probe_interface", Mock(return_value={"status": "ok"}))
-        monkeypatch.setattr("acprof.host.runtimes.capabilities.probe_collection_plan", lambda *args, **kwargs: {
-            "schema_version": 2, "runtime_kind": "docker", "rapl_topology": {}, "probes": {
-                name: {"status": "unavailable", "detail": "fixture", "source": "fixture"} for name in
-                ("cpu_energy", "cpu_instructions", "gpu_power", "packet_latency", "dram_energy")}})
+        monkeypatch.setattr("acprof.host.runtimes.capabilities.probe_collection_plan", docker_collection_plan)
         self._request = request
-        from tests.support.platform_fixtures import native_policy
         native_policy(self._request)
         self.resolved_task = TaskInfo(
             model_id="dummy-model",

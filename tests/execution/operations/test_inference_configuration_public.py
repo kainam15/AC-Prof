@@ -5,7 +5,7 @@ import copy
 import io
 import json
 from contextlib import nullcontext
-from dataclasses import asdict, replace
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -15,14 +15,16 @@ import pytest
 from acprof.application import run, task_runs
 from acprof.application.notifications import RunNotifications
 from acprof.application.outcome import RunOutcome
+from acprof.artifacts import atomic_write_json
 from acprof.experiments.configuration import RunConfig
+from acprof.host import run_state
 from acprof.host.preparation import inference_configuration as preparation
 from acprof.host.preparation.collection_workflow import PreparationWorkflow
 from acprof.host.preparation.task_selection import activate_task
 from acprof.models.inference_configuration import configuration_identity
 from acprof.results.layout import ArtifactLayout
 from acprof.tasks.workloads import task_fingerprint
-from tests.support.inference_configuration_fixture import frozen_task
+from tests.support.inference_configuration_fixture import frozen_task, write_frozen_run
 
 
 def request_document(task):
@@ -206,22 +208,19 @@ def test_changed_resume_requests_fail_before_collection_restore_or_state_repair(
     restore = Mock(side_effect=AssertionError("restore must follow request checks"))
     monkeypatch.setattr(task_runs.TaskCollection, "restore", restore)
     if collection:
-        monkeypatch.setattr(task_runs.TaskCollection, "read_manifest", Mock(return_value=(
-            tmp_path / "collection.json", {"task_snapshot": asdict(frozen)},
-        )))
+        saved = task_runs.TaskCollection(boundary.config, frozen)
+        marker = saved.path
+        atomic_write_json(marker, saved.manifest)
     else:
-        layout = ArtifactLayout.for_new_run(config.result_dir(Path.cwd()))
-        layout.initialize()
-        marker = layout.path("run_state.json")
-        marker.parent.mkdir(parents=True, exist_ok=True)
-        marker.write_text("{}")
-        monkeypatch.setattr(run, "load_run_state", lambda path: {
-            "runtime": {"task": asdict(frozen), "kind": "docker"},
-        })
+        monkeypatch.setattr(run_state, "host_identity", lambda _: {"fixture": "fixed"})
+        state = write_frozen_run(config.result_dir(tmp_path), run_state.run_options(boundary.config.to_namespace()), frozen)
+        marker = state.layout.path("run_state.json")
+    original = marker.read_bytes()
 
     with pytest.raises(ValueError, match="differs from the frozen request"):
         boundary.application.run(config)
 
+    assert marker.read_bytes() == original
     restore.assert_not_called()
     boundary.workflow.resolve.assert_not_called()
     boundary.state.assert_not_called()

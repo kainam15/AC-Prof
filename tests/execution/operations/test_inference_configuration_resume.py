@@ -11,11 +11,9 @@ import pytest
 from acprof.artifacts import atomic_write_json
 from acprof.host import run_state
 from acprof.host.images.runtime import ImageInfo
-from acprof.host.input_plan import PlannedInputScales
-from acprof.host.input_plan.materialize import write_scale_plan_file
 from acprof.host.measurement import window_recovery
 from acprof.models.inference_configuration import configuration_identity
-from tests.support.inference_configuration_fixture import frozen_task, verified_runtime_report
+from tests.support.inference_configuration_fixture import frozen_task, write_frozen_run
 
 
 @pytest.fixture
@@ -23,24 +21,7 @@ def frozen_state(tmp_path, monkeypatch):
     monkeypatch.setattr(run_state, "MEASUREMENT_LOCK_ROOT", tmp_path)
     monkeypatch.setattr(run_state, "host_identity", lambda _: {"fixture": "fixed"})
     options = {"cpus": "1", "mems": "4", "gpus": "off", "warmup": 0, "repeat": 1}
-    state = run_state.RunState(tmp_path / "experiment", options, resume=False, project_dir=".")
-    task = frozen_task()
-    plan_path = state.layout.path("input_scale_plan.json")
-    plan_sha = write_scale_plan_file(str(plan_path), task, [{"input_scale": 1, "payload": {"text": "fixture"}}])
-    validation = {
-        "schema_version": 1, "status": "ok",
-        "inference_configuration_sha256": task.inference_configuration["identity_sha256"],
-        "devices": {"off": verified_runtime_report(task)},
-    }
-    atomic_write_json(state.layout.path("runtime_validation.json"), validation)
-    atomic_write_json(state.layout.path("static_meta.json"), {
-        "schema_version": 8, "inference_configuration": task.inference_configuration,
-        "runtime_validation": validation,
-    })
-    planned = PlannedInputScales([1.0], "fixture", plan_file=str(plan_path), plan_sha256=plan_sha)
-    state.bind_runtime(task, ImageInfo("sha256:" + "b" * 64), planned, "", "")
-    state.close("interrupted")
-    return state
+    return write_frozen_run(tmp_path / "experiment", options, frozen_task())
 
 
 def tree_bytes(directory):

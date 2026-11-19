@@ -25,7 +25,7 @@ from acprof.platform import Environment
 from acprof.results.layout import ArtifactLayout
 from acprof.tasks.groups import group_inference_tasks
 from acprof.tasks.workloads import parse_task
-from tests.support.platform_fixtures import native_policy
+from tests.support.platform_fixtures import docker_collection_plan, native_policy
 
 
 @pytest.fixture
@@ -99,7 +99,7 @@ def phases(tmp_path, monkeypatch, request):
             "cgroup_version": "v2", "runtime_kind": "docker",
         }))
         run_state.bind_runtime(task_info, image, planned, "", "")
-        return PreparedRuntime(task_info, image, planned, "", "", CapabilityReport("basic"))
+        return PreparedRuntime(task_info, image, planned, "", "", CapabilityReport(args.profiling_mode))
 
     def case(request, **_kwargs):
         path = ArtifactLayout.discover(request.output_dir).case(
@@ -154,7 +154,7 @@ def phases(tmp_path, monkeypatch, request):
     monkeypatch.setattr(run, "require_collection_host", lambda **_: visit("host"))
     monkeypatch.setattr("acprof.host.runtimes.selection.select_runtime", select)
     monkeypatch.setattr(run, "require_cgroup_prerequisites", preflight)
-    monkeypatch.setattr("acprof.monitors.rapl_topology.discover_rapl_topology", lambda: {})
+    monkeypatch.setattr("acprof.host.runtimes.capabilities.probe_collection_plan", docker_collection_plan)
     monkeypatch.setattr(run_state, "host_identity", lambda _: {"fixture": "fixed"})
     monkeypatch.setattr(orchestrator, "run_single_case", case)
     monkeypatch.setattr(run, "publish_run_reports", reports)
@@ -325,7 +325,7 @@ def test_runtime_stage_keeps_process_inheritance_and_recorded_resume_policy(
     selection = Mock(return_value=RuntimeSelection(expected_request, selected, "fixture policy"))
     monkeypatch.setattr("acprof.host.runtimes.selection.select_runtime", selection)
     resolved = resolve_runtime_options(config, requested, recorded_runtime=recorded)
-    selection.assert_called_once_with(expected_request, profiling_mode="basic")
+    selection.assert_called_once_with(expected_request, profiling_mode="best_effort")
     assert vars(requested) == before
     assert resolved.marker is requested.marker
     assert resolved is not requested
@@ -343,7 +343,7 @@ def test_rejected_runtime_stage_leaves_requested_options_unchanged(monkeypatch):
     monkeypatch.setattr("acprof.host.runtimes.selection.select_runtime", lambda *_, **__: RuntimeSelection(
         "auto", "process", "fixture fallback",
     ))
-    with pytest.raises(ValueError, match="cannot be downgraded"):
+    with pytest.raises(ValueError, match="Process Runtime does not support independent profilers"):
         resolve_runtime_options(config, requested)
     assert vars(requested) == before
 

@@ -46,9 +46,11 @@ def test_auto_matrix_count_stays_unknown_until_input_plan_exists():
     assert (estimate.scales) is None
     assert (estimate.formal_windows) is None
     assert (estimate.estimated_seconds) is None
-    estimate = estimate_run(config, {"scales": [1, 2, 3], "scale_type": "duration_s"})
+    planned = {"scales": [1, 2, 3], "scale_type": "duration_s"}
+    estimate = estimate_run(config, planned)
     assert ((estimate.warmup_windows, estimate.formal_windows)) == ((192, 480))
-    assert (estimate.estimated_seconds) == (672 * 35)
+    assert estimate.estimated_seconds is None  # The automatic idle control depends on available energy collectors.
+    assert estimate_run(replace(config, profiling_mode="full"), planned).estimated_seconds == 672 * 35
 
 def test_manual_duplicate_scales_follow_planner_deduplication():
     from acprof.tui.run.planning import estimate_run

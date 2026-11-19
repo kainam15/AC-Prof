@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import copy
+from pathlib import Path
+from typing import TYPE_CHECKING
 
 from acprof.host.detect import TaskInfo
 from acprof.models.inference_configuration import (
@@ -9,6 +11,9 @@ from acprof.models.inference_configuration import (
     validate_frozen_configuration,
 )
 from acprof.tasks.workloads import parse_task
+
+if TYPE_CHECKING:
+    from acprof.host.run_state import RunState
 
 
 def frozen_task(*, tokens: int = 7) -> TaskInfo:
@@ -63,3 +68,32 @@ def verified_runtime_report(task: TaskInfo) -> dict:
             }}],
         },
     }
+
+
+def write_frozen_run(directory: Path, options: dict, task: TaskInfo) -> RunState:
+    """Persist an interrupted run with its bound configuration and runtime evidence."""
+    from acprof.artifacts import atomic_write_json
+    from acprof.host.images.runtime import ImageInfo
+    from acprof.host.input_plan import PlannedInputScales
+    from acprof.host.input_plan.materialize import write_scale_plan_file
+    from acprof.host.run_state import RunState
+
+    state = RunState(directory, options, resume=False, project_dir=".")
+    try:
+        plan_path = state.layout.path("input_scale_plan.json")
+        plan_sha = write_scale_plan_file(str(plan_path), task, [{"input_scale": 1, "payload": {"text": "fixture"}}])
+        validation = {
+            "schema_version": 1, "status": "ok",
+            "inference_configuration_sha256": task.inference_configuration["identity_sha256"],
+            "devices": {"off": verified_runtime_report(task)},
+        }
+        atomic_write_json(state.layout.path("runtime_validation.json"), validation)
+        atomic_write_json(state.layout.path("static_meta.json"), {
+            "schema_version": 8, "inference_configuration": task.inference_configuration,
+            "runtime_validation": validation,
+        })
+        planned = PlannedInputScales([1.0], "fixture", plan_file=str(plan_path), plan_sha256=plan_sha)
+        state.bind_runtime(task, ImageInfo("sha256:" + "b" * 64), planned, "", "")
+    finally:
+        state.close("interrupted")
+    return state
