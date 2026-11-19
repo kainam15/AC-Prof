@@ -1,10 +1,11 @@
-"""Geometry checks complement PNG diffs: a reviewed baseline can also be wrong."""
+"""Check the visible text VHS waits for and the geometry of selected controls."""
 
 from __future__ import annotations
 
 import asyncio
 import re
 from itertools import combinations
+from pathlib import Path
 
 import pytest
 from textual.widgets import Button, Static
@@ -16,26 +17,8 @@ from tests.visual_png.scenarios import SCENARIOS
 pytestmark = pytest.mark.visual_png
 
 
-@pytest.mark.parametrize(
-    ("scene", "selectors"),
-    [
-        ("form-small", ("#model", "#start-run")),
-        ("error-modal", ("#preflight-inspection", "#preflight-callout .structured-action")),
-        ("statistics", ("#experiment-source", "#refresh-experiment-state", "#report-calculate")),
-        ("statistics-en", ("#experiment-source", "#refresh-experiment-state", "#report-calculate")),
-        ("docker-frontend", ("#download-progress", "#stop-run")),
-        ("docker-frontend-small", ("#download-progress", "#stop-run")),
-        ("docker-frontend-en", ("#download-progress", "#stop-run")),
-        ("docker-frontend-en-small", ("#download-progress", "#stop-run")),
-        (
-            "task-selection",
-            ("#preparation-cancel", "#preparation-select-all", "#preparation-apply"),
-        ),
-    ],
-)
-async def test_visible_controls_fit_without_overlap(
-    tmp_path, scene: str, selectors: tuple[str, ...]
-) -> None:
+@pytest.mark.parametrize("scene", tuple(SCENARIOS))
+async def test_scene_shows_vhs_marker_and_fits_controls(tmp_path: Path, scene: str) -> None:
     spec = SCENARIOS[scene]
     with isolate_fixture() as isolation:
         app = VisualFixtureApp(scene, settings_path=tmp_path / "settings.json")
@@ -44,8 +27,10 @@ async def test_visible_controls_fit_without_overlap(
             await app.workers.wait_for_complete()
             await pilot.pause()
             visible_text = "\n".join(strip.text for strip in app.screen._compositor.render_strips())
-            assert re.search(spec.ready_pattern, visible_text), f"{scene}: missing VHS marker {spec.ready_pattern!r}"
-            controls = [app.screen.query_one(selector) for selector in selectors]
+            assert re.search(spec.ready_pattern, visible_text), (
+                f"{scene}: missing VHS marker {spec.ready_pattern!r}"
+            )
+            controls = [app.screen.query_one(selector) for selector in spec.visible_controls]
             if scene.startswith("docker-frontend"):
                 stage = app.execution.session.snapshot.stage
                 banner = app.query_one("#monitor-summary", StatusBanner)

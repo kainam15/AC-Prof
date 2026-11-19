@@ -115,7 +115,16 @@ Model Store 覆盖完整命中零模型网络请求、默认 ref 与显式 revis
 有输入防抖的结果读取先等待当前来源的结果及读取收尾，再触发手动刷新；完成断言必须对应新的请求结果，
 不能把注册 Worker 前的空闲误认为完成。语言与宽窄屏组合按受影响路径定向选择。
 
-修改可见文案或结构时，同时检查相关 SVG 与 PNG 场景。先审阅旧图、新图和差异，再只更新确认符合设计的
+修改可见文案或结构时，在任务分支对齐最新 `main` 后、合入前检查相关 SVG 与 PNG 场景。
+单个弹窗的改动定向检查该场景。共享表单、导航、状态栏或影响界面的默认值发生变化时，
+弹窗下方的背景也可能变化，运行整套 TUI 视觉回归。
+
+```bash
+ACPROF_PNG_VISUAL=1 uv run --locked --no-default-groups --group test \
+  python -m pytest -q tests/visual tests/visual_png --require-no-skips
+```
+
+先审阅旧图、新图和差异，再只更新确认符合设计的
 基线，并用独立的新截图复核；不以批量更新基线、放宽阈值或自动重试消除红灯。
 依赖启动预检的 SVG 场景先等待夹具的预检结果回调完成，再用 `Pilot.pause()` 处理布局消息。
 翻译目录检查由现有 pre-commit hook 提前执行，具体约束见[文案目录](consumers.md#tui-与兼容维护)。

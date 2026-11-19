@@ -27,27 +27,36 @@ class Scene:
     rows: int = 36
     language: str = "zh"
     page: str = "run-tab"
+    visible_controls: tuple[str, ...] = ()
 
 
 # Regexes must match actual visible terminal cells, not a background sentinel.
 _FORM = Scene(form.initial_config, form.mount, "1 个正式窗口")
 _DOCKER_FRONTEND = Scene(
     docker_frontend.initial_config, docker_frontend.mount, r"registry-1\.docker\.io", page="monitor-tab",
+    visible_controls=("#download-progress", "#stop-run"),
 )
 _STATISTICS = Scene(
     statistics.initial_config, statistics.mount, "交互式 HTML 报告", columns=80, rows=24, page="results-tab",
+    visible_controls=("#experiment-source", "#refresh-experiment-state", "#report-calculate"),
 )
 SCENARIOS: dict[str, Scene] = {
     "form": _FORM,
-    "form-small": replace(_FORM, columns=80, rows=24),
-    "error-modal": Scene(error_modal.initial_config, error_modal.mount, "× RAPL DRAM 能耗 · 无权限"),
+    "form-small": replace(_FORM, columns=80, rows=24, visible_controls=("#model", "#start-run")),
+    "error-modal": Scene(
+        error_modal.initial_config, error_modal.mount, "× RAPL DRAM 能耗 · 无权限",
+        visible_controls=("#preflight-inspection", "#preflight-callout .structured-action"),
+    ),
     "near-match": Scene(near_match.initial_config, near_match.mount, "3 个正式窗口"),
     "measuring": Scene(measuring.initial_config, measuring.mount, r"当前 case\s+2", page="monitor-tab"),
     "docker-frontend": _DOCKER_FRONTEND,
     "docker-frontend-small": replace(_DOCKER_FRONTEND, columns=80, rows=24),
     "docker-frontend-en": replace(_DOCKER_FRONTEND, language="en"),
     "docker-frontend-en-small": replace(_DOCKER_FRONTEND, columns=80, rows=24, language="en"),
-    "task-selection": Scene(task_selection.initial_config, task_selection.mount, "开始所选任务"),
+    "task-selection": Scene(
+        task_selection.initial_config, task_selection.mount, "开始所选任务",
+        visible_controls=("#preparation-cancel", "#preparation-select-all", "#preparation-apply"),
+    ),
     "statistics": _STATISTICS,
     "statistics-en": replace(_STATISTICS, ready_pattern="Interactive HTML report", language="en"),
 }
