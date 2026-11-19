@@ -653,7 +653,6 @@ MESSAGES: dict[str, Entry] = {
         en="Choose Docker or Process; preflight validates the selected runtime.",
     ),
     "run.sampling.rate": Entry(zh="采样频率", en="Sample rate"),
-    'run.source.actual': Entry(zh='预检仅说明环境能力；实际字段与缺失原因以实验结果为准。', en='Preflight shows environment capabilities only; check Results for actual fields and missing-data reasons.'),
     'run.source.base': Entry(zh='基础环境', en='Base environment'),
     'run.source.cgroup': Entry(zh='cgroup v2', en='cgroup v2'),
     'run.source.check.cpu': Entry(zh='CPU 读取', en='CPU counters'),

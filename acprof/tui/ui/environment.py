@@ -269,7 +269,6 @@ class EnvironmentPopover(Vertical):
             yield FactGrid(ViewSection("", ()), id="preflight-facts")
             yield ActionButtons(id="preflight-recheck")
             yield Static("", id="preflight-action-reason", markup=False)
-            yield Static("", id="preflight-actual-note", markup=False)
             yield FactGrid(ViewSection(message_id("run.environment.context.title"), (), collapsed=True),
                            id="preflight-context")
 
@@ -405,9 +404,6 @@ class EnvironmentPopover(Vertical):
     def explain(self, row: PreflightCheck) -> None:
         if not self.display or row not in self._rows:
             return
-        note = self.query_one('#preflight-actual-note', Static)
-        note.display = True
-        note.update(self.controller.app.tr(message_id('run.source.actual')))
         detail = self.controller.app.tr(row.detail) if isinstance(row.detail, CatalogText) else row.detail
         technical = redact_text("\n".join((
             f"check_id: {row.check_id}", f"status: {row.status}",
@@ -478,7 +474,6 @@ class EnvironmentPopover(Vertical):
             self.explain(self._selected_row)
         else:
             self._inspected_row = None
-            self.query_one("#preflight-actual-note").display = False
             self.query_one("#preflight-callout").display = False
             self.query_one("#preflight-facts").display = False
             self.query_one("#preflight-recheck").display = True

@@ -3,7 +3,7 @@ from dataclasses import replace
 from unittest.mock import Mock
 
 import pytest
-from textual.widgets import Collapsible, Static
+from textual.widgets import Collapsible
 
 from acprof.experiments.configuration import RunConfig
 from acprof.tui.run.diagnostics import PreflightCheck
@@ -64,7 +64,7 @@ async def test_source_disclosure_preserves_choices_and_partial_evidence(tmp_path
         title = panel.query_one('#preflight-section-nvml CollapsibleTitle')
         title.focus()
         await pilot.press('enter')
-        assert not panel.query_one('#preflight-actual-note', Static).display
+        assert not panel.query('#preflight-actual-note')
         for width, height in ((150, 45), (52, 24)):
             await pilot.resize_terminal(width, height)
             await pilot.pause()
@@ -82,10 +82,8 @@ async def test_source_disclosure_preserves_choices_and_partial_evidence(tmp_path
         await pilot.pause()
         assert await pilot.click(signal)
         assert panel._selected_row.check_id == 'gpu_power'
-        note = panel.query_one('#preflight-actual-note', Static)
-        assert note.display
-        assert ('预检仅说明环境能力' if language == 'zh' else 'Preflight shows environment capabilities') in str(note.content)
-        assert 'gpu_energy_total_j' not in str(note.content)
+        assert not panel.query('#preflight-actual-note')
+        assert panel.query_one('#preflight-callout').display
         app.execution.session.snapshot = ProgressSnapshot(measurement_active=True)
         panel.update_cached()
         await pilot.pause()
