@@ -51,7 +51,7 @@ REMEDIES = {
     "massif": "profiler", "profiler": "profiler",
 }
 SOURCE_IMPACTS = {
-    'base': 'runtime', 'docker': 'runtime', 'process': 'runtime', 'nvml': 'gpu',
+    'base': 'runtime', 'docker': 'runtime', 'cgroup': 'cpu_memory', 'process': 'runtime', 'nvml': 'gpu',
     'rapl': 'cpu_memory', 'perf': 'cpu_memory', 'network': 'network', 'profilers': 'profilers',
 }
 COMPACT_LABELS = {

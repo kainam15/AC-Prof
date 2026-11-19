@@ -25,11 +25,37 @@ def test_every_inventory_check_has_a_source_independent_of_provenance():
     for identifier in ENVIRONMENT_CHECK_IDS:
         assert source_group(identifier) != 'other'
     assert source_group('process_cpu') == 'process'
-    assert source_group('container_cpu') == 'docker'
+    assert source_group('docker') == 'docker'
+    for identifier in ('cgroup', 'container_cpu', 'container_memory', 'cgroup_metrics'):
+        assert source_group(identifier) == 'cgroup'
     assert source_group('cpu_energy') == 'rapl'
     assert source_group('cpu_instructions') == 'perf'
     assert source_group('config_runtime') == 'configuration'
     assert source_group('new_collector') == 'other'
+
+
+def test_docker_and_cgroup_have_independent_statuses_and_impacts():
+    from acprof.tui.i18n import translate
+    from acprof.tui.run.environment_view import check_view, source_title
+    from acprof.tui.run.source_groups import source_summaries
+
+    rows = (('docker', 'ok'), ('cgroup', 'ok'), ('container_cpu', 'ok'),
+            ('container_memory', 'ok'), ('cgroup_metrics', 'warn'))
+    snapshot = GlobalStatus(tuple(StatusItem(check(identifier, status)) for identifier, status in rows))
+    docker, cgroup = source_summaries(snapshot)
+    assert [source.group_id for source in (docker, cgroup)] == ['docker', 'cgroup']
+    assert [item.check.check_id for item in docker.items] == ['docker']
+    assert [item.check.check_id for item in cgroup.items] == [identifier for identifier, _ in rows[1:]]
+    assert (docker.state, docker.issue_count, docker.collapsed) == ('success', 0, True)
+    assert (cgroup.state, cgroup.issue_count, cgroup.collapsed) == ('warning', 1, False)
+    assert source_summaries(snapshot, group='warning') == (cgroup,)
+    assert snapshot.counts['warning'] == 1
+    assert translate(source_title(docker), 'zh') == 'Docker · ✓ 1'
+    assert translate(source_title(cgroup), 'zh') == 'cgroup v2 · ! 1 · ✓ 3'
+    impact = check_view(check('cgroup_metrics', 'warn'), technical_detail='fixture',
+                        check_allowed=True).callout
+    assert impact is not None
+    assert 'CPU or memory metrics' in translate(impact.impact, 'en')
 
 
 @pytest.mark.parametrize(('states', 'expected'), [
@@ -64,13 +90,13 @@ def test_source_title_counts_visible_checks(states, suffix):
     from acprof.tui.run.environment_view import source_status_segments, source_title
     from acprof.tui.run.source_groups import SourceSummary
 
-    identifiers = ('docker', 'cgroup', 'container_cpu', 'container_memory', 'cgroup_metrics')
+    identifiers = ('gpu_device', 'gpu_memory', 'gpu_utilization', 'gpu_power', 'gpu_temperature')
     snapshot = GlobalStatus(tuple(StatusItem(check(identifier, state))
                                   for identifier, state in zip(identifiers, states, strict=False)))
-    source = SourceSummary('docker', snapshot.items, snapshot.issues)
+    source = SourceSummary('nvml', snapshot.items, snapshot.issues)
     assert sum(int(label.split()[-1]) for _, label in source_status_segments(source)) == len(states)
     for language in ('zh', 'en'):
-        assert translate(source_title(source), language) == f'Docker / cgroup · {suffix}'
+        assert translate(source_title(source), language) == f'NVIDIA NVML · {suffix}'
 
 
 def test_same_text_does_not_merge_independent_gpu_failures():

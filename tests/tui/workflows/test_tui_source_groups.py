@@ -87,3 +87,39 @@ async def test_source_disclosure_preserves_choices_and_partial_evidence(tmp_path
         await pilot.pause()
         assert panel.retry_button.disabled
         probe.assert_not_called()
+
+
+@pytest.mark.parametrize(('language', 'size'), [('zh', (80, 24)), ('en', (120, 30))])
+async def test_docker_and_cgroup_are_separate_collapsible_sources(tmp_path, monkeypatch, language, size):
+    app = AcprofTui(replace(RunConfig.smoke('fixture/model'), runtime='docker', profiling_mode='full'),
+                    settings_path=tmp_path / 'settings.json')
+    app.configuration.preferences = replace(app.configuration.preferences, language=language)
+    async with app.run_test(size=size) as pilot:
+        probe = Mock(side_effect=AssertionError('viewing a source must not probe'))
+        monkeypatch.setattr(app.preflight, 'execute_quick_check', probe)
+        app.preflight.environment_checks = (
+            PreflightCheck('Docker', 'ok', 'daemon ready', check_id='docker'),
+            PreflightCheck('cgroup v2', 'ok', 'hierarchy ready', check_id='cgroup'),
+            PreflightCheck('CPU', 'ok', 'cpu.stat readable', check_id='container_cpu'),
+            PreflightCheck('Memory', 'ok', 'memory.current readable', check_id='container_memory'),
+            PreflightCheck('cgroup metrics', 'fail', 'partially unavailable', 'partial', check_id='cgroup_metrics'),
+        )
+        app.preflight.refresh_preflight_state()
+        panel = app.preflight.panel
+        panel.show(pin=True, group='success')
+        await pilot.pause()
+        docker = panel.query_one('#preflight-section-docker', Collapsible)
+        cgroup = panel.query_one('#preflight-section-cgroup', Collapsible)
+        assert docker.collapsed
+        assert not cgroup.collapsed
+        assert docker.title == 'Docker · ✓ 1'
+        assert cgroup.title == 'cgroup v2 · ! 1 · ✓ 3'
+        assert docker.query_one('#preflight-signal-docker')
+        assert cgroup.query_one('#preflight-signal-container_cpu')
+        assert cgroup.query_one('#preflight-signal-cgroup_metrics')
+        assert not docker.query('#preflight-signal-container_cpu')
+        panel.show(pin=True, group='warning')
+        await pilot.pause()
+        assert not panel.query('#preflight-section-docker')
+        assert panel.query_one('#preflight-section-cgroup', Collapsible)
+        probe.assert_not_called()
