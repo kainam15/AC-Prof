@@ -28,9 +28,9 @@ uv sync --locked --no-default-groups --group test
 无需 X11、Wayland、远程桌面、Windows、dor-jump、Docker、GPU 或真实模型；
 Chrome 仅用于无头启动预检与 VHS 截图。系统安装的工具不会加入 `pyproject.toml` 正式依赖或任何推理镜像。
 
-GitHub 的 Ubuntu 24.04 runner 仅用 Ubuntu 软件源安装系统依赖，VHS 和 Chrome 单独按固定版本下载。APT 和 curl 都限制网络等待与重试，
-安装步骤最多运行 4 分钟，在 15 分钟作业预算内为已完成的 SVG 和失败报告留出时间。
-工作流记录执行到的命令，便于区分包索引、VHS 和 Chrome 下载故障。参见 [runner-images 的 APT 镜像修复](https://github.com/actions/runner-images/pull/14643)。
+GitHub 的 Ubuntu 24.04 runner 通过本作业的 APT 源直接从 Ubuntu 主归档和安全归档安装系统依赖，并使用 Ubuntu archive keyring 校验签名。
+区域镜像持续低速传输时，APT 的空闲超时不会触发切换。VHS 和 Chrome 单独按固定版本下载。参见 [runner-images 的低速镜像排查](https://github.com/actions/runner-images/issues/15142)。
+工具安装上限为 4 分钟。安装成功后才执行终端和 CJK 预览 smoke，安装失败时仍在 15 分钟作业预算内发布先前的 SVG 测试结果和本次执行状态。
 
 ## 运行与结果
 

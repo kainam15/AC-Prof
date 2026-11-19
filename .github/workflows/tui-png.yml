@@ -107,9 +107,23 @@ jobs:
         timeout-minutes: 4
         run: |
           set -x
-          # These packages only need the Ubuntu archive on the 24.04 runner.
-          apt_options=(-o Dir::Etc::sourcelist=/etc/apt/sources.list.d/ubuntu.sources
-                       -o Dir::Etc::sourceparts=- -o Acquire::Retries=1
+          # A slowly streaming regional mirror never trips APT's inactivity timeout.
+          # Use the signed Noble archives directly for this job's packages.
+          cat > "$RUNNER_TEMP/ubuntu.sources" <<'EOF'
+          Types: deb
+          URIs: https://archive.ubuntu.com/ubuntu/
+          Suites: noble noble-updates
+          Components: main universe
+          Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+
+          Types: deb
+          URIs: https://security.ubuntu.com/ubuntu/
+          Suites: noble-security
+          Components: main universe
+          Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+          EOF
+          apt_options=(-o "Dir::Etc::sourcelist=$RUNNER_TEMP/ubuntu.sources"
+                       -o Dir::Etc::sourceparts=- -o Acquire::Languages=none -o Acquire::Retries=1
                        -o Acquire::http::Timeout=10 -o Acquire::https::Timeout=10)
           sudo apt-get "${apt_options[@]}" --error-on=any update
           sudo apt-get "${apt_options[@]}" install -y --no-install-recommends ttyd ffmpeg fonts-noto-cjk unzip apparmor
@@ -176,13 +190,8 @@ jobs:
       # Prepare offline SVG previews before long-running VHS/Pilot captures.
       - name: Smoke-test one reviewed CJK SVG preview
         id: svg_preview_smoke
-        if: always()
-        run: |
-          if [ ! -x .venv/bin/python ]; then
-            echo 'Test environment unavailable; cannot render SVG preview smoke.'
-            exit 1
-          fi
-          uv run --locked --no-default-groups --group test python scripts/tui_svg_preview_png.py --smoke
+        if: ${{ always() && steps.tooling.outcome == 'success' }}
+        run: uv run --locked --no-default-groups --group test python scripts/tui_svg_preview_png.py --smoke
       - name: Render CJK previews of reviewed SVG baselines
         if: ${{ always() && steps.svg_preview_smoke.outcome == 'success' }}
         run: |
