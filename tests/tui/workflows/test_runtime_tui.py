@@ -3,7 +3,7 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
-from textual.widgets import Button, Select, Static
+from textual.widgets import Button, Collapsible, Select, Static
 
 from acprof.experiments.configuration import RunConfig, build_run_command
 from acprof.tui.run.diagnostics import quick_preflight
@@ -20,6 +20,10 @@ async def test_process_inherited_button_builds_runnable_auto_collection_command(
         app.preflight.checks = (denied_check(),)
         app.preflight.refresh_preflight_state()
         await open_resource_issue(app, pilot)
+        fallback = app.screen.query_one('#issue-inherited-fallback', Collapsible)
+        assert fallback.collapsed
+        fallback.collapsed = False
+        await pilot.pause()
         button = app.screen.query_one('#process-inherited-resources', Button)
         button.scroll_visible(immediate=True, force=True)
         await pilot.pause()

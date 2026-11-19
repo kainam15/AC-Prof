@@ -2,6 +2,10 @@
 from .entry import Entry
 
 MESSAGES = {
+    'run.resources.action.parent': Entry(zh='查看上级配额处理方案', en='View ancestor quota guidance'),
+    'run.resources.action.permissions': Entry(zh='查看授权步骤（可复制）', en='View authorization steps (copyable)'),
+    'run.resources.action.system': Entry(zh='查看系统支持说明', en='View system support guidance'),
+    'run.resources.alternatives': Entry(zh='其他解决方式（会改变实验条件）', en='Other options (change experiment conditions)'),
     'run.resources.details': Entry(zh='查看详细原因', en='View diagnostic details'),
     'run.resources.field_error': Entry(zh='精确配额未验证；请打开 Process 权限诊断。', en='Exact quotas are unverified; open Process permissions.'),
     'run.resources.guide.admin': Entry(zh='以下命令由管理员在另一终端手动执行：为当前 AC-Prof 进程创建临时委派 scope，只迁移该进程，不迁移其他会话进程。需要系统 D-Bus；父级限额仍须重新验证。', en='An administrator can run these commands in another terminal to create a temporary delegated scope for this AC-Prof process only. A system D-Bus is required; ancestor limits must be reverified.'),
@@ -22,6 +26,11 @@ MESSAGES = {
         en='Set Runtime to Process, change CPU from {0} to auto and memory from {1} to auto, and disable startup OOM pruning.\n\nInherited limits guarantee neither numeric quotas nor exclusive resources. Confirmation triggers a recheck; cancellation preserves the configuration.'),
     'run.resources.inherited': Entry(zh='CPU / 内存继承上级限制，不承诺数值配额或资源独占。', en='CPU / memory inherit ancestor limits, without a numeric quota or exclusive allocation guarantee.'),
     'run.resources.next': Entry(zh='查看原因并配置委派后重新检查；仅在接受继承限制时选择 auto。', en='Inspect the cause, configure delegation and recheck; choose auto only to accept inherited limits.'),
+    'run.resources.next.config': Entry(zh='核对 cgroup 路径和数值配额配置，修正后重新检查；原配置不会自动修改。', en='Check the cgroup path and numeric quotas, then recheck; settings will not change automatically.'),
+    'run.resources.next.parent': Entry(zh='优先请管理员检查并调整上级 CPU / 内存限制；子 cgroup 无法突破父级限制。', en='Ask an administrator to inspect and adjust ancestor CPU / memory limits first; a child cgroup cannot exceed them.'),
+    'run.resources.next.permissions': Entry(zh='请管理员为当前进程配置 cgroup 委派权限，保留原 CPU / 内存配额；授权后重新检查。', en='Ask an administrator to delegate cgroup access to this process while retaining CPU / memory quotas; then recheck.'),
+    'run.resources.next.system': Entry(zh='请管理员检查 cgroup v2 及所需 CPU / Memory 控制器是否可用；仅授予写权限不能解决此问题。', en='Ask an administrator to check cgroup v2 and CPU / Memory controller availability; write access alone cannot fix this.'),
+    'run.resources.next.verification': Entry(zh='查看配额回读与进程归属证据，修复后重新检查；不能仅凭授权命令成功认为配额已生效。', en='Inspect quota readback and process membership, then recheck; command success alone does not prove enforcement.'),
     'run.resources.open': Entry(zh='Process 配额：{0} · 权限诊断', en='Process quotas: {0} · Permissions'),
     'run.resources.reason.config': Entry(zh='Process 资源配置无效，请检查 cgroup 路径和配额。', en='Invalid Process resource configuration; check the cgroup path and quotas.'),
     'run.resources.reason.controller': Entry(zh='系统未提供本次配额需要的 CPU 或 Memory 控制器。', en='The system does not expose a CPU or Memory controller required by these quotas.'),

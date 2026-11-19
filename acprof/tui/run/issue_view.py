@@ -7,11 +7,12 @@ from typing import TYPE_CHECKING
 from textual import on
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
-from textual.widgets import Button, Static
+from textual.widgets import Button, Collapsible, Static
 
 from acprof.host.preparation.preparation_log import redact_text
 from acprof.tui.i18n import message_id
 from acprof.tui.run.environment_view import check_label, global_check_view
+from acprof.tui.run.resource_view import resource_recovery_messages
 from acprof.tui.ui.rendering import CjkCompositor
 from acprof.tui.ui.structured import ActionButtons, ActionRequested, Callout, FactGrid
 from acprof.tui.ui.view_models import CalloutContent, ViewAction, ViewSection
@@ -31,7 +32,10 @@ class IssueDiagnosticScreen(ModalScreen[None]):
     #issue-body { height: 1fr; padding: 0 1; }
     #issue-actions { height: auto; padding: 0 1; }
     #issue-actions Button { width: auto; min-width: 8; }
-    #issue-inherit-note, #issue-resolved { height: auto; color: $text-muted; }
+    #issue-inherited-fallback, #issue-inherit-note, #issue-resolved { height: auto; }
+    #issue-inherit-note, #issue-resolved { color: $text-muted; }
+    #issue-inherited-fallback { margin-top: 1; }
+    #issue-inherited-fallback Button { width: auto; min-width: 12; }
     """
 
     def __init__(self, controller: PreflightController, check_id: str) -> None:
@@ -50,8 +54,10 @@ class IssueDiagnosticScreen(ModalScreen[None]):
                 yield FactGrid(ViewSection('', ()), id='issue-facts')
                 yield ActionButtons(id='issue-recheck')
                 if self.check_id == 'process_resources':
-                    yield Button(tr(message_id('run.resources.inherit')), id='process-inherited-resources')
-                    yield Static(tr(message_id('run.resources.guide.auto')), id='issue-inherit-note', markup=False)
+                    with Collapsible(title=tr(message_id('run.resources.alternatives')), collapsed=True,
+                                     id='issue-inherited-fallback'):
+                        yield Button(tr(message_id('run.resources.inherit')), id='process-inherited-resources')
+                        yield Static(tr(message_id('run.resources.guide.auto')), id='issue-inherit-note', markup=False)
             with Horizontal(id='issue-actions'):
                 yield Button(tr(message_id('common.action.close_dialog')), id='issue-close')
 
@@ -70,7 +76,11 @@ class IssueDiagnosticScreen(ModalScreen[None]):
         self.query_one('#issue-resolved').display = item is None
         callout.display = facts.display = False
         allowed = self.controller.app.operation_state().allows('check')
-        actions: tuple[ViewAction, ...] = (ViewAction('environment-retry', message_id('run.environment.retry'), disabled=not allowed),)
+        retry_label = (message_id('run.resources.retry') if self.check_id == 'process_resources'
+                       else message_id('run.environment.retry'))
+        actions: tuple[ViewAction, ...] = (
+            ViewAction('environment-retry', retry_label, disabled=not allowed),
+        )
         if item is not None:
             row = item.check
             self.query_one('#issue-title', Static).update(self.controller.app.tr(check_label(row)))
@@ -80,8 +90,9 @@ class IssueDiagnosticScreen(ModalScreen[None]):
             if view.callout is not None:
                 callout.display = True
                 if row.resource_diagnostic is not None:
-                    actions += (ViewAction('process-resource-details', message_id('run.resources.details'),
-                                           disabled=not allowed or not self.controller.config_matches()),)
+                    label, _ = resource_recovery_messages(row.resource_diagnostic.code)
+                    actions = (ViewAction('process-resource-details', label, primary=True,
+                                          disabled=not allowed or not self.controller.config_matches()), *actions)
                 content = replace(view.callout, actions=actions)
                 if content != callout.content:
                     callout.update_content(content)
@@ -92,8 +103,10 @@ class IssueDiagnosticScreen(ModalScreen[None]):
         retry = self.query_one('#issue-recheck', ActionButtons)
         retry.update_actions(actions)
         retry.display = not callout.display
-        for button in self.query('#process-inherited-resources'):
-            button.disabled = not allowed
+        if self.check_id == 'process_resources':
+            fallback = self.query_one('#issue-inherited-fallback', Collapsible)
+            fallback.display = bool(item and item.check.status == 'fail' and item.check.resource_diagnostic)
+            self.query_one('#process-inherited-resources', Button).disabled = not allowed
 
     @on(ActionRequested)
     def operate(self, event: ActionRequested) -> None:

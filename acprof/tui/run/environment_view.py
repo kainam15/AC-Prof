@@ -9,6 +9,7 @@ from acprof.capabilities import PROFILER_PRIMARY_FIELDS, REQUIRED_MEASUREMENT_FI
 from acprof.host.preparation.preparation_log import redact_text
 from acprof.messages import join_messages
 from acprof.tui.i18n import message_id
+from acprof.tui.run.resource_view import resource_recovery_messages
 from acprof.tui.run.source_groups import SourceSummary, source_group
 from acprof.tui.ui.view_models import (
     CalloutContent,
@@ -180,7 +181,9 @@ def global_check_view(item: StatusItem, *, technical_detail: str, tr: Callable[[
             problem = join_messages('\n', (problem, cause))
         next_step = (message_id('run.plan.invalid_next') if row.check_id.startswith('config_')
                      else message_id('run.status.repeat_next') if row.check_id == 'quality_repeat'
-                     else message_id('run.resources.next') if item.target == 'resources'
+                     else resource_recovery_messages(row.resource_diagnostic.code)[1]
+                     if item.target == 'resources' and row.resource_diagnostic else message_id('run.resources.next')
+                     if item.target == 'resources'
                      else row.docker_diagnostic.next_step if row.docker_diagnostic else
                      message_id('run.docker_repair.next') if row.check_id == 'docker'
                      else view.callout.next_step)

@@ -5,13 +5,26 @@ from typing import TYPE_CHECKING
 
 from acprof.experiments.configuration import ConfigIssue
 from acprof.host.preparation.preparation_log import redact_text
-from acprof.tui.i18n import message_id
+from acprof.tui.i18n import CatalogMessage, message_id
 from acprof.tui.ui.structured import FactDetailScreen
 from acprof.tui.ui.view_models import FactRow
 
 if TYPE_CHECKING:
     from acprof.tui.run.diagnostics import PreflightCheck
     from acprof.tui.run.preflight_controller import PreflightController
+
+
+def resource_recovery_messages(code: str) -> tuple[CatalogMessage, CatalogMessage]:
+    """Use the same cause-specific guidance in status and issue dialog."""
+    if code in {'permission_denied', 'delegation_missing'}:
+        return message_id('run.resources.action.permissions'), message_id('run.resources.next.permissions')
+    if code == 'parent_limit':
+        return message_id('run.resources.action.parent'), message_id('run.resources.next.parent')
+    if code in {'controller_missing', 'unsupported'}:
+        return message_id('run.resources.action.system'), message_id('run.resources.next.system')
+    if code == 'configuration_error':
+        return message_id('run.resources.details'), message_id('run.resources.next.config')
+    return message_id('run.resources.details'), message_id('run.resources.next.verification')
 
 
 def resource_check(controller: PreflightController) -> PreflightCheck | None:
