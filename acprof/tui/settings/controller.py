@@ -218,6 +218,102 @@ class ConfigurationController:
             self.app.query_one("#open-run-settings", Button),
             "返回基本配置" if show_advanced else "高级参数", "label",
         )
+        self.app.query_one("#run-mode-basic", Button).set_class(not show_advanced, "-active")
+        self.app.query_one("#run-mode-advanced", Button).set_class(show_advanced, "-active")
+
+    def set_minimum_repeats(self) -> None:
+        if self.app.is_busy() or self.app.execution.session.snapshot.measurement_active:
+            return
+        self.app.query_one("#repeat", Input).value = "3"
+        self.refresh_command_preview(notify=False)
+
+    def _active_advanced_overrides(self, config: RunConfig) -> list[str]:
+        overrides: list[str] = []
+        if config.revision:
+            overrides.append(f"revision={config.revision[:8]}")
+        if config.task:
+            overrides.append(f"task={config.task}")
+        if config.task_family:
+            overrides.append(f"family={config.task_family}")
+        if config.backend:
+            overrides.append(f"backend={config.backend}")
+        if config.model_spec:
+            overrides.append("model-spec")
+        if config.workload_spec:
+            overrides.append("workload-spec")
+        if config.inference_config:
+            overrides.append("inference-config")
+        if config.confirm_inference:
+            overrides.append("confirm-inference")
+        if config.cpuset_cpus:
+            overrides.append(f"cpuset={config.cpuset_cpus}")
+        if config.max_download:
+            overrides.append(f"max-download={config.max_download}")
+        if config.rebuild_image:
+            overrides.append("rebuild")
+        return overrides
+
+    def _update_section_summaries(self, config: RunConfig, planned: dict | None) -> None:
+        gpu_modes = {part.strip().lower() for part in config.gpus.split(",") if part.strip()}
+        if len(gpu_modes) > 1 or ("off" in gpu_modes and "on" in gpu_modes):
+            gpu_label: str = "CPU + GPU"
+        elif "on" in gpu_modes or "yes" in gpu_modes or "gpu" in gpu_modes:
+            gpu_label = message_id("run.resources.gpu_only")
+        else:
+            gpu_label = message_id("run.resources.cpu_only")
+        if planned and planned.get("scales"):
+            scales_label: str = ",".join(f"{value:g}" for value in planned["scales"])
+        elif config.input_scales:
+            scales_label = config.input_scales
+        else:
+            scales_label = message_id("common.option.auto")
+        mem_label = config.mems if config.mems == "auto" else f"{config.mems}GB"
+        self.app.localization.set_text(
+            self.app.query_one("#resource-matrix", Collapsible),
+            message_id("run.form.resources_summary", config.cpus, mem_label, gpu_label, scales_label),
+            "title",
+        )
+        window_label = (
+            message_id("run.windows.auto_duration") if config.repeat_in_window == 0
+            else message_id("run.form.window_requests", config.repeat_in_window)
+        )
+        self.app.localization.set_text(
+            self.app.query_one("#measurement-parameters", Collapsible),
+            message_id("run.form.measurement_summary", config.warmup, config.repeat, config.batch_size, window_label),
+            "title",
+        )
+        profilers: list[str] = []
+        if config.compute_profile_tool in {"torch", "both"}:
+            profilers.append("Torch")
+        if config.compute_profile_tool in {"ncu", "both"}:
+            profilers.append("NCU")
+        if config.execution_profile_tool in {"massif", "both"}:
+            profilers.append("Massif")
+        if config.execution_profile_tool in {"nsys", "both"}:
+            profilers.append("Nsys")
+        profiler_title = (
+            message_id("run.form.profilers_selected", len(profilers), ", ".join(profilers))
+            if profilers else message_id("run.form.profilers_off")
+        )
+        self.app.localization.set_text(
+            self.app.query_one("#profiling-options", Collapsible),
+            profiler_title,
+            "title",
+        )
+        overrides = self._active_advanced_overrides(config)
+        adv_tab = self.app.query_one("#run-mode-advanced", Button)
+        self.app.localization.set_text(
+            adv_tab,
+            message_id("run.form.advanced_count", len(overrides)) if overrides else message_id("run.form.advanced"),
+            "label",
+        )
+        banner = self.app.query_one("#advanced-overrides-banner", Button)
+        banner.display = bool(overrides)
+        if overrides:
+            preview = ", ".join(overrides[:3]) + ("…" if len(overrides) > 3 else "")
+            self.app.localization.set_text(
+                banner, message_id("run.form.overrides_active", len(overrides), preview), "label",
+            )
 
     def gpu_options(self) -> list[tuple[str, str]]:
         options = [("仅 CPU", "off"), ("仅 GPU", "on"), ("CPU + GPU", "off,on")]
@@ -430,6 +526,7 @@ class ConfigurationController:
             or str(Path.home() / ".cache" / "acprof" / "model-store"),
         )
         self.app.query_one(RunPlanPanel).show_plan(view)
+        self._update_section_summaries(config, planned)
         unit = run_planning.input_unit(config, planned)
         self.app.localization.set_text(self.app.query_one("#input-scales-label", Label), message_id('run.inputs.scales_with_unit', unit))
         if planned and planned.get("scales"):

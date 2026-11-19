@@ -163,6 +163,26 @@ class AppEventRoutes(BarCursorApp):
     def on_configuration_open_run_settings(self) -> None:
         self.configuration.open_run_settings()
 
+    @on(Button.Pressed, '#run-mode-basic')
+    def on_configuration_show_basic_form(self) -> None:
+        self.configuration.show_run_form("run-form")
+
+    @on(Button.Pressed, '#run-mode-advanced, #advanced-overrides-banner')
+    def on_configuration_show_advanced_form(self) -> None:
+        self.configuration.show_run_form("advanced-form")
+
+    @on(Button.Pressed, '#quick-fill-smoke')
+    def on_experiments_quick_fill_smoke(self) -> None:
+        self.experiments.preset_smoke()
+
+    @on(Button.Pressed, '#quick-fill-main')
+    def on_experiments_quick_fill_main(self) -> None:
+        self.experiments.preset_main()
+
+    @on(Button.Pressed, '#preflight-run-reason')
+    def on_preflight_open_blocking_reason(self) -> None:
+        self.preflight.open_blocking_reason()
+
     @on(SelectableLog.Updated)
     def on_log_updated(self) -> None:
         self.logs.refresh_status()
@@ -241,6 +261,9 @@ class AppEventRoutes(BarCursorApp):
             elif event.action_id == "process-resource-details":
                 from acprof.tui.run.resource_view import show_details
                 show_details(self.preflight)
+        elif event.action_id == "plan-set-repeat-3":
+            event.stop()
+            self.configuration.set_minimum_repeats()
         elif event.action_id.startswith("backfill-"):
             event.stop()
             self.profiles.backfill_action(event.action_id)

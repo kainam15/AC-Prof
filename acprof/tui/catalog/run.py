@@ -261,8 +261,28 @@ MESSAGES: dict[str, Entry] = {
     "run.failure.resource": Entry(zh="运行资源不足。", en="Runtime resources are insufficient."),
     "run.failure.type": Entry(zh="错误类型：{0}", en="Error type: {0}"),
     "run.form.advanced": Entry(zh="高级参数", en="Advanced"),
+    "run.form.advanced_count": Entry(zh="高级参数（{0}）", en="Advanced ({0})"),
     "run.form.basic": Entry(zh="返回基本配置", en="Basic settings"),
+    "run.form.basic_tab": Entry(zh="基本配置", en="Basic"),
+    "run.form.measurement_summary": Entry(
+        zh="测量参数（Warmup {0} · Repeat {1} · Batch {2} · {3}）",
+        en="Measurement parameters (Warmup {0} · Repeat {1} · Batch {2} · {3})",
+    ),
+    "run.form.overrides_active": Entry(
+        zh="已启用 {0} 项高级覆盖：{1}",
+        en="{0} advanced override(s) active: {1}",
+    ),
+    "run.form.profilers_off": Entry(zh="深度性能分析（已关闭）", en="Deep profiling (Off)"),
+    "run.form.profilers_selected": Entry(
+        zh="深度性能分析（已选 {0} 项：{1}）",
+        en="Deep profiling ({0} selected: {1})",
+    ),
+    "run.form.resources_summary": Entry(
+        zh="资源矩阵（CPU: {0} · 内存: {1} · {2} · 规模: {3}）",
+        en="Resource matrix (CPU: {0} · Mem: {1} · {2} · Scales: {3})",
+    ),
     "run.form.toggle_tooltip": Entry(zh="切换基本配置与高级参数（F3）", en="Toggle basic and advanced settings (F3)"),
+    "run.form.window_requests": Entry(zh="窗口 {0} 次", en="{0} req/win"),
     "run.identity.changed": Entry(zh="{0}已变化", en="{0} changed"),
     "run.identity.host": Entry(zh="主机身份（{0}）", en="Host identity ({0})"),
     "run.identity.measurement_sources": Entry(zh="AC-Prof 采集源码", en="AC-Prof measurement sources"),
@@ -320,6 +340,10 @@ MESSAGES: dict[str, Entry] = {
     "run.plan.assumed_window_duration": Entry(zh="按自动窗口 {0:g}s 估算", en="assuming {0:g}s/automatic window"),
     "run.plan.automatic_resources": Entry(zh="运行方式默认值", en="Runtime defaults"),
     "run.plan.calculated": Entry(zh="采集计划已计算", en="Collection plan calculated"),
+    "run.plan.compact_title": Entry(
+        zh="采集计划 · {0} · {1} case · {2} 档 · 预热 {3} / 正式 {4}",
+        en="Collection plan · {0} · {1} cases · {2} levels · {3} warmup / {4} formal",
+    ),
     "run.plan.duration_estimate": Entry(
         zh="时间约 {0} · {1}，不含准备、校准和 profiler",
         en="About {0} · {1}; excludes preparation, calibration and profilers",
@@ -352,6 +376,7 @@ MESSAGES: dict[str, Entry] = {
     "run.plan.scale_count_unit": Entry(zh="{0} 档（{1}）", en="{0} levels ({1})"),
     "run.plan.scale_values_label": Entry(zh="规模取值", en="Scale values"),
     "run.plan.scales_label": Entry(zh="输入规模", en="Input scales"),
+    "run.plan.set_repeat_3": Entry(zh="设为 3 次重复", en="Set 3 repeats"),
     "run.plan.strategy_label": Entry(zh="下载策略", en="Download strategy"),
     "run.plan.title": Entry(zh="采集计划", en="Collection plan"),
     "run.plan.valid_counts_note": Entry(zh="有效数以结果为准", en="Valid counts come from results"),
@@ -402,6 +427,10 @@ MESSAGES: dict[str, Entry] = {
     "run.preflight.perf_isolation_verified": Entry(
         zh="普通用户 perf 可用，已读到 instructions 计数并通过跨用户 PID 附加检查",
         en="Unprivileged perf read instruction counts and passed the cross-user PID attachment check",
+    ),
+    "run.preflight.reason_open_hint": Entry(
+        zh="点击定位阻断原因或打开环境状态中心",
+        en="Click to jump to the blocking issue or open the status center",
     ),
     "run.preflight.state.limited": Entry(zh="必要预检已通过，存在能力或数据质量警告", en="Required checks passed with capability or data-quality warnings"),
     "run.preflight.state.ready": Entry(zh="已就绪 · 配置与必要预检通过", en="Ready · Configuration and required checks passed"),
@@ -470,6 +499,8 @@ MESSAGES: dict[str, Entry] = {
     "run.probe.user_stopped": Entry(zh="用户终止了最大尺度探测", en="Largest-input probe stopped by user"),
     "run.probe.viable_memory": Entry(zh="可运行，已找到最低内存", en="Viable; minimum memory found"),
     "run.process.cleanup_incomplete": Entry(zh="PID {0} 仍未确认退出：{1}；可再次停止。", en="PID {0} has not exited: {1}; stop can be retried."),
+    "run.quick_fill.main": Entry(zh="填入标准矩阵", en="Fill Main Matrix"),
+    "run.quick_fill.smoke": Entry(zh="填入 Smoke", en="Fill Smoke"),
     "run.quit.active_task": Entry(zh="任务仍在运行，请先使用 /stop 安全终止", en="A task is running; use /stop to stop it safely first"),
     "run.recovery.active_writer": Entry(
         zh="原实验仍有进程写入，请等待其退出后再恢复。",
@@ -605,6 +636,8 @@ MESSAGES: dict[str, Entry] = {
     ),
     "run.runtime.inherit_limits_action": Entry(zh="使用 Process 继承限制", en="Use Process with inherited limits"),
     "run.runtime.label": Entry(zh="运行方式", en="Execution runtime"),
+    "run.runtime.option_auto_pending": Entry(zh="自动选择（待检查）", en="Auto (pending check)"),
+    "run.runtime.option_auto_resolved": Entry(zh="自动选择（当前：{0}）", en="Auto (current: {0})"),
     "run.runtime.pending_selection": Entry(zh="待检查", en="Pending check"),
     "run.runtime.process": Entry(zh="Process（无需 Docker）", en="Process (without Docker)"),
     "run.runtime.process_limits_note": Entry(

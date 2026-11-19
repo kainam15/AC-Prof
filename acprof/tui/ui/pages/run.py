@@ -38,9 +38,32 @@ def compose_run_tab(app: AcprofTui) -> ComposeResult:
     with TabPane("实验配置", id="run-tab"):
         with Vertical(classes="page-header"):
             yield RunPlanPanel(id="run-plan-panel")
-            yield Static("", id="preflight-run-reason", markup=False)
+            with Horizontal(id="run-mode-bar"):
+                with Horizontal(id="run-mode-tabs"):
+                    yield app.localization.localized_widget(Button(
+                        message_id("run.form.basic_tab"), id="run-mode-basic",
+                        classes="mode-tab -active", compact=True,
+                    ))
+                    yield app.localization.localized_widget(Button(
+                        message_id("run.form.advanced"), id="run-mode-advanced",
+                        classes="mode-tab", compact=True,
+                    ))
+                with Horizontal(id="run-quick-fill"):
+                    yield app.localization.localized_widget(Button(
+                        message_id("run.quick_fill.smoke"), id="quick-fill-smoke",
+                        classes="quick-fill-button config-control", compact=True,
+                    ))
+                    yield app.localization.localized_widget(Button(
+                        message_id("run.quick_fill.main"), id="quick-fill-main",
+                        classes="quick-fill-button config-control", compact=True,
+                    ))
         with ContentSwitcher(initial="run-form", id="experiment-pages"):
             with VerticalScroll(id="run-form", classes="pane-scroll"):
+                overrides_banner = app.localization.localized_widget(Button(
+                    "", id="advanced-overrides-banner", compact=True,
+                ))
+                overrides_banner.display = False
+                yield overrides_banner
                 with Grid(classes="form-grid"):
                     yield app.localization.localized_widget(Label("模型 ID"))
                     with Horizontal(classes="model-picker-row"):
@@ -310,6 +333,12 @@ def compose_run_tab(app: AcprofTui) -> ComposeResult:
                     ))
 
         with Vertical(id="run-footer"):
+            reason_button = app.localization.localized_widget(Button(
+                "", id="preflight-run-reason", compact=True,
+                tooltip=message_id("run.preflight.reason_open_hint"),
+            ))
+            reason_button.display = False
+            yield reason_button
             with Horizontal(id="run-actions", classes="action-bar"):
                 with Horizontal(classes="action-secondary"):
                     yield app.localization.localized_widget(Button("高级参数", id="open-run-settings", tooltip="切换基本配置与高级参数（F3）"))

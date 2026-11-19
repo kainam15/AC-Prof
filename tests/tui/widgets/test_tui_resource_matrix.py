@@ -19,7 +19,9 @@ async def test_resource_matrix_toggle_preserves_configuration(tmp_path, language
     async with app.run_test(size=size) as pilot:
         section = app.query_one("#resource-matrix", Collapsible)
         assert section.collapsed
-        assert section.title == ("资源矩阵" if language == "zh" else "Resource matrix")
+        assert section.title.startswith("资源矩阵" if language == "zh" else "Resource matrix")
+        assert "1,2" in section.title
+        assert "64,128" in section.title
         assert not app.query_one("#cpus").is_on_screen
         assert app.configuration.collect_config() == config
         title = section.query_one(CollapsibleTitle)
@@ -51,7 +53,8 @@ async def test_resource_matrix_toggle_preserves_configuration(tmp_path, language
         app.configuration.apply_ui_preferences()
         await pilot.pause()
         assert section.collapsed
-        assert section.title == ("Resource matrix" if language == "zh" else "资源矩阵")
+        assert section.title.startswith("Resource matrix" if language == "zh" else "资源矩阵")
+        assert "1,3" in section.title
 
 
 async def test_resource_error_reveals_collapsed_field(tmp_path):

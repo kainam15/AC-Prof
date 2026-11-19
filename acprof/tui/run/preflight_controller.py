@@ -402,15 +402,19 @@ class PreflightController:
         entry = self.app.query_one(EnvironmentIndicators)
         entry.update_cached(status)
         self.panel.update_cached(status)
-        detail = self.app.query_one("#preflight-run-reason", Static)
+        detail = self.app.query_one("#preflight-run-reason", Button)
         state = status.state
-        detail.display = False  # The global center and Start tooltip own admission feedback.
+        measuring = self.app.execution.session.snapshot.measurement_active
+        start_blocked = not status.can_start or not self.app.operation_state().allows("run")
+        detail.display = bool(reason) and start_blocked and not measuring
+        prefix = "× " if state in {"incomplete", "failed"} else "… " if state in {"checking", "pending"} else "! "
         summary = message_id('run.preflight.state.limited') if state == 'limited' else message_id('run.preflight.state.ready')
-        self.app.localization.set_text(detail, reason or summary)
+        self.app.localization.set_text(detail, message("{0}{1}", prefix, reason or summary), "label")
         detail.set_classes('preflight-' + state)
+        detail.disabled = measuring
         process_runtime = self.selected_runtime == "process" or self.app.configuration.select("runtime") == "process"
         from acprof.tui.run import runtime_view
-        if not self.app.execution.session.snapshot.measurement_active:
+        if not measuring:
             runtime_view.refresh(self)
             from acprof.tui.run.issue_view import IssueDiagnosticScreen
             for screen in self.app.screen_stack:
@@ -422,9 +426,20 @@ class PreflightController:
             probe.disabled = True
             self.app.localization.set_text(probe, "Process 请使用输入规模扫描；最小内存探测需要 Docker。", "tooltip")
         start = self.app.query_one("#start-run", Button)
-        start.disabled = not status.can_start or not self.app.operation_state().allows("run")
+        start.disabled = start_blocked
         self.app.localization.set_text(start, reason or "开始采集", "tooltip")
         self.app.refresh_bindings()
+
+    def open_blocking_reason(self) -> None:
+        if self.app.execution.session.snapshot.measurement_active:
+            return
+        status = self.status
+        blocking = next((item for item in status.items if item.group == "error"), None)
+        if blocking is not None and blocking.target:
+            self.panel.open_issue(blocking.check)
+            return
+        group = "error" if status.counts.get("error") else "pending" if status.counts.get("pending") else "warning"
+        self.panel.show(pin=True, group=group)
 
     def quick_check(self, *, automatic: bool = False) -> None:
         if not self.app.is_running or not self.app.form_ready or self.app.ui_closing:

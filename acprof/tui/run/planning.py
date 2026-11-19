@@ -9,7 +9,13 @@ from acprof.extensions import CATALOG
 from acprof.gpu_mode import normalize_gpu_mode
 from acprof.messages import join_messages
 from acprof.tui.i18n import message_id
-from acprof.tui.ui.view_models import CalloutContent, FactRow, StatusSummary, ViewSection
+from acprof.tui.ui.view_models import (
+    CalloutContent,
+    FactRow,
+    StatusSummary,
+    ViewAction,
+    ViewSection,
+)
 
 
 @dataclass(frozen=True)
@@ -189,8 +195,23 @@ def run_plan_view(
 ) -> PlanView:
     """Project a validated configuration; callers resolve runtime and environment defaults."""
     estimate = estimate_run(config, planned)
+    pending = message_id("common.state.pending")
+    runtime = {"docker": "Docker", "process": "Process",
+               "auto": message_id("run.runtime.automatic")}.get(config.runtime, config.runtime)
+    compact_title = message_id(
+        "run.plan.compact_title",
+        runtime,
+        estimate.cases,
+        estimate.scales if estimate.scales is not None else pending,
+        estimate.warmup_windows if estimate.warmup_windows is not None else pending,
+        estimate.formal_windows if estimate.formal_windows is not None else pending,
+    )
     if configuration_warnings(config):
-        summary = StatusSummary("warning", message_id("run.plan.flow_check_limited"))
+        summary = StatusSummary(
+            "warning",
+            message_id("run.plan.flow_check_limited"),
+            actions=(ViewAction("plan-set-repeat-3", message_id("run.plan.set_repeat_3")),),
+        )
     else:
         summary = StatusSummary("neutral", message_id(
             "run.plan.pending_inputs" if estimate.scales is None else "run.plan.calculated",
@@ -198,10 +219,11 @@ def run_plan_view(
     return PlanView(
         summary,
         ViewSection(
-            message_id("run.plan.title"),
+            compact_title,
             _plan_rows(config, planned, estimate),
             detail_rows=_plan_details(config, planned, estimate,
                                       download_budget=download_budget, model_store=model_store),
+            collapsed=True,
         ),
     )
 

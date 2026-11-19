@@ -93,10 +93,22 @@ EnvironmentIndicator .environment--pending, EnvironmentIndicator .environment--n
 }
 #preflight-run-reason {
     display: none;
-    height: auto;
-    max-height: 2;
+    width: 100%;
+    height: 1;
+    min-height: 1;
+    min-width: 0;
+    border: none;
+    padding: 0 2;
+    background: $surface;
     color: $warning;
-    overflow-y: auto;
+    content-align: left middle;
+    text-align: left;
+    text-overflow: ellipsis;
+}
+#preflight-run-reason:hover, #preflight-run-reason:focus {
+    border: none;
+    background: $boost;
+    text-style: bold underline;
 }
 #preflight-run-reason.preflight-ready { color: $success; }
 #preflight-run-reason.preflight-checking, #preflight-run-reason.preflight-pending { color: $text-muted; }
@@ -213,6 +225,60 @@ Select:focus > SelectCurrent, Select.-expanded > SelectCurrent, SelectOverlay:fo
 #run-plan-facts { margin-bottom: 0; }
 #run-plan-facts .fact-grid { grid-columns: 18 1fr; }
 AcprofTui.short #run-plan-body { max-height: 8; }
+#run-mode-bar {
+    height: 2;
+    margin-top: 1;
+    border-bottom: solid $panel;
+}
+AcprofTui.short #run-mode-bar { margin-top: 0; }
+#run-mode-tabs { width: 1fr; height: 1; align-horizontal: left; }
+#run-quick-fill { width: auto; height: 1; align-horizontal: right; }
+.mode-tab, .quick-fill-button {
+    height: 1;
+    min-height: 1;
+    min-width: 0;
+    width: auto;
+    border: none;
+    padding: 0 1;
+    margin: 0 1 0 0;
+    background: transparent;
+    color: $text-muted;
+    text-style: none;
+}
+.mode-tab:hover, .mode-tab:focus, .quick-fill-button:hover, .quick-fill-button:focus {
+    border: none;
+    background: $boost;
+    color: $foreground;
+    text-style: bold;
+}
+.mode-tab.-active, .mode-tab.-active:hover, .mode-tab.-active:focus {
+    border: none;
+    color: $accent;
+    background: $boost;
+    text-style: bold;
+}
+.quick-fill-button { margin: 0 0 0 1; color: $accent; }
+.quick-fill-button:disabled { border: none; color: $ui-disabled; }
+#advanced-overrides-banner {
+    width: 100%;
+    height: 1;
+    min-height: 1;
+    min-width: 0;
+    border: none;
+    border-left: solid $accent;
+    padding: 0 1;
+    margin-bottom: 1;
+    background: $surface;
+    color: $accent;
+    content-align: left middle;
+    text-align: left;
+}
+#advanced-overrides-banner:hover, #advanced-overrides-banner:focus {
+    border: none;
+    border-left: solid $accent;
+    background: $boost;
+    text-style: bold underline;
+}
 #run-footer { dock: bottom; height: auto; background: $surface; }
 #run-footer .action-bar { dock: none; }
 #resource-matrix, #measurement-parameters, #profiling-options, #command-details { height: auto; margin-bottom: 1; border: none; background: $surface; padding: 0; }

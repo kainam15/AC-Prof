@@ -27,7 +27,15 @@ async def test_collection_plan_and_original_actions_fit_short_terminal(tmp_path,
         assert not app.query("#run-plan-summary")
         grid = panel.query_one("#run-plan-facts", FactGrid)
         assert grid.section == panel.view.section
-        assert not grid.query_one(".fact-section", Collapsible).collapsed
+        section = grid.query_one(".fact-section", Collapsible)
+        assert section.collapsed
+        assert ("采集计划" if language == "zh" else "Collection plan") in section.title
+        assert "1" in section.title
+        # Expanding reveals the full structured grid and details disclosure.
+        section_title = section.query_one("CollapsibleTitle")
+        assert await pilot.click(section_title)
+        await pilot.pause()
+        assert not section.collapsed
         more = grid.query_one(".fact-more", Collapsible)
         assert more.collapsed
         body = panel.query_one("#run-plan-body")
@@ -49,6 +57,9 @@ async def test_collection_plan_and_original_actions_fit_short_terminal(tmp_path,
         assert await pilot.click(more_title)
         await pilot.pause()
         assert more.collapsed
+        assert await pilot.click(section_title)
+        await pilot.pause()
+        assert section.collapsed
         headline = panel.query_one(".status-headline", Static)
         assert app.tr(panel.view.summary.headline) in str(headline.content)
         assert str(headline.content).startswith("! ")
@@ -75,7 +86,48 @@ async def test_collection_plan_and_original_actions_fit_short_terminal(tmp_path,
         assert await pilot.click("#open-run-settings")
         await pilot.pause()
         assert app.query_one("#experiment-pages", ContentSwitcher).current == "advanced-form"
+        assert app.query_one("#run-mode-advanced", Button).has_class("-active")
         assert_actions_visible()
+
+
+async def test_run_ux_quick_fill_set_repeat_inline_reason_and_overrides(tmp_path):
+    config = replace(RunConfig.smoke("fixture/model"), revision="a1b2c3d4")
+    app = AcprofTui(config, settings_path=tmp_path / "settings.json")
+    async with app.run_test(size=(120, 30)) as pilot:
+        await pilot.pause()
+        # Active advanced override is visible in the basic view and mode badge.
+        assert app.query_one("#advanced-overrides-banner", Button).display
+        assert "1" in str(app.query_one("#run-mode-advanced", Button).label)
+        # Collapsed section summaries surface key values without expanding.
+        assert "Warmup 0" in app.query_one("#measurement-parameters", Collapsible).title
+        assert "已关闭" in app.query_one("#profiling-options", Collapsible).title
+        # Clicking 'Set 3 repeats' in the limited plan banner raises repeat to 3.
+        plan_action = app.query_one("#run-plan-status .structured-action", Button)
+        assert plan_action.display
+        assert await pilot.click(plan_action)
+        await wait_for_condition(
+            pilot, lambda: app.configuration.collect_config().repeat == 3,
+            description="repeat updated to 3", timeout=3,
+        )
+        assert app.query_one("#run-plan-panel", RunPlanPanel).view.summary.level == "neutral"
+        # Quick-fill Smoke restores repeat=1 cleanly.
+        assert await pilot.click("#quick-fill-smoke")
+        await wait_for_condition(
+            pilot, lambda: app.configuration.collect_config().repeat == 1,
+            description="smoke quick-fill applied", timeout=3,
+        )
+        # Clearing model shows inline clickable blocking reason above Run actions.
+        app.query_one("#model", Input).value = ""
+        await wait_for_condition(
+            pilot, lambda: app.query_one("#preflight-run-reason", Button).display,
+            description="inline blocking reason visible", timeout=3,
+        )
+        assert app.query_one("#start-run", Button).disabled
+        assert await pilot.click("#preflight-run-reason")
+        await wait_for_condition(
+            pilot, lambda: app.focused is app.query_one("#model", Input),
+            description="clicking inline reason focuses invalid model field", timeout=3,
+        )
 
 
 @pytest.mark.parametrize(("field_id", "invalid_value"), [("mems", "oops"), ("model", "")])

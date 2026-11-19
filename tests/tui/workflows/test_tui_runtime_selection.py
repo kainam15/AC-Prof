@@ -26,7 +26,7 @@ async def choose_runtime(app, pilot, runtime):
     await pilot.pause()
     assert control.region.width > 0
     assert control.region.bottom <= app.query_one('#run-form').content_region.bottom
-    await pilot.press('enter', 'home', *(['down'] * ('docker', 'process').index(runtime)), 'enter')
+    await pilot.press('enter', 'home', *(['down'] * ('auto', 'docker', 'process').index(runtime)), 'enter')
     await wait_for_condition(
         pilot, lambda: f'--runtime {runtime}' in str(app.query_one('#command-preview', Static).content),
         description=f'{runtime} command preview', timeout=3,
@@ -54,11 +54,12 @@ async def test_basic_runtime_selection_navigation_and_restart(tmp_path, monkeypa
         monkeypatch.setattr(app.preflight, 'execute_quick_check', check)
         control = app.query_one('#run-form #runtime', Select)
         assert app.configuration.collect_config().runtime == 'auto'
-        assert control.query_one(SelectOverlay).option_count == 2
+        assert control.query_one(SelectOverlay).option_count == 3
         assert not app.query('#runtime-status')
         assert not app.query('#reset-runtime')
         complete_check(app, [PreflightCheck('Runtime', 'ok', 'Docker', runtime_kind='docker')])
-        assert control.value == 'docker'
+        assert control.value == 'auto'
+        assert 'Docker' in str(control._options[0][0])
         assert app.configuration.collect_config().runtime == 'auto'
         assert len(app.query('#runtime')) == 1
         assert not app.query('#advanced-form #runtime')
@@ -98,10 +99,11 @@ async def test_basic_runtime_selection_navigation_and_restart(tmp_path, monkeypa
             assert app.preflight.config_matches()
             assert not app.query_one('#start-run', Button).disabled
         if saved_runtime == 'auto':
-            app.configuration.apply_config(config)
+            await choose_runtime(app, pilot, 'auto')
             assert app.configuration.collect_config().runtime == 'auto'
             complete_check(app, [PreflightCheck('Runtime', 'ok', 'Process', runtime_kind='process')])
-            assert control.value == 'process'
+            assert control.value == 'auto'
+            assert 'Process' in str(control._options[0][0])
         else:
             await choose_runtime(app, pilot, saved_runtime)
         await pilot.resize_terminal(80, 24)
@@ -169,7 +171,8 @@ async def test_runtime_edit_rejects_late_auto_resolution(tmp_path, monkeypatch):
         assert app.preflight.selected_runtime == ''
         complete_check(app, [PreflightCheck('Runtime', 'ok', 'Process', runtime_kind='process')])
         assert not app.query('#runtime-status')
-        assert app.query_one('#runtime', Select).value == 'process'
+        assert app.query_one('#runtime', Select).value == 'auto'
+        assert 'Process' in str(app.query_one('#runtime', Select)._options[0][0])
         assert app.query_one(RunPlanPanel).view.section.rows[0].value == 'Process'
         assert '--runtime auto' in str(app.query_one('#command-preview', Static).content)
 
@@ -180,14 +183,15 @@ async def test_auto_resolution_and_same_option_commit_have_separate_intent(tmp_p
     async with app.run_test(size=(120, 30)) as pilot:
         monkeypatch.setattr(app.preflight, 'execute_quick_check', Mock())
         control = app.query_one('#runtime', Select)
-        assert control.query_one(SelectOverlay).option_count == 2
+        assert control.query_one(SelectOverlay).option_count == 3
         for selected in ('docker', 'process', 'docker'):
             monkeypatch.setattr('acprof.host.runtimes.selection.probe_docker', lambda: Capability(
                 'available' if selected == 'docker' else 'unavailable', 'fixture Docker probe',
             ))
             complete_check(app, [PreflightCheck('Runtime', 'ok', selected, runtime_kind=selected)])
             await pilot.pause()
-            assert control.value == selected
+            assert control.value == 'auto'
+            assert selected.title() in str(control._options[0][0])
             assert app.configuration.collect_config().runtime == 'auto'
             assert '--runtime auto' in str(app.query_one('#command-preview', Static).content)
             config = app.configuration.collect_config()
@@ -199,7 +203,7 @@ async def test_auto_resolution_and_same_option_commit_have_separate_intent(tmp_p
         await pilot.pause()
         await pilot.press('enter', 'escape')
         assert app.configuration.collect_config().runtime == 'auto'
-        # Selecting the already displayed Docker still pins an explicit request.
+        # Selecting Docker explicitly pins an explicit request; Auto remains selectable to unpin.
         await choose_runtime(app, pilot, 'docker')
         assert app.configuration.collect_config().runtime == 'docker'
         complete_check(app, [PreflightCheck('Docker', 'fail', 'unavailable', check_id='docker')])
@@ -213,6 +217,8 @@ async def test_auto_resolution_and_same_option_commit_have_separate_intent(tmp_p
         app.execution.session.snapshot = ProgressSnapshot()
         app.set_busy(False)
         assert not control.disabled
+        await choose_runtime(app, pilot, 'auto')
+        assert app.configuration.collect_config().runtime == 'auto'
 
 
 async def test_pending_auto_does_not_guess_a_runtime_or_retarget_an_open_menu(tmp_path, monkeypatch):
@@ -222,16 +228,16 @@ async def test_pending_auto_does_not_guess_a_runtime_or_retarget_an_open_menu(tm
         app.preflight.checked_config = None
         app.preflight.refresh_preflight_state()
         control = app.query_one('#runtime', Select)
-        assert control.value is Select.NULL
+        assert control.value == 'auto'
         control.scroll_visible(animate=False, immediate=True)
         control.focus()
         await pilot.pause()
-        await pilot.press('enter', 'home')
+        await pilot.press('enter', 'home', 'down')
         overlay = control.query_one(SelectOverlay)
-        assert overlay.highlighted == 0
+        assert overlay.highlighted == 1
         complete_check(app, [PreflightCheck('Runtime', 'ok', 'Process', runtime_kind='process')])
         await pilot.pause()
-        assert overlay.highlighted == 0
+        assert overlay.highlighted == 1
         await pilot.press('enter')
         await wait_for_condition(pilot, lambda: app.configuration.collect_config().runtime == 'docker',
                                  description='commit the option the user highlighted', timeout=3)
