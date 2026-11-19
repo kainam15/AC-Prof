@@ -43,10 +43,12 @@ def test_plan_distinguishes_total_and_per_condition_windows(repeat, language):
 
 
 def test_unresolved_scales_keep_unknown_totals_and_the_per_condition_plan():
-    view = run_plan_view(RunConfig())
+    view = run_plan_view(replace(RunConfig(), runtime="docker"))
     pending = message_id("common.state.pending")
 
     assert fact(view, "run.plan.resources_label").value == "32"
+    assert translate(view.section.title, "zh") == "采集计划 · Docker · 32 case"
+    assert translate(view.section.title, "en") == "Collection plan · Docker · 32 cases"
     assert fact(view, "run.plan.scales_label").value == message_id(
         "run.plan.scale_count_unit", pending, message_id("run.inputs.unit_pending"),
     )
@@ -88,6 +90,9 @@ def test_resource_cases_follow_runtime_without_treating_inheritance_as_a_failure
 
     assert fact(view, "run.runtime.label").value == ("Process" if runtime == "process" else "Docker")
     assert fact(view, "run.plan.resources_label").value == cases
+    runtime_label = "Process" if runtime == "process" else "Docker"
+    assert translate(view.section.title, "zh") == f"采集计划 · {runtime_label} · {cases} case"
+    assert translate(view.section.title, "en") == f"Collection plan · {runtime_label} · {cases} cases"
     assert view.summary.level == "neutral"
     label = "run.resources.inherited_limits" if runtime == "process" else "run.plan.automatic_resources"
     assert fact(view, "run.resources.cpu_list", detail=True).value == message_id(label)

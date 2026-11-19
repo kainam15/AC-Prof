@@ -347,8 +347,8 @@ MESSAGES: dict[str, Entry] = {
     "run.plan.await_model": Entry(zh="待配置 · 请输入模型 ID", en="Not configured · Enter a model ID"),
     "run.plan.calculated": Entry(zh="采集计划已计算", en="Collection plan calculated"),
     "run.plan.compact_title": Entry(
-        zh="采集计划 · {0} · {1} case · {2} 档 · 预热 {3} / 正式 {4}",
-        en="Collection plan · {0} · {1} cases · {2} levels · {3} warmup / {4} formal",
+        zh="采集计划 · {0} · {1} case",
+        en="Collection plan · {0} · {1} cases",
     ),
     "run.plan.duration_estimate": Entry(
         zh="时间约 {0} · {1}，不含准备、校准和 profiler",

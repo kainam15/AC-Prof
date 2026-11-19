@@ -195,17 +195,9 @@ def run_plan_view(
 ) -> PlanView:
     """Project a validated configuration; callers resolve runtime and environment defaults."""
     estimate = estimate_run(config, planned)
-    pending = message_id("common.state.pending")
     runtime = {"docker": "Docker", "process": "Process",
                "auto": message_id("run.runtime.automatic")}.get(config.runtime, config.runtime)
-    compact_title = message_id(
-        "run.plan.compact_title",
-        runtime,
-        estimate.cases,
-        estimate.scales if estimate.scales is not None else pending,
-        estimate.warmup_windows if estimate.warmup_windows is not None else pending,
-        estimate.formal_windows if estimate.formal_windows is not None else pending,
-    )
+    compact_title = message_id("run.plan.compact_title", runtime, estimate.cases)
     if configuration_warnings(config):
         summary = StatusSummary(
             "warning",
