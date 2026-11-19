@@ -5,8 +5,7 @@ import math
 
 from acprof.capabilities import capability_from_error
 from acprof.host.measurement.numbers import to_float_or_nan
-from acprof.monitors.resource_readers import CGROUP_READER_FIELDS
-from acprof.results.coverage import GPU_QUERIES
+from acprof.results.coverage import CGROUP_READER_FIELDS, GPU_QUERIES
 
 _FAILED = {"permission_denied", "unsupported", "tool_missing", "error", "unavailable"}
 

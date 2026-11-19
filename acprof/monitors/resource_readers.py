@@ -7,23 +7,9 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from acprof.monitors.common import docker_container_pid
+from acprof.results.coverage import CGROUP_READER_FIELDS as CGROUP_READER_FIELDS
 
 _LOG = logging.getLogger(__name__)
-
-
-CGROUP_READER_FIELDS = {
-    "cpu": ("container_cpu_util_", "service_cgroup_cpu_"),
-    "memory": ("container_mem_usage_", "container_mem_util_", "service_cgroup_mem_"),
-    "io": ("_io_read_bytes", "_io_write_bytes"),
-    "io_operations": ("_io_read_ops", "_io_write_ops"),
-    "swap": ("container_swap_usage_",), "swap_limit": ("container_swap_limit_",),
-    "cpu_throttle": ("container_cpu_nr_", "container_cpu_throttled_"),
-    "memory_peak": ("container_mem_peak_cgroup",),
-    "memory_stat": ("_mem_anon_", "_mem_file_", "_mem_slab_", "_mem_pgfault_", "_mem_pgmajfault_", "_mem_workingset_"),
-    "memory_events": ("_mem_high_events_", "_mem_max_events_", "_mem_oom_"),
-    "pids": ("container_pids_",), "cpu_pressure": ("_cpu_pressure_",),
-    "memory_pressure": ("_mem_pressure_",), "io_pressure": ("_io_pressure_",),
-}
 
 
 @dataclass
