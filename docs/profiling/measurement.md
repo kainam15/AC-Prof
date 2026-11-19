@@ -131,7 +131,9 @@ completed request count 归一化，不能把窗口总能耗直接解释为 J/re
 或受限客体中按平台策略记录缺项。独立 Torch、NCU、Massif、Nsys 仍需显式选择。
 
 `--dram-energy auto` 尝试可读的完整 DRAM 域，`off` 记为未请求，`required` 要求有效的总能耗、
-每请求能耗和基线残差，需要正的 idle 窗口。idle 为 0 时自动采集不启动空闲基线窗口。
+每请求能耗和基线残差，需要正的 idle 窗口。常规实验启用 CPU 或 GPU 能耗采集时，
+每个工作负载窗口前默认冷却 5 秒、空闲采样 20 秒，两个能耗采集器共享同一控制窗口。
+显式设置 `--idle-seconds 0` 会跳过冷却和空闲窗口。Smoke 预设的两项时长均为 0。
 采样器依次结束后发布窗口。可选采集器失败保留其阶段与原因，推理、数据持久化和无法确认的清理失败仍影响实验。
 
 准备阶段的 `static_meta.json.collection_plan` 保存 Runtime、各项探测结果、预计字段及实际选择。

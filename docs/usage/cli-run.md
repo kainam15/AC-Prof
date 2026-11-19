@@ -118,7 +118,7 @@ Process 自动关闭 Docker startup OOM pruning 并逐格执行；`--rebuild-ima
 | `--repeat-window-seconds` | `10.0` | `--repeat-in-window 0` 时的目标 workload window 秒数。auto 模式不再额外跑一个 10 秒校准窗口。 |
 | `--request-timeout-seconds` | `300.0` | 正式矩阵中每个 `/predict` 请求的连接等待和读取无进展上限（分别应用），必须是大于 0 的有限值；它适用于 warmup、auto-window warmup 和正式请求，不是请求的严格总截止时间，也不限制整行、整个 case 或整条命令的总运行时间；持续有数据到达可使总耗时超过此值，不自动重试。超时后保留已完成行，并将触发请求及后续未测计划行分别写成可诊断的 error 占位。 |
 | `--sample-hz` | `20.0` | GPU power sampling rate，单位 Hz；CPU workload 和 matched control window 期间也用它控制 RAPL、container cgroup、CPU frequency 和 GPU/resource usage 的采样间隔，以估计 average/peak power、vCPU share、CPU utilization 和 CPU cycles。perf MIPS 使用独立的 `perf stat` 窗口，不受该采样率影响。 |
-| `--idle-seconds` | `0.0` | 正值为已启用的 CPU/GPU 能耗采集增加匹配空闲窗口。默认只记录可用的总能耗，有效能耗保留缺失；Resume 使用冻结时长。控制窗口不发送推理请求。 |
+| `--idle-seconds` | `20.0` | 启用 CPU 或 GPU 能耗采集时，每个工作负载窗口前采集一次空闲基线。控制窗口不发送推理请求。新实验显式设为 `0` 会跳过冷却和基线，仅记录可用的总能耗。Resume 沿用实验冻结的基线时长。 |
 | `--idle-cooldown-seconds` | `5.0` | 每个 workload window 采集 idle baseline 前的统一冷却等待时间。CPU-only 和 GPU+CPU case 都使用同一个值，避免上一轮推理刚结束后的短时热状态、Docker/server 收尾或 GPU clock/power 瞬态直接进入 idle baseline。 |
 | `--idle-debug` | false | 开启 baseline 调试输出。主 CSV 会填充 GPU 的 `gpu_idle_measured_at` / `gpu_idle_rel_range_so_far` 和 CPU 的 `cpu_idle_measured_at` / `cpu_idle_rel_range_so_far`，并写出 `debug/idle/<case-id>.jsonl`。诊断文件记录 matched control window 的 GPU NVML trace、CPU RAPL 子窗口、host/container CPU delta，以及 control 结束后的 `nvidia-smi`、loadavg、top CPU processes、Docker 容器和 `docker stats` 快照。为避免诊断本身污染 baseline，逐进程 `/proc` 快照移到 control window 外，不再归入 RAPL control 能量。 |
 

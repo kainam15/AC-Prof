@@ -443,6 +443,9 @@ class TestTuiApp:
             preset_preview = str(app.query_one("#command-preview", Static).render())
             assert (app.query_one("#cpus", Input).value) == ("auto")
             assert ("--cpus auto") in (preset_preview)
+            assert app.query_one("#idle-seconds", Input).value == "20"
+            assert app.query_one("#idle-cooldown-seconds", Input).value == "5"
+            assert "--idle-seconds 20.0" in preset_preview
             assert ("--compute-profile-tool none") in (preset_preview)
 
             app.experiments.request_probe()

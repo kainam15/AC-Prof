@@ -597,7 +597,7 @@ class TestNativeDockerGuard:
         assert (request.workload.repeat_in_window) == (0)
         assert (request.workload.repeat_window_seconds) == (10.0)
         assert (request.workload.request_timeout_seconds) == (300.0)
-        assert request.measurement.idle_seconds == 0.0
+        assert request.measurement.idle_seconds == 20.0
         assert (request.measurement.idle_cooldown_seconds) == (5.0)
         assert (request.plans.compute_profile_plan_file) == ("")
         assert (request.prune_startup_oom)

@@ -13,20 +13,21 @@ class TestRunRecovery(RunRecoveryFixture):
     @pytest.fixture(autouse=True)
     def _setup(self, request, tmp_path):
         self.build(request, tmp_path)
-    def test_resume_restores_explicit_idle_duration_when_the_argument_is_omitted(self):
+    @pytest.mark.parametrize(("saved_idle", "conflicting_idle"), [(3, 0), (0, 20)])
+    def test_resume_restores_explicit_idle_duration_when_the_argument_is_omitted(self, saved_idle, conflicting_idle):
         def interrupt(request, **kwargs):
             if request.cpu == 2:
                 raise KeyboardInterrupt()
             return self.write_case(request, **kwargs)
 
         def resume(request, measurement, **kwargs):
-            assert measurement.idle_seconds == 3
+            assert measurement.idle_seconds == saved_idle
             return self.write_case(request, **kwargs)
 
         with pytest.raises(KeyboardInterrupt):
-            self.invoke("--idle-seconds", "3", case=interrupt)
+            self.invoke("--idle-seconds", str(saved_idle), case=interrupt)
         with pytest.raises(SystemExit):
-            self.invoke("--resume", "--idle-seconds", "0")
+            self.invoke("--resume", "--idle-seconds", str(conflicting_idle))
         self.invoke("--resume", case=resume)
         assert self.calls == [1, 2]
 

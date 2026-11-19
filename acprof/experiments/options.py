@@ -12,6 +12,7 @@ from typing import Any, Literal, get_type_hints
 from acprof.config import (
     DEFAULT_COMPUTE_PROFILE_TOOL,
     DEFAULT_IDLE_COOLDOWN_SECONDS,
+    DEFAULT_IDLE_SECONDS,
     DEFAULT_REPEAT_IN_WINDOW,
     DEFAULT_REPEAT_WINDOW_SECONDS,
     DEFAULT_REQUEST_TIMEOUT_SECONDS,
@@ -143,7 +144,9 @@ class RunOptions:
         100000, help='Maximum retained raw samples per collector (integer of at least 2)',
     )
     idle_seconds: float = option(
-        0.0, cli_default=None, help='Matched idle control duration in seconds (default: 0; resume uses the saved duration)',
+        DEFAULT_IDLE_SECONDS, cli_default=None,
+        help=(f'Matched idle control duration in seconds (default: {DEFAULT_IDLE_SECONDS:g}). '
+              'Set to 0 to skip the control window in new runs. Resume uses the saved duration.'),
     )
     idle_cooldown_seconds: float = option(
         DEFAULT_IDLE_COOLDOWN_SECONDS, help='Cooldown duration before collecting idle baselines for each workload window',
