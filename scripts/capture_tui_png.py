@@ -58,6 +58,8 @@ def build_tape(scenario: str, screenshot: Path, fixture_home: Path, *, python: P
         "LC_ALL": "C.UTF-8",
         "TZ": "UTC",
         "PYTHONHASHSEED": "0",
+        # ttyd 1.7.4 uses xterm.js's Unicode 6 width table (☰ is one cell).
+        "UNICODE_VERSION": "6.0.0",
     }
     lines = [
         f"Output {_quoted(str(fixture_home / 'frames') + '/')}",

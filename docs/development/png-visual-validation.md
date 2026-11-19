@@ -53,6 +53,8 @@ ACPROF_PNG_VISUAL=1 uv run pytest tests/visual_png -v
 `docker-frontend-small` 和 `docker-frontend-en-small` 使用 **80×24**，其他场景使用 **120×36**，目录已由 Git 忽略。
 夹具等待目标页获得布局、侧栏选中对应页面后再填入场景数据。VHS 通过 `Wait+Screen` 匹配终端里的场景文字，
 例如任务弹窗的“开始所选任务”，再以 1 fps 录制两秒并取最后一个文本帧。超时会报告等待的模式与终端内容。见 [VHS Wait](https://github.com/charmbracelet/vhs/blob/v0.12.1/README.md#wait)。
+录像时在 Python 启动前设置 `UNICODE_VERSION=6.0.0`，使 Rich 与 ttyd 1.7.4 的 xterm.js 使用相同的字符宽度。
+两者都把侧栏的 `☰` 计为一列，同行的内容在整行与局部重绘时能对齐。见 [xterm.js 的 Unicode 宽度实现](https://github.com/xtermjs/xterm.js/blob/5.3.0/src/common/services/UnicodeService.ts)。
 新增的 `docker-frontend`、`docker-frontend-small`、`docker-frontend-en`、`docker-frontend-en-small`
 模拟 Dockerfile 前端解析静默 58 秒，检查未知下载量、等待时长、来源、元数据说明和停滞提示；不会启动 Docker。
 所有场景使用固定字体、16 px 字体大小；`statistics-en`、`docker-frontend-en` 和 `docker-frontend-en-small` 使用英文，其余使用中文，
