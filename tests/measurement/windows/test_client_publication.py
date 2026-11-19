@@ -8,7 +8,7 @@ from acprof.host.measurement import publication as client_publication
 
 
 def test_result_row_waits_for_sniff_group_durability() -> None:
-    writer = Mock()
+    writer = Mock(fieldnames=["status", "error"])
     result_stream = Mock()
     sidecar_stream = Mock()
 

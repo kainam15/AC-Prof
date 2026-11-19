@@ -115,7 +115,7 @@ def reduce_process_samples(samples: list[dict], *, legacy: bool = False) -> dict
 
 class ProcessUsageMonitor:
     def __init__(self, *, pid: int, start_ticks: int, sample_hz=20.0, sampling_policy="burst",
-                 raw_sample_limit=100000, device_uuid="", use_gpu=False, resource_plan=None, **kwargs):
+                 raw_sample_limit=100000, device_uuid="", use_gpu=False, resource_plan=None, enabled_gpu_queries=None, **kwargs):
         self.pid, self.start_ticks = pid, start_ticks
         self.dt, self.policy = 1 / sample_hz, sampling_policy
         self.limit = raw_sample_limit
@@ -126,7 +126,8 @@ class ProcessUsageMonitor:
         self._thread: threading.Thread | None = None
         self.diagnostics = SamplingDiagnostics(sampling_policy, self.dt)
         self.device_uuid = device_uuid
-        self.use_gpu = use_gpu
+        self.enabled_gpu_queries = enabled_gpu_queries
+        self.use_gpu = use_gpu and enabled_gpu_queries != frozenset()
         self.nvml = None
         self.gpu_handle = None
         self.gpu_status = "not_requested" if not use_gpu else "unavailable"
@@ -212,7 +213,7 @@ class ProcessUsageMonitor:
                   "gpu_util_pct": None, "gpu_mem_bytes": None}
         if self.gpu_handle is not None:
             state = self._state_sample_at is None or timestamp - self._state_sample_at >= STATE_INTERVAL_S
-            sample.update(read_gpu_sample(self.nvml, self.gpu_handle, self._gpu_query_error, state=state))
+            sample.update(read_gpu_sample(self.nvml, self.gpu_handle, self._gpu_query_error, state=state, enabled=self.enabled_gpu_queries))
             sample['gpu_mem_bytes'] = sample.pop('gpu_mem_used_bytes', None)
             if state:
                 self._state_sample_at = timestamp

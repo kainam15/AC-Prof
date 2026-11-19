@@ -11,6 +11,21 @@ from acprof.monitors.common import docker_container_pid
 _LOG = logging.getLogger(__name__)
 
 
+CGROUP_READER_FIELDS = {
+    "cpu": ("container_cpu_util_", "service_cgroup_cpu_"),
+    "memory": ("container_mem_usage_", "container_mem_util_", "service_cgroup_mem_"),
+    "io": ("_io_read_bytes", "_io_write_bytes"),
+    "io_operations": ("_io_read_ops", "_io_write_ops"),
+    "swap": ("container_swap_usage_",), "swap_limit": ("container_swap_limit_",),
+    "cpu_throttle": ("container_cpu_nr_", "container_cpu_throttled_"),
+    "memory_peak": ("container_mem_peak_cgroup",),
+    "memory_stat": ("_mem_anon_", "_mem_file_", "_mem_slab_", "_mem_pgfault_", "_mem_pgmajfault_", "_mem_workingset_"),
+    "memory_events": ("_mem_high_events_", "_mem_max_events_", "_mem_oom_"),
+    "pids": ("container_pids_",), "cpu_pressure": ("_cpu_pressure_",),
+    "memory_pressure": ("_mem_pressure_",), "io_pressure": ("_io_pressure_",),
+}
+
+
 @dataclass
 class ResourceMetricReaders:
     pid: int = 0
@@ -28,6 +43,7 @@ class ResourceMetricReaders:
     memory_stat: Callable[[], dict[str, float]] | None = None
     io_operations: Callable[[], dict[str, float]] | None = None
     pids: Callable[[], dict[str, float]] | None = None
+    cgroup_error: str = ""
 
 
 def _read_int(path: str) -> int:
@@ -301,8 +317,11 @@ def resolve_container_metric_readers(
 
     pid = docker_container_pid(container_name)
     cgroup_file = os.path.join(proc_root, str(pid), "cgroup")
-    with open(cgroup_file, encoding="utf-8") as f:
-        lines = [line.strip() for line in f if line.strip()]
+    try:
+        with open(cgroup_file, encoding="utf-8") as f:
+            lines = [line.strip() for line in f if line.strip()]
+    except OSError as exc:
+        return ResourceMetricReaders(pid=pid, cgroup_error=str(exc))
 
     readers = ResourceMetricReaders(pid=pid)
 

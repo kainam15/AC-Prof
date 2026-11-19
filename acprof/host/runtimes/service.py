@@ -71,6 +71,6 @@ def configure_client(config: ClientConfig, session: ServiceSession) -> ClientCon
 
 def bind_session(state, path, session):
     if getattr(session, "runtime_kind", "docker") == "process":
-        state.bind_case_process(path, session.process.evidence())
+        state.bind_case_process(path, {**session.process.evidence(), "server_port": session.host_port})
     else:
         state.bind_case_container(path, session.container_id)

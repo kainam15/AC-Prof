@@ -73,6 +73,23 @@ def test_proc_stat_guest_deltas_preserve_container_energy_share(
     assert result.vcpu_energy_eff_j == pytest.approx(12 * 2 / host_delta)
 
 
+def test_package_energy_survives_loss_of_optional_cpu_attribution(tmp_path, monkeypatch):
+    energy = Path(_write_rapl_domain(str(tmp_path), "intel-rapl:0", "package-0")) / "energy_uj"
+    topology = energy_cpu.discover_rapl_topology(str(tmp_path))
+    monitor = energy_cpu.CPUEnergyMonitor(topology=topology)
+    monkeypatch.setattr(energy_cpu, "_read_host_active_s", lambda _path: 1.0)
+    monitor._container_cpu_reader = Mock(side_effect=PermissionError("cgroup permission denied"))
+
+    first = monitor._read_sample(0.0)
+    energy.write_text("2000000")
+    last = monitor._read_sample(1.0)
+    result = energy_cpu.reduce_cpu_samples([first, last], idle_power_w=math.nan, domains=monitor.domains)
+
+    assert result.cpu_energy_total_j == 2.0
+    assert math.isnan(result.vcpu_energy_total_j)
+    assert "permission denied" in monitor.telemetry_snapshot()["attribution_error"]
+
+
 def test_topology_retains_subdomains_aliases_and_unreadable_domains():
     with tempfile.TemporaryDirectory() as tmp:
         package = _write_rapl_domain(tmp, "intel-rapl:0", "package-0")

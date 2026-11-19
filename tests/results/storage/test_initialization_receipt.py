@@ -103,7 +103,7 @@ def test_frozen_header_is_reused_and_cannot_replace_a_different_manifest(tmp_pat
     layout = ArtifactLayout.for_new_run(tmp_path)
     intent = layout.result_store_path("initialization.json")
     intent.parent.mkdir(parents=True, exist_ok=True)
-    fields = [field for field in CSV_FIELDS if field != "response_payload_bytes"]
+    fields = [field for field in CSV_FIELDS if field != "response_payload_bytes" and not field.startswith("throughput_app_")]
     intent.write_text(json.dumps({"run_id": "historical", "fields": fields}))
     layout.initialize()
     assert read_result_layers(tmp_path) == (fields, [])

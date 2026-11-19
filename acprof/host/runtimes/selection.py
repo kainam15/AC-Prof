@@ -46,14 +46,14 @@ def select_runtime(requested: str, *, profiling_mode: str, environment: Environm
     if requested == "process":
         if environment.system != "Linux":
             raise ValueError("Process Runtime requires Linux")
-        if profiling_mode != "basic":
-            raise ValueError("Process Runtime supports basic; full is never silently downgraded")
+        if profiling_mode == "full" and not environment.native:
+            raise ValueError("Process Full requires native Linux; select basic explicitly in a guest")
         return RuntimeSelection(requested, "process", "explicit Process Runtime")
     docker = (docker_probe or probe_docker)()
     if docker.status in {"available", "verified"}:
         return RuntimeSelection(requested, "docker", "local Docker prerequisites available", docker)
-    if requested == "docker" or profiling_mode != "basic":
-        raise ValueError(f"Docker Runtime unavailable: {docker.detail}; select basic Process explicitly")
+    if requested == "docker" or profiling_mode not in {"basic", "best_effort"}:
+        raise ValueError(f"Docker Runtime unavailable: {docker.detail}; check local Docker or select Process on Linux")
     if environment.system != "Linux":
         raise ValueError("no usable execution runtime; Process Runtime requires Linux")
     return RuntimeSelection(requested, "process", f"Docker unavailable: {docker.detail}", docker)
@@ -63,8 +63,9 @@ def require_runtime_requests(args) -> None:
     """Validate the resolved runtime, including an automatic Process selection."""
     if args.runtime != "process":
         return
-    if (args.profiling_mode != "basic" or args.compute_profile_tool != "none"
-            or args.execution_profile_tool != "none" or args.dram_energy == "required"):
-        raise ValueError("Process Runtime supports basic collection without independent profilers; requested metrics cannot be downgraded")
+    if args.compute_profile_tool != "none" or args.execution_profile_tool != "none":
+        raise ValueError("Process Runtime does not support independent profilers")
+    if args.profiling_mode == "basic" and args.dram_energy == "required":
+        raise ValueError("Process requires explicit full profiling for required DRAM energy")
     if args.rebuild_image:
         raise ValueError("--rebuild-image applies to Docker; Process environments are immutable")

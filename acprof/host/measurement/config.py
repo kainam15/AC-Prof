@@ -122,6 +122,7 @@ CLIENT_ENV_FIELDS: Mapping[str, ClientEnvField] = MappingProxyType({
     "runtime_kind": ClientEnvField("ACPROF_EXECUTION_RUNTIME"),
     "process_pid": ClientEnvField("ACPROF_PROCESS_PID", int, str),
     "process_start_ticks": ClientEnvField("ACPROF_PROCESS_START_TICKS", int, str),
+    "collection_plan": ClientEnvField("ACPROF_COLLECTION_PLAN", _resource_plan_from_env, json.dumps),
     "resource_plan": ClientEnvField("ACPROF_RESOURCE_PLAN", _resource_plan_from_env, json.dumps),
     "process_startup_s": ClientEnvField("ACPROF_PROCESS_STARTUP_S"),
     "sampling_policy": ClientEnvField("ACPROF_SAMPLING_POLICY", sampling_policy),
@@ -141,6 +142,7 @@ class ClientConfig:
     runtime_kind: str = 'docker'
     process_pid: int = 0
     process_start_ticks: int = 0
+    collection_plan: dict[str, Any] = field(default_factory=dict)
     resource_plan: dict[str, Any] = field(default_factory=dict)
     process_startup_s: str = 'nan'
     model_revision: str = 'main'
@@ -198,6 +200,10 @@ class ClientConfig:
     execution_profile_plan_file: str = ''
     input_scale_order: list[float] | None = None
 
+    def collecting(self, name: str) -> bool:
+        from acprof.capabilities import collector_enabled
+        return collector_enabled(self.profiling_mode, self.collection_plan, name, gpu=self.gpu_mode == "on")
+
     @property
     def request_namespace(self) -> str:
         """Include the runtime attempt in every captured request, including preparation."""
@@ -226,8 +232,8 @@ class ClientConfig:
     def validate(self) -> None:
         if self.runtime_kind not in {'process', 'docker'}:
             raise ValueError('runtime_kind must be process or docker')
-        if self.runtime_kind == 'process' and (self.process_pid <= 0 or self.process_start_ticks <= 0 or self.profiling_mode != 'basic'):
-            raise ValueError('Process client requires a verified process identity and basic profiling')
+        if self.runtime_kind == 'process' and (self.process_pid <= 0 or self.process_start_ticks <= 0):
+            raise ValueError('Process client requires a verified process identity')
         require_profiling_mode(self.profiling_mode)
         sampling_policy(self.sampling_policy)
         evidence_config = (self.run_id, self.case_id, self.case_attempt_id, self.window_records_dir, self.telemetry_dir)

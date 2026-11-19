@@ -9,7 +9,7 @@ from contextlib import closing
 
 from acprof.host.measurement.packet_processing import postprocessing_timeout
 from acprof.packet.protocol import PACKET_SCHEMA_VERSION
-from acprof.packet.tshark import stream_tshark
+from acprof.packet.tshark import stream_tshark, tshark_fields_command
 
 # 用法：
 #   python3 -m acprof.packet.sniff_parse_pcap <pcap> <port>
@@ -84,22 +84,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     server_port = int(port)
     if not 1 <= server_port <= 65535:
         raise SystemExit(f"invalid TCP port: {port!r}")
-    normalized_port = str(server_port)
-
-    command = [
-        "tshark", "-l", "-r", pcap,
-        "-o", "tcp.desegment_tcp_streams:TRUE",
-        "-o", "http.desegment_body:TRUE",
-        "-d", f"tcp.port=={normalized_port},http",
-        "-Y", f"tcp.port=={normalized_port}",
-        "-T", "fields", "-E", "separator=\t",
-    ]
-    for field in (
-        "tcp.stream", "tcp.srcport", "tcp.dstport", "frame.len", "tcp.len",
-        "frame.number", "frame.time_epoch", "http.request", "http.request.uri",
-        "http.request.line", "http.response", "http.request_in", "http.response.code",
-    ):
-        command.extend(("-e", field))
+    command = tshark_fields_command(pcap, server_port)
     try:
         with closing(stream_tshark(command, timeout=postprocessing_timeout())) as lines:
             payload = parse_packets(lines, server_port=server_port)

@@ -26,6 +26,9 @@ class CapabilityStatus(StrEnum):
     NOT_REQUESTED = "not_requested"
     UNAVAILABLE = "unavailable"
     ERROR = "error"
+    PARTIAL = "partial"
+    TOOL_MISSING = "tool_missing"
+    NOT_APPLICABLE = "not_applicable"
 
 
 @dataclass(frozen=True)
@@ -47,8 +50,8 @@ class Capability:
 
 
 def require_profiling_mode(mode: str) -> str:
-    if mode not in {"full", "basic"}:
-        raise ValueError(f"Unknown profiling mode: {mode!r}; expected full or basic")
+    if mode not in {"full", "basic", "best_effort"}:
+        raise ValueError(f"Unknown profiling mode: {mode!r}; expected best_effort, full or basic")
     return mode
 
 
@@ -57,8 +60,16 @@ def measurement_requested(mode: str, name: str, *, gpu: bool = False) -> bool:
     if name in {"latency", "throughput", "container_cpu", "container_memory"}:
         return True
     if name == "gpu_power":
-        return mode == "full" and gpu
-    return mode == "full" and name in {"cpu_energy", "cpu_instructions", "packet_latency"}
+        return mode != "basic" and gpu
+    return mode != "basic" and name in {"cpu_energy", "cpu_instructions", "packet_latency"}
+
+
+def collector_enabled(mode: str, plan: Mapping, name: str, *, gpu: bool = False) -> bool:
+    if name == "gpu_power" and not gpu:
+        return False
+    if mode == "best_effort":
+        return plan["probes"][name]["status"] == "available"
+    return measurement_requested(mode, name, gpu=gpu)
 
 
 @dataclass
@@ -73,6 +84,7 @@ class CapabilityReport:
     row_counts: dict[str, int] | None = None
     identity: dict = field(default_factory=lambda: Environment().metadata())
     metric_support: dict[str, str] = field(default_factory=dict)
+    field_outcomes: dict = field(default_factory=dict)
 
     def __post_init__(self):
         require_profiling_mode(self.profiling_mode)
@@ -97,6 +109,7 @@ class CapabilityReport:
             "collection_finished": self.collection_finished,
             "collection_succeeded": self.collection_succeeded,
             "row_counts": self.row_counts,
+            **({"field_outcomes": self.field_outcomes} if self.field_outcomes else {}),
             "full_profile_complete": (self.identity.get("comparability_class") == "native_linux"
                                       and self.profiling_mode == "full" and complete and self.collection_complete),
         }
@@ -130,17 +143,20 @@ class CapabilityReport:
         report.collection_finished = payload.get("collection_finished", legacy_success)
         report.collection_succeeded = payload.get("collection_succeeded", legacy_success)
         report.row_counts = payload.get("row_counts")
+        report.field_outcomes = dict(payload.get("field_outcomes", {}))
         return report
 
 
 def capability_from_error(error: str | BaseException, *, source: str = "") -> Capability:
     detail = str(error)
-    text = detail.lower()
+    text = detail.lower().split("recovery steps:", 1)[0]
     if isinstance(error, PermissionError) or any(token in text for token in (
-        "permission", "access denied", "operation not permitted", "err_nvgpuctrperm",
+        "permission", "lacks capture capability", "access denied", "operation not permitted", "err_nvgpuctrperm",
         "performance monitoring is limited", "password is required",
     )):
         status = CapabilityStatus.PERMISSION_DENIED
+    elif any(token in text.split("\n", 1)[0] for token in ("missing required command", "perf executable", "perf was not found")):
+        status = CapabilityStatus.TOOL_MISSING
     elif any(token in text for token in ("unsupported", "not supported", "not applicable")):
         status = CapabilityStatus.UNSUPPORTED
     elif isinstance(error, (FileNotFoundError, ModuleNotFoundError)) or any(token in text for token in (
@@ -203,7 +219,7 @@ def measurement_report(mode: str, *, gpu_modes=(), compute_tool="none", executio
             "available" if requested else "not_requested",
             source="host_preflight" if requested else "profiling_mode",
         )
-        if requested:
+        if requested and (mode != "best_effort" or name in {"latency", "throughput"}):
             report.requested.add(name)
     selection = {
         "logical_flops": compute_tool in {"torch", "both"},
@@ -304,6 +320,7 @@ def apply_profiler_plan(report: CapabilityReport, plan: Mapping, *, source: str)
 
 
 REQUIRED_MEASUREMENT_FIELDS = {
+    "cpu_package_energy": ("cpu_energy_total_j", "cpu_energy_eff_j", "cpu_idle_power_w"),
     "dram_energy": ("dram_window_energy_j", "dram_energy_per_request_j", "dram_window_effective_energy_j"),
     "process_cpu": ("process_cpu_time_s", "process_cpu_util_avg_pct"),
     "process_memory": ("process_rss_avg_bytes", "process_rss_peak_bytes"),
@@ -322,7 +339,9 @@ def _is_formal_success_row(row: Mapping) -> bool:
 
 
 def missing_required_measurements(report: CapabilityReport, rows: Sequence[Mapping]) -> list[str]:
-    """Require actual evidence for success rows; explicit failed/OOM cases stay failed."""
+    """Require a successful formal window in a new run and actual evidence for its core metrics."""
+    if report.profiling_mode == "best_effort" and not any(_is_formal_success_row(row) for row in rows):
+        return sorted(report.requested & {"latency", "throughput"})
     return sorted(name for name in REQUIRED_MEASUREMENT_FIELDS if name in report.requested
                   and any(_is_formal_success_row(row)
                           and (name != "gpu_power" or row.get("gpu_mode") == "on") for row in rows)
@@ -359,10 +378,30 @@ def apply_collection_result(report: CapabilityReport, rows: Sequence[Mapping]) -
     report.collection_succeeded = outcomes["succeeded"]
     report.row_counts = outcomes["row_counts"]
     report.collection_complete = outcomes["succeeded"]
+    if report.profiling_mode == "best_effort":
+        from acprof.results.profile import collection_field_outcomes
+        report.field_outcomes = collection_field_outcomes(row for row in rows if str(row.get("warmup", "0")) == "0")
+        for name, cap in list(report.measurement.items()):
+            group = "cpu_energy" if name == "cpu_package_energy" else name
+            fields = {key: item for key, item in report.field_outcomes.items() if item["collector"] == group}
+            if not fields:
+                continue
+            counts = {quality for item in fields.values() for quality in item["windows"]}
+            if counts == {"not_applicable"}:
+                status = "not_applicable"
+            elif "complete" in counts and counts <= {"complete", "not_applicable", "not_requested"}:
+                status = "verified"
+            elif cap.status != "available":
+                status = cap.status
+            else:
+                status = "partial" if "complete" in counts or "partial" in counts else next(iter(sorted(counts)))
+            if status == "unknown":
+                status = "unavailable"
+            report.measurement[name] = Capability(status, cap.detail, "result_layers.json", {"fields": list(fields)})
     for name, metrics in {"gpu_memory": ("gpu_mem_used_avg_bytes", "gpu_mem_used_peak_bytes"),
                           "gpu_utilization": ("gpu_util_avg_pct",)}.items():
         item = report.measurement.get(name)
-        if item is None or item.status == CapabilityStatus.NOT_REQUESTED:
+        if report.profiling_mode == "best_effort" or item is None or item.status == CapabilityStatus.NOT_REQUESTED:
             continue
         relevant = [row for row in rows if _is_formal_success_row(row) and row.get("gpu_mode") == "on"]
         try:
@@ -376,6 +415,11 @@ def apply_collection_result(report: CapabilityReport, rows: Sequence[Mapping]) -
                                               "" if verified else "NVML query has no complete finite evidence",
                                               "result_layers.json", {"fields": list(metrics)})
     for name, metrics in REQUIRED_MEASUREMENT_FIELDS.items():
+        if report.profiling_mode == "best_effort":
+            if name not in report.requested:
+                continue
+            if name == "throughput":
+                metrics = ("throughput_app_samples_per_s",)
         if report.metric_support.get(name) == "unsupported":
             continue
         if name not in report.requested and not (

@@ -99,7 +99,9 @@ def restore_case_windows(case, *, run_id, expected):
 
 
 def archived_captures(case, record):
-    """Capture segments are never concatenated at the binary PCAP level."""
+    """Each Process attempt can bind a different loopback listening port."""
+    from acprof.config import SERVER_PORT
+    from acprof.host.measurement.capture import CaptureSegment
     captures = []
     for previous in record.get("previous_attempts", []):
         backup = previous.get("backup")
@@ -107,7 +109,9 @@ def archived_captures(case, record):
             candidate = case.layout.contained(backup) / case.pcap.relative_to(case.layout.root)
             case.layout.contained(candidate.relative_to(case.layout.root))
             if candidate.is_file():
-                captures.append(candidate)
+                process = previous.get("cleanup_process")
+                port = process.get("server_port") if process else SERVER_PORT
+                captures.append(CaptureSegment(candidate, port))
     return captures
 
 

@@ -142,7 +142,7 @@ class TestRunNotificationLifecycle:
             )
 
         def policy(*, profiling_mode, compute_tool, execution_tool, dram_energy):
-            assert ((profiling_mode, compute_tool, execution_tool, dram_energy)) == (("full", "none", "none", "auto"))
+            assert ((profiling_mode, compute_tool, execution_tool, dram_energy)) == (("best_effort", "none", "none", "auto"))
             order.append(("policy", None))
             if not allowed:
                 raise RuntimeError("stop after ordering check")

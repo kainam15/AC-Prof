@@ -212,3 +212,24 @@ def parse_csv_float(value: Any) -> float:
         return float(value)
     except (TypeError, ValueError):
         return float("nan")
+
+
+def check_optional_idle_baselines(csv_path: str, gpu: str) -> None:
+    """Evaluate drift only where this case actually measured a formal baseline."""
+    from acprof.quality import QualityCheck, write_quality
+    from acprof.results.csv import read_result_csv
+    from acprof.results.layout import case_sidecar
+    _, rows = read_result_csv(csv_path)
+    checks = {"cpu": check_case_cpu_idle_power_stable}
+    if normalize_gpu_mode(gpu) == "on":
+        checks["gpu"] = check_case_gpu_idle_power_stable
+    for device, check in checks.items():
+        field = f"{device}_idle_power_w"
+        if any(row.get("warmup") == "0" and not row_has_error_status(row)
+               and math.isfinite(parse_csv_float(row.get(field))) for row in rows):
+            try:
+                check(csv_path, ignore_error_rows=True)
+            except EnergyProfilingError as exc:
+                write_quality(case_sidecar(csv_path, "quality_checks"), [QualityCheck(
+                    f"{device}_idle_baseline_incomplete", "warning", None, None, str(exc),
+                    {"source": str(csv_path), "metric": field, "scope": "formal"}).to_dict()], append=True)

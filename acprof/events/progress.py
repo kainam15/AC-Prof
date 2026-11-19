@@ -16,7 +16,7 @@ CASE_EVENTS = frozenset({"case_selected", "case_started", "measurement_started",
 PROBE_EVENTS = frozenset({"probe_started", "probe_memory_started", "probe_request_started",
                           "probe_request_stopped", "probe_memory_finished", "probe_finished"})
 EVENTS = CASE_EVENTS | PROBE_EVENTS | {"matrix_planned", "results_merging", "result_published",
-                                      "run_finished", "probe_summary"}
+                                      "run_finished", "probe_summary", "collector_issue"}
 PROBE_STATUSES = frozenset({"ok", "startup_oom", "runtime_oom", "cuda_oom", "oom", "timeout", "error"})
 
 
@@ -50,6 +50,11 @@ def parse_event(line: str) -> dict | None:
         raise ValueError("invalid AC-Prof skipped case status")
     if name == "run_finished" and payload.get("status") not in {"ok", "no_results", "failed", "cancelled"}:
         raise ValueError("invalid AC-Prof run status")
+    if name == "collector_issue":
+        if (not isinstance(payload.get("collector"), str) or not payload["collector"]
+                or not isinstance(payload.get("detail"), str) or not isinstance(payload.get("fields"), list)
+                or not payload["fields"] or not all(isinstance(field, str) for field in payload["fields"])):
+            raise ValueError("invalid collector issue")
     if name == "matrix_planned" and not _positive_int(payload.get("total_cases")):
         raise ValueError("invalid AC-Prof matrix size")
     if name in {"case_selected", "probe_memory_started"}:
@@ -107,3 +112,15 @@ def measurement_boundary(case_id: str):
         yield
     finally:
         emit_event("measurement_stopped", case_id)
+
+def emit_collection_issues(outcomes: dict) -> None:
+    grouped: dict = {}
+    for name, item in outcomes.items():
+        if set(item["windows"]) <= {"complete", "not_applicable", "not_requested"}:
+            continue
+        entry = grouped.setdefault(item["collector"], {"fields": [], "reasons": set()})
+        entry["fields"].append(name)
+        entry["reasons"].update(item["reasons"] or item["windows"])
+    for collector, item in grouped.items():
+        emit_event("collector_issue", collector=collector, fields=item["fields"],
+                   detail="; ".join(sorted(item["reasons"]))[:3072])

@@ -88,9 +88,9 @@ class TestCapability:
         assert (importlib.util.find_spec("acprof.capabilities")) is not None, "a shared capability contract is required"
         return importlib.import_module("acprof.capabilities")
 
-    def test_cli_preserves_full_default_and_exposes_basic(self):
+    def test_cli_defaults_to_best_effort_and_accepts_legacy_basic(self):
         parser = build_parser()
-        assert (getattr(parser.parse_args(["--model", "test"]), "profiling_mode", None)) == ("full")
+        assert (getattr(parser.parse_args(["--model", "test"]), "profiling_mode", None)) == ("best_effort")
         assert (parser.parse_args(["--model", "test", "--profiling-mode", "basic"]).profiling_mode) == ("basic")
 
     def test_statuses_survive_json_without_boolean_coercion(self):
@@ -339,6 +339,15 @@ class TestCapability:
         rows = [row, {**row, "container_mem_usage_avg_bytes": ""}]
         caps.apply_collection_result(report, rows)
         assert (caps.missing_required_measurements(report, rows)) == (["container_memory"])
+
+    def test_automatic_collection_requires_a_successful_formal_inference(self):
+        caps = self.capabilities()
+        report = caps.measurement_report("best_effort", gpu_modes=["off"])
+        rows = [{"status": "ok", "warmup": "1", "latency_app_s": "1"},
+                {"status": "error", "warmup": "0", "error": "inference_failed"}]
+        caps.apply_collection_result(report, rows)
+        assert caps.missing_required_measurements(report, rows) == ["latency", "throughput"]
+        assert not report.collection_succeeded
 
     def test_explicit_oom_rows_do_not_invent_measurement_success_or_block_valid_rows(self):
         caps = self.capabilities()

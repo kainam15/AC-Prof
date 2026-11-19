@@ -36,7 +36,7 @@ class ComparisonFixture:
         directory.mkdir()
         options = vars(build_parser().parse_args([
             "--model", "example/source", "--profiling-mode", "basic", "--cpus", "1", "--mems", "4",
-            "--gpus", "off", "--warmup", "0", "--repeat", "1", "--backend", backend,
+            "--gpus", "off", "--warmup", "0", "--repeat", "1", "--idle-seconds", "20", "--backend", backend,
         ]))
         options["measurement_environment"] = {
             "OMP_NUM_THREADS": "1", "MKL_NUM_THREADS": "1", "ACPROF_RUNTIME_THREADS": "1",

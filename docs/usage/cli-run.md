@@ -11,7 +11,7 @@
 
 ```bash
 acprof run --model google-t5/t5-small --tasks translation_en_to_de,summarization \
-  --profiling-mode basic --cpus 1 --mems 4 --gpus off --input-scales 64 \
+  --cpus 1 --mems 4 --gpus off --input-scales 64 \
   --warmup 0 --repeat 1 --repeat-in-window 1 --notify none --output-dir results/t5-tasks
 ```
 
@@ -35,7 +35,7 @@ acprof run --model google-t5/t5-small --tasks translation_en_to_de,summarization
 
 ```bash
 acprof run --model google-t5/t5-small --tasks translation_en_to_de,summarization \
-  --profiling-mode basic --cpus 1 --mems 4 --gpus off --input-scales 64 \
+  --cpus 1 --mems 4 --gpus off --input-scales 64 \
   --warmup 0 --repeat 1 --repeat-in-window 1 --notify none --output-dir results/t5-tasks \
   --inference-config '<printed-requests-file>' --confirm-inference '<printed-sha256>'
 ```
@@ -91,8 +91,8 @@ GPU mode 在配置、runtime、profiling 和分析入口共用 `acprof.gpu_mode.
 | `--model-spec` | 无 | 本地 `acprof_model.json` 格式的模型接口声明，优先于仓库声明，固化到服务镜像并参与恢复身份。用于缺少任务元数据、制品选择、custom pipeline 输入映射与固定离线依赖；TUI 对应“高级参数 → 识别覆盖 → 模型接口声明”，见[模型声明](../models/pipelines.md#本地模型声明与自定义-pipeline)。 |
 | `--inference-config` | 无 | 推理请求 JSON；未提供时先生成可审阅的具体候选。与 `--workload-spec` 的输入素材职责分开。 |
 | `--confirm-inference` | 无 | 已审阅候选的完整小写 SHA-256；新实验没有匹配确认时在模型准备前停止。 |
-| `--runtime` | `auto` | 优先选择可用的本机 Docker；Linux basic 在 Docker 不可用时选择 Process。可显式覆盖，完整规则见 [Linux Runtime](../platforms/linux-runtimes.md#选择与准备)。 |
-| `--profiling-mode` | `full` | `full` 保留 Native Linux Docker 的 RAPL、perf 和 packet latency 必需条件；`basic` 采集 application latency、吞吐及对应 Runtime 的资源指标，跳过能耗、PMU、抓包。Process 当前只提供 basic；显式 full 不自动降级。 |
+| `--runtime` | `auto` | 优先选择可用的本机 Docker；Linux 在 Docker 不可用时选择 Process。可显式覆盖，完整规则见 [Linux Runtime](../platforms/linux-runtimes.md#选择与准备)。 |
+| `--profiling-mode` | `best_effort` | 新实验自动生成逐采集器计划。兼容旧参数 `basic` 和 `full`，Resume 按原实验冻结的策略执行。 |
 | `--cpus` | `auto` | Docker 展开为原有 `1,2,4,8`；Process 继承当前限制，数值列表需要可验证的 cgroup 配额。 |
 | `--cpuset-cpus` | 空 | 可选固定 CPU ID/范围，如 `0-3,8`，应用于正式采集和 startup probe；留空保留原有配额调度。规范化集合参与恢复身份，采样前核验实际 affinity。 |
 | `--mems` | `auto` | Docker 展开为原有 `2,4,8,16`；Process 继承当前限制，数值列表需要可验证的 cgroup 内存限制，单位 GiB。 |
@@ -101,7 +101,7 @@ GPU mode 在配置、runtime、profiling 和分析入口共用 `acprof.gpu_mode.
 | `--prune-startup-oom` / `--no-prune-startup-oom` | enabled | 正式矩阵前，用最低选中 CPU、内存升序执行独立 startup probe，只启动并等待 `/ready`，不产生性能结果。仅 Docker 确认启动 OOM 的连续低内存前缀用于剪枝；遇到 ready、timeout、CUDA OOM 或普通错误即停止扩展。所有被剪枝 case 标为 `inferred_not_measured`。禁用后逐格正式尝试。 |
 | `--matrix-order` | `seeded` | `seeded` 用版本化的确定性 hash 排序资源 case，并用每个 case 的独立派生 seed 排列 input scale；`declared` 保持资源参数与物化输入尺度的顺序。probe 完成后将实际顺序冻结到 `metadata/matrix_plan.json`。 |
 | `--matrix-seed` | `0` | 整数 seed；相同实验身份、probe 结论、算法版本和 seed 生成相同计划。resume 校验并复用已冻结顺序，不重新排序；不能在原目录改变 seed 或 order。 |
-| `--dram-energy` | `auto` | `full` 中独立采集可用的 DRAM RAPL 域；缺失或不可读时保持 `nan`，不因此使 full 失败。`off` 不采集，`required` 要求所有选中 package 的 DRAM 都可用且取得有效测量；不能与 `basic` 同用。DRAM 不加入 container-attributed energy。 |
+| `--dram-energy` | `auto` | 按可读性采集 DRAM RAPL 域，缺失时保留 `nan`。`off` 不采集，`required` 要求所有选中 package 的 DRAM 都可用且取得有效测量；自动采集需正的 idle 窗口。DRAM 不加入 container-attributed energy。 |
 
 GPU device 表格中的主机序号规则适用于 Docker。Process 的数字为 `CUDA_VISIBLE_DEVICES` 内的可见序号，
 不会扩大可见设备范围；记录 CUDA UUID 与共享状态，NVML 指标不可用不等于 GPU 推理不可用。
@@ -118,7 +118,7 @@ Process 自动关闭 Docker startup OOM pruning 并逐格执行；`--rebuild-ima
 | `--repeat-window-seconds` | `10.0` | `--repeat-in-window 0` 时的目标 workload window 秒数。auto 模式不再额外跑一个 10 秒校准窗口。 |
 | `--request-timeout-seconds` | `300.0` | 正式矩阵中每个 `/predict` 请求的连接等待和读取无进展上限（分别应用），必须是大于 0 的有限值；它适用于 warmup、auto-window warmup 和正式请求，不是请求的严格总截止时间，也不限制整行、整个 case 或整条命令的总运行时间；持续有数据到达可使总耗时超过此值，不自动重试。超时后保留已完成行，并将触发请求及后续未测计划行分别写成可诊断的 error 占位。 |
 | `--sample-hz` | `20.0` | GPU power sampling rate，单位 Hz；CPU workload 和 matched control window 期间也用它控制 RAPL、container cgroup、CPU frequency 和 GPU/resource usage 的采样间隔，以估计 average/peak power、vCPU share、CPU utilization 和 CPU cycles。perf MIPS 使用独立的 `perf stat` 窗口，不受该采样率影响。 |
-| `--idle-seconds` | `20.0` | 每个 workload window 前 matched control window 的目标时长。CPU、GPU、resource usage 以及启用时的 perf MIPS monitor 会按与 workload 相同的 `start()` / `stop()` 生命周期同时运行，但 control window 内不发送 `/predict` 请求。CPU baseline 为整段 RAPL 能耗 / 实际 duration；GPU baseline 为 NVML samples 的时间加权平均功率。case 结束后会复查该 case CSV 中所有有效 CPU/GPU baseline 的相对极差，达到或超过 5% 会输出 warning，实验继续运行。 |
+| `--idle-seconds` | `0.0` | 正值为已启用的 CPU/GPU 能耗采集增加匹配空闲窗口。默认只记录可用的总能耗，有效能耗保留缺失；Resume 使用冻结时长。控制窗口不发送推理请求。 |
 | `--idle-cooldown-seconds` | `5.0` | 每个 workload window 采集 idle baseline 前的统一冷却等待时间。CPU-only 和 GPU+CPU case 都使用同一个值，避免上一轮推理刚结束后的短时热状态、Docker/server 收尾或 GPU clock/power 瞬态直接进入 idle baseline。 |
 | `--idle-debug` | false | 开启 baseline 调试输出。主 CSV 会填充 GPU 的 `gpu_idle_measured_at` / `gpu_idle_rel_range_so_far` 和 CPU 的 `cpu_idle_measured_at` / `cpu_idle_rel_range_so_far`，并写出 `debug/idle/<case-id>.jsonl`。诊断文件记录 matched control window 的 GPU NVML trace、CPU RAPL 子窗口、host/container CPU delta，以及 control 结束后的 `nvidia-smi`、loadavg、top CPU processes、Docker 容器和 `docker stats` 快照。为避免诊断本身污染 baseline，逐进程 `/proc` 快照移到 control window 外，不再归入 RAPL control 能量。 |
 

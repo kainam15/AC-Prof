@@ -298,7 +298,7 @@ def _attach_probe_succeeded(result: subprocess.CompletedProcess) -> bool:
 
 
 def resolve_perf_command_prefix(
-    *, env: Mapping[str, str] | None = None,
+    *, env: Mapping[str, str] | None = None, docker_attach: bool = True,
 ) -> list[str]:
     """Probe real instruction counts without changing the caller's privileges."""
     probe_environ = os.environ if env is None else env
@@ -311,6 +311,8 @@ def resolve_perf_command_prefix(
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise MIPSProfilingError(f"{type(exc).__name__}: {exc}") from exc
     if _probe_succeeded(result):
+        if not docker_attach:
+            return ["perf"]  # The owned workload is verified when attaching.
         # Docker services run as root. A successful child-process probe does
         # not establish permission to attach across user IDs, even at paranoid=-1.
         # PID 1 is stable on the required native Linux host; no container is started.
@@ -330,6 +332,23 @@ def resolve_perf_command_prefix(
         part.strip() for part in (result.stderr, result.stdout) if part and part.strip()
     ) or f"perf did not report valid instructions (exit={result.returncode})"
     raise MIPSProfilingError(f"perf: {detail}; see docs/getting_started/installation.md#最小权限安装")
+
+
+def probe_event_set(prefix: list[str], *, env=None) -> dict:
+    """Check optional events together before a run; unsupported events cannot disable instructions."""
+    command = _perf_probe_command(prefix)
+    command[command.index("-e") + 1] = ",".join(PERF_EVENTS)
+    result = run_command(command, capture_output=True, text=True, timeout=PERF_PROBE_TIMEOUT_S,
+                         check=False, env=env)
+    output = (result.stderr or "") + "\n" + (result.stdout or "")
+    supported = {PERF_EVENT}  # The required instructions probe already succeeded.
+    for line in output.splitlines():
+        columns = [part.strip() for part in line.split(",")]
+        if len(columns) >= 3 and math.isfinite(_to_float(columns[0])):
+            supported.update(event for event in PERF_EVENTS if _event_label_matches(columns[2], event))
+    return {"events": [event for event in PERF_EVENTS if event in supported],
+            "unavailable_events": [event for event in PERF_EVENTS if event not in supported],
+            "optional_probe_error": output.strip()[:1024] if result.returncode else ""}
 
 
 def resolve_perf_command_prefix_for_pid(pid: int) -> list[str]:
@@ -398,13 +417,37 @@ def _miss_rate_pct(misses: float, references: float) -> float:
     )
 
 
+def _process_pmu_targets(root: dict) -> dict[int, int]:
+    """Snapshot existing process leaders; perf -p expands their threads and inherits new tasks."""
+    import psutil
+
+    from acprof.process_identity import process_identity, same_process
+    if not same_process(root):
+        raise MIPSProfilingError("Process PMU target identity changed")
+    try:
+        parent = psutil.Process(root["pid"])
+        targets = {item.pid: process_identity(item.pid)["start_ticks"]
+                   for item in (parent, *parent.children(recursive=True))}
+    except (OSError, psutil.Error) as exc:
+        raise MIPSProfilingError(f"Process PMU target enumeration failed: {exc}") from exc
+    if targets.get(root["pid"]) != root["start_ticks"] or not same_process(root):
+        raise MIPSProfilingError("Process PMU target identity changed")
+    return targets
+
+
 class PerfMIPSMonitor:
     def __init__(
         self,
         container_name: str,
         command_prefix: list[str] | None = None,
+        *, process_identity: dict | None = None, events: tuple[str, ...] = PERF_EVENTS,
     ) -> None:
+        self.process_identity = process_identity
+        self.targets: dict[int, int] = {}
         self.container_name = container_name
+        if PERF_EVENT not in events or set(events) - set(PERF_EVENTS):
+            raise ValueError("Invalid perf event selection")
+        self.events = events
         self.command_prefix = command_prefix
         self._proc: subprocess.Popen | None = None
         self._t_start: float | None = None
@@ -453,10 +496,13 @@ class PerfMIPSMonitor:
                 raise MIPSProfilingError("MIPS monitor is already running")
             self.close()
         self._command = None
-        if not self.container_name:
-            raise MIPSProfilingError("CONTAINER_NAME is required for MIPS profiling")
-
-        pid = common.docker_container_pid(self.container_name, error_type=MIPSProfilingError)
+        if self.process_identity is not None:
+            self.targets = _process_pmu_targets(self.process_identity)
+            pid = self.process_identity["pid"]
+        else:
+            if not self.container_name:
+                raise MIPSProfilingError("CONTAINER_NAME is required for MIPS profiling")
+            pid = common.docker_container_pid(self.container_name, error_type=MIPSProfilingError)
         prefix = list(self.command_prefix or resolve_perf_command_prefix_for_pid(pid))
         if len(prefix) != 1 or os.path.basename(prefix[0]) != "perf":
             raise MIPSProfilingError("Only a direct perf executable is supported; configure cap_perfmon first")
@@ -471,9 +517,9 @@ class PerfMIPSMonitor:
             "-x",
             ",",
             "-e",
-            ",".join(PERF_EVENTS),
+            ",".join(self.events),
             "-p",
-            str(pid),
+            ",".join(map(str, sorted(self.targets))) if self.process_identity is not None else str(pid),
             "--timeout",
             str(PERF_TIMEOUT_MS),
         ]
@@ -500,6 +546,8 @@ class PerfMIPSMonitor:
             # Preparation is outside the measurement window. Confirm that perf
             # attached to the container PID before enabling event counters.
             self._control("ping")
+            if self.process_identity is not None and self.targets != _process_pmu_targets(self.process_identity):
+                raise MIPSProfilingError("Process PMU target membership changed during attach")
 
     def start(self) -> None:
         if self._command is None or self._proc is None:
@@ -542,6 +590,10 @@ class PerfMIPSMonitor:
                     raise MIPSProfilingError("perf could not be reaped after kill") from kill_exc
                 raise MIPSProfilingError("perf did not stop after workload window") from exc
 
+        if self.process_identity is not None:
+            from acprof.process_identity import same_process
+            if not same_process(self.process_identity):
+                raise MIPSProfilingError("Process PMU root exited or changed identity during measurement")
         output = (stderr or "") + "\n" + (stdout or "")
         wall_elapsed_s = (
             self._t_end - self._t_start

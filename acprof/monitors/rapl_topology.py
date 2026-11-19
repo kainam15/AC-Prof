@@ -93,8 +93,8 @@ def discover_rapl_topology(powercap_root="/sys/class/powercap") -> dict:
 def dram_policy(mode: str, selection: str) -> bool:
     if selection not in {"auto", "off", "required"}:
         raise ValueError("DRAM energy must be auto/off/required")
-    if mode not in {"basic", "full"}:
-        raise ValueError("profiling mode must be basic/full")
+    if mode not in {"basic", "full", "best_effort"}:
+        raise ValueError("unknown collection policy")
     if mode == "basic" and selection == "required":
         raise ValueError("--dram-energy required needs --profiling-mode full")
-    return mode == "full" and selection != "off"
+    return mode != "basic" and selection != "off"

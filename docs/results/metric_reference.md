@@ -103,6 +103,8 @@
 | `latency_app_iqr_s` | `s` | `client_http` | `request_window` | `all` | `number` |
 | `latency_app_max_s` | `s` | `client_http` | `request_window` | `all` | `number` |
 | `latency_app_slow_ratio` | `ratio` | `client_http` | `request_window` | `all` | `number` |
+| `throughput_app_samples_per_s` | `sample/s` | `client_http` | `request_window` | `all` | `number` |
+| `throughput_app_samples_per_s_per_cpu_core` | `sample/s/core` | `client_http` | `request_window` | `all` | `number` |
 | `throughput_samples_per_s` | `sample/s` | `derived` | `request_window` | `all` | `number` |
 | `throughput_samples_per_s_per_cpu_core` | `sample/s/core` | `derived` | `request_window` | `all` | `number` |
 | `model_logical_mflop_per_request_torch_profiler_eager` | `MFLOP/request` | `torch` | `independent_profiler` | `all` | `number` |

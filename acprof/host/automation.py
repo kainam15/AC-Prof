@@ -43,13 +43,13 @@ def check_repository_access(repo_id: str, *, source: str = "huggingface", revisi
 
 
 def select_profiling_mode(requested: str, checks: list) -> tuple[str, list[dict]]:
-    """Only an explicit auto policy may omit unavailable full-only measurements."""
-    optional = {"rapl", "perf", "packet", "full_profiling"}
-    unavailable = [asdict(check) for check in checks if check.status == "unavailable"]
-    blockers = [check for check in unavailable if requested != "auto" or check["name"] not in optional]
+    """Optional collector decisions never switch an entire experiment's protocol."""
+    failures = [asdict(check) for check in checks if check.status not in {
+        "available", "verified", "not_requested", "not_applicable", "warning"}]
+    blockers = [item for item in failures if item["required"]]
     if blockers:
         raise RuntimeError("host preflight failed: " + "; ".join(f"{item['name']}: {item['detail']}" for item in blockers))
-    return ("basic" if unavailable else "full", unavailable) if requested == "auto" else (requested, [])
+    return requested, failures
 
 
 class AutomaticRun:
@@ -115,7 +115,9 @@ class AutomaticRun:
             previous = read_json_object(self.path, label="auto_report.json")
             if previous.get("schema_version") != 1:
                 raise ValueError("unsupported auto_report schema")
-            if previous.get("requested_profiling_mode") != args.profiling_mode:
+            if args.profiling_mode == "best_effort":
+                self.data["requested_profiling_mode"] = previous.get("requested_profiling_mode", "full")
+            elif previous.get("requested_profiling_mode") != args.profiling_mode:
                 raise ValueError("resume must keep the requested profiling mode")
             self.data["attempts"] = previous.get("attempts", []) + [{
                 "status": previous.get("status"), "stage": previous.get("stage"), "error": previous.get("error")}]
@@ -164,26 +166,16 @@ class AutomaticRun:
         self.data.update(source=task.model_source, revision=task.model_revision,
                          resolution_identity=args.resolution_identity, stage="host")
         runtime = getattr(args, "runtime", "auto")
-        check_mode = ("basic" if runtime == "process" and args.profiling_mode == "auto"
-                      else "full" if args.profiling_mode == "auto" else args.profiling_mode)
-        checks = collect_checks(runtime=runtime, profiling_mode=check_mode,
-                                gpus="on" if "on" in {normalize_gpu_mode(part) for part in args.gpus.split(",")} else "off",
-                                sniff_iface=args.sniff_iface, output_dir=self.root)
-        if runtime == "process" and args.profiling_mode == "auto":
-            from acprof.host.doctor import DoctorCheck
-            checks = [*checks, DoctorCheck(
-                "full_profiling", "unavailable",
-                "Process Runtime supports basic profiling only; full requires Docker Runtime",
-                required=False, runtime_kind="process",
-            )]
-        self.data["host_checks"] = [asdict(check) for check in checks]
-        actual, reasons = select_profiling_mode(args.profiling_mode, checks)
         saved_options = saved["options"] if saved is not None else {}
         if not isinstance(saved_options, dict):
             raise ValueError("frozen options must be an object")
         frozen_mode = saved_options.get("profiling_mode") or previous.get("profiling_mode")
-        if frozen_mode and frozen_mode != actual:
-            raise ValueError("host capability change would alter the frozen profiling mode; use a new output directory")
+        check_mode = frozen_mode or "best_effort"
+        checks = collect_checks(runtime=runtime, profiling_mode=check_mode,
+                                gpus="on" if "on" in {normalize_gpu_mode(part) for part in args.gpus.split(",")} else "off",
+                                sniff_iface=args.sniff_iface, output_dir=self.root)
+        self.data["host_checks"] = [asdict(check) for check in checks]
+        actual, reasons = select_profiling_mode(check_mode, checks)
         args.profiling_mode = actual
         self.data.update(profiling_mode=actual, mode_selection_reasons=reasons, stage="collection", status="running")
         write_model_resolution(task, self.root)

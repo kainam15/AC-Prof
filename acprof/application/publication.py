@@ -99,6 +99,9 @@ def publish_matrix_results(
     apply_collection_result(capability_report, collected_rows)
     from acprof.artifacts import atomic_write_json
     atomic_write_json(layout.path("capability_report.json"), capability_report.to_dict())
+    if capability_report.field_outcomes:
+        from acprof.events.progress import emit_collection_issues
+        emit_collection_issues(capability_report.field_outcomes)
     missing = missing_required_measurements(capability_report, collected_rows)
     if missing:
         print(

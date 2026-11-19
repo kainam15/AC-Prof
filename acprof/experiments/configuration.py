@@ -138,6 +138,8 @@ class RunConfig(RunOptions):
         values = {field.name: getattr(args, field.name, getattr(defaults, field.name))
                       if getattr(args, field.name, None) is not None else getattr(defaults, field.name)
                       for field in fields(cls)}
+        if not values["resume"] and values["profiling_mode"] in {"basic", "full", "auto"}:
+            values["profiling_mode"] = "best_effort"
         values["extra_options"] = extra
         return cls(**values)
 
@@ -157,7 +159,7 @@ class RunConfig(RunOptions):
 
     @classmethod
     def smoke(cls, model: str = "") -> RunConfig:
-        """Return a basic CPU validation run without optional collectors or notifications."""
+        """Return a short CPU workload with a single request window."""
         return cls(
             model=model,
             cpus="1",
@@ -170,7 +172,7 @@ class RunConfig(RunOptions):
             repeat_in_window=1,
             idle_seconds=0,
             idle_cooldown_seconds=0,
-            profiling_mode="basic",
+            profiling_mode="best_effort",
             compute_profile_tool="none",
             execution_profile_tool="none",
             notify="none",
@@ -293,10 +295,10 @@ class RunConfig(RunOptions):
         gpus = csv_values(self.gpus)
         if self.runtime not in {"auto", "docker", "process"}:
             errors.append(ConfigIssue("runtime", message("执行运行时必须是 auto、docker 或 process")))
-        if self.runtime == "process" and ((self.profiling_mode != "basic" and not pending_profiling)
+        if self.runtime == "process" and ((self.profiling_mode not in {"basic", "full", "best_effort"} and not pending_profiling)
                 or self.compute_profile_tool != "none" or self.execution_profile_tool != "none"
-                or extra_options.get("dram_energy") == "required"):
-            errors.append(ConfigIssue("runtime", message("Process Runtime 目前仅支持 basic 采集，且不能启用独立分析器")))
+                or (extra_options.get("dram_energy") == "required" and self.profiling_mode == "basic")):
+            errors.append(ConfigIssue("runtime", message("Process 不支持所选的独立分析器或旧采集策略")))
         if not gpus:
             errors.append(ConfigIssue("gpus", message('GPU 模式不能为空')))
         else:
@@ -356,7 +358,7 @@ class RunConfig(RunOptions):
             errors.append(ConfigIssue("task_family", message('任务族必须是 nlp/cv/audio/timeseries/diffusion/multimodal/structured')))
         if self.compute_profile_tool not in COMPUTE_PROFILE_TOOLS:
             errors.append(ConfigIssue("compute_profile_tool", message('无效的计算分析器')))
-        if self.profiling_mode not in {"full", "basic"} and not pending_profiling:
+        if self.profiling_mode not in {"full", "basic", "best_effort"} and not pending_profiling:
             errors.append(ConfigIssue("profiling_mode", message('无效的画像模式')))
         if self.sampling_policy not in {"burst", "skip"}:
             errors.append(ConfigIssue("sampling_policy", message("采样策略必须是 burst 或 skip")))
@@ -378,7 +380,9 @@ class RunConfig(RunOptions):
             parse_latency_slo_rules([str(item) for item in (extra_options.get("latency_slo") or [])])
         except ValueError as exc:
             errors.append(ConfigIssue("latency_slo", message("延迟 SLO 规则无效：{0}", str(exc))))
-        if self.profiling_mode in {"basic", "full"}:
+        if not self.resume and self.profiling_mode == "best_effort" and extra_options.get("dram_energy") == "required" and self.idle_seconds == 0:
+            errors.append(ConfigIssue("idle_seconds", message("必需 DRAM 有效能耗需要正的 Idle 窗口")))
+        if self.profiling_mode in {"basic", "full", "best_effort"}:
             try:
                 dram_policy(self.profiling_mode, extra_options.get("dram_energy") or "auto")
             except ValueError:

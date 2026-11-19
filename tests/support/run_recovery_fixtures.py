@@ -37,7 +37,7 @@ class RunRecoveryFixture:
         row = dict.fromkeys(CSV_FIELDS, "nan")
         row.update(cpu_cores=str(request.cpu), mem_cap_gb="4", gpu_mode="off",
                    input_scale="64", warmup="0", repeat_idx="0", status="ok", error="",
-                   latency_app_s="0.1", latency_s="0.09", throughput_samples_per_s="10",
+                   latency_app_s="0.1", latency_s="0.09", throughput_samples_per_s="10", throughput_app_samples_per_s="10",
                    container_cpu_util_avg_pct="0", container_mem_usage_avg_bytes="1024",
                    cpu_energy_total_j="1", vcpu_energy_total_j="0", cpu_instructions_per_request="0")
         with path.open("a", newline="") as stream:
@@ -85,6 +85,8 @@ class RunRecoveryFixture:
                 stack.enter_context(patch.object(run, name))
             stack.enter_context(patch.object(run, "start_terminal_log", return_value=None))
             stack.enter_context(patch.object(run, "require_cgroup_prerequisites", return_value="v2"))
+            stack.enter_context(patch("acprof.host.runtimes.capabilities.probe_collection_plan",
+                return_value={"schema_version": 2, "runtime_kind": "docker", "rapl_topology": {}, "probes": {}}))
             stack.enter_context(patch("acprof.host.detect.detect_task", return_value=self.task))
             stack.enter_context(patch("acprof.host.preparation.interface_probe.probe_interface", return_value={"status": "ok"}))
             stack.enter_context(patch("acprof.host.images.runtime.configure_runtime_profile"))
@@ -100,22 +102,24 @@ class RunRecoveryFixture:
             run_cli.main()
 
     def assert_missing_required_measurements_rejected(self, mode):
-        def missing_memory(request, **kwargs):
+        def missing_application_latency(request, **kwargs):
             path = Path(self.write_case(request, **kwargs))
             with path.open() as stream:
                 rows = list(csv.DictReader(stream))
             if request.cpu == 2:
-                rows[-1]["container_mem_usage_avg_bytes"] = "nan"
+                rows[-1]["latency_app_s"] = "nan"
             with path.open("w", newline="") as stream:
                 writer = csv.DictWriter(stream, fieldnames=CSV_FIELDS)
                 writer.writeheader()
                 writer.writerows(rows)
             return str(path)
         with pytest.raises(SystemExit) as caught:
-            self.invoke("--profiling-mode", mode, case=missing_memory)
+            self.invoke("--profiling-mode", mode, case=missing_application_latency)
         assert (caught.value.code) == (1)
         report = json.loads((self.directory / "capability_report.json").read_text())
-        assert (report["measurement"]["container_memory"]["status"]) == ("unavailable")
+        assert report["profiling_mode"] == "best_effort"
+        assert report["requested_measurements"] == ["latency", "throughput"]
+        assert report["measurement"]["latency"]["status"] == "unavailable"
         assert not (report["full_profile_complete"])
         assert ((self.directory / "result_layers.json").is_file())
         assert (len(list(self.directory.glob(".acprof/work/cases/*/result.csv")))) == (2)

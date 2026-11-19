@@ -74,7 +74,7 @@ ModelScope branch/tag 通过轻量 `git ls-remote` 固定为仓库 commit（需�
 `acprof tui --model <ID> --preset smoke --output-dir <目录>` 可覆盖本次初始表单。
 显式 preset 优先于已保存的实验默认参数，显式输出目录再覆盖 preset 的目录；未传入的 model
 沿用已保存模型。启动参数不直接写入设置文件，保存时机仍遵循下方约定。
-smoke 为 basic CPU 单次请求配置；`main` 和 `default` 保持 full。
+Smoke 为 CPU 单次请求配置。Smoke、Main 和 Default 共用自动采集策略。
 
 `acprof/tui/settings/preferences.py` 管理项目隔离的 `tui.json`，当前版本为 v4；
 路径与操作方式见 [TUI 设置文件](tui-experiments.md#设置文件)。

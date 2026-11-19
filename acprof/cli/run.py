@@ -22,7 +22,8 @@ def main(*, args=None, prepared_task=None, preparation_artifacts=None):
     config = RunConfig.from_namespace(args)
     # Preserve omitted CLI flags (None) at the environment boundary: shared UI
     # defaults must not overwrite a configured mirror, budget or model store.
-    application = RunApplication(environment_setup=lambda _options: configure_environment(args))
+    application = RunApplication(environment_setup=lambda _options: configure_environment(args),
+                                 restore_idle_duration=args.resume and getattr(args, "idle_seconds", None) is None)
 
     def execute():
         try:

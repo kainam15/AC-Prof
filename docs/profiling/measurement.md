@@ -73,7 +73,7 @@ collector start/stop、文件落盘；`host_process_cpu_pct` 以一个 CPU 核�
 `monitor_buffer_samples`。RSS 包含解释器、HTTP client 和其他保留对象，差值可以为负，
 不能归因于某个 collector；样本数是停止后内存缓冲区中的实际数量，不是落盘保留数。
 这些字段用于同机长时间／高频采样基线，不设跨机器绝对阈值，也不改变正式测量或原始证据协议。
-`--modes none,basic,full` 的内部采集对照仍要求单频率、单策略。该诊断不产生正式画像，
+统一策略的配对对照使用 `--modes none,best_effort`。历史对照支持 `none,basic,full`，两类对照均要求单频率、单策略。该诊断不产生正式画像，
 也不包含原样本序列化成本；窗口后持久化成本需结合整个 case 生命周期另行评估。
 
 ## 窗口原始证据与提交记录
@@ -125,18 +125,19 @@ completed request count 归一化，不能把窗口总能耗直接解释为 J/re
 
 ## Profiling mode 与能力证据
 
-`profiling_mode=full` 为默认，保留原有 native Linux、本机 Docker、cgroup v2、RAPL、硬件 instructions
-和抓包要求。`basic` 允许 Native Linux、WSL2 及受限 Linux VM/容器。
-Docker 路径仍需本机 daemon 与 cgroup v2，要求 application latency、throughput、容器 CPU/memory；
-Process 路径要求 application latency、throughput，并按权限采集进程树 CPU/RSS 与设备 GPU 遥测。
-能耗、PMU、packet latency 在 basic 中不请求、不启动、数值保持 `nan`。
-两种模式不能混作同一画像；Runtime、资源控制和指标归属也必须匹配，见 [Linux Runtime](../platforms/linux-runtimes.md)。
-Torch、NCU、Massif、Nsys 仍是显式选择的额外工具，`full` 不意味着自动开启全部工具。
+新实验采用 `profiling_mode=best_effort`。TUI、CLI 和 Auto 按当前配置在准备阶段制定采集计划。
+应用延迟、吞吐、Runtime 可用性与结果一致性是必需条件。每项可选采集器独立启用，保存权限、
+硬件、工具和运行失败原因。Native Linux 可按条件使用 RAPL、perf、PCAP 和 NVML；在 WSL2
+或受限客体中按平台策略记录缺项。独立 Torch、NCU、Massif、Nsys 仍需显式选择。
 
-`--dram-energy auto` 在 full 中尝试 DRAM，作为可选能力记录；缺失不改变原有 full 必需项。
-`off` 和 basic 的 DRAM 状态为 `not_requested`。只有 `required` 将 DRAM 加入
-`requested_measurements`，要求完整 package 覆盖及有效的原始、effective J/request；
-权限错误、部分覆盖、采样失败不能标为 verified。`required` 与 basic 组合明确报错。
+`--dram-energy auto` 尝试可读的完整 DRAM 域，`off` 记为未请求，`required` 要求有效的总能耗、
+每请求能耗和基线残差，需要正的 idle 窗口。idle 为 0 时自动采集不启动空闲基线窗口。
+采样器依次结束后发布窗口。可选采集器失败保留其阶段与原因，推理、数据持久化和无法确认的清理失败仍影响实验。
+
+准备阶段的 `static_meta.json.collection_plan` 保存 Runtime、各项探测结果、预计字段及实际选择。
+窗口 raw telemetry 保存采集器执行阶段，`resource_metric_quality` 和 `capability_report.json.field_outcomes`
+分别保存窗口证据及逐字段正式窗口状态计数。覆盖摘要按来源与质量阅读。旧 CLI 参数仍可解析；
+恢复历史实验时使用它原先的 Basic / Full 门禁、字段集及制品身份。
 
 `capability_report.json` 保存统一的 execution/measurement 对象：`available`（已声明或预检可用）、
 `verified`（有当前运行证据）、`unsupported`、`permission_denied`、`not_requested`、`unavailable`、`error`。

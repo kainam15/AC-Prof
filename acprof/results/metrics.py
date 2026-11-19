@@ -140,6 +140,8 @@ _DECLARATIONS = (
     Metric('latency_app_iqr_s', 's', 'client_http', 'request_window', row_group='latency_app_distribution', row_order=7),
     Metric('latency_app_max_s', 's', 'client_http', 'request_window', row_group='latency_app_distribution', row_order=8),
     Metric('latency_app_slow_ratio', 'ratio', 'client_http', 'request_window', row_group='latency_app_distribution', row_order=9),
+    Metric('throughput_app_samples_per_s', 'sample/s', 'client_http', 'request_window', label='应用吞吐量', group='Performance', direction='higher', summary=True),
+    Metric('throughput_app_samples_per_s_per_cpu_core', 'sample/s/core', 'client_http', 'request_window'),
     Metric('throughput_samples_per_s', 'sample/s', 'derived', 'request_window', label='吞吐量', group='Performance', direction='higher', summary=True, aggregation='mean'),
     Metric('throughput_samples_per_s_per_cpu_core', 'sample/s/core', 'derived', 'request_window'),
     # 独立 Profiler；各工具的诊断紧随对应指标。
@@ -328,6 +330,7 @@ def supported_csv_header(fields: Sequence[str]) -> bool:
     fingerprint = hashlib.sha256("\n".join(fields).encode()).hexdigest()
     return fingerprint in {
         "a24b5ad5c2a7f3b2bfb2fca08abf701a5c83a1b9b83e145fd61c119ebd790fdf",  # before shared resource metrics
+        "e6626d399f0d21771e71faa4f08cedee87eaef685f632cdf17ea01ad583c1738",  # before stable application throughput
         "ef95b18bb66cd7aea6e20b22d5304fc534c32c6175df2ffc96e022bd274fd0b8",  # before HTTP response bytes
     }
 

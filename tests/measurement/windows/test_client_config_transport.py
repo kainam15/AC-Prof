@@ -15,6 +15,7 @@ CONTRACT = {
     "runtime_kind": ("ACPROF_EXECUTION_RUNTIME", "process", "process"),
     "process_pid": ("ACPROF_PROCESS_PID", 123, "123"),
     "process_start_ticks": ("ACPROF_PROCESS_START_TICKS", 456, "456"),
+    "collection_plan": ("ACPROF_COLLECTION_PLAN", {"schema_version": 2}, '{"schema_version": 2}'),
     "resource_plan": ("ACPROF_RESOURCE_PLAN", {"method": "fixture", "verified": True}, '{"method": "fixture", "verified": true}'),
     "process_startup_s": ("ACPROF_PROCESS_STARTUP_S", "1.25", "1.25"),
     "model_revision": ("MODEL_REVISION", "revision-7", "revision-7"),

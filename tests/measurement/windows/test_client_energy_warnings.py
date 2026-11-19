@@ -380,6 +380,7 @@ class TestClientWindowEnergy:
 
         assert (row["input_units_per_request"]) == ("2.000000")
         assert (row["input_num_samples"]) == ("16000.000000")
+        assert row["throughput_app_samples_per_s"] == row["throughput_samples_per_s"]
         assert row["response_payload_bytes"] == "10.000000"
         assert (row["request_payload_bytes"]) == ("102.000000")
         assert (row["output_length_avg"]) == ("12.000000")

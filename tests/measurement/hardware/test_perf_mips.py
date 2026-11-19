@@ -444,3 +444,16 @@ class TestPerfMIPS:
         assert ("cap_perfmon=ep") in (message)
         assert ("ACPROF_SUDO_PASSWORD") not in (message)
         assert ("Avoid `sudo acprof run ...`") in (message)
+
+
+
+def test_process_pmu_checks_membership_and_root_start_ticks(monkeypatch):
+    root = {"pid": 41, "start_ticks": 1041}
+    parent = SimpleNamespace(pid=41, children=lambda *, recursive: [SimpleNamespace(pid=42)])
+    monkeypatch.setattr("psutil.Process", lambda _pid: parent)
+    monkeypatch.setattr("acprof.process_identity.process_identity", lambda pid: {"pid": pid, "start_ticks": 1000 + pid})
+    monkeypatch.setattr("acprof.process_identity.same_process", lambda identity: identity == root)
+    assert perf_mips._process_pmu_targets(root) == {41: 1041, 42: 1042}
+    monkeypatch.setattr("acprof.process_identity.same_process", Mock(side_effect=[True, False]))
+    with pytest.raises(perf_mips.MIPSProfilingError, match="identity changed"):
+        perf_mips._process_pmu_targets(root)

@@ -109,7 +109,7 @@ def _gpu() -> str:
     return f"{devices}；Docker 已注册 NVIDIA runtime（容器 GPU 尚未实测）"
 
 
-def collect_checks(*, runtime: str = "auto", profiling_mode: str = "full", gpus: str = "off",
+def collect_checks(*, runtime: str = "auto", profiling_mode: str = "best_effort", gpus: str = "off",
                    sniff_iface: str = "docker0", output_dir: Path | None = None) -> list[DoctorCheck]:
     gpus = normalize_gpu_mode(gpus)
     from acprof.host.runtimes.selection import select_runtime
@@ -138,9 +138,10 @@ def collect_checks(*, runtime: str = "auto", profiling_mode: str = "full", gpus:
                     gpu = process_gpu_device()
                 except ValueError as exc:
                     gpu = {"status": "unavailable", "error": str(exc)}
-            plan = probe_collection_plan("process", gpu=gpu)
+            plan = probe_collection_plan("process", gpu=gpu, profiling_mode=profiling_mode, service_cgroup=False)
             checks.extend(DoctorCheck(name, item['status'], item['detail'],
-                                      required=name in {"process_cpu", "process_memory"})
+                                      required=profiling_mode != "best_effort" and name in {"process_cpu", "process_memory"}
+                                      or (profiling_mode == "full" and name in {"cpu_energy", "cpu_instructions", "packet_latency"}))
                           for name, item in plan['probes'].items())
             if gpus == "on":
                 gpu_ready = gpu.get("status") == "available" and bool(gpu.get("uuid"))
@@ -156,7 +157,7 @@ def collect_checks(*, runtime: str = "auto", profiling_mode: str = "full", gpus:
     checks = [
         runtime_check,
         _check("environment", lambda: preflight.require_collection_host(profiling_mode=profiling_mode),
-               "WSL2 请使用 --profiling-mode basic；full 需要 Native Linux。"),
+               "在支持的 Linux 环境使用自动采集；历史 Full 协议需要 Native Linux。"),
         _check("architecture", _architecture, "请使用 Linux x86_64；当前依赖锁不支持 ARM。"),
         _check("cgroup_v2", preflight.require_cgroup_prerequisites, "启用统一 cgroup v2 后重启。"),
         _check("docker", preflight.require_native_docker,
@@ -165,6 +166,18 @@ def collect_checks(*, runtime: str = "auto", profiling_mode: str = "full", gpus:
                "安装 Docker Buildx plugin（docker-buildx-plugin）。"),
         _check("resources", _resources, "重新安装完整 AC-Prof wheel 或 standalone release。"),
     ]
+    if profiling_mode == "best_effort":
+        from acprof.host.gpu_device import resolve_gpu_device
+        from acprof.host.runtimes.capabilities import probe_collection_plan
+        gpu = {}
+        if gpus == "on":
+            try:
+                gpu = resolve_gpu_device()
+            except (OSError, ValueError, RuntimeError) as exc:
+                gpu = {"error": str(exc)}
+        plan = probe_collection_plan("docker", gpu=gpu, sniff_iface=sniff_iface, env=_probe_environment())
+        checks.extend(DoctorCheck(name, item["status"], item["detail"], required=False)
+                      for name, item in plan["probes"].items())
     for name, action, remedy in (
         ("rapl", lambda: _capability(preflight.probe_cpu_energy),
          "检查 /sys/class/powercap 的 energy_uj 读取权限；或先用 --profiling-mode basic。"),
@@ -173,6 +186,8 @@ def collect_checks(*, runtime: str = "auto", profiling_mode: str = "full", gpus:
         ("packet", lambda: _packet(sniff_iface),
          "安装 tcpdump/tshark/libcap2-bin；配置 tcpdump capture capabilities 和 --sniff-iface。"),
     ):
+        if profiling_mode == "best_effort":
+            continue
         checks.append(_check(name, action, remedy) if profiling_mode == "full" else
                       DoctorCheck(name, "not_requested", "basic 模式不要求此能力"))
     checks.append(_check("gpu", _gpu, "检查 NVIDIA driver 和 NVIDIA Container Toolkit。")

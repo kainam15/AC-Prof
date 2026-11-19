@@ -131,7 +131,7 @@ class RunApplication:
 
     def __init__(self, *, notifications=None, workflow_factory=None,
                  state_factory=None, runtime_preparer=None, matrix_runner=None,
-                 terminal_start=None, terminal_stop=None, environment_setup=None) -> None:
+                 terminal_start=None, terminal_stop=None, environment_setup=None, restore_idle_duration=False) -> None:
         self.notifications = notifications if notifications is not None else RunNotifications()
         self.workflow_factory = workflow_factory
         self.state_factory = state_factory or RunState
@@ -140,6 +140,7 @@ class RunApplication:
         self.terminal_start = terminal_start or start_terminal_log
         self.terminal_stop = terminal_stop or stop_terminal_log
         self.environment_setup = environment_setup or configure_environment
+        self.restore_idle_duration = restore_idle_duration
         self.run_state: RunState | None = None
         self.terminal_log: tuple[str, str, str] | None = None
         self._running = False
@@ -224,18 +225,37 @@ class RunApplication:
 
     def _run_host_preflight(self, args, *, dram_enabled: bool, workflow):
         def host_preflight():
+            gpu = {}
             if args.runtime == "process":
-                from acprof.host.run_state import MeasurementLock
                 from acprof.host.runtimes.gpu import process_gpu_device
                 from acprof.host.runtimes.process_control import require_process_supervision
                 from acprof.host.runtimes.resources import preflight_resources
-                with MeasurementLock():
-                    require_process_supervision()
-                    cpus, mems, gpus = resource_matrix(args)
-                    preflight_resources(cpus, mems, args.cpuset_cpus)
-                    args.process_gpu = process_gpu_device(args.gpu_device) if "on" in gpus else {}
-                return "not_used", {}, {}
-            version = require_cgroup_prerequisites()
+                require_process_supervision()
+                cpus, mems, gpus = resource_matrix(args)
+                preflight_resources(cpus, mems, args.cpuset_cpus)
+                args.process_gpu = process_gpu_device(args.gpu_device) if "on" in gpus else {}
+                version, gpu = "not_used", args.process_gpu
+                if "on" in gpus and args.profiling_mode == "best_effort" and not gpu.get("uuid"):
+                    raise RuntimeError(f"Requested CUDA device unavailable: {gpu.get('error')}")
+            else:
+                version = require_cgroup_prerequisites()
+                if "on" in [normalize_gpu_mode(part) for part in args.gpus.split(",")]:
+                    gpu = pin_gpu_device(args.gpu_device)
+            if args.profiling_mode == "best_effort" or args.runtime == "process":
+                from acprof.host.runtimes.capabilities import probe_collection_plan
+                plan = probe_collection_plan(args.runtime, gpu=gpu, profiling_mode=args.profiling_mode,
+                                             sniff_iface=args.sniff_iface, dram_energy=args.dram_energy,
+                                             service_cgroup=args.cpus != "auto" or args.mems != "auto")
+                plan["independent_tools"] = {
+                    "torch": args.compute_profile_tool in {"torch", "both"},
+                    "ncu": args.compute_profile_tool in {"ncu", "both", "vendor"},
+                    "massif": args.execution_profile_tool in {"massif", "both"},
+                    "nsys": args.execution_profile_tool in {"nsys", "both"},
+                }
+                args.collection_plan = plan
+                if args.dram_energy == "required" and plan["probes"]["dram_energy"]["status"] != "available":
+                    raise RuntimeError(f"Required DRAM RAPL unavailable: {plan['probes']['dram_energy']['detail']}")
+                return version, plan["rapl_topology"], {}
             from acprof.monitors.rapl_topology import discover_rapl_topology
             from acprof.platform import detect_environment
             topology = discover_rapl_topology() if detect_environment().native else {}
@@ -249,11 +269,11 @@ class RunApplication:
                 measurements["cpu_energy"] = require_cpu_energy_prerequisites()
             if measurement_requested(args.profiling_mode, "cpu_instructions"):
                 measurements["cpu_instructions"] = require_mips_prerequisites()
-            if "on" in [normalize_gpu_mode(part) for part in args.gpus.split(",")]:
-                pin_gpu_device(args.gpu_device)
             return version, topology, measurements
 
-        return workflow.run("preflight", host_preflight)
+        from acprof.host.run_state import MeasurementLock
+        with MeasurementLock():
+            return workflow.run("preflight", host_preflight)
 
     def _collect_matrix(self, args, *, task_info, prepared, cpu_list, mem_list, gpu_list,
                         output_dir: str, run_state: RunState) -> list[str]:
@@ -295,6 +315,8 @@ class RunApplication:
                         idle_debug=args.idle_debug,
                         sniff_iface=args.sniff_iface,
                         profiling_mode=args.profiling_mode,
+                        collection_plan=getattr(args, "collection_plan", {}),
+                        require_packet_latency=args.profiling_mode == "full",
                         dram_energy=args.dram_energy,
                     ),
                     plans=CasePlans(
@@ -394,9 +416,31 @@ class RunApplication:
     def _execute(self, config: RunConfig, *, prepared_task=None,
                  preparation_artifacts=None, command: str, task_child: bool = False) -> RunOutcome:
         start_time = time.perf_counter()
+        from acprof.results.layout import ArtifactLayout
+        terminal_output_dir = str(config.result_dir(Path.cwd()))
+        has_run_state = config.resume and ArtifactLayout.discover(terminal_output_dir).path("run_state.json").exists()
+        saved_run = load_run_state(terminal_output_dir) if has_run_state else None
+        if config.resume:
+            if saved_run:
+                saved_options = saved_run["options"]
+                if not isinstance(saved_options, dict):
+                    raise ValueError("Invalid frozen run options")
+            else:
+                from acprof.application.task_runs import TaskCollection
+                _, manifest = TaskCollection.read_manifest(config)
+                saved_options = manifest["configuration"]
+            frozen_mode = saved_options.get("profiling_mode", "full")
+            if self.restore_idle_duration:
+                from acprof.config import DEFAULT_IDLE_SECONDS
+                config = replace(config, idle_seconds=saved_options.get("idle_seconds",
+                                 DEFAULT_IDLE_SECONDS if frozen_mode != "best_effort" else 0.0))
+            if config.profiling_mode not in {"best_effort", "auto", frozen_mode}:
+                raise ValueError("Resume requires the frozen collection policy")
+            config = replace(config, profiling_mode=frozen_mode)
+        elif not task_child and config.profiling_mode in {"full", "basic", "auto"}:
+            config = replace(config, profiling_mode="best_effort")
         requested_args, latency_slo_rules, dram_enabled = self._validate_execution_options(config)
         run_command = command
-        terminal_output_dir = str(config.result_dir(Path.cwd()))
 
         # ── Step 1: Detect task ──
         print("=" * 60)
@@ -410,9 +454,6 @@ class RunApplication:
         workflow = self.workflow_factory(requested_args.output_dir) if self.workflow_factory else PreparationWorkflow.from_environment(requested_args.output_dir)
         workflow.continue_on_task_failure = task_child
 
-        from acprof.results.layout import ArtifactLayout
-        has_run_state = ArtifactLayout.discover(terminal_output_dir).path("run_state.json").exists()
-        saved_run = load_run_state(terminal_output_dir) if requested_args.resume and has_run_state else None
         frozen_runtime = saved_run.get("runtime") if saved_run is not None else None
         collection = None
         if requested_args.resume and not saved_run and not task_child:

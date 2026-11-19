@@ -158,7 +158,7 @@ class TestSetup:
         assert install["args"][install["args"].index("--constraint") + 1] == constraints
         assert not Path(constraints).exists(), "temporary exported constraints must be cleaned up"
         calls = self.calls("acprof")
-        assert ([call["args"] for call in calls]) == ([["doctor", "--profiling-mode", "basic", "--gpus", "off"]])
+        assert ([call["args"] for call in calls]) == ([["doctor", "--gpus", "off"]])
         assert (calls[0]["cwd"]) == (str(self.checkout))
         assert ("tui") in (result.stdout)
         assert not (any(call["args"] == ["tool", "update-shell"] for call in self.calls("uv")))

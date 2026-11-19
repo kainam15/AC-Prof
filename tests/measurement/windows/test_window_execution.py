@@ -340,3 +340,41 @@ def test_journal_cancellation_survives_recorded_cleanup_failure(tmp_path):
         window.execute(spec(), Journal(stream, events, fail=cancellation))
     assert caught.value is cancellation
     assert collector.stop_calls == collector.close_calls == 1
+
+
+@pytest.mark.parametrize("failure", ["construct", "prepare", "start", "stop"])
+def test_optional_perf_failure_preserves_application_window_and_journal(tmp_path, failure):
+    from acprof.results.profile import metric_observation
+    events = []
+    phases = []
+    resource = Collector(events)
+    def operation(name):
+        phases.append(name)
+        if name == failure:
+            raise PermissionError("perf attach denied")
+    def factory(_target):
+        operation("construct")
+        return SimpleNamespace(prepare=lambda: operation("prepare"), start=lambda: operation("start"),
+                               stop=lambda *args: operation("stop"), close=lambda: operation("close"))
+    plan = {"probes": {name: {"status": status, "detail": ""} for name, status in (
+        ("cpu_energy", "unsupported"), ("cpu_instructions", "available"), ("gpu_power", "not_applicable"),
+        ("packet_latency", "tool_missing"), ("cgroup", "available"))}}
+    config = ClientConfig(case_name="case", profiling_mode="best_effort", collection_plan=plan,
+                          cpu_cores=2, batch_size=2, repeat_in_window=2, idle_seconds=0, use_mips=True)
+    window = executor(resource, responses(events), config=config, dependencies=MonitorDependencies(
+        resource=lambda **kwargs: resource, instructions=factory))
+    path = tmp_path / "requests.jsonl"
+    with path.open("w") as stream:
+        result = window.execute(spec(), Journal(stream, events))
+    assert result.row["status"] == "ok"
+    assert float(result.row["latency_app_s"]) == pytest.approx(.2)
+    assert float(result.row["throughput_app_samples_per_s"]) == pytest.approx(10)
+    assert events.count("request") == 2
+    assert resource.close_calls == 1
+    assert json.loads(path.read_text())["status"] == "ok"
+    assert result.row["cpu_instructions_per_request"] == "nan"
+    observation = metric_observation(result.row, "cpu_instructions_per_request")
+    assert observation["quality"] == "permission_denied"
+    assert failure in observation["reason"]
+    assert phases.count("close") == int(failure != "construct")
+    assert metric_observation(result.row, "latency_s")["quality"] == "tool_missing"

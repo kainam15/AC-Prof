@@ -8,7 +8,6 @@
 
 ```bash
 acprof run --model google-bert/bert-base-uncased \
-  --profiling-mode basic \
   --cpus 1 --mems 4 --gpus off --input-scales 64 \
   --warmup 0 --repeat 1 --repeat-in-window 1 \
   --compute-profile-tool none --execution-profile-tool none \
@@ -56,7 +55,7 @@ acprof run --model Ritual-Net/iris-classification \
   --workload-spec examples/onnxruntime/iris.json --input-scales 1 \
   --cpus 1 --mems 1 --gpus off --batch-size 1 \
   --warmup 0 --repeat 1 --repeat-in-window 1 \
-  --profiling-mode basic --compute-profile-tool none --execution-profile-tool none \
+  --compute-profile-tool none --execution-profile-tool none \
   --notify none --output-dir results/onnx-basic
 ```
 

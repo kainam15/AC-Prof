@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 
 from acprof.monitors import resource_metrics, resource_readers
 from acprof.monitors.common import sample_periodically, stop_sampling_thread
-from acprof.monitors.gpu_telemetry import gpu_metric_evidence, read_gpu_sample
+from acprof.monitors.gpu_telemetry import STATE_INTERVAL_S, gpu_metric_evidence, read_gpu_sample
 from acprof.monitors.interfaces import ResourceStopResult
 from acprof.monitors.sampling import DEFAULT_RAW_SAMPLE_LIMIT, SamplingDiagnostics, SamplingPolicy
 
@@ -40,12 +40,15 @@ class ResourceUsageMonitor:
         device_uuid: str = "",
         sampling_policy: SamplingPolicy = "burst",
         raw_sample_limit: int = DEFAULT_RAW_SAMPLE_LIMIT,
+        enabled_gpu_queries: frozenset[str] | None = None,
     ) -> None:
         self.sample_hz = float(sample_hz)
         self.container_name = container_name
         self.cpu_cores = float(cpu_cores)
         self.mem_limit_bytes = float(mem_cap_gb) * float(resource_metrics.BYTES_PER_GIB)
-        self.use_gpu = bool(use_gpu)
+        self.enabled_gpu_queries = enabled_gpu_queries
+        self.use_gpu = bool(use_gpu) and enabled_gpu_queries != frozenset()
+        self._state_sample_at: float | None = None
         self.device_index = int(device_index)
         self.device_uuid = device_uuid
         self.dt = 1.0 / self.sample_hz
@@ -92,6 +95,7 @@ class ResourceUsageMonitor:
         self._runtime_error = ""
         self._runtime_errors: list[str] = []
         self._required_errors: set[str] = set()
+        self._reader_errors: dict[str, str] = {}
         self._closed = False
         self._process_pid = 0
         self._process_monitor: ProcessUsageMonitor | None = None
@@ -104,6 +108,7 @@ class ResourceUsageMonitor:
                 proc_root=proc_root,
             )
             self._process_pid = getattr(readers, 'pid', 0)
+            self._init_error = getattr(readers, 'cgroup_error', '')
             self._cpu_reader = readers.cpu
             self._mem_reader = readers.memory
             self._swap_reader = readers.swap
@@ -173,6 +178,7 @@ class ResourceUsageMonitor:
             or self._io_operations_reader is not None
             or self._pids_reader is not None
             or self._gpu_handle is not None
+            or self._process_monitor is not None
         )
 
     def start(self) -> None:
@@ -183,6 +189,7 @@ class ResourceUsageMonitor:
             raise RuntimeError("Resource usage monitor is already running")
 
         self.samples = []
+        self._state_sample_at = None
         if self._process_monitor is not None:
             self._process_monitor.samples = []
         self.sampling_diagnostics = SamplingDiagnostics(self.sampling_policy, self.dt)
@@ -195,12 +202,12 @@ class ResourceUsageMonitor:
             try:
                 self._swap_limit_bytes = self._swap_limit_reader()
             except Exception as exc:
-                self._record_runtime_error(str(exc))
+                self._record_runtime_error(str(exc), 'swap_limit')
         if self._io_reader is not None:
             try:
                 self._io_start = self._io_reader()
             except Exception as exc:
-                self._record_runtime_error(str(exc))
+                self._record_runtime_error(str(exc), 'io')
         self._window_counters_start = self._read_window_counter_snapshots()
         self._t_start = time.perf_counter()
         self._t_end = None
@@ -238,7 +245,7 @@ class ResourceUsageMonitor:
             try:
                 self._io_end = self._io_reader()
             except Exception as exc:
-                self._record_runtime_error(str(exc))
+                self._record_runtime_error(str(exc), 'io')
         samples = [
             sample
             for sample in self.samples
@@ -262,7 +269,7 @@ class ResourceUsageMonitor:
                 )
                 if after < before:
                     self._record_runtime_error(
-                        f"container_io_{direction}_bytes counter reset: {before} -> {after}"
+                        f"container_io_{direction}_bytes counter reset: {before} -> {after}", "io"
                     )
                 setattr(result, f"container_io_{direction}_bytes", delta)
         resource_metrics.apply_window_counter_metrics(
@@ -273,7 +280,7 @@ class ResourceUsageMonitor:
         )
         result.metric_evidence = gpu_metric_evidence(asdict(result), self.gpu_query_errors,
             requested=self.use_gpu, initialization_error=self._gpu_initialization_error,
-            sampling={'interval_s': self.dt, 'policy': self.sampling_policy, 'state_interval_s': self.dt})
+            sampling={'interval_s': self.dt, 'policy': self.sampling_policy, 'state_interval_s': self.dt if self.enabled_gpu_queries is None else max(self.dt, STATE_INTERVAL_S)})
         result.required_error = '; '.join(filter(None, (self._init_error, *sorted(self._required_errors))))
         if self._process_monitor is not None:
             from acprof.monitors.process_usage import ProcessUsageResult
@@ -293,7 +300,7 @@ class ResourceUsageMonitor:
         from acprof.telemetry import capture_samples, finite_json
         return finite_json({
             "status": "recorded" if self._t_start is not None and self.samples else "unavailable",
-            "error": self._error_message(),
+            "error": self._error_message(), "reader_errors": self._reader_errors, "cgroup_error": self._init_error,
             "process": self._process_monitor.telemetry_snapshot() if self._process_monitor is not None else None,
             "gpu": {"scope": "device", "uuid": self.device_uuid, "query_errors": self.gpu_query_errors,
                     "error": self._gpu_initialization_error},
@@ -347,7 +354,9 @@ class ResourceUsageMonitor:
             self._gpu_initialized = False
         self._closed = True
 
-    def _record_runtime_error(self, error: str) -> None:
+    def _record_runtime_error(self, error: str, reader: str = "") -> None:
+        if reader:
+            self._reader_errors.setdefault(reader, error)
         if not error or error in self._runtime_errors:
             return
         # Bound sampling-thread diagnostics without losing the first causes.
@@ -385,7 +394,7 @@ class ResourceUsageMonitor:
             try:
                 setattr(snapshots, field, reader())
             except Exception as exc:
-                self._record_runtime_error(str(exc))
+                self._record_runtime_error(str(exc), field)
         return snapshots
 
     def _read_sample(self, timestamp: float) -> resource_metrics.ResourceUsageSample:
@@ -407,28 +416,33 @@ class ResourceUsageMonitor:
                 container_cpu_s = self._cpu_reader()
             except Exception as exc:
                 self._required_errors.add(f'cpu: {exc}')
-                self._record_runtime_error(str(exc))
+                self._record_runtime_error(str(exc), 'cpu')
 
         if self._mem_reader is not None:
             try:
                 container_mem_usage_bytes = self._mem_reader()
             except Exception as exc:
                 self._required_errors.add(f'memory: {exc}')
-                self._record_runtime_error(str(exc))
+                self._record_runtime_error(str(exc), 'memory')
 
         if self._swap_reader is not None:
             try:
                 container_swap_usage_bytes = self._swap_reader()
             except Exception as exc:
-                self._record_runtime_error(str(exc))
+                self._record_runtime_error(str(exc), 'swap')
 
         try:
             cpu_freq_avg_hz, cpu_freq_peak_hz = self._cpu_frequency_reader()
         except Exception as exc:
-            self._record_runtime_error(str(exc))
+            self._record_runtime_error(str(exc), 'host_cpufreq')
 
         if self._gpu_handle is not None and pynvml is not None:
-            gpu = read_gpu_sample(pynvml, self._gpu_handle, self._gpu_query_error)
+            state = (self.enabled_gpu_queries is None or self._state_sample_at is None
+                     or timestamp - self._state_sample_at >= STATE_INTERVAL_S)
+            gpu = read_gpu_sample(pynvml, self._gpu_handle, self._gpu_query_error,
+                                  state=state, enabled=self.enabled_gpu_queries)
+            if state:
+                self._state_sample_at = timestamp
             gpu_util_pct = gpu.get('gpu_util_pct')
             gpu_mem_used_bytes = gpu.get('gpu_mem_used_bytes')
             gpu_mem_total_bytes = gpu.get('gpu_mem_total_bytes')

@@ -109,6 +109,10 @@ class TestNativeDockerGuard:
         monkeypatch.setattr(run.RunApplication, "_prepare_inference_configuration",
                             lambda _app, task, *args, **kwargs: task)
         monkeypatch.setattr("acprof.host.preparation.interface_probe.probe_interface", Mock(return_value={"status": "ok"}))
+        monkeypatch.setattr("acprof.host.runtimes.capabilities.probe_collection_plan", lambda *args, **kwargs: {
+            "schema_version": 2, "runtime_kind": "docker", "rapl_topology": {}, "probes": {
+                name: {"status": "unavailable", "detail": "fixture", "source": "fixture"} for name in
+                ("cpu_energy", "cpu_instructions", "gpu_power", "packet_latency", "dram_energy")}})
         self._request = request
         from tests.support.platform_fixtures import native_policy
         native_policy(self._request)
@@ -341,73 +345,21 @@ class TestNativeDockerGuard:
         ):
             run.require_cpu_energy_prerequisites()
 
-    def test_main_runs_cpu_energy_preflight_before_runtime_preparation(self) -> None:
-        with patch.object(
-            sys,
-            "argv",
-            ["acprof run", "--model", "dummy-model", "--notify", "none"],
-        ), patch(
-            "acprof.application.run.bootstrap_project_env",
-            return_value=None,
-        ), patch("acprof.application.run.require_collection_host"), patch(
-            "acprof.host.preflight.require_native_docker"
-        ), patch(
-            "acprof.application.run.require_cgroup_prerequisites",
-            return_value="v2",
-        ), patch(
-            "acprof.application.run.require_packet_latency_prerequisites",
-        ), patch(
-            "acprof.application.run.require_cpu_energy_prerequisites",
-            side_effect=SystemExit(3),
-        ) as preflight, patch(
-            "acprof.application.run.require_mips_prerequisites",
-        ), patch(
-            "acprof.host.detect.detect_task",
-            return_value=self.resolved_task,
-        ) as detect, patch(
-            "acprof.application.run.prepare_runtime",
-            side_effect=AssertionError("runtime preparation must not run before CPU energy preflight"),
-        ):
-            with pytest.raises(SystemExit) as raised:
-                run_cli.main()
-
-        assert (raised.value.code) == (3)
-        detect.assert_called_once()
-        preflight.assert_called_once_with()
-
-    def test_main_runs_mips_preflight_before_runtime_preparation(self) -> None:
-        with patch.object(
-            sys,
-            "argv",
-            ["acprof run", "--model", "dummy-model", "--notify", "none"],
-        ), patch(
-            "acprof.application.run.bootstrap_project_env",
-            return_value=None,
-        ), patch("acprof.application.run.require_collection_host"), patch(
-            "acprof.host.preflight.require_native_docker"
-        ), patch(
-            "acprof.application.run.require_cgroup_prerequisites",
-            return_value="v2",
-        ), patch(
-            "acprof.application.run.require_packet_latency_prerequisites",
-        ), patch(
-            "acprof.application.run.require_cpu_energy_prerequisites",
-        ), patch(
-            "acprof.application.run.require_mips_prerequisites",
-            side_effect=SystemExit(4),
-        ) as preflight, patch(
-            "acprof.host.detect.detect_task",
-            return_value=self.resolved_task,
-        ) as detect, patch(
-            "acprof.application.run.prepare_runtime",
-            side_effect=AssertionError("runtime preparation must not run before MIPS preflight"),
-        ):
-            with pytest.raises(SystemExit) as raised:
-                run_cli.main()
-
-        assert (raised.value.code) == (4)
-        detect.assert_called_once()
-        preflight.assert_called_once_with()
+    @pytest.mark.parametrize("required_check", [
+        "require_packet_latency_prerequisites", "require_cpu_energy_prerequisites", "require_mips_prerequisites",
+    ])
+    def test_frozen_full_keeps_required_preflight_gates(self, required_check, monkeypatch):
+        from acprof.experiments.configuration import RunConfig
+        args = RunConfig(model="fixture/model", runtime="docker", profiling_mode="full", gpus="off").to_namespace()
+        monkeypatch.setattr(run, "require_cgroup_prerequisites", lambda: "v2")
+        monkeypatch.setattr("acprof.monitors.rapl_topology.discover_rapl_topology", lambda: {})
+        for name in ("require_packet_latency_prerequisites", "require_cpu_energy_prerequisites", "require_mips_prerequisites"):
+            monkeypatch.setattr(run, name, Mock(side_effect=SystemExit(3)) if name == required_check else Mock())
+        workflow = SimpleNamespace(run=lambda stage, operation: operation())
+        with pytest.raises(SystemExit) as raised:
+            run.RunApplication()._run_host_preflight(args, dram_enabled=False, workflow=workflow)
+        assert raised.value.code == 3
+        getattr(run, required_check).assert_called_once()
 
     def test_docker_desktop_context_exits_before_docker_info(self) -> None:
         context = SimpleNamespace(returncode=0, stdout="desktop-linux\n", stderr="")
@@ -555,34 +507,6 @@ class TestNativeDockerGuard:
                 run_cli.main()
         detect.assert_not_called()
 
-    def test_main_runs_packet_latency_preflight_before_runtime_preparation(self) -> None:
-        with patch.object(sys, "argv", ["acprof run", "--model", "dummy-model"]), patch(
-            "acprof.application.run.bootstrap_project_env",
-            return_value=None,
-        ), patch("acprof.application.run.require_collection_host"), patch(
-            "acprof.host.preflight.require_native_docker"
-        ), patch(
-            "acprof.application.run.require_cgroup_prerequisites",
-            return_value="v2",
-        ), patch(
-            "acprof.application.run.require_packet_latency_prerequisites",
-            side_effect=SystemExit(2),
-        ) as preflight, patch(
-            "acprof.application.run.require_cpu_energy_prerequisites",
-        ), patch(
-            "acprof.host.detect.detect_task",
-            return_value=self.resolved_task,
-        ) as detect, patch(
-            "acprof.application.run.prepare_runtime",
-            side_effect=AssertionError("runtime preparation must not run before packet latency preflight"),
-        ):
-            with pytest.raises(SystemExit) as raised:
-                run_cli.main()
-
-        assert (raised.value.code) == (2)
-        detect.assert_called_once()
-        preflight.assert_called_once_with(sniff_iface="docker0")
-
     def test_main_defaults_to_auto_window_and_compute_profiler_disabled(self) -> None:
         task_info = TaskInfo(
             model_id="dummy-model",
@@ -673,7 +597,7 @@ class TestNativeDockerGuard:
         assert (request.workload.repeat_in_window) == (0)
         assert (request.workload.repeat_window_seconds) == (10.0)
         assert (request.workload.request_timeout_seconds) == (300.0)
-        assert (request.measurement.idle_seconds) == (20.0)
+        assert request.measurement.idle_seconds == 0.0
         assert (request.measurement.idle_cooldown_seconds) == (5.0)
         assert (request.plans.compute_profile_plan_file) == ("")
         assert (request.prune_startup_oom)

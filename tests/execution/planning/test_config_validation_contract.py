@@ -56,7 +56,7 @@ def test_runtime_resource_aliases_and_later_issues_are_reported_together():
         config.validate()
 
     assert [(issue.field, str(issue.reason)) for issue in caught.value.issues] == [
-        ("runtime", "Process Runtime 目前仅支持 basic 采集，且不能启用独立分析器"),
+        ("runtime", "Process 不支持所选的独立分析器或旧采集策略"),
         ("cpus", "启用启动 OOM 剪枝时 CPU 列表不能重复"),
         ("mems", "启用启动 OOM 剪枝时内存列表不能重复"),
         ("gpus", "启用启动 OOM 剪枝时 GPU 模式不能重复"),
@@ -64,7 +64,7 @@ def test_runtime_resource_aliases_and_later_issues_are_reported_together():
         ("repeat", "Repeat 必须大于 0"),
         ("task_family", "任务族必须是 nlp/cv/audio/timeseries/diffusion/multimodal/structured"),
         ("notify", "无效的通知模式"),
-        ("dram_energy", "DRAM 能耗策略与画像模式不兼容"),
+        ("idle_seconds", "必需 DRAM 有效能耗需要正的 Idle 窗口"),
     ]
 
 
@@ -117,7 +117,7 @@ def test_normalization_keeps_resource_order_paths_and_original_request(tmp_path)
     ("process", True, "auto", []),
     ("auto", False, "auto", ["profiling_mode"]),
     ("process", False, "auto", ["runtime", "profiling_mode"]),
-    ("process", True, "full", ["runtime"]),
+    ("process", True, "full", []),
     ("process", True, "invalid", ["runtime", "profiling_mode"]),
 ])
 def test_automatic_preflight_only_defers_the_pending_profile(runtime, allow_auto, mode, expected_fields):
@@ -133,7 +133,6 @@ def test_automatic_preflight_only_defers_the_pending_profile(runtime, allow_auto
 
 @pytest.mark.parametrize("options", [
     {"compute_profile_tool": "torch"}, {"execution_profile_tool": "massif"},
-    {"extra_options": {"dram_energy": "required"}},
 ])
 def test_pending_profile_still_rejects_process_profiler_requirements(options):
     config = replace(RunConfig.smoke("fixture/model"), runtime="process", profiling_mode="auto", **options)

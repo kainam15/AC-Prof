@@ -12,7 +12,6 @@ from typing import Any, Literal, get_type_hints
 from acprof.config import (
     DEFAULT_COMPUTE_PROFILE_TOOL,
     DEFAULT_IDLE_COOLDOWN_SECONDS,
-    DEFAULT_IDLE_SECONDS,
     DEFAULT_REPEAT_IN_WINDOW,
     DEFAULT_REPEAT_WINDOW_SECONDS,
     DEFAULT_REQUEST_TIMEOUT_SECONDS,
@@ -144,7 +143,7 @@ class RunOptions:
         100000, help='Maximum retained raw samples per collector (integer of at least 2)',
     )
     idle_seconds: float = option(
-        DEFAULT_IDLE_SECONDS, help='Idle baseline measurement duration before each workload window',
+        0.0, cli_default=None, help='Matched idle control duration in seconds (default: 0; resume uses the saved duration)',
     )
     idle_cooldown_seconds: float = option(
         DEFAULT_IDLE_COOLDOWN_SECONDS, help='Cooldown duration before collecting idle baselines for each workload window',
@@ -153,7 +152,7 @@ class RunOptions:
         DEFAULT_COMPUTE_PROFILE_TOOL, help='Compute FLOP profiler (default: none): none skips all compute probes; both independently collects torch_profiler_eager logical FLOP and ncu GPU executed FLOP', choices=('none', 'both', 'torch', 'ncu', 'vendor'),
     )
     profiling_mode: str = option(
-        'full', help='full requires packet latency, RAPL and perf (default); basic measures application latency, throughput, CPU and memory', choices=('full', 'basic'),
+        'best_effort', help='Legacy collection policy for resume; new runs automatically plan collectors', choices=('best_effort', 'basic', 'full', 'auto'),
     )
     execution_profile_tool: str = option(
         'none', help='Optional execution profiler: Massif for CPU heap peaks, Nsight Systems for CUDA/GPU timelines, both, or none (default)', choices=('none', 'both', 'massif', 'nsys'),
@@ -213,7 +212,7 @@ def add_option_arguments(
         if hints[item.name] in (int, float):
             kwargs["type"] = hints[item.name]
         if spec.choices:
-            kwargs["choices"] = spec.choices + (("auto",) if item.name == "profiling_mode" and automatic else ())
+            kwargs["choices"] = spec.choices
         if spec.required:
             kwargs["required"] = True
         parser.add_argument(flag, **kwargs)
@@ -227,6 +226,8 @@ def configuration_arguments(config: RunOptions, *, purpose: Literal["run", "prob
         if purpose == "probe" and not spec.probe:
             continue
         value = getattr(config, item.name)
+        if item.name == "profiling_mode" and value == "best_effort":
+            continue
         flag = "--" + item.name.replace("_", "-")
         if isinstance(value, bool):
             if value and not item.default:

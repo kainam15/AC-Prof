@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass, replace
-from typing import TYPE_CHECKING
+from dataclasses import dataclass, field, replace
+from typing import TYPE_CHECKING, Any
 
 from acprof.config import (
     DEFAULT_IDLE_COOLDOWN_SECONDS,
@@ -68,6 +68,7 @@ class CaseMeasurement:
     idle_cooldown_seconds: float = DEFAULT_IDLE_COOLDOWN_SECONDS
     idle_debug: bool = False
     sniff_iface: str = "docker0"
+    collection_plan: dict[str, Any] = field(default_factory=dict)
     require_packet_latency: bool = True
     profiling_mode: str = "full"
     dram_energy: str = "auto"

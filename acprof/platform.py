@@ -217,7 +217,7 @@ def collection_policy_error(environment: Environment, *, profiling_mode="basic",
         return ""
     if environment.environment not in {"wsl2", "vm", "cloud", "container_host"}:
         return f"Unsupported collection environment: {environment.label}; use Native Linux or WSL2."
-    if (profiling_mode != "basic" or compute_tool != "none" or execution_tool != "none"
+    if (profiling_mode not in {"basic", "best_effort"} or compute_tool != "none" or execution_tool != "none"
             or dram_energy == "required"):
         return (f"{environment.label}: RAPL, DRAM energy, PMU/perf, packet and independent profilers "
                 "are not enabled for this environment. Use --profiling-mode basic "

@@ -22,6 +22,7 @@ from acprof.artifacts import (
     sync_directory,
 )
 from acprof.capabilities import require_profiling_mode
+from acprof.host.measurement.capture import CaptureSegment
 from acprof.results.csv import allow_large_csv_fields, measurement_key, read_result_csv
 from acprof.results.layout import CaseArtifacts
 
@@ -49,11 +50,13 @@ def _verify_file(case: CaseArtifacts, record: object) -> Path:
 
 
 def _validate_processing(value: Any) -> None:
-    if not isinstance(value, dict) or set(value) != {
+    if not isinstance(value, dict) or set(value) - {"capture_error"} != {
         "capture_available", "case_incomplete", "completed_rows_before_failure",
         "incomplete_case_reason", "require_packet_latency", "profiling_mode", "gpu", "server_port",
     }:
         raise ValueError("Invalid measurement processing context")
+    if "capture_error" in value and (value["profiling_mode"] != "best_effort" or not isinstance(value["capture_error"], str)):
+        raise ValueError("Invalid capture diagnostic")
     for name in ("capture_available", "case_incomplete", "require_packet_latency"):
         if type(value[name]) is not bool:
             raise ValueError(f"Invalid processing flag: {name}")
@@ -215,7 +218,11 @@ def publish_measurement_checkpoint(case: CaseArtifacts, *, run_id: str, attempt_
                    "window_records": receipts}
         if capture_segments or any(record["schema_version"] == 2 for record in window_records):
             segments = []
+            ports = []
             for index, source in enumerate(capture_segments):
+                segment = source if isinstance(source, CaptureSegment) else CaptureSegment(Path(source), processing["server_port"])
+                ports.append(segment.server_port)
+                source = segment.path
                 source = case.layout.contained(Path(source).relative_to(case.layout.root))
                 target = staging / f"capture-{index}.pcap"
                 shutil.copyfile(source, target)
@@ -223,7 +230,7 @@ def publish_measurement_checkpoint(case: CaseArtifacts, *, run_id: str, attempt_
                     os.fsync(stream.fileno())
                 segments.append({"path": (destination / target.name).relative_to(case.layout.root).as_posix(),
                                  "size": target.stat().st_size, "sha256": file_sha256(target)})
-            payload.update(schema_version=2, capture_segments=segments,
+            payload.update(schema_version=2, capture_segments=segments, capture_segment_ports=ports,
                            continuity="separate_runtime_attempts", window_resume_protocol="window-v1")
         atomic_write_json(staging / "checkpoint.json", payload)
         sync_directory(staging)
@@ -269,7 +276,13 @@ def read_measurement_checkpoint(case: CaseArtifacts, reference: object, *, run_i
     if len(verified_paths) != len(records) or verified_paths != observed_paths:
         raise ValueError("Measurement window receipt set changed")
     if payload["schema_version"] == 2:
-        for index, segment in enumerate(payload["capture_segments"]):
+        segments = payload["capture_segments"]
+        ports = payload.get("capture_segment_ports", [payload["processing"]["server_port"]] * len(segments))
+        if not isinstance(ports, list) or len(ports) != len(segments) or any(
+            type(port) is not int or not 0 < port < 65536 for port in ports
+        ):
+            raise ValueError("Invalid archived capture ports")
+        for index, segment in enumerate(segments):
             if _verify_file(case, segment) != directory / f"capture-{index}.pcap":
                 raise ValueError("Capture segment belongs to another checkpoint")
     read_result_csv(csv_path, expected=expected)

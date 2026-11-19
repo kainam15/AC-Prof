@@ -73,6 +73,7 @@ class TestClientMetrics:
             "input_pixels_per_request",
             "output_pixels_per_request",
             "request_payload_bytes",
+            "response_payload_bytes",
             "packet_request_wire_bytes_per_request",
             "packet_response_wire_bytes_per_request",
             "packet_total_wire_bytes_per_request",

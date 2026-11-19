@@ -1,7 +1,6 @@
 """Render the complete Docker/Process audit from the sole metric registry."""
 import argparse
 import sys
-from dataclasses import astuple
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -20,14 +19,17 @@ def render() -> str:
              "本表不凭代码、Mock 或历史不同版本实验宣称已通过硬件验证。", "",
              "| 来源 | 范围 | 成本级别 | 条件 / 权限 | 生产者 |",
              "| --- | --- | --- | --- | --- |"]
-    contracts = {(metric.source, collector_contract(metric)) for metric in METRICS.values()}
-    for source, contract in sorted(contracts, key=lambda item: (item[0], *astuple(item[1]))):
-        lines.append(f"| `{source}` | `{contract.scope}` | {contract.cost} | {contract.prerequisites} | [{Path(contract.producer).name}](../../{contract.producer}) |")
-    lines.extend(["", "| 指标 | Docker | Process | 单位 | 来源 | 窗口 | 推导 |",
-                  "| --- | --- | --- | --- | --- | --- | --- |"])
+    contracts = {(metric.source, collector_contract(metric, runtime)) for metric in METRICS.values()
+                 for runtime in ("process", "docker")}
+    summaries = {(source, item.scope, item.cost, item.prerequisites, item.producer) for source, item in contracts}
+    for source, scope, cost, prerequisites, producer in sorted(summaries):
+        lines.append(f"| `{source}` | `{scope}` | {cost} | {prerequisites} | [{Path(producer).name}](../../{producer}) |")
+    lines.extend(["", "| 指标 | Docker | Process | 单位 | 来源 | 统计范围（Docker / Process） | 窗口 | 推导 |",
+                  "| --- | --- | --- | --- | --- | --- | --- | --- |"])
     for name, metric in METRICS.items():
         docker, process = (metric_coverage(name, kind) for kind in ("docker", "process"))
-        values = (name, docker["collectable"], process["collectable"], metric.unit, metric.source,
+        scopes = " / ".join(dict.fromkeys(item["scope"] for item in (docker, process) if item["implemented"]))
+        values = (name, docker["collectable"], process["collectable"], metric.unit, metric.source, scopes,
                   metric.window, docker["derivation"])
         lines.append("| " + " | ".join(f"`{value.replace('|', ' / ')}`" for value in values) + " |")
     return "\n".join(lines) + "\n"

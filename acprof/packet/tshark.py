@@ -7,6 +7,27 @@ import time
 from collections.abc import Generator, Sequence
 
 
+def tshark_fields_command(pcap: str, server_port: int) -> list[str]:
+    """Use the same decoder, field list and TCP port filter for preflight and postprocessing."""
+    port = str(server_port)
+
+    command = [
+        "tshark", "-l", "-r", pcap,
+        "-o", "tcp.desegment_tcp_streams:TRUE",
+        "-o", "http.desegment_body:TRUE",
+        "-d", f"tcp.port=={port},http",
+        "-Y", f"tcp.port=={port}",
+        "-T", "fields", "-E", "separator=\t",
+    ]
+    for field in (
+        "tcp.stream", "tcp.srcport", "tcp.dstport", "frame.len", "tcp.len",
+        "frame.number", "frame.time_epoch", "http.request", "http.request.uri",
+        "http.request.line", "http.response", "http.request_in", "http.response.code",
+    ):
+        command.extend(("-e", field))
+    return command
+
+
 def stream_tshark(command: Sequence[str], *, timeout: float) -> Generator[str, None, None]:
     # Inherit the parser's process group: the postprocessing supervisor must
     # still be able to stop tshark if the parser itself is killed.

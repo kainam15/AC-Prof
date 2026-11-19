@@ -7,18 +7,18 @@ from typing import Any
 
 from acprof.capabilities import capability_from_error
 from acprof.monitors.resource_metrics import normalize_pstate
+from acprof.results.coverage import GPU_QUERIES
 
 STATE_INTERVAL_S = 1.0
-GPU_QUERIES = {
-    'utilization': ('gpu_util_avg_pct', 'gpu_util_peak_pct'),
-    'memory': ('gpu_mem_used_avg_bytes', 'gpu_mem_used_peak_bytes', 'gpu_mem_util_avg_pct', 'gpu_mem_util_peak_pct'),
-    'sm_clock': ('gpu_sm_clock_mhz',), 'memory_clock': ('gpu_memory_clock_mhz',),
-    'pstate': ('gpu_pstate',), 'temperature': ('gpu_temp_c',),
-}
+
+
+def planned_gpu_queries(plan: dict) -> frozenset[str]:
+    return frozenset(name for name in GPU_QUERIES
+                     if plan["probes"].get("gpu_" + name, {}).get("status") == "available")
 
 
 def read_gpu_sample(nvml: Any, handle: Any, on_error: Callable[[str, Exception], None],
-                    *, state: bool = True) -> dict:
+                    *, state: bool = True, enabled: frozenset[str] | None = None) -> dict:
     """Isolate each optional query; never replace failed readings with zero."""
     values: dict = {}
     def memory():
@@ -36,6 +36,8 @@ def read_gpu_sample(nvml: Any, handle: Any, on_error: Callable[[str, Exception],
             ('temperature', lambda: {'gpu_temp_c': float(nvml.nvmlDeviceGetTemperature(handle, nvml.NVML_TEMPERATURE_GPU))}),
         ])
     for name, operation in operations:
+        if enabled is not None and name not in enabled:
+            continue
         try:
             observed = operation()
             if any(value is None or isinstance(value, (int, float)) and (not math.isfinite(value) or value < 0)

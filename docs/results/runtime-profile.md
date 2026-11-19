@@ -14,12 +14,9 @@
 `results/` 写分层 CSV。PCAP 在窗口之外解析回填；独立 Profiler 经其 plan 和补采流程写出。
 原始证据和 receipt 为恢复依据，CSV 保持投影语义。静态元数据在准备阶段采集。
 
-基线发现：应用延迟、P50/P90/P95、请求数、吞吐、输入单位和像素归一化已经共用实现。
-Docker 已有 cgroup CPU/memory/Swap/I/O/PSI、RAPL、perf 和完整 NVML；Process basic
-已有进程树 CPU/RSS、NVML 利用率/显存。Process 未接入 cgroup 指标、完整 GPU 状态、
-能耗、PMU、PCAP 或深度 Profiler。未接入 Runtime 的字段保持缺失，不能算实际覆盖。
-两条 NVML 资源查询路径、Docker 资源和能耗各自解析 cgroup 身份属于重复读取候选；
-能耗与资源窗口独立，不能仅为去重合并样本或改变启动/停止顺序。
+本轮基线 `ea719e76` 登记 250 个字段，两个 Runtime 共有实现路径的字段为 82 个。本轮后的 253 个登记字段中，两端共有实现路径的字段为 153 个；其中包含诊断与协议字段。Docker 与 Process 均从同批请求获得应用层 P50/P90/P95、
+吞吐和正文大小。窗口的 `throughput_app_samples_per_s` 始终以应用延迟为分母；
+历史 `throughput_samples_per_s` 仍可在 PCAP 回填时采用包延迟。冻结结果按原字段集恢复。
 
 ## 共同概念与统计范围
 
@@ -35,7 +32,7 @@ Process 独立、已验证 cgroup 的 CPU 时间、内存平均/采样峰值、�
 继承父级限制时状态为 unsupported。Docker `container_*` 原义与字段顺序保持。
 
 NVML 查询与聚合已经复用。Process 增加显存比例、SM/显存频率、P-state、温度；
-利用率/显存沿用请求的 sample rate，Process 状态指标最多每秒读取一次，Docker 保留原采样频率。
+利用率/显存采用请求的 sample rate。自动计划只读取预检可用的 NVML 查询，两种 Runtime 的慢变状态最多每秒读取一次。历史 Docker Full 使用原采样频率。
 缺查询支持不抹掉其它有效读数；有缺口的已知值标 partial，不能声称完整验证。
 不同状态采样频率不能直接当作等口径比较。
 
@@ -68,7 +65,7 @@ CPU 型号、GPU 型号/驱动/PCI bus ID、内存和每 case 的限制复用已
 CSV 未知为 `nan`，JSON 未知为 `null`，不填充历史未采字段。
 
 `quality` 区分 `complete`、`partial`、`unsupported`、`permission_denied`、
-`not_requested`、`error`、`unavailable`；`complete` 只表示声明范围的窗口证据完整，
+`not_applicable`、`tool_missing`、`not_requested`、`error`、`unavailable`；`complete` 只表示声明范围的窗口证据完整，
 不宣称硬件准确度验收。`derivation` 区分 `observed`、`recorded`、`derived`、`estimated`。
 进程身份使用 PID + start time；成员退出、计数器下降、权限缺失、瞬时子进程遗漏
 须保留限制。无法证明完整的累计计数不能写零；独立成立的 RSS 或 GPU 数据继续保留。
@@ -82,8 +79,7 @@ RSS ↔ cgroup memory、HTTP bytes ↔ PCAP、设备能量 ↔ 模型归因均�
 
 无额外采样：请求结果派生、准备阶段静态信息。低开销候选：首尾计数器、轻量
 procfs/psutil 读取；周期 CPU/GPU 遥测按中等开销管理；PCAP 与深度 Profiler 按高开销管理。
-这是设计分级，**不是实测结论**。本轮保留 Basic / Full 兼容，不新增运行预设。
-后续取消模式，按采集器能力独立启用，详见 [P2 调研与接入设计](../profiling/collector-capabilities.md)。
+这是设计分级，**不是实测结论**。新实验按项启用，历史 Basic / Full 使用原协议恢复。详见[采集器契约](../profiling/collector-capabilities.md)。
 USS/PSS 遍历映射且权限更严格，不默认高频读取；FD、Swap、缺页和 I/O 优先窗口边界。
 温度、频率、P-state 不要求跟随高频利用率查询。
 
@@ -101,7 +97,7 @@ CPU 时间能耗归因必须标记为估算。
 报告的 CPU、Memory、I/O、GPU 分组展示共同字段，表头/数值提示与“所选配置的质量证据”
 展示范围、窗口、采样和逐项质量。已知不完整读数保留原始值，不进入汇总、统计区间或差值；
 历史没有质量证据时沿用原统计筛选，同时明确 unknown。独立实验比较增加指标口径校验，
-Runtime、模型、输入和硬件的既有条件检查仍然生效；本轮不自动放开跨 Runtime 受控比较。
+Runtime、模型、输入和硬件的既有条件检查仍然生效；同硬件、固定模型和推理配置、匹配的工作负载及资源控制均有证据时，共同字段可单独显示描述性差值。独立实验推断和自动排序仍核对 Runtime。
 
 ## 参考与复用决定
 

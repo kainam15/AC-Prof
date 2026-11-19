@@ -6,15 +6,18 @@ import json
 import logging
 import math
 import os
+import re
+import signal
 import subprocess
 import sys
 import time
 from dataclasses import dataclass, replace
-from typing import TYPE_CHECKING, Any
+from tempfile import TemporaryFile
+from typing import TYPE_CHECKING, Any, BinaryIO
 from uuid import uuid4
 
 from acprof.artifacts import atomic_write, read_json_object
-from acprof.capabilities import measurement_requested, require_profiling_mode
+from acprof.capabilities import collector_enabled, measurement_requested, require_profiling_mode
 from acprof.config import CLIENT_REQUEST_TIMEOUT_EXIT_CODE, SERVER_PORT
 from acprof.events.progress import emit_event, measurement_boundary
 from acprof.gpu_mode import normalize_gpu_mode
@@ -23,6 +26,7 @@ from acprof.host.hardware_conditions import record_case_conditions
 from acprof.host.images.identity import model_token
 from acprof.host.input_plan import resolve_input_scales, serialize_input_scales
 from acprof.host.measurement.capture import (
+    PacketLatencyError,
     PacketLatencyRuntime,
     packet_latency_error,
     packet_parser_command,
@@ -181,6 +185,9 @@ class _CaseExecution:
         self.require_packet_latency = measurement.require_packet_latency and measurement_requested(
             measurement.profiling_mode, "packet_latency"
         )
+        self.collection_plan = measurement.collection_plan
+        self.capture_error = ""
+        self.capture_log: BinaryIO | None = None
         self.capture: subprocess.Popen[bytes] | None = None
         self.status = "error"
         self.run_id = ""
@@ -218,16 +225,45 @@ class _CaseExecution:
                 self.request.output_dir, self.case.case_id, session,
                 cpuset_cpus=self.request.cpuset_cpus,
             )
-            sniff_runtime = self._start_capture()
+            try:
+                sniff_runtime = self._start_capture(session)
+            except (PacketLatencyError, OSError) as exc:
+                if self.measurement.profiling_mode != "best_effort":
+                    raise
+                from acprof.capabilities import capability_from_error
+                self.capture_error = str(exc).split("Recovery steps:", 1)[0].strip()
+                failure = capability_from_error(self.capture_error, source="pcap")
+                self.collection_plan = {**self.collection_plan, "probes": {**self.collection_plan["probes"],
+                    "packet_latency": failure.to_dict()}}
+                print(f"[sniff][WARN] {failure.detail}", file=sys.stderr)
+                sniff_runtime = None
             outcome = self._run_client(session)
-            capture_available = self.capture is not None
+            capture_available = sniff_runtime is not None and self.capture is not None
             if self.capture is not None:
                 time.sleep(1.0)
-                _stop_capture(self.capture)
+                exit_code = self.capture.poll()
+                final_code = _stop_capture(self.capture)
+                if self.measurement.profiling_mode == "best_effort" and not self.capture_error:
+                    detail = self._capture_diagnostic()
+                    if exit_code is not None or final_code not in {0, -signal.SIGTERM}:
+                        self.capture_error = f"tcpdump exited during collection (code {final_code}): {detail}"
+                    elif re.search(r"(?m)^[1-9]\d* packets? dropped by kernel", detail):
+                        self.capture_error = detail
                 time.sleep(0.2)
                 self.capture = None
+            if self.measurement.profiling_mode == "best_effort" and capture_available:
+                capture_available = self.case.pcap.is_file() and self.case.pcap.stat().st_size > 0
+                if not capture_available and not self.capture_error:
+                    self.capture_error = "tcpdump did not produce a readable nonempty capture"
             self._checkpoint_measurement(session, outcome, capture_available)
             self._finalize(outcome, capture_available, sniff_runtime)
+            if self.measurement.profiling_mode == "best_effort" and os.environ.get("ACPROF_TUI") == "1":
+                from acprof.events.progress import emit_collection_issues
+                from acprof.results.csv import read_result_csv
+                from acprof.results.profile import collection_field_outcomes
+                _, rows = read_result_csv(self.out_csv)
+                emit_collection_issues(collection_field_outcomes(
+                    row for row in rows if row.get("warmup") == "0" and row.get("status") in {"ok", "warn"}))
             self.status = "error" if outcome.incomplete else _case_result_status(self.out_csv)
         except KeyboardInterrupt:
             _LOG.debug("case cancelled: %s", self.case_name)
@@ -267,26 +303,39 @@ class _CaseExecution:
             )
             raise
 
-    def _start_capture(self) -> PacketLatencyRuntime | None:
+    def _capture_diagnostic(self) -> str:
+        if self.capture_log is None:
+            return ""
+        end = self.capture_log.seek(0, os.SEEK_END)
+        self.capture_log.seek(max(0, end - 4096))
+        return self.capture_log.read().decode("utf-8", errors="replace").strip()
+
+    def _start_capture(self, session: ServiceSession) -> PacketLatencyRuntime | None:
+        process = getattr(session, "runtime_kind", "docker") == "process"
+        interface = "lo" if process else self.measurement.sniff_iface
         runtime = resolve_packet_latency_runtime(
             project_dir=self.request.project_dir, pcap_file=str(self.case.pcap),
-            sniff_iface=self.measurement.sniff_iface,
-        ) if measurement_requested(self.measurement.profiling_mode, "packet_latency") else None
+            sniff_iface=interface, preflight_checked=self.measurement.profiling_mode == "best_effort",
+            **({"process_port": session.host_port} if process else {}),
+        ) if collector_enabled(self.measurement.profiling_mode, self.collection_plan, "packet_latency") else None
         if runtime is not None:
-            print(f"[sniff] Starting tcpdump on {self.measurement.sniff_iface} via {runtime.mode}")
+            print(f"[sniff] Starting tcpdump on {interface} via {runtime.mode}")
+            if self.measurement.profiling_mode == "best_effort":
+                self.capture_log = TemporaryFile(mode="w+b")
             try:
                 self.capture = subprocess.Popen(
-                    runtime.tcpdump_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                    runtime.tcpdump_cmd, stdout=subprocess.DEVNULL, stderr=self.capture_log or subprocess.DEVNULL,
                 )
             except OSError as exc:
                 raise packet_latency_error("failed to start tcpdump", repr(exc)) from exc
             time.sleep(0.3)
-            if self.require_packet_latency and self.capture.poll() is not None:
+            if self.capture.poll() is not None:
                 raise packet_latency_error(
                     "tcpdump exited before workload started",
-                    f"command={' '.join(runtime.tcpdump_cmd)}",
+                    self._capture_diagnostic() or f"command={' '.join(runtime.tcpdump_cmd)}",
                 )
-        elif self.require_packet_latency:
+        elif self.require_packet_latency or (self.measurement.profiling_mode == "best_effort" and
+                collector_enabled("best_effort", self.collection_plan, "packet_latency")):
             raise packet_latency_error("tcpdump/tshark runtime could not be resolved")
         elif measurement_requested(self.measurement.profiling_mode, "packet_latency"):
             print("[sniff] tcpdump/tshark unavailable, skipping packet-level latency")
@@ -318,7 +367,8 @@ class _CaseExecution:
             out_csv=self.out_csv,
             case_name=self.case_name,
             container_name=session.name,
-            use_mips=measurement_requested(measurement.profiling_mode, "cpu_instructions"),
+            use_mips=collector_enabled(measurement.profiling_mode, self.collection_plan, "cpu_instructions"),
+            collection_plan=self.collection_plan,
             profiling_mode=measurement.profiling_mode,
             dram_energy=measurement.dram_energy,
             sample_hz=measurement.sample_hz,
@@ -438,11 +488,12 @@ class _CaseExecution:
             container_id=getattr(session, "container_id", ""),
             processing={
                 "capture_available": capture_available, "case_incomplete": outcome.incomplete,
+                **({"capture_error": self.capture_error} if self.capture_error else {}),
                 "completed_rows_before_failure": outcome.completed_rows,
                 "incomplete_case_reason": outcome.reason,
                 "require_packet_latency": self.require_packet_latency,
                 "profiling_mode": self.measurement.profiling_mode,
-                "gpu": self.request.gpu, "server_port": SERVER_PORT,
+                "gpu": self.request.gpu, "server_port": session.host_port if getattr(session, "runtime_kind", "docker") == "process" else SERVER_PORT,
             },
         )
         self.run_state.record_case_processing(self.out_csv, "running")
@@ -460,6 +511,7 @@ class _CaseExecution:
                 outcome.reason, str(self.case.pcap), str(self.case.latency), self.out_csv,
                 self.require_packet_latency, self.measurement.profiling_mode, self.request.gpu,
                 **({"capture_segments": segments} if segments else {}),
+                **({"capture_error": self.capture_error} if self.capture_error else {}),
             )
         except BaseException:
             if self.run_state is not None:
@@ -487,12 +539,14 @@ class _CaseExecution:
                 atomic_write_json(self.case.sidecar("cleanup_error"), exc.to_dict())
             raise
         finally:
+            if self.capture_log is not None:
+                self.capture_log.close()
             emit_event("case_finished", self.case_name, status=self.status)
 
 def _resume_case_processing(case, checkpoint: dict, run_state, case_name: str) -> str:
     """Retry only derivation from a verified whole-case measurement snapshot."""
+    from acprof.host.measurement.capture import CaptureSegment
     from acprof.host.measurement.checkpoint import restore_measurement_projection
-
     context = checkpoint["processing"]
     out_csv = str(case.csv)
     status = "error"
@@ -511,7 +565,11 @@ def _resume_case_processing(case, checkpoint: dict, run_state, case_name: str) -
         _finalize_case(context["capture_available"], runtime, context["case_incomplete"], context["completed_rows_before_failure"],
                        context["incomplete_case_reason"], pcap, str(case.latency), out_csv,
                        context["require_packet_latency"], context["profiling_mode"], context["gpu"],
-                       **({"capture_segments": [case.layout.contained(item["path"]) for item in checkpoint["capture_segments"]]}
+                       **({"capture_error": context["capture_error"]} if context.get("capture_error") else {}),
+                       **({"capture_segments": [
+                           CaptureSegment(case.layout.contained(item["path"]), port) for item, port in zip(
+                               checkpoint["capture_segments"], checkpoint.get("capture_segment_ports",
+                                   [context["server_port"]] * len(checkpoint["capture_segments"])), strict=True)]}
                           if checkpoint.get("capture_segments") else {}))
         status = "error" if context["case_incomplete"] else _case_result_status(out_csv)
     except BaseException as exc:
@@ -554,71 +612,60 @@ def _case_result_status(csv_path: str) -> str:
     return "ok" if statuses and all(status in {"ok", "warn"} for status in statuses) else "error"
 
 
-def _stop_capture(process) -> None:
+def _stop_capture(process) -> int:
     process.terminate()
     try:
-        process.wait(timeout=5)
+        return process.wait(timeout=5)
     except subprocess.TimeoutExpired:
         process.kill()
-        process.wait(timeout=5)
+        return process.wait(timeout=5)
 
 
-def _finalize_case(capture_available: bool, sniff_runtime, case_incomplete, completed_rows_before_failure, incomplete_case_reason, pcap_file, lat_json, out_csv, require_packet_latency, profiling_mode, gpu, *, capture_segments=()) -> None:
-    """Derive and validate results after acquisition is durably checkpointed."""
+def _finalize_case(capture_available: bool, sniff_runtime, case_incomplete, completed_rows_before_failure,
+                   incomplete_case_reason, pcap_file, lat_json, out_csv, require_packet_latency,
+                   profiling_mode, gpu, *, capture_segments=(), capture_error="") -> None:
+    """Derive independent packet and baseline evidence from checkpointed inputs."""
+    from acprof.host.measurement.packet_processing import record_capture_gap
+    from acprof.host.measurement.packet_segments import merge_capture_segments
+
+    optional = profiling_mode == "best_effort"
+    if case_incomplete and completed_rows_before_failure == 0:
+        return
+    payload: dict[str, Any] = {"schema_version": 2, "requests": {}}
     if capture_available:
-        if case_incomplete and completed_rows_before_failure == 0:
-            print(
-                "[sniff] No completed measurements before "
-                f"{incomplete_case_reason}; skipping packet-latency merge"
-            )
-        elif not os.path.exists(pcap_file) or os.path.getsize(pcap_file) <= 0:
-            if require_packet_latency:
-                raise packet_latency_error(
-                    f"pcap file is missing or empty: {pcap_file}"
-                )
-        else:
-            print("[sniff] Parsing pcap -> packet latencies...")
+        try:
+            if not os.path.isfile(pcap_file) or os.path.getsize(pcap_file) <= 0:
+                raise packet_latency_error(f"pcap file is missing or empty: {pcap_file}")
             if sniff_runtime is None:
                 raise packet_latency_error("packet capture parser was not initialized")
-            latency_payload = parse_packet_output(sniff_runtime.parse_cmd)
-            latency_records = latency_payload["requests"]
-            if capture_segments:
-                from acprof.host.measurement.packet_segments import merge_capture_segments
-                latency_payload = merge_capture_segments(latency_payload, capture_segments, SERVER_PORT)
-                latency_records = latency_payload["requests"]
-            if not latency_records:
-                raise packet_latency_error(
-                    "pcap parser did not find matching request latency records"
-                )
-            atomic_write(
-                lat_json,
-                lambda stream: json.dump(
-                    latency_payload,
-                    stream,
-                    ensure_ascii=True,
-                    allow_nan=False,
-                    indent=2,
-                ),
-            )
-
-            print("[sniff] Merging packet latency into CSV...")
-            merge_packet_csv(out_csv, lat_json)
-            if require_packet_latency:
-                _assert_packet_latency_csv_complete(
-                    out_csv,
-                    ignore_error_rows=case_incomplete,
-                )
-
-    if measurement_requested(profiling_mode, "cpu_energy") and (not case_incomplete or completed_rows_before_failure > 0):
-        check_case_cpu_idle_power_stable(
-            out_csv,
-            ignore_error_rows=case_incomplete,
-        )
+            payload = parse_packet_output(sniff_runtime.parse_cmd)
+            if not payload["requests"] and not capture_segments:
+                raise packet_latency_error("pcap parser did not find matching request latency records")
+        except (PacketLatencyError, FileNotFoundError) as exc:
+            if require_packet_latency or not optional and os.path.isfile(pcap_file) and os.path.getsize(pcap_file) > 0:
+                raise
+            capture_error = str(exc).split("Recovery steps:", 1)[0].strip()
+    interrupted_groups = {key.split(":", 1)[0] for key in payload["requests"]} if capture_error else set()
+    archive_errors: list[str] = []
+    if capture_segments:
+        payload = merge_capture_segments(payload, capture_segments, SERVER_PORT,
+                                         **({"errors": archive_errors} if optional else {}))
+    if payload["requests"]:
+        atomic_write(lat_json, lambda stream: json.dump(payload, stream, ensure_ascii=True, allow_nan=False, indent=2))
+        merge_packet_csv(out_csv, lat_json)
+        if require_packet_latency:
+            _assert_packet_latency_csv_complete(out_csv, ignore_error_rows=case_incomplete)
+    if optional:
+        reasons = [reason for reason in (capture_error, *archive_errors) if reason]
+        record_capture_gap(out_csv, "; ".join(reasons) or "capture unavailable or incomplete for this request group",
+                           interrupted_groups=interrupted_groups)
+        from acprof.host.measurement.energy_validation import check_optional_idle_baselines
+        check_optional_idle_baselines(out_csv, gpu)
+    if profiling_mode == "full":
+        check_case_cpu_idle_power_stable(out_csv, ignore_error_rows=case_incomplete)
         if normalize_gpu_mode(gpu) == "on":
-            check_case_gpu_idle_power_stable(
-                out_csv,
-                ignore_error_rows=case_incomplete,
-            )
+            check_case_gpu_idle_power_stable(out_csv, ignore_error_rows=case_incomplete)
+
 
 def run_matrix(request: cases.MatrixRequest) -> list[str]:
     """Run a frozen resource plan after independent readiness-only probes."""

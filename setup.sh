@@ -12,7 +12,7 @@ for argument in "$@"; do
             cat <<'USAGE'
 用法：./setup.sh [--no-tui] [--no-modify-path]
 
-安装当前 checkout 的 AC-Prof，检查 basic CPU 环境，并在交互终端打开入门 TUI。
+安装当前 checkout 的 AC-Prof，检查 CPU 环境，并在交互终端打开入门 TUI。
   --no-tui          只安装和检查，输出后续启动命令
   --no-modify-path  不修改 shell 启动文件；仍可通过完整路径启动
 
@@ -93,16 +93,16 @@ if "$modify_path"; then
     fi
 fi
 
-printf '[3/3] 检查 basic CPU 采集条件\n'
-"$acprof_command" doctor --profiling-mode basic --gpus off || fail "环境检查未通过；按 doctor 建议修复后重新运行 setup.sh。"
+printf '[3/3] 检查 CPU 采集条件\n'
+"$acprof_command" doctor --gpus off || fail "环境检查未通过；按 doctor 建议修复后重新运行 setup.sh。"
 
 mkdir -p results
 run_output="$(mktemp -d "results/first-run-$(date +%Y%m%d-%H%M%S)-XXXXXX")"
 tui_arguments=(tui --model google-bert/bert-base-uncased --preset smoke --output-dir "$run_output")
-printf '\n[setup] 安装与前置检查完成。入门配置：basic / CPU / 单次请求 / 通知关闭。\n'
+printf '\n[setup] 安装与前置检查完成。入门配置：自动采集 / CPU / 单次请求 / 通知关闭。\n'
 printf '[setup] 结果目录：%s/%s\n' "$project_dir" "$run_output"
-printf '[setup] GPU 和 full 按需检查：'
-printf '%q ' "$acprof_command" doctor --profiling-mode full --gpus on
+printf '[setup] GPU 按需检查：'
+printf '%q ' "$acprof_command" doctor --gpus on
 printf '\n'
 if "$path_updated"; then
     printf '[setup] 后续可在新终端使用 acprof tui 启动界面。\n'

@@ -467,6 +467,7 @@ class CPUEnergyMonitor:
         dram_energy: str = "auto",
         sampling_policy: SamplingPolicy = "burst",
         raw_sample_limit: int = DEFAULT_RAW_SAMPLE_LIMIT,
+        topology: dict | None = None,
     ) -> None:
         self.sample_hz = float(sample_hz)
         self.idle_seconds = float(idle_seconds)
@@ -481,8 +482,10 @@ class CPUEnergyMonitor:
         self.control_evidence: dict[str, Any] | None = None
 
         dram_policy("full", dram_energy)
-        self.topology = discover_rapl_topology(powercap_root)
+        self.topology = discover_rapl_topology(powercap_root) if topology is None else topology
         self.domains = _topology_domains(self.topology, "package")
+        self._independent_attribution = topology is not None
+        self._attribution_error = ""
         self.dram_energy = dram_energy
         self.dram_domains = _topology_domains(self.topology, "dram") if dram_energy != "off" else []
         self.dram_status = self.topology["dram_status"] if dram_energy != "off" else "not_requested"
@@ -512,7 +515,9 @@ class CPUEnergyMonitor:
                 proc_root=proc_root,
             )
         except Exception as exc:
-            self._runtime_error = f"container cgroup unavailable: {exc}"
+            self._attribution_error = f"container cgroup unavailable: {exc}"
+            if not self._independent_attribution:
+                self._runtime_error = self._attribution_error
             self._container_cpu_reader = None
 
     @property
@@ -610,7 +615,7 @@ class CPUEnergyMonitor:
         from acprof.telemetry import capture_samples, finite_json
         return finite_json({
             "status": "recorded" if self._t_start is not None and self.samples else "unavailable",
-            "error": self._init_error or self._runtime_error,
+            "error": self._init_error or self._runtime_error, "attribution_error": self._attribution_error,
             **capture_samples(self.samples, self.raw_sample_limit),
             "units": {"timestamp": "s_monotonic", "energy_uj": "microjoules",
                       "dram_energy_uj": "microjoules", "host_active_s": "cpu_seconds",
@@ -638,10 +643,16 @@ class CPUEnergyMonitor:
 
     def _read_sample(self, timestamp: float) -> CPUSample:
         energy_uj = [_read_int(domain.energy_path) for domain in self.domains]
-        host_active_s = _read_host_active_s(os.path.join(self.proc_root, "stat"))
-        container_cpu_s = None
-        if self._container_cpu_reader is not None:
-            container_cpu_s = self._container_cpu_reader()
+        host_active_s, container_cpu_s = float("nan"), None
+        try:
+            if self._container_cpu_reader is not None or not self._independent_attribution:
+                host_active_s = _read_host_active_s(os.path.join(self.proc_root, "stat"))
+            if self._container_cpu_reader is not None:
+                container_cpu_s = self._container_cpu_reader()
+        except (OSError, RuntimeError, ValueError) as exc:
+            if not self._independent_attribution:
+                raise
+            self._attribution_error = str(exc)
         dram_values = None
         if self.dram_status == "available":
             try:

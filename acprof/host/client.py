@@ -18,7 +18,6 @@ from typing import IO, Any, Literal
 import requests
 
 from acprof.artifacts import atomic_write, loads_finite_json
-from acprof.capabilities import measurement_requested
 from acprof.config import (
     CLIENT_REQUEST_TIMEOUT_EXIT_CODE,
     CSV_FIELDS,
@@ -342,12 +341,12 @@ class ClientRunner:
         if self.config.runtime_kind == "docker" and self.config.gpu_mode == "on" and not self.config.gpu_device_uuid:
             raise RuntimeError("GPU_DEVICE_UUID is required: launch the client through the AC-Prof orchestrator")
 
-        if measurement_requested(self.config.profiling_mode, "gpu_power", gpu=self.use_energy) and self.energy_mod is None:
+        if self.config.profiling_mode == "full" and self.use_energy and self.energy_mod is None:
             raise EnergyAbort(
                 "GPU energy monitoring is required for gpu_mode=on but NVML/pynvml is unavailable. "
                 "Install nvidia-ml-py, verify NVIDIA driver access, or rerun with --gpus off."
             )
-        if measurement_requested(self.config.profiling_mode, "cpu_instructions") and self.config.use_mips and self.perf_mips_mod is None:
+        if self.config.profiling_mode == "full" and self.config.use_mips and self.perf_mips_mod is None:
             raise MIPSAbort(
                 "MIPS profiling is enabled but perf_mips.py could not be imported."
             )
@@ -357,19 +356,33 @@ class ClientRunner:
             self.config.execution_profile_plan_file
         ))
         resource_factory = self.resource_usage_mod.ResourceUsageMonitor if self.resource_usage_mod is not None else None
+        instructions_factory = self.perf_mips_mod.PerfMIPSMonitor if self.perf_mips_mod is not None else None
+        from functools import partial
+        cpu_factory = self.cpu_energy_mod.CPUEnergyMonitor if self.cpu_energy_mod is not None else None
+        if self.config.profiling_mode == "best_effort":
+            if cpu_factory:
+                cpu_factory = partial(cpu_factory, topology=self.config.collection_plan["rapl_topology"])
+            if instructions_factory and self.config.use_mips and self.config.collecting("cpu_instructions"):
+                perf = self.config.collection_plan["probes"]["cpu_instructions"]["evidence"]
+                instructions_factory = partial(instructions_factory, command_prefix=perf["prefix"], events=tuple(perf["events"]))
         if self.config.runtime_kind == "process":
-            from functools import partial
 
             from acprof.monitors.process_usage import ProcessUsageMonitor
+            if instructions_factory is not None:
+                instructions_factory = partial(instructions_factory, process_identity={
+                    "pid": self.config.process_pid, "start_ticks": self.config.process_start_ticks})
             resource_factory = partial(ProcessUsageMonitor, pid=self.config.process_pid,
                                        start_ticks=self.config.process_start_ticks, resource_plan=self.config.resource_plan)
+        if resource_factory is not None and self.config.profiling_mode == "best_effort":
+            from acprof.monitors.gpu_telemetry import planned_gpu_queries
+            resource_factory = partial(resource_factory, enabled_gpu_queries=planned_gpu_queries(self.config.collection_plan))
         windows = WindowExecutor(
             self.config,
             MonitorDependencies(
                 gpu=self.energy_mod.GPUEnergyMonitor if self.energy_mod is not None else None,
-                cpu=self.cpu_energy_mod.CPUEnergyMonitor if self.cpu_energy_mod is not None else None,
+                cpu=cpu_factory,
                 resource=resource_factory,
-                instructions=self.perf_mips_mod.PerfMIPSMonitor if self.perf_mips_mod is not None else None,
+                instructions=instructions_factory,
             ),
             one_request=self._one_request,
             cold_start_metrics=self._cold_start_row_metrics,
@@ -489,7 +502,9 @@ class ClientRunner:
                         requests_f,
                     )
                     result.row["packet_status"] = (
-                        "pending" if measurement_requested(self.config.profiling_mode, "packet_latency") else "not_requested"
+                        "pending" if self.config.collecting("packet_latency") else
+                        self.config.collection_plan["probes"]["packet_latency"]["status"]
+                        if self.config.profiling_mode == "best_effort" else "not_requested"
                     )
                     client_publication.append_row(
                         writer,

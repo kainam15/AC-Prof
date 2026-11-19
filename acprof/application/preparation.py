@@ -94,6 +94,10 @@ def prepare_runtime(args, *, run_state, task_info, output_dir, cpu_list, mem_lis
         capability_report = CapabilityReport.from_dict(saved_meta.get("capability_report", {
             "profiling_mode": args.profiling_mode,
         }))
+        if args.profiling_mode == "best_effort":
+            # Preserve the collector selection for every resumed window. The original
+            # preflight is immutable; a later start failure has its own window evidence.
+            args.collection_plan = saved_meta["collection_plan"]
         validation_status = saved_meta.get("runtime_validation", {}).get("status", "not_run")
         workflow.emit("runtime", "passed" if validation_status == "ok" else
                       "not_started" if validation_status == "not_run" else "failed",
@@ -136,6 +140,7 @@ def prepare_runtime(args, *, run_state, task_info, output_dir, cpu_list, mem_lis
             compute_profile_enabled=not compute_profile_disabled,
             execution_profile_enabled=args.execution_profile_tool != "none",
             profiling_mode=args.profiling_mode,
+            rapl_topology=rapl_topology,
             gpu_device=getattr(args, "process_gpu", {}) if args.runtime == "process" else selected_gpu_device(),
         )
         capability_report = measurement_report(
@@ -144,15 +149,18 @@ def prepare_runtime(args, *, run_state, task_info, output_dir, cpu_list, mem_lis
             dram_energy=args.dram_energy,
             rapl_topology=rapl_topology,
         )
-        collection_plan = {}
+        collection_plan = getattr(args, "collection_plan", {})
         resource_allocation = {}
         if args.runtime == "process":
             from acprof.host.runtimes.capabilities import apply_process_plan, probe_collection_plan
             from acprof.host.runtimes.resources import inherited_resources
-            collection_plan = probe_collection_plan("process", gpu=getattr(args, "process_gpu", {}),
+            collection_plan = collection_plan or probe_collection_plan("process", gpu=getattr(args, "process_gpu", {}),
                                                     profiling_mode=args.profiling_mode)
             resource_allocation = inherited_resources()
             apply_process_plan(capability_report, collection_plan)
+        if args.profiling_mode == "best_effort":
+            from acprof.host.runtimes.capabilities import apply_collection_plan
+            apply_collection_plan(capability_report, collection_plan)
         capability_report.measurement.update({name: item for name, item in preflight_measurements.items() if isinstance(item, Capability)})
         from acprof.extensions import select_extension
         apply_extension(capability_report, select_extension(task_info))

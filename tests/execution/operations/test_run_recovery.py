@@ -13,6 +13,23 @@ class TestRunRecovery(RunRecoveryFixture):
     @pytest.fixture(autouse=True)
     def _setup(self, request, tmp_path):
         self.build(request, tmp_path)
+    def test_resume_restores_explicit_idle_duration_when_the_argument_is_omitted(self):
+        def interrupt(request, **kwargs):
+            if request.cpu == 2:
+                raise KeyboardInterrupt()
+            return self.write_case(request, **kwargs)
+
+        def resume(request, measurement, **kwargs):
+            assert measurement.idle_seconds == 3
+            return self.write_case(request, **kwargs)
+
+        with pytest.raises(KeyboardInterrupt):
+            self.invoke("--idle-seconds", "3", case=interrupt)
+        with pytest.raises(SystemExit):
+            self.invoke("--resume", "--idle-seconds", "0")
+        self.invoke("--resume", case=resume)
+        assert self.calls == [1, 2]
+
     def test_cpu_set_reaches_cases_and_changed_set_refuses_resume(self):
         seen = []
         def capture(request, **kwargs):
@@ -107,10 +124,10 @@ class TestRunRecovery(RunRecoveryFixture):
         assert (metadata.read_bytes()) == (original)
         assert (self.calls) == ([])
 
-    def test_full_rejects_required_measurement_missing_after_preflight(self):
+    def test_legacy_full_argument_uses_new_policy_and_requires_application_latency(self):
         self.assert_missing_required_measurements_rejected("full")
 
-    def test_basic_rejects_required_measurement_missing_after_preflight(self):
+    def test_legacy_basic_argument_uses_new_policy_and_requires_application_latency(self):
         self.assert_missing_required_measurements_rejected("basic")
 
     def test_resume_keeps_completed_case_and_restarts_interrupted_case(self):

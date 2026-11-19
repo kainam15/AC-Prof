@@ -13,14 +13,14 @@
 `doctor` 只检查环境，不下载模型、启动容器、安装工具或修改权限。
 检查按 Runtime 分开：Docker 检查 cgroup v2、本机 daemon 和 Buildx；Process 检查 Linux、uv、procfs、
 可施加的资源限制与逐项可选采集能力。两条路径都检查安装资源与输出目录。
-输出 Environment、Collection tier、Native benchmark 和按指标的支持策略；WSL2 使用 `--profiling-mode basic`。
+输出 Environment、Collection tier、Native benchmark 和按指标的支持策略，WSL2 保留独立平台身份。
 `full` 另外检查 RAPL、perf instructions、抓包工具和网卡；`--gpus on` 检查 NVIDIA driver
 及选定 Runtime 的 GPU 前提。模型下载、GPU 推理、任务输出与正式测量仍由实际运行验证。
 
 | 参数 | 默认 | 作用 |
 | --- | --- | --- |
 | `--runtime auto/docker/process` | `auto` | 按 run 的相同规则选择执行方式并展示依据 |
-| `--profiling-mode basic/full` | `full` | 与主流程保持相同的必需能力范围 |
+| `--profiling-mode` | `best_effort` | 默认按采集器预检，也可显式诊断历史 Basic / Full 的能力要求。 |
 | `--gpus off/on` | `off` | 是否检查 NVIDIA 主机和 runtime |
 | `--sniff-iface` | `docker0` | full 模式抓包网卡 |
 | `--output-dir` | 当前工作目录 | 检查输出路径可写性与所在磁盘余量 |
@@ -101,15 +101,12 @@ acprof inspect MODEL --tasks PROFILE_ID --probe-interface --output-dir results/i
 首次验证建议显式限制矩阵：
 
 ```bash
-acprof auto google-bert/bert-base-uncased --profiling-mode basic \
+acprof auto google-bert/bert-base-uncased \
   --cpus 1 --mems 4 --gpus off --input-scales 32 --warmup 0 --repeat 1 \
   --repeat-in-window 1 --output-dir results/auto-first
 ```
 
-默认仍为 `--profiling-mode full`。只有显式选择 `--profiling-mode auto`，才允许因
-RAPL/perf/packet 不可用而选择 basic；Docker、Linux/cgroup、安装资源或所选 GPU 不可用时仍停止。
-`--dram-energy required` 等显式要求仍由正式入口检查，不能通过 auto 绕过。
-`profiling-mode basic/full` 只决定性能指标范围；两种模式都必须通过完整运行验证。
+新实验使用自动计划。RAPL、perf、PCAP 分别确定可用性，必要 Runtime、所选设备、显式必需 DRAM 与结果协议继续执行门禁。
 
 `auto_report.json` 位于 `OUTPUT/MODEL--NAME/`，保存请求模式、实际模式、来源身份、预检和最终状态。
 只有主采集与所需指标均成功才退出 0；冲突、缺条件或部分失败退出 2。已有实验不会覆盖；

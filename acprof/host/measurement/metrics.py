@@ -24,6 +24,7 @@ from acprof.host.measurement.numbers import (
     resource_text,
     to_float_or_nan,
 )
+from acprof.host.measurement.quality import gpu_status, window_quality
 from acprof.host.profiling.compute_plan import (
     NCU_ERROR_FIELD,
     NCU_KERNEL_COUNT_FIELD,
@@ -373,11 +374,12 @@ class WindowMetrics:
         self.gpu_runtime = gpu_runtime_metrics_from_result(observations.resource_result)
         if observations.mips_result is not None:
             self.mips = mips_metrics_from_result(observations.mips_result)
+        optional = self.config.profiling_mode == "best_effort"
         warnings = window_monitor_warnings(
-            resource_error="; ".join(filter(None, (observations.resource_error,
+            resource_error="" if optional else "; ".join(filter(None, (observations.resource_error,
                 getattr(observations.resource_result, 'optional_error', '')))),
-            gpu_error=observations.gpu_error,
-            cpu_error=observations.cpu_error,
+            gpu_error="" if optional else observations.gpu_error,
+            cpu_error="" if optional else observations.cpu_error,
             dram_energy=self.config.dram_energy,
             gpu_metrics=self.gpu,
             cpu_metrics=self.cpu,
@@ -435,24 +437,8 @@ class WindowMetrics:
             self.config.profiling_mode, "gpu_power", gpu=self.use_energy,
         )
         plan = self.config.resource_plan
-        gpu_evidence = observations.collector_evidence.get("resource", {}).get("gpu", {})
-        def gpu_status(name: str, fields: tuple[str, ...]) -> str:
-            if not self.use_energy:
-                return "not_requested"
-            quality = getattr(observations.resource_result, 'metric_evidence', {})
-            if all(math.isfinite(to_float_or_nan(getattr(observations.resource_result, field, None)))
-                   and quality.get(field, {}).get('quality', 'complete') == 'complete' for field in fields):
-                return "verified"
-            status = str(gpu_evidence.get(name + "_status", gpu_evidence.get("status", "unavailable")))
-            return "unavailable" if status in {"available", "verified"} else status
-        quality = dict(getattr(observations.resource_result, "metric_evidence", {}))
-        for field, sizes in (("request_payload_bytes", progress.payload_sizes),
-                             ("response_payload_bytes", progress.response_sizes)):
-            observed = sum(math.isfinite(size) for size in sizes)
-            quality[field] = {"quality": "complete" if observed and observed == progress.count else
-                                         "partial" if observed else "unavailable",
-                              "reason": "" if observed and observed == progress.count else "missing_http_body_length",
-                              "observed_requests": observed, "completed_requests": progress.count}
+        evidence = window_quality(self.config, progress, observations, use_gpu=self.use_energy,
+                                  status=self.status, error=self.error, latency_slo=self.slow_latency_threshold_s)
         row: dict[str, Any] = {
             "runtime_kind": self.config.runtime_kind, "runtime_id": self.config.image_tag,
             "resource_limit_source": plan.get("method", "docker_cgroup"),
@@ -462,10 +448,10 @@ class WindowMetrics:
             "process_resource_error": (observations.resource_error if self.config.runtime_kind == "process" else
                                        getattr(observations.resource_result, 'optional_error', '')),
             "process_resource_status": getattr(observations.resource_result, "process_resource_status", "not_requested"),
-            "resource_metric_quality": json.dumps({'schema_version': 1, 'metrics': quality},
+            "resource_metric_quality": json.dumps(evidence,
                 ensure_ascii=False, separators=(',', ':')),
-            "gpu_utilization_status": gpu_status("utilization", ("gpu_util_avg_pct", "gpu_util_peak_pct")),
-            "gpu_memory_status": gpu_status("memory", ("gpu_mem_used_avg_bytes", "gpu_mem_used_peak_bytes")),
+            "gpu_utilization_status": gpu_status(self.config, observations, self.use_energy, "utilization", ("gpu_util_avg_pct", "gpu_util_peak_pct")),
+            "gpu_memory_status": gpu_status(self.config, observations, self.use_energy, "memory", ("gpu_mem_used_avg_bytes", "gpu_mem_used_peak_bytes")),
             "cpu_cores": resource_text(self.config.cpu_cores),
             "mem_cap_gb": resource_text(self.config.mem_cap_gb),
             "gpu_mode": self.config.gpu_mode,
@@ -505,6 +491,8 @@ class WindowMetrics:
             "latency_s_per_input_unit": "nan",
             "latency_app_s": format_float(self.latency_app_s),
             "latency_app_s_per_input_unit": format_float(self.latency_app_s_per_input_unit),
+            "throughput_app_samples_per_s": format_float(self.throughput),
+            "throughput_app_samples_per_s_per_cpu_core": format_float(self.throughput_per_cpu_core),
             "throughput_samples_per_s": format_float(self.throughput),
             "throughput_samples_per_s_per_cpu_core": format_float(self.throughput_per_cpu_core),
             "gpu_idle_measured_at": observations.gpu_idle_measured_at if self.config.idle_debug else "nan",
@@ -552,6 +540,10 @@ class WindowMetrics:
             self.config.cpu_cores, self.config.mem_cap_gb, self.config.gpu_mode, row_scale,
         )
         row.update(_execution_profile_row_metrics(execution_profile))
+        if self.config.profiling_mode == "best_effort":
+            for name in ("model_logical_mflops_packet_torch_profiler_eager", "gpu_executed_mflops_packet_ncu",
+                         "cpu_cycles_est_packet", "cpu_mips_packet"):
+                row[name] = "nan"  # The PCAP projection owns values with a packet denominator.
         if environment_class == "wsl2":
             from acprof.platform import native_only_metric
             for name, metric in METRICS.items():

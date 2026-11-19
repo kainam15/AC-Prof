@@ -59,10 +59,10 @@ def automatic_handoff(tmp_path, preparation, monkeypatch):
     (["--raw-sample-limit", "1"], "raw_sample_limit"),
     (["--ncu-repeat", "0"], "ncu_repeat"),
     (["--latency-slo", "invalid"], "latency_slo"),
-    (["--runtime", "process", "--profiling-mode", "full"], "runtime"),
+    (["--runtime", "process", "--profiling-mode", "full", "--compute-profile-tool", "torch"], "runtime"),
     (["--resume", "--rebuild-image"], "rebuild_image"),
 ], ids=["repeat", "warmup", "cpu-list", "memory-list", "scale-list", "sample-frequency",
-        "raw-sample-limit", "profiler-count", "latency-slo", "process-full", "resume-rebuild"])
+        "raw-sample-limit", "profiler-count", "latency-slo", "process-profiler", "resume-rebuild"])
 def test_invalid_auto_options_stop_before_preparation(tmp_path, preparation, capsys, options, field):
     output = tmp_path / "output"
     try:
@@ -110,7 +110,7 @@ def test_valid_auto_preserves_pending_mode_relative_paths_and_omitted_transport(
                  "--workload-spec", "workload.json"]) == 0
 
     options = factory.call_args.args[0]
-    assert options.profiling_mode == "auto"
+    assert options.profiling_mode == "best_effort"
     assert options.runtime == runtime
     assert options.workload_spec == "workload.json"
     assert all(getattr(options, field) is None for field in
@@ -150,7 +150,7 @@ def test_auto_handoff_uses_validated_values(
     options = factory.call_args.args[0]
     assert {name: getattr(options, name) for name in expected} == expected
     assert preparation.collection.call_args.kwargs["args"] is options
-    assert options.profiling_mode == "auto"
+    assert options.profiling_mode == "best_effort"
 
 
 @pytest.mark.parametrize("explicit", [False, True], ids=["inherited", "explicit-defaults"])
@@ -228,8 +228,7 @@ def test_pending_profiling_is_only_accepted_with_explicit_automatic_policy(runti
 
 @pytest.mark.parametrize("options", [
     {"compute_profile_tool": "torch"}, {"execution_profile_tool": "nsys"},
-    {"extra_options": {"dram_energy": "required"}}, {"profiling_mode": "full"},
-], ids=["compute-profiler", "execution-profiler", "required-dram", "explicit-full"])
+], ids=["compute-profiler", "execution-profiler"])
 def test_pending_profiling_does_not_relax_process_capabilities(options):
     config = replace(RunConfig.smoke("fixture/model"), runtime="process", profiling_mode="auto")
     with pytest.raises(RunConfigError) as failure:

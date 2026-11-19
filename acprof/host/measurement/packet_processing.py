@@ -70,3 +70,37 @@ def run_packet_command(command: list[str], *, stage: str):
         for note in getattr(exc, "__notes__", ()):
             failure.add_note(note)
         raise failure from exc
+
+
+def record_capture_gap(csv_path: str, reason: str, *, interrupted_groups: set[str] | None = None) -> None:
+    """Only amend the postprocessing projection. Keep the original checkpoint immutable."""
+    import csv
+    import json
+
+    from acprof.artifacts import atomic_write
+    from acprof.results.csv import read_result_csv
+
+    fields, rows = read_result_csv(csv_path)
+    changed = False
+    for row in rows:
+        status = row.get("packet_status")
+        interrupted = row.get("window_id") in (interrupted_groups or ())
+        if status not in {"pending", "unavailable"} and not (interrupted and status in {"ok", "partial"}):
+            continue
+        evidence = json.loads(row["resource_metric_quality"])
+        packet = evidence.get("collectors", {}).get("packet_latency")
+        if not packet or packet.get("status") != "available":
+            continue
+        row["packet_status"] = "partial" if interrupted and status in {"ok", "partial"} else "unavailable"
+        packet.update(status=row["packet_status"], reason=reason)
+        row["resource_metric_quality"] = json.dumps(evidence, ensure_ascii=False, separators=(",", ":"))
+        changed = True
+    if not changed:
+        return
+
+    def write(stream):
+        writer = csv.DictWriter(stream, fieldnames=fields)
+        writer.writeheader()
+        writer.writerows(rows)
+    atomic_write(csv_path, write)
+    print(f"[sniff][WARN] {reason}")

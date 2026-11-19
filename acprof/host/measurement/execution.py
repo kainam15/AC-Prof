@@ -12,7 +12,6 @@ from collections.abc import Callable
 from dataclasses import asdict, is_dataclass
 from typing import TYPE_CHECKING, Any, TextIO, cast
 
-from acprof.capabilities import measurement_requested
 from acprof.failures import RuntimeFailure
 from acprof.host.measurement import (
     diagnostics as client_diagnostics,
@@ -168,7 +167,7 @@ class WindowExecutor:
         self, spec: WindowSpec, group_id: str, progress: WindowRequestProgress,
         observations: WindowObservations, requests_stream: TextIO,
     ) -> None:
-        monitors = MonitorGroup()
+        monitors = MonitorGroup(optional=self.config.profiling_mode == "best_effort")
         scale = spec.scale
         payload_override = spec.scale_entry.get("payload")
         primary_error: BaseException | None = None
@@ -209,41 +208,71 @@ class WindowExecutor:
                 progress.count,
                 progress.elapsed_s / progress.count if progress.count else float("nan"),
             )
-            if monitors.results.get("resource") is not None:
-                observations.resource_result, observations.resource_error, observations.resource_samples = cast(
-                    ResourceStopResult, monitors.results["resource"])
-            if monitors.results.get("gpu") is not None:
-                observations.gpu_result, _, observations.gpu_error, observations.gpu_samples = cast(
-                    GPUStopResult, monitors.results["gpu"])
-            if monitors.results.get("cpu") is not None:
-                observations.cpu_result, observations.cpu_error, observations.cpu_samples = cast(
-                    CPUStopResult, monitors.results["cpu"])
+            def save_resource(value):
+                observations.resource_result, observations.resource_error, observations.resource_samples = cast(ResourceStopResult, value)
+
+            def save_gpu(value):
+                observations.gpu_result, _, observations.gpu_error, observations.gpu_samples = cast(GPUStopResult, value)
+
+            def save_cpu(value):
+                observations.cpu_result, observations.cpu_error, observations.cpu_samples = cast(CPUStopResult, value)
+
+            for name, save in (("resource", save_resource), ("gpu", save_gpu), ("cpu", save_cpu)):
+                if monitors.results.get(name) is not None:
+                    monitors.invoke(name, "result", save, monitors.results[name])
             observations.mips_result = cast("MIPSResult | None", monitors.results.get("mips"))
             # Serialization is outside every measurement window and reuses the
             # collectors' finalized buffers; unsupported test/adaptor collectors
             # explicitly report absent raw evidence rather than inventing it.
             for name, monitor in monitors.monitors.items():
                 snapshot = getattr(monitor, "telemetry_snapshot", None)
-                if any(operation.startswith(f"{name}.") for operation, _ in monitors.failures):
+                if not monitors.optional and any(operation.startswith(f"{name}.") for operation, _ in monitors.failures):
                     observations.collector_evidence[name] = {
                         "status": "unavailable", "reason": "collector_cleanup_failed", "error": monitors.error,
                     }
                     continue
-                observations.collector_evidence[name] = snapshot() if snapshot is not None else {
+                observations.collector_evidence[name] = monitors.invoke(name, "snapshot", snapshot) if snapshot is not None else {
                     "status": "unavailable", "reason": "collector_has_no_raw_evidence_protocol",
                 }
             if observations.mips_result is not None:
+                targets = getattr(monitors.monitors["mips"], "targets", {})
                 observations.collector_evidence["mips"] = {
+                    **({"scope": "observed_processes_threads_and_inheritance", "attached_pid_start_ticks": targets,
+                        "root_pid": self.config.process_pid} if targets else {}),
                     "status": "aggregate_only", "reason": "perf_window_counters",
                     "result": asdict(observations.mips_result) if is_dataclass(observations.mips_result) else None,
                 }
+            if monitors.optional:
+                from acprof.capabilities import capability_from_error
+                for name, phases in monitors.phases.items():
+                    raw = observations.collector_evidence.get(name) or {}
+                    raw["phases"] = phases
+                    errors = [(phase, exc) for phase, exc in monitors.failures if phase.startswith(name + ".")]
+                    reported = {"cpu": observations.cpu_error, "gpu": observations.gpu_error,
+                                "resource": observations.resource_error}.get(name)
+                    if name == "resource" and getattr(observations.resource_result, "metric_evidence", {}):
+                        # Each reader owns its failure. Other readers in the same sampling
+                        # thread may have completed their window without a gap.
+                        raw["reader_diagnostic"] = reported or ""
+                        reported = ""
+                    baseline_errors = [str(exc) for phase, exc in errors if phase.endswith(".control_baseline")]
+                    if baseline_errors:
+                        raw["control_error"] = "; ".join(baseline_errors)
+                        errors = [(phase, exc) for phase, exc in errors if not phase.endswith(".control_baseline")]
+                    # Resource readers already publish per-field errors, including partial GPU queries.
+                    if errors or reported:
+                        reason = "; ".join(f"{phase}: {exc}" for phase, exc in errors) or str(reported)
+                        failure = capability_from_error(errors[0][1] if errors else reason, source=name)
+                        has_result = monitors.results.get(name) is not None and name not in monitors.disabled
+                        raw.update(status="partial" if has_result else failure.to_dict()["status"], reason=reason)
+                    observations.collector_evidence[name] = raw
             window_error = f"{type(primary_error).__name__}: {primary_error}" if primary_error is not None else ""
             observations.request_record = client_publication.append_request_window(
                 requests_stream, sniff_group_id=group_id,
                 input_scale=progress.effective_input_scale if progress.effective_input_scale is not None else spec.scale,
                 warmup=spec.warmup, repeat_idx=spec.repeat_idx,
                 latencies=progress.latencies, request_sizes=progress.payload_sizes, response_sizes=progress.response_sizes,
-                error="; ".join(part for part in (window_error, monitors.error) if part),
+                error=window_error if monitors.optional else "; ".join(part for part in (window_error, monitors.error) if part),
                 failed_request_id=progress.pending_request_id,
             )
         except BaseException as exc:
@@ -267,30 +296,29 @@ class WindowExecutor:
         """
         gpu_monitor = None
         cpu_monitor = None
-        if measurement_requested(self.config.profiling_mode, "gpu_power", gpu=self.use_energy) and self.dependencies.gpu is not None:
-            gpu_monitor = self.dependencies.gpu(
+        if self.use_energy and (self.config.collecting("gpu_power") if monitors.optional else self.config.profiling_mode == "full") and (monitors.optional or self.dependencies.gpu is not None):
+            gpu_monitor = monitors.construct("gpu", self.dependencies.gpu,
                 sample_hz=self.config.sample_hz,
                 idle_seconds=self.config.idle_seconds,
                 device_index=self.config.device_index,
                 device_uuid=self.config.gpu_device_uuid,
                 sampling_policy=self.config.sampling_policy, raw_sample_limit=self.config.raw_sample_limit,
             )
-            monitors.add("gpu", gpu_monitor)
 
-        if measurement_requested(self.config.profiling_mode, "cpu_energy") and self.dependencies.cpu is not None:
+        if self.config.collecting("cpu_energy") and (monitors.optional or self.dependencies.cpu is not None):
             try:
-                cpu_monitor = self.dependencies.cpu(
+                cpu_monitor = monitors.construct("cpu", self.dependencies.cpu,
                     sample_hz=self.config.sample_hz, idle_seconds=self.config.idle_seconds,
-                    container_name=self.config.container_name, dram_energy=self.config.dram_energy,
+                    container_name=self.config.container_name if self.config.runtime_kind == "docker" else "",
+                    dram_energy=self.config.dram_energy,
                     sampling_policy=self.config.sampling_policy, raw_sample_limit=self.config.raw_sample_limit)
-                monitors.add("cpu", cpu_monitor)
             except RuntimeError as exc:
                 if self.config.dram_energy == "required":
                     raise EnergyAbort(str(exc)) from exc
                 raise
 
-        if self.dependencies.resource is not None:
-            resource_usage_monitor = self.dependencies.resource(
+        if monitors.optional or self.dependencies.resource is not None:
+            monitors.construct("resource", self.dependencies.resource,
                 sample_hz=self.config.sample_hz,
                 container_name=self.config.container_name,
                 cpu_cores=to_float_or_nan(self.config.cpu_cores),
@@ -300,13 +328,11 @@ class WindowExecutor:
                 device_uuid=self.config.gpu_device_uuid,
                 sampling_policy=self.config.sampling_policy, raw_sample_limit=self.config.raw_sample_limit,
             )
-            monitors.add("resource", resource_usage_monitor)
 
-        if measurement_requested(self.config.profiling_mode, "cpu_instructions") and self.config.use_mips:
-            if self.dependencies.instructions is None:
+        if self.config.use_mips and self.config.collecting("cpu_instructions"):
+            if self.dependencies.instructions is None and not monitors.optional:
                 raise MIPSAbort("required instruction collector factory is unavailable")
-            mips_monitor = self.dependencies.instructions(self.config.container_name)
-            monitors.add("mips", mips_monitor)
+            monitors.construct("mips", self.dependencies.instructions, self.config.container_name)
         return gpu_monitor, cpu_monitor
 
     def _start_monitors(self, monitors, gpu_monitor, cpu_monitor):
@@ -321,7 +347,7 @@ class WindowExecutor:
         idle_trace = {}
         gpu_idle_debug_snapshot = None
         idle_debug_snapshot = None
-        if gpu_monitor is not None or cpu_monitor is not None:
+        if (gpu_monitor is not None or cpu_monitor is not None) and (not monitors.optional or self.config.idle_seconds > 0):
             if self.config.idle_cooldown_seconds > 0.0:
                 time.sleep(self.config.idle_cooldown_seconds)
             run_matched_control_window(monitors, idle_seconds=self.config.idle_seconds,

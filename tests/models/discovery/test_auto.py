@@ -119,11 +119,11 @@ class TestAuto:
     def invoke(self, directory, *, mode="auto", task=None, checks=None, access_error=None):
         task = task or candidate(tag="text-generation")
         checks = checks or [DoctorCheck("docker", "available", "ok"),
-                            DoctorCheck("rapl", "unavailable", "no RAPL")]
+                            DoctorCheck("rapl", "unavailable", "no RAPL", required=False)]
 
         def run(**kwargs):
             args = kwargs["args"]
-            assert (args.profiling_mode) == ("basic")
+            assert (args.profiling_mode) == ("best_effort")
             assert (kwargs["prepared_task"].model_revision) == ("a" * 40)
             output = Path(directory, "example--model")
             (output / ".acprof/run_state.json").write_text(json.dumps({"status": "complete", "outcome": "ok"}))
@@ -141,19 +141,18 @@ class TestAuto:
                          "--gpus", "off", "--output-dir", directory, "--notify", "none"])
             return code, collect.call_count
 
-    def test_auto_mode_selects_basic_and_records_requested_mode(self):
+    def test_auto_preserves_available_collectors_and_records_policy(self):
         with tempfile.TemporaryDirectory() as directory:
             assert (self.invoke(directory)) == ((0, 1))
             report = json.loads(Path(directory, "example--model/metadata/auto_report.json").read_text())
-            assert (report["requested_profiling_mode"]) == ("auto")
-            assert (report["profiling_mode"]) == ("basic")
+            assert (report["requested_profiling_mode"]) == ("best_effort")
+            assert (report["profiling_mode"]) == ("best_effort")
             assert (report["status"]) == ("succeeded")
 
-    def test_explicit_full_does_not_fall_back(self):
+    def test_legacy_full_uses_independent_optional_collectors(self):
         with tempfile.TemporaryDirectory() as directory:
             code, calls = self.invoke(directory, mode="full")
-            assert (code) != (0)
-            assert (calls) == (0)
+            assert (code, calls) == (0, 1)
 
     def test_semantic_conflict_exports_explanation_without_collection(self):
         task = candidate(tag="fill-mask", hub={"transformers_info": {"pipeline_tag": "text-generation"}})
@@ -245,7 +244,7 @@ class TestAuto:
             assert (calls) == (0)
             assert ((target / "auto_report.json").read_text()) == ('{"preserve":true}')
 
-    def test_auto_process_runtime_passes_runtime_to_doctor_and_selects_basic(self, tmp_path):
+    def test_auto_process_passes_best_effort_to_doctor(self, tmp_path):
         from acprof.experiments.arguments import build_parser
         from acprof.host.automation import AutomaticRun
 
@@ -265,9 +264,9 @@ class TestAuto:
             automatic = AutomaticRun(args)
             automatic.prepare()
 
-        assert observed == [("process", "basic")]
-        assert args.profiling_mode == "basic"
+        assert observed == [("process", "best_effort")]
+        assert args.profiling_mode == "best_effort"
         report = json.loads(automatic.path.read_text())
         assert report["requested_profiling_mode"] == "auto"
-        assert report["profiling_mode"] == "basic"
-        assert report["mode_selection_reasons"][0]["name"] == "full_profiling"
+        assert report["profiling_mode"] == "best_effort"
+        assert report["mode_selection_reasons"] == []

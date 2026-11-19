@@ -1,16 +1,20 @@
 """Docker and Process share process-tree semantics without a second sampler."""
+import math
 from contextlib import nullcontext
 from types import SimpleNamespace
 from unittest.mock import patch
+
+import pytest
 
 from acprof.monitors.process_usage import ProcessUsageMonitor
 from acprof.monitors.resource_readers import ResourceMetricReaders
 from acprof.monitors.resource_usage import ResourceUsageMonitor
 
 
-def test_docker_retains_cgroup_and_collects_the_same_process_fields(monkeypatch):
-    readers = ResourceMetricReaders(cpu=lambda: 1, memory=lambda: 1000)
-    readers.pid = 42
+@pytest.mark.parametrize("cgroup_readable", [True, False])
+def test_docker_retains_cgroup_and_collects_the_same_process_fields(monkeypatch, cgroup_readable):
+    readers = (ResourceMetricReaders(pid=42, cpu=lambda: 1, memory=lambda: 1000) if cgroup_readable
+               else ResourceMetricReaders(pid=42, cgroup_error="cgroup permission denied"))
     monkeypatch.setattr('acprof.monitors.resource_readers.resolve_container_metric_readers', lambda *a, **kw: readers)
     monkeypatch.setattr('acprof.process_identity.process_identity', lambda pid: {'pid': pid, 'start_ticks': 10, 'state': 'R'})
     cpu = iter((SimpleNamespace(user=3, system=1), SimpleNamespace(user=4, system=2)))
@@ -26,8 +30,13 @@ def test_docker_retains_cgroup_and_collects_the_same_process_fields(monkeypatch)
         monitor._append_sample(10, boundary=True)
         result, error, _ = monitor.stop()
         monitor.close()
-    assert not error
-    assert result.container_mem_usage_avg_bytes == 1000
+    assert monitor.available
+    if cgroup_readable:
+        assert not error
+        assert result.container_mem_usage_avg_bytes == 1000
+    else:
+        assert "permission denied" in error
+        assert math.isnan(result.container_mem_usage_avg_bytes)
     assert result.process_rss_avg_bytes == 200
     assert result.process_cpu_time_s == 2
     assert result.process_cpu_util_avg_pct == 100

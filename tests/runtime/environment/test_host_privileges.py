@@ -51,6 +51,21 @@ def test_tcpdump_needs_only_effective_net_raw_and_disables_promiscuous_mode():
     assert (runtime.tcpdump_cmd[0]) == ("/usr/bin/tcpdump")
     assert ("-p") in (runtime.tcpdump_cmd)
 
+def test_automatic_packet_plan_checks_the_actual_interface_and_dissector(monkeypatch):
+    ok = subprocess.CompletedProcess([], 0, "", "")
+    monkeypatch.setattr(packet_capture.shutil, "which", lambda cmd: "/bin/" + cmd)
+    with patch.object(packet_capture.host_command, "run_command", return_value=ok) as run:
+        evidence = packet_capture.probe_packet_tools("lo")
+        runtime = packet_capture.resolve_packet_latency_runtime(".", "/tmp/test.pcap", "lo",
+                                                                process_port=17259, preflight_checked=True)
+    capture, decoder = [call.args[0] for call in run.call_args_list]
+    assert capture == ["tcpdump", "-p", "-i", "lo", "-L"]
+    assert decoder[0] == "tshark"
+    assert "tcp.len" in decoder
+    assert evidence["dissector_fields_checked"]
+    assert runtime.tcpdump_cmd[-1] == "17259"
+
+
 def test_local_password_setting_is_rejected_without_exposing_value():
     with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {}, clear=True):
         Path(directory, ".env.local").write_text("ACPROF_SUDO_PASSWORD=test-retired-secret\n")

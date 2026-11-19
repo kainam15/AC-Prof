@@ -26,7 +26,7 @@ Examples:
 
     if automatic:
         parser.description = "AC-Prof: resolve, preflight and collect an exact Hugging Face model ID"
-        parser.epilog = "Example: acprof auto openai-community/gpt2 --profiling-mode auto --gpus off"
+        parser.epilog = "Example: acprof auto openai-community/gpt2 --gpus off"
 
     # Resource matrix
     parser.add_argument("--matrix-order", choices=("seeded", "declared"), default="seeded",

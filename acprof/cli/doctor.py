@@ -13,7 +13,7 @@ from acprof.host.env_utils import load_project_env
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="只读检查 AC-Prof 主机前置条件；不安装软件或更改权限")
     parser.add_argument("--runtime", choices=("auto", "docker", "process"), default="auto")
-    parser.add_argument("--profiling-mode", choices=("basic", "full"), default="full")
+    parser.add_argument("--profiling-mode", choices=("best_effort", "basic", "full"), default="best_effort")
     parser.add_argument("--gpus", type=normalize_gpu_mode, choices=("off", "on"), default="off")
     parser.add_argument("--sniff-iface", default="docker0")
     parser.add_argument("--output-dir", type=Path, default=Path.cwd())

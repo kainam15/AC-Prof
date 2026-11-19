@@ -113,7 +113,7 @@ def host_identity(project_dir: str | Path) -> dict:
 
 def run_options(args) -> dict:
     from acprof.host.gpu_device import selected_gpu_device
-    ignored = {"resume", "rebuild_image", "output_dir", "notify", "runtime_selection", "process_gpu",
+    ignored = {"resume", "rebuild_image", "output_dir", "notify", "runtime_selection", "process_gpu", "collection_plan",
                "inference_config", "confirm_inference"}
     options = {name: value for name, value in flatten_run_options(vars(args)).items() if name not in ignored}
     # Freeze even default policies: they affect both timing and retained evidence.

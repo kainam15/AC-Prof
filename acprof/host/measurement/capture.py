@@ -4,7 +4,10 @@ from __future__ import annotations
 import os
 import re
 import shutil
+import struct
 from dataclasses import dataclass
+from pathlib import Path
+from tempfile import NamedTemporaryFile
 
 from acprof.config import SERVER_PORT
 from acprof.installation import module_command
@@ -16,6 +19,16 @@ class PacketLatencyRuntime:
     mode: str
     tcpdump_cmd: list[str]
     parse_cmd: list[str]
+
+
+@dataclass(frozen=True)
+class CaptureSegment:
+    path: Path
+    server_port: int
+
+    def __post_init__(self):
+        if type(self.server_port) is not int or not 0 < self.server_port < 65536:
+            raise ValueError("Invalid packet capture service port")
 
 
 class PacketLatencyError(RuntimeError):
@@ -102,6 +115,20 @@ def require_packet_latency_prerequisites(sniff_iface: str) -> None:
         )
 
 
+def probe_packet_tools(interface: str) -> dict:
+    """Open the selected capture interface to list link types, without capturing traffic."""
+    from acprof.packet.tshark import tshark_fields_command
+    with NamedTemporaryFile(suffix=".pcap") as empty:
+        # Classic PCAP global header, Ethernet link type, no captured frames.
+        empty.write(struct.pack("<IHHIIII", 0xA1B2C3D4, 2, 4, 0, 0, 65535, 1))
+        empty.flush()
+        for command in (["tcpdump", "-p", "-i", interface, "-L"], tshark_fields_command(empty.name, SERVER_PORT)):
+            result = host_command.run_command(command, capture_output=True, text=True, check=False, timeout=5)
+            if result.returncode:
+                raise RuntimeError((result.stderr or result.stdout).strip() or f"{command[0]} exit {result.returncode}")
+    return {"interface": interface, "link_types_checked": True, "dissector_fields_checked": True}
+
+
 def packet_parser_command(pcap_file: str | os.PathLike[str], server_port: int = SERVER_PORT) -> list[str]:
     """Use the same trusted worker and literal argv for live and restored captures."""
     return [*module_command("acprof.packet.sniff_parse_pcap"), os.fspath(pcap_file), str(server_port)]
@@ -111,12 +138,16 @@ def resolve_packet_latency_runtime(
     project_dir: str,
     pcap_file: str,
     sniff_iface: str,
+    *, process_port: int | None = None, preflight_checked: bool = False,
 ) -> PacketLatencyRuntime | None:
     del project_dir  # Packet capture and parsing now always run on the local Linux host.
+    port = SERVER_PORT if process_port is None else CaptureSegment(Path(pcap_file), process_port).server_port
+    if process_port is not None:
+        sniff_iface = "lo"
     local_tcpdump = shutil.which("tcpdump")
     local_tshark = shutil.which("tshark")
     if local_tcpdump and local_tshark:
-        if not tcpdump_can_capture_without_sudo(local_tcpdump):
+        if not preflight_checked and not tcpdump_can_capture_without_sudo(local_tcpdump):
             raise packet_latency_error(f"tcpdump lacks capture capability: {local_tcpdump}")
         return PacketLatencyRuntime(
             mode="local",
@@ -130,11 +161,10 @@ def resolve_packet_latency_runtime(
                 "4096",
                 "-w",
                 pcap_file,
-                "tcp",
-                "port",
-                str(SERVER_PORT),
+                *(["host", "127.0.0.1", "and"] if process_port is not None else []),
+                "tcp", "port", str(port),
             ],
-            parse_cmd=packet_parser_command(pcap_file),
+            parse_cmd=packet_parser_command(pcap_file, port),
         )
 
     return None

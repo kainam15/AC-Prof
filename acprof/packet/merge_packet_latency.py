@@ -238,7 +238,7 @@ def _read_sidecar_groups(csv_path: str, expected_rows: int) -> list[str]:
     return groups
 
 
-def _merge_request_samples(csv_path: str, packet_records: dict) -> None:
+def _merge_request_samples(csv_path: str, packet_records: dict, *, allow_partial=False) -> None:
     """Retain packet samples alongside app samples before PCAP cleanup."""
     from acprof.artifacts import atomic_write
     from acprof.results.layout import case_sidecar
@@ -266,11 +266,14 @@ def _merge_request_samples(csv_path: str, packet_records: dict) -> None:
                 if window.get("schema_version") != 1:
                     raise ValueError("unsupported request latency schema")
                 gid = window["sniff_group_id"]
-                latencies = []
+                latencies: list[float | None] = []
                 for index in range(len(window["latency_app_s"])):
                     request_id = f"{gid}:{index}"
                     if request_id in duplicates:
-                        raise ValueError(f"duplicate packet request identity: {request_id}")
+                        if not allow_partial:
+                            raise ValueError(f"duplicate packet request identity: {request_id}")
+                        latencies.append(None)
+                        continue
                     value = latency_by_id.get(request_id, float("nan"))
                     latencies.append(value if math.isfinite(value) and value >= 0 else None)
                 window["latency_packet_s"] = latencies
@@ -297,9 +300,12 @@ def main(argv: Sequence[str] | None = None) -> None:
     slow_latency_threshold_s = latency_slo_threshold(metadata)
 
     group_records = defaultdict(list)
+    identities = defaultdict(list)
     for req_id, record in request_records.items():
         group_id = req_id.split(":", 1)[0]
         group_records[group_id].append(record)
+        observed = packet_payload["requests"][req_id].get("request_id")
+        identities[group_id].append(normalize_request_id(observed) if isinstance(observed, str) else None)
 
     with open(in_csv, encoding="utf-8", newline="") as f:
         allow_large_csv_fields()
@@ -321,6 +327,12 @@ def main(argv: Sequence[str] | None = None) -> None:
         if gid and gid in group_records and group_records[gid]:
             if "packet_status" in r:
                 r["packet_status"] = "ok"
+                if metadata.get("profiling_mode") == "best_effort" or r.get("runtime_kind") == "process":
+                    count = _to_float(r.get("repeat_in_window"))
+                    ids = identities[gid]
+                    if (len(ids) != count or len(set(ids)) != len(ids)
+                            or set(ids) != {f"{gid}:{index}" for index in range(len(ids))}):
+                        r["packet_status"] = "partial"
             records = group_records[gid]
             latencies = [record.get("latency_s", float("nan")) for record in records]
             r["latency_s"] = _fmt_float(_mean(latencies))
@@ -380,7 +392,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         writer.writerows(rows)
 
     atomic_write(out_csv, write_merged_csv)
-    _merge_request_samples(in_csv, packet_payload["requests"])
+    _merge_request_samples(in_csv, packet_payload["requests"], allow_partial=metadata.get("profiling_mode") == "best_effort")
 
 
 if __name__ == "__main__":

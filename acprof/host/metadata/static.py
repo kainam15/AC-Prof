@@ -161,6 +161,7 @@ def collect_static_meta(
     execution_profile_enabled: bool = False,
     profiling_mode: str = "full",
     gpu_device: dict[str, Any] | None = None,
+    rapl_topology: dict | None = None,
 ) -> StaticMeta:
     """Collect static metadata for the current model/image pair."""
     from acprof.host.configuration_transport import bound_inference_configuration
@@ -174,10 +175,15 @@ def collect_static_meta(
     identity = runtime_identity(image_info)
     image_tag = '' if process else identity
     environment = detect_environment()
-    cpu_power_source, vcpu_power_method = (
-        machine_metadata.cpu_power_metadata() if measurement_requested(profiling_mode, "cpu_energy")
-        else ("not_requested", "not_requested")
-    )
+    if rapl_topology is not None:
+        packages = any(item["kind"] == "package" and item["selected"] for item in rapl_topology.get("domains", []))
+        cpu_power_source = "rapl" if packages else "unavailable"
+        vcpu_power_method = "rapl_cgroup_cpu_share" if packages and not process else "unavailable"
+    else:
+        cpu_power_source, vcpu_power_method = (
+            machine_metadata.cpu_power_metadata() if measurement_requested(profiling_mode, "cpu_energy")
+            else ("not_requested", "not_requested")
+        )
     cpu_governor, cpu_boost = machine_metadata.cpu_frequency_policy_metadata()
     host_swap = machine_metadata.host_swap_metadata()
     docker_storage: dict[str, Any] = dict.fromkeys(('docker_storage_total_bytes', 'docker_storage_available_bytes_at_start'), None) if process else machine_metadata.docker_storage_metadata()
@@ -262,8 +268,8 @@ def collect_static_meta(
         cgroup_version=cgroup_version,
         cgroup_collection_mode=cgroup_collection_mode,
         cpu_power_source=cpu_power_source,
-        vcpu_power_method=vcpu_power_method,
-        rapl_topology=discover_rapl_topology() if environment.native else {},
+        vcpu_power_method="not_requested" if process else vcpu_power_method,
+        rapl_topology=rapl_topology if rapl_topology is not None else discover_rapl_topology() if environment.native else {},
         cpu_governor=cpu_governor,
         cpu_boost=cpu_boost,
     )

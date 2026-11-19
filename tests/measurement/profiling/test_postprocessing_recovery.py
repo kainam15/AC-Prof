@@ -511,3 +511,60 @@ def test_client_cancellation_and_capture_failure_still_release_container(measure
     assert record["measurement_status"] != "complete"
     assert case.sidecar("cleanup_error").is_file()
     assert events[-1] == ("case_finished", {"status": "error"})
+
+
+
+def test_optional_parser_failure_retains_app_and_journal(tmp_path, monkeypatch):
+    from acprof.host.measurement.capture import PacketLatencyError
+    from acprof.results.csv import read_result_csv
+    from acprof.results.layout import case_sidecar
+    from acprof.results.profile import metric_observation
+    path = tmp_path / "case.csv"
+    data = dict.fromkeys(CSV_FIELDS, "nan")
+    data.update(cpu_cores=1, mem_cap_gb=4, gpu_mode="off", runtime_kind="process", input_scale=2, warmup=0,
+                repeat_idx=0, repeat_in_window=1, window_id="fixture", latency_app_s=.1, status="ok", error="",
+                packet_status="pending", resource_metric_quality=json.dumps({"schema_version": 1, "metrics": {},
+                    "collectors": {"client_http": {"status": "available"}, "packet_latency": {"status": "available"}}}))
+    with path.open("w", newline="") as stream:
+        writer = csv.DictWriter(stream, CSV_FIELDS)
+        writer.writeheader()
+        writer.writerow(data)
+    journal = case_sidecar(path, "requests")
+    raw = b'{"schema_version":1,"sniff_group_id":"fixture","latency_app_s":[0.1]}\n'
+    journal.write_bytes(raw)
+    pcap = tmp_path / "loopback.pcap"
+    pcap.write_bytes(b"invalid capture fixture")
+    def fail(command):
+        assert command == ["fixture-parser"]
+        raise PacketLatencyError("fixture parse failed")
+    monkeypatch.setattr(orchestrator, "parse_packet_output", fail)
+    orchestrator._finalize_case(True, SimpleNamespace(parse_cmd=["fixture-parser"]), False, 0, "", str(pcap),
+                                str(tmp_path / "latency.json"), str(path), False, "best_effort", "off")
+    _, rows = read_result_csv(path)
+    assert rows[0]["packet_status"] == "unavailable"
+    assert metric_observation(rows[0], "latency_s")["reason"] == "fixture parse failed"
+    assert rows[0]["latency_s"] == "nan"
+    assert float(rows[0]["latency_app_s"]) == .1
+    assert journal.read_bytes() == raw
+
+
+def test_resume_keeps_good_segments_and_uses_each_service_port(tmp_path, monkeypatch):
+    from acprof.host.measurement import packet_segments
+    from acprof.host.measurement.capture import CaptureSegment, PacketLatencyError
+    segments = [CaptureSegment(tmp_path / name, port) for name, port in (("bad", 8141), ("good", 8161))]
+    commands = []
+    def parse(command, *, stage):
+        commands.append(command[-2:])
+        if command[-1] == "8141":
+            raise PacketLatencyError("fixture packet access denied")
+        return {"schema_version": 2, "requests": {"old:1": {"request_id": "old:0", "latency_s": .3}}}
+    monkeypatch.setattr(packet_segments, "parse_packet_output", parse)
+    current = {"schema_version": 2, "requests": {"new:4": {"request_id": "new:0", "latency_s": .2}}}
+    failures = []
+    combined = packet_segments.merge_capture_segments(current, segments, 9000, errors=failures)
+    assert commands == [[str(segment.path), str(segment.server_port)] for segment in segments]
+    assert set(combined["requests"]) == {"old:1", "new:4"}
+    assert len(failures) == 1
+    assert "access denied" in failures[0]
+    with pytest.raises(PacketLatencyError, match="duplicate request identity"):
+        packet_segments.merge_capture_segments(current, [segments[1], segments[1]], 9000, errors=[])

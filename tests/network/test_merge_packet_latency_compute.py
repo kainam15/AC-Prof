@@ -250,6 +250,7 @@ def test_merges_schema_v2_network_and_normalized_metrics() -> None:
             "input_units_per_request",
             "latency_s",
             "latency_s_per_input_unit",
+            "throughput_app_samples_per_s",
             "throughput_samples_per_s",
             "throughput_samples_per_s_per_cpu_core",
             "packet_request_wire_bytes_per_request",
@@ -268,6 +269,7 @@ def test_merges_schema_v2_network_and_normalized_metrics() -> None:
                 "input_scale": "4",
                 "input_units_per_request": "8",
                 **{field: "nan" for field in fieldnames[4:]},
+                "throughput_app_samples_per_s": "2.500000",
             })
         with open(lat_json, "w", encoding="utf-8") as f:
             json.dump(
@@ -297,6 +299,7 @@ def test_merges_schema_v2_network_and_normalized_metrics() -> None:
     assert (row["packet_request_wire_bytes_per_request"]) == ("350.000000")
     assert (row["packet_response_wire_bytes_per_request"]) == ("550.000000")
     assert (row["packet_total_wire_bytes_per_request"]) == ("900.000000")
+    assert row["throughput_app_samples_per_s"] == "2.500000"
     assert (row["packet_tcp_payload_bytes_per_request"]) == ("650.000000")
     assert (row["packet_protocol_overhead_bytes_per_request"]) == ("250.000000")
     assert (row["packet_protocol_overhead_ratio"]) == ("0.277778")
