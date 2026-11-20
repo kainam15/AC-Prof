@@ -191,8 +191,11 @@ class RecoveryController:
             return
         launch, record = pending
         try:
-            # Resume belongs to the confirmed launch, not the editable form.
-            if launch.config is None or self.app.configuration.collect_config() != replace(launch.config, resume=False):
+            # The form uses explicit Docker/Process, while a legacy resume
+            # must keep its frozen original CLI runtime (including auto).
+            from acprof.tui.run.form import runtime_form_config
+            expected = runtime_form_config(replace(launch.config, resume=False)) if launch.config else None
+            if expected is None or self.app.configuration.collect_config() != expected:
                 self.app.notify("配置已变化；已取消本次恢复启动。", severity="warning")
                 return
         except ValueError:

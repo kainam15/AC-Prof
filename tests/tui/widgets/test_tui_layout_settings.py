@@ -239,7 +239,7 @@ class TestTuiLayoutSettings:
             assert (warning) == ("")
             assert (saved.run_defaults) is not None
             assert (saved.run_defaults.model) == ("")
-            assert (saved.run_defaults) == (RunConfig.smoke())
+            assert (saved.run_defaults) == (replace(RunConfig.smoke(), runtime="docker"))
             with patch.object(app, 'launch') as launch:
                 app.experiments.request_run()
                 await pilot.pause()
@@ -253,7 +253,7 @@ class TestTuiLayoutSettings:
         async with app.run_test(size=(120, 30)) as pilot:
             await pilot.pause()
             assert (app.query_one("#gpus", Select).value) == ("on,off")
-            assert (app.configuration.collect_config()) == (config)
+            assert (app.configuration.collect_config()) == (replace(config, runtime="docker"))
             await self.remember_experiment(app, pilot)
             saved, warning = load_settings(self.settings_path, PROJECT_DIR)
             assert (warning) == ("")
@@ -311,7 +311,7 @@ class TestTuiLayoutSettings:
             assert restarted.query_one("#slash-command-bar").display
             assert not (restarted.query_one("#run-log", SelectableLog).wrap)
             assert (restarted.query_one("#run-log", SelectableLog).max_lines) == (1000)
-            assert (restarted.configuration.initial_config) == (RunConfig.smoke())
+            assert (restarted.configuration.initial_config) == (replace(RunConfig.smoke(), runtime="docker"))
             await pilot.press("f2")
             assert await pilot.click("#restore-ui-defaults", offset=(3, 1))
             await pilot.pause()
@@ -337,7 +337,7 @@ class TestTuiLayoutSettings:
             await self.remember_experiment(app, pilot)
             saved, warning = load_settings(self.settings_path, PROJECT_DIR)
             assert (warning) == ("")
-            assert (saved.run_defaults) == (config)
+            assert (saved.run_defaults) == (replace(config, runtime="docker"))
             assert (saved.ui.theme) == ("acprof-dark")
             assert (app.configuration.preferences.theme) == ("acprof-dark")
 
@@ -353,11 +353,11 @@ class TestTuiLayoutSettings:
             await pilot.pause()
             saved, warning = load_settings(self.settings_path, PROJECT_DIR)
             assert (warning) == ("")
-            assert (saved.run_defaults) == (config)
+            assert (saved.run_defaults) == (replace(config, runtime="docker"))
             assert (saved.ui.theme) == ("acprof-dark")
             assert (saved.ui.log_max_lines) == (500)
         restarted = AcprofTui(settings_path=self.settings_path)
-        assert (restarted.configuration.initial_config) == (config)
+        assert (restarted.configuration.initial_config) == (replace(config, runtime="docker"))
         assert (restarted.configuration.preferences.log_max_lines) == (500)
         assert (restarted.configuration.preferences.theme) == ("acprof-dark")
 
@@ -467,7 +467,7 @@ class TestTuiModelMemory:
         saved, warning = load_settings(self.settings_path, PROJECT_DIR)
         assert (warning) == ("")
         assert (saved) == (TuiSettings(last_model="demo/first"))
-        assert (AcprofTui(settings_path=self.settings_path).configuration.initial_config) == (RunConfig.smoke("demo/first"))
+        assert (AcprofTui(settings_path=self.settings_path).configuration.initial_config) == (replace(RunConfig.smoke("demo/first"), runtime="docker"))
 
     @pytest.mark.parametrize('corrupt', [False, True])
     async def test_write_failure_or_corrupt_file_does_not_block_launch(self, corrupt):
@@ -507,7 +507,8 @@ class TestTuiModelMemory:
         assert (saved.last_model) == ("demo/previous")
         assert (saved.last_result_dir) == (self.saved.last_result_dir)
         assert (saved.last_result_csv) == (self.saved.last_result_csv)
-        assert (saved.run_defaults) == (config if remember_run else self.saved.run_defaults)
+        expected_run = replace(config, runtime="docker") if remember_run else self.saved.run_defaults
+        assert (saved.run_defaults) == (expected_run)
         assert (saved.ui.theme) == ("acprof-dark")
 
     def write_result(self):
@@ -724,6 +725,8 @@ class TestTuiMainSettings:
             main(argv)
         run.assert_called_once()
         app = run.call_args.args[0]
-        assert (app.configuration.initial_config) == (expected)
+        # The saved/CLI defaults are not rewritten until the user explicitly
+        # saves; the TUI form itself cannot expose the legacy Auto option.
+        assert (app.configuration.initial_config) == (replace(expected, runtime="docker"))
         assert (app.configuration.preferences.theme) == ("acprof-light")
         assert (self.settings_path.read_bytes()) == (original)
