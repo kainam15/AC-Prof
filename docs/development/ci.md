@@ -16,8 +16,8 @@ Release 的 `workflow_call` 入口保持独立。
 | 仅 `docs/**` 普通文档、`AGENTS.md` 或 `.agents/skills/**` 的 Markdown/YAML | `docs-check` |
 | 只修改 `docs/results/metric_reference.md` | `docs-check` 和 `metric-docs`，额外核对注册表生成内容 |
 | 只修改根目录 `README.md` | `docs-check` 和 `wheel`，验证发布元数据与 sdist |
-| 修改 Python、测试、依赖、工作流、其他代码或未知文件 | `docs-check` 和原有完整 CI |
-| 手动 `workflow_dispatch` 或 Release 使用 `workflow_call` | 原有完整 CI（不按文件过滤） |
+| 修改 Python、测试、依赖、工作流、其他代码或未知文件 | `docs-check`、`ci-preflight` 和完整 CI |
+| 手动 `workflow_dispatch` 或 Release 使用 `workflow_call` | `ci-preflight` 和完整 CI（不按文件过滤） |
 
 分类由固定 SHA 的 [dorny/paths-filter](https://github.com/dorny/paths-filter) 完成；
 PR 对比目标分支，Push 对比本次推送前的分支状态。混合代码和文档修改执行完整 CI；
@@ -28,7 +28,12 @@ PR 对比目标分支，Push 对比本次推送前的分支状态。混合代码
 固定版本 markdownlint-cli2，验证本地链接、章节锚点、GFM 排版、
 中文强调标记的实际渲染、双语 README 结构与代码/链接一致性，以及 Skill frontmatter/YAML。
 主机测试不执行时，`host-summary` 同步跳过，不尝试读取不存在的分片和 coverage 产物。
-完整 CI 原有 pytest evidence、Python 版本矩阵、报告汇总和容器验证保持不变。
+完整 CI 的 pytest evidence、Python 版本矩阵、报告汇总和容器验证保持不变。
+`ci-preflight` 在 Python 3.12/3.13 上提前运行 `scripts/check_ci_preflight.py`，
+检查 TUI 配置与恢复、关键交互和布局、cgroup I/O 缺字段、private API 边界和 CI 门禁。
+其失败会阻止启动后续的 24 个 Host 分片，但不会将失败视为成功，
+完整 Host 测试、SVG/PNG 视觉检查、ONNX 端到端验证仍是独立验收要求。
+开发者可先执行 `uv run --locked --no-default-groups --group test python scripts/check_ci_preflight.py`。
 `ci-gate` 使用 `always()` 汇总本次变更必须成功的作业：普通文档仅要求
 `changes` 和 `docs-check`；仅 README 或指标文档再分别要求 `wheel` /
 `metric-docs`；代码变更要求全部类型、静态契约、host evidence 汇总、wheel、

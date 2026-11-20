@@ -7,6 +7,14 @@ exclude: '^(internal-testing/|results/|evidence/|docs/Original_Project_Definitio
 repos:
   - repo: local
     hooks:
+      - id: ci-preflight
+        name: Fast CI contracts before pushing code (opt-in pre-push)
+        entry: uv run --locked python scripts/check_ci_preflight.py
+        language: system
+        stages: [pre-push]
+        pass_filenames: false
+        require_serial: true
+        files: '^(acprof/|tests/|scripts/|packaging/|\.github/workflows/|pyproject\.toml$|uv\.lock$)'
       - id: pytest-framework
         name: Require pytest tests and runner
         entry: uv run --locked python scripts/check_test_framework.py

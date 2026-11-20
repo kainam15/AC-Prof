@@ -6,7 +6,7 @@ import json
 import os
 
 FULL_JOBS = (
-    "lint", "types", "contracts", "host-summary", "wheel",
+    "lint", "types", "contracts", "ci-preflight", "host-summary", "wheel",
     "report-browser", "tui-snapshots", "onnx-cpu", "runtime",
 )
 
