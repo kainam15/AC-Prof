@@ -14,6 +14,19 @@ from acprof.tui.ui.structured import FactGrid
 from tests.support.tui_fixtures import AcprofTui
 
 
+def test_header_platform_uses_dim_style_without_dimming_version(tmp_path):
+    for environment in (Environment("native_linux"), Environment("wsl2")):
+        with patch("acprof.platform.detect_environment", return_value=environment):
+            app = AcprofTui(settings_path=tmp_path / f"{environment.environment}.json")
+            title = app.format_title(app.title, "")
+            platform_name = environment.label.split(" / ")[0]
+            assert title.plain == f"AC-Prof {__version__} · {platform_name}"
+            assert [(span.start, span.end, span.style) for span in title.spans] == [
+                (len(title.plain) - len(platform_name), len(title.plain), "dim"),
+            ]
+            assert app.format_title("Other screen", "").spans == []
+
+
 async def test_partial_launch_keeps_monitor_visible_at_two_sizes():
     wsl = Environment("wsl2")
     for size in ((80, 24), (120, 40)):

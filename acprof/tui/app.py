@@ -16,6 +16,7 @@ try:
     from textual.app import ComposeResult
     from textual.binding import Binding
     from textual.containers import Horizontal, Vertical
+    from textual.content import Content
     from textual.geometry import Size
     from textual.screen import ModalScreen
     from textual.theme import Theme
@@ -127,6 +128,13 @@ class AcprofTui(AppEventRoutes):
     def python_executable(self) -> Path:
         return PYTHON_EXECUTABLE
 
+
+    def format_title(self, title: str, sub_title: str) -> Content:
+        content = super().format_title(title, sub_title)
+        platform_name = self.environment.label.split(" / ")[0]
+        if title == self.title and title.endswith(f" · {platform_name}"):
+            return content.stylize("dim", len(title) - len(platform_name), len(title))
+        return content
 
     def __init__(
         self, initial_config: RunConfig | None = None, *, settings_path: Path | None = None,
