@@ -160,3 +160,35 @@ class TestTuiPreflight:
         assert (check.status) == ("fail")
         assert ("perf command was not found") in (check.detail)
         run.assert_not_called()
+
+
+@pytest.mark.parametrize(("missing", "low_pct"), [(True, False), (False, True)])
+def test_auto_pmu_preflight_distinguishes_missing_fields_and_low_duty_cycle(tmp_path, monkeypatch, missing, low_pct):
+    from acprof.tui.run.diagnostics import _automatic_checks
+
+    evidence = {
+        "unavailable_events": ["dTLB-load-misses"] if missing else [],
+        "event_statuses": {"dTLB-load-misses": "combination_limited"},
+        "event_running_pct": {"instructions": 7.0} if low_pct else {"instructions": 100.0},
+    }
+    fields = ("cpu_dtlb_load_misses_per_request", "cpu_dtlb_load_miss_rate_pct")
+    plan = {
+        "probes": {"cpu_instructions": {"status": "available", "detail": "", "evidence": evidence}},
+        "fields": {"cpu_instructions": fields},
+        "field_probes": ({
+            key: {"status": "unavailable", "reason_code": "combination_limited", "detail": "combination"}
+            for key in fields
+        } if missing else {}),
+    }
+    monkeypatch.setattr("acprof.host.runtimes.capabilities.probe_collection_plan", lambda *a, **kw: plan)
+    rows = _automatic_checks(
+        RunConfig(profiling_mode="best_effort", gpus="off"), "process", lambda _: {},
+        project_dir=tmp_path,
+    )
+    check = next(row for row in rows if row.check_id == "cpu_instructions")
+    assert (check.status, check.reason_code) == ("warn", "partial")
+    if missing:
+        assert "dTLB-load-misses" in check.detail
+        assert "PMU" in check.detail
+    else:
+        assert "7.0%" in check.detail

@@ -63,6 +63,41 @@ def test_best_effort_native_probes_are_independent(monkeypatch, missing, runtime
     assert "latency_app_s" in plan["fields"]["client_http"]
 
 
+@pytest.mark.parametrize("runtime", ["docker", "process"])
+@pytest.mark.parametrize(
+    ("reason", "expected_status"),
+    [("combination_limited", "unavailable"), ("unsupported", "unsupported"),
+     ("permission_denied", "permission_denied"), ("probe_error", "unavailable")],
+)
+def test_optional_pmu_field_probe_preserves_failure_reason(monkeypatch, runtime, reason, expected_status):
+    from acprof.host.measurement import capture
+    from acprof.host.runtimes.capabilities import probe_collection_plan
+    from acprof.monitors import perf_mips, rapl_topology
+
+    monkeypatch.setattr(
+        rapl_topology, "discover_rapl_topology",
+        lambda: {"domains": [], "errors": [], "dram_status": "unsupported", "dram_missing_packages": []},
+    )
+    monkeypatch.setattr("shutil.which", lambda name: f"/fixture/{name}")
+    monkeypatch.setattr(perf_mips, "resolve_perf_command_prefix", lambda **kw: ["perf"])
+    monkeypatch.setattr(
+        perf_mips, "probe_event_set", lambda *args, **kwargs: {
+            "events": ["instructions", "cycles", "dTLB-loads"],
+            "unavailable_events": ["dTLB-load-misses"],
+            "event_statuses": {"dTLB-load-misses": reason},
+        },
+    )
+    monkeypatch.setattr(capture, "probe_packet_tools", lambda iface: {"interface": iface})
+    plan = probe_collection_plan(runtime, environment=Environment("native_linux", "Linux"))
+    perf = plan["probes"]["cpu_instructions"]
+    assert perf["status"] == "available"
+    for field in ("cpu_dtlb_load_misses_per_request", "cpu_dtlb_load_miss_rate_pct"):
+        failure = plan["field_probes"][field]
+        assert failure["status"] == expected_status
+        assert failure["reason_code"] == reason
+        assert "dTLB-load-misses" in failure["detail"]
+
+
 def test_guest_fallback_skips_native_probes_and_uses_process(monkeypatch):
     from acprof.capabilities import Capability
     from acprof.host.runtimes.capabilities import probe_collection_plan

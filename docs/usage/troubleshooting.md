@@ -105,6 +105,8 @@ Docker 数据可能在另一挂载点，磁盘问题还需对实际 `DockerRootD
 - `cpu_mips_*` 字段来自 Linux `perf` 的 `instructions` 硬件事件，不是 CPU frequency 推导值。`acprof run` 会在 task detection 前检查 `perf` 权限，失败时打印 `[mips][ERROR]`、当前 `perf_event_paranoid` 和恢复步骤。
 - TUI 快速检查与正式启动共用 `resolve_perf_command_prefix()`：直接运行 `perf`，先读取有效 `instructions` 计数，再附加主机 PID 1 检查跨用户权限，每个探测最多 5 秒。环境检查不尝试 sudo 或自动 setcap；权限不足时可在 `F2` → “连接与权限 → 采集权限”显式配置，或参照[最小权限安装](../getting_started/installation.md#最小权限安装)。`ACPROF_SUDO_PASSWORD` 已移除，须从进程和本地 env 文件删除。TUI 使用独立环境副本，并将旧配置报告为迁移错误；实际容器 PID 仍由采集时的探测验证。
 - `cpu_cache_*` 和 `cpu_dtlb_*` 字段来自 Linux `perf` generic PMU events。可先用 `perf list` 和 `perf stat -e cache-references,cache-misses,dTLB-loads,dTLB-load-misses -- true` 检查当前 CPU / kernel 是否支持；事件不支持不表示 miss 为 0。
+- Best-effort PMU 预检优先将 `instructions/cycles`、cache 与 dTLB 的计数分组（`perf stat -e '{instructions,cycles},{cache-references,cache-misses},{dTLB-loads,dTLB-load-misses}'`）。组合出现 `<not counted>` 时单独复测受影响事件，再于总计 12 秒预算内尝试较小的事件集合；仅独立探测确认为不支持时标为「不支持」，组合调度受限、权限不足与检测错误分别记录。整个流程不运行额外模型请求、不修改系统权限；正式计数仍需检查目标进程 PID 附加权限。
+- `event_running_pct` 与 `event_runtime` 存入本次能力计划，`cpu_perf_running_pct` 汇总窗口内可解析 PMU 事件的最低实际运行比例。perf 对多路复用计数可能按运行时间缩放；短时预检比例偏低会显示质量警告，但不能据此推断正式推理窗口的精度。IPC、cache/dTLB miss rate 仅在所需事件同作用域、运行比例相符时计算；不完整的混合 PMU 计数保持 `nan`，绝不把 `<not counted>` 当作 0。低运行比例的短窗口应结合正式结果独立核对。
 - 这些 cache / dTLB 字段用于描述访存行为，不提供 DRAM GB/s。实际 read/write bandwidth 需要 uncore memory-controller、Intel PCM、AMD IBS/DF 或其他硬件专用计数器，不能由 miss 数直接换算。
 
 ## 常见问题

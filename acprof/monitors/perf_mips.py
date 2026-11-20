@@ -33,6 +33,17 @@ PERF_OPTIONAL_EVENTS = (
 PERF_EVENTS = (PERF_EVENT, *PERF_OPTIONAL_EVENTS)
 PERF_TIMEOUT_MS = 86_400_000
 PERF_PROBE_TIMEOUT_S = 5.0
+PERF_PROBE_BUDGET_S = 12.0
+PERF_EVENT_PAIRS = (
+    ("instructions", "cycles"),
+    ("cache-references", "cache-misses"),
+    ("dTLB-loads", "dTLB-load-misses"),
+)
+PERF_FALLBACK_DROP_ORDER = (
+    "ref-cycles", "cache-references", "cache-misses",
+    "dTLB-loads", "dTLB-load-misses", "cycles",
+)
+
 PERF_STOP_TIMEOUT_S = 5.0
 PERF_STOP_SIGNAL_GRACE_S = 0.75
 PERF_CONTROL_TIMEOUT_S = 5.0
@@ -54,6 +65,8 @@ class PerfStatParsed:
     cache_misses_total: float = float("nan")
     dtlb_loads_total: float = float("nan")
     dtlb_load_misses_total: float = float("nan")
+    cache_pair_comparable: bool = True
+    dtlb_pair_comparable: bool = True
 
 
 @dataclass
@@ -116,49 +129,73 @@ def _event_label_matches(label: str, event_name: str) -> bool:
     )
 
 
+def _scan_perf_stat_counters(text: str) -> tuple[dict, dict, set[str], dict, list[float]]:
+    """Accumulate per-event scaled counts and note incomplete hybrid PMU rows."""
+    event_values = {event: float("nan") for event in PERF_EVENTS}
+    event_scopes: dict[str, set[str]] = {event: set() for event in PERF_EVENTS}
+    invalid_events: set[str] = set()
+    event_running_pct: dict[str, dict[str, float]] = {event: {} for event in PERF_EVENTS}
+    running_percentages = []
+    for raw_line in text.splitlines():
+        parts = [part.strip() for part in raw_line.split(",")]
+        if len(parts) < 3:
+            continue
+        event_label = parts[2]
+        event = next((name for name in PERF_EVENTS if _event_label_matches(event_label, name)), None)
+        if event is None:
+            continue
+        value = _to_float(parts[0])
+        scope = event_label.replace(event, "EVENT", 1)
+        event_scopes[event].add(scope)
+        running_pct = _to_float(parts[4]) if len(parts) > 4 else float("nan")
+        if math.isfinite(running_pct):
+            event_running_pct[event][scope] = running_pct
+            if running_pct == 0:
+                value = float("nan")
+            elif 0 < running_pct <= 100:
+                running_percentages.append(running_pct)
+        if math.isfinite(value) and value >= 0.0:
+            previous = event_values[event]
+            event_values[event] = previous + value if math.isfinite(previous) else value
+        else:
+            invalid_events.add(event)
+    for event in invalid_events:
+        event_values[event] = float("nan")
+    return event_values, event_scopes, invalid_events, event_running_pct, running_percentages
+
+
+def _pmu_pair_comparable(
+    event_scopes: dict, invalid_events: set[str], event_running_pct: dict,
+    left: str, right: str,
+) -> bool:
+    if (left in invalid_events or right in invalid_events
+            or not event_scopes[left] or event_scopes[left] != event_scopes[right]):
+        return False
+    left_pct, right_pct = event_running_pct[left], event_running_pct[right]
+    return all(
+        scope not in left_pct or scope not in right_pct
+        or abs(left_pct[scope] - right_pct[scope]) <= 0.01
+        for scope in event_scopes[left]
+    )
+
+
 def parse_perf_stat_output(
     text: str,
     *,
     fallback_elapsed_s: float | None = None,
     require_elapsed: bool = True,
 ) -> PerfStatParsed:
-    event_values = {event_name: float("nan") for event_name in PERF_EVENTS}
-    event_scopes: dict[str, set[str]] = {name: set() for name in PERF_EVENTS}
-    invalid_events: set[str] = set()
-    running_percentages = []
-    for raw_line in text.splitlines():
-        line = raw_line.strip()
-        if not line:
-            continue
-        parts = [part.strip() for part in line.split(",")]
-        if len(parts) < 3:
-            continue
-        event_label = parts[2]
-        for event_name in PERF_EVENTS:
-            if _event_label_matches(event_label, event_name):
-                value = _to_float(parts[0])
-                event_scopes[event_name].add(event_label.replace(event_name, "EVENT", 1))
-                if event_name in ("instructions", "cycles", "ref-cycles"):
-                    running_pct = _to_float(parts[4]) if len(parts) > 4 else float("nan")
-                    if math.isfinite(running_pct) and 0 < running_pct <= 100:
-                        running_percentages.append(running_pct)
-                    if running_pct == 0:
-                        value = float("nan")
-                if math.isfinite(value) and value >= 0.0:
-                    previous = event_values[event_name]
-                    event_values[event_name] = (
-                        previous + value
-                        if math.isfinite(previous)
-                        else value
-                    )
-                else:
-                    invalid_events.add(event_name)
-                break
-
-    # A partial hybrid-PMU total must not be used as the denominator of IPC.
-    for name in ("cycles", "ref-cycles"):
-        if name in invalid_events or event_scopes[name] != event_scopes["instructions"]:
-            event_values[name] = float("nan")
+    event_values, event_scopes, invalid_events, running_pct, running_percentages = (
+        _scan_perf_stat_counters(text)
+    )
+    comparable = partial(_pmu_pair_comparable, event_scopes, invalid_events, running_pct)
+    if not comparable("instructions", "cycles"):
+        event_values["cycles"] = float("nan")
+    if (invalid_events.intersection({"instructions", "ref-cycles"})
+            or event_scopes["instructions"] != event_scopes["ref-cycles"]):
+        event_values["ref-cycles"] = float("nan")
+    cache_pair_comparable = comparable("cache-references", "cache-misses")
+    dtlb_pair_comparable = comparable("dTLB-loads", "dTLB-load-misses")
 
     elapsed_s = _parse_elapsed_s(text)
     if not math.isfinite(elapsed_s) or elapsed_s <= 0:
@@ -187,9 +224,7 @@ def parse_perf_stat_output(
         ref_cycles_total=event_values["ref-cycles"],
         ipc=(
             instructions / event_values["cycles"]
-            if event_values["cycles"] > 0
-            and "instructions" not in invalid_events
-            and event_scopes["instructions"] == event_scopes["cycles"]
+            if event_values["cycles"] > 0 and comparable("instructions", "cycles")
             else float("nan")
         ),
         running_pct=min(running_percentages) if running_percentages else float("nan"),
@@ -197,6 +232,8 @@ def parse_perf_stat_output(
         cache_misses_total=event_values["cache-misses"],
         dtlb_loads_total=event_values["dTLB-loads"],
         dtlb_load_misses_total=event_values["dTLB-load-misses"],
+        cache_pair_comparable=cache_pair_comparable,
+        dtlb_pair_comparable=dtlb_pair_comparable,
     )
 
 
@@ -334,21 +371,178 @@ def resolve_perf_command_prefix(
     raise MIPSProfilingError(f"perf: {detail}; see docs/getting_started/installation.md#最小权限安装")
 
 
-def probe_event_set(prefix: list[str], *, env=None) -> dict:
-    """Check optional events together before a run; unsupported events cannot disable instructions."""
-    command = _perf_probe_command(prefix)
-    command[command.index("-e") + 1] = ",".join(PERF_EVENTS)
-    result = run_command(command, capture_output=True, text=True, timeout=PERF_PROBE_TIMEOUT_S,
-                         check=False, env=env)
+def perf_event_spec(events: tuple[str, ...]) -> str:
+    """Group ratio counter pairs to keep multiplexed time slices aligned."""
+    pending = set(events)
+    specifications = []
+    for event in events:
+        if event not in pending:
+            continue
+        pair = next((pair for pair in PERF_EVENT_PAIRS
+                     if pair[0] == event and pair[1] in pending), None)
+        if pair is None:
+            specifications.append(event)
+            pending.remove(event)
+        else:
+            specifications.append("{" + ",".join(pair) + "}")
+            pending.difference_update(pair)
+    return ",".join(specifications)
+
+
+def _perf_probe_row_state(raw: str, running_pct: float) -> str:
+    if "<not supported>" in raw:
+        return "unsupported"
+    if "<not counted>" in raw or running_pct == 0:
+        return "not_counted"
+    return "available" if math.isfinite(_to_float(raw)) and _to_float(raw) >= 0 else "probe_error"
+
+
+def _event_probe_results(result: subprocess.CompletedProcess, events: tuple[str, ...]) -> tuple[dict, dict]:
+    """Only an actually scheduled, numeric counter is available in this combination."""
     output = (result.stderr or "") + "\n" + (result.stdout or "")
-    supported = {PERF_EVENT}  # The required instructions probe already succeeded.
+    rows: dict[str, list[tuple[str, float, float]]] = {event: [] for event in events}
     for line in output.splitlines():
-        columns = [part.strip() for part in line.split(",")]
-        if len(columns) >= 3 and math.isfinite(_to_float(columns[0])):
-            supported.update(event for event in PERF_EVENTS if _event_label_matches(columns[2], event))
-    return {"events": [event for event in PERF_EVENTS if event in supported],
-            "unavailable_events": [event for event in PERF_EVENTS if event not in supported],
-            "optional_probe_error": output.strip()[:1024] if result.returncode else ""}
+        columns = [column.strip() for column in line.split(",")]
+        if len(columns) < 3:
+            continue
+        for event in events:
+            if not _event_label_matches(columns[2], event):
+                continue
+            raw = columns[0].lower()
+            running_pct = _to_float(columns[4]) if len(columns) > 4 else float("nan")
+            runtime = _to_float(columns[3]) if len(columns) > 3 else float("nan")
+            state = _perf_probe_row_state(raw, running_pct)
+            rows[event].append((state, running_pct, runtime))
+            break
+    if result.returncode:
+        lower = output.lower()
+        error = ("permission_denied" if any(term in lower for term in
+                 ("permission denied", "operation not permitted", "no permission"))
+                 else "probe_error")
+    else:
+        error = "probe_error"
+    states = {}
+    evidence = {}
+    for event, entries in rows.items():
+        if not entries:
+            states[event] = error
+        elif any(state != "available" for state, _, _ in entries):
+            states[event] = next(state for state, _, _ in entries if state != "available")
+        elif result.returncode:
+            states[event] = error
+        else:
+            states[event] = "available"
+            percentages = [pct for _, pct, _ in entries if math.isfinite(pct)]
+            runtimes = [runtime for _, _, runtime in entries if math.isfinite(runtime)]
+            evidence[event] = {
+                **({"running_pct": min(percentages)} if percentages else {}),
+                **({"event_runtime": min(runtimes)} if runtimes else {}),
+            }
+    return states, evidence
+
+
+def _isolated_perf_statuses(states: dict, run, errors: list[str]) -> dict[str, str]:
+    statuses = {}
+    for event in PERF_OPTIONAL_EVENTS:
+        if states.get(event) == "available":
+            continue
+        single = run((event,))
+        statuses[event] = (single[0].get(event, "probe_error")
+                           if single is not None else "probe_error")
+        if statuses[event] == "not_counted":
+            errors.append(f"{event}: <not counted> in standalone probe")
+    return statuses
+
+
+def _select_perf_fallback(isolated: dict, first: tuple | None, run) -> tuple[tuple[str, ...], dict]:
+    blocked = {event for event, status in isolated.items() if status != "available"}
+    candidate = [event for event in PERF_EVENTS if event not in blocked]
+    while candidate:
+        outcome = first if tuple(candidate) == PERF_EVENTS else run(tuple(candidate))
+        if outcome is not None:
+            states, evidence = outcome
+            if all(states.get(event) == "available" for event in candidate):
+                return tuple(candidate), evidence
+        drop = next((event for event in PERF_FALLBACK_DROP_ORDER if event in candidate), None)
+        if drop is None:
+            break
+        candidate.remove(drop)
+    return (PERF_EVENT,), {}
+
+
+def _perf_event_selection_report(
+    selected: tuple[str, ...], evidence: dict, isolated: dict,
+    attempts: int, errors: list[str],
+) -> dict:
+    selected_set = set(selected)
+    event_statuses = {}
+    for event in PERF_EVENTS:
+        if event in selected_set:
+            event_statuses[event] = "available"
+        elif isolated.get(event) in {"unsupported", "permission_denied", "probe_error"}:
+            event_statuses[event] = isolated[event]
+        elif isolated.get(event) == "not_counted":
+            event_statuses[event] = "probe_error"
+        else:
+            event_statuses[event] = "combination_limited"
+    return {
+        "events": list(selected),
+        "unavailable_events": [event for event in PERF_EVENTS if event not in selected_set],
+        "event_statuses": event_statuses,
+        "event_running_pct": {event: data["running_pct"] for event, data in evidence.items()
+                              if "running_pct" in data},
+        "event_runtime": {event: data["event_runtime"] for event, data in evidence.items()
+                          if "event_runtime" in data},
+        "multiplexed_events": [event for event, data in evidence.items()
+                               if 0 < data.get("running_pct", 100) < 99.995],
+        "probe_attempts": attempts,
+        "optional_probe_error": "; ".join(errors)[:1024],
+    }
+
+
+def probe_event_set(prefix: list[str], *, env=None) -> dict:
+    """Select a jointly countable set outside the formal measurement window.
+
+    A counter that is <not counted> in a busy set is not unsupported. Probe
+    it alone before dropping it, and bound total preflight probe time.
+    """
+    deadline = time.monotonic() + PERF_PROBE_BUDGET_S
+    attempts = 0
+    probe_errors: list[str] = []
+
+    def run(events: tuple[str, ...]):
+        nonlocal attempts
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            probe_errors.append("PMU probe budget exhausted")
+            return None
+        command = _perf_probe_command(prefix)
+        command[command.index("-e") + 1] = perf_event_spec(events)
+        attempts += 1
+        try:
+            result = run_command(
+                command, capture_output=True, text=True,
+                timeout=min(PERF_PROBE_TIMEOUT_S, remaining), check=False, env=env,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            probe_errors.append(f"{type(exc).__name__}: {exc}")
+            return None
+        if result.returncode:
+            probe_errors.append(
+                ((result.stderr or "") + "\n" + (result.stdout or "")).strip()[:256]
+                or f"perf exited {result.returncode}"
+            )
+        return _event_probe_results(result, events)
+
+    first = run(PERF_EVENTS)
+    states, evidence = first if first is not None else ({}, {})
+    if all(states.get(event) == "available" for event in PERF_EVENTS):
+        selected = PERF_EVENTS
+        isolated = {}
+    else:
+        isolated = _isolated_perf_statuses(states, run, probe_errors)
+        selected, evidence = _select_perf_fallback(isolated, first, run)
+    return _perf_event_selection_report(selected, evidence, isolated, attempts, probe_errors)
 
 
 def resolve_perf_command_prefix_for_pid(pid: int) -> list[str]:
@@ -517,7 +711,7 @@ class PerfMIPSMonitor:
             "-x",
             ",",
             "-e",
-            ",".join(self.events),
+            perf_event_spec(self.events),
             "-p",
             ",".join(map(str, sorted(self.targets))) if self.process_identity is not None else str(pid),
             "--timeout",
@@ -642,15 +836,15 @@ class PerfMIPSMonitor:
             running_pct=parsed.running_pct,
             cache_references_per_request=cache_references_per_request,
             cache_misses_per_request=cache_misses_per_request,
-            cache_miss_rate_pct=_miss_rate_pct(
-                parsed.cache_misses_total,
-                parsed.cache_references_total,
+            cache_miss_rate_pct=(
+                _miss_rate_pct(parsed.cache_misses_total, parsed.cache_references_total)
+                if parsed.cache_pair_comparable else float("nan")
             ),
             dtlb_loads_per_request=dtlb_loads_per_request,
             dtlb_load_misses_per_request=dtlb_load_misses_per_request,
-            dtlb_load_miss_rate_pct=_miss_rate_pct(
-                parsed.dtlb_load_misses_total,
-                parsed.dtlb_loads_total,
+            dtlb_load_miss_rate_pct=(
+                _miss_rate_pct(parsed.dtlb_load_misses_total, parsed.dtlb_loads_total)
+                if parsed.dtlb_pair_comparable else float("nan")
             ),
         )
 

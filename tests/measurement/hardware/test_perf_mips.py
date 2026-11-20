@@ -228,6 +228,141 @@ class TestPerfMIPS:
 
         assert (prefix) == (["perf"])
 
+
+    def test_failed_pmu_probe_is_bounded_and_preserves_unknown_state(self):
+        with patch.object(
+            perf_mips, "run_command",
+            side_effect=perf_mips.subprocess.TimeoutExpired(["perf", "stat"], 1),
+        ) as execute:
+            result = perf_mips.probe_event_set(["perf"])
+        assert result["events"] == ["instructions"]
+        assert result["event_statuses"]["dTLB-load-misses"] == "probe_error"
+        assert result["optional_probe_error"]
+        assert execute.call_count <= 14
+
+    def test_grouped_event_spec_keeps_ratio_pairs_together(self):
+        spec = perf_mips.perf_event_spec(perf_mips.PERF_EVENTS)
+        assert spec == (
+            "{instructions,cycles},ref-cycles,{cache-references,cache-misses},"
+            "{dTLB-loads,dTLB-load-misses}"
+        )
+        assert perf_mips.perf_event_spec(("instructions", "dTLB-load-misses")) == (
+            "instructions,dTLB-load-misses"
+        )
+
+    def test_grouped_full_probe_preserves_multiplexed_counters(self):
+        calls = []
+
+        def run(cmd, **kwargs):
+            calls.append(cmd)
+            events = cmd[cmd.index("-e") + 1].replace("{", "").replace("}", "").split(",")
+            output = "".join(f"100,,{event},400000,50.00,,\n" for event in events)
+            return SimpleNamespace(returncode=0, stderr=output, stdout="")
+
+        with patch.object(perf_mips, "run_command", side_effect=run):
+            result = perf_mips.probe_event_set(["perf"])
+        assert result["events"] == list(perf_mips.PERF_EVENTS)
+        assert not result["unavailable_events"]
+        assert result["event_running_pct"]["dTLB-load-misses"] == 50.0
+        assert "dTLB-load-misses" in result["multiplexed_events"]
+        assert result["probe_attempts"] == len(calls) == 1
+
+    def test_not_counted_in_full_set_is_not_hardware_unsupported(self):
+        calls = []
+
+        def run(cmd, **kwargs):
+            events = cmd[cmd.index("-e") + 1].replace("{", "").replace("}", "").split(",")
+            calls.append(events)
+            output = ""
+            for event in events:
+                # The crowded full set cannot schedule this counter; the
+                # pair and the event itself are fine without ref-cycles.
+                missing = (
+                    event == "dTLB-load-misses" and "ref-cycles" in events
+                )
+                count = "<not counted>" if missing else "100"
+                percent = "0.00" if missing else "100.00"
+                output += f"{count},,{event},400000,{percent},,\n"
+            return SimpleNamespace(returncode=0, stderr=output, stdout="")
+
+        with patch.object(perf_mips, "run_command", side_effect=run):
+            result = perf_mips.probe_event_set(["perf"])
+        assert "dTLB-load-misses" in result["events"]
+        assert "dTLB-loads" in result["events"]
+        assert "ref-cycles" not in result["events"]
+        assert result["event_statuses"]["ref-cycles"] == "combination_limited"
+        assert result["event_statuses"]["dTLB-load-misses"] == "available"
+        assert calls == [
+            list(perf_mips.PERF_EVENTS), ["dTLB-load-misses"],
+            [event for event in perf_mips.PERF_EVENTS if event != "ref-cycles"],
+        ]
+
+    @pytest.mark.parametrize(
+        ("raw", "single_code", "single_output", "expected"),
+        [
+            ("<not supported>", 0, "<not supported>", "unsupported"),
+            ("<not counted>", 1, "Permission denied", "permission_denied"),
+        ],
+    )
+    def test_single_event_probe_identifies_non_conflict_failures(
+        self, raw, single_code, single_output, expected
+    ):
+        def run(cmd, **kwargs):
+            events = cmd[cmd.index("-e") + 1].replace("{", "").replace("}", "").split(",")
+            if events == ["cache-misses"]:
+                if single_code:
+                    return SimpleNamespace(
+                        returncode=single_code, stderr=single_output, stdout=""
+                    )
+                return SimpleNamespace(
+                    returncode=0, stderr=f"{single_output},,cache-misses,0,0.00,,\n",
+                    stdout="",
+                )
+            output = "".join(
+                f"{raw if event == 'cache-misses' else '100'},,{event},400000,"
+                f"{'0.00' if event == 'cache-misses' else '100.00'},,\n"
+                for event in events
+            )
+            return SimpleNamespace(returncode=0, stderr=output, stdout="")
+
+        with patch.object(perf_mips, "run_command", side_effect=run):
+            result = perf_mips.probe_event_set(["perf"])
+        assert result["event_statuses"]["cache-misses"] == expected
+        assert "cache-misses" in result["unavailable_events"]
+        assert "dTLB-load-misses" in result["events"]
+
+    def test_partial_hybrid_miss_counters_do_not_publish_partial_values(self):
+        parsed = perf_mips.parse_perf_stat_output(
+            "100,,cpu_core/instructions/,100000,100.00,,\n"
+            "100,,cpu_atom/instructions/,100000,100.00,,\n"
+            "10,,cpu_core/cache-references/,100000,100.00,,\n"
+            "10,,cpu_atom/cache-references/,100000,100.00,,\n"
+            "3,,cpu_core/cache-misses/,100000,100.00,,\n"
+            "<not counted>,,cpu_atom/cache-misses/,0,0.00,,\n"
+            "10,,cpu_core/dTLB-loads/,100000,100.00,,\n"
+            "10,,cpu_atom/dTLB-loads/,100000,100.00,,\n"
+            "2,,cpu_core/dTLB-load-misses/,100000,100.00,,\n"
+            "<not counted>,,cpu_atom/dTLB-load-misses/,0,0.00,,\n",
+            fallback_elapsed_s=0.1,
+        )
+        assert math.isnan(parsed.cache_misses_total)
+        assert math.isnan(parsed.dtlb_load_misses_total)
+        assert not parsed.cache_pair_comparable
+        assert not parsed.dtlb_pair_comparable
+
+    def test_differing_running_times_make_counter_ratios_unavailable(self):
+        parsed = perf_mips.parse_perf_stat_output(
+            "1000,,instructions,400000,100.00,,\n"
+            "500,,cycles,300000,75.00,,\n"
+            "200,,dTLB-loads,400000,100.00,,\n"
+            "10,,dTLB-load-misses,200000,50.00,,\n",
+            fallback_elapsed_s=0.1,
+        )
+        assert math.isnan(parsed.ipc)
+        assert not parsed.dtlb_pair_comparable
+        assert parsed.dtlb_load_misses_total == 10
+        assert parsed.running_pct == 50.0
+
     def test_monitor_uses_direct_perf_when_preflight_allows_it(self) -> None:
         popen_cmds = []
 
@@ -274,7 +409,7 @@ class TestPerfMIPS:
         assert (popen_cmds[0][:5]) == (["/usr/bin/perf", "stat", "--no-big-num", "-x", ","])
         assert ("-p") in (popen_cmds[0])
         assert ("1234") in (popen_cmds[0])
-        assert (",".join(perf_mips.PERF_EVENTS)) in (popen_cmds[0])
+        assert perf_mips.perf_event_spec(perf_mips.PERF_EVENTS) in popen_cmds[0]
         assert (result.instructions_total) == (500_000)
         assert (result.instructions_per_request) == (250_000.0)
         assert (result.cpu_mips_app) == (2.0) or round(abs((result.cpu_mips_app) - (2.0)), 7) == 0

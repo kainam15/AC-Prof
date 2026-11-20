@@ -353,15 +353,34 @@ def _automatic_checks(config, runtime, resolve_device, *, project_dir=None):
         required = name == "dram_energy" and dram == "required"
         status = "not_requested" if skipped else "ok" if item["status"] == "available" else "fail" if required else "warn"
         unavailable_events = item.get("evidence", {}).get("unavailable_events", [])
+        percentages = item.get("evidence", {}).get("event_running_pct", {})
+        low_running_pct = name == "cpu_instructions" and bool(percentages) and min(percentages.values()) < 50
         group_fields = plan.get("fields", {}).get(name, ())
         affected = {key: probe for key, probe in plan.get("field_probes", {}).items() if key in group_fields}
         runtime_pending = name == "cgroup" and status == "ok" and bool(group_fields)
-        partial = status == "ok" and bool(affected or unavailable_events)
+        partial = status == "ok" and bool(affected or unavailable_events or low_running_pct)
         if partial:
             status = "warn"
         fields = tuple(affected or group_fields)
         details = ", ".join(dict.fromkeys(probe["detail"] for probe in affected.values()))
+        if name == "cpu_instructions" and unavailable_events:
+            reasons = item.get("evidence", {}).get("event_statuses", {})
+            labels = {
+                "combination_limited": message_id("run.environment.perf.combination_limited"),
+                "permission_denied": message_id("run.environment.perf.permission_denied"),
+                "probe_error": message_id("run.environment.perf.probe_error"),
+                "unsupported": message_id("run.environment.perf.unsupported"),
+            }
+            details = ", ".join(
+                f"{labels.get(reasons.get(event, 'probe_error'), labels['probe_error'])}: {event}"
+                for event in unavailable_events
+            )
         detail = " · ".join(filter(None, (item["status"], item["detail"], details, ", ".join(fields))))
+        if name == "cpu_instructions":
+            if percentages and min(percentages.values()) < 99.995:
+                detail += " · " + message_id(
+                    "run.environment.perf.multiplexed", f"{min(percentages.values()):.1f}%"
+                )
         reason_code = "partial" if partial else ""
         if runtime_pending and not partial:
             # The target cgroup does not exist until the container/service is attached.

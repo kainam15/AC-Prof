@@ -135,6 +135,7 @@ def probe_collection_plan(runtime_kind, *, gpu=None, profiling_mode="best_effort
             except (OSError, RuntimeError, subprocess.TimeoutExpired) as exc:
                 from acprof.monitors.perf_mips import PERF_OPTIONAL_EVENTS
                 events = {"events": ["instructions"], "unavailable_events": list(PERF_OPTIONAL_EVENTS),
+                          "event_statuses": {name: "probe_error" for name in PERF_OPTIONAL_EVENTS},
                           "optional_probe_error": str(exc)}
             return {"prefix": prefix, "target_check": "at_workload_attach", **events}
         probes["cpu_instructions"] = (_probe(perf, "perf_stat")
@@ -160,9 +161,21 @@ def probe_collection_plan(runtime_kind, *, gpu=None, profiling_mode="best_effort
     field_probes = {}
     if unavailable := set(perf_probe.evidence.get("unavailable_events", ())):
         from acprof.results.coverage import PMU_EVENT_FIELDS
+        status_codes = perf_probe.evidence.get("event_statuses", {})
+        descriptions = {
+            "combination_limited": "PMU event combination limited",
+            "unsupported": "PMU event unsupported",
+            "permission_denied": "PMU event permission denied",
+            "probe_error": "PMU event probe failed",
+        }
         for event in sorted(unavailable):
+            reason = status_codes.get(event, "probe_error")
             for field in PMU_EVENT_FIELDS.get(event, ()):
-                field_probes[field] = {"status": "unavailable", "detail": "PMU event unavailable: " + event}
+                field_probes[field] = {
+                    "status": reason if reason in {"unsupported", "permission_denied"} else "unavailable",
+                    "reason_code": reason,
+                    "detail": f"{descriptions.get(reason, 'PMU event unavailable')}: {event}",
+                }
 
     return {"schema_version": 2, "runtime_kind": runtime_kind, "profiling_mode": profiling_mode,
             "rapl_topology": topology, "probes": {name: item.to_dict() for name, item in probes.items()},
