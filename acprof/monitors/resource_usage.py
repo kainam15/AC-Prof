@@ -208,7 +208,7 @@ class ResourceUsageMonitor:
             try:
                 self._io_start = self._io_reader()
             except Exception as exc:
-                self._record_runtime_error(str(exc), 'io')
+                self._record_reader_exception(exc, 'io')
         self._window_counters_start = self._read_window_counter_snapshots()
         self._t_start = time.perf_counter()
         self._t_end = None
@@ -246,7 +246,7 @@ class ResourceUsageMonitor:
             try:
                 self._io_end = self._io_reader()
             except Exception as exc:
-                self._record_runtime_error(str(exc), 'io')
+                self._record_reader_exception(exc, 'io')
         samples = [
             sample
             for sample in self.samples
@@ -355,6 +355,16 @@ class ResourceUsageMonitor:
             self._gpu_initialized = False
         self._closed = True
 
+    def _record_reader_exception(self, error: Exception, reader: str) -> None:
+        if reader in {'io', 'io_operations'} and isinstance(
+            error, resource_readers.CgroupIOCountersUnavailable
+        ):
+            # Kernel/device may expose an empty io.stat. Keep the missing
+            # field and its cause, but do not fail otherwise valid windows.
+            self._reader_errors.setdefault(reader, str(error))
+            return
+        self._record_runtime_error(str(error), reader)
+
     def _record_runtime_error(self, error: str, reader: str = "") -> None:
         if reader:
             self._reader_errors.setdefault(reader, error)
@@ -395,7 +405,7 @@ class ResourceUsageMonitor:
             try:
                 setattr(snapshots, field, reader())
             except Exception as exc:
-                self._record_runtime_error(str(exc), field)
+                self._record_reader_exception(exc, field)
         return snapshots
 
     def _read_sample(self, timestamp: float) -> resource_metrics.ResourceUsageSample:

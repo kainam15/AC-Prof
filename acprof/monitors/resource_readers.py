@@ -47,6 +47,10 @@ def _read_cgroup_limit(path: str) -> int:
     return int(raw)
 
 
+class CgroupIOCountersUnavailable(ValueError):
+    """Target cgroup has no complete I/O counters; never imply measured zero."""
+
+
 def _read_cgroup_v2_io_pair(path: str, read_key: str, write_key: str) -> tuple[int, int]:
     """Count only observed device counters; a missing value is not a measured zero."""
     counts = {read_key: 0, write_key: 0}
@@ -63,7 +67,9 @@ def _read_cgroup_v2_io_pair(path: str, read_key: str, write_key: str) -> tuple[i
                     counts[key] += value
                     observed.add(key)
     if observed != set(counts):
-        raise ValueError(f"io.stat missing counters {', '.join(sorted(set(counts) - observed))}: {path}")
+        raise CgroupIOCountersUnavailable(
+            f"io.stat missing counters {', '.join(sorted(set(counts) - observed))}: {path}"
+        )
     return counts[read_key], counts[write_key]
 
 
