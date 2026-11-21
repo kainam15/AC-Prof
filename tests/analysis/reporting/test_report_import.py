@@ -797,6 +797,73 @@ def test_csv_import_checks_sampling_only_for_contributing_readings(page, tmp_pat
                    for item in observations)
 
 
+def test_nested_sampling_survives_csv_aggregation_and_json_baseline_comparison(page, tmp_path):
+    metric = "latency_app_p95_s"
+    sampling = {"policy": "periodic", "windows": [{"phase": "active", "interval_s": 1}, {"phase": "idle"}]}
+    reordered = {"windows": [{"interval_s": 1, "phase": "active"}, {"phase": "idle"}], "policy": "periodic"}
+    reversed_windows = {**sampling, "windows": sampling["windows"][::-1]}
+
+    def write_samples(run, rows):
+        path = tmp_path / f"{run}.csv"
+        with path.open("w", newline="") as stream:
+            writer = csv.writer(stream)
+            writer.writerow(["cpu_cores", "mem_cap_gb", "gpu_mode", "input_scale", "repeat_idx", "warmup",
+                             "status", "run_id", metric, "resource_metric_quality"])
+            for cpu, repeat, value, contract in rows:
+                evidence = {metric: {"quality": "complete", "sampling": contract}}
+                writer.writerow([cpu, 4, "off", 32, repeat, 0, "ok", run, value, json.dumps(evidence)])
+        return path
+
+    reference = write_samples("reference", [(1, 0, 1, sampling)])
+    candidate = write_samples("candidate", [(1, 0, 2, sampling), (1, 1, 6, reordered),
+                                           (2, 0, 2, sampling), (2, 1, 6, reversed_windows)])
+    import_file(page, "reference.json", json.dumps(report_payload(load_analysis([reference]))))
+    import_file(page, candidate.name, candidate.read_text())
+
+    configs = download_json(page)["analysis_bundle"]["configs"]
+    imported = [config for config in configs if config["run_id"] == "candidate"]
+    for group in (load_analysis([candidate]).configs, imported):
+        matching, mixed = sorted(group, key=lambda c: c["cpu"])
+        assert matching["metrics"][metric]["value"] == 4
+        assert matching["metrics"][metric]["n"] == 2
+        assert [obs["sampling"] for obs in matching["metric_observations"][metric]] == [sampling]
+        assert mixed["metrics"][metric]["value"] is None
+        assert len(mixed["metric_observations"][metric]) == 2
+
+    baseline = next(config for config in configs if config["run_id"] == "reference")
+    page.click("#report-filters > summary")
+    page.select_option("#baseline", baseline["config_id"])
+    settled(page)
+    row = next(row for row in download_json(page)["groups"]
+               if row["run_id"] == "candidate" and row["cpu"] == 1 and row["metric"] == metric)
+    assert (row["delta"], row["scope"], row["statistics_status"]) == (3, "browser_descriptive", "not_computed")
+
+
+def test_imported_metric_delta_requires_symmetric_observation_evidence(page):
+    from acprof.results.profile import observations_comparable
+
+    known = {"quality": "complete"}
+    cases = [
+        ([], [], True),
+        ([], [known], False),
+        ([known], [], False),
+        ([known], [{**known, "sampling": None}], False),
+        ([known], [{"quality": "unknown", "reason": "legacy"}], True),
+        ([known], [{"quality": "partial"}], False),
+        ([{**known, "sampling": [{"a": 1, "b": 2}]}], [{**known, "sampling": [{"b": 2, "a": 1}]}], True),
+        ([{**known, "sampling": {"interval_s": 1}}], [{**known, "sampling": {"interval_s": 2}}], False),
+    ]
+    observed = page.evaluate("""cases => cases.map(([left, right]) => {
+      const config = (id, evidence, value) => ({experiment_id:id, config_id:id, metrics:{x:{value}},
+        ...(evidence.length ? {metric_observations:{x:evidence}} : {})});
+      return ACProfViews.comparisonContext(config('a', left, 2)).delta(config('b', right, 6), 'x');
+    })""", cases)
+    for (left, right, comparable), change in zip(cases, observed, strict=True):
+        assert observations_comparable(left, right) is comparable
+        assert (change["delta"], change["reason"]) == (
+            (4, "") if comparable else (None, "different_or_incomplete_metric_contract"))
+
+
 def test_csv_import_distinguishes_historical_and_partial_token_coverage(page, tmp_path):
     path = tmp_path / "token-coverage.csv"
     token_rate = "output_tokens_per_s_app"

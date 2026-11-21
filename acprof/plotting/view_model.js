@@ -4,6 +4,21 @@ window.ACProfViews = (() => {
   const finite = value => typeof value === "number" && Number.isFinite(value);
   const value = (config, metric) => config.metrics[metric]?.value ?? null;
   const key = values => JSON.stringify(values);
+  function stableJson(value) {
+    return JSON.stringify(value, (_name, item) => {
+      if (item === null || typeof item !== "object" || Array.isArray(item)) return item;
+      return Object.fromEntries(Object.keys(item).sort().map(name => [name, item[name]]));
+    });
+  }
+  function observationSignature({source, scope, window, derivation, sampling}) {
+    return stableJson({source, scope, window, derivation, sampling});
+  }
+  function observationsComparable(left = [], right = []) {
+    if (!Array.isArray(left) || !Array.isArray(right) || Boolean(left.length) !== Boolean(right.length)) return false;
+    const items = [...left, ...right];
+    return items.every(item => ["complete", "unknown"].includes(item?.quality)) &&
+      new Set(items.map(observationSignature)).size <= 1;
+  }
   function inputLabel(input, detailed = false) {
     const text = value => value == null ? "unknown" : String(value);
     try {
@@ -112,9 +127,7 @@ window.ACProfViews = (() => {
       const comparison = qualification(config);
       if (config.experiment_id && baseline.experiment_id && !pair(config)) {
         if (comparison.status === "incompatible") return {delta:null, percent:null, ratio:null, performance_ratio:null, reason:"incompatible", reasons:comparison.reasons};
-        const items = [baseline, config].map(c => c.metric_observations?.[metric] || []);
-        const signatures = new Set(items.flat().map(item => key([item.source, item.scope, item.window, item.derivation, item.sampling])));
-        if (signatures.size > 1 || items.flat().some(item => !["complete", "unknown"].includes(item.quality)))
+        if (!observationsComparable(baseline.metric_observations?.[metric], config.metric_observations?.[metric]))
           return {delta:null, percent:null, reason:"different_or_incomplete_metric_contract"};
         return {...descriptiveChange(value(baseline, metric), value(config, metric), registry[metric]?.direction),
           scope:"browser_descriptive", statistics_status:"not_computed"};
@@ -217,5 +230,6 @@ window.ACProfViews = (() => {
       series: [...facet.series.values()].map(series => ({...series,
         points: series.points.sort((a, b) => a.x - b.x)}))}));
   }
-  return {finite, value, inputLabel, cohort, compareProfiles, descriptiveChange, descriptiveQualification, comparisonContext, range, colorRanges, score, sort, pareto, scaling};
+  return {finite, value, stableJson, observationSignature, inputLabel, cohort, compareProfiles, descriptiveChange,
+    descriptiveQualification, comparisonContext, range, colorRanges, score, sort, pareto, scaling};
 })();

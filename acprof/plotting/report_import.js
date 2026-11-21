@@ -9,8 +9,7 @@ window.ACProfImport = (() => {
   const fail = message => { throw new Error(message); };
   const checkCancelled = signal => { if (signal?.aborted) throw new DOMException("已取消 / Cancelled", "AbortError"); };
   const clone = value => JSON.parse(JSON.stringify(value));
-  const observationSignature = item => JSON.stringify([item.source, item.scope, item.window, item.derivation,
-    item.sampling ? Object.keys(item.sampling).sort().map(key => [key, item.sampling[key]]) : null]);
+  const {stableJson, observationSignature} = ACProfViews;
   function accumulator(registry) {
     return Object.fromEntries(Object.keys(registry).map(name => [name, {n:0, sum:0, correction:0, max:null, weight:0, weighted:0, badWeight:false, startups:new Map(), conflict:false}]));
   }
@@ -145,7 +144,7 @@ window.ACProfImport = (() => {
       const observations = metricObservations(raw, registry);
       if (nums.warmup === 0) for (const [name, observation] of Object.entries(observations)) {
         group.observations[name] ||= new Map();
-        group.observations[name].set(JSON.stringify(observation), observation);
+        group.observations[name].set(stableJson(observation), observation);
       }
       const measurement = JSON.stringify([identity.run_id === "unknown" ? group.index : identity.run_id,
         nums.cpu_cores, nums.mem_cap_gb, device, nums.input_scale, nums.warmup, nums.repeat_idx]);
