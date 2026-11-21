@@ -1,6 +1,8 @@
 """Audit preparation stays per source while missing reasons stay per row."""
 import csv
 import json
+from concurrent.futures import CancelledError
+from threading import Event
 from unittest.mock import Mock
 
 import pytest
@@ -8,6 +10,7 @@ import pytest
 from acprof.analysis import audit
 from acprof.config import CSV_FIELDS
 from acprof.platform import Environment
+from acprof.results import csv as result_csv, metadata as result_metadata
 
 
 @pytest.fixture
@@ -30,6 +33,58 @@ def audit_source(tmp_path):
         return path
 
     return write
+
+
+@pytest.mark.parametrize("phase", ["borrowed-rows", "plan-coverage"])
+def test_cancelled_audit_stops_validating_measurements(audit_source, monkeypatch, phase):
+    path = audit_source([{}, {}, {}], {})
+    (path.parent / "run_state.json").write_text(json.dumps({
+        "status": "complete", "runtime": {"planned": {"scales": [1]}},
+        "options": {"cpus": "1", "mems": "4", "gpus": "off", "warmup": 0, "repeat": 3},
+    }))
+    snapshot = result_csv.read_result_csv_snapshot(path)
+    owner = result_csv if phase == "borrowed-rows" else audit
+    key_for = owner.measurement_key
+    processed = []
+    cancel = Event()
+
+    def stop_after_first_key(row):
+        key = key_for(row)
+        processed.append(key)
+        cancel.set()
+        return key
+
+    with monkeypatch.context() as scoped:
+        scoped.setattr(owner, "measurement_key", stop_after_first_key)
+        with pytest.raises(CancelledError):
+            audit.audit_result(path, result_snapshot=snapshot, cancelled=cancel.is_set)
+    assert len(processed) == 1
+    report = audit.audit_result(path, result_snapshot=snapshot, cancelled=lambda: False)
+    assert report["coverage"] == {"expected": 3, "actual": 3, "missing": 0, "unexpected": 0}
+    assert report == audit.audit_result(path)
+
+
+def test_cancel_during_metadata_fingerprinting_does_not_process_the_next_document(audit_source, monkeypatch):
+    path = audit_source([{}], {})
+    (path.parent / "run_state.json").write_text("{}")
+    snapshot = result_metadata.ResultMetadataSnapshot(path)
+    for name in ("static_meta.json", "run_state.json"):
+        snapshot.read(name)
+    expected = snapshot.observed_fingerprints()
+    cancel = Event()
+    original = result_metadata.hashlib.sha256
+
+    def cancel_on_hash(content):
+        assert not cancel.is_set(), "hashing continued after cancellation"
+        cancel.set()
+        return original(content)
+
+    with monkeypatch.context() as scoped:
+        scoped.setattr(result_metadata.hashlib, "sha256", cancel_on_hash)
+        with pytest.raises(CancelledError):
+            snapshot.observed_fingerprints(cancelled=cancel.is_set)
+    assert cancel.is_set()
+    assert snapshot.observed_fingerprints() == expected
 
 
 @pytest.mark.parametrize("row_count", [1, 7])

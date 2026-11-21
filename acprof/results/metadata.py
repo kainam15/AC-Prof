@@ -2,10 +2,11 @@
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
 
 from acprof.artifacts import JsonObjectSnapshot, read_json_object_snapshot
+from acprof.cancellation import cancellable, check_cancelled
 from acprof.results.layout import ArtifactLayout, resolve_result_file
 
 
@@ -43,12 +44,15 @@ class ResultMetadataSnapshot:
             raise present
         return present
 
-    def read(self, name: str, *, label: str | None = None) -> JsonObjectSnapshot:
+    def read(self, name: str, *, label: str | None = None,
+             cancelled: Callable[[], bool] | None = None) -> JsonObjectSnapshot:
+        check_cancelled(cancelled)
         if name not in self._records:
             try:
                 if not self.exists(name):
                     raise FileNotFoundError(f"metadata artifact missing: {name}")
-                self._records[name] = read_json_object_snapshot(self.layout.path(name), label=label or name)
+                self._records[name] = read_json_object_snapshot(self.layout.path(name), label=label or name,
+                                                                cancelled=cancelled)
             except (OSError, ValueError) as error:
                 self._records[name] = error
         record = self._records[name]
@@ -69,15 +73,16 @@ class ResultMetadataSnapshot:
                 if path not in fingerprints or hashlib.sha256(record.content).hexdigest() != fingerprints[path]:
                     raise ValueError(f"metadata content differs from its initial fingerprint: {path}")
 
-    def observed_fingerprints(self) -> dict[Path, str | None]:
+    def observed_fingerprints(self, *, cancelled: Callable[[], bool] | None = None) -> dict[Path, str | None]:
         """Identify parsed bytes and observed absences for later source checks.
 
         Failed reads supply diagnostics, not parsed evidence or a fingerprint.
         """
         fingerprints: dict[Path, str | None] = {
-            self.layout.path(name): None for name, present in self._presence.items() if present is False
+            self.layout.path(name): None for name, present in cancellable(self._presence.items(), cancelled)
+            if present is False
         }
-        for name, record in self._records.items():
+        for name, record in cancellable(self._records.items(), cancelled):
             if isinstance(record, JsonObjectSnapshot):
                 fingerprints[self.layout.path(name)] = hashlib.sha256(record.content).hexdigest()
         return fingerprints

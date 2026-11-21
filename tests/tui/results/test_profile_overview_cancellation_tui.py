@@ -5,6 +5,7 @@ from threading import Event
 import pytest
 from textual.widgets import Button, Input, Static
 
+from acprof.analysis import audit
 from acprof.tui.i18n import message_id
 from acprof.tui.results import profile_status
 from acprof.tui.results.backfill_panel import BackfillPanel
@@ -14,6 +15,55 @@ from tests.support.tui_actions import fill_form, open_page
 from tests.support.tui_fixtures import AcprofTui
 from tests.support.tui_waits import wait_for_condition
 from tests.tui.results.test_profile_overview_snapshot import profile_store
+
+
+async def test_cancel_during_audit_releases_collection_after_current_field(tmp_path, monkeypatch):
+    source = tmp_path / "experiment"
+    profile_store(source, 3)
+    app = AcprofTui(settings_path=tmp_path / "settings.json")
+    entered, release = Event(), Event()
+    fields = []
+    observe = audit.metric_observation
+
+    def hold_first_field(row, field):
+        fields.append(field)
+        if not entered.is_set():
+            entered.set()
+            assert release.wait(10), "test did not release the audit field"
+        return observe(row, field)
+
+    monkeypatch.setattr(audit, "metric_observation", hold_first_field)
+    async with app.run_test(size=(80, 24)) as pilot:
+        await open_page(pilot, "results-tab")
+        app.results.select_result(str(source))
+        try:
+            assert await asyncio.to_thread(entered.wait, 3)
+            button = app.query_one("#results-cancel", Button)
+            button.scroll_visible(animate=False, immediate=True)
+            await pilot.pause()
+            assert await pilot.click(button)
+            await wait_for_condition(pilot, lambda: app.results.data_cancelled,
+                                     description="cancel request to reach the Results worker", timeout=3)
+            assert not app.operation_state().allows("run")
+        finally:
+            release.set()
+        await wait_for_condition(pilot, lambda: app.operation_state().allows("run"),
+                                 description="cancelled audit to release the collection gate", timeout=3)
+        assert len(fields) == 1
+        assert app.results.data_status is None
+        assert app.profiles.overview is None
+        refresh = app.query_one("#refresh-experiment-state", Button)
+        await wait_for_condition(pilot, lambda: not refresh.disabled,
+                                 description="refresh to become available", timeout=3)
+        refresh.scroll_visible(animate=False, immediate=True)
+        await pilot.pause()
+        assert await pilot.click(refresh)
+        await wait_for_condition(pilot, lambda: app.results.data_status is not None and not app.read_jobs,
+                                 description="the refreshed audit to finish", timeout=3)
+        status = app.results.data_status
+        assert status is not None
+        assert status.audit["counts"]["formal_ok"] == 2
+        assert len(fields) > 1
 
 
 @pytest.mark.parametrize("language", ["zh", "en"])

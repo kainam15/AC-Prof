@@ -5,7 +5,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from acprof.cancellation import check_cancelled
+from acprof.cancellation import cancellable, check_cancelled
 from acprof.messages import join_messages
 from acprof.results.layout import resolve_result_file
 from acprof.tui.i18n import error_message, message_id
@@ -43,7 +43,8 @@ def inspect_experiment_data(source: Path, *, cancelled: Callable[[], bool] | Non
     if "status" not in snapshot.fields:
         raise ValueError(message_id("results.csv.invalid_header"))
     metadata = ResultMetadataSnapshot(path)
-    audit = audit_result(snapshot.path, result_snapshot=snapshot, metadata_snapshot=metadata, verify_result_snapshot=False)
+    audit = audit_result(snapshot.path, result_snapshot=snapshot, metadata_snapshot=metadata,
+                         verify_result_snapshot=False, cancelled=cancelled)
     check_cancelled(cancelled)
     overview, profile_error = None, ""
     try:
@@ -51,7 +52,8 @@ def inspect_experiment_data(source: Path, *, cancelled: Callable[[], bool] | Non
     except (OSError, ValueError, RuntimeError) as exc:
         profile_error = error_message(exc)
     check_cancelled(cancelled)
-    formal = sum(is_measured_success(row) and str(row.get("warmup", "0")).strip() == "0" for row in snapshot.rows)
+    formal = sum(is_measured_success(row) and str(row.get("warmup", "0")).strip() == "0"
+                 for row in cancellable(snapshot.rows, cancelled))
     try:
         html = existing_html_report((source,))
         html_state = html_report_state(html, snapshot.path, snapshot.sha256, cancelled=cancelled) if html else "not_generated"
@@ -61,14 +63,14 @@ def inspect_experiment_data(source: Path, *, cancelled: Callable[[], bool] | Non
         if resolve_result_file(source).resolve() != snapshot.path:
             raise ValueError(f"result source changed: {source}")
         verify_result_source(snapshot.path, snapshot.sha256, cancelled=cancelled)
-        for artifact, expected in metadata.observed_fingerprints().items():
-            check_cancelled(cancelled)
-            actual = file_sha256(artifact) if artifact.is_file() else None
+        fingerprints = metadata.observed_fingerprints(cancelled=cancelled)
+        for artifact, expected in cancellable(fingerprints.items(), cancelled):
+            actual = file_sha256(artifact, cancelled=cancelled) if artifact.is_file() else None
             if actual != expected:
                 raise ValueError(f"metadata changed: {artifact}")
     except (OSError, ValueError) as exc:
         raise ValueError(message_id("results.summary.snapshot_unverified", str(exc))) from exc
-    identity = tuple(sorted((str(artifact), digest) for artifact, digest in metadata.observed_fingerprints().items()))
+    identity = tuple(sorted((str(artifact), digest) for artifact, digest in fingerprints.items()))
     return ExperimentDataStatus(snapshot.path, snapshot.sha256, formal, audit, overview, profile_error, identity, html, html_state)
 
 

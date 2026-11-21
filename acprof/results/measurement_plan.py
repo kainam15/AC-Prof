@@ -110,8 +110,9 @@ class RecordedMeasurementOptions:
             repeat=_window_count(options.get("repeat"), "repeat"),
         )
 
-    def coverage(self, scales: Sequence[int | float], actual: Set[MeasurementKey]) -> dict[str, int]:
-        return RecordedMeasurementPlan(self, tuple(scales)).coverage(actual)
+    def coverage(self, scales: Sequence[int | float], actual: Set[MeasurementKey], *,
+                 cancelled: Callable[[], bool] | None = None) -> dict[str, int]:
+        return RecordedMeasurementPlan(self, tuple(scales)).coverage(actual, cancelled=cancelled)
 
 
 @dataclass(frozen=True)

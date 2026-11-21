@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from acprof.artifacts import read_json_object
+from acprof.cancellation import cancellable, check_cancelled
 
 if TYPE_CHECKING:
     from acprof.results.metadata import ResultMetadataSnapshot
@@ -118,9 +120,11 @@ def combine_quality(summaries: list[dict]) -> dict:
 
 
 def read_quality(source: str | Path, *, device: str | None = None,
-                 metadata_snapshot: ResultMetadataSnapshot | None = None) -> dict:
+                 metadata_snapshot: ResultMetadataSnapshot | None = None,
+                 cancelled: Callable[[], bool] | None = None) -> dict:
     """Read canonical checks, or explicit runtime-validation checks in older runs."""
     from acprof.results.metadata import ResultMetadataSnapshot
+    check_cancelled(cancelled)
     metadata_snapshot = metadata_snapshot or ResultMetadataSnapshot(source)
     metadata_snapshot.validate_source(source)
     name = "quality_checks.json" if metadata_snapshot.exists("quality_checks.json") else "runtime_validation.json"
@@ -128,7 +132,7 @@ def read_quality(source: str | Path, *, device: str | None = None,
     if not metadata_snapshot.exists(name):
         return summarize_quality(None)
     try:
-        payload = metadata_snapshot.read(name, label="quality evidence").payload
+        payload = metadata_snapshot.read(name, label="quality evidence", cancelled=cancelled).payload
         if name == "quality_checks.json":
             if type(payload.get("schema_version")) is not int or payload["schema_version"] != 1:
                 raise ValueError("unsupported quality evidence schema")
@@ -144,14 +148,14 @@ def read_quality(source: str | Path, *, device: str | None = None,
             for name, item in relevant:
                 if not isinstance(item["quality_checks"], list):
                     raise ValueError("invalid runtime-validation quality checks")
-                for check in item["quality_checks"]:
+                for check in cancellable(item["quality_checks"], cancelled):
                     if not isinstance(check, dict) or not isinstance(check.get("evidence"), dict):
                         raise ValueError("invalid runtime-validation quality check")
                     checks.append({**check, "evidence": {**check["evidence"], "device": name}})
         if not isinstance(checks, list):
             raise ValueError("quality checks must be an explicit list")
         result = []
-        for check in checks:
+        for check in cancellable(checks, cancelled):
             if (not isinstance(check, dict) or not isinstance(check.get("code"), str)
                     or not check["code"] or check.get("severity") not in {"info", "warning", "error"}
                     or not isinstance(check.get("detail"), str) or not isinstance(check.get("evidence"), dict)):

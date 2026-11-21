@@ -98,7 +98,7 @@ def html_report_state(report: Path, source: Path, digest: str, *, cancelled=None
                 # Report provenance is data, never authority to inspect arbitrary files.
                 if not artifact.is_absolute() or not artifact.resolve().is_relative_to(path.parent.resolve()):
                     return "unverified"
-                if (file_sha256(artifact) if artifact.is_file() else None) != expected:
+                if (file_sha256(artifact, cancelled=cancelled) if artifact.is_file() else None) != expected:
                     return "stale"
         return "current" if matched else "stale"
     except json.JSONDecodeError:

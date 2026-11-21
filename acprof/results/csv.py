@@ -10,7 +10,7 @@ from collections import deque
 from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from decimal import InvalidOperation
-from itertools import product
+from itertools import product, zip_longest
 from pathlib import Path
 from typing import cast
 
@@ -221,7 +221,7 @@ def validate_result_rows(fields: Sequence[str], source_rows: Iterable[dict], pat
         raise ResultValidationError(f"missing identity columns {sorted(missing)}: {path}")
     rows = []
     keys: dict[MeasurementKey, None] = {}
-    for index, row in enumerate(source_rows, 2):
+    for index, row in enumerate(cancellable(source_rows, cancelled), 2):
         if None in row or any(value is None for value in row.values()):
             raise ResultValidationError(f"malformed CSV row: {path}:{index}")
         if validate_measurements:
@@ -383,25 +383,28 @@ def read_result_csv_snapshot(path: str | Path, *, expected: ExpectedMeasurements
     return ResultCsvSnapshot(path=path, fields=fields, rows=validated.rows, sha256=sha256)
 
 
-def result_csv_snapshot_unchanged(snapshot: ResultCsvSnapshot, *, verify_rows: bool = True) -> bool:
+def result_csv_snapshot_unchanged(snapshot: ResultCsvSnapshot, *, verify_rows: bool = True,
+                                  cancelled: Callable[[], bool] | None = None) -> bool:
     """Verify source content, retaining row comparison for externally mutable snapshots.
 
     Only an owner that has just parsed and exclusively holds the rows may omit
     their second parsing. Committed bytes and pending replacements are always checked.
     """
-    if file_sha256(snapshot.path) != snapshot.sha256:
+    if file_sha256(snapshot.path, cancelled=cancelled) != snapshot.sha256:
         return False
     if snapshot.path.name == "result_layers.json":
         from acprof.results.layers import read_result_layers
         try:
             if not verify_rows:
-                verify_result_source(snapshot.path, snapshot.sha256)
+                verify_result_source(snapshot.path, snapshot.sha256, cancelled=cancelled)
                 return True
-            fields, rows = read_result_layers(snapshot.path.parent)
+            fields, rows = read_result_layers(snapshot.path.parent, cancelled=cancelled)
         except (ValueError, OSError, csv.Error):
             return False
-        return (fields == snapshot.fields and rows == snapshot.rows
-                and file_sha256(snapshot.path) == snapshot.sha256)
+        row_pairs = zip_longest(rows, snapshot.rows)
+        return (fields == snapshot.fields and len(rows) == len(snapshot.rows)
+                and all(current == retained for current, retained in cancellable(row_pairs, cancelled))
+                and file_sha256(snapshot.path, cancelled=cancelled) == snapshot.sha256)
     return True
 
 

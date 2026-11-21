@@ -1,6 +1,10 @@
 """从独立手算结果验证重采样单位、过滤和可复现性。"""
+from concurrent.futures import CancelledError
+from threading import Event
+
 import pytest
 
+from acprof.analysis import uncertainty
 from acprof.analysis.uncertainty import summarize_windows
 
 
@@ -18,6 +22,22 @@ class TestWindowUncertainty:
         assert (group["n_windows"]) == (3)
         assert (group["ci_low"]) >= (1)
         assert (group["ci_high"]) <= (7)
+
+    def test_cancel_during_single_metric_stops_at_the_current_window(self, monkeypatch):
+        observed = []
+        cancelled = Event()
+        observe = uncertainty.metric_observation
+
+        def cancel_after_observation(row, name):
+            observed.append(row["repeat_idx"])
+            cancelled.set()
+            return observe(row, name)
+
+        monkeypatch.setattr(uncertainty, "metric_observation", cancel_after_observation)
+        with pytest.raises(CancelledError):
+            summarize_windows(self.rows([2, 4, 8]), ["latency_app_s"],
+                              include_intervals=False, cancelled=cancelled.is_set)
+        assert observed == ["0"]
 
     def test_filtering_and_one_window_do_not_manufacture_confidence(self):
         rows = self.rows([2, 100, 1000])

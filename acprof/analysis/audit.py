@@ -11,6 +11,7 @@ from decimal import InvalidOperation
 from pathlib import Path
 
 from acprof.analysis.workload import parse_workload_summary
+from acprof.cancellation import cancellable, check_cancelled
 from acprof.capabilities import collection_outcomes
 from acprof.failures import Failure
 from acprof.platform import native_only_metric, recorded_identity
@@ -178,13 +179,13 @@ def _recorded_failure(name, location, value, issue):
         return None
 
 
-def _collect_recorded_failures(validation, resolution, recorded, issue):
+def _collect_recorded_failures(validation, resolution, recorded, issue, cancelled):
     failures = []
     devices = validation.get("devices", {})
     if not isinstance(devices, dict):
         issue("invalid_metadata", "runtime_validation.json devices: expected an object")
     else:
-        for device, item in devices.items():
+        for device, item in cancellable(devices.items(), cancelled):
             if not isinstance(item, dict):
                 issue("invalid_metadata", f"runtime_validation.json devices.{device}: expected an object")
             elif item.get("failure") is not None:
@@ -194,7 +195,7 @@ def _collect_recorded_failures(validation, resolution, recorded, issue):
     if not isinstance(recorded, list):
         issue("invalid_metadata", "runtime_failures.json failures: expected a list")
     else:
-        for index, value in enumerate(recorded):
+        for index, value in enumerate(cancellable(recorded, cancelled)):
             failure = _recorded_failure("runtime_failures.json", f"failures[{index}]", value, issue)
             if failure is not None:
                 failures.append(failure)
@@ -237,7 +238,7 @@ def _record_early_failure(report, state, preparation, interface, issue):
         issue(f"run_{state['status']}", f"run_state.json status is {state['status']}")
 
 
-def _audit_metadata(report, path, metadata_reader, read_json, issue):
+def _audit_metadata(report, path, metadata_reader, read_json, issue, cancelled):
     metadata = read_json("static_meta.json")
     validation = read_json("runtime_validation.json")
     resolution = read_json("model_resolution.json")
@@ -246,11 +247,11 @@ def _audit_metadata(report, path, metadata_reader, read_json, issue):
     if not interface and isinstance(recorded_interface, dict):
         interface = recorded_interface
     recorded = read_json("runtime_failures.json").get("failures", [])
-    report["failures"] = _collect_recorded_failures(validation, resolution, recorded, issue)
-    report.update(read_quality(path, metadata_snapshot=metadata_reader))
-    for failure in report["failures"]:
+    report["failures"] = _collect_recorded_failures(validation, resolution, recorded, issue, cancelled)
+    report.update(read_quality(path, metadata_snapshot=metadata_reader, cancelled=cancelled))
+    for failure in cancellable(report["failures"], cancelled):
         issue(failure["reason_code"], failure["detail"], failure=failure)
-    for check in report["quality_checks"]:
+    for check in cancellable(report["quality_checks"], cancelled):
         issue(check["code"], check["detail"], severity=check["severity"], quality_check=check)
     report.update(recorded_identity(metadata))
     state = read_json("run_state.json")
@@ -265,17 +266,18 @@ def _audit_metadata(report, path, metadata_reader, read_json, issue):
     return metadata, state
 
 
-def _load_result_rows(path, result_snapshot, verify_result_snapshot, report, issue) -> AuditedRows:
+def _load_result_rows(path, result_snapshot, verify_result_snapshot, report, issue, cancelled) -> AuditedRows:
     try:
-        snapshot = result_snapshot or read_result_csv_snapshot(path)
+        snapshot = result_snapshot or read_result_csv_snapshot(path, cancelled=cancelled)
         if snapshot.path != path.resolve():
             raise ValueError("result CSV snapshot belongs to a different path")
         fields, rows = snapshot.fields, snapshot.rows
         if result_snapshot is not None:
-            rows = validate_result_rows(fields, rows, snapshot.path,
+            rows = validate_result_rows(fields, rows, snapshot.path, cancelled=cancelled,
                                         allow_empty=path.name == "result_layers.json").rows
         report["result_sha256"] = snapshot.sha256
-        if verify_result_snapshot and not result_csv_snapshot_unchanged(snapshot, verify_rows=result_snapshot is not None):
+        if verify_result_snapshot and not result_csv_snapshot_unchanged(
+                snapshot, verify_rows=result_snapshot is not None, cancelled=cancelled):
             issue("changing_snapshot", "读取期间 CSV 发生变化，请采集结束后重新审计")
         return ResultCsvSnapshot(snapshot.path, fields, rows, snapshot.sha256)
     except (ValueError, OSError, csv.Error) as error:
@@ -294,34 +296,35 @@ def _process_hardware(layout, runtime, read_json, issue):
     return hardware
 
 
-def _audit_environment(report, fields, rows, issue):
+def _audit_environment(report, fields, rows, issue, cancelled):
     if "environment_class" not in fields:
         issue("missing_environment_class", "结果缺少 environment_class 环境身份列")
-    environments = {row.get("environment_class", "unknown") for row in rows}
+    environments = {row.get("environment_class", "unknown") for row in cancellable(rows, cancelled)}
     report["row_environment_classes"] = sorted(environments)
     if len(environments) > 1 or any(value not in {"unknown", report["environment_class"]}
                                   for value in environments):
         issue("environment_mismatch", "CSV 与元数据环境身份不一致，或包含混合环境结果")
     if report["environment_class"] == "unknown":
         issue("unknown_environment", "环境身份 unknown；不能作为 Native Linux baseline", severity="warning")
-    report["execution"] = collection_outcomes(rows)
+    report["execution"] = collection_outcomes(rows, cancelled=cancelled)
     report["unknown_columns"] = [name for name in fields if name not in METRICS]
     report["missing_columns"] = [name for name in METRICS if name not in fields]
 
 
-def _audit_input_plan(metadata_reader, metadata, issue):
+def _audit_input_plan(metadata_reader, metadata, issue, cancelled):
     expected_hash = metadata.get("input_scale_plan_sha256")
     if not expected_hash or str(expected_hash).lower() in MISSING_CSV_TEXT:
         return
     try:
-        if (not metadata_reader.exists("input_scale_plan.json") or
-                hashlib.sha256(metadata_reader.read("input_scale_plan.json").content).hexdigest() != expected_hash):
+        plan = (metadata_reader.read("input_scale_plan.json", cancelled=cancelled)
+                if metadata_reader.exists("input_scale_plan.json") else None)
+        if plan is None or hashlib.sha256(plan.content).hexdigest() != expected_hash:
             issue("input_plan_hash", "输入计划与 static_meta.json 中的 SHA256 不一致")
     except (OSError, ValueError) as error:
         issue("input_plan_hash", error)
 
 
-def _audit_plan_coverage(report, state, rows, issue):
+def _audit_plan_coverage(report, state, rows, issue, cancelled):
     if "runtime" not in state:
         return
     try:
@@ -330,7 +333,8 @@ def _audit_plan_coverage(report, state, rows, issue):
     except (ValueError, KeyError, TypeError) as error:
         issue("invalid_run_state", error)
         return
-    coverage = options.coverage(scales, {measurement_key(row) for row in rows})
+    actual = {measurement_key(row) for row in cancellable(rows, cancelled)}
+    coverage = options.coverage(scales, actual, cancelled=cancelled)
     report["coverage"] = coverage
     if coverage["missing"] or coverage["unexpected"]:
         issue("plan_coverage", "结果行与原实验计划不完全一致")
@@ -366,9 +370,9 @@ def _audit_process_row(report, runtime, metadata, hardware, index, row, status, 
             issue('service_cgroup_scope', '服务 cgroup 指标缺少独立 cgroup 归属证据', row=index)
 
 
-def _audit_numeric_row(report, runtime, missing_reasons, missing, partial, index, row, formal, issue):
+def _audit_numeric_row(report, runtime, missing_reasons, missing, partial, index, row, formal, issue, cancelled):
     reason_for_row = None
-    for field in NUMERIC_FIELDS:
+    for field in cancellable(NUMERIC_FIELDS, cancelled):
         if (runtime == "process" and (field.startswith("container_") or field.startswith("cold_start_"))
                 and number(row.get(field)) is not None):
             issue("unsupported_process_metric", f"Process 不能记录 Docker 专属指标 {field}", row=index, field=field)
@@ -403,11 +407,11 @@ def _audit_formula_row(index, row, formal, issue):
             issue("formula_mismatch", f"{field}: 实际 {actual_value:g}，应为 {expected_value:g}", row=index, field=field)
 
 
-def _audit_rows(report, runtime, metadata, hardware, rows, issue):
+def _audit_rows(report, runtime, metadata, hardware, rows, issue, cancelled):
     missing: dict[str, Counter[str]] = defaultdict(Counter)
     partial: dict[str, Counter[str]] = defaultdict(Counter)
     missing_reasons = MissingReasons(metadata, environment_class=report["environment_class"])
-    for index, row in enumerate(rows, 2):
+    for index, row in enumerate(cancellable(rows, cancelled), 2):
         status = row.get("status", "").strip().lower()
         warmup = number(row["warmup"]) == 1
         report["counts"]["warmup"] += warmup
@@ -426,7 +430,8 @@ def _audit_rows(report, runtime, metadata, hardware, rows, issue):
             issue("workload_contract", error, row=index)
         observed = (not inferred and not warmup and status in {"ok", "warn"}
                     and row.get("resource_metric_quality", "") not in MISSING_CSV_TEXT)
-        _audit_numeric_row(report, runtime, missing_reasons, missing, partial if observed else None, index, row, measured_ok, issue)
+        _audit_numeric_row(report, runtime, missing_reasons, missing, partial if observed else None,
+                           index, row, measured_ok, issue, cancelled)
         _audit_formula_row(index, row, formal, issue)
     report["missing_metrics"] = {name: dict(reasons) for name, reasons in missing.items()}
     if partial:
@@ -446,25 +451,28 @@ def _finalize_measurement_status(report):
 
 def audit_result(source: str | Path, *, result_snapshot: ResultCsvSnapshot | None = None,
                  metadata_snapshot: ResultMetadataSnapshot | None = None,
-                 verify_result_snapshot: bool = True) -> dict:
+                 verify_result_snapshot: bool = True, cancelled: Callable[[], bool] | None = None) -> dict:
     report, _ = audit_result_snapshot(source, result_snapshot=result_snapshot, metadata_snapshot=metadata_snapshot,
-                                      verify_result_snapshot=verify_result_snapshot)
+                                      verify_result_snapshot=verify_result_snapshot, cancelled=cancelled)
     return report
 
 
 def audit_result_snapshot(source: str | Path, *, result_snapshot: ResultCsvSnapshot | None = None,
                           metadata_snapshot: ResultMetadataSnapshot | None = None,
-                          verify_result_snapshot: bool = True) -> tuple[dict, AuditedRows]:
+                          verify_result_snapshot: bool = True,
+                          cancelled: Callable[[], bool] | None = None) -> tuple[dict, AuditedRows]:
     """Return the audited rows (or their original read error) without reopening the source."""
     report, rows, _ = audit_with_metadata(source, result_snapshot=result_snapshot, metadata_snapshot=metadata_snapshot,
-                                          verify_result_snapshot=verify_result_snapshot)
+                                          verify_result_snapshot=verify_result_snapshot, cancelled=cancelled)
     return report, rows
 
 
 def audit_with_metadata(source: str | Path, *, result_snapshot: ResultCsvSnapshot | None = None,
                        metadata_snapshot: ResultMetadataSnapshot | None = None,
-                       verify_result_snapshot: bool = True) -> tuple[dict, AuditedRows, ResultMetadataSnapshot | None]:
+                       verify_result_snapshot: bool = True, cancelled: Callable[[], bool] | None = None,
+                       ) -> tuple[dict, AuditedRows, ResultMetadataSnapshot | None]:
     """Retain the metadata reader for comparison, including when only the table failed."""
+    check_cancelled(cancelled)
     raw_path = Path(source).expanduser()
     if raw_path.is_dir():
         raw_path /= "result_layers.json"
@@ -488,22 +496,25 @@ def audit_with_metadata(source: str | Path, *, result_snapshot: ResultCsvSnapsho
         report["result_csv"] = str(path.resolve())
         layout = metadata_reader.layout
     except (ValueError, OSError) as error:
+        check_cancelled(cancelled)
         issue("invalid_layout", error)
         return report, error, None
 
     def read_json(name):
+        check_cancelled(cancelled)
         try:
             if not metadata_reader.exists(name):
                 return {}
-            return metadata_reader.read(name).payload
+            return metadata_reader.read(name, cancelled=cancelled).payload
         except (ValueError, OSError) as error:
             issue("invalid_metadata", f"{name}: {error}")
             return {}
 
     report["layout_version"] = layout.layout_version
-    metadata, state = _audit_metadata(report, path, metadata_reader, read_json, issue)
-    loaded = _load_result_rows(path, result_snapshot, verify_result_snapshot, report, issue)
+    metadata, state = _audit_metadata(report, path, metadata_reader, read_json, issue, cancelled)
+    loaded = _load_result_rows(path, result_snapshot, verify_result_snapshot, report, issue, cancelled)
     if not isinstance(loaded, ResultCsvSnapshot):
+        check_cancelled(cancelled)
         return report, loaded, metadata_reader
     fields, rows = loaded.fields, loaded.rows
     report["counts"]["rows"] = len(rows)
@@ -511,9 +522,10 @@ def audit_with_metadata(source: str | Path, *, result_snapshot: ResultCsvSnapsho
     report["runtime_kind"] = runtime
     report["resource_scope"] = "observed_process_tree" if runtime == "process" else "container_cgroup"
     hardware = _process_hardware(layout, runtime, read_json, issue)
-    _audit_environment(report, fields, rows, issue)
-    _audit_input_plan(metadata_reader, metadata, issue)
-    _audit_plan_coverage(report, state, rows, issue)
-    _audit_rows(report, runtime, metadata, hardware, rows, issue)
+    _audit_environment(report, fields, rows, issue, cancelled)
+    _audit_input_plan(metadata_reader, metadata, issue, cancelled)
+    _audit_plan_coverage(report, state, rows, issue, cancelled)
+    _audit_rows(report, runtime, metadata, hardware, rows, issue, cancelled)
     _finalize_measurement_status(report)
+    check_cancelled(cancelled)
     return report, loaded, metadata_reader

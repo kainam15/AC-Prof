@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from acprof.analysis.uncertainty import summarize_windows
+from acprof.cancellation import cancellable
 from acprof.capabilities import Capability, CapabilityStatus, measurement_requested
 from acprof.experiments.configuration import RunConfig, RunConfigError
 from acprof.gpu_mode import normalize_gpu_mode
@@ -25,6 +26,7 @@ from acprof.results.csv import (
     is_measured_success,
     read_result_csv_snapshot,
     require_current_fields,
+    result_row_status,
     verify_result_source,
 )
 from acprof.system.command import run_command
@@ -459,7 +461,7 @@ def summarize_result_csv(result_csv: str | Path, *, cancelled: Callable[[], bool
         raise CancelledError()
     from acprof.analysis.audit import audit_result, number
     from acprof.quality import QUALITY_FIELDS
-    audit = audit_result(snapshot.path, result_snapshot=snapshot, verify_result_snapshot=False)
+    audit = audit_result(snapshot.path, result_snapshot=snapshot, verify_result_snapshot=False, cancelled=cancelled)
     if cancelled():
         raise CancelledError()
     quality = {key: audit[key] for key in (*QUALITY_FIELDS, "run_status", "measurement_status")}
@@ -471,14 +473,20 @@ def summarize_result_csv(result_csv: str | Path, *, cancelled: Callable[[], bool
         profile_error = error_message(exc)
     if cancelled():
         raise CancelledError()
+    ok_rows = error_rows = warmup_rows = formal_ok_rows = 0
+    cases = set()
+    for row in cancellable(rows, cancelled):
+        status = result_row_status(row)
+        warmup = number(row.get("warmup", "0"))
+        ok_rows += status == "ok"
+        error_rows += status == "error"
+        warmup_rows += warmup == 1
+        formal_ok_rows += warmup == 0 and is_measured_success(row)
+        cases.add(tuple(row.get(field, "") for field in KEY_FIELDS[:3]))
     summary = ResultSummary(
-        rows=len(rows), ok_rows=sum(str(row["status"]).strip().lower() == "ok" for row in rows),
-        error_rows=sum(str(row["status"]).strip().lower() == "error" for row in rows),
-        warmup_rows=sum(number(row.get("warmup", "0")) == 1 for row in rows),
-        cases=len({tuple(row.get(field, "") for field in KEY_FIELDS[:3]) for row in rows}),
-        groups=groups, grouping_detail=detail, quality=quality,
-        profiler_overview=overview, profiler_error=profile_error,
-        formal_ok_rows=sum(is_measured_success(row) and number(row.get("warmup", "0")) == 0 for row in rows),
+        rows=len(rows), ok_rows=ok_rows, error_rows=error_rows, warmup_rows=warmup_rows,
+        cases=len(cases), groups=groups, grouping_detail=detail, quality=quality,
+        profiler_overview=overview, profiler_error=profile_error, formal_ok_rows=formal_ok_rows,
     )
     try:
         if path.resolve() != snapshot.path:

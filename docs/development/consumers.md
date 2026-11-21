@@ -475,8 +475,9 @@ Profiler 完成计数在一次行遍历中复用 `row_tool_complete`，不保留
 当前文件并释放本次已取得的锁，不释放其他发布者的锁。未传入取消检查的调用保持原有锁等待方式。
 取消通过 `CancelledError` 退出，不返回部分行表；未取消时仍执行完整的 hash、身份与行顺序校验，
 v3 只读取已提交前缀。检查机制集中在 `cancellation`，没有后台轮询任务。
-统计/审计阶段边界仍检查取消；已开始的审计、元数据解析或单次系统 I/O 需返回后才能继续响应，
-不承诺线程能立即中断或固定的最坏退出延迟。
+实验结果概览和统计摘要把当前请求的取消信号传到审计。校验借入的结果行、统计计划覆盖和审计数值字段时都检查取消，
+统计摘要在汇总同一指标的多个窗口时也逐窗检查，最后一次遍历同时统计状态、预热、配置和有效正式窗口数。
+读取元数据 JSON 和复核文件哈希时在数据块之间检查。已经开始的单次系统 I/O 或内存中的 JSON 解码须等该调用返回。
 流式哈希参考 [CPython file_digest](https://github.com/python/cpython/blob/v3.12.3/Lib/hashlib.py)（PSF），
 协作取消参考 [Textual thread workers](https://github.com/Textualize/textual/blob/v8.2.8/docs/guide/workers.md#thread-workers)
 及其[长任务取消说明讨论](https://github.com/Textualize/textual/pull/6514)（MIT）。

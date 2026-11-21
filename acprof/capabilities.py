@@ -6,11 +6,12 @@ stays a number in the existing CSV; missing measurements stay NaN/null.
 from __future__ import annotations
 
 import math
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import Enum, StrEnum
 from typing import Any
 
+from acprof.cancellation import cancellable
 from acprof.platform import Environment, capability_matrix, detect_environment, recorded_identity
 from acprof.results import is_inferred_result, is_observed_formal_row, is_unresolved_timeout_attempt
 
@@ -347,7 +348,7 @@ def missing_required_measurements(report: CapabilityReport, rows: Sequence[Mappi
                   and report.measurement[name].status != CapabilityStatus.VERIFIED)
 
 
-def collection_outcomes(rows: Sequence[Mapping]) -> dict:
+def collection_outcomes(rows: Sequence[Mapping], *, cancelled: Callable[[], bool] | None = None) -> dict:
     """Terminal outcomes of recorded rows; plan coverage is checked separately.
 
     A diagnostic placeholder closes a planned row without claiming it ran.
@@ -356,7 +357,7 @@ def collection_outcomes(rows: Sequence[Mapping]) -> dict:
     """
     counts = dict(total=len(rows), succeeded=0, failed=0, not_measured=0, unfinished=0)
     unknown_timeout_attempt_rows = 0
-    for row in rows:
+    for row in cancellable(rows, cancelled):
         status = str(row.get("status", "")).strip().lower()
         error = str(row.get("error") or "").strip().lower()
         if status in {"ok", "warn", "error"} and is_inferred_result(row):

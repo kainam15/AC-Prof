@@ -5,12 +5,13 @@ import math
 import random
 import statistics
 from collections import defaultdict
-from concurrent.futures import CancelledError
+from collections.abc import Callable, Iterable
 from decimal import MAX_EMAX, MIN_EMIN, ROUND_DOWN, Context, Decimal
 from operator import itemgetter
 
 from acprof.analysis.audit import number
 from acprof.analysis.precision import assess_mean_precision, validate_precision_target
+from acprof.cancellation import cancellable, check_cancelled
 from acprof.results.csv import is_measured_success, measurement_key
 from acprof.results.measurement_plan import decimal_coordinate, decimal_key_text
 from acprof.results.metrics import METRICS
@@ -22,7 +23,7 @@ _MAX_SAFE_INTEGER = 2**53 - 1
 STATISTIC_AXES = ("cpu_cores", "mem_cap_gb", "input_scale")
 
 
-def ordered_windows(rows: list[dict]) -> list[tuple[Decimal, dict]]:
+def ordered_windows(rows: Iterable[dict]) -> list[tuple[Decimal, dict]]:
     """Pair validated ordinals with their rows for exact numeric ordering."""
     return sorted(((decimal_coordinate(row["repeat_idx"]), row) for row in rows), key=itemgetter(0))
 
@@ -74,9 +75,7 @@ def validate_window_options(metrics, *, confidence=0.95, resamples=5000, block_s
 def _collect_window_cases(rows, *, cancelled, precision_target):
     cases, keys = defaultdict(list), set()
     excluded: defaultdict[tuple[str, ...], int] = defaultdict(int)
-    for row in rows:
-        if cancelled():
-            raise CancelledError()
+    for row in cancellable(rows, cancelled):
         key = measurement_key(row)
         case = window_case_key(row, key)
         identity = (*case, *key[4:])
@@ -148,8 +147,9 @@ def _summarize_case_metric(
     block_size: int,
     include_intervals: bool,
     precision_target: float | None,
+    cancelled: Callable[[], bool] | None,
 ) -> dict:
-    values = finite_metric_values(ordered, name)
+    values = finite_metric_values(cancellable(ordered, cancelled), name)
     count = len(values)
     mean_val: float | None = statistics.fmean(values) if values else None
     ci_low: float | None = None
@@ -190,14 +190,14 @@ def _summarize_case_metric(
 
 
 def summarize_windows(rows, metrics, *, confidence=0.95, resamples=5000, seed=0, block_size=1,
-                      include_intervals=True, cancelled=lambda: False, precision_target=None):
+                      include_intervals=True, cancelled=None, precision_target=None):
     precision_target = validate_window_options(metrics, confidence=confidence, resamples=resamples,
                                               block_size=block_size, precision_target=precision_target)
     cases, excluded = _collect_window_cases(rows, cancelled=cancelled, precision_target=precision_target)
     groups = []
     # Excluded formal windows still identify a case for optional precision assessment.
-    for case in sorted(cases.keys() | excluded.keys()):
-        indexed = ordered_windows(cases[case])
+    for case in cancellable(sorted(cases.keys() | excluded.keys()), cancelled):
+        indexed = ordered_windows(cancellable(cases[case], cancelled))
         ordered = [row for _, row in indexed]
         coordinates = _case_coordinates(case)
         if indexed and indexed[-1][0] > _MAX_SAFE_INTEGER:
@@ -208,14 +208,13 @@ def summarize_windows(rows, metrics, *, confidence=0.95, resamples=5000, seed=0,
                 and any(_ORDINAL_GAP.subtract(b, a) != 1
                         for (a, _), (b, _) in zip(indexed, indexed[1:], strict=False)))
         for name in metrics:
-            if cancelled():
-                raise CancelledError()
+            check_cancelled(cancelled)
             groups.append(_summarize_case_metric(
                 coordinates, ordered, name,
                 gaps=gaps, excluded_count=excluded[case],
                 confidence=confidence, resamples=resamples, seed=seed,
                 block_size=block_size, include_intervals=include_intervals,
-                precision_target=precision_target,
+                precision_target=precision_target, cancelled=cancelled,
             ))
     report = {"schema_version": 1, "confidence": confidence, "resamples": resamples, "seed": seed,
               "block_size": block_size, "method": "circular_block_percentile_bootstrap",
@@ -231,6 +230,7 @@ def summarize_windows(rows, metrics, *, confidence=0.95, resamples=5000, seed=0,
                 "assumptions; not experiment completeness, independent-run evidence or a stopping rule."
             ),
         }
+    check_cancelled(cancelled)
     return report
 
 

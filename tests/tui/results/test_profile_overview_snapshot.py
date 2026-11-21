@@ -11,6 +11,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from acprof.analysis import audit
 from acprof.host.posthoc import backfill, context as posthoc_context
 from acprof.result_store import protocol
 from acprof.results import csv as result_csv
@@ -226,6 +227,75 @@ def test_cancelled_profiler_count_discards_summary_and_still_completes_worker_ca
     assert summary is None
     assert overview is None
     assert len(set(processed)) == 1
+
+
+@pytest.mark.parametrize("read", [inspect_experiment_data, diagnostics.summarize_result_csv])
+def test_audit_cancellation_stops_before_next_metric(tmp_path, monkeypatch, read):
+    profile_store(tmp_path)
+    cancelled = Event()
+    fields = []
+    observe = audit.metric_observation
+
+    def stop_after_first_field(row, field):
+        fields.append(field)
+        cancelled.set()
+        return observe(row, field)
+
+    monkeypatch.setattr(audit, "metric_observation", stop_after_first_field)
+    with pytest.raises(CancelledError):
+        read(tmp_path, cancelled=cancelled.is_set)
+    assert len(fields) == 1
+
+
+def test_summary_cancellation_stops_counting_after_current_row(tmp_path, monkeypatch):
+    profile_store(tmp_path)
+    cancelled = Event()
+    processed = []
+    measured_success = diagnostics.is_measured_success
+
+    def stop(row):
+        processed.append(row)
+        cancelled.set()
+        return measured_success(row)
+
+    monkeypatch.setattr(diagnostics, "is_measured_success", stop)
+    with pytest.raises(CancelledError):
+        diagnostics.summarize_result_csv(tmp_path, cancelled=cancelled.is_set)
+    assert len(processed) == 1
+
+
+@pytest.mark.parametrize("phase", ["read", "verify", "html-provenance"])
+def test_data_status_cancels_large_metadata_read_and_recheck(tmp_path, monkeypatch, phase):
+    profile_store(tmp_path, 3)
+    padding = b" " * (1024 * 1024)
+    if phase == "html-provenance":
+        target = tmp_path / "report-meta.json"
+        target.write_bytes(b"{}" + padding)
+        manifest = tmp_path / "result_layers.json"
+        sources = [{"path": str(manifest), "sha256": hashlib.sha256(manifest.read_bytes()).hexdigest(),
+                    "metadata_sha256": {str(target): hashlib.sha256(target.read_bytes()).hexdigest()}}]
+        (tmp_path / "report.html").write_text('<script id="report-data">' + json.dumps({"sources": sources}) + "</script>")
+    else:
+        target = tmp_path / "static_meta.json"
+        target.write_bytes(target.read_bytes() + padding)
+    cancelled = Event()
+    opened, received = [], []
+    if phase == "verify":
+        verify = result_csv.verify_result_source
+
+        def watch_final_check(*args, **kwargs):
+            nonlocal opened, received
+            verify(*args, **kwargs)
+            opened, received = watch_cancelled_read(monkeypatch, target, cancelled)
+
+        monkeypatch.setattr(result_csv, "verify_result_source", watch_final_check)
+    else:
+        opened, received = watch_cancelled_read(monkeypatch, target, cancelled)
+    with pytest.raises(CancelledError):
+        inspect_experiment_data(tmp_path, cancelled=cancelled.is_set)
+    assert len(opened) == 1
+    assert opened[0].closed
+    assert 0 < sum(received) <= 256 * 1024
 
 
 @pytest.mark.parametrize("operation", ["context", "overview"])
