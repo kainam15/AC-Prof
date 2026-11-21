@@ -760,6 +760,43 @@ def test_cross_runtime_report_only_exposes_qualified_metric_deltas(page):
     assert result[2]["status"] == "incompatible"
 
 
+def test_csv_import_checks_sampling_only_for_contributing_readings(page, tmp_path):
+    metric = "throughput_samples_per_s"
+    path = tmp_path / "sampling.csv"
+    with path.open("w", newline="") as stream:
+        writer = csv.writer(stream)
+        writer.writerow(["cpu_cores", "mem_cap_gb", "gpu_mode", "input_scale", "repeat_idx", "warmup",
+                         "status", "result_origin", metric, "resource_metric_quality"])
+        for cpu in (1, 2):
+            samples = [
+                ("ok", "", 0, "complete", "application"),
+                ("ok", "", 6, "complete", "application"),
+                ("ok", "", "", "complete", "packet"),
+                ("warn", "", 100, "complete", "packet"),
+                ("ok", "inferred_not_measured", 200, "complete", "packet"),
+                ("ok", "", 300, "partial", "packet"),
+            ]
+            if cpu == 2:
+                samples.append(("ok", "", 4, "complete", "packet"))
+            for repeat, (status, origin, value, quality, denominator) in enumerate(samples):
+                evidence = {metric: {"quality": quality, "sampling": {"latency_denominator": denominator}}}
+                writer.writerow([cpu, 4, "off", 32, repeat, 0, status, origin, value, json.dumps(evidence)])
+
+    expected = load_analysis([path]).configs
+    import_file(page, path.name, path.read_text())
+    imported = [config for config in download_json(page)["analysis_bundle"]["configs"]
+                if config.get("statistics_status") == "not_computed"]
+    for configs in (expected, imported):
+        compatible, mixed = sorted(configs, key=lambda config: config["cpu"])
+        assert compatible["metrics"][metric] == {"value": 3, "n": 2, "missing": 2, "aggregation": "mean"}
+        assert mixed["metrics"][metric] == {"value": None, "n": 3, "missing": 2, "aggregation": "mean"}
+        observations = compatible["metric_observations"][metric]
+        assert {item["quality"] for item in observations} == {"complete", "partial", "unavailable"}
+        assert any(item.get("reason") == "missing_window_value" for item in observations)
+        assert any(item["quality"] == "complete" and item["sampling"]["latency_denominator"] == "packet"
+                   for item in observations)
+
+
 def test_csv_import_distinguishes_historical_and_partial_token_coverage(page, tmp_path):
     path = tmp_path / "token-coverage.csv"
     token_rate = "output_tokens_per_s_app"

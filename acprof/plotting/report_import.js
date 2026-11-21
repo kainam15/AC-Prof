@@ -99,8 +99,11 @@ window.ACProfImport = (() => {
       }
       const bad = invalid || item && (!["complete", "partial", "unsupported", "permission_denied", "not_requested", "not_applicable", "tool_missing", "error", "unavailable", "unknown"].includes(item.quality) ||
         ["source", "scope", "window", "derivation"].some(key => Object.hasOwn(item, key) && item[key] !== contract[key]));
-      return [name, bad ? {...contract, quality:"error", reason:"invalid_metric_quality_evidence"} :
-        {...contract, quality:"unknown", ...(item ? {reason:"", ...item} : {})}];
+      if (bad) return [name, {...contract, quality:"error", reason:"invalid_metric_quality_evidence"}];
+      if (item?.quality === "complete" && metric.kind === "number" && number(raw[name]) === null) {
+        return [name, {...contract, ...item, quality:"unavailable", reason:"missing_window_value"}];
+      }
+      return [name, {...contract, quality:"unknown", ...(item ? {reason:"", ...item} : {})}];
     }));
   }
   async function readCsv(file, registry, {signal, onProgress = () => {}, chunkSize = 256 * 1024} = {}) {
@@ -161,6 +164,11 @@ window.ACProfImport = (() => {
         const value = Object.hasOwn(derived, name) ? derived[name] : number(raw[name]);
         if (!finite(value)) continue;
         const acc = group.metrics[name];
+        if (observations[name] && !acc.mixedContract) {
+          const signature = observationSignature(observations[name]);
+          acc.signature ??= signature;
+          acc.mixedContract = acc.signature !== signature;
+        }
         acc.n++;
         const total = acc.sum + value;
         acc.correction += Math.abs(acc.sum) >= Math.abs(value) ? (acc.sum - total) + value : (value - total) + acc.sum;
@@ -216,9 +224,7 @@ window.ACProfImport = (() => {
           else if (aggregation === "request_weighted") value = !missing && !acc.badWeight ? acc.weighted / acc.weight : null;
           else value = (acc.sum + acc.correction) / n;
         }
-        const contracts = new Set([...(group.observations[name]?.values() || [])]
-          .filter(item => ["complete", "unknown"].includes(item.quality)).map(observationSignature));
-        return [name, {value:finite(value) && contracts.size <= 1 ? value : null, n, missing:acc.conflict ? 0 : missing, aggregation}];
+        return [name, {value:finite(value) && !acc.mixedContract ? value : null, n, missing:acc.conflict ? 0 : missing, aggregation}];
       }));
       return {...group.identity, ...quality, source:path, config_id:`csv-${digest.slice(0,16)}:${sha256(group.idKey).slice(0,16)}`,
         input_scale:group.input_scale, valid_windows:group.valid, excluded_rows:group.total - group.valid,
