@@ -11,6 +11,7 @@ from acprof.results.csv import (
     KEY_FIELDS,
     ResultValidationError,
     measurement_key,
+    require_error_diagnostic,
     require_matching_run_id,
     run_id_column,
 )
@@ -109,32 +110,43 @@ def _read_derivation(layout, manifest, source):
     return update
 
 
-def apply_source(layout, manifest, source, rows, windows, *, legacy_keys=None):
-    """Mutate ordered rows only after validating the complete source operation."""
+def prepare_window(layout, manifest, source, rows, windows, *, replaying=False):
+    """Validate one receipt and return its new row, or recognize an already committed receipt."""
     fields = manifest["wide_fields"]
+    row, identity = window_row(layout, source)
+    if identity[0] != manifest["run_id"]:
+        raise ResultValidationError("window belongs to another run")
+    receipt_digest = source["reference"]["sha256"]
+    if identity in windows:
+        if windows[identity] != receipt_digest:
+            raise ResultValidationError("conflicting committed window identity")
+        return None
+    key = measurement_key(row)
+    if set(row) - set(fields):
+        raise ResultValidationError("unknown window fields")
+    # Older writers already rejected this literal status. Other accepted historical
+    # spellings may have acquired their diagnostic in a later derivation.
+    if not replaying or row.get("status") == "error":
+        require_error_diagnostic(row, source=source["reference"]["path"])
+    if key in rows:
+        raise ResultValidationError("duplicate planned measurement across attempts")
+    return key, {name: row.get(name, "nan") for name in fields}, identity, receipt_digest
+
+
+def apply_source(layout, manifest, source, rows, windows, *, legacy_keys=None):
+    """Apply one source to the private rows assembled for publication or replay."""
     if source.get("kind") == "window":
-        row, identity = window_row(layout, source)
-        if identity[0] != manifest["run_id"]:
-            raise ResultValidationError("window belongs to another run")
-        receipt_digest = source["reference"]["sha256"]
-        if identity in windows:
-            if windows[identity] != receipt_digest:
-                raise ResultValidationError("conflicting committed window identity")
-            return
-        key = measurement_key(row)
-        if set(row) - set(fields):
-            raise ResultValidationError("unknown window fields")
-        if row.get("status") == "error" and not row.get("error", "").strip():
-            raise ResultValidationError("window error requires a diagnostic")
-        if key in rows:
-            raise ResultValidationError("duplicate planned measurement across attempts")
-        rows[key] = {name: row.get(name, "nan") for name in fields}
-        windows[identity] = receipt_digest
+        window = prepare_window(layout, manifest, source, rows, windows, replaying=True)
+        if window is not None:
+            key, row, identity, receipt_digest = window
+            rows[key] = row
+            windows[identity] = receipt_digest
         return
     if source.get("kind") != "derivation":
         raise ResultValidationError("unknown result source")
     update = _read_derivation(layout, manifest, source)
     encoding = update.get("measurement_key_encoding")
+    fields = manifest["wide_fields"]
     identity_column = run_id_column(fields) or "run_id"
     source_path = source["reference"]["path"]
     for row in update.get("insert", []):
@@ -223,4 +235,9 @@ def replay(layout, manifest):
             apply_source(layout, manifest, source, rows, windows, legacy_keys=legacy_keys)
         if len(rows) != expected_rows:
             raise ResultValidationError("result transaction row count disagrees with its sources")
+    # An old intermediate error can be corrected by a subsequent committed patch.
+    # Validate the visible outcome before recovery restores any CSV projection.
+    source_path = layout.result_csv
+    for index, row in enumerate(rows.values(), start=2):
+        require_error_diagnostic(row, source=source_path, row_number=index)
     return rows, windows

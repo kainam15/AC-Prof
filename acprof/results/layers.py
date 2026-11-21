@@ -29,6 +29,7 @@ from acprof.results.csv import (
     measurement_key,
     read_hashed_flat_csv,
     read_result_csv_snapshot,
+    require_error_diagnostic,
     require_expected_measurements,
     result_csv_snapshot_unchanged,
 )
@@ -263,15 +264,23 @@ def prepare_result_snapshot(fields: Sequence[str], rows: Sequence[Mapping[str, s
                         *, source=None) -> dict:
     """Create a verified immutable generation without switching the live manifest."""
     root = _result_root(root)
-    _safe_path(root, MANIFEST_NAME)
+    manifest_path = _safe_path(root, MANIFEST_NAME)
     if not rows:
         raise ResultValidationError("cannot partition empty result")
     assigned = layer_fields(fields)
     identity = layer_identity_fields(fields)
     # The semantic key is unique even when a profiler has no evidence for a row.
-    keys = [measurement_key(row) for row in rows]
-    if len(set(keys)) != len(keys):
-        raise ResultValidationError("duplicate measurement keys in result layers")
+    keys = set()
+    has_status = "status" in fields
+    has_error = "error" in fields
+    for index, row in enumerate(rows, 2):
+        key = measurement_key(row)
+        if key in keys:
+            raise ResultValidationError("duplicate measurement keys in result layers")
+        keys.add(key)
+        if has_status:
+            visible = row if has_error else {"status": row.get("status")}
+            require_error_diagnostic(visible, source=manifest_path, row_number=index)
     rows_by_layer: dict[str, list[dict[str, str]]] = {}
     payloads: dict[str, bytes] = {}
     for layer, names in assigned.items():

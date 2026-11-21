@@ -89,6 +89,15 @@ class ResultRunIdentityError(ResultValidationError):
     """Recorded result identities contradict one another or are malformed."""
 
 
+def require_error_diagnostic(row: Mapping[str, object], *, source: Path | str, row_number: int | None = None) -> None:
+    """Require diagnostic text for a failed measurement, retaining the original spelling."""
+    if result_row_status(row) == "error":
+        diagnostic = row.get("error")
+        if diagnostic is None or not str(diagnostic).strip():
+            location = source if row_number is None else f"{source}:{row_number}"
+            raise ResultValidationError(f"status=error without an error diagnostic: {location}")
+
+
 def recorded_run_id(value: object) -> str | None:
     """Return an explicit run ID, preserving case and ignoring historical missing markers."""
     if value is None:
@@ -291,8 +300,7 @@ def validate_result_rows(fields: Sequence[str], source_rows: Iterable[dict], pat
                 raise ResultValidationError(f"{path}:{index}: {exc}") from exc
             if key in keys:
                 raise ResultValidationError(f"duplicate measurement: {path}:{index}: {key}")
-            if result_row_status(row) == "error" and not row.get("error", "").strip():
-                raise ResultValidationError(f"status=error without an error diagnostic: {path}:{index}")
+            require_error_diagnostic(row, source=path, row_number=index)
             keys[key] = None
             if row.get("environment_class") not in {"native_linux", "wsl2", "vm", "cloud", "container_host", "unknown"}:
                 row = {**row, "environment_class": "unknown"}

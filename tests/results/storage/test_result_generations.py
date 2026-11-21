@@ -35,6 +35,37 @@ def _capture_files(root, manifest):
             for record in manifest["layers"].values()}
 
 
+def _all_files(root):
+    return {p.relative_to(root): p.read_bytes() for p in root.rglob("*") if p.is_file()}
+
+
+@pytest.mark.parametrize(("error_column", "values"), [
+    (True, {"error": " \t"}), (True, {}), (True, {"error": None}),
+    (False, {"error": "not included in the published fields"}),
+])
+def test_invalid_error_row_preserves_published_generation(tmp_path, error_column, values):
+    previous = _publish(tmp_path, 1)
+    before = _all_files(tmp_path)
+    fields = [*FIELDS, "status", *(["error"] if error_column else [])]
+    rows = [*_rows(2), {**_rows(3)[0], "repeat_idx": "1", "status": " ERROR ", **values}]
+
+    with pytest.raises(ResultValidationError, match="status=error without an error diagnostic"):
+        layers.publish_result_rows(fields, rows, tmp_path)
+
+    assert _all_files(tmp_path) == before
+    assert json.loads((tmp_path / layers.MANIFEST_NAME).read_text()) == previous
+    assert layers.read_result_layers(tmp_path)[1][0]["latency_p50_s"] == "1"
+
+
+def test_published_diagnostic_uses_only_declared_fields_and_retains_original_text(tmp_path):
+    row = {**_rows(3)[0], "status": " ERROR ", "error": " detail\nfrom collector "}
+    layers.publish_result_rows([*FIELDS, "status", "error"], [row], tmp_path)
+    result, = layers.read_result_layers(tmp_path)[1]
+    assert (result["status"], result["error"]) == (row["status"], row["error"])
+    layers.publish_result_rows(FIELDS, [{**row, "error": ""}], tmp_path)
+    assert "status" not in layers.read_result_layers(tmp_path)[0]
+
+
 @pytest.mark.parametrize("layer", ["summary", "performance", "resources", "energy", "network", "ncu"])
 @pytest.mark.parametrize("after_write", [False, True])
 def test_failed_layer_write_keeps_prior_snapshot(tmp_path, monkeypatch, layer, after_write):

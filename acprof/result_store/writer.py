@@ -9,6 +9,7 @@ import copy
 import fcntl
 import hashlib
 import os
+from collections import ChainMap
 from collections.abc import Mapping
 from contextlib import ExitStack, contextmanager
 from uuid import uuid4
@@ -23,11 +24,12 @@ from acprof.result_store.protocol import (
     write_bytes,
 )
 from acprof.result_store.recovery import clear_pending, projected_rows, recover_projection
-from acprof.result_store.sources import EXACT_KEY_ENCODING, apply_source
+from acprof.result_store.sources import EXACT_KEY_ENCODING, apply_source, prepare_window
 from acprof.result_store.types import ResultReference, ResultSource
 from acprof.results.csv import (
     ResultValidationError,
     measurement_key,
+    require_error_diagnostic,
     require_matching_run_id,
     run_id_column,
 )
@@ -85,17 +87,10 @@ class ResultWriter:
         self._ready()
         source: ResultSource = {"kind": "window", "reference": reference(self.layout, path)}
         # Validate this source once, without copying or reserializing old rows.
-        new_rows: dict[tuple[str, ...], dict[str, str]] = {}
-        new_windows: dict[tuple[str, ...], str] = {}
-        apply_source(self.layout, self.manifest, source, new_rows, new_windows)
-        identity, receipt_digest = next(iter(new_windows.items()))
-        if identity in self.windows:
-            if self.windows[identity] != receipt_digest:
-                raise ResultValidationError("conflicting committed window identity")
+        window = prepare_window(self.layout, self.manifest, source, self.rows, self.windows)
+        if window is None:
             return False
-        key, normalized = next(iter(new_rows.items()))
-        if key in self.rows:
-            raise ResultValidationError("duplicate planned measurement across attempts")
+        key, normalized, identity, receipt_digest = window
         changes, counts = {}, {}
         for layer, info in self.manifest["layers"].items():
             selected = projected_rows(self.manifest, layer, [normalized])
@@ -106,7 +101,7 @@ class ResultWriter:
             self._commit(changes, counts, [source], replace=False,
                          row_count=len(self.rows) + 1, state="collecting")
             self.rows[key] = normalized
-            self.windows.update(new_windows)
+            self.windows.update({identity: receipt_digest})
         return True
 
     def update_rows(self, rows, *, reason: str, evidence=(), state="processing", force_commit=False):
@@ -126,11 +121,13 @@ class ResultWriter:
             if key in seen:
                 raise ResultValidationError("duplicate measurement in derivation")
             seen.add(key)
-            if key not in self.rows:
+            existing = self.rows.get(key)
+            require_error_diagnostic(incoming if existing is None else ChainMap(incoming, existing), source=source_path)
+            if existing is None:
                 inserts.append({name: str(incoming.get(name, "nan")) for name in fields})
             else:
                 delta = {name: str(value) for name, value in incoming.items()
-                         if str(value) != self.rows[key].get(name, "nan")}
+                         if str(value) != existing.get(name, "nan")}
                 if delta:
                     changes.append({"key": list(key), "values": delta})
         if not inserts and not changes and not force_commit:

@@ -40,6 +40,8 @@ P1 · cgroup I/O 预检：已将宿主进程 cgroup 能力与目标 Docker / Pro
 
 [历史 Profiler 回填](profiling/profilers.md#补采已有结果)按 CSV 和 JSON 原始十进制尺度关联指标，原地写入前检查结果表与 NCU 表的结构。正式补采会在准备阶段拒绝执行参数无法精确表示的 CSV 或冻结输入计划尺度。
 
+[结果发布](results/fields.md)在切换清单前校验失败行的诊断，增量结果恢复时也检查最新提交中的行。
+
 [离线分析输出](usage/cli-tools.md)在发布前核对输入实验的保留路径，历史平铺结果也能继续审计。
 [独立比较](results/comparisons.md#跨独立实验比较)同时导出 JSON、CSV 和 HTML 时，会先准备全部文件，再发布到指定路径。
 [绘图](results/plotting.md)刷新已有 PNG 时保留链接指向的原始数据；[Model Store](models/model-store.md) 清理前会拒绝显式空容量。
