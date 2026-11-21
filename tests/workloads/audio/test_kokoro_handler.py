@@ -214,15 +214,23 @@ def test_validator_rejects_invalid_sample_rate(runtime, rate):
         handler.validate_output(ctx, {}, prepared, output, response)
 
 
-@pytest.mark.parametrize("manual", [True, False])
-def test_existing_scale_planners_use_observed_phonemes(runtime, monkeypatch, tmp_path, manual):
+@pytest.mark.parametrize(("manual", "segmented"), [(True, False), (False, False), (True, True), (False, True)])
+def test_existing_scale_planners_use_observed_phonemes(runtime, monkeypatch, tmp_path, manual, segmented):
     from acprof.container.handlers import InputLimitError
     from acprof.host.images.runtime import ImageInfo
     from acprof.host.input_plan import families
     from tests.models.contracts.test_kokoro import task
 
     handler, ctx, _, calls, _ = runtime
-    ctx["pipelines"]["a"].g2p.side_effect = lambda text: ("", [SimpleNamespace(text=text, phonemes=" ".join(["ab"] * len(text.split())))])
+    pipeline = ctx["pipelines"]["a"]
+    syllable = "aba" if segmented else "ab"
+    pipeline.g2p.side_effect = lambda text: ("", [SimpleNamespace(text=text, phonemes=" ".join([syllable] * len(text.split())))])
+    if segmented:
+        def split_segments(tokens):
+            phonemes = tokens[0].phonemes
+            for offset in range(0, len(phonemes), 500):
+                yield tokens[0].text, phonemes[offset:offset + 500], tokens
+        pipeline.en_tokenize = split_segments
     monkeypatch.setattr(families, "start_probe_session", lambda *a: SimpleNamespace(base_url="fixture"))
     monkeypatch.setattr(families, "stop_service_session", Mock())
     monkeypatch.setattr(families, "request_nlp_scale_meta", lambda *a: handler.get_scale_metadata(ctx, {}))
@@ -239,16 +247,17 @@ def test_existing_scale_planners_use_observed_phonemes(runtime, monkeypatch, tmp
     model = task(model_adapter="kokoro", runtime_profile_id="kokoro-cpu")
     plan = (families.plan_manual_nlp_scales if manual else families.plan_nlp_auto_scales)(
         task_info=model, image_info=ImageInfo("fixture"), cpu_list=[1], mem_list=[2], gpu_list=["off"],
-        batch_size=1, output_dir=str(tmp_path / "plan"), **({"scales": [1, 2]} if manual else {}))
+        batch_size=1, output_dir=str(tmp_path / "plan"), **({"scales": [1, 128 if segmented else 2]} if manual else {}))
     assert calls == []
     assert plan.workload["input_scale_type"] == "phoneme_ids"
     entries = json.loads(Path(plan.plan_file).read_text())["entries"]
-    assert all(entry["input_scale"] == 3 * len(entry["payload"]["text"].split()) - 1 for entry in entries)
+    assert all(entry["input_scale"] == (1 + len(syllable)) * len(entry["payload"]["text"].split()) - 1 for entry in entries)
     assert all(entry["scale_label"].startswith("phon") for entry in entries)
     if manual:
-        assert plan.scales == [2.0, 5.0]
+        assert plan.scales == ([3.0, 511.0] if segmented else [2.0, 5.0])
     else:
         assert len(plan.scales) == 6
+        assert plan.scales[-1] == (507 if segmented else 509)
 
 
 def test_multiple_valid_segments_can_exceed_the_auto_planning_cap(runtime):

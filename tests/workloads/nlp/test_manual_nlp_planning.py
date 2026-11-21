@@ -34,6 +34,9 @@ def test_manual_nlp_limit_error_keeps_requested_scale_reason_and_cleanup(tmp_pat
 @pytest.mark.parametrize(("total", "prefix", "expected"), [
     (4, "", [1]), (6, "", [1, 2, 3]), (6, "query: ", [2, 3]), (5, "fixed prefix ", []),
     (15, "", [2, 4, 6, 8, 10, 12]),
+    (15, "one two three four five six ", [7, 8, 9, 10, 11, 12]),
+    (15, "word " * 10, [11, 12]), (9, "query: ", [2, 3, 4, 5, 6]),
+    (15, "word " * 12, []),
 ])
 def test_auto_plan_materializes_the_usable_decoder_prompt_lengths(tmp_path, monkeypatch, total, prefix, expected):
     task = TaskInfo("org/model", "text-generation", "nlp", "transformers_pipeline", "transformers", "a" * 40, "test")
@@ -46,8 +49,12 @@ def test_auto_plan_materializes_the_usable_decoder_prompt_lengths(tmp_path, monk
     session = Mock()
     stop = Mock()
 
+    probed = {}
+
     def probe(_session, payload, _description):
         prepared = handler.preprocess(ctx, payload)
+        assert payload["text"] not in probed
+        probed[payload["text"]] = (prepared["_effective_input_scale"], prepared["_truncated_by_limit"])
         return {"payload": payload, "effective_input_scale": prepared["_effective_input_scale"],
                 "truncated_by_limit": prepared["_truncated_by_limit"]}
 
@@ -61,10 +68,12 @@ def test_auto_plan_materializes_the_usable_decoder_prompt_lengths(tmp_path, monk
         assert plan.scales == expected
         saved = read_input_scale_plan(plan.plan_file, expected_sha256=plan.plan_sha256)
         assert [entry["input_scale"] for entry in saved["entries"]] == expected
+        for entry in saved["entries"]:
+            assert probed[entry["payload"]["text"]] == (entry["input_scale"], False)
         assert all(entry["payload"]["params"] == {"max_length": total, "do_sample": False}
                    for entry in saved["entries"])
     else:
-        with pytest.raises(RuntimeError, match="no non-truncated NLP payload fits the input limit of 2"):
+        with pytest.raises(RuntimeError, match=f"no non-truncated NLP payload fits the input limit of {total - 3}"):
             input_plan.plan_input_scales(*args, workload_spec_path=str(source))
         assert not (tmp_path / "input_scale_plan.json").exists()
     stop.assert_called_once_with(session, log_prefix="[probe]")

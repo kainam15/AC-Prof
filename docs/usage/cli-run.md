@@ -212,11 +212,12 @@ TUI Smoke 使用 `minimal`；显式 `--input-scales` 优先且严格校验，不
 
 未提供 `--input-scales` 时，当前内置 workload 配置通常会为一次 profiling run 规划 6 档 input scale；自定义音频清单则使用清单中声明的档数：
 
-- `nlp` 文本任务会启动容器读取 tokenizer / handler 的可用最大输入长度，最后一档尽量贴近有效上限。Decoder-only 使用 `max_new_tokens` 时从上下文预留相应的输出空间。使用 `max_length` 时，提示词（含特殊 token）与输出共用总长度，至少为输出保留一个 token 或显式指定的 `min_new_tokens`，取较大值。总长度超过已知可用上下文会在准备阶段报错。可用输入上限小于 6 时，仅规划探测中实际得到的不同有效长度。Encoder–Decoder 的输入预算独立于 decoder 输出长度。表格问答按 `1,2,4,8,16,32` 行规划，不进入 token 二分搜索；超出模型容量时明确失败。
+- `nlp` 文本任务会启动容器读取 tokenizer / handler 的可用最大输入长度，最后一档尽量贴近有效上限。Decoder-only 使用 `max_new_tokens` 时从上下文预留相应的输出空间。使用 `max_length` 时，提示词（含特殊 token）与输出共用总长度，至少为输出保留一个 token 或显式指定的 `min_new_tokens`，取较大值。总长度超过已知可用上下文会在准备阶段报错。Encoder–Decoder 的输入预算独立于 decoder 输出长度。表格问答按 `1,2,4,8,16,32` 行规划，不进入 token 二分搜索；超出模型容量时明确失败。
 - 读取音频的任务从 workload 清单读取默认尺度；内置英文语音清单为 `1,2,5,10,20,30` 秒。文本到语音／音频进入同一 token 规划器；tokenizer 没有有限上限时采用显式 512-token 采集上限，该值不是模型最大容量，Bark 使用自身 semantic 输入限制。`cv` 使用 generator 最大尺度；`timeseries` 读取已加载 Chronos 的 context limit，并与 workload 上限取较小值，拒绝静默截断。
 - `structured` 表格／策略默认 `1,8,32,128` 行／观测，图默认 `8,32,128,512` 节点；可用清单或 CLI 覆盖，当前生成器限制非图不超过 4096、图不超过 2048。该限制是 workload 的输入大小限制，不是模型容量。
 - `diffusion` 图像／视频任务默认使用 `128,192,256,320,384,512` 像素输出边长；提示词、随机种子、guidance scale 和去噪步数在各尺度间保持不变。`unconditional-image-generation`、`text-to-3d`、`image-to-3d` 改为扫描 `1,2,4,8,16,20` 个去噪步；Shap-E 使用真实 mesh 解码，渲染图片尺寸不作为网格计算规模。
 - `multimodal` 从任务 workload 读取默认尺度：图像边长 `224,336,448`；音频 `1,2,5,10` 秒；视频 `2,4,8` 帧。清单 `input_scales` 可覆盖默认值，CLI `--input-scales` 优先。`static_meta.input_scale_type` 在计划完成后取实际 workload 的单位，不能将所有多模态任务统一解释为 token 数。
+- 固定提示词、分词或音素转换可能让多个文本尺度目标对应同一有效长度。自动规划会尝试补足六档，只写入实际探测过、未截断且在规划上限内的请求。若仅找到两档，就显示并使用这两档。找不到可用长度或探测出错时停止准备。
 - 同一次 run 的所有资源配置共用同一组 scale。
 - 所有任务族都会把已确定尺度的 payload 写入唯一的 `input_scale_plan.json`；主采集与 compute profiler 共同读取该文件，保证实际执行 payload、FLOP profiling 和 CSV 中记录的 `input_scale` 一致。
 - 手动传入 `--input-scales` 时以手动值为准；workload 会在 sweep 前验证合法性（图像／视频生成分辨率至少为 64 且必须是 8 的倍数；去噪步数是正整数；CV 倍率为有限正数）。

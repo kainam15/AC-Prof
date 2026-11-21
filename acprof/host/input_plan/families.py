@@ -28,6 +28,7 @@ from acprof.host.input_plan.scales import (
     resolve_input_scales,
     serialize_input_scales,
 )
+from acprof.host.input_plan.text_scales import select_text_scale_probes
 from acprof.host.input_plan.types import PlannedInputScales
 from acprof.host.runtimes.contracts import RuntimeArtifact, ServiceSession
 from acprof.host.runtimes.service import stop_service_session
@@ -124,93 +125,18 @@ def plan_nlp_auto_scales(
         metadata_payload = workload_gen.generate(1.0)
         scale_meta = request_nlp_scale_meta(session, metadata_payload)
         max_effective = int(scale_meta["max_effective_input_scale"])
-        probe_cache: dict[int, dict[str, Any]] = {}
 
         def probe_word_count(word_count: int) -> dict[str, Any]:
-            word_count = max(1, int(word_count))
-            cached = probe_cache.get(word_count)
-            if cached is not None:
-                return cached
-
             if hasattr(workload_gen, "generate_for_word_count"):
                 payload = workload_gen.generate_for_word_count(word_count)
             else:
                 payload = workload_gen.generate(float(word_count))
-            result = post_probe_payload(session, payload, f"word_count={word_count}")
-            probe_cache[word_count] = result
-            return result
-
-        def find_best_candidate(target_scale: int) -> dict[str, Any]:
-            left = 1
-            right = max(1, int(target_scale))
-            best_below_wc: int | None = None
-            best_below_result: dict[str, Any] | None = None
-
-            while left <= right:
-                mid = (left + right) // 2
-                result = probe_word_count(mid)
-                condition = (not probe_exceeds_limit(result)) and (
-                    result["effective_input_scale"] <= float(target_scale)
-                )
-                if condition:
-                    best_below_wc = mid
-                    best_below_result = result
-                    left = mid + 1
-                else:
-                    right = mid - 1
-
-            candidates: list[dict[str, Any]] = []
-            if best_below_result is not None:
-                candidates.append(best_below_result)
-
-            if best_below_wc is None:
-                upper_wc = 1
-            else:
-                upper_wc = min(max(1, int(target_scale)), best_below_wc + 1)
-
-            if upper_wc >= 1:
-                upper_result = probe_word_count(upper_wc)
-                if not probe_exceeds_limit(upper_result):
-                    candidates.append(upper_result)
-
-            if not candidates:
-                raise RuntimeError(
-                    f"failed to build a non-truncated NLP payload near target scale {target_scale}"
-                )
-
-            return min(
-                candidates,
-                key=lambda item: (
-                    abs(item["effective_input_scale"] - float(target_scale)),
-                    -item["effective_input_scale"],
-                ),
-            )
+            return post_probe_payload(session, payload, f"word_count={word_count}")
 
         entries: list[dict[str, Any]] = []
         actual_scales: list[float] = []
-        if max_effective < AUTO_INPUT_SCALE_COUNT:
-            # With a small budget, inspect every candidate word count. Special
-            # tokens or a fixed prefix can make some positive lengths unreachable.
-            by_scale: dict[float, dict[str, Any]] = {}
-            for word_count in range(1, max_effective + 1):
-                result = probe_word_count(word_count)
-                scale = result["effective_input_scale"]
-                if not probe_exceeds_limit(result) and 0 < scale <= max_effective:
-                    by_scale.setdefault(scale, result)
-            if not by_scale:
-                raise RuntimeError(f"no non-truncated NLP payload fits the input limit of {max_effective}")
-            candidates = ((scale, by_scale[scale]) for scale in sorted(by_scale))
-        else:
-            targets = integer_auto_scales(max_effective, count=AUTO_INPUT_SCALE_COUNT)
-            candidates = ((target, find_best_candidate(int(target))) for target in targets)
-        for target_scale, candidate in candidates:
+        for candidate in select_text_scale_probes(max_effective, probe_word_count):
             actual_scale = float(candidate["effective_input_scale"])
-            if actual_scales and actual_scale <= actual_scales[-1]:
-                raise RuntimeError(
-                    "failed to derive 6 strictly increasing NLP input scales: "
-                    f"target={format_scale_value(target_scale)} produced "
-                    f"{format_scale_value(actual_scale)} after {format_scale_value(actual_scales[-1])}"
-                )
             actual_scales.append(actual_scale)
             entries.append({
                 "input_scale": actual_scale,
@@ -226,6 +152,9 @@ def plan_nlp_auto_scales(
             workload=workload_metadata, model_constraints=scale_meta,
         )
 
+        if len(actual_scales) < AUTO_INPUT_SCALE_COUNT:
+            print(f"[scale] Found {len(actual_scales)} distinct usable text scales "
+                  f"for {AUTO_INPUT_SCALE_COUNT} requested auto targets")
         print(
             f"[scale] Auto-planned text scales from {scale_meta.get('input_scale_type', 'seq_length')} planning limit "
             f"{max_effective}: {serialize_input_scales(actual_scales)}"
