@@ -76,7 +76,8 @@ HF 固定 revision 下载保留 SDK 预检大小及 commit 检查。配置、依
 设计参考 [python-tuf 的元数据校验与解析](https://github.com/theupdateframework/python-tuf/blob/develop/tuf/ngclient/_internal/trusted_metadata_set.py)
 （Apache-2.0）；使用现有标准库，不引入 TUF 依赖。该处理仅用于准备阶段，清单 schema 和测量窗口不变。
 
-缓存可用性查询从一次文件属性读取中同时判断普通文件类型和预期大小；结果仅在当前查询内使用。
+模型识别先按已验证清单筛选可用条目。读取配置时跳过未选入该文件的条目，查找原始 Hub 清单时跳过缺少对应上下文的历史条目。
+每次命中前仍逐一检查该仓库计划内所有文件，一次属性读取同时核对文件类型和大小。实际读取配置时再校验 SHA256。各次查询独立检查磁盘状态。
 查询期间 entries 目录或待读取的元数据被清理时，按缓存 miss 继续查找其他同身份 entry，
 后续访问仍遵循已配置的来源和离线策略。权限、I/O 和内容校验错误继续抛出。
 这一观察用于准备阶段的缓存判断，运行与 resume 仍执行既有视图、lease 和 SHA256 校验。

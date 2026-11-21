@@ -33,6 +33,8 @@ P1 · cgroup I/O 预检：已将宿主进程 cgroup 能力与目标 Docker / Pro
 
 ## 工程维护优先序
 
+模型识别读取配置或原始 Hub 清单时，先跳过无法提供所需内容的 [Model Store 条目](models/model-store.md)，减少过滤下载和历史缓存共存时对权重分片的重复检查。
+
 Docker 依赖下载已保留 Debian Security 仓库路径。CI 预检从空缓存验证两个 Debian 仓库，
 TUI 准备失败摘要展示包、来源及 HTTP 错误。见[镜像分流与排查](models/images.md#下载来源分流限额-vpn-场景)。
 

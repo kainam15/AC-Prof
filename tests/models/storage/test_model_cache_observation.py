@@ -24,14 +24,10 @@ REVISION = "a" * 40
 ENTRY_ID = "b" * 64
 
 
-@pytest.fixture
-def cached_entry(tmp_path, monkeypatch):
-    monkeypatch.setenv("ACPROF_MODEL_STORE", str(tmp_path))
-    entry = tmp_path / "entries" / ENTRY_ID
+def _write_verified_entry(root, entry_id, payloads, context):
+    entry = root / "entries" / entry_id
     snapshot = entry / "hf/models--fixture--model/snapshots" / REVISION
     snapshot.mkdir(parents=True)
-    payloads = {"config.json": b'{"model_type":"bert"}',
-                **{f"model-{index:05d}.safetensors": b"fixture" for index in range(128)}}
     for name, content in payloads.items():
         (snapshot / name).write_bytes(content)
     plan = plan_download(model_id=MODEL_ID, revision=REVISION, family="nlp",
@@ -39,18 +35,26 @@ def cached_entry(tmp_path, monkeypatch):
         files={name: {"size": len(content)} for name, content in payloads.items()}, read_json=lambda _: {})
     plan["endpoint"] = "https://huggingface.co"
     plan["requested_revision"] = None
-    plan["repository_context"] = {"schema_version": 1, "repository_files": list(payloads),
-        "pipeline_tag": "feature-extraction", "library_name": "transformers", "config": {"model_type": "bert"},
-        "transformers_info": {}, "card_data": {}, "tags": [], "safetensors": None}
+    plan["repository_context"] = context
     # Seal the new context before verifying and publishing the synthetic entry.
     seal_plan(plan)
     verify_download(snapshot, plan)
     (entry / PLAN_FILENAME).write_text(json.dumps(plan))
-    return SimpleNamespace(root=tmp_path, entry=entry, snapshot=snapshot, plan=plan, payloads=payloads)
+    return SimpleNamespace(root=root, entry=entry, snapshot=snapshot, plan=plan, payloads=payloads)
 
 
-def test_cached_inventory_observes_each_payload_once(cached_entry, monkeypatch):
-    paths = {cached_entry.snapshot / name for name in cached_entry.payloads}
+@pytest.fixture
+def cached_entry(tmp_path, monkeypatch):
+    monkeypatch.setenv("ACPROF_MODEL_STORE", str(tmp_path))
+    payloads = {"config.json": b'{"model_type":"bert"}',
+                **{f"model-{index:05d}.safetensors": b"fixture" for index in range(128)}}
+    context = {"schema_version": 1, "repository_files": list(payloads),
+        "pipeline_tag": "feature-extraction", "library_name": "transformers", "config": {"model_type": "bert"},
+        "transformers_info": {}, "card_data": {}, "tags": [], "safetensors": None}
+    return _write_verified_entry(tmp_path, ENTRY_ID, payloads, context)
+
+
+def _count_payload_stats(monkeypatch, paths):
     calls = Counter()
     original = Path.stat
 
@@ -60,10 +64,56 @@ def test_cached_inventory_observes_each_payload_once(cached_entry, monkeypatch):
         return original(path, *args, **kwargs)
 
     monkeypatch.setattr(Path, "stat", count)
+    return calls
+
+
+def test_cached_inventory_observes_each_payload_once(cached_entry, monkeypatch):
+    paths = {cached_entry.snapshot / name for name in cached_entry.payloads}
+    calls = _count_payload_stats(monkeypatch, paths)
     info = model_store.cached_model_info(MODEL_ID, REVISION, source="huggingface")
     assert info.sha == REVISION
     assert {item.rfilename for item in info.siblings} == set(cached_entry.payloads)
     assert calls == Counter({path: 1 for path in paths})
+
+
+@pytest.mark.parametrize("legacy", [False, True], ids=["with-inventory", "legacy"])
+def test_detection_checks_only_entries_that_can_answer_the_lookup(cached_entry, monkeypatch, legacy):
+    # A filtered dependency and an older entry hold different files at the same commit.
+    optional = {"tokenizer_config.json": b'{"tokenizer_class":"BertTokenizer"}',
+                "processor_config.json": b"{}"}
+    context = cached_entry.plan["repository_context"]
+    context["repository_files"].extend(optional)
+    if legacy:
+        del cached_entry.plan["repository_context"]
+    (cached_entry.entry / PLAN_FILENAME).write_text(json.dumps(seal_plan(cached_entry.plan)))
+
+    older = _write_verified_entry(cached_entry.root, "c" * 64, optional, context)
+    os.utime(older.entry, (1, 1))
+    os.utime(cached_entry.entry, (2, 2))
+
+    newest_paths = {cached_entry.snapshot / name for name in cached_entry.payloads}
+    older_paths = {older.snapshot / name for name in optional}
+    calls = _count_payload_stats(monkeypatch, newest_paths | older_paths)
+    monkeypatch.setenv("ACPROF_MODEL_SOURCE", "huggingface")
+    with patch("huggingface_hub.HfApi.model_info") as api, patch("huggingface_hub.hf_hub_download") as download:
+        task = detect.detect_task(MODEL_ID)
+    api.assert_not_called()
+    download.assert_not_called()
+    assert task.model_revision == REVISION
+    assert not task.metadata_errors
+    assert task.repository_metadata == {
+        "config.json": {"model_type": "bert"},
+        **{name: json.loads(content) for name, content in optional.items()},
+    }
+    # One scan per served file or inventory, including inventory fallback to the older entry.
+    newest_scans, older_scans = (1, 3) if legacy else (2, 2)
+    assert calls.total() <= len(newest_paths) * newest_scans + len(older_paths) * older_scans
+
+
+def test_cached_lookups_require_complete_payload_even_when_config_matches(cached_entry):
+    (cached_entry.snapshot / "model-00127.safetensors").unlink()
+    assert model_store.cached_metadata(MODEL_ID, "config.json", REVISION, source="huggingface") is None
+    assert model_store.cached_model_info(MODEL_ID, REVISION, source="huggingface") is None
 
 
 def test_prune_between_metadata_lookup_and_open_is_a_cache_miss(cached_entry, monkeypatch):

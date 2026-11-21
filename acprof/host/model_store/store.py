@@ -266,8 +266,8 @@ def _cached_file_observation(
     return CachedFileObservation(path, info.st_size)
 
 
-def _cached_repositories(model_id: str, revision: str | None, source: str):
-    """Read bounded, verified entry metadata before attempting any network I/O."""
+def _matching_repository_plans(model_id: str, revision: str | None, source: str):
+    """Yield verified manifests in lookup order. Their payloads may be incomplete."""
     root = store_root()
     entries = root / "entries"
     try:
@@ -298,17 +298,20 @@ def _cached_repositories(model_id: str, revision: str | None, source: str):
                         or (revision or default_ref) != (repo["requested_revision"] or default_ref)):
                     continue
             snapshot = entry / "hf" / ("models--" + model_id.replace("/", "--")) / "snapshots" / repo["model_revision"]
-            if all(_cached_file_observation(snapshot / f["path"], f["size"]) for f in repo["files"]):
-                yield repo, snapshot
+            yield repo, snapshot
+
+
+def _cached_payload_complete(plan: Mapping[str, Any], snapshot: Path) -> bool:
+    return all(_cached_file_observation(snapshot / item["path"], item["size"]) for item in plan["files"])
 
 
 def cached_metadata(model_id: str, name: str, revision: str | None, *, source: str,
                     max_bytes: int = ENTRY_METADATA_MAX_BYTES) -> MetadataFile | None:
     from acprof.models.files import ModelFilesError, safe_path
     name = safe_path(name)
-    for plan, snapshot in _cached_repositories(model_id, revision, source):
+    for plan, snapshot in _matching_repository_plans(model_id, revision, source):
         record = next((item for item in plan["files"] if item["path"] == name), None)
-        if record is None:
+        if record is None or not _cached_payload_complete(plan, snapshot):
             continue
         if record["size"] > max_bytes:
             raise ModelFilesError(f"cached metadata exceeds {max_bytes} bytes: {name}")
@@ -326,11 +329,13 @@ def cached_model_info(model_id: str, revision: str | None, *, source: str):
     from types import SimpleNamespace
 
     from acprof.models.files import ModelFilesError, safe_path
-    for plan, _ in _cached_repositories(model_id, revision, source):
+    for plan, snapshot in _matching_repository_plans(model_id, revision, source):
         metadata = plan.get("repository_context", {})
         # Historical entries remain valid runtime snapshots, but their selected
         # payload files and resolved task are not complete original Hub evidence.
         if not isinstance(metadata, dict) or metadata.get("schema_version") != 1:
+            continue
+        if not _cached_payload_complete(plan, snapshot):
             continue
         files = metadata.get("repository_files")
         if (not isinstance(files, list) or not files
