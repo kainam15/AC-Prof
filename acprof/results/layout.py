@@ -128,8 +128,12 @@ class ArtifactLayout:
         if not inside:
             raise ValueError(f"Artifact path escapes the result directory: {relative}")
         # Reject aliases within the directory too: recovery must never delete a shared target.
-        if any(parent.is_symlink() for parent in (path, *path.parents) if parent != self.root and parent.is_relative_to(self.root)):
-            raise ValueError(f"Artifact path must not contain symlinks: {relative}")
+        if path.is_relative_to(self.root):
+            candidate = path
+            while candidate != self.root:
+                if candidate.is_symlink():
+                    raise ValueError(f"Artifact path must not contain symlinks: {relative}")
+                candidate = candidate.parent
         return path
 
     @property

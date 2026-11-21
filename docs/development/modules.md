@@ -154,6 +154,7 @@ TUI 预览、terminal log 和新 metadata 的命令统一展示为可复制的 `
 无清单目录按 flat layout 只读发现；未知清单和越界路径报错。`CaseArtifacts` 统一管理 case
 CSV、请求样本、PCAP 和诊断路径，client 与 packet merge 的 sidecar 路由仅做路径计算。
 manifest 不维护实时文件清单，避免在测量窗口扫描或计算 hash；恢复校验仍由 `run_state` 负责。
+每次请求产物路径时，先核对解析后的目标仍在实验目录内，再从目标向上检查符号链接，到实验根目录即止。
 格式与旧目录边界见[Artifact Layout v2](../profiling/artifacts.md#artifact-layout-v2)。
 
 此设计参考 [Hydra 的输出分层](https://github.com/hydra-ecosystem/hydra/blob/main/hydra/core/utils.py)

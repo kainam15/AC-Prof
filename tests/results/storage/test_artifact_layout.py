@@ -25,6 +25,23 @@ from acprof.results.layout import (
 from tests.support.client_fixtures import patch_client
 
 
+def test_artifact_lookup_stops_walking_at_experiment_root(tmp_path, monkeypatch):
+    root = tmp_path / "archive" / "experiment"
+    layout = ArtifactLayout(root)
+    checked = []
+    is_relative_to = Path.is_relative_to
+
+    def observe(candidate, other):
+        if other == root:
+            checked.append(candidate)
+        return is_relative_to(candidate, other)
+
+    monkeypatch.setattr(Path, "is_relative_to", observe)
+    receipt = Path("raw/windows/case/attempt/window.json")
+    assert layout.contained(receipt) == root / receipt
+    assert set(checked).isdisjoint(root.parents)
+
+
 @pytest.mark.parametrize('invalid', ['oversized', 'nonfinite'])
 def test_manifest_uses_bounded_finite_json_reader(tmp_path, invalid):
     from acprof.artifacts import MAX_JSON_ARTIFACT_BYTES

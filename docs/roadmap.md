@@ -38,6 +38,8 @@ P1 · cgroup I/O 预检：已将宿主进程 cgroup 能力与目标 Docker / Pro
 模型识别读取配置或原始 Hub 清单时，先跳过无法提供所需内容的 [Model Store 条目](models/model-store.md)，减少过滤下载和历史缓存共存时对权重分片的重复检查。
 Hub 参数统计保留可核验的 dtype 分项，缺失或矛盾的数据会在[静态元数据](profiling/metadata.md)中说明，预算筛查会拦住不可信的参数总数。
 
+矩阵写出与恢复时，查找[产物路径](development/modules.md)只沿实验根目录内的路径检查符号链接，省去了对外层目录反复判断归属的开销。
+
 Docker 依赖下载已保留 Debian Security 仓库路径。CI 预检从空缓存验证两个 Debian 仓库，
 TUI 准备失败摘要展示包、来源及 HTTP 错误。见[镜像分流与排查](models/images.md#下载来源分流限额-vpn-场景)。
 
