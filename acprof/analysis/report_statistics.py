@@ -80,30 +80,13 @@ def _rows_by_identity(rows: list[dict]) -> dict[tuple, list[dict]]:
     return indexed
 
 
-def _observed_bounds(configs, metrics) -> dict[tuple, tuple[float, float]]:
-    bounds: dict[tuple, tuple[float, float]] = {}
-    for entries in configs.values():
-        for entry in entries:
-            if not entry["eligible"]:
-                continue
-            row = entry["row"]
-            identity = _row_identity(row)
-            for metric in metrics:
-                value = number(row.get(metric))
-                if value is not None:
-                    key = (*identity, metric)
-                    low, high = bounds.get(key, (value, value))
-                    bounds[key] = (min(low, value), max(high, value))
-    return bounds
-
-
 def _unavailable_groups(metrics, reason, detail="") -> list[dict]:
     return [{"metric": metric, "unit": METRICS[metric].unit, "n_windows": 0, "missing_windows": 0,
              "mean": None, "std": None, "ci_low": None, "ci_high": None, "reason": reason,
              "detail": detail} for metric in metrics]
 
 
-def _config_summary(entries, source, metrics, options, *, include_intervals, include_inputs=False):
+def _config_summary(entries, source, metrics, options, *, include_intervals, include_inputs=False, bounds=None):
     rows = [{key: value.strip() for key, value in entry["row"].items()}
             for entry in entries if entry["eligible"]]
     # Precision needs failed/inferred formal windows to remain visible as exclusions.
@@ -128,14 +111,19 @@ def _config_summary(entries, source, metrics, options, *, include_intervals, inc
         reasons: Counter[str] = Counter()
         metric = group["metric"]
         identity = tuple(group.get(key) for key in _IDENTITY)
+        group_key = (*identity, metric)
         matching = indexed.get(identity, [])
         mixed = len({observation_signature(metric_observation(row, metric)) for row in matching
                      if number(row.get(metric)) is not None and metric_usable(row, metric)}) > 1
         for row in matching:
             if mixed:
                 reasons['mixed_metric_contract'] += 1
-            elif number(row.get(metric)) is None or not metric_usable(row, metric):
+            elif (value := number(row.get(metric))) is None or not metric_usable(row, metric):
                 reasons[resolver.for_row(row)(metric)] += 1
+            elif bounds is not None:
+                # A cached bootstrap mean can only lie within the contributing readings.
+                low, high = bounds.get(group_key, (value, value))
+                bounds[group_key] = (min(low, value), max(high, value))
         group.update(config_id=entries[0]["config_id"], missing_reasons=dict(reasons), excluded_windows=excluded)
         if include_inputs:
             if identity not in ordered_by_identity:
@@ -204,10 +192,11 @@ def write_window_inputs(model, report, stream):
     verify_analysis_sources(model)
 
 
-def _summaries(configs, source, metrics, options, *, include_intervals):
+def _summaries(configs, source, metrics, options, *, include_intervals, bounds=None):
     report = summarize_windows([], metrics, **options, include_intervals=False)
     for entries in configs.values():
-        report["groups"].extend(_config_summary(entries, source, metrics, options, include_intervals=include_intervals))
+        report["groups"].extend(_config_summary(entries, source, metrics, options,
+                                                include_intervals=include_intervals, bounds=bounds))
     return report
 
 
@@ -278,7 +267,8 @@ def _reuse(report, source, configs, requested_metrics, requested_options):
     if (requested_metrics is not None and set(metrics) != set(requested_metrics)
             or any(options.get(key) != value for key, value in requested_options.items())):
         raise ValueError("statistics_parameters_changed")
-    expected = _summaries(configs, source, metrics, options, include_intervals=False)
+    bounds: dict[tuple, tuple[float, float]] = {}
+    expected = _summaries(configs, source, metrics, options, include_intervals=False, bounds=bounds)
     if report.get("precision") != expected.get("precision"):
         raise ValueError("precision_contract_changed")
     expected_groups = expected["groups"]
@@ -286,7 +276,6 @@ def _reuse(report, source, configs, requested_metrics, requested_options):
     cached = {_group_key(group): group for group in report["groups"]}
     if len(set(keys)) != len(keys) or len(cached) != len(report["groups"]) or set(keys) != cached.keys():
         raise ValueError("configuration_groups_changed")
-    bounds = _observed_bounds(configs, metrics)
     for group in expected_groups:
         saved = cached[_group_key(group)]
         if any(saved.get(key) != group.get(key) for key in _SUMMARY):

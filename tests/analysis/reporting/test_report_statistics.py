@@ -190,8 +190,10 @@ def test_incompatible_or_corrupt_json_is_recomputed_with_a_visible_reason(source
 @pytest.mark.parametrize("excluded", [
     {"status": "error", "error": "fixture failure"}, {"warmup": "1"},
     {"result_origin": "inferred_not_measured"},
-], ids=["failed", "warmup", "inferred"])
-def test_cached_interval_bounds_exclude_non_measured_rows(source, excluded):
+    {"resource_metric_quality": json.dumps({"latency_app_s": {"quality": "partial", "reason": "lost_samples"}})},
+    {"resource_metric_quality": json.dumps({"latency_app_s": {"quality": "error", "reason": "reader_failed"}})},
+], ids=["failed", "warmup", "inferred", "partial-metric", "error-metric"])
+def test_cached_interval_bounds_exclude_unusable_readings(source, excluded):
     write_rows(source, [row(index, value) for index, value in enumerate((1, 2, 3))]
                + [row(3, 100, **excluded)])
     cached = save_cache(source, metrics=["latency_app_s"])
