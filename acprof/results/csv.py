@@ -9,7 +9,7 @@ import sys
 from collections import deque
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from decimal import Decimal, InvalidOperation
+from decimal import MAX_EMAX, MAX_PREC, MIN_EMIN, Context, Decimal, Inexact, InvalidOperation, Overflow
 from itertools import product
 from pathlib import Path
 from typing import cast
@@ -22,6 +22,9 @@ from acprof.results.metrics import order_csv_fields
 
 KEY_FIELDS = ("cpu_cores", "mem_cap_gb", "gpu_mode", "input_scale", "warmup", "repeat_idx")
 MeasurementKey = tuple[str, ...]
+# Identity reduction must preserve every digit accepted by the Decimal constructor.
+_KEY_CONTEXT = Context(prec=MAX_PREC, Emin=MIN_EMIN, Emax=MAX_EMAX, capitals=1, clamp=0,
+                       traps=[InvalidOperation, Inexact, Overflow])
 MISSING_CSV_TEXT = frozenset({"", "nan", "none", "null", "n/a"})
 # Python 3.12 accepts a C long; later versions accept a Py_ssize_t.
 _CSV_FIELD_LIMIT = min(sys.maxsize, (1 << (8 * struct.calcsize("l") - 1)) - 1)
@@ -119,7 +122,7 @@ def measurement_key(row: Mapping[str, object]) -> MeasurementKey:
                 raise ResultValidationError(f"invalid {field}: {value!r}")
             if field == "warmup" and number not in (0, 1):
                 raise ResultValidationError(f"invalid warmup: {value!r}")
-            value = str(number.normalize())
+            value = "0" if number.is_zero() else _KEY_CONTEXT.to_sci_string(_KEY_CONTEXT.normalize(number))
         values.append(value)
     return tuple(values)
 

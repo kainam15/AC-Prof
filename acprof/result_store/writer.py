@@ -22,7 +22,7 @@ from acprof.result_store.protocol import (
     write_bytes,
 )
 from acprof.result_store.recovery import clear_pending, projected_rows, recover_projection
-from acprof.result_store.sources import apply_source
+from acprof.result_store.sources import EXACT_KEY_ENCODING, apply_source
 from acprof.result_store.types import ResultReference, ResultSource
 from acprof.results.csv import ResultValidationError, measurement_key
 from acprof.results.layout import ArtifactLayout
@@ -121,6 +121,7 @@ class ResultWriter:
                     self._commit({}, {}, [], replace=False, row_count=len(self.rows), state=state)
             return False
         update = {"schema_version": 1, "run_id": self.manifest["run_id"], "reason": reason,
+                  "measurement_key_encoding": EXACT_KEY_ENCODING,
                   "evidence": list(evidence), "insert": inserts, "changes": changes}
         path = self.layout.result_update_path(uuid4().hex)
         atomic_write_json(path, update)

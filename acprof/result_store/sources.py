@@ -1,11 +1,17 @@
 """Replay immutable measurements and explicit derivations without recomputing metrics."""
 from __future__ import annotations
 
+from decimal import Decimal, DecimalException, localcontext
+
 from acprof.artifacts import file_sha256
 from acprof.result_store.protocol import IDENTITY_FIELDS, read_reference, reference_path
-from acprof.results.csv import ResultValidationError, measurement_key
+from acprof.results.csv import KEY_FIELDS, ResultValidationError, measurement_key
 from acprof.results.layout import ArtifactLayout
 from acprof.results.windows import read_window_record, verify_window_record_evidence
+
+# New derivations identify rows with context-independent decimal keys. Older
+# readers can still consume the existing key field for ordinary measurements.
+EXACT_KEY_ENCODING = "exact-decimal-v1"
 
 
 def window_row(layout: ArtifactLayout, source: dict) -> tuple[dict, tuple[str, ...]]:
@@ -28,7 +34,37 @@ def window_row(layout: ArtifactLayout, source: dict) -> tuple[dict, tuple[str, .
     return {**record["row"], **identity}, tuple(identity[name] for name in IDENTITY_FIELDS)
 
 
-def apply_source(layout, manifest, source, rows, windows):
+class _LegacyChangeKeys:
+    """Index original spellings once per row while replaying pre-encoding derivations."""
+
+    def __init__(self):
+        self.aliases: dict[tuple[str, ...], tuple[str, ...] | None] = {}
+        self.last_key: tuple[str, ...] | None = None
+
+    def update(self, rows):
+        # Replay only appends rows or patches their non-identity fields in place.
+        with localcontext():
+            for key in reversed(rows):
+                if key == self.last_key:
+                    break
+                try:
+                    legacy = tuple(part if part in {"off", "on", "inherited"} else
+                                   str(Decimal(rows[key][field]).normalize())
+                                   for field, part in zip(KEY_FIELDS, key, strict=True))
+                except DecimalException as error:
+                    raise ResultValidationError("cannot reproduce historical measurement key") from error
+                self.aliases[legacy] = None if legacy in self.aliases else key
+        self.last_key = next(reversed(rows), None)
+
+    def resolve(self, key):
+        if key not in self.aliases:
+            raise ResultValidationError("invalid derived measurement key or fields")
+        if self.aliases[key] is None:
+            raise ResultValidationError("ambiguous historical measurement key")
+        return self.aliases[key]
+
+
+def apply_source(layout, manifest, source, rows, windows, *, legacy_keys=None):
     """Mutate ordered rows only after validating the complete source operation."""
     fields = manifest["wide_fields"]
     if source.get("kind") == "window":
@@ -58,6 +94,9 @@ def apply_source(layout, manifest, source, rows, windows):
     update = read_reference(layout, ref)
     if update.get("schema_version") != 1 or update.get("run_id") != manifest["run_id"]:
         raise ResultValidationError("invalid result derivation identity")
+    encoding = update.get("measurement_key_encoding")
+    if "measurement_key_encoding" in update and encoding != EXACT_KEY_ENCODING:
+        raise ResultValidationError("unknown measurement key encoding in result derivation")
     if not isinstance(update.get("reason"), str) or not update["reason"]:
         raise ResultValidationError("result derivation requires provenance")
     for evidence in update.get("evidence", []):
@@ -71,8 +110,15 @@ def apply_source(layout, manifest, source, rows, windows):
         if key in rows:
             raise ResultValidationError("duplicate derived outcome")
         rows[key] = {name: row.get(name, "nan") for name in fields}
-    for change in update.get("changes", []):
+    changes = update.get("changes", [])
+    if changes and encoding is None:
+        if legacy_keys is None:
+            legacy_keys = _LegacyChangeKeys()
+        legacy_keys.update(rows)
+    for change in changes:
         key = tuple(change["key"])
+        if encoding is None:
+            key = legacy_keys.resolve(key)
         values = change["values"]
         if key not in rows or not isinstance(values, dict) or not set(values) <= set(fields):
             raise ResultValidationError("invalid derived measurement key or fields")
@@ -117,9 +163,10 @@ def replay(layout, manifest):
         raise ResultValidationError("incomplete result commit chain")
     rows: dict[tuple[str, ...], dict[str, str]] = {}
     windows: dict[tuple[str, ...], str] = {}
+    legacy_keys = _LegacyChangeKeys()
     for expected_rows, sources in reversed(commits):
         for source in sources:
-            apply_source(layout, manifest, source, rows, windows)
+            apply_source(layout, manifest, source, rows, windows, legacy_keys=legacy_keys)
         if len(rows) != expected_rows:
             raise ResultValidationError("result transaction row count disagrees with its sources")
     return rows, windows

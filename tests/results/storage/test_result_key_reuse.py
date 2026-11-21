@@ -103,29 +103,23 @@ def test_supplied_snapshot_rows_are_revalidated_after_mutation(tmp_path, damage)
     assert ("duplicate measurement" if damage == "duplicate" else "invalid gpu_mode") in errors[0]["message"]
 
 
-def test_separate_reads_respect_their_decimal_context(tmp_path, monkeypatch):
-    row_store(tmp_path, 3, count=123, width=0)
-    calls = []
+def test_separate_reads_keep_exact_keys_under_different_decimal_contexts(tmp_path, monkeypatch):
+    _, expected = row_store(tmp_path, 3, count=123, width=0)
     original = result_csv.measurement_key
+    observed = []
 
     def record(row):
         key = original(row)
         if row["repeat_idx"] == "122":
-            calls.append(key[-1])
+            observed.append(key[-1])
         return key
 
     monkeypatch.setattr(result_csv, "measurement_key", record)
-    # A narrower precision makes repeat_idx=100 and 101 collide. That must
-    # fail even if this exact file was read under a wider context before.
-    with localcontext() as context:
-        context.prec = 6
-        assert len(reader.read_snapshot(tmp_path).rows) == 123
-    assert calls
-    assert set(calls) == {"122"}
-    with localcontext() as context:
-        context.prec = 2
-        with pytest.raises(result_csv.ResultValidationError, match="duplicate measurement"):
-            reader.read_snapshot(tmp_path)
+    for precision in (6, 2):
+        observed.clear()
+        with localcontext(prec=precision, capitals=0):
+            assert reader.read_snapshot(tmp_path).rows == expected
+        assert set(observed) == {"122"}
 
 
 def test_structural_only_validation_cannot_supply_measurement_keys(tmp_path):

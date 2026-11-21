@@ -1,6 +1,7 @@
 import csv
 import hashlib
 import os
+from decimal import Inexact, localcontext
 from pathlib import Path
 from unittest.mock import patch
 
@@ -54,6 +55,31 @@ class TestResultMerge:
     def test_close_scales_do_not_collapse_to_one_measurement(self):
         keys = expected_measurements([1], [4], ["off"], [0.13392851, 0.13392852], 0, 1)
         assert (len(keys)) == (2)
+
+    def test_csv_plan_identifies_signed_zero_without_changing_source(self):
+        row = dict(cpu_cores="1", mem_cap_gb="4", gpu_mode="off", input_scale="64",
+                   warmup="-0.00", repeat_idx="-0E+7", status="ok", error="")
+        path = self.source(rows=[row])
+        expected = expected_measurements([1], [4], ["off"], [64], 0, 1)
+        _, rows = read_result_csv(path, expected=expected)
+        assert rows[0]["warmup"] == "-0.00"
+        assert rows[0]["repeat_idx"] == "-0E+7"
+        path = self.source(rows=[row, {**row, "warmup": "0", "repeat_idx": "0"}])
+        with pytest.raises(ValueError, match="duplicate measurement"):
+            read_result_csv(path)
+
+    def test_csv_identity_preserves_all_significant_digits_without_rounding(self):
+        scales = ["1.00000000000000000000000000001", "1.00000000000000000000000000002",
+                  "1E+1000000", "1E-1000030", "1E+1"]
+        rows = [dict(cpu_cores="1", mem_cap_gb="4", gpu_mode="off", input_scale=scale,
+                     warmup="0", repeat_idx="0", status="ok", error="") for scale in scales]
+        path = self.source(rows=rows)
+        with localcontext(prec=2, capitals=0) as context:
+            context.traps[Inexact] = True
+            _, loaded = read_result_csv(path)
+            assert [measurement_key(row)[3] for row in loaded] == scales
+            assert measurement_key({**rows[0], "input_scale": scales[0] + "00"}) == measurement_key(rows[0])
+            assert not any(context.flags.values())
 
     def test_snapshot_hashes_exact_bytes_and_preserves_csv_newlines(self):
         raw = (b"\xef\xbb\xbfcpu_cores,mem_cap_gb,gpu_mode,input_scale,warmup,repeat_idx,status,note\r"
