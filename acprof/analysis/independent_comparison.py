@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from acprof.analysis.audit import number
+from acprof.analysis.audit import number, require_consistent_run_identity
 from acprof.analysis.changes import metric_change
 from acprof.analysis.comparison import compare_snapshots, load_comparison_snapshot
 from acprof.analysis.conditions import ALLOWED_RESOURCE_DIMENSIONS
@@ -25,6 +25,7 @@ from acprof.results.csv import (
     is_measured_success,
     measurement_key,
     read_result_csv_snapshot,
+    recorded_run_id,
     result_row_status,
     verify_result_source,
 )
@@ -223,7 +224,8 @@ class _ExperimentSnapshot:
 
 
 def _unique_run_id(run_id: object, seen: set[str]) -> str:
-    if not isinstance(run_id, str) or not run_id:
+    run_id = recorded_run_id(run_id) if isinstance(run_id, str) else None
+    if run_id is None:
         raise ValueError("independent comparison requires recorded run IDs")
     if run_id in seen:
         raise ValueError(f"duplicate independent run: {run_id}")
@@ -254,6 +256,7 @@ class ExperimentComparisonSession:
             metadata_snapshot.verify_observed_sources(fingerprints)
         except ValueError as error:
             raise ValueError(f"experiment changed during comparison: {error}") from error
+        require_consistent_run_identity(current_snapshot["audit"])
         groups = _collect_run_case_groups(
             result_snapshot.rows, run_id=run_id, complete=state.get("status") == "complete",
             purpose=purpose, metrics=metrics,

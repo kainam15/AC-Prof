@@ -41,6 +41,34 @@ class TestIndependentComparison(IndependentComparisonFixture):
         with pytest.raises(ValueError, match="duplicate.*run"):
             self.compare([run, duplicate], [self.replicate("right", 0, [3])])
 
+    @pytest.mark.parametrize("column", ["run_id", " run_id "])
+    def test_relabelling_a_state_cannot_supply_an_independent_replicate(self, column):
+        left = self.replicate("left", 0, [2])
+        right = self.replicate("right", 0, [3])
+        path = left / "result_all.csv"
+        with path.open(newline="") as stream:
+            reader = csv.DictReader(stream)
+            fields, rows = reader.fieldnames, list(reader)
+        fields = [column if field == "run_id" else field for field in fields]
+        rows[0].pop("run_id")
+        rows[0][column] = "left-0"
+        with path.open("w", newline="") as stream:
+            writer = csv.DictWriter(stream, fields)
+            writer.writeheader()
+            writer.writerows(rows)
+        duplicate = self.fixture.root / "relabelled"
+        shutil.copytree(left, duplicate)
+        self.fixture.change_json(duplicate, "run_state.json", lambda state: state.update(run_id="claimed-run"))
+        with pytest.raises(ValueError, match="inconsistent run_id"):
+            self.compare([left, duplicate], [right])
+
+    @pytest.mark.parametrize("run_id", ["unknown", "   ", "N/A", "nan"])
+    def test_missing_identity_markers_cannot_supply_an_independent_run(self, run_id):
+        left, right = self.replicate("left", 0, [2]), self.replicate("right", 0, [3])
+        self.fixture.change_json(left, "run_state.json", lambda state: state.update(run_id=run_id))
+        with pytest.raises(ValueError, match="requires recorded run IDs"):
+            self.compare([left], [right])
+
     def test_failed_windows_remain_visible_and_do_not_enter_means(self):
         left = [self.replicate("left", 0, [2, 999], failed=True)]
         right = [self.replicate("right", 0, [3, 3])]

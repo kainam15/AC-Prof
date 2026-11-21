@@ -34,7 +34,9 @@ acprof stats results/<model>/ --metric latency_app_s --metric latency_s \
 省略两个输出选项时向 stdout 输出 JSON。
 
 每个资源配置和尺度分别汇总正式 `ok` 窗口，窗口均值等权；`repeat_in_window=1000` 的一行
-仍只贡献一个统计单位。报告包含有效/缺失窗口数、均值、样本标准差和 percentile bootstrap 区间。
+仍只贡献一个统计单位。单次运行统计要求所有已记录的窗口 `run_id` 一致，包括预热和失败窗口。
+同一 CSV 有多个明确的运行 ID 时，`stats` 会报错；没有运行状态文件的历史 CSV 仍可在 HTML 中按运行分别查看。
+报告包含有效/缺失窗口数、均值、样本标准差和 percentile bootstrap 区间。
 少于 3 个有效窗口时保留均值，区间为 `null`；少量窗口的区间本身也不稳定。
 默认假设窗口之间可视为独立。存在连续时间相关性时可设置 `--block-size` 使用循环移动块，
 至少需要 3 倍块长的窗口，缺失或不连续的 repeat 不组成块。它不能排除温度、主机负载等系统性偏差，
@@ -138,8 +140,11 @@ acprof compare --left results/a1/model --left results/a2/model --left results/a3
 `compare_experiments` 结果，目的路径必须互不相同且不存在。HTML 附带各来源的资源矩阵和窗口统计，
 不会将窗口置信区间当作独立运行区间；HTML 筛选不重算运行分组。
 
-两侧分别代表同一实验定义的多次独立重启。每份源文件需要唯一 `run_id`；复制目录不能增加
-重复次数，同组中的模型／镜像／源码身份变化会阻止比较。使用现有条件审计匹配资源矩阵、
+两侧分别代表同一实验定义的多次独立重启。每份源文件的 `run_state.json` 都须记录唯一的
+`run_id`。审计会将它与 schema v3 清单及各窗口已记录的 ID 核对。冲突报告
+`run_id_mismatch`，独立比较随即终止。历史窗口缺少 ID 时仍可读取；状态文件中的空值、
+`unknown` 和 `N/A` 等占位符无法证明独立运行。复制目录不能增加重复次数。
+同组中的模型／镜像／源码身份变化会阻止比较。使用现有条件审计匹配资源矩阵、
 物化输入、实际 Workload Contract、线程和硬件条件；`--purpose cross-hardware` 允许已知的硬件差异。
 不兼容或条件未知时仍输出审计、失败／缺失统计，但差值、比值与区间为 `null`。
 

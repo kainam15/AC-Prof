@@ -57,6 +57,58 @@ class TestStatisticsOutput:
         assert actual["result_csv"] == str(source)
         assert actual["groups"][0]["n_windows"] == 3
 
+    def test_stats_refuses_foreign_warmup_before_publishing(self, capsys):
+        self.csv.write_text(
+            "cpu_cores,mem_cap_gb,gpu_mode,input_scale,warmup,repeat_idx,status,latency_app_s,run_id\n"
+            "2,8,off,64,0,0,ok,1,run-A\n2,8,off,64,1,0,ok,99,run-B\n"
+        )
+        (self.directory / "run_state.json").write_text(json.dumps({"run_id": "run-A"}))
+        output = self.directory / "stats.json"
+        with pytest.raises(SystemExit) as raised:
+            main([str(self.csv), "--output", str(output), "--metric", "latency_app_s"])
+        assert raised.value.code == 1
+        error = capsys.readouterr().err
+        assert "inconsistent run_id" in error
+        assert str(self.csv) in error
+        assert not output.exists()
+
+    @pytest.mark.parametrize("id_column", ["run_id", " run_id "])
+    def test_stats_refuses_to_pool_two_recorded_runs_without_state(self, capsys, id_column):
+        self.csv.write_text(
+            f"cpu_cores,mem_cap_gb,gpu_mode,input_scale,warmup,repeat_idx,status,latency_app_s,{id_column}\n"
+            "2,8,off,64,0,0,ok,1,run-A\n2,8,off,64,0,1,ok,1,run-A\n2,8,off,64,0,2,ok,10,run-B\n"
+        )
+        with pytest.raises(SystemExit) as raised:
+            main(self.arguments("--metric", "latency_app_s"))
+        assert raised.value.code == 1
+        error = capsys.readouterr().err
+        assert "inconsistent run_id" in error
+        assert "run-A" in error
+        assert "run-B" in error
+        assert not self.output.exists()
+
+    def test_stats_rejects_ambiguous_run_id_headers_without_state(self, capsys):
+        self.csv.write_text(
+            "cpu_cores,mem_cap_gb,gpu_mode,input_scale,warmup,repeat_idx,status,latency_app_s,run_id, run_id \n"
+            "2,8,off,64,0,0,ok,1,run-A,run-B\n"
+        )
+        with pytest.raises(SystemExit) as raised:
+            main(self.arguments("--metric", "latency_app_s"))
+        assert raised.value.code == 1
+        assert "duplicate CSV columns for run_id" in capsys.readouterr().err
+        assert not self.output.exists()
+
+    @pytest.mark.parametrize("run_id", ["", "run-A"])
+    def test_stats_keeps_observations_with_at_most_one_recorded_run(self, capsys, run_id):
+        self.csv.write_text(
+            "cpu_cores,mem_cap_gb,gpu_mode,input_scale,warmup,repeat_idx,status,latency_app_s,run_id\n"
+            f"2,8,off,64,0,0,ok,1,N/A\n2,8,off,64,0,1,ok,3,{run_id}\n"
+        )
+        assert main([str(self.csv), "--metric", "latency_app_s"]) == 0
+        report = json.loads(capsys.readouterr().out)
+        group, = report["groups"]
+        assert (group["n_windows"], group["mean"], report["run_status"]) == (2, 2, "unknown")
+
     def test_statistics_reuses_one_bounded_result_snapshot(self, monkeypatch):
         original_open = Path.open
         original_read_bytes = Path.read_bytes

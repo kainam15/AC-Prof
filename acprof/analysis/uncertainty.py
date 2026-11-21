@@ -12,7 +12,13 @@ from operator import itemgetter
 from acprof.analysis.audit import number
 from acprof.analysis.precision import assess_mean_precision, validate_precision_target
 from acprof.cancellation import cancellable, check_cancelled
-from acprof.results.csv import is_measured_success, measurement_key
+from acprof.results.csv import (
+    is_measured_success,
+    measurement_key,
+    recorded_run_id,
+    require_matching_run_id,
+    run_id_column,
+)
 from acprof.results.measurement_plan import decimal_coordinate, decimal_key_text
 from acprof.results.metrics import METRICS
 from acprof.results.profile import USABLE_QUALITIES, metric_observation, observation_signature
@@ -75,7 +81,15 @@ def validate_window_options(metrics, *, confidence=0.95, resamples=5000, block_s
 def _collect_window_cases(rows, *, cancelled, precision_target):
     cases, keys = defaultdict(list), set()
     excluded: defaultdict[tuple[str, ...], int] = defaultdict(int)
-    for row in cancellable(rows, cancelled):
+    run_id = None
+    identity_column = "run_id"
+    for line, row in enumerate(cancellable(rows, cancelled), 2):
+        if line == 2:
+            identity_column = run_id_column(row) or "run_id"
+        if observed := recorded_run_id(row.get(identity_column)):
+            if run_id is not None and run_id != observed:
+                require_matching_run_id(run_id, observed, source=f"within-run window statistics row {line}")
+            run_id = observed
         key = measurement_key(row)
         case = window_case_key(row, key)
         identity = (*case, *key[4:])

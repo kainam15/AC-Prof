@@ -395,6 +395,42 @@ class TestAnalysisModel:
         with pytest.raises(ValueError, match="inconsistent run_id"):
             load_analysis([source])
 
+    @pytest.mark.parametrize("narrow", [False, True], ids=["protocol-csv", "legacy-no-repeat-index"])
+    def test_report_refuses_foreign_warmup_before_publication(self, narrow, capsys):
+        from acprof.cli.report import main
+
+        rows = [self.row(run_id="run-A"), self.row(warmup="1", run_id="run-B")]
+        if narrow:
+            for row in rows:
+                del row["repeat_idx"]
+                row[" run_id "] = row.pop("run_id")
+        source = self.source(rows)
+        (source.parent / "run_state.json").write_text(json.dumps({"run_id": "run-A"}))
+        output = self.root / "report.html"
+        with pytest.raises(SystemExit) as raised:
+            main([str(source), "--output", str(output)])
+        assert raised.value.code == 1
+        error = capsys.readouterr().err
+        assert "inconsistent run_id" in error
+        assert str(source) in error
+        assert not output.exists()
+
+    @pytest.mark.parametrize("recorded", [False, True], ids=["csv-only", "with-run-state"])
+    def test_report_resolves_run_identity_per_window(self, recorded):
+        from acprof.analysis.model import load_analysis
+
+        rows = [self.row(run_id="run-A"), self.row(run_id="N/A", repeat_idx="1"),
+                self.row(run_id="UNKNOWN", repeat_idx="2")]
+        if not recorded:
+            rows.append(self.row(run_id="run-B"))
+        source = self.source(rows)
+        if recorded:
+            (source.parent / "run_state.json").write_text(json.dumps({"run_id": "run-A"}))
+        model = load_analysis([source])
+        counts = {config["run_id"]: config["valid_windows"] for config in model.configs}
+        assert counts == ({"run-A": 3} if recorded else {"run-A": 1, "run-B": 1, "unknown": 2})
+        assert model.sources[0]["run_id"] == ("run-A" if recorded else "unknown")
+
     def test_task_collection_and_parent_output_dir_work_across_downstream_analysis(self):
         from acprof.analysis.audit import audit_result
         from acprof.analysis.comparison import compare_results

@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from acprof import artifacts
-from acprof.analysis.audit import audit_result
+from acprof.analysis.audit import audit_result, require_consistent_run_identity
 from acprof.analysis.uncertainty import summarize_windows
 from acprof.artifacts import atomic_write_json, read_json_object
 from acprof.quality import QUALITY_FIELDS
@@ -22,12 +22,13 @@ def build_statistics_report(path: Path, metrics=None, *, confidence=0.95, resamp
     """Compute and audit one immutable snapshot; callers own measurement exclusion."""
     path = resolve_result_file(path)
     snapshot = read_result_csv_snapshot(path)
+    audit = audit_result(path, result_snapshot=snapshot, verify_result_snapshot=False)
+    require_consistent_run_identity(audit)
     report = summarize_windows(snapshot.rows, metrics or DEFAULT_STATISTICS_METRICS,
                                confidence=confidence, resamples=resamples, seed=seed,
                                block_size=block_size, precision_target=precision_target)
     report["result_sha256"] = snapshot.sha256
     report["result_csv"] = str(path.resolve())
-    audit = audit_result(path, result_snapshot=snapshot, verify_result_snapshot=False)
     report.update({key: audit[key] for key in (*QUALITY_FIELDS, "run_status", "measurement_status")})
     if not result_csv_snapshot_unchanged(snapshot, verify_rows=False):
         raise ValueError("统计期间结果 CSV 发生变化，请采集结束后重试")

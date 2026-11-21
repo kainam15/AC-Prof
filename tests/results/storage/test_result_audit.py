@@ -1,12 +1,14 @@
 """审计真实 CSV/JSON 的故障与历史兼容边界。"""
 import csv
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
 from acprof.analysis.audit import audit_result
 from acprof.config import CSV_FIELDS
+from acprof.results.csv import read_result_csv_snapshot, result_csv_snapshot_unchanged
 from acprof.results.metadata import ResultMetadataSnapshot
 
 
@@ -64,6 +66,60 @@ class TestResultAudit:
         assert audit_result(self.root) == expected
         assert audit_result(self.path, metadata_snapshot=ResultMetadataSnapshot(self.root)) == expected
         assert audit_result(self.root, metadata_snapshot=ResultMetadataSnapshot(self.path)) == expected
+
+    @pytest.mark.parametrize("warmup", [0, 1])
+    def test_conflicting_window_run_id_invalidates_the_audit(self, warmup):
+        self.write({**self.row(), "run_id": "captured-run", "warmup": warmup})
+        (self.root / "run_state.json").write_text(json.dumps({"status": "complete", "run_id": "other-run"}))
+        report = audit_result(self.path)
+        assert not report["valid"]
+        issue, = [item for item in report["issues"] if item["code"] == "run_id_mismatch"]
+        assert "captured-run" in issue["message"]
+        assert "other-run" in issue["message"]
+        assert f"{self.path}:2" in issue["message"]
+        assert report["measurement_status"] != "complete"
+
+    def test_duplicate_run_headers_cannot_hide_a_foreign_window(self):
+        self.write({**self.row(run_id="from-state"), " run_id ": "foreign"}, fields=[*CSV_FIELDS, " run_id "])
+        (self.root / "run_state.json").write_text(json.dumps({"run_id": "from-state"}))
+        report = audit_result(self.path)
+        assert not report["valid"]
+        assert any(issue["code"] == "run_id_mismatch" and "duplicate" in issue["message"] for issue in report["issues"])
+
+    @pytest.mark.parametrize("layered", [True, False])
+    def test_external_snapshot_manifest_identity_must_match_its_source(self, layered):
+        if layered:
+            from acprof.results.layout import ArtifactLayout
+            layout = ArtifactLayout.for_new_run(self.root)
+            layout.initialize()
+            path = layout.result_csv
+        else:
+            self.write(self.row())
+            path = self.path
+        snapshot = read_result_csv_snapshot(path)
+        assert result_csv_snapshot_unchanged(snapshot)
+        assert not result_csv_snapshot_unchanged(replace(snapshot, run_id="not-from-manifest"))
+
+    def test_borrowed_flat_snapshot_cannot_relabel_the_recorded_window(self):
+        self.write(self.row(run_id="captured-run"))
+        (self.root / "run_state.json").write_text(json.dumps({"run_id": "claimed-run"}))
+        snapshot = read_result_csv_snapshot(self.path)
+        snapshot.rows[0]["run_id"] = "claimed-run"
+        report = audit_result(self.path, result_snapshot=snapshot)
+        assert not report["valid"]
+        assert "changing_snapshot" in {issue["code"] for issue in report["issues"]}
+
+    def test_empty_v3_manifest_identifies_another_run_even_without_windows(self):
+        from acprof.results.layout import ArtifactLayout
+        layout = ArtifactLayout.for_new_run(self.root)
+        layout.initialize()
+        snapshot = read_result_csv_snapshot(layout.result_csv)
+        layout.path("run_state.json").write_text(json.dumps({"status": "complete", "run_id": "other-run"}))
+        report = audit_result(self.root)
+        issue, = [item for item in report["issues"] if item["code"] == "run_id_mismatch"]
+        assert not report["valid"] and report["counts"]["rows"] == 0
+        assert snapshot.run_id and snapshot.run_id in issue["message"]
+        assert "other-run" in issue["message"]
 
     def test_explicit_missing_layer_file_stays_literal_in_a_legacy_directory(self):
         self.write(self.row())

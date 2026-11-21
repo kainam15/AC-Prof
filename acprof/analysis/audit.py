@@ -20,10 +20,14 @@ from acprof.results import is_inferred_result
 from acprof.results.csv import (
     MISSING_CSV_TEXT,
     ResultCsvSnapshot,
+    ResultRunIdentityError,
     csv_diagnostic_text,
     measurement_key,
     read_result_csv_snapshot,
+    recorded_run_id,
+    require_matching_run_id,
     result_csv_snapshot_unchanged,
+    run_id_column,
     validate_result_rows,
 )
 from acprof.results.measurement_plan import (
@@ -266,20 +270,50 @@ def _audit_metadata(report, path, metadata_reader, read_json, issue, cancelled):
     return metadata, state
 
 
+def require_consistent_run_identity(audit: dict) -> None:
+    """Prevent analysis of results whose recorded identities contradict one another."""
+    for issue in audit["issues"]:
+        if issue["code"] == "run_id_mismatch":
+            raise ResultRunIdentityError(issue["message"])
+
+
+def _audit_source_unchanged(snapshot, rows, *, borrowed, cancelled):
+    if not borrowed or snapshot.path.name == "result_layers.json":
+        return result_csv_snapshot_unchanged(snapshot, verify_rows=borrowed, cancelled=cancelled)
+    # The caller can edit a flat snapshot's rows without changing its original byte digest.
+    try:
+        current = read_result_csv_snapshot(snapshot.path, cancelled=cancelled)
+    except (ValueError, OSError, csv.Error):
+        check_cancelled(cancelled)
+        return False
+    return (snapshot.run_id is None and snapshot.sha256 == current.sha256 and snapshot.fields == current.fields
+            and len(rows) == len(current.rows)
+            and all(left == right for left, right in cancellable(zip(rows, current.rows, strict=True), cancelled)))
+
+
 def _load_result_rows(path, result_snapshot, verify_result_snapshot, report, issue, cancelled) -> AuditedRows:
     try:
         snapshot = result_snapshot or read_result_csv_snapshot(path, cancelled=cancelled)
         if snapshot.path != path.resolve():
             raise ValueError("result CSV snapshot belongs to a different path")
         fields, rows = snapshot.fields, snapshot.rows
+        report["result_sha256"] = snapshot.sha256
+        state_id = recorded_run_id(report.get("run_id"))
+        require_matching_run_id(state_id, snapshot.run_id, source=str(snapshot.path))
+        identity_column = run_id_column(fields)
+        if state_id is not None and identity_column is not None:
+            for line, row in enumerate(cancellable(rows, cancelled), 2):
+                require_matching_run_id(state_id, row.get(identity_column), source=f"{snapshot.path}:{line}")
         if result_snapshot is not None:
             rows = validate_result_rows(fields, rows, snapshot.path, cancelled=cancelled,
                                         allow_empty=path.name == "result_layers.json").rows
-        report["result_sha256"] = snapshot.sha256
-        if verify_result_snapshot and not result_csv_snapshot_unchanged(
-                snapshot, verify_rows=result_snapshot is not None, cancelled=cancelled):
+        if verify_result_snapshot and not _audit_source_unchanged(
+                snapshot, rows, borrowed=result_snapshot is not None, cancelled=cancelled):
             issue("changing_snapshot", "读取期间 CSV 发生变化，请采集结束后重新审计")
-        return ResultCsvSnapshot(snapshot.path, fields, rows, snapshot.sha256)
+        return ResultCsvSnapshot(snapshot.path, fields, rows, snapshot.sha256, snapshot.run_id)
+    except ResultRunIdentityError as error:
+        issue("run_id_mismatch", error)
+        return error
     except (ValueError, OSError, csv.Error) as error:
         issue("invalid_csv", error)
         return error

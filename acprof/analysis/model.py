@@ -12,6 +12,7 @@ from decimal import InvalidOperation
 from pathlib import Path
 from typing import Any
 
+from acprof.analysis.audit import require_consistent_run_identity
 from acprof.analysis.comparison import load_comparison_snapshot
 from acprof.analysis.conditions import PURPOSES, PreparedComparison
 from acprof.analysis.lifecycle import LifecycleConflict, unique_startup_observations
@@ -25,6 +26,7 @@ from acprof.results.csv import (
     measurement_key,
     numeric_coordinate_key,
     read_result_csv_snapshot,
+    recorded_run_id,
     verify_result_source,
 )
 from acprof.results.layout import expand_result_sources, resolve_result_file
@@ -117,7 +119,7 @@ def _identity(row, meta, run_id, batch):
     if name := _text(row.get("input_case"), default=""):
         input_case["name"] = name
     identity = dict(zip(DIMENSIONS, (
-        _text(row.get("run_id"), run_id),
+        run_id,
         _text(row.get("model") or row.get("model_name") or meta.get("model_name")),
         _text(row.get("runtime") or row.get("runtime_backend") or meta.get("runtime_backend")),
         device, number(row.get("cpu_cores")), number(row.get("mem_cap_gb")),
@@ -354,31 +356,30 @@ def load_analysis(sources) -> AnalysisModel:
         seen_paths.add(path)
         metadata_snapshot = ResultMetadataSnapshot(path)
         result_snapshot = read_result_csv_snapshot(path, validate_measurements=False)
+        normalize_fields, numeric_fields = _validated_csv_fields(path, result_snapshot.fields)
         digest = result_snapshot.sha256
         meta, state = (metadata_snapshot.read(name, label="analysis metadata").payload
                        if metadata_snapshot.exists(name) else {}
                        for name in ("static_meta.json", "run_state.json"))
-        run_id = _text(state.get("run_id"))
+        run_id = recorded_run_id(state.get("run_id"))
         snapshot = load_comparison_snapshot(path, result_snapshot=result_snapshot,
                                             metadata_snapshot=metadata_snapshot,
                                             verify_result_snapshot=False)
+        require_consistent_run_identity(snapshot["audit"])
         comparisons[str(path)] = PreparedComparison(snapshot)
         evidence = {"run_status": state.get("status", "unknown"),
                     **{key: snapshot[key] for key in ("measurement_status", "missing_metrics", *QUALITY_FIELDS)}}
-        snapshots.append({"path": str(path), "display_name": path.parent.name, "sha256": digest, "run_id": run_id,
+        snapshots.append({"path": str(path), "display_name": path.parent.name, "sha256": digest, "run_id": run_id or "unknown",
                           "run_state": state.get("status", "unknown"), "metadata": meta,
                           "audit": snapshot["audit"], **evidence})
         device_quality = {}
         first_entry = len(entries)
-        normalize_fields, numeric_fields = _validated_csv_fields(path, result_snapshot.fields)
         for line, original in enumerate(result_snapshot.rows, 2):
             raw = ({name.strip(): value for name, value in original.items()}
                    if normalize_fields else original)
             row = {key: value.strip() for key, value in raw.items()}
-            if (_text(state.get("run_id")) != "unknown" and _text(row.get("run_id")) != "unknown"
-                    and row["run_id"] != state["run_id"]):
-                raise ValueError(f"inconsistent run_id between CSV and run state: {path}:{line}")
-            identity = _identity(row, meta, run_id, "unknown")
+            row_run_id = recorded_run_id(row.get("run_id"))
+            identity = _identity(row, meta, row_run_id or run_id or "unknown", "unknown")
             # A batch label and artifact location are presentation, not recorded
             # experimental conditions. Moving a result must not create a run.
             stable_identity = {key: value for key, value in identity.items() if key != "experiment_batch"}
@@ -387,8 +388,7 @@ def load_analysis(sources) -> AnalysisModel:
             repeat = _optional_window_coordinate(row, "repeat_idx")
             warmup = _optional_window_coordinate(row, "warmup")
             if repeat is not None:
-                recorded_run = _text(state.get("run_id")) != "unknown" or _text(row.get("run_id")) != "unknown"
-                key = ((identity["run_id"], measurement_key(row)) if recorded_run
+                key = ((identity["run_id"], measurement_key(row)) if identity["run_id"] != "unknown"
                        else (config_id, warmup, repeat))
                 signature = _digest({"row": row, "identity": stable_identity})
                 if key in seen_keys:
