@@ -151,7 +151,9 @@ completed request count 归一化，不能把窗口总能耗直接解释为 J/re
 它记录主采集收尾时的能力快照；后续 posthoc 补采的状态以对应 profiler plan、CSV error 和
 `collection_history.json` 为准，当前不会自动改写该主采集快照。
 Capability Report schema v3 将 `requested_measurements_available`（全部要求可采集）与
-`requested_measurements_complete`（全部要求已经 verified）分开；预检 available 不再算完成。
+`requested_measurements_complete`（全部要求已经 verified）分开；预检 available 不算完成。
+Best-effort 的必需窗口指标逐字段核验：在每个适用的非预热 `ok` / `warn` 窗口，数值必须有限且质量为 `complete`。
+有效零值和带告警的有限残差原样保留；仅有数值或仅有质量标签都不足以通过。可选指标缺口不影响这项门禁。
 `collection_complete` 保留原有“采集行完成且成功”的含义，新增 `collection_finished` 与
 `collection_succeeded` 分别表示行已有终态及行执行成功，`row_counts` 区分 succeeded、failed、
 not_measured、unfinished。OOM／timeout 是已结束的失败；剪枝未尝试行单列为 not_measured。

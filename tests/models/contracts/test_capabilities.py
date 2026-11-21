@@ -340,6 +340,49 @@ class TestCapability:
         caps.apply_collection_result(report, rows)
         assert (caps.missing_required_measurements(report, rows)) == (["container_memory"])
 
+    @pytest.mark.parametrize(("quality", "value", "expected"), [
+        ("complete", "0", "verified"), ("partial", "0", "partial"),
+        ("unknown", "2", "unavailable"), ("permission_denied", "2", "permission_denied"),
+        ("complete", "nan", "unavailable"),
+    ])
+    def test_required_dram_needs_both_values_and_window_evidence(self, quality, value, expected):
+        caps = self.capabilities()
+        report = caps.measurement_report("best_effort", dram_energy="required")
+        fields = ("dram_window_energy_j", "dram_energy_per_request_j", "dram_window_effective_energy_j")
+        observed = {} if quality == "unknown" else {
+            name: {"quality": quality, "reason": "fixture observation"} for name in fields
+        }
+        row = {"status": "warn", "warmup": "0", "gpu_mode": "off", "latency_app_s": "1",
+               "throughput_app_samples_per_s": "1", **dict.fromkeys(fields, value),
+               "resource_metric_quality": json.dumps({"schema_version": 1, "metrics": observed,
+                                                      "collectors": {"client_http": {"status": "available"}}})}
+        warmup = {**row, "warmup": "1", "resource_metric_quality": ""}
+        rows = [warmup, row]
+        caps.apply_collection_result(report, rows)
+        assert report.measurement["dram_energy"].status.value == expected
+        assert report.to_dict()["requested_measurements_complete"] is (expected == "verified")
+        assert caps.missing_required_measurements(report, rows) == ([] if expected == "verified" else ["dram_energy"])
+        assert report.field_outcomes[fields[0]]["windows"] == {
+            "unavailable" if value == "nan" else quality: 1}
+        assert row[fields[0]] == value
+
+    def test_best_effort_gates_only_required_fields_across_successful_windows(self):
+        caps = self.capabilities()
+        report = caps.measurement_report("best_effort", dram_energy="auto")
+        evidence = {"schema_version": 1, "metrics": {}, "collectors": {
+            "client_http": {"status": "available"}, "dram_energy": {"status": "partial", "reason": "reader gap"}}}
+        row = {"status": "ok", "warmup": "0", "latency_app_s": "1", "throughput_app_samples_per_s": "1",
+               "dram_window_energy_j": "2", "resource_metric_quality": json.dumps(evidence)}
+        caps.apply_collection_result(report, [row])
+        assert report.to_dict()["requested_measurements_complete"]
+        assert report.field_outcomes["dram_window_energy_j"]["reasons"] == {"reader gap": 1}
+        evidence["metrics"]["latency_app_s"] = {"quality": "partial", "reason": "incomplete request timing"}
+        rows = [row, {**row, "resource_metric_quality": json.dumps(evidence)}]
+        caps.apply_collection_result(report, rows)
+        assert caps.missing_required_measurements(report, rows) == ["latency"]
+        assert report.measurement["latency"].status.value == "partial"
+        assert report.field_outcomes["latency_app_s"]["windows"] == {"complete": 1, "partial": 1}
+
     def test_automatic_collection_requires_a_successful_formal_inference(self):
         caps = self.capabilities()
         report = caps.measurement_report("best_effort", gpu_modes=["off"])

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import math
+from collections.abc import Mapping
 from functools import lru_cache
 
 from acprof.results.coverage import collector_contract, field_collectors
@@ -51,6 +52,13 @@ def _collector_states(text: str) -> dict:
     return states
 
 
+def _finite_number(value) -> bool:
+    try:
+        return math.isfinite(float(value))
+    except (ValueError, TypeError, OverflowError):
+        return False
+
+
 def _from_collector(row, metric, group, states):
     item = states.get(group)
     if not isinstance(item, dict):
@@ -86,10 +94,8 @@ def _from_collector(row, metric, group, states):
     if metric.applicability in {"idle_debug", "gpu_idle_debug"} and not item.get("idle_debug"):
         return {"quality": "not_requested", "reason": "idle_debug_disabled"}
     value = row.get(metric.name)
-    try:
-        present = math.isfinite(float(value)) if metric.kind == "number" else str(value or "").lower() not in {"", "unknown", "nan", "unavailable"}
-    except (ValueError, TypeError):
-        present = False
+    present = (_finite_number(value) if metric.kind == "number"
+               else str(value or "").lower() not in {"", "unknown", "nan", "unavailable"})
     result: dict = {"quality": "complete" if present else "unavailable",
               "reason": "" if present else reason or "missing_window_value"}
     if reader_error := item.get("reader_errors", {}).get(metric.name):
@@ -115,7 +121,7 @@ def _from_collector(row, metric, group, states):
     return result
 
 
-def metric_observation(row: dict, name: str) -> dict:
+def metric_observation(row: Mapping, name: str) -> dict:
     metric = METRICS[name]
     runtime = "process" if row.get("runtime_kind") == "process" else "docker"
     contract = collector_contract(metric, runtime)
@@ -147,6 +153,8 @@ def metric_observation(row: dict, name: str) -> dict:
         observation_signature(item)  # Reject non-finite sampling metadata before downstream hashing.
         if not isinstance(item.get('reason', ''), str):
             raise ValueError('metric reason must be text')
+        if item['quality'] == 'complete' and metric.kind == 'number' and not _finite_number(row.get(name)):
+            return {**result, **item, 'quality': 'unavailable', 'reason': 'missing_window_value'}
         return {**result, 'reason': '', **item}
     except (TypeError, ValueError) as exc:
         return {**result, 'quality': 'error', 'reason': str(exc)}

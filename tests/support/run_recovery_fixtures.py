@@ -38,6 +38,8 @@ class RunRecoveryFixture:
         row.update(cpu_cores=str(request.cpu), mem_cap_gb="4", gpu_mode="off",
                    input_scale="64", warmup="0", repeat_idx="0", status="ok", error="",
                    latency_app_s="0.1", latency_s="0.09", throughput_samples_per_s="10", throughput_app_samples_per_s="10",
+                   resource_metric_quality=json.dumps({"schema_version": 1, "metrics": {},
+                                                       "collectors": {"client_http": {"status": "available"}}}),
                    container_cpu_util_avg_pct="0", container_mem_usage_avg_bytes="1024",
                    cpu_energy_total_j="1", vcpu_energy_total_j="0", cpu_instructions_per_request="0")
         with path.open("a", newline="") as stream:
@@ -119,7 +121,8 @@ class RunRecoveryFixture:
         report = json.loads((self.directory / "capability_report.json").read_text())
         assert report["profiling_mode"] == "best_effort"
         assert report["requested_measurements"] == ["latency", "throughput"]
-        assert report["measurement"]["latency"]["status"] == "unavailable"
+        assert report["measurement"]["latency"]["status"] == "partial"
+        assert report["field_outcomes"]["latency_app_s"]["windows"] == {"complete": 1, "unavailable": 1}
         assert not (report["full_profile_complete"])
         assert ((self.directory / "result_layers.json").is_file())
         assert (len(list(self.directory.glob(".acprof/work/cases/*/result.csv")))) == (2)

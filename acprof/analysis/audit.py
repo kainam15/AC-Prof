@@ -26,6 +26,7 @@ from acprof.results.csv import (
 from acprof.results.layout import resolve_single_result_source
 from acprof.results.metadata import ResultMetadataSnapshot
 from acprof.results.metrics import METRICS, NUMERIC_FIELDS
+from acprof.results.profile import metric_observation
 
 
 def number(value):
@@ -94,7 +95,6 @@ class MissingReasons:
             if field not in row:
                 return "not_recorded"
             metric = METRICS[field]
-            from acprof.results.profile import metric_observation
             quality = metric_observation(row, field)['quality']
             if quality not in {'complete', 'unknown'}:
                 return quality
@@ -370,7 +370,7 @@ def _audit_process_row(report, runtime, metadata, hardware, index, row, status, 
             issue('service_cgroup_scope', '服务 cgroup 指标缺少独立 cgroup 归属证据', row=index)
 
 
-def _audit_numeric_row(report, runtime, missing_reasons, missing, index, row, formal, issue):
+def _audit_numeric_row(report, runtime, missing_reasons, missing, partial, index, row, formal, issue):
     reason_for_row = None
     for field in NUMERIC_FIELDS:
         if (runtime == "process" and (field.startswith("container_") or field.startswith("cold_start_"))
@@ -391,6 +391,10 @@ def _audit_numeric_row(report, runtime, missing_reasons, missing, index, row, fo
                 reason_for_row = missing_reasons.for_row(row)
             reason = reason_for_row(field)
             missing[field][reason] += 1
+        elif partial is not None and not absent:
+            observation = metric_observation(row, field)
+            if observation["quality"] == "partial":
+                partial[field][observation["reason"] or "partial"] += 1
 
 
 def _audit_formula_row(index, row, formal, issue):
@@ -405,6 +409,7 @@ def _audit_formula_row(index, row, formal, issue):
 
 def _audit_rows(report, runtime, metadata, hardware, rows, issue):
     missing: dict[str, Counter[str]] = defaultdict(Counter)
+    partial: dict[str, Counter[str]] = defaultdict(Counter)
     missing_reasons = MissingReasons(metadata, environment_class=report["environment_class"])
     for index, row in enumerate(rows, 2):
         status = row.get("status", "").strip().lower()
@@ -421,9 +426,12 @@ def _audit_rows(report, runtime, metadata, hardware, rows, issue):
             _check_workload_counts(row)
         except (ValueError, TypeError) as error:
             issue("workload_contract", error, row=index)
-        _audit_numeric_row(report, runtime, missing_reasons, missing, index, row, formal, issue)
+        observed = not warmup and status in {"ok", "warn"} and row.get("resource_metric_quality", "") not in MISSING_CSV_TEXT
+        _audit_numeric_row(report, runtime, missing_reasons, missing, partial if observed else None, index, row, formal, issue)
         _audit_formula_row(index, row, formal, issue)
     report["missing_metrics"] = {name: dict(reasons) for name, reasons in missing.items()}
+    if partial:
+        report["partial_metrics"] = {name: dict(reasons) for name, reasons in partial.items()}
 
 
 def _finalize_measurement_status(report):

@@ -63,6 +63,9 @@ def main(argv=None):
                 print(f"[{issue['severity']}] {issue['message']}")
             if report["missing_metrics"]:
                 print(f"{len(report['missing_metrics'])} 个数值字段存在缺失；使用 --json 查看有证据支持的原因。")
+            if partial := report.get("partial_metrics"):
+                print("Partial metric evidence (non-warmup windows): " + ", ".join(
+                    f"{name} ({sum(reasons.values())})" for name, reasons in sorted(partial.items())))
             if "comparison" in report:
                 for warning in report["comparison"]["warnings"]:
                     print(f"[WARN] {warning}")

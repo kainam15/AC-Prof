@@ -22,7 +22,7 @@ acprof run --model google-bert/bert-base-uncased \
 acprof audit results/first-run/google-bert--bert-base-uncased/ --json
 ```
 
-审计的 `missing_metrics` 解释缺值；`accepted` 不代表每个指标都采到了。打开具体任务结果目录的 `capability_report.json`，在 `field_outcomes` 查看 `cpu_energy_total_j`（RAPL）、`cpu_instructions_per_request`（perf）和 `latency_s`（抓包）的 `windows` 计数与 `reasons`。`complete` 表示该窗口有完整证据；`partial` 即使有数值也不是完整采集；没有记录则不能确认。`latency_app_s` 是应用延迟，不能替代抓包证据。
+审计的 `missing_metrics` 解释缺值；若非预热 `ok` / `warn` 窗口中有有限值但证据为 `partial`，文本直接列出指标与窗口数，JSON 的 `partial_metrics` 按指标和原因计数。`accepted` 不代表每个指标都采到了。打开具体任务结果目录的 `capability_report.json`，在 `field_outcomes` 查看 `cpu_energy_total_j`（RAPL）、`cpu_instructions_per_request`（perf）和 `latency_s`（抓包）的 `windows` 计数与 `reasons`。`complete` 表示该窗口有完整证据；`partial` 即使有数值也不是完整采集；没有记录则不能确认。`latency_app_s` 是应用延迟，不能替代抓包证据。
 
 Stable Diffusion 建议先做单 GPU、单分辨率试跑：
 

@@ -371,6 +371,23 @@ def collection_outcomes(rows: Sequence[Mapping]) -> dict:
             "succeeded": bool(rows) and counts["succeeded"] == len(rows), "row_counts": counts}
 
 
+def _required_window_result(rows: Sequence[Mapping], fields: tuple[str, ...]) -> Capability:
+    """Grade only the required fields of applicable successful formal windows."""
+    from acprof.results.profile import metric_observation
+
+    qualities = {metric_observation(row, name)["quality"] for row in rows for name in fields}
+    if qualities == {"complete"}:
+        status = "verified"
+    elif qualities & {"complete", "partial"}:
+        status = "partial"
+    else:
+        # Unknown has no CapabilityStatus equivalent. Its reason is kept in field_outcomes.
+        status = next((s for s in ("error", "permission_denied", "tool_missing", "unsupported",
+                                   "unavailable", "not_requested", "not_applicable") if s in qualities), "unavailable")
+    return Capability(status, "" if status == "verified" else "incomplete required window evidence; see field_outcomes",
+                      "result_layers.json", {"fields": list(fields), "rows": len(rows)})
+
+
 def apply_collection_result(report: CapabilityReport, rows: Sequence[Mapping]) -> None:
     """Attach evidence after collection; this never changes a measured field."""
     outcomes = collection_outcomes(rows)
@@ -429,6 +446,9 @@ def apply_collection_result(report: CapabilityReport, rows: Sequence[Mapping]) -
             continue
         relevant = [row for row in rows if _is_formal_success_row(row)
                     and (name != "gpu_power" or row.get("gpu_mode") == "on")]
+        if report.profiling_mode == "best_effort" and relevant:
+            report.measurement[name] = _required_window_result(relevant, metrics)
+            continue
         def finite(row):
             try:
                 return all(math.isfinite(float(row.get(metric, "nan"))) for metric in metrics)
