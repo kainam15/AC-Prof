@@ -4,6 +4,7 @@ import json
 import ssl
 import sys
 import tempfile
+import urllib.request
 from contextlib import contextmanager
 from http.client import IncompleteRead
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -758,6 +759,78 @@ class TestDomesticPyPIArtifactMirror:
         record.assert_not_called()
 
 
+@pytest.mark.parametrize(("archive", "pool"), [
+    ("debian", "pool/main/b/binutils/binutils_2.44-3_amd64.deb"),
+    ("debian-security", "pool/updates/main/x/xz-utils/xz-utils_5.8.1-1%2bdeb13u2_amd64.deb"),
+])
+class TestDebianMirrorDownloads:
+    def test_cold_get_then_verified_cache_hit(self, archive, pool, tmp_path, monkeypatch):
+        monkeypatch.setenv("ACPROF_DEBIAN_ARTIFACT_MIRROR", "tencent")
+        helper = TestDependencyDownloadCache().helper()
+        data = b"locked Debian package"
+        entry = {"url": f"https://snapshot.debian.org/archive/{archive}/20261023T214343Z/{pool}",
+                 "name": "fixture", "sha256": hashlib.sha256(data).hexdigest()}
+        mirror = f"https://mirrors.cloud.tencent.com/{archive}/{pool}"
+
+        def fetch(request, timeout):
+            if request.full_url != mirror:
+                raise HTTPError(request.full_url, 404, "Not Found", {}, None)
+            assert request.get_method() == "GET"
+            response = BytesIO(data)
+            response.geturl = lambda: mirror
+            return response
+
+        target = tmp_path / "fixture.deb"
+        opener = Mock()
+        opener.open.side_effect = fetch
+        with patch("urllib.request.build_opener", return_value=opener) as build, patch.object(helper, "_record_transfer") as record:
+            helper.cached_artifact(entry, target, "debian")
+            assert record.call_args.args == (entry, "debian", len(data), "mirrors.cloud.tencent.com", "miss")
+            helper.cached_artifact(entry, target, "debian")
+            assert record.call_args.args == (entry, "debian", 0, "mirrors.cloud.tencent.com", "hit")
+        build.assert_called_once()
+        assert build.call_args.args[0].proxies == {}
+        opener.open.assert_called_once()
+        assert target.read_bytes() == data
+        assert entry["url"].startswith(f"https://snapshot.debian.org/archive/{archive}/")
+
+    def test_404_retains_package_source_and_reason(self, archive, pool, tmp_path, monkeypatch, capsys):
+        monkeypatch.setenv("ACPROF_DEBIAN_ARTIFACT_MIRROR", "tencent")
+        helper = TestDependencyDownloadCache().helper()
+        name = pool.rsplit("/", 1)[1].split("_", 1)[0]
+        entry = {"url": f"https://snapshot.debian.org/archive/{archive}/20261023T214343Z/{pool}",
+                 "name": name, "sha256": "a" * 64}
+        mirror = f"https://mirrors.cloud.tencent.com/{archive}/{pool}"
+        opener = Mock()
+        opener.open.side_effect = HTTPError(mirror, 404, "Not Found", {}, None)
+        with patch("urllib.request.build_opener", return_value=opener), patch.object(helper, "_record_transfer") as record:
+            with pytest.raises(HTTPError) as caught:
+                helper.cached_artifact(entry, tmp_path / "fixture.deb", "debian")
+        assert caught.value.code == 404
+        opener.open.assert_called_once()
+        assert opener.open.call_args.args[0].full_url == mirror
+        record.assert_not_called()
+        assert list(tmp_path.iterdir()) == []
+        events = [json.loads(line.removeprefix("ACPROF_DEPENDENCY_PROGRESS "))
+                  for line in capsys.readouterr().out.splitlines() if line.startswith("ACPROF_DEPENDENCY_PROGRESS ")]
+        assert events[-1]["state"] == "failed"
+        assert events[-1]["failure"] == f"{name} · {mirror} · HTTP 404 Not Found"
+
+    @pytest.mark.parametrize("destination", ["http://mirrors.cloud.tencent.com/file", "https://external.invalid/file"])
+    def test_redirects_stay_on_https_mirror_after_an_intermediate_path(self, archive, pool, destination):
+        url = f"https://mirrors.cloud.tencent.com/{archive}/{pool}"
+        network_policy.require_direct_artifact_mirror_redirect(url, url)
+        with pytest.raises(network_policy.DownloadPolicyError, match="redirected outside"):
+            network_policy.require_direct_artifact_mirror_redirect(url, destination)
+        for method in ("HEAD", "GET"):
+            handler = network_policy.PolicyRedirectHandler(url)
+            request = urllib.request.Request(url, method=method)
+            intermediate = handler.redirect_request(request, None, 302, "Found", {}, "https://mirrors.cloud.tencent.com/content")
+            assert intermediate.get_method() == method
+            with pytest.raises(network_policy.DownloadPolicyError, match="redirected outside"):
+                handler.redirect_request(intermediate, None, 302, "Found", {}, destination)
+
+
 class TestAdditionalDomesticArtifactMirrors:
     @pytest.mark.parametrize(("category", "original", "settings", "expected"), [
         ("python",
@@ -775,7 +848,7 @@ class TestAdditionalDomesticArtifactMirrors:
         ("debian",
          "https://snapshot.debian.org/archive/debian-security/20260912T203535Z/pool/updates/main/a/a.deb",
          {"ACPROF_DEBIAN_ARTIFACT_MIRROR": "tencent"},
-         "https://mirrors.cloud.tencent.com/debian/pool/updates/main/a/a.deb"),
+         "https://mirrors.cloud.tencent.com/debian-security/pool/updates/main/a/a.deb"),
     ])
     def test_exact_mapping_keeps_lock_untouched(self, category, original, settings, expected):
         from acprof.network_policy import dependency_artifact_url, is_direct_artifact_mirror

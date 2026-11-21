@@ -30,6 +30,7 @@ from acprof.models.download_plan import DownloadPlan
 from acprof.network_policy import (
     DEPENDENCY_USER_AGENT,
     DownloadSource,
+    PolicyRedirectHandler,
     configured_artifact_mirrors,
     configured_oci_sources,
     debian_snapshot_fallback_url,
@@ -38,24 +39,11 @@ from acprof.network_policy import (
     enforce_download_budget,
     is_direct_artifact_mirror,
     oci_source_url,
-    require_direct_artifact_mirror_redirect,
-    require_source_transition,
     summarize_downloads,
 )
 from acprof.runtime.dependency_locks import content_digest
 from acprof.runtime.profiles import environment_identity
 from acprof.system import command as host_command
-
-
-class PolicyRedirectHandler(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
-        require_direct_artifact_mirror_redirect(req.full_url, newurl)
-        require_source_transition(req.full_url, newurl)
-        redirected = super().redirect_request(req, fp, code, msg, headers, newurl)
-        if redirected is not None and req.get_method() == "HEAD":
-            # urllib otherwise turns a redirected HEAD into a payload-fetching GET.
-            redirected.method = "HEAD"
-        return redirected
 
 
 def artifact_size(url: str) -> int | None:
@@ -70,8 +58,9 @@ def probe_artifact(url: str, *, category: str = "python") -> tuple[dict, int | N
         report["reason"] = "source-unknown"
         return report, None
     started = time.monotonic()
-    handlers = [urllib.request.ProxyHandler({})] if is_direct_artifact_mirror(url) else []
-    opener = urllib.request.build_opener(*handlers, PolicyRedirectHandler())
+    direct = is_direct_artifact_mirror(url)
+    handlers = [urllib.request.ProxyHandler({})] if direct else []
+    opener = urllib.request.build_opener(*handlers, PolicyRedirectHandler(url if direct else ""))
     try:
         request = urllib.request.Request(url, headers={"User-Agent": DEPENDENCY_USER_AGENT}, method="HEAD")
         with opener.open(request, timeout=8) as response:

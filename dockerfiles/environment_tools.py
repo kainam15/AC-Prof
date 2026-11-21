@@ -16,7 +16,7 @@ import time
 import urllib.request
 from datetime import UTC
 from email.utils import parsedate_to_datetime
-from http.client import IncompleteRead
+from http.client import IncompleteRead, responses
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import unquote, urlsplit
@@ -34,19 +34,13 @@ from dependency_locks import (
 )
 from network_policy import (
     DEPENDENCY_USER_AGENT,
+    PolicyRedirectHandler,
     debian_snapshot_fallback_url,
     dependency_artifact_url,
     is_direct_artifact_mirror,
     require_direct_artifact_mirror_redirect,
     require_source_transition,
 )
-
-
-class PolicyRedirectHandler(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
-        require_direct_artifact_mirror_redirect(req.full_url, newurl)
-        require_source_transition(req.full_url, newurl)
-        return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
 def _digest(path):
@@ -167,7 +161,7 @@ def cached_artifact(entry, path, category):
     # A selected domestic mirror must not consume the configured HTTP(S) VPN proxy.
     # No silent fallback to the official URL (and therefore no surprise VPN bytes).
     handlers = [urllib.request.ProxyHandler({})] if direct_mirror else []
-    opener = urllib.request.build_opener(*handlers, PolicyRedirectHandler())
+    opener = urllib.request.build_opener(*handlers, PolicyRedirectHandler(source_url if direct_mirror else ""))
     actual_source = None
     initial_offset = temporary.stat().st_size if temporary.is_file() else 0
     publish("downloading")
@@ -188,12 +182,11 @@ def cached_artifact(entry, path, category):
             )
             try:
                 with opener.open(request, timeout=60) as source:
-                    actual_source = urlsplit(
-                        getattr(source, "geturl", lambda: source_url)()
-                    ).hostname
+                    response_url = getattr(source, "geturl", lambda: source_url)()
+                    if direct_mirror:
+                        require_direct_artifact_mirror_redirect(source_url, response_url)
+                    actual_source = urlsplit(response_url).hostname
                     progress["source_domain"] = actual_source or ""
-                    if direct_mirror and actual_source != urlsplit(source_url).hostname:
-                        raise ValueError("PyPI mirror response changed host; refusing external fallback")
                     status = getattr(source, "status", 200)
                     response_headers = getattr(source, "headers", {}) or {}
                     match = None
@@ -293,6 +286,11 @@ def cached_artifact(entry, path, category):
     finally:
         error = sys.exc_info()[1]
         if error is not None:
+            attempted = urlsplit(error.geturl() if isinstance(error, HTTPError) else source_url)
+            public_url = attempted._replace(netloc=attempted.netloc.rsplit("@", 1)[-1], query="", fragment="").geturl()
+            reason = (f"HTTP {error.code} {responses.get(error.code, 'HTTP error')}" if isinstance(error, HTTPError)
+                      else str(error) or type(error).__name__)
+            progress["failure"] = f"{entry['name']} · {public_url} · {reason}"
             publish("failed")
         if (error is None or not _retryable_download_error(error)
                 or not temporary.is_file() or temporary.stat().st_size == 0):

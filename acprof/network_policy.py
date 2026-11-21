@@ -8,14 +8,14 @@ from dataclasses import asdict, dataclass
 from decimal import Decimal
 from typing import TypedDict
 from urllib import request as urllib_request
-from urllib.parse import unquote, urlsplit
+from urllib.parse import SplitResult, unquote, urlsplit
 
 DEPENDENCY_USER_AGENT = "acprof-dependency-downloader/1.0"
 
 TENCENT_PYPI_ARTIFACT_HOST = "mirrors.cloud.tencent.com"
 TENCENT_PYPI_ARTIFACT_PREFIX = f"https://{TENCENT_PYPI_ARTIFACT_HOST}/pypi"
 ALIYUN_PYTORCH_ARTIFACT_PREFIX = "https://mirrors.aliyun.com/pytorch-wheels"
-TENCENT_DEBIAN_ARTIFACT_PREFIX = f"https://{TENCENT_PYPI_ARTIFACT_HOST}/debian"
+_DEBIAN_MIRROR_PATHS = ("/debian/pool/", "/debian-security/pool/")
 
 _MIRROR_OPTIONS = {
     "ACPROF_PYPI_ARTIFACT_MIRROR": {"", "tencent"},
@@ -121,18 +121,14 @@ def dependency_artifact_url(category: str, locked_url: str, environ: Mapping[str
     if category == "debian" and parsed.hostname == "snapshot.debian.org" and settings[
         "ACPROF_DEBIAN_ARTIFACT_MIRROR"
     ] == "tencent":
-        if (parsed.scheme != "https" or parsed.netloc != "snapshot.debian.org"
-                or not re.fullmatch(r"/archive/debian(?:-security)?/[0-9]{8}T[0-9]{6}Z/pool/.+\.deb",
-                                    parsed.path)
-                or ".." in parsed.path.split("/") or parsed.query or parsed.fragment):
+        pool_path = _debian_snapshot_pool_path(parsed)
+        if pool_path is None:
             raise DownloadPolicyError("cannot mirror an unexpected Debian snapshot URL")
-        return TENCENT_DEBIAN_ARTIFACT_PREFIX + "/pool/" + parsed.path.split("/pool/", 1)[1]
+        return f"https://{TENCENT_PYPI_ARTIFACT_HOST}{pool_path}"
     return locked_url
 
 
-def debian_snapshot_fallback_url(source_url: str) -> str | None:
-    """Locate the identical pool filename on Debian's live archive, never resolve versions."""
-    parsed = urlsplit(source_url)
+def _debian_snapshot_pool_path(parsed: SplitResult) -> str | None:
     if (parsed.scheme != "https" or parsed.netloc != "snapshot.debian.org"
             or parsed.query or parsed.fragment):
         return None
@@ -144,7 +140,24 @@ def debian_snapshot_fallback_url(source_url: str) -> str | None:
     package = unquote(match[2])
     if "\\" in package or any(part in {"", ".", ".."} for part in package.split("/")):
         return None
-    return f"https://deb.debian.org/{match[1]}/{match[2]}"
+    return f"/{match[1]}/{match[2]}"
+
+
+def debian_snapshot_fallback_url(source_url: str) -> str | None:
+    """Locate the identical pool filename on Debian's live archive, never resolve versions."""
+    pool_path = _debian_snapshot_pool_path(urlsplit(source_url))
+    return "https://deb.debian.org" + pool_path if pool_path else None
+
+
+def _direct_mirror_option(parsed: SplitResult) -> tuple[str, str] | None:
+    if parsed.netloc == TENCENT_PYPI_ARTIFACT_HOST:
+        if parsed.path.startswith(_DEBIAN_MIRROR_PATHS):
+            return "ACPROF_DEBIAN_ARTIFACT_MIRROR", "tencent"
+        if parsed.path.startswith("/pypi/packages/"):
+            return "ACPROF_PYPI_ARTIFACT_MIRROR", "tencent"
+    if parsed.netloc == "mirrors.aliyun.com" and parsed.path.startswith("/pytorch-wheels/"):
+        return "ACPROF_PYTORCH_ARTIFACT_MIRROR", "aliyun"
+    return None
 
 
 def is_direct_artifact_mirror(url: str, environ: Mapping[str, str] | None = None) -> bool:
@@ -152,27 +165,31 @@ def is_direct_artifact_mirror(url: str, environ: Mapping[str, str] | None = None
     parsed = urlsplit(url)
     if parsed.scheme != "https" or parsed.query or parsed.fragment:
         return False
-    return (
-        (settings["ACPROF_PYPI_ARTIFACT_MIRROR"] == "tencent"
-         and parsed.netloc == TENCENT_PYPI_ARTIFACT_HOST
-         and parsed.path.startswith("/pypi/packages/"))
-        or (settings["ACPROF_PYTORCH_ARTIFACT_MIRROR"] == "aliyun"
-            and parsed.netloc == "mirrors.aliyun.com"
-            and parsed.path.startswith("/pytorch-wheels/"))
-        or (settings["ACPROF_DEBIAN_ARTIFACT_MIRROR"] == "tencent"
-            and parsed.netloc == TENCENT_PYPI_ARTIFACT_HOST
-            and parsed.path.startswith("/debian/pool/"))
-    )
+    option = _direct_mirror_option(parsed)
+    return option is not None and settings[option[0]] == option[1]
 
 
 def require_direct_artifact_mirror_redirect(previous: str, current: str) -> None:
     parsed = urlsplit(previous)
-    if ((parsed.netloc == TENCENT_PYPI_ARTIFACT_HOST
-         and (parsed.path.startswith("/pypi/packages/") or parsed.path.startswith("/debian/pool/")))
-            or (parsed.netloc == "mirrors.aliyun.com" and parsed.path.startswith("/pytorch-wheels/"))):
+    if _direct_mirror_option(parsed):
         nxt = urlsplit(current)
         if nxt.scheme != "https" or nxt.netloc != parsed.netloc:
             raise DownloadPolicyError("direct artifact mirror redirected outside HTTPS mirror host")
+
+
+class PolicyRedirectHandler(urllib_request.HTTPRedirectHandler):
+    def __init__(self, direct_mirror_url: str = ""):
+        self.direct_mirror_url = direct_mirror_url
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        # A same-host redirect may leave the pool path. Keep the original mirror
+        # as the authority for every subsequent hop of this direct request.
+        require_direct_artifact_mirror_redirect(self.direct_mirror_url or req.full_url, newurl)
+        require_source_transition(req.full_url, newurl)
+        redirected = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if redirected is not None and req.get_method() == "HEAD":
+            redirected.method = "HEAD"
+        return redirected
 
 
 class DownloadPolicyError(ValueError):

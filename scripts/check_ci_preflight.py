@@ -30,6 +30,7 @@ TEST_TARGETS = (
     "tests/tui/results/test_tui_profiler_selection.py::test_profiler_checkboxes_update_preview_preflight_and_restore",
     "tests/tui/workflows/test_tui_global_status.py::test_optional_profiler_inspect_enable_and_recheck",
     "tests/execution/planning/test_execution_profile.py::TestExecutionProfile::test_nsys_container_runtime_preflight_runs_importer",
+    "tests/runtime/environment/test_dependency_download_cache.py::TestDebianMirrorDownloads",
     "tests/runtime/environment/test_cgroup_target_io.py",
     "tests/runtime/environment/test_cgroup_io_monitor.py",
     "tests/quality/test_ci_change_scopes.py",
