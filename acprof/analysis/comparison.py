@@ -19,6 +19,7 @@ from acprof.analysis.conditions import (
     compare_profiles,
     compare_workload_profiles,
     dimensions,
+    effective_thread_evidence,
     hardware_case_binding,
     unknown,
     workload_case_profile,
@@ -635,9 +636,9 @@ def compare_snapshots(left: dict, right: dict, *, purpose: str = "same-hardware"
             item["status"] = ("unknown" if unknown(left_value) or unknown(right_value)
                               else "compatible" if left_value == right_value else "expected_difference")
         conditions[f"hardware_{name}"] = item
-    # Observed formal-server threads supersede independent-probe approximations.
-    if not unknown(lhs["hardware"].get("runtime_threads")) and not unknown(rhs["hardware"].get("runtime_threads")):
-        conditions["runtime_threads"] = conditions["hardware_runtime_threads"]
+    conditions["runtime_threads"] = _condition(*(
+        effective_thread_evidence(side["conditions"], side["hardware"]) for side in (lhs, rhs)
+    ))
     profiles = {side: PreparedComparison(snapshot).profile(purpose=purpose) for side, snapshot in snapshots.items()}
     qualification = compare_profiles(profiles["left"], profiles["right"])
     for name, item in conditions.items():

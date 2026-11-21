@@ -79,6 +79,12 @@ def unknown(value) -> bool:
     return False
 
 
+def effective_thread_evidence(conditions, hardware):
+    """Prefer complete formal service observations over independently probed counts."""
+    formal = hardware.get("runtime_threads")
+    return conditions.get("runtime_threads") if unknown(formal) else formal
+
+
 def dimensions(contract, prefix=""):
     result = {}
     for key, value in contract.items():
@@ -286,8 +292,7 @@ class PreparedComparison:
             # Resource labels in case maps are coordinates, not hardware facts.
             # Different measured policies/threads across resource cases stay visible.
             hardware = {name: _remove_resource_keys(values) for name, values in hardware.items()}
-        if not unknown(hardware.get("runtime_threads")):
-            conditions["runtime_threads"] = hardware["runtime_threads"]
+        conditions["runtime_threads"] = effective_thread_evidence(conditions, hardware)
         checks: dict[str, dict[str, object]] = {}
         self._populate_condition_checks(checks, conditions, hardware, purpose)
         profile = {"purpose": purpose, "valid": snapshot["valid"], "checks": checks, "workload": workload_profiles}
@@ -330,11 +335,22 @@ def _remove_resource_keys(values):
     return {device: [items[key] for key in sorted(items)] for device, items in by_device.items()}
 
 
+def _has_formal_thread_evidence(checks):
+    # Also works for saved profiles that only carry the original check tokens.
+    values = [item["value"] for name, item in checks.items()
+              if name == "hardware_runtime_threads" or name.startswith("hardware_runtime_threads.")]
+    return bool(values) and all(value is not None for value in values)
+
+
 def compare_profiles(left, right):
     if left["purpose"] != right["purpose"]:
         raise ValueError("comparison profile purposes differ")
     statuses = {}
+    mixed_thread_sources = _has_formal_thread_evidence(left["checks"]) != _has_formal_thread_evidence(right["checks"])
     for key in left["checks"].keys() | right["checks"].keys():
+        if mixed_thread_sources and (key == "runtime_threads" or key.startswith("runtime_threads.")):
+            statuses[key] = "unknown"
+            continue
         a, b = left["checks"].get(key), right["checks"].get(key)
         statuses[key] = ("unknown" if not a or not b or a["value"] is None or b["value"] is None else
                          "compatible" if a["value"] == b["value"] else a["difference"])

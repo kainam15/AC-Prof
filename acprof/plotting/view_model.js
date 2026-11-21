@@ -69,10 +69,24 @@ window.ACProfViews = (() => {
     }
     return status;
   }
+  function hasFormalThreads(checks) {
+    let observed = false;
+    for (const name of Object.keys(checks)) {
+      if (name !== "hardware_runtime_threads" && !name.startsWith("hardware_runtime_threads.")) continue;
+      if (checks[name]?.value == null) return false;
+      observed = true;
+    }
+    return observed;
+  }
   function compareProfiles(left, right) {
     if (!left || !right || left.purpose !== right.purpose) return {status:"unknown", reasons:["comparison_evidence_missing"]};
     const checks = {};
+    const mixedThreadSources = hasFormalThreads(left.checks) !== hasFormalThreads(right.checks);
     for (const name of new Set([...Object.keys(left.checks), ...Object.keys(right.checks)])) {
+      if (mixedThreadSources && (name === "runtime_threads" || name.startsWith("runtime_threads."))) {
+        checks[name] = "unknown";
+        continue;
+      }
       const a = left.checks[name], b = right.checks[name];
       checks[name] = !a || !b || a.value === null || b.value === null ? "unknown" :
         a.value === b.value ? "compatible" : a.difference;

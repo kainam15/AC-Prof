@@ -773,6 +773,37 @@ def test_formal_group_ci_is_retained_without_browser_estimation(page, tmp_path):
     assert download_json(page)["groups"] == expected
 
 
+def test_old_comparison_tokens_distinguish_formal_and_probe_threads(page):
+    from acprof.analysis.conditions import digest
+
+    def profile(values):
+        return {"purpose": "resource-scaling", "valid": True,
+                "workload": {"case": {"complete": True, "observed": "same",
+                    "variants": [{"proportion": "1", "fields": {}, "controlled": []}]}},
+                "checks": {key: {"value": None if value is None else digest(value), "difference": "incompatible"}
+                           for key, value in values.items()}}
+
+    def compare(left, right):
+        return page.evaluate("([left, right]) => ACProfViews.compareProfiles(left, right)",
+                             [profile(left), profile(right)])
+
+    formal = {"hardware_runtime_threads.off": [1], "runtime_threads.off": [1]}
+    probe = {"hardware_runtime_threads.off": None, "runtime_threads.off": 1}
+    unknown = {"status": "unknown", "reasons": ["hardware_runtime_threads", "runtime_threads"]}
+    assert compare(formal, probe) == unknown
+    assert compare(probe, formal) == unknown
+    # One unrecorded formal case makes the profile use the probe for its thread condition.
+    assert compare(formal, {**formal, "hardware_runtime_threads.on": None}) == unknown
+    assert compare({"hardware_runtime_threads": 1, "runtime_threads": 1}, {"runtime_threads": 1}) == unknown
+    assert compare(formal, formal) == {"status": "compatible", "reasons": []}
+    assert compare(formal, {"hardware_runtime_threads.off": [2], "runtime_threads.off": [2]}) == {
+        "status": "incompatible", "reasons": ["hardware_runtime_threads", "runtime_threads"]}
+    assert compare({"runtime_threads.off": 1}, {"runtime_threads.off": 2}) == {
+        "status": "incompatible", "reasons": ["runtime_threads"]}
+    assert compare({**formal, "runtime_threads_policy": 1}, {**probe, "runtime_threads_policy": 2}) == {
+        "status": "incompatible", "reasons": ["hardware_runtime_threads", "runtime_threads", "runtime_threads_policy"]}
+
+
 def test_descriptive_changes_match_python_and_conflicting_csv_inputs_withhold_deltas(page):
     from acprof.analysis.changes import metric_change
     pairs = [(0, 4), (-2, 4), (2, 0), (2, 4), (None, 4), (1e-6, 1e2)]

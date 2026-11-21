@@ -8,7 +8,7 @@ from unittest.mock import Mock
 import pytest
 
 from acprof.analysis import conditions
-from acprof.analysis.comparison import compare_results, load_comparison_snapshot
+from acprof.analysis.comparison import compare_results, compare_snapshots, load_comparison_snapshot
 from acprof.analysis.model import load_analysis
 from tests.support.comparison_fixtures import ComparisonFixture
 
@@ -388,3 +388,26 @@ def test_hardware_evidence_binds_to_exact_measured_case(multi_case_sources, cpu,
     result = compare_results(fixture.left, fixture.right, purpose="same-hardware")
     assert result["conditions"]["hardware_host_id"]["status"] == "incompatible"
     assert result["status"] == "incompatible"
+
+
+@pytest.mark.parametrize(("left_formal", "right_formal", "right_probe", "expected"), [
+    (1, None, 1, "unknown"), (None, 1, 1, "unknown"),
+    (1, 1, 2, "compatible"), (1, 2, 1, "incompatible"),
+    (None, None, 1, "compatible"), (None, None, 2, "incompatible"),
+])
+def test_thread_counts_compare_within_their_recorded_source(multi_case_sources, left_formal, right_formal,
+                                                            right_probe, expected):
+    fixture = multi_case_sources(1)
+    left, right = (load_comparison_snapshot(path) for path in (fixture.left, fixture.right))
+    for snapshot, formal, probe in ((left, left_formal, 1), (right, right_formal, right_probe)):
+        snapshot["hardware"]["runtime_threads"] = {"1c_4g_off": formal}
+        snapshot["conditions"]["runtime_threads"] = {"off": probe}
+
+    for purpose in conditions.PURPOSES:
+        comparison = compare_snapshots(left, right, purpose=purpose)
+        check = comparison["conditions"]["runtime_threads"]
+        assert check["status"] == expected
+        for side, formal, probe in (("left", left_formal, 1), ("right", right_formal, right_probe)):
+            assert check[side] == ({"off": probe} if formal is None else {"1c_4g_off": formal})
+        if (left_formal is None) != (right_formal is None):
+            assert comparison["status"] == "unknown"
