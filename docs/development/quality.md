@@ -202,6 +202,7 @@ uv run --locked --only-group browser playwright install chromium
 ACPROF_BROWSER_TESTS=1 ACPROF_BROWSER_ARTIFACT_DIR=internal-testing/shared/browser-evidence \
   uv run --locked --only-group browser python scripts/run_tests.py \
     --directory tests/analysis/reporting --pattern test_report_browser.py \
+    --pattern test_report_import.py --pattern test_csv_window_identity.py \
     --report internal-testing/shared/browser-evidence/tests.json --require-no-skips
 unset UV_PROJECT_ENVIRONMENT
 ```

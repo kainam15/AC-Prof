@@ -101,11 +101,12 @@ def test_host_summary_skips_when_host_is_not_requested(workflow):
     assert "needs.ci-preflight.result == 'success'" in summary["if"]
 
 
-def test_browser_job_excludes_same_named_tui_tests(workflow):
+def test_browser_job_runs_report_interactions_and_csv_imports(workflow):
     steps = workflow["jobs"]["report-browser"]["steps"]
     test_step = next(step for step in steps if "scripts/run_tests.py" in step.get("run", ""))
     assert "--directory tests/analysis/reporting" in test_step["run"]
-    assert "--pattern test_report_browser.py" in test_step["run"]
+    for suite in ("test_report_browser.py", "test_report_import.py", "test_csv_window_identity.py"):
+        assert f"--pattern {suite}" in test_step["run"]
 
 
 def test_job_policy(workflow):
