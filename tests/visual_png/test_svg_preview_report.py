@@ -215,3 +215,21 @@ def test_svg_preview_ci_runs_one_actual_chrome_smoke_before_batch():
     assert "8b3584f747a3a7155e1f99dc712dfd0576eedafe3da331819ccd52e17bee61a6" in workflow
     assert "acprof-svg-preview-chrome-shell" in workflow
     assert "svg-preview-failures/**/*" in workflow
+
+
+def test_tui_png_workflow_verifies_sha256_before_unpacking_or_installing_downloads():
+    workflow = (ROOT / ".github/workflows/tui-png.yml").read_text(encoding="utf-8")
+    expected = (
+        ("vhs_0.12.1_amd64.deb", "30a9b2746f19522387eace24f427208b5dc4ce2413d334147a0b89a2304cfbe4",
+         "apt-get \"${apt_options[@]}\" install -y /tmp/vhs_0.12.1_amd64.deb"),
+        ("chrome-linux64.zip", "a36a48d5081a50ea474c92a999254b047a0a3b738f734308c51283db09f8cb29",
+         "unzip -q \"$RUNNER_TEMP/chrome-linux64.zip\""),
+        ("chrome-headless-shell-linux64.zip", "8b3584f747a3a7155e1f99dc712dfd0576eedafe3da331819ccd52e17bee61a6",
+         "unzip -q \"$RUNNER_TEMP/chrome-headless-shell-linux64.zip\""),
+    )
+    for artifact, digest, consumer in expected:
+        download_pos = workflow.index(f"/{artifact}")
+        check_pos = workflow.index(f"{digest}  ")
+        sha_pos = workflow.index("sha256sum --check", check_pos)
+        use_pos = workflow.index(consumer)
+        assert download_pos < check_pos < sha_pos < use_pos, f"{artifact} must be sha256-verified before use"
