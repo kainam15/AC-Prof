@@ -57,7 +57,7 @@ def sglang_exposition(requests):
 
 
 @contextmanager
-def metrics_server(*, failure=None, metrics_body=None, content_type="text/plain; version=0.0.4"):
+def metrics_server(*, failure=None, failure_status=503, metrics_body=None, content_type="text/plain; version=0.0.4"):
     events, auth = [], []
     state = {"requests": 0, "scrapes": 0}
 
@@ -83,7 +83,7 @@ def metrics_server(*, failure=None, metrics_body=None, content_type="text/plain;
             raw = exposition(10 + state["requests"], 20 + 2 * state["requests"]).encode()
             if metrics_body is not None:
                 raw = metrics_body(state)
-            self.reply(503 if failed else 200, raw, content_type)
+            self.reply(failure_status if failed else 200, raw, content_type)
 
         def do_POST(self):
             self.rfile.read(int(self.headers["Content-Length"]))
@@ -316,6 +316,66 @@ def test_bad_metrics_response_stops_before_load(tmp_path, fault):
     assert report["server_metrics"]["before"]["status"] == "error"
     assert "result" not in report
     assert events == ["metrics"]
+
+
+@pytest.mark.parametrize("status", [404, 403])
+def test_metrics_endpoint_hint_preserves_http_status_and_does_not_retry(tmp_path, status):
+    output = tmp_path / "load"
+    with metrics_server(failure="before", failure_status=status) as (origin, events, _auth):
+        with pytest.raises(ValueError, match=f"GET /metrics returned HTTP {status}") as failed:
+            main(command(origin, output, "--server-metrics", "sglang", "--warmup", "0"))
+    assert events == ["metrics"]
+    message = str(failed.value)
+    assert ("--enable-metrics" in message) == (status == 404)
+    assert "--model" not in message
+    experiment = json.loads((output / "load.json").read_text())
+    assert experiment["server_metrics"]["before"]["error"] == f"ValueError: {message}"
+    assert experiment["server_metrics"]["before"]["sha256"] is None
+    assert "result" not in experiment
+
+
+def test_cold_metrics_need_an_explicit_warmup_not_an_automatic_request(tmp_path):
+    cold = b"# TYPE sglang:queue_time_seconds histogram\n"
+    def response(state):
+        return sglang_exposition(state["requests"]).encode() if state["requests"] else cold
+
+    output = tmp_path / "cold"
+    with metrics_server(metrics_body=response) as (origin, events, _auth):
+        with pytest.raises(ValueError, match="--warmup 1") as failed:
+            main(command(origin, output, "--server-metrics", "sglang", "--warmup", "0"))
+        assert events == ["metrics"]
+        experiment = json.loads((output / "load.json").read_text())
+        before = experiment["server_metrics"]["before"]
+        assert before["error"] == f"ValueError: {failed.value}"
+        assert before["sha256"] == hashlib.sha256(cold).hexdigest()
+        assert "result" not in experiment
+        warm = tmp_path / "warm"
+        assert main(command(origin, warm, "--server-metrics", "sglang", "--warmup", "1")) == 0
+    assert events[1:] == ["request", "metrics", "request", "request", "request", "metrics"]
+    assert read_load_report(warm)["server_metrics"]["phases"]["queue"]["count"] == 3
+
+
+def test_vllm_model_alias_hint_reaches_the_saved_report_without_foreign_labels(tmp_path):
+    output = tmp_path / "load"
+    other = exposition(model="private-alias").encode()
+    with metrics_server(metrics_body=lambda state: other if state["requests"] else exposition().encode()) as (
+        origin, events, _auth,
+    ):
+        with pytest.raises(ValueError, match="--served-model-name") as failed:
+            main(command(origin, output, "--server-metrics", "vllm", "--warmup", "0"))
+    assert events == ["metrics", "request", "request", "request", "metrics"]
+    report = read_load_report(output)
+    after = report["experiment"]["server_metrics"]["after"]
+    assert after["error"] == f"ValueError: {failed.value}"
+    assert "--model" in after["error"]
+    assert "model_name" in after["error"]
+    assert after["sha256"] == hashlib.sha256(other).hexdigest()
+    assert report["experiment"]["status"] == "failed"
+    assert report["result"]["counts"]["succeeded"] == 3
+    assert report["server_metrics"]["phases"]["queue"]["mean_s"] is None
+    assert main(["report", str(output)]) == 0
+    assert "--served-model-name" in (output / "load_report.html").read_text()
+    assert "private-alias" not in (output / "load.json").read_text()
 
 
 def test_reset_is_visible_without_changing_request_success(tmp_path, capsys):

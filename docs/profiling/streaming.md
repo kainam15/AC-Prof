@@ -454,7 +454,16 @@ acprof report results/qwen-server-phases
 
 SGLang 服务需已启用 `--enable-metrics`，请求模型名须与服务导出的 `model_name` 一致。
 精确选择 exporter 和 `model_name`，保留完整标签（例如 vLLM 的 `engine`、SGLang 的 `engine_type` 和 rank）。
-没有匹配序列时明确失败，不猜模型别名，也不改读另一后端的指标。如果服务尚未为该模型导出任何直方图，可显式安排 `--warmup 1`；不能把缺失的初始快照当零基线。
+没有匹配序列时，根据**这次抓取实际看到的内容**定位原因，不猜别名，也不改读另一后端：
+
+| 抓取结果 | 下一步 |
+| --- | --- |
+| HTTP 404 或没有所选 exporter 的时延指标 | 核对 `--base-url` 和 `--server-metrics`；SGLang 另检查服务启动时的 [`--enable-metrics`](https://github.com/sgl-project/sglang/blob/v0.5.6/python/sglang/srt/entrypoints/http_server.py#L207-L210)。404 本身不能证明服务关闭了指标；其他 HTTP 错误保留原状态码。 |
+| 识别出指标名，但类型缺失或不是 histogram | 检查 exporter／代理是否保留了对应的 `# TYPE <metric> histogram` 行，不通过更换模型或预热修复类型。 |
+| 已声明直方图，但没有样本 | [带标签的指标](https://github.com/prometheus/client_python/blob/v0.26.0/docs/content/instrumenting/labels.md)可能在首次使用时才初始化。对于冷服务，可在自己的命令中显式设置 `--warmup 1`；AC-Prof 不自动发送请求，也不把缺失的初始快照当零。 |
+| 有样本，但无非空 `model_name` | 检查 exporter 或代理的标签配置。没有该标签不能把数据归给请求模型。 |
+| 有命名样本，但无精确匹配 | 比对请求体的 `model` 或 `--model` 与导出的 `model_name`；[vLLM 多别名](https://github.com/vllm-project/vllm/blob/e336407a3ddb204edf6cfdfdd002cb28b9715438/vllm/config/model.py#L316-L324)只用首个 served name 作为指标标签。诊断不列出其他模型的名称。 |
+
 仅保留以下 histogram 的 `_count`、`_sum` 和可用的 `_created`：
 
 | 服务端观察 | vLLM 来源 | SGLang 来源 |

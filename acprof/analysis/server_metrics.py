@@ -42,6 +42,11 @@ def _phase_metrics(kind: str) -> dict[str, str]:
     return METRICS_BY_EXPORTER[kind]
 
 
+def metrics_endpoint_hint(kind: str) -> str:
+    hint = "check --base-url and --server-metrics against the service exposing /metrics"
+    return hint + ("; for SGLang check that --enable-metrics is set on the server" if kind == "sglang" else "")
+
+
 def metrics_declaration(kind: str, model: str, timeout_s: float) -> dict[str, Any]:
     _phase_metrics(kind)
     if not isinstance(model, str) or not model.strip():
@@ -126,13 +131,34 @@ def _complete_series(rows: _Series, types: dict[str, str], metrics: dict[str, st
     series = []
     for row in rows.values():
         metric = metrics[row["phase"]]
-        if types.get(metric) != "histogram" or "count" not in row or "sum" not in row:
+        if types.get(metric) != "histogram":
+            raise ValueError(f"server timing samples require the declaration '# TYPE {metric} histogram' at /metrics")
+        if "count" not in row or "sum" not in row:
             raise ValueError(f"server histogram {metric} requires a count/sum pair for each selected label set")
         if "inf_count" in row and row["inf_count"] != row["count"]:
             raise ValueError(f"server histogram {metric} has a +Inf bucket inconsistent with its count")
         series.append({"phase": row["phase"], "labels": row["labels"], "count": int(row["count"]),
                        "sum_s": row["sum"], "created_s": row.get("created")})
     return sorted(series, key=_series_key)
+
+
+def _empty_selection_reason(kind: str, types: dict[str, str], unmatched_labels: dict[str, bool]) -> str:
+    histograms = {metric for metric, metric_type in types.items() if metric_type == "histogram"}
+    if not histograms:
+        if types or unmatched_labels:
+            return (f"GET /metrics: recognized {kind} server timing metrics lack a histogram declaration; "
+                    "check the exporter's '# TYPE <metric> histogram' lines")
+        return f"GET /metrics: no supported {kind} server histograms declared; {metrics_endpoint_hint(kind)}"
+    sampled = histograms.intersection(unmatched_labels)
+    if not sampled:
+        return (f"GET /metrics: {kind} server histograms declared but no samples exposed; "
+                "if the service initializes labels on first use, try an explicit --warmup 1")
+    if not any(unmatched_labels[metric] for metric in sampled):
+        return (f"GET /metrics: {kind} server histogram samples have no nonempty model_name label; "
+                "check that the exporter and any proxy preserve that label")
+    hint = "; vLLM uses the first name in --served-model-name for metrics" if kind == "vllm" else ""
+    return (f"GET /metrics: no {kind} server histogram samples match the requested model; "
+            f"compare --model or the request body's model with the exported model_name{hint}")
 
 
 def parse_server_metrics(text: str, model: str, *, kind: str = "vllm") -> dict[str, Any]:
@@ -144,6 +170,7 @@ def parse_server_metrics(text: str, model: str, *, kind: str = "vllm") -> dict[s
              for suffix in ("count", "sum", "created", "bucket")}
     rows: _Series = {}
     types: dict[str, str] = {}
+    unmatched_labels: dict[str, bool] = {}
     process_start = None
     try:
         for family in text_string_to_metric_families(text):
@@ -154,16 +181,22 @@ def parse_server_metrics(text: str, model: str, *, kind: str = "vllm") -> dict[s
                     if process_start is not None or sample.timestamp is not None:
                         raise ValueError("duplicate or timestamped process start time")
                     process_start = _number(sample.value)
-                if sample.name not in names or sample.labels.get("model_name") != model:
+                if sample.name not in names:
+                    continue
+                sample_model = sample.labels.get("model_name")
+                if sample_model != model:
+                    phase, _ = names[sample.name]
+                    metric = metrics[phase]
+                    unmatched_labels[metric] = unmatched_labels.get(metric, False) or bool(sample_model and sample_model.strip())
                     continue
                 _collect_sample(sample, names, rows)
     except (ValueError, OverflowError) as error:
         raise ValueError("invalid Prometheus server metrics exposition") from error
+    if not rows:
+        raise ValueError(_empty_selection_reason(kind, types, unmatched_labels))
     series = _complete_series(rows, types, metrics)
     reject_isolated_surrogates(series)
     _series_by_phase(series, model, metrics)
-    if not series:
-        raise ValueError(f"no supported {kind} server histograms match the exact model_name")
     return {"series": series, "process_start_time_s": process_start}
 
 

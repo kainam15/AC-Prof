@@ -11,6 +11,7 @@ from urllib.parse import urlsplit
 
 from acprof.analysis.server_metrics import (
     SERVER_METRICS_SCOPE,
+    metrics_endpoint_hint,
     parse_server_metrics,
     summarize_server_metrics,
 )
@@ -34,7 +35,8 @@ def _read_metrics(origin: str, headers: Mapping[str, str], declaration: dict[str
         response = connection.getresponse()
         with cleanup_on_exit(response.close, description="server metrics response"):
             if response.status != 200:
-                raise ValueError(f"GET /metrics returned HTTP {response.status}")
+                hint = "; " + metrics_endpoint_hint(declaration["kind"]) if response.status == 404 else ""
+                raise ValueError(f"GET /metrics returned HTTP {response.status}{hint}")
             content_type = (response.getheader("Content-Type") or "").split(";", 1)[0].strip().lower()
             if content_type != "text/plain":
                 raise ValueError("GET /metrics must return Prometheus text/plain")

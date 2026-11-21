@@ -162,7 +162,7 @@ BERT 后处理完成 Torch CPU/GPU 4/4、NCU GPU 2/2、Nsys GPU 2/2；Massif 仍
 | --- | --- | --- |
 | P0 · 流式测量基础 | 已完成 | OpenAI Chat/Completions SSE、TTFT/TPOT/严格 ITL/E2E、分位数与 Token 来源已有确定性回归和 Qwen3-0.6B + vLLM 对照；见[流式测量](profiling/streaming.md)。 |
 | P1 · 服务性能画像 | 进行中 | 并发、固定/Poisson 到达率、连接复用、SLO Goodput、单点/sweep HTML、服务身份和 Process 回放已有离线与本地 HTTP 证据；真实服务 sweep、GPU 回放及 vLLM/SGLang 观测待用户按需验收。 |
-| P2 · 深入 LLM 画像 | 进行中 | `--server-metrics` 支持 vLLM 和 SGLang，按 exporter 隔离比较条件；SGLang 保留命名阶段和服务端 TTFT/ITL，不与客户端或 vLLM 整请求阶段混算。任一已出现的 worker／阶段计数不完整，不发布局部均值。本地 HTTP Fixture 与离线报告已覆盖，真实双后端对照、阶段 GPU 资源、能耗和逐请求服务端时间戳仍待验证或实现。见[服务端阶段统计](profiling/streaming.md#服务端阶段统计)。 |
+| P2 · 深入 LLM 画像 | 进行中 | `--server-metrics` 支持 vLLM 和 SGLang，按 exporter 隔离比较条件；SGLang 保留命名阶段和服务端 TTFT/ITL，不与客户端或 vLLM 整请求阶段混算。worker／阶段证据残缺不发布局部均值；端点、类型、冷服务空样本和模型标签问题分别提示。本地 HTTP Fixture 与离线报告已覆盖，真实双后端对照、阶段 GPU 资源、能耗和逐请求服务端时间戳仍待验证或实现。见[服务端阶段统计](profiling/streaming.md#服务端阶段统计)。 |
 
 共享服务直方图不是本次请求的精确阶段计时，共享 GPU 能耗不能直接解释为每请求的精确 Token 能耗。
 

@@ -41,10 +41,65 @@ def test_sglang_stage_population_changes_do_not_discard_other_timings():
     assert without_stages["phases"]["stage"]["mean_s"] is None
 
 
-@pytest.mark.parametrize(("raw", "kind"), [(exposition(), "sglang"), (sglang_exposition(3), "vllm")])
+@pytest.mark.parametrize(("raw", "kind"), [(exposition(), "sglang"), (sglang_exposition(3), "vllm")],
+                         ids=["no-sglang-histograms", "no-vllm-histograms"])
 def test_requested_exporter_never_falls_back_to_another_namespace(raw, kind):
-    with pytest.raises(ValueError, match="model_name"):
+    with pytest.raises(ValueError, match=rf"no supported {kind} server histograms") as failed:
         parse_server_metrics(raw, "fixture", kind=kind)
+    assert "--server-metrics" in str(failed.value)
+    assert "--model" not in str(failed.value)
+    assert ("--enable-metrics" in str(failed.value)) == (kind == "sglang")
+
+
+def test_empty_target_histogram_ignores_labels_from_other_metric_types_and_exporters():
+    from prometheus_client import CollectorRegistry, Histogram, generate_latest
+
+    registry = CollectorRegistry()
+    Histogram("sglang:queue_time_seconds", "Fixture queue", ["model_name"], registry=registry)
+    raw = generate_latest(registry).decode() + exposition(model="private-alias") + (
+        "# TYPE sglang:e2e_request_latency_seconds_sum gauge\n"
+        'sglang:e2e_request_latency_seconds_sum{model_name="private-alias"} 3\n'
+    )
+    with pytest.raises(ValueError, match="no samples") as failed:
+        parse_server_metrics(raw, "fixture", kind="sglang")
+    assert "--warmup 1" in str(failed.value)
+    assert "private-alias" not in str(failed.value)
+
+
+@pytest.mark.parametrize("label", ["", 'model_name="",'])
+def test_missing_model_labels_do_not_imply_an_incorrect_model_name(label):
+    raw = exposition().replace('model_name="fixture",', label)
+    with pytest.raises(ValueError, match="no nonempty model_name label") as failed:
+        parse_server_metrics(raw, "fixture")
+    assert "--model" not in str(failed.value)
+
+
+def test_sglang_model_mismatch_does_not_offer_a_vllm_alias_or_reveal_other_models():
+    raw = sglang_exposition(3).replace('model_name="fixture"', 'model_name="private-alias"')
+    with pytest.raises(ValueError, match="--model") as failed:
+        parse_server_metrics(raw, "fixture", kind="sglang")
+    assert "model_name" in str(failed.value)
+    assert "--served-model-name" not in str(failed.value)
+    assert "private-alias" not in str(failed.value)
+
+
+def test_matching_samples_without_a_histogram_type_report_the_missing_declaration():
+    raw = "\n".join(line for line in exposition().replace(" histogram", " gauge").splitlines()
+                    if "request_queue_time_seconds" in line)
+    with pytest.raises(ValueError, match="# TYPE vllm:request_queue_time_seconds histogram"):
+        parse_server_metrics(raw, "fixture")
+
+
+@pytest.mark.parametrize("text", [
+    "# TYPE sglang:queue_time_seconds gauge\nsglang:queue_time_seconds 0\n",
+    'sglang:queue_time_seconds_count{model_name="private-alias"} 3\n',
+], ids=["wrong-type", "untyped-samples"])
+def test_recognized_metric_names_without_histogram_types_do_not_imply_disabled_metrics(text):
+    with pytest.raises(ValueError, match="# TYPE") as failed:
+        parse_server_metrics(text, "fixture", kind="sglang")
+    assert "--enable-metrics" not in str(failed.value)
+    assert "--model" not in str(failed.value)
+    assert "private-alias" not in str(failed.value)
 
 
 @pytest.mark.parametrize("bound", ["0.5", "+Inf"])
