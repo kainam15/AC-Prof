@@ -40,7 +40,12 @@ from acprof.host.measurement.requests import (
     prepared_body_size_bytes,
     request_phase_context,
 )
-from acprof.host.measurement.types import MonitorDependencies, WindowSpec
+from acprof.host.measurement.types import (
+    MonitorDependencies,
+    WindowSpec,
+    assign_request_scale_ids,
+    request_scale_id,
+)
 from acprof.host.profiling.compute_plan import (
     load_compute_profile_plan as _load_compute_profile_plan,
 )
@@ -274,6 +279,7 @@ class ClientRunner:
                     "workload": plan.get("workload", {}),
                 })
 
+            assign_request_scale_ids(loaded_entries)
             scale_order = self.config.input_scale_order
             if scale_order is not None:
                 available = {entry["input_scale"]: entry for entry in loaded_entries}
@@ -443,7 +449,7 @@ class ClientRunner:
                     continue
                 repeat_request_limit = self._prepare_repeat_window(
                     scale_val,
-                    str(scale_entry["scale_label"]),
+                    request_scale_id(scale_entry),
                     payload_override,
                 )
                 if completed:

@@ -1,4 +1,5 @@
 """Exercise the real client and resume planner with hardware only at a fake port."""
+import json
 from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -8,8 +9,8 @@ import pytest
 from acprof.host import client, run_state
 from acprof.host.measurement.config import ClientConfig
 from acprof.monitors.resource_metrics import empty_resource_result
-from acprof.results.layers import read_result_layers
 from acprof.result_store.writer import ResultWriter
+from acprof.results.layers import read_result_layers
 
 
 def test_auto_warmup_requests_are_unique_across_runtime_attempts(monkeypatch):
@@ -26,7 +27,8 @@ def test_auto_warmup_requests_are_unique_across_runtime_attempts(monkeypatch):
     assert calls[0].isdisjoint(calls[1])
 
 
-def test_partial_client_resume_skips_receipts_and_rewarms_outside_sampling(tmp_path, monkeypatch, request):
+@pytest.mark.parametrize("scales", [[1.0], [10.0000625, 10.000125]], ids=["single", "same-label"])
+def test_partial_client_resume_skips_receipts_and_rewarms_outside_sampling(tmp_path, monkeypatch, request, scales):
     from tests.support.platform_fixtures import native_policy
     native_policy(request)
     monkeypatch.setattr(run_state, "MEASUREMENT_LOCK_ROOT", tmp_path)
@@ -34,15 +36,22 @@ def test_partial_client_resume_skips_receipts_and_rewarms_outside_sampling(tmp_p
     state = run_state.RunState(tmp_path / "experiment", {
         "cpus": "1", "mems": "4", "gpus": "off", "warmup": 1, "repeat": 2,
     }, resume=False, project_dir=".")
-    state.data["runtime"] = {"planned": {"scales": [1.0]}}
-    state.prepare_case("unused.csv", 1, 4, "off")
+    state.data["runtime"] = {"planned": {"scales": scales}}
     case = state.layout.case("fixture/model", 1, 4, "off")
-    first_attempt = state.case_attempt_id(str(case.csv))
+    plan = tmp_path / "input_scale_plan.json"
+    entries = [{"input_scale": scale, "scale_label": f"dur{scale:g}s", "payload": {}} for scale in scales]
+    plan.write_text(json.dumps({"schema_version": 2, "entries": entries}))
     config = ClientConfig(out_csv=str(case.csv), result_root=str(state.directory),
         cpu_cores="1", mem_cap_gb="4", gpu_mode="off", profiling_mode="basic",
-        run_id=state.data["run_id"], case_id=case.case_id, case_attempt_id=first_attempt,
-        window_records_dir=str(case.window_records(first_attempt)), telemetry_dir=str(case.telemetry(first_attempt)),
+        run_id=state.data["run_id"], case_id=case.case_id, input_scale_plan_file=str(plan),
+        input_scale_order=list(reversed(scales)),
         case_name=case.case_id, warmup=1, repeat=2, repeat_in_window=1, use_mips=False)
+
+    def new_attempt():
+        state.prepare_case("unused.csv", 1, 4, "off")
+        attempt = state.case_attempt_id(str(case.csv))
+        return replace(config, case_attempt_id=attempt, window_records_dir=str(case.window_records(attempt)),
+                       telemetry_dir=str(case.telemetry(attempt)))
     active = False
     calls = []
     monitor = Mock()
@@ -66,43 +75,53 @@ def test_partial_client_resume_skips_receipts_and_rewarms_outside_sampling(tmp_p
         return original_append(writer, *args)
     monkeypatch.setattr(ResultWriter, "_append_bytes", append)
 
-    def build(settings, *, interrupt):
+    def build(settings, *, legacy_entry=None):
         runner = client.ClientRunner(settings)
         runner.cpu_energy_mod = None
         runner.resource_usage_mod = SimpleNamespace(ResourceUsageMonitor=lambda **kw: monitor)
-        runner.input_scale_entries = [{"input_scale": 1.0, "scale_label": "one", "payload": {}}]
-        def one_request(*args, **kwargs):
+        if legacy_entry is not None:
+            # Reproduce the old receipt spelling for this scale without changing the frozen plan.
+            runner.input_scale_entries = [legacy_entry]
+        def one_request(scale, **kwargs):
             request_id = kwargs["req_id"]
             assert active == ("resume_warmup" not in request_id)
-            calls.append(request_id)
-            if interrupt and "_r1:" in request_id:
+            calls.append((scale, request_id))
+            if legacy_entry is not None and "_r1:" in request_id:
                 raise KeyboardInterrupt()
-            return {"latency_app_s": 0.1, "effective_input_scale": 1.0}
+            return {"latency_app_s": 0.1, "effective_input_scale": scale}
         monkeypatch.setattr(runner, "_one_request", one_request)
         return runner
     try:
-        with pytest.raises(KeyboardInterrupt):
-            build(config, interrupt=True).main()
+        old_receipts = {}
+        for entry in entries:
+            legacy = new_attempt()
+            with pytest.raises(KeyboardInterrupt):
+                build(legacy, legacy_entry=entry).main()
+            paths = case.window_records(legacy.case_attempt_id).glob("*.json")
+            old_receipts.update({path: path.read_bytes() for path in paths})
         old_rows = read_result_layers(state.directory)[1]
-        assert [(row["warmup"], row["repeat_idx"]) for row in old_rows] == [("1", "0"), ("0", "0")]
-        old_receipts = {path: path.read_bytes() for path in case.window_records(first_attempt).glob("*.json")}
-        state.prepare_case("unused.csv", 1, 4, "off")
-        second_attempt = state.case_attempt_id(str(case.csv))
-        assert second_attempt != first_attempt
-        resumed = replace(config, case_attempt_id=second_attempt,
-                          window_records_dir=str(case.window_records(second_attempt)),
-                          telemetry_dir=str(case.telemetry(second_attempt)))
+        assert len(old_receipts) == 2 * len(scales)
+        assert [(float(row["input_scale"]), row["warmup"], row["repeat_idx"]) for row in old_rows] == [
+            (scale, warmup, "0") for scale in scales for warmup in ("1", "0")
+        ]
+        resumed = new_attempt()
+        assert resumed.case_attempt_id not in {row["case_attempt_id"] for row in old_rows}
         calls.clear()
-        build(resumed, interrupt=False).main()
+        build(resumed).main()
         rows = read_result_layers(state.directory)[1]
-        assert len(rows) == 3
-        assert rows[:2] == old_rows
-        assert rows[2]["case_attempt_id"] == second_attempt
-        assert len(calls) == 2
-        assert "resume_warmup" in calls[0]
-        assert "_r1:" in calls[1]
+        assert rows[:len(old_rows)] == old_rows
+        assert [(float(row["input_scale"]), row["repeat_idx"], row["case_attempt_id"]) for row in rows[len(old_rows):]] == [
+            (scale, "1", resumed.case_attempt_id) for scale in reversed(scales)
+        ]
+        assert [scale for scale, _ in calls] == [scale for scale in reversed(scales) for _ in range(2)]
+        assert all("resume_warmup" in request_id for _, request_id in calls[::2])
+        assert all("_r1:" in request_id for _, request_id in calls[1::2])
+        assert len({request_id for _, request_id in calls}) == len(calls)
         assert all(path.read_bytes() == raw for path, raw in old_receipts.items())
-        assert len(list(state.layout.path("raw/recovery_warmup").rglob("*.json"))) == 1
+        evidence = [json.loads(path.read_bytes()) for path in state.layout.path("raw/recovery_warmup").rglob("*.json")]
+        assert sorted((record["input_scale"], record["request_count"]) for record in evidence) == [
+            (scale, 1) for scale in scales
+        ]
     finally:
         state.close()
 

@@ -1,6 +1,7 @@
 """Explicit inputs, observations and completed results for one measurement window."""
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -19,6 +20,28 @@ if TYPE_CHECKING:
     from acprof.monitors.resource_metrics import ResourceUsageResult, ResourceUsageSample
 
 
+def assign_request_scale_ids(entries: list[dict[str, Any]]) -> None:
+    """Disambiguate display labels once, while all scales in the frozen plan are visible."""
+    labels = Counter(entry["scale_label"] for entry in entries)
+    for entry in entries:
+        label = entry["scale_label"]
+        # TShark escapes backslashes and separates fields with commas. The
+        # packet decoder uses a colon to separate the group and request index.
+        if (labels[label] == 1 and label.isascii() and label.isprintable()
+                and not any(separator in label for separator in (":", ",", '\\'))):
+            continue
+        # The plan already enforces unique finite floats. Their round-trip
+        # spellings cannot end in underscores, so this also works in seeded order.
+        candidate = f"scale-{entry['input_scale']!r}"
+        while candidate in labels:
+            candidate += "_"
+        entry["request_scale_id"] = candidate
+
+
+def request_scale_id(entry: dict[str, Any]) -> str:
+    return entry.get("request_scale_id", entry["scale_label"])
+
+
 @dataclass(frozen=True)
 class WindowSpec:
     scale_entry: dict[str, Any]
@@ -32,7 +55,7 @@ class WindowSpec:
 
     def group_id(self, case_name: str) -> str:
         phase = "w" if self.warmup else "r"
-        return f"{case_name}_{self.scale_entry['scale_label']}_{phase}{self.repeat_idx}"
+        return f"{case_name}_{request_scale_id(self.scale_entry)}_{phase}{self.repeat_idx}"
 
 
 @dataclass(frozen=True)

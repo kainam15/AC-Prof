@@ -81,6 +81,10 @@ collector start/stop、文件落盘；`host_process_cpu_pct` 以一个 CPU 核�
 新采集的每个已尝试窗口具有 `run_id / case_id / case_attempt_id / window_id` 四层身份。
 `case_id` 是资源配置键，`case_name` 继续用于进程、日志和请求 group 名；重跑同一 case 使用
 新 attempt，不能覆盖旧窗口证据。控制窗口与正式/预热窗口分别记录，不把控制窗口计入请求总体。
+同一冻结输入计划中，两个不同规模可以有相同的显示标签。例如，两个相邻音频样本时长可能都显示为 `dur10.0001s`。
+客户端在准备请求时保留可直接用于请求身份的唯一标签。遇到重名或抓包分隔符等无法原样传递的标签时，
+使用能区分原始浮点规模的标识，供窗口、抓包和恢复预热共用。变更执行顺序后，同一规模仍使用同一标识。
+原始标签保存在输入计划和窗口遥测中，恢复时沿用已提交窗口的身份。
 
 `raw/telemetry/<case_id>/<case_attempt_id>/` 保存独立 JSON schema v1，包含 CPU RAPL 原始微焦耳
 计数器与回绕范围、host/container CPU 时间、DRAM domain/拓扑、resource 样本、窗口首尾 cgroup

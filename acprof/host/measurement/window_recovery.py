@@ -12,6 +12,7 @@ from acprof.artifacts import (
     read_json_object,
     sync_directory_chain,
 )
+from acprof.host.measurement.types import request_scale_id
 from acprof.result_store.protocol import IDENTITY_FIELDS
 from acprof.result_store.writer import ResultWriter
 from acprof.results.csv import measurement_key
@@ -136,12 +137,13 @@ def prepare_resumed_scale(config, scale_entry, completed, writer, one_request):
     """Rewarm a new runtime without recording the old planned windows twice."""
     count = sum(int(float(writer.rows[key].get("repeat_in_window", "0")))
                 for key in completed if writer.rows[key].get("warmup") == "1")
+    scale_id = request_scale_id(scale_entry)
     started = time.monotonic()
     for index in range(count):
         one_request(float(scale_entry["input_scale"]), payload_override=scale_entry.get("payload"),
-                    req_id=f"{config.request_namespace}_{scale_entry['scale_label']}_resume_warmup{index}")
+                    req_id=f"{config.request_namespace}_{scale_id}_resume_warmup{index}")
     layout = writer.layout
-    path = layout.recovery_warmup_path(config.case_id, config.case_attempt_id, str(scale_entry["scale_label"]))
+    path = layout.recovery_warmup_path(config.case_id, config.case_attempt_id, scale_id)
     atomic_write_json(path, {"schema_version": 1, "run_id": config.run_id, "case_id": config.case_id,
                             "case_attempt_id": config.case_attempt_id, "input_scale": scale_entry["input_scale"],
                             "request_count": count, "elapsed_s": time.monotonic() - started,
