@@ -74,6 +74,7 @@ class DockerOutput:
         self.tail: deque[str] = deque(maxlen=80)
         self.step = ""
         self.error = ""
+        self.dependency_failure = ""
         self.last_update = 0.0
         self.seen = False
         self.operation_id = uuid4().hex
@@ -113,6 +114,8 @@ class DockerOutput:
                 if source.get("source_domain") and not re.fullmatch(r"[A-Za-z0-9.:-]+", source["source_domain"]):
                     raise ValueError("invalid dependency source domain")
                 self.source = source
+                if value.get("state") == "failed" and isinstance(value.get("failure"), str):
+                    self.dependency_failure = redact_text(value["failure"])
                 self.report(str(value.get("name", "")), current, total, activity=activity,
                             force=value.get("state") in {"cached", "complete", "failed"})
             except (ValueError, TypeError, AttributeError):
@@ -187,6 +190,10 @@ class DockerOutput:
             value = json.loads(line)
         except ValueError:
             if not self._json_pending:
+                plain = re.fullmatch(r"(?:#\d+\s+[\d.]+\s+)?(ACPROF_DEPENDENCY_PROGRESS .+)", line.rstrip())
+                if plain:
+                    self.write(plain[1])
+                    return
                 self.accounting.incomplete()
                 self.log(line.rstrip())
                 if self.phase == "building" and not line.lstrip().startswith("ERROR"):
@@ -312,4 +319,7 @@ class DockerOutput:
 
     @property
     def detail(self) -> str:
-        return redact_text(self.error or "\n".join(self.tail), limit=12000)
+        detail = self.error or "\n".join(self.tail)
+        if self.dependency_failure:
+            detail = self.dependency_failure + "\n" + detail
+        return redact_text(detail, limit=12000)

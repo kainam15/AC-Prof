@@ -93,13 +93,15 @@ class DockerPreparationError(RuntimeError):
     stage = "environment"
 
     def __init__(self, code: str, detail: str, *, step: str = "", image: str = "",
-                 exit_code: int | None = None, content: dict | None = None, log_path: str = ""):
+                 exit_code: int | None = None, content: dict | None = None, log_path: str = "",
+                 dependency_failure: str = ""):
         self.reason_code = code
         self.detail = redact_text(detail, limit=12000)
         self.step = redact_text(step, limit=512)
         self.image = image
         self.exit_code = exit_code
         self.content = content or {}
+        self.dependency_failure = redact_text(dependency_failure)
         self.log_path = log_path or preparation_log_path.get()
         self.network_context = ""
         self.registry = ""
@@ -115,6 +117,7 @@ class DockerPreparationError(RuntimeError):
     def to_dict(self) -> dict:
         return {"reason_code": self.reason_code, "stage": self.stage, "step": self.step,
                 "image": self.image, "exit_code": self.exit_code, "detail": self.detail,
+                **({"dependency_failure": self.dependency_failure} if self.dependency_failure else {}),
                 "content": self.content, "log_path": self.log_path, "actions": self.actions,
                 "network_context": self.network_context, "registry": self.registry,
                 "network_reason": self.network_reason, "fallback_error": self.fallback_error}

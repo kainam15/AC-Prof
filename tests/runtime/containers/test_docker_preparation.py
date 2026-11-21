@@ -64,6 +64,31 @@ def test_later_dependency_failure_does_not_become_frontend_failure(monkeypatch):
     assert caught.value.reason_code == "docker_build_failed"
 
 
+@pytest.mark.parametrize("output_format", ["rawjson", "plain"])
+def test_build_exit_preserves_dependency_failure(monkeypatch, output_format):
+    source = "https://mirrors.cloud.tencent.com/debian-security/pool/updates/pkg.deb"
+    failure = f"xz-utils · {source} · HTTP 404 Not Found"
+    event = {"version": 1, "id": "sha", "transfer_id": "attempt", "name": "xz-utils", "received": 0,
+             "current": 0, "cached": 0, "state": "failed", "failure": failure}
+    line = "ACPROF_DEPENDENCY_PROGRESS " + json.dumps(event) + "\n"
+    exit_error = "process environment_tools.py did not complete successfully: exit code: 1"
+    if output_format == "rawjson":
+        transcript = (json.dumps({"logs": [{"vertex": "install", "stream": 1,
+                                            "data": base64.b64encode(line.encode()).decode()}]})
+                      + "\n" + json.dumps({"vertexes": [{"digest": "install", "error": exit_error}]}))
+    else:
+        transcript = "#7 2.1 " + line + "ERROR: failed to solve: " + exit_error
+    monkeypatch.setattr(operations.host_command, "run_command",
+                        Mock(return_value=subprocess.CompletedProcess([], 1, "", transcript)))
+    with pytest.raises(DockerPreparationError) as caught:
+        operations.run_docker(["docker", "build"], component="platform", image=IMAGE, operation="build")
+    error = caught.value.to_dict()
+    assert error["dependency_failure"] == failure
+    assert failure in error["detail"]
+    assert exit_error in error["detail"]
+    assert error["exit_code"] == 1
+
+
 @pytest.fixture
 def store(monkeypatch):
     state = SimpleNamespace(status="complete", present=9, required="9", endpoint="unix:///var/run/docker.sock",

@@ -193,6 +193,26 @@ async def test_fallback_warning_survives_build_progress_without_error_modal(tmp_
             app.save_screenshot(filename=f"docker-fallback-{language}-120x30.svg", path=destination)
 
 
+@pytest.mark.parametrize("language", ["zh", "en"])
+async def test_dependency_error_is_visible_with_diagnostics_collapsed(tmp_path, language):
+    source = "https://mirrors.cloud.tencent.com/debian-security/pool/updates/pkg.deb"
+    error = {"reason_code": "docker_build_failed", "step": "platform.Dockerfile", "exit_code": 1,
+             "detail": "process did not complete: exit code 1",
+             "dependency_failure": f"xz-utils · {source} · HTTP 404 Not Found"}
+    app = AcprofTui(RunConfig.smoke("fixture/model"), settings_path=tmp_path / "settings.json")
+    app.configuration.preferences = replace(app.configuration.preferences, language=language)
+    async with app.run_test(size=(80, 24)) as pilot:
+        screen = PreparationScreen({"stage": "environment", "request": {
+            "kind": "error", "id": 1, "docker_error": error, "detail": error["detail"],
+        }}, respond=lambda reply: None)
+        await app.push_screen(screen)
+        await pilot.pause()
+        assert screen.query_one(Collapsible).collapsed
+        problem = screen.query_one("#preparation-callout .callout-problem", Static)
+        assert error["dependency_failure"] in str(problem.content)
+        assert screen.region.contains(problem.region.x, problem.region.y)
+
+
 @pytest.mark.parametrize(("code", "zh", "en"), [
     ("docker_manifest_missing", "标签不存在", "tag does not exist"),
     ("docker_platform_mismatch", "linux/amd64", "linux/amd64"),

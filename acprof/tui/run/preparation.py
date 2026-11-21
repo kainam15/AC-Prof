@@ -90,6 +90,8 @@ def _docker_failure_views(error: dict) -> tuple[StatusSummary, CalloutContent]:
     code = error["reason_code"]
     headline = message_id("run.docker.error." + code) if code in _DOCKER_ERROR_CODES else message_id("run.docker.error.generic")
     problems: list[str] = [message_id("run.docker.failed_step", error.get("step") or error.get("image", ""))]
+    if dependency_failure := error.get("dependency_failure"):
+        problems.insert(0, dependency_failure)
     content = error.get("content")
     if content:
         status_text: str = message_id("run.docker.content." + content["status"])

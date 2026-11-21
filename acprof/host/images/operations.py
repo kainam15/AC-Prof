@@ -51,7 +51,8 @@ def run_docker(command: list[str], *, component: str, image: str, operation: str
             raise frontend_error(output.detail, frontend, exit_code=result.returncode)
         summary = ("Docker 构建失败: " if operation == "build" else "Docker 拉取失败: ") + output.detail
         raise DockerPreparationError(reason_code(output.detail, operation), summary,
-                                    image=image, step=output.step or step, exit_code=result.returncode)
+                                    image=image, step=output.step or step, exit_code=result.returncode,
+                                    dependency_failure=output.dependency_failure)
     output.transition("verifying")
     return result
 
