@@ -27,7 +27,7 @@ from acprof.results.csv import (
 from acprof.results.layout import expand_result_sources
 from acprof.results.metadata import ResultMetadataSnapshot
 from acprof.results.metrics import ANALYSIS_METRICS, METRICS, VIEW_METRICS
-from acprof.results.profile import metric_observation, metric_usable, observation_signature
+from acprof.results.profile import USABLE_QUALITIES, metric_observation, observation_signature
 
 DIMENSIONS = ("run_id", "model", "runtime", "device", "cpu", "memory", "gpu", "concurrency",
               "environment_class", "task", "input_case", "experiment_batch",
@@ -120,13 +120,25 @@ def _evidence(name, row):
     return "measured"
 
 
-def _summarize(entries, name):
-    metric = ANALYSIS_METRICS[name]
+def _usable_windows(entries, name, observations: dict[int, dict] | None) -> tuple[list[tuple[dict, float]], set[str]]:
     valid: list[tuple[dict, float]] = []
-    for entry in entries:
+    signatures: set[str] = set()
+    for index, entry in enumerate(entries):
         numeric = number(entry["values"].get(name))
-        if entry["eligible"] and numeric is not None and metric_usable(entry['row'], name):
-            valid.append((entry, numeric))
+        if not entry["eligible"] or numeric is None:
+            continue
+        if name in METRICS:
+            observation = observations[index] if observations is not None else metric_observation(entry["row"], name)
+            if observation["quality"] not in USABLE_QUALITIES:
+                continue
+            signatures.add(observation_signature(observation))
+        valid.append((entry, numeric))
+    return valid, signatures
+
+
+def _summarize(entries, name, observations: dict[int, dict] | None = None):
+    metric = ANALYSIS_METRICS[name]
+    valid, signatures = _usable_windows(entries, name, observations)
     n_windows = len(valid)
     if metric.aggregation == "lifecycle":
         try:
@@ -141,7 +153,6 @@ def _summarize(entries, name):
         values = [value for _, value in valid]
     value: float | None = None
     missing = sum(entry["eligible"] for entry in entries) - n_windows
-    signatures = {observation_signature(metric_observation(entry['row'], name)) for entry, _ in valid} if name in METRICS else set()
     if values and len(signatures) <= 1:
         if metric.aggregation == "sum":
             # A partial sum would masquerade as the energy of all successful windows.
@@ -215,9 +226,9 @@ def _build_analysis_configs(
 ) -> list[dict[str, Any]]:
     configs = []
     for config_id, rows in groups.items():
-        formal = [r for r in rows if number(r["row"].get("warmup")) == 0]
+        formal = {index: entry for index, entry in enumerate(rows) if number(entry["row"].get("warmup")) == 0}
         valid = sum(r["eligible"] for r in rows)
-        inferred = any(_text(r["row"].get("result_origin")) == "inferred_not_measured" for r in formal)
+        inferred = any(_text(entry["row"].get("result_origin")) == "inferred_not_measured" for entry in formal.values())
         status = ("ok" if valid and valid == len(formal) else "partial" if valid else
                   "inferred_not_measured" if inferred else "failed" if formal else "no_formal_windows")
         config = {key: rows[0][key] for key in DIMENSIONS}
@@ -229,14 +240,18 @@ def _build_analysis_configs(
         config["comparison_profiles"] = {purpose: comparisons[rows[0]["source"]].profile(
             purpose=purpose, case=case) for purpose in PURPOSES}
         config["comparability"] = config["comparison_profiles"]["same-hardware"]["status"]
-        config['metric_observations'] = {name: list({
-            _canonical(metric_observation(entry['row'], name)): metric_observation(entry['row'], name)
-            for entry in formal}.values()) for name in VIEW_METRICS if name in METRICS
-            and any(name in entry['row'] for entry in formal)}
+        summaries, provenance = {}, {}
+        for name in VIEW_METRICS:
+            observations = None
+            if name in METRICS and any(name in entry["row"] for entry in formal.values()):
+                observations = {index: metric_observation(entry["row"], name) for index, entry in formal.items()}
+                provenance[name] = list({_canonical(item): item for item in observations.values()}.values())
+            summaries[name] = _summarize(rows, name, observations)
+        config["metric_observations"] = provenance
         config.update(config_id=config_id, status=status, valid_windows=valid,
                       input_scale=number(rows[0]["row"].get("input_scale")),
                       excluded_rows=len(rows) - valid, source=rows[0]["source"],
-                      metrics={name: _summarize(rows, name) for name in VIEW_METRICS})
+                      metrics=summaries)
         configs.append(config)
     return configs
 

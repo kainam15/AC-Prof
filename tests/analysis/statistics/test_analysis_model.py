@@ -3,6 +3,7 @@ import csv
 import hashlib
 import json
 import shutil
+from collections import Counter
 from pathlib import Path
 from unittest.mock import patch
 
@@ -43,6 +44,29 @@ class TestAnalysisModel:
         before = path.read_bytes()
         assert load_analysis([path]).configs[0]["device"] == device
         assert path.read_bytes() == before
+
+    def test_config_summaries_reuse_window_quality_without_dropping_partial_observations(self, monkeypatch):
+        from acprof.analysis import model
+
+        field = "latency_app_p95_s"
+        quality = json.dumps({"schema_version": 1, "metrics": {field: {"quality": "partial", "reason": "incomplete"}}})
+        source = self.source([self.row(), self.row(repeat_idx="1", resource_metric_quality=quality),
+                              self.row(warmup="1", repeat_idx="2")])
+        original = model.metric_observation
+        observed = Counter()
+
+        def count(row, name):
+            observed[id(row), name] += 1
+            return original(row, name)
+
+        monkeypatch.setattr(model, "metric_observation", count)
+        analysis = model.load_analysis([source])
+        [config] = analysis.configs
+        assert config["metrics"][field] == {"value": .04, "n": 1, "missing": 1, "aggregation": "mean"}
+        assert [(item["quality"], item["reason"]) for item in config["metric_observations"][field]] == [
+            ("unknown", "no_metric_quality_evidence"), ("partial", "incomplete")]
+        assert sum(count for (_, name), count in observed.items() if name == field) == 2
+        assert max(observed.values()) == 1
 
     def test_invalid_mode_cannot_silently_use_legacy_device(self):
         from acprof.analysis.model import load_analysis
