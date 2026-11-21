@@ -221,6 +221,10 @@ def _server_metrics_section(data: Mapping[str, Any]) -> str:
         return ""
     metrics: dict[str, Any] = data["server_metrics"]
     observation = data["experiment"]["server_metrics"]
+    exporter = observation["kind"]
+    stage_note = ("<p>Named stages are scheduler observations, not whole-request prefill or decode totals. "
+                  "Server ITL can apportion one interval across several tokens; it is not client ITL.</p>"
+                  if exporter == "sglang" else "")
     phases = metrics["phases"]
     rows = [[phase, row["status"], row["count"], row["sum_s"], row["mean_s"], row["reason"]]
             for phase, row in phases.items()]
@@ -230,6 +234,7 @@ def _server_metrics_section(data: Mapping[str, Any]) -> str:
     return (
         "<section><h2>Server phase timing</h2><p class=\"boundary\">"
         + _cell(observation["scope"]) + "</p>"
+        + "<p>Exporter: <code>" + _cell(exporter) + "</code></p>" + stage_note
         + _table(["Status", "Observations", "Total (s)", "Mean (s)", "Unavailable reason"], rows)
         + _table(["Status", "Scrape start (s)", "Scrape end (s)", "Error"], snapshots)
         + "<p>Scrape times are relative to the observation start, outside the client load duration. "

@@ -31,6 +31,30 @@ def exposition(count=10, total=20.0, *, model="fixture", engine="0"):
     return "\n".join(lines) + "\n"
 
 
+def sglang_exposition(requests):
+    labels = 'model_name="fixture",engine_type="unified"'
+    scheduler = labels + ',tp_rank="0",pp_rank="0"'
+    families = {
+        "queue_time_seconds": [(scheduler, requests, requests / 8)],
+        "time_to_first_token_seconds": [(labels, requests, requests / 4)],
+        "inter_token_latency_seconds": [(labels, 4 * requests, requests / 2)],
+        "e2e_request_latency_seconds": [(labels, requests, requests)],
+        "per_stage_req_latency_seconds": [
+            (scheduler + ',stage="prefill_forward"', requests, requests / 2),
+            (scheduler + ',stage="decode_loop"', 2 * requests, 1.5 * requests),
+            ('model_name="other",stage="foreign"', requests, 10 * requests),
+        ],
+    }
+    lines = []
+    for family, series in families.items():
+        metric = f"sglang:{family}"
+        lines.append(f"# TYPE {metric} histogram")
+        for tags, count, total in series:
+            lines.extend([f'{metric}_bucket{{{tags},le="+Inf"}} {count}',
+                          f"{metric}_sum{{{tags}}} {total}", f"{metric}_count{{{tags}}} {count}"])
+    return "\n".join(lines) + "\n"
+
+
 @contextmanager
 def metrics_server(*, failure=None, metrics_body=None, content_type="text/plain; version=0.0.4"):
     events, auth = [], []
@@ -119,12 +143,35 @@ def test_metrics_surround_only_measured_requests_and_roundtrip(tmp_path, monkeyp
     assert "other traffic" in html
 
 
-def test_dry_run_declares_metrics_without_http_or_files(tmp_path, capsys):
+def test_sglang_histograms_roundtrip_without_mixing_exporters_or_stages(tmp_path):
+    output = tmp_path / "load"
+    with metrics_server(metrics_body=lambda state: (
+        exposition() + sglang_exposition(state["requests"])
+    ).encode()) as (origin, events, _auth):
+        assert main(command(origin, output, "--server-metrics", "sglang")) == 0
+    assert events == ["request", "metrics", "request", "request", "request", "metrics"]
+    report = read_load_report(output)
+    experiment = report["experiment"]
+    assert experiment["identity"]["server_metrics"]["kind"] == experiment["server_metrics"]["kind"] == "sglang"
+    metrics = report["server_metrics"]
+    assert metrics["status"] == "ok"
+    assert {phase: (row["count"], row["sum_s"], row["mean_s"]) for phase, row in metrics["phases"].items()} == {
+        "queue": (3, 0.375, 0.125), "ttft": (3, 0.75, 0.25), "itl": (12, 1.5, 0.125), "e2e": (3, 3.0, 1.0),
+        "stage:prefill_forward": (3, 1.5, 0.5), "stage:decode_loop": (6, 4.5, 0.75),
+    }
+    assert main(["report", str(output)]) == 0
+    html = (output / "load_report.html").read_text()
+    assert "Exporter: <code>sglang</code>" in html
+    assert "stage:prefill_forward" in html
+
+
+@pytest.mark.parametrize("kind", ["vllm", "sglang"])
+def test_dry_run_declares_metrics_without_http_or_files(tmp_path, capsys, kind):
     output = tmp_path / "absent"
-    assert main(command("http://127.0.0.1:9", output, "--server-metrics", "vllm",
+    assert main(command("http://127.0.0.1:9", output, "--server-metrics", kind,
                         "--scenario", "concurrent", "--sweep-concurrency", "1,2", "--dry-run")) == 0
     plan = json.loads(capsys.readouterr().out)
-    assert plan["server_metrics"]["kind"] == "vllm"
+    assert plan["server_metrics"]["kind"] == kind
     assert plan["server_metrics"]["path"] == "/metrics"
     assert not output.exists()
 

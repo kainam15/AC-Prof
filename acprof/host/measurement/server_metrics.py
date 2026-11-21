@@ -53,7 +53,7 @@ def _capture(
     try:
         raw = _read_metrics(origin, headers, declaration)
         snapshot.update(sha256=hashlib.sha256(raw).hexdigest(), bytes=len(raw))
-        parsed = parse_server_metrics(raw.decode("utf-8"), declaration["model"])
+        parsed = parse_server_metrics(raw.decode("utf-8"), declaration["model"], kind=declaration["kind"])
         snapshot.update(parsed, status="ok")
     except BaseException as error:
         snapshot.update(status="error", error=f"{type(error).__name__}: {error}")
@@ -71,10 +71,11 @@ def observe_server_metrics(
         yield
         return
     before, after = _empty_snapshot(), _empty_snapshot()
+    kind, model = declaration["kind"], declaration["model"]
     observation = {
-        "schema_version": 1, "kind": "vllm", "scope": SERVER_METRICS_SCOPE,
+        "schema_version": 1, "kind": kind, "scope": SERVER_METRICS_SCOPE,
         "before": before, "after": after,
-        "summary": summarize_server_metrics(before, after, declaration["model"]),
+        "summary": summarize_server_metrics(before, after, model, kind=kind),
     }
     report["server_metrics"] = observation
     epoch = time.perf_counter()
@@ -84,4 +85,4 @@ def observe_server_metrics(
                              description="after-load server metrics"):
             yield
     finally:
-        observation["summary"] = summarize_server_metrics(before, after, declaration["model"])
+        observation["summary"] = summarize_server_metrics(before, after, model, kind=kind)

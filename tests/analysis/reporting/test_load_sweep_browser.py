@@ -74,16 +74,19 @@ def settled(page):
     page.wait_for_function("document.documentElement.dataset.reportReady === 'true'")
 
 
-def test_server_phase_summaries_are_explicit_and_bounded(browser_page, tmp_path, metrics_report):
+@pytest.mark.parametrize(("metrics_report", "expected"), [("vllm", '"mean_s": 2'), ("sglang", '"stage:decode_loop"')],
+                         indirect=["metrics_report"])
+def test_server_phase_summaries_are_explicit_and_bounded(browser_page, tmp_path, metrics_report, expected):
     page, open_report = browser_page
     root = make_metrics_sweep(tmp_path / "metrics", metrics_report)
     open_report(root)
     summary = page.locator("#points summary").filter(has_text="服务端阶段统计")
     assert summary.count() == 3
+    assert metrics_report["server_metrics"]["kind"] in summary.first.inner_text()
     summary.first.click()
     panel = page.locator("#points details").first
     assert "其他流量" in panel.inner_text()
-    assert '"mean_s": 2' in panel.inner_text()
+    assert expected in panel.inner_text()
     assert panel.locator("pre").evaluate("node => node.clientHeight") <= 200
     assert panel.evaluate("node => node.clientHeight") <= 300
     page.set_viewport_size({"width": 390, "height": 844})
@@ -92,7 +95,10 @@ def test_server_phase_summaries_are_explicit_and_bounded(browser_page, tmp_path,
     assert traces(page)[0]["y"] == [1, 2, 3]
 
 
-def test_single_point_server_phase_table_is_readable(browser_page, tmp_path, metrics_report):
+@pytest.mark.parametrize(("metrics_report", "expected_row"), [
+    ("vllm", "prefill ok 3 6 2 unavailable"), ("sglang", "stage:decode_loop ok 6 4.5 0.75 unavailable"),
+], indirect=["metrics_report"])
+def test_single_point_server_phase_table_is_readable(browser_page, tmp_path, metrics_report, expected_row):
     from acprof.plotting.load_report import write_load_report
 
     page, open_report = browser_page
@@ -104,7 +110,8 @@ def test_single_point_server_phase_table_is_readable(browser_page, tmp_path, met
     assert page.get_by_role("heading", name="Server phase timing").is_visible()
     section = page.locator("section").filter(has=page.get_by_role("heading", name="Server phase timing"))
     assert "other traffic" in section.inner_text()
-    assert section.get_by_role("row", name="prefill ok 3 6 2 unavailable", exact=True).count() == 1
+    assert f"Exporter: {metrics_report['server_metrics']['kind']}" in section.inner_text()
+    assert section.get_by_role("row", name=expected_row, exact=True).count() == 1
     page.set_viewport_size({"width": 390, "height": 844})
     page.wait_for_function("document.documentElement.scrollWidth <= innerWidth")
 

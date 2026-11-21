@@ -14,6 +14,7 @@
   const states = {valid: "完整运行", partial: "部分证据", not_run: "未运行", missing: "文件缺失", invalid: "证据无效"};
   const colors = ["#176a77", "#b45628", "#6750a4", "#2f7c4c", "#b33f67", "#357abd"];
   const groupNames = new Map(data.conditions.map((condition, index) => [condition.condition_id, `G${index + 1}`]));
+  const exporters = new Map(data.conditions.map(condition => [condition.condition_id, condition.identity.server_metrics?.kind]));
   const fmt = value => value == null ? "不可用" : Number(value).toLocaleString("en-US", {maximumSignificantDigits: 5});
   const percent = value => value == null ? "不可用" : `${fmt(value * 100)}%`;
   function element(tag, text, parent) {
@@ -60,10 +61,12 @@
       element("td", samples ? `TTFT ${samples.ttft_s} · TPOT ${samples.tpot_s} · E2E ${samples.e2e_s}\ntokens ${percent(point.output_token_coverage)}\nduration ${fmt(point.duration_s)} s` : "不可用", tr);
       const detail = element("td", point.diagnostics.join("\n"), tr);
       if (point.server_metrics) {
+        const exporter = exporters.get(point.condition_id);
         const server = element("details", "", detail);
         server.className = "server-metrics";
-        element("summary", "服务端阶段统计", server);
+        element("summary", `服务端阶段统计 · ${exporter}`, server);
         element("p", "服务级直方图差值；包含其他流量与延迟更新，不是客户端请求或 GPU 时间。", server);
+        if (exporter === "sglang") element("p", "命名阶段是调度片段；服务端 ITL 可按 Token 数分摊间隔，不是客户端严格 ITL。", server);
         element("pre", JSON.stringify(point.server_metrics, null, 2), server);
       }
       if (point.request_dataset) {

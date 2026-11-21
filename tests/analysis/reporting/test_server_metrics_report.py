@@ -12,11 +12,44 @@ from acprof.analysis.load_report import analyze_load_report
 from acprof.analysis.server_metrics import parse_server_metrics, summarize_server_metrics
 from acprof.cli.main import main
 from acprof.plotting.load_report import write_load_report
-from tests.execution.operations.test_server_metrics import command, exposition, metrics_server
+from tests.execution.operations.test_server_metrics import (
+    command,
+    exposition,
+    metrics_server,
+    sglang_exposition,
+)
 
 
 def snapshot(text):
     return {"status": "ok", **parse_server_metrics(text, "fixture")}
+
+
+def test_sglang_stage_population_changes_do_not_discard_other_timings():
+    def observed(count, exclude):
+        text = "\n".join(line for line in sglang_exposition(count).splitlines() if exclude not in line)
+        return {"status": "ok", **parse_server_metrics(text, "fixture", kind="sglang")}
+
+    before, after = observed(2, 'stage="foreign"'), observed(5, 'stage="prefill_forward"')
+    summary = summarize_server_metrics(before, after, "fixture", kind="sglang")
+    assert summary["status"] == "partial"
+    assert summary["phases"]["stage:prefill_forward"]["reason"] == "series_changed"
+    assert summary["phases"]["stage:decode_loop"]["mean_s"] == 0.75
+    assert summary["phases"]["itl"]["count"] == 12
+    without_stages = summarize_server_metrics(observed(2, "per_stage_req"), observed(5, "per_stage_req"),
+                                              "fixture", kind="sglang")
+    assert without_stages["phases"]["stage"]["reason"] == "metric_not_exposed"
+    assert without_stages["phases"]["stage"]["mean_s"] is None
+
+
+@pytest.mark.parametrize(("raw", "kind"), [(exposition(), "sglang"), (sglang_exposition(3), "vllm")])
+def test_requested_exporter_never_falls_back_to_another_namespace(raw, kind):
+    with pytest.raises(ValueError, match="model_name"):
+        parse_server_metrics(raw, "fixture", kind=kind)
+
+
+def test_sglang_per_stage_histogram_requires_a_named_stage():
+    with pytest.raises(ValueError, match="stage"):
+        parse_server_metrics(sglang_exposition(3).replace(',stage="decode_loop"', ''), "fixture", kind="sglang")
 
 
 def test_multiple_engines_are_differenced_before_aggregation():
@@ -88,18 +121,25 @@ def test_escaped_labels_use_prometheus_grammar():
     assert all(row["labels"]["model_name"] == model for row in result["series"])
 
 
-@pytest.fixture(scope="module", name="metrics_report")
-def saved_metrics_report(tmp_path_factory):
-    output = tmp_path_factory.mktemp("server-metrics") / "load"
+def collect_report(output, kind):
+    body = (lambda state: sglang_exposition(state["requests"]).encode()) if kind == "sglang" else None
     with pytest.MonkeyPatch.context() as patch:
         patch.setattr("acprof.cli.streaming_load.MeasurementLock", nullcontext)
         patch.setattr("acprof.cli.streaming_load.host_identity", lambda _root: {"hostname": "fixture"})
-        with metrics_server() as (origin, _events, _auth):
-            assert main(command(origin, output, "--server-metrics", "vllm")) == 0
+        with metrics_server(metrics_body=body) as (origin, _events, _auth):
+            assert main(command(origin, output, "--server-metrics", kind)) == 0
     return json.loads((output / "load.json").read_text())
 
 
+@pytest.fixture(scope="module", name="metrics_report")
+def saved_metrics_report(tmp_path_factory, request):
+    return collect_report(tmp_path_factory.mktemp("server-metrics") / "load", getattr(request, "param", "vllm"))
+
+
 @pytest.mark.parametrize(("path", "value"), [
+    (("server_metrics", "kind"), "sglang"),
+    (("identity", "server_metrics", "kind"), "sglang"),
+    (("identity", "server_metrics", "kind"), ["vllm"]),
     (("server_metrics", "schema_version"), True),
     (("server_metrics", "scope"), "per-request GPU time"),
     (("server_metrics", "before", "sha256"), "invalid"),
@@ -112,7 +152,8 @@ def saved_metrics_report(tmp_path_factory):
     (("identity", "server_metrics", "path"), "/other"),
     (("identity", "server_metrics", "model"), "other"),
     (("identity", "server_metrics", "schema_version"), True),
-], ids=["version", "scope", "digest", "count", "labels", "clock", "order",
+], ids=["observation-exporter", "declaration-exporter", "malformed-exporter",
+        "version", "scope", "digest", "count", "labels", "clock", "order",
         "mean", "boolean-summary", "path", "model", "declaration-version"])
 def test_tampered_metrics_are_not_published(metrics_report, tmp_path, path, value):
     report = copy.deepcopy(metrics_report)
@@ -134,6 +175,14 @@ def test_unpaired_metrics_are_rejected(metrics_report, part):
     (report["identity"] if part == "declaration" else report).pop("server_metrics")
     report["identity_sha256"] = hashlib.sha256(json.dumps(report["identity"], sort_keys=True).encode()).hexdigest()
     with pytest.raises(ValueError, match="server metrics"):
+        analyze_load_report(report)
+
+
+def test_relabeling_both_exporters_cannot_reuse_backend_specific_snapshots(metrics_report):
+    report = copy.deepcopy(metrics_report)
+    report["identity"]["server_metrics"]["kind"] = report["server_metrics"]["kind"] = "sglang"
+    report["identity_sha256"] = hashlib.sha256(json.dumps(report["identity"], sort_keys=True).encode()).hexdigest()
+    with pytest.raises(ValueError, match="server metric phase"):
         analyze_load_report(report)
 
 
@@ -188,18 +237,32 @@ def test_scrape_interval_must_enclose_the_load_duration(metrics_report):
         analyze_load_report(report)
 
 
-def make_metrics_sweep(root, metrics_report):
+def make_metrics_sweep(root, metrics_report, *, second_report=None):
     from tests.support.load_sweep_fixtures import change_point, make_sweep
 
     root = make_sweep(root)
-    def add_metrics(point):
-        point["identity"]["server_metrics"] = copy.deepcopy(metrics_report["identity"]["server_metrics"])
-        point["server_metrics"] = copy.deepcopy(metrics_report["server_metrics"])
+    def add_metrics(point, source):
+        point["identity"]["server_metrics"] = copy.deepcopy(source["identity"]["server_metrics"])
+        point["server_metrics"] = copy.deepcopy(source["server_metrics"])
         point["server_metrics"]["before"].update(started_s=0, finished_s=0.1)
         point["server_metrics"]["after"].update(started_s=10, finished_s=10.1)
     for index in (1, 2, 3):
-        change_point(root, index, add_metrics)
+        source = second_report if second_report is not None and index == 2 else metrics_report
+        change_point(root, index, lambda point, source=source: add_metrics(point, source))
     return root
+
+
+def test_sweep_does_not_pool_metrics_from_different_exporters(metrics_report, tmp_path):
+    from acprof.analysis.load_sweep import read_load_sweep
+
+    sglang_report = collect_report(tmp_path / "sglang", "sglang")
+    root = make_metrics_sweep(tmp_path / "sweep", metrics_report, second_report=sglang_report)
+    sweep = read_load_sweep(root).payload
+    assert sweep["valid_points"] == 3
+    assert {group["identity"]["server_metrics"]["kind"] for group in sweep["conditions"]} == {"vllm", "sglang"}
+    first, second, third = sweep["points"]
+    assert first["condition_id"] == third["condition_id"] != second["condition_id"]
+    assert second["server_metrics"]["phases"]["stage:decode_loop"]["count"] == 6
 
 
 def test_sweep_conditions_separate_observed_and_unobserved_points(metrics_report, tmp_path):

@@ -15,7 +15,7 @@ from typing import Any
 from urllib.parse import urlsplit
 from uuid import uuid4
 
-from acprof.analysis.server_metrics import metrics_declaration
+from acprof.analysis.server_metrics import METRICS_BY_EXPORTER, metrics_declaration
 from acprof.analysis.streaming_capacity import normalize_slo_thresholds
 from acprof.artifacts import read_json_object
 from acprof.cli.load_evidence import load_phase, publish_load_report
@@ -89,7 +89,7 @@ def add_streaming_arguments(parser: argparse.ArgumentParser) -> None:
                         help="Maximum output events retained across one warmup or measured run")
     parser.add_argument("--service-probe", choices=SERVICE_PROBES,
                         help="Pre-warmup identity probe; vllm-config also reads the development configuration endpoint (default: none)")
-    parser.add_argument("--server-metrics", choices=("vllm",),
+    parser.add_argument("--server-metrics", choices=tuple(METRICS_BY_EXPORTER),
                         help="Observe server-wide phase histograms via /metrics before and after load (default: disabled)")
     parser.add_argument("--sweep-concurrency", help="Endpoint sweep: distinct worker counts, e.g. 1,2,4; overrides --concurrency")
     parser.add_argument("--sweep-rate", help="Endpoint arrival-rate sweep: distinct requests/s, e.g. 1,5,10; overrides --rate")

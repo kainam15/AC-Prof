@@ -437,7 +437,7 @@ server-info 返回的白名单字段保存在可选的 `observed.configuration` 
 
 ## 服务端阶段统计
 
-可显式添加 `--server-metrics vllm`，从同一 origin 的 `/metrics` 读取服务级阶段直方图：
+可显式添加 `--server-metrics vllm` 或 `--server-metrics sglang`，从同一 origin 的 `/metrics` 读取所选 exporter 的服务级时延直方图：
 
 ```bash
 acprof load --base-url http://127.0.0.1:8000 --protocol openai-chat \
@@ -452,17 +452,22 @@ acprof report results/qwen-server-phases
 关闭连接、不跟随重定向、不重试。每次最多读取 4 MiB，连接／读取无进展超时为
 `min(--request-timeout, 10)` 秒；只接受请求的 Prometheus `text/plain` 格式。
 
-精确选择 `model_name` 等于请求模型名的序列，保留全部标签（包括 `engine`）。
-不匹配的模型不纳入；若服务用另一个别名导出指标，会明确失败，不猜测映射。
+SGLang 服务需已启用 `--enable-metrics`，请求模型名须与服务导出的 `model_name` 一致。
+精确选择 exporter 和 `model_name`，保留完整标签（例如 vLLM 的 `engine`、SGLang 的 `engine_type` 和 rank）。
+没有匹配序列时明确失败，不猜模型别名，也不改读另一后端的指标。如果服务尚未为该模型导出任何直方图，可显式安排 `--warmup 1`；不能把缺失的初始快照当零基线。
 仅保留以下 histogram 的 `_count`、`_sum` 和可用的 `_created`：
 
-| 阶段 | vLLM metric |
-| --- | --- |
-| Queue | `vllm:request_queue_time_seconds` |
-| Prefill | `vllm:request_prefill_time_seconds` |
-| Decode | `vllm:request_decode_time_seconds` |
-| Inference | `vllm:request_inference_time_seconds` |
-| E2E | `vllm:e2e_request_latency_seconds` |
+| 服务端观察 | vLLM 来源 | SGLang 来源 |
+| --- | --- | --- |
+| Queue | `vllm:request_queue_time_seconds` | `sglang:queue_time_seconds` |
+| E2E | `vllm:e2e_request_latency_seconds` | `sglang:e2e_request_latency_seconds` |
+| Prefill / Decode / Inference | `vllm:request_prefill_time_seconds` / `vllm:request_decode_time_seconds` / `vllm:request_inference_time_seconds` | 不从调度片段推算 |
+| 服务端 TTFT / ITL | 此模式不读取 | `sglang:time_to_first_token_seconds` / `sglang:inter_token_latency_seconds` |
+| `stage:<原始标签>` | 此模式不读取 | `sglang:per_stage_req_latency_seconds`，按 `stage` 标签分别汇总 |
+
+例如 `stage:prefill_forward` 和 `stage:decode_loop` 是两组调度观察，不是 vLLM 的整请求 Prefill / Decode，不能相加或直接对比。
+两次抓取成功且未发现服务重启时，若均无命名阶段，只报告 `stage: metric_not_exposed`，不虚构阶段；仅一侧有某个阶段时，该阶段报告 `series_changed`，其他稳定阶段仍可用。
+SGLang ITL 的计数是 exporter 记录的 Token 观察数；一次输出多个 Token 时可按数量摊分间隔，不能替代客户端严格 ITL 样本。
 
 每个标签序列分别计算 `Δcount = after.count - before.count` 和
 `Δsum_s = after.sum_s - before.sum_s`，检查后再跨序列相加；
@@ -480,7 +485,7 @@ exporter 延迟可能纳入 warmup／更早请求，或遗漏刚完成的请求�
 也不与客户端 TTFT／E2E 拼成同一时间轴；不从两个 sum/count 快照推导分位数。
 
 v2/v3 的可选 `identity.server_metrics` 声明选择、边界和读取预算，参与 identity 哈希与
-sweep 条件分组。可选 `server_metrics` 使用独立整数 schema 1，保存 before／after
+sweep 条件分组；不同 exporter 不合用一条曲线。可选 `server_metrics` 使用独立整数 schema 1，保存 before／after
 快照、相对观测起点的开始／结束秒数、原响应 SHA256／字节数、筛选后的序列及重算摘要。
 不保留整个 exposition 或 Authorization；SHA256 标识当时读取的响应，不能单凭摘要
 独立重建或验证未保留的响应正文。离线报告直接校验保留的序列、差值、时间边界和声明；
@@ -491,12 +496,14 @@ result；负载异常后仍尝试 after，二次错误不覆盖原始异常，sw
 个别指标缺失或重置只影响服务统计，不改变已完成的客户端请求成功率；CLI 显示状态与原因。
 单点 HTML 展示阶段表，sweep 逐点展示有界详情；客户端曲线保持原有口径。
 
-上游依据为 [vLLM metrics 定义](https://github.com/vllm-project/vllm/blob/e336407a3ddb204edf6cfdfdd002cb28b9715438/docs/design/metrics.md)
-及 [V1 histogram 实现](https://github.com/vllm-project/vllm/blob/e336407a3ddb204edf6cfdfdd002cb28b9715438/vllm/v1/metrics/loggers.py)。
+上游依据为 [vLLM metrics 定义](https://github.com/vllm-project/vllm/blob/e336407a3ddb204edf6cfdfdd002cb28b9715438/docs/design/metrics.md)、
+[V1 histogram 实现](https://github.com/vllm-project/vllm/blob/e336407a3ddb204edf6cfdfdd002cb28b9715438/vllm/v1/metrics/loggers.py)及
+[SGLang v0.5.6 histogram 实现](https://github.com/sgl-project/sglang/blob/v0.5.6/python/sglang/srt/metrics/collector.py)。
+SGLang 的[阶段语义讨论](https://github.com/sgl-project/sglang/issues/14303)与[逐请求时间 PR](https://github.com/sgl-project/sglang/pull/11119)说明了为什么保留原生阶段，不将共享直方图当作逐请求时间戳。
 复用 [Prometheus client_python parser](https://github.com/prometheus/client_python/blob/master/prometheus_client/parser.py)
 （安装包许可证为 Apache-2.0 AND BSD-2-Clause）；新增一个纯 Python host 依赖，
 `uv.lock` 固定版本。解析只在负载外执行，
-不引入 vLLM、GPU 或 Docker 依赖，也不复制上游实现。
+不引入 vLLM、SGLang、GPU 或 Docker 依赖，也不复制上游实现。
 
 ## 失败及结果边界
 

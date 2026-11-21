@@ -11,13 +11,23 @@ from acprof.artifacts import reject_isolated_surrogates, require_schema_version
 if TYPE_CHECKING:
     from prometheus_client.samples import Sample
 
-PHASE_METRICS = {
-    "queue": "vllm:request_queue_time_seconds",
-    "prefill": "vllm:request_prefill_time_seconds",
-    "decode": "vllm:request_decode_time_seconds",
-    "inference": "vllm:request_inference_time_seconds",
-    "e2e": "vllm:e2e_request_latency_seconds",
+METRICS_BY_EXPORTER = {
+    "vllm": {
+        "queue": "vllm:request_queue_time_seconds",
+        "prefill": "vllm:request_prefill_time_seconds",
+        "decode": "vllm:request_decode_time_seconds",
+        "inference": "vllm:request_inference_time_seconds",
+        "e2e": "vllm:e2e_request_latency_seconds",
+    },
+    "sglang": {
+        "queue": "sglang:queue_time_seconds",
+        "ttft": "sglang:time_to_first_token_seconds",
+        "itl": "sglang:inter_token_latency_seconds",
+        "e2e": "sglang:e2e_request_latency_seconds",
+        "stage": "sglang:per_stage_req_latency_seconds",
+    },
 }
+type _Series = dict[tuple[str, str], dict[str, Any]]
 MAX_METRICS_BYTES = 4 * 1024 * 1024
 MAX_METRICS_SERIES = 4096
 SERVER_METRICS_SCOPE = (
@@ -26,9 +36,16 @@ SERVER_METRICS_SCOPE = (
 )
 
 
+def _phase_metrics(kind: str) -> dict[str, str]:
+    if not isinstance(kind, str) or kind not in METRICS_BY_EXPORTER:
+        raise ValueError("unsupported server metrics exporter")
+    return METRICS_BY_EXPORTER[kind]
+
+
 def metrics_declaration(kind: str, model: str, timeout_s: float) -> dict[str, Any]:
-    if kind != "vllm" or not isinstance(model, str) or not model.strip():
-        raise ValueError("server metrics require vllm and a nonempty model")
+    _phase_metrics(kind)
+    if not isinstance(model, str) or not model.strip():
+        raise ValueError("server metrics require a nonempty model")
     if _number(timeout_s) == 0:
         raise ValueError("server metrics timeout must be positive")
     return {
@@ -51,32 +68,38 @@ def _series_key(row: dict[str, Any]) -> tuple[str, str]:
     return row["phase"], json.dumps(row["labels"], sort_keys=True, ensure_ascii=True)
 
 
-def _validate_series(rows: Any, model: str) -> dict[tuple[str, str], dict[str, Any]]:
+def _series_by_phase(rows: Any, model: str, metrics: dict[str, str]) -> dict[str, _Series]:
     if not isinstance(rows, list) or len(rows) > MAX_METRICS_SERIES:
         raise ValueError("invalid server metrics series list")
-    selected = {}
+    groups: dict[str, _Series] = {}
     for row in rows:
         if not isinstance(row, dict) or set(row) != {"phase", "labels", "count", "sum_s", "created_s"}:
             raise ValueError("invalid server metric series")
-        labels = row["labels"]
-        if (not isinstance(row["phase"], str) or row["phase"] not in PHASE_METRICS or not isinstance(labels, dict)
+        phase, labels = row["phase"], row["labels"]
+        if (not isinstance(phase, str) or phase not in metrics or not isinstance(labels, dict)
                 or labels.get("model_name") != model
                 or any(not isinstance(k, str) or not isinstance(v, str) for k, v in labels.items())):
             raise ValueError("invalid server metric phase or model labels")
+        if phase == "stage":
+            stage = labels.get("stage", "")
+            if not stage.strip() or not stage.isprintable():
+                raise ValueError("server stage histogram requires a nonempty printable stage label")
+            phase = f"stage:{stage}"
         count, total = row["count"], _number(row["sum_s"])
         if type(count) is not int or not 0 <= count <= 2 ** 53 or (count == 0 and total != 0):
             raise ValueError("invalid server histogram count/sum")
         if row["created_s"] is not None:
             _number(row["created_s"])
         key = _series_key(row)
+        selected = groups.setdefault(phase, {})
         if key in selected:
             raise ValueError("duplicate server metric series")
         selected[key] = row
-    return selected
+    return groups
 
 
 def _collect_sample(
-    sample: Sample, names: dict[str, tuple[str, str]], rows: dict[tuple[str, str], dict[str, Any]],
+    sample: Sample, names: dict[str, tuple[str, str]], rows: _Series,
 ) -> None:
     phase, suffix = names[sample.name]
     value = _number(sample.value)
@@ -91,28 +114,29 @@ def _collect_sample(
     row[suffix] = value
 
 
-def _complete_series(rows: dict[tuple[str, str], dict[str, Any]], types: dict[str, str]) -> list[dict[str, Any]]:
+def _complete_series(rows: _Series, types: dict[str, str], metrics: dict[str, str]) -> list[dict[str, Any]]:
     series = []
     for row in rows.values():
-        if types.get(PHASE_METRICS[row["phase"]]) != "histogram" or "count" not in row or "sum" not in row:
+        if types.get(metrics[row["phase"]]) != "histogram" or "count" not in row or "sum" not in row:
             raise ValueError("server timing requires complete histogram count/sum pairs")
         series.append({"phase": row["phase"], "labels": row["labels"], "count": int(row["count"]),
                        "sum_s": row["sum"], "created_s": row.get("created")})
     return sorted(series, key=_series_key)
 
 
-def parse_server_metrics(text: str, model: str) -> dict[str, Any]:
+def parse_server_metrics(text: str, model: str, *, kind: str = "vllm") -> dict[str, Any]:
     """Use the upstream exposition grammar; retain only named model histogram evidence."""
     from prometheus_client.parser import text_string_to_metric_families
 
-    names = {f"{metric}_{suffix}": (phase, suffix) for phase, metric in PHASE_METRICS.items()
+    metrics = _phase_metrics(kind)
+    names = {f"{metric}_{suffix}": (phase, suffix) for phase, metric in metrics.items()
              for suffix in ("count", "sum", "created")}
-    rows: dict[tuple[str, str], dict[str, Any]] = {}
+    rows: _Series = {}
     types: dict[str, str] = {}
     process_start = None
     try:
         for family in text_string_to_metric_families(text):
-            if family.name in PHASE_METRICS.values():
+            if family.name in metrics.values():
                 types[family.name] = family.type
             for sample in family.samples:
                 if sample.name == "process_start_time_seconds" and not sample.labels:
@@ -124,11 +148,11 @@ def parse_server_metrics(text: str, model: str) -> dict[str, Any]:
                 _collect_sample(sample, names, rows)
     except (ValueError, OverflowError) as error:
         raise ValueError("invalid Prometheus server metrics exposition") from error
-    series = _complete_series(rows, types)
+    series = _complete_series(rows, types, metrics)
     reject_isolated_surrogates(series)
-    _validate_series(series, model)
+    _series_by_phase(series, model, metrics)
     if not series:
-        raise ValueError("no supported server histograms match the exact model_name")
+        raise ValueError(f"no supported {kind} server histograms match the exact model_name")
     return {"series": series, "process_start_time_s": process_start}
 
 
@@ -136,9 +160,7 @@ def _unavailable(reason: str) -> dict[str, Any]:
     return {"status": "unavailable", "reason": reason, "count": None, "sum_s": None, "mean_s": None}
 
 
-def _phase_delta(
-    before: dict[tuple[str, str], dict[str, Any]], after: dict[tuple[str, str], dict[str, Any]],
-) -> dict[str, Any]:
+def _phase_delta(before: _Series, after: _Series) -> dict[str, Any]:
     if not before and not after:
         return _unavailable("metric_not_exposed")
     if before.keys() != after.keys():
@@ -166,20 +188,27 @@ def _phase_delta(
     }
 
 
-def summarize_server_metrics(before: dict[str, Any], after: dict[str, Any], model: str) -> dict[str, Any]:
+def summarize_server_metrics(
+    before: dict[str, Any], after: dict[str, Any], model: str, *, kind: str = "vllm",
+) -> dict[str, Any]:
     """Differences are service observations, never divided by the client's request count."""
+    metrics = _phase_metrics(kind)
+    left, right = (
+        _series_by_phase(snapshot["series"], model, metrics) if snapshot["status"] == "ok" else {}
+        for snapshot in (before, after)
+    )
+    names = [phase for phase in metrics if phase != "stage"]
+    if "stage" in metrics:
+        names.extend(sorted((left.keys() | right.keys()) - set(names)) or ["stage"])
     if before["status"] != "ok" or after["status"] != "ok":
         reason = "snapshot_error" if "error" in (before["status"], after["status"]) else "not_collected"
         return {"status": "error" if reason == "snapshot_error" else "unavailable",
-                "phases": {phase: _unavailable(reason) for phase in PHASE_METRICS}}
-    left = _validate_series(before["series"], model)
-    right = _validate_series(after["series"], model)
+                "phases": {phase: _unavailable(reason) for phase in names}}
     process_changed = before["process_start_time_s"] != after["process_start_time_s"]
     phases = {
         phase: _unavailable("process_start_changed") if process_changed else _phase_delta(
-            {key: row for key, row in left.items() if key[0] == phase},
-            {key: row for key, row in right.items() if key[0] == phase},
-        ) for phase in PHASE_METRICS
+            left.get(phase, {}), right.get(phase, {}),
+        ) for phase in names
     }
     available = sum(row["status"] == "ok" for row in phases.values())
     return {"status": "ok" if available == len(phases) else "partial" if available else "unavailable",
@@ -197,7 +226,7 @@ def _validate_snapshot_source(snapshot: dict[str, Any]) -> None:
         _number(snapshot["process_start_time_s"])
 
 
-def _validate_snapshot(snapshot: Any, model: str) -> None:
+def _validate_snapshot(snapshot: Any, model: str, metrics: dict[str, str]) -> None:
     if not isinstance(snapshot, dict) or set(snapshot) != {
         "status", "error", "started_s", "finished_s", "sha256", "bytes", "series", "process_start_time_s",
     } or snapshot["status"] not in ("ok", "error", "not_collected"):
@@ -214,7 +243,7 @@ def _validate_snapshot(snapshot: Any, model: str) -> None:
             raise ValueError("failed server metrics require an error")
         if any(snapshot[key] is not None for key in ("series", "process_start_time_s")):
             raise ValueError("failed server metrics cannot contain parsed evidence")
-    elif snapshot["error"] is not None or not _validate_series(snapshot["series"], model):
+    elif snapshot["error"] is not None or not _series_by_phase(snapshot["series"], model, metrics):
         raise ValueError("successful server metrics require parsed evidence and no error")
     _validate_snapshot_source(snapshot)
 
@@ -237,19 +266,20 @@ def validate_server_metrics(experiment: dict[str, Any]) -> dict[str, Any] | None
     if not isinstance(declaration, dict) or not isinstance(observation, dict) or experiment["schema_version"] < 2:
         raise ValueError("server metrics require declaration and observation in schema v2/v3")
     require_schema_version(declaration, 1, "server metrics declaration")
-    expected = metrics_declaration("vllm", identity.get("model"), identity["load_config"]["timeout_seconds"])
+    kind = declaration.get("kind", "")
+    expected = metrics_declaration(kind, identity.get("model"), identity["load_config"]["timeout_seconds"])
     if json.dumps(declaration, sort_keys=True) != json.dumps(expected, sort_keys=True):
         raise ValueError("server metrics declaration differs from the load inputs")
     require_schema_version(observation, 1, "server metrics observation")
     if (set(observation) != {"schema_version", "kind", "scope", "before", "after", "summary"}
-            or observation["kind"] != "vllm" or observation["scope"] != SERVER_METRICS_SCOPE):
+            or observation["kind"] != kind or observation["scope"] != SERVER_METRICS_SCOPE):
         raise ValueError("invalid server metrics observation contract")
     reject_isolated_surrogates(observation)
     before, after = observation["before"], observation["after"]
     for snapshot in (before, after):
-        _validate_snapshot(snapshot, declaration["model"])
+        _validate_snapshot(snapshot, declaration["model"], METRICS_BY_EXPORTER[kind])
     _validate_boundaries(before, after, experiment.get("result"))
-    summary = summarize_server_metrics(before, after, declaration["model"])
+    summary = summarize_server_metrics(before, after, declaration["model"], kind=kind)
     if json.dumps(summary, sort_keys=True, allow_nan=False) != json.dumps(observation["summary"], sort_keys=True, allow_nan=False):
         raise ValueError("server metrics summary differs from the retained snapshots")
     if experiment.get("status") == "complete" and any(s["status"] != "ok" for s in (before, after)):
