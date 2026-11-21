@@ -92,6 +92,10 @@ def test_real_uv_switches_upgrade_downgrade_and_unpinned_future(installed_tool, 
         plan = plan_for(installed_tool, current, target, channel)
         outcome = run_plan(plan)
         assert outcome["status"] == "success", outcome
+        assert not (Path(plan.job_dir) / "backup").exists()
+        assert (Path(plan.job_dir) / "install.log").is_file()
+        assert (Path(plan.job_dir) / "plan.json").is_file()
+        assert (state / "status.json").is_file()
         verify_installation(plan, target, updated=True)
         assert read_state(state, "channel.json")["channel"] == channel
         assert read_receipt(installation.prefix)["requirements"] == [{"name": "acprof"}]
@@ -244,3 +248,47 @@ def test_disk_exhaustion_and_recovery_failure_are_explicit(installed_tool, monke
     assert "backup unavailable" in outcome["error"]
     assert (Path(plan.job_dir) / "backup/uv-receipt.toml").is_file()
     assert not (Path(plan.state_dir) / "channel.json").exists()
+
+
+def test_cross_filesystem_backup_staging_rolls_back_and_cleans_up_on_success(installed_tool, monkeypatch):
+    import os
+
+    installation, state, index = installed_tool
+    write_wheel(index, "1.1.0a1")
+
+    fail_plan = plan_for(installed_tool, "1.0.0", "1.1.0a1", "preview")
+    fail_job = Path(fail_plan.job_dir)
+    fail_job.mkdir(parents=True)
+    fail_staging = installation.prefix.parent / f".acprof-update-{fail_job.name}"
+
+    original_stat = Path.stat
+
+    def cross_fs_stat(path: Path, *args, **kwargs):
+        result = original_stat(path, *args, **kwargs)
+        if path in {fail_job, ok_job}:
+            values = list(result)
+            values[2] = result.st_dev + 999
+            return os.stat_result(values)
+        return result
+
+    ok_plan = plan_for(installed_tool, "1.0.0", "1.1.0a1", "preview")
+    ok_job = Path(ok_plan.job_dir)
+    ok_job.mkdir(parents=True)
+    ok_staging = installation.prefix.parent / f".acprof-update-{ok_job.name}"
+
+    monkeypatch.setattr(Path, "stat", cross_fs_stat)
+
+    with monkeypatch.context() as guard:
+        guard.setattr(Transaction, "install", lambda _self: (_ for _ in ()).throw(RuntimeError("install failed")))
+        assert not Transaction(fail_plan).run()
+    fail_outcome = read_state(state)
+    assert fail_outcome["rollback"] == "restored"
+    assert (fail_staging / "failed-environment/uv-receipt.toml").is_file()
+    assert not (fail_staging / "backup").exists()
+    verify_installation(fail_plan, "1.0.0")
+
+    assert Transaction(ok_plan).run()
+    ok_outcome = read_state(state)
+    assert ok_outcome["status"] == "success"
+    assert not ok_staging.exists()
+    verify_installation(ok_plan, "1.1.0a1", updated=True)

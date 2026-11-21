@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import sys
 from collections.abc import Sequence
 from dataclasses import replace
 
@@ -37,8 +38,9 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Sequence[str] | None = None) -> None:
+    cli_args = list(sys.argv[1:] if argv is None else argv)
     parser = _build_parser()
-    args = parser.parse_args(argv)
+    args = parser.parse_args(cli_args)
     # Rich caches its first width table. Match VS Code's Unicode 11 default,
     # but let Windows Terminal use modern widths (Unicode 16+ makes ☰ wide).
     # WT_SESSION identifies a terminal family, not its Unicode version.
@@ -66,7 +68,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     app.run()
     if app.updates.restart_command:
         # Textual has restored the terminal before replacing this process.
-        command = [*app.updates.restart_command, *(argv or ())]
+        command = [*app.updates.restart_command, *cli_args]
         try:
             os.execv(command[0], command)
         except OSError as exc:

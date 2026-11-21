@@ -147,9 +147,12 @@ class Transaction:
         self.lock_fds = lock_fds
         self.job = Path(plan.job_dir)
         self.backup = self.job / "backup"
+        self.failed_environment = self.job / "failed-environment"
+        self._staging_dir: Path | None = None
         self.state = {"status": "running", "phase": "backup", "current": plan.current,
                       "target": plan.target, "channel": plan.channel, "prefix": plan.prefix,
-                      "job_dir": plan.job_dir, "log": str(self.job / "install.log"),
+                      "job_dir": plan.job_dir, "backup_dir": str(self.backup),
+                      "log": str(self.job / "install.log"),
                       "pid": os.getpid(), "error": "", "error_kind": "", "rollback": ""}
 
     def publish(self, **changes) -> None:
@@ -205,13 +208,47 @@ class Transaction:
         # Renaming preserves shebangs and the original venv path. Retain the
         # failed environment as evidence; never delete unknown user directories.
         if prefix.exists():
-            os.replace(prefix, self.job / "failed-environment")
+            os.replace(prefix, self.failed_environment)
         os.replace(self.backup, prefix)
         entry = Path(self.plan.entrypoint)
         temporary = entry.with_name(f".acprof-restore-{os.getpid()}")
         temporary.symlink_to(json.loads((self.job / "entrypoint.json").read_text())["target"])
         os.replace(temporary, entry)
         verify_installation(self.plan, self.plan.current)
+
+    def _prepare_backup_staging(self, prefix: Path) -> None:
+        if self.job.stat().st_dev == prefix.parent.stat().st_dev:
+            return
+        staging = prefix.parent / f".acprof-update-{self.job.name}"
+        if staging.is_symlink():
+            raise ValueError("Refusing symlinked update staging directory")
+        staging.mkdir(mode=0o700, exist_ok=True)
+        staging_stat = staging.stat()
+        if staging_stat.st_uid != os.getuid() or staging_stat.st_dev != prefix.parent.stat().st_dev:
+            raise ValueError("Backup staging must share a user-owned filesystem with the installation")
+        if staging.resolve().is_relative_to(prefix.resolve()):
+            raise ValueError("Invalid update staging directory")
+        self._staging_dir = staging
+        self.backup = staging / "backup"
+        self.failed_environment = staging / "failed-environment"
+        self.state["backup_dir"] = str(self.backup)
+
+    def _cleanup_backup_after_success(self) -> None:
+        """Remove temporary backup copy after the updated installation is verified."""
+        try:
+            if self.backup.is_symlink():
+                self.backup.unlink()
+            elif self.backup.exists():
+                shutil.rmtree(self.backup)
+            if self._staging_dir is not None and self._staging_dir.is_dir() and not any(self._staging_dir.iterdir()):
+                self._staging_dir.rmdir()
+        except OSError as exc:
+            warning = f"[cleanup][WARN] Failed to remove update backup {self.backup}: {exc}\n"
+            try:
+                with (self.job / "install.log").open("a", encoding="utf-8") as log:
+                    log.write(warning)
+            except OSError:
+                print(warning.rstrip(), file=sys.stderr)
 
     def run(self) -> bool:
         mutated = False
@@ -229,14 +266,16 @@ class Transaction:
                 original_channel = channel_path.read_bytes()
             if not os.access(prefix.parent, os.W_OK) or not os.access(Path(self.plan.entrypoint).parent, os.W_OK):
                 raise PermissionError("Installation directory is not writable")
-            if self.job.stat().st_dev != prefix.parent.stat().st_dev:
-                raise ValueError("Backup and installation must share a filesystem for safe recovery")
+            self._prepare_backup_staging(prefix)
             size = sum(p.stat().st_size for p in prefix.rglob("*") if p.is_file() and not p.is_symlink())
             if shutil.disk_usage(prefix.parent).free < size * 2 + 100 * 1024 * 1024:
                 raise OSError("No space left for an installation backup and replacement")
             atomic_json(self.job / "entrypoint.json", {"target": os.readlink(self.plan.entrypoint)})
             shutil.copytree(prefix, self.backup, symlinks=True)
-            atomic_json(self.job / "backup-complete.json", {"version": self.plan.current})
+            atomic_json(
+                self.job / "backup-complete.json",
+                {"version": self.plan.current, "backup_dir": str(self.backup)},
+            )
             mutated = True
             self.install()
             self.publish(phase="verify")
@@ -246,6 +285,7 @@ class Transaction:
             atomic_json(channel_path,
                         {"channel": self.plan.channel, "prefix": self.plan.prefix})
             self.publish(status="success", phase="complete")
+            self._cleanup_backup_after_success()
             return True
         except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as exc:
             error, kind = str(exc), failure_kind(exc)
