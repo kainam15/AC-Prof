@@ -2,7 +2,7 @@
 from dataclasses import replace
 
 import pytest
-from textual.widgets import Collapsible, Input, Static
+from textual.widgets import Collapsible, Input, Select, Static
 from textual.widgets._collapsible import CollapsibleTitle
 
 from acprof.experiments.configuration import RunConfig
@@ -73,3 +73,33 @@ async def test_resource_error_reveals_collapsed_field(tmp_path):
         assert not section.collapsed
         assert cpu.value == "invalid-cpus"
         assert app.query_one("#cpus-error", Static).display
+
+
+@pytest.mark.parametrize(("language", "expected"), [
+    ("zh", {"cpus": "CPU 列表不能重复", "mems": "内存列表不能重复", "gpus": "GPU 模式不能重复"}),
+    ("en", {"cpus": "CPU values must be unique", "mems": "Memory values must be unique",
+            "gpus": "GPU modes must be unique"}),
+])
+async def test_probe_shows_localized_duplicate_resource_fields_without_pruning(tmp_path, language, expected):
+    config = replace(RunConfig.smoke("fixture/model", runtime="docker"), prune_startup_oom=False)
+    app = AcprofTui(config, settings_path=tmp_path / "settings.json")
+    app.configuration.preferences = replace(app.configuration.preferences, language=language)
+    async with app.run_test(size=(120, 30)) as pilot:
+        assert not app.configuration.checked("prune-startup-oom")
+        app.query_one("#cpus", Input).value = "1,01"
+        app.query_one("#mems", Input).value = "4,04"
+        # A restored configuration can contribute a custom GPU list to the selector.
+        gpu = app.query_one("#gpus", Select)
+        gpu.set_options([("off,cpu", "off,cpu")])
+        gpu.value = "off,cpu"
+        app.experiments.request_probe()
+        assert app.experiments.pending_launch is None
+        assert app.preflight.preparation_screen is None
+        for field, reason in expected.items():
+            error = app.query_one(f"#{field}-error", Static)
+            assert error.display
+            assert str(error.content) == reason
+        await wait_for_condition(
+            pilot, lambda: app.focused is app.query_one("#cpus") and app.focused.is_on_screen,
+            description="first duplicate resource field is revealed and focused", timeout=3,
+        )

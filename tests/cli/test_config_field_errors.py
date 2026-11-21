@@ -20,10 +20,10 @@ def test_list_number_and_path_errors_identify_their_fields():
     assert ("[cpus]") in (str(caught.value))
     assert ("[repeat]") in (str(caught.value))
 
-@pytest.mark.parametrize('name_case', range(6))
+@pytest.mark.parametrize('name_case', range(7))
 def test_validity_bounds_have_field_ids_without_duplicate_parse_errors(name_case):
     cases = (("cpus", "0"), ("repeat", 0), ("warmup", -1), ("sample_hz", "nan"),
-             ("max_download", "bad"), ("model_store_max", "bad"))
+             ("max_download", "bad"), ("model_store_max", "bad"), ("gpus", "invalid,invalid"))
     (name, value) = tuple(cases)[name_case]
     with pytest.raises(RunConfigError) as caught:
         replace(RunConfig.smoke("fixture/model"), **{name: value}).validate()

@@ -46,10 +46,11 @@ def test_identity_source_and_resource_issues_keep_their_order_and_messages():
     assert asdict(config) == before
 
 
-def test_runtime_resource_aliases_and_later_issues_are_reported_together():
+@pytest.mark.parametrize("prune", [False, True])
+def test_runtime_resource_aliases_and_later_issues_are_reported_together(prune):
     config = replace(
         RunConfig.smoke("fixture/model"), runtime="process", compute_profile_tool="torch",
-        cpus="1,1", mems="2,2", gpus="0,off", input_scales="nan", repeat=0,
+        cpus="1,01", mems="02,2", gpus="0,off", prune_startup_oom=prune, input_scales="nan", repeat=0,
         task_family="invalid", notify="invalid", extra_options={"dram_energy": "required"},
     )
     with pytest.raises(RunConfigError) as caught:
@@ -57,9 +58,9 @@ def test_runtime_resource_aliases_and_later_issues_are_reported_together():
 
     assert [(issue.field, str(issue.reason)) for issue in caught.value.issues] == [
         ("runtime", "Process 不支持所选的独立分析器或旧采集策略"),
-        ("cpus", "启用启动 OOM 剪枝时 CPU 列表不能重复"),
-        ("mems", "启用启动 OOM 剪枝时内存列表不能重复"),
-        ("gpus", "启用启动 OOM 剪枝时 GPU 模式不能重复"),
+        ("cpus", "CPU 列表不能重复"),
+        ("mems", "内存列表不能重复"),
+        ("gpus", "GPU 模式不能重复"),
         ("input_scales", "输入规模必须全部大于 0"),
         ("repeat", "Repeat 必须大于 0"),
         ("task_family", "任务族必须是 nlp/cv/audio/timeseries/diffusion/multimodal/structured"),
@@ -78,7 +79,7 @@ def test_normalization_keeps_resource_order_paths_and_original_request(tmp_path)
     config = replace(
         RunConfig.smoke(" fixture/model "), runtime="docker", task=" text-generation ",
         task_family=" NLP ", backend=" transformers_pipeline ", tasks=" first_task, second_task ",
-        cpus=" 02,1,2 ", mems=" 04,8 ", cpuset_cpus="3,1-2", gpus=" CPU,1,off ",
+        cpus=" 02,1,3 ", mems=" 04,8 ", cpuset_cpus="3,1-2", gpus=" GPU,0 ",
         prune_startup_oom=False, input_scales=" 1.0,2e0 ",
         workload_spec=" workload.json ", model_spec=" model.json ",
         inference_config=" inference.json ", confirm_inference=" " + "a" * 64 + " ",
@@ -92,8 +93,8 @@ def test_normalization_keeps_resource_order_paths_and_original_request(tmp_path)
     normalized = config.validate(project_dir=tmp_path)
     expected = replace(
         config, model="fixture/model", task="text-generation", task_family="nlp", tasks="first_task,second_task",
-        backend="transformers_pipeline", cpus="2,1,2", mems="4,8", cpuset_cpus="1-3",
-        gpus="off,on,off", input_scales="1.0,2e0", workload_spec="workload.json",
+        backend="transformers_pipeline", cpus="2,1,3", mems="4,8", cpuset_cpus="1-3",
+        gpus="on,off", input_scales="1.0,2e0", workload_spec="workload.json",
         model_spec="model.json", inference_config="inference.json", confirm_inference="a" * 64,
         output_dir="results/example", sniff_iface="lo", batch_size=2, warmup=0,
         repeat=3, repeat_in_window=0, raw_sample_limit=2, repeat_window_seconds=1.5,

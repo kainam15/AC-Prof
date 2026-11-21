@@ -80,6 +80,10 @@ GPU mode 在配置、runtime、profiling 和分析入口共用 `acprof.gpu_mode.
 解析方式参考 [CPython ConfigParser 的显式值表和错误处理](https://github.com/python/cpython/blob/main/Lib/configparser.py)
 （PSF），扩展本项目已有别名，不添加依赖或兼容 shim。
 
+`acprof run` 和 `acprof auto` 要求 CPU、内存和 GPU 各轴的值在规范化后保持唯一。
+例如，`--cpus 01,1` 和 `--gpus off,cpu` 各自重复选择了同一个值，关闭启动 OOM 剪枝时也会报出对应字段。
+需要在同一配置下采集多个正式窗口时，使用 `--repeat`。
+
 | 参数 | 默认值 | 说明 |
 | --- | --- | --- |
 | `--model` | required | Hugging Face model ID，例如 `google-bert/bert-base-uncased`。 |

@@ -44,15 +44,9 @@ MESSAGES: dict[str, Entry] = {
     "validation.profiling.invalid_compute": Entry(zh="无效的计算分析器", en="Invalid compute profiler"),
     "validation.profiling.invalid_execution": Entry(zh="无效的执行分析器", en="Invalid execution profiler"),
     "validation.profiling.invalid_mode": Entry(zh="无效的画像模式", en="Invalid profiling mode"),
-    "validation.pruning.duplicate_cpu": Entry(zh="启用启动 OOM 剪枝时 CPU 列表不能重复", en="CPU values must be unique when startup OOM pruning is enabled"),
-    "validation.pruning.duplicate_gpu_mode": Entry(
-        zh="启用启动 OOM 剪枝时 GPU 模式不能重复",
-        en="GPU modes must be unique when startup OOM pruning is enabled",
-    ),
-    "validation.pruning.duplicate_memory": Entry(
-        zh="启用启动 OOM 剪枝时内存列表不能重复",
-        en="Memory values must be unique when startup OOM pruning is enabled",
-    ),
+    "validation.pruning.duplicate_cpu": Entry(zh="CPU 列表不能重复", en="CPU values must be unique"),
+    "validation.pruning.duplicate_gpu_mode": Entry(zh="GPU 模式不能重复", en="GPU modes must be unique"),
+    "validation.pruning.duplicate_memory": Entry(zh="内存列表不能重复", en="Memory values must be unique"),
     "validation.resources.empty_gpu_mode": Entry(zh="GPU 模式不能为空", en="GPU mode must not be empty"),
     "validation.resources.invalid_gpu_mode": Entry(zh="GPU 模式只能包含 off 或 on", en="GPU mode must contain only off or on"),
     "validation.resume.preset_change": Entry(

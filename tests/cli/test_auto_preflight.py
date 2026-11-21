@@ -54,6 +54,7 @@ def automatic_handoff(tmp_path, preparation, monkeypatch):
     (["--warmup", "-1"], "warmup"),
     (["--cpus", "0"], "cpus"),
     (["--mems", "invalid"], "mems"),
+    (["--gpus", "off,cpu", "--no-prune-startup-oom"], "gpus"),
     (["--input-scales", "nan"], "input_scales"),
     (["--sample-hz", "nan"], "sample_hz"),
     (["--raw-sample-limit", "1"], "raw_sample_limit"),
@@ -61,7 +62,7 @@ def automatic_handoff(tmp_path, preparation, monkeypatch):
     (["--latency-slo", "invalid"], "latency_slo"),
     (["--runtime", "process", "--profiling-mode", "full", "--compute-profile-tool", "torch"], "runtime"),
     (["--resume", "--rebuild-image"], "rebuild_image"),
-], ids=["repeat", "warmup", "cpu-list", "memory-list", "scale-list", "sample-frequency",
+], ids=["repeat", "warmup", "cpu-list", "memory-list", "duplicate-gpu", "scale-list", "sample-frequency",
         "raw-sample-limit", "profiler-count", "latency-slo", "process-profiler", "resume-rebuild"])
 def test_invalid_auto_options_stop_before_preparation(tmp_path, preparation, capsys, options, field):
     output = tmp_path / "output"

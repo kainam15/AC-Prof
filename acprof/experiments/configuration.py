@@ -326,14 +326,14 @@ class RunConfig(RunOptions):
                 gpus = [normalize_gpu_mode(item) for item in gpus]
             except ValueError:
                 errors.append(ConfigIssue("gpus", message('GPU 模式只能包含 off 或 on')))
+                gpus = []
 
-        if self.prune_startup_oom:
-            if len(cpus) != len(set(cpus)):
-                errors.append(ConfigIssue("cpus", message('启用启动 OOM 剪枝时 CPU 列表不能重复')))
-            if len(mems) != len(set(mems)):
-                errors.append(ConfigIssue("mems", message('启用启动 OOM 剪枝时内存列表不能重复')))
-            if len(gpus) != len(set(gpus)):
-                errors.append(ConfigIssue("gpus", message('启用启动 OOM 剪枝时 GPU 模式不能重复')))
+        if len(cpus) != len(set(cpus)):
+            errors.append(ConfigIssue("cpus", message('CPU 列表不能重复')))
+        if len(mems) != len(set(mems)):
+            errors.append(ConfigIssue("mems", message('内存列表不能重复')))
+        if len(gpus) != len(set(gpus)):
+            errors.append(ConfigIssue("gpus", message('GPU 模式不能重复')))
         return gpus
 
     def _validate_input_scales(self, errors: list[ConfigIssue]) -> None:
