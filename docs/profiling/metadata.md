@@ -303,6 +303,7 @@ timeout evidence 包含 `timeout_seconds`（秒）、`request_phase`、`request_
 
 `acprof probe` 每次生成独立的 `input_scale_plan.json` 和 `largest_scale_probe.json`。
 输入计划中的 `task_workload` 记录任务选择。已选 NLP 任务的有效输入清单保存在同一探测目录的 `task_workload.json`，包含发送给生成器的参数、执行组和语义任务。
+探测摘要的 `resource.gpu_mode` 记录最终请求使用的设备模式。当前探测只验证该设备。查看历史产物时，以 `runtime_validation.json` 的 `devices` 为准，旧版混合设备探测可能同时验证过 CPU 和 GPU。
 `largest_scale_probe.json` 使用 schema v3，其主要字段见下表。
 
 | 字段 | 含义 |

@@ -19,6 +19,7 @@ from acprof.host.input_plan import plan_input_scales
 from acprof.host.largest_scale_probe import (
     create_probe_output_dir,
     run_largest_scale_probe,
+    select_minimum_resources,
     write_probe_summary,
 )
 from acprof.host.preflight import (
@@ -92,7 +93,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         cpu_list = _int_list("1,2,4,8" if args.cpus == "auto" else args.cpus, "CPU 列表")
         mem_list = _int_list("2,4,8,16" if args.mems == "auto" else args.mems, "内存列表")
-        gpu_list = _gpu_list(args.gpus)
+        _, _, gpu_mode = select_minimum_resources(cpu_list, mem_list, _gpu_list(args.gpus))
     except argparse.ArgumentTypeError as exc:
         parser.error(str(exc))
 
@@ -103,14 +104,14 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     try:
         with MeasurementLock():
-            return _run_probe(args, cpu_list, mem_list, gpu_list, command_started=command_started)
+            return _run_probe(args, cpu_list, mem_list, gpu_mode, command_started=command_started)
     except RunStateError as exc:
         print(f"[largest-probe][ERROR] {exc}", file=sys.stderr)
         return 2
 
 
 def _run_probe(
-    args: argparse.Namespace, cpu_list: list[int], mem_list: list[int], gpu_list: list[str],
+    args: argparse.Namespace, cpu_list: list[int], mem_list: list[int], gpu_mode: str,
     *, command_started: float,
 ) -> int:
     bootstrap_project_env(Path.cwd())
@@ -119,6 +120,7 @@ def _run_probe(
 
     from acprof.host.detect import detect_task
 
+    probe_devices = [gpu_mode]
     emit_progress("resolution")
     task_info = detect_task(
         model_id=args.model, revision=args.revision,
@@ -135,7 +137,7 @@ def _run_probe(
             if args.workload_spec and (task_info.task_discovery or task_info.selected_tasks):
                 supplied = read_json_object(Path(args.workload_spec).expanduser(), label="workload specification")
             task_info = select_tasks(task_info, args, single_profile=True, supplied_workload=supplied)
-        require_task_support(task_info, batch_size=args.batch_size, devices=gpu_list)
+        require_task_support(task_info, batch_size=args.batch_size, devices=probe_devices)
         from acprof.tasks.workloads import workload_manifest
 
         manifest = (workload_manifest(task_info.selected_tasks[0], supplied=supplied, frozen=task_info.inference_configuration)
@@ -181,7 +183,7 @@ def _run_probe(
             image_info=image_info,
             cpu_list=cpu_list,
             mem_list=mem_list,
-            gpu_list=gpu_list,
+            gpu_list=probe_devices,
             batch_size=args.batch_size,
             output_dir=str(output_dir),
             input_scales=args.input_scales,
@@ -193,7 +195,7 @@ def _run_probe(
             emit_progress("runtime")
             validate_runtime(
                 task_info=task_info, image_info=image_info, planned=planned,
-                cpu_list=cpu_list, mem_list=mem_list, gpu_list=gpu_list, output_dir=str(output_dir),
+                cpu_list=cpu_list, mem_list=mem_list, gpu_list=probe_devices, output_dir=str(output_dir),
             )
         summary = run_largest_scale_probe(
             task_info=task_info,
@@ -201,7 +203,7 @@ def _run_probe(
             planned_input_scales=planned,
             cpu_list=cpu_list,
             mem_list=mem_list,
-            gpu_list=gpu_list,
+            gpu_list=probe_devices,
             batch_size=args.batch_size,
             output_dir=output_dir,
             timeout_seconds=args.timeout_seconds,

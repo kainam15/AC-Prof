@@ -447,7 +447,7 @@ def test_all_memory_candidates_oom_without_claiming_a_minimum(
 @patch("acprof.host.detect.detect_task", return_value=_task_info())
 @patch("acprof.cli.probe.plan_input_scales")
 @patch("acprof.cli.probe.run_largest_scale_probe")
-def test_cli_delegates_planning_and_probe_with_requested_matrix(
+def test_cli_prepares_cpu_image_and_preserves_probe_resource_candidates(
     run_probe: Mock,
     plan_scales: Mock,
     detect_task_mock: Mock,
@@ -455,6 +455,7 @@ def test_cli_delegates_planning_and_probe_with_requested_matrix(
     native_linux_mock: Mock,
     native_docker_mock: Mock,
     cgroup_mock: Mock,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     def fake_run(**kwargs):
         summary_path = Path(kwargs["output_dir"]) / PROBE_SUMMARY_NAME
@@ -465,6 +466,9 @@ def test_cli_delegates_planning_and_probe_with_requested_matrix(
         }
 
     run_probe.side_effect = fake_run
+    monkeypatch.delenv("ACPROF_NLP_TORCH_INDEX_URL", raising=False)
+    driver = Mock(side_effect=AssertionError("CPU probe queried the GPU driver"))
+    monkeypatch.setattr("acprof.host.images.runtime._host_cuda_version", driver)
 
     built_image = ImageInfo(tag="acprof-nlp-demo--model:latest")
     with tempfile.TemporaryDirectory() as temporary_dir, patch("acprof.system.command.run_command", return_value=Mock(returncode=1, stdout="", stderr="No such image"),
@@ -501,9 +505,10 @@ def test_cli_delegates_planning_and_probe_with_requested_matrix(
         saved = json.loads(summary_path.read_text(encoding="utf-8"))
 
     assert (returncode) == (0)
+    driver.assert_not_called()
     build_image.assert_called_once()
     expected_task = _task_info()
-    expected_task.runtime_profile_id = "nlp-cu128"
+    expected_task.runtime_profile_id = "nlp-cpu"
     expected_task.model_resolution = {
         "schema_version": 1, "status": "candidate", "task": "fill-mask",
         "backend": "transformers_pipeline", "library": "transformers", "artifact_format": "unknown",
@@ -513,29 +518,27 @@ def test_cli_delegates_planning_and_probe_with_requested_matrix(
             "weights": [],
         },
         "loader": "Transformers Auto/pipeline", "operation": "predict", "model_revision": "1" * 40,
-        "metadata_files": [], "model_type": None, "runtime_profile": "nlp-cu128",
+        "metadata_files": [], "model_type": None, "runtime_profile": "nlp-cpu",
         "interface_kind": "standard", "pipeline_task": "fill-mask",
         "code_revision": None, "code_files": [], "model_spec": {},
         "model_id": "demo/model", "transformers_version": "4.57.6", "trust_remote_code": False,
-        "requested_devices": ["off", "on"],
+        "requested_devices": ["off"],
         "compatibility": {
             "status": "unknown", "interface_status": "unknown", "artifact_status": "unknown",
             "evidence_level": "static", "checkpoint_verified": False,
             "detail": "Repository file evidence is unavailable; the artifact layout has not been verified.",
             "next_action": "Review the pinned artifacts and registered backend capability; static "
                            "evidence does not replace a separately authorized interface probe.",
-            "runtime_profile": "nlp-cu128", "source": "locked_transformers_mapping",
+            "runtime_profile": "nlp-cpu", "source": "locked_transformers_mapping",
             "transformers_version": "4.57.6",
         },
         "dependency_preflight": {
-            "schema_version": 1, "revision": "1" * 40, "runtime_profile": "nlp-cu128",
-            "lock": "dockerfiles/locks/nlp-cu128.txt", "source_sha256": {}, "dependencies": [],
+            "schema_version": 1, "revision": "1" * 40, "runtime_profile": "nlp-cpu",
+            "lock": "dockerfiles/locks/nlp-cpu.txt", "source_sha256": {}, "dependencies": [],
         },
         "precision": {
             "off": {"dtype": "FP32", "torch_dtype": "float32", "supported_dtypes": ["FP32", "FP16"],
-                    "device": "cpu", "runtime_profile": "nlp-cu128", "evidence": []},
-            "on": {"dtype": "FP16", "torch_dtype": "float16", "supported_dtypes": ["FP32", "FP16"],
-                   "device": "gpu", "runtime_profile": "nlp-cu128", "evidence": []},
+                    "device": "cpu", "runtime_profile": "nlp-cpu", "evidence": []},
         },
     }
     assert (build_image.call_args.args[0]) == (expected_task)
@@ -543,7 +546,7 @@ def test_cli_delegates_planning_and_probe_with_requested_matrix(
     assert (run_probe.call_args.kwargs["image_info"]) is (built_image)
     assert (plan_scales.call_args.kwargs["cpu_list"]) == ([1, 4])
     assert (plan_scales.call_args.kwargs["mem_list"]) == ([2, 8])
-    assert (plan_scales.call_args.kwargs["gpu_list"]) == (["off", "on"])
+    assert plan_scales.call_args.kwargs["gpu_list"] == ["off"]
     assert (run_probe.call_args.kwargs["batch_size"]) == (3)
     assert (run_probe.call_args.kwargs["timeout_seconds"]) is None
     assert (saved["timing"]["command_s"]) >= (0.0)

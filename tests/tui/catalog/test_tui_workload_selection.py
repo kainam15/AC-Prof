@@ -13,11 +13,14 @@ from tests.support.tui_fixtures import AcprofTui
 from tests.support.tui_waits import wait_for_condition
 
 
-@pytest.mark.parametrize(("size", "language"), [((80, 24), "zh"), ((120, 30), "en")])
-async def test_saved_selection_reaches_run_preview_and_probe_confirmation(tmp_path, size, language):
+@pytest.mark.parametrize(("size", "language", "gpu_modes", "probe_gpu"), [
+    ((80, 24), "zh", "on,off", "off"), ((120, 30), "en", "on", "on"),
+])
+async def test_saved_selection_reaches_run_preview_and_probe_confirmation(tmp_path, size, language, gpu_modes, probe_gpu):
     path = tmp_path / "tui.json"
     project = Path(__file__).resolve().parents[3]
-    initial = replace(RunConfig.smoke("google-t5/t5-small"), task="text2text-generation", tasks="summarization")
+    initial = replace(RunConfig.smoke("google-t5/t5-small"), task="text2text-generation",
+                      tasks="summarization", gpus=gpu_modes)
     save_settings(path, TuiSettings(run_defaults=initial, ui=UiPreferences(language=language)), project)
     app = AcprofTui(settings_path=path)
     selected = "translation_en_to_fr,translation_en_to_de"
@@ -45,6 +48,7 @@ async def test_saved_selection_reaches_run_preview_and_probe_confirmation(tmp_pa
         await wait_for_condition(pilot, lambda: isinstance(app.screen, ConfirmActionScreen),
                                  description="minimum-memory probe confirmation", timeout=3)
         pending = app.experiments.pending_launch
+        assert f"GPU={probe_gpu}" in app.screen.message
         assert pending.kind == "probe"
         assert pending.config.tasks == selected
         assert pending.command[pending.command.index("--tasks") + 1] == selected

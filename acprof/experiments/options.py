@@ -82,6 +82,7 @@ class RunOptions:
     )
     gpus: str = option(
         'off,on', help='GPU modes (comma-separated: off,on)', probe=True,
+        probe_help='Use CPU when off is listed (default). Use --gpus on for a GPU probe.',
     )
     input_scales: str = option(
         '', help='Override input scale values (comma-separated)', probe=True, cli_default=None,

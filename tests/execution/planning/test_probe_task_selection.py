@@ -13,7 +13,7 @@ from acprof.cli import probe
 from acprof.host import largest_scale_probe
 from acprof.host.docker_runtime import RunningContainer
 from acprof.host.images.runtime import ImageInfo
-from acprof.host.input_plan import families
+from acprof.host.input_plan import families, probe as input_probe
 from acprof.host.largest_scale_probe import PROBE_SUMMARY_NAME, read_probe_summary
 
 
@@ -35,7 +35,7 @@ def t5_probe(tmp_path, monkeypatch):
         monkeypatch.setattr(probe, name, Mock())
     image = Mock(return_value=ImageInfo(tag="fixture-probe"))
     monkeypatch.setattr(probe, "prepare_image", image)
-    monkeypatch.setattr(families, "start_probe_session", Mock())
+    monkeypatch.setattr(input_probe, "start_service_session", Mock())
     monkeypatch.setattr(families, "stop_service_session", Mock())
     monkeypatch.setattr(families, "post_probe_payload", lambda _session, payload, _desc: {
         "payload": payload, "truncated_by_limit": False, "effective_input_scale": 32,
@@ -50,8 +50,49 @@ def t5_probe(tmp_path, monkeypatch):
     monkeypatch.setattr(largest_scale_probe.requests, "post", post)
     output = tmp_path / "result"
     args = ["--model", source["model_id"], "--revision", source["revision"], "--output-dir", str(output),
-            "--gpus", "off", "--input-scales", "32"]
+            "--input-scales", "32"]
     return args, output, image, post
+
+
+@pytest.mark.parametrize(("gpu_args", "expected"), [
+    ([], "off"), (["--gpus", "on,off"], "off"), (["--gpus", "on"], "on"),
+])
+def test_probe_uses_one_device_from_preparation_to_prediction(t5_probe, monkeypatch, gpu_args, expected):
+    args, output, image, post = t5_probe
+    image.return_value.runtime_environment = {"build_fingerprint": "fixture"}
+    validate = Mock()
+    monkeypatch.setattr("acprof.host.runtime_validation.validate_runtime", validate)
+
+    assert probe.main([*args, "--tasks", "summarization", "--cpus", "1,4",
+                       "--mems", "8,2", *gpu_args]) == 0
+
+    summary_path, = output.rglob(PROBE_SUMMARY_NAME)
+    summary = read_probe_summary(summary_path)
+    planning = input_probe.start_service_session.call_args.kwargs
+    predicting = largest_scale_probe.start_container_session.call_args.kwargs
+    assert (planning["gpu"], validate.call_args.kwargs["gpu_list"], predicting["gpu"]) == (
+        expected, [expected], expected,
+    )
+    assert image.call_args.args[0].model_resolution["requested_devices"] == [expected]
+    assert (planning["cpu"], planning["mem"]) == (4, 8)
+    assert (predicting["cpu"], predicting["mem"]) == (1, 2)
+    assert summary["resource"]["gpu_mode"] == expected
+    assert summary["memory_probe"]["candidate_order_gb"] == [2, 8]
+    post.assert_called_once()
+
+
+def test_gpu_only_probe_reports_device_failure_before_prediction(t5_probe, monkeypatch, capsys):
+    args, output, image, post = t5_probe
+    image.return_value.runtime_environment = {"build_fingerprint": "fixture"}
+    validate = Mock(side_effect=RuntimeError("fixture GPU unavailable"))
+    monkeypatch.setattr("acprof.host.runtime_validation.validate_runtime", validate)
+
+    assert probe.main([*args, "--tasks", "summarization", "--gpus", "on"]) == 2
+
+    assert "fixture GPU unavailable" in capsys.readouterr().err
+    assert validate.call_args.kwargs["gpu_list"] == ["on"]
+    post.assert_not_called()
+    assert not list(output.rglob(PROBE_SUMMARY_NAME))
 
 
 @pytest.mark.parametrize(("requested", "prefix", "ngram", "members"), [

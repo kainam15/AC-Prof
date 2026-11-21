@@ -69,11 +69,11 @@ class ExperimentController:
             return
 
         from acprof.application.resources import resource_matrix
-        cpus, memories, _ = resource_matrix(config.to_namespace())
-        cpu = min(cpus)
+        from acprof.host.largest_scale_probe import select_minimum_resources
+
+        cpus, memories, gpu_modes = resource_matrix(config.to_namespace())
+        cpu, _, gpu = select_minimum_resources(cpus, memories, gpu_modes)
         memory_candidates = sorted(set(memories))
-        gpu_modes = config.gpus.split(",")
-        gpu = "off" if "off" in gpu_modes else "on"
         largest_scale = (
             max(float(value) for value in config.input_scales.split(","))
             if config.input_scales
