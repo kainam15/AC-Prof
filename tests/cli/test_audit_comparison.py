@@ -1,4 +1,5 @@
 """The two reports in one audit --compare command describe the same input bytes."""
+import csv
 import json
 from collections import Counter
 from pathlib import Path
@@ -21,6 +22,75 @@ def experiments(tmp_path):
     fixture = ComparisonFixture()
     fixture.build(tmp_path)
     return fixture.left, fixture.right
+
+
+@pytest.fixture
+def workload_audits(experiments, capsys):
+    left, right = (root / "result_all.csv" for root in experiments)
+    with left.open(newline="") as stream:
+        reader = csv.DictReader(stream)
+        fields, row = reader.fieldnames, next(reader)
+    assert fields is not None
+    summary = json.loads(row["workload_contract"])
+
+    def run(summary):
+        row["workload_contract"] = "" if summary is None else json.dumps(summary)
+        with left.open("w", newline="") as stream:
+            writer = csv.DictWriter(stream, fields)
+            writer.writeheader()
+            writer.writerow(row)
+        reports = []
+        for extra in ([], ["--compare", str(right), "--require-comparable"]):
+            code = audit.main([str(left), "--json", *extra])
+            report = json.loads(capsys.readouterr().out)
+            assert code == (0 if report["accepted"] else 1)
+            reports.append(report)
+        return reports
+
+    return summary, run
+
+
+@pytest.mark.parametrize(("level", "version"), [
+    ("summary", True), ("summary", 1.0), ("summary", 2), ("summary", None),
+    ("contract", True), ("contract", 1.0), ("contract", "1"), ("contract", 2), ("contract", None),
+])
+def test_audit_and_strict_comparison_reject_malformed_workload_versions(workload_audits, level, version):
+    summary, run = workload_audits
+    contract = summary if level == "summary" else summary["variants"][0]["contract"]
+    if version is None:
+        del contract["schema_version"]
+    else:
+        contract["schema_version"] = version
+    if level == "contract" and version is None:
+        # An earlier unknown request must not hide a malformed recorded contract.
+        summary["variants"][0]["count"] -= 1
+        summary["variants"].insert(0, {"count": 1, "contract": None})
+
+    ordinary, strict = run(summary)
+    assert not ordinary["accepted"]
+    assert any(issue["code"] == "workload_contract" for issue in ordinary["issues"])
+    assert not strict["accepted"]
+    assert not strict["comparison"]["experiments"]["left"]["valid"]
+    assert strict["comparison"]["experiments"]["right"]["valid"]
+    assert strict["comparison"]["conditions"]["actual_workload"]["status"] == "unknown"
+
+
+@pytest.mark.parametrize("evidence", ["complete", "null", "mixed", "historical_blank"])
+def test_audit_keeps_unknown_request_evidence_distinct_from_invalid_versions(workload_audits, evidence):
+    summary, run = workload_audits
+    if evidence == "null":
+        summary["variants"][0]["contract"] = None
+    elif evidence == "mixed":
+        summary["variants"][0]["count"] -= 1
+        summary["variants"].append({"count": 1, "contract": None})
+
+    ordinary, strict = run(None if evidence == "historical_blank" else summary)
+    assert ordinary["accepted"]
+    assert strict["comparison"]["valid"]
+    assert strict["accepted"] is (evidence == "complete")
+    actual = strict["comparison"]["conditions"]["actual_workload"]
+    assert actual["status"] == ("compatible" if evidence == "complete" else "unknown")
+    assert actual["right"]
 
 
 @pytest.mark.parametrize("storage", ["csv", "legacy-directory", "v1", "v2", "v3"])

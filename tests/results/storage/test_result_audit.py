@@ -380,6 +380,17 @@ class TestResultAudit:
         self.write(self.row(workload_contract=json.dumps(summary), repeat_in_window="2"))
         assert (audit_result(self.path)["valid"])
 
+    @pytest.mark.parametrize(("total", "completed", "valid"), [
+        (2**53, str(2**53 + 1), False),
+        (2**53 + 1, "9.007199254740993e15", True),
+    ])
+    def test_workload_request_counts_are_compared_without_rounding(self, total, completed, valid):
+        summary = {"schema_version": 1, "request_count": total, "variants": [{"count": total, "contract": None}]}
+        self.write(self.row(workload_contract=json.dumps(summary), repeat_in_window=completed))
+        report = audit_result(self.path)
+        assert report["valid"] is valid
+        assert any(issue["code"] == "workload_contract" for issue in report["issues"]) is not valid
+
     def test_failed_preparation_or_interface_validation_makes_audit_invalid(self):
         from acprof.results.layout import ArtifactLayout
         layout = ArtifactLayout.for_new_run(self.root)

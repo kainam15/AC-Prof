@@ -7,8 +7,10 @@ import json
 import math
 from collections import Counter, defaultdict
 from collections.abc import Callable
+from decimal import InvalidOperation
 from pathlib import Path
 
+from acprof.analysis.workload import parse_workload_summary
 from acprof.capabilities import collection_outcomes
 from acprof.failures import Failure
 from acprof.platform import native_only_metric, recorded_identity
@@ -23,7 +25,11 @@ from acprof.results.csv import (
     result_csv_snapshot_unchanged,
     validate_result_rows,
 )
-from acprof.results.measurement_plan import RecordedMeasurementOptions, recorded_scales
+from acprof.results.measurement_plan import (
+    RecordedMeasurementOptions,
+    decimal_coordinate,
+    recorded_scales,
+)
 from acprof.results.metadata import ResultMetadataSnapshot
 from acprof.results.metrics import METRICS, NUMERIC_FIELDS
 from acprof.results.profile import metric_observation
@@ -145,22 +151,14 @@ def _formula_checks(row: dict) -> dict[str, float]:
 
 
 def _check_workload_counts(row: dict) -> None:
-    raw = row.get("workload_contract", "")
-    if str(raw).strip().lower() in MISSING_CSV_TEXT:
+    summary = parse_workload_summary(row.get("workload_contract"))
+    if summary is None:
         return
-    summary = json.loads(raw)
-    if not isinstance(summary, dict) or summary.get("schema_version") != 1:
-        raise ValueError("不支持的 workload_contract 摘要格式")
-    total = summary.get("request_count")
-    variants = summary.get("variants")
-    if type(total) is not int or total < 0 or not isinstance(variants, list):
-        raise ValueError("workload_contract 缺少合法 request_count/variants")
-    counts = [item.get("count") if isinstance(item, dict) else None for item in variants]
-    valid_counts = [count for count in counts if type(count) is int and count > 0]
-    if len(valid_counts) != len(counts) or sum(valid_counts) != total:
-        raise ValueError("workload_contract 的 variants 计数与 request_count 不一致")
-    completed = number(row.get("repeat_in_window"))
-    if completed is not None and completed != total:
+    try:
+        completed = decimal_coordinate(str(row.get("repeat_in_window", "")))
+    except InvalidOperation:
+        return  # Numeric-column validation handles malformed cells.
+    if completed.is_finite() and completed != summary["request_count"]:
         raise ValueError("workload_contract.request_count 与 repeat_in_window 不一致")
 
 

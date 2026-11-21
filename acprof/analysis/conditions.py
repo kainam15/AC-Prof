@@ -16,6 +16,11 @@ PURPOSES = ("same-hardware", "cross-hardware", "resource-scaling")
 REPORT_PURPOSES = ("within-experiment", *PURPOSES)
 ALLOWED_RESOURCE_DIMENSIONS = ["cpu", "memory"]
 _FIXED_OUTPUT_TASKS = {"tabular-regression", "tabular-classification", "time-series-forecasting"}
+_WORKLOAD_SECTIONS = {
+    "scenario": {"type"},
+    "input": {"planned_scale", "actual_scale"},
+    "output": {"type", "shape", "count"},
+}
 _DYNAMIC_GENERATION = {f"generation.{name}" for name in (
     "actual_output_tokens", "actual_output_tokens_per_sequence", "actual_output_tokens_status",
     "decoded_text_token_count", "stop_reason")}
@@ -44,13 +49,20 @@ def digest(value):
     return hashlib.sha256(canonical(value).encode()).hexdigest()
 
 
-def unknown(value):
-    if value is None or value == "unknown":
-        return True
-    if isinstance(value, dict):
-        return not value or any(unknown(item) for item in value.values())
-    if isinstance(value, list):
-        return not value or any(unknown(item) for item in value)
+def unknown(value) -> bool:
+    """Stop at the first unknown fact while keeping one iterator per nested container."""
+    pending = [iter((value,))]
+    while pending:
+        for item in pending[-1]:
+            if item is None or item == "unknown":
+                return True
+            if isinstance(item, (dict, list)):
+                if not item:
+                    return True
+                pending.append(iter(item.values() if isinstance(item, dict) else item))
+                break
+        else:
+            pending.pop()
     return False
 
 
@@ -73,6 +85,18 @@ def _check_tokens(name: str, value) -> Iterator[tuple[str, str | None]]:
         yield name, None if unknown(value) else digest(value)
 
 
+def workload_contract_complete(contract: dict) -> bool:
+    """A v1 contract needs all base observations before equal distributions establish equivalence."""
+    task = contract.get("task")
+    if not isinstance(task, str) or not task.strip() or "batch_size" not in contract:
+        return False
+    for name, required in _WORKLOAD_SECTIONS.items():
+        section = contract.get(name)
+        if not isinstance(section, dict) or not required.issubset(section):
+            return False
+    return not unknown(contract)
+
+
 def workload_case_profile(case):
     variants = []
     distribution: defaultdict[str, Fraction] = defaultdict(Fraction)
@@ -82,10 +106,12 @@ def workload_case_profile(case):
         weight = Fraction(variant["count"], case["request_count"])
         distribution[canonical(contract)] += weight
         fields = {name: canonical(value) for name, value in dimensions(contract).items() if not unknown(value)}
-        controlled = [name for name in fields if contract.get("task") in _FIXED_OUTPUT_TASKS or
+        task = contract.get("task")
+        fixed_output = isinstance(task, str) and task in _FIXED_OUTPUT_TASKS
+        controlled = [name for name in fields if fixed_output or
                       ((not name.startswith("output.") or name == "output.type") and name not in _DYNAMIC_GENERATION)]
         variants.append({"proportion": str(weight), "fields": fields, "controlled": sorted(controlled)})
-        complete = complete and not unknown(contract)
+        complete = complete and workload_contract_complete(contract)
     return {"observed": digest({key: str(value) for key, value in sorted(distribution.items())}),
             "complete": complete, "variants": variants}
 

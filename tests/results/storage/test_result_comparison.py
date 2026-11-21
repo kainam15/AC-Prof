@@ -8,11 +8,11 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-from tests.support.comparison_fixtures import ComparisonFixture
 
 from acprof.cli.audit import main
 from acprof.config import CSV_FIELDS
 from acprof.platform import Environment
+from tests.support.comparison_fixtures import ComparisonFixture
 
 
 class TestResultComparison(ComparisonFixture):
@@ -210,6 +210,62 @@ class TestResultComparison(ComparisonFixture):
         assert (actual["status"]) == ("unknown")
         assert (actual["reason"]) == ("actual_workload_evidence_incomplete")
         assert (actual["request_counts_changed"])
+
+    @pytest.mark.parametrize(("section", "field"), [
+        (None, "task"), (None, "batch_size"), ("scenario", "type"), ("input", "planned_scale"),
+        ("input", "actual_scale"), ("output", "type"), ("output", "shape"), ("output", "count"),
+    ])
+    def test_matching_contracts_missing_a_base_field_remain_unknown(self, section, field):
+        contract = copy.deepcopy(self.contract)
+        target = contract if section is None else contract[section]
+        target.pop(field)
+        if section == "scenario":
+            target["concurrency"] = 1
+        self.write_rows(self.left, contract, count=2)
+        self.write_rows(self.right, contract, count=3)
+        report = self.compare()
+        actual = report["conditions"]["actual_workload"]
+        assert report["valid"]
+        assert report["status"] == "unknown"
+        assert actual["reason"] == "actual_workload_evidence_incomplete"
+        assert actual["status"] == "unknown"
+        assert actual["request_counts_changed"]
+        case = next(iter(actual["left"].values()))
+        assert case["request_count"] == 2
+        assert case["variants"] == [{"contract": contract, "count": 2, "proportion": "1"}]
+
+    def test_mixed_variants_keep_controlled_differences_when_a_base_field_is_absent(self):
+        from acprof.analysis.conditions import compare_workload_profiles, workload_case_profile
+
+        partial = copy.deepcopy(self.contract)
+        del partial["output"]["shape"]
+        case = {"request_count": 3, "variants": [
+            {"count": 2, "contract": self.contract}, {"count": 1, "contract": partial},
+        ]}
+        baseline = workload_case_profile(case)
+        assert not baseline["complete"]
+        assert [v["proportion"] for v in baseline["variants"]] == ["2/3", "1/3"]
+        assert compare_workload_profiles({"case": baseline}, {"case": baseline}) == "unknown"
+        partial["input"]["actual_scale"] = 9
+        changed = workload_case_profile(case)
+        assert compare_workload_profiles({"case": baseline}, {"case": changed}) == "incompatible"
+
+    @pytest.mark.parametrize(("leaf", "complete", "status"), [(1, True, "compatible"), (None, False, "unknown")])
+    def test_deep_workload_extension_preserves_known_and_unknown_evidence(self, leaf, complete, status):
+        from acprof.analysis.conditions import workload_case_profile
+
+        extension = leaf
+        for _ in range(520):
+            extension = [extension]
+        contract = {**self.contract, "extension": extension}
+        case = {"request_count": 1, "variants": [{"count": 1, "contract": contract}]}
+        assert workload_case_profile(case)["complete"] is complete
+        self.write_rows(self.left, contract)
+        self.write_rows(self.right, contract)
+        report = self.compare()
+        assert report["valid"]
+        assert report["status"] == status
+        assert report["conditions"]["actual_workload"]["status"] == status
 
     def test_proportional_variant_counts_keep_distribution(self):
         self.write_distribution(self.left, [99, 1])

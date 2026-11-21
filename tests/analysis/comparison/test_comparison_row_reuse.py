@@ -1,5 +1,6 @@
 """Comparison conditions use the same parsed result rows as their audit."""
 import csv
+import json
 from collections import Counter
 from pathlib import Path
 
@@ -34,6 +35,41 @@ def test_comparison_parses_plain_csv_once(source, monkeypatch, relative):
     assert snapshot["metric_availability"]["latency_app_s"]
     assert snapshot["measurement_status"] == "complete"
     assert calls == Counter({source: 1})
+
+
+@pytest.mark.parametrize(("evidence", "valid"), [
+    (" N/A ", True),
+    ({"schema_version": 1, "task": []}, False),
+    ({"schema_version": 1, "input": {"actual_scale": float("inf")}}, False),
+    ({"schema_version": 1, "task": "bad\ud800"}, False),
+])
+def test_unavailable_workload_preserves_other_recorded_evidence(source, evidence, valid):
+    with source.open(newline="") as stream:
+        reader = csv.DictReader(stream)
+        fields, row = reader.fieldnames, next(reader)
+    summary = json.loads(row["workload_contract"])
+    summary["variants"][0]["contract"] = evidence
+    row["workload_contract"] = evidence if isinstance(evidence, str) else json.dumps(summary)
+    assert fields is not None
+    with source.open("w", newline="") as stream:
+        writer = csv.DictWriter(stream, fields)
+        writer.writeheader()
+        writer.writerow(row)
+    snapshot = comparison.load_comparison_snapshot(source)
+    assert snapshot["valid"] is valid
+    assert snapshot["conditions"]["actual_workload"] is None
+    assert snapshot["audit"]["counts"]["formal_ok"] == 1
+    assert snapshot["metric_availability"]["latency_app_s"]
+    assert snapshot["hardware"]["cpu_model"] is not None
+
+
+def test_nontext_workload_in_supplied_snapshot_is_reported(source):
+    supplied = result_csv.read_result_csv_snapshot(source)
+    supplied.rows[0]["workload_contract"] = {}
+    snapshot = comparison.load_comparison_snapshot(source, result_snapshot=supplied, verify_result_snapshot=False)
+    assert not snapshot["valid"]
+    assert any(issue["code"] == "workload_contract" for issue in snapshot["audit"]["issues"])
+    assert snapshot["metric_availability"]["latency_app_s"]
 
 
 def test_comparison_keeps_the_audited_rows_when_the_file_is_later_replaced(source, monkeypatch):

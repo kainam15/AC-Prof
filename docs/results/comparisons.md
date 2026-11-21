@@ -144,6 +144,9 @@ acprof compare --left results/a1/model --left results/a2/model --left results/a3
 不兼容或条件未知时仍输出审计、失败／缺失统计，但差值、比值与区间为 `null`。
 
 实际 workload 按资源和输入尺度累计每个 variant 的请求计数，以精确约分后的比例比较分布。
+两个实验要凭相同分布判定工作量可比，契约须记录任务、批大小、场景类型、计划与实际输入尺度，
+以及输出的类型、形状和数量。非空契约缺少基础事实或含未知值时，报告保留已记录的维度、请求数和比例，
+可比性为 `unknown`；已知受控维度不一致时仍报告 `incompatible`。
 `99:1` 与 `1:99` 不等价；`99:1` 与 `990:10` 分布相同，仅 `request_counts_changed=true`。
 单一 workload 的自动窗口执行次数不同仍可比较；请求总数不充当单请求工作量。
 `conditions.actual_workload` 保留两侧全部计数、比例、`reason` 和 `changed_dimensions` 的输入／输出维度分布。

@@ -17,8 +17,11 @@ from acprof.analysis.conditions import (
     PreparedComparison,
     compare_profiles,
     compare_workload_profiles,
+    unknown,
     workload_case_profile,
+    workload_contract_complete,
 )
+from acprof.analysis.workload import parse_workload_summary
 from acprof.hardware_conditions import HARDWARE_FIELDS, conditions_path
 from acprof.platform import recorded_identity
 from acprof.quality import QUALITY_FIELDS
@@ -54,22 +57,12 @@ def _digest(value) -> str:
     return hashlib.sha256(_canonical(value).encode()).hexdigest()
 
 
-def _unknown(value) -> bool:
-    if value is None or value == "unknown":
-        return True
-    if isinstance(value, dict):
-        return not value or any(_unknown(item) for item in value.values())
-    if isinstance(value, list):
-        return not value or any(_unknown(item) for item in value)
-    return False
-
-
 def _condition(left, right) -> dict:
     if isinstance(left, dict) and isinstance(right, dict) and left and right:
         statuses = {_condition(left.get(key), right.get(key))["status"] for key in left.keys() | right.keys()}
         status = ("incompatible" if "incompatible" in statuses
                   else "unknown" if "unknown" in statuses else "compatible")
-    elif _unknown(left) or _unknown(right):
+    elif unknown(left) or unknown(right):
         status = "unknown"
     else:
         status = "compatible" if left == right else "incompatible"
@@ -83,27 +76,13 @@ def _actual_workload(rows: list[dict]) -> dict | None:
         row_key = measurement_key(row)
         if result_row_status(row) not in {"ok", "warn"} or row_key[4] != "0":
             continue
-        raw = row.get("workload_contract")
-        if not raw or raw.lower() in {"nan", "null", "none"}:
-            return None
-        summary = json.loads(raw)
-        if not isinstance(summary, dict) or summary.get("schema_version") != 1:
-            return None
-        variants, total = summary.get("variants"), summary.get("request_count")
-        if not isinstance(variants, list) or not variants or type(total) is not int or total <= 0:
-            return None
-        counts: list[int] = []
-        for variant in variants:
-            count = variant.get("count") if isinstance(variant, dict) else None
-            if type(count) is not int or count <= 0:
-                return None
-            counts.append(count)
-        if sum(counts) != total:
+        summary = parse_workload_summary(row.get("workload_contract"))
+        if summary is None or not summary["request_count"]:
             return None
         key = _canonical(row_key[:4])
-        for variant in variants:
+        for variant in summary["variants"]:
             contract = variant.get("contract")
-            if not isinstance(contract, dict) or contract.get("schema_version") != 1:
+            if contract is None:
                 return None
             # Backend parameters are identity evidence, not workload semantics.
             contract = {name: item for name, item in contract.items() if name != "runtime"}
@@ -143,7 +122,8 @@ def _workload_condition(left, right):
     if left.keys() != right.keys():
         return {**result, "status": "incompatible", "reason": "workload_cases_changed"}
     result["request_counts_changed"] = any(left[key]["request_count"] != right[key]["request_count"] for key in left)
-    incomplete = any(_unknown(v["contract"]) for cases in (left, right) for case in cases.values() for v in case["variants"])
+    incomplete = any(not workload_contract_complete(v["contract"])
+                     for cases in (left, right) for case in cases.values() for v in case["variants"])
     changed: dict[str, dict[str, dict[str, dict[str, str]]]] = {}
     differing_cases = [key for key in left if _distribution(left[key]) != _distribution(right[key])]
     if not differing_cases:
@@ -315,16 +295,20 @@ def _resolve_actual_workload_and_cases(
         if not isinstance(result, ResultCsvSnapshot):
             raise result
         rows = [row for row in result.rows if not is_inferred_result(row)]
-        actual = _actual_workload(rows)
         from acprof.results.layout import resource_case_id
         case_ids = {
             resource_case_id(row["cpu_cores"], row["mem_cap_gb"], row["gpu_mode"])
             for row in rows if result_row_status(row) in {"ok", "warn"}
         }
-        return rows, actual, case_ids
     except (OSError, ValueError, TypeError, AttributeError) as error:
         issues.append(f"actual workload: {error}")
         return [], None, set()
+    try:
+        actual = _actual_workload(rows)
+    except ValueError as error:
+        issues.append(f"actual workload: {error}")
+        actual = None
+    return rows, actual, case_ids
 
 
 def load_comparison_snapshot(source: str | Path, *, result_snapshot: ResultCsvSnapshot | None = None,
@@ -559,11 +543,11 @@ def compare_snapshots(left: dict, right: dict, *, purpose: str = "same-hardware"
         if purpose == "cross-hardware" and name != "runtime_threads":
             # A known model difference cannot turn an unknown power policy into
             # verified evidence. Complete but different CPU-ID maps are expected.
-            item["status"] = ("unknown" if _unknown(left_value) or _unknown(right_value)
+            item["status"] = ("unknown" if unknown(left_value) or unknown(right_value)
                               else "compatible" if left_value == right_value else "expected_difference")
         conditions[f"hardware_{name}"] = item
     # Observed formal-server threads supersede independent-probe approximations.
-    if not _unknown(lhs["hardware"].get("runtime_threads")) and not _unknown(rhs["hardware"].get("runtime_threads")):
+    if not unknown(lhs["hardware"].get("runtime_threads")) and not unknown(rhs["hardware"].get("runtime_threads")):
         conditions["runtime_threads"] = conditions["hardware_runtime_threads"]
     profiles = {side: PreparedComparison(snapshot).profile(purpose=purpose) for side, snapshot in snapshots.items()}
     qualification = compare_profiles(profiles["left"], profiles["right"])
