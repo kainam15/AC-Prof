@@ -14,7 +14,7 @@ window.ACProfImport = (() => {
   const record = value => value !== null && typeof value === "object" && !Array.isArray(value);
   const qualities = new Set(["complete", "partial", "unsupported", "permission_denied", "not_requested", "not_applicable", "tool_missing", "error", "unavailable", "unknown"]);
   const sampledGroups = new Set(["gpu_power", "cpu_energy", "dram_energy", "cpu_instructions", "cgroup"]);
-  const {stableJson, observationSignature} = ACProfViews;
+  const {stableJson, usableQuality, observationContract, observationSignature} = ACProfViews;
   function accumulator(registry) {
     return Object.fromEntries(Object.keys(registry).map(name => [name, {n:0, sum:0, correction:0, max:null, weight:0, weighted:0, badWeight:false, startups:new Map(), conflict:false}]));
   }
@@ -30,7 +30,15 @@ window.ACProfImport = (() => {
     if (!qualities.has(quality)) return {error:`${path}.status: invalid metric quality`};
     return {quality, reason:entry.detail};
   }
-  function metricObservations(raw, registry) {
+  function energyObservation(names, observations, method) {
+    const components = Object.fromEntries(names.map(name => [name, observationContract(observations[name])]));
+    if (components.gpu_energy_total_j && method !== "unknown") components.gpu_energy_total_j.energy_method = method;
+    const failed = names.find(name => !usableQuality(observations[name].quality));
+    if (failed) return {components, quality:observations[failed].quality, reason:failed + ": " + observations[failed].reason};
+    const unknown = names.some(name => observations[name].quality === "unknown");
+    return {components, quality:unknown ? "unknown" : "complete", reason:unknown ? "component_quality_unknown" : ""};
+  }
+  function metricObservations(raw, registry, energyFields) {
     let evidence = {}, collectors = {}, invalid = false;
     const text = (raw.resource_metric_quality || "").trim();
     if (text && !["nan", "null", "none"].includes(text.toLowerCase())) {
@@ -48,7 +56,7 @@ window.ACProfImport = (() => {
     }
     const runtime = raw.runtime_kind === "process" ? "process" : "docker";
     const hasCollectors = Object.keys(collectors).length > 0;
-    return Object.fromEntries(Object.entries(registry).filter(([name]) => Object.hasOwn(raw, name)).map(([name, metric]) => {
+    return Object.fromEntries(Object.entries(registry).filter(([name]) => Object.hasOwn(raw, name) || energyFields.includes(name)).map(([name, metric]) => {
       const contract = (runtime === "process" && metric.process_contract) || metric.observation_contract || {};
       const error = reason => [name, {...contract, quality:"error", reason}];
       if (invalid) return error("invalid_metric_quality_evidence");
@@ -117,7 +125,7 @@ window.ACProfImport = (() => {
           if (raw.packet_status === "partial") Object.assign(item, {quality:"partial", reason:"incomplete_packet_request_correlation"});
         }
         if (sampled) item.sampling = {...sampling};
-        if (group === "gpu_power" && item.sampling) item.sampling.energy_method = raw.gpu_energy_source;
+        if (group === "gpu_power" && item.sampling) item.sampling.energy_method = raw.gpu_energy_source ?? null;
       }
       const bad = item && (!qualities.has(item.quality) ||
         ["source", "scope", "window", "derivation"].some(key => Object.hasOwn(item, key) && item[key] !== contract[key]));
@@ -185,8 +193,18 @@ window.ACProfImport = (() => {
       const key = JSON.stringify(stable);
       if (!groups.has(key)) groups.set(key, {identity, idKey:key, index:groups.size, input_scale:nums.input_scale, total:0, formal:0, valid:0, inferred:false, metrics:accumulator(registry), observations:{}});
       const group = groups.get(key);
-      const observations = metricObservations(raw, registry);
+      const energyFields = device === "GPU" ? ["cpu_energy_total_j", "gpu_energy_total_j"] : ["cpu_energy_total_j"];
+      const observations = metricObservations(raw, registry, energyFields);
+      const weight = number(raw.repeat_in_window), cpu = number(raw.cpu_energy_total_j), gpu = number(raw.gpu_energy_total_j);
+      const energy = cpu !== null && cpu >= 0 && (device === "CPU" || gpu !== null && gpu >= 0) ? cpu + (device === "GPU" ? gpu : 0) : null;
+      const derived = {observed_energy_per_request_j:energy, observed_energy_j:energy !== null && weight > 0 ? energy * weight : null};
+      const evidence = energyObservation(energyFields, observations, text(raw.gpu_energy_source));
+      for (const [name, value] of Object.entries(derived)) {
+        observations[name] = !finite(value) && evidence.quality === "complete" ?
+          {...evidence, quality:"unavailable", reason:"missing_window_value"} : evidence;
+      }
       if (formal) for (const [name, observation] of Object.entries(observations)) {
+        if (!Object.hasOwn(raw, name) && !Object.hasOwn(derived, name)) continue;
         group.observations[name] ||= new Map();
         group.observations[name].set(stableJson(observation), observation);
       }
@@ -199,11 +217,8 @@ window.ACProfImport = (() => {
       if (formal) { group.formal++; group.inferred ||= raw.result_origin === "inferred_not_measured"; }
       if (!eligible) return;
       group.valid++;
-      const weight = number(raw.repeat_in_window), cpu = number(raw.cpu_energy_total_j), gpu = number(raw.gpu_energy_total_j);
-      const energy = cpu !== null && cpu >= 0 && (device === "CPU" || gpu !== null && gpu >= 0) ? cpu + (device === "GPU" ? gpu : 0) : null;
-      const derived = {observed_energy_per_request_j:energy, observed_energy_j:energy !== null && weight > 0 ? energy * weight : null};
       for (const [name, metric] of Object.entries(registry)) {
-        if (observations[name] && !["complete", "unknown"].includes(observations[name].quality)) continue;
+        if (observations[name] && !usableQuality(observations[name].quality)) continue;
         const value = Object.hasOwn(derived, name) ? derived[name] : number(raw[name]);
         if (!finite(value)) continue;
         const acc = group.metrics[name];

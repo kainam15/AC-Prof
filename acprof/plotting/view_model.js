@@ -10,14 +10,17 @@ window.ACProfViews = (() => {
       return Object.fromEntries(Object.keys(item).sort().map(name => [name, item[name]]));
     });
   }
-  function observationSignature({source, scope, window, derivation, sampling}) {
-    return stableJson({source, scope, window, derivation, sampling});
+  const usableQuality = quality => quality === "complete" || quality === "unknown";
+  function observationContract(item) {
+    return Object.fromEntries(["source", "scope", "window", "derivation", "sampling", "components"]
+      .filter(name => Object.hasOwn(item, name)).map(name => [name, item[name]]));
   }
+  const observationSignature = item => stableJson(observationContract(item));
   function observationComparisonReason(left = [], right = []) {
     if (!Array.isArray(left) || !Array.isArray(right)) return "incomplete_metric_quality";
     if (Boolean(left.length) !== Boolean(right.length)) return "metric_contract_missing_on_one_side";
     const items = [...left, ...right];
-    if (items.some(item => !["complete", "unknown"].includes(item?.quality))) return "incomplete_metric_quality";
+    if (items.some(item => !usableQuality(item?.quality))) return "incomplete_metric_quality";
     return new Set(items.map(observationSignature)).size > 1 ? "different_source_scope_window_or_sampling" : "";
   }
   const withheldMetric = detail => ({delta:null, percent:null, reason:"different_or_incomplete_metric_contract", reasons:[detail]});
@@ -238,6 +241,6 @@ window.ACProfViews = (() => {
       series: [...facet.series.values()].map(series => ({...series,
         points: series.points.sort((a, b) => a.x - b.x)}))}));
   }
-  return {finite, value, stableJson, observationSignature, inputLabel, cohort, compareProfiles, descriptiveChange,
+  return {finite, value, stableJson, usableQuality, observationContract, observationSignature, inputLabel, cohort, compareProfiles, descriptiveChange,
     descriptiveQualification, comparisonContext, range, colorRanges, score, sort, pareto, scaling};
 })();

@@ -79,11 +79,15 @@ CSV 重复列、损坏行、重复测量键和元数据损坏会明确报错；�
   失败、推断和缺值窗口的观测来源仍可查看。数值列标为 `complete` 却缺少有限读数时，记录 `unavailable / missing_window_value`。
 - Cold start 按[冷启动汇总规则](../profiling/lifecycle.md#冷启动汇总)去重，`n` 表示启动观测数。
   同一启动值冲突或缺失身份与已知身份混用时，该指标保留为 `lifecycle_conflict` / null。
-- `observed_energy_j` 是成功窗口的 CPU package 与所选 GPU 总能量之和：
-  每行 `(cpu_energy_total_j + gpu_energy_total_j) × repeat_in_window`；CPU-only 行只计 CPU package。
-  GPU 行任一分量缺失、成功窗口能量或实际请求数缺失时，总量 unavailable，避免把部分和呈现为总量。
-  `observed_energy_per_request_j` 对相同窗口按实际请求数加权。未包含 DRAM、启动和窗口外 idle，
-  也不是墙插整机能量；总能量默认 `neutral`，因为窗口数量和持续时间会影响它。
+- `observed_energy_j` 汇总正式成功窗口的 CPU package 和所选 GPU 能量。每个 GPU 窗口的贡献为
+  `(cpu_energy_total_j + gpu_energy_total_j) × repeat_in_window`，CPU-only 窗口只使用 CPU 分量。
+  `observed_energy_per_request_j` 按这些窗口的实际请求数加权。统计范围限于请求窗口内的 CPU package 和所选 GPU，
+  排除 DRAM、启动和窗口外 idle。总能量的比较方向为 `neutral`，因为窗口数量和持续时间会影响它。
+- Python 报告与直接导入 CSV 的浏览器都会检查所用能耗分量。任何正式成功窗口的必需分量缺失、为负或质量为
+  `partial`、`error` 等不可用状态，或实际请求数缺失、非正，两项汇总都显示为空。
+  同一配置的有效读数使用不同采样设置或不同 GPU 能量方法时，两项汇总也显示为空。CPU-only 窗口里的 GPU 诊断不影响 CPU 能量。
+  长表保留原始分量的数值和诊断。历史 CSV 未记录质量时，有限的非负读数仍可生成描述性结果，分量质量标为 `unknown`。
+  跨配置比较按分量核对来源、范围、窗口、采样设置和已记录的 GPU 能量方法。旧报告可从原始 CSV 重新生成以取得这些证据。
 - QPS 只接受 CSV 显式的 `qps`（request/s）。`throughput_samples_per_s` 保持 sample/s；
   不通过 batch size 或 latency 猜测并发 QPS。estimated cycles 不补入 PMU cycles/IPC。
 - 长表 evidence 区分 `measured`、`derived`、`inferred_not_measured`，派生能耗保留其范围；

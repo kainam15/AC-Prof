@@ -10,6 +10,7 @@ import pytest
 
 from acprof.analysis.model import load_analysis
 from acprof.plotting.report import report_payload, write_report
+from tests.analysis.statistics.test_observed_energy_quality import energy_csv as energy_csv
 
 
 @pytest.fixture
@@ -1106,3 +1107,67 @@ def test_csv_import_validates_collector_evidence_per_metric(page, tmp_path):
             sibling_quality = {"legacy": "unknown", "invalid-envelope": "error"}.get(label, "complete")
             assert observations[sibling][0]["quality"] == sibling_quality, label
             assert metrics[sibling]["value"] == (None if sibling_quality == "error" else 17), label
+
+
+def test_import_derived_energy_matches_python_windows_and_comparisons(page, energy_csv):
+    model = load_analysis([energy_csv])
+    expected = {c["cpu"]: c for c in model.configs}
+    result = page.evaluate("""async ({text, baseline}) => {
+      const {registry} = JSON.parse(document.getElementById("report-data").textContent);
+      const bundle = await ACProfImport.readCsv(new File([text], "energy.csv"), registry);
+      const byCpu = Object.fromEntries(bundle.configs.map(c => [c.cpu, {...c, experiment_id:"csv"}]));
+      const names = ["observed_energy_per_request_j", "observed_energy_j"];
+      const context = ACProfViews.comparisonContext({...baseline, experiment_id:"python"}, "within-experiment", {}, registry);
+      const changes = [11, 12].map(cpu => names.map(name => context.delta(byCpu[cpu], name)));
+      const legacy = ACProfImport.clone(bundle);
+      for (const c of legacy.configs) for (const name of names) delete c.metric_observations[name];
+      const old = ACProfImport.validate(legacy, registry).configs.find(c => c.cpu === 12);
+      const legacyDeltas = names.map(name => context.delta({...old, experiment_id:"legacy"}, name));
+      return {configs:bundle.configs, changes, legacyDeltas};
+    }""", {"text": energy_csv.read_text(), "baseline": expected[10]})
+    for actual in result["configs"]:
+        config = expected[actual["cpu"]]
+        for name in ("observed_energy_per_request_j", "observed_energy_j", "cpu_energy_total_j", "gpu_energy_total_j"):
+            assert actual["metrics"][name] == config["metrics"][name], (actual["cpu"], name)
+            assert actual["metric_observations"][name] == config["metric_observations"][name], (actual["cpu"], name)
+    changed_sampling, equivalent_sampling = result["changes"]
+    assert all(delta["delta"] is None and delta["reasons"] == ["different_source_scope_window_or_sampling"]
+               for delta in changed_sampling)
+    assert [delta["delta"] for delta in equivalent_sampling] == [-2, -8]
+    assert all(delta["delta"] is None and delta["reasons"] == ["metric_contract_missing_on_one_side"]
+               for delta in result["legacyDeltas"])
+
+
+def test_import_derived_energy_keeps_evidence_for_missing_gpu_column(page, tmp_path):
+    cpu, gpu = "cpu_energy_total_j", "gpu_energy_total_j"
+    path = tmp_path / "missing-component.csv"
+    fields = ["cpu_cores", "mem_cap_gb", "gpu_mode", "input_scale", "repeat_idx", "warmup", "status",
+              cpu, "repeat_in_window", "resource_metric_quality"]
+    with path.open("w", newline="") as stream:
+        writer = csv.writer(stream)
+        writer.writerow(fields)
+        denied = {"schema_version": 1, "metrics": {
+            cpu: {"quality": "complete"}, gpu: {"quality": "permission_denied", "reason": "energy counter denied"}}}
+        sampled = {"schema_version": 1, "metrics": {cpu: {"quality": "complete"}},
+                   "collectors": {"gpu_power": {"status": "available", "sampling": {"sample_hz": 5}}}}
+        for case, evidence in enumerate([denied, sampled], start=1):
+            writer.writerow([case, 4, "on", 1, 0, 0, "ok", 3.5, 2, json.dumps(evidence)])
+    expected = {c["cpu"]: c for c in load_analysis([path]).configs}
+    imported = page.evaluate("""async text => {
+      const {registry} = JSON.parse(document.getElementById("report-data").textContent);
+      return (await ACProfImport.readCsv(new File([text], "missing-component.csv"), registry)).configs;
+    }""", path.read_text())
+    assert {c["cpu"] for c in imported} == {1, 2}
+    for actual in imported:
+        case = actual["cpu"]
+        assert gpu not in actual["metric_observations"]
+        for name in ("observed_energy_per_request_j", "observed_energy_j"):
+            observation, = actual["metric_observations"][name]
+            assert observation == expected[case]["metric_observations"][name][0]
+            if case == 1:
+                assert observation["quality"] == "permission_denied"
+                assert observation["reason"] == f"{gpu}: energy counter denied"
+            else:
+                assert observation["quality"] == "unavailable"
+                assert observation["components"][gpu]["sampling"] == {"sample_hz": 5, "energy_method": None}
+            assert actual["metrics"][name]["value"] is None

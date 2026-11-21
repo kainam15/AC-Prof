@@ -15,9 +15,13 @@ USABLE_QUALITIES = frozenset({'complete', 'unknown'})
 RESOURCE_SOURCES = {'psutil_observed_process_tree', 'procfs_observed_process_tree', 'service_cgroup', 'nvml_selected_device'}
 
 
+def observation_contract(observation: dict) -> dict:
+    return {key: observation[key] for key in ('source', 'scope', 'window', 'derivation', 'sampling', 'components')
+            if key in observation}
+
+
 def observation_signature(observation: dict) -> str:
-    return json.dumps({key: observation[key] for key in ('source', 'scope', 'window', 'derivation', 'sampling')
-                       if key in observation}, sort_keys=True, allow_nan=False)
+    return json.dumps(observation_contract(observation), sort_keys=True, allow_nan=False)
 
 
 def observation_comparison_reason(left: list[dict], right: list[dict]) -> str:

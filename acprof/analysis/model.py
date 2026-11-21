@@ -31,7 +31,12 @@ from acprof.results.layout import expand_result_sources, resolve_result_file
 from acprof.results.measurement_plan import decimal_coordinate, decimal_key_text
 from acprof.results.metadata import ResultMetadataSnapshot
 from acprof.results.metrics import ANALYSIS_METRICS, METRICS, VIEW_METRICS
-from acprof.results.profile import USABLE_QUALITIES, metric_observation, observation_signature
+from acprof.results.profile import (
+    USABLE_QUALITIES,
+    metric_observation,
+    observation_contract,
+    observation_signature,
+)
 
 DIMENSIONS = ("run_id", "model", "runtime", "device", "cpu", "memory", "gpu", "concurrency",
               "environment_class", "task", "input_case", "experiment_batch",
@@ -130,21 +135,56 @@ def _identity(row, meta, run_id, batch):
     return identity
 
 
-def _values(row, device, numeric_fields):
-    values = {name: None if type(value := row[name]) is str and value in MISSING_CSV_TEXT else number(value)
-              for name in numeric_fields if name in row}
+def _window_energy(entry: dict) -> tuple[dict[str, float | None], dict[str, dict]]:
+    names = ("cpu_energy_total_j", "gpu_energy_total_j") if entry["device"] == "GPU" else ("cpu_energy_total_j",)
+    row = entry["row"]
+    components = {name: metric_observation(row, name) for name in names}
+    contracts = {name: observation_contract(item) for name, item in components.items()}
+    # Some CSVs record the GPU method without recording collector quality or cadence.
+    method = _text(row.get("gpu_energy_source"))
+    if "gpu_energy_total_j" in contracts and method != "unknown":
+        contracts["gpu_energy_total_j"]["energy_method"] = method
+    quality = "complete"
+    reason = ""
+    for name, item in components.items():
+        if item["quality"] not in USABLE_QUALITIES:
+            quality, reason = item["quality"], f"{name}: {item['reason']}"
+            break
+        if item["quality"] == "unknown":
+            quality, reason = "unknown", "component_quality_unknown"
+    if entry["device"] not in {"CPU", "GPU"}:
+        quality, reason = "unknown", "unknown_device"
+    derived = {"components": contracts, "quality": quality, "reason": reason}
+    energy = _derive_energy(entry["values"], entry["device"], quality)
+    observed = {name: {**derived, "quality": "unavailable", "reason": "missing_window_value"}
+                if value is None and quality == "complete" else derived for name, value in energy.items()}
+    return energy, {**components, **observed}
+
+
+def _derive_energy(values: dict, device: str, quality: str) -> dict[str, float | None]:
     cpu, gpu, count = (values.get(name) for name in
                       ("cpu_energy_total_j", "gpu_energy_total_j", "repeat_in_window"))
     energy = None
-    if cpu is not None and cpu >= 0:
+    if quality in USABLE_QUALITIES and cpu is not None and cpu >= 0:
         if device == "CPU":
             energy = cpu
         elif device == "GPU" and gpu is not None and gpu >= 0:
             energy = cpu + gpu
     energy = number(energy)
-    values["observed_energy_per_request_j"] = energy
-    values["observed_energy_j"] = number(energy * count) if energy is not None and count and count > 0 else None
-    return values
+    total = number(energy * count) if energy is not None and count and count > 0 else None
+    return {"observed_energy_per_request_j": energy, "observed_energy_j": total}
+
+
+def _prepare_energy_windows(rows: list[dict], formal: dict[int, dict]) -> dict[str, dict[int, dict]]:
+    observations: dict[str, dict[int, dict]] = defaultdict(dict)
+    for index, entry in enumerate(rows):
+        values, evidence = _window_energy(entry)
+        entry["values"].update(values)
+        if index in formal:
+            for name, item in evidence.items():
+                if name in entry["values"]:
+                    observations[name][index] = item
+    return observations
 
 
 def _evidence(name, row):
@@ -163,7 +203,7 @@ def _usable_windows(entries, name, observations: dict[int, dict] | None) -> tupl
         numeric = number(entry["values"].get(name))
         if not entry["eligible"] or numeric is None:
             continue
-        if name in METRICS:
+        if observations is not None or name in METRICS:
             observation = observations[index] if observations is not None else metric_observation(entry["row"], name)
             if observation["quality"] not in USABLE_QUALITIES:
                 continue
@@ -218,13 +258,18 @@ class AnalysisModel:
     @property
     def records(self):
         """Normalized long form; raw values remain available even for excluded rows."""
-        return [{**{key: entry[key] for key in DIMENSIONS}, "config_id": entry["config_id"],
-                 "metric": name, "value": value, "unit": ANALYSIS_METRICS[name].unit,
-                 "evidence": _evidence(name, entry["row"]), "eligible": entry["eligible"],
-                 "observation": metric_observation(entry['row'], name) if name in METRICS else None,
-                 "source": entry["source"], "source_row": entry["source_row"],
-                 **{key: entry[key] for key in QUALITY_FIELDS}}
-                for entry in self.raw_rows for name, value in entry["values"].items()]
+        records = []
+        for entry in self.raw_rows:
+            _, energy = _window_energy(entry)
+            identity = {key: entry[key] for key in (*DIMENSIONS, *QUALITY_FIELDS, "config_id",
+                                                     "eligible", "source", "source_row")}
+            for name, value in entry["values"].items():
+                observation = energy.get(name)
+                if observation is None and name in METRICS:
+                    observation = metric_observation(entry["row"], name)
+                records.append({**identity, "metric": name, "value": value, "unit": ANALYSIS_METRICS[name].unit,
+                                "evidence": _evidence(name, entry["row"]), "observation": observation})
+        return records
 
     @property
     def summary(self):
@@ -279,10 +324,12 @@ def _build_analysis_configs(
             purpose=purpose, case=case) for purpose in PURPOSES}
         config["comparability"] = config["comparison_profiles"]["same-hardware"]["status"]
         summaries, provenance = {}, {}
+        energy = _prepare_energy_windows(rows, formal)
         for name in VIEW_METRICS:
-            observations = None
-            if name in METRICS and any(name in entry["row"] for entry in formal.values()):
+            observations = energy.get(name)
+            if observations is None and name in METRICS and any(name in entry["row"] for entry in formal.values()):
                 observations = {index: metric_observation(entry["row"], name) for index, entry in formal.items()}
+            if observations:
                 provenance[name] = list({_canonical(item): item for item in observations.values()}.values())
             summaries[name] = _summarize(rows, name, observations)
         config["metric_observations"] = provenance
@@ -353,8 +400,10 @@ def load_analysis(sources) -> AnalysisModel:
             mode = row.get("gpu_mode")
             if mode not in device_quality:
                 device_quality[mode] = read_quality(path, device=mode, metadata_snapshot=metadata_snapshot)
+            values = {name: None if type(value := row[name]) is str and value in MISSING_CSV_TEXT else number(value)
+                      for name in numeric_fields}
             entry = {**identity, "config_id": config_id, "source": str(path), "source_row": line,
-                     "row": raw, "eligible": eligible, "values": _values(row, identity["device"], numeric_fields),
+                     "row": raw, "eligible": eligible, "values": values,
                      **evidence, **device_quality[mode]}
             groups[config_id].append(entry)
             entries.append(entry)
