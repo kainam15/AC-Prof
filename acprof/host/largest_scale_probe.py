@@ -20,6 +20,7 @@ from acprof.artifacts import (
     read_json_object,
 )
 from acprof.gpu_mode import normalize_gpu_mode
+from acprof.gpu_probe import require_gpu_identity
 from acprof.host import container_state
 from acprof.host.detect import TaskInfo
 from acprof.host.docker_runtime import (
@@ -27,6 +28,7 @@ from acprof.host.docker_runtime import (
     start_container_session,
     stop_container_session,
 )
+from acprof.host.gpu_device import selected_gpu_device
 from acprof.host.images.identity import model_token
 from acprof.host.images.runtime import ImageInfo
 from acprof.host.input_plan import PlannedInputScales
@@ -56,6 +58,12 @@ def read_probe_summary(path: str | os.PathLike[str]) -> dict:
     if (any(type(resource.get(key)) is not int or resource[key] <= 0 for key in ("cpu_cores", "mem_gb"))
             or resource.get("gpu_mode") not in {"off", "on"}):
         raise ValueError("invalid largest-scale probe resources")
+    device = resource.get("gpu_device", {})
+    if "gpu_device" in resource:
+        if (resource["gpu_mode"] != "on" or not isinstance(device, dict)
+                or type(device.get("index")) is not int or device["index"] < 0):
+            raise ValueError("invalid largest-scale probe physical GPU identity")
+        require_gpu_identity(device)
     planned, effective = inputs.get("planned_scale"), inputs.get("effective_scale")
     if (not isinstance(planned, (int, float)) or isinstance(planned, bool) or planned <= 0
             or not isinstance(effective, (int, float)) or isinstance(effective, bool) or effective <= 0
@@ -79,6 +87,9 @@ def read_probe_summary(path: str | os.PathLike[str]) -> dict:
                 or configuration["backend"]["id"] != model.get("runtime_backend")
                 or resource["gpu_mode"] not in configuration["loading"]):
             raise ValueError("largest-scale probe model, backend or device differs from its frozen inference configuration")
+        expected_uuid = configuration["workload"].get("resources", {}).get("gpu_device_uuid")
+        if expected_uuid:
+            require_gpu_identity(device, expected_uuid=expected_uuid)
     return summary
 
 
@@ -325,6 +336,9 @@ def _probe_memory_candidate(
             log_prefix="[largest-probe]",
             request_timeout_seconds=timeout_seconds,
         )
+        if gpu == "on" and (pinned := selected_gpu_device()):
+            phase = "device"
+            require_gpu_identity(session.gpu_device, expected_uuid=pinned["uuid"])
         phase = "request"
         print("[largest-probe] Running one largest-scale request...")
         emit_event("probe_request_started", "largest_scale_probe")
@@ -374,11 +388,10 @@ def _probe_memory_candidate(
         if request_started is not None and request_s is None:
             request_s = time.perf_counter() - request_started
         error = f"{type(exc).__name__}: {exc}"
-        status = _classify_oom_failure(
-            error,
-            phase=phase,
-            container_name=session.name if session is not None else container_name,
-        ) or "error"
+        if phase != "device":
+            status = _classify_oom_failure(
+                error, phase=phase, container_name=session.name if session is not None else container_name,
+            ) or "error"
     finally:
         if request_started is not None:
             emit_event("probe_request_stopped", "largest_scale_probe")
@@ -587,6 +600,8 @@ def run_largest_scale_probe(
             "summary": str(summary_path),
         },
     }
+    if gpu == "on" and (device := selected_gpu_device()):
+        summary["resource"]["gpu_device"] = device
     if frozen:
         summary["inference_configuration_sha256"] = frozen["identity_sha256"]
         summary["artifacts"]["inference_configuration"] = str(summary_path.with_name(PROBE_CONFIGURATION_NAME))

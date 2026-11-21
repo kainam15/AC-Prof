@@ -311,6 +311,7 @@ timeout evidence 包含 `timeout_seconds`（秒）、`request_phase`、`request_
 | --- | --- |
 | `memory_probe.candidate_order_gb` | 去重、升序排列的候选内存上限。 |
 | `inference_configuration_sha256` | 可选。与输入计划及同目录冻结配置的身份一致。普通探测和早期 v3 摘要可省略。 |
+| `resource.gpu_device` | GPU 探测记录当次解析的物理 UUID、主机索引、PCI 总线、名称与显存字节数。已审阅配置的 `workload.resources.gpu_device_uuid` 保存该 UUID，冷启动请求前核对会话的设备 UUID。CPU 探测及早期摘要可省略此字段。 |
 | `memory_probe.attempts` | 每档的 `startup_oom`、`runtime_oom`、`cuda_oom`、`timeout`、`error` 或 `ok` 结果，以及错误与分段计时。 |
 | `memory_probe.minimum_viable_mem_gb` | 完整返回且有效尺度与计划一致的第一个候选；没有成功档时为空。 |
 | `timing.request_s` | 成功档 `/predict` 的 host 端到端耗时。 |

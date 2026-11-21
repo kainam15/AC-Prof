@@ -1,6 +1,7 @@
 """Largest-scale probes use the effective selected workload through input planning."""
 import json
 import re
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -19,7 +20,18 @@ from acprof.host.largest_scale_probe import PROBE_SUMMARY_NAME, read_probe_summa
 
 
 @pytest.fixture
-def t5_probe(tmp_path, monkeypatch):
+def gpu_inventory(monkeypatch):
+    from acprof.host import gpu_device
+
+    result = SimpleNamespace(returncode=0, stderr="", stdout="GPU-second, 2, 0000:02:00.0, Second GPU, 8192, N/A")
+    query = Mock(return_value=result)
+    monkeypatch.setattr(gpu_device, "run_command", query)
+    monkeypatch.setattr("acprof.host.images.runtime._host_cuda_version", lambda: (12, 8))
+    return query
+
+
+@pytest.fixture
+def t5_probe(tmp_path, monkeypatch, gpu_inventory):
     fixture = Path(__file__).parents[2] / "fixtures/t5_small_metadata"
     source = json.loads((fixture / "source.json").read_text())
     hub = tmp_path / "hub"
@@ -43,7 +55,12 @@ def t5_probe(tmp_path, monkeypatch):
     })
 
     session = RunningContainer("fixture", "http://127.0.0.1:8002", 8002, 0.1)
-    monkeypatch.setattr(largest_scale_probe, "start_container_session", Mock(return_value=session))
+    def start_session(**kwargs):
+        from acprof.host.gpu_device import selected_gpu_device
+
+        return replace(session, gpu_device=selected_gpu_device() if kwargs["gpu"] == "on" else {})
+
+    monkeypatch.setattr(largest_scale_probe, "start_container_session", Mock(side_effect=start_session))
     monkeypatch.setattr(largest_scale_probe, "stop_container_session", Mock())
     response = Mock(status_code=200)
     response.json.return_value = {"effective_input_scale": 32}
@@ -403,3 +420,101 @@ def test_reviewed_image_probe_keeps_relative_assets_and_checks_external_spec(t5_
         largest_scale_probe.start_container_session.assert_not_called()
         post.assert_not_called()
         assert not list(output.rglob(PROBE_SUMMARY_NAME))
+
+
+@pytest.mark.parametrize("selector", ["2", "GPU-second"])
+def test_gpu_probe_pins_the_selected_physical_card_in_every_stage(t5_probe, gpu_inventory, monkeypatch, selector):
+    from acprof.host import gpu_device
+
+    args, output, image, post = t5_probe
+    image.return_value.runtime_environment = {"build_fingerprint": "fixture"}
+    monkeypatch.setenv("ACPROF_GPU_DEVICE", "0")
+    observed = {}
+
+    def observe(stage, mock):
+        original = mock.side_effect
+        def call(*args, **kwargs):
+            observed[stage] = gpu_device.gpu_docker_args()[1]
+            return original(*args, **kwargs) if original else mock.return_value
+        mock.side_effect = call
+
+    validate = Mock()
+    monkeypatch.setattr("acprof.host.runtime_validation.validate_runtime", validate)
+    for stage, mock in (("image", image), ("plan", input_probe.start_service_session),
+                        ("validate", validate), ("predict", largest_scale_probe.start_container_session)):
+        observe(stage, mock)
+    assert probe.main([*args, "--tasks", "summarization", "--gpus", "on", "--gpu-device", selector]) == 0
+    gpu_inventory.assert_called_once()
+    assert f"--id={selector}" in gpu_inventory.call_args.args[0]
+    assert observed == {stage: "device=GPU-second" for stage in ("image", "plan", "validate", "predict")}
+    assert gpu_device.selected_gpu_device() == {}
+    summary, = output.rglob(PROBE_SUMMARY_NAME)
+    device = read_probe_summary(summary)["resource"]["gpu_device"]
+    assert (device["uuid"], device["index"]) == ("GPU-second", 2)
+    post.assert_called_once()
+
+
+def test_cpu_probe_skips_gpu_selector_and_gpu_failure_stops_before_build(t5_probe, gpu_inventory, capsys):
+    args, output, image, post = t5_probe
+    gpu_inventory.return_value = SimpleNamespace(returncode=1, stderr="GPU unavailable")
+    command = [*args, "--tasks", "summarization", "--gpu-device", "2"]
+    assert probe.main([*command, "--gpus", "on"]) == 2
+    assert "Cannot resolve GPU 2" in capsys.readouterr().err
+    gpu_inventory.assert_called_once()
+    image.assert_not_called()
+    post.assert_not_called()
+    assert not output.exists()
+    gpu_inventory.reset_mock()
+    assert probe.main([*command, "--gpus", "on,off"]) == 0
+    gpu_inventory.assert_not_called()
+    path, = output.rglob(PROBE_SUMMARY_NAME)
+    assert "gpu_device" not in read_probe_summary(path)["resource"]
+
+
+def test_reviewed_gpu_probe_requires_new_confirmation_if_index_maps_to_another_card(
+    reviewable_t5_probe, gpu_inventory, tmp_path, monkeypatch,
+):
+    args, output, image, post = reviewable_t5_probe
+    request = tmp_path / "requests.json"
+    request.write_text('{"schema_version":1}')
+    command = [*args, "--tasks", "summarization", "--gpus", "on", "--gpu-device", "2", "--inference-config", str(request)]
+    assert probe.main(command) == 0
+    review_root = output / ".inference-configurations"
+    previous, = review_root.glob("*.requests.json")
+    old_digest = previous.name.split(".")[0]
+    gpu_inventory.return_value.stdout = "GPU-replacement, 2, 0000:05:00.0, Replacement GPU, 8192, N/A"
+    assert probe.main([*command, "--confirm-inference", old_digest]) == 0
+    image.assert_not_called()
+    post.assert_not_called()
+    updated, = set(review_root.glob("*.requests.json")) - {previous}
+    new_digest = updated.name.split(".")[0]
+    new = json.loads((review_root / f"{new_digest}.json").read_text())
+    assert new["workload"]["resources"]["gpu_device_uuid"] == "GPU-replacement"
+    monkeypatch.setattr("acprof.host.runtime_validation.validate_runtime", Mock())
+    assert probe.main([*command, "--confirm-inference", new_digest]) == 0
+    path, = output.rglob(PROBE_SUMMARY_NAME)
+    summary = read_probe_summary(path)
+    assert summary["resource"]["gpu_device"]["uuid"] == "GPU-replacement"
+    assert summary["inference_configuration_sha256"] == new_digest
+    summary["resource"]["gpu_device"]["uuid"] = "GPU-second"
+    path.write_text(json.dumps(summary))
+    with pytest.raises(ValueError, match="GPU UUID mismatch"):
+        read_probe_summary(path)
+
+
+def test_gpu_probe_rejects_a_session_for_a_different_card_before_predict(t5_probe, monkeypatch, capsys):
+    args, output, _image, post = t5_probe
+    start = largest_scale_probe.start_container_session
+    start.side_effect = None
+    start.return_value = RunningContainer("fixture", "http://127.0.0.1:8002", 8002, 0.1,
+                                          gpu_device={"uuid": "GPU-other", "index": 5})
+    inspect = Mock(return_value={"OOMKilled": True})
+    monkeypatch.setattr(largest_scale_probe.container_state, "inspect_container_state", inspect)
+    assert probe.main([*args, "--tasks", "summarization", "--gpus", "on", "--gpu-device", "2", "--mems", "2,8"]) == 2
+    assert "GPU UUID mismatch" in capsys.readouterr().err
+    post.assert_not_called()
+    start.assert_called_once()
+    largest_scale_probe.stop_container_session.assert_called_once()
+    inspect.assert_not_called()
+    path, = output.rglob(PROBE_SUMMARY_NAME)
+    assert json.loads(path.read_text())["status"] == "error"

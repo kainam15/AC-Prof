@@ -9,6 +9,11 @@ def add_download_arguments(parser):
     add_option_arguments(parser, group="download")
 
 
+def add_gpu_device_argument(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--gpu-device", default=None,
+                        help="One physical GPU index or UUID (default: ACPROF_GPU_DEVICE, DEVICE_INDEX, then 0)")
+
+
 def build_parser(*, default_notify_provider: str = "auto", automatic: bool = False) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="AC-Prof: Hugging Face model profiler",
@@ -35,7 +40,7 @@ Examples:
                         help="Seed for domain-separated deterministic case and input-scale ordering")
     parser.add_argument("--dram-energy", choices=("auto", "off", "required"), default="auto",
                         help="Optional host DRAM RAPL measurement; only required makes absence fatal")
-    parser.add_argument("--gpu-device", default=None, help="One physical GPU index or UUID (default: ACPROF_GPU_DEVICE, DEVICE_INDEX, then 0)")
+    add_gpu_device_argument(parser)
 
     # Additional recorded options
     parser.add_argument(

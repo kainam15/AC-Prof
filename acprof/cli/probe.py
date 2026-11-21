@@ -14,8 +14,10 @@ from typing import TYPE_CHECKING
 from acprof.artifacts import atomic_write_json, read_json_object_snapshot
 from acprof.config import docker_resource_limits
 from acprof.events.preparation import emit_progress
+from acprof.experiments.arguments import add_gpu_device_argument
 from acprof.experiments.options import add_option_arguments
 from acprof.host.env_utils import bootstrap_project_env
+from acprof.host.gpu_device import gpu_device_scope, pin_gpu_device
 from acprof.host.images.runtime import prepare_image
 from acprof.host.input_plan import plan_input_scales
 from acprof.host.largest_scale_probe import (
@@ -77,6 +79,7 @@ def _build_parser() -> argparse.ArgumentParser:
         )
     )
     add_option_arguments(parser, group=None, purpose="probe")
+    add_gpu_device_argument(parser)
     parser.add_argument(
         "--timeout-seconds",
         type=float,
@@ -93,6 +96,7 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+@gpu_device_scope()
 def main(argv: Sequence[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
@@ -128,7 +132,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 
 def _review_probe_task(task_info: TaskInfo, args: argparse.Namespace, cpu_list: list[int], mem_list: list[int],
-                       devices: list[str], source: JsonObjectSnapshot | None) -> TaskInfo:
+                       devices: list[str], gpu_device: dict, source: JsonObjectSnapshot | None) -> TaskInfo:
     """Bind confirmation to the single-device diagnostic and its input source."""
     workload = {
         **inference_workload_inputs(args.batch_size, args.input_scales or "", source.payload if source else None),
@@ -136,6 +140,8 @@ def _review_probe_task(task_info: TaskInfo, args: argparse.Namespace, cpu_list: 
                       "mems": sorted(set(mem_list)), "gpus": devices},
         "probe": {"timeout_seconds": args.timeout_seconds},
     }
+    if gpu_device:
+        workload["resources"]["gpu_device_uuid"] = gpu_device["uuid"]
     if source is not None and task_info.task_family != "nlp":
         workload["specification_bytes_sha256"] = hashlib.sha256(source.content).hexdigest()
     return prepare_execution_configuration(
@@ -169,17 +175,21 @@ def _run_probe(
         supplied = None
         resolution = task_info.model_resolution
         failure = resolution.get("failure", {}).get("reason_code")
-        if failure in {None, "task_selection_required"} and resolution.get("status") not in {"blocked", "ambiguous"}:
+        selectable = failure in {None, "task_selection_required"} and resolution.get("status") not in {"blocked", "ambiguous"}
+        if selectable:
             if args.workload_spec and (review or task_info.task_discovery or task_info.selected_tasks):
                 source = read_json_object_snapshot(Path(args.workload_spec).expanduser(), label="workload specification")
                 supplied = source.payload
             task_info = select_tasks(task_info, args, single_profile=True, supplied_workload=supplied)
-            if review:
-                task_info = _review_probe_task(task_info, args, cpu_list, mem_list, probe_devices, source)
-                overrides = task_experiment_overrides(task_info.selected_tasks[0])
-                batch_size = overrides.get("batch_size", batch_size)
-                input_scales = overrides.get("input_scales", input_scales)
-        require_task_support(task_info, batch_size=batch_size, devices=probe_devices)
+        if not review or not selectable:
+            require_task_support(task_info, batch_size=batch_size, devices=probe_devices)
+        gpu_device = pin_gpu_device(args.gpu_device) if gpu_mode == "on" else {}
+        if review:
+            task_info = _review_probe_task(task_info, args, cpu_list, mem_list, probe_devices, gpu_device, source)
+            overrides = task_experiment_overrides(task_info.selected_tasks[0])
+            batch_size = overrides.get("batch_size", batch_size)
+            input_scales = overrides.get("input_scales", input_scales)
+            require_task_support(task_info, batch_size=batch_size, devices=probe_devices)
         manifest = (workload_manifest(task_info.selected_tasks[0], supplied=supplied, frozen=task_info.inference_configuration)
                     if task_info.selected_tasks and task_info.task_family == "nlp" else None)
     except InferenceConfigurationReviewRequired:
@@ -204,6 +214,8 @@ def _run_probe(
         f"(family={task_info.task_family})"
     )
     print(f"  Backend:  {task_info.runtime_backend}")
+    if gpu_device:
+        print(f"  GPU:      {gpu_device['name']} (index {gpu_device['index']}, {gpu_device['uuid']})")
     if task_info.selected_tasks:
         selected = task_info.selected_tasks[0]
         exemplar = selected.get("execution_profile", {}).get("representative_task_id", selected["task_id"])

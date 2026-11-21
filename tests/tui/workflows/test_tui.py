@@ -723,3 +723,10 @@ def test_probe_command_carries_explicit_inference_review(tmp_path):
     command = build_probe_command(config, project_dir=PROJECT_DIR)
     assert command[command.index("--inference-config") + 1] == str(request)
     assert command[command.index("--confirm-inference") + 1] == config.confirm_inference
+
+
+def test_probe_command_keeps_gpu_selector_from_saved_advanced_options():
+    config = RunConfig(model="fixture/model", runtime="docker", gpus="on", extra_options={"gpu_device": "2", "matrix_seed": 17})
+    command = build_probe_command(config, project_dir=PROJECT_DIR)
+    assert command[command.index("--gpu-device") + 1] == "2"
+    assert "--matrix-seed" not in command

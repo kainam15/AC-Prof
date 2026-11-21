@@ -215,10 +215,14 @@ def build_probe_command(
     if config.runtime == "process":
         raise RunConfigError([ConfigIssue("runtime", "Minimum-memory probe requires Docker; use a Process input-scale run")])
     config = config.validate(project_dir=project_dir)
-    return [
+    command = [
         *cli_command("probe", python_executable=python_executable),
         *configuration_arguments(config, purpose="probe"),
     ]
+    selector = config.extra_options.get("gpu_device")
+    if selector is not None:
+        command.extend(["--gpu-device", str(selector)])
+    return command
 
 
 def build_plot_command(
