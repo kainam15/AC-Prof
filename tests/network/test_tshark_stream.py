@@ -58,3 +58,30 @@ time.sleep(30)
         lines.close()
     assert time.monotonic() - started < 2
     assert not Path(f'/proc/{int(pid_path.read_text())}').exists()
+
+
+@pytest.mark.parametrize("ending", [b"", b"\n"])
+def test_fragmented_stdout_preserves_line_boundaries_without_recopying_prefixes(tmp_path, monkeypatch, ending):
+    import os
+
+    # The first byte of 界 is the last byte of a 64-byte read.
+    prefix = "x" * (8192 - 2)
+    payload = b"\n" + prefix.encode() + "界".encode() + b"\r\n\n\xfftail" + ending
+    path = tmp_path / "frames"
+    path.write_bytes(payload)
+    command = child_script(tmp_path, f"with open({str(path)!r}, 'rb') as f: sys.stdout.buffer.write(f.read())")
+    copied_prefix_bytes = 0
+    read = os.read
+
+    class Chunk(bytes):
+        def __radd__(self, prefix):
+            nonlocal copied_prefix_bytes
+            copied_prefix_bytes += len(prefix)
+            return prefix + bytes(self)
+
+    def fragment(fd, size):
+        return Chunk(read(fd, min(size, 64)))
+
+    monkeypatch.setattr(os, "read", fragment)
+    assert list(stream_tshark(command, timeout=5)) == ["", prefix + "界\r", "", "\ufffdtail"]
+    assert copied_prefix_bytes <= len(payload)

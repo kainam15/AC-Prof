@@ -37,7 +37,7 @@ def stream_tshark(command: Sequence[str], *, timeout: float) -> Generator[str, N
     assert process.stdout is not None
     assert process.stderr is not None
     deadline = time.monotonic() + timeout
-    pending = b""
+    fragments: list[bytes] = []
     diagnostics = bytearray()
     truncated = False
     try:
@@ -60,13 +60,18 @@ def stream_tshark(command: Sequence[str], *, timeout: float) -> Generator[str, N
                             del diagnostics[:-65536]
                             truncated = True
                     else:
-                        pending += chunk
-                        lines = pending.split(b"\n")
-                        pending = lines.pop()
+                        lines = chunk.split(b"\n")
+                        tail = lines.pop()
+                        if lines and fragments:
+                            fragments.append(lines[0])
+                            lines[0] = b"".join(fragments)
+                            fragments.clear()
                         for line in lines:
                             yield line.decode("utf-8", errors="replace")
-            if pending:
-                yield pending.decode("utf-8", errors="replace")
+                        if tail:
+                            fragments.append(tail)
+            if fragments:
+                yield b"".join(fragments).decode("utf-8", errors="replace")
             returncode = process.wait(timeout=max(0, deadline - time.monotonic()))
             if returncode:
                 message = diagnostics.decode("utf-8", errors="replace").strip()
