@@ -26,7 +26,7 @@ async def test_invalid_edits_preserve_focus_and_clear_errors_after_repair(size, 
                 description="initial configuration ready", timeout=5.0,
             )
             if page == "advanced-form":
-                assert await pilot.click("#open-run-settings")
+                assert await pilot.click("#run-mode-advanced")
             control = app.query_one(f"#{field}", Input)
             for container in control.ancestors:
                 if isinstance(container, Collapsible):

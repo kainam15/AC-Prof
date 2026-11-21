@@ -65,7 +65,7 @@ class TestTuiLayoutSettings:
         app.activate_tab("run-tab")
         await pilot.pause()
         if app.query_one("#experiment-pages", ContentSwitcher).current != "advanced-form":
-            assert (await pilot.click("#open-run-settings", offset=(3, 1)))
+            assert await pilot.click("#run-mode-advanced")
             await pilot.pause()
         app.query_one("#advanced-form").scroll_end(animate=False, immediate=True)
         await pilot.pause()
@@ -79,29 +79,29 @@ class TestTuiLayoutSettings:
         async with app.run_test(size=size) as pilot:
             await pilot.pause()
             action_region = app.query_one("#run-actions").region
-            for button_id in ("open-run-settings", "probe-largest", "start-run"):
+            for button_id in ("run-mode-basic", "run-mode-advanced", "probe-largest", "start-run"):
                 self.assert_button_reachable(app, button_id)
             app.query_one("#command-details", Collapsible).collapsed = False
             app.query_one("#run-form").scroll_end(animate=False, immediate=True)
             await pilot.pause()
             assert (app.query_one("#run-actions").region) == (action_region)
-            for button_id in ("open-run-settings", "probe-largest", "start-run"):
+            for button_id in ("run-mode-basic", "run-mode-advanced", "probe-largest", "start-run"):
                 self.assert_button_reachable(app, button_id)
-            assert (await pilot.click("#open-run-settings", offset=(3, 1)))
+            assert await pilot.click("#run-mode-advanced")
             await pilot.pause()
             assert (app.query_one("#main-tabs", TabbedContent).active) == ("run-tab")
             assert (app.query_one("#experiment-pages", ContentSwitcher).current) == ("advanced-form")
-            for button_id in ("open-run-settings", "probe-largest", "start-run"):
+            for button_id in ("run-mode-basic", "run-mode-advanced", "probe-largest", "start-run"):
                 self.assert_button_reachable(app, button_id)
-            assert (str(app.query_one("#open-run-settings", Button).label)) == ("返回基本配置")
+            assert app.query_one("#run-mode-advanced", Button).has_class("-active")
             app.query_one("#advanced-form").scroll_end(animate=False, immediate=True)
             await pilot.pause()
             assert (app.query_one("#run-actions").region) == (action_region)
             self.assert_button_reachable(app, "save-run-default")
-            assert (await pilot.click("#open-run-settings", offset=(3, 1)))
+            assert await pilot.click("#run-mode-basic")
             await pilot.pause()
             assert (app.query_one("#experiment-pages", ContentSwitcher).current) == ("run-form")
-            assert (str(app.query_one("#open-run-settings", Button).label)) == ("高级参数")
+            assert app.query_one("#run-mode-basic", Button).has_class("-active")
             await pilot.press("f2")
             await pilot.pause()
             for button_id in ("restore-ui-defaults", "save-ui-settings"):
@@ -120,19 +120,19 @@ class TestTuiLayoutSettings:
             await pilot.pause()
             app.activate_tab("run-tab")
             await pilot.pause()
-            for button_id in ("open-run-settings", "probe-largest", "start-run"):
+            for button_id in ("run-mode-basic", "run-mode-advanced", "probe-largest", "start-run"):
                 self.assert_button_reachable(app, button_id)
-            assert (await pilot.click("#open-run-settings", offset=(3, 1)))
+            assert await pilot.click("#run-mode-advanced")
             await pilot.pause()
             assert (app.query_one("#experiment-pages", ContentSwitcher).current) == ("advanced-form")
-            self.assert_button_reachable(app, "open-run-settings")
+            self.assert_button_reachable(app, "run-mode-basic")
             self.assert_button_reachable(app, "start-run")
             with patch.object(app, 'launch') as launch:
                 assert await pilot.click("#start-run", offset=(3, 1))
                 await pilot.pause()
                 launch.assert_called_once()
                 assert launch.call_args.args[0].kind == "run"
-            assert (await pilot.click("#open-run-settings", offset=(3, 1)))
+            assert await pilot.click("#run-mode-basic")
             await pilot.pause()
             assert (app.query_one("#experiment-pages", ContentSwitcher).current) == ("run-form")
 
@@ -144,19 +144,16 @@ class TestTuiLayoutSettings:
             await pilot.resize_terminal(*size)
             app.configuration.preferences = replace(app.configuration.preferences, language=language)
             app.configuration.apply_ui_preferences()
-            navigation = app.query_one("#open-run-settings", Button)
+            navigation = app.query_one("#run-mode-advanced", Button)
             navigation.focus()
-            await pilot.pause()
             await pilot.press("enter")
             await pilot.pause()
-            assert (app.query_one("#experiment-pages", ContentSwitcher).current) == ("advanced-form")
-            navigation.focus()
-            await pilot.pause()
-            for button_id in ("probe-largest", "start-run"):
-                await pilot.press("tab")
-                button = app.query_one("#" + button_id, Button)
-                assert (app.focused) is (button)
-                self.assert_button_reachable(app, button_id)
+            assert app.query_one("#experiment-pages", ContentSwitcher).current == "advanced-form"
+            probe = app.query_one("#probe-largest", Button)
+            probe.focus()
+            await pilot.press("tab")
+            assert app.focused is app.query_one("#start-run", Button)
+            self.assert_button_reachable(app, "start-run")
             with patch.object(app, 'launch') as launch:
                 await pilot.press("enter")
                 await pilot.pause()
@@ -164,11 +161,10 @@ class TestTuiLayoutSettings:
                 assert launch.call_args.args[0].kind == "run"
             app.query_one("#start-run", Button).focus()
             await pilot.pause()
-            for button_id in ("probe-largest", "open-run-settings"):
-                await pilot.press("shift+tab")
-                assert (app.focused) is (app.query_one("#" + button_id, Button))
-            assert (cell_len(navigation.label.plain)) <= (navigation.content_region.width)
-            await pilot.press("enter")
+            await pilot.press("shift+tab")
+            assert app.focused is probe
+            assert cell_len(navigation.label.plain) <= navigation.content_region.width
+            await pilot.press("f3")
             await pilot.pause()
             assert (app.query_one("#experiment-pages", ContentSwitcher).current) == ("run-form")
 

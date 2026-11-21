@@ -65,15 +65,12 @@ class HtmlReportController:
     def apply_action_state(self, actions: ReportActionState) -> None:
         for selector, enabled in (
             ("#html-report-generate", actions.html_generate_enabled),
-            ("#html-empty-generate", actions.html_generate_enabled),
             ("#html-report-copy", actions.html_copy_enabled),
             ("#html-export-toggle", actions.html_export_toggle_enabled),
             ("#html-report-export", actions.html_export_enabled),
         ):
             self.app.query_one(selector, Button).disabled = not enabled
-        self.app.query_one("#html-report-empty").display = not actions.html_file_visible
         self.app.query_one("#html-report-file").display = actions.html_file_visible
-        self.app.query_one("#html-report-panel").set_class(actions.html_file_visible, "has-report")
         self.app.query_one("#html-report-filename", Static).update(actions.html_filename)
         location = self.app.query_one("#html-report-location", Static)
         location.update(actions.html_location)

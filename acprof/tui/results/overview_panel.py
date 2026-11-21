@@ -41,14 +41,16 @@ class ExperimentOverviewPanel(StructuredWidget):
         self.show_hint(message_id("results.summary.empty"))
         self.refresh_language()
 
-    def show_hint(self, source: str, *, level: str = "neutral") -> None:
+    def show_hint(self, source: str, *, level: str = "neutral", has_source: bool = False) -> None:
         self.view = None
+        self.query_one("#overview-check-details").display = has_source
         self.query_one(StatusBanner).update_summary(StatusSummary(level, source))
         for selector in ("#overview-case-progress", "#overview-facts", "#overview-callout"):
             self.query_one(selector).display = False
 
     def update_view(self, view: OverviewView) -> None:
         self.view = view
+        self.query_one("#overview-check-details").display = True
         self.query_one(StatusBanner).update_summary(view.summary)
         progress = self.query_one("#overview-case-progress")
         progress.display = view.total_cases is not None

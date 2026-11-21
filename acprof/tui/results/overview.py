@@ -184,7 +184,6 @@ def overview_view(overview: ExperimentOverview, data: ExperimentDataStatus | Non
     task = task if isinstance(task, dict) else {}
     completed, total = _case_progress(record)
     status = status_presentation(record.status)
-    progress = message_id("results.view.case_count", completed, total) if total else message_id("results.view.cases_unknown")
     data_unverified = bool(data_error) or (data is None and data_cancelled)
     windows = (message_id("results.view.unverified") if data_unverified else
                message_id("results.view.checking") if data is None else
@@ -204,7 +203,10 @@ def overview_view(overview: ExperimentOverview, data: ExperimentDataStatus | Non
         actions.append(ViewAction("overview-statistics", message_id("results.view.statistics"), primary=True))
     if callout is not None:
         actions.append(ViewAction("overview-reason", message_id("results.view.reason")))
-    summary = StatusSummary(level, join_messages(" · ", (status.label, progress, windows)), tuple(actions))
+    headline = (status.label, windows) if total is not None else (
+        status.label, message_id("results.view.cases_unknown"), windows,
+    )
+    summary = StatusSummary(level, join_messages(" · ", headline), tuple(actions))
     return OverviewView(summary, (
         _identity_section(record, options, task),
         _run_section(record, options, runtime),

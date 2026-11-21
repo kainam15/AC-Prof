@@ -183,7 +183,8 @@ class RunPresenter:
     def render_snapshot(self, snapshot: ProgressSnapshot) -> None:
         self.render_phase_times(snapshot)
         self.app.logs.stage_changed(snapshot)
-        self.app.query_one(MonitorHeader).update_view(monitor_header_view(snapshot))
+        header = monitor_header_view(snapshot, run_active=bool(self.app.execution.session.kind))
+        self.app.query_one(MonitorHeader).update_view(header)
         if not snapshot.measurement_active:
             self.app.localization.refresh_deferred_structured_language()
         self.app.query_one("#monitor-clock").display = bool(self.app.execution.session.started_monotonic)

@@ -38,8 +38,8 @@ _DOCKER_FRONTEND = Scene(
     visible_controls=("#download-progress", "#stop-run"),
 )
 _STATISTICS = Scene(
-    statistics.initial_config, statistics.mount, "交互式 HTML 报告", columns=80, rows=24, page="results-tab",
-    visible_controls=("#experiment-source", "#refresh-experiment-state", "#report-calculate"),
+    statistics.initial_config, statistics.mount, "选择实验后可查看分析报告", columns=80, rows=24, page="results-tab",
+    visible_controls=("#experiment-source", "#choose-experiment-source", "#html-report-status"),
 )
 SCENARIOS: dict[str, Scene] = {
     "form": _FORM,
@@ -59,5 +59,5 @@ SCENARIOS: dict[str, Scene] = {
         visible_controls=("#preparation-cancel", "#preparation-select-all", "#preparation-apply"),
     ),
     "statistics": _STATISTICS,
-    "statistics-en": replace(_STATISTICS, ready_pattern="Interactive HTML report", language="en"),
+    "statistics-en": replace(_STATISTICS, ready_pattern="Select an experiment to view its report", language="en"),
 }

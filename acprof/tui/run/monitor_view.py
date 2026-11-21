@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from acprof.tui.i18n import message_id
+from acprof.tui.i18n import CatalogMessage, message_id
 from acprof.tui.run.monitor import MonitorPhase, monitor_phase, visible_statuses
 from acprof.tui.run.progress import ProgressSnapshot
 from acprof.tui.run.stages import Stage
@@ -45,14 +45,21 @@ class MonitorHeaderView:
     progress_completed: int
 
 
-def _summary(snapshot: ProgressSnapshot) -> StatusSummary:
+def _summary(snapshot: ProgressSnapshot, *, run_active: bool) -> StatusSummary:
     state = status_presentation(_STAGE_STATES.get(snapshot.stage, "running"))
-    headline = snapshot.stage.label
-    if snapshot.warnings or snapshot.errors:
+    idle = snapshot.stage is Stage.WAITING and not run_active
+    headline = message_id("run.monitor.not_started") if idle else snapshot.stage.label
+    if snapshot.warnings and snapshot.errors:
         headline = message_id("run.monitor.stage_with_counts", headline, snapshot.warnings, snapshot.errors)
+    elif snapshot.warnings:
+        headline = message_id("run.monitor.stage_with_warnings", headline, snapshot.warnings)
+    elif snapshot.errors:
+        headline = message_id("run.monitor.stage_with_errors", headline, snapshot.errors)
     actions: tuple[ViewAction, ...] = ()
     if not snapshot.measurement_active:
-        if snapshot.stage in {Stage.COMPLETED, Stage.PARTIAL}:
+        if idle:
+            actions = (ViewAction("monitor-back-config", message_id("run.monitor.configure"), primary=True),)
+        elif snapshot.stage in {Stage.COMPLETED, Stage.PARTIAL}:
             actions = (ViewAction("monitor-open-results", message_id("run.monitor.view_results"), primary=True),)
         elif snapshot.stage in {
             Stage.FAILED,
@@ -99,38 +106,38 @@ def _check_section(snapshot: ProgressSnapshot) -> ViewSection | None:
 
 
 def _detail_section(snapshot: ProgressSnapshot) -> ViewSection | None:
-    rows = []
-    if snapshot.detail and (
-        snapshot.stage is Stage.WAITING or snapshot.detail != message_id("run.monitor.not_started")
+    detail = snapshot.detail
+    if not detail:
+        return None
+    if isinstance(detail, CatalogMessage) and (
+        detail.msgid == "run.monitor.not_started"
+        or (snapshot.measurement_active and detail.msgid == "run.monitor.collecting")
     ):
-        rows.append(FactRow(message_id("common.action.details"), snapshot.detail,
-                            detail=snapshot.detail, copyable=True))
-    if snapshot.warnings:
-        rows.append(FactRow(message_id("run.monitor.warning_count"), str(snapshot.warnings), status="warning"))
-    if snapshot.errors:
-        rows.append(FactRow(message_id("run.monitor.error_count"), str(snapshot.errors), status="failed"))
-    return ViewSection(message_id("run.monitor.details_title"), tuple(rows), collapsed=True) if rows else None
+        return None
+    row = FactRow(message_id("common.action.details"), detail, detail=detail, copyable=True)
+    return ViewSection(message_id("run.monitor.details_title"), (row,), collapsed=True)
 
 
-def monitor_header_view(snapshot: ProgressSnapshot) -> MonitorHeaderView:
+def monitor_header_view(snapshot: ProgressSnapshot, *, run_active: bool = False) -> MonitorHeaderView:
     """Project known facts without clocks, I/O, inferred readiness or new run state."""
     measurement = monitor_phase(snapshot) is MonitorPhase.MEASUREMENT
     cases = None
     total = None
     completed = 0
     if measurement and snapshot.total_cases > 0:
-        current = str(snapshot.current_case) if snapshot.current_case else message_id("common.value.not_applicable")
-        cases = ViewSection(message_id("run.monitor.cases_title"), (
-            FactRow(message_id("run.monitor.current_case_label"), current),
-            FactRow(message_id("run.monitor.processed_label"), f"{snapshot.completed_cases}/{snapshot.total_cases}"),
-        ))
+        rows = []
+        if snapshot.current_case > 0:
+            rows.append(FactRow(message_id("run.monitor.current_case_label"), str(snapshot.current_case)))
+        processed = f"{snapshot.completed_cases}/{snapshot.total_cases}"
+        rows.append(FactRow(message_id("run.monitor.processed_label"), processed))
+        cases = ViewSection(message_id("run.monitor.cases_title"), tuple(rows))
         # These are processed cases, including failures and skips, not valid windows.
         # Keep inconsistent counts visible as facts without inventing a bounded ratio.
         if 0 <= snapshot.completed_cases <= snapshot.total_cases:
             total, completed = snapshot.total_cases, snapshot.completed_cases
     resources = _resource_section(snapshot) if measurement and snapshot.current_case > 0 else None
     return MonitorHeaderView(
-        summary=_summary(snapshot), cases=cases, resources=resources,
+        summary=_summary(snapshot, run_active=run_active), cases=cases, resources=resources,
         checks=_check_section(snapshot), details=_detail_section(snapshot),
         progress_total=total, progress_completed=completed,
     )

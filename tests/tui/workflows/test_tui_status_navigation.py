@@ -207,7 +207,7 @@ async def test_field_navigation_returns_to_original_page_focus_and_scroll(tmp_pa
                                  timeout=3, description='origin focus restored')
         assert app.query_one('#main-tabs', TabbedContent).active == 'settings-tab'
         assert app.query_one('#experiment-pages', ContentSwitcher).current == 'advanced-form'
-        assert str(app.query_one('#open-run-settings', Button).label) == app.tr('返回基本配置')
+        assert app.query_one('#run-mode-advanced', Button).has_class('-active')
         assert body.scroll_offset == position
         assert not app.query_one('#status-return').display
 

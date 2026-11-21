@@ -25,7 +25,6 @@ ACTION_BUTTON_OPERATIONS: tuple[tuple[str, str], ...] = (
     ("#plot-results", "plot"),
     ("#report-open", "report"),
     ("#report-calculate", "html-report"),
-    ("#html-empty-generate", "html-report"),
     ("#report-window-stats", "stats"),
     ("#stop-run", "stop"),
     ("#html-report-generate", "html-report"),

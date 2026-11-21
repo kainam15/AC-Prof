@@ -51,6 +51,13 @@ class TestTuiPageChrome:
             assert (action.region.y) == (primary.region.y), action.id
         assert (primary.region.x) >= (secondary[-1].region.right + gap)
 
+    async def select_experiment(self):
+        source = self.app.configuration.settings_path.parent / "run.csv"
+        source.write_text("status,warmup,latency_app_s\nok,0,0.02\n", encoding="utf-8")
+        self.app.results.select_result(str(source))
+        await self.app.workers.wait_for_complete()
+        assert self.app.results.formal_ok_rows == 1
+
     @pytest.mark.parametrize('language', ['zh', 'en'])
     @pytest.mark.parametrize('size', [(80, 24), (120, 30), (150, 45)])
     async def test_all_pages_keep_top_content_and_rightmost_actions_fixed_when_scrolling_and_resizing(self, language, size):
@@ -61,8 +68,9 @@ class TestTuiPageChrome:
             await pilot.resize_terminal(*size)
             app.configuration.preferences = replace(app.configuration.preferences, language=language)
             app.configuration.apply_ui_preferences()
+            await self.select_experiment()
             pages = (
-                ('run-tab', 'start-run', ('open-run-settings', 'probe-largest')),
+                ('run-tab', 'start-run', ('probe-largest',)),
                 ('monitor-tab', 'stop-run', ('copy-log-all', 'follow-log', 'expand-log', 'clear-log')),
                 ('results-tab', 'plot-results', ('refresh-experiment-state',)),
                 ('images-tab', 'image-delete', ('image-toggle', 'image-model', 'image-untagged', 'image-clear')),
@@ -166,10 +174,11 @@ class TestTuiPageChrome:
             await pilot.pause()
             assert (button.styles.color) == (original)
             app.activate_tab("results-tab")
+            await self.select_experiment()
             await pilot.pause()
             normal = app.query_one("#refresh-experiment-state", Button)
-            normal.disabled = False
-            await pilot.pause()
+            assert not normal.disabled
+            self.assert_reachable(normal)
             foreground = app.current_theme.foreground
             assert (normal.styles.color.hex) == (foreground.upper())
             await pilot.hover(normal)

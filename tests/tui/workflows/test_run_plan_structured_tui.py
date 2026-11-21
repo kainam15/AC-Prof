@@ -33,9 +33,12 @@ async def test_collection_plan_and_original_actions_fit_short_terminal(tmp_path,
         assert "1" in section.title
         # Expanding reveals the full structured grid and details disclosure.
         section_title = section.query_one("CollapsibleTitle")
+        mode_region = app.query_one("#run-mode-advanced").region
+        assert mode_region.bottom <= panel.region.y
         assert await pilot.click(section_title)
         await pilot.pause()
         assert not section.collapsed
+        assert app.query_one("#run-mode-advanced").region == mode_region
         more = grid.query_one(".fact-more", Collapsible)
         assert more.collapsed
         body = panel.query_one("#run-plan-body")
@@ -71,7 +74,7 @@ async def test_collection_plan_and_original_actions_fit_short_terminal(tmp_path,
         def assert_actions_visible():
             actions = app.query_one("#run-actions")
             assert panel.region.bottom <= actions.region.y
-            for selector in ("#open-run-settings", "#probe-largest", "#start-run"):
+            for selector in ("#probe-largest", "#start-run"):
                 button = app.query_one(selector, Button)
                 assert not button.disabled
                 assert app.screen.region.contains_region(button.region)
@@ -83,7 +86,12 @@ async def test_collection_plan_and_original_actions_fit_short_terminal(tmp_path,
                 assert app.get_widget_at(*center)[0] is button
 
         assert_actions_visible()
-        assert await pilot.click("#open-run-settings")
+        assert [button.id for button in app.query_one("#run-actions").query(Button)] == ["probe-largest", "start-run"]
+        for selector in ("#resource-matrix", "#measurement-parameters"):
+            title = app.query_one(selector + " CollapsibleTitle")
+            assert app.query_one("#run-form").content_region.contains_region(title.region)
+            assert app.get_widget_at(*title.region.center)[0] is title
+        assert await pilot.click("#run-mode-advanced")
         await pilot.pause()
         assert app.query_one("#experiment-pages", ContentSwitcher).current == "advanced-form"
         assert app.query_one("#run-mode-advanced", Button).has_class("-active")

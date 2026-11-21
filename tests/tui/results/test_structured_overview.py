@@ -79,7 +79,7 @@ def test_metadata_projection_performs_no_file_reads_or_csv_aggregation(recorded_
         view = overview_view(recorded_overview)
     assert view.completed_cases == 1
     assert view.total_cases == 4
-    assert "1/4" in view.summary.headline
+    assert "1/4" not in view.summary.headline
     assert translate(fact(view, "results.view.windows").value, "en") == "Checking windows"
     assert fact(view, "results.view.model").value == "fixture/中文-model"
 
@@ -205,7 +205,9 @@ async def test_overview_progress_has_no_animation_and_freezes_during_measurement
         assert all(widget.auto_refresh is None for widget in [progress, *progress.query("*")])
         assert len(panel.query(FactGrid)) == 4
         assert all(group.collapsed for group in panel.query(".fact-more").results(Collapsible))
-        assert "1/4" in str(app.query_one("#result-summary", Static).content)
+        assert "1/4" in str(app.query_one("#overview-case-label", Static).content)
+        visible = "\n".join(strip.text for strip in app.screen._compositor.render_strips())
+        assert visible.count("1/4") == 1
 
         # Unknown totals remain textual; never switch the native Bar to animated None.
         unknown = replace(recorded_overview, record=replace(recorded_overview.record, state={}))
@@ -322,3 +324,24 @@ async def test_cancelled_data_read_leaves_identity_visible_and_windows_unverifie
         finally:
             app.execution.session.snapshot = original
             app.read_jobs.discard(pending)
+
+
+@pytest.mark.parametrize("language", ["zh", "en"])
+async def test_empty_results_offer_selection_and_clear_old_report_status(tmp_path, language):
+    app = AcprofTui(settings_path=tmp_path / "settings.json")
+    app.configuration.preferences = replace(app.configuration.preferences, language=language)
+    async with app.run_test(size=(80, 24)) as pilot:
+        app.results.show_result_section("overview-view")
+        await pilot.pause()
+        assert app.query_one("#choose-experiment-source", Button).region.area
+        assert not app.query_one("#overview-check-details").region.area
+        assert not app.query_one("#result-actions").region.area
+        app.results.show_result_section("statistics-view")
+        app.results.html.set_status("previous report status", level="warning")
+        app.results.select_result("")
+        await pilot.pause()
+        screen = "\n".join(strip.text for strip in app.screen._compositor.render_strips())
+        assert ("选择实验后可查看分析报告" if language == "zh" else "Select an experiment to view its report") in screen
+        assert "previous report status" not in screen
+        assert not app.query_one("#result-actions").region.area
+        assert not app.query("#html-empty-generate")

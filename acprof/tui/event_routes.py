@@ -164,10 +164,6 @@ class AppEventRoutes(BarCursorApp):
     def on_configuration_open_environment_settings(self) -> None:
         self.configuration.open_environment_settings()
 
-    @on(Button.Pressed, '#open-run-settings')
-    def on_configuration_open_run_settings(self) -> None:
-        self.configuration.open_run_settings()
-
     @on(Button.Pressed, '#run-mode-basic')
     def on_configuration_show_basic_form(self) -> None:
         self.configuration.show_run_form("run-form")
@@ -314,7 +310,6 @@ class AppEventRoutes(BarCursorApp):
         self.results.report_row_highlighted(event)
 
     @on(Button.Pressed, '#report-calculate')
-    @on(Button.Pressed, '#html-empty-generate')
     def on_results_calculate_report_button(self) -> None:
         self.results.calculate_report_button()
 

@@ -79,3 +79,21 @@ async def test_successful_comparison_offers_existing_html_and_preserves_json_exp
         assert app.query_one("#html-report-path", Input).value == str(report)
         assert app.results.report_view.payload == view.payload
         assert not app.query_one("#analysis-export-json", Button).disabled
+
+
+async def test_saved_report_remains_accessible_without_an_experiment(tmp_path):
+    from acprof.tui.settings.preferences import TuiSettings, save_settings
+    from acprof.tui.ui.structured import StatusBanner
+
+    report = tmp_path / "previous.html"
+    report.write_text("<!doctype html><title>previous</title>")
+    preferences = tmp_path / "settings.json"
+    save_settings(preferences, TuiSettings(last_html_report=str(report)), tmp_path)
+    app = AcprofTui(settings_path=preferences)
+    async with app.run_test(size=(80, 24)) as pilot:
+        app.results.show_result_section("statistics-view")
+        await pilot.pause()
+        assert app.query_one("#html-report-banner", StatusBanner).summary.headline.msgid == "results.overview.html_unverified"
+        assert app.query_one("#html-report-path", Input).value == str(report)
+        assert app.query_one("#html-report-open", Button).region.area
+        assert app.query_one("#report-calculate", Button).disabled

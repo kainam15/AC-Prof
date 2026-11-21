@@ -299,10 +299,6 @@ class ConfigurationController:
     def show_run_form(self, page: str) -> None:
         self.app.query_one("#experiment-pages", ContentSwitcher).current = page
         show_advanced = page == "advanced-form"
-        self.app.localization.set_text(
-            self.app.query_one("#open-run-settings", Button),
-            "返回基本配置" if show_advanced else "高级参数", "label",
-        )
         self.app.query_one("#run-mode-basic", Button).set_class(not show_advanced, "-active")
         self.app.query_one("#run-mode-advanced", Button).set_class(show_advanced, "-active")
 

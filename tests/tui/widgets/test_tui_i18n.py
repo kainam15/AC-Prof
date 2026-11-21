@@ -237,7 +237,7 @@ class TestTuiLanguage:
             assert (build_run_command(app.configuration.collect_config(), project_dir=PROJECT_DIR)) == (command)
             assert (app.query_one("#command-preview", Static).content) == (preview)
             assert (app.query_one("#experiment-pages", ContentSwitcher).current) == ("advanced-form")
-            assert (str(app.query_one("#open-run-settings", Button).label)) == ("Basic settings")
+            assert (str(app.query_one("#run-mode-basic", Button).label)) == ("Basic")
             assert str(app.query_one("#status-stage", Static).content) == "✓ Case completed"
             assert app.query_one("#status-grid StatusBanner", StatusBanner).has_class("status-success")
             assert (app.execution.session.snapshot) is (snapshot)
@@ -254,7 +254,7 @@ class TestTuiLanguage:
             )
             assert (app.query_one("#experiment-source", Input).value) == (str(csv_path))
             await self.switch(app, pilot, "zh")
-            assert (str(app.query_one("#open-run-settings", Button).label)) == ("返回基本配置")
+            assert (str(app.query_one("#run-mode-basic", Button).label)) == ("基本配置")
             assert fact_rows(app.query_one("#monitor-cases", FactGrid)) == (
                 ("当前 case", "1"), ("已处理", "1/2"),
             )
@@ -338,9 +338,14 @@ class TestTuiLanguage:
             assert app.has_class("narrow") == (app.query_one("#main-tabs").region.width < 110)
             assert (app.has_class("short")) == (size[1] < 35)
             await self.switch(app, pilot, language)
+            source = self.settings_path.parent / "run.csv"
+            source.write_text("status,warmup,latency_app_s\nok,0,0.02\n", encoding="utf-8")
+            app.results.select_result(str(source))
+            await app.workers.wait_for_complete()
+            assert app.results.formal_ok_rows == 1
             for tab, ids in (
                 ("settings-tab", ("ui-language", "restore-ui-defaults", "save-ui-settings")),
-                ("run-tab", ("open-run-settings", "probe-largest", "start-run")),
+                ("run-tab", ("run-mode-basic", "run-mode-advanced", "probe-largest", "start-run")),
                 ("monitor-tab", ("copy-log-all", "follow-log", "expand-log", "clear-log", "stop-run")),
                 ("results-tab", ("experiment-source", "refresh-experiment-state", "report-calculate")),
             ):

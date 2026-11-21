@@ -3,8 +3,10 @@ from dataclasses import replace
 from unittest.mock import patch
 
 import pytest
+from textual.widgets import Button, Collapsible
 
 from acprof.events.download import DownloadProgress
+from acprof.tui.i18n import message_id
 from acprof.tui.logging.widget import SelectableLog
 from acprof.tui.run.monitor_panel import CaseProgress, MonitorHeader
 from acprof.tui.run.process import StopResult
@@ -17,6 +19,51 @@ from tests.support.tui_fixtures import AcprofTui, fact_rows
 def screen_text(app):
     return "\n".join("".join(segment.text for segment in strip)
                      for strip in app.screen._compositor.render_strips())
+
+
+@pytest.mark.parametrize("language", ["zh", "en"])
+async def test_idle_monitor_links_to_config_and_shows_details_only_for_a_diagnostic(tmp_path, language):
+    app = AcprofTui(settings_path=tmp_path / "settings.json")
+    app.configuration.preferences = replace(app.configuration.preferences, language=language)
+    async with app.run_test(size=(80, 24)) as pilot:
+        app.activate_tab("monitor-tab")
+        await pilot.pause()
+        details = app.query_one("#monitor-details", FactGrid)
+        assert not details.display
+        setup = app.query_one("#monitor-summary Button", Button)
+        assert str(setup.label) == ("配置实验" if language == "zh" else "Configure experiment")
+        setup.focus()
+        await pilot.press("enter")
+        await pilot.pause()
+        assert app.query_one("#main-tabs").active == "run-tab"
+
+        app.activate_tab("monitor-tab")
+        # A child may emit a warning before the first structured progress event.
+        with patch.object(app.execution.session, "kind", "run"):
+            app.consume_process_line("", ProgressSnapshot(warnings=1), True)
+            await pilot.pause()
+            assert ("等待 · 1 警告" if language == "zh" else "Waiting · Warn 1") in screen_text(app)
+            assert not app.query_one("#monitor-summary ActionButtons").display
+
+        snapshot = ProgressSnapshot(
+            stage=Stage.MEASURING, detail=message_id("run.monitor.collecting"), measurement_active=True,
+            current_case=1, total_cases=4, cpu="2", mem="4", gpu="off", measurement_status="running",
+        )
+        app.consume_process_line("", snapshot, True)
+        await pilot.pause()
+        assert app.query_one("#measurement-pause-banner").display
+        assert not details.display
+        assert app.logs.log.suspended
+
+        app.consume_process_line("", ProgressSnapshot(stage=Stage.FAILED, detail="Device disconnected"), True)
+        await pilot.pause()
+        section = details.query_one(Collapsible)
+        assert details.display
+        assert section.collapsed
+        section.query_one("CollapsibleTitle").focus()
+        await pilot.press("enter")
+        await pilot.pause()
+        assert "Device disconnected" in screen_text(app)
 
 
 @pytest.mark.parametrize(("size", "language"), [

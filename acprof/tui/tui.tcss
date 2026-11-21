@@ -276,7 +276,7 @@ AcprofTui.short #run-plan-body { max-height: 8; }
     margin-top: 1;
     border-bottom: solid $panel;
 }
-AcprofTui.short #run-mode-bar { margin-top: 0; }
+AcprofTui.short #run-mode-bar { height: 1; margin-top: 0; border-bottom: none; }
 #run-mode-tabs { width: 1fr; height: 1; align-horizontal: left; }
 .mode-tab {
     height: 1;
@@ -324,6 +324,8 @@ AcprofTui.short #run-mode-bar { margin-top: 0; }
 }
 #run-footer { dock: bottom; height: auto; background: $surface; }
 #run-footer .action-bar { dock: none; }
+AcprofTui.short #run-actions { height: 3; border-top: none; }
+AcprofTui.short #resource-matrix { margin-bottom: 0; }
 #resource-matrix, #measurement-parameters, #profiling-options, #command-details { height: auto; margin-bottom: 1; border: none; background: $surface; padding: 0; }
 #command-preview { height: auto; max-height: 8; overflow-y: auto; padding: 0 1; }
 #science-note { height: auto; color: $text-muted; margin-top: 1; }
@@ -640,13 +642,10 @@ FactDetailScreen { align: center middle; }
 #report-file-options > Input { width: 100%; }
 #html-report-panel {
     height: auto;
-    margin-top: 1;
-    padding: 1 0;
-    border-top: solid $panel;
+    padding: 0 0 1 0;
 }
-#html-report-panel.has-report { padding: 0 0 1 0; }
+#result-actions.no-source.source-actions { display: none; }
 #html-legacy-controls { display: none; }
-.html-section-title { height: 1; text-style: bold; }
 #html-source-row { margin-top: 1; }
 #html-current-source { width: 1fr; height: 3; content-align: left middle; color: $text-muted; }
 #html-extra-sources, #html-report-path, #html-export-fields, #html-report-file,
@@ -656,8 +655,6 @@ FactDetailScreen { align: center middle; }
 #html-extra-sources, #html-report-path { width: 100%; margin-bottom: 1; }
 /* Avoid nested top padding: Textual's focus-scroll region omits that offset. */
 #html-report-file { height: auto; margin-top: 1; border-top: solid $panel; }
-#html-report-empty { height: auto; margin-top: 1; padding: 1; border: round $panel; background: $surface; }
-#html-empty-hint { height: auto; color: $text-muted; margin-bottom: 1; }
 .html-file-heading { height: 1; color: $text-muted; }
 #html-report-filename { height: 1; text-style: bold; text-overflow: ellipsis; }
 #html-report-location {

@@ -65,8 +65,13 @@ class TestTuiPresentation:
             with pytest.raises(RunConfigError, match="Warmup") as invalid_warmup:
                 app.configuration.collect_config()
             section.collapsed = True
-            assert await pilot.click("#open-run-settings")
+            assert await pilot.click("#run-mode-advanced")
             await pilot.pause()
+            assert app.query_one("#experiment-pages", ContentSwitcher).current == "advanced-form"
+            await pilot.press("f3")
+            assert app.query_one("#experiment-pages", ContentSwitcher).current == "run-form"
+            assert warmup.value == "-1"
+            await pilot.press("f3")
             assert app.query_one("#experiment-pages", ContentSwitcher).current == "advanced-form"
             app.configuration.show_config_error(invalid_warmup.value)
             await wait_for_condition(
@@ -82,7 +87,7 @@ class TestTuiPresentation:
             with pytest.raises(RunConfigError, match="Repeat"):
                 app.configuration.collect_config()
             repeat.value = "7"
-            assert await pilot.click("#open-run-settings")
+            assert await pilot.click("#run-mode-advanced")
             app.query_one("#advanced-form").scroll_end(animate=False, immediate=True)
             await pilot.pause()
             assert (await pilot.click("#save-run-default"))

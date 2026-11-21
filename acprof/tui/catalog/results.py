@@ -111,10 +111,6 @@ MESSAGES: dict[str, Entry] = {
     "results.html.current_source": Entry(zh="数据来源：当前选中的实验", en="Source: selected experiment"),
     "results.html.duplicate_input": Entry(zh="实验输入重复：{0}", en="Duplicate experiment input: {0}"),
     "results.html.edit_inputs": Entry(zh="编辑对比实验（已添加）", en="Edit added experiments"),
-    "results.html.empty_hint": Entry(
-        zh="当前实验尚未生成 HTML 分析报告，可直接点击下方按钮生成并在浏览器查看。",
-        en="No HTML report exists for this experiment yet. Generate one below to explore charts and window statistics.",
-    ),
     "results.html.existing_report": Entry(
         zh="已发现之前的 HTML 报告，可直接打开或生成新版本。",
         en="An existing HTML report is available. Open it or generate a new version.",
@@ -196,8 +192,8 @@ MESSAGES: dict[str, Entry] = {
         en="SSH or no local graphical desktop; no browser was started. HTML: {0}\nOver SSH, download with SFTP or your remote IDE; for a local headless session, open from a desktop. No web service is needed.",
     ),
     "results.html.save_as": Entry(zh="另存为", en="Save as"),
+    "results.html.select_experiment": Entry(zh="选择实验后可查看分析报告。", en="Select an experiment to view its report."),
     "results.html.selected_report": Entry(zh="当前 HTML 报告", en="Selected HTML report"),
-    "results.html.title": Entry(zh="交互式 HTML 报告", en="Interactive HTML report"),
     "results.html.use_existing": Entry(zh="指定已有 HTML 文件…", en="Select existing HTML file…"),
     "results.html.wsl_browser_unavailable": Entry(
         zh="WSL 浏览器桥接失败：{0}\n需要可用的 wslview，或 wslpath 与 powershell.exe。请检查 Windows 互操作及 PATH，或从文件资源管理器打开报告。",
@@ -440,7 +436,7 @@ MESSAGES: dict[str, Entry] = {
         zh="摘要仅展示前 30 个配置；完整结果请使用统计报告。",
         en="Showing the first 30 configurations; use statistics reports for the full results.",
     ),
-    "results.summary.empty": Entry(zh="选择实验目录，自动查看实验概览和 Profiling 状态。", en="Select an experiment directory to load its overview and Profiling status."),
+    "results.summary.empty": Entry(zh="选择实验，查看完成进度和有效窗口数。", en="Select an experiment to view case progress and valid windows."),
     "results.summary.grouping_description": Entry(
         zh="按 CPU / 内存上限 / GPU / 输入规模 / 环境分组；仅统计正式成功窗口。",
         en="Grouped by CPU / memory cap / GPU / input scale / environment; successful formal windows only.",

@@ -62,7 +62,6 @@ def compose_statistics(app: AcprofTui) -> ComposeResult:
     local = app.localization.localized_widget
     with VerticalScroll(id="analysis-workflow", classes="pane-scroll"):
         yield from compose_html(app)
-        yield local(Static(message_id("results.analysis.html_parameters"), id="statistics-html-hint", markup=False))
         with local(Collapsible(title=message_id("results.analysis.advanced"), collapsed=True, id="analysis-details", disabled=True)):
             yield local(Button(message_id("results.analysis.window_json"), id="report-window-stats", classes="report-control"))
             with Vertical(id="report-panel"):
@@ -117,19 +116,15 @@ def compose_exports(app: AcprofTui) -> ComposeResult:
 
 def compose_html(app: AcprofTui) -> ComposeResult:
     local = app.localization.localized_widget
+    saved_report = app.configuration.saved_settings.last_html_report
     with Vertical(id="html-report-panel"):
-        yield local(Label(message_id("results.html.title"), classes="html-section-title"))
         yield StatusBanner(
-            StatusSummary("neutral", message_id("results.html.generation_note")),
+            StatusSummary("neutral", message_id("results.overview.html_unverified") if saved_report else
+                          message_id("results.html.select_experiment")),
             id="html-report-banner",
             headline_id="html-report-status",
             include_actions=False,
         )
-        with Vertical(id="html-report-empty"):
-            yield local(Static(message_id("results.html.empty_hint"), id="html-empty-hint", markup=False))
-            with Horizontal(classes="html-actions"):
-                yield local(Button(message_id("results.analysis.generate"), id="html-empty-generate",
-                                   classes="report-control", variant="primary", disabled=True))
         with Vertical(id="html-report-file"):
             yield local(Static(message_id("results.html.selected_report"), classes="html-file-heading"))
             yield Static("", id="html-report-filename", markup=False)
@@ -138,6 +133,7 @@ def compose_html(app: AcprofTui) -> ComposeResult:
             with Horizontal(classes="html-actions"):
                 yield local(Button(message_id("results.html.open"), id="html-report-open", classes="report-control"))
                 yield local(Button(message_id("results.html.copy_path"), id="html-report-copy", classes="report-control"))
+            yield local(Static(message_id("results.analysis.html_parameters"), id="statistics-html-hint", markup=False))
         yield local(Static(message_id("results.html.remote_download_hint"), id="html-remote-hint", markup=False))
         # Retain paused import/export bindings; the visible workflow is select -> generate -> open.
         with Vertical(id="html-legacy-controls", disabled=True):
@@ -155,5 +151,5 @@ def compose_html(app: AcprofTui) -> ComposeResult:
                 yield local(Button(message_id("results.html.export"), id="html-report-export", classes="report-control"))
             with Vertical(id="html-existing-controls", disabled=True):
                 yield local(Button(message_id("results.html.use_existing"), id="html-existing-toggle", classes="report-control"))
-                yield local(Input(app.configuration.saved_settings.last_html_report, id="html-report-path",
+                yield local(Input(saved_report, id="html-report-path",
                                   classes="report-control", placeholder=message_id("results.html.path_hint")))

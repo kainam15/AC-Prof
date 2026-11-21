@@ -38,17 +38,19 @@ def compose_run_tab(app: AcprofTui) -> ComposeResult:
     default_cpus, default_mems = docker_resource_limits()
     with TabPane("实验配置", id="run-tab"):
         with Vertical(classes="page-header"):
-            yield RunPlanPanel(id="run-plan-panel")
             with Horizontal(id="run-mode-bar"):
                 with Horizontal(id="run-mode-tabs"):
                     yield app.localization.localized_widget(Button(
                         message_id("run.form.basic_tab"), id="run-mode-basic",
                         classes="mode-tab -active", compact=True,
+                        tooltip=message_id("run.form.toggle_tooltip"),
                     ))
                     yield app.localization.localized_widget(Button(
                         message_id("run.form.advanced"), id="run-mode-advanced",
                         classes="mode-tab", compact=True,
+                        tooltip=message_id("run.form.toggle_tooltip"),
                     ))
+            yield RunPlanPanel(id="run-plan-panel")
         with ContentSwitcher(initial="run-form", id="experiment-pages"):
             with VerticalScroll(id="run-form", classes="pane-scroll"):
                 overrides_banner = app.localization.localized_widget(Button(
@@ -340,7 +342,6 @@ def compose_run_tab(app: AcprofTui) -> ComposeResult:
             yield reason_button
             with Horizontal(id="run-actions", classes="action-bar"):
                 with Horizontal(classes="action-secondary"):
-                    yield app.localization.localized_widget(Button("高级参数", id="open-run-settings", tooltip="切换基本配置与高级参数（F3）"))
                     yield app.localization.localized_widget(Button("探测最大输入", id="probe-largest"))
                 with Horizontal(classes="action-primary"):
                     yield app.localization.localized_widget(Button("开始采集", id="start-run", variant="primary"))

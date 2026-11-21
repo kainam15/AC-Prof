@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
-from acprof.tui.i18n import translate
+from acprof.tui.i18n import message_id, translate
 from acprof.tui.run.monitor_view import monitor_header_view
 from acprof.tui.run.progress import ProgressSnapshot
 from acprof.tui.run.stages import Stage
@@ -16,14 +16,13 @@ def test_waiting_has_no_fabricated_progress_or_resource_values():
     view = monitor_header_view(ProgressSnapshot())
 
     assert view.summary.level == "neutral"
-    assert translate(view.summary.headline, "zh") == "等待"
-    assert translate(view.summary.headline, "en") == "Waiting"
-    assert view.summary.actions == ()
+    assert translate(view.summary.headline, "zh") == "尚未启动"
+    assert translate(view.summary.headline, "en") == "Not started"
+    assert [action.id for action in view.summary.actions] == ["monitor-back-config"]
     assert view.cases is view.resources is view.checks is None
     assert view.progress_total is None
     assert view.progress_completed == 0
-    assert view.details.collapsed
-    assert translate(view.details.rows[0].value, "en") == "Not started"
+    assert view.details is None
 
 
 @pytest.mark.parametrize(("stage", "level"), [
@@ -81,8 +80,7 @@ def test_planned_matrix_has_zero_progress_but_no_selected_resources():
 
     assert view.progress_total == 4
     assert view.progress_completed == 0
-    assert translate(view.cases.rows[0].value, "en") == "Not applicable"
-    assert view.cases.rows[1].value == "0/4"
+    assert [(translate(row.label, "en"), row.value) for row in view.cases.rows] == [("Processed", "0/4")]
     assert view.resources is None
     assert view.summary.level == "info"
 
@@ -211,19 +209,27 @@ def test_long_raw_details_preserve_whitespace_paths_and_literal_markup():
     assert row.status is None
 
 
-@pytest.mark.parametrize(("warnings", "errors", "labels", "values"), [
-    (2, 0, ["Warnings"], ["2"]), (0, 3, ["Errors"], ["3"]),
-    (2, 3, ["Warnings", "Errors"], ["2", "3"]),
+@pytest.mark.parametrize(("warnings", "errors", "headline"), [
+    (2, 0, "Completed · Warn 2"), (0, 3, "Completed · Err 3"),
+    (2, 3, "Completed · Warn 2 / Err 3"),
 ])
-def test_nonzero_counts_remain_available_in_collapsed_details(warnings, errors, labels, values):
+def test_nonzero_counts_appear_once_in_the_stage_headline(warnings, errors, headline):
     view = monitor_header_view(ProgressSnapshot(
         stage=Stage.COMPLETED, warnings=warnings, errors=errors,
     ))
 
-    assert view.details.collapsed
-    assert [translate(row.label, "en") for row in view.details.rows] == labels
-    assert [row.value for row in view.details.rows] == values
+    assert translate(view.summary.headline, "en") == headline
+    assert view.details is None
     assert view.summary.level == "success"
+
+
+def test_only_the_builtin_collecting_detail_is_hidden_while_the_pause_banner_is_visible():
+    detail = message_id("run.monitor.collecting")
+    snapshot = ProgressSnapshot(stage=Stage.MEASURING, detail=detail, measurement_active=True)
+
+    assert monitor_header_view(snapshot).details is None
+    assert monitor_header_view(replace(snapshot, measurement_active=False)).details.rows[0].detail == detail
+    assert monitor_header_view(replace(snapshot, detail=str(detail))).details.rows[0].detail == str(detail)
 
 
 def test_placeholder_and_zero_counts_do_not_create_obsolete_detail_rows():

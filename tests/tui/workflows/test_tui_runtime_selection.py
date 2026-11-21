@@ -71,12 +71,11 @@ async def test_basic_runtime_selection_navigation_and_restart(tmp_path, monkeypa
             assert app.configuration.collect_config() == replace(config, runtime=runtime)
             assert app.query_one('#start-run', Button).disabled
             assert not app.preflight.config_matches()
-            toggle = app.query_one('#open-run-settings', Button)
-            assert await pilot.click(toggle)
+            assert await pilot.click('#run-mode-advanced')
             await pilot.pause()
             assert app.query_one('#experiment-pages', ContentSwitcher).current == 'advanced-form'
             assert not control.is_on_screen
-            assert await pilot.click(toggle)
+            assert await pilot.click('#run-mode-basic')
             await pilot.pause()
             assert app.query_one('#experiment-pages', ContentSwitcher).current == 'run-form'
             assert app.query_one('#runtime', Select).value == runtime
@@ -99,7 +98,7 @@ async def test_basic_runtime_selection_navigation_and_restart(tmp_path, monkeypa
         app.configuration.apply_ui_preferences()
         await pilot.pause()
         assert app.configuration.collect_config().runtime == saved_runtime
-        await pilot.click('#open-run-settings')
+        await pilot.click('#run-mode-advanced')
         save = app.query_one('#save-run-default', Button)
         save.scroll_visible(animate=False, immediate=True)
         save.focus()

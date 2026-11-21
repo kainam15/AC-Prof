@@ -104,7 +104,7 @@ class ResultController:
         self.show_overview_hint(self.source_summary_hint())
 
     def show_overview_hint(self, source: str, *, level: str = "neutral") -> None:
-        self.app.query_one(ExperimentOverviewPanel).show_hint(source, level=level)
+        self.app.query_one(ExperimentOverviewPanel).show_hint(source, level=level, has_source=self.source_path is not None)
 
     def render_overview(self) -> None:
         if self.overview is None or self.app.execution.session.snapshot.measurement_active:
@@ -185,6 +185,7 @@ class ResultController:
         if not self.app.is_running or self.app.ui_closing:
             return
         backfill = section == "backfill-view"
+        self.app.query_one("#result-actions").set_class(section in {"overview-view", "statistics-view"}, "source-actions")
         self.app.query_one("#open-result-profiling", Button).display = backfill
         self.app.query_one("#report-calculate", Button).display = not backfill
         self.app.query_one("#plot-results", Button).display = not backfill
@@ -203,6 +204,8 @@ class ResultController:
         self.unavailable_remembered_source = ""
         self.app.profiles.reset_overview()
         self.report_source_changed()
+        self.html.set_status(message_id("results.overview.html_unverified" if source else "results.html.select_experiment"),
+                             level="neutral")
         for selector in ("#result-data-status", "#result-html-status"):
             self.app.localization.set_text(self.app.query_one(selector, Static), "")
         self.show_overview_hint(self.source_summary_hint())
@@ -387,7 +390,9 @@ class ResultController:
             self.overview_request, self.data_request, self.app.profiles.validation_request))
         cancel_analysis.display = actions.cancel_analysis_visible or reading
         cancel_analysis.disabled = not (actions.cancel_analysis_enabled or reading)
-        self.app.query_one("#result-actions").set_class(cancel_analysis.display, "cancellable")
+        footer = self.app.query_one("#result-actions")
+        footer.set_class(cancel_analysis.display, "cancellable")
+        footer.set_class(self.source_path is None and not cancel_analysis.display, "no-source")
         for selector, enabled in (
             ("#analysis-export-csv", actions.analysis_export_csv_enabled),
             ("#analysis-export-json", actions.analysis_export_json_enabled),
