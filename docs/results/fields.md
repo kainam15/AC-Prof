@@ -71,8 +71,9 @@ NLP 输出统计属于 `/predict` 响应后处理，因此包含在应用请求�
 旧版本未采集的 NLP 输出统计仍保留 `nan`，不能从实际生成 Token IDs 数回填。
 
 pcap 后处理通过一次 `tshark` 扫描逐行消费 HTTP 关联字段和 TCP 字节，保留 HTTP 重组、
-`decode-as`、重传以及识别 `/predict` 之前的帧。共享连接仅输出一次流级总量，逐请求
-字节标记为 `unavailable_shared_stream`。stdout 与 stderr 同时消费，诊断尾部有界保存；
+`decode-as`、重传以及识别 `/predict` 之前的帧。判断连接是否共享时包含未收到响应的 `/predict` 请求。
+同一连接有多个请求时，流级总量只输出一次，已应答请求保留各自的时延，逐请求字节标记为 `unavailable_shared_stream`。
+stdout 与 stderr 同时消费，跨读取块的字段行拼完整后解码，诊断尾部有界保存；
 超时、非零退出或解析异常会终止并回收子进程。后处理预算仍由
 `ACPROF_POSTPROCESS_TIMEOUT_S` 控制，发生在正式测量窗口之外。
 

@@ -151,6 +151,19 @@ def test_request_parser_surfaces_unexpected_header_errors_and_closes_stream():
     assert closed == [True]
 
 
+def test_request_headers_are_decoded_once_per_predict_frame():
+    headers = 'Host: test,X-Req-Id: case:3'
+    rows = [
+        packet(frame=1, request=1, uri='/ready', headers=headers),
+        packet(frame=10, request=1, uri='/predict', headers=headers),
+        packet(frame=11, time=100.25, response=1, request_in=10),
+    ]
+    with patch.object(sniff_parse_pcap, 'extract_request_id', wraps=sniff_parse_pcap.extract_request_id) as decode:
+        result = run_parser(rows)
+    assert result['requests']['case:10']['request_id'] == 'case:3'
+    decode.assert_called_once_with(headers)
+
+
 @pytest.mark.skipif(shutil.which('tshark') is None, reason='tshark required for golden PCAP acceptance')
 @pytest.mark.parametrize('name', ['single', 'segmented', 'retransmission', 'reuse', 'missing-response', 'ready-prefix'])
 def test_golden_capture_matches_legacy_parser(name, capsys):

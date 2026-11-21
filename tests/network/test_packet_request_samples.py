@@ -43,20 +43,52 @@ def _write_inputs(tmp_path, payload):
     return csv_path, packet_path, samples
 
 
+def _packet(frame, time, *, request_id=None, request_in=None, stream=0):
+    request = request_id is not None
+    return "\t".join(map(str, [
+        stream, 50000 if request else 8002, 8002 if request else 50000,
+        100, 10, frame, time, "1" if request else "", "/predict" if request else "",
+        f"X-Req-Id: {request_id}" if request else "", "" if request else "1",
+        "" if request else request_in, "" if request else "200",
+    ]))
+
+
+@pytest.mark.parametrize(("later_stream", "expected_stream"), [("", 7), (8, 8)])
+def test_repeated_frame_preserves_response_groups_and_uses_last_known_identity(later_stream, expected_stream):
+    requests = sniff_parse_pcap.parse_packets([
+        _packet(5, 100, request_id="first:0", stream=7),
+        _packet(6, 100.25, request_in=5, stream=7),
+        _packet(5, 101, request_id="second:2", stream=later_stream),
+        _packet(7, 101.5, request_in=5, stream=expected_stream),
+        _packet(8, 100, request_in=5, stream=expected_stream),
+    ], server_port=8002)["requests"]
+
+    assert [(key, row["request_id"], row["tcp_stream"], row["latency_s"]) for key, row in requests.items()] == [
+        ("first:5", "second:2", expected_stream, 0.25),
+        ("second:5", "second:2", expected_stream, 0.5),
+    ]
+
+
+def test_unanswered_predict_shares_stream_bytes_with_answered_request():
+    result = sniff_parse_pcap.parse_packets([
+        _packet(1, 100, request_id="window:0"),
+        _packet(2, 100.25, request_in=1),
+        _packet(3, 101, request_id="window:1"),
+    ], server_port=8002)
+
+    assert result["requests"] == {"window:1": {
+        "request_id": "window:0", "tcp_stream": 0, "latency_s": 0.25,
+        "wire_bytes_status": "unavailable_shared_stream",
+    }}
+    assert result["streams"][0]["request_wire_bytes"] == 200
+
+
 def test_parser_and_merge_align_samples_by_client_sequence_with_frame_collision(tmp_path):
-    def packet(frame, time, *, request_id=None, request_in=None):
-        request = request_id is not None
-        return "\t".join(map(str, [
-            frame // 10, 50000 if request else 8002, 8002 if request else 50000,
-            100, 10, frame, time, "1" if request else "", "/predict" if request else "",
-            f"X-Req-Id: {request_id}" if request else "", "" if request else "1",
-            "" if request else request_in, "" if request else "200",
-        ]))
     payload = sniff_parse_pcap.parse_packets([
-        packet(1, 100.0, request_id="window:0"),
-        packet(2, 100.25, request_in=1),
-        packet(10, 101.0, request_id="window:1"),
-        packet(11, 101.75, request_in=10),
+        _packet(1, 100.0, request_id="window:0"),
+        _packet(2, 100.25, request_in=1),
+        _packet(10, 101.0, request_id="window:1", stream=1),
+        _packet(11, 101.75, request_in=10, stream=1),
     ], server_port=8002)
     assert payload["requests"]["window:1"]["request_id"] == "window:0"
     csv_path, packet_path, samples = _write_inputs(tmp_path, payload)
