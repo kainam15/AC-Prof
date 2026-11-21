@@ -205,3 +205,97 @@ class TestModelCandidate(ModelCandidateFixture):
             current_context(config, Path.cwd(), needs_torch_platform=False)
             select.assert_not_called()
             gpu.assert_not_called()
+
+
+def _candidate_for_workload(tmp_path, monkeypatch, recorded_selection, selected_members, requested_tasks,
+                            available_profiles=None, discovery=None):
+    from types import SimpleNamespace
+
+    from acprof.experiments.configuration import RunConfig
+    from acprof.tui.models.candidates import candidate_from_record, current_conditions
+
+    fixture = ModelCandidateFixture()
+    fixture.build(None, tmp_path)
+    record = fixture.recorded()
+    config = replace(RunConfig.from_namespace(SimpleNamespace(**record.options)), tasks=requested_tasks)
+    options = dict(record.options)
+    if recorded_selection:
+        options["tasks"] = recorded_selection
+    history = dict(record.state["runtime"]["task"])
+    if selected_members:
+        history["task_discovery"] = {"status": "selection_required" if available_profiles else "ready", "model_revision": record.revision, "profiles": available_profiles or [
+            {"profile_id": recorded_selection, "semantic_task_ids": list(selected_members)}]}
+        history["selected_tasks"] = [{"task_id": recorded_selection, "interface": history["pipeline_tag"],
+                                      "execution_profile": {"semantic_task_ids": list(selected_members)}}]
+    if discovery is not None:
+        history["task_discovery"] = {"model_revision": record.revision, **discovery}
+    record = replace(record, options=options, state={**record.state, "runtime": {"task": history}})
+    context = {"host": record.state["host"], "gpu_uuid": None, "torch_index_url": "https://download.pytorch.org/whl/cpu"}
+    monkeypatch.setattr("acprof.host.preparation.task_support.require_task_support", lambda *args, **kwargs: None)
+    current = current_conditions(record, config, context, Path.cwd())
+    assert current["runtime_profile"]
+    assert current["runtime_environment"]
+    record = replace(record, runtime_profile=current["runtime_profile"],
+                     metadata={**record.metadata, "runtime_environment": {"environment_id": current["runtime_environment"]}})
+    return candidate_from_record(record, current)
+
+
+@pytest.mark.parametrize(("recorded_selection", "selected_members", "requested_tasks", "expected"), [
+    ("summarization", (), "summarization", "verified_current"),
+    ("summarization", (), "translation_en_to_de", "revalidate"),
+    ("profile-a", ("summarization",), "summarization", "verified_current"),
+    ("profile-a", ("summarization",), "profile-a", "verified_current"),
+    ("profile-a", ("summarization",), "summarization,translation_en_to_de", "revalidate"),
+    ("profile-a", ("summarization",), "all", "verified_current"),
+    ("profile-a", ("summarization",), "", "verified_current"),
+    ("profile-a", ("summarization", "translation_en_to_de"), "translation_en_to_de", "revalidate"),
+    ("profile-a", ("summarization", "translation_en_to_de"), "translation_en_to_de,summarization", "verified_current"),
+    ("", (), "summarization", "revalidate"),
+    ("", (), "", "verified_current"),
+])
+def test_candidate_validation_follows_selected_workload(tmp_path, monkeypatch, recorded_selection,
+                                                       selected_members, requested_tasks, expected):
+    candidate = _candidate_for_workload(tmp_path, monkeypatch, recorded_selection, selected_members, requested_tasks)
+    assert candidate.status == expected
+    if expected == "revalidate":
+        assert candidate.history_status == "previous_success"
+        assert "tasks" in candidate.reason
+        assert json.loads(candidate.detail)["validation"]["status"] == "ok"
+
+
+
+@pytest.mark.parametrize(("requested_tasks", "expected"), [
+    ("", "revalidate"), ("all", "revalidate"), ("profile-a", "revalidate"),
+    ("translation_en_to_de", "revalidate"), ("summarization", "verified_current"),
+])
+def test_single_child_does_not_validate_other_exemplars_or_siblings(tmp_path, monkeypatch, requested_tasks, expected):
+    profiles = [
+        {"profile_id": "profile-a", "semantic_task_ids": ["summarization", "translation_en_to_de"]},
+        {"profile_id": "profile-b", "semantic_task_ids": ["translation_en_to_fr"]},
+    ]
+    candidate = _candidate_for_workload(tmp_path, monkeypatch, "profile-a", ("summarization",), requested_tasks,
+                                        available_profiles=profiles)
+    assert candidate.status == expected
+
+
+@pytest.mark.parametrize(("profiles", "conflicts", "expected"), [
+    ([{"profile_id": "a", "semantic_task_ids": ["summarization"]}], [], "verified_current"),
+    ([{"profile_id": "a", "semantic_task_ids": ["summarization"]},
+      {"profile_id": "b", "semantic_task_ids": ["translation_en_to_de"]}], [], "revalidate"),
+    ([{"profile_id": "a", "semantic_task_ids": ["summarization"]}], ["conflicting work"], "revalidate"),
+    ([], [], "revalidate"),
+])
+def test_unselected_history_requires_one_unambiguous_default(tmp_path, monkeypatch, profiles, conflicts, expected):
+    discovery = {"status": "ready", "profiles": profiles, "conflicts": conflicts}
+    candidate = _candidate_for_workload(tmp_path, monkeypatch, "", (), "", discovery=discovery)
+    assert candidate.status == expected
+
+
+def test_legacy_default_requires_a_recorded_interface(tmp_path):
+    from acprof.tui.models.candidates import candidate_from_record, record_conditions
+
+    fixture = ModelCandidateFixture()
+    fixture.build(None, tmp_path)
+    record = fixture.recorded()
+    del record.state["runtime"]["task"]["pipeline_tag"]
+    assert candidate_from_record(record, record_conditions(record)).status == "revalidate"

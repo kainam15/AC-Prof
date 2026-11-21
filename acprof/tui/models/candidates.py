@@ -14,7 +14,7 @@ from acprof.models.evidence import pinned_revision
 from acprof.tui.experiments.catalog import ExperimentRecord
 
 CONDITION_KEYS = ('revision', 'runtime_profile', 'runtime_environment', 'device',
-                  'cpus', 'mems', 'gpus', 'batch_size', 'source_sha256', 'host_id', 'execution_options')
+                  'cpus', 'mems', 'gpus', 'batch_size', 'source_sha256', 'host_id', 'execution_options', 'tasks')
 
 
 @dataclass(frozen=True)
@@ -52,6 +52,74 @@ def execution_options(options: dict) -> dict | None:
         'request_timeout_seconds': options['request_timeout_seconds'], 'measurement_environment': environment}
 
 
+def _semantic_ids(value: object) -> tuple[str, ...] | None:
+    if not isinstance(value, list) or not value or not all(isinstance(part, str) and part for part in value):
+        return None
+    return tuple(sorted(value)) if len(set(value)) == len(value) else None
+
+
+def _discovered_groups(discovery: object, revision: str) -> dict[str, tuple[str, ...]]:
+    """Only a complete pinned inventory can expand a group ID, 'all' or the default."""
+    if (not isinstance(discovery, dict) or discovery.get("model_revision") != revision
+            or discovery.get("status") not in {"ready", "selection_required"}
+            or discovery.get("conflicts") or discovery.get("unresolved")):
+        return {}
+    profiles = discovery.get("profiles")
+    if not isinstance(profiles, list):
+        return {}
+    groups = {}
+    for profile in profiles:
+        if not isinstance(profile, dict):
+            return {}
+        name = profile.get("profile_id")
+        members = _semantic_ids(profile.get("semantic_task_ids"))
+        if not isinstance(name, str) or not name or name in groups or not members:
+            return {}
+        groups[name] = members
+    return groups
+
+
+def _task_selection(record: ExperimentRecord, request: object, *, recorded: bool = False,
+                    interface: str = "") -> tuple[str, ...] | None:
+    """Identify the semantic workloads covered by one minimum-input validation."""
+    if not isinstance(request, str):
+        return None
+    ids = _semantic_ids([part.strip() for part in request.split(",")]) if request else ()
+    if ids is None:
+        return None
+    task = record.state.get("runtime", {}).get("task", {})
+    selected = task.get("selected_tasks", [])
+    if not isinstance(selected, list) or len(selected) > 1 or (selected and not isinstance(selected[0], dict)):
+        return None
+    if recorded and selected:
+        workload = selected[0]
+        if not isinstance(workload.get("task_id"), str) or not isinstance(workload.get("execution_profile", {}), dict):
+            return None
+        group_id = workload.get("task_id")
+        members = _semantic_ids(workload.get("execution_profile", {}).get("semantic_task_ids", [group_id]))
+        # Child options name the group; the actual snapshot can cover a semantic subset.
+        return members if not ids or ids in {("all",), (group_id,), members} else None
+
+    discovery = task.get("task_discovery", {})
+    groups = _discovered_groups(discovery, record.revision)
+    if not ids or ids == ("all",):
+        if len(groups) == 1:
+            return next(iter(groups.values()))
+        # Legacy single-interface runs predate task discovery and omit default --tasks.
+        tag = task.get("pipeline_tag")
+        if (not ids and not selected and discovery == {} and isinstance(tag, str) and tag not in {"", "unknown"}
+                and (not interface or interface == tag)):
+            return ()
+        return None
+    if "all" in ids or (recorded and len(ids) > 1):
+        return None
+    if not groups and (discovery or (selected and selected[0].get("task_id") in ids)):
+        return None
+    if groups and set(ids) - groups.keys() - {member for members in groups.values() for member in members}:
+        return None
+    return tuple(sorted({member for name in ids for member in groups.get(name, (name,))}))
+
+
 def record_conditions(record: ExperimentRecord) -> dict:
     options, runtime = record.options, record.state.get('runtime', {})
     host = record.state.get('host', {})
@@ -59,6 +127,7 @@ def record_conditions(record: ExperimentRecord) -> dict:
     device = ((record.metadata.get('gpu_device') or {}).get('uuid') or options.get('gpu_device')) if 'on' in options.get('gpus', '') else (
         'cpu:' + host['machine_id_sha256'] if host.get('machine_id_sha256') else None)
     return {'host_id': host.get('machine_id_sha256'), 'execution_options': execution_options(options),
+            'tasks': _task_selection(record, options.get('tasks', ''), recorded=True),
             'revision': record.revision, 'runtime_profile': record.runtime_profile,
             'runtime_environment': environment.get('environment_id'), 'device': device,
             **{key: options.get(key) for key in ('cpus', 'mems', 'gpus', 'batch_size')},
@@ -86,6 +155,8 @@ def changed_conditions(recorded: dict, current: dict) -> tuple[str, ...]:
 def candidate_from_record(record: ExperimentRecord, current: dict) -> ModelCandidate:
     conditions = record_conditions(record)
     reasons = list(changed_conditions(conditions, current))
+    if record.model_source != current.get('model_source', 'huggingface'):
+        reasons.append('model_source: changed')
     codes = {failure.get('reason_code') for failure in record.failures}
     if 'access_denied' in codes:
         status, reason = 'access_required', 'access_denied'
@@ -97,19 +168,16 @@ def candidate_from_record(record: ExperimentRecord, current: dict) -> ModelCandi
         status, reason = 'previous_failure', ', '.join(sorted(str(code) for code in codes))
     elif (record.validation.get('status') == 'ok'
           and record.validation.get('scope') == 'isolated_minimum_scale_predict_and_postprocess_before_measurement'):
-        status = 'revalidate' if reasons else 'verified_current'
-        reason = '; '.join(reasons) if reasons else 'minimum input predict/postprocess passed under recorded conditions'
+        status, reason = 'verified_current', 'minimum input predict/postprocess passed under recorded conditions'
     else:
         status, reason = 'revalidate', 'full runtime evidence unavailable; ' + '; '.join(reasons)
-    history_status = status
-    if reasons and status in {'access_required', 'resource_limited', 'previous_failure'}:
+    history_status = 'previous_success' if status == 'verified_current' and reasons else status
+    if reasons and status in {'verified_current', 'access_required', 'resource_limited', 'previous_failure'}:
         reason += '; current conditions require revalidation: ' + '; '.join(reasons)
         status = 'revalidate'
     detail = json.dumps({'conditions': conditions, 'current_conditions': current, 'condition_changes': reasons,
         'run_id': record.run_id, 'aliases': [str(path) for path in record.aliases],
         'validation': record.validation, 'failures': record.failures, 'status': record.status}, ensure_ascii=False, indent=2)
-    if record.model_source != current.get('model_source', 'huggingface'):
-        status, reason = 'revalidate', reason + '; model_source: changed'
     return ModelCandidate(record.model_id, record.revision, status, reason, conditions, detail, record.directory,
                           history_status=history_status, record=record, model_source=record.model_source)
 
@@ -234,7 +302,7 @@ def current_conditions(record: ExperimentRecord, config, context: dict, project_
             'cpu:' + host['machine_id_sha256'] if host.get('machine_id_sha256') else None),
         'cpus': config.cpus, 'mems': config.mems, 'gpus': config.gpus, 'batch_size': config.batch_size,
         'source_sha256': host.get('source_sha256'), 'host_id': host.get('machine_id_sha256'),
-        'execution_options': execution_options(options)}
+        'execution_options': execution_options(options), 'tasks': _task_selection(record, config.tasks, interface=config.task)}
     if revision != record.revision or config.model_spec or config.workload_spec:
         return current
     try:
@@ -265,7 +333,7 @@ def current_conditions(record: ExperimentRecord, config, context: dict, project_
 
 MODEL_STATUS_LABELS = {'verified_current': '当前条件有成功验证记录', 'cached_unverified': '已缓存、待验证',
     'access_required': '需要授权', 'resource_limited': '上次资源不足', 'previous_failure': '保留历史失败',
-    'revalidate': '需要重新验证'}
+    'revalidate': '需要重新验证', 'previous_success': '历史最小输入验证成功'}
 _CANDIDATE_LEVELS = {
     'verified_current': 'success', 'cached_unverified': 'neutral', 'revalidate': 'warning',
     'access_required': 'error', 'resource_limited': 'error', 'previous_failure': 'error',

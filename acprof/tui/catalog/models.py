@@ -30,6 +30,7 @@ MESSAGES: dict[str, Entry] = {
     "models.candidates.filter_revalidate": Entry(zh="需重验", en="Revalidate"),
     "models.candidates.filter_validated": Entry(zh="已验证", en="Validated"),
     "models.candidates.previous_failure": Entry(zh="保留历史失败", en="Previous failure retained"),
+    "models.candidates.previous_success": Entry(zh="历史最小输入验证成功", en="Previous minimum-input validation passed"),
     "models.candidates.raw_evidence": Entry(zh="原始证据", en="Raw evidence"),
     "models.candidates.reason_label": Entry(zh="判定原因", en="Reason"),
     "models.candidates.resource_limited": Entry(zh="上次资源不足", en="Previously resource limited"),
