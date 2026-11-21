@@ -30,6 +30,19 @@ def canonical(value):
     return json.dumps(value, sort_keys=True, ensure_ascii=False, allow_nan=False, separators=(",", ":"))
 
 
+def hardware_case_binding(cpu: str, memory: str, gpu: str) -> tuple[str, str | None]:
+    """Return the measured coordinate label and its optional recorded hardware case ID."""
+    from acprof.results.layout import resource_case_id
+
+    try:
+        case_id = resource_case_id(cpu, memory, gpu)
+    except ValueError:
+        # CSV coordinates can be fractional. Keep them visible without using
+        # their display label to look up observations from a collection case.
+        return f"{cpu}c_{memory}g_{gpu}", None
+    return case_id, case_id
+
+
 def _verified_limits(allocation, key, runtime):
     from acprof.results.layout import resource_case_id
 
@@ -38,9 +51,9 @@ def _verified_limits(allocation, key, runtime):
         return False
     values = allocation.get("observed" if runtime == "docker" else "requested", {})
     try:
-        cpu, memory = float(values["cpu_quota"]), float(values["memory_gib"])
-        return (cpu.is_integer() and memory.is_integer() and cpu > 0 and memory > 0 and
-                resource_case_id(cpu, memory, key.rsplit("_", 1)[-1]) == key)
+        return "inherited" not in key and resource_case_id(
+            values["cpu_quota"], values["memory_gib"], key.rsplit("_", 1)[-1],
+        ) == key
     except (KeyError, ValueError, TypeError, OverflowError):
         return False
 
@@ -197,8 +210,7 @@ class PreparedComparison:
 
     def _project_case_evidence(self, conditions, hardware, workload, case):
         cpu, memory, gpu, scale = case
-        from acprof.results.layout import resource_case_id
-        case_id = resource_case_id(cpu, memory, gpu)
+        label, case_id = hardware_case_binding(cpu, memory, gpu)
         conditions["resources"] = {
             **conditions["resources"], "cpus": str(cpu), "mems": str(memory), "gpus": gpu,
         }
@@ -209,7 +221,7 @@ class PreparedComparison:
             if workload and selected_case in workload else None
         )
         projected_hardware = {
-            name: {case_id: values.get(case_id)} if isinstance(values, dict) else None
+            name: {label: values.get(case_id)} if case_id is not None and isinstance(values, dict) else None
             for name, values in hardware.items()
         }
         return projected_workload, projected_hardware
@@ -269,26 +281,23 @@ class PreparedComparison:
         workload = conditions.pop("actual_workload")
         if case is not None:
             workload, hardware = self._project_case_evidence(conditions, hardware, workload, case)
-        if not unknown(hardware.get("runtime_threads")):
-            conditions["runtime_threads"] = hardware["runtime_threads"]
         workload_profiles = self._build_workload_profiles(workload, purpose)
         if purpose == "resource-scaling":
             # Resource labels in case maps are coordinates, not hardware facts.
             # Different measured policies/threads across resource cases stay visible.
             hardware = {name: _remove_resource_keys(values) for name, values in hardware.items()}
-            if not unknown(snapshot["hardware"].get("runtime_threads")):
-                conditions["runtime_threads"] = hardware["runtime_threads"]
+        if not unknown(hardware.get("runtime_threads")):
+            conditions["runtime_threads"] = hardware["runtime_threads"]
         checks: dict[str, dict[str, object]] = {}
         self._populate_condition_checks(checks, conditions, hardware, purpose)
         profile = {"purpose": purpose, "valid": snapshot["valid"], "checks": checks, "workload": workload_profiles}
         if purpose == "same-hardware":
             from acprof.hub.repository import model_source
             from acprof.models.evidence import pinned_revision
-            from acprof.results.layout import resource_case_id
             identity = snapshot.get("identity", {})
             runtime = conditions.get("execution_runtime", {}).get("kind")
             limits = snapshot.get("verified_limits", {})
-            ids = [resource_case_id(*case[:3])] if case is not None else list(hardware.get("host_id") or {})
+            ids = hardware.get("host_id") or {}
             bound = bool(ids) and all(_verified_limits(limits.get(key, {}), key, runtime) for key in ids)
             protocol = snapshot.get("collector_protocol", {})
             if (runtime in {"docker", "process"} and bound

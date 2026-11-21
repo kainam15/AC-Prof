@@ -19,6 +19,7 @@ from acprof.analysis.conditions import (
     compare_profiles,
     compare_workload_profiles,
     dimensions,
+    hardware_case_binding,
     unknown,
     workload_case_profile,
     workload_contract_complete,
@@ -342,19 +343,17 @@ def _observed_runtime_threads(
 def _resolve_actual_workload_and_cases(
     result: AuditedRows,
     issues: list[str],
-) -> tuple[list[dict[str, str]], dict | None, set[str]]:
+) -> tuple[list[dict[str, str]], dict | None, dict[str, str | None]]:
     try:
         if not isinstance(result, ResultCsvSnapshot):
             raise result
         rows = [row for row in result.rows if not is_inferred_result(row)]
-        from acprof.results.layout import resource_case_id
-        case_ids = {
-            resource_case_id(row["cpu_cores"], row["mem_cap_gb"], row["gpu_mode"])
-            for row in rows if result_row_status(row) in {"ok", "warn"}
-        }
+        resource_rows = {(row["cpu_cores"], row["mem_cap_gb"], row["gpu_mode"]): row
+                         for row in rows if result_row_status(row) in {"ok", "warn"}}
+        case_ids = dict(hardware_case_binding(*measurement_key(row)[:3]) for row in resource_rows.values())
     except (OSError, ValueError, TypeError, AttributeError, OverflowError) as error:
         issues.append(f"actual workload: {error}")
-        return [], None, set()
+        return [], None, {}
     try:
         actual = actual_workload(rows)
     except ValueError as error:
@@ -422,7 +421,9 @@ def _comparison_evidence(metadata_snapshot: ResultMetadataSnapshot | None, audit
                                if isinstance(environment, dict) else None)
     inputs, planned_entries = _planned_inputs_from_plan(plan, issues)
     threads = _observed_runtime_threads(metadata, environment, issues)
-    rows, actual, case_ids = _resolve_actual_workload_and_cases(result, issues) if metadata_snapshot else ([], None, set())
+    rows, actual, case_ids = _resolve_actual_workload_and_cases(result, issues) if metadata_snapshot else ([], None, {})
+    observed_hardware = {label: hardware_cases.get(case_id, {}) if case_id is not None else {}
+                         for label, case_id in sorted(case_ids.items())}
     # Only the input payload and semantic conditions are compared. Model/export,
     # packages and backend hashes continue to belong to the existing run identity.
     host = _object_field(state, "host", issues)
@@ -472,7 +473,7 @@ def _comparison_evidence(metadata_snapshot: ResultMetadataSnapshot | None, audit
             "actual_workload": actual,
         },
         "hardware": {
-            name: {case_id: hardware_cases.get(case_id, {}).get(name) for case_id in sorted(case_ids)} or None
+            name: {label: record.get(name) for label, record in observed_hardware.items()} or None
             for name in HARDWARE_FIELDS
         },
         "identity": {**{key: metadata.get(key) for key in (

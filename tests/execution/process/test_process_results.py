@@ -48,6 +48,31 @@ def test_audit_rejects_a_numeric_quota_without_enforcement(result):
     assert 'resource_enforcement' in {issue['code'] for issue in report['issues']}
 
 
+@pytest.mark.parametrize(("cpu", "case_id", "requested", "valid"), [
+    ("1.0e0", "1c_4g_off", {"cpu_quota": 1, "memory_gib": 4.0}, True),
+    ("1.0000000000000001", "1c_4g_off", {"cpu_quota": 1, "memory_gib": 4}, False),
+    ("9007199254740993", "9007199254740992c_4g_off", {"cpu_quota": 2**53, "memory_gib": 4}, False),
+    ("9007199254740993", "9007199254740993c_4g_off", {"cpu_quota": 2**53 + 1, "memory_gib": 4}, True),
+    ("9007199254740993", "9007199254740993c_4g_off", {"cpu_quota": 2**53, "memory_gib": 4}, False),
+    ("1", "1c_4g_off", {"cpu_quota": True, "memory_gib": 4}, False),
+    ("1", "1c_4g_off", {"cpu_quota": "1", "memory_gib": 4}, False),
+    ("nan", "inheritedc_4g_off", {"cpu_quota": None, "memory_gib": 4}, True),
+    ("nan", "inheritedc_4g_off", {"memory_gib": 4}, False),
+    ("nan", "inheritedc_4g_off", None, False),
+], ids=["integral-alias", "rounded-fraction", "wrong-case", "exact-large-case", "wrong-quota",
+        "boolean", "text", "explicit-inherited", "missing-axis", "null-plan-request"])
+def test_process_audit_binds_explicit_requested_limits_to_the_exact_case(result, tmp_path,
+                                                                        cpu, case_id, requested, valid):
+    path = result(cpu_cores=cpu, mem_cap_gb="4", resource_limit_source="cgroup_v2")
+    hardware = {"schema_version": 1, "cases": {case_id: {"resource_plan": {
+        "method": "cgroup_v2", "verified": True, "requested": requested}}}}
+    (tmp_path / "hardware_conditions.json").write_text(json.dumps(hardware))
+    report = audit_result(path)
+    assert report["valid"] is valid
+    issues = [issue for issue in report["issues"] if issue["code"] == "resource_enforcement"]
+    assert [issue["row"] for issue in issues] == ([] if valid else [2])
+
+
 def test_runtime_identity_mismatch_is_an_audit_error(result):
     report = audit_result(result(runtime_id='other-env'))
     assert not report['valid']

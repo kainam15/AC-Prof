@@ -4,6 +4,7 @@ from __future__ import annotations
 import re
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 from acprof.artifacts import (
@@ -13,6 +14,7 @@ from acprof.artifacts import (
     sync_directory_chain,
 )
 from acprof.cancellation import cancellable, check_cancelled
+from acprof.results.measurement_plan import decimal_coordinate
 
 MANIFEST_NAME = "result_manifest.json"
 METADATA_FILES = frozenset({
@@ -30,14 +32,39 @@ DIRECTORIES = {
 }
 _CASE_ID = re.compile(r"(?:[1-9][0-9]*|inherited)c_(?:[1-9][0-9]*|inherited)g_(?:on|off)\Z")
 _ATTEMPT_ID = re.compile(r"[a-f0-9]{32}\Z")
+# An axis wider than a filesystem name component cannot identify a case path.
+_MAX_RESOURCE_DIGITS = 255
 
 
-def resource_case_id(cpu, memory, gpu):
-    def label(value):
-        if value is None or str(value).lower() in {"inherited", "nan", "none", ""}:
-            return "inherited"
-        return str(int(float(value)))
-    return f"{label(cpu)}c_{label(memory)}g_{gpu}"
+def resource_axis_label(value: object) -> str:
+    """Return a positive integer or inherited label without rounding a recorded axis."""
+    if value is None:
+        return "inherited"
+    if isinstance(value, float):
+        value = Decimal.from_float(value)
+    if type(value) is int:
+        if 0 < value < 10**_MAX_RESOURCE_DIGITS:
+            return str(value)
+        raise ValueError("resource axis must be a positive integer that fits in a case path")
+    if not isinstance(value, (str, Decimal)):
+        raise ValueError(f"invalid resource axis: {value!r}")
+    text = str(value).strip()
+    if text.lower() in {"inherited", "nan", "none", ""}:
+        return "inherited"
+    try:
+        number = decimal_coordinate(text)
+    except InvalidOperation as error:
+        raise ValueError(f"invalid resource axis: {value!r}") from error
+    if (not number.is_finite() or number <= 0 or number.adjusted() >= _MAX_RESOURCE_DIGITS
+            or number != number.to_integral_value()):
+        raise ValueError(f"invalid resource axis: {value!r}")
+    return str(int(number))
+
+
+def resource_case_id(cpu, memory, gpu) -> str:
+    if gpu not in ("off", "on"):
+        raise ValueError(f"invalid gpu_mode for resource case: {gpu!r}")
+    return f"{resource_axis_label(cpu)}c_{resource_axis_label(memory)}g_{gpu}"
 
 
 def _manifest() -> dict:

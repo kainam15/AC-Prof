@@ -1,5 +1,6 @@
 """One comparison uses one observation of each JSON metadata artifact."""
 import hashlib
+import json
 from collections import Counter
 from pathlib import Path
 
@@ -216,3 +217,18 @@ def test_bom_input_plan_hash_uses_original_bytes(experiment):
         input_scale_plan_sha256=hashlib.sha256(content).hexdigest()))
     assert audit_result(root)["valid"]
     assert comparison.load_comparison_snapshot(root)["valid"]
+
+
+def test_only_resource_plan_quotas_preserve_exact_hardware_decimals(experiment):
+    _fixture, root = experiment
+    text = """{"schema_version":1,"cases":{"1c_4g_off":{
+        "gpu":{"memory_gib":0.1,"power":[0.1]},
+        "resource_plan":{"observed":{"memory_gib":4.00000000000000001,"cpu_quota":1.0},
+                         "requested":{"cpu_quota":9007199254740993.0,"memory_gib":0.1}}}}}"""
+    (root / "hardware_conditions.json").write_text(text)
+    record = ResultMetadataSnapshot(root).read("hardware_conditions.json").payload["cases"]["1c_4g_off"]
+    assert record["resource_plan"]["observed"] == {"memory_gib": "4.00000000000000001", "cpu_quota": 1.0}
+    assert record["resource_plan"]["requested"] == {"cpu_quota": 9007199254740993, "memory_gib": 0.1}
+    evidence = comparison.load_comparison_snapshot(root)
+    assert json.loads(json.dumps(evidence))["verified_limits"]["1c_4g_off"] == record["resource_plan"]
+    assert record["gpu"] == {"memory_gib": 0.1, "power": [0.1]}

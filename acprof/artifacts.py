@@ -52,7 +52,8 @@ def _finite_json_number(raw: str) -> float:
     return value
 
 
-def _finite_json_decimal(raw: str) -> Decimal:
+def finite_json_decimal(raw: str) -> Decimal:
+    """Read an exact decimal token in the finite JSON artifact range."""
     _finite_json_number(raw)  # Keep the artifact format's original finite range.
     try:
         value = Decimal(raw)
@@ -67,7 +68,7 @@ def loads_finite_json(content: str, *, exact_decimals: bool = False) -> Any:
     """Decode JSON while rejecting non-standard or overflowed finite numbers."""
     return json.loads(
         content,
-        parse_float=_finite_json_decimal if exact_decimals else _finite_json_number,
+        parse_float=finite_json_decimal if exact_decimals else _finite_json_number,
         parse_constant=_finite_json_number,
     )
 
@@ -154,7 +155,7 @@ def _json_object(source: Path, label: str, text: str, cancelled: Callable[[], bo
 def read_json_object_snapshot(
     path: str | Path, *, label: str = "artifact", expected_sha256: str | None = None,
     bounded: bool = True, cancelled: Callable[[], bool] | None = None,
-    byte_budget: list[int] | None = None,
+    byte_budget: list[int] | None = None, decode: Callable[[str], Any] | None = None,
 ) -> JsonObjectSnapshot:
     """Read and validate JSON without reopening it to obtain its byte identity.
 
@@ -165,7 +166,7 @@ def read_json_object_snapshot(
     source = Path(path)
     content = _read_json_bytes(source, label, expected_sha256=expected_sha256, bounded=bounded,
                                cancelled=cancelled, byte_budget=byte_budget)
-    payload = _json_object(source, label, _json_text(source, label, content), cancelled, loads_finite_json)
+    payload = _json_object(source, label, _json_text(source, label, content), cancelled, decode or loads_finite_json)
     return JsonObjectSnapshot(content, payload)
 
 

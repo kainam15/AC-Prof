@@ -326,3 +326,65 @@ def test_resource_and_runtime_thread_checks_still_follow_each_case(multi_case_so
             encoded = f"[{cpu}]" if purpose == "resource-scaling" else cpu
             assert profile["checks"][thread_key] == {
                 "value": hashlib.sha256(encoded.encode()).hexdigest(), "difference": "incompatible"}
+
+
+@pytest.mark.parametrize(("cpu", "neighbor", "bound"), [
+    ("1.5", "1", False),
+    ("1.0000000000000001", "1", False),
+    ("9007199254740993", "9007199254740992", True),
+])
+def test_hardware_evidence_binds_to_exact_measured_case(multi_case_sources, cpu, neighbor, bound):
+    fixture = multi_case_sources(1)
+    for directory in (fixture.left, fixture.right):
+        path = directory / "result_all.csv"
+        with path.open(newline="") as stream:
+            reader = csv.DictReader(stream)
+            fields, rows = reader.fieldnames, list(reader)
+        with path.open("w", newline="") as stream:
+            writer = csv.DictWriter(stream, fields)
+            writer.writeheader()
+            writer.writerows({**row, "cpu_cores": value} for value in (neighbor, cpu) for row in rows)
+
+        def update_hardware(payload):
+            host = payload["cases"]["1c_4g_off"]
+            payload["cases"] = {f"{neighbor}c_4g_off": host, f"{cpu}c_4g_off": {**host, "host_id": "other-host"}}
+
+        def update_state(state):
+            state["options"]["cpus"] = f"{neighbor},{cpu}"
+            if not bound:
+                del state["runtime"]  # Historical CSVs may have no recorded coverage plan.
+
+        fixture.change_json(directory, "hardware_conditions.json", update_hardware)
+        fixture.change_json(directory, "run_state.json", update_state)
+        fixture.refresh(directory)
+
+    snapshot = load_comparison_snapshot(fixture.left)
+    assert snapshot["valid"]
+    assert snapshot["metric_contracts"]["latency_app_s"]["all_windows"]
+    assert snapshot["metric_availability"]["latency_app_s"]
+    workload = snapshot["conditions"]["actual_workload"]
+    assert {tuple(json.loads(key)) for key in workload} == {
+        (value, "4", "off", scale) for value in (neighbor, cpu) for scale in ("2", "4")}
+    assert all(case["request_count"] == 3 for case in workload.values())
+    assert snapshot["hardware"]["host_id"] == {
+        f"{neighbor}c_4g_off": "fixture-host", f"{cpu}c_4g_off": "other-host" if bound else None}
+
+    statuses = {neighbor: "compatible", cpu: "compatible" if bound else "unknown"}
+    model = load_analysis([fixture.left])
+    for config in model.configs:
+        profiles = config["comparison_profiles"]
+        value = json.loads(next(iter(profiles["same-hardware"]["workload"])))[0]
+        assert all(profile["status"] == statuses[value] for profile in profiles.values())
+        assert config["metrics"]["latency_app_s"]["n"] == 1
+    assert len(model.configs) == 4
+    for purpose in conditions.PURPOSES:
+        result = compare_results(fixture.left, fixture.right, purpose=purpose)
+        assert result["status"] == statuses[cpu]
+        assert result["conditions"]["hardware_host_id"]["status"] == statuses[cpu]
+        assert result["conditions"]["actual_workload"]["status"] == "compatible"
+
+    fixture.change_json(fixture.right, "hardware_conditions.json",
+                        lambda data: data["cases"][f"{neighbor}c_4g_off"].update(host_id="different-host"))
+    result = compare_results(fixture.left, fixture.right, purpose="same-hardware")
+    assert result["conditions"]["hardware_host_id"]["status"] == "incompatible"
+    assert result["status"] == "incompatible"

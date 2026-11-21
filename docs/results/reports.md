@@ -504,6 +504,9 @@ acprof audit results/left --compare results/right \
 [硬件条件证据](../profiling/lifecycle.md#硬件条件证据)。缺失值始终为 `unknown`；
 跨硬件模式不会把未记录条件视为预期差异。实际正式服务的线程数优先于独立 probe 近似值；
 只有旧 probe 证据时仍需显式正整数线程请求，并保留硬件证据未知的限制。
+Docker 与 Process 跨 Runtime 的逐指标比较须将两侧 CPU 和内存限额精确匹配到各自配置。
+例如记录 `4.00000000000000001` GiB 无法证明 4 GiB 配额，报告将撤回依赖该条件的基线差值。
+Process 使用继承限额时，资源计划的对应请求字段须显式记录为 JSON `null`。
 `quality_constraints` 必须由输入计划显式记录。新计划记录当前采集要求的
 `sanity_only_not_accuracy_benchmark` 策略及 `protocol` / `task` 均须为 `verified` 的门槛；
 独立 runtime validation 的成功回执保存同一份约束。相同策略允许在其他条件也一致时比较性能，

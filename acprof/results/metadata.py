@@ -7,6 +7,7 @@ from pathlib import Path
 
 from acprof.artifacts import JsonObjectSnapshot, read_json_object_snapshot
 from acprof.cancellation import cancellable, check_cancelled
+from acprof.hardware_conditions import decode_hardware_conditions
 from acprof.results.layout import ArtifactLayout, resolve_result_file
 
 
@@ -88,8 +89,7 @@ class ResultMetadataSnapshot:
             try:
                 if not self.exists(name):
                     raise FileNotFoundError(f"metadata artifact missing: {name}")
-                self._records[name] = read_json_object_snapshot(self.layout.path(name), label=label or name,
-                                                                cancelled=cancelled)
+                self._records[name] = self._read_record(name, label or name, cancelled)
             except (OSError, ValueError) as error:
                 self._records[name] = error
                 self._failed_labels[name] = label or name
@@ -97,6 +97,11 @@ class ResultMetadataSnapshot:
         if isinstance(record, (OSError, ValueError)):
             raise record
         return record
+
+    def _read_record(self, name: str, label: str, cancelled: Callable[[], bool] | None) -> JsonObjectSnapshot:
+        path = self.layout.path(name)
+        decode = decode_hardware_conditions if path.name == "hardware_conditions.json" else None
+        return read_json_object_snapshot(path, label=label, cancelled=cancelled, decode=decode)
 
     def verify_current(self, source: str | Path, *, cancelled: Callable[[], bool] | None = None) -> None:
         """Raise the first verification error for callers requiring a stable source."""
@@ -141,7 +146,7 @@ class ResultMetadataSnapshot:
         if isinstance(record, JsonObjectSnapshot):
             return _matches_content(path, record.content, cancelled)
         try:
-            read_json_object_snapshot(path, label=self._failed_labels[name], cancelled=cancelled)
+            self._read_record(name, self._failed_labels[name], cancelled)
         except (OSError, ValueError) as error:
             if _same_error(record, error):
                 return True

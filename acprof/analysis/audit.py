@@ -30,6 +30,7 @@ from acprof.results.csv import (
     run_id_column,
     validate_result_rows,
 )
+from acprof.results.layout import resource_axis_label, resource_case_id
 from acprof.results.measurement_plan import (
     RecordedMeasurementOptions,
     decimal_coordinate,
@@ -393,10 +394,17 @@ def _audit_plan_coverage(report, state, rows, issue, cancelled):
         issue("plan_coverage", "结果行与原实验计划不完全一致")
 
 
+def _process_limit_matches(raw, requested, name, method):
+    axis = resource_axis_label(raw)
+    if axis == "inherited":
+        return name in requested and requested[name] is None
+    limit = requested.get(name)
+    return method == "cgroup_v2" and type(limit) in (int, float) and limit == int(axis)
+
+
 def _audit_process_row(report, runtime, metadata, hardware, index, row, status, issue):
     if runtime != "process" and row.get("runtime_kind") != "process":
         return
-    from acprof.results.layout import resource_case_id
     if (runtime != "process" or row.get("runtime_kind") != "process"
             or not metadata.get("runtime_id") or row.get("runtime_id") != metadata["runtime_id"]):
         issue("runtime_identity", "Process Runtime 身份与元数据不一致", row=index)
@@ -406,7 +414,7 @@ def _audit_process_row(report, runtime, metadata, hardware, index, row, status, 
         return
     try:
         case_id = resource_case_id(row["cpu_cores"], row["mem_cap_gb"], row["gpu_mode"])
-    except (ValueError, OverflowError) as error:
+    except ValueError as error:
         issue("resource_enforcement", f"无法匹配已记录的资源配置: {error}", row=index)
         return
     record = hardware.get(case_id, {})
@@ -414,17 +422,18 @@ def _audit_process_row(report, runtime, metadata, hardware, index, row, status, 
     if not isinstance(plan, dict) or plan.get("verified") is not True:
         issue("resource_enforcement", "缺少已验证的 Process 资源限制证据", row=index)
         return
-    requested = plan.get("requested", {})
+    requested = plan.get("requested")
+    if not isinstance(requested, dict):
+        issue("resource_enforcement", "缺少 Process 请求的 CPU 和内存配额记录", row=index)
+        return
     for field, name in (("cpu_cores", "cpu_quota"), ("mem_cap_gb", "memory_gib")):
-        value = number(row.get(field))
-        if (value != requested.get(name)
-                or value is not None and plan.get("method") != "cgroup_v2"):
+        if not _process_limit_matches(row[field], requested, name, plan.get("method")):
             issue("resource_enforcement", f"{field} 与实际实施的限制不符", row=index, field=field)
     if row.get("resource_limit_source") != plan.get("method"):
         issue("resource_enforcement", "资源限制来源与执行证据不符", row=index)
-    if any(number(value) is not None for field, value in row.items() if field.startswith('service_cgroup_')):
-        if plan.get('method') != 'cgroup_v2' or not plan.get('cgroup'):
-            issue('service_cgroup_scope', '服务 cgroup 指标缺少独立 cgroup 归属证据', row=index)
+    if ((plan.get('method') != 'cgroup_v2' or not plan.get('cgroup'))
+            and any(number(value) is not None for field, value in row.items() if field.startswith('service_cgroup_'))):
+        issue('service_cgroup_scope', '服务 cgroup 指标缺少独立 cgroup 归属证据', row=index)
 
 
 def _audit_numeric_row(report, runtime, missing_reasons, missing, partial, index, row, formal, issue, cancelled):
