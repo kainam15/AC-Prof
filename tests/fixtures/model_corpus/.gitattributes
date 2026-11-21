@@ -1,4 +1,6 @@
 hf-bert-base-uncased/*.json -text
+hf-resnet-18/*.json -text
+hf-vilt-vqa/*.json -text
 hf-whisper-tiny/*.json -text
 hf-whisper-tiny/preprocessor_config.json linguist-generated=true
 hf-whisper-tiny/tokenizer_config.json linguist-generated=true

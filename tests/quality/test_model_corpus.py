@@ -251,6 +251,8 @@ def test_checked_in_corpus_matches_reviewed_expectations(tmp_path):
         ("huggingface", "google-bert/bert-base-uncased"),
         ("modelscope", "Qwen/Qwen3-0.6B"),
         ("huggingface", "openai/whisper-tiny"),
+        ("huggingface", "microsoft/resnet-18"),
+        ("huggingface", "dandelin/vilt-b32-finetuned-vqa"),
     } <= captured
 
 

@@ -557,6 +557,176 @@
       }
     },
     {
+      "case_id": "hf-resnet-18",
+      "source": "huggingface",
+      "model_id": "microsoft/resnet-18",
+      "revision": "65a5785d9156231087c481e0c7dd33a5ff6f7e3e",
+      "weight": 1,
+      "fixture_kind": "captured",
+      "description": "Image-only ResNet classifier with a ConvNext feature extractor and no tokenizer.",
+      "capture_source": {
+        "observed_on": "2026-11-21",
+        "info_and_files": "https://huggingface.co/api/models/microsoft/resnet-18/revision/65a5785d9156231087c481e0c7dd33a5ff6f7e3e"
+      },
+      "hub": {
+        "pipeline_tag": "image-classification",
+        "library_name": "transformers",
+        "config": {
+          "architectures": [
+            "ResNetForImageClassification"
+          ],
+          "model_type": "resnet"
+        },
+        "transformers_info": {
+          "auto_model": "AutoModelForImageClassification",
+          "pipeline_tag": "image-classification",
+          "processor": "AutoImageProcessor"
+        },
+        "tags": [
+          "transformers",
+          "pytorch",
+          "tf",
+          "safetensors",
+          "resnet",
+          "image-classification",
+          "vision",
+          "dataset:imagenet-1k",
+          "arxiv:1512.03385",
+          "license:apache-2.0",
+          "endpoints_compatible",
+          "deploy:azure",
+          "region:us"
+        ],
+        "card_data": {
+          "license": "apache-2.0"
+        },
+        "safetensors": {
+          "total": 11699112,
+          "parameters": {
+            "F32": 11699112
+          }
+        }
+      },
+      "repository_files": [
+        ".gitattributes",
+        "README.md",
+        "config.json",
+        "model.safetensors",
+        "preprocessor_config.json",
+        "pytorch_model.bin",
+        "tf_model.h5"
+      ],
+      "metadata": {
+        "config.json": {
+          "path": "model_corpus/hf-resnet-18/config.json",
+          "sha256": "11a01bcc873444bb433140e5f30f3687356641ed923266d738eef1c3438f6d22",
+          "origin": "captured",
+          "url": "https://huggingface.co/microsoft/resnet-18/resolve/65a5785d9156231087c481e0c7dd33a5ff6f7e3e/config.json"
+        },
+        "preprocessor_config.json": {
+          "path": "model_corpus/hf-resnet-18/preprocessor_config.json",
+          "sha256": "fd575b890da5a949493e1d1e7a70bfcb9e4b99fe444004d2dbfa253add254741",
+          "origin": "captured",
+          "url": "https://huggingface.co/microsoft/resnet-18/resolve/65a5785d9156231087c481e0c7dd33a5ff6f7e3e/preprocessor_config.json"
+        }
+      },
+      "expected": {
+        "inspection_status": "candidate",
+        "compatibility_status": "supported",
+        "reason_code": null,
+        "selected_task": "image-classification",
+        "runtime_profile": "cv-cu128",
+        "runtime_status": "not_requested"
+      }
+    },
+    {
+      "case_id": "hf-vilt-vqa",
+      "source": "huggingface",
+      "model_id": "dandelin/vilt-b32-finetuned-vqa",
+      "revision": "d0a1f6ab88522427a7ae76ceb6e1e1e7b68a1d08",
+      "weight": 1,
+      "fixture_kind": "captured",
+      "description": "ViLT visual question answering with a BERT tokenizer and an image feature extractor, not text-only QA.",
+      "capture_source": {
+        "observed_on": "2026-11-21",
+        "info_and_files": "https://huggingface.co/api/models/dandelin/vilt-b32-finetuned-vqa/revision/d0a1f6ab88522427a7ae76ceb6e1e1e7b68a1d08"
+      },
+      "hub": {
+        "pipeline_tag": "visual-question-answering",
+        "library_name": "transformers",
+        "config": {
+          "architectures": [
+            "ViltForVisualQuestionAnswering"
+          ],
+          "model_type": "vilt",
+          "tokenizer_config": {
+            "unk_token": "[UNK]",
+            "sep_token": "[SEP]",
+            "pad_token": "[PAD]",
+            "cls_token": "[CLS]",
+            "mask_token": "[MASK]"
+          }
+        },
+        "transformers_info": {
+          "auto_model": "ViltForVisualQuestionAnswering",
+          "processor": "AutoProcessor"
+        },
+        "tags": [
+          "transformers",
+          "pytorch",
+          "vilt",
+          "visual-question-answering",
+          "arxiv:2102.03334",
+          "license:apache-2.0",
+          "endpoints_compatible",
+          "region:us"
+        ],
+        "card_data": {
+          "license": "apache-2.0"
+        },
+        "safetensors": null
+      },
+      "repository_files": [
+        ".gitattributes",
+        "README.md",
+        "config.json",
+        "preprocessor_config.json",
+        "pytorch_model.bin",
+        "special_tokens_map.json",
+        "tokenizer.json",
+        "tokenizer_config.json",
+        "vocab.txt"
+      ],
+      "metadata": {
+        "config.json": {
+          "path": "model_corpus/hf-vilt-vqa/config.json",
+          "sha256": "2946f3a077b494920c872d65b0b026a2e5c534de10acb6494bb95c6cf7251072",
+          "origin": "captured",
+          "url": "https://huggingface.co/dandelin/vilt-b32-finetuned-vqa/resolve/d0a1f6ab88522427a7ae76ceb6e1e1e7b68a1d08/config.json"
+        },
+        "preprocessor_config.json": {
+          "path": "model_corpus/hf-vilt-vqa/preprocessor_config.json",
+          "sha256": "d1f3ca78b55090750f0fb2167576799bc1c25f66d40362654585ebd81d58ba34",
+          "origin": "captured",
+          "url": "https://huggingface.co/dandelin/vilt-b32-finetuned-vqa/resolve/d0a1f6ab88522427a7ae76ceb6e1e1e7b68a1d08/preprocessor_config.json"
+        },
+        "tokenizer_config.json": {
+          "path": "model_corpus/hf-vilt-vqa/tokenizer_config.json",
+          "sha256": "d7029c05e65e89366045434d8f49afef94b17a8203d54b85f186ac4f4690126a",
+          "origin": "captured",
+          "url": "https://huggingface.co/dandelin/vilt-b32-finetuned-vqa/resolve/d0a1f6ab88522427a7ae76ceb6e1e1e7b68a1d08/tokenizer_config.json"
+        }
+      },
+      "expected": {
+        "inspection_status": "candidate",
+        "compatibility_status": "supported",
+        "reason_code": null,
+        "selected_task": "visual-question-answering",
+        "runtime_profile": "multimodal-transformers4576",
+        "runtime_status": "not_requested"
+      }
+    },
+    {
       "case_id": "hf-whisper-tiny",
       "source": "huggingface",
       "model_id": "openai/whisper-tiny",

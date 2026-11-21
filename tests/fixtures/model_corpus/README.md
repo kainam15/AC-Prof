@@ -1,6 +1,6 @@
 # Offline model corpus fixtures
 
-[`../model_corpus.json`](../model_corpus.json) declares three captured repository
+[`../model_corpus.json`](../model_corpus.json) declares five captured repository
 observations and 17 reviewed synthetic scenarios for the model-inspection and
 coverage pipeline. No weights are included or downloaded. A listed artifact
 name tests a layout, not its contents. The repeated `aaaaaaaa…` revision is a
@@ -9,6 +9,12 @@ synthetic identity, not a real Hub commit.
 - Hugging Face `google-bert/bert-base-uncased` (`86b5e093`): the revision API
   supplied the Hub attributes and all repository file names. The fixture keeps
   the original model and tokenizer configs, not the ONNX or native weights.
+- Hugging Face [`microsoft/resnet-18`](https://huggingface.co/microsoft/resnet-18/tree/65a5785d9156231087c481e0c7dd33a5ff6f7e3e)
+  and [`dandelin/vilt-b32-finetuned-vqa`](https://huggingface.co/dandelin/vilt-b32-finetuned-vqa/tree/d0a1f6ab88522427a7ae76ceb6e1e1e7b68a1d08)
+  use the revisions from the hardware example. ResNet has an image feature
+  extractor but no tokenizer; ViLT uses both an image feature extractor and a
+  BERT tokenizer for visual question answering. Metadata files match the Git
+  blob IDs from each revision API. Neither checkpoint is loaded.
 - Hugging Face [`openai/whisper-tiny`](https://huggingface.co/openai/whisper-tiny/tree/169d4a4341b33bc18d8881c4b69c2e104e1cc0af)
   (`169d4a43`): the same revision as the hardware validation example, replayed
   here without running it. The revision API supplied the file list and Hub
@@ -21,7 +27,7 @@ synthetic identity, not a real Hub commit.
   tags and license are repository-level observations dated in `capture_source`,
   not historical properties guaranteed by the commit.
 
-All three upstream repositories declare [Apache-2.0](../../../LICENSE). The checked-in
+The captured repositories declare [Apache-2.0](../../../LICENSE). The checked-in
 configs retain the upstream bytes, including missing final newlines; do not
 reformat them. `metadata` records each pinned download URL and SHA256.
 
