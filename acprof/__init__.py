@@ -1,3 +1,3 @@
 """AC-Prof package."""
 
-__version__ = "0.4.0a10"
+__version__ = "0.4.0a11"
