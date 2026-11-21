@@ -23,6 +23,8 @@ def test_capture_claims_its_inode_when_linkable_and_never_reopens_input(tmp_path
                 (tmp_path / "probe").unlink()
             finally:
                 os.close(fd)
+        except NotImplementedError:
+            native = False  # This Python build cannot request linkat with these flags.
         except OSError as exc:
             if exc.errno not in {errno.EISDIR, errno.EINVAL, errno.EOPNOTSUPP, errno.ENOENT,
                                  errno.ENOSYS, errno.EPERM, errno.EACCES, errno.EXDEV}:
