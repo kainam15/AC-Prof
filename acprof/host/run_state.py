@@ -40,6 +40,7 @@ from acprof.host.run_state_types import (
 from acprof.messages import Message, join_messages, message
 from acprof.platform import detect_environment, is_linux
 from acprof.results.csv import (
+    ResultValidationError,
     expected_measurements,
     publish_merged_cases,
     read_result_csv,
@@ -1156,10 +1157,10 @@ class RunState:
                 self._matrix_publication = None
 
     def finish(self, final_csv: str) -> None:
-        _, rows = read_result_csv(final_csv, expected=self.expected_plan())
         from acprof.host.measurement.window_recovery import is_incremental
         if self._matrix_publication is not None and self._matrix_publication[0] == (os.getpid(), current_thread()):
             from acprof.result_store.sources import verify_source_files
+            _, rows = read_result_csv(final_csv, expected=self.expected_plan())
             _, writer, lease = self._matrix_publication
             if writer.layout.result_csv != Path(final_csv).absolute() or writer.expected_run_id != self.run_id:
                 raise RunStateError("最终结果与正在提交的实验身份不一致")
@@ -1168,15 +1169,18 @@ class RunState:
             digest = file_sha256(writer.layout.result_csv)
             lease.close()
             self._matrix_publication = None
-        elif is_incremental(self.layout):
-            from acprof.result_store.writer import ResultWriter
-            if Path(final_csv).absolute() != self.layout.result_csv:
-                raise RunStateError("最终结果不属于正在提交的实验目录")
-            with ResultWriter(self.directory, expected_run_id=self.run_id) as writer:
-                writer.freeze()
-                digest = file_sha256(writer.layout.result_csv)
         else:
-            digest = file_sha256(final_csv)
+            snapshot = read_result_csv_snapshot(final_csv, expected=self.expected_plan())
+            rows, digest = snapshot.rows, snapshot.sha256
+            if is_incremental(self.layout):
+                from acprof.result_store.writer import ResultWriter
+                if Path(final_csv).absolute() != self.layout.result_csv:
+                    raise RunStateError("最终结果不属于正在提交的实验目录")
+                with ResultWriter(self.directory, expected_run_id=self.run_id) as writer:
+                    if file_sha256(writer.layout.result_csv) != digest:
+                        raise ResultValidationError(f"result source changed: {final_csv}")
+                    writer.freeze()
+                    digest = file_sha256(writer.layout.result_csv)
         self.data.update({"status": "complete", "completed_at": utc_now(), "result_sha256": digest,
                           "row_count": len(rows), "outcome": "partial" if any(row.get("status") == "error" for row in rows) else "ok"})
         self.save()

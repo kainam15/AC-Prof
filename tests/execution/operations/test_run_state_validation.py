@@ -5,7 +5,7 @@ import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -217,6 +217,36 @@ def test_only_matrix_owner_can_freeze_and_independent_finish_requires_its_own_ma
     assert state.layout.result_csv.read_bytes() == before
     state.finish(final_csv)
     assert state.complete
+
+
+def test_independent_finish_rejects_a_changed_manifest_before_freezing_and_can_retry(recovery_state):
+    from acprof.result_store.writer import ResultWriter
+    from acprof.results.csv import ResultValidationError, read_result_csv
+
+    state = recovery_state
+    case = state.layout.case("fixture/model", 1, 4, "off").csv
+    case.write_text("cpu_cores,mem_cap_gb,gpu_mode,input_scale,warmup,repeat_idx,status,error\n"
+                    "1,4,off,64,0,0,ok,\n")
+    state.finish_case(str(case), 1, 4, "off")
+    manifest = state.layout.result_csv
+    committed = []
+    enter = ResultWriter.__enter__
+
+    def publish_before_lock(writer):
+        with patch.object(ResultWriter, "__enter__", enter), ResultWriter(state.directory) as competitor:
+            _, (row,) = read_result_csv(manifest)
+            competitor.update_rows([{**row, "status": "error", "error": "fixture failure"}], reason="handoff")
+            committed.append(manifest.read_bytes())
+        return enter(writer)
+
+    with patch.object(ResultWriter, "__enter__", publish_before_lock):
+        with pytest.raises(ResultValidationError, match="result source changed"):
+            state.finish(str(manifest))
+    assert not state.complete
+    assert committed == [manifest.read_bytes()]
+    state.finish(str(manifest))
+    assert state.complete
+    assert state.data["outcome"] == "partial"
 
 
 @pytest.mark.parametrize("entry", ["load", "preview", "constructor"])
