@@ -1,5 +1,6 @@
 import shlex
 import time
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -86,8 +87,9 @@ class TestTuiInteraction:
     async def test_burst_of_form_changes_collects_once_and_keeps_latest_values(self):
         app = AcprofTui(RunConfig.smoke("demo/model"), settings_path=self.settings_path)
         async with app.run_test(size=(140, 45)) as pilot:
-            await pilot.pause(0.1)
-            with patch.object(app.configuration, 'collect_config', wraps=app.configuration.collect_config) as collect:
+            with patch.object(app.preflight, 'schedule_auto_check'), patch.object(
+                app.configuration, 'collect_config', wraps=app.configuration.collect_config,
+            ) as collect:
                 app.query_one("#cpus", Input).value = "1,2"
                 app.query_one("#cpus", Input).value = "1,3"
                 app.query_one("#model", Input).value = "demo/latest"
@@ -115,7 +117,7 @@ class TestTuiInteraction:
                 await pilot.pause(0.12)
                 assert (refresh.call_count) == (1)
             assert (app.configuration.preview_timer) is None
-            assert app.configuration.collect_config() == RunConfig.main_matrix("demo/model")
+            assert app.configuration.collect_config() == replace(RunConfig.main_matrix("demo/model"), runtime="docker")
             assert (app.query_one("#cpus", Input).value) == ("auto")
 
     async def test_starting_run_cancels_preview_and_locks_configuration(self):

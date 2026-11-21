@@ -3,7 +3,7 @@
 from pathlib import Path
 
 import pytest
-from textual.widgets import Checkbox, ContentSwitcher, Select, Static, TabbedContent
+from textual.widgets import Checkbox, Collapsible, Select, Static, TabbedContent
 from tests.support.tui_fixtures import AcprofTui
 
 from acprof.experiments.configuration import RunConfig, build_run_command
@@ -37,6 +37,7 @@ async def test_profiler_checkboxes_update_preview_preflight_and_restore(tmp_path
     config = RunConfig(
         model="test/model",
         gpus="off,on",
+        runtime="docker",
         compute_profile_tool="torch",
         execution_profile_tool="nsys",
     )
@@ -44,8 +45,12 @@ async def test_profiler_checkboxes_update_preview_preflight_and_restore(tmp_path
     async with app.run_test(size=size) as pilot:
         app.query_one("#ui-language", Select).value = language
         app.query_one("#main-tabs", TabbedContent).active = "run-tab"
-        app.query_one("#experiment-pages", ContentSwitcher).current = "advanced-form"
+        section = app.query_one("#profiling-options", Collapsible)
+        title = section.query_one("CollapsibleTitle")
+        title.focus()
+        await pilot.press("enter")
         await pilot.pause()
+        assert not section.collapsed
         assert app.query_one("#torch-profiler", Checkbox).value
         assert not app.query_one("#ncu-profiler", Checkbox).value
         assert not app.query_one("#massif-profiler", Checkbox).value

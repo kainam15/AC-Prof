@@ -45,7 +45,7 @@ async def test_start_waiting_state_is_translated_without_covering_monitor():
 def test_first_launch_without_saved_configuration_is_a_small_smoke():
     with tempfile.TemporaryDirectory() as temporary:
         app = AcprofTui(settings_path=Path(temporary) / "settings.json")
-        assert (app.configuration.initial_config) == (RunConfig.smoke())
+        assert app.configuration.initial_config == replace(RunConfig.smoke(), runtime="docker")
 
 @pytest.mark.parametrize(('language', 'size'), [('zh', (80, 24)), ('en', (120, 30))])
 async def test_first_open_blank_model_is_neutral_and_locatable(tmp_path, language, size):
@@ -169,16 +169,19 @@ def test_cli_first_run_overrides_saved_full_matrix_without_rewriting_settings():
         assert (command[command.index("--output-dir") + 1]) == ("results/first run")
         assert (path.read_bytes()) == (original)
 
-def test_starting_without_overrides_preserves_saved_full_matrix():
+@pytest.mark.parametrize(("saved_runtime", "form_runtime"), [("auto", "docker"), ("process", "process")])
+def test_starting_without_overrides_preserves_saved_full_matrix(saved_runtime, form_runtime):
     with tempfile.TemporaryDirectory() as temporary:
         path = Path(temporary) / "settings.json"
-        config = RunConfig(model="saved/model", cpus="2,4", output_dir="results/saved")
+        config = RunConfig(model="saved/model", runtime=saved_runtime, cpus="2,4", output_dir="results/saved")
         save_settings(path, TuiSettings(run_defaults=config), Path.cwd())
+        original = path.read_bytes()
         with patch("acprof.tui.settings.controller.default_settings_path", return_value=path), patch(
             "textual.app.App.run", autospec=True,
         ) as run:
             main([])
-        assert (run.call_args.args[0].configuration.initial_config) == (config)
+        assert run.call_args.args[0].configuration.initial_config == replace(config, runtime=form_runtime)
+        assert path.read_bytes() == original
 
 @pytest.mark.parametrize(("size", "language"), [((80, 24), 'zh'), ((120, 30), 'en'), ((150, 45), 'zh')])
 async def test_prepared_scales_update_summary_outside_measurement_in_both_languages(size, language):
@@ -230,24 +233,27 @@ async def test_revision_edit_invalidates_prepared_scales_but_repeat_edit_keeps_t
             assert facts()[window_label] == message_id("run.plan.window_totals", 0, 6)
             assert scales.placeholder == "8,16 tokens"
 
-            await pilot.click("#open-run-settings")
-            app.query_one("#repeat", Input).focus()
+            app.configuration.open_config_field("repeat")
+            await wait_for_condition(pilot, lambda: app.focused is app.query_one("#repeat", Input),
+                                     description="repeat control revealed and focused", timeout=3)
             await pilot.press("end", "ctrl+u", "4")
             await wait_for_condition(
                 pilot,
-                lambda: facts()[window_label] == message_id("run.plan.window_totals", 0, 8),
+                lambda: facts().get(window_label) == message_id("run.plan.window_totals", 0, 8),
                 description="edited repeat count in the collection plan", timeout=3,
             )
             assert app.configuration.collect_config().repeat == 4
             assert facts()[scale_label] == message_id("run.plan.scale_count_unit", 2, "tokens")
             assert scales.placeholder == "8,16 tokens"
 
-            app.query_one("#revision", Input).focus()
+            app.configuration.open_config_field("revision")
+            await wait_for_condition(pilot, lambda: app.focused is app.query_one("#revision", Input),
+                                     description="revision control revealed and focused", timeout=3)
             await pilot.press("end", "ctrl+u", "v", "2")
             pending = message_id("common.state.pending")
             await wait_for_condition(
                 pilot,
-                lambda: facts()[window_label] == message_id("run.plan.window_totals", pending, pending),
+                lambda: facts().get(window_label) == message_id("run.plan.window_totals", pending, pending),
                 description="stale prepared scales removed after a revision edit", timeout=3,
             )
             assert app.configuration.collect_config().revision == "v2"

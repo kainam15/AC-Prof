@@ -12,7 +12,7 @@ from tests.support.tui_waits import wait_for_condition
 
 @pytest.mark.parametrize(("language", "size"), [("zh", (80, 24)), ("en", (120, 30)), ("zh", (150, 45))])
 async def test_resource_matrix_toggle_preserves_configuration(tmp_path, language, size):
-    config = replace(RunConfig.smoke("fixture/model"), cpus="1,2", mems="2,4",
+    config = replace(RunConfig.smoke("fixture/model"), runtime="docker", cpus="1,2", mems="2,4",
                      gpus="on,off", input_scales="64,128")
     app = AcprofTui(config, settings_path=tmp_path / "settings.json")
     app.configuration.preferences = replace(app.configuration.preferences, language=language)

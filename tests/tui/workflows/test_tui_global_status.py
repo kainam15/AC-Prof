@@ -140,7 +140,8 @@ async def test_optional_profiler_inspect_enable_and_recheck(tmp_path, monkeypatc
         assert signal.render().plain == '! ' + label
         callout = app.query_one('#preflight-callout')
         assert app.tr(callout.content.problem) == '! ' + label
-        assert 'gpu_executed_mflop_per_request_ncu' in app.tr(callout.content.impact)
+        assert callout.content.impact == message_id('run.source.unrequested_impact')
+        assert 'gpu_executed_mflop_per_request_ncu' in app.tr(callout.content.detail)
         assert 'ncu --version' in app.tr(callout.content.next_step)
         await locate_selected(app, pilot)
         await wait_for_condition(pilot, lambda: app.focused is app.query_one('#ncu-profiler'),

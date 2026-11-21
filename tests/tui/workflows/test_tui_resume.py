@@ -15,7 +15,7 @@ async def test_restored_run_can_configure_a_new_experiment_without_a_resume_togg
     app = AcprofTui(restored, settings_path=tmp_path / "tui.json")
     app.configuration.preferences = replace(app.configuration.preferences, language=language)
     async with app.run_test(size=size) as pilot:
-        assert app.configuration.collect_config() == replace(restored, resume=False)
+        assert app.configuration.collect_config() == replace(restored, runtime="docker", resume=False)
         app.configuration.apply_config(restored)
         app.experiments.preset_main()
         await pilot.pause()

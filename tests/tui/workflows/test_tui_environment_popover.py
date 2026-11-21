@@ -514,7 +514,8 @@ async def test_status_symbols_explain_cached_checks_only_after_selection(app, la
                 label = "RAPL CPU 能耗 · 无权限" if language == "zh" else "RAPL CPU energy · Permission denied"
                 assert signal.render().plain == "! " + label
                 assert label in app.tr(callout.content.problem)
-                assert "cpu_energy_total_j" in app.tr(callout.content.impact)
+                assert ("CPU / 内存指标可能缺失" if language == "zh" else "CPU or memory metrics may be missing") in app.tr(callout.content.impact)
+                assert "cpu_energy_total_j" in app.tr(callout.content.detail)
                 assert "energy_uj" in app.tr(callout.content.next_step)
         for identifier in ("capture_interface", "gpu_device"):
             await expand_check_source(app, pilot, identifier)

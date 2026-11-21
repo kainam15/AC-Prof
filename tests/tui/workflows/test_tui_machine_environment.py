@@ -213,6 +213,7 @@ async def test_runtime_self_check_details_are_accessible_without_selecting_profi
         for tool, reading in (("torch", "128"), ("massif", "131072")):
             signal = app.query_one("#preflight-signal-" + tool, EnvironmentSignal)
             signal.focus()
+            await pilot.press("enter")
             await pilot.pause()
             assert signal.row.status == "ok"
             assert signal.render().plain.startswith("✓ ")

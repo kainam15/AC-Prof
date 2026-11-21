@@ -34,10 +34,11 @@ async def test_experiment_source_editing_is_shared_across_pages(tmp_path, langua
         source = app.query_one("#experiment-source", Input)
         await fill_form(pilot, {"#experiment-source": str(root)})
         assert app.focused is source
-        assert await pilot.click("#refresh-experiment-state")
-        await app.workers.wait_for_complete()
-        await pilot.pause()
-        assert app.profiles.overview.result_dir == root
+        await wait_for_condition(
+            pilot, lambda: app.profiles.overview is not None and app.profiles.overview.result_dir == root
+            and not app.read_jobs,
+            description="the edited experiment is read without a manual refresh", timeout=5,
+        )
         assert source.value == str(root)
 
         # Editing invalidates both views before the debounced read completes.

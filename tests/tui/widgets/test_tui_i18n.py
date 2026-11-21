@@ -298,7 +298,7 @@ class TestTuiLanguage:
             await pilot.pause()
             app.configuration.refresh_command_preview(notify=False)
             assert "Memory list must be comma-separated integers" in str(
-                app.query_one("#run-plan-callout .callout-problem", Static).content
+                app.query_one("#command-preview", Static).content
             )
             app.experiments.request_run()
             await pilot.pause()
