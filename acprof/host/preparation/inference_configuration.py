@@ -221,3 +221,78 @@ def prepare_inference_configuration(
             draft, detail = refreshed, ""
             continue
         return _confirmed_task(updated, candidate, final.get("confirmation_digest", ""))
+
+
+def _validate_frozen_execution(task, args, workload: dict, *, task_child: bool, check_requests: bool = True) -> None:
+    from acprof.models.inference_configuration import validate_configuration_binding
+
+    frozen = task.inference_configuration
+    if check_requests:
+        validate_resume_inference_requests(frozen, args)
+    validate_configuration_binding(frozen, task, allow_task_subset=True)
+    if set(frozen["loading"]) != set(workload["resources"]["gpus"]):
+        raise ValueError("requested devices differ from the frozen inference configuration")
+    expected = copy.deepcopy(frozen["workload"])
+    actual = copy.deepcopy(workload)
+    if task_child:
+        if len(task.selected_tasks) != 1:
+            raise ValueError("frozen task execution must select exactly one task")
+        from acprof.tasks.workloads import task_experiment_overrides
+
+        expected.update(task_experiment_overrides(task.selected_tasks[0]))
+        if task.task_family == "nlp":
+            # TaskCollection derives this manifest after checking its source.
+            actual["specification_sha256"] = expected.get("specification_sha256")
+            # Its params are the frozen task's effective values, whereas the
+            # parent records defaults from the original, digest-checked source.
+            actual.pop("parameter_defaults", None)
+            if "parameter_defaults" in expected:
+                actual["parameter_defaults"] = copy.deepcopy(expected["parameter_defaults"])
+    if actual != expected:
+        raise ValueError("workload, resource or measurement options differ from the frozen configuration")
+    for name, actual_value in (("backend", task.runtime_backend), ("runtime_profile", task.runtime_profile_id)):
+        requested = getattr(args, name, "")
+        if requested and requested != actual_value:
+            raise ValueError(f"frozen configuration conflicts with explicit --{name.replace('_', '-')}")
+
+
+def prepare_execution_configuration(task, args, workflow, *, workload: dict, task_child: bool = False,
+                                    historical_resume: bool = False):
+    """Bind the reviewed route, workload and devices before any image or model preparation."""
+    from acprof.host.images.runtime import configure_runtime_profile
+
+    if task.inference_configuration:
+        _validate_frozen_execution(task, args, workload, task_child=task_child)
+        return task
+    if historical_resume:
+        if getattr(args, "inference_config", "") or getattr(args, "confirm_inference", ""):
+            raise ValueError("historical experiments without frozen inference configuration cannot accept new inference requests")
+        return task
+    if getattr(args, "inference_config", ""):
+        supplied = read_inference_requests(args.inference_config)
+        for name in ("backend", "runtime_profile"):
+            if name not in supplied:
+                continue
+            try:
+                value = ParameterRequest.from_dict(supplied[name])
+            except ValueError as exc:
+                raise ValueError(f"inference_config.{name}: {exc}") from exc
+            requested = getattr(args, name, "")
+            if requested and value.mode == "explicit" and value.value != requested:
+                raise ValueError(f"inference request conflicts with explicit --{name.replace('_', '-')}")
+    task.model_resolution["requested_devices"] = list(workload["resources"]["gpus"])
+    explicit_profile = getattr(args, "runtime_profile", "")
+    if explicit_profile:
+        task.runtime_profile_id = explicit_profile
+    profile = configure_runtime_profile(task)
+    if explicit_profile and profile.profile_id != explicit_profile:
+        raise ValueError("runtime platform conflicts with explicit --runtime-profile")
+    if getattr(args, "backend", "") and task.runtime_backend != args.backend:
+        raise ValueError("resolved backend conflicts with explicit --backend")
+    updated = prepare_inference_configuration(
+        task, args, workflow, devices=list(workload["resources"]["gpus"]), workload=workload,
+    )
+    # An interactive confirmation covers the final edited requests and digest.
+    _validate_frozen_execution(updated, args, workload, task_child=False, check_requests=not workflow.interactive)
+    configure_runtime_profile(updated)  # The confirmed route must keep its platform.
+    return updated

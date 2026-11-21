@@ -108,6 +108,10 @@ class RunConfig(RunOptions):
 
     extra_options: dict = dataclass_field(default_factory=dict)
 
+    @property
+    def inference_review_requested(self) -> bool:
+        return bool(self.inference_config or self.confirm_inference)
+
     def experiment_parameters(self) -> tuple[tuple[str, object], ...]:
         """Preset identity excludes transport, storage and execution controls."""
         execution = {"model", "output_dir", "download_mode", "max_download", "model_store",

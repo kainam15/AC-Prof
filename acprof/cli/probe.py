@@ -3,17 +3,18 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import math
 import sys
 import time
 from collections.abc import Sequence
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-from acprof.artifacts import atomic_write_json, read_json_object
+from acprof.artifacts import atomic_write_json, read_json_object_snapshot
 from acprof.config import docker_resource_limits
 from acprof.events.preparation import emit_progress
 from acprof.experiments.options import add_option_arguments
-from acprof.failures import RuntimeFailure
 from acprof.host.env_utils import bootstrap_project_env
 from acprof.host.images.runtime import prepare_image
 from acprof.host.input_plan import plan_input_scales
@@ -28,9 +29,23 @@ from acprof.host.preflight import (
     require_collection_host,
     require_native_docker,
 )
+from acprof.host.preparation.collection_workflow import PreparationInterrupted, PreparationWorkflow
+from acprof.host.preparation.inference_configuration import (
+    InferenceConfigurationReviewRequired,
+    prepare_execution_configuration,
+)
 from acprof.host.preparation.task_selection import select_tasks
 from acprof.host.preparation.task_support import require_task_support
 from acprof.installation import resource_root
+from acprof.tasks.workloads import (
+    inference_workload_inputs,
+    task_experiment_overrides,
+    workload_manifest,
+)
+
+if TYPE_CHECKING:
+    from acprof.artifacts import JsonObjectSnapshot
+    from acprof.host.detect import TaskInfo
 
 PROJECT_DIR = resource_root()
 
@@ -112,6 +127,22 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 2
 
 
+def _review_probe_task(task_info: TaskInfo, args: argparse.Namespace, cpu_list: list[int], mem_list: list[int],
+                       devices: list[str], source: JsonObjectSnapshot | None) -> TaskInfo:
+    """Bind confirmation to the single-device diagnostic and its input source."""
+    workload = {
+        **inference_workload_inputs(args.batch_size, args.input_scales or "", source.payload if source else None),
+        "resources": {"runtime": "docker", "cpus": sorted({min(cpu_list), max(cpu_list)}),
+                      "mems": sorted(set(mem_list)), "gpus": devices},
+        "probe": {"timeout_seconds": args.timeout_seconds},
+    }
+    if source is not None and task_info.task_family != "nlp":
+        workload["specification_bytes_sha256"] = hashlib.sha256(source.content).hexdigest()
+    return prepare_execution_configuration(
+        task_info, args, PreparationWorkflow.from_environment(args.output_dir), workload=workload,
+    )
+
+
 def _run_probe(
     args: argparse.Namespace, cpu_list: list[int], mem_list: list[int], gpu_mode: str,
     *, command_started: float,
@@ -131,20 +162,32 @@ def _run_probe(
         override_backend=args.backend,
         model_spec_path=args.model_spec,
     )
+    review = bool(args.inference_config or args.confirm_inference)
+    batch_size, input_scales = args.batch_size, args.input_scales
     try:
+        source = None
         supplied = None
         resolution = task_info.model_resolution
         failure = resolution.get("failure", {}).get("reason_code")
         if failure in {None, "task_selection_required"} and resolution.get("status") not in {"blocked", "ambiguous"}:
-            if args.workload_spec and (task_info.task_discovery or task_info.selected_tasks):
-                supplied = read_json_object(Path(args.workload_spec).expanduser(), label="workload specification")
+            if args.workload_spec and (review or task_info.task_discovery or task_info.selected_tasks):
+                source = read_json_object_snapshot(Path(args.workload_spec).expanduser(), label="workload specification")
+                supplied = source.payload
             task_info = select_tasks(task_info, args, single_profile=True, supplied_workload=supplied)
-        require_task_support(task_info, batch_size=args.batch_size, devices=probe_devices)
-        from acprof.tasks.workloads import workload_manifest
-
+            if review:
+                task_info = _review_probe_task(task_info, args, cpu_list, mem_list, probe_devices, source)
+                overrides = task_experiment_overrides(task_info.selected_tasks[0])
+                batch_size = overrides.get("batch_size", batch_size)
+                input_scales = overrides.get("input_scales", input_scales)
+        require_task_support(task_info, batch_size=batch_size, devices=probe_devices)
         manifest = (workload_manifest(task_info.selected_tasks[0], supplied=supplied, frozen=task_info.inference_configuration)
                     if task_info.selected_tasks and task_info.task_family == "nlp" else None)
-    except (RuntimeFailure, ValueError, OSError) as exc:
+    except InferenceConfigurationReviewRequired:
+        return 0
+    except PreparationInterrupted as exc:
+        print(str(exc), file=sys.stderr)
+        return 130
+    except (RuntimeError, ValueError, OSError) as exc:
         print(str(exc), file=sys.stderr)
         return 2
     output_root = Path(args.output_dir).expanduser()
@@ -181,17 +224,11 @@ def _run_probe(
         )
         emit_progress("input")
         planned = plan_input_scales(
-            task_info=task_info,
-            image_info=image_info,
-            cpu_list=cpu_list,
-            mem_list=mem_list,
-            gpu_list=probe_devices,
-            batch_size=args.batch_size,
-            output_dir=str(output_dir),
-            input_scales=args.input_scales,
-            workload_spec_path=workload_path,
+            task_info=task_info, image_info=image_info, cpu_list=cpu_list, mem_list=mem_list,
+            gpu_list=probe_devices, batch_size=batch_size, output_dir=str(output_dir),
+            input_scales=input_scales, workload_spec_path=workload_path,
         )
-        if getattr(image_info, "runtime_environment", {}):
+        if task_info.inference_configuration or getattr(image_info, "runtime_environment", {}):
             from acprof.host.runtime_validation import validate_runtime
 
             emit_progress("runtime")
@@ -206,7 +243,7 @@ def _run_probe(
             cpu_list=cpu_list,
             mem_list=mem_list,
             gpu_list=probe_devices,
-            batch_size=args.batch_size,
+            batch_size=batch_size,
             output_dir=output_dir,
             timeout_seconds=args.timeout_seconds,
         )

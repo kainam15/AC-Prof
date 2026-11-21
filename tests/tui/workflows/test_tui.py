@@ -714,3 +714,12 @@ class TestTuiApp:
             assert ("/status") in (help_text)
             assert ("/matrix") not in (help_text)
             assert ("/board") not in (help_text)
+
+
+def test_probe_command_carries_explicit_inference_review(tmp_path):
+    request = tmp_path / "requests.json"
+    request.write_text('{"schema_version":1}')
+    config = RunConfig(model="demo/model", inference_config=str(request), confirm_inference="b" * 64)
+    command = build_probe_command(config, project_dir=PROJECT_DIR)
+    assert command[command.index("--inference-config") + 1] == str(request)
+    assert command[command.index("--confirm-inference") + 1] == config.confirm_inference

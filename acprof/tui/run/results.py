@@ -39,6 +39,8 @@ def inspect_probe_result(snapshot, config, project_dir: Path, pid: int, started_
     if path.stat().st_mtime_ns < started_at_ns:
         raise ValueError("Probe summary predates this subprocess launch")
     summary = read_probe_summary(path)
+    if config.inference_review_requested and "inference_configuration_sha256" not in summary:
+        raise ValueError("Probe summary is missing the requested inference configuration")
     if summary["model"]["id"] != config.model:
         raise ValueError("Probe summary model identity differs from the launch configuration")
     expected = {

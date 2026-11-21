@@ -303,12 +303,14 @@ timeout evidence 包含 `timeout_seconds`（秒）、`request_phase`、`request_
 
 `acprof probe` 每次生成独立的 `input_scale_plan.json` 和 `largest_scale_probe.json`。
 输入计划中的 `task_workload` 记录任务选择。已选 NLP 任务的有效输入清单保存在同一探测目录的 `task_workload.json`，包含发送给生成器的参数、执行组和语义任务。
+显式配置并确认的探测会在首次冷启动前保存 `inference_configuration.json`。其中的 `workload` 记录规划与最终请求使用的 CPU 配额、升序内存候选、实际设备及探测超时。外部非 NLP 清单的 `specification_bytes_sha256` 与生成器实际读取的文件字节对应，清单内的相对素材路径仍相对于清单目录解析。
 探测摘要的 `resource.gpu_mode` 记录最终请求使用的设备模式。当前探测只验证该设备。查看历史产物时，以 `runtime_validation.json` 的 `devices` 为准，旧版混合设备探测可能同时验证过 CPU 和 GPU。
 `largest_scale_probe.json` 使用 schema v3，其主要字段见下表。
 
 | 字段 | 含义 |
 | --- | --- |
 | `memory_probe.candidate_order_gb` | 去重、升序排列的候选内存上限。 |
+| `inference_configuration_sha256` | 可选。与输入计划及同目录冻结配置的身份一致。普通探测和早期 v3 摘要可省略。 |
 | `memory_probe.attempts` | 每档的 `startup_oom`、`runtime_oom`、`cuda_oom`、`timeout`、`error` 或 `ok` 结果，以及错误与分段计时。 |
 | `memory_probe.minimum_viable_mem_gb` | 完整返回且有效尺度与计划一致的第一个候选；没有成功档时为空。 |
 | `timing.request_s` | 成功档 `/predict` 的 host 端到端耗时。 |

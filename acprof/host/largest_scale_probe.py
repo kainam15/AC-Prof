@@ -13,7 +13,12 @@ from typing import Any
 
 import requests
 
-from acprof.artifacts import atomic_write, read_input_scale_plan, read_json_object
+from acprof.artifacts import (
+    atomic_write,
+    atomic_write_json,
+    read_input_scale_plan,
+    read_json_object,
+)
 from acprof.gpu_mode import normalize_gpu_mode
 from acprof.host import container_state
 from acprof.host.detect import TaskInfo
@@ -29,6 +34,7 @@ from acprof.host.runtimes.contracts import RuntimeCleanupError
 from acprof.network_policy import local_proxy_options
 
 PROBE_SUMMARY_NAME = "largest_scale_probe.json"
+PROBE_CONFIGURATION_NAME = "inference_configuration.json"
 PROBE_SUMMARY_SCHEMA_VERSION = 3
 RETRYABLE_MEMORY_OOM_STATUSES = frozenset({"startup_oom", "runtime_oom"})
 
@@ -60,6 +66,19 @@ def read_probe_summary(path: str | os.PathLike[str]) -> dict:
             raise ValueError("invalid largest-scale probe timing evidence")
     if timing.get("request_s") is None:
         raise ValueError("missing largest-scale probe request timing")
+    if "inference_configuration_sha256" in summary:
+        from acprof.models.inference_configuration import validate_frozen_configuration
+
+        configuration = read_json_object(Path(path).with_name(PROBE_CONFIGURATION_NAME),
+                                         label="probe inference configuration")
+        validate_frozen_configuration(configuration)
+        if summary["inference_configuration_sha256"] != configuration["identity_sha256"]:
+            raise ValueError("largest-scale probe summary differs from its frozen inference configuration")
+        if (configuration["model"]["model_id"] != model["id"]
+                or configuration["model"]["revision"] != model.get("revision")
+                or configuration["backend"]["id"] != model.get("runtime_backend")
+                or resource["gpu_mode"] not in configuration["loading"]):
+            raise ValueError("largest-scale probe model, backend or device differs from its frozen inference configuration")
     return summary
 
 
@@ -83,13 +102,18 @@ def select_minimum_resources(
     ), gpu
 
 
-def load_largest_scale_entry(plan_file: str | os.PathLike[str]) -> dict[str, Any]:
+def load_largest_scale_entry(plan_file: str | os.PathLike[str], *, task_info: TaskInfo | None = None,
+                             expected_sha256: str | None = None) -> dict[str, Any]:
     """Load the materialized payload with the largest effective input scale."""
     path = Path(plan_file)
     try:
-        plan = read_input_scale_plan(path)
+        plan = read_input_scale_plan(path, expected_sha256=expected_sha256)
     except (OSError, ValueError) as exc:
         raise RuntimeError(f"input scale plan 无法读取: {exc}") from exc
+    if task_info is not None:
+        from acprof.host.configuration_transport import verify_plan_configuration
+
+        verify_plan_configuration(task_info, plan)
     entries = plan.get("entries")
     if not isinstance(entries, list) or not entries:
         raise RuntimeError("input scale plan 没有可探测的 entries")
@@ -409,13 +433,19 @@ def run_largest_scale_probe(
             raise ValueError("timeout_seconds 必须是大于 0 的有限值")
     if not planned_input_scales.plan_file:
         raise RuntimeError("最大尺度探测需要 materialized input scale plan")
+    if task_info.inference_configuration and not planned_input_scales.plan_sha256:
+        raise ValueError("a reviewed probe requires the SHA-256 of its materialized input scale plan")
 
     cpu, _, gpu = select_minimum_resources(cpu_list, mem_list, gpu_list)
     memory_candidates = sorted(set(int(value) for value in mem_list))
-    entry = load_largest_scale_entry(planned_input_scales.plan_file)
+    entry = load_largest_scale_entry(planned_input_scales.plan_file, task_info=task_info,
+                                     expected_sha256=planned_input_scales.plan_sha256 or None)
     planned_scale = float(entry["input_scale"])
     payload = entry["payload"]
     summary_path = Path(output_dir) / PROBE_SUMMARY_NAME
+    frozen = task_info.inference_configuration
+    if frozen:
+        atomic_write_json(summary_path.with_name(PROBE_CONFIGURATION_NAME), frozen)
     started_at = datetime.datetime.now().astimezone().isoformat()
     probe_started = time.perf_counter()
     attempts: list[dict[str, Any]] = []
@@ -557,6 +587,9 @@ def run_largest_scale_probe(
             "summary": str(summary_path),
         },
     }
+    if frozen:
+        summary["inference_configuration_sha256"] = frozen["identity_sha256"]
+        summary["artifacts"]["inference_configuration"] = str(summary_path.with_name(PROBE_CONFIGURATION_NAME))
     write_probe_summary(summary_path, summary)
     emit_event("probe_finished", "largest_scale_probe", status=status, cpu=cpu,
                mem=selected_mem if selected_mem is not None else last_attempt["mem_gb"],

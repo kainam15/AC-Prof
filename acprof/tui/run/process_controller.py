@@ -66,7 +66,7 @@ class ProcessController:
             child_env["MPLBACKEND"] = "Agg"
             child_env["ACPROF_TUI"] = "1"
             child_env.pop("ACPROF_INTERACTIVE_PREPARATION", None)
-            if kind == "run":
+            if kind == "run" or (kind == "probe" and config is not None and config.inference_review_requested):
                 child_env["ACPROF_INTERACTIVE_PREPARATION"] = "1"
             # acprof run otherwise captures the entire full-screen pane, including
             # ANSI redraws, when the TUI itself is launched inside tmux.

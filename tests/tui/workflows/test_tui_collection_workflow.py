@@ -368,3 +368,80 @@ async def test_completed_preparation_preserves_nested_dialog_replies_and_new_pre
         assert app.screen is base
         assert previous not in app.screen_stack
         assert current not in app.screen_stack
+
+
+@pytest.mark.parametrize("action", ["continue", "cancel"])
+async def test_configured_probe_reviews_in_its_own_subprocess(tmp_path, action):
+    import json
+    from dataclasses import replace
+
+    request = tmp_path / "requests.json"
+    request.write_text('{"schema_version":1}')
+    config = replace(RunConfig.smoke("fixture/model"), runtime="docker", output_dir=str(tmp_path),
+                     inference_config=str(request), confirm_inference="a" * 64)
+    script = textwrap.dedent('''
+        import json, sys
+        from pathlib import Path
+        from unittest.mock import Mock
+        from acprof.cli import probe
+        from acprof.host import detect
+        from acprof.models.candidates import apply_model_candidate, discover_model_candidates
+        root = Path(sys.argv[1])
+        task = detect.TaskInfo("fixture/model", "fill-mask", "nlp", "transformers_model", "transformers",
+                               "a" * 40, "config_infer", model_config={"model_type": "bert",
+                               "architectures": ["BertForMaskedLM"]},
+                               repository_files=("config.json", "model.safetensors"))
+        task.model_resolution = apply_model_candidate(task, discover_model_candidates(task))
+        detect.detect_task = Mock(return_value=task)
+        probe.bootstrap_project_env = probe.require_collection_host = probe.require_native_docker = Mock()
+        probe.require_cgroup_prerequisites = Mock(return_value="v2")
+        def capture(task, *args, **kwargs):
+            (root / "confirmed.json").write_text(json.dumps(task.inference_configuration))
+            raise RuntimeError("offline fixture reached image preparation")
+        probe.prepare_image = capture
+        code = probe.main(sys.argv[2:])
+        (root / "exit-code").write_text(str(code))
+        sys.exit(code)
+    ''')
+    original = ProcessLifecycle.start
+
+    def launch(owner, command, **kwargs):
+        return original(owner, [sys.executable, "-u", "-c", script, str(tmp_path),
+                                *command[command.index("probe") + 1:]], **kwargs)
+
+    app = AcprofTui(config, settings_path=tmp_path / "settings.json")
+    with patch.object(ProcessLifecycle, "start", autospec=True, side_effect=launch) as start:
+        async with app.run_test(size=(120, 40)) as pilot:
+            app.experiments.request_probe()
+            await pilot.pause()
+            assert "按审阅后的推理配置取最大值" in app.screen.message
+            assert await pilot.click("#confirm-yes")
+
+            async def wait_for_review(purpose):
+                await wait_for_condition(
+                    pilot, lambda: (app.preflight.preparation_screen is not None and
+                                    app.preflight.preparation_screen.event["request"]["purpose"] == purpose),
+                    description=purpose, timeout=10,
+                )
+                await pilot.pause()
+                return app.preflight.preparation_screen.event["request"]
+
+            await wait_for_review("inference_configuration")
+            assert await pilot.click("#preparation-apply")
+            confirmation = await wait_for_review("inference_confirmation")
+            digest = confirmation["confirmation_digest"]
+            assert digest != config.confirm_inference
+            assert not (tmp_path / "confirmed.json").exists()
+            assert await pilot.click(f"#preparation-{action}")
+            await wait_for_condition(pilot, lambda: (tmp_path / "exit-code").is_file()
+                                     and app.execution.lifecycle.process is None,
+                                     description="the reviewed probe to exit", timeout=10)
+            if action == "continue":
+                frozen = json.loads((tmp_path / "confirmed.json").read_text())
+                assert frozen["identity_sha256"] == digest
+                assert frozen["state"] == "frozen"
+                assert (tmp_path / "exit-code").read_text() == "2"
+            else:
+                assert not (tmp_path / "confirmed.json").exists()
+                assert (tmp_path / "exit-code").read_text() == "130"
+            start.assert_called_once()

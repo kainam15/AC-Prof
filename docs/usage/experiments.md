@@ -117,6 +117,18 @@ acprof probe --model google-bert/bert-base-uncased \
 PMU 或网络指标，也不写正式 CSV。字段见[探测输出](../profiling/metadata.md#最大输入探测结果)。
 TUI 的“探测最大输入”调用同一入口。
 
+要用指定推理参数探测，可以从一个空请求开始审阅。例如为固定版本的 T5 选择摘要任务：
+
+```bash
+printf '%s\n' '{"schema_version":1}' > probe-requests.json
+acprof probe --model google-t5/t5-small --revision df1b051c49625cf57a3d0d8d3863ed4d13564fe4 \
+  --tasks summarization --input-scales 32 --gpus off --inference-config probe-requests.json
+```
+
+首次运行会打印候选配置、可编辑的请求 JSON 和 SHA-256。审阅后，按输出提示使用生成的请求文件和
+`--confirm-inference <SHA>` 重跑同一命令。修改任务参数、有效设备、内存候选或探测超时后需要重新确认。
+探测和正式采集分别确认各自的工作负载。省略两个推理配置选项时，探测沿用任务默认参数与已有工作负载设置。
+
 最大输入探测与同一主机、同一用户的正式采集和补采共用测量锁。从 Docker 预检到写入探测摘要期间，其他采集不能开始。已有任务持锁时，`acprof probe` 会在创建探测目录之前报告原因并退出，待原任务结束后可重试。[主机测量锁](../profiling/artifacts.md)
 
 对同一个 T5 模型，可以先检查语义任务，再用相同的 `--tasks` 探测指定方向的翻译。

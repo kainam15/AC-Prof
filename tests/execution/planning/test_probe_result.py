@@ -70,3 +70,9 @@ def test_unrelated_or_changed_probe_artifacts_are_rejected(probe_evidence, chang
         write_probe_summary(path, payload)
     with pytest.raises(ValueError, match="Probe completion event disagrees|Probe summary|unsupported largest-scale probe summary version"):
         inspect_probe_result(snapshot, config, project, pid, started)
+
+
+def test_configured_probe_requires_persisted_configuration_identity(probe_evidence):
+    snapshot, config, project, pid, started = probe_evidence[:5]
+    with pytest.raises(ValueError, match="missing the requested inference configuration"):
+        inspect_probe_result(snapshot, replace(config, confirm_inference="a" * 64), project, pid, started)

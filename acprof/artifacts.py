@@ -153,9 +153,9 @@ def require_schema_version(payload: Any, expected: int, artifact: str) -> None:
         )
 
 
-def read_input_scale_plan(path: str | Path) -> dict:
+def read_input_scale_plan(path: str | Path, *, expected_sha256: str | None = None) -> dict:
     """Read the current bounded input plan before any runtime or measurement starts."""
-    payload = read_json_object(path, label="input scale plan")
+    payload = read_json_object(path, label="input scale plan", expected_sha256=expected_sha256)
     require_schema_version(payload, 2, "input_scale_plan.json")
     return payload
 

@@ -166,6 +166,31 @@ def task_fingerprint(task: dict) -> str:
     return content_digest(identity)
 
 
+def inference_workload_inputs(batch_size: int, input_scales: str, specification: dict | None) -> dict:
+    """Describe the requested workload before per-task parameters are resolved."""
+    inputs: dict = {"batch_size": batch_size, "input_scales": input_scales, "specification_sha256": None}
+    if specification is not None:
+        defaults = specification.get("inference", specification.get("params", {}))
+        if not isinstance(defaults, dict):
+            raise ValueError("workload specification inference parameters must be an object")
+        inputs.update(specification_sha256=content_digest(specification), parameter_defaults=defaults)
+    return inputs
+
+
+def task_experiment_overrides(selected: dict) -> dict:
+    """Only batch size and input scales may override the experiment for one task."""
+    overrides = selected["config"].get("user_experiment_overrides", {})
+    if not isinstance(overrides, dict) or set(overrides) - {"input_scales", "batch_size"}:
+        raise ValueError("invalid task experiment overrides")
+    if "batch_size" in overrides and (
+        type(overrides["batch_size"]) is not int or overrides["batch_size"] < 1
+    ):
+        raise ValueError("invalid task batch_size override")
+    if "input_scales" in overrides and not isinstance(overrides["input_scales"], str):
+        raise ValueError("invalid task input_scales override")
+    return overrides
+
+
 def workload_manifest(task: dict, *, supplied: dict | None = None, frozen: dict | None = None) -> dict:
     """Build the effective NLP manifest for the selected execution profile."""
     manifest = {"schema_version": 1, "task": task["interface"], "task_workload": copy.deepcopy(task),

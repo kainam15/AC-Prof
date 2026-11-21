@@ -2,6 +2,7 @@
 import json
 import re
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
@@ -227,3 +228,178 @@ def test_image_workload_keeps_relative_assets_with_automatic_selection(t5_probe,
     assert plan["workload"]["source_paths"] == [str(asset)]
     assert not list(output.rglob("task_workload.json"))
     assert post.call_args.kwargs["json"] == plan["entries"][0]["payload"]
+
+
+@pytest.fixture
+def reviewable_t5_probe(t5_probe, monkeypatch):
+    snapshot, = Path(constants.HF_HUB_CACHE).glob("models--google-t5--t5-small/snapshots/*")
+    inventory = SimpleNamespace(sha=snapshot.name, pipeline_tag="translation", library_name="transformers",
+                                siblings=[SimpleNamespace(rfilename=name) for name in (
+                                    "config.json", "generation_config.json", "model.safetensors",
+                                )])
+    monkeypatch.setattr("acprof.host.model_store.store.cached_model_info", Mock(return_value=inventory))
+    return t5_probe
+
+
+def test_probe_reviews_changed_requests_and_executes_the_confirmed_payload(reviewable_t5_probe, tmp_path, monkeypatch, capsys):
+    args, output, image, post = reviewable_t5_probe
+    validate = Mock()
+    monkeypatch.setattr("acprof.host.runtime_validation.validate_runtime", validate)
+    request_path = tmp_path / "requests.json"
+    request_path.write_text('{"schema_version": 1}')
+    command = [*args, "--tasks", "summarization", "--input-scales", "64", "--timeout-seconds", "7",
+               "--cpus", "1,2,4", "--mems", "8,2", "--gpus", "off,on", "--inference-config", str(request_path)]
+    reviews = output / ".inference-configurations"
+
+    def review(*extra):
+        assert probe.main([*command, *extra]) == 0
+        output_text = capsys.readouterr().out
+        digest = re.search(r"Configuration SHA-256: ([a-f0-9]{64})", output_text)[1]
+        assert f"--confirm-inference {digest}" in output_text
+        image.assert_not_called()
+        validate.assert_not_called()
+        post.assert_not_called()
+        assert not list(output.rglob("probes"))
+        return digest, json.loads((reviews / f"{digest}.requests.json").read_text())
+
+    initial, requests = review()
+    task_fields, = requests["tasks"].values()
+    for name, value in (("num_beams", 2), ("batch_size", 2), ("input_scales", "32")):
+        task_fields[name] = {"mode": "explicit", "value": value}
+    request_path.write_text(json.dumps(requests))
+    confirmed, _ = review("--confirm-inference", initial)
+    assert confirmed != initial
+    changed_timeout, _ = review("--timeout-seconds", "9", "--confirm-inference", confirmed)
+    assert changed_timeout != confirmed
+
+    assert probe.main([*command, "--confirm-inference", confirmed]) == 0
+    path, = output.rglob(PROBE_SUMMARY_NAME)
+    summary = read_probe_summary(path)
+    frozen = json.loads((path.parent / "inference_configuration.json").read_text())
+    assert summary["inference_configuration_sha256"] == frozen["identity_sha256"] == confirmed
+    assert frozen["state"] == "frozen"
+    assert frozen["workload"]["resources"] == {"runtime": "docker", "cpus": [1, 4], "mems": [2, 8], "gpus": ["off"]}
+    assert frozen == image.call_args.args[0].inference_configuration
+    assert validate.call_args.kwargs["task_info"].inference_configuration == frozen
+    plan = read_input_scale_plan(summary["artifacts"]["input_scale_plan"])
+    assert plan["inference_configuration_sha256"] == confirmed
+    assert (summary["input"]["batch_size"], summary["input"]["planned_scale"]) == (2, 32)
+    payload = post.call_args.kwargs["json"]
+    assert payload == plan["entries"][-1]["payload"]
+    assert payload["batch_size"] == 2
+    assert payload["params"]["num_beams"] == 2
+    frozen["workload"]["probe"]["timeout_seconds"] = 9
+    (path.parent / "inference_configuration.json").write_text(json.dumps(frozen))
+    with pytest.raises(ValueError, match="does not match its contents"):
+        read_probe_summary(path)
+
+
+def test_invalid_probe_inference_request_stops_before_image_or_results(t5_probe, tmp_path, capsys):
+    args, output, image, post = t5_probe
+    path = tmp_path / "invalid.json"
+    path.write_text('{"schema_version":')
+    assert probe.main([*args, "--tasks", "summarization", "--inference-config", str(path)]) == 2
+    assert "inference_config" in capsys.readouterr().err
+    image.assert_not_called()
+    post.assert_not_called()
+    assert not output.exists()
+
+
+@pytest.mark.parametrize("change", ["payload", "configuration", "missing_plan_sha256"])
+def test_reviewed_probe_rechecks_the_actual_plan_before_cold_start(reviewable_t5_probe, tmp_path, monkeypatch, capsys, change):
+    import hashlib
+
+    args, output, _image, post = reviewable_t5_probe
+    request = tmp_path / "requests.json"
+    request.write_text('{"schema_version":1}')
+    command = [*args, "--tasks", "summarization", "--inference-config", str(request)]
+    assert probe.main(command) == 0
+    normalized, = output.glob(".inference-configurations/*.requests.json")
+    digest = normalized.name.split(".")[0]
+
+    def change_plan(*, planned, **kwargs):
+        path = Path(planned.plan_file)
+        if change == "missing_plan_sha256":
+            planned.plan_sha256 = ""
+        else:
+            plan = read_input_scale_plan(path)
+            if change == "configuration":
+                plan.pop("inference_configuration_sha256")
+            else:
+                plan["entries"][-1]["payload"]["text"] = "different input"
+            path.write_text(json.dumps(plan))
+            if change == "configuration":
+                planned.plan_sha256 = hashlib.sha256(path.read_bytes()).hexdigest()
+
+    monkeypatch.setattr("acprof.host.runtime_validation.validate_runtime", change_plan)
+    assert probe.main([*command, "--confirm-inference", digest]) == 2
+    error = capsys.readouterr().err
+    assert {"payload": "hash does not match", "configuration": "inference_configuration_mismatch",
+            "missing_plan_sha256": "requires the SHA-256"}[change] in error
+    largest_scale_probe.start_container_session.assert_not_called()
+    post.assert_not_called()
+    assert not list(output.rglob(PROBE_SUMMARY_NAME))
+
+
+@pytest.mark.parametrize("edit", ["none", "before_planning", "during_planning"])
+def test_reviewed_image_probe_keeps_relative_assets_and_checks_external_spec(t5_probe, tmp_path, monkeypatch, capsys, edit):
+    from PIL import Image
+
+    _, output, image, post = t5_probe
+    revision = "b" * 40
+    snapshot = Path(constants.HF_HUB_CACHE) / "models--fixture--vision/snapshots" / revision
+    snapshot.mkdir(parents=True)
+    (snapshot / "config.json").write_text('{"model_type":"resnet","architectures":["ResNetForImageClassification"]}')
+    inventory = SimpleNamespace(sha=revision, pipeline_tag="image-classification", library_name="transformers",
+                                siblings=[SimpleNamespace(rfilename=name) for name in ("config.json", "model.safetensors")])
+    monkeypatch.setattr("acprof.host.model_store.store.cached_model_info", Mock(return_value=inventory))
+    validate = Mock()
+    monkeypatch.setattr("acprof.host.runtime_validation.validate_runtime", validate)
+    spec_dir = tmp_path / "inputs"
+    spec_dir.mkdir()
+    asset = spec_dir / "example.png"
+    Image.new("RGB", (2, 2), "red").save(asset)
+    spec = spec_dir / "vision.json"
+    document = {"schema_version": 1, "image_path": asset.name}
+    spec.write_text(json.dumps(document))
+    request = tmp_path / "requests.json"
+    request.write_text('{"schema_version":1}')
+    command = ["--model", "fixture/vision", "--revision", revision, "--gpus", "off", "--input-scales", "0.25",
+               "--workload-spec", str(spec), "--inference-config", str(request), "--output-dir", str(output)]
+    assert probe.main(command) == 0
+    normalized, = output.glob(".inference-configurations/*.requests.json")
+    digest = normalized.name.split(".")[0]
+    original_plan = probe.plan_input_scales
+
+    if edit == "before_planning":
+        def edit_source(*args, **kwargs):
+            spec.write_text(json.dumps({**document, "workload_id": "different"}))
+            return image.return_value
+
+        image.side_effect = edit_source
+    elif edit == "during_planning":
+        def temporary_edit(*args, **kwargs):
+            spec.write_text(json.dumps({**document, "workload_id": "during-read"}))
+            try:
+                return original_plan(*args, **kwargs)
+            finally:
+                spec.write_text(json.dumps(document))
+
+        monkeypatch.setattr(probe, "plan_input_scales", temporary_edit)
+    post.return_value.json.return_value = {"effective_input_scale": 0.25}
+    result = probe.main([*command, "--confirm-inference", digest])
+    if edit == "none":
+        assert result == 0
+        path, = output.rglob(PROBE_SUMMARY_NAME)
+        summary = read_probe_summary(path)
+        plan = read_input_scale_plan(summary["artifacts"]["input_scale_plan"])
+        assert plan["workload"]["source_paths"] == [str(asset)]
+        assert post.call_args.kwargs["json"] == plan["entries"][0]["payload"]
+        assert summary["inference_configuration_sha256"] == digest
+    else:
+        assert result == 2
+        assert "workload specification changed" in capsys.readouterr().err
+        validate.assert_not_called()
+        largest_scale_probe.start_container_session.assert_not_called()
+        post.assert_not_called()
+        assert not list(output.rglob(PROBE_SUMMARY_NAME))

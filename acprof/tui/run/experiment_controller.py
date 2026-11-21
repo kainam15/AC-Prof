@@ -74,12 +74,13 @@ class ExperimentController:
         cpus, memories, gpu_modes = resource_matrix(config.to_namespace())
         cpu, _, gpu = select_minimum_resources(cpus, memories, gpu_modes)
         memory_candidates = sorted(set(memories))
-        largest_scale = (
-            max(float(value) for value in config.input_scales.split(","))
-            if config.input_scales
-            else None
-        )
-        scale_text = f"{largest_scale:g}" if largest_scale is not None else message_id('run.probe.automatic_maximum')
+        scale_text: str
+        if config.inference_review_requested:
+            scale_text = message_id("run.probe.reviewed_maximum")
+        elif config.input_scales:
+            scale_text = f"{max(float(value) for value in config.input_scales.split(',')):g}"
+        else:
+            scale_text = message_id("run.probe.automatic_maximum")
         memory_text = ",".join(
             f"{value}GB" for value in memory_candidates
         )

@@ -174,4 +174,11 @@ def get_task_generator(task_info: TaskInfo, batch_size: int, **kwargs: Any):
             kwargs["inference_parameters"] = parameters
     if CATALOG.describe(task_info).declaration.input_plan.model_feature_dim and spec.get("feature_dim") is not None:
         kwargs["model_feature_dim"] = spec["feature_dim"]
-    return get_generator(task_info.task_family, task_info.model_id, task_info.pipeline_tag, batch_size, **kwargs)
+    generator = get_generator(task_info.task_family, task_info.model_id, task_info.pipeline_tag, batch_size, **kwargs)
+    frozen = getattr(task_info, "inference_configuration", {})
+    expected = frozen.get("workload", {}).get("specification_bytes_sha256")
+    if expected and kwargs.get("workload_spec_path"):
+        metadata = generator.plan_metadata()
+        if metadata.get("workload_spec_sha256", metadata.get("manifest_sha256")) != expected:
+            raise ValueError("workload specification changed after inference confirmation")
+    return generator

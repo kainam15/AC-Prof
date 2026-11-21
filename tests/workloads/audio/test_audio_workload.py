@@ -159,6 +159,7 @@ class TestAudioWorkload:
         assert (generator.default_input_scales()) == ([1, 2, 5, 10, 20, 30])
         assert (generator.max_input_scale()) == (30.0)
         metadata = generator.plan_metadata()
+        assert metadata["workload_spec_sha256"] == hashlib.sha256(self.spec_path.read_bytes()).hexdigest()
         assert (metadata["schema_version"]) == (1)
         assert (metadata["workload_id"]) == ("test-real-speech-short-v1")
         assert (metadata["asset"]["sha256"]) == (self.spec["asset"]["sha256"])

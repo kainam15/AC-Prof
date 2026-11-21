@@ -14,11 +14,13 @@
 
 | 参数 | 默认值 | 说明 |
 | --- | --- | --- |
-| `--cpus` | `1,2,4,8` | 只选择列表中的最小 CPU。 |
-| `--mems` | `2,4,8,16` | 从低到高实测的候选内存上限。 |
+| `--cpus` | `auto` | 输入规划和运行验证可使用最大 CPU，最终请求使用最小 CPU。 |
+| `--mems` | `auto` | Docker 默认候选为 `2,4,8,16` GiB，按升序探测。 |
 | `--gpus` | `off,on` | 包含 `off` 时优先 CPU-only，否则使用 `on`。 |
 | `--input-scales` | 自动规划 | 只探测已确定尺度中的最大值。 |
 | `--timeout-seconds` | 不设超时 | 单次探测请求的等待上限；显式值必须有限且大于 0。 |
+| `--inference-config` | 空 | 读取推理请求 JSON。首次运行写出候选与可编辑请求，等待审阅。 |
+| `--confirm-inference` | 空 | 确认本次探测候选的 SHA-256。旧摘要触发重新审阅。 |
 
 `acprof probe` 不接收 `acprof run` 的 `--request-timeout-seconds`、warmup/repeat、能耗采样或 profiler 参数。
 详细用法见[先探测最大输入](experiments.md#先探测最大输入)。

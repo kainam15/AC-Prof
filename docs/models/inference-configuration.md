@@ -185,6 +185,8 @@ backend、revision、任务、设备、参数、预设、输入计划或解析�
 用户审阅后以相同命令、生成的请求文件和摘要重试；路径本身不属于实验身份。
 具体操作见 [CLI run](../usage/cli-run.md) 和 [TUI](../usage/tui.md)。
 
+`acprof probe` 可通过同一对参数启用审阅。确认范围包括单个执行组的生成或推理参数、任务级批大小与输入尺度，以及本次 Docker 探测的有效资源和超时。探测摘要可用于查找实际发送请求所用的冻结配置。[最大输入探测示例](../usage/experiments.md#先探测最大输入)
+
 请求按 `loading.off/on` 和 `tasks.<原选择任务 ID>` 保存。改变 Beam／后端可能重新生成最终任务组 ID；
 最终 `tasks` 中保留 `source_task_ids` 与完整 snapshot。确认摘要涵盖模型、后端、加载、任务、
 请求模式、来源、规则和 workload 定义，仅排除自身摘要及 resolved／frozen 生命周期字段。

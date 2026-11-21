@@ -508,6 +508,7 @@ MESSAGES: dict[str, Entry] = {
     "run.probe.no_viable_memory": Entry(zh="未找到最低可用内存 · 最后尝试 {0}GB · 状态 {1}", en="No viable memory found · Last tried {0}GB · Status {1}"),
     "run.probe.request_completed": Entry(zh="最大尺度单次请求已完成", en="Single largest-input request completed"),
     "run.probe.request_running": Entry(zh="正在用 {0}GB 执行一次 /predict 请求", en="Running one /predict request with {0}GB"),
+    "run.probe.reviewed_maximum": Entry(zh="按审阅后的推理配置取最大值", en="largest scale in the reviewed inference configuration"),
     "run.probe.start": Entry(zh="开始探测", en="Start probe"),
     "run.probe.startup_oom": Entry(zh="启动 OOM，继续下一档", en="Startup OOM; trying next candidate"),
     "run.probe.success_summary": Entry(

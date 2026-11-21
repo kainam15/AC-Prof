@@ -18,7 +18,7 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-from acprof.artifacts import read_json_object
+from acprof.artifacts import read_json_object_snapshot
 from acprof.installation import resource_root
 from acprof.workloads import WorkloadGenerator, register_generator
 from acprof.workloads.spec import (
@@ -254,15 +254,15 @@ def _validate_provenance(spec: Mapping[str, Any], asset: Mapping[str, Any]) -> N
             )
 
 
-def _load_workload_spec(path: Path) -> dict[str, Any]:
+def _load_workload_spec(path: Path) -> tuple[dict[str, Any], str]:
     try:
-        raw = read_json_object(path, label="audio workload spec")
+        snapshot = read_json_object_snapshot(path, label="audio workload spec")
     except FileNotFoundError as exc:
         raise ValueError(f"audio workload spec does not exist: {path}") from exc
     except (OSError, ValueError) as exc:
         raise ValueError(f"cannot read audio workload spec {path}: {exc}") from exc
 
-    spec = _require_object(raw, "workload spec")
+    spec = _require_object(snapshot.payload, "workload spec")
     _require_exact_keys(spec, _TOP_LEVEL_KEYS, "workload spec")
     if _require_int(spec["schema_version"], "schema_version") != 1:
         raise ValueError(
@@ -336,7 +336,7 @@ def _load_workload_spec(path: Path) -> dict[str, Any]:
 
     _validate_provenance(spec, asset)
 
-    return spec
+    return spec, hashlib.sha256(snapshot.content).hexdigest()
 
 
 def _read_pcm16_wav(wav_bytes: bytes, location: str) -> tuple[bytes, int, int]:
@@ -423,7 +423,8 @@ class AudioWorkloadGenerator(WorkloadGenerator):
         else:
             spec_path = Path(workload_spec_path).expanduser()
         self.workload_spec_path = spec_path.resolve()
-        self._spec = _load_workload_spec(self.workload_spec_path)
+        self._spec, digest = _load_workload_spec(self.workload_spec_path)
+        self._spec_sha256 = digest if workload_spec_path is not None else None
         if inference_parameters:
             self._spec["inference"].update(copy.deepcopy(inference_parameters))
         if workload_spec_path is None and task_type != ASR_TASK_TYPE:
@@ -593,6 +594,8 @@ class AudioWorkloadGenerator(WorkloadGenerator):
                 "inference": {"pipeline_kwargs": {}},
             }
         metadata = copy.deepcopy(self._spec)
+        if self._spec_sha256 is not None:
+            metadata["workload_spec_sha256"] = self._spec_sha256
         metadata["workload_spec_path"] = _portable_workload_spec_path(
             self.workload_spec_path
         )
