@@ -105,3 +105,68 @@ def test_partial_client_resume_skips_receipts_and_rewarms_outside_sampling(tmp_p
         assert len(list(state.layout.path("raw/recovery_warmup").rglob("*.json"))) == 1
     finally:
         state.close()
+
+
+@pytest.mark.parametrize("stage", ["service_start", "client_ready"])
+def test_restart_failure_preserves_committed_windows(tmp_path, monkeypatch, request, stage):
+    from acprof.host import cases, docker_runtime, orchestrator
+    from acprof.host.detect import TaskInfo
+    from acprof.host.images.runtime import ImageInfo
+    from acprof.results.csv import read_result_csv
+    from tests.results.storage.test_incremental_results import receipt
+    from tests.support.platform_fixtures import native_policy
+
+    native_policy(request)
+    monkeypatch.setattr(run_state, "MEASUREMENT_LOCK_ROOT", tmp_path)
+    monkeypatch.setattr(run_state, "host_identity", lambda _: {"fixture": "fixed"})
+    state = run_state.RunState(tmp_path / "experiment", {
+        "cpus": "1", "mems": "4", "gpus": "off", "warmup": 0, "repeat": 2,
+    }, resume=False, project_dir=".")
+    try:
+        state.data["runtime"] = {"planned": {"scales": [1.0]}}
+        state.prepare_case("unused.csv", 1, 4, "off")
+        case = state.layout.case("fixture/model", 1, 4, "off")
+        path = receipt(state.directory, attempt=state.case_attempt_id(str(case.csv)))
+        original_receipt = path.read_bytes()
+        state.prepare_case("unused.csv", 1, 4, "off")
+        original_row = read_result_csv(case.csv)[1][0]
+        original_requests = case.requests.read_bytes()
+        group = case.sidecar("sniff_groups").read_bytes()
+        session = docker_runtime.RunningContainer(name="fixture", base_url="http://127.0.0.1:8002",
+                                                  host_port=8002, cold_start_s=1.0, container_id="c"*64)
+        start = Mock(side_effect=RuntimeError("fixture start failed") if stage == "service_start" else None,
+                     return_value=session)
+        monkeypatch.setattr(orchestrator, "start_service_session", start)
+        monkeypatch.setattr(orchestrator, "stop_service_session", lambda *a, **kw: None)
+        monkeypatch.setattr(orchestrator, "record_case_conditions", lambda *a, **kw: None)
+        monkeypatch.setattr(client.requests, "get", lambda *a, **kw: SimpleNamespace(status_code=503, text="warming"))
+
+        def client_command(cmd, **kwargs):
+            assert cmd[-2:] == ["-m", "acprof.host.client"]
+            runner = client.ClientRunner(ClientConfig.from_env(kwargs["env"]))
+            runner.input_scale_entries = [{"input_scale": 1.0, "scale_label": "one", "payload": {}}]
+            try:
+                runner.run_cli()
+            except SystemExit as exit_status:
+                return SimpleNamespace(returncode=exit_status.code)
+            return SimpleNamespace(returncode=0)
+
+        monkeypatch.setattr(orchestrator.host_command, "run_command", client_command)
+        task = TaskInfo("fixture/model", "fill-mask", "nlp", "transformers_pipeline", "transformers", "main", "manual")
+        result = orchestrator.run_single_case(
+            cases.CaseRequest(task, 1, 4, "off", ImageInfo(tag="fixture"), str(state.directory), "."),
+            workload=cases.CaseWorkload(warmup=0, repeat=2, repeat_in_window=1),
+            measurement=cases.CaseMeasurement(profiling_mode="basic", require_packet_latency=False),
+            plans=cases.CasePlans(input_scales="1"), run_state=state,
+        )
+        state.finish_case(result, 1, 4, "off")
+        _, rows = read_result_csv(case.csv, expected=state.expected(1, 4, "off"))
+        assert rows[0] == original_row
+        assert rows[1]["status"] == "error"
+        assert ("fixture start failed" if stage == "service_start" else "HTTP 503: warming") in rows[1]["error"]
+        assert read_result_layers(state.directory)[1] == rows
+        assert path.read_bytes() == original_receipt
+        assert case.retained_requests.read_bytes() == original_requests
+        assert case.sidecar("sniff_groups").read_bytes() == group + b'{"sniff_group_id": ""}\n'
+    finally:
+        state.close()

@@ -116,10 +116,9 @@ class TestMonitorCleanup:
                 "get",
                 side_effect=client.requests.exceptions.ConnectionError("refused"),
             ), patch.object(client_publication, "append_row") as append_row:
-                runner.main()
-            append_row.assert_called_once()
-            assert append_row.call_args.args[1]["status"] == "error"
-            assert "ready_failed" in append_row.call_args.args[1]["error"]
+                with pytest.raises(client.ClientNotReadyError, match="ready_failed:.*refused"):
+                    runner.main()
+            append_row.assert_not_called()
 
     def test_all_preparation_finishes_before_any_sampling(self):
         events = []

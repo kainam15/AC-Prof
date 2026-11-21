@@ -21,6 +21,7 @@ from acprof.host.measurement import (
     requests as window_requests,
 )
 from acprof.host.measurement.config import ClientConfig
+from acprof.host.measurement.types import WindowResult
 from acprof.monitors import energy_cpu
 from tests.support.client_fixtures import patch_client
 
@@ -68,11 +69,15 @@ class TestClientWindowEnergy:
                     "OUT_CSV": str(path), "CPU_CORES": "2", "GPU_MODE": "off",
                     "USE_ENERGY": False, "USE_MIPS": False, "IDLE_DEBUG": False,
                     "PROFILING_MODE": "full", "SNIFF_GROUPS_PATH": "",
-                    "input_scale_entries": [{"input_scale": 1.0}],
+                    "WARMUP": 0, "REPEAT": 1, "REPEAT_IN_WINDOW": 1,
+                    "input_scale_entries": [{"input_scale": 1.0, "scale_label": "one"}],
                 }.items():
                     stack.enter_context(patch_client(self.runner, name, value))
                 ready = stack.enter_context(patch.object(
-                    client.requests, "get", side_effect=client.requests.exceptions.ConnectionError("offline fixture")))
+                    client.requests, "get", return_value=SimpleNamespace(status_code=200)))
+                stack.enter_context(patch.object(client.WindowExecutor, "execute", return_value=WindowResult(
+                    {"cpu_cores": "2", "status": "error", "error": "fixture window failure"}, None, "fixture",
+                )))
                 if valid:
                     self.runner.main()
                 else:
@@ -90,7 +95,7 @@ class TestClientWindowEnergy:
             assert (len(rows)) == (2)
             assert (rows[1]["cpu_cores"]) == ("2")
             assert (rows[1]["status"]) == ("error")
-            assert ("offline fixture") in (rows[1]["error"])
+            assert rows[1]["error"] == "fixture window failure"
 
     @pytest.mark.parametrize('invalid', [[16, 32], [16, 32, 32], [16, 32, 128]])
     def test_frozen_scale_order_changes_execution_without_changing_payloads(self, invalid):

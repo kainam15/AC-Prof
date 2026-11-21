@@ -18,7 +18,7 @@ from uuid import uuid4
 
 from acprof.artifacts import atomic_write, read_json_object
 from acprof.capabilities import collector_enabled, measurement_requested, require_profiling_mode
-from acprof.config import CLIENT_REQUEST_TIMEOUT_EXIT_CODE, SERVER_PORT
+from acprof.config import CLIENT_NOT_READY_EXIT_CODE, CLIENT_REQUEST_TIMEOUT_EXIT_CODE, SERVER_PORT
 from acprof.events.progress import emit_event, measurement_boundary
 from acprof.gpu_mode import normalize_gpu_mode
 from acprof.host import cases
@@ -293,7 +293,7 @@ class _CaseExecution:
             kind = "process" if runtime_kind(self.request.image_info) == "process" else "container"
             error = f"{kind}_start_failed: {format_exception_notes(exc)}"
             print(f"[case] {error}", file=sys.stderr)
-            self._write_error(error)
+            self._write_error(error, preserve_existing=True)
             emit_event("case_finished", self.case_name, status="error")
             return None
         except BaseException as exc:
@@ -416,15 +416,15 @@ class _CaseExecution:
                 module_command('acprof.host.client'), check=False,
                 capture_output=False, env=environment,
             )
-        outcome = self._client_failure(session, result.returncode) if result.returncode else _ClientOutcome()
-        ready_failure = _client_ready_failure(self.out_csv)
-        if ready_failure is not None:
-            print(f"[case][WARN] {ready_failure}", file=sys.stderr)
-            completed, _ = self._write_error(ready_failure, preserve_existing=False)
-            outcome = _ClientOutcome(True, completed, "client readiness failed")
-        return outcome
+        return self._client_failure(session, result.returncode) if result.returncode else _ClientOutcome()
 
     def _client_failure(self, session: ServiceSession, returncode: int) -> _ClientOutcome:
+        if returncode == CLIENT_NOT_READY_EXIT_CODE:
+            context = load_client_error_context(str(self.case.sidecar("client_error")))
+            diagnostic = context.get("message") if context.get("error_type") == "client_not_ready" else None
+            error = diagnostic or "ready_failed: client readiness diagnostic unavailable; see client output"
+            completed, _ = self._write_error(error, preserve_existing=True)
+            return _ClientOutcome(True, completed, "client readiness failed")
         oom = service_failure(session, self.request.mem, returncode)
         if oom:
             print(f"[case][WARN] {oom}", file=sys.stderr)
@@ -579,26 +579,6 @@ def _resume_case_processing(case, checkpoint: dict, run_state, case_name: str) -
     finally:
         emit_event("case_finished", case_name, status=status)
     return out_csv
-
-
-def _client_ready_failure(csv_path: str) -> str | None:
-    """Recognize the pre-window /ready sentinel before packet post-processing.
-
-    The sentinel has no planned measurement key. The orchestrator replaces it
-    with the full error matrix so resume and result auditing stay well formed.
-    """
-    try:
-        with open(csv_path, newline="", encoding="utf-8-sig") as stream:
-            allow_large_csv_fields()
-            reader = csv.DictReader(stream)
-            first = next(reader, None)
-            second = next(reader, None)
-    except (OSError, UnicodeError, csv.Error):
-        return None
-    if first is None or second is not None or first.get("status") != "error":
-        return None
-    error = str(first.get("error") or "")
-    return error if error.startswith("ready_failed:") else None
 
 
 def _case_result_status(csv_path: str) -> str:

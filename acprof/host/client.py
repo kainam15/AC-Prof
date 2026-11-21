@@ -17,18 +17,24 @@ from typing import IO, Any, Literal
 
 import requests
 
-from acprof.artifacts import atomic_write, loads_finite_json
+from acprof.artifacts import atomic_write, atomic_write_json, loads_finite_json
 from acprof.config import (
+    CLIENT_NOT_READY_EXIT_CODE,
     CLIENT_REQUEST_TIMEOUT_EXIT_CODE,
     CSV_FIELDS,
     IDLE_DIAG_DIRNAME,
 )
 from acprof.host.measurement import publication as client_publication
 from acprof.host.measurement.config import ClientConfig
-from acprof.host.measurement.errors import EnergyAbort, MIPSAbort, RequestTimeoutAbort
+from acprof.host.measurement.errors import (
+    ClientNotReadyError,
+    EnergyAbort,
+    MIPSAbort,
+    RequestTimeoutAbort,
+)
 from acprof.host.measurement.execution import WindowExecutor
 from acprof.host.measurement.monitors import MonitorCleanupError
-from acprof.host.measurement.numbers import format_float, resource_text, to_float_or_nan
+from acprof.host.measurement.numbers import format_float, to_float_or_nan
 from acprof.host.measurement.requests import (
     canonical_task_param,
     decoded_body_size_bytes,
@@ -453,17 +459,7 @@ class ClientRunner:
                         f"/ready HTTP {rr.status_code}: {rr.text[:200]}"
                     )
             if ready_error is not None:
-                row = {k: "nan" for k in CSV_FIELDS}
-                row.update({
-                    "cpu_cores": resource_text(self.config.cpu_cores),
-                    "mem_cap_gb": resource_text(self.config.mem_cap_gb),
-                    "gpu_mode": self.config.gpu_mode,
-                    **self._cold_start_row_metrics(),
-                    "status": "error",
-                    "error": f"ready_failed: {ready_error!r}",
-                })
-                client_publication.append_row(writer, row, f, sidecar_f, "")
-                return
+                raise ClientNotReadyError(f"ready_failed: {ready_error!r}") from ready_error
 
             for scale_entry in self.input_scale_entries:
                 scale_val = float(scale_entry["input_scale"])
@@ -522,6 +518,17 @@ class ClientRunner:
         except RuntimeFailure as exc:
             self.runtime_failures.append(exc.failure.to_dict())
             raise SystemExit(1) from None
+        except ClientNotReadyError as exc:
+            print(f"[case][ERROR] {exc}", file=sys.stderr)
+            if self.config.client_error_path:
+                try:
+                    atomic_write_json(self.config.client_error_path, {
+                        "schema_version": 1, "error_type": "client_not_ready",
+                        "message": str(exc), "measurement_completed": False,
+                    })
+                except OSError as sidecar_error:
+                    print(f"[case][WARN] could not persist readiness diagnostic: {sidecar_error}", file=sys.stderr)
+            raise SystemExit(CLIENT_NOT_READY_EXIT_CODE) from None
         except RequestTimeoutAbort as exc:
             try:
                 self._write_client_error_sidecar(exc)
@@ -549,7 +556,6 @@ class ClientRunner:
             raise SystemExit(exit_code) from None
         finally:
             if self.runtime_failures:
-                from acprof.artifacts import atomic_write_json
                 atomic_write_json(case_sidecar(self.config.out_csv, "runtime_failures"),
                                   {"schema_version": 1, "failures": self.runtime_failures})
                 for failure in self.runtime_failures:

@@ -2,6 +2,10 @@
 from __future__ import annotations
 
 
+class ClientNotReadyError(RuntimeError):
+    """The client could not start its workload because the service was not ready."""
+
+
 class EnergyAbort(RuntimeError):
     """Raised when energy measurement prerequisites are not stable enough."""
 

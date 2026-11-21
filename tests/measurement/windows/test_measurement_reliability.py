@@ -6,7 +6,6 @@ from unittest.mock import patch
 
 import pytest
 
-from acprof.config import CSV_FIELDS
 from acprof.host import cases, client, docker_runtime, orchestrator
 from acprof.host.client import ClientRunner
 from acprof.host.detect import TaskInfo
@@ -117,13 +116,12 @@ def test_ready_failure_materializes_full_error_matrix_without_packet_misdiagnosi
 
     def fake_run(cmd, check=True, capture=True, **kwargs):
         if cmd and cmd[-2:] == ["-m", "acprof.host.client"]:
-            with open(kwargs["env"]["OUT_CSV"], "w", newline="", encoding="utf-8") as stream:
-                writer = csv.DictWriter(stream, fieldnames=CSV_FIELDS)
-                writer.writeheader()
-                writer.writerow({"status": "error", "error": "ready_failed: Connection refused"})
-            case_sidecar(kwargs["env"]["OUT_CSV"], "sniff_groups").write_text(
-                '{"sniff_group_id": ""}\n', encoding="utf-8"
-            )
+            runner = ClientRunner(ClientConfig.from_env(kwargs["env"]))
+            runner.input_scale_entries = [{"input_scale": 64, "scale_label": "seq64", "payload": {}}]
+            with patch.object(client.requests, "get", side_effect=client.requests.ConnectionError("Connection refused")):
+                with pytest.raises(SystemExit) as error:
+                    runner.run_cli()
+            return SimpleNamespace(returncode=error.value.code)
         return SimpleNamespace(returncode=0, stdout="", stderr="")
 
     with patch("acprof.host.orchestrator.start_service_session", return_value=docker_runtime.RunningContainer(
@@ -160,7 +158,7 @@ def test_ready_failure_materializes_full_error_matrix_without_packet_misdiagnosi
     assert len(rows) == 6
     assert {row["status"] for row in rows} == {"error"}
     assert {float(row["input_scale"]) for row in rows} == {64.0, 128.0}
-    assert all("ready_failed: Connection refused" in row["error"] for row in rows)
+    assert all("ready_failed:" in row["error"] and "Connection refused" in row["error"] for row in rows)
     assert all(row["result_origin"] == "formal_attempt" for row in rows)
     sidecar = case_sidecar(path, "sniff_groups")
     groups = sidecar.read_text(encoding="utf-8").splitlines()

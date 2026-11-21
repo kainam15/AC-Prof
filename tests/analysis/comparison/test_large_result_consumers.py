@@ -55,8 +55,9 @@ def test_result_consumers_accept_large_fields(tmp_path, consumer):
 
 def test_ready_failure_diagnostic_remains_complete(tmp_path):
     diagnostic = "ready_failed:" + "诊断\n" * 50000
-    path, _ = result_file(tmp_path, encoding="utf-8", status="error", error=diagnostic)
-    assert orchestrator._client_ready_failure(str(path)) == diagnostic
+    path = tmp_path / "client_error.json"
+    path.write_text(json.dumps({"error_type": "client_not_ready", "message": diagnostic}), encoding="utf-8")
+    assert error_rows.load_client_error_context(str(path))["message"] == diagnostic
 
 
 @pytest.mark.parametrize("device", ["cpu", "gpu"])

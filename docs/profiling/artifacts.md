@@ -446,6 +446,8 @@ warmup 的请求数执行并单独记录，不新增测量行；自动预热仍�
 网络字节指标仍计入这些协议字节，跨版本比较时应保留这一差异。
 合并后的 packet JSON 用请求的 `capture_segment` 指向 `capture_segments`；索引 0 是当前抓包，
 后续索引按 checkpoint 的归档顺序排列。`tcp_stream` 只在对应分段的 `streams` 中解释，避免编号碰撞。
+续跑时服务启动失败或 client 的 `/ready` 检查失败，已提交的窗口及请求记录保留，仅对缺失的计划项生成错误行。
+client 通过退出码和 `client_error.json` 传递就绪诊断，错误行保留具体原因。
 历史协议没有该恢复语义时仍使用原来的整 case 重试。旧 receipt、telemetry 和 checkpoint 保留。
 成功发布正式结果后，仅删除工作目录中的中间副本；原始 PCAP、测量快照和旧 generation
 不会自动删除，因此长时间或高采样率实验需要预留相应磁盘空间。
