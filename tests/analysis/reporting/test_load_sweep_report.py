@@ -112,6 +112,20 @@ def test_changed_conditions_are_separate_groups(sweep_reader, tmp_path, change):
     assert points[1]["condition_id"] != points[0]["condition_id"]
 
 
+def test_historical_chat_reports_and_refusal_aware_reports_have_separate_curves(sweep_reader, tmp_path):
+    from acprof.host.measurement.streaming import OpenAIStreamingAdapter
+
+    root = make_sweep(tmp_path / "sweep")
+    current = OpenAIStreamingAdapter().protocol()
+    historical = {key: value for key, value in current.items() if key != "text_delta_fields"}
+    for index, adapter in enumerate((historical, current, historical), start=1):
+        change_point(root, index, lambda point: point["identity"].update(adapter=adapter))
+    data = sweep_reader.read_load_sweep(root).payload
+    first, second, third = data["points"]
+    assert all(point["curve_eligible"] for point in data["points"])
+    assert first["condition_id"] == third["condition_id"] != second["condition_id"]
+
+
 def test_missing_token_and_slo_evidence_is_not_zero(sweep_reader, tmp_path):
     root = make_sweep(tmp_path / "sweep")
     change_point(root, 2, lambda experiment: (

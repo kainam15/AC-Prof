@@ -203,6 +203,86 @@ def test_single_event_with_many_tokens_has_no_invented_zero_tpot():
     assert record["output_event_intervals_s"] == []
 
 
+def test_empty_chat_logprobs_keep_visible_text_with_unknown_token_count():
+    choice = {"delta": {"content": "visible"}, "logprobs": {"content": [], "refusal": []}}
+    record = consume([(0.1, frame({"choices": [choice]})), (0.2, frame("[DONE]"))])
+    assert record["ttft_s"] == 0.1
+    assert record["output_tokens"] is None
+    assert "contains_refusal" not in record["output_events"][0]
+
+
+def test_refusal_text_has_timing_without_inventing_tokens():
+    record = consume([
+        (0.01, frame(chat(role="assistant", refusal=None))),
+        (0.02, frame(chat(refusal=""))),
+        (0.10, frame(chat(refusal="I cannot"))),
+        (0.18, frame(chat(refusal=" answer."))),
+        (0.25, frame("[DONE]")),
+    ])
+    assert record["ttft_s"] == 0.10
+    assert record["output_e2e_s"] == 0.18
+    assert [e["text"] for e in record["output_events"]] == ["I cannot", " answer."]
+    assert all(e["contains_refusal"] for e in record["output_events"])
+    assert record["output_tokens"] is record["itl_s"] is record["tpot_s"] is None
+
+
+@pytest.mark.parametrize(("delta", "logs", "tokens"), [
+    ({"refusal": "A"}, {"content": [], "refusal": [{"token": "A"}]}, 1),
+    ({"refusal": "A"}, {"content": []}, None),
+    ({"refusal": "A"}, {"content": [], "refusal": []}, None),
+    ({"content": "A", "refusal": "B"}, {"content": [], "refusal": [{"token": "B"}]}, None),
+    ({"content": "A", "refusal": "B"}, {"content": [{"token": "A"}]}, None),
+    ({"content": "A", "refusal": "B"}, {"refusal": [{"token": "B"}]}, None),
+    ({"reasoning": "A", "refusal": "B"}, {"content": [], "refusal": [{"token": "B"}]}, None),
+    ({"content": "A", "refusal": "B"}, {"content": [{"token": "A"}], "refusal": [{"token": "B"}]}, 2),
+    ({}, {"refusal": [{"token": "A"}]}, 1),
+])
+def test_refusal_logprobs_count_only_complete_event_evidence(delta, logs, tokens):
+    choice = {"delta": delta, "logprobs": logs}
+    record = consume([(0.1, frame({"choices": [choice]})), (0.2, frame("[DONE]"))])
+    event, = record["output_events"]
+    assert event["contains_refusal"]
+    assert event["text"] == "".join(delta.values())
+    assert event["token_count"] == record["output_tokens"] == tokens
+    known = sum(len(items) for items in logs.values())
+    assert event.get("token_count_lower_bound") == (known if tokens is None and known else None)
+
+
+@pytest.mark.parametrize(("choice", "code"), [
+    ({"delta": {"refusal": 1}}, "unsupported_output"),
+    ({"delta": {"refusal": "X"}, "logprobs": {"refusal": [{}]}}, "invalid_token_evidence"),
+    ({"delta": {"refusal": "X"}, "token_ids": [1, 2], "logprobs": {"refusal": [{"token": "X"}]}},
+     "invalid_token_evidence"),
+])
+def test_invalid_refusal_evidence_fails_the_request(choice, code):
+    with pytest.raises(StreamProtocolError) as error:
+        consume([(0.1, frame({"choices": [choice]})), (0.2, frame("[DONE]"))])
+    assert error.value.code == code
+
+
+def test_other_complete_sources_can_count_refusal_with_partial_logprobs():
+    choice = {"delta": {"content": "A", "refusal": "B"}, "logprobs": {"content": [{"token": "A"}]}}
+    seen = []
+    counter = MatchedTokenCounter(lambda text: seen.append(text) or 2, "model", "rev", "model", "rev")
+    adapter = OpenAIStreamingAdapter(token_counter=counter)
+    for extra, source in [({"token_ids": [1, 2]}, "server_event_tokens"), ({}, "matched_tokenizer")]:
+        record = consume([(0.1, frame({"choices": [{**choice, **extra}]})), (0.2, frame("[DONE]"))], adapter)
+        assert record["output_tokens"] == 2
+        assert record["output_token_count_source"] == source
+        assert record["itl_s"] is None
+    assert seen == ["AB"]
+
+
+def test_refusal_logprobs_lower_bound_checks_server_usage_and_event_token_ids():
+    choice = {"delta": {"content": "other", "refusal": "AB"},
+              "logprobs": {"refusal": [{"token": "A"}, {"token": "B"}]}}
+    for ids in (None, [1]):
+        row = choice if ids is None else {**choice, "token_ids": ids}
+        with pytest.raises(StreamProtocolError) as error:
+            consume([(0.1, frame({"choices": [row]})), (0.2, frame(usage(1))), (0.25, frame("[DONE]"))])
+        assert error.value.code == "invalid_token_evidence"
+
+
 @pytest.mark.parametrize("evidence", ["token_ids", "logprobs"])
 def test_explicit_one_token_events_allow_client_receive_itl(evidence):
     events = []

@@ -186,13 +186,20 @@ acprof load --base-url http://127.0.0.1:8000 --protocol openai-chat \
 | --- | --- |
 | `planned_s` | Scheduler 计划提交时刻 |
 | `sent_s` | 调用 HTTP 发送前；包含连接建立、网络、服务端排队等后续耗时 |
-| `first_output_s` | 首个有效非空 content／reasoning／reasoning_content 或有明确 Token 证据的输出 |
+| `first_output_s` | 首个有效的正文、推理文本、拒答文本或有明确 Token 证据的输出 |
 | `last_output_s` | 最后一个有效输出事件到达 |
 | `stream_completed_s` | 完整 `[DONE]` SSE 事件到达 |
 | `completed_s` | 正常流的逻辑完成时刻；失败请求为可保留的结束观测，不代表成功 |
 | `transport_completed_s` | HTTP 响应正文读取完成；独立于逻辑结束标记 |
 | `output_events` | 有效输出事件、接收时刻、可用 Token 证据与来源 |
 | `finish_reason` | 服务端终止原因；`length` 表示达到生成上限，不能解释成完整自然回答 |
+
+Chat 的 `delta.refusal` 属于模型输出。含拒答文本或拒答 Token 证据的事件标记 `contains_refusal=true`。
+同帧的推理、正文、拒答文本共享一个接收时刻。正文与拒答各自的 `logprobs` 可提供 Token 计数；
+某个非空文本字段缺少 Token 条目时，该字段的数量未知。仅覆盖部分文本时，已知正数记录为 `token_count_lower_bound`，整帧计数留空，独立的完整 Token 证据仍可用。
+成功结束的拒答可参与时延 SLO 和 Goodput，指标衡量响应时效。新 Chat 实验在 adapter 身份中记录
+`text_delta_fields`，旧实验沿用保存的观测，新旧口径在 sweep 中分别分组。
+协议字段见 [ChatCompletionChunk](https://github.com/openai/openai-python/blob/main/src/openai/types/chat/chat_completion_chunk.py)。
 
 role-only、usage-only、心跳、空文本元数据、结束标记不产生虚假输出时间点。
 读到逻辑结束后仍完成 HTTP 响应读取，连接可复用性经过检查；

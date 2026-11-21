@@ -12,6 +12,7 @@ from typing import Any, Protocol
 from acprof.artifacts import loads_finite_json, reject_isolated_surrogates
 from acprof.experiments.streaming import OPENAI_STREAMING_ENDPOINTS, prepare_streaming_payload
 
+_CHAT_TEXT_FIELDS = ("reasoning", "reasoning_content", "content", "refusal")
 _METRICS = ("ttft_s", "tpot_s", "itl_s", "output_e2e_s", "e2e_s")
 
 
@@ -202,35 +203,64 @@ def _count(value: Any, label: str) -> int:
     return value
 
 
-def _event_token_evidence(choice: dict[str, Any], delta: dict[str, Any]) -> tuple[int | None, str | None]:
+def _logprob_count(logprobs: dict[str, Any], delta: dict[str, Any] | None) -> tuple[int | None, bool]:
+    """Return the observed count and whether it covers every text channel in the event."""
+    fields = ("content", "refusal") if delta is not None else ("content",)
+    counts = {}
+    for field in fields:
+        tokens = logprobs.get(field)
+        if tokens is None:
+            continue
+        if not isinstance(tokens, list) or any(
+            not isinstance(item, dict) or not isinstance(item.get("token"), str) for item in tokens
+        ):
+            raise StreamProtocolError("invalid_token_evidence", f"logprobs.{field} must contain tokens")
+        counts[field] = len(tokens)
+    if counts:
+        observed = sum(counts.values())
+        if delta:
+            if any(delta.get(field) and not counts.get(field) for field in fields):
+                return observed, False
+            has_reasoning = delta.get("reasoning") or delta.get("reasoning_content")
+            if has_reasoning and (delta.get("refusal") or counts.get("refusal")):
+                # Chat logprobs describe content and refusal, not a separate reasoning channel.
+                return observed, False
+        return observed, True
+    tokens = logprobs.get("tokens")
+    if tokens is None:
+        return None, False
+    if not isinstance(tokens, list) or any(not isinstance(token, str) for token in tokens):
+        raise StreamProtocolError("invalid_token_evidence", "logprobs.tokens must contain strings")
+    return len(tokens), True
+
+
+def _event_token_evidence(
+    choice: dict[str, Any], delta: dict[str, Any] | None,
+) -> tuple[int | None, str | None, int]:
     evidence: list[tuple[int, str]] = []
-    for container in (choice, delta):
+    for container in (choice, delta or {}):
         if "token_ids" in container and container["token_ids"] is not None:
             ids = container["token_ids"]
             if not isinstance(ids, list) or any(type(token) is not int or token < 0 for token in ids):
                 raise StreamProtocolError("invalid_token_evidence", "token_ids must be nonnegative integers")
             evidence.append((len(ids), "token_ids"))
+    lower_bound = 0
     logprobs = choice.get("logprobs")
     if logprobs is not None:
         if not isinstance(logprobs, dict):
             raise StreamProtocolError("invalid_token_evidence", "logprobs must be an object")
-        if logprobs.get("content") is not None:
-            tokens = logprobs["content"]
-            if not isinstance(tokens, list) or any(
-                not isinstance(item, dict) or not isinstance(item.get("token"), str) for item in tokens
-            ):
-                raise StreamProtocolError("invalid_token_evidence", "logprobs.content must contain tokens")
-            evidence.append((len(tokens), "logprobs"))
-        elif logprobs.get("tokens") is not None:
-            tokens = logprobs["tokens"]
-            if not isinstance(tokens, list) or any(not isinstance(token, str) for token in tokens):
-                raise StreamProtocolError("invalid_token_evidence", "logprobs.tokens must contain strings")
-            evidence.append((len(tokens), "logprobs"))
+        observed, complete = _logprob_count(logprobs, delta)
+        if observed is not None:
+            if complete:
+                evidence.append((observed, "logprobs"))
+            else:
+                lower_bound = observed
     if not evidence:
-        return None, None
-    if len({count for count, _ in evidence}) != 1:
+        return None, None, lower_bound
+    if len({count for count, _ in evidence}) != 1 or evidence[0][0] < lower_bound:
         raise StreamProtocolError("invalid_token_evidence", "conflicting per-event token counts")
-    return evidence[0]
+    count, source = evidence[0]
+    return count, source, 0
 
 
 class OpenAIStreamingAdapter:
@@ -277,6 +307,7 @@ class OpenAIStreamingAdapter:
             "schema_version": 1, "kind": "openai_streaming", "endpoint": self.endpoint,
             "clock": "perf_counter_relative_seconds", "latency_unit": "seconds",
             "tpot_unit": "seconds_per_output_token", "completion": "sse_done_then_http_eof",
+            **({"text_delta_fields": list(_CHAT_TEXT_FIELDS)} if self.endpoint == "/v1/chat/completions" else {}),
             "ttft_boundary": "first_nonempty_text_or_explicit_token_output",
             "tpot_boundary": "last_output_minus_first_output_over_output_tokens_minus_one",
             "itl_requirement": "explicit_single_token_events_with_matching_generation_count",
@@ -353,21 +384,19 @@ class OpenAIStreamingAdapter:
             type(choice["index"]) is not int or choice["index"] != 0
         )):
             raise StreamProtocolError("invalid_choice", "only choice index 0 is supported")
-        delta = choice.get("delta", {}) if self.endpoint.endswith("/chat/completions") else {}
+        chat = self.endpoint == "/v1/chat/completions"
+        delta = choice.get("delta", {}) if chat else {}
         if not isinstance(delta, dict):
             raise StreamProtocolError("invalid_delta", "chat delta must be an object")
         if delta.get("tool_calls") or delta.get("function_call"):
             raise StreamProtocolError("unsupported_output", "tool/function output is not supported")
-        values = (
-            [delta.get("reasoning"), delta.get("reasoning_content"), delta.get("content")]
-            if self.endpoint.endswith("/chat/completions") else [choice.get("text")]
-        )
+        values = [delta.get(field) for field in _CHAT_TEXT_FIELDS] if chat else [choice.get("text")]
         if any(value is not None and not isinstance(value, str) for value in values):
             raise StreamProtocolError("unsupported_output", "output deltas must be text")
-        if self.endpoint.endswith("/chat/completions") and values[0] and values[1]:
+        if delta.get("reasoning") and delta.get("reasoning_content"):
             raise StreamProtocolError("unsupported_output", "ambiguous simultaneous reasoning aliases")
         text = "".join(value for value in values if value is not None)
-        count, source = _event_token_evidence(choice, delta)
+        count, source, lower_bound = _event_token_evidence(choice, delta if chat else None)
         if text and count == 0:
             raise StreamProtocolError("invalid_token_evidence", "nonempty output has zero explicit tokens")
         if text or (count is not None and count > 0):
@@ -383,9 +412,12 @@ class OpenAIStreamingAdapter:
             else:
                 record["output_event_intervals_s"].append(received_s - previous)
             record["last_output_s"] = received_s
+            contains_refusal = chat and (delta.get("refusal") or (choice.get("logprobs") or {}).get("refusal"))
             record["output_events"].append({
                 "received_s": received_s, "text": text, "token_count": count,
                 "token_count_source": source,
+                **({"contains_refusal": True} if contains_refusal else {}),
+                **({"token_count_lower_bound": lower_bound} if lower_bound else {}),
             })
         finish = choice.get("finish_reason")
         if finish is not None:
@@ -473,6 +505,7 @@ class OpenAIStreamingAdapter:
             event_count = event["token_count"]
             if event_count is None:
                 all_event_tokens_known = False
+                known_event_tokens += event.get("token_count_lower_bound", 0)
             else:
                 known_event_tokens += event_count
         if record["output_tokens"] is None and events and all_event_tokens_known:

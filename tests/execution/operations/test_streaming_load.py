@@ -145,6 +145,25 @@ def test_streaming_reuses_existing_scheduler_and_connection(endpoint):
     assert report["streaming"]["ttft_s"]["sample_count"] == 3
 
 
+def test_completed_refusal_stream_contributes_to_latency_and_goodput():
+    endpoint = "/v1/chat/completions"
+    frames = [
+        {"choices": [{"delta": {"refusal": word}, "logprobs": {"content": [], "refusal": [{"token": word}]}}]}
+        for word in ("No", " thanks")
+    ]
+    body = b"".join(event(data) for data in [*frames, "[DONE]"])
+    with streaming_server(endpoint=endpoint, raw_body=body) as (url, *_):
+        report = run_load(url, payload(endpoint), LoadConfig(requests=1), token="refusal",
+                          adapter=OpenAIStreamingAdapter(), slo_thresholds={"ttft_s": 10})
+    assert report["counts"]["succeeded"] == 1
+    assert report["streaming"]["ttft_s"]["sample_count"] == 1
+    assert report["streaming"]["itl_s"]["sample_count"] == 1
+    assert report["capacity"]["goodput_requests_per_s"] == 1 / report["duration_s"]
+    assert report["requests"][0]["output_token_count_source"] == "server_event_tokens"
+    assert "refusal" in report["protocol"]["adapter"]["text_delta_fields"]
+    assert "text_delta_fields" not in OpenAIStreamingAdapter("/v1/completions").protocol()
+
+
 def test_slo_violation_does_not_change_stream_request_success():
     endpoint = "/v1/chat/completions"
     with streaming_server() as (url, _, _, _, _):
