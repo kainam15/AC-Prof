@@ -327,6 +327,22 @@ def open_result_text(path: str | Path):
     return io.TextIOWrapper(io.BufferedReader(_CsvRawReader(fields, rows)), encoding="utf-8", newline="")
 
 
+def read_hashed_flat_csv(path: Path, *, expected: ExpectedMeasurements | None = None,
+                         validate_measurements: bool = True, cancelled: Callable[[], bool] | None = None,
+                         ) -> tuple[list[str], ValidatedResultRows, str]:
+    """Read rows, their validation keys and the digest from the same flat CSV stream."""
+    check_cancelled(cancelled)
+    digest = hashlib.sha256()
+    with path.open("rb", buffering=0) as raw:
+        buffered = io.BufferedReader(_DigestingRawReader(raw, digest, cancelled), buffer_size=_HASH_BUFFER_BYTES)
+        with io.TextIOWrapper(buffered, encoding="utf-8-sig", newline="") as stream:
+            fields, validated = parse_result_stream(stream, path, expected,
+                                                   allow_empty=not validate_measurements,
+                                                   validate_measurements=validate_measurements, cancelled=cancelled)
+    check_cancelled(cancelled)
+    return fields, validated, digest.hexdigest()
+
+
 def read_result_csv_snapshot(path: str | Path, *, expected: ExpectedMeasurements | None = None,
                              validate_measurements: bool = True,
                              cancelled: Callable[[], bool] | None = None,
@@ -356,15 +372,10 @@ def read_result_csv_snapshot(path: str | Path, *, expected: ExpectedMeasurements
         verify_result_source(path, layer_digest, cancelled=cancelled)
         check_cancelled(cancelled)
         return ResultCsvSnapshot(path=path, fields=fields, rows=rows, sha256=layer_digest)
-    digest = hashlib.sha256()
-    with path.open("rb", buffering=0) as raw:
-        buffered = io.BufferedReader(_DigestingRawReader(raw, digest, cancelled), buffer_size=_HASH_BUFFER_BYTES)
-        with io.TextIOWrapper(buffered, encoding="utf-8-sig", newline="") as stream:
-            fields, validated = parse_result_stream(stream, path, expected,
-                                                   allow_empty=not validate_measurements,
-                                                   validate_measurements=validate_measurements, cancelled=cancelled)
-    check_cancelled(cancelled)
-    return ResultCsvSnapshot(path=path, fields=fields, rows=validated.rows, sha256=digest.hexdigest())
+    fields, validated, sha256 = read_hashed_flat_csv(
+        path, expected=expected, validate_measurements=validate_measurements, cancelled=cancelled,
+    )
+    return ResultCsvSnapshot(path=path, fields=fields, rows=validated.rows, sha256=sha256)
 
 
 def result_csv_snapshot_unchanged(snapshot: ResultCsvSnapshot, *, verify_rows: bool = True) -> bool:

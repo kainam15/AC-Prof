@@ -43,18 +43,18 @@ def test_final_content_verification_never_parses_csv(tmp_path, monkeypatch, vers
 
 
 def after_summary_read(monkeypatch, summary, change):
-    original = result_layers.read_result_csv_snapshot
+    original = result_layers.read_hashed_flat_csv
     changed = False
 
     def read(path, **kwargs):
         nonlocal changed
-        snapshot = original(path, **kwargs)
+        parsed = original(path, **kwargs)
         if Path(path) == summary and not changed:
             changed = True
             change()
-        return snapshot
+        return parsed
 
-    monkeypatch.setattr(result_layers, "read_result_csv_snapshot", read)
+    monkeypatch.setattr(result_layers, "read_hashed_flat_csv", read)
 
 
 @pytest.mark.parametrize("version", [1, 2])

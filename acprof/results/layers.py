@@ -24,8 +24,10 @@ from acprof.cancellation import cancellable, check_cancelled
 from acprof.results.csv import (
     KEY_FIELDS,
     ExpectedMeasurements,
+    MeasurementKey,
     ResultValidationError,
     measurement_key,
+    read_hashed_flat_csv,
     read_result_csv_snapshot,
     require_expected_measurements,
     result_csv_snapshot_unchanged,
@@ -393,8 +395,8 @@ def read_result_layers(root: str | Path, *, expected_manifest_sha256: str | None
     assigned = layer_fields(wide_fields)
     identity = layer_identity_fields(wide_fields)
     layers = manifest["layers"]
-    expected_keys: list[tuple[str, ...]] | None = None
-    combined: dict[tuple[str, ...], dict[str, str]] = {}
+    expected_keys: tuple[MeasurementKey, ...] | None = None
+    combined: dict[MeasurementKey, dict[str, str]] = {}
     for layer in cancellable(LAYER_FILES, cancelled):
         if layer not in layers:
             continue
@@ -405,15 +407,15 @@ def read_result_layers(root: str | Path, *, expected_manifest_sha256: str | None
         if layer in PROFILER_LAYERS and not set(assigned[layer]) - set(identity):
             raise ResultValidationError(f"empty profiler schema: {layer}")
         try:
-            snapshot = read_result_csv_snapshot(path, cancelled=cancelled)
+            columns, validated, sha256 = read_hashed_flat_csv(path, cancelled=cancelled)
         except (ValueError, csv.Error) as exc:
             raise ResultValidationError(f"missing or modified {layer} layer: {path}: {exc}") from exc
-        if snapshot.sha256 != record["sha256"]:
+        if sha256 != record["sha256"]:
             raise ResultValidationError(f"missing or modified {layer} layer: {path}")
-        columns, rows = snapshot.fields, snapshot.rows
+        rows, keys = validated.rows, validated.keys
+        assert keys is not None  # Every physical layer uses strict measurement validation.
         if columns != assigned[layer] or len(rows) != record.get("row_count"):
             raise ResultValidationError(f"invalid {layer} layer rows or columns")
-        keys = [measurement_key(row) for row in cancellable(rows, cancelled)]
         if layer == "summary":
             expected_keys = keys
             if len(keys) != manifest["row_count"]:
@@ -431,7 +433,7 @@ def read_result_layers(root: str | Path, *, expected_manifest_sha256: str | None
                 if "runtime_kind" in identity and row["runtime_kind"] != combined[key]["runtime_kind"]:
                     raise ResultValidationError(f"runtime identity mismatch in {layer}")
                 combined[key].update({name: row[name] for name in value_fields})
-        del snapshot, columns, rows, keys
+        del validated, columns, rows, keys
     if expected_keys is None:
         raise ResultValidationError("missing summary measurements")
     ordered = order_csv_fields(wide_fields)

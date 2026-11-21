@@ -3,17 +3,18 @@ import csv
 import hashlib
 import io
 import json
+from collections import Counter
 from decimal import localcontext
 
 import pytest
-from tests.results.storage.test_result_row_assembly import row_store
 
-from acprof.results import csv as result_csv
 from acprof.analysis.audit import audit_result
-from acprof.results.layout import ArtifactLayout
-from acprof.results.layers import BASE_LAYERS, LAYER_FILES
 from acprof.result_store import reader
 from acprof.result_store.protocol import csv_bytes, save_commit
+from acprof.results import csv as result_csv, layers as result_layers
+from acprof.results.layers import BASE_LAYERS, LAYER_FILES
+from acprof.results.layout import ArtifactLayout
+from tests.results.storage.test_result_row_assembly import row_store
 
 
 def rewrite_layer(root, manifest, layer, transform):
@@ -24,13 +25,53 @@ def rewrite_layer(root, manifest, layer, transform):
     transform(rows)
     raw = csv_bytes(info["fields"], rows, header=True)
     path.write_bytes(raw)
-    info.update(sha256=hashlib.sha256(raw).hexdigest(), row_count=len(rows), committed_bytes=len(raw))
-    before = manifest.copy()
-    after = {key: value for key, value in manifest.items() if key != "commit"}
-    after["sequence"] += 1
-    committed = save_commit(ArtifactLayout(root), before, after, [], transaction="changed-fixture")
-    (root / "result_layers.json").write_text(json.dumps(committed))
-    return committed
+    info.update(sha256=hashlib.sha256(raw).hexdigest(), row_count=len(rows))
+    if manifest["schema_version"] == 3:
+        info["committed_bytes"] = len(raw)
+        before = manifest.copy()
+        after = {key: value for key, value in manifest.items() if key != "commit"}
+        after["sequence"] += 1
+        manifest = save_commit(ArtifactLayout(root), before, after, [], transaction="changed-fixture")
+    elif manifest["schema_version"] == 2:
+        generations = root / result_layers.GENERATIONS_DIR
+        previous = manifest["generation"]
+        generation = result_layers._generation_id(manifest["wide_fields"], manifest["row_count"], manifest["layers"])
+        (generations / previous).rename(generations / generation)
+        manifest["generation"] = generation
+        for record in manifest["layers"].values():
+            record["path"] = record["path"].replace(previous, generation)
+    (root / "result_layers.json").write_text(json.dumps(manifest))
+    return manifest
+
+
+@pytest.mark.parametrize("version", [1, 2])
+def test_legacy_layer_rows_are_keyed_once_and_join_numeric_aliases(tmp_path, monkeypatch, version):
+    manifest, expected = row_store(tmp_path, version, count=3, width=1)
+    metric = "gpu_kernel_launch_count_per_request_ncu"
+
+    def add_profiler_row(rows):
+        rows.append({**rows[0], "repeat_idx": "2.0", "cpu_cores": "2.00", "input_scale": "1e0", metric: "7"})
+
+    rewrite_layer(tmp_path, manifest, "ncu", add_profiler_row)
+    expected[2][metric] = "7"
+    original = result_csv.measurement_key
+    expected_calls = Counter()
+    for record in manifest["layers"].values():
+        with (tmp_path / record["path"]).open(newline="") as stream:
+            expected_calls.update(original(row) for row in csv.DictReader(stream))
+    calls = Counter()
+
+    def counted(row):
+        key = original(row)
+        calls[key] += 1
+        return key
+
+    monkeypatch.setattr(result_csv, "measurement_key", counted)
+    monkeypatch.setattr(result_layers, "measurement_key", counted)
+    fields, rows = result_layers.read_result_layers(tmp_path)
+    assert all(list(row) == fields for row in rows)
+    assert rows == expected
+    assert calls == expected_calls
 
 
 @pytest.mark.parametrize("count", [2, 7])
@@ -50,35 +91,39 @@ def test_each_committed_row_is_keyed_once_before_joining(tmp_path, monkeypatch, 
     assert len(calls) == sum(layer["row_count"] for layer in manifest["layers"].values())
 
 
+@pytest.mark.parametrize("version", [1, 2, 3])
 @pytest.mark.parametrize("layer", ["summary", "resources", "ncu"])
-def test_duplicate_keys_still_report_the_layer_and_original_row(tmp_path, layer):
-    manifest, _ = row_store(tmp_path, 3, count=2, width=1)
+def test_duplicate_keys_still_report_the_layer_and_original_row(tmp_path, layer, version):
+    manifest, _ = row_store(tmp_path, version, count=2, width=1)
 
     def duplicate(rows):
         rows[:] = [rows[0], {**rows[0], "cpu_cores": "2.00", "repeat_idx": "0.0"}]
 
     rewrite_layer(tmp_path, manifest, layer, duplicate)
     with pytest.raises(result_csv.ResultValidationError) as error:
-        reader.read_snapshot(tmp_path)
+        result_layers.read_result_layers(tmp_path)
     message = str(error.value)
     assert "duplicate measurement" in message
     assert f"{LAYER_FILES[layer]}:3:" in message
     assert "('2', '8', 'off', '1', '0', '0')" in message
 
 
+@pytest.mark.parametrize("version", [1, 2, 3])
 @pytest.mark.parametrize("layer", BASE_LAYERS[1:])
-def test_key_reuse_keeps_base_layer_order_checks(tmp_path, layer):
-    manifest, _ = row_store(tmp_path, 3, count=2, width=1)
+def test_key_reuse_keeps_base_layer_order_checks(tmp_path, layer, version):
+    manifest, _ = row_store(tmp_path, version, count=2, width=1)
     rewrite_layer(tmp_path, manifest, layer, lambda rows: rows.reverse())
     with pytest.raises(result_csv.ResultValidationError, match=f"measurement order mismatch in {layer}"):
-        reader.read_snapshot(tmp_path)
+        result_layers.read_result_layers(tmp_path)
 
 
-def test_key_reuse_keeps_orphan_profiler_checks(tmp_path):
-    manifest, _ = row_store(tmp_path, 3, count=2, width=1)
+@pytest.mark.parametrize("version", [1, 2, 3])
+def test_key_reuse_keeps_orphan_profiler_checks(tmp_path, version):
+    manifest, _ = row_store(tmp_path, version, count=2, width=1)
     rewrite_layer(tmp_path, manifest, "ncu", lambda rows: rows[0].update(repeat_idx="2"))
-    with pytest.raises(result_csv.ResultValidationError, match="orphan profiler row in ncu"):
-        reader.read_snapshot(tmp_path)
+    message = "orphan profiler row in ncu" if version == 3 else "orphan profiler measurement in ncu"
+    with pytest.raises(result_csv.ResultValidationError, match=message):
+        result_layers.read_result_layers(tmp_path)
 
 
 def test_key_reuse_keeps_raw_identity_comparison(tmp_path):
