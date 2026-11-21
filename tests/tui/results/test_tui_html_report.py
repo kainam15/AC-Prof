@@ -16,6 +16,7 @@ from acprof.tui import commands
 from acprof.tui.run.process_controller import ProcessController
 from acprof.tui.settings.preferences import TuiSettings, UiPreferences, save_settings
 from tests.support.tui_fixtures import AcprofTui
+from tests.support.tui_waits import wait_for_condition
 
 
 @pytest.fixture
@@ -165,16 +166,21 @@ async def test_real_cli_success_persists_path_and_preserves_input(tmp_path, csv_
     async with app.run_test(size=(120, 30)) as pilot:
         app.results.show_result_section("exports-view")
         app.query_one("#experiment-source", Input).value = str(csv_result)
-        await pilot.pause()
+        await wait_for_condition(pilot, lambda: app.results.data_status is not None
+                                 and app.results.data_status.path == csv_result and not app.read_jobs,
+                                 description="selected CSV checked and ready for HTML export", timeout=5)
         app.results.html.launch()
         await app.workers.wait_for_complete()
-        await pilot.pause()
+        await wait_for_condition(pilot, lambda: app.results.html.output is None and not app.is_busy(),
+                                 description="HTML export result published", timeout=5)
         output = Path(app.query_one("#html-report-path", Input).value)
+        assert output.is_file(), str(app.query_one("#html-report-status", Static).content)
         html = output.read_text()
         assert "Plotly" in html
         assert '<script src=' not in html
-        for view in ("Comparison Matrix", "Pareto", "Scaling"):
-            assert view in html
+        for view in ("matrix", "pareto", "scaling"):
+            assert f'<button data-view="{view}"' in html
+            assert f'id="{view}-panel"' in html
         assert '"configs":' in html
         assert csv_result.read_bytes() == original
         assert app.configuration.saved_settings.last_html_report == str(output)

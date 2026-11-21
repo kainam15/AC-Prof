@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import re
 from itertools import combinations
 from pathlib import Path
@@ -23,7 +22,7 @@ async def test_scene_shows_vhs_marker_and_fits_controls(tmp_path: Path, scene: s
     with isolate_fixture() as isolation:
         app = VisualFixtureApp(scene, settings_path=tmp_path / "settings.json")
         async with app.run_test(size=(spec.columns, spec.rows)) as pilot:
-            await asyncio.wait_for(app.scene_ready.wait(), timeout=5)
+            await app.wait_for_scene(pilot)
             await app.workers.wait_for_complete()
             await pilot.pause()
             visible_text = "\n".join(strip.text for strip in app.screen._compositor.render_strips())

@@ -153,7 +153,13 @@ class VisualFixtureApp(AcprofTui):
     def on_mount(self) -> None:
         # Textual dispatches the production mount handler separately. A worker
         # can await the resulting focus and navigation messages off the UI pump.
-        self.run_worker(self.prepare_scene(), name="prepare PNG scene")
+        self.scene_worker = self.run_worker(self.prepare_scene(), name="prepare PNG scene")
+
+    async def wait_for_scene(self, pilot: Pilot) -> None:
+        """Wait for navigation and mounting before checking the rendered scene."""
+        await self.scene_worker.wait()
+        await wait_for_condition(pilot, self.scene_ready.is_set,
+                                 description="mounted PNG scene refreshed", timeout=5)
 
     async def prepare_scene(self) -> None:
         pilot = Pilot(self)

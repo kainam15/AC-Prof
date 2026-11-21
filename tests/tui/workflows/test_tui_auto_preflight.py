@@ -106,10 +106,17 @@ async def test_burst_edits_merge_and_preserve_page_focus_input_and_silence(tmp_p
         with patch.object(app, "notify") as notify:
             for value in ("0", "0-1", "0-3"):
                 field.value = value
-                await pilot.pause()
+                # Validate each edit in one event-loop turn so all three belong to the same burst.
+                app.configuration.refresh_command_preview(notify=False)
+                scheduled = app.preflight.auto_check_config
+                assert scheduled is not None
+                assert scheduled.cpuset_cpus == value
+            check.assert_called_once()
             assert app.query_one("#start-run", Button).disabled
-            await wait_for_condition(pilot, lambda: check.call_count == 2 and not app.preflight.check_running,
-                                     description="one check after the edit burst", timeout=3)
+            await wait_for_condition(pilot, lambda: app.preflight.checked_config is not None
+                                     and app.preflight.checked_config.cpuset_cpus == "0-3"
+                                     and not app.preflight.check_running,
+                                     description="completed preflight for the final edit", timeout=3)
             await ready(app, pilot)
             assert check.call_args.args[0].cpuset_cpus == "0-3"
             assert app.focused is field

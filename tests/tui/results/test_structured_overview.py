@@ -23,6 +23,7 @@ def recorded_overview(tmp_path):
         aliases=(directory,),
         run_id="fixture-run-2026-11-08-abcdefghijklmnop",
         model_id="fixture/中文-model",
+        model_source="huggingface",
         revision="1234567890abcdef1234567890abcdef12345678",
         runtime_profile="transformers-cpu",
         created_at="2026-11-08T10:20:30.456+08:00",

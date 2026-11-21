@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from dataclasses import replace
 from unittest.mock import Mock
 
@@ -36,7 +35,7 @@ async def test_docker_scene_ready_without_descendant_focus(tmp_path) -> None:
 
         app.scenario = replace(app.scenario, mount=record_mount)
         async with app.run_test(size=(80, 24)) as pilot:
-            await asyncio.wait_for(app.scene_ready.wait(), timeout=8)
+            await app.wait_for_scene(pilot)
             await pilot.pause()
             restore.assert_called_once_with()
             assert navigation == [("monitor-tab", True, True)]

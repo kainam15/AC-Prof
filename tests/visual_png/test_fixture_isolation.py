@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 from contextlib import ExitStack
 from pkgutil import resolve_name
@@ -98,8 +97,8 @@ def test_fake_stop_rejects_non_fixture_pid_without_signalling() -> None:
 async def test_active_fixture_unmount_releases_only_synthetic_process(tmp_path, scene: str) -> None:
     with isolate_fixture() as isolation:
         app = VisualFixtureApp(scene, settings_path=tmp_path / "settings.json")
-        async with app.run_test(size=(120, 36)):
-            await asyncio.wait_for(app.scene_ready.wait(), timeout=5)
+        async with app.run_test(size=(120, 36)) as pilot:
+            await app.wait_for_scene(pilot)
             process = app.execution.lifecycle.process
             assert isinstance(process, Mock)
             assert process.pid is None
