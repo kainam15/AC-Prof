@@ -1,5 +1,6 @@
 """One historical CSV is sufficient for descriptive resource comparisons."""
 import csv
+import json
 
 import pytest
 
@@ -66,6 +67,49 @@ def test_different_inputs_are_visible_but_never_receive_a_resource_ratio(tmp_pat
     assert pair["resource"]["status"] == "incompatible"
     assert "input_case" in pair["resource"]["reasons"]
     assert not pair["metrics"]
+
+
+def test_baseline_retains_reason_when_numeric_metrics_have_different_sampling(tmp_path):
+    def measured(cpu, interval):
+        evidence = {"latency_app_s": {"quality": "complete", "sampling": {"interval_s": interval}}}
+        return row(cpu, cpu, resource_metric_quality=json.dumps(evidence))
+
+    payload = report_payload(load_analysis([matrix(tmp_path, [measured(1, 1), measured(2, .5)])]))
+    left, right = payload["configs"]
+    for baseline, target in ((left, right), (right, left)):
+        pair = pair_for(payload, baseline, target)
+        assert pair["resource"]["status"] == "descriptive"
+        assert "latency_app_s" not in pair["metrics"]
+        assert pair["metric_reasons"] == {"latency_app_s": "different_source_scope_window_or_sampling"}
+        assert "metric_reasons" not in pair_for(payload, target, target)
+
+
+def test_matched_cross_runtime_baseline_requires_complete_formal_windows(tmp_path, monkeypatch):
+    from acprof.analysis import resource_comparison
+
+    compare = resource_comparison.compare_profiles
+
+    def matched_profiles(left, right):
+        verdict = compare(left, right)
+        if left["purpose"] == "same-hardware":
+            verdict["matched_cross_runtime"] = True
+        return verdict
+
+    monkeypatch.setattr(resource_comparison, "compare_profiles", matched_profiles)
+    complete = json.dumps({"latency_app_s": {"quality": "complete"}})
+    source = matrix(tmp_path, [row(1, 2, resource_metric_quality=complete), row(2, 4, resource_metric_quality=complete),
+                               row(2, "", resource_metric_quality=complete) | {"repeat_idx": 1}, row(3, 6)])
+    model = load_analysis([source])
+    left, right, legacy = sorted(model.configs, key=lambda c: c["cpu"])
+    pairs = resource_comparison.build_baseline_comparisons(model)["pairs"][left["config_id"]]
+    assert pairs[left["config_id"]]["metrics"]["latency_app_s"]["delta"] == 0
+    pair = pairs[right["config_id"]]
+    assert pair["cross_runtime"]
+    assert "latency_app_s" not in pair["metrics"]
+    assert pair["metric_reasons"]["latency_app_s"] == "incomplete_metric_quality"
+    legacy_pair = pairs[legacy["config_id"]]
+    assert "latency_app_s" not in legacy_pair["metrics"]
+    assert legacy_pair["metric_reasons"]["latency_app_s"] == "incomplete_cross_runtime_metric_evidence"
 
 
 def test_explicit_statistics_options_invalidate_cached_parameters(tmp_path):

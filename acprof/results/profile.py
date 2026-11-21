@@ -19,10 +19,19 @@ def observation_signature(observation: dict) -> str:
                        if key in observation}, sort_keys=True, allow_nan=False)
 
 
+def observation_comparison_reason(left: list[dict], right: list[dict]) -> str:
+    if bool(left) != bool(right):
+        return 'metric_contract_missing_on_one_side'
+    items = [*left, *right]
+    if any(item.get('quality') not in USABLE_QUALITIES for item in items):
+        return 'incomplete_metric_quality'
+    if len({observation_signature(item) for item in items}) > 1:
+        return 'different_source_scope_window_or_sampling'
+    return ''
+
+
 def observations_comparable(left: list[dict], right: list[dict]) -> bool:
-    return (all(item.get('quality') in USABLE_QUALITIES for item in [*left, *right])
-            and len({observation_signature(item) for item in [*left, *right]}) <= 1
-            and bool(left) == bool(right))
+    return not observation_comparison_reason(left, right)
 
 
 @lru_cache(maxsize=128)

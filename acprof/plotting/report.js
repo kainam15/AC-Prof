@@ -41,8 +41,15 @@
     configuration_groups_changed: "配置分组不匹配", statistics_summary_changed: "统计摘要不匹配",
     invalid_confidence_interval: "置信区间无效", invalid_statistics_groups: "统计分组无效",
     statistics_parameters_changed: "统计指标或 Bootstrap 参数不匹配",
+    different_or_incomplete_metric_contract: "指标观测口径不同或证据不完整",
+    metric_contract_missing_on_one_side: "仅一侧记录了指标观测口径",
+    incomplete_metric_quality: "指标观测质量不完整",
+    different_source_scope_window_or_sampling: "指标的观测口径不同",
+    incomplete_cross_runtime_metric_evidence: "跨 Runtime 对照缺少覆盖全部正式窗口的完整观测",
   };
-  const reasonText = reason => reasonLabels[reason] || reason;
+  const reasonText = reason => Object.hasOwn(reasonLabels, reason) ? reasonLabels[reason] : reason;
+  const metricComparisonReason = change => change.reason === "different_or_incomplete_metric_contract" ?
+    (change.reasons || []).map(reasonText).join(" · ") || reasonText(change.reason) : "";
   const reasonCounts = reasons => Object.entries(reasons || {}).map(([reason, count]) => `${reasonText(reason)} ${count}`).join(" · ");
   const inputLabel = V.inputLabel;
   const label = config => `${config.experiment_name || ""} · ${config.model} · ${config.runtime} · ${config.device} · CPU ${text(config.cpu)} · ${text(config.memory)} GiB`;
@@ -217,7 +224,8 @@
         if (baseline) {
           const change = comparison.delta(config, name);
           const metricReasons = (change.reasons || []).filter(reason => !rowReasons.includes(reason));
-          const content = change.delta == null ? (metricReasons.length ? `${change.reason}: ${metricReasons.join(", ")}` : "— vs baseline") :
+          const content = change.delta == null ? metricComparisonReason(change) ||
+            (metricReasons.length ? `${change.reason}: ${metricReasons.join(", ")}` : "— vs baseline") :
             `Δ ${signed(change.delta)} ${registry[name].unit} · ${change.percent == null ? "% —" : signed(change.percent) + "%"}` +
             ` · 比值 ${fmt(change.ratio)} · 性能比 ${fmt(change.performance_ratio)}`;
           cell.append(element("small", change.scope === "matched_cross_runtime_metric" ? "跨 Runtime 描述性差值 · " + content : content));
@@ -521,7 +529,7 @@
       $("error").textContent = "视图生成失败：" + error.message;
     }).finally(() => { document.body.dataset.busy = "false"; });
   }
-  const experiments = window.ACProfExperiments({data, $, V, element, option, fmt, metricTitle, plot, axis, schedule, filtered, escape, color, selectConfig});
+  const experiments = window.ACProfExperiments({data, $, V, element, option, fmt, metricTitle, metricComparisonReason, plot, axis, schedule, filtered, escape, color, selectConfig});
   const getState = () => ({...state, controls:Object.fromEntries([...document.querySelectorAll("select")].map(select =>
     [select.id, [...select.selectedOptions].map(option => option.value)])), evidenceOpen:$("quality-evidence").open,
     statisticsInputs:{seed:$("statistics-seed").value, block_size:$("statistics-block-size").value}});

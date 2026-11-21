@@ -1,6 +1,7 @@
 """Portable report contract and offline browser experiment management."""
 import csv
 import hashlib
+import io
 import json
 import os
 from pathlib import Path
@@ -751,13 +752,17 @@ def test_cross_runtime_report_only_exposes_qualified_metric_deltas(page):
     result = page.evaluate("""() => {
         const baseline={config_id:"docker",experiment_id:"a"}, target={config_id:"process",experiment_id:"b"};
         const pairs={pairs:{docker:{process:{policies:{"same-hardware":0},cross_runtime:true,
+          metric_reasons:{latency_app_p95_s:"incomplete_cross_runtime_metric_evidence"},
           metrics:{latency_app_s:{delta:0.1}}}}},qualifications:[{status:"incompatible",matched_cross_runtime:true}]};
         const context=ACProfViews.comparisonContext(baseline,"same-hardware",pairs);
-        return [context.delta(target,"latency_app_s"), context.delta(target,"latency_s"), context.automaticQualification(target)];
+        return [context.delta(target,"latency_app_s"), context.delta(target,"latency_s"), context.automaticQualification(target),
+          context.delta(target,"latency_app_p95_s")];
     }""")
     assert result[0] == {"delta": 0.1, "scope": "matched_cross_runtime_metric", "statistics_status": "not_computed"}
     assert result[1]["delta"] is None
     assert result[2]["status"] == "incompatible"
+    assert result[3]["delta"] is None
+    assert result[3]["reasons"] == ["incomplete_cross_runtime_metric_evidence"]
 
 
 def test_csv_import_checks_sampling_only_for_contributing_readings(page, tmp_path):
@@ -840,28 +845,103 @@ def test_nested_sampling_survives_csv_aggregation_and_json_baseline_comparison(p
 
 
 def test_imported_metric_delta_requires_symmetric_observation_evidence(page):
-    from acprof.results.profile import observations_comparable
+    from acprof.results.profile import observation_comparison_reason, observations_comparable
 
     known = {"quality": "complete"}
     cases = [
-        ([], [], True),
-        ([], [known], False),
-        ([known], [], False),
-        ([known], [{**known, "sampling": None}], False),
-        ([known], [{"quality": "unknown", "reason": "legacy"}], True),
-        ([known], [{"quality": "partial"}], False),
-        ([{**known, "sampling": [{"a": 1, "b": 2}]}], [{**known, "sampling": [{"b": 2, "a": 1}]}], True),
-        ([{**known, "sampling": {"interval_s": 1}}], [{**known, "sampling": {"interval_s": 2}}], False),
+        ([], [], ""),
+        ([], [known], "metric_contract_missing_on_one_side"),
+        ([known], [], "metric_contract_missing_on_one_side"),
+        ([known], [{**known, "sampling": None}], "different_source_scope_window_or_sampling"),
+        ([known], [{"quality": "unknown", "reason": "legacy"}], ""),
+        ([known], [{"quality": "partial"}], "incomplete_metric_quality"),
+        ([{**known, "sampling": [{"a": 1, "b": 2}]}], [{**known, "sampling": [{"b": 2, "a": 1}]}], ""),
+        ([{**known, "sampling": {"interval_s": 1}}], [{**known, "sampling": {"interval_s": 2}}],
+         "different_source_scope_window_or_sampling"),
     ]
     observed = page.evaluate("""cases => cases.map(([left, right]) => {
       const config = (id, evidence, value) => ({experiment_id:id, config_id:id, metrics:{x:{value}},
         ...(evidence.length ? {metric_observations:{x:evidence}} : {})});
       return ACProfViews.comparisonContext(config('a', left, 2)).delta(config('b', right, 6), 'x');
     })""", cases)
-    for (left, right, comparable), change in zip(cases, observed, strict=True):
-        assert observations_comparable(left, right) is comparable
+    for (left, right, detail), change in zip(cases, observed, strict=True):
+        assert observation_comparison_reason(left, right) == detail
+        assert observations_comparable(left, right) is (not detail)
+        assert change.get("reasons", []) == ([detail] if detail else [])
         assert (change["delta"], change["reason"]) == (
-            (4, "") if comparable else (None, "different_or_incomplete_metric_contract"))
+            (None, "different_or_incomplete_metric_contract") if detail else (4, ""))
+
+
+def test_withheld_metric_reason_visible_in_matrix_experiments_and_exports(page, source):
+    metric = "latency_app_p95_s"
+    with source.open() as stream:
+        rows = list(csv.DictReader(stream))
+    for row in rows:
+        row["run_id"] = "candidate"
+        row["resource_metric_quality"] = json.dumps({metric: {"quality": "complete", "sampling": {"interval_s": 2}}})
+    content = io.StringIO()
+    writer = csv.DictWriter(content, list(rows[0]))
+    writer.writeheader()
+    writer.writerows(rows)
+    import_file(page, "candidate.csv", content.getvalue())
+    configs = download_json(page)["analysis_bundle"]["configs"]
+    left, right = (next(config for config in configs if config["run_id"] == run) for run in ("original", "candidate"))
+    page.select_option("#active-experiment-left", left["experiment_id"])
+    page.select_option("#active-experiment-right", right["experiment_id"])
+    page.click("#report-filters > summary")
+    page.select_option("#baseline", left["config_id"])
+    for view in ("matrix", "experiments"):
+        page.click(f"[data-view={view}]")
+        if view == "experiments":
+            page.select_option("#experiment-metric", metric)
+        for lang, text in (("zh", "指标的观测口径不同"), ("en", "Metric observation contracts differ")):
+            page.select_option("#language", lang)
+            settled(page)
+            row = page.locator(f'#{view} tr[data-config-id="{right["config_id"]}"]')
+            assert text in row.inner_text()
+        exported = next(row for row in download_json(page)["groups"]
+                        if row["config_id"] == right["config_id"] and row["metric"] == metric)
+        assert exported["value"] == 3
+        assert exported["delta"] is None
+        assert exported["reason"] == "different_or_incomplete_metric_contract"
+        assert exported["reasons"] == ["different_source_scope_window_or_sampling"]
+        with page.expect_download() as result:
+            page.click("#export-csv")
+        with Path(result.value.path()).open(newline="") as stream:
+            entry = next(row for row in csv.DictReader(stream)
+                         if row["config_id"] == right["config_id"] and row["metric"] == metric)
+        assert entry["delta"] == ""
+        assert json.loads(entry["reasons"]) == exported["reasons"]
+
+
+def test_precomputed_metric_reason_survives_import_and_rejects_conflicting_delta(page, linked_bundle):
+    metric = "latency_app_s"
+    left, right = sorted((c for c in linked_bundle["configs"] if c["run_id"] == "left"), key=lambda c: c["cpu"])
+    pair = linked_bundle["baseline_comparisons"]["pairs"][left["config_id"]][right["config_id"]]
+    pair["metric_reasons"] = {metric: "incomplete_metric_quality"}
+    import_file(page, "conflict.json", json.dumps(linked_bundle))
+    assert "Invalid metric comparison reason" in page.locator("#import-status").inner_text()
+    assert page.locator("#experiment-list tbody tr").count() == 1
+
+    del pair["metrics"][metric]
+    extra_metric = "additional_latency_s"
+    linked_bundle["registry"][extra_metric] = {**linked_bundle["registry"][metric], "name": extra_metric}
+    for config in linked_bundle["configs"]:
+        config["metrics"][extra_metric] = config["metrics"][metric].copy()
+    expected_reasons = {metric: "incomplete_metric_quality", extra_metric: "additional_quality_detail"}
+    pair["metric_reasons"] = expected_reasons
+    import_file(page, "corrected.json", json.dumps(linked_bundle))
+    saved = download_json(page)["analysis_bundle"]
+    left, right = sorted((c for c in saved["configs"] if c["run_id"] == "left"), key=lambda c: c["cpu"])
+    pair = saved["baseline_comparisons"]["pairs"][left["config_id"]][right["config_id"]]
+    assert pair["metric_reasons"] == expected_reasons
+    page.click("#report-filters > summary")
+    page.click("#custom-metrics > summary")
+    page.select_option("#metrics", metric)
+    page.select_option("#comparison-purpose", "within-experiment")
+    page.select_option("#baseline", left["config_id"])
+    settled(page)
+    assert "指标观测质量不完整" in page.locator(f'#matrix tr[data-config-id="{right["config_id"]}"]').inner_text()
 
 
 def test_csv_import_distinguishes_historical_and_partial_token_coverage(page, tmp_path):

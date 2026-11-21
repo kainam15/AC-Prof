@@ -13,12 +13,14 @@ window.ACProfViews = (() => {
   function observationSignature({source, scope, window, derivation, sampling}) {
     return stableJson({source, scope, window, derivation, sampling});
   }
-  function observationsComparable(left = [], right = []) {
-    if (!Array.isArray(left) || !Array.isArray(right) || Boolean(left.length) !== Boolean(right.length)) return false;
+  function observationComparisonReason(left = [], right = []) {
+    if (!Array.isArray(left) || !Array.isArray(right)) return "incomplete_metric_quality";
+    if (Boolean(left.length) !== Boolean(right.length)) return "metric_contract_missing_on_one_side";
     const items = [...left, ...right];
-    return items.every(item => ["complete", "unknown"].includes(item?.quality)) &&
-      new Set(items.map(observationSignature)).size <= 1;
+    if (items.some(item => !["complete", "unknown"].includes(item?.quality))) return "incomplete_metric_quality";
+    return new Set(items.map(observationSignature)).size > 1 ? "different_source_scope_window_or_sampling" : "";
   }
+  const withheldMetric = detail => ({delta:null, percent:null, reason:"different_or_incomplete_metric_contract", reasons:[detail]});
   function inputLabel(input, detailed = false) {
     const text = value => value == null ? "unknown" : String(value);
     try {
@@ -125,17 +127,21 @@ window.ACProfViews = (() => {
     function delta(config, metric) {
       if (!baseline) return {delta: null, percent: null, reason: "no_baseline"};
       const comparison = qualification(config);
-      if (config.experiment_id && baseline.experiment_id && !pair(config)) {
+      const recorded = pair(config);
+      if (config.experiment_id && baseline.experiment_id && !recorded) {
         if (comparison.status === "incompatible") return {delta:null, percent:null, ratio:null, performance_ratio:null, reason:"incompatible", reasons:comparison.reasons};
-        if (!observationsComparable(baseline.metric_observations?.[metric], config.metric_observations?.[metric]))
-          return {delta:null, percent:null, reason:"different_or_incomplete_metric_contract"};
+        const reason = observationComparisonReason(baseline.metric_observations?.[metric], config.metric_observations?.[metric]);
+        if (reason) return withheldMetric(reason);
         return {...descriptiveChange(value(baseline, metric), value(config, metric), registry[metric]?.direction),
           scope:"browser_descriptive", statistics_status:"not_computed"};
       }
-      if (purpose === "same-hardware" && comparison.matched_cross_runtime && pair(config)?.cross_runtime && pair(config).metrics[metric])
-        return {...pair(config).metrics[metric], scope:"matched_cross_runtime_metric", statistics_status:"not_computed"};
-      if (!["compatible", "descriptive"].includes(comparison.status)) return {delta: null, percent: null, reason: comparison.status, reasons: comparison.reasons};
-      return pair(config)?.metrics[metric] || {delta:null, percent:null, ratio:null, performance_ratio:null, reason:"missing"};
+      const cross = purpose === "same-hardware" && comparison.matched_cross_runtime && recorded?.cross_runtime;
+      if (cross && recorded.metrics[metric])
+        return {...recorded.metrics[metric], scope:"matched_cross_runtime_metric", statistics_status:"not_computed"};
+      const allowed = ["compatible", "descriptive"].includes(comparison.status);
+      if ((allowed || cross) && recorded?.metric_reasons?.[metric]) return withheldMetric(recorded.metric_reasons[metric]);
+      if (!allowed) return {delta: null, percent: null, reason: comparison.status, reasons: comparison.reasons};
+      return recorded?.metrics[metric] || {delta:null, percent:null, ratio:null, performance_ratio:null, reason:"missing"};
     }
     function automaticQualification(config) {
       return purpose === "within-experiment" ? verdict(pair(config)?.policies["resource-scaling"]) ||

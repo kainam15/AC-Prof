@@ -10,7 +10,7 @@ from acprof.analysis.conditions import (
 )
 from acprof.analysis.model import AnalysisModel
 from acprof.results.metrics import ANALYSIS_METRICS
-from acprof.results.profile import common_runtime_metric, observations_comparable
+from acprof.results.profile import common_runtime_metric, observation_comparison_reason
 
 
 def resource_qualification(left: dict, right: dict) -> dict:
@@ -37,6 +37,26 @@ def resource_qualification(left: dict, right: dict) -> dict:
     return {"status": "incompatible" if reasons else "descriptive", "reasons": sorted(set(reasons)),
             "changed_resources": changes, "causal_attribution": False,
             "scope": "within_source_successful_windows; not_independent_runs"}
+
+
+def _baseline_metrics(baseline: dict, config: dict, *, cross_runtime: bool) -> dict:
+    changes, reasons = {}, {}
+    for name, metric in config["metrics"].items():
+        reference = baseline["metrics"][name]["value"]
+        if reference is None or metric["value"] is None or cross_runtime and not common_runtime_metric(name):
+            continue
+        left, right = (item.get("metric_observations", {}).get(name, []) for item in (baseline, config))
+        reason = observation_comparison_reason(left, right)
+        if cross_runtime and not reason and (
+            not left or any(obs["quality"] != "complete" for obs in (*left, *right))
+            or any(item.get("status") != "ok" or item["metrics"][name].get("missing") != 0 for item in (baseline, config))
+        ):
+            reason = "incomplete_cross_runtime_metric_evidence"
+        if reason:
+            reasons[name] = reason
+        else:
+            changes[name] = metric_change(reference, metric["value"], direction=ANALYSIS_METRICS[name].direction)
+    return {"metrics": changes, **({"metric_reasons": reasons} if reasons else {})}
 
 
 def build_baseline_comparisons(model: AnalysisModel) -> dict:
@@ -68,23 +88,10 @@ def build_baseline_comparisons(model: AnalysisModel) -> dict:
                 policies[purpose] = qualifications[key]
             comparable = resource["status"] == "descriptive" or any(
                 check["status"] == "compatible" for check in policies.values())
-            metrics = {}
             cross = policies["same-hardware"].get("matched_cross_runtime", False)
-            if comparable or cross:
-                for name, metric in config["metrics"].items():
-                    reference = baseline["metrics"][name]["value"]
-                    observations = [*baseline.get("metric_observations", {}).get(name, []),
-                                    *config.get("metric_observations", {}).get(name, [])]
-                    if cross and (not common_runtime_metric(name) or
-                                  any(not item.get("metric_observations", {}).get(name) or item.get("status") != "ok"
-                                      or item["metrics"][name].get("missing") != 0 for item in (baseline, config)) or
-                                  any(item["quality"] != "complete" for item in observations)):
-                        continue
-                    if reference is not None and metric["value"] is not None and observations_comparable(
-                        baseline.get('metric_observations', {}).get(name, []), config.get('metric_observations', {}).get(name, [])):
-                        metrics[name] = metric_change(reference, metric["value"], direction=ANALYSIS_METRICS[name].direction)
+            summaries = _baseline_metrics(baseline, config, cross_runtime=cross) if comparable or cross else {"metrics": {}}
             pairs[config["config_id"]] = {"resource": intern(resource),
                                          "policies": {name: intern(check) for name, check in policies.items()},
-                                         **({"cross_runtime": True} if cross else {}), "metrics": metrics}
+                                         **({"cross_runtime": True} if cross else {}), **summaries}
         result[baseline["config_id"]] = pairs
     return {"pairs": result, "qualifications": verdicts}

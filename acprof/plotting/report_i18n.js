@@ -69,6 +69,11 @@ window.ACProfI18n = (() => {
     "置信区间无效":"Invalid confidence interval",
     "统计分组无效":"Invalid statistics groups",
     "统计指标或 Bootstrap 参数不匹配":"Statistics metrics or Bootstrap parameters changed",
+    "指标观测口径不同或证据不完整":"Metric observation contracts differ or evidence is incomplete",
+    "仅一侧记录了指标观测口径":"Only one side recorded the metric observation contract",
+    "指标观测质量不完整":"Metric observation quality is incomplete",
+    "指标的观测口径不同":"Metric observation contracts differ",
+    "跨 Runtime 对照缺少覆盖全部正式窗口的完整观测":"Cross-runtime comparison requires complete observations for every formal window",
   };
   Object.assign(labels, reasonLabels);
   Object.assign(labels, {

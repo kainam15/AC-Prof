@@ -339,6 +339,10 @@ window.ACProfImport = (() => {
         if (!configSources.has(other) || !object(pair.policies) || !object(pair.metrics) ||
             [pair.resource, ...Object.values(pair.policies)].some(index => !count(index) || !pairs.qualifications[index])) fail("基线证据索引无效 / Invalid baseline evidence reference");
         for (const change of Object.values(pair.metrics)) if (![change.delta, change.percent, change.ratio, change.performance_ratio].every(numeric)) fail("基线差值无效 / Invalid baseline change");
+        if (Object.hasOwn(pair, "metric_reasons") && (!object(pair.metric_reasons) ||
+            Object.entries(pair.metric_reasons).some(([name, reason]) =>
+              Object.hasOwn(pair.metrics, name) || typeof reason !== "string" || !reason.trim())))
+          fail("指标比较原因无效 / Invalid metric comparison reason");
       }
     }
     for (const overview of data.overview) if (!sources.has(overview.source) || !object(overview.identity)) fail("来源元数据无效 / Invalid source metadata");

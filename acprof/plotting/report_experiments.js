@@ -1,6 +1,6 @@
 /* Render the current independent-run estimates and retained Python condition checks. */
 "use strict";
-window.ACProfExperiments = ({data, $, V, element, option, fmt, metricTitle, plot, axis, schedule, filtered, escape, color, selectConfig}) => {
+window.ACProfExperiments = ({data, $, V, element, option, fmt, metricTitle, metricComparisonReason, plot, axis, schedule, filtered, escape, color, selectConfig}) => {
 
   const sourceKey = sources => JSON.stringify(sources);
   const reasons = {
@@ -131,7 +131,8 @@ window.ACProfExperiments = ({data, $, V, element, option, fmt, metricTitle, plot
       row.tabIndex = 0; row.onkeydown = event => { if (event.key === "Enter") row.click(); };
       const cells = [`${group.left_experiment} ${group.left_cpu}c/${group.left_memory}G → ${group.experiment} ${group.cpu}c/${group.memory}G · scale ${group.input_scale}`,
         metricTitle(group.metric), fmt(group.baseline_value), fmt(group.value), fmt(group.delta), `${fmt(group.ratio)} / ${fmt(group.percent)}%`,
-        "未计算 / Not computed", "未核验 / Not verified", `${group.comparison.status} · ${group.comparison.reasons.join(", ")}`];
+        "未计算 / Not computed", "未核验 / Not verified",
+        [group.comparison.status, group.comparison.reasons.join(", "), metricComparisonReason(group)].filter(Boolean).join(" · ")];
       for (const cell of cells) row.append(element("td", cell));
       $("experiments").tBodies[0].append(row);
     }

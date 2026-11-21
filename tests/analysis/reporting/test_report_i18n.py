@@ -20,7 +20,7 @@ def _extract_report_reason_labels() -> dict[str, str]:
     match = re.search(r"const reasonLabels = \{(.*?)\};", source, re.DOTALL)
     assert match is not None, "reasonLabels definition missing from report.js"
     labels = dict(re.findall(r'([a-z0-9_]+)\s*:\s*"([^"]+)"', match.group(1)))
-    assert len(labels) == 24
+    assert len(labels) == 29
     return labels
 
 
