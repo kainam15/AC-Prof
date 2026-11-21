@@ -44,18 +44,20 @@ class RunPresenter:
             with self.app.prevent(Checkbox.Changed):
                 self.app.query_one("#rebuild-image", Checkbox).value = False
         model = pending.config.model if pending.config is not None else ""
+        model_source = pending.config.model_source if pending.config is not None else ""
         # Intended output is not evidence of a result. Keep the selected/history
         # paths until a matching run attempt has actually published artifacts.
         if pending.kind == "run":
             self.app.preflight.observed_checks.clear()
             self.app.configuration.planned_input = None
             self.app.configuration.planned_input_identity = None
-            self.app.configuration.remember_last_used(model=model)
+            self.app.configuration.remember_last_used(model=model, model_source=model_source)
             self.app.results.invalidate_reads()
             self.app.profiles.reset_overview()
             self.app.results.show_overview_hint("本次尚未产生结果；历史结果可通过原路径查看。")
         else:
-            self.app.configuration.remember_last_used(model=model, result_dir=pending.result_dir, result_csv=pending.result_csv)
+            self.app.configuration.remember_last_used(model=model, model_source=model_source,
+                                                      result_dir=pending.result_dir, result_csv=pending.result_csv)
         self.app.execution.begin(pending)
         if pending.kind in {"stats", "compare"}:
             self.app.results.begin_analysis(pending)

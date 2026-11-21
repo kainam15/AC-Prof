@@ -376,18 +376,22 @@ class TestTuiModelMemory:
                 ui=UiPreferences(theme="acprof-light"),
                 run_defaults=replace(RunConfig.smoke("demo/saved"), cpus="1,3"),
                 last_model="demo/previous",
+                last_model_source="huggingface",
                 last_result_dir=str(self.temporary / "previous"),
                 last_result_csv=str(self.temporary / "previous" / "custom.csv"),
             )
             yield
 
-    @pytest.mark.parametrize('kind', ['run', 'probe'])
-    async def test_confirmed_run_and_probe_restore_model_without_saving_other_edits(self, kind, monkeypatch):
+    @pytest.mark.parametrize(('kind', 'saved_source', 'recent_source'), [
+        ('run', 'huggingface', 'modelscope'), ('probe', 'modelscope', 'huggingface'),
+    ])
+    async def test_confirmed_run_and_probe_restore_model_without_saving_other_edits(self, kind, saved_source, recent_source, monkeypatch):
+        model = f"demo/latest-{kind}"
+        self.saved = replace(self.saved, run_defaults=replace(
+            self.saved.run_defaults, model=model, model_source=saved_source, revision="a" * 40, tasks="summarization"))
         save_settings(self.settings_path, self.saved, PROJECT_DIR)
         app = AcprofTui(settings_path=self.settings_path)
-        model = f"demo/latest-{kind}"
         before_launch = replace(self.saved, ui=replace(self.saved.ui, theme="acprof-dark"))
-        expected = replace(before_launch, last_model=model)
         async with app.run_test(size=(120, 30)) as pilot:
             checked = asyncio.Event()
             show_result = app.preflight.show_quick_check
@@ -399,6 +403,7 @@ class TestTuiModelMemory:
 
             monkeypatch.setattr(app.preflight, "show_quick_check", record_check)
             app.query_one("#model", Input).value = f"  {model}  "
+            app.query_one("#model-source", Select).value = recent_source
             app.query_one("#cpus", Input).value = "2"
             app.query_one("#ui-theme", Select).value = "acprof-dark"
             await asyncio.wait_for(checked.wait(), timeout=5)
@@ -409,7 +414,10 @@ class TestTuiModelMemory:
 
             def check_persisted_before_launch(command, launched_kind, *, config):
                 assert (launched_kind) == (kind)
-                assert (load_settings(self.settings_path, PROJECT_DIR)) == ((expected, ""))
+                assert config.model_source == recent_source
+                saved, warning = load_settings(self.settings_path, PROJECT_DIR)
+                assert not warning
+                assert saved == replace(before_launch, last_model=model, last_model_source=recent_source)
 
             with patch.object(
                 app.process, 'execute_command', side_effect=check_persisted_before_launch,
@@ -425,11 +433,14 @@ class TestTuiModelMemory:
         async with restarted.run_test(size=(120, 30)) as pilot:
             await pilot.pause(0.12)
             assert (restarted.query_one("#model", Input).value) == (model)
+            assert restarted.query_one("#model-source", Select).value == recent_source
+            assert restarted.query_one("#revision", Input).value == ""
+            assert restarted.query_one("#tasks", Input).value == ""
             assert (restarted.query_one("#cpus", Input).value) == ("1,3")
             assert (restarted.theme) == ("acprof-dark")
-            assert (restarted.configuration.saved_settings.last_result_dir) == (expected.last_result_dir)
+            assert (restarted.configuration.saved_settings.last_result_dir) == (before_launch.last_result_dir)
             assert (restarted.query_one("#experiment-source", Input).value) == ("")
-            assert (restarted.configuration.saved_settings.last_result_csv) == (expected.last_result_csv)
+            assert (restarted.configuration.saved_settings.last_result_csv) == (before_launch.last_result_csv)
 
     async def test_draft_preview_and_cancel_do_not_replace_last_model(self):
         save_settings(self.settings_path, self.saved, PROJECT_DIR)
@@ -466,7 +477,7 @@ class TestTuiModelMemory:
             assert not (app.is_busy())
         saved, warning = load_settings(self.settings_path, PROJECT_DIR)
         assert (warning) == ("")
-        assert (saved) == (TuiSettings(last_model="demo/first"))
+        assert (saved) == (TuiSettings(last_model="demo/first", last_model_source="huggingface"))
         assert (AcprofTui(settings_path=self.settings_path).configuration.initial_config) == (replace(RunConfig.smoke("demo/first"), runtime="docker"))
 
     @pytest.mark.parametrize('corrupt', [False, True])
@@ -505,6 +516,7 @@ class TestTuiModelMemory:
         saved, warning = load_settings(self.settings_path, PROJECT_DIR)
         assert (warning) == ("")
         assert (saved.last_model) == ("demo/previous")
+        assert saved.last_model_source == self.saved.last_model_source
         assert (saved.last_result_dir) == (self.saved.last_result_dir)
         assert (saved.last_result_csv) == (self.saved.last_result_csv)
         expected_run = replace(config, runtime="docker") if remember_run else self.saved.run_defaults
@@ -730,3 +742,25 @@ class TestTuiMainSettings:
         assert (app.configuration.initial_config) == (replace(expected, runtime="docker"))
         assert (app.configuration.preferences.theme) == ("acprof-light")
         assert (self.settings_path.read_bytes()) == (original)
+
+    @pytest.mark.parametrize(("recent", "recent_source", "argv", "expected_model", "expected_source", "keep_pin"), [
+        ("demo/saved", "", [], "demo/saved", "modelscope", True),
+        ("demo/saved", "huggingface", [], "demo/saved", "huggingface", False),
+        ("demo/saved", "huggingface", ["--model-source", "modelscope"], "demo/saved", "modelscope", True),
+        ("demo/other", "huggingface", ["--model", "demo/saved", "--model-source", "modelscope"],
+         "demo/saved", "modelscope", True),
+        ("demo/saved", "modelscope", ["--model", "demo/new"], "demo/new", "modelscope", False),
+    ])
+    def test_cli_resolves_identity_before_restoring_saved_workload(self, recent, recent_source, argv,
+                                                                   expected_model, expected_source, keep_pin):
+        defaults = replace(self.saved_config, model_source="modelscope", revision="a" * 40, tasks="summarization")
+        save_settings(self.settings_path, TuiSettings(run_defaults=defaults, last_model=recent,
+                                                     last_model_source=recent_source), PROJECT_DIR)
+        original = self.settings_path.read_bytes()
+        with patch("acprof.tui.app.AcprofTui.run", autospec=True) as run:
+            main(argv)
+        config = run.call_args.args[0].configuration.initial_config
+        assert (config.model, config.model_source) == (expected_model, expected_source)
+        assert config.revision == (defaults.revision if keep_pin else "")
+        assert config.tasks == (defaults.tasks if keep_pin else "")
+        assert self.settings_path.read_bytes() == original

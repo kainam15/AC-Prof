@@ -33,6 +33,16 @@ class TestTuiSettings:
         assert settings.ui.language == 'en'
         assert not settings.ui.show_command_bar
         assert settings.last_model == 'demo/model'
+        assert settings.last_model_source == ''
+        assert self.path.read_bytes() == original
+
+    @pytest.mark.parametrize("source", [None, False, "other-hub"])
+    def test_invalid_recent_source_preserves_settings_with_a_warning(self, source):
+        self.write_payload({"version": SETTINGS_VERSION, "last_model": "demo/model", "last_model_source": source})
+        original = self.path.read_bytes()
+        settings, warning = load_settings(self.path, self.project)
+        assert warning
+        assert settings == TuiSettings()
         assert self.path.read_bytes() == original
 
     def test_custom_log_export_directory_round_trips(self):

@@ -9,14 +9,17 @@ from dataclasses import replace
 
 
 def _build_parser() -> argparse.ArgumentParser:
+    from acprof.hub.repository import MODEL_SOURCES
+
     parser = argparse.ArgumentParser(
         description="AC-Prof interactive terminal interface",
     )
     parser.add_argument(
         "--model",
         default=None,
-        help="Pre-fill the Hugging Face model ID (overrides the last run model)",
+        help="Pre-fill the repository ID for the selected model source",
     )
+    parser.add_argument("--model-source", choices=MODEL_SOURCES, help="Pre-fill the model source")
     parser.add_argument(
         "--preset",
         choices=("smoke", "main"),
@@ -54,9 +57,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         app = AcprofTui(color_system=args.color_system)
     except ValueError as exc:
         parser.error(str(exc))
-    config = app.configuration.initial_config
-    model = config.model if args.model is None else args.model
-    config = replace(config, model=model, revision=config.revision if model == config.model else "")
+    config = app.configuration.startup_config(model=args.model, model_source=args.model_source)
     if args.preset:
         try:
             config = config.with_preset(args.preset)

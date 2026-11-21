@@ -16,6 +16,7 @@ from typing import Any, TextIO, get_type_hints
 
 from acprof.artifacts import atomic_write, read_json_object
 from acprof.experiments.configuration import RunConfig
+from acprof.hub.repository import MODEL_SOURCES
 from acprof.tui.i18n import UI_LANGUAGES, error_message, message_id
 from acprof.tui.ui.themes import UI_THEMES
 
@@ -55,6 +56,7 @@ class TuiSettings:
     last_result_csv: str = ""
     last_html_report: str = ""
     last_log_export_dir: str = ""
+    last_model_source: str = ""
 
     def validate(self, *, project_dir: Path) -> TuiSettings:
         if not isinstance(self.ui, UiPreferences):
@@ -62,6 +64,8 @@ class TuiSettings:
         ui = self.ui.validate()
         if type(self.last_model) is not str:
             raise ValueError(message_id('validation.settings.model_id_type'))
+        if self.last_model_source not in ("", *MODEL_SOURCES):
+            raise ValueError(message_id('validation.model_source.invalid'))
         if type(self.last_result_dir) is not str or type(self.last_result_csv) is not str:
             raise ValueError(message_id('validation.settings.result_path_type'))
         if type(self.last_html_report) is not str:
@@ -154,6 +158,7 @@ def _decode_settings(payload: Any, project_dir: Path) -> TuiSettings:
     # Ignore unknown top-level keys; only recognized fields can be saved again.
     return TuiSettings(
         ui=ui, run_defaults=defaults, last_model=payload.get("last_model", ""),
+        last_model_source=payload.get("last_model_source", ""),
         last_result_dir=payload.get("last_result_dir", ""),
         last_result_csv=payload.get("last_result_csv", ""),
         last_html_report=payload.get("last_html_report", ""),
@@ -192,6 +197,7 @@ def save_settings(path: Path, settings: TuiSettings, project_dir: Path) -> None:
         "version": SETTINGS_VERSION,
         "ui": asdict(normalized.ui),
         "last_model": normalized.last_model,
+        **({"last_model_source": normalized.last_model_source} if normalized.last_model_source else {}),
         "last_result_dir": normalized.last_result_dir,
         "last_result_csv": normalized.last_result_csv,
         "last_html_report": normalized.last_html_report,

@@ -54,11 +54,8 @@ class ConfigurationController:
         self.settings_path = settings_path or default_settings_path(app.project_dir)
         self.saved_settings, self.settings_warning = load_settings(self.settings_path, app.project_dir)
         self.preferences = self.saved_settings.ui
-        config = self.saved_settings.run_defaults or RunConfig.smoke()
-        if self.saved_settings.last_model and config.model != self.saved_settings.last_model:
-            config = replace(config, model=self.saved_settings.last_model,
-                             revision="", tasks="" if config.model else config.tasks)
-        self.initial_config = run_form.runtime_form_config(initial_config if initial_config is not None else config)
+        self.initial_config = (run_form.runtime_form_config(initial_config)
+                               if initial_config is not None else self.startup_config())
         self.recovery_policy = self.initial_config.profiling_mode if self.initial_config.resume else "best_effort"
         self.extra_options = dict(self.initial_config.extra_options)
         self.planned_input: dict | None = None
@@ -71,6 +68,17 @@ class ConfigurationController:
         self._explicit_error_signature: tuple[object, ...] | None = None
         self.applying_config = False
         self.preview_timer: Timer | None = None
+
+    def startup_config(self, *, model: str | None = None, model_source: str | None = None) -> RunConfig:
+        """Resolve the final repository before reusing model-bound defaults."""
+        saved = self.saved_settings
+        config = saved.run_defaults or RunConfig.smoke()
+        model = model if model is not None else saved.last_model or config.model
+        source = model_source or (saved.last_model_source if saved.last_model else "") or config.model_source
+        if (model, source) != (config.model, config.model_source):
+            config = replace(config, model=model, model_source=source, revision="",
+                             tasks="" if config.model else config.tasks)
+        return run_form.runtime_form_config(config)
 
     def use_process_inherited_resources(self) -> None:
         if self.app.is_busy() or self.app.preflight.check_running or self.app.execution.session.snapshot.measurement_active:
@@ -597,27 +605,23 @@ class ConfigurationController:
         self.app.localization.set_text(self.app.query_one("#input-scales", Input), placeholder, "placeholder")
 
     def remember_last_used(
-        self, *, model: str = "", result_dir: str = "", result_csv: str = "", html_report: str = "",
-        log_export_dir: str = "",
+        self, *, model: str = "", model_source: str = "", result_dir: str = "", result_csv: str = "",
+        html_report: str = "", log_export_dir: str = "",
     ) -> None:
         """Remember confirmed inputs, preserving explicitly saved preferences."""
-        updates = {}
-        if model.strip():
-            updates["last_model"] = model.strip()
-        if result_dir:
-            updates["last_result_dir"] = result_dir
+        model = model.strip()
         if result_csv:
             from acprof.tui.commands import resolve_result_path
             from acprof.tui.results.overview import selection_path
             result_csv = str(selection_path(resolve_result_path(result_csv, self.app.project_dir)))
             if self.input("experiment-source") != result_csv:
                 self.app.results.select_result(result_csv, load=False)
-            updates["last_result_csv"] = result_csv
         settings = replace(
             self.saved_settings,
-            last_model=updates.get("last_model", self.saved_settings.last_model),
-            last_result_dir=updates.get("last_result_dir", self.saved_settings.last_result_dir),
-            last_result_csv=updates.get("last_result_csv", self.saved_settings.last_result_csv),
+            last_model=model or self.saved_settings.last_model,
+            last_model_source=model_source if model else self.saved_settings.last_model_source,
+            last_result_dir=result_dir or self.saved_settings.last_result_dir,
+            last_result_csv=result_csv or self.saved_settings.last_result_csv,
             last_html_report=html_report or self.saved_settings.last_html_report,
             last_log_export_dir=log_export_dir or self.saved_settings.last_log_export_dir,
         )
