@@ -7,14 +7,14 @@ import json
 import subprocess
 import sys
 import time
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
 from acprof.artifacts import atomic_write_json, read_input_scale_plan
-from acprof.cli.load_evidence import load_phase, publish_load_report
+from acprof.cli.load_evidence import load_phase, publish_load_report, reserve_load_output
 from acprof.experiments.load import LoadConfig
 from acprof.host.detect import TaskInfo
 from acprof.host.env_utils import bootstrap_project_env
@@ -143,15 +143,19 @@ def main(argv=None):
     parser.add_argument("--warmup", type=int, default=5)
     parser.add_argument("--capture", action="store_true", help="Source replay: save and validate PCAP; reuse enables capture")
     parser.add_argument("--output-dir", type=Path, required=True)
-    from acprof.cli.streaming_load import (
-        add_streaming_arguments,
-        run_streaming_load,
-        validate_replay_arguments,
-    )
+    from acprof.cli.streaming_load import add_streaming_arguments, run_streaming_load
+
     add_streaming_arguments(parser)
     args = parser.parse_args(argv)
-    if args.base_url is not None:
-        return run_streaming_load(args, parser)
+    with ExitStack() as output_scope:
+        if args.base_url is not None:
+            return run_streaming_load(args, parser, output_scope)
+        return _run_replay(args, parser, output_scope)
+
+
+def _run_replay(args: argparse.Namespace, parser: argparse.ArgumentParser, output_scope: ExitStack) -> int:
+    from acprof.cli.streaming_load import validate_replay_arguments
+
     try:
         validate_replay_arguments(args)
         bootstrap_project_env(Path.cwd())
@@ -184,9 +188,7 @@ def main(argv=None):
         if not isinstance(runtime_id, str) or not runtime_id:
             raise ValueError("source runtime identity is missing")
         output = args.output_dir.resolve()
-        output.mkdir(parents=True, exist_ok=True)
-        if any(output.iterdir()):
-            raise ValueError("load output directory must be empty")
+        output_scope.enter_context(reserve_load_output(output))
     except (OSError, KeyError, TypeError, ValueError) as error:
         parser.error(str(error))
     capture = args.capture or args.connections == "reuse"

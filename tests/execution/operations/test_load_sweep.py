@@ -1,14 +1,13 @@
 """Endpoint sweeps reuse single-point measurements with ordered, durable progress."""
 import json
-import os
 from contextlib import contextmanager
 from dataclasses import asdict
-from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 from acprof.cli import load as load_cli
+from tests.support.storage_faults import fail_publication
 
 
 @pytest.fixture(name="sweep")
@@ -251,23 +250,14 @@ def test_dry_run_requires_an_explicit_sweep(sweep, capsys):
 
 @pytest.mark.parametrize("cancelled", [False, True])
 def test_manifest_publication_failure_stops_new_points_and_preserves_primary(sweep, monkeypatch, cancelled):
-    original_replace = os.replace
-    writes = []
     publication = PermissionError("fixture sweep publication denied")
     cancellation = KeyboardInterrupt("fixture point cancelled")
     if cancelled:
         setattr(cancellation, "load_report", {"successful": False, "success_rate": 0, "requests": []})
         sweep.effects = [{"successful": True, "success_rate": 1, "requests": []}, cancellation]
 
-    def replace(source, destination):
-        if Path(destination) == sweep.output / "sweep.json":
-            writes.append(destination)
-            # Initial, first start, first complete, second start, cancelled terminal.
-            if len(writes) >= (5 if cancelled else 1):
-                raise publication
-        original_replace(source, destination)
-
-    monkeypatch.setattr("acprof.artifacts.os.replace", replace)
+    # Initial, first start, first complete, second start, cancelled terminal.
+    fail_publication(monkeypatch, sweep.output / "sweep.json", publication, attempt=5 if cancelled else 1, repeat=True)
     expected = cancellation if cancelled else publication
     with pytest.raises(type(expected)) as caught:
         load_cli.main([*sweep.argv, "--warmup", "0", "--sweep-concurrency", "1,2,3"])
@@ -323,18 +313,9 @@ def test_real_local_http_sweep_retains_readable_single_point_reports(tmp_path, m
 
 
 def test_progress_publication_failure_retains_finished_point_and_stops_next(sweep, monkeypatch):
-    original_replace = os.replace
-    writes = []
     publication = PermissionError("fixture progress publication denied")
 
-    def replace(source, destination):
-        if Path(destination) == sweep.output / "sweep.json":
-            writes.append(destination)
-            if len(writes) == 3:  # Initial, first start, first complete.
-                raise publication
-        original_replace(source, destination)
-
-    monkeypatch.setattr("acprof.artifacts.os.replace", replace)
+    fail_publication(monkeypatch, sweep.output / "sweep.json", publication, attempt=3)
     with pytest.raises(PermissionError, match="progress publication denied") as caught:
         load_cli.main([*sweep.argv, "--warmup", "0"])
     assert caught.value is publication

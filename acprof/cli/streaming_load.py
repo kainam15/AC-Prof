@@ -8,7 +8,7 @@ import math
 import os
 import re
 from collections.abc import Callable
-from contextlib import AbstractContextManager, nullcontext
+from contextlib import AbstractContextManager, ExitStack, nullcontext
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
@@ -18,7 +18,7 @@ from uuid import uuid4
 from acprof.analysis.server_metrics import METRICS_BY_EXPORTER, metrics_declaration
 from acprof.analysis.streaming_capacity import normalize_slo_thresholds
 from acprof.artifacts import read_json_object
-from acprof.cli.load_evidence import load_phase, publish_load_report
+from acprof.cli.load_evidence import load_phase, publish_load_report, reserve_load_output
 from acprof.experiments.load import LoadConfig
 from acprof.experiments.streaming import request_digest, validate_request_credentials
 from acprof.host.measurement.load import run_load
@@ -342,7 +342,7 @@ def run_prepared_streaming_load(
     return report
 
 
-def run_streaming_load(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
+def run_streaming_load(args: argparse.Namespace, parser: argparse.ArgumentParser, output_scope: ExitStack) -> int:
     """Run one point or a validated sequential sweep without managing a server."""
     from acprof.cli.load_sweep import load_configurations, run_load_sweep
 
@@ -354,9 +354,7 @@ def run_streaming_load(args: argparse.Namespace, parser: argparse.ArgumentParser
         prepared = _prepare(args)
         output = args.output_dir.resolve()
         if not args.dry_run:
-            output.mkdir(parents=True, exist_ok=True)
-            if any(output.iterdir()):
-                raise ValueError("load output directory must be empty")
+            output_scope.enter_context(reserve_load_output(output))
     except (OSError, KeyError, TypeError, ValueError) as error:
         parser.error(str(error))
     if args.dry_run:

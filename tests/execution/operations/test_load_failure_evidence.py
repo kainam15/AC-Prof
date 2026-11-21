@@ -1,8 +1,6 @@
 """Phase evidence must survive later cleanup and publication failures."""
 import json
-import os
 from contextlib import contextmanager
-from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -12,6 +10,7 @@ from acprof.cli import load as load_cli
 from acprof.host.runtimes.contracts import RuntimeCleanupError
 from tests.execution.operations import test_streaming_cli
 from tests.execution.operations.test_process_load_replay import replay_environment
+from tests.support.storage_faults import fail_publication
 
 endpoint_environment = test_streaming_cli.endpoint_cli
 
@@ -30,6 +29,52 @@ def load_invocation(request, tmp_path, monkeypatch):
     run = Mock()
     monkeypatch.setattr(module + ".run_load", run)
     return SimpleNamespace(argv=argv, output=output, run=run, replay=replay, module=module)
+
+
+@pytest.mark.parametrize("sweep_contender", [False, True])
+def test_same_output_is_reserved_before_first_report(invocation, monkeypatch, capsys, sweep_contender):
+    output = invocation.output
+    output.mkdir()  # Existing empty directories are supported.
+    contender = ["--base-url", "http://127.0.0.1:8999", "--protocol", "openai-chat",
+                 "--model", "other", "--prompt", "second", "--requests", "1", "--warmup", "0",
+                 "--output-dir", str(output)]
+    if sweep_contender:
+        contender.extend(["--scenario", "concurrent", "--sweep-concurrency", "1"])
+    monkeypatch.setattr("acprof.cli.streaming_load.run_load", invocation.run)
+    invocation.run.return_value = {"successful": True, "success_rate": 1, "requests": []}
+
+    def race(_root):
+        # Both invocations would otherwise see the same still-empty directory.
+        monkeypatch.setattr("acprof.cli.streaming_load.host_identity", lambda _root: {})
+        with pytest.raises(SystemExit) as refused:
+            load_cli.main(contender)
+        assert refused.value.code == 2
+        assert "output directory" in capsys.readouterr().err
+        assert not list(output.iterdir())
+        invocation.run.assert_not_called()
+        return {"hostname": "first"}
+
+    monkeypatch.setattr(invocation.module + ".host_identity", race)
+    assert load_cli.main([*invocation.argv, "--warmup", "0"]) == 0
+    report = json.loads((output / "load.json").read_bytes())
+    assert report["host"] == {"hostname": "first"}
+    assert report["status"] == "complete"
+    assert not (output / "sweep.json").exists()
+    invocation.run.assert_called_once()
+
+
+def test_report_created_after_reservation_is_preserved(invocation, monkeypatch):
+    path = invocation.output / "load.json"
+
+    def late_writer(_root):
+        path.write_bytes(b"previously published evidence")
+        return {}
+
+    monkeypatch.setattr(invocation.module + ".host_identity", late_writer)
+    with pytest.raises(FileExistsError):
+        load_cli.main(invocation.argv)
+    assert path.read_bytes() == b"previously published evidence"
+    invocation.run.assert_not_called()
 
 
 def phase_failure(invocation, phase, error_type):
@@ -140,18 +185,8 @@ def test_success_keeps_warmup_separate_without_failure_diagnostics(invocation):
 
 
 def fail_report_publication(invocation, monkeypatch, *, attempt, error_type: type[BaseException] = PermissionError):
-    real_replace = os.replace
-    calls = []
     failure = error_type("fixture report publication denied")
-
-    def replace(source, destination):
-        if Path(destination) == invocation.output / "load.json":
-            calls.append(Path(destination))
-            if len(calls) == attempt:
-                raise failure
-        real_replace(source, destination)
-
-    monkeypatch.setattr("acprof.artifacts.os.replace", replace)
+    calls = fail_publication(monkeypatch, invocation.output / "load.json", failure, attempt=attempt)
     return failure, calls
 
 
