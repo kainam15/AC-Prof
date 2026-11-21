@@ -85,6 +85,7 @@ class CasePlans:
     compute_profile_plan_file: str | None = None
     execution_profile_plan_file: str | None = None
     input_scale_order: list[float] | None = None
+    input_scale_plan_sha256: str = ""
 
 
 @dataclass(frozen=True)
@@ -120,5 +121,6 @@ class MatrixRequest:
             cpuset_cpus=self.cpuset_cpus,
         )
 
-    def case_plans(self, input_scale_order: list[float]) -> CasePlans:
-        return replace(self.plans, input_scale_order=list(input_scale_order))
+    def case_plans(self, input_scale_order: list[float], *, input_plan_sha256: str = "") -> CasePlans:
+        return replace(self.plans, input_scale_order=list(input_scale_order),
+                       input_scale_plan_sha256=input_plan_sha256 or self.plans.input_scale_plan_sha256)

@@ -277,7 +277,9 @@ class ClientRunner:
     def _load_input_scale_entries(self) -> list[dict[str, Any]]:
         if self.config.input_scale_plan_file:
             from acprof.artifacts import read_input_scale_plan
-            plan = read_input_scale_plan(self.config.input_scale_plan_file)
+            plan = read_input_scale_plan(
+                self.config.input_scale_plan_file, expected_sha256=self.config.input_scale_plan_sha256 or None,
+            )
 
             loaded_entries: list[dict[str, Any]] = []
             for idx, entry in enumerate(plan["entries"]):
@@ -318,7 +320,12 @@ class ClientRunner:
             read_static_metadata(ArtifactLayout.from_csv(self.config.out_csv).root)
         )
         if not self.input_scale_entries:
-            self.input_scale_entries = self._load_input_scale_entries()
+            from acprof.failures import Failure, RuntimeFailure
+            try:
+                self.input_scale_entries = self._load_input_scale_entries()
+            except (OSError, ValueError) as exc:
+                raise RuntimeFailure(Failure("input_plan", "recorded_evidence_invalid", str(exc),
+                                             exception_type=type(exc).__name__)) from exc
         self.first_predict_app_s = float("nan")
 
         if self.config.runtime_kind == "docker" and self.config.profiling_mode == "basic" and self.resource_usage_mod is None:

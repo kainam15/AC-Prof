@@ -283,6 +283,7 @@ class RunApplication:
                     plans=CasePlans(
                         input_scales=serialize_input_scales(prepared.planned_input_scales.scales),
                         input_scale_plan_file=prepared.planned_input_scales.plan_file,
+                        input_scale_plan_sha256=prepared.planned_input_scales.plan_sha256,
                         compute_profile_plan_file=prepared.compute_profile_plan_file,
                         execution_profile_plan_file=prepared.execution_profile_plan_file,
                     ),

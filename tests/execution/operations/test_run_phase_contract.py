@@ -12,6 +12,7 @@ from acprof.application import publication, run
 from acprof.application.errors import CollectionFailed
 from acprof.application.notifications import RunNotifications
 from acprof.application.preparation import PreparedRuntime
+from acprof.artifacts import file_sha256
 from acprof.capabilities import CapabilityReport
 from acprof.config import CSV_FIELDS
 from acprof.experiments.configuration import RunConfig
@@ -93,7 +94,9 @@ def phases(tmp_path, monkeypatch, request):
             fixture.rebuilds -= 1
             raise RebuildEnvironment()
         image = ImageInfo("sha256:" + "b" * 64)
-        planned = PlannedInputScales([1.0], "fixture")
+        path = run_state.layout.path("input_scale_plan.json")
+        path.write_text(json.dumps({"schema_version": 2, "entries": [{"input_scale": 1, "payload": {}}]}))
+        planned = PlannedInputScales([1.0], "fixture", str(path), plan_sha256=file_sha256(path))
         run_state.layout.path("static_meta.json").write_text(json.dumps({
             **Environment("native_linux", "Linux", "fixture-kernel").metadata(),
             "cgroup_version": "v2", "runtime_kind": "docker",
@@ -118,6 +121,7 @@ def phases(tmp_path, monkeypatch, request):
 
     def collect(matrix):
         visit("collect")
+        assert matrix.plans.input_scale_plan_sha256 == file_sha256(matrix.plans.input_scale_plan_file)
         return orchestrator.run_matrix(matrix)
 
     def reports(layout):

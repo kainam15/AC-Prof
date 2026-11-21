@@ -322,7 +322,8 @@ print(json.dumps(asdict(ClientConfig.from_env())))
                     require_packet_latency=False,
                 ),
                 plans=cases.CasePlans(
-                    input_scales='64',
+                    input_scales='64', input_scale_plan_file='fixture-plan.json',
+                    input_scale_plan_sha256='a' * 64,
                 ),
             )
 
@@ -334,6 +335,7 @@ print(json.dumps(asdict(ClientConfig.from_env())))
         assert (captured_env["COLD_START_READY_WAIT_S"]) == ("0.1")
         assert ("ACPROF_WECOM_WEBHOOK_URL") not in (captured_env)
         assert child_config["container_name"] == captured_env["CONTAINER_NAME"]
+        assert child_config["input_scale_plan_sha256"] == "a" * 64
         assert child_config["auto_warmup_requests"] == 17
         assert child_config["idle_debug_trace_interval_s"] == 0.375
         assert child_config["sniff_groups_path"] == "fixture-groups.json"

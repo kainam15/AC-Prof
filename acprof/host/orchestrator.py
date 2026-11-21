@@ -387,6 +387,7 @@ class _CaseExecution:
             client_error_path=str(self.case.sidecar("client_error")),
             input_scales_str=scales,
             input_scale_plan_file=plans.input_scale_plan_file or "",
+            input_scale_plan_sha256=plans.input_scale_plan_sha256,
             compute_profile_plan_file=plans.compute_profile_plan_file or "",
             execution_profile_plan_file=plans.execution_profile_plan_file or "",
             input_scale_order=(
@@ -674,7 +675,8 @@ def run_matrix(request: cases.MatrixRequest) -> list[str]:
     identity = matrix_identity(
         task_info, image_info, cpu_list, mem_list, gpu_list, scales,
         order=request.matrix_order, seed=request.matrix_seed, prune=prune_startup_oom,
-        input_plan_file=request.plans.input_scale_plan_file, cpuset_cpus=cpuset_cpus,
+        input_plan_file=request.plans.input_scale_plan_file, input_plan_sha256=request.plans.input_scale_plan_sha256,
+        cpuset_cpus=cpuset_cpus,
     )
     layout = ArtifactLayout.discover(request.output_dir)
     plan_path = layout.path(MATRIX_PLAN_NAME)
@@ -731,7 +733,7 @@ def run_matrix(request: cases.MatrixRequest) -> list[str]:
                 request.case_request(cpu, mem, gpu),
                 workload=workload,
                 measurement=measurement,
-                plans=request.case_plans(case["input_scales"]),
+                plans=request.case_plans(case["input_scales"], input_plan_sha256=identity["input_plan_sha256"]),
                 run_state=run_state,
             )
         if run_state is not None and csv_path and not cached_case:

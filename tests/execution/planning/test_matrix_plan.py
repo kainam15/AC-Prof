@@ -1,3 +1,4 @@
+import hashlib
 import json
 import tempfile
 from dataclasses import replace
@@ -49,6 +50,64 @@ class TestMatrixPlan:
             assert ([(c['cpu_cores'], c['mem_cap_gb']) for c in plan['cases']]) == ([(c.args[0].cpu, c.args[0].mem) for c in case.call_args_list])
             for item, call in zip(plan['cases'], case.call_args_list, strict=True):
                 assert (item['input_scales']) == (call.kwargs['plans'].input_scale_order)
+
+    @pytest.mark.parametrize("recorded", [True, False])
+    def test_each_case_receives_digest_of_validated_plan_bytes(self, tmp_path, recorded):
+        path = tmp_path / "input_scale_plan.json"
+        path.write_bytes(json.dumps({"schema_version": 2, "entries": [
+            {"input_scale": value, "payload": {"text": "original"}} for value in (16, 32)
+        ]}, indent=2).encode("utf-8-sig"))
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        options = {"input_scale_plan_sha256": digest} if recorded else {}
+        plans = CasePlans(input_scales="32,16", input_scale_plan_file=str(path), **options)
+        with patch.object(orchestrator, "run_single_case", return_value="") as case:
+            self.run_matrix(tmp_path, plans=plans)
+        identity = json.loads((tmp_path / "matrix_plan.json").read_text())["identity"]
+        assert identity["input_plan_sha256"] == digest
+        assert identity["input_scales"] == [16, 32]
+        assert case.call_count == 9
+        assert all(call.kwargs["plans"].input_scale_plan_sha256 == digest for call in case.call_args_list)
+
+    @pytest.mark.parametrize(("change", "error"), [
+        ("payload", "SHA256"), ("scales", "scale.*match"), ("no_file", "plan file"), ("oversize", "read limit"),
+    ])
+    def test_invalid_input_plan_stops_before_probes_and_matrix_freeze(self, tmp_path, monkeypatch, change, error):
+        path = tmp_path / "input_scale_plan.json"
+        plan = {"schema_version": 2, "entries": [{"input_scale": 16, "payload": {"text": "original"}}]}
+        path.write_text(json.dumps(plan))
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        options = {} if change == "scales" else {"input_scale_plan_sha256": digest}
+        if change == "payload":
+            plan["entries"][0]["payload"]["text"] = "different"
+            path.write_text(json.dumps(plan))
+        if change == "oversize":
+            monkeypatch.setattr("acprof.artifacts.MAX_JSON_ARTIFACT_BYTES", len(path.read_bytes()) - 1)
+        plans = CasePlans(input_scales="32" if change == "scales" else "16",
+                          input_scale_plan_file=None if change == "no_file" else str(path), **options)
+        with patch("acprof.host.startup_probe.run_startup_probes") as probe, \
+             patch.object(orchestrator, "run_single_case") as case:
+            with pytest.raises(ValueError, match=error):
+                self.run_matrix(tmp_path, plans=plans, prune_startup_oom=True)
+        probe.assert_not_called()
+        case.assert_not_called()
+        assert not (tmp_path / "matrix_plan.json").exists()
+
+    def test_changed_legacy_input_plan_cannot_replace_frozen_matrix(self, tmp_path):
+        path = tmp_path / "input_scale_plan.json"
+        plan = {"schema_version": 2, "entries": [{"input_scale": 16, "payload": {"text": "original"}}]}
+        path.write_text(json.dumps(plan))
+        plans = CasePlans(input_scales="16", input_scale_plan_file=str(path))
+        with patch.object(orchestrator, "run_single_case", return_value="") as case:
+            self.run_matrix(tmp_path, plans=plans)
+            frozen = tmp_path / "matrix_plan.json"
+            original = frozen.read_bytes()
+            plan["entries"][0]["payload"]["text"] = "different"
+            path.write_text(json.dumps(plan))
+            case.reset_mock()
+            with pytest.raises(ValueError, match="matrix plan identity"):
+                self.run_matrix(tmp_path, plans=plans)
+            case.assert_not_called()
+            assert frozen.read_bytes() == original
 
     def test_same_seed_produces_byte_identical_plan(self):
         with tempfile.TemporaryDirectory() as tmp, patch.object(

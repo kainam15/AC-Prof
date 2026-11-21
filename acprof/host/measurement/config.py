@@ -116,6 +116,7 @@ CLIENT_ENV_FIELDS: Mapping[str, ClientEnvField] = MappingProxyType({
     "gpu_device_uuid": ClientEnvField("GPU_DEVICE_UUID"),
     "idle_cooldown_seconds": ClientEnvField("IDLE_COOLDOWN_SECONDS", float, str),
     "input_scales_str": ClientEnvField("INPUT_SCALES"),
+    "input_scale_plan_sha256": ClientEnvField("INPUT_SCALE_PLAN_SHA256", str.strip),
     "input_scale_plan_file": ClientEnvField("INPUT_SCALE_PLAN_FILE", str.strip),
     "compute_profile_plan_file": ClientEnvField("COMPUTE_PROFILE_PLAN_FILE", str.strip),
     "execution_profile_plan_file": ClientEnvField("EXECUTION_PROFILE_PLAN_FILE", str.strip),
@@ -199,6 +200,7 @@ class ClientConfig:
     compute_profile_plan_file: str = ''
     execution_profile_plan_file: str = ''
     input_scale_order: list[float] | None = None
+    input_scale_plan_sha256: str = ''
 
     def collecting(self, name: str) -> bool:
         from acprof.capabilities import collector_enabled

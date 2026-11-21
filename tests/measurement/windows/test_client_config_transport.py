@@ -69,6 +69,7 @@ CONTRACT = {
     "idle_cooldown_seconds": ("IDLE_COOLDOWN_SECONDS", 2.125, "2.125"),
     "input_scales_str": ("INPUT_SCALES", "1,3.5", "1,3.5"),
     "input_scale_plan_file": ("INPUT_SCALE_PLAN_FILE", "fixture inputs.json", "fixture inputs.json"),
+    "input_scale_plan_sha256": ("INPUT_SCALE_PLAN_SHA256", "a" * 64, "a" * 64),
     "compute_profile_plan_file": ("COMPUTE_PROFILE_PLAN_FILE", "fixture compute.json", "fixture compute.json"),
     "execution_profile_plan_file": ("EXECUTION_PROFILE_PLAN_FILE", "fixture execution.json", "fixture execution.json"),
     "input_scale_order": ("INPUT_SCALE_ORDER", [3.5, 1.0], "[3.5, 1.0]"),

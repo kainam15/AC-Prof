@@ -206,7 +206,11 @@ probe 证据使用 `startup_oom_pruning.json` schema v2，逐次原子保存启�
 `seeded` 按 seed 与资源键的 SHA256 排序；input scale 由 seed 与该资源键派生独立 seed 后排序，
 不共享可变 RNG 状态，也不受其它 case 数量影响。`declared` 保持参数和输入计划的声明顺序。
 hash 对不含 `plan_sha256` 的规范 JSON 计算；探测时间戳不进入计划。
-相同身份、probe 前缀、算法和 seed 得到相同计划；输入 payload 本身保持原物化计划不变。
+相同身份、probe 前缀、算法和 seed 得到相同计划。
+矩阵在启动 probe 或复用 case 前读取物化输入计划，核对规划阶段记录的 SHA256 和实际尺度集合，
+并将原始文件字节的摘要写入 `identity.input_plan_sha256`。只提供计划路径的调用以此次读取的字节为准。
+每个正式采集客户端在发送请求前复核该摘要，从同一次读取中取得 payload。即使尺度相同，正文变化也会终止采集。
+校验在测量窗口外完成。
 独立随机源的设计参考 [MLPerf LoadGen TestSettings](https://github.com/mlcommons/inference/blob/master/loadgen/test_settings.h)，未引入 LoadGen 依赖。
 
 resume 读取实际冻结顺序并校验身份、内容 hash、case/scale 覆盖及 probe 结论，不重新 shuffle。

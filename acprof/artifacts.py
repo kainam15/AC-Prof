@@ -177,12 +177,21 @@ def input_plan_scales(plan: Mapping[str, Any], *, cancelled: Callable[[], bool] 
     return set(positions)
 
 
+def read_input_scale_plan_snapshot(
+    path: str | Path, *, expected_sha256: str | None = None, expected_scales: set[float] | None = None,
+) -> JsonObjectSnapshot:
+    """Validate the scale-to-payload mapping and retain its original bytes."""
+    snapshot = read_json_object_snapshot(path, label="input scale plan", expected_sha256=expected_sha256)
+    require_schema_version(snapshot.payload, 2, "input_scale_plan.json")
+    scales = input_plan_scales(snapshot.payload)
+    if expected_scales is not None and scales != expected_scales:
+        raise ValueError(f"{path}: input plan scales do not match the matrix scales")
+    return snapshot
+
+
 def read_input_scale_plan(path: str | Path, *, expected_sha256: str | None = None) -> dict:
     """Read the current bounded input plan before any runtime or measurement starts."""
-    payload = read_json_object(path, label="input scale plan", expected_sha256=expected_sha256)
-    require_schema_version(payload, 2, "input_scale_plan.json")
-    input_plan_scales(payload)
-    return payload
+    return read_input_scale_plan_snapshot(path, expected_sha256=expected_sha256).payload
 
 
 def read_static_metadata(result_dir: str | Path, *, required: bool = False) -> dict:

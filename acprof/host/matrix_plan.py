@@ -7,7 +7,7 @@ import math
 from itertools import product
 from pathlib import Path
 
-from acprof.artifacts import atomic_write_json, read_json_object
+from acprof.artifacts import atomic_write_json, read_input_scale_plan_snapshot, read_json_object
 from acprof.gpu_mode import normalize_gpu_mode
 
 MATRIX_PLAN_NAME = "matrix_plan.json"
@@ -20,7 +20,7 @@ def digest(value) -> str:
 
 
 def matrix_identity(task, image, cpus, mems, gpus, scales, *, order, seed,
-                    prune, input_plan_file=None, cpuset_cpus="") -> dict:
+                    prune, input_plan_file=None, cpuset_cpus="", input_plan_sha256="") -> dict:
     gpus = [normalize_gpu_mode(value) for value in gpus]
     if order not in {"seeded", "declared"} or type(seed) is not int:
         raise ValueError("matrix order must be seeded/declared and seed must be an integer")
@@ -34,6 +34,13 @@ def matrix_identity(task, image, cpus, mems, gpus, scales, *, order, seed,
         raise ValueError("matrix input scales must be finite and positive")
     from acprof.cpu_affinity import normalize_cpu_set
     from acprof.host.runtimes.contracts import runtime_identity, runtime_kind
+    if input_plan_file:
+        snapshot = read_input_scale_plan_snapshot(
+            input_plan_file, expected_sha256=input_plan_sha256 or None, expected_scales=set(scales),
+        )
+        input_plan_sha256 = input_plan_sha256 or hashlib.sha256(snapshot.content).hexdigest()
+    elif input_plan_sha256:
+        raise ValueError("input plan file is required to verify its SHA256")
     cpuset_cpus = normalize_cpu_set(cpuset_cpus)
     return {**({"cpuset_cpus": cpuset_cpus} if cpuset_cpus else {}),
             **({"model_source": task.model_source} if getattr(task, "model_source", "huggingface") != "huggingface" else {}),
@@ -43,8 +50,7 @@ def matrix_identity(task, image, cpus, mems, gpus, scales, *, order, seed,
             "image_id": runtime_identity(image), "cpus": list(cpus), "mems": list(mems),
             "gpus": list(gpus), "input_scales": list(scales), "order": order,
             "seed": seed, "prune_startup_oom": prune,
-            "input_plan_sha256": hashlib.sha256(Path(input_plan_file).read_bytes()).hexdigest()
-            if input_plan_file else ""}
+            "input_plan_sha256": input_plan_sha256}
 
 
 def build_matrix_plan(identity: dict, prefixes: dict) -> dict:

@@ -1,4 +1,5 @@
 import csv
+import hashlib
 import io
 import json
 import math
@@ -124,6 +125,29 @@ class TestClientWindowEnergy:
                 with patch.object(self.runner.config, "input_scale_order", invalid):
                     with pytest.raises(ValueError, match="frozen matrix input-scale"):
                         self.runner._load_input_scale_entries()
+
+    def test_changed_payload_is_reported_before_measurement(self, tmp_path):
+        path = tmp_path / "input_scale_plan.json"
+        plan = {"schema_version": 2, "entries": [{"input_scale": 1, "payload": {"text": "before"}}]}
+        path.write_text(json.dumps(plan))
+        expected = hashlib.sha256(path.read_bytes()).hexdigest()
+        self.runner.config = ClientConfig.from_env({
+            **self.runner.config.to_env(), "INPUT_SCALE_PLAN_FILE": str(path),
+            "INPUT_SCALE_PLAN_SHA256": expected, "INPUT_SCALE_ORDER": "[1]",
+        })
+        assert self.runner._load_input_scale_entries()[0]["payload"] == {"text": "before"}
+        plan["entries"][0]["payload"]["text"] = "after"
+        path.write_text(json.dumps(plan))
+        with patch.object(client, "WindowExecutor", side_effect=AssertionError("entered measurement")), \
+             patch.object(self.runner, "_one_request", side_effect=AssertionError("sent request")), \
+             pytest.raises(SystemExit) as failure:
+            self.runner.run_cli()
+        assert failure.value.code == 1
+        csv_path = self.runner.config.out_csv
+        diagnostic, = json.loads(client.case_sidecar(csv_path, "runtime_failures").read_text())["failures"]
+        assert (diagnostic["stage"], diagnostic["reason_code"]) == ("input_plan", "recorded_evidence_invalid")
+        assert "SHA256" in diagnostic["detail"]
+        assert not Path(csv_path).exists()
 
     @pytest.mark.parametrize(("invalid_value", "expected"), [('NaN', 'non-finite'), ('1e999', 'non-finite')])
     def test_input_plan_rejects_nonfinite_numbers_before_measurement(self, invalid_value, expected):
