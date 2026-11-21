@@ -49,7 +49,11 @@ PNG Visual 和 CodeQL 等独立工作流需确认每类 PR 均实际产生对应
 前一提交仍失败、超时或尚未定位时，不直接合入无关新任务
 （针对当前 CI 失败的修复除外），不使用历史绿灯代替同提交验收。
 
-`hardware.yml` 目前只在 main 手动触发，定期周检暂停；fork PR 和其他工作分支不允许在专用主机运行。默认 `pinned-matrix` 使用随机小模型验证确定性采集链路，`real-matrix` 使用 `examples/hardware-validation-real.json` 中固定 revision 的真实预训练 checkpoint 验证六类 CPU/GPU 任务，并以 `examples/hardware-validation-real-cpu.json` 单独验证 Structured ONNX CPU 路径；两者都不证明模型准确率。日常功能开发不需要主动运行该真实硬件矩阵；用户主导实验安排。正式版本发布（GitHub Release 与 PyPI）必须先通过 `hardware-gate`：从成功的同提交主分支硬件工作流下载留存证据，验收 Native Linux 身份、固定模型 revision、两种 GPU 模式和 RAPL/perf/NVML 正式测量指标。缺失、过期、跳过或不完整均阻止发布，而不是标记为 `not_verified` 后继续发布。该门禁验证执行兼容与必需采集完整性，不要求能耗科研质量必须为 `passed`；矩阵的 `auto_selection_eligible` 独立控制质量优选。硬件工作流按 run ID／attempt 使用独立 checkout 和 `runner.temp` 下的新虚拟环境，不信任持久 `.venv` 中的可执行忽略文件。发布前需先在 main 上完成硬件验收，再为同一提交打 tag。
+`hardware.yml` 目前只在 main 手动触发，定期周检暂停；fork PR 和其他工作分支不允许在专用主机运行。默认 `pinned-matrix` 使用随机小模型验证确定性采集链路，`real-matrix` 使用 `examples/hardware-validation-real.json` 中固定 revision 的真实预训练 checkpoint 验证六类 CPU/GPU 任务，并以 `examples/hardware-validation-real-cpu.json` 单独验证 Structured ONNX CPU 路径；两者都不证明模型准确率。日常功能开发不需要主动运行该真实硬件矩阵；用户主导实验安排。正式版本发布（GitHub Release 与 PyPI）必须先通过 `hardware-gate`：从成功的同提交主分支硬件工作流下载留存证据，验收 Native Linux 身份、固定模型 revision、两种 GPU 模式和 RAPL/perf/NVML 正式测量指标。缺失、过期、跳过或不完整均阻止发布，而不是标记为 `not_verified` 后继续发布。硬件工作流按 run ID／attempt 使用独立 checkout 和 `runner.temp` 下的新虚拟环境，不信任持久 `.venv` 中的可执行忽略文件。发布前需先在 main 上完成硬件验收，再为同一提交打 tag。
+
+每个正式窗口的应用延迟、抓包延迟、CPU 总能耗、CPU 指令数以及 GPU 开启时的 GPU 总能耗，都必须有有限数值且逐指标质量为 `complete`。
+`audit.json` 用 `required_metrics_missing` 记录缺数值的字段，用 `required_metrics_incomplete` 保留有值但证据不足的行号、字段、原值、质量和原因。二者必须显式为空，旧报告未做此检查不能作为新门禁的凭据。
+这不改变普通 Best-effort 实验、原始读数或科研质量判断：例如缺少 PMU 运行比例不能验收指令数，但独立的空闲基线波动不因此阻断采集验收；`auto_selection_eligible` 仍独立控制质量优选。
 
 预览版 Tag（如 `v0.4.0a1`、`v0.4.0b1`、`v0.4.0rc1`）走 `release.yml`
 内单独的预发布路径，只等待 `build → verify-dist → standalone` 的发行检查，

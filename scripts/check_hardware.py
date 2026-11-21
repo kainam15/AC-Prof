@@ -43,6 +43,7 @@ from acprof.host.run_state import host_identity  # noqa: E402 -- 脚本先设置
 from acprof.quality import QUALITY_FIELDS, combine_quality, summarize_quality  # noqa: E402
 from acprof.results.csv import csv_diagnostic_text, read_result_csv  # noqa: E402
 from acprof.results.layout import ArtifactLayout  # noqa: E402 -- 脚本先设置仓库导入路径。
+from acprof.results.profile import metric_observation  # noqa: E402
 
 _PROFILER_ERROR_FIELDS = {
     "torch_profiler_eager": TORCH_ERROR_FIELD,
@@ -272,6 +273,23 @@ def validate_requested_profilers(
     return issues
 
 
+def _required_window_metrics(row: dict, index: int) -> tuple[list[dict], list[dict]]:
+    required = ["latency_s", "latency_app_s", "cpu_energy_total_j", "cpu_instructions_per_request"]
+    if row["gpu_mode"] == "on":
+        required.append("gpu_energy_total_j")
+    missing, incomplete = [], []
+    for field in required:
+        value = row.get(field)
+        if number(value) is None:
+            missing.append({"row": index, "field": field})
+        else:
+            evidence = metric_observation(row, field)
+            if evidence["quality"] != "complete":
+                incomplete.append({"row": index, "field": field, "value": value,
+                                   "quality": evidence["quality"], "reason": evidence["reason"]})
+    return missing, incomplete
+
+
 def run_config(config: RunConfig, output: Path, *, ui: str = "cli") -> dict:
     if ui == "terminal" and not sys.stdout.isatty():
         raise ValueError("terminal 对照须在终端中运行；自动化可用 script 分配 PTY 并保存终端输出")
@@ -300,18 +318,17 @@ def run_config(config: RunConfig, output: Path, *, ui: str = "cli") -> dict:
     counts = audit["counts"]
     audit["successful"] &= counts["formal_ok"] > 0 and counts["formal_ok"] == counts["rows"] - counts["warmup"]
     unavailable: list[dict] = []
+    incomplete: list[dict] = []
     validated_gpu_modes = set()
     profiler_issues = []
     if audit["valid"]:
         _, rows = read_result_csv(config.result_csv(ROOT))
         for index, row in enumerate(rows, 2):
             if row["warmup"] == "0":
-                required = ["latency_s", "latency_app_s", "cpu_energy_total_j", "cpu_instructions_per_request"]
-                if row["gpu_mode"] == "on":
-                    required.append("gpu_energy_total_j")
-                missing = [name for name in required if number(row.get(name)) is None]
-                unavailable.extend({"row": index, "field": name} for name in missing)
-                if not missing and row.get("status") == "ok":
+                missing, unverified = _required_window_metrics(row, index)
+                unavailable.extend(missing)
+                incomplete.extend(unverified)
+                if not missing and not unverified and row.get("status") == "ok":
                     validated_gpu_modes.add(row["gpu_mode"])
         profiler_issues = validate_requested_profilers(config, rows, unavailable)
     audit["issues"].extend(profiler_issues)
@@ -319,7 +336,8 @@ def run_config(config: RunConfig, output: Path, *, ui: str = "cli") -> dict:
         audit["valid"] = False
     audit["validated_gpu_modes"] = sorted(validated_gpu_modes)
     audit["required_metrics_missing"] = unavailable
-    audit["successful"] &= not unavailable and not profiler_issues
+    audit["required_metrics_incomplete"] = incomplete
+    audit["successful"] &= not unavailable and not incomplete and not profiler_issues
     atomic_write_json(output / "audit.json", audit)
     return audit
 

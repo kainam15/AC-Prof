@@ -20,7 +20,8 @@ def fixture(tmp_path):
     quality = {"quality_status": "unknown", "quality_checks": [quality_check],
                "quality_reasons": ["cpu_idle_baseline_unstable"], "auto_selection_eligible": False}
     audit = {"successful": True, "valid": True, "completion": "complete", **quality,
-             "exit_code": 0, "required_metrics_missing": [], "validated_gpu_modes": ["off", "on"],
+             "exit_code": 0, "required_metrics_missing": [], "required_metrics_incomplete": [],
+             "validated_gpu_modes": ["off", "on"],
              "counts": {"formal_ok": 4}}
     report = {"kind": "hardware_matrix", "ci_commit": "a" * 40, "successful": True, **quality,
               "source": {"environment_class": "native_linux", "collection_tier": "full",
@@ -48,7 +49,7 @@ def test_complete_native_evidence_is_accepted(tmp_path):
 @pytest.mark.parametrize("tamper", [
     "wrong_commit", "failed_matrix", "not_native", "wsl", "partial",
     "missing_case", "modified_revision", "cpu_only", "failed_case",
-    "missing_energy", "no_gpu_mode", "no_perf_rows", "no_audit",
+    "missing_energy", "incomplete_metric", "no_metric_quality_check", "no_gpu_mode", "no_perf_rows", "no_audit",
 ])
 def test_bad_hardware_artifacts_never_unlock_release(tmp_path, tamper):
     matrix_file, report = fixture(tmp_path)
@@ -74,6 +75,10 @@ def test_bad_hardware_artifacts_never_unlock_release(tmp_path, tamper):
         case["status"] = "not_run"
     elif tamper == "missing_energy":
         audit["required_metrics_missing"] = [{"field": "cpu_energy_total_j"}]
+    elif tamper == "incomplete_metric":
+        audit["required_metrics_incomplete"] = [{"field": "latency_s", "quality": "partial"}]
+    elif tamper == "no_metric_quality_check":
+        del audit["required_metrics_incomplete"]
     elif tamper == "no_gpu_mode":
         audit["validated_gpu_modes"] = ["off"]
     elif tamper == "no_perf_rows":

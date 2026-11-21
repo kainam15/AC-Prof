@@ -46,6 +46,8 @@ def validate_evidence(report_path: Path, matrix_path: Path, commit: str) -> dict
         if (audit.get("valid") is not True or audit.get("completion") != "complete"
                 or audit.get("exit_code") != 0 or audit.get("required_metrics_missing") != []):
             raise InvalidEvidence("case audit or RAPL/perf/NVML metrics incomplete")
+        if audit.get("required_metrics_incomplete") != []:
+            raise InvalidEvidence("required window metric quality incomplete or not checked")
         counts = audit.get("counts")
         if not isinstance(counts, dict) or type(counts.get("formal_ok")) is not int or counts["formal_ok"] <= 0:
             raise InvalidEvidence("no valid measured rows")
