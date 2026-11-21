@@ -30,7 +30,8 @@ PR 对比目标分支，Push 对比本次推送前的分支状态。混合代码
 主机测试不执行时，`host-summary` 同步跳过，不尝试读取不存在的分片和 coverage 产物。
 完整 CI 的 pytest evidence、Python 版本矩阵、报告汇总和容器验证保持不变。
 `ci-preflight` 在 Python 3.12/3.13 上提前运行 `scripts/check_ci_preflight.py`，
-检查 TUI 配置与恢复、关键交互和布局、cgroup I/O 缺字段、private API 边界和 CI 门禁。
+检查 TUI 配置与恢复、Profiler 勾选与诊断详情、Nsys 容器命令、cgroup I/O 缺字段、
+private API 边界及工作流的路径和依赖条件。
 其失败会阻止启动后续的 24 个 Host 分片，但不会将失败视为成功，
 完整 Host 测试、SVG/PNG 视觉检查、ONNX 端到端验证仍是独立验收要求。
 开发者可先执行 `uv run --locked --no-default-groups --group test python scripts/check_ci_preflight.py`。

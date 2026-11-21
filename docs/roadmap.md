@@ -36,6 +36,10 @@ P1 · cgroup I/O 预检：已将宿主进程 cgroup 能力与目标 Docker / Pro
 通用 Python、定向审查和 UI 检索放在个人 skills；来源与边界见[开发 Skills](development/agent-skills.md)。
 这些入口不改变下表的硬件、真实模型及客户端验收缺口。
 
+CI 快速预检已覆盖 TUI 的 Profiler 选择和诊断详情、Nsys 命令及 Host 分片依赖；
+本地可选 `pre-push` 在生产 Python 源码变更时也执行 mypy。完整矩阵、无 Torch 的 ONNX 容器和
+逐场景 PNG 像素对比仍是独立检查，见[CI 与发布验收](development/ci.md)。
+
 | 优先级 | 工作 | 状态与完成条件 |
 | --- | --- | --- |
 | P0 | 共享 Workload 输入校验、明确依赖方向 | 本轮已完成六族公共字段复用与两个反向依赖修复，保留任务差异和错误语义；Import Linter 契约纳入门禁。见[模块边界](development/static-checks.md)与[Workload 输入校验](development/modules.md#workload-输入校验)。 |

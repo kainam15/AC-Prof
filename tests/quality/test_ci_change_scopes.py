@@ -8,7 +8,7 @@ import yaml
 
 CI = Path(__file__).resolve().parents[2] / ".github/workflows/ci.yml"
 HEAVY = (
-    "lint", "types", "contracts", "host", "host-summary",
+    "lint", "types", "contracts", "ci-preflight", "host", "host-summary",
     "report-browser", "tui-snapshots", "onnx-cpu", "runtime",
 )
 
@@ -91,11 +91,14 @@ def test_host_artifact_excludes_dedicated_coverage_shards(workflow):
 
 
 def test_host_summary_skips_when_host_is_not_requested(workflow):
-    summary = workflow["jobs"]["host-summary"]
-    assert set(summary["needs"]) == {"changes", "host"}
+    jobs = workflow["jobs"]
+    assert set(jobs["host"]["needs"]) == {"changes", "ci-preflight"}
+    summary = jobs["host-summary"]
+    assert set(summary["needs"]) == {"changes", "ci-preflight", "host"}
     assert "always()" in summary["if"]
     assert "needs.changes.outputs.full == 'true'" in summary["if"]
     assert "needs.changes.result == 'success'" in summary["if"]
+    assert "needs.ci-preflight.result == 'success'" in summary["if"]
 
 
 def test_browser_job_excludes_same_named_tui_tests(workflow):
