@@ -1,13 +1,16 @@
 """基于同目录临时文件发布产物；调用方负责在测量窗口之外写入。"""
 from __future__ import annotations
 
+import errno
 import hashlib
 import json
 import math
 import os
+import shutil
 import stat
 import tempfile
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
@@ -288,6 +291,77 @@ def atomic_write_binary(
 ) -> None:
     """Publish bytes without text conversion, using the same durability contract."""
     _atomic_write(path, write, binary=True, default_mode=default_mode, overwrite=overwrite)
+
+
+@dataclass
+class CapturedBinaryArtifact:
+    """An anonymous, private capture that can be published once."""
+    stream: BinaryIO
+    _linkable: bool
+
+    def _link(self, destination: Path, verify_existing: Callable[[], None]) -> bool:
+        fd = self.stream.fileno()
+        self.stream.flush()
+        os.fchmod(fd, 0o644)
+        os.fsync(fd)
+        try:
+            # Force linkat(AT_SYMLINK_FOLLOW) for the procfs descriptor. With an
+            # absolute source the kernel ignores src_dir_fd, even for a regular fd.
+            os.link(f"/proc/self/fd/{fd}", destination, src_dir_fd=fd, follow_symlinks=True)
+        except FileExistsError:
+            verify_existing()
+        except NotImplementedError:
+            return False  # The interpreter cannot request linkat with these flags.
+        except OSError as error:
+            # A different mount or restricted/unavailable procfs cannot link
+            # this descriptor. The destination-local exclusive claim still works.
+            if error.errno not in {errno.EXDEV, errno.ENOENT, errno.ENOTDIR, errno.EACCES,
+                                   errno.EPERM, errno.EOPNOTSUPP, errno.ENOSYS}:
+                raise
+            return False
+        return True
+
+    def publish(self, destination: Path, *, verify_existing: Callable[[], None]) -> None:
+        """Claim a durable name or verify a competing claim before returning."""
+        if destination.exists():
+            verify_existing()
+            sync_directory(destination.parent)
+        elif self._linkable and self._link(destination, verify_existing):
+            sync_directory(destination.parent)
+        else:
+            self.stream.seek(0)
+
+            def copy(stream: BinaryIO) -> None:
+                shutil.copyfileobj(self.stream, stream, length=_HASH_CHUNK_BYTES)
+
+            _atomic_write(destination, copy, binary=True, default_mode=0o644, overwrite=False,
+                          on_existing=verify_existing)
+        self.stream.close()
+
+
+@contextmanager
+def capture_binary_artifact(directory: Path) -> Iterator[CapturedBinaryArtifact]:
+    """Keep unpublished bytes anonymous even if the publishing process dies."""
+    flags = getattr(os, "O_TMPFILE", 0)
+    stream: BinaryIO | None = None
+    if flags:
+        # tempfile.TemporaryFile also sets O_EXCL, which prevents later linking.
+        def open_linkable(path: str, _: int) -> int:
+            return os.open(path, flags | os.O_RDWR, 0o600)
+
+        try:
+            stream = open(directory, "w+b", buffering=0, opener=open_linkable)
+        except OSError as error:
+            if error.errno == errno.ENOENT and not directory.is_dir():
+                raise
+            if error.errno not in {errno.EOPNOTSUPP, errno.EISDIR, errno.EINVAL, errno.ENOENT,
+                                   errno.EPERM, errno.EACCES, errno.ENOSYS}:
+                raise
+    linkable = stream is not None
+    if stream is None:
+        stream = tempfile.TemporaryFile(dir=directory, buffering=0)
+    with cleanup_on_exit(stream.close, description="anonymous artifact capture"):
+        yield CapturedBinaryArtifact(stream, linkable)
 
 
 def publish_immutable_bytes(destination: Path, payload: bytes, *, conflict: str,
