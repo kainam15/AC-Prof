@@ -30,6 +30,7 @@ def inspect_experiment_data(source: Path, *, cancelled: Callable[[], bool] | Non
     from acprof.artifacts import file_sha256
     from acprof.results.csv import (
         is_measured_success,
+        preview_window_phase,
         read_result_csv_snapshot,
         verify_result_source,
     )
@@ -52,7 +53,7 @@ def inspect_experiment_data(source: Path, *, cancelled: Callable[[], bool] | Non
     except (OSError, ValueError, RuntimeError) as exc:
         profile_error = error_message(exc)
     check_cancelled(cancelled)
-    formal = sum(is_measured_success(row) and str(row.get("warmup", "0")).strip() == "0"
+    formal = sum(is_measured_success(row) and preview_window_phase(row) == "0"
                  for row in cancellable(snapshot.rows, cancelled))
     try:
         html = existing_html_report((source,))

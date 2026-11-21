@@ -24,6 +24,7 @@ from acprof.platform import capability_matrix, collection_policy_error, detect_e
 from acprof.results.csv import (
     KEY_FIELDS,
     is_measured_success,
+    preview_window_phase,
     read_result_csv_snapshot,
     require_current_fields,
     result_row_status,
@@ -459,7 +460,7 @@ def summarize_result_csv(result_csv: str | Path, *, cancelled: Callable[[], bool
         detail = message_id('results.statistics.no_successful_windows')
     if cancelled():
         raise CancelledError()
-    from acprof.analysis.audit import audit_result, number
+    from acprof.analysis.audit import audit_result
     from acprof.quality import QUALITY_FIELDS
     audit = audit_result(snapshot.path, result_snapshot=snapshot, verify_result_snapshot=False, cancelled=cancelled)
     if cancelled():
@@ -477,11 +478,11 @@ def summarize_result_csv(result_csv: str | Path, *, cancelled: Callable[[], bool
     cases = set()
     for row in cancellable(rows, cancelled):
         status = result_row_status(row)
-        warmup = number(row.get("warmup", "0"))
+        phase = preview_window_phase(row)
         ok_rows += status == "ok"
         error_rows += status == "error"
-        warmup_rows += warmup == 1
-        formal_ok_rows += warmup == 0 and is_measured_success(row)
+        warmup_rows += phase == "1"
+        formal_ok_rows += phase == "0" and is_measured_success(row)
         cases.add(tuple(row.get(field, "") for field in KEY_FIELDS[:3]))
     summary = ResultSummary(
         rows=len(rows), ok_rows=ok_rows, error_rows=error_rows, warmup_rows=warmup_rows,

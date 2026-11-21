@@ -139,6 +139,17 @@ def numeric_coordinate_key(field: str, value: str) -> str:
     return decimal_key_text(number)
 
 
+def preview_window_phase(row: Mapping[str, object]) -> str | None:
+    """Read an exact phase for a partial CSV preview, defaulting an absent column to formal."""
+    raw = str(row.get("warmup", "0")).strip()
+    if raw in ("0", "1"):
+        return raw
+    try:
+        return numeric_coordinate_key("warmup", raw)
+    except ResultValidationError:
+        return None
+
+
 def measurement_key(row: Mapping[str, object]) -> MeasurementKey:
     values = []
     for field in KEY_FIELDS:
