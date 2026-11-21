@@ -10,7 +10,7 @@ from fractions import Fraction
 from pathlib import Path
 from types import SimpleNamespace
 
-from acprof.analysis.audit import audit_result, number
+from acprof.analysis.audit import AuditedRows, audit_result_snapshot, number
 from acprof.analysis.conditions import (
     ALLOWED_RESOURCE_DIMENSIONS,
     PURPOSES,
@@ -26,8 +26,8 @@ from acprof.results.csv import (
     MISSING_CSV_TEXT,
     ResultCsvSnapshot,
     measurement_key,
-    read_result_csv_snapshot,
     result_row_status,
+    verify_result_source,
 )
 from acprof.results.layout import resolve_single_result_source
 from acprof.results.metadata import ResultMetadataSnapshot
@@ -307,15 +307,13 @@ def _observed_runtime_threads(
 
 
 def _resolve_actual_workload_and_cases(
-    result_snapshot: ResultCsvSnapshot | None,
-    read_error: Exception | None,
+    result: AuditedRows,
     issues: list[str],
 ) -> tuple[list[dict[str, str]], dict | None, set[str]]:
     try:
-        if read_error is not None:
-            raise read_error
-        assert result_snapshot is not None
-        rows = result_snapshot.rows
+        if not isinstance(result, ResultCsvSnapshot):
+            raise result
+        rows = result.rows
         actual = _actual_workload(rows)
         from acprof.results.layout import resource_case_id
         case_ids = {
@@ -335,22 +333,13 @@ def load_comparison_snapshot(source: str | Path, *, result_snapshot: ResultCsvSn
     source = resolve_single_result_source(source)
     metadata_snapshot = metadata_snapshot or ResultMetadataSnapshot(source)
     metadata_snapshot.validate_source(source)
+    audit, result = audit_result_snapshot(source, result_snapshot=result_snapshot, metadata_snapshot=metadata_snapshot,
+                                          verify_result_snapshot=verify_result_snapshot)
+    return _comparison_evidence(metadata_snapshot, audit, result)
+
+
+def _comparison_evidence(metadata_snapshot: ResultMetadataSnapshot, audit: dict, result: AuditedRows) -> dict:
     layout = metadata_snapshot.layout
-    result_path = source / "result_layers.json" if source.is_dir() else source
-    read_error: OSError | ValueError | csv.Error | None = None
-    if result_snapshot is None:
-        try:
-            result_snapshot = read_result_csv_snapshot(result_path)
-        except (OSError, ValueError, csv.Error) as error:
-            # Keep the failed read visible while the audit gathers metadata issues.
-            read_error = error
-    audit = audit_result(source, result_snapshot=result_snapshot,
-                         metadata_snapshot=metadata_snapshot,
-                         verify_result_snapshot=verify_result_snapshot)
-    if read_error is None:
-        invalid_csv = next((issue for issue in audit["issues"] if issue["code"] == "invalid_csv"), None)
-        if invalid_csv is not None:
-            read_error = ValueError(invalid_csv["message"])
     issues: list[str] = []
 
     state = _read_snapshot_json(metadata_snapshot, "run_state.json", issues)
@@ -393,7 +382,7 @@ def load_comparison_snapshot(source: str | Path, *, result_snapshot: ResultCsvSn
                                if isinstance(environment, dict) else None)
     inputs, planned_entries = _planned_inputs_from_plan(plan, issues)
     threads = _observed_runtime_threads(metadata, environment, issues)
-    rows, actual, case_ids = _resolve_actual_workload_and_cases(result_snapshot, read_error, issues)
+    rows, actual, case_ids = _resolve_actual_workload_and_cases(result, issues)
     # Only the input payload and semantic conditions are compared. Model/export,
     # packages and backend hashes continue to belong to the existing run identity.
     host = _object_field(state, "host", issues)
@@ -458,6 +447,34 @@ def load_comparison_snapshot(source: str | Path, *, result_snapshot: ResultCsvSn
             "runtime_requested_environment": runtime_environment,
             **{key: host.get(key) for key in ("source_sha256", "packages_sha256")}},
     }
+
+
+def _audited_input(source: str | Path) -> tuple[dict, dict, dict[Path, str | None]]:
+    metadata = ResultMetadataSnapshot(source)
+    audit, read = audit_result_snapshot(source, metadata_snapshot=metadata, verify_result_snapshot=False)
+    evidence = _comparison_evidence(metadata, audit, read)
+    fingerprints = metadata.observed_fingerprints()
+    if isinstance(read, ResultCsvSnapshot):
+        fingerprints[read.path] = read.sha256
+    return audit, evidence, fingerprints
+
+
+def audit_and_compare_results(left: str | Path, right: str | Path, *, purpose: str = "same-hardware") -> dict:
+    """Share the audit and release each row table before the final content checks."""
+    if purpose not in PURPOSES:
+        raise ValueError(f"comparison purpose must be one of {PURPOSES}")
+    left_audit, lhs, left_files = _audited_input(left)
+    right_audit, rhs, right_files = _audited_input(right)
+    for audit, evidence, fingerprints in ((left_audit, lhs, left_files), (right_audit, rhs, right_files)):
+        for path, digest in fingerprints.items():
+            try:
+                verify_result_source(path, digest)
+            except (OSError, ValueError, csv.Error) as exc:
+                message = f"{path}: {exc}"
+                audit["valid"] = evidence["valid"] = evidence["audit"]["valid"] = False
+                audit["issues"].append({"code": "changing_snapshot", "message": message, "severity": "error"})
+                evidence["issues"].append(message)
+    return {**left_audit, "comparison": compare_snapshots(lhs, rhs, purpose=purpose)}
 
 
 def compare_results(left: str | Path, right: str | Path, *, purpose: str = "same-hardware") -> dict:

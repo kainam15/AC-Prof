@@ -26,13 +26,13 @@ def test_each_independent_run_is_audited_once(runs, monkeypatch, explicit_csv):
     if explicit_csv:
         left, right = ([path / "result_all.csv" for path in side] for side in runs)
     calls = Counter()
-    audit = comparison.audit_result
+    audit = comparison.audit_result_snapshot
 
     def record_audit(source, **kwargs):
         calls[Path(source)] += 1
         return audit(source, **kwargs)
 
-    monkeypatch.setattr("acprof.analysis.comparison.audit_result", record_audit)
+    monkeypatch.setattr("acprof.analysis.comparison.audit_result_snapshot", record_audit)
     report = compare_experiments(left, right, metrics=["latency_app_s"], resamples=10)
     assert report["status"] == "compatible"
     group = report["groups"][0]

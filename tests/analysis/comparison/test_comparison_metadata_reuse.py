@@ -48,7 +48,7 @@ def test_audit_and_conditions_read_each_metadata_file_once(experiment, monkeypat
 def test_conditions_keep_the_metadata_that_was_audited(experiment, monkeypatch, artifact):
     fixture, root = experiment
     expected = comparison.load_comparison_snapshot(root)
-    audit = comparison.audit_result
+    audit = comparison.audit_result_snapshot
 
     def replace_after_audit(path, **kwargs):
         report = audit(path, **kwargs)
@@ -63,7 +63,7 @@ def test_conditions_keep_the_metadata_that_was_audited(experiment, monkeypatch, 
         return report
 
     with monkeypatch.context() as guard:
-        guard.setattr(comparison, "audit_result", replace_after_audit)
+        guard.setattr(comparison, "audit_result_snapshot", replace_after_audit)
         assert comparison.load_comparison_snapshot(root) == expected
     assert comparison.load_comparison_snapshot(root) != expected
 
@@ -97,7 +97,7 @@ def test_missing_metadata_stays_missing_for_the_current_comparison(experiment, m
     target = root / "static_meta.json"
     raw = target.read_bytes()
     target.unlink()
-    audit = comparison.audit_result
+    audit = comparison.audit_result_snapshot
 
     def create_after_audit(path, **kwargs):
         report = audit(path, **kwargs)
@@ -105,7 +105,7 @@ def test_missing_metadata_stays_missing_for_the_current_comparison(experiment, m
         return report
 
     with monkeypatch.context() as guard:
-        guard.setattr(comparison, "audit_result", create_after_audit)
+        guard.setattr(comparison, "audit_result_snapshot", create_after_audit)
         snapshot = comparison.load_comparison_snapshot(root)
     assert snapshot["identity"]["runtime_backend"] is None
     assert comparison.load_comparison_snapshot(root)["valid"]

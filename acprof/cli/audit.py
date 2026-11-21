@@ -36,9 +36,12 @@ def main(argv=None):
             stack.enter_context(offline_analysis_lock())
         except RunStateError as error:
             parser.exit(1, f"审计失败：{error}\n")
-        from acprof.analysis.audit import audit_result
-
-        report = audit_result(args.source)
+        if args.compare is None:
+            from acprof.analysis.audit import audit_result
+            report = audit_result(args.source)
+        else:
+            from acprof.analysis.comparison import audit_and_compare_results
+            report = audit_and_compare_results(args.source, args.compare, purpose=args.comparison_purpose)
         passed = report["valid"]
         if args.require_complete:
             passed = passed and report["completion"] == "complete" and report["coverage"] is not None
@@ -46,8 +49,6 @@ def main(argv=None):
             counts = report["counts"]
             passed = passed and counts["formal_ok"] > 0 and counts["formal_ok"] == counts["rows"] - counts["warmup"]
         if args.compare is not None:
-            from acprof.analysis.comparison import compare_results
-            report["comparison"] = compare_results(args.source, args.compare, purpose=args.comparison_purpose)
             passed = passed and report["comparison"]["valid"]
             if args.require_comparable:
                 passed = passed and report["comparison"]["status"] == "compatible"

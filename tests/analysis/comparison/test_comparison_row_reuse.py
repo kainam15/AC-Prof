@@ -37,7 +37,7 @@ def test_comparison_parses_plain_csv_once(source, monkeypatch, relative):
 
 
 def test_comparison_keeps_the_audited_rows_when_the_file_is_later_replaced(source, monkeypatch):
-    audit = comparison.audit_result
+    audit = comparison.audit_result_snapshot
 
     def replace_after_audit(path, **kwargs):
         report = audit(path, **kwargs)
@@ -51,7 +51,7 @@ def test_comparison_keeps_the_audited_rows_when_the_file_is_later_replaced(sourc
             writer.writerows({**row, "latency_app_s": "nan"} for row in rows)
         return report
 
-    monkeypatch.setattr("acprof.analysis.comparison.audit_result", replace_after_audit)
+    monkeypatch.setattr("acprof.analysis.comparison.audit_result_snapshot", replace_after_audit)
     snapshot = comparison.load_comparison_snapshot(source)
     assert snapshot["valid"]
     assert snapshot["metric_availability"]["latency_app_s"]
@@ -59,16 +59,17 @@ def test_comparison_keeps_the_audited_rows_when_the_file_is_later_replaced(sourc
 
 
 def test_audit_still_verifies_the_shared_result_content(source, monkeypatch):
-    audit = comparison.audit_result
+    read = result_csv.read_result_csv_snapshot
 
-    def replace_before_audit(path, **kwargs):
+    def change_after_parse(path, **kwargs):
+        snapshot = read(path, **kwargs)
         source.write_bytes(source.read_bytes().replace(b"0.25", b"9.99"))
-        report = audit(path, **kwargs)
-        assert "changing_snapshot" in {item["code"] for item in report["issues"]}
-        return report
+        return snapshot
 
-    monkeypatch.setattr("acprof.analysis.comparison.audit_result", replace_before_audit)
-    assert not comparison.load_comparison_snapshot(source)["valid"]
+    monkeypatch.setattr("acprof.analysis.audit.read_result_csv_snapshot", change_after_parse)
+    snapshot = comparison.load_comparison_snapshot(source)
+    assert not snapshot["valid"]
+    assert "changing_snapshot" in {item["code"] for item in snapshot["audit"]["issues"]}
 
 
 @pytest.mark.parametrize("content", [None, b"", b"cpu_cores,cpu_cores\n1,2\n", b"\xff"])
@@ -85,7 +86,7 @@ def test_invalid_csv_keeps_result_and_metadata_diagnostics(source, content):
     assert any("actual workload" in issue for issue in snapshot["issues"])
 
 
-def test_first_read_error_is_not_hidden_by_a_later_successful_audit(source, monkeypatch):
+def test_first_read_error_is_shared_by_comparison_and_audit(source, monkeypatch):
     parse = result_csv.parse_result_stream
     calls = 0
 
@@ -98,7 +99,8 @@ def test_first_read_error_is_not_hidden_by_a_later_successful_audit(source, monk
 
     monkeypatch.setattr("acprof.results.csv.parse_result_stream", fail_once)
     snapshot = comparison.load_comparison_snapshot(source)
-    assert calls == 2
+    assert calls == 1
+    assert {item["message"] for item in snapshot["audit"]["issues"] if item["code"] == "invalid_csv"} == {"first parse failed"}
     assert not snapshot["valid"]
     assert snapshot["conditions"]["actual_workload"] is None
     assert "actual workload: first parse failed" in snapshot["issues"]

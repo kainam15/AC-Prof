@@ -298,7 +298,7 @@ class TestAnalysisModel:
 
     @pytest.mark.parametrize("storage", ["csv", "layers"])
     def test_analysis_audits_once_per_load_and_refreshes_quality(self, storage, monkeypatch):
-        from acprof.analysis.audit import audit_result
+        from acprof.analysis.audit import audit_result_snapshot
         from acprof.analysis.model import load_analysis
         from acprof.quality import loading_quality
         from acprof.results.csv import read_result_csv_snapshot
@@ -321,11 +321,10 @@ class TestAnalysisModel:
 
         def record_audit(candidate, **kwargs):
             audits.append(Path(candidate).resolve())
-            return audit_result(candidate, **kwargs)
+            return audit_result_snapshot(candidate, **kwargs)
 
-        monkeypatch.setattr("acprof.analysis.comparison.audit_result", record_audit)
+        monkeypatch.setattr("acprof.analysis.comparison.audit_result_snapshot", record_audit)
         monkeypatch.setattr("acprof.analysis.model.read_result_csv_snapshot", record_snapshot)
-        monkeypatch.setattr("acprof.analysis.comparison.read_result_csv_snapshot", record_snapshot)
         monkeypatch.setattr("acprof.analysis.audit.read_result_csv_snapshot", record_snapshot)
         first = load_analysis([input_path])
         assert reads == [input_path.resolve()]

@@ -133,7 +133,8 @@ manifest 摘要，读取时校验同一份 manifest，各数据层只解析和�
 的公共扫描复用及 [cache 保留讨论](https://github.com/pola-rs/polars/pull/27421)（MIT），使用现有标准库
 解析与快照实现，不复制上游源码、不新增依赖或测量期开销。
 `analysis/comparison.py` 分开读取 `load_comparison_snapshot` 与纯比较 `compare_snapshots`；
-路径入口 `compare_results` 组合两者。独立实验比较在一次调用中只为每个 run 加载一份
+路径入口 `compare_results` 组合两者。`audit A --compare B` 每侧只解析一次结果表，完整审计与比较条件取自同一份行和元数据；首次读取错误同时用于两份结论，不重试。两侧读取后复核结果内容、分层提交和已观察的元数据（包括原先不存在的文件），不跨命令缓存。
+独立实验比较在一次调用中只为每个 run 加载一份
 结果快照，聚合与条件审计共享已校验的行；条件快照供组间和组内检查复用。
 只保留当前 run 与两组基准所需的快照，不建立跨调用缓存。统计结束后统一复核来源 hash、
 manifest 引用的数据内容和读取前记录的元数据身份，复用证据不削弱对并发改写或数据损坏的拒绝行为。
