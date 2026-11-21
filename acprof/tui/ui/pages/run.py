@@ -223,13 +223,18 @@ def compose_run_tab(app: AcprofTui) -> ComposeResult:
                         value=app.configuration.initial_config.revision, id="revision", classes="config-control",
                         placeholder="留空解析默认 revision；候选选择会固定 commit SHA",
                     )), field_id="revision")
-                    yield app.localization.localized_widget(Label("Task"))
+                    yield app.localization.localized_widget(Label(message_id("models.detection.interface_label")))
                     yield ConfigField(app.localization.localized_widget(Input(
                         value=app.configuration.initial_config.task,
                         placeholder="如 text-generation",
                         id="task",
                         classes="config-control",
                     )), field_id="task")
+                    yield app.localization.localized_widget(Label(message_id("models.tasks.workloads_label")))
+                    yield ConfigField(app.localization.localized_widget(Input(
+                        value=app.configuration.initial_config.tasks, id="tasks", classes="config-control",
+                        placeholder=message_id("models.tasks.workloads_hint"),
+                    )), field_id="tasks")
                     yield app.localization.localized_widget(Label("Task family"))
                     yield ConfigField(app.localization.localized_select(
                         (

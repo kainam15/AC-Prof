@@ -19,6 +19,7 @@ INPUT_FIELDS = {
     "model": "model",
     "revision": "revision",
     "task": "task",
+    "tasks": "tasks",
     "backend": "backend",
     "cpus": "cpus",
     "cpuset-cpus": "cpuset_cpus",

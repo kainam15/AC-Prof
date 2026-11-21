@@ -55,9 +55,9 @@ class ConfigurationController:
         self.saved_settings, self.settings_warning = load_settings(self.settings_path, app.project_dir)
         self.preferences = self.saved_settings.ui
         config = self.saved_settings.run_defaults or RunConfig.smoke()
-        if self.saved_settings.last_model:
+        if self.saved_settings.last_model and config.model != self.saved_settings.last_model:
             config = replace(config, model=self.saved_settings.last_model,
-                             revision=config.revision if config.model == self.saved_settings.last_model else "")
+                             revision="", tasks="" if config.model else config.tasks)
         self.initial_config = run_form.runtime_form_config(initial_config if initial_config is not None else config)
         self.recovery_policy = self.initial_config.profiling_mode if self.initial_config.resume else "best_effort"
         self.extra_options = dict(self.initial_config.extra_options)
@@ -272,6 +272,8 @@ class ConfigurationController:
             overrides.append(f"revision={config.revision[:8]}")
         if config.task:
             overrides.append(f"task={config.task}")
+        if config.tasks:
+            overrides.append(f"tasks={config.tasks}")
         if config.task_family:
             overrides.append(f"family={config.task_family}")
         if config.backend:

@@ -1,6 +1,7 @@
 """The ordinary flow exposes source choice, never proxy/VPN controls."""
 import asyncio
 import sys
+from dataclasses import replace
 from unittest.mock import patch
 
 import pytest
@@ -86,9 +87,11 @@ def fail():
     raise HfDownloadError("old/model", [{"stage":"storage", "reason":"timeout", "host":"cdn.hf.co"}])
 workflow.run("model", fail)
 '''
-    app = AcprofTui(RunConfig.smoke("old/model"), settings_path=tmp_path / "settings.json")
+    initial = replace(RunConfig.smoke("old/model"), tasks="summarization")
+    app = AcprofTui(initial, settings_path=tmp_path / "settings.json")
     original_start = ProcessLifecycle.start
-    def start(owner, _command, **kwargs):
+    def start(owner, command, **kwargs):
+        assert command[command.index("--tasks") + 1] == "summarization"
         return original_start(owner, [sys.executable, "-c", script], **kwargs)
     with patch("acprof.tui.run.process.ProcessLifecycle.start", autospec=True, side_effect=start):
         async with app.run_test(size=(80, 24)) as pilot:
@@ -112,6 +115,7 @@ workflow.run("model", fail)
             assert app.execution.lifecycle.process is None
             config = app.configuration.collect_config()
             assert (config.model_source, config.model) == ("modelscope", "new/model")
+            assert config.tasks == ""
             assert not config.resume
             assert "modelscope-" in config.output_dir
             assert not app.query_one("#start-run", Button).disabled

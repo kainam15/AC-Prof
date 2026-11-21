@@ -77,7 +77,7 @@ def test_normalization_keeps_resource_order_paths_and_original_request(tmp_path)
     )
     config = replace(
         RunConfig.smoke(" fixture/model "), runtime="docker", task=" text-generation ",
-        task_family=" NLP ", backend=" transformers_pipeline ",
+        task_family=" NLP ", backend=" transformers_pipeline ", tasks=" first_task, second_task ",
         cpus=" 02,1,2 ", mems=" 04,8 ", cpuset_cpus="3,1-2", gpus=" CPU,1,off ",
         prune_startup_oom=False, input_scales=" 1.0,2e0 ",
         workload_spec=" workload.json ", model_spec=" model.json ",
@@ -91,7 +91,7 @@ def test_normalization_keeps_resource_order_paths_and_original_request(tmp_path)
     before = deepcopy(asdict(config))
     normalized = config.validate(project_dir=tmp_path)
     expected = replace(
-        config, model="fixture/model", task="text-generation", task_family="nlp",
+        config, model="fixture/model", task="text-generation", task_family="nlp", tasks="first_task,second_task",
         backend="transformers_pipeline", cpus="2,1,2", mems="4,8", cpuset_cpus="1-3",
         gpus="off,on,off", input_scales="1.0,2e0", workload_spec="workload.json",
         model_spec="model.json", inference_config="inference.json", confirm_inference="a" * 64,

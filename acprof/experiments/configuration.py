@@ -191,7 +191,8 @@ class RunConfig(RunOptions):
         """Validate static inputs; automatic preflight may retain a pending profiling mode."""
         pending_profiling = allow_auto_profiling and self.profiling_mode == "auto"
         errors: list[ConfigIssue] = []
-        for name, identifier in (("task_run_id", self.task_run_id), *[("tasks", item) for item in self.tasks.split(",")]):
+        task_ids = [item.strip() for item in self.tasks.split(",")]
+        for name, identifier in (("task_run_id", self.task_run_id), *[("tasks", item) for item in task_ids]):
             if identifier and not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", identifier):
                 errors.append(ConfigIssue(name, message("参数 {0} 必须是安全标识符", name)))
         if self.resume and self.rebuild_image:
@@ -225,6 +226,7 @@ class RunConfig(RunOptions):
             model=model,
             extra_options=extra_options,
             task=self.task.strip(),
+            tasks=",".join(task_ids),
             task_family=task_family,
             backend=self.backend.strip(),
             cpus="auto" if self.cpus == "auto" else ",".join(str(value) for value in cpus),
