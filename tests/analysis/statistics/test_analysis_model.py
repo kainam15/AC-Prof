@@ -500,3 +500,5 @@ class TestAnalysisModel:
         assert len(multi_model.configs) == 2
         with pytest.raises(ValueError, match="contains 2 task runs"):
             build_statistics_report(collection)
+        with pytest.raises(ValueError, match="contains 2 task runs"):
+            compare_results(collection, task_dir)

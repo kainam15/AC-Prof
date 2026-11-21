@@ -23,8 +23,6 @@ def build_statistics_report(path: Path, metrics=None, *, confidence=0.95, resamp
     if not isinstance(snapshot, ResultCsvSnapshot):
         raise snapshot
     assert metadata is not None  # A parsed table always has its owning metadata reader.
-    if snapshot.path != metadata.source:
-        raise ValueError(f"统计期间所选结果发生变化：{path}")
     report = summarize_windows(snapshot.rows, metrics or DEFAULT_STATISTICS_METRICS,
                                confidence=confidence, resamples=resamples, seed=seed,
                                block_size=block_size, precision_target=precision_target)

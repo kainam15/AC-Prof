@@ -291,11 +291,33 @@ def _audit_source_unchanged(snapshot, rows, *, borrowed, cancelled):
             and all(left == right for left, right in cancellable(zip(rows, current.rows, strict=True), cancelled)))
 
 
-def _load_result_rows(path, result_snapshot, verify_result_snapshot, report, issue, cancelled) -> AuditedRows:
+def _report_metadata_read_error(source, reader, error, issue, cancelled):
+    # A reader may have noticed that a directory or alias changed during metadata loading.
+    try:
+        reader.validate_source(source, cancelled=cancelled)
+    except (ValueError, OSError) as changed:
+        issue("changing_snapshot", changed)
+        return changed
+    issue("invalid_metadata", error)
+    return error
+
+
+def _verify_audited_table(loaded, supplied, issue, cancelled):
+    try:
+        if not _audit_source_unchanged(supplied or loaded, loaded.rows, borrowed=supplied is not None,
+                                      cancelled=cancelled):
+            issue("changing_snapshot", f"读取期间 CSV 发生变化：{loaded.path}，请采集结束后重新审计")
+    except (OSError, ValueError, csv.Error) as error:
+        issue("changing_snapshot", error)
+
+
+def _load_result_rows(path, selected_path, result_snapshot, report, issue, cancelled) -> AuditedRows:
     try:
         snapshot = result_snapshot or read_result_csv_snapshot(path, cancelled=cancelled)
-        if snapshot.path != path.resolve():
-            raise ValueError("result CSV snapshot belongs to a different path")
+        if snapshot.path != selected_path:
+            error = ValueError(f"result CSV snapshot belongs to a different path: {path} (read {snapshot.path})")
+            issue("changing_snapshot" if result_snapshot is None else "invalid_csv", error)
+            return error
         fields, rows = snapshot.fields, snapshot.rows
         report["result_sha256"] = snapshot.sha256
         state_id = recorded_run_id(report.get("run_id"))
@@ -307,9 +329,6 @@ def _load_result_rows(path, result_snapshot, verify_result_snapshot, report, iss
         if result_snapshot is not None:
             rows = validate_result_rows(fields, rows, snapshot.path, cancelled=cancelled,
                                         allow_empty=path.name == "result_layers.json").rows
-        if verify_result_snapshot and not _audit_source_unchanged(
-                snapshot, rows, borrowed=result_snapshot is not None, cancelled=cancelled):
-            issue("changing_snapshot", "读取期间 CSV 发生变化，请采集结束后重新审计")
         return ResultCsvSnapshot(snapshot.path, fields, rows, snapshot.sha256, snapshot.run_id)
     except ResultRunIdentityError as error:
         issue("run_id_mismatch", error)
@@ -486,8 +505,15 @@ def _finalize_measurement_status(report):
 def audit_result(source: str | Path, *, result_snapshot: ResultCsvSnapshot | None = None,
                  metadata_snapshot: ResultMetadataSnapshot | None = None,
                  verify_result_snapshot: bool = True, cancelled: Callable[[], bool] | None = None) -> dict:
-    report, _ = audit_result_snapshot(source, result_snapshot=result_snapshot, metadata_snapshot=metadata_snapshot,
-                                      verify_result_snapshot=verify_result_snapshot, cancelled=cancelled)
+    """Finish a standalone audit, including metadata changed while examining the table."""
+    report, rows, metadata = audit_with_metadata(source, result_snapshot=result_snapshot,
+                                                 metadata_snapshot=metadata_snapshot,
+                                                 verify_result_snapshot=verify_result_snapshot, cancelled=cancelled)
+    if verify_result_snapshot and isinstance(rows, ResultCsvSnapshot):
+        assert metadata is not None
+        for error in metadata.verification_errors(source, cancelled=cancelled):
+            report["valid"] = False
+            report["issues"].append({"code": "changing_snapshot", "message": str(error), "severity": "error"})
     return report
 
 
@@ -495,7 +521,7 @@ def audit_result_snapshot(source: str | Path, *, result_snapshot: ResultCsvSnaps
                           metadata_snapshot: ResultMetadataSnapshot | None = None,
                           verify_result_snapshot: bool = True,
                           cancelled: Callable[[], bool] | None = None) -> tuple[dict, AuditedRows]:
-    """Return the audited rows (or their original read error) without reopening the source."""
+    """Return rows or their read error to a caller that owns the metadata observation."""
     report, rows, _ = audit_with_metadata(source, result_snapshot=result_snapshot, metadata_snapshot=metadata_snapshot,
                                           verify_result_snapshot=verify_result_snapshot, cancelled=cancelled)
     return report, rows
@@ -527,7 +553,7 @@ def audit_with_metadata(source: str | Path, *, result_snapshot: ResultCsvSnapsho
         else:
             metadata_reader = metadata_snapshot
             path = metadata_reader.validate_source(source, cancelled=cancelled)
-        report["result_csv"] = str(path.resolve())
+        report["result_csv"] = str(metadata_reader.source)
         layout = metadata_reader.layout
     except (ValueError, OSError) as error:
         check_cancelled(cancelled)
@@ -545,8 +571,12 @@ def audit_with_metadata(source: str | Path, *, result_snapshot: ResultCsvSnapsho
             return {}
 
     report["layout_version"] = layout.layout_version
-    metadata, state = _audit_metadata(report, path, metadata_reader, read_json, issue, cancelled)
-    loaded = _load_result_rows(path, result_snapshot, verify_result_snapshot, report, issue, cancelled)
+    try:
+        metadata, state = _audit_metadata(report, path, metadata_reader, read_json, issue, cancelled)
+    except (ValueError, OSError) as error:
+        failure = _report_metadata_read_error(source, metadata_reader, error, issue, cancelled)
+        return report, failure, metadata_reader
+    loaded = _load_result_rows(path, metadata_reader.source, result_snapshot, report, issue, cancelled)
     if not isinstance(loaded, ResultCsvSnapshot):
         check_cancelled(cancelled)
         return report, loaded, metadata_reader
@@ -561,5 +591,7 @@ def audit_with_metadata(source: str | Path, *, result_snapshot: ResultCsvSnapsho
     _audit_plan_coverage(report, state, rows, issue, cancelled)
     _audit_rows(report, runtime, metadata, hardware, rows, issue, cancelled)
     _finalize_measurement_status(report)
+    if verify_result_snapshot:
+        _verify_audited_table(loaded, result_snapshot, issue, cancelled)
     check_cancelled(cancelled)
     return report, loaded, metadata_reader

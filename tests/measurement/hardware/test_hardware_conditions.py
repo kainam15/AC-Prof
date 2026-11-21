@@ -33,34 +33,26 @@ class TestHardwareConditions:
         assert (run_options(args)["cpuset_cpus"]) == ("0-2")
 
     def test_old_results_without_hardware_are_unknown(self):
-        from unittest.mock import patch
-
-        from acprof.analysis.comparison import compare_results
+        from acprof.analysis.comparison import compare_snapshots
         snapshot = self.comparison_snapshot()
         snapshot["hardware"] = dict.fromkeys(snapshot["hardware"])
-        with tempfile.TemporaryDirectory() as directory, patch(
-            "acprof.analysis.comparison.load_comparison_snapshot", return_value=snapshot
-        ):
-            report = compare_results(Path(directory), Path(directory), purpose="same-hardware")
+        report = compare_snapshots(snapshot, snapshot, purpose="same-hardware")
         assert (report["status"]) == ("unknown")
         assert (report["conditions"]["hardware_cpu_model"]["status"]) == ("unknown")
         assert not (report["native_baseline_eligible"])
 
     def test_purpose_distinguishes_hardware_changes_from_missing_evidence(self):
         from copy import deepcopy
-        from unittest.mock import patch
 
-        from acprof.analysis.comparison import compare_results
+        from acprof.analysis.comparison import compare_snapshots
         left = self.comparison_snapshot()
         right = deepcopy(left)
         right["hardware"]["cpu_model"]["1c_4g_off"] = ["different CPU"]
         for purpose, expected in (("same-hardware", "incompatible"), ("cross-hardware", "compatible")):
-            with patch("acprof.analysis.comparison.load_comparison_snapshot", side_effect=[left, right]):
-                report = compare_results("a", "b", purpose=purpose)
+            report = compare_snapshots(left, right, purpose=purpose)
             assert (report["status"]) == (expected)
         right["hardware"]["gpu"] = None
-        with patch("acprof.analysis.comparison.load_comparison_snapshot", side_effect=[left, right]):
-            assert (compare_results("a", "b", purpose="cross-hardware")["status"]) == ("unknown")
+        assert (compare_snapshots(left, right, purpose="cross-hardware")["status"]) == ("unknown")
 
     def test_requested_affinity_failure_is_recorded_and_stops_before_measurement(self):
         import json
@@ -113,15 +105,13 @@ class TestHardwareConditions:
 
     def test_cross_hardware_does_not_hide_unknown_policy_under_a_known_difference(self):
         from copy import deepcopy
-        from unittest.mock import patch
 
-        from acprof.analysis.comparison import compare_results
+        from acprof.analysis.comparison import compare_snapshots
         left = self.comparison_snapshot()
         right = deepcopy(left)
         left["hardware"]["gpu"]["1c_4g_off"] = {"model": "A", "power_limit_w": None}
         right["hardware"]["gpu"]["1c_4g_off"] = {"model": "B", "power_limit_w": 100}
-        with patch("acprof.analysis.comparison.load_comparison_snapshot", side_effect=[left, right]):
-            report = compare_results("a", "b", purpose="cross-hardware")
+        report = compare_snapshots(left, right, purpose="cross-hardware")
         assert (report["conditions"]["hardware_gpu"]["status"]) == ("unknown")
         assert (report["status"]) == ("unknown")
 

@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from acprof.analysis.audit import audit_result
-from acprof.analysis.comparison import compare_results
+from acprof.analysis.comparison import compare_results, compare_snapshots, load_comparison_snapshot
 from acprof.cli import audit
 from acprof.results import csv as result_csv
 from tests.analysis.comparison.test_comparison_source_integrity import (
@@ -164,8 +164,11 @@ def test_command_parses_each_table_once_and_keeps_both_reports(experiments, stor
                   for layer in json.loads((root / "result_layers.json").read_text())["layers"].values()]
 
     expected_left, expected_right = tables if storage == "legacy-directory" else (left, right)
-    expected = {**audit_result(expected_left), "comparison": compare_results(expected_left, expected_right),
-                "accepted": True}
+    expected = {
+        **audit_result(expected_left),
+        "comparison": compare_snapshots(load_comparison_snapshot(expected_left), load_comparison_snapshot(expected_right)),
+        "accepted": True,
+    }
     counts = Counter()
     parse = result_csv.parse_result_stream
 
@@ -177,6 +180,10 @@ def test_command_parses_each_table_once_and_keeps_both_reports(experiments, stor
     monkeypatch.setattr("acprof.result_store.protocol.parse_result_stream", counted)
     assert audit.main([str(left), "--compare", str(right), "--json", "--require-ok", "--require-complete"]) == 0
     assert json.loads(capsys.readouterr().out) == expected
+    assert counts == Counter(tables)
+
+    counts.clear()
+    assert compare_results(left, right) == expected["comparison"]
     assert counts == Counter(tables)
 
 
@@ -253,6 +260,8 @@ def test_invalid_layout_yields_comparison_diagnostics_and_preserves_other_side(e
     invalid, valid_side = (left, "right") if invalid_side == "left" else (right, "left")
     manifest = invalid / "result_manifest.json"
     manifest.write_text("{")
+    with pytest.raises(ValueError, match="result_manifest.json"):
+        compare_results(left, right)
     assert audit.main([str(left), "--compare", str(right), "--json"]) == 1
     report = json.loads(capsys.readouterr().out)
     assert not report["accepted"]
@@ -266,3 +275,140 @@ def test_invalid_layout_yields_comparison_diagnostics_and_preserves_other_side(e
         assert any(issue["code"] == "invalid_layout" for issue in report["issues"])
     else:
         assert report["valid"]
+
+
+def change_after_qualification(monkeypatch, update):
+    from acprof.analysis import comparison
+
+    original = comparison.compare_snapshots
+    applied = False
+
+    def compare(*args, **kwargs):
+        nonlocal applied
+        verdict = original(*args, **kwargs)
+        if not applied:
+            applied = True
+            update()
+        return verdict
+
+    monkeypatch.setattr(comparison, "compare_snapshots", compare)
+
+
+@pytest.mark.parametrize(("changed_side", "change"), [
+    ("left", "promote-legacy"), ("right", "retarget-alias"), ("left", "replace-invalid-quality"),
+])
+def test_strict_comparison_rechecks_user_sources_after_qualification(
+    experiments, monkeypatch, capsys, changed_side, change,
+):
+    left, right = experiments
+    root = left if changed_side == "left" else right
+    source = root
+    if change == "promote-legacy":
+        target = root / "result_layers.json"
+        staged = target.rename(root / "staged-manifest.json")
+    elif change == "retarget-alias":
+        original = root / "result_all.csv"
+        source = target = root / "selected.csv"
+        target.symlink_to(original.name)
+        replacement = root / "replacement.csv"
+        replacement.write_bytes(original.read_bytes())
+        staged = root / "next-link"
+        staged.symlink_to(replacement.name)
+    else:
+        target = root / "quality_checks.json"
+        target.write_text("{")
+        staged = root / "quality-next.json"
+        staged.write_text(json.dumps({"schema_version": 1, "checks": []}))
+
+    left, right = (source, right) if changed_side == "left" else (left, source)
+    args = [str(left), "--compare", str(right), "--json", "--require-comparable"]
+    assert audit.main(args) == 0
+    before = json.loads(capsys.readouterr().out)
+    assert before["comparison"]["status"] == "compatible"
+
+    change_after_qualification(monkeypatch, lambda: staged.replace(target))
+    assert audit.main(args) == 1
+    report = json.loads(capsys.readouterr().out)
+    verdict = report["comparison"]
+    assert not report["accepted"]
+    assert not verdict["valid"]
+    assert verdict["status"] == "incompatible"
+    assert not verdict["native_baseline_eligible"]
+    assert verdict["metric_comparability"]["latency_app_s"]["status"] == "not comparable"
+    assert not verdict["experiments"][changed_side]["valid"]
+    assert verdict["experiments"]["right" if changed_side == "left" else "left"]["valid"]
+    assert report["valid"] is (changed_side == "right")
+    assert verdict["experiments"][changed_side]["issues"]
+
+
+def test_comparison_reports_all_late_changes_on_both_sides(experiments, monkeypatch, capsys):
+    left, right = experiments
+    targets = [left / "static_meta.json", left / "hardware_conditions.json", right / "result_all.csv"]
+
+    def change_both_sides():
+        for path in targets:
+            path.write_bytes(path.read_bytes() + b"\n")
+
+    change_after_qualification(monkeypatch, change_both_sides)
+    assert audit.main([str(left), "--compare", str(targets[-1]), "--json", "--require-comparable"]) == 1
+    report = json.loads(capsys.readouterr().out)
+    sides = report["comparison"]["experiments"]
+    for side, paths in (("left", targets[:2]), ("right", targets[2:])):
+        assert not sides[side]["valid"]
+        for path in paths:
+            assert any(str(path) in message for message in sides[side]["issues"])
+    assert sum(item["code"] == "changing_snapshot" for item in report["issues"]) == 2
+
+
+def test_comparison_binds_rows_to_the_initial_target_when_alias_is_restored(experiments, monkeypatch, capsys):
+    from acprof.analysis import audit as source_audit
+
+    left, right = experiments
+    original = left / "result_all.csv"
+    alias = left / "selected.csv"
+    alias.symlink_to(original.name)
+    replacement = left / "substituted.csv"
+    replacement.write_bytes(original.read_bytes() + b"\n")
+    read = source_audit.read_result_csv_snapshot
+
+    def read_retargeted(path, *args, **kwargs):
+        if path == alias:
+            alias.unlink()
+            alias.symlink_to(replacement.name)
+        return read(path, *args, **kwargs)
+
+    def restore():
+        alias.unlink()
+        alias.symlink_to(original.name)
+
+    monkeypatch.setattr(source_audit, "read_result_csv_snapshot", read_retargeted)
+    change_after_qualification(monkeypatch, restore)
+    args = [str(alias), "--compare", str(right), "--json", "--require-comparable"]
+    assert audit.main(args) == 1
+    report = json.loads(capsys.readouterr().out)
+    assert not report["valid"]
+    assert not report["comparison"]["experiments"]["left"]["valid"]
+    assert report["comparison"]["experiments"]["right"]["valid"]
+
+
+def test_compare_results_agrees_with_strict_cli_when_left_changes_during_qualification(
+    experiments, monkeypatch, capsys,
+):
+    left, right = experiments
+    target = left / "static_meta.json"
+    original = target.read_bytes()
+
+    def mutate():
+        target.write_bytes(original + b"\n")
+
+    with monkeypatch.context() as patch:
+        change_after_qualification(patch, mutate)
+        direct = compare_results(left, right)
+    target.write_bytes(original)
+
+    change_after_qualification(monkeypatch, mutate)
+    assert audit.main([str(left), "--compare", str(right), "--json", "--require-comparable"]) == 1
+    checked = json.loads(capsys.readouterr().out)["comparison"]
+    assert checked["status"] == "incompatible"
+    assert not checked["valid"]
+    assert direct == checked

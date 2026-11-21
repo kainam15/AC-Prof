@@ -5,6 +5,7 @@ import csv
 import hashlib
 import json
 from collections import Counter, defaultdict
+from collections.abc import Iterator
 from dataclasses import dataclass
 from fractions import Fraction
 from pathlib import Path
@@ -490,31 +491,60 @@ def _comparison_evidence(metadata_snapshot: ResultMetadataSnapshot | None, audit
     }
 
 
-def _audited_input(source: str | Path) -> tuple[dict, dict, dict[Path, str | None]]:
-    audit, read, metadata = audit_with_metadata(source, verify_result_snapshot=False)
-    evidence = _comparison_evidence(metadata, audit, read)
-    fingerprints = metadata.observed_fingerprints() if metadata is not None else {}
-    if isinstance(read, ResultCsvSnapshot):
-        fingerprints[read.path] = read.sha256
-    return audit, evidence, fingerprints
+@dataclass
+class _AuditedInput:
+    source: str | Path
+    audit: dict
+    evidence: dict
+    metadata: ResultMetadataSnapshot | None
+    result_file: tuple[Path, str] | None
 
-
-def audit_and_compare_results(left: str | Path, right: str | Path, *, purpose: str = "same-hardware") -> dict:
-    """Share the audit and release each row table before the final content checks."""
-    if purpose not in PURPOSES:
-        raise ValueError(f"comparison purpose must be one of {PURPOSES}")
-    left_audit, lhs, left_files = _audited_input(left)
-    right_audit, rhs, right_files = _audited_input(right)
-    for audit, evidence, fingerprints in ((left_audit, lhs, left_files), (right_audit, rhs, right_files)):
-        for path, digest in fingerprints.items():
+    def verification_errors(self) -> Iterator[OSError | ValueError]:
+        if self.metadata is not None:
+            yield from self.metadata.verification_errors(self.source)
+        if self.result_file is not None:
+            path, digest = self.result_file
             try:
                 verify_result_source(path, digest)
             except (OSError, ValueError, csv.Error) as exc:
-                message = f"{path}: {exc}"
-                audit["valid"] = evidence["valid"] = evidence["audit"]["valid"] = False
-                audit["issues"].append({"code": "changing_snapshot", "message": message, "severity": "error"})
-                evidence["issues"].append(message)
-    return {**left_audit, "comparison": compare_snapshots(lhs, rhs, purpose=purpose)}
+                yield ValueError(f"{path}: {exc}")
+
+
+def _audited_input(source: str | Path, *, raise_layout_errors: bool) -> _AuditedInput:
+    audit, read, metadata = audit_with_metadata(source, verify_result_snapshot=False)
+    if raise_layout_errors and metadata is None and isinstance(read, (ValueError, OSError)):
+        raise read
+    evidence = _comparison_evidence(metadata, audit, read)
+    result_file = (read.path, read.sha256) if isinstance(read, ResultCsvSnapshot) else None
+    return _AuditedInput(source, audit, evidence, metadata, result_file)
+
+
+def _verified_comparison(
+    left: str | Path, right: str | Path, purpose: str, *, raise_layout_errors: bool,
+) -> tuple[dict, dict]:
+    """Share the audit and release each row table before the final content checks."""
+    if purpose not in PURPOSES:
+        raise ValueError(f"comparison purpose must be one of {PURPOSES}")
+    lhs = _audited_input(left, raise_layout_errors=raise_layout_errors)
+    rhs = _audited_input(right, raise_layout_errors=raise_layout_errors)
+    verdict = compare_snapshots(lhs.evidence, rhs.evidence, purpose=purpose)
+    changed = False
+    for side in (lhs, rhs):
+        for error in side.verification_errors():
+            changed = True
+            message = str(error)
+            side.audit["valid"] = side.evidence["valid"] = side.evidence["audit"]["valid"] = False
+            side.audit["issues"].append({"code": "changing_snapshot", "message": message, "severity": "error"})
+            side.evidence["issues"].append(message)
+    if changed:
+        verdict = compare_snapshots(lhs.evidence, rhs.evidence, purpose=purpose)
+    return lhs.audit, verdict
+
+
+def audit_and_compare_results(left: str | Path, right: str | Path, *, purpose: str = "same-hardware") -> dict:
+    """Include unreadable layouts in the audit so the other side can still be inspected."""
+    audit, verdict = _verified_comparison(left, right, purpose, raise_layout_errors=False)
+    return {**audit, "comparison": verdict}
 
 
 def compare_results(left: str | Path, right: str | Path, *, purpose: str = "same-hardware") -> dict:
@@ -523,9 +553,8 @@ def compare_results(left: str | Path, right: str | Path, *, purpose: str = "same
     Quality constraints describe a shared target, not proof that either model
     meets it. Missing legacy evidence is unknown and never reconstructed.
     """
-    if purpose not in PURPOSES:
-        raise ValueError(f"comparison purpose must be one of {PURPOSES}")
-    return compare_snapshots(load_comparison_snapshot(left), load_comparison_snapshot(right), purpose=purpose)
+    _, verdict = _verified_comparison(left, right, purpose, raise_layout_errors=True)
+    return verdict
 
 
 def _resource_scaling_workload(cases: dict | None) -> dict[str, dict] | None:
