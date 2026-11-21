@@ -242,7 +242,9 @@ I/O 字段以实际容器 PID 所属 cgroup 的 `io.stat` 为来源，不能用�
 摘要及其中已记录的请求契约都要求 `schema_version` 为 JSON 整数 `1`。
 例如 `true` 或 `1.0` 会使该行审计失败。各 variant 的正整数计数之和须等于
 `request_count`，也须与该窗口已记录的实际请求次数一致。缺列、缺失标记或 `contract: null`
-表示工作量证据未知，仍可核对该行的其他指标。
+表示工作量证据未知。`contract: null` 的 `count` 仍计入请求总数。整行摘要缺失时，
+比较器可从该行的 `repeat_in_window` 读取实际请求数。缺少两者时仅记录缺计数的窗口，
+详见[工作量比较](comparisons.md)。
 其 generation 上限与实际 token 数、图像和音频模态的区别见[Workload Contract](../profiling/measurement.md#workload-contract)。
 `basic` 使用 `latency_app_s` 和相应 application 分布指标；`latency_s` 仍专指 packet latency，不能互相替填。
 分析能耗／PMU 时先核对模式和[能力证据](../profiling/measurement.md#profiling-mode-与能力证据)，缺失数值继续为 `nan`。

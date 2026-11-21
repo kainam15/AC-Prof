@@ -144,11 +144,21 @@ acprof compare --left results/a1/model --left results/a2/model --left results/a3
 不兼容或条件未知时仍输出审计、失败／缺失统计，但差值、比值与区间为 `null`。
 
 实际 workload 按资源和输入尺度累计每个 variant 的请求计数，以精确约分后的比例比较分布。
+例如 3 个请求中有 2 个记录了相同契约，另 1 个为 `null`，报告会列出两个 variant，比例分别为
+`2/3` 和 `1/3`。工作量可比性为 `unknown`，其他配置仍可单独核对。
+历史窗口缺少整个摘要时，若 CSV 的 `repeat_in_window` 记录了有效的非负整数，则按此数累计未知契约请求。
+若请求数也缺失，该配置的 `request_count` 和各 variant 的 `proportion` 均为 `null`。
+此时 `observed_request_count` 是可核对的请求小计，`uncounted_windows` 是缺少计数的窗口数。
+整个实验都没有可用计数时，该侧工作量为 `null`。
 两个实验要凭相同分布判定工作量可比，契约须记录任务、批大小、场景类型、计划与实际输入尺度，
 以及输出的类型、形状和数量。非空契约缺少基础事实或含未知值时，报告保留已记录的维度、请求数和比例，
 可比性为 `unknown`；已知受控维度不一致时仍报告 `incompatible`。
 `99:1` 与 `1:99` 不等价；`99:1` 与 `990:10` 分布相同，仅 `request_counts_changed=true`。
 单一 workload 的自动窗口执行次数不同仍可比较；请求总数不充当单请求工作量。
+`request_counts_changed` 在至少一个配置的计数可证实不同时为 `true`，所有配置计数均已知且相等时为 `false`，其余为 `null`。
+在 `resource-scaling` 比较中，多个 CPU／内存配置映射到同一 GPU 和输入尺度时，
+报告汇总已记录的请求数，并在 `resource_cases` 中保留各原始配置的明细。
+组内工作量分布无法统一时，该组标为 `ambiguous`，其他尺度仍按各自的证据比较。
 `conditions.actual_workload` 保留两侧全部计数、比例、`reason` 和 `changed_dimensions` 的输入／输出维度分布。
 固定输出定义的 tabular／time-series 任务发生输出分布变化时不兼容；生成、检测或未声明固定输出的任务
 若只有输出观测变化，则为 `unknown` / `output_distribution_equivalence_unverified`，不假设随机差异无害，
