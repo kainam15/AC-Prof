@@ -100,6 +100,63 @@ def test_absolute_dotted_import_cannot_load_a_child_of_a_plain_module():
     assert "helpers/codec.py" not in caught.value.failure.evidence["source_sha256"]
 
 
+@pytest.mark.parametrize(("broken", "diagnostic"), [
+    ("def broken(", "a.py"), (" " * (512 * 1024 + 1), "source exceeds dependency analysis budget"),
+    (None, "read failed"),
+], ids=["syntax", "oversize", "read-error"])
+def test_failed_sources_count_towards_the_read_budget(monkeypatch, broken, diagnostic):
+    files = {"entry.py": "from . import a, b, c", "a.py": broken, "b.py": "", "c.py": ""}
+
+    def read(name):
+        if files[name] is None:
+            raise OSError("read failed")
+        return files[name]
+
+    reads = Mock(side_effect=read)
+    monkeypatch.setattr("acprof.runtime.dependencies.MAX_FILES", 2)
+    with pytest.raises(RuntimeFailure) as caught:
+        dependency_preflight(custom_task(files), PROFILES["cv-cpu"], read_source=reads)
+    assert [call.args[0] for call in reads.call_args_list] == ["entry.py", "a.py"]
+    failure = caught.value.failure
+    assert failure.reason_code == "runtime_dependency_unknown"
+    assert diagnostic in failure.detail
+    assert "source dependency file budget exceeded" in failure.detail
+    assert set(failure.evidence["source_sha256"]) == {"entry.py"}
+
+
+def test_unreadable_requirements_share_the_budget_with_python_sources(monkeypatch):
+    files = {"requirements.txt": "", "entry.py": ""}
+    reads = Mock(side_effect=OSError("requirements read failed"))
+    monkeypatch.setattr("acprof.runtime.dependencies.MAX_FILES", 1)
+    with pytest.raises(RuntimeFailure) as caught:
+        dependency_preflight(custom_task(files), PROFILES["cv-cpu"], read_source=reads)
+    reads.assert_called_once_with("requirements.txt")
+    assert "requirements read failed" in caught.value.failure.detail
+    assert "source dependency file budget exceeded" in caught.value.failure.detail
+
+
+def test_repeated_package_lookup_keeps_the_first_read_error_until_the_next_preflight():
+    files = {"entry.py": "import a, b", "a.py": "from helpers import codec", "b.py": "from helpers import codec",
+             "helpers/codec.py": "", "helpers/__init__.py": ""}
+    task = custom_task(files)
+    counts = Counter()
+
+    def read(name):
+        counts[name] += 1
+        if name == "helpers/__init__.py" and counts[name] == 1:
+            raise OSError("first initializer read failed")
+        return files[name]
+
+    with pytest.raises(RuntimeFailure) as caught:
+        dependency_preflight(task, PROFILES["cv-cpu"], read_source=read)
+    assert caught.value.failure.reason_code == "runtime_dependency_unknown"
+    assert "first initializer read failed" in caught.value.failure.detail
+    assert counts["helpers/__init__.py"] == 1
+    report = dependency_preflight(task, PROFILES["cv-cpu"], read_source=read)
+    assert set(report["source_sha256"]) == set(files)
+    assert counts["helpers/__init__.py"] == 2
+
+
 def test_relative_import_cannot_be_satisfied_from_above_the_snapshot():
     files = {"entry.py": "from ..utils import Model", "utils.py": "class Model: pass"}
     reads = Mock(side_effect=files.__getitem__)

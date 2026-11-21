@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import hashlib
+from collections.abc import Callable
 from typing import Any, Literal, TypedDict
 
 from acprof.failures import Failure, RuntimeFailure
@@ -53,6 +54,48 @@ MAX_FILES = 64
 RUNTIME_REQUIREMENTS = {"requirements.txt", "requirements-inference.txt", "requirements-runtime.txt"}
 
 
+class _FileLimitExceeded(ValueError):
+    """No more repository reads are allowed in this preflight."""
+
+
+class _PreflightSources:
+    def __init__(self, read_source: Callable[[str], str]):
+        self._read_source = read_source
+        self._remaining = MAX_FILES
+        self._trees: dict[str, ast.Module | str] = {}
+        self.sha256: dict[str, str] = {}
+
+    def _read(self, name: str) -> tuple[str, str]:
+        if not self._remaining:
+            raise _FileLimitExceeded("source dependency file budget exceeded")
+        self._remaining -= 1  # Failed reads and invalid documents cost a slot too.
+        text = self._read_source(name)
+        data = text.encode()
+        if len(data) > 512 * 1024:
+            subject = "requirements exceed" if name in RUNTIME_REQUIREMENTS else "source exceeds"
+            raise ValueError(f"{subject} dependency analysis budget")
+        return text, hashlib.sha256(data).hexdigest()
+
+    def requirements(self, name: str) -> str:
+        text, self.sha256[name] = self._read(name)
+        return text
+
+    def tree(self, name: str) -> ast.Module:
+        if name not in self._trees:
+            try:
+                text, digest = self._read(name)
+                self._trees[name] = ast.parse(text, filename=name)
+            except (OSError, SyntaxError, ValueError, RecursionError) as exc:
+                # Remember the first diagnostic, not a traceback retaining invalid source.
+                self._trees[name] = str(exc)
+                raise
+            self.sha256[name] = digest
+        observed = self._trees[name]
+        if isinstance(observed, str):
+            raise ValueError(observed)
+        return observed
+
+
 def dependency_preflight(task, profile, *, read_source) -> DependencyPreflightReport:
     """Read only pinned source/config, without importing or installing anything."""
     from packaging.markers import default_environment
@@ -68,9 +111,8 @@ def dependency_preflight(task, profile, *, read_source) -> DependencyPreflightRe
     configs = [task.model_config, *(value for value in metadata.values() if isinstance(value, dict))]
     pending = set().union(*(custom_code_files(config) for config in configs))
     records: list[DependencyRecord] = []
-    sources: dict[str, str] = {}
+    sources = _PreflightSources(read_source)
     requirements: list[Any] = []
-    trees: dict[str, ast.Module] = {}
     processed: set[str] = set()
     tokenizer = metadata.get("tokenizer_config.json", {})
     if tokenizer.get("tokenizer_class") in {"BertJapaneseTokenizer", "MecabTokenizer"} and tokenizer.get("word_tokenizer_type", "mecab") == "mecab":
@@ -89,10 +131,7 @@ def dependency_preflight(task, profile, *, read_source) -> DependencyPreflightRe
                 if name not in RUNTIME_REQUIREMENTS:
                     continue
                 try:
-                    source = read_source(name)
-                    if len(source.encode()) > 512 * 1024:
-                        raise ValueError("requirements exceed dependency analysis budget")
-                    sources[name] = hashlib.sha256(source.encode()).hexdigest()
+                    source = sources.requirements(name)
                     for line in source.splitlines():
                         line = line.split("#", 1)[0].strip()
                         if not line:
@@ -118,20 +157,7 @@ def dependency_preflight(task, profile, *, read_source) -> DependencyPreflightRe
                         "source": name, "status": "missing" if version is None else
                         "present" if requirement.specifier.contains(version, prereleases=True) else "incompatible"})
 
-    def load_tree(name: str) -> ast.Module:
-        if name in trees:
-            return trees[name]
-        if len(sources) >= MAX_FILES:
-            raise ValueError("source dependency file budget exceeded")
-        text = read_source(name)
-        if len(text.encode()) > 512 * 1024:
-            raise ValueError("source exceeds dependency analysis budget")
-        tree = ast.parse(text, filename=name)
-        sources[name] = hashlib.sha256(text.encode()).hexdigest()
-        trees[name] = tree
-        return tree
-
-    imports = RepositoryImports(files, load_tree)
+    imports = RepositoryImports(files, sources.tree)
     guarded_files: set[str] = set()
 
     def visit(nodes, name, conditional=False):
@@ -172,14 +198,14 @@ def dependency_preflight(task, profile, *, read_source) -> DependencyPreflightRe
         queue.remove(name)
         if name in processed:
             continue
-        if name not in trees and len(sources) >= MAX_FILES:
-            records.append({"status": "unknown", "detail": "source dependency file budget exceeded"})
-            break
+        processed.add(name)
         try:
-            tree = load_tree(name)
-            processed.add(name)
+            tree = sources.tree(name)
             visit(tree.body, name, guarded)
             queue.update(imports.package_initializers(name))
+        except _FileLimitExceeded as exc:
+            records.append({"status": "unknown", "source": name, "detail": str(exc)})
+            break
         except (OSError, SyntaxError, ValueError, RecursionError) as exc:
             records.append({"status": "unknown", "source": name, "detail": str(exc)})
     for record in records:
@@ -194,7 +220,7 @@ def dependency_preflight(task, profile, *, read_source) -> DependencyPreflightRe
             "unknown" if record["conditional"] or resolved_distribution is None else "missing")
     report: DependencyPreflightReport = {
         "schema_version": 1, "revision": task.model_revision, "runtime_profile": profile.profile_id,
-        "lock": profile.environment.requirements_lock, "source_sha256": sources, "dependencies": records,
+        "lock": profile.environment.requirements_lock, "source_sha256": sources.sha256, "dependencies": records,
     }
     task.model_resolution["dependency_preflight"] = report
     for status, code in (("missing", "runtime_dependency_missing"), ("incompatible", "runtime_dependency_incompatible"),

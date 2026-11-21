@@ -309,6 +309,7 @@ SAM/SAM2 目前只排除 `mask-generation + GPU + FP16 + Transformers 4.57.6`，
 `dependency_preflight` 只分析固定 commit 的源码：从 `auto_map/custom_pipelines` 出发遍历本地
 Python imports，最多 64 个文件、每文件 512 KiB；结合 tokenizer 配置及根目录
 `requirements.txt`、`requirements-inference.txt`、`requirements-runtime.txt` 比较最终 runtime lock。
+64 文件是本次预检的读取预算：requirements、读取失败、超限和语法错误均计入。解析同一初始化文件失败不在本次预检重试；下次预检重新判断。
 依赖预检与接口证据共用固定仓库内的模块定位规则。比如 `from .helpers import codec` 会检查 `helpers/__init__.py` 及需要加载的 `helpers/codec.py`；点分入口自己的父包初始化代码也进入检查。
 若包只定义常量，同名属性不触发子模块导入；复杂初始化（如循环导入）保留可能的子模块。本地路径无法解析时保留 `unknown`，不向宿主 `sys.path` 查找。
 只在条件分支可达的本地模块中缺少依赖不会误报为确定缺包；另有无条件路径时仍按必需处理。
