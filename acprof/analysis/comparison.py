@@ -5,7 +5,7 @@ import csv
 import hashlib
 import json
 from collections import Counter, defaultdict
-from collections.abc import Iterator
+from dataclasses import dataclass
 from fractions import Fraction
 from pathlib import Path
 from types import SimpleNamespace
@@ -36,7 +36,7 @@ from acprof.results.csv import (
 )
 from acprof.results.layout import resolve_single_result_source
 from acprof.results.metadata import ResultMetadataSnapshot
-from acprof.results.metrics import METRICS
+from acprof.results.metrics import NUMERIC_FIELDS
 from acprof.results.profile import USABLE_QUALITIES, metric_observation, observation_signature
 from acprof.runtime.settings import RUNTIME_ENV_NAMES
 
@@ -174,32 +174,57 @@ def _workload_condition(left, right):
                        "actual_workload_evidence_incomplete" if incomplete else "output_distribution_equivalence_unverified")}
 
 
-def _metric_observations(rows: list[dict], name: str) -> Iterator[dict]:
-    for row in rows:
-        value = row.get(name)
-        if value is None or (type(value) is str and value in MISSING_CSV_TEXT):
-            continue
-        if number(value) is not None:
-            yield metric_observation(row, name)
+def _has_metric_value(value: object) -> bool:
+    if value is None or (type(value) is str and value in MISSING_CSV_TEXT):
+        return False
+    return number(value) is not None
 
 
 def _metric_availability(rows: list[dict[str, str]]) -> dict[str, bool]:
-    return {name: any(item['quality'] in USABLE_QUALITIES for item in _metric_observations(rows, name))
-            for name, metric in METRICS.items() if metric.kind == "number"}
+    return {name: any(_has_metric_value(row.get(name)) and metric_observation(row, name)["quality"] in USABLE_QUALITIES
+                      for row in rows) for name in NUMERIC_FIELDS}
+
+
+@dataclass(slots=True)
+class _MetricEvidence:
+    count: int = 0
+    available: bool = False
+    quality: str = "complete"
+    signature: str | None = None
+
+    def observe(self, item: dict) -> None:
+        quality = item["quality"]
+        if quality in USABLE_QUALITIES:
+            self.available = True
+            if quality != "complete" and self.quality == "complete":
+                self.quality = "unknown"
+        else:
+            self.quality = "incomplete"
+        if not self.count:
+            self.signature = observation_signature(item)
+        elif self.signature is not None and self.signature != observation_signature(item):
+            self.signature = None
+        self.count += 1
+
+
+def _metric_evidence(rows: list[dict]) -> tuple[dict[str, bool], dict[str, dict]]:
+    """Reduce finite observations once, retaining one contract summary per numeric field."""
+    states = {name: _MetricEvidence() for name in NUMERIC_FIELDS}
+    for row in rows:
+        for name, value in row.items():
+            state = states.get(name)
+            if state is not None and _has_metric_value(value):
+                state.observe(metric_observation(row, name))
+    windows = len(rows)
+    availability = {name: state.available for name, state in states.items()}
+    contracts = {name: {"quality": state.quality if state.count else "unknown",
+                        "all_windows": windows > 0 and state.count == windows,
+                        "signature": state.signature} for name, state in states.items()}
+    return availability, contracts
 
 
 def _metric_contracts(rows: list[dict]) -> dict:
-    contracts = {}
-    for name, metric in METRICS.items():
-        if metric.kind != 'number':
-            continue
-        observed = list(_metric_observations(rows, name))
-        signatures = {observation_signature(item) for item in observed}
-        contracts[name] = {'quality': 'incomplete' if any(item['quality'] not in USABLE_QUALITIES for item in observed)
-                          else 'complete' if observed and all(item['quality'] == 'complete' for item in observed) else 'unknown',
-                           'all_windows': bool(rows) and len(observed) == len(rows),
-                           'signature': next(iter(signatures)) if len(signatures) == 1 else None}
-    return contracts
+    return _metric_evidence(rows)[1]
 
 
 def _read_snapshot_json(metadata_snapshot: ResultMetadataSnapshot, name: str, issues: list[str]) -> dict:
@@ -402,13 +427,14 @@ def _comparison_evidence(metadata_snapshot: ResultMetadataSnapshot | None, audit
     host = _object_field(state, "host", issues)
     collector_protocol = _collector_protocol(metadata, issues)
     measured_rows = [row for row in rows if result_row_status(row) == "ok" and measurement_key(row)[4] == "0"]
+    availability, contracts = _metric_evidence(measured_rows)
     formal_count = audit["counts"]["rows"] - audit["counts"]["warmup"]
     return {
         **recorded_identity(metadata),
         "inference_configuration_validation": _object_field(metadata, "runtime_validation", issues)
             if configuration else None,
-        "metric_availability": _metric_availability(measured_rows),
-        "metric_contracts": _metric_contracts(measured_rows),
+        "metric_availability": availability,
+        "metric_contracts": contracts,
         "run_id": state.get("run_id"), "result_csv": audit["result_csv"],
         "run_status": audit["run_status"], "measurement_status": audit["measurement_status"],
         "missing_metrics": audit["missing_metrics"],
