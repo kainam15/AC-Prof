@@ -25,6 +25,7 @@ from acprof.tui.run.progress import ProgressSnapshot
 from acprof.tui.run.results import RunArtifacts, inspect_run_result
 from acprof.tui.run.stages import Stage
 from tests.support.tui_fixtures import AcprofTui
+from tests.support.tui_waits import wait_for_condition
 
 
 def write_csv(path, latencies=(0.01, 0.2)):
@@ -36,6 +37,26 @@ def write_csv(path, latencies=(0.01, 0.2)):
         for scale, latency in zip((64, 128), latencies, strict=True):
             writer.writerow(dict(cpu_cores=1, mem_cap_gb=4, gpu_mode="off", input_scale=scale,
                                  warmup=0, repeat_idx=0, status="ok", latency_app_s=latency))
+
+
+def test_data_inspection_rejects_selected_alias_retargeted_before_csv_read(tmp_path):
+    from acprof.results.csv import read_result_csv_snapshot
+
+    first, second, alias = tmp_path / "first.csv", tmp_path / "second.csv", tmp_path / "alias.csv"
+    write_csv(first)
+    second.write_bytes(first.read_bytes())
+    alias.symlink_to(first)
+
+    def retarget_before_read(source, **kwargs):
+        alias.unlink()
+        alias.symlink_to(second)
+        return read_result_csv_snapshot(source, **kwargs)
+
+    with (
+        patch("acprof.results.csv.read_result_csv_snapshot", side_effect=retarget_before_read),
+        pytest.raises(ValueError, match=r"alias\.csv"),
+    ):
+        inspect_experiment_data(alias)
 
 
 def test_overlapping_offline_reads_keep_measurement_excluded_until_last_reader():
@@ -351,6 +372,57 @@ class TestTuiReliability:
             assert not (app.execution.session.stop_requested)
             app.consume_process_line("Profiling complete!", ProgressSnapshot(stage=Stage.COMPLETED), True)
             assert (app.execution.session.snapshot.stage) == (Stage.VERIFYING_ARTIFACT)
+
+    async def test_data_worker_uses_quality_beside_selected_csv_alias(self):
+        path = self.directory / "original" / "windows.csv"
+        write_csv(path)
+        selected = self.directory / "selected" / "alias.csv"
+        selected.parent.mkdir()
+        selected.symlink_to(path)
+        for directory, code in ((path.parent, "target_check"), (selected.parent, "selected_check")):
+            check = {"code": code, "severity": "error", "detail": "fixture quality", "evidence": {}}
+            quality = {"schema_version": 1, "checks": [check]}
+            (directory / "quality_checks.json").write_text(json.dumps(quality))
+        app = self.make_app()
+        async with app.run_test(size=(120, 30)) as pilot:
+            app.results.select_result(str(selected))
+            await wait_for_condition(pilot, lambda: app.results.data_status is not None or bool(app.results.data_error),
+                                     description="selected CSV data inspection", timeout=5)
+            status = app.results.data_status
+            assert status is not None
+            assert status.path == path
+            text = str(app.query_one("#result-data-status", Static).content)
+            assert "selected_check" in text
+            assert "target_check" not in text
+            assert status.profiler_overview is None
+
+    async def test_data_worker_discards_quality_when_failed_metadata_becomes_readable(self):
+        from acprof.tui.results.profile_status import inspect_profile_result
+
+        selected = self.directory / "windows.csv"
+        write_csv(selected)
+        metadata = self.directory / "static_meta.json"
+        metadata.write_text("{")
+        (self.directory / "quality_checks.json").write_text('{"schema_version":1,"checks":[]}')
+        app = self.make_app()
+
+        def repair_after_audit(*args, **kwargs):
+            metadata.write_text("{}")
+            return inspect_profile_result(*args, **kwargs)
+
+        async with app.run_test(size=(120, 30)) as pilot:
+            with patch("acprof.tui.results.profile_status.inspect_profile_result", side_effect=repair_after_audit):
+                app.results.select_result(str(selected))
+                await wait_for_condition(pilot, lambda: app.results.data_status is not None or bool(app.results.data_error),
+                                         description="changed metadata inspection", timeout=5)
+            assert app.results.data_status is None
+            text = str(app.query_one("#result-data-status", Static).content)
+            assert "static_meta.json" in text
+            assert "passed" not in text
+            app.results.refresh_data_status()
+            await wait_for_condition(pilot, lambda: app.results.data_status is not None,
+                                     description="refreshed data quality", timeout=5)
+            assert app.results.data_status.audit["quality_status"] == "passed"
 
     async def test_background_summary_keeps_ui_responsive_and_only_shows_latest_selection(self):
         app = self.make_app()

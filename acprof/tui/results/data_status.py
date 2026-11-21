@@ -7,7 +7,6 @@ from pathlib import Path
 
 from acprof.cancellation import cancellable, check_cancelled
 from acprof.messages import join_messages
-from acprof.results.layout import resolve_result_file
 from acprof.tui.i18n import error_message, message_id
 from acprof.tui.results.profile_status import ProfilerOverview
 
@@ -27,7 +26,6 @@ class ExperimentDataStatus:
 
 def inspect_experiment_data(source: Path, *, cancelled: Callable[[], bool] | None = None) -> ExperimentDataStatus:
     from acprof.analysis.audit import audit_result
-    from acprof.artifacts import file_sha256
     from acprof.results.csv import (
         is_measured_success,
         preview_window_phase,
@@ -39,12 +37,13 @@ def inspect_experiment_data(source: Path, *, cancelled: Callable[[], bool] | Non
     from acprof.tui.results.report_files import existing_html_report, html_report_state
 
     check_cancelled(cancelled)
-    path = resolve_result_file(source, cancelled=cancelled)
-    snapshot = read_result_csv_snapshot(path, validate_measurements=False, cancelled=cancelled)
+    metadata = ResultMetadataSnapshot(source, cancelled=cancelled)
+    snapshot = read_result_csv_snapshot(metadata.source, validate_measurements=False, cancelled=cancelled)
+    if snapshot.path != metadata.source:
+        raise ValueError(message_id("results.summary.snapshot_unverified", f"result source changed: {source}"))
     if "status" not in snapshot.fields:
         raise ValueError(message_id("results.csv.invalid_header"))
-    metadata = ResultMetadataSnapshot(path, cancelled=cancelled)
-    audit = audit_result(snapshot.path, result_snapshot=snapshot, metadata_snapshot=metadata,
+    audit = audit_result(source, result_snapshot=snapshot, metadata_snapshot=metadata,
                          verify_result_snapshot=False, cancelled=cancelled)
     check_cancelled(cancelled)
     overview, profile_error = None, ""
@@ -61,14 +60,9 @@ def inspect_experiment_data(source: Path, *, cancelled: Callable[[], bool] | Non
     except (OSError, ValueError):
         html, html_state = None, "damaged"
     try:
-        if resolve_result_file(source, cancelled=cancelled).resolve() != snapshot.path:
-            raise ValueError(f"result source changed: {source}")
         verify_result_source(snapshot.path, snapshot.sha256, cancelled=cancelled)
+        metadata.verify_current(source, cancelled=cancelled)
         fingerprints = metadata.observed_fingerprints(cancelled=cancelled)
-        for artifact, expected in cancellable(fingerprints.items(), cancelled):
-            actual = file_sha256(artifact, cancelled=cancelled) if artifact.is_file() else None
-            if actual != expected:
-                raise ValueError(f"metadata changed: {artifact}")
     except (OSError, ValueError) as exc:
         raise ValueError(message_id("results.summary.snapshot_unverified", str(exc))) from exc
     identity = tuple(sorted((str(artifact), digest) for artifact, digest in fingerprints.items()))
