@@ -33,6 +33,7 @@ if TYPE_CHECKING:
 KEY_FIELDS = ("cpu_cores", "mem_cap_gb", "gpu_mode", "input_scale", "warmup", "repeat_idx")
 type ExpectedMeasurements = RecordedMeasurementPlan | Iterable[MeasurementKey]
 MISSING_CSV_TEXT = frozenset({"", "nan", "none", "null", "n/a"})
+_MISSING_RUN_IDS = MISSING_CSV_TEXT | {"unknown"}
 # Python 3.12 accepts a C long; later versions accept a Py_ssize_t.
 _CSV_FIELD_LIMIT = min(sys.maxsize, (1 << (8 * struct.calcsize("l") - 1)) - 1)
 
@@ -65,6 +66,7 @@ class ResultCsvSnapshot:
     fields: list[str]
     rows: list[dict[str, str]]
     sha256: str
+    run_id: str | None = None  # Recorded by the v3 root manifest, even with no rows.
 
 
 @dataclass(frozen=True)
@@ -81,6 +83,35 @@ class ValidatedResultRows:
 
 class ResultValidationError(ValueError):
     """输入不完整或无法唯一归属到计划中的测量。"""
+
+
+class ResultRunIdentityError(ResultValidationError):
+    """Recorded result identities contradict one another or are malformed."""
+
+
+def recorded_run_id(value: object) -> str | None:
+    """Return an explicit run ID, preserving case and ignoring historical missing markers."""
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ResultRunIdentityError(f"invalid run_id: expected a string, observed {value!r}")
+    text = value.strip()
+    return None if text.lower() in _MISSING_RUN_IDS else text
+
+
+def run_id_column(fields: Iterable[str]) -> str | None:
+    """Locate the original identity header in a CSV that may carry surrounding spaces."""
+    names = [field for field in fields if field.strip() == "run_id"]
+    if len(names) > 1:
+        raise ResultRunIdentityError(f"duplicate CSV columns for run_id: {names!r}")
+    return names[0] if names else None
+
+
+def require_matching_run_id(expected: object, observed: object, *, source: str) -> None:
+    """Reject conflicting recorded IDs while allowing historical rows without one."""
+    expected_id, observed_id = recorded_run_id(expected), recorded_run_id(observed)
+    if expected_id is not None and observed_id is not None and observed_id != expected_id:
+        raise ResultRunIdentityError(f"{source}: inconsistent run_id: expected {expected_id!r}, observed {observed_id!r}")
 
 
 def require_expected_measurements(actual: Collection[MeasurementKey], expected: ExpectedMeasurements | None, *,
@@ -413,19 +444,25 @@ def result_csv_snapshot_unchanged(snapshot: ResultCsvSnapshot, *, verify_rows: b
     if file_sha256(snapshot.path, cancelled=cancelled) != snapshot.sha256:
         return False
     if snapshot.path.name == "result_layers.json":
+        from acprof.artifacts import read_json_object
         from acprof.results.layers import read_result_layers
         try:
             if not verify_rows:
                 verify_result_source(snapshot.path, snapshot.sha256, cancelled=cancelled)
                 return True
-            fields, rows = read_result_layers(snapshot.path.parent, cancelled=cancelled)
+            manifest = read_json_object(snapshot.path, expected_sha256=snapshot.sha256, cancelled=cancelled)
+            manifest_id = manifest.get("run_id") if manifest.get("schema_version") == 3 else None
+            if snapshot.run_id != manifest_id:
+                return False
+            fields, rows = read_result_layers(snapshot.path.parent, expected_manifest_sha256=snapshot.sha256,
+                                              cancelled=cancelled)
         except (ValueError, OSError, csv.Error):
             return False
         row_pairs = zip_longest(rows, snapshot.rows)
         return (fields == snapshot.fields and len(rows) == len(snapshot.rows)
                 and all(current == retained for current, retained in cancellable(row_pairs, cancelled))
                 and file_sha256(snapshot.path, cancelled=cancelled) == snapshot.sha256)
-    return True
+    return snapshot.run_id is None
 
 
 def verify_result_source(artifact: str | Path, expected_sha256: str | None, *,

@@ -25,7 +25,12 @@ from acprof.result_store.protocol import (
 from acprof.result_store.recovery import clear_pending, projected_rows, recover_projection
 from acprof.result_store.sources import EXACT_KEY_ENCODING, apply_source
 from acprof.result_store.types import ResultReference, ResultSource
-from acprof.results.csv import ResultValidationError, measurement_key
+from acprof.results.csv import (
+    ResultValidationError,
+    measurement_key,
+    require_matching_run_id,
+    run_id_column,
+)
 from acprof.results.layout import ArtifactLayout
 from acprof.system.cleanup import cleanup_on_exit
 
@@ -111,9 +116,12 @@ class ResultWriter:
         seen = set()
         fields = self.manifest["wide_fields"]
         allowed_fields = set(fields)
+        identity_column = run_id_column(fields) or "run_id"
+        source_path = str(self.layout.root)
         for incoming in rows:
             if not allowed_fields.issuperset(incoming):
                 raise ResultValidationError("unknown derivation fields")
+            require_matching_run_id(self.manifest["run_id"], incoming.get(identity_column), source=source_path)
             key = measurement_key(incoming)
             if key in seen:
                 raise ResultValidationError("duplicate measurement in derivation")

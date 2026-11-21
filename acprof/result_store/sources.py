@@ -7,7 +7,13 @@ from typing import TYPE_CHECKING
 
 from acprof.artifacts import file_sha256
 from acprof.result_store.protocol import IDENTITY_FIELDS, read_reference, reference_path
-from acprof.results.csv import KEY_FIELDS, ResultValidationError, measurement_key
+from acprof.results.csv import (
+    KEY_FIELDS,
+    ResultValidationError,
+    measurement_key,
+    require_matching_run_id,
+    run_id_column,
+)
 from acprof.results.layout import ArtifactLayout
 from acprof.results.windows import read_window_record, verify_window_record_evidence
 
@@ -129,9 +135,12 @@ def apply_source(layout, manifest, source, rows, windows, *, legacy_keys=None):
         raise ResultValidationError("unknown result source")
     update = _read_derivation(layout, manifest, source)
     encoding = update.get("measurement_key_encoding")
+    identity_column = run_id_column(fields) or "run_id"
+    source_path = source["reference"]["path"]
     for row in update.get("insert", []):
         if not isinstance(row, dict) or set(row) - set(fields) or not all(isinstance(value, str) for value in row.values()):
             raise ResultValidationError("invalid derived outcome fields")
+        require_matching_run_id(manifest["run_id"], row.get(identity_column), source=source_path)
         key = measurement_key(row)
         if key in rows:
             raise ResultValidationError("duplicate derived outcome")
@@ -151,6 +160,8 @@ def apply_source(layout, manifest, source, rows, windows, *, legacy_keys=None):
         if any(name in IDENTITY_FIELDS or name in ("cpu_cores", "mem_cap_gb", "gpu_mode", "input_scale", "warmup", "repeat_idx")
                for name in values):
             raise ResultValidationError("derivation cannot change measurement identity")
+        if identity_column in values:
+            require_matching_run_id(manifest["run_id"], values[identity_column], source=source_path)
         rows[key] = {**rows[key], **values}
 
 

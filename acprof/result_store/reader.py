@@ -20,6 +20,8 @@ from acprof.results.csv import (
     ResultCsvSnapshot,
     ResultValidationError,
     require_expected_measurements,
+    require_matching_run_id,
+    run_id_column,
 )
 from acprof.results.layers import (
     BASE_LAYERS,
@@ -96,7 +98,11 @@ def read_snapshot(root, *, expected: ExpectedMeasurements | None = None, expecte
                 raise ResultValidationError(f"invalid {layer} row count")
             if layer == "summary":
                 summary_keys = keys
-                combined = dict(cancellable(zip(keys, rows, strict=True), cancelled))
+                source = str(paths[layer])
+                identity_column = run_id_column(info["fields"]) or "run_id"
+                for key, row in cancellable(zip(keys, rows, strict=True), cancelled):
+                    require_matching_run_id(manifest["run_id"], row.get(identity_column), source=source)
+                    combined[key] = row
             elif layer in BASE_LAYERS and keys != summary_keys:
                 raise ResultValidationError(f"measurement order mismatch in {layer}")
             if layer != "summary":
@@ -111,7 +117,7 @@ def read_snapshot(root, *, expected: ExpectedMeasurements | None = None, expecte
         fields = manifest["wide_fields"]
         rows = consume_layer_rows(fields, summary_keys, combined, cancelled=cancelled)
         check_cancelled(cancelled)
-        result = ResultCsvSnapshot(layout.result_csv, fields, rows, digest(snapshot.content))
+        result = ResultCsvSnapshot(layout.result_csv, fields, rows, digest(snapshot.content), run_id=manifest["run_id"])
     if expected_manifest_sha256 is not None and result.sha256 != expected_manifest_sha256:
         raise ResultValidationError("layered results changed during read")
     require_expected_measurements(summary_keys, expected, layered=True, cancelled=cancelled)
