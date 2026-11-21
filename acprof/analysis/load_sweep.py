@@ -7,7 +7,7 @@ from dataclasses import dataclass, fields
 from pathlib import Path
 from typing import Any
 
-from acprof.analysis.load_report import analyze_load_report
+from acprof.analysis.load_report import analyze_load_report, load_failure_diagnostics
 from acprof.artifacts import file_sha256, read_json_object_snapshot, require_schema_version
 from acprof.experiments.load import MAX_SWEEP_POINTS, LoadConfig
 
@@ -192,8 +192,9 @@ def _read_point(
                    evidence_status="valid" if complete else "partial")
         if point["status"] != state:
             row["diagnostics"].append(f"manifest status {point['status']} differs from report status {state}")
-        if report["experiment"].get("error"):
-            row["diagnostics"].append(str(report["experiment"]["error"]))
+        for message in load_failure_diagnostics(report["experiment"]):
+            if message not in row["diagnostics"]:
+                row["diagnostics"].append(message)
     except (OSError, ValueError, TypeError, KeyError) as error:
         row.update(evidence_status="missing" if isinstance(error, FileNotFoundError) else "invalid")
         row["diagnostics"].append(f"{type(error).__name__}: {error}")

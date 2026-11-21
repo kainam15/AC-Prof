@@ -135,6 +135,28 @@ def test_historical_chat_protocols_have_separate_curves(sweep_reader, tmp_path, 
     assert first["condition_id"] == third["condition_id"] != second["condition_id"]
 
 
+def test_unmeasured_point_shows_warmup_failure_without_adding_capacity(sweep_reader, tmp_path):
+    root = make_sweep(tmp_path / "sweep")
+    path = root / "points/0003/load.json"
+    point = json.loads(path.read_text())
+    del point["result"]
+    point.update(status="failed", successful=False, error="RuntimeError: warmup failed",
+                 phase_errors={"warmup": {"exception_type": "RuntimeError", "detail": "warmup failed"}},
+                 warmup={"requests": [{"status": "error", "error_code": "http_error", "http_status": 503}]})
+    path.write_text(json.dumps(point))
+    change_manifest(root, lambda manifest: (
+        manifest.update(status="failed", successful=False),
+        manifest["points"][2].update(status="failed", successful=False, run_id=None, error=point["error"]),
+    ))
+    report = sweep_reader.read_load_sweep(root).payload
+    assert report["valid_points"] == 2
+    failed = report["points"][2]
+    assert not failed["curve_eligible"]
+    assert failed["metrics"] == {}
+    assert failed["condition_id"] is None
+    assert "warmup.requests[0]: http_error (HTTP 503)" in "\n".join(failed["diagnostics"])
+
+
 def test_missing_token_and_slo_evidence_is_not_zero(sweep_reader, tmp_path):
     root = make_sweep(tmp_path / "sweep")
     change_point(root, 2, lambda experiment: (

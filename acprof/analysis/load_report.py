@@ -166,6 +166,48 @@ def _validate_summary(
     _validate_completion(experiment, result, counts["succeeded"] == counts["offered"])
 
 
+def _first_warmup_failure(warmup: Any) -> str | None:
+    records = warmup.get("requests") if isinstance(warmup, dict) else None
+    if not isinstance(records, list):
+        return None
+    for index, row in enumerate(records):
+        if not isinstance(row, dict) or row.get("status") not in ("error", "cancelled", "dropped"):
+            continue
+        code = row.get("error_code")
+        code = code if isinstance(code, str) and code else row["status"]
+        status = row.get("http_status")
+        http = f" (HTTP {status})" if type(status) is int and 100 <= status <= 599 else ""
+        return f"warmup.requests[{index}]: {code}{http}"
+    return None
+
+
+def load_failure_diagnostics(experiment: Mapping[str, Any]) -> list[str]:
+    """Describe recorded terminal failures without using warmup to derive load metrics."""
+    if experiment.get("status") not in ("failed", "cancelled"):
+        return []
+    error = experiment.get("error")
+    messages: list[str] = []
+    phases = experiment.get("phase_errors")
+    for phase in ("warmup", "result"):
+        entry = phases.get(phase) if isinstance(phases, dict) else None
+        if not isinstance(entry, dict):
+            continue
+        kind, detail = entry.get("exception_type"), entry.get("detail")
+        if not isinstance(kind, str) or not kind or not isinstance(detail, str):
+            continue
+        cause = f"{kind}: {detail}"
+        # Outer cleanup may have appended notes after the phase recorded the cause.
+        if isinstance(error, str) and (error == cause or error.startswith(cause + "\n")):
+            cause, error = error, None
+        messages.append(f"{phase}: {cause}")
+    if isinstance(error, str) and error.strip():
+        messages.insert(0, error)
+    warmup = _first_warmup_failure(experiment.get("warmup"))
+    if warmup:
+        messages.append(warmup)
+    return messages
+
+
 def read_load_report(source: str | Path) -> dict[str, Any]:
     path = Path(source)
     path = path / "load.json" if path.is_dir() else path
@@ -186,7 +228,10 @@ def analyze_load_report(experiment: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("capacity report supports only stream_load_experiment schema v1/v2/v3")
     result = experiment.get("result")
     if not isinstance(result, dict) or result.get("kind") != "stream_load_result":
-        raise ValueError("stream load experiment has no stream_load_result")
+        message = "stream load experiment has no stream_load_result"
+        if "result" not in experiment:
+            message = "\n".join([message, *load_failure_diagnostics(experiment)])
+        raise ValueError(message)
     require_schema_version(result, version, "stream load result")
     if version == 3:
         validate_dataset_inputs(experiment)

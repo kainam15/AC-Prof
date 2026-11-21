@@ -254,7 +254,7 @@ def test_sweep_freezes_file_and_maps_bodies_by_request_id(tmp_path, monkeypatch,
 
 
 @pytest.mark.parametrize("warmup", [0, 1])
-def test_failed_responses_keep_input_mapping_and_phase(tmp_path, local_only, warmup):
+def test_failed_responses_keep_input_mapping_and_phase(tmp_path, local_only, warmup, capsys):
     from acprof.analysis.load_report import read_load_report
 
     source, output = tmp_path / "requests.jsonl", tmp_path / "failed"
@@ -275,6 +275,13 @@ def test_failed_responses_keep_input_mapping_and_phase(tmp_path, local_only, war
     if warmup:
         assert payload["status"] == "failed"
         assert "result" not in payload
+        with pytest.raises(SystemExit) as refused:
+            main(["report", str(output)])
+        assert refused.value.code == 1
+        diagnostic = capsys.readouterr().err
+        assert "warmup: RuntimeError: streaming warmup failed" in diagnostic
+        assert "warmup.requests[0]: http_error (HTTP 503)" in diagnostic
+        assert not (output / "load_report.html").exists()
     else:
         assert read_load_report(output)["capacity"]["counts"]["succeeded"] == 0
 

@@ -229,8 +229,10 @@ def test_cli_publishes_probe_cleanup_diagnostics_and_preserves_cancellation(
         source = output / "load.json"
         if cancelled:
             # Probe cancellation has diagnostics but no measured capacity evidence.
-            with pytest.raises(ValueError, match="no stream_load_result"):
+            with pytest.raises(ValueError, match="no stream_load_result") as refused:
                 read_load_report(source)
+            assert "KeyboardInterrupt: fixture response read failed" in str(refused.value)
+            assert "fixture connection close failed" in str(refused.value)
         else:
             read_load_report(source)
         report = json.loads(source.read_text())

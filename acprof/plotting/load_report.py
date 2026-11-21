@@ -7,7 +7,10 @@ from html import escape
 from pathlib import Path
 from typing import Any, TextIO
 
-from acprof.analysis.load_report import read_load_report as read_load_report
+from acprof.analysis.load_report import (
+    load_failure_diagnostics,
+    read_load_report as read_load_report,
+)
 from acprof.analysis.streaming import STREAMING_LATENCY_METRICS
 from acprof.analysis.streaming_capacity import SLO_METRICS
 from acprof.artifacts import atomic_write
@@ -243,6 +246,14 @@ def _server_metrics_section(data: Mapping[str, Any]) -> str:
     )
 
 
+def _failure_section(experiment: Mapping[str, Any]) -> str:
+    diagnostics = load_failure_diagnostics(experiment)
+    if not diagnostics:
+        return ""
+    items = "".join(f"<li>{escape(message)}</li>" for message in diagnostics)
+    return f'<section class="failure"><h2>Experiment failure</h2><ul>{items}</ul></section>'
+
+
 def render_load_report(data: Mapping[str, Any]) -> str:
     experiment = data["experiment"]
     result = data["result"]
@@ -256,6 +267,7 @@ def render_load_report(data: Mapping[str, Any]) -> str:
         "color:#172033}.table-scroll{max-width:100%;overflow-x:auto}"
         "table{border-collapse:collapse;width:100%;margin:1rem 0 2rem}"
         "th,td{border:1px solid #ccd3df;padding:.45rem;text-align:left}th{background:#f2f5f9}"
+        ".failure li{white-space:pre-wrap;overflow-wrap:anywhere}"
         ".boundary{padding:1rem;background:#fff4ce;border:1px solid #d6b656}</style></head><body>"
         "<h1>AC-Prof single-point load capacity</h1>"
         "<p class=\"boundary\">One offered load point only. This is not a capacity curve or a maximum-capacity estimate.</p>"
@@ -263,6 +275,7 @@ def render_load_report(data: Mapping[str, Any]) -> str:
             ["run_id", experiment.get("run_id")], ["schema_version", version],
             ["experiment_status", experiment.get("status")], ["request_successful", result.get("successful")],
         ])
+        + _failure_section(experiment)
         + _service_section(experiment, version)
         + _workload_section(experiment)
         + _server_metrics_section(data)

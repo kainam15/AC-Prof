@@ -116,6 +116,36 @@ def test_single_point_server_phase_table_is_readable(browser_page, tmp_path, met
     page.wait_for_function("document.documentElement.scrollWidth <= innerWidth")
 
 
+def test_partial_point_shows_phase_and_cleanup_errors_alongside_measured_requests(browser_page, tmp_path):
+    from acprof.plotting.load_report import write_load_report
+
+    page, open_report = browser_page
+    root = make_sweep(tmp_path / "sweep")
+    cause = "connection close <failed>"
+    note = "Cleanup failed for metrics: fixture offline"
+    change_point(root, 3, lambda point: point.update(
+        status="failed", error=f"OSError: {cause}\n{note}",
+        phase_errors={"result": {"exception_type": "OSError", "detail": cause}},
+    ))
+    change_manifest(root, lambda manifest: (
+        manifest.update(status="failed", successful=False),
+        manifest["points"][2].update(status="failed", successful=False),
+    ))
+    sweep_html = open_report(root)
+    row = page.locator("#points tr").filter(has_text="0003")
+    assert f"result: OSError: {cause}" in row.inner_text()
+    assert note in row.inner_text()
+    assert traces(page)[0]["y"] == [1, 2, None]
+
+    point_html = sweep_html.parent / "point.html"
+    write_load_report(root / "points/0003/load.json", point_html)
+    page.goto(point_html.as_uri())
+    failure = page.locator("section").filter(has=page.get_by_role("heading", name="Experiment failure"))
+    assert f"result: OSError: {cause}" in failure.inner_text()
+    assert note in failure.inner_text()
+    assert page.get_by_role("row", name="succeeded 4", exact=True).is_visible()
+
+
 def traces(page):
     return page.evaluate("document.getElementById('chart').data.map(t => ({name:t.name,x:t.x,y:t.y,mode:t.mode,connectgaps:t.connectgaps}))")
 

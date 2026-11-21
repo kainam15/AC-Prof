@@ -222,6 +222,10 @@ def test_metrics_http_failure_preserves_evidence_and_fails_run(tmp_path, failure
     if failure == "before":
         assert events == ["request", "metrics"]
         assert "result" not in report
+        with pytest.raises(ValueError, match="no stream_load_result") as refused:
+            read_load_report(output)
+        assert "GET /metrics returned HTTP 503" in str(refused.value)
+        assert "warmup.requests[" not in str(refused.value)
     else:
         assert report["result"]["counts"]["succeeded"] == 3
         assert read_load_report(output)["server_metrics"]["status"] == "error"
