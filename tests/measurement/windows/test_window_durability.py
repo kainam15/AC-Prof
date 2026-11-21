@@ -283,6 +283,31 @@ def test_direct_receipt_confirms_external_telemetry_tree_before_publication(wind
     assert publish_receipt(context, window_id, row, telemetry, sequence)
 
 
+@pytest.mark.parametrize("external_target", [False, True], ids=["canonical", "external"])
+def test_direct_receipt_rechecks_leaf_for_a_new_telemetry_entry(window, tmp_path, monkeypatch, external_target):
+    _, context, first, row = window
+    publish_receipt(context, first, row, publish_telemetry(context, first), 1)
+    second = "window-2"
+    external = replace(context, telemetry_dir=str(tmp_path / "imported"))
+    prepared, target = (context, external) if external_target else (external, context)
+    reference = publish_telemetry(prepared, second)
+    receipt = context.record_path(second)
+    evidence = Path(target.telemetry_dir) / receipt.name
+    sync = ParentSync(monkeypatch, evidence)
+    with pytest.raises(OSError, match="injected parent fsync failure"):
+        publish_telemetry(target, second)
+    assert evidence.exists()
+    reference["path"] = os.path.relpath(evidence, receipt.parent)
+    row = {**row, **context.identity(second), "repeat_idx": "1"}
+    for _ in range(2):
+        with pytest.raises(OSError, match="injected parent fsync failure"):
+            publish_receipt(context, second, row, reference, 2)
+        assert not receipt.exists()
+    sync.blocked = False
+    assert publish_receipt(context, second, row, reference, 2)
+    assert sync.calls == 4
+
+
 @pytest.mark.parametrize("kind", ["windows", "telemetry"])
 def test_orphan_restore_confirms_attempt_ancestors_before_append(window, monkeypatch, kind):
     case, ctx, window_id, row = window
@@ -321,8 +346,10 @@ def test_later_windows_reuse_confirmed_attempt_ancestors(window, monkeypatch):
     monkeypatch.setattr(os, "fsync", sync)
     second = "window-2"
     telemetry = publish_telemetry(context, second)
+    leaf = ParentSync(monkeypatch, Path(context.telemetry_dir) / context.record_path(second).name)
     publish_receipt(context, second, {**row, **context.identity(second), "repeat_idx": "1"}, telemetry, 2)
     assert context.record_path(second).is_file()
+    assert leaf.calls == 0
 
 
 @pytest.mark.parametrize("invalid", ["sequence", "telemetry", "existing-receipt"])
@@ -369,3 +396,21 @@ def test_direct_reference_leaves_unused_telemetry_directory_absent(window, tmp_p
     reference = publish_telemetry(external, window_id)
     assert publish_receipt(context, window_id, row, reference, None)
     assert not Path(context.telemetry_dir).exists()
+
+
+def test_direct_symlink_reference_confirms_entry_and_target_directories(window, tmp_path, monkeypatch):
+    _, context, window_id, row = window
+    reference = publish_telemetry(context, window_id)
+    receipt = context.record_path(window_id)
+    target = (receipt.parent / reference["path"]).resolve()
+    alias = tmp_path / "imported-telemetry.json"
+    alias.symlink_to(target)
+    reference["path"] = str(alias)
+    target_sync = ParentSync(monkeypatch, target)
+    alias_sync = ParentSync(monkeypatch, alias)
+    for sync in (alias_sync, target_sync):
+        with pytest.raises(OSError, match="injected parent fsync failure"):
+            publish_receipt(context, window_id, row, reference, None)
+        assert not receipt.exists()
+        sync.blocked = False
+    assert publish_receipt(context, window_id, row, reference, None)

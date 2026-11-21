@@ -18,11 +18,18 @@ from acprof.artifacts import (
     create_durable_directory,
     loads_finite_json,
     publish_immutable_bytes,
+    sync_directory,
     sync_directory_chain,
 )
 from acprof.telemetry import canonical_bytes, read_window_evidence, write_window_evidence
 
 WINDOW_RECORD_SCHEMA_VERSION = 1
+
+
+@dataclass
+class _WindowSyncState:
+    confirmed_dirs: set[Path] = field(default_factory=set)
+    prepared_telemetry: tuple[Path, str] | None = None
 
 
 @dataclass(frozen=True)
@@ -32,12 +39,14 @@ class WindowPublicationContext:
     case_attempt_id: str
     records_dir: str
     telemetry_dir: str
-    _confirmed_dirs: set[Path] = field(default_factory=set, init=False, repr=False, compare=False)
+    _sync: _WindowSyncState = field(default_factory=_WindowSyncState, init=False, repr=False, compare=False)
 
     def confirm_attempt_directory(self, directory: Path, *, include_contents: bool = False) -> None:
-        """Confirm the canonical attempt's directory entries once in this publisher."""
+        """Sync requested contents, then confirm canonical ancestors once per publisher."""
+        if include_contents:
+            sync_directory(directory)
         requested = directory.absolute()
-        if requested in self._confirmed_dirs:
+        if requested in self._sync.confirmed_dirs:
             return
         directory = requested.resolve()
         records = Path(self.records_dir).resolve()
@@ -52,8 +61,8 @@ class WindowPublicationContext:
             if not raw.exists():
                 create_durable_directory(raw)
             directory.mkdir(parents=True, exist_ok=True)
-        sync_directory_chain(directory if include_contents else directory.parent, raw)
-        self._confirmed_dirs.update((requested, directory))
+        sync_directory_chain(directory.parent, raw)
+        self._sync.confirmed_dirs.update((requested, directory))
 
     def identity(self, window_id: str) -> dict[str, str]:
         values = {"run_id": self.run_id, "case_id": self.case_id,
@@ -90,8 +99,11 @@ def prepare_window_telemetry(context: WindowPublicationContext, window_id: str,
     identity = context.identity(window_id)
     if evidence.get("identity") != identity:
         raise ValueError("window telemetry identity mismatch")
-    reference = write_window_evidence(Path(context.telemetry_dir) / window_filename(window_id), evidence)
-    context.confirm_attempt_directory(Path(context.telemetry_dir))
+    path = Path(context.telemetry_dir) / window_filename(window_id)
+    reference = write_window_evidence(path, evidence)
+    context.confirm_attempt_directory(path.parent)
+    # The successful write synced this particular directory entry, including on reuse.
+    context._sync.prepared_telemetry = (path.parent.resolve() / path.name, reference["sha256"])
     reference["path"] = os.path.relpath(reference["path"], context.record_path(window_id).parent)
     return reference
 
@@ -108,7 +120,9 @@ def commit_window_record(context: WindowPublicationContext, *, window_id: str,
     destination = context.record_path(window_id)
     # Verify existing evidence before making the final commit marker visible.
     digest = _telemetry_sha256(telemetry_reference)
-    telemetry_path = (destination.parent / telemetry_reference["path"]).resolve()
+    reference_path = destination.parent / telemetry_reference["path"]
+    entry = reference_path.parent.resolve() / reference_path.name
+    telemetry_path = entry.resolve()
     evidence = read_window_evidence(telemetry_path, expected_sha256=digest)
     if evidence.get("identity") != identity:
         raise ValueError("referenced window telemetry identity mismatch")
@@ -134,7 +148,11 @@ def commit_window_record(context: WindowPublicationContext, *, window_id: str,
     payload = canonical_bytes(record) + b"\n"
 
     def confirm_directories() -> None:
-        context.confirm_attempt_directory(telemetry_path.parent, include_contents=True)
+        if context._sync.prepared_telemetry != (entry, digest):
+            context.confirm_attempt_directory(entry.parent, include_contents=True)
+        if telemetry_path.parent != entry.parent:
+            # A direct reference can be a symlink to evidence in another directory.
+            context.confirm_attempt_directory(telemetry_path.parent, include_contents=True)
         context.confirm_attempt_directory(destination.parent)
 
     publish_immutable_bytes(destination, payload, conflict="refusing to replace a committed window record",
