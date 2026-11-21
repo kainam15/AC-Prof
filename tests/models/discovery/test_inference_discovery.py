@@ -47,6 +47,19 @@ def test_module_chain_suppresses_backbone_task_and_skips_selection(identifier):
     assert any(item["scope"] == "component" for item in task.model_resolution["evidence"])
 
 
+def test_prefilled_encoder_metadata_binds_only_settings_reached_by_the_loader():
+    from acprof.models.evidence import content_digest
+
+    active = {"sentence_roberta_config.json": {"max_seq_length": 32}}
+    task = model(library="sentence-transformers", metadata={
+        **active, "sentence_xlnet_config.json": {"max_seq_length": 128},
+        "modules.json": [{"idx": 0, "path": "", "type": "sentence_transformers.base.modules.transformer.Transformer"},
+                         {"idx": 1, "path": "pool", "type": "sentence_transformers.models.Pooling"}],
+    })
+    execution = resolve(task).model_resolution["execution"]
+    assert execution["components"][0]["configuration_sha256"] == content_digest(active)
+
+
 def test_registered_single_head_automatically_materializes_workload():
     task = resolve(model(config={"architectures": ["GPT2LMHeadModel"], "model_type": "gpt2"}))
     workflow = Mock(spec=PreparationWorkflow, interactive=True)

@@ -6,7 +6,11 @@ from typing import Any
 from acprof.extensions import CATALOG
 from acprof.models.evidence import content_digest
 from acprof.models.files import ModelFilesError
-from acprof.models.sentence_modules import module_config_paths, sentence_module_name
+from acprof.models.sentence_modules import (
+    module_config_groups,
+    read_config_groups,
+    sentence_module_name,
+)
 from acprof.models.spec import task_model_spec
 
 
@@ -46,9 +50,10 @@ def module_components(metadata: dict, protocol: dict) -> list[dict]:
             raise ValueError(f"module chain cannot supply required inputs for {kind}")
         available.update(contract["outputs"])
         try:
-            paths = module_config_paths(kind, path)
+            groups = module_config_groups(kind, path)
         except ModelFilesError as exc:
             raise ValueError("module paths must stay inside the model snapshot") from exc
+        paths = read_config_groups(groups, lambda name: bool(metadata.get(name)))
         configs = {name: metadata[name] for name in paths if name in metadata}
         components.append({"index": index, "type": kind, "path": path,
                            "configuration_sha256": content_digest(configs)})

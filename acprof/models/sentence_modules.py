@@ -1,6 +1,7 @@
 """Static class references and component files used by the sentence encoder loader."""
 from __future__ import annotations
 
+from collections.abc import Callable, Iterable
 from pathlib import PurePosixPath
 
 from acprof.models.files import Checkpoint, ModelFilesError, safe_path
@@ -39,6 +40,17 @@ _MODULE_FILES = {
     "StaticEmbedding": ("tokenizer.json", True),
 }
 
+# Transformer.load_config checks these names in order, independently of the backbone config.json.
+_TRANSFORMER_SETTINGS = (
+    "sentence_bert_config.json",
+    "sentence_roberta_config.json",
+    "sentence_distilbert_config.json",
+    "sentence_camembert_config.json",
+    "sentence_albert_config.json",
+    "sentence_xlm-roberta_config.json",
+    "sentence_xlnet_config.json",
+)
+
 
 def sentence_module_name(reference: object) -> str | None:
     return _MODULE_NAMES.get(reference) if isinstance(reference, str) else None
@@ -52,18 +64,31 @@ def module_prefix(path: object) -> str:
     return "" if directory == "." else safe_path(directory) + "/"
 
 
-def module_config_paths(reference: object, path: object) -> tuple[str, ...]:
-    """Small configuration files used for discovery and the component digest."""
+def module_config_groups(reference: object, path: object) -> tuple[tuple[str, ...], ...]:
+    """Each group is an independent configuration with ordered filename alternatives."""
     prefix = module_prefix(path)
     kind = sentence_module_name(reference)
-    if kind is None or kind == "Transformer":
-        # Preserve the generic metadata convention for extension-defined modules.
-        return (prefix + "config.json", prefix + "sentence_bert_config.json")
+    if kind == "Transformer":
+        return ((prefix + "config.json",), tuple(prefix + name for name in _TRANSFORMER_SETTINGS))
+    if kind is None:
+        # Extension-defined modules historically use both files independently.
+        return ((prefix + "config.json",), (prefix + "sentence_bert_config.json",))
     if kind in {"Normalize", "StaticEmbedding"}:
-        # StaticEmbedding loads tokenizer and weight assets, Normalize has no settings.
         return ()
     filename = "config.json" if kind == "Dropout" else _MODULE_FILES[kind][0]
-    return (prefix + filename,)
+    return ((prefix + filename,),)
+
+
+def read_config_groups(groups: Iterable[tuple[str, ...]], read: Callable[[str], bool]) -> tuple[str, ...]:
+    """Return attempted paths in order. False from read permits trying the next alternative."""
+    visited: dict[str, bool] = {}
+    for alternatives in groups:
+        for path in alternatives:
+            if path not in visited:
+                visited[path] = read(path)
+            if visited[path]:
+                break
+    return tuple(visited)
 
 
 def sentence_module_checkpoint(kind: str, names: set[str], prefix: str) -> Checkpoint | None:

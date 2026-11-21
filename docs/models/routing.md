@@ -217,6 +217,13 @@ CNN、LSTM 和 WordEmbeddings 分别读取模块目录中的 `cnn_config.json`�
 Normalize 无需读取配置。StaticEmbedding 的 `tokenizer.json` 由制品检查核对，静态发现不展开词表。
 专用配置包含非有限数值时，诊断记录文件、字段位置和原始字节 SHA256。[Sentence Transformers 5.6.0 模块源码](https://github.com/huggingface/sentence-transformers/tree/v5.6.0/sentence_transformers/sentence_transformer/modules)
 
+Transformer 模块分别读取 backbone 的 `config.json` 和句向量设置。后者依次尝试
+`sentence_{bert,roberta,distilbert,camembert,albert,xlm-roberta,xlnet}_config.json`，
+读到第一个非空 JSON 对象后停止。仓库清单中缺少文件或文件内容为 `{}` 时继续，
+已列出的文件损坏或读取失败时报告原始错误。组件摘要包含实际读取的配置路径和内容。
+仅有部分缓存时，如果 Hugging Face SDK 已记录该 commit 中没有某个文件，解析器可尝试下一个文件。
+普通缓存未命中只说明本机缺少这份数据，解析器会在此处停止回退。[上游 Transformer 加载顺序](https://github.com/huggingface/sentence-transformers/blob/v5.6.0/sentence_transformers/base/modules/transformer.py#L2117-L2142)与[Hugging Face 缓存查询语义](https://huggingface.co/docs/huggingface_hub/en/package_reference/cache#huggingface_hub.try_to_load_from_cache)
+
 完整编码链拥有其 backbone：底层 MLM/CausalLM head 和库标签只作组件证据，不产生独立任务。
 未知模块、断开的 feature 依赖、非法路径或缺少最终输出均要求配置，不导入远程模块来猜测。
 Hub API 暂时不可用时，静态发现从所选来源的缓存读取 `modules.json`，按该清单的实际 commit

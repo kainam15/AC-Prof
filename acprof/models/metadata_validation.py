@@ -7,7 +7,7 @@ import math
 from typing import Any
 
 from acprof.models.files import ModelFilesError
-from acprof.models.sentence_modules import module_config_paths
+from acprof.models.sentence_modules import module_config_groups
 
 MAX_METADATA_DEPTH = 256
 
@@ -23,7 +23,7 @@ class MetadataValidationError(ValueError):
         ))
 
 
-def module_config_files(modules: Any, raw_sha256: str) -> tuple[str, ...]:
+def manifest_config_groups(modules: Any, raw_sha256: str) -> tuple[tuple[str, ...], ...]:
     """Validate every declared directory before returning any snapshot-relative reads."""
     def invalid(pointer: str, detail: str) -> MetadataValidationError:
         return MetadataValidationError([{"reason_code": "metadata_invalid", "file": "modules.json",
@@ -33,16 +33,14 @@ def module_config_files(modules: Any, raw_sha256: str) -> tuple[str, ...]:
         raise invalid("", "modules.json must contain list")
     if len(modules) > 64:
         raise invalid("", "modules.json exceeds 64 modules")
-    names: dict[str, None] = {}
+    groups: list[tuple[str, ...]] = []
     for index, module in enumerate(modules):
         declaration = module if isinstance(module, dict) else {}
         try:
-            paths = module_config_paths(declaration.get("type"), declaration.get("path"))
+            groups.extend(module_config_groups(declaration.get("type"), declaration.get("path")))
         except ModelFilesError as exc:
             raise invalid(f"/{index}/path", "module path must stay inside the model snapshot") from exc
-        for name in paths:
-            names[name] = None
-    return tuple(names)
+    return tuple(groups)
 
 
 def finite_metadata_diagnostics(

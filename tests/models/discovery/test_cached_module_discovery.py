@@ -108,6 +108,36 @@ def test_invalid_cached_module_metadata_blocks_even_with_a_task(snapshot, filena
     )
 
 
+@pytest.mark.parametrize("preferred", ["cached_empty", "known_absent", "not_cached"])
+def test_cached_legacy_transformer_settings_require_evidence_for_higher_priority_files(snapshot, preferred):
+    from acprof.models.evidence import content_digest
+
+    write(snapshot, "modules.json", [module(0, "", "Transformer"), module(1, "pool", "Pooling")])
+    first = "sentence_bert_config.json"
+    second = "sentence_roberta_config.json"
+    raw = write(snapshot, second, {"max_seq_length": 32})
+    expected = {"config.json": BACKBONE}
+    if preferred == "cached_empty":
+        write(snapshot, first, {})
+        expected[first] = {}
+    elif preferred == "known_absent":
+        negative = snapshot.parent.parent / ".no_exist" / SHA / first
+        negative.parent.mkdir(parents=True)
+        negative.touch()
+    if preferred != "not_cached":
+        expected[second] = {"max_seq_length": 32}
+
+    task = detect_task(MODEL, revision="main")
+    require_task_support(task)
+    assert task.model_resolution["execution"]["components"][0]["configuration_sha256"] == content_digest(expected)
+    assert task.model_resolution["artifact_layout"]["status"] == "unknown"
+    if preferred == "not_cached":
+        assert second not in task.repository_metadata
+    else:
+        source = task.metadata_sources[second]
+        assert (source["sha256"], source["revision"]) == (hashlib.sha256(raw).hexdigest(), SHA)
+
+
 def test_invalid_cached_cnn_configuration_reports_the_original_file_and_field(snapshot):
     write(snapshot, "modules.json", [module(0, "", "Transformer"), module(1, "conv", "CNN"),
                                      module(2, "pool", "Pooling")])

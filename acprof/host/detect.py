@@ -22,9 +22,10 @@ from acprof.models.files import ModelFilesError
 from acprof.models.metadata_validation import (
     MetadataValidationError,
     finite_metadata_diagnostics,
-    module_config_files,
+    manifest_config_groups,
     parse_metadata_json,
 )
+from acprof.models.sentence_modules import read_config_groups
 
 
 @dataclass
@@ -132,10 +133,12 @@ def _raw_metadata_source(metadata: MetadataFile, revision: str) -> dict[str, Any
             "revision": revision, "encoding": "raw"}
 
 
-def _repository_json(metadata: MetadataFile, name: str, pending: list[str], sha256: str) -> Any:
+def _repository_json(
+    metadata: MetadataFile, name: str, pending: list[tuple[str, ...]], sha256: str,
+) -> Any:
     value = _read_json_metadata(metadata, filename=name)
     if name == "modules.json":
-        pending.extend(path for path in module_config_files(value, sha256) if path not in pending)
+        pending.extend(manifest_config_groups(value, sha256))
     elif not isinstance(value, dict):
         raise MetadataValidationError([{"reason_code": "metadata_invalid", "file": name, "json_pointer": "",
                                         "raw_sha256": sha256, "detail": f"{name} must contain dict"}])
@@ -149,8 +152,9 @@ def _repository_metadata(
     from acprof.models.artifact_layout import checkpoint_metadata_indexes
     from acprof.models.evidence import pinned_revision
 
-    files = tuple(sorted({str(getattr(item, "rfilename", "")) for item in
-                          (getattr(info, "siblings", None) or []) if getattr(item, "rfilename", "")}))
+    inventory = {str(item.rfilename) for item in (getattr(info, "siblings", None) or [])
+                 if getattr(item, "rfilename", "")}
+    files = tuple(sorted(inventory))
     metadata, errors, diagnostics, sources = {}, [], [], {}
     if files and not pinned_revision(revision):
         return {"repository_files": files, "repository_metadata": {},
@@ -159,16 +163,19 @@ def _repository_metadata(
     names = ["config.json", "model_index.json", "modules.json", "adapter_config.json",
              "acprof_model.json", "tokenizer_config.json", "processor_config.json", "preprocessor_config.json",
              "generation_config.json", "config_sentence_transformers.json"]
-    if "modules.json" not in files:
+    if "modules.json" not in inventory:
         names.append("sentence_bert_config.json")
 
-    def read_name(name: str) -> None:
-        if files and name not in files:
-            return
+    groups: list[tuple[str, ...]] = [(name,) for name in names]
+
+    def read_name(name: str) -> bool:
+        if inventory and name not in inventory:
+            return False
         try:
             downloaded = _download_metadata(model_id, name, revision)
             sources[name] = _raw_metadata_source(downloaded, revision)
-            metadata[name] = _repository_json(downloaded, name, names, sources[name]["sha256"])
+            metadata[name] = _repository_json(downloaded, name, groups, sources[name]["sha256"])
+            return bool(metadata[name])
         except MetadataValidationError as exc:
             diagnostics.extend(exc.diagnostics)
             errors.append(f"{name}: {_format_failure(exc)}")
@@ -177,12 +184,13 @@ def _repository_metadata(
                 errors.append(f"{name}: {_format_failure(exc)}")
             else:
                 _record_failure(lookup_diagnostics, "model_index", _format_failure(exc))
+        # A listed file failed to load. Its error takes precedence over later alternatives.
+        return True
 
     if files:
-        for name in names:
-            read_name(name)
+        read_config_groups(groups, read_name)
         try:
-            indexes = checkpoint_metadata_indexes(set(files), metadata)
+            indexes = checkpoint_metadata_indexes(inventory, metadata)
         except ValueError as exc:
             errors.append(f"checkpoint layout: {_format_failure(exc)}")
         else:
@@ -566,19 +574,21 @@ def _detect_from_hub(
     )
 
 
-def _cached_metadata_file(model_id: str, name: str, revision: str | None) -> MetadataFile | None:
-    """Read a file from the selected source's cache without a network request."""
+def _cached_metadata_file(model_id: str, name: str, revision: str | None) -> tuple[MetadataFile | None, bool]:
+    """Return cached bytes and whether the Hub explicitly recorded that the file is absent."""
     from acprof.host.model_store.store import cached_metadata
     from acprof.hub.repository import model_source
 
     source = model_source()
     metadata = cached_metadata(model_id, name, revision, source=source, max_bytes=METADATA_MAX_BYTES)
     if metadata is not None or source != "huggingface":
-        return metadata
-    from huggingface_hub import try_to_load_from_cache
+        return metadata, False
+    from huggingface_hub import _CACHED_NO_EXIST, try_to_load_from_cache
 
     path = try_to_load_from_cache(model_id, name, revision=revision)
-    return read_metadata_file(path, max_bytes=METADATA_MAX_BYTES) if isinstance(path, str) else None
+    if isinstance(path, str):
+        return read_metadata_file(path, max_bytes=METADATA_MAX_BYTES), False
+    return None, path is _CACHED_NO_EXIST
 
 
 def _fallback_config_info(
@@ -602,17 +612,22 @@ def _fallback_config_info(
     )
     try:
         if filename == "modules.json":
-            names = ["config.json", "config_sentence_transformers.json"]
-            info.repository_metadata[filename] = _repository_json(metadata, filename, names, source["sha256"])
-            for name in names:
-                item = _cached_metadata_file(model_id, name, revision)
+            groups: list[tuple[str, ...]] = [("config.json",), ("config_sentence_transformers.json",)]
+            info.repository_metadata[filename] = _repository_json(metadata, filename, groups, source["sha256"])
+
+            def read_cached(name: str) -> bool:
+                item, known_absent = _cached_metadata_file(model_id, name, revision)
                 if item is None:
-                    continue
+                    # An ordinary cache miss cannot rule out this higher-priority file.
+                    return not known_absent
                 suffix = ("snapshots", revision, *Path(name).parts)
                 if item.path.parts[-len(suffix):] != suffix:
                     raise ModelFilesError(f"cached {name} belongs to a different model revision")
-                source = info.metadata_sources[name] = _raw_metadata_source(item, revision)
-                info.repository_metadata[name] = _repository_json(item, name, names, source["sha256"])
+                record = info.metadata_sources[name] = _raw_metadata_source(item, revision)
+                info.repository_metadata[name] = _repository_json(item, name, groups, record["sha256"])
+                return bool(info.repository_metadata[name])
+
+            read_config_groups(groups, read_cached)
             info.model_config = _architecture_metadata(info.repository_metadata.get("config.json"))
         else:
             config_data = _read_json_metadata(metadata, filename=filename)
@@ -634,7 +649,7 @@ def _detect_from_config(
     stage = "model_index"
     try:
         for filename, stage in (("model_index.json", "model_index"), ("modules.json", "modules_json")):
-            cached = _cached_metadata_file(model_id, filename, requested_revision)
+            cached, _ = _cached_metadata_file(model_id, filename, requested_revision)
             if cached is None:
                 continue
             info = _fallback_config_info(model_id, requested_revision, filename, cached)

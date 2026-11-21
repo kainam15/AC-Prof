@@ -10,6 +10,7 @@ from acprof.host.preparation.task_support import TaskSupportError, require_task_
 REVISION = "a" * 40
 MODEL_ID = "fixture/module-validation"
 CONFIG = {"model_type": "bert", "architectures": ["BertModel"]}
+SETTINGS_ORDER = ("bert", "roberta", "distilbert", "camembert", "albert", "xlm-roberta", "xlnet")
 
 
 @pytest.fixture
@@ -112,6 +113,48 @@ def test_inspect_tracks_the_configuration_read_by_each_sentence_module(repositor
     metadata["memory/lstm_config.json"] = {**configs["memory/lstm_config.json"], "num_layers": 2}
     changed = inspect("b" * 40)
     assert [i for i, (old, new) in enumerate(zip(initial, changed, strict=True)) if old != new] == [2]
+
+
+@pytest.mark.parametrize("family", SETTINGS_ORDER)
+def test_transformer_reads_the_first_nonempty_settings_in_loader_order(repository, family, tmp_path, monkeypatch):
+    from acprof.cli.main import main
+    from acprof.models.evidence import content_digest
+
+    metadata, downloaded, hub = repository
+    metadata["modules.json"] = [module("backbone"), module("1_Pooling", "Pooling", 1)]
+    chosen = f"backbone/sentence_{family}_config.json"
+    settings = {"backbone/config.json": CONFIG, "backbone/sentence_bert_config.json": {}}
+    settings[chosen] = {"max_seq_length": 96}
+    metadata.update(settings)
+    later = SETTINGS_ORDER[SETTINGS_ORDER.index(family) + 1:]
+    shadowed = [f"backbone/sentence_{suffix}_config.json" for suffix in later]
+    metadata.update(dict.fromkeys(shadowed, ["invalid"]))
+    hub.siblings = [SimpleNamespace(rfilename=name) for name in (*reversed(metadata), "backbone/model.safetensors")]
+
+    monkeypatch.setattr("acprof.host.env_utils.bootstrap_project_env", lambda _cwd: None)
+    output = tmp_path / "inspection"
+    assert main(["inspect", MODEL_ID, "--revision", REVISION, "--output-dir", str(output)]) == 0
+    report = json.loads((output / "model_resolution.json").read_text())
+    assert report["runtime_validation"]["status"] == "not_run"
+    assert report["provenance"]["raw_evidence"]["metadata"][chosen] == {"max_seq_length": 96}
+    assert report["execution"]["components"][0]["configuration_sha256"] == content_digest(settings)
+    assert downloaded.count(chosen) == 1
+    assert set(downloaded).isdisjoint(shadowed)
+
+
+def test_corrupt_preferred_transformer_settings_block_instead_of_using_later_file(repository):
+    metadata, downloaded, hub = repository
+    metadata["modules.json"] = [module(""), module("1_Pooling", "Pooling", 1)]
+    metadata["sentence_distilbert_config.json"] = {"max_seq_length": float("nan")}
+    metadata["sentence_xlnet_config.json"] = {"max_seq_length": 64}
+    hub.siblings = [SimpleNamespace(rfilename=name) for name in (*metadata, "model.safetensors")]
+    task = detect_task(MODEL_ID, revision=REVISION)
+    with pytest.raises(TaskSupportError) as failure:
+        require_task_support(task)
+    assert failure.value.failure.reason_code == "metadata_invalid"
+    diagnostic, = task.metadata_diagnostics
+    assert (diagnostic["file"], diagnostic["json_pointer"]) == ("sentence_distilbert_config.json", "/max_seq_length")
+    assert "sentence_xlnet_config.json" not in downloaded
 
 
 def test_static_embedding_keeps_tokenizer_as_an_asset_and_dropout_reads_its_settings(repository):
