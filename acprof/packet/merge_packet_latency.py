@@ -1,21 +1,22 @@
 import csv
 import json
 import math
-import os
+import stat
 import sys
 from collections import defaultdict
 from collections.abc import Iterator, Sequence
-from contextlib import nullcontext
+from contextlib import AbstractContextManager, ExitStack, nullcontext
 from dataclasses import dataclass, field
 from functools import cached_property
 from itertools import zip_longest
+from pathlib import Path
 from typing import Any, SupportsFloat, SupportsIndex, TextIO, cast
 
 from acprof.artifacts import (
-    atomic_write,
     loads_finite_json,
     read_json_object,
     read_static_metadata,
+    staged_text_write,
 )
 from acprof.latency_slo import latency_slo_threshold
 from acprof.packet.protocol import require_packet_metrics
@@ -192,13 +193,12 @@ def _sidecar_groups(stream: TextIO) -> Iterator[str]:
         yield group_id
 
 
-def _merge_request_samples(csv_path: str, groups: dict[str, _PacketGroup], *, allow_partial=False) -> None:
-    """Retain packet samples alongside app samples before PCAP cleanup."""
-    from acprof.artifacts import atomic_write
-    from acprof.results.layout import case_sidecar
-    path = case_sidecar(csv_path, "requests")
-    if not os.path.exists(path):
-        return  # Historical CSVs have no raw application samples.
+def _stage_request_samples(
+    path: Path, destination: Path, groups: dict[str, _PacketGroup], *, allow_partial: bool,
+) -> AbstractContextManager[None]:
+    """Prepare matched samples before either projection is replaced."""
+    if not path.exists():
+        return nullcontext()  # Historical CSVs have no raw application samples.
 
     # Frame keys select CSV groups; only explicit HTTP IDs select journal slots.
     # None marks an ambiguous ID, while NaN denotes a missing numeric latency.
@@ -228,7 +228,7 @@ def _merge_request_samples(csv_path: str, groups: dict[str, _PacketGroup], *, al
                 window["latency_packet_s"] = latencies
                 stream.write(json.dumps(window, separators=(",", ":"), allow_nan=False) + "\n")
 
-    atomic_write(path, write)
+    return staged_text_write(destination, write, default_mode=stat.S_IMODE(path.stat().st_mode))
 
 
 def _set_throughput_metrics(row: dict, latency: float, static_batch_size: float) -> None:
@@ -299,10 +299,14 @@ def _merged_rows(rows: csv.DictReader, sidecar: TextIO | None, packets: dict[str
 
 def main(argv: Sequence[str] | None = None) -> None:
     args = list(sys.argv[1:] if argv is None else argv)
-    if len(args) != 3:
+    samples_output = None
+    if len(args) == 5 and args[0] == "--requests-output":
+        samples_output = Path(args[1])
+        args = args[2:]
+    if len(args) != 3 or args[0] == "--requests-output":
         raise SystemExit(
             "usage: python -m acprof.packet.merge_packet_latency "
-            "<in_csv> <lat_json> <out_csv>"
+            "[--requests-output PATH] <in_csv> <lat_json> <out_csv>"
         )
 
     in_csv, lat_json, out_csv = args
@@ -315,6 +319,12 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     best_effort = metadata.get("profiling_mode") == "best_effort"
     sidecar_path = case_sidecar(in_csv, "sniff_groups")
+    samples = case_sidecar(in_csv, "requests")
+    destination = samples if samples_output is None else samples_output
+    csv_output = Path(out_csv).resolve()
+    inputs = {Path(lat_json).resolve(), sidecar_path.resolve()}
+    if csv_output in inputs | {samples.resolve()} or destination.resolve() in inputs | {Path(in_csv).resolve(), csv_output}:
+        raise ValueError("packet merge output paths overlap another input or output")
 
     def write_merged_csv(stream: TextIO) -> None:
         with open(in_csv, encoding="utf-8-sig", newline="") as source:
@@ -332,8 +342,11 @@ def main(argv: Sequence[str] | None = None) -> None:
                                               static_batch_size=static_batch_size,
                                               slow_latency_threshold_s=slow_latency_threshold_s))
 
-    atomic_write(out_csv, write_merged_csv)
-    _merge_request_samples(in_csv, groups, allow_partial=best_effort)
+    # Prepare CSV first, validate and stage the complete journal, then exit in
+    # CSV-first publication order. A CSV failure discards the staged journal.
+    with ExitStack() as publish_samples:
+        with staged_text_write(out_csv, write_merged_csv):
+            publish_samples.enter_context(_stage_request_samples(samples, destination, groups, allow_partial=best_effort))
 
 
 if __name__ == "__main__":

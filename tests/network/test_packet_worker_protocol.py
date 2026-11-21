@@ -1,11 +1,15 @@
 """Real child processes exercise packet JSON and merge-file protocol failures."""
+import csv
 import json
+import os
 import shutil
+import stat
 import sys
 from pathlib import Path
 
 import pytest
 
+from acprof.host.measurement import packet_processing
 from acprof.host.measurement.capture import PacketLatencyError
 from acprof.host.measurement.packet_processing import run_packet_command
 from acprof.installation import module_command
@@ -114,3 +118,98 @@ def test_parser_command_treats_paths_as_literal_arguments():
     path = Path("captures") / "a path; not-a-shell-command.pcap"
     command = packet_parser_command(path, 8013)
     assert command == [*module_command("acprof.packet.sniff_parse_pcap"), str(path), "8013"]
+
+
+@pytest.fixture
+def merge_inputs(tmp_path):
+    source = tmp_path / "result.csv"
+    source.write_text("sniff_group_id,latency_s\ncase,nan\n")
+    samples = tmp_path / "result.csv.requests.jsonl"
+    samples.write_text(json.dumps({"schema_version": 1, "sniff_group_id": "case", "latency_app_s": [0.5]}) + "\n")
+    source.chmod(0o640)
+    samples.chmod(0o600)
+    packets = tmp_path / "packets.json"
+    packets.write_text(json.dumps({"schema_version": 2, "requests": {"case:19": {"request_id": "case:0", "latency_s": 0.25}}}))
+    return source, samples, packets
+
+
+def test_host_csv_replace_failure_leaves_request_journal_and_csv_intact(merge_inputs, monkeypatch):
+    source, samples, packets = merge_inputs
+    original = [path.read_bytes() for path in (source, samples)]
+    replace = os.replace
+
+    def block_csv(staged, destination):
+        if Path(destination) == source:
+            raise OSError("blocked CSV rename")
+        return replace(staged, destination)
+
+    monkeypatch.setattr(os, "replace", block_csv)
+    with pytest.raises(OSError, match="blocked CSV rename"):
+        packet_processing.merge_packet_csv(str(source), str(packets))
+    assert [path.read_bytes() for path in (source, samples)] == original
+    assert not list(source.parent.glob(".packet-merge-*"))
+
+
+def test_host_journal_replace_failure_reports_error_after_csv_install(merge_inputs, monkeypatch):
+    source, samples, packets = merge_inputs
+    original_journal = samples.read_bytes()
+    replace = os.replace
+
+    def block_journal(staged, destination):
+        if Path(destination) == samples:
+            raise OSError("blocked journal rename")
+        return replace(staged, destination)
+
+    monkeypatch.setattr(os, "replace", block_journal)
+    with pytest.raises(OSError, match="blocked journal rename"):
+        packet_processing.merge_packet_csv(str(source), str(packets))
+    with source.open() as stream:
+        assert next(csv.DictReader(stream))["latency_s"] == "0.250000"
+    assert samples.read_bytes() == original_journal
+    assert not list(source.parent.glob(".packet-merge-*"))
+
+
+@pytest.mark.parametrize("staged_sample", ["missing", "symlink"])
+def test_host_requires_current_request_output_before_installing_csv(merge_inputs, monkeypatch, staged_sample):
+    from subprocess import CompletedProcess
+
+    source, samples, packets = merge_inputs
+    original = [path.read_bytes() for path in (source, samples)]
+
+    def omit_requests(command, *, stage):
+        Path(command[-1]).write_text("new CSV")
+        if staged_sample == "symlink":
+            Path(command[command.index("--requests-output") + 1]).symlink_to(samples)
+        return CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr(packet_processing, "run_packet_command", omit_requests)
+    with pytest.raises(PacketLatencyError, match="merge did not produce"):
+        packet_processing.merge_packet_csv(str(source), str(packets))
+    assert [path.read_bytes() for path in (source, samples)] == original
+
+
+@pytest.mark.parametrize("with_samples", [False, True], ids=["historical", "requests"])
+def test_host_installs_csv_then_optional_requests_and_preserves_modes(merge_inputs, monkeypatch, with_samples):
+    source, samples, packets = merge_inputs
+    if not with_samples:
+        samples.unlink()
+    installed = []
+    replace = os.replace
+
+    def observe(staged, destination):
+        if Path(destination) in (source, samples):
+            installed.append(Path(destination))
+        return replace(staged, destination)
+
+    monkeypatch.setattr(os, "replace", observe)
+    packet_processing.merge_packet_csv(str(source), str(packets))
+
+    assert installed == ([source, samples] if with_samples else [source])
+    assert stat.S_IMODE(source.stat().st_mode) == 0o640
+    with source.open() as stream:
+        assert next(csv.DictReader(stream))["latency_s"] == "0.250000"
+    if with_samples:
+        assert stat.S_IMODE(samples.stat().st_mode) == 0o600
+        assert json.loads(samples.read_bytes())["latency_packet_s"] == [0.25]
+    else:
+        assert not samples.exists()

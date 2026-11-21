@@ -91,19 +91,34 @@ def test_existing_packet_metadata_with_escaped_header_ending_is_readable(tmp_pat
     assert json.loads(samples.read_text())["latency_packet_s"] == [0.25, None, None]
 
 
-def test_ambiguous_client_identity_rejects_sample_replacement(tmp_path):
+@pytest.mark.parametrize("in_place", [False, True])
+def test_ambiguous_client_identity_preserves_both_outputs(tmp_path, in_place):
     csv_path, packet_path, samples = _write_inputs(tmp_path, {
         "schema_version": 2, "requests": {
             "window:10": {"latency_s": 0.25, "request_id": "window:0"},
             "window:20": {"latency_s": 0.75, "request_id": "window:0"},
         },
     })
-    original = samples.read_bytes()
+    output = csv_path if in_place else tmp_path / "merged.csv"
+    if not in_place:
+        output.write_bytes(b"previous merge\r\n")
+    original = {path: path.read_bytes() for path in (samples, output)}
 
     with pytest.raises(ValueError, match="duplicate.*request.*window:0"):
-        merge_packet_latency.main([str(csv_path), str(packet_path), str(tmp_path / "merged.csv")])
+        merge_packet_latency.main([str(csv_path), str(packet_path), str(output)])
 
-    assert samples.read_bytes() == original
+    assert {path: path.read_bytes() for path in original} == original
+
+
+@pytest.mark.parametrize("collision", ["csv-as-samples", "metrics-as-csv", "journal-as-csv"])
+def test_packet_merge_rejects_colliding_output_paths(tmp_path, collision):
+    source, packets, samples = _write_inputs(tmp_path, {"schema_version": 2, "requests": {}})
+    original = {p: p.read_bytes() for p in (source, packets, samples)}
+    output = {"csv-as-samples": tmp_path / "new.csv", "metrics-as-csv": packets, "journal-as-csv": samples}[collision]
+    options = ["--requests-output", str(source)] if collision == "csv-as-samples" else []
+    with pytest.raises(ValueError, match="overlap"):
+        merge_packet_latency.main([*options, str(source), str(packets), str(output)])
+    assert {p: p.read_bytes() for p in original} == original
 
 
 @pytest.mark.parametrize(("runtime", "journal", "expected_ids"),

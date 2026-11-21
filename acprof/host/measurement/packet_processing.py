@@ -2,6 +2,7 @@
 
 import math
 import os
+import stat
 import subprocess
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -10,6 +11,7 @@ from acprof.artifacts import loads_finite_json, replace_file_durably
 from acprof.host.measurement.capture import PacketLatencyError, packet_latency_error
 from acprof.installation import module_command
 from acprof.packet.protocol import require_packet_metrics
+from acprof.results.layout import case_sidecar
 from acprof.system import command as host_command
 
 
@@ -28,22 +30,30 @@ def parse_packet_output(command: list[str], *, stage: str = "pcap parsing") -> d
 
 
 def merge_packet_csv(csv_path: str, latency_path: str) -> None:
-    """Publish only an output created by this worker invocation, never stale scratch."""
-    if not Path(csv_path).is_file():
+    """Install this worker's CSV and optional request journal after both are staged."""
+    source = Path(csv_path)
+    if not source.is_file():
         raise packet_latency_error(f"client did not produce result CSV: {csv_path}")
-    # Stay on the input filesystem for atomic replacement. Failed derivations
-    # never replace the CSV; checkpointed measurement evidence remains untouched.
-    with TemporaryDirectory(prefix=".packet-merge-", dir=Path(csv_path).parent) as directory:
+    requests = case_sidecar(source, "requests")
+    with TemporaryDirectory(prefix=".packet-merge-", dir=source.parent) as directory:
         output = Path(directory) / "result.csv"
+        request_output = Path(directory) / "requests.jsonl"
+        publications = [(output, source)]
+        if requests.exists():
+            publications.append((request_output, requests))
         result = run_packet_command(
-            [*module_command("acprof.packet.merge_packet_latency"), csv_path, latency_path, str(output)],
+            [*module_command("acprof.packet.merge_packet_latency"), "--requests-output", str(request_output),
+             csv_path, latency_path, str(output)],
             stage="packet latency merge",
         )
         if result.returncode != 0:
             raise packet_latency_error("packet latency merge failed", (result.stderr or result.stdout or "").strip())
-        if not output.is_file():
-            raise packet_latency_error(f"packet latency merge did not produce {output}")
-        replace_file_durably(output, csv_path)
+        for staged, destination in publications:
+            if staged.is_symlink() or not staged.is_file():
+                raise packet_latency_error(f"packet latency merge did not produce {staged}")
+            staged.chmod(stat.S_IMODE(destination.stat().st_mode))
+        for staged, destination in publications:
+            replace_file_durably(staged, destination)
 
 
 def postprocessing_timeout() -> float:
