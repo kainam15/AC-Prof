@@ -557,3 +557,71 @@ def test_internal_packet_metric_failure_is_not_silently_ignored() -> None:
             merge_packet_latency.main([in_csv, lat_json, out_csv])
 
         assert not os.path.exists(out_csv)
+
+
+def test_packet_merge_releases_input_rows_before_eof(tmp_path, monkeypatch):
+    import weakref
+
+    source = tmp_path / "result.csv"
+    packets = tmp_path / "packet.json"
+    source.write_text("window_id,latency_s\n" + "".join(f"w{i},nan\n" for i in range(64)))
+    packets.write_text('{"schema_version":2,"requests":{}}')
+    next_row = csv.DictReader.__next__
+    observed = []
+
+    class TrackedRow(dict):
+        pass
+
+    def track(reader):
+        row = TrackedRow(next_row(reader))
+        observed.append(weakref.ref(row))
+        if len(observed) == 64:
+            assert any(ref() is None for ref in observed[:-1]), "all previous CSV rows remain live"
+        return row
+
+    monkeypatch.setattr(csv.DictReader, "__next__", track)
+    merge_packet_latency.main([str(source), str(packets), str(tmp_path / "merged.csv")])
+    assert len(observed) == 64
+
+
+def test_packet_merge_in_place_reads_bom_group_and_multiline_field(tmp_path):
+    source = tmp_path / "result.csv"
+    packets = tmp_path / "packet.json"
+    source.write_text('sniff_group_id,latency_s,note\r\ng,nan,"中文,\r\nsecond"\r\n',
+                      encoding="utf-8-sig", newline="")
+    packets.write_text('{"schema_version":2,"requests":{"g:9":{"request_id":"g:0","latency_s":0.375}}}')
+
+    merge_packet_latency.main([str(source), str(packets), str(source)])
+
+    with source.open(encoding="utf-8", newline="") as stream:
+        assert list(csv.DictReader(stream)) == [{"latency_s": "0.375000", "note": "中文,\r\nsecond"}]
+
+
+@pytest.mark.parametrize("fault", ["late-utf8", "short-sidecar", "long-sidecar"])
+def test_packet_merge_late_input_error_preserves_outputs(tmp_path, fault):
+    source = tmp_path / "result.csv"
+    packets = tmp_path / "packet.json"
+    merged = tmp_path / "merged.csv"
+    requests = tmp_path / "result.csv.requests.jsonl"
+    groups = tmp_path / "result.csv.sniff_groups.jsonl"
+    # Cross the UTF-8 decoder's first read so a streaming writer has already received valid rows.
+    source.write_bytes(b"packet_status,note\n" + (b"pending," + b"x" * 4096 + b"\n") * 5)
+    packets.write_text('{"schema_version":2,"requests":{}}')
+    original_csv = b"prior output,unchanged\r\n"
+    original_requests = b'{"schema_version":1,"sniff_group_id":"g","latency_app_s":[0.1]}\r\n'
+    merged.write_bytes(original_csv)
+    requests.write_bytes(original_requests)
+    if fault == "late-utf8":
+        with source.open("ab") as stream:
+            stream.write(b"pending,\xff\n")
+        expected = "codec can't decode"
+    else:
+        count = 2 if fault == "short-sidecar" else 8
+        groups.write_text('{"sniff_group_id":"g"}\n' * count)
+        expected = f"{count} sidecar rows for 5 CSV rows"
+
+    with pytest.raises(ValueError, match=expected):
+        merge_packet_latency.main([str(source), str(packets), str(merged)])
+
+    assert merged.read_bytes() == original_csv
+    assert requests.read_bytes() == original_requests

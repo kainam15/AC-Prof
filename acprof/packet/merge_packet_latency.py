@@ -4,8 +4,12 @@ import math
 import os
 import sys
 from collections import defaultdict
-from collections.abc import Sequence
-from typing import SupportsFloat, SupportsIndex, cast
+from collections.abc import Iterator, Sequence
+from contextlib import nullcontext
+from dataclasses import dataclass, field
+from functools import cached_property
+from itertools import zip_longest
+from typing import Any, SupportsFloat, SupportsIndex, TextIO, cast
 
 from acprof.artifacts import (
     atomic_write,
@@ -17,7 +21,7 @@ from acprof.latency_slo import latency_slo_threshold
 from acprof.packet.protocol import require_packet_metrics
 from acprof.packet.sniff_parse_pcap import normalize_request_id
 from acprof.pixel_metrics import per_megapixel
-from acprof.results.csv import allow_large_csv_fields
+from acprof.results.csv import allow_large_csv_fields, require_current_fields
 from acprof.results.latency import latency_distribution_metrics
 from acprof.results.metrics import order_csv_fields
 
@@ -38,10 +42,30 @@ def _to_float(value: object) -> float:
         return float("nan")
 
 
-def _request_records(payload: object) -> dict[str, dict[str, float]]:
-    requests = require_packet_metrics(payload)["requests"]
-    return {str(request_id): {key: _to_float(value) for key, value in record.items()}
-            for request_id, record in requests.items()}
+def _request_records(payload: object) -> dict[str, dict[str, Any]]:
+    return require_packet_metrics(payload)["requests"]
+
+
+@dataclass
+class _PacketGroup:
+    records: list[dict[str, Any]] = field(default_factory=list)
+
+    @cached_property
+    def request_ids(self) -> list[str | None]:
+        """Only coverage checks and the optional request journal need HTTP IDs."""
+        observed = (record.get("request_id") for record in self.records)
+        return [normalize_request_id(value) if isinstance(value, str) else None for value in observed]
+
+
+def _group_requests(requests: dict[str, dict[str, Any]]) -> dict[str, _PacketGroup]:
+    groups: dict[str, _PacketGroup] = defaultdict(_PacketGroup)
+    for frame, record in requests.items():
+        # The only per-request value shared by the CSV and journal. Normalize it
+        # in the private decoded record so both outputs use the same value.
+        if "latency_s" in record:
+            record["latency_s"] = _to_float(record["latency_s"])
+        groups[frame.split(":", 1)[0]].records.append(record)
+    return groups
 
 
 def _input_units_per_request(row: dict, batch_size: float) -> float:
@@ -59,28 +83,21 @@ def _input_units_per_request(row: dict, batch_size: float) -> float:
     return float("nan")
 
 
-def _set_packet_network_metrics(row: dict, records: list[dict[str, float]]) -> None:
+def _set_packet_network_metrics(row: dict, records: list[dict[str, Any]]) -> None:
+    totals = {}
     for record_field, csv_field in NETWORK_RECORD_TO_CSV_FIELD.items():
-        value = _mean([record.get(record_field, float("nan")) for record in records])
-        if math.isfinite(value):
-            row[csv_field] = _fmt_float(value)
+        numbers = (_to_float(record[record_field]) for record in records if record_field in record)
+        finite = [value for value in numbers if math.isfinite(value)]
+        if finite:
+            total = sum(finite)
+            totals[record_field] = total
+            mean = total / len(finite)
+            if math.isfinite(mean):
+                row[csv_field] = _fmt_float(mean)
 
-    overhead_values = [
-        record.get("protocol_overhead_bytes", float("nan"))
-        for record in records
-    ]
-    finite_overhead_values = [
-        value for value in overhead_values if math.isfinite(value)
-    ]
-    wire_values = [
-        record.get("total_wire_bytes", float("nan")) for record in records
-    ]
-    finite_wire_values = [value for value in wire_values if math.isfinite(value)]
-    total_wire_sum = sum(finite_wire_values)
-    if finite_overhead_values and finite_wire_values and total_wire_sum > 0.0:
-        row["packet_protocol_overhead_ratio"] = _fmt_float(
-            sum(finite_overhead_values) / total_wire_sum
-        )
+    wire = totals.get("total_wire_bytes", 0.0)
+    if wire > 0 and "protocol_overhead_bytes" in totals:
+        row["packet_protocol_overhead_ratio"] = _fmt_float(totals["protocol_overhead_bytes"] / wire)
 
 
 def _mean(values: list[float]) -> float:
@@ -108,7 +125,6 @@ def _mflops_for_latency(work_mflop: object, latency_s: float) -> float:
 
 
 def _recompute_packet_flop_rates(row: dict, latency_s: float) -> None:
-    from acprof.results.csv import require_current_fields
     require_current_fields(row)
     for source, destination in (
         ("model_logical_mflop_per_request_torch_profiler_eager", "model_logical_mflops_packet_torch_profiler_eager"),
@@ -149,48 +165,34 @@ def _compute_cpu_mips(row: dict, latency_s: float) -> float:
     return float("nan")
 
 
-def _read_sidecar_groups(csv_path: str, expected_rows: int) -> list[str]:
-    from acprof.results.layout import case_sidecar
-    sidecar_path = case_sidecar(csv_path, "sniff_groups")
-    if not os.path.exists(sidecar_path):
-        return []
-
-    groups = []
-    with open(sidecar_path, encoding="utf-8") as f:
-        for line_number, line in enumerate(f, start=1):
-            raw = line.strip()
-            if not raw:
-                raise ValueError(
-                    f"invalid sniff group sidecar record at line {line_number}: blank line"
-                )
-            try:
-                payload = loads_finite_json(raw)
-            except (ValueError, RecursionError) as exc:
-                raise ValueError(
-                    f"invalid sniff group sidecar record at line {line_number}: malformed JSON"
-                ) from exc
-            if not isinstance(payload, dict) or SNIFF_GROUP_FIELD not in payload:
-                raise ValueError(
-                    f"invalid sniff group sidecar record at line {line_number}: "
-                    f"missing {SNIFF_GROUP_FIELD}"
-                )
-            group_id = payload[SNIFF_GROUP_FIELD]
-            if not isinstance(group_id, str):
-                raise ValueError(
-                    f"invalid sniff group sidecar record at line {line_number}: "
-                    f"{SNIFF_GROUP_FIELD} must be a string"
-                )
-            groups.append(group_id)
-
-    if len(groups) != expected_rows:
-        raise ValueError(
-            "sniff group sidecar row count mismatch: "
-            f"{len(groups)} sidecar rows for {expected_rows} CSV rows"
-        )
-    return groups
+def _sidecar_groups(stream: TextIO) -> Iterator[str]:
+    for line_number, line in enumerate(stream, start=1):
+        raw = line.strip()
+        if not raw:
+            raise ValueError(
+                f"invalid sniff group sidecar record at line {line_number}: blank line"
+            )
+        try:
+            payload = loads_finite_json(raw)
+        except (ValueError, RecursionError) as exc:
+            raise ValueError(
+                f"invalid sniff group sidecar record at line {line_number}: malformed JSON"
+            ) from exc
+        if not isinstance(payload, dict) or SNIFF_GROUP_FIELD not in payload:
+            raise ValueError(
+                f"invalid sniff group sidecar record at line {line_number}: "
+                f"missing {SNIFF_GROUP_FIELD}"
+            )
+        group_id = payload[SNIFF_GROUP_FIELD]
+        if not isinstance(group_id, str):
+            raise ValueError(
+                f"invalid sniff group sidecar record at line {line_number}: "
+                f"{SNIFF_GROUP_FIELD} must be a string"
+            )
+        yield group_id
 
 
-def _merge_request_samples(csv_path: str, packet_records: dict, *, allow_partial=False) -> None:
+def _merge_request_samples(csv_path: str, groups: dict[str, _PacketGroup], *, allow_partial=False) -> None:
     """Retain packet samples alongside app samples before PCAP cleanup."""
     from acprof.artifacts import atomic_write
     from acprof.results.layout import case_sidecar
@@ -198,18 +200,13 @@ def _merge_request_samples(csv_path: str, packet_records: dict, *, allow_partial
     if not os.path.exists(path):
         return  # Historical CSVs have no raw application samples.
 
-    # Packet schema v2 keys identify capture frames, not client sequence IDs.
-    # Preserve the explicit HTTP identity before numeric metric normalization.
-    latency_by_id = {}
-    duplicates = set()
-    for record in packet_records.values():
-        request_id = record.get("request_id")
-        if not isinstance(request_id, str) or not request_id:
-            continue
-        request_id = normalize_request_id(request_id)
-        if request_id in latency_by_id:
-            duplicates.add(request_id)
-        latency_by_id[request_id] = _to_float(record.get("latency_s"))
+    # Frame keys select CSV groups; only explicit HTTP IDs select journal slots.
+    # None marks an ambiguous ID, while NaN denotes a missing numeric latency.
+    latency_by_id: dict[str, float | None] = {}
+    for group in groups.values():
+        for request_id, record in zip(group.request_ids, group.records, strict=True):
+            if request_id:
+                latency_by_id[request_id] = None if request_id in latency_by_id else record.get("latency_s", math.nan)
 
     def write(stream):
         with open(path, encoding="utf-8") as source:
@@ -221,17 +218,83 @@ def _merge_request_samples(csv_path: str, packet_records: dict, *, allow_partial
                 latencies: list[float | None] = []
                 for index in range(len(window["latency_app_s"])):
                     request_id = f"{gid}:{index}"
-                    if request_id in duplicates:
+                    value = latency_by_id.get(request_id, math.nan)
+                    if value is None:
                         if not allow_partial:
                             raise ValueError(f"duplicate packet request identity: {request_id}")
                         latencies.append(None)
                         continue
-                    value = latency_by_id.get(request_id, float("nan"))
                     latencies.append(value if math.isfinite(value) and value >= 0 else None)
                 window["latency_packet_s"] = latencies
                 stream.write(json.dumps(window, separators=(",", ":"), allow_nan=False) + "\n")
 
     atomic_write(path, write)
+
+
+def _set_throughput_metrics(row: dict, latency: float, static_batch_size: float) -> None:
+    batch_size = static_batch_size if math.isfinite(static_batch_size) else _to_float(row.get("batch_size"))
+    if not (math.isfinite(latency) and latency > 0 and math.isfinite(batch_size) and batch_size > 0):
+        return
+    throughput = batch_size / latency
+    row["throughput_samples_per_s"] = _fmt_float(throughput)
+    input_units = _input_units_per_request(row, batch_size)
+    if math.isfinite(input_units) and input_units > 0:
+        row["latency_s_per_input_unit"] = _fmt_float(latency / input_units)
+    cpu_cores = _to_float(row.get("cpu_cores"))
+    if math.isfinite(cpu_cores) and cpu_cores > 0:
+        row["throughput_samples_per_s_per_cpu_core"] = _fmt_float(throughput / cpu_cores)
+
+
+def _merge_window(row: dict, gid: str, group: _PacketGroup | None, *, best_effort: bool,
+                  static_batch_size: float, slow_latency_threshold_s: float | None) -> None:
+    if not gid or group is None:
+        if "packet_status" in row:
+            row["packet_status"] = "unavailable" if gid else "not_applicable"
+        return
+
+    if "packet_status" in row:
+        row["packet_status"] = "ok"
+        if best_effort or row.get("runtime_kind") == "process":
+            count = _to_float(row.get("repeat_in_window"))
+            ids = group.request_ids
+            if len(ids) != count or set(ids) != {f"{gid}:{index}" for index in range(len(ids))}:
+                row["packet_status"] = "partial"
+    latencies = [record.get("latency_s", math.nan) for record in group.records]
+    row["latency_s"] = _fmt_float(_mean(latencies))
+    for direction in ("input", "output"):
+        field = f"latency_s_per_{direction}_megapixel"
+        if field in row:
+            row[field] = _fmt_float(per_megapixel(row["latency_s"], row.get(f"{direction}_pixels_per_request")))
+    for field, value in _distribution_metrics(latencies, slow_latency_threshold_s=slow_latency_threshold_s).items():
+        row[field] = _fmt_float(value)
+    # Derived rates historically use the rounded value stored in the CSV.
+    latency = _to_float(row["latency_s"])
+    _set_throughput_metrics(row, latency, static_batch_size)
+    _set_packet_network_metrics(row, group.records)
+    _recompute_packet_flop_rates(row, latency)
+    cycles = _estimate_cpu_cycles(row, latency)
+    if math.isfinite(cycles):
+        row["cpu_cycles_est_packet"] = _fmt_float(cycles)
+    mips = _compute_cpu_mips(row, latency)
+    if math.isfinite(mips):
+        row["cpu_mips_packet"] = _fmt_float(mips)
+
+
+def _merged_rows(rows: csv.DictReader, sidecar: TextIO | None, packets: dict[str, _PacketGroup], *,
+                 best_effort: bool, static_batch_size: float, slow_latency_threshold_s: float | None) -> Iterator[dict]:
+    groups = _sidecar_groups(sidecar) if sidecar is not None else ()
+    group_count = row_count = 0
+    for row, gid in zip_longest(rows, groups):
+        if gid is not None:
+            group_count += 1
+        if row is not None:
+            row_count += 1
+            group_id = row.pop(SNIFF_GROUP_FIELD, "") or gid or ""
+            _merge_window(row, group_id, packets.get(group_id), best_effort=best_effort,
+                          static_batch_size=static_batch_size, slow_latency_threshold_s=slow_latency_threshold_s)
+            yield row
+    if sidecar is not None and group_count != row_count:
+        raise ValueError(f"sniff group sidecar row count mismatch: {group_count} sidecar rows for {row_count} CSV rows")
 
 
 def main(argv: Sequence[str] | None = None) -> None:
@@ -244,107 +307,33 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     in_csv, lat_json, out_csv = args
     # A capture grows with request count; the small-metadata cap does not apply.
-    packet_payload = read_json_object(lat_json, label="packet metrics", bounded=False)
-    request_records = _request_records(packet_payload)
-    from acprof.results.layout import ArtifactLayout
+    groups = _group_requests(_request_records(read_json_object(lat_json, label="packet metrics", bounded=False)))
+    from acprof.results.layout import ArtifactLayout, case_sidecar
     metadata = read_static_metadata(ArtifactLayout.from_csv(in_csv).root)
     static_batch_size = _to_float(metadata.get("batch_size", "nan"))
     slow_latency_threshold_s = latency_slo_threshold(metadata)
 
-    group_records = defaultdict(list)
-    identities = defaultdict(list)
-    for req_id, record in request_records.items():
-        group_id = req_id.split(":", 1)[0]
-        group_records[group_id].append(record)
-        observed = packet_payload["requests"][req_id].get("request_id")
-        identities[group_id].append(normalize_request_id(observed) if isinstance(observed, str) else None)
+    best_effort = metadata.get("profiling_mode") == "best_effort"
+    sidecar_path = case_sidecar(in_csv, "sniff_groups")
 
-    with open(in_csv, encoding="utf-8", newline="") as f:
-        allow_large_csv_fields()
-        reader = csv.DictReader(f)
-        fields = reader.fieldnames
-        rows = list(reader)
-
-    if fields is None:
-        raise SystemExit("empty csv")
-
-    from acprof.results.csv import require_current_fields
-    require_current_fields(fields)
-    sidecar_groups = _read_sidecar_groups(in_csv, len(rows))
-
-    for idx, r in enumerate(rows):
-        gid = r.get(SNIFF_GROUP_FIELD, "")
-        if not gid and idx < len(sidecar_groups):
-            gid = sidecar_groups[idx]
-        if gid and gid in group_records and group_records[gid]:
-            if "packet_status" in r:
-                r["packet_status"] = "ok"
-                if metadata.get("profiling_mode") == "best_effort" or r.get("runtime_kind") == "process":
-                    count = _to_float(r.get("repeat_in_window"))
-                    ids = identities[gid]
-                    if (len(ids) != count or len(set(ids)) != len(ids)
-                            or set(ids) != {f"{gid}:{index}" for index in range(len(ids))}):
-                        r["packet_status"] = "partial"
-            records = group_records[gid]
-            latencies = [record.get("latency_s", float("nan")) for record in records]
-            r["latency_s"] = _fmt_float(_mean(latencies))
-            for direction in ("input", "output"):
-                field = f"latency_s_per_{direction}_megapixel"
-                if field in r:
-                    r[field] = _fmt_float(per_megapixel(
-                        r["latency_s"], r.get(f"{direction}_pixels_per_request")
-                    ))
-            for field, value in _distribution_metrics(
-                latencies, slow_latency_threshold_s=slow_latency_threshold_s,
-            ).items():
-                r[field] = _fmt_float(value)
-            bs = static_batch_size
-            if not math.isfinite(bs):
-                bs = _to_float(r.get("batch_size", "nan"))
-            lat = _to_float(r.get("latency_s", "nan"))
-            if math.isfinite(lat) and lat > 0.0:
-                if math.isfinite(bs) and bs > 0.0:
-                    r["throughput_samples_per_s"] = _fmt_float(bs / lat)
-                    input_units = _input_units_per_request(r, bs)
-                    if math.isfinite(input_units) and input_units > 0.0:
-                        r["latency_s_per_input_unit"] = _fmt_float(
-                            lat / input_units
-                        )
-                    cpu_cores = _to_float(r.get("cpu_cores", "nan"))
-                    if math.isfinite(cpu_cores) and cpu_cores > 0.0:
-                        r["throughput_samples_per_s_per_cpu_core"] = _fmt_float(
-                            (bs / lat) / cpu_cores
-                        )
-
-            _set_packet_network_metrics(r, records)
-            _recompute_packet_flop_rates(r, lat)
-
-            cpu_cycles_est_packet = _estimate_cpu_cycles(r, lat)
-            if math.isfinite(cpu_cycles_est_packet):
-                r["cpu_cycles_est_packet"] = _fmt_float(cpu_cycles_est_packet)
-
-            cpu_mips_packet = _compute_cpu_mips(r, lat)
-            if math.isfinite(cpu_mips_packet):
-                r["cpu_mips_packet"] = _fmt_float(cpu_mips_packet)
-        elif "packet_status" in r:
-            r["packet_status"] = "unavailable" if gid else "not_applicable"
-
-    fields = order_csv_fields(field for field in fields if field != SNIFF_GROUP_FIELD)
-    for r in rows:
-        r.pop(SNIFF_GROUP_FIELD, None)
-
-    def write_merged_csv(stream) -> None:
-        writer = csv.DictWriter(
-            stream,
-            fieldnames=fields,
-            quoting=csv.QUOTE_MINIMAL,
-            extrasaction="ignore",
-        )
-        writer.writeheader()
-        writer.writerows(rows)
+    def write_merged_csv(stream: TextIO) -> None:
+        with open(in_csv, encoding="utf-8-sig", newline="") as source:
+            allow_large_csv_fields()
+            reader = csv.DictReader(source)
+            if reader.fieldnames is None:
+                raise SystemExit("empty csv")
+            require_current_fields(reader.fieldnames)
+            fields = order_csv_fields(field for field in reader.fieldnames if field != SNIFF_GROUP_FIELD)
+            writer = csv.DictWriter(stream, fieldnames=fields, extrasaction="ignore")
+            writer.writeheader()
+            sidecar_source = sidecar_path.open(encoding="utf-8") if sidecar_path.exists() else nullcontext(None)
+            with sidecar_source as sidecar:
+                writer.writerows(_merged_rows(reader, sidecar, groups, best_effort=best_effort,
+                                              static_batch_size=static_batch_size,
+                                              slow_latency_threshold_s=slow_latency_threshold_s))
 
     atomic_write(out_csv, write_merged_csv)
-    _merge_request_samples(in_csv, packet_payload["requests"], allow_partial=metadata.get("profiling_mode") == "best_effort")
+    _merge_request_samples(in_csv, groups, allow_partial=best_effort)
 
 
 if __name__ == "__main__":

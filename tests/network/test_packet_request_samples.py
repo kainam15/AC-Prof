@@ -104,3 +104,62 @@ def test_ambiguous_client_identity_rejects_sample_replacement(tmp_path):
         merge_packet_latency.main([str(csv_path), str(packet_path), str(tmp_path / "merged.csv")])
 
     assert samples.read_bytes() == original
+
+
+@pytest.mark.parametrize(("runtime", "journal", "expected_ids"),
+                         [("docker", False, 0), ("docker", True, 2), ("process", False, 2), ("process", True, 2)])
+def test_packet_identity_and_numeric_fields_are_consumed_only_as_needed(tmp_path, monkeypatch, runtime, journal, expected_ids):
+    csv_path, packet_path, samples = _write_inputs(tmp_path, {
+        "schema_version": 2, "requests": {
+            "window:13": {"request_id": r"window:0\r\n", "latency_s": "0.25", "wire_bytes_status": "available",
+                          "total_wire_bytes": "4.0", "protocol_overhead_bytes": "2"},
+            "window:17": {"request_id": "window:1", "latency_s": 0.75, "wire_bytes_status": "unavailable",
+                          "total_wire_bytes": "unknown", "protocol_overhead_bytes": None},
+        }})
+    csv_path.write_text("sniff_group_id,runtime_kind,repeat_in_window,packet_status,latency_s,packet_protocol_overhead_ratio\n"
+                        f"window,{runtime},2,pending,nan,nan\n")
+    if not journal:
+        samples.unlink()
+    normalized = []
+    strings_converted = []
+    normalize = merge_packet_latency.normalize_request_id
+    convert = merge_packet_latency._to_float
+
+    def count_id(value):
+        normalized.append(value)
+        return normalize(value)
+
+    def count_numeric(value):
+        if isinstance(value, str):
+            strings_converted.append(value)
+        return convert(value)
+
+    monkeypatch.setattr(merge_packet_latency, "normalize_request_id", count_id)
+    monkeypatch.setattr(merge_packet_latency, "_to_float", count_numeric)
+    output = tmp_path / "merged.csv"
+    merge_packet_latency.main([str(csv_path), str(packet_path), str(output)])
+
+    assert len(normalized) == expected_ids
+    assert not {"available", "unavailable", "window:1", r"window:0\r\n"}.intersection(strings_converted)
+    assert strings_converted.count("0.25") == 1
+    with output.open() as stream:
+        row = next(csv.DictReader(stream))
+    assert (row["packet_status"], row["latency_s"], row["packet_protocol_overhead_ratio"]) == ("ok", "0.500000", "0.500000")
+    if journal:
+        assert json.loads(samples.read_text())["latency_packet_s"] == [0.25, 0.75, None]
+
+
+@pytest.mark.parametrize("partial", [False, True])
+def test_global_duplicate_http_ids_only_affect_matching_samples(tmp_path, partial):
+    # Frames can come from distinct capture groups. The journal uses the HTTP ID.
+    duplicated = "window:0" if partial else "unobserved:0"
+    csv_path, packets, samples = _write_inputs(tmp_path, {
+        "schema_version": 2, "requests": {
+            "window:9": {"request_id": duplicated, "latency_s": 0.25},
+            "other:3": {"request_id": duplicated, "latency_s": 1.25},
+            "window:31": {"request_id": "window:1", "latency_s": 0.75},
+        }})
+    if partial:
+        (tmp_path / "static_meta.json").write_text(json.dumps({"schema_version": 7, "profiling_mode": "best_effort"}))
+    merge_packet_latency.main([str(csv_path), str(packets), str(tmp_path / "merged.csv")])
+    assert json.loads(samples.read_text())["latency_packet_s"] == [None, 0.75, None]
