@@ -60,6 +60,11 @@ Linux 上的 `plot`、`report`、`stats`、`compare`、结果 `audit` 及 `resul
 Windows/macOS 的离线命令不申请 Linux 专用锁；这不改变采集平台支持范围，也不重写历史环境身份。
 输出的新文件保护与统计报告去重仍由各自的发布层执行，独立于测量锁。
 
+分析输出可以写到实验的 `analysis/` 目录或独立目录。`stats`、`compare`、`report`、`coverage report` 和
+`results export` 会拒绝占用输入实验的清单、结果层和质量记录等保留路径，即使相应文件尚未生成。
+例如，将 `--output-dir` 设为旧实验的 `result_manifest.json` 也会被拒绝，否则后续审计会把新目录当作清单。
+同时导出多种格式时，`compare` 在写入第一份文件前检查所有目标是否占用实验路径。
+
 `acprof results verify <分层目录>` 校验正式结果的 SHA256、指标字段归属、行数和测量身份；
 `acprof results export <分层目录> <新文件.csv>` 按需重建完整宽表，不允许覆盖已有文件。
 新实验不会默认写出 `result_all.csv`；Posthoc 成功后仅更新发生变化的模块。旧宽表实验

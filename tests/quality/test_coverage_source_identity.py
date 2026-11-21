@@ -223,3 +223,14 @@ def test_hub_snapshot_records_its_source_explicitly(monkeypatch):
     monkeypatch.setattr("huggingface_hub.HfApi.list_models", lambda *args, **kwargs: [model])
     result = snapshot_sample(["text-generation:transformers"], 1)
     assert result["models"][0]["source"] == "huggingface"
+
+
+def test_coverage_output_cannot_become_the_input_layout_manifest(tmp_path):
+    source = tmp_path / "legacy"
+    source.mkdir()
+    (source / "static_meta.json").write_text('{"model_id":"fixture/example"}')
+    target = source / "result_manifest.json"
+    with pytest.raises(ValueError, match="reserved.*result_manifest.json"):
+        report_results([source], target)
+    assert not target.exists()
+    assert report_results([source], source / "reports")["rows"][0]["model_id"] == "fixture/example"

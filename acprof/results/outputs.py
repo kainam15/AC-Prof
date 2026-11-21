@@ -88,4 +88,4 @@ def validate_analysis_destinations(sources: Iterable[str | Path], destinations: 
     for root in _source_roots(sources, candidates, expanded_sources):
         for path in candidates:
             if path.is_relative_to(root) and path.relative_to(root) in _RESERVED:
-                raise ValueError(f"output would create a reserved experiment artifact: {path}")
+                raise ValueError(f"output cannot create or overwrite a reserved experiment artifact: {path}")

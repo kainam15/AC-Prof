@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import TextIO
 
 from acprof.artifacts import atomic_write, atomic_write_json
+from acprof.results.outputs import validate_analysis_destinations
 
 
 def _leaves(record: dict, prefix: str = "") -> Iterator[tuple[str, object]]:
@@ -49,6 +50,16 @@ def _prepare_statistics_csv(payload: dict) -> tuple[list[str], Iterator[dict]]:
     return list(fields), ({**metadata, **_flatten(group)} for group in groups)
 
 
+def _report_sources(payload: dict) -> Iterator[str | Path]:
+    if source := payload.get("result_csv"):
+        yield source
+    if payload.get("kind") == "independent_experiment_comparison":
+        for runs in (payload.get("experiments") or {}).values():
+            for run in runs:
+                if source := run.get("source"):
+                    yield source
+
+
 def export_analysis(payload: dict, destination: Path, *, format: str) -> None:
     """Write a new JSON/CSV only on explicit request, with atomic no-clobber publication."""
     if format not in {"json", "csv"}:
@@ -57,6 +68,7 @@ def export_analysis(payload: dict, destination: Path, *, format: str) -> None:
         raise ValueError(f"Choose a new .{format} destination")
     if destination.exists() or destination.is_symlink():
         raise FileExistsError(f"Export destination already exists: {destination}")
+    validate_analysis_destinations(_report_sources(payload), [destination])
     if format == "json":
         atomic_write_json(destination, payload, overwrite=False)
         return

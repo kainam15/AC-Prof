@@ -30,7 +30,9 @@ def main(argv=None):
     try:
         with offline_analysis_lock():
             from acprof.analysis.independent_comparison import compare_experiments
+            from acprof.results.outputs import validate_analysis_destinations
 
+            validate_analysis_destinations([*args.left, *args.right], destinations)
             report = compare_experiments(args.left, args.right,
                 metrics=args.metric or ["latency_app_s", "container_attributed_energy_eff_j"],
                 purpose=args.purpose, confidence=args.confidence, resamples=args.resamples, seed=args.seed)

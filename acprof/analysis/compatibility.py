@@ -453,10 +453,10 @@ def _report_single_source(source: Path, pre_invalid: list[dict]) -> dict:
 def report_results(sources: list[Path], output: Path) -> dict:
     """Read recorded results, including failed preflight directories; never rerun."""
     from acprof.artifacts import atomic_write_json
-    rows = [
-        _report_single_source(source, pre_invalid)
-        for source, pre_invalid in _expand_result_sources(sources)
-    ]
+    from acprof.results.outputs import validate_analysis_destinations
+    expanded = _expand_result_sources(sources)
+    validate_analysis_destinations(sources, [output], expanded_sources=(source for source, _ in expanded))
+    rows = [_report_single_source(source, pre_invalid) for source, pre_invalid in expanded]
     output.mkdir(parents=True, exist_ok=False)
     report = {"schema_version": 1, "scope": "recorded_results; no_reexecution", "rows": rows}
     atomic_write_json(output / "coverage.json", report)

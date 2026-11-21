@@ -329,16 +329,29 @@ def test_output_collision_during_rendering_preserves_existing_bytes(tmp_path, mo
 
 
 @pytest.mark.parametrize("not_run", [False, True])
-def test_output_cannot_create_a_missing_planned_point(tmp_path, not_run):
+@pytest.mark.parametrize("suffix", ["", "nested/report.html", "../notes/report.html"],
+                         ids=["exact", "descendant", "backtrack"])
+def test_output_cannot_create_a_missing_planned_point(tmp_path, not_run, suffix):
     root = make_sweep(tmp_path / "sweep")
-    output = root / "points/0002/load.json"
-    output.unlink()
+    planned = root / "points/0002/load.json"
+    planned.unlink()
     if not_run:
         change_manifest(root, lambda manifest: (manifest.update(status="failed", successful=False),
                                                 manifest["points"][1].update(status="not_run", successful=None, run_id=None)))
     with pytest.raises(ValueError, match="planned point"):
-        write_load_sweep_report(root, output)
-    assert not output.exists()
+        write_load_sweep_report(root, planned / suffix)
+    assert not planned.exists()
+    assert not (planned.parent / "notes").exists()
+
+
+def test_sweep_report_can_share_an_incomplete_points_directory(sweep_reader, tmp_path):
+    root = make_sweep(tmp_path / "sweep")
+    planned = root / "points/0002/load.json"
+    planned.unlink()
+    output = planned.parent / "load.json-notes" / "report.html"
+    write_load_sweep_report(root, output)
+    assert output.is_file()
+    assert sweep_reader.read_load_sweep(root).payload["points"][1]["evidence_status"] == "missing"
 
 
 @pytest.mark.parametrize("extra", [

@@ -35,12 +35,16 @@ def main(argv=None):
             save_unique_statistics_report,
         )
         from acprof.results.layout import resolve_result_file
+        from acprof.results.outputs import validate_analysis_destinations
 
         try:
             if args.output:
                 selected = resolve_result_file(args.source)
                 if args.output.exists() or args.output.is_symlink() or args.output.resolve() == selected.resolve():
                     parser.error("统计输出必须为新的文件，不能覆盖输入或已有产物")
+            destination = args.output or args.output_dir
+            if destination is not None:
+                validate_analysis_destinations([args.source], [destination])
             report = build_statistics_report(args.source, args.metric, confidence=args.confidence,
                                              resamples=args.resamples, seed=args.seed,
                                              block_size=args.block_size, precision_target=args.precision_target)

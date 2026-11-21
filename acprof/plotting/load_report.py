@@ -293,6 +293,8 @@ def write_load_report(source: str | Path, output: str | Path) -> Path:
     destination = Path(output)
     if destination.exists() or destination.is_symlink():
         raise ValueError(f"output must be a new file: {destination}")
+    from acprof.results.outputs import validate_analysis_destinations
+    validate_analysis_destinations([source], [destination])
     document = render_load_report(read_load_report(source))
 
     def write(stream: TextIO) -> None:

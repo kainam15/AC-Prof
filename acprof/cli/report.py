@@ -33,8 +33,12 @@ def main(argv=None):
         with offline_analysis_lock():
             selected = args.results or [*args.left, *args.right]
             first = selected[0]
+            sources = list(dict.fromkeys([*selected, *(args.left or []), *(args.right or [])]))
+            if args.output is not None:
+                from acprof.results.outputs import validate_analysis_destinations
+                validate_analysis_destinations(sources, [args.output])
             sweep_inputs = [
-                path for path in [*selected, *(args.left or []), *(args.right or [])]
+                path for path in sources
                 if path.name == "sweep.json" or (path.is_dir() and (path / "sweep.json").is_file())
             ]
             comparison_requested = args.baseline or args.comparison_purpose or args.left or any(
@@ -70,7 +74,7 @@ def main(argv=None):
             output = args.output or (first if first.is_dir() else first.parent) / "report.html"
             if args.left:
                 from acprof.analysis.report_comparison import comparison_sources
-                selected = list(dict.fromkeys(comparison_sources([*selected, *args.left, *args.right])))
+                selected = list(dict.fromkeys(comparison_sources(sources)))
             model = load_analysis(selected)
             write_report(
                 model, output, baseline=args.baseline,

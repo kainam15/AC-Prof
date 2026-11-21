@@ -12,16 +12,19 @@ from urllib.parse import quote
 
 from acprof.analysis.load_sweep import read_load_sweep, verify_load_sweep_sources
 from acprof.artifacts import atomic_write
+from acprof.results.outputs import output_ancestors, validate_analysis_destinations
 
 
 def write_load_sweep_report(source: str | Path, output: str | Path) -> dict[str, Any]:
     output = Path(output)
     if output.exists() or output.is_symlink():
         raise ValueError(f"output must be a new file: {output}")
+    validate_analysis_destinations([source], [output])
     analysis = read_load_sweep(source)
     payload = analysis.payload
-    if output.resolve() in {analysis.root / point["report_path"] for point in payload["points"]}:
-        raise ValueError("output must not replace a planned point report, including a missing or unrun point")
+    planned = {analysis.root / point["report_path"] for point in payload["points"]}
+    if not planned.isdisjoint(output_ancestors(output)):
+        raise ValueError("output must not create or replace a planned point report, including a missing or unrun point")
     for point in payload["points"]:
         if point["evidence_status"] in {"valid", "partial"}:
             relative = os.path.relpath(analysis.root / point["report_path"], output.resolve().parent)

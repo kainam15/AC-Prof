@@ -29,6 +29,7 @@ from acprof.artifacts import atomic_write
 from acprof.quality import QUALITY_FIELDS
 from acprof.results.coverage import collector_contract, field_collectors
 from acprof.results.metrics import ANALYSIS_METRICS, METRICS, VIEW_METRICS
+from acprof.results.outputs import validate_analysis_destinations
 from acprof.results.profile import metric_observation
 from acprof.system.cleanup import cleanup_on_exit
 
@@ -110,6 +111,7 @@ def write_report(model: AnalysisModel, output: str | Path, *, baseline: str | No
     output = Path(output)
     if output.exists() or output.is_symlink():
         raise ValueError(f"output must be a new file: {output}")
+    validate_analysis_destinations((source["path"] for source in model.sources), [output])
     payload = report_payload(model, baseline, comparison_purpose=comparison_purpose,
                              statistics_options=statistics_options, comparison_groups=comparison_groups,
                              independent_report=independent_report)

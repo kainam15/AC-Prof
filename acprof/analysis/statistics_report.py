@@ -11,6 +11,7 @@ from acprof.analysis.uncertainty import summarize_windows
 from acprof.artifacts import atomic_write_json, read_json_object
 from acprof.quality import QUALITY_FIELDS
 from acprof.results.csv import ResultCsvSnapshot, result_csv_snapshot_unchanged
+from acprof.results.outputs import validate_analysis_destinations
 from acprof.system.cleanup import cleanup_on_exit
 
 DEFAULT_STATISTICS_METRICS = ("latency_app_s", "latency_s", "container_attributed_energy_eff_j")
@@ -49,6 +50,8 @@ def save_unique_statistics_report(directory: Path, report: dict) -> tuple[Path, 
     """Compare complete JSON content before publishing a timestamped report."""
     import fcntl
 
+    if source := report.get("result_csv"):
+        validate_analysis_destinations([source], [directory])
     directory = directory.resolve()
     directory.mkdir(parents=True, exist_ok=True)
     content = json.dumps(report, sort_keys=True, ensure_ascii=False, allow_nan=False)
