@@ -758,3 +758,31 @@ def test_cross_runtime_report_only_exposes_qualified_metric_deltas(page):
     assert result[0] == {"delta": 0.1, "scope": "matched_cross_runtime_metric", "statistics_status": "not_computed"}
     assert result[1]["delta"] is None
     assert result[2]["status"] == "incompatible"
+
+
+def test_csv_import_distinguishes_historical_and_partial_token_coverage(page, tmp_path):
+    path = tmp_path / "token-coverage.csv"
+    token_rate = "output_tokens_per_s_app"
+    columns = ["cpu_cores", "mem_cap_gb", "gpu_mode", "input_scale", "repeat_idx", "warmup",
+               "status", token_rate, "resource_metric_quality"]
+    with path.open("w", newline="") as stream:
+        writer = csv.writer(stream)
+        writer.writerow(columns)
+        for cpu, token_metrics in [(1, {}), (2, {token_rate: {
+            "quality": "partial", "reason": "missing_output_token_count",
+            "observed_requests": 1, "completed_requests": 2,
+        }})]:
+            writer.writerow([cpu, 4, "off", 64, 0, 0, "ok", 10, json.dumps({
+                "schema_version": 1, "metrics": token_metrics, "collectors": {"client_http": {"status": "available"}}
+            })])
+    python = load_analysis([path]).configs
+    imported = page.evaluate("""async text => {
+      const registry = JSON.parse(document.getElementById('report-data').textContent).registry;
+      return (await ACProfImport.readCsv(new File([text], 'token-coverage.csv'), registry)).configs;
+    }""", path.read_text())
+    for configs in (python, imported):
+        legacy, partial = sorted(configs, key=lambda config: config["cpu"])
+        assert legacy["metric_observations"][token_rate][0]["quality"] == "unknown"
+        assert legacy["metrics"][token_rate]["value"] == 10
+        assert partial["metric_observations"][token_rate][0]["quality"] == "partial"
+        assert partial["metrics"][token_rate]["value"] is None

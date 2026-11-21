@@ -123,7 +123,8 @@ def metric_observation(row: dict, name: str) -> dict:
               'derivation': contract.derivation, 'quality': 'unknown', 'reason': 'no_metric_quality_evidence'}
     try:
         text = str(row.get("resource_metric_quality", ""))
-        item = _decode(text).get(name)
+        evidence = _decode(text)
+        item = evidence.get(name)
         states = _collector_states(text)
         if states and runtime not in contract.runtimes:
             return {**result, "quality": "not_applicable", "reason": "runtime_not_implemented"}
@@ -134,6 +135,9 @@ def metric_observation(row: dict, name: str) -> dict:
         if item is None:
             group = field_collectors(runtime).get(name)
             item = _from_collector(row, metric, group, states) if group else None
+            if (metric.applicability == "text_tokenizer" and item and item["quality"] == "complete"
+                    and "completed_requests" not in evidence.get("output_token_count_avg", {})):
+                return {**result, "reason": "output_token_coverage_unrecorded"}
         if item is None:
             return result
         if item.get('quality') not in QUALITIES:

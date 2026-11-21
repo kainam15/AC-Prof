@@ -147,8 +147,8 @@ J/request，避免改变旧结果含义；新增 DRAM 明确区分 window 与 pe
 | `container_attributed_energy_eff_j` | 不增加采集轮次的派生值。CPU-only 行等于 estimated `vcpu_energy_eff_j`；GPU 行等于 `vcpu_energy_eff_j + gpu_energy_eff_j`。任一必需分量缺失或为负时为 `nan`。它只覆盖已采集并归因的 vCPU/GPU 分量，不代表 wall-plug system energy。 |
 | `container_attributed_samples_per_j` | `batch_size / container_attributed_energy_eff_j`，单位 samples/J；能量不为正或缺失时为 `nan`。 |
 | `container_attributed_edp_app_js` | `container_attributed_energy_eff_j * latency_app_s`，即 application-latency energy-delay product，单位 J·s/request。 |
-| `output_tokens_per_s_app` | `output_token_count_avg / latency_app_s`。只在 handler 能可靠返回正数 output token count 时有值，适用于 ASR 和图像描述；分母包含完整请求的图像/音频预处理、推理、后处理和传输，不是纯解码速度。 |
-| `container_attributed_j_per_output_token` | `container_attributed_energy_eff_j / output_token_count_avg`；没有可靠 output token count 时为 `nan`。 |
+| `output_tokens_per_s_app` | `output_token_count_avg / latency_app_s`。要求窗口内每个已完成请求都有 output token count，且平均时延为正。若所有输出均为空，吞吐为 `0`。适用于有文本输出的任务，如 ASR 和图像描述。分母包含完整请求的图像/音频预处理、推理、后处理和传输，不是纯解码速度。 |
+| `container_attributed_j_per_output_token` | `container_attributed_energy_eff_j / output_token_count_avg`；要求 Token 计数覆盖全部已完成请求、平均计数大于零且能耗可得。部分或全部计数缺失、全零输出时为 `nan`。 |
 | `container_attributed_j_per_input_unit` | `container_attributed_energy_eff_j / input_units_per_request`；沿用上述任务族 input unit 语义，不增加能耗采集窗口。 |
 | `container_attributed_j_per_input_megapixel` / `container_attributed_j_per_output_megapixel` | `container_attributed_energy_eff_j × 1,000,000 / 对应的 pixels_per_request`，单位 J/Mpixel；能量归因和 idle 扣除口径与分子完全一致。原始能量缺失、为负或像素数无效时为 `nan`；有效零能量仍为 `0`。 |
 

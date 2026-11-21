@@ -1,4 +1,5 @@
 import json
+import math
 import os
 import tempfile
 from functools import partial
@@ -308,3 +309,61 @@ class TestClientMetrics:
         assert (metrics["compute_profile_error_massif"]) == ("")
         assert (metrics["compute_profile_error_nsys"]) == ("nsys_stats_failed")
         assert (metrics["gpu_kernel_time_sum_ms_per_request_nsys"]) == ("nan")
+
+
+@pytest.mark.parametrize(("counts", "quality", "mean", "rate"), [
+    ([8.0, 12.0], "complete", 10, 10),
+    ([10.0, None], "partial", 10, None),
+    ([None, None], "unavailable", None, None),
+    ([0.0, 0.0], "complete", 0, 0),
+])
+def test_token_rate_requires_every_completed_request(counts, quality, mean, rate):
+    from acprof.host.measurement.metrics import WindowMetrics
+    from acprof.host.measurement.quality import window_quality
+    from acprof.host.measurement.requests import WindowRequestProgress
+    from acprof.host.measurement.types import WindowObservations
+    from acprof.results.profile import metric_observation
+
+    config = ClientConfig(profiling_mode="best_effort", dram_energy="off", gpu_mode="off",
+                          collection_plan={"probes": {}})
+    progress = WindowRequestProgress(count=2, latencies=[1.0, 1.0], output_token_counts=[
+        float("nan") if count is None else count for count in counts])
+    observations = WindowObservations()
+    metrics = WindowMetrics(config, {"input_scale": 64}, use_energy=False)
+    metrics.cpu["vcpu_energy_eff_j"] = 20
+    metrics.reduce(progress, observations)
+    evidence = window_quality(config, progress, observations, use_gpu=False,
+                              status=metrics.status, error=metrics.error, latency_slo=None)
+    row = {**metrics.efficiency, "output_token_count_avg": metrics.output_token_count_avg,
+           "gpu_mode": "off", "resource_metric_quality": json.dumps(evidence)}
+    observation = metric_observation(row, "output_token_count_avg")
+    assert observation["quality"] == quality
+    assert observation["observed_requests"] == sum(value is not None for value in counts)
+    assert observation["completed_requests"] == 2
+    if mean is None:
+        assert math.isnan(row["output_token_count_avg"])
+    else:
+        assert row["output_token_count_avg"] == mean
+    if rate is None:
+        assert math.isnan(row["output_tokens_per_s_app"])
+        assert metric_observation(row, "output_tokens_per_s_app")["quality"] == quality
+    else:
+        assert row["output_tokens_per_s_app"] == rate
+    if rate:
+        assert row["container_attributed_j_per_output_token"] == 2
+    else:
+        assert math.isnan(row["container_attributed_j_per_output_token"])
+
+
+def test_historical_token_rate_keeps_value_with_unknown_coverage():
+    from acprof.results.profile import metric_observation
+
+    row = {
+        "output_tokens_per_s_app": "10.000000",
+        "resource_metric_quality": json.dumps({"schema_version": 1, "metrics": {},
+            "collectors": {"client_http": {"status": "available"}}}),
+    }
+    observation = metric_observation(row, "output_tokens_per_s_app")
+    assert observation["quality"] == "unknown"
+    assert observation["reason"] == "output_token_coverage_unrecorded"
+    assert row["output_tokens_per_s_app"] == "10.000000"

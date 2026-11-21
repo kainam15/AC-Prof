@@ -366,7 +366,8 @@ class WindowMetrics:
             gpu_mode=self.config.gpu_mode,
             batch_size=self.config.batch_size,
             latency_app_s=self.latency_app_s,
-            output_token_count_avg=self.output_token_count_avg,
+            # A missing count propagates NaN into rates over the entire window.
+            output_token_count_avg=_mean(progress.output_token_counts),
             gpu_energy_eff_j=self.gpu["gpu_energy_eff_j"],
             vcpu_energy_eff_j=self.cpu["vcpu_energy_eff_j"],
             input_units_per_request=self.input_units_per_request,

@@ -61,7 +61,7 @@ client 追加到字段集合相同的已有文件时沿用原表头，避免数�
 | `packet_protocol_overhead_ratio` | 本行所有请求的 protocol overhead bytes 总和 / total wire bytes 总和；分母无效时为 `nan`。 |
 | `task_param` | 本行 payload 真正发送给 handler 的二级参数，使用稳定排序的 JSON 字符串；通常来自 `params`，时序任务同时记录顶层 `prediction_length`，不再记录未执行的任务族默认值。 |
 | `output_length_avg` | 同一 workload window 内响应长度的平均值：文字任务为该请求所有返回文本的 Unicode 字符数之和（不是 UTF-8 字节）；Diffusers 图像生成为图像数，视频生成为总帧数；检索等不适用任务为 `nan`。 |
-| `output_token_count_avg` | 同一 workload window 内每次响应文本 tokenizer token 数的平均值；NLP 生成、ASR 和图像描述按返回文本重新分词，`add_special_tokens=False`。批量输出和多个返回序列先逐条分词再求和，不拼接文本，也不等于实际生成 token ID 数或解码步数。若 pipeline 返回的完整文本包含 prompt，这些文本中的 token 也计入。tokenizer 不可用或统计失败时响应为 `null`；窗口内全部不可得时 CSV 为 `nan`，有效空文本为 `0`。 |
+| `output_token_count_avg` | 同一 workload window 内每次响应文本 tokenizer token 数的平均值；NLP 生成、ASR 和图像描述按返回文本重新分词，`add_special_tokens=False`。批量输出和多个返回序列先逐条分词再求和，不拼接文本，也不等于实际生成 token ID 数或解码步数。若 pipeline 返回的完整文本包含 prompt，这些文本中的 token 也计入。tokenizer 不可用或统计失败时响应为 `null`；窗口均值仅使用有计数的请求，全部不可得时 CSV 为 `nan`，有效空文本为 `0`。`resource_metric_quality.metrics.output_token_count_avg` 记录 `observed_requests` 和 `completed_requests`，部分覆盖为 `partial`。历史窗口缺少计数覆盖证据时，保留原始数值，覆盖情况为 `unknown`。 |
 | `repeat_idx` | 当前 warmup 或 repeat phase 内的 0-based iteration index。 |
 | `warmup` | `1` 表示 warmup 行，`0` 表示正式测量行。`acprof plot` 默认排除 warmup 行。 |
 | `repeat_in_window` | 本行内部连续发送的 request 数量。`latency_app_s` 和 `latency_s` 都是该 window 内 request 的平均值。 |

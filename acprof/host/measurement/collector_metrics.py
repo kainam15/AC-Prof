@@ -190,7 +190,7 @@ def derived_efficiency_metrics(
     output_tokens_per_s = (
         output_tokens / latency
         if math.isfinite(output_tokens)
-        and output_tokens > 0.0
+        and output_tokens >= 0.0
         and math.isfinite(latency)
         and latency > 0.0
         else float("nan")

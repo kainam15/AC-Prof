@@ -60,13 +60,20 @@ def _collector_state(name, probe, config, observations, use_gpu):
 
 def window_quality(config, progress, observations, *, use_gpu, status, error, latency_slo):
     quality = dict(getattr(observations.resource_result, "metric_evidence", {}))
-    for field, sizes in (("request_payload_bytes", progress.payload_sizes),
-                         ("response_payload_bytes", progress.response_sizes)):
-        observed = sum(math.isfinite(size) for size in sizes)
+    for field, readings, missing_reason in (
+        ("request_payload_bytes", progress.payload_sizes, "missing_http_body_length"),
+        ("response_payload_bytes", progress.response_sizes, "missing_http_body_length"),
+        ("output_token_count_avg", progress.output_token_counts, "missing_output_token_count"),
+    ):
+        observed = sum(math.isfinite(value) for value in readings)
         complete = bool(observed and observed == progress.count)
         quality[field] = {"quality": "complete" if complete else "partial" if observed else "unavailable",
-                          "reason": "" if complete else "missing_http_body_length",
+                          "reason": "" if complete else missing_reason,
                           "observed_requests": observed, "completed_requests": progress.count}
+    token_coverage = quality["output_token_count_avg"]
+    if token_coverage["quality"] != "complete":
+        quality["output_tokens_per_s_app"] = token_coverage
+        quality["container_attributed_j_per_output_token"] = token_coverage
     evidence = {"schema_version": 1, "metrics": quality}
     if config.profiling_mode != "best_effort":
         return evidence

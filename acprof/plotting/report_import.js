@@ -85,6 +85,10 @@ window.ACProfImport = (() => {
             quality = "partial"; reason = "unknown_pmu_running_fraction";
           }
         }
+        if (quality === "complete" && metric.applicability === "text_tokenizer" &&
+            evidence.output_token_count_avg?.completed_requests == null) {
+          quality = "unknown"; reason = "output_token_coverage_unrecorded";
+        }
         item = {quality, reason};
         if (name.startsWith("throughput_samples_per_s") && ["complete", "unavailable"].includes(quality)) {
           item.sampling = {latency_denominator:["ok", "partial"].includes(raw.packet_status) ? "packet" : "application"};
