@@ -6,14 +6,51 @@ import random
 import statistics
 from collections import defaultdict
 from concurrent.futures import CancelledError
+from decimal import MAX_EMAX, MIN_EMIN, ROUND_DOWN, Context, Decimal
+from operator import itemgetter
 
 from acprof.analysis.audit import number
 from acprof.analysis.precision import assess_mean_precision, validate_precision_target
 from acprof.results.csv import is_measured_success, measurement_key
+from acprof.results.measurement_plan import decimal_coordinate, decimal_key_text
 from acprof.results.metrics import METRICS
 from acprof.results.profile import USABLE_QUALITIES, metric_observation, observation_signature
 
 WINDOW_FILTER = "status=ok and warmup=0 and result_origin!=inferred_not_measured"
+_ORDINAL_GAP = Context(prec=1, rounding=ROUND_DOWN, Emin=MIN_EMIN, Emax=MAX_EMAX)
+_MAX_SAFE_INTEGER = 2**53 - 1
+STATISTIC_AXES = ("cpu_cores", "mem_cap_gb", "input_scale")
+
+
+def ordered_windows(rows: list[dict]) -> list[tuple[Decimal, dict]]:
+    """Pair validated ordinals with their rows for exact numeric ordering."""
+    return sorted(((decimal_coordinate(row["repeat_idx"]), row) for row in rows), key=itemgetter(0))
+
+
+def portable_repeat_index(index: Decimal) -> float | str:
+    """Preserve the original JSON encoding within the binary64 safe integer range."""
+    return float(index) if index <= _MAX_SAFE_INTEGER else decimal_key_text(index)
+
+
+def window_case_key(row: dict, key: tuple[str, ...]) -> tuple[str, ...]:
+    return (*key[:4], row.get("environment_class", "unknown"), row.get("runtime_kind", "docker"),
+            row.get("runtime_id", ""), row.get("resource_scope", "container_cgroup"))
+
+
+def _case_coordinates(case: tuple[str, ...]) -> dict:
+    result: dict = {"cpu_cores": None, "mem_cap_gb": None, "gpu_mode": case[2],
+                    "environment_class": case[4], "runtime_kind": case[5], "runtime_id": case[6],
+                    "resource_scope": case[7], "input_scale": None}
+    exact = {}
+    for axis, raw in zip(STATISTIC_AXES, (case[0], case[1], case[3]), strict=True):
+        if raw != "inherited":
+            display = float(raw)
+            result[axis] = display if math.isfinite(display) else None
+            if decimal_coordinate(raw) != decimal_coordinate(str(display)):
+                exact[axis] = raw
+    if exact:
+        result["exact_coordinates"] = exact
+    return result
 
 
 def validate_window_options(metrics, *, confidence=0.95, resamples=5000, block_size=1,
@@ -41,17 +78,12 @@ def _collect_window_cases(rows, *, cancelled, precision_target):
         if cancelled():
             raise CancelledError()
         key = measurement_key(row)
-        environment = row.get("environment_class", "unknown")
-        runtime = (
-            row.get("runtime_kind", "docker"),
-            row.get("runtime_id", ""),
-            row.get("resource_scope", "container_cgroup"),
-        )
-        if (environment, runtime, key) in keys:
+        case = window_case_key(row, key)
+        identity = (*case, *key[4:])
+        if identity in keys:
             raise ValueError(f"duplicate measurement: {key}")
-        keys.add((environment, runtime, key))
+        keys.add(identity)
         if key[4] == "0":
-            case = (*key[:4], environment, *runtime)
             if is_measured_success(row):
                 cases[case].append(row)
             elif precision_target is not None:
@@ -104,7 +136,7 @@ def _precision_unavailable_reason(
 
 
 def _summarize_case_metric(
-    case: tuple[str, ...],
+    coordinates: dict,
     ordered: list[dict],
     name: str,
     *,
@@ -123,14 +155,7 @@ def _summarize_case_metric(
     ci_low: float | None = None
     ci_high: float | None = None
     result: dict[str, object] = {
-        "cpu_cores": None if case[0] == "inherited" else float(case[0]),
-        "mem_cap_gb": None if case[1] == "inherited" else float(case[1]),
-        "gpu_mode": case[2],
-        "environment_class": case[4],
-        "runtime_kind": case[5],
-        "runtime_id": case[6],
-        "resource_scope": case[7],
-        "input_scale": float(case[3]),
+        **coordinates,
         "metric": name,
         "unit": METRICS[name].unit,
         "n_windows": count,
@@ -172,15 +197,21 @@ def summarize_windows(rows, metrics, *, confidence=0.95, resamples=5000, seed=0,
     groups = []
     # Excluded formal windows still identify a case for optional precision assessment.
     for case in sorted(cases.keys() | excluded.keys()):
-        ordered = sorted(cases[case], key=lambda row: float(row["repeat_idx"]))
+        indexed = ordered_windows(cases[case])
+        ordered = [row for _, row in indexed]
+        coordinates = _case_coordinates(case)
+        if indexed and indexed[-1][0] > _MAX_SAFE_INTEGER:
+            coordinates["repeat_index_order"] = "decimal_v1"
+        # A positive integer gap rounds down to one significant digit as 1 only
+        # when it equals 1. This avoids expanding compact ordinals such as 1E+100000000.
         gaps = ((block_size > 1 or precision_target is not None)
-                and any(float(b["repeat_idx"]) != float(a["repeat_idx"]) + 1
-                        for a, b in zip(ordered, ordered[1:], strict=False)))
+                and any(_ORDINAL_GAP.subtract(b, a) != 1
+                        for (a, _), (b, _) in zip(indexed, indexed[1:], strict=False)))
         for name in metrics:
             if cancelled():
                 raise CancelledError()
             groups.append(_summarize_case_metric(
-                case, ordered, name,
+                coordinates, ordered, name,
                 gaps=gaps, excluded_count=excluded[case],
                 confidence=confidence, resamples=resamples, seed=seed,
                 block_size=block_size, include_intervals=include_intervals,

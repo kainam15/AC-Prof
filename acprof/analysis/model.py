@@ -8,6 +8,7 @@ import math
 import statistics
 from collections import defaultdict
 from dataclasses import dataclass
+from decimal import InvalidOperation
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +20,7 @@ from acprof.platform import recorded_identity
 from acprof.quality import QUALITY_FIELDS, read_quality
 from acprof.results.csv import (
     MISSING_CSV_TEXT,
+    ResultValidationError,
     is_measured_success,
     measurement_key,
     numeric_coordinate_key,
@@ -74,7 +76,20 @@ def _exact_coordinate(raw, display):
 
 def _optional_window_coordinate(row, name):
     raw = row.get(name, "")
-    return None if raw.lower() in MISSING_CSV_TEXT else numeric_coordinate_key(name, raw)
+    if raw.lower() in MISSING_CSV_TEXT:
+        return None
+    try:
+        return numeric_coordinate_key(name, raw)
+    except ResultValidationError:
+        # Historical descriptive charts accepted absent and nonnumeric labels.
+        # Finite protocol coordinates still have to satisfy their integer domain.
+        try:
+            recorded = decimal_coordinate(raw)
+        except InvalidOperation:
+            return None
+        if recorded.is_finite():
+            raise
+        return None
 
 
 def _identity(row, meta, run_id, batch):

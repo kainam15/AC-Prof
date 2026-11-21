@@ -130,7 +130,7 @@ def write_report(model: AnalysisModel, output: str | Path, *, baseline: str | No
     for token, asset in {"__IMPORT__": "report_import.js", "__WORKSPACE__": "report_workspace.js",
                          "__I18N__": "report_i18n.js", "__PAPA__": "vendor/papaparse.min.js",
                          "__SHA256__": "vendor/sha256.js", "__STATISTICS_RNG__": "statistics_rng.js",
-                         "__STATISTICS_ENGINE__": "statistics_engine.js",
+                         "__COORDINATES__": "report_coordinates.js", "__STATISTICS_ENGINE__": "statistics_engine.js",
                          "__STATISTICS_CONTROLS__": "report_statistics.js"}.items():
         if token in template:
             replacements[token] = resources.joinpath(asset).read_text(encoding="utf-8")

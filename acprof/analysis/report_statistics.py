@@ -11,11 +11,20 @@ from acprof.analysis.audit import MissingReasons, number
 from acprof.analysis.model import AnalysisModel, verify_analysis_sources
 from acprof.analysis.precision import assess_mean_precision, validate_precision_target
 from acprof.analysis.statistics_report import DEFAULT_STATISTICS_METRICS
-from acprof.analysis.uncertainty import WINDOW_FILTER, summarize_windows, validate_window_options
+from acprof.analysis.uncertainty import (
+    STATISTIC_AXES,
+    WINDOW_FILTER,
+    ordered_windows,
+    portable_repeat_index,
+    summarize_windows,
+    validate_window_options,
+    window_case_key,
+)
 from acprof.artifacts import read_json_object
 from acprof.quality import QUALITY_FIELDS
 from acprof.results.csv import ResultValidationError, measurement_key
 from acprof.results.layout import ArtifactLayout
+from acprof.results.measurement_plan import decimal_coordinate, decimal_key_text
 from acprof.results.metrics import METRICS
 from acprof.results.profile import metric_observation, metric_usable, observation_signature
 
@@ -62,22 +71,23 @@ def _excluded(entries: list[dict]) -> dict[str, int]:
     return dict(reasons)
 
 
-def _row_identity(row: dict) -> tuple:
-    defaults = {"environment_class": "unknown", "runtime_kind": "docker", "runtime_id": "",
-                "resource_scope": "container_cgroup"}
+def _group_identity(group: dict) -> tuple:
+    exact = group.get("exact_coordinates", {})
+    if not isinstance(exact, dict) or any(
+        key not in STATISTIC_AXES or not isinstance(value, str) or not value for key, value in exact.items()
+    ):
+        raise ValueError("invalid_statistics_coordinates")
     identity = []
     for key in _IDENTITY:
-        value = row.get(key, defaults.get(key))
-        identity.append(number(value) if key in {"cpu_cores", "mem_cap_gb", "input_scale"}
-                        else value.strip() if isinstance(value, str) else value)
+        value = group.get(key)
+        if key in STATISTIC_AXES:
+            if value is not None and type(value) not in (int, float):
+                raise ValueError("invalid_statistics_coordinates")
+            value = exact.get(key) or (
+                "inherited" if value is None else decimal_key_text(decimal_coordinate(str(value)))
+            )
+        identity.append(value)
     return tuple(identity)
-
-
-def _rows_by_identity(rows: list[dict]) -> dict[tuple, list[dict]]:
-    indexed = defaultdict(list)
-    for row in rows:
-        indexed[_row_identity(row)].append(row)
-    return indexed
 
 
 def _unavailable_groups(metrics, reason, detail="") -> list[dict]:
@@ -86,31 +96,39 @@ def _unavailable_groups(metrics, reason, detail="") -> list[dict]:
              "detail": detail} for metric in metrics]
 
 
-def _config_summary(entries, source, metrics, options, *, include_intervals, include_inputs=False, bounds=None):
-    rows = [{key: value.strip() for key, value in entry["row"].items()}
-            for entry in entries if entry["eligible"]]
+def _index_summary_rows(entries, *, include_excluded):
     # Precision needs failed/inferred formal windows to remain visible as exclusions.
-    summary_rows = ([{key: value.strip() for key, value in entry["row"].items()} for entry in entries]
-                    if options.get("precision_target") is not None else rows)
+    summary_rows = []
+    indexed = defaultdict(list)
+    for entry in entries:
+        if entry["eligible"] or include_excluded:
+            row = {key: value.strip() for key, value in entry["row"].items()}
+            key = measurement_key(row)
+            summary_rows.append(row)
+            if entry["eligible"]:
+                indexed[window_case_key(row, key)].append(row)
+    return summary_rows, indexed
+
+
+def _config_summary(entries, source, metrics, options, *, include_intervals, include_inputs=False, bounds=None):
     try:
-        for row in summary_rows:
-            measurement_key(row)
+        summary_rows, indexed = _index_summary_rows(entries, include_excluded=options.get("precision_target") is not None)
     except ResultValidationError as error:
         # Historical chart inputs may lack window identity; never invent one.
+        indexed = {}
         groups = _unavailable_groups(metrics, "invalid_window_identity", str(error))
     else:
         report = summarize_windows(summary_rows, metrics, **options, include_intervals=include_intervals)
         groups = report["groups"] or _unavailable_groups(metrics, "no_successful_windows")
     excluded = _excluded(entries)
     resolver = MissingReasons(source["metadata"], environment_class=entries[0]["environment_class"])
-    indexed = _rows_by_identity(rows)
-    ordered_by_identity: dict[tuple, list[dict]] = {}
+    ordered_by_identity: dict[tuple, tuple[list[dict], list[float | str]]] = {}
     for summary in groups:
         # Keep window arrays off the retained summaries so each emitted group can be released.
         group = dict(summary)
         reasons: Counter[str] = Counter()
         metric = group["metric"]
-        identity = tuple(group.get(key) for key in _IDENTITY)
+        identity = _group_identity(group)
         group_key = (*identity, metric)
         matching = indexed.get(identity, [])
         mixed = len({observation_signature(metric_observation(row, metric)) for row in matching
@@ -127,10 +145,13 @@ def _config_summary(entries, source, metrics, options, *, include_intervals, inc
         group.update(config_id=entries[0]["config_id"], missing_reasons=dict(reasons), excluded_windows=excluded)
         if include_inputs:
             if identity not in ordered_by_identity:
-                ordered_by_identity[identity] = sorted(matching, key=lambda sample: float(sample["repeat_idx"]))
-            ordered = ordered_by_identity[identity]
+                windows = ordered_windows(matching)
+                ordered_by_identity[identity] = (
+                    [row for _, row in windows], [portable_repeat_index(i) for i, _ in windows]
+                )
+            ordered, indices = ordered_by_identity[identity]
             group.update(values=[number(row.get(metric)) if not mixed and metric_usable(row, metric) else None for row in ordered],
-                         repeat_indices=[float(row["repeat_idx"]) for row in ordered])
+                         repeat_indices=indices)
         yield group
 
 
@@ -230,7 +251,7 @@ def _cache_settings(report: dict, *, confidence=.95):
 
 
 def _group_key(group):
-    return tuple(group.get(key) for key in (*_IDENTITY, "metric"))
+    return (*_group_identity(group), group.get("metric"))
 
 
 def _validate_interval(group, expected, bounds: tuple[float, float] | None):
@@ -278,6 +299,8 @@ def _reuse(report, source, configs, requested_metrics, requested_options):
         raise ValueError("configuration_groups_changed")
     for group in expected_groups:
         saved = cached[_group_key(group)]
+        if saved.get("repeat_index_order") != group.get("repeat_index_order"):
+            raise ValueError("repeat_index_order_changed")
         if any(saved.get(key) != group.get(key) for key in _SUMMARY):
             raise ValueError("statistics_summary_changed")
         _validate_interval(saved, group, bounds.get(_group_key(group)))

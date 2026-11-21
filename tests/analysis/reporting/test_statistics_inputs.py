@@ -10,9 +10,12 @@ import pytest
 
 from acprof.analysis.model import load_analysis
 from acprof.analysis.report_statistics import window_input_chunks, write_window_inputs
+from acprof.analysis.statistics_report import build_statistics_report
+from acprof.analysis.uncertainty import bootstrap_mean_interval
 from acprof.plotting.report import report_payload, write_report
+from acprof.results.measurement_plan import decimal_coordinate, decimal_key_text
 from acprof.results.metrics import METRICS
-from tests.analysis.reporting.test_report_statistics import row, write_rows
+from tests.analysis.reporting.test_report_statistics import row, save_cache, write_rows
 
 
 def test_window_input_stream_does_not_retain_arrays_for_all_metrics(tmp_path):
@@ -79,6 +82,90 @@ def test_invalid_window_identity_stays_unavailable_without_sorting_bad_repeat(tm
     assert all(group['reason'] == 'invalid_window_identity' for group in report['groups'])
     assert all(group['values'] == [] and group['repeat_indices'] == []
                for group in report['recalculation']['groups'])
+
+
+@pytest.mark.parametrize(("start", "step", "reason"), [
+    (2**53, 1, ""), (2**60, 2, "nonconsecutive_windows"), (10**69 - 3, 1, ""),
+])
+def test_large_repeat_ordinals_preserve_sorted_windows_and_block_gaps(tmp_path, start, step, reason):
+    source = tmp_path / "exact.csv"
+    indices = [start + step * index for index in range(6)]
+    write_rows(source, [row(i, value) for value, i in reversed(list(enumerate(indices, 1)))])
+    metric = "latency_app_s"
+    options = {"metrics": [metric], "block_size": 2, "resamples": 20}
+    cli = build_statistics_report(source, **options)["groups"][0]
+    report = report_payload(load_analysis([source]), statistics_options=options)["window_statistics"][0]
+    summary = report["groups"][0]
+    assert cli["reason"] == summary["reason"] == reason
+    assert (cli["ci_low"] is None) == bool(reason)
+    inputs = next(group for group in report["recalculation"]["groups"] if group["metric"] == metric)
+    assert inputs["values"] == [1, 2, 3, 4, 5, 6]
+    assert inputs["repeat_indices"] == [decimal_key_text(decimal_coordinate(str(i))) for i in indices]
+
+
+def test_window_inputs_encode_large_powers_without_expansion(tmp_path):
+    source = tmp_path / "huge.csv"
+    write_rows(source, [row("2e100000000", 3), row("1e100000000", 1), row("0.0", 2)])
+    report = report_payload(load_analysis([source]), statistics_options={"block_size": 2})["window_statistics"][0]
+    inputs = next(group for group in report["recalculation"]["groups"] if group["metric"] == "latency_app_s")
+    assert inputs["repeat_indices"] == [0.0, "1E+100000000", "2E+100000000"]
+    assert type(inputs["repeat_indices"][0]) is float
+    assert inputs["values"] == [2, 1, 3]
+
+
+@pytest.mark.parametrize("old_order", [None, "binary64"])
+def test_report_rejects_cached_intervals_from_rounded_repeat_order(tmp_path, old_order):
+    source = tmp_path / "result_all.csv"
+    values = [160, 50, 20, 200, 3, 1]
+    write_rows(source, [row(2**60 + i, value) for i, value in zip(reversed(range(6)), values, strict=True)])
+    metric = "latency_app_s"
+    options = {"metrics": [metric], "resamples": 17, "seed": 3}
+    cache = save_cache(source, **options)
+    saved = json.loads(cache.read_text())
+    group = saved["groups"][0]
+    correct = group["ci_low"], group["ci_high"]
+    # All six old binary64 indices tied; stable float sorting kept file order.
+    stale = bootstrap_mean_interval(values, resamples=17, seed=3)
+    assert stale != correct
+    group["ci_low"], group["ci_high"] = stale
+    if old_order is None:
+        group.pop("repeat_index_order", None)
+    else:
+        group["repeat_index_order"] = old_order
+    cache.write_text(json.dumps(saved))
+    report = report_payload(load_analysis([source]), statistics_options=options)["window_statistics"][0]
+    assert report["origin"] == "computed"
+    assert report["cache_diagnostics"][0]["reason"] == "repeat_index_order_changed"
+    assert report["groups"][0]["repeat_index_order"] == "decimal_v1"
+    assert (report["groups"][0]["ci_low"], report["groups"][0]["ci_high"]) == correct
+
+
+@pytest.mark.parametrize("axis", ["input_scale", "mem_cap_gb", "cpu_cores"])
+def test_colliding_display_axes_keep_cache_bounds_and_inputs_distinct(tmp_path, axis):
+    source = tmp_path / "exact-axes.csv"
+    higher = "2.0000000000000001"
+    write_rows(source, [row(i, first + i, **{axis: value})
+                        for first, value in ((2, "2"), (20, higher)) for i in range(3)])
+    options = {"metrics": ["latency_app_s"], "resamples": 20}
+    cache = save_cache(source, **options)
+    groups = json.loads(cache.read_text())["groups"]
+    assert not groups[0].get("exact_coordinates")
+    assert groups[1]["exact_coordinates"] == {axis: higher}
+    report = report_payload(load_analysis([source]), statistics_options=options)["window_statistics"][0]
+    assert report["origin"] == "cached"
+    inputs = [g for g in report["recalculation"]["groups"] if g["metric"] == "latency_app_s"]
+    assert [group["values"] for group in inputs] == [[2, 3, 4], [20, 21, 22]]
+    assert inputs[1]["exact_coordinates"] == {axis: higher}
+    old_cache = json.loads(cache.read_text())
+    other_interval = dict(old_cache["groups"][0], ci_low=20, ci_high=21)
+    cache.write_text(json.dumps({**old_cache, "groups": [other_interval, old_cache["groups"][1]]}))
+    report = report_payload(load_analysis([source]), statistics_options=options)["window_statistics"][0]
+    assert report["cache_diagnostics"][0]["reason"] == "interval_outside_observed_range"
+    del old_cache["groups"][1]["exact_coordinates"]
+    cache.write_text(json.dumps(old_cache))
+    report = report_payload(load_analysis([source]), statistics_options=options)["window_statistics"][0]
+    assert report["origin"] == "computed"
+    assert report["cache_diagnostics"][0]["reason"] == "configuration_groups_changed"
 
 
 @pytest.mark.parametrize('runtime', ['docker', 'process'])

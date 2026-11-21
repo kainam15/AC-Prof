@@ -65,16 +65,18 @@ window.ACProfStatistics = (() => {
     validate(options); check(hooks.signal);
     const {values:raw, repeat_indices:indices, ...identity} = input;
     if (!Array.isArray(raw) || !Array.isArray(indices) || raw.length !== indices.length ||
-        raw.some(value => value !== null && !finite(value)) || indices.some(value => !finite(value))) {
+        raw.some(value => value !== null && !finite(value))) {
       throw new Error("窗口数据损坏 / Invalid window inputs");
     }
+    const order = ACProfCoordinates.repeatSequence(indices);
+    if (order === "invalid") throw new Error("窗口数据损坏 / Invalid window inputs");
     const values = raw.filter(finite), count = values.length;
     const result = {...identity, n_windows:count, missing_windows:raw.length - count,
       mean:mean(values), std:deviation(values), ci_low:null, ci_high:null, reason:""};
     if (["invalid_window_identity", "no_successful_windows"].includes(input.reason)) result.reason = input.reason;
     else if (count < Math.max(3, 3 * options.block_size)) result.reason = "insufficient_windows";
     else if (options.block_size > 1 && count !== raw.length) result.reason = "missing_windows_break_blocks";
-    else if (options.block_size > 1 && indices.some((value, index) => index > 0 && value !== indices[index - 1] + 1)) result.reason = "nonconsecutive_windows";
+    else if (options.block_size > 1 && order === "nonconsecutive") result.reason = "nonconsecutive_windows";
     else {
       const rng = window.ACProfRandom(options.seed), estimates = [], tick = scheduler(hooks);
       for (let index = 0; index < options.resamples; index++) {

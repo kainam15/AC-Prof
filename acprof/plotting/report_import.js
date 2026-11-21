@@ -5,34 +5,7 @@ window.ACProfImport = (() => {
   const number = value => value == null || String(value).trim() === "" ? null :
     (/^[+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?$/i.test(String(value).trim()) && Number.isFinite(Number(value)) ? Number(value) : null);
   const resourceAxes = ["cpu_cores", "mem_cap_gb", "input_scale"];
-  function decimalCoordinate(value) {
-    // Normalize coefficient and exponent separately; a repeat such as 1e10000 never expands into 10001 digits.
-    const match = /^([+-]?)(\d*)(?:\.(\d*))?(?:e([+-]?)(\d+))?$/i.exec(value);
-    if (!match || !(match[2] || match[3])) return null;
-    const fraction = match[3] || "", digits = (match[2] + fraction).replace(/^0+/, "");
-    const exponent = (match[5] || "").replace(/^0+/, "") || "0";
-    // The project's Decimal context uses a signed, bounded exponent.
-    if (exponent.length > 19) return null;
-    let power = BigInt((match[4] || "") + exponent) - BigInt(fraction.length);
-    if (power < -1999999999999999997n || power + BigInt(Math.max(0, digits.length - 1)) > 999999999999999999n) return null;
-    if (!digits) return {key:"0", integer:true};
-    if (match[1] === "-") return null;
-    let end = digits.length;
-    while (digits[end - 1] === "0") end--;
-    power += BigInt(digits.length - end);
-    const coefficient = digits.slice(0, end), adjusted = power + BigInt(end - 1);
-    let key = coefficient;
-    // Match decimal_key_text for evidence shared with Python-generated bundles.
-    if (power > 0n || adjusted < -6n) {
-      const mantissa = end === 1 ? coefficient : coefficient[0] + "." + coefficient.slice(1);
-      key = mantissa + "E" + (adjusted > 0n ? "+" : "") + adjusted;
-    } else if (power < 0n) {
-      const point = Number(adjusted) + 1;
-      key = point <= 0 ? "0." + "0".repeat(-point) + coefficient :
-        coefficient.slice(0, point) + "." + coefficient.slice(point);
-    }
-    return {key, integer:power >= 0n};
-  }
+  const {decimalCoordinate, repeatSequence} = ACProfCoordinates;
   const text = value => value == null || ["", "none", "null", "nan"].includes(String(value).trim().toLowerCase()) ? "unknown" : String(value).trim();
   const canonical = value => "{" + Object.keys(value).sort().map(key => JSON.stringify(key) + ": " + JSON.stringify(value[key])).join(", ") + "}";
   const fail = message => { throw new Error(message); };
@@ -388,7 +361,7 @@ window.ACProfImport = (() => {
           if (!inputs.metrics[group.metric] ||
               group.unit !== inputs.metrics[group.metric].unit || !Array.isArray(group.values) || !Array.isArray(group.repeat_indices) ||
               group.values.length !== group.repeat_indices.length || !group.values.every(numeric) ||
-              group.repeat_indices.some((value, index) => !finite(value) || value < 0 || index > 0 && value <= group.repeat_indices[index - 1])) fail("重算窗口损坏 / Invalid recalculation windows");
+              repeatSequence(group.repeat_indices) === "invalid") fail("重算窗口损坏 / Invalid recalculation windows");
         }
       }
       for (const group of report.groups) {
