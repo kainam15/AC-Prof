@@ -93,7 +93,8 @@ def test_review_provenance_survives_export_and_subprocess_inspection(inspection_
         assert (saved["fields"]["multimodal.inputs.prompt"]["sources"]) == (original["fields"]["multimodal.inputs.prompt"]["sources"])
 
 
-def test_corrupt_previous_review_provenance_is_not_reused():
+@pytest.mark.parametrize("previous_contract", ["nonfinite-report", "v5-source-graph"])
+def test_invalid_or_outdated_review_provenance_is_not_reused(previous_contract):
     from acprof.models.contract import write_model_resolution
     from acprof.models.spec import task_model_spec
 
@@ -107,7 +108,10 @@ def test_corrupt_previous_review_provenance_is_not_reused():
         previous = Path(directory, "model_resolution.json")
         payload = json.loads(previous.read_text())
         payload["contract"]["legacy_marker"] = "must-not-survive"
-        payload["corrupt_metric"] = float("nan")
+        if previous_contract == "v5-source-graph":
+            payload["contract"]["resolver_version"] = "pipeline-contract-v5"
+        else:
+            payload["corrupt_metric"] = float("nan")
         previous.write_text(json.dumps(payload), encoding="utf-8")
         declaration_path = Path(directory, "acprof_model.json")
         declaration_path.write_text(json.dumps(declaration), encoding="utf-8")

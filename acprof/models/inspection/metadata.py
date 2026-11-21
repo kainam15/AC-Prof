@@ -4,10 +4,11 @@ from __future__ import annotations
 import ast
 import json
 from collections.abc import Callable
-from pathlib import PurePosixPath
 
 from acprof.models.evidence import ModelEvidence
-from acprof.models.inspection.source import model_card_examples, parse_source, top_level_bound_names
+from acprof.models.inspection.ast_parser import parse_source
+from acprof.models.inspection.source import model_card_examples
+from acprof.models.inspection.source_imports import RepositoryImports
 from acprof.models.spec import custom_code_files
 
 MAX_SOURCE_FILES = 32
@@ -77,57 +78,22 @@ def collect_source_evidence(task_info, evidence: ModelEvidence, config: dict,
         evidence.source(filename, source.encode())
         return tree
 
-    def initializer_binds(module_path: PurePosixPath, name: str) -> bool:
-        initializer = str(module_path / "__init__.py")
-        if initializer not in files:
-            return False
-        queue.append(initializer)
-        tree = load_source(initializer)
-        return name in top_level_bound_names(tree)
-
+    imports = RepositoryImports(files, load_source)
     while queue:
         filename = queue.pop(0)
         if filename in processed:
             continue
         tree = load_source(filename)
         processed.add(filename)
-        # Follow local imports only. This is syntax inspection, never importlib.
-        def enqueue_module(module_path, *, required=False):
-            choices = (str(module_path) + ".py", str(module_path / "__init__.py"))
-            existing = [name for name in choices if name in files]
-            if required and not existing:
-                raise ValueError(f"{filename}: relative source module is missing: {module_path}")
-            queue.extend(existing)
-            if existing:
-                for parent in module_path.parents:
-                    initializer = str(parent / "__init__.py")
-                    if initializer in files:
-                        queue.append(initializer)
-
+        queue.extend(imports.package_initializers(filename))
         for node in ast.walk(tree):
-            if isinstance(node, ast.Import):
-                for alias in node.names:
-                    enqueue_module(PurePosixPath(alias.name.replace(".", "/")))
-                continue
-            if not isinstance(node, ast.ImportFrom):
-                continue
-            base = PurePosixPath(filename).parent if node.level else PurePosixPath(".")
-            for _ in range(node.level - 1):
-                if base == PurePosixPath("."):
-                    raise ValueError(f"{filename}: relative import escapes pinned snapshot")
-                base = base.parent
-            module_path = base / node.module.replace(".", "/") if node.module else base
-            if node.module:
-                enqueue_module(module_path, required=bool(node.level))
-            for alias in node.names:
-                if alias.name != "*":
-                    # A bare relative from-list first looks for a package attribute,
-                    # then a same-named submodule. Only waive the submodule
-                    # requirement when the initializer proves that binding.
-                    required = bool(node.level and not node.module)
-                    if required and initializer_binds(module_path, alias.name):
-                        required = False
-                    enqueue_module(module_path / alias.name, required=required)
+            if isinstance(node, (ast.Import, ast.ImportFrom)):
+                targets = imports.resolve(filename, node)
+                if targets.missing:
+                    kind = "relative" if isinstance(node, ast.ImportFrom) and node.level else "local"
+                    raise ValueError(f"{filename}: {kind} source module is missing: {', '.join(targets.missing)}")
+                queue.extend(targets.sources)
+                queue.extend(targets.possible_sources)
     from acprof.models.inspection.dependency_flow import analyze_dependencies
     from acprof.runtime.profiles import ENVIRONMENTS, locked_transformers_version
     evidence.source("repository-file-listing", json.dumps(sorted(files)).encode())

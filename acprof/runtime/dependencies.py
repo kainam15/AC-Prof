@@ -4,13 +4,12 @@ from __future__ import annotations
 
 import ast
 import hashlib
-from pathlib import PurePosixPath
 from typing import Any, Literal, TypedDict
 
 from acprof.failures import Failure, RuntimeFailure
 from acprof.installation import resource_root
 from acprof.models.evidence import pinned_revision
-from acprof.models.inspection.source import top_level_bound_names
+from acprof.models.inspection.source_imports import RepositoryImports
 from acprof.models.spec import custom_code_files
 from acprof.runtime.dependency_locks import normalized_name, package_versions, read_python_lock
 from acprof.runtime.stdlib import STDLIB_MODULES
@@ -71,7 +70,7 @@ def dependency_preflight(task, profile, *, read_source) -> DependencyPreflightRe
     records: list[DependencyRecord] = []
     sources: dict[str, str] = {}
     requirements: list[Any] = []
-    trees: dict[str, ast.AST] = {}
+    trees: dict[str, ast.Module] = {}
     processed: set[str] = set()
     tokenizer = metadata.get("tokenizer_config.json", {})
     if tokenizer.get("tokenizer_class") in {"BertJapaneseTokenizer", "MecabTokenizer"} and tokenizer.get("word_tokenizer_type", "mecab") == "mecab":
@@ -119,8 +118,7 @@ def dependency_preflight(task, profile, *, read_source) -> DependencyPreflightRe
                         "source": name, "status": "missing" if version is None else
                         "present" if requirement.specifier.contains(version, prereleases=True) else "incompatible"})
 
-
-    def load_tree(name):
+    def load_tree(name: str) -> ast.Module:
         if name in trees:
             return trees[name]
         if len(sources) >= MAX_FILES:
@@ -133,13 +131,8 @@ def dependency_preflight(task, profile, *, read_source) -> DependencyPreflightRe
         trees[name] = tree
         return tree
 
-    def initializer_binds(module_path, exported):
-        initializer = str(module_path / "__init__.py")
-        if initializer not in files:
-            return False
-        tree = load_tree(initializer)
-        pending.add(initializer)
-        return exported in top_level_bound_names(tree)
+    imports = RepositoryImports(files, load_tree)
+    guarded_files: set[str] = set()
 
     def visit(nodes, name, conditional=False):
         for node in nodes:
@@ -150,35 +143,19 @@ def dependency_preflight(task, profile, *, read_source) -> DependencyPreflightRe
                 visit(node.body if node.test.value else node.orelse, name, conditional)
                 continue
             if isinstance(node, (ast.Import, ast.ImportFrom)):
-                modules = [alias.name for alias in node.names] if isinstance(node, ast.Import) else [node.module or ""]
-                if isinstance(node, ast.ImportFrom) and node.level:
-                    base = PurePosixPath(name).parent
-                    for _ in range(node.level - 1):
-                        base = base.parent
-                    modules = [node.module] if node.module else [alias.name for alias in node.names]
-                    for module in modules:
-                        stem = str(base / module.replace(".", "/"))
-                        candidates = [stem + ".py", stem + "/__init__.py"]
-                        matched = next((path for path in candidates if path in files), None)
-                        if matched:
-                            pending.add(matched)
-                        elif not node.module and initializer_binds(base, module):
-                            continue
-                        else:
-                            records.append({"status": "unknown", "source": name, "detail": f"unresolved relative import {module}"})
-                else:
-                    for module in modules:
-                        root = module.split(".")[0]
-                        local = next((p for p in (root + ".py", root + "/__init__.py") if p in files), None)
-                        if local:
-                            pending.add(local)
-                        elif root:
-                            if stdlib is None:
-                                records.append({"module": root, "source": name, "status": "unknown",
-                                                "python_version": target_python,
-                                                "detail": "no stdlib inventory for the target Python"})
-                            elif root not in stdlib:
-                                records.append({"module": root, "source": name, "conditional": conditional})
+                targets = imports.resolve(name, node)
+                (guarded_files if conditional else pending).update(targets.sources)
+                guarded_files.update(targets.possible_sources)
+                for missing in targets.missing:
+                    kind = "relative" if isinstance(node, ast.ImportFrom) and node.level else "local"
+                    records.append({"status": "unknown", "source": name, "detail": f"unresolved {kind} import {missing}"})
+                for root in targets.external_roots:
+                    if stdlib is None:
+                        records.append({"module": root, "source": name, "status": "unknown",
+                                        "python_version": target_python,
+                                        "detail": "no stdlib inventory for the target Python"})
+                    elif root not in stdlib:
+                        records.append({"module": root, "source": name, "conditional": conditional})
             elif isinstance(node, ast.Call) and (isinstance(node.func, ast.Name) and node.func.id == "__import__" or
                     isinstance(node.func, ast.Attribute) and node.func.attr == "import_module"):
                 records.append({"status": "unknown", "source": name, "detail": "dynamic import requires review"})
@@ -186,9 +163,13 @@ def dependency_preflight(task, profile, *, read_source) -> DependencyPreflightRe
                 children = list(ast.iter_child_nodes(node))
                 visit(children, name, conditional or isinstance(node, (ast.If, ast.Try)))
 
-    while pending:
-        name = min(pending)
-        pending.remove(name)
+    # Drain mandatory paths first. A module reached by both paths is graded once,
+    # as mandatory; a guarded import cannot make a transitive dependency mandatory.
+    while pending or guarded_files:
+        guarded = not pending
+        queue = guarded_files if guarded else pending
+        name = min(queue)
+        queue.remove(name)
         if name in processed:
             continue
         if name not in trees and len(sources) >= MAX_FILES:
@@ -197,7 +178,8 @@ def dependency_preflight(task, profile, *, read_source) -> DependencyPreflightRe
         try:
             tree = load_tree(name)
             processed.add(name)
-            visit(tree.body, name)
+            visit(tree.body, name, guarded)
+            queue.update(imports.package_initializers(name))
         except (OSError, SyntaxError, ValueError, RecursionError) as exc:
             records.append({"status": "unknown", "source": name, "detail": str(exc)})
     for record in records:

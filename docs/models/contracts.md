@@ -155,7 +155,7 @@ Static Resolution 只读取固定 revision 的文本和 AST，不在主机执行
 Interface Probe 使用 `source_bundle.py` 消费静态解析已有的源码图、`repository_sources` 和 metadata；
 缓存存在时不重新联网，缺少已声明文件时只获取该文件。bundle 只包含已确认的 `.py`、`config.json`、
 tokenizer／processor 的小型 JSON metadata 与 `acprof_model.json`；源码数量、大小和 SHA256 都有界，
-并核对完整 commit SHA。相对导入的子模块与 package initializer 同样进入源码图。
+并核对完整 commit SHA。源码图包含点分入口的父包、被导入的本地子模块及其初始化文件；`pipeline-contract-v6` 不沿用旧规则生成的审阅证据。包与同名文件、包属性与子模块的选择参照 CPython 的 [FileFinder](https://github.com/python/cpython/blob/3.12/Lib/importlib/_bootstrap_external.py) 与 [from-list 处理](https://github.com/python/cpython/blob/3.12/Lib/importlib/_bootstrap.py)，只检查固定文件清单和源码 AST，不在宿主调用导入器。
 权重后缀、路径越界、缺失依赖或源码身份不一致直接失败，缺图报告
 `interface probe source graph incomplete`，不调用 snapshot 下载，也不扩展 `model_download_policy`。
 
