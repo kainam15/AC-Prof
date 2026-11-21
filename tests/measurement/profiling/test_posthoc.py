@@ -301,6 +301,41 @@ class TestPosthocProfile:
             '{"input_scale": 1.0, "nested": [123, 0.0]}'
         )
 
+    @pytest.mark.parametrize("tool", ["torch", "ncu", "massif", "nsys"])
+    @pytest.mark.parametrize("invalid_token", ["1.00000000000000001", "true"], ids=["rounded", "boolean"])
+    def test_reusable_profiler_plan_requires_exact_original_scale(self, tmp_path, tool, invalid_token):
+        from acprof.results.layers import publish_result_rows, read_result_layers
+
+        self._write_fixture(tmp_path)
+        fields, rows = read_result_layers(tmp_path)
+        publish_result_rows(fields, [{**row, "input_scale": "1"} for row in rows], tmp_path)
+        self._save_input_plan(tmp_path, {"schema_version": 2, "entries": [{"input_scale": 1, "payload": {}}]})
+        context = host_posthoc_context.load_result_context(tmp_path)
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+        if tool in ("torch", "ncu"):
+            filename = "compute_profile_plan.json"
+            find_plan = host_posthoc_plans.find_reusable_compute_plan
+            plan = self._torch_plan() if tool == "torch" else self._compute_plan()
+        else:
+            filename = "execution_profile_plan.json"
+            find_plan = host_posthoc_plans.find_reusable_execution_plan
+            plan = self._execution_plan()
+        encoded = json.dumps(plan)
+        invalid = encoded.replace('"input_scale": 8.0', f'"input_scale": {invalid_token}')
+        assert invalid != encoded
+        (tmp_path / filename).write_text(invalid)
+        assert find_plan(context, workspace, tool) is None
+
+        plan["origin"] = "fallback"
+        plan["extra"] = {"input_scale": "payload_precision"}
+        valid = json.dumps(plan).replace('"input_scale": 8.0', '"input_scale": "1.000e0"')
+        valid = valid.replace('"payload_precision"', '1.00000000000000001')
+        (workspace / filename).write_text(valid)
+        reusable = find_plan(context, workspace, tool)
+        assert reusable == json.loads(valid)
+        assert json.loads(json.dumps(reusable)) == reusable
+
     @pytest.fixture(autouse=True)
     def _setup(self, request, tmp_path, monkeypatch):
         self._request = request

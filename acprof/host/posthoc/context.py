@@ -178,15 +178,16 @@ def integer(value: Any, field: str) -> int:
 
 def load_json_object(
     path: Path, label: str, *, expected_sha256: str | None = None,
-    cancelled: Callable[[], bool] | None = None, check_plan_scales: bool = False,
+    cancelled: Callable[[], bool] | None = None,
+    scale_values: Callable[[dict], Iterable[object]] | None = None,
 ) -> dict[str, Any]:
     check_cancelled(cancelled)
     if not path.is_file():
         raise PosthocError(f"missing {label}: {path}")
     try:
-        if check_plan_scales:
+        if scale_values is not None:
             snapshot = read_json_object_snapshot(path, label=label, expected_sha256=expected_sha256, cancelled=cancelled)
-            _check_plan_scale_tokens(snapshot, cancelled)
+            _check_plan_scale_tokens(snapshot, label, scale_values, cancelled)
             payload = snapshot.payload
         else:
             payload = read_json_object(path, label=label, expected_sha256=expected_sha256, cancelled=cancelled)
@@ -198,28 +199,31 @@ def load_json_object(
 
 def _executable_scale(value: object, source: str) -> float:
     scale = finite_float(value)
-    if not math.isfinite(scale):
+    if isinstance(value, bool) or not math.isfinite(scale):
         raise PosthocError(f"invalid input_scale in {source}: {value!r}")
     if compute_scale_key(value) != compute_scale_key(scale):
         raise PosthocError(f"input_scale in {source} cannot round-trip through the profiler: {value!r}")
     return scale
 
 
-def _check_plan_scale_tokens(snapshot: JsonObjectSnapshot, cancelled: Callable[[], bool] | None) -> None:
-    entries = snapshot.payload.get("entries")
-    if not isinstance(entries, list):
-        return  # The plan schema validator reports malformed entries.
-    tokens = None
-    for index, entry in enumerate(cancellable(entries, cancelled)):
-        value = entry.get("input_scale") if isinstance(entry, dict) else None
-        if type(value) is float:
-            if tokens is None:
-                # Keep native payload types. Only the scale needs its original numeric spelling.
-                tokens = json.loads(snapshot.content, parse_float=str)["entries"]
-            value = tokens[index]["input_scale"]
-        elif type(value) is not int:
-            continue
-        _executable_scale(value, f"{INPUT_SCALE_PLAN_NAME} entry {index}")
+def entry_scale_values(profile: dict) -> Iterable[object]:
+    entries = profile.get("entries")
+    if isinstance(entries, list):
+        for entry in entries:
+            yield entry.get("input_scale") if isinstance(entry, dict) else None
+
+
+def _check_plan_scale_tokens(
+    snapshot: JsonObjectSnapshot, label: str, scale_values: Callable[[dict], Iterable[object]],
+    cancelled: Callable[[], bool] | None,
+) -> None:
+    plan = snapshot.payload
+    if any(type(value) is float for value in cancellable(scale_values(plan), cancelled)):
+        # Inspect original scale tokens in the verified bytes. Keep caller-visible payload types native.
+        plan = json.loads(snapshot.content, parse_float=str)
+    for index, value in enumerate(cancellable(scale_values(plan), cancelled)):
+        if math.isfinite(finite_float(value)):
+            _executable_scale(value, f"{label} entry {index}")
 
 
 def _load_result_csv(path: Path, *, result_snapshot: ResultCsvSnapshot | None = None,
@@ -301,7 +305,7 @@ def load_result_context(result_dir: str | os.PathLike[str], *, result_snapshot: 
     input_plan = load_json_object(
         input_scale_plan_path, INPUT_SCALE_PLAN_NAME,
         expected_sha256=expected_plan_hash or None,
-        cancelled=cancelled, check_plan_scales=True,
+        cancelled=cancelled, scale_values=entry_scale_values,
     )
     try:
         require_schema_version(input_plan, 2, INPUT_SCALE_PLAN_NAME)
@@ -424,10 +428,8 @@ def load_result_context(result_dir: str | os.PathLike[str], *, result_snapshot: 
     )
 
 
-def read_plan(path: Path) -> dict[str, Any] | None:
-    if not path.is_file():
-        return None
+def read_plan(path: Path, *, scale_values: Callable[[dict], Iterable[object]] | None = None) -> dict[str, Any] | None:
     try:
-        return read_json_object(path, label=path.name)
-    except (OSError, ValueError):
+        return load_json_object(path, path.name, scale_values=scale_values)
+    except PosthocError:
         return None

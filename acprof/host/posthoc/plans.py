@@ -20,6 +20,7 @@ from acprof.host.posthoc.context import (
     TOOL_METRIC_FIELDS,
     PosthocError,
     ResultContext,
+    entry_scale_values,
     finite_float,
     read_plan,
 )
@@ -175,13 +176,31 @@ def _execution_plan_candidates(
     ]
 
 
+def _read_profiler_plan(path: Path, tool: str) -> dict[str, Any] | None:
+    def scale_values(plan: dict) -> Iterable[object]:
+        profiles = plan.get("profiles")
+        if tool in {"torch", "ncu"} and isinstance(profiles, dict):
+            groups = (profiles.get(mode) for mode in ("cpu", "gpu"))
+        elif tool in {"massif", "nsys"} and isinstance(profiles, list):
+            groups = (case.get("tools") for case in profiles if isinstance(case, dict))
+        else:
+            return
+        key = TORCH_PROFILE_KEY if tool == "torch" else tool
+        for group in groups:
+            profile = group.get(key) if isinstance(group, dict) else None
+            if isinstance(profile, dict):
+                yield from entry_scale_values(profile)
+
+    return read_plan(path, scale_values=scale_values)
+
+
 def find_reusable_compute_plan(
     context: ResultContext,
     workspace: Path,
     tool: str,
 ) -> dict[str, Any] | None:
     for path in _compute_plan_candidates(context, workspace, tool):
-        plan = read_plan(path)
+        plan = _read_profiler_plan(path, tool)
         if (
             plan is not None
             and _plan_matches_context(plan, context)
@@ -198,7 +217,7 @@ def find_reusable_execution_plan(
     tool: str,
 ) -> dict[str, Any] | None:
     for path in _execution_plan_candidates(context, workspace, tool):
-        plan = read_plan(path)
+        plan = _read_profiler_plan(path, tool)
         if (
             plan is not None
             and _plan_matches_context(plan, context)
@@ -322,7 +341,7 @@ def collect_compute_plan(
         compute_profile_tool=tool,
         resume_existing_ncu_profiles=resume_existing_ncu_profiles,
     )
-    plan = read_plan(Path(plan_path))
+    plan = _read_profiler_plan(Path(plan_path), tool)
     if plan is None:
         raise PosthocError(
             f"{tool} collector did not produce a valid compute plan: {plan_path}"
@@ -460,7 +479,7 @@ def collect_execution_plan(
         )
     except ValueError as exc:
         raise PosthocError(str(exc)) from exc
-    plan = read_plan(Path(plan_path))
+    plan = _read_profiler_plan(Path(plan_path), tool)
     if plan is None:
         raise PosthocError(
             f"{tool} collector did not produce a valid plan: {plan_path}"

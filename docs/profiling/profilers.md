@@ -121,6 +121,8 @@ checkpoint 均按精确数值匹配，不用容差将相近尺度合并；缺少
 正式补采要求每个 CSV 尺度出现在冻结输入计划中。调用 Profiler 前会检查两者的原始数值能否
 用执行参数的浮点表示精确往返。例如，`9007199254740993` 会被浮点参数舍入到
 `9007199254740992`，因此准备阶段会报出原值并停止。
+复用 Torch、NCU、Massif 或 Nsys 计划时，补采也会核对所选工具条目中的原始尺度。
+遇到只在舍入后才匹配的候选计划，会继续查找其他候选；都不适用时沿用该工具的正常采集流程。
 
 历史宽 CSV 可通过 `python -m acprof.cli.backfill_compute INPUT.csv PLAN.json --output OUTPUT.csv` 回填，
 也可通过 `--ncu-summary` 指定按规模记录的 NCU CSV。这个入口直接按 CSV 和 JSON 的原始十进制数值匹配。
