@@ -4,6 +4,7 @@ import json
 import os.path
 import tempfile
 import threading
+from dataclasses import replace
 from pathlib import Path
 from typing import cast
 from unittest.mock import patch
@@ -13,6 +14,7 @@ from rich.text import Text
 from textual.app import App
 from textual.widgets import Button, Input, Static
 
+from acprof.platform import is_linux
 from acprof.tui.experiments.catalog import scan_experiments
 from acprof.tui.experiments.picker import PickerChoice, SearchPickerScreen, experiment_choice
 from acprof.tui.i18n import translate
@@ -50,31 +52,39 @@ async def test_search_select_actions_and_disabled_resume(size):
         assert (selections[0]) == (('reuse', 18))
 
 async def test_close_cancels_loading_and_releases_guard_after_worker_finishes():
-    from acprof.tui.experiments.picker import SearchPickerScreen
-    class Harness(App):
-        def tr(self, text):
-            return str(text)
+    from acprof.host.run_state import RunStateError, offline_analysis_lock
+    from tests.support.tui_waits import wait_for_condition
+
     started = threading.Event()
+    finish_read = threading.Event()
     busy = []
+
     def loader(cancelled):
         started.set()
-        while not cancelled():
-            threading.Event().wait(0.005)
+        assert finish_read.wait(10)
+        assert cancelled()
         return (), ()
-    app = Harness()
+
+    app = PickerHarness()
     screen = SearchPickerScreen('选择实验', ('Model',), loader, loading_changed=busy.append)
     async with app.run_test(size=(80, 24)) as pilot:
         app.push_screen(screen)
-        for _ in range(100):
-            if started.is_set():
-                break
-            await asyncio.sleep(0.01)
-        assert (started.is_set())
-        await pilot.press('escape')
-        await app.workers.wait_for_complete()
-        await pilot.pause()
-        assert (screen) not in (app.screen_stack)
-        assert (busy) == ([True, False])
+        try:
+            await wait_for_condition(pilot, started.is_set, description="catalog read started", timeout=5)
+            await pilot.press('escape')
+            assert screen not in app.screen_stack
+            assert busy == [True]
+            assert screen.cancelled.is_set()
+            if is_linux():
+                with pytest.raises(RunStateError, match="测量锁"), offline_analysis_lock():
+                    pytest.fail("dismissed picker released the measurement lock before its worker returned")
+        finally:
+            finish_read.set()
+        await wait_for_condition(pilot, lambda: busy == [True, False], description="catalog read finished", timeout=5)
+        with offline_analysis_lock():
+            pass
+
+
 @pytest.mark.parametrize('choices_case', range(2), ids=['()', '(candidate,)'])
 @pytest.mark.parametrize(('language', 'empty', 'unmatched'), [('zh', '尚无本地实验记录，请检查搜索目录。', '没有匹配项，请修改搜索词。'), ('en', 'No local experiment records yet. Check the search directories.', 'No matches. Change the search terms.')])
 async def test_empty_catalog_and_unmatched_query_have_distinct_messages(choices_case, language, empty, unmatched):
@@ -279,3 +289,62 @@ async def test_picker_wide_split_layout_and_quick_status_filters():
         await pilot.resize_terminal(80, 24)
         await pilot.pause()
         assert not dialog.has_class('wide-picker')
+
+
+@pytest.mark.skipif(not is_linux(), reason="The cross-process measurement lock is Linux-specific")
+@pytest.mark.parametrize(("picker", "language", "hint"), [
+    ("model", "zh", "测量锁"), ("experiment", "en", "measurement lock"),
+])
+async def test_external_measurement_blocks_picker_reads_until_reopened(tmp_path, picker, language, hint):
+    import sys
+
+    from acprof.experiments.configuration import RunConfig
+    from acprof.host import run_state
+    from acprof.tui.experiments.catalog import ExperimentCatalog
+    from tests.support.tui_fixtures import AcprofTui
+
+    app = AcprofTui(RunConfig.smoke("demo/model"), settings_path=tmp_path / "settings.json")
+    app.configuration.preferences = replace(app.configuration.preferences, language=language)
+    controller = "models" if picker == "model" else "experiments"
+    open_picker = (app.models.open_model_candidates if picker == "model" else
+                   lambda: app.catalog.open_experiment_picker("experiment-source"))
+    lock_holder = """
+import sys
+from pathlib import Path
+from acprof.host import run_state
+run_state.MEASUREMENT_LOCK_ROOT = Path(sys.argv[1])
+run_state.MEASUREMENT_LOCK_NAMESPACE = bytes.fromhex(sys.argv[2])
+with run_state.MeasurementLock():
+    print("locked", flush=True)
+    sys.stdin.readline()
+"""
+    async with app.run_test(size=(120, 30)) as pilot:
+        with patch(f"acprof.tui.{controller}.controller.scan_experiments", return_value=ExperimentCatalog(())) as scan, \
+             patch("acprof.tui.models.candidates.cached_candidates", return_value=((), ())) as cache, \
+             patch.object(SearchPickerScreen, "read_scope", return_value=((tmp_path,), ())) as scope:
+            owner = await asyncio.create_subprocess_exec(
+                sys.executable, "-c", lock_holder, str(run_state.MEASUREMENT_LOCK_ROOT),
+                run_state.MEASUREMENT_LOCK_NAMESPACE.hex(),
+                stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE)
+            assert owner.stdin is not None
+            assert owner.stdout is not None
+            try:
+                assert (await asyncio.wait_for(owner.stdout.readline(), 10)).strip() == b"locked"
+                open_picker()
+                await app.workers.wait_for_complete()
+                await pilot.pause()
+                scope.assert_not_called()
+                scan.assert_not_called()
+                cache.assert_not_called()
+                assert hint in str(app.screen.query_one("#picker-status", Static).content)
+                await pilot.press("escape")
+            finally:
+                owner.stdin.close()
+                await asyncio.wait_for(owner.wait(), 10)
+            assert owner.returncode == 0
+            open_picker()
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+            scope.assert_called_once()
+            scan.assert_called_once()
+            assert cache.call_count == (1 if picker == "model" else 0)

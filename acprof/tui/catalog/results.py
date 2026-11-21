@@ -329,6 +329,10 @@ MESSAGES: dict[str, Entry] = {
     "results.picker.inspection_failed": Entry(zh="无法检查目录 {0}：{1}", en="Cannot inspect directory {0}: {1}"),
     "results.picker.invalid_directory": Entry(zh="目录不存在或不是目录：{0}", en="Directory missing or not a directory: {0}"),
     "results.picker.loading": Entry(zh="正在读取已知目录内的实验……", en="Reading known experiment roots…"),
+    "results.picker.lock_unavailable": Entry(
+        zh="无法取得测量锁。请在采集结束或锁恢复后重新打开选择器。{0}",
+        en="Cannot acquire the measurement lock. Reopen the picker when collection finishes or the lock is available. {0}",
+    ),
     "results.picker.no_available_roots": Entry(zh="无可用目录", en="No available directories"),
     "results.picker.raw_record": Entry(zh="原始记录", en="Raw record"),
     "results.picker.read_failed": Entry(zh="未读取到本地记录，请查看上方提示。", en="No local records were read. See the messages above."),

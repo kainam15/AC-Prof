@@ -32,13 +32,13 @@ class CatalogController:
     def catalog_roots(self) -> tuple[Path, ...]:
         roots = []
         for source in (self.app.configuration.input('output-dir'), self.app.configuration.saved_settings.last_result_dir,
-                       self.app.configuration.input('experiment-source'), self.app.configuration.saved_settings.last_result_dir):
+                       self.app.configuration.input('experiment-source')):
             if not source.strip():
                 continue
             path = resolve_result_path(source, self.app.project_dir)
             roots.append(path.parent if path.suffix.lower() in {'.csv', '.json'} else path)
         roots.append(self.app.project_dir / 'results')
-        return tuple(dict.fromkeys(path.resolve() for path in roots))
+        return tuple(dict.fromkeys(roots))
 
     def picker_loading(self, token: object, busy: bool) -> None:
         if busy:

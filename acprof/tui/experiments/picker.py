@@ -242,11 +242,16 @@ class SearchPickerScreen(ModalScreen[tuple[str, object] | None]):
 
     @work(thread=True, exclusive=True, exit_on_error=False)
     def load_choices(self):
+        from acprof.host.run_state import RunStateError, offline_analysis_lock
+
         roots: tuple[Path, ...] = ()
         skipped: tuple[str, ...] = ()
         try:
-            roots, skipped = self.read_scope()
-            choices, warnings = self.loader(self.cancelled.is_set)
+            with offline_analysis_lock():
+                roots, skipped = self.read_scope()
+                choices, warnings = self.loader(self.cancelled.is_set)
+        except RunStateError as exc:
+            choices, warnings = (), (message_id("results.picker.lock_unavailable", str(exc)),)
         except InterruptedError:
             choices, warnings = (), ()
         except Exception as exc:
@@ -398,7 +403,7 @@ class SearchPickerScreen(ModalScreen[tuple[str, object] | None]):
             target = next((index for index, choice in enumerate(self.filtered) if choice.value == current_value), 0)
             table.move_cursor(row=target, animate=False)
         self.query_one('#picker-status', Static).update(f'{len(self.filtered)} / {len(self.choices)}' +
-            (' · ' + '; '.join(self.warnings) if self.warnings else ''))
+            (' · ' + '; '.join(tr(warning) for warning in self.warnings) if self.warnings else ''))
         self._update_column_headers()
         self.show_choice()
 
