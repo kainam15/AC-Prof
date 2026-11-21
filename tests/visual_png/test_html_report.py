@@ -57,21 +57,20 @@ def test_html_renders_pass_and_failure_with_embedded_pngs(
     document = report_path.read_text(encoding="utf-8")
 
     assert report_path == actual / "report.html"
-    assert "<strong>2</strong>" in document
-    assert "<strong>1</strong><span>Matched</span>" in document
-    assert "<strong>1</strong><span>Changed / unavailable</span>" in document
-    assert 'data-state="passed"' in document
-    assert 'data-state="failed"' in document
-    assert 'data-filter="failed"' in document
-    assert "Historical baseline" in document
-    assert "Current capture" in document
-    assert "Highlighted differences" in document
+    assert 'aria-pressed="true">全部 (2)</button>' in document
+    assert 'aria-pressed="false">变更或不可用 (1)</button>' in document
+    assert 'aria-pressed="false">已匹配 (1)</button>' in document
+    assert document.index('data-state="failed" open>') < document.index('data-state="passed">')
+    assert 'data-report-view="visual" aria-pressed="true"' in document
+    assert 'alt="历史基准"' in document
+    assert 'alt="当前截图"' in document
     # Original PNG comparisons remain intact; flow cards also embed preview images.
     assert document.count("data:image/png;base64,") >= 5
     assert 'data-view-panel="workflow"' in document
     assert "&lt;script&gt;alert" in document
     assert "<script>alert" not in document
-    assert '<div class="placeholder">No significant differences</div>' in document
+    assert document.count("<figcaption>差异图</figcaption>") == 1
+    assert document.count('alt="差异图"') == 1
     assert "http://" not in document
     assert "https://" not in document
     assert originals == {name: (baselines / f"{name}.png").read_bytes() for name in originals}
@@ -81,9 +80,9 @@ def test_missing_comparison_produces_explicit_unavailable_report(tmp_path: Path)
     actual = tmp_path / "not-run"
     output = tmp_path / "export" / "report.html"
     document = render_report(actual=actual, output=output).read_text(encoding="utf-8")
-    assert "Comparison not available." in document
-    assert "no pass/fail result" in document
+    assert "未生成 report.json，无法判断通过或失败" in document
     assert 'data-state="passed"' not in document
+    assert "全部 (0)" not in document
     assert output.is_file()
 
 
@@ -91,11 +90,26 @@ def test_missing_evidence_has_placeholders(tmp_path: Path) -> None:
     actual = tmp_path / "actual"
     _results(actual, [{"scene": "form", "status": "missing-capture", "details": "not found"}])
     document = render_report(actual=actual, baselines=tmp_path / "baseline").read_text()
-    assert "Baseline not available" in document
-    assert "Capture not available" in document
-    assert "Difference image not available" in document
+    assert "历史基准不可用" in document
+    assert "当前截图不可用" in document
+    assert "<figcaption>差异图</figcaption>" not in document
     assert "missing-capture" in document
-    assert "Not compared" in document
+    assert "未比较" in document
+
+
+def test_empty_comparison_is_not_a_success(tmp_path: Path) -> None:
+    _results(tmp_path, [])
+    document = render_report(actual=tmp_path).read_text(encoding="utf-8")
+    assert "report.json 中没有场景记录" in document
+    assert 'data-state="passed"' not in document
+    assert "全部 (0)" not in document
+
+
+def test_completed_comparison_identifies_missing_diff(tmp_path: Path) -> None:
+    _results(tmp_path, [{"scene": "form", "status": "visual-regression"}])
+    document = render_report(actual=tmp_path).read_text(encoding="utf-8")
+    assert "差异图不可用" in document
+    assert "差异像素：—" in document
 
 
 @pytest.mark.parametrize(

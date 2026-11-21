@@ -86,7 +86,8 @@ VHS 只操作该测试应用，没有向 AC-Prof CLI 添加截图选项。
 现有 SVG、PNG 与交互测试通过 [流程场景索引](../../tests/visual/flow_catalog.json) 汇总，不新增平行截图框架：
 
 - `tests/visual/flow_catalog.json` 定义五个主页面（“补采实验”作为“实验结果”子标签）及按采集阶段排列的检查点，标注触发条件、预期状态、可选/异常路径，并引用现有 PNG、SVG 与 Pilot 测试文件；索引由 `scripts/tui_flow_catalog.py` 校验。页面顺序与可见标签通过 headless TUI 回归核对；图标入口用可选的 `tab_label` 记录实际标签，`title` 保留可读页面名称。图库数量按 Git 追踪的 SVG 清单验证。新增并纳入 Git 的 SVG 自动出现在图库中，未关联场景会明确提示；未跟踪的本地截图不会公开。
-- `scripts/render_tui_png_report.py` 仍以 `report.json` 作为**唯一 PNG 比较结论**来源。在原有 HTML 中加入「流程走查」「视觉对比」「覆盖矩阵」三个视图；视觉对比同时展示现有 PNG 差异和只读 SVG 基准图库。没有 `report.json` 时必须显示「未比较」，不能推断通过。SVG 通过情况仍由独立的 SVG CI 决定。
+- 打开报告先看「视觉对比」：有变更或证据缺失的场景排在前面并展开；已匹配的场景按名称收起，可展开查看当前截图和基准。只有实际产出比较差异的场景才展示差异图或其缺失提示。筛选按钮同时显示场景数，不另列计数卡片。
+- `report.json` 是**唯一 PNG 比较结论**来源。文件缺失标为「未比较」，空列表标为没有场景记录，均不推断通过。「流程走查」查看步骤与证据，「覆盖矩阵」查看数量；视觉对比页底部可展开历史 SVG 图库，图库不代表本次 CI 结果。
 - **历史 SVG 的网页预览**：`uv run --locked --no-default-groups --group test python scripts/tui_svg_preview_png.py` 只读取 Git 追踪的 `tests/visual/__snapshots__/*.svg`，在隔离的无头 Chrome 中去掉 Rich 的外部 Fira Code 字体引用，固定使用 `Noto Sans Mono CJK SC`，调整字符宽度渲染，将 PNG 写入 `internal-testing/shared/tui-png/svg-preview/` 并记录源文件和预览的 SHA-256。HTML 优先展示这些 PNG，可展开原始 SVG。预览是**旧 SVG 的可读渲染版本**，不等于现有 VHS 真实终端 PNG，也不属于 Golden，不改变 SVG/PNG 比较规则、覆盖数量或结论。旧 SVG 的原始定位和字符内容不会被修改，极端历史字距异常未必能完全修复。未运行生成器时 HTML 保留原 SVG 作为回退；无有效 manifest 或源哈希不一致时不接受旧预览。
 - 使用 `uv run --locked --no-default-groups --group test python scripts/tui_svg_preview_png.py --smoke` 仅验证一张已追踪的中文 SVG 能用当前无头 Chrome 生成有效 PNG，不触碰 Golden 或完整预览目录；CI 在批量生成前独立执行这一验证。截图进程使用独立进程组，取得有效图片后会清理浏览器及子进程，避免 Chrome 延迟退出造成假超时。若生成失败，限定的 HTML、stderr/stdout 及可能存在的 PNG 会写入 `internal-testing/shared/tui-png/svg-preview-failures/scene-*/` 并上传到 CI Artifact，不公开到 GitHub Pages；未成功完成批量生成时不写入 `manifest.json`，报告保持原 SVG 回退。
 - 流程检查点的测试文件只表示**可追溯的交互测试入口**，不代表这些测试已在本次运行通过；缺少固定截图的节点会列为视觉覆盖缺口。只有高价值稳定场景才需要增加长期 Golden。
@@ -137,7 +138,7 @@ ACPROF_PNG_VISUAL=1 uv run pytest tests/visual_png -v
 
 主分支 `TUI PNG Visual` 的 [GitHub Pages 报告](https://kainam15.github.io/AC-Prof/) 在有有效的 `visual-regression` / `size-mismatch` 结果时，会在 **视觉对比** 页显示 **Golden 基准审核**。使用方法：
 
-1. 打开 **视觉对比**，逐项查看左侧 Golden、当前 PNG 与差异图，勾选确认接受的场景；也可全选或清空。
+1. 在 **视觉对比** 中逐项核对差异图、当前截图与历史 Golden，勾选确认接受的场景；也可全选或清空。
 2. 点击 **通过 GitHub 提交更新请求**。静态页面会打开预填信息的 GitHub Issue 创建页（需要登录）；审阅标题、场景和 CI run 后，手动点击 **Submit new issue**。
 3. 只有由仓库所有者创建的有效 Issue 才会启动 [TUI PNG Golden Review](../../.github/workflows/tui-png-golden-review.yml)。工作流校验来源属于 main 的 `tui-png.yml`、run 已完成、head SHA 与当前 main 一致、场景处于已完成的视觉回归状态，然后从指定 run 的 Artifact 提取 **仅被勾选的 PNG**，在独立分支创建 PR。
 4. 在 PR 中继续审阅并验证变更，确认后合并。未选中的 Golden PNG 不会变化；HTML 或 Issue 本身都不能直接修改 main。
@@ -162,9 +163,8 @@ SVG 在这个工作流重新运行，是为了避免跨工作流状态竞争；�
 - **PNG**：VHS/pytest 步骤成功，`report.json` 与本次全部 Golden 场景一一对应、每张状态为 `passed`，并有实际 PNG 文件；
 - **Pilot**：Pilot 交互 pytest 与连续截图步骤均成功，并且合成走查 manifest 与截图通过安全校验。
 
-首页在「流程走查」等三个视图上方显示三项状态、证据数量、完整 Commit SHA 的前缀、生成时间及对应
-GitHub Actions Run 链接。**任何一步失败、跳过、缺失产物、数据损坏或发现不同提交 / 不同 CI Run 时均不能显示通过**。
-在本地直接生成 HTML 而没有本次 CI 元数据时，三项一律显示「未运行 / 无法核验」，不会凭已有 Golden 截图猜测成功。
+三个视图上方始终显示 SVG、PNG 与 Pilot 的状态。「运行与证据」可展开查看各项证据说明、Commit SHA 前缀、生成时间及 GitHub Actions Run 链接。
+**任何一步失败、跳过、缺失产物、数据损坏或发现不同提交 / 不同 CI Run 时均不能显示通过**。没有可核验的本次 CI 元数据时显示「未核验」，不列通过数，也不凭已有截图猜测成功。
 这份 JSON 与 SVG JUnit 也保存在该次 Actions Artifact，可用于人工诊断；不改写长期 Golden，也不包含真实模型采集数据。
 
 当前 Pages 行为**保持不变**：main 的工作流即便出现视觉回归，仍可发布红色诊断报告；如无法生成 HTML 则

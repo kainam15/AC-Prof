@@ -31,35 +31,36 @@ STYLE = """
 :root{color-scheme:dark;font-family:system-ui,-apple-system,"Segoe UI",sans-serif}
 *{box-sizing:border-box}
 body{margin:0;background:#15181e;color:#edf0f7}
-main{max-width:1720px;margin:auto;padding:28px 20px 64px}
-header{display:flex;justify-content:space-between;align-items:start;gap:16px;flex-wrap:wrap}
-h1{font-size:1.6rem;margin:0;color:#d5a5ff}
-.subtitle,.muted{color:#a9b3c2}
-.subtitle{margin:8px 0 0}
-.counts{display:flex;gap:10px;flex-wrap:wrap}
-.count{border:1px solid #343d4a;border-radius:9px;padding:10px 15px;background:#20252d}
-.count strong{font-size:1.3rem;display:block}
-.count span{font-size:.85rem;color:#b5becc}
-.filters{display:flex;flex-wrap:wrap;gap:8px;margin:24px 0 16px}
+main{max-width:1540px;margin:auto;padding:24px clamp(12px,3vw,48px) 48px}
+h1{font-size:clamp(1.25rem,3vw,1.6rem);margin:0;color:#edf0f7}
+.muted{color:#a9b3c2}
+.visual-heading{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:baseline;gap:10px}
+.visual-heading h2{margin:0}
+.filters{display:flex;flex-wrap:wrap;gap:6px}
 .filters button{border:1px solid #566070;border-radius:7px;padding:9px 14px;background:#232a33;color:#edf0f7;cursor:pointer}
 .filters button[aria-pressed=true]{background:#633a83;border-color:#c78cff}
-.scene{border:1px solid #37414e;background:#1d232b;border-radius:12px;margin:16px 0;overflow:hidden}
+.filters button:disabled{color:#a9b3c2;cursor:default}
+button:focus-visible,summary:focus-visible{outline:2px solid #9cdcfe;outline-offset:-3px}
+.scene{border:1px solid #37414e;background:#1d232b;border-radius:8px;margin:8px 0;overflow:hidden}
 .scene[hidden]{display:none}
-.scene-head{display:flex;align-items:center;flex-wrap:wrap;gap:11px;padding:16px 18px;border-bottom:1px solid #343d49}
-.scene-head h2{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:1rem;margin:0;overflow-wrap:anywhere}
+.scene-head{padding:12px 16px;cursor:pointer;overflow-wrap:anywhere}
+.scene-head strong{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:.95rem}
+.scene[open] .scene-head{border-bottom:1px solid #343d49}
 .status{padding:3px 10px;border-radius:999px;font-size:.78rem;font-weight:700}
 .status.pass{color:#9af0b7;background:#16482b}
 .status.fail{color:#ffaaa8;background:#56282d}
-.metrics{margin-left:auto;color:#c1c9d5;font-size:.85rem}
+.metrics{color:#c1c9d5;font-size:.85rem;margin:10px 16px 0}
 .details{padding:0 18px;color:#f4c6a9;overflow-wrap:anywhere}
-.comparison{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;padding:16px}
+.comparison{display:grid;grid-auto-columns:minmax(0,1fr);grid-auto-flow:column;gap:12px;padding:12px}
 .frame{margin:0;min-width:0;background:#14181f;border:1px solid #36404d;border-radius:9px;overflow:hidden}
 .frame figcaption{padding:9px 12px;color:#cbd5e1;font-size:.85rem;border-bottom:1px solid #303a45}
 .frame img{display:block;width:100%;height:auto;object-fit:contain}
 .placeholder{display:grid;place-items:center;min-height:140px;padding:16px;text-align:center;color:#a9b3c2}
 .notice{border:1px solid #8c5c32;background:#372b24;padding:18px;border-radius:10px;margin:22px 0}
+.historical-gallery{margin-top:18px}
+.historical-gallery>summary{cursor:pointer;color:#bcdaee}
 footer{color:#9aa5b6;font-size:.84rem;padding:20px 0}
-@media(max-width:950px){.comparison{grid-template-columns:1fr}.metrics{margin-left:0}}
+@media(max-width:850px){.comparison{grid-auto-flow:row;grid-template-columns:1fr}}
 """
 
 SCRIPT = """
@@ -95,8 +96,8 @@ def _image_data(path: Path) -> str | None:
     return "data:image/png;base64," + base64.b64encode(data).decode("ascii")
 
 
-def _frame(label: str, path: Path | None, unavailable: str) -> str:
-    image = _image_data(path) if path is not None else None
+def _frame(label: str, path: Path, unavailable: str) -> str:
+    image = _image_data(path)
     contents = (
         f'<img loading="lazy" alt="{_escape(label)}" src="{image}">'
         if image
@@ -126,8 +127,8 @@ def _card(
     scene = row["scene"]
     status = row["status"]
     passed = status == "passed"
-    changed = row.get("changed_pixels", "?")
-    allowed = row.get("allowed_pixels", "?")
+    changed = row.get("changed_pixels", "—")
+    allowed = row.get("allowed_pixels", "—")
     comparison_completed = status in {"passed", "visual-regression", "size-mismatch"}
     dimensions = (
         f" · {_escape(row['width'])}×{_escape(row['height'])}"
@@ -139,21 +140,25 @@ def _card(
     expected = baselines / f"{scene}.png"
     if not expected.is_file():
         expected = actual / "diff" / "expected" / f"{scene}.png"
-    frames = (
-        _frame("Historical baseline", expected, "Baseline not available")
-        + _frame("Current capture", actual / f"{scene}.png", "Capture not available")
-        + _frame(
-            "Highlighted differences",
-            None if passed else actual / "diff" / f"{scene}.png",
-            "No significant differences" if passed else "Difference image not available",
-        )
+    frames = _frame("当前截图", actual / f"{scene}.png", "当前截图不可用") + _frame(
+        "历史基准", expected, "历史基准不可用"
     )
+    if not passed and comparison_completed:
+        frames = _frame("差异图", actual / "diff" / f"{scene}.png", "差异图不可用") + frames
     state = "passed" if passed else "failed"
-    badge = "PASS" if passed else "FAIL"
+    badge = {
+        "passed": "已匹配",
+        "visual-regression": "像素差异",
+        "size-mismatch": "尺寸不同",
+        "missing-baseline": "缺少基准",
+        "missing-capture": "缺少截图",
+        "invalid-format": "格式不符",
+        "invalid-image": "图片无效",
+    }.get(status, status)
     metrics = (
-        f"{_escape(changed)} changed pixels / {_escape(allowed)} allowed{dimensions}"
+        f"差异像素：{_escape(changed)} · 容许：{_escape(allowed)}{dimensions}"
         if comparison_completed
-        else "Not compared"
+        else "未比较"
     )
     selectable = (
         review_enabled
@@ -163,17 +168,16 @@ def _card(
     approval = (
         f'<div class="golden-choice-wrap"><label class="golden-choice">'
         f'<input type="checkbox" data-golden-scene="{_escape(scene)}">'
-        f"接受此截图作为新的 Golden 基准（{_escape(scene)}.png）"
+        "接受此截图作为新的 Golden 基准"
         f"</label></div>"
         if selectable
         else ""
     )
     return (
-        f'<section class="scene" data-state="{state}">'
-        f'<div class="scene-head"><h2>{_escape(scene)}</h2>'
-        f'<span class="status {"pass" if passed else "fail"}">{badge}: {_escape(status)}</span>'
-        f'<span class="metrics">{metrics}</span>'
-        f'</div>{message}<div class="comparison">{frames}</div>{approval}</section>'
+        f'<details class="scene" data-state="{state}"{"" if passed else " open"}>'
+        f'<summary class="scene-head"><strong>{_escape(scene)}</strong> '
+        f'<span class="status {"pass" if passed else "fail"}" title="{_escape(status)}">{_escape(badge)}</span></summary>'
+        f'<p class="metrics">{metrics}</p>{message}<div class="comparison">{frames}</div>{approval}</details>'
     )
 
 
@@ -189,15 +193,14 @@ def render_report(
     review = ReviewContext.from_environment()
     cards = "".join(
         _card(row, actual=actual, baselines=baselines, review_enabled=review is not None)
-        for row in rows or ()
+        for row in sorted(rows or (), key=lambda row: row["status"] == "passed")
     )
-    available = sum(
+    review_panel = ""
+    if review is not None and any(
         row["status"] in {"visual-regression", "size-mismatch"}
         and _image_data(actual / f"{row['scene']}.png") is not None
         for row in rows or ()
-    )
-    review_panel = ""
-    if review is not None and available:
+    ):
         review_panel = (
             f'<section class="golden-review" data-golden-review-panel '
             f'data-repository="{_escape(review.repository)}" '
@@ -215,30 +218,28 @@ def render_report(
         )
     if rows is None:
         cards = (
-            '<div class="notice" role="alert"><strong>Comparison not available.</strong> '
-            "No report.json was produced. The test may have failed before the PNG "
-            "comparison stage. Inspect the GitHub Actions logs; no pass/fail result "
-            "can be inferred.</div>"
+            '<div class="notice" role="alert"><strong>未比较。</strong> '
+            "未生成 report.json，无法判断通过或失败。请查看本次运行日志。</div>"
         )
     elif not rows:
-        cards = '<div class="notice" role="alert">No scene results were recorded.</div>'
+        cards = '<div class="notice" role="alert">report.json 中没有场景记录。</div>'
     workflow, coverage, svg_gallery = render_flow_report(
         actual=actual,
         baselines=baselines,
         png_results=rows,
     )
     filters = (
-        f'<nav class="filters" aria-label="Filter scenes">'
-        f'<button type="button" data-filter="all" aria-pressed="true">All ({count})</button>'
-        f'<button type="button" data-filter="failed" aria-pressed="false">Failed ({failed})</button>'
-        f'<button type="button" data-filter="passed" aria-pressed="false">Passed ({passed})</button>'
+        f'<nav class="filters" aria-label="筛选场景">'
+        f'<button type="button" data-filter="all" aria-pressed="true">全部 ({count})</button>'
+        f'<button type="button" data-filter="failed"{"" if failed else " disabled"} aria-pressed="false">变更或不可用 ({failed})</button>'
+        f'<button type="button" data-filter="passed"{"" if passed else " disabled"} aria-pressed="false">已匹配 ({passed})</button>'
         f"</nav>"
         if rows
         else ""
     )
     review_script = SCRIPT + (REVIEW_SCRIPT if review_panel else "")
     document = f"""<!doctype html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -247,33 +248,22 @@ def render_report(
 </head>
 <body>
 <main>
-<header>
-  <div><h1>AC-Prof · TUI PNG Visual Report</h1>
-    <p class="subtitle">Real terminal PNG snapshots compared with reviewed golden images</p></div>
-  <div class="counts" aria-label="Comparison summary">
-    <div class="count"><strong>{count}</strong><span>Recorded scenes</span></div>
-    <div class="count"><strong>{passed}</strong><span>Matched</span></div>
-    <div class="count"><strong>{failed}</strong><span>Changed / unavailable</span></div>
-  </div>
-</header>
+<header><h1>AC-Prof · TUI PNG Visual Report</h1></header>
 {ci_header}
-<nav class="view-tabs" aria-label="Report views">
-  <button type="button" data-report-view="workflow" aria-pressed="true">流程走查</button>
-  <button type="button" data-report-view="visual" aria-pressed="false">视觉对比</button>
+<nav class="view-tabs" aria-label="报告视图">
+  <button type="button" data-report-view="visual" aria-pressed="true">视觉对比</button>
+  <button type="button" data-report-view="workflow" aria-pressed="false">流程走查</button>
   <button type="button" data-report-view="coverage" aria-pressed="false">覆盖矩阵</button>
 </nav>
-<section class="view-panel" data-view-panel="workflow">{workflow}</section>
-<section class="view-panel" data-view-panel="visual" hidden>
-<h2>PNG 基准对比</h2>
-<p class="flow-note">PNG 状态来自本次 report.json；SVG 属于历史基准，不能用它推断 SVG CI 通过。</p>
-{filters}
+<section class="view-panel" data-view-panel="visual">
+<div class="visual-heading"><h2>PNG 场景</h2>{filters}</div>
 {review_panel}
 {cards}
-{svg_gallery}
+<details class="historical-gallery"><summary>历史 SVG 基准</summary>{svg_gallery}</details>
 </section>
+<section class="view-panel" data-view-panel="workflow" hidden>{workflow}</section>
 <section class="view-panel" data-view-panel="coverage" hidden>{coverage}</section>
-<footer>Comparison decisions come from report.json. Images are embedded for offline review.
-Baseline updates require owner approval on GitHub and a reviewed PR. Flow evidence indexes do not imply test execution.</footer>
+<footer>PNG 比较结论来自 report.json。截图已内嵌，可离线查看。</footer>
 </main>
 <script>{review_script}</script>
 </body>

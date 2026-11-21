@@ -31,21 +31,19 @@ REPOSITORY = re.compile(r"[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+\Z")
 RUN_ID = re.compile(r"[1-9][0-9]{0,19}\Z")
 
 STYLE = """
-.ci-review{margin:22px 0 18px}
-.ci-review h2{font-size:1.12rem;margin:0 0 10px}
-.ci-meta{color:#aebdcd;font-size:.87rem;line-height:1.55;overflow-wrap:anywhere}
+.ci-review{margin:16px 0;padding:12px 16px;border:1px solid #3a4958;border-radius:8px;background:#202730}
+.ci-summary,.ci-items{display:flex;align-items:baseline;flex-wrap:wrap;gap:8px 18px}
+.ci-summary h2{font-size:1rem;margin:0}
+.ci-items{margin:0;padding:0;list-style:none}
+.ci-item{font-size:.85rem}
+.ci-meta,.ci-review details{color:#b9c6d4;font-size:.85rem;line-height:1.55;overflow-wrap:anywhere;margin:8px 0 0}
+.ci-review summary{cursor:pointer;color:#bcdaee}
 .ci-meta a{color:#b7dff3;text-decoration:underline;text-underline-offset:2px}
-.ci-items{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:14px 0}
-.ci-item{border:1px solid #3a4958;border-radius:9px;background:#202730;padding:14px;min-width:0}
-.ci-item strong{display:block;margin:7px 0;font-size:1.1rem}
-.ci-label{font-weight:600;font-size:.95rem}
-.ci-item small{color:#afbbcb;font-size:.81rem;line-height:1.5;overflow-wrap:anywhere}
 .ci-state{display:inline-block;border:1px solid #5c6c7c;border-radius:999px;padding:2px 10px;
  font-size:.78rem;letter-spacing:.01em}
 .ci-state.passed{color:#a9efc0;border-color:#387d56}
 .ci-state.failed{color:#ffc3ba;border-color:#b16b66}
 .ci-state.not_run{color:#e2d4ad;border-color:#8a805d}
-@media(max-width:790px){.ci-items{grid-template-columns:1fr}}
 """
 
 
@@ -273,41 +271,44 @@ def render_status(document: dict | None) -> str:
         return html.escape(str(item), quote=True)
 
     names = {"svg": "SVG 快照", "png": "PNG 视觉回归", "pilot": "Pilot 连续走查"}
-    labels = {"passed": "通过", "failed": "失败", "not_run": "未运行"}
+    labels = {
+        "passed": "通过",
+        "failed": "失败",
+        "not_run": "未运行" if document is not None else "未核验",
+    }
     checks = (
         document["checks"]
         if document is not None
-        else {
-            name: {"status": "not_run", "count": 0, "detail": "没有可验证的本次 CI 结果"}
-            for name in CHECKS
-        }
+        else {name: {"status": "not_run"} for name in CHECKS}
     )
     if document is not None:
         run_url = (
             f"https://github.com/{document['repository']}/actions/runs/"
             f"{document['run_id']}/attempts/{document['run_attempt']}"
         )
+        evidence = "".join(
+            f"<li>{names[name]}：{safe(checks[name]['detail'])}</li>" for name in CHECKS
+        )
         meta = (
+            "<details><summary>运行与证据</summary>"
             f'<p class="ci-meta">Commit: <code>{safe(document["commit"][:12])}</code>'
             f" · {safe(document['generated_at'])} · "
             f'<a href="{safe(run_url)}" rel="noopener noreferrer" target="_blank">GitHub Actions 本次运行</a></p>'
+            f"<ul>{evidence}</ul>SVG 在本工作流复测，不代表独立主 CI 的结论。</details>"
         )
     else:
         meta = '<p class="ci-meta">未找到与本次 CI 对应的状态记录。已有截图不代表本次测试通过。</p>'
-    cards = "".join(
-        f'<article class="ci-item" data-ci-check="{name}" data-ci-status="{checks[name]["status"]}">'
-        f'<div class="ci-label">{safe(names[name])}</div>'
-        f'<strong><span class="ci-state {checks[name]["status"]}">{labels[checks[name]["status"]]}</span></strong>'
-        f"<small>{safe(checks[name]['detail'])}</small></article>"
+    items = "".join(
+        f'<li class="ci-item" data-ci-check="{name}" data-ci-status="{checks[name]["status"]}">'
+        f'{names[name]} <span class="ci-state {checks[name]["status"]}">{labels[checks[name]["status"]]}</span></li>'
         for name in CHECKS
     )
     passed = sum(item["status"] == "passed" for item in checks.values())
+    summary = f"{passed}/3 项通过" if document is not None else "未核验"
     return (
         f'<section class="ci-review" aria-label="同一次 TUI CI 验收状态">'
-        f"<h2>本次 TUI CI 验收 · {passed}/3 项通过</h2>{meta}"
-        f'<div class="ci-items">{cards}</div>'
-        '<p class="ci-meta">三个结果均来自同一提交的 TUI 视觉工作流；SVG 在此复跑测试，'
-        "不代表另一条独立主 CI 的结论。未运行、测试失败或证据缺失均不会显示“通过”。</p></section>"
+        f'<div class="ci-summary"><h2>本次 TUI CI 验收 · {summary}</h2>'
+        f'<ul class="ci-items">{items}</ul></div>{meta}</section>'
     )
 
 

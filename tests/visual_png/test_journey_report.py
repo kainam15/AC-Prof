@@ -106,7 +106,7 @@ def test_pilot_journey_is_visible_separately_from_golden_comparisons(tmp_path):
     assert 'id="pilot-step-zh-wide-result-overview"' in page
     assert page.count("data:image/svg+xml;base64,") >= 21
     assert "连续 Pilot 图像由测试夹具生成" in page
-    assert "Comparison not available." in page  # No PNG report.json is present.
+    assert "未生成 report.json，无法判断通过或失败" in page
 
 
 def test_absent_journey_does_not_claim_a_successful_pilot_run(tmp_path):

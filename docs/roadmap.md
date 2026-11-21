@@ -32,6 +32,8 @@ P1 · cgroup I/O 预检：已将宿主进程 cgroup 能力与目标 Docker / Pro
 
 ## 工程维护优先序
 
+[离线实验报告](results/reports.md#手动生成与比较)已将配置结果放到首屏，共有条件只列一次；[TUI PNG Visual Report](development/png-visual-validation.md#全流程走查与覆盖矩阵)默认展开变更或缺证据的场景，已匹配场景按需查看。两处均未改变采集、比较或 Golden 基准。
+
 开发辅助能力已按项目与个人范围拆分：新增 HTML 报告回归、Hub 静态调研、服务指标与 Actions 维护入口，
 通用 Python、定向审查和 UI 检索放在个人 skills；来源与边界见[开发 Skills](development/agent-skills.md)。
 这些入口不改变下表的硬件、真实模型及客户端验收缺口。

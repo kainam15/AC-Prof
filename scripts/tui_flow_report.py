@@ -16,7 +16,7 @@ from scripts.tui_journey_report import JOURNEY_STYLE, render_journey
 from scripts.tui_svg_preview_png import load_preview_index
 
 FLOW_STYLE = """
-.view-tabs{display:flex;gap:9px;flex-wrap:wrap;margin:25px 0 18px}
+.view-tabs{display:flex;gap:6px;flex-wrap:wrap;margin:16px 0;padding-bottom:10px;border-bottom:1px solid #37414e}
 .view-tabs button{background:#232a33;border:1px solid #566070;border-radius:7px;
   padding:10px 15px;color:#edf0f7;cursor:pointer;font:inherit}
 .view-tabs button[aria-pressed=true]{background:#384f63;border-color:#82c9de}
@@ -129,19 +129,20 @@ def _checkpoint_card(
     actual: Path,
     baselines: Path,
     png_status: dict[str, str],
-    pilot_count: int,
     previews: dict[str, Path],
 ) -> str:
     svg = item["svg"]
     png = item["png"]
     tests = item["tests"]
-    view = [_svg_evidence(svg[0], root=root, previews=previews)] if svg else []
+    svg_preview = _svg_evidence(svg[0], root=root, previews=previews) if svg else ""
     if png:
         first = png[0]
         live = actual / f"{first}.png"
         path = live if live.is_file() else baselines / f"{first}.png"
         label = "本次 PNG 截图" if live.is_file() else "已审阅 PNG 基准（尚无本次截图）"
-        view.insert(0, _thumbnail(path, label, "image/png"))
+        preview = _thumbnail(path, label, "image/png")
+    else:
+        preview = svg_preview
     png_statuses = [f"{scene}: {png_status.get(scene, 'not-compared')}" for scene in png]
     sources = "".join(
         f"<li><code>{_safe(name)}</code></li>" for name in [*png_statuses, *svg, *tests]
@@ -152,22 +153,15 @@ def _checkpoint_card(
         "exception": "异常分支",
         "support": "独立页面",
     }[item["group"]]
-    badges = (
-        f'<span class="flow-chip">{_safe(kind_label)}</span>'
-        f'<span class="flow-chip {"missing" if not png else ""}">PNG {len(png)}</span>'
-        f'<span class="flow-chip {"missing" if not svg else ""}">SVG {len(svg)}</span>'
-        f'<span class="flow-chip">测试文件 {len(tests)}（非运行结果）</span>'
-        f'<span class="flow-chip">Pilot 截图 {pilot_count}（模拟）</span>'
-    )
+    gap = '<span class="flow-chip missing">无固定截图</span>' if not png and not svg else ""
     return (
         f'<article class="flow-card" id="flow-{_safe(item["id"])}">'
         f"<h3>{_safe(item['title'])}</h3>"
-        f'<div class="flow-evidence"><span class="flow-chip">{_safe(page_name)}</span>{badges}</div>'
+        f'<div class="flow-evidence"><span class="flow-chip">{_safe(page_name)} · {kind_label}</span>{gap}</div>'
         f'<p><span class="field">触发：</span>{_safe(item["trigger"])}</p>'
         f'<p><span class="field">预期：</span>{_safe(item["expected"])}</p>'
-        + "".join(view)
-        + f"<details><summary>全部证据索引（{len(png) + len(svg) + len(tests)} 项）</summary>"
-        f"<ul>{sources}</ul></details></article>"
+        f"{preview}<details><summary>证据索引（{len(png) + len(svg) + len(tests)} 项）</summary>"
+        f"<ul>{sources}</ul>{svg_preview if png else ''}</details></article>"
     )
 
 
@@ -201,7 +195,6 @@ def render_flow_report(
                 actual=actual,
                 baselines=baselines,
                 png_status=status,
-                pilot_count=pilot_counts.get(item["id"], 0),
                 previews=previews,
             )
             for item in checkpoints
@@ -226,7 +219,6 @@ def render_flow_report(
         '<p class="flow-note">流程按常见路径排列；条件性步骤可能跳过，异常步骤不是必经流程。'
         "截图只证明该固定状态曾被记录，测试文件索引不代表本次执行通过。"
         "这里展示的是脱敏测试夹具，不含真实采集日志或用户配置。</p>"
-        + counts
         + journey_html
         + "".join(sections)
     )
@@ -255,7 +247,8 @@ def render_flow_report(
         '<p class="flow-note">下表统计已登记的截图和测试源码，不是本次通过率。'
         "PNG 测试通过与否只以“视觉对比”页的 report.json 为准；SVG 通过情况应查看独立 SVG CI。"
         "连续 Pilot 图像由测试夹具生成，不能证明真实采集。</p>"
-        '<h3>主页面</h3><div class="coverage-wrap"><table class="coverage-table">'
+        + counts
+        + '<h3>主页面</h3><div class="coverage-wrap"><table class="coverage-table">'
         "<thead><tr><th>页面</th><th>检查点</th><th>PNG</th><th>SVG</th><th>无截图</th></tr></thead><tbody>"
         + "".join(page_rows)
         + "</tbody></table></div>"

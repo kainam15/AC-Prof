@@ -71,7 +71,7 @@ def test_html_prefers_png_preview_without_changing_golden_counts(tmp_path):
     assert "查看原始 SVG Golden（诊断）" in report
     assert "data:image/png;base64," in report
     assert "data:image/svg+xml;base64," in report
-    assert "Comparison not available." in report
+    assert "未生成 report.json，无法判断通过或失败" in report
     assert f"SVG 基准图库（{len(svg_inventory())} 张）" in report
 
 

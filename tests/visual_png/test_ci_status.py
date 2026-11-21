@@ -145,7 +145,7 @@ def test_invalid_ci_status_does_not_leak_a_false_green_indicator(tmp_path: Path)
         _write(tmp_path, record)
         assert load_status(tmp_path / "ci-status.json", environ={}) is None
         page = render_report(actual=tmp_path).read_text()
-        assert "本次 TUI CI 验收 · 0/3 项通过" in page
+        assert "本次 TUI CI 验收 · 未核验" in page
         assert 'data-ci-check="svg" data-ci-status="not_run"' in page
 
 
@@ -167,13 +167,14 @@ def test_ci_renderer_refuses_stale_commit_or_different_run(tmp_path: Path, monke
     monkeypatch.setenv("GITHUB_RUN_ID", RUN)
     monkeypatch.setenv("GITHUB_REPOSITORY", REPO)
     page = render_report(actual=tmp_path).read_text()
-    assert "本次 TUI CI 验收 · 0/3 项通过" in page
+    assert "本次 TUI CI 验收 · 未核验" in page
 
 
 def test_no_record_in_local_report_remains_explicitly_unverified(tmp_path: Path) -> None:
     page = render_report(actual=tmp_path).read_text()
     assert "未找到与本次 CI 对应的状态记录" in page
-    assert "本次 TUI CI 验收 · 0/3 项通过" in page
+    assert "本次 TUI CI 验收 · 未核验" in page
+    assert "/3 项通过" not in page
     assert all(
         f'data-ci-check="{name}" data-ci-status="not_run"' in page
         for name in ("svg", "png", "pilot")

@@ -88,8 +88,8 @@ def test_report_includes_workflow_coverage_all_svgs_and_png_comparison(tmp_path:
     output = render_report(actual=tmp_path)
     page = output.read_text(encoding="utf-8")
     assert page.count("data-report-view=") == 3
-    assert 'data-view-panel="workflow"' in page
-    assert 'data-view-panel="visual" hidden' in page
+    assert 'data-view-panel="workflow" hidden' in page
+    assert 'data-view-panel="visual">' in page
     assert 'data-view-panel="coverage" hidden' in page
     for checkpoint in (
         "configure",
@@ -108,13 +108,13 @@ def test_report_includes_workflow_coverage_all_svgs_and_png_comparison(tmp_path:
     # Optional confirmations belong before runtime validation in the flow view.
     assert page.index('id="flow-task-selection"') < page.index('id="flow-download"')
     assert page.index('id="flow-download"') < page.index('id="flow-validation"')
-    assert "0 changed pixels" in page
-    assert "<strong>1</strong><span>Matched</span>" in page
+    assert "差异像素：0" in page
+    assert "已匹配 (1)" in page
 
 
 def test_missing_png_comparison_does_not_infer_success(tmp_path: Path) -> None:
     page = render_report(actual=tmp_path).read_text(encoding="utf-8")
-    assert "Comparison not available." in page
+    assert "未生成 report.json，无法判断通过或失败" in page
     assert "not-compared" in page
     assert "测试文件索引不代表本次执行通过" in page
     assert "SVG CI" in page
