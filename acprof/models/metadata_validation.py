@@ -100,6 +100,11 @@ def parse_metadata_json(content: bytes, filename: str) -> Any:
     diagnostics = finite_metadata_diagnostics(value, filename, raw_sha256=digest)
     if diagnostics:
         raise MetadataValidationError(diagnostics)
-    if filename == "model_index.json" and isinstance(value, dict):
+    if filename == "model_index.json":
+        if not isinstance(value, dict):
+            raise MetadataValidationError([{
+                "reason_code": "metadata_invalid", "file": filename, "json_pointer": "",
+                "raw_sha256": digest, "detail": "Diffusers pipeline index must be a JSON object",
+            }])
         validate_diffusers_declarations(value, raw_sha256=digest)
     return value

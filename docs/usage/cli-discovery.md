@@ -43,6 +43,15 @@ Process 可选指标缺失不会使必要检查失败，JSON 中的 `required` �
 `--output-dir DIR` 导出 `model_resolution.json`。任务选择、配置、元数据、制品或运行环境的静态阻断退出 2，
 保留可用的解析证据；模型访问或网络错误退出 1。分类见[共享接口解析](../models/routing.md#共享接口解析)。
 
+Hub 暂时不可用时，`inspect` 可以从指定 revision 的缓存配置识别任务。Diffusers 使用根目录的 `model_index.json`。例如，Hugging Face 缓存中只有 Stable Diffusion v1.5 的流水线索引时，可离线查看任务及其来源。
+
+```bash
+HF_HUB_OFFLINE=1 acprof inspect stable-diffusion-v1-5/stable-diffusion-v1-5 \
+  --revision 451f4fe16113bff5a5d2269ed5ad43b0592e9a14 --explain
+```
+
+该版本会显示 `text-to-image` 和索引中的 `StableDiffusionPipeline`。缺少仓库文件清单时，权重布局和静态兼容性均显示为 `unknown`。[固定版本的流水线索引](https://huggingface.co/stable-diffusion-v1-5/stable-diffusion-v1-5/blob/451f4fe16113bff5a5d2269ed5ad43b0592e9a14/model_index.json)
+
 `Static Resolution: candidate` 表示尚未发现已知静态阻断，不代表权重已加载或真实推理已通过。
 `Static compatibility: unknown` 或 `Artifact layout: unknown` 表示对应证据仍不足；未知不会转换成已验证支持。
 接口检查、真实推理和正式采集分别保留证据，静态检查成功不能代替后两者。

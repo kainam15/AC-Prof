@@ -1,4 +1,5 @@
 """Static inspection must reject oversized Hub files before downloading bodies."""
+import hashlib
 import json
 import os
 import subprocess
@@ -173,7 +174,8 @@ def test_static_readers_reject_oversized_metadata_buffers(tmp_path, reader):
         elif reader == "config_fallback":
             assert detect._detect_from_config("fixture/model", diagnostics) is None
         else:
-            assert detect._diffusers_task_from_index("fixture/model", SHA, diagnostics) is None
+            metadata = detect._repository_metadata("fixture/model", SHA, SimpleNamespace(library_name="diffusers"), diagnostics)
+            assert metadata["repository_metadata"] == {}
     assert "exceeds" in ";".join(diagnostics)
 
 
@@ -254,7 +256,13 @@ def test_diffusers_reads_downloaded_content_even_if_snapshot_is_removed(hub_http
 
     diagnostics = []
     with patch("acprof.host.detect._download_metadata", side_effect=remove_after_download):
-        assert detect._diffusers_task_from_index("fixture/model", SHA, diagnostics) == "text-to-image"
+        info = SimpleNamespace(library_name="diffusers", sha=SHA, pipeline_tag=None)
+        with patch("huggingface_hub.HfApi.model_info", return_value=info):
+            task = detect._detect_from_hub("fixture/model", diagnostics, revision=SHA)
+    assert task is not None
+    assert task.pipeline_tag == "text-to-image"
+    assert task.repository_metadata["model_index.json"]["_class_name"] == "StableDiffusionPipeline"
+    assert task.metadata_sources["model_index.json"]["sha256"] == hashlib.sha256(payload).hexdigest()
     assert diagnostics == []
 
 

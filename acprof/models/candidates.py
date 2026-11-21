@@ -255,7 +255,12 @@ class _CandidateDiscovery:
             self._add(inferred, "extension_catalog.backend_rules")
 
     def _collect_config_candidates(self) -> None:
+        from acprof.models.diffusion_pipelines import diffusers_index_task
+
         self._collect_rule_candidates()
+        index = self.metadata.get("model_index.json")
+        if self.task_info.library_name == "diffusers" and not self.hub_task:
+            self._add(diffusers_index_task(index), "model_index")
         for architecture in self.config.get("architectures") or []:
             if isinstance(architecture, str):
                 inferred = self.catalog.infer_task([architecture], str(self.config.get("model_type") or ""))
@@ -310,7 +315,12 @@ class _CandidateDiscovery:
             else:
                 status = "needs_configuration"
                 self._add_onnx_candidates()
-                self.errors.append("task semantics are unknown; provide --task or --model-spec")
+                index = self.metadata.get("model_index.json")
+                if self.task_info.library_name == "diffusers" and isinstance(index, dict) and index.get("_class_name"):
+                    self.errors.append(f"model_index.json has no registered task for {index['_class_name']!r}. "
+                                       "Provide --task or --model-spec.")
+                else:
+                    self.errors.append("task semantics are unknown; provide --task or --model-spec")
         if selected:
             self.task_info.pipeline_tag = selected
             self.task_info.task_family = self.catalog.task_families.get(selected, "unknown")

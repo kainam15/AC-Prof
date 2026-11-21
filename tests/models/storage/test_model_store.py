@@ -467,8 +467,12 @@ class TestModelStore:
                 / self.task.model_revision / "config.json")
         cached_metadata = model_store.cached_metadata
 
-        def change_after_verification(*args, **kwargs):
-            result = cached_metadata(*args, **kwargs)
+        def change_after_verification(model_id, name, revision, **kwargs):
+            result = cached_metadata(model_id, name, revision, **kwargs)
+            if name == "model_index.json":
+                assert result is None
+                return None
+            assert name == "config.json"
             assert result is not None
             if mutation == "replace":
                 path.write_bytes(self.content.replace(b"MaskedLM", b"MaskedXX"))

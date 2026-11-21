@@ -41,3 +41,9 @@ _PIPELINES = {
 def diffusers_pipeline(class_name: object) -> DiffusersPipeline | None:
     """Return explicit capabilities; unknown or custom classes remain unregistered."""
     return _PIPELINES.get(class_name) if isinstance(class_name, str) else None
+
+
+def diffusers_index_task(index: object) -> str | None:
+    """Only a reviewed pipeline class can supply a task when the Hub tag is absent."""
+    pipeline = diffusers_pipeline(index.get("_class_name")) if isinstance(index, dict) else None
+    return pipeline.task if pipeline is not None else None

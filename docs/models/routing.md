@@ -209,6 +209,11 @@ Sentence Transformers 的模块协议由 Extension 注册，按 `modules.json` �
 Diffusers 的 `model_index.json` 组件组成一个已注册 pipeline，不把每个子模型扩展成单独任务。
 模块、processor、依赖与实际输出仍需运行验证；没有按模型 ID 设置例外。
 
+Hub 任务标签缺失或 API 暂时不可用时，Diffusers 按流水线索引的 `/_class_name` 查询已登记的任务。
+离线查找使用所选来源、revision 对应的 Model Store，Hugging Face 还可使用 SDK 的本地快照。
+`inspect --explain` 显示用于判断的类名，解析文件记录索引的 SHA256。未知流水线保留为待配置，非法索引保留字段诊断。
+仅有索引时，制品完整性仍为 unknown。[Diffusers 0.39.0 加载实现](https://github.com/huggingface/diffusers/blob/v0.39.0/src/diffusers/pipelines/pipeline_utils.py)
+
 声明、Hub task、具有任务语义的 `transformers_info.pipeline_tag` 冲突，或原生模型的明确 head 与任务操作
 不相容时，保留候选并 abstain。显式 `--task` 可以解决元数据冲突，原冲突进入
 `provenance.overridden_conflicts`；它仍不能违背有效的模型声明。

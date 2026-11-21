@@ -46,14 +46,26 @@ def resolution_provenance(task_info, candidates: list[dict], *, hub_task: str | 
     for name, (value, family, parents) in values.items():
         sources[name] = {"sha256": content_digest(value), "revision": revision,
                          "family": family, "derived_from": parents}
+    index = (task_info.repository_metadata or {}).get("model_index.json")
+    pipeline_class = index.get("_class_name") if isinstance(index, dict) else None
+    if isinstance(pipeline_class, str) and any("model_index" in item["evidence"] for item in candidates):
+        raw = (getattr(task_info, "metadata_sources", {}) or {}).get("model_index.json")
+        sources["model_index.json"] = {
+            "revision": revision, "family": "repository_metadata", "derived_from": ["repository_snapshot"],
+            **(raw or {"sha256": content_digest(index), "encoding": "canonical-json"}),
+        }
     observations = []
     for candidate in candidates:
         for field_name in candidate["evidence"]:
+            if field_name == "model_index" and "model_index.json" in sources:
+                observations.append({"field": "/_class_name", "source_id": "model_index.json",
+                                     "value": pipeline_class, "task": candidate["task"], "backend": candidate["backend"]})
+                continue
             source = ("explicit" if field_name == "explicit_task" else
                       "local_spec" if field_name == "local_model_spec" else
                       "repository_spec" if field_name == "repository_model_spec" else
                       "generated_contract" if field_name == "generated_contract" else
-                      "hub" if field_name.startswith("hub") else "repository_config")
+                      "hub" if field_name.startswith("hub") or field_name == "model_index" else "repository_config")
             observations.append({"field": field_name, "source_id": source,
                                  "task": candidate["task"], "backend": candidate["backend"]})
     for field_name, value in hub.get("transformers_info", {}).items():

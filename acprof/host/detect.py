@@ -17,7 +17,7 @@ from acprof.host.preparation.model_errors import ModelLookupError, model_lookup_
 from acprof.hub.huggingface.auth import hf_token_for_url
 from acprof.hub.huggingface.download import hf_endpoint_scope
 from acprof.hub.repository import MetadataFile, read_metadata_file
-from acprof.models.diffusion_pipelines import diffusers_pipeline
+from acprof.models.diffusion_pipelines import diffusers_index_task
 from acprof.models.metadata_validation import (
     MetadataValidationError,
     finite_metadata_diagnostics,
@@ -125,7 +125,14 @@ def _read_json_metadata(
     return parse_metadata_json(metadata.content, filename or metadata.path.name)
 
 
-def _repository_metadata(model_id: str, revision: str, info: Any) -> dict[str, Any]:
+def _raw_metadata_source(metadata: MetadataFile, revision: str) -> dict[str, Any]:
+    return {"sha256": hashlib.sha256(metadata.content).hexdigest(), "bytes": len(metadata.content),
+            "revision": revision, "encoding": "raw"}
+
+
+def _repository_metadata(
+    model_id: str, revision: str, info: Any, lookup_diagnostics: list[str] | None = None,
+) -> dict[str, Any]:
     """Read small, non-executable metadata at the same commit as the weights."""
     from acprof.models.artifact_layout import checkpoint_metadata_indexes
     from acprof.models.evidence import pinned_revision
@@ -142,12 +149,11 @@ def _repository_metadata(model_id: str, revision: str, info: Any) -> dict[str, A
              "generation_config.json", "config_sentence_transformers.json", "sentence_bert_config.json"]
 
     def read_name(name: str) -> None:
-        if name not in files:
+        if files and name not in files:
             return
         try:
             downloaded = _download_metadata(model_id, name, revision)
-            sources[name] = {"sha256": hashlib.sha256(downloaded.content).hexdigest(),
-                             "bytes": len(downloaded.content), "revision": revision, "encoding": "raw"}
+            sources[name] = _raw_metadata_source(downloaded, revision)
             value = _read_json_metadata(downloaded, filename=name)
             expected = list if name == "modules.json" else dict
             if not isinstance(value, expected):
@@ -172,7 +178,10 @@ def _repository_metadata(model_id: str, revision: str, info: Any) -> dict[str, A
             diagnostics.extend(exc.diagnostics)
             errors.append(f"{name}: {_format_failure(exc)}")
         except Exception as exc:
-            errors.append(f"{name}: {_format_failure(exc)}")
+            if files:
+                errors.append(f"{name}: {_format_failure(exc)}")
+            else:
+                _record_failure(lookup_diagnostics, "model_index", _format_failure(exc))
 
     if files:
         for name in names:
@@ -185,6 +194,11 @@ def _repository_metadata(model_id: str, revision: str, info: Any) -> dict[str, A
             for name in indexes:
                 if name not in metadata:
                     read_name(name)
+    elif (pinned_revision(revision) and getattr(info, "library_name", None) == "diffusers"
+          and not getattr(info, "pipeline_tag", None)):
+        # Older Hub responses can identify the library without listing files.
+        # Bind the same bytes to the task hint and its evidence.
+        read_name("model_index.json")
     return {"repository_files": files, "repository_metadata": metadata, "metadata_errors": tuple(errors),
             "metadata_diagnostics": tuple(diagnostics), "metadata_sources": sources}
 
@@ -450,23 +464,6 @@ def _record_failure(diagnostics: list[str] | None, stage: str, reason: str) -> N
         diagnostics.append(f"{stage}: {reason}")
 
 
-def _diffusers_task_from_index(
-    model_id: str, revision: str, diagnostics: list[str] | None,
-) -> str | None:
-    """Read native pipeline metadata only; never execute repository code."""
-    try:
-        metadata = _download_metadata(model_id, "model_index.json", revision)
-        class_name = _read_json_metadata(metadata).get("_class_name")
-        capability = diffusers_pipeline(class_name)
-        task = capability.task if capability is not None else None
-        if task is None:
-            _record_failure(diagnostics, "model_index", f"unsupported pipeline class: {class_name!r}")
-        return task
-    except Exception as exc:
-        _record_failure(diagnostics, "model_index", _format_failure(exc))
-        return None
-
-
 def _detect_from_hub(
     model_id: str,
     diagnostics: list[str] | None = None,
@@ -507,7 +504,7 @@ def _detect_from_hub(
                          if isinstance(value := getattr(transformers_info, key, None), str)} if not isinstance(transformers_info, dict) else {
                              key: value for key, value in transformers_info.items()
                              if key in {"auto_model", "pipeline_tag", "processor", "custom_class"} and isinstance(value, str)}
-    repository = _repository_metadata(model_id, sha, info)
+    repository = _repository_metadata(model_id, sha, info, diagnostics)
     hub_config = _architecture_metadata(getattr(info, "config", None))
     hub_diagnostics = finite_metadata_diagnostics(hub_config, "hub.config")
     if hub_diagnostics:
@@ -516,7 +513,10 @@ def _detect_from_hub(
     model_config = {} if hub_diagnostics else hub_config
     model_config.update(_architecture_metadata(repository["repository_metadata"].get("config.json")))
     if not pipeline_tag and library_name == "diffusers" and not repository["metadata_errors"]:
-        pipeline_tag = _diffusers_task_from_index(model_id, sha, diagnostics)
+        index = repository["repository_metadata"].get("model_index.json")
+        pipeline_tag = diffusers_index_task(index)
+        if index is not None and pipeline_tag is None:
+            _record_failure(diagnostics, "model_index", f"unsupported pipeline class: {index.get('_class_name')!r}")
         task_hint_source = "model_index"
 
     # A Hub 'pretraining' label is not a runnable inference protocol. An exact
@@ -571,67 +571,92 @@ def _detect_from_hub(
     )
 
 
+def _cached_pipeline_index(model_id: str, revision: str | None) -> MetadataFile | None:
+    """Look for a pipeline manifest without a speculative network request."""
+    from acprof.host.model_store.store import cached_metadata
+    from acprof.hub.repository import model_source
+
+    source = model_source()
+    name = "model_index.json"
+    metadata = cached_metadata(model_id, name, revision, source=source, max_bytes=METADATA_MAX_BYTES)
+    if metadata is not None or source != "huggingface":
+        return metadata
+    from huggingface_hub import try_to_load_from_cache
+
+    path = try_to_load_from_cache(model_id, name, revision=revision)
+    return read_metadata_file(path, max_bytes=METADATA_MAX_BYTES) if isinstance(path, str) else None
+
+
+def _fallback_config_info(
+    model_id: str, requested_revision: str | None, filename: str, metadata: MetadataFile,
+) -> TaskInfo:
+    """Parse the same snapshot bytes that identify the fallback decision."""
+    from acprof.models.evidence import pinned_revision
+
+    revision = metadata.path.parent.name
+    if not pinned_revision(revision) or metadata.path.parent.parent.name != "snapshots":
+        raise ValueError("config fallback requires a pinned snapshot commit SHA")
+    if pinned_revision(requested_revision) and revision != requested_revision:
+        raise ValueError("config fallback returned a different model revision")
+    info = TaskInfo(
+        model_id=model_id, pipeline_tag="unknown", task_family="unknown", runtime_backend="unknown",
+        library_name="diffusers" if filename == "model_index.json" else "transformers",
+        model_revision=revision, detection_method="config_infer",
+        metadata_sources={filename: _raw_metadata_source(metadata, revision)},
+    )
+    try:
+        config_data = _read_json_metadata(metadata, filename=filename)
+        if not isinstance(config_data, dict):
+            raise ValueError(f"{filename} must contain dict")
+        info.repository_metadata[filename] = config_data
+    except MetadataValidationError as exc:
+        info.metadata_errors = (str(exc),)
+        info.metadata_diagnostics = tuple(exc.diagnostics)
+    return info
+
+
 def _detect_from_config(
     model_id: str,
     diagnostics: list[str] | None = None,
     *, requested_revision: str | None = None, failures: list[Exception] | None = None,
 ) -> TaskInfo | None:
-    """Level 2: Infer task from model architecture name."""
+    """Recover from a pinned pipeline index or Transformer architecture configuration."""
+    index = _cached_pipeline_index(model_id, requested_revision)
+    stage = "model_index"
     try:
-        from acprof.models.evidence import pinned_revision
-        metadata = _download_metadata(model_id, "config.json", requested_revision) if requested_revision else _download_metadata(model_id, "config.json")
-        # hf_hub_download pins the ref before returning the cache snapshot.
-        revision = metadata.path.parent.name
-        if not pinned_revision(revision) or metadata.path.parent.parent.name != "snapshots":
-            raise ValueError("config fallback requires a pinned snapshot commit SHA")
-        if requested_revision is not None and pinned_revision(requested_revision) and revision != requested_revision:
-            raise ValueError("config fallback returned a different model revision")
-        config_data = _read_json_metadata(metadata)
-        if not isinstance(config_data, dict):
-            raise ValueError("config.json must contain dict")
-        architectures = config_data.get("architectures") or []
-        if not architectures:
-            _record_failure(diagnostics, "config_json", "config.json has no architectures field")
-    except MetadataValidationError as exc:
-        _record_failure(diagnostics, "config_json", _format_failure(exc))
-        return TaskInfo(
-            model_id=model_id, pipeline_tag="unknown", task_family="unknown",
-            runtime_backend="unknown", library_name="transformers", model_revision=revision,
-            detection_method="config_infer", metadata_errors=(str(exc),),
-            metadata_diagnostics=tuple(exc.diagnostics),
-            metadata_sources={"config.json": {
-                "sha256": hashlib.sha256(metadata.content).hexdigest(), "bytes": len(metadata.content),
-                "revision": revision, "encoding": "raw",
-            }},
-        )
+        if index is not None:
+            info = _fallback_config_info(model_id, requested_revision, "model_index.json", index)
+            if info.metadata_errors:
+                _record_failure(diagnostics, stage, info.metadata_errors[0])
+                return info
+            if "_class_name" in info.repository_metadata["model_index.json"]:
+                return info
+            # An unrelated index does not identify a Diffusers pipeline.
+            requested_revision = info.model_revision
+        stage = "config_json"
+        metadata = (_download_metadata(model_id, "config.json", requested_revision) if requested_revision
+                    else _download_metadata(model_id, "config.json"))
+        info = _fallback_config_info(model_id, requested_revision, "config.json", metadata)
     except Exception as exc:
-        _record_failure(diagnostics, "config_json", _format_failure(exc))
+        _record_failure(diagnostics, stage, _format_failure(exc))
         if failures is not None:
             failures.append(exc)
         return None
 
+    if info.metadata_errors:
+        _record_failure(diagnostics, stage, info.metadata_errors[0])
+        return info
+    config_data = info.repository_metadata["config.json"]
+    if not config_data.get("architectures"):
+        _record_failure(diagnostics, stage, "config.json has no architectures field")
     try:
         resolved = CATALOG.resolve(library="transformers", config=config_data, model_id=model_id)
     except UnsupportedExtensionError as exc:
         _record_failure(diagnostics, "architecture_infer", str(exc))
         return None
-    pipeline_tag, task_family = resolved.task, resolved.family
-
-    return TaskInfo(
-        model_id=model_id,
-        pipeline_tag=pipeline_tag,
-        task_family=task_family,
-        runtime_backend=resolved.backend,
-        library_name="transformers",
-        model_revision=revision,
-        detection_method="config_infer",
-        model_config=_architecture_metadata(config_data),
-        repository_metadata={"config.json": config_data},
-        metadata_sources={"config.json": {
-            "sha256": hashlib.sha256(metadata.content).hexdigest(), "bytes": len(metadata.content),
-            "revision": revision, "encoding": "raw",
-        }},
-    )
+    info.pipeline_tag, info.task_family, info.runtime_backend = resolved.task, resolved.family, resolved.backend
+    info.model_config = _architecture_metadata(config_data)
+    return info
 
 
 @hf_endpoint_scope()
