@@ -14,10 +14,12 @@ MESSAGES: dict[str, Entry] = {
         en="Check the ModelScope model ID, access permissions and MODELSCOPE_API_TOKEN.",
     ),
     "models.action.advanced_overrides": Entry(zh="高级修改", en="Advanced overrides"),
+    "models.action.back_to_selection": Entry(zh="返回选择模型", en="Back to model selection"),
     "models.action.edit_id": Entry(zh="返回修改", en="Edit model ID"),
     "models.action.rebuild_environment": Entry(zh="重新准备环境", en="Rebuild environment"),
     "models.action.resolve_again": Entry(zh="重新解析", en="Resolve again"),
     "models.action.use_model": Entry(zh="使用模型", en="Use model"),
+    "models.action.view_diagnostics": Entry(zh="查看诊断", en="View diagnostics"),
     "models.candidates.access_required": Entry(zh="需要授权", en="Access required"),
     "models.candidates.cached_unvalidated": Entry(zh="已缓存、待验证", en="Cached; validation pending"),
     "models.candidates.details_title": Entry(zh="候选详情", en="Candidate details"),
@@ -51,14 +53,27 @@ MESSAGES: dict[str, Entry] = {
     "models.detection.interface_label": Entry(zh="模型接口 (--task)", en="Interface (--task)"),
     "models.detection.overrides": Entry(zh="识别覆盖（通常留空）", en="Detection overrides (usually blank)"),
     "models.detection.task_hint": Entry(zh="如 text-generation", en="e.g. text-generation"),
+    "models.failure.backend_load_blocked": Entry(
+        zh="当前后端无法加载这个模型", en="The current backend cannot load this model",
+    ),
+    "models.failure.declared_task": Entry(zh="仓库声明的任务", en="Repository task"),
+    "models.failure.incompatible_files": Entry(
+        zh="当前推理配置无法加载 {0} 模型文件。", en="The current inference configuration cannot load {0} model files.",
+    ),
     "models.failure.insufficient_resources": Entry(zh="可用资源不足，模型检测未通过。", en="The model check could not pass with the available resources."),
     "models.failure.interface_guidance": Entry(
         zh="请检查模型声明、源码文件和运行依赖。",
         en="Check the model declaration, source files and runtime dependencies.",
     ),
     "models.failure.interface_unavailable": Entry(zh="模型接口无法在当前环境中使用。", en="The model interface is unavailable in this environment."),
+    "models.failure.library": Entry(zh="模型库", en="Model library"),
     "models.failure.loading": Entry(zh="模型未能完成加载。", en="The model could not finish loading."),
     "models.failure.loading_guidance": Entry(zh="请检查模型文件、访问权限和可用内存。", en="Check model files, access permissions and available memory."),
+    "models.failure.missing_file_list": Entry(
+        zh="缺少仓库文件清单，尚未确认兼容性。若已知模型格式，可在实验配置中指定已注册的后端。",
+        en=("Compatibility is unverified because the repository file list is unavailable. "
+            "If you know the model format, select a registered backend in the experiment configuration."),
+    ),
     "models.failure.output_configuration_guidance": Entry(
         zh="请检查任务选择或模型声明中的输出处理配置。",
         en="Check the selected task and output processing in the model declaration.",

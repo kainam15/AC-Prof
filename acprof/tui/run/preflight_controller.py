@@ -69,8 +69,7 @@ class PreflightController:
         self.completed_at: datetime | None = None
         self.lock_acquired = False
         self.preparation_screen: PreparationScreen | None = None
-        self.preparation_cancelled = False
-        self.pending_source_change: dict[str, str] | None = None
+        self.preparation_return: dict[str, str] | None = None
         self.preparation_request: tuple[subprocess.Popen[str], int] | None = None
         self.latest_download: DownloadProgress | ImageProgress | None = None
 
@@ -241,12 +240,10 @@ class PreflightController:
             self.app.action_request_stop()
             return
         pending = self.preparation_request
-        if result["action"] == "switch-source":
-            self.pending_source_change = result
-            result = {"action": "cancel"}
         self.preparation_request = None
-        if result["action"] == "cancel":
-            self.preparation_cancelled = True
+        if result["action"] in {"switch-source", "select-model", "cancel"}:
+            self.preparation_return = result
+            result = {"action": "cancel"}
             self.app.execution.request_stop(self.app.execution.session.token)
             if pending is None:
                 self.app.stop_process_gracefully(self.app.execution.session.token, self.app.execution.lifecycle.process)

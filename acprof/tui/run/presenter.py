@@ -63,7 +63,7 @@ class RunPresenter:
             self.app.results.begin_analysis(pending)
         if pending.kind == "html-report":
             self.app.results.html.started(pending)
-        self.app.preflight.preparation_cancelled = False
+        self.app.preflight.preparation_return = None
         self.app.preflight.reset_download()
         self.app.set_busy(True)
         if pending.kind in {"stats", "compare"}:
@@ -257,12 +257,14 @@ class RunPresenter:
         self.app.preflight.finish_download(cancelled=cancelled)
         self.app.logs.flush()
         self.app.set_busy(self.app.is_busy())
-        if self.app.preflight.preparation_cancelled and not self.app.is_busy():
-            self.app.activate_tab("run-tab")
-            self.app.preflight.preparation_cancelled = False
-            if self.app.preflight.pending_source_change is not None:
+        if self.app.preflight.preparation_return is not None and not self.app.is_busy():
+            change, self.app.preflight.preparation_return = self.app.preflight.preparation_return, None
+            if change["action"] == "select-model":
+                self.app.configuration.open_config_field("model")
+            else:
+                self.app.activate_tab("run-tab")
+            if change["action"] == "switch-source":
                 from uuid import uuid4
-                change, self.app.preflight.pending_source_change = self.app.preflight.pending_source_change, None
                 config = self.app.execution.session.config or self.app.configuration.initial_config
                 self.app.configuration.apply_config(replace(config, model=change["model_id"], revision=change["revision"],
                     model_source="modelscope", download_mode="auto", task="", tasks="", task_family="", backend="",

@@ -445,3 +445,75 @@ async def test_configured_probe_reviews_in_its_own_subprocess(tmp_path, action):
                 assert not (tmp_path / "confirmed.json").exists()
                 assert (tmp_path / "exit-code").read_text() == "130"
             start.assert_called_once()
+
+
+@pytest.mark.parametrize("language", ["zh", "en"])
+async def test_blocked_model_returns_to_editing_after_child_exit(tmp_path, language):
+    from dataclasses import replace
+
+    from textual.widgets import Input, Static, TabbedContent
+
+    from acprof.tui.ui.structured import FactGrid
+
+    script = textwrap.dedent(f"""
+        from pathlib import Path
+        from acprof.experiments.arguments import build_parser
+        from acprof.host.detect import TaskInfo
+        from acprof.host.preparation.collection_workflow import PreparationInterrupted, PreparationWorkflow
+        from acprof.models.candidates import apply_model_candidate, discover_model_candidates
+
+        task = TaskInfo("fixture/coreml", "automatic-speech-recognition", "audio", "unknown", "whisperkit",
+                        "a" * 40, "hub", hub_metadata={{"pipeline_tag": "automatic-speech-recognition"}},
+                        repository_files=("config.json", "AudioEncoder.mlmodelc/weights/weight.bin"))
+        task.model_resolution = apply_model_candidate(task, discover_model_candidates(task))
+        args = build_parser().parse_args(["--model", task.model_id, "--revision", task.model_revision, "--gpus", "off"])
+        try:
+            PreparationWorkflow(interactive=True).resolve(args, initial=task)
+        except PreparationInterrupted as exc:
+            Path({str(tmp_path / "reply")!r}).write_text(exc.reason_code)
+    """)
+    config = replace(RunConfig.smoke("fixture/coreml"), repeat=3, output_dir=str(tmp_path / "output"))
+    app = AcprofTui(config, settings_path=tmp_path / "settings.json")
+    start = ProcessLifecycle.start
+
+    def launch(owner, _command, **kwargs):
+        return start(owner, [sys.executable, "-c", script], **kwargs)
+
+    with patch.object(ProcessLifecycle, "start", autospec=True, side_effect=launch) as launches:
+        async with app.run_test(size=(80, 24)) as pilot:
+            app.query_one("#ui-language", Select).value = language
+            await pilot.pause()
+            before = app.configuration.collect_config()
+            assert await pilot.click("#start-run")
+            await wait_for_condition(pilot, lambda: app.preflight.preparation_request is not None,
+                                     description="blocked model request", timeout=15)
+            await pilot.pause()
+            screen = app.screen
+            labels = [str(b.label) for b in screen.query("#preparation-actions Button")]
+            assert labels == (["返回选择模型", "查看诊断"] if language == "zh"
+                              else ["Back to model selection", "View diagnostics"])
+            assert not list(screen.query(Input))
+            facts = screen.query_one("#preparation-fields", FactGrid).section.rows
+            assert [row.value for row in facts] == [
+                config.model, "a" * 40, "automatic-speech-recognition", "whisperkit",
+            ]
+            assert any(("仓库声明的任务" if language == "zh" else "Repository task") in str(node.render())
+                       for node in screen.query(".fact-label"))
+            assert "Core ML" in str(screen.query_one("#preparation-problem", Static).content)
+            assert await pilot.click("#preparation-view-diagnostics")
+            await pilot.pause()
+            detail = str(app.screen.query_one("#fact-detail-body Static", Static).render())
+            assert all(value in detail for value in ("artifact_layout_unsupported", "AudioEncoder.mlmodelc", "Traceback"))
+            assert not (tmp_path / "reply").exists()
+            await pilot.press("escape")
+            await pilot.pause()
+            assert app.screen is screen
+            assert await pilot.click("#preparation-cancel")
+            await wait_for_condition(pilot, lambda: app.focused is app.query_one("#model", Input),
+                                     description="child exit and focus restored to model ID", timeout=15)
+            assert app.execution.lifecycle.process is None
+            assert app.preflight.preparation_request is None
+            assert app.query_one("#main-tabs", TabbedContent).active == "run-tab"
+            assert app.configuration.collect_config() == before
+            assert (tmp_path / "reply").read_text() == "cancelled_by_user"
+            launches.assert_called_once()

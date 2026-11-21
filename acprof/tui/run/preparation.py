@@ -21,8 +21,14 @@ from acprof.tui.ui.contracts import translated_app
 from acprof.tui.ui.dialogs import focus_horizontal_action
 from acprof.tui.ui.input import BarCursorInput as Input
 from acprof.tui.ui.rendering import CjkCompositor
-from acprof.tui.ui.structured import Callout, FactGrid, StatusBanner
-from acprof.tui.ui.view_models import CalloutContent, FactRow, StatusSummary, ViewSection
+from acprof.tui.ui.structured import Callout, FactDetailScreen, FactGrid, StatusBanner
+from acprof.tui.ui.view_models import (
+    CalloutContent,
+    FactRow,
+    StatusSummary,
+    ViewSection,
+    reason_presentation,
+)
 
 STAGE_LABELS = {
     "resolution": "正在读取模型信息…", "dependencies": "正在读取模型信息…",
@@ -238,7 +244,15 @@ class PreparationScreen(ModalScreen):
         self.sending = False
         self._close_requested = False
 
+    @property
+    def model_blocked(self) -> bool:
+        request = self.event.get("request", {})
+        return (self.event["stage"] == "resolution" and request.get("kind") == "error"
+                and request.get("failure", {}).get("reason_code") in {"artifact_layout_unsupported", "backend_unsupported"})
+
     def on_mount(self) -> None:
+        if self.model_blocked:
+            self.query_one("#preparation-cancel", Button).focus(scroll_visible=False)
         choices = list(self.query("TaskChoices Checkbox").results(Checkbox))
         if choices:
             choices[0].focus(scroll_visible=False)
@@ -281,7 +295,9 @@ class PreparationScreen(ModalScreen):
                  message_id("models.inference.confirmation_title") if inference_confirmation else
                  message_id("models.parameters.title") if parameter_review else
                  "模型确认" if review else "模型无法正常运行" if failed else "正在检测模型")
-        if failed and (docker_error or request.get("failed_stage", self.event["stage"]) in {"image", "environment", "preflight"}):
+        if self.model_blocked:
+            title = message_id("models.failure.backend_load_blocked")
+        elif failed and (docker_error or request.get("failed_stage", self.event["stage"]) in {"image", "environment", "preflight"}):
             title = message_id("run.docker.preparation_failed")
         with Vertical(id="preparation-dialog", classes=(
             "inference-configuration" if inference_review or inference_confirmation else
@@ -382,6 +398,23 @@ class PreparationScreen(ModalScreen):
                     summary = None if download else request.get("summary")
                     if summary and summary.strip():
                         yield Static(tr(summary), id="preparation-summary", markup=False)
+                elif self.model_blocked:
+                    failure = request["failure"]
+                    evidence = failure.get("evidence", {})
+                    fact_labels = (("model_id", "Model"), ("model_revision", "Revision"),
+                                   ("declared_task", message_id("models.failure.declared_task")),
+                                   ("library_name", message_id("models.failure.library")))
+                    rows = tuple(
+                        FactRow(label, value, status="ok" if key in {"model_id", "model_revision"} else None,
+                                copyable=len(value) > 24)
+                        for key, label in fact_labels if (value := evidence.get(key)) and value != "unknown"
+                    )
+                    if rows:
+                        yield FactGrid(ViewSection("", rows), id="preparation-fields", collapsible=False)
+                    problem = reason_presentation(failure["reason_code"]).problem
+                    if fmt := evidence.get("artifact_format"):
+                        problem = message_id("models.failure.incompatible_files", "Core ML" if fmt == "CoreML" else fmt)
+                    yield Static(tr(problem), id="preparation-problem", markup=False)
                 elif failed:
                     banner, callout = failure_views(request, self.event["stage"])
                     yield StatusBanner(banner, id="preparation-banner", include_actions=False)
@@ -402,6 +435,10 @@ class PreparationScreen(ModalScreen):
                 "extra-action" if failed and (download_failure(request) or docker_error and "repair" in docker_error.get("actions", []))
                 and self.event["stage"] in {"image", "environment", "runtime"} else ""
             )):
+                if self.model_blocked:
+                    yield Button(tr(message_id("models.action.back_to_selection")), id="preparation-cancel", variant="primary")
+                    yield Button(tr(message_id("models.action.view_diagnostics")), id="preparation-view-diagnostics")
+                    return
                 cancel_label = (tr(message_id("common.action.cancel")) if task_selection else
                                 tr("返回配置" if failed or parameter_review or inference_review
                                    or inference_confirmation else "终止任务"))
@@ -588,8 +625,22 @@ class PreparationScreen(ModalScreen):
             return
         self.send({"action": "answer", "answers": answers})
 
+    @on(Button.Pressed, "#preparation-view-diagnostics")
+    def view_model_diagnostics(self) -> None:
+        request = self.event["request"]
+        failure = request["failure"]
+        evidence = failure.get("evidence", {})
+        paths = "\n".join(evidence.get("artifact_paths", ()))
+        sections = (failure["reason_code"], failure.get("detail"), paths, evidence.get("next_action"),
+                    request.get("detail"))
+        row = FactRow(message_id("common.diagnostics.title"), "\n\n".join(filter(None, sections)), copyable=True)
+        self.app.push_screen(FactDetailScreen(row))
+
     @on(Button.Pressed, "#preparation-cancel")
     def action_cancel(self):
+        if self.model_blocked:
+            self.send({"action": "select-model"})
+            return
         request = self.event.get("request", {})
         if (request.get("purpose") in {"workload_parameters", "inference_configuration", "inference_confirmation"}
                 or any(item.get("kind") == "multi" for item in request.get("questions", []))):
