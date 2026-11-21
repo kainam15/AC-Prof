@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 
 from acprof.gpu_mode import normalize_gpu_mode
@@ -22,14 +23,15 @@ def main(argv: list[str] | None = None) -> int:
     checks = []
     try:
         load_project_env(Path.cwd())
-    except ValueError as exc:
+    except (OSError, ValueError) as exc:
         checks.append(DoctorCheck("environment", "unavailable", str(exc),
-                                  "删除旧密码配置，按 docs/getting_started/installation.md#最小权限安装配置权限。"))
+                                  "检查当前环境及 .env、.env.local 的内容、编码和读取权限。"))
+    probe_env = os.environ.copy()
     from acprof.host.run_state import MeasurementLock, RunStateError
     try:
         with MeasurementLock():
             checks.extend(collect_checks(runtime=args.runtime, profiling_mode=args.profiling_mode, gpus=args.gpus,
-                                        sniff_iface=args.sniff_iface, output_dir=args.output_dir))
+                                        sniff_iface=args.sniff_iface, output_dir=args.output_dir, probe_env=probe_env))
     except RunStateError as exc:
         checks.append(DoctorCheck("measurement_lock", "unavailable", str(exc)))
     report = report_dict(checks, profiling_mode=args.profiling_mode, gpus=args.gpus)

@@ -222,11 +222,15 @@ def load_project_env(
     values = project_env_values(project_dir)
     if retired_setting in values:
         raise ValueError(migration)
-    for key, value in values.items():
-        # Historical TUI proxy fields remain untouched on disk. Only the user's
-        # inherited system environment configures HTTP clients now.
-        if key.lower() not in _RETIRED_PROXY_KEYS:
-            target_environ.setdefault(key, value)
+    # Only the inherited system environment configures proxies. Validate the
+    # effective additions before publishing any of them to the process.
+    additions = {key: value for key, value in values.items()
+                 if key not in target_environ and key.lower() not in _RETIRED_PROXY_KEYS}
+    for key, value in additions.items():
+        if "\0" in value:
+            raise ValueError(f"Project environment variable {key} contains a null byte")
+    for key, value in additions.items():
+        target_environ.setdefault(key, value)
 
 
 def _set_default_if_blank(key: str, value: str) -> None:

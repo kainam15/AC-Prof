@@ -143,10 +143,13 @@ Docker 路径必需条件：
 acprof doctor
 acprof doctor --runtime process
 acprof doctor --gpus on
+acprof doctor --json
 ```
 
 standalone 不要求目标机安装 Python。`doctor` 不自动安装软件、更改权限或启动容器；
 通过仅表示所选模式的前置检查通过，仍需运行最小实验验证。
+
+若启动时无法加载项目环境，`doctor` 使用继承的环境继续检查其他前置条件，并在 `--json` 报告中保留配置错误，返回退出码 1。
 
 先确认 Docker 指向本机 daemon。下面的命令会清除当前 shell 的 Docker 覆盖变量，
 并切换默认 context；确认你要使用本机 Docker 后再执行：

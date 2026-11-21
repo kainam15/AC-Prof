@@ -110,7 +110,8 @@ def _gpu() -> str:
 
 
 def collect_checks(*, runtime: str = "auto", profiling_mode: str = "best_effort", gpus: str = "off",
-                   sniff_iface: str = "docker0", output_dir: Path | None = None) -> list[DoctorCheck]:
+                   sniff_iface: str = "docker0", output_dir: Path | None = None,
+                   probe_env: dict[str, str] | None = None) -> list[DoctorCheck]:
     gpus = normalize_gpu_mode(gpus)
     from acprof.host.runtimes.selection import select_runtime
     runtime_check = DoctorCheck("runtime", "available", "explicit Docker Runtime", runtime_kind="docker")
@@ -138,7 +139,8 @@ def collect_checks(*, runtime: str = "auto", profiling_mode: str = "best_effort"
                     gpu = process_gpu_device()
                 except ValueError as exc:
                     gpu = {"status": "unavailable", "error": str(exc)}
-            plan = probe_collection_plan("process", gpu=gpu, profiling_mode=profiling_mode, service_cgroup=False)
+            plan = probe_collection_plan("process", gpu=gpu, profiling_mode=profiling_mode, service_cgroup=False,
+                                         env=probe_env)
             checks.extend(DoctorCheck(name, item['status'], item['detail'],
                                       required=profiling_mode != "best_effort" and name in {"process_cpu", "process_memory"}
                                       or (profiling_mode == "full" and name in {"cpu_energy", "cpu_instructions", "packet_latency"}))
@@ -175,13 +177,13 @@ def collect_checks(*, runtime: str = "auto", profiling_mode: str = "best_effort"
                 gpu = resolve_gpu_device()
             except (OSError, ValueError, RuntimeError) as exc:
                 gpu = {"error": str(exc)}
-        plan = probe_collection_plan("docker", gpu=gpu, sniff_iface=sniff_iface, env=_probe_environment())
+        plan = probe_collection_plan("docker", gpu=gpu, sniff_iface=sniff_iface, env=_probe_environment(probe_env))
         checks.extend(DoctorCheck(name, item["status"], item["detail"], required=False)
                       for name, item in plan["probes"].items())
     for name, action, remedy in (
         ("rapl", lambda: _capability(preflight.probe_cpu_energy),
          "检查 /sys/class/powercap 的 energy_uj 读取权限；或先用 --profiling-mode basic。"),
-        ("perf", lambda: _capability(lambda: preflight.probe_perf_instructions(env=_probe_environment())),
+        ("perf", lambda: _capability(lambda: preflight.probe_perf_instructions(env=_probe_environment(probe_env))),
          "安装 perf 并配置 instructions 事件访问权限；或先用 --profiling-mode basic。"),
         ("packet", lambda: _packet(sniff_iface),
          "安装 tcpdump/tshark/libcap2-bin；配置 tcpdump capture capabilities 和 --sniff-iface。"),
@@ -214,7 +216,9 @@ def _workspace_checks(output_dir):
     return checks
 
 
-def _probe_environment() -> dict[str, str]:
+def _probe_environment(prepared: dict[str, str] | None) -> dict[str, str]:
+    if prepared is not None:
+        return prepared
     environment = dict(os.environ)
     load_project_env(Path.cwd(), environ=environment)
     return environment
