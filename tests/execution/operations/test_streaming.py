@@ -468,6 +468,25 @@ def test_http_status_and_mime_are_validated_before_body(status, content_type, co
     assert response.reads == 0
 
 
+@pytest.mark.parametrize("prompt", [
+    [True], [-1], [1.0], [1, "2"], ["first", "second"], [[1], [2]], [[1.0]], [[[1]]], [], [[]], None,
+])
+def test_completions_rejects_ambiguous_or_invalid_single_input(prompt):
+    with pytest.raises(ValueError, match="one prompt"):
+        OpenAIStreamingAdapter("/v1/completions").prepare_payload({"model": "model", "prompt": prompt})
+
+
+@pytest.mark.parametrize(("role", "content"), [
+    ("user", [{"type": "refusal", "refusal": "no"}]), ("assistant", [{"type": "refusal", "refusal": None}]),
+    ("user", [{"type": "input_audio", "input_audio": {}}]), ("user", [None]),
+    ("user", [{"text": "missing type"}]), ("system", [{"type": "text", "text": 12}]), ("user", []),
+    ("function", [{"type": "text", "text": "legacy function messages use strings"}]),
+])
+def test_chat_rejects_unsupported_content_parts_with_a_field_path(role, content):
+    with pytest.raises(ValueError, match=r"messages\[0\]\.content"):
+        OpenAIStreamingAdapter().prepare_payload({"model": "m", "messages": [{"role": role, "content": content}]})
+
+
 @pytest.mark.parametrize("mutation", [{"n": 2}, {"n": True}, {"stream": False}, {"stream_options": {"include_usage": False}}, {"echo": True}, {"tools": [{"name": "tool"}]}])
 def test_payload_validation_refuses_ambiguous_measurement_modes(mutation):
     with pytest.raises(ValueError, match="n=1|stream|text output|echo"):

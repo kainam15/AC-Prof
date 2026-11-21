@@ -54,6 +54,18 @@ def test_dataset_report_retains_full_selected_prefix_and_phase_binding(dataset_r
     assert dataset_report["warmup"]["protocol"]["request_inputs_sha256"] != dataset_report["result"]["protocol"]["request_inputs_sha256"]
 
 
+def test_offline_dataset_error_locates_the_original_line_and_message_part(dataset_report):
+    payload = copy.deepcopy(dataset_report)
+    dataset = payload["identity"]["request_dataset"]
+    dataset["source"]["lines"] = [2, 5]  # Blank lines in the original JSONL.
+    dataset["bodies"][1]["messages"][0]["content"] = [
+        {"type": "text", "text": "ok"}, {"type": "input_audio"},
+    ]
+    rehash_inputs(payload)
+    with pytest.raises(ValueError, match=r"request dataset line 5: messages\[0\]\.content\[1\]"):
+        analyze_load_report(payload)
+
+
 @pytest.mark.parametrize(("path", "value"), [
     (("identity", "request_dataset", "sha256"), "0" * 64),
     (("identity", "request_dataset", "selection"), "cycle"),

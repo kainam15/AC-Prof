@@ -66,6 +66,73 @@ def test_public_cli_sends_each_dataset_body_and_reports_without_source(tmp_path,
     assert "listed_prefix" in html
 
 
+@pytest.mark.parametrize(("protocol", "input_fields"), [
+    ("openai-completions", {"prompt": [0, 42, 7]}),
+    ("openai-completions", {"prompt": [[0, 42, 7]]}),
+    ("openai-completions", {"prompt": ["00123"]}),
+    ("openai-chat", {"messages": [
+        {"role": "developer", "content": [{"type": "text", "text": "Answer briefly."}]},
+        {"role": "assistant", "content": [{"type": "refusal", "refusal": "No."}]},
+        {"role": "user", "content": [
+            {"type": "text", "text": "00123", "prompt_cache_breakpoint": {"mode": "explicit"}},
+            {"type": "text", "text": " 请解释"},
+        ]},
+    ]}),
+])
+@pytest.mark.parametrize("option", ["--request-json", "--request-jsonl"])
+def test_structured_single_input_round_trips_through_load_and_offline_report(
+    tmp_path, local_only, protocol, input_fields, option,
+):
+    from acprof.analysis.load_report import read_load_report
+
+    body = {"model": "fixture", **input_fields}
+    source, output = tmp_path / "request.json", tmp_path / "load"
+    source.write_text(json.dumps(body, ensure_ascii=False), encoding="utf-8")
+    endpoint = "/v1/chat/completions" if protocol == "openai-chat" else "/v1/completions"
+    with streaming_server(endpoint=endpoint, fault="no_usage") as (origin, _, _, received, _):
+        assert main(["load", "--base-url", origin, "--protocol", protocol, option, str(source),
+                     "--requests", "1", "--warmup", "1", "--output-dir", str(output)]) == 0
+    normalized = {**body, "stream": True, "n": 1, "stream_options": {"include_usage": True}}
+    assert received == [normalized, normalized]
+    source.unlink()
+    report = read_load_report(output)
+    identity = report["experiment"]["identity"]
+    if option == "--request-jsonl":
+        assert report["version"] == 3
+        assert identity["request_dataset"]["bodies"] == [normalized]
+    else:
+        assert report["version"] == 2
+        assert identity["request_body"] == normalized
+    record, = report["result"]["requests"]
+    assert record["status"] == "ok"
+    assert record["input_tokens"] is None
+    assert record["input_token_count_source"] == "unavailable"
+
+
+@pytest.mark.parametrize(("protocol", "valid", "invalid", "field"), [
+    ("openai-completions", {"prompt": "ok"}, {"prompt": [[12], [13]]}, "one prompt"),
+    ("openai-chat", {"messages": [{"role": "user", "content": "ok"}]},
+     {"messages": [{"role": "user", "content": [{"type": "text", "text": "hi"}, {"type": "image_url"}]}]},
+     "messages[0].content[1]"),
+])
+def test_bad_structured_input_outside_selected_prefix_stops_before_load(
+    tmp_path, monkeypatch, capsys, protocol, valid, invalid, field,
+):
+    source, output = tmp_path / "requests.jsonl", tmp_path / "absent"
+    bodies = ({"model": "fixture", **fields} for fields in (valid, invalid))
+    source.write_text("\n\n".join(json.dumps(body) for body in bodies))
+    monkeypatch.setattr("acprof.cli.streaming_load.probe_service", lambda *a, **kw: pytest.fail("probed service"))
+    monkeypatch.setattr("acprof.cli.streaming_load.run_load", lambda *a, **kw: pytest.fail("started load"))
+    with pytest.raises(SystemExit) as rejected:
+        main(["load", "--base-url", "http://127.0.0.1:9", "--protocol", protocol, "--request-jsonl", str(source),
+              "--requests", "1", "--warmup", "0", "--output-dir", str(output)])
+    assert rejected.value.code == 2
+    error = capsys.readouterr().err
+    assert "request JSONL line 3" in error
+    assert field in error
+    assert not output.exists()
+
+
 @pytest.mark.parametrize(("raw", "message"), [
     (b" \n\t", "at least one"), (b"[]\n", "line 1"), (b"{}\n{broken\n", "line 2"),
     (b'{"model":"fixture","prompt":"x","temperature":NaN}\n', "line 1"),

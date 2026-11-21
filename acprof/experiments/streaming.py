@@ -19,21 +19,57 @@ def validate_request_credentials(payload: dict[str, Any]) -> None:
         raise ValueError("credentials and headers are not request body fields; use --api-key-env")
 
 
+def _is_single_prompt(prompt: object) -> bool:
+    if isinstance(prompt, str):
+        return True
+    if not isinstance(prompt, list) or not prompt:
+        return False
+    tokens = prompt
+    if len(prompt) == 1:
+        first = prompt[0]
+        if isinstance(first, str):
+            return True
+        if isinstance(first, list):
+            tokens = first
+    return bool(tokens) and all(type(token) is int and token >= 0 for token in tokens)
+
+
+def _validate_chat_message(message: object, index: int) -> None:
+    if not isinstance(message, dict):
+        raise ValueError(f"messages[{index}] must be an object")
+    role = message.get("role")
+    if not isinstance(role, str) or not role.strip():
+        raise ValueError(f"messages[{index}].role requires nonempty text")
+    content = message.get("content")
+    if isinstance(content, str):
+        return
+    field = f"messages[{index}].content"
+    if role not in {"developer", "system", "user", "assistant", "tool"}:
+        raise ValueError(f"{field} must be a string for this role")
+    if not isinstance(content, list) or not content:
+        raise ValueError(f"{field} requires a string or a nonempty list of text parts")
+    kinds = ("text", "refusal") if role == "assistant" else ("text",)
+    for position, part in enumerate(content):
+        if not isinstance(part, dict) or part.get("type") not in kinds:
+            raise ValueError(f"{field}[{position}] requires a part of type {' or '.join(kinds)}")
+        kind = part["type"]
+        if not isinstance(part.get(kind), str):
+            raise ValueError(f"{field}[{position}].{kind} must be a string")
+
+
 def _validate_text_input(payload: dict[str, Any], endpoint: str) -> None:
     if endpoint == "/v1/completions":
-        if not isinstance(payload.get("prompt"), str):
-            raise ValueError("completions requires one text prompt")
+        if not _is_single_prompt(payload.get("prompt")):
+            raise ValueError("completions requires one prompt: a string or a nonempty sequence of nonnegative "
+                             "integer token IDs, optionally wrapped in a single-item list")
         if "best_of" in payload and (type(payload["best_of"]) is not int or payload["best_of"] != 1):
             raise ValueError("streaming completions supports best_of=1 only")
     else:
         messages = payload.get("messages")
-        if not isinstance(messages, list) or not messages or any(
-            not isinstance(message, dict)
-            or not isinstance(message.get("role"), str) or not message["role"].strip()
-            or not isinstance(message.get("content"), str)
-            for message in messages
-        ):
+        if not isinstance(messages, list) or not messages:
             raise ValueError("chat completions requires nonempty text messages")
+        for index, message in enumerate(messages):
+            _validate_chat_message(message, index)
 
 
 def prepare_streaming_payload(

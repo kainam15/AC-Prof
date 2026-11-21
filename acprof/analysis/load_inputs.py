@@ -46,11 +46,14 @@ def _bodies(identity: dict[str, Any], needed: int) -> list[dict[str, Any]]:
     endpoint = identity.get("endpoint")
     if not isinstance(endpoint, str):
         raise ValueError("request dataset endpoint must be text")
-    for body in bodies:
-        normalized = prepare_streaming_payload(body, endpoint=endpoint)
-        validate_request_credentials(body)
+    for line, body in zip(dataset["source"]["lines"], bodies, strict=True):
+        try:
+            normalized = prepare_streaming_payload(body, endpoint=endpoint)
+            validate_request_credentials(body)
+        except ValueError as error:
+            raise ValueError(f"request dataset line {line}: {error}") from error
         if request_digest(normalized) != request_digest(body) or body["model"] != identity.get("model"):
-            raise ValueError("request dataset body is not normalized or differs from the served model")
+            raise ValueError(f"request dataset line {line}: body is not normalized or differs from the served model")
     return bodies
 
 

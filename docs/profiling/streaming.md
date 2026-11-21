@@ -70,6 +70,11 @@ SLO 违反不改变请求的协议成功状态。`--service-backend` 与 `--serv
 这些选项仅适用于 endpoint 模式，source replay 会在读取源实验、联网或创建输出前拒绝。
 
 协议只接受单个文本生成选择（`n=1`）；tool/function、多选择等尚未支持的输出明确失败。
+通过 `--request-json` 或 `--request-jsonl` 可以原样发送以下单条输入。
+
+- Completions 的 `prompt` 可以是字符串或非空 Token ID 序列，例如 `[0, 42, 7]`。也接受只含一条输入的外层数组，例如 `["00123"]` 或 `[[0, 42, 7]]`。多条 prompt 请在 JSONL 中分行。报告中的输入 Token 数取自服务端 usage，缺少该计数时留空。[CompletionCreateParams](https://github.com/openai/openai-python/blob/main/src/openai/types/completion_create_params.py)
+- Chat 的 `developer`、`system`、`user`、`assistant` 和 `tool` 消息支持非空文本片段列表，例如 `[{"type":"text","text":"第一段"},{"type":"text","text":"第二段"}]`。历史 assistant 消息还可包含 `{"type":"refusal","refusal":"…"}`。发送和保存请求时均保留片段顺序和附加字段。图片与音频片段会在准备请求时报告所在位置。[Chat 文本片段](https://github.com/openai/openai-python/blob/main/src/openai/types/chat/chat_completion_content_part_text_param.py)和 [Assistant 消息](https://github.com/openai/openai-python/blob/main/src/openai/types/chat/chat_completion_assistant_message_param.py)
+
 Streaming Adapter 强制请求 SSE 与 usage。它处理 UTF-8 跨网络读取、BOM、
 LF／CRLF／CR、注释心跳、多行 data、JSON 错误、finish reason 和 `[DONE]`。
 网络读取块、SSE 事件、模型 Token 是三种不同单位。
@@ -92,7 +97,7 @@ acprof report results/qwen-request-dataset
 
 [三请求示例](../../examples/streaming/qwen3-requests.jsonl)分别指定 32、64、96 的输出上限；
 实际输出 Token 数仍来自响应证据，不能用上限代替。JSON 字符串 `"00123"` 保持文本，
-空行不计作请求，诊断与来源保留物理行号。文件最多 64 MiB、100000 条请求，每个物理行最多
+空行不计作请求。准备请求和离线核验已保存的请求体时，诊断均使用源文件的物理行号。文件最多 64 MiB、100000 条请求，每个物理行最多
 4 MiB（含行结束字节）；目录、非法 UTF-8／JSON、非有限数值和不支持的请求形态明确报错。
 整个文件在创建输出、身份 probe 和 warmup 前读一次并校验，未选中的行也必须有效。
 
