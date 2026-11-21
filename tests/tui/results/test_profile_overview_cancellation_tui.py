@@ -6,6 +6,7 @@ import pytest
 from textual.widgets import Button, Input, Static
 
 from acprof.analysis import audit
+from acprof.tui.experiments import catalog
 from acprof.tui.i18n import message_id
 from acprof.tui.results import profile_status
 from acprof.tui.results.backfill_panel import BackfillPanel
@@ -15,6 +16,50 @@ from tests.support.tui_actions import fill_form, open_page
 from tests.support.tui_fixtures import AcprofTui
 from tests.support.tui_waits import wait_for_condition
 from tests.tui.results.test_profile_overview_snapshot import profile_store
+
+
+async def test_cancel_stops_metadata_overview_and_refresh_reads_the_same_experiment(tmp_path, monkeypatch):
+    source = tmp_path / "experiment"
+    profile_store(source, 3)
+    entered, release = Event(), Event()
+    read = catalog.read_artifact
+    visited = []
+
+    def pause_at_static_metadata(path, **kwargs):
+        visited.append(path.name)
+        if path == source / "static_meta.json" and not entered.is_set():
+            entered.set()
+            assert release.wait(10), "test did not release the metadata read"
+        return read(path, **kwargs)
+
+    monkeypatch.setattr(catalog, "read_artifact", pause_at_static_metadata)
+    app = AcprofTui(settings_path=tmp_path / "settings.json")
+    async with app.run_test(size=(80, 24)) as pilot:
+        await open_page(pilot, "results-tab")
+        app.results.select_result(str(source))
+        request = app.results.overview_request
+        assert request is not None
+        try:
+            assert await asyncio.to_thread(entered.wait, 3)
+            cancel = app.query_one("#results-cancel", Button)
+            cancel.scroll_visible(animate=False, immediate=True)
+            await pilot.pause()
+            assert await pilot.click(cancel)
+            await wait_for_condition(pilot, request.is_set, description="overview cancellation", timeout=3)
+            assert not app.operation_state().allows("run")
+        finally:
+            release.set()
+        await wait_for_condition(pilot, lambda: not app.read_jobs, description="overview release", timeout=3)
+        assert visited[-1] == "static_meta.json"
+        assert app.results.overview is None
+        refresh = app.query_one("#refresh-experiment-state", Button)
+        refresh.scroll_visible(animate=False, immediate=True)
+        await pilot.pause()
+        assert await pilot.click(refresh)
+        await wait_for_condition(pilot, lambda: app.results.overview is not None and not app.read_jobs,
+                                 description="refreshed experiment overview", timeout=3)
+        assert app.results.overview.source == source
+        assert app.results.overview.metadata_state == "exists"
 
 
 async def test_cancel_during_audit_releases_collection_after_current_field(tmp_path, monkeypatch):

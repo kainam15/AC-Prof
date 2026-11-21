@@ -4,18 +4,25 @@ import io
 import json
 import os
 import tempfile
+from concurrent.futures import CancelledError
 from contextlib import ExitStack, redirect_stdout
 from pathlib import Path
+from threading import Event
 from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
-from tests.support.client_fixtures import patch_client
 
-from acprof.results.layout import ArtifactLayout, case_sidecar, expand_result_sources, resolve_result_file
 from acprof.host.client import ClientRunner
 from acprof.host.measurement.config import ClientConfig
 from acprof.host.run_state import RunState
+from acprof.results.layout import (
+    ArtifactLayout,
+    case_sidecar,
+    expand_result_sources,
+    resolve_result_file,
+)
+from tests.support.client_fixtures import patch_client
 
 
 @pytest.mark.parametrize('invalid', ['oversized', 'nonfinite'])
@@ -32,6 +39,33 @@ def test_manifest_uses_bounded_finite_json_reader(tmp_path, invalid):
     manifest.write_text(content, encoding='utf-8')
     with pytest.raises(ValueError, match=reason):
         ArtifactLayout.discover(tmp_path)
+
+
+@pytest.mark.parametrize("kind", ["layout", "task-collection"])
+def test_selected_result_can_cancel_while_reading_routing_manifest(tmp_path, monkeypatch, kind):
+    from tests.runtime.containers.test_layer_read_cancellation import watch_cancelled_read
+
+    experiment = tmp_path
+    if kind == "layout":
+        ArtifactLayout.for_new_run(experiment).initialize()
+        manifest = experiment / "result_manifest.json"
+    else:
+        experiment = tmp_path / "tasks" / "task" / "run"
+        experiment.mkdir(parents=True)
+        manifest = tmp_path / "metadata" / "task_runs" / "run.json"
+        manifest.parent.mkdir(parents=True)
+        manifest.write_text(json.dumps({"schema_version": 1, "run_id": "run", "tasks": [{"task_id": "task"}]}))
+    manifest.write_bytes(manifest.read_bytes() + b" " * (512 * 1024))
+    expected = experiment / "result_layers.json"
+    assert resolve_result_file(tmp_path) == expected
+    stop = Event()
+    with monkeypatch.context() as scoped:
+        streams, reads = watch_cancelled_read(scoped, manifest, stop)
+        with pytest.raises(CancelledError):
+            resolve_result_file(tmp_path, cancelled=stop.is_set)
+    assert 0 < sum(reads) < manifest.stat().st_size
+    assert all(stream.closed for stream in streams)
+    assert resolve_result_file(tmp_path) == expected
 
 
 def test_legacy_experiment_with_nested_collection_keeps_its_own_result(tmp_path):

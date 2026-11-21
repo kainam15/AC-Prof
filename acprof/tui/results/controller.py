@@ -264,8 +264,8 @@ class ResultController:
         try:
             with self.offline_reads.read():
                 check_cancelled(token.is_set)
-                result = (read_experiment_overview(path) if kind == "overview"
-                          else inspect_experiment_data(path, cancelled=token.is_set))
+                read = read_experiment_overview if kind == "overview" else inspect_experiment_data
+                result = read(path, cancelled=token.is_set)
                 check_cancelled(token.is_set)
             error = ""
         except Exception as exc:

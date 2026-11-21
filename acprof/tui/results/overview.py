@@ -1,6 +1,7 @@
 """Lightweight experiment identity and artifacts; no measurement-row aggregation."""
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -39,16 +40,16 @@ def selection_path(source: Path) -> Path:
     return source
 
 
-def read_experiment_overview(source: Path) -> ExperimentOverview:
-    path = resolve_single_result_source(source)
+def read_experiment_overview(source: Path, *, cancelled: Callable[[], bool] | None = None) -> ExperimentOverview:
+    path = resolve_single_result_source(source, cancelled=cancelled)
     if not path.exists():
         raise FileNotFoundError(message_id("results.summary.path_missing"))
     if not path.is_dir() and path.name != "result_layers.json" and path.suffix.lower() != ".csv":
         raise ValueError(message_id("results.summary.unsupported_source"))
-    result = resolve_result_file(path)
+    result = resolve_result_file(path, cancelled=cancelled)
     root = path if path.is_dir() else path.parent
-    record = read_experiment_record(root)
-    layout = ArtifactLayout.discover(root)
+    layout = ArtifactLayout.discover(root, cancelled=cancelled)
+    record = read_experiment_record(layout, cancelled=cancelled)
     data = "exists" if result.is_file() and result.stat().st_size else "missing"
     meta = "damaged" if record.issues else "exists" if layout.path("static_meta.json").is_file() else "missing"
     return ExperimentOverview(source, result, record, data, meta)

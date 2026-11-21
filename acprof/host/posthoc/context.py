@@ -229,14 +229,14 @@ def load_result_context(result_dir: str | os.PathLike[str], *, result_snapshot: 
     check_cancelled(cancelled)
     from acprof.results.layout import ArtifactLayout, resolve_single_result_source
     try:
-        directory = resolve_single_result_source(Path(result_dir)).expanduser().resolve()
+        directory = resolve_single_result_source(Path(result_dir), cancelled=cancelled).expanduser().resolve()
     except (OSError, ValueError) as exc:
         raise PosthocError(str(exc)) from exc
     if not directory.is_dir():
         raise PosthocError(f"result directory does not exist: {directory}")
 
     try:
-        layout = ArtifactLayout.discover(directory)
+        layout = ArtifactLayout.discover(directory, cancelled=cancelled)
         result_csv = layout.path(RESULT_CSV_NAME)
         static_meta_path = layout.path(STATIC_META_NAME)
         collection_history_path = layout.path(COLLECTION_HISTORY_NAME)

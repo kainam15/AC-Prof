@@ -125,8 +125,8 @@ def read_quality(source: str | Path, *, device: str | None = None,
     """Read canonical checks, or explicit runtime-validation checks in older runs."""
     from acprof.results.metadata import ResultMetadataSnapshot
     check_cancelled(cancelled)
-    metadata_snapshot = metadata_snapshot or ResultMetadataSnapshot(source)
-    metadata_snapshot.validate_source(source)
+    metadata_snapshot = metadata_snapshot or ResultMetadataSnapshot(source, cancelled=cancelled)
+    metadata_snapshot.validate_source(source, cancelled=cancelled)
     name = "quality_checks.json" if metadata_snapshot.exists("quality_checks.json") else "runtime_validation.json"
     path = metadata_snapshot.layout.path(name)
     if not metadata_snapshot.exists(name):

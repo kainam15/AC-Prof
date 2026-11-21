@@ -16,6 +16,7 @@ from uuid import uuid4
 
 from acprof.analysis.compatibility import RecordedSourceError, recorded_model_source
 from acprof.artifacts import read_json_object
+from acprof.cancellation import check_cancelled
 from acprof.experiments.arguments import flatten_run_options
 from acprof.experiments.configuration import RunConfig
 from acprof.installation import cli_command
@@ -69,11 +70,12 @@ class ExperimentCatalog:
         return tuple(record for record in self.records if all(term in record.search_text for term in terms))
 
 
-def read_artifact(path: Path) -> dict:
+def read_artifact(path: Path, *, cancelled: Callable[[], bool] | None = None) -> dict:
     """Read bounded JSON objects; missing evidence remains empty, never invented."""
+    check_cancelled(cancelled)
     if not path.is_file():
         return {}
-    return read_json_object(path)
+    return read_json_object(path, cancelled=cancelled)
 
 
 def format_experiment_created_at(value: str) -> str | None:
@@ -157,7 +159,8 @@ def experiment_source_title(source: Path) -> tuple[str, str | None]:
     return display.title, display.run_id
 
 
-def _record(layout: ArtifactLayout, warnings: list[str]) -> ExperimentRecord:
+def _record(layout: ArtifactLayout, warnings: list[str], *,
+            cancelled: Callable[[], bool] | None) -> ExperimentRecord:
     directory = layout.root
     values = {}
     issues: list[str] = []
@@ -166,7 +169,7 @@ def _record(layout: ArtifactLayout, warnings: list[str]) -> ExperimentRecord:
         try:
             if not path.resolve().is_relative_to(directory):
                 raise ValueError(f'{name}: artifact_outside_experiment')
-            values[name] = read_artifact(path)
+            values[name] = read_artifact(path, cancelled=cancelled)
         except (OSError, ValueError) as exc:
             detail = f'{directory}: {name}: {exc}'
             warnings.append(detail)
@@ -207,10 +210,13 @@ def _record(layout: ArtifactLayout, warnings: list[str]) -> ExperimentRecord:
         options, state, metadata, validation, tuple(failures), source, tuple(issues))
 
 
-def read_experiment_record(directory: Path) -> ExperimentRecord:
+def read_experiment_record(directory: Path | ArtifactLayout, *,
+                           cancelled: Callable[[], bool] | None = None) -> ExperimentRecord:
     """Read one experiment's bounded metadata without catalog or CSV scanning."""
+    layout = (directory if isinstance(directory, ArtifactLayout)
+              else ArtifactLayout.discover(directory, cancelled=cancelled))
     warnings: list[str] = []
-    record = _record(ArtifactLayout.discover(directory), warnings)
+    record = _record(layout, warnings, cancelled=cancelled)
     return replace(record, issues=tuple(dict.fromkeys((*record.issues, *warnings))))
 
 
@@ -310,11 +316,13 @@ def scan_experiments(roots: Iterable[Path], *, cancelled: Callable[[], bool] = l
         if (directory / 'coverage.json').is_file() and not (directory / 'coverage.json').is_symlink():
             coverage_reports.append(directory / 'coverage.json')
         try:
-            layout = ArtifactLayout.discover(directory)
+            layout = ArtifactLayout.discover(directory, cancelled=cancelled)
             is_collection = (directory / 'metadata' / 'task_runs').is_dir()
             is_experiment = not is_collection and any(layout.path(name).is_file() for name in (
                 'run_state.json', 'static_meta.json', 'model_resolution.json', 'result_layers.json', 'result_all.csv'))
-            record = _record(layout, warnings) if is_experiment else None
+            record = _record(layout, warnings, cancelled=cancelled) if is_experiment else None
+        except CancelledError as exc:
+            raise InterruptedError('experiment scan cancelled') from exc
         except (OSError, ValueError, TypeError, AttributeError) as exc:
             warnings.append(f'{directory}: invalid_experiment: {exc}')
             continue

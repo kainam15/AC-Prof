@@ -488,11 +488,11 @@ def audit_with_metadata(source: str | Path, *, result_snapshot: ResultCsvSnapsho
 
     try:
         if metadata_snapshot is None:
-            metadata_reader = ResultMetadataSnapshot(source)
+            metadata_reader = ResultMetadataSnapshot(source, cancelled=cancelled)
             path = metadata_reader.result_path
         else:
             metadata_reader = metadata_snapshot
-            path = metadata_reader.validate_source(source)
+            path = metadata_reader.validate_source(source, cancelled=cancelled)
         report["result_csv"] = str(path.resolve())
         layout = metadata_reader.layout
     except (ValueError, OSError) as error:

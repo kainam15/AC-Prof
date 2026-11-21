@@ -18,18 +18,19 @@ class ResultMetadataSnapshot:
     independent comparison's initial and final source fingerprints.
     """
 
-    def __init__(self, source: str | Path):
-        self.result_path = resolve_result_file(source)
+    def __init__(self, source: str | Path, *, cancelled: Callable[[], bool] | None = None):
+        self.result_path = resolve_result_file(source, cancelled=cancelled)
         self.source = self.result_path.resolve()
-        self.layout = ArtifactLayout.from_csv(self.result_path)
+        self.layout = ArtifactLayout.from_csv(self.result_path, cancelled=cancelled)
         self._metadata_root = self.layout.root.resolve()
         self._presence: dict[str, bool | OSError | ValueError] = {}
         self._records: dict[str, JsonObjectSnapshot | OSError | ValueError] = {}
 
-    def validate_source(self, source: str | Path) -> Path:
+    def validate_source(self, source: str | Path, *, cancelled: Callable[[], bool] | None = None) -> Path:
         """Return the selected file after checking that it matches this snapshot."""
-        path = resolve_result_file(source)
-        if path.resolve() != self.source or ArtifactLayout.from_csv(path).root.resolve() != self._metadata_root:
+        path = resolve_result_file(source, cancelled=cancelled)
+        if (path.resolve() != self.source
+                or ArtifactLayout.from_csv(path, cancelled=cancelled).root.resolve() != self._metadata_root):
             raise ValueError("result metadata snapshot belongs to a different path")
         return path
 

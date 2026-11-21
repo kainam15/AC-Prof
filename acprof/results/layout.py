@@ -2,11 +2,12 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
 from acprof.artifacts import read_json_object, replace_file_durably
+from acprof.cancellation import cancellable, check_cancelled
 
 MANIFEST_NAME = "result_manifest.json"
 METADATA_FILES = frozenset({
@@ -62,8 +63,9 @@ class ArtifactLayout:
             raise ValueError(f"Unsupported artifact layout: {self.layout_version!r}")
 
     @classmethod
-    def discover(cls, root: str | Path) -> ArtifactLayout:
+    def discover(cls, root: str | Path, *, cancelled: Callable[[], bool] | None = None) -> ArtifactLayout:
         """A missing manifest means flat layout; a broken manifest never falls back."""
+        check_cancelled(cancelled)
         root = Path(root).expanduser().absolute()
         manifest = root / MANIFEST_NAME
         if manifest.is_symlink():
@@ -73,7 +75,7 @@ class ArtifactLayout:
             if state.exists() or state.is_symlink():
                 raise ValueError(f"Missing {MANIFEST_NAME} for a v2 experiment: {root}")
             return cls(root)
-        payload = read_json_object(manifest, label="result manifest")
+        payload = read_json_object(manifest, label="result manifest", cancelled=cancelled)
         expected = _manifest()
         if (not isinstance(payload, dict) or type(payload.get("schema_version")) is not int
                 or type(payload.get("layout_version")) is not int
@@ -87,15 +89,15 @@ class ArtifactLayout:
         return cls(existing.root, 2)
 
     @classmethod
-    def from_csv(cls, csv_path: str | Path) -> ArtifactLayout:
+    def from_csv(cls, csv_path: str | Path, *, cancelled: Callable[[], bool] | None = None) -> ArtifactLayout:
         path = Path(csv_path).absolute()
         if path.name == "result.csv" and path.parent.parent.parts[-3:] == (".acprof", "work", "cases"):
-            layout = cls.discover(path.parents[4])
+            layout = cls.discover(path.parents[4], cancelled=cancelled)
             if layout.layout_version != 2:
                 raise ValueError(f"Missing v2 result manifest for case: {path}")
             layout.case_from_csv(path)
             return layout
-        return cls.discover(path.parent)
+        return cls.discover(path.parent, cancelled=cancelled)
 
     def path(self, name: str) -> Path:
         """Resolve a logical artifact name; unknown names remain relative to the root."""
@@ -317,27 +319,27 @@ _DIRECT_EXPERIMENT_FILES = (
 )
 
 
-def _collection_task_dirs(collection_root: Path) -> list[Path]:
+def _collection_task_dirs(collection_root: Path, cancelled: Callable[[], bool] | None) -> list[Path]:
     task_runs_dir = collection_root / "metadata" / "task_runs"
     if task_runs_dir.is_symlink() or (collection_root / "metadata").is_symlink():
         raise ValueError(f"Task collection metadata must not be a symlink: {task_runs_dir}")
     if not task_runs_dir.is_dir():
         raise ValueError(f"Task collection metadata directory is missing: {task_runs_dir}")
-    manifests = sorted(task_runs_dir.glob("*.json"))
+    manifests = sorted(cancellable(task_runs_dir.glob("*.json"), cancelled))
     if not manifests:
         raise ValueError(f"Task collection has no recorded task_runs manifests: {collection_root}")
     resolved_root = collection_root.resolve()
     task_dirs: list[Path] = []
-    for manifest_path in manifests:
+    for manifest_path in cancellable(manifests, cancelled):
         if manifest_path.is_symlink():
             raise ValueError(f"Task collection manifest must not be a symlink: {manifest_path}")
-        manifest = read_json_object(manifest_path, label="task collection")
+        manifest = read_json_object(manifest_path, label="task collection", cancelled=cancelled)
         run_id = manifest.get("run_id")
         tasks = manifest.get("tasks")
         if (manifest.get("schema_version") != 1 or not isinstance(run_id, str) or not run_id
                 or not isinstance(tasks, list) or not tasks):
             raise ValueError(f"Invalid task collection manifest: {manifest_path}")
-        for index, item in enumerate(tasks):
+        for index, item in enumerate(cancellable(tasks, cancelled)):
             task_id = item.get("task_id") if isinstance(item, dict) else None
             if not isinstance(task_id, str) or not task_id:
                 raise ValueError(f"Invalid task entry at index {index} in {manifest_path}")
@@ -352,18 +354,20 @@ def _collection_task_dirs(collection_root: Path) -> list[Path]:
     return task_dirs
 
 
-def resolve_task_collection_dirs(source: str | Path) -> list[Path] | None:
+def resolve_task_collection_dirs(source: str | Path, *,
+                                 cancelled: Callable[[], bool] | None = None) -> list[Path] | None:
     """Return recorded task run directories for a TaskCollection or parent output_dir."""
+    check_cancelled(cancelled)
     root = Path(source).expanduser()
     if root.is_symlink() or not root.is_dir():
         return None
     task_runs = root / "metadata" / "task_runs"
     if task_runs.exists() or task_runs.is_symlink():
-        return _collection_task_dirs(root)
+        return _collection_task_dirs(root, cancelled)
     if any((root / name).exists() or (root / name).is_symlink() for name in _DIRECT_EXPERIMENT_FILES):
         return None
     children = sorted(
-        child for child in root.iterdir()
+        child for child in cancellable(root.iterdir(), cancelled)
         if not child.name.startswith(".") and not child.is_symlink() and child.is_dir()
         and ((child / "metadata" / "task_runs").exists() or (child / "metadata" / "task_runs").is_symlink())
     )
@@ -371,7 +375,7 @@ def resolve_task_collection_dirs(source: str | Path) -> list[Path] | None:
         return None
     expanded: list[Path] = []
     for child in children:
-        expanded.extend(_collection_task_dirs(child))
+        expanded.extend(_collection_task_dirs(child, cancelled))
     return expanded
 
 
@@ -392,9 +396,9 @@ def experiment_result_file(directory: Path) -> Path:
     return flat if flat.is_file() or flat.is_symlink() else layered
 
 
-def resolve_single_result_source(source: str | Path) -> Path:
+def resolve_single_result_source(source: str | Path, *, cancelled: Callable[[], bool] | None = None) -> Path:
     """Resolve a single experiment directory or result_layers.json, unwrapping a 1-task collection."""
-    paths = expand_result_sources([source])
+    paths = expand_result_sources([source], cancelled=cancelled)
     if len(paths) != 1:
         joined = ", ".join(str(item) for item in paths)
         raise ValueError(
@@ -403,17 +407,17 @@ def resolve_single_result_source(source: str | Path) -> Path:
     return paths[0]
 
 
-def resolve_result_file(source: str | Path) -> Path:
+def resolve_result_file(source: str | Path, *, cancelled: Callable[[], bool] | None = None) -> Path:
     """Locate one result without falling back from a declared layered experiment.
 
     A multi-task collection requires an explicit task directory. A selected
     experiment artifact belongs to its layout. Standalone CSV inputs remain literal.
     """
-    path = resolve_single_result_source(source)
+    path = resolve_single_result_source(source, cancelled=cancelled)
     if path.name == "result_layers.json":
-        selected = ArtifactLayout.discover(path.parent).result_csv
+        selected = ArtifactLayout.discover(path.parent, cancelled=cancelled).result_csv
     elif path.is_dir():
-        layout = ArtifactLayout.discover(path)
+        layout = ArtifactLayout.discover(path, cancelled=cancelled)
         selected = layout.contained(experiment_result_file(path).name)
     else:
         return path
@@ -422,17 +426,18 @@ def resolve_result_file(source: str | Path) -> Path:
     return selected
 
 
-def expand_result_sources(sources: Iterable[str | Path]) -> list[Path]:
+def expand_result_sources(sources: Iterable[str | Path], *,
+                          cancelled: Callable[[], bool] | None = None) -> list[Path]:
     """Expand any TaskCollection or parent output_dir entries into their task run directories."""
     expanded: list[Path] = []
-    for source in sources:
+    for source in cancellable(sources, cancelled):
         path = Path(source).expanduser()
         as_layer_manifest = path.name == "result_layers.json"
         if as_layer_manifest and (path.exists() or path.is_symlink() or path.parent.is_symlink()):
             expanded.append(path)
             continue
         candidate_dir = path.parent if as_layer_manifest else path
-        task_dirs = resolve_task_collection_dirs(candidate_dir)
+        task_dirs = resolve_task_collection_dirs(candidate_dir, cancelled=cancelled)
         if task_dirs is None:
             expanded.append(path)
         else:

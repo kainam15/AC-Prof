@@ -1,6 +1,7 @@
 """Selection loads metadata and read-only status without computing statistics."""
 import asyncio
 import json
+from concurrent.futures import CancelledError
 from threading import Event
 from unittest.mock import patch
 
@@ -9,6 +10,7 @@ from textual.widgets import Button, Input, Static
 
 from acprof.tui.i18n import message_id
 from acprof.tui.results.backfill_panel import BackfillPanel
+from tests.runtime.containers.test_layer_read_cancellation import watch_cancelled_read
 from tests.support.tui_fixtures import AcprofTui
 from tests.support.tui_waits import wait_for_condition
 from tests.tui.results.test_profile_overview_snapshot import profile_store
@@ -89,6 +91,34 @@ def test_light_overview_uses_metadata_without_opening_csv(tmp_path, monkeypatch)
     assert view.total_cases is None
     assert "case 进度未记录" in view.summary.headline
     assert len(view.sections) == 4
+
+
+@pytest.mark.parametrize("operation", ["overview", "catalog"])
+def test_cancel_during_record_metadata_closes_stream_and_allows_retry(tmp_path, monkeypatch, operation):
+    from acprof.tui.experiments.catalog import scan_experiments
+    from acprof.tui.results.overview import read_experiment_overview
+
+    meta = tmp_path / "static_meta.json"
+    meta.write_bytes(b'{"model_name":"demo/overview"}' + b" " * (1024 * 1024))
+    cancelled = Event()
+    with monkeypatch.context() as scoped:
+        opened, received = watch_cancelled_read(scoped, meta, cancelled)
+        if operation == "overview":
+            with pytest.raises(CancelledError):
+                read_experiment_overview(tmp_path, cancelled=cancelled.is_set)
+        else:
+            with pytest.raises(InterruptedError, match="experiment scan cancelled"):
+                scan_experiments([tmp_path], cancelled=cancelled.is_set)
+    assert len(opened) == 1
+    assert opened[0].closed
+    assert len(received) == 1
+    assert 0 < received[0] < meta.stat().st_size
+    if operation == "overview":
+        record = read_experiment_overview(tmp_path).record
+    else:
+        record, = scan_experiments([tmp_path]).records
+    assert record.model_id == "demo/overview"
+    assert record.issues == ()
 
 
 def test_background_check_parses_each_layer_once_without_statistics(tmp_path, monkeypatch):

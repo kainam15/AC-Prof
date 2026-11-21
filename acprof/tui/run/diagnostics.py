@@ -434,7 +434,7 @@ def summarize_result_csv(result_csv: str | Path, *, cancelled: Callable[[], bool
     path = Path(result_csv).expanduser()
     if path.is_dir() or (path.name == "result_layers.json" and not path.is_file()):
         from acprof.results.layout import resolve_single_result_source
-        path = resolve_single_result_source(path)
+        path = resolve_single_result_source(path, cancelled=cancelled)
     if path.is_dir():
         path /= "result_layers.json"
     snapshot = read_result_csv_snapshot(path, validate_measurements=False, cancelled=cancelled)
