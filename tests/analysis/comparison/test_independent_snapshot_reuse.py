@@ -82,3 +82,135 @@ def test_invalid_statistical_options_are_rejected_before_source_io(monkeypatch, 
     monkeypatch.setattr(Path, "open", unexpected_read)
     with pytest.raises(ValueError, match="confidence|指标|独立测量窗口"):
         compare_experiments(["left"], ["right"], **{"metrics": ["latency_app_s"], **options})
+
+
+def test_flat_directories_and_explicit_files_share_report_sources(experiment_fixture):
+    from acprof.analysis.model import load_analysis
+    from acprof.analysis.report_comparison import build_experiment_comparisons, comparison_sources
+
+    left, right = (experiment_fixture.replicate(side, 0, [value]) for side, value in (("left", 2), ("right", 5)))
+    inputs = [left, right]
+    for path in inputs:
+        (path / "result_layers.json").unlink()
+    files = [str(path / "result_all.csv") for path in inputs]
+    options = {"metrics": ["latency_app_s"], "resamples": 20}
+    report = compare_experiments([left], [right], **options)
+    assert report == compare_experiments(files[:1], files[1:], **options)
+    assert report["groups"][0]["difference"] == 3
+    assert [report["experiments"][side][0]["source"] for side in ("left", "right")] == files
+    assert all(report["source_sha256"][path] == hashlib.sha256(Path(path).read_bytes()).hexdigest() for path in files)
+    model = load_analysis(inputs)
+    assert [source["path"] for source in model.sources] == comparison_sources(inputs) == files
+    assert [source["sha256"] for source in model.sources] == [report["source_sha256"][path] for path in files]
+    # Old independent reports recorded experiment directories as source names.
+    for side, directory in zip(("left", "right"), inputs, strict=True):
+        report["experiments"][side][0]["source"] = str(directory)
+    compared, = build_experiment_comparisons(model, independent_report=report)
+    assert compared["report"]["groups"] == report["groups"]
+    with pytest.raises(ValueError, match="duplicate CSV input"):
+        load_analysis([left, files[0]])
+
+
+def test_reused_session_keys_choices_by_artifact(experiment_fixture, monkeypatch):
+    from acprof.analysis import independent_comparison
+
+    left, right = (experiment_fixture.replicate(side, 0, [value]) for side, value in (("left", 2), ("right", 5)))
+    calls = []
+    original = independent_comparison.read_result_csv_snapshot
+
+    def read(path):
+        calls.append(path)
+        return original(path)
+
+    monkeypatch.setattr(independent_comparison, "read_result_csv_snapshot", read)
+    session = independent_comparison.ExperimentComparisonSession()
+    options = {"metrics": ["latency_app_s"], "resamples": 20}
+    first = session.compare([left], [right], **options)
+    layered = [path / "result_layers.json" for path in (left, right)]
+    assert session.compare(layered[:1], layered[1:], **options) == first
+    assert calls == layered
+    with pytest.raises(ValueError, match="duplicate independent run"):
+        session.compare([left], layered[:1], **options)
+    assert calls == layered
+
+
+def test_legacy_report_cannot_rebind_unchanged_flat_digest_to_layered_result(experiment_fixture):
+    from acprof.analysis.model import load_analysis
+    from acprof.analysis.report_comparison import build_experiment_comparisons
+
+    left, right = (experiment_fixture.replicate(side, 0, [value]) for side, value in (("left", 2), ("right", 5)))
+    report = compare_experiments([left / "result_all.csv"], [right / "result_all.csv"],
+                                 metrics=["latency_app_s"], resamples=20)
+    for side, root in (("left", left), ("right", right)):
+        report["experiments"][side][0]["source"] = str(root)
+    with pytest.raises(ValueError, match="source.*changed|fingerprint"):
+        build_experiment_comparisons(load_analysis([left, right]), independent_report=report)
+
+
+def test_explicit_csv_alias_reads_metadata_from_original_experiment(experiment_fixture, tmp_path):
+    from acprof.analysis.model import load_analysis
+
+    root = experiment_fixture.replicate("left", 0, [2])
+    target = root / "result_all.csv"
+    alias = tmp_path / "left-export.csv"
+    alias.symlink_to(target)
+    assert load_analysis([alias]).sources == load_analysis([target]).sources
+
+
+def test_independent_csv_alias_retains_its_experiment_and_cannot_count_twice(experiment_fixture):
+    from acprof.analysis.independent_comparison import ExperimentComparisonSession
+    from acprof.analysis.model import load_analysis
+    from acprof.analysis.report_comparison import (
+        build_experiment_comparisons,
+        verify_independent_report,
+    )
+
+    first = experiment_fixture.replicate("left", 0, [2])
+    second = experiment_fixture.replicate("left", 1, [2])
+    right = experiment_fixture.replicate("right", 0, [5])
+    target = first / "result_all.csv"
+    alias = second / "export.csv"
+    alias.symlink_to(target)
+    session = ExperimentComparisonSession()
+    options = {"metrics": ["latency_app_s"], "resamples": 20}
+    direct = session.compare([target], [right], **options)
+    assert direct["experiments"]["left"][0]["run_id"] == "left-0"
+    linked = session.compare([alias], [right], **options)
+    run = linked["experiments"]["left"][0]
+    assert (run["run_id"], run["source"]) == ("left-1", str(alias))
+    assert linked["source_sha256"][str(alias)] == hashlib.sha256(target.read_bytes()).hexdigest()
+    assert str(second / "run_state.json") in linked["source_sha256"]
+    assert str(first / "run_state.json") not in linked["source_sha256"]
+    verify_independent_report(linked)
+    with pytest.raises(ValueError, match="duplicate independent.*source"):
+        session.compare([target], [alias], **options)
+    with pytest.raises(ValueError, match="source metadata"):
+        build_experiment_comparisons(load_analysis([alias, right]), independent_report=linked)
+    with pytest.raises(ValueError, match="source metadata"):
+        build_experiment_comparisons(load_analysis([alias, right]), groups=([alias], [right]), statistics_options=options)
+    # Older reports canonicalized the experiment name while hashing the literal alias.
+    run["source"] = str(target)
+    with pytest.raises(ValueError, match="source.*changed|fingerprint"):
+        verify_independent_report(linked)
+
+
+def test_distinct_runs_check_the_files_actually_read(experiment_fixture, monkeypatch):
+    from acprof.analysis import independent_comparison
+
+    left, right = (experiment_fixture.replicate(side, 0, [2]) for side in ("left", "right"))
+    target = left / "result_all.csv"
+    replacement = right / "copy.csv"
+    replacement.write_bytes(target.read_bytes())
+    alias = right / "export.csv"
+    alias.symlink_to(target)
+    collect = independent_comparison._collect_run_case_groups
+
+    def retarget_after_read(rows, **kwargs):
+        if kwargs["run_id"] == "right-0":
+            alias.unlink()
+            alias.symlink_to(replacement)
+        return collect(rows, **kwargs)
+
+    monkeypatch.setattr(independent_comparison, "_collect_run_case_groups", retarget_after_read)
+    with pytest.raises(ValueError, match="duplicate independent.*source"):
+        compare_experiments([target], [alias], metrics=["latency_app_s"], resamples=20)

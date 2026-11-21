@@ -28,7 +28,7 @@ from acprof.results.csv import (
     result_row_status,
     verify_result_source,
 )
-from acprof.results.layout import expand_result_sources
+from acprof.results.layout import expand_result_sources, resolve_result_file
 from acprof.results.metadata import ResultMetadataSnapshot
 from acprof.results.metrics import METRICS
 
@@ -88,12 +88,13 @@ _FINGERPRINTED_METADATA_FILES = (
 
 def _record_experiment_fingerprints(
     metadata_snapshot: ResultMetadataSnapshot,
-    result_path: Path,
     result_snapshot: ResultCsvSnapshot,
     fingerprints: dict[Path, str | None],
 ) -> None:
     layout = metadata_snapshot.layout
-    fingerprints[result_path] = result_snapshot.sha256
+    fingerprints[metadata_snapshot.result_path] = result_snapshot.sha256
+    if result_snapshot.path.name == "result_layers.json":
+        fingerprints[result_snapshot.path] = result_snapshot.sha256
     # Capture identity before reading any state used to select runs.
     for name in _FINGERPRINTED_METADATA_FILES:
         artifact = conditions_path(layout) if name == "hardware_conditions.json" else layout.path(name)
@@ -214,6 +215,7 @@ def _summarize_group_metric(
 @dataclass(frozen=True)
 class _ExperimentSnapshot:
     run_id: str
+    result_path: Path
     status: Any
     groups: dict[tuple[str, ...], dict[str, Any]]
     comparison: dict[str, Any]
@@ -235,16 +237,14 @@ class ExperimentComparisonSession:
         self._snapshots: dict[tuple[Path, tuple[str, ...], bool], _ExperimentSnapshot] = {}
 
     def _load(self, source: Path, run_ids: set[str], *, metrics: list[str], purpose: str) -> _ExperimentSnapshot:
-        key = (source.resolve(), tuple(metrics), purpose == "resource-scaling")
+        key = (source, tuple(metrics), purpose == "resource-scaling")
         if cached := self._snapshots.get(key):
             _unique_run_id(cached.run_id, run_ids)
             return cached
         metadata_snapshot = ResultMetadataSnapshot(source)
-        layout = metadata_snapshot.layout
-        result_path = layout.result_csv if source.is_dir() else source.absolute()
-        result_snapshot = read_result_csv_snapshot(result_path)
+        result_snapshot = read_result_csv_snapshot(source)
         fingerprints: dict[Path, str | None] = {}
-        _record_experiment_fingerprints(metadata_snapshot, result_path, result_snapshot, fingerprints)
+        _record_experiment_fingerprints(metadata_snapshot, result_snapshot, fingerprints)
         state = metadata_snapshot.read("run_state.json", label="run state").payload
         run_id = _unique_run_id(state.get("run_id"), run_ids)
         current_snapshot = load_comparison_snapshot(source, result_snapshot=result_snapshot,
@@ -258,7 +258,7 @@ class ExperimentComparisonSession:
             result_snapshot.rows, run_id=run_id, complete=state.get("status") == "complete",
             purpose=purpose, metrics=metrics,
         )
-        loaded = _ExperimentSnapshot(run_id, state.get("status"), groups,
+        loaded = _ExperimentSnapshot(run_id, result_snapshot.path, state.get("status"), groups,
                                      current_snapshot, fingerprints)
         self._snapshots[key] = loaded
         return loaded
@@ -272,6 +272,7 @@ class ExperimentComparisonSession:
         sources = {"left": expand_result_sources(left), "right": expand_result_sources(right)}
         experiments: dict[str, list[dict[str, Any]]] = {}
         run_ids: set[str] = set()
+        result_files: set[Path] = set()
         fingerprints: dict[Path, str | None] = {}
         groups: defaultdict[tuple[str, ...], dict[str, list[dict[str, Any]]]] = defaultdict(
             lambda: {"left": [], "right": []}
@@ -282,10 +283,15 @@ class ExperimentComparisonSession:
             experiments[side] = []
             group_snapshot = None
             for path in paths:
-                source = Path(path)
+                selected = resolve_result_file(path)
+                # An explicit CSV symlink uses the metadata beside the link.
+                source = selected.parent.resolve() / selected.name
                 loaded = self._load(source, run_ids, metrics=metrics, purpose=purpose)
                 run_id = loaded.run_id
                 run_ids.add(run_id)
+                if loaded.result_path in result_files:
+                    raise ValueError(f"duplicate independent result source: {loaded.result_path}")
+                result_files.add(loaded.result_path)
                 complete = loaded.status == "complete"
                 fingerprints.update(loaded.fingerprints)
                 # Returned comparison dictionaries must not expose the reusable evidence.
@@ -297,7 +303,7 @@ class ExperimentComparisonSession:
                 cross = compare_snapshots(reference_snapshot, current_snapshot, purpose=purpose)
                 snapshot = cross["experiments"]["right"]
                 evidence = {key: snapshot[key] for key in (*QUALITY_FIELDS, "run_status", "measurement_status")}
-                experiments[side].append({"run_id": run_id, "source": str(source.resolve()),
+                experiments[side].append({"run_id": run_id, "source": str(source),
                                           "state": loaded.status, "eligible": complete, **evidence})
                 checks.append({"left_run_id": next(iter(experiments["left"]))["run_id"],
                                "right_run_id": run_id, **cross})

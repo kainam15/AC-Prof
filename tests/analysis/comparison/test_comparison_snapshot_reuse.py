@@ -41,7 +41,8 @@ def test_each_independent_run_is_audited_once(runs, monkeypatch, explicit_csv):
     assert group["difference_ci"] == [1, 1]
     assert group["left"]["n_runs"] == group["right"]["n_runs"] == 3
     assert len(report["condition_checks"]) == 12
-    assert calls == Counter({path: 1 for path in [*left, *right]})
+    artifact_name = "result_all.csv" if explicit_csv else "result_layers.json"
+    assert calls == Counter({root / artifact_name: 1 for side in runs for root in side})
 
 
 def test_next_comparison_reloads_changed_quality_evidence(runs):

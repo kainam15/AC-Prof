@@ -189,6 +189,8 @@ blocked/unknown 暂停默认自动优选，但数值观测和描述统计仍保�
 `quality_checks.json`、回退来源 `runtime_validation.json`，以及审计读取的
 `model_resolution.json`、`runtime_failures.json` 均纳入 `source_sha256`；缺失文件记录为 `null`，
 读取前与统计结束后的存在状态或内容不同便拒绝报告。
+独立比较的 `experiments.left/right[].source` 记录选中的结果文件。目录和指向同一文件的别名
+只能计入一次独立重复。复用以目录为来源的旧比较报告时，当前选中的文件须有原报告记录的指纹。
 
 该入口读取正式实验；独立的 `load.json` 不可作为 `result_all.csv` 输入混入统计。
 

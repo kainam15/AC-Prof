@@ -8,24 +8,52 @@ from acprof.analysis.independent_comparison import ExperimentComparisonSession
 from acprof.analysis.model import AnalysisModel, verify_analysis_sources
 from acprof.analysis.statistics_report import DEFAULT_STATISTICS_METRICS
 from acprof.results.csv import ResultValidationError, verify_result_source
-from acprof.results.layout import expand_result_sources
+from acprof.results.layout import ArtifactLayout, expand_result_sources, resolve_result_file
 from acprof.results.metadata import ResultMetadataSnapshot
 from acprof.results.metrics import METRICS, VIEW_METRICS
 
 
 def comparison_sources(paths) -> list[str]:
-    result = []
+    sources = []
     for path in expand_result_sources(paths):
-        snapshot = ResultMetadataSnapshot(path)
-        result.append(str((snapshot.layout.result_csv if path.is_dir() else path).resolve()))
-    return result
+        selected = resolve_result_file(path)
+        target = selected.resolve()
+        if selected.is_symlink():
+            # The model follows the CSV target; the strict comparator reads metadata beside the link.
+            if ArtifactLayout.from_csv(selected).root.resolve() != ArtifactLayout.from_csv(target).root:
+                raise ValueError(f"independent comparison source metadata differs from analysis: {selected}")
+        sources.append(str(target))
+    return sources
 
 
 def verify_independent_report(report: dict) -> None:
     if report.get("kind") != "independent_experiment_comparison" or not report.get("source_sha256"):
         raise ValueError("independent comparison requires source fingerprints")
+    verified = set()
     for path, expected in report["source_sha256"].items():
-        verify_result_source(Path(path), expected)
+        artifact = Path(path)
+        verify_result_source(artifact, expected)
+        if expected is not None:
+            verified.add(artifact.absolute())
+    # Older reports stored directory names. Their selected file must still be
+    # the one whose bytes the independent comparison actually fingerprinted.
+    for runs in report["experiments"].values():
+        for run in runs:
+            source = resolve_result_file(run["source"]).absolute()
+            if source not in verified:
+                raise ValueError(f"independent comparison source changed: no fingerprint for {source}")
+
+
+def _verify_group_metadata(report, sources, left, right):
+    """Match the recorded run and its state digest to each selected analysis source."""
+    for side, paths in (("left", left), ("right", right)):
+        for run, path in zip(report["experiments"][side], paths, strict=True):
+            state = str(ResultMetadataSnapshot(run["source"]).layout.path("run_state.json"))
+            digest = report["source_sha256"].get(state)
+            model_source = sources[path]
+            if (not digest or digest != model_source["metadata_sha256"].get(state)
+                    or run["run_id"] != model_source["run_id"]):
+                raise ValueError(f"independent comparison source metadata differs from analysis: {run['source']}")
 
 
 def _comparison_entry(model, left, right, *, options, purpose, session, report=None):
@@ -43,7 +71,9 @@ def _comparison_entry(model, left, right, *, options, purpose, session, report=N
             cases = [(config["device"], config["input_scale"]) for config in model.configs if config["source"] == path]
             if len(cases) != len(set(cases)):
                 reason = "resource_scaling_requires_single_configuration_per_device_input"
-    if report is None and not reason:
+    if report is not None:
+        _verify_group_metadata(report, sources, left, right)
+    elif not reason:
         try:
             report = session.compare(left, right, purpose=purpose, **options)
         except ResultValidationError as error:

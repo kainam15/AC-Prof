@@ -24,7 +24,7 @@ from acprof.results.csv import (
     read_result_csv_snapshot,
     verify_result_source,
 )
-from acprof.results.layout import expand_result_sources
+from acprof.results.layout import expand_result_sources, resolve_result_file
 from acprof.results.metadata import ResultMetadataSnapshot
 from acprof.results.metrics import ANALYSIS_METRICS, METRICS, VIEW_METRICS
 from acprof.results.profile import USABLE_QUALITIES, metric_observation, observation_signature
@@ -263,13 +263,11 @@ def load_analysis(sources) -> AnalysisModel:
     seen_keys: dict[object, tuple[str, str]] = {}
     comparisons = {}
     for source in expand_result_sources(sources):
-        path = Path(source).expanduser().resolve()
-        metadata_snapshot = ResultMetadataSnapshot(path)
-        layout = metadata_snapshot.layout
-        path = layout.result_csv if path.is_dir() else path
+        path = resolve_result_file(source).resolve()
         if path in seen_paths:
             raise ValueError(f"duplicate CSV input: {path}")
         seen_paths.add(path)
+        metadata_snapshot = ResultMetadataSnapshot(path)
         result_snapshot = read_result_csv_snapshot(path, validate_measurements=False)
         digest = result_snapshot.sha256
         meta, state = (metadata_snapshot.read(name, label="analysis metadata").payload
