@@ -122,6 +122,8 @@ source、model ID、固定 commit、下载策略、任务族、backend、adapter
 
 同一仓库同时包含根 checkpoint 和 Sentence Transformers 模块链时，`auto` 按选定 backend 校验分片并筛选重复权重。原生 `transformers_pipeline`、`transformers_model` 和 `chronos` 从根目录选权重；`sentence_transformers` 有 `modules.json` 时按清单的组件目录选权重，没有清单时检查根目录。若所选索引引用的分片缺失，规划会报告索引和文件名。见 [Transformers 的 checkpoint 选择](https://github.com/huggingface/transformers/blob/v4.57.6/src/transformers/modeling_utils.py)和 [Sentence Transformers 的模块加载](https://github.com/UKPLab/sentence-transformers/blob/v5.1.2/sentence_transformers/SentenceTransformer.py)。
 
+对于带 Dense 投影层的已登记句向量链，`auto` 要求该层目录包含 `config.json` 和单文件权重，优先选择 `model.safetensors`，也接受 `pytorch_model.bin`。规划器确认 backbone 的原生布局后，若该 Dense 目录两种权重并存，只选择前者。Transformer 的分片索引或其他目录下的权重不能补足 Dense 的缺口。静态检查会报告缺少文件的模块路径。[Dense 配置加载](https://github.com/huggingface/sentence-transformers/blob/v5.6.0/sentence_transformers/base/modules/dense.py#L103-L117)及[单文件权重选择](https://github.com/huggingface/sentence-transformers/blob/v5.6.0/sentence_transformers/base/modules/module.py#L348-L375)
+
 主机不安装推理框架。`auto` 筛选使用固定 runtime lock 以及 `container/compat/transformers_model_types.json` 中 4.57.6/5.10.4 的 native model types，catalog 来自相应锁定 runtime 的公开 `CONFIG_MAPPING_NAMES`，保存源码位置与 SHA256；未知版本/布局保持完整快照。新增版本须重新提取并核验 catalog，不能借旧版本的支持表作推断。
 
 模型校验、下载、磁盘检查和 LRU 更新在准备阶段完成。`plan_model` 命中缓存时保留只读快速路径；缓存未命中时，在重新检查缓存及下载、读取主模型和依赖仓库的规划元数据期间持有 Model Store 锁，防止并发 prune 删除尚无 entry 引用的文件；规划成功、失败或中断后释放锁，未引用文件仍可回收。容器只读挂载 Model Store；server、独立验证、profiler 和补采都传递固定 snapshot/cache 路径与离线环境变量，custom-code cache 放在可写 `/tmp`。缺失 store、计划不匹配或准备／补采前文件 SHA256 不匹配直接失败，不在线修复。主机结果另记 `model_store.host_path` 以便补采找到自定义目录，该路径不写入 Docker 镜像；迁移目录后可用 `ACPROF_MODEL_STORE` 显式覆盖。保持挂载期间的共享 lease，prune 不删除活动实验引用的 entries。测量样本、连接策略与窗口不变。

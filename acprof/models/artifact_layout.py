@@ -16,6 +16,7 @@ from acprof.models.metadata_validation import (
     MetadataValidationError,
     validate_diffusers_declarations,
 )
+from acprof.models.sentence_modules import module_prefix, sentence_module_name
 
 
 def _checkpoint_components(files: set[str], metadata: dict[str, Any]) -> list[tuple[str, bool]]:
@@ -39,9 +40,8 @@ def _checkpoint_components(files: set[str], metadata: dict[str, Any]) -> list[tu
             components.append((prefix, declaration[0] == "diffusers"))
     elif isinstance(modules, list):
         for module in modules:
-            if isinstance(module, dict) and module.get("type") == "sentence_transformers.models.Transformer":
-                path = module.get("path", "")
-                components.append((safe_path(path) + "/" if path not in ("", ".") else "", False))
+            if isinstance(module, dict) and sentence_module_name(module.get("type")) == "Transformer":
+                components.append((module_prefix(module.get("path", "")), False))
     else:
         components.append(("", False))
     return components

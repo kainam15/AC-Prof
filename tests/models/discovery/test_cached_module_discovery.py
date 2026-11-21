@@ -108,8 +108,25 @@ def test_invalid_cached_module_metadata_blocks_even_with_a_task(snapshot, filena
     )
 
 
-def test_unregistered_module_cannot_fall_back_to_backbone_task(snapshot):
-    write(snapshot, "modules.json", [module(0, "", "Transformer"), module(1, "custom", "Unknown")])
+def test_mixed_module_references_select_cached_encoder_without_claiming_weights(snapshot):
+    chain = [module(0, "", "Transformer"), module(1, "pool", "Pooling"), module(2, "projection", "Dense")]
+    chain[0]["type"] = "sentence_transformers.base.modules.transformer.Transformer"
+    chain[2]["type"] = "sentence_transformers.base.modules.dense.Dense"
+    write(snapshot, "modules.json", chain)
+    write(snapshot, "pool/config.json", {"pooling_mode_mean_tokens": True})
+    write(snapshot, "projection/config.json", {"in_features": 8, "out_features": 4})
+
+    task = detect_task(MODEL, revision=SHA)
+    require_task_support(task)
+    assert (task.pipeline_tag, task.runtime_backend) == ("feature-extraction", "sentence_transformers")
+    assert [item["type"] for item in task.model_resolution["execution"]["components"]] == [m["type"] for m in chain]
+    assert task.model_resolution["artifact_layout"]["status"] == "unknown"
+    assert task.model_resolution["runtime_validation"]["status"] == "not_run"
+
+
+@pytest.mark.parametrize("reference", ["sentence_transformers.models.Unknown", "sentence_transformers.vendor.dense.Dense"])
+def test_unregistered_module_cannot_fall_back_to_backbone_task(snapshot, reference):
+    write(snapshot, "modules.json", [module(0, "", "Transformer"), {"idx": 1, "path": "custom", "type": reference}])
     task = detect_task(MODEL, revision=SHA)
     with pytest.raises(TaskSupportError, match="unregistered module protocol"):
         require_task_support(task)

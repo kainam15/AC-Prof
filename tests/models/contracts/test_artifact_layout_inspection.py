@@ -113,6 +113,49 @@ def test_sentence_transformer_resolves_declared_component_checkpoint():
     assert result["artifact_layout"]["weights"][0]["files"] == ["0_Transformer/model.safetensors"]
 
 
+@pytest.mark.parametrize("modern", [False, True], ids=["legacy", "v5.6"])
+@pytest.mark.parametrize("missing", [None, "projection/config.json", "projection/model.safetensors"])
+def test_sentence_encoder_identifies_each_dense_checkpoint_or_reports_the_missing_file(modern, missing):
+    from acprof.models.artifact_layout import checkpoint_metadata_indexes
+    from acprof.tasks.interfaces import execution_path
+
+    refs = (["sentence_transformers.base.modules.transformer.Transformer",
+             "sentence_transformers.sentence_transformer.modules.pooling.Pooling",
+             "sentence_transformers.base.modules.dense.Dense",
+             "sentence_transformers.sentence_transformer.modules.normalize.Normalize"] if modern else
+            [f"sentence_transformers.models.{name}" for name in ("Transformer", "Pooling", "Dense", "Normalize")])
+    paths = ["backbone", "pool", "projection", "normalize"]
+    metadata = {
+        "modules.json": [{"idx": i, "name": str(i), "type": ref, "path": path}
+                         for i, (ref, path) in enumerate(zip(refs, paths, strict=True))],
+        "backbone/config.json": {"model_type": "bert"},
+        "backbone/model.safetensors.index.json": {"weight_map": {"embeddings": "part-1.safetensors"}},
+        "pool/config.json": {"word_embedding_dimension": 8},
+        "projection/config.json": {"in_features": 8, "out_features": 4},
+    }
+    files = set(metadata) | {"backbone/part-1.safetensors", "projection/model.safetensors",
+                             "projection/model.safetensors.index.json", "elsewhere/model.safetensors"}
+    if missing:
+        files.remove(missing)
+        metadata.pop(missing, None)
+    task = _task(files=tuple(files), metadata=metadata, runtime_backend="sentence_transformers",
+                 pipeline_tag="feature-extraction", library_name="sentence-transformers")
+    assert checkpoint_metadata_indexes(files, metadata) == ["backbone/model.safetensors.index.json"]
+    assert [c["type"] for c in execution_path(task, "feature-extraction")["components"]] == refs
+    if missing:
+        with pytest.raises(RuntimeFailure) as caught:
+            resolve_model_interface(task)
+        assert caught.value.failure.reason_code == "artifact_incomplete"
+        assert missing in caught.value.failure.detail
+    else:
+        layout = resolve_model_interface(task)["artifact_layout"]
+        assert layout["status"] == "identified"
+        assert [ck["files"] for ck in layout["weights"]] == [
+            ["backbone/model.safetensors.index.json", "backbone/part-1.safetensors"],
+            ["projection/model.safetensors"],
+        ]
+
+
 def test_single_file_diffusion_does_not_claim_pipeline_layout():
     task = _task(
         files=("config.json", "sd_xl_base_1.0.safetensors"), model_config={},

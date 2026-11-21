@@ -10,6 +10,7 @@ from pathlib import Path
 DOWNLOAD_PLAN_SOURCES = (
     "acprof/models/download_plan.py",
     "acprof/models/diffusion_pipelines.py",
+    "acprof/models/sentence_modules.py",
     "acprof/models/kokoro.py",
     "acprof/extensions/kokoro/manifest.json",
     "acprof/models/files.py",

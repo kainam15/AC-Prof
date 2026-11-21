@@ -116,16 +116,24 @@ class TestModelFilePlan:
             }]
             assert self.selected(plan) == names - {"encoder/pytorch_model.bin"}
 
-    def test_sentence_transformers_keeps_dense_modules(self):
+    @pytest.mark.parametrize("safetensors", [False, True])
+    def test_sentence_transformers_keeps_dense_modules(self, safetensors):
         names = ["modules.json", "0_Transformer/config.json", "0_Transformer/model.safetensors",
-                 "0_Transformer/pytorch_model.bin", "1_Pooling/config.json", "2_Dense/pytorch_model.bin"]
+                 "0_Transformer/pytorch_model.bin", "1_Pooling/config.json", "2_Dense/config.json", "2_Dense/pytorch_model.bin"]
+        if safetensors:
+            names.append("2_Dense/model.safetensors")
         plan = self.plan(names, {
             "modules.json": [{"path": "0_Transformer", "type": "sentence_transformers.models.Transformer"},
                              {"path": "1_Pooling", "type": "sentence_transformers.models.Pooling"},
                              {"path": "2_Dense", "type": "sentence_transformers.models.Dense"}],
             "0_Transformer/config.json": {"model_type": "bert"},
         }, backend="sentence_transformers")
-        assert (self.selected(plan)) == (set(names) - {"0_Transformer/pytorch_model.bin"})
+        excluded = {"0_Transformer/pytorch_model.bin"}
+        if safetensors:
+            excluded.add("2_Dense/pytorch_model.bin")
+        assert self.selected(plan) == set(names) - excluded
+        assert plan["weights"][1]["files"] == [
+            "2_Dense/model.safetensors" if safetensors else "2_Dense/pytorch_model.bin"]
 
     def test_diffusers_selects_all_components_without_changing_precision_or_ema(self):
         names = ["model_index.json", "unet/config.json", "unet/diffusion_pytorch_model.safetensors",

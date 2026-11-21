@@ -6,6 +6,7 @@ from typing import Any
 
 from acprof.extensions import CATALOG
 from acprof.models.evidence import content_digest
+from acprof.models.sentence_modules import sentence_module_name
 from acprof.models.spec import task_model_spec
 
 
@@ -34,9 +35,11 @@ def module_components(metadata: dict, protocol: dict) -> list[dict]:
         if not isinstance(module, dict) or type(module.get("idx")) is not int or module["idx"] != index:
             raise ValueError("modules.json must declare ordered module indices")
         kind, path = module.get("type"), module.get("path")
-        if not isinstance(kind, str) or kind not in allowed:
+        contract = allowed.get(kind) if isinstance(kind, str) else None
+        if contract is None and (name := sentence_module_name(kind)):
+            contract = allowed.get(f"sentence_transformers.models.{name}")
+        if contract is None:
             raise ValueError(f"unregistered module protocol: {kind}; register an Adapter before execution")
-        contract = allowed[kind]
         if index == 0 and not contract.get("accepts_input"):
             raise ValueError("module chain has no registered input processor")
         if set(contract.get("requires", [])) - available:

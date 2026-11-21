@@ -22,6 +22,7 @@ from acprof.models.files import (
     safe_path,
     uses_sentence_transformer_modules,
 )
+from acprof.models.sentence_modules import dense_checkpoint, module_prefix, sentence_module_name
 from acprof.models.spec import validate_dependencies, validate_repository_identity
 
 
@@ -197,40 +198,48 @@ def _transformer_checkpoint(
     return checkpoint, "native_transformers" if checkpoint else "nonstandard_checkpoint"
 
 
+def _sentence_components(modules: Any) -> list[tuple[str, str]] | None:
+    if not isinstance(modules, list) or not modules:
+        raise ModelFilesError("invalid sentence-transformers modules.json")
+    components = []
+    for module in modules:
+        name = sentence_module_name(module.get("type")) if isinstance(module, dict) else None
+        if name is None:
+            return None
+        if name in {"Transformer", "Dense"}:
+            components.append((name, module_prefix(module.get("path", ""))))
+    return components
+
+
 def _plan_transformers(
     names: set[str], read_json: Callable[[str], Any], native_model_types: set[str] | None, backend: str,
 ) -> tuple[set[str], list[Checkpoint], str]:
-    selected = set(names)
+    modules = uses_sentence_transformer_modules(backend, names)
+    components = _sentence_components(read_json("modules.json")) if modules else [("Transformer", "")]
+    if components is None:
+        return set(names), [], "custom_sentence_transformers_module"
     weights: list[Checkpoint] = []
-    if uses_sentence_transformer_modules(backend, names):
-        modules = read_json("modules.json")
-        if not isinstance(modules, list) or not modules:
-            raise ModelFilesError("invalid sentence-transformers modules.json")
-        prefixes = []
-        for module in modules:
-            if not isinstance(module, dict) or not str(module.get("type", "")).startswith("sentence_transformers.models."):
-                reason = "custom_sentence_transformers_module"
-                break
-            if module["type"] == "sentence_transformers.models.Transformer":
-                path = module.get("path", "")
-                prefixes.append(safe_path(path) + "/" if path not in ("", ".") else "")
+    selected = set(names)
+    native_backbone = False
+    reason = "unsupported_sentence_transformers_layout"
+    for kind, prefix in components:
+        checkpoint: Checkpoint | None
+        if kind == "Dense":
+            checkpoint = dense_checkpoint(names, prefix)
+            selected.discard(prefix + "pytorch_model.bin")
         else:
-            candidates = [_transformer_checkpoint(names, read_json, prefix, native_model_types) for prefix in prefixes]
-            if candidates and all(item[0] for item in candidates):
-                weights = [checkpoint for checkpoint, _ in candidates if checkpoint is not None]
-                reason = "sentence_transformers_modules"
-            else:
-                reason = "unsupported_sentence_transformers_layout"
-    else:
-        checkpoint, reason = _transformer_checkpoint(names, read_json, "", native_model_types)
-        if checkpoint:
-            weights = [checkpoint]
-    if weights:
-        for checkpoint in weights:
-            prefix = "" if checkpoint["component"] == "." else checkpoint["component"] + "/"
-            selected -= {name for name in names if _alternate_weights(name, prefix)} - set(checkpoint["files"])
-
-    return selected, weights, reason
+            checkpoint, reason = _transformer_checkpoint(names, read_json, prefix, native_model_types)
+            if checkpoint is None:
+                continue
+            native_backbone = True
+            selected.difference_update(name for name in names if _alternate_weights(name, prefix))
+        weights.append(checkpoint)
+    if not native_backbone or len(weights) != len(components):
+        return set(names), [], "unsupported_sentence_transformers_layout" if modules else reason
+    # Different modules can name the same directory. Keep the union of the chosen files.
+    for weight in weights:
+        selected.update(weight["files"])
+    return selected, weights, "sentence_transformers_modules" if modules else reason
 
 
 def _plan_diffusers(
