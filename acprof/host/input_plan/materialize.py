@@ -4,14 +4,16 @@ import hashlib
 import json
 import os
 from itertools import chain
+from pathlib import Path
 from typing import Any, TextIO
 
-from acprof.artifacts import MAX_JSON_ARTIFACT_BYTES, atomic_write
+from acprof.artifacts import MAX_JSON_ARTIFACT_BYTES, atomic_write, read_json_object_snapshot
 from acprof.extensions import CATALOG
 from acprof.host.configuration_transport import bound_inference_configuration
 from acprof.host.detect import TaskInfo
 from acprof.host.input_plan.scales import format_scale_value
 from acprof.host.input_plan.types import PlannedInputScales
+from acprof.models.evidence import content_digest
 from acprof.quality import runtime_quality_constraints
 
 
@@ -59,6 +61,16 @@ def write_scale_plan_file(
 
     atomic_write(path, write)
     return digest.hexdigest()
+
+
+def _plan_metadata(generator: Any) -> dict[str, Any]:
+    read_metadata = getattr(generator, "plan_metadata", None)
+    metadata = read_metadata() if callable(read_metadata) else None
+    if metadata is None:
+        return {}
+    if not isinstance(metadata, dict):
+        raise RuntimeError("workload generator returned non-object plan metadata")
+    return metadata
 
 
 def materialize_scale_plan(
@@ -125,15 +137,7 @@ def materialize_scale_plan(
             "payload": payload,
         })
 
-    workload_metadata: dict[str, Any] = {}
-    metadata_fn = getattr(workload_gen, "plan_metadata", None)
-    if callable(metadata_fn):
-        candidate_metadata = metadata_fn()
-        if candidate_metadata is not None:
-            if not isinstance(candidate_metadata, dict):
-                raise RuntimeError("workload generator returned non-object plan metadata")
-            workload_metadata = candidate_metadata
-
+    workload_metadata = _plan_metadata(workload_gen)
     plan_file = scale_plan_file_path(output_dir)
     constraints = dict(model_constraints or {})
     plan_sha256 = write_scale_plan_file(
@@ -155,6 +159,26 @@ def materialize_scale_plan(
     )
 
 
+def _expected_spec_bytes_sha256(task_info: TaskInfo, path: str | None) -> str | None:
+    """Bind the bytes consumed by the generator to the reviewed JSON content."""
+    workload = getattr(task_info, "inference_configuration", {}).get("workload", {})
+    expected_bytes = workload.get("specification_bytes_sha256")
+    # NLP task runs consume a derived manifest. Historical configurations may
+    # have no source identity at all.
+    if task_info.task_family == "nlp" or "specification_sha256" not in workload:
+        return expected_bytes
+    expected_content = workload["specification_sha256"]
+    if path and expected_content:
+        if expected_bytes:
+            return expected_bytes
+        snapshot = read_json_object_snapshot(Path(path).expanduser(), label="workload specification")
+        if content_digest(snapshot.payload) == expected_content:
+            return hashlib.sha256(snapshot.content).hexdigest()
+    elif not path and expected_content is None:
+        return None
+    raise ValueError("workload specification changed after inference confirmation")
+
+
 def get_task_generator(task_info: TaskInfo, batch_size: int, **kwargs: Any):
     """Carry the selected adapter into workload defaults, including model aliases."""
     from acprof.models.spec import task_model_spec
@@ -174,11 +198,15 @@ def get_task_generator(task_info: TaskInfo, batch_size: int, **kwargs: Any):
             kwargs["inference_parameters"] = parameters
     if CATALOG.describe(task_info).declaration.input_plan.model_feature_dim and spec.get("feature_dim") is not None:
         kwargs["model_feature_dim"] = spec["feature_dim"]
+    # Inspection and default scale lookups omit the workload argument.
+    expected = (_expected_spec_bytes_sha256(task_info, kwargs["workload_spec_path"])
+                if "workload_spec_path" in kwargs else None)
     generator = get_generator(task_info.task_family, task_info.model_id, task_info.pipeline_tag, batch_size, **kwargs)
-    frozen = getattr(task_info, "inference_configuration", {})
-    expected = frozen.get("workload", {}).get("specification_bytes_sha256")
-    if expected and kwargs.get("workload_spec_path"):
-        metadata = generator.plan_metadata()
-        if metadata.get("workload_spec_sha256", metadata.get("manifest_sha256")) != expected:
+    if expected:
+        metadata = _plan_metadata(generator)
+        observed = metadata.get("workload_spec_sha256", metadata.get("manifest_sha256"))
+        if not observed:
+            raise ValueError("workload generator did not report the SHA-256 of its workload specification")
+        if observed != expected:
             raise ValueError("workload specification changed after inference confirmation")
     return generator

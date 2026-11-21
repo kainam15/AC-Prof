@@ -93,7 +93,7 @@ CI 快速预检已覆盖 TUI 的 Profiler 选择和诊断详情、Nsys 命令及
 | P0-00 / P2-05 · 固定回归 | [离线种子集](usage/cli-discovery.md#离线元数据回归)用实际识别／coverage 链路回放 5 个固定仓库观察（Hugging Face BERT、Whisper、ResNet、ViLT 与 ModelScope Qwen3）和 17 个合成场景；其中 T5 仅配置文件取自上游。用户提供的 Top 100 汇总为 41 / 25 / 25 / 4 / 4 / 1；原始清单及逐项 revision 尚未取得，不能声称已冻结 Top 100 或验证真实推理通过率。 |
 | P1-01～05 · 声明与静态发现基础 | [统一参数协议](models/inference-configuration.md)已接入 ExtensionCatalog、inspect 和配置解析；类型、nullable、依赖冲突、消费者和来源绑定统一声明。除 NLP 外，新增 Whisper 语言、Chronos 预测长度、多模态生成控制和 SDXL 参数／Scheduler，限定模型／Pipeline 范围。默认候选保留文件／指针／revision／摘要，模型属性只读，unknown 不冒充可用。未声明路线仍需逐项适配。 |
 | P1-06～15 · 表单与严格执行 | 类型化 TUI、逐字段 Auto、CLI／TUI 最终审阅与 SHA 冻结已贯通。新增作者任务预设和 AC-Prof Benchmark v1，保留来源与版本；分组后的多模态生成长度审阅已修复，custom／auto／benchmark 冻结与传递由离线回归覆盖；NLP 加载观察及四类新增任务的实际调用边界均有定向离线回归，不一致／无消费记录时阻止采集。作者预设要求固定原始来源且无冲突；新增路线的真实 checkpoint 验收未执行。 |
-| P1-16～21 · 元数据与实验身份 | v8 `static_meta.json.inference_configuration` 保存冻结值、请求／Auto／预设决策、固定模型与依赖／代码身份；新任务参数及预设采用规则 v2，旧 v1 原样可读且不混入新控制。输入计划、恢复及比较绑定同一 SHA。Torch eager Profiler 使用独立派生身份，观察不改写冻结配置。跨设备真实执行和完整可复现性验收仍待用户选择实验。 |
+| P1-16～21 · 元数据与实验身份 | v8 `static_meta.json.inference_configuration` 保存冻结值、请求／Auto／预设决策、固定模型与依赖／代码身份；新任务参数及预设采用规则 v2，旧 v1 原样可读且不混入新控制。输入计划、恢复及比较绑定同一 SHA。正式采集为非 NLP 任务生成输入时会核对确认过的外部清单，CV 和多模态的离线用例覆盖读取期间更换图片路径。Torch eager Profiler 使用独立派生身份，观察不改写冻结配置。跨设备真实执行和完整可复现性验收仍待用户选择实验。 |
 | P2 / P3 · 覆盖与扩展 | 继续按标准模型、任务专属能力、独立官方库的顺序推进；未知官方代码只作为候选，不直接执行或声称兼容。 |
 
 本轮验证限于离线 Fixture、Mock 与定向检查；没有新增真实模型推理、GPU、完整 Profiler 或用户终端验收证据。Top 100 的冻结集须保留原始 metadata、模型 revision、解析规则版本、原始判定和新的原因，不以放宽检查提高通过率。

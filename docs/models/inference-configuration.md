@@ -197,6 +197,11 @@ backend、revision、任务、设备、参数、预设、输入计划或解析�
 工作负载定义与其后物化的输入计划分别留痕：最终 payload、实际输入规模和 case 使用既有
 `input_scale_plan.json`，绑定冻结配置 SHA 并进入原有 plan hash／恢复检查；不把未物化的自动规模说成已验证值。
 
+正式采集使用外部 `--workload-spec` 时，非 NLP 任务在生成输入前会核对清单内容与已确认的
+JSON 摘要，再核对生成器实际读取的文件字节。只调整空白或对象键顺序仍可使用原确认。
+确认后更换清单中的图片路径等内容，会在写入输入计划前报错。清单中的相对路径仍从清单所在目录解析。
+支持外部清单的生成器通过 `plan_metadata()` 的 `workload_spec_sha256` 或 `manifest_sha256` 提供实际字节摘要。
+
 ## 参数消费与运行时验证
 
 `RunConfig`、CLI／TUI、输入计划、`ModelLoadConfig` 和四阶段 `BaseHandler` 传递同一配置身份。
