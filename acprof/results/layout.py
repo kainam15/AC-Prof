@@ -69,7 +69,8 @@ class ArtifactLayout:
         if manifest.is_symlink():
             raise ValueError(f"Result manifest must not be a symlink: {manifest}")
         if not manifest.exists():
-            if (root / ".acprof/run_state.json").exists():
+            state = root / ".acprof/run_state.json"
+            if state.exists() or state.is_symlink():
                 raise ValueError(f"Missing {MANIFEST_NAME} for a v2 experiment: {root}")
             return cls(root)
         payload = read_json_object(manifest, label="result manifest")
@@ -118,7 +119,11 @@ class ArtifactLayout:
         if relative.is_absolute() or ".." in relative.parts:
             raise ValueError(f"Artifact path must stay inside the result directory: {relative}")
         path = self.root / relative
-        if not path.resolve().is_relative_to(self.root.resolve()):
+        try:
+            inside = path.resolve().is_relative_to(self.root.resolve())
+        except RuntimeError as error:  # pathlib before 3.13 raises RuntimeError on symlink loops.
+            raise ValueError(f"Cannot resolve artifact path {relative}: {error}") from error
+        if not inside:
             raise ValueError(f"Artifact path escapes the result directory: {relative}")
         # Reject aliases within the directory too: recovery must never delete a shared target.
         if any(parent.is_symlink() for parent in (path, *path.parents) if parent != self.root and parent.is_relative_to(self.root)):
@@ -306,7 +311,7 @@ class CaseArtifacts:
 
 
 _DIRECT_EXPERIMENT_FILES = (
-    MANIFEST_NAME, "result_layers.json", "static_meta.json", "model_resolution.json",
+    MANIFEST_NAME, "result_layers.json", "result_all.csv", "static_meta.json", "model_resolution.json",
     "capability_report.json", "runtime_validation.json", "runtime_failures.json",
     "interface_validation.json", "run_state.json", ".acprof/run_state.json",
 )
@@ -379,48 +384,42 @@ def experiment_result_file(directory: Path) -> Path:
     directory = Path(directory)
     layered = directory / "result_layers.json"
     layout = directory / MANIFEST_NAME
+    state = directory / ".acprof/run_state.json"
     if (layered.exists() or layered.is_symlink() or layout.exists() or layout.is_symlink()
-            or (directory / ".acprof/run_state.json").exists()):
+            or state.exists() or state.is_symlink()):
         return layered
     flat = directory / "result_all.csv"
-    return flat if flat.is_file() else layered
+    return flat if flat.is_file() or flat.is_symlink() else layered
 
 
 def resolve_single_result_source(source: str | Path) -> Path:
     """Resolve a single experiment directory or result_layers.json, unwrapping a 1-task collection."""
-    path = Path(source).expanduser()
-    as_layer_manifest = (
-        path.name == "result_layers.json"
-        and not path.exists()
-        and not path.is_symlink()
-        and path.parent.is_dir()
-        and not path.parent.is_symlink()
-    )
-    candidate_dir = path.parent if as_layer_manifest else path
-    task_dirs = resolve_task_collection_dirs(candidate_dir)
-    if task_dirs is None:
-        return path
-    if len(task_dirs) != 1:
-        joined = ", ".join(str(item) for item in task_dirs)
+    paths = expand_result_sources([source])
+    if len(paths) != 1:
+        joined = ", ".join(str(item) for item in paths)
         raise ValueError(
-            f"Task collection contains {len(task_dirs)} task runs ({joined}); specify one task run directory"
+            f"Task collection contains {len(paths)} task runs ({joined}); specify one task run directory"
         )
-    return task_dirs[0] / "result_layers.json" if as_layer_manifest else task_dirs[0]
+    return paths[0]
 
 
 def resolve_result_file(source: str | Path) -> Path:
     """Locate one result without falling back from a declared layered experiment.
 
-    A multi-task collection requires an explicit task directory. File inputs
-    remain literal, for compatibility with standalone CSV analysis.
+    A multi-task collection requires an explicit task directory. A selected
+    experiment artifact belongs to its layout. Standalone CSV inputs remain literal.
     """
     path = resolve_single_result_source(source)
-    if path.is_dir():
-        ArtifactLayout.discover(path)
-        return experiment_result_file(path)
     if path.name == "result_layers.json":
-        ArtifactLayout.discover(path.parent)
-    return path
+        selected = ArtifactLayout.discover(path.parent).result_csv
+    elif path.is_dir():
+        layout = ArtifactLayout.discover(path)
+        selected = layout.contained(experiment_result_file(path).name)
+    else:
+        return path
+    if selected.is_dir():
+        raise ValueError(f"Expected a result file, found directory: {selected}")
+    return selected
 
 
 def expand_result_sources(sources: Iterable[str | Path]) -> list[Path]:
@@ -428,13 +427,10 @@ def expand_result_sources(sources: Iterable[str | Path]) -> list[Path]:
     expanded: list[Path] = []
     for source in sources:
         path = Path(source).expanduser()
-        as_layer_manifest = (
-            path.name == "result_layers.json"
-            and not path.exists()
-            and not path.is_symlink()
-            and path.parent.is_dir()
-            and not path.parent.is_symlink()
-        )
+        as_layer_manifest = path.name == "result_layers.json"
+        if as_layer_manifest and (path.exists() or path.is_symlink() or path.parent.is_symlink()):
+            expanded.append(path)
+            continue
         candidate_dir = path.parent if as_layer_manifest else path
         task_dirs = resolve_task_collection_dirs(candidate_dir)
         if task_dirs is None:

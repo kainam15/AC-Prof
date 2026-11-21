@@ -12,7 +12,7 @@ from unittest.mock import patch
 import pytest
 from tests.support.client_fixtures import patch_client
 
-from acprof.results.layout import ArtifactLayout, case_sidecar
+from acprof.results.layout import ArtifactLayout, case_sidecar, expand_result_sources, resolve_result_file
 from acprof.host.client import ClientRunner
 from acprof.host.measurement.config import ClientConfig
 from acprof.host.run_state import RunState
@@ -32,6 +32,52 @@ def test_manifest_uses_bounded_finite_json_reader(tmp_path, invalid):
     manifest.write_text(content, encoding='utf-8')
     with pytest.raises(ValueError, match=reason):
         ArtifactLayout.discover(tmp_path)
+
+
+def test_legacy_experiment_with_nested_collection_keeps_its_own_result(tmp_path):
+    flat = tmp_path / "result_all.csv"
+    flat.write_text("status\nok\n")
+    (tmp_path / "nested" / "metadata" / "task_runs").mkdir(parents=True)
+
+    assert resolve_result_file(tmp_path) == flat
+    assert expand_result_sources([tmp_path]) == [tmp_path]
+
+
+@pytest.mark.parametrize("name", ["result_layers.json", "result_all.csv"])
+def test_directory_selection_checks_the_result_belongs_to_the_experiment(tmp_path, name):
+    root = tmp_path / "experiment"
+    root.mkdir()
+    other = tmp_path / name
+    other.write_text("other experiment")
+    (root / name).symlink_to(other)
+
+    with pytest.raises(ValueError, match="Artifact path escapes"):
+        resolve_result_file(root)
+    if name == "result_layers.json":
+        with pytest.raises(ValueError, match="Artifact path escapes"):
+            resolve_result_file(root / name)
+
+
+@pytest.mark.parametrize("reference", ["experiment", "manifest"])
+def test_layer_manifest_directory_cannot_be_read_as_a_nested_flat_experiment(tmp_path, reference):
+    ArtifactLayout.for_new_run(tmp_path).initialize()
+    manifest = tmp_path / "result_layers.json"
+    manifest.unlink()
+    manifest.mkdir()
+    (manifest / "result_all.csv").write_text("status\nok\n")
+
+    with pytest.raises(ValueError, match="result_layers.json"):
+        resolve_result_file(tmp_path if reference == "experiment" else manifest)
+
+
+def test_missing_v2_layout_with_a_dangling_run_state_cannot_select_flat_export(tmp_path):
+    state = tmp_path / ".acprof" / "run_state.json"
+    state.parent.mkdir()
+    state.symlink_to(tmp_path / "absent.json")
+    (tmp_path / "result_all.csv").write_text("status\nok\n")
+
+    with pytest.raises(ValueError, match="Missing result_manifest.json"):
+        resolve_result_file(tmp_path)
 
 
 class TestArtifactLayout:
