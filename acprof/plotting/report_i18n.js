@@ -44,6 +44,33 @@ window.ACProfI18n = (() => {
     "窗口不足":"Insufficient windows", "无正式成功窗口":"No successful formal windows", "已估计":"Estimated", "无指标缺失":"No missing metrics",
     "没有有效观测值":"No valid observations", "无方向指标不标注 frontier。":"Neutral metrics do not define a frontier.",
   };
+  const reasonLabels = {
+    "窗口不足":"Insufficient windows",
+    "无正式成功窗口":"No successful formal windows",
+    "缺失窗口打断连续块":"Missing windows break blocks",
+    "窗口序号不连续":"Nonconsecutive window indices",
+    "缺少有效窗口身份":"Missing valid window identity",
+    "未记录字段":"Field not recorded",
+    "不可用（未记录具体原因）":"Unavailable (unspecified reason)",
+    "不适用":"Not applicable",
+    "测量失败":"Measurement failed",
+    "Process Runtime 不支持":"Unsupported by Process runtime",
+    "WSL2 不可用":"Unavailable on WSL2",
+    "未请求采集":"Not requested",
+    "预热":"Warmup",
+    "失败":"Failed",
+    "告警":"Warning",
+    "推断、未实测":"Inferred, not measured",
+    "原始数据已变化":"Source data changed",
+    "质量或完整性状态已变化":"Quality or completeness status changed",
+    "统计版本或口径不匹配":"Statistics contract mismatch",
+    "配置分组不匹配":"Configuration groups changed",
+    "统计摘要不匹配":"Statistics summary changed",
+    "置信区间无效":"Invalid confidence interval",
+    "统计分组无效":"Invalid statistics groups",
+    "统计指标或 Bootstrap 参数不匹配":"Statistics metrics or Bootstrap parameters changed",
+  };
+  Object.assign(labels, reasonLabels);
   Object.assign(labels, {
   "选择或拖放 result_all.csv、AC-Prof HTML、分析 JSON。CSV 缺少完整元数据时仅作描述性展示；严格统计未计算。 / Drop CSV, AC-Prof HTML or analysis JSON. CSV-only comparisons are descriptive; strict statistics are not computed.": "Choose or drop result_all.csv, AC-Prof HTML or analysis JSON. CSV files without complete metadata support descriptive comparisons only; strict statistics are not computed.",
   "仅汇总正式成功窗口；缺失值显示 —，失败与推断配置保留状态。P50/P95 为窗口分位数的均值，CPU/GPU 占用率无默认优劣方向。条件检查与严格比较共用规则；变化值仍是描述性比较，不含独立实验置信区间。自动优选暂停使用质量 blocked/unknown 或条件证据不足的配置；告警与证据保留，passed 只表示已记录的检查无问题，不代表模型准确率合格。": "Only successful formal windows are summarized. Missing values display as —; failed and inferred configurations retain their status. P50/P95 are means of window quantiles. CPU/GPU utilization has no default better direction. Changes are descriptive and have no independent-run confidence intervals. Quality blocked/unknown or incomplete condition evidence excludes automatic selection. Passed means recorded checks found no issues, not that model accuracy is acceptable.",
@@ -59,10 +86,34 @@ window.ACProfI18n = (() => {
   "元数据缺失，严格统计未计算 / Missing metadata; strict statistics not computed": "Missing metadata; strict statistics not computed"
 });
   const originals = new WeakMap();
+  function translateReasonSegment(part) {
+    if (Object.hasOwn(reasonLabels, part)) return reasonLabels[part];
+    const counted = part.match(/^(.+?) (\d+)$/);
+    if (counted && Object.hasOwn(reasonLabels, counted[1])) {
+      return `${reasonLabels[counted[1]]} ${counted[2]}`;
+    }
+    return null;
+  }
+  function translateReasons(stripped) {
+    if (!stripped.includes(" · ") && !/ \d+$/.test(stripped)) return null;
+    const parts = stripped.split(" · ");
+    let matched = false;
+    const translated = parts.map(part => {
+      const next = translateReasonSegment(part);
+      if (next) {
+        matched = true;
+        return next;
+      }
+      return part;
+    });
+    return matched ? translated.join(" · ") : null;
+  }
   function translate(value) {
     const stripped = value.trim();
     if (labels[stripped.replace(/\s+/g, " ")]) return labels[stripped.replace(/\s+/g, " ")];
     if (labels[stripped]) return value.replace(stripped, labels[stripped]);
+    const reasonResult = translateReasons(stripped);
+    if (reasonResult) return value.replace(stripped, reasonResult);
     // Bilingual controls are intentionally identical in both modes.
     if (stripped.includes(" / ") && /[a-zA-Z]/.test(stripped)) return value;
     return value.replace(/(\d+(?:\.\d+)?(?: \/ \d+(?:\.\d+)?)*)% 置信区间/g, "$1% confidence interval")

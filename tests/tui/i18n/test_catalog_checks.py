@@ -289,3 +289,32 @@ def test_project_catalog_has_no_hard_errors():
     report = check_catalog(root)
     assert report.entries
     assert not report.errors, "\n".join(map(str, report.errors))
+
+
+def test_untranslated_notify_and_bindings_are_rejected_in_tui(tmp_path):
+    catalog(tmp_path, '"common.action.cancel": Entry(zh="取消", en="Cancel"),')
+    write(tmp_path, "acprof/tui/panel.py", '''
+from textual.binding import Binding
+class Panel:
+    BINDINGS = [
+        ("escape", "close", "取消"),
+        ("ctrl+k", "palette", "未登记绑定"),
+        Binding("f1", "help", "未登记描述"),
+    ]
+    def run(self, app):
+        app.notify("未登记通知")
+        app.notify("取消", title="未登记标题")
+        app.notify("取消")
+''')
+    write(tmp_path, "acprof/host/helper.py", '''
+def notify_host(app):
+    app.notify("非TUI通知")
+''')
+    report = check_catalog(tmp_path)
+    issues = [(issue.path.as_posix(), issue.line, issue.code) for issue in report.errors]
+    assert issues == [
+        ("acprof/tui/panel.py", 6, "untranslated-ui-message"),
+        ("acprof/tui/panel.py", 7, "untranslated-ui-message"),
+        ("acprof/tui/panel.py", 10, "untranslated-ui-message"),
+        ("acprof/tui/panel.py", 11, "untranslated-ui-message"),
+    ]

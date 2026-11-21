@@ -6,6 +6,7 @@ from .entry import Entry
 MESSAGES: dict[str, Entry] = {
     "logs.action.clear": Entry(zh="清空日志", en="Clear log"),
     "logs.action.expand": Entry(zh="放大日志", en="Expand log"),
+    "logs.action.select_all": Entry(zh="全选日志", en="Select all logs"),
     "logs.capture.pipe_mode": Entry(
         zh="[TUI] 子进程输出通过管道读取；tmux pane 捕获已对该子进程禁用。",
         en="[TUI] Reading subprocess output through a pipe; tmux pane capture is disabled for this subprocess.",

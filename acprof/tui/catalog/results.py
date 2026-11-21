@@ -340,6 +340,10 @@ MESSAGES: dict[str, Entry] = {
     "results.picker.title": Entry(zh="选择实验", en="Find experiment"),
     "results.picker.use_path": Entry(zh="选入路径", en="Use path"),
     "results.picker.validation": Entry(zh="运行时校验", en="Runtime validation"),
+    "results.profile.layered_dir_only": Entry(
+        zh="仅支持分层实验目录或 result_layers.json；独立 CSV 不能补采",
+        en="Only layered experiment directories or result_layers.json are supported; standalone CSVs cannot be backfilled",
+    ),
     "results.quality.eligible": Entry(zh="可参与", en="Eligible"),
     "results.quality.evidence": Entry(zh="质量证据：{0} · {1} · 来源：{2}", en="Quality evidence: {0} · {1} · Source: {2}"),
     "results.quality.run_summary": Entry(zh="运行：{0} · 测量完整性：{1} · 质量：{2}", en="Run: {0} · Measurement completeness: {1} · Quality: {2}"),

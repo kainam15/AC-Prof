@@ -166,12 +166,12 @@ class RecoveryController:
             self.app.notify(error, severity="error", timeout=10)
             return
         if pending.config is None:
-            self.app.notify("恢复实验缺少运行配置", severity="error", timeout=10)
+            self.app.notify(message_id("run.recovery.missing_config"), severity="error", timeout=10)
             return
         if review is None or (confirmed and pending.config.resume and review.resume is not None):
             launch = pending if review is None else review.resume
             if launch is None or launch.config is None:
-                self.app.notify("恢复实验缺少运行配置", severity="error", timeout=10)
+                self.app.notify(message_id("run.recovery.missing_config"), severity="error", timeout=10)
                 return
             self.app.configuration.apply_config(launch.config)
             if self.app.preflight.preflight_run_reason():

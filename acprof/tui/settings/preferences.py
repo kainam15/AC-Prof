@@ -128,8 +128,7 @@ def _decode_settings(payload: Any, project_dir: Path) -> TuiSettings:
     version = payload.get("version")
     if type(version) is not int or version != SETTINGS_VERSION:
         raise UnsupportedSettingsError(
-            f"不支持设置文件版本 {version!r}；当前要求 version={SETTINGS_VERSION}。"
-            "请归档旧设置文件后重新配置。"
+            message_id("validation.settings.unsupported_version_detail", repr(version), SETTINGS_VERSION)
         )
     ui_values = payload.get("ui", {})
     if not isinstance(ui_values, dict):
@@ -144,9 +143,7 @@ def _decode_settings(payload: Any, project_dir: Path) -> TuiSettings:
         defaults_values = {key: value for key, value in defaults_values.items()
                            if key.lower() not in {"http_proxy", "https_proxy", "all_proxy", "no_proxy"}}
         if "allow_cgroup_v1" in defaults_values:
-            raise UnsupportedSettingsError(
-                "设置包含已删除的 allow_cgroup_v1；请归档旧设置文件后重新配置。"
-            )
+            raise UnsupportedSettingsError(message_id("validation.settings.retired_cgroup_v1"))
         if "skip_build" in defaults_values:
             if type(defaults_values.pop("skip_build")) is not bool:
                 raise ValueError(message_id('validation.settings.retired_skip_build_type'))

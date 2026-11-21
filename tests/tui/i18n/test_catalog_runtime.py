@@ -60,3 +60,23 @@ assert not heavy, sorted(heavy)
         text=True, check=False, timeout=20,
     )
     assert result.returncode == 0, result.stderr
+
+
+def test_bindings_and_error_entries_translate_cleanly_to_english():
+    from acprof.tui.i18n import message_id, translate
+
+    for source in ("全选文本", "快捷命令", "快捷键", "基本/高级配置", "全选日志"):
+        rendered = translate(source, "en")
+        assert rendered != source
+        assert all(ord(ch) < 128 for ch in rendered)
+
+    for msg in (
+        message_id("run.recovery.missing_config"),
+        message_id("results.profile.layered_dir_only"),
+        message_id("images.dependencies.query_failed", "OSError"),
+        message_id("validation.settings.unsupported_version_detail", "'3'", 4),
+        message_id("validation.settings.retired_cgroup_v1"),
+    ):
+        rendered = translate(msg, "en")
+        assert rendered != str(msg)
+        assert not any("\u3400" <= ch <= "\u9fff" for ch in rendered)

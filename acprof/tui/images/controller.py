@@ -299,8 +299,14 @@ class ImageController:
             resolved = resolve_image_dependencies(inventory, image_id)
         except Exception as error:
             from dataclasses import replace as dataclass_replace
-            images = tuple(dataclass_replace(item, dependency_note=f"依赖查询失败（{type(error).__name__}）。")
-                           if item.image_id == image_id else item for item in inventory.images)
+            images = tuple(
+                dataclass_replace(
+                    item,
+                    dependency_note=message_id("images.dependencies.query_failed", type(error).__name__),
+                )
+                if item.image_id == image_id else item
+                for item in inventory.images
+            )
             resolved = dataclass_replace(inventory, images=images)
         self.app.call_from_thread(self.complete_image_dependency_resolution, inventory, image_id, resolved)
 

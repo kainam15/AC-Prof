@@ -83,6 +83,10 @@ MESSAGES: dict[str, Entry] = {
     "validation.settings.preferences_object": Entry(zh="界面设置必须是 JSON 对象", en="UI settings must be a JSON object"),
     "validation.settings.preferences_type": Entry(zh="界面设置必须是 UiPreferences", en="UI settings must be UiPreferences"),
     "validation.settings.result_path_type": Entry(zh="上次使用的结果路径必须是字符串", en="Last result paths must be strings"),
+    "validation.settings.retired_cgroup_v1": Entry(
+        zh="设置包含已删除的 allow_cgroup_v1；请归档旧设置文件后重新配置。",
+        en="Settings contain removed allow_cgroup_v1; archive the old settings file and reconfigure.",
+    ),
     "validation.settings.retired_skip_build_type": Entry(
         zh="实验默认配置字段 skip_build 的类型不正确",
         en="Invalid type for retired experiment default skip_build",
@@ -92,6 +96,10 @@ MESSAGES: dict[str, Entry] = {
     "validation.settings.settings_type": Entry(zh="设置必须是 TuiSettings", en="Settings must be TuiSettings"),
     "validation.settings.unknown_fields": Entry(zh="{0}包含无法识别的字段", en="{0} contains unknown fields"),
     "validation.settings.unsupported_version": Entry(zh="不支持此设置文件版本", en="Unsupported settings version"),
+    "validation.settings.unsupported_version_detail": Entry(
+        zh="不支持设置文件版本 {0}；当前要求 version={1}。请归档旧设置文件后重新配置。",
+        en="Unsupported settings file version {0}; version={1} is required. Archive the old settings file and reconfigure.",
+    ),
     "validation.slo.invalid_rules": Entry(zh="延迟 SLO 规则无效：{0}", en="Invalid latency SLO rules: {0}"),
     "validation.type.integer": Entry(zh="整数", en="an integer"),
     "validation.type.number": Entry(zh="数字", en="a number"),

@@ -555,6 +555,7 @@ MESSAGES: dict[str, Entry] = {
     ),
     "run.recovery.invalid_options": Entry(zh="保留的实验参数无效：{0}", en="Invalid retained experiment options: {0}"),
     "run.recovery.invalid_records": Entry(zh="原实验的 case 或产物记录无效。", en="The original case or artifact records are invalid."),
+    "run.recovery.missing_config": Entry(zh="恢复实验缺少运行配置", en="Recovery experiment is missing run configuration"),
     "run.recovery.missing_frozen_runtime": Entry(
         zh="已有测量证据但缺少冻结运行环境，不能按准备失败重试。",
         en="Measurement evidence exists without a frozen runtime; it cannot be retried as preparation.",
@@ -664,6 +665,7 @@ MESSAGES: dict[str, Entry] = {
         en="Choose Docker or Process; preflight validates the selected runtime.",
     ),
     "run.sampling.rate": Entry(zh="采样频率", en="Sample rate"),
+    "run.settings.toggle_mode": Entry(zh="基本/高级配置", en="Basic/Advanced settings"),
     'run.source.base': Entry(zh='基础环境', en='Base environment'),
     'run.source.cgroup': Entry(zh='cgroup v2', en='cgroup v2'),
     'run.source.check.cpu': Entry(zh='CPU 读取', en='CPU counters'),

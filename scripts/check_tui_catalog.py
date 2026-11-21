@@ -311,6 +311,14 @@ def _argument(node: ast.Call, keyword: str) -> ast.expr | None:
     return next((item.value for item in node.keywords if item.arg == keyword), None)
 
 
+def _literal_ui_constants(expr: ast.expr) -> list[ast.Constant]:
+    if isinstance(expr, ast.Constant) and isinstance(expr.value, str):
+        return [expr]
+    if isinstance(expr, ast.IfExp):
+        return [*_literal_ui_constants(expr.body), *_literal_ui_constants(expr.orelse)]
+    return []
+
+
 def _source_strings(tree: ast.Module) -> set[str]:
     """Documentation does not prove a message is still used by production code."""
     docstrings = set()
@@ -404,6 +412,51 @@ def _read_references(root: Path, report: Report) -> None:
                                 and _CJK.search(content.value) and content.value not in translated_sources):
                             report.errors.append(Issue(relative, widget.lineno, "untranslated-ui-message",
                                                        "register localized widget copy and use message_id"))
+                if strict_tui and isinstance(node.func, ast.Attribute) and node.func.attr == "notify":
+                    for arg in (
+                        *node.args[:1],
+                        *(kw.value for kw in node.keywords if kw.arg in {"message", "title"}),
+                    ):
+                        for literal in _literal_ui_constants(arg):
+                            if _CJK.search(str(literal.value)) and literal.value not in translated_sources:
+                                report.errors.append(Issue(
+                                    relative, literal.lineno, "untranslated-ui-message",
+                                    "register notification copy in catalog or use message_id",
+                                ))
+                self.generic_visit(node)
+
+            def _check_bindings_assignment(self, node: ast.AST) -> None:
+                names, value = _assignment(node)
+                if not (strict_tui and "BINDINGS" in names and isinstance(value, (ast.List, ast.Tuple))):
+                    return
+                for elt in value.elts:
+                    description: ast.expr | None = None
+                    if isinstance(elt, ast.Tuple) and len(elt.elts) >= 3:
+                        description = elt.elts[2]
+                    elif isinstance(elt, ast.Call):
+                        callee = _call_name(elt.func, self.bindings)
+                        if callee == "textual.binding.Binding" or (
+                            isinstance(elt.func, ast.Name) and elt.func.id == "Binding"
+                        ):
+                            description = (
+                                elt.args[2] if len(elt.args) >= 3
+                                else next((kw.value for kw in elt.keywords if kw.arg == "description"), None)
+                            )
+                    if description is None:
+                        continue
+                    for literal in _literal_ui_constants(description):
+                        if _CJK.search(str(literal.value)) and literal.value not in translated_sources:
+                            report.errors.append(Issue(
+                                relative, elt.lineno, "untranslated-ui-message",
+                                "register binding description in catalog",
+                            ))
+
+            def visit_Assign(self, node: ast.Assign) -> None:
+                self._check_bindings_assignment(node)
+                self.generic_visit(node)
+
+            def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
+                self._check_bindings_assignment(node)
                 self.generic_visit(node)
 
         References().visit(tree)

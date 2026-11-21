@@ -90,6 +90,7 @@ MESSAGES: dict[str, Entry] = {
         zh="平台 Python 依赖（{0}，含基础镜像已有包）：\n{1}",
         en="Platform Python packages ({0}, including upstream base packages):\n{1}",
     ),
+    "images.dependencies.query_failed": Entry(zh="依赖查询失败（{0}）。", en="Dependency lookup failed ({0})."),
     "images.dependencies.service_layer": Entry(
         zh="本层添加推理服务代码与运行清单；包依赖由运行环境提供。",
         en="This layer adds service code and a runtime manifest; packages come from the runtime environment.",

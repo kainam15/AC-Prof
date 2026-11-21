@@ -88,7 +88,7 @@ def inspect_profile_result(source: Path, *, result_snapshot: ResultCsvSnapshot |
     elif path.name == "result_layers.json":
         directory = path.parent
     else:
-        raise ValueError("仅支持分层实验目录或 result_layers.json；独立 CSV 不能补采")
+        raise ValueError(message_id("results.profile.layered_dir_only"))
     context = load_result_context(directory, result_snapshot=result_snapshot, cancelled=cancelled)
     totals = dict.fromkeys(SUPPORTED_TOOLS, 0)
     completed = dict.fromkeys(SUPPORTED_TOOLS, 0)
