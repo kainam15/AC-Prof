@@ -3,16 +3,15 @@ from __future__ import annotations
 
 import os
 import shutil
-import tempfile
+from contextlib import ExitStack
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, BinaryIO
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from acprof.artifacts import (
-    atomic_write_binary,
+    capture_binary_artifact,
     file_sha256,
     replace_file_durably,
-    sync_directory,
     sync_directory_chain,
 )
 from acprof.host.run_state import RunStateError, utc_now
@@ -25,27 +24,28 @@ from acprof.results.csv import (
 )
 
 if TYPE_CHECKING:
+    from acprof.artifacts import CapturedBinaryArtifact
     from acprof.host.run_state import RunState
     from acprof.results.layout import CaseArtifacts
 
 
-def _archive_case_csv(case: CaseArtifacts, capture: BinaryIO, digest: str) -> Path:
+def _archive_case_csv(case: CaseArtifacts, capture: CapturedBinaryArtifact, digest: str) -> Path:
     archive = case.completed_result(digest)
-    if not archive.exists():
-        capture.seek(0)
+    raw = case.layout.path("raw")
 
-        def copy_capture(stream: BinaryIO) -> None:
-            shutil.copyfileobj(capture, stream)
+    def verify_existing() -> None:
+        if file_sha256(case.completed_result(digest)) != digest:
+            raise RunStateError("Immutable case result changed")
 
-        try:
-            atomic_write_binary(archive, copy_capture, overwrite=False)
-            return archive
-        except FileExistsError:
-            pass  # A competing publisher claimed this digest; validate its bytes below.
-    if file_sha256(case.completed_result(digest)) != digest:
-        raise RunStateError("Immutable case result changed")
-    # The first publisher may have linked the file but failed its directory fsync.
-    sync_directory(archive.parent)
+    if archive.exists():
+        verify_existing()
+        sync_directory_chain(archive.parent, raw)
+    else:
+        archive.parent.mkdir(parents=True, exist_ok=True)
+        # Make the archive directory reachable before installing the digest entry.
+        # A previous mkdir may have succeeded even though its parent fsync failed.
+        sync_directory_chain(archive.parent.parent, raw)
+        capture.publish(archive, verify_existing=verify_existing)
     return archive
 
 
@@ -54,13 +54,14 @@ def publish_case_result(case: CaseArtifacts, expected: ExpectedMeasurements, *,
     """Archive the validated stream before publishing its rows to this run's store."""
     from acprof.result_store.writer import ResultWriter
 
-    with tempfile.TemporaryFile(dir=case.layout.result_store_path(""), buffering=0) as capture:
-        fields, result, digest = read_hashed_flat_csv(case.csv, expected=expected, capture=capture)
-        with ResultWriter(case.layout.root, expected_run_id=run_id) as writer:
+    with ExitStack() as lease:
+        with capture_binary_artifact(case.layout.result_store_path("")) as capture:
+            fields, result, digest = read_hashed_flat_csv(case.csv, expected=expected, capture=capture.stream)
+            writer = lease.enter_context(ResultWriter(case.layout.root, expected_run_id=run_id))
             archive = _archive_case_csv(case, capture, digest)
-            case.retain_requests()
-            writer.update_rows(result.rows, reason="case packet processing and diagnostics", evidence=evidence)
-        return ResultCsvSnapshot(archive, fields, result.rows, digest)
+        case.retain_requests()
+        writer.update_rows(result.rows, reason="case packet processing and diagnostics", evidence=evidence)
+    return ResultCsvSnapshot(archive, fields, result.rows, digest)
 
 
 def _validate_complete_case(

@@ -616,6 +616,70 @@ def _write_processed_case(path):
     return path.read_bytes()
 
 
+@pytest.mark.parametrize("after_link", [False, True], ids=["new-ancestor", "linked-archive"])
+def test_case_archive_directory_sync_failure_preserves_state(measured_case, monkeypatch, after_link):
+    import errno
+    import os
+    from hashlib import sha256
+
+    state, case, _, _ = measured_case
+    original = _write_processed_case(case.csv)
+    archive = case.completed_result(sha256(original).hexdigest())
+    entry = archive if after_link else archive.parent
+    failure = FileExistsError(errno.EEXIST, "archive parent sync") if after_link else OSError(errno.EIO, "ancestor sync")
+    state_path = state.layout.path("run_state.json")
+    authorities = {path: path.read_bytes() for path in (state.layout.result_csv, state_path)}
+    fsync = os.fsync
+    with monkeypatch.context() as fault:
+        def reject_sync(fd):
+            if entry.exists() and os.path.samestat(os.fstat(fd), entry.parent.stat()):
+                if after_link:
+                    # A second successful fsync cannot turn the first error into a competing claim.
+                    fault.setattr(os, "fsync", fsync)
+                raise failure
+            return fsync(fd)
+
+        fault.setattr(os, "fsync", reject_sync)
+        for _ in range(1 if after_link else 2):
+            with pytest.raises(OSError, match=failure.strerror) as caught:
+                state.finish_case(str(case.csv), 1, 4, "off")
+            assert caught.value is failure
+            assert {path: path.read_bytes() for path in authorities} == authorities
+        if after_link:
+            assert archive.read_bytes() == original
+    state.finish_case(str(case.csv), 1, 4, "off")
+    assert archive.read_bytes() == original
+    key = str(case.csv.relative_to(state.directory))
+    record = json.loads(state_path.read_bytes())["cases"][key]
+    assert record["status"] == "complete"
+    assert record["case_result"]["sha256"] == archive.stem
+
+
+def test_case_archive_reports_non_directory_parent(measured_case):
+    import errno
+    from hashlib import sha256
+
+    state, case, _, _ = measured_case
+    archive = case.completed_result(sha256(_write_processed_case(case.csv)).hexdigest())
+    archive.parent.parent.mkdir(parents=True, exist_ok=True)
+    archive.parent.write_bytes(b"not a directory")
+    with pytest.raises(FileExistsError) as caught:
+        state.finish_case(str(case.csv), 1, 4, "off")
+    assert caught.value.errno == errno.EEXIST
+    assert Path(caught.value.filename) == archive.parent
+    assert archive.parent.read_bytes() == b"not a directory"
+
+
+def test_invalid_case_csv_does_not_create_archive_directory(measured_case):
+    from acprof.results.csv import ResultValidationError
+
+    state, case, _, _ = measured_case
+    case.csv.write_bytes(b"status\nok\n")
+    with pytest.raises(ResultValidationError, match="missing identity columns"):
+        state.finish_case(str(case.csv), 1, 4, "off")
+    assert not state.layout.contained("raw/case_results").exists()
+
+
 @pytest.mark.parametrize("appears_at_publication", [False, True], ids=["existing", "racing"])
 def test_corrupt_case_archive_preserves_root_and_state(measured_case, monkeypatch, appears_at_publication):
     import os
@@ -724,5 +788,5 @@ def test_case_completion_rejects_another_intact_result_store(measured_case, tmp_
     before = {path: path.read_bytes() for path in artifacts}
     with pytest.raises(ResultValidationError, match="result store belongs to another run"):
         state.finish_case(str(case.csv), 1, 4, "off")
-    assert not archive.exists()
+    assert not archive.parent.parent.exists()
     assert {path: path.read_bytes() for path in artifacts} == before
