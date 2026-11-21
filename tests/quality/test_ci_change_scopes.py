@@ -105,7 +105,7 @@ def test_browser_job_runs_report_interactions_and_csv_imports(workflow):
     steps = workflow["jobs"]["report-browser"]["steps"]
     test_step = next(step for step in steps if "scripts/run_tests.py" in step.get("run", ""))
     assert "--directory tests/analysis/reporting" in test_step["run"]
-    for suite in ("test_report_browser.py", "test_report_import.py", "test_csv_window_identity.py"):
+    for suite in ("test_report_browser.py", "test_report_import.py", "test_csv_window_identity.py", "test_report_catalog.py"):
         assert f"--pattern {suite}" in test_step["run"]
 
 
