@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -50,6 +51,13 @@ def content_hash(payload: Any) -> str:
     return hashlib.sha256(canonical_bytes(payload)).hexdigest()
 
 
+def _telemetry_sha256(reference: object) -> str:
+    digest = reference.get("sha256") if isinstance(reference, dict) else None
+    if not isinstance(digest, str) or re.fullmatch(r"[a-f0-9]{64}", digest) is None:
+        raise ValueError("invalid window telemetry reference SHA256")
+    return digest
+
+
 def prepare_window_telemetry(context: WindowPublicationContext, window_id: str,
                              evidence: dict[str, Any]) -> dict[str, Any]:
     identity = context.identity(window_id)
@@ -71,8 +79,9 @@ def commit_window_record(context: WindowPublicationContext, *, window_id: str,
         raise ValueError("request record does not belong to the committed window")
     destination = context.record_path(window_id)
     # Verify existing evidence before making the final commit marker visible.
+    digest = _telemetry_sha256(telemetry_reference)
     evidence = read_window_evidence((destination.parent / telemetry_reference["path"]).resolve(),
-                                    expected_sha256=telemetry_reference["sha256"])
+                                    expected_sha256=digest)
     if evidence.get("identity") != identity:
         raise ValueError("referenced window telemetry identity mismatch")
     normalized_row = canonical_csv_row(row)
@@ -144,6 +153,8 @@ def read_window_record(path: str | Path, *, verify_evidence: bool = True,
             raise ValueError("window sidecar identity mismatch")
         if verify_evidence:
             verify_window_record_evidence(source, record)
+        else:
+            _telemetry_sha256(record.get("telemetry"))
         return record
     except (OSError, KeyError, TypeError, AttributeError, UnicodeError) as exc:
         raise ValueError(f"invalid window record {source}: {exc}") from exc
@@ -158,8 +169,9 @@ def verify_window_record_evidence(path: str | Path, record: dict[str, Any]) -> N
     source = Path(path)
     try:
         reference = record["telemetry"]
+        digest = _telemetry_sha256(reference)
         evidence = read_window_evidence(source.parent / reference["path"],
-                                        expected_sha256=reference["sha256"])
+                                        expected_sha256=digest)
         if evidence.get("identity") != record["identity"]:
             raise ValueError("window telemetry identity mismatch")
     except (OSError, KeyError, TypeError, AttributeError, UnicodeError) as exc:

@@ -144,7 +144,7 @@ JSON object，拒绝非有限数值和损坏内容。未知或不一致的 manif
 | `metadata/runtime_validation.json` | 测量窗口外独立运行验证的结构化报告；原始输出在 `logs/runtime_validation_<device>.log`。 |
 | `.acprof/work/cases/<case-id>/result.csv` | 采集期间逐资源配置写入的可恢复中间结果；成功合并后清理。 |
 | `raw/requests/<case-id>.jsonl` | 长期保留的紧凑 request-level latency，每窗口一行；含 application 原始样本和按请求 ID 对齐的 packet 样本。详见下方约定，不参与默认统计聚合。 |
-| `raw/windows/<case-id>/<attempt-id>/*.json` | schema v2 的不可变窗口记录，绑定 run、case、attempt、window 身份、原始行、请求样本、telemetry SHA256 和采集顺序。先持久化 receipt，再追加结果投影；历史 schema v1 保留原先 receipt 最后发布的读取语义。 |
+| `raw/windows/<case-id>/<attempt-id>/*.json` | schema v2 的不可变窗口记录，绑定 run、case、attempt、window 身份、原始行、请求样本、telemetry SHA256 和采集顺序。先持久化 receipt，再追加结果投影；历史 schema v1 保留原先 receipt 最后发布的读取语义。两版 receipt 都必须记录 telemetry 文件的 64 位小写十六进制 SHA256，缺失或无效的摘要会阻止发布与恢复。 |
 | `raw/telemetry/<case-id>/<attempt-id>/*.json` | schema v1 原始 CPU/GPU/resource 样本、边界计数器、单位、时钟、采集器和 reducer 版本，以及 Burst/Skip 聚合诊断。超过保存上限的样本子集明确标记不完整，不能用于精确全量重算。 |
 | `raw/measurements/<case-id>/<attempt-id>/` | 完整 case 测量结束后的不可变输入快照；含原始 CSV、已关闭的 PCAP、请求/分组投影及 `checkpoint.json`，后处理失败时用它恢复，不重新推理。抓包未启用时没有 PCAP。 |
 | 分层结果（`result_layers.json` 与各模块 CSV） | 动态测量结果。每一行对应一个 resource config、一个 input scale、一次 warmup/repeat iteration，并记录归一化指标、PCAP 网络字节、cold-start phases，以及该窗口的 cgroup memory/stat/PID、swap、块 I/O 与压力/事件。 |

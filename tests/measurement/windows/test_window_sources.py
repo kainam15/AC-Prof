@@ -12,6 +12,12 @@ from acprof.result_store.protocol import reference
 from acprof.result_store.sources import window_row
 from acprof.result_store.writer import ResultWriter
 from acprof.results.layout import ArtifactLayout
+from acprof.results.windows import (
+    WindowPublicationContext,
+    commit_window_record,
+    read_window_record,
+)
+from acprof.telemetry import read_window_evidence
 from tests.results.storage.test_incremental_results import initialized, receipt
 
 
@@ -136,6 +142,32 @@ def test_null_reference_hash_cannot_disable_verification(window_source):
     source = {"kind": "window", "reference": {**reference(layout, path), "sha256": None}}
     with pytest.raises(ValueError, match="SHA256"):
         window_row(layout, source)
+
+
+@pytest.mark.parametrize("digest", [None, "", "G" * 64, 1])
+def test_receipt_telemetry_reference_requires_recorded_sha256(window_source, digest):
+    layout, path, record = window_source
+    identity = record["identity"]
+    telemetry = layout.window_evidence_path("telemetry", identity)
+    # A standalone reader can inspect telemetry without an external reference.
+    assert read_window_evidence(telemetry)["identity"] == identity
+    record["telemetry"]["sha256"] = digest
+    path.write_bytes(encoded_record(record))
+    for verify_evidence in (False, True):
+        with pytest.raises(ValueError, match="telemetry reference SHA256"):
+            read_window_record(path, verify_evidence=verify_evidence)
+    with ResultWriter(layout.root) as writer:
+        with pytest.raises(ValueError, match="telemetry reference SHA256"):
+            writer.append_window(path)
+        assert not writer.rows
+    path.unlink()
+    context = WindowPublicationContext(identity["run_id"], identity["case_id"], identity["case_attempt_id"],
+                                       str(path.parent), str(telemetry.parent))
+    with pytest.raises(ValueError, match="telemetry reference SHA256"):
+        commit_window_record(context, window_id=identity["window_id"], row=record["row"],
+                             request_record={"record": record["request"]}, telemetry_reference=record["telemetry"],
+                             projections={}, sequence=record.get("sequence"))
+    assert not path.exists()
 
 
 def test_hash_mismatch_is_rejected_before_json_or_telemetry_reads(window_source, monkeypatch):
