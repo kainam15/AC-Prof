@@ -16,6 +16,62 @@ class TestComparisonProfile:
         self.fixture = comparison_fixture.ComparisonFixture()
         self.fixture.build(self.fixture_root)
 
+    @pytest.mark.parametrize("known_count", [0, 3])
+    def test_unknown_request_contract_keeps_its_weight_without_comparable_facts(self, known_count):
+        from acprof.analysis.conditions import (
+            canonical,
+            compare_workload_profiles,
+            digest,
+            workload_case_profile,
+        )
+
+        contract = self.fixture.contract
+        variants: list[dict[str, object]] = [{"contract": None, "count": 1}]
+        if known_count:
+            variants.append({"contract": contract, "count": known_count})
+        profile = workload_case_profile({"request_count": 1 + known_count, "variants": variants})
+        assert not profile["complete"]
+        unknown_weight = "1/4" if known_count else "1"
+        assert profile["variants"][0] == {"proportion": unknown_weight, "fields": {}, "controlled": []}
+        distribution = {"null": unknown_weight}
+        if known_count:
+            known = profile["variants"][1]
+            assert known["proportion"] == "3/4"
+            assert known["fields"]["input.actual_scale"] == "2"
+            distribution[canonical(contract)] = "3/4"
+        assert profile["observed"] == digest(distribution)
+        assert compare_workload_profiles({"partial": profile}, {"partial": profile}) == "unknown"
+
+    def test_unknown_request_in_one_case_keeps_proven_difference_in_another(self):
+        from acprof.analysis.conditions import compare_workload_profiles, workload_case_profile
+
+        def profile(contract):
+            return workload_case_profile({"request_count": 1, "variants": [{"count": 1, "contract": contract}]})
+
+        partial = profile(None)
+        known = profile(self.fixture.contract)
+        changed = profile({**self.fixture.contract, "batch_size": 2})
+        assert compare_workload_profiles({"partial": partial, "measured": known},
+                                         {"partial": partial, "measured": changed}) == "incompatible"
+
+    @pytest.mark.parametrize("request_count", [None, 0])
+    def test_unavailable_distribution_is_ambiguous_and_its_cached_profile_is_isolated(self, request_count):
+        from acprof.analysis.comparison import load_comparison_snapshot
+        from acprof.analysis.conditions import PreparedComparison, compare_workload_profiles
+
+        snapshot = load_comparison_snapshot(self.fixture.left)
+        workload = snapshot["conditions"]["actual_workload"]
+        key = next(iter(workload))
+        workload[key]["request_count"] = request_count
+        if request_count == 0:
+            workload[key]["variants"] = []
+        prepared = PreparedComparison(snapshot)
+        projected = prepared.profile()["workload"]
+        assert projected == {key: {"ambiguous": True}}
+        assert compare_workload_profiles(projected, projected) == "unknown"
+        projected[key]["ambiguous"] = False
+        assert prepared.profile()["workload"] == {key: {"ambiguous": True}}
+
     def test_html_reuses_strict_input_order_verdict_and_reason(self):
         from acprof.analysis.comparison import compare_profiles, compare_results
         from acprof.analysis.model import load_analysis
@@ -61,7 +117,8 @@ class TestComparisonProfile:
         fixture.refresh(fixture.right)
         assert (compare_results(fixture.left, fixture.right, purpose="resource-scaling")["status"]) == ("incompatible")
 
-    def test_html_projects_each_configuration_workload_in_a_multi_case_experiment(self):
+    @pytest.mark.parametrize("missing", [False, True], ids=["different-input", "missing-window-count"])
+    def test_html_projects_each_configuration_workload_in_a_multi_case_experiment(self, missing):
         from acprof.analysis.conditions import compare_profiles
         from acprof.analysis.model import load_analysis
         fixture = self.fixture
@@ -70,9 +127,12 @@ class TestComparisonProfile:
             reader = csv.DictReader(stream)
             fields, row = reader.fieldnames, next(reader)
         other = {**row, "cpu_cores": "2"}
-        workload = json.loads(other["workload_contract"])
-        workload["variants"][0]["contract"]["input"]["feature_dim"] = 9
-        other["workload_contract"] = json.dumps(workload)
+        if missing:
+            other.update(workload_contract="N/A", repeat_in_window="nan")
+        else:
+            workload = json.loads(other["workload_contract"])
+            workload["variants"][0]["contract"]["input"]["feature_dim"] = 9
+            other["workload_contract"] = json.dumps(workload)
         with path.open("w", newline="") as stream:
             writer = csv.DictWriter(stream, fields)
             writer.writeheader()
@@ -83,8 +143,10 @@ class TestComparisonProfile:
         fixture.refresh(fixture.left)
         configs = load_analysis([fixture.left]).configs
         profiles = [c["comparison_profiles"]["resource-scaling"] for c in configs]
-        assert (all(p["status"] == "compatible" for p in profiles))
-        assert (compare_profiles(*profiles)["status"]) == ("incompatible")
+        expected = {1: "compatible", 2: "unknown" if missing else "compatible"}
+        for policy in ("same-hardware", "resource-scaling"):
+            assert {c["cpu"]: c["comparison_profiles"][policy]["status"] for c in configs} == expected
+        assert compare_profiles(*profiles)["status"] == ("unknown" if missing else "incompatible")
         assert (compare_profiles(*profiles)["reasons"]) == (["actual_workload"])
         from acprof.analysis.independent_comparison import compare_experiments
         with pytest.raises(ValueError, match="one resource configuration"):

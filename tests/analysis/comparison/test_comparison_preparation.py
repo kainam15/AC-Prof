@@ -8,14 +8,14 @@ from unittest.mock import Mock
 import pytest
 
 from acprof.analysis import conditions
-from acprof.analysis.comparison import load_comparison_snapshot
+from acprof.analysis.comparison import compare_results, load_comparison_snapshot
 from acprof.analysis.model import load_analysis
 from tests.support.comparison_fixtures import ComparisonFixture
 
 
 @pytest.fixture
 def multi_case_sources(tmp_path):
-    def build(cpu_count):
+    def build(cpu_count, *, update_workload=None):
         fixture = ComparisonFixture()
         fixture.build(tmp_path)
         for directory in (fixture.left, fixture.right):
@@ -28,9 +28,11 @@ def multi_case_sources(tmp_path):
                     contract = copy.deepcopy(fixture.contract)
                     contract["input"].update(planned_scale=scale, actual_scale=scale, rows=scale)
                     contract["output"].update(shape=[scale, 1], count=scale)
+                    summary = {"schema_version": 1, "request_count": 3, "variants": [{"count": 3, "contract": contract}]}
+                    if update_workload is not None:
+                        summary = update_workload(directory, cpu, scale, summary)
                     rows.append({**row, "cpu_cores": cpu, "input_scale": scale,
-                                 "workload_contract": json.dumps({"schema_version": 1, "request_count": 3,
-                                     "variants": [{"count": 3, "contract": contract}]})})
+                                 "workload_contract": json.dumps(summary) if summary is not None else "N/A"})
             with (directory / "result_all.csv").open("w", newline="") as stream:
                 writer = csv.DictWriter(stream, fields)
                 writer.writeheader()
@@ -47,6 +49,72 @@ def multi_case_sources(tmp_path):
         return fixture
 
     return build
+
+
+@pytest.mark.parametrize(("sibling_diff", "status"), [(False, "unknown"), (True, "incompatible")])
+def test_resource_scaling_keeps_sibling_workload_evidence(multi_case_sources, sibling_diff, status):
+    def different_work(directory, cpu, scale, summary):
+        if directory.name == "onnx":
+            if cpu == 2 and scale == 2:
+                return None
+            if sibling_diff and scale == 4:
+                summary["variants"][0]["contract"]["input"]["feature_dim"] = 8
+        return summary
+
+    fixture = multi_case_sources(2, update_workload=different_work)
+    purpose = "resource-scaling"
+    report = compare_results(fixture.left, fixture.right, purpose=purpose)
+    compact = conditions.compare_profiles(*(
+        conditions.PreparedComparison(load_comparison_snapshot(path)).profile(purpose=purpose)
+        for path in (fixture.left, fixture.right)))
+    workload = report["conditions"]["actual_workload"]
+    assert report["valid"]
+    assert report["status"] == compact["status"] == status
+    assert workload["status"] == compact["checks"]["actual_workload"] == status
+
+    partial = workload["right"]['["off","2"]']
+    assert partial["ambiguous"] is True
+    assert partial["request_count"] is None
+    assert partial["observed_request_count"] == 3
+    assert partial["uncounted_windows"] == 1
+    assert partial["variants"][0]["proportion"] is None
+    assert {key: case["request_count"] for key, case in partial["resource_cases"].items()} == {
+        '["1","4","off","2"]': 3, '["2","4","off","2"]': None}
+    sibling = '["off","4"]'
+    assert workload["left"][sibling]["request_count"] == workload["right"][sibling]["request_count"] == 6
+    if sibling_diff:
+        assert workload["changed_dimensions"] == {"input.feature_dim": {sibling: {"left": {"2": "1"}, "right": {"8": "1"}}}}
+        assert workload["reason"] == "per_request_distribution_changed"
+    else:
+        assert workload["changed_dimensions"] == {}
+        assert workload["reason"] == "actual_workload_evidence_incomplete"
+
+
+def test_resource_scaling_pools_matching_distributions_across_resources(multi_case_sources):
+    def repeated_work(directory, cpu, _scale, summary):
+        multiplier = 1 if directory.name == "torch" and cpu == 1 else 2
+        contract = summary["variants"][0]["contract"]
+        other = copy.deepcopy(contract)
+        other["input"]["feature_dim"] = 8
+        summary.update(request_count=3 * multiplier, variants=[
+            {"count": 2 * multiplier, "contract": contract}, {"count": multiplier, "contract": other}])
+        return summary
+
+    fixture = multi_case_sources(2, update_workload=repeated_work)
+    report = compare_results(fixture.left, fixture.right, purpose="resource-scaling")
+    workload = report["conditions"]["actual_workload"]
+    assert report["status"] == "compatible"
+    assert workload["status"] == "compatible"
+    assert workload["request_counts_changed"] is True
+    for scale in ("2", "4"):
+        key = conditions.canonical(["off", scale])
+        lhs, rhs = workload["left"][key], workload["right"][key]
+        assert lhs["request_count"] == 9
+        assert rhs["request_count"] == 12
+        assert {variant["contract"]["input"]["feature_dim"]: (variant["count"], variant["proportion"])
+                for variant in lhs["variants"]} == {2: (6, "2/3"), 8: (3, "1/3")}
+        assert {key: case["request_count"] for key, case in lhs["resource_cases"].items()} == {
+            conditions.canonical(["1", "4", "off", scale]): 3, conditions.canonical(["2", "4", "off", scale]): 6}
 
 
 @pytest.mark.parametrize("cpu_count", [1, 4])

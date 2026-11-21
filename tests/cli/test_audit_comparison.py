@@ -91,6 +91,58 @@ def test_audit_keeps_unknown_request_evidence_distinct_from_invalid_versions(wor
     actual = strict["comparison"]["conditions"]["actual_workload"]
     assert actual["status"] == ("compatible" if evidence == "complete" else "unknown")
     assert actual["right"]
+    if evidence == "historical_blank":
+        assert actual["left"] is None
+    else:
+        case, = actual["left"].values()
+        assert case["request_count"] == 3
+        assert sum(v["count"] for v in case["variants"]) == 3
+        missing = [v for v in case["variants"] if v["contract"] is None]
+        if evidence == "mixed":
+            assert missing == [{"contract": None, "count": 1, "proportion": "1/3"}]
+        elif evidence == "null":
+            assert missing == [{"contract": None, "count": 3, "proportion": "1"}]
+
+
+@pytest.mark.parametrize(("recorded_count", "total", "proportion"), [
+    ("nan", None, None), ("4", 7, "3/7"), ("0", 3, "1"),
+    ("9.007199254740993e15", 9007199254740996, "1/3002399751580332"),
+])
+def test_audit_keeps_measured_requests_when_another_window_has_no_summary(
+    experiments, capsys, recorded_count, total, proportion,
+):
+    left, right = (root / "result_all.csv" for root in experiments)
+    for source in (left, right):
+        with source.open(newline="") as stream:
+            reader = csv.DictReader(stream)
+            fields, row = reader.fieldnames, next(reader)
+        assert fields is not None
+        second = {**row, "repeat_idx": "1"}
+        if source == left:
+            second.update(workload_contract="N/A", repeat_in_window=recorded_count)
+        with source.open("w", newline="") as stream:
+            writer = csv.DictWriter(stream, fields)
+            writer.writeheader()
+            writer.writerows([row, second])
+        state_path = source.parent / "run_state.json"
+        state = json.loads(state_path.read_text())
+        state["options"]["repeat"] = 2
+        state_path.write_text(json.dumps(state))
+
+    code = audit.main([str(left), "--compare", str(right), "--json", "--require-comparable"])
+    report = json.loads(capsys.readouterr().out)
+    assert report["valid"]
+    assert report["counts"]["formal_ok"] == 2
+    actual = report["comparison"]["conditions"]["actual_workload"]
+    case, = actual["left"].values()
+    assert case["request_count"] == total
+    measured, = (v for v in case["variants"] if v["contract"] is not None)
+    assert measured["count"] == 3
+    assert measured["proportion"] == proportion
+    if total is None:
+        assert case["observed_request_count"] == 3
+        assert case["uncounted_windows"] == 1
+    assert code == (0 if recorded_count == "0" else 1)
 
 
 @pytest.mark.parametrize("storage", ["csv", "legacy-directory", "v1", "v2", "v3"])

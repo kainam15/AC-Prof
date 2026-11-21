@@ -17,11 +17,12 @@ from acprof.analysis.conditions import (
     PreparedComparison,
     compare_profiles,
     compare_workload_profiles,
+    dimensions,
     unknown,
     workload_case_profile,
     workload_contract_complete,
 )
-from acprof.analysis.workload import parse_workload_summary
+from acprof.analysis.workload import actual_workload, merge_workload_cases
 from acprof.hardware_conditions import HARDWARE_FIELDS, conditions_path
 from acprof.platform import recorded_identity
 from acprof.quality import QUALITY_FIELDS
@@ -69,31 +70,6 @@ def _condition(left, right) -> dict:
     return {"status": status, "left": left, "right": right}
 
 
-def _actual_workload(rows: list[dict]) -> dict | None:
-    """Pool observed request counts per case without losing the mixture weights."""
-    facts: dict[str, Counter] = {}
-    for row in rows:
-        row_key = measurement_key(row)
-        if result_row_status(row) not in {"ok", "warn"} or row_key[4] != "0":
-            continue
-        summary = parse_workload_summary(row.get("workload_contract"))
-        if summary is None or not summary["request_count"]:
-            return None
-        key = _canonical(row_key[:4])
-        for variant in summary["variants"]:
-            contract = variant.get("contract")
-            if contract is None:
-                return None
-            # Backend parameters are identity evidence, not workload semantics.
-            contract = {name: item for name, item in contract.items() if name != "runtime"}
-            facts.setdefault(key, Counter())[_canonical(contract)] += variant["count"]
-    return {key: {"request_count": sum(counts.values()), "variants": [
-        {"contract": json.loads(contract), "count": count,
-         "proportion": str(Fraction(count, sum(counts.values())))}
-        for contract, count in sorted(counts.items())]}
-        for key, counts in sorted(facts.items())} or None
-
-
 def _distribution(case, projection=lambda contract: contract):
     counts: Counter[str] = Counter()
     for variant in case["variants"]:
@@ -102,15 +78,18 @@ def _distribution(case, projection=lambda contract: contract):
     return {value: str(Fraction(count, total)) for value, count in sorted(counts.items())}
 
 
-def _dimensions(contract, prefix=""):
-    result = {}
-    for key, value in contract.items():
-        name = f"{prefix}.{key}" if prefix else key
-        if isinstance(value, dict):
-            result.update(_dimensions(value, name))
-        else:
-            result[name] = value
-    return result
+def _request_counts_changed(left, right) -> bool | None:
+    uncertain = left.keys() != right.keys()
+    for key in left.keys() & right.keys():
+        a, b = left[key], right[key]
+        lhs, rhs = a["request_count"], b["request_count"]
+        # An observed subtotal is a lower bound when any window lacks a count.
+        if ((lhs is not None and b.get("observed_request_count", rhs) > lhs)
+                or (rhs is not None and a.get("observed_request_count", lhs) > rhs)):
+            return True
+        if lhs is None or rhs is None:
+            uncertain = True
+    return None if uncertain else False
 
 
 def _workload_condition(left, right):
@@ -119,13 +98,22 @@ def _workload_condition(left, right):
               "reason": "actual_workload_evidence_missing"}
     if left is None or right is None:
         return result
+    result["request_counts_changed"] = _request_counts_changed(left, right)
     if left.keys() != right.keys():
         return {**result, "status": "incompatible", "reason": "workload_cases_changed"}
-    result["request_counts_changed"] = any(left[key]["request_count"] != right[key]["request_count"] for key in left)
-    incomplete = any(not workload_contract_complete(v["contract"])
-                     for cases in (left, right) for case in cases.values() for v in case["variants"])
     changed: dict[str, dict[str, dict[str, dict[str, str]]]] = {}
-    differing_cases = [key for key in left if _distribution(left[key]) != _distribution(right[key])]
+    incomplete = False
+    differing_cases = []
+    for key in left:
+        a, b = left[key], right[key]
+        if any(case.get("ambiguous") or not case["request_count"] or any(v["contract"] is None for v in case["variants"])
+               for case in (a, b)):
+            incomplete = True
+            continue
+        if any(not workload_contract_complete(v["contract"]) for case in (a, b) for v in case["variants"]):
+            incomplete = True
+        if _distribution(a) != _distribution(b):
+            differing_cases.append(key)
     if not differing_cases:
         return {**result, "status": "unknown" if incomplete else "compatible",
                 "reason": "actual_workload_evidence_incomplete" if incomplete else "same_per_request_distribution"}
@@ -133,10 +121,10 @@ def _workload_condition(left, right):
                                                 for cases in (left, right)))
     for key in differing_cases:
         a, b = left[key], right[key]
-        names = set().union(*(_dimensions(v["contract"]).keys() for c in (a, b) for v in c["variants"]))
+        names = set().union(*(dimensions(v["contract"]).keys() for c in (a, b) for v in c["variants"]))
         for name in sorted(names):
-            lhs = _distribution(a, lambda c, name=name: _dimensions(c).get(name))
-            rhs = _distribution(b, lambda c, name=name: _dimensions(c).get(name))
+            lhs = _distribution(a, lambda c, name=name: dimensions(c).get(name))
+            rhs = _distribution(b, lambda c, name=name: dimensions(c).get(name))
             if lhs != rhs:
                 changed.setdefault(name, {})[key] = {"left": lhs, "right": rhs}
     # Equal marginal distributions may still hide different joint mixtures.
@@ -304,7 +292,7 @@ def _resolve_actual_workload_and_cases(
         issues.append(f"actual workload: {error}")
         return [], None, set()
     try:
-        actual = _actual_workload(rows)
+        actual = actual_workload(rows)
     except ValueError as error:
         issues.append(f"actual workload: {error}")
         actual = None
@@ -479,12 +467,21 @@ def compare_results(left: str | Path, right: str | Path, *, purpose: str = "same
 def _resource_scaling_workload(cases: dict | None) -> dict[str, dict] | None:
     if cases is None:
         return None
-    normalized: dict[str, dict] = {}
-    for key, value in cases.items():
-        projected = _canonical(json.loads(key)[2:])
-        if projected in normalized and workload_case_profile(normalized[projected]) != workload_case_profile(value):
-            return None
-        normalized[projected] = value
+    groups: dict[str, dict[str, dict]] = {}
+    for key, case in cases.items():
+        groups.setdefault(_canonical(json.loads(key)[2:]), {})[key] = case
+    normalized = {}
+    for projected, group in groups.items():
+        cases_in_group = iter(group.values())
+        first = next(cases_in_group)
+        if len(group) == 1:
+            normalized[projected] = first
+            continue
+        merged = merge_workload_cases(group)
+        profile = workload_case_profile(first)
+        if any(workload_case_profile(case) != profile for case in cases_in_group):
+            merged["ambiguous"] = True
+        normalized[projected] = merged
     return normalized
 
 
@@ -529,14 +526,12 @@ def compare_snapshots(left: dict, right: dict, *, purpose: str = "same-hardware"
     snapshots = {"left": left, "right": right}
     lhs, rhs = snapshots.values()
     conditions = {name: _condition(value, rhs["conditions"][name])
-                  for name, value in lhs["conditions"].items()}
-    conditions["actual_workload"] = _workload_condition(lhs["conditions"]["actual_workload"],
-                                                        rhs["conditions"]["actual_workload"])
+                  for name, value in lhs["conditions"].items() if name != "actual_workload"}
+    left_workload, right_workload = (side["conditions"]["actual_workload"] for side in (lhs, rhs))
     if purpose == "resource-scaling":
-        conditions["actual_workload"] = _workload_condition(
-            _resource_scaling_workload(lhs["conditions"]["actual_workload"]),
-            _resource_scaling_workload(rhs["conditions"]["actual_workload"]),
-        )
+        left_workload = _resource_scaling_workload(left_workload)
+        right_workload = _resource_scaling_workload(right_workload)
+    conditions["actual_workload"] = _workload_condition(left_workload, right_workload)
     for name in HARDWARE_FIELDS:
         left_value, right_value = lhs["hardware"].get(name), rhs["hardware"].get(name)
         item = _condition(left_value, right_value)

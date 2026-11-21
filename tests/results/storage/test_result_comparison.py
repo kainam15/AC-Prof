@@ -16,6 +16,14 @@ from acprof.platform import Environment
 from tests.support.comparison_fixtures import ComparisonFixture
 
 
+def _case_workload(total, contract, observed=2):
+    if total is None:
+        return {"request_count": None, "observed_request_count": observed, "uncounted_windows": 1,
+                "variants": [{"count": observed, "contract": contract, "proportion": None}]}
+    variants = [{"count": total, "contract": contract, "proportion": "1"}] if total else []
+    return {"request_count": total, "variants": variants}
+
+
 class TestResultComparison(ComparisonFixture):
     @pytest.fixture(autouse=True)
     def _setup(self, tmp_path):
@@ -275,6 +283,53 @@ class TestResultComparison(ComparisonFixture):
         assert (actual["status"]) == ("compatible")
         assert (actual["request_counts_changed"])
         assert (actual["changed_dimensions"]) == ({})
+
+    @pytest.mark.parametrize(("uncertain_left", "uncertain_right", "observed", "other_right", "changed"), [
+        (None, 3, 2, 2, None), (None, 3, 3, 2, None), (None, None, 5, 2, None),
+        (None, 3, 2, 5, True), (None, 3, 5, 2, True), (3, None, 5, 2, True),
+        (0, 0, 0, 2, False), (0, 3, 0, 2, True),
+    ])
+    def test_request_count_changes_use_only_supported_totals(
+            self, uncertain_left, uncertain_right, observed, other_right, changed):
+        from acprof.analysis.comparison import _workload_condition
+
+        left = {"partial": _case_workload(uncertain_left, self.contract, observed),
+                "other": _case_workload(2, self.contract)}
+        right = {"partial": _case_workload(uncertain_right, self.contract, observed),
+                 "other": _case_workload(other_right, self.contract)}
+        condition = _workload_condition(left, right)
+        assert condition["request_counts_changed"] is changed
+        assert condition["status"] == "unknown"
+        assert condition["reason"] == "actual_workload_evidence_incomplete"
+        assert not condition["changed_dimensions"]
+
+    def test_counted_null_contract_preserves_counts_without_asserting_a_change(self):
+        self.write_rows(self.left, None)
+        condition = self.compare()["conditions"]["actual_workload"]
+        assert condition["request_counts_changed"] is False
+        assert condition["status"] == "unknown"
+        assert condition["reason"] == "actual_workload_evidence_incomplete"
+        assert not condition["changed_dimensions"]
+        assert list(condition["left"].values()) == [
+            {"request_count": 3, "variants": [{"count": 3, "contract": None, "proportion": "1"}]}]
+
+    @pytest.mark.parametrize("partial_total", [None, 0, 3])
+    def test_partial_case_does_not_hide_another_cases_observed_workload_difference(self, partial_total):
+        from acprof.analysis.comparison import _workload_condition
+
+        changed: dict[str, Any] = copy.deepcopy(self.contract)
+        changed["input"]["actual_scale"] = 9
+        incomplete_contract = self.contract if partial_total is None else None
+        left = {"partial": _case_workload(partial_total, incomplete_contract),
+                "other": _case_workload(2, self.contract)}
+        right = {"partial": _case_workload(3, self.contract),
+                 "other": _case_workload(2, changed)}
+        condition = _workload_condition(left, right)
+        assert condition["status"] == "incompatible"
+        assert condition["reason"] == "per_request_distribution_changed"
+        assert condition["changed_dimensions"]["input.actual_scale"] == {
+            "other": {"left": {"2": "1"}, "right": {"9": "1"}}}
+        assert all("partial" not in cases for cases in condition["changed_dimensions"].values())
 
     def test_variable_task_output_difference_requires_equivalence_evidence(self):
         self.write_distribution(self.left, [99, 1], output_only=True, task="text-generation")

@@ -85,8 +85,10 @@ def _check_tokens(name: str, value) -> Iterator[tuple[str, str | None]]:
         yield name, None if unknown(value) else digest(value)
 
 
-def workload_contract_complete(contract: dict) -> bool:
+def workload_contract_complete(contract: dict | None) -> bool:
     """A v1 contract needs all base observations before equal distributions establish equivalence."""
+    if contract is None:
+        return False
     task = contract.get("task")
     if not isinstance(task, str) or not task.strip() or "batch_size" not in contract:
         return False
@@ -98,20 +100,23 @@ def workload_contract_complete(contract: dict) -> bool:
 
 
 def workload_case_profile(case):
+    if case.get("ambiguous") or not case["request_count"]:
+        return {"ambiguous": True}
     variants = []
     distribution: defaultdict[str, Fraction] = defaultdict(Fraction)
     complete = True
     for variant in case["variants"]:
-        contract = variant["contract"]
+        observation = variant["contract"]
         weight = Fraction(variant["count"], case["request_count"])
-        distribution[canonical(contract)] += weight
+        distribution[canonical(observation)] += weight
+        contract = observation if observation is not None else {}
         fields = {name: canonical(value) for name, value in dimensions(contract).items() if not unknown(value)}
         task = contract.get("task")
         fixed_output = isinstance(task, str) and task in _FIXED_OUTPUT_TASKS
         controlled = [name for name in fields if fixed_output or
                       ((not name.startswith("output.") or name == "output.type") and name not in _DYNAMIC_GENERATION)]
         variants.append({"proportion": str(weight), "fields": fields, "controlled": sorted(controlled)})
-        complete = complete and workload_contract_complete(contract)
+        complete = complete and workload_contract_complete(observation)
     return {"observed": digest({key: str(value) for key, value in sorted(distribution.items())}),
             "complete": complete, "variants": variants}
 
@@ -184,6 +189,8 @@ class PreparedComparison:
         profile = self._workload_profiles[key]
         # Evidence leaves are canonical strings or booleans. Copy their owning
         # containers so consumers cannot mutate cached or sibling profiles.
+        if profile.get("ambiguous"):
+            return dict(profile)
         return {**profile, "variants": [
             {**variant, "fields": dict(variant["fields"]), "controlled": list(variant["controlled"])}
             for variant in profile["variants"]]}
