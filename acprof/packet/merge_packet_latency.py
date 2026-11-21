@@ -18,6 +18,7 @@ from acprof.packet.protocol import require_packet_metrics
 from acprof.packet.sniff_parse_pcap import normalize_request_id
 from acprof.pixel_metrics import per_megapixel
 from acprof.results.csv import allow_large_csv_fields
+from acprof.results.latency import latency_distribution_metrics
 from acprof.results.metrics import order_csv_fields
 
 SNIFF_GROUP_FIELD = "sniff_group_id"
@@ -87,59 +88,10 @@ def _mean(values: list[float]) -> float:
     return sum(finite_values) / len(finite_values) if finite_values else float("nan")
 
 
-def _percentile_nearest_rank(values: list[float], percentile: float) -> float:
-    finite_values = sorted(value for value in values if math.isfinite(value))
-    if not finite_values:
-        return float("nan")
-    rank = int(math.ceil((float(percentile) / 100.0) * len(finite_values)))
-    index = min(max(rank - 1, 0), len(finite_values) - 1)
-    return finite_values[index]
-
-
-def _slow_ratio(values: list[float], *, slow_latency_threshold_s: float | None) -> float:
-    finite_values = [value for value in values if math.isfinite(value)]
-    if (not finite_values or slow_latency_threshold_s is None
-            or not math.isfinite(slow_latency_threshold_s) or slow_latency_threshold_s <= 0):
-        return float("nan")
-    return sum(value > slow_latency_threshold_s for value in finite_values) / float(len(finite_values))
-
-
 def _distribution_metrics(
     values: list[float], *, slow_latency_threshold_s: float | None = None,
 ) -> dict[str, float]:
-    finite_values = [value for value in values if math.isfinite(value)]
-    mean = _mean(finite_values)
-    std = (
-        math.sqrt(
-            sum((value - mean) ** 2 for value in finite_values)
-            / len(finite_values)
-        )
-        if len(finite_values) >= 2
-        else float("nan")
-    )
-    p50 = _percentile_nearest_rank(finite_values, 50.0)
-    p95 = _percentile_nearest_rank(finite_values, 95.0)
-    return {
-        "latency_request_count": float(len(finite_values)),
-        "latency_p50_s": p50,
-        "latency_p90_s": _percentile_nearest_rank(finite_values, 90.0),
-        "latency_p95_s": p95,
-        "latency_tail_ratio": p95 / p50 if p50 > 0 and math.isfinite(p95) else float("nan"),
-        "latency_std_s": std,
-        "latency_cv": (
-            std / mean
-            if math.isfinite(std) and math.isfinite(mean) and mean > 0.0
-            else float("nan")
-        ),
-        "latency_iqr_s": (
-            _percentile_nearest_rank(finite_values, 75.0)
-            - _percentile_nearest_rank(finite_values, 25.0)
-            if len(finite_values) >= 2
-            else float("nan")
-        ),
-        "latency_max_s": max(finite_values) if finite_values else float("nan"),
-        "latency_slow_ratio": _slow_ratio(finite_values, slow_latency_threshold_s=slow_latency_threshold_s),
-    }
+    return latency_distribution_metrics("latency", values, slow_latency_threshold_s=slow_latency_threshold_s)
 
 
 def _fmt_float(value: float) -> str:

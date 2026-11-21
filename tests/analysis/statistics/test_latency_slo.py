@@ -52,6 +52,22 @@ def test_tail_ratio_boundaries(values_case):
     else:
         assert (actual) == (expected) or round(abs((actual) - (expected)), 7) == 0
 
+@pytest.mark.parametrize("producer", ["app", "packet"])
+def test_window_statistics_exclude_nonfinite_samples_and_keep_strict_slo(producer):
+    values = [4.0, 1.0, math.nan, 2.0, math.inf, 1.0]
+    original = values.copy()
+    if producer == "app":
+        result = client_metrics._latency_distribution_metrics("latency", values, slow_latency_threshold_s=2.0)
+    else:
+        result = merge_packet_latency._distribution_metrics(values, slow_latency_threshold_s=2.0)
+    assert result == pytest.approx({
+        "latency_request_count": 4, "latency_p50_s": 1, "latency_p90_s": 4, "latency_p95_s": 4,
+        "latency_tail_ratio": 4, "latency_std_s": math.sqrt(1.5), "latency_cv": math.sqrt(1.5) / 2,
+        "latency_iqr_s": 1, "latency_max_s": 4, "latency_slow_ratio": 0.25,
+    })
+    assert values == original
+
+
 def test_unconfigured_threshold_does_not_report_zero_violations():
     result = client_metrics._latency_distribution_metrics(
         "latency_app", [0.01, 0.06, 0.2], slow_latency_threshold_s=math.nan,
