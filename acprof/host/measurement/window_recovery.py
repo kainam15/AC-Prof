@@ -10,7 +10,7 @@ from acprof.artifacts import (
     atomic_write_json,
     file_sha256,
     read_json_object,
-    sync_directory,
+    sync_directory_chain,
 )
 from acprof.result_store.protocol import IDENTITY_FIELDS
 from acprof.result_store.writer import ResultWriter
@@ -97,9 +97,10 @@ def restore_case_windows(case, *, run_id, expected):
             attempt = identity["case_attempt_id"]
             window_key = tuple(identity[name] for name in IDENTITY_FIELDS)
             if attempt not in synced_attempts and window_key not in writer.windows:
-                # A process can die after rename but before its directory fsync.
-                sync_directory(case.telemetry(attempt))
-                sync_directory(path.parent)
+                # A visible orphan may still lack durable file or directory entries.
+                raw = case.layout.path("raw")
+                sync_directory_chain(case.telemetry(attempt), raw)
+                sync_directory_chain(path.parent, raw)
                 synced_attempts.add(attempt)
             writer.append_window(path)
     def csv_projection(stream):

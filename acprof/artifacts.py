@@ -290,14 +290,22 @@ def atomic_write_binary(
     _atomic_write(path, write, binary=True, default_mode=default_mode, overwrite=overwrite)
 
 
-def publish_immutable_bytes(destination: Path, payload: bytes, *, conflict: str) -> None:
-    """Durably claim a filename or reuse an existing byte-for-byte match."""
+def publish_immutable_bytes(destination: Path, payload: bytes, *, conflict: str,
+                            before_publish: Callable[[], None] | None = None) -> None:
+    """Run any publication prerequisite after checking a visible file for conflicts.
+
+    Concurrent claims install at most one file. Existing content must match byte for byte.
+    """
     def require_match() -> None:
         if destination.read_bytes() != payload:
             raise ValueError(f"{conflict}: {destination}")
 
-    if destination.exists():
+    exists = destination.exists()
+    if exists:
         require_match()
+    if before_publish is not None:
+        before_publish()
+    if exists:
         sync_directory(destination.parent)
         return
 

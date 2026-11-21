@@ -10,11 +10,16 @@ import hashlib
 import os
 import re
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from acprof.artifacts import loads_finite_json, publish_immutable_bytes
+from acprof.artifacts import (
+    create_durable_directory,
+    loads_finite_json,
+    publish_immutable_bytes,
+    sync_directory_chain,
+)
 from acprof.telemetry import canonical_bytes, read_window_evidence, write_window_evidence
 
 WINDOW_RECORD_SCHEMA_VERSION = 1
@@ -27,6 +32,28 @@ class WindowPublicationContext:
     case_attempt_id: str
     records_dir: str
     telemetry_dir: str
+    _confirmed_dirs: set[Path] = field(default_factory=set, init=False, repr=False, compare=False)
+
+    def confirm_attempt_directory(self, directory: Path, *, include_contents: bool = False) -> None:
+        """Confirm the canonical attempt's directory entries once in this publisher."""
+        requested = directory.absolute()
+        if requested in self._confirmed_dirs:
+            return
+        directory = requested.resolve()
+        records = Path(self.records_dir).resolve()
+        if records.parts[-4:] != ("raw", "windows", self.case_id, self.case_attempt_id):
+            return
+        raw = records.parents[2]
+        telemetry = raw / "telemetry" / self.case_id / self.case_attempt_id
+        if Path(self.telemetry_dir).resolve() != telemetry or directory not in (telemetry, records):
+            return
+        # A failed mkdir/fsync sequence can leave visible, unconfirmed ancestors.
+        if directory == records:
+            if not raw.exists():
+                create_durable_directory(raw)
+            directory.mkdir(parents=True, exist_ok=True)
+        sync_directory_chain(directory if include_contents else directory.parent, raw)
+        self._confirmed_dirs.update((requested, directory))
 
     def identity(self, window_id: str) -> dict[str, str]:
         values = {"run_id": self.run_id, "case_id": self.case_id,
@@ -64,6 +91,7 @@ def prepare_window_telemetry(context: WindowPublicationContext, window_id: str,
     if evidence.get("identity") != identity:
         raise ValueError("window telemetry identity mismatch")
     reference = write_window_evidence(Path(context.telemetry_dir) / window_filename(window_id), evidence)
+    context.confirm_attempt_directory(Path(context.telemetry_dir))
     reference["path"] = os.path.relpath(reference["path"], context.record_path(window_id).parent)
     return reference
 
@@ -80,8 +108,8 @@ def commit_window_record(context: WindowPublicationContext, *, window_id: str,
     destination = context.record_path(window_id)
     # Verify existing evidence before making the final commit marker visible.
     digest = _telemetry_sha256(telemetry_reference)
-    evidence = read_window_evidence((destination.parent / telemetry_reference["path"]).resolve(),
-                                    expected_sha256=digest)
+    telemetry_path = (destination.parent / telemetry_reference["path"]).resolve()
+    evidence = read_window_evidence(telemetry_path, expected_sha256=digest)
     if evidence.get("identity") != identity:
         raise ValueError("referenced window telemetry identity mismatch")
     normalized_row = canonical_csv_row(row)
@@ -104,7 +132,13 @@ def commit_window_record(context: WindowPublicationContext, *, window_id: str,
                       projection_semantics="immutable_authority_before_result_projection")
     record["content_sha256"] = content_hash(record)
     payload = canonical_bytes(record) + b"\n"
-    publish_immutable_bytes(destination, payload, conflict="refusing to replace a committed window record")
+
+    def confirm_directories() -> None:
+        context.confirm_attempt_directory(telemetry_path.parent, include_contents=True)
+        context.confirm_attempt_directory(destination.parent)
+
+    publish_immutable_bytes(destination, payload, conflict="refusing to replace a committed window record",
+                            before_publish=confirm_directories)
     return record
 
 
