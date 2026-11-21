@@ -793,6 +793,34 @@ heap_tree=peak
             assert (events) == ([])
             assert (plan["profiles"]) == ([])
 
+    @pytest.mark.parametrize(("gpu", "tool", "massif_cpu", "massif_mem", "nsys_mem"), [
+        ("CPU", "massif", 1, 4, 99),
+        ("TRUE", "nsys", 99, 99, 4),
+    ])
+    def test_single_device_plan_uses_only_applicable_tool_references(
+        self, tmp_path, gpu, tool, massif_cpu, massif_mem, nsys_mem,
+    ):
+        request = execution_profile.ExecutionProfileRequest(
+            task_info=_task_info(), image_tag="fixture", cpu_list=[1, 2], mem_list=[4, 8],
+            gpu_list=[gpu], output_dir=str(tmp_path), input_scale_plan_file=_write_input_scale_plan(str(tmp_path)),
+        )
+        settings = execution_profile.ExecutionProfileOptions(
+            tool_mode="both",
+            massif=execution_profile.ProfilerSampling("per-scale", reference_cpu=massif_cpu, reference_mem=massif_mem),
+            nsys=execution_profile.ProfilerSampling("per-cpu-scale", reference_cpu=99, reference_mem=nsys_mem),
+        )
+        with patch("acprof.capabilities.declared_profiler_error", return_value="fixture tool unavailable"):
+            plan_path = execution_profile.collect_execution_profile_plan(request, settings)
+        with open(plan_path, encoding="utf-8") as stream:
+            plan = json.load(stream)
+        assert plan["static_metadata"]["execution_profile_tools"] == [tool]
+        assert len(plan["profiles"]) == 4
+        for profile in plan["profiles"]:
+            assert set(profile["tools"]) == {tool}
+            sources = {(entry["profile_source_cpu_cores"], entry["profile_source_mem_cap_gb"])
+                       for entry in profile["tools"][tool]["entries"]}
+            assert sources == {(1 if tool == "massif" else profile["cpu_cores"], 4)}
+
     def test_nsys_collection_enables_unregistered_nvtx_capture(self) -> None:
         reports = {
             "cuda_api_sum": (

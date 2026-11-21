@@ -139,3 +139,44 @@ def test_new_field_messages_translate_at_presentation_boundary():
     translated = {issue.field: translate(issue.reason, "en") for issue in failure.value.issues}
     assert translated == {"runtime": "Execution runtime must be auto, docker or process",
                           "sampling_policy": "Sampling policy must be burst or skip"}
+
+
+@pytest.mark.parametrize("runtime", ["auto", "docker"])
+def test_used_profile_references_report_all_axes_before_preparation(runtime):
+    config = RunConfig(model="fixture/model", runtime=runtime, gpus="CPU,1", cpus="auto", mems="04,12",
+                       execution_profile_tool="both", extra_options={
+                           "massif_reference_cpu": "3", "massif_reference_mem": 8,
+                           "nsys_sampling": "per-scale", "nsys_reference_cpu": 6, "nsys_reference_mem": 9,
+                       })
+    with pytest.raises(RunConfigError) as failure:
+        config.validate()
+    assert [(item.field, str(item.reason)) for item in failure.value.issues] == [
+        ("cpus", "--massif-reference-cpu=3 必须位于 --cpus 选中的资源值 [1, 2, 4, 8] 中"),
+        ("mems", "--massif-reference-mem=8 必须位于 --mems 选中的资源值 [4, 12] 中"),
+        ("mems", "--nsys-reference-mem=9 必须位于 --mems 选中的资源值 [4, 12] 中"),
+        ("cpus", "--nsys-reference-cpu=6 必须位于 --cpus 选中的资源值 [1, 2, 4, 8] 中"),
+    ]
+
+
+def test_automatic_profiler_limits_and_omitted_sampling_survive_validation():
+    settings = {"massif_sampling": None, "massif_reference_cpu": "2", "nsys_reference_cpu": 99}
+    config = RunConfig(model="fixture/model", runtime="auto", cpus="auto", mems="auto",
+                       gpus="off,on", execution_profile_tool="both", extra_options=settings)
+    validated = config.validate()
+    assert (validated.cpus, validated.mems, validated.runtime) == ("auto", "auto", "auto")
+    assert validated.extra_options == {**settings, "massif_reference_cpu": 2}
+    assert settings["massif_reference_cpu"] == "2"
+
+
+@pytest.mark.parametrize(("runtime", "limits", "settings", "fields"), [
+    ("process", "1,2", {"massif_reference_cpu": 3}, ["runtime"]),
+    ("auto", "bad", {"massif_reference_cpu": 3}, ["cpus"]),
+    ("docker", "1,2", {"massif_sampling": "invalid", "massif_reference_cpu": 3}, ["massif_sampling"]),
+    ("docker", "1,2", {"massif_reference_cpu": 0}, ["massif_reference_cpu"]),
+])
+def test_unusable_profiler_options_do_not_produce_secondary_membership_errors(runtime, limits, settings, fields):
+    config = RunConfig(model="fixture/model", runtime=runtime, cpus=limits, mems="4", gpus="off",
+                       execution_profile_tool="massif", extra_options=settings)
+    with pytest.raises(RunConfigError) as failure:
+        config.validate()
+    assert [item.field for item in failure.value.issues] == fields

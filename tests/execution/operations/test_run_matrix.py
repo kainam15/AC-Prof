@@ -38,3 +38,33 @@ def test_matrix_canonical_values_and_elapsed():
 def test_invalid_matrix_aborts_before_runtime_preparation(override, error):
     with pytest.raises(ValueError, match=error):
         resource_matrix(options(**override))
+
+
+@pytest.mark.parametrize(("gpu_text", "gpu_modes", "references"), [
+    pytest.param("CPU", ["off"], {"massif_sampling": "per-scale", "massif_reference_cpu": 1,
+                                 "nsys_sampling": "per-scale", "nsys_reference_mem": 99},
+                 id="cpu-only-ignores-nsys"),
+    pytest.param("TRUE", ["on"], {"massif_sampling": "per-scale", "massif_reference_cpu": 99,
+                                 "nsys_sampling": "per-cpu-scale", "nsys_reference_cpu": 99, "nsys_reference_mem": 2},
+                 id="gpu-only-ignores-massif-and-nsys-cpu"),
+    pytest.param("0,GPU", ["off", "on"], {"massif_sampling": "full", "massif_reference_cpu": 99,
+                                         "nsys_sampling": "full", "nsys_reference_mem": 99},
+                 id="full-ignores-references"),
+])
+def test_run_matrix_ignores_unused_profiler_references(gpu_text, gpu_modes, references):
+    raw = options(gpus=gpu_text, execution_profile_tool="both", **references)
+    assert resource_matrix(raw) == ([1, 2], [2, 4], gpu_modes)
+
+
+def test_per_cpu_scale_rejects_out_of_matrix_memory_with_the_public_option_name():
+    raw = options(gpus="gpu", execution_profile_tool="nsys", nsys_sampling="per-cpu-scale",
+                  nsys_reference_cpu=99, nsys_reference_mem=8)
+    with pytest.raises(ValueError, match="nsys-reference-mem") as error:
+        resource_matrix(raw)
+    assert str(error.value) == "--nsys-reference-mem=8 must be present in the selected resource matrix [2, 4]"
+
+
+def test_raw_namespace_only_needs_reference_fields_used_by_its_profiler():
+    raw = Namespace(cpus="2", mems="4", gpus="gpu", warmup=0, repeat=1, execution_profile_tool="nsys",
+                    nsys_sampling="per-cpu-scale", nsys_reference_mem=4)
+    assert resource_matrix(raw) == ([2], [4], ["on"])

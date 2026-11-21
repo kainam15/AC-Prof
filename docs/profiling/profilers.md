@@ -84,9 +84,11 @@ acprof run --model google-bert/bert-base-uncased \
 ```
 
 代表资源默认取本次 `--cpus` / `--mems` 中的最大值，也可用
-`--massif-reference-cpu`、`--massif-reference-mem`、
-`--nsys-reference-cpu`、`--nsys-reference-mem` 显式选择，取值必须在本次资源矩阵中；
-Nsys 的 `per-cpu-scale` 只使用代表内存，`per-scale` 同时使用代表 CPU 和内存。
+`--massif-reference-cpu`、`--massif-reference-mem`、`--nsys-reference-cpu`、`--nsys-reference-mem` 显式选择。
+`run` 和 `auto` 在准备前检查本次采样会用到的代表值。Massif 的 CPU-only `per-scale` 和 Nsys 的 GPU `per-scale`
+检查代表 CPU 与内存，Nsys 的 `per-cpu-scale` 只检查代表内存。`full` 采样直接遍历所选矩阵。
+例如，`--cpus 1,2 --massif-reference-cpu 3` 在 Massif 的 CPU-only `per-scale` 采样中会报错并列出可选 CPU。
+仅选 CPU 时，Nsys 的代表值不参与矩阵匹配。自动资源轴按 Docker 的默认配额检查，Process 不支持独立 Profiler。
 
 ## 补采已有结果
 

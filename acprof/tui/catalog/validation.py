@@ -49,6 +49,10 @@ MESSAGES: dict[str, Entry] = {
     "validation.pruning.duplicate_memory": Entry(zh="内存列表不能重复", en="Memory values must be unique"),
     "validation.resources.empty_gpu_mode": Entry(zh="GPU 模式不能为空", en="GPU mode must not be empty"),
     "validation.resources.invalid_gpu_mode": Entry(zh="GPU 模式只能包含 off 或 on", en="GPU mode must contain only off or on"),
+    "validation.resources.profiler_reference": Entry(
+        zh="{0}={1} 必须位于 {2} 选中的资源值 {3} 中",
+        en="{0}={1} must be in the resources selected by {2}: {3}",
+    ),
     "validation.resume.preset_change": Entry(
         zh="续跑参数不能更改；请取消续跑并选择新的输出目录创建新实验。",
         en="Resume parameters cannot change; disable resume and choose a new output directory for a new experiment.",

@@ -9,9 +9,10 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field as dataclass_field, fields, replace
 from pathlib import Path
 
-from acprof.config import docker_resource_limits
+from acprof.config import DEFAULT_DOCKER_CPUS, DEFAULT_DOCKER_MEMS, docker_resource_limits
 from acprof.experiments.constraints import PROFILER_NUMBERS, RUN_NUMBERS, ConstraintViolation
 from acprof.experiments.options import RunOptions, configuration_arguments
+from acprof.experiments.profiler_resources import profiler_reference_axes
 from acprof.extensions import CATALOG
 from acprof.gpu_mode import normalize_gpu_mode
 from acprof.installation import cli_command
@@ -231,6 +232,7 @@ class RunConfig(RunOptions):
         # values after every domain has been checked without errors.
         cpus, mems = self._validate_resource_limits(errors)
         gpus = self._validate_runtime(errors, cpus, mems, extra_options, pending_profiling)
+        self._validate_profiler_references(errors, cpus, mems, gpus, extra_options)
         self._validate_input_scales(errors)
         numbers = self._normalize_numbers(errors)
         task_family = self._validate_modes(errors, pending_profiling)
@@ -335,6 +337,31 @@ class RunConfig(RunOptions):
         if len(gpus) != len(set(gpus)):
             errors.append(ConfigIssue("gpus", message('GPU 模式不能重复')))
         return gpus
+
+    def _validate_profiler_references(
+        self, errors: list[ConfigIssue], cpus: list[int], mems: list[int], gpus: list[str], extra_options: dict,
+    ) -> None:
+        if self.execution_profile_tool == "none" or self.runtime not in {"auto", "docker"} or not extra_options:
+            return
+        # Docker is the only runtime capable of these profilers. Keep the
+        # requested auto axes intact for runtime selection and resume identity.
+        axes = {
+            "cpus": DEFAULT_DOCKER_CPUS if self.cpus == "auto" else cpus,
+            "mems": DEFAULT_DOCKER_MEMS if self.mems == "auto" else mems,
+        }
+        # An invalid sampling setting already has its own issue. Interpret only
+        # a genuinely omitted setting as the default when checking related axes.
+        for field, axis in profiler_reference_axes(
+            self.execution_profile_tool, gpus, massif_sampling=self.extra_options.get("massif_sampling"),
+            nsys_sampling=self.extra_options.get("nsys_sampling"),
+        ):
+            value = extra_options.get(field)
+            resources = axes[axis]
+            if value is not None and resources and value not in resources:
+                errors.append(ConfigIssue(axis, message(
+                    "{0}={1} 必须位于 {2} 选中的资源值 {3} 中",
+                    "--" + field.replace("_", "-"), value, "--" + axis, list(resources),
+                )))
 
     def _validate_input_scales(self, errors: list[ConfigIssue]) -> None:
         try:

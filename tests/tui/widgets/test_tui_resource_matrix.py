@@ -6,6 +6,7 @@ from textual.widgets import Collapsible, Input, Select, Static
 from textual.widgets._collapsible import CollapsibleTitle
 
 from acprof.experiments.configuration import RunConfig
+from acprof.tui.ui.dialogs import ConfirmActionScreen
 from tests.support.tui_fixtures import AcprofTui
 from tests.support.tui_waits import wait_for_condition
 
@@ -103,3 +104,42 @@ async def test_probe_shows_localized_duplicate_resource_fields_without_pruning(t
             pilot, lambda: app.focused is app.query_one("#cpus") and app.focused.is_on_screen,
             description="first duplicate resource field is revealed and focused", timeout=3,
         )
+
+
+@pytest.mark.parametrize(("language", "expected"), [
+    ("zh", "--massif-reference-cpu=3 必须位于 --cpus 选中的资源值 [1, 2] 中"),
+    ("en", "--massif-reference-cpu=3 must be in the resources selected by --cpus: [1, 2]"),
+])
+async def test_probe_recovers_after_editing_inherited_profiler_reference(tmp_path, language, expected):
+    config = replace(RunConfig.smoke("fixture/model", runtime="docker"), cpus="1,3",
+                     execution_profile_tool="massif", extra_options={"massif_reference_cpu": 3})
+    app = AcprofTui(config, settings_path=tmp_path / "settings.json")
+    app.configuration.preferences = replace(app.configuration.preferences, language=language)
+    async with app.run_test(size=(120, 30)) as pilot:
+        cpu = app.query_one("#cpus", Input)
+        cpu.value = "1,2"
+        app.experiments.request_probe()
+        error = app.query_one("#cpus-error", Static)
+        assert error.display
+        assert str(error.content) == expected
+        assert app.experiments.pending_launch is None
+        assert app.preflight.preparation_screen is None
+        await wait_for_condition(
+            pilot, lambda: app.focused is cpu and cpu.is_on_screen,
+            description="probe reveals the editable CPU field for a profiler reference mismatch", timeout=3,
+        )
+        cpu.value = "1,3"
+        await wait_for_condition(
+            pilot, lambda: not error.display, description="CPU error clears after correction", timeout=3,
+        )
+        assert app.configuration.collect_config() == config
+        app.experiments.request_probe()
+        await wait_for_condition(
+            pilot, lambda: isinstance(app.screen, ConfirmActionScreen),
+            description="corrected probe asks to confirm", timeout=3,
+        )
+        app.screen.dismiss(False)
+        await wait_for_condition(
+            pilot, lambda: app.experiments.pending_launch is None, description="probe confirmation dismissed", timeout=3,
+        )
+        assert app.preflight.preparation_screen is None

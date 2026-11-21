@@ -3,6 +3,7 @@ import argparse
 
 from acprof.experiments.constraints import finite_number, integer
 from acprof.experiments.options import add_option_arguments
+from acprof.experiments.profiler_resources import DEFAULT_MASSIF_SAMPLING, DEFAULT_NSYS_SAMPLING
 
 
 def add_download_arguments(parser):
@@ -81,7 +82,7 @@ Examples:
     parser.add_argument(
         "--massif-sampling",
         choices=("per-scale", "full"),
-        default="per-scale",
+        default=DEFAULT_MASSIF_SAMPLING,
         help=(
             "Massif resource sampling: per-scale profiles the largest selected "
             "CPU/memory case and reuses it across CPU-only rows (default); "
@@ -109,7 +110,7 @@ Examples:
     parser.add_argument(
         "--nsys-sampling",
         choices=("per-cpu-scale", "per-scale", "full"),
-        default="per-cpu-scale",
+        default=DEFAULT_NSYS_SAMPLING,
         help=(
             "Nsight Systems resource sampling: per-cpu-scale profiles every "
             "selected CPU at the largest selected memory (default); per-scale "

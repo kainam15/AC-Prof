@@ -156,10 +156,10 @@ Process 自动关闭 Docker startup OOM pruning 并逐格执行；`--rebuild-ima
 | --- | --- | --- |
 | `--execution-profile-tool` | `none` | 显式启用高开销 execution profiler：`massif` 用于 CPU-only、`nsys` 用于 GPU，`both` 同时选择两者；默认 `none` 不运行。 |
 | `--massif-sampling` | `per-scale` | `per-scale` 使用一个代表 CPU/内存逐 input scale 采集并复用；`full` 采完整 CPU × memory 矩阵。 |
-| `--massif-reference-cpu` / `--massif-reference-mem` | 最大选中值 | Massif `per-scale` 的代表 CPU 与内存；必须存在于本次 `--cpus` / `--mems` 中。 |
+| `--massif-reference-cpu` / `--massif-reference-mem` | 最大选中值 | Massif 对 CPU-only 配置执行 `per-scale` 采样时，代表 CPU 和内存须分别属于 `--cpus` 和 `--mems`。 |
 | `--massif-repeat` | `1` | 每个 Massif probe 内执行的 inference 次数。Massif peak 仍是包含加载和预热的 process-lifetime peak，不按此值归一化。 |
 | `--nsys-sampling` | `per-cpu-scale` | `per-cpu-scale` 保留全部 CPU、只用一个代表内存；`per-scale` 只用一个代表 CPU/内存；`full` 采完整矩阵。 |
-| `--nsys-reference-cpu` / `--nsys-reference-mem` | 最大选中值 | Nsys 缩减采样的代表资源；`per-cpu-scale` 只使用代表内存，`per-scale` 同时使用两者。 |
+| `--nsys-reference-cpu` / `--nsys-reference-mem` | 最大选中值 | Nsys 对 GPU 配置执行缩减采样时，`per-cpu-scale` 只使用代表内存，`per-scale` 同时使用代表 CPU 和内存。准备前核对用到的代表值是否属于资源矩阵。 |
 | `--nsys-repeat` | `1` | 每个 Nsight Systems `acprof_compute` NVTX range 内的 inference 次数；time、count 和 bytes 汇总会除回单 request。 |
 | `--nsys-root` | auto | Host Nsight Systems install root 或 `nsys` executable；显式值优先于自动检测。 |
 | `--keep-execution-profiles` | true | 保留 `raw/execution_profiles/` 下的 raw Massif `.out` 与 Nsight Systems `.nsys-rep`；这是默认行为。stats 导出的 `.sqlite` 缓存会自动删除。 |

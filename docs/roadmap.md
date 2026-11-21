@@ -35,7 +35,7 @@ P1 · cgroup I/O 预检：已将宿主进程 cgroup 能力与目标 Docker / Pro
 
 [主机诊断](getting_started/installation.md)在项目环境读取失败时仍输出 JSON，并检查输出路径上的失效链接与非目录组件。
 
-[`run` 与 `auto` 的资源矩阵](usage/cli-run.md#模型与资源矩阵)在准备前按规范化值检查重复项，TUI 表单也会标出对应字段。
+[`run` 与 `auto` 的资源矩阵](usage/cli-run.md#模型与资源矩阵)在准备前检查重复项，并按设备和采样策略检查 Massif、Nsys 实际使用的代表资源。TUI 表单会标出对应的资源字段。
 
 [离线分析输出](usage/cli-tools.md)在发布前核对输入实验的保留路径，历史平铺结果也能继续审计。
 [独立比较](results/comparisons.md#跨独立实验比较)同时导出 JSON、CSV 和 HTML 时，会先准备全部文件，再发布到指定路径。

@@ -15,6 +15,11 @@ from dataclasses import dataclass, replace
 from time import perf_counter
 from typing import Any
 
+from acprof.experiments.profiler_resources import (
+    DEFAULT_MASSIF_SAMPLING,
+    DEFAULT_NSYS_SAMPLING,
+    enabled_execution_profilers,
+)
 from acprof.gpu_mode import normalize_gpu_mode
 from acprof.host.detect import TaskInfo
 from acprof.host.profiling.cleanup import discard_profile_artifacts
@@ -207,7 +212,7 @@ class ExecutionProfileRequest:
 class ProfilerSampling:
     """Sampling resources and request count for one profiler."""
 
-    sampling: str = "per-scale"
+    sampling: str = DEFAULT_MASSIF_SAMPLING
     repeat: int = 1
     reference_cpu: int | None = None
     reference_mem: int | None = None
@@ -217,7 +222,7 @@ class ProfilerSampling:
 class ExecutionProfileOptions:
     tool_mode: str = "both"
     massif: ProfilerSampling = ProfilerSampling()
-    nsys: ProfilerSampling = ProfilerSampling(sampling="per-cpu-scale")
+    nsys: ProfilerSampling = ProfilerSampling(sampling=DEFAULT_NSYS_SAMPLING)
     nsys_root: str | None = None
     keep_profiles: bool = True
     resume_existing_profiles: bool = False
@@ -307,11 +312,12 @@ def _execution_plan(
     nsys_settings = replace(options.nsys, sampling=_normalize_sampling_mode(
         options.nsys.sampling, name="nsys_sampling", allowed=NSYS_SAMPLING_MODES,
     ))
+    enabled = enabled_execution_profilers(mode, gpu_modes)
     return _ExecutionPlan(
         cpus, memories, gpu_modes, mode,
-        _tool_plan(MASSIF_TOOL, mode in {"both", MASSIF_TOOL} and "off" in gpu_modes,
+        _tool_plan(MASSIF_TOOL, MASSIF_TOOL in enabled,
                    massif_settings, cpus, memories),
-        _tool_plan(NSYS_TOOL, mode in {"both", NSYS_TOOL} and "on" in gpu_modes,
+        _tool_plan(NSYS_TOOL, NSYS_TOOL in enabled,
                    nsys_settings, cpus, memories),
     )
 
