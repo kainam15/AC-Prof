@@ -151,8 +151,8 @@ def test_snapshot_version_change_with_identical_rows_is_detected(tmp_path, monke
         writer.append_window(receipt(tmp_path))
     snapshot = result_csv.read_result_csv_snapshot(layout.result_csv)
     original = result_csv.file_sha256
-    def commit_after_hash(path):
-        checksum = original(path)
+    def commit_after_hash(path, *, cancelled=None):
+        checksum = original(path, cancelled=cancelled)
         with ResultWriter(tmp_path) as writer:
             writer.freeze()
         return checksum
