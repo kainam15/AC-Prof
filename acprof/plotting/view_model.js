@@ -131,7 +131,8 @@ window.ACProfViews = (() => {
     }
     function delta(config, metric) {
       if (!baseline) return {delta: null, percent: null, reason: "no_baseline"};
-      if (!Object.hasOwn(config.metrics, metric) || !Object.hasOwn(baseline.metrics, metric))
+      if ((config.metrics && !Object.hasOwn(config.metrics, metric)) ||
+          (baseline.metrics && !Object.hasOwn(baseline.metrics, metric)))
         return {delta:null, percent:null, ratio:null, performance_ratio:null, reason:unreportedMetricReason};
       const comparison = qualification(config);
       const recorded = pair(config);
