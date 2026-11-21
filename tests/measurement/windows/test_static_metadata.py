@@ -255,6 +255,10 @@ class TestStaticMetadata:
                 compute_profile_enabled=False,
             )
             previous_calls = cache_size.call_count
+            task_info.parameter_bytes = None
+            task_info.parameter_bytes_reason = "Unknown dtype byte width: CUSTOM"
+            task_info.parameter_dtype_counts = {"CUSTOM": 110_106_428}
+            task_info.precision_dtype = "CUSTOM"
             mounted_meta = static_metadata.collect_static_meta(
                 task_info=task_info, batch_size=1, input_scale_type="seq_length",
                 image_info=runtime_images.ImageInfo(tag="mounted-fixture", runtime_environment={
@@ -267,6 +271,14 @@ class TestStaticMetadata:
         assert (mounted_meta.model_storage_mode) == ("mounted")
         assert (mounted_meta.model_cache_bytes) == (2345)
         assert (mounted_meta.model_artifact_bytes) == (2345)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "static_meta.json")
+            static_metadata.write_static_meta_json(mounted_meta, path)
+            with open(path, encoding="utf-8") as stream:
+                recorded = json.load(stream)
+        assert recorded["parameter_bytes"] is None
+        assert recorded["parameter_dtype_counts"] == {"CUSTOM": 110_106_428}
+        assert recorded["parameter_bytes_reason"] == task_info.parameter_bytes_reason
         assert (mounted_meta.runtime_image_bytes) == (456)
         assert (mounted_meta.total_deployment_bytes) == (2801)
         assert (meta.model_storage_mode) == ("baked")
@@ -296,6 +308,7 @@ class TestStaticMetadata:
         assert (meta.cgroup_collection_mode) == ("strict_v2")
         assert (meta.parameter_count) == (110_106_428)
         assert (meta.parameter_bytes) == (440_425_712)
+        assert meta.parameter_bytes_reason is None
         assert (meta.model_cache_bytes) == (123)
         assert (meta.precision_dtype) == ("FP32")
         assert (meta.inference_precision_by_device) == ({"cpu": "FP32", "gpu": "FP16"})
@@ -314,6 +327,7 @@ class TestStaticMetadata:
     def test_static_meta_compute_profile_fields_follow_host_metadata(self) -> None:
         assert (STATIC_META_SCHEMA_VERSION) == (8)
         assert ("parameter_bytes") in (STATIC_META_FIELDS)
+        assert "parameter_bytes_reason" in STATIC_META_FIELDS
         assert ("model_cache_bytes") in (STATIC_META_FIELDS)
         assert ("model_weight_bytes") not in (STATIC_META_FIELDS)
         assert ("gpu_mem_total_bytes") in (STATIC_META_FIELDS)
@@ -476,7 +490,8 @@ class TestStaticMetadata:
         assert (payload["model_resolution"]) == ({})
         assert ("compute_profile_schema_version") not in (payload)
         assert (payload["parameter_count"]) == (42)
-        assert (payload["parameter_bytes"]) == (168)
+        assert payload["parameter_bytes"] == 168
+        assert payload["parameter_bytes_reason"] is None
         assert (payload["model_cache_bytes"]) == (456)
         assert ("model_weight_bytes") not in (payload)
         assert (payload["host_mem_total_bytes"]) == (1_024)

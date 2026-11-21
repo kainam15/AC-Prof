@@ -90,6 +90,7 @@ class StaticMeta:
     schema_version: int = STATIC_META_SCHEMA_VERSION
     parameter_count: int | None = None
     parameter_bytes: int | None = None
+    parameter_bytes_reason: str | None = field(default=None, kw_only=True)
     precision_dtype: str | None = None
     parameter_dtype_counts: dict[str, int] = field(default_factory=dict)
     inference_precision_by_device: dict[str, str] = field(default_factory=dict)
@@ -205,6 +206,7 @@ def collect_static_meta(
         model_revision=task_info.model_revision,
         parameter_count=task_info.parameter_count,
         parameter_bytes=task_info.parameter_bytes,
+        parameter_bytes_reason=task_info.parameter_bytes_reason,
         precision_dtype=task_info.precision_dtype,
         parameter_dtype_counts=dict(task_info.parameter_dtype_counts),
         inference_precision_by_device=({

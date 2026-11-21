@@ -41,6 +41,7 @@ class TaskInfo:
     requested_revision: str | None = None
     parameter_count: int | None = None
     parameter_bytes: int | None = None
+    parameter_bytes_reason: str | None = field(default=None, kw_only=True)
     precision_dtype: str | None = None
     parameter_dtype_counts: dict[str, int] = field(default_factory=dict)
     quantized: bool | None = None
@@ -354,12 +355,11 @@ def _json_mapping(value: object) -> dict[str, Any]:
 def _parameter_bytes_from_dtype_counts(
     dtype_counts: dict[str, int],
 ) -> int | None:
-    """Return logical tensor payload bytes, or ``None`` if not exact."""
-    if not dtype_counts:
-        return None
-
+    """Sum a complete dtype histogram, returning None if a byte width is unknown."""
     total = 0
     for dtype, count in dtype_counts.items():
+        if count == 0:
+            continue
         byte_width = _DTYPE_BYTE_WIDTHS.get(dtype)
         if byte_width is None or count < 0:
             return None
@@ -367,30 +367,56 @@ def _parameter_bytes_from_dtype_counts(
     return total
 
 
-def _hub_model_metadata(info: object) -> dict[str, Any]:
+def _nonnegative_count(value: object) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value if value >= 0 else None
+    if isinstance(value, str):
+        digits = value.strip()
+        if digits.isascii() and digits.isdecimal():
+            try:
+                return int(digits)
+            except ValueError:
+                # Python limits the length of decimal integer conversions.
+                return None
+    if isinstance(value, float) and value.is_integer() and 0 <= value < 2**53:
+        return int(value)
+    return None
+
+
+def _hub_parameter_counts(safetensors: object) -> tuple[int | None, dict[str, int], str | None]:
+    total = _nonnegative_count(_mapping_value(safetensors, "total"))
+    raw_counts = _mapping_value(safetensors, "parameters")
+    counts: dict[str, int] = {}
+    if not isinstance(raw_counts, dict) or (not raw_counts and total != 0):
+        return total, counts, "Hub safetensors.parameters is missing or empty"
+    problems = []
+    for raw_dtype, raw_count in raw_counts.items():
+        dtype = _normalize_dtype_name(raw_dtype) if isinstance(raw_dtype, str) else ""
+        count = _nonnegative_count(raw_count)
+        if not dtype:
+            problems.append("missing dtype name")
+        elif count is None:
+            problems.append(f"invalid count for {dtype}")
+        else:
+            counts[dtype] = counts.get(dtype, 0) + count
+    if total is None:
+        problems.append("missing or invalid total")
+    elif not problems and (counted := sum(counts.values())) != total:
+        problems.append(f"dtype counts sum to {counted}, declared total is {total}")
+    return total, counts, "Hub safetensors: " + "; ".join(problems) if problems else None
+
+
+def _hub_model_metadata(info: object, *, source: str = "huggingface") -> dict[str, Any]:
     """Extract reproducible model-card metadata from a Hub ModelInfo object."""
     safetensors = getattr(info, "safetensors", None)
-    raw_dtype_counts = _mapping_value(safetensors, "parameters")
-    dtype_counts: dict[str, int] = {}
-    if isinstance(raw_dtype_counts, dict):
-        for raw_dtype, raw_count in raw_dtype_counts.items():
-            try:
-                count = int(raw_count)
-            except (TypeError, ValueError, OverflowError):
-                continue
-            dtype = _normalize_dtype_name(raw_dtype)
-            if dtype:
-                dtype_counts[dtype] = dtype_counts.get(dtype, 0) + count
-
-    parameter_count: int | None = None
-    raw_parameter_count = _mapping_value(safetensors, "total")
-    try:
-        if raw_parameter_count is not None:
-            if not isinstance(raw_parameter_count, (int, str, float)):
-                raise ValueError("invalid model parameter count")
-            parameter_count = int(raw_parameter_count)
-    except (TypeError, ValueError, OverflowError):
-        pass
+    parameter_count, dtype_counts, counts_reason = _hub_parameter_counts(safetensors)
+    parameter_bytes = _parameter_bytes_from_dtype_counts(dtype_counts) if counts_reason is None else None
+    bytes_reason = counts_reason
+    if bytes_reason is None and parameter_bytes is None:
+        unknown = sorted(dtype for dtype, count in dtype_counts.items() if count and dtype not in _DTYPE_BYTE_WIDTHS)
+        bytes_reason = f"Unknown dtype byte width: {', '.join(unknown)}"
 
     config = _json_mapping(getattr(info, "config", None))
     quantization_config = _json_mapping(config.get("quantization_config"))
@@ -401,14 +427,18 @@ def _hub_model_metadata(info: object) -> dict[str, Any]:
     }
 
     precision_dtype: str | None = None
-    if dtype_counts:
-        # Small INT64/BOOL tensors are commonly non-weight buffers. The
-        # dominant dtype is the most useful single precision label.
-        precision_dtype = max(dtype_counts.items(), key=lambda item: item[1])[0]
-    else:
+    if counts_reason is None:
+        # A histogram with no elements or a tie has no single dominant dtype.
+        largest = max(dtype_counts.values(), default=0)
+        leaders = [dtype for dtype, count in dtype_counts.items() if count == largest]
+        if largest > 0 and len(leaders) == 1:
+            precision_dtype = leaders[0]
+    elif safetensors is None:
         config_dtype = config.get("torch_dtype") or config.get("dtype")
-        if config_dtype:
-            precision_dtype = _normalize_dtype_name(config_dtype)
+        if isinstance(config_dtype, str):
+            dtype = _normalize_dtype_name(config_dtype)
+            if dtype in _DTYPE_BYTE_WIDTHS or dtype in _QUANTIZED_PRECISIONS:
+                precision_dtype = dtype
 
     quantization_method = (
         quantization_config.get("quant_method")
@@ -423,7 +453,7 @@ def _hub_model_metadata(info: object) -> dict[str, Any]:
         quantized: bool | None = True
     elif precision_dtype in _QUANTIZED_PRECISIONS:
         quantized = True
-    elif precision_dtype:
+    elif precision_dtype in _DTYPE_BYTE_WIDTHS:
         quantized = False
     else:
         quantized = None
@@ -440,7 +470,8 @@ def _hub_model_metadata(info: object) -> dict[str, Any]:
 
     return {
         "parameter_count": parameter_count,
-        "parameter_bytes": _parameter_bytes_from_dtype_counts(dtype_counts),
+        "parameter_bytes": parameter_bytes,
+        "parameter_bytes_reason": bytes_reason,
         "precision_dtype": precision_dtype,
         "parameter_dtype_counts": dtype_counts,
         "quantized": quantized,
@@ -449,7 +480,7 @@ def _hub_model_metadata(info: object) -> dict[str, Any]:
         ),
         "quantization_config": quantization_config,
         "model_license": str(model_license) if model_license else None,
-        "model_metadata_source": "huggingface_hub",
+        "model_metadata_source": f"{source}_hub",
     }
 
 
@@ -480,9 +511,10 @@ def _detect_from_hub(
         from acprof.hub.huggingface.download import try_hf_endpoints
         from acprof.hub.huggingface.transport import configure_hf_transport
         from acprof.hub.repository import model_source, modelscope_info
-        info = cached_model_info(model_id, revision, source=model_source())
+        source = model_source()
+        info = cached_model_info(model_id, revision, source=source)
         if info is None:
-            if model_source() == "modelscope":
+            if source == "modelscope":
                 info = modelscope_info(model_id, revision)
             else:
                 configure_hf_transport()
@@ -547,7 +579,7 @@ def _detect_from_hub(
             f"metadata returned no pipeline_tag (library_name={library_name or 'unknown'})",
         )
 
-    model_metadata = _hub_model_metadata(info)
+    model_metadata = _hub_model_metadata(info, source=source)
     if hub_diagnostics:
         # The raw Hub configuration is retained as invalid evidence, not passed
         # into executable configuration or a non-standard JSON report.
@@ -747,8 +779,6 @@ def detect_task(
     from acprof.hub.repository import model_source
     info.model_source = model_source()
     info.requested_revision = revision
-    if info.model_source == "modelscope":
-        info.model_metadata_source = "modelscope_hub"
     if info.metadata_diagnostics:
         from acprof.failures import Failure
         from acprof.models.inspection.decision import record_resolution_failure

@@ -71,7 +71,7 @@ def test_compatibility_report_publication_is_durable(tmp_path):
     assert (tmp_path / "REPORT.md").read_text(encoding="utf-8").startswith("# Compatibility report\n")
 
 
-@pytest.mark.parametrize('plan', [{'total_selected_bytes': 150}, {'selected_bytes': None}])
+@pytest.mark.parametrize('plan', [{'total_selected_bytes': 150}, {'selected_bytes': None}, {'selected_bytes': -1}])
 def test_budget_uses_selected_files_and_never_claims_measured_oom(plan):
     from acprof.analysis.compatibility import result_status
     from acprof.resource_budget import assess_resource_budget

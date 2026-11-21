@@ -12,10 +12,11 @@
 | `model_name` | 所选来源的 model ID，例如 `google-bert/bert-base-uncased`。 |
 | `model_source` | `huggingface` 或 `modelscope`；历史缺字段沿用 HF 语义。补采恢复使用原记录，不受当前来源环境变量影响；显式无效值会被拒绝。相同模型名不代表相同来源或 artifact。 |
 | `model_revision` | 实际解析到的 model revision / commit hash。 |
-| `parameter_count` | Hugging Face Hub SafeTensors metadata 的参数总数；Hub 未提供时为 `null`。 |
-| `parameter_bytes` | 根据 `parameter_dtype_counts` 的各 dtype 元素数量与字节宽度精确求和得到的逻辑 tensor payload 大小，不含序列化 header；没有 dtype 统计或存在未知 dtype 时为 `null`。 |
-| `precision_dtype` | SafeTensors 参数中数量占主导的权重精度，例如 `FP32`、`FP16`、`BF16`、`INT8`；无法确认时为 `null`。 |
-| `parameter_dtype_counts` | 按 dtype 统计的参数/张量元素数量，保留混合精度与少量整型 buffer 信息。 |
+| `parameter_count` | Hub 的 SafeTensors 元数据声明的参数总数。保留有效的非负整数；总数缺失或无效时为 `null`，即使部分 dtype 数量已知。 |
+| `parameter_dtype_counts` | 各 dtype 已知的元素数。无效分项单独舍弃，有效分项仍保留。 |
+| `parameter_bytes` | 逻辑 tensor payload 的字节数。所有分项有效、数量之和等于声明总数，且每种有元素的 dtype 字节宽度已知时，按 dtype 求和。文件头和存储开销另计。 |
+| `parameter_bytes_reason` | 本次读取的 Hub 证据不足以确定字节数时记录原因，例如分项无效、总数不一致或 dtype 宽度未知。可计算时为 `null`；历史文件可能缺少该字段。 |
+| `precision_dtype` | 完整 dtype 统计中元素数最多且唯一的非空类型，例如 `FP32`、`FP16` 或 `INT8`。并列、全零或统计矛盾时为 `null`。Hub 缺少 SafeTensors 元数据时，可使用模型配置明确声明的已知 dtype。 |
 | `inference_precision_by_device` | 已冻结实验中按 CPU/GPU 投影的最终请求精度，未声明 dtype 为 `unknown`；真实生效值见 `runtime_validation`。历史无冻结对象时沿用 handler 精度策略：通常 Transformers NLP/CV/audio 为 CPU FP32、GPU FP16；MOSS adapter 为 CPU FP32、GPU BF16；Encodec/DAC 两者均 FP32。TorchScript 保留导出权重精度、输入 FP32；skops 保留 estimator 内部精度、输入 FP32。Silero 和 skops 仅声明 CPU。 |
 | `static_flops` | Torch eager profiler 得到的逻辑 shape FLOPs，按 `input_scale` 保存 `flops_per_request`；未采集成功时为 `null`。 |
 | `static_macs` | 静态 MACs。当前不做不可靠的 FLOPs/2 推断，因此未单独采集时为 `null`。 |
@@ -25,7 +26,7 @@
 | `quantization_method` | 量化方法，例如 `gptq`、`awq`；不适用或未知时为 `null`。 |
 | `quantization_config` | Hub model config 中的完整量化配置；没有时为空 object。 |
 | `model_license` | Hugging Face model card 许可证，例如 `apache-2.0`、`mit`；无法确认时为 `null`。 |
-| `model_metadata_source` | 参数量、参数 payload、精度、量化和许可证的元数据来源，当前在线 Hub 检测成功时为 `huggingface_hub`。 |
+| `model_metadata_source` | 参数、精度、量化和许可证等模型事实的来源。取自 Hugging Face 或 ModelScope 的 Hub 响应时分别记录 `huggingface_hub`、`modelscope_hub`，也可来自缓存中保留的同一份响应。仅从本地配置推断任务时该字段可为 `null`。 |
 | `model_resolution` | 可选的接口解析 object（内部 schema v1）：任务、backend、library、制品格式、loader、operation、model type、固定 revision、元数据文件和 runtime profile。包含 `candidates/evidence`、`conflicts/missing`、`selection`、`interface_kind`、`pipeline_task`、`code_files/code_revision`、有效 `model_spec`；自动解析追加独立 `contract` provenance 和仅在无缺口时生成的 `generated_spec`。依赖固定、用户审阅、接口检查和真实运行的观察分别记录；`contract.runtime_validation` 从 `not_run` 变为包含 mode、image ID、payload／报告 hash 与设备结果的 object，详见[契约生成](../models/contracts.md#自动生成模型契约m1m6)。`candidate` 不是执行成功；`selection_required/ambiguous/needs_configuration/blocked` 保留不同原因，在条件满足前不得进入正式采集。新增 `compatibility` 区分接口能力和制品证据，整体 unknown 不视为静态支持；`artifact_layout` 保留选中加载器的文件布局判断，`failure.evidence.next_action` 给出后续操作。多组检查按 `task_resolutions` 保存独立结果；静态检查不会写入真实推理成功。历史 v7 缺失字段按未知处理，不推算。无数值单位或测量窗口，不增加 CSV 列。 |
 | `inference_configuration` | 用户按内容摘要确认后冻结的推理配置（内部 schema v1）：模型来源及固定 revision、后端/adapter/runtime profile、按设备加载参数、按任务生成参数、请求与 Auto 决策、规则版本及实验身份 SHA256。运行观察不写回该对象。历史缺字段或空对象表示未记录此协议，不能推算为已确认。 |
 | `task_family` | 任务族：`nlp`、`cv`、`audio`、`timeseries`、`diffusion`、`multimodal`、`structured`。 |
@@ -105,6 +106,8 @@
 | `nsys_reused_across_resource_cases` | Nsys entry 是否从采样资源复用到其他结果行。 |
 | `execution_profiles_retained` | raw Massif / Nsight Systems artifacts 是否保留。 |
 | `execution_profile_provenance` | execution profile 的来源；默认关闭时为 `disabled`。 |
+
+SafeTensors 的参数分项和声明总数采用 [Hugging Face Hub 的 SafeTensorsInfo 定义](https://github.com/huggingface/huggingface_hub/blob/v1.28.0/src/huggingface_hub/hf_api.py)。
 
 `static_meta.json` 接受当前 schema v8 和已知历史 v7；其他版本或缺失版本直接报错，不自动迁移历史文件。非空 `inference_configuration` 必须通过冻结状态、内容摘要和结构校验。读取端最多接收 4 MiB 的
 UTF-8 JSON object，并拒绝 `NaN`、`Infinity` 及溢出为无穷大的数字。可选读取只在文件不存在时

@@ -187,7 +187,8 @@ def _evaluate_model(item: dict, output: Path, *, probe, cpus, memory_gb, gpu,
             if max_download_bytes is not None:
                 from acprof.host.model_store.store import plan_model
                 plan = plan_model(task)
-            budget = assess_resource_budget(parameter_count=task.parameter_count, max_parameters=max_parameters,
+            budget = assess_resource_budget(parameter_count=task.parameter_count, parameter_dtype_counts=task.parameter_dtype_counts,
+                                            max_parameters=max_parameters,
                                             plan=plan, max_download_bytes=max_download_bytes)
             row["resource_preflight"] = budget
             if budget.get("failure"):

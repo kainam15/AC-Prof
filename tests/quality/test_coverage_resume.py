@@ -221,6 +221,28 @@ class TestCoverageResume:
         else:
             assert "4 MiB read limit" in stderr.getvalue()
 
+    @pytest.mark.parametrize(("declared", "counts"), [
+        (-1, {}), (2, {"FP32": 20}), (2, {"FP32": 1, "INT8": 10}),
+    ])
+    def test_parameter_budget_rejects_inconsistent_saved_evidence(self, declared, counts):
+        def inconsistent_task(model_id, *, revision):
+            task = self.task(model_id, revision=revision)
+            task.parameter_count = declared
+            task.parameter_dtype_counts = counts
+            return task
+
+        with patch("acprof.host.detect.detect_task", side_effect=inconsistent_task):
+            report = run_sample(self.sample, self.root, max_parameters=10)
+        for row in report["rows"]:
+            result = row["resource_preflight"]
+            assert result["status"] == "unverified"
+            assert result["failure"]["reason_code"] == "resource_limit"
+            assert result["evidence"]["parameter_count"] == declared
+            assert result["evidence"]["unknown_budget_inputs"] == ["parameter budget"]
+            assert result["evidence"]["measured_oom"] is False
+            if counts:
+                assert result["evidence"]["known_dtype_elements"] == sum(counts.values())
+
     def test_parameter_budget_retry_does_not_replace_initial_budget(self):
         def bounded_task(model_id, *, revision):
             task = self.task(model_id, revision=revision)

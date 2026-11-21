@@ -198,6 +198,7 @@ Runtime Validation 成功只表示独立推理验证通过；已有采集是否�
 `--max-parameters` 和 `--max-download-bytes` 默认不设置，传入时须为正整数。
 超预算或无法确定所需大小时保存 `resource_limit` 与 `unverified`，不下载权重、不宣称实测 OOM。
 selected artifact size 包括显式模型依赖；参数量不是峰值 RAM/VRAM 预测。
+负数大小按未知处理；已知 dtype 分项合计超过声明参数总数时，参数预算记录两项证据并报告无法核验。
 `--timeout-seconds` 默认保持 300；例如复核 60 秒耗尽的条目，可用同一固定 manifest，显式传入
 `--timeout-seconds 600 --resume --retry-reason request_timeout`。每个选中模型在本次调用中只执行
 一次 probe，不自动无限重试。

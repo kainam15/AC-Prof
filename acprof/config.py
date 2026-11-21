@@ -85,6 +85,7 @@ STATIC_META_FIELDS = [
     "model_source",
     "parameter_count",
     "parameter_bytes",
+    "parameter_bytes_reason",
     "precision_dtype",
     "parameter_dtype_counts",
     "inference_precision_by_device",
