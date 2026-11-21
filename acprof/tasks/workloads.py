@@ -166,9 +166,30 @@ def task_fingerprint(task: dict) -> str:
     return content_digest(identity)
 
 
-def workload_manifest(task: dict) -> dict:
-    return {"schema_version": 1, "task": task["interface"], "task_workload": copy.deepcopy(task),
-            "params": copy.deepcopy(task["config"].get("generation", {}))}
+def workload_manifest(task: dict, *, supplied: dict | None = None, frozen: dict | None = None) -> dict:
+    """Build the effective NLP manifest for the selected execution profile."""
+    manifest = {"schema_version": 1, "task": task["interface"], "task_workload": copy.deepcopy(task),
+                "params": copy.deepcopy(task["config"].get("generation", {}))}
+    if supplied is None:
+        return manifest
+    if (supplied.get("schema_version") != 1 or set(supplied) - {
+            "schema_version", "task", "params", "input_budget", "task_workload", "task_declaration"}):
+        raise ValueError("invalid task workload specification")
+    if supplied.get("task", task["interface"]) != task["interface"]:
+        raise ValueError("workload specification conflicts with task interface")
+    accepted_task_ids = {task["task_id"]}
+    if frozen:
+        if content_digest(supplied) != frozen["workload"].get("specification_sha256"):
+            raise ValueError("workload specification changed after inference confirmation")
+        accepted_task_ids.update(frozen["tasks"][task["task_id"]].get("source_task_ids", []))
+    supplied_task = supplied.get("task_workload", {})
+    if not isinstance(supplied_task, dict) or supplied_task.get("task_id", task["task_id"]) not in accepted_task_ids:
+        raise ValueError("workload specification conflicts with task identity")
+    if not frozen:
+        manifest["params"] = merge_generation_parameters(manifest["params"], supplied.get("params", {}))
+    if "input_budget" in supplied:
+        manifest["input_budget"] = supplied["input_budget"]
+    return manifest
 
 
 def render_task_text(task: dict, word_count: int) -> str:

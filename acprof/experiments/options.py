@@ -56,6 +56,7 @@ class RunOptions:
     )
     tasks: str = option(
         '', help='Declared workload IDs separated by commas, or all; required for multiple tasks',
+        probe=True, probe_help='Select one effective inference profile by profile ID or semantic task IDs',
     )
     task_run_id: str = option(
         '', help='Task collection ID printed by a previous run; use with --resume',

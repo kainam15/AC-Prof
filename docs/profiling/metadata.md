@@ -302,7 +302,8 @@ timeout evidence 包含 `timeout_seconds`（秒）、`request_phase`、`request_
 ## 最大输入探测结果
 
 `acprof probe` 每次生成独立的 `input_scale_plan.json` 和 `largest_scale_probe.json`。
-后者当前为 schema v3，主要字段如下：
+输入计划中的 `task_workload` 记录任务选择。已选 NLP 任务的有效输入清单保存在同一探测目录的 `task_workload.json`，包含发送给生成器的参数、执行组和语义任务。
+`largest_scale_probe.json` 使用 schema v3，其主要字段见下表。
 
 | 字段 | 含义 |
 | --- | --- |

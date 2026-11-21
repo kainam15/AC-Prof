@@ -62,6 +62,7 @@ def test_probe_receives_shared_values_without_formal_measurement_controls(tmp_pa
     config = replace(
         RunConfig.smoke("org/model"),
         revision="frozen-revision",
+        tasks="translation_en_to_fr",
         batch_size=3,
         model_source="modelscope",
         model_store="/tmp/model cache",
@@ -75,6 +76,7 @@ def test_probe_receives_shared_values_without_formal_measurement_controls(tmp_pa
     parsed = _build_parser().parse_args(command[command.index("probe") + 1:])
     assert parsed.batch_size == 3
     assert parsed.model_source == "modelscope"
+    assert parsed.tasks == "translation_en_to_fr"
     assert parsed.model_store == "/tmp/model cache"
     assert parsed.timeout_seconds is None
     assert command[command.index("--model") + 1] == "org/model"

@@ -9,8 +9,10 @@ import time
 from collections.abc import Sequence
 from pathlib import Path
 
+from acprof.artifacts import atomic_write_json, read_json_object
 from acprof.events.preparation import emit_progress
 from acprof.experiments.options import add_option_arguments
+from acprof.failures import RuntimeFailure
 from acprof.host.env_utils import bootstrap_project_env
 from acprof.host.images.runtime import prepare_image
 from acprof.host.input_plan import plan_input_scales
@@ -24,7 +26,8 @@ from acprof.host.preflight import (
     require_collection_host,
     require_native_docker,
 )
-from acprof.host.preparation.task_support import TaskSupportError, require_task_support
+from acprof.host.preparation.task_selection import select_tasks
+from acprof.host.preparation.task_support import require_task_support
 from acprof.installation import resource_root
 
 PROJECT_DIR = resource_root()
@@ -125,8 +128,19 @@ def _run_probe(
         model_spec_path=args.model_spec,
     )
     try:
+        supplied = None
+        resolution = task_info.model_resolution
+        failure = resolution.get("failure", {}).get("reason_code")
+        if failure in {None, "task_selection_required"} and resolution.get("status") not in {"blocked", "ambiguous"}:
+            if args.workload_spec and (task_info.task_discovery or task_info.selected_tasks):
+                supplied = read_json_object(Path(args.workload_spec).expanduser(), label="workload specification")
+            task_info = select_tasks(task_info, args, single_profile=True, supplied_workload=supplied)
         require_task_support(task_info, batch_size=args.batch_size, devices=gpu_list)
-    except TaskSupportError as exc:
+        from acprof.tasks.workloads import workload_manifest
+
+        manifest = (workload_manifest(task_info.selected_tasks[0], supplied=supplied, frozen=task_info.inference_configuration)
+                    if task_info.selected_tasks and task_info.task_family == "nlp" else None)
+    except (RuntimeFailure, ValueError, OSError) as exc:
         print(str(exc), file=sys.stderr)
         return 2
     output_root = Path(args.output_dir).expanduser()
@@ -143,11 +157,20 @@ def _run_probe(
         f"(family={task_info.task_family})"
     )
     print(f"  Backend:  {task_info.runtime_backend}")
+    if task_info.selected_tasks:
+        selected = task_info.selected_tasks[0]
+        exemplar = selected.get("execution_profile", {}).get("representative_task_id", selected["task_id"])
+        print(f"  Workload: {exemplar}")
     print(f"  Cgroup:   {cgroup_version}")
     print(f"  Output:   {output_dir}")
 
     task_info.model_download_policy = args.model_download_policy
     try:
+        workload_path = args.workload_spec
+        if manifest is not None:
+            workload_file = output_dir / "task_workload.json"
+            atomic_write_json(workload_file, manifest)
+            workload_path = str(workload_file)
         emit_progress("image")
         image_info = prepare_image(
             task_info, str(PROJECT_DIR), reuse_existing=not args.rebuild_image,
@@ -162,7 +185,7 @@ def _run_probe(
             batch_size=args.batch_size,
             output_dir=str(output_dir),
             input_scales=args.input_scales,
-            workload_spec_path=args.workload_spec,
+            workload_spec_path=workload_path,
         )
         if getattr(image_info, "runtime_environment", {}):
             from acprof.host.runtime_validation import validate_runtime

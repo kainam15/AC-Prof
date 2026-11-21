@@ -8,6 +8,8 @@
 
 复用 `--model`、`--task`、`--task-family`、`--backend`、`--model-spec`、`--batch-size`、`--workload-spec`、
 `--output-dir` 和 `--rebuild-image` 的参数及默认值。
+最大输入探测每次运行一个执行组。`--tasks` 接受 `acprof inspect` 列出的组 ID 或语义任务 ID。
+只发现一组时自动选择，多项合并为同一组时使用该组的代表任务。选择跨组时会列出可以分别运行的 `--tasks` 参数。
 资源列表与超时的用途如下：
 
 | 参数 | 默认值 | 说明 |

@@ -17,7 +17,7 @@ from acprof.host.runtimes.contracts import RuntimeCleanupError
 from acprof.models.evidence import content_digest
 from acprof.results.task_collections import read_task_collection
 from acprof.system.cleanup import cleanup_on_exit, format_exception_notes
-from acprof.tasks.workloads import merge_generation_parameters, task_fingerprint, workload_manifest
+from acprof.tasks.workloads import task_fingerprint, workload_manifest
 
 
 def collection_root(config: RunConfig) -> Path:
@@ -122,27 +122,9 @@ class TaskCollection:
             raise ValueError("invalid task input_scales override")
         values.update(overrides)
         if values["task_family"] == "nlp":
-            manifest = workload_manifest(selected)
-            if self.config.workload_spec:
-                supplied = read_json_object(Path(self.config.workload_spec).expanduser(), label="workload specification")
-                if (supplied.get("schema_version") != 1 or set(supplied) - {
-                        "schema_version", "task", "params", "input_budget", "task_workload", "task_declaration"}):
-                    raise ValueError("invalid task workload specification")
-                if supplied.get("task", selected["interface"]) != selected["interface"]:
-                    raise ValueError("workload specification conflicts with task interface")
-                accepted_task_ids = {selected["task_id"]}
-                frozen = self.task.inference_configuration
-                if frozen:
-                    expected = frozen["workload"].get("specification_sha256")
-                    if content_digest(supplied) != expected:
-                        raise ValueError("workload specification changed after inference confirmation")
-                    accepted_task_ids.update(frozen["tasks"][selected["task_id"]].get("source_task_ids", []))
-                if supplied.get("task_workload", {}).get("task_id", selected["task_id"]) not in accepted_task_ids:
-                    raise ValueError("workload specification conflicts with task identity")
-                if not frozen:
-                    manifest["params"] = merge_generation_parameters(manifest["params"], supplied.get("params", {}))
-                if "input_budget" in supplied:
-                    manifest["input_budget"] = supplied["input_budget"]
+            supplied = (read_json_object(Path(self.config.workload_spec).expanduser(), label="workload specification")
+                        if self.config.workload_spec else None)
+            manifest = workload_manifest(selected, supplied=supplied, frozen=self.task.inference_configuration)
             path = self.root / "metadata" / "task_workloads" / (content_digest(manifest) + ".json")
             if path.is_file():
                 if read_json_object(path, label="task workload") != manifest:

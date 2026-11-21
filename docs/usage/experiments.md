@@ -117,6 +117,16 @@ TUI 的“探测最大输入”调用同一入口。
 
 最大输入探测与同一主机、同一用户的正式采集和补采共用测量锁。从 Docker 预检到写入探测摘要期间，其他采集不能开始。已有任务持锁时，`acprof probe` 会在创建探测目录之前报告原因并退出，待原任务结束后可重试。[主机测量锁](../profiling/artifacts.md)
 
+对同一个 T5 模型，可以先检查语义任务，再用相同的 `--tasks` 探测指定方向的翻译。
+
+```bash
+acprof inspect google-t5/t5-small --revision df1b051c49625cf57a3d0d8d3863ed4d13564fe4 --tasks translation_en_to_fr
+acprof probe --model google-t5/t5-small --revision df1b051c49625cf57a3d0d8d3863ed4d13564fe4 \
+  --tasks translation_en_to_fr --gpus off --input-scales 32
+```
+
+探测使用英语到法语的提示前缀，并复用正式采集的任务分组和生成参数规则。输入计划的 `task_workload` 保存所选语义任务和指纹。[固定版本的 T5 配置](https://huggingface.co/google-t5/t5-small/blob/df1b051c49625cf57a3d0d8d3863ed4d13564fe4/config.json)
+
 ### CPU-only 矩阵
 
 ```bash

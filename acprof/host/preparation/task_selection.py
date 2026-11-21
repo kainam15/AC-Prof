@@ -9,11 +9,14 @@ from acprof.tasks.workloads import parse_task, task_fingerprint
 class TaskSelectionRequired(ValueError):
     """A known interface still needs a valid choice of inference profiles."""
 
-    def __init__(self, profile_ids, semantic_task_ids=(), *, detail="Inference profile selection required"):
+    def __init__(self, profile_ids, semantic_task_ids=(), *, detail="Inference profile selection required",
+                 single_profile=False):
         self.profile_ids = tuple(profile_ids)
         self.semantic_task_ids = tuple(semantic_task_ids)
+        hint = ("choose one inference profile: " + " or ".join("--tasks " + item for item in self.profile_ids)
+                if single_profile else "pass --tasks " + ",".join(self.profile_ids) + " (or --tasks all)")
         super().__init__(
-            detail + "; pass --tasks " + ",".join(self.profile_ids) + " (or --tasks all). "
+            detail + "; " + hint + ". "
             "--task selects the model interface; --tasks selects inference profiles or semantic tasks."
         )
 
@@ -54,13 +57,17 @@ def activate_task(task, selected: dict, *, backend: str = ""):
     return result
 
 
-def select_tasks(task, args, workflow=None):
+def select_tasks(task, args, workflow=None, *, single_profile=False, supplied_workload=None):
     if task.selected_tasks:
         from acprof.tasks.interfaces import validate_execution_identity
         validate_execution_identity(task)
+        if single_profile and len(task.selected_tasks) > 1:
+            raise TaskSelectionRequired([item["task_id"] for item in task.selected_tasks], single_profile=True)
         return task
     discovery = task.task_discovery
     if not discovery:
+        if single_profile and getattr(args, "tasks", ""):
+            raise ValueError("No discovered inference profiles are available for --tasks")
         return task  # Historical frozen experiments predate declared task discovery.
     candidates = discovery["tasks"]
     manual = False
@@ -69,7 +76,8 @@ def select_tasks(task, args, workflow=None):
         from pathlib import Path
 
         from acprof.artifacts import read_json_object
-        supplied = read_json_object(Path(args.workload_spec).expanduser(), label="workload specification")
+        supplied = (supplied_workload if supplied_workload is not None else
+                    read_json_object(Path(args.workload_spec).expanduser(), label="workload specification"))
         # A user workload can change Beam/Sampling, so grouping must use the
         # effective compute options, not only checkpoint task declarations.
         from acprof.tasks.workloads import GENERATION_KEYS
@@ -89,7 +97,9 @@ def select_tasks(task, args, workflow=None):
             manual = True
         elif supplied.get("task_workload"):
             frozen = supplied["task_workload"]
-            if (supplied.get("schema_version") != 1 or frozen.get("fingerprint") != task_fingerprint(frozen)
+            if (supplied.get("schema_version") != 1 or not isinstance(frozen, dict)
+                    or not {"task_id", "interface", "kind", "config"} <= frozen.keys()
+                    or frozen.get("fingerprint") != task_fingerprint(frozen)
                     or supplied.get("task") != frozen["interface"]):
                 raise ValueError("invalid frozen task workload")
             candidates = [copy.deepcopy(frozen)]
@@ -145,7 +155,8 @@ def select_tasks(task, args, workflow=None):
     if selected:
         choices = list(available) if selected == "all" else [part.strip() for part in selected.split(",") if part.strip()]
         if len(set(choices)) != len(choices) or not choices or set(choices) - (available.keys() | semantics.keys()):
-            raise TaskSelectionRequired(available, semantics, detail="invalid or duplicate task selection")
+            raise TaskSelectionRequired(available, semantics, detail="invalid or duplicate task selection",
+                                        single_profile=single_profile)
         if all(identifier in available for identifier in choices):
             chosen = [available[identifier] for identifier in choices]
         else:
@@ -161,7 +172,7 @@ def select_tasks(task, args, workflow=None):
         chosen = profiles
     else:
         if workflow is None or not workflow.interactive:
-            raise TaskSelectionRequired(available, semantics)
+            raise TaskSelectionRequired(available, semantics, single_profile=single_profile)
         reply = workflow.ask("resolution", "review", resolved=False,
                              fields={"Model": task.model_id, "Revision": task.model_revision},
                              questions=[{"path": "tasks", "kind": "multi", "value": [],
@@ -173,6 +184,9 @@ def select_tasks(task, args, workflow=None):
                 len(set(choices)) != len(choices) or set(choices) - available.keys()):
             raise ValueError("select at least one valid inference profile")
         chosen = [available[key] for key in choices]
+    if single_profile and len(chosen) > 1:
+        raise TaskSelectionRequired(available, semantics, detail="selected tasks use different execution profiles",
+                                    single_profile=True)
     if args.task and any(args.task not in {item["interface"], item["task_id"],
                                           *item["execution_profile"]["semantic_task_ids"]} for item in chosen):
         raise ValueError("--task conflicts with the selected inference interface; use --tasks for workload selection")
