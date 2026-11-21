@@ -1,6 +1,7 @@
 /* Render the current independent-run estimates and retained Python condition checks. */
 "use strict";
-window.ACProfExperiments = ({data, $, V, element, option, fmt, metricTitle, metricComparisonReason, plot, axis, schedule, filtered, escape, color, selectConfig}) => {
+window.ACProfExperiments = ({data, $, V, element, option, fmt, metricTitle, metricComparisonReason,
+  unreportedNote, plot, axis, schedule, filtered, escape, color, selectConfig}) => {
 
   const sourceKey = sources => JSON.stringify(sources);
   const reasons = {
@@ -149,6 +150,8 @@ window.ACProfExperiments = ({data, $, V, element, option, fmt, metricTitle, metr
     for (const group of facets.values()) {
       const article = element("article"), chart = element("div", undefined, "scaling-chart");
       article.append(element("h3", `${group[0].task} · ${V.inputLabel(group[0].input_case, true)}`), chart);
+      const note = unreportedNote(group, [metric]);
+      if (note) article.append(element("small", note));
       $("cross-model-charts").append(article);
       await plot(chart, [{type:"bar", x:group.map(config => escape(`${config.model} · ${config.device} · ${config.cpu}c/${config.memory}G · ${config.config_id.slice(-6)}`)),
         y:group.map(config => V.value(config, metric)), customdata:group.map(config => config.config_id),

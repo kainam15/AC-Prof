@@ -3,6 +3,7 @@
 window.ACProfViews = (() => {
   const finite = value => typeof value === "number" && Number.isFinite(value);
   const value = (config, metric) => config.metrics[metric]?.value ?? null;
+  const unreportedMetricReason = "metric_not_in_source_report";
   const key = values => JSON.stringify(values);
   function stableJson(value) {
     return JSON.stringify(value, (_name, item) => {
@@ -130,6 +131,8 @@ window.ACProfViews = (() => {
     }
     function delta(config, metric) {
       if (!baseline) return {delta: null, percent: null, reason: "no_baseline"};
+      if (!Object.hasOwn(config.metrics, metric) || !Object.hasOwn(baseline.metrics, metric))
+        return {delta:null, percent:null, ratio:null, performance_ratio:null, reason:unreportedMetricReason};
       const comparison = qualification(config);
       const recorded = pair(config);
       if (config.experiment_id && baseline.experiment_id && !recorded) {
@@ -241,6 +244,6 @@ window.ACProfViews = (() => {
       series: [...facet.series.values()].map(series => ({...series,
         points: series.points.sort((a, b) => a.x - b.x)}))}));
   }
-  return {finite, value, stableJson, usableQuality, observationContract, observationSignature, inputLabel, cohort, compareProfiles, descriptiveChange,
+  return {finite, value, unreportedMetricReason, stableJson, usableQuality, observationContract, observationSignature, inputLabel, cohort, compareProfiles, descriptiveChange,
     descriptiveQualification, comparisonContext, range, colorRanges, score, sort, pareto, scaling};
 })();

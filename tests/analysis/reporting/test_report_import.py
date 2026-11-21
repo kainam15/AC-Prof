@@ -1021,6 +1021,15 @@ def test_precomputed_metric_reason_survives_import_and_rejects_conflicting_delta
     left, right = sorted((c for c in saved["configs"] if c["run_id"] == "left"), key=lambda c: c["cpu"])
     pair = saved["baseline_comparisons"]["pairs"][left["config_id"]][right["config_id"]]
     assert pair["metric_reasons"] == expected_reasons
+    imported_paths = {c["source"] for c in saved["configs"] if extra_metric in c["metrics"]}
+    expected_definition = json.loads(json.dumps(linked_bundle["registry"][extra_metric]))
+    for source in saved["sources"]:
+        if source["path"] in imported_paths:
+            assert source["view_metric_extensions"][extra_metric] == expected_definition
+        else:
+            assert "view_metric_extensions" not in source
+    assert extra_metric not in saved["registry"]
+    assert page.evaluate("bundle => ACProfImport.validate(bundle, bundle.registry)", saved) == saved
     page.click("#report-filters > summary")
     page.click("#custom-metrics > summary")
     page.select_option("#metrics", metric)

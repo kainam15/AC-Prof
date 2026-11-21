@@ -557,6 +557,98 @@ class TestReportBrowser:
         self.settled()
         assert "结果审计" in self.page.locator("#quality-content").inner_text()
 
+    def test_sparse_source_metrics_in_matrix_charts_and_exports(self, tmp_path):
+        from acprof.analysis.model import load_analysis
+        from acprof.plotting import report
+        from tests.analysis.reporting.test_report_statistics import row, write_rows
+
+        metric = "throughput_app_samples_per_s"
+        paths = [tmp_path / run / "result_all.csv" for run in ("current", "historical")]
+        for path in paths:
+            path.parent.mkdir()
+            write_rows(path, [row(0, 1, run_id=path.parent.name, throughput_app_samples_per_s="0",
+                                  request_payload_bytes="", repeat_in_window="1")])
+        current_model = load_analysis([paths[0]])
+        current = current_model.configs[0]
+        data = report.report_payload(load_analysis([paths[1]]))
+        # The previous 70-metric view catalog predates application throughput.
+        historical = data["configs"][0]
+        del data["registry"][metric]
+        del historical["metrics"][metric]
+        del historical["metric_observations"][metric]
+        for pairs in data["baseline_comparisons"]["pairs"].values():
+            for pair in pairs.values():
+                pair["metrics"].pop(metric, None)
+        output = report.write_report(current_model, tmp_path / "current.html")
+        self.page.goto(output.as_uri())
+        self.settled()
+        self.page.locator("#experiment-files").set_input_files({
+            "name": "historical.json", "mimeType": "application/json", "buffer": json.dumps(data).encode(),
+        })
+        self.page.wait_for_function("() => document.body.dataset.importing === 'false'")
+        self.page.click("#report-filters > summary")
+        self.page.click("#custom-metrics > summary")
+        self.page.select_option("#metrics", [metric, "request_payload_bytes"])
+        self.page.wait_for_function("() => document.body.dataset.ready === 'true' || !document.querySelector('#error').hidden")
+        assert self.page.locator("#error").is_hidden(), self.page.locator("#error").inner_text()
+        self.settled()
+
+        code = "metric_not_in_source_report"
+        label = "未纳入来源报告"
+        old_row = self.page.locator('#matrix tbody tr[data-config-id^="import:"]')
+        assert label in old_row.inner_text()
+        assert "n=0 · missing=1" in old_row.locator('td[title*="request_payload_bytes"]').get_attribute("title")
+        self.page.locator(f'#matrix th button[title*="{metric}"]').click()
+        self.settled()
+        assert self.page.locator("#matrix tbody tr").first.get_attribute("data-config-id") == current["config_id"]
+        self.page.select_option("#filter-experiment_name", "historical")
+        self.settled()
+        assert self.page.locator("#matrix tbody tr").count() == 1
+        assert old_row.is_visible()
+        self.page.select_option("#filter-experiment_name", "")
+        self.page.select_option("#baseline", old_row.get_attribute("data-config-id"))
+        self.settled()
+
+        with self.page.expect_download() as download:
+            self.page.click("#export-json")
+        payload = json.loads(Path(download.value.path()).read_text())
+        selected = {g["run_id"]: g for g in payload["groups"] if g["metric"] == metric}
+        assert [selected["current"][key] for key in ("value", "n", "missing", "delta", "reason")] == [0, 1, 0, None, code]
+        assert [selected["historical"][key] for key in ("value", "n", "missing", "availability_reason")] == [None, None, None, code]
+        assert selected["current"]["evidence"] == "client_http"
+        assert selected["historical"]["evidence"] is None
+        exported = next(c for c in payload["analysis_bundle"]["configs"] if c["run_id"] == "historical")
+        assert metric not in exported["metrics"]
+        exported_source = next(s for s in payload["analysis_bundle"]["sources"] if s["path"] == exported["source"])
+        assert exported_source["unreported_view_metrics"] == [metric]
+        self.page.select_option("#baseline", current["config_id"])
+        self.settled()
+        with self.page.expect_download() as download:
+            self.page.click("#export-csv")
+        with Path(download.value.path()).open(newline="") as stream:
+            exported_row = next(r for r in csv.DictReader(stream) if r["run_id"] == "historical" and r["metric"] == metric)
+        assert [exported_row[key] for key in ("value", "n", "missing", "delta", "reason")] == ["", "", "", "", code]
+
+        self.page.click("[data-view=pareto]")
+        self.page.select_option("#y-metric", metric)
+        self.settled()
+        assert label in self.page.locator("#pareto-note").inner_text()
+        self.page.click("[data-view=scaling]")
+        self.page.select_option("#scaling-metric", metric)
+        self.settled()
+        assert label in self.page.locator("#scaling-charts").inner_text()
+        self.page.click("[data-view=overview]")
+        self.settled()
+        assert self.page.locator("#overview-content tbody tr").count() == 2
+        self.page.click("[data-view=experiments]")
+        self.page.select_option("#experiment-left", json.dumps([exported["source"]]))
+        self.page.select_option("#experiment-right", json.dumps([current["source"]]))
+        self.page.select_option("#experiment-metric", metric)
+        self.page.select_option("#cross-model-metric", metric)
+        self.settled()
+        assert label in self.page.locator("#experiments tbody").inner_text()
+        assert label in self.page.locator("#cross-model-charts").inner_text()
+
     def test_window_statistics_show_cached_values_offline_on_a_narrow_screen(self):
         from acprof.analysis.model import load_analysis
         from acprof.analysis.statistics_report import (

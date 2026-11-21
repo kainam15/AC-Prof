@@ -27,6 +27,11 @@
   const signed = value => (value > 0 ? "+" : "") + fmt(value);
   const direction = metric => ({higher: "↑", lower: "↓", neutral: "·"})[registry[metric].direction];
   const metricTitle = metric => `${registry[metric].label} (${registry[metric].unit})`;
+  const unreportedLabel = "未纳入来源报告 / Not included in source report";
+  function unreportedNote(configs, metrics) {
+    const absent = [...new Set(metrics)].filter(name => name && configs.some(config => !Object.hasOwn(config.metrics, name)));
+    return absent.length ? `${unreportedLabel} · ${absent.join(", ")}` : "";
+  }
 
   const reasonLabels = {
     insufficient_windows: "窗口不足", no_successful_windows: "无正式成功窗口",
@@ -49,7 +54,8 @@
   };
   const reasonText = reason => Object.hasOwn(reasonLabels, reason) ? reasonLabels[reason] : reason;
   const metricComparisonReason = change => change.reason === "different_or_incomplete_metric_contract" ?
-    (change.reasons || []).map(reasonText).join(" · ") || reasonText(change.reason) : "";
+    (change.reasons || []).map(reasonText).join(" · ") || reasonText(change.reason) :
+    change.reason === V.unreportedMetricReason ? unreportedLabel : "";
   const reasonCounts = reasons => Object.entries(reasons || {}).map(([reason, count]) => `${reasonText(reason)} ${count}`).join(" · ");
   const inputLabel = V.inputLabel;
   const label = config => `${config.experiment_name || ""} · ${config.model} · ${config.runtime} · ${config.device} · CPU ${text(config.cpu)} · ${text(config.memory)} GiB`;
@@ -219,9 +225,14 @@
           V.score(value, ranges.get(V.cohort(config, purpose))?.[name], registry[name]) : null;
         if (score != null) cell.style.backgroundColor = `hsl(${12 + 140 * score} 43% 91%)`;
         const stats = config.metrics[name];
-        cell.title = `${name} · ${registry[name].unit} · ${stats.aggregation} · n=${stats.n} · missing=${stats.missing}`;
-        cell.title += ` · ${JSON.stringify(config.metric_observations?.[name] || registry[name].observation_contract || {})}`;
-        if (baseline) {
+        if (stats) {
+          cell.title = `${name} · ${registry[name].unit} · ${stats.aggregation} · n=${stats.n} · missing=${stats.missing}`;
+          cell.title += ` · ${JSON.stringify(config.metric_observations?.[name] || registry[name].observation_contract || {})}`;
+        } else {
+          cell.append(element("small", unreportedLabel));
+          cell.title = `${name} · ${unreportedLabel}`;
+        }
+        if (baseline && stats) {
           const change = comparison.delta(config, name);
           const metricReasons = (change.reasons || []).filter(reason => !rowReasons.includes(reason));
           const content = change.delta == null ? metricComparisonReason(change) ||
@@ -290,6 +301,8 @@
     $("pareto-note").textContent = `${visible.length} 个有效点 · ${configs.length - visible.length} 个配置缺少坐标或不适用于当前刻度。` +
       (neutral ? "所选指标包含 neutral，仅展示 scatter。" : `${front.length} 个非支配点；按已核验条件分组，partial/failed、质量 blocked/unknown 和不满足 baseline 条件的配置不进入 frontier。`) +
       (size ? " 点面积随第三指标增加；该指标缺失时使用固定小点。" : "");
+    const note = unreportedNote(configs, [x, y, size]);
+    if (note) $("pareto-note").append(element("small", note));
     await plot($("pareto-chart"), traces, {height: 510, xaxis: axis(x), yaxis: axis(y),
       annotations: visible.length ? [] : [{text: "所选指标没有成对的有效观测值", showarrow: false, xref: "paper", yref: "paper", x: .5, y: .5}]});
   }
@@ -303,6 +316,8 @@
       const article = element("article"), chart = element("div", undefined, "scaling-chart");
       article.title = fullLabel(facet.config);
       article.append(element("h3", `${facet.config.model.split("/").pop()} / ${facet.config.runtime} · ${facet.config.environment_class} · ${inputLabel(facet.config.input_case)}`), chart);
+      if (facet.series.some(series => series.points.some(point => !Object.hasOwn(point.config.metrics, metric))))
+        article.append(element("small", unreportedLabel));
       $("scaling-charts").append(article);
       const runs = [...new Set(facet.series.map(s => s.config.run_id))];
       const devices = [...new Set(facet.series.map(s => s.config.gpu))];
@@ -399,8 +414,10 @@
     }
     for (const config of configs.filter(config => config.statistics_status === "not_computed")) {
       const row = element("tr"); row.dataset.statConfigId = config.config_id; row.onclick = () => selectConfig(config);
+      const unreported = metric && registry[metric] && !Object.hasOwn(config.metrics, metric);
       for (const cell of [label(config), metric || "—", "—", "未计算 / Not computed", "未计算 / Not computed",
-        String(config.valid_windows), "CSV 仅作描述性汇总 / CSV summaries are descriptive"]) row.append(element("td", cell));
+        unreported ? "—" : String(config.valid_windows),
+        unreported ? unreportedLabel : "CSV 仅作描述性汇总 / CSV summaries are descriptive"]) row.append(element("td", cell));
       body.append(row);
     }
     $("statistics-empty").hidden = body.rows.length > 0;
@@ -529,7 +546,8 @@
       $("error").textContent = "视图生成失败：" + error.message;
     }).finally(() => { document.body.dataset.busy = "false"; });
   }
-  const experiments = window.ACProfExperiments({data, $, V, element, option, fmt, metricTitle, metricComparisonReason, plot, axis, schedule, filtered, escape, color, selectConfig});
+  const experiments = window.ACProfExperiments({data, $, V, element, option, fmt, metricTitle, metricComparisonReason,
+    unreportedNote, plot, axis, schedule, filtered, escape, color, selectConfig});
   const getState = () => ({...state, controls:Object.fromEntries([...document.querySelectorAll("select")].map(select =>
     [select.id, [...select.selectedOptions].map(option => option.value)])), evidenceOpen:$("quality-evidence").open,
     statisticsInputs:{seed:$("statistics-seed").value, block_size:$("statistics-block-size").value}});

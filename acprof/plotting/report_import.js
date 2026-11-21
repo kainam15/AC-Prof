@@ -305,6 +305,38 @@ window.ACProfImport = (() => {
       registry, window_statistics:[], experiment_comparisons:[], baseline_comparisons:{pairs:{}, qualifications:[]},
       overview:[{source:path, identity:{}}]};
   }
+  // Successive additions to the published configuration views, newest first.
+  // Statistics have their own metric catalog and can include non-view metrics.
+  const catalogGaps = [new Set()];
+  for (const additions of [
+    ["throughput_app_samples_per_s"],
+    ["request_payload_bytes", "response_payload_bytes"],
+    ["gpu_memory_clock_mhz", "gpu_sm_clock_mhz", "gpu_temp_c"],
+    ["process_count_end", "process_cpu_system_time_s", "process_cpu_user_time_s", "process_fds_end",
+      "process_io_read_bytes", "process_io_read_ops", "process_io_write_bytes", "process_io_write_ops",
+      "process_leader_involuntary_ctx_switches", "process_leader_voluntary_ctx_switches", "process_major_faults",
+      "process_minor_faults", "process_rss_growth_bytes", "process_swap_bytes_end", "process_threads_end",
+      "service_cgroup_cpu_time_s", "service_cgroup_io_read_bytes", "service_cgroup_io_write_bytes",
+      "service_cgroup_mem_usage_avg_bytes", "service_cgroup_mem_usage_peak_bytes"],
+  ]) catalogGaps.push(new Set([...catalogGaps.at(-1), ...additions].sort()));
+  function publishedGap(names) {
+    if (!Array.isArray(names)) return undefined;
+    const supplied = new Set(names);
+    return catalogGaps.find(gap => gap.size === names.length && [...gap].every(name => supplied.has(name)));
+  }
+  function validateViewRegistry(incoming, viewMetrics) {
+    if (!record(incoming)) fail("指标目录损坏 / Invalid view metric catalog");
+    const absent = viewMetrics.filter(([name]) => !Object.hasOwn(incoming, name)).map(([name]) => name);
+    const gap = publishedGap(absent);
+    if (!gap) fail("不支持的指标目录 / Unsupported view metric catalog: " + absent.join(", "));
+    for (const [name, metric] of viewMetrics) {
+      if (gap.has(name)) continue;
+      const actual = incoming[name];
+      if (!record(actual) || ["unit", "aggregation", "direction"].some(key => actual[key] !== metric[key]))
+        fail("指标口径不兼容 / Incompatible metric contract: " + name);
+    }
+    return gap;
+  }
   function validateBundle(input, registry) {
     const data = input?.analysis_bundle || input;
     if (!data || data.schema_version !== 1 || data.kind && data.kind !== "acprof_analysis_bundle" ||
@@ -313,14 +345,19 @@ window.ACProfImport = (() => {
       if (!Array.isArray(data[name])) fail("数据包缺失字段 / Missing bundle field: " + name);
     }
     if (!data.configs.length || !data.sources.length || !data.registry || !data.baseline_comparisons) fail("数据包缺失配置或来源 / Missing configurations or sources");
-    const configSources = new Map(), sources = new Set();
+    const configSources = new Map(), sources = new Map();
+    const viewMetrics = Object.entries(registry);
+    const bundleGap = validateViewRegistry(data.registry, viewMetrics);
     const object = value => value && typeof value === "object" && !Array.isArray(value);
     const count = value => Number.isInteger(value) && value >= 0;
     const numeric = value => value === null || finite(value);
     const interval = value => value === null || Array.isArray(value) && value.length === 2 && value.every(finite) && value[0] <= value[1];
     for (const source of data.sources) {
       if (typeof source.path !== "string" || !/^[a-f0-9]{64}$/i.test(source.sha256) || sources.has(source.path)) fail("来源指纹缺失或重复 / Invalid or duplicate source fingerprint");
-      sources.add(source.path);
+      const gap = Object.hasOwn(source, "unreported_view_metrics") ? publishedGap(source.unreported_view_metrics) : bundleGap;
+      if (!gap || [...bundleGap].some(name => !gap.has(name)) || [...gap].some(name => !Object.hasOwn(registry, name)))
+        fail("来源指标目录损坏 / Invalid source view metric catalog: " + source.path);
+      sources.set(source.path, gap);
     }
     for (const config of data.configs) {
       if (typeof config.config_id !== "string" || configSources.has(config.config_id) || !sources.has(config.source)) fail("配置身份缺失或重复 / Invalid or duplicate configuration identity");
@@ -353,9 +390,15 @@ window.ACProfImport = (() => {
           }
         }
       }
-      for (const [name, metric] of Object.entries(registry)) {
-        const actual = data.registry[name], values = config.metrics?.[name];
-        if (!actual || ["unit", "aggregation", "direction"].some(key => actual[key] !== metric[key])) fail("指标口径不兼容 / Incompatible metric contract: " + name);
+      const gap = sources.get(config.source);
+      if (!object(config.metrics)) fail("配置缺失指标 / Missing configuration metrics");
+      for (const [name, metric] of viewMetrics) {
+        if (gap.has(name)) {
+          if (Object.hasOwn(config.metrics, name) || Object.hasOwn(config.metric_observations || {}, name))
+            fail("来源未声明此视图指标 / Undeclared source view metric: " + name);
+          continue;
+        }
+        const values = config.metrics[name];
         if (!values || values.value !== null && !finite(values.value) || !Number.isInteger(values.n) || values.n < 0 ||
             !Number.isInteger(values.missing) || values.missing < 0 || ![metric.aggregation, "lifecycle_conflict"].includes(values.aggregation)) fail("指标值损坏或缺失 / Invalid metric values: " + name);
       }
@@ -412,6 +455,10 @@ window.ACProfImport = (() => {
       for (const [other, pair] of Object.entries(others)) {
         if (!configSources.has(other) || !object(pair.policies) || !object(pair.metrics) ||
             [pair.resource, ...Object.values(pair.policies)].some(index => !count(index) || !pairs.qualifications[index])) fail("基线证据索引无效 / Invalid baseline evidence reference");
+        const leftGap = sources.get(configSources.get(id)), rightGap = sources.get(configSources.get(other));
+        if ((leftGap.size || rightGap.size) &&
+            [...Object.keys(pair.metrics), ...Object.keys(pair.metric_reasons || {})].some(name => leftGap.has(name) || rightGap.has(name)))
+          fail("来源未声明此比较指标 / Undeclared comparison view metric");
         for (const change of Object.values(pair.metrics)) if (![change.delta, change.percent, change.ratio, change.performance_ratio].every(numeric)) fail("基线差值无效 / Invalid baseline change");
         if (Object.hasOwn(pair, "metric_reasons") && (!object(pair.metric_reasons) ||
             Object.entries(pair.metric_reasons).some(([name, reason]) =>
@@ -420,7 +467,10 @@ window.ACProfImport = (() => {
       }
     }
     for (const overview of data.overview) if (!sources.has(overview.source) || !object(overview.identity)) fail("来源元数据无效 / Invalid source metadata");
-    return clone(data);
+    return clone({...data, registry:{...registry, ...data.registry}, sources:data.sources.map(source => {
+      const gap = sources.get(source.path);
+      return gap.size ? {...source, unreported_view_metrics:[...gap]} : source;
+    })});
   }
   function validate(input, registry) {
     try { return validateBundle(input, registry); }

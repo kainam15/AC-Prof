@@ -36,7 +36,8 @@ window.ACProfExport = ({data, $, V, state, filtered, experiments, workspace}) =>
     const rows = configs.flatMap(config => metrics.map(metric => ({config_id:config.config_id, model:config.model,
       run_id:config.run_id, statistics_status:config.statistics_status || "python_computed", source:config.source, experiment:config.experiment_name, input_case:config.input_case, cpu:config.cpu, memory:config.memory,
       device:config.device, metric, unit:data.registry[metric].unit, evidence:data.registry[metric].source,
-      ...config.metrics[metric], baseline:baseline?.config_id || null, ...comparison.delta(config, metric),
+      ...(config.metrics[metric] ?? {value:null, n:null, missing:null, evidence:null, availability_reason:V.unreportedMetricReason}),
+      baseline:baseline?.config_id || null, ...comparison.delta(config, metric),
       comparison:comparison.qualification(config)})));
     return {payload:{kind:"resource_configuration_analysis", comparison_purpose:comparison.purpose, groups:rows,
       sources:data.sources.filter(source => configs.some(config => config.source === source.path))}, rows};

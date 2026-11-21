@@ -53,7 +53,15 @@ window.ACProfWorkspace = (original, restored = null) => {
           hardware:hardware.cpu_model || hardware.platform_fingerprint || "unknown"}));
         entries.push(entry); data.configs.push(...entry.configs);
       }
-      for (const name of ["sources", "overview", "window_statistics", "experiment_comparisons"]) data[name].push(...bundle[name]);
+      // Extra declarations belong to the importing file. Two experiments can
+      // use the same extension name with different units.
+      const extensions = Object.entries(bundle.registry).filter(([name]) => !Object.hasOwn(original.registry, name));
+      for (const source of bundle.sources) {
+        data.sources.push(extensions.length ? {...source, view_metric_extensions:{
+          ...Object.fromEntries(extensions), ...source.view_metric_extensions,
+        }} : source);
+      }
+      for (const name of ["overview", "window_statistics", "experiment_comparisons"]) data[name].push(...bundle[name]);
     }
     data.window_statistics = data.window_statistics.map(report => ({...report, ...(statisticsUpdates.get(statisticsKey(report)) || {})}));
     data.experiment_comparisons = data.experiment_comparisons.map(entry => comparisonUpdates.get(comparisonKey(entry)) || entry);
