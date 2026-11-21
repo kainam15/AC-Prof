@@ -59,9 +59,11 @@ def test_container_exposes_only_the_selected_uuid_and_records_identity():
         )
     ), patch("requests.get", return_value=response):
         session = docker_runtime.start_container_session(
-            task, 1, 2, "on", runtime_images.ImageInfo("fixture"), "fixture", "[test]"
+            task, 1, 2, "on", runtime_images.ImageInfo("fixture"), "fixture", "[test]", cpuset_cpus="3,1-2"
         )
     command = next(cmd for cmd in commands if cmd[:3] == ["docker", "run", "-d"])
+    assert '--cpus=1' in command
+    assert '--cpuset-cpus=1-3' in command
     assert '--cap-drop=ALL' in command
     assert '--security-opt=no-new-privileges' in command
     assert '--privileged' not in command

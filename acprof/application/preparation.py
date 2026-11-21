@@ -188,6 +188,7 @@ def prepare_runtime(args, *, run_state, task_info, output_dir, cpu_list, mem_lis
                 input_scales=args.input_scales,
                 workload_spec_path=args.workload_spec,
                 input_scale_policy=args.input_scale_policy,
+                cpuset_cpus=args.cpuset_cpus,
             )
         except RuntimeCleanupError:
             raise
@@ -210,6 +211,7 @@ def prepare_runtime(args, *, run_state, task_info, output_dir, cpu_list, mem_lis
                     task_info=task_info, image_info=image_info, planned=planned_input_scales,
                     cpu_list=cpu_list, mem_list=mem_list, gpu_list=gpu_list, output_dir=output_dir,
                     timeout_seconds=args.request_timeout_seconds,
+                    cpuset_cpus=args.cpuset_cpus,
                 )
                 if report.get("status") != "ok":
                     raise RuntimeError("collection requires successful runtime validation on every requested device: "

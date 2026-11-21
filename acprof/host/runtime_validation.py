@@ -70,7 +70,11 @@ def validate_runtime(
     *, task_info: TaskInfo, image_info: ImageInfo, planned: PlannedInputScales, cpu_list: list[int],
     mem_list: list[int], gpu_list: list[str], output_dir: str,
     timeout_seconds: float = 300.0,
+    cpuset_cpus: str = "",
 ) -> RuntimeValidationReport:
+    from acprof.cpu_affinity import normalize_cpu_set
+
+    cpuset_cpus = normalize_cpu_set(cpuset_cpus)
     if (not gpu_list or any(value not in {"off", "on"} for value in gpu_list) or not cpu_list or not mem_list
             or any(type(value) is not int or value <= 0 for value in [*cpu_list, *mem_list])
             or not math.isfinite(timeout_seconds) or timeout_seconds <= 0):
@@ -135,6 +139,7 @@ def validate_runtime(
                     "--read-only", "--cap-drop=ALL", "--security-opt", "no-new-privileges", "--pids-limit=256",
                     "--tmpfs", "/tmp:rw,nosuid,nodev,size=1g",
                     f"--cpus={max(cpu_list)}", f"--memory={max(mem_list)}g",
+                    *([f"--cpuset-cpus={cpuset_cpus}"] if cpuset_cpus else []),
                     "-v", f"{payload}:/validation-input.json:ro",
                     "-e", f"MODEL_ID={task_info.model_id}",
                     "-e", f"MODEL_REVISION={task_info.model_revision}",

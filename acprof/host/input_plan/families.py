@@ -43,10 +43,11 @@ def plan_manual_nlp_scales(
     batch_size: int,
     output_dir: str,
     workload_spec_path: str | None = None,
+    cpuset_cpus: str = "",
 ) -> PlannedInputScales:
     session: ServiceSession | None = None
     try:
-        session = start_probe_session(task_info, image_info, cpu_list, mem_list, gpu_list)
+        session = start_probe_session(task_info, image_info, cpu_list, mem_list, gpu_list, cpuset_cpus)
         workload_gen = get_task_generator(
             task_info, batch_size, workload_spec_path=workload_spec_path,
         )
@@ -112,10 +113,11 @@ def plan_nlp_auto_scales(
     batch_size: int,
     output_dir: str,
     workload_spec_path: str | None = None,
+    cpuset_cpus: str = "",
 ) -> PlannedInputScales:
     session: ServiceSession | None = None
     try:
-        session = start_probe_session(task_info, image_info, cpu_list, mem_list, gpu_list)
+        session = start_probe_session(task_info, image_info, cpu_list, mem_list, gpu_list, cpuset_cpus)
         workload_gen = get_task_generator(
             task_info, batch_size, workload_spec_path=workload_spec_path,
         )
@@ -259,6 +261,7 @@ def plan_audio_scales(
     output_dir: str,
     source: str,
     workload_spec_path: str | None,
+    cpuset_cpus: str = "",
 ) -> PlannedInputScales:
     """Validate real audio payloads against the loaded model before a sweep."""
     workload_gen = get_task_generator(
@@ -277,7 +280,7 @@ def plan_audio_scales(
     session: ServiceSession | None = None
     model_constraints: dict[str, Any] = {}
     try:
-        session = start_probe_session(task_info, image_info, cpu_list, mem_list, gpu_list)
+        session = start_probe_session(task_info, image_info, cpu_list, mem_list, gpu_list, cpuset_cpus)
         first_payload = materialized_payloads[0][1]
         model_constraints = request_audio_scale_meta(session, first_payload)
 
@@ -350,10 +353,11 @@ def plan_timeseries_scales(
     batch_size: int,
     output_dir: str,
     input_scales: str | None,
+    cpuset_cpus: str = "",
 ) -> PlannedInputScales:
     """Use the loaded forecasting model's context limit before materialization."""
     generator = get_task_generator(task_info, batch_size)
-    session = start_probe_session(task_info, image_info, cpu_list, mem_list, gpu_list)
+    session = start_probe_session(task_info, image_info, cpu_list, mem_list, gpu_list, cpuset_cpus)
     try:
         constraints = request_scale_meta(session, generator.generate(1))
     finally:

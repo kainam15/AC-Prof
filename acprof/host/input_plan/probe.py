@@ -17,6 +17,7 @@ def start_probe_session(
     cpu_list: list[int],
     mem_list: list[int],
     gpu_list: list[str],
+    cpuset_cpus: str = "",
 ) -> ServiceSession:
     probe_cpu = max(cpu_list)
     probe_mem = max(mem_list)
@@ -37,6 +38,7 @@ def start_probe_session(
         image_info=image_info,
         container_name=container_name,
         log_prefix="[probe]",
+        cpuset_cpus=cpuset_cpus,
     )
 
 

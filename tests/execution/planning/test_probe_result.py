@@ -76,3 +76,27 @@ def test_configured_probe_requires_persisted_configuration_identity(probe_eviden
     snapshot, config, project, pid, started = probe_evidence[:5]
     with pytest.raises(ValueError, match="missing the requested inference configuration"):
         inspect_probe_result(snapshot, replace(config, confirm_inference="a" * 64), project, pid, started)
+
+
+def test_cpu_set_must_match_the_launch_in_both_directions(probe_evidence):
+    snapshot, config, project, pid, started, path, payload = probe_evidence
+    restricted = replace(config, cpuset_cpus="3,1-2")
+    with pytest.raises(ValueError, match="CPU set differs from the launch configuration"):
+        inspect_probe_result(snapshot, restricted, project, pid, started)
+
+    payload["resource"]["cpuset_cpus"] = "1-3"
+    payload["memory_probe"] = {"attempts": [{"status": "ok", "mem_gb": 4, "cpu_affinity": ["1", "2-3"]}]}
+    write_probe_summary(path, payload)
+    inspect_probe_result(snapshot, restricted, project, pid, started)
+    with pytest.raises(ValueError, match="CPU set differs from the launch configuration"):
+        inspect_probe_result(snapshot, config, project, pid, started)
+
+
+@pytest.mark.parametrize("affinities", [None, [], ["1", "invalid"], ["2-4"]])
+def test_unverified_thread_masks_cannot_support_a_successful_probe(probe_evidence, affinities):
+    snapshot, config, project, pid, started, path, payload = probe_evidence
+    payload["resource"]["cpuset_cpus"] = "1-3"
+    payload["memory_probe"] = {"attempts": [{"status": "ok", "mem_gb": 4, "cpu_affinity": affinities}]}
+    write_probe_summary(path, payload)
+    with pytest.raises(ValueError, match="CPU affinity"):
+        inspect_probe_result(snapshot, replace(config, cpuset_cpus="1-3"), project, pid, started)

@@ -4,6 +4,7 @@ import math
 import os
 from dataclasses import asdict, replace
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 
@@ -121,13 +122,15 @@ def test_process_validation_persists_environment_identity_without_docker_image(t
     task = SimpleNamespace(model_resolution={'contract': {'fields': {}}})
     info = ProcessInfo('/python', '/code', '/model', 'process-environment', {})
     stages = ('execution', 'load', 'preprocess', 'predict', 'completion', 'postprocess', 'validate_output')
-    monkeypatch.setattr(validation, 'run_validation', lambda *a, **kw: {
+    run_validation = Mock(return_value={
         'status': 'ok', 'stages': [{'stage': stage, 'status': 'verified'} for stage in stages],
         'validation': {'protocol': {'status': 'verified'}, 'task': {'status': 'verified'}},
     })
+    monkeypatch.setattr(validation, 'run_validation', run_validation)
     report = validation.validate_process(task_info=task, image_info=info,
         planned=SimpleNamespace(plan_file=str(plan)), cpu_list=[None], mem_list=[None],
-        gpu_list=['off'], output_dir=tmp_path)
+        gpu_list=['off'], output_dir=tmp_path, cpuset_cpus='1-3')
+    assert run_validation.call_args.kwargs['cpuset_cpus'] == '1-3'
     assert report['status'] == 'ok'
     observed = task.model_resolution['runtime_validation']
     assert observed['runtime_kind'] == 'process'

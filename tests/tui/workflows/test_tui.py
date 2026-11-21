@@ -730,3 +730,10 @@ def test_probe_command_keeps_gpu_selector_from_saved_advanced_options():
     command = build_probe_command(config, project_dir=PROJECT_DIR)
     assert command[command.index("--gpu-device") + 1] == "2"
     assert "--matrix-seed" not in command
+
+
+def test_probe_command_passes_the_same_normalized_cpu_set_as_collection():
+    config = RunConfig(model="fixture/model", runtime="docker", cpus="1", cpuset_cpus="3,1-2")
+    for build in (build_run_command, build_probe_command):
+        command = build(config, project_dir=PROJECT_DIR)
+        assert command[command.index("--cpuset-cpus") + 1] == "1-3"

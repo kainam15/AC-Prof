@@ -33,3 +33,25 @@ def normalize_cpu_set(value: str) -> str:
             start = end = cpu_id
     groups.append(str(start) if start == end else f"{start}-{end}")
     return ",".join(groups)
+
+
+def expanded_cpu_ids(value: str) -> str:
+    """Encode the explicit IDs understood by the standalone Process launcher."""
+    return ",".join(map(str, sorted(parse_cpu_set(value))))
+
+
+def thread_masks_within(affinities: list[str] | None, requested: str) -> bool:
+    """Require evidence for every observed thread, allowing workers to pin themselves more narrowly."""
+    allowed = parse_cpu_set(requested)
+    if not isinstance(affinities, list) or not affinities or not allowed:
+        return False
+    for mask in affinities:
+        if not isinstance(mask, str):
+            return False
+        try:
+            cpus = parse_cpu_set(mask)
+        except ValueError:
+            return False
+        if not cpus or not cpus <= allowed:
+            return False
+    return True

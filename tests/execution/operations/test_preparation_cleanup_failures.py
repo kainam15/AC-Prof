@@ -139,3 +139,13 @@ def test_interactive_workflow_does_not_retry_cleanup_failure(stage, monkeypatch)
         "exception_type": "RuntimeCleanupError", "exception_message": str(failure),
         "reason_code": None,
     })
+
+
+def test_public_preparation_uses_the_effective_cpu_set_for_planning_and_validation(prepared_application, monkeypatch):
+    fixture = prepared_application
+    monkeypatch.setattr("os.sched_getaffinity", lambda _pid: {1, 2, 3, 4})
+    config = replace(fixture.config, cpuset_cpus="3,1-2", compute_profile_tool="none", execution_profile_tool="none")
+    with pytest.raises(RuntimeError, match="matrix boundary reached"):
+        fixture.application.run(config)
+    for stage in ("input", "runtime"):
+        assert fixture.stages[stage].call_args.kwargs["cpuset_cpus"] == "1-3"

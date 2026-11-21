@@ -58,7 +58,8 @@ def t5_probe(tmp_path, monkeypatch, gpu_inventory):
     def start_session(**kwargs):
         from acprof.host.gpu_device import selected_gpu_device
 
-        return replace(session, gpu_device=selected_gpu_device() if kwargs["gpu"] == "on" else {})
+        return replace(session, container_id=f"{kwargs['mem']:064x}",
+                       gpu_device=selected_gpu_device() if kwargs["gpu"] == "on" else {})
 
     monkeypatch.setattr(largest_scale_probe, "start_container_session", Mock(side_effect=start_session))
     monkeypatch.setattr(largest_scale_probe, "stop_container_session", Mock())
@@ -518,3 +519,118 @@ def test_gpu_probe_rejects_a_session_for_a_different_card_before_predict(t5_prob
     inspect.assert_not_called()
     path, = output.rglob(PROBE_SUMMARY_NAME)
     assert json.loads(path.read_text())["status"] == "error"
+
+
+@pytest.fixture
+def probe_affinities(monkeypatch):
+    from acprof.host import hardware_conditions
+
+    top = Mock(return_value="PID\n110001")
+    monkeypatch.setattr(hardware_conditions, "_run", top)
+    tasks = Path("/proc/110001/task")
+    original_iterdir = Path.iterdir
+    monkeypatch.setattr(Path, "iterdir", lambda path: iter([tasks / "110001", tasks / "110002"])
+                        if path == tasks else original_iterdir(path))
+    masks = {0: {1, 2, 3, 4}, 110001: {1, 2}, 110002: {3}}
+    monkeypatch.setattr("os.sched_getaffinity", masks.__getitem__)
+    return masks, top
+
+
+def test_probe_checks_thread_affinity_before_each_timed_request(t5_probe, probe_affinities, monkeypatch):
+    args, output, image, post = t5_probe
+    _masks, top = probe_affinities
+    image.return_value.runtime_environment = {"build_fingerprint": "fixture"}
+    validate = Mock()
+    monkeypatch.setattr("acprof.host.runtime_validation.validate_runtime", validate)
+    order = Mock()
+    order.attach_mock(top, "threads")
+    order.attach_mock(post, "predict")
+    post.side_effect = [RuntimeError("out of memory"), post.return_value]
+    assert probe.main([*args, "--tasks", "summarization", "--cpus", "1,4", "--mems", "2,8",
+                       "--cpuset-cpus", "3,1-2"]) == 0
+    path, = output.rglob(PROBE_SUMMARY_NAME)
+    summary = read_probe_summary(path)
+    planning = input_probe.start_service_session.call_args.kwargs
+    assert (planning["cpu"], planning["cpuset_cpus"]) == (4, "1-3")
+    assert validate.call_args.kwargs["cpuset_cpus"] == "1-3"
+    starts = largest_scale_probe.start_container_session.call_args_list
+    assert [(call.kwargs["cpu"], call.kwargs["cpuset_cpus"]) for call in starts] == [(1, "1-3"), (1, "1-3")]
+    assert [call.args[0] for call in top.call_args_list] == [
+        ["docker", "top", f"{mem:064x}", "-eo", "pid"] for mem in (2, 8)
+    ]
+    assert [call[0] for call in order.mock_calls if call[0] in {"threads", "predict"}] == [
+        "threads", "predict", "threads", "predict",
+    ]
+    assert summary["resource"]["cpuset_cpus"] == "1-3"
+    attempts = summary["memory_probe"]["attempts"]
+    assert [(a["status"], a["cpu_affinity"]) for a in attempts] == [
+        ("runtime_oom", ["1-2", "3"]), ("ok", ["1-2", "3"]),
+    ]
+    attempts[1]["cpu_affinity"] = ["0-3"]
+    path.write_text(json.dumps(summary))
+    with pytest.raises(ValueError, match="CPU affinity"):
+        read_probe_summary(path)
+
+
+@pytest.mark.parametrize("condition", ["outside", "unavailable", "permission"])
+def test_probe_rejects_unverified_affinity_before_predict(t5_probe, probe_affinities, condition, monkeypatch):
+    args, output, _image, post = t5_probe
+    masks, top = probe_affinities
+    if condition == "outside":
+        masks[110002] = {3, 4}
+    elif condition == "permission":
+        def read_mask(tid):
+            if tid == 110002:
+                raise PermissionError("cannot read worker affinity")
+            return masks[tid]
+        monkeypatch.setattr("os.sched_getaffinity", read_mask)
+    else:
+        top.return_value = None
+    inspect = Mock(return_value={"OOMKilled": True})
+    monkeypatch.setattr(largest_scale_probe.container_state, "inspect_container_state", inspect)
+    assert probe.main([*args, "--tasks", "summarization", "--cpuset-cpus", "1-3", "--mems", "2,8"]) == 2
+    post.assert_not_called()
+    largest_scale_probe.stop_container_session.assert_called_once()
+    path, = output.rglob(PROBE_SUMMARY_NAME)
+    summary = json.loads(path.read_text())
+    attempt, = summary["memory_probe"]["attempts"]
+    assert attempt["status"] == "error"
+    assert attempt["timing"]["request_s"] is None
+    assert attempt["cpu_affinity"] == (["1-2", "3-4"] if condition == "outside" else None)
+    if condition == "permission":
+        assert "cannot read worker affinity" in attempt["error"]
+    inspect.assert_not_called()
+
+
+def test_out_of_host_cpuset_stops_before_probe_preparation(t5_probe, probe_affinities, capsys):
+    args, output, image, post = t5_probe
+    assert probe.main([*args, "--tasks", "summarization", "--cpuset-cpus", "0,1"]) == 2
+    assert "CPUs unavailable" in capsys.readouterr().err
+    image.assert_not_called()
+    post.assert_not_called()
+    assert not output.exists()
+
+
+def test_review_binds_the_normalized_cpu_set(reviewable_t5_probe, probe_affinities, tmp_path, monkeypatch):
+    args, output, image, post = reviewable_t5_probe
+    request = tmp_path / "requests.json"
+    request.write_text('{"schema_version":1}')
+    command = [*args, "--tasks", "summarization", "--inference-config", str(request)]
+    assert probe.main([*command, "--cpuset-cpus", "3,1-2"]) == 0
+    reviews = output / ".inference-configurations"
+    initial, = reviews.glob("*.requests.json")
+    digest = initial.name.split(".")[0]
+    assert probe.main([*command, "--cpuset-cpus", "1-4", "--confirm-inference", digest]) == 0
+    assert len(list(reviews.glob("*.requests.json"))) == 2
+    image.assert_not_called()
+    post.assert_not_called()
+
+    monkeypatch.setattr("acprof.host.runtime_validation.validate_runtime", Mock())
+    assert probe.main([*command, "--cpuset-cpus", "1-3", "--confirm-inference", digest]) == 0
+    path, = output.rglob(PROBE_SUMMARY_NAME)
+    summary = read_probe_summary(path)
+    assert summary["inference_configuration_sha256"] == digest
+    summary["resource"]["cpuset_cpus"] = "1-4"
+    path.write_text(json.dumps(summary))
+    with pytest.raises(ValueError, match="CPU set differs from its frozen"):
+        read_probe_summary(path)

@@ -9,7 +9,7 @@ import subprocess
 from pathlib import Path
 
 from acprof.artifacts import atomic_write_json, read_json_object
-from acprof.cpu_affinity import normalize_cpu_set, parse_cpu_set
+from acprof.cpu_affinity import normalize_cpu_set, thread_masks_within
 from acprof.hardware_conditions import HARDWARE_FIELDS, conditions_path
 from acprof.network_policy import local_proxy_options
 from acprof.results.layout import ArtifactLayout
@@ -55,6 +55,42 @@ def _docker_limit_observation(container_id: str, pid: int) -> dict:
         return {"method": "docker_cgroup_v2", "verified": False, "reason": f"{type(exc).__name__}: {exc}"}
 
 
+def _container_pids(container_id: str) -> list[int]:
+    if not isinstance(container_id, str) or not re.fullmatch(r"[0-9a-f]{64}", container_id):
+        raise ValueError("container identity unavailable")
+    raw = _run(["docker", "top", container_id, "-eo", "pid"])
+    return [int(value.strip()) for value in (raw or "").splitlines()[1:]]
+
+
+def _thread_masks(pids: list[int]) -> tuple[list[str], set[int]]:
+    masks = set()
+    allowed = set()
+    for pid in pids:
+        try:
+            tasks = Path(f"/proc/{pid}/task").iterdir()
+            for task in tasks:
+                try:
+                    affinity = os.sched_getaffinity(int(task.name))
+                except ProcessLookupError:
+                    # Threads may exit between /proc enumeration and the
+                    # affinity read. A vanished thread cannot participate in
+                    # the later measurement window, so keep evidence from
+                    # the live siblings instead of discarding the snapshot.
+                    continue
+                allowed.update(affinity)
+                masks.add(normalize_cpu_set(",".join(str(cpu) for cpu in sorted(affinity))))
+        except FileNotFoundError:
+            # docker top is a snapshot; a process can legitimately exit
+            # before its task directory is opened.
+            continue
+    return sorted(masks), allowed
+
+
+def container_thread_affinities(container_id: str) -> list[str] | None:
+    masks, _ = _thread_masks(_container_pids(container_id))
+    return masks or None
+
+
 def observe_conditions(session) -> dict:
     record = dict.fromkeys(HARDWARE_FIELDS)
     errors = []
@@ -74,34 +110,15 @@ def observe_conditions(session) -> dict:
             pids = []
             errors.append(f"process observation: {type(exc).__name__}: {exc}")
     else:
-        if not re.fullmatch(r"[0-9a-f]{64}", str(getattr(session, "container_id", ""))):
-            return {**record, "errors": ["container identity unavailable"]}
-        raw = _run(["docker", "top", session.container_id, "-eo", "pid"])
-        pids = [int(value.strip()) for value in (raw or "").splitlines()[1:]]
+        try:
+            pids = _container_pids(getattr(session, "container_id", ""))
+        except ValueError as exc:
+            return {**record, "errors": [str(exc)]}
         if pids:
             record["resource_plan"] = _docker_limit_observation(session.container_id, pids[0])
     try:
-        masks = set()
-        allowed = set()
-        for pid in pids:
-            try:
-                tasks = Path(f"/proc/{pid}/task").iterdir()
-                for task in tasks:
-                    try:
-                        affinity = os.sched_getaffinity(int(task.name))
-                    except ProcessLookupError:
-                        # Threads may exit between /proc enumeration and the
-                        # affinity read. A vanished thread cannot participate in
-                        # the later measurement window, so keep evidence from
-                        # the live siblings instead of discarding the snapshot.
-                        continue
-                    allowed.update(affinity)
-                    masks.add(normalize_cpu_set(",".join(str(cpu) for cpu in sorted(affinity))))
-            except FileNotFoundError:
-                # docker top is a snapshot; a process can legitimately exit
-                # before its task directory is opened.
-                continue
-        record["cpu_affinity"] = sorted(masks) or None
+        masks, allowed = _thread_masks(pids)
+        record["cpu_affinity"] = masks or None
         governors = {str(cpu): _read(f"/sys/devices/system/cpu/cpu{cpu}/cpufreq/scaling_governor")
                      for cpu in sorted(allowed)}
         policy = {
@@ -162,11 +179,7 @@ def record_case_conditions(output_dir, case_id, session, *, cpuset_cpus="") -> N
     observed["requested_cpuset"] = cpuset_cpus or "unrestricted"
     # Runtimes may pin individual workers more narrowly than Docker's CPU set.
     # Every observed thread must stay inside the requested boundary.
-    affinities = observed["cpu_affinity"]
-    requested = parse_cpu_set(cpuset_cpus)
-    verified = bool(affinities) and all(
-        parse_cpu_set(mask) and parse_cpu_set(mask) <= requested for mask in affinities
-    ) if cpuset_cpus else True
+    verified = not cpuset_cpus or thread_masks_within(observed["cpu_affinity"], cpuset_cpus)
     if not verified:
         observed["errors"].append("thread affinities are unknown or outside the requested CPU set")
     payload["cases"][case_id] = observed

@@ -99,7 +99,7 @@ class ProcessRuntime:
         gpu = normalize_gpu_mode(gpu)
         import requests
 
-        from acprof.cpu_affinity import parse_cpu_set
+        from acprof.cpu_affinity import expanded_cpu_ids
         from acprof.host.model_store.store import acquire_mount
         from acprof.host.runtimes.resources import ProcessLimits
         limits = ProcessLimits(cpu, mem, cpuset_cpus)
@@ -127,7 +127,7 @@ class ProcessRuntime:
                                ACPROF_SERVER_FD=str(reservation.fileno()))
                     process = ManagedProcess([image_info.python, "-P", "-m", "acprof.container.server"],
                         python=image_info.python, env=env, directory=Path(image_info.runtime_environment["logs_dir"]),
-                        name=f"{container_name}-{token}", cpuset=",".join(map(str, sorted(parse_cpu_set(cpuset_cpus)))),
+                        name=f"{container_name}-{token}", cpuset=expanded_cpu_ids(cpuset_cpus),
                         cgroup=limits.path, pass_fds=(reservation.fileno(), *lease.pass_fds))
                 session = RunningProcess(container_name, f"http://127.0.0.1:{port}", port, process,
                                          limits.evidence(), lease=lease, limits=limits,

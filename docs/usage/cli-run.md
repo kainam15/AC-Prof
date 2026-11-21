@@ -95,7 +95,7 @@ GPU mode 在配置、runtime、profiling 和分析入口共用 `acprof.gpu_mode.
 | `--runtime` | `auto` | 优先选择可用的本机 Docker；Linux 在 Docker 不可用时选择 Process。可显式覆盖，完整规则见 [Linux Runtime](../platforms/linux-runtimes.md#选择与准备)。 |
 | `--profiling-mode` | `best_effort` | 新实验自动生成逐采集器计划。兼容旧参数 `basic` 和 `full`，Resume 按原实验冻结的策略执行。 |
 | `--cpus` | `auto` | Docker 展开为原有 `1,2,4,8`；Process 继承当前限制，数值列表需要可验证的 cgroup 配额。 |
-| `--cpuset-cpus` | 空 | 可选固定 CPU ID/范围，如 `0-3,8`，应用于正式采集和 startup probe；留空保留原有配额调度。规范化集合参与恢复身份，采样前核验实际 affinity。 |
+| `--cpuset-cpus` | 空 | 限定工作负载可用的 CPU ID，如 `0-3,8`。输入规划启动的服务、隔离运行验证、startup probe 和正式采集均使用该集合。规范化集合参与恢复身份，正式采样前核验线程 affinity。 |
 | `--mems` | `auto` | Docker 展开为原有 `2,4,8,16`；Process 继承当前限制，数值列表需要可验证的 cgroup 内存限制，单位 GiB。 |
 | `--gpus` | `off,on` | GPU mode 列表。`on` 只向容器暴露选定的物理 GPU。 |
 | `--gpu-device` | 环境变量或 `0` | 单个主机 GPU index 或完整 UUID，优先级为此参数、`ACPROF_GPU_DEVICE`、`DEVICE_INDEX`、`0`。运行前解析并固定 UUID；不接受 `all`、设备列表或 MIG。`acprof probe` 使用同样的环境变量，post-hoc GPU 补采使用原实验记录的 UUID。 |

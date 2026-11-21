@@ -21,6 +21,7 @@ MAX_CAPABILITY_REPORT_BYTES = 4 * 1024 * 1024
 
 def inspect_probe_result(snapshot, config, project_dir: Path, pid: int, started_at_ns: int) -> None:
     """Verify a current probe's existing summary after its subprocess has exited."""
+    from acprof.cpu_affinity import normalize_cpu_set
     from acprof.host.largest_scale_probe import PROBE_SUMMARY_NAME, read_probe_summary
 
     if snapshot is None or snapshot.stage is not Stage.PROBE_COMPLETED or not snapshot.probe_result:
@@ -39,6 +40,8 @@ def inspect_probe_result(snapshot, config, project_dir: Path, pid: int, started_
     if path.stat().st_mtime_ns < started_at_ns:
         raise ValueError("Probe summary predates this subprocess launch")
     summary = read_probe_summary(path)
+    if summary["resource"].get("cpuset_cpus", "") != normalize_cpu_set(config.cpuset_cpus):
+        raise ValueError("Probe summary CPU set differs from the launch configuration")
     if config.inference_review_requested and "inference_configuration_sha256" not in summary:
         raise ValueError("Probe summary is missing the requested inference configuration")
     if summary["model"]["id"] != config.model:

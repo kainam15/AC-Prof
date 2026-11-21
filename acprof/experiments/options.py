@@ -78,7 +78,7 @@ class RunOptions:
         'auto', help='CPU quotas (comma-separated), or auto: Docker default matrix / Process inherited limits', probe=True,
     )
     cpuset_cpus: str = option(
-        '', help='Optional fixed CPU IDs for formal/startup containers, e.g. 0-3,8',
+        '', help='Restrict workload processes to these CPU IDs or ranges, e.g. 0-3,8', probe=True,
     )
     mems: str = option(
         'auto', help='Memory caps in GiB (comma-separated), or auto: Docker default matrix / Process inherited limits', probe=True,

@@ -14,7 +14,8 @@
 
 | 参数 | 默认值 | 说明 |
 | --- | --- | --- |
-| `--cpus` | `auto` | 输入规划和运行验证可使用最大 CPU，最终请求使用最小 CPU。 |
+| `--cpus` | `auto` | 输入规划和运行验证可使用最大 CPU 配额，最终请求使用最小配额。 |
+| `--cpuset-cpus` | 空 | 限定工作负载可用的 CPU ID，如 `1-3,8`。每档冷启动后、请求计时前检查该容器线程的实际允许集合。 |
 | `--mems` | `auto` | Docker 默认候选为 `2,4,8,16` GiB，按升序探测。 |
 | `--gpus` | `off,on` | 包含 `off` 时优先 CPU-only，否则使用 `on`。 |
 | `--gpu-device` | 环境设置 | GPU 探测使用的物理卡索引或完整 UUID。省略时依次读取 `ACPROF_GPU_DEVICE`、`DEVICE_INDEX`，最后取 `0`。 |

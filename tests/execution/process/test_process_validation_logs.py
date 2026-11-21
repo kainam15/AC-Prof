@@ -25,15 +25,17 @@ def validation_log(tmp_path, monkeypatch):
     limits = SimpleNamespace(path="", close=Mock())
     acquire = Mock(return_value=lease)
     monkeypatch.setattr(model_store, "acquire_mount", acquire)
-    monkeypatch.setattr(resources, "ProcessLimits", lambda *args: limits)
+    apply_limits = Mock(return_value=limits)
+    monkeypatch.setattr(resources, "ProcessLimits", apply_limits)
     monkeypatch.setattr("acprof.host.runtimes.validation.service_environment", lambda *args, **kwargs: {})
-    monkeypatch.setattr("acprof.host.runtimes.validation.ManagedProcess", lambda *args, **kwargs: process)
+    launch = Mock(return_value=process)
+    monkeypatch.setattr("acprof.host.runtimes.validation.ManagedProcess", launch)
     info = SimpleNamespace(python="fixture-python", runtime_environment={})
 
-    def run():
-        return validation.run_validation(None, info, "fixture.module", PREFIX, tmp_path)
+    def run(**conditions):
+        return validation.run_validation(None, info, "fixture.module", PREFIX, tmp_path, **conditions)
 
-    yield SimpleNamespace(path=path, run=run, process=process)
+    yield SimpleNamespace(path=path, run=run, process=process, apply_limits=apply_limits, launch=launch)
     acquire.assert_called_once_with(info.runtime_environment, runtime="process")
     process.close.assert_called_once()
     lease.close.assert_called_once()
@@ -106,3 +108,10 @@ def test_missing_result_retains_last_diagnostics_with_replacement_decoding(valid
         validation_log.run()
     assert str(caught.value).endswith("last\ndiagnostic\nwith replacement\ufffd")
     assert len(str(caught.value)) == 4000
+
+
+def test_validation_applies_the_cpu_set_to_the_resource_scope_and_child(validation_log):
+    validation_log.path.write_text(PREFIX + '{"status":"ok"}\n')
+    assert validation_log.run(cpu=2, memory=4, cpuset_cpus="2-3,7") == {"status": "ok"}
+    validation_log.apply_limits.assert_called_once_with(2, 4, "2-3,7")
+    assert validation_log.launch.call_args.kwargs["cpuset"] == "2,3,7"

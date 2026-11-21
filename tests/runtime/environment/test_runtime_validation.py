@@ -95,6 +95,7 @@ class TestRuntimeValidation:
                 assert kwargs['timeout'] == timeout
                 assert ('--network') in (command)
                 assert ('--memory=8g') in (command)
+                assert '--cpuset-cpus=1-3' in command
                 mount = command[command.index('-v') + 1].split(':')[0]
                 assert (json.loads(Path(mount).read_text())) == ({'text': 'small'})
                 return subprocess.CompletedProcess(command, 0, stdout=SUCCESS, stderr='')
@@ -108,7 +109,7 @@ class TestRuntimeValidation:
             'acprof.host.model_store.store.acquire_mount', side_effect=mounts,
         ), patch.dict(os.environ, environment, clear=True):
             root = Path(temporary)
-            options = {**self.fixture(root), 'timeout_seconds': timeout}
+            options = {**self.fixture(root), 'timeout_seconds': timeout, 'cpuset_cpus': '3,1-2'}
             report = validate_runtime(**options)
             saved = json.loads((root / 'runtime_validation.json').read_text())
             assert (saved) == (report)

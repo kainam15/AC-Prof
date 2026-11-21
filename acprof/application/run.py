@@ -34,6 +34,7 @@ from acprof.host.orchestrator import (
     MIPSProfilingError,
 )
 from acprof.host.preflight import (
+    require_available_cpu_set,
     require_cgroup_prerequisites,
     require_collection_host,
     require_cpu_energy_prerequisites,
@@ -315,12 +316,10 @@ class RunApplication:
         latency_slo_rules = parse_latency_slo_rules(
             args.latency_slo, environment_threshold=os.environ.get("SLOW_LATENCY_THRESHOLD_S"),
         )
-        from acprof.cpu_affinity import parse_cpu_set
         from acprof.monitors.rapl_topology import dram_policy
 
         dram_enabled = dram_policy(args.profiling_mode, args.dram_energy)
-        if args.cpuset_cpus and not parse_cpu_set(args.cpuset_cpus) <= set(os.sched_getaffinity(0)):
-            raise ValueError("--cpuset-cpus includes CPUs unavailable to this process")
+        require_available_cpu_set(args.cpuset_cpus)
         require_collection_host(profiling_mode=args.profiling_mode,
                                 compute_tool=args.compute_profile_tool,
                                 execution_tool=args.execution_profile_tool, dram_energy=args.dram_energy)

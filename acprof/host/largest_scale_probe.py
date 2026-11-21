@@ -19,6 +19,7 @@ from acprof.artifacts import (
     read_input_scale_plan,
     read_json_object,
 )
+from acprof.cpu_affinity import normalize_cpu_set, thread_masks_within
 from acprof.gpu_mode import normalize_gpu_mode
 from acprof.gpu_probe import require_gpu_identity
 from acprof.host import container_state
@@ -39,6 +40,26 @@ PROBE_SUMMARY_NAME = "largest_scale_probe.json"
 PROBE_CONFIGURATION_NAME = "inference_configuration.json"
 PROBE_SUMMARY_SCHEMA_VERSION = 3
 RETRYABLE_MEMORY_OOM_STATUSES = frozenset({"startup_oom", "runtime_oom"})
+
+
+def _read_probe_cpu_set(summary: dict, resource: dict) -> str:
+    if "cpuset_cpus" not in resource:
+        return ""
+    cpuset = resource["cpuset_cpus"]
+    if not isinstance(cpuset, str) or not cpuset or normalize_cpu_set(cpuset) != cpuset:
+        raise ValueError("invalid largest-scale probe CPU set")
+    scan = summary.get("memory_probe")
+    attempts = scan.get("attempts") if isinstance(scan, dict) else None
+    if not isinstance(attempts, list):
+        raise ValueError("missing largest-scale probe CPU affinity evidence")
+    successful = [
+        attempt for attempt in attempts
+        if isinstance(attempt, dict) and attempt.get("status") == "ok"
+        and type(attempt.get("mem_gb")) is int and attempt["mem_gb"] == resource["mem_gb"]
+    ]
+    if len(successful) != 1 or not thread_masks_within(successful[0].get("cpu_affinity"), cpuset):
+        raise ValueError("largest-scale probe CPU affinity differs from its requested CPU set")
+    return cpuset
 
 
 def read_probe_summary(path: str | os.PathLike[str]) -> dict:
@@ -64,6 +85,7 @@ def read_probe_summary(path: str | os.PathLike[str]) -> dict:
                 or type(device.get("index")) is not int or device["index"] < 0):
             raise ValueError("invalid largest-scale probe physical GPU identity")
         require_gpu_identity(device)
+    cpuset = _read_probe_cpu_set(summary, resource)
     planned, effective = inputs.get("planned_scale"), inputs.get("effective_scale")
     if (not isinstance(planned, (int, float)) or isinstance(planned, bool) or planned <= 0
             or not isinstance(effective, (int, float)) or isinstance(effective, bool) or effective <= 0
@@ -87,9 +109,15 @@ def read_probe_summary(path: str | os.PathLike[str]) -> dict:
                 or configuration["backend"]["id"] != model.get("runtime_backend")
                 or resource["gpu_mode"] not in configuration["loading"]):
             raise ValueError("largest-scale probe model, backend or device differs from its frozen inference configuration")
-        expected_uuid = configuration["workload"].get("resources", {}).get("gpu_device_uuid")
+        workload = configuration["workload"]
+        resources = workload.get("resources", {})
+        if not isinstance(resources, dict):
+            raise ValueError("invalid frozen probe resources")
+        expected_uuid = resources.get("gpu_device_uuid")
         if expected_uuid:
             require_gpu_identity(device, expected_uuid=expected_uuid)
+        if "probe" in workload and resources.get("cpuset_cpus", "") != cpuset:
+            raise ValueError("largest-scale probe CPU set differs from its frozen inference configuration")
     return summary
 
 
@@ -302,6 +330,7 @@ def _probe_memory_candidate(
     timeout_seconds: float | None,
     attempt_index: int,
     attempt_total: int,
+    cpuset_cpus: str,
 ) -> tuple[dict[str, Any], dict[str, Any] | None]:
     """Run at most one largest-scale request for one memory candidate."""
     container_name = (
@@ -314,6 +343,7 @@ def _probe_memory_candidate(
     request_started: float | None = None
     attempt_started = time.perf_counter()
     phase = "startup"
+    affinities = None
     status = "error"
     error = ""
 
@@ -335,10 +365,18 @@ def _probe_memory_candidate(
             container_name=container_name,
             log_prefix="[largest-probe]",
             request_timeout_seconds=timeout_seconds,
+            cpuset_cpus=cpuset_cpus,
         )
+        phase = "conditions"
         if gpu == "on" and (pinned := selected_gpu_device()):
-            phase = "device"
             require_gpu_identity(session.gpu_device, expected_uuid=pinned["uuid"])
+        if cpuset_cpus:
+            from acprof.host.hardware_conditions import container_thread_affinities
+
+            affinities = container_thread_affinities(session.container_id)
+            if not thread_masks_within(affinities, cpuset_cpus):
+                observed = affinities or "no live thread masks observed"
+                raise ValueError(f"Cannot verify thread CPU affinity within {cpuset_cpus}: {observed}")
         phase = "request"
         print("[largest-probe] Running one largest-scale request...")
         emit_event("probe_request_started", "largest_scale_probe")
@@ -388,7 +426,7 @@ def _probe_memory_candidate(
         if request_started is not None and request_s is None:
             request_s = time.perf_counter() - request_started
         error = f"{type(exc).__name__}: {exc}"
-        if phase != "device":
+        if phase != "conditions":
             status = _classify_oom_failure(
                 error, phase=phase, container_name=session.name if session is not None else container_name,
             ) or "error"
@@ -412,6 +450,7 @@ def _probe_memory_candidate(
         "status": status,
         "error": error,
         "cold_start": cold_start,
+        **({"cpu_affinity": affinities} if cpuset_cpus else {}),
         "timing": {
             "request_s": request_s,
             "ready_plus_request_s": ready_plus_request_s,
@@ -436,10 +475,12 @@ def run_largest_scale_probe(
     batch_size: int,
     output_dir: str | os.PathLike[str],
     timeout_seconds: float | None = None,
+    cpuset_cpus: str = "",
 ) -> dict[str, Any]:
     """Find the minimum viable memory cap and time its largest-scale request."""
     if int(batch_size) <= 0:
         raise ValueError("batch_size 必须大于 0")
+    cpuset_cpus = normalize_cpu_set(cpuset_cpus)
     if timeout_seconds is not None:
         timeout_seconds = float(timeout_seconds)
         if timeout_seconds <= 0.0 or not math.isfinite(timeout_seconds):
@@ -458,6 +499,9 @@ def run_largest_scale_probe(
     summary_path = Path(output_dir) / PROBE_SUMMARY_NAME
     frozen = task_info.inference_configuration
     if frozen:
+        workload = frozen["workload"]
+        if "probe" in workload and workload.get("resources", {}).get("cpuset_cpus", "") != cpuset_cpus:
+            raise ValueError("requested CPU set differs from the frozen probe configuration")
         atomic_write_json(summary_path.with_name(PROBE_CONFIGURATION_NAME), frozen)
     started_at = datetime.datetime.now().astimezone().isoformat()
     probe_started = time.perf_counter()
@@ -486,6 +530,7 @@ def run_largest_scale_probe(
             timeout_seconds=timeout_seconds,
             attempt_index=index,
             attempt_total=len(memory_candidates),
+            cpuset_cpus=cpuset_cpus,
         )
         attempts.append(attempt)
         if attempt["status"] == "ok":
@@ -557,6 +602,7 @@ def run_largest_scale_probe(
         },
         "resource": {
             "cpu_cores": cpu,
+            **({"cpuset_cpus": cpuset_cpus} if cpuset_cpus else {}),
             "mem_gb": selected_mem,
             "last_attempt_mem_gb": last_attempt["mem_gb"],
             "requested_mem_candidates_gb": memory_candidates,

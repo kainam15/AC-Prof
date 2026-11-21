@@ -14,6 +14,13 @@ from acprof.system.command import run_command
 NATIVE_DOCKER_SOCKET = "/var/run/docker.sock"
 
 
+def require_available_cpu_set(cpuset_cpus: str) -> None:
+    from acprof.cpu_affinity import parse_cpu_set
+
+    if cpuset_cpus and not parse_cpu_set(cpuset_cpus) <= os.sched_getaffinity(0):
+        raise ValueError("--cpuset-cpus includes CPUs unavailable to this process")
+
+
 def docker_info_is_docker_desktop(info: str) -> bool:
     normalized = (info or "").lower()
     return "docker desktop" in normalized or "name=docker-desktop" in normalized

@@ -32,7 +32,8 @@ class ProcessValidationError(RuntimeError):
 
 
 def run_validation(task, info, module, prefix, output_dir, *, gpu="off", payload=None, timeout=300,
-                   cpu=None, memory=None):
+                   cpu=None, memory=None, cpuset_cpus=""):
+    from acprof.cpu_affinity import expanded_cpu_ids
     from acprof.host.model_store.store import acquire_mount
     from acprof.host.runtimes.resources import ProcessLimits
     layout = ArtifactLayout.discover(output_dir)
@@ -44,7 +45,7 @@ def run_validation(task, info, module, prefix, output_dir, *, gpu="off", payload
         path = directory / (name + ".input.json")
         atomic_write_json(path, payload)
         command.append(str(path))
-    limits = ProcessLimits(cpu, memory)
+    limits = ProcessLimits(cpu, memory, cpuset_cpus)
     lease = None
     process = None
     release_allowed = True
@@ -58,7 +59,8 @@ def run_validation(task, info, module, prefix, output_dir, *, gpu="off", payload
                 lambda: lease.close() if release_allowed else None,
                 description="Process validation model lease"))
             process = ManagedProcess(command, python=info.python, env=service_environment(task, info, gpu=gpu),
-                                     directory=directory, name=name, pass_fds=lease.pass_fds, cgroup=limits.path)
+                                     directory=directory, name=name, pass_fds=lease.pass_fds, cgroup=limits.path,
+                                     cpuset=expanded_cpu_ids(cpuset_cpus))
             code = process.wait(timeout)
             with process.log_path.open(encoding="utf-8", errors="replace") as stream:
                 record = last_prefixed_record(stream, prefix)
@@ -127,7 +129,8 @@ def probe_interface(task, root, environment, output_dir, *, timeout_seconds=300)
             raise
 
 
-def validate_process(*, task_info, image_info, planned, cpu_list, mem_list, gpu_list, output_dir, timeout_seconds=300):
+def validate_process(*, task_info, image_info, planned, cpu_list, mem_list, gpu_list, output_dir, timeout_seconds=300,
+                     cpuset_cpus=""):
     from acprof.container.runtime_validate import RESULT_PREFIX
     from acprof.models.contract import record_runtime_validation, write_model_resolution
     from acprof.platform import detect_environment
@@ -152,7 +155,7 @@ def validate_process(*, task_info, image_info, planned, cpu_list, mem_list, gpu_
                 try:
                     observed = run_validation(task_info, image_info, "acprof.container.runtime_validate", RESULT_PREFIX,
                                               output_dir, gpu=gpu, payload=entry["payload"], timeout=timeout_seconds,
-                                              cpu=max(cpu_list), memory=max(mem_list))
+                                              cpu=max(cpu_list), memory=max(mem_list), cpuset_cpus=cpuset_cpus)
                     report["devices"][gpu] = observed
                     required = {"execution", "load", "preprocess", "predict", "completion", "postprocess", "validate_output"}
                     stages = {item["stage"] for item in observed.get("stages", []) if item.get("status") == "verified"}

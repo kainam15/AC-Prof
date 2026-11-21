@@ -312,11 +312,13 @@ timeout evidence 包含 `timeout_seconds`（秒）、`request_phase`、`request_
 | `memory_probe.candidate_order_gb` | 去重、升序排列的候选内存上限。 |
 | `inference_configuration_sha256` | 可选。与输入计划及同目录冻结配置的身份一致。普通探测和早期 v3 摘要可省略。 |
 | `resource.gpu_device` | GPU 探测记录当次解析的物理 UUID、主机索引、PCI 总线、名称与显存字节数。已审阅配置的 `workload.resources.gpu_device_uuid` 保存该 UUID，冷启动请求前核对会话的设备 UUID。CPU 探测及早期摘要可省略此字段。 |
+| `resource.cpuset_cpus` | 显式设置时记录规范化的 CPU ID 集合，已审阅的探测同时将其绑定到 `workload.resources.cpuset_cpus`。默认探测和早期 v3 摘要可省略。 |
+| `memory_probe.attempts[].cpu_affinity` | 指定 CPU 集合时记录每个候选容器就绪后读到的线程允许集合，按不同的掩码去重。尚未读到或读取失败为 `null`。越界时保留观测值及错误。成功档必须有可核验的非空集合。 |
 | `memory_probe.attempts` | 每档的 `startup_oom`、`runtime_oom`、`cuda_oom`、`timeout`、`error` 或 `ok` 结果，以及错误与分段计时。 |
 | `memory_probe.minimum_viable_mem_gb` | 完整返回且有效尺度与计划一致的第一个候选；没有成功档时为空。 |
 | `timing.request_s` | 成功档 `/predict` 的 host 端到端耗时。 |
 | `cold_start.total_s` | 成功档全新容器启动到 ready 的耗时。 |
-| `timing.ready_plus_request_s` | 上述冷启动与请求耗时之和。 |
+| `timing.ready_plus_request_s` | 上述冷启动与请求耗时之和。就绪后的 affinity 核验耗时计入该档的 `timing.attempt_wall_s` 和整次命令的 `timing.command_s`。 |
 | `timing.command_s` | 包含预检、检测、可选构建、输入规划、失败候选和清理的整条命令耗时。 |
 | `timing.request_timeout_s` | 默认无限等待时为 `null`；显式设置 `--timeout-seconds` 时为对应秒数。旧 schema v2 始终记录有限值。 |
 

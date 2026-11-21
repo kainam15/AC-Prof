@@ -35,6 +35,7 @@ def plan_input_scales(
     input_scales: str | None = None,
     workload_spec_path: str | None = None,
     input_scale_policy: str = "auto",
+    cpuset_cpus: str = "",
 ) -> PlannedInputScales:
     """Select a policy while retaining model-specific validation and payload bytes."""
     if input_scale_policy not in {"auto", "minimal"}:
@@ -63,6 +64,7 @@ def plan_input_scales(
         output_dir,
         input_scales,
         workload_spec_path,
+        cpuset_cpus,
     )
     if minimal:
         plan.source = "minimal"
@@ -88,6 +90,7 @@ def _plan_input_scales(
     output_dir: str,
     input_scales: str | None = None,
     workload_spec_path: str | None = None,
+    cpuset_cpus: str = "",
 ) -> PlannedInputScales:
     capabilities = CATALOG.describe(task_info).declaration.input_plan
     if workload_spec_path and not capabilities.accepts_workload_spec:
@@ -102,6 +105,7 @@ def _plan_input_scales(
             batch_size,
             output_dir,
             input_scales,
+            cpuset_cpus,
         )
 
     if input_scales:
@@ -113,6 +117,7 @@ def _plan_input_scales(
                 cpu_list=cpu_list,
                 mem_list=mem_list,
                 gpu_list=gpu_list,
+                cpuset_cpus=cpuset_cpus,
                 scales=manual_scales,
                 batch_size=batch_size,
                 output_dir=output_dir,
@@ -126,6 +131,7 @@ def _plan_input_scales(
                 cpu_list=cpu_list,
                 mem_list=mem_list,
                 gpu_list=gpu_list,
+                cpuset_cpus=cpuset_cpus,
                 scales=manual_scales,
                 batch_size=batch_size,
                 output_dir=output_dir,
@@ -152,6 +158,7 @@ def _plan_input_scales(
             cpu_list=cpu_list,
             mem_list=mem_list,
             gpu_list=gpu_list,
+            cpuset_cpus=cpuset_cpus,
             batch_size=batch_size,
             output_dir=output_dir,
             **(
@@ -174,6 +181,7 @@ def _plan_input_scales(
             cpu_list=cpu_list,
             mem_list=mem_list,
             gpu_list=gpu_list,
+            cpuset_cpus=cpuset_cpus,
             scales=[float(scale) for scale in default_scales],
             batch_size=batch_size,
             output_dir=output_dir,

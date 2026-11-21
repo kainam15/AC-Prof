@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 
 from acprof.artifacts import atomic_write_json, read_json_object_snapshot
 from acprof.config import docker_resource_limits
+from acprof.cpu_affinity import normalize_cpu_set
 from acprof.events.preparation import emit_progress
 from acprof.experiments.arguments import add_gpu_device_argument
 from acprof.experiments.options import add_option_arguments
@@ -27,6 +28,7 @@ from acprof.host.largest_scale_probe import (
     write_probe_summary,
 )
 from acprof.host.preflight import (
+    require_available_cpu_set,
     require_cgroup_prerequisites,
     require_collection_host,
     require_native_docker,
@@ -121,6 +123,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     command_started = time.perf_counter()
     emit_progress("preflight")
     require_collection_host()
+    try:
+        args.cpuset_cpus = normalize_cpu_set(args.cpuset_cpus)
+        require_available_cpu_set(args.cpuset_cpus)
+    except (OSError, ValueError) as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
     from acprof.host.run_state import MeasurementLock, RunStateError
 
     try:
@@ -142,6 +150,8 @@ def _review_probe_task(task_info: TaskInfo, args: argparse.Namespace, cpu_list: 
     }
     if gpu_device:
         workload["resources"]["gpu_device_uuid"] = gpu_device["uuid"]
+    if args.cpuset_cpus:
+        workload["resources"]["cpuset_cpus"] = args.cpuset_cpus
     if source is not None and task_info.task_family != "nlp":
         workload["specification_bytes_sha256"] = hashlib.sha256(source.content).hexdigest()
     return prepare_execution_configuration(
@@ -239,6 +249,7 @@ def _run_probe(
             task_info=task_info, image_info=image_info, cpu_list=cpu_list, mem_list=mem_list,
             gpu_list=probe_devices, batch_size=batch_size, output_dir=str(output_dir),
             input_scales=input_scales, workload_spec_path=workload_path,
+            cpuset_cpus=args.cpuset_cpus,
         )
         if task_info.inference_configuration or getattr(image_info, "runtime_environment", {}):
             from acprof.host.runtime_validation import validate_runtime
@@ -247,6 +258,7 @@ def _run_probe(
             validate_runtime(
                 task_info=task_info, image_info=image_info, planned=planned,
                 cpu_list=cpu_list, mem_list=mem_list, gpu_list=probe_devices, output_dir=str(output_dir),
+                cpuset_cpus=args.cpuset_cpus,
             )
         summary = run_largest_scale_probe(
             task_info=task_info,
@@ -258,6 +270,7 @@ def _run_probe(
             batch_size=batch_size,
             output_dir=output_dir,
             timeout_seconds=args.timeout_seconds,
+            cpuset_cpus=args.cpuset_cpus,
         )
     except Exception as exc:
         print(f"[largest-probe][ERROR] {type(exc).__name__}: {exc}", file=sys.stderr)

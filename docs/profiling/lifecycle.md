@@ -158,11 +158,12 @@ persistence mode，以及 `/meta` 的有效线程数。证据原子写入
 保存到 `cases`。缺失或不可读取字段为 `null`，诊断保存在 `errors`；无 GPU case 为
 `gpu=not_applicable`。这是开始边界快照，不证明整个测量期间独占 CPU、温度不变或线程策略不变。
 
-`--cpuset-cpus 0-3,8` 是可选的正式采集/startup probe 容器条件；留空维持原有 `--cpus` 配额。
+在 `acprof run` 中，`--cpuset-cpus 0-3,8` 限定输入规划启动的服务、隔离运行验证、startup probe 和正式采集可使用的 CPU ID。
+Docker 和 Process 运行时分别通过 Docker 的 cpuset 参数和子进程 affinity 应用该设置。CPU 时间配额由 `--cpus` 单独指定。
 规范化后的 CPU 集合进入 run options、矩阵和 startup probe 身份，改变集合会拒绝恢复。
-正式采集前必须观察到所有容器线程的 affinity 都位于所要求的 CPU 集合内；运行时可以进一步绑定子集。
-无法核验或发现越界时保留证据并停止该 case。
-独立 runtime validation、额外 profiler 和最大尺度诊断 probe 不继承此选项，其结果继续标识各自范围。
+正式采集前必须观察到所有可见线程的 affinity 都位于所要求的 CPU 集合内。运行时可以进一步绑定子集。无法核验或发现越界时保留证据并停止该 case。
+`acprof probe` 显式指定此选项时，在每个冷启动容器就绪后按同一规则检查线程。读取在请求计时前结束，每档的证据单独保存。[最大输入探测结果](metadata.md#最大输入探测结果)
+额外 Profiler 的资源条件见[剖析器说明](profilers.md)。
 已有实验缺少该文件时比较为 `unknown`，不重写旧产物或补造历史硬件条件。
 
 ## 冷启动
