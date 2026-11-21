@@ -22,7 +22,7 @@ def audit_rows():
     contract = {
         'schema_version': 1, 'request_count': 2,
         'variants': [{'count': 2, 'contract': {
-            'task': 'tabular-regression', 'batch_size': 2,
+            'schema_version': 1, 'task': 'tabular-regression', 'batch_size': 2,
             'input': {'rows': 4, 'feature_dim': 8}, 'output': {'shape': [4, 1]},
         }}],
     }
@@ -96,7 +96,7 @@ def test_image_scenario_checks_processed_geometry_separately_from_source():
         row['throughput_samples_per_s'] = '2'
         contract = json.loads(row['workload_contract'])
         contract['variants'][0]['contract'] = {
-            'task': 'image-classification', 'batch_size': 1,
+            'schema_version': 1, 'task': 'image-classification', 'batch_size': 1,
             'input': {'images': {'count': 1, 'original_resolution': [28, 28],
                                  'processed_resolution': [14, 14], 'processed_shape': [1, 3, 14, 14]}},
             'output': {'shape': [1, 2]},
@@ -114,7 +114,7 @@ def test_text_scenario_uses_actual_tokens_and_its_own_batch_throughput():
         row['throughput_samples_per_s'] = '2'
         contract = json.loads(row['workload_contract'])
         contract['variants'][0]['contract'] = {
-            'task': 'text-classification', 'batch_size': 1,
+            'schema_version': 1, 'task': 'text-classification', 'batch_size': 1,
             'input': {'text': {'tokens': 4, 'actual_tokens_per_sample': [4],
                               'content_tokens_per_sample': [2], 'padding': 'none', 'truncation': 'reject'}},
             'output': {'shape': [1, 2]},
@@ -162,6 +162,36 @@ def test_actual_workload_cannot_drop_measured_requests():
     rows[2]['repeat_in_window'] = '3'
     with pytest.raises(ValueError, match='actual workload request count'):
         audit_basic_rows(rows)
+
+
+@pytest.mark.parametrize(('section', 'field', 'value'), [
+    ('summary', 'schema_version', True), ('contract', 'schema_version', 1.0),
+    ('summary', 'request_count', True), ('variant', 'count', 1.0),
+    ('contract', 'extra_metric', float('nan')),
+])
+def test_basic_acceptance_validates_the_recorded_workload_protocol(section, field, value):
+    rows = audit_rows()
+    summary = json.loads(rows[1]['workload_contract'])
+    variant = summary['variants'][0]
+    rows[1]['repeat_in_window'] = '1'
+    summary['request_count'] = variant['count'] = 1
+    payload = {'summary': summary, 'variant': variant, 'contract': variant['contract']}[section]
+    payload[field] = value
+    rows[1]['workload_contract'] = json.dumps(summary)
+    with pytest.raises(ValueError, match='workload'):
+        audit_basic_rows(rows)
+
+
+@pytest.mark.parametrize('raw', [
+    '', '{"schema_version":1,"request_count":2,"variants":[{"count":2,"contract":null}]}',
+    '{"schema_version":1,"request_count":2,"variants":[{"count":2}]}',
+], ids=['absent_summary', 'null_contract', 'absent_contract'])
+def test_basic_acceptance_requires_observed_workload_facts(raw):
+    rows = audit_rows()
+    rows[1]['workload_contract'] = raw
+    with pytest.raises(ValueError, match='actual workload'):
+        audit_basic_rows(rows)
+
 
 def test_wrong_output_shape_fails_even_with_valid_performance_metrics():
     rows = audit_rows()

@@ -16,6 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from acprof.analysis.audit import audit_result  # noqa: E402 -- 脚本先设置仓库导入路径。
+from acprof.analysis.workload import parse_workload_summary  # noqa: E402
 from acprof.artifacts import atomic_write_json  # noqa: E402 -- 脚本先设置仓库导入路径。
 from acprof.capabilities import (  # noqa: E402 -- 脚本先设置仓库导入路径。
     apply_collection_result,
@@ -73,15 +74,17 @@ def audit_basic_rows(rows: list[dict], *, scenario: str = "tabular") -> None:
             raise ValueError("container memory must fit the actual 1 GiB limit")
         if float(row["resource_usage_iters"]) < 2:
             raise ValueError("CPU/memory collection needs at least two actual samples")
-        contract = json.loads(row["workload_contract"])
+        summary = parse_workload_summary(row.get("workload_contract"))
+        if summary is None:
+            raise ValueError("actual workload evidence is missing")
         count = int(row["repeat_in_window"])
-        if count < 1 or contract.get("request_count") != count:
+        if count < 1 or summary["request_count"] != count:
             raise ValueError("actual workload request count does not match the measured window")
-        variants = contract.get("variants", [])
-        if not variants or sum(item["count"] for item in variants) != count:
-            raise ValueError("actual workload variants do not cover every measured request")
-        for item in variants:
-            _require_workload_facts(item["contract"], specification["expected_workload"])
+        for item in summary["variants"]:
+            contract = item.get("contract")
+            if contract is None:
+                raise ValueError("actual workload facts are missing for a measured request")
+            _require_workload_facts(contract, specification["expected_workload"])
         for unavailable in ("latency_s", "cpu_energy_total_j", "cpu_instructions_per_request"):
             if math.isfinite(float(row.get(unavailable, "nan"))):
                 raise ValueError(f"unrequested full metric must remain missing: {unavailable}")
