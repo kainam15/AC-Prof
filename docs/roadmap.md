@@ -34,6 +34,7 @@ P1 · cgroup I/O 预检：已将宿主进程 cgroup 能力与目标 Docker / Pro
 ## 工程维护优先序
 
 [离线分析输出](usage/cli-tools.md)在发布前核对输入实验的保留路径，历史平铺结果也能继续审计。
+[独立比较](results/comparisons.md#跨独立实验比较)同时导出 JSON、CSV 和 HTML 时，会先准备全部文件，再发布到指定路径。
 [绘图](results/plotting.md)刷新已有 PNG 时保留链接指向的原始数据；[Model Store](models/model-store.md) 清理前会拒绝显式空容量。
 
 缓存选择器、接口监控和流程目录的跨域界面回归已纳入 `pytest -m tui`，启动时的 PyPI 版本检查使用[共享离线响应](development/test-commands.md)。

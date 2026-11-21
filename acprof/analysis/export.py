@@ -60,12 +60,17 @@ def _report_sources(payload: dict) -> Iterator[str | Path]:
                     yield source
 
 
-def export_analysis(payload: dict, destination: Path, *, format: str) -> None:
-    """Write a new JSON/CSV only on explicit request, with atomic no-clobber publication."""
+def validate_export_format(destination: Path, format: str) -> None:
+    """Check the requested analysis export format before writing anything."""
     if format not in {"json", "csv"}:
         raise ValueError("Analysis export format must be csv or json")
     if destination.suffix.lower() != "." + format:
         raise ValueError(f"Choose a new .{format} destination")
+
+
+def export_analysis(payload: dict, destination: Path, *, format: str) -> None:
+    """Write a new JSON/CSV only on explicit request, with atomic no-clobber publication."""
+    validate_export_format(destination, format)
     if destination.exists() or destination.is_symlink():
         raise FileExistsError(f"Export destination already exists: {destination}")
     validate_analysis_destinations(_report_sources(payload), [destination])

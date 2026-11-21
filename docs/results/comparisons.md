@@ -141,8 +141,14 @@ acprof compare --left results/a1/model --left results/a2/model --left results/a3
 计算期间若目标被其他写入方创建，发布时仍会原子拒绝覆盖；写入、序列化或发布失败返回
 `比较失败` 和非零退出码，不留下未完成的 JSON。省略 `--output` 时继续向 stdout 输出 JSON。
 可同时使用 `--html-output comparison.html` 与 `--csv-output comparison.csv`；三个产物共享一次
-`compare_experiments` 结果，目的路径必须互不相同且不存在。HTML 附带各来源的资源矩阵和窗口统计，
-不会将窗口置信区间当作独立运行区间；HTML 筛选不重算运行分组。
+`compare_experiments` 结果。CSV 目标须以 `.csv` 结尾。各目标须为新文件，且任何一个文件都不能占用另一个文件的父目录。
+HTML 附带各来源的资源矩阵和窗口统计；HTML 筛选沿用生成时的独立运行分组和区间。
+
+多格式导出先在各目标所在的文件系统暂存内容，再核对所有文件名，包括大型 HTML 需要的
+`*.windows-N.json`。发布期间，其他进程可以看到部分文件，HTML 最后出现。渲染失败或其他写入方先占目标时，
+命令会报错，并撤回本次已发布且仍属于本次的部分文件；排除冲突后可用原路径重试。
+若整组文件已可见、最后的目录同步失败，文件会保留，命令仍报告存储错误。
+比较结果为 `incompatible` 或 `unknown` 时，命令返回 1 并保留报告，便于查看原因。
 
 两侧分别代表同一实验定义的多次独立重启。每份源文件的 `run_state.json` 都须记录唯一的
 `run_id`。审计会将它与 schema v3 清单及各窗口已记录的 ID 核对。冲突报告

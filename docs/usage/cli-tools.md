@@ -120,7 +120,8 @@ acprof tui --help
 `--purpose` 支持 `same-hardware`、`cross-hardware`、`resource-scaling`；组内重复始终按相同硬件核验。
 `audit --compare` 的 `--comparison-purpose` 使用相同的三个严格用途。`report` 另外支持默认的
 `within-experiment` 描述性资源比较，HTML 可以切换资源比较用途；独立运行比较沿用生成时的严格用途。
-`compare --html-output <新文件.html> --csv-output <新文件.csv>` 可与 JSON `--output` 同时导出，复用同一比较结果。
+`compare --html-output <新文件.html> --csv-output <新文件.csv>` 可与 JSON `--output` 同时导出。
+各格式准备就绪后逐项发布；部分输出因冲突撤回后，可修正目标并重试。
 资源扩容只放开 CPU/内存配额，双方资源坐标和仍需匹配的条件见[比较规则](../results/comparisons.md#跨独立实验比较)。
 TUI 的“比较”页面已隐藏，CLI 与 HTML 比较能力保留；“分析报告 → 统计数据与导出”保留 CSV / JSON 导出和历史 JSON 读取。
 `acprof load <源实验> --gpu off --scenario concurrent --concurrency 4 --output-dir <新目录>`

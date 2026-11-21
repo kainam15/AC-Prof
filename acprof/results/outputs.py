@@ -67,6 +67,39 @@ def output_ancestors(destination: Path) -> Iterator[Path]:
             yield from prefix.parents
 
 
+def _output_entry(path: Path) -> Path:
+    # mkdir may make missing/../link reachable. Resolve its parent separately
+    # so that a dangling link at the entry itself remains visible.
+    return path.parent.resolve() / path.name if ".." in path.parts else path
+
+
+def validate_comparison_destinations(destinations: Iterable[str | Path]) -> None:
+    """Check explicit exports and generated sidecars as one set of new files."""
+    files: set[Path] = set()
+    directories: set[Path] = set()
+    checked: set[Path] = set()
+    for destination in destinations:
+        path = Path(destination).absolute()
+        for parent in reversed(path.parents):
+            if parent in checked:
+                continue
+            entry = _output_entry(parent)
+            if (entry.is_symlink() or entry.exists()) and not entry.is_dir():
+                raise ValueError(f"output parent must be a directory: {entry}")
+            checked.add(parent)
+        entry = _output_entry(path)
+        if entry.is_symlink() or entry.exists():
+            raise ValueError(f"output must be a new file: {entry}")
+        paths = output_ancestors(path)
+        final = next(paths)
+        if final in files:
+            raise ValueError(f"output destinations must be distinct: {final}")
+        files.add(final)
+        directories.update(paths)
+    if conflicts := files.intersection(directories):
+        raise ValueError(f"output destination is also required as a directory: {min(conflicts)}")
+
+
 def validate_analysis_destinations(sources: Iterable[str | Path], destinations: Iterable[str | Path], *,
                                    wide_export: Path | None = None,
                                    expanded_sources: Iterable[Path] | None = None) -> None:

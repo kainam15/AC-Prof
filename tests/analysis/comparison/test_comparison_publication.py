@@ -166,3 +166,44 @@ def test_compare_cli_publishes_real_comparison_without_changing_sources(tmp_path
     assert payload["groups"][0]["difference_ci"] is None
     assert not capsys.readouterr().err
     assert {path: path.read_bytes() for path in originals} == originals
+
+
+@pytest.mark.parametrize("during", ["comparison", "render", "loop"])
+def test_output_directory_reselected_during_compare_cannot_claim_input_manifest(tmp_path, monkeypatch, capsys, during):
+    # The initial export name is valid in a separate folder. Publishing it in
+    # the input folder would change how subsequent analyses discover the run.
+    from acprof.analysis import export, independent_comparison
+
+    experiment = tmp_path / "run"
+    exports = tmp_path / "reports"
+    experiment.mkdir()
+    exports.mkdir()
+    alias = tmp_path / "selected"
+    alias.symlink_to(exports, target_is_directory=True)
+
+    def reselect():
+        alias.unlink()
+        alias.symlink_to(alias if during == "loop" else experiment, target_is_directory=True)
+
+    def compare(*args, **kwargs):
+        if during in {"comparison", "loop"}:
+            reselect()
+        return {"status": "compatible", "groups": [{"difference": 1}]}
+
+    write = export.export_analysis
+
+    def render(*args, **kwargs):
+        write(*args, **kwargs)
+        if during == "render":
+            reselect()
+
+    monkeypatch.setattr(independent_comparison, "compare_experiments", compare)
+    monkeypatch.setattr(export, "export_analysis", render)
+    with pytest.raises(SystemExit) as error:
+        compare_cli.main(["--left", str(experiment), "--right", "other", "--csv-output", str(tmp_path / "table.csv"),
+                          "--output", str(alias / "result_manifest.json")])
+    assert error.value.code == 1
+    assert "output directory changed" in capsys.readouterr().err
+    assert not list(experiment.iterdir())
+    assert not list(exports.iterdir())
+    assert not (tmp_path / "table.csv").exists()
