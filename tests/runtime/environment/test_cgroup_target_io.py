@@ -8,6 +8,7 @@ import pytest
 
 from acprof.experiments.configuration import RunConfig
 from acprof.host.measurement.quality import window_quality
+from acprof.host.measurement.requests import WindowRequestProgress
 from acprof.host.runtimes.capabilities import probe_collection_plan
 from acprof.monitors import resource_readers
 from acprof.platform import Environment
@@ -157,7 +158,7 @@ def test_post_run_quality_ignores_old_host_cgroup_advisory(
         resource_result=SimpleNamespace(metric_evidence={}),
         collector_evidence={"resource": resource}, cpu_result=None,
     )
-    progress = SimpleNamespace(count=1, payload_sizes=[4], response_sizes=[8])
+    progress = WindowRequestProgress(count=1, payload_sizes=[4], response_sizes=[8])
     evidence = window_quality(
         config, progress, observations, use_gpu=False, status="ok", error="", latency_slo=False,
     )
