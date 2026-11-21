@@ -63,9 +63,9 @@ def test_unavailable_workload_preserves_other_recorded_evidence(source, evidence
     assert snapshot["hardware"]["cpu_model"] is not None
 
 
-def test_nontext_workload_in_supplied_snapshot_is_reported(source):
+def test_nontext_workload_in_supplied_snapshot_is_reported(source, monkeypatch):
     supplied = result_csv.read_result_csv_snapshot(source)
-    supplied.rows[0]["workload_contract"] = {}
+    monkeypatch.setitem(supplied.rows[0], "workload_contract", {})
     snapshot = comparison.load_comparison_snapshot(source, result_snapshot=supplied, verify_result_snapshot=False)
     assert not snapshot["valid"]
     assert any(issue["code"] == "workload_contract" for issue in snapshot["audit"]["issues"])

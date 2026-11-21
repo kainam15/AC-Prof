@@ -5,6 +5,7 @@ import csv
 import io
 import json
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -216,7 +217,7 @@ class TestResultComparison(ComparisonFixture):
         ("input", "actual_scale"), ("output", "type"), ("output", "shape"), ("output", "count"),
     ])
     def test_matching_contracts_missing_a_base_field_remain_unknown(self, section, field):
-        contract = copy.deepcopy(self.contract)
+        contract: dict[str, Any] = copy.deepcopy(self.contract)
         target = contract if section is None else contract[section]
         target.pop(field)
         if section == "scenario":
@@ -237,7 +238,7 @@ class TestResultComparison(ComparisonFixture):
     def test_mixed_variants_keep_controlled_differences_when_a_base_field_is_absent(self):
         from acprof.analysis.conditions import compare_workload_profiles, workload_case_profile
 
-        partial = copy.deepcopy(self.contract)
+        partial: dict[str, Any] = copy.deepcopy(self.contract)
         del partial["output"]["shape"]
         case = {"request_count": 3, "variants": [
             {"count": 2, "contract": self.contract}, {"count": 1, "contract": partial},
