@@ -2,6 +2,8 @@
 import contextlib
 import io
 import json
+import subprocess
+import sys
 import tempfile
 from pathlib import Path
 from types import SimpleNamespace
@@ -64,6 +66,7 @@ def test_runtime_failure_with_corrupt_validation_artifact_preserves_primary_fail
 
 
 def test_runtime_coverage_serializes_with_formal_measurement_but_static_does_not(tmp_path):
+    from acprof.host import run_state
     from acprof.host.preparation.model_coverage import run_sample
 
     task = candidate(tag="text-generation")
@@ -73,20 +76,76 @@ def test_runtime_coverage_serializes_with_formal_measurement_but_static_does_not
         "weight_basis": "uniform",
         "models": [{"model_id": "example/model", "revision": "a" * 40, "weight": 1}],
     }
+
+    def competing_process():
+        script = """
+import sys
+from pathlib import Path
+from acprof.host import run_state
+run_state.MEASUREMENT_LOCK_ROOT = Path(sys.argv[1])
+run_state.MEASUREMENT_LOCK_NAMESPACE = bytes.fromhex(sys.argv[2])
+try:
+    with run_state.MeasurementLock():
+        pass
+except run_state.RunStateError as exc:
+    print(exc)
+    sys.exit(1)
+"""
+        return subprocess.run(
+            [sys.executable, "-c", script, str(run_state.MEASUREMENT_LOCK_ROOT),
+             run_state.MEASUREMENT_LOCK_NAMESPACE.hex()],
+            capture_output=True, text=True, timeout=10, check=False,
+        )
+
+    def validate(**kwargs):
+        attempt = competing_process()
+        assert attempt.returncode == 1, attempt.stderr
+        assert "测量锁" in attempt.stdout
+        with pytest.raises(run_state.RunStateError), run_state.ResultDirectoryLock(kwargs["output_dir"]):
+            pytest.fail("model output must stay locked during validation")
+        return {"status": "ok", "devices": {}}
+
     with patch("acprof.host.detect.detect_task", return_value=task), patch(
         "acprof.host.automation.check_repository_access"
-    ), patch(
-        "acprof.host.preparation.model_inspection.validate_model_runtime",
-        return_value={"status": "ok", "devices": {}},
-    ), patch("acprof.host.run_state.MeasurementLock") as measurement_lock:
-        run_sample(manifest, tmp_path / "runtime", probe="full")
-    measurement_lock.assert_called_once_with()
+    ), patch("acprof.host.preflight.require_collection_host"), patch("acprof.host.preflight.require_native_docker"), patch(
+        "acprof.host.images.runtime.prepare_image"
+    ), patch("acprof.host.runtime_validation.validate_runtime", side_effect=validate) as validated:
+        report = run_sample(manifest, tmp_path / "runtime", probe="full")
+    assert report["rows"][0]["runtime_status"] == "ok", report["rows"][0].get("failure")
+    validated.assert_called_once()
+    assert competing_process().returncode == 0
 
     with patch("acprof.host.detect.detect_task", return_value=task), patch(
         "acprof.host.run_state.MeasurementLock",
         side_effect=AssertionError("static coverage must not take measurement lock"),
     ):
         run_sample(manifest, tmp_path / "static", probe="none")
+
+
+def test_busy_coverage_cli_can_retry_the_same_new_output_directory(tmp_path, capsys):
+    from acprof.host.run_state import MeasurementLock
+
+    output = tmp_path / "report"
+    sample = tmp_path / "sample.json"
+    sample.write_text(json.dumps({
+        "schema_version": 1, "sampling": "fixed", "weight_basis": "uniform",
+        "models": [{"model_id": "example/model", "revision": "a" * 40, "weight": 1}],
+    }))
+    args = ["coverage", "run", str(sample), "--output-dir", str(output), "--validate-runtime"]
+    with patch("acprof.host.env_utils.bootstrap_project_env"), patch(
+        "acprof.host.detect.detect_task", return_value=candidate(tag="text-generation")
+    ) as detect, patch("acprof.host.automation.check_repository_access"), patch(
+        "acprof.host.preparation.model_inspection.validate_model_runtime", return_value={"status": "ok"}
+    ) as validate:
+        with MeasurementLock():
+            assert main(args) == 2
+            assert "测量锁" in capsys.readouterr().err
+            assert not output.exists()
+            detect.assert_not_called()
+        assert main(args) == 0
+    validate.assert_called_once()
+    report = json.loads((output / "coverage.json").read_bytes())
+    assert report["rows"][0]["runtime_status"] == "ok"
 
 
 def test_static_coverage_keeps_unmeasured_separate_and_requires_reference():

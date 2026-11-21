@@ -170,8 +170,9 @@ acprof coverage report results/model-a results/model-b \
 ```
 
 snapshot 按 `TASK:LIBRARY` 各取下载量前 N 个，属于所选样本统计，不代表全 Hub 或随机长尾。
-run 默认只做静态检查；`--validate-runtime` 的验证时间限制不包含构建和下载。运行时验证会取得同机同用户的
-测量锁，与正式采集和 post-hoc profiling 串行，避免额外容器/推理污染性能与能耗窗口；静态 coverage 不取得该锁。
+run 默认只做静态检查，可以与正式采集并行。`--validate-runtime` 的验证时间限制不包含构建和下载。
+启用运行时验证后，整个批次持有同机同用户的测量锁，逐模型验证和重试清理共用这把锁，每个模型的验证目录另有写锁。
+如果其他采集或 post-hoc profiling 已经持锁，命令在创建新报告目录之前退出。等持锁任务结束后可以原样重试命令。
 `coverage.json` 的分母始终是冻结样本总权重，分别报告解析、适配、运行、拒绝、权限与资源限制；静态检查不检查权重读取权限，
 运行成功率、权限拒绝率与资源限制率均为 null。
 独立审阅的 `semantic_reference: {"task": "...", "source": "..."}` 才用于语义正确率；
@@ -227,7 +228,7 @@ attempt 恢复已完成模型，进行中的模型使用新目录重新验证。
 清理状态为 `incomplete` 时，先保存当前 model/attempt、原始运行失败和清理证据，再中止批次；
 后续必须显式重试并包含所有清理未完成的模型（可用 `--retry-stage cleanup` 选择），
 优先执行既有 owner 标签和不可变容器 ID 的清理核验，再继续其他模型。
-清理问题独立于最新解析或推理结论保留。重试先核对原主机、原 owner UID 与原 Docker endpoint/context，再取得测量锁，
+清理问题独立于最新解析或推理结论保留。重试会在批次持有测量锁期间核对原主机、原 owner UID 与原 Docker endpoint/context。
 确认原容器已不存在后才重新解析模型；失败、超时或无法确认时不执行后续模型。
 `cleanup_recovery` 保存核验结果，原始 attempt 不改写；旧重试记录缺少明确清理证明时继续阻断。
 冻结条件还包括 `ACPROF_NLP_TORCH_INDEX_URL`、`ACPROF_NLP_TORCH_SPEC`、`ACPROF_HOST_CUDA_VERSION`；

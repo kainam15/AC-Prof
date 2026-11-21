@@ -4,11 +4,14 @@ from __future__ import annotations
 import os
 import re
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from acprof.artifacts import atomic_write_json, read_json_object
 from acprof.host.run_state import utc_now
 from acprof.models.evidence import content_digest
+
+if TYPE_CHECKING:
+    from acprof.host.run_state import MeasurementLock
 
 
 def coverage_configuration(*, probe, resources, budgets, device):
@@ -30,7 +33,8 @@ def coverage_configuration(*, probe, resources, budgets, device):
                 "DOCKER_HOST", "DOCKER_CONTEXT")}}
 
 
-def confirm_previous_cleanup(row: dict, attempts: list[dict], configuration: dict) -> dict:
+def confirm_previous_cleanup(row: dict, attempts: list[dict], configuration: dict, *,
+                             measurement_lock: MeasurementLock | None = None) -> dict:
     """Confirm the original Docker scope before releasing a recorded cleanup block."""
     origin_id = row.get("cleanup_origin_attempt_id", row["attempt_id"])
     origin = next(attempt["configuration"] for attempt in attempts if attempt["attempt_id"] == origin_id)
@@ -46,10 +50,10 @@ def confirm_previous_cleanup(row: dict, attempts: list[dict], configuration: dic
         raise ValueError("cleanup recovery must use the original Docker endpoint/context")
     from acprof.host.container_lifecycle import recover_cleanup_debt
     from acprof.host.preflight import require_native_docker
-    from acprof.host.run_state import MeasurementLock
+    from acprof.host.run_state import measurement_lock_scope
     from acprof.system.command import run_command
 
-    with MeasurementLock():
+    with measurement_lock_scope(measurement_lock):
         require_native_docker()
         return recover_cleanup_debt(row.get("cleanup_errors", []), run_command)
 

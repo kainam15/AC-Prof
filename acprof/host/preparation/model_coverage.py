@@ -7,12 +7,15 @@ from collections import Counter
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from acprof.artifacts import atomic_write_json, read_json_object
 from acprof.hub.huggingface.auth import hf_token_for_url
 from acprof.hub.repository import MODEL_SOURCES, model_source_scope
 from acprof.models.evidence import pinned_revision
+
+if TYPE_CHECKING:
+    from acprof.host.run_state import MeasurementLock
 
 
 def validate_sample(sample: dict) -> None:
@@ -150,7 +153,8 @@ def _record_static_inspection(row: dict, task: Any) -> None:
 
 
 def _evaluate_model(item: dict, output: Path, *, probe, cpus, memory_gb, gpu,
-                    timeout_seconds, max_parameters, max_download_bytes) -> dict:
+                    timeout_seconds, max_parameters, max_download_bytes,
+                    measurement_lock: MeasurementLock | None) -> dict:
     from acprof.host.detect import detect_task
     from acprof.host.preparation.model_inspection import validate_model_runtime
     from acprof.host.preparation.task_support import require_task_support
@@ -203,8 +207,8 @@ def _evaluate_model(item: dict, output: Path, *, probe, cpus, memory_gb, gpu,
             for dependency in task_model_spec(task).get("dependencies", []):
                 check_repository_access(dependency["repo_id"], source="huggingface", revision=dependency["revision"])
             stage = "runtime"
-            validation = validate_model_runtime(task, output, cpus=cpus, memory_gb=memory_gb,
-                                                gpu=gpu, timeout_seconds=timeout_seconds, reuse_existing=True)
+            validation = validate_model_runtime(task, output, cpus=cpus, memory_gb=memory_gb, gpu=gpu,
+                                                timeout_seconds=timeout_seconds, measurement_lock=measurement_lock)
             row["runtime_status"] = validation["status"]
             row["quality_checks"] = [check for value in validation.get("devices", {}).values() for check in value.get("quality_checks", [])]
             failures = [value["failure"] for value in validation.get("devices", {}).values() if value.get("failure")]
@@ -288,7 +292,7 @@ def run_sample(sample: dict, root: Path, *, probe: str = "none", cpus: int = 2, 
                max_parameters: int | None = None, max_download_bytes: int | None = None,
                resume: bool = False, retry_failed: bool = False,
                retry_stages=(), retry_reasons=()) -> dict:
-    from contextlib import nullcontext
+    from contextlib import ExitStack
 
     from acprof.host.coverage_state import (
         CoverageState,
@@ -313,13 +317,14 @@ def run_sample(sample: dict, root: Path, *, probe: str = "none", cpus: int = 2, 
     if (retry_failed or retry_stages or retry_reasons) and not resume:
         raise ValueError("failed-model retry requires --resume")
     root = Path(root)
-    if resume:
-        if not root.is_dir():
-            raise ValueError("coverage resume requires an existing report directory")
-    else:
-        root.mkdir(parents=True, exist_ok=False)
-    measurement_lock = MeasurementLock() if probe == "full" else nullcontext()
-    with measurement_lock, ResultDirectoryLock(root), gpu_device_scope():
+    if resume and not root.is_dir():
+        raise ValueError("coverage resume requires an existing report directory")
+    with ExitStack() as batch:
+        measurement_lock = batch.enter_context(MeasurementLock()) if probe == "full" else None
+        if not resume:
+            root.mkdir(parents=True, exist_ok=False)
+        batch.enter_context(ResultDirectoryLock(root))
+        batch.enter_context(gpu_device_scope())
         device = pin_gpu_device() if gpu and probe == "full" else {}
         configuration = coverage_configuration(
             probe=probe, resources={"cpus": cpus, "memory_gb": memory_gb, "gpu": gpu,
@@ -347,7 +352,8 @@ def run_sample(sample: dict, root: Path, *, probe: str = "none", cpus: int = 2, 
                 row = None
                 if previous.get("cleanup_status") == "incomplete":
                     try:
-                        recovery = confirm_previous_cleanup(previous, state.attempts, configuration)
+                        recovery = confirm_previous_cleanup(previous, state.attempts, configuration,
+                                                            measurement_lock=measurement_lock)
                         if recovery.get("status") != "complete":
                             raise ValueError("previous cleanup has not been confirmed complete")
                     except (Exception, SystemExit) as exc:
@@ -362,7 +368,8 @@ def run_sample(sample: dict, root: Path, *, probe: str = "none", cpus: int = 2, 
                     with model_source_scope(item.get("source", "huggingface")):
                         row = _evaluate_model(item, output, probe=probe, cpus=cpus,
                                               memory_gb=memory_gb, gpu=gpu, timeout_seconds=timeout_seconds,
-                                              max_parameters=max_parameters, max_download_bytes=max_download_bytes)
+                                              max_parameters=max_parameters, max_download_bytes=max_download_bytes,
+                                              measurement_lock=measurement_lock)
                     if recovery is not None:
                         row["cleanup_recovery"] = recovery
                 state.record(index, row)

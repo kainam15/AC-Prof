@@ -10,6 +10,7 @@ from acprof.artifacts import atomic_write_json
 from acprof.models.contract import write_model_resolution
 
 if TYPE_CHECKING:
+    from acprof.host.run_state import MeasurementLock
     from acprof.host.runtime_validation import RuntimeValidationReport
 
 
@@ -140,13 +141,14 @@ def explain_resolution(task_info, *, explain: bool = False) -> str:
 
 def validate_model_runtime(task_info, output_dir: str | Path, *, cpus: int = 2,
                            memory_gb: int = 4, gpu: bool = False, timeout_seconds: float = 300,
-                           reuse_existing: bool = True) -> RuntimeValidationReport:
+                           reuse_existing: bool = True,
+                           measurement_lock: MeasurementLock | None = None) -> RuntimeValidationReport:
     from acprof.host.images.runtime import prepare_image
     from acprof.host.input_plan import PlannedInputScales, resolve_input_scales
     from acprof.host.input_plan.materialize import get_task_generator
     from acprof.host.preflight import require_collection_host, require_native_docker
     from acprof.host.preparation.task_support import require_task_support
-    from acprof.host.run_state import MeasurementLock, ResultDirectoryLock
+    from acprof.host.run_state import ResultDirectoryLock, measurement_lock_scope
     from acprof.host.runtime_validation import validate_runtime
     from acprof.installation import resource_root
 
@@ -157,7 +159,7 @@ def validate_model_runtime(task_info, output_dir: str | Path, *, cpus: int = 2,
     require_collection_host()
     require_native_docker()
     root = Path(output_dir)
-    with MeasurementLock(), ResultDirectoryLock(root):
+    with measurement_lock_scope(measurement_lock), ResultDirectoryLock(root):
         if (root / "runtime_validation.json").exists():
             raise ValueError("probe output already contains validation; choose a new output directory")
         try:

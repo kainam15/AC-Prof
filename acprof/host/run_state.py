@@ -12,11 +12,12 @@ import shutil
 import socket
 import stat
 import sys
-from collections.abc import Mapping
-from contextlib import AbstractContextManager, ExitStack, nullcontext
+from collections.abc import Iterator, Mapping
+from contextlib import AbstractContextManager, ExitStack, contextmanager, nullcontext
 from dataclasses import asdict, fields
 from datetime import UTC, datetime
 from pathlib import Path
+from threading import Thread, current_thread
 from typing import TypeGuard
 from uuid import uuid4
 
@@ -747,6 +748,7 @@ class MeasurementLock(ResultDirectoryLock):
         self.path = MEASUREMENT_LOCK_ROOT / f"acprof-measurement-{os.getuid()}.lock"
         self._resources = None
         self._descriptors: tuple[int, ...] = ()
+        self._owner: tuple[int, Thread] | None = None
 
     @property
     def inherited_descriptors(self) -> tuple[int, ...]:
@@ -769,6 +771,7 @@ class MeasurementLock(ResultDirectoryLock):
                 if (opened.st_dev, opened.st_ino) != (named.st_dev, named.st_ino):
                     raise OSError("measurement lock pathname changed during acquisition")
                 self._descriptors = (guard.fileno(), descriptor)
+                self._owner = (os.getpid(), current_thread())
                 self._resources = resources.pop_all()
         except OSError as error:
             raise RunStateError(
@@ -776,6 +779,19 @@ class MeasurementLock(ResultDirectoryLock):
                 f"或锁文件不可用：{self.path} ({format_exception_notes(error)})"
             ) from error
         return self
+
+
+@contextmanager
+def measurement_lock_scope(held: MeasurementLock | None = None) -> Iterator[None]:
+    """Acquire a lock or borrow one from the same synchronous call chain."""
+    if held is None:
+        with MeasurementLock():
+            yield
+    else:
+        if (not isinstance(held, MeasurementLock) or held._resources is None
+                or held._owner != (os.getpid(), current_thread())):
+            raise RunStateError("Cannot borrow a measurement lock outside its active owner scope")
+        yield
 
 
 def offline_analysis_lock() -> AbstractContextManager:

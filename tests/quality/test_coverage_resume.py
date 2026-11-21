@@ -461,7 +461,8 @@ class TestCoverageResume:
     def test_cleanup_confirmed_absent_is_preserved_even_if_new_resolution_fails(self):
         original, _ = self.seed_cleanup_debt()
         proof = {"status": "complete", "verified_container_ids": ["c" * 64], "recovered_container_ids": []}
-        with patch("acprof.host.coverage_state.confirm_previous_cleanup", create=True, return_value=proof) as confirm, patch(
+        with patch("acprof.host.preflight.require_native_docker"), patch(
+                "acprof.host.container_lifecycle.recover_cleanup_debt", return_value=proof) as confirm, patch(
                 "acprof.host.detect.detect_task", side_effect=RuntimeError("Hub unavailable")), patch(
             "acprof.host.preparation.model_inspection.validate_model_runtime") as probe:
             report = run_sample(self.sample, self.root, probe="full", resume=True, retry_stages=["cleanup"])

@@ -51,6 +51,39 @@ def test_native_probe_uses_family_defaults_when_generator_has_no_declared_scales
         if family == "nlp":
             assert ("[MASK]") in (entry["payload"][field])
 
+
+@pytest.mark.parametrize("case", ["not_entered", "released", "competing", "other_thread"])
+def test_runtime_validation_requires_an_active_measurement_scope(tmp_path, case):
+    from concurrent.futures import ThreadPoolExecutor
+
+    from acprof.host import run_state
+    from acprof.host.preparation.model_inspection import validate_model_runtime
+
+    lock = run_state.MeasurementLock()
+    task = fixture.TestModelContract().discover()
+    if case == "released":
+        with lock:
+            pass
+    with (lock if case in {"competing", "other_thread"} else contextlib.nullcontext()), patch(
+        "acprof.host.preflight.require_collection_host"
+    ), patch("acprof.host.preflight.require_native_docker"), patch(
+        "acprof.host.images.runtime.prepare_image", side_effect=AssertionError("rejected probe prepared an image")
+    ) as prepare:
+        if case == "other_thread":
+            with ThreadPoolExecutor(max_workers=1) as pool:
+                future = pool.submit(validate_model_runtime, task, tmp_path, measurement_lock=lock)
+                with pytest.raises(run_state.RunStateError):
+                    future.result(timeout=5)
+        elif case == "competing":
+            with pytest.raises(run_state.RunStateError):
+                validate_model_runtime(task, tmp_path)
+        else:
+            with pytest.raises(run_state.RunStateError):
+                validate_model_runtime(task, tmp_path, measurement_lock=lock)
+    prepare.assert_not_called()
+    assert not list(tmp_path.iterdir())
+
+
 def test_full_probe_accepts_native_models_and_preserves_feature_width():
     from types import SimpleNamespace
 
