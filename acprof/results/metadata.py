@@ -10,6 +10,17 @@ from acprof.cancellation import cancellable, check_cancelled
 from acprof.results.layout import ArtifactLayout, resolve_result_file
 
 
+def _same_error(previous: object, current: BaseException) -> bool:
+    return type(previous) is type(current) and str(previous) == str(current)
+
+
+def _resolved(path: Path) -> Path:
+    try:
+        return path.resolve()
+    except RuntimeError as error:  # Python 3.12 raises RuntimeError on symlink loops.
+        raise ValueError(f"cannot resolve metadata source {path}: {error}") from error
+
+
 class ResultMetadataSnapshot:
     """Retain the first value, absence or read failure for each artifact.
 
@@ -20,26 +31,35 @@ class ResultMetadataSnapshot:
 
     def __init__(self, source: str | Path, *, cancelled: Callable[[], bool] | None = None):
         self.result_path = resolve_result_file(source, cancelled=cancelled)
-        self.source = self.result_path.resolve()
+        self.source = _resolved(self.result_path)
         self.layout = ArtifactLayout.from_csv(self.result_path, cancelled=cancelled)
-        self._metadata_root = self.layout.root.resolve()
+        self._metadata_root = _resolved(self.layout.root)
         self._presence: dict[str, bool | OSError | ValueError] = {}
         self._records: dict[str, JsonObjectSnapshot | OSError | ValueError] = {}
+        self._failed_labels: dict[str, str] = {}
 
     def validate_source(self, source: str | Path, *, cancelled: Callable[[], bool] | None = None) -> Path:
         """Return the selected file after checking that it matches this snapshot."""
         path = resolve_result_file(source, cancelled=cancelled)
-        if (path.resolve() != self.source
-                or ArtifactLayout.from_csv(path, cancelled=cancelled).root.resolve() != self._metadata_root):
-            raise ValueError("result metadata snapshot belongs to a different path")
+        layout = ArtifactLayout.from_csv(path, cancelled=cancelled)
+        if _resolved(path) != self.source or _resolved(layout.root) != self._metadata_root:
+            raise ValueError(f"result metadata snapshot belongs to a different path: {source}")
+        if layout.layout_version != self.layout.layout_version:
+            raise ValueError(f"result metadata layout changed: {path}")
         return path
+
+    def _observe_presence(self, name: str) -> bool | OSError | ValueError:
+        try:
+            self.layout.path(name).stat()
+        except (FileNotFoundError, NotADirectoryError):
+            return False
+        except (OSError, ValueError) as error:
+            return error
+        return True
 
     def exists(self, name: str) -> bool:
         if name not in self._presence:
-            try:
-                self._presence[name] = self.layout.path(name).exists()
-            except (OSError, ValueError) as error:
-                self._presence[name] = error
+            self._presence[name] = self._observe_presence(name)
         present = self._presence[name]
         if isinstance(present, (OSError, ValueError)):
             raise present
@@ -56,10 +76,40 @@ class ResultMetadataSnapshot:
                                                                 cancelled=cancelled)
             except (OSError, ValueError) as error:
                 self._records[name] = error
+                self._failed_labels[name] = label or name
         record = self._records[name]
         if isinstance(record, (OSError, ValueError)):
             raise record
         return record
+
+    def verify_current(self, source: str | Path) -> None:
+        """Recheck selection, observed presence, exact parsed bytes and previous read failures."""
+        self.validate_source(source)
+        for name, present in self._presence.items():
+            current = self._observe_presence(name)
+            if isinstance(current, (OSError, ValueError)):
+                if _same_error(present, current):
+                    continue
+                raise ValueError(f"metadata changed: {name}: {current}") from current
+            if current is not present:
+                raise ValueError(f"metadata presence changed: {name}")
+            record = self._records.get(name)
+            if current and record is not None and not self._record_unchanged(name, record):
+                raise ValueError(f"metadata changed: {self.layout.path(name)}")
+
+    def _record_unchanged(self, name: str, record: JsonObjectSnapshot | OSError | ValueError) -> bool:
+        path = self.layout.path(name)
+        if isinstance(record, JsonObjectSnapshot):
+            with path.open("rb") as stream:
+                # A replacement can be arbitrarily large; one extra byte proves a length change.
+                return stream.read(len(record.content) + 1) == record.content
+        try:
+            read_json_object_snapshot(path, label=self._failed_labels[name])
+        except (OSError, ValueError) as error:
+            if _same_error(record, error):
+                return True
+            raise ValueError(f"metadata changed: {path}: {error}") from error
+        return False
 
     def verify_observed_sources(self, fingerprints: Mapping[Path, str | None]) -> None:
         """Bind successfully parsed bytes to the caller's initial fingerprints.
