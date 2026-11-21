@@ -328,7 +328,7 @@ def test_local_build_preflights_frontend_and_base_from_selected_mirror():
     with patch.dict("os.environ", {"ACPROF_RUNTIME_IMAGE_SOURCE": "build",
                                    "ACPROF_DOCKER_HUB_MIRROR": "mirror.example/docker.io"}, clear=True):
         sources, state = runtime_sources(PROFILES["nlp-cpu"], PROJECT_ROOT,
-                                         inspect=lambda _: None, manifest_probe=manifest)
+                                         inspect=lambda _: None, manifest_probe=manifest, size_probe=lambda _: None)
     frontend = [source for source in sources if source.stage == "buildkit-frontend"]
     assert len(frontend) == 1
     assert frontend[0].estimated_bytes == 4096
