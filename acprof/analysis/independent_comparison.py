@@ -19,6 +19,7 @@ from acprof.analysis.uncertainty import finite_metric_values, validate_window_op
 from acprof.artifacts import file_sha256
 from acprof.hardware_conditions import conditions_path
 from acprof.quality import QUALITY_FIELDS, combine_quality
+from acprof.results import is_inferred_result
 from acprof.results.csv import (
     ResultCsvSnapshot,
     is_measured_success,
@@ -125,7 +126,7 @@ def _collect_run_case_groups(
         # Window classification is shared by every metric in this resource case.
         measured = [row for row in windows if is_measured_success(row)]
         failed_count = sum(result_row_status(row) != "ok" for row in windows)
-        inferred_count = sum(row.get("result_origin", "").strip() == "inferred_not_measured" for row in windows)
+        inferred_count = sum(is_inferred_result(row) for row in windows)
         for metric in metrics:
             window_values = finite_metric_values(measured, metric)
             groups[(*comparison_case, metric)] = {

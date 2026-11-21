@@ -97,6 +97,68 @@ def test_failure_missing_inferred_and_warmup_counts_stay_distinct(runs):
     assert (run["valid_windows"], run["failed_windows"], run["missing_windows"], run["inferred_windows"]) == (1, 2, 1, 1)
 
 
+@pytest.mark.parametrize("status", [" OK ", "Warn"])
+def test_inferred_only_source_cannot_supply_measured_comparison_evidence(runs, status):
+    source = runs.replicate("left", 0, [999])
+    _change_rows(runs, source, [{"status": status, "result_origin": " inferred_not_measured "}])
+    snapshot = load_comparison_snapshot(source)
+    assert snapshot["conditions"]["actual_workload"] is None
+    assert snapshot["hardware"]["cpu_model"] is None
+    assert not snapshot["metric_availability"]["latency_app_s"]
+    assert not snapshot["all_formal_measured"]
+    assert snapshot["measurement_status"] == "incomplete"
+    assert snapshot["audit"]["counts"]["formal_ok"] == 0
+
+
+def test_inferred_workload_does_not_block_comparison_of_measured_run_means(runs):
+    left = [runs.replicate("left", i, [2, 999]) for i in range(3)]
+    right = [runs.replicate("right", i, [4, 4]) for i in range(3)]
+    for directory in left:
+        _change_rows(runs, directory, [{}, {"result_origin": "inferred_not_measured", "workload_contract": "",
+                                            "latency_app_p95_s": "999"}])
+    before = _source_bytes([*left, *right])
+    snapshot = load_comparison_snapshot(left[0])
+    workload = snapshot["conditions"]["actual_workload"]
+    assert workload is not None
+    assert next(iter(workload.values()))["request_count"] == 3
+    assert snapshot["metric_availability"]["latency_app_s"]
+    assert not snapshot["metric_availability"]["latency_app_p95_s"]
+    assert not snapshot["all_formal_measured"]
+    report = compare_experiments(left, right, metrics=["latency_app_s", "latency_app_p95_s"], resamples=30)
+    groups = {group["metric"]: group for group in report["groups"]}
+    latency = groups["latency_app_s"]
+    assert (latency["left"]["mean"], latency["right"]["mean"], latency["difference_ci"]) == (2, 4, [2, 2])
+    assert (latency["left"]["inferred_windows"], latency["left"]["n_runs"]) == (3, 3)
+    assert groups["latency_app_p95_s"]["difference"] is None
+    assert _source_bytes([*left, *right]) == before
+
+
+@pytest.mark.parametrize(("second_status", "complete"), [("ok", True), ("warn", False), ("error", False)])
+def test_formal_coverage_uses_numeric_window_identity(runs, second_status, complete):
+    source = runs.replicate("left", 0, [2, 4])
+    _change_rows(runs, source, [{}, {"status": second_status, "warmup": "0.0"}])
+    assert load_comparison_snapshot(source)["all_formal_measured"] is complete
+
+
+@pytest.mark.parametrize("flag", ["0", "0.0"])
+def test_inferred_success_cannot_pass_require_ok_or_tui_formal_count(runs, capsys, flag):
+    from acprof.cli.audit import main as audit
+    from acprof.tui.run.diagnostics import summarize_result_csv
+
+    source = runs.replicate("left", 0, [2, 999])
+    _change_rows(runs, source, [{"warmup": flag}, {"result_origin": "inferred_not_measured"}])
+    assert audit([str(source), "--json", "--require-ok"]) == 1
+    report = json.loads(capsys.readouterr().out)
+    assert report["valid"]
+    assert report["counts"]["formal_ok"] == 1
+    assert report["execution"]["finished"]
+    assert not report["execution"]["succeeded"]
+    assert report["execution"]["row_counts"]["not_measured"] == 1
+    assert report["measurement_status"] == "incomplete"
+    summary = summarize_result_csv(source)
+    assert (summary.ok_rows, summary.formal_ok_rows) == (2, 1)
+
+
 @pytest.mark.parametrize("status", ["success", "okay", ""])
 def test_other_status_text_does_not_become_success(runs, status):
     left = runs.replicate("left", 0, [999])

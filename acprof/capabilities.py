@@ -12,6 +12,7 @@ from enum import Enum, StrEnum
 from typing import Any
 
 from acprof.platform import Environment, capability_matrix, detect_environment, recorded_identity
+from acprof.results import is_inferred_result, is_observed_formal_row
 
 
 class CapabilityStatus(StrEnum):
@@ -333,18 +334,16 @@ REQUIRED_MEASUREMENT_FIELDS = {
 
 
 def _is_formal_success_row(row: Mapping) -> bool:
-    """Warmup rows are diagnostics, not required formal measurement windows."""
-    return (row.get("status") in {"ok", "warn"}
-            and str(row.get("warmup", "0")).strip().lower() not in {"1", "true"})
+    return str(row.get("status", "")).strip().lower() in {"ok", "warn"} and is_observed_formal_row(row)
 
 
 def missing_required_measurements(report: CapabilityReport, rows: Sequence[Mapping]) -> list[str]:
     """Require a successful formal window in a new run and actual evidence for its core metrics."""
-    if report.profiling_mode == "best_effort" and not any(_is_formal_success_row(row) for row in rows):
+    formal_successes = [row for row in rows if _is_formal_success_row(row)]
+    if report.profiling_mode == "best_effort" and not formal_successes:
         return sorted(report.requested & {"latency", "throughput"})
     return sorted(name for name in REQUIRED_MEASUREMENT_FIELDS if name in report.requested
-                  and any(_is_formal_success_row(row)
-                          and (name != "gpu_power" or row.get("gpu_mode") == "on") for row in rows)
+                  and any(name != "gpu_power" or row.get("gpu_mode") == "on" for row in formal_successes)
                   and report.measurement[name].status != CapabilityStatus.VERIFIED)
 
 
@@ -359,7 +358,9 @@ def collection_outcomes(rows: Sequence[Mapping]) -> dict:
     for row in rows:
         status = str(row.get("status", "")).strip().lower()
         error = str(row.get("error") or "").strip().lower()
-        if status in {"ok", "warn"}:
+        if status in {"ok", "warn", "error"} and is_inferred_result(row):
+            outcome = "not_measured"
+        elif status in {"ok", "warn"}:
             outcome = "succeeded"
         elif status == "error" and error not in {"", "nan", "none", "null"}:
             outcome = "not_measured" if (error.startswith("not_measured_") or
@@ -397,7 +398,7 @@ def apply_collection_result(report: CapabilityReport, rows: Sequence[Mapping]) -
     report.collection_complete = outcomes["succeeded"]
     if report.profiling_mode == "best_effort":
         from acprof.results.profile import collection_field_outcomes
-        report.field_outcomes = collection_field_outcomes(row for row in rows if str(row.get("warmup", "0")) == "0")
+        report.field_outcomes = collection_field_outcomes(rows)
         for name, cap in list(report.measurement.items()):
             group = "cpu_energy" if name == "cpu_package_energy" else name
             fields = {key: item for key, item in report.field_outcomes.items() if item["collector"] == group}
@@ -415,12 +416,13 @@ def apply_collection_result(report: CapabilityReport, rows: Sequence[Mapping]) -
             if status == "unknown":
                 status = "unavailable"
             report.measurement[name] = Capability(status, cap.detail, "result_layers.json", {"fields": list(fields)})
+    formal_successes = [row for row in rows if _is_formal_success_row(row)]
     for name, metrics in {"gpu_memory": ("gpu_mem_used_avg_bytes", "gpu_mem_used_peak_bytes"),
                           "gpu_utilization": ("gpu_util_avg_pct",)}.items():
         item = report.measurement.get(name)
         if report.profiling_mode == "best_effort" or item is None or item.status == CapabilityStatus.NOT_REQUESTED:
             continue
-        relevant = [row for row in rows if _is_formal_success_row(row) and row.get("gpu_mode") == "on"]
+        relevant = [row for row in formal_successes if row.get("gpu_mode") == "on"]
         try:
             verified = bool(relevant) and all(math.isfinite(float(row.get(metric, "nan")))
                                               for row in relevant for metric in metrics)
@@ -444,8 +446,7 @@ def apply_collection_result(report: CapabilityReport, rows: Sequence[Mapping]) -
             and report.measurement[name].status != CapabilityStatus.NOT_REQUESTED
         ):
             continue
-        relevant = [row for row in rows if _is_formal_success_row(row)
-                    and (name != "gpu_power" or row.get("gpu_mode") == "on")]
+        relevant = [row for row in formal_successes if name != "gpu_power" or row.get("gpu_mode") == "on"]
         if report.profiling_mode == "best_effort" and relevant:
             report.measurement[name] = _required_window_result(relevant, metrics)
             continue

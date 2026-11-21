@@ -103,6 +103,20 @@ def test_missing_reasons_keep_row_evidence_and_formal_filter(audit_source):
     }
 
 
+def test_inferred_row_keeps_numeric_diagnostics_without_adding_missing_measurements(audit_source):
+    path = audit_source([{}, {"result_origin": "inferred_not_measured", "latency_app_s": "inf",
+                             "vcpu_energy_eff_j": "2", "container_attributed_energy_eff_j": "3"}],
+                        Environment("native_linux", "Linux").metadata())
+    report = audit.audit_result(path)
+
+    assert not report["valid"]
+    assert {(issue["code"], issue["field"]) for issue in report["issues"]} == {
+        ("invalid_number", "latency_app_s"), ("formula_mismatch", "container_attributed_energy_eff_j"),
+    }
+    assert report["counts"]["formal_ok"] == 1
+    assert report["missing_metrics"]["cpu_energy_total_j"] == {"unavailable_unspecified": 1}
+
+
 @pytest.mark.parametrize("row_count", [1, 7])
 def test_profiler_settings_are_decoded_once_per_audit(audit_source, monkeypatch, row_count):
     settings = '["torch", "ncu", "nsys", "perf"]'

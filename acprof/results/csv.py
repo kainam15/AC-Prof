@@ -17,6 +17,7 @@ from typing import cast
 from acprof.artifacts import atomic_write, file_sha256
 from acprof.cancellation import cancellable, check_cancelled
 from acprof.config import CSV_FIELDS
+from acprof.results import is_inferred_result
 from acprof.results.metrics import order_csv_fields
 
 KEY_FIELDS = ("cpu_cores", "mem_cap_gb", "gpu_mode", "input_scale", "warmup", "repeat_idx")
@@ -33,8 +34,7 @@ def result_row_status(row: Mapping[str, object]) -> str:
 
 def is_measured_success(row: Mapping[str, object]) -> bool:
     """Successful observations exclude inferred values; callers select warmup scope."""
-    return (result_row_status(row) == "ok"
-            and str(row.get("result_origin", "")).strip() != "inferred_not_measured")
+    return result_row_status(row) == "ok" and not is_inferred_result(row)
 
 
 def csv_diagnostic_text(value: object) -> str:

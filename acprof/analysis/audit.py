@@ -13,6 +13,7 @@ from acprof.capabilities import collection_outcomes
 from acprof.failures import Failure
 from acprof.platform import native_only_metric, recorded_identity
 from acprof.quality import read_quality, summarize_quality
+from acprof.results import is_inferred_result
 from acprof.results.csv import (
     MISSING_CSV_TEXT,
     ResultCsvSnapshot,
@@ -422,14 +423,17 @@ def _audit_rows(report, runtime, metadata, hardware, rows, issue):
         if status in {"warn", "error"}:
             report["counts"][status] += 1
         formal = status == "ok" and not warmup
-        report["counts"]["formal_ok"] += formal
+        inferred = is_inferred_result(row)
+        measured_ok = formal and not inferred
+        report["counts"]["formal_ok"] += measured_ok
         _audit_process_row(report, runtime, metadata, hardware, index, row, status, issue)
         try:
             _check_workload_counts(row)
         except (ValueError, TypeError) as error:
             issue("workload_contract", error, row=index)
-        observed = not warmup and status in {"ok", "warn"} and row.get("resource_metric_quality", "") not in MISSING_CSV_TEXT
-        _audit_numeric_row(report, runtime, missing_reasons, missing, partial if observed else None, index, row, formal, issue)
+        observed = (not inferred and not warmup and status in {"ok", "warn"}
+                    and row.get("resource_metric_quality", "") not in MISSING_CSV_TEXT)
+        _audit_numeric_row(report, runtime, missing_reasons, missing, partial if observed else None, index, row, measured_ok, issue)
         _audit_formula_row(index, row, formal, issue)
     report["missing_metrics"] = {name: dict(reasons) for name, reasons in missing.items()}
     if partial:

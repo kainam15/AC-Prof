@@ -15,7 +15,7 @@ def main(argv=None):
     parser.add_argument("--json", action="store_true", help="将完整审计报告输出到 stdout")
     parser.add_argument("--metrics", action="store_true", help="输出指标登记表 JSON")
     parser.add_argument("--require-complete", action="store_true", help="要求有 complete 状态及完整计划")
-    parser.add_argument("--require-ok", action="store_true", help="要求所有正式行成功且至少有一行")
+    parser.add_argument("--require-ok", action="store_true", help="要求至少一个正式窗口，且所有正式窗口均已实测成功")
     parser.add_argument("--compare", type=Path, help="只读比较另一组结果的输入、资源、质量约束与测量口径")
     from acprof.analysis.conditions import PURPOSES
     parser.add_argument("--comparison-purpose", choices=PURPOSES, default="same-hardware",

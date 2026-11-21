@@ -259,11 +259,11 @@ class _CaseExecution:
             self._finalize(outcome, capture_available, sniff_runtime)
             if self.measurement.profiling_mode == "best_effort" and os.environ.get("ACPROF_TUI") == "1":
                 from acprof.events.progress import emit_collection_issues
-                from acprof.results.csv import read_result_csv
+                from acprof.results.csv import read_result_csv, result_row_status
                 from acprof.results.profile import collection_field_outcomes
                 _, rows = read_result_csv(self.out_csv)
                 emit_collection_issues(collection_field_outcomes(
-                    row for row in rows if row.get("warmup") == "0" and row.get("status") in {"ok", "warn"}))
+                    row for row in rows if result_row_status(row) in {"ok", "warn"}))
             self.status = "error" if outcome.incomplete else _case_result_status(self.out_csv)
         except KeyboardInterrupt:
             _LOG.debug("case cancelled: %s", self.case_name)

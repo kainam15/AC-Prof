@@ -22,6 +22,7 @@ from acprof.messages import join_messages, message
 from acprof.platform import capability_matrix, collection_policy_error, detect_environment
 from acprof.results.csv import (
     KEY_FIELDS,
+    is_measured_success,
     read_result_csv_snapshot,
     require_current_fields,
     verify_result_source,
@@ -456,7 +457,7 @@ def summarize_result_csv(result_csv: str | Path, *, cancelled: Callable[[], bool
         detail = message_id('results.statistics.no_successful_windows')
     if cancelled():
         raise CancelledError()
-    from acprof.analysis.audit import audit_result
+    from acprof.analysis.audit import audit_result, number
     from acprof.quality import QUALITY_FIELDS
     audit = audit_result(snapshot.path, result_snapshot=snapshot, verify_result_snapshot=False)
     if cancelled():
@@ -473,12 +474,11 @@ def summarize_result_csv(result_csv: str | Path, *, cancelled: Callable[[], bool
     summary = ResultSummary(
         rows=len(rows), ok_rows=sum(str(row["status"]).strip().lower() == "ok" for row in rows),
         error_rows=sum(str(row["status"]).strip().lower() == "error" for row in rows),
-        warmup_rows=sum(str(row.get("warmup", "0")).strip() == "1" for row in rows),
+        warmup_rows=sum(number(row.get("warmup", "0")) == 1 for row in rows),
         cases=len({tuple(row.get(field, "") for field in KEY_FIELDS[:3]) for row in rows}),
         groups=groups, grouping_detail=detail, quality=quality,
         profiler_overview=overview, profiler_error=profile_error,
-        formal_ok_rows=sum(str(row.get('status', '')).strip().lower() == 'ok'
-                           and str(row.get('warmup', '0')).strip() == '0' for row in rows),
+        formal_ok_rows=sum(is_measured_success(row) and number(row.get("warmup", "0")) == 0 for row in rows),
     )
     try:
         if path.resolve() != snapshot.path:

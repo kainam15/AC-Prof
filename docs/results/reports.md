@@ -421,7 +421,9 @@ acprof audit --metrics
 `valid` 表示已执行的检查通过；`completion` 单独报告主实验是否正式完成。旧实验没有 `run_state.json`
 时为 `unknown`，不会根据存在 `result_all.csv` 就宣布完成。
 
-报告分别统计所有行、warmup、正式 `ok`、`warn` 和 `error`。正式 `ok` 行的数值缺失按证据分为
+报告分别统计所有行、warmup、正式实测成功窗口（`counts.formal_ok`）、`warn` 和 `error`。
+`inferred_not_measured` 占位行保留在计划覆盖和行总数中，即使标为 `ok` 或含有限数值，也不能作为测量证据。
+正式实测成功窗口的数值缺失按证据分为
 `not_recorded`（旧文件未记录）、`not_applicable`、`tool_not_enabled`、`profiler_reported_error`
 或 `unavailable_unspecified`；后者表示现有产物无法确定原因。数值 `0` 保留为有效观测，
 不会被算作缺失，合法的负 effective 能耗也不会自动被判错。审计不会修改结果、计划或元数据。
@@ -430,10 +432,10 @@ acprof audit --metrics
 Runtime、设备、状态和 profiler 错误只在各行内复用，缺失原因仍按原有优先顺序判断。
 每次调用重新读取来源元数据，历史 unknown 和不一致的身份仍保持 unknown。
 公式核对仅转换参与公式的字段，逐项非法数值检查仍覆盖全部数值指标。比较中的指标可用性
-要求正式 `ok` 行中至少存在一个有限数值；已知缺失标记直接判为不可用，其余值仍进行数值解析。
+要求正式实测成功窗口中至少存在一个有限数值；已知缺失标记直接判为不可用，其余值仍进行数值解析。
 
-`--require-complete` 要求正式完成状态及完整计划；`--require-ok` 要求所有非 warmup 行为 `ok`
-且至少有一行。默认允许审计历史或失败实验，但结构/一致性错误仍以退出码 1 表示。
+`--require-complete` 要求正式完成状态及完整计划；`--require-ok` 要求至少一个正式窗口，且每个正式窗口都已实测成功。
+CSV 中 `warmup=0` 和 `warmup=0.0` 都计为正式窗口。默认允许审计历史或失败实验，但结构/一致性错误仍以退出码 1 表示。
 
 跨后端比较沿用同一只读入口：
 
@@ -500,6 +502,9 @@ acprof report --left results/a1 --left results/a2 --left results/a3 \
 acprof compare --left results/a1 --right results/b1 \
   --html-output comparison.html --output comparison.json --csv-output comparison.csv
 ```
+
+比较实际工作负载与硬件条件时，排除标记为推断的行。正式观测的 `warn` 行仍可提供工作负载证据，
+只有正式实测成功窗口才提供指标值和采样口径。每个指标的 `inferred_windows` 仍列出推断窗口数。
 
 HTML 原样展示 `independent_comparison.compare_experiments()` 的条件检查、来源指纹、运行均值、
 差值、比值、有效运行数及 Bootstrap 区间。`percent` 为 `(right-left)/abs(left)*100`，基线为零时

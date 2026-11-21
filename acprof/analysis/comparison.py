@@ -22,6 +22,7 @@ from acprof.analysis.conditions import (
 from acprof.hardware_conditions import HARDWARE_FIELDS, conditions_path
 from acprof.platform import recorded_identity
 from acprof.quality import QUALITY_FIELDS
+from acprof.results import is_inferred_result
 from acprof.results.csv import (
     MISSING_CSV_TEXT,
     ResultCsvSnapshot,
@@ -313,7 +314,7 @@ def _resolve_actual_workload_and_cases(
     try:
         if not isinstance(result, ResultCsvSnapshot):
             raise result
-        rows = result.rows
+        rows = [row for row in result.rows if not is_inferred_result(row)]
         actual = _actual_workload(rows)
         from acprof.results.layout import resource_case_id
         case_ids = {
@@ -388,6 +389,7 @@ def _comparison_evidence(metadata_snapshot: ResultMetadataSnapshot, audit: dict,
     host = _object_field(state, "host", issues)
     collector_protocol = _collector_protocol(metadata, issues)
     measured_rows = [row for row in rows if result_row_status(row) == "ok" and measurement_key(row)[4] == "0"]
+    formal_count = audit["counts"]["rows"] - audit["counts"]["warmup"]
     return {
         **recorded_identity(metadata),
         "inference_configuration_validation": _object_field(metadata, "runtime_validation", issues)
@@ -401,7 +403,7 @@ def _comparison_evidence(metadata_snapshot: ResultMetadataSnapshot, audit: dict,
         **{key: audit[key] for key in QUALITY_FIELDS},
         "valid": audit["valid"] and not issues, "issues": issues,
         "planned_input_entries": planned_entries,
-        "all_formal_measured": bool(measured_rows) and len(measured_rows) == sum(row.get("warmup") == "0" for row in rows),
+        "all_formal_measured": bool(measured_rows) and len(measured_rows) == formal_count,
         "verified_limits": {key: record.get("resource_plan", {}) for key, record in hardware_cases.items()},
         "collector_protocol": collector_protocol,
         "model_profile": (_digest({**{key: configuration[key] for key in ("model", "backend", "loading", "tasks")},

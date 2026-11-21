@@ -352,11 +352,11 @@ class TestCapability:
         observed = {} if quality == "unknown" else {
             name: {"quality": quality, "reason": "fixture observation"} for name in fields
         }
-        row = {"status": "warn", "warmup": "0", "gpu_mode": "off", "latency_app_s": "1",
+        row = {"status": "warn", "warmup": "0.0", "gpu_mode": "off", "latency_app_s": "1",
                "throughput_app_samples_per_s": "1", **dict.fromkeys(fields, value),
                "resource_metric_quality": json.dumps({"schema_version": 1, "metrics": observed,
                                                       "collectors": {"client_http": {"status": "available"}}})}
-        warmup = {**row, "warmup": "1", "resource_metric_quality": ""}
+        warmup = {**row, "warmup": "1.0", "resource_metric_quality": ""}
         rows = [warmup, row]
         caps.apply_collection_result(report, rows)
         assert report.measurement["dram_energy"].status.value == expected
@@ -383,14 +383,30 @@ class TestCapability:
         assert report.measurement["latency"].status.value == "partial"
         assert report.field_outcomes["latency_app_s"]["windows"] == {"complete": 1, "partial": 1}
 
-    def test_automatic_collection_requires_a_successful_formal_inference(self):
+    @pytest.mark.parametrize("flag", ["1", "1.0"])
+    def test_automatic_collection_requires_a_successful_formal_inference(self, flag):
         caps = self.capabilities()
         report = caps.measurement_report("best_effort", gpu_modes=["off"])
-        rows = [{"status": "ok", "warmup": "1", "latency_app_s": "1"},
+        rows = [{"status": "ok", "warmup": flag, "latency_app_s": "1"},
                 {"status": "error", "warmup": "0", "error": "inference_failed"}]
         caps.apply_collection_result(report, rows)
         assert caps.missing_required_measurements(report, rows) == ["latency", "throughput"]
         assert not report.collection_succeeded
+
+    @pytest.mark.parametrize("mode", ["basic", "best_effort"])
+    def test_inferred_rows_finish_without_verifying_measurements(self, mode):
+        caps = self.capabilities()
+        report = caps.measurement_report(mode, gpu_modes=["off"])
+        row = {"status": "ok", "warmup": "0", "gpu_mode": "off", "latency_app_s": "2",
+               "result_origin": "inferred_not_measured", "throughput_samples_per_s": "3"}
+        caps.apply_collection_result(report, [row])
+        assert report.collection_finished
+        assert not report.collection_succeeded
+        assert report.row_counts["not_measured"] == 1
+        assert report.measurement["latency"].status != "verified"
+        if mode == "best_effort":
+            assert not report.field_outcomes
+            assert caps.missing_required_measurements(report, [row]) == ["latency", "throughput"]
 
     def test_explicit_oom_rows_do_not_invent_measurement_success_or_block_valid_rows(self):
         caps = self.capabilities()

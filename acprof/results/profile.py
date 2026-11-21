@@ -6,6 +6,7 @@ import math
 from collections.abc import Mapping
 from functools import lru_cache
 
+from acprof.results import is_observed_formal_row
 from acprof.results.coverage import collector_contract, field_collectors
 from acprof.results.metrics import METRICS
 
@@ -178,6 +179,8 @@ def collection_field_outcomes(rows) -> dict:
     """Count formal windows by field and quality. A supported source alone proves no value."""
     outcomes: dict = {}
     for row in rows:
+        if not is_observed_formal_row(row):
+            continue
         runtime = "process" if row.get("runtime_kind") == "process" else "docker"
         for name, collector in field_collectors(runtime).items():
             metric = METRICS[name]

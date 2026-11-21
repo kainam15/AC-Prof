@@ -28,8 +28,9 @@ client 追加到字段集合相同的已有文件时沿用原表头，避免数�
 对应 `*_per_request_j` 才是 J/request。`*_delta` 若未注明归一化，则表示整个窗口的增量。
 
 `result_origin` 区分 `formal_measurement`（正式 client 窗口）、`formal_attempt`（正式尝试失败）
-与 `inferred_not_measured`（startup OOM 剪枝占位）。是否成功仍读取 `status`；
-独立 startup probe 只有 JSON 证据，没有性能 CSV。历史缺少此列不补造来源。
+与 `inferred_not_measured`（startup OOM 剪枝占位）。占位行计入 `execution.row_counts.not_measured`，
+即使其 `status` 为 `ok` 或 `warn`，也不能验证采集能力或提供实测数值。历史缺少此列时，仍按窗口和状态判定。
+独立 startup probe 的证据保存在 JSON 中。
 
 | 查阅方向 | 字段组 |
 | --- | --- |
