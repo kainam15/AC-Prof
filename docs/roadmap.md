@@ -10,7 +10,7 @@ Docker / Process 统一画像：已建立 [逐字段覆盖矩阵](results/runtim
 共同进程树 CPU/RSS/边界计数、Process 独立 cgroup 与 GPU 遥测、准备期 CPU 拓扑已接入；
 逐指标质量已贯通审计、统计、比较与离线 HTML；[硬件发布门禁](development/ci.md)逐窗口验收必需指标的数值和采集质量，独立报告基线噪声。开销脚本支持两种 Runtime 的配对诊断。
 两种 Runtime 已从同一次 HTTP 请求记录请求及解码后的响应正文大小，历史字段集按实验冻结。
-新实验统一使用 Best-effort Collection，常规能耗采集沿用 5 秒冷却、20 秒空闲基线。逐项预检、可选失败、全局状态中心和指标级可比性已接入。
+新实验统一使用 Best-effort Collection；[首次运行指南](usage/experiments.md#3-跑一个最小-smoke-test)从单次 CPU 运行直接进入同一结果的审计。常规能耗采集沿用 5 秒冷却、20 秒空闲基线。逐项预检、可选失败、全局状态中心和指标级可比性已接入。
 Process 在 Native Linux 按条件使用 RAPL/DRAM、整卡 NVML、PID PMU 与回环 PCAP。
 PMU 事件预检已加入分组计数、组合冲突分辨与有界回退；短时 Native Linux `perf` 已验证 7 个事件可计数，正式模型窗口的运行比例、重复性及 Docker/Process 配对结果仍待用户主导验收。
 同版本 Docker/Process 配对开销、真实硬件和 WSL2 实机验收仍待独立执行。

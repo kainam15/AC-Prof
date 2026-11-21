@@ -4,7 +4,7 @@
 
 ## 3. 跑一个最小 smoke test
 
-首次尝试推荐 **basic CPU 单次实验**。只使用 1 个 CPU、4 GB 容器内存、一个输入规模和一次正式请求，主要用于验证采集流程，单次测量不足以得出性能结论。也可以直接在 TUI 中选择 Smoke 预设；以下是独立的 CLI 入门示例：
+第一次先跑一个最小 CPU 实验：1 个 CPU、4 GB 内存上限、一个输入规模、一次正式请求。它用来验证流程，不用来做性能排名。新实验采用 Best-effort Collection：按当前 Runtime、硬件和权限逐项采集；关闭深度 Profiler 不会关闭能耗、perf 或抓包。TUI 也可用 `/smoke` 填入最小配置。
 
 ```bash
 acprof run --model google-bert/bert-base-uncased \
@@ -14,21 +14,17 @@ acprof run --model google-bert/bert-base-uncased \
   --notify none --output-dir results/first-run
 ```
 
-首次运行会先检查环境，再下载模型和依赖、构建镜像，准备阶段可能较久。此模式只采集基础指标，能耗、抓包和独立 profiler 的字段为 `nan` 属于预期结果。新实验需选择新的 `--output-dir`；中断后保留原参数并添加 `--resume`，详见[结果完整性与断点续跑](../profiling/artifacts.md#结果完整性与断点续跑)。
+首次运行先检查环境；模型或运行环境未准备好时，准备阶段可能较久。新实验使用新的 `--output-dir`；中断后保留原参数并添加 `--resume`，历史实验继续使用其冻结策略，详见[结果完整性与断点续跑](../profiling/artifacts.md#结果完整性与断点续跑)。
 
-需要验证完整采集链路时，再使用以下默认 **full CPU 示例**（同样只请求一次，不能作为性能结论）；它额外要求 RAPL、perf、抓包工具及主机权限：
+不用再跑一遍来检查 RAPL、perf 和抓包。先对同一份结果做只读审计：
 
 ```bash
-acprof run --model google-bert/bert-base-uncased \
-  --cpus 1 --mems 4 --gpus off \
-  --input-scales 64 \
-  --warmup 0 --repeat 1 --repeat-in-window 1 \
-  --compute-profile-tool none \
-  --execution-profile-tool none \
-  --output-dir results/smoke
+acprof audit results/first-run/google-bert--bert-base-uncased/ --json
 ```
 
-Stable Diffusion 建议先做单 GPU、单分辨率 smoke test（同样使用 `full` 模式）：
+审计的 `missing_metrics` 解释缺值；`accepted` 不代表每个指标都采到了。打开具体任务结果目录的 `capability_report.json`，在 `field_outcomes` 查看 `cpu_energy_total_j`（RAPL）、`cpu_instructions_per_request`（perf）和 `latency_s`（抓包）的 `windows` 计数与 `reasons`。`complete` 表示该窗口有完整证据；`partial` 即使有数值也不是完整采集；没有记录则不能确认。`latency_app_s` 是应用延迟，不能替代抓包证据。
+
+Stable Diffusion 建议先做单 GPU、单分辨率试跑：
 
 ```bash
 acprof run --model stable-diffusion-v1-5/stable-diffusion-v1-5 \
@@ -46,8 +42,7 @@ acprof run --model stable-diffusion-v1-5/stable-diffusion-v1-5 \
 
 ## 无 Torch 的 ONNX Runtime CPU 示例
 
-`basic` 采集 application latency、吞吐、容器 CPU 和内存；支持 Native Linux 或 WSL2、本机 Docker、
-cgroup v2。RAPL、perf、抓包不参与此模式，结果明确记录模式和能力状态。默认 `full` 保留原有严格条件。
+下面的新实验同样按可用能力采集。可以先看应用延迟、吞吐、CPU 和内存，再从窗口证据确认 RAPL、perf 和抓包的实际状态。下文的 `--basic-e2e` 是开发容器回归选项，不是 `acprof run` 的采集模式。
 
 ```bash
 acprof run --model Ritual-Net/iris-classification \
@@ -74,7 +69,7 @@ uv run python scripts/check_runtime.py --profile onnxruntime-cpu --basic-e2e \
 
 ## 查看结果
 
-上面的 basic 示例将任务集合写入 `results/first-run/google-bert--bert-base-uncased/`（单任务结果位于其下的 `tasks/<task_id>/<run_id>/`）；TUI 运行时请使用界面显示的实际输出路径。准备阶段就创建 `result_layers.json` 和全部模块表头，每个完成窗口同步追加数据，完成实验时冻结快照；详细文件树和字段归属见[产物结构](../profiling/artifacts.md#artifact-layout-v2)与[结果阅读指南](../results/metrics.md#从结果目录开始)。
+上面的最小 CPU 示例将任务集合写入 `results/first-run/google-bert--bert-base-uncased/`（单任务结果位于其下的 `tasks/<task_id>/<run_id>/`）；TUI 运行时请使用界面显示的实际输出路径。准备阶段就创建 `result_layers.json` 和全部模块表头，每个完成窗口同步追加数据，完成实验时冻结快照；详细文件树和字段归属见[产物结构](../profiling/artifacts.md#artifact-layout-v2)与[结果阅读指南](../results/metrics.md#从结果目录开始)。
 
 可先只读校验结果，再生成适用的图表和离线报告（单任务集合可直接传入 `<model--slug>` 目录或上层 `--output-dir`，多任务集合在 `report` / `compare` 中会自动展开全部任务，单任务命令需指定具体 `tasks/<task_id>/<run_id>/`）：
 
@@ -138,7 +133,7 @@ acprof run --model google-bert/bert-base-uncased \
   --output-dir results/bert-cpu-gpu
 ```
 
-上面两个例子使用默认 `full` 模式，先完成主矩阵，之后可用 `acprof profile` 补采计算指标。计算分析器现在默认关闭；若希望在矩阵开始前直接采集 Torch / NCU，请显式传入 `--compute-profile-tool both`。`--execution-profile-tool` 默认也是 `none`。
+两个例子均先按 Best-effort 策略完成主矩阵，之后可用 `acprof profile` 补采计算指标。计算分析器默认关闭；若希望随矩阵安排 Torch / NCU，请显式传入 `--compute-profile-tool both`。`--execution-profile-tool` 默认也是 `none`。
 
 ### 默认完整矩阵
 
