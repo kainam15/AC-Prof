@@ -72,6 +72,62 @@ def test_invalid_later_module_does_not_publish_or_expand_metadata(repository, in
         require_task_support(task)
 
 
+def test_inspect_tracks_the_configuration_read_by_each_sentence_module(repository, tmp_path, monkeypatch):
+    from acprof.cli.main import main
+    from acprof.models.evidence import content_digest
+
+    metadata, downloaded, hub = repository
+    modules = [module("words", "WordEmbeddings"), module("./conv/", "CNN", 1), module("memory", "LSTM", 2),
+               module("1_Pooling", "Pooling", 3), module("normalize", "Normalize", 4)]
+    modules[2]["type"] = "sentence_transformers.sentence_transformer.modules.lstm.LSTM"
+    metadata["modules.json"] = modules
+    configs = {
+        "words/wordembedding_config.json": {
+            "tokenizer_class": "sentence_transformers.sentence_transformer.modules.tokenizer.whitespace.WhitespaceTokenizer",
+            "max_seq_length": 128,
+        },
+        "conv/cnn_config.json": {"in_embedding_dimension": 16, "out_channels": 16, "kernel_sizes": [3]},
+        "memory/lstm_config.json": {"embedding_dimension": 16, "hidden_dim": 8},
+    }
+    unused = ["sentence_bert_config.json", "conv/config.json", "words/sentence_bert_config.json", "normalize/config.json"]
+    metadata.update(configs)
+    metadata.update(dict.fromkeys(unused, []))
+    weights = [directory + "/model.safetensors" for directory in ("words", "conv", "memory")]
+    hub.siblings = [SimpleNamespace(rfilename=name) for name in (*metadata, *weights)]
+    monkeypatch.setattr("acprof.host.env_utils.bootstrap_project_env", lambda _cwd: None)
+
+    def inspect(revision):
+        hub.sha = revision
+        output = tmp_path / revision
+        assert main(["inspect", MODEL_ID, "--revision", revision, "--output-dir", str(output)]) == 0
+        report = json.loads((output / "model_resolution.json").read_text())
+        assert report["runtime_validation"]["status"] == "not_run"
+        assert report["execution"]["backend"] == "sentence_transformers"
+        return [item["configuration_sha256"] for item in report["execution"]["components"]]
+
+    initial = inspect(REVISION)
+    assert initial[:3] == [content_digest({name: data}) for name, data in configs.items()]
+    assert all(downloaded.count(name) == 1 for name in configs)
+    assert set(downloaded).isdisjoint(unused + weights)
+    metadata["memory/lstm_config.json"] = {**configs["memory/lstm_config.json"], "num_layers": 2}
+    changed = inspect("b" * 40)
+    assert [i for i, (old, new) in enumerate(zip(initial, changed, strict=True)) if old != new] == [2]
+
+
+def test_static_embedding_keeps_tokenizer_as_an_asset_and_dropout_reads_its_settings(repository):
+    metadata, downloaded, hub = repository
+    metadata["modules.json"] = [module("vectors", "StaticEmbedding"), module("regularize", "Dropout", 1)]
+    settings = "regularize/config.json"
+    metadata[settings] = {"dropout": 0.1}
+    assets = ["vectors/tokenizer.json", "vectors/model.safetensors"]
+    hub.siblings = [SimpleNamespace(rfilename=name) for name in (*metadata, *assets)]
+
+    task = detect_task(MODEL_ID, revision=REVISION)
+    require_task_support(task)
+    assert task.repository_metadata[settings] == {"dropout": 0.1}
+    assert set(downloaded).isdisjoint(assets)
+
+
 def test_inspect_reports_missing_pooling_file_before_loading_weights(repository, tmp_path, monkeypatch):
     from acprof.cli.main import main
 

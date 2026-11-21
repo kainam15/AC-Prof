@@ -1,12 +1,12 @@
 """Describe registered execution paths using JSON; never import model code."""
 from __future__ import annotations
 
-from pathlib import PurePosixPath
 from typing import Any
 
 from acprof.extensions import CATALOG
 from acprof.models.evidence import content_digest
-from acprof.models.sentence_modules import sentence_module_name
+from acprof.models.files import ModelFilesError
+from acprof.models.sentence_modules import module_config_paths, sentence_module_name
 from acprof.models.spec import task_model_spec
 
 
@@ -45,12 +45,11 @@ def module_components(metadata: dict, protocol: dict) -> list[dict]:
         if set(contract.get("requires", [])) - available:
             raise ValueError(f"module chain cannot supply required inputs for {kind}")
         available.update(contract["outputs"])
-        if (not isinstance(path, str) or "\\" in path or PurePosixPath(path).is_absolute()
-                or ".." in path.split("/")):
-            raise ValueError("module paths must stay inside the model snapshot")
-        configs = {name: value for name, value in metadata.items() if name in {
-            str(PurePosixPath(path) / "config.json"),
-            str(PurePosixPath(path) / "sentence_bert_config.json")}}
+        try:
+            paths = module_config_paths(kind, path)
+        except ModelFilesError as exc:
+            raise ValueError("module paths must stay inside the model snapshot") from exc
+        configs = {name: metadata[name] for name in paths if name in metadata}
         components.append({"index": index, "type": kind, "path": path,
                            "configuration_sha256": content_digest(configs)})
     if set(protocol.get("output_features", [])) - available:

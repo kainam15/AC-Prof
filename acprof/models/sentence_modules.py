@@ -47,9 +47,23 @@ def sentence_module_name(reference: object) -> str | None:
 def module_prefix(path: object) -> str:
     if not isinstance(path, str):
         raise ModelFilesError(f"invalid model file path in modules.json: {path!r}")
-    # modules.json declares directories; discovery joins metadata paths with PurePosixPath.
+    # Manifests can use "./dir/" while repository listings use "dir/file".
     directory = str(PurePosixPath(path))
     return "" if directory == "." else safe_path(directory) + "/"
+
+
+def module_config_paths(reference: object, path: object) -> tuple[str, ...]:
+    """Small configuration files used for discovery and the component digest."""
+    prefix = module_prefix(path)
+    kind = sentence_module_name(reference)
+    if kind is None or kind == "Transformer":
+        # Preserve the generic metadata convention for extension-defined modules.
+        return (prefix + "config.json", prefix + "sentence_bert_config.json")
+    if kind in {"Normalize", "StaticEmbedding"}:
+        # StaticEmbedding loads tokenizer and weight assets, Normalize has no settings.
+        return ()
+    filename = "config.json" if kind == "Dropout" else _MODULE_FILES[kind][0]
+    return (prefix + filename,)
 
 
 def sentence_module_checkpoint(kind: str, names: set[str], prefix: str) -> Checkpoint | None:

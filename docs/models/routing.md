@@ -212,6 +212,11 @@ Sentence Transformers 的模块协议由 Extension 注册，按 `modules.json` �
 各模块所需与产出的 features，以及最终编码输出。模块配置从各自的相对目录读取，根目录没有特权。
 解析器识别已登记模块的旧版类名和 Sentence Transformers 5.6.0 保存的完整实现路径。执行记录保留清单中的原始类名。[上游清单写入逻辑](https://github.com/huggingface/sentence-transformers/blob/v5.6.0/sentence_transformers/base/model.py#L655-L675)
 
+`inspect` 导出的 `execution.components[].configuration_sha256` 绑定该组件已读取的配置路径和 JSON 内容。
+CNN、LSTM 和 WordEmbeddings 分别读取模块目录中的 `cnn_config.json`、`lstm_config.json` 和 `wordembedding_config.json`。
+Normalize 无需读取配置。StaticEmbedding 的 `tokenizer.json` 由制品检查核对，静态发现不展开词表。
+专用配置包含非有限数值时，诊断记录文件、字段位置和原始字节 SHA256。[Sentence Transformers 5.6.0 模块源码](https://github.com/huggingface/sentence-transformers/tree/v5.6.0/sentence_transformers/sentence_transformer/modules)
+
 完整编码链拥有其 backbone：底层 MLM/CausalLM head 和库标签只作组件证据，不产生独立任务。
 未知模块、断开的 feature 依赖、非法路径或缺少最终输出均要求配置，不导入远程模块来猜测。
 Hub API 暂时不可用时，静态发现从所选来源的缓存读取 `modules.json`，按该清单的实际 commit

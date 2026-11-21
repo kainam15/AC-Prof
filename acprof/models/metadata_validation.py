@@ -4,8 +4,10 @@ from __future__ import annotations
 import hashlib
 import json
 import math
-from pathlib import PurePosixPath
 from typing import Any
+
+from acprof.models.files import ModelFilesError
+from acprof.models.sentence_modules import module_config_paths
 
 MAX_METADATA_DEPTH = 256
 
@@ -33,12 +35,13 @@ def module_config_files(modules: Any, raw_sha256: str) -> tuple[str, ...]:
         raise invalid("", "modules.json exceeds 64 modules")
     names: dict[str, None] = {}
     for index, module in enumerate(modules):
-        path = module.get("path") if isinstance(module, dict) else None
-        if (not isinstance(path, str) or "\0" in path or "\\" in path or PurePosixPath(path).is_absolute()
-                or ".." in path.split("/")):
-            raise invalid(f"/{index}/path", "module path must stay inside the model snapshot")
-        for filename in ("config.json", "sentence_bert_config.json"):
-            names[str(PurePosixPath(path) / filename)] = None
+        declaration = module if isinstance(module, dict) else {}
+        try:
+            paths = module_config_paths(declaration.get("type"), declaration.get("path"))
+        except ModelFilesError as exc:
+            raise invalid(f"/{index}/path", "module path must stay inside the model snapshot") from exc
+        for name in paths:
+            names[name] = None
     return tuple(names)
 
 

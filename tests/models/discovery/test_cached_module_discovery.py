@@ -108,6 +108,21 @@ def test_invalid_cached_module_metadata_blocks_even_with_a_task(snapshot, filena
     )
 
 
+def test_invalid_cached_cnn_configuration_reports_the_original_file_and_field(snapshot):
+    write(snapshot, "modules.json", [module(0, "", "Transformer"), module(1, "conv", "CNN"),
+                                     module(2, "pool", "Pooling")])
+    filename = "conv/cnn_config.json"
+    raw = write(snapshot, filename, {"kernel_sizes": [3, float("nan")]})
+    task = detect_task(MODEL, revision=SHA)
+    with pytest.raises(TaskSupportError) as caught:
+        require_task_support(task)
+    assert caught.value.failure.reason_code == "metadata_invalid"
+    diagnostic, = task.metadata_diagnostics
+    assert (diagnostic["file"], diagnostic["json_pointer"], diagnostic["raw_sha256"]) == (
+        filename, "/kernel_sizes/1", hashlib.sha256(raw).hexdigest(),
+    )
+
+
 @pytest.mark.parametrize("pool_config_cached", [True, False])
 def test_mixed_module_references_select_cached_encoder_without_claiming_weights(snapshot, pool_config_cached):
     chain = [module(0, "", "Transformer"), module(1, "pool", "Pooling"), module(2, "projection", "Dense")]
@@ -161,10 +176,14 @@ def test_modelscope_uses_its_own_manifest_and_module_settings(snapshot, tmp_path
     settings = "1_Pooling/config.json"
     write(snapshot, "modules.json", [module(0, "", "Unknown")])
     write(snapshot, settings, {"pooling_mode_mean_tokens": False})
+    convolution = "stage/cnn_config.json"
+    write(snapshot, convolution, {"in_embedding_dimension": 99})
     entry = tmp_path / "store/entries" / ("c" * 64)
     local = entry / "hf/models--fixture--offline-encoder/snapshots" / SHA
     files = {
-        "modules.json": write(local, "modules.json", [module(0, "", "Transformer"), module(1, "1_Pooling", "Pooling")]),
+        "modules.json": write(local, "modules.json", [module(0, "", "Transformer"), module(1, "stage", "CNN"),
+                                                     module(2, "1_Pooling", "Pooling")]),
+        convolution: write(local, convolution, {"in_embedding_dimension": 16}),
         settings: write(local, settings, {"pooling_mode_mean_tokens": True}),
     }
     plan = plan_download(model_id=MODEL, revision=SHA, family="nlp", backend="sentence_transformers", policy="full",
@@ -185,4 +204,6 @@ def test_modelscope_uses_its_own_manifest_and_module_settings(snapshot, tmp_path
     assert task.runtime_backend == "sentence_transformers"
     assert task.repository_metadata[settings] == {"pooling_mode_mean_tokens": True}
     assert "config.json" not in task.repository_metadata
+    assert task.repository_metadata[convolution] == {"in_embedding_dimension": 16}
+    assert task.metadata_sources[convolution]["sha256"] == hashlib.sha256(files[convolution]).hexdigest()
     sdk_cache.assert_not_called()

@@ -158,7 +158,9 @@ def _repository_metadata(
                 "metadata_diagnostics": (), "metadata_sources": {}}
     names = ["config.json", "model_index.json", "modules.json", "adapter_config.json",
              "acprof_model.json", "tokenizer_config.json", "processor_config.json", "preprocessor_config.json",
-             "generation_config.json", "config_sentence_transformers.json", "sentence_bert_config.json"]
+             "generation_config.json", "config_sentence_transformers.json"]
+    if "modules.json" not in files:
+        names.append("sentence_bert_config.json")
 
     def read_name(name: str) -> None:
         if files and name not in files:
@@ -600,7 +602,7 @@ def _fallback_config_info(
     )
     try:
         if filename == "modules.json":
-            names = ["config.json", "config_sentence_transformers.json", "sentence_bert_config.json"]
+            names = ["config.json", "config_sentence_transformers.json"]
             info.repository_metadata[filename] = _repository_json(metadata, filename, names, source["sha256"])
             for name in names:
                 item = _cached_metadata_file(model_id, name, revision)
