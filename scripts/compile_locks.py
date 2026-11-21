@@ -25,28 +25,11 @@ from acprof.runtime.profiles import (  # noqa: E402 -- 脚本先设置仓库导�
     environment_id,
     environment_identity,
 )
-
-
-def target_markers(platform):
-    return {"python_version": ".".join(platform.python_version.split(".")[:2]),
-            "python_full_version": platform.python_version, "sys_platform": "linux",
-            "platform_machine": "x86_64", "platform_system": "Linux", "os_name": "posix",
-            "implementation_name": "cpython", "implementation_version": platform.python_version,
-            "platform_python_implementation": "CPython", "extra": ""}
-
-
-def target_tags(platform):
-    from packaging.tags import compatible_tags, cpython_tags
-    if platform.architecture != "linux/amd64" or platform.python_target != "x86_64-manylinux_2_28":
-        raise ValueError("尚未注册此目标平台的 wheel 选择规则")
-    version = tuple(int(value) for value in platform.python_version.split(".")[:2])
-    interpreter = "cp" + "".join(str(value) for value in version)
-    # 与声明的 manylinux 2.28 下限一致；不使用主机 Python/ABI/体系结构。
-    platforms = [f"manylinux_2_{v}_x86_64" for v in range(28, 4, -1)]
-    platforms += ["manylinux2014_x86_64", "manylinux2010_x86_64", "manylinux1_x86_64", "linux_x86_64"]
-    tags = list(cpython_tags(version, abis=[interpreter], platforms=platforms))
-    tags += list(compatible_tags(version, interpreter=interpreter, platforms=platforms))
-    return tags
+from acprof.runtime.target_requirements import (  # noqa: E402 -- 脚本先设置仓库导入路径。
+    applies_to_target,
+    requirement_lines,
+    target_tags,
+)
 
 
 def wheel_records(data, platform):
@@ -55,7 +38,7 @@ def wheel_records(data, platform):
     rank = {tag: index for index, tag in enumerate(target_tags(platform))}
     records = []
     for package in data["packages"]:
-        if package.get("marker") and not Marker(package["marker"]).evaluate(target_markers(platform)):
+        if package.get("marker") and not applies_to_target(Marker(package["marker"]), platform):
             continue
         ranked = []
         for wheel in package.get("wheels", []):
@@ -72,7 +55,7 @@ def wheel_records(data, platform):
     return records
 
 
-def check_sources(paths, packages, root, visited=None):
+def check_sources(paths, packages, root, platform, visited=None):
     from packaging.requirements import Requirement
     visited = set() if visited is None else visited
     for relative in paths:
@@ -80,14 +63,16 @@ def check_sources(paths, packages, root, visited=None):
         if path in visited:
             continue
         visited.add(path)
-        for line in path.read_text().splitlines():
-            line = line.split("#", 1)[0].strip()
-            if not line:
-                continue
+        for line in requirement_lines(path.read_text()):
             if line.startswith("-r "):
-                check_sources([str(path.parent / line[3:].strip())], packages, root, visited)
+                check_sources([str(path.parent / line[3:].strip())], packages, root, platform, visited)
                 continue
-            requirement = Requirement(line)
+            try:
+                requirement = Requirement(line)
+                if not applies_to_target(requirement.marker, platform):
+                    continue
+            except ValueError as exc:
+                raise ValueError(f"{path}: {exc}") from exc
             name = normalized_name(requirement.name)
             if name not in packages or not requirement.specifier.contains(packages[name], prereleases=True):
                 raise ValueError(f"依赖输入与 lock 不符：{path}: {line}")
@@ -140,7 +125,7 @@ def check_catalog(root=ROOT, variants=None):
             continue
         identity = environment_identity(environment, root)
         check_runtime_lock(root / environment.requirements_lock, environment.platform)
-        check_sources(environment.requirements_inputs, package_versions(identity["packages"]), root)
+        check_sources(environment.requirements_inputs, package_versions(identity["packages"]), root, environment.platform)
         identifier = environment_id(environment, root)
         if identifier in environments:
             raise ValueError(f"重复依赖环境应合并声明：{key} / {environments[identifier]['environment_key']}")

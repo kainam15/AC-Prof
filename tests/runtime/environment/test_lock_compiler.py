@@ -80,6 +80,31 @@ def test_check_is_read_only_and_does_not_use_docker_or_resolver():
         assert (before) == ({path: hashlib.sha256(path.read_bytes()).hexdigest()
                                   for path in root.rglob("*") if path.is_file()})
 
+def test_check_filters_included_requirements_for_the_locked_target(tmp_path):
+    copy_dependency_tree(tmp_path)
+    inputs = tmp_path / "dockerfiles/requirements"
+    with (inputs / "cv.in").open("a") as source:
+        source.write("\n-r conditional.in\n")
+    included = inputs / "conditional.in"
+    included.write_text('windows-fixture @ https://example.invalid/unused.whl#fragment ; os_name == "nt"\n')
+    check_catalog(tmp_path, variants=["cpu"])
+
+    included.write_text('linux-fixture; os_name == "posix"\n')
+    with pytest.raises(ValueError, match=r"conditional\.in: linux-fixture"):
+        check_catalog(tmp_path, variants=["cpu"])
+    included.write_text('kernel-fixture; platform_release == "6.8"\n')
+    with pytest.raises(ValueError, match=r"conditional\.in.*platform_release"):
+        check_catalog(tmp_path, variants=["cpu"])
+
+
+def test_wheel_selection_does_not_assume_the_resolvers_kernel():
+    from acprof.runtime.profiles import PLATFORMS
+
+    package = {"name": "kernel-fixture", "version": "1", "marker": 'platform_release == "6.8"'}
+    with pytest.raises(ValueError, match="platform_release"):
+        compile_locks.wheel_records({"packages": [package]}, PLATFORMS["cpu"])
+
+
 def test_check_rejects_wheel_for_wrong_python():
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)

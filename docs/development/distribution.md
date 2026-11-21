@@ -111,7 +111,7 @@ Docker 的 `dockerfiles/locks` 保留目标 Python/CUDA wheel、URL、SHA256 和
 
 开发检查和 Git hooks 见[测试指南](quality.md#开发质量检查)。
 需要将当前 checkout 安装成用户工具时可运行 `uv tool install .`，或用下方 `setup.sh`。
-容器锁检查运行 `uv run python scripts/compile_locks.py --check`。
+容器锁检查运行 `uv run python scripts/compile_locks.py --check`。检查 `.in` 及其 `-r` 引入项、从 pylock 选择 wheel、从 `uv export` 选择容器测试依赖时，均使用与[模型依赖预检](../models/routing.md)相同的目标平台条件。条件引用目标未声明的字段时，工具报错，不按构建主机的内核选择或跳过制品。
 
 迁移方法参考 [uv 官方 requirements 迁移指南](https://docs.astral.sh/uv/guides/migration/pip-to-project/)
 与 [Ruff 的 dependency-groups](https://github.com/astral-sh/ruff/blob/main/pyproject.toml)：

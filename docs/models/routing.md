@@ -321,9 +321,10 @@ Python imports，最多 64 个文件、每文件 512 KiB；结合 tokenizer 配�
 只在条件分支可达的本地模块中缺少依赖不会误报为确定缺包；另有无条件路径时仍按必需处理。
 开发 requirements 不进入推理需求。包缺失、版本冲突、无法安全判断分别使用
 `runtime_dependency_missing`、`runtime_dependency_incompatible`、`runtime_dependency_unknown`。
+`requirements` 的 [PEP 508 平台条件](https://packaging.python.org/en/latest/specifications/dependency-specifiers/#environment-markers)按目标容器求值，而非运行预检的主机。例如在 Linux 目标上，`os_name == "posix"` 的条目参与检查，`os_name == "nt"` 的条目不要求安装。目标声明了 CPython 版本、实现、操作系统和体系结构，但不固定内核；引用 `platform_release` 或 `platform_version` 的条目记为 `unknown`，并继续检查同文件的其他声明。
 标准库顶层模块按目标 RuntimeProfile 的精确 CPython 版本识别，不查询主机的模块清单。清单来自目标解释器的 [`sys.stdlib_module_names`](https://docs.python.org/3.12/library/sys.html#sys.stdlib_module_names)，只说明名称归属，不证明可选模块实际能加载。升级目标解释器时需同步清单；没有对应版本的清单时，需判断归属的导入保持 `unknown`。
 源码与 requirements 的 SHA256、模型 revision、lock 路径和比较结果保存在解析报告中。
-动态 import、未知 import/distribution 映射、未固定 revision、URL/extras 等不能自动证明可用，
+动态 import、未知 import/distribution 映射、未固定 revision、适用于目标的 URL/extras 等不能自动证明可用，
 须补充受审阅的锁定环境。分析不 import 仓库代码、不执行安装命令，也不修改基础镜像。
 裸相对 from-list 先核对包 `__init__.py` 的明确顶层绑定或重导出；无法证明时仍要求同名
 子模块存在。条件、动态绑定以及 initializer 自引用均保持 unknown，不执行包代码来猜测结果。

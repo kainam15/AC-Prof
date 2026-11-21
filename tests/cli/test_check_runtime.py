@@ -63,12 +63,11 @@ def test_test_wheel_download_uses_runtime_python_markers_and_preserves_hashes(tm
         parsed = Requirement(requirement.strip())
         assert parsed.marker is None  # pip must not re-evaluate markers using the host Python.
         assert hashes.strip()
-        requirements[parsed.name] = hashes
-    assert 'colorama' not in requirements
-    assert {'pytest', 'pytest-asyncio'} <= requirements.keys()
-    assert ('typing-extensions' in requirements) == python_version.startswith('3.12.')
-    for package in ('backports-asyncio-runner', 'exceptiongroup', 'tomli'):
-        assert package not in requirements
+        requirements[parsed.name] = hashes.strip()
+    expected = {'pytest': 'sha256:' + 'a' * 64, 'pytest-asyncio': 'sha256:' + 'b' * 64}
+    if python_version.startswith('3.12.'):
+        expected['typing-extensions'] = 'sha256:' + 'd' * 64
+    assert requirements == expected
 
 
 def test_test_tools_export_failure_prevents_download(tmp_path):
@@ -80,6 +79,22 @@ def test_test_tools_export_failure_prevents_download(tmp_path):
             prepare_test_wheels(tmp_path, 10, PROFILES['onnxruntime-cpu'].environment.platform)
     assert run.call_count == 1
     assert run.call_args.args[0][:2] == ['uv', 'export']
+
+
+def test_unbound_export_marker_prevents_test_wheel_download(tmp_path):
+    from scripts.check_runtime import prepare_test_wheels
+
+    def export(command, **kwargs):
+        assert command[:2] == ['uv', 'export']
+        Path(command[command.index('--output-file') + 1]).write_text(
+            'tool==1 ; platform_version == "fixture" --hash=sha256:' + 'a' * 64 + '\n'
+        )
+
+    with patch('scripts.check_runtime.subprocess.run', side_effect=export) as run:
+        with pytest.raises(ValueError, match='platform_version'):
+            prepare_test_wheels(tmp_path, 10, PROFILES['onnxruntime-cpu'].environment.platform)
+    assert run.call_count == 1
+    assert not (tmp_path / 'runtime-test-target.lock').exists()
 
 
 class TestRuntimeCheckSelection:

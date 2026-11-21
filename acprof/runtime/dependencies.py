@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import ast
 import hashlib
-from collections.abc import Callable
-from typing import Any, Literal, TypedDict
+from collections.abc import Callable, Iterator
+from typing import TYPE_CHECKING, Literal, TypedDict
 
 from acprof.failures import Failure, RuntimeFailure
 from acprof.installation import resource_root
@@ -14,6 +14,10 @@ from acprof.models.inspection.source_imports import RepositoryImports
 from acprof.models.spec import custom_code_files
 from acprof.runtime.dependency_locks import normalized_name, package_versions, read_python_lock
 from acprof.runtime.stdlib import STDLIB_MODULES
+from acprof.runtime.target_requirements import applies_to_target, requirement_lines
+
+if TYPE_CHECKING:
+    from acprof.runtime.profiles import PlatformSpec
 
 # Import names and distribution names are different namespaces. Unknown names
 # remain unresolved; in particular, never suggest installing an import name.
@@ -96,12 +100,43 @@ class _PreflightSources:
         return observed
 
 
-def dependency_preflight(task, profile, *, read_source) -> DependencyPreflightReport:
-    """Read only pinned source/config, without importing or installing anything."""
-    from packaging.markers import default_environment
+def _requirement_records(source: str, name: str, platform: PlatformSpec,
+                         installed: dict[str, str]) -> Iterator[DependencyRecord]:
     from packaging.requirements import InvalidRequirement, Requirement
 
-    target_python = profile.environment.platform.python_version
+    minor = platform.python_version.split(".")[:2]
+    for line in requirement_lines(source):
+        try:
+            requirement = Requirement(line)
+        except InvalidRequirement as exc:
+            # Do not mistake a continuation of unsupported syntax for a new dependency.
+            yield {"status": "unknown", "source": name, "detail": str(exc)}
+            return
+        try:
+            if not applies_to_target(requirement.marker, platform):
+                continue
+            if requirement.url or requirement.extras:
+                raise ValueError("URLs and extras require a reviewed locked environment")
+        except ValueError as exc:
+            yield {"status": "unknown", "source": name, "detail": f"{requirement.name}: {exc}"}
+            continue
+        distribution = normalized_name(requirement.name)
+        # The obsolete, unpinned typing backport is supplied by target Python.
+        # Versioned requirements and typing-extensions remain real distributions.
+        if distribution == "typing" and not requirement.specifier and tuple(map(int, minor)) >= (3, 5):
+            yield {"distribution": distribution, "required": "", "source": name,
+                   "status": "stdlib", "python_version": ".".join(minor)}
+            continue
+        version = installed.get(distribution)
+        yield {"distribution": distribution, "required": str(requirement.specifier), "installed": version,
+               "source": name, "status": "missing" if version is None else
+               "present" if requirement.specifier.contains(version, prereleases=True) else "incompatible"}
+
+
+def dependency_preflight(task, profile, *, read_source) -> DependencyPreflightReport:
+    """Read only pinned source/config, without importing or installing anything."""
+    platform = profile.environment.platform
+    target_python = platform.python_version
     stdlib = STDLIB_MODULES.get(target_python)
     installed = package_versions(read_python_lock(resource_root() / profile.environment.requirements_lock))
     distributions = {name.replace("-", "_"): name for name in installed}
@@ -112,7 +147,6 @@ def dependency_preflight(task, profile, *, read_source) -> DependencyPreflightRe
     pending = set().union(*(custom_code_files(config) for config in configs))
     records: list[DependencyRecord] = []
     sources = _PreflightSources(read_source)
-    requirements: list[Any] = []
     processed: set[str] = set()
     tokenizer = metadata.get("tokenizer_config.json", {})
     if tokenizer.get("tokenizer_class") in {"BertJapaneseTokenizer", "MecabTokenizer"} and tokenizer.get("word_tokenizer_type", "mecab") == "mecab":
@@ -122,40 +156,13 @@ def dependency_preflight(task, profile, *, read_source) -> DependencyPreflightRe
             records.append({"status": "unknown", "detail": "source dependencies require a pinned commit SHA"})
             pending.clear()
         else:
-            environment = {**default_environment(),
-                           "python_version": ".".join(target_python.split(".")[:2]),
-                           "python_full_version": target_python,
-                           "implementation_version": target_python,
-                           "sys_platform": "linux", "platform_system": "Linux", "platform_machine": "x86_64", "extra": ""}
-            for name in sorted(files):
-                if name not in RUNTIME_REQUIREMENTS:
-                    continue
+            for name in sorted(files & RUNTIME_REQUIREMENTS):
                 try:
                     source = sources.requirements(name)
-                    for line in source.splitlines():
-                        line = line.split("#", 1)[0].strip()
-                        if not line:
-                            continue
-                        requirement = Requirement(line)
-                        if requirement.url or requirement.extras:
-                            raise ValueError("URLs and extras require a reviewed locked environment")
-                        if requirement.marker is None or requirement.marker.evaluate(environment):
-                            requirements.append((name, requirement))
-                except (OSError, ValueError, InvalidRequirement) as exc:
+                except (OSError, ValueError) as exc:
                     records.append({"status": "unknown", "source": name, "detail": str(exc)})
-    for name, requirement in requirements:
-        distribution = normalized_name(requirement.name)
-        # The obsolete, unpinned typing backport is supplied by target Python.
-        # Versioned requirements and typing-extensions remain real distributions.
-        if (distribution == "typing" and not requirement.specifier
-                and tuple(map(int, target_python.split(".")[:2])) >= (3, 5)):
-            records.append({"distribution": distribution, "required": "", "source": name,
-                            "status": "stdlib", "python_version": ".".join(target_python.split(".")[:2])})
-            continue
-        version = installed.get(distribution)
-        records.append({"distribution": distribution, "required": str(requirement.specifier), "installed": version,
-                        "source": name, "status": "missing" if version is None else
-                        "present" if requirement.specifier.contains(version, prereleases=True) else "incompatible"})
+                else:
+                    records.extend(_requirement_records(source, name, platform, installed))
 
     imports = RepositoryImports(files, sources.tree)
     guarded_files: set[str] = set()

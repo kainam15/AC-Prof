@@ -266,6 +266,84 @@ def test_dependency_markers_use_target_python_instead_of_host(monkeypatch):
     ]
 
 
+@pytest.mark.parametrize(("os_name", "implementation", "display"), [
+    ("posix", "cpython", "CPython"), ("nt", "pypy", "PyPy"),
+], ids=["linux-cpython", "windows-pypy"])
+def test_required_posix_package_cannot_disappear_on_another_host(monkeypatch, os_name, implementation, display):
+    from packaging.markers import default_environment
+
+    from acprof.failures import RuntimeFailure
+    from acprof.runtime.dependencies import dependency_preflight
+    from acprof.runtime.profiles import PROFILES
+
+    host = {**default_environment(), "os_name": os_name, "implementation_name": implementation,
+            "platform_python_implementation": display}
+    monkeypatch.setattr("packaging.markers.default_environment", host.copy)
+    task = model("image-classification", "cv", "vit", repository_files=("requirements.txt",))
+    source = ('windows-only-fixture; "nt" == os.name\n'
+              'linux-only-fixture; os_name == "posix" and implementation_name == "cpython" '
+              'and platform_python_implementation == "CPython"\n')
+    with pytest.raises(RuntimeFailure) as caught:
+        dependency_preflight(task, PROFILES["cv-cpu"], read_source=lambda _: source)
+
+    assert caught.value.failure.reason_code == "runtime_dependency_missing"
+    assert [row["distribution"] for row in caught.value.failure.evidence["dependencies"]] == ["linux-only-fixture"]
+
+
+@pytest.mark.parametrize(("marker", "field"), [
+    ('platform_release >= "6.8"', "platform_release"),
+    ('"#1 SMP" in platform.version', "platform_version"),
+    ('"feature" in dependency_groups', "dependency_groups"),
+])
+def test_unbound_target_marker_retains_unknown_and_other_requirements(marker, field):
+    from acprof.failures import RuntimeFailure
+    from acprof.runtime.dependencies import dependency_preflight
+    from acprof.runtime.profiles import PROFILES
+
+    task = model("image-classification", "cv", "vit", repository_files=("requirements.txt",))
+    source = f'conditional-fixture; {marker}\ntyping; os_name != "platform_release"  # quoted literal\n'
+    with pytest.raises(RuntimeFailure) as caught:
+        dependency_preflight(task, PROFILES["cv-cpu"], read_source=lambda _: source)
+
+    assert caught.value.failure.reason_code == "runtime_dependency_unknown"
+    [problem] = caught.value.failure.evidence["dependencies"]
+    assert problem["source"] == "requirements.txt"
+    assert field in problem["detail"]
+    assert any(row["status"] == "stdlib" for row in task.model_resolution["dependency_preflight"]["dependencies"])
+
+
+def test_unregistered_target_does_not_inherit_x86_marker_values():
+    from acprof.failures import RuntimeFailure
+    from acprof.runtime.dependencies import dependency_preflight
+    from acprof.runtime.profiles import PROFILES
+
+    task = model("image-classification", "cv", "vit", repository_files=("requirements.txt",))
+    profile = PROFILES["cv-cpu"]
+    platform = replace(profile.environment.platform, architecture="linux/arm64", python_target="aarch64-manylinux_2_28")
+    profile = replace(profile, environment=replace(profile.environment, platform=platform))
+    with pytest.raises(RuntimeFailure, match="Unregistered Python target: linux/arm64") as caught:
+        dependency_preflight(task, profile, read_source=lambda _: 'fixture; platform_machine == "x86_64"')
+    assert caught.value.failure.reason_code == "runtime_dependency_unknown"
+
+
+@pytest.mark.parametrize("requirement", [
+    "fixture[feature]",
+    "fixture @ https://example.invalid/fixture.whl#sha256=" + "a" * 64,
+])
+def test_only_applicable_extras_and_direct_references_require_review(requirement):
+    from acprof.failures import RuntimeFailure
+    from acprof.runtime.dependencies import dependency_preflight
+    from acprof.runtime.profiles import PROFILES
+
+    task = model("image-classification", "cv", "vit", repository_files=("requirements.txt",))
+    profile = PROFILES["cv-cpu"]
+    report = dependency_preflight(task, profile, read_source=lambda _: f'{requirement} ; os_name == "nt"')
+    assert report["dependencies"] == []
+    with pytest.raises(RuntimeFailure, match="URLs and extras require a reviewed locked environment") as caught:
+        dependency_preflight(task, profile, read_source=lambda _: f'{requirement} ; os_name == "posix"')
+    assert caught.value.failure.reason_code == "runtime_dependency_unknown"
+
+
 def test_unversioned_typing_backport_uses_target_python_stdlib():
     from acprof.runtime.dependencies import dependency_preflight
     from acprof.runtime.profiles import PROFILES

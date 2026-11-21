@@ -22,8 +22,8 @@ from acprof.runtime.profiles import (  # noqa: E402 -- 脚本先设置仓库导�
     PROFILES,
     environment_id,
 )
-from scripts.compile_locks import (  # noqa: E402 -- 复用已注册的容器目标平台。
-    target_markers,
+from acprof.runtime.target_requirements import (  # noqa: E402 -- 同上。
+    applies_to_target,
     target_tags,
 )
 
@@ -62,7 +62,6 @@ def prepare_test_wheels(output, timeout, platform):
         ], cwd=ROOT, check=True, timeout=timeout, stdout=log, stderr=subprocess.STDOUT)
     # pip's target flags select wheels, but requirement markers still use the host.
     # Select the complete locked closure for the runtime, retaining every hash.
-    markers = target_markers(platform)
     selected = []
     source = exported.read_text(encoding="utf-8")
     for line in source.replace("\\\n", "").splitlines():
@@ -70,7 +69,7 @@ def prepare_test_wheels(output, timeout, platform):
             continue
         value, separator, hashes = line.partition("--hash=")
         requirement = Requirement(value.strip())
-        if requirement.marker and not requirement.marker.evaluate(markers):
+        if not applies_to_target(requirement.marker, platform):
             continue
         requirement.marker = None
         selected.append(f"{requirement} {separator}{hashes}\n")
