@@ -469,7 +469,7 @@ class TestModelStore:
 
         def change_after_verification(model_id, name, revision, **kwargs):
             result = cached_metadata(model_id, name, revision, **kwargs)
-            if name == "model_index.json":
+            if name in {"model_index.json", "modules.json"}:
                 assert result is None
                 return None
             assert name == "config.json"

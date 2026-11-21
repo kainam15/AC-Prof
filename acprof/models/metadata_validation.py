@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+from pathlib import PurePosixPath
 from typing import Any
 
 MAX_METADATA_DEPTH = 256
@@ -18,6 +19,27 @@ class MetadataValidationError(ValueError):
             f"{item['file']}:{item['json_pointer'] or '/'}: {item['detail']}"
             for item in diagnostics
         ))
+
+
+def module_config_files(modules: Any, raw_sha256: str) -> tuple[str, ...]:
+    """Validate every declared directory before returning any snapshot-relative reads."""
+    def invalid(pointer: str, detail: str) -> MetadataValidationError:
+        return MetadataValidationError([{"reason_code": "metadata_invalid", "file": "modules.json",
+                                         "json_pointer": pointer, "raw_sha256": raw_sha256, "detail": detail}])
+
+    if not isinstance(modules, list):
+        raise invalid("", "modules.json must contain list")
+    if len(modules) > 64:
+        raise invalid("", "modules.json exceeds 64 modules")
+    names: dict[str, None] = {}
+    for index, module in enumerate(modules):
+        path = module.get("path") if isinstance(module, dict) else None
+        if (not isinstance(path, str) or "\0" in path or "\\" in path or PurePosixPath(path).is_absolute()
+                or ".." in path.split("/")):
+            raise invalid(f"/{index}/path", "module path must stay inside the model snapshot")
+        for filename in ("config.json", "sentence_bert_config.json"):
+            names[str(PurePosixPath(path) / filename)] = None
+    return tuple(names)
 
 
 def finite_metadata_diagnostics(

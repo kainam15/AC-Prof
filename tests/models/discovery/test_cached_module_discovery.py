@@ -1,0 +1,169 @@
+"""Resolve sentence encoders from the selected source's pinned JSON cache."""
+import hashlib
+import json
+from unittest.mock import Mock
+
+import pytest
+from huggingface_hub import constants
+from huggingface_hub.errors import OfflineModeIsEnabled
+
+from acprof.host.detect import detect_task
+from acprof.host.preparation.task_support import TaskSupportError, require_task_support
+
+MODEL = "fixture/offline-encoder"
+SHA = "a" * 40
+BACKBONE = {"model_type": "mpnet", "architectures": ["MPNetForMaskedLM"]}
+
+
+def module(index, path, kind):
+    return {"idx": index, "path": path, "type": "sentence_transformers.models." + kind}
+
+
+def write(snapshot, name, value):
+    path = snapshot / name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    content = json.dumps(value, indent=2).encode()
+    path.write_bytes(content)
+    return content
+
+
+@pytest.fixture
+def snapshot(tmp_path, monkeypatch):
+    repo = tmp_path / "hub/models--fixture--offline-encoder"
+    (repo / "refs").mkdir(parents=True)
+    (repo / "refs/main").write_text(SHA)
+    path = repo / "snapshots" / SHA
+    write(path, "config.json", BACKBONE)
+    monkeypatch.setenv("ACPROF_MODEL_SOURCE", "huggingface")
+    monkeypatch.setenv("ACPROF_MODEL_STORE", str(tmp_path / "store"))
+    monkeypatch.setattr(constants, "HF_HUB_CACHE", str(repo.parent))
+    monkeypatch.setattr(constants, "HF_HUB_OFFLINE", True)
+    monkeypatch.setattr("huggingface_hub.HfApi.model_info", Mock(side_effect=OfflineModeIsEnabled("offline")))
+    return path
+
+
+@pytest.mark.parametrize(("encoder", "revision"), [("", SHA), ("0_Transformer", "main")])
+def test_cached_chain_selects_encoding_and_pins_module_settings(snapshot, monkeypatch, encoder, revision):
+    import huggingface_hub
+
+    if encoder:
+        (snapshot / "config.json").unlink()
+        write(snapshot, encoder + "/config.json", BACKBONE)
+    settings = "1_Pooling/config.json"
+    raw = write(snapshot, "modules.json", [module(0, encoder, "Transformer"),
+                                           module(1, "1_Pooling", "Pooling"), module(2, "2_Normalize", "Normalize")])
+    write(snapshot, settings, {"pooling_mode_mean_tokens": True})
+    if revision == "main":
+        other = snapshot.parent / ("b" * 40)
+        write(other, settings, {"pooling_mode_mean_tokens": False})
+        load = huggingface_hub.try_to_load_from_cache
+
+        def change_ref_after_manifest(repo_id, filename, **kwargs):
+            cached = load(repo_id, filename, **kwargs)
+            if filename == "modules.json":
+                (snapshot.parent.parent / "refs/main").write_text(other.name)
+            return cached
+
+        monkeypatch.setattr(huggingface_hub, "try_to_load_from_cache", change_ref_after_manifest)
+
+    task = detect_task(MODEL, revision=revision)
+    require_task_support(task)
+
+    assert (task.pipeline_tag, task.runtime_backend, task.model_revision) == ("feature-extraction", "sentence_transformers", SHA)
+    assert task.hub_metadata == {}
+    assert task.repository_files == ()
+    assert task.repository_metadata[settings] == {"pooling_mode_mean_tokens": True}
+    components = task.model_resolution["execution"]["components"]
+    assert [part["path"] for part in components] == [encoder, "1_Pooling", "2_Normalize"]
+    assert [item["interface"] for item in task.task_discovery["tasks"]] == ["feature-extraction"]
+    if not encoder:
+        assert any(item["scope"] == "component" and item["task"] == "fill-mask"
+                   for item in task.model_resolution["evidence"])
+    provenance = task.model_resolution["provenance"]
+    source = provenance["sources"]["modules.json"]
+    assert (source["encoding"], source["sha256"], source["revision"]) == ("raw", hashlib.sha256(raw).hexdigest(), SHA)
+    assert any(item["source_id"] == "modules.json" and item["field"] == "" and item["task"] == "feature-extraction"
+               for item in provenance["observations"])
+    assert task.model_resolution["runtime_validation"]["status"] == "not_run"
+    assert task.model_resolution["compatibility"]["status"] == "unknown"
+
+
+@pytest.mark.parametrize(("filename", "value", "pointer"), [
+    ("modules.json", {}, ""),
+    ("modules.json", [module(0, "", "Transformer"), module(1, "../elsewhere", "Pooling")], "/1/path"),
+    ("modules.json", [module(0, "invalid\0name", "Transformer")], "/0/path"),
+    ("1_Pooling/config.json", {"dimension": float("nan")}, "/dimension"),
+    ("1_Pooling/config.json", [], ""),
+])
+def test_invalid_cached_module_metadata_blocks_even_with_a_task(snapshot, filename, value, pointer):
+    write(snapshot, "modules.json", [module(0, "", "Transformer"), module(1, "1_Pooling", "Pooling")])
+    raw = write(snapshot, filename, value)
+    task = detect_task(MODEL, override_tag="fill-mask", revision=SHA)
+    with pytest.raises(TaskSupportError) as caught:
+        require_task_support(task)
+    assert caught.value.failure.reason_code == "metadata_invalid"
+    diagnostic, = task.metadata_diagnostics
+    assert (diagnostic["file"], diagnostic["json_pointer"], diagnostic["raw_sha256"]) == (
+        filename, pointer, hashlib.sha256(raw).hexdigest(),
+    )
+
+
+def test_unregistered_module_cannot_fall_back_to_backbone_task(snapshot):
+    write(snapshot, "modules.json", [module(0, "", "Transformer"), module(1, "custom", "Unknown")])
+    task = detect_task(MODEL, revision=SHA)
+    with pytest.raises(TaskSupportError, match="unregistered module protocol"):
+        require_task_support(task)
+    assert task.model_resolution["status"] == "needs_configuration"
+
+
+def test_module_settings_from_a_different_commit_block_an_explicit_task(snapshot, monkeypatch):
+    import huggingface_hub
+
+    from acprof.models.files import ModelFilesError
+
+    write(snapshot, "modules.json", [module(0, "", "Transformer"), module(1, "pool", "Pooling")])
+    other = snapshot.parent / ("b" * 40)
+    write(other, "pool/config.json", {"pooling_mode_mean_tokens": True})
+    load = huggingface_hub.try_to_load_from_cache
+
+    def wrong_snapshot(repo_id, filename, **kwargs):
+        if filename == "pool/config.json":
+            return str(other / filename)
+        return load(repo_id, filename, **kwargs)
+
+    monkeypatch.setattr(huggingface_hub, "try_to_load_from_cache", wrong_snapshot)
+    with pytest.raises(ModelFilesError, match="different model revision"):
+        detect_task(MODEL, override_tag="feature-extraction", revision=SHA)
+
+
+def test_modelscope_uses_its_own_manifest_and_module_settings(snapshot, tmp_path, monkeypatch):
+    from acprof.models.download_plan import PLAN_FILENAME, plan_download, seal_plan
+
+    settings = "1_Pooling/config.json"
+    write(snapshot, "modules.json", [module(0, "", "Unknown")])
+    write(snapshot, settings, {"pooling_mode_mean_tokens": False})
+    entry = tmp_path / "store/entries" / ("c" * 64)
+    local = entry / "hf/models--fixture--offline-encoder/snapshots" / SHA
+    files = {
+        "modules.json": write(local, "modules.json", [module(0, "", "Transformer"), module(1, "1_Pooling", "Pooling")]),
+        settings: write(local, settings, {"pooling_mode_mean_tokens": True}),
+    }
+    plan = plan_download(model_id=MODEL, revision=SHA, family="nlp", backend="sentence_transformers", policy="full",
+                         files={name: {"size": len(raw), "lfs_sha256": hashlib.sha256(raw).hexdigest()}
+                                for name, raw in files.items()}, read_json=lambda name: json.loads(files[name]))
+    plan.update(source="modelscope", verification="sha256")
+    for record in plan["files"]:
+        record["sha256"] = hashlib.sha256(files[record["path"]]).hexdigest()
+    (entry / PLAN_FILENAME).write_text(json.dumps(seal_plan(plan)))
+    monkeypatch.setenv("ACPROF_MODEL_SOURCE", "modelscope")
+    monkeypatch.setattr("acprof.hub.repository.modelscope_info", Mock(side_effect=ConnectionError("offline")))
+    sdk_cache = Mock(side_effect=AssertionError("ModelScope must not read the Hugging Face SDK cache"))
+    monkeypatch.setattr("huggingface_hub.try_to_load_from_cache", sdk_cache)
+
+    task = detect_task(MODEL, revision=SHA)
+    require_task_support(task)
+
+    assert task.runtime_backend == "sentence_transformers"
+    assert task.repository_metadata[settings] == {"pooling_mode_mean_tokens": True}
+    assert "config.json" not in task.repository_metadata
+    sdk_cache.assert_not_called()

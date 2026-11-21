@@ -18,9 +18,11 @@ from acprof.hub.huggingface.auth import hf_token_for_url
 from acprof.hub.huggingface.download import hf_endpoint_scope
 from acprof.hub.repository import MetadataFile, read_metadata_file
 from acprof.models.diffusion_pipelines import diffusers_index_task
+from acprof.models.files import ModelFilesError
 from acprof.models.metadata_validation import (
     MetadataValidationError,
     finite_metadata_diagnostics,
+    module_config_files,
     parse_metadata_json,
 )
 
@@ -130,6 +132,16 @@ def _raw_metadata_source(metadata: MetadataFile, revision: str) -> dict[str, Any
             "revision": revision, "encoding": "raw"}
 
 
+def _repository_json(metadata: MetadataFile, name: str, pending: list[str], sha256: str) -> Any:
+    value = _read_json_metadata(metadata, filename=name)
+    if name == "modules.json":
+        pending.extend(path for path in module_config_files(value, sha256) if path not in pending)
+    elif not isinstance(value, dict):
+        raise MetadataValidationError([{"reason_code": "metadata_invalid", "file": name, "json_pointer": "",
+                                        "raw_sha256": sha256, "detail": f"{name} must contain dict"}])
+    return value
+
+
 def _repository_metadata(
     model_id: str, revision: str, info: Any, lookup_diagnostics: list[str] | None = None,
 ) -> dict[str, Any]:
@@ -154,26 +166,7 @@ def _repository_metadata(
         try:
             downloaded = _download_metadata(model_id, name, revision)
             sources[name] = _raw_metadata_source(downloaded, revision)
-            value = _read_json_metadata(downloaded, filename=name)
-            expected = list if name == "modules.json" else dict
-            if not isinstance(value, expected):
-                raise ValueError(f"{name} must contain {expected.__name__}")
-            if name == "modules.json":
-                from pathlib import PurePosixPath
-                if len(value) > 64:
-                    raise ValueError("modules.json exceeds 64 modules")
-                for module in value:
-                    directory = module.get("path") if isinstance(module, dict) else None
-                    if (not isinstance(directory, str) or "\\" in directory
-                            or PurePosixPath(directory).is_absolute() or ".." in directory.split("/")):
-                        raise ValueError("module path must stay inside the model snapshot")
-                # Validate the entire declaration before expanding reads.
-                for module in value:
-                    for filename in ("config.json", "sentence_bert_config.json"):
-                        filename = str(PurePosixPath(module["path"]) / filename)
-                        if filename not in names:
-                            names.append(filename)
-            metadata[name] = value
+            metadata[name] = _repository_json(downloaded, name, names, sources[name]["sha256"])
         except MetadataValidationError as exc:
             diagnostics.extend(exc.diagnostics)
             errors.append(f"{name}: {_format_failure(exc)}")
@@ -571,13 +564,12 @@ def _detect_from_hub(
     )
 
 
-def _cached_pipeline_index(model_id: str, revision: str | None) -> MetadataFile | None:
-    """Look for a pipeline manifest without a speculative network request."""
+def _cached_metadata_file(model_id: str, name: str, revision: str | None) -> MetadataFile | None:
+    """Read a file from the selected source's cache without a network request."""
     from acprof.host.model_store.store import cached_metadata
     from acprof.hub.repository import model_source
 
     source = model_source()
-    name = "model_index.json"
     metadata = cached_metadata(model_id, name, revision, source=source, max_bytes=METADATA_MAX_BYTES)
     if metadata is not None or source != "huggingface":
         return metadata
@@ -598,17 +590,33 @@ def _fallback_config_info(
         raise ValueError("config fallback requires a pinned snapshot commit SHA")
     if pinned_revision(requested_revision) and revision != requested_revision:
         raise ValueError("config fallback returned a different model revision")
+    libraries = {"model_index.json": "diffusers", "modules.json": "sentence-transformers", "config.json": "transformers"}
+    source = _raw_metadata_source(metadata, revision)
     info = TaskInfo(
         model_id=model_id, pipeline_tag="unknown", task_family="unknown", runtime_backend="unknown",
-        library_name="diffusers" if filename == "model_index.json" else "transformers",
+        library_name=libraries[filename],
         model_revision=revision, detection_method="config_infer",
-        metadata_sources={filename: _raw_metadata_source(metadata, revision)},
+        metadata_sources={filename: source},
     )
     try:
-        config_data = _read_json_metadata(metadata, filename=filename)
-        if not isinstance(config_data, dict):
-            raise ValueError(f"{filename} must contain dict")
-        info.repository_metadata[filename] = config_data
+        if filename == "modules.json":
+            names = ["config.json", "config_sentence_transformers.json", "sentence_bert_config.json"]
+            info.repository_metadata[filename] = _repository_json(metadata, filename, names, source["sha256"])
+            for name in names:
+                item = _cached_metadata_file(model_id, name, revision)
+                if item is None:
+                    continue
+                suffix = ("snapshots", revision, *Path(name).parts)
+                if item.path.parts[-len(suffix):] != suffix:
+                    raise ModelFilesError(f"cached {name} belongs to a different model revision")
+                source = info.metadata_sources[name] = _raw_metadata_source(item, revision)
+                info.repository_metadata[name] = _repository_json(item, name, names, source["sha256"])
+            info.model_config = _architecture_metadata(info.repository_metadata.get("config.json"))
+        else:
+            config_data = _read_json_metadata(metadata, filename=filename)
+            if not isinstance(config_data, dict):
+                raise ValueError(f"{filename} must contain dict")
+            info.repository_metadata[filename] = config_data
     except MetadataValidationError as exc:
         info.metadata_errors = (str(exc),)
         info.metadata_diagnostics = tuple(exc.diagnostics)
@@ -620,16 +628,18 @@ def _detect_from_config(
     diagnostics: list[str] | None = None,
     *, requested_revision: str | None = None, failures: list[Exception] | None = None,
 ) -> TaskInfo | None:
-    """Recover from a pinned pipeline index or Transformer architecture configuration."""
-    index = _cached_pipeline_index(model_id, requested_revision)
+    """Recover registered model interfaces from snapshot metadata."""
     stage = "model_index"
     try:
-        if index is not None:
-            info = _fallback_config_info(model_id, requested_revision, "model_index.json", index)
+        for filename, stage in (("model_index.json", "model_index"), ("modules.json", "modules_json")):
+            cached = _cached_metadata_file(model_id, filename, requested_revision)
+            if cached is None:
+                continue
+            info = _fallback_config_info(model_id, requested_revision, filename, cached)
             if info.metadata_errors:
                 _record_failure(diagnostics, stage, info.metadata_errors[0])
                 return info
-            if "_class_name" in info.repository_metadata["model_index.json"]:
+            if filename == "modules.json" or "_class_name" in info.repository_metadata[filename]:
                 return info
             # An unrelated index does not identify a Diffusers pipeline.
             requested_revision = info.model_revision
@@ -638,6 +648,9 @@ def _detect_from_config(
                     else _download_metadata(model_id, "config.json"))
         info = _fallback_config_info(model_id, requested_revision, "config.json", metadata)
     except Exception as exc:
+        # A corrupt local manifest or component must also block explicit task selection.
+        if stage != "config_json" and isinstance(exc, (ModelFilesError, OSError)):
+            raise
         _record_failure(diagnostics, stage, _format_failure(exc))
         if failures is not None:
             failures.append(exc)

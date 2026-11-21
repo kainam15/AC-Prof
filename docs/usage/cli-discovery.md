@@ -52,6 +52,15 @@ HF_HUB_OFFLINE=1 acprof inspect stable-diffusion-v1-5/stable-diffusion-v1-5 \
 
 该版本会显示 `text-to-image` 和索引中的 `StableDiffusionPipeline`。缺少仓库文件清单时，权重布局和静态兼容性均显示为 `unknown`。[固定版本的流水线索引](https://huggingface.co/stable-diffusion-v1-5/stable-diffusion-v1-5/blob/451f4fe16113bff5a5d2269ed5ad43b0592e9a14/model_index.json)
 
+Sentence Transformers 快照中的 `modules.json` 可用于离线识别句向量编码。例如，缓存了以下版本的模块清单和配置后，可以检查 MPNet 的实际编码流程。
+
+```bash
+HF_HUB_OFFLINE=1 acprof inspect sentence-transformers/all-mpnet-base-v2 \
+  --revision e8c3b32edf5434bc2275fc9bab85f82640a19130 --explain
+```
+
+该快照按 Transformer、Pooling、Normalize 的顺序选择 `feature-extraction` 和 `sentence_transformers`。根配置中的 `MPNetForMaskedLM` 作为组件证据保留。[固定版本的模块清单](https://huggingface.co/sentence-transformers/all-mpnet-base-v2/blob/e8c3b32edf5434bc2275fc9bab85f82640a19130/modules.json)
+
 `Static Resolution: candidate` 表示尚未发现已知静态阻断，不代表权重已加载或真实推理已通过。
 `Static compatibility: unknown` 或 `Artifact layout: unknown` 表示对应证据仍不足；未知不会转换成已验证支持。
 接口检查、真实推理和正式采集分别保留证据，静态检查成功不能代替后两者。

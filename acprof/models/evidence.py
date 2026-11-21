@@ -46,20 +46,30 @@ def resolution_provenance(task_info, candidates: list[dict], *, hub_task: str | 
     for name, (value, family, parents) in values.items():
         sources[name] = {"sha256": content_digest(value), "revision": revision,
                          "family": family, "derived_from": parents}
-    index = (task_info.repository_metadata or {}).get("model_index.json")
+    repository = task_info.repository_metadata or {}
+    index = repository.get("model_index.json")
     pipeline_class = index.get("_class_name") if isinstance(index, dict) else None
-    if isinstance(pipeline_class, str) and any("model_index" in item["evidence"] for item in candidates):
-        raw = (getattr(task_info, "metadata_sources", {}) or {}).get("model_index.json")
-        sources["model_index.json"] = {
+    manifests = {}
+    if isinstance(pipeline_class, str):
+        manifests["model_index"] = ("model_index.json", {"field": "/_class_name", "value": pipeline_class})
+    if isinstance(repository.get("modules.json"), list):
+        # The complete ordered array supplies the encoder interface.
+        manifests["modules.json"] = ("modules.json", {"field": ""})
+    for hint, (filename, _fields) in manifests.items():
+        if not any(hint in item["evidence"] for item in candidates):
+            continue
+        raw = (getattr(task_info, "metadata_sources", {}) or {}).get(filename)
+        sources[filename] = {
             "revision": revision, "family": "repository_metadata", "derived_from": ["repository_snapshot"],
-            **(raw or {"sha256": content_digest(index), "encoding": "canonical-json"}),
+            **(raw or {"sha256": content_digest(repository[filename]), "encoding": "canonical-json"}),
         }
     observations = []
     for candidate in candidates:
         for field_name in candidate["evidence"]:
-            if field_name == "model_index" and "model_index.json" in sources:
-                observations.append({"field": "/_class_name", "source_id": "model_index.json",
-                                     "value": pipeline_class, "task": candidate["task"], "backend": candidate["backend"]})
+            if field_name in manifests:
+                filename, fields = manifests[field_name]
+                observations.append({**fields, "source_id": filename,
+                                     "task": candidate["task"], "backend": candidate["backend"]})
                 continue
             source = ("explicit" if field_name == "explicit_task" else
                       "local_spec" if field_name == "local_model_spec" else

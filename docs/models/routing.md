@@ -206,6 +206,11 @@ Sentence Transformers 的模块协议由 Extension 注册，按 `modules.json` �
 各模块所需与产出的 features，以及最终编码输出。模块配置从各自的相对目录读取，根目录没有特权。
 完整编码链拥有其 backbone：底层 MLM/CausalLM head 和库标签只作组件证据，不产生独立任务。
 未知模块、断开的 feature 依赖、非法路径或缺少最终输出均要求配置，不导入远程模块来猜测。
+Hub API 暂时不可用时，静态发现从所选来源的缓存读取 `modules.json`，按该清单的实际 commit
+查找模块配置。清单声明已登记的编码链时，缺少 Hub 任务标签的快照可选择
+`feature-extraction`、`sentence_transformers` 和 `encode`。任务来源记录清单原始 SHA256。
+缺少仓库文件清单时，制品布局仍为 `unknown`。[Sentence Transformers 5.6.0 模块加载实现](https://github.com/huggingface/sentence-transformers/blob/v5.6.0/sentence_transformers/base/model.py#L1115-L1165)
+
 Diffusers 的 `model_index.json` 组件组成一个已注册 pipeline，不把每个子模型扩展成单独任务。
 模块、processor、依赖与实际输出仍需运行验证；没有按模型 ID 设置例外。
 
