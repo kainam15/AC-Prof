@@ -451,15 +451,14 @@ def read_result_layers(root: str | Path, *, expected_manifest_sha256: str | None
 def export_result_layers(root: str | Path, destination: str | Path) -> int:
     """Explicit on-demand wide export; never write over a layered source file."""
     from acprof.results.layout import resolve_single_result_source
-    root = _result_root(root)
+    from acprof.results.outputs import validate_analysis_destinations
+    source, destination = _result_root(root), Path(destination)
     try:
-        root, destination = _result_root(resolve_single_result_source(root)), Path(destination)
+        root = _result_root(resolve_single_result_source(source))
+        validate_analysis_destinations([source], [destination], wide_export=root / "result_all.csv",
+                                       expanded_sources=[root])
     except ValueError as exc:
         raise ResultValidationError(str(exc)) from exc
-    resolved_destination = destination.resolve()
-    if (resolved_destination in {(root / name).resolve() for name in LAYER_FILES.values()}
-            or resolved_destination.is_relative_to((root / GENERATIONS_DIR).resolve())):
-        raise ResultValidationError("cannot overwrite a result layer with a wide export")
     if destination.exists() or destination.is_symlink():
         raise ResultValidationError(f"refusing to overwrite existing CSV: {destination}")
     fields, rows = read_result_layers(root)

@@ -6,12 +6,12 @@ import io
 from pathlib import Path
 
 import pytest
-from tests.results.storage.test_incremental_results import initialized
-from tests.results.storage.test_result_row_assembly import row_store
 
 from acprof.artifacts import atomic_write, file_sha256
 from acprof.results.csv import ResultValidationError
 from acprof.results.layers import export_result_layers, read_result_layers
+from tests.results.storage.test_incremental_results import initialized
+from tests.results.storage.test_result_row_assembly import row_store
 
 
 @pytest.mark.parametrize("version", [1, 2, 3])
@@ -103,3 +103,30 @@ def test_export_validation_failure_does_not_create_output(tmp_path):
         export_result_layers(root, destination)
     assert {path: file_sha256(path) for path in before} == before
     assert list(tmp_path.iterdir()) == [root]
+
+
+@pytest.mark.parametrize("relative", [
+    "result_manifest.json", "quality_checks.json", "metadata/task_runs/import.json",
+    "metadata/preparation/attempt.json",
+    ".acprof/run_state.json", "result_layers.json/extra/export.csv",
+    "result_manifest.json/../reports/export.csv",
+])
+def test_wide_export_never_claims_an_experiment_artifact(tmp_path, relative):
+    root = tmp_path / "experiment"
+    row_store(root, 2, count=1, width=1)
+    files = {p.relative_to(root): p.read_bytes() for p in root.rglob("*") if p.is_file()}
+    dirs = {p.relative_to(root) for p in root.rglob("*") if p.is_dir()}
+    with pytest.raises(ResultValidationError, match="reserved"):
+        export_result_layers(root, root / relative)
+    assert {p.relative_to(root): p.read_bytes() for p in root.rglob("*") if p.is_file()} == files
+    assert {p.relative_to(root) for p in root.rglob("*") if p.is_dir()} == dirs
+    assert len(read_result_layers(root)[1]) == 1
+
+
+def test_wide_export_allows_legacy_filename_and_unrelated_external_destination(tmp_path):
+    root = tmp_path / "experiment"
+    row_store(root, 2, count=2, width=1)
+    assert export_result_layers(root, root / "result_all.csv") == 2
+    external = tmp_path / "outside" / "result_manifest.json"
+    assert export_result_layers(root, external) == 2
+    assert external.read_bytes() == (root / "result_all.csv").read_bytes()

@@ -6,7 +6,12 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
-from acprof.artifacts import read_json_object, replace_file_durably, sync_directory, sync_directory_chain
+from acprof.artifacts import (
+    read_json_object,
+    replace_file_durably,
+    sync_directory,
+    sync_directory_chain,
+)
 from acprof.cancellation import cancellable, check_cancelled
 
 MANIFEST_NAME = "result_manifest.json"
@@ -88,16 +93,24 @@ class ArtifactLayout:
         existing = cls.discover(root)
         return cls(existing.root, 2)
 
+    @staticmethod
+    def root_for_csv(csv_path: str | Path) -> Path:
+        """Locate the evidence directory without opening its manifest."""
+        path = Path(csv_path).absolute()
+        if path.name == "result.csv" and path.parent.parent.parts[-3:] == (".acprof", "work", "cases"):
+            return path.parents[4]
+        return path.parent
+
     @classmethod
     def from_csv(cls, csv_path: str | Path, *, cancelled: Callable[[], bool] | None = None) -> ArtifactLayout:
         path = Path(csv_path).absolute()
-        if path.name == "result.csv" and path.parent.parent.parts[-3:] == (".acprof", "work", "cases"):
-            layout = cls.discover(path.parents[4], cancelled=cancelled)
+        root = cls.root_for_csv(path)
+        layout = cls.discover(root, cancelled=cancelled)
+        if root != path.parent:
             if layout.layout_version != 2:
                 raise ValueError(f"Missing v2 result manifest for case: {path}")
             layout.case_from_csv(path)
-            return layout
-        return cls.discover(path.parent, cancelled=cancelled)
+        return layout
 
     def path(self, name: str) -> Path:
         """Resolve a logical artifact name; unknown names remain relative to the root."""
@@ -324,7 +337,7 @@ class CaseArtifacts:
                 sync_directory(source.parent)
 
 
-_DIRECT_EXPERIMENT_FILES = (
+DIRECT_EXPERIMENT_FILES = (
     MANIFEST_NAME, "result_layers.json", "result_all.csv", "static_meta.json", "model_resolution.json",
     "capability_report.json", "runtime_validation.json", "runtime_failures.json",
     "interface_validation.json", "run_state.json", ".acprof/run_state.json",
@@ -376,7 +389,7 @@ def resolve_task_collection_dirs(source: str | Path, *,
     task_runs = root / "metadata" / "task_runs"
     if task_runs.exists() or task_runs.is_symlink():
         return _collection_task_dirs(root, cancelled)
-    if any((root / name).exists() or (root / name).is_symlink() for name in _DIRECT_EXPERIMENT_FILES):
+    if any((root / name).exists() or (root / name).is_symlink() for name in DIRECT_EXPERIMENT_FILES):
         return None
     children = sorted(
         child for child in cancellable(root.iterdir(), cancelled)
