@@ -77,7 +77,7 @@ def get_massif_version(derived_image: str | None) -> str:
         return "unknown"
     try:
         result = run_profiler_command(
-            ["docker", "run", "--rm", derived_image, "valgrind", "--version"],
+            ["docker", "run", derived_image, "valgrind", "--version"],
             check=False,
             timeout=DOCKER_RUN_TIMEOUT_S,
         )
@@ -125,7 +125,6 @@ def validate_nsys_container_runtime(
         [
             "docker",
             "run",
-            "--rm",
             "-v",
             f"{nsys_mount_root}:{nsys_mount_root}:ro",
             image_tag,

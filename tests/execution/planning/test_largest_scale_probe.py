@@ -188,6 +188,7 @@ def test_probe_times_exactly_one_largest_request_and_writes_summary(
     assert (post.call_args.args[0]) == ("http://127.0.0.1:8002/predict")
     assert (post.call_args.kwargs["json"]) == ({"text": "largest"})
     assert (post.call_args.kwargs["timeout"]) is None
+    assert (post.call_args.kwargs["proxies"]) == ({"http": "", "https": "", "all": ""})
     assert (summary["status"]) == ("ok")
     assert (summary["schema_version"]) == (3)
     assert (summary["resource"]["cpu_cores"]) == (1)
@@ -546,3 +547,29 @@ def test_cli_delegates_planning_and_probe_with_requested_matrix(
     assert (run_probe.call_args.kwargs["batch_size"]) == (3)
     assert (run_probe.call_args.kwargs["timeout_seconds"]) is None
     assert (saved["timing"]["command_s"]) >= (0.0)
+
+
+@patch("acprof.host.largest_scale_probe.start_container_session")
+def test_largest_scale_probe_propagates_cleanup_errors(start_container: Mock, tmp_path: Path) -> None:
+    from acprof.host.container_lifecycle import ContainerCleanupError
+
+    start_container.side_effect = ContainerCleanupError(
+        "a" * 64, [{"operation": "rm", "returncode": 1}], final_state="present",
+    )
+    plan = _write_plan(tmp_path)
+    with pytest.raises(ContainerCleanupError, match="cleanup present"):
+        run_largest_scale_probe(
+            task_info=_task_info(),
+            image_info=ImageInfo(tag="image:latest"),
+            planned_input_scales=PlannedInputScales(
+                scales=[64.0, 512.0],
+                source="manual",
+                plan_file=str(plan),
+            ),
+            cpu_list=[1],
+            mem_list=[2],
+            gpu_list=["off"],
+            batch_size=1,
+            output_dir=tmp_path,
+            timeout_seconds=30,
+        )

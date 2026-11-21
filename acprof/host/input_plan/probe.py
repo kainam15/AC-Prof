@@ -8,6 +8,7 @@ from acprof.host.detect import TaskInfo
 from acprof.host.images.identity import model_token
 from acprof.host.runtimes.contracts import RuntimeArtifact, ServiceSession
 from acprof.host.runtimes.service import start_service_session
+from acprof.network_policy import local_proxy_options
 
 
 def start_probe_session(
@@ -86,11 +87,13 @@ def post_probe_payload(
 ) -> dict[str, Any]:
     import requests
 
+    probe_url = session.base_url + "/probe"
     response = requests.post(
-        session.base_url + "/probe",
+        probe_url,
         json=payload,
         timeout=300,
         headers={"Connection": "close"},
+        **local_proxy_options(probe_url),
     )
     if response.status_code >= 400:
         stale_image_hint = ""
@@ -116,11 +119,13 @@ def request_scale_meta(
 ) -> dict[str, Any]:
     import requests
 
+    scale_meta_url = session.base_url + "/scale_meta"
     response = requests.post(
-        session.base_url + "/scale_meta",
+        scale_meta_url,
         json=payload,
         timeout=300,
         headers={"Connection": "close"},
+        **local_proxy_options(scale_meta_url),
     )
     if response.status_code >= 400:
         stale_image_hint = ""

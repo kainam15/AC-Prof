@@ -183,7 +183,7 @@ def profiler_container_command(
         os.chmod(profile_root, stat.S_IMODE(directory.st_mode) | stat.S_IRWXG)
     package_root = str(resource_root() / "acprof")
     cmd = [
-        "docker", "run", "--rm",
+        "docker", "run",
         "--network=none", "--cap-drop=ALL", "--security-opt=no-new-privileges",
         f"--user={uid}:{gid}",
         f"--cpus={cpu}",

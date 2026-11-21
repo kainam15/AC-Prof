@@ -229,3 +229,30 @@ class TestContainerOwnership:
         ), pytest.raises(KeyboardInterrupt):
             self.start()
         assert ([args[-1] for args in self.commands if args[:2] == ["docker", "rm"]]) == ([self.identifier])
+
+    def test_startup_cleanup_still_removes_container_when_diagnostics_fail(self):
+        mount = SimpleNamespace(args=[], close=Mock(), begin_launch=lambda path: path)
+        with (
+            patch("acprof.host.model_store.store.acquire_mount", return_value=mount),
+            patch("acprof.system.command.run_command", side_effect=self.command),
+            patch("requests.get", side_effect=ConnectionError("not ready")),
+            patch(
+                "acprof.host.startup_diagnostics.capture_startup_diagnostics",
+                side_effect=OSError("disk full"),
+            ),
+            pytest.raises(OSError, match="disk full"),
+        ):
+            self.start()
+        assert [args[-1] for args in self.commands if args[:2] == ["docker", "rm"]] == [self.identifier]
+        mount.close.assert_called_once_with()
+
+    def test_ready_probe_disables_environment_proxies_for_loopback(self):
+        response = SimpleNamespace(status_code=200, text="", json=lambda: {"status": "ok"})
+        with (
+            patch("acprof.system.command.run_command", side_effect=self.command),
+            patch("requests.get", return_value=response) as get,
+            redirect_stdout(io.StringIO()),
+        ):
+            session = self.start()
+            docker_runtime.stop_container_session(session)
+        assert get.call_args.kwargs["proxies"] == {"http": "", "https": "", "all": ""}

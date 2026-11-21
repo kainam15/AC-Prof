@@ -167,13 +167,14 @@ class TestHardwareConditions:
                 return_value=iter([Path("/proc/101/task/101"), Path("/proc/101/task/102")]),
             ),
             patch("os.sched_getaffinity", side_effect=affinity),
-            patch("requests.get", return_value=response),
+            patch("requests.get", return_value=response) as get,
         ):
             observed = observe_conditions(
                 SimpleNamespace(container_id="a" * 64, gpu_device={}, base_url="http://127.0.0.1")
             )
 
         assert observed["cpu_affinity"] == ["0-1"]
+        assert get.call_args.kwargs["proxies"] == {"http": "", "https": "", "all": ""}
         assert not [error for error in observed["errors"] if error.startswith("CPU affinity")]
 
     def test_affinity_observation_tolerates_process_that_exits_after_docker_top(self):

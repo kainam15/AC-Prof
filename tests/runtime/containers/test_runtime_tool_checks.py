@@ -70,7 +70,7 @@ def test_each_tool_uses_immutable_local_image_and_cleans_up(docker):
         for option in ("--pull=never", "--network=none", "--read-only", "--user=65532:65532",
                        "--cpus=1", "--memory=2g", "--pids-limit=128", "--entrypoint=python"):
             assert option in command
-        assert not any(option in command for option in ("--gpus", "--privileged", "--volume"))
+        assert not any(option in command for option in ("--gpus", "--privileged", "--volume", "--rm"))
     assert sum(command[:3] == ["docker", "rm", "-f"] and command[-1] == CONTAINER
                for command, _ in docker.calls) == 2
     assert all(IMAGE in result.detail for result in results)

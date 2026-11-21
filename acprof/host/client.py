@@ -42,16 +42,11 @@ from acprof.host.profiling.execution_plan import (
     ExecutionProfileResolver,
     load_execution_profile_plan as _load_execution_profile_plan,
 )
+from acprof.network_policy import local_proxy_options
 from acprof.results.layout import ArtifactLayout, case_sidecar
 from acprof.results.windows import WindowPublicationContext
 
-
-def _local_proxy_options(url: str) -> dict:
-    from urllib.parse import urlsplit
-    # Keep the existing loopback bypass scoped to inference requests. Never
-    # change the user's proxy environment or affect later Hub requests.
-    return {"proxies": {"http": "", "https": "", "all": ""}} if urlsplit(url).hostname in {
-        "localhost", "127.0.0.1", "::1"} else {}
+_local_proxy_options = local_proxy_options
 
 
 def _parse_float_list(s: str) -> list[float]:
@@ -107,7 +102,7 @@ class ClientRunner:
 
     def __init__(self, config: ClientConfig):
         self.config = config
-        self._proxy_options = _local_proxy_options(config.base_url)
+        self._proxy_options = local_proxy_options(config.base_url)
         from acprof.platform import detect_environment
         self.collection_environment = detect_environment()
         self.first_predict_app_s = float("nan")

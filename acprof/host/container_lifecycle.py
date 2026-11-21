@@ -8,6 +8,7 @@ import re
 import stat
 import subprocess
 import sys
+import time
 from collections.abc import Callable
 from pathlib import Path
 
@@ -22,6 +23,8 @@ _OWNER_SCOPE_LABELS = (LIFECYCLE_LABEL, OWNER_PREFIX + "host", OWNER_PREFIX + "u
 STOP_TIMEOUT_S = 15
 REMOVE_TIMEOUT_S = 30
 INSPECT_TIMEOUT_S = DOCKER_INSPECT_TIMEOUT_S
+REMOVING_WAIT_TIMEOUT_S = 2.0
+REMOVING_POLL_INTERVAL_S = 0.1
 
 
 
@@ -136,6 +139,18 @@ def remove_owned_container(identifier: str, run: Callable, *, stop: bool = False
     item = _inspect_container(identifier, run, operations, run_error=original)
     if item is None:
         return
+    deadline = time.monotonic() + REMOVING_WAIT_TIMEOUT_S
+    while (
+        isinstance(item.get("State"), dict)
+        and str(item["State"].get("Status") or "").strip().lower() == "removing"
+    ):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        time.sleep(min(REMOVING_POLL_INTERVAL_S, remaining))
+        item = _inspect_container(identifier, run, operations, run_error=original)
+        if item is None:
+            return
     if isinstance(item.get("State"), dict):
         raise ContainerCleanupError(identifier, operations, final_state="present",
                                     docker_state=item["State"], run_error=original)

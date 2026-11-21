@@ -139,6 +139,66 @@ class TestContainerCleanup:
         assert (evidence['docker_state']['Running'])
         assert (len(evidence['operations'])) == (3)
 
+    def test_removing_container_is_polled_until_absent(self, monkeypatch):
+        from acprof.host import container_lifecycle
+
+        monkeypatch.setattr(container_lifecycle, "REMOVING_WAIT_TIMEOUT_S", 1.0)
+        monkeypatch.setattr(container_lifecycle, "REMOVING_POLL_INTERVAL_S", 0.0)
+        inspect_replies = iter([
+            subprocess.CompletedProcess(
+                ["docker", "inspect", "a" * 64],
+                0,
+                json.dumps([{"Id": "a" * 64, "State": {"Running": False, "Status": "removing"}}]),
+                "",
+            ),
+            subprocess.CompletedProcess(
+                ["docker", "inspect", "a" * 64],
+                1,
+                "[]",
+                "Error: No such object: " + "a" * 64,
+            ),
+        ])
+        calls = []
+
+        def execute(command, **_kwargs):
+            calls.append(command[1])
+            if command[1] == "rm":
+                return subprocess.CompletedProcess(command, 1, "", "removal already in progress")
+            if command[1] == "inspect":
+                return next(inspect_replies)
+            return subprocess.CompletedProcess(command, 0, "", "")
+
+        mount = Mock()
+        from acprof.host.docker_runtime import RunningContainer, stop_container_session
+
+        session = RunningContainer(
+            "owned", "http://localhost", 8002, 0, container_id="a" * 64, _model_store_mount=mount,
+        )
+        with patch("acprof.system.command.run_command", side_effect=execute):
+            stop_container_session(session)
+        assert calls == ["stop", "rm", "inspect", "inspect"]
+        mount.close.assert_called_once_with()
+
+    def test_persistent_removing_container_fails_closed(self, monkeypatch):
+        from acprof.host import container_lifecycle
+
+        monkeypatch.setattr(container_lifecycle, "REMOVING_WAIT_TIMEOUT_S", 0.02)
+        monkeypatch.setattr(container_lifecycle, "REMOVING_POLL_INTERVAL_S", 0.005)
+        state = json.dumps([{"Id": "a" * 64, "State": {"Running": False, "Status": "removing"}}])
+        mount = Mock()
+        with pytest.raises(container_lifecycle.ContainerCleanupError) as raised:
+            self.stop(
+                {
+                    "stop": (1, "", "cannot stop"),
+                    "rm": (1, "", "removal stuck"),
+                    "inspect": (0, state, ""),
+                },
+                mount=mount,
+            )
+        mount.close.assert_not_called()
+        assert raised.value.to_dict()["final_state"] == "present"
+        assert raised.value.to_dict()["docker_state"]["Status"] == "removing"
+
     def test_docker_timeouts_remain_unknown_and_preserve_original_error(self):
         original = ValueError('inference failed first')
         try:

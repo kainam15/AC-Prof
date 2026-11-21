@@ -45,6 +45,10 @@ def run_profiler_command(command: Sequence[str], **kwargs: Any) -> CommandResult
     """
     if list(command[:2]) != ["docker", "run"]:
         return run_command(command, **kwargs)
+    if "--rm" in command[2:]:
+        raise ValueError(
+            "profiler docker run commands must not pass --rm; cleanup is owned by run_profiler_command"
+        )
     owner = container_owner_labels()
     recover_abandoned_containers(owner, run_command)
     labels = [part for key, value in owner.items() for part in ("--label", f"{key}={value}")]

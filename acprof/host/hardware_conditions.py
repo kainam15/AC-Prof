@@ -11,6 +11,7 @@ from pathlib import Path
 from acprof.artifacts import atomic_write_json, read_json_object
 from acprof.cpu_affinity import normalize_cpu_set, parse_cpu_set
 from acprof.hardware_conditions import HARDWARE_FIELDS, conditions_path
+from acprof.network_policy import local_proxy_options
 from acprof.results.layout import ArtifactLayout
 from acprof.system.command import run_command
 
@@ -132,7 +133,13 @@ def observe_conditions(session) -> dict:
         record["gpu"] = "not_applicable"
     import requests
     try:
-        response = requests.get(session.base_url + "/meta", timeout=5, headers={"Connection": "close"})
+        meta_url = session.base_url + "/meta"
+        response = requests.get(
+            meta_url,
+            timeout=5,
+            headers={"Connection": "close"},
+            **local_proxy_options(meta_url),
+        )
         response.raise_for_status()
         observed = response.json().get("runtime_parameters", {}).get("effective", {}).get("threads")
         record["runtime_threads"] = observed if type(observed) is int and observed > 0 else None

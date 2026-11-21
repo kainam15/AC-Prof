@@ -344,3 +344,22 @@ class TestInputPlan:
         assert (plan["entries"][0]["input_metadata"]["input_num_samples"]) == (100)
         assert (planned.workload["model_constraints"]) == (constraints)
         assert re.search(r"^[0-9a-f]{64}$", planned.plan_sha256)
+
+
+def test_input_plan_http_probes_bypass_loopback_proxies() -> None:
+    from acprof.host.input_plan import probe as input_probe
+
+    session = SimpleNamespace(base_url="http://127.0.0.1:8123")
+    probe_resp = SimpleNamespace(
+        status_code=200,
+        text="",
+        json=lambda: {"effective_input_scale": 1.0, "truncated_by_limit": False, "reason": "ok"},
+    )
+    meta_resp = SimpleNamespace(status_code=200, text="", json=lambda: {"model_type": "whisper"})
+    with patch("requests.post", side_effect=[probe_resp, meta_resp]) as post:
+        input_probe.post_probe_payload(session, {"text": "hi"}, "scale=1")
+        input_probe.request_scale_meta(session, {"text": "hi"})
+    assert [call.kwargs["proxies"] for call in post.call_args_list] == [
+        {"http": "", "https": "", "all": ""},
+        {"http": "", "https": "", "all": ""},
+    ]

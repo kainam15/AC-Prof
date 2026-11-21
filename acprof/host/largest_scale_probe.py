@@ -25,6 +25,8 @@ from acprof.host.docker_runtime import (
 from acprof.host.images.identity import model_token
 from acprof.host.images.runtime import ImageInfo
 from acprof.host.input_plan import PlannedInputScales
+from acprof.host.runtimes.contracts import RuntimeCleanupError
+from acprof.network_policy import local_proxy_options
 
 PROBE_SUMMARY_NAME = "largest_scale_probe.json"
 PROBE_SUMMARY_SCHEMA_VERSION = 3
@@ -303,11 +305,13 @@ def _probe_memory_candidate(
         print("[largest-probe] Running one largest-scale request...")
         emit_event("probe_request_started", "largest_scale_probe")
         request_started = time.perf_counter()
+        predict_url = session.base_url + "/predict"
         response = requests.post(
-            session.base_url + "/predict",
+            predict_url,
             json=payload,
             timeout=timeout_seconds,
             headers={"Connection": "close"},
+            **local_proxy_options(predict_url),
         )
         request_s = time.perf_counter() - request_started
         if response.status_code >= 400:
@@ -340,6 +344,8 @@ def _probe_memory_candidate(
             error = "最大尺度请求意外超时（未配置探测超时）"
         else:
             error = f"最大尺度请求超过 {timeout_seconds:g} 秒"
+    except RuntimeCleanupError:
+        raise
     except Exception as exc:
         if request_started is not None and request_s is None:
             request_s = time.perf_counter() - request_started

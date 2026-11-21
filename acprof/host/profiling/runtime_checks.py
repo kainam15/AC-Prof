@@ -81,7 +81,7 @@ def _images(command_runner: Callable) -> tuple[str, ...]:
 
 def _probe(tool: str, image: str, timeout: float) -> str:
     result = run_profiler_command([
-        "docker", "run", "--rm", "--pull=never", "--network=none", "--read-only",
+        "docker", "run", "--pull=never", "--network=none", "--read-only",
         "--cap-drop=ALL", "--security-opt=no-new-privileges", "--user=65532:65532",
         "--cpus=1", "--memory=2g", "--memory-swap=2g", "--pids-limit=128",
         "--tmpfs=/tmp:rw,nosuid,nodev,size=128m,mode=1777", "--workdir=/tmp",

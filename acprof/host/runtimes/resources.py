@@ -1,7 +1,9 @@
 """Verified resource enforcement is separate from inherited allocation evidence."""
 from __future__ import annotations
 
+import errno
 import os
+import time
 import uuid
 from pathlib import Path
 from typing import Any
@@ -9,6 +11,9 @@ from typing import Any
 from acprof.host.runtimes import cgroups
 from acprof.host.runtimes.cgroups import ProcessResourceError, ResourceDiagnostic, current_cgroup
 from acprof.system.cleanup import cleanup_on_exit
+
+CGROUP_RMDIR_TIMEOUT_S = 1.0
+CGROUP_RMDIR_POLL_INTERVAL_S = 0.02
 
 
 def inherited_resources(*, pid: int | None = None) -> dict:
@@ -203,9 +208,20 @@ except OSError as exc:
                 "scope": "workload_tree" if self.path else "observed_process_tree"}
 
     def close(self):
-        if self.path:
-            Path(self.path).rmdir()
-            self.path = ""
+        if not self.path:
+            return
+        deadline = time.monotonic() + CGROUP_RMDIR_TIMEOUT_S
+        while True:
+            try:
+                Path(self.path).rmdir()
+            except OSError as exc:
+                remaining = deadline - time.monotonic()
+                if exc.errno != errno.EBUSY or remaining <= 0:
+                    raise
+                time.sleep(min(CGROUP_RMDIR_POLL_INTERVAL_S, remaining))
+            else:
+                self.path = ""
+                return
 
 
 def preflight_resources(cpus, memories, affinity):

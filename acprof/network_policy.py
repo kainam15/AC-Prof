@@ -275,3 +275,10 @@ def enforce_download_budget(plan: dict, maximum: str | int | None) -> None:
     expected = plan["expected_download_bytes"]
     if limit is not None and (expected is None or expected > limit):
         raise DownloadPolicyError(f"下载尚未开始：expected_download_bytes={expected}, max_download={limit}；未知大小也不能证明符合预算")
+
+
+def local_proxy_options(url: str) -> dict[str, dict[str, str]]:
+    """Disable environment proxies for loopback service endpoints without mutating process env."""
+    if urlsplit(url).hostname in {"localhost", "127.0.0.1", "::1"}:
+        return {"proxies": {"http": "", "https": "", "all": ""}}
+    return {}

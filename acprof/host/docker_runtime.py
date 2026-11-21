@@ -37,6 +37,7 @@ from acprof.host.detect import TaskInfo
 from acprof.host.env_utils import hf_offline_docker_env_args
 from acprof.host.gpu_device import gpu_docker_args, resolve_gpu_device
 from acprof.host.images.runtime import ImageInfo
+from acprof.network_policy import local_proxy_options
 from acprof.runtime.ports import service_port as service_port
 from acprof.runtime.settings import runtime_docker_env_args
 from acprof.system import command as host_command
@@ -251,12 +252,16 @@ def start_container_session(
         raise
 
     base_url = f"http://127.0.0.1:{host_port}"
+    ready_url = f"{base_url}/ready"
     deadline = time.perf_counter() + READY_TIMEOUT_S
+    diagnostics_captured = False
 
     def fail_startup(reason: str, *, timed_out: bool = False) -> NoReturn:
+        nonlocal diagnostics_captured
         from acprof.host.startup_diagnostics import capture_startup_diagnostics
         state = container_state.inspect_container_state(container_id)
         path, failure = capture_startup_diagnostics(container_id, reason, state=state, timed_out=timed_out)
+        diagnostics_captured = True
         summary = f"{failure.stage}: {failure.reason_code} ({failure.exception_type}); {(failure.detail.splitlines() or [reason])[0][:300]}"
         if error := failure.evidence.get("log_capture_error"):
             summary += f"; log_capture_error={error}"
@@ -268,9 +273,10 @@ def start_container_session(
         while time.perf_counter() < deadline:
             try:
                 response = requests.get(
-                    f"{base_url}/ready",
+                    ready_url,
                     timeout=2,
                     headers={"Connection": "close"},
+                    **local_proxy_options(ready_url),
                 )
             except (requests.exceptions.RequestException, ConnectionError):
                 response = None
@@ -341,22 +347,25 @@ def start_container_session(
             timed_out=True,
         )
     except BaseException as exc:
-        if isinstance(exc, Exception) and not isinstance(exc, ContainerStartupError):
-            from dataclasses import replace
-
-            from acprof.failures import failure_from_exception
-            from acprof.host.startup_diagnostics import capture_startup_diagnostics
-
-            path, diagnostics = capture_startup_diagnostics(container_id, str(exc))
-            failure = failure_from_exception(exc, stage="load")
-            setattr(exc, "failure", replace(failure, evidence={**failure.evidence, **diagnostics.evidence}))
-            exc.add_note(f"diagnostic_log={path}")
         try:
-            remove_owned_container(container_id, host_command.run_command)
-        except BaseException:
-            retain_mount_for_cleanup_debt(model_store_mount)
-            raise
-        model_store_mount.close()
+            if not diagnostics_captured and isinstance(exc, Exception) and not isinstance(exc, ContainerStartupError):
+                from dataclasses import replace
+
+                from acprof.failures import failure_from_exception
+                from acprof.host.startup_diagnostics import capture_startup_diagnostics
+
+                path, diagnostics = capture_startup_diagnostics(container_id, str(exc))
+                diagnostics_captured = True
+                failure = failure_from_exception(exc, stage="load")
+                setattr(exc, "failure", replace(failure, evidence={**failure.evidence, **diagnostics.evidence}))
+                exc.add_note(f"diagnostic_log={path}")
+        finally:
+            try:
+                remove_owned_container(container_id, host_command.run_command)
+            except BaseException:
+                retain_mount_for_cleanup_debt(model_store_mount)
+                raise
+            model_store_mount.close()
         raise
 
 

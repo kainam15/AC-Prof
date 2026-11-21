@@ -388,7 +388,7 @@ def test_cleanup_interruption_keeps_original_timeout_and_stops_next_scale(tmp_pa
 
 
 def test_repeated_tool_commands_have_separate_ids_and_leave_input_argv_unchanged(profiler_engine):
-    argv = ["docker", "run", "--rm", "fixture", "tool", "--version"]
+    argv = ["docker", "run", "fixture", "tool", "--version"]
     before = list(argv)
     for _ in range(2):
         run_profiler_command(argv, check=False)
@@ -402,6 +402,38 @@ def test_repeated_tool_commands_have_separate_ids_and_leave_input_argv_unchanged
                           for i, value in enumerate(command_argv) if value == "--label")
             assert labels["org.acprof.container.lifecycle"] == "1"
             assert all(labels[f"org.acprof.owner.{key}"] for key in ("host", "uid", "boot", "pid", "start"))
+
+
+def test_run_profiler_command_rejects_rm_and_tool_helpers_omit_it(tmp_path, profiler_engine):
+    with pytest.raises(ValueError, match="--rm"):
+        run_profiler_command(["docker", "run", "--rm", "fixture", "tool", "--version"], check=False)
+
+    assert execution_environment.get_massif_version("fixture") == "tool failed"
+    importer = tmp_path / "QdstrmImporter"
+    importer.write_text("#!/bin/sh\n", encoding="utf-8")
+    with patch(
+        "acprof.host.profiling.tools.execution_environment.find_nsys_importer",
+        return_value=str(importer),
+    ):
+        assert execution_environment.validate_nsys_container_runtime("fixture", str(tmp_path)) == "tool failed"
+
+    from acprof.host.profiling.support import profiler_container_command
+
+    task = TaskInfo(
+        model_id="fixture", model_revision="fixed", task_family="nlp",
+        pipeline_tag="fill-mask", runtime_backend="transformers_pipeline",
+        runtime_profile_id="", library_name="transformers", detection_method="test",
+    )
+    payload = tmp_path / "payload.json"
+    payload.write_text("{}", encoding="utf-8")
+    with profiler_container_command(
+        task_info=task, image_tag="fixture", cpu=1, mem=2, use_gpu=False,
+        payload_file=str(payload), profile_root=str(tmp_path), tool_mount_roots=(),
+    ) as command_argv:
+        assert "--rm" not in command_argv
+    for command_argv, _kwargs in profiler_engine.commands:
+        if command_argv[:2] == ["docker", "run"]:
+            assert "--rm" not in command_argv
 
 
 def test_massif_version_probe_cannot_downgrade_cleanup_debt_to_unknown(profiler_engine):
