@@ -14,7 +14,7 @@ from dataclasses import asdict, is_dataclass
 from pathlib import Path
 from typing import Any, TextIO
 
-from acprof.artifacts import atomic_write, loads_finite_json
+from acprof.artifacts import atomic_write, loads_finite_json, sync_directory
 
 TELEMETRY_SCHEMA_VERSION = 1
 REDUCTION_VERSION = "window-reduction-v1"
@@ -86,6 +86,7 @@ def write_window_evidence(path: str | Path, evidence: dict[str, Any]) -> dict[st
     if destination.exists():
         if destination.read_bytes() != payload:
             raise ValueError(f"refusing to replace different window evidence: {destination}")
+        sync_directory(destination.parent)
     else:
         def write(stream: TextIO) -> None:
             stream.write(payload.decode("utf-8"))

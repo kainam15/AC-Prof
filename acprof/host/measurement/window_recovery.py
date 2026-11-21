@@ -5,7 +5,14 @@ import csv
 import json
 import time
 
-from acprof.artifacts import atomic_write, atomic_write_json, file_sha256, read_json_object
+from acprof.artifacts import (
+    atomic_write,
+    atomic_write_json,
+    file_sha256,
+    read_json_object,
+    sync_directory,
+)
+from acprof.result_store.protocol import IDENTITY_FIELDS
 from acprof.result_store.writer import ResultWriter
 from acprof.results.csv import measurement_key
 from acprof.results.windows import read_window_record
@@ -84,7 +91,16 @@ def restore_case_windows(case, *, run_id, expected):
         raise ValueError("window receipts do not belong to the frozen measurement plan")
     with ResultWriter(case.layout.root, expected_run_id=run_id) as writer:
         fields = writer.manifest["wide_fields"]
-        for path, _ in records:
+        synced_attempts = set()
+        for path, record in records:
+            identity = record["identity"]
+            attempt = identity["case_attempt_id"]
+            window_key = tuple(identity[name] for name in IDENTITY_FIELDS)
+            if attempt not in synced_attempts and window_key not in writer.windows:
+                # A process can die after rename but before its directory fsync.
+                sync_directory(case.telemetry(attempt))
+                sync_directory(path.parent)
+                synced_attempts.add(attempt)
             writer.append_window(path)
     def csv_projection(stream):
         writer = csv.DictWriter(stream, fieldnames=fields)

@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, TextIO
 
-from acprof.artifacts import atomic_write, loads_finite_json
+from acprof.artifacts import atomic_write, loads_finite_json, sync_directory
 from acprof.telemetry import canonical_bytes, read_window_evidence, write_window_evidence
 
 WINDOW_RECORD_SCHEMA_VERSION = 1
@@ -107,6 +107,7 @@ def commit_window_record(context: WindowPublicationContext, *, window_id: str,
     if destination.exists():
         if destination.read_bytes() != payload:
             raise ValueError(f"refusing to replace a committed window record: {destination}")
+        sync_directory(destination.parent)
     else:
         def write(stream: TextIO) -> None:
             stream.write(payload.decode("utf-8"))
