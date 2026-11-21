@@ -9,6 +9,7 @@ import copy
 import fcntl
 import hashlib
 import os
+from collections.abc import Mapping
 from contextlib import ExitStack, contextmanager
 from uuid import uuid4
 
@@ -60,6 +61,13 @@ class ResultWriter:
     def _ready(self):
         if self.failed or self._resources is None:
             raise ResultValidationError("result writer requires recovery before another window")
+
+    def verified_receipts(self, layout: ArtifactLayout, manifest: dict) -> Mapping[tuple[str, ...], str]:
+        """Receipt digests fully validated while owning this writer's current directory and HEAD."""
+        self._ready()
+        if layout != self.layout or manifest is not self.manifest:
+            raise ResultValidationError("result source verification requires the active writer's current manifest")
+        return self.windows
 
     @contextmanager
     def _publication(self):

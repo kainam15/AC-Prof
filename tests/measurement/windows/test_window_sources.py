@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from acprof.result_store.protocol import reference
-from acprof.result_store.sources import window_row
+from acprof.result_store.sources import verify_source_files, window_row
 from acprof.result_store.writer import ResultWriter
 from acprof.results.layout import ArtifactLayout
 from acprof.results.windows import (
@@ -168,6 +168,46 @@ def test_receipt_telemetry_reference_requires_recorded_sha256(window_source, dig
                              request_record={"record": record["request"]}, telemetry_reference=record["telemetry"],
                              projections={}, sequence=record.get("sequence"))
     assert not path.exists()
+
+
+def test_streaming_recheck_requires_the_verified_writers_live_head(window_source, monkeypatch):
+    from tests.results.storage.test_result_evidence_hashes import observe_evidence
+
+    layout, path, record = window_source
+    evidence = layout.window_evidence_path("telemetry", record["identity"])
+    raw = evidence.read_bytes() + b" " * (1024 * 1024)
+    evidence.write_bytes(raw)
+    record["telemetry"]["sha256"] = hashlib.sha256(raw).hexdigest()
+    path.write_bytes(encoded_record(record))
+    with ResultWriter(layout.root) as writer:
+        before = writer.manifest
+        writer.append_window(path)
+        with pytest.raises(ValueError, match="current manifest"):
+            verify_source_files(layout, before, writer=writer)
+        with monkeypatch.context() as guard:
+            observed = observe_evidence(guard, path.parent / record["telemetry"]["path"], fragment_size=65521)
+            verify_source_files(layout, writer.manifest, writer=writer)
+        assert len(observed.streams) == 1
+        assert observed.streams[0].closed
+        assert observed.received == len(raw)
+        assert observed.reads > 2
+    with pytest.raises(ValueError, match="requires recovery"):
+        verify_source_files(layout, writer.manifest, writer=writer)
+
+    # Independent source checks and the next writer both decode and validate the document.
+    from acprof import telemetry
+    decode = telemetry.loads_finite_json
+    decoded = []
+
+    def observe_decode(text):
+        decoded.append(len(text))
+        return decode(text)
+
+    monkeypatch.setattr(telemetry, "loads_finite_json", observe_decode)
+    verify_source_files(layout, writer.manifest)
+    with ResultWriter(layout.root):
+        pass
+    assert decoded == [len(raw), len(raw)]
 
 
 def test_hash_mismatch_is_rejected_before_json_or_telemetry_reads(window_source, monkeypatch):

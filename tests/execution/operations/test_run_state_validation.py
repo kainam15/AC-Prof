@@ -1,5 +1,6 @@
 """Reject malformed recovery state before restoring any disposable evidence."""
 import copy
+import csv
 import json
 import subprocess
 import sys
@@ -247,6 +248,52 @@ def test_independent_finish_rejects_a_changed_manifest_before_freezing_and_can_r
     state.finish(str(manifest))
     assert state.complete
     assert state.data["outcome"] == "partial"
+
+
+@pytest.mark.parametrize("damage", [None, "changed", "missing"])
+def test_matrix_finish_rechecks_telemetry_bytes_after_a_verified_window(recovery_state, monkeypatch, damage):
+    from acprof import telemetry
+    from acprof.result_store.writer import ResultWriter
+    from tests.measurement.windows.test_window_sources import encoded_record
+    from tests.results.storage.test_incremental_results import receipt
+
+    state = recovery_state
+    layout = state.layout
+    window = receipt(layout.root)
+    record = json.loads(window.read_bytes())
+    record["row"]["input_scale"] = "64"
+    window.write_bytes(encoded_record(record))
+    with ResultWriter(layout.root) as writer:
+        writer.append_window(window)
+    case = layout.case("fixture/model", 1, 4, "off").csv
+    with case.open("w", newline="") as stream:
+        csv_writer = csv.DictWriter(stream, fieldnames=record["row"])
+        csv_writer.writeheader()
+        csv_writer.writerow(record["row"])
+    state.finish_case(str(case), 1, 4, "off")
+    final_csv = str(layout.result_csv)
+    with state.merge_cases([str(case)], final_csv):
+        def reject_decode(_text):
+            pytest.fail("a verified telemetry document was decoded again before freeze")
+
+        monkeypatch.setattr(telemetry, "loads_finite_json", reject_decode)
+        if damage:
+            evidence = layout.window_evidence_path("telemetry", record["identity"])
+            if damage == "missing":
+                evidence.unlink()
+            else:
+                with evidence.open("r+b") as stream:
+                    stream.seek(-1, 2)
+                    stream.write(b" ")
+            head = layout.result_csv.read_bytes()
+            diagnostic = "invalid window record" if damage == "missing" else "window telemetry hash mismatch"
+            with pytest.raises(ValueError, match=diagnostic):
+                state.finish(final_csv)
+            assert layout.result_csv.read_bytes() == head
+            assert not state.complete
+        else:
+            state.finish(final_csv)
+            assert state.complete
 
 
 @pytest.mark.parametrize("entry", ["load", "preview", "constructor"])

@@ -1164,7 +1164,7 @@ class RunState:
             _, writer, lease = self._matrix_publication
             if writer.layout.result_csv != Path(final_csv).absolute() or writer.expected_run_id != self.run_id:
                 raise RunStateError("最终结果与正在提交的实验身份不一致")
-            verify_source_files(writer.layout, writer.manifest)
+            verify_source_files(writer.layout, writer.manifest, writer=writer)
             writer.freeze()
             digest = file_sha256(writer.layout.result_csv)
             lease.close()

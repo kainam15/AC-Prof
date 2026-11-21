@@ -1,7 +1,9 @@
 """Replay immutable measurements and explicit derivations without recomputing metrics."""
 from __future__ import annotations
 
+from collections.abc import Mapping
 from decimal import Decimal, DecimalException, localcontext
+from typing import TYPE_CHECKING
 
 from acprof.artifacts import file_sha256
 from acprof.result_store.protocol import IDENTITY_FIELDS, read_reference, reference_path
@@ -9,12 +11,20 @@ from acprof.results.csv import KEY_FIELDS, ResultValidationError, measurement_ke
 from acprof.results.layout import ArtifactLayout
 from acprof.results.windows import read_window_record, verify_window_record_evidence
 
+if TYPE_CHECKING:
+    from acprof.result_store.writer import ResultWriter
+
 # New derivations identify rows with context-independent decimal keys. Older
 # readers can still consume the existing key field for ordinary measurements.
 EXACT_KEY_ENCODING = "exact-decimal-v1"
 
 
 def window_row(layout: ArtifactLayout, source: dict) -> tuple[dict, tuple[str, ...]]:
+    return _window_row(layout, source, None)
+
+
+def _window_row(layout: ArtifactLayout, source: dict, verified_receipts: Mapping[tuple[str, ...], str] | None
+                ) -> tuple[dict, tuple[str, ...]]:
     ref = source["reference"]
     path = layout.contained(ref["path"])
     if not path.is_relative_to(layout.path("raw/windows")):
@@ -26,12 +36,22 @@ def window_row(layout: ArtifactLayout, source: dict) -> tuple[dict, tuple[str, .
     if path != layout.window_evidence_path("windows", identity):
         raise ResultValidationError("window receipt path disagrees with its identity")
     telemetry = layout.window_evidence_path("telemetry", identity)
-    if (path.parent / record["telemetry"]["path"]).absolute().resolve() != telemetry.resolve():
+    referenced_telemetry = path.parent / record["telemetry"]["path"]
+    if referenced_telemetry.absolute().resolve() != telemetry.resolve():
         raise ResultValidationError("window telemetry path disagrees with its identity")
-    verify_window_record_evidence(path, record)
+    key = tuple(identity[name] for name in IDENTITY_FIELDS)
+    if verified_receipts is not None and verified_receipts.get(key) == ref["sha256"]:
+        # This exact receipt bound the telemetry digest to a decoded identity in this lease.
+        try:
+            if file_sha256(referenced_telemetry) != record["telemetry"]["sha256"]:
+                raise ValueError("window telemetry hash mismatch")
+        except OSError as exc:
+            raise ValueError(f"invalid window record {path}: {exc}") from exc
+    else:
+        verify_window_record_evidence(path, record)
     if any(name in record["row"] and record["row"][name] != identity[name] for name in IDENTITY_FIELDS):
         raise ResultValidationError("window row disagrees with its receipt identity")
-    return {**record["row"], **identity}, tuple(identity[name] for name in IDENTITY_FIELDS)
+    return {**record["row"], **identity}, key
 
 
 class _LegacyChangeKeys:
@@ -171,12 +191,13 @@ def _verified_commits(layout, manifest):
     return commits
 
 
-def verify_source_files(layout, manifest) -> None:
+def verify_source_files(layout, manifest, *, writer: ResultWriter | None = None) -> None:
     """Recheck immutable files under the same writer lease before final freeze."""
+    receipts = writer.verified_receipts(layout, manifest) if writer is not None else None
     for _, sources in _verified_commits(layout, manifest):
         for source in sources:
             if source["kind"] == "window":
-                window_row(layout, source)
+                _window_row(layout, source, receipts)
             else:
                 _read_derivation(layout, manifest, source)
 
