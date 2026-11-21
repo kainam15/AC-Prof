@@ -1,7 +1,7 @@
 import csv
 import hashlib
 import os
-from decimal import Inexact, localcontext
+from decimal import Inexact, InvalidOperation, localcontext
 from pathlib import Path
 from unittest.mock import patch
 
@@ -79,6 +79,16 @@ class TestResultMerge:
             _, loaded = read_result_csv(path)
             assert [measurement_key(row)[3] for row in loaded] == scales
             assert measurement_key({**rows[0], "input_scale": scales[0] + "00"}) == measurement_key(rows[0])
+            assert not any(context.flags.values())
+
+    @pytest.mark.parametrize("trapped", [True, False])
+    def test_rejecting_malformed_window_identity_leaves_caller_flags_untouched(self, trapped):
+        row = dict(cpu_cores="1", mem_cap_gb="4", gpu_mode="off", input_scale="bad", warmup="0", repeat_idx="0")
+        with localcontext() as context:
+            context.traps[InvalidOperation] = trapped
+            context.clear_flags()
+            with pytest.raises(ValueError, match="invalid input_scale"):
+                measurement_key(row)
             assert not any(context.flags.values())
 
     def test_snapshot_hashes_exact_bytes_and_preserves_csv_newlines(self):

@@ -111,7 +111,7 @@ def measurement_key(row: Mapping[str, object]) -> MeasurementKey:
                 raise ResultValidationError(f"invalid gpu_mode: {value!r}")
         else:
             try:
-                number = Decimal(value)
+                number = Decimal(value, context=_KEY_CONTEXT)
             except InvalidOperation as exc:
                 raise ResultValidationError(f"invalid {field}: {value!r}") from exc
             if not number.is_finite() or number < 0:
