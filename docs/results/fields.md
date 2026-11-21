@@ -73,7 +73,8 @@ NLP 输出统计属于 `/predict` 响应后处理，因此包含在应用请求�
 pcap 后处理通过一次 `tshark` 扫描逐行消费 HTTP 关联字段和 TCP 字节，保留 HTTP 重组、
 `decode-as`、重传以及识别 `/predict` 之前的帧。判断连接是否共享时包含未收到响应的 `/predict` 请求。
 同一连接有多个请求时，流级总量只输出一次，已应答请求保留各自的时延，逐请求字节标记为 `unavailable_shared_stream`。
-stdout 与 stderr 同时消费，跨读取块的字段行拼完整后解码，诊断尾部有界保存；
+解析普通 PCAP 文件时，TShark 按块输出字段；命名管道输入保留逐包刷新。
+解析器同时消费 stdout 与 stderr，跨读取块的字段行拼完整后解码，诊断尾部有界保存；
 超时、非零退出或解析异常会终止并回收子进程。后处理预算仍由
 `ACPROF_POSTPROCESS_TIMEOUT_S` 控制，发生在正式测量窗口之外。
 

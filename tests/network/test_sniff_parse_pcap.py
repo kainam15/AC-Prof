@@ -1,6 +1,7 @@
 import contextlib
 import io
 import json
+import os
 import shutil
 from pathlib import Path
 from unittest.mock import patch
@@ -8,6 +9,7 @@ from unittest.mock import patch
 import pytest
 
 from acprof.packet import sniff_parse_pcap
+from acprof.packet.tshark import tshark_fields_command
 
 
 def packet(*, frame=1, time=100.0, stream=7, source=50000, destination=8002,
@@ -133,6 +135,28 @@ def test_port_is_canonicalized_in_single_scan_with_reassembly():
     assert 'tcp.port==8002,http' in command
     assert 'tcp.desegment_tcp_streams:TRUE' in command
     assert 'http.desegment_body:TRUE' in command
+
+
+def test_cli_batches_regular_capture_and_preserves_streaming_inputs(tmp_path, monkeypatch):
+    capture = tmp_path / "saved.pcap"
+    capture.touch()
+    assert "-l" in tshark_fields_command(str(capture), 8002)
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "-").touch()
+    inputs = [(str(capture), False), ("-", True)]
+    if hasattr(os, "mkfifo"):
+        fifo = tmp_path / "incoming.pcap"
+        os.mkfifo(fifo)
+        inputs.append((str(fifo), True))
+    for source, line_buffered in inputs:
+        with (
+            patch.object(sniff_parse_pcap, 'stream_tshark', return_value=(row for row in ())) as run,
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
+            sniff_parse_pcap.main([source, '8002'])
+        command = run.call_args.args[0]
+        assert command[command.index('-r') + 1] == source
+        assert ('-l' in command) is line_buffered
 
 
 def test_request_parser_surfaces_unexpected_header_errors_and_closes_stream():

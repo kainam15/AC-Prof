@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import json
 import math
+import os
 import subprocess
 import sys
 from collections import Counter
@@ -109,7 +110,8 @@ def main(argv: Sequence[str] | None = None) -> None:
     server_port = int(port)
     if not 1 <= server_port <= 65535:
         raise SystemExit(f"invalid TCP port: {port!r}")
-    command = tshark_fields_command(pcap, server_port)
+    # Regular captures produce one JSON document at EOF. Pipes can still be growing.
+    command = tshark_fields_command(pcap, server_port, flush_each_packet=pcap == "-" or not os.path.isfile(pcap))
     try:
         with closing(stream_tshark(command, timeout=postprocessing_timeout())) as lines:
             payload = parse_packets(lines, server_port=server_port)
