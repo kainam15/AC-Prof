@@ -246,6 +246,9 @@ def test_checked_in_corpus_matches_reviewed_expectations(tmp_path):
         (row["case_id"], row["differences"]) for row in report["rows"] if row["differences"]]
     assert all(row["actual"]["runtime_status"] == "not_requested" for row in report["rows"])
 
+    captured = {(row["source"], row["model_id"]) for row in report["rows"] if row["fixture_kind"] == "captured"}
+    assert {("huggingface", "google-bert/bert-base-uncased"), ("modelscope", "Qwen/Qwen3-0.6B")} <= captured
+
 
 def test_expectation_review_does_not_masquerade_as_a_behavior_change(corpus, tmp_path):
     from acprof.testing.model_corpus import replay_corpus

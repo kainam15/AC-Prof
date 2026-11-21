@@ -1,9 +1,23 @@
 # Offline model corpus fixtures
 
-[`../model_corpus.json`](../model_corpus.json) declares 17 reviewed synthetic
-scenarios for the real model-inspection and coverage pipeline. No weights are
-included or downloaded. A listed artifact name tests a layout, not its contents.
-The repeated `aaaaaaaa…` revision is a synthetic identity, not a real Hub commit.
+[`../model_corpus.json`](../model_corpus.json) declares two captured repository
+observations and 17 reviewed synthetic scenarios for the model-inspection and
+coverage pipeline. No weights are included or downloaded. A listed artifact
+name tests a layout, not its contents. The repeated `aaaaaaaa…` revision is a
+synthetic identity, not a real Hub commit.
+
+- Hugging Face `google-bert/bert-base-uncased` (`86b5e093`): the revision API
+  supplied the Hub attributes and all repository file names. The fixture keeps
+  the original model and tokenizer configs, not the ONNX or native weights.
+- ModelScope `Qwen/Qwen3-0.6B` (`09b42cad`): the recursive file list and the
+  model, generation and tokenizer configs are pinned to the ModelScope commit;
+  their bytes matched the hashes from that listing. The ModelScope card's task,
+  tags and license are repository-level observations dated in `capture_source`,
+  not historical properties guaranteed by the commit.
+
+Both upstream repositories declare [Apache-2.0](../../../LICENSE). The checked-in
+configs retain the upstream bytes, including missing final newlines; do not
+reformat them. `metadata` records each pinned download URL and SHA256.
 
 The T5 case reuses the original files in
 [`../t5_small_metadata/`](../t5_small_metadata/) at the pinned commit and SHA256

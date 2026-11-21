@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "corpus_version": 1,
-  "sampling": "fixed reviewed synthetic scenarios, including captured T5 author metadata; not Top 100 or Hub coverage",
+  "sampling": "fixed reviewed synthetic scenarios and two captured repository observations; not Top 100 or Hub coverage",
   "weight_basis": "uniform scenario weights; not model popularity",
   "models": [
     {
@@ -554,6 +554,180 @@
         "compatibility_status": "unknown",
         "reason_code": "task_selection_required",
         "selected_task": "text2text-generation"
+      }
+    },
+    {
+      "case_id": "hf-bert-base-uncased",
+      "source": "huggingface",
+      "model_id": "google-bert/bert-base-uncased",
+      "revision": "86b5e0934494bd15c9632b12f734a8a67f723594",
+      "weight": 1,
+      "fixture_kind": "captured",
+      "description": "Native masked-language model in a repository also listing ONNX and Core ML artifacts.",
+      "capture_source": {
+        "observed_on": "2026-11-21",
+        "info_and_files": "https://huggingface.co/api/models/google-bert/bert-base-uncased/revision/86b5e0934494bd15c9632b12f734a8a67f723594"
+      },
+      "hub": {
+        "pipeline_tag": "fill-mask",
+        "library_name": "transformers",
+        "config": {
+          "architectures": [
+            "BertForMaskedLM"
+          ],
+          "model_type": "bert",
+          "tokenizer_config": {}
+        },
+        "transformers_info": {
+          "auto_model": "AutoModelForMaskedLM",
+          "pipeline_tag": "fill-mask",
+          "processor": "AutoTokenizer"
+        },
+        "tags": [
+          "transformers",
+          "pytorch",
+          "tf",
+          "jax",
+          "rust",
+          "coreml",
+          "onnx",
+          "safetensors",
+          "bert",
+          "fill-mask",
+          "exbert",
+          "en",
+          "dataset:bookcorpus",
+          "dataset:wikipedia",
+          "arxiv:1810.04805",
+          "license:apache-2.0",
+          "endpoints_compatible",
+          "deploy:sagemaker",
+          "deploy:azure",
+          "region:us"
+        ],
+        "card_data": {
+          "license": "apache-2.0"
+        },
+        "safetensors": {
+          "parameters": {
+            "F32": 110106428
+          },
+          "total": 110106428
+        }
+      },
+      "repository_files": [
+        ".gitattributes",
+        "LICENSE",
+        "README.md",
+        "config.json",
+        "coreml/fill-mask/float32_model.mlpackage/Data/com.apple.CoreML/model.mlmodel",
+        "coreml/fill-mask/float32_model.mlpackage/Data/com.apple.CoreML/weights/weight.bin",
+        "coreml/fill-mask/float32_model.mlpackage/Manifest.json",
+        "flax_model.msgpack",
+        "model.onnx",
+        "model.safetensors",
+        "pytorch_model.bin",
+        "rust_model.ot",
+        "tf_model.h5",
+        "tokenizer.json",
+        "tokenizer_config.json",
+        "vocab.txt"
+      ],
+      "metadata": {
+        "config.json": {
+          "path": "model_corpus/hf-bert-base-uncased/config.json",
+          "sha256": "7160e1553ad2ca51d8c1cb066be533db31826e12d173824c1bb0cb1a4f187d20",
+          "origin": "captured",
+          "url": "https://huggingface.co/google-bert/bert-base-uncased/resolve/86b5e0934494bd15c9632b12f734a8a67f723594/config.json"
+        },
+        "tokenizer_config.json": {
+          "path": "model_corpus/hf-bert-base-uncased/tokenizer_config.json",
+          "sha256": "a025160ef0431f1a392f6f050c1310f4c5d9fb6f275932dbccba73c4d214bf10",
+          "origin": "captured",
+          "url": "https://huggingface.co/google-bert/bert-base-uncased/resolve/86b5e0934494bd15c9632b12f734a8a67f723594/tokenizer_config.json"
+        }
+      },
+      "expected": {
+        "inspection_status": "candidate",
+        "compatibility_status": "supported",
+        "reason_code": null,
+        "selected_task": "fill-mask",
+        "runtime_profile": "nlp-cu128",
+        "runtime_status": "not_requested"
+      }
+    },
+    {
+      "case_id": "ms-qwen3-06b",
+      "source": "modelscope",
+      "model_id": "Qwen/Qwen3-0.6B",
+      "revision": "09b42cad3d112e832108974449ccb5e8e0f5b5d1",
+      "weight": 1,
+      "fixture_kind": "captured",
+      "description": "Native Qwen3 causal language model with ModelScope file identity and author generation defaults.",
+      "capture_source": {
+        "observed_on": "2026-11-21",
+        "pinned_files": "https://modelscope.cn/api/v1/models/Qwen/Qwen3-0.6B/repo/files?Revision=09b42cad3d112e832108974449ccb5e8e0f5b5d1&Recursive=true",
+        "repository_card_at_observation": "https://modelscope.cn/openapi/v1/models/Qwen/Qwen3-0.6B"
+      },
+      "hub": {
+        "pipeline_tag": "text-generation",
+        "library_name": "transformers",
+        "config": {},
+        "transformers_info": null,
+        "tags": [
+          "license:apache-2.0",
+          "model_type:qwen3",
+          "library:transformer",
+          "library:safetensors",
+          "library:pytorch",
+          "task:text-generation",
+          "deploy:swingdeploy"
+        ],
+        "card_data": {
+          "license": "apache-2.0"
+        },
+        "safetensors": null
+      },
+      "repository_files": [
+        ".gitattributes",
+        "LICENSE",
+        "README.md",
+        "config.json",
+        "configuration.json",
+        "generation_config.json",
+        "merges.txt",
+        "model.safetensors",
+        "tokenizer.json",
+        "tokenizer_config.json",
+        "vocab.json"
+      ],
+      "metadata": {
+        "config.json": {
+          "path": "model_corpus/ms-qwen3-06b/config.json",
+          "sha256": "660db3b73d788119c04535e48cf9be5f55bc3100841a718637ae695b442f27dd",
+          "origin": "captured",
+          "url": "https://modelscope.cn/models/Qwen/Qwen3-0.6B/resolve/09b42cad3d112e832108974449ccb5e8e0f5b5d1/config.json"
+        },
+        "generation_config.json": {
+          "path": "model_corpus/ms-qwen3-06b/generation_config.json",
+          "sha256": "2325da0f15bb848e018c5ae071b7943332e9f871d6b60e2ed22ca97d4cb993d2",
+          "origin": "captured",
+          "url": "https://modelscope.cn/models/Qwen/Qwen3-0.6B/resolve/09b42cad3d112e832108974449ccb5e8e0f5b5d1/generation_config.json"
+        },
+        "tokenizer_config.json": {
+          "path": "model_corpus/ms-qwen3-06b/tokenizer_config.json",
+          "sha256": "d5d09f07b48c3086c508b30d1c9114bd1189145b74e982a265350c923acd8101",
+          "origin": "captured",
+          "url": "https://modelscope.cn/models/Qwen/Qwen3-0.6B/resolve/09b42cad3d112e832108974449ccb5e8e0f5b5d1/tokenizer_config.json"
+        }
+      },
+      "expected": {
+        "inspection_status": "candidate",
+        "compatibility_status": "supported",
+        "reason_code": null,
+        "selected_task": "text-generation",
+        "runtime_profile": "nlp-cu128",
+        "runtime_status": "not_requested"
       }
     }
   ]

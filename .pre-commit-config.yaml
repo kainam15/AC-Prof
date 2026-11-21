@@ -86,6 +86,8 @@ repos:
       - id: trailing-whitespace
         args: [--markdown-linebreak-ext=md]
       - id: end-of-file-fixer
+        # These three upstream files have no final LF; replay verifies their exact SHA256.
+        exclude: '^tests/fixtures/model_corpus/(hf-bert-base-uncased/tokenizer_config|ms-qwen3-06b/(config|generation_config))\.json$'
       - id: check-yaml
       - id: check-json
       - id: check-toml
