@@ -317,9 +317,28 @@ export ACPROF_DOCKER_HUB_MIRROR=m.daocloud.io/docker.io
 export ACPROF_RUNTIME_IMAGE_SOURCE=build
 ```
 
-三个制品镜像开关均为**独立 opt-in**：PyPI 仅从 `files.pythonhosted.org/packages/` 替换为腾讯云，
-PyTorch 仅从 `download-r2.pytorch.org/whl/` 替换为阿里云 `pytorch-wheels/`，Debian 仅从固定
-`snapshot.debian.org/archive/debian[-security]/<timestamp>/pool/` 替换为腾讯云 `debian/pool/`。
+三个制品镜像开关可独立启用。PyPI 将 `files.pythonhosted.org/packages/` 映射到腾讯云，
+PyTorch 将 `download-r2.pytorch.org/whl/` 映射到阿里云 `pytorch-wheels/`。
+Debian 按锁定 snapshot 的仓库名选择腾讯云目录，逐字保留 `pool/` 后的路径和文件名编码。
+
+| 锁定来源（`snapshot.debian.org`） | 镜像路径（`mirrors.cloud.tencent.com`） |
+| --- | --- |
+| `/archive/debian/<timestamp>/pool/…` | `/debian/pool/…` |
+| `/archive/debian-security/<timestamp>/pool/…` | `/debian-security/pool/…` |
+
+Docker 构建遇到 HTTP 404 时，TUI 准备失败摘要会列出包名、实际请求地址与原因。
+先对照系统锁中该包的 `url` 核对上表，特别留意 Security 包的 `pool/updates/` 目录和版本中的 `%2b`。
+可在同一台构建主机用下列命令核验摘要中的完整 HTTPS 地址和锁中的 `sha256`。
+缓存命中会跳过 GET。重现冷下载时，为 BuildKit 使用新的 cache mount 命名空间
+（`--build-arg BUILDKIT_CACHE_MOUNT_NS=<unique-id>`）并加 `--no-cache`，然后检查该包的 `miss` 记录。
+
+```bash
+# URL 和 SHA256 分别取自错误摘要和 dockerfiles/locks/system-trixie-amd64.json。
+package_file=$(mktemp)
+curl --noproxy '*' --fail --show-error --output "$package_file" "$URL" &&
+  printf '%s  %s\n' "$SHA256" "$package_file" | sha256sum --check
+```
+
 默认均关闭；启用后的制品下载和 HEAD 预检绕过进程 HTTP(S) 代理，只允许同 HTTPS 镜像 host 重定向。
 镜像故障、历史文件缺失或哈希不匹配会明确失败，不自动回退官方源。锁中的 URL、版本、SHA256
 及缓存键保持原值，最终必须校验完整制品。HEAD 成功不能证明完整 wheel 或系统包下载成功。

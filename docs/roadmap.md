@@ -33,6 +33,9 @@ P1 · cgroup I/O 预检：已将宿主进程 cgroup 能力与目标 Docker / Pro
 
 ## 工程维护优先序
 
+Docker 依赖下载已保留 Debian Security 仓库路径。CI 预检从空缓存验证两个 Debian 仓库，
+TUI 准备失败摘要展示包、来源及 HTTP 错误。见[镜像分流与排查](models/images.md#下载来源分流限额-vpn-场景)。
+
 Best-effort 必需窗口指标按[逐字段证据](profiling/measurement.md#profiling-mode-与能力证据)判定完成，`audit` 单列有限但不完整的读数；带 `--compare` 时两侧各审计一次并复核源内容。[依赖预检](models/routing.md)按锁定目标 Python 识别标准库。相关验证为离线回归，不新增硬件测量证据。
 
 最大输入探测已接入主机测量锁。跨进程回归覆盖持锁期间拒绝另一探测、从 Docker 预检到摘要写入持续互斥，以及中断后释放锁。探测支持 `--tasks`，固定版本 T5 的摘要、翻译分组和发往 `/predict` 的请求内容已用离线 Fixture 验证。TUI 高级表单支持编辑和保存同一选择，采集命令预览和探测确认均保留所选 ID。探测确认与 CLI 共用设备选择规则。默认使用 CPU 规划、验证和请求，显式 `--gpus on` 时三个阶段都使用 GPU。[探测示例](usage/experiments.md#先探测最大输入)与 [TUI 使用指南](usage/tui.md)

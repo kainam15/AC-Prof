@@ -31,7 +31,8 @@ PR 对比目标分支，Push 对比本次推送前的分支状态。混合代码
 完整 CI 的 pytest evidence、Python 版本矩阵、报告汇总和容器验证保持不变。
 `ci-preflight` 在 Python 3.12/3.13 上提前运行 `scripts/check_ci_preflight.py`，
 检查 TUI 配置与恢复、Profiler 勾选与诊断详情、Nsys 容器命令、cgroup I/O 缺字段、
-private API 边界及工作流的路径和依赖条件。
+private API 边界及工作流的路径和依赖条件。Debian 镜像回归在每个测试的空目录中模拟 GET，
+分别断言 Debian 与 Debian Security 的完整请求路径，并覆盖 404、缓存命中和重定向。
 其失败会阻止启动后续的 24 个 Host 分片，但不会将失败视为成功，
 完整 Host 测试、SVG/PNG 视觉检查、ONNX 端到端验证仍是独立验收要求。
 开发者可先执行 `uv run --locked --no-default-groups --group test python scripts/check_ci_preflight.py`。
