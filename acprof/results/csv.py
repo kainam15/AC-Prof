@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from decimal import InvalidOperation
 from itertools import product, zip_longest
 from pathlib import Path
-from typing import cast
+from typing import BinaryIO, cast
 
 from acprof.artifacts import atomic_write, file_sha256
 from acprof.cancellation import cancellable, check_cancelled
@@ -184,10 +184,11 @@ _HASH_BUFFER_BYTES = 2**18
 class _DigestingRawReader(io.RawIOBase):
     """Forward raw reads while hashing the exact bytes consumed by TextIOWrapper."""
 
-    def __init__(self, stream, digest, cancelled: Callable[[], bool] | None = None):
+    def __init__(self, stream, digest, cancelled: Callable[[], bool] | None = None, *, capture: BinaryIO | None = None):
         super().__init__()
         self._stream = stream
         self._digest = digest
+        self._capture = capture
         self._cancelled = cancelled
 
     def readable(self) -> bool:
@@ -197,7 +198,10 @@ class _DigestingRawReader(io.RawIOBase):
         check_cancelled(self._cancelled)
         size = self._stream.readinto(buffer)
         if size:
-            self._digest.update(memoryview(buffer)[:size])
+            chunk = memoryview(buffer)[:size]
+            self._digest.update(chunk)
+            if self._capture is not None and self._capture.write(chunk) != size:
+                raise OSError("short write while capturing case CSV")
         return size
 
 
@@ -345,12 +349,13 @@ def open_result_text(path: str | Path):
 
 def read_hashed_flat_csv(path: Path, *, expected: ExpectedMeasurements | None = None,
                          validate_measurements: bool = True, cancelled: Callable[[], bool] | None = None,
-                         ) -> tuple[list[str], ValidatedResultRows, str]:
-    """Read rows, their validation keys and the digest from the same flat CSV stream."""
+                         capture: BinaryIO | None = None) -> tuple[list[str], ValidatedResultRows, str]:
+    """Validate, hash and optionally copy the same raw CSV stream."""
     check_cancelled(cancelled)
     digest = hashlib.sha256()
     with path.open("rb", buffering=0) as raw:
-        buffered = io.BufferedReader(_DigestingRawReader(raw, digest, cancelled), buffer_size=_HASH_BUFFER_BYTES)
+        reader = _DigestingRawReader(raw, digest, cancelled, capture=capture)
+        buffered = io.BufferedReader(reader, buffer_size=_HASH_BUFFER_BYTES)
         with io.TextIOWrapper(buffered, encoding="utf-8-sig", newline="") as stream:
             fields, validated = parse_result_stream(stream, path, expected,
                                                    allow_empty=not validate_measurements,

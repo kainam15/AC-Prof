@@ -39,7 +39,7 @@ from acprof.host.run_state_types import (
 )
 from acprof.messages import Message, join_messages, message
 from acprof.platform import detect_environment, is_linux
-from acprof.results.csv import expected_measurements, read_result_csv
+from acprof.results.csv import expected_measurements, read_result_csv, read_result_csv_snapshot
 from acprof.results.layout import ArtifactLayout
 from acprof.results.measurement_plan import (
     RecordedMeasurementOptions,
@@ -1095,36 +1095,33 @@ class RunState:
         self.save()
 
     def finish_case(self, path: str, cpu: int | None, mem: int | None, gpu: str) -> None:
-        _, rows = read_result_csv(path, expected=self.expected(cpu, mem, gpu))
+        from acprof.host.case_recovery import publish_case_result
+        from acprof.host.measurement.window_recovery import is_incremental
+
         case = self.layout.case_from_csv(path)
-        case.retain_requests()
-        key = str(Path(path).relative_to(self.directory))
+        key = str(case.csv.relative_to(self.directory))
         record = self.data["cases"].get(key)
         if record is None:
             record = {"status": "complete"}
-        from acprof.host.measurement.window_recovery import is_incremental
+        expected = self.expected(cpu, mem, gpu)
         if is_incremental(self.layout):
-            from acprof.result_store.protocol import reference, write_bytes
-            from acprof.result_store.writer import ResultWriter
             evidence = []
             checkpoint_reference = record.get("measurement_checkpoint")
             if checkpoint_reference:
                 if not isinstance(checkpoint_reference, dict):
                     raise RunStateError("run_state.json 字段 measurement_checkpoint 无效：需要产物引用")
                 evidence.append({name: checkpoint_reference[name] for name in ("path", "sha256")})
-            with ResultWriter(self.directory) as writer:
-                writer.update_rows(rows, reason="case packet processing and diagnostics", evidence=evidence)
-            completed = case.completed_result(file_sha256(path))
-            if not completed.exists():
-                write_bytes(completed, Path(path).read_bytes())
-            if file_sha256(completed) != file_sha256(path):
-                raise RunStateError("Immutable case result changed")
-            record["case_result"] = reference(self.layout, completed)
+            snapshot = publish_case_result(case, expected, run_id=self.run_id, evidence=evidence)
+            record["case_result"] = {"path": snapshot.path.relative_to(self.directory).as_posix(),
+                                     "sha256": snapshot.sha256}
+        else:
+            snapshot = read_result_csv_snapshot(case.csv, expected=expected)
+            case.retain_requests()
         self.data["cases"][key] = {
             **record, "processing_status": "complete",
             "measurement_status": "complete" if record.get("measurement_status") == "complete" else "not_measured",
-            "status": "complete", "completed_at": utc_now(), "sha256": file_sha256(path),
-            "row_count": len(rows), "error_rows": sum(row.get("status") == "error" for row in rows),
+            "status": "complete", "completed_at": utc_now(), "sha256": snapshot.sha256,
+            "row_count": len(snapshot.rows), "error_rows": sum(row.get("status") == "error" for row in snapshot.rows),
         }
         self.save()
 

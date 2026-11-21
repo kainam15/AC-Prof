@@ -568,3 +568,161 @@ def test_resume_keeps_good_segments_and_uses_each_service_port(tmp_path, monkeyp
     assert "access denied" in failures[0]
     with pytest.raises(PacketLatencyError, match="duplicate request identity"):
         packet_segments.merge_capture_segments(current, [segments[1], segments[1]], 9000, errors=[])
+
+
+def test_case_completion_publishes_the_validated_snapshot(measured_case, monkeypatch):
+    from hashlib import sha256
+
+    from acprof.result_store.writer import ResultWriter
+    from acprof.results.csv import read_result_csv
+
+    state, case, _, _ = measured_case
+    original = _write_processed_case(case.csv)
+    checksum = sha256(original).hexdigest()
+    replacement = original.replace(b"0.125000", b"0.250000")
+    update = ResultWriter.update_rows
+
+    def replace_work_csv(writer, rows, **options):
+        result = update(writer, rows, **options)
+        case.csv.write_bytes(replacement)
+        return result
+
+    monkeypatch.setattr(ResultWriter, "update_rows", replace_work_csv)
+    state.finish_case(str(case.csv), 1, 4, "off")
+    key = str(case.csv.relative_to(state.directory))
+    record = json.loads(state.layout.path("run_state.json").read_bytes())["cases"][key]
+    archive = case.completed_result(checksum)
+    assert case.csv.read_bytes() == replacement
+    assert read_result_csv(state.layout.result_csv)[1][0]["latency_app_s"] == "0.125000"
+    assert record["sha256"] == checksum
+    assert record["case_result"] == {"path": archive.relative_to(state.directory).as_posix(), "sha256": checksum}
+    assert archive.read_bytes() == original
+    assert record["status"] == "complete"
+    assert record["row_count"] == 1
+    assert record["error_rows"] == 0
+
+    from acprof.host.measurement.window_recovery import repair_result_projections
+    repair_result_projections(state.layout, state.data)
+    assert case.csv.read_bytes() == original
+
+
+def _write_processed_case(path):
+    with path.open("w", encoding="utf-8-sig", newline="") as stream:
+        writer = csv.DictWriter(stream, CSV_FIELDS, restval="nan")
+        writer.writeheader()
+        writer.writerow({"cpu_cores": "1", "mem_cap_gb": "4", "gpu_mode": "off", "input_scale": "64",
+                         "warmup": "0", "repeat_idx": "0", "status": "ok", "error": "",
+                         "environment_class": "native_linux", "latency_app_s": "0.125000"})
+    return path.read_bytes()
+
+
+@pytest.mark.parametrize("appears_at_publication", [False, True], ids=["existing", "racing"])
+def test_corrupt_case_archive_preserves_root_and_state(measured_case, monkeypatch, appears_at_publication):
+    import os
+    from hashlib import sha256
+
+    state, case, _, _ = measured_case
+    archive = case.completed_result(sha256(_write_processed_case(case.csv)).hexdigest())
+    archive.parent.mkdir(parents=True, exist_ok=True)
+    damage = b"another publisher's conflicting content"
+    if appears_at_publication:
+        # Introduce a competing file after any existence check, at the OS publication boundary.
+        def race(operation):
+            def publish(src, dest, *args, **kwargs):
+                if Path(dest) == archive:
+                    archive.write_bytes(damage)
+                return operation(src, dest, *args, **kwargs)
+            return publish
+        monkeypatch.setattr(os, "link", race(os.link))
+        monkeypatch.setattr(os, "replace", race(os.replace))
+    else:
+        archive.write_bytes(damage)
+    artifacts = (state.layout.result_csv, state.layout.path("run_state.json"))
+    before = {path: path.read_bytes() for path in artifacts}
+    with pytest.raises(run_state.RunStateError, match="Immutable case result changed"):
+        state.finish_case(str(case.csv), 1, 4, "off")
+    assert archive.read_bytes() == damage
+    assert {path: path.read_bytes() for path in artifacts} == before
+
+
+def test_case_completion_retry_reuses_the_archive_after_root_publication_fails(measured_case, monkeypatch):
+    from hashlib import sha256
+
+    from acprof.result_store.writer import ResultWriter
+
+    state, case, _, _ = measured_case
+    original = _write_processed_case(case.csv)
+    digest = sha256(original).hexdigest()
+    archive = case.completed_result(digest)
+    state_file = state.layout.path("run_state.json")
+    before = state_file.read_bytes()
+
+    def interrupt(*args, **kwargs):
+        assert archive.read_bytes() == original
+        raise OSError("interrupted root publication")
+
+    with monkeypatch.context() as fault:
+        fault.setattr(ResultWriter, "update_rows", interrupt)
+        with pytest.raises(OSError, match="interrupted root publication"):
+            state.finish_case(str(case.csv), 1, 4, "off")
+    assert state_file.read_bytes() == before
+    archive_identity = archive.stat()
+    state.finish_case(str(case.csv), 1, 4, "off")
+    record = json.loads(state_file.read_bytes())["cases"][str(case.csv.relative_to(state.directory))]
+    assert record["sha256"] == digest
+    assert archive.read_bytes() == original
+    assert archive.stat().st_ino == archive_identity.st_ino
+    assert archive.stat().st_mtime_ns == archive_identity.st_mtime_ns
+
+
+def test_legacy_flat_case_completion_reads_work_csv_once(measured_case, tmp_path, monkeypatch):
+    from hashlib import sha256
+
+    state, _, _, _ = measured_case
+    state.close()
+    directory = tmp_path / "flat"
+    directory.mkdir()
+    flat_data = {**state.data, "layout_version": 1, "cases": {}}
+    (directory / "run_state.json").write_text(json.dumps(flat_data))
+    resumed = run_state.RunState(directory, flat_data["options"], resume=True, project_dir=".")
+    try:
+        case = resumed.layout.case("fixture/model", 1, 4, "off")
+        original = _write_processed_case(case.csv)
+        read_opens = []
+        open_path = Path.open
+
+        def count_read(path, mode="r", *args, **kwargs):
+            if path == case.csv and "r" in mode:
+                read_opens.append(mode)
+            return open_path(path, mode, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "open", count_read)
+        resumed.finish_case(str(case.csv), 1, 4, "off")
+        record = json.loads((directory / "run_state.json").read_bytes())["cases"][case.csv.name]
+        assert len(read_opens) == 1
+        assert record["sha256"] == sha256(original).hexdigest()
+        assert "case_result" not in record
+        assert not (directory / "raw").exists()
+    finally:
+        resumed.close()
+
+
+def test_case_completion_rejects_another_intact_result_store(measured_case, tmp_path):
+    from hashlib import sha256
+
+    from acprof.results.csv import ResultValidationError
+    from acprof.results.layout import ArtifactLayout
+
+    state, case, _, _ = measured_case
+    archive = case.completed_result(sha256(_write_processed_case(case.csv)).hexdigest())
+    other = ArtifactLayout.for_new_run(tmp_path / "other")
+    other.initialize()
+    assert json.loads(other.result_csv.read_bytes())["run_id"] != state.run_id
+    shutil.copytree(other.result_store_path(""), state.layout.result_store_path(""), dirs_exist_ok=True)
+    shutil.copyfile(other.result_csv, state.layout.result_csv)
+    artifacts = (state.layout.path("run_state.json"), state.layout.result_csv, case.csv)
+    before = {path: path.read_bytes() for path in artifacts}
+    with pytest.raises(ResultValidationError, match="result store belongs to another run"):
+        state.finish_case(str(case.csv), 1, 4, "off")
+    assert not archive.exists()
+    assert {path: path.read_bytes() for path in artifacts} == before

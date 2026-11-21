@@ -3,18 +3,64 @@ from __future__ import annotations
 
 import os
 import shutil
+import tempfile
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, BinaryIO
 from uuid import uuid4
 
-from acprof.artifacts import file_sha256, replace_file_durably, sync_directory_chain
+from acprof.artifacts import (
+    atomic_write_binary,
+    file_sha256,
+    replace_file_durably,
+    sync_directory,
+    sync_directory_chain,
+)
 from acprof.host.run_state import RunStateError, utc_now
 from acprof.host.run_state_types import CaseState
-from acprof.results.csv import read_result_csv
+from acprof.results.csv import (
+    ExpectedMeasurements,
+    ResultCsvSnapshot,
+    read_hashed_flat_csv,
+    read_result_csv,
+)
 
 if TYPE_CHECKING:
     from acprof.host.run_state import RunState
     from acprof.results.layout import CaseArtifacts
+
+
+def _archive_case_csv(case: CaseArtifacts, capture: BinaryIO, digest: str) -> Path:
+    archive = case.completed_result(digest)
+    if not archive.exists():
+        capture.seek(0)
+
+        def copy_capture(stream: BinaryIO) -> None:
+            shutil.copyfileobj(capture, stream)
+
+        try:
+            atomic_write_binary(archive, copy_capture, overwrite=False)
+            return archive
+        except FileExistsError:
+            pass  # A competing publisher claimed this digest; validate its bytes below.
+    if file_sha256(case.completed_result(digest)) != digest:
+        raise RunStateError("Immutable case result changed")
+    # The first publisher may have linked the file but failed its directory fsync.
+    sync_directory(archive.parent)
+    return archive
+
+
+def publish_case_result(case: CaseArtifacts, expected: ExpectedMeasurements, *,
+                        run_id: str, evidence: list[dict[str, str]]) -> ResultCsvSnapshot:
+    """Archive the validated stream before publishing its rows to this run's store."""
+    from acprof.result_store.writer import ResultWriter
+
+    with tempfile.TemporaryFile(dir=case.layout.result_store_path(""), buffering=0) as capture:
+        fields, result, digest = read_hashed_flat_csv(case.csv, expected=expected, capture=capture)
+        with ResultWriter(case.layout.root, expected_run_id=run_id) as writer:
+            archive = _archive_case_csv(case, capture, digest)
+            case.retain_requests()
+            writer.update_rows(result.rows, reason="case packet processing and diagnostics", evidence=evidence)
+        return ResultCsvSnapshot(archive, fields, result.rows, digest)
 
 
 def _validate_complete_case(
