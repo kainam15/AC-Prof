@@ -625,3 +625,53 @@ def test_packet_merge_late_input_error_preserves_outputs(tmp_path, fault):
 
     assert merged.read_bytes() == original_csv
     assert requests.read_bytes() == original_requests
+
+
+def test_large_packet_json_honors_bom_and_last_duplicate_values(tmp_path):
+    source = tmp_path / "result.csv"
+    source.write_text("sniff_group_id,latency_s,latency_request_count\ng,nan,nan\n")
+    requests = tmp_path / "result.csv.requests.jsonl"
+    requests.write_text('{"schema_version":1,"sniff_group_id":"g","latency_app_s":[0.75]}\n')
+    packets = tmp_path / "packet.json"
+    # Valid JSON with overwritten envelope, frame, metric and stream members.
+    packets.write_text(
+        '{"extension":{"padding":"' + "x" * (4 * 1024 * 1024) + '","requests":{"ignored":null}},'
+        '"schema_version":1,"requests":false,"streams":[],'
+        '"requests":{"g:9":null,"g:9":{"request_id":"g:0","latency_s":1,"latency_s":0.25}},'
+        '"streams":{"7":null,"7":{"diagnostics":[null,{"nested":"合法"}]}},"schema_version":2}',
+        encoding="utf-8-sig",
+    )
+    output = tmp_path / "merged.csv"
+
+    merge_packet_latency.main([str(source), str(packets), str(output)])
+
+    with output.open(newline="", encoding="utf-8") as stream:
+        assert list(csv.DictReader(stream)) == [{"latency_s": "0.250000", "latency_request_count": "1.000000"}]
+    assert json.loads(requests.read_bytes())["latency_packet_s"] == [0.25]
+
+
+@pytest.mark.parametrize(("suffix", "error"), [
+    ('"streams":{"7":{"extra":[{"value":1e999}]}}', "non-finite"),
+    ('"extension":{"extra":[NaN]},"extension":null', "non-finite"),
+    ('"extension":{"extra":[true,]}', "invalid packet metrics JSON"),
+    ('"streams":{"7":{},"7":[]}', "requires a streams object"),
+])
+def test_large_packet_json_rejects_invalid_unused_data_before_outputs(tmp_path, suffix, error):
+    source = tmp_path / "result.csv"
+    source.write_text("sniff_group_id,latency_s\ng,nan\n")
+    packets = tmp_path / "packet.json"
+    packets.write_text(
+        '{"schema_version":2,"requests":{"g:9":{"latency_s":0.25,"request_id":"g:0"}},'
+        '"padding":"' + "x" * (4 * 1024 * 1024) + '",' + suffix + '}',
+        encoding="utf-8",
+    )
+    requests, output = tmp_path / "result.csv.requests.jsonl", tmp_path / "merged.csv"
+    original = b'{"schema_version":1,"sniff_group_id":"g","latency_app_s":[0.75]}\r\n'
+    requests.write_bytes(original)
+    output.write_bytes(b"previous CSV\r\n")
+
+    with pytest.raises(ValueError, match=error):
+        merge_packet_latency.main([str(source), str(packets), str(output)])
+
+    assert requests.read_bytes() == original
+    assert output.read_bytes() == b"previous CSV\r\n"

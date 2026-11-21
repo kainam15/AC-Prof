@@ -8,6 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from acprof import artifacts
 from acprof.artifacts import MAX_JSON_ARTIFACT_BYTES, read_json_object, read_json_object_snapshot
 
 
@@ -75,6 +76,33 @@ def test_near_limit_metadata_does_not_retain_an_extra_full_copy(tmp_path):
     # The raw bytes and decoded JSON text may coexist. Chunk accumulation must
     # not leave a third full copy alive during decoding.
     assert peak < 2 * MAX_JSON_ARTIFACT_BYTES + 512 * 1024
+
+
+def test_only_snapshot_retains_original_bytes_while_building_json_objects(tmp_path, monkeypatch):
+    path = tmp_path / "padded.json"
+    raw = b'{"result": 1}' + b" " * (1024 * 1024)
+    path.write_bytes(raw)
+    digest = hashlib.sha256(raw).hexdigest()
+    live_bytes = []
+    decode = artifacts.loads_finite_json
+
+    def observe(text):
+        live_bytes.append(tracemalloc.get_traced_memory()[0])
+        return decode(text)
+
+    monkeypatch.setattr(artifacts, "loads_finite_json", observe)
+    for reader in (read_json_object, read_json_object_snapshot):
+        tracemalloc.start()
+        try:
+            value = reader(path, expected_sha256=digest)
+        finally:
+            tracemalloc.stop()
+        if reader is read_json_object:
+            assert value == {"result": 1}
+        else:
+            assert value.content == raw
+            assert value.payload == {"result": 1}
+    assert live_bytes[1] - live_bytes[0] > len(raw) * 3 // 4
 
 
 def test_oversize_read_stops_at_one_overflow_byte_without_prefetch(tmp_path, monkeypatch):

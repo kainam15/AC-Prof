@@ -83,19 +83,11 @@ class JsonObjectSnapshot:
     payload: dict
 
 
-def read_json_object_snapshot(
-    path: str | Path, *, label: str = "artifact", expected_sha256: str | None = None,
-    bounded: bool = True, cancelled: Callable[[], bool] | None = None,
-    byte_budget: list[int] | None = None,
-) -> JsonObjectSnapshot:
-    """Read and validate JSON without reopening it to obtain its byte identity.
-
-    An optional shared budget counts received bytes, including at most one
-    overflow probe. Growing records may opt out of the metadata limit while
-    retaining cancellation, any shared budget and content validation.
-    """
+def _read_json_bytes(
+    source: Path, label: str, *, expected_sha256: str | None, bounded: bool,
+    cancelled: Callable[[], bool] | None, byte_budget: list[int] | None,
+) -> bytes:
     check_cancelled(cancelled)
-    source = Path(path)
     if byte_budget is not None and byte_budget[0] <= 0:
         raise ValueError(f"{source}: {label} read byte budget exceeded")
     # Raw reads keep the overflow probe from prefetching beyond its byte budget.
@@ -123,15 +115,43 @@ def read_json_object_snapshot(
         content = received.getvalue()
     if expected_sha256 is not None and hashlib.sha256(content).hexdigest() != expected_sha256:
         raise ValueError(f"{source}: {label} hash does not match expected SHA256")
+    return content
+
+
+def _json_text(source: Path, label: str, content: bytes) -> str:
+    # Historical metadata may carry one UTF-8 BOM; the byte limit includes it.
     try:
-        # Historical metadata may carry one UTF-8 BOM; the byte limit includes it.
-        payload = loads_finite_json(content.decode("utf-8-sig"))
-    except (UnicodeError, ValueError, RecursionError) as exc:
+        return content.decode("utf-8-sig")
+    except UnicodeError as exc:
+        raise ValueError(f"{source}: invalid {label} JSON: {exc}") from exc
+
+
+def _json_object(source: Path, label: str, text: str, cancelled: Callable[[], bool] | None) -> dict:
+    try:
+        payload = loads_finite_json(text)
+    except (ValueError, RecursionError) as exc:
         raise ValueError(f"{source}: invalid {label} JSON: {exc}") from exc
     if not isinstance(payload, dict):
         raise ValueError(f"{source}: top-level JSON value must be an object")
     check_cancelled(cancelled)
-    return JsonObjectSnapshot(content, payload)
+    return payload
+
+
+def read_json_object_snapshot(
+    path: str | Path, *, label: str = "artifact", expected_sha256: str | None = None,
+    bounded: bool = True, cancelled: Callable[[], bool] | None = None,
+    byte_budget: list[int] | None = None,
+) -> JsonObjectSnapshot:
+    """Read and validate JSON without reopening it to obtain its byte identity.
+
+    An optional shared budget counts received bytes, including at most one
+    overflow probe. Growing records may opt out of the metadata limit while
+    retaining cancellation, any shared budget and content validation.
+    """
+    source = Path(path)
+    content = _read_json_bytes(source, label, expected_sha256=expected_sha256, bounded=bounded,
+                               cancelled=cancelled, byte_budget=byte_budget)
+    return JsonObjectSnapshot(content, _json_object(source, label, _json_text(source, label, content), cancelled))
 
 
 def read_json_object(
@@ -140,10 +160,12 @@ def read_json_object(
     byte_budget: list[int] | None = None,
 ) -> dict:
     """Read finite JSON, optionally checking its exact bytes and shared budget."""
-    return read_json_object_snapshot(
-        path, label=label, expected_sha256=expected_sha256, bounded=bounded,
-        cancelled=cancelled, byte_budget=byte_budget,
-    ).payload
+    source = Path(path)
+    content = _read_json_bytes(source, label, expected_sha256=expected_sha256, bounded=bounded,
+                               cancelled=cancelled, byte_budget=byte_budget)
+    text = _json_text(source, label, content)
+    del content
+    return _json_object(source, label, text, cancelled)
 
 
 def require_schema_version(payload: Any, expected: int, artifact: str) -> None:
