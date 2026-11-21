@@ -8,7 +8,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from acprof.artifacts import atomic_write_json
+from acprof.artifacts import atomic_write_json, file_sha256
 from acprof.host import run_state
 from acprof.host.images.runtime import ImageInfo
 from acprof.host.measurement import window_recovery
@@ -17,15 +17,38 @@ from tests.support.inference_configuration_fixture import frozen_task, write_fro
 
 
 @pytest.fixture
-def frozen_state(tmp_path, monkeypatch):
+def frozen_state(tmp_path, monkeypatch, request):
     monkeypatch.setattr(run_state, "MEASUREMENT_LOCK_ROOT", tmp_path)
     monkeypatch.setattr(run_state, "host_identity", lambda _: {"fixture": "fixed"})
     options = {"cpus": "1", "mems": "4", "gpus": "off", "warmup": 0, "repeat": 1}
-    return write_frozen_run(tmp_path / "experiment", options, frozen_task())
+    return write_frozen_run(tmp_path / "experiment", options, frozen_task(generation=getattr(request, "param", None)))
 
 
 def tree_bytes(directory):
     return {path.relative_to(directory): path.read_bytes() for path in directory.rglob("*") if path.is_file()}
+
+
+@pytest.mark.parametrize("frozen_state", [{"max_length": 10}], indirect=True)
+def test_resume_requires_proof_that_the_frozen_total_was_effective(frozen_state, monkeypatch):
+    state = frozen_state
+    assert run_state.validate_resume(state.directory, state.data, project_dir=".") != "preparation"
+    validation_path = state.layout.path("runtime_validation.json")
+    validation = json.loads(validation_path.read_text())
+    del validation["devices"]["off"]["consumer_receipt"]["calls"][0]["parameters"]["max_new_tokens"]
+    atomic_write_json(validation_path, validation)
+    meta_path = state.layout.path("static_meta.json")
+    meta = json.loads(meta_path.read_text())
+    meta["runtime_validation"] = validation
+    atomic_write_json(meta_path, meta)
+    state.data["artifacts"][str(meta_path.relative_to(state.directory))] = file_sha256(meta_path)
+    atomic_write_json(state.path, state.data)
+    before = tree_bytes(state.directory)
+    repair = Mock()
+    monkeypatch.setattr(window_recovery, "repair_result_projections", repair)
+    with pytest.raises(run_state.RunStateError, match="max_new_tokens"):
+        run_state.validate_resume(state.directory, run_state.load_run_state(state.directory), project_dir=".", repair=True)
+    repair.assert_not_called()
+    assert tree_bytes(state.directory) == before
 
 
 @pytest.mark.parametrize("change", ["digest", "values", "model_binding", "plan", "metadata", "receipt"])

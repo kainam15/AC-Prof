@@ -35,11 +35,20 @@ def get_model_max_length(pipe: Any) -> int | None:
     return min(known) if known else None
 
 
-def _single_text_budget(max_len: int, special_tokens: int, reserved_tokens: int) -> int:
-    available = max_len - special_tokens - reserved_tokens
+def _single_text_budget(max_len: int, special_tokens: int, reserved_tokens: int,
+                        max_total_tokens: int | None) -> tuple[int, str]:
+    if max_total_tokens is not None and max_total_tokens > max_len:
+        raise ValueError(f"max_length={max_total_tokens} exceeds the usable model context limit of {max_len}")
+    limit = max_len if max_total_tokens is None else max_total_tokens
+    available = limit - special_tokens - reserved_tokens
     if reserved_tokens and available < 1:
-        raise ValueError("max_new_tokens leaves no input token budget within the model context limit")
-    return max(1, available)
+        name = "max_new_tokens" if max_total_tokens is None else "max_length"
+        raise ValueError(f"{name} leaves no input token budget within the model context limit")
+    available = max(1, available)
+    detail = f"max_length={max_len},available={available}"
+    if max_total_tokens is not None:
+        detail += f",generation_max_length={max_total_tokens}"
+    return available, detail
 
 
 def _prepare_fill_mask_input(
@@ -86,6 +95,7 @@ def truncate_single_text(
     text: str,
     task_type: str,
     reserved_tokens: int = 0,
+    *, max_total_tokens: int | None = None,
 ) -> tuple[str, int | None, bool | None, str]:
     tokenizer = getattr(pipe, "tokenizer", None)
     if not tokenizer:
@@ -105,7 +115,7 @@ def truncate_single_text(
         return text, len(token_ids), None, "max_length_unknown"
 
     special_tokens = tokenizer.num_special_tokens_to_add(pair=False)
-    available = _single_text_budget(max_len, int(special_tokens), reserved_tokens)
+    available, detail = _single_text_budget(max_len, int(special_tokens), reserved_tokens, max_total_tokens)
     truncated_by_limit = len(token_ids) > available
     if truncated_by_limit:
         if task_type == "fill-mask":
@@ -125,11 +135,8 @@ def truncate_single_text(
                 "mask token while truncating fill-mask input"
             )
 
-    reason = (
-        f"truncated_to_model_limit(max_length={max_len},available={available})"
-        if truncated_by_limit
-        else f"within_model_limit(max_length={max_len},available={available})"
-    )
+    status = "truncated_to_model_limit" if truncated_by_limit else "within_model_limit"
+    reason = f"{status}({detail})"
     if reserved_tokens:
         reason += f"; reserved_output_tokens={reserved_tokens}"
     return text, len(token_ids), truncated_by_limit, reason
@@ -167,7 +174,7 @@ def truncate_qa_context(
 
 
 def max_effective_single_text_length(
-    pipe: Any, reserved_tokens: int = 0,
+    pipe: Any, reserved_tokens: int = 0, *, max_total_tokens: int | None = None,
 ) -> tuple[int | None, str]:
     tokenizer = getattr(pipe, "tokenizer", None)
     if not tokenizer:
@@ -178,8 +185,8 @@ def max_effective_single_text_length(
         return None, "max_length_unknown"
 
     special_tokens = tokenizer.num_special_tokens_to_add(pair=False)
-    available = _single_text_budget(max_len, int(special_tokens), reserved_tokens)
-    reason = f"max_effective_single_text_length(max_length={max_len},available={available})"
+    available, detail = _single_text_budget(max_len, int(special_tokens), reserved_tokens, max_total_tokens)
+    reason = f"max_effective_single_text_length({detail})"
     if reserved_tokens:
         reason += f"; reserved_output_tokens={reserved_tokens}"
     return available, reason

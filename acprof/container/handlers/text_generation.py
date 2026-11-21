@@ -7,6 +7,8 @@ from collections.abc import Mapping
 from types import SimpleNamespace
 from typing import Any
 
+from acprof.tasks.workloads import generation_length_resets
+
 
 def text_output_metrics(tokenizer: Any, raw_output: Any) -> dict[str, int | None]:
     """Summarize all returned texts, independently of generated token IDs."""
@@ -69,7 +71,7 @@ def generate(context, inputs):
     encoded = {name: tensor.to(pipe.model.device) for name, tensor in encoded.items()}
     params = dict(inputs["params"])
     with torch.inference_mode():
-        tokens = pipe.model.generate(**encoded, **params)
+        tokens = pipe.model.generate(**encoded, **params, **generation_length_resets(params))
     # Transfer and decode follow the same task-pipeline protocol as the existing
     # handler. Evidence counts generated IDs, never retokenizes decoded text.
     tokens = tokens.cpu() if callable(getattr(tokens, "cpu", None)) else tokens

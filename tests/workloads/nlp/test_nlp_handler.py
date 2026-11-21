@@ -263,6 +263,57 @@ class TestNLPTaskCompatibility:
         assert (processed["_effective_input_scale"]) == (9)
         assert not (processed["_truncated_by_limit"])
 
+    @pytest.mark.parametrize(("context_limit", "params", "expected"), [
+        (16, {"max_length": 10}, 7),
+        (128, {"max_length": 10, "min_new_tokens": 3}, 5),
+        (16, {"max_length": 16, "min_new_tokens": 0}, 13),
+    ])
+    def test_causal_total_length_bounds_metadata_probe_and_generate(self, context_limit, params, expected):
+        ctx = self.context("text-generation", limit=context_limit)
+        ctx["pipeline"].model = SimpleNamespace(config=SimpleNamespace(is_encoder_decoder=False))
+        ctx["pipeline"].generation_config = SimpleNamespace(max_new_tokens=256)
+        raw = {"text": "word " * expected, "params": params.copy()}
+        assert self.handler.get_scale_metadata(ctx, raw)["max_effective_input_scale"] == expected
+        prepared = self.handler.preprocess(ctx, raw)
+        assert prepared["_effective_input_scale"] == expected
+        assert prepared["_truncated_by_limit"] is False
+        self.handler.predict(ctx, prepared)
+        kwargs = ctx["pipeline"].call_args.kwargs
+        assert kwargs["max_length"] == params["max_length"]
+        assert kwargs["max_new_tokens"] is None
+        assert ctx["pipeline"].generation_config.max_new_tokens == 256
+        assert raw["params"] == params
+        over = self.handler.preprocess(ctx, {**raw, "text": "word " * (expected + 1)})
+        assert over["_truncated_by_limit"] is True
+        assert over["_effective_input_scale"] == expected
+
+    @pytest.mark.parametrize(("params", "message"), [
+        ({"max_length": 3}, "max_length.*input token budget"),
+        ({"max_length": 10, "min_new_tokens": 8}, "max_length.*input token budget"),
+        ({"max_length": 17}, "max_length=17.*context limit.*16"),
+        ({"max_length": True}, "max_length must be a positive integer"),
+        ({"max_length": 10, "min_new_tokens": -1}, "min_new_tokens must be a nonnegative integer"),
+    ])
+    def test_unusable_causal_total_lengths_fail_in_both_probes(self, params, message):
+        ctx = self.context("text-generation", limit=16)
+        raw = {"text": "one", "params": params}
+        for check in (self.handler.get_scale_metadata, self.handler.preprocess):
+            with pytest.raises(ValueError, match=message):
+                check(ctx, raw)
+        ctx["pipeline"].assert_not_called()
+
+    def test_total_decoder_length_leaves_encoder_source_intact(self):
+        ctx = self.context("text2text-generation", limit=12)
+        raw = {"text": "one two three four five six seven eight", "params": {"max_length": 5}}
+        assert self.handler.get_scale_metadata(ctx, raw)["max_effective_input_scale"] == 10
+        assert self.handler.preprocess(ctx, raw)["_truncated_by_limit"] is False
+
+    def test_total_length_does_not_establish_an_unknown_model_capacity(self):
+        ctx = self.context("text-generation", limit=10**30)
+        raw = {"text": "one two", "params": {"max_length": 10}}
+        assert self.handler.get_scale_metadata(ctx, raw)["max_effective_input_scale"] is None
+        assert self.handler.preprocess(ctx, raw)["_truncated_by_limit"] is None
+
     def test_generation_rejects_output_budget_that_fills_entire_context(self):
         ctx = self.context("text-generation", limit=8)
         with pytest.raises(ValueError, match="max_new_tokens.*input token budget"):

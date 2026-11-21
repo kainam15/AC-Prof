@@ -27,6 +27,7 @@ from acprof.container.handlers.text_inputs import (
 from acprof.container.load_policy import load_policy
 from acprof.input_budget import check_nlp_input, positive_integer
 from acprof.models.spec import pipeline_task
+from acprof.tasks.workloads import generation_length_resets
 
 # Tasks that generate text output
 _GENERATIVE_TASKS = {
@@ -38,14 +39,18 @@ _GENERATIVE_TASKS = {
 class NLPHandler(BaseHandler):
 
     @staticmethod
-    def _generation_token_reserve(pipe: Any, task_type: str, params: dict[str, Any]) -> int:
+    def _generation_input_limits(pipe: Any, task_type: str, params: dict[str, Any]) -> tuple[int, int | None]:
+        """Return the output reservation and any explicit prompt-plus-completion limit."""
         config = getattr(getattr(pipe, "model", None), "config", None)
         if task_type != "text-generation" or getattr(config, "is_encoder_decoder", False) is True:
-            return 0
-        value = params.get("max_new_tokens", 64)
-        if isinstance(value, bool) or not isinstance(value, int) or value < 1:
-            raise ValueError("max_new_tokens must be a positive integer")
-        return value
+            return 0, None
+        if "max_length" in params and "max_new_tokens" not in params:
+            total = positive_integer(params["max_length"], "max_length", allow_integral_float=False)
+            minimum = params.get("min_new_tokens", 0)
+            if type(minimum) is not int or minimum < 0:
+                raise ValueError("min_new_tokens must be a nonnegative integer")
+            return max(1, minimum), total
+        return positive_integer(params.get("max_new_tokens", 64), "max_new_tokens", allow_integral_float=False), None
 
     def load(
         self,
@@ -288,11 +293,9 @@ class NLPHandler(BaseHandler):
                 "_probe_reason": reason,
             }
 
+        reserve, total = self._generation_input_limits(pipe, task_type, params)
         text, effective_input_scale, truncated_by_limit, reason = truncate_single_text(
-            pipe,
-            text,
-            task_type,
-            reserved_tokens=self._generation_token_reserve(pipe, task_type, params),
+            pipe, text, task_type, reserved_tokens=reserve, max_total_tokens=total,
         )
         return {
             **common,
@@ -329,8 +332,8 @@ class NLPHandler(BaseHandler):
                 "reason": reason,
             }
 
-        reserve = self._generation_token_reserve(pipe, task_type, raw_input.get("params", {}))
-        available, reason = max_effective_single_text_length(pipe, reserved_tokens=reserve)
+        reserve, total = self._generation_input_limits(pipe, task_type, raw_input.get("params", {}))
+        available, reason = max_effective_single_text_length(pipe, reserved_tokens=reserve, max_total_tokens=total)
         return {
             "input_scale_type": "seq_length",
             "max_effective_input_scale": available,
@@ -403,6 +406,7 @@ class NLPHandler(BaseHandler):
             return pipe(
                 request_inputs,
                 **generation_params,
+                **generation_length_resets(generation_params),
                 truncation=True,
                 **batch_kwargs,
             )

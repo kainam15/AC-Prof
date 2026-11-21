@@ -226,6 +226,11 @@ NLP 任务在生成确认配置前检查清单参数是否适用于所选接口�
 状态区分 verified、mismatch、unverified、not_applicable 和 not_run，并记录可验证的字段范围。
 原生 NLP 独立验证临时观察实际 `model.generate` 边界的 kwargs／GenerationConfig；
 没有调用记录、吞掉不匹配后重试或只回显请求，都不能生成通过的 consumer receipt。
+指定 `max_length` 或 `min_length` 时，原生文本生成会在每次调用中显式清除对应的
+`max_new_tokens` 或 `min_new_tokens` 默认值，并在验证记录中保存实际传入的空值。
+旧记录若只证明传入了总长度，续跑时会提示缺少这项证据。请保留原结果并用当前版本新建实验。
+这项检查依据 [Transformers 生成长度的优先级](https://github.com/huggingface/transformers/blob/753d61104116eefc8ffc977327b441ee0c8d599f/src/transformers/generation/utils.py#L1647-L1692)。
+
 未登记消费者的 receipt 为 not_applicable／consumer_not_declared，不能标为 verified。
 关键显式约束没有可用验证方法时，应明确阻断，不能标为 verified；非关键观察缺口按参数声明保留未知。
 未消费的显式参数和不一致的关键参数都阻止正式采集。上游 API 若对未知参数仅警告或忽略，适配层须补充检查。

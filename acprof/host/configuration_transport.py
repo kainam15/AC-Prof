@@ -11,7 +11,7 @@ from acprof.models.inference_configuration import (
     encode_inference_configuration,
     validate_configuration_binding,
 )
-from acprof.tasks.workloads import EMBEDDING_INTERFACES
+from acprof.tasks.workloads import EMBEDDING_INTERFACES, generation_length_resets
 
 CONFIGURATION_ENV = "ACPROF_INFERENCE_CONFIGURATION"
 TASK_ENV = "ACPROF_INFERENCE_TASK_ID"
@@ -217,6 +217,7 @@ def verify_runtime_configuration(task_info: Any, report: dict, *, expected_devic
                 valid = isinstance(calls, list) and bool(calls)
                 if isinstance(calls, list) and calls:
                     generation = inference or frozen["tasks"][active_task_id]["generation"]
+                    resets = {} if inference else generation_length_resets(generation)
                     for index, call in enumerate(calls):
                         path = f"{field}.calls[{index}].parameters"
                         parameters = call.get("parameters") if isinstance(call, dict) else None
@@ -225,6 +226,8 @@ def verify_runtime_configuration(task_info: Any, report: dict, *, expected_devic
                         for name, value in generation.items():
                             verify_parameter(f"{path}.{name}", parameters.get(name), value,
                                 sources={consumer_specs[name].validation_method} if consumer_specs else None)
+                        for name in resets:
+                            verify_parameter(f"{path}.{name}", parameters.get(name), None, sources={"generate.kwargs"})
             elif valid:
                 generation = evidence.get("generation")
                 valid = (isinstance(generation, dict) and generation.get("status") == "not_applicable"

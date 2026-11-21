@@ -19,6 +19,7 @@ from acprof.models.inference_configuration import (
     declared_generation_consumer,
     validate_frozen_configuration,
 )
+from acprof.tasks.workloads import generation_length_resets
 
 _DTYPE_NAMES = {
     "torch.float32": "FP32", "torch.float16": "FP16",
@@ -313,10 +314,14 @@ def capture_generation_consumption(session):
         receipt.update(status="not_applicable", generation={"status": "not_applicable", "reason": "consumer_not_declared"})
         yield receipt
         return
-    model, operation, mapping, method = (
-        _task_consumer(session, expected) if "_frozen_inference" in session.context else
-        (_model(session.context), "generate", {name: name for name in expected}, "generate.kwargs")
-    )
+    resets: dict[str, None] = {}
+    if "_frozen_inference" in session.context:
+        model, operation, mapping, method = _task_consumer(session, expected)
+    else:
+        resets = generation_length_resets(expected)
+        expected = {**expected, **resets}
+        model, operation, method = _model(session.context), "generate", "generate.kwargs"
+        mapping = {name: name for name in expected}
     generate = getattr(model, operation, None)
     consumer = "model.generate" if operation == "generate" else method.removesuffix(".kwargs")
     if not callable(generate):
@@ -331,6 +336,9 @@ def capture_generation_consumption(session):
             actual, source = (_observed_generation_value(model, kwargs, argument) if operation == "generate"
                               else (kwargs.get(argument, _MISSING), method))
             status = "unverified" if actual is _MISSING else "verified" if _same_value(value, actual) else "mismatch"
+            if name in resets and actual is None and source != "generate.kwargs":
+                # Transformers can still fill a config-level None from model defaults.
+                status = "unverified"
             observation = {"status": status, "expected": copy.deepcopy(value), "source": source}
             if actual is not _MISSING:
                 try:

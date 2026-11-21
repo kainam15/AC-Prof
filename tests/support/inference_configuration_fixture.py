@@ -16,8 +16,9 @@ if TYPE_CHECKING:
     from acprof.host.run_state import RunState
 
 
-def frozen_task(*, tokens: int = 7) -> TaskInfo:
-    selected = parse_task("text-generation", {"max_new_tokens": tokens}, encoder_decoder=False, source="fixture")
+def frozen_task(*, tokens: int = 7, generation: dict | None = None) -> TaskInfo:
+    selected = parse_task("text-generation", {"max_new_tokens": tokens} if generation is None else generation,
+                          encoder_decoder=False, source="fixture")
     task = TaskInfo(
         "fixture/frozen", "text-generation", "nlp", "transformers_model", "transformers",
         "a" * 40, "fixture", runtime_profile_id="nlp-cpu", model_adapter="family-default",
@@ -46,6 +47,10 @@ def frozen_task(*, tokens: int = 7) -> TaskInfo:
 
 def verified_runtime_report(task: TaskInfo) -> dict:
     digest = task.inference_configuration["identity_sha256"]
+    generation = task.selected_tasks[0]["config"].get("generation", {}).copy()
+    for total, new in (("max_length", "max_new_tokens"), ("min_length", "min_new_tokens")):
+        if total in generation:
+            generation.setdefault(new, None)
     return {
         "status": "ok", "device": "cpu", "inference_configuration_sha256": digest,
         "configuration_validation": {
@@ -64,7 +69,7 @@ def verified_runtime_report(task: TaskInfo) -> dict:
             "calls": [{"parameters": {
                 name: {"status": "verified", "expected": copy.deepcopy(value), "observed": copy.deepcopy(value),
                        "source": "generate.kwargs"}
-                for name, value in task.selected_tasks[0]["config"].get("generation", {}).items()
+                for name, value in generation.items()
             }}],
         },
     }
@@ -81,7 +86,8 @@ def write_frozen_run(directory: Path, options: dict, task: TaskInfo) -> RunState
     state = RunState(directory, options, resume=False, project_dir=".")
     try:
         plan_path = state.layout.path("input_scale_plan.json")
-        plan_sha = write_scale_plan_file(str(plan_path), task, [{"input_scale": 1, "payload": {"text": "fixture"}}])
+        payload = {"text": "fixture", "params": task.selected_tasks[0]["config"].get("generation", {})}
+        plan_sha = write_scale_plan_file(str(plan_path), task, [{"input_scale": 1, "payload": payload}])
         validation = {
             "schema_version": 1, "status": "ok",
             "inference_configuration_sha256": task.inference_configuration["identity_sha256"],

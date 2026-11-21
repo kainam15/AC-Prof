@@ -124,8 +124,6 @@ def plan_nlp_auto_scales(
         metadata_payload = workload_gen.generate(1.0)
         scale_meta = request_nlp_scale_meta(session, metadata_payload)
         max_effective = int(scale_meta["max_effective_input_scale"])
-        target_scales = integer_auto_scales(max_effective, count=AUTO_INPUT_SCALE_COUNT)
-
         probe_cache: dict[int, dict[str, Any]] = {}
 
         def probe_word_count(word_count: int) -> dict[str, Any]:
@@ -190,18 +188,29 @@ def plan_nlp_auto_scales(
 
         entries: list[dict[str, Any]] = []
         actual_scales: list[float] = []
-        previous_scale = float("-inf")
-        for target_scale in target_scales:
-            candidate = find_best_candidate(int(target_scale))
+        if max_effective < AUTO_INPUT_SCALE_COUNT:
+            # With a small budget, inspect every candidate word count. Special
+            # tokens or a fixed prefix can make some positive lengths unreachable.
+            by_scale: dict[float, dict[str, Any]] = {}
+            for word_count in range(1, max_effective + 1):
+                result = probe_word_count(word_count)
+                scale = result["effective_input_scale"]
+                if not probe_exceeds_limit(result) and 0 < scale <= max_effective:
+                    by_scale.setdefault(scale, result)
+            if not by_scale:
+                raise RuntimeError(f"no non-truncated NLP payload fits the input limit of {max_effective}")
+            candidates = ((scale, by_scale[scale]) for scale in sorted(by_scale))
+        else:
+            targets = integer_auto_scales(max_effective, count=AUTO_INPUT_SCALE_COUNT)
+            candidates = ((target, find_best_candidate(int(target))) for target in targets)
+        for target_scale, candidate in candidates:
             actual_scale = float(candidate["effective_input_scale"])
-            if actual_scale <= previous_scale:
+            if actual_scales and actual_scale <= actual_scales[-1]:
                 raise RuntimeError(
                     "failed to derive 6 strictly increasing NLP input scales: "
                     f"target={format_scale_value(target_scale)} produced "
-                    f"{format_scale_value(actual_scale)} after "
-                    f"{format_scale_value(previous_scale)}"
+                    f"{format_scale_value(actual_scale)} after {format_scale_value(actual_scales[-1])}"
                 )
-            previous_scale = actual_scale
             actual_scales.append(actual_scale)
             entries.append({
                 "input_scale": actual_scale,

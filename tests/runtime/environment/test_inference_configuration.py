@@ -229,6 +229,33 @@ def test_parameter_replacement_fails_at_generate_boundary_before_inference():
     assert "generate" not in vars(model)
 
 
+@pytest.mark.parametrize(("total", "new"), [("max_length", "max_new_tokens"), ("min_length", "min_new_tokens")])
+def test_total_generation_length_receipt_checks_the_competing_setting(total, new):
+    generation = {"max_new_tokens": 7, "do_sample": False}
+    if total == "max_length":
+        del generation["max_new_tokens"]
+    generation[total] = 5
+    instance = session(frozen=frozen_configuration(generation=generation))
+    model = instance.context["model"]
+    setattr(model.generation_config, new, 4)
+    with pytest.raises(RuntimeFailure) as caught:
+        with verification.capture_generation_consumption(instance):
+            model.generate(**generation)
+    assert caught.value.failure.reason_code == "inference_configuration_mismatch"
+    assert model.calls == []
+    with pytest.raises(RuntimeFailure) as implicit:
+        with verification.capture_generation_consumption(instance):
+            model.generate(**generation, generation_config=SimpleNamespace(**{new: None}))
+    assert implicit.value.failure.reason_code == "inference_configuration_unverified"
+    assert model.calls == []
+    with verification.capture_generation_consumption(instance) as receipt:
+        model.generate(**generation, **{new: None})
+    report = verification.verify_generation_consumption(instance, receipt)
+    assert report["calls"][0]["parameters"][new] == {
+        "status": "verified", "expected": None, "observed": None, "source": "generate.kwargs",
+    }
+
+
 def test_handler_success_without_generate_is_not_consumer_verification():
     instance = session()
     with verification.capture_generation_consumption(instance) as receipt:
@@ -255,7 +282,7 @@ def test_nlp_handler_keeps_frozen_kwargs_and_does_not_add_legacy_defaults(monkey
     monkeypatch.setattr(nlp, "check_nlp_input", lambda *args: None)
     output = nlp.NLPHandler().predict(instance.context, {"text": "hello", "params": params})
     assert output == [1]
-    pipe.assert_called_once_with("hello", max_length=9, truncation=True)
+    pipe.assert_called_once_with("hello", max_length=9, max_new_tokens=None, truncation=True)
     assert params == {"max_length": 9}
 
 

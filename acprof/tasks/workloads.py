@@ -27,6 +27,7 @@ GENERATIVE_INTERFACES = frozenset({"text-generation", "text2text-generation", "s
                                   "translation", "conversational"})
 EMBEDDING_INTERFACES = frozenset({"feature-extraction", "sentence-similarity"})
 TEMPLATE_VERSION = "acprof-task-text-v1"
+_LENGTH_PARAMETERS = (("max_length", "max_new_tokens"), ("min_length", "min_new_tokens"))
 CORPORA = {
     "translation": "The library opens every morning. People read books and learn about the world. ",
     "summarization": ("The town opened a new public library on Monday. It offers books, study rooms "
@@ -129,17 +130,22 @@ def parse_task(name: str, params: dict, *, encoder_decoder: bool, source: str, g
 def merge_generation_parameters(defaults: dict, overrides: dict) -> dict:
     """A higher-priority length spelling replaces the inherited alternate spelling."""
     merged = copy.deepcopy(defaults)
-    for total, new in (("max_length", "max_new_tokens"), ("min_length", "min_new_tokens")):
+    for total, new in _LENGTH_PARAMETERS:
         if total in overrides and new in overrides:
             raise ValueError(f"{total} conflicts with {new} in the same explicit configuration")
         if total in overrides or new in overrides:
             merged.pop(total, None)
             merged.pop(new, None)
     merged.update(copy.deepcopy(overrides))
-    for total, new in (("max_length", "max_new_tokens"), ("min_length", "min_new_tokens")):
+    for total, new in _LENGTH_PARAMETERS:
         if new in merged:
             merged.pop(total, None)
     return merged
+
+
+def generation_length_resets(params: dict) -> dict[str, None]:
+    """Explicit total lengths must clear higher-priority Transformers defaults at generate()."""
+    return {new: None for total, new in _LENGTH_PARAMETERS if total in params and new not in params}
 
 
 def validate_generation(params: dict) -> None:

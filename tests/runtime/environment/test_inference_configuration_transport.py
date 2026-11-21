@@ -99,6 +99,24 @@ def test_readiness_accepts_loading_observation_without_claiming_consumer_validat
     verify_runtime_configuration(replace(task, inference_configuration={}), {})
 
 
+@pytest.mark.parametrize(("total", "new"), [("max_length", "max_new_tokens"), ("min_length", "min_new_tokens")])
+def test_host_requires_each_total_length_call_to_rule_out_an_inherited_override(total, new):
+    task = frozen_task(generation={total: 10})
+    report = verified_runtime_report(task)
+    calls = report["consumer_receipt"]["calls"]
+    calls.append(copy.deepcopy(calls[0]))
+    del calls[1]["parameters"][new]
+    observed = {"status": "verified", "expected": None, "observed": None, "source": "generate.kwargs"}
+    calls[0]["parameters"][new] = observed
+    for old_observation in (None, {**observed, "observed": 256}, {**observed, "source": "model.generation_config"}):
+        if old_observation is not None:
+            calls[1]["parameters"][new] = old_observation
+        with pytest.raises(RuntimeFailure, match=rf"calls\[1\].*{new}"):
+            verify_runtime_configuration(task, report, expected_device="off", require_consumers=True)
+    calls[1]["parameters"][new] = observed
+    verify_runtime_configuration(task, report, expected_device="off", require_consumers=True)
+
+
 def test_foreign_input_plan_is_rejected_before_any_runtime_dispatch():
     task = frozen_task()
     with pytest.raises(RuntimeFailure) as error:

@@ -71,7 +71,8 @@ def test_direct_seq2seq_generation_counts_actual_tokens_and_respects_parameters(
         def tolist(self):
             return self.rows
 
-    config = SimpleNamespace(eos_token_id=1, decoder_start_token_id=0, is_encoder_decoder=True)
+    config = SimpleNamespace(eos_token_id=1, decoder_start_token_id=0, is_encoder_decoder=True,
+                             max_new_tokens=256, min_new_tokens=4)
     output = Tensor([[0, 17, 19, 1], [0, 21, 1, 0]])
     model = Mock(device="cpu", config=config, generation_config=config)
     model.generate.return_value = output
@@ -79,12 +80,17 @@ def test_direct_seq2seq_generation_counts_actual_tokens_and_respects_parameters(
                                    "attention_mask": Tensor([[1, 1, 1]] * 2)})
     tokenizer.batch_decode.return_value = ["Hallo Welt", "Hallo"]
     ctx = {"pipeline": SimpleNamespace(model=model, tokenizer=tokenizer, generation_config=config)}
+    params = {"max_length": 10, "min_length": 2, "num_beams": 4}
     with patch.dict("sys.modules", {"torch": MagicMock()}):
         result = generate(ctx, {"text": "translate English to German: Hello world", "batch_size": 2,
-                                "params": {"max_length": 10, "num_beams": 4}})
+                                "params": params.copy()})
     assert result == [{"generated_text": "Hallo Welt"}, {"generated_text": "Hallo"}]
     assert model.generate.call_args.kwargs["num_beams"] == 4
-    assert "max_new_tokens" not in model.generate.call_args.kwargs
+    assert model.generate.call_args.kwargs["max_new_tokens"] is None
+    assert model.generate.call_args.kwargs["min_new_tokens"] is None
+    assert config.max_new_tokens == 256
+    assert config.min_new_tokens == 4
+    assert ctx["generation_evidence"]["generation_parameters"] == params
     assert ctx["generation_evidence"]["actual_input_tokens"] == 6
     assert ctx["generation_evidence"]["actual_output_tokens"] == 5
     assert ctx["generation_evidence"]["actual_output_tokens_per_sequence"] == [3, 2]
