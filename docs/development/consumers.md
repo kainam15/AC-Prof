@@ -138,6 +138,8 @@ manifest 摘要，读取时校验同一份 manifest，各数据层只解析和�
 结果快照，聚合与条件审计共享已校验的行；条件快照供组间和组内检查复用。
 只保留当前 run 与两组基准所需的快照，不建立跨调用缓存。统计结束后统一复核来源 hash、
 manifest 引用的数据内容和读取前记录的元数据身份，复用证据不削弱对并发改写或数据损坏的拒绝行为。
+`acprof stats` 与采集后的自动窗口统计使用同一份私有结果快照计算区间和质量摘要，每个结果层只解析一次。
+报告返回前复核清单与各层校验和。v1 同时核对仍在原处的导入源 CSV，v3 在 publication lock 内校验已提交前缀和 pending 事务。
 统计参数与指标资格由 `validate_window_options` 统一校验，独立实验比较不计算随后丢弃的
 实验内窗口区间；run 均值的等权重和独立 run bootstrap 算法、随机种子保持不变。
 校验与计算分离参考 [SciPy resampling](https://github.com/scipy/scipy/blob/main/scipy/stats/_resampling.py)

@@ -1,11 +1,11 @@
-"""Private audit snapshots verify source bytes without reparsing all layers."""
+"""Audits and window statistics verify private snapshots without reparsing layers."""
 import json
 from collections import Counter
 from pathlib import Path
 
 import pytest
 
-from acprof.analysis import audit
+from acprof.analysis import audit, statistics_report
 from acprof.results import csv as result_csv
 from acprof.results.layout import ArtifactLayout
 from tests.analysis.comparison.test_comparison_source_integrity import incremental_copy, legacy_snapshot
@@ -25,9 +25,13 @@ def source(tmp_path, request):
     return root / "result_layers.json"
 
 
-def test_private_snapshot_parses_each_layer_only_once(source, monkeypatch):
-    expected = audit.audit_result(source)
-    assert expected["valid"]
+@pytest.mark.parametrize("read", [audit.audit_result, statistics_report.build_statistics_report])
+def test_private_snapshot_parses_each_layer_only_once(source, monkeypatch, read):
+    expected = read(source)
+    if read is audit.audit_result:
+        assert expected["valid"]
+    else:
+        assert expected["groups"]
     counts = Counter()
     original = result_csv.parse_result_stream
 
@@ -37,7 +41,7 @@ def test_private_snapshot_parses_each_layer_only_once(source, monkeypatch):
 
     monkeypatch.setattr(result_csv, "parse_result_stream", parse)
     monkeypatch.setattr("acprof.result_store.protocol.parse_result_stream", parse)
-    assert audit.audit_result(source) == expected
+    assert read(source) == expected
     manifest = json.loads(source.read_text())
     assert counts == Counter({source.parent / layer["path"]: 1 for layer in manifest["layers"].values()})
 
@@ -99,3 +103,24 @@ def test_private_snapshot_retains_legacy_import_validation(source, monkeypatch):
     assert report["valid"] is (version != 1)
     if version == 1:
         assert "changing_snapshot" in {issue["code"] for issue in report["issues"]}
+
+
+def test_statistics_rechecks_source_dependencies_after_audit(source, monkeypatch):
+    manifest = json.loads(source.read_bytes())
+    original = statistics_report.audit_result
+
+    def audit_then_damage(*args, **kwargs):
+        report = original(*args, **kwargs)
+        if manifest["schema_version"] == 1:
+            (source.parent / "result_all.csv").write_bytes(b"changed imported CSV")
+        elif manifest["schema_version"] == 2:
+            layer = source.parent / manifest["layers"]["summary"]["path"]
+            raw = layer.read_bytes()
+            layer.write_bytes(b"!" + raw[1:])
+        else:
+            leave_pending_replacement(ArtifactLayout.discover(source.parent), monkeypatch)
+        return report
+
+    monkeypatch.setattr(statistics_report, "audit_result", audit_then_damage)
+    with pytest.raises(ValueError, match="统计期间结果 CSV 发生变化"):
+        statistics_report.build_statistics_report(source)

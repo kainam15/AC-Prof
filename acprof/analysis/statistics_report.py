@@ -29,7 +29,7 @@ def build_statistics_report(path: Path, metrics=None, *, confidence=0.95, resamp
     report["result_csv"] = str(path.resolve())
     audit = audit_result(path, result_snapshot=snapshot, verify_result_snapshot=False)
     report.update({key: audit[key] for key in (*QUALITY_FIELDS, "run_status", "measurement_status")})
-    if not result_csv_snapshot_unchanged(snapshot):
+    if not result_csv_snapshot_unchanged(snapshot, verify_rows=False):
         raise ValueError("统计期间结果 CSV 发生变化，请采集结束后重试")
     return report
 
