@@ -8,7 +8,8 @@
 Docker / Process 统一画像：已建立 [逐字段覆盖矩阵](results/runtime-coverage.md) 与
 [统一语义契约](results/runtime-profile.md)，区分登记、实现、运行条件及硬件证据。
 共同进程树 CPU/RSS/边界计数、Process 独立 cgroup 与 GPU 遥测、准备期 CPU 拓扑已接入；
-逐指标质量已贯通审计、统计、比较与离线 HTML；[硬件发布门禁](development/ci.md)逐窗口验收必需指标的数值和采集质量，独立报告基线噪声。开销脚本支持两种 Runtime 的配对诊断。
+逐指标质量已贯通审计、统计、比较与离线 HTML。非流式窗口记录输出 Token 的请求覆盖数，整窗吞吐和每 Token 能耗要求计数完整。
+[硬件发布门禁](development/ci.md)逐窗口验收必需指标的数值和采集质量，独立报告基线噪声。开销脚本支持两种 Runtime 的配对诊断。
 两种 Runtime 已从同一次 HTTP 请求记录请求及解码后的响应正文大小，历史字段集按实验冻结。
 新实验统一使用 Best-effort Collection；[首次运行指南](usage/experiments.md#3-跑一个最小-smoke-test)从单次 CPU 运行直接进入同一结果的审计。常规能耗采集沿用 5 秒冷却、20 秒空闲基线。逐项预检、可选失败、全局状态中心和指标级可比性已接入。
 Process 在 Native Linux 按条件使用 RAPL/DRAM、整卡 NVML、PID PMU 与回环 PCAP。
@@ -47,7 +48,7 @@ CI 快速预检已覆盖 TUI 的 Profiler 选择和诊断详情、Nsys 命令及
 
 | 优先级 | 工作 | 状态与完成条件 |
 | --- | --- | --- |
-| P1 | Hugging Face / ModelScope 历史实验复用 | 本地实验与 coverage 候选保留原模型来源。准备重试、最近启动记录和命令行预填均按来源区分同名仓库。跨仓库重开 TUI 或在表单中切换仓库时会清空旧仓库带入的版本和任务选择，会话内手动编辑的字段分别保留。离线回归覆盖双向切源、候选选择、历史复用与旧设置。[模型候选与实验恢复](usage/tui-pages.md#从本地记录选择模型) |
+| P1 | Hugging Face / ModelScope 历史实验复用 | 本地实验与 coverage 候选保留原模型来源。准备重试、最近启动记录和命令行预填均按来源区分同名仓库。跨仓库重开 TUI 或在表单中切换仓库时会清空旧仓库带入的版本和任务选择，会话内手动编辑的字段分别保留。候选的成功验证标签核对所选工作负载。模型和实验选择器在主机测量锁允许时扫描。离线回归覆盖双向切源、候选选择、历史复用与旧设置。[模型候选与实验恢复](usage/tui-pages.md#从本地记录选择模型) |
 | P0 | 共享 Workload 输入校验、明确依赖方向 | 本轮已完成六族公共字段复用与两个反向依赖修复，保留任务差异和错误语义；Import Linter 契约纳入门禁。见[模块边界](development/static-checks.md)与[Workload 输入校验](development/modules.md#workload-输入校验)。 |
 | P1 | 按真实竞态改进 TUI 测试同步 | 已按操作状态等待，并以显式握手消除下载测试的一秒存活竞态；元数据概览等待自身渲染，推理配置流程覆盖参数提交、摘要确认后才继续运行；表单修正等待对应错误提示实际清除。结果／补采工作流共用切页和输入辅助，来源编辑等待本次读取结束，取消后等待新实验概览。其余等待只在有具体问题时迁移。见[TUI 条件等待](development/validation-scope.md#tui-条件等待)。 |
 | P0 / P1 | TUI 全局状态统一 | 状态栏、环境清单和详情共享具体原因文案。未启用的可选 Profiler 保留检查结果，启用后按根因计入警告。详情列出对应字段和修复建议，沿用原有重新检查和启动门禁。见[环境检查](usage/tui-interaction.md#环境检查)。 |
@@ -56,7 +57,7 @@ CI 快速预检已覆盖 TUI 的 Profiler 选择和诊断详情、Nsys 命令及
 | P1 | 首次启动待配置体验 | 模型 ID 留空时在 TUI 草稿和全局状态中显示中性「待配置」，不计入错误数；真实配置及环境错误照常提示，首次整机检查仍运行，自动实验预检等待模型填写；显式采集请求仍严格校验并定位字段。离线中英交互与回归测试覆盖，真实用户终端仍待验收。见[TUI 用户指南](usage/tui.md)。 |
 | P1 | 存储空间查询与反馈 | 已隔离磁盘、Docker 统计和镜像释放估算的失败，增加固定顶部诊断、刷新受阻原因与同环境历史时间标记；Fixture、Pilot 及中英文 SVG 覆盖加载、失败、重试、关闭和窄窗。真实 Docker 服务故障与用户终端仍待现场验收。见[查询与删除](models/images.md#查询与删除)。 |
 | P1 | TUI 内置版本管理 | 已实现 PEP 440 双渠道筛选、Linux 标准 `uv tool` 的确认更新／降级、独立安装与验证回退、阶段日志和重启。隔离工具环境与 Pilot／SVG 验证见本地验收记录；公共 PyPI 发行及用户终端验收未执行。`pip` / `uv pip`、`pipx` 与 Standalone 目前识别并提供手动指引，自动更新仍待按各自环境事务扩展。见[版本管理与恢复](usage/version-management.md)。 |
-| P1 | 结果存储与恢复边界 | A1–A5 已完成：持锁后先核对实验身份；pending 的读取、审计与恢复共用完整事务契约；manifest、初始化 receipt 与阶段化 run_state 在恢复副作用前验证。真实提交故障和合成畸形输入回归覆盖拒绝时证据不变、锁释放及合法恢复，保留 flat layout 与补采语义。历史来源恢复夹具已通过公开状态写入器补齐信封，原样保留模型决策，并独立验证缺少 run_id 时拒绝且不写入。真实测量中断验收仍按下表独立推进。见[实验产物结构与恢复](profiling/artifacts.md)。 |
+| P1 | 结果存储与恢复边界 | A1–A5 已完成：持锁后先核对实验身份；pending 的读取、审计与恢复共用完整事务契约；manifest、初始化 receipt 与阶段化 run_state 在恢复副作用前验证。真实提交故障和合成畸形输入回归覆盖拒绝时证据不变、锁释放及合法恢复，保留 flat layout 与补采语义。历史来源恢复夹具已通过公开状态写入器补齐信封，原样保留模型决策，并独立验证缺少 run_id 时拒绝且不写入。续跑时服务启动或就绪失败的离线回归已验证原窗口和请求记录保留。真实测量中断验收仍按下表独立推进。见[实验产物结构与恢复](profiling/artifacts.md)。 |
 | P1 | 核心数据契约增量强类型化 | 结果引用、层清单、pending/commit 与阶段化 run_state、attempt、case 已接入实际读写边界；运行时验证后再窄化类型，相关模块扩展增强 mypy 门禁，开放 metadata 与阶段可选字段保持真实语义。下载计划和检查点的受控生产者也已类型化并纳入增强门禁，缓存 JSON 保留真实验证边界；后续依实际调用链推进依赖预检报告和事件协议，不对全部临时 `dict` 一刀切。见[类型与边界检查](development/static-checks.md)。 |
 | P1 | 宽泛异常与失败证据审计 | 网络包回填数值转换已收窄异常并增加 BLE001 门禁；monitor 收尾独立于指标汇总，线程有界停止后才释放 NVML，perf 回收输出管道；Process 确认退出后 lease／资源范围独立清理，保留原始故障与取消。故障注入和轻量子进程已覆盖，Native 硬件仍待验收；其余异常只按具体失败继续核查。见[主机编排](development/orchestration.md)。 |
 | P2 | 发布与运行输入边界 | 运行时镜像发布来源已限制为 main 手动触发或稳定标签 push；Docker 服务端口越界在准备前拒绝，保留串行端口复用和 Process 动态端口，地址占用保留清理语义并给出定位建议；plot 缺失输入已转换为单行用户错误，测量锁优先和未知异常传播保持；report 的参数声明不再提前加载分析模型，帮助和锁忙路径的独立进程隔离回归已补齐。离线回归已覆盖；GitHub 平台保护、真实 Docker 绑定与同提交 CI 仍待完善或验收。 |
@@ -81,7 +82,7 @@ CI 快速预检已覆盖 TUI 的 Profiler 选择和诊断详情、Nsys 命令及
 
 | 范围 | 当前实现与剩余验收 |
 | --- | --- |
-| P0 · 任务选择与失败分类 | `inspect --task` 选择接口，`--tasks` 选择推理组；逐组检查并保存结果。缺少运行时、任务未选定、缺少配置、证据冲突与不兼容制品分别报告原因和下一步。缓存配置可识别 ResNet 图像分类、ViLT 视觉问答、Diffusers 原生流水线和 Sentence Transformers 句向量编码。已用 Stable Diffusion v1.5、all-MiniLM-L6-v2 和 all-mpnet-base-v2 的固定版本元数据验证[离线任务识别](usage/cli-discovery.md#acprof-inspect)。 |
+| P0 · 任务选择与失败分类 | `inspect --task` 选择接口，`--tasks` 选择推理组；逐组检查并保存结果。缺少运行时、任务未选定、缺少配置、证据冲突与不兼容制品分别报告原因和下一步。ModelScope 在一次识别中复用固定 commit 的文件清单。导出与接口探测在取得目录锁后核对既有证据。缓存配置可识别 ResNet 图像分类、ViLT 视觉问答、Diffusers 原生流水线和 Sentence Transformers 句向量编码。已用 Stable Diffusion v1.5、all-MiniLM-L6-v2 和 all-mpnet-base-v2 的固定版本元数据验证[离线任务识别](usage/cli-discovery.md#acprof-inspect)。 |
 | P0 · 制品与元数据 | 依据实际文件清单、被选中的索引及组件声明校验加载布局；无证据保留 unknown。Diffusers 任务提示、组件和根目录布局能力已共用声明，已知但未审查布局单独说明，不扩大真实兼容范围。非有限数值、非法 JSON 与过深嵌套转为带文件、字段路径和原始 SHA256 的诊断。 |
 | P0 · 证据级别 | 静态 candidate、兼容性、接口验证和正式测量分别展示；未知架构或制品不计为静态支持。失败后修正配置可以重新预检，上游非法元数据证据继续阻断。 |
 | P0-00 / P2-05 · 固定回归 | [离线种子集](usage/cli-discovery.md#离线元数据回归)用实际识别／coverage 链路回放 5 个固定仓库观察（Hugging Face BERT、Whisper、ResNet、ViLT 与 ModelScope Qwen3）和 17 个合成场景；其中 T5 仅配置文件取自上游。用户提供的 Top 100 汇总为 41 / 25 / 25 / 4 / 4 / 1；原始清单及逐项 revision 尚未取得，不能声称已冻结 Top 100 或验证真实推理通过率。 |
@@ -168,7 +169,7 @@ BERT 后处理完成 Torch CPU/GPU 4/4、NCU GPU 2/2、Nsys GPU 2/2；Massif 仍
 | 优先级 | 状态 | 已实现与下一步 |
 | --- | --- | --- |
 | P0 · 流式测量基础 | 已完成 | OpenAI Chat/Completions SSE、TTFT/TPOT/严格 ITL/E2E、分位数与 Token 来源已有确定性回归和 Qwen3-0.6B + vLLM 对照；见[流式测量](profiling/streaming.md)。 |
-| P1 · 服务性能画像 | 进行中 | 并发、固定/Poisson 到达率、连接复用、SLO Goodput、单点/sweep HTML、服务身份和 Process 回放已有离线与本地 HTTP 证据；真实服务 sweep、GPU 回放及 vLLM/SGLang 观测待用户按需验收。 |
+| P1 · 服务性能画像 | 进行中 | 并发、固定/Poisson 到达率、连接复用、SLO Goodput、单点/sweep HTML、服务身份和 Process 回放已有离线与本地 HTTP 证据；重放、单点和 sweep 已验证同一输出目录的竞争写入会被拒绝。真实服务 sweep、GPU 回放及 vLLM/SGLang 观测待用户按需验收。 |
 | P2 · 深入 LLM 画像 | 进行中 | `--server-metrics` 支持 vLLM 和 SGLang，按 exporter 隔离比较条件；SGLang 保留命名阶段和服务端 TTFT/ITL，不与客户端或 vLLM 整请求阶段混算。worker／阶段证据残缺不发布局部均值；端点、类型、冷服务空样本和模型标签问题分别提示。本地 HTTP Fixture 与离线报告已覆盖，真实双后端对照、阶段 GPU 资源、能耗和逐请求服务端时间戳仍待验证或实现。见[服务端阶段统计](profiling/streaming.md#服务端阶段统计)。 |
 
 共享服务直方图不是本次请求的精确阶段计时，共享 GPU 能耗不能直接解释为每请求的精确 Token 能耗。
