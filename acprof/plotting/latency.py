@@ -21,6 +21,7 @@ from acprof.plotting.config import (
     CPU_FIXED_COLORS,
     GPU_GREEN,
 )
+from acprof.plotting.output import save_figure
 from acprof.plotting.styles import (
     build_cpu_base_colors,
 )
@@ -469,7 +470,7 @@ def plot_latency_model_residuals(
     fig.tight_layout(rect=(0.0, 0.04, 1.0, 0.96))
 
     if out_png:
-        fig.savefig(out_png, dpi=200)
+        save_figure(out_png, fig.savefig, dpi=200)
         print(f"[saved] {out_png}")
 
     if show_plots:
@@ -717,7 +718,7 @@ def plot_latency_model_fit_curves(
     fig.tight_layout(rect=(0.0, 0.18, 1.0, 0.91))
 
     if out_png:
-        fig.savefig(out_png, dpi=200)
+        save_figure(out_png, fig.savefig, dpi=200)
         print(f"[saved] {out_png}")
 
     if show_plots:

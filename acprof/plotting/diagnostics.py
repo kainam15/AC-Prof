@@ -24,6 +24,7 @@ from acprof.plotting.data import (
     make_config_labels,
     representative_max_memory_rows,
 )
+from acprof.plotting.output import save_figure
 from acprof.plotting.styles import build_cpu_base_colors
 from acprof.results import is_unresolved_timeout_attempt
 
@@ -268,7 +269,7 @@ def plot_resource_feasibility_heatmap(
     fig.tight_layout(rect=(0.0, 0.0, 1.0, 0.91))
 
     if out_png:
-        fig.savefig(out_png, dpi=200)
+        save_figure(out_png, fig.savefig, dpi=200)
         print(f"[saved] {out_png}")
     if show_plots:
         plt.show()
@@ -458,7 +459,7 @@ def plot_latency_energy_pareto(
     )
     fig.tight_layout(rect=(0.0, 0.0, 1.0, 0.91))
     if out_png:
-        fig.savefig(out_png, dpi=200)
+        save_figure(out_png, fig.savefig, dpi=200)
         print(f"[saved] {out_png}")
     if show_plots:
         plt.show()
@@ -573,7 +574,7 @@ def plot_cold_start_breakdown(
     axis.legend(loc="lower center", bbox_to_anchor=(0.5, 1.13), ncol=3, fontsize=8)
     fig.tight_layout(h_pad=2.0)
     if out_png:
-        fig.savefig(out_png, dpi=200)
+        save_figure(out_png, fig.savefig, dpi=200)
         print(f"[saved] {out_png}")
     if show_plots:
         plt.show()

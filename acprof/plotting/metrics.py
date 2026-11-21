@@ -22,6 +22,7 @@ from acprof.plotting.data import (
     is_gpu_on,
     normalized_metric_spec,
 )
+from acprof.plotting.output import save_figure
 from acprof.plotting.styles import (
     build_cpu_base_colors,
     build_gpu_mixed_colors,
@@ -116,7 +117,7 @@ def plot_metric(
     plt.tight_layout()
 
     if out_png:
-        plt.savefig(out_png, dpi=200)
+        save_figure(out_png, plt.savefig, dpi=200)
         print(f"[saved] {out_png}")
 
     if show_plots:
@@ -371,7 +372,7 @@ def plot_metric_overview(
     fig.tight_layout(rect=(0.0, 0.0, 1.0, layout_top))
 
     if out_png:
-        fig.savefig(out_png, dpi=200)
+        save_figure(out_png, fig.savefig, dpi=200)
         print(f"[saved] {out_png}")
 
     if show_plots:
@@ -654,7 +655,7 @@ def plot_cold_start_bar(
     plt.tight_layout()
 
     if out_png:
-        plt.savefig(out_png, dpi=200)
+        save_figure(out_png, plt.savefig, dpi=200)
         print(f"[saved] {out_png}")
 
     if show_plots:

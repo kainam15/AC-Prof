@@ -5,6 +5,7 @@ from pathlib import Path
 def plot_process_results(frame, directory, *, xlabel="input_scale", statistics=None):
     import matplotlib.pyplot as plt
 
+    from acprof.plotting.output import save_figure
     from acprof.plotting.uncertainty import (
         INTERVAL_NOTE,
         WindowStatistics,
@@ -44,7 +45,7 @@ def plot_process_results(frame, directory, *, xlabel="input_scale", statistics=N
         figure.suptitle(title + ("\n" + INTERVAL_NOTE if has_intervals else ""))
         figure.tight_layout()
         target = directory / "input_scaling.png"
-        figure.savefig(target)
+        save_figure(target, figure.savefig)
         return target
     finally:
         plt.close(figure)

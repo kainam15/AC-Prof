@@ -11,6 +11,7 @@ from acprof.plotting.data import (
     make_config_labels,
     representative_max_memory_rows,
 )
+from acprof.plotting.output import save_figure
 from acprof.plotting.styles import configurations_with_colors
 
 _FAMILIES = (
@@ -191,7 +192,7 @@ def plot_tail_latency_overview(
     )
     fig.tight_layout(rect=(0.0, 0.0, 1.0, 0.90))
     if out_png:
-        fig.savefig(out_png, dpi=200)
+        save_figure(out_png, fig.savefig, dpi=200)
         print(f"[saved] {out_png}")
     if show_plots:
         plt.show()
