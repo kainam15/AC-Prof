@@ -31,7 +31,8 @@ def resource_qualification(left: dict, right: dict) -> dict:
         normalized = [{"input": next(iter(workload.values()))} for workload in workloads]
         if compare_workload_profiles(*normalized) == "incompatible":
             reasons.append("actual_workload")
-    changes = [name for name in ("cpu", "memory") if left[name] != right[name]]
+    changes = [name for name in ("cpu", "memory") if left[name] != right[name] or
+               left.get("exact_resources", {}).get(name) != right.get("exact_resources", {}).get(name)]
     if (left["device"], left["gpu"]) != (right["device"], right["gpu"]):
         changes.append("gpu")
     return {"status": "incompatible" if reasons else "descriptive", "reasons": sorted(set(reasons)),

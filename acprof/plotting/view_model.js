@@ -98,7 +98,8 @@ window.ACProfViews = (() => {
     const fields = ["task", "runtime", "runtime_kind", "resource_scope", "input_scale", "concurrency", "device"];
     if (policy !== "resource-scaling") fields.push("cpu", "memory");
     const known = value => value != null && value !== "unknown";
-    const reasons = fields.filter(name => known(left[name]) && known(right[name]) && left[name] !== right[name]);
+    const reasons = fields.filter(name => known(left[name]) && known(right[name]) &&
+      (left[name] !== right[name] || left.exact_resources?.[name] !== right.exact_resources?.[name]));
     try {
       const a = JSON.parse(left.input_case), b = JSON.parse(right.input_case);
       if (Object.keys(a).some(name => known(a[name]) && known(b[name]) && key(a[name]) !== key(b[name]))) reasons.push("input_case");
@@ -226,7 +227,8 @@ window.ACProfViews = (() => {
         config.task, config.input_case]);
       // Vary only the selected resource. In particular, CPU curves never join different memory caps.
       const held = ["cpu", "memory", "concurrency"].filter(name => name !== axis);
-      const seriesKey = key([config.experiment_id, config.run_id, config.device, config.gpu, ...held.map(name => config[name])]);
+      const seriesKey = key([config.experiment_id, config.run_id, config.device, config.gpu,
+        ...held.map(name => config.exact_resources?.[name] ?? config[name])]);
       if (!facets.has(facet)) facets.set(facet, {config, series: new Map()});
       const series = facets.get(facet).series;
       if (!series.has(seriesKey)) series.set(seriesKey, {config, held, points: []});

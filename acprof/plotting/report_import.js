@@ -4,6 +4,35 @@ window.ACProfImport = (() => {
   const finite = value => typeof value === "number" && Number.isFinite(value);
   const number = value => value == null || String(value).trim() === "" ? null :
     (/^[+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?$/i.test(String(value).trim()) && Number.isFinite(Number(value)) ? Number(value) : null);
+  const resourceAxes = ["cpu_cores", "mem_cap_gb", "input_scale"];
+  function decimalCoordinate(value) {
+    // Normalize coefficient and exponent separately; a repeat such as 1e10000 never expands into 10001 digits.
+    const match = /^([+-]?)(\d*)(?:\.(\d*))?(?:e([+-]?)(\d+))?$/i.exec(value);
+    if (!match || !(match[2] || match[3])) return null;
+    const fraction = match[3] || "", digits = (match[2] + fraction).replace(/^0+/, "");
+    const exponent = (match[5] || "").replace(/^0+/, "") || "0";
+    // The project's Decimal context uses a signed, bounded exponent.
+    if (exponent.length > 19) return null;
+    let power = BigInt((match[4] || "") + exponent) - BigInt(fraction.length);
+    if (power < -1999999999999999997n || power + BigInt(Math.max(0, digits.length - 1)) > 999999999999999999n) return null;
+    if (!digits) return {key:"0", integer:true};
+    if (match[1] === "-") return null;
+    let end = digits.length;
+    while (digits[end - 1] === "0") end--;
+    power += BigInt(digits.length - end);
+    const coefficient = digits.slice(0, end), adjusted = power + BigInt(end - 1);
+    let key = coefficient;
+    // Match decimal_key_text for evidence shared with Python-generated bundles.
+    if (power > 0n || adjusted < -6n) {
+      const mantissa = end === 1 ? coefficient : coefficient[0] + "." + coefficient.slice(1);
+      key = mantissa + "E" + (adjusted > 0n ? "+" : "") + adjusted;
+    } else if (power < 0n) {
+      const point = Number(adjusted) + 1;
+      key = point <= 0 ? "0." + "0".repeat(-point) + coefficient :
+        coefficient.slice(0, point) + "." + coefficient.slice(point);
+    }
+    return {key, integer:power >= 0n};
+  }
   const text = value => value == null || ["", "none", "null", "nan"].includes(String(value).trim().toLowerCase()) ? "unknown" : String(value).trim();
   const canonical = value => "{" + Object.keys(value).sort().map(key => JSON.stringify(key) + ": " + JSON.stringify(value[key])).join(", ") + "}";
   const fail = message => { throw new Error(message); };
@@ -145,14 +174,28 @@ window.ACProfImport = (() => {
       }
       if (values.length !== fields.length) fail(`CSV 第 ${rowNumber} 行列数不匹配 / Column count mismatch`);
       const raw = Object.fromEntries(fields.map((field, index) => [field, values[index].trim()]));
-      const nums = Object.fromEntries(["cpu_cores", "mem_cap_gb", "input_scale", "repeat_idx", "warmup"].map(name => [name, number(raw[name])]));
-      if (Object.entries(nums).some(([name, value]) => value === null && !(raw.runtime_kind === "process" &&
-          ["cpu_cores", "mem_cap_gb"].includes(name) && ["", "none", "nan"].includes(raw[name].toLowerCase()))) ||
-          ["cpu_cores", "mem_cap_gb", "input_scale"].some(name => nums[name] !== null && nums[name] <= 0) || ![0,1].includes(nums.warmup) || nums.repeat_idx < 0 || !Number.isInteger(nums.repeat_idx)) fail(`CSV 第 ${rowNumber} 行配置或窗口身份无效 / Invalid configuration or window`);
+      const invalidCoordinate = () => fail(`CSV 第 ${rowNumber} 行配置或窗口身份无效 / Invalid configuration or window`);
+      const nums = {}, axisKeys = {}, exact = {};
+      for (const name of resourceAxes) {
+        const value = number(raw[name]);
+        nums[name] = value;
+        if (value === null && raw.runtime_kind === "process" && name !== "input_scale" &&
+            ["", "none", "nan"].includes(raw[name].toLowerCase())) {
+          axisKeys[name] = "inherited";
+          continue;
+        }
+        const coordinate = decimalCoordinate(raw[name]);
+        if (value === null || value <= 0 || !coordinate) invalidCoordinate();
+        axisKeys[name] = coordinate.key;
+        if (raw[name] !== String(value) && coordinate.key !== decimalCoordinate(String(value)).key) exact[name] = coordinate.key;
+      }
+      const phase = decimalCoordinate(raw.warmup), repeat = decimalCoordinate(raw.repeat_idx);
+      if (!phase || !["0", "1"].includes(phase.key) || !repeat?.integer) invalidCoordinate();
+      const formal = phase.key === "0";
       const mode = raw.gpu_mode.toLowerCase();
       const device = ["on", "1", "1.0", "true", "yes", "gpu"].includes(mode) ? "GPU" :
         ["off", "0", "0.0", "false", "no", "cpu"].includes(mode) ? "CPU" : fail(`CSV gpu_mode 无效 / Invalid gpu_mode: ${raw.gpu_mode}`);
-      const input = {scale:nums.input_scale, type:"unknown", task_param:text(raw.task_param),
+      const input = {scale:exact.input_scale ?? nums.input_scale, type:"unknown", task_param:text(raw.task_param),
         batch_size:number(raw.batch_size), input_units:number(raw.input_units_per_request)};
       if (raw.input_case && !["none", "null", "nan"].includes(raw.input_case.toLowerCase())) input.name = raw.input_case;
       const identity = {run_id:text(raw.run_id), model:text(raw.model || raw.model_name), runtime:text(raw.runtime || raw.runtime_backend),
@@ -160,22 +203,27 @@ window.ACProfImport = (() => {
         concurrency:number(raw.concurrency), environment_class:["native_linux", "wsl2", "vm", "cloud", "container_host"].includes(raw.environment_class) ? raw.environment_class : "unknown",
         task:text(raw.task), input_case:canonical(input), experiment_batch:text(raw.experiment_batch), runtime_kind:text(raw.runtime_kind),
         runtime_id:text(raw.runtime_id), resource_scope:text(raw.resource_scope)};
+      if (exact.cpu_cores || exact.mem_cap_gb) {
+        identity.exact_resources = {};
+        if (exact.cpu_cores) identity.exact_resources.cpu = exact.cpu_cores;
+        if (exact.mem_cap_gb) identity.exact_resources.memory = exact.mem_cap_gb;
+      }
       const stable = {...identity}; delete stable.experiment_batch;
       const key = JSON.stringify(stable);
       if (!groups.has(key)) groups.set(key, {identity, idKey:key, index:groups.size, input_scale:nums.input_scale, total:0, formal:0, valid:0, inferred:false, metrics:accumulator(registry), observations:{}});
       const group = groups.get(key);
       const observations = metricObservations(raw, registry);
-      if (nums.warmup === 0) for (const [name, observation] of Object.entries(observations)) {
+      if (formal) for (const [name, observation] of Object.entries(observations)) {
         group.observations[name] ||= new Map();
         group.observations[name].set(stableJson(observation), observation);
       }
       const measurement = JSON.stringify([identity.run_id === "unknown" ? group.index : identity.run_id,
-        nums.cpu_cores, nums.mem_cap_gb, device, nums.input_scale, nums.warmup, nums.repeat_idx]);
+        axisKeys.cpu_cores, axisKeys.mem_cap_gb, device, axisKeys.input_scale, phase.key, repeat.key]);
       if (seen.has(measurement)) fail(`CSV 重复或冲突的测量窗口 / Duplicate or conflicting window: ${rowNumber}`);
       seen.add(measurement);
-      const eligible = raw.status.toLowerCase() === "ok" && nums.warmup === 0 && raw.result_origin !== "inferred_not_measured";
+      const eligible = raw.status.toLowerCase() === "ok" && formal && raw.result_origin !== "inferred_not_measured";
       group.total++;
-      if (nums.warmup === 0) { group.formal++; group.inferred ||= raw.result_origin === "inferred_not_measured"; }
+      if (formal) { group.formal++; group.inferred ||= raw.result_origin === "inferred_not_measured"; }
       if (!eligible) return;
       group.valid++;
       const weight = number(raw.repeat_in_window), cpu = number(raw.cpu_energy_total_j), gpu = number(raw.gpu_energy_total_j);
@@ -288,6 +336,12 @@ window.ACProfImport = (() => {
     }
     for (const config of data.configs) {
       if (typeof config.config_id !== "string" || configSources.has(config.config_id) || !sources.has(config.source)) fail("配置身份缺失或重复 / Invalid or duplicate configuration identity");
+      if (Object.hasOwn(config, "exact_resources") && (!record(config.exact_resources) ||
+          Object.entries(config.exact_resources).some(([axis, value]) => !["cpu", "memory"].includes(axis) ||
+            typeof value !== "string" || decimalCoordinate(value)?.key !== value || !finite(config[axis]) ||
+            Number(value) !== config[axis] || decimalCoordinate(String(config[axis]))?.key === value))) {
+        fail("资源坐标无效 / Invalid exact resource coordinate");
+      }
       configSources.set(config.config_id, config.source);
       for (const name of ["model", "run_id", "runtime", "device", "input_case", "quality_status", "status"]) {
         if (typeof config[name] !== "string") fail("配置缺失字段 / Missing configuration field: " + name);

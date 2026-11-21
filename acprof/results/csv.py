@@ -122,6 +122,23 @@ def require_current_fields(fields: Iterable[str]) -> None:
         raise ResultValidationError(f"unsupported retired CSV fields: {sorted(unsupported)}; regenerate current results")
 
 
+def numeric_coordinate_key(field: str, value: str) -> str:
+    """Validate one numeric measurement coordinate without rounding it through float."""
+    try:
+        number = decimal_coordinate(value)
+    except InvalidOperation as exc:
+        raise ResultValidationError(f"invalid {field}: {value!r}") from exc
+    if not number.is_finite() or number < 0:
+        raise ResultValidationError(f"invalid {field}: {value!r}")
+    if field in ("cpu_cores", "mem_cap_gb", "input_scale") and number <= 0:
+        raise ResultValidationError(f"invalid {field}: {value!r}")
+    if field in ("warmup", "repeat_idx") and number != number.to_integral_value():
+        raise ResultValidationError(f"invalid {field}: {value!r}")
+    if field == "warmup" and number not in (0, 1):
+        raise ResultValidationError(f"invalid warmup: {value!r}")
+    return decimal_key_text(number)
+
+
 def measurement_key(row: Mapping[str, object]) -> MeasurementKey:
     values = []
     for field in KEY_FIELDS:
@@ -134,19 +151,7 @@ def measurement_key(row: Mapping[str, object]) -> MeasurementKey:
             if value not in ("off", "on"):
                 raise ResultValidationError(f"invalid gpu_mode: {value!r}")
         else:
-            try:
-                number = decimal_coordinate(value)
-            except InvalidOperation as exc:
-                raise ResultValidationError(f"invalid {field}: {value!r}") from exc
-            if not number.is_finite() or number < 0:
-                raise ResultValidationError(f"invalid {field}: {value!r}")
-            if field in ("cpu_cores", "mem_cap_gb", "input_scale") and number <= 0:
-                raise ResultValidationError(f"invalid {field}: {value!r}")
-            if field in ("warmup", "repeat_idx") and number != number.to_integral_value():
-                raise ResultValidationError(f"invalid {field}: {value!r}")
-            if field == "warmup" and number not in (0, 1):
-                raise ResultValidationError(f"invalid warmup: {value!r}")
-            value = decimal_key_text(number)
+            value = numeric_coordinate_key(field, value)
         values.append(value)
     return tuple(values)
 

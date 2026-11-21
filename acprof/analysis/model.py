@@ -21,10 +21,12 @@ from acprof.results.csv import (
     MISSING_CSV_TEXT,
     is_measured_success,
     measurement_key,
+    numeric_coordinate_key,
     read_result_csv_snapshot,
     verify_result_source,
 )
 from acprof.results.layout import expand_result_sources, resolve_result_file
+from acprof.results.measurement_plan import decimal_coordinate, decimal_key_text
 from acprof.results.metadata import ResultMetadataSnapshot
 from acprof.results.metrics import ANALYSIS_METRICS, METRICS, VIEW_METRICS
 from acprof.results.profile import USABLE_QUALITIES, metric_observation, observation_signature
@@ -61,6 +63,20 @@ def _digest(value):
     return hashlib.sha256(_canonical(value).encode()).hexdigest()[:16]
 
 
+def _exact_coordinate(raw, display):
+    """Keep extra identity evidence only when a numeric display loses recorded digits."""
+    if display is not None and display >= 0 and raw != str(display):
+        recorded = decimal_coordinate(raw)
+        if recorded > 0 and recorded != decimal_coordinate(str(display)):
+            return decimal_key_text(recorded)
+    return None
+
+
+def _optional_window_coordinate(row, name):
+    raw = row.get(name, "")
+    return None if raw.lower() in MISSING_CSV_TEXT else numeric_coordinate_key(name, raw)
+
+
 def _identity(row, meta, run_id, batch):
     environment = recorded_identity(meta)["environment_class"]
     recorded = _text(row.get("environment_class"))
@@ -73,14 +89,14 @@ def _identity(row, meta, run_id, batch):
     device = {"off": "CPU", "on": "GPU"}[normalize_gpu_mode(mode)] if mode else _text(row.get("device"))
     scale = number(row.get("input_scale"))
     input_case = {
-        "scale": scale, "type": meta.get("input_scale_type", "unknown"),
+        "scale": _exact_coordinate(row.get("input_scale"), scale) or scale, "type": meta.get("input_scale_type", "unknown"),
         "task_param": _text(row.get("task_param")),
         "batch_size": number(row.get("batch_size", meta.get("batch_size"))),
         "input_units": number(row.get("input_units_per_request")),
     }
     if name := _text(row.get("input_case"), default=""):
         input_case["name"] = name
-    return dict(zip(DIMENSIONS, (
+    identity = dict(zip(DIMENSIONS, (
         _text(row.get("run_id"), run_id),
         _text(row.get("model") or row.get("model_name") or meta.get("model_name")),
         _text(row.get("runtime") or row.get("runtime_backend") or meta.get("runtime_backend")),
@@ -92,6 +108,11 @@ def _identity(row, meta, run_id, batch):
         _canonical(input_case), _text(row.get("experiment_batch"), batch),
         *(_text(row.get(key) or meta.get(key)) for key in ("runtime_kind", "runtime_id", "resource_scope")),
     ), strict=True))
+    exact = {axis: key for axis, field in (("cpu", "cpu_cores"), ("memory", "mem_cap_gb"))
+             if (key := _exact_coordinate(row.get(field), identity[axis])) is not None}
+    if exact:
+        identity["exact_resources"] = exact
+    return identity
 
 
 def _values(row, device, numeric_fields):
@@ -232,6 +253,8 @@ def _build_analysis_configs(
         status = ("ok" if valid and valid == len(formal) else "partial" if valid else
                   "inferred_not_measured" if inferred else "failed" if formal else "no_formal_windows")
         config = {key: rows[0][key] for key in DIMENSIONS}
+        if "exact_resources" in rows[0]:
+            config["exact_resources"] = rows[0]["exact_resources"]
         config.update({key: rows[0][key] for key in (*QUALITY_FIELDS, "run_status", "measurement_status", "missing_metrics")})
         try:
             case = measurement_key(rows[0]["row"])[:4]
@@ -299,8 +322,8 @@ def load_analysis(sources) -> AnalysisModel:
             stable_identity = {key: value for key, value in identity.items() if key != "experiment_batch"}
             source_id = "source-" + digest[:16]
             config_id = (identity["run_id"] if identity["run_id"] != "unknown" else source_id) + ":" + _digest(stable_identity)
-            repeat = number(row.get("repeat_idx"))
-            warmup = number(row.get("warmup"))
+            repeat = _optional_window_coordinate(row, "repeat_idx")
+            warmup = _optional_window_coordinate(row, "warmup")
             if repeat is not None:
                 recorded_run = _text(state.get("run_id")) != "unknown" or _text(row.get("run_id")) != "unknown"
                 key = ((identity["run_id"], measurement_key(row)) if recorded_run
@@ -311,7 +334,7 @@ def load_analysis(sources) -> AnalysisModel:
                     kind = "duplicate" if signature == previous_signature else "conflicting"
                     raise ValueError(f"{kind} measurement for run {identity['run_id']}: {path}:{line}; first seen {previous}")
                 seen_keys[key] = (signature, f"{path}:{line}")
-            eligible = is_measured_success(row) and warmup == 0
+            eligible = is_measured_success(row) and warmup == "0"
             mode = row.get("gpu_mode")
             if mode not in device_quality:
                 device_quality[mode] = read_quality(path, device=mode, metadata_snapshot=metadata_snapshot)
