@@ -149,8 +149,8 @@ def _workload_differences(left, right):
             changed.setdefault(name, {})[key] = marginals[name]
         if not marginals:
             joint_only[key] = {"left": _proportions(lhs, lhs_total), "right": _proportions(rhs, rhs_total)}
-    if not changed and joint_only:
-        changed["joint_distribution"] = joint_only
+    if joint_only:
+        changed.setdefault("joint_distribution", {}).update(joint_only)
     return incomplete, changed
 
 

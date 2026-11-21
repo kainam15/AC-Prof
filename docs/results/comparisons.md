@@ -160,6 +160,8 @@ acprof compare --left results/a1/model --left results/a2/model --left results/a3
 报告汇总已记录的请求数，并在 `resource_cases` 中保留各原始配置的明细。
 组内工作量分布无法统一时，该组标为 `ambiguous`，其他尺度仍按各自的证据比较。
 `conditions.actual_workload` 保留两侧全部计数、比例、`reason` 和 `changed_dimensions` 的输入／输出维度分布。
+诊断按配置列出变化。如果同一配置中每个字段单独出现的比例都相同，但字段组合的比例发生变化，
+`changed_dimensions.joint_distribution` 会列出该配置两侧的完整契约及其比例。其他配置的单字段差异会同时保留。
 固定输出定义的 tabular／time-series 任务发生输出分布变化时不兼容；生成、检测或未声明固定输出的任务
 若只有输出观测变化，则为 `unknown` / `output_distribution_equivalence_unverified`，不假设随机差异无害，
 也不引入任意统计容差。输入、请求上限、任务或场景变化仍不兼容。

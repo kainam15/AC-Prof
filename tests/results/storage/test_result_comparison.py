@@ -284,6 +284,39 @@ class TestResultComparison(ComparisonFixture):
         assert (actual["request_counts_changed"])
         assert (actual["changed_dimensions"]) == ({})
 
+    @pytest.mark.parametrize("reserved_field", [False, True], ids=["ordinary-field", "joint-distribution-field"])
+    def test_marginal_change_in_one_case_preserves_joint_change_in_another(self, reserved_field):
+        from acprof.analysis.comparison import _workload_condition
+
+        def observed(*shapes):
+            variants = []
+            proportion = "1" if len(shapes) == 1 else f"1/{len(shapes)}"
+            for rows, features in shapes:
+                contract: dict[str, Any] = copy.deepcopy(self.contract)
+                contract["input"].update(rows=rows, feature_dim=features)
+                variants.append({"contract": contract, "count": 1, "proportion": proportion})
+            return {"request_count": len(variants), "variants": variants}
+
+        marginal, joint = '["1","4","off","2"]', '["2","4","off","2"]'
+        left = {marginal: observed((2, 2)), joint: observed((1, 2), (2, 4))}
+        right = {marginal: observed((2, 6)), joint: observed((1, 4), (2, 2))}
+        if reserved_field:
+            for cases, value in ((left, 7), (right, 8)):
+                cases[marginal]["variants"][0]["contract"]["joint_distribution"] = value
+        condition = _workload_condition(left, right)
+        assert condition["status"] == "incompatible"
+        changed = condition["changed_dimensions"]
+        assert changed["input.feature_dim"] == {marginal: {"left": {"2": "1"}, "right": {"6": "1"}}}
+        assert set(changed) == {"input.feature_dim", "joint_distribution"}
+        assert set(changed["joint_distribution"]) == ({marginal, joint} if reserved_field else {joint})
+        if reserved_field:
+            assert changed["joint_distribution"][marginal] == {"left": {"7": "1"}, "right": {"8": "1"}}
+        for side, expected in (("left", {(1, 2), (2, 4)}), ("right", {(1, 4), (2, 2)})):
+            histogram = changed["joint_distribution"][joint][side]
+            shapes = [json.loads(raw)["input"] for raw in histogram]
+            assert {(shape["rows"], shape["feature_dim"]) for shape in shapes} == expected
+            assert set(histogram.values()) == {"1/2"}
+
     @pytest.mark.parametrize(("uncertain_left", "uncertain_right", "observed", "other_right", "changed"), [
         (None, 3, 2, 2, None), (None, 3, 3, 2, None), (None, None, 5, 2, None),
         (None, 3, 2, 5, True), (None, 3, 5, 2, True), (3, None, 5, 2, True),
