@@ -100,3 +100,58 @@ def test_preset_switch_retains_explicit_loading_routing_and_workload(preset):
     updated, candidate = resolve_inference_configuration(task, request, devices=["off"])
     assert candidate["loading"]["off"]["attention_implementation"] == "eager"
     assert updated.selected_tasks[0]["config"]["user_experiment_overrides"]["batch_size"] == 3
+
+
+def test_kokoro_omits_incompatible_benchmark_preset_and_rejects_atomically():
+    import copy
+    from types import SimpleNamespace
+
+    from acprof.extensions.parameters import ParameterConsumer, ParameterSpec
+    from acprof.host.preparation.task_selection import select_tasks
+    from acprof.models.candidates import apply_model_candidate, discover_model_candidates
+    from acprof.models.configuration_presets import apply_preset
+    from tests.models.contracts.test_kokoro import task as kokoro_task
+
+    model_task = kokoro_task(model_adapter="kokoro", runtime_profile_id="kokoro-cpu")
+    model_task.model_resolution = apply_model_candidate(model_task, discover_model_candidates(model_task))
+    model_task = select_tasks(
+        model_task,
+        SimpleNamespace(task="", tasks="", backend="", model_spec="", workload_spec=""),
+        SimpleNamespace(interactive=False),
+    )
+
+    draft = build_configuration_draft(model_task, devices=["off"], workload={"batch_size": 1})
+    assert "benchmark" not in {item["id"] for item in draft["presets"]}
+
+    with pytest.raises(ValueError, match="benchmark preset has no registered baseline"):
+        resolve_inference_configuration(
+            model_task,
+            {"schema_version": 1, "preset": "benchmark"},
+            devices=["off"],
+            workload={"batch_size": 1},
+        )
+
+    fields = [
+        {
+            "path": "tasks.tts.language",
+            "spec": ParameterSpec(
+                "language", "enum", scope="inference", choices=("a", "en"),
+                consumers=(ParameterConsumer("predict", "synthesize.language"),),
+            ),
+            "default": "a",
+            "source": {"kind": "parameter_declaration"},
+        },
+        {
+            "path": "tasks.tts.voice",
+            "spec": ParameterSpec(
+                "voice", "string", scope="inference",
+                consumers=(ParameterConsumer("predict", "synthesize.voice"),),
+            ),
+            "default": "af_heart",
+            "source": {"kind": "parameter_declaration"},
+        },
+    ]
+    before = copy.deepcopy(fields)
+    with pytest.raises(ValueError, match="benchmark preset has no registered baseline for voice"):
+        apply_preset(fields, "benchmark")
+    assert fields == before

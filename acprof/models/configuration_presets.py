@@ -3,6 +3,9 @@ from __future__ import annotations
 
 import copy
 import json
+from typing import Any
+
+from acprof.extensions.parameters import validate_parameter_value
 
 BENCHMARK_VERSION = "acprof-benchmark-v1"
 _BASELINE = {
@@ -10,6 +13,26 @@ _BASELINE = {
     "temperature": 1.0, "top_p": 1.0, "prediction_length": 64,
     "language": "en", "asr_task": "transcribe", "num_inference_steps": 25, "guidance_scale": 7.5,
 }
+
+
+def _benchmark_values(fields: list[dict]) -> tuple[dict[str, Any], str | None]:
+    """Validate project baselines against each inference parameter's declared spec."""
+    inference_fields = [field for field in fields if field["spec"].scope == "inference"]
+    if not inference_fields:
+        return {}, None
+    baselines: dict[str, Any] = {}
+    for field in inference_fields:
+        spec = field["spec"]
+        name = spec.name
+        if name not in _BASELINE:
+            return {}, name
+        candidate = _BASELINE[name]
+        try:
+            validate_parameter_value(spec, candidate, path=field["path"])
+        except ValueError:
+            return {}, name
+        baselines[field["path"]] = copy.deepcopy(candidate)
+    return baselines, None
 
 
 def author_defaults(fields: list[dict]) -> dict:
@@ -47,15 +70,14 @@ def apply_preset(fields: list[dict], preset: str) -> None:
                 field["source"] = {"kind": "author_task_preset", "preset_version": "author-task-v1",
                                    "evidence": copy.deepcopy(candidate["source"])}
     elif preset == "benchmark":
-        if not any(field["spec"].scope == "inference" for field in fields):
+        inference_fields = [field for field in fields if field["spec"].scope == "inference"]
+        if not inference_fields:
             raise ValueError("benchmark preset unavailable: no registered task parameters")
-        for field in fields:
-            if field["spec"].scope != "inference":
-                continue
-            name = field["spec"].name
-            if name not in _BASELINE:
-                raise ValueError(f"benchmark preset has no registered baseline for {name}")
-            field["default"] = copy.deepcopy(_BASELINE[name])
+        baselines, missing = _benchmark_values(fields)
+        if missing is not None:
+            raise ValueError(f"benchmark preset has no registered baseline for {missing}")
+        for field in inference_fields:
+            field["default"] = copy.deepcopy(baselines[field["path"]])
             field["source"] = {"kind": "benchmark_preset", "preset_version": BENCHMARK_VERSION,
                                "scope": "AC-Prof task parameters; not an external benchmark certification"}
 
@@ -63,11 +85,14 @@ def apply_preset(fields: list[dict], preset: str) -> None:
 def additional_presets(fields: list[dict]) -> list[dict]:
     if not any(field["spec"].scope == "inference" for field in fields):
         return []
-    presets: list[dict] = [{
-        "id": "benchmark", "label": "AC-Prof Benchmark v1",
-        "description": "Fixed AC-Prof task parameters; retain the reviewed workload and loading policy.",
-        "requests": {"schema_version": 1, "preset": "benchmark"},
-    }]
+    presets: list[dict] = []
+    _, missing_baseline = _benchmark_values(fields)
+    if missing_baseline is None:
+        presets.append({
+            "id": "benchmark", "label": "AC-Prof Benchmark v1",
+            "description": "Fixed AC-Prof task parameters; retain the reviewed workload and loading policy.",
+            "requests": {"schema_version": 1, "preset": "benchmark"},
+        })
     try:
         supported = author_defaults(fields)
     except ValueError:
