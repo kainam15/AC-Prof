@@ -6,6 +6,7 @@ import re
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from decimal import Decimal
+from typing import TypedDict
 from urllib import request as urllib_request
 from urllib.parse import unquote, urlsplit
 
@@ -277,7 +278,11 @@ def enforce_download_budget(plan: dict, maximum: str | int | None) -> None:
         raise DownloadPolicyError(f"下载尚未开始：expected_download_bytes={expected}, max_download={limit}；未知大小也不能证明符合预算")
 
 
-def local_proxy_options(url: str) -> dict[str, dict[str, str]]:
+class LocalProxyOptions(TypedDict, total=False):
+    proxies: dict[str, str]
+
+
+def local_proxy_options(url: str) -> LocalProxyOptions:
     """Disable environment proxies for loopback service endpoints without mutating process env."""
     if urlsplit(url).hostname in {"localhost", "127.0.0.1", "::1"}:
         return {"proxies": {"http": "", "https": "", "all": ""}}
