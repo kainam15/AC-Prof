@@ -570,6 +570,53 @@ def test_resume_keeps_good_segments_and_uses_each_service_port(tmp_path, monkeyp
         packet_segments.merge_capture_segments(current, [segments[1], segments[1]], 9000, errors=[])
 
 
+@pytest.mark.parametrize("failed_directory", ["raw", "destination", "source"])
+def test_finish_case_retries_request_directory_sync(measured_case, monkeypatch, failed_directory):
+    import errno
+    import os
+
+    state, case, _, _ = measured_case
+    _write_processed_case(case.csv)
+    source, destination = case.requests, case.retained_requests
+    requests = b'{"request_id":"one","latency_app_s":[0.125]}\r\n'
+    source.write_bytes(requests)
+    assert not destination.parent.exists()
+    # Fail raw only after raw/requests has been created, or a move directory after rename.
+    visible, directory = {
+        "raw": (destination.parent, destination.parent.parent),
+        "destination": (destination, destination.parent),
+        "source": (destination, source.parent),
+    }[failed_directory]
+    head, state_file = state.layout.result_csv, state.layout.path("run_state.json")
+    original = {p: p.read_bytes() for p in (head, state_file)}
+    fsync = os.fsync
+
+    def reject_sync(fd):
+        if visible.exists() and os.path.samestat(os.fstat(fd), directory.stat()):
+            raise OSError(errno.EIO, "request directory fsync failed")
+        return fsync(fd)
+
+    with monkeypatch.context() as fault:
+        fault.setattr(os, "fsync", reject_sync)
+        for _ in range(2):
+            with pytest.raises(OSError, match="request directory fsync failed") as caught:
+                state.finish_case(str(case.csv), 1, 4, "off")
+            assert caught.value.errno == errno.EIO
+            assert {p: p.read_bytes() for p in original} == original
+            kept, absent = (source, destination) if failed_directory == "raw" else (destination, source)
+            assert kept.is_file()
+            assert kept.read_bytes() == requests
+            assert not absent.exists()
+
+    state.finish_case(str(case.csv), 1, 4, "off")
+    assert destination.read_bytes() == requests
+    assert not source.exists()
+    assert json.loads(head.read_bytes())["row_count"] == 1
+    record = json.loads(state_file.read_bytes())["cases"][str(case.csv.relative_to(state.directory))]
+    assert record["status"] == "complete"
+    assert record["row_count"] == 1
+
+
 def test_case_completion_publishes_the_validated_snapshot(measured_case, monkeypatch):
     from hashlib import sha256
 

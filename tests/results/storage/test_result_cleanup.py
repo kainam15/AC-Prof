@@ -53,3 +53,7 @@ def test_v2_cleanup_retains_request_evidence(tmp_path: Path):
     assert merged.is_file()
     assert case.retained_requests.read_text() == '{"request_id":"sample-1"}\n'
     assert not any(path.exists() for path in (case.csv, case.requests, case.pcap, case.latency))
+
+    assert not case.csv.parent.exists()
+    cleanup_intermediate_results([str(case.csv)], str(tmp_path), str(merged))
+    assert case.retained_requests.read_text() == '{"request_id":"sample-1"}\n'

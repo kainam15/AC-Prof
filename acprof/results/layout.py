@@ -6,7 +6,7 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
-from acprof.artifacts import read_json_object, replace_file_durably
+from acprof.artifacts import read_json_object, replace_file_durably, sync_directory, sync_directory_chain
 from acprof.cancellation import cancellable, check_cancelled
 
 MANIFEST_NAME = "result_manifest.json"
@@ -308,12 +308,20 @@ class CaseArtifacts:
         if source == destination:
             return
         self.layout.contained(source.relative_to(self.layout.root))
-        if not source.exists():
-            return
-        if not source.is_file():
-            raise ValueError(f"Request samples must be a regular file: {source}")
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        replace_file_durably(source, destination)
+        raw = self.layout.path("raw")
+        if source.exists():
+            if not source.is_file():
+                raise ValueError(f"Request samples must be a regular file: {source}")
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            sync_directory(raw)
+            replace_file_durably(source, destination)
+        elif destination.exists():
+            if not destination.is_file():
+                raise ValueError(f"Request samples must be a regular file: {destination}")
+            # A previous rename may have succeeded before either directory fsync failed.
+            sync_directory_chain(destination.parent, raw)
+            if source.parent.exists():  # Final cleanup can already have removed the work directory.
+                sync_directory(source.parent)
 
 
 _DIRECT_EXPERIMENT_FILES = (

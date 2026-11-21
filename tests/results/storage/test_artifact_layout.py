@@ -223,6 +223,16 @@ class TestArtifactLayout:
             assert case.retained_requests.read_text(encoding="utf-8") == '{"latency_app_s":[0.1]}\n'
             assert fsync.call_count >= 3
 
+    def test_request_retention_rejects_a_directory_in_place_of_samples(self, tmp_path):
+        layout = ArtifactLayout.for_new_run(tmp_path)
+        layout.initialize()
+        case = layout.case("org/model", 1, 4, "off")
+        case.retained_requests.mkdir(parents=True)
+
+        with pytest.raises(ValueError, match="regular file"):
+            case.retain_requests()
+        assert case.retained_requests.is_dir()
+
     def test_legacy_discovery_is_read_only_and_keeps_flat_paths(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
