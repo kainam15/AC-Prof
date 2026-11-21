@@ -394,6 +394,7 @@ def read_result_layers(root: str | Path, *, expected_manifest_sha256: str | None
     _validate_imported_source(root, manifest, cancelled=cancelled)
     assigned = layer_fields(wide_fields)
     identity = layer_identity_fields(wide_fields)
+    context_fields = tuple(name for name in identity if name not in KEY_FIELDS)
     layers = manifest["layers"]
     expected_keys: tuple[MeasurementKey, ...] | None = None
     combined: dict[MeasurementKey, dict[str, str]] = {}
@@ -428,11 +429,14 @@ def read_result_layers(root: str | Path, *, expected_manifest_sha256: str | None
         if layer != "summary":
             value_fields = [name for name in assigned[layer] if name not in identity]
             for key, row in cancellable(zip(keys, rows, strict=True), cancelled):
-                if key not in combined:
+                summary_row = combined.get(key)
+                if summary_row is None:
                     raise ResultValidationError(f"orphan profiler measurement in {layer}: {key}")
-                if "runtime_kind" in identity and row["runtime_kind"] != combined[key]["runtime_kind"]:
-                    raise ResultValidationError(f"runtime identity mismatch in {layer}")
-                combined[key].update({name: row[name] for name in value_fields})
+                for name in context_fields:
+                    if row[name] != summary_row[name]:
+                        kind = "runtime" if name == "runtime_kind" else "measurement"
+                        raise ResultValidationError(f"{kind} identity mismatch in {layer}: {name} differs for {key}")
+                summary_row.update({name: row[name] for name in value_fields})
         del validated, columns, rows, keys
     if expected_keys is None:
         raise ResultValidationError("missing summary measurements")

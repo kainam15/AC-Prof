@@ -5,6 +5,7 @@ import json
 import pytest
 
 from acprof.config import CSV_FIELDS
+from acprof.results import layers
 from acprof.results.csv import ResultValidationError
 from acprof.results.layers import (
     LAYER_FILES,
@@ -100,6 +101,61 @@ def test_manifest_schema_rejects_tampered_field_ownership(wide_csv, tmp_path):
     manifest_path.write_text(json.dumps(manifest))
     with pytest.raises(ResultValidationError, match="energy layer schema"):
         read_result_layers(tmp_path)
+
+
+def _publish_projection(root, wide_csv, monkeypatch, *, version, layer, field, value):
+    _, fields, rows = wide_csv
+    rows = [{**row, "runtime_kind": "docker", "run_id": "run-a", "case_id": "case-a",
+             "case_attempt_id": "attempt-a", "window_id": f"window-{index}"}
+            for index, row in enumerate(rows)]
+    target_fields = layer_fields(fields)[layer]
+    encode = layers._csv_bytes
+
+    def encode_projection(names, projection):
+        if names == target_fields:
+            projection = [{**projection[0], field: value}, *projection[1:]]
+        return encode(names, projection)
+
+    # Let the writer bind the altered bytes to their real digest and generation.
+    with monkeypatch.context() as patch:
+        patch.setattr(layers, "_csv_bytes", encode_projection)
+        manifest = layers.publish_result_rows(fields, rows, root)
+    if version == 1:
+        for name, record in manifest["layers"].items():
+            target = root / LAYER_FILES[name]
+            target.parent.mkdir(parents=True, exist_ok=True)
+            (root / record["path"]).rename(target)
+            record["path"] = LAYER_FILES[name]
+        manifest.update(schema_version=1)
+        manifest.pop("generation")
+        (root / "result_layers.json").write_text(json.dumps(manifest))
+    return rows
+
+
+@pytest.mark.parametrize(("version", "layer", "field"), [
+    (1, "resources", "run_id"), (2, "ncu", "case_id"),
+    (2, "resources", "case_attempt_id"), (1, "ncu", "window_id"),
+])
+def test_verify_rejects_a_layer_belonging_to_another_measurement(
+        tmp_path, wide_csv, monkeypatch, capsys, version, layer, field):
+    from acprof.cli.main import main
+
+    _publish_projection(tmp_path, wide_csv, monkeypatch, version=version, layer=layer,
+                        field=field, value="another-identity")
+
+    with pytest.raises(ResultValidationError, match=rf"identity mismatch.*{layer}.*{field}"):
+        read_result_layers(tmp_path)
+    assert main(["results", "verify", str(tmp_path)]) == 1
+    diagnostic = capsys.readouterr().err
+    assert layer in diagnostic
+    assert field in diagnostic
+
+
+@pytest.mark.parametrize("version", [1, 2])
+def test_equivalent_numeric_projection_preserves_summary_coordinates(tmp_path, wide_csv, monkeypatch, version):
+    rows = _publish_projection(tmp_path, wide_csv, monkeypatch, version=version, layer="resources",
+                               field="cpu_cores", value="2.00")
+    assert read_result_layers(tmp_path)[1] == rows
 
 
 def test_migrate_to_separate_directory_preserves_source(wide_csv, tmp_path):
