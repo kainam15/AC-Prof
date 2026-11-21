@@ -6,6 +6,7 @@ import json
 import os
 import platform
 import shutil
+import stat
 from collections.abc import Callable
 from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import asdict, dataclass
@@ -197,21 +198,46 @@ def collect_checks(*, runtime: str = "auto", profiling_mode: str = "best_effort"
     return [*checks, *_workspace_checks(output_dir)]
 
 
+def _workspace_ancestor(output_dir: Path) -> Path:
+    """Find the filesystem that would hold the output, without creating it."""
+    requested = output_dir.expanduser().absolute()
+    destination = Path(requested.anchor)
+    missing = 0
+    for part in requested.parts[1:]:
+        if missing:
+            # Model a creatable suffix without writing it. '..' may lead back
+            # to a real file, link, or mount which must then be checked.
+            missing += -1 if part == ".." else 1
+            continue
+        child = destination / part
+        try:
+            mode = child.stat().st_mode
+        except FileNotFoundError:
+            if child.is_symlink():
+                raise FileNotFoundError(f"输出路径中的符号链接目标不存在：{child}") from None
+            if not os.access(destination, os.W_OK | os.X_OK):
+                raise PermissionError(f"无法在此目录下创建输出目录：{destination}") from None
+            missing = 1
+        else:
+            if not stat.S_ISDIR(mode):
+                raise NotADirectoryError(f"输出路径组件不是目录：{child}")
+            destination = child
+    return destination.resolve(strict=True)
+
+
 def _workspace_checks(output_dir):
     checks = []
-    destination = (output_dir or Path.cwd()).expanduser().resolve()
-    while not destination.exists() and destination != destination.parent:
-        destination = destination.parent
     try:
+        destination = _workspace_ancestor(output_dir or Path.cwd())
         free_gib = shutil.disk_usage(destination).free / 1024 ** 3
-        writable = destination.is_dir() and os.access(destination, os.W_OK | os.X_OK)
+        writable = os.access(destination, os.W_OK | os.X_OK)
         checks.append(DoctorCheck("workspace", "available" if writable else "unavailable",
                                   f"{destination}；可写={writable}，剩余 {free_gib:.1f} GiB",
                                   "选择当前用户可写的 --output-dir。" if not writable else ""))
         if free_gib < 10:
             checks.append(DoctorCheck("disk_space", "warning", "可用空间不足 10 GiB",
                                       "模型与 Docker 镜像可能需要更多空间；按所选模型检查 Docker 数据盘。"))
-    except OSError as exc:
+    except (OSError, RuntimeError) as exc:
         checks.append(DoctorCheck("workspace", "unavailable", str(exc), "检查输出目录及挂载。"))
     return checks
 

@@ -33,7 +33,7 @@ P1 · cgroup I/O 预检：已将宿主进程 cgroup 能力与目标 Docker / Pro
 
 ## 工程维护优先序
 
-[主机诊断](getting_started/installation.md)在项目环境读取失败时仍输出 JSON。
+[主机诊断](getting_started/installation.md)在项目环境读取失败时仍输出 JSON，并检查输出路径上的失效链接与非目录组件。
 
 [离线分析输出](usage/cli-tools.md)在发布前核对输入实验的保留路径，历史平铺结果也能继续审计。
 [独立比较](results/comparisons.md#跨独立实验比较)同时导出 JSON、CSV 和 HTML 时，会先准备全部文件，再发布到指定路径。
