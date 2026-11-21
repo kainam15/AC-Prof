@@ -340,6 +340,91 @@ def test_chunked_csv_summaries_match_python_including_failures_and_lifecycle(pag
     assert actual["window_statistics"] == []
 
 
+@pytest.mark.parametrize("chunk_size", [pytest.param(None, id="default-256k-crlf"), pytest.param(1, id="bytewise-crlf")])
+def test_read_csv_preserves_quoted_records_at_chunk_edges(page, tmp_path, chunk_size):
+    header = "cpu_cores,mem_cap_gb,gpu_mode,input_scale,repeat_idx,warmup,status,latency_app_s,notes,model\r\n"
+    first = header + "2,4,off,32,0,0,ok,2,"
+    quoted_model = '"雪😀,""quoted""\r\nsecond line"'
+    end = "," + quoted_model + "\r"
+    # In the default-size case, CR is the final byte of the first 256 KiB read.
+    padding = 256 * 1024 - len((first + end).encode()) if chunk_size is None else 0
+    content = first + "x" * padding + end + "\n\r\n2,4,off,32,1,0,ok,4,," + quoted_model
+    path = tmp_path / "quoted.csv"
+    path.write_bytes(content.encode())
+    python_config, = load_analysis([path]).configs
+    imported = page.evaluate("""async ({text, size}) => {
+      const file = new File([text], "quoted.csv");
+      const {registry} = JSON.parse(document.getElementById("report-data").textContent);
+      const bundle = size == null ? await ACProfImport.readCsv(file, registry)
+        : await ACProfImport.readCsv(file, registry, {chunkSize:size});
+      return {sha256:bundle.sources[0].sha256, configs:bundle.configs};
+    }""", {"text": content, "size": chunk_size})
+    assert imported["sha256"] == hashlib.sha256(path.read_bytes()).hexdigest()
+    config, = imported["configs"]
+    assert config["model"] == python_config["model"] == '雪😀,"quoted"\r\nsecond line'
+    assert config["valid_windows"] == python_config["valid_windows"] == 2
+    assert config["metrics"]["latency_app_s"]["value"] == python_config["metrics"]["latency_app_s"]["value"] == 3
+
+
+@pytest.mark.parametrize(("scenario", "expected"), [
+    ("large-first-block", "2 windows"), ("unfinished-header", "header exceeds"), ("unfinished-row", "row exceeds"),
+])
+def test_csv_buffer_limit_applies_to_unfinished_records(page, scenario, expected):
+    outcome = page.evaluate(r"""async scenario => {
+      const limit = 8 * 1024 * 1024;
+      const header = "cpu_cores,mem_cap_gb,gpu_mode,input_scale,repeat_idx,warmup,status,latency_app_s,notes\r\n";
+      const field = "x".repeat(limit / 2);
+      const row = "2,4,off,32,0,0,ok,2,";
+      const parts = scenario === "large-first-block" ? [header, row, field, "\r\n2,4,off,32,1,0,ok,4,", field]
+        : scenario === "unfinished-header" ? [field, field, "x".repeat(limit / 4), "\r\n"]
+        : [header, row, '"', field, field, "x".repeat(limit / 4), '"\r\n'];
+      const file = new File(parts, "sized.csv");
+      const {registry} = JSON.parse(document.getElementById("report-data").textContent);
+      try {
+        const options = {chunkSize:scenario === "large-first-block" ? file.size : limit / 4};
+        const bundle = await ACProfImport.readCsv(file, registry, options);
+        return bundle.configs[0].valid_windows + " windows";
+      } catch (err) { return err.message; }
+    }""", scenario)
+    if scenario == "large-first-block":
+        assert outcome == expected
+    else:
+        assert expected in outcome
+
+
+def test_long_quoted_field_does_not_rescan_each_chunk_prefix(page):
+    result = page.evaluate(r"""async () => {
+      const header = "cpu_cores,mem_cap_gb,gpu_mode,input_scale,repeat_idx,warmup,status,latency_app_s,notes\r\n";
+      const text = header + '2,4,off,32,0,0,ok,2,"' + "line\r\n".repeat(16384) +
+        'end"\r\n2,4,off,32,1,0,ok,4,done';
+      const file = new File([text], "long-field.csv");
+      const {registry} = JSON.parse(document.getElementById("report-data").textContent);
+      const original = Papa.Parser;
+      let parsedChars = 0;
+      Papa.Parser = function(options) {
+        const parser = new original(options);
+        const parse = parser.parse.bind(parser);
+        parser.parse = (input, ...args) => { parsedChars += input.length; return parse(input, ...args); };
+        return parser;
+      };
+      try {
+        const {configs} = await ACProfImport.readCsv(file, registry, {chunkSize:1024});
+        return {sourceChars:text.length, parsedChars, windows:configs[0].valid_windows, mean:configs[0].metrics.latency_app_s.value};
+      } finally { Papa.Parser = original; }
+    }""")
+    assert (result["windows"], result["mean"]) == (2, 3)
+    assert result["sourceChars"] <= result["parsedChars"] <= 4 * result["sourceChars"]
+
+
+@pytest.mark.parametrize("broken", ['"closed"x\r\n', '"open'], ids=["trailing-junk", "unterminated"])
+def test_malformed_quoted_record_never_publishes_partial_import(page, broken):
+    header = "cpu_cores,mem_cap_gb,gpu_mode,input_scale,repeat_idx,warmup,status,latency_app_s,model\r\n"
+    text = header + '2,4,off,32,0,0,ok,2,"good"\r\n2,4,off,32,1,0,ok,4,' + broken
+    import_file(page, "broken.csv", text)
+    assert "Malformed CSV" in page.locator("#import-status").inner_text()
+    assert page.locator("#experiment-list tbody tr").count() == 1
+
+
 def test_html_and_json_restore_filtered_comparison_offline(page, source, tmp_path):
     import_file(page, "second.csv", source.read_text().replace("original", "second"))
     page.click("#report-filters > summary")

@@ -129,7 +129,8 @@ window.ACProfImport = (() => {
   }
   async function readCsv(file, registry, {signal, onProgress = () => {}, chunkSize = 256 * 1024} = {}) {
     const groups = new Map(), seen = new Set(), hash = sha256.create(), decoder = new TextDecoder("utf-8", {fatal:true});
-    let fields, tail = "", newline, rowNumber = 0;
+    const maxPendingChars = 8 * 1024 * 1024;
+    let fields, tail = "", newline, rowNumber = 0, nextParseLength = 0;
     const required = ["cpu_cores", "mem_cap_gb", "gpu_mode", "input_scale", "repeat_idx", "warmup", "status"];
     function row(values) {
       if (values.every(value => !value.trim())) return;
@@ -203,27 +204,36 @@ window.ACProfImport = (() => {
         }
       }
     }
+    function parsePending(done) {
+      if (!newline) {
+        const match = tail.match(/\r\n|\n|\r/);
+        // The header cannot contain a quoted newline in the AC-Prof contract.
+        if ((match?.index ?? tail.length) > maxPendingChars) fail("CSV 表头超过 8 MiB / CSV header exceeds 8 MiB");
+        if (!done && (!match || (match[0] === "\r" && match.index === tail.length - 1))) return;
+        newline = match?.[0] || "\n";
+      }
+      // Papa needs both bytes of a CRLF after a closing quote to recognize a record boundary.
+      const holdCR = !done && newline === "\r\n" && tail.endsWith("\r");
+      const parsed = new Papa.Parser({delimiter:",", newline, step: result => {
+        if (result.errors.length) fail("CSV 损坏 / Malformed CSV: " + result.errors[0].message);
+        row(result.data[0]);
+      }}).parse(holdCR ? tail.slice(0, -1) : tail, 0, !done);
+      if (parsed.errors.length) fail("CSV 损坏 / Malformed CSV: " + parsed.errors[0].message);
+      tail = tail.slice(parsed.meta.cursor);
+      if (tail.length - Number(holdCR) > maxPendingChars) fail("CSV 单行超过 8 MiB / CSV row exceeds 8 MiB");
+    }
     for (let offset = 0; offset < file.size; offset += chunkSize) {
       checkCancelled(signal);
       const bytes = new Uint8Array(await file.slice(offset, offset + chunkSize).arrayBuffer());
       checkCancelled(signal); hash.update(bytes);
       const done = offset + chunkSize >= file.size;
       tail += decoder.decode(bytes, {stream:!done});
-      if (!newline && tail.length > 8 * 1024 * 1024) fail("CSV 表头超过 8 MiB / CSV header exceeds 8 MiB");
-      if (!newline) {
-        const match = tail.match(/\r\n|\n|\r/);
-        if (!match && !done) continue;
-        // The header cannot contain a quoted newline in the AC-Prof contract.
-        newline = match?.[0] || "\n";
-        if (newline === "\r" && tail.endsWith("\r") && !done) { newline = null; continue; }
+      if (done || tail.length >= nextParseLength) {
+        parsePending(done);
+        // Papa reparses its unfinished record. Double the buffered prefix between retries
+        // so long quoted fields cost linear work, and check the limit as soon as it is crossed.
+        nextParseLength = Math.min(maxPendingChars + 1, 2 * tail.length);
       }
-      const parsed = new Papa.Parser({delimiter:",", newline, step: result => {
-        if (result.errors.length) fail("CSV 损坏 / Malformed CSV: " + result.errors[0].message);
-        row(result.data[0]);
-      }}).parse(tail, 0, !done);
-      if (parsed.errors.length) fail("CSV 损坏 / Malformed CSV: " + parsed.errors[0].message);
-      tail = tail.slice(parsed.meta.cursor);
-      if (tail.length > 8 * 1024 * 1024) fail("CSV 单行超过 8 MiB / CSV row exceeds 8 MiB");
       onProgress(Math.min(1, (offset + bytes.length) / file.size));
       await new Promise(resolve => setTimeout(resolve, 0));
     }

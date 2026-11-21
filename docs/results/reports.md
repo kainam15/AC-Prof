@@ -272,7 +272,8 @@ acprof report results/<model>/ --baseline '<config_id>' --output baseline.html
 - `导出 CSV / JSON` 遵循当前视图及筛选；JSON 同时携带可重新导入的分析包。过滤不重新估计 CI，不把独立组的部分配置伪装成新的正式统计。CSV 对可能触发电子表格公式的文本加前缀，数值与原始 JSON 不改变。
 - `另存 HTML` 保存包含全部已加载实验的自包含报告，包括筛选、指标、视图、选中配置、基线／对照、语言及已完成的重算结果。重新打开或导入该 HTML 保留当前统计与可比性，原始内嵌数据保持原样；新增实验仍可删除。超预算的外部窗口文件不会重新内嵌，下次重算仍需导入该文件。
 
-CSV 按 256 KiB 块读取并在块间让出浏览器事件循环，不保留全部原始行；未完成行缓存设 8 Mi 字符保护阈值。
+CSV 按 256 KiB 分块读取，每块都更新进度并允许取消。UTF-8 多字节字符、转义引号和 CRLF 可以跨块，带引号字段内的换行按原样读取。
+未完成记录的缓存上限为 8 Mi 个 JavaScript UTF-16 码元。长记录按已缓存长度倍增后再尝试解析，文件结束时处理剩余内容。
 JSON／HTML 采用整体解析，单文件上限 128 MiB。取消尚未完成的文件不留下部分实验，
 同一批次之前成功加入的文件保留。脚本、图表库、解析器和许可全部内嵌，`file://` 下不请求 CDN、
 服务器或外部 API。浏览器结果标记为浏览器计算。新增独立运行分组及其严格条件检查仍通过
@@ -283,7 +284,7 @@ JSON／HTML 采用整体解析，单文件上限 128 MiB。取消尚未完成的
 分块 SHA256 使用 [js-sha256 0.11.1](https://github.com/emn178/js-sha256/tree/v0.11.1)，两者为 MIT。
 源码与许可内嵌资源的版本／SHA256 见 `acprof/plotting/vendor/manifest.json`。复用成熟解析器处理
 引号和换行，在外层增量 UTF-8 解码以保护分块边界；不引入 npm 运行时或第二套统计依赖，
-也不增加测量阶段开销。流式使用注意事项参考 [Papa Parse #437](https://github.com/mholt/PapaParse/issues/437)，
+也不增加测量阶段开销。分隔符 CRLF 的两个字节分属相邻块时，读取端会等到 LF 到达再交给解析器。见 [Papa Parse #1103](https://github.com/mholt/PapaParse/issues/1103)。流式使用注意事项参考 [Papa Parse #437](https://github.com/mholt/PapaParse/issues/437)，
 CSV 文本导出参考 [PR #1149](https://github.com/mholt/PapaParse/pull/1149) 的多行公式边界。
 
 本功能的自动化证据为 Linux headless Chrome、离线 `file://`、中英文及窄窗口交互；
