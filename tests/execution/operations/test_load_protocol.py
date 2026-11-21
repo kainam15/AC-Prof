@@ -7,6 +7,7 @@ import time
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -72,10 +73,14 @@ def test_source_input_plan_preserves_identity_schema_and_exact_payload():
         }))
         original = path.read_bytes()
         expected = hashlib.sha256(original).hexdigest()
-        assert (_read_source_input_entry(path, expected, 2)["payload"]) == (payload)
+        with patch.object(Path, "open", autospec=True, side_effect=Path.open) as opened:
+            assert _read_source_input_entry(path, expected, 2)["payload"] == payload
+        assert sum(call.args[0] == path for call in opened.call_args_list) == 1
         assert (path.read_bytes()) == (original)
-        with pytest.raises(ValueError, match="identity mismatch"):
+        with pytest.raises(ValueError, match="hash does not match expected SHA256"):
             _read_source_input_entry(path, "0" * 64, 2)
+        with pytest.raises(ValueError, match="missing its recorded SHA256"):
+            _read_source_input_entry(path, None, 2)
         path.write_text(json.dumps({"schema_version": 1, "entries": []}))
         old_schema_hash = hashlib.sha256(path.read_bytes()).hexdigest()
         with pytest.raises(ValueError, match="schema_version"):

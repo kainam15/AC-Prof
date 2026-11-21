@@ -72,6 +72,7 @@ BAD_FIELDS = [
     (("runtime", "planned"), [], "runtime.planned"),
     (("runtime", "planned", "scales"), {}, "scales"),
     (("runtime", "planned", "scales"), [True], "scales"),
+    (("runtime", "planned", "plan_sha256"), "not-a-digest", "plan_sha256"),
     (("runtime", "planned", "scales"), [float("inf")], "scales|非有限数值"),
     (("runtime", "kind"), {}, "runtime.kind"),
     (("runtime", "compute_plan"), [], "runtime.compute_plan"),
@@ -167,6 +168,39 @@ def test_missing_attempts_is_rejected_before_preparation_archive(tmp_path, monke
         if isinstance(resumed, run_state.RunState):
             resumed.close()
     assert tree_bytes(state.directory) == before
+
+
+def test_recorded_input_plan_digest_must_agree_with_artifacts_before_recovery(recovery_state):
+    state = recovery_state
+    data = copy.deepcopy(state.data)
+    path = state.layout.path("input_scale_plan.json")
+    path.write_text(json.dumps({"schema_version": 2, "entries": [{"input_scale": 64, "payload": {}}]}))
+    relative = str(path.relative_to(state.directory))
+    data["artifacts"][relative] = run_state.file_sha256(path)
+    data["runtime"]["planned"].update(plan_file=relative, plan_sha256="0" * 64)
+    run_state.atomic_write_json(state.path, data)
+    before = tree_bytes(state.directory)
+    with pytest.raises(run_state.RunStateError, match="plan_sha256"):
+        run_state.load_run_state(state.directory)
+    assert tree_bytes(state.directory) == before
+
+
+def test_binding_changed_plan_preserves_preparation_state(recovery_state):
+    state = run_state.RunState(recovery_state.directory.parent / "new", recovery_state.data["options"],
+                               resume=False, project_dir=".")
+    try:
+        path = state.layout.path("input_scale_plan.json")
+        path.write_text(json.dumps({"schema_version": 2, "entries": [{"input_scale": 1, "payload": {}}]}))
+        plan = PlannedInputScales([1], "manual", plan_file=str(path), plan_sha256="0" * 64)
+        task = TaskInfo(**recovery_state.data["runtime"]["task"])
+        before = copy.deepcopy(state.data)
+        persisted = state.path.read_bytes()
+        with pytest.raises(run_state.RunStateError, match="hash does not match expected SHA256"):
+            state.bind_runtime(task, ImageInfo("sha256:" + "b" * 64), plan, "", "")
+        assert state.data == before
+        assert state.path.read_bytes() == persisted
+    finally:
+        state.close("interrupted")
 
 
 def test_valid_measurement_state_is_readable_and_resumable(recovery_state):

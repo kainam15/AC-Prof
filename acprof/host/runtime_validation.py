@@ -66,6 +66,17 @@ class RuntimeValidationError(RuntimeFailure, RuntimeError):
     """A persisted runtime failure, including an inconclusive timeout."""
 
 
+def validation_input(task_info: TaskInfo, planned: PlannedInputScales) -> tuple[dict, dict]:
+    """Select the smallest request from the verified input plan for either runtime."""
+    from acprof.artifacts import read_input_scale_plan
+
+    if not planned.plan_file:
+        raise ValueError("runtime validation requires an input plan file")
+    plan = read_input_scale_plan(planned.plan_file, expected_sha256=getattr(planned, "plan_sha256", None) or None)
+    frozen = verify_plan_configuration(task_info, plan)
+    return min(plan["entries"], key=lambda item: float(item["input_scale"])), frozen
+
+
 def validate_runtime(
     *, task_info: TaskInfo, image_info: ImageInfo, planned: PlannedInputScales, cpu_list: list[int],
     mem_list: list[int], gpu_list: list[str], output_dir: str,
@@ -83,17 +94,13 @@ def validate_runtime(
         raise ValueError("镜像缺少 runtime_environment；请使用当前版本重新构建运行环境")
     if not re.fullmatch(r"sha256:[0-9a-f]{64}", image_info.tag):
         raise ValueError("runtime validation requires an immutable image ID")
-    from acprof.artifacts import atomic_write_json, read_input_scale_plan
+    from acprof.artifacts import atomic_write_json
     from acprof.host.container_state import inspect_container_state
     from acprof.host.env_utils import hf_offline_docker_env_args
     from acprof.host.model_store.store import acquire_mount, retain_mount_for_cleanup_debt
 
-    if planned.plan_file is None:
-        raise ValueError("runtime validation requires an input plan file")
-    plan = read_input_scale_plan(planned.plan_file)
-    frozen = verify_plan_configuration(task_info, plan)
+    entry, frozen = validation_input(task_info, planned)
     configuration_env = inference_docker_env_args(task_info)
-    entry = min(plan["entries"], key=lambda item: float(item["input_scale"]))
     encoded = json.dumps(entry["payload"], ensure_ascii=False).encode()
     from acprof.platform import detect_environment
     report: RuntimeValidationReport = {

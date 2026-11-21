@@ -21,11 +21,12 @@ from tests.execution.operations.test_load_protocol import server
 from tests.execution.process.test_process_service import service as service
 
 
-def replay_environment(tmp_path, monkeypatch, kind="process", *, cpus="auto", mems="auto", gpu="off"):
+def replay_environment(tmp_path, monkeypatch, kind="process", *, cpus="auto", mems="auto", gpu="off",
+                       plan_name="input_scale_plan.json"):
     source, output = tmp_path / "source", tmp_path / "load"
     source.mkdir()
     payload = {"text": "frozen prompt", "params": {"seed": 7}}
-    plan = source / "input_scale_plan.json"
+    plan = source / (plan_name or "input_scale_plan.json")
     plan.write_text(json.dumps({"schema_version": 2, "entries": [{"input_scale": 2, "payload": payload}]}))
     gpu_device = {"uuid": "GPU-source", "cuda_visible_devices": "1"} if gpu == "on" else {}
     process = ProcessInfo("/fixture/venv/bin/python", "/fixture/code", "/fixture/model", "fixed-environment", {
@@ -38,7 +39,8 @@ def replay_environment(tmp_path, monkeypatch, kind="process", *, cpus="auto", me
         "options": {"cpus": cpus, "mems": mems, "gpus": gpu, "gpu_device": "GPU-source",
                     "request_timeout_seconds": 1.25, "sniff_iface": "lo", "cpuset_cpus": "",
                     "measurement_environment": {"OMP_NUM_THREADS": "2", "CUDA_VISIBLE_DEVICES": "0,1"}},
-        "runtime": {"kind": kind, "task": asdict(task), "image": asdict(artifact)},
+        "runtime": {"kind": kind, "task": asdict(task), "image": asdict(artifact),
+                    "planned": {"plan_file": plan_name, "scales": [2], "source": "manual"}},
         "artifacts": {plan.name: hashlib.sha256(plan.read_bytes()).hexdigest()},
     }
     source_state = source / "fixture-state.json"
@@ -76,9 +78,13 @@ def replay_environment(tmp_path, monkeypatch, kind="process", *, cpus="auto", me
                            observe=observe, argv=argv)
 
 
-@pytest.mark.parametrize("kind", ["process", "docker"])
-def test_replay_restores_runtime_and_runs_frozen_payload_without_changing_source(tmp_path, monkeypatch, kind):
-    replay = replay_environment(tmp_path, monkeypatch, kind, cpus="auto" if kind == "process" else "2,4", mems="3,6")
+@pytest.mark.parametrize(("kind", "plan_name"), [("process", "reviewed_input.json"), ("docker", None)])
+def test_replay_restores_runtime_and_runs_frozen_payload_without_changing_source(tmp_path, monkeypatch, kind, plan_name):
+    replay = replay_environment(tmp_path, monkeypatch, kind, cpus="auto" if kind == "process" else "2,4",
+                                mems="3,6", plan_name=plan_name)
+    if plan_name:
+        # Older state can carry the plan digest without a second artifact record.
+        replay.state["runtime"]["planned"]["plan_sha256"] = replay.state["artifacts"].pop(plan_name)
     monkeypatch.setenv("OMP_NUM_THREADS", "caller")
     with server() as (url, ports, _peak):
         replay.session.base_url = url

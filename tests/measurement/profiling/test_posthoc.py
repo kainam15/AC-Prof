@@ -315,6 +315,7 @@ class TestPosthocProfile:
             assert (kwargs['gpu_list']) == (['off'])
             assert (kwargs['image_info'].tag) == (context.image_tag)
             assert (kwargs['planned'].plan_file) == (str(context.input_scale_plan_path))
+            assert kwargs['planned'].plan_sha256 == hashlib.sha256(context.input_scale_plan_path.read_bytes()).hexdigest()
             assert (Path(kwargs['output_dir'])) == (root / 'posthoc_profiles' / 'runtime_validation')
 
     @pytest.mark.parametrize('validation_result_case', range(2), ids=["RuntimeError('invalid task output')", "{'status': 'resource_limited'}"])

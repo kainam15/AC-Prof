@@ -315,6 +315,18 @@ def _validate_measurement_options(options: object) -> TypeGuard[MeasurementOptio
     return True
 
 
+def input_plan_reference(
+    layout: ArtifactLayout, plan: PlannedSnapshot, artifacts: Mapping[str, str],
+) -> tuple[str, str | None]:
+    """Resolve the plan path and reconcile the digests recorded for this experiment."""
+    name = plan.get("plan_file") or str(layout.path("input_scale_plan.json").relative_to(layout.root))
+    planned = plan.get("plan_sha256")
+    recorded = artifacts.get(name)
+    if planned and recorded and planned != recorded:
+        raise RunStateError("runtime.planned.plan_sha256 与输入计划的产物记录不一致")
+    return name, planned or recorded
+
+
 def _validate_planned_snapshot(plan: object, layout: ArtifactLayout) -> TypeGuard[PlannedSnapshot]:
     if not isinstance(plan, dict):
         raise RunStateError("run_state.json 字段 runtime.planned 无效：需要对象")
@@ -334,7 +346,9 @@ def _validate_planned_snapshot(plan: object, layout: ArtifactLayout) -> TypeGuar
     if not isinstance(plan.get("workload", {}), dict):
         raise RunStateError("run_state.json 字段 runtime.planned.workload 无效")
     if "plan_sha256" in plan:
-        _state_text(plan["plan_sha256"], "runtime.planned.plan_sha256", empty=True)
+        digest = _state_text(plan["plan_sha256"], "runtime.planned.plan_sha256", empty=True)
+        if digest and re.fullmatch(r"[a-f0-9]{64}", digest) is None:
+            raise RunStateError("run_state.json 字段 runtime.planned.plan_sha256 无效：需要 SHA256")
     return True
 
 
@@ -361,8 +375,10 @@ def _frozen_runtime_task(runtime: Mapping[str, object]):
     return None
 
 
-def _validate_frozen_runtime_evidence(layout: ArtifactLayout, runtime: RuntimeSnapshot) -> None:
-    """Frozen configuration, plan and independent observations form one experiment."""
+def _validate_frozen_runtime_evidence(
+    layout: ArtifactLayout, runtime: RuntimeSnapshot, artifacts: Mapping[str, str],
+) -> tuple[str, str] | None:
+    """Check the frozen evidence and return the verified input plan reference, if available."""
     from acprof.artifacts import read_input_scale_plan
     from acprof.host.configuration_transport import (
         verify_plan_configuration,
@@ -370,20 +386,23 @@ def _validate_frozen_runtime_evidence(layout: ArtifactLayout, runtime: RuntimeSn
     )
 
     task = _frozen_runtime_task(runtime)
-    if task is None:  # Historical experiments never acquire invented configuration evidence.
-        return
-    frozen = task.inference_configuration
+    planned = runtime["planned"]
+    if task is None and not (planned.get("plan_file") or planned.get("plan_sha256")):
+        return None
     try:
+        if task is not None and not (planned.get("plan_file") and planned.get("plan_sha256")):
+            raise ValueError("frozen inference configuration requires its saved input plan and SHA256")
+        plan_name, digest = input_plan_reference(layout, planned, artifacts)
+        if not digest:
+            return None
+        plan = read_input_scale_plan(layout.contained(plan_name), expected_sha256=digest)
+        if task is None:
+            return plan_name, digest
+        frozen = task.inference_configuration
         metadata = read_json_object(layout.path("static_meta.json"), label="static metadata")
         if metadata.get("inference_configuration") != frozen:
             raise ValueError("static_meta.json does not contain the frozen inference configuration")
-        plan_name = runtime["planned"].get("plan_file")
-        if not plan_name:
-            raise ValueError("frozen inference configuration requires its saved input plan")
-        plan_path = layout.contained(plan_name)
-        if file_sha256(plan_path) != runtime["planned"].get("plan_sha256"):
-            raise ValueError("frozen input plan contents have changed")
-        verify_plan_configuration(task, read_input_scale_plan(plan_path))
+        verify_plan_configuration(task, plan)
         validation = read_json_object(layout.path("runtime_validation.json"), label="runtime validation")
         if (validation.get("status") != "ok"
                 or validation.get("inference_configuration_sha256") != frozen["identity_sha256"]):
@@ -397,8 +416,9 @@ def _validate_frozen_runtime_evidence(layout: ArtifactLayout, runtime: RuntimeSn
             verify_runtime_configuration(task, report, expected_device=device, require_consumers=True)
         if metadata.get("runtime_validation") != validation:
             raise ValueError("static_meta.json runtime validation differs from its independent report")
+        return plan_name, digest
     except (OSError, ValueError, TypeError, KeyError) as exc:
-        raise RunStateError(f"冻结推理配置证据不可恢复：{exc}") from exc
+        raise RunStateError(f"冻结推理配置或输入计划证据不可恢复：{exc}") from exc
 
 
 def _validate_runtime_state(layout: ArtifactLayout, runtime: object, options: object) -> None:
@@ -502,6 +522,9 @@ def _validate_run_state(data: object, layout: ArtifactLayout) -> TypeGuard[RunSt
             raise RunStateError(message("已有测量证据但缺少冻结运行环境，不能按准备失败重试。"))
     else:
         _validate_runtime_state(layout, data["runtime"], data["options"])
+        planned = data["runtime"]["planned"]
+        if planned.get("plan_sha256"):
+            input_plan_reference(layout, planned, data["artifacts"])
     pending_cases = []
     for name, record in data["cases"].items():
         field = f"cases[{name!r}]"
@@ -607,6 +630,7 @@ def validate_resume(directory: str | Path, data: object, *, project_dir: str | P
             issues.append(message("{0}已变化", message(labels.get(name, "主机身份（{0}）"), name)))
     if issues:
         raise RunStateError(message("无法续跑；请使用新实验保留原结果。\n{0}", join_messages("\n", issues)))
+    verified_plan = None
     if "runtime" in data:
         from acprof.host.detect import TaskInfo
         from acprof.tasks.interfaces import validate_execution_identity
@@ -617,7 +641,7 @@ def validate_resume(directory: str | Path, data: object, *, project_dir: str | P
             validate_execution_identity(TaskInfo(**task_snapshot))
         except ValueError as exc:
             raise RunStateError(f"run_state.json 字段 runtime.task.selected_tasks 无效：{exc}") from exc
-        _validate_frozen_runtime_evidence(layout, data["runtime"])
+        verified_plan = _validate_frozen_runtime_evidence(layout, data["runtime"], data["artifacts"])
     phase = recovery_phase(directory, data)
     complete = phase == "complete"
     if repair:
@@ -631,6 +655,8 @@ def validate_resume(directory: str | Path, data: object, *, project_dir: str | P
     if complete:
         read_result_csv(layout.result_csv, expected=_expected(data))
     for name, digest in data.get("artifacts", {}).items():
+        if verified_plan == (name, digest):
+            continue
         if complete and Path(name).name not in {"matrix_plan.json", "startup_oom_pruning.json"}:
             continue
         path = layout.contained(name)
@@ -897,17 +923,8 @@ class RunState:
         from acprof.host.configuration_transport import bound_inference_configuration
 
         frozen = bound_inference_configuration(task)
-        paths = [str(self.layout.path(name).relative_to(self.directory))
-                 for name in ("static_meta.json", "collection_history.json", "input_scale_plan.json")]
-        for value in (compute_plan, execution_plan):
-            if value:
-                paths.append(str(Path(value).resolve().relative_to(self.directory)))
-        for name in paths:
-            path = self.artifact_path(name)
-            if path.is_file():
-                self.data["artifacts"][name] = file_sha256(path)
-        plan: object = asdict(planned)
-        if isinstance(plan, dict) and plan.get("plan_file"):
+        plan = asdict(planned)
+        if plan.get("plan_file"):
             plan["plan_file"] = str(Path(plan["plan_file"]).resolve().relative_to(self.directory))
         if not _validate_planned_snapshot(plan, self.layout):
             raise RunStateError("run_state.json 输入计划校验失败")
@@ -921,7 +938,21 @@ class RunState:
         }
         if frozen:
             snapshot["inference_configuration_sha256"] = frozen["identity_sha256"]
-        _validate_frozen_runtime_evidence(self.layout, snapshot)
+        verified_plan = _validate_frozen_runtime_evidence(self.layout, snapshot, self.data["artifacts"])
+        paths = [str(self.layout.path(name).relative_to(self.directory))
+                 for name in ("static_meta.json", "collection_history.json")]
+        paths.extend(name for name in (snapshot["compute_plan"], snapshot["execution_plan"]) if name)
+        artifacts = {}
+        if verified_plan:
+            plan_name, digest = verified_plan
+            artifacts[plan_name] = digest
+        else:
+            paths.append(plan.get("plan_file") or str(self.layout.path("input_scale_plan.json").relative_to(self.directory)))
+        for name in paths:
+            path = self.artifact_path(name)
+            if path.is_file():
+                artifacts[name] = file_sha256(path)
+        self.data["artifacts"].update(artifacts)
         self.data["runtime"] = snapshot
         self.data["status"] = "running"
         self.save()
@@ -938,7 +969,7 @@ class RunState:
         task = TaskInfo(**task_snapshot)
         # Reject changed interface identity before touching the saved runtime artifact.
         validate_execution_identity(task)
-        _validate_frozen_runtime_evidence(self.layout, snapshot)
+        verified_plan = _validate_frozen_runtime_evidence(self.layout, snapshot, self.data["artifacts"])
         image_snapshot = snapshot["image"]
         if not isinstance(image_snapshot, dict):
             raise RunStateError("run_state.json 字段 runtime.image 无效：需要对象")
@@ -946,7 +977,7 @@ class RunState:
             image_snapshot, output_dir=self.directory,
         )
         plan = snapshot["planned"]
-        plan_file = plan.get("plan_file")
+        plan_file, digest = verified_plan or (plan.get("plan_file"), plan.get("plan_sha256", ""))
         if plan_file:
             plan_file = str(self.artifact_path(plan_file))
         workload = plan.get("workload", {})
@@ -954,7 +985,7 @@ class RunState:
             raise RunStateError("run_state.json 字段 runtime.planned.workload 无效")
         restored_plan = PlannedInputScales(
             scales=plan["scales"], source=plan["source"], plan_file=plan_file,
-            workload=workload, plan_sha256=plan.get("plan_sha256", ""),
+            workload=workload, plan_sha256=digest,
         )
         return (task, image, restored_plan,
                 str(self.artifact_path(snapshot["compute_plan"])) if snapshot["compute_plan"] else "",

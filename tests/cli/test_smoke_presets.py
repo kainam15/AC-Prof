@@ -48,7 +48,8 @@ def test_task_minimum_uses_workload_tokens_seconds_and_image_scale(task, family,
         assert ([entry["input_scale"] for entry in payload["entries"]]) == ([expected])
         assert (hashlib.sha256(Path(plan.plan_file).read_bytes()).hexdigest()) == (plan.plan_sha256)
 
-def test_minimal_plan_freeze_and_resume_keep_source_scales_hash_and_static_metadata():
+@pytest.mark.parametrize("ledger_only", [False, True])
+def test_minimal_plan_freeze_and_resume_keep_source_scales_hash_and_static_metadata(ledger_only):
     from acprof.host import run_state
     from acprof.host.metadata.static import StaticMeta, enrich_static_meta_from_input_plan
     info = TaskInfo("example/model", "image-classification", "cv", "transformers_model", "transformers", "fixed", "unit")
@@ -64,6 +65,8 @@ def test_minimal_plan_freeze_and_resume_keep_source_scales_hash_and_static_metad
             plan = input_plan.plan_input_scales(info, image, [1], [4], ["off"], 1, str(directory), input_scale_policy="minimal")
             original = Path(plan.plan_file).read_bytes()
             state.bind_runtime(info, image, plan, "", "")
+            if ledger_only:
+                del state.data["runtime"]["planned"]["plan_sha256"]
         finally:
             state.close()
         restored = run_state.RunState(directory, options, resume=True, project_dir=str(Path.cwd()))

@@ -66,6 +66,20 @@ class TestRuntimeValidation:
         ), planned=SimpleNamespace(plan_file=str(plan)), cpu_list=[1, 4], mem_list=[2, 8],
                     gpu_list=['off', 'on'], output_dir=str(root), timeout_seconds=30)
 
+    @pytest.mark.parametrize("runtime", ["docker", "process"])
+    def test_changed_input_plan_is_rejected_before_runtime_setup(self, tmp_path, monkeypatch, runtime):
+        from acprof.host.runtimes.validation import validate_process
+
+        options = self.fixture(tmp_path)
+        options["planned"].plan_sha256 = "0" * 64
+        setup = Mock(side_effect=AssertionError("runtime setup reached"))
+        monkeypatch.setattr("acprof.platform.detect_environment", setup)
+        validate = validate_runtime if runtime == "docker" else validate_process
+        with pytest.raises(ValueError, match="hash does not match expected SHA256"):
+            validate(**options)
+        setup.assert_not_called()
+        assert not (tmp_path / "runtime_validation.json").exists()
+
     def test_input_plan_is_bounded_before_runtime_start(self, tmp_path):
         options = self.fixture(tmp_path)
         Path(options['planned'].plan_file).write_text(json.dumps({

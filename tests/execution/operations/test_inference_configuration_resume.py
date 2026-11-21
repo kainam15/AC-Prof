@@ -4,7 +4,8 @@ from __future__ import annotations
 import copy
 import json
 from dataclasses import asdict
-from unittest.mock import Mock
+from pathlib import Path
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -26,6 +27,14 @@ def frozen_state(tmp_path, monkeypatch, request):
 
 def tree_bytes(directory):
     return {path.relative_to(directory): path.read_bytes() for path in directory.rglob("*") if path.is_file()}
+
+
+def test_frozen_resume_reads_plan_once_for_digest_configuration_and_artifacts(frozen_state):
+    state = frozen_state
+    plan = state.layout.path("input_scale_plan.json")
+    with patch.object(Path, "open", autospec=True, side_effect=Path.open) as opened:
+        assert run_state.validate_resume(state.directory, state.data, project_dir=".") == "measurement"
+    assert sum(call.args[0] == plan for call in opened.call_args_list) == 1
 
 
 @pytest.mark.parametrize("frozen_state", [{"max_length": 10}], indirect=True)

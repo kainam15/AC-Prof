@@ -21,7 +21,13 @@ from acprof.host.env_utils import bootstrap_project_env
 from acprof.host.execution_conditions import ExecutionConditions
 from acprof.host.hardware_conditions import record_case_conditions
 from acprof.host.measurement.load import run_load
-from acprof.host.run_state import MeasurementLock, file_sha256, host_identity, load_run_state
+from acprof.host.run_state import (
+    MeasurementLock,
+    RunStateError,
+    host_identity,
+    input_plan_reference,
+    load_run_state,
+)
 from acprof.host.runtimes.service import execution_runtime
 from acprof.installation import module_command, resource_root
 from acprof.results.layout import ArtifactLayout, resolve_single_result_source
@@ -90,9 +96,9 @@ def validate_packets(path, result, *, port=8002):
 def _read_source_input_entry(
     plan_path: Path, expected_sha256: str | None, requested_scale: float | None,
 ) -> dict[str, Any]:
-    if not expected_sha256 or file_sha256(plan_path) != expected_sha256:
-        raise ValueError("source input plan identity mismatch")
-    entries = read_input_scale_plan(plan_path)["entries"]
+    if not expected_sha256:
+        raise ValueError("source input plan is missing its recorded SHA256")
+    entries = read_input_scale_plan(plan_path, expected_sha256=expected_sha256)["entries"]
     if requested_scale is None:
         return entries[0]
     entry = next((item for item in entries if float(item["input_scale"]) == requested_scale), None)
@@ -165,9 +171,9 @@ def _run_replay(args: argparse.Namespace, parser: argparse.ArgumentParser, outpu
         runtime = execution_runtime(snapshot.get("kind", "docker"))
         cpu = _replay_resource(options["cpus"], args.cpu, runtime.kind)
         mem = _replay_resource(options["mems"], args.mem, runtime.kind)
-        plan_path = ArtifactLayout.discover(args.source).path("input_scale_plan.json")
-        expected = state["artifacts"].get(str(plan_path.relative_to(args.source)))
-        entry = _read_source_input_entry(plan_path, expected, args.input_scale)
+        layout = ArtifactLayout.discover(args.source)
+        plan_name, expected = input_plan_reference(layout, snapshot["planned"], state["artifacts"])
+        entry = _read_source_input_entry(layout.contained(plan_name), expected, args.input_scale)
         task_snapshot, image_snapshot = snapshot["task"], snapshot["image"]
         if not isinstance(task_snapshot, dict) or not isinstance(image_snapshot, dict):
             raise ValueError("source task and image snapshots must be objects")
@@ -177,7 +183,7 @@ def _run_replay(args: argparse.Namespace, parser: argparse.ArgumentParser, outpu
             raise ValueError("source runtime identity is missing")
         output = args.output_dir.resolve()
         output_scope.enter_context(reserve_load_output(output))
-    except (OSError, KeyError, TypeError, ValueError) as error:
+    except (OSError, KeyError, TypeError, ValueError, RunStateError) as error:
         parser.error(str(error))
     capture = args.capture or args.connections == "reuse"
     identity = {"source_run_id": state["run_id"], "runtime_kind": runtime.kind, "runtime_id": runtime_id,

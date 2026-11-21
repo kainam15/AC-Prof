@@ -120,6 +120,9 @@ acprof load results/model --gpu off --scenario arrival-rate --concurrency 4 \
 CPU 集合、GPU UUID 和请求超时。复用公共 Runtime 的恢复、启动和清理接口，持有主机测量锁；
 Docker 核对不可变镜像 ID，Process 核对原环境、模型缓存与代码快照，将服务日志绑定到新的输出目录。
 原制品缺失或身份变化时失败，不自动重建环境、下载模型或切换 Runtime。
+重放从状态中记录的计划路径读取，历史状态缺少路径时使用该布局的默认位置。
+输入计划和产物清单可以只保存一份 SHA256，两处均有记录时必须一致。读取上限为 4 MiB，
+摘要校验和请求解析使用同一次读取的字节。没有可核对的摘要或校验失败时，在创建负载实验目录前报错。
 默认选源矩阵最大 CPU／内存及第一个输入尺度；Process 源中的 `auto` 继续表示继承限制。
 可用 `--cpu`、`--mem`、`--input-scale` 选择源实验已有数值配置，不能把继承限制改成新的配额。
 缺少 GPU UUID、设备不可解析或 CPU affinity 无法满足时明确失败；Process GPU 按记录的 CUDA

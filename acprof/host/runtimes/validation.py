@@ -9,14 +9,11 @@ import uuid
 from contextlib import ExitStack
 from typing import Any
 
-from acprof.artifacts import atomic_write_json, read_input_scale_plan
+from acprof.artifacts import atomic_write_json
 from acprof.events.preparation import preparation_stage
 from acprof.failures import Failure, failure_from_exception
-from acprof.host.configuration_transport import (
-    verify_plan_configuration,
-    verify_runtime_configuration,
-)
-from acprof.host.runtime_validation import RuntimeValidationError
+from acprof.host.configuration_transport import verify_runtime_configuration
+from acprof.host.runtime_validation import RuntimeValidationError, validation_input
 from acprof.host.runtimes.contracts import ProcessInfo, RuntimeCleanupError
 from acprof.host.runtimes.process import service_environment
 from acprof.host.runtimes.process_control import ManagedProcess
@@ -134,9 +131,7 @@ def validate_process(*, task_info, image_info, planned, cpu_list, mem_list, gpu_
     from acprof.container.runtime_validate import RESULT_PREFIX
     from acprof.models.contract import record_runtime_validation, write_model_resolution
     from acprof.platform import detect_environment
-    plan = read_input_scale_plan(planned.plan_file)
-    frozen = verify_plan_configuration(task_info, plan)
-    entry = min(plan["entries"], key=lambda item: float(item["input_scale"]))
+    entry, frozen = validation_input(task_info, planned)
     report: dict[str, Any] = {**detect_environment().metadata(), "schema_version": 1, "runtime_kind": "process",
         "runtime_id": image_info.environment_id, "status": "running", "devices": {}, "mode": "full",
         "input_scale": entry["input_scale"], "payload_sha256": hashlib.sha256(json.dumps(entry["payload"]).encode()).hexdigest(),
