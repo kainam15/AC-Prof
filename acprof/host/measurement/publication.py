@@ -32,10 +32,9 @@ def reconcile_sniff_group_sidecar(csv_path: str | Path, sidecar_path: str | Path
     with csv_file.open("r", encoding="utf-8-sig", newline="") as stream:
         allow_large_csv_fields()
         reader = csv.reader(stream)
-        if next(reader, None) is None:
-            committed_rows = 0
-        else:
-            committed_rows = sum(1 for _ in reader)
+        next(reader, None)
+        # DictReader skips empty records but retains rows containing empty cells.
+        committed_rows = sum(1 for row in reader if row)
 
     with sidecar_file.open("r", encoding="utf-8", newline="") as stream:
         lines = stream.readlines()

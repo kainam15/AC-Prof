@@ -47,6 +47,31 @@ def test_reconcile_sniff_group_sidecar_discards_uncommitted_tail(tmp_path) -> No
     assert sidecar.read_text(encoding="utf-8") == committed
 
 
+@pytest.mark.parametrize("blank_position", ["between", "trailing"])
+@pytest.mark.parametrize("crash_tail", [False, True])
+def test_reconcile_counts_csv_records_across_blank_lines(tmp_path, blank_position, crash_tail) -> None:
+    result = tmp_path / "result.csv"
+    with result.open("w", newline="", encoding="utf-8-sig") as stream:
+        writer = csv.writer(stream)
+        writer.writerow(["status", "error"])
+        writer.writerow(["", ""])
+        if blank_position == "between":
+            writer.writerow([])
+        writer.writerow(["error", 'line one, "quoted"\n\nline two'])
+        if blank_position == "trailing":
+            writer.writerow([])
+    csv_before = result.read_bytes()
+    groups = tmp_path / "sniff_groups.jsonl"
+    committed = b'{"sniff_group_id":"first"}\n{"sniff_group_id":"second"}\n'
+    tail = b'{"sniff_group_id":"orphan"}\n' if crash_tail else b""
+    groups.write_bytes(committed + tail)
+
+    client_publication.reconcile_sniff_group_sidecar(result, groups)
+
+    assert groups.read_bytes() == committed
+    assert result.read_bytes() == csv_before
+
+
 def test_reconcile_sniff_group_sidecar_rejects_missing_committed_rows(tmp_path) -> None:
     result_csv = tmp_path / "result.csv"
     with result_csv.open("w", encoding="utf-8", newline="") as stream:
