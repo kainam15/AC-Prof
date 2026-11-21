@@ -10,7 +10,7 @@ import shutil
 import stat
 import tempfile
 from collections.abc import Callable, Iterator, Mapping
-from contextlib import contextmanager
+from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
@@ -293,6 +293,13 @@ def atomic_write_binary(
     _atomic_write(path, write, binary=True, default_mode=default_mode, overwrite=overwrite)
 
 
+def staged_text_write(
+    path: str | Path, write: Callable[[TextIO], None], *, default_mode: int = 0o644,
+) -> AbstractContextManager[None]:
+    """Prepare and fsync text on entry. Replace its name only on successful exit."""
+    return _staged_write(path, write, binary=False, default_mode=default_mode, overwrite=True)
+
+
 @dataclass
 class CapturedBinaryArtifact:
     """An anonymous, private capture that can be published once."""
@@ -398,6 +405,16 @@ def _atomic_write(
     overwrite: bool,
     on_existing: Callable[[], None] | None = None,
 ) -> None:
+    with _staged_write(path, write, binary=binary, default_mode=default_mode,
+                       overwrite=overwrite, on_existing=on_existing):
+        pass
+
+
+@contextmanager
+def _staged_write(
+    path: str | Path, write: Callable[[Any], None], *, binary: bool, default_mode: int,
+    overwrite: bool, on_existing: Callable[[], None] | None = None,
+) -> Iterator[None]:
     destination = Path(path)
     create_durable_directory(destination.parent)
     mode = stat.S_IMODE(destination.stat().st_mode) if overwrite and destination.exists() else default_mode
@@ -421,6 +438,7 @@ def _atomic_write(
             else:
                 os.chmod(temporary, mode)
             os.fsync(stream.fileno())
+        yield
         if overwrite:
             os.replace(temporary, destination)
         else:

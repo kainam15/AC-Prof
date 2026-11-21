@@ -12,7 +12,18 @@ from unittest.mock import patch
 
 import pytest
 
-from acprof.artifacts import atomic_write, atomic_write_binary
+from acprof.artifacts import atomic_write, atomic_write_binary, staged_text_write
+
+
+def test_staged_text_discards_its_bytes_when_a_prerequisite_fails(tmp_path):
+    target = tmp_path / "result"
+    target.write_text("previous")
+    with pytest.raises(OSError, match="prerequisite"):
+        with staged_text_write(target, lambda stream: stream.write("next")):
+            assert target.read_text() == "previous"
+            raise OSError("prerequisite")
+    assert list(tmp_path.iterdir()) == [target]
+    assert target.read_text() == "previous"
 
 
 @pytest.fixture(params=[atomic_write, atomic_write_binary], ids=["text", "binary"])
