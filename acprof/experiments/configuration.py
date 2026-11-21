@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 import re
 import sys
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field as dataclass_field, fields, replace
 from pathlib import Path
 
@@ -300,15 +300,23 @@ class RunConfig(RunOptions):
             errors.extend(exc.issues)
             mems = []
 
-        if self.runtime == "docker" and cpus and mems:
+        axes = self._docker_resource_axes(cpus, mems)
+        if self.runtime == "docker" and axes["cpus"] and axes["mems"]:
             from acprof.runtime.ports import service_port
             try:
                 # Positive resources make the mapping monotonic; checking the largest
                 # pair covers the full matrix without forbidding sequential port reuse.
-                service_port(max(cpus), max(mems))
+                service_port(max(axes["cpus"]), max(axes["mems"]))
             except ValueError as exc:
                 errors.extend(ConfigIssue(field, str(exc)) for field in ("cpus", "mems"))
         return cpus, mems
+
+    def _docker_resource_axes(self, cpus: list[int], mems: list[int]) -> dict[str, Sequence[int]]:
+        """Use Docker defaults for requested auto axes, preserving explicit parse failures."""
+        return {
+            "cpus": DEFAULT_DOCKER_CPUS if self.cpus == "auto" else cpus,
+            "mems": DEFAULT_DOCKER_MEMS if self.mems == "auto" else mems,
+        }
 
     def _validate_runtime(
         self, errors: list[ConfigIssue], cpus: list[int], mems: list[int],
@@ -343,12 +351,8 @@ class RunConfig(RunOptions):
     ) -> None:
         if self.execution_profile_tool == "none" or self.runtime not in {"auto", "docker"} or not extra_options:
             return
-        # Docker is the only runtime capable of these profilers. Keep the
-        # requested auto axes intact for runtime selection and resume identity.
-        axes = {
-            "cpus": DEFAULT_DOCKER_CPUS if self.cpus == "auto" else cpus,
-            "mems": DEFAULT_DOCKER_MEMS if self.mems == "auto" else mems,
-        }
+        # Docker is the only runtime capable of these profilers.
+        axes = self._docker_resource_axes(cpus, mems)
         # An invalid sampling setting already has its own issue. Interpret only
         # a genuinely omitted setting as the default when checking related axes.
         for field, axis in profiler_reference_axes(

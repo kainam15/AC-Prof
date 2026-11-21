@@ -128,9 +128,11 @@ docker info
 ### 中断后残留容器或端口占用
 
 Docker 服务沿用 `8002 + cpu * 100 + mem` 的宿主端口映射，必须在 `1..65535` 内。
-明确的 Docker 资源在配置校验时拒绝越界；`runtime=auto` 或自动资源在选择 Docker 后、
-任务解析和准备之前再次校验，错误同时指向 `cpus` / `mems`。矩阵按 case 顺序执行，
-不同组合可以顺序复用同一端口，不要求整个矩阵的端口唯一；Process 的动态端口不受此限制。
+显式指定 `--runtime docker` 时，`run` 和 `auto` 在准备前检查整个矩阵。CPU 或内存设为
+`auto` 的轴使用 Docker 默认配额进行检查。例如，`--cpus auto --mems 56734` 中最大 CPU
+配额为 8，对应端口为 65536。越界错误会同时指出 `cpus` 和 `mems`。
+使用 `--runtime auto` 时，选中 Docker 后检查端口，选中 Process 则使用动态端口。
+矩阵按 case 顺序执行，不同组合可以顺序复用同一端口。
 Docker 报告地址占用时，诊断保留原始错误，并附上具体映射及 `ss -ltnp` / `docker ps`
 检查建议；不会自动停止其他监听进程。端口是否可用仍以 Docker 实际绑定结果为准。
 

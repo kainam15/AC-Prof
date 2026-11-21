@@ -25,24 +25,47 @@ def test_service_port_keeps_legal_boundaries(cpu, mem, expected):
     assert docker_runtime.service_port(cpu, mem) == expected
 
 
-def test_docker_configuration_reports_both_resource_fields():
-    config = replace(RunConfig.smoke("fixture/model"), runtime="docker", cpus="1,600", mems="1")
-    with pytest.raises(RunConfigError, match="68003") as caught:
+@pytest.mark.parametrize(("cpus", "mems", "resolved", "port"), [
+    ("1,600", "1", (600, 1), 68003),
+    ("auto", "56734", (8, 56734), 65536),
+    ("576", "auto", (576, 16), 65618),
+])
+def test_docker_configuration_reports_both_resource_fields(cpus, mems, resolved, port):
+    config = replace(RunConfig.smoke("fixture/model"), runtime="docker", cpus=cpus, mems=mems)
+    with pytest.raises(RunConfigError, match=str(port)) as caught:
         config.validate()
-    assert {issue.field for issue in caught.value.issues} == {"cpus", "mems"}
-    assert "cpus=600" in str(caught.value)
-    assert "mems=1" in str(caught.value)
+    assert [issue.field for issue in caught.value.issues] == ["cpus", "mems"]
+    assert f"cpus={resolved[0]}, mems={resolved[1]}" in str(caught.value)
 
 
-@pytest.mark.parametrize(("cpus", "mems"), [("575", "33"), ("1,2", "200,100")])
+@pytest.mark.parametrize(("cpus", "mems"), [
+    ("575", "33"), ("1,2", "200,100"), ("auto", "56733"), ("575", "auto"), ("auto", "auto"),
+])
 def test_legal_docker_matrix_and_sequential_port_reuse_remain_supported(cpus, mems):
     config = replace(RunConfig.smoke("fixture/model"), runtime="docker", cpus=cpus, mems=mems)
     assert config.validate() == config
 
 
+@pytest.mark.parametrize(("cpus", "mems", "field"), [("invalid", "56734", "cpus"), ("576", "0", "mems")])
+def test_malformed_resources_do_not_fall_back_to_docker_defaults(cpus, mems, field):
+    config = replace(RunConfig.smoke("fixture/model"), runtime="docker", cpus=cpus, mems=mems)
+    with pytest.raises(RunConfigError) as caught:
+        config.validate()
+    assert [issue.field for issue in caught.value.issues] == [field]
+
+
+def test_duplicate_resources_preserve_port_and_axis_diagnostic_order():
+    config = replace(RunConfig.smoke("fixture/model"), runtime="docker", cpus="576,576", mems="auto")
+    with pytest.raises(RunConfigError) as caught:
+        config.validate()
+    assert [issue.field for issue in caught.value.issues] == ["cpus", "mems", "cpus"]
+    assert all("65618" in issue.reason for issue in caught.value.issues[:2])
+
+
 @pytest.mark.parametrize("runtime", ["process", "auto"])
-def test_unresolved_or_process_configuration_does_not_use_docker_port_limits(runtime):
-    config = replace(RunConfig.smoke("fixture/model"), runtime=runtime, cpus="600", mems="1")
+@pytest.mark.parametrize(("cpus", "mems"), [("600", "1"), ("auto", "56734"), ("576", "auto")])
+def test_unresolved_or_process_configuration_does_not_use_docker_port_limits(runtime, cpus, mems):
+    config = replace(RunConfig.smoke("fixture/model"), runtime=runtime, cpus=cpus, mems=mems)
     assert config.validate() == config
 
 

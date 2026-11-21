@@ -54,6 +54,8 @@ def automatic_handoff(tmp_path, preparation, monkeypatch):
     (["--warmup", "-1"], "warmup"),
     (["--cpus", "0"], "cpus"),
     (["--mems", "invalid"], "mems"),
+    (["--runtime", "docker", "--cpus", "auto", "--mems", "56734"], "mems"),
+    (["--runtime", "docker", "--cpus", "576", "--mems", "auto"], "cpus"),
     (["--gpus", "off,cpu", "--no-prune-startup-oom"], "gpus"),
     (["--cpus", "1,2", "--gpus", "off", "--execution-profile-tool", "massif",
       "--massif-reference-cpu", "3"], "cpus"),
@@ -64,8 +66,9 @@ def automatic_handoff(tmp_path, preparation, monkeypatch):
     (["--latency-slo", "invalid"], "latency_slo"),
     (["--runtime", "process", "--profiling-mode", "full", "--compute-profile-tool", "torch"], "runtime"),
     (["--resume", "--rebuild-image"], "rebuild_image"),
-], ids=["repeat", "warmup", "cpu-list", "memory-list", "duplicate-gpu", "massif-reference", "scale-list", "sample-frequency",
-        "raw-sample-limit", "profiler-count", "latency-slo", "process-profiler", "resume-rebuild"])
+], ids=["repeat", "warmup", "cpu-list", "memory-list", "port-auto-cpu", "port-auto-memory", "duplicate-gpu",
+        "massif-reference", "scale-list", "sample-frequency", "raw-sample-limit", "profiler-count",
+        "latency-slo", "process-profiler", "resume-rebuild"])
 def test_invalid_auto_options_stop_before_preparation(tmp_path, preparation, capsys, options, field):
     output = tmp_path / "output"
     try:
