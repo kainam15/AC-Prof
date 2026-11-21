@@ -1,2 +1,5 @@
 hf-bert-base-uncased/*.json -text
+hf-whisper-tiny/*.json -text
+hf-whisper-tiny/preprocessor_config.json linguist-generated=true
+hf-whisper-tiny/tokenizer_config.json linguist-generated=true
 ms-qwen3-06b/*.json -text

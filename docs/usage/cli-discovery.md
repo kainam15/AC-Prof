@@ -245,8 +245,9 @@ Manifest 在 coverage schema v1 上添加 `corpus_version: 1`、稳定 `case_id`
 报告分别保存输入与预期的摘要、源码／测试／锁文件摘要及解析规则版本；比较要求输入摘要和逐项身份完全相同，
 允许源码和已审阅预期变化，避免把修改预期误记为识别能力变化。元数据文件须在 manifest 所在目录内，单文件最多 1 MiB。
 
-当前[种子集](../../tests/fixtures/model_corpus/README.md)包含两个真实仓库观察：Hugging Face 的 `google-bert/bert-base-uncased` 和 ModelScope 的 `Qwen/Qwen3-0.6B`。
-两者均冻结来源、commit、文件清单及小型配置原文的 SHA256；ModelScope 卡片标签按观察日期保存，不视为 commit 属性。
+当前[种子集](../../tests/fixtures/model_corpus/README.md)包含三个真实仓库观察：Hugging Face 的 `google-bert/bert-base-uncased`、`openai/whisper-tiny` 和 ModelScope 的 `Qwen/Qwen3-0.6B`。
+均冻结来源、commit、文件清单及配置原文的 SHA256；ModelScope 卡片标签按观察日期保存，不视为 commit 属性。
+Whisper 样本与[硬件验证示例](../../examples/hardware-validation-real.json)使用同一 revision，静态回放只验证语音识别路由，不验证音频转写质量或设备执行。
 另有 17 个合成场景，覆盖 NLP、CV、音频、多模态、Diffusers、结构化 ONNX、ModelScope 来源和常见阻断。T5 场景复用固定 revision 的作者原始文件，
 Hub 属性和文件清单仍为合成。它不是 Top 100 冻结集，不能作为真实 checkpoint、任务精度、GPU 或全 Hub 兼容率证据；
 `runtime_status` 始终为 `not_requested`，运行成功率仍为 null。

@@ -1,6 +1,6 @@
 # Offline model corpus fixtures
 
-[`../model_corpus.json`](../model_corpus.json) declares two captured repository
+[`../model_corpus.json`](../model_corpus.json) declares three captured repository
 observations and 17 reviewed synthetic scenarios for the model-inspection and
 coverage pipeline. No weights are included or downloaded. A listed artifact
 name tests a layout, not its contents. The repeated `aaaaaaaa…` revision is a
@@ -9,13 +9,19 @@ synthetic identity, not a real Hub commit.
 - Hugging Face `google-bert/bert-base-uncased` (`86b5e093`): the revision API
   supplied the Hub attributes and all repository file names. The fixture keeps
   the original model and tokenizer configs, not the ONNX or native weights.
+- Hugging Face [`openai/whisper-tiny`](https://huggingface.co/openai/whisper-tiny/tree/169d4a4341b33bc18d8881c4b69c2e104e1cc0af)
+  (`169d4a43`): the same revision as the hardware validation example, replayed
+  here without running it. The revision API supplied the file list and Hub
+  attributes; the four original JSON configs match its Git blob IDs. This
+  exercises a speech model with its real generation settings, tokenizer and
+  feature extractor, not just an architecture name.
 - ModelScope `Qwen/Qwen3-0.6B` (`09b42cad`): the recursive file list and the
   model, generation and tokenizer configs are pinned to the ModelScope commit;
   their bytes matched the hashes from that listing. The ModelScope card's task,
   tags and license are repository-level observations dated in `capture_source`,
   not historical properties guaranteed by the commit.
 
-Both upstream repositories declare [Apache-2.0](../../../LICENSE). The checked-in
+All three upstream repositories declare [Apache-2.0](../../../LICENSE). The checked-in
 configs retain the upstream bytes, including missing final newlines; do not
 reformat them. `metadata` records each pinned download URL and SHA256.
 
