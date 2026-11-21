@@ -158,9 +158,9 @@ class TestPosthocProfile:
             assert row[host_compute_profile_plan.NCU_TOTAL_MFLOP_FIELD] == "100.000000"
 
     @staticmethod
-    def _save_input_plan(root: Path, plan: dict[str, object]) -> None:
+    def _save_input_plan(root: Path, plan: dict[str, object] | str) -> None:
         plan_path = root / host_posthoc_context.INPUT_SCALE_PLAN_NAME
-        plan_path.write_text(json.dumps(plan))
+        plan_path.write_text(plan if isinstance(plan, str) else json.dumps(plan))
         metadata_path = root / host_posthoc_context.STATIC_META_NAME
         metadata = json.loads(metadata_path.read_text())
         metadata["input_scale_plan_sha256"] = hashlib.sha256(plan_path.read_bytes()).hexdigest()
@@ -266,6 +266,40 @@ class TestPosthocProfile:
         else:
             context = host_posthoc_context.load_result_context(tmp_path)
             assert context.scales_by_mode["off"] == scales
+
+    @pytest.mark.parametrize(("row_scale", "plan_token"), [
+        ("1.00000000000000001", "1"),
+        ("9007199254740993", "9007199254740992"),
+        ("1", "1.00000000000000001"),
+        ("9007199254740992", "9007199254740993"),
+        ("9007199254740993", "9007199254740993"),
+    ], ids=["rounded-csv-decimal", "rounded-csv-integer", "rounded-plan-decimal", "rounded-plan-integer",
+            "both-rounded-to-same-runtime-scale"])
+    def test_context_refuses_inexact_executable_scale(self, tmp_path, row_scale, plan_token):
+        from acprof.results.layers import publish_result_rows, read_result_layers
+
+        self._write_fixture(tmp_path, include_gpu=False)
+        fields, (row,) = read_result_layers(tmp_path)
+        publish_result_rows(fields, [{**row, "input_scale": row_scale}], tmp_path)
+        plan = '{"schema_version":2,"entries":[{"input_scale":' + plan_token + ',"payload":{"text":"hello"}}]}'
+        self._save_input_plan(tmp_path, plan)
+        with pytest.raises(host_posthoc_context.PosthocError, match="input_scale"):
+            host_posthoc_context.load_result_context(tmp_path)
+
+    def test_context_keeps_equivalent_scale_spelling_and_native_payload_numbers(self, tmp_path):
+        from acprof.results.layers import publish_result_rows, read_result_layers
+
+        self._write_fixture(tmp_path, include_gpu=False)
+        fields, (row,) = read_result_layers(tmp_path)
+        publish_result_rows(fields, [{**row, "input_scale": "0.80E1"}], tmp_path)
+        self._save_input_plan(tmp_path, """{"schema_version":2,"entries":[{"input_scale":8.000,
+            "payload":{"input_scale":1.00000000000000001,"nested":[123,1e-999999999999999999999999]}}]}""")
+        context = host_posthoc_context.load_result_context(tmp_path)
+        assert context.rows[0]["input_scale"] == "0.80E1"
+        assert context.scales_by_mode == {"off": [8.0]}
+        assert json.dumps(context.input_scale_plan["entries"][0]["payload"], sort_keys=True) == (
+            '{"input_scale": 1.0, "nested": [123, 0.0]}'
+        )
 
     @pytest.fixture(autouse=True)
     def _setup(self, request, tmp_path, monkeypatch):

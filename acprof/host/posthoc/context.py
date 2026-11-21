@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import copy
+import json
 import math
 import os
 import re
@@ -12,7 +13,12 @@ from typing import (
     Any,
 )
 
-from acprof.artifacts import input_plan_scales, read_json_object
+from acprof.artifacts import (
+    JsonObjectSnapshot,
+    input_plan_scales,
+    read_json_object,
+    read_json_object_snapshot,
+)
 from acprof.cancellation import cancellable, check_cancelled
 from acprof.gpu_mode import normalize_gpu_mode
 from acprof.host.collection_history import COLLECTION_HISTORY_NAME, normalize_collection_history
@@ -28,6 +34,7 @@ from acprof.host.profiling.compute_plan import (
     NCU_TOTAL_MFLOP_FIELD,
     TORCH_ERROR_FIELD,
     TORCH_LOGICAL_MFLOP_FIELD,
+    compute_scale_key,
 )
 from acprof.host.profiling.execution_plan import MASSIF_ERROR_FIELD, NSYS_ERROR_FIELD
 from acprof.hub.repository import MODEL_SOURCES
@@ -171,17 +178,48 @@ def integer(value: Any, field: str) -> int:
 
 def load_json_object(
     path: Path, label: str, *, expected_sha256: str | None = None,
-    cancelled: Callable[[], bool] | None = None,
+    cancelled: Callable[[], bool] | None = None, check_plan_scales: bool = False,
 ) -> dict[str, Any]:
     check_cancelled(cancelled)
     if not path.is_file():
         raise PosthocError(f"missing {label}: {path}")
     try:
-        payload = read_json_object(path, label=label, expected_sha256=expected_sha256)
+        if check_plan_scales:
+            snapshot = read_json_object_snapshot(path, label=label, expected_sha256=expected_sha256, cancelled=cancelled)
+            _check_plan_scale_tokens(snapshot, cancelled)
+            payload = snapshot.payload
+        else:
+            payload = read_json_object(path, label=label, expected_sha256=expected_sha256, cancelled=cancelled)
     except (OSError, ValueError) as exc:
         raise PosthocError(f"cannot read {label} {path}: {exc}") from exc
     check_cancelled(cancelled)
     return payload
+
+
+def _executable_scale(value: object, source: str) -> float:
+    scale = finite_float(value)
+    if not math.isfinite(scale):
+        raise PosthocError(f"invalid input_scale in {source}: {value!r}")
+    if compute_scale_key(value) != compute_scale_key(scale):
+        raise PosthocError(f"input_scale in {source} cannot round-trip through the profiler: {value!r}")
+    return scale
+
+
+def _check_plan_scale_tokens(snapshot: JsonObjectSnapshot, cancelled: Callable[[], bool] | None) -> None:
+    entries = snapshot.payload.get("entries")
+    if not isinstance(entries, list):
+        return  # The plan schema validator reports malformed entries.
+    tokens = None
+    for index, entry in enumerate(cancellable(entries, cancelled)):
+        value = entry.get("input_scale") if isinstance(entry, dict) else None
+        if type(value) is float:
+            if tokens is None:
+                # Keep native payload types. Only the scale needs its original numeric spelling.
+                tokens = json.loads(snapshot.content, parse_float=str)["entries"]
+            value = tokens[index]["input_scale"]
+        elif type(value) is not int:
+            continue
+        _executable_scale(value, f"{INPUT_SCALE_PLAN_NAME} entry {index}")
 
 
 def _load_result_csv(path: Path, *, result_snapshot: ResultCsvSnapshot | None = None,
@@ -210,12 +248,7 @@ def _load_result_csv(path: Path, *, result_snapshot: ResultCsvSnapshot | None = 
 def _unique_scales(rows: Iterable[Mapping[str, Any]], *, cancelled: Callable[[], bool] | None = None) -> list[float]:
     scales: set[float] = set()
     for row in cancellable(rows, cancelled):
-        scale = finite_float(row.get("input_scale"))
-        if not math.isfinite(scale):
-            raise PosthocError(
-                f"invalid input_scale in result CSV: {row.get('input_scale')!r}"
-            )
-        scales.add(scale)
+        scales.add(_executable_scale(row.get("input_scale"), "result CSV"))
     return sorted(scales)
 
 
@@ -268,7 +301,7 @@ def load_result_context(result_dir: str | os.PathLike[str], *, result_snapshot: 
     input_plan = load_json_object(
         input_scale_plan_path, INPUT_SCALE_PLAN_NAME,
         expected_sha256=expected_plan_hash or None,
-        cancelled=cancelled,
+        cancelled=cancelled, check_plan_scales=True,
     )
     try:
         require_schema_version(input_plan, 2, INPUT_SCALE_PLAN_NAME)
