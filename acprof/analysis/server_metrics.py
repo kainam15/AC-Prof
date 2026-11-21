@@ -103,22 +103,33 @@ def _collect_sample(
 ) -> None:
     phase, suffix = names[sample.name]
     value = _number(sample.value)
-    if sample.timestamp is not None or (suffix == "count" and (
+    if sample.timestamp is not None or (suffix in {"count", "bucket"} and (
         sample.value > 2 ** 53 or not value.is_integer()
     )):
         raise ValueError("server histograms require exact counts and no explicit sample timestamps")
-    key = (phase, json.dumps(sample.labels, sort_keys=True))
-    row = rows.setdefault(key, {"phase": phase, "labels": dict(sample.labels)})
+    labels = dict(sample.labels)
+    if suffix == "bucket":
+        bound = labels.pop("le", None)
+        if not bound:
+            raise ValueError("server histogram bucket requires an le label")
+        if bound == "+Inf":
+            suffix = "inf_count"
+    key = (phase, json.dumps(labels, sort_keys=True))
+    row = rows.setdefault(key, {"phase": phase, "labels": labels})
     if suffix in row or len(rows) > MAX_METRICS_SERIES:
         raise ValueError("duplicate or excessive server metric series")
-    row[suffix] = value
+    if suffix != "bucket":
+        row[suffix] = value
 
 
 def _complete_series(rows: _Series, types: dict[str, str], metrics: dict[str, str]) -> list[dict[str, Any]]:
     series = []
     for row in rows.values():
-        if types.get(metrics[row["phase"]]) != "histogram" or "count" not in row or "sum" not in row:
-            raise ValueError("server timing requires complete histogram count/sum pairs")
+        metric = metrics[row["phase"]]
+        if types.get(metric) != "histogram" or "count" not in row or "sum" not in row:
+            raise ValueError(f"server histogram {metric} requires a count/sum pair for each selected label set")
+        if "inf_count" in row and row["inf_count"] != row["count"]:
+            raise ValueError(f"server histogram {metric} has a +Inf bucket inconsistent with its count")
         series.append({"phase": row["phase"], "labels": row["labels"], "count": int(row["count"]),
                        "sum_s": row["sum"], "created_s": row.get("created")})
     return sorted(series, key=_series_key)
@@ -130,7 +141,7 @@ def parse_server_metrics(text: str, model: str, *, kind: str = "vllm") -> dict[s
 
     metrics = _phase_metrics(kind)
     names = {f"{metric}_{suffix}": (phase, suffix) for phase, metric in metrics.items()
-             for suffix in ("count", "sum", "created")}
+             for suffix in ("count", "sum", "created", "bucket")}
     rows: _Series = {}
     types: dict[str, str] = {}
     process_start = None

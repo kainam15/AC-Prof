@@ -1,6 +1,7 @@
 """Server-wide phase evidence surrounds a load without changing client timing."""
 from __future__ import annotations
 
+import hashlib
 import json
 import threading
 from contextlib import contextmanager, nullcontext
@@ -202,6 +203,30 @@ def test_metrics_http_failure_preserves_evidence_and_fails_run(tmp_path, failure
     else:
         assert report["result"]["counts"]["succeeded"] == 3
         assert read_load_report(output)["server_metrics"]["status"] == "error"
+
+
+def test_incomplete_worker_after_load_preserves_client_results_not_server_means(tmp_path):
+    orphan = 'vllm:request_queue_time_seconds_bucket{model_name="fixture",engine="1",le="+Inf"} 41\n'
+    after = (exposition(13, 26) + orphan).encode()
+    output = tmp_path / "load"
+    with metrics_server(metrics_body=lambda state: exposition().encode() if state["scrapes"] == 1 else after) as (
+        origin, events, _auth,
+    ):
+        with pytest.raises(ValueError, match="count/sum"):
+            main(command(origin, output, "--server-metrics", "vllm", "--warmup", "0"))
+    assert events == ["metrics", "request", "request", "request", "metrics"]
+    report = read_load_report(output)
+    assert report["experiment"]["status"] == "failed"
+    assert report["result"]["counts"]["succeeded"] == 3
+    observed = report["experiment"]["server_metrics"]
+    assert observed["before"]["status"] == "ok"
+    assert observed["after"]["status"] == "error"
+    assert "count/sum" in observed["after"]["error"]
+    assert observed["after"]["sha256"] == hashlib.sha256(after).hexdigest()
+    assert observed["after"]["series"] is None
+    queue = report["server_metrics"]["phases"]["queue"]
+    assert queue["reason"] == "snapshot_error"
+    assert queue["mean_s"] is None
 
 
 def test_sweep_observes_each_point_and_exposes_server_summaries(tmp_path):

@@ -47,6 +47,45 @@ def test_requested_exporter_never_falls_back_to_another_namespace(raw, kind):
         parse_server_metrics(raw, "fixture", kind=kind)
 
 
+@pytest.mark.parametrize("bound", ["0.5", "+Inf"])
+def test_bucket_only_worker_cannot_be_omitted_from_the_mean(bound):
+    orphan = f'vllm:request_queue_time_seconds_bucket{{model_name="fixture",engine="1",le="{bound}"}} 9\n'
+    with pytest.raises(ValueError, match="count/sum"):
+        parse_server_metrics(exposition() + orphan, "fixture")
+
+
+def test_bucket_only_sglang_stage_cannot_disappear_behind_another_stage():
+    text = "\n".join(line for line in sglang_exposition(2).splitlines()
+                     if 'stage="decode_loop"' not in line or "_bucket{" in line)
+    with pytest.raises(ValueError, match="count/sum"):
+        parse_server_metrics(text, "fixture", kind="sglang")
+
+
+def test_infinite_bucket_must_agree_with_count_for_its_worker():
+    family = "vllm:request_queue_time_seconds"
+    raw = exposition() + f'{family}_bucket{{engine="0",le="+Inf",model_name="fixture"}} 11\n'
+    with pytest.raises(ValueError, match=r"\+Inf"):
+        parse_server_metrics(raw, "fixture")
+
+
+@pytest.mark.parametrize("bounds", [[], [("0.5", 2)], [("0.5", 2), ("1", 4), ("+Inf", 10)]])
+def test_buckets_check_population_without_consuming_series_budget_or_changing_evidence(monkeypatch, bounds):
+    monkeypatch.setattr("acprof.analysis.server_metrics.MAX_METRICS_SERIES", 1)
+    family = "vllm:request_queue_time_seconds"
+    tags = 'model_name="fixture",engine="0"'
+    text = "\n".join([
+        f"# TYPE {family} histogram",
+        *(f'{family}_bucket{{le="{bound}",{tags}}} {value}' for bound, value in bounds),
+        f"{family}_sum{{{tags}}} 20", f"{family}_count{{{tags}}} 10",
+        f'{family}_bucket{{model_name="other",le="+Inf"}} 99',
+        'sglang:queue_time_seconds_bucket{model_name="fixture",le="+Inf"} 100',
+    ])
+    assert parse_server_metrics(text, "fixture")["series"] == [{
+        "phase": "queue", "labels": {"engine": "0", "model_name": "fixture"},
+        "count": 10, "sum_s": 20.0, "created_s": None,
+    }]
+
+
 def test_sglang_per_stage_histogram_requires_a_named_stage():
     with pytest.raises(ValueError, match="stage"):
         parse_server_metrics(sglang_exposition(3).replace(',stage="decode_loop"', ''), "fixture", kind="sglang")

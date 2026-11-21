@@ -477,6 +477,9 @@ SGLang ITL 的计数是 exporter 记录的 Token 观察数；一次输出多个 
 聚合溢出均有独立不可用原因，不填零。可用的无标签 `process_start_time_seconds`
 变化或消失也使差值不可用；两次快照无法排除所有未观测到的重启。
 最多保留 4096 个阶段／标签序列；重复、残缺、非有限或非整数计数拒绝。
+同一阶段按除 bucket 边界 `le` 外的完整标签核对：某个 worker 或命名阶段即使只导出 bucket，
+也必须有自己的 `_count`／`_sum`，不能用其他 worker 的均值代替。若导出 `le="+Inf"`，其值须等于同组 `_count`。
+均值仍可使用仅含 `_count`／`_sum` 的数据；不保存或重建 bucket 分布，也不从 bucket 补算缺失字段。
 count 不超过 2⁵³；显式样本时间戳尚不支持，不能将缓存样本冒充本次抓取。
 
 **这是服务级累计观察，不是本次请求的精确阶段分解。** 其他流量可能贡献样本，
@@ -500,8 +503,9 @@ result；负载异常后仍尝试 after，二次错误不覆盖原始异常，sw
 [V1 histogram 实现](https://github.com/vllm-project/vllm/blob/e336407a3ddb204edf6cfdfdd002cb28b9715438/vllm/v1/metrics/loggers.py)及
 [SGLang v0.5.6 histogram 实现](https://github.com/sgl-project/sglang/blob/v0.5.6/python/sglang/srt/metrics/collector.py)。
 SGLang 的[阶段语义讨论](https://github.com/sgl-project/sglang/issues/14303)与[逐请求时间 PR](https://github.com/sgl-project/sglang/pull/11119)说明了为什么保留原生阶段，不将共享直方图当作逐请求时间戳。
-复用 [Prometheus client_python parser](https://github.com/prometheus/client_python/blob/master/prometheus_client/parser.py)
-（安装包许可证为 Apache-2.0 AND BSD-2-Clause）；新增一个纯 Python host 依赖，
+复用 [Prometheus client_python parser](https://github.com/prometheus/client_python/blob/v0.26.0/prometheus_client/parser.py)，
+按 [Prometheus 文本格式](https://prometheus.io/docs/instrumenting/exposition_formats/#histograms-and-summaries)核对 bucket 的标签与计数。
+安装包许可证为 Apache-2.0 AND BSD-2-Clause；使用一个纯 Python host 依赖，
 `uv.lock` 固定版本。解析只在负载外执行，
 不引入 vLLM、SGLang、GPU 或 Docker 依赖，也不复制上游实现。
 
