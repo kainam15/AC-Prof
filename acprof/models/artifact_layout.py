@@ -41,7 +41,7 @@ def _checkpoint_components(files: set[str], metadata: dict[str, Any]) -> list[tu
     elif isinstance(modules, list):
         for module in modules:
             if isinstance(module, dict) and sentence_module_name(module.get("type")) == "Transformer":
-                components.append((module_prefix(module.get("path", "")), False))
+                components.append((module_prefix(module.get("path")), False))
     else:
         components.append(("", False))
     return components

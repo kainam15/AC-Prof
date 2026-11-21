@@ -72,6 +72,24 @@ def test_invalid_later_module_does_not_publish_or_expand_metadata(repository, in
         require_task_support(task)
 
 
+def test_inspect_reports_missing_pooling_file_before_loading_weights(repository, tmp_path, monkeypatch):
+    from acprof.cli.main import main
+
+    metadata, downloaded, hub = repository
+    metadata["modules.json"] = [module("0_Transformer"), module("pool", "Pooling", 1)]
+    hub.siblings.append(SimpleNamespace(rfilename="0_Transformer/model.safetensors"))
+    monkeypatch.setattr("acprof.host.env_utils.bootstrap_project_env", lambda _cwd: None)
+    output = tmp_path / "inspection"
+
+    assert main(["inspect", MODEL_ID, "--revision", REVISION, "--output-dir", str(output)]) == 2
+    report = json.loads((output / "model_resolution.json").read_text())
+    assert report["status"] == "blocked"
+    assert report["failure"]["reason_code"] == "artifact_incomplete"
+    assert "pool/config.json" in report["failure"]["detail"]
+    assert report["runtime_validation"]["status"] == "not_run"
+    assert "0_Transformer/model.safetensors" not in downloaded
+
+
 def test_oversized_module_list_is_not_published_as_model_evidence(repository):
     metadata, downloaded, _hub = repository
     metadata["modules.json"] = [module("0_Transformer"), module("1_Pooling", "Pooling", 1),

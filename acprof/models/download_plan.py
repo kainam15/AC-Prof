@@ -22,7 +22,11 @@ from acprof.models.files import (
     safe_path,
     uses_sentence_transformer_modules,
 )
-from acprof.models.sentence_modules import dense_checkpoint, module_prefix, sentence_module_name
+from acprof.models.sentence_modules import (
+    module_prefix,
+    sentence_module_checkpoint,
+    sentence_module_name,
+)
 from acprof.models.spec import validate_dependencies, validate_repository_identity
 
 
@@ -206,8 +210,7 @@ def _sentence_components(modules: Any) -> list[tuple[str, str]] | None:
         name = sentence_module_name(module.get("type")) if isinstance(module, dict) else None
         if name is None:
             return None
-        if name in {"Transformer", "Dense"}:
-            components.append((name, module_prefix(module.get("path", ""))))
+        components.append((name, module_prefix(module.get("path"))))
     return components
 
 
@@ -220,21 +223,23 @@ def _plan_transformers(
         return set(names), [], "custom_sentence_transformers_module"
     weights: list[Checkpoint] = []
     selected = set(names)
-    native_backbone = False
+    all_backbones_native = any(kind == "Transformer" for kind, _ in components)
     reason = "unsupported_sentence_transformers_layout"
     for kind, prefix in components:
         checkpoint: Checkpoint | None
-        if kind == "Dense":
-            checkpoint = dense_checkpoint(names, prefix)
-            selected.discard(prefix + "pytorch_model.bin")
-        else:
+        if kind == "Transformer":
             checkpoint, reason = _transformer_checkpoint(names, read_json, prefix, native_model_types)
             if checkpoint is None:
+                all_backbones_native = False
                 continue
-            native_backbone = True
             selected.difference_update(name for name in names if _alternate_weights(name, prefix))
+        else:
+            checkpoint = sentence_module_checkpoint(kind, names, prefix)
+            if checkpoint is None:
+                continue
+            selected.discard(prefix + "pytorch_model.bin")
         weights.append(checkpoint)
-    if not native_backbone or len(weights) != len(components):
+    if not all_backbones_native:
         return set(names), [], "unsupported_sentence_transformers_layout" if modules else reason
     # Different modules can name the same directory. Keep the union of the chosen files.
     for weight in weights:

@@ -135,6 +135,64 @@ class TestModelFilePlan:
         assert plan["weights"][1]["files"] == [
             "2_Dense/model.safetensors" if safetensors else "2_Dense/pytorch_model.bin"]
 
+    @pytest.mark.parametrize(("kind", "required_file", "weighted"), [
+        ("Pooling", "config.json", False), ("WordWeights", "config.json", False),
+        ("BoW", "config.json", False), ("WordEmbeddings", "wordembedding_config.json", True),
+        ("StaticEmbedding", "tokenizer.json", True), ("WeightedLayerPooling", "config.json", True),
+        ("LSTM", "lstm_config.json", True), ("CNN", "cnn_config.json", True),
+    ])
+    def test_sentence_module_requires_files_from_its_declared_directory(self, kind, required_file, weighted):
+        standalone = kind in {"BoW", "WordEmbeddings", "StaticEmbedding"}
+        modules = [] if standalone else [{"path": "", "type": "sentence_transformers.models.Transformer"}]
+        modules.append({"path": "stage", "type": "sentence_transformers.models." + kind})
+        metadata = {"modules.json": modules}
+        names = {"modules.json", "config.json", "model.safetensors", "other/" + required_file,
+                 "stage/other.json", "stage/pytorch_model.bin", "stage/model.safetensors.index.json"}
+        with pytest.raises(ModelFilesError) as error:
+            self.plan(names, metadata, backend="sentence_transformers")
+        assert kind in str(error.value)
+        assert "stage/" + required_file in str(error.value)
+
+        names.add("stage/" + required_file)
+        if weighted:
+            with pytest.raises(ModelFilesError, match="stage/model.safetensors"):
+                self.plan(names - {"stage/pytorch_model.bin"}, metadata, backend="sentence_transformers")
+        plan = self.plan(names, metadata, backend="sentence_transformers")
+        if standalone:
+            assert plan["effective_policy"] == "full"
+            assert self.selected(plan) == names
+        elif weighted:
+            assert plan["weights"][1]["files"] == ["stage/pytorch_model.bin"]
+        else:
+            assert [w["component"] for w in plan["weights"]] == ["."]
+
+    def test_sentence_modules_accept_relative_directory_aliases_and_optional_configuration(self):
+        names = {"modules.json", "config.json", "model.safetensors", "pool/config.json"}
+        modules = [{"path": "", "type": "sentence_transformers.models.Transformer"},
+                   {"path": "./pool//", "type": "sentence_transformers.models.Pooling"},
+                   {"path": "dropout", "type": "sentence_transformers.models.Dropout"},
+                   {"path": "normalize", "type": "sentence_transformers.models.Normalize"}]
+        plan = self.plan(names, {"modules.json": modules}, backend="sentence_transformers")
+        assert plan["effective_policy"] == "selected"
+        assert self.selected(plan) == names
+
+    @pytest.mark.parametrize("declaration", [{}, {"path": None}, {"path": "sub/../pool"}, {"path": "/pool"}])
+    def test_sentence_module_requires_an_explicit_snapshot_relative_directory(self, declaration):
+        names = {"modules.json", "config.json", "model.safetensors"}
+        modules = [{"path": "", "type": "sentence_transformers.models.Transformer"},
+                   {"type": "sentence_transformers.models.Pooling", **declaration}]
+        with pytest.raises(ModelFilesError, match="invalid model file path"):
+            self.plan(names, {"modules.json": modules}, backend="sentence_transformers")
+
+    def test_custom_sentence_module_keeps_snapshot_even_if_pooling_directory_is_empty(self):
+        names = {"modules.json", "config.json", "model.safetensors", "pytorch_model.bin"}
+        modules = [{"path": "", "type": "sentence_transformers.models.Transformer"},
+                   {"path": "pool", "type": "sentence_transformers.models.Pooling"},
+                   {"path": "custom", "type": "vendor.Custom"}]
+        plan = self.plan(names, {"modules.json": modules}, backend="sentence_transformers")
+        assert (plan["effective_policy"], plan["reason"]) == ("full", "custom_sentence_transformers_module")
+        assert self.selected(plan) == names
+
     def test_diffusers_selects_all_components_without_changing_precision_or_ema(self):
         names = ["model_index.json", "unet/config.json", "unet/diffusion_pytorch_model.safetensors",
                  "unet/diffusion_pytorch_model.fp16.safetensors", "unet/diffusion_pytorch_model.non_ema.bin",

@@ -114,8 +114,8 @@ def test_sentence_transformer_resolves_declared_component_checkpoint():
 
 
 @pytest.mark.parametrize("modern", [False, True], ids=["legacy", "v5.6"])
-@pytest.mark.parametrize("missing", [None, "projection/config.json", "projection/model.safetensors"])
-def test_sentence_encoder_identifies_each_dense_checkpoint_or_reports_the_missing_file(modern, missing):
+@pytest.mark.parametrize("missing", [None, "pool/config.json", "projection/config.json", "projection/model.safetensors"])
+def test_sentence_encoder_identifies_module_files_or_reports_the_missing_file(modern, missing):
     from acprof.models.artifact_layout import checkpoint_metadata_indexes
     from acprof.tasks.interfaces import execution_path
 

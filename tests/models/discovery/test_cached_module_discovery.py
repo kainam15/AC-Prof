@@ -108,12 +108,14 @@ def test_invalid_cached_module_metadata_blocks_even_with_a_task(snapshot, filena
     )
 
 
-def test_mixed_module_references_select_cached_encoder_without_claiming_weights(snapshot):
+@pytest.mark.parametrize("pool_config_cached", [True, False])
+def test_mixed_module_references_select_cached_encoder_without_claiming_weights(snapshot, pool_config_cached):
     chain = [module(0, "", "Transformer"), module(1, "pool", "Pooling"), module(2, "projection", "Dense")]
     chain[0]["type"] = "sentence_transformers.base.modules.transformer.Transformer"
     chain[2]["type"] = "sentence_transformers.base.modules.dense.Dense"
     write(snapshot, "modules.json", chain)
-    write(snapshot, "pool/config.json", {"pooling_mode_mean_tokens": True})
+    if pool_config_cached:
+        write(snapshot, "pool/config.json", {"embedding_dimension": 8})
     write(snapshot, "projection/config.json", {"in_features": 8, "out_features": 4})
 
     task = detect_task(MODEL, revision=SHA)
