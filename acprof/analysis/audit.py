@@ -343,8 +343,8 @@ def _process_hardware(layout, runtime, read_json, issue):
     if runtime != "process":
         return {}
     from acprof.hardware_conditions import conditions_path
-    hardware = read_json(str(conditions_path(layout).relative_to(layout.root))).get("cases", {})
-    if not isinstance(hardware, dict):
+    hardware = read_json(str(conditions_path(layout).relative_to(layout.root)))
+    if not isinstance(hardware.get("cases", {}), dict):
         issue("invalid_metadata", "hardware conditions cases must be an object")
         return {}
     return hardware
@@ -417,7 +417,7 @@ def _audit_process_row(report, runtime, metadata, hardware, index, row, status, 
     except ValueError as error:
         issue("resource_enforcement", f"无法匹配已记录的资源配置: {error}", row=index)
         return
-    record = hardware.get(case_id, {})
+    record = hardware.get("cases", {}).get(case_id, {})
     plan = record.get("resource_plan", {}) if isinstance(record, dict) else {}
     if not isinstance(plan, dict) or plan.get("verified") is not True:
         issue("resource_enforcement", "缺少已验证的 Process 资源限制证据", row=index)
@@ -426,8 +426,10 @@ def _audit_process_row(report, runtime, metadata, hardware, index, row, status, 
     if not isinstance(requested, dict):
         issue("resource_enforcement", "缺少 Process 请求的 CPU 和内存配额记录", row=index)
         return
+    legacy_inherited = (not requested and "schema_version" not in hardware and plan.get("method") == "inherited"
+                        and case_id == resource_case_id(None, None, row["gpu_mode"]))
     for field, name in (("cpu_cores", "cpu_quota"), ("mem_cap_gb", "memory_gib")):
-        if not _process_limit_matches(row[field], requested, name, plan.get("method")):
+        if not legacy_inherited and not _process_limit_matches(row[field], requested, name, plan.get("method")):
             issue("resource_enforcement", f"{field} 与实际实施的限制不符", row=index, field=field)
     if row.get("resource_limit_source") != plan.get("method"):
         issue("resource_enforcement", "资源限制来源与执行证据不符", row=index)

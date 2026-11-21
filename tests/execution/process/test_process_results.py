@@ -73,6 +73,29 @@ def test_process_audit_binds_explicit_requested_limits_to_the_exact_case(result,
     assert [issue["row"] for issue in issues] == ([] if valid else [2])
 
 
+@pytest.mark.parametrize(("schema", "plan_change", "cpu", "accepted"), [
+    ({}, {}, "nan", True),
+    ({"schema_version": 1}, {}, "nan", False),
+    ({"schema_version": None}, {}, "nan", False),
+    ({}, {"verified": False}, "nan", False),
+    ({}, {"method": "affinity"}, "nan", False),
+    ({}, {"requested": None}, "nan", False),
+    ({}, {"requested": {"cpu_quota": None}}, "nan", False),
+    ({}, {}, "1", False),
+], ids=["legacy", "schema-one", "schema-null", "unverified", "other-method", "null-request",
+        "partial-request", "numeric-axis"])
+def test_empty_legacy_request_only_records_two_inherited_limits(result, tmp_path, schema, plan_change, cpu, accepted):
+    plan = {"verified": True, "method": "inherited", "requested": {}, **plan_change}
+    case = "inheritedc_inheritedg_off" if cpu == "nan" else "1c_inheritedg_off"
+    path = result(cpu_cores=cpu, resource_limit_source=plan["method"])
+    hardware = {**schema, "cases": {case: {"resource_plan": plan}}}
+    (tmp_path / "hardware_conditions.json").write_text(json.dumps(hardware))
+
+    report = audit_result(path)
+    assert report["valid"] is accepted
+    assert ("resource_enforcement" not in {issue["code"] for issue in report["issues"]}) is accepted
+
+
 def test_runtime_identity_mismatch_is_an_audit_error(result):
     report = audit_result(result(runtime_id='other-env'))
     assert not report['valid']

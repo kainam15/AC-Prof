@@ -509,6 +509,9 @@ Docker 与 Process 跨 Runtime 的逐指标比较须将两侧 CPU 和内存限�
 Process 使用继承限额时，资源计划的对应请求字段须显式记录为 JSON `null`。
 `quality_constraints` 必须由输入计划显式记录。新计划记录当前采集要求的
 `sanity_only_not_accuracy_benchmark` 策略及 `protocol` / `task` 均须为 `verified` 的门槛；
+若历史 `hardware_conditions.json` 省略了 `schema_version`，且 CSV 的 CPU 和内存均为继承值，
+审计也接受该 case 的 `requested: {}`，前提是资源计划明确记录 `verified: true` 和 `method: "inherited"`。
+数值配额始终需要匹配具体的请求值。
 独立 runtime validation 的成功回执保存同一份约束。相同策略允许在其他条件也一致时比较性能，
 不表示执行了准确率评测或证明不同模型质量等价。历史计划缺少该字段时仍为 `unknown`，
 不会按当前默认策略补齐；恢复继续复用原计划。条件一致也不保证整个运行期间独占硬件
