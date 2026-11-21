@@ -9,6 +9,7 @@ import time
 from collections.abc import Sequence
 from pathlib import Path
 
+from acprof.events.preparation import emit_progress
 from acprof.experiments.options import add_option_arguments
 from acprof.host.env_utils import bootstrap_project_env
 from acprof.host.images.runtime import prepare_image
@@ -93,10 +94,23 @@ def main(argv: Sequence[str] | None = None) -> int:
         parser.error(str(exc))
 
     command_started = time.perf_counter()
-    from acprof.events.preparation import emit_progress
     emit_progress("preflight")
-    bootstrap_project_env(Path.cwd())
     require_collection_host()
+    from acprof.host.run_state import MeasurementLock, RunStateError
+
+    try:
+        with MeasurementLock():
+            return _run_probe(args, cpu_list, mem_list, gpu_list, command_started=command_started)
+    except RunStateError as exc:
+        print(f"[largest-probe][ERROR] {exc}", file=sys.stderr)
+        return 2
+
+
+def _run_probe(
+    args: argparse.Namespace, cpu_list: list[int], mem_list: list[int], gpu_list: list[str],
+    *, command_started: float,
+) -> int:
+    bootstrap_project_env(Path.cwd())
     require_native_docker()
     cgroup_version = require_cgroup_prerequisites()
 

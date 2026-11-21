@@ -115,6 +115,8 @@ acprof probe --model google-bert/bert-base-uncased \
 PMU 或网络指标，也不写正式 CSV。字段见[探测输出](../profiling/metadata.md#最大输入探测结果)。
 TUI 的“探测最大输入”调用同一入口。
 
+最大输入探测与同一主机、同一用户的正式采集和补采共用测量锁。从 Docker 预检到写入探测摘要期间，其他采集不能开始。已有任务持锁时，`acprof probe` 会在创建探测目录之前报告原因并退出，待原任务结束后可重试。[主机测量锁](../profiling/artifacts.md)
+
 ### CPU-only 矩阵
 
 ```bash
