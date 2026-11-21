@@ -4,6 +4,14 @@ from collections.abc import Mapping
 from decimal import Decimal, InvalidOperation
 
 
+UNRESOLVED_TIMEOUT_ATTEMPT = "client_request_timeout: planned_request_attempted=unknown"
+
+
+def is_unresolved_timeout_attempt(error: str) -> bool:
+    """Match the leading attribution field in a normalized client timeout diagnostic."""
+    return error == UNRESOLVED_TIMEOUT_ATTEMPT or error.startswith(UNRESOLVED_TIMEOUT_ATTEMPT + ";")
+
+
 def is_inferred_result(row: Mapping[str, object]) -> bool:
     """Identify a recorded placeholder whose planned request was never measured."""
     return str(row.get("result_origin", "")).strip() == "inferred_not_measured"

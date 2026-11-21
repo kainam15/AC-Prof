@@ -7,11 +7,37 @@ from __future__ import annotations
 
 import json
 import math
+import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
 from acprof.host.measurement.numbers import to_float_or_nan
+
+
+def request_phase_context(request_id: str) -> dict[str, Any]:
+    auto_match = re.search(r"_auto_warmup(?P<request_idx>\d+)$", request_id)
+    if auto_match:
+        return {
+            "request_phase": "auto_repeat_window_warmup",
+            "request_index_in_window": int(auto_match.group("request_idx")),
+        }
+
+    measurement_match = re.search(
+        r"_(?P<phase>[wr])(?P<repeat_idx>\d+):(?P<request_idx>\d+)$",
+        request_id,
+    )
+    if measurement_match:
+        phase = measurement_match.group("phase")
+        return {
+            "request_phase": (
+                "measurement_warmup" if phase == "w" else "measurement_repeat"
+            ),
+            "measurement_repeat_idx": int(measurement_match.group("repeat_idx")),
+            "request_index_in_window": int(measurement_match.group("request_idx")),
+        }
+
+    return {"request_phase": "unknown"}
 
 
 def prepared_body_size_bytes(response: Any) -> float:

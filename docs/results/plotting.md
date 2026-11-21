@@ -94,7 +94,7 @@ Feasibility 的 status/error 文本在分组前各规范化一次，只有配置
 每组仍保留全部成功、警告、错误信息，以判定混合失败及故障类别。
 `status=warn` 行的 `error` 列存放警告说明，不作为失败证据；即使说明中包含 OOM／timeout，
 纯警告或成功与警告组合仍显示 warning。同组存在实际错误时，仅用错误记录判定故障类别；
-若同时存在 `status=ok`，则显示 partial failure。缺少有效状态的旧记录仍按非空错误文本分类。
+若同一单元格还有已确认的成功和失败，则显示 partial failure。缺少有效状态的旧记录仍按非空错误文本分类。
 故障先按每条记录的明确标记分类，再汇总；不会跨记录拼出 OOM 或借用另一条记录的启动阶段。
 模型名称中的 `BLOOM`、否定的 `OOMKilled=false`、单独的 `request_timeout_s` 参数不作为故障证据。
 剪枝和超时跳过只表示未测量；混合占位与其他错误时，不把占位中的原因当成实际 OOM／超时。
@@ -105,7 +105,7 @@ Feasibility 状态汇总后按配置建立一次索引，避免每个单元格�
 静态 Pareto 前沿按 latency、energy 排序后扫描，计算复杂度为 `O(N log N)`，临时空间为 `O(N)`；
 完全相同的非支配点全部保留，返回标记仍对应原始点顺序。
 
-- `resource_feasibility_heatmap.png` 是唯一保留 `status=warn/error` 行的图。每个 `GPU mode × CPU × memory × input scale` 单元格把正式测量重复折叠为 `OK`、warning、partial failure、timeout、startup/runtime OOM、timeout 后跳过、其他错误或未知。只要同一单元格同时出现成功与失败，就标记为 partial failure，不会被成功行掩盖。只有表头、没有记录时跳过绘图；矩阵中缺少记录的单元格显示为 unknown。
+- `resource_feasibility_heatmap.png` 是唯一保留 `status=warn/error` 行的图。每个 `GPU mode × CPU × memory × input scale` 单元格把正式测量重复折叠为 `OK`、warning、partial failure、timeout、startup/runtime OOM、timeout 后跳过、其他错误或未知。已确认的成功与失败同时出现时标记为 partial failure。无法归属到该尺度的超时占位保留已知观测；单元格仅有未决占位，或另有跳过记录时，显示 unknown。只有表头、没有记录时跳过绘图；矩阵中缺少记录的单元格显示为 unknown。
 - `tail_latency_overview_vs_scale.png` 为每个 GPU mode 和 CPU 数选择具有有效 P50/P95 配对的最大 memory cap，packet/application 共用该配置。每种口径先保留同一窗口中有限且满足 `0 < P50 <= P95` 的配对，再对 repeat window 分位数取中位数，绘制 P50–P95 区间和 `P95/P50`。不跨不完整记录拼出配对；已记录但缺少有效分位数的尺度以 NaN 保留断线位置，孤立有效点使用圆点标记，整种口径缺失时显示 `No data`。可选 P90 必须有限且位于对应 P50–P95 区间内，聚合后仍越界时保留为空；没有 P90 曲线时不显示其图例。窗口分位数不用于伪造 request-level violin distribution。
 - `latency_energy_pareto.png` 按 input scale 分面并在 log-log 坐标中标出同时最小化 latency 与 container-attributed effective energy 的非支配前沿。延迟列依次优先使用 application P95、packet P95、application mean、packet mean；同一面板不会混合不同 input scale。历史 CSV 没有 `container_attributed_energy_eff_j` 时，只在 source fields 可用的行按现有口径重建：CPU-only 使用 estimated vCPU effective energy，GPU 行使用 estimated vCPU 与 GPU effective energy 之和。
 - `cold_start_breakdown.png` 只使用同一源行中五个阶段都完整、有限且非负的记录；不拼接互补的不完整行。按启动身份去重后，对各阶段和可选的 total/first-predict 耗时取 median，并为每个 GPU mode/CPU 数选择有有效阶段的最大 memory cap。同一张 PNG 使用上下两个子图，共享配置横轴、独立缩放纵轴：上图堆叠 container launch、server setup、CUDA init、model load 和 ready wait，并用 `cold_start_s` 独立标记核对阶段和；下图单独展示 first-predict application latency，不计入 `/ready` 前的堆叠总量，缺少该指标时显示 `No data`。旧结果缺少阶段列时继续保留 `cold_start_bar.png`，并自动跳过分解图。

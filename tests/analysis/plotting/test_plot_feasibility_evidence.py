@@ -88,3 +88,31 @@ def test_feasibility_recognizes_current_docker_diagnostics(phase, oom_killed, de
                            "status": "error", "error": error}])
 
     assert summarize_resource_feasibility(frame)["state"].tolist() == [expected]
+
+
+@pytest.mark.parametrize(("context", "expected"), [
+    ({"request_phase": "measurement_repeat", "measurement_repeat_idx": 0}, ["unknown", "unknown"]),
+    ({"input_scale": 8, "request_phase": "measurement_repeat", "measurement_repeat_idx": 0}, ["timeout", "skipped"]),
+])
+def test_timeout_recovery_maps_only_confirmed_requests_to_a_scale(context, expected):
+    from acprof.host.measurement.error_rows import reconcile_case_error_rows
+
+    planned = [dict(cpu_cores=1, mem_cap_gb=4, gpu_mode="off", input_scale=scale,
+                    warmup=0, repeat_idx=0, status="error") for scale in (8, 128)]
+    recovered = reconcile_case_error_rows(planned, [], error="timeout", timeout_context=context)
+    summary = summarize_resource_feasibility(pd.DataFrame(recovered.rows))
+    assert summary["state"].tolist() == expected
+
+
+@pytest.mark.parametrize(("status", "diagnostic", "expected"), [
+    ("ok", "", "ok"), ("warn", "metric gap", "warn"),
+    ("error", "not_measured_after_timeout: trigger_error=client_request_timeout", "unknown"),
+    ("error", "client_request_timeout: planned_request_attempted=true", "timeout"),
+    ("error", "container_runtime_oom: planned_request_attempted=unknown", "runtime_oom"),
+    ("error", "invalid runtime configuration", "error"),
+])
+def test_unresolved_timeout_keeps_other_window_evidence(status, diagnostic, expected):
+    case = dict(cpu_cores=1, mem_cap_gb=4, gpu_mode="off", input_scale=8)
+    rows = [{**case, "status": "error", "error": "client_request_timeout: planned_request_attempted=unknown"},
+            {**case, "status": status, "error": diagnostic}]
+    assert summarize_resource_feasibility(pd.DataFrame(rows))["state"].tolist() == [expected]

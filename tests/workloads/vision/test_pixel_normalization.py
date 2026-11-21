@@ -276,7 +276,8 @@ class TestPixelNormalization:
         fields = [field for field in CSV_FIELDS
                   if not field.endswith(("_pixels_per_request", "_megapixel"))]
         original = dict.fromkeys(fields, "nan")
-        original.update(input_scale="128", repeat_idx="0", warmup="0", status="ok",
+        original.update(cpu_cores="1", mem_cap_gb="4", gpu_mode="off", input_scale="128",
+                        repeat_idx="0", warmup="0", status="ok",
                         error="", container_attributed_energy_eff_j="327.680000")
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "partial.csv"
@@ -298,7 +299,8 @@ class TestPixelNormalization:
     def test_partial_case_write_failure_preserves_existing_measurements(self):
         fields = list(CSV_FIELDS)
         original = dict.fromkeys(fields, "nan")
-        original.update(input_scale="128", repeat_idx="0", warmup="0", status="ok", error="")
+        original.update(cpu_cores="1", mem_cap_gb="4", gpu_mode="off", input_scale="128",
+                        repeat_idx="0", warmup="0", status="ok", error="")
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "partial.csv"
             with path.open("w", newline="") as stream:

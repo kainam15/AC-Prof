@@ -189,6 +189,8 @@ Docker 与 Process 独立验证使用规划时记录的 SHA256 核对实际读�
 
 `sniff_groups.jsonl` 按 CSV 行序保存 `sniff_group_id`。运行中 OOM 或请求超时后，
 host 为尚未完成的窗口补写错误占位行时，同步写入空字符串 group，保留已完成窗口的原始对应关系。
+补写前检查 CSV 结构、完整六字段测量键以及双方已记录的 Runtime 身份。窗口归属冲突、重复或原行损坏时，
+原 CSV 和抓包分组均保留。旧 flat CSV 的扩展列在原始行中保留，分层结果按实验清单冻结的表头核对。
 写入顺序沿用客户端的 sidecar 先落盘、CSV 后发布；CSV 发布失败后的多余尾行在重试时清理，
 已提交 CSV 对应的 sidecar 行缺失或损坏仍明确报错，不猜测 group，也不改写历史实验文件。
 旧 flat layout 与 v2 使用同一约定；历史 CSV 没有 sidecar 时不伪造请求对应关系。

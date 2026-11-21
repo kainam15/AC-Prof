@@ -27,7 +27,7 @@ PCAP 超时以及 packet／energy／MIPS 错误的 CLI 输出会保留这些清�
 | --- | --- |
 | 启动或运行期主机内存不足 | Docker `OOMKilled=true`、明确 cgroup OOM kill 或分配失败日志，并结合发生阶段；仅分配失败不等于已发生 OOM kill |
 | CUDA OOM | 明确 CUDA allocation/OOM 日志；主机 RAM 和 GPU VRAM 是不同资源 |
-| 请求超时 | 超时记录和当次参数；区分已发请求与 `not_measured_after_timeout` 未执行计划行 |
+| 请求超时 | 超时记录和当次参数；查看 `planned_request_attempted` 判别已发、跳过或无法归属的窗口 |
 | Profiler 不适用或失败 | 对应工具计划、错误和支持范围，不能直接推断主实验失败 |
 | 断连或退出码 `137` | 单独不足以确定 OOM，需要容器、内核或明确日志证据 |
 | 文件或字段缺失 | 先核对任务、设备、工具、schema 与运行阶段，不统一解释为零或失败 |

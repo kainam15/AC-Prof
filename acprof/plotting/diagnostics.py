@@ -25,6 +25,7 @@ from acprof.plotting.data import (
     representative_max_memory_rows,
 )
 from acprof.plotting.styles import build_cpu_base_colors
+from acprof.results import is_unresolved_timeout_attempt
 
 _UNMEASURED_ERROR = re.compile(
     r"^(not_measured_after_startup_oom_pruning|not_measured_after_timeout)(?![a-z0-9_])"
@@ -94,7 +95,11 @@ def _classify_feasibility_outcomes(statuses: Iterable[str], errors: Iterable[str
     """Combine independently classified records without synthesizing evidence."""
     status_values = set()
     nonempty_errors = []
+    unresolved_timeout = False
     for status, error in zip(statuses, errors, strict=True):
+        if status not in {"ok", "warn"} and is_unresolved_timeout_attempt(error):
+            unresolved_timeout = True
+            continue
         status_values.add(status)
         # The CSV error column also holds monitor and metric warnings. Their
         # text is not evidence that the workload failed, even if it names OOM.
@@ -116,7 +121,7 @@ def _classify_feasibility_outcomes(statuses: Iterable[str], errors: Iterable[str
         if states == {"pruned_startup_oom"}:
             return "pruned_startup_oom"
         if states == {"skipped"}:
-            return "skipped"
+            return "unknown" if unresolved_timeout else "skipped"
         for state in ("startup_oom", "runtime_oom", "timeout"):
             if state in states:
                 return state

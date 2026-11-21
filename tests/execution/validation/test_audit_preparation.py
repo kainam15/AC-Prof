@@ -172,3 +172,24 @@ def test_missing_profiler_reasons_keep_legacy_settings_and_refresh(audit_source,
     refreshed = "tool_not_enabled" if reason != "tool_not_enabled" else "unavailable_unspecified"
     report = audit.audit_result(audit_source(rows, metadata))
     assert report["missing_metrics"][field] == {refreshed: 2, "profiler_reported_error": 1}
+
+
+@pytest.mark.parametrize("unknown_count", [0, 2])
+def test_audit_discloses_unresolved_timeout_subset_of_failed_rows(audit_source, unknown_count):
+    unresolved = "client_request_timeout: planned_request_attempted=unknown; reason=unresolved_timeout_window"
+    rows = [{"status": "error", "error": error} for error in (
+        "client_request_timeout: planned_request_attempted=true",
+        "container_runtime_oom: planned_request_attempted=unknown",
+        "client_request_timeout: planned_request_attempted=unknown_legacy_value",
+        "not_measured_after_timeout: planned_request_attempted=false",
+    )]
+    rows.append({"status": "warn", "error": unresolved})
+    rows.extend({"status": "error", "error": unresolved} for _ in range(unknown_count))
+    report = audit.audit_result(audit_source(rows, Environment("native_linux", "Linux").metadata()))
+    assert report["valid"], report["issues"]
+    expected = {"finished": True, "succeeded": False,
+                "row_counts": {"total": len(rows), "succeeded": 1, "failed": 3 + unknown_count,
+                               "not_measured": 1, "unfinished": 0}}
+    if unknown_count:
+        expected["unknown_timeout_attempt_rows"] = unknown_count
+    assert report["execution"] == expected

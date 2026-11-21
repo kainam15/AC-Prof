@@ -9,7 +9,6 @@ import json
 import logging
 import math
 import os
-import re
 import sys
 import time
 from contextlib import nullcontext
@@ -39,6 +38,7 @@ from acprof.host.measurement.requests import (
     canonical_task_param,
     decoded_body_size_bytes,
     prepared_body_size_bytes,
+    request_phase_context,
 )
 from acprof.host.measurement.types import MonitorDependencies, WindowSpec
 from acprof.host.profiling.compute_plan import (
@@ -63,30 +63,6 @@ def _is_file_empty(path: str) -> bool:
         return (not os.path.exists(path)) or os.path.getsize(path) == 0
     except Exception:
         return True
-
-def _request_phase_context(request_id: str) -> dict[str, Any]:
-    auto_match = re.search(r"_auto_warmup(?P<request_idx>\d+)$", request_id)
-    if auto_match:
-        return {
-            "request_phase": "auto_repeat_window_warmup",
-            "request_index_in_window": int(auto_match.group("request_idx")),
-        }
-
-    measurement_match = re.search(
-        r"_(?P<phase>[wr])(?P<repeat_idx>\d+):(?P<request_idx>\d+)$",
-        request_id,
-    )
-    if measurement_match:
-        phase = measurement_match.group("phase")
-        return {
-            "request_phase": (
-                "measurement_warmup" if phase == "w" else "measurement_repeat"
-            ),
-            "measurement_repeat_idx": int(measurement_match.group("repeat_idx")),
-            "request_index_in_window": int(measurement_match.group("request_idx")),
-        }
-
-    return {"request_phase": "unknown"}
 
 def _parse_effective_input_scale(resp: dict[str, Any]) -> float | None:
     if not isinstance(resp, dict):
@@ -167,7 +143,7 @@ class ClientRunner:
             "request_timeout_s": exc.timeout_s,
             "measurement_completed": False,
             "timeout_semantics": "connect_or_read_inactivity",
-            **_request_phase_context(exc.request_id),
+            **request_phase_context(exc.request_id),
         }
         from acprof.failures import Failure
         payload["failure"] = Failure("request", "request_timeout", str(exc), self.config.gpu_mode,
@@ -256,7 +232,7 @@ class ClientRunner:
                 from acprof.failures import Failure, RuntimeFailure
                 failure = Failure(**response["failure"])
                 raise RuntimeFailure(replace(failure, evidence={**failure.evidence, "input_scale": float(scale_value),
-                    "request_id": req_id, "request_phase": _request_phase_context(req_id)["request_phase"]}))
+                    "request_id": req_id, "request_phase": request_phase_context(req_id)["request_phase"]}))
             raise RuntimeError(f"HTTP {r.status_code}: {detail or r.reason}")
         resp = loads_finite_json(r.text)
         request_latency_s = t1 - t0

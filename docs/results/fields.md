@@ -229,7 +229,7 @@ I/O 字段以实际容器 PID 所属 cgroup 的 `io.stat` 为来源，不能用�
 | 字段 | 含义 |
 | --- | --- |
 | `status` | `ok`、`warn` 或 `error`。`warn` 标记存在异常的行；常规性能图与延迟模型只使用 `ok` 行，资源可行性图保留失败状态。 |
-| `error` | 错误或 warning 文本。正常行为空；`status=error` 时强制非空。请求超时会区分实际发出但未完成的请求（`client_request_timeout`）与未发请求、因前序超时跳过的计划行（`not_measured_after_timeout`），并记录触发尺度、timeout 下界、请求阶段和 request ID。 |
+| `error` | 错误或 warning 文本。正常行为空；`status=error` 时强制非空。请求超时记录触发尺度、timeout 下界、阶段和 request ID。sidecar 的尺度、阶段与序号唯一匹配待补窗口时，该行标记 `planned_request_attempted=true`；已确认跳过的行标记 `not_measured_after_timeout`。证据缺失或矛盾时保留 `planned_request_attempted=unknown`。 |
 
 ### `latency_s` 和 `latency_app_s` 的区别
 

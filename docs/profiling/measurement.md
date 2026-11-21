@@ -157,7 +157,9 @@ Best-effort 的必需窗口指标逐字段核验：在每个适用的非预热 `
 `collection_complete` 保留原有“采集行完成且成功”的含义，新增 `collection_finished` 与
 `collection_succeeded` 分别表示行已有终态及行执行成功，`row_counts` 区分 succeeded、failed、
 not_measured、unfinished。OOM／timeout 是已结束的失败；剪枝未尝试行单列为 not_measured。
-这些是已提交审计的行状态，完整计划覆盖仍由 run_state/CSV 唯一键和 audit.coverage 检查。
+审计遇到超时请求归属未知的错误行时，在 `execution.unknown_timeout_attempt_rows` 单列其数量。
+这些行已计入 `execution.row_counts.failed`。该计数描述终态错误行，实际发出的请求数需另据请求记录核对。
+完整计划覆盖由 run_state/CSV 唯一键和 audit.coverage 检查。
 旧报告不能区分的完成状态为 null，不把 available 或单独的 runtime `status=ok` 冒充验证证据。
 读取兼容 schema v1/v2/v3，缺版本按 v1；v1/v2 缺少环境身份时保持 unknown。未知版本及非布尔完成状态明确报错，不隐式转换字符串。
 `full_profile_complete` 仅在 native_linux、full 且上述两者满足时成立。工具 permission denied 或输出全为未知数值不能标完整。

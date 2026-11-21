@@ -12,7 +12,7 @@ from enum import Enum, StrEnum
 from typing import Any
 
 from acprof.platform import Environment, capability_matrix, detect_environment, recorded_identity
-from acprof.results import is_inferred_result, is_observed_formal_row
+from acprof.results import is_inferred_result, is_observed_formal_row, is_unresolved_timeout_attempt
 
 
 class CapabilityStatus(StrEnum):
@@ -355,6 +355,7 @@ def collection_outcomes(rows: Sequence[Mapping]) -> dict:
     still exclude it using its stricter status filter.
     """
     counts = dict(total=len(rows), succeeded=0, failed=0, not_measured=0, unfinished=0)
+    unknown_timeout_attempt_rows = 0
     for row in rows:
         status = str(row.get("status", "")).strip().lower()
         error = str(row.get("error") or "").strip().lower()
@@ -363,13 +364,21 @@ def collection_outcomes(rows: Sequence[Mapping]) -> dict:
         elif status in {"ok", "warn"}:
             outcome = "succeeded"
         elif status == "error" and error not in {"", "nan", "none", "null"}:
-            outcome = "not_measured" if (error.startswith("not_measured_") or
-                "planned_request_attempted=false" in error) else "failed"
+            if is_unresolved_timeout_attempt(error):
+                outcome = "failed"
+                unknown_timeout_attempt_rows += 1
+            elif error.startswith("not_measured_") or "planned_request_attempted=false" in error:
+                outcome = "not_measured"
+            else:
+                outcome = "failed"
         else:
             outcome = "unfinished"
         counts[outcome] += 1
-    return {"finished": bool(rows) and counts["unfinished"] == 0,
-            "succeeded": bool(rows) and counts["succeeded"] == len(rows), "row_counts": counts}
+    execution = {"finished": bool(rows) and counts["unfinished"] == 0,
+                 "succeeded": bool(rows) and counts["succeeded"] == len(rows), "row_counts": counts}
+    if unknown_timeout_attempt_rows:
+        execution["unknown_timeout_attempt_rows"] = unknown_timeout_attempt_rows
+    return execution
 
 
 def _required_window_result(rows: Sequence[Mapping], fields: tuple[str, ...]) -> Capability:

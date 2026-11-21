@@ -7,9 +7,12 @@ import math
 import os
 import sys
 from dataclasses import dataclass
+from decimal import Decimal
+from pathlib import Path
 from typing import Any, TextIO
 
 from acprof.artifacts import atomic_write, read_json_object
+from acprof.capabilities import collection_outcomes
 from acprof.config import CSV_FIELDS, DEFAULT_REQUEST_TIMEOUT_SECONDS
 from acprof.gpu_mode import normalize_gpu_mode
 from acprof.host.detect import TaskInfo
@@ -19,10 +22,20 @@ from acprof.host.input_plan import (
 )
 from acprof.host.measurement.energy_validation import row_has_error_status
 from acprof.host.measurement.publication import reconcile_sniff_group_sidecar
+from acprof.host.measurement.requests import request_phase_context
 from acprof.host.profiling.compute_plan import NCU_ERROR_FIELD, TORCH_ERROR_FIELD
 from acprof.pixel_metrics import PIXEL_COUNT_FIELDS, PIXEL_RATE_SOURCES
-from acprof.results.csv import allow_large_csv_fields
+from acprof.results import UNRESOLVED_TIMEOUT_ATTEMPT
+from acprof.results.csv import (
+    MISSING_CSV_TEXT,
+    MeasurementKey,
+    ResultValidationError,
+    measurement_key,
+    parse_result_stream,
+    require_current_fields,
+)
 from acprof.results.layout import ArtifactLayout, case_sidecar
+from acprof.results.metrics import order_csv_fields, supported_csv_header
 
 
 @dataclass(frozen=True)
@@ -32,14 +45,11 @@ class CaseErrorRows:
     preserved_success_rows: int
 
 
-def _measurement_key(row: dict[str, Any]) -> tuple[str, str, int]:
+def _case_measurement_key(row: dict[str, Any]) -> MeasurementKey:
     try:
-        scale = format_scale_value(float(row.get("input_scale", "nan")))
-        repeat_idx = int(row.get("repeat_idx", ""))
-    except (TypeError, ValueError) as exc:
-        raise RuntimeError(f"invalid measurement key in partial case CSV: {row!r}") from exc
-    warmup_flag = "1" if str(row.get("warmup") or "0").strip() == "1" else "0"
-    return scale, warmup_flag, repeat_idx
+        return measurement_key(row)
+    except ResultValidationError as exc:
+        raise RuntimeError(f"invalid measurement key in partial case CSV: {exc}") from exc
 
 
 def _planned_error_rows(
@@ -105,37 +115,41 @@ def reconcile_case_error_rows(
     timeout_context: dict[str, Any] | None = None,
 ) -> CaseErrorRows:
     """Merge planned and committed rows without performing filesystem I/O."""
-    planned_by_key = {_measurement_key(row): row for row in planned_rows}
+    planned_by_key = {_case_measurement_key(row): row for row in planned_rows}
+    if len(planned_by_key) != len(planned_rows):
+        raise RuntimeError("duplicate planned measurement in case recovery")
     normalized_existing: list[dict[str, Any]] = []
     existing_keys = set()
     if preserve_existing:
         for row in existing_rows:
-            key = _measurement_key(row)
+            key = _case_measurement_key(row)
             if key not in planned_by_key:
                 raise RuntimeError(f"partial case CSV contains an unplanned measurement: {key!r}")
             if key in existing_keys:
                 raise RuntimeError(f"partial case CSV contains a duplicate measurement: {key!r}")
+            for field in ("runtime_kind", "runtime_id", "resource_scope"):
+                actual = str(row.get(field) or "").strip()
+                planned = str(planned_by_key[key].get(field) or "").strip()
+                if (actual != planned and actual.lower() not in MISSING_CSV_TEXT
+                        and planned.lower() not in MISSING_CSV_TEXT):
+                    raise RuntimeError(f"partial case CSV has conflicting {field} for measurement {key!r}")
             existing_keys.add(key)
-            normalized_row = {field: row.get(field, "nan") for field in CSV_FIELDS}
-            if annotate_existing_error_rows and row_has_error_status(normalized_row):
+            normalized_row = dict.fromkeys(CSV_FIELDS, "nan") | row
+            if row_has_error_status(normalized_row):
                 existing_error = str(normalized_row.get("error") or "").strip()
-                if error not in existing_error:
-                    normalized_row["error"] = (
-                        f"{existing_error}; {error}" if existing_error else error
-                    )
+                if not existing_error:
+                    raise RuntimeError(f"partial case CSV has status=error without an error diagnostic: {key!r}")
+                if annotate_existing_error_rows and error not in existing_error:
+                    normalized_row["error"] = f"{existing_error}; {error}"
             normalized_existing.append(normalized_row)
 
-    missing_rows = [
-        row for row in planned_rows if _measurement_key(row) not in existing_keys
-    ]
-    if timeout_context is not None and missing_rows:
-        _annotate_timeout_placeholder_rows(missing_rows, timeout_context=timeout_context)
+    missing = {key: row for key, row in planned_by_key.items() if key not in existing_keys}
+    missing_rows = (_timeout_placeholder_rows(missing, planned_by_key, timeout_context)
+                    if timeout_context is not None and missing else list(missing.values()))
     return CaseErrorRows(
         rows=[*normalized_existing, *missing_rows],
         missing_rows=missing_rows,
-        preserved_success_rows=sum(
-            not row_has_error_status(row) for row in normalized_existing
-        ),
+        preserved_success_rows=collection_outcomes(normalized_existing)["row_counts"]["succeeded"],
     )
 
 
@@ -160,64 +174,73 @@ def load_client_error_context(path: str) -> dict[str, Any]:
         return {}
 
 
-def _annotate_timeout_placeholder_rows(
-    rows: list[dict[str, Any]],
-    *,
-    timeout_context: dict[str, Any],
-) -> None:
-    first_missing_scale = _measurement_key(rows[0])[0]
+def _timeout_window(
+    planned: dict[MeasurementKey, dict[str, Any]], context: dict[str, Any],
+) -> tuple[str | None, MeasurementKey | None, bool]:
+    # Historical sidecars can omit the type and request ID. Explicit conflicts
+    # carry no evidence about which planned window the request belonged to.
+    if (context.get("error_type", "client_request_timeout") != "client_request_timeout"
+            or context.get("measurement_completed", False) is not False):
+        return None, None, False
+    template = next(iter(planned.values()))
     try:
-        triggering_scale = format_scale_value(
-            float(timeout_context.get("input_scale", first_missing_scale))
-        )
-    except (TypeError, ValueError):
-        triggering_scale = first_missing_scale
+        scale = measurement_key({**template, "input_scale": context.get("input_scale")})[3]
+    except ResultValidationError:
+        return None, None, False
+    phase = context.get("request_phase")
+    try:
+        request = request_phase_context(str(context.get("request_id") or ""))
+    except ValueError:
+        return scale, None, False
+    if request["request_phase"] not in ("unknown", phase):
+        return scale, None, False
+    if phase == "auto_repeat_window_warmup":
+        confirmed = context.get("measurement_repeat_idx") is None and any(key[3] == scale for key in planned)
+        return scale, None, confirmed
+    if phase not in ("measurement_warmup", "measurement_repeat"):
+        return scale, None, False
+    try:
+        target = measurement_key({**template, "input_scale": scale, "warmup": int(phase == "measurement_warmup"),
+                                  "repeat_idx": context.get("measurement_repeat_idx")})
+    except ResultValidationError:
+        return scale, None, False
+    if "measurement_repeat_idx" in request and Decimal(target[5]) != request["measurement_repeat_idx"]:
+        return scale, None, False
+    matches = [key for key in planned if key[3:] == target[3:]]
+    return scale, matches[0] if len(matches) == 1 else None, False
 
-    timeout_s = timeout_context_float(
-        timeout_context.get("request_timeout_s"), DEFAULT_REQUEST_TIMEOUT_SECONDS,
-    )
-    request_id = str(timeout_context.get("request_id") or "unknown")
-    request_phase = str(timeout_context.get("request_phase") or "unknown")
-    repeat_idx = timeout_context.get("measurement_repeat_idx")
-    attempted_key = None
-    if request_phase == "measurement_warmup" and repeat_idx is not None:
-        attempted_key = (triggering_scale, "1", int(repeat_idx))
-    elif request_phase == "measurement_repeat" and repeat_idx is not None:
-        attempted_key = (triggering_scale, "0", int(repeat_idx))
 
-    context_source = (
-        "client_timeout_sidecar"
-        if timeout_context.get("input_scale") is not None
-        else "inferred_from_first_missing_scale"
-    )
+def _timeout_placeholder_rows(
+    missing: dict[MeasurementKey, dict[str, Any]],
+    planned: dict[MeasurementKey, dict[str, Any]],
+    context: dict[str, Any],
+) -> list[dict[str, Any]]:
+    scale, attempted, phase_is_probe = _timeout_window(planned, context)
+    scale_label = next((row["input_scale"] for key, row in planned.items() if key[3] == scale), scale or "unknown")
+    timeout_s = timeout_context_float(context.get("request_timeout_s"), DEFAULT_REQUEST_TIMEOUT_SECONDS)
+    phase = str(context.get("request_phase") or "unknown")
+    request_id = str(context.get("request_id") or "unknown")
+    source = "client_timeout_sidecar" if scale is not None else "unavailable"
     trigger_fields = (
-        f"trigger_error=client_request_timeout; triggering_input_scale={triggering_scale}; "
+        f"trigger_error=client_request_timeout; triggering_input_scale={scale_label}; "
         f"request_timeout_s={timeout_s:g}; triggering_request_latency_s>{timeout_s:g}; "
-        f"trigger_phase={request_phase}; trigger_request_id={request_id}; "
-        f"context_source={context_source}"
+        f"trigger_phase={phase}; trigger_request_id={request_id}; context_source={source}"
     )
-
-    for row in rows:
-        key = _measurement_key(row)
-        planned_scale = key[0]
-        if attempted_key is not None and key == attempted_key:
-            row["error"] = (
-                "client_request_timeout: planned_request_attempted=true; "
-                "measurement_row_completed=false; "
-                f"planned_input_scale={planned_scale}; {trigger_fields}"
-            )
-            continue
-
-        reason = (
-            "triggering_scale_probe_timed_out"
-            if planned_scale == triggering_scale
-            else "skipped_after_prior_scale_timeout"
-        )
-        row["error"] = (
-            "not_measured_after_timeout: planned_request_attempted=false; "
-            "measurement_row_completed=false; "
-            f"planned_input_scale={planned_scale}; reason={reason}; {trigger_fields}"
-        )
+    identified = attempted is not None and attempted in missing
+    rows = []
+    for key, row in missing.items():
+        if key == attempted:
+            diagnostic = "client_request_timeout: planned_request_attempted=true"
+        elif phase_is_probe or identified:
+            reason = "skipped_after_prior_scale_timeout"
+            if key[3] == scale:
+                reason = "triggering_scale_probe_timed_out" if phase_is_probe else "skipped_after_request_timeout"
+            diagnostic = f"not_measured_after_timeout: planned_request_attempted=false; reason={reason}"
+        else:
+            diagnostic = f"{UNRESOLVED_TIMEOUT_ATTEMPT}; reason=unresolved_timeout_window"
+        rows.append({**row, "error": f"{diagnostic}; measurement_row_completed=false; "
+                     f"planned_input_scale={row['input_scale']}; {trigger_fields}"})
+    return rows
 
 
 def write_case_error_csv(
@@ -268,20 +291,23 @@ def write_case_error_csv(
             fields = manifest["wide_fields"]
     existing_rows: list[dict[str, Any]] = []
     if preserve_existing and os.path.exists(out_csv) and os.path.getsize(out_csv) > 0:
-        with open(out_csv, encoding="utf-8", newline="") as stream:
-            allow_large_csv_fields()
-            reader = csv.DictReader(stream)
-            optional_pixel_fields = {*PIXEL_COUNT_FIELDS, *PIXEL_RATE_SOURCES}
-            from acprof.results.metrics import supported_csv_header
-            if layout.layout_version == 1 and supported_csv_header(reader.fieldnames or []):
-                fields = list(reader.fieldnames or [])
-            missing_fields = set(fields) - set(reader.fieldnames or []) - optional_pixel_fields
-            if missing_fields:
-                raise RuntimeError(
-                    "partial case CSV is missing required fields: "
-                    + ", ".join(sorted(missing_fields))
-                )
-            existing_rows.extend(reader)
+        with open(out_csv, encoding="utf-8-sig", newline="") as stream:
+            try:
+                source_fields, parsed = parse_result_stream(stream, Path(out_csv), None, allow_empty=True,
+                                                            validate_measurements=False)
+                require_current_fields(source_fields)
+            except (ResultValidationError, csv.Error) as exc:
+                raise RuntimeError(f"invalid partial case CSV {out_csv}: {exc}") from exc
+        if layout.layout_version == 1:
+            fields = (source_fields if supported_csv_header(source_fields) else
+                      order_csv_fields([*CSV_FIELDS, *(name for name in source_fields if name not in CSV_FIELDS)]))
+        unexpected = set(source_fields) - set(fields)
+        if unexpected:
+            raise RuntimeError(f"partial case CSV contains fields outside its result schema: {sorted(unexpected)}")
+        missing_fields = set(fields) - set(source_fields) - {*PIXEL_COUNT_FIELDS, *PIXEL_RATE_SOURCES}
+        if missing_fields:
+            raise RuntimeError("partial case CSV is missing required fields: " + ", ".join(sorted(missing_fields)))
+        existing_rows = parsed.rows
 
     reconciled = reconcile_case_error_rows(
         planned_rows,
@@ -295,7 +321,7 @@ def write_case_error_csv(
     missing_rows = reconciled.missing_rows
 
     def write_error_rows(stream: TextIO) -> None:
-        writer = csv.DictWriter(stream, fieldnames=fields, extrasaction="ignore")
+        writer = csv.DictWriter(stream, fieldnames=fields, extrasaction="ignore", restval="nan")
         writer.writeheader()
         writer.writerows(rows)
 

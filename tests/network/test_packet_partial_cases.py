@@ -139,3 +139,50 @@ def test_sidecar_publication_failure_preserves_csv(partial_case, monkeypatch):
         complete_error_case(csv_path, "runtime OOM")
     assert csv_path.read_bytes() == original_csv
     assert sidecar.read_bytes() == original_groups
+
+
+@pytest.mark.parametrize("damage", ["wrong-cpu", "truncated-row", "duplicate-header", "missing-error"])
+def test_invalid_partial_input_preserves_csv_and_even_uncommitted_sidecar_tail(partial_case, damage):
+    path, sidecar = partial_case
+    with path.open(newline="") as stream:
+        header, row = csv.reader(stream)
+    if damage == "wrong-cpu":
+        row[header.index("cpu_cores")] = "16"
+    elif damage == "truncated-row":
+        row.pop()
+    elif damage == "missing-error":
+        row[header.index("status")] = "error"
+        row[header.index("error")] = ""
+    else:
+        header.append("latency_app_s")
+        row.append("0.05")
+    with path.open("w", newline="") as stream:
+        csv.writer(stream).writerows((header, row))
+    with sidecar.open("a") as stream:
+        stream.write('{"sniff_group_id":"orphan"}\n')
+    before = path.read_bytes(), sidecar.read_bytes()
+    with pytest.raises(RuntimeError, match="unplanned measurement|malformed CSV|duplicate CSV columns|without an error diagnostic"):
+        complete_error_case(path, "runtime OOM")
+    assert (path.read_bytes(), sidecar.read_bytes()) == before
+
+
+def test_partial_extensions_follow_the_output_schema(partial_case):
+    path, sidecar = partial_case
+    with path.open(newline="") as stream:
+        header, row = csv.reader(stream)
+    header.insert(header.index("status"), "extension_note")
+    note = 'fixture,"保留"\nnext line'
+    row.insert(header.index("extension_note"), note)
+    with path.open("w", encoding="utf-8-sig", newline="") as stream:
+        csv.writer(stream).writerows((header, row))
+    before = path.read_bytes(), sidecar.read_bytes()
+    if ArtifactLayout.from_csv(path).layout_version == 2:
+        with pytest.raises(RuntimeError, match="fields outside its result schema"):
+            complete_error_case(path, "runtime OOM")
+        assert (path.read_bytes(), sidecar.read_bytes()) == before
+    else:
+        assert complete_error_case(path, "runtime OOM") == (1, 2)
+        with path.open(encoding="utf-8-sig", newline="") as stream:
+            after = list(csv.DictReader(stream))
+        assert [r["extension_note"] for r in after] == [note, "nan", "nan"]
+        assert list(after[0].values()) == row
