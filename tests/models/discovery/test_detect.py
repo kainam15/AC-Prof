@@ -1,5 +1,6 @@
 import io
 import json
+import shutil
 import tempfile
 from pathlib import Path
 from types import SimpleNamespace
@@ -132,6 +133,48 @@ def test_config_fallback_reads_config_json_without_transformers_dependency() -> 
     assert (info.runtime_backend) == ("transformers_pipeline")
     assert (info.library_name) == ("transformers")
     assert (info.detection_method) == ("config_infer")
+
+
+@pytest.mark.parametrize(("case_id", "task", "family", "backend"), [
+    ("hf-vilt-vqa", "visual-question-answering", "multimodal", "transformers_model"),
+    ("hf-resnet-18", "image-classification", "cv", "transformers_pipeline"),
+])
+def test_discovery_from_only_a_pinned_visual_config(
+    case_id, task, family, backend, tmp_path, monkeypatch,
+):
+    from huggingface_hub import constants
+
+    fixtures = Path(__file__).resolve().parents[2] / "fixtures"
+    corpus = json.loads((fixtures / "model_corpus.json").read_text(encoding="utf-8"))
+    case = next(item for item in corpus["models"] if item["case_id"] == case_id)
+    config = case["metadata"]["config.json"]
+    model_id, revision = case["model_id"], case["revision"]
+    hub_cache = tmp_path / "hub"
+    snapshot = hub_cache / ("models--" + model_id.replace("/", "--")) / "snapshots" / revision
+    snapshot.mkdir(parents=True)
+    shutil.copyfile(fixtures / config["path"], snapshot / "config.json")
+    monkeypatch.setattr(constants, "HF_HUB_CACHE", str(hub_cache))
+    monkeypatch.setattr(constants, "HF_HUB_OFFLINE", True)
+    monkeypatch.setenv("ACPROF_MODEL_STORE", str(tmp_path / "store"))
+    monkeypatch.setenv("ACPROF_MODEL_SOURCE", "huggingface")
+
+    with patch("huggingface_hub.HfApi.model_info", side_effect=OSError("Hub unavailable")):
+        info = detect.detect_task(model_id, revision=revision)
+
+    assert info.detection_method == "config_infer"
+    assert (info.pipeline_tag, info.task_family, info.runtime_backend) == (task, family, backend)
+    assert [item["interface"] for item in info.task_discovery["tasks"]] == [task]
+    assert info.model_revision == info.metadata_sources["config.json"]["revision"] == revision
+    assert info.metadata_sources["config.json"]["sha256"] == config["sha256"]
+    assert info.model_resolution["runtime_validation"]["status"] == "not_run"
+
+
+@pytest.mark.parametrize("architecture", ["ViltModel", "ExampleForVisualQuestionAnswering"])
+def test_vilt_model_type_and_unregistered_heads_do_not_imply_visual_qa(architecture):
+    from acprof.extensions import CATALOG
+
+    assert CATALOG.infer_task([architecture], "vilt") is None
+
 
 def test_config_fallback_does_not_analyze_a_file_without_a_pinned_snapshot():
     with tempfile.TemporaryDirectory() as directory:

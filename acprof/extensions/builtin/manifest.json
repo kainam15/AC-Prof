@@ -1542,6 +1542,7 @@
     "ColPaliForRetrieval": "visual-document-retrieval",
     "ColQwen2ForRetrieval": "visual-document-retrieval",
     "ViltForQuestionAnswering": "visual-question-answering",
+    "ViltForVisualQuestionAnswering": "visual-question-answering",
     "BlipForQuestionAnswering": "visual-question-answering",
     "LayoutLMForQuestionAnswering": "document-question-answering",
     "LayoutLMv2ForQuestionAnswering": "document-question-answering",
