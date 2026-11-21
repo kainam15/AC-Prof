@@ -5,6 +5,7 @@ import csv
 import sys
 import time
 from dataclasses import dataclass, replace
+from pathlib import Path
 
 from acprof.host.cases import MatrixProgress
 from acprof.host.profiling.progress import ProfilerProgress
@@ -14,7 +15,7 @@ from acprof.notifications import (
     NotificationEvent,
     WeComWebhookNotifier,
 )
-from acprof.results.csv import allow_large_csv_fields
+from acprof.results.csv import allow_large_csv_fields, read_result_csv
 
 
 @dataclass
@@ -33,6 +34,13 @@ class RunNotificationContext:
 
 
 def _result_status_counts(result_csv: str) -> tuple[int, int]:
+    if Path(result_csv).name == "result_layers.json":
+        _, rows = read_result_csv(result_csv)
+        error_rows = sum(
+            1 for row in rows if str(row.get("status") or "").strip().lower() == "error"
+        )
+        return len(rows), error_rows
+
     result_rows = 0
     error_rows = 0
     with open(result_csv, encoding="utf-8", newline="") as f:
@@ -175,7 +183,7 @@ class RunNotifications:
         if final_csv:
             try:
                 result_rows, error_rows = _result_status_counts(final_csv)
-            except (OSError, csv.Error, UnicodeError) as exc:
+            except (OSError, ValueError, csv.Error, UnicodeError) as exc:
                 detail = f"结果已生成，但通知摘要读取失败（{type(exc).__name__}）"
 
         if not final_csv or result_rows == 0:
@@ -260,7 +268,7 @@ class RunNotifications:
         if progress.result_csv:
             try:
                 result_rows, error_rows = _result_status_counts(progress.result_csv)
-            except (OSError, csv.Error, UnicodeError) as exc:
+            except (OSError, ValueError, csv.Error, UnicodeError) as exc:
                 summary_note = f"；结果摘要读取失败（{type(exc).__name__}）"
 
         detail = (

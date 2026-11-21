@@ -1,11 +1,13 @@
 import csv
 import io
+import json
 import os
 import sys
 import tempfile
 import time
 from contextlib import redirect_stderr, redirect_stdout
 from functools import partial
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
@@ -201,6 +203,82 @@ class TestRunNotificationLifecycle:
         assert (event.status) == ("partial")
         assert (event.result_rows) == (2)
         assert (event.error_rows) == (1)
+        notifier.send.assert_not_called()
+
+    def test_completion_reads_v3_result_layers_json_status_counts(self, tmp_path: Path) -> None:
+        from acprof.config import CSV_FIELDS
+        from acprof.result_store.writer import ResultWriter
+        from acprof.results.layout import ArtifactLayout
+        from acprof.results.windows import (
+            WindowPublicationContext,
+            commit_window_record,
+            prepare_window_telemetry,
+        )
+        from acprof.telemetry import window_evidence
+
+        layout = ArtifactLayout.for_new_run(tmp_path)
+        layout.initialize()
+        manifest = json.loads(layout.result_csv.read_text(encoding="utf-8"))
+        assert manifest["schema_version"] == 3
+        case = layout.case("org/model", 2, 4, "off")
+        attempt = "a" * 32
+        context = WindowPublicationContext(
+            manifest["run_id"], case.case_id, attempt,
+            str(case.window_records(attempt)), str(case.telemetry(attempt)),
+        )
+        records = []
+        for idx, (status, error) in enumerate((("ok", ""), ("error", "timeout"))):
+            window = f"case_scale1_r{idx}"
+            row = {name: "nan" for name in CSV_FIELDS}
+            row.update(
+                cpu_cores="2", mem_cap_gb="4", gpu_mode="off", input_scale="1",
+                warmup="0", repeat_idx=str(idx), status=status, error=error,
+                environment_class="native_linux",
+            )
+            row.update(context.identity(window))
+            evidence = window_evidence(
+                identity=context.identity(window), context={},
+                collectors={"resource": {"status": "unavailable", "reason": "fixture"}},
+            )
+            telemetry = prepare_window_telemetry(context, window, evidence)
+            commit_window_record(
+                context, window_id=window, row=row,
+                request_record={"record": {"sniff_group_id": window, "latency_app_s": []}},
+                telemetry_reference=telemetry, projections={},
+            )
+            records.append(context.record_path(window))
+        with ResultWriter(tmp_path) as writer:
+            for record in records:
+                writer.append_window(record)
+
+        notifier = Mock()
+        self.notices.context = self._context(notifier, total_cases=1)
+        self.notices.record_completion(
+            final_csv=str(layout.result_csv),
+            completed_cases=1,
+        )
+
+        event = self.notices.context.event
+        assert event is not None
+        assert event.status == "partial"
+        assert event.result_rows == 2
+        assert event.error_rows == 1
+        notifier.send.assert_not_called()
+
+    def test_completion_reports_summary_read_failure_on_corrupt_result_layers_json(self, tmp_path: Path) -> None:
+        corrupt = tmp_path / "result_layers.json"
+        corrupt.write_text("{not-valid-json", encoding="utf-8")
+
+        notifier = Mock()
+        self.notices.context = self._context(notifier, total_cases=1)
+        self.notices.record_completion(final_csv=str(corrupt), completed_cases=1)
+
+        event = self.notices.context.event
+        assert event is not None
+        assert event.result_rows is None
+        assert event.error_rows is None
+        assert event.detail is not None
+        assert "通知摘要读取失败" in event.detail
         notifier.send.assert_not_called()
 
     def test_case_progress_reports_current_case_after_csv_is_complete(self) -> None:
