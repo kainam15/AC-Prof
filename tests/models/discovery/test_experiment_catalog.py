@@ -69,6 +69,22 @@ class TestExperimentCatalog(CatalogFixture):
         assert ('run_id_content_conflict') in (report.records[0].issues)
         assert not (report.records[0].has_recovery_state)
 
+    def test_duplicate_run_with_different_snapshot_sources_can_only_be_viewed(self):
+        from acprof.tui.experiments.catalog import scan_experiments
+        from acprof.tui.models.candidates import candidate_from_record, model_choice
+
+        original = self.record('a')
+        copy = self.root / 'b' / original.name
+        shutil.copytree(original, copy)
+        for directory, source in ((original, 'huggingface'), (copy, 'modelscope')):
+            (directory / 'model_resolution.json').write_text(json.dumps({
+                'provenance': {'sources': {'repository_snapshot': {'source': source}}},
+            }))
+        record, = scan_experiments([self.root]).records
+        assert 'run_id_content_conflict' in record.issues
+        choice = model_choice(candidate_from_record(record, {}))
+        assert choice.actions == {'view'}
+
     def test_scan_is_bounded_skips_symlink_and_reports_bad_json(self):
         from acprof.tui.experiments.catalog import scan_experiments
         path = self.record('known')

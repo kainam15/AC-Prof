@@ -44,29 +44,42 @@ def _recorded_evidence_failure(path: Path, error: Exception) -> dict:
     ).to_dict()
 
 
-class _RecordedSourceError(ValueError):
+class RecordedSourceError(ValueError):
     def __init__(self, artifact: str, detail: str):
         super().__init__(detail)
         self.artifact = artifact
 
 
-def _recorded_model_source(metadata: dict, resolution: dict) -> str:
+def recorded_model_source(metadata: dict, resolution: dict, state: dict) -> str:
+    """Resolve the source from saved evidence, including preparation-only runs."""
     provenance = resolution.get("provenance", {})
     if not isinstance(provenance, dict):
-        raise _RecordedSourceError("model_resolution.json", "model provenance must be an object")
+        raise RecordedSourceError("model_resolution.json", "model provenance must be an object")
     sources = provenance.get("sources", {})
     if not isinstance(sources, dict):
-        raise _RecordedSourceError("model_resolution.json", "model provenance sources must be an object")
+        raise RecordedSourceError("model_resolution.json", "model provenance sources must be an object")
     snapshot = sources.get("repository_snapshot", {})
     if not isinstance(snapshot, dict):
-        raise _RecordedSourceError("model_resolution.json", "repository snapshot provenance must be an object")
-    source = metadata.get("model_source", snapshot.get("source", "huggingface"))
-    if not isinstance(source, str) or source not in MODEL_SOURCES:
-        raise _RecordedSourceError("static_meta.json" if "model_source" in metadata else "model_resolution.json",
-                                   "recorded model source must be huggingface/modelscope")
-    if "source" in snapshot and snapshot["source"] != source:
-        raise _RecordedSourceError("model_resolution.json", "recorded source conflicts with static_meta.json")
-    return source
+        raise RecordedSourceError("model_resolution.json", "repository snapshot provenance must be an object")
+    task = _dict_or_empty(_dict_or_empty(state.get("runtime")).get("task"))
+    options = _dict_or_empty(state.get("options"))
+    source = None
+    for artifact, record, key in (
+        ("static_meta.json", metadata, "model_source"),
+        ("model_resolution.json", snapshot, "source"),
+        ("run_state.json", task, "model_source"),
+        ("run_state.json", options, "model_source"),
+        ("run_state.json", _dict_or_empty(options.get("extra_options")), "model_source"),
+    ):
+        if key not in record:
+            continue
+        value = record[key]
+        if value not in MODEL_SOURCES:
+            raise RecordedSourceError(artifact, "recorded model source must be huggingface/modelscope")
+        if source is not None and value != source:
+            raise RecordedSourceError(artifact, f"conflicting recorded model sources: {source} and {value}")
+        source = value
+    return source if source is not None else "huggingface"
 
 
 def result_status(row):
@@ -276,7 +289,7 @@ def _dict_or_empty(value: object) -> dict:
 
 
 def _check_identity_consistency(
-    layout, metadata: dict, resolution: dict, invalid: list[dict],
+    layout, metadata: dict, resolution: dict, state: dict, invalid: list[dict],
 ) -> tuple[object, object, object, object, str]:
     provenance = _dict_or_empty(resolution.get("provenance"))
     sources_map = _dict_or_empty(provenance.get("sources"))
@@ -294,13 +307,13 @@ def _check_identity_consistency(
             layout, "model_resolution.json", "recorded model_revision conflicts with static_meta.json", invalid,
         )
     invalid_identity = any(
-        problem["evidence"]["artifact_name"] in {"static_meta.json", "model_resolution.json"}
+        problem["evidence"]["artifact_name"] in {"static_meta.json", "model_resolution.json", "run_state.json"}
         for problem in invalid
     )
     try:
         # Corrupt identity evidence is not a historical document with missing fields.
-        model_source = "unknown" if invalid_identity else _recorded_model_source(metadata, resolution)
-    except _RecordedSourceError as error:
+        model_source = "unknown" if invalid_identity else recorded_model_source(metadata, resolution, state)
+    except RecordedSourceError as error:
         _invalid_compatibility_shape(layout, error.artifact, str(error), invalid)
         model_source = "unknown"
     return meta_model, res_model, meta_rev, res_rev, model_source
@@ -397,7 +410,7 @@ def _report_single_source(source: Path, pre_invalid: list[dict]) -> dict:
         raise ValueError(f"No recorded compatibility evidence: {source}")
 
     meta_model, res_model, meta_rev, res_rev, model_source = _check_identity_consistency(
-        layout, metadata, resolution, invalid,
+        layout, metadata, resolution, state, invalid,
     )
     failures = _collect_compatibility_failures(layout, failure_report, validation, resolution, invalid)
 

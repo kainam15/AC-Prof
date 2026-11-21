@@ -102,6 +102,26 @@ class TestModelInput:
                 else:
                     assert '--revision' not in command
 
+    async def test_using_coverage_candidate_passes_recorded_source_and_sha_to_run(self):
+        root = self.fixture.fixture.root
+        revision = 'a' * 40
+        (root / 'coverage.json').write_text(json.dumps({
+            'schema_version': 2, 'scope': 'selected_sample_only; no_formal_measurement',
+            'rows': [{'model_id': 'demo/model', 'source': 'modelscope', 'revision': revision}],
+        }))
+        config = replace(RunConfig.smoke('demo/model'), output_dir=str(root), model_store=str(root / 'store'))
+        app = AcprofTui(config, settings_path=root / 'settings.json')
+        async with app.run_test(size=(80, 24)) as pilot:
+            assert await pilot.click('#model-candidates')
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+            assert await pilot.click('#picker-use')
+            await pilot.pause()
+            effective = app.configuration.collect_config()
+            command = build_run_command(effective, project_dir=root)
+            assert command[command.index('--model-source') + 1] == 'modelscope'
+            assert command[command.index('--revision') + 1] == revision
+
     async def test_measurement_blocks_candidate_io(self):
         root = self.fixture.fixture.root
         app = AcprofTui(RunConfig.smoke('demo/model'), settings_path=root / 'settings.json')

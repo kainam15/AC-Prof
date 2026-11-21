@@ -13,6 +13,52 @@ class TestModelCandidate(ModelCandidateFixture):
     @pytest.fixture(autouse=True)
     def _setup(self, request, tmp_path):
         self.build(request, tmp_path)
+
+    def test_coverage_sources_keep_legacy_rows_selectable_and_unknown_rows_viewable(self, monkeypatch):
+        from acprof.tui.models.candidates import coverage_candidates, model_choice
+
+        monkeypatch.setenv("ACPROF_MODEL_SOURCE", "modelscope")
+        report = self.fixture.root / "coverage.json"
+        row = {"model_id": "demo/model", "revision": "a" * 40}
+        report.write_text(json.dumps({
+            "schema_version": 1, "scope": "recorded_results; no_reexecution",
+            "rows": [row, {**row, "source": "modelscope"}, {**row, "source": "unknown"}, {**row, "source": None}],
+        }))
+        assert [(item.model_source, model_choice(item).actions) for item in coverage_candidates(report)] == [
+            ("huggingface", {"view", "use"}), ("modelscope", {"view", "use"}),
+            ("unknown", {"view"}), ("unknown", {"view"}),
+        ]
+
+    @pytest.mark.parametrize("metadata_source", [None, "huggingface"])
+    @pytest.mark.parametrize("embedded", [False, True], ids=["standalone", "embedded"])
+    def test_resolution_only_history_and_conflicting_source_evidence(self, metadata_source, embedded):
+        from acprof.tui.experiments.catalog import read_experiment_record
+        from acprof.tui.models.candidates import candidate_from_record, model_choice
+
+        root = self.fixture.root
+        resolution = {
+            "model_id": "demo/model", "model_revision": "a" * 40,
+            "provenance": {"sources": {"repository_snapshot": {"source": "modelscope"}}},
+        }
+        metadata = {}
+        if embedded:
+            metadata["model_resolution"] = resolution
+        else:
+            (root / "model_resolution.json").write_text(json.dumps(resolution))
+        if metadata_source is not None:
+            metadata["model_source"] = metadata_source
+        if metadata:
+            (root / "static_meta.json").write_text(json.dumps(metadata))
+        record = read_experiment_record(root)
+        candidate = candidate_from_record(record, {"model_source": "modelscope"})
+        if metadata_source is None:
+            assert candidate.model_source == "modelscope"
+            assert (candidate.model_id, candidate.revision) == ("demo/model", "a" * 40)
+            assert "use" in model_choice(candidate).actions
+        else:
+            assert candidate.model_source == "unknown"
+            assert model_choice(candidate).actions == {"view"}
+
     def test_coverage_candidate_retains_attempt_resources_and_failed_access_evidence(self):
         from acprof.tui.models.candidates import coverage_candidates
         root = self.fixture.root

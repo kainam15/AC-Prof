@@ -201,7 +201,7 @@ def test_conflicting_recorded_sources_are_invalid_not_guessed(tmp_path):
     assert row["failure"]["reason_code"] == "recorded_evidence_invalid"
 
 
-@pytest.mark.parametrize("name", ["static_meta.json", "model_resolution.json"])
+@pytest.mark.parametrize("name", ["static_meta.json", "model_resolution.json", "run_state.json"])
 def test_unreadable_source_evidence_remains_unknown_instead_of_defaulting_to_hf(tmp_path, name):
     root = tmp_path / "result"
     root.mkdir()

@@ -99,7 +99,8 @@ def review_recovery(pending: PendingLaunch, *, project_dir: Path, python_executa
 
     fresh = new_experiment_config(config, directory.parent)
     if (record is not None and pinned_revision(record.revision)
-            and config.model == record.options.get("model")
+            and config.model_source == record.model_source
+            and config.model == record.model_id == record.options.get("model")
             and config.revision == (record.options.get("revision") or "")):
         fresh = replace(fresh, revision=record.revision)
     restart = None

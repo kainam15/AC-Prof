@@ -7,7 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-from textual.widgets import Button, Input, Static, TabbedContent
+from textual.widgets import Button, Input, Select, Static, TabbedContent
 
 import tests.support.catalog_fixtures as catalog_fixture
 from acprof.experiments.arguments import build_parser
@@ -109,6 +109,10 @@ class TestCatalogWorkflow:
             assert (reused.output_dir) != (str(path.parent))
             assert not app.query('#run-preset')
             assert ('--matrix-seed 71') in (str(app.query_one('#command-preview', Static).content))
+            app.query_one('#model-source', Select).value = 'modelscope'
+            await pilot.pause()
+            switched = app.configuration.collect_config()
+            assert (switched.model_source, switched.revision) == ('modelscope', '')
             with patch.object(app, 'launch') as launch:
                 app.catalog.experiment_selected('experiment-source', ('resume', record))
                 # push_screen makes the screen current before its buttons have

@@ -171,6 +171,7 @@ run/report 同时输出 `coverage.json`、`models.csv` 和 `REPORT.md`。失败�
 `metadata/task_runs/*.json`）或上层 `--output-dir`，读取 `static_meta.json` 的权威身份与内嵌证据，
 并保留 `metadata/preparation/*.json`、`interface_validation.json` 与 `run_state.json` 记录的准备/接口阶段失败；
 不执行模型，不修改源结果，也不从旧日志猜测缺少的原因。
+准备失败时，即使尚未写出静态元数据或仓库快照，报告也会从 `run_state.json` 的冻结参数读取模型来源。
 Runtime Validation 成功只表示独立推理验证通过；已有采集是否完成由记录的 `full_profile_complete` 决定。
 
 `--max-parameters` 和 `--max-download-bytes` 默认不设置，传入时须为正整数。

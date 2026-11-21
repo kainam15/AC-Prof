@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from acprof.hub.repository import MODEL_SOURCES
 from acprof.models.evidence import pinned_revision
 from acprof.tui.experiments.catalog import ExperimentRecord
 
@@ -107,11 +108,10 @@ def candidate_from_record(record: ExperimentRecord, current: dict) -> ModelCandi
     detail = json.dumps({'conditions': conditions, 'current_conditions': current, 'condition_changes': reasons,
         'run_id': record.run_id, 'aliases': [str(path) for path in record.aliases],
         'validation': record.validation, 'failures': record.failures, 'status': record.status}, ensure_ascii=False, indent=2)
-    source = record.metadata.get('model_source', record.state.get('runtime', {}).get('task', {}).get('model_source', 'huggingface'))
-    if source != current.get('model_source', 'huggingface'):
+    if record.model_source != current.get('model_source', 'huggingface'):
         status, reason = 'revalidate', reason + '; model_source: changed'
     return ModelCandidate(record.model_id, record.revision, status, reason, conditions, detail, record.directory,
-                          history_status=history_status, record=record, model_source=source)
+                          history_status=history_status, record=record, model_source=record.model_source)
 
 
 def cached_candidates(root: Path, *, cancelled: Callable[[], bool] = lambda: False,
@@ -182,8 +182,10 @@ def coverage_candidates(path: Path) -> tuple[ModelCandidate, ...]:
             'previous_failure' if failure else 'revalidate')
         detail = json.dumps({'row': row, 'attempt_configuration': config, 'conditions': conditions,
                              'source': str(path)}, ensure_ascii=False, indent=2)
+        source = row.get('source', 'huggingface')
         values.append(ModelCandidate(str(row['model_id']), str(row.get('revision') or 'unknown'), 'revalidate',
-                                     reason, conditions, detail, report=path, history_status=history_status))
+                                     reason, conditions, detail, report=path, history_status=history_status,
+                                     model_source=source if source in MODEL_SOURCES else 'unknown'))
     return tuple(values)
 
 
@@ -327,7 +329,7 @@ def _candidate_views(candidate: ModelCandidate, status_message: Any) -> tuple[An
 def model_choice(candidate: ModelCandidate):
     from acprof.messages import join_messages, message
     from acprof.tui.experiments.picker import PickerChoice
-    actions = {'use'}
+    actions = {'use'} if candidate.model_source in MODEL_SOURCES else set()
     if candidate.experiment or candidate.report:
         actions.add('view')
     status = MODEL_STATUS_LABELS[candidate.status]

@@ -99,7 +99,7 @@ class ModelController:
         self.app.query_one('#model', Input).suggester = SuggestFromList(sorted(models), case_sensitive=False)
         action, candidate = choice
         if action == 'use':
-            self.candidate_pin = (candidate.model_id, candidate.model_source, candidate.revision)
+            self.remember_recorded_revision(candidate.model_id, candidate.model_source, candidate.revision)
             self.app.query_one('#model', Input).value = candidate.model_id
             self.app.query_one('#model-source', Select).value = candidate.model_source
             self.app.query_one('#revision', Input).value = candidate.revision if pinned_revision(candidate.revision) else ''
@@ -110,6 +110,9 @@ class ModelController:
         elif action == 'view' and candidate.report:
             self.app.activate_tab('results-tab')
             self.app.results.open_report(str(candidate.report))
+
+    def remember_recorded_revision(self, model: str, source: str, revision: str) -> None:
+        self.candidate_pin = (model, source, revision) if pinned_revision(revision) else None
 
     def candidate_identity_changed(self, event: TextualInput.Changed | Select.Changed) -> None:
         selected = self.candidate_pin

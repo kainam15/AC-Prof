@@ -14,6 +14,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from uuid import uuid4
 
+from acprof.analysis.compatibility import RecordedSourceError, recorded_model_source
 from acprof.artifacts import read_json_object
 from acprof.experiments.arguments import flatten_run_options
 from acprof.experiments.configuration import RunConfig
@@ -43,6 +44,7 @@ class ExperimentRecord:
     metadata: dict
     validation: dict
     failures: tuple[dict, ...]
+    model_source: str
     issues: tuple[str, ...] = ()
 
     @property
@@ -158,6 +160,7 @@ def experiment_source_title(source: Path) -> tuple[str, str | None]:
 def _record(layout: ArtifactLayout, warnings: list[str]) -> ExperimentRecord:
     directory = layout.root
     values = {}
+    issues: list[str] = []
     for name in ('run_state.json', 'static_meta.json', 'runtime_validation.json', 'runtime_failures.json', 'model_resolution.json'):
         path = layout.path(name)
         try:
@@ -165,10 +168,15 @@ def _record(layout: ArtifactLayout, warnings: list[str]) -> ExperimentRecord:
                 raise ValueError(f'{name}: artifact_outside_experiment')
             values[name] = read_artifact(path)
         except (OSError, ValueError) as exc:
-            warnings.append(f'{directory}: {name}: {exc}')
+            detail = f'{directory}: {name}: {exc}'
+            warnings.append(detail)
+            if name in {'static_meta.json', 'model_resolution.json', 'run_state.json'}:
+                issues.append(detail)
             values[name] = {}
     state, metadata, validation = (values[name] for name in ('run_state.json', 'static_meta.json', 'runtime_validation.json'))
     resolution = values['model_resolution.json']
+    if not resolution and isinstance(metadata.get('model_resolution'), dict):
+        resolution = metadata['model_resolution']
     task = state.get('runtime', {}).get('task', {})
     options = state.get('options', {})
     if not isinstance(options, dict):
@@ -181,7 +189,13 @@ def _record(layout: ArtifactLayout, warnings: list[str]) -> ExperimentRecord:
     device = str(gpu.get('uuid') or options.get('gpu_device') or (
         'cpu ' + str(metadata.get('cpu_model', 'unknown')) if options.get('gpus') == 'off' else options.get('gpus', 'unknown')))
     run_id = state.get('run_id')
-    issues = ('unsupported_run_state',) if state and state.get('schema_version') != 1 else ()
+    try:
+        source = "unknown" if issues else recorded_model_source(metadata, resolution, state)
+    except RecordedSourceError as exc:
+        source = "unknown"
+        issues.append(f"{exc.artifact}: {exc}")
+    if state and state.get('schema_version') != 1:
+        issues.append('unsupported_run_state')
     recorded_runtime_env = metadata.get('runtime_environment')
     runtime_env = recorded_runtime_env if isinstance(recorded_runtime_env, dict) else {}
     return ExperimentRecord(directory, (directory,), run_id if isinstance(run_id, str) and run_id else None,
@@ -190,14 +204,14 @@ def _record(layout: ArtifactLayout, warnings: list[str]) -> ExperimentRecord:
         str(metadata.get('runtime_profile_id') or runtime_env.get('profile_id') or task.get('runtime_profile_id') or resolution.get('runtime_profile') or 'unknown'),
         str(state.get('created_at') or metadata.get('created_at') or 'unknown'),
         str(state.get('status') or ('failed' if failures else 'unknown')), device,
-        options, state, metadata, validation, tuple(failures), issues)
+        options, state, metadata, validation, tuple(failures), source, tuple(issues))
 
 
 def read_experiment_record(directory: Path) -> ExperimentRecord:
     """Read one experiment's bounded metadata without catalog or CSV scanning."""
     warnings: list[str] = []
     record = _record(ArtifactLayout.discover(directory), warnings)
-    return replace(record, issues=(*record.issues, *warnings))
+    return replace(record, issues=tuple(dict.fromkeys((*record.issues, *warnings))))
 
 
 def _duplicate_digest(record: ExperimentRecord, cancelled: Callable[[], bool], budget: list[int]) -> str:
@@ -308,8 +322,11 @@ def scan_experiments(roots: Iterable[Path], *, cancelled: Callable[[], bool] = l
             if record.run_id and record.run_id in identities:
                 index = identities[record.run_id]
                 previous = records[index]
+                source_conflict = previous.model_source != record.model_source
                 try:
-                    conflicting = _duplicate_digest(previous, cancelled, duplicate_budget) != _duplicate_digest(record, cancelled, duplicate_budget)
+                    conflicting = source_conflict or (
+                        _duplicate_digest(previous, cancelled, duplicate_budget) != _duplicate_digest(record, cancelled, duplicate_budget)
+                    )
                     issue = 'run_id_content_conflict' if conflicting else ''
                 except InterruptedError:
                     raise
@@ -318,7 +335,8 @@ def scan_experiments(roots: Iterable[Path], *, cancelled: Callable[[], bool] = l
                 except (OSError, ValueError):
                     issue = 'duplicate_evidence_unverified'
                 issues = tuple(dict.fromkeys((*previous.issues, *((issue,) if issue else ()))))
-                records[index] = replace(previous, aliases=(*previous.aliases, directory), issues=issues)
+                records[index] = replace(previous, aliases=(*previous.aliases, directory), issues=issues,
+                                         model_source='unknown' if source_conflict else previous.model_source)
             else:
                 if record.run_id:
                     identities[record.run_id] = len(records)
@@ -374,7 +392,7 @@ def config_from_record(record: ExperimentRecord, *, reuse: bool) -> RunConfig:
     explicit = {item.name for item in fields(RunConfig)}
     derived = {'measurement_environment', 'model_spec_sha256', 'workload_spec_sha256'}
     extra = {name: value for name, value in options.items() if name not in explicit | derived}
-    config = replace(config, extra_options=extra)
+    config = replace(config, extra_options=extra, model_source=record.model_source)
     from acprof.models.evidence import pinned_revision
     if reuse and pinned_revision(record.revision):
         config = replace(config, revision=record.revision)
@@ -398,6 +416,7 @@ def resume_command(record: ExperimentRecord, *, python_executable: Path) -> tupl
     derived = {'measurement_environment', 'model_spec_sha256', 'workload_spec_sha256'}
     options = {name: value for name, value in flatten_run_options(record.options).items()
                if name not in derived | {'resume', 'output_dir', 'notify', 'rebuild_image'}}
+    options['model_source'] = config.model_source
     arguments = arguments_from_options(options)
     arguments.extend(('--resume', '--output-dir', config.output_dir))
     build_parser().parse_args(arguments)

@@ -14,6 +14,7 @@ from textual.worker import WorkerCancelled
 from acprof.experiments.arguments import build_parser
 from acprof.experiments.configuration import RunConfig, build_run_command
 from acprof.host import run_state
+from acprof.results.layout import ArtifactLayout
 from acprof.tui.commands import PendingLaunch
 from acprof.tui.experiments.catalog import scan_experiments
 from acprof.tui.logging.widget import SelectableLog
@@ -28,10 +29,12 @@ from tests.support.tui_fixtures import AcprofTui
 
 
 @pytest.fixture
-def saved_preparation(tmp_path, monkeypatch):
+def saved_preparation(tmp_path, monkeypatch, request):
     monkeypatch.setattr(run_state, "MEASUREMENT_LOCK_ROOT", tmp_path)
     monkeypatch.setattr(run_state, "host_identity", lambda _: {"source_sha256": "original"})
-    config = replace(RunConfig.smoke("demo/model"), output_dir=str(tmp_path / "results"))
+    source, revision = getattr(request, "param", ("huggingface", ""))
+    config = replace(RunConfig.smoke("demo/model"), output_dir=str(tmp_path / "results"),
+                     model_source=source, revision=revision)
     command = build_run_command(config, project_dir=Path.cwd())
     args = build_parser().parse_args(command[command.index("--model"):])
     for name, value in asdict(RunConfig.from_namespace(args).validate(project_dir=Path.cwd())).items():
@@ -42,6 +45,58 @@ def saved_preparation(tmp_path, monkeypatch):
     (directory / "logs").mkdir(exist_ok=True)
     (directory / "logs/interface_validation.log").write_text("interrupted preparation\n")
     return config, directory
+
+
+@pytest.mark.parametrize(("saved_preparation", "nested"), [
+    (("modelscope", ""), False), (("huggingface", ""), False), (("modelscope", ""), True),
+], indirect=["saved_preparation"])
+def test_failed_preparation_source_reaches_history_and_coverage(saved_preparation, nested, tmp_path, monkeypatch):
+    from acprof.analysis.compatibility import report_results
+    from acprof.tui.models.candidates import candidate_from_record, coverage_candidates
+
+    config, directory = saved_preparation
+    if nested:
+        path = ArtifactLayout.discover(directory).path("run_state.json")
+        state = json.loads(path.read_text())
+        options = state["options"]
+        options["extra_options"] = {"model_source": options.pop("model_source")}
+        path.write_text(json.dumps(state))
+    other = "huggingface" if config.model_source == "modelscope" else "modelscope"
+    monkeypatch.setenv("ACPROF_MODEL_SOURCE", other)
+    record, = scan_experiments([directory]).records
+    candidate = candidate_from_record(record, {"model_source": config.model_source})
+    output = tmp_path / "report"
+    row, = report_results([directory], output)["rows"]
+    exported, = coverage_candidates(output / "coverage.json")
+    assert (candidate.model_source, row["source"], exported.model_source) == (config.model_source,) * 3
+
+
+@pytest.mark.parametrize(("saved_preparation", "source", "revision", "expected"), [
+    (("huggingface", ""), "modelscope", "", ""),
+    (("modelscope", ""), "huggingface", "", ""),
+    (("modelscope", ""), "modelscope", "", "a" * 40),
+    (("huggingface", ""), "huggingface", "", "a" * 40),
+    (("huggingface", "release"), "modelscope", "release", "release"),
+    (("modelscope", "release"), "modelscope", "release", "a" * 40),
+    (("huggingface", ""), "huggingface", "new-branch", "new-branch"),
+], indirect=["saved_preparation"])
+def test_recovery_commands_bind_pins_to_their_source(saved_preparation, source, revision, expected, monkeypatch):
+    config, directory = saved_preparation
+    monkeypatch.setenv("ACPROF_MODEL_SOURCE", "modelscope")
+    ArtifactLayout.discover(directory).path("model_resolution.json").write_text(json.dumps({
+        "model_id": config.model, "model_revision": "a" * 40,
+        "provenance": {"sources": {"repository_snapshot": {"source": config.model_source}}},
+    }))
+    selected = replace(config, model_source=source, revision=revision)
+    pending = PendingLaunch(tuple(build_run_command(selected, project_dir=Path.cwd())), "run", selected)
+    review = review_recovery(pending, project_dir=Path.cwd(), python_executable=Path("/fixed/python"))
+    assert review is not None
+    assert review.restart is not None
+    assert review.resume is not None
+    restart = build_parser().parse_args(review.restart.command[review.restart.command.index("--model"):])
+    assert (restart.model_source, restart.revision or "") == (source, expected)
+    resume = build_parser().parse_args(review.resume.command[review.resume.command.index("--model"):])
+    assert resume.model_source == config.model_source
 
 
 @pytest.mark.parametrize(("language", "size"), [("zh", (80, 24)), ("en", (120, 30)), ("zh", (150, 45))])
