@@ -12,7 +12,7 @@ import os
 from contextlib import ExitStack, contextmanager
 from uuid import uuid4
 
-from acprof.artifacts import atomic_write_json, read_json_object
+from acprof.artifacts import atomic_write_json, read_json_object, sync_directory
 from acprof.result_store.protocol import (
     csv_bytes,
     publication_lock,
@@ -163,9 +163,11 @@ class ResultWriter:
             raise ResultValidationError("cannot freeze an experiment without measurements")
         snapshot = prepare_result_snapshot(self.manifest["wide_fields"], list(self.rows.values()), self.layout.root)
         path = self.layout.result_store_path(f"snapshots/{snapshot['generation']}.json")
-        if path.exists() and read_json_object(path) != snapshot:
-            raise ResultValidationError("immutable snapshot manifest changed")
-        if not path.exists():
+        if path.exists():
+            if read_json_object(path) != snapshot:
+                raise ResultValidationError("immutable snapshot manifest changed")
+            sync_directory(path.parent)
+        else:
             atomic_write_json(path, snapshot)
         with self._publication():
             self._commit({}, {}, [], replace=False, row_count=len(self.rows), state="complete",

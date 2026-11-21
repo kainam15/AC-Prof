@@ -215,6 +215,8 @@ def _prepare_generation(root: Path, generation: str, payloads: Mapping[str, byte
     destination = _safe_path(root, f"{GENERATIONS_DIR}/{generation}")
     if destination.exists():
         _verify_generation(root, generation, payloads)
+        # An earlier rename may have succeeded before syncing its directory failed.
+        sync_directory(generations)
         return
     stage = Path(tempfile.mkdtemp(prefix=".pending-", dir=generations))
     def remove_stage() -> None:

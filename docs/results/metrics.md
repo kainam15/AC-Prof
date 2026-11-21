@@ -90,7 +90,9 @@ schema v3 从同一个文件句柄流式解码并哈希已提交前缀，普通�
 先持久化全部快照文件与快照清单，再通过统一 commit 发布 `snapshot` 引用和 `state=complete`。
 根 CSV 与快照使用不同 inode，后续追加或模块替换不会改写已发布快照。
 替换清单后目录同步失败仍报错，但新提交可能已生效，恢复必须按实际 HEAD 判断。
-损坏的不可变 generation 明确拒绝，不用新数据静默覆盖。
+重试冻结时，程序先核对复用的 generation 文件及快照清单内容，再分别同步
+`result_generations/` 和 `.acprof/result_store/snapshots/` 的目录项。同步失败会保留已有文件和原根清单，
+后续重试可继续复用相同内容。损坏的不可变 generation 明确拒绝，不用新数据静默覆盖。
 
 schema v3 采集使用独占 writer lease，读者与提交使用独立的短期 publication lock。
 矩阵最终发布先用每个已完成 case 记录的 SHA-256 校验正在合并的 CSV 字节，再打开 writer。
