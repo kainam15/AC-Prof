@@ -93,6 +93,7 @@ class _CandidateDiscovery:
         self.overridden_conflicts: list[str] = []
         self.candidates: list[dict[str, Any]] = []
         self.route_errors: dict[str, str] = {}
+        self.native_backends: dict[str, str] = {}
         self.hub_task: str | None = None
         self.raw_hub_task: str | None = None
         self.declared_task: str | None = None
@@ -137,8 +138,38 @@ class _CandidateDiscovery:
         if self.override_backend and self.declared_backend and self.override_backend != self.declared_backend:
             self.conflicts.append("--backend conflicts with model spec format; update --model-spec")
 
+    def _mixed_transformers_backend(self, task: str) -> str | None:
+        """An export beside a complete native model can use an independently verified native route."""
+        from acprof.models.artifact_layout import has_coreml_artifacts
+        from acprof.models.resolution import resolve_model_interface
+
+        config = self.metadata.get("config.json") or {}
+        if (not isinstance(config, dict) or not config.get("model_type") or "config.json" not in self.files
+                or config["model_type"] != self.config.get("model_type")
+                or config.get("auto_map") or config.get("custom_pipelines") or not has_coreml_artifacts(self.files)):
+            return None
+        context = copy.copy(self.task_info)
+        context.model_resolution = {}
+        try:
+            route = self.catalog.resolve(task=task, library="transformers", config=self.config,
+                                         model_id=context.model_id, files=self.files, metadata=self.metadata)
+            if (route.backend not in {"transformers_model", "transformers_pipeline"}
+                    or route.declaration.adapter != "family-default"):
+                return None
+            context.pipeline_tag, context.task_family, context.runtime_backend = task, route.family, route.backend
+            interface = resolve_model_interface(context)
+        except ValueError:
+            # Explicit backend inspection reports the original loader failure.
+            return None
+        if (interface["artifact_format"] == "transformers"
+                and interface["artifact_layout"]["status"] == "identified"):
+            return route.backend
+        return None
+
     def _backend_for(self, task: str, *, required: bool = False) -> str:
-        from acprof.extensions import UnsupportedExtensionError
+        from acprof.extensions import UnregisteredLibraryError, UnsupportedExtensionError
+        if task in self.native_backends:
+            return self.native_backends[task]
         try:
             return self.catalog.resolve(
                 task=task, library=self.task_info.library_name, config=self.config,
@@ -146,6 +177,10 @@ class _CandidateDiscovery:
                 files=self.files, metadata=self.metadata,
             ).backend
         except UnsupportedExtensionError as exc:
+            if isinstance(exc, UnregisteredLibraryError):
+                if native := self._mixed_transformers_backend(task):
+                    self.native_backends[task] = native
+                    return native
             self.route_errors[task] = str(exc)
             if required and str(exc) not in self.errors:
                 self.errors.append(str(exc))
@@ -222,6 +257,8 @@ class _CandidateDiscovery:
             "backend": backend,
             "evidence": [source],
         }
+        if task in self.native_backends:
+            candidate["backend_source"] = "native_transformers_checkpoint"
         if task in self.route_errors:
             candidate["unsupported_reason"] = self.route_errors[task]
         self.candidates.append(candidate)
@@ -419,10 +456,13 @@ class _CandidateDiscovery:
             "hub": self.hub_metadata, "config": self.config, "metadata": self.metadata})
         from acprof.models.evidence import INTERFACE_RESOLVER_VERSION, content_digest
         resolution["provenance"]["resolver_version"] = INTERFACE_RESOLVER_VERSION
-        resolution["provenance"]["identity_sha256"] = content_digest({
+        identity = {
             "sources": resolution["provenance"]["sources"], "raw": resolution["provenance"]["raw_evidence"],
             "evidence": resolution["evidence"], "discovery": discovery,
-            "selection": resolution["selection"], "resolver_version": INTERFACE_RESOLVER_VERSION})
+            "selection": resolution["selection"], "resolver_version": INTERFACE_RESOLVER_VERSION}
+        if failure := resolution.get("failure"):
+            identity["failure_reason_code"] = failure["reason_code"]
+        resolution["provenance"]["identity_sha256"] = content_digest(identity)
 
     def run(self) -> dict:
         self._read_declarations()
@@ -435,6 +475,18 @@ class _CandidateDiscovery:
         resolution = self._base_resolution(selected, status)
         self._attach_execution_paths(selected)
         discovery = self._apply_task_discovery(resolution, selected)
+        if (resolution["status"] == "needs_configuration" and resolution["selection"]["backend"] in {None, "unknown"}
+                and not self.task_info.metadata_errors and not self.task_info.model_resolution.get("failure")
+                and not self.override_backend and not task_model_spec(self.task_info)
+                and not self.config.get("auto_map") and not self.config.get("custom_pipelines")):
+            from acprof.models.artifact_layout import coreml_only_failure
+            from acprof.models.inspection.decision import record_resolution_failure
+
+            if failure := coreml_only_failure(self.task_info, self.files):
+                self.task_info.model_resolution = resolution
+                record_resolution_failure(self.task_info, failure)
+                # Retain the catalog rejection on the candidate, not as an editable requirement.
+                resolution["missing"] = [reason for reason in self.errors if reason not in self.route_errors.values()]
         self._finalize_provenance(resolution, discovery)
         return resolution
 

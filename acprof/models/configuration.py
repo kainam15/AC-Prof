@@ -62,6 +62,10 @@ def describe_configuration_options(
 
     task_options, diagnostics = [], []
     for selected in selected_tasks:
+        if (selected is None and task_info.runtime_backend == "unknown"
+                and task_info.model_resolution.get("status") == "blocked"):
+            # The recorded failure already explains why there is no route to configure.
+            continue
         interface = selected["interface"] if selected else task_info.pipeline_tag
         backend = (selected or {}).get("execution_profile", {}).get(
             "signature", {},

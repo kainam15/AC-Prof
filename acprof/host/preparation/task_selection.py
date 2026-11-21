@@ -64,6 +64,8 @@ def select_tasks(task, args, workflow=None, *, single_profile=False, supplied_wo
         if single_profile and len(task.selected_tasks) > 1:
             raise TaskSelectionRequired([item["task_id"] for item in task.selected_tasks], single_profile=True)
         return task
+    if task.model_resolution.get("status") == "blocked" and task.model_resolution.get("failure"):
+        return task  # Keep the original failure for preflight and the exported decision.
     discovery = task.task_discovery
     if not discovery:
         if single_profile and getattr(args, "tasks", ""):

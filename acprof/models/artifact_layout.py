@@ -53,10 +53,54 @@ def checkpoint_metadata_indexes(files: set[str], metadata: dict[str, Any]) -> li
                    if (index := checkpoint_index(files, prefix, diffusion=diffusion)) is not None})
 
 
+def _coreml_artifact(path: str) -> str | None:
+    parts = path.split("/")
+    for index, part in enumerate(parts):
+        if part.lower().endswith((".mlpackage", ".mlmodelc")):
+            return "/".join(parts[:index + 1])
+    return path if parts[-1].lower().endswith(".mlmodel") else None
+
+
+def has_coreml_artifacts(files: set[str]) -> bool:
+    return any(_coreml_artifact(path) for path in files)
+
+
+def coreml_only_failure(task_info: Any, files: set[str]) -> Failure | None:
+    """Require positive artifact evidence; unfamiliar files may contain another loader's weights."""
+    bundles: dict[str, str] = {}
+    for path in sorted(files, key=lambda file: (file.count("/"), file)):
+        bundle = _coreml_artifact(path)
+        if bundle:
+            bundles.setdefault(bundle, path)
+            continue
+        name = path.rsplit("/", 1)[-1].lower()
+        if (name not in {".gitattributes", ".gitignore", "license", "config.json", "generation_config.json",
+                         "tokenizer.json", "tokenizer_config.json", "preprocessor_config.json",
+                         "processor_config.json", "special_tokens_map.json", "added_tokens.json", "vocab.json"}
+                and not name.startswith(("license-", "license."))
+                and not name.endswith((".md", ".txt", ".mlcomputeplan.json"))):
+            return None
+    if not bundles:
+        return None
+    # The full repository listing can exceed the interactive preparation message limit.
+    samples = sorted(bundles)[:3]
+    evidence = {"artifact_format": "CoreML", "artifact_paths": samples,
+                "files": sorted(files) if len(files) <= 3 else [bundles[bundle] for bundle in samples],
+                "file_count": len(files),
+                "backend": task_info.runtime_backend, "library_name": getattr(task_info, "library_name", "")}
+    # A task inferred from an architecture or supplied by a user is not an author declaration.
+    declared = (getattr(task_info, "hub_metadata", {}) or {}).get("pipeline_tag")
+    if isinstance(declared, str) and declared and declared != "unknown":
+        evidence["declared_task"] = declared
+    return Failure("resolution", "artifact_layout_unsupported",
+                   "Only Core ML model artifacts were found; the current configuration has no compatible loader.",
+                   evidence=evidence)
+
+
 def _foreign_format(files: set[str]) -> str | None:
     if any(name.lower().endswith(".gguf") for name in files):
         return "GGUF"
-    if any(".mlpackage/" in name.lower() or name.lower().endswith((".mlmodel", ".mlpackage")) for name in files):
+    if has_coreml_artifacts(files):
         return "CoreML"
     return None
 
@@ -107,7 +151,11 @@ def inspect_artifact_layout(task_info: Any, *, adapter: str = "family-default") 
                 {"component": ".", "format": "pth", "variant": None, "files": [snapshot_contract()["weights"]]}]}
         if backend in {"transformers_model", "transformers_pipeline", "sentence_transformers", "cross_encoder", "chronos"}:
             uses_modules = backend == "sentence_transformers" and "modules.json" in files
+            config = metadata.get("config.json", getattr(task_info, "model_config", {})) or {}
+            native_loader = adapter == "family-default" and not config.get("auto_map") and not config.get("custom_pipelines")
             if not uses_modules and "config.json" not in files:
+                if native_loader and (failure := coreml_only_failure(task_info, files)):
+                    raise RuntimeFailure(failure)
                 fail("artifact_layout_unsupported", f"{backend} requires config.json at the selected loader root; this layout has no native checkpoint declaration")
             if "adapter_config.json" in files:
                 base = (metadata.get("adapter_config.json") or {}).get("base_model_name_or_path")
@@ -137,9 +185,10 @@ def inspect_artifact_layout(task_info: Any, *, adapter: str = "family-default") 
             checkpoint = resolve_checkpoint(files, read_json)
             if checkpoint:
                 return {"status": "identified", "weights": [checkpoint], "source": "checkpoint_loader"}
-            config = metadata.get("config.json", getattr(task_info, "model_config", {})) or {}
-            if adapter != "family-default" or config.get("auto_map") or config.get("custom_pipelines"):
+            if not native_loader:
                 return unrecognized("A custom loader declares its own artifact layout; native checkpoint support is unverified.")
+            if failure := coreml_only_failure(task_info, files):
+                raise RuntimeFailure(failure)
             foreign = _foreign_format(files) or "nonstandard or absent checkpoint weights"
             fail("artifact_layout_unsupported", f"{backend} cannot load this artifact layout ({foreign}); select a compatible artifact and registered loader")
         if backend == "diffusers":

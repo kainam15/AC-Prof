@@ -181,14 +181,14 @@ class PreparationWorkflow:
     @staticmethod
     def questions(task, args) -> list[dict]:
         from acprof.models.review import review_questions
-        if task.metadata_errors:
+        resolution = task.model_resolution
+        if task.metadata_errors or resolution.get("status") == "blocked":
             return []
         questions = review_questions(task)
         if any(item["path"] == "dependencies" and item.get("read_only") for item in questions):
             return []  # Access failures are retried, not accepted as user choices.
         if questions and not any(item.get("read_only") for item in questions):
             return questions
-        resolution = task.model_resolution
         # Executable alternatives are handled once by select_tasks. Conflicting
         # observations are configuration problems, not a second task selector.
         if questions or resolution.get("status") in {"ambiguous", "needs_configuration"}:
@@ -214,6 +214,9 @@ class PreparationWorkflow:
             summary = "\n".join(value for value in (
                 failure["detail"], failure.get("evidence", {}).get("next_action", ""),
             ) if value)
+        elif (task.model_resolution.get("status") == "needs_configuration" and task.runtime_backend == "unknown"
+              and not task.repository_files):
+            summary = "缺少仓库文件清单，尚未确认兼容性。若已知模型格式，可在实验配置中指定已注册的后端。"
         else:
             summary = ("推理接口信息不足或相互矛盾，需要补充配置。" if unresolved or questions else
                        "推理接口已确定，接下来将验证模型加载、推理与输出。")

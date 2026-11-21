@@ -53,7 +53,10 @@ def record_resolution_failure(task_info: Any, failure: Failure) -> Failure:
     action = failure.evidence.get("next_action") or _NEXT_ACTIONS.get(
         failure.reason_code, "Review the recorded failure and resolve it before collection.",
     )
-    failure = replace(failure, evidence={**failure.evidence, "next_action": action})
+    evidence = {**failure.evidence, "next_action": action}
+    if failure.reason_code in {"artifact_layout_unsupported", "backend_unsupported"}:
+        evidence.update(model_id=task_info.model_id, model_revision=task_info.model_revision)
+    failure = replace(failure, evidence=evidence)
     task_info.model_resolution.update(
         status=_FAILURE_STATUSES.get(failure.reason_code, "blocked"),
         failure=failure.to_dict(),

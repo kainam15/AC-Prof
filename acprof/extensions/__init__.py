@@ -23,6 +23,10 @@ class UnsupportedExtensionError(ValueError):
     """A declared extension does not support the requested task or execution."""
 
 
+class UnregisteredLibraryError(UnsupportedExtensionError):
+    """The library has no automatic catalog route for this model."""
+
+
 @dataclass(frozen=True)
 class Resolution:
     task: str
@@ -181,7 +185,7 @@ class ExtensionCatalog:
             matches = [rule for rule in self.backend_rules if rule.matches(task, family, library, config, model_id)]
             if library not in ("", "unknown") and library not in self.library_backends and not any(
                     library in rule.libraries or rule.model_ids for rule in matches):
-                raise UnsupportedExtensionError(f"未声明 library {library!r}；请设置 --backend 或补齐 extension 声明")
+                raise UnregisteredLibraryError(f"未声明 library {library!r}；请设置 --backend 或补齐 extension 声明")
             if matches:
                 rank = max(rule.rank for rule in matches)
                 choices = {rule.backend for rule in matches if rule.rank == rank}
