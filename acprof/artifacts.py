@@ -290,6 +290,23 @@ def atomic_write_binary(
     _atomic_write(path, write, binary=True, default_mode=default_mode, overwrite=overwrite)
 
 
+def publish_immutable_bytes(destination: Path, payload: bytes, *, conflict: str) -> None:
+    """Durably claim a filename or reuse an existing byte-for-byte match."""
+    def require_match() -> None:
+        if destination.read_bytes() != payload:
+            raise ValueError(f"{conflict}: {destination}")
+
+    if destination.exists():
+        require_match()
+        sync_directory(destination.parent)
+        return
+
+    def write(stream: BinaryIO) -> None:
+        stream.write(payload)
+
+    _atomic_write(destination, write, binary=True, default_mode=0o644, overwrite=False, on_existing=require_match)
+
+
 def _atomic_write(
     path: str | Path,
     write: Callable[[Any], None],
@@ -297,6 +314,7 @@ def _atomic_write(
     binary: bool,
     default_mode: int,
     overwrite: bool,
+    on_existing: Callable[[], None] | None = None,
 ) -> None:
     destination = Path(path)
     create_durable_directory(destination.parent)
@@ -326,7 +344,12 @@ def _atomic_write(
         else:
             # Same-directory hard linking checks existence at publication time.
             # Unsupported filesystems must fail, never fall back to replacement.
-            os.link(temporary, destination)
+            try:
+                os.link(temporary, destination)
+            except FileExistsError:
+                if on_existing is None:
+                    raise
+                on_existing()
             temporary.unlink()
         cleanup_required = False
         sync_directory(destination.parent)

@@ -12,9 +12,9 @@ import math
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import asdict, is_dataclass
 from pathlib import Path
-from typing import Any, TextIO
+from typing import Any
 
-from acprof.artifacts import atomic_write, loads_finite_json, sync_directory
+from acprof.artifacts import loads_finite_json, publish_immutable_bytes
 
 TELEMETRY_SCHEMA_VERSION = 1
 REDUCTION_VERSION = "window-reduction-v1"
@@ -83,14 +83,7 @@ def write_window_evidence(path: str | Path, evidence: dict[str, Any]) -> dict[st
         raise ValueError("unsupported telemetry schema")
     destination = Path(path)
     payload = canonical_bytes(evidence) + b"\n"
-    if destination.exists():
-        if destination.read_bytes() != payload:
-            raise ValueError(f"refusing to replace different window evidence: {destination}")
-        sync_directory(destination.parent)
-    else:
-        def write(stream: TextIO) -> None:
-            stream.write(payload.decode("utf-8"))
-        atomic_write(destination, write)
+    publish_immutable_bytes(destination, payload, conflict="refusing to replace different window evidence")
     return {
         "path": str(destination), "sha256": hashlib.sha256(payload).hexdigest(),
         "schema_version": TELEMETRY_SCHEMA_VERSION, "size_bytes": len(payload),

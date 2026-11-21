@@ -12,9 +12,9 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, TextIO
+from typing import Any
 
-from acprof.artifacts import atomic_write, loads_finite_json, sync_directory
+from acprof.artifacts import loads_finite_json, publish_immutable_bytes
 from acprof.telemetry import canonical_bytes, read_window_evidence, write_window_evidence
 
 WINDOW_RECORD_SCHEMA_VERSION = 1
@@ -104,14 +104,7 @@ def commit_window_record(context: WindowPublicationContext, *, window_id: str,
                       projection_semantics="immutable_authority_before_result_projection")
     record["content_sha256"] = content_hash(record)
     payload = canonical_bytes(record) + b"\n"
-    if destination.exists():
-        if destination.read_bytes() != payload:
-            raise ValueError(f"refusing to replace a committed window record: {destination}")
-        sync_directory(destination.parent)
-    else:
-        def write(stream: TextIO) -> None:
-            stream.write(payload.decode("utf-8"))
-        atomic_write(destination, write)
+    publish_immutable_bytes(destination, payload, conflict="refusing to replace a committed window record")
     return record
 
 

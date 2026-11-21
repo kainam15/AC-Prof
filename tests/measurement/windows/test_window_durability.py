@@ -1,7 +1,11 @@
 """Published directory entries must be durable before reuse or adoption."""
+import errno
 import json
 import os
 import stat
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+from threading import Barrier
 
 import pytest
 
@@ -60,6 +64,94 @@ def publish_receipt(context, window_id, row, telemetry, sequence):
     return commit_window_record(context, window_id=window_id, row=row, telemetry_reference=telemetry,
                                 request_record={"record": {"sniff_group_id": window_id}},
                                 projections={}, sequence=sequence)
+
+
+@pytest.mark.parametrize("artifact", ["telemetry", "v1-receipt", "v2-receipt"])
+@pytest.mark.parametrize("identical", [False, True])
+def test_competing_first_publishers_keep_one_immutable_artifact(window, monkeypatch, artifact, identical):
+    case, context, window_id, row = window
+    if artifact == "telemetry":
+        target = case.telemetry(context.case_attempt_id) / context.record_path(window_id).name
+        conflict = "refusing to replace different window evidence"
+
+        def publish(value):
+            evidence = window_evidence(identity=context.identity(window_id), context={"value": value}, collectors={})
+            prepare_window_telemetry(context, window_id, evidence)
+    else:
+        target = context.record_path(window_id)
+        telemetry = publish_telemetry(context, window_id)
+        conflict = "refusing to replace a committed window record"
+
+        def publish(value):
+            publish_receipt(context, window_id, {**row, "latency_app_s": str(value)}, telemetry,
+                            1 if artifact == "v2-receipt" else None)
+
+    ready = Barrier(2)
+    installed = []
+
+    def rendezvous(operation):
+        def install(source, destination, *args, **kwargs):
+            if Path(destination) != target:
+                return operation(source, destination, *args, **kwargs)
+            ready.wait(timeout=5)
+            result = operation(source, destination, *args, **kwargs)
+            installed.append(source)
+            return result
+        return install
+
+    monkeypatch.setattr(os, "link", rendezvous(os.link))
+    monkeypatch.setattr(os, "replace", rendezvous(os.replace))
+    winners = []
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        calls = [(value, pool.submit(publish, value)) for value in (1, 1 if identical else 2)]
+        for value, future in calls:
+            if future.exception() is None:
+                winners.append(value)
+            else:
+                with pytest.raises(ValueError, match=conflict):
+                    future.result()
+    content = json.loads(target.read_bytes())
+    saved = content["context"]["value"] if artifact == "telemetry" else int(content["row"]["latency_app_s"])
+    assert winners == [saved] * (2 if identical else 1)
+    assert len(installed) == 1
+    assert list(target.parent.glob("*.tmp")) == []
+
+
+def test_unsupported_window_link_fails_without_installing_or_leaving_a_temporary(window, monkeypatch):
+    case, context, window_id, _ = window
+    target = case.telemetry(context.case_attempt_id) / context.record_path(window_id).name
+    unsupported = OSError(errno.EOPNOTSUPP, "hard links unsupported")
+
+    def fail_link(source, destination):
+        assert Path(destination) == target
+        raise unsupported
+
+    monkeypatch.setattr(os, "link", fail_link)
+    with pytest.raises(OSError, match="hard links unsupported") as caught:
+        publish_telemetry(context, window_id)
+    assert caught.value is unsupported
+    assert list(target.parent.iterdir()) == []
+
+
+def test_first_publication_propagates_a_file_exists_error_after_install(window, monkeypatch):
+    case, context, window_id, _ = window
+    target = case.telemetry(context.case_attempt_id) / context.record_path(window_id).name
+    failure = FileExistsError("fixture parent fsync error")
+    fsync = os.fsync
+
+    def fail_once(fd):
+        if target.exists() and os.path.samestat(os.fstat(fd), target.parent.stat()):
+            monkeypatch.setattr(os, "fsync", fsync)
+            raise failure
+        return fsync(fd)
+
+    monkeypatch.setattr(os, "fsync", fail_once)
+    with pytest.raises(FileExistsError) as caught:
+        publish_telemetry(context, window_id)
+    assert caught.value is failure
+    visible = target.read_bytes()
+    assert publish_telemetry(context, window_id)
+    assert target.read_bytes() == visible
 
 
 @pytest.mark.parametrize("artifact", ["telemetry", "v1-receipt", "v2-receipt"])
