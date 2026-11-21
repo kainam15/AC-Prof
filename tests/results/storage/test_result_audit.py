@@ -10,6 +10,15 @@ from acprof.config import CSV_FIELDS
 from acprof.results.metadata import ResultMetadataSnapshot
 
 
+@pytest.fixture
+def recorded_plan():
+    return {
+        "status": "complete",
+        "options": {"cpus": "1", "mems": "4", "gpus": "off", "warmup": 0, "repeat": 1},
+        "runtime": {"planned": {"scales": [1]}},
+    }
+
+
 class TestResultAudit:
     @pytest.fixture(autouse=True)
     def _setup(self, request, tmp_path, monkeypatch):
@@ -222,6 +231,110 @@ class TestResultAudit:
         codes = {issue["code"] for issue in report["issues"]}
         assert ({"input_plan_hash", "plan_coverage"} <= codes)
         assert (report["coverage"]["missing"]) == (1)
+
+    @pytest.mark.parametrize(("field", "invalid"), [
+        ("warmup", -1), ("warmup", False), ("repeat", 0), ("repeat", -1), ("repeat", True),
+        ("cpus", "0"), ("mems", "-4"), ("cpus", [1]), ("gpus", "auto"), ("gpus", ""),
+        ("cpus", "1,01"), ("mems", "4,4"), ("gpus", "off,off"),
+        pytest.param("scales", [], id="empty-scales"),
+        pytest.param("scales", [1, 1.0], id="duplicate-scale"),
+        pytest.param("scales", [10**23, 1e23], id="duplicate-csv-coordinate"),
+        pytest.param("scales", [True], id="boolean-scale"),
+        pytest.param("scales", ["1"], id="encoded-scale"),
+        pytest.param("scales", "1", id="string-scale-axis"),
+        pytest.param("scales", {"1": 1}, id="object-scale-axis"),
+        pytest.param("scales", [0], id="zero-scale"),
+        pytest.param("scales", [-1], id="negative-scale"),
+        pytest.param("scales", [10**310], id="scale-exceeds-finite-float"),
+    ])
+    def test_invalid_persisted_plan_keeps_coverage_unknown(self, recorded_plan, field, invalid):
+        target = recorded_plan["runtime"]["planned"] if field == "scales" else recorded_plan["options"]
+        target[field] = invalid
+        (self.root / "run_state.json").write_text(json.dumps(recorded_plan))
+        self.write(self.row(input_scale="1"))
+        report = audit_result(self.path)
+        assert not report["valid"]
+        assert report["coverage"] is None
+        assert report["measurement_status"] == "unknown"
+        assert report["counts"]["formal_ok"] == 1
+        assert any(issue["code"] == "invalid_run_state" for issue in report["issues"])
+
+    def test_legacy_plan_with_fractional_scales_and_minimal_options(self, recorded_plan):
+        recorded_plan["runtime"]["planned"]["scales"] = [0.5, 1]
+        recorded_plan["options"]["warmup"] = 1
+        (self.root / "run_state.json").write_text(json.dumps(recorded_plan))
+        self.write(*(self.row(input_scale=scale, warmup=flag) for scale in ("0.50", "1.0") for flag in ("0", "1")))
+        report = audit_result(self.path)
+        assert report["valid"]
+        assert report["measurement_status"] == "complete"
+        assert report["coverage"] == {"expected": 4, "actual": 4, "missing": 0, "unexpected": 0}
+
+    def test_sparse_plan_counts_include_exact_repeat_boundaries_without_expanding(self, recorded_plan, monkeypatch):
+        from acprof.results import csv as result_csv
+
+        count = 10**21
+        recorded_plan["options"].update(warmup=2, repeat=count)
+        (self.root / "run_state.json").write_text(json.dumps(recorded_plan))
+        self.write(self.row(input_scale="1", repeat_idx=str(count - 1)),
+                   self.row(input_scale="1", repeat_idx="1E21"),
+                   self.row(input_scale="1", warmup="1.0", repeat_idx="1"))
+
+        key = result_csv.measurement_key
+        calls = 0
+
+        def counted(row):
+            nonlocal calls
+            calls += 1
+            if calls > 32:
+                pytest.fail("audit expanded the planned repeat range")
+            return key(row)
+
+        monkeypatch.setattr(result_csv, "measurement_key", counted)
+        report = audit_result(self.path)
+        assert report["coverage"] == {"expected": count + 2, "actual": 3, "missing": count, "unexpected": 1}
+
+    def test_plan_preserves_an_integer_scale_above_float_precision(self, recorded_plan):
+        recorded_plan["runtime"]["planned"]["scales"] = [2**53 + 1]
+        (self.root / "run_state.json").write_text(json.dumps(recorded_plan))
+        self.write(self.row(input_scale=str(2**53)))
+        report = audit_result(self.path)
+        assert report["coverage"] == {"expected": 1, "actual": 1, "missing": 1, "unexpected": 1}
+        self.write(self.row(input_scale=str(2**53 + 1)))
+        assert audit_result(self.path)["measurement_status"] == "complete"
+
+    def test_distinct_decimal_scale_coordinates_survive_numeric_axis_validation(self, recorded_plan):
+        scales = [1_000_000_000_000_000_128, 1.0000000000000001e18]
+        recorded_plan["runtime"]["planned"]["scales"] = scales
+        (self.root / "run_state.json").write_text(json.dumps(recorded_plan))
+        self.write(*(self.row(input_scale=str(scale)) for scale in scales))
+        report = audit_result(self.path)
+        assert report["valid"]
+        assert report["coverage"] == {"expected": 2, "actual": 2, "missing": 0, "unexpected": 0}
+
+    def test_legacy_process_plan_preserves_inherited_resources(self, recorded_plan):
+        recorded_plan["options"].update(cpus="auto", mems="auto")
+        (self.root / "run_state.json").write_text(json.dumps(recorded_plan))
+        (self.root / "static_meta.json").write_text(json.dumps({"runtime_kind": "process", "runtime_id": "test"}))
+        conditions = {"cases": {"inheritedc_inheritedg_off": {
+            "resource_plan": {"verified": True, "method": "inherited", "requested": {}},
+        }}}
+        (self.root / "hardware_conditions.json").write_text(json.dumps(conditions))
+        self.write(self.row(input_scale="1", cpu_cores="", mem_cap_gb="", runtime_kind="process", runtime_id="test",
+                            resource_scope="observed_process_tree", resource_limit_source="inherited"))
+        report = audit_result(self.path)
+        assert report["valid"]
+        assert report["measurement_status"] == "complete"
+        assert report["coverage"] == {"expected": 1, "actual": 1, "missing": 0, "unexpected": 0}
+
+    def test_legacy_run_without_a_plan_keeps_coverage_unknown(self, recorded_plan):
+        del recorded_plan["runtime"]
+        (self.root / "run_state.json").write_text(json.dumps(recorded_plan))
+        self.write(self.row(input_scale="1"))
+        report = audit_result(self.path)
+        assert report["valid"]
+        assert report["run_status"] == "complete"
+        assert report["coverage"] is None
+        assert report["measurement_status"] == "unknown"
 
     def test_historical_missing_columns_are_unknown_and_preserved(self):
         self.write(self.row(), fields=[field for field in CSV_FIELDS if field != "input_pixels_per_request"])

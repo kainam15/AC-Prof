@@ -98,6 +98,11 @@ def require_current_fields(fields: Iterable[str]) -> None:
         raise ResultValidationError(f"unsupported retired CSV fields: {sorted(unsupported)}; regenerate current results")
 
 
+def decimal_key_text(number: Decimal) -> str:
+    """Canonical spelling of a validated finite measurement coordinate."""
+    return "0" if number.is_zero() else _KEY_CONTEXT.to_sci_string(_KEY_CONTEXT.normalize(number))
+
+
 def measurement_key(row: Mapping[str, object]) -> MeasurementKey:
     values = []
     for field in KEY_FIELDS:
@@ -122,7 +127,7 @@ def measurement_key(row: Mapping[str, object]) -> MeasurementKey:
                 raise ResultValidationError(f"invalid {field}: {value!r}")
             if field == "warmup" and number not in (0, 1):
                 raise ResultValidationError(f"invalid warmup: {value!r}")
-            value = "0" if number.is_zero() else _KEY_CONTEXT.to_sci_string(_KEY_CONTEXT.normalize(number))
+            value = decimal_key_text(number)
         values.append(value)
     return tuple(values)
 
@@ -130,7 +135,7 @@ def measurement_key(row: Mapping[str, object]) -> MeasurementKey:
 def expected_measurements(cpus: Sequence[int | None], mems: Sequence[int | None], gpus: Sequence[str],
                           scales: Sequence[float], warmup: int, repeat: int) -> set[MeasurementKey]:
     return {
-        measurement_key({**dict(zip(KEY_FIELDS, (cpu, mem, gpu, str(float(scale)), is_warmup, index), strict=True)),
+        measurement_key({**dict(zip(KEY_FIELDS, (cpu, mem, gpu, scale, is_warmup, index), strict=True)),
                          **({"runtime_kind": "process"} if cpu is None or mem is None else {})})
         for cpu, mem, gpu, scale in product(cpus, mems, gpus, scales)
         for is_warmup, count in ((1, warmup), (0, repeat))

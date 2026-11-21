@@ -65,6 +65,9 @@ BAD_FIELDS = [
     (("cases", ".acprof/work/cases/1c_4g_off/result.csv", "previous_attempts"), {}, "previous_attempts"),
     (("artifacts",), [], "产物"),
     (("artifacts",), {"metadata/input_scale_plan.json": 42}, "input_scale_plan"),
+    pytest.param(("options", "cpus"), "1,01", "options.cpus", id="duplicate-cpus"),
+    pytest.param(("options", "repeat"), 0, "options.repeat", id="zero-repeat"),
+    pytest.param(("options", "gpus"), "auto", "options.gpus", id="invalid-gpu-axis"),
     (("runtime",), [], "runtime"),
     (("runtime",), {}, "runtime"),
     (("runtime", "task"), [], "runtime.task"),
@@ -72,6 +75,7 @@ BAD_FIELDS = [
     (("runtime", "planned"), [], "runtime.planned"),
     (("runtime", "planned", "scales"), {}, "scales"),
     (("runtime", "planned", "scales"), [True], "scales"),
+    pytest.param(("runtime", "planned", "scales"), [64, 64.0], "runtime.planned.scales", id="duplicate-scale"),
     (("runtime", "planned", "plan_sha256"), "not-a-digest", "plan_sha256"),
     (("runtime", "planned", "scales"), [float("inf")], "scales|非有限数值"),
     (("runtime", "kind"), {}, "runtime.kind"),
@@ -148,6 +152,18 @@ def assert_malformed_state_rejected(
 def test_malformed_state_is_rejected_without_recovery_side_effects(
         recovery_state, monkeypatch, keys, bad, diagnostic, entry):
     assert_malformed_state_rejected(recovery_state, monkeypatch, keys, bad, diagnostic, entry)
+
+
+def test_expected_selects_concrete_window_keys_for_the_requested_case(recovery_state):
+    state = recovery_state
+    state.data["options"].update(cpus="1,2", mems="4,8", gpus="off,on", warmup=1)
+    all_windows = state.expected()
+    assert isinstance(all_windows, set)
+    assert len(all_windows) == 16
+    assert state.expected(2, 8, "off") == {
+        ("2", "8", "off", "64", "0", "0"),
+        ("2", "8", "off", "64", "1", "0"),
+    }
 
 
 @pytest.mark.parametrize("entry", ["load", "preview", "constructor"])

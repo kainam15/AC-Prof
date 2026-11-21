@@ -18,12 +18,12 @@ from acprof.results.csv import (
     MISSING_CSV_TEXT,
     ResultCsvSnapshot,
     csv_diagnostic_text,
-    expected_measurements,
     measurement_key,
     read_result_csv_snapshot,
     result_csv_snapshot_unchanged,
     validate_result_rows,
 )
+from acprof.results.measurement_plan import RecordedMeasurementOptions, recorded_scales
 from acprof.results.metadata import ResultMetadataSnapshot
 from acprof.results.metrics import METRICS, NUMERIC_FIELDS
 from acprof.results.profile import metric_observation
@@ -324,22 +324,18 @@ def _audit_input_plan(metadata_reader, metadata, issue):
 
 
 def _audit_plan_coverage(report, state, rows, issue):
-    if not state.get("runtime"):
+    if "runtime" not in state:
         return
     try:
-        options = state["options"]
-        expected = expected_measurements(
-            [None] if options["cpus"] == "auto" else [int(value) for value in options["cpus"].split(",")],
-            [None] if options["mems"] == "auto" else [int(value) for value in options["mems"].split(",")], options["gpus"].split(","),
-            state["runtime"]["planned"]["scales"], options["warmup"], options["repeat"],
-        )
-        actual = {measurement_key(row) for row in rows}
-        report["coverage"] = {"expected": len(expected), "actual": len(actual),
-                              "missing": len(expected - actual), "unexpected": len(actual - expected)}
-        if expected != actual:
-            issue("plan_coverage", "结果行与原实验计划不完全一致")
-    except (ValueError, KeyError, TypeError, AttributeError) as error:
+        options = RecordedMeasurementOptions.parse(state.get("options"))
+        scales = recorded_scales(state["runtime"]["planned"]["scales"])
+    except (ValueError, KeyError, TypeError) as error:
         issue("invalid_run_state", error)
+        return
+    coverage = options.coverage(scales, {measurement_key(row) for row in rows})
+    report["coverage"] = coverage
+    if coverage["missing"] or coverage["unexpected"]:
+        issue("plan_coverage", "结果行与原实验计划不完全一致")
 
 
 def _audit_process_row(report, runtime, metadata, hardware, index, row, status, issue):

@@ -32,7 +32,6 @@ from acprof.host.execution_conditions import measurement_environment
 from acprof.host.run_state_types import (
     AttemptState,
     CaseState,
-    MeasurementOptions,
     PlannedSnapshot,
     RunStateSnapshot,
     RuntimeSnapshot,
@@ -41,6 +40,7 @@ from acprof.messages import Message, join_messages, message
 from acprof.platform import detect_environment, is_linux
 from acprof.results.csv import expected_measurements, read_result_csv
 from acprof.results.layout import ArtifactLayout
+from acprof.results.measurement_plan import RecordedMeasurementOptions, recorded_scales
 from acprof.source_identity import measurement_sources, source_fingerprint
 from acprof.system.cleanup import cleanup_on_exit, format_exception_notes
 
@@ -295,24 +295,22 @@ def _validate_selected_tasks(task: dict) -> None:
             raise RunStateError(f"run_state.json 字段 {field}.config.generation 无效：{exc}") from exc
 
 
-def _validate_measurement_options(options: object) -> TypeGuard[MeasurementOptions]:
+def _validate_measurement_options(options: object) -> RecordedMeasurementOptions:
     if not isinstance(options, dict):
         raise RunStateError(message("原实验缺少完整的参数或主机身份，无法续跑。"))
     if any(not isinstance(name, str) for name in options):
         raise RunStateError("run_state.json 字段 options 无效：字段名必须为字符串")
-    for name in ("cpus", "mems", "gpus"):
-        value = _state_text(options.get(name), f"options.{name}")
-        if name != "gpus" and value != "auto":
-            try:
-                valid_resources = all(int(item) > 0 for item in value.split(","))
-            except ValueError:
-                valid_resources = False
-            if not valid_resources:
-                raise RunStateError(f"run_state.json 字段 options.{name} 无效")
-    for name in ("warmup", "repeat"):
-        if type(options.get(name)) is not int or options[name] < 0:
-            raise RunStateError(f"run_state.json 字段 options.{name} 无效：需要非负整数")
-    return True
+    try:
+        return RecordedMeasurementOptions.parse(options)
+    except ValueError as exc:
+        raise RunStateError(f"run_state.json: {exc}") from exc
+
+
+def _validate_scales(raw: object) -> tuple[int | float, ...]:
+    try:
+        return recorded_scales(raw)
+    except ValueError as exc:
+        raise RunStateError(f"run_state.json: {exc}") from exc
 
 
 def input_plan_reference(
@@ -332,14 +330,7 @@ def _validate_planned_snapshot(plan: object, layout: ArtifactLayout) -> TypeGuar
         raise RunStateError("run_state.json 字段 runtime.planned 无效：需要对象")
     if any(not isinstance(name, str) for name in plan):
         raise RunStateError("run_state.json 字段 runtime.planned 无效：字段名必须为字符串")
-    scales = plan.get("scales")
-    try:
-        valid_scales = (isinstance(scales, list) and bool(scales)
-                        and all(type(value) in (int, float) and math.isfinite(value) for value in scales))
-    except OverflowError:
-        valid_scales = False
-    if not valid_scales:
-        raise RunStateError("run_state.json 字段 runtime.planned.scales 无效：需要有限数值列表")
+    _validate_scales(plan.get("scales"))
     _state_text(plan.get("source"), "runtime.planned.source", empty=True)
     if plan.get("plan_file") is not None:
         _state_path(layout, plan["plan_file"], "runtime.planned.plan_file", empty=True)
@@ -572,14 +563,13 @@ def load_run_state(directory: str | Path) -> RunStateSnapshot:
 
 
 def _expected(data: RunStateSnapshot, cpu=None, mem=None, gpu=None):
-    options = data["options"]
-    if not _validate_measurement_options(options):
-        raise RunStateError("run_state.json 测量参数校验失败")
+    options = _validate_measurement_options(data["options"])
+    scales = _validate_scales(data["runtime"]["planned"]["scales"])
     return expected_measurements(
-        [cpu] if cpu is not None else [None] if options["cpus"] == "auto" else [int(x) for x in options["cpus"].split(",")],
-        [mem] if mem is not None else [None] if options["mems"] == "auto" else [int(x) for x in options["mems"].split(",")],
-        [gpu] if gpu is not None else options["gpus"].split(","),
-        data["runtime"]["planned"]["scales"], options["warmup"], options["repeat"],
+        (cpu,) if cpu is not None else options.cpus,
+        (mem,) if mem is not None else options.mems,
+        (gpu,) if gpu is not None else options.gpus,
+        scales, options.warmup, options.repeat,
     )
 
 

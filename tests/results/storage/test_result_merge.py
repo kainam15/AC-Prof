@@ -16,6 +16,26 @@ from acprof.results.csv import (
     read_result_csv_snapshot,
     result_csv_snapshot_unchanged,
 )
+from acprof.results.measurement_plan import RecordedMeasurementOptions, recorded_scales
+
+
+@pytest.mark.parametrize("cpus", ["1,10", "auto"])
+def test_sparse_coverage_agrees_with_explicit_key_set_differences(cpus):
+    options = RecordedMeasurementOptions.parse({"cpus": cpus, "mems": "4,20", "gpus": "off,on",
+                                                "warmup": 2, "repeat": 11})
+    scales = recorded_scales([0.125, 10, 2**53 + 1])
+    planned = expected_measurements(options.cpus, options.mems, options.gpus, scales, options.warmup, options.repeat)
+    row = dict(cpu_cores=options.cpus[0], mem_cap_gb="4.00", gpu_mode="on", input_scale=".125", warmup=1,
+               repeat_idx="-0.0", runtime_kind="process")
+    mixed = set(sorted(planned)[::3])
+    for overrides in ({"cpu_cores": "2"}, {"mem_cap_gb": "3"}, {"input_scale": "0.12500000000000001"},
+                      {"warmup": 1, "repeat_idx": 2}, {"warmup": 0, "repeat_idx": "1.1e1"}):
+        mixed.add(measurement_key(row | overrides))
+    for actual in (set(), mixed, planned):
+        assert options.coverage(scales, actual) == {
+            "expected": len(planned), "actual": len(actual),
+            "missing": len(planned - actual), "unexpected": len(actual - planned),
+        }
 
 
 class TestResultMerge:
