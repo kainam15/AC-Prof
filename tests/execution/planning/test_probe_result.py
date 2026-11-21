@@ -100,3 +100,23 @@ def test_unverified_thread_masks_cannot_support_a_successful_probe(probe_evidenc
     write_probe_summary(path, payload)
     with pytest.raises(ValueError, match="CPU affinity"):
         inspect_probe_result(snapshot, replace(config, cpuset_cpus="1-3"), project, pid, started)
+
+
+def test_saved_sha_does_not_replace_the_current_interactive_confirmation(probe_evidence):
+    from acprof.artifacts import atomic_write_json
+    from acprof.host.largest_scale_probe import PROBE_CONFIGURATION_NAME
+    from acprof.tui.i18n import error_message, translate
+    from tests.execution.operations.test_inference_configuration_review import frozen
+
+    snapshot, config, project, pid, started, path, summary = probe_evidence
+    configuration = frozen()
+    digest = configuration["identity_sha256"]
+    atomic_write_json(path.with_name(PROBE_CONFIGURATION_NAME), configuration)
+    summary["model"].update(revision=configuration["model"]["revision"], runtime_backend=configuration["backend"]["id"])
+    summary["inference_configuration_sha256"] = digest
+    write_probe_summary(path, summary)
+    with pytest.raises(ValueError, match="本次探测没有收到") as error:
+        inspect_probe_result(snapshot, replace(config, confirm_inference=digest), project, pid, started)
+    assert translate(error_message(error.value), "en") == (
+        "This probe did not receive confirmation of an inference configuration SHA-256."
+    )

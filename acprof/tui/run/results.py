@@ -19,7 +19,8 @@ from acprof.tui.run.stages import Stage
 MAX_CAPABILITY_REPORT_BYTES = 4 * 1024 * 1024
 
 
-def inspect_probe_result(snapshot, config, project_dir: Path, pid: int, started_at_ns: int) -> None:
+def inspect_probe_result(snapshot, config, project_dir: Path, pid: int, started_at_ns: int, *,
+                         confirmed_digest: str | None = None) -> None:
     """Verify a current probe's existing summary after its subprocess has exited."""
     from acprof.cpu_affinity import normalize_cpu_set
     from acprof.host.largest_scale_probe import PROBE_SUMMARY_NAME, read_probe_summary
@@ -42,8 +43,13 @@ def inspect_probe_result(snapshot, config, project_dir: Path, pid: int, started_
     summary = read_probe_summary(path)
     if summary["resource"].get("cpuset_cpus", "") != normalize_cpu_set(config.cpuset_cpus):
         raise ValueError("Probe summary CPU set differs from the launch configuration")
-    if config.inference_review_requested and "inference_configuration_sha256" not in summary:
-        raise ValueError("Probe summary is missing the requested inference configuration")
+    if config.inference_review_requested:
+        if "inference_configuration_sha256" not in summary:
+            raise ValueError("Probe summary is missing the requested inference configuration")
+        if confirmed_digest is None:
+            raise ValueError(message_id("run.probe.confirmation_missing"))
+        if summary["inference_configuration_sha256"] != confirmed_digest:
+            raise ValueError(message_id("run.probe.confirmation_mismatch"))
     if summary["model"]["id"] != config.model:
         raise ValueError("Probe summary model identity differs from the launch configuration")
     expected = {

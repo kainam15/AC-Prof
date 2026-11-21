@@ -496,6 +496,14 @@ MESSAGES: dict[str, Entry] = {
         en="Resources: CPU={0}, GPU={1}\nMemory candidates: {2} (ascending)\nInput scale: {3}\n\nEach candidate uses a fresh container and at most one largest-input request. Host OOM advances to the next candidate; the first success is the minimum viable memory. Results go to probes/ without modifying formal CSV files. The largest-input request has no timeout; use /stop to cancel.\n\n",
     ),
     "run.probe.confirm_title": Entry(zh="探测最低配置的最大输入？", en="Probe the largest input at minimum resources?"),
+    "run.probe.confirmation_mismatch": Entry(
+        zh="探测结果中的推理配置 SHA-256 与本次确认值不一致。",
+        en="The inference configuration SHA-256 in the probe result differs from the one you confirmed.",
+    ),
+    "run.probe.confirmation_missing": Entry(
+        zh="本次探测没有收到推理配置的 SHA-256 确认。",
+        en="This probe did not receive confirmation of an inference configuration SHA-256.",
+    ),
     "run.probe.cuda_oom": Entry(zh="CUDA 显存 OOM，停止探测", en="CUDA OOM; stopping probe"),
     "run.probe.docker_required": Entry(
         zh="Process 请使用输入规模扫描；最小内存探测需要 Docker。",

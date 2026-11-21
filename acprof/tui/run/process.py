@@ -27,6 +27,7 @@ class StopResult:
 class ProcessLifecycle:
     def __init__(self, *, interrupt_timeout: float = 30, terminate_timeout: float = 5):
         self.process: subprocess.Popen[str] | None = None
+        self.confirmed_inference_sha256: str | None = None
         self.cleanup_error = ""
         self.interrupt_timeout = interrupt_timeout
         self.terminate_timeout = terminate_timeout
@@ -45,16 +46,27 @@ class ProcessLifecycle:
                 errors="replace", bufsize=1, start_new_session=(os.name == "posix"),
             )
             self.process = process
+            self.confirmed_inference_sha256 = None
             self.cleanup_error = ""
             return process
 
     def reply(self, process: subprocess.Popen[str], line: str) -> None:
-        """A reply belongs to exactly one live child, never a later launch."""
+        self._deliver_reply(process, line, None)
+
+    def reply_to_preparation(self, process: subprocess.Popen[str], request_id: int, answer: dict) -> None:
+        from acprof.events.preparation import encode_reply
+
+        self._deliver_reply(process, encode_reply(request_id, **answer), answer.get("confirmation_digest"))
+
+    def _deliver_reply(self, process: subprocess.Popen[str], line: str, confirmation_digest: str | None) -> None:
+        """Bind confirmation to a successful stdin flush before the child can be released."""
         with self._lock:
             if self.process is not process or process.poll() is not None or process.stdin is None:
                 raise RuntimeError("preparation process is no longer waiting")
             process.stdin.write(line)
             process.stdin.flush()
+            if confirmation_digest is not None:
+                self.confirmed_inference_sha256 = confirmation_digest
 
     def release(self, process: subprocess.Popen[str]) -> bool:
         """Release only the matching process, after observing its exit."""

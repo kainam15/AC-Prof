@@ -235,7 +235,6 @@ class PreflightController:
             self.show_preparation(event)
 
     def preparation_answered(self, result) -> None:
-        from acprof.events.preparation import encode_reply
         if result["action"] == "request-stop":
             self.app.action_request_stop()
             return
@@ -252,7 +251,7 @@ class PreflightController:
             return
         process, request_id = pending
         try:
-            self.app.execution.lifecycle.reply(process, encode_reply(request_id, **result))
+            self.app.execution.lifecycle.reply_to_preparation(process, request_id, result)
         except (OSError, ValueError, RuntimeError) as exc:
             self.app.notify(str(exc), severity="error")
             self.app.execution.request_stop(self.app.execution.session.token)

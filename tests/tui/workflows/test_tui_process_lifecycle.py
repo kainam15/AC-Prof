@@ -28,6 +28,34 @@ def test_delayed_stop_cannot_signal_a_replacement_process():
     signal_group.assert_not_called()
     assert (manager.process) is (replacement)
 
+def test_inference_confirmation_belongs_to_the_child_that_received_the_reply():
+    from acprof.events.preparation import encode_reply
+
+    manager = ProcessLifecycle()
+    first, second = Mock(), Mock()
+    first.poll.return_value = second.poll.return_value = None
+    digest = "a" * 64
+    with patch("subprocess.Popen", side_effect=[first, second]):
+        manager.start(["fixture"], cwd=None, env={})
+        answer = {"action": "confirm", "confirmation_digest": digest}
+        manager.reply_to_preparation(first, 1, answer)
+        first.stdin.write.assert_called_once_with(encode_reply(1, **answer))
+        assert manager.confirmed_inference_sha256 == digest
+
+        first.stdin.flush.side_effect = BrokenPipeError()
+        changed = "b" * 64
+        with pytest.raises(BrokenPipeError):
+            manager.reply_to_preparation(first, 2, {"action": "confirm", "confirmation_digest": changed})
+        assert manager.confirmed_inference_sha256 == digest
+
+        first.poll.return_value = 0
+        assert manager.release(first)
+        manager.start(["fixture"], cwd=None, env={})
+        with pytest.raises(RuntimeError, match="no longer waiting"):
+            manager.reply_to_preparation(first, 1, answer)
+        assert manager.confirmed_inference_sha256 is None
+
+
 def test_release_exited_process_ignores_broken_stdin_pipe():
     manager = ProcessLifecycle()
     stdin = Mock()

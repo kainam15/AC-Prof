@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 
 from textual.worker import Worker
 
+from acprof.tui.i18n import error_message
 from acprof.tui.logging.diagnostic_buffer import BoundedLogBuffer
 from acprof.tui.run.progress import RunProgressTracker
 from acprof.tui.run.results import RunArtifacts, RunResult, inspect_probe_result, inspect_run_result
@@ -189,10 +190,12 @@ class ProcessController:
                     self.inspect_finished_run(run_before, process.pid, token)
                 elif kind == "probe" and process is not None and returncode == 0 and not launch_error:
                     try:
-                        inspect_probe_result(final_snapshot, config,
-                                             self.app.project_dir, process.pid, started_at_ns)
+                        inspect_probe_result(
+                            final_snapshot, config, self.app.project_dir, process.pid, started_at_ns,
+                            confirmed_digest=self.app.execution.lifecycle.confirmed_inference_sha256,
+                        )
                     except (OSError, ValueError) as exc:
-                        launch_error = str(exc)
+                        launch_error = error_message(exc)
                 if suppressed_lines:
                     self.safe_process_callback(self.app.show_suppressed_count, suppressed_lines)
                 if deferred_important_lines:

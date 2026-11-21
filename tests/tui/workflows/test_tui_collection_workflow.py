@@ -370,23 +370,30 @@ async def test_completed_preparation_preserves_nested_dialog_replies_and_new_pre
         assert current not in app.screen_stack
 
 
-@pytest.mark.parametrize("action", ["continue", "cancel"])
-async def test_configured_probe_reviews_in_its_own_subprocess(tmp_path, action):
+@pytest.mark.parametrize("outcome", [pytest.param("image_error", id="continue"), "cancel", "matching", "different"])
+async def test_configured_probe_reviews_in_its_own_subprocess(tmp_path, outcome):
     import json
     from dataclasses import replace
+
+    from acprof.tui.i18n import translate
+    from acprof.tui.run.stages import Stage
 
     request = tmp_path / "requests.json"
     request.write_text('{"schema_version":1}')
     config = replace(RunConfig.smoke("fixture/model"), runtime="docker", output_dir=str(tmp_path),
-                     inference_config=str(request), confirm_inference="a" * 64)
+                     input_scales="32", inference_config=str(request), confirm_inference="a" * 64)
     script = textwrap.dedent('''
         import json, sys
         from pathlib import Path
         from unittest.mock import Mock
         from acprof.cli import probe
-        from acprof.host import detect
+        from acprof.host import detect, largest_scale_probe, runtime_validation
+        from acprof.host.docker_runtime import RunningContainer
+        from acprof.host.images.runtime import ImageInfo
+        from acprof.host.input_plan import families, probe as input_probe
+        from acprof.models.inference_configuration import configuration_identity, freeze_inference_configuration
         from acprof.models.candidates import apply_model_candidate, discover_model_candidates
-        root = Path(sys.argv[1])
+        root, outcome = Path(sys.argv[1]), sys.argv[2]
         task = detect.TaskInfo("fixture/model", "fill-mask", "nlp", "transformers_model", "transformers",
                                "a" * 40, "config_infer", model_config={"model_type": "bert",
                                "architectures": ["BertForMaskedLM"]},
@@ -397,16 +404,37 @@ async def test_configured_probe_reviews_in_its_own_subprocess(tmp_path, action):
         probe.require_cgroup_prerequisites = Mock(return_value="v2")
         def capture(task, *args, **kwargs):
             (root / "confirmed.json").write_text(json.dumps(task.inference_configuration))
-            raise RuntimeError("offline fixture reached image preparation")
+            if outcome == "image_error":
+                raise RuntimeError("offline fixture reached image preparation")
+            if outcome == "different":
+                # A different, internally valid configuration reaches both the plan and the summary.
+                candidate = json.loads((root / "confirmed.json").read_text())
+                candidate["state"] = "resolved"
+                loading = candidate["loading"]["off"]
+                loading["dtype"] = "BF16" if loading.get("dtype") == "FP32" else "FP32"
+                candidate["identity_sha256"] = configuration_identity(candidate)
+                task.inference_configuration = freeze_inference_configuration(candidate, candidate["identity_sha256"])
+            return ImageInfo(tag="fixture-probe")
         probe.prepare_image = capture
-        code = probe.main(sys.argv[2:])
+        runtime_validation.validate_runtime = Mock()
+        input_probe.start_service_session = families.stop_service_session = Mock()
+        families.post_probe_payload = lambda session, payload, desc: {
+            "payload": payload, "truncated_by_limit": False, "effective_input_scale": 32,
+        }
+        largest_scale_probe.start_container_session = Mock(return_value=RunningContainer(
+            "fixture", "http://127.0.0.1:8002", 8002, 0.1))
+        largest_scale_probe.stop_container_session = Mock()
+        response = Mock(status_code=200)
+        response.json.return_value = {"effective_input_scale": 32}
+        largest_scale_probe.requests.post = Mock(return_value=response)
+        code = probe.main(sys.argv[3:])
         (root / "exit-code").write_text(str(code))
         sys.exit(code)
     ''')
     original = ProcessLifecycle.start
 
     def launch(owner, command, **kwargs):
-        return original(owner, [sys.executable, "-u", "-c", script, str(tmp_path),
+        return original(owner, [sys.executable, "-u", "-c", script, str(tmp_path), outcome,
                                 *command[command.index("probe") + 1:]], **kwargs)
 
     app = AcprofTui(config, settings_path=tmp_path / "settings.json")
@@ -432,19 +460,38 @@ async def test_configured_probe_reviews_in_its_own_subprocess(tmp_path, action):
             digest = confirmation["confirmation_digest"]
             assert digest != config.confirm_inference
             assert not (tmp_path / "confirmed.json").exists()
-            assert await pilot.click(f"#preparation-{action}")
+            assert await pilot.click("#preparation-cancel" if outcome == "cancel" else "#preparation-continue")
             await wait_for_condition(pilot, lambda: (tmp_path / "exit-code").is_file()
-                                     and app.execution.lifecycle.process is None,
+                                     and not app.is_busy() and not app.execution.session.kind,
                                      description="the reviewed probe to exit", timeout=10)
-            if action == "continue":
-                frozen = json.loads((tmp_path / "confirmed.json").read_text())
-                assert frozen["identity_sha256"] == digest
-                assert frozen["state"] == "frozen"
-                assert (tmp_path / "exit-code").read_text() == "2"
-            else:
-                assert not (tmp_path / "confirmed.json").exists()
-                assert (tmp_path / "exit-code").read_text() == "130"
             start.assert_called_once()
+            code = (tmp_path / "exit-code").read_text()
+            if outcome == "cancel":
+                assert code == "130"
+                assert not (tmp_path / "confirmed.json").exists()
+                return
+
+            frozen = json.loads((tmp_path / "confirmed.json").read_text())
+            assert frozen["identity_sha256"] == digest
+            assert frozen["state"] == "frozen"
+            if outcome == "image_error":
+                assert code == "2"
+                return
+
+            from acprof.host.largest_scale_probe import read_probe_summary
+
+            assert code == "0"
+            snapshot = app.execution.session.snapshot
+            summary = read_probe_summary(snapshot.probe_summary)
+            if outcome == "matching":
+                assert summary["inference_configuration_sha256"] == digest
+                assert snapshot.stage is Stage.PROBE_COMPLETED
+            else:
+                assert summary["inference_configuration_sha256"] != digest
+                assert snapshot.stage is Stage.PROBE_FAILED
+                app.logs.flush()
+                assert "SHA-256 与本次确认值不一致" in app.query_one("#run-log", SelectableLog).text
+                assert "differs from the one you confirmed" in translate(snapshot.detail, "en")
 
 
 @pytest.mark.parametrize("language", ["zh", "en"])
