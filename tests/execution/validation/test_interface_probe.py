@@ -1,7 +1,10 @@
 """Source-only inspection must never enter the model preparation path."""
+import ast
+import hashlib
 import importlib.util
 import json
 import os
+from collections import Counter
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -175,6 +178,38 @@ def test_static_graph_includes_package_initializers_and_imported_submodules():
     evidence = ModelEvidence(task.model_id, task.model_revision)
     graph = collect_source_evidence(task, evidence, contracts.CONFIG, sources.__getitem__)
     assert set(graph) == set(sources)
+
+
+def test_dependency_evidence_parses_each_source_once_and_refreshes_on_next_inspection():
+    from acprof.models.evidence import ModelEvidence
+    from acprof.models.inspection.metadata import collect_source_evidence
+
+    task = contracts.TestModelContract().discover()
+    sources = {"pipeline.py": "from .helpers import codec", "helpers/__init__.py": "", "helpers/codec.py": ""}
+    task.repository_files = tuple(sources)
+    parse = ast.parse
+    parses = Counter()
+
+    def count_parse(text, filename="<unknown>", *args, **kwargs):
+        if filename in sources:
+            parses[filename] += 1
+        return parse(text, filename, *args, **kwargs)
+
+    for repo in ("example/first", "example/second"):
+        source = f'AutoTokenizer.from_pretrained("{repo}")\n'
+        sources["helpers/codec.py"] = source
+        evidence = ModelEvidence(task.model_id, task.model_revision)
+        parses.clear()
+        with patch("ast.parse", count_parse):
+            collect_source_evidence(task, evidence, contracts.CONFIG, sources.__getitem__)
+        assert parses == Counter(sources.keys())
+        [candidate] = evidence.dependency_candidates
+        assert (candidate["repo_id"], candidate["source"], candidate["activation"]) == (repo, "helpers/codec.py:1", "active")
+        assert evidence.sources["helpers/codec.py"]["sha256"] == hashlib.sha256(source.encode()).hexdigest()
+
+    sources["helpers/codec.py"] = "def broken("
+    with pytest.raises(ValueError, match="helpers/codec.py: cannot parse Python source"):
+        collect_source_evidence(task, ModelEvidence(task.model_id, task.model_revision), contracts.CONFIG, sources.__getitem__)
 
 
 def test_static_graph_accepts_name_exported_by_package_initializer():

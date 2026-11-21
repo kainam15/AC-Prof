@@ -16,13 +16,13 @@ from acprof.models.inspection.dependency_eval import DependencyEvaluationMixin
 
 
 class DependencyAnalyzer(DependencyEvaluationMixin):
-    def __init__(self, sources, config, model_id, *, files=(), metadata=None, transformers_version=None):
+    def __init__(self, trees: dict[str, ast.Module], config, model_id, *, files=(), metadata=None, transformers_version=None):
         self.config = {**copy.deepcopy(config), "_name_or_path": model_id}
         self.model_id = model_id
         self.files = set(files)
         self.metadata = metadata or {}
         self.version = transformers_version
-        self.trees = {name: parse_source(source, name) for name, source in sources.items()}
+        self.trees = trees
         self.functions = {}
         self.classes = {}
         self.modules = {}
@@ -192,9 +192,16 @@ class DependencyAnalyzer(DependencyEvaluationMixin):
         self.append(item)
 
 
-def analyze_dependencies(sources, config, model_id, *, files=(), metadata=None, transformers_version=None):
+def analyze_dependencies(sources: dict[str, str], config, model_id, *, files=(), metadata=None, transformers_version=None):
+    trees = {name: parse_source(source, name) for name, source in sources.items()}
+    return analyze_dependency_trees(trees, config, model_id, files=files, metadata=metadata,
+                                    transformers_version=transformers_version)
+
+
+def analyze_dependency_trees(trees: dict[str, ast.Module], config, model_id, *, files=(), metadata=None, transformers_version=None):
+    """Read the bounded ASTs already parsed for this source graph; never retain them across loads."""
     try:
-        return DependencyAnalyzer(sources, config, model_id, files=files, metadata=metadata,
+        return DependencyAnalyzer(trees, config, model_id, files=files, metadata=metadata,
                                   transformers_version=transformers_version).run()
     except RecursionError as exc:
         raise ValueError("dependency expression nesting exceeds analysis limit") from exc
