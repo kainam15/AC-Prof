@@ -16,7 +16,7 @@ from acprof.extensions import CATALOG, UnsupportedExtensionError
 from acprof.host.preparation.model_errors import ModelLookupError, model_lookup_error
 from acprof.hub.huggingface.auth import hf_token_for_url
 from acprof.hub.huggingface.download import hf_endpoint_scope
-from acprof.hub.repository import MetadataFile, read_metadata_file
+from acprof.hub.repository import MetadataFile, modelscope_info_scope, read_metadata_file
 from acprof.models.diffusion_pipelines import diffusers_index_task
 from acprof.models.files import ModelFilesError
 from acprof.models.metadata_validation import (
@@ -673,6 +673,7 @@ def _detect_from_config(
 
 
 @hf_endpoint_scope()
+@modelscope_info_scope()
 def detect_task(
     model_id: str,
     override_tag: str | None = None,

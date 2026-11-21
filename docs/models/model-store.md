@@ -66,6 +66,9 @@ AC-Prof 使用自身已验证文件清单，不要求历史缓存具有新版 SD
 
 下载清单 schema v1 增加可选的 `source`、`requested_revision`、`repository_context` 和 `download_provenance`；历史缺 source 按既有 HF 语义读取，不重写已有实验。`repository_context` schema v1 保存原始 Hub 元数据和完整仓库文件列表，不能用下载筛选后的文件或用户覆盖的任务字段代替。历史缺少完整上下文的计划仍可按固定身份读取，不伪造仓库元信息；读取缓存配置文件先检查大小上限及 SHA256。Hub `endpoint` 是传输信息，不作为模型身份。`download_provenance` 记录入口、最终 endpoint 类型、失败尝试与去除签名 query／凭据的 redirect chain，最多保存 256 次响应并标记截断。完整缓存保留原记录，不虚构当次网络流量。SDK 无法暴露的实际 CDN 或历史缓存原始地址保留 `unknown`；目前 ModelScope SDK 不提供等价的 redirect hook，因此其存储链不推断为 Hub 地址。细节见[结果协议](../profiling/metadata.md#static_metajson-字段)。
 
+ModelScope 在单次模型发现中按仓库 ID 和已固定的 commit 复用递归文件清单与仓库信息。
+本次发现读取的各份配置沿用清单中的文件大小和 SHA256。下一次发现重新检查 Model Store，缓存未命中时重新查询仓库。
+
 元数据校验与解析使用同一份不可变字节：Model Store 与 ModelScope 对实际读取的内容核对大小和 SHA256，
 HF 固定 revision 下载保留 SDK 预检大小及 commit 检查。配置、依赖元数据和静态源码解析不再重新打开缓存路径，
 因此校验后的文件替换或删除不会改变本次识别依据。原始 snapshot 路径仍用于固定 revision 核对；

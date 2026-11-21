@@ -268,3 +268,40 @@ def test_recorded_default_ref_is_distinct_from_pinned_release(source, default_re
         assert (result is not None) == (recorded in (None, default_ref))
         assert model_store.cached_metadata("demo/model", "config.json", default_ref, source=source) == result
         assert model_store.cached_metadata("demo/model", "config.json", "a" * 40, source=source) == MetadataFile(snapshot / "config.json", b"{}")
+
+
+def test_discovery_uses_one_modelscope_inventory_per_lookup(tmp_path, monkeypatch):
+    from acprof.cli.inspect import main
+    from acprof.hub.repository import model_source_scope
+
+    commit = "a" * 40
+    metadata = {
+        "config.json": b'{"architectures":["BertForMaskedLM"],"model_type":"bert"}',
+        "generation_config.json": b"{}", "tokenizer_config.json": b"{}",
+    }
+    files = {**metadata, "model.safetensors": b"weight record only"}
+    api = Mock()
+    api.legacy.list_repo_files.return_value = [
+        {"Type": "blob", "Path": name, "Size": len(content), "Sha256": hashlib.sha256(content).hexdigest()}
+        for name, content in files.items()
+    ]
+    api.get_repo.return_value = SimpleNamespace(tags=[], tasks=["fill-mask"], license="mit")
+
+    def download(model_id, repo_type, name, *, revision, local_dir, expected_sha256):
+        assert (model_id, repo_type, revision) == ("example/model", "model", commit)
+        content = metadata[name]
+        assert expected_sha256 == hashlib.sha256(content).hexdigest()
+        local_dir.mkdir(parents=True, exist_ok=True)
+        path = local_dir / name
+        path.write_bytes(content)
+        return path
+
+    api.download_file.side_effect = download
+    monkeypatch.setenv("ACPROF_MODEL_STORE", str(tmp_path))
+    monkeypatch.setattr("acprof.hub.repository.modelscope_api", lambda: api)
+    with model_source_scope("modelscope"):
+        for count in (1, 2):
+            assert main(["example/model", "--revision", commit]) == 0
+            assert api.download_file.call_count == count * len(metadata)
+            assert api.legacy.list_repo_files.call_count == count
+            assert api.get_repo.call_count == count

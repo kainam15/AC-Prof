@@ -21,6 +21,9 @@ from acprof.models.files import ModelFilesError, safe_path
 
 MODEL_SOURCES = ("huggingface", "modelscope")
 MODELSCOPE_ENDPOINT = "https://modelscope.cn"
+_MODELSCOPE_INFO: ContextVar[dict[tuple[str, str], SimpleNamespace] | None] = ContextVar(
+    "acprof_modelscope_info", default=None,
+)
 _MODEL_SOURCE: ContextVar[str | None] = ContextVar("acprof_model_source", default=None)
 
 
@@ -141,9 +144,23 @@ def modelscope_revision(model_id: str, revision: str | None) -> str:
     return commit
 
 
+@contextmanager
+def modelscope_info_scope() -> Iterator[None]:
+    """Share pinned file inventories only within one model discovery."""
+    token = _MODELSCOPE_INFO.set({})
+    try:
+        yield
+    finally:
+        _MODELSCOPE_INFO.reset(token)
+
+
 def modelscope_info(model_id: str, revision: str | None = None):
-    api = modelscope_api()
     commit = modelscope_revision(model_id, revision)
+    inventory = _MODELSCOPE_INFO.get()
+    key = (model_id, commit)
+    if inventory is not None and key in inventory:
+        return inventory[key]
+    api = modelscope_api()
     files = api.legacy.list_repo_files(model_id, "model", revision=commit, recursive=True)
     repo = api.get_repo(model_id, "model")
     siblings = []
@@ -158,9 +175,12 @@ def modelscope_info(model_id: str, revision: str | None = None):
                                         blob_id=None, lfs={"sha256": sha256}))
     tags = repo.tags or []
     library = "diffusers" if "library:diffusers" in tags else "transformers"
-    return SimpleNamespace(sha=commit, siblings=siblings, pipeline_tag=(repo.tasks[0] if len(repo.tasks or []) == 1 else None),
+    info = SimpleNamespace(sha=commit, siblings=siblings, pipeline_tag=(repo.tasks[0] if len(repo.tasks or []) == 1 else None),
         library_name=library, tags=tags, config={}, card_data={"license": repo.license},
         safetensors=None, transformers_info=None, source="modelscope")
+    if inventory is not None:
+        inventory[key] = info
+    return info
 
 
 def modelscope_snapshot(root: Path, model_id: str, revision: str) -> Path:
