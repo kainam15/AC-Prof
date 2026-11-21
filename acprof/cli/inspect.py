@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 import argparse
+import json
 import subprocess
 import sys
 import uuid
+from contextlib import ExitStack
 from pathlib import Path
 
 
@@ -28,10 +30,7 @@ def main(argv=None) -> int:
     from acprof.application.download import apply_download_arguments
     from acprof.host.detect import detect_task
     from acprof.host.env_utils import bootstrap_project_env
-    from acprof.host.preparation.interface_probe import probe_interface
     from acprof.host.preparation.model_errors import ModelLookupError
-    from acprof.host.preparation.model_inspection import explain_resolution
-    from acprof.models.contract import write_model_resolution
     apply_download_arguments(args)
     bootstrap_project_env(Path.cwd())
     try:
@@ -49,33 +48,95 @@ def main(argv=None) -> int:
     output = args.output_dir
     if args.probe_interface and output is None:
         output = Path("results/inspection") / task.model_id.replace("/", "--") / uuid.uuid4().hex[:12]
-    if args.probe_interface and (output / "interface_validation.json").exists():
-        print("[interface][ERROR] Choose a new output directory for this probe", file=sys.stderr)
-        return 2
-    if args.expected_revision and args.model_spec and output is not None:
-        # An exported declaration can carry its separately saved provenance.
-        # Preserve that explanation only for the same pinned model and exact spec;
-        # a prior runtime observation never becomes evidence for this new probe.
-        from acprof.artifacts import read_json_object
-        from acprof.models.evidence import RESOLVER_VERSION
-        from acprof.models.spec import task_model_spec
-        previous = output / "model_resolution.json"
-        if previous.is_file():
-            try:
-                contract = read_json_object(previous, label="model resolution").get("contract", {})
-                if (contract.get("model_id") == task.model_id and contract.get("revision") == task.model_revision
-                        and contract.get("resolver_version") == RESOLVER_VERSION and contract.get("status") == "resolved"
-                        and contract.get("draft_spec") == task_model_spec(task)):
-                    contract["runtime_validation"] = "not_run"
-                    contract["fields"] = {key: value for key, value in contract["fields"].items() if not key.startswith("runtime.")}
-                    task.model_resolution["contract"] = contract
-            except (OSError, ValueError, TypeError, KeyError, AttributeError):
-                pass
+    try:
+        with ExitStack() as locks:
+            if args.probe_interface:
+                from acprof.host.run_state import offline_analysis_lock
+                locks.enter_context(offline_analysis_lock())
+            if output is not None:
+                from acprof.host.run_state import ResultDirectoryLock
+                from acprof.results.layout import ArtifactLayout
+                locks.enter_context(ResultDirectoryLock(output))
+                layout = ArtifactLayout.discover(output)
+                for name in ("interface_validation.json", "runtime_validation.json", "run_state.json",
+                             "static_meta.json", "result_layers.json", "result_all.csv"):
+                    if layout.path(name).exists():
+                        print(f"[interface][ERROR] {name} already exists; choose a new inspection directory",
+                              file=sys.stderr)
+                        return 2
+                previous = layout.path("model_resolution.json")
+                if previous.is_file():
+                    try:
+                        _check_previous_resolution(task, previous, review=bool(args.expected_revision and args.model_spec))
+                    except ValueError as exc:
+                        print(f"[interface][ERROR] {exc}; choose a new inspection directory", file=sys.stderr)
+                        return 2
+            return _inspect(task, args, output)
+    except (RuntimeError, ValueError, OSError, subprocess.SubprocessError) as exc:
+        print(f"[interface][ERROR] {exc}", file=sys.stderr)
+        return 1
+
+
+def _previous_resolution(previous: Path, *, review: bool) -> dict:
+    from acprof.artifacts import MAX_JSON_ARTIFACT_BYTES, read_json_object
+
+    try:
+        return read_json_object(previous, label="model resolution")
+    except ValueError as exc:
+        if not review:
+            raise
+        # Older reports may contain NaN. The identity alone can authorize a
+        # fresh pinned-spec review, but none of those contract fields can carry over.
+        with previous.open("rb") as stream:
+            raw = stream.read(MAX_JSON_ARTIFACT_BYTES + 1)
+        if len(raw) > MAX_JSON_ARTIFACT_BYTES:
+            raise
+        try:
+            old = json.loads(raw)
+        except (ValueError, RecursionError) as parse_error:
+            raise exc from parse_error
+        if not isinstance(old, dict):
+            raise
+        return {key: old[key] for key in ("model_id", "model_source", "model_revision", "provenance") if key in old}
+
+
+def _check_previous_resolution(task, previous: Path, *, review: bool) -> None:
+    """Only carry a reviewed contract forward within its original model snapshot."""
+    from acprof.models.evidence import RESOLVER_VERSION
+    from acprof.models.spec import task_model_spec
+
+    saved = _previous_resolution(previous, review=review)
+    try:
+        snapshot = saved.get("provenance", {}).get("sources", {}).get("repository_snapshot", {})
+        identity = (snapshot.get("model_id", saved.get("model_id")), snapshot.get("source", saved.get("model_source")),
+                    snapshot.get("revision", saved.get("model_revision")))
+    except AttributeError as exc:
+        raise ValueError("Invalid repository identity in the previous model resolution") from exc
+    if identity != (task.model_id, task.model_source, task.model_revision):
+        raise ValueError("Previous model resolution belongs to a different or unidentified repository snapshot")
+    if review:
+        contract = saved.get("contract")
+        if (isinstance(contract, dict) and contract.get("model_id") == task.model_id
+                and contract.get("revision") == task.model_revision and contract.get("resolver_version") == RESOLVER_VERSION
+                and contract.get("status") == "resolved" and contract.get("draft_spec") == task_model_spec(task)
+                and isinstance(contract.get("fields"), dict)):
+            contract["runtime_validation"] = "not_run"
+            contract["fields"] = {key: value for key, value in contract["fields"].items() if not key.startswith("runtime.")}
+            task.model_resolution["contract"] = contract
+
+
+def _inspect(task, args, output) -> int:
+    from acprof.host.preparation.model_inspection import explain_resolution
     from acprof.host.preparation.task_inspection import inspect_selected_tasks
-    task, preflight_error = inspect_selected_tasks(task, args)
     from acprof.models.configuration import describe_configuration_options
+    from acprof.models.contract import write_model_resolution
+
+    task, preflight_error = inspect_selected_tasks(task, args)
     task.model_resolution["configuration_options"] = describe_configuration_options(task)
     if output is not None:
+        if not task.model_resolution.get("provenance"):
+            # Early metadata failures precede creation of the repository snapshot.
+            task.model_resolution["model_source"] = task.model_source
         write_model_resolution(task, output)
     print(explain_resolution(task, explain=args.explain), flush=True)
     if preflight_error is not None:
@@ -84,19 +145,14 @@ def main(argv=None) -> int:
     if task.model_resolution.get("status") in {"ambiguous", "needs_configuration", "selection_required", "blocked"}:
         return 2
     if args.probe_interface:
-        try:
-            from acprof.host.images.runtime import configure_runtime_profile
-            from acprof.host.preflight import require_collection_host, require_native_docker
-            from acprof.host.run_state import MeasurementLock, ResultDirectoryLock
-            require_collection_host()
-            require_native_docker()
-            with MeasurementLock(), ResultDirectoryLock(output):
-                configure_runtime_profile(task)
-                report = probe_interface(task, output, cpus=args.cpus, memory_gb=args.mems,
-                                         timeout_seconds=args.timeout_seconds)
-        except (RuntimeError, ValueError, OSError, subprocess.SubprocessError) as exc:
-            print(f"[interface][ERROR] {exc}", file=sys.stderr)
-            return 1
+        from acprof.host.images.runtime import configure_runtime_profile
+        from acprof.host.preflight import require_collection_host, require_native_docker
+        from acprof.host.preparation.interface_probe import probe_interface
+        require_collection_host()
+        require_native_docker()
+        configure_runtime_profile(task)
+        report = probe_interface(task, output, cpus=args.cpus, memory_gb=args.mems,
+                                 timeout_seconds=args.timeout_seconds)
         print(explain_resolution(task), flush=True)
         print(f"Evidence: {output}", flush=True)
         return 0 if report["status"] == "ok" else 1

@@ -11,6 +11,7 @@ import re
 import shutil
 import socket
 import stat
+import sys
 from collections.abc import Mapping
 from contextlib import AbstractContextManager, ExitStack, nullcontext
 from dataclasses import asdict, fields
@@ -655,13 +656,33 @@ def validate_resume(directory: str | Path, data: object, *, project_dir: str | P
 
 
 class ResultDirectoryLock:
-    """Linux advisory lock: process exit releases ownership without stale PID recovery."""
+    """Advisory directory lock released on process exit, including Windows static exports."""
     def __init__(self, directory: str | Path, *, new: bool = False):
         layout = ArtifactLayout.for_new_run(directory) if new else ArtifactLayout.discover(directory)
         self.path = layout.path(RESULT_LOCK_NAME)
         self._resources: ExitStack | None = None
 
     def _acquire_file(self, resources: ExitStack, *, label: str) -> int:
+        if sys.platform == "win32":
+            import msvcrt
+
+            # Create exclusively, then open an existing entry without truncation.
+            try:
+                stream = self.path.open("x+b")
+            except FileExistsError:
+                stream = self.path.open("r+b")
+            resources.enter_context(stream)
+            descriptor = stream.fileno()
+            info = os.fstat(descriptor)
+            entry = self.path.lstat()
+            if (not stat.S_ISREG(entry.st_mode) or info.st_nlink != 1 or not os.path.samestat(info, entry)
+                    or getattr(entry, "st_file_attributes", 0) & stat.FILE_ATTRIBUTE_REPARSE_POINT):
+                raise OSError(f"{label} lock is not a single regular file")
+            stream.seek(0)
+            msvcrt.locking(descriptor, msvcrt.LK_NBLCK, 1)
+            resources.enter_context(cleanup_on_exit(lambda: msvcrt.locking(descriptor, msvcrt.LK_UNLCK, 1),
+                                                    description=f"{label} lock {self.path}"))
+            return descriptor
         import fcntl
 
         descriptor = os.open(self.path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)

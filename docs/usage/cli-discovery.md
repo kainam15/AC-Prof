@@ -101,6 +101,9 @@ acprof inspect MODEL --tasks PROFILE_ID --probe-interface --output-dir results/i
 接口检查不调用 `prepare_image()`、`prepare_model()` 或 Model Store，不下载模型权重、不执行推理。
 首次可能准备依赖基础镜像。未指定输出目录时使用独立 `results/inspection/` 子目录，已有接口报告的
 目录不能复用；写入 `interface_validation.json` 和 `logs/interface_validation.log`，不生成正式 CSV。
+静态导出和接口探测都持有结果目录锁。目录正被占用、已有运行验证或正式实验结果时，请选择新的检查目录。
+只有静态解析报告的目录可以继续审阅同一来源、模型 ID 和 revision。使用 `--model-spec` 与
+`--expected-revision` 确认原声明后，解析报告会保留该声明已有的字段来源。
 源码图缺失直接失败，禁止整仓下载回退。容器使用断网、只读文件系统和只读源码挂载。
 旧 `--probe basic/full`、`--gpus`、`--skip-build` 不再用于 inspect；完整运行验证由采集流程自动执行，
 批量独立验证可用 `coverage run --validate-runtime`。接口与运行证据边界见[运行兼容](../models/contracts.md#自动生成模型契约m1m6)。

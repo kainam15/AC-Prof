@@ -72,22 +72,23 @@ def test_full_probe_accepts_native_models_and_preserves_feature_width():
         assert (len(plan["entries"][0]["payload"]["features"][0])) == (4)
         assert ("params") not in (plan["entries"][0]["payload"])
 
-def test_review_provenance_survives_export_and_subprocess_inspection():
+def test_review_provenance_survives_export_and_subprocess_inspection(inspection_layout):
     from acprof.models.contract import write_model_resolution
     from acprof.models.spec import task_model_spec
     task = fixture.TestModelContract().discover()
     original = task.model_resolution["contract"]
     declaration = task_model_spec(task)
     author_task = fixture.TestModelContract().discover(spec=declaration)
-    with tempfile.TemporaryDirectory() as directory, patch("acprof.host.detect.detect_task", return_value=author_task), patch(
+    directory = inspection_layout.root
+    with patch("acprof.host.detect.detect_task", return_value=author_task), patch(
         "acprof.host.env_utils.bootstrap_project_env",
     ), contextlib.redirect_stdout(io.StringIO()):
         write_model_resolution(task, directory)
         path = Path(directory, "acprof_model.json")
         path.write_text(json.dumps(declaration))
         assert (main(["inspect", task.model_id, "--model-spec", str(path),
-                               "--expected-revision", task.model_revision, "--output-dir", directory])) == (0)
-        saved = json.loads(Path(directory, "model_resolution.json").read_text())["contract"]
+                               "--expected-revision", task.model_revision, "--output-dir", str(directory)])) == (0)
+        saved = json.loads(inspection_layout.path("model_resolution.json").read_text())["contract"]
         assert (saved["cache_key"]) == (original["cache_key"])
         assert (saved["fields"]["multimodal.inputs.prompt"]["sources"]) == (original["fields"]["multimodal.inputs.prompt"]["sources"])
 
@@ -154,3 +155,134 @@ def test_unresolved_inspection_exports_draft_and_returns_two():
         assert (main(["inspect", task.model_id, "--output-dir", directory])) == (2)
         assert ("multimodal.inputs.turns") in (output.getvalue())
         assert (Path(directory, "model_resolution.json").is_file())
+
+
+@pytest.fixture(params=["flat", "v2"])
+def inspection_layout(request, tmp_path):
+    from acprof.results.layout import MANIFEST_NAME, ArtifactLayout, _manifest
+
+    if request.param == "v2":
+        (tmp_path / MANIFEST_NAME).write_text(json.dumps(_manifest()))
+        (tmp_path / "metadata").mkdir()
+    return ArtifactLayout.discover(tmp_path)
+
+
+@pytest.mark.parametrize("probe", [False, True])
+def test_busy_inspection_directory_preserves_resolution(inspection_layout, probe):
+    from acprof.host.run_state import ResultDirectoryLock
+
+    task = fixture.TestModelContract().discover()
+    resolution = inspection_layout.path("model_resolution.json")
+    resolution.write_bytes(b"previous resolution")
+    args = ["inspect", task.model_id, "--output-dir", str(inspection_layout.root)]
+    if probe:
+        args.append("--probe-interface")
+    with ResultDirectoryLock(inspection_layout.root), patch("acprof.host.detect.detect_task", return_value=task), patch(
+        "acprof.host.preflight.require_collection_host"), patch("acprof.host.preflight.require_native_docker"), patch(
+        "acprof.host.run_state.MeasurementLock"), patch("acprof.host.preparation.interface_probe.probe_interface") as run:
+        code = main(args)
+    assert resolution.read_bytes() == b"previous resolution"
+    assert code == 1
+    run.assert_not_called()
+
+
+@pytest.mark.parametrize(("marker", "probe"), [("interface_validation.json", True), ("interface_validation.json", False),
+                                         ("run_state.json", True), ("runtime_validation.json", False),
+                                         ("result_layers.json", False)])
+def test_completed_evidence_survives_another_inspection(inspection_layout, marker, probe):
+    task = fixture.TestModelContract().discover()
+    resolution = inspection_layout.path("model_resolution.json")
+    evidence = inspection_layout.path(marker)
+    evidence.parent.mkdir(parents=True, exist_ok=True)
+    resolution.write_bytes(b"previous resolution")
+    evidence.write_bytes(b"previous evidence")
+    args = ["inspect", task.model_id, "--output-dir", str(inspection_layout.root)]
+    if probe:
+        args.append("--probe-interface")
+    with patch("acprof.host.detect.detect_task", return_value=task), patch(
+        "acprof.host.preflight.require_collection_host"), patch("acprof.host.preflight.require_native_docker"), patch(
+        "acprof.host.run_state.MeasurementLock"), patch("acprof.host.preparation.interface_probe.probe_interface") as run:
+        code = main(args)
+    assert resolution.read_bytes() == b"previous resolution"
+    assert evidence.read_bytes() == b"previous evidence"
+    assert code == 2
+    run.assert_not_called()
+
+
+def test_busy_machine_preserves_inspection_resolution(tmp_path):
+    from acprof.host.run_state import RunStateError
+
+    task = fixture.TestModelContract().discover()
+    resolution = tmp_path / "model_resolution.json"
+    resolution.write_bytes(b"previous resolution")
+    with patch("acprof.host.detect.detect_task", return_value=task), patch(
+        "acprof.host.preflight.require_collection_host"), patch("acprof.host.preflight.require_native_docker"), patch(
+        "acprof.host.run_state.MeasurementLock", side_effect=RunStateError("busy")), patch(
+        "acprof.host.preparation.interface_probe.probe_interface") as run:
+        assert main(["inspect", task.model_id, "--probe-interface", "--output-dir", str(tmp_path)]) == 1
+    assert resolution.read_bytes() == b"previous resolution"
+    run.assert_not_called()
+
+
+@pytest.mark.parametrize(("field", "value"), [("source", "modelscope"), ("model_id", "other/repository"),
+                                             ("revision", "b" * 40)])
+def test_existing_static_resolution_must_belong_to_same_snapshot(tmp_path, field, value):
+    from acprof.models.contract import write_model_resolution
+
+    task = fixture.TestModelContract().discover()
+    previous = fixture.TestModelContract().discover()
+    previous.model_resolution["provenance"]["sources"]["repository_snapshot"][field] = value
+    path = write_model_resolution(previous, tmp_path)
+    expected = path.read_bytes()
+    with patch("acprof.host.detect.detect_task", return_value=task):
+        assert main(["inspect", task.model_id, "--output-dir", str(tmp_path)]) == 2
+    assert path.read_bytes() == expected
+
+
+def test_windows_static_export_holds_a_nonblocking_lock(tmp_path, monkeypatch):
+    import os
+    import sys
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+
+    task = fixture.TestModelContract().discover()
+    lock = Mock()
+    lock.side_effect = [None, None, OSError("file is locked")]
+    windows = SimpleNamespace(LK_NBLCK=2, LK_UNLCK=0, locking=lock)
+    monkeypatch.setitem(sys.modules, "msvcrt", windows)
+    monkeypatch.setattr(sys, "platform", "win32")
+    command = ["inspect", task.model_id, "--output-dir", str(tmp_path)]
+    with patch("acprof.host.detect.detect_task", return_value=task):
+        assert main(command) == 0
+        path = tmp_path / "model_resolution.json"
+        expected = path.read_bytes()
+        assert main(command) == 1
+        assert path.read_bytes() == expected
+    assert [call.args[1:] for call in lock.call_args_list] == [
+        (windows.LK_NBLCK, 1), (windows.LK_UNLCK, 1), (windows.LK_NBLCK, 1),
+    ]
+    for call in lock.call_args_list:
+        fd = call.args[0]
+        with pytest.raises(OSError, match="Bad file descriptor"):
+            os.fstat(fd)
+
+
+@pytest.mark.parametrize("previous", ["unreadable", "foreign"])
+def test_pinned_review_preserves_unidentified_or_foreign_corrupt_output(tmp_path, previous):
+    from acprof.models.spec import task_model_spec
+
+    task = fixture.TestModelContract().discover()
+    declaration = tmp_path / "acprof_model.json"
+    declaration.write_text(json.dumps(task_model_spec(task)))
+    path = tmp_path / "model_resolution.json"
+    if previous == "unreadable":
+        path.write_bytes(b"partial old report")
+    else:
+        saved = task.model_resolution
+        saved["provenance"]["sources"]["repository_snapshot"]["source"] = "modelscope"
+        path.write_text(json.dumps({**saved, "corrupt_metric": float("nan")}))
+    original = path.read_bytes()
+    with patch("acprof.host.detect.detect_task", return_value=task):
+        assert main(["inspect", task.model_id, "--expected-revision", task.model_revision,
+                     "--model-spec", str(declaration), "--output-dir", str(tmp_path)]) == 2
+    assert path.read_bytes() == original
