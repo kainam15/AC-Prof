@@ -93,7 +93,7 @@ def publish_matrix_results(
 
     final_csv = str(layout.result_csv)
     emit_event("results_merging")
-    merge_all_csvs(csv_paths, final_csv, expected=run_state.expected())
+    merge_all_csvs(csv_paths, final_csv, expected=run_state.expected_plan())
     from acprof.results.csv import read_result_csv
     _, collected_rows = read_result_csv(final_csv)
     apply_collection_result(capability_report, collected_rows)

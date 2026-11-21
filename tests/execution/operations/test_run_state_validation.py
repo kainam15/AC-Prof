@@ -3,6 +3,8 @@ import copy
 import json
 import subprocess
 import sys
+from functools import partial
+from unittest.mock import Mock
 
 import pytest
 
@@ -164,6 +166,36 @@ def test_expected_selects_concrete_window_keys_for_the_requested_case(recovery_s
         ("2", "8", "off", "64", "0", "0"),
         ("2", "8", "off", "64", "1", "0"),
     }
+
+
+@pytest.mark.parametrize("entry", ["completed_resume", "finish", "publication"])
+def test_whole_run_rejects_one_stored_window_in_a_large_plan(recovery_state, monkeypatch, entry):
+    from acprof.application.publication import publish_matrix_results
+    from acprof.results.csv import ResultValidationError, merge_result_csvs
+
+    state = recovery_state
+    case = state.layout.case("fixture/model", 1, 4, "off")
+    case.csv.write_text("cpu_cores,mem_cap_gb,gpu_mode,input_scale,warmup,repeat_idx,status\n"
+                        "1,4,off,64,0,0,ok\n")
+    merge_result_csvs([case.csv], state.layout.result_csv)
+    state.data["options"]["repeat"] = 20_000_000
+    if entry == "completed_resume":
+        state.data["status"] = "complete"
+    before = tree_bytes(state.directory)
+
+    def reject_enumeration(*args, **kwargs):
+        pytest.fail("whole-run validation enumerated the planned windows")
+
+    monkeypatch.setattr(run_state, "expected_measurements", reject_enumeration)
+    validate = {
+        "completed_resume": partial(run_state.validate_resume, state.directory, state.data, project_dir="."),
+        "finish": partial(state.finish, str(state.layout.result_csv)),
+        "publication": partial(publish_matrix_results, [str(case.csv)], args=Mock(), layout=state.layout,
+                               run_state=state, capability_report=Mock(), start_time=0, notifications=Mock()),
+    }[entry]
+    with pytest.raises(ResultValidationError, match="measurement plan mismatch"):
+        validate()
+    assert tree_bytes(state.directory) == before
 
 
 @pytest.mark.parametrize("entry", ["load", "preview", "constructor"])

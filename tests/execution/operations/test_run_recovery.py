@@ -183,7 +183,16 @@ class TestRunRecovery(RunRecoveryFixture):
         assert (path.read_text()) == ('{"changed":true}')
         assert (self.calls) == ([])
 
-    def test_completed_resume_does_not_repeat_measurements_or_rewrite_result(self):
+    def test_completed_resume_does_not_repeat_measurements_or_rewrite_result(self, monkeypatch):
+        from acprof.host import run_state
+
+        expected_measurements = run_state.expected_measurements
+
+        def case_windows(cpus, *args):
+            assert len(cpus) == 1, "whole-run validation enumerated both planned cases"
+            return expected_measurements(cpus, *args)
+
+        monkeypatch.setattr(run_state, "expected_measurements", case_windows)
         self.invoke()
         result = self.directory / "result_layers.json"
         before = result.read_bytes(), result.stat().st_mtime_ns

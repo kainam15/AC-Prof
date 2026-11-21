@@ -40,7 +40,11 @@ from acprof.messages import Message, join_messages, message
 from acprof.platform import detect_environment, is_linux
 from acprof.results.csv import expected_measurements, read_result_csv
 from acprof.results.layout import ArtifactLayout
-from acprof.results.measurement_plan import RecordedMeasurementOptions, recorded_scales
+from acprof.results.measurement_plan import (
+    RecordedMeasurementOptions,
+    RecordedMeasurementPlan,
+    recorded_scales,
+)
 from acprof.source_identity import measurement_sources, source_fingerprint
 from acprof.system.cleanup import cleanup_on_exit, format_exception_notes
 
@@ -562,14 +566,21 @@ def load_run_state(directory: str | Path) -> RunStateSnapshot:
     raise RunStateError("run_state.json 状态校验失败")
 
 
+def _expected_plan(data: RunStateSnapshot) -> RecordedMeasurementPlan:
+    return RecordedMeasurementPlan(
+        options=_validate_measurement_options(data["options"]),
+        scales=_validate_scales(data["runtime"]["planned"]["scales"]),
+    )
+
+
 def _expected(data: RunStateSnapshot, cpu=None, mem=None, gpu=None):
-    options = _validate_measurement_options(data["options"])
-    scales = _validate_scales(data["runtime"]["planned"]["scales"])
+    plan = _expected_plan(data)
+    options = plan.options
     return expected_measurements(
         (cpu,) if cpu is not None else options.cpus,
         (mem,) if mem is not None else options.mems,
         (gpu,) if gpu is not None else options.gpus,
-        scales, options.warmup, options.repeat,
+        plan.scales, options.warmup, options.repeat,
     )
 
 
@@ -643,7 +654,7 @@ def validate_resume(directory: str | Path, data: object, *, project_dir: str | P
         check_result_identity(layout, data["run_id"])
     # Completed CSVs may have documented posthoc changes; preserve that contract.
     if complete:
-        read_result_csv(layout.result_csv, expected=_expected(data))
+        read_result_csv(layout.result_csv, expected=_expected_plan(data))
     for name, digest in data.get("artifacts", {}).items():
         if verified_plan == (name, digest):
             continue
@@ -984,6 +995,10 @@ class RunState:
     def expected(self, cpu=None, mem=None, gpu=None):
         return _expected(self.data, cpu, mem, gpu)
 
+    def expected_plan(self) -> RecordedMeasurementPlan:
+        """Return the recorded axes and window counts for whole-run validation."""
+        return _expected_plan(self.data)
+
     def prepare_case(self, filename: str, cpu: int | None, mem: int | None, gpu: str) -> str | None:
         from acprof.host.case_recovery import prepare_case
         return prepare_case(self, filename, cpu, mem, gpu)
@@ -1098,7 +1113,7 @@ class RunState:
         self.save()
 
     def finish(self, final_csv: str) -> None:
-        _, rows = read_result_csv(final_csv, expected=self.expected())
+        _, rows = read_result_csv(final_csv, expected=self.expected_plan())
         from acprof.host.measurement.window_recovery import is_incremental
         if is_incremental(self.layout):
             from acprof.result_store.writer import ResultWriter
