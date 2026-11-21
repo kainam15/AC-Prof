@@ -486,7 +486,7 @@ SGLang 服务需已启用 `--enable-metrics`，请求模型名须与服务导出
 | 有样本，但无非空 `model_name` | 检查 exporter 或代理的标签配置。没有该标签不能把数据归给请求模型。 |
 | 有命名样本，但无精确匹配 | 比对请求体的 `model` 或 `--model` 与导出的 `model_name`；[vLLM 多别名](https://github.com/vllm-project/vllm/blob/e336407a3ddb204edf6cfdfdd002cb28b9715438/vllm/config/model.py#L316-L324)只用首个 served name 作为指标标签。诊断不列出其他模型的名称。 |
 
-仅保留以下 histogram 的 `_count`、`_sum` 和可用的 `_created`：
+按模型名筛选以下 histogram，保留 `_count`、`_sum` 及 exporter 提供的 `_created` 与 bucket 计数。
 
 | 服务端观察 | vLLM 来源 | SGLang 来源 |
 | --- | --- | --- |
@@ -510,7 +510,10 @@ SGLang ITL 的计数是 exporter 记录的 Token 观察数；一次输出多个 
 最多保留 4096 个阶段／标签序列；重复、残缺、非有限或非整数计数拒绝。
 同一阶段按除 bucket 边界 `le` 外的完整标签核对：某个 worker 或命名阶段即使只导出 bucket，
 也必须有自己的 `_count`／`_sum`，不能用其他 worker 的均值代替。若导出 `le="+Inf"`，其值须等于同组 `_count`。
-均值仍可使用仅含 `_count`／`_sum` 的数据；不保存或重建 bucket 分布，也不从 bucket 补算缺失字段。
+每组的 `bucket_counts` 保存除 `+Inf` 外各秒数上界的累计计数，等价的数值写法对应同一上界。单次抓取中，累计计数须随上界非递减，且不超过总数。
+两次抓取之间，某个 worker 的桶计数下降时，该阶段报告 `counter_reset_or_creation_changed`，即使总数已经回升。
+桶边界增减时报告 `bucket_layout_changed`；各桶新增数若不再随上界非递减，或超过新增总数，报告 `inconsistent_bucket_delta`。
+两次都只导出 `_count`／`_sum` 时仍可计算均值，其他证据完整的阶段独立计算。
 count 不超过 2⁵³；显式样本时间戳尚不支持，不能将缓存样本冒充本次抓取。
 
 **这是服务级累计观察，不是本次请求的精确阶段分解。** 其他流量可能贡献样本，
@@ -519,7 +522,8 @@ exporter 延迟可能纳入 warmup／更早请求，或遗漏刚完成的请求�
 也不与客户端 TTFT／E2E 拼成同一时间轴；不从两个 sum/count 快照推导分位数。
 
 v2/v3 的可选 `identity.server_metrics` 声明选择、边界和读取预算，参与 identity 哈希与
-sweep 条件分组；不同 exporter 不合用一条曲线。可选 `server_metrics` 使用独立整数 schema 1，保存 before／after
+sweep 条件分组。服务端指标声明和观测均使用独立的整数 schema 2。历史 schema 1 按当时保留的 count、sum 和重启证据重算；
+两种 schema 和不同 exporter 分别分组。观测保存 before／after
 快照、相对观测起点的开始／结束秒数、原响应 SHA256／字节数、筛选后的序列及重算摘要。
 不保留整个 exposition 或 Authorization；SHA256 标识当时读取的响应，不能单凭摘要
 独立重建或验证未保留的响应正文。离线报告直接校验保留的序列、差值、时间边界和声明；

@@ -144,6 +144,28 @@ def test_metrics_surround_only_measured_requests_and_roundtrip(tmp_path, monkeyp
     assert "other traffic" in html
 
 
+def test_report_withholds_queue_mean_when_a_bucket_drops_during_load(tmp_path):
+    def metrics(state):
+        count = 10 + state["requests"]
+        fast = 4 if state["scrapes"] == 1 else 3
+        return (exposition(count, 2 * count) + (
+            f'vllm:request_queue_time_seconds_bucket{{model_name="fixture",engine="0",le="0.5"}} {fast}\n'
+        )).encode()
+
+    output = tmp_path / "load"
+    with metrics_server(metrics_body=metrics) as (origin, events, _auth):
+        assert main(command(origin, output, "--server-metrics", "vllm")) == 0
+    assert events == ["request", "metrics", "request", "request", "request", "metrics"]
+    report = read_load_report(output)
+    phases = report["server_metrics"]["phases"]
+    assert phases["queue"] == {"status": "unavailable", "reason": "counter_reset_or_creation_changed",
+                               "count": None, "sum_s": None, "mean_s": None}
+    assert phases["prefill"]["mean_s"] == 2.0
+    assert report["result"]["counts"]["succeeded"] == 3
+    assert main(["report", str(output)]) == 0
+    assert "counter_reset_or_creation_changed" in (output / "load_report.html").read_text()
+
+
 def test_sglang_histograms_roundtrip_without_mixing_exporters_or_stages(tmp_path):
     output = tmp_path / "load"
     with metrics_server(metrics_body=lambda state: (

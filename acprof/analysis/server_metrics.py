@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import math
 import re
+from itertools import pairwise
 from typing import TYPE_CHECKING, Any
 
 from acprof.artifacts import reject_isolated_surrogates, require_schema_version
@@ -28,6 +29,7 @@ METRICS_BY_EXPORTER = {
     },
 }
 type _Series = dict[tuple[str, str], dict[str, Any]]
+SERVER_METRICS_VERSION = 2
 MAX_METRICS_BYTES = 4 * 1024 * 1024
 MAX_METRICS_SERIES = 4096
 SERVER_METRICS_SCOPE = (
@@ -54,7 +56,7 @@ def metrics_declaration(kind: str, model: str, timeout_s: float) -> dict[str, An
     if _number(timeout_s) == 0:
         raise ValueError("server metrics timeout must be positive")
     return {
-        "schema_version": 1, "kind": kind, "path": "/metrics", "model": model,
+        "schema_version": SERVER_METRICS_VERSION, "kind": kind, "path": "/metrics", "model": model,
         "selection": "exact_model_name", "boundary": "after_warmup_before_load_and_after_load",
         "timeout_seconds": min(timeout_s, 10.0), "max_response_bytes": MAX_METRICS_BYTES,
     }
@@ -73,12 +75,39 @@ def _series_key(row: dict[str, Any]) -> tuple[str, str]:
     return row["phase"], json.dumps(row["labels"], sort_keys=True, ensure_ascii=True)
 
 
-def _series_by_phase(rows: Any, model: str, metrics: dict[str, str]) -> dict[str, _Series]:
+def _bucket_bound(label: str) -> str:
+    if not isinstance(label, str) or "_" in label or label != label.strip():
+        raise ValueError("invalid server histogram bucket boundary")
+    try:
+        bound = float(label)
+    except ValueError as error:
+        raise ValueError("invalid server histogram bucket boundary") from error
+    if math.isnan(bound) or (math.isinf(bound) and label.lower().lstrip("+-") not in {"inf", "infinity"}):
+        raise ValueError("invalid server histogram bucket boundary")
+    return str(bound if bound else 0.0)
+
+
+def _validate_bucket_counts(buckets: Any, count: int) -> None:
+    if not isinstance(buckets, dict):
+        raise ValueError("invalid server histogram buckets")
+    for bound, value in buckets.items():
+        if (bound != _bucket_bound(bound) or bound == "inf" or type(value) is not int
+                or not 0 <= value <= count):
+            raise ValueError("invalid server histogram bucket boundary or count")
+    counts = [buckets[bound] for bound in sorted(buckets, key=float)]
+    if any(lower > upper for lower, upper in pairwise(counts)):
+        raise ValueError("server histogram buckets must be cumulative")
+
+
+def _series_by_phase(rows: Any, model: str, metrics: dict[str, str], version: int) -> dict[str, _Series]:
     if not isinstance(rows, list) or len(rows) > MAX_METRICS_SERIES:
         raise ValueError("invalid server metrics series list")
     groups: dict[str, _Series] = {}
+    fields = {"phase", "labels", "count", "sum_s", "created_s"}
+    if version >= 2:
+        fields.add("bucket_counts")
     for row in rows:
-        if not isinstance(row, dict) or set(row) != {"phase", "labels", "count", "sum_s", "created_s"}:
+        if not isinstance(row, dict) or set(row) != fields:
             raise ValueError("invalid server metric series")
         phase, labels = row["phase"], row["labels"]
         if (not isinstance(phase, str) or phase not in metrics or not isinstance(labels, dict)
@@ -93,6 +122,8 @@ def _series_by_phase(rows: Any, model: str, metrics: dict[str, str]) -> dict[str
         count, total = row["count"], _number(row["sum_s"])
         if type(count) is not int or not 0 <= count <= 2 ** 53 or (count == 0 and total != 0):
             raise ValueError("invalid server histogram count/sum")
+        if version >= 2:
+            _validate_bucket_counts(row["bucket_counts"], count)
         if row["created_s"] is not None:
             _number(row["created_s"])
         key = _series_key(row)
@@ -113,17 +144,18 @@ def _collect_sample(
     )):
         raise ValueError("server histograms require exact counts and no explicit sample timestamps")
     labels = dict(sample.labels)
-    if suffix == "bucket":
-        bound = labels.pop("le", None)
-        if not bound:
-            raise ValueError("server histogram bucket requires an le label")
-        if bound == "+Inf":
-            suffix = "inf_count"
+    bound = labels.pop("le", "") if suffix == "bucket" else None
     key = (phase, json.dumps(labels, sort_keys=True))
     row = rows.setdefault(key, {"phase": phase, "labels": labels})
     if suffix in row or len(rows) > MAX_METRICS_SERIES:
         raise ValueError("duplicate or excessive server metric series")
-    if suffix != "bucket":
+    if bound is not None:
+        bound = _bucket_bound(bound)
+        buckets = row.setdefault("bucket_counts", {})
+        if bound in buckets:
+            raise ValueError("duplicate server histogram bucket boundary")
+        buckets[bound] = int(value)
+    else:
         row[suffix] = value
 
 
@@ -135,10 +167,12 @@ def _complete_series(rows: _Series, types: dict[str, str], metrics: dict[str, st
             raise ValueError(f"server timing samples require the declaration '# TYPE {metric} histogram' at /metrics")
         if "count" not in row or "sum" not in row:
             raise ValueError(f"server histogram {metric} requires a count/sum pair for each selected label set")
-        if "inf_count" in row and row["inf_count"] != row["count"]:
+        buckets = row.get("bucket_counts", {})
+        if buckets.pop("inf", row["count"]) != row["count"]:
             raise ValueError(f"server histogram {metric} has a +Inf bucket inconsistent with its count")
         series.append({"phase": row["phase"], "labels": row["labels"], "count": int(row["count"]),
-                       "sum_s": row["sum"], "created_s": row.get("created")})
+                       "sum_s": row["sum"], "created_s": row.get("created"),
+                       "bucket_counts": buckets})
     return sorted(series, key=_series_key)
 
 
@@ -196,12 +230,25 @@ def parse_server_metrics(text: str, model: str, *, kind: str = "vllm") -> dict[s
         raise ValueError(_empty_selection_reason(kind, types, unmatched_labels))
     series = _complete_series(rows, types, metrics)
     reject_isolated_surrogates(series)
-    _series_by_phase(series, model, metrics)
+    _series_by_phase(series, model, metrics, SERVER_METRICS_VERSION)
     return {"series": series, "process_start_time_s": process_start}
 
 
 def _unavailable(reason: str) -> dict[str, Any]:
     return {"status": "unavailable", "reason": reason, "count": None, "sum_s": None, "mean_s": None}
+
+
+def _bucket_delta_error(before: dict[str, int], after: dict[str, int], delta_count: int) -> str | None:
+    if before.keys() != after.keys():
+        return "bucket_layout_changed"
+    deltas = [after[bound] - before[bound] for bound in sorted(before, key=float)]
+    if any(delta < 0 for delta in deltas):
+        return "counter_reset_or_creation_changed"
+    # The observations added in the window must themselves form a cumulative histogram.
+    deltas.append(delta_count)
+    if any(lower > upper for lower, upper in pairwise(deltas)):
+        return "inconsistent_bucket_delta"
+    return None
 
 
 def _phase_delta(before: _Series, after: _Series) -> dict[str, Any]:
@@ -219,6 +266,9 @@ def _phase_delta(before: _Series, after: _Series) -> dict[str, Any]:
         delta_sum = right["sum_s"] - left["sum_s"]
         if delta_count == 0 and delta_sum != 0:
             return _unavailable("inconsistent_count_sum_delta")
+        reason = _bucket_delta_error(left.get("bucket_counts", {}), right.get("bucket_counts", {}), delta_count)
+        if reason:
+            return _unavailable(reason)
         count += delta_count
         totals.append(delta_sum)
     try:
@@ -234,11 +284,12 @@ def _phase_delta(before: _Series, after: _Series) -> dict[str, Any]:
 
 def summarize_server_metrics(
     before: dict[str, Any], after: dict[str, Any], model: str, *, kind: str = "vllm",
+    version: int = SERVER_METRICS_VERSION,
 ) -> dict[str, Any]:
     """Differences are service observations, never divided by the client's request count."""
     metrics = _phase_metrics(kind)
     left, right = (
-        _series_by_phase(snapshot["series"], model, metrics) if snapshot["status"] == "ok" else {}
+        _series_by_phase(snapshot["series"], model, metrics, version) if snapshot["status"] == "ok" else {}
         for snapshot in (before, after)
     )
     names = [phase for phase in metrics if phase != "stage"]
@@ -270,7 +321,7 @@ def _validate_snapshot_source(snapshot: dict[str, Any]) -> None:
         _number(snapshot["process_start_time_s"])
 
 
-def _validate_snapshot(snapshot: Any, model: str, metrics: dict[str, str]) -> None:
+def _validate_snapshot(snapshot: Any) -> None:
     if not isinstance(snapshot, dict) or set(snapshot) != {
         "status", "error", "started_s", "finished_s", "sha256", "bytes", "series", "process_start_time_s",
     } or snapshot["status"] not in ("ok", "error", "not_collected"):
@@ -287,7 +338,7 @@ def _validate_snapshot(snapshot: Any, model: str, metrics: dict[str, str]) -> No
             raise ValueError("failed server metrics require an error")
         if any(snapshot[key] is not None for key in ("series", "process_start_time_s")):
             raise ValueError("failed server metrics cannot contain parsed evidence")
-    elif snapshot["error"] is not None or not _series_by_phase(snapshot["series"], model, metrics):
+    elif snapshot["error"] is not None or not snapshot["series"]:
         raise ValueError("successful server metrics require parsed evidence and no error")
     _validate_snapshot_source(snapshot)
 
@@ -309,21 +360,24 @@ def validate_server_metrics(experiment: dict[str, Any]) -> dict[str, Any] | None
         return None
     if not isinstance(declaration, dict) or not isinstance(observation, dict) or experiment["schema_version"] < 2:
         raise ValueError("server metrics require declaration and observation in schema v2/v3")
-    require_schema_version(declaration, 1, "server metrics declaration")
+    version = declaration.get("schema_version")
+    if type(version) is not int or version not in (1, SERVER_METRICS_VERSION):
+        raise ValueError("unsupported server metrics declaration version")
     kind = declaration.get("kind", "")
     expected = metrics_declaration(kind, identity.get("model"), identity["load_config"]["timeout_seconds"])
+    expected["schema_version"] = version
     if json.dumps(declaration, sort_keys=True) != json.dumps(expected, sort_keys=True):
         raise ValueError("server metrics declaration differs from the load inputs")
-    require_schema_version(observation, 1, "server metrics observation")
+    require_schema_version(observation, version, "server metrics observation")
     if (set(observation) != {"schema_version", "kind", "scope", "before", "after", "summary"}
             or observation["kind"] != kind or observation["scope"] != SERVER_METRICS_SCOPE):
         raise ValueError("invalid server metrics observation contract")
     reject_isolated_surrogates(observation)
     before, after = observation["before"], observation["after"]
     for snapshot in (before, after):
-        _validate_snapshot(snapshot, declaration["model"], METRICS_BY_EXPORTER[kind])
+        _validate_snapshot(snapshot)
     _validate_boundaries(before, after, experiment.get("result"))
-    summary = summarize_server_metrics(before, after, declaration["model"], kind=kind)
+    summary = summarize_server_metrics(before, after, declaration["model"], kind=kind, version=version)
     if json.dumps(summary, sort_keys=True, allow_nan=False) != json.dumps(observation["summary"], sort_keys=True, allow_nan=False):
         raise ValueError("server metrics summary differs from the retained snapshots")
     if experiment.get("status") == "complete" and any(s["status"] != "ok" for s in (before, after)):

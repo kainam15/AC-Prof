@@ -124,7 +124,7 @@ def test_infinite_bucket_must_agree_with_count_for_its_worker():
 
 
 @pytest.mark.parametrize("bounds", [[], [("0.5", 2)], [("0.5", 2), ("1", 4), ("+Inf", 10)]])
-def test_buckets_check_population_without_consuming_series_budget_or_changing_evidence(monkeypatch, bounds):
+def test_snapshot_retains_cumulative_buckets_within_one_series_budget(monkeypatch, bounds):
     monkeypatch.setattr("acprof.analysis.server_metrics.MAX_METRICS_SERIES", 1)
     family = "vllm:request_queue_time_seconds"
     tags = 'model_name="fixture",engine="0"'
@@ -138,7 +138,46 @@ def test_buckets_check_population_without_consuming_series_budget_or_changing_ev
     assert parse_server_metrics(text, "fixture")["series"] == [{
         "phase": "queue", "labels": {"engine": "0", "model_name": "fixture"},
         "count": 10, "sum_s": 20.0, "created_s": None,
+        "bucket_counts": {str(float(bound)): value for bound, value in bounds if bound != "+Inf"},
     }]
+
+
+def queue_buckets(buckets, engine="0"):
+    return "".join(
+        f'vllm:request_queue_time_seconds_bucket{{engine="{engine}",model_name="fixture",le="{bound}"}} {count}\n'
+        for bound, count in buckets
+    )
+
+
+@pytest.mark.parametrize(("after_buckets", "reason"), [
+    ([("0.5", 3), ("2", 7)], "counter_reset_or_creation_changed"),
+    ([("0.5", 6), ("2", 7)], "inconsistent_bucket_delta"),
+    ([("0.5", 5), ("2", 11)], "inconsistent_bucket_delta"),
+    ([("0.5", 5)], "bucket_layout_changed"),
+    ([], "bucket_layout_changed"),
+    ([("2.00", 8), ("5e-1", 5)], None),
+])
+def test_bucket_deltas_are_checked_per_worker_before_aggregation(after_buckets, reason):
+    def observed(count, buckets, other):
+        worker = exposition(count, 2 * count) + queue_buckets(buckets)
+        peer = exposition(count, 2 * count, engine="1").replace("process_start_time_seconds 100\n", "")
+        return snapshot(worker + peer + queue_buckets(other, engine="1"))
+
+    before = observed(10, [("0.5", 4), ("2", 7)], [("0.5", 1), ("2", 2)])
+    after = observed(13, after_buckets, [("0.5", 3), ("2", 4)])
+    phases = summarize_server_metrics(before, after, "fixture")["phases"]
+    assert phases["queue"]["reason"] == reason
+    assert phases["queue"]["mean_s"] == (None if reason else 2.0)
+    assert phases["prefill"]["mean_s"] == 2.0
+
+
+@pytest.mark.parametrize("buckets", [
+    [("0.5", 2), ("5e-1", 2)], [("0.5", 3), ("2", 2)], [("0.5", 11)],
+    [("bad", 2)], [("NaN", 2)],
+])
+def test_invalid_bucket_evidence_is_rejected_at_capture(buckets):
+    with pytest.raises(ValueError, match="Prometheus|server histogram"):
+        parse_server_metrics(exposition() + queue_buckets(buckets), "fixture")
 
 
 def test_sglang_per_stage_histogram_requires_a_named_stage():
@@ -231,6 +270,9 @@ def saved_metrics_report(tmp_path_factory, request):
 
 
 @pytest.mark.parametrize(("path", "value"), [
+    (("server_metrics", "before", "series", 0, "bucket_counts"), {"0.5": True}),
+    (("server_metrics", "before", "series", 0, "bucket_counts"), {"0.50": 1}),
+    (("server_metrics", "schema_version"), 1),
     (("server_metrics", "kind"), "sglang"),
     (("identity", "server_metrics", "kind"), "sglang"),
     (("identity", "server_metrics", "kind"), ["vllm"]),
@@ -246,7 +288,7 @@ def saved_metrics_report(tmp_path_factory, request):
     (("identity", "server_metrics", "path"), "/other"),
     (("identity", "server_metrics", "model"), "other"),
     (("identity", "server_metrics", "schema_version"), True),
-], ids=["observation-exporter", "declaration-exporter", "malformed-exporter",
+], ids=["boolean-bucket", "noncanonical-bucket", "mixed-schema", "observation-exporter", "declaration-exporter", "malformed-exporter",
         "version", "scope", "digest", "count", "labels", "clock", "order",
         "mean", "boolean-summary", "path", "model", "declaration-version"])
 def test_tampered_metrics_are_not_published(metrics_report, tmp_path, path, value):
@@ -261,6 +303,21 @@ def test_tampered_metrics_are_not_published(metrics_report, tmp_path, path, valu
     with pytest.raises(ValueError, match="server"):
         write_load_report(source, destination)
     assert not destination.exists()
+
+
+def test_historical_bucketless_report_keeps_its_summary_and_own_sweep_condition(metrics_report, tmp_path):
+    from acprof.analysis.load_sweep import read_load_sweep
+
+    legacy = copy.deepcopy(metrics_report)
+    legacy["server_metrics"]["schema_version"] = legacy["identity"]["server_metrics"]["schema_version"] = 1
+    for side in ("before", "after"):
+        for row in legacy["server_metrics"][side]["series"]:
+            del row["bucket_counts"]
+    legacy["identity_sha256"] = hashlib.sha256(json.dumps(legacy["identity"], sort_keys=True).encode()).hexdigest()
+    assert analyze_load_report(legacy)["server_metrics"] == metrics_report["server_metrics"]["summary"]
+    sweep = read_load_sweep(make_metrics_sweep(tmp_path / "sweep", metrics_report, second_report=legacy)).payload
+    assert sweep["valid_points"] == 3
+    assert {c["identity"]["server_metrics"]["schema_version"] for c in sweep["conditions"]} == {1, 2}
 
 
 @pytest.mark.parametrize("part", ["declaration", "observation"])

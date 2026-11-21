@@ -75,7 +75,7 @@ def observe_server_metrics(
     before, after = _empty_snapshot(), _empty_snapshot()
     kind, model = declaration["kind"], declaration["model"]
     observation = {
-        "schema_version": 1, "kind": kind, "scope": SERVER_METRICS_SCOPE,
+        "schema_version": declaration["schema_version"], "kind": kind, "scope": SERVER_METRICS_SCOPE,
         "before": before, "after": after,
         "summary": summarize_server_metrics(before, after, model, kind=kind),
     }
