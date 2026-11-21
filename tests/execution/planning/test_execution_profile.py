@@ -348,9 +348,8 @@ heap_tree=peak
                 )
 
         assert (version) == ("NVIDIA Nsight Systems test importer")
-        assert (commands[0][0:3]) == (["docker", "run", "--rm"])
-        assert (f"{tmp}:{tmp}:ro") in (commands[0])
-        assert (commands[0][-2:]) == ([importer, "--version"])
+        assert commands == [["docker", "run", "-v", f"{tmp}:{tmp}:ro",
+                             "acprof-nsys-test:latest", importer, "--version"]]
 
     def test_execution_probe_does_not_force_compute_profiler_threads(
         self,

@@ -71,8 +71,9 @@ class TestONNXWordPiecePlanning:
         assert (self.client.get(self.base + '/ready').status_code) == (200)
         self.probe_results = []
 
-        def post(url, **kwargs):
-            result = self.client.post(url, **kwargs)
+        def post(url, *, json, headers, timeout, proxies):
+            assert proxies == {'http': '', 'https': '', 'all': ''}
+            result = self.client.post(url, json=json, headers=headers, timeout=timeout)
             if url.endswith('/probe'):
                 self.probe_results.append((result.status_code, result.json()))
             return result
