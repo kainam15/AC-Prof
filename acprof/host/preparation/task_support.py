@@ -9,8 +9,10 @@ from __future__ import annotations
 from dataclasses import replace
 
 from acprof.extensions import CATALOG, select_extension
+from acprof.extensions.schema import ExtensionDeclaration
 from acprof.failures import Failure, RuntimeFailure
 from acprof.host.detect import TaskInfo
+from acprof.models.inference_configuration import configuration_device
 
 
 class TaskSupportError(RuntimeFailure):
@@ -29,6 +31,25 @@ def _read_dependency_source(task_info: TaskInfo, name: str) -> str:
             task_info.model_id, name, task_info.model_revision,
         )
     return task_info.repository_sources[name]
+
+
+def _supported_device_mode(task_info: TaskInfo, extension: ExtensionDeclaration, requested: str) -> str:
+    mode = configuration_device(requested)
+    capabilities = {"off": "cpu", "on": "cuda"}
+    capability = capabilities[mode]
+    if extension.execution.get(capability) != "unsupported":
+        return mode
+
+    alternatives = [flag for flag, name in capabilities.items() if extension.execution.get(name) == "available"]
+    action = (f"Use --gpus {','.join(alternatives)} with this adapter." if alternatives
+              else "Select a registered adapter that supports this device.")
+    raise RuntimeFailure(Failure(
+        "preflight", "runtime_unavailable",
+        f"{extension.extension_id} does not support {capability.upper()} execution for {task_info.pipeline_tag}. {action}",
+        device="gpu" if mode == "on" else "cpu", runtime_profile=task_info.runtime_profile_id,
+        retryability="after_configuration",
+        evidence={"extension_id": extension.extension_id, "capability": capability, "next_action": action},
+    ))
 
 
 def require_task_support(task_info: TaskInfo, *, batch_size: int = 1, devices=()) -> None:
@@ -136,12 +157,14 @@ def _require_task_support(task_info: TaskInfo, *, batch_size: int, devices) -> N
                     runtime_profile=profile.profile_id, retryability="after_configuration",
                     evidence={"trust_remote_code": False, "code_files": task_info.model_resolution.get("code_files", [])}))
             task_info.model_resolution["trust_remote_code"] = remote_code_allowed(profile, extension)
-            task_info.model_resolution["requested_devices"] = list(devices)
+            requested_devices = list(devices)
+            task_info.model_resolution["requested_devices"] = requested_devices
+            modes = {device: _supported_device_mode(task_info, extension, device) for device in requested_devices}
             task_info.model_resolution["compatibility"] = describe_static_compatibility(task_info, profile, extension)
             task_info.model_resolution["precision"] = {
-                device: resolve_precision(profile, extension, device=device, task=task,
+                device: resolve_precision(profile, extension, device=mode, task=task,
                     model_type=config.get("model_type", ""), version=version)
-                for device in devices
+                for device, mode in modes.items()
             }
         except RuntimeFailure as exc:
             task_info.model_resolution["failure"] = exc.failure.to_dict()

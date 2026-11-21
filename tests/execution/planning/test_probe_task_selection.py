@@ -95,6 +95,31 @@ def test_gpu_only_probe_reports_device_failure_before_prediction(t5_probe, monke
     assert not list(output.rglob(PROBE_SUMMARY_NAME))
 
 
+def test_kokoro_probe_rejects_gpu_before_build_and_can_retry_on_cpu(t5_probe, monkeypatch, capsys):
+    from tests.models.contracts.test_kokoro import task
+
+    model = task()
+    _, output, image, post = t5_probe
+    monkeypatch.setattr("acprof.host.detect.detect_task", lambda **kwargs: model)
+    args = ["--model", model.model_id, "--revision", model.model_revision,
+            "--input-scales", "32", "--output-dir", str(output)]
+    assert probe.main([*args, "--gpus", "on"]) == 2
+
+    error = capsys.readouterr().err
+    failure = json.loads(error.split("ACPROF_FAILURE=", 1)[1])
+    assert failure["reason_code"] == "runtime_unavailable"
+    assert failure["runtime_profile"] == "kokoro-cpu"
+    assert "--gpus off" in failure["detail"]
+    image.assert_not_called()
+    post.assert_not_called()
+    assert not output.exists()
+
+    assert probe.main([*args, "--gpus", "off,on"]) == 0
+    summary_path, = output.rglob(PROBE_SUMMARY_NAME)
+    assert read_probe_summary(summary_path)["resource"]["gpu_mode"] == "off"
+    post.assert_called_once()
+
+
 @pytest.mark.parametrize(("requested", "prefix", "ngram", "members"), [
     ("translation_en_to_fr", "translate English to French: ", 0, ["translation_en_to_fr"]),
     ("summarization", "summarize: ", 3, ["summarization"]),

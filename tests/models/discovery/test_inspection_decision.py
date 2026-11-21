@@ -113,6 +113,35 @@ def test_batch_correction_rechecks_the_same_task_without_a_stale_failure():
     assert "failure" not in task.model_resolution
 
 
+@pytest.mark.parametrize("devices", [("on",), ("cpu", "gpu"), ("cuda:0",)])
+def test_cpu_only_backend_reports_device_failure_and_can_retry_on_cpu(devices, tmp_path):
+    task = _task(pipeline_tag="tabular-classification", task_family="structured",
+                 runtime_backend="onnxruntime", library_name="onnx", model_config={},
+                 repository_files=("iris.onnx",), model_spec={
+                     "schema_version": 1, "format": "onnxruntime", "task": "tabular-classification",
+                     "model_file": "iris.onnx", "feature_dim": 4,
+                 })
+    require_task_support(task, devices=["cpu"])
+    with pytest.raises(TaskSupportError) as caught:
+        require_task_support(task, devices=devices)
+
+    failure = caught.value.failure
+    assert (failure.stage, failure.reason_code, failure.device) == ("preflight", "runtime_unavailable", "gpu")
+    assert failure.evidence["extension_id"] == "onnxruntime-cpu"
+    assert failure.evidence["capability"] == "cuda"
+    assert "--gpus off" in failure.evidence["next_action"]
+    saved = json.loads(write_model_resolution(task, tmp_path).read_text())
+    assert saved["status"] == "blocked"
+    assert saved["failure"] == failure.to_dict()
+    assert saved["requested_devices"] == list(devices)
+    assert "compatibility" not in saved
+    assert "precision" not in saved
+
+    require_task_support(task, devices=["off"])
+    assert "failure" not in task.model_resolution
+    assert task.model_resolution["precision"]["off"]["device"] == "cpu"
+
+
 def test_missing_artifact_evidence_keeps_overall_compatibility_unknown():
     task = _task(repository_files=())
     require_task_support(task)

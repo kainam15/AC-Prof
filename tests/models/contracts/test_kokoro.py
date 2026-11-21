@@ -31,6 +31,23 @@ def test_exact_identity_routes_without_transformers_and_infers_missing_task():
         assert (resolved.task, resolved.backend, resolved.declaration.adapter) == ("text-to-speech", "kokoro", "kokoro")
 
 
+def test_collection_checks_the_entire_device_matrix_for_kokoro():
+    from acprof.experiments.configuration import RunConfig
+    from acprof.host.preparation.collection_workflow import PreparationWorkflow
+    from acprof.host.preparation.task_support import TaskSupportError
+
+    workflow = PreparationWorkflow()
+    cpu = RunConfig.smoke(MODEL)
+    with pytest.raises(TaskSupportError) as caught:
+        workflow.resolve(replace(cpu, gpus="off,on").to_namespace(), initial=task())
+    assert caught.value.failure.reason_code == "runtime_unavailable"
+    assert caught.value.failure.evidence["extension_id"] == "kokoro-cpu"
+
+    selected = workflow.resolve(cpu.to_namespace(), initial=task())
+    assert selected.model_resolution["requested_devices"] == ["off"]
+    assert selected.model_resolution["precision"]["off"]["dtype"] == "FP32"
+
+
 def test_registered_io_describes_both_text_and_native_phonemes():
     resolved = CATALOG.resolve(model_id=MODEL, config=CONFIG)
     schema = resolved.io_format["input"]["json_schema"]

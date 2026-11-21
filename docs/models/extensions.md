@@ -10,6 +10,7 @@ profile/environment 引用、CPU/CUDA、dtype、输入模态、batch、streaming
 Handler 和 validator 的 `module:callable` 入口。可选 `execution_entrypoint` 提供运行时上下文；
 空值采用 CPU/nullcontext，Torch 声明指向 `container.torch_execution`。
 声明只描述能力，实际执行仍由 `BaseHandler.load → preprocess → predict → postprocess` 完成。
+设备预检使用当前任务覆盖后的 `execution.cpu` 或 `execution.cuda`。请求明确标为 `unsupported` 的设备时，预检在镜像准备前返回 `runtime_unavailable`，并指出适配器和可选设备。正式矩阵逐一检查所选设备，最大输入探测只检查本次使用的设备。
 
 内置 profile 的环境变体由声明的 `environments` 映射选择。已有架构的新 checkpoint 通常只需模型配置；
 新的架构在已有任务协议下增加 Handler／manifest／validator；新 backend 再增加完整依赖环境和锁。

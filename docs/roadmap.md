@@ -99,6 +99,7 @@ CI 快速预检已覆盖 TUI 的 Profiler 选择和诊断详情、Nsys 命令及
 文件计划和音素尺度已接入现有扩展契约；语言／voice／speed 使用既有冻结与消费验证。
 Docker 启动失败保留完整日志，TUI 展示分类原因与建议。静态检查和 Fixture/Mock 回归覆盖路由、
 分段完成、音频协议、输入规划及错误路径，现有 Transformers TTS 保持独立。
+设备预检已接入扩展声明。Kokoro 和 ONNX CPU 后端的 CUDA 请求会在镜像准备前报告设备限制，离线回归覆盖改选 CPU 后重试。
 真实 checkpoint CPU/GPU 推理、Docker 构建、音质、正式采集和 Profiler 均未验证；
 第一阶段不开放 CUDA／其它 dtype／Profiler，独立实测由用户明确授权后开展。
 完整边界见[Kokoro 原生适配](models/adaptation.md#kokoro-原生适配)。

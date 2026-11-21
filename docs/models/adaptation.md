@@ -88,6 +88,7 @@ Kokoro 布局校验源码和 manifest 纳入现有下载计划／模型镜像指
 所有 voice 在 `load()` 中从本地预加载；后续请求只使用 tensor，不向 Hub 请求 voice。
 
 第一阶段声明 CPU FP32、`text-to-speech`、batch=1、非流式；不开放 CUDA、其它 dtype 或 Profiler。
+对该适配器执行 `acprof run` 时使用 `--gpus off`。显式要求 GPU 会在镜像准备前返回 `runtime_unavailable`，此时可改选 CPU 后重试。
 语言代码为 `a/b`（美／英式英语）、`e/f/h/i/p`（西班牙语／法语／印地语／意大利语／巴西葡萄牙语）。
 日语、中文、voice 混合与其它 checkpoint 尚无本适配声明。`language`、`voice`、`speed` 使用既有
 推理配置审阅、冻结和消费回执，speed 范围为 0.25–4，默认 1。请求接受 `text` 或原生 `phonemes`
