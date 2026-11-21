@@ -7,6 +7,10 @@ window.ACProfImport = (() => {
   const resourceAxes = ["cpu_cores", "mem_cap_gb", "input_scale"];
   const {decimalCoordinate, repeatSequence} = ACProfCoordinates;
   const text = value => value == null || ["", "none", "null", "nan"].includes(String(value).trim().toLowerCase()) ? "unknown" : String(value).trim();
+  function runId(value) {
+    const id = text(value);
+    return ["n/a", "unknown"].includes(id.toLowerCase()) ? "unknown" : id;
+  }
   const canonical = value => "{" + Object.keys(value).sort().map(key => JSON.stringify(key) + ": " + JSON.stringify(value[key])).join(", ") + "}";
   const fail = message => { throw new Error(message); };
   const checkCancelled = signal => { if (signal?.aborted) throw new DOMException("已取消 / Cancelled", "AbortError"); };
@@ -179,7 +183,7 @@ window.ACProfImport = (() => {
       const input = {scale:exact.input_scale ?? nums.input_scale, type:"unknown", task_param:text(raw.task_param),
         batch_size:number(raw.batch_size), input_units:number(raw.input_units_per_request)};
       if (raw.input_case && !["none", "null", "nan"].includes(raw.input_case.toLowerCase())) input.name = raw.input_case;
-      const identity = {run_id:text(raw.run_id), model:text(raw.model || raw.model_name), runtime:text(raw.runtime || raw.runtime_backend),
+      const identity = {run_id:runId(raw.run_id), model:text(raw.model || raw.model_name), runtime:text(raw.runtime || raw.runtime_backend),
         device, cpu:nums.cpu_cores, memory:nums.mem_cap_gb, gpu:device === "GPU" ? text(raw.gpu_device_uuid) : "n/a",
         concurrency:number(raw.concurrency), environment_class:["native_linux", "wsl2", "vm", "cloud", "container_host"].includes(raw.environment_class) ? raw.environment_class : "unknown",
         task:text(raw.task), input_case:canonical(input), experiment_batch:text(raw.experiment_batch), runtime_kind:text(raw.runtime_kind),

@@ -9,6 +9,8 @@ from acprof.analysis.model import load_analysis
 from acprof.analysis.resource_comparison import resource_qualification
 from tests.analysis.reporting.test_report_import import (
     browser as browser,
+    download_json,
+    import_file,
     page as page,
     source as source,
 )
@@ -53,6 +55,28 @@ def test_python_window_identity(tmp_path, recorded, label, changes, expected):
     else:
         configs = load_analysis([path]).configs
         assert sorted(config["metrics"]["latency_app_s"]["value"] for config in configs) == expected
+
+
+def test_csv_run_identity_matches_python_after_browser_import_and_export(page, tmp_path):
+    path = tmp_path / "run-ids.csv"
+    path.write_text(
+        "cpu_cores,mem_cap_gb,gpu_mode,input_scale,warmup,repeat_idx,status,latency_app_s,run_id,model\n"
+        "2,4,off,2,0,0,ok,2,N/A,N/A\n"
+        "2,4,off,2,0,1,ok,4, UnKnOwN ,N/A\n"
+        "2,4,off,2,0,0,ok,5,001,N/A\n"
+        "2,4,off,2,0,0,ok,7,1,N/A\n"
+    )
+
+    def summaries(configs):
+        return {c["run_id"]: (c["valid_windows"], c["metrics"]["latency_app_s"]["value"], c["model"])
+                for c in configs}
+
+    expected = summaries(load_analysis([path]).configs)
+    assert expected == {"unknown": (2, 3, "N/A"), "001": (1, 5, "N/A"), "1": (1, 7, "N/A")}
+    import_file(page, path.name, path.read_text())
+    bundle = download_json(page)["analysis_bundle"]
+    imported = [c for c in bundle["configs"] if c.get("statistics_status") == "not_computed"]
+    assert summaries(imported) == expected
 
 
 @pytest.mark.parametrize("recorded", [False, True], ids=["anonymous", "recorded"])

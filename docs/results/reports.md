@@ -27,7 +27,8 @@ run_id, model, runtime, device, cpu, memory, concurrency, metric, value, unit
 
 长表同时保留 `config_id`、task、input case、experiment batch、GPU 身份、环境、
 `source`、CSV 行号、`eligible` 和 `evidence`。`source_row` 从 2 开始（第 1 行是表头），
-来源快照记录 CSV SHA256。未记录 run ID 的旧 CSV 保留 `run_id=unknown`，配置 ID 使用
+来源快照记录 CSV SHA256。Python 和浏览器导入都将运行 ID 的空值与 `N/A`、`unknown` 等占位符视为未知，
+按文本区分 `001` 与 `1`。未记录 run ID 的旧 CSV 保留 `run_id=unknown`，配置 ID 使用
 `source-<内容摘要>` 前缀定位来源，不生成实验身份。缺少 model/runtime/concurrency 或环境时保持 unknown/null；
 不能用当前主机身份补全历史实验。相邻 `static_meta.json` 按已有明确字段读取，不要求历史 schema
 升级；未知列完整保留，但已废弃且归因不明的能耗/计算字段不自动映射为当前指标。
