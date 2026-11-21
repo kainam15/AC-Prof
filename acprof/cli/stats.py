@@ -37,11 +37,11 @@ def main(argv=None):
         from acprof.results.layout import resolve_result_file
 
         try:
-            path = resolve_result_file(args.source) if args.output else args.source
-            if args.output and (args.output.exists() or args.output.is_symlink()
-                                or args.output.resolve() == path.resolve()):
-                parser.error("统计输出必须为新的文件，不能覆盖输入或已有产物")
-            report = build_statistics_report(path, args.metric, confidence=args.confidence,
+            if args.output:
+                selected = resolve_result_file(args.source)
+                if args.output.exists() or args.output.is_symlink() or args.output.resolve() == selected.resolve():
+                    parser.error("统计输出必须为新的文件，不能覆盖输入或已有产物")
+            report = build_statistics_report(args.source, args.metric, confidence=args.confidence,
                                              resamples=args.resamples, seed=args.seed,
                                              block_size=args.block_size, precision_target=args.precision_target)
         except (ValueError, OSError, csv.Error) as error:

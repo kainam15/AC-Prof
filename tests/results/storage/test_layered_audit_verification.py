@@ -8,7 +8,10 @@ import pytest
 from acprof.analysis import audit, statistics_report
 from acprof.results import csv as result_csv
 from acprof.results.layout import ArtifactLayout
-from tests.analysis.comparison.test_comparison_source_integrity import incremental_copy, legacy_snapshot
+from tests.analysis.comparison.test_comparison_source_integrity import (
+    incremental_copy,
+    legacy_snapshot,
+)
 from tests.support.comparison_fixtures import ComparisonFixture
 from tests.support.result_store_fixtures import leave_pending_replacement
 
@@ -107,7 +110,7 @@ def test_private_snapshot_retains_legacy_import_validation(source, monkeypatch):
 
 def test_statistics_rechecks_source_dependencies_after_audit(source, monkeypatch):
     manifest = json.loads(source.read_bytes())
-    original = statistics_report.audit_result
+    original = statistics_report.audit_with_metadata
 
     def audit_then_damage(*args, **kwargs):
         report = original(*args, **kwargs)
@@ -121,6 +124,21 @@ def test_statistics_rechecks_source_dependencies_after_audit(source, monkeypatch
             leave_pending_replacement(ArtifactLayout.discover(source.parent), monkeypatch)
         return report
 
-    monkeypatch.setattr(statistics_report, "audit_result", audit_then_damage)
+    monkeypatch.setattr(statistics_report, "audit_with_metadata", audit_then_damage)
     with pytest.raises(ValueError, match="统计期间结果 CSV 发生变化"):
         statistics_report.build_statistics_report(source)
+
+
+def test_statistics_rechecks_quality_in_the_selected_layout(source, monkeypatch):
+    quality = ArtifactLayout.from_csv(source).path("quality_checks.json")
+    quality.write_text('{"schema_version":1,"checks":[]}')
+    summarize = statistics_report.summarize_windows
+
+    def remove_observed_quality(*args, **kwargs):
+        report = summarize(*args, **kwargs)
+        quality.unlink()
+        return report
+
+    monkeypatch.setattr(statistics_report, "summarize_windows", remove_observed_quality)
+    with pytest.raises(ValueError, match=r"quality_checks\.json"):
+        statistics_report.build_statistics_report(source.parent, resamples=10)
