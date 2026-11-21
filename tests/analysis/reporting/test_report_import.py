@@ -970,3 +970,54 @@ def test_csv_import_distinguishes_historical_and_partial_token_coverage(page, tm
         assert legacy["metrics"][token_rate]["value"] == 10
         assert partial["metric_observations"][token_rate][0]["quality"] == "partial"
         assert partial["metrics"][token_rate]["value"] is None
+
+
+def test_csv_import_validates_collector_evidence_per_metric(page, tmp_path):
+    latency, energy, sibling = "latency_app_s", "cpu_energy_total_j", "process_io_read_bytes"
+    available = {"status": "available"}
+
+    def evidence(groups, metrics=None):
+        return {"schema_version": 1, "metrics": metrics or {}, "collectors": {"process_io": available, **groups}}
+
+    cases = [
+        ("partial", latency, evidence({"client_http": {"status": "partial"}}), 4, "partial"),
+        ("null-state", latency, evidence({"client_http": None}), 4, "error"),
+        ("bad-state-before-direct", latency, evidence({"client_http": []}, {latency: {"quality": "complete"}}), 4, "error"),
+        ("missing-state", latency, evidence({}), 4, "unknown"),
+        ("invalid-sampling", energy, evidence({"cpu_energy": {**available, "sampling": []}}), 4, "error"),
+        ("invalid-reader", latency, evidence({"client_http": {**available, "reader_errors": {latency: None}}}), 4, "error"),
+        ("invalid-reason", latency, evidence({"client_http": {"status": "not_applicable", "reason": {}}}), 4, "error"),
+        ("invalid-direct-reason", latency, evidence({}, {latency: {"quality": "complete", "reason": False}}), 4, "error"),
+        ("invalid-missing-hint", latency, evidence({"client_http": {**available, "preflight_missing": {latency: {}}}}), None, "error"),
+        ("unrelated-reader", latency, evidence({"client_http": {**available, "reader_errors": {"other": []}}}), 4, "complete"),
+        ("unused-hint", latency, evidence({"client_http": {**available, "preflight_missing": None}}), 4, "complete"),
+        ("direct", latency, evidence({"client_http": {**available, "reader_errors": None}}, {latency: {"quality": "complete"}}), 4, "complete"),
+        ("unsupported-runtime", "container_mem_usage_peak_bytes", evidence({"cgroup": None}), 4, "not_applicable"),
+        ("legacy", latency, {latency: {"quality": "complete"}}, 4, "complete"),
+        ("invalid-envelope", latency, {"schema_version": 1, "metrics": {}, "collectors": None}, 4, "error"),
+    ]
+    path = tmp_path / "collector-evidence.csv"
+    fields = ["cpu_cores", "mem_cap_gb", "gpu_mode", "input_scale", "repeat_idx", "warmup", "status",
+              "runtime_kind", "model", latency, energy, sibling, "container_mem_usage_peak_bytes", "resource_metric_quality"]
+    with path.open("w", newline="") as stream:
+        writer = csv.DictWriter(stream, fields)
+        writer.writeheader()
+        for scale, (label, name, detail, value, _) in enumerate(cases, start=1):
+            writer.writerow({"cpu_cores": 1, "mem_cap_gb": 4, "gpu_mode": "off", "input_scale": scale, "repeat_idx": 0,
+                             "warmup": 0, "status": "ok", "runtime_kind": "process", "model": label,
+                             name: value, sibling: 17, "resource_metric_quality": "   " + json.dumps(detail)})
+    imported = page.evaluate("""async text => {
+      const {registry} = JSON.parse(document.getElementById("report-data").textContent);
+      return (await ACProfImport.readCsv(new File([text], "collector-evidence.csv"), registry)).configs;
+    }""", path.read_text())
+    for configs in (imported, load_analysis([path]).configs):
+        for config, (label, name, _, value, quality) in zip(
+                sorted(configs, key=lambda item: item["input_scale"]), cases, strict=True):
+            observations, metrics = config["metric_observations"], config["metrics"]
+            assert observations[name][0]["quality"] == quality, label
+            if label in {"invalid-reason", "invalid-direct-reason"}:
+                assert observations[name][0]["reason"] == "metric reason must be text", label
+            assert metrics[name]["value"] == (value if quality in {"complete", "unknown"} else None), label
+            sibling_quality = {"legacy": "unknown", "invalid-envelope": "error"}.get(label, "complete")
+            assert observations[sibling][0]["quality"] == sibling_quality, label
+            assert metrics[sibling]["value"] == (None if sibling_quality == "error" else 17), label

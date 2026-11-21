@@ -9,9 +9,24 @@ window.ACProfImport = (() => {
   const fail = message => { throw new Error(message); };
   const checkCancelled = signal => { if (signal?.aborted) throw new DOMException("已取消 / Cancelled", "AbortError"); };
   const clone = value => JSON.parse(JSON.stringify(value));
+  const record = value => value !== null && typeof value === "object" && !Array.isArray(value);
+  const qualities = new Set(["complete", "partial", "unsupported", "permission_denied", "not_requested", "not_applicable", "tool_missing", "error", "unavailable", "unknown"]);
+  const sampledGroups = new Set(["gpu_power", "cpu_energy", "dram_energy", "cpu_instructions", "cgroup"]);
   const {stableJson, observationSignature} = ACProfViews;
   function accumulator(registry) {
     return Object.fromEntries(Object.keys(registry).map(name => [name, {n:0, sum:0, correction:0, max:null, weight:0, weighted:0, badWeight:false, startups:new Map(), conflict:false}]));
+  }
+  function collectorDiagnostic(state, field, name, present) {
+    if (!Object.hasOwn(state, field)) return null;
+    const entries = state[field];
+    if (!record(entries)) return {error:`collector ${field}: expected an object`};
+    if (!Object.hasOwn(entries, name)) return null;
+    const entry = entries[name], path = `collector ${field}.${name}`;
+    if (!record(entry)) return {error:`${path}: expected an object`};
+    if (typeof entry.detail !== "string") return {error:`${path}.detail: expected text`};
+    const quality = present ? "partial" : entry.status;
+    if (!qualities.has(quality)) return {error:`${path}.status: invalid metric quality`};
+    return {quality, reason:entry.detail};
   }
   function metricObservations(raw, registry) {
     let evidence = {}, collectors = {}, invalid = false;
@@ -19,27 +34,33 @@ window.ACProfImport = (() => {
     if (text && !["nan", "null", "none"].includes(text.toLowerCase())) {
       try {
         evidence = JSON.parse(text);
-        if (!evidence || typeof evidence !== "object" || Array.isArray(evidence)) throw new Error();
+        if (!record(evidence)) throw new Error();
         if (Object.hasOwn(evidence, "schema_version")) {
           if (evidence.schema_version !== 1) throw new Error();
-          collectors = evidence.collectors || {};
-          if (typeof collectors !== "object" || Array.isArray(collectors)) throw new Error();
+          collectors = Object.hasOwn(evidence, "collectors") ? evidence.collectors : {};
+          if (!record(collectors)) throw new Error();
           evidence = evidence.metrics;
         }
-        if (!evidence || typeof evidence !== "object" || Array.isArray(evidence) ||
-            Object.values(evidence).some(item => !item || typeof item !== "object" || Array.isArray(item))) throw new Error();
-      } catch { invalid = true; evidence = {}; }
+        if (!record(evidence) || Object.values(evidence).some(item => !record(item))) throw new Error();
+      } catch { invalid = true; evidence = {}; collectors = {}; }
     }
+    const runtime = raw.runtime_kind === "process" ? "process" : "docker";
+    const hasCollectors = Object.keys(collectors).length > 0;
     return Object.fromEntries(Object.entries(registry).filter(([name]) => Object.hasOwn(raw, name)).map(([name, metric]) => {
-      const runtime = raw.runtime_kind === "process" ? "process" : "docker";
       const contract = (runtime === "process" && metric.process_contract) || metric.observation_contract || {};
+      const error = reason => [name, {...contract, quality:"error", reason}];
+      if (invalid) return error("invalid_metric_quality_evidence");
       let item = evidence[name];
-      const group = metric.collectors?.[runtime], state = collectors[group];
-      if (state?.status === "not_applicable") item = {quality:"not_applicable", reason:state.reason || ""};
-      if (Object.keys(collectors).length && metric.runtimes && !metric.runtimes.includes(runtime))
+      const group = metric.collectors?.[runtime];
+      const state = group && Object.hasOwn(collectors, group) ? collectors[group] : undefined;
+      if (hasCollectors && metric.runtimes && !metric.runtimes.includes(runtime))
         item = {quality:"not_applicable", reason:"runtime_not_implemented"};
+      else if (state !== undefined && !record(state)) return error(`collector ${group}: expected an object`);
+      else if (state?.status === "not_applicable") item = {quality:"not_applicable", reason:Object.hasOwn(state, "reason") ? state.reason : ""};
       if (!item && state) {
-        let quality = state.status, reason = state.reason || "";
+        let {status:quality, reason = ""} = state;
+        let sampled = false;
+        const sampling = Object.hasOwn(state, "sampling") ? state.sampling : {};
         if (group === "packet_latency" && quality === "available" && raw.packet_status !== "ok") {
           quality = raw.packet_status === "partial" ? "partial" : "unavailable";
           reason = "incomplete_packet_request_correlation";
@@ -48,7 +69,8 @@ window.ACProfImport = (() => {
           const direction = name.includes("output_megapixel") || name.startsWith("output_pixels") ? "output" : "input";
           const needsBaseline = ["gpu_power", "cpu_energy", "dram_energy"].includes(group) &&
             (metric.window === "control_window" || ["_eff_", "_effective_", "_idle_"].some(part => name.includes(part)));
-          if (needsBaseline && state.sampling?.idle_seconds === 0) {
+          if (needsBaseline && !record(sampling)) return error("collector sampling: expected an object");
+          if (needsBaseline && sampling.idle_seconds === 0) {
             quality = "not_requested"; reason = "idle_window_disabled";
           } else if (needsBaseline && state.control_error) {
             quality = "error"; reason = state.control_error;
@@ -70,16 +92,15 @@ window.ACProfImport = (() => {
           }
         }
         if (quality === "available") {
-          quality = number(raw[name]) == null ? "unavailable" : "complete";
-          const failedReader = state.reader_errors?.[name];
-          if (failedReader) {
-            quality = quality === "complete" ? "partial" : failedReader.status;
-            reason = failedReader.detail;
-          } else if (quality === "unavailable") {
-            const hint = state.preflight_missing?.[name];
-            quality = hint?.status || quality;
-            reason = hint?.detail || reason || "missing_window_value";
-          }
+          const present = number(raw[name]) != null;
+          quality = present ? "complete" : "unavailable";
+          const diagnostic = collectorDiagnostic(state, "reader_errors", name, present) ??
+            (present ? null : collectorDiagnostic(state, "preflight_missing", name, false));
+          if (diagnostic?.error) return error(diagnostic.error);
+          if (diagnostic) ({quality, reason} = diagnostic);
+          else reason = present ? "" : reason || "missing_window_value";
+          sampled = sampledGroups.has(group);
+          if (sampled && !record(sampling)) return error("collector sampling: expected an object");
           if (quality === "complete" && group === "cpu_instructions" && !(number(raw.cpu_perf_running_pct) > 0 && number(raw.cpu_perf_running_pct) <= 100)) {
             quality = "partial"; reason = "unknown_pmu_running_fraction";
           }
@@ -93,12 +114,13 @@ window.ACProfImport = (() => {
           item.sampling = {latency_denominator:["ok", "partial"].includes(raw.packet_status) ? "packet" : "application"};
           if (raw.packet_status === "partial") Object.assign(item, {quality:"partial", reason:"incomplete_packet_request_correlation"});
         }
-        if (state.status === "available" && (state.sampling || group === "cpu_instructions")) item.sampling = {...state.sampling};
+        if (sampled) item.sampling = {...sampling};
         if (group === "gpu_power" && item.sampling) item.sampling.energy_method = raw.gpu_energy_source;
       }
-      const bad = invalid || item && (!["complete", "partial", "unsupported", "permission_denied", "not_requested", "not_applicable", "tool_missing", "error", "unavailable", "unknown"].includes(item.quality) ||
+      const bad = item && (!qualities.has(item.quality) ||
         ["source", "scope", "window", "derivation"].some(key => Object.hasOwn(item, key) && item[key] !== contract[key]));
-      if (bad) return [name, {...contract, quality:"error", reason:"invalid_metric_quality_evidence"}];
+      if (bad) return error("invalid_metric_quality_evidence");
+      if (item && Object.hasOwn(item, "reason") && typeof item.reason !== "string") return error("metric reason must be text");
       if (item?.quality === "complete" && metric.kind === "number" && number(raw[name]) === null) {
         return [name, {...contract, ...item, quality:"unavailable", reason:"missing_window_value"}];
       }

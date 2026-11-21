@@ -36,9 +36,12 @@ NVML 查询与聚合已经复用。Process 增加显存比例、SM/显存频率�
 缺查询支持不抹掉其它有效读数；有缺口的已知值标 partial，不能声称完整验证。
 不同状态采样频率不能直接当作等口径比较。
 
-`resource_metric_quality` 使用 `{"schema_version":1,"metrics":{...}}` 保存逐指标
+`resource_metric_quality` 使用 `{"schema_version":1,"metrics":{...},"collectors":{...}}` 保存逐指标
 `source/scope/window/quality/derivation/reason` 及采样口径；原始 telemetry 保留独立证据。
 它和新增数值字段进入 resources 层，读取端兼容早期无 wrapper 的映射。缺字段的历史行保持 unknown。
+逐指标记录缺失时，审计、比较和离线 CSV 导入读取对应采集器的窗口状态。例如，
+`client_http` 记录 `partial` 时，应用延迟保留原值并排除在汇总和差值之外。
+该采集器的状态条目若为 `null`、数组或字符串，其指标报告 `error`，其他采集器的有效指标仍可使用。
 嵌套 process/cgroup 的 raw 保留数量参与精确重算检查，截断不宣称可精确重算。
 Process 样本数在自己的 raw retention 中，新的 Process 行不再借用来源为 cgroup 的 `resource_usage_iters`。
 

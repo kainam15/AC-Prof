@@ -36,30 +36,22 @@ def observations_comparable(left: list[dict], right: list[dict]) -> bool:
 
 
 @lru_cache(maxsize=128)
-def _decode(text: str) -> dict:
+def _decode(text: str) -> tuple[dict, dict]:
     if text.strip().lower() in {'', 'nan', 'null', 'none'}:
-        return {}
+        return {}, {}
     value = json.loads(text)
     if not isinstance(value, dict):
         raise ValueError('resource_metric_quality must be an object')
+    states = value.get("collectors", {})
     if 'schema_version' in value:
         if type(value['schema_version']) is not int or value['schema_version'] != 1:
             raise ValueError('unsupported resource metric quality version')
         value = value.get('metrics')
     if not isinstance(value, dict) or any(not isinstance(item, dict) for item in value.values()):
         raise ValueError('invalid resource metric evidence')
-    return value
-
-
-@lru_cache(maxsize=128)
-def _collector_states(text: str) -> dict:
-    if not text.startswith("{"):
-        return {}
-    obj = json.loads(text)
-    states = obj.get("collectors", {})
     if not isinstance(states, dict):
         raise ValueError("invalid window collector outcomes")
-    return states
+    return value, states
 
 
 def _finite_number(value) -> bool:
@@ -69,10 +61,30 @@ def _finite_number(value) -> bool:
         return False
 
 
-def _from_collector(row, metric, group, states):
-    item = states.get(group)
-    if not isinstance(item, dict):
+def _collector_object(state: dict, field: str) -> dict:
+    value = state.get(field, {})
+    if not isinstance(value, dict):
+        raise ValueError(f"collector {field}: expected an object")
+    return value
+
+
+def _collector_diagnostic(state: dict, field: str, name: str, present: bool) -> dict | None:
+    entries = _collector_object(state, field)
+    if name not in entries:
         return None
+    entry = entries[name]
+    if not isinstance(entry, dict):
+        raise ValueError(f"collector {field}.{name}: expected an object")
+    detail = entry.get("detail")
+    if not isinstance(detail, str):
+        raise ValueError(f"collector {field}.{name}.detail: expected text")
+    quality = "partial" if present else entry.get("status")
+    if not isinstance(quality, str) or quality not in QUALITIES:
+        raise ValueError(f"collector {field}.{name}.status: invalid metric quality")
+    return {"quality": quality, "reason": detail}
+
+
+def _from_collector(row, metric, group, item):
     status, reason = item.get("status"), item.get("reason", "")
     if group == "packet_latency" and status == "available":
         status = {"ok": "available", "partial": "partial"}.get(row.get("packet_status"), "unavailable")
@@ -82,7 +94,7 @@ def _from_collector(row, metric, group, states):
         return {"quality": status, "reason": reason}
     needs_baseline = metric.window == "control_window" or any(part in metric.name for part in ("_eff_", "_effective_", "_idle_"))
     if group in {"gpu_power", "cpu_energy", "dram_energy"} and needs_baseline:
-        if item.get("sampling", {}).get("idle_seconds") == 0:
+        if _collector_object(item, "sampling").get("idle_seconds") == 0:
             return {"quality": "not_requested", "reason": "idle_window_disabled"}
         if item.get("control_error"):
             return {"quality": "error", "reason": item["control_error"]}
@@ -108,17 +120,18 @@ def _from_collector(row, metric, group, states):
                else str(value or "").lower() not in {"", "unknown", "nan", "unavailable"})
     result: dict = {"quality": "complete" if present else "unavailable",
               "reason": "" if present else reason or "missing_window_value"}
-    if reader_error := item.get("reader_errors", {}).get(metric.name):
-        result.update(quality="partial" if present else reader_error["status"], reason=reader_error["detail"])
-    elif not present and (hint := item.get("preflight_missing", {}).get(metric.name)):
-        result.update(quality=hint["status"], reason=hint["detail"])
+    diagnostic = _collector_diagnostic(item, "reader_errors", metric.name, present)
+    if diagnostic is None and not present:
+        diagnostic = _collector_diagnostic(item, "preflight_missing", metric.name, present)
+    if diagnostic is not None:
+        result.update(diagnostic)
     if metric.name.startswith("throughput_samples_per_s"):
         packet = row.get("packet_status") in {"ok", "partial"}
         result["sampling"] = {"latency_denominator": "packet" if packet else "application"}
         if row.get("packet_status") == "partial":
             result.update(quality="partial", reason="incomplete_packet_request_correlation")
     if group in {"gpu_power", "cpu_energy", "dram_energy", "cpu_instructions", "cgroup"}:
-        result["sampling"] = dict(item.get("sampling", {}))
+        result["sampling"] = _collector_object(item, "sampling").copy()
         if group == "gpu_power":
             result["sampling"]["energy_method"] = row.get("gpu_energy_source")
         if group == "cpu_instructions" and present:
@@ -139,21 +152,22 @@ def metric_observation(row: Mapping, name: str) -> dict:
               'derivation': contract.derivation, 'quality': 'unknown', 'reason': 'no_metric_quality_evidence'}
     try:
         text = str(row.get("resource_metric_quality", ""))
-        evidence = _decode(text)
+        evidence, states = _decode(text)
         item = evidence.get(name)
-        states = _collector_states(text)
         if states and runtime not in contract.runtimes:
             return {**result, "quality": "not_applicable", "reason": "runtime_not_implemented"}
-        if states and name in field_collectors(runtime):
-            state = states.get(field_collectors(runtime)[name], {})
+        group = field_collectors(runtime).get(name)
+        if group in states:
+            state = states[group]
+            if not isinstance(state, dict):
+                raise ValueError(f"collector {group}: expected an object")
             if state.get("status") == "not_applicable":
-                return {**result, "quality": "not_applicable", "reason": state.get("reason", "")}
-        if item is None:
-            group = field_collectors(runtime).get(name)
-            item = _from_collector(row, metric, group, states) if group else None
-            if (metric.applicability == "text_tokenizer" and item and item["quality"] == "complete"
-                    and "completed_requests" not in evidence.get("output_token_count_avg", {})):
-                return {**result, "reason": "output_token_coverage_unrecorded"}
+                item = {"quality": "not_applicable", "reason": state.get("reason", "")}
+            elif item is None:
+                item = _from_collector(row, metric, group, state)
+                if (metric.applicability == "text_tokenizer" and item["quality"] == "complete"
+                        and "completed_requests" not in evidence.get("output_token_count_avg", {})):
+                    return {**result, "reason": "output_token_coverage_unrecorded"}
         if item is None:
             return result
         if item.get('quality') not in QUALITIES:
