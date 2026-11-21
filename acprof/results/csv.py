@@ -7,9 +7,9 @@ import io
 import struct
 import sys
 from collections import deque
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from decimal import MAX_EMAX, MAX_PREC, MIN_EMIN, Context, Decimal, Inexact, InvalidOperation, Overflow
+from decimal import InvalidOperation
 from itertools import product
 from pathlib import Path
 from typing import cast
@@ -18,13 +18,16 @@ from acprof.artifacts import atomic_write, file_sha256
 from acprof.cancellation import cancellable, check_cancelled
 from acprof.config import CSV_FIELDS
 from acprof.results import is_inferred_result
+from acprof.results.measurement_plan import (
+    MeasurementKey,
+    RecordedMeasurementPlan,
+    decimal_coordinate,
+    decimal_key_text,
+)
 from acprof.results.metrics import order_csv_fields
 
 KEY_FIELDS = ("cpu_cores", "mem_cap_gb", "gpu_mode", "input_scale", "warmup", "repeat_idx")
-MeasurementKey = tuple[str, ...]
-# Identity reduction must preserve every digit accepted by the Decimal constructor.
-_KEY_CONTEXT = Context(prec=MAX_PREC, Emin=MIN_EMIN, Emax=MAX_EMAX, capitals=1, clamp=0,
-                       traps=[InvalidOperation, Inexact, Overflow])
+type ExpectedMeasurements = RecordedMeasurementPlan | Iterable[MeasurementKey]
 MISSING_CSV_TEXT = frozenset({"", "nan", "none", "null", "n/a"})
 # Python 3.12 accepts a C long; later versions accept a Py_ssize_t.
 _CSV_FIELD_LIMIT = min(sys.maxsize, (1 << (8 * struct.calcsize("l") - 1)) - 1)
@@ -76,6 +79,27 @@ class ResultValidationError(ValueError):
     """输入不完整或无法唯一归属到计划中的测量。"""
 
 
+def require_expected_measurements(actual: Collection[MeasurementKey], expected: ExpectedMeasurements | None, *,
+                                  path: Path | None = None, layered: bool = False,
+                                  cancelled: Callable[[], bool] | None = None) -> None:
+    """Check a compact plan or legacy iterable against strictly validated, unique keys."""
+    if expected is None:
+        return
+    if isinstance(expected, RecordedMeasurementPlan):
+        coverage = expected.coverage(actual, cancelled=cancelled)
+        missing, unexpected = coverage["missing"], coverage["unexpected"]
+    else:
+        planned = set(cancellable(expected, cancelled))
+        matched = sum(key in planned for key in cancellable(actual, cancelled))
+        missing, unexpected = len(planned) - matched, len(actual) - matched
+    if missing or unexpected:
+        if layered and not isinstance(expected, RecordedMeasurementPlan):
+            raise ResultValidationError("layered measurement plan mismatch")
+        location = f" {path};" if path is not None else ""
+        prefix = "layered measurement plan mismatch" if layered else "measurement plan mismatch"
+        raise ResultValidationError(f"{prefix}:{location} missing={missing}, unexpected={unexpected}")
+
+
 def allow_large_csv_fields() -> None:
     """Accept full diagnostics without lowering the shared interpreter limit.
 
@@ -98,11 +122,6 @@ def require_current_fields(fields: Iterable[str]) -> None:
         raise ResultValidationError(f"unsupported retired CSV fields: {sorted(unsupported)}; regenerate current results")
 
 
-def decimal_key_text(number: Decimal) -> str:
-    """Canonical spelling of a validated finite measurement coordinate."""
-    return "0" if number.is_zero() else _KEY_CONTEXT.to_sci_string(_KEY_CONTEXT.normalize(number))
-
-
 def measurement_key(row: Mapping[str, object]) -> MeasurementKey:
     values = []
     for field in KEY_FIELDS:
@@ -116,7 +135,7 @@ def measurement_key(row: Mapping[str, object]) -> MeasurementKey:
                 raise ResultValidationError(f"invalid gpu_mode: {value!r}")
         else:
             try:
-                number = Decimal(value, context=_KEY_CONTEXT)
+                number = decimal_coordinate(value)
             except InvalidOperation as exc:
                 raise ResultValidationError(f"invalid {field}: {value!r}") from exc
             if not number.is_finite() or number < 0:
@@ -166,7 +185,7 @@ class _DigestingRawReader(io.RawIOBase):
         return size
 
 
-def parse_result_stream(stream: Iterable[str], path: Path, expected: Iterable[MeasurementKey] | None, *,
+def parse_result_stream(stream: Iterable[str], path: Path, expected: ExpectedMeasurements | None, *,
                         allow_empty=False, validate_measurements=True,
                         cancelled: Callable[[], bool] | None = None,
                       ) -> tuple[list[str], ValidatedResultRows]:
@@ -174,12 +193,12 @@ def parse_result_stream(stream: Iterable[str], path: Path, expected: Iterable[Me
     reader = csv.DictReader(cancellable(stream, cancelled), strict=True)
     fields = list(reader.fieldnames or [])
     return fields, validate_result_rows(fields, reader, path, expected=expected, allow_empty=allow_empty,
-                                       validate_measurements=validate_measurements)
+                                       validate_measurements=validate_measurements, cancelled=cancelled)
 
 
 def validate_result_rows(fields: Sequence[str], source_rows: Iterable[dict], path: Path, *,
-                         expected: Iterable[MeasurementKey] | None = None, allow_empty=False,
-                         validate_measurements=True) -> ValidatedResultRows:
+                         expected: ExpectedMeasurements | None = None, allow_empty=False,
+                         validate_measurements=True, cancelled: Callable[[], bool] | None = None) -> ValidatedResultRows:
     """Validate parsed rows without modifying a consumer's source snapshot.
 
     Historical report input can retain its original values with structural
@@ -215,28 +234,23 @@ def validate_result_rows(fields: Sequence[str], source_rows: Iterable[dict], pat
         rows.append(cast(dict[str, str], row))
     if not rows and not allow_empty:
         raise ResultValidationError(f"empty case CSV (no measurement rows): {path}")
-    if expected is not None:
-        planned = set(expected)
-        if keys.keys() != planned:
-            raise ResultValidationError(
-                f"measurement plan mismatch: {path}; missing={len(planned - keys.keys())}, "
-                f"unexpected={len(keys.keys() - planned)}"
-            )
+    require_expected_measurements(keys.keys(), expected, path=path, cancelled=cancelled)
     return ValidatedResultRows(rows, tuple(keys) if validate_measurements else None)
 
 
-def read_result_csv(path: str | Path, *, expected: Iterable[MeasurementKey] | None = None
+def _read_flat_csv(path: Path, expected: ExpectedMeasurements | None = None) -> tuple[list[str], ValidatedResultRows]:
+    with path.open(encoding="utf-8-sig", newline="") as stream:
+        return parse_result_stream(stream, path, expected)
+
+
+def read_result_csv(path: str | Path, *, expected: ExpectedMeasurements | None = None
                     ) -> tuple[list[str], list[dict[str, str]]]:
     path = Path(path)
     if path.name == "result_layers.json":
         from acprof.results.layers import read_result_layers
-        fields, rows = read_result_layers(path.parent)
-        if expected is not None and {measurement_key(row) for row in rows} != set(expected):
-            raise ResultValidationError("layered measurement plan mismatch")
-        return fields, rows
-    with path.open(encoding="utf-8-sig", newline="") as stream:
-        fields, validated = parse_result_stream(stream, path, expected)
-        return fields, validated.rows
+        return read_result_layers(path.parent, expected=expected)
+    fields, validated = _read_flat_csv(path, expected)
+    return fields, validated.rows
 
 
 class _CsvRowEncoder:
@@ -313,7 +327,7 @@ def open_result_text(path: str | Path):
     return io.TextIOWrapper(io.BufferedReader(_CsvRawReader(fields, rows)), encoding="utf-8", newline="")
 
 
-def read_result_csv_snapshot(path: str | Path, *, expected: Iterable[MeasurementKey] | None = None,
+def read_result_csv_snapshot(path: str | Path, *, expected: ExpectedMeasurements | None = None,
                              validate_measurements: bool = True,
                              cancelled: Callable[[], bool] | None = None,
                              ) -> ResultCsvSnapshot:
@@ -332,19 +346,13 @@ def read_result_csv_snapshot(path: str | Path, *, expected: Iterable[Measurement
         from acprof.artifacts import read_json_object
         if read_json_object(path, cancelled=cancelled).get("schema_version") == 3:
             from acprof.result_store.reader import read_snapshot
-            snapshot = read_snapshot(path.parent, cancelled=cancelled)
-            if (expected is not None
-                    and {measurement_key(row) for row in cancellable(snapshot.rows, cancelled)}
-                    != set(cancellable(expected, cancelled))):
-                raise ResultValidationError("layered measurement plan mismatch")
+            snapshot = read_snapshot(path.parent, expected=expected, cancelled=cancelled)
             check_cancelled(cancelled)
             return snapshot
         from acprof.results.layers import read_result_layers
         layer_digest = file_sha256(path, cancelled=cancelled)
-        fields, rows = read_result_layers(path.parent, expected_manifest_sha256=layer_digest, cancelled=cancelled)
-        if (expected is not None and {measurement_key(row) for row in cancellable(rows, cancelled)}
-                != set(cancellable(expected, cancelled))):
-            raise ResultValidationError("layered measurement plan mismatch")
+        fields, rows = read_result_layers(path.parent, expected_manifest_sha256=layer_digest, expected=expected,
+                                         cancelled=cancelled)
         verify_result_source(path, layer_digest, cancelled=cancelled)
         check_cancelled(cancelled)
         return ResultCsvSnapshot(path=path, fields=fields, rows=rows, sha256=layer_digest)
@@ -400,8 +408,12 @@ def verify_result_source(artifact: str | Path, expected_sha256: str | None, *,
     manifest = read_json_object(artifact, label="result layers manifest", expected_sha256=expected_sha256,
                                 cancelled=cancelled)
     if manifest.get("schema_version") == 3:
+        from acprof.result_store.protocol import (
+            check_pending_replacement,
+            publication_lock,
+            validate_layer_files,
+        )
         from acprof.results.layout import ArtifactLayout
-        from acprof.result_store.protocol import check_pending_replacement, publication_lock, validate_layer_files
         layout = ArtifactLayout.discover(artifact.parent)
         with publication_lock(layout, exclusive=False, cancelled=cancelled):
             check_pending_replacement(layout, manifest, cancelled=cancelled)
@@ -414,7 +426,7 @@ def verify_result_source(artifact: str | Path, expected_sha256: str | None, *,
 
 
 def merge_result_csvs(paths: Sequence[str], destination: str, *,
-                     expected: Iterable[MeasurementKey] | None = None) -> int:
+                     expected: ExpectedMeasurements | None = None) -> int:
     if not paths:
         raise ResultValidationError("no case files to merge")
     resolved = [Path(path).resolve() for path in paths]
@@ -430,7 +442,14 @@ def merge_result_csvs(paths: Sequence[str], destination: str, *,
     for path in resolved:
         if not path.is_file():
             raise ResultValidationError(f"missing case CSV: {path}")
-        source_fields, source_rows = read_result_csv(path)
+        if path.name == "result_layers.json":
+            source_fields, source_rows = read_result_csv(path)
+            source_keys: Iterable[MeasurementKey] = (measurement_key(row) for row in source_rows)
+        else:
+            source_fields, validated = _read_flat_csv(path)
+            source_rows = validated.rows
+            assert validated.keys is not None  # Flat case reads always validate measurements.
+            source_keys = validated.keys
         environments.update(row["environment_class"] for row in source_rows)
         runtimes.update((row.get("runtime_kind", "docker"),
                          row.get("resource_scope", "container_cgroup")) for row in source_rows)
@@ -440,19 +459,13 @@ def merge_result_csvs(paths: Sequence[str], destination: str, *,
         if len(environments) > 1:
             raise ResultValidationError(f"cannot merge result environments: {sorted(environments)}")
         fields.extend(field for field in source_fields if field not in fields)
-        for row in source_rows:
-            key = measurement_key(row)
+        for key, row in zip(source_keys, source_rows, strict=True):
             if key in keys:
                 raise ResultValidationError(f"duplicate measurement across case CSVs: {key}")
             keys.add(key)
             rows.append(row)
     fields = order_csv_fields(fields)
-    if expected is not None:
-        planned = set(expected)
-        if keys != planned:
-            raise ResultValidationError(
-                f"measurement plan mismatch: missing={len(planned - keys)}, unexpected={len(keys - planned)}"
-            )
+    require_expected_measurements(keys, expected)
     if Path(destination).name == "result_layers.json":
         from acprof.artifacts import read_json_object
         if Path(destination).is_file() and read_json_object(destination).get("schema_version") == 3:

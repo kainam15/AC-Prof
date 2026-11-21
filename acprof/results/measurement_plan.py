@@ -1,12 +1,36 @@
-"""Decode recorded window plans shared by result audit and run recovery."""
+"""Exact measurement coordinates and coverage of recorded window plans."""
 from __future__ import annotations
 
-from collections.abc import Sequence, Set
+from collections.abc import Callable, Collection, Sequence, Set
 from dataclasses import dataclass
-from decimal import Decimal
+from decimal import (
+    MAX_EMAX,
+    MAX_PREC,
+    MIN_EMIN,
+    Context,
+    Decimal,
+    Inexact,
+    InvalidOperation,
+    Overflow,
+)
 
+from acprof.cancellation import cancellable, check_cancelled
 from acprof.experiments.constraints import RUN_NUMBERS, finite_number
-from acprof.results.csv import MeasurementKey, decimal_key_text
+
+MeasurementKey = tuple[str, ...]
+# Identity reduction must preserve every digit accepted by the Decimal constructor.
+_KEY_CONTEXT = Context(prec=MAX_PREC, Emin=MIN_EMIN, Emax=MAX_EMAX, capitals=1, clamp=0,
+                       traps=[InvalidOperation, Inexact, Overflow])
+
+
+def decimal_coordinate(text: str) -> Decimal:
+    """Parse a coordinate independently of the caller's Decimal context."""
+    return Decimal(text, context=_KEY_CONTEXT)
+
+
+def decimal_key_text(number: Decimal) -> str:
+    """Canonical spelling of a validated finite measurement coordinate."""
+    return "0" if number.is_zero() else _KEY_CONTEXT.to_sci_string(_KEY_CONTEXT.normalize(number))
 
 
 def _require_unique(values: Sequence[object], field: str) -> None:
@@ -53,12 +77,13 @@ def recorded_scales(raw: object) -> tuple[int | float, ...]:
         if not positive:
             raise ValueError(f"{field}[{index}]: expected a positive scale")
     # Compare the decimal coordinates that CSV rows can actually distinguish.
-    _require_unique(tuple(Decimal(str(value)) for value in raw), field)
+    _require_unique(tuple(decimal_coordinate(str(value)) for value in raw), field)
     return tuple(raw)
 
 
-def _axis_keys(values: Sequence[int | float | None]) -> set[str]:
-    return {"inherited" if value is None else decimal_key_text(Decimal(str(value))) for value in values}
+def _axis_keys(values: Sequence[int | float | None], cancelled: Callable[[], bool] | None) -> set[str]:
+    return {"inherited" if value is None else decimal_key_text(decimal_coordinate(str(value)))
+            for value in cancellable(values, cancelled)}
 
 
 @dataclass(frozen=True)
@@ -86,13 +111,29 @@ class RecordedMeasurementOptions:
         )
 
     def coverage(self, scales: Sequence[int | float], actual: Set[MeasurementKey]) -> dict[str, int]:
-        """Count coverage using validated scales and distinct keys produced by measurement_key."""
-        cpus, mems, inputs = _axis_keys(self.cpus), _axis_keys(self.mems), _axis_keys(scales)
-        expected = len(cpus) * len(mems) * len(self.gpus) * len(inputs) * (self.warmup + self.repeat)
+        return RecordedMeasurementPlan(self, tuple(scales)).coverage(actual)
+
+
+@dataclass(frozen=True)
+class RecordedMeasurementPlan:
+    """Validated coordinates for a whole experiment, without enumerating its windows."""
+
+    options: RecordedMeasurementOptions
+    scales: tuple[int | float, ...]
+
+    def coverage(self, actual: Collection[MeasurementKey], *,
+                 cancelled: Callable[[], bool] | None = None) -> dict[str, int]:
+        """Count coverage of distinct keys already checked by the result reader."""
+        options = self.options
+        cpus = _axis_keys(options.cpus, cancelled)
+        mems = _axis_keys(options.mems, cancelled)
+        inputs = _axis_keys(self.scales, cancelled)
+        expected = len(cpus) * len(mems) * len(options.gpus) * len(inputs) * (options.warmup + options.repeat)
         matched = sum(
-            cpu in cpus and mem in mems and gpu in self.gpus and scale in inputs
-            and Decimal(index) < (self.warmup if warmup == "1" else self.repeat)
-            for cpu, mem, gpu, scale, warmup, index in actual
+            cpu in cpus and mem in mems and gpu in options.gpus and scale in inputs
+            and Decimal(index) < (options.warmup if warmup == "1" else options.repeat)
+            for cpu, mem, gpu, scale, warmup, index in cancellable(actual, cancelled)
         )
+        check_cancelled(cancelled)
         return {"expected": expected, "actual": len(actual), "missing": expected - matched,
                 "unexpected": len(actual) - matched}

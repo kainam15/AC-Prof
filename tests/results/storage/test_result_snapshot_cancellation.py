@@ -1,4 +1,5 @@
 """Cancellation stops snapshot reads and verification without leaking descriptors."""
+import csv
 import io
 from concurrent.futures import CancelledError
 from functools import partial
@@ -6,9 +7,10 @@ from pathlib import Path
 from threading import Event
 
 import pytest
-from tests.results.storage.test_sequential_result_reads import artifact_hashes, snapshot_store
 
 from acprof.results import csv as result_csv
+from acprof.results.measurement_plan import RecordedMeasurementOptions, RecordedMeasurementPlan
+from tests.results.storage.test_sequential_result_reads import artifact_hashes, snapshot_store
 
 
 @pytest.mark.parametrize("operation", ["read", "verify"])
@@ -99,3 +101,36 @@ def test_cancellation_after_verified_layer_read_discards_snapshot(tmp_path, monk
     with pytest.raises(CancelledError):
         result_csv.read_result_csv_snapshot(layout.result_csv, cancelled=cancelled.is_set)
     assert artifact_hashes(layout) == before
+
+
+@pytest.mark.parametrize("storage", ["flat", "layered"])
+def test_cancellation_during_plan_matching_stops_before_next_key(tmp_path, monkeypatch, storage):
+    layout, rows = snapshot_store(tmp_path, count=4, repetitions=1)
+    path = layout.result_csv
+    if storage == "flat":
+        path = tmp_path / "result.csv"
+        with path.open("w", newline="") as stream:
+            writer = csv.DictWriter(stream, fieldnames=rows[0])
+            writer.writeheader()
+            writer.writerows(rows)
+    plan = RecordedMeasurementPlan(
+        RecordedMeasurementOptions.parse({"cpus": "1", "mems": "4", "gpus": "off", "warmup": 0, "repeat": 4}),
+        (64,),
+    )
+    stop = Event()
+    match = RecordedMeasurementPlan.coverage
+
+    class InterruptingKeys(tuple):
+        def __iter__(self):
+            yield self[0]
+            stop.set()
+            yield self[1]
+            pytest.fail("continued matching windows after cancellation")
+
+    def cancel_during_match(self, actual, *, cancelled=None):
+        return match(self, InterruptingKeys(actual), cancelled=cancelled)
+
+    monkeypatch.setattr(RecordedMeasurementPlan, "coverage", cancel_during_match)
+    with pytest.raises(CancelledError):
+        result_csv.read_result_csv_snapshot(path, expected=plan, cancelled=stop.is_set)
+    assert stop.is_set()

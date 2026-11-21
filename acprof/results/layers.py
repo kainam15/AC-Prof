@@ -21,15 +21,17 @@ from acprof.artifacts import (
     sync_directory,
 )
 from acprof.cancellation import cancellable, check_cancelled
-from acprof.system.cleanup import cleanup_on_exit
-from acprof.results.metrics import METRICS, order_csv_fields
 from acprof.results.csv import (
     KEY_FIELDS,
+    ExpectedMeasurements,
     ResultValidationError,
     measurement_key,
     read_result_csv_snapshot,
+    require_expected_measurements,
     result_csv_snapshot_unchanged,
 )
+from acprof.results.metrics import METRICS, order_csv_fields
+from acprof.system.cleanup import cleanup_on_exit
 
 
 def _write_csv_text(stream: TextIO, raw: bytes) -> None:
@@ -159,8 +161,8 @@ def result_layer_paths(root: str | Path, manifest: Mapping) -> dict[str, Path]:
     """
     root = _result_root(root)
     if manifest.get("schema_version") == 3:
-        from acprof.results.layout import ArtifactLayout
         from acprof.result_store.protocol import validate_manifest
+        from acprof.results.layout import ArtifactLayout
         return validate_manifest(ArtifactLayout.discover(root), dict(manifest))
     version = manifest.get("schema_version")
     if (type(version) is not int or version not in SUPPORTED_SCHEMA_VERSIONS
@@ -367,6 +369,7 @@ def verify_result_layer_files(root: str | Path, manifest: Mapping, *,
 
 
 def read_result_layers(root: str | Path, *, expected_manifest_sha256: str | None = None,
+                       expected: ExpectedMeasurements | None = None,
                        cancelled: Callable[[], bool] | None = None,
                        ) -> tuple[list[str], list[dict[str, str]]]:
     """Read hashed partitions, optionally bound to an outer consumer's manifest."""
@@ -381,9 +384,8 @@ def read_result_layers(root: str | Path, *, expected_manifest_sha256: str | None
                                 expected_sha256=expected_manifest_sha256, cancelled=cancelled)
     if manifest.get("schema_version") == 3:
         from acprof.result_store.reader import read_snapshot
-        snapshot = read_snapshot(root, cancelled=cancelled)
-        if expected_manifest_sha256 is not None and snapshot.sha256 != expected_manifest_sha256:
-            raise ResultValidationError("layered results changed during read")
+        snapshot = read_snapshot(root, expected=expected, expected_manifest_sha256=expected_manifest_sha256,
+                                 cancelled=cancelled)
         return snapshot.fields, snapshot.rows
     paths = result_layer_paths(root, manifest)
     wide_fields = manifest["wide_fields"]
@@ -433,7 +435,9 @@ def read_result_layers(root: str | Path, *, expected_manifest_sha256: str | None
     if expected_keys is None:
         raise ResultValidationError("missing summary measurements")
     ordered = order_csv_fields(wide_fields)
-    return ordered, consume_layer_rows(ordered, expected_keys, combined, cancelled=cancelled)
+    rows = consume_layer_rows(ordered, expected_keys, combined, cancelled=cancelled)
+    require_expected_measurements(expected_keys, expected, layered=True, cancelled=cancelled)
+    return ordered, rows
 
 
 def export_result_layers(root: str | Path, destination: str | Path) -> int:

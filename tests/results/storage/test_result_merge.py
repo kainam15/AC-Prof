@@ -10,13 +10,72 @@ import pytest
 from acprof.config import CSV_FIELDS
 from acprof.host.orchestrator import merge_all_csvs
 from acprof.results.csv import (
+    ResultValidationError,
     expected_measurements,
     measurement_key,
+    merge_result_csvs,
     read_result_csv,
     read_result_csv_snapshot,
     result_csv_snapshot_unchanged,
 )
 from acprof.results.measurement_plan import RecordedMeasurementOptions, recorded_scales
+from tests.results.storage.test_result_row_assembly import row_store
+
+
+def recorded_plan(*, repeat=1):
+    from acprof.results.measurement_plan import RecordedMeasurementPlan
+
+    options = RecordedMeasurementOptions.parse({"cpus": "2", "mems": "8", "gpus": "off", "warmup": 0, "repeat": repeat})
+    return RecordedMeasurementPlan(options, (1,))
+
+
+@pytest.mark.parametrize("storage", ["csv", 1, 2, 3])
+@pytest.mark.parametrize("reader", [read_result_csv, read_result_csv_snapshot])
+def test_readers_match_compact_plan_without_enumerating_it(tmp_path, storage, reader):
+    if storage == "csv":
+        path = tmp_path / "case.csv"
+        path.write_text("cpu_cores,mem_cap_gb,gpu_mode,input_scale,warmup,repeat_idx\n2,8,off,1,0,0\n")
+    else:
+        row_store(tmp_path, storage, count=1, width=0)
+        path = tmp_path / "result_layers.json"
+    actual = reader(path, expected=recorded_plan())
+    assert actual == reader(path, expected=iter([("2", "8", "off", "1", "0", "0")]))
+    with pytest.raises(ResultValidationError, match="measurement plan mismatch: .*missing=999999999999, unexpected=0"):
+        reader(path, expected=recorded_plan(repeat=10**12))
+    if storage != "csv":
+        with pytest.raises(ResultValidationError, match="^layered measurement plan mismatch$"):
+            reader(path, expected=iter([]))
+
+
+def test_merge_validates_compact_plan_before_replacing_the_destination(tmp_path):
+    case = tmp_path / "case.csv"
+    case.write_text("cpu_cores,mem_cap_gb,gpu_mode,input_scale,warmup,repeat_idx\n2,8,off,1,0,0\n")
+    destination = tmp_path / "merged.csv"
+    destination.write_bytes(b"previous result\n")
+    with pytest.raises(ResultValidationError, match="missing=999999999999, unexpected=0"):
+        merge_result_csvs([str(case)], str(destination), expected=recorded_plan(repeat=10**12))
+    assert destination.read_bytes() == b"previous result\n"
+    assert merge_result_csvs([str(case)], str(destination), expected=recorded_plan()) == 1
+    assert read_result_csv(destination)[1][0]["repeat_idx"] == "0"
+
+
+def test_changed_layer_manifest_is_reported_before_plan_mismatch(tmp_path, monkeypatch):
+    from acprof.results import layers
+
+    row_store(tmp_path, 3, count=1, width=0)
+    path = tmp_path / "result_layers.json"
+    original_sha = hashlib.sha256(path.read_bytes()).hexdigest()
+    read_json = layers.read_json_object
+
+    def change_after_first_read(*args, **kwargs):
+        manifest = read_json(*args, **kwargs)
+        with path.open("ab") as stream:
+            stream.write(b"\n")
+        return manifest
+
+    monkeypatch.setattr(layers, "read_json_object", change_after_first_read)
+    with pytest.raises(ResultValidationError, match="layered results changed during read"):
+        layers.read_result_layers(tmp_path, expected_manifest_sha256=original_sha, expected=recorded_plan(repeat=2))
 
 
 @pytest.mark.parametrize("cpus", ["1,10", "auto"])
