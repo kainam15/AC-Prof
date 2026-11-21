@@ -237,12 +237,14 @@ def test_manifest_paths_cannot_escape_or_alias_generation(tmp_path, bad_path):
 
 def test_wide_export_cannot_write_anywhere_in_generations(tmp_path):
     manifest = _publish(tmp_path, 1)
+    before = _all_files(tmp_path)
     destinations = [tmp_path / manifest["layers"]["energy"]["path"],
                     tmp_path / layers.GENERATIONS_DIR / "new.csv",
                     tmp_path / layers.LAYER_FILES["energy"]]
     for destination in destinations:
-        with pytest.raises(ResultValidationError, match="overwrite a result layer"):
+        with pytest.raises(ResultValidationError, match="cannot create or overwrite a reserved experiment artifact"):
             layers.export_result_layers(tmp_path, destination)
+        assert _all_files(tmp_path) == before
 
 
 def _write_legacy_snapshot(root):
