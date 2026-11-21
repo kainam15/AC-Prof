@@ -136,7 +136,8 @@ def test_inferred_workload_does_not_block_comparison_of_measured_run_means(runs)
 @pytest.mark.parametrize(("second_status", "complete"), [("ok", True), ("warn", False), ("error", False)])
 def test_formal_coverage_uses_numeric_window_identity(runs, second_status, complete):
     source = runs.replicate("left", 0, [2, 4])
-    _change_rows(runs, source, [{}, {"status": second_status, "warmup": "0.0"}])
+    _change_rows(runs, source, [{}, {"status": second_status, "warmup": "0.0",
+                                    "error": "fixture failure" if second_status == "error" else ""}])
     assert load_comparison_snapshot(source)["all_formal_measured"] is complete
 
 
