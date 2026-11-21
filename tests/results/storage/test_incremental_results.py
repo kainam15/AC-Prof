@@ -228,15 +228,38 @@ def test_duplicate_plan_window_in_new_attempt_is_rejected(tmp_path):
             writer.append_window(second)
 
 
-def test_unknown_derivation_columns_are_rejected_without_commit(tmp_path):
+def test_unchanged_wide_derivation_avoids_per_field_header_scans(tmp_path):
     layout = initialized(tmp_path)
+    scans = []
+
+    class ObservedHeader(list):
+        def __contains__(self, field):
+            scans.append(field)
+            return super().__contains__(field)
+
     with ResultWriter(tmp_path) as writer:
         writer.append_window(receipt(tmp_path))
+        row = dict(next(iter(writer.rows.values())))
         before = layout.result_csv.read_bytes()
-        row = dict(next(iter(writer.rows.values())), invented_metric="12")
-        with pytest.raises(ValueError, match="unknown.*field"):
-            writer.update_rows([row], reason="invalid producer")
+        writer.manifest["wide_fields"] = ObservedHeader(writer.manifest["wide_fields"])
+        assert not writer.update_rows([row], reason="no new evidence", state="collecting")
         assert layout.result_csv.read_bytes() == before
+        assert len(scans) <= 1
+
+
+def test_unknown_derivation_columns_are_rejected_without_commit(tmp_path):
+    initialized(tmp_path)
+    with ResultWriter(tmp_path) as writer:
+        writer.append_window(receipt(tmp_path))
+        before = {path: path.read_bytes() for path in tmp_path.rglob("*") if path.is_file()}
+        row = dict(next(iter(writer.rows.values())))
+        patch = {**row, "latency_app_s": "7"}
+        invalid = {**row, "repeat_idx": "1", "invented_metric": "12"}
+        with pytest.raises(ValueError, match="unknown.*field"):
+            writer.update_rows([patch, invalid], reason="invalid producer")
+        assert list(writer.rows.values()) == [row]
+        assert {path: path.read_bytes() for path in tmp_path.rglob("*") if path.is_file()} == before
+        assert writer.update_rows([patch], reason="corrected producer")
 
 
 @pytest.mark.parametrize("committed", [False, True])

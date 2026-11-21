@@ -66,7 +66,7 @@
 | `acprof/results/task_collections.py` | 纯读取冻结的任务集合清单，由应用恢复和主机自动流程共用；不反向导入采集编排 |
 | `acprof/artifacts.py`、`acprof/results/csv.py` | 原子产物发布、CSV 结构与测量唯一键校验；不初始化采集依赖 |
 | `acprof/cancellation.py` | 同步产物消费者的协作取消检查与迭代边界；不创建线程、定时任务或后台轮询 |
-| `acprof/result_store/`、`acprof/results/layers.py` | schema v3 分层追加、统一提交、来源重放、模块替换、读取与不可变快照；不启动采集器，所有写入位于测量窗口之外 |
+| `acprof/result_store/`、`acprof/results/layers.py` | schema v3 分层追加、统一提交、来源重放、模块替换、读取与不可变快照。派生更新按本批次的冻结字段集合校验输入列，再按窗口键比较已提交行的值；不启动采集器，所有写入位于测量窗口之外 |
 | `acprof/results/layout.py` | 结果清单、v2/flat 布局识别、受限相对路径及 case sidecar 路由；采集、恢复、补采和分析共用 |
 | `acprof/pixel_metrics.py` | 像素计数和能耗/延迟归一化的纯计算，由 client、packet 和 plotting 共用 |
 | `acprof/runtime/profiles.py` | 平台、依赖环境、逻辑 profile 与锁身份；从扩展声明读取路由 |

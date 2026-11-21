@@ -101,18 +101,20 @@ class ResultWriter:
         self._ready()
         inserts, changes = [], []
         seen = set()
+        fields = self.manifest["wide_fields"]
+        allowed_fields = set(fields)
         for incoming in rows:
-            if set(incoming) - set(self.manifest["wide_fields"]):
+            if not allowed_fields.issuperset(incoming):
                 raise ResultValidationError("unknown derivation fields")
             key = measurement_key(incoming)
             if key in seen:
                 raise ResultValidationError("duplicate measurement in derivation")
             seen.add(key)
             if key not in self.rows:
-                inserts.append({name: str(incoming.get(name, "nan")) for name in self.manifest["wide_fields"]})
+                inserts.append({name: str(incoming.get(name, "nan")) for name in fields})
             else:
                 delta = {name: str(value) for name, value in incoming.items()
-                         if name in self.manifest["wide_fields"] and str(value) != self.rows[key].get(name, "nan")}
+                         if str(value) != self.rows[key].get(name, "nan")}
                 if delta:
                     changes.append({"key": list(key), "values": delta})
         if not inserts and not changes and not force_commit:
