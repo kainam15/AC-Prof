@@ -69,7 +69,15 @@ SLO 违反不改变请求的协议成功状态。`--service-backend` 与 `--serv
 `--service-probe vllm` 在预热前进行有限身份观测，默认 `none` 不发送额外请求。
 这些选项仅适用于 endpoint 模式，source replay 会在读取源实验、联网或创建输出前拒绝。
 
-协议只接受单个文本生成选择（`n=1`）；tool/function、多选择等尚未支持的输出明确失败。
+每条请求测量一个文本生成选择（`n=1`）。Chat 可省略输出模态或指定 `"modalities":["text"]`。
+请求中保留工具定义时，用 `"tool_choice":"none"` 显式禁用调用，旧版函数接口对应 `"function_call":"none"`。
+音频输出请求会在预热前报错。[Chat 请求协议](https://github.com/openai/openai-python/blob/main/src/openai/types/chat/completion_create_params.py)
+
+若 Chat 响应含音频帧、工具调用、相应的 `finish_reason`，或 usage 报告生成了音频 Token，
+客户端将该请求记录为 `unsupported_output`。错误前已收到的文本和观测时间仍可排查，
+该请求计入失败数，从成功时延和 SLO Goodput 中排除。新 Chat 报告在 adapter 中记录
+`output_modalities=["text"]`。旧报告沿用原判定口径，sweep 分组体现两者差异。[Chat 响应字段](https://github.com/openai/openai-python/blob/main/src/openai/types/chat/chat_completion_chunk.py)
+
 通过 `--request-json` 或 `--request-jsonl` 可以原样发送以下单条输入。
 
 - Completions 的 `prompt` 可以是字符串或非空 Token ID 序列，例如 `[0, 42, 7]`。也接受只含一条输入的外层数组，例如 `["00123"]` 或 `[[0, 42, 7]]`。多条 prompt 请在 JSONL 中分行。报告中的输入 Token 数取自服务端 usage，缺少该计数时留空。[CompletionCreateParams](https://github.com/openai/openai-python/blob/main/src/openai/types/completion_create_params.py)

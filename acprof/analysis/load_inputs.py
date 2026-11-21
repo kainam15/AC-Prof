@@ -48,7 +48,7 @@ def _bodies(identity: dict[str, Any], needed: int) -> list[dict[str, Any]]:
         raise ValueError("request dataset endpoint must be text")
     for line, body in zip(dataset["source"]["lines"], bodies, strict=True):
         try:
-            normalized = prepare_streaming_payload(body, endpoint=endpoint)
+            normalized = prepare_streaming_payload(body, endpoint=endpoint, recorded_adapter=identity["adapter"])
             validate_request_credentials(body)
         except ValueError as error:
             raise ValueError(f"request dataset line {line}: {error}") from error

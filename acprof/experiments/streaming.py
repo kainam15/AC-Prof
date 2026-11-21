@@ -72,8 +72,55 @@ def _validate_text_input(payload: dict[str, Any], endpoint: str) -> None:
             _validate_chat_message(message, index)
 
 
+def nontext_chat_output(finish_reason: Any, usage: Any) -> str | None:
+    """Identify non-text generation from evidence retained by both live and offline consumers."""
+    if finish_reason in ("tool_calls", "function_call"):
+        return f"Chat finish_reason reports {finish_reason}"
+    if usage is None:
+        return None
+    if not isinstance(usage, dict):
+        raise ValueError("Chat usage must be an object")
+    details = usage.get("completion_tokens_details")
+    if details is None:
+        return None
+    if not isinstance(details, dict):
+        raise ValueError("completion_tokens_details must be an object")
+    count = details.get("audio_tokens")
+    if count is not None and (type(count) is not int or count < 0):
+        raise ValueError("completion_tokens_details.audio_tokens must be a nonnegative integer")
+    return "server usage reports generated audio tokens" if count else None
+
+
+def _validate_output_options(payload: dict[str, Any], endpoint: str, recorded_adapter: dict[str, Any] | None) -> None:
+    check_modalities = endpoint == "/v1/chat/completions"
+    if recorded_adapter is not None:
+        # Earlier adapters did not inspect modalities or recognize explicit tool opt-outs.
+        check_modalities = "output_modalities" in recorded_adapter
+        if check_modalities and (
+            endpoint != "/v1/chat/completions" or recorded_adapter.get("endpoint") != endpoint
+            or recorded_adapter["output_modalities"] != ["text"]
+        ):
+            raise ValueError("unsupported recorded Chat output modalities")
+    if not check_modalities:
+        if any(payload.get(name) for name in ("tools", "functions", "tool_choice", "function_call", "audio")):
+            raise ValueError("OpenAI streaming currently supports text output only")
+        return
+    modalities = payload.get("modalities")
+    if modalities is not None and (
+        not isinstance(modalities, list) or not modalities or any(value != "text" for value in modalities)
+    ):
+        raise ValueError("Chat streaming supports text output only; modalities must request only text")
+    if payload.get("audio") is not None:
+        raise ValueError("Chat streaming supports text output only; remove the audio configuration")
+    for definitions, selector in (("tools", "tool_choice"), ("functions", "function_call")):
+        choice = payload.get(selector)
+        if choice != "none" and (choice is not None or payload.get(definitions)):
+            raise ValueError(f"Chat streaming supports text output only; disable {selector} with 'none'")
+
+
 def prepare_streaming_payload(
     payload: dict[str, Any], *, endpoint: str, tokenizer_model: str | None = None,
+    recorded_adapter: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Validate text-only input and return normalized streaming fields without mutation."""
     if endpoint not in OPENAI_STREAMING_ENDPOINTS:
@@ -87,8 +134,7 @@ def prepare_streaming_payload(
         raise ValueError("OpenAI streaming currently supports n=1 only")
     if "stream" in payload and payload["stream"] is not True:
         raise ValueError("OpenAI streaming requires stream=true")
-    if any(payload.get(name) for name in ("tools", "functions", "tool_choice", "function_call", "audio")):
-        raise ValueError("OpenAI streaming currently supports text output only")
+    _validate_output_options(payload, endpoint, recorded_adapter)
     if payload.get("echo"):
         raise ValueError("echo output cannot be counted as generated tokens")
     _validate_text_input(payload, endpoint)

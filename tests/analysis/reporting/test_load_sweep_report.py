@@ -112,14 +112,23 @@ def test_changed_conditions_are_separate_groups(sweep_reader, tmp_path, change):
     assert points[1]["condition_id"] != points[0]["condition_id"]
 
 
-def test_historical_chat_reports_and_refusal_aware_reports_have_separate_curves(sweep_reader, tmp_path):
+@pytest.mark.parametrize("missing", ["text_delta_fields", "output_modalities"])
+def test_historical_chat_protocols_have_separate_curves(sweep_reader, tmp_path, missing):
     from acprof.host.measurement.streaming import OpenAIStreamingAdapter
 
     root = make_sweep(tmp_path / "sweep")
     current = OpenAIStreamingAdapter().protocol()
-    historical = {key: value for key, value in current.items() if key != "text_delta_fields"}
+    historical = dict(current)
+    historical.pop("output_modalities")
+    if missing == "text_delta_fields":
+        historical.pop("text_delta_fields")
+
+    def record_adapter(point, adapter):
+        point["identity"]["adapter"] = adapter
+        point["result"]["protocol"]["adapter"] = adapter
+
     for index, adapter in enumerate((historical, current, historical), start=1):
-        change_point(root, index, lambda point: point["identity"].update(adapter=adapter))
+        change_point(root, index, lambda point: record_adapter(point, adapter))
     data = sweep_reader.read_load_sweep(root).payload
     first, second, third = data["points"]
     assert all(point["curve_eligible"] for point in data["points"])

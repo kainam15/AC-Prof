@@ -13,6 +13,7 @@ from acprof.analysis.server_metrics import validate_server_metrics
 from acprof.analysis.streaming import streaming_summary
 from acprof.analysis.streaming_capacity import build_capacity
 from acprof.artifacts import read_json_object, require_schema_version
+from acprof.experiments.streaming import nontext_chat_output, prepare_streaming_payload
 
 
 def _canonical(value: Any) -> str:
@@ -46,6 +47,33 @@ def _validate_v2_service_declaration(
         raise ValueError("stream load service probe declaration differs")
 
 
+def _validate_chat_output(experiment: Mapping[str, Any], identity: Mapping[str, Any], result: Mapping[str, Any]) -> None:
+    declared = identity.get("adapter")
+    text_only = isinstance(declared, dict) and "output_modalities" in declared
+    if text_only and experiment.get("schema_version") == 2:
+        body = identity.get("request_body")
+        if not isinstance(body, dict):
+            raise ValueError("stream load requires the declared Chat request body")
+        prepare_streaming_payload(body, endpoint=identity.get("endpoint", ""), recorded_adapter=declared)
+    for phase in (result, experiment.get("warmup")):
+        if not isinstance(phase, Mapping):
+            continue
+        protocol = phase.get("protocol")
+        observed = protocol.get("adapter") if isinstance(protocol, Mapping) else None
+        if not text_only and not (isinstance(observed, dict) and "output_modalities" in observed):
+            continue
+        if _canonical(observed) != _canonical(declared):
+            raise ValueError("recorded Chat output adapter differs from the declared adapter")
+        rows = phase.get("requests")
+        if not isinstance(rows, list):
+            raise ValueError("recorded Chat output requires request records")
+        for row in rows:
+            if isinstance(row, dict) and row.get("status") == "ok":
+                reason = nontext_chat_output(row.get("finish_reason"), row.get("server_usage"))
+                if reason:
+                    raise ValueError(f"successful Chat request contradicts recorded output: {reason}")
+
+
 def _v2_capacity(experiment: Mapping[str, Any], result: Mapping[str, Any]) -> dict[str, Any]:
     identity = experiment.get("identity")
     if not isinstance(identity, dict) or "slo_thresholds_s" not in identity:
@@ -55,6 +83,7 @@ def _v2_capacity(experiment: Mapping[str, Any], result: Mapping[str, Any]) -> di
     ).hexdigest()
     if experiment.get("identity_sha256") != expected_identity:
         raise ValueError("stream load identity_sha256 does not match declared inputs")
+    _validate_chat_output(experiment, identity, result)
     _validate_v2_service_declaration(experiment, identity)
     protocol = result.get("protocol")
     requests = result.get("requests")

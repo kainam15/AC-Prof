@@ -112,6 +112,8 @@ def test_structured_single_input_round_trips_through_load_and_offline_report(
 @pytest.mark.parametrize(("protocol", "valid", "invalid", "field"), [
     ("openai-completions", {"prompt": "ok"}, {"prompt": [[12], [13]]}, "one prompt"),
     ("openai-chat", {"messages": [{"role": "user", "content": "ok"}]},
+     {"messages": [{"role": "user", "content": "ok"}], "modalities": ["text", "audio"]}, "modalities"),
+    ("openai-chat", {"messages": [{"role": "user", "content": "ok"}]},
      {"messages": [{"role": "user", "content": [{"type": "text", "text": "hi"}, {"type": "image_url"}]}]},
      "messages[0].content[1]"),
 ])

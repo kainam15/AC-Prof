@@ -46,6 +46,34 @@ def rehash_inputs(payload):
     payload["identity_sha256"] = digest(payload["identity"])
 
 
+@pytest.mark.parametrize("legacy", [True, False])
+def test_retained_chat_modalities_use_the_recorded_adapter(dataset_report, legacy):
+    report = copy.deepcopy(dataset_report)
+    adapter = report["identity"]["adapter"]
+    assert adapter["output_modalities"] == ["text"]
+    if legacy:
+        for contract in (adapter, report["warmup"]["protocol"]["adapter"], report["result"]["protocol"]["adapter"]):
+            contract.pop("output_modalities")
+    report["identity"]["request_dataset"]["bodies"][0]["modalities"] = ["text", "audio"]
+    rehash_inputs(report)
+    if legacy:
+        assert analyze_load_report(report)["version"] == 3
+    else:
+        with pytest.raises(ValueError, match="request dataset line 1: .*modalities"):
+            analyze_load_report(report)
+
+
+@pytest.mark.parametrize(("phase", "observation"), [
+    ("warmup", {"finish_reason": "function_call"}),
+    ("result", {"server_usage": {"completion_tokens_details": {"audio_tokens": 1}}}),
+])
+def test_new_chat_report_rejects_success_contradicted_by_retained_output(dataset_report, phase, observation):
+    report = copy.deepcopy(dataset_report)
+    report[phase]["requests"][0].update(observation)
+    with pytest.raises(ValueError, match="successful Chat request"):
+        analyze_load_report(report)
+
+
 def test_dataset_report_retains_full_selected_prefix_and_phase_binding(dataset_report):
     data = analyze_load_report(copy.deepcopy(dataset_report))
     assert data["version"] == 3

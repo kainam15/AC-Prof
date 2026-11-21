@@ -164,6 +164,31 @@ def test_completed_refusal_stream_contributes_to_latency_and_goodput():
     assert "text_delta_fields" not in OpenAIStreamingAdapter("/v1/completions").protocol()
 
 
+@pytest.mark.parametrize(("terminal", "finish"), [
+    ({"choices": [{"delta": {"audio": {"data": "YQ==", "transcript": "audio"}}}]}, None),
+    ({"choices": [{"delta": {}, "finish_reason": "tool_calls"}]}, "tool_calls"),
+    ({"choices": [{"delta": {"tool_calls": [{"index": 0}]}, "finish_reason": "tool_calls"}]}, "tool_calls"),
+    ({"choices": [{"delta": {}, "finish_reason": "function_call"}]}, "function_call"),
+    ({"choices": [], "usage": {"completion_tokens": 2, "completion_tokens_details": {"audio_tokens": 1}}}, None),
+])
+def test_nontext_chat_output_cannot_contribute_to_goodput(terminal, finish):
+    endpoint = "/v1/chat/completions"
+    frames = [{"choices": [{"delta": {"content": "partial text"}}]}, terminal, "[DONE]"]
+    with streaming_server(endpoint=endpoint, raw_body=b"".join(event(f) for f in frames)) as (origin, *_):
+        result = run_load(origin, payload(endpoint), LoadConfig(requests=1), token="nontext",
+                          adapter=OpenAIStreamingAdapter(), slo_thresholds={"ttft_s": 10})
+    assert not result["successful"]
+    assert result["counts"]["failed"] == 1
+    assert result["streaming"]["ttft_s"]["sample_count"] == 0
+    assert result["capacity"]["goodput_requests_per_s"] == 0
+    row, = result["requests"]
+    assert row["error_code"] == "unsupported_output"
+    assert row["finish_reason"] == finish
+    assert row["observed_ttft_s"] is not None
+    assert [e["text"] for e in row["output_events"]] == ["partial text"]
+    assert row["ttft_s"] is row["e2e_s"] is None
+
+
 def test_slo_violation_does_not_change_stream_request_success():
     endpoint = "/v1/chat/completions"
     with streaming_server() as (url, _, _, _, _):

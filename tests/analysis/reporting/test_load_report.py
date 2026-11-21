@@ -132,6 +132,33 @@ def save_failed_experiment(tmp_path, version=2, error_code="timeout"):
     return source
 
 
+@pytest.mark.parametrize("change", ["historical", "declared_audio", "phase_only", "declared_only", "tool_finish"])
+def test_v2_chat_output_evidence_keeps_legacy_semantics(change):
+    from acprof.analysis.load_report import analyze_load_report
+    from acprof.host.measurement.streaming import OpenAIStreamingAdapter
+
+    report = experiment()
+    adapter = OpenAIStreamingAdapter().protocol()
+    body = {"model": "fixture", "messages": [{"role": "user", "content": "hi"}]}
+    report["identity"].update(endpoint=adapter["endpoint"], adapter=dict(adapter), request_body=body)
+    protocol = report["result"]["protocol"]
+    protocol["adapter"] = dict(adapter)
+    if change in ("historical", "declared_audio"):
+        body["modalities"] = ["audio"]
+    if change in ("phase_only", "historical"):
+        report["identity"]["adapter"].pop("output_modalities")
+    if change in ("declared_only", "historical"):
+        protocol["adapter"].pop("output_modalities")
+    if change in ("tool_finish", "historical"):
+        report["result"]["requests"][0]["finish_reason"] = "tool_calls"
+    report["identity_sha256"] = hashlib.sha256(json.dumps(report["identity"], sort_keys=True).encode()).hexdigest()
+    if change == "historical":
+        assert analyze_load_report(report)["version"] == 2
+    else:
+        with pytest.raises(ValueError, match="modalities|Chat output adapter|successful Chat request"):
+            analyze_load_report(report)
+
+
 def test_v2_report_recomputes_capacity_and_renders_single_point_metrics(tmp_path):
     source = save_experiment(tmp_path)
     output = tmp_path / "capacity.html"

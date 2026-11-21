@@ -10,7 +10,11 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 
 from acprof.artifacts import loads_finite_json, reject_isolated_surrogates
-from acprof.experiments.streaming import OPENAI_STREAMING_ENDPOINTS, prepare_streaming_payload
+from acprof.experiments.streaming import (
+    OPENAI_STREAMING_ENDPOINTS,
+    nontext_chat_output,
+    prepare_streaming_payload,
+)
 
 _CHAT_TEXT_FIELDS = ("reasoning", "reasoning_content", "content", "refusal")
 _METRICS = ("ttft_s", "tpot_s", "itl_s", "output_e2e_s", "e2e_s")
@@ -307,7 +311,8 @@ class OpenAIStreamingAdapter:
             "schema_version": 1, "kind": "openai_streaming", "endpoint": self.endpoint,
             "clock": "perf_counter_relative_seconds", "latency_unit": "seconds",
             "tpot_unit": "seconds_per_output_token", "completion": "sse_done_then_http_eof",
-            **({"text_delta_fields": list(_CHAT_TEXT_FIELDS)} if self.endpoint == "/v1/chat/completions" else {}),
+            **({"text_delta_fields": list(_CHAT_TEXT_FIELDS), "output_modalities": ["text"]}
+               if self.endpoint == "/v1/chat/completions" else {}),
             "ttft_boundary": "first_nonempty_text_or_explicit_token_output",
             "tpot_boundary": "last_output_minus_first_output_over_output_tokens_minus_one",
             "itl_requirement": "explicit_single_token_events_with_matching_generation_count",
@@ -377,6 +382,14 @@ class OpenAIStreamingAdapter:
         if record["output_tokens"] is not None:
             record["token_count_scope"] = "server_generated_tokens"
 
+        if self.endpoint == "/v1/chat/completions":
+            try:
+                reason = nontext_chat_output(None, usage)
+            except ValueError as error:
+                raise StreamProtocolError("invalid_usage", str(error)) from error
+            if reason:
+                raise StreamProtocolError("unsupported_output", reason)
+
     def _choice(
         self, record: dict[str, Any], choice: Any, received_s: float, run_budget: StreamRunBudget,
     ) -> None:
@@ -388,8 +401,12 @@ class OpenAIStreamingAdapter:
         delta = choice.get("delta", {}) if chat else {}
         if not isinstance(delta, dict):
             raise StreamProtocolError("invalid_delta", "chat delta must be an object")
-        if delta.get("tool_calls") or delta.get("function_call"):
-            raise StreamProtocolError("unsupported_output", "tool/function output is not supported")
+        finish = choice.get("finish_reason")
+        if delta.get("audio") is not None or delta.get("tool_calls") or delta.get("function_call"):
+            if isinstance(finish, str) and finish:
+                record["finish_reason"] = finish
+            kind = "audio" if delta.get("audio") is not None else "tool/function"
+            raise StreamProtocolError("unsupported_output", f"{kind} output is not supported")
         values = [delta.get(field) for field in _CHAT_TEXT_FIELDS] if chat else [choice.get("text")]
         if any(value is not None and not isinstance(value, str) for value in values):
             raise StreamProtocolError("unsupported_output", "output deltas must be text")
@@ -419,11 +436,12 @@ class OpenAIStreamingAdapter:
                 **({"contains_refusal": True} if contains_refusal else {}),
                 **({"token_count_lower_bound": lower_bound} if lower_bound else {}),
             })
-        finish = choice.get("finish_reason")
         if finish is not None:
             if not isinstance(finish, str) or not finish:
                 raise StreamProtocolError("invalid_finish_reason", "finish_reason must be nonempty text")
             record["finish_reason"] = finish
+            if chat and (reason := nontext_chat_output(finish, None)):
+                raise StreamProtocolError("unsupported_output", reason)
 
     def _event(
         self, record: dict[str, Any], event: SSEEvent, received_s: float, run_budget: StreamRunBudget,

@@ -487,6 +487,52 @@ def test_chat_rejects_unsupported_content_parts_with_a_field_path(role, content)
         OpenAIStreamingAdapter().prepare_payload({"model": "m", "messages": [{"role": role, "content": content}]})
 
 
+@pytest.mark.parametrize("options", [
+    {"modalities": ["audio"]}, {"modalities": ["text", "audio"]}, {"modalities": "text"},
+    {"modalities": []}, {"modalities": [None]}, {"audio": {}},
+    {"tools": [{}], "tool_choice": "auto"}, {"functions": [{}], "function_call": "auto"},
+])
+def test_chat_rejects_nontext_output_options(options):
+    body = {"model": "m", "messages": [{"role": "user", "content": "hi"}], **options}
+    with pytest.raises(ValueError, match="text output"):
+        OpenAIStreamingAdapter().prepare_payload(body)
+
+
+@pytest.mark.parametrize("options", [
+    {"modalities": None, "audio": None}, {"modalities": ["text"]},
+    {"tool_choice": "none", "tools": [{"type": "function", "function": {"name": "example"}}]},
+    {"function_call": "none", "functions": [{"name": "example"}]},
+])
+def test_explicit_text_output_options_are_preserved(options):
+    adapter = OpenAIStreamingAdapter()
+    body = {"model": "m", "messages": [{"role": "user", "content": "hi"}], **options}
+    prepared = adapter.prepare_payload(body)
+    assert all(prepared[key] == value for key, value in options.items())
+    assert adapter.protocol()["output_modalities"] == ["text"]
+
+
+@pytest.mark.parametrize("details", ["bad", {"audio_tokens": -1}, {"audio_tokens": True}])
+def test_invalid_chat_audio_usage_is_distinct_from_generated_audio(details):
+    event = {"choices": [], "usage": {"completion_tokens_details": details}}
+    with pytest.raises(StreamProtocolError) as error:
+        consume([(0.1, frame(event)), (0.2, frame("[DONE]"))])
+    assert error.value.code == "invalid_usage"
+
+
+def test_null_audio_and_prompt_audio_usage_do_not_change_text_output():
+    frames = [
+        chat("content", audio=None),
+        {"choices": [{"delta": {}, "finish_reason": "length"}]},
+        {"choices": [], "usage": {"prompt_tokens": 3, "completion_tokens": 1,
+                                  "prompt_tokens_details": {"audio_tokens": 2},
+                                  "completion_tokens_details": {"audio_tokens": 0}}},
+    ]
+    record = consume([(0.1, b"".join(frame(f) for f in frames)), (0.2, frame("[DONE]"))])
+    assert record["stream_successful"]
+    assert record["finish_reason"] == "length"
+    assert record["output_tokens"] == 1
+
+
 @pytest.mark.parametrize("mutation", [{"n": 2}, {"n": True}, {"stream": False}, {"stream_options": {"include_usage": False}}, {"echo": True}, {"tools": [{"name": "tool"}]}])
 def test_payload_validation_refuses_ambiguous_measurement_modes(mutation):
     with pytest.raises(ValueError, match="n=1|stream|text output|echo"):
