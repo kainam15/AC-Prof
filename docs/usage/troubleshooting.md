@@ -107,6 +107,7 @@ Docker 数据可能在另一挂载点，磁盘问题还需对实际 `DockerRootD
 - `cpu_cache_*` 和 `cpu_dtlb_*` 字段来自 Linux `perf` generic PMU events。可先用 `perf list` 和 `perf stat -e cache-references,cache-misses,dTLB-loads,dTLB-load-misses -- true` 检查当前 CPU / kernel 是否支持；事件不支持不表示 miss 为 0。
 - Best-effort PMU 预检优先将 `instructions/cycles`、cache 与 dTLB 的计数分组（`perf stat -e '{instructions,cycles},{cache-references,cache-misses},{dTLB-loads,dTLB-load-misses}'`）。组合出现 `<not counted>` 时单独复测受影响事件，再于总计 12 秒预算内尝试较小的事件集合；仅独立探测确认为不支持时标为「不支持」，组合调度受限、权限不足与检测错误分别记录。整个流程不运行额外模型请求、不修改系统权限；正式计数仍需检查目标进程 PID 附加权限。
 - `event_running_pct` 与 `event_runtime` 存入本次能力计划，`cpu_perf_running_pct` 汇总窗口内可解析 PMU 事件的最低实际运行比例。perf 对多路复用计数可能按运行时间缩放；短时预检比例偏低会显示质量警告，但不能据此推断正式推理窗口的精度。IPC、cache/dTLB miss rate 仅在所需事件同作用域、运行比例相符时计算；不完整的混合 PMU 计数保持 `nan`，绝不把 `<not counted>` 当作 0。低运行比例的短窗口应结合正式结果独立核对。
+- TUI 中若只有短时 PMU 多路复用、所有事件仍可计数，将显示「PMU 多路复用提醒」，而不是将全部 CPU 字段列作不可用或引导修改权限。只有实际不可用的事件才产生受影响字段列表；在正式结果中再查看 `cpu_perf_running_pct` 和派生指标有效性。
 - 这些 cache / dTLB 字段用于描述访存行为，不提供 DRAM GB/s。实际 read/write bandwidth 需要 uncore memory-controller、Intel PCM、AMD IBS/DF 或其他硬件专用计数器，不能由 miss 数直接换算。
 
 ## 常见问题

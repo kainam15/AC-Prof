@@ -361,7 +361,8 @@ def _automatic_checks(config, runtime, resolve_device, *, project_dir=None):
         partial = status == "ok" and bool(affected or unavailable_events or low_running_pct)
         if partial:
             status = "warn"
-        fields = tuple(affected or group_fields)
+        fields = (tuple(affected) if name == "cpu_instructions" and item["status"] == "available"
+                  else tuple(affected or group_fields))
         details = ", ".join(dict.fromkeys(probe["detail"] for probe in affected.values()))
         if name == "cpu_instructions" and unavailable_events:
             reasons = item.get("evidence", {}).get("event_statuses", {})
@@ -381,7 +382,8 @@ def _automatic_checks(config, runtime, resolve_device, *, project_dir=None):
                 detail += " · " + message_id(
                     "run.environment.perf.multiplexed", f"{min(percentages.values()):.1f}%"
                 )
-        reason_code = "partial" if partial else ""
+        reason_code = ("pmu_multiplexed" if partial and low_running_pct and not (affected or unavailable_events)
+                       else "partial" if partial else "")
         if runtime_pending and not partial:
             # The target cgroup does not exist until the container/service is attached.
             status = "declared"

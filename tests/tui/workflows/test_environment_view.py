@@ -308,6 +308,7 @@ def test_automatic_checks_report_only_the_affected_fields(tmp_path, monkeypatch,
         view = global_check_view(StatusItem(row), technical_detail=row.detail, tr=tr, check_allowed=True,
                                  navigate_allowed=True)
         assert tr(check_presentation(row).label) == label
-        assert tr(view.callout.impact).endswith(fields[0])
+        assert fields[0] not in tr(view.callout.impact)
+        assert fields[0] in view.callout.detail
         assert row.capability_status + " · " not in tr(view.callout.problem)
     assert "instructions" not in perf.affected_fields

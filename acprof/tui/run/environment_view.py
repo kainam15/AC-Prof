@@ -43,6 +43,7 @@ LABELS = {
 REMEDIES = {
     "environment": "platform", "docker": "docker", "cgroup": "cgroup", "uv": "uv",
     "process_resources": "resources", "cpu_energy": "rapl", "dram_energy": "rapl", "cpu_instructions": "permissions",
+    "cpu_instructions:pmu_multiplexed": "perf_multiplexed",
     "packet_latency": "capture_tools", "cgroup_metrics": "cgroup",
     "tcpdump": "capture_tools", "tshark": "capture_tools", "capture_permissions": "permissions",
     "capture_interface": "interface", "gpu_device": "gpu", "gpu_memory": "gpu", "gpu_utilization": "gpu",
@@ -92,6 +93,7 @@ _REASON_LABELS = {
     'unsupported': 'run.environment.reason.unsupported',
     'error': 'run.environment.state.error',
     'partial': 'run.environment.state.limited',
+    'pmu_multiplexed': 'run.environment.reason.pmu_multiplexed',
     'not_applicable': 'common.value.not_applicable',
     'tool_missing': 'run.environment.reason.tool_missing',
 }
@@ -195,7 +197,9 @@ def global_check_view(item: StatusItem, *, technical_detail: str, tr: Callable[[
                   else message_id('run.source.unrequested_impact') if item.requested is False
                   else message_id('run.plan.insufficient_windows') if row.check_id == 'quality_repeat'
                   else view.callout.impact)
-        fields = row.affected_fields or CHECK_FIELDS.get(row.check_id)
+        # A short perf multiplexing probe is a quality advisory, not missing fields.
+        fields = (() if row.reason_code == "pmu_multiplexed"
+                  else row.affected_fields or CHECK_FIELDS.get(row.check_id))
         detail = view.callout.detail
         if fields and not all(field in technical_detail for field in fields):
             detail = "\n\n".join((
@@ -237,7 +241,8 @@ def check_view(row: PreflightCheck, *, technical_detail: str, check_allowed: boo
     if status in {"warn", "fail", "error"}:
         problem = join_messages(" ", (presentation.symbol, check_title(row, presentation)))
         section = SOURCE_IMPACTS.get(source_group(row.check_id), "other")
-        impact = "check_error" if status == "error" or _reason(row) == "error" else section
+        impact = ("perf_multiplexed" if row.reason_code == "pmu_multiplexed"
+                  else "check_error" if status == "error" or _reason(row) == "error" else section)
         return EnvironmentCheckView(callout=CalloutContent(
             presentation.level,
             problem,
@@ -321,7 +326,8 @@ def source_title(source: SourceSummary) -> str:
 
 def repair_guidance(row: PreflightCheck, *, environment: Environment | None = None) -> str:
     """Platform-specific instructions only; never install, probe or change a gate."""
-    base = message_id('run.environment.remedy.' + REMEDIES.get(row.check_id, 'generic'))
+    base = message_id('run.environment.remedy.' + REMEDIES.get(
+        f'{row.check_id}:{row.reason_code}', REMEDIES.get(row.check_id, 'generic')))
     reason = _reason(row)
     if row.check_id == 'cpu_instructions' and reason in {'tool_missing', 'not_installed'}:
         return message_id('run.source.install.perf')

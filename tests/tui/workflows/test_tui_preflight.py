@@ -162,7 +162,9 @@ class TestTuiPreflight:
         run.assert_not_called()
 
 
-@pytest.mark.parametrize(("missing", "low_pct"), [(True, False), (False, True)])
+@pytest.mark.parametrize(("missing", "low_pct"), [
+    (True, False), (False, True), (True, True), (False, False),
+])
 def test_auto_pmu_preflight_distinguishes_missing_fields_and_low_duty_cycle(tmp_path, monkeypatch, missing, low_pct):
     from acprof.tui.run.diagnostics import _automatic_checks
 
@@ -186,9 +188,59 @@ def test_auto_pmu_preflight_distinguishes_missing_fields_and_low_duty_cycle(tmp_
         project_dir=tmp_path,
     )
     check = next(row for row in rows if row.check_id == "cpu_instructions")
-    assert (check.status, check.reason_code) == ("warn", "partial")
+    assert check.status == ("warn" if missing or low_pct else "ok")
+    assert check.reason_code == ("partial" if missing else "pmu_multiplexed" if low_pct else "")
+    assert check.affected_fields == (fields if missing else ())
     if missing:
         assert "dTLB-load-misses" in check.detail
         assert "PMU" in check.detail
     else:
-        assert "7.0%" in check.detail
+        assert not any(field in check.detail for field in fields)
+    assert ("7.0%" in check.detail) == low_pct
+
+
+def test_pmu_multiplexing_warning_has_no_false_missing_fields_or_permission_remedy():
+    from acprof.tui.i18n import translate
+    from acprof.tui.run.diagnostics import PreflightCheck
+    from acprof.tui.run.environment_view import check_presentation, global_check_view
+    from acprof.tui.run.global_status import StatusItem
+
+    row = PreflightCheck(
+        "cpu_instructions", "warn",
+        "available · PMU multiplexed; minimum running time 27.0%",
+        "available", check_id="cpu_instructions", source="perf_stat",
+        reason_code="pmu_multiplexed",
+    )
+    view = global_check_view(
+        StatusItem(row, requested=True, target="permissions:perf"),
+        technical_detail=row.detail, tr=lambda value: translate(value, "zh"),
+        check_allowed=True, navigate_allowed=True,
+    )
+    assert view.callout is not None
+    assert translate(check_presentation(row).label, "zh") == "PMU 多路复用提醒"
+    assert "不能据此判定" in translate(view.callout.impact, "zh")
+    assert "无需调整 perf 权限" in translate(view.callout.next_step, "zh")
+    assert "cpu_cycles_per_request" not in str(view.callout.detail)
+    assert "cpu_instructions_per_request" not in str(view.callout.detail)
+
+
+def test_auto_pmu_permission_failure_keeps_potentially_affected_fields(tmp_path, monkeypatch):
+    from acprof.tui.run.diagnostics import _automatic_checks
+
+    fields = ("cpu_instructions_per_request", "cpu_mips_app")
+    plan = {
+        "probes": {"cpu_instructions": {
+            "status": "permission_denied", "detail": "perf attach denied", "evidence": {},
+        }},
+        "fields": {"cpu_instructions": fields},
+        "field_probes": {},
+    }
+    monkeypatch.setattr("acprof.host.runtimes.capabilities.probe_collection_plan", lambda *a, **kw: plan)
+    rows = _automatic_checks(
+        RunConfig(profiling_mode="best_effort", gpus="off"), "process", lambda _: {},
+        project_dir=tmp_path,
+    )
+    check = next(row for row in rows if row.check_id == "cpu_instructions")
+    assert check.status == "warn"
+    assert check.reason_code == ""
+    assert check.affected_fields == fields
