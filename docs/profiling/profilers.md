@@ -120,6 +120,10 @@ checkpoint 均按精确数值匹配，不用容差将相近尺度合并；缺少
 不借用邻近尺度的结果。新文件名不回退查找历史舍入名称；旧实验文件不自动迁移或改写。
 补采上下文保留所有不同尺度，历史 NCU summary 也按精确值查重和回填；CSV 尺度未在
 输入计划中精确出现时拒绝补采。
+历史宽 CSV 可通过 `python -m acprof.cli.backfill_compute INPUT.csv PLAN.json --output OUTPUT.csv` 回填，
+也可通过 `--ncu-summary` 指定按规模记录的 NCU CSV。这个入口直接按 CSV 和 JSON 的原始十进制数值匹配。
+例如，`64.0` 与 `6.4e1` 指向同一条观测，`1` 与 `1.0000000000000001` 则分别查找。缺少条目时保留缺失诊断。
+结果表或 NCU 表有重名列、行宽不符或引号未闭合时，命令会在写入输出前报错，包括使用 `--overwrite` 原地回填的情况。
 此修复不能追溯证明历史 Profiler 使用了正确 payload；需要重新确认时，应在使用当前
 runner 的运行环境中显式执行 `--force-reprofile`，不能把旧值重新关联到新尺度来修复。
 

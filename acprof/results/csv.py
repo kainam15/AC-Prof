@@ -7,7 +7,7 @@ import io
 import struct
 import sys
 from collections import deque
-from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterable, Iterator, Mapping, Sequence
 from contextlib import ExitStack
 from dataclasses import dataclass
 from decimal import InvalidOperation
@@ -251,6 +251,19 @@ def parse_result_stream(stream: Iterable[str], path: Path, expected: ExpectedMea
                                        validate_measurements=validate_measurements, cancelled=cancelled)
 
 
+def require_csv_columns(fields: Sequence[str], path: Path) -> None:
+    if not fields or len(fields) != len(set(fields)):
+        raise ResultValidationError(f"missing or duplicate CSV columns: {path}")
+
+
+def iter_csv_rows(source_rows: Iterable[dict], path: Path) -> Iterator[tuple[int, dict[str, str]]]:
+    """Verify each DictReader row has exactly one cell per header, including explicit blanks."""
+    for index, row in enumerate(source_rows, 2):
+        if None in row or any(value is None for value in row.values()):
+            raise ResultValidationError(f"malformed CSV row: {path}:{index}")
+        yield index, cast(dict[str, str], row)
+
+
 def validate_result_rows(fields: Sequence[str], source_rows: Iterable[dict], path: Path, *,
                          expected: ExpectedMeasurements | None = None, allow_empty=False,
                          validate_measurements=True, cancelled: Callable[[], bool] | None = None) -> ValidatedResultRows:
@@ -264,16 +277,13 @@ def validate_result_rows(fields: Sequence[str], source_rows: Iterable[dict], pat
         raise ValueError("expected measurements require measurement validation")
     if validate_measurements:
         require_current_fields(fields)
-    if not fields or len(fields) != len(set(fields)):
-        raise ResultValidationError(f"missing or duplicate CSV columns: {path}")
+    require_csv_columns(fields, path)
     missing = set(KEY_FIELDS) - set(fields)
     if validate_measurements and missing:
         raise ResultValidationError(f"missing identity columns {sorted(missing)}: {path}")
     rows = []
     keys: dict[MeasurementKey, None] = {}
-    for index, row in enumerate(cancellable(source_rows, cancelled), 2):
-        if None in row or any(value is None for value in row.values()):
-            raise ResultValidationError(f"malformed CSV row: {path}:{index}")
+    for index, row in iter_csv_rows(cancellable(source_rows, cancelled), path):
         if validate_measurements:
             try:
                 key = measurement_key(row)
@@ -286,7 +296,7 @@ def validate_result_rows(fields: Sequence[str], source_rows: Iterable[dict], pat
             keys[key] = None
             if row.get("environment_class") not in {"native_linux", "wsl2", "vm", "cloud", "container_host", "unknown"}:
                 row = {**row, "environment_class": "unknown"}
-        rows.append(cast(dict[str, str], row))
+        rows.append(row)
     if not rows and not allow_empty:
         raise ResultValidationError(f"empty case CSV (no measurement rows): {path}")
     require_expected_measurements(keys.keys(), expected, path=path, cancelled=cancelled)

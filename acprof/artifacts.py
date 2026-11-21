@@ -12,6 +12,8 @@ import tempfile
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
+from functools import partial
 from io import BytesIO
 from pathlib import Path
 from typing import Any, BinaryIO, TextIO
@@ -50,11 +52,22 @@ def _finite_json_number(raw: str) -> float:
     return value
 
 
-def loads_finite_json(content: str) -> Any:
+def _finite_json_decimal(raw: str) -> Decimal:
+    _finite_json_number(raw)  # Keep the artifact format's original finite range.
+    try:
+        value = Decimal(raw)
+    except InvalidOperation as exc:
+        raise ValueError("number outside the decimal range") from exc
+    if not value.is_finite():  # InvalidOperation may be untrapped in the caller's context.
+        raise ValueError("number outside the decimal range")
+    return value
+
+
+def loads_finite_json(content: str, *, exact_decimals: bool = False) -> Any:
     """Decode JSON while rejecting non-standard or overflowed finite numbers."""
     return json.loads(
         content,
-        parse_float=_finite_json_number,
+        parse_float=_finite_json_decimal if exact_decimals else _finite_json_number,
         parse_constant=_finite_json_number,
     )
 
@@ -126,9 +139,10 @@ def _json_text(source: Path, label: str, content: bytes) -> str:
         raise ValueError(f"{source}: invalid {label} JSON: {exc}") from exc
 
 
-def _json_object(source: Path, label: str, text: str, cancelled: Callable[[], bool] | None) -> dict:
+def _json_object(source: Path, label: str, text: str, cancelled: Callable[[], bool] | None,
+                 decode: Callable[[str], Any]) -> dict:
     try:
-        payload = loads_finite_json(text)
+        payload = decode(text)
     except (ValueError, RecursionError) as exc:
         raise ValueError(f"{source}: invalid {label} JSON: {exc}") from exc
     if not isinstance(payload, dict):
@@ -151,21 +165,23 @@ def read_json_object_snapshot(
     source = Path(path)
     content = _read_json_bytes(source, label, expected_sha256=expected_sha256, bounded=bounded,
                                cancelled=cancelled, byte_budget=byte_budget)
-    return JsonObjectSnapshot(content, _json_object(source, label, _json_text(source, label, content), cancelled))
+    payload = _json_object(source, label, _json_text(source, label, content), cancelled, loads_finite_json)
+    return JsonObjectSnapshot(content, payload)
 
 
 def read_json_object(
     path: str | Path, *, label: str = "artifact", expected_sha256: str | None = None,
     bounded: bool = True, cancelled: Callable[[], bool] | None = None,
-    byte_budget: list[int] | None = None,
+    byte_budget: list[int] | None = None, exact_decimals: bool = False,
 ) -> dict:
-    """Read finite JSON, optionally checking its exact bytes and shared budget."""
+    """Read finite JSON, optionally preserving decimal tokens for exact coordinate matching."""
     source = Path(path)
     content = _read_json_bytes(source, label, expected_sha256=expected_sha256, bounded=bounded,
                                cancelled=cancelled, byte_budget=byte_budget)
     text = _json_text(source, label, content)
     del content
-    return _json_object(source, label, text, cancelled)
+    decode = partial(loads_finite_json, exact_decimals=True) if exact_decimals else loads_finite_json
+    return _json_object(source, label, text, cancelled, decode)
 
 
 def require_schema_version(payload: Any, expected: int, artifact: str) -> None:

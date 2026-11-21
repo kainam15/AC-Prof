@@ -7,10 +7,12 @@ from __future__ import annotations
 
 import math
 import os
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from acprof.artifacts import read_json_object
 from acprof.gpu_mode import normalize_gpu_mode
+from acprof.results.measurement_plan import decimal_coordinate
 
 TORCH_PROFILE_KEY = "torch_profiler_eager"
 NCU_PROFILE_KEY = "ncu"
@@ -38,14 +40,26 @@ def _to_float_or_nan(value: Any) -> float:
         return float("nan")
 
 
-def load_compute_profile_plan(path: str) -> dict[str, Any]:
+def compute_scale_key(value: object) -> Decimal | None:
+    """Preserve the finite source coordinate, including values that underflow float."""
+    if isinstance(value, bool) or not isinstance(value, (Decimal, float, int, str)):
+        return None
+    try:
+        if not math.isfinite(float(value)):
+            return None
+        return value if isinstance(value, Decimal) else decimal_coordinate(str(value))
+    except (InvalidOperation, OverflowError, ValueError):
+        return None
+
+
+def load_compute_profile_plan(path: str, *, exact_decimals: bool = False) -> dict[str, Any]:
     """Load a profiling plan while preserving the client's diagnostic semantics."""
     if not path:
         return {"profiles": {}, "_load_error": "compute_profile_disabled"}
     if not os.path.exists(path):
         return {"profiles": {}, "_load_error": f"compute_profile_plan_not_found:{path}"}
     try:
-        plan = read_json_object(path, label="compute profile plan")
+        plan = read_json_object(path, label="compute profile plan", exact_decimals=exact_decimals)
     except (OSError, ValueError) as exc:
         return {"profiles": {}, "_load_error": f"compute_profile_plan_invalid:{exc!r}"}
     profiles = plan.get("profiles")
@@ -88,11 +102,20 @@ def _empty_result() -> dict[str, Any]:
     }
 
 
+def _scale_matches(value: object, requested: int | float | Decimal | None, key: Decimal) -> bool:
+    # Native float plans and live windows use the same round-trip representation.
+    if isinstance(value, float) and isinstance(requested, float):
+        return float(value) == requested
+    if isinstance(value, int) and not isinstance(value, bool):
+        return value == key
+    return compute_scale_key(value) == key
+
+
 def _resolve_profile_entry(
     profile: Any,
     *,
     profile_key: str,
-    input_scale: float,
+    input_scale: int | float | Decimal | None,
 ) -> tuple[dict[str, Any], str]:
     """Return ``(matching_entry, diagnostic)`` for one tool profile."""
     if not isinstance(profile, dict):
@@ -109,31 +132,16 @@ def _resolve_profile_entry(
             profile_error or f"compute_profile_missing_entries:{profile_key}",
         )
 
-    for entry in entries:
-        if not isinstance(entry, dict):
-            continue
-        raw_scale = entry.get("input_scale")
-        if raw_scale is None:
-            continue
-        try:
-            entry_scale = float(raw_scale)
-        except (TypeError, ValueError):
-            continue
-        if math.isfinite(entry_scale) and entry_scale == float(input_scale):
-            entry_error = (
-                str(entry.get("error") or "")
-                if "error" in entry
-                else profile_error
-            )
-            return (
-                entry,
-                entry_error,
-            )
+    key = compute_scale_key(input_scale)
+    if key is not None:
+        for entry in entries:
+            if isinstance(entry, dict) and _scale_matches(entry.get("input_scale"), input_scale, key):
+                return entry, str(entry.get("error", profile_error) or "")
 
-    return (
-        {},
-        f"compute_profile_missing_scale:{input_scale:g}",
-    )
+    label = str(key) if key is not None else "nan"
+    if isinstance(input_scale, float):
+        label = f"{input_scale:g}"
+    return {}, f"compute_profile_missing_scale:{label}"
 
 
 def _apply_torch_profile(
@@ -189,7 +197,7 @@ def _apply_ncu_profile(
 def find_compute_profile_entry(
     plan: dict[str, Any],
     gpu_mode: str,
-    input_scale: float,
+    input_scale: int | float | Decimal | None,
 ) -> dict[str, Any]:
     """Resolve both FLOP profiles for one device/scale."""
     profile_key = "gpu" if normalize_gpu_mode(gpu_mode) == "on" else "cpu"

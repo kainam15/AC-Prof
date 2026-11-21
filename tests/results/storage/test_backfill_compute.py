@@ -27,21 +27,25 @@ OBSOLETE_RESULT_FIELDS = (
 
 
 class TestBackfillComputeProfile:
-    @pytest.mark.parametrize("summary_scales", [[1.0000001, 1.0000002], [1.0000001]])
-    def test_ncu_summary_backfill_keeps_distinct_scale_identity(self, tmp_path, summary_scales):
+    @pytest.mark.parametrize("scales", [
+        ("1.0000001", "1.0000002"),
+        ("1", "1.0000000000000001"),
+        ("9007199254740992", "9007199254740993"),
+    ], ids=["float-neighbors", "decimal-neighbors", "integer-neighbors"])
+    @pytest.mark.parametrize("entry_count", [1, 2])
+    def test_ncu_summary_backfill_keeps_distinct_scale_identity(self, tmp_path, scales, entry_count):
         input_csv = tmp_path / "input.csv"
         output_csv = tmp_path / "output.csv"
         plan_path = tmp_path / "compute_profile_plan.json"
         summary_path = tmp_path / "ncu_summary.csv"
         field = "gpu_executed_mflop_per_request_ncu"
-        scales = [1.0000001, 1.0000002]
         self._write_csv(input_csv, ["gpu_mode", "input_scale", "latency_app_s"], [
             {"gpu_mode": "on", "input_scale": scale, "latency_app_s": 1.0}
             for scale in scales
         ])
         self._write_csv(summary_path, ["input_scale", field], [
             {"input_scale": scale, field: value}
-            for scale, value in zip(summary_scales, [10.0, 20.0], strict=False)
+            for scale, value in zip(scales[:entry_count], (10.0, 20.0), strict=False)
         ])
         plan_path.write_text(json.dumps({"profiles": {}}))
         before = input_csv.read_bytes()
@@ -50,14 +54,67 @@ class TestBackfillComputeProfile:
 
         with output_csv.open(newline="") as stream:
             rows = list(csv.DictReader(stream))
-        assert [float(row["input_scale"]) for row in rows] == scales
+        assert tuple(row["input_scale"] for row in rows) == scales
         assert float(rows[0][field]) == 10.0
-        if len(summary_scales) == 2:
+        if entry_count == 2:
             assert float(rows[1][field]) == 20.0
         else:
             assert rows[1][field] == "nan"
             assert rows[1]["compute_profile_error_ncu"]
         assert input_csv.read_bytes() == before
+
+    @pytest.mark.parametrize(("first", "alias", "second", "missing"), [
+        ("1.00000000000000001", "100000000000000001e-17", "1.00000000000000002", "1.00000000000000003"),
+        ("9007199254740995", "90071992547409950e-1", "9007199254740996", "9007199254740997"),
+    ], ids=["json-decimals", "json-integers"])
+    def test_plan_resolves_original_json_scale_tokens(self, tmp_path, first, alias, second, missing):
+        source, plan, output = (tmp_path / name for name in ("input.csv", "plan.json", "output.csv"))
+        field = "model_logical_mflop_per_request_torch_profiler_eager"
+        self._write_csv(source, ["gpu_mode", "input_scale", "latency_app_s"], [
+            {"gpu_mode": "on", "input_scale": scale, "latency_app_s": "1"} for scale in (alias, second, missing)
+        ])
+        # Keep the JSON numeric lexemes. Building the fixture with Python floats loses the distinction.
+        entries = ",".join(
+            f'{{"input_scale":{token},"{field}":{value}}}'
+            for token, value in ((first, 10), (json.dumps(alias), 99), (second, 20))
+        )
+        plan.write_text('{"profiles":{"gpu":{"torch_profiler_eager":{"entries":[' + entries + ']}}}}')
+        summary = backfill_compute_profile_csv(str(source), str(plan), str(output))
+
+        with output.open(newline="") as stream:
+            rows = list(csv.DictReader(stream))
+        assert [row[field] for row in rows] == ["10.000000", "20.000000", "nan"]
+        assert [row["input_scale"] for row in rows] == [alias, second, missing]
+        assert rows[2]["compute_profile_error_torch_profiler_eager"].startswith("compute_profile_missing_scale:")
+        assert summary.diagnostic_count == 1
+
+    def test_invalid_decimal_coordinate_cannot_borrow_zero_observation(self, tmp_path):
+        source, plan, output = (tmp_path / name for name in ("input.csv", "plan.json", "out.csv"))
+        source.write_text("gpu_mode,input_scale,latency_app_s\noff,1e-9999999999999999999999,1\noff,0,1\n")
+        field = "model_logical_mflop_per_request_torch_profiler_eager"
+        plan.write_text(json.dumps({"profiles": {"cpu": {"torch_profiler_eager": {
+            "entries": [{"input_scale": 0, field: 19}],
+        }}}}))
+
+        summary = backfill_compute_profile_csv(str(source), str(plan), str(output))
+
+        with output.open(newline="") as stream:
+            invalid, zero = csv.DictReader(stream)
+        assert invalid[field] == "nan"
+        assert invalid["compute_profile_error_torch_profiler_eager"].startswith("compute_profile_missing_scale:")
+        assert zero[field] == "19.000000"
+        assert summary.diagnostic_count == 1
+
+    def test_ncu_summary_rejects_equivalent_scale_spellings_before_overwrite(self, tmp_path):
+        source, plan, summary, output = (tmp_path / name for name in ("input.csv", "plan.json", "ncu.csv", "out.csv"))
+        source.write_text("gpu_mode,input_scale,latency_app_s\non,64,1\n")
+        plan.write_text('{"profiles":{}}')
+        summary.write_text("input_scale,gpu_hw_mflop_per_request_ncu\n64.000,10\n6.4e1,20\n")
+        output.write_bytes(b"previous output")
+
+        with pytest.raises(ValueError, match="NCU summary CSV has duplicate input_scale"):
+            backfill_compute_profile_csv(str(source), str(plan), str(output), ncu_summary=str(summary), overwrite=True)
+        assert output.read_bytes() == b"previous output"
 
     def _write_csv(self, path, fieldnames, rows):
         with open(path, "w", encoding="utf-8", newline="") as f:

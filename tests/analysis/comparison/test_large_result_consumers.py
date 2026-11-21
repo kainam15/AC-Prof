@@ -5,6 +5,7 @@ import csv
 import json
 import subprocess
 import sys
+from decimal import Decimal
 
 import pytest
 
@@ -48,8 +49,7 @@ def test_result_consumers_accept_large_fields(tmp_path, consumer):
         assert rows[0]["note"] == expected["note"]
     else:
         entries = backfill_compute._read_ncu_summary(str(path))
-        assert entries[0][0] == 1.0
-        assert entries[0][1]["gpu_executed_mflop_per_request_ncu"] == "12"
+        assert entries[Decimal("1")]["gpu_executed_mflop_per_request_ncu"] == "12"
     assert path.read_bytes() == original
 
 

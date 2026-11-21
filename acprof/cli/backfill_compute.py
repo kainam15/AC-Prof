@@ -8,8 +8,11 @@ import math
 import os
 import stat
 import tempfile
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass
+from decimal import Decimal
+from pathlib import Path
 from typing import Any
 
 from acprof.gpu_mode import normalize_gpu_mode
@@ -24,10 +27,11 @@ from acprof.host.profiling.compute_plan import (
     TORCH_ERROR_FIELD,
     TORCH_LOGICAL_MFLOP_FIELD,
     compute_mflops,
+    compute_scale_key,
     find_compute_profile_entry,
     load_compute_profile_plan,
 )
-from acprof.results.csv import allow_large_csv_fields
+from acprof.results.csv import allow_large_csv_fields, iter_csv_rows, require_csv_columns
 
 COMPUTE_PROFILE_FIELDS = (
     TORCH_LOGICAL_MFLOP_FIELD,
@@ -119,16 +123,24 @@ def _csv_encoding(path: str) -> str:
     return "utf-8-sig" if has_utf8_bom else "utf-8"
 
 
-def _read_result_csv(path: str) -> tuple[list[str], list[dict[str, str]], str]:
+@contextmanager
+def _historical_csv(path: str) -> Iterator[tuple[list[str], Iterator[tuple[int, dict[str, str]]], str]]:
+    source = Path(path)
     encoding = _csv_encoding(path)
-    with open(path, encoding=encoding, newline="") as f:
+    with source.open(encoding=encoding, newline="") as stream:
         allow_large_csv_fields()
-        reader = csv.DictReader(f)
-        fieldnames = list(reader.fieldnames or [])
-        if not fieldnames:
-            raise ValueError("input CSV is empty or has no header")
-        rows = list(reader)
+        try:
+            reader = csv.DictReader(stream, strict=True)
+            fields = list(reader.fieldnames or [])
+            require_csv_columns(fields, source)
+            yield fields, iter_csv_rows(reader, source), encoding
+        except csv.Error as exc:
+            raise ValueError(f"malformed CSV: {path}: {exc}") from exc
 
+
+def _read_result_csv(path: str) -> tuple[list[str], list[dict[str, str]], str]:
+    with _historical_csv(path) as (fieldnames, records, encoding):
+        rows = [row for _, row in records]
     missing_fields = [
         field for field in REQUIRED_INPUT_FIELDS if field not in fieldnames
     ]
@@ -136,8 +148,6 @@ def _read_result_csv(path: str) -> tuple[list[str], list[dict[str, str]], str]:
         raise ValueError(
             "input CSV is missing required fields: " + ", ".join(missing_fields)
         )
-    if any(None in row for row in rows):
-        raise ValueError("input CSV has rows with more values than header fields")
 
     for field in OBSOLETE_COMPUTE_PROFILE_FIELDS:
         if field in fieldnames:
@@ -151,14 +161,9 @@ def _read_result_csv(path: str) -> tuple[list[str], list[dict[str, str]], str]:
     return fieldnames, rows, encoding
 
 
-def _read_ncu_summary(path: str) -> list[tuple[float, dict[str, Any]]]:
+def _read_ncu_summary(path: str) -> dict[Decimal, dict[str, Any]]:
     """Read the historical per-scale NCU sidecar without changing its paths."""
-    with open(path, encoding=_csv_encoding(path), newline="") as f:
-        allow_large_csv_fields()
-        reader = csv.DictReader(f)
-        fieldnames = list(reader.fieldnames or [])
-        if not fieldnames:
-            raise ValueError("NCU summary CSV is empty or has no header")
+    with _historical_csv(path) as (fieldnames, records, _):
         if "input_scale" not in fieldnames:
             raise ValueError("NCU summary CSV is missing required field: input_scale")
         if not any(
@@ -170,14 +175,14 @@ def _read_ncu_summary(path: str) -> list[tuple[float, dict[str, Any]]]:
                 f"({', '.join(NCU_SUMMARY_FIELD_ALIASES[NCU_TOTAL_MFLOP_FIELD])})"
             )
 
-        entries: list[tuple[float, dict[str, Any]]] = []
-        for row_index, row in enumerate(reader, start=2):
-            scale = _to_float_or_nan(row.get("input_scale"))
-            if not math.isfinite(scale):
+        entries: dict[Decimal, dict[str, Any]] = {}
+        for row_index, row in records:
+            scale = compute_scale_key(row.get("input_scale"))
+            if scale is None:
                 raise ValueError(
                     f"NCU summary CSV has invalid input_scale at row {row_index}"
                 )
-            if any(scale == existing_scale for existing_scale, _entry in entries):
+            if scale in entries:
                 raise ValueError(
                     f"NCU summary CSV has duplicate input_scale: {scale:g}"
                 )
@@ -190,27 +195,15 @@ def _read_ncu_summary(path: str) -> list[tuple[float, dict[str, Any]]]:
                         value = row.get(alias)
                         break
                 mapped[destination] = value
-            entries.append((scale, mapped))
+            entries[scale] = mapped
     return entries
-
-
-def _find_ncu_summary_entry(
-    entries: Sequence[tuple[float, dict[str, Any]]],
-    input_scale: float,
-) -> dict[str, Any] | None:
-    for entry_scale, entry in entries:
-        if entry_scale == input_scale:
-            return entry
-    return None
 
 
 def _apply_ncu_summary(
     profile: dict[str, Any],
-    *,
-    entries: Sequence[tuple[float, dict[str, Any]]],
-    input_scale: float,
+    entry: dict[str, Any] | None,
+    input_scale: Decimal | float,
 ) -> None:
-    entry = _find_ncu_summary_entry(entries, input_scale)
     if entry is None:
         profile.update(
             {
@@ -250,22 +243,7 @@ def _apply_ncu_summary(
     )
 
 
-def _backfill_row(
-    row: dict[str, str],
-    plan: dict[str, Any],
-    ncu_summary: Sequence[tuple[float, dict[str, Any]]] | None = None,
-) -> None:
-    input_scale = _to_float_or_nan(row.get("input_scale"))
-    gpu_mode = normalize_gpu_mode(row.get("gpu_mode"))
-    profile = find_compute_profile_entry(plan, gpu_mode, input_scale)
-
-    if gpu_mode == "on" and ncu_summary is not None:
-        _apply_ncu_summary(
-            profile,
-            entries=ncu_summary,
-            input_scale=input_scale,
-        )
-
+def _backfill_row(row: dict[str, str], profile: dict[str, Any]) -> None:
     logical_mflop = _to_float_or_nan(profile.get(TORCH_LOGICAL_MFLOP_FIELD))
     logical_mflops_app = compute_mflops(
         logical_mflop,
@@ -410,12 +388,30 @@ def backfill_compute_profile_csv(
         raise ValueError("an explicit output CSV path is required")
 
     fieldnames, rows, encoding = _read_result_csv(input_csv)
-    plan = load_compute_profile_plan(compute_profile_plan)
+    plan = load_compute_profile_plan(compute_profile_plan, exact_decimals=True)
     ncu_summary_entries = (
         _read_ncu_summary(ncu_summary) if ncu_summary else None
     )
+    profiles: dict[tuple[str, Decimal | str], dict[str, Any]] = {}
     for row in rows:
-        _backfill_row(row, plan, ncu_summary_entries)
+        mode = normalize_gpu_mode(row.get("gpu_mode"))
+        raw = row.get("input_scale")
+        coordinate = compute_scale_key(raw)
+        scale: Decimal | float
+        if coordinate is None:
+            # Keep infinity diagnostics, but never turn an unparseable coordinate into a zero lookup.
+            invalid = _to_float_or_nan(raw)
+            scale = invalid if math.isinf(invalid) else math.nan
+        else:
+            scale = coordinate
+        key = (mode, str(scale) if coordinate is None else coordinate)
+        if key not in profiles:
+            profile = find_compute_profile_entry(plan, mode, scale)
+            if mode == "on" and ncu_summary_entries is not None:
+                entry = ncu_summary_entries.get(coordinate) if coordinate is not None else None
+                _apply_ncu_summary(profile, entry, scale)
+            profiles[key] = profile
+        _backfill_row(row, profiles[key])
 
     _publish_csv_atomically(
         input_csv=input_csv,
