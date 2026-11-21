@@ -4,7 +4,7 @@ from __future__ import annotations
 import csv
 import hashlib
 import json
-from collections import Counter
+from collections import Counter, defaultdict
 from collections.abc import Iterator
 from fractions import Fraction
 from pathlib import Path
@@ -70,12 +70,48 @@ def _condition(left, right) -> dict:
     return {"status": status, "left": left, "right": right}
 
 
-def _distribution(case, projection=lambda contract: contract):
+def _contract_counts(case) -> Counter[str]:
     counts: Counter[str] = Counter()
     for variant in case["variants"]:
-        counts[_canonical(projection(variant["contract"]))] += variant["count"]
-    total = case["request_count"]
+        counts[_canonical(variant["contract"])] += variant["count"]
+    return counts
+
+
+def _proportions(counts: Counter[str], total: int) -> dict[str, str]:
     return {value: str(Fraction(count, total)) for value, count in sorted(counts.items())}
+
+
+def _same_proportions(left: Counter[str], right: Counter[str], left_total: int, right_total: int) -> bool:
+    if left_total == right_total:
+        return left == right
+    return left.keys() == right.keys() and all(
+        count * right_total == right[value] * left_total for value, count in left.items()
+    )
+
+
+def _marginal_counts(case) -> dict[str, Counter[str]]:
+    histograms: defaultdict[str, Counter[str]] = defaultdict(Counter)
+    for variant in case["variants"]:
+        for name, value in dimensions(variant["contract"]).items():
+            histograms[name][_canonical(value)] += variant["count"]
+    # Absent leaves and explicit JSON null share a bucket in the detailed report.
+    for counts in histograms.values():
+        absent = case["request_count"] - counts.total()
+        if absent:
+            counts["null"] += absent
+    return histograms
+
+
+def _changed_marginals(a, b):
+    left, right = _marginal_counts(a), _marginal_counts(b)
+    lhs_total, rhs_total = a["request_count"], b["request_count"]
+    lhs_missing, rhs_missing = Counter({"null": lhs_total}), Counter({"null": rhs_total})
+    changed = {}
+    for name in left.keys() | right.keys():
+        lhs, rhs = left.get(name, lhs_missing), right.get(name, rhs_missing)
+        if not _same_proportions(lhs, rhs, lhs_total, rhs_total):
+            changed[name] = {"left": _proportions(lhs, lhs_total), "right": _proportions(rhs, rhs_total)}
+    return changed
 
 
 def _request_counts_changed(left, right) -> bool | None:
@@ -92,6 +128,32 @@ def _request_counts_changed(left, right) -> bool | None:
     return None if uncertain else False
 
 
+def _workload_differences(left, right):
+    changed: dict[str, dict[str, dict[str, dict[str, str]]]] = {}
+    joint_only = {}
+    incomplete = False
+    for key, a in left.items():
+        b = right[key]
+        if any(case.get("ambiguous") or not case["request_count"] or any(v["contract"] is None for v in case["variants"])
+               for case in (a, b)):
+            incomplete = True
+            continue
+        if any(not workload_contract_complete(v["contract"]) for case in (a, b) for v in case["variants"]):
+            incomplete = True
+        lhs, rhs = _contract_counts(a), _contract_counts(b)
+        lhs_total, rhs_total = a["request_count"], b["request_count"]
+        if _same_proportions(lhs, rhs, lhs_total, rhs_total):
+            continue
+        marginals = _changed_marginals(a, b)
+        for name in sorted(marginals):
+            changed.setdefault(name, {})[key] = marginals[name]
+        if not marginals:
+            joint_only[key] = {"left": _proportions(lhs, lhs_total), "right": _proportions(rhs, rhs_total)}
+    if not changed and joint_only:
+        changed["joint_distribution"] = joint_only
+    return incomplete, changed
+
+
 def _workload_condition(left, right):
     result = {"status": "unknown", "left": left, "right": right,
               "request_counts_changed": None, "changed_dimensions": {},
@@ -101,36 +163,12 @@ def _workload_condition(left, right):
     result["request_counts_changed"] = _request_counts_changed(left, right)
     if left.keys() != right.keys():
         return {**result, "status": "incompatible", "reason": "workload_cases_changed"}
-    changed: dict[str, dict[str, dict[str, dict[str, str]]]] = {}
-    incomplete = False
-    differing_cases = []
-    for key in left:
-        a, b = left[key], right[key]
-        if any(case.get("ambiguous") or not case["request_count"] or any(v["contract"] is None for v in case["variants"])
-               for case in (a, b)):
-            incomplete = True
-            continue
-        if any(not workload_contract_complete(v["contract"]) for case in (a, b) for v in case["variants"]):
-            incomplete = True
-        if _distribution(a) != _distribution(b):
-            differing_cases.append(key)
-    if not differing_cases:
+    incomplete, changed = _workload_differences(left, right)
+    if not changed:
         return {**result, "status": "unknown" if incomplete else "compatible",
                 "reason": "actual_workload_evidence_incomplete" if incomplete else "same_per_request_distribution"}
     profile_status = compare_workload_profiles(*({key: workload_case_profile(case) for key, case in cases.items()}
                                                 for cases in (left, right)))
-    for key in differing_cases:
-        a, b = left[key], right[key]
-        names = set().union(*(dimensions(v["contract"]).keys() for c in (a, b) for v in c["variants"]))
-        for name in sorted(names):
-            lhs = _distribution(a, lambda c, name=name: dimensions(c).get(name))
-            rhs = _distribution(b, lambda c, name=name: dimensions(c).get(name))
-            if lhs != rhs:
-                changed.setdefault(name, {})[key] = {"left": lhs, "right": rhs}
-    # Equal marginal distributions may still hide different joint mixtures.
-    if not changed:
-        changed["joint_distribution"] = {key: {"left": _distribution(left[key]), "right": _distribution(right[key])}
-                                         for key in differing_cases}
     return {**result, "status": profile_status, "changed_dimensions": changed,
             "reason": ("per_request_distribution_changed" if profile_status == "incompatible" else
                        "actual_workload_evidence_incomplete" if incomplete else "output_distribution_equivalence_unverified")}
