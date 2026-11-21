@@ -633,6 +633,8 @@ def _finalize_case(capture_available: bool, sniff_runtime, case_incomplete, comp
                                          **({"errors": archive_errors} if optional else {}))
     if payload["requests"]:
         atomic_write(lat_json, lambda stream: json.dump(payload, stream, ensure_ascii=True, allow_nan=False, indent=2))
+        # The merge process reads the published file into its own memory.
+        del payload
         merge_packet_csv(out_csv, lat_json)
         if require_packet_latency:
             _assert_packet_latency_csv_complete(out_csv, ignore_error_rows=case_incomplete)

@@ -6,6 +6,7 @@ import sys
 from collections import Counter
 from collections.abc import Sequence
 from contextlib import closing
+from itertools import chain
 
 from acprof.host.measurement.packet_processing import postprocessing_timeout
 from acprof.packet.protocol import PACKET_SCHEMA_VERSION
@@ -68,6 +69,28 @@ def _parse_finite_float_field(raw: str) -> float | None:
     return value if math.isfinite(value) else None
 
 
+def _write_packet_json(payload: object) -> None:
+    encoder = json.JSONEncoder(allow_nan=False, indent=2, sort_keys=True)
+    # The encoder emits ASCII, often one token at a time. Batch writes even
+    # when the supervisor runs this worker with unbuffered stdout.
+    block_size = 64 * 1024
+    chunks: list[str] = []
+    size = 0
+    for part in chain(encoder.iterencode(payload), ("\n",)):
+        if chunks and size + len(part) > block_size:
+            sys.stdout.write("".join(chunks))
+            chunks.clear()
+            size = 0
+        if len(part) > block_size:
+            for offset in range(0, len(part), block_size):
+                sys.stdout.write(part[offset:offset + block_size])
+        else:
+            chunks.append(part)
+            size += len(part)
+    if chunks:
+        sys.stdout.write("".join(chunks))
+
+
 def main(argv: Sequence[str] | None = None) -> None:
     args = list(sys.argv[1:] if argv is None else argv)
     if not args:
@@ -92,7 +115,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         raise SystemExit(exc.stderr or f"tshark exited with status {exc.returncode}") from exc
     except subprocess.TimeoutExpired as exc:
         raise SystemExit(f"tshark timed out after {exc.timeout:g}s") from exc
-    print(json.dumps(payload, allow_nan=False, indent=2, sort_keys=True))
+    _write_packet_json(payload)
 
 
 def parse_packets(lines, *, server_port: int):

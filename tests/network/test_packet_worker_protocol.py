@@ -5,7 +5,9 @@ import os
 import shutil
 import stat
 import sys
+import weakref
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -49,6 +51,35 @@ def test_nonzero_parser_exit_is_not_overridden_by_valid_stdout():
                '{"schema_version":2,"requests":{}}']
     with pytest.raises(PacketLatencyError, match="worker failed"):
         parse_packet_output(command)
+
+
+def test_host_releases_published_packet_payload_before_merge(tmp_path, monkeypatch):
+    from acprof.host import orchestrator
+
+    class PacketPayload(dict):
+        pass
+
+    expected = {"schema_version": 2, "requests": {"group:4": {"latency_s": 0.25}}}
+    packet_ref = None
+
+    def parse(command):
+        nonlocal packet_ref
+        payload = PacketPayload(expected)
+        packet_ref = weakref.ref(payload)
+        return payload
+
+    def merge(csv_path, packet_path):
+        assert json.loads(Path(packet_path).read_bytes()) == expected
+        assert packet_ref is not None
+        assert packet_ref() is None
+
+    monkeypatch.setattr(orchestrator, "parse_packet_output", parse)
+    monkeypatch.setattr(orchestrator, "merge_packet_csv", merge)
+    monkeypatch.setattr(orchestrator, "check_case_cpu_idle_power_stable", lambda *args, **kwargs: None)
+    pcap = tmp_path / "capture.pcap"
+    pcap.write_bytes(b"fixture")
+    orchestrator._finalize_case(True, SimpleNamespace(parse_cmd=["parser"]), False, 0, "", pcap,
+                                tmp_path / "packets.json", tmp_path / "case.csv", False, "full", "off")
 
 
 @pytest.mark.parametrize("payload", [

@@ -23,6 +23,53 @@ def run_parser(rows, port='8002'):
     return json.loads(output.getvalue())
 
 
+def test_cli_writes_bounded_chunks_with_legacy_json_bytes():
+    class Output(io.StringIO):
+        def __init__(self):
+            super().__init__()
+            self.sizes: list[int] = []
+
+        def write(self, text):
+            self.sizes.append(len(text))
+            return super().write(text)
+
+    rows = []
+    for index in range(512):
+        frame = index * 2 + 1
+        request_id = '组:' + ('猫' * 40000 if index == 0 else str(index))
+        rows.extend([
+            packet(stream=index, frame=frame, request=1, uri='/predict', headers=f'X-Req-Id: {request_id}'),
+            packet(stream=index, frame=frame + 1, time=100.25, response=1, request_in=frame),
+        ])
+    expected = json.dumps(sniff_parse_pcap.parse_packets(rows, server_port=8002),
+                          allow_nan=False, sort_keys=True, indent=2) + '\n'
+    output = Output()
+    with patch.object(sniff_parse_pcap, 'stream_tshark', return_value=(row for row in rows)), contextlib.redirect_stdout(output):
+        sniff_parse_pcap.main(['capture.pcap', '8002'])
+    assert output.getvalue() == expected
+    assert max(output.sizes) <= 64 * 1024
+    assert len(output.sizes) < len(expected) // 4096
+
+
+def test_cli_propagates_broken_output_and_encoding_errors():
+    class ClosedPipe(io.StringIO):
+        def write(self, text):
+            raise BrokenPipeError
+
+    with (
+        patch.object(sniff_parse_pcap, 'stream_tshark', return_value=(row for row in [])),
+        contextlib.redirect_stdout(ClosedPipe()),
+        pytest.raises(BrokenPipeError),
+    ):
+        sniff_parse_pcap.main(['capture.pcap', '8002'])
+    with (
+        patch.object(sniff_parse_pcap, 'stream_tshark', return_value=(row for row in [])),
+        patch.object(sniff_parse_pcap, 'parse_packets', return_value={'latency_s': float('nan')}),
+        pytest.raises(ValueError, match='Out of range float'),
+    ):
+        sniff_parse_pcap.main(['capture.pcap', '8002'])
+
+
 def test_reused_connection_keeps_request_latencies_without_double_counting_stream_bytes():
     rows = []
     for frame, time, index in [(10, 100.0, 0), (20, 101.0, 1)]:

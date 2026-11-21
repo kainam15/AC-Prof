@@ -21,6 +21,7 @@ def parse_packet_output(command: list[str], *, stage: str = "pcap parsing") -> d
     if result.returncode != 0:
         raise packet_latency_error(f"{stage} failed", (result.stderr or result.stdout or "").strip())
     output = result.stdout.strip()
+    del result
     if not output:
         raise packet_latency_error(f"{stage} produced no output")
     try:

@@ -198,7 +198,9 @@ host 为尚未完成的窗口补写错误占位行时，同步写入空字符串
 `packet_latency.json`（旧布局为 `lat_case_*.json`）按请求和 TCP stream 保存 schema v2 抓包数据，
 大小随请求数增长，不适用小型元数据的 4 MiB 限制。读取仍校验 UTF-8、顶层 object、schema、
 request record 结构及有限数值；损坏或非有限数据报错，不截断请求，也不覆盖已有合并结果。
-抓包 JSON 仍需完整解码，峰值内存随抓包大小增长。测量窗口结束后，合并器按捕获帧所属组索引请求，按需解析 HTTP 请求身份。
+测量窗口结束后，抓包解析器分块向 stdout 输出 JSON。宿主发布完整的 `packet_latency.json` 后释放解析对象，再启动 CSV 合并进程。
+合并器将原始字节解码为 UTF-8 文本，释放字节缓冲后再构建 JSON 对象；峰值内存仍随请求和 TCP stream 数量增长。
+合并器按捕获帧所属组索引请求，按需解析 HTTP 请求身份。
 合并器逐行读取 CSV 和 `sniff_groups.jsonl`，校验行数一致后发布 CSV。应用侧和抓包侧的窗口分位数都从一次排序后的有限时延样本中按 nearest-rank 取值。
 
 `raw/requests/*.jsonl`（旧布局为 `*.requests.jsonl`）保留 schema v1、`sniff_group_id`、`input_scale`、`warmup`、`repeat_idx`、
