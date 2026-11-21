@@ -11,6 +11,7 @@ from acprof.models.inference_configuration import (
     encode_inference_configuration,
     validate_configuration_binding,
 )
+from acprof.tasks.workloads import EMBEDDING_INTERFACES
 
 CONFIGURATION_ENV = "ACPROF_INFERENCE_CONFIGURATION"
 TASK_ENV = "ACPROF_INFERENCE_TASK_ID"
@@ -58,6 +59,35 @@ def inference_docker_env_args(task_info: Any, *, configuration: dict | None = No
             for part in ("-e", f"{name}={value}")]
 
 
+def _mismatched_embedding_parameters(plan: dict, expected: dict) -> str | None:
+    workload = plan.get("workload")
+    if not isinstance(workload, dict) or not _same_json_value(expected, workload.get("params", {})):
+        return "workload.params"
+    entries = plan.get("entries")
+    if not isinstance(entries, list) or not entries:
+        return "entries"
+    for index, entry in enumerate(entries):
+        payload = entry.get("payload") if isinstance(entry, dict) else None
+        if not isinstance(payload, dict) or not _same_json_value(expected, payload.get("params", {})):
+            return f"entries[{index}].payload.params"
+    return None
+
+
+def verify_embedding_plan_parameters(task_info: Any, plan: dict, frozen: dict) -> None:
+    """Check each request against the encoder options in the approved workload."""
+    workload = frozen.get("workload", {})
+    if "parameter_defaults" not in workload or task_info.pipeline_tag not in EMBEDDING_INTERFACES:
+        return
+    field = _mismatched_embedding_parameters(plan, workload["parameter_defaults"])
+    if field:
+        raise RuntimeFailure(Failure(
+            "input_plan", "inference_configuration_mismatch",
+            f"Input plan {field} differs from the confirmed sentence embedding parameters",
+            runtime_profile=task_info.runtime_profile_id,
+            evidence={"identity_sha256": frozen["identity_sha256"], "field": field},
+        ))
+
+
 def verify_plan_configuration(task_info: Any, plan: dict) -> dict:
     """Reject a workload plan prepared for a different experiment configuration."""
     frozen = bound_inference_configuration(task_info)
@@ -70,6 +100,7 @@ def verify_plan_configuration(task_info: Any, plan: dict) -> dict:
             runtime_profile=task_info.runtime_profile_id,
             evidence={"expected": expected, "observed": observed},
         ))
+    verify_embedding_plan_parameters(task_info, plan, frozen)
     return frozen
 
 

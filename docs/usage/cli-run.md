@@ -258,6 +258,8 @@ container 在 tokenizer／decode／batch 展开前检查。图像先读取全部
 未指定时保留模型默认 prompt 和模块图的归一化行为。`normalize_embeddings=false` 不会移除仓库已有的
 Normalize 模块，遵循原生 `encode` 语义。尺度表示正文 token 数；容量预算额外扣除
 prompt 和 special tokens，预处理还验证拼接后的实际长度，防止编码器隐式截断。
+正式采集和经审阅的 `acprof probe` 都会在每档请求中保留清单指定的句向量选项。
+恢复时的检查见[推理配置冻结](../models/inference-configuration.md#解析确认与冻结)。
 
 生成任务接受正整数 `max_new_tokens`，例如 `{"schema_version":1,"task":"text-generation","params":{"max_new_tokens":16}}`。
 清单通过 `--workload-spec /path/to/workload.json` 传入；参数、清单 SHA256 及每档实际 payload

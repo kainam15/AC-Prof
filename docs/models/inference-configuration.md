@@ -202,6 +202,11 @@ JSON 摘要，再核对生成器实际读取的文件字节。只调整空白或
 确认后更换清单中的图片路径等内容，会在写入输入计划前报错。清单中的相对路径仍从清单所在目录解析。
 支持外部清单的生成器通过 `plan_metadata()` 的 `workload_spec_sha256` 或 `manifest_sha256` 提供实际字节摘要。
 
+NLP 任务在生成确认配置前检查清单参数是否适用于所选接口，再从已选执行组派生有效清单。生成任务采用审阅后的生成参数。
+句向量任务将外部清单中的 `prompt`、`prompt_name` 和 `normalize_embeddings` 原样传给编码器，
+包括显式空字符串和 `false`。写入和恢复输入计划时会核对 `workload.params` 及每档请求的 `payload.params`。
+旧计划若漏存已确认的选项，恢复会指出缺失或不匹配的位置。请保留原结果并新建实验。
+
 ## 参数消费与运行时验证
 
 `RunConfig`、CLI／TUI、输入计划、`ModelLoadConfig` 和四阶段 `BaseHandler` 传递同一配置身份。

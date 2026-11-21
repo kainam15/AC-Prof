@@ -51,37 +51,18 @@ class NLPWorkloadGenerator(WorkloadGenerator):
             if unknown or spec.get("task", task_type) != task_type:
                 raise ValueError(f"invalid NLP workload task or fields: {sorted(unknown)}")
             self._budget = InputBudget.from_value(spec.get("input_budget"))
-            params = spec.get("params", {})
             from acprof.tasks.workloads import (
-                GENERATION_KEYS,
                 task_fingerprint,
-                validate_generation,
+                validate_nlp_workload_parameters,
             )
             self._task_workload = spec.get("task_workload", {})
             if self._task_workload:
                 if (self._task_workload.get("interface") != task_type
                         or self._task_workload.get("fingerprint") != task_fingerprint(self._task_workload)):
                     raise ValueError("task workload fingerprint or interface mismatch")
-            allowed = ({"prompt", "prompt_name", "normalize_embeddings"} if task_type in
-                       {"feature-extraction", "sentence-similarity"} else
-                       GENERATION_KEYS if task_type in {"text-generation", "text2text-generation", "summarization",
-                                                          "translation", "conversational"} else set())
-            params = require_object(params, f"unsupported params for NLP workload task {task_type}")
-            if set(params) - allowed:
-                raise ValueError(f"unsupported params for NLP workload task {task_type}")
-            if allowed == GENERATION_KEYS:
-                validate_generation(params)
-            if "max_new_tokens" in params and (type(params["max_new_tokens"]) is not int or params["max_new_tokens"] < 1):
-                raise ValueError("max_new_tokens must be a positive integer")
-            if "normalize_embeddings" in params and not isinstance(params["normalize_embeddings"], bool):
-                raise ValueError("normalize_embeddings must be a boolean")
-            if any(key in params and not isinstance(params[key], str) for key in ("prompt", "prompt_name")):
-                raise ValueError("embedding prompt and prompt_name must be strings")
-            if "prompt" in params and "prompt_name" in params:
-                raise ValueError("set either prompt or prompt_name, not both")
-            self._params = params
+            self._params = validate_nlp_workload_parameters(task_type, spec.get("params", {}))
             self._spec_metadata = {"workload_spec_sha256": hashlib.sha256(raw).hexdigest(),
-                                   "params": copy.deepcopy(params)}
+                                   "params": copy.deepcopy(self._params)}
         self._budget.batch(self.batch_size)
 
     def _generate_text_from_word_count(self, word_count: int) -> str:

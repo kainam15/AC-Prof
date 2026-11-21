@@ -9,7 +9,10 @@ from typing import Any, TextIO
 
 from acprof.artifacts import MAX_JSON_ARTIFACT_BYTES, atomic_write, read_json_object_snapshot
 from acprof.extensions import CATALOG
-from acprof.host.configuration_transport import bound_inference_configuration
+from acprof.host.configuration_transport import (
+    bound_inference_configuration,
+    verify_embedding_plan_parameters,
+)
 from acprof.host.detect import TaskInfo
 from acprof.host.input_plan.scales import format_scale_value
 from acprof.host.input_plan.types import PlannedInputScales
@@ -44,6 +47,7 @@ def write_scale_plan_file(
         "entries": entries,
     }
     if frozen:
+        verify_embedding_plan_parameters(task_info, payload, frozen)
         payload["inference_configuration_sha256"] = frozen["identity_sha256"]
     digest = hashlib.sha256()
 

@@ -25,6 +25,7 @@ GENERATION_KEYS = frozenset({
 })
 GENERATIVE_INTERFACES = frozenset({"text-generation", "text2text-generation", "summarization",
                                   "translation", "conversational"})
+EMBEDDING_INTERFACES = frozenset({"feature-extraction", "sentence-similarity"})
 TEMPLATE_VERSION = "acprof-task-text-v1"
 CORPORA = {
     "translation": "The library opens every morning. People read books and learn about the world. ",
@@ -156,6 +157,24 @@ def validate_generation(params: dict) -> None:
     content_digest(params)  # Reject nonfinite/non-JSON configuration before any runtime work.
 
 
+def validate_nlp_workload_parameters(interface: str, params: object) -> dict:
+    """Validate the request parameters accepted by this NLP workload."""
+    allowed = GENERATION_KEYS if interface in GENERATIVE_INTERFACES else frozenset()
+    if interface in EMBEDDING_INTERFACES:
+        allowed = frozenset({"prompt", "prompt_name", "normalize_embeddings"})
+    if not isinstance(params, dict) or params.keys() - allowed:
+        raise ValueError(f"unsupported params for NLP workload task {interface}")
+    if interface in GENERATIVE_INTERFACES:
+        validate_generation(params)
+    if "normalize_embeddings" in params and not isinstance(params["normalize_embeddings"], bool):
+        raise ValueError("normalize_embeddings must be a boolean")
+    if any(key in params and not isinstance(params[key], str) for key in ("prompt", "prompt_name")):
+        raise ValueError("embedding prompt and prompt_name must be strings")
+    if "prompt" in params and "prompt_name" in params:
+        raise ValueError("set either prompt or prompt_name, not both")
+    return params
+
+
 def task_fingerprint(task: dict) -> str:
     identity = {key: task[key] for key in ("task_id", "interface", "kind", "config")}
     # A grouped benchmark must also bind the complete semantic-task snapshot:
@@ -210,8 +229,11 @@ def workload_manifest(task: dict, *, supplied: dict | None = None, frozen: dict 
     supplied_task = supplied.get("task_workload", {})
     if not isinstance(supplied_task, dict) or supplied_task.get("task_id", task["task_id"]) not in accepted_task_ids:
         raise ValueError("workload specification conflicts with task identity")
-    if not frozen:
-        manifest["params"] = merge_generation_parameters(manifest["params"], supplied.get("params", {}))
+    params = validate_nlp_workload_parameters(task["interface"], supplied.get("params", {}))
+    if task["interface"] in EMBEDDING_INTERFACES:
+        manifest["params"] = copy.deepcopy(params)
+    elif not frozen:
+        manifest["params"] = merge_generation_parameters(manifest["params"], params)
     if "input_budget" in supplied:
         manifest["input_budget"] = supplied["input_budget"]
     return manifest

@@ -31,7 +31,7 @@ from acprof.models.inference_configuration import (
 )
 from acprof.precision import resolve_precision
 from acprof.runtime.profiles import PROFILES, locked_transformers_version, select_runtime_profile
-from acprof.tasks.workloads import task_fingerprint, task_label
+from acprof.tasks.workloads import task_fingerprint, task_label, validate_nlp_workload_parameters
 
 _REQUEST_KEYS = {"schema_version", "preset", "backend", "runtime_profile", "loading", "tasks"}
 
@@ -234,6 +234,9 @@ def _fields(initial, view, profile, devices, workload) -> list[dict]:
             raise ValueError("invalid configuration source: " + "; ".join(
                 f"{item.get('file')}{item.get('json_pointer', '')}: {item['detail']}" for item in invalid))
         generation = selected["config"].get("generation", selected["config"].get("inference", {}))
+        supplied_defaults = workload.get("parameter_defaults", {})
+        if view.task_family == "nlp" and "parameter_defaults" in workload:
+            validate_nlp_workload_parameters(selected["interface"], supplied_defaults)
         length_name = "max_length" if "max_length" in generation and "max_new_tokens" not in generation else "max_new_tokens"
         for spec in declaration.parameters:
             if spec.scope != "inference" or spec.read_only:
@@ -248,7 +251,6 @@ def _fields(initial, view, profile, devices, workload) -> list[dict]:
                        "output_length_policy": original.get("execution_profile", {}).get("output_length_policy")}
                       if spec.name in generation else
                       {"kind": "parameter_declaration", "extension_id": declaration.extension_id})
-            supplied_defaults = workload.get("parameter_defaults", {})
             if "generation" not in selected["config"] and spec.name in supplied_defaults:
                 default = supplied_defaults[spec.name]
                 source = {"kind": "workload_specification", "sha256": workload.get("specification_sha256"),

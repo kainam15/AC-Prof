@@ -259,6 +259,52 @@ def reviewable_t5_probe(t5_probe, monkeypatch):
     return t5_probe
 
 
+@pytest.mark.parametrize("changed", [False, True], ids=["confirmed", "edited_during_preparation"])
+def test_reviewed_encoder_probe_sends_the_workload_options_to_predict(t5_probe, tmp_path, monkeypatch, capsys, changed):
+    from tests.support.task_selection_fixtures import sentence_encoder_task
+
+    _, output, image, post = t5_probe
+    interface = "feature-extraction"
+    source = tmp_path / "embedding.json"
+    params = {"prompt_name": "search", "normalize_embeddings": True}
+    source.write_text(json.dumps({"schema_version": 1, "task": interface, "params": params}))
+    model = sentence_encoder_task(interface)
+    monkeypatch.setattr("acprof.host.detect.detect_task", lambda **kwargs: sentence_encoder_task(interface))
+    validate = Mock()
+    monkeypatch.setattr("acprof.host.runtime_validation.validate_runtime", validate)
+    requests = tmp_path / "requests.json"
+    requests.write_text('{"schema_version":1}')
+    command = ["--model", model.model_id, "--revision", model.model_revision, "--output-dir", str(output),
+               "--gpus", "off", "--input-scales", "32", "--workload-spec", str(source),
+               "--inference-config", str(requests)]
+    assert probe.main(command) == 0
+    normalized, = output.glob(".inference-configurations/*.requests.json")
+    digest = normalized.name.split(".")[0]
+    if changed:
+        def drop_options(*args, **kwargs):
+            path, = output.rglob("task_workload.json")
+            document = json.loads(path.read_text())
+            document["params"] = {}
+            path.write_text(json.dumps(document))
+            return image.return_value
+
+        image.side_effect = drop_options
+    status = probe.main([*command, "--confirm-inference", digest])
+    if changed:
+        assert status == 2
+        assert "embedding" in capsys.readouterr().err
+        validate.assert_not_called()
+        post.assert_not_called()
+        assert not list(output.rglob("input_scale_plan.json"))
+        return
+    assert status == 0
+    summary_path, = output.rglob(PROBE_SUMMARY_NAME)
+    summary = read_probe_summary(summary_path)
+    plan = read_input_scale_plan(summary["artifacts"]["input_scale_plan"])
+    assert summary["inference_configuration_sha256"] == digest
+    assert plan["workload"]["params"] == post.call_args.kwargs["json"]["params"] == params
+
+
 def test_probe_reviews_changed_requests_and_executes_the_confirmed_payload(reviewable_t5_probe, tmp_path, monkeypatch, capsys):
     args, output, image, post = reviewable_t5_probe
     validate = Mock()
