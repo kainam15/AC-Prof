@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import ast
 import hashlib
-import sys
 from pathlib import PurePosixPath
 from typing import Any, Literal, TypedDict
 
@@ -14,6 +13,7 @@ from acprof.models.evidence import pinned_revision
 from acprof.models.inspection.source import top_level_bound_names
 from acprof.models.spec import custom_code_files
 from acprof.runtime.dependency_locks import normalized_name, package_versions, read_python_lock
+from acprof.runtime.stdlib import STDLIB_MODULES
 
 # Import names and distribution names are different namespaces. Unknown names
 # remain unresolved; in particular, never suggest installing an import name.
@@ -59,6 +59,8 @@ def dependency_preflight(task, profile, *, read_source) -> DependencyPreflightRe
     from packaging.markers import default_environment
     from packaging.requirements import InvalidRequirement, Requirement
 
+    target_python = profile.environment.platform.python_version
+    stdlib = STDLIB_MODULES.get(target_python)
     installed = package_versions(read_python_lock(resource_root() / profile.environment.requirements_lock))
     distributions = {name.replace("-", "_"): name for name in installed}
     distributions.update(IMPORT_DISTRIBUTIONS)
@@ -80,9 +82,9 @@ def dependency_preflight(task, profile, *, read_source) -> DependencyPreflightRe
             pending.clear()
         else:
             environment = {**default_environment(),
-                           "python_version": ".".join(profile.environment.platform.python_version.split(".")[:2]),
-                           "python_full_version": profile.environment.platform.python_version,
-                           "implementation_version": profile.environment.platform.python_version,
+                           "python_version": ".".join(target_python.split(".")[:2]),
+                           "python_full_version": target_python,
+                           "implementation_version": target_python,
                            "sys_platform": "linux", "platform_system": "Linux", "platform_machine": "x86_64", "extra": ""}
             for name in sorted(files):
                 if name not in RUNTIME_REQUIREMENTS:
@@ -107,7 +109,6 @@ def dependency_preflight(task, profile, *, read_source) -> DependencyPreflightRe
         distribution = normalized_name(requirement.name)
         # The obsolete, unpinned typing backport is supplied by target Python.
         # Versioned requirements and typing-extensions remain real distributions.
-        target_python = profile.environment.platform.python_version
         if (distribution == "typing" and not requirement.specifier
                 and tuple(map(int, target_python.split(".")[:2])) >= (3, 5)):
             records.append({"distribution": distribution, "required": "", "source": name,
@@ -171,8 +172,13 @@ def dependency_preflight(task, profile, *, read_source) -> DependencyPreflightRe
                         local = next((p for p in (root + ".py", root + "/__init__.py") if p in files), None)
                         if local:
                             pending.add(local)
-                        elif root and root not in sys.stdlib_module_names:
-                            records.append({"module": root, "source": name, "conditional": conditional})
+                        elif root:
+                            if stdlib is None:
+                                records.append({"module": root, "source": name, "status": "unknown",
+                                                "python_version": target_python,
+                                                "detail": "no stdlib inventory for the target Python"})
+                            elif root not in stdlib:
+                                records.append({"module": root, "source": name, "conditional": conditional})
             elif isinstance(node, ast.Call) and (isinstance(node.func, ast.Name) and node.func.id == "__import__" or
                     isinstance(node.func, ast.Attribute) and node.func.attr == "import_module"):
                 records.append({"status": "unknown", "source": name, "detail": "dynamic import requires review"})

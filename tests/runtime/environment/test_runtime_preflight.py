@@ -203,6 +203,48 @@ def test_sam_gpu_defaults_to_fp32_but_explicit_fp16_is_rejected():
             assert (caught.value.failure.reason_code) == ("precision_mismatch")
             pipeline.assert_not_called()
 
+def test_locked_platforms_have_an_exact_stdlib_inventory():
+    from acprof.runtime.profiles import PLATFORMS
+    from acprof.runtime.stdlib import STDLIB_MODULES
+
+    assert {platform.python_version for platform in PLATFORMS.values()} <= STDLIB_MODULES.keys()
+    version = ".".join(map(str, sys.version_info[:3]))
+    if sys.implementation.name == "cpython" and version in STDLIB_MODULES:
+        assert STDLIB_MODULES[version] == sys.stdlib_module_names
+
+
+@pytest.mark.parametrize("host_only", ["audioop", "_colorize"], ids=["host-3.12", "host-3.13"])
+def test_import_roots_are_classified_by_the_locked_python_not_the_host(monkeypatch, host_only):
+    from acprof.runtime.dependencies import dependency_preflight
+    from acprof.runtime.profiles import PROFILES
+
+    monkeypatch.setattr(sys, "stdlib_module_names", frozenset({"json", host_only}))
+    task = model("image-classification", "cv", "vit", repository_files=("custom.py",))
+    task.model_config["auto_map"] = {"AutoModel": "custom.Model"}
+    profile = PROFILES["cv-cpu"]
+    accepted = dependency_preflight(task, profile, read_source=lambda _: "import audioop\nimport json\n")
+    assert accepted["dependencies"] == []
+    with pytest.raises(ValueError, match="runtime_dependency_unknown") as caught:
+        dependency_preflight(task, profile, read_source=lambda _: "import _colorize\n")
+    assert caught.value.failure.evidence["dependencies"][0]["module"] == "_colorize"
+
+
+def test_unreviewed_target_stdlib_does_not_borrow_host_evidence():
+    from acprof.runtime.dependencies import dependency_preflight
+    from acprof.runtime.profiles import PROFILES
+
+    task = model("image-classification", "cv", "vit", repository_files=("custom.py",))
+    task.model_config["auto_map"] = {"AutoModel": "custom.Model"}
+    profile = PROFILES["cv-cpu"]
+    platform = replace(profile.environment.platform, python_version="3.99.1")
+    profile = replace(profile, environment=replace(profile.environment, platform=platform))
+    with pytest.raises(ValueError, match="runtime_dependency_unknown") as caught:
+        dependency_preflight(task, profile, read_source=lambda _: "import json\n")
+    [record] = caught.value.failure.evidence["dependencies"]
+    assert (record["status"], record["source"], record["module"], record["python_version"]) == (
+        "unknown", "custom.py", "json", "3.99.1")
+
+
 def test_dependency_markers_use_target_python_instead_of_host(monkeypatch):
     from packaging.markers import default_environment
 
