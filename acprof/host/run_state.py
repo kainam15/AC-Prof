@@ -18,7 +18,7 @@ from dataclasses import asdict, fields
 from datetime import UTC, datetime
 from pathlib import Path
 from threading import Thread, current_thread
-from typing import TypeGuard
+from typing import TYPE_CHECKING, TypeGuard
 from uuid import uuid4
 
 from acprof.artifacts import (
@@ -39,7 +39,12 @@ from acprof.host.run_state_types import (
 )
 from acprof.messages import Message, join_messages, message
 from acprof.platform import detect_environment, is_linux
-from acprof.results.csv import expected_measurements, read_result_csv, read_result_csv_snapshot
+from acprof.results.csv import (
+    expected_measurements,
+    publish_merged_cases,
+    read_result_csv,
+    read_result_csv_snapshot,
+)
 from acprof.results.layout import ArtifactLayout
 from acprof.results.measurement_plan import (
     RecordedMeasurementOptions,
@@ -48,6 +53,9 @@ from acprof.results.measurement_plan import (
 )
 from acprof.source_identity import measurement_sources, source_fingerprint
 from acprof.system.cleanup import cleanup_on_exit, format_exception_notes
+
+if TYPE_CHECKING:
+    from acprof.result_store.writer import ResultWriter
 
 RUN_STATE_NAME = "run_state.json"
 RESULT_LOCK_NAME = ".acprof-result.lock"
@@ -805,6 +813,7 @@ class RunState:
     def __init__(self, directory: str | Path, options: dict, *, resume: bool, project_dir: str,
                  preparation_artifacts: dict[str, str] | None = None):
         self.directory = Path(directory).resolve()
+        self._matrix_publication: tuple[tuple[int, Thread], ResultWriter, ExitStack] | None = None
         self.layout = ArtifactLayout.discover(self.directory) if resume else ArtifactLayout.for_new_run(self.directory)
         self.path = self.layout.path(RUN_STATE_NAME)
         self.lock = ResultDirectoryLock(self.directory, new=not resume)
@@ -1125,14 +1134,48 @@ class RunState:
         }
         self.save()
 
+    @contextmanager
+    def merge_cases(self, paths: list[str], final_csv: str) -> Iterator[int]:
+        """Keep one verified writer for consolidation, capability checks and freeze."""
+        if Path(final_csv).absolute() != self.layout.result_csv:
+            raise RunStateError("最终结果不属于正在提交的实验目录")
+        case_sha256s = {}
+        for path in paths:
+            csv_path = self.layout.case_from_csv(path).csv
+            record = self.data["cases"].get(str(csv_path.relative_to(self.directory)))
+            if record is not None and record["status"] == "complete":
+                case_sha256s[csv_path] = _state_text(record.get("sha256"), "case.sha256")
+        with ExitStack() as lease:
+            count, writer = publish_merged_cases(paths, final_csv, scope=lease, expected=self.expected_plan(),
+                                                 expected_run_id=self.run_id, case_sha256s=case_sha256s)
+            if writer is not None:
+                self._matrix_publication = (os.getpid(), current_thread()), writer, lease
+            try:
+                yield count
+            finally:
+                self._matrix_publication = None
+
     def finish(self, final_csv: str) -> None:
         _, rows = read_result_csv(final_csv, expected=self.expected_plan())
         from acprof.host.measurement.window_recovery import is_incremental
-        if is_incremental(self.layout):
+        if self._matrix_publication is not None and self._matrix_publication[0] == (os.getpid(), current_thread()):
+            _, writer, lease = self._matrix_publication
+            if writer.layout.result_csv != Path(final_csv).absolute() or writer.expected_run_id != self.run_id:
+                raise RunStateError("最终结果与正在提交的实验身份不一致")
+            writer.freeze()
+            digest = file_sha256(writer.layout.result_csv)
+            lease.close()
+            self._matrix_publication = None
+        elif is_incremental(self.layout):
             from acprof.result_store.writer import ResultWriter
-            with ResultWriter(self.directory) as writer:
+            if Path(final_csv).absolute() != self.layout.result_csv:
+                raise RunStateError("最终结果不属于正在提交的实验目录")
+            with ResultWriter(self.directory, expected_run_id=self.run_id) as writer:
                 writer.freeze()
-        self.data.update({"status": "complete", "completed_at": utc_now(), "result_sha256": file_sha256(final_csv),
+                digest = file_sha256(writer.layout.result_csv)
+        else:
+            digest = file_sha256(final_csv)
+        self.data.update({"status": "complete", "completed_at": utc_now(), "result_sha256": digest,
                           "row_count": len(rows), "outcome": "partial" if any(row.get("status") == "error" for row in rows) else "ok"})
         self.save()
 

@@ -20,7 +20,6 @@ from acprof.capabilities import (
 )
 from acprof.events.progress import emit_event
 from acprof.host.collection_history import COLLECTION_HISTORY_NAME
-from acprof.host.orchestrator import merge_all_csvs
 from acprof.host.result_cleanup import cleanup_intermediate_results
 from acprof.host.run_state import RunState
 from acprof.results.layout import ArtifactLayout
@@ -93,24 +92,25 @@ def publish_matrix_results(
 
     final_csv = str(layout.result_csv)
     emit_event("results_merging")
-    merge_all_csvs(csv_paths, final_csv, expected=run_state.expected_plan())
-    from acprof.results.csv import read_result_csv
-    _, collected_rows = read_result_csv(final_csv)
-    apply_collection_result(capability_report, collected_rows)
-    from acprof.artifacts import atomic_write_json
-    atomic_write_json(layout.path("capability_report.json"), capability_report.to_dict())
-    if capability_report.field_outcomes:
-        from acprof.events.progress import emit_collection_issues
-        emit_collection_issues(capability_report.field_outcomes)
-    missing = missing_required_measurements(capability_report, collected_rows)
-    if missing:
-        print(
-            f"[capability][ERROR] {args.profiling_mode} 必需指标缺少有效测量：{', '.join(missing)}。"
-            "能力报告和 CSV 已保留；本次画像失败。",
-            file=sys.stderr,
-        )
-        raise CollectionFailed("required measurements missing: " + ", ".join(missing))
-    run_state.finish(final_csv)
+    with run_state.merge_cases(csv_paths, final_csv) as row_count:
+        print(f"[merge] Final CSV: {final_csv} ({row_count} rows)")
+        from acprof.results.csv import read_result_csv
+        _, collected_rows = read_result_csv(final_csv)
+        apply_collection_result(capability_report, collected_rows)
+        from acprof.artifacts import atomic_write_json
+        atomic_write_json(layout.path("capability_report.json"), capability_report.to_dict())
+        if capability_report.field_outcomes:
+            from acprof.events.progress import emit_collection_issues
+            emit_collection_issues(capability_report.field_outcomes)
+        missing = missing_required_measurements(capability_report, collected_rows)
+        if missing:
+            print(
+                f"[capability][ERROR] {args.profiling_mode} 必需指标缺少有效测量：{', '.join(missing)}。"
+                "能力报告和 CSV 已保留；本次画像失败。",
+                file=sys.stderr,
+            )
+            raise CollectionFailed("required measurements missing: " + ", ".join(missing))
+        run_state.finish(final_csv)
     emit_event("result_published", final_csv=final_csv)
     cleanup_intermediate_results(csv_paths, str(layout.root), final_csv)
     publish_run_reports(layout)

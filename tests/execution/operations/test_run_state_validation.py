@@ -3,6 +3,7 @@ import copy
 import json
 import subprocess
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 from unittest.mock import Mock
 
@@ -196,6 +197,26 @@ def test_whole_run_rejects_one_stored_window_in_a_large_plan(recovery_state, mon
     with pytest.raises(ResultValidationError, match="measurement plan mismatch"):
         validate()
     assert tree_bytes(state.directory) == before
+
+
+def test_only_matrix_owner_can_freeze_and_independent_finish_requires_its_own_manifest(recovery_state):
+    state = recovery_state
+    case = state.layout.case("fixture/model", 1, 4, "off")
+    case.csv.write_text("cpu_cores,mem_cap_gb,gpu_mode,input_scale,warmup,repeat_idx,status\n"
+                        "1,4,off,64,0,0,ok\n")
+    state.finish_case(str(case.csv), 1, 4, "off")
+    final_csv = str(state.layout.result_csv)
+    with state.merge_cases([str(case.csv)], final_csv):
+        before = state.layout.result_csv.read_bytes()
+        with ThreadPoolExecutor(max_workers=1) as other:
+            with pytest.raises(BlockingIOError):
+                other.submit(state.finish, final_csv).result(timeout=5)
+        assert state.layout.result_csv.read_bytes() == before
+    with pytest.raises(run_state.RunStateError, match="实验目录"):
+        state.finish(str(case.csv))
+    assert state.layout.result_csv.read_bytes() == before
+    state.finish(final_csv)
+    assert state.complete
 
 
 @pytest.mark.parametrize("entry", ["load", "preview", "constructor"])

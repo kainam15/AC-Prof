@@ -8,11 +8,12 @@ import struct
 import sys
 from collections import deque
 from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
+from contextlib import ExitStack
 from dataclasses import dataclass
 from decimal import InvalidOperation
 from itertools import product, zip_longest
 from pathlib import Path
-from typing import BinaryIO, cast
+from typing import TYPE_CHECKING, BinaryIO, cast
 
 from acprof.artifacts import atomic_write, file_sha256
 from acprof.cancellation import cancellable, check_cancelled
@@ -25,6 +26,9 @@ from acprof.results.measurement_plan import (
     decimal_key_text,
 )
 from acprof.results.metrics import order_csv_fields
+
+if TYPE_CHECKING:
+    from acprof.result_store.writer import ResultWriter
 
 KEY_FIELDS = ("cpu_cores", "mem_cap_gb", "gpu_mode", "input_scale", "warmup", "repeat_idx")
 type ExpectedMeasurements = RecordedMeasurementPlan | Iterable[MeasurementKey]
@@ -460,8 +464,27 @@ def verify_result_source(artifact: str | Path, expected_sha256: str | None, *,
         raise ResultValidationError("result manifest changed during verification")
 
 
-def merge_result_csvs(paths: Sequence[str], destination: str, *,
-                     expected: ExpectedMeasurements | None = None) -> int:
+def _read_merge_input(path: Path, expected_sha256: str | None
+                      ) -> tuple[list[str], list[dict[str, str]], Iterable[MeasurementKey]]:
+    if not path.is_file():
+        raise ResultValidationError(f"missing case CSV: {path}")
+    if path.name == "result_layers.json":
+        if expected_sha256 is not None:
+            raise ResultValidationError(f"expected a flat completed case CSV: {path}")
+        fields, rows = read_result_csv(path)
+        return fields, rows, (measurement_key(row) for row in rows)
+    if expected_sha256 is None:
+        fields, validated = _read_flat_csv(path)
+    else:
+        fields, validated, digest = read_hashed_flat_csv(path)
+        if digest != expected_sha256:
+            raise ResultValidationError(f"completed case CSV changed: {path}")
+    assert validated.keys is not None  # Flat case reads always validate measurements.
+    return fields, validated.rows, validated.keys
+
+
+def _read_case_csvs(paths: Sequence[str], destination: str, expected: ExpectedMeasurements | None,
+                    case_sha256s: Mapping[Path, str] | None) -> tuple[list[str], list[dict[str, str]]]:
     if not paths:
         raise ResultValidationError("no case files to merge")
     resolved = [Path(path).resolve() for path in paths]
@@ -475,16 +498,8 @@ def merge_result_csvs(paths: Sequence[str], destination: str, *,
     runtime_ids: set[str] = set()
     fields = list(CSV_FIELDS)
     for path in resolved:
-        if not path.is_file():
-            raise ResultValidationError(f"missing case CSV: {path}")
-        if path.name == "result_layers.json":
-            source_fields, source_rows = read_result_csv(path)
-            source_keys: Iterable[MeasurementKey] = (measurement_key(row) for row in source_rows)
-        else:
-            source_fields, validated = _read_flat_csv(path)
-            source_rows = validated.rows
-            assert validated.keys is not None  # Flat case reads always validate measurements.
-            source_keys = validated.keys
+        digest = case_sha256s.get(path) if case_sha256s is not None else None
+        source_fields, source_rows, source_keys = _read_merge_input(path, digest)
         environments.update(row["environment_class"] for row in source_rows)
         runtimes.update((row.get("runtime_kind", "docker"),
                          row.get("resource_scope", "container_cgroup")) for row in source_rows)
@@ -501,19 +516,38 @@ def merge_result_csvs(paths: Sequence[str], destination: str, *,
             rows.append(row)
     fields = order_csv_fields(fields)
     require_expected_measurements(keys, expected)
+    if case_sha256s is not None:
+        for path in resolved:
+            if path not in case_sha256s:
+                raise ResultValidationError(f"no completed case CSV recorded for: {path}")
+    return fields, rows
+
+
+def publish_merged_cases(paths: Sequence[str], destination: str, *, scope: ExitStack,
+                         expected: ExpectedMeasurements | None = None, expected_run_id: str | None = None,
+                         case_sha256s: Mapping[Path, str] | None = None) -> tuple[int, ResultWriter | None]:
+    """Validate the inputs first, then publish and hold any v3 writer in the caller's scope."""
+    fields, rows = _read_case_csvs(paths, destination, expected, case_sha256s)
     if Path(destination).name == "result_layers.json":
         from acprof.artifacts import read_json_object
         if Path(destination).is_file() and read_json_object(destination).get("schema_version") == 3:
             from acprof.result_store.writer import ResultWriter
-            with ResultWriter(Path(destination).parent) as writer:
-                writer.update_rows(rows, reason="validated case consolidation", state="processing")
-        else:
-            from acprof.results.layers import publish_result_rows
-            publish_result_rows(fields, rows, Path(destination).parent)
+            writer = scope.enter_context(ResultWriter(Path(destination).parent, expected_run_id=expected_run_id))
+            writer.update_rows(rows, reason="validated case consolidation", state="processing")
+            return len(rows), writer
+        from acprof.results.layers import publish_result_rows
+        publish_result_rows(fields, rows, Path(destination).parent)
     else:
         def write(stream):
             writer = csv.DictWriter(stream, fieldnames=fields, restval="nan")
             writer.writeheader()
             writer.writerows(rows)
         atomic_write(destination, write)
-    return len(rows)
+    return len(rows), None
+
+
+def merge_result_csvs(paths: Sequence[str], destination: str, *,
+                      expected: ExpectedMeasurements | None = None) -> int:
+    with ExitStack() as scope:
+        count, _writer = publish_merged_cases(paths, destination, scope=scope, expected=expected)
+        return count

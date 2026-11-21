@@ -1,4 +1,5 @@
 """Completed experiments publish statistics without starting another measurement."""
+import csv
 import io
 import json
 import re
@@ -8,11 +9,16 @@ from unittest.mock import Mock
 import pytest
 
 from acprof.analysis import statistics_report
+from acprof.application import publication
 from acprof.application.notifications import RunNotifications
 from acprof.application.publication import publish_matrix_results
+from acprof.artifacts import file_sha256
 from acprof.host.run_state import MeasurementLock, RunStateError
+from acprof.result_store import recovery
+from acprof.result_store.writer import ResultWriter
 from acprof.results.csv import read_result_csv_snapshot
 from acprof.results.layout import ArtifactLayout
+from tests.support.result_store_fixtures import assert_writer_lease_available
 from tests.support.run_recovery_fixtures import RunRecoveryFixture
 
 
@@ -25,6 +31,116 @@ def experiment(request, tmp_path) -> RunRecoveryFixture:
 
 def reports(experiment: RunRecoveryFixture) -> list[Path]:
     return sorted((experiment.directory / "analysis").glob("window-statistics-*.json"))
+
+
+def test_final_matrix_shares_one_replay_and_allows_readers_until_freeze(experiment, monkeypatch):
+    scan = recovery.replay
+    replayed = []
+    apply = publication.apply_collection_result
+    root = experiment.directory
+    cleanup = publication.cleanup_intermediate_results
+
+    def observe(layout, manifest):
+        replayed.append((manifest["sequence"], manifest["row_count"]))
+        return scan(layout, manifest)
+
+    def check_report(report, rows):
+        layout = ArtifactLayout.discover(root)
+        assert read_result_csv_snapshot(layout.result_csv).rows == rows
+        with pytest.raises(BlockingIOError):
+            assert_writer_lease_available(layout)
+        return apply(report, rows)
+
+    def check_cleanup(paths, directory, destination):
+        assert_writer_lease_available(ArtifactLayout.discover(directory))
+        return cleanup(paths, directory, destination)
+
+    monkeypatch.setattr(recovery, "replay", observe)
+    monkeypatch.setattr(publication, "apply_collection_result", check_report)
+    monkeypatch.setattr(publication, "cleanup_intermediate_results", check_cleanup)
+    monkeypatch.setattr(publication, "publish_run_reports", assert_writer_lease_available)
+    experiment.invoke()
+    assert replayed == [(0, 0), (1, 1), (2, 2)]
+    state = json.loads((root / ".acprof/run_state.json").read_bytes())
+    snapshot = read_result_csv_snapshot(root / "result_layers.json")
+    assert state["result_sha256"] == snapshot.sha256
+    assert state["row_count"] == len(snapshot.rows)
+
+
+def test_valid_case_replacement_is_rejected_before_final_publication_and_repaired_on_resume(experiment, monkeypatch):
+    root = experiment.directory
+    before = {}
+    event = publication.emit_event
+
+    def replace_case(name, *args, **kwargs):
+        if name == "results_merging":
+            before["manifest"] = (root / "result_layers.json").read_bytes()
+            case = ArtifactLayout.discover(root).case("org/model", 1, 4, "off")
+            with case.csv.open(newline="") as stream:
+                row, = csv.DictReader(stream)
+            row["latency_app_s"] = "97"
+            with case.csv.open("w", newline="") as stream:
+                writer = csv.DictWriter(stream, fieldnames=row)
+                writer.writeheader()
+                writer.writerow(row)
+        event(name, *args, **kwargs)
+
+    stderr = io.StringIO()
+    with monkeypatch.context() as scoped:
+        scoped.setattr(publication, "emit_event", replace_case)
+        with pytest.raises(SystemExit) as caught:
+            experiment.invoke(error_output=stderr)
+    assert caught.value.code == 2
+    assert "case CSV" in stderr.getvalue()
+    assert (root / "result_layers.json").read_bytes() == before["manifest"]
+    assert json.loads((root / ".acprof/run_state.json").read_bytes())["status"] == "failed"
+    assert not reports(experiment)
+    experiment.calls.clear()
+    experiment.invoke("--resume")
+    assert experiment.calls == []
+    assert [row["latency_app_s"] for row in read_result_csv_snapshot(root / "result_layers.json").rows] == ["0.1", "0.1"]
+
+
+def test_freeze_release_error_precedes_run_state_completion(experiment, monkeypatch):
+    release = ResultWriter.__exit__
+
+    def fail_after_freeze(writer, *exc):
+        result = release(writer, *exc)
+        if writer.manifest["state"] == "complete":
+            raise OSError("fixture final lease release failed")
+        return result
+
+    with monkeypatch.context() as scoped:
+        scoped.setattr(ResultWriter, "__exit__", fail_after_freeze)
+        with pytest.raises(OSError, match="final lease release failed"):
+            experiment.invoke()
+    layout = ArtifactLayout.discover(experiment.directory)
+    assert_writer_lease_available(layout)
+    assert json.loads(layout.result_csv.read_bytes())["state"] == "complete"
+    assert json.loads(layout.path("run_state.json").read_bytes())["status"] == "failed"
+    assert not reports(experiment)
+
+
+def test_completed_state_identifies_its_freeze_when_another_writer_takes_over(experiment, monkeypatch):
+    release = ResultWriter.__exit__
+    frozen = []
+
+    def take_over(writer, *exc):
+        result = release(writer, *exc)
+        if writer.manifest["state"] == "complete" and not frozen:
+            frozen.append(file_sha256(writer.layout.result_csv))
+            with ResultWriter(writer.layout.root) as other:
+                other.freeze()
+        return result
+
+    monkeypatch.setattr(ResultWriter, "__exit__", take_over)
+    monkeypatch.setattr(publication, "publish_run_reports", lambda layout: None)
+    experiment.invoke()
+    layout = ArtifactLayout.discover(experiment.directory)
+    state = json.loads(layout.path("run_state.json").read_bytes())
+    assert state["status"] == "complete"
+    assert [state["result_sha256"]] == frozen
+    assert state["result_sha256"] != file_sha256(layout.result_csv)
 
 
 def test_completed_run_saves_statistics_after_commit_under_the_measurement_lock(experiment, monkeypatch):
@@ -146,6 +262,9 @@ def test_interrupted_run_generates_statistics_only_after_resume_finishes(experim
 
 def test_required_measurement_failure_does_not_publish_statistics(experiment):
     experiment.assert_missing_required_measurements_rejected("basic")
+    layout = ArtifactLayout.discover(experiment.directory)
+    assert_writer_lease_available(layout)
+    assert json.loads(layout.result_csv.read_bytes())["state"] == "processing"
     assert not reports(experiment)
 
 
