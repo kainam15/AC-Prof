@@ -39,6 +39,24 @@ class TestStatisticsOutput:
         assert (line.startswith("ACPROF_STATS ")), line
         return json.loads(line.removeprefix("ACPROF_STATS "))
 
+    @pytest.mark.parametrize("entry_point", ["api", "cli_stdout", "cli_output"])
+    def test_legacy_directory_uses_same_window_statistics_as_explicit_csv(self, entry_point, capsys):
+        from acprof.analysis.statistics_report import build_statistics_report
+
+        source = self.csv.rename(self.directory / "result_all.csv")
+        expected = build_statistics_report(source, ["latency_app_s"], resamples=30)
+        if entry_point == "api":
+            actual = build_statistics_report(self.directory, ["latency_app_s"], resamples=30)
+        else:
+            output = self.directory / "statistics.json"
+            options = ["--output", str(output)] if entry_point == "cli_output" else []
+            assert main([str(self.directory), "--metric", "latency_app_s", "--resamples", "30", *options]) == 0
+            actual = json.loads(output.read_text() if options else capsys.readouterr().out)
+
+        assert actual == expected
+        assert actual["result_csv"] == str(source)
+        assert actual["groups"][0]["n_windows"] == 3
+
     def test_statistics_reuses_one_bounded_result_snapshot(self, monkeypatch):
         original_open = Path.open
         original_read_bytes = Path.read_bytes

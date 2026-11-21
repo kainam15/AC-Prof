@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from pathlib import Path
 
 from acprof.artifacts import JsonObjectSnapshot, read_json_object_snapshot
-from acprof.results.layout import ArtifactLayout, resolve_single_result_source
+from acprof.results.layout import ArtifactLayout, resolve_result_file
 
 
 class ResultMetadataSnapshot:
@@ -18,20 +18,19 @@ class ResultMetadataSnapshot:
     """
 
     def __init__(self, source: str | Path):
-        path = self._result_path(source)
-        self.source = path.resolve()
-        self.layout = ArtifactLayout.from_csv(path)
+        self.result_path = resolve_result_file(source)
+        self.source = self.result_path.resolve()
+        self.layout = ArtifactLayout.from_csv(self.result_path)
+        self._metadata_root = self.layout.root.resolve()
         self._presence: dict[str, bool | OSError | ValueError] = {}
         self._records: dict[str, JsonObjectSnapshot | OSError | ValueError] = {}
 
-    @staticmethod
-    def _result_path(source: str | Path) -> Path:
-        path = resolve_single_result_source(source)
-        return path / "result_layers.json" if path.is_dir() else path
-
-    def validate_source(self, source: str | Path) -> None:
-        if self._result_path(source).resolve() != self.source:
+    def validate_source(self, source: str | Path) -> Path:
+        """Return the selected file after checking that it matches this snapshot."""
+        path = resolve_result_file(source)
+        if path.resolve() != self.source or ArtifactLayout.from_csv(path).root.resolve() != self._metadata_root:
             raise ValueError("result metadata snapshot belongs to a different path")
+        return path
 
     def exists(self, name: str) -> bool:
         if name not in self._presence:

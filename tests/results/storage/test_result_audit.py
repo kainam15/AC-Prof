@@ -7,6 +7,7 @@ import pytest
 
 from acprof.analysis.audit import audit_result
 from acprof.config import CSV_FIELDS
+from acprof.results.metadata import ResultMetadataSnapshot
 
 
 class TestResultAudit:
@@ -46,6 +47,69 @@ class TestResultAudit:
         assert (report["missing_metrics"]["gpu_energy_eff_j"]) == ({"not_applicable": 1})
         assert (self.path.read_bytes()) == (before)
         assert (list(self.root.iterdir())) == ([self.path])
+
+    def test_legacy_directory_and_file_share_the_same_audited_snapshot(self):
+        self.write(self.row())
+        expected = audit_result(self.path)
+        assert expected["valid"] and expected["counts"]["formal_ok"] == 1
+        assert audit_result(self.root) == expected
+        assert audit_result(self.path, metadata_snapshot=ResultMetadataSnapshot(self.root)) == expected
+        assert audit_result(self.root, metadata_snapshot=ResultMetadataSnapshot(self.path)) == expected
+
+    def test_explicit_missing_layer_file_stays_literal_in_a_legacy_directory(self):
+        self.write(self.row())
+        layer_path = self.root / "result_layers.json"
+        report = audit_result(layer_path)
+        assert not report["valid"]
+        assert report["result_csv"] == str(layer_path)
+        assert report["counts"]["rows"] == 0
+
+    def test_explicit_csv_aliases_must_share_the_snapshot_metadata_root(self):
+        self.write(self.row())
+        sidecar_root = self.root / "export"
+        sidecar_root.mkdir()
+        (sidecar_root / "run_state.json").write_text(json.dumps({"run_id": "from-export", "status": "complete"}))
+        alias = sidecar_root / "alias.csv"
+        alias.symlink_to(self.path)
+        other_alias = sidecar_root / "copy.csv"
+        other_alias.symlink_to(self.path)
+        directory_alias = self.root / "export-link"
+        directory_alias.symlink_to(sidecar_root, target_is_directory=True)
+        metadata = ResultMetadataSnapshot(alias)
+        for source in (alias, other_alias, directory_alias / alias.name):
+            report = audit_result(source, metadata_snapshot=metadata)
+            assert report["valid"] and report["run_id"] == "from-export"
+        report = audit_result(self.path, metadata_snapshot=metadata)
+        assert not report["valid"]
+        assert any(issue["code"] == "invalid_layout" and "different path" in issue["message"]
+                   for issue in report["issues"])
+
+    def test_cyclic_layer_symlink_is_reported_without_resolving_the_failed_artifact(self):
+        self.write(self.row())
+        layer_path = self.root / "result_layers.json"
+        layer_path.symlink_to(layer_path.name)
+        for source in (self.root, layer_path):
+            report = audit_result(source)
+            assert not report["valid"]
+            assert any(issue["code"] == "invalid_layout" for issue in report["issues"])
+            assert report["counts"]["rows"] == 0
+
+    @pytest.mark.parametrize("layer_present", [True, False])
+    def test_declared_v2_directory_keeps_layer_errors_when_a_csv_export_exists(self, layer_present):
+        from acprof.results.layout import ArtifactLayout
+
+        ArtifactLayout.for_new_run(self.root).initialize()
+        self.write(self.row())
+        layer_path = self.root / "result_layers.json"
+        if layer_present:
+            layer_path.write_text("{")
+        else:
+            layer_path.unlink()
+        report = audit_result(self.root)
+        assert not report["valid"]
+        assert report["result_csv"] == str(layer_path)
+        assert report["counts"]["rows"] == 0
+        assert audit_result(self.path)["counts"]["formal_ok"] == 1
 
     def test_csv_snapshot_uses_two_bounded_binary_passes(self, monkeypatch):
         self.write(self.row())

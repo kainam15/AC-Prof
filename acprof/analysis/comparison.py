@@ -10,7 +10,7 @@ from fractions import Fraction
 from pathlib import Path
 from types import SimpleNamespace
 
-from acprof.analysis.audit import AuditedRows, audit_result_snapshot, number
+from acprof.analysis.audit import AuditedRows, audit_result_snapshot, audit_with_metadata, number
 from acprof.analysis.conditions import (
     ALLOWED_RESOURCE_DIMENSIONS,
     PURPOSES,
@@ -339,13 +339,19 @@ def load_comparison_snapshot(source: str | Path, *, result_snapshot: ResultCsvSn
     return _comparison_evidence(metadata_snapshot, audit, result)
 
 
-def _comparison_evidence(metadata_snapshot: ResultMetadataSnapshot, audit: dict, result: AuditedRows) -> dict:
-    layout = metadata_snapshot.layout
+def _comparison_evidence(metadata_snapshot: ResultMetadataSnapshot | None, audit: dict, result: AuditedRows) -> dict:
     issues: list[str] = []
-
-    state = _read_snapshot_json(metadata_snapshot, "run_state.json", issues)
-    metadata = _read_snapshot_json(metadata_snapshot, "static_meta.json", issues)
-    plan = _read_snapshot_json(metadata_snapshot, "input_scale_plan.json", issues)
+    if metadata_snapshot is None:
+        state, metadata, plan, hardware_payload = {}, {}, {}, {}
+        issues.extend(issue["message"] for issue in audit["issues"])
+    else:
+        layout = metadata_snapshot.layout
+        state = _read_snapshot_json(metadata_snapshot, "run_state.json", issues)
+        metadata = _read_snapshot_json(metadata_snapshot, "static_meta.json", issues)
+        plan = _read_snapshot_json(metadata_snapshot, "input_scale_plan.json", issues)
+        hardware_payload = _read_snapshot_json(
+            metadata_snapshot, str(conditions_path(layout).relative_to(layout.root)), issues,
+        )
     configuration = _object_field(metadata, "inference_configuration", issues)
     if configuration:
         from acprof.models.inference_configuration import validate_configuration_binding
@@ -367,9 +373,6 @@ def _comparison_evidence(metadata_snapshot: ResultMetadataSnapshot, audit: dict,
         else:
             if plan.get("inference_configuration_sha256") != configuration["identity_sha256"]:
                 issues.append("input_scale_plan.json: inference configuration identity differs from static metadata")
-    hardware_payload = _read_snapshot_json(
-        metadata_snapshot, str(conditions_path(layout).relative_to(layout.root)), issues,
-    )
     hardware_cases = _normalize_hardware_cases(hardware_payload, issues)
 
     options = _object_field(state, "options", issues)
@@ -383,7 +386,7 @@ def _comparison_evidence(metadata_snapshot: ResultMetadataSnapshot, audit: dict,
                                if isinstance(environment, dict) else None)
     inputs, planned_entries = _planned_inputs_from_plan(plan, issues)
     threads = _observed_runtime_threads(metadata, environment, issues)
-    rows, actual, case_ids = _resolve_actual_workload_and_cases(result, issues)
+    rows, actual, case_ids = _resolve_actual_workload_and_cases(result, issues) if metadata_snapshot else ([], None, set())
     # Only the input payload and semantic conditions are compared. Model/export,
     # packages and backend hashes continue to belong to the existing run identity.
     host = _object_field(state, "host", issues)
@@ -415,7 +418,7 @@ def _comparison_evidence(metadata_snapshot: ResultMetadataSnapshot, audit: dict,
                                   "resource_scope": "observed_process_tree" if metadata.get("runtime_kind") == "process" else "container_cgroup",
                                   **({"allocation": options.get("process_allocation"),
                                       "gpu_visibility": options.get("process_gpu")}
-                                     if metadata.get("runtime_kind") == "process" else {})},
+                                     if metadata.get("runtime_kind") == "process" else {})} if metadata_snapshot else {},
             "comparability_class": recorded_identity(metadata)["comparability_class"],
             "task_semantics": {**{key: plan.get(key) for key in ("task_family", "pipeline_tag", "scenario")},
                                **({"task_workload": {key: plan["task_workload"].get(key)
@@ -437,7 +440,7 @@ def _comparison_evidence(metadata_snapshot: ResultMetadataSnapshot, audit: dict,
         },
         "identity": {**{key: metadata.get(key) for key in (
             "model_name", "model_revision", "runtime_backend", "image_id", "runtime_environment", "runtime_kind", "runtime_id")},
-            "model_source": metadata.get("model_source", "huggingface"),
+            "model_source": metadata.get("model_source", "huggingface") if metadata_snapshot else None,
             "inference_configuration_sha256": configuration.get("identity_sha256"),
             "inference_loading": configuration.get("loading"),
             "inference_generation": {
@@ -452,10 +455,9 @@ def _comparison_evidence(metadata_snapshot: ResultMetadataSnapshot, audit: dict,
 
 
 def _audited_input(source: str | Path) -> tuple[dict, dict, dict[Path, str | None]]:
-    metadata = ResultMetadataSnapshot(source)
-    audit, read = audit_result_snapshot(source, metadata_snapshot=metadata, verify_result_snapshot=False)
+    audit, read, metadata = audit_with_metadata(source, verify_result_snapshot=False)
     evidence = _comparison_evidence(metadata, audit, read)
-    fingerprints = metadata.observed_fingerprints()
+    fingerprints = metadata.observed_fingerprints() if metadata is not None else {}
     if isinstance(read, ResultCsvSnapshot):
         fingerprints[read.path] = read.sha256
     return audit, evidence, fingerprints

@@ -24,7 +24,6 @@ from acprof.results.csv import (
     result_csv_snapshot_unchanged,
     validate_result_rows,
 )
-from acprof.results.layout import resolve_single_result_source
 from acprof.results.metadata import ResultMetadataSnapshot
 from acprof.results.metrics import METRICS, NUMERIC_FIELDS
 from acprof.results.profile import metric_observation
@@ -463,10 +462,19 @@ def audit_result_snapshot(source: str | Path, *, result_snapshot: ResultCsvSnaps
                           metadata_snapshot: ResultMetadataSnapshot | None = None,
                           verify_result_snapshot: bool = True) -> tuple[dict, AuditedRows]:
     """Return the audited rows (or their original read error) without reopening the source."""
-    raw_path = Path(source)
+    report, rows, _ = audit_with_metadata(source, result_snapshot=result_snapshot, metadata_snapshot=metadata_snapshot,
+                                          verify_result_snapshot=verify_result_snapshot)
+    return report, rows
+
+
+def audit_with_metadata(source: str | Path, *, result_snapshot: ResultCsvSnapshot | None = None,
+                       metadata_snapshot: ResultMetadataSnapshot | None = None,
+                       verify_result_snapshot: bool = True) -> tuple[dict, AuditedRows, ResultMetadataSnapshot | None]:
+    """Retain the metadata reader for comparison, including when only the table failed."""
+    raw_path = Path(source).expanduser()
     if raw_path.is_dir():
         raw_path /= "result_layers.json"
-    report = {**summarize_quality(None), "schema_version": 1, "result_csv": str(raw_path.resolve()),
+    report = {**summarize_quality(None), "schema_version": 1, "result_csv": str(raw_path.absolute()),
               "valid": True, "issues": [], "missing_metrics": {},
               "counts": {"rows": 0, "formal_ok": 0, "warmup": 0, "warn": 0, "error": 0},
               "completion": "unknown", "measurement_status": "unknown", "run_status": "unknown", "coverage": None}
@@ -477,16 +485,17 @@ def audit_result_snapshot(source: str | Path, *, result_snapshot: ResultCsvSnaps
             report["valid"] = False
 
     try:
-        path = resolve_single_result_source(source)
-        if path.is_dir():
-            path /= "result_layers.json"
+        if metadata_snapshot is None:
+            metadata_reader = ResultMetadataSnapshot(source)
+            path = metadata_reader.result_path
+        else:
+            metadata_reader = metadata_snapshot
+            path = metadata_reader.validate_source(source)
         report["result_csv"] = str(path.resolve())
-        metadata_reader = metadata_snapshot or ResultMetadataSnapshot(path)
-        metadata_reader.validate_source(path)
         layout = metadata_reader.layout
     except (ValueError, OSError) as error:
         issue("invalid_layout", error)
-        return report, error
+        return report, error, None
 
     def read_json(name):
         try:
@@ -501,7 +510,7 @@ def audit_result_snapshot(source: str | Path, *, result_snapshot: ResultCsvSnaps
     metadata, state = _audit_metadata(report, path, metadata_reader, read_json, issue)
     loaded = _load_result_rows(path, result_snapshot, verify_result_snapshot, report, issue)
     if not isinstance(loaded, ResultCsvSnapshot):
-        return report, loaded
+        return report, loaded, metadata_reader
     fields, rows = loaded.fields, loaded.rows
     report["counts"]["rows"] = len(rows)
     runtime = metadata.get("runtime_kind", "docker")
@@ -513,4 +522,4 @@ def audit_result_snapshot(source: str | Path, *, result_snapshot: ResultCsvSnaps
     _audit_plan_coverage(report, state, rows, issue)
     _audit_rows(report, runtime, metadata, hardware, rows, issue)
     _finalize_measurement_status(report)
-    return report, loaded
+    return report, loaded, metadata_reader

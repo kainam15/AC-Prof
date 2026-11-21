@@ -4,18 +4,18 @@ from __future__ import annotations
 import sys
 from contextlib import ExitStack
 
-CSV_PATH = "results/result_layers.json"
+DEFAULT_RESULT_DIR = "results"
 
 
 def main(argv=None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
     if args and args[0] in {"-h", "--help"}:
-        print("usage: acprof plot [result_csv]")
+        print("usage: acprof plot [result]")
         print()
         print("Plot AC-Prof result CSV files.")
         print()
         print("positional arguments:")
-        print("  result  Experiment directory or result_layers.json")
+        print("  result  Experiment directory, result_layers.json, or result CSV (default: results/)")
         return 0
 
     from acprof.host.run_state import RunStateError, offline_analysis_lock
@@ -30,7 +30,7 @@ def main(argv=None) -> int:
         from acprof.plotting.pipeline import plot_results
 
         try:
-            plot_results(args[0] if args else CSV_PATH)
+            plot_results(args[0] if args else DEFAULT_RESULT_DIR)
         except PlotInputNotFound as error:
             print(f"绘图失败：找不到输入 {error.filename!r}；请检查结果路径或实验是否已生成结果。", file=sys.stderr)
             return 1

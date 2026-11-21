@@ -23,12 +23,16 @@ def experiments(tmp_path):
     return fixture.left, fixture.right
 
 
-@pytest.mark.parametrize("storage", ["csv", "v1", "v2", "v3"])
+@pytest.mark.parametrize("storage", ["csv", "legacy-directory", "v1", "v2", "v3"])
 def test_command_parses_each_table_once_and_keeps_both_reports(experiments, storage, monkeypatch, capsys):
     left, right = experiments
-    if storage == "csv":
-        left, right = (root / "result_all.csv" for root in (left, right))
-        tables = [left, right]
+    if storage in {"csv", "legacy-directory"}:
+        tables = [root / "result_all.csv" for root in (left, right)]
+        if storage == "legacy-directory":
+            for root in (left, right):
+                (root / "result_layers.json").unlink()
+        else:
+            left, right = tables
     else:
         if storage == "v1":
             left, right = map(legacy_snapshot, (left, right))
@@ -37,7 +41,9 @@ def test_command_parses_each_table_once_and_keeps_both_reports(experiments, stor
         tables = [root / layer["path"] for root in (left, right)
                   for layer in json.loads((root / "result_layers.json").read_text())["layers"].values()]
 
-    expected = {**audit_result(left), "comparison": compare_results(left, right), "accepted": True}
+    expected_left, expected_right = tables if storage == "legacy-directory" else (left, right)
+    expected = {**audit_result(expected_left), "comparison": compare_results(expected_left, expected_right),
+                "accepted": True}
     counts = Counter()
     parse = result_csv.parse_result_stream
 
@@ -117,3 +123,24 @@ def test_command_reports_a_failed_csv_read_without_retry(experiments, monkeypatc
     assert any(issue["code"] == "invalid_csv" and "invalid first observation" in issue["message"]
                for issue in report["issues"])
     assert attempts == 1
+
+
+@pytest.mark.parametrize("invalid_side", ["left", "right"])
+def test_invalid_layout_yields_comparison_diagnostics_and_preserves_other_side(experiments, invalid_side, capsys):
+    left, right = experiments
+    invalid, valid_side = (left, "right") if invalid_side == "left" else (right, "left")
+    manifest = invalid / "result_manifest.json"
+    manifest.write_text("{")
+    assert audit.main([str(left), "--compare", str(right), "--json"]) == 1
+    report = json.loads(capsys.readouterr().out)
+    assert not report["accepted"]
+    assert not report["comparison"]["valid"]
+    evidence = report["comparison"]["experiments"]
+    assert not evidence[invalid_side]["valid"]
+    assert any(issue.startswith(str(manifest)) for issue in evidence[invalid_side]["issues"])
+    assert not report["comparison"]["conditions"]["execution_runtime"][invalid_side].get("kind")
+    assert evidence[valid_side]["valid"]
+    if invalid_side == "left":
+        assert any(issue["code"] == "invalid_layout" for issue in report["issues"])
+    else:
+        assert report["valid"]

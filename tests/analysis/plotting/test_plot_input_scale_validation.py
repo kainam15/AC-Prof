@@ -90,12 +90,25 @@ def test_header_only_csv_keeps_an_empty_plot_frame(tmp_path):
 
 
 @pytest.mark.parametrize("invalid", [0, "inf"])
-def test_plot_entrypoint_rejects_invalid_scales_before_creating_artifacts(tmp_path, invalid):
+@pytest.mark.parametrize("from_directory", [True, False], ids=["experiment", "file"])
+def test_plot_entrypoint_rejects_invalid_scales_before_creating_artifacts(tmp_path, invalid, from_directory):
     from acprof.cli.plot import main
 
     path = _write(tmp_path, [_row(), _row(invalid)])
 
     with pytest.raises(ValueError, match="input_scale.*data row 2"):
-        main([str(path)])
+        main([str(tmp_path if from_directory else path)])
 
     assert list(tmp_path.iterdir()) == [path]
+
+
+def test_default_plot_directory_uses_the_same_result_selection(tmp_path, monkeypatch):
+    from acprof.cli.plot import main
+
+    directory = tmp_path / "results"
+    directory.mkdir()
+    _write(directory, [_row(), _row("inf")])
+    monkeypatch.chdir(tmp_path)
+
+    with pytest.raises(ValueError, match="input_scale.*data row 2"):
+        main([])
