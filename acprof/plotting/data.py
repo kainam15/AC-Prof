@@ -183,15 +183,23 @@ def prepare_df(
     only_ok: bool = True,
     exclude_warmup: bool = True,
 ) -> pd.DataFrame:
-    from acprof.results.csv import open_result_text
+    from acprof.results.csv import open_result_text, run_id_column
+
+    converters = {}
+
+    def preserve_run_id(fields: Sequence[str]) -> None:
+        if column := run_id_column(fields):
+            # An index also matches labels whose surrounding spaces Pandas strips.
+            converters[fields.index(column)] = str
 
     try:
-        stream = open_result_text(csv_path)
+        stream = open_result_text(csv_path, inspect_header=preserve_run_id)
     except FileNotFoundError as exc:
         # Translate only the input-open boundary; parser/renderer bugs propagate.
         raise PlotInputNotFound(exc.errno, exc.strerror, exc.filename or csv_path) from exc
     with stream:
-        df = pd.read_csv(stream, skipinitialspace=True, float_precision="round_trip")
+        # Preserve textual identities such as "001" and let the result protocol handle missing IDs.
+        df = pd.read_csv(stream, skipinitialspace=True, float_precision="round_trip", converters=converters)
     df.columns = [str(col).strip() for col in df.columns]
     from acprof.results.csv import require_current_fields
     require_current_fields(df.columns)

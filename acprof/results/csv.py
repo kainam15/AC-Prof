@@ -11,7 +11,7 @@ from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
 from contextlib import ExitStack
 from dataclasses import dataclass
 from decimal import InvalidOperation
-from itertools import product, zip_longest
+from itertools import dropwhile, product, zip_longest
 from pathlib import Path
 from typing import TYPE_CHECKING, BinaryIO, cast
 
@@ -364,7 +364,7 @@ class _CsvRawReader(io.RawIOBase):
         super().close()
 
 
-def open_result_text(path: str | Path):
+def open_result_text(path: str | Path, *, inspect_header: Callable[[Sequence[str]], None] | None = None):
     """Open a CSV or a forward-only logical text stream of a layered experiment.
 
     Layers are verified before returning. Parsed rows are released as consumed;
@@ -377,8 +377,18 @@ def open_result_text(path: str | Path):
     if path.is_dir():
         path /= "result_layers.json"
     if path.name != "result_layers.json":
-        return path.open(encoding="utf-8-sig", newline="")
+        with ExitStack() as opening:
+            stream = opening.enter_context(path.open(encoding="utf-8-sig", newline=""))
+            if inspect_header is not None:
+                # Plot inputs skip initial blank lines; preserve the original stream for its parser.
+                reader = csv.reader(dropwhile(str.isspace, stream), skipinitialspace=True)
+                inspect_header(next(reader, []))
+                stream.seek(0)
+            opening.pop_all()
+            return stream
     fields, rows = read_result_csv(path)
+    if inspect_header is not None:
+        inspect_header(fields)
     return io.TextIOWrapper(io.BufferedReader(_CsvRawReader(fields, rows)), encoding="utf-8", newline="")
 
 

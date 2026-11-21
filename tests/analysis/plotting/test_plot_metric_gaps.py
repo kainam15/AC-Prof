@@ -137,3 +137,55 @@ def test_process_curves_keep_inherited_labels_gaps_and_unavailable_panels(tmp_pa
     assert not figure.axes[2].lines
     assert [text.get_text() for text in figure.axes[2].texts] == ["Unavailable / not requested"]
     pd.testing.assert_frame_equal(frame, before)
+
+
+def test_plot_refuses_mixed_run_windows_even_after_caching_the_same_values(tmp_path):
+    from acprof.plotting.uncertainty import WindowStatistics, aggregate_plot_metric
+
+    frame = pd.DataFrame([
+        _row(1, latency, repeat_idx=i, warmup=0, status="ok", run_id="run-A")
+        for i, latency in enumerate((1, 1, 10))
+    ])
+    cache = WindowStatistics()
+    good = aggregate_plot_metric(frame, "latency_app_s", statistics=cache)
+    assert good["n_windows"].tolist() == [3]
+    assert good["latency_app_s"].tolist() == [4]
+
+    frame.loc[2, "run_id"] = "run-B"
+    output = tmp_path / "mixed.png"
+    with pytest.raises(ValueError, match="inconsistent run_id"):
+        plot_metric(frame, "latency_app_s", "Latency", "s", "Scale", str(output), statistics=cache)
+    assert not output.exists()
+
+
+@pytest.mark.parametrize("column", ["run_id", " run_id "])
+def test_csv_plot_keeps_text_run_ids_and_historical_missing_markers(tmp_path, column):
+    from acprof.plotting.data import prepare_df
+    from acprof.plotting.uncertainty import aggregate_plot_metric
+
+    source = tmp_path / "result_all.csv"
+    frame = pd.DataFrame([
+        _row(1, 2, repeat_idx=i, warmup=0, status="ok", run_id=run_id)
+        for i, run_id in enumerate(("001", "", "N/A"))
+    ])
+    frame = frame.rename(columns={"run_id": column})
+    frame.insert(0, "extension\nlabel", 7)
+    source.write_text("\n" + frame.to_csv(index=False))
+    prepared = prepare_df(str(source))
+    assert prepared["extension\nlabel"].tolist() == [7, 7, 7]
+    results = aggregate_plot_metric(prepared, "latency_app_s")
+    assert results["n_windows"].tolist() == [3]
+
+    frame.loc[2, column] = "1"
+    frame.to_csv(source, index=False)
+    with pytest.raises(ValueError, match="inconsistent run_id"):
+        aggregate_plot_metric(prepare_df(str(source)), "latency_app_s")
+
+
+def test_plot_rejects_ambiguous_run_id_columns_before_pandas_renames_labels(tmp_path):
+    from acprof.plotting.data import prepare_df
+
+    source = tmp_path / "ambiguous.csv"
+    source.write_text("cpu_cores,mem_cap_gb,gpu_mode,input_scale,run_id,run_id\n1,2,off,32,A,B\n")
+    with pytest.raises(ValueError, match="run_id"):
+        prepare_df(str(source))

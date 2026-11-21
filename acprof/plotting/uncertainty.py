@@ -16,7 +16,7 @@ from acprof.plotting.data import aggregate_metric_series, is_gpu_on, make_config
 from acprof.results.csv import KEY_FIELDS
 from acprof.results.metrics import METRICS
 
-_CONTEXT = ("environment_class", "runtime_kind", "runtime_id", "resource_scope")
+_CONTEXT = ("run_id", "environment_class", "runtime_kind", "runtime_id", "resource_scope")
 _INTERVAL_FIELDS = ("ci_low", "ci_high", "n_windows", "missing_windows", "std", "reason")
 INTERVAL_NOTE = "Mean; 95% within-run bootstrap CI. No band/bar when unavailable."
 
