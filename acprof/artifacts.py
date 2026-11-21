@@ -7,13 +7,13 @@ import math
 import os
 import stat
 import tempfile
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
 from typing import Any, BinaryIO, TextIO
 
-from acprof.cancellation import check_cancelled
+from acprof.cancellation import cancellable, check_cancelled
 from acprof.system.cleanup import cleanup_on_exit
 
 MAX_JSON_ARTIFACT_BYTES = 4 * 1024 * 1024
@@ -153,10 +153,35 @@ def require_schema_version(payload: Any, expected: int, artifact: str) -> None:
         )
 
 
+def input_plan_scales(plan: Mapping[str, Any], *, cancelled: Callable[[], bool] | None = None) -> set[float]:
+    """Validate the one-to-one mapping from effective scale to materialized payload."""
+    entries = plan.get("entries")
+    if not isinstance(entries, list) or not entries:
+        raise ValueError("input_scale_plan.json has no entries")
+    positions: dict[float, int] = {}
+    for index, entry in enumerate(cancellable(entries, cancelled)):
+        if not isinstance(entry, dict) or not isinstance(entry.get("payload"), dict):
+            raise ValueError(f"invalid input scale plan entry at index {index}: payload missing")
+        raw = entry.get("input_scale")
+        if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+            raise ValueError(f"invalid input_scale at index {index}: expected a positive JSON number")
+        try:
+            scale = float(raw)
+        except OverflowError as exc:
+            raise ValueError(f"input_scale at index {index} exceeds the finite float range") from exc
+        if not math.isfinite(scale) or scale <= 0:
+            raise ValueError(f"invalid input_scale at index {index}: expected a finite positive value")
+        if scale in positions:
+            raise ValueError(f"duplicate input_scale {scale} in plan entries {positions[scale]} and {index}")
+        positions[scale] = index
+    return set(positions)
+
+
 def read_input_scale_plan(path: str | Path, *, expected_sha256: str | None = None) -> dict:
     """Read the current bounded input plan before any runtime or measurement starts."""
     payload = read_json_object(path, label="input scale plan", expected_sha256=expected_sha256)
     require_schema_version(payload, 2, "input_scale_plan.json")
+    input_plan_scales(payload)
     return payload
 
 

@@ -59,6 +59,18 @@ def test_runner_selects_only_exact_payload(tmp_path, monkeypatch: pytest.MonkeyP
     handler.predict.assert_not_called()
 
 
+def test_profiler_refuses_ambiguous_saved_scale_before_selecting_payload(tmp_path):
+    from acprof.container.compute_profile_runner import _find_payload
+
+    plan = tmp_path / "input_scale_plan.json"
+    plan.write_text(json.dumps({"schema_version": 2, "entries": [
+        {"input_scale": 1, "payload": {"text": "first"}},
+        {"input_scale": 1.0, "payload": {"text": "second"}},
+    ]}))
+    with pytest.raises(ValueError, match=r"duplicate input_scale.*entries 0 and 1"):
+        _find_payload(str(plan), 1)
+
+
 @pytest.mark.parametrize(("mode", "tool", "field", "error"), [
     ("off", "torch_profiler_eager", compute_plan.TORCH_LOGICAL_MFLOP_FIELD, compute_plan.TORCH_ERROR_FIELD),
     ("on", "ncu", compute_plan.NCU_TOTAL_MFLOP_FIELD, compute_plan.NCU_ERROR_FIELD),

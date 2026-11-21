@@ -100,6 +100,15 @@ def _assert_old_plan_preserved(path, mode):
     assert list(path.parent.glob(f".{path.name}.*.tmp")) == []
 
 
+def test_duplicate_scale_cannot_replace_an_existing_plan(existing_plan, task_info):
+    path, mode = existing_plan
+    entries = [{"input_scale": scale, "payload": {"text": str(index)}}
+               for index, scale in enumerate([1, 2, 1.0])]
+    with pytest.raises(ValueError, match=r"duplicate input_scale.*entries 0 and 2"):
+        _write_fixture(path, task_info, entries)
+    _assert_old_plan_preserved(path, mode)
+
+
 @pytest.mark.parametrize("newline", ["\n", "\r\n"], ids=("lf", "crlf"))
 def test_publication_writes_exact_declared_bytes_and_digest(
     existing_plan, task_info, monkeypatch, newline,

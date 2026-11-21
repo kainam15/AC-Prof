@@ -54,7 +54,7 @@ def plan_manual_nlp_scales(
         )
         invalid: dict[float, str] = {}
         entries: list[dict[str, Any]] = []
-        actual_scales: list[float] = []
+        request_for_scale: dict[float, float] = {}
 
         for scale in scales:
             payload = workload_gen.generate(scale)
@@ -69,7 +69,14 @@ def plan_manual_nlp_scales(
                 continue
 
             actual_scale = float(result["effective_input_scale"])
-            actual_scales.append(actual_scale)
+            if actual_scale in request_for_scale:
+                first = request_for_scale[actual_scale]
+                raise RuntimeError(
+                    f"manual input scales {format_scale_value(first)} and {format_scale_value(scale)} "
+                    f"both produce effective_input_scale={format_scale_value(actual_scale)}; "
+                    "choose distinct effective lengths or omit --input-scales for automatic planning"
+                )
+            request_for_scale[actual_scale] = scale
             entries.append({
                 "input_scale": actual_scale,
                 "scale_label": workload_gen.scale_label(actual_scale),
@@ -91,6 +98,7 @@ def plan_manual_nlp_scales(
     workload_metadata = workload_gen.plan_metadata()
     plan_sha256 = write_scale_plan_file(plan_file, task_info, entries, workload=workload_metadata)
 
+    actual_scales = list(request_for_scale)
     print(
         "[scale] Using manual input scales: "
         f"{serialize_input_scales(scales)}; effective scales: "

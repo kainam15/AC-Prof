@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-import math
 import os
 import re
 import stat
@@ -60,41 +59,15 @@ def load_input_scale_plan_entries(
         )
 
     plan = read_input_scale_plan(input_scale_plan_file)
-    raw_entries = plan.get("entries")
-    if not isinstance(raw_entries, list) or not raw_entries:
-        raise ValueError(
-            f"invalid input scale plan (missing entries): {input_scale_plan_file}"
-        )
-
     entries: list[dict[str, Any]] = []
-    for idx, entry in enumerate(raw_entries):
-        if not isinstance(entry, dict):
-            raise ValueError(
-                f"invalid input scale plan entry at index {idx}: {entry!r}"
-            )
-        raw_scale = entry.get("input_scale")
-        payload = entry.get("payload")
-        if raw_scale is None or not isinstance(payload, dict):
-            raise ValueError(
-                f"input scale plan entry missing input_scale/payload "
-                f"at index {idx}"
-            )
-        if isinstance(raw_scale, bool) or not isinstance(raw_scale, (int, float)):
-            raise ValueError(
-                f"input scale plan entry has invalid input_scale at index {idx}: {raw_scale!r}"
-            )
-        scale = float(raw_scale)
-        if not math.isfinite(scale) or scale <= 0.0:
-            raise ValueError(
-                f"input scale plan entry has non-positive/non-finite input_scale "
-                f"at index {idx}: {raw_scale!r}"
-            )
+    for entry in plan["entries"]:
+        scale = float(entry["input_scale"])
         entries.append({
             "input_scale": scale,
             "scale_label": str(
                 entry.get("scale_label") or format_scale_value(scale)
             ),
-            "payload": payload,
+            "payload": entry["payload"],
         })
     return entries
 

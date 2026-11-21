@@ -279,25 +279,9 @@ class ClientRunner:
             from acprof.artifacts import read_input_scale_plan
             plan = read_input_scale_plan(self.config.input_scale_plan_file)
 
-            entries = plan.get("entries")
-            if not isinstance(entries, list) or not entries:
-                raise RuntimeError(f"invalid input scale plan file: {self.config.input_scale_plan_file}")
-
             loaded_entries: list[dict[str, Any]] = []
-            for idx, entry in enumerate(entries):
-                if not isinstance(entry, dict):
-                    raise RuntimeError(
-                        f"invalid input scale plan entry at index {idx}: {entry!r}"
-                    )
-
-                raw_scale = entry.get("input_scale")
-                payload = entry.get("payload")
-                if raw_scale is None or not isinstance(payload, dict):
-                    raise RuntimeError(
-                        f"input scale plan entry missing input_scale/payload at index {idx}"
-                    )
-
-                scale_value = float(raw_scale)
+            for idx, entry in enumerate(plan["entries"]):
+                scale_value = float(entry["input_scale"])
                 scale_label = str(
                     entry.get("scale_label") or _generic_scale_label(scale_value)
                 )
@@ -307,7 +291,7 @@ class ClientRunner:
                 loaded_entries.append({
                     "input_scale": scale_value,
                     "scale_label": scale_label,
-                    "payload": payload,
+                    "payload": entry["payload"],
                     "input_metadata": input_metadata,
                     "workload": plan.get("workload", {}),
                 })

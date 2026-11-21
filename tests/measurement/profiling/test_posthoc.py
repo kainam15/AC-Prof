@@ -207,32 +207,43 @@ class TestPosthocProfile:
             "result_layers.json", host_posthoc_context.STATIC_META_NAME, host_posthoc_context.INPUT_SCALE_PLAN_NAME,
         )]
         before = {path: path.read_bytes() for path in paths}
-        finite_float = host_posthoc_context.finite_float
-        cancel_requested = False
-        # Distinguish CSV scale parsing from the earlier CPU/memory validation.
-        cancel_value = "8" if stage == "rows" else 8.0
+        function = "_unique_scales" if stage == "rows" else "input_plan_scales"
+        index_scales = getattr(host_posthoc_context, function)
+        scanning = False
+        checks = 0
 
-        def parse(value: object) -> float:
-            nonlocal cancel_requested
-            if value == cancel_value:
-                cancel_requested = True
-            return finite_float(value)
+        def index(*args, **kwargs):
+            nonlocal scanning
+            scanning = True
+            try:
+                return index_scales(*args, **kwargs)
+            finally:
+                scanning = False
 
-        with patch("acprof.host.posthoc.context.finite_float", side_effect=parse):
-            with pytest.raises(CancelledError):
-                host_posthoc_context.load_result_context(tmp_path, cancelled=lambda: cancel_requested)
+        def cancelled():
+            nonlocal checks
+            if scanning:
+                checks += 1
+                return checks >= 3
+            return False
 
-        assert cancel_requested
+        with patch.object(host_posthoc_context, function, side_effect=index), pytest.raises(CancelledError):
+            host_posthoc_context.load_result_context(tmp_path, cancelled=cancelled)
+
+        assert checks == 3
         assert {path: path.read_bytes() for path in paths} == before
 
-    def test_duplicate_plan_scale_does_not_hide_invalid_payload(self, tmp_path: Path):
+    @pytest.mark.parametrize(("payload", "message"), [
+        (None, "payload missing"), ({"text": "other request"}, "duplicate input_scale"),
+    ])
+    def test_duplicate_plan_scale_is_rejected(self, tmp_path: Path, payload, message):
         self._write_fixture(tmp_path)
         plan_path = tmp_path / host_posthoc_context.INPUT_SCALE_PLAN_NAME
         plan = json.loads(plan_path.read_text())
-        plan["entries"].append({"input_scale": 8.0, "payload": None})
+        plan["entries"].append({"input_scale": 8.0, "payload": payload})
         self._save_input_plan(tmp_path, plan)
 
-        with pytest.raises(host_posthoc_context.PosthocError, match="payload missing"):
+        with pytest.raises(host_posthoc_context.PosthocError, match=message):
             host_posthoc_context.load_result_context(tmp_path)
 
     @pytest.mark.parametrize("missing_exact_plan", [False, True])

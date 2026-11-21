@@ -12,7 +12,7 @@ from typing import (
     Any,
 )
 
-from acprof.artifacts import read_json_object
+from acprof.artifacts import input_plan_scales, read_json_object
 from acprof.cancellation import cancellable, check_cancelled
 from acprof.gpu_mode import normalize_gpu_mode
 from acprof.host.collection_history import COLLECTION_HISTORY_NAME, normalize_collection_history
@@ -219,25 +219,6 @@ def _unique_scales(rows: Iterable[Mapping[str, Any]], *, cancelled: Callable[[],
     return sorted(scales)
 
 
-def _input_plan_scales(plan: Mapping[str, Any], *, cancelled: Callable[[], bool] | None = None) -> set[float]:
-    entries = plan.get("entries")
-    if not isinstance(entries, list) or not entries:
-        raise PosthocError("input_scale_plan.json has no entries")
-    scales: set[float] = set()
-    for index, entry in enumerate(cancellable(entries, cancelled)):
-        if not isinstance(entry, Mapping) or not isinstance(entry.get("payload"), dict):
-            raise PosthocError(
-                f"invalid input scale plan entry at index {index}: payload missing"
-            )
-        scale = finite_float(entry.get("input_scale"))
-        if not math.isfinite(scale):
-            raise PosthocError(
-                f"invalid input scale plan entry at index {index}: input_scale missing"
-            )
-        scales.add(scale)
-    return scales
-
-
 def load_result_context(result_dir: str | os.PathLike[str], *, result_snapshot: ResultCsvSnapshot | None = None,
                         cancelled: Callable[[], bool] | None = None) -> ResultContext:
     """Validate post-hoc inputs, optionally borrowing an enclosing read's snapshot.
@@ -328,7 +309,10 @@ def load_result_context(result_dir: str | os.PathLike[str], *, result_snapshot: 
         for mode in ("off", "on")
         if any(case[2] == mode for case in resource_cases)
     }
-    planned_scales = _input_plan_scales(input_plan, cancelled=cancelled)
+    try:
+        planned_scales = input_plan_scales(input_plan, cancelled=cancelled)
+    except ValueError as exc:
+        raise PosthocError(str(exc)) from exc
     missing_scales = [
         scale
         for scales in scales_by_mode.values()

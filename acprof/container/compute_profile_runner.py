@@ -6,7 +6,6 @@ import ctypes
 import glob
 import importlib.metadata
 import json
-import math
 import os
 import time
 from typing import Any
@@ -39,25 +38,9 @@ torch = None
 def _find_payload(payload_file: str, input_scale: float) -> dict[str, Any]:
     plan = read_input_scale_plan(payload_file)
 
-    entries = plan.get("entries")
-    if not isinstance(entries, list):
-        raise RuntimeError(f"invalid compute payload file: {payload_file}")
-
-    for entry in entries:
-        if not isinstance(entry, dict):
-            continue
-        try:
-            raw_scale = entry.get("input_scale")
-            if raw_scale is None:
-                continue
-            scale = float(raw_scale)
-        except (TypeError, ValueError):
-            continue
-        if math.isfinite(scale) and scale == float(input_scale):
-            payload = entry.get("payload")
-            if not isinstance(payload, dict):
-                raise RuntimeError(f"compute payload entry has no payload for scale={input_scale}")
-            return payload
+    for entry in plan["entries"]:
+        if float(entry["input_scale"]) == input_scale:
+            return entry["payload"]
 
     raise RuntimeError(f"compute payload not found for scale={input_scale}")
 

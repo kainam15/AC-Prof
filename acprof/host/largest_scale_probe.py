@@ -153,33 +153,9 @@ def load_largest_scale_entry(plan_file: str | os.PathLike[str], *, task_info: Ta
         from acprof.host.configuration_transport import verify_plan_configuration
 
         verify_plan_configuration(task_info, plan)
-    entries = plan.get("entries")
-    if not isinstance(entries, list) or not entries:
-        raise RuntimeError("input scale plan 没有可探测的 entries")
+    entry = max(plan["entries"], key=lambda item: float(item["input_scale"]))
+    return {**entry, "input_scale": float(entry["input_scale"])}
 
-    candidates: list[tuple[float, dict[str, Any]]] = []
-    for index, entry in enumerate(entries):
-        if not isinstance(entry, dict):
-            raise RuntimeError(f"input scale plan entry {index} 不是 object")
-        raw_scale = entry.get("input_scale")
-        if isinstance(raw_scale, bool) or not isinstance(raw_scale, (int, float)):
-            raise RuntimeError(
-                f"input scale plan entry {index} 的 input_scale 必须是 JSON number"
-            )
-        scale = float(raw_scale)
-        if not math.isfinite(scale) or scale <= 0.0:
-            raise RuntimeError(
-                f"input scale plan entry {index} 的 input_scale 必须大于 0"
-            )
-        payload = entry.get("payload")
-        if not isinstance(payload, dict):
-            raise RuntimeError(
-                f"input scale plan entry {index} 缺少 materialized payload"
-            )
-        candidates.append((scale, entry))
-
-    scale, entry = max(candidates, key=lambda item: item[0])
-    return {**entry, "input_scale": scale}
 
 
 def create_probe_output_dir(

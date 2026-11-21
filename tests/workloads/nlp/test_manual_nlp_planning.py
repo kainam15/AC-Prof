@@ -31,6 +31,33 @@ def test_manual_nlp_limit_error_keeps_requested_scale_reason_and_cleanup(tmp_pat
     assert not (tmp_path / 'input_scale_plan.json').exists()
 
 
+def test_manual_fill_mask_collision_preserves_plan_and_stops_session(tmp_path, monkeypatch):
+    task = TaskInfo("org/model", "fill-mask", "nlp", "transformers_pipeline", "transformers", "a" * 40, "test")
+    session = Mock()
+    stop = Mock()
+    monkeypatch.setattr(families, "start_probe_session", lambda *args: session)
+    monkeypatch.setattr(families, "stop_service_session", stop)
+    handler = NLPHandler()
+    ctx = {"task_type": "fill-mask", "pipeline": SimpleNamespace(tokenizer=FakeTokenizer("[MASK]"))}
+
+    def probe(_session, payload, _description):
+        prepared = handler.preprocess(ctx, payload)
+        return {"payload": payload, "effective_input_scale": prepared["_effective_input_scale"],
+                "truncated_by_limit": prepared["_truncated_by_limit"]}
+
+    monkeypatch.setattr(families, "post_probe_payload", probe)
+    args = (task, ImageInfo(tag="fixture"), [1], [4], ["off"], 1, str(tmp_path))
+    prior = input_plan.plan_input_scales(*args, input_scales="1,3")
+    assert prior.scales == [2, 3]
+    path = tmp_path / "input_scale_plan.json"
+    before = path.read_bytes()
+    stop.reset_mock()
+    with pytest.raises(RuntimeError, match=r"manual input scales 1 and 2 both produce effective_input_scale=2"):
+        input_plan.plan_input_scales(*args, input_scales="1,2")
+    assert path.read_bytes() == before
+    stop.assert_called_once_with(session, log_prefix="[probe]")
+
+
 @pytest.mark.parametrize(("total", "prefix", "expected"), [
     (4, "", [1]), (6, "", [1, 2, 3]), (6, "query: ", [2, 3]), (5, "fixed prefix ", []),
     (15, "", [2, 4, 6, 8, 10, 12]),

@@ -220,7 +220,7 @@ TUI Smoke 使用 `minimal`；显式 `--input-scales` 优先且严格校验，不
 - 固定提示词、分词或音素转换可能让多个文本尺度目标对应同一有效长度。自动规划会尝试补足六档，只写入实际探测过、未截断且在规划上限内的请求。若仅找到两档，就显示并使用这两档。找不到可用长度或探测出错时停止准备。
 - 同一次 run 的所有资源配置共用同一组 scale。
 - 所有任务族都会把已确定尺度的 payload 写入唯一的 `input_scale_plan.json`；主采集与 compute profiler 共同读取该文件，保证实际执行 payload、FLOP profiling 和 CSV 中记录的 `input_scale` 一致。
-- 手动传入 `--input-scales` 时以手动值为准；workload 会在 sweep 前验证合法性（图像／视频生成分辨率至少为 64 且必须是 8 的倍数；去噪步数是正整数；CV 倍率为有限正数）。
+- 手动传入 `--input-scales` 时以手动值为准；workload 会在 sweep 前验证合法性（图像／视频生成分辨率至少为 64 且必须是 8 的倍数；去噪步数是正整数；CV 倍率为有限正数）。手动文本尺度按请求词数生成输入。若两个请求经分词或音素转换得到相同的有效长度，准备阶段会报告两个请求值和冲突长度。可调整其中一档或省略 `--input-scales` 启用自动规划。已有计划若为同一有效尺度保存了多条请求，采集、重放和 Profiler 都会拒绝使用它。
 
 Kokoro 继续复用文本尺度规划器和 `AudioWorkloadGenerator`：手动 `--input-scales` 表示用于构造
 固定语料前缀的请求单词数，经过实际 G2P／词表检查后，计划和结果中的 `input_scale` 改记音素 ID 数。

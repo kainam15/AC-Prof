@@ -97,6 +97,17 @@ class TestClientWindowEnergy:
             assert (rows[1]["status"]) == ("error")
             assert rows[1]["error"] == "fixture window failure"
 
+    def test_frozen_scale_order_rejects_ambiguous_payload(self, tmp_path):
+        path = tmp_path / "input_scale_plan.json"
+        path.write_text(json.dumps({"schema_version": 2, "entries": [
+            {"input_scale": 16, "payload": {"text": "first"}},
+            {"input_scale": 16.0, "payload": {"text": "second"}},
+        ]}))
+        with patch_client(self.runner, "INPUT_SCALE_PLAN_FILE", str(path)), patch.object(
+            self.runner.config, "input_scale_order", [16],
+        ), pytest.raises(ValueError, match=r"duplicate input_scale.*entries 0 and 1"):
+            self.runner._load_input_scale_entries()
+
     @pytest.mark.parametrize('invalid', [[16, 32], [16, 32, 32], [16, 32, 128]])
     def test_frozen_scale_order_changes_execution_without_changing_payloads(self, invalid):
         entries = [{"input_scale": scale, "payload": {"text": f"payload-{scale}"}}

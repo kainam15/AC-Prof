@@ -92,24 +92,12 @@ def _read_source_input_entry(
 ) -> dict[str, Any]:
     if not expected_sha256 or file_sha256(plan_path) != expected_sha256:
         raise ValueError("source input plan identity mismatch")
-    entries = read_input_scale_plan(plan_path).get("entries")
-    if not isinstance(entries, list) or not entries:
-        raise ValueError(f"invalid input scale plan file: {plan_path}")
-    entry = entries[0] if requested_scale is None else next(
-        (
-            item for item in entries
-            if isinstance(item, dict)
-            and item.get("input_scale") is not None
-            and float(item["input_scale"]) == requested_scale
-        ),
-        None,
-    )
+    entries = read_input_scale_plan(plan_path)["entries"]
+    if requested_scale is None:
+        return entries[0]
+    entry = next((item for item in entries if float(item["input_scale"]) == requested_scale), None)
     if entry is None:
         raise ValueError("input scale must be present in the source experiment")
-    if (not isinstance(entry, dict) or entry.get("input_scale") is None
-            or not isinstance(entry.get("payload"), dict)):
-        raise ValueError(f"invalid input scale plan entry: {entry!r}")
-    float(entry["input_scale"])
     return entry
 
 
